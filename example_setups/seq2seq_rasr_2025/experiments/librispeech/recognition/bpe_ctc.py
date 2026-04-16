@@ -109,6 +109,7 @@ def default_offline_lexfree_trafo_recog_variant() -> CTCRecogVariant:
             score_thresholds=[14.0, 12.0],
             max_beam_sizes=[2048, 256],
         ),
+        search_mode_params=OfflineRecogParameters(mem_rqmt=24),
         prior_scale=0.2,
         bpe_trafo_lm_scale=0.8,
     )

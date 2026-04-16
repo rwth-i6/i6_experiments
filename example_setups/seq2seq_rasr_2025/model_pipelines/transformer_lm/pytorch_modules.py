@@ -521,10 +521,24 @@ class TransformerLmStateUpdater(TransformerLm):
         x = self.input_linear(x)  # [1, B, D]
 
         new_states = []
+        cache_insert_idx = state_lengths[:, None, None].expand(batch_size, 1, self.hid_dim)
 
         for layer_idx, block in enumerate(self.transformer_blocks):
-            k_cache = kv_cache[2 * layer_idx]  # [B, T, D]
-            v_cache = kv_cache[2 * layer_idx + 1]  # [B, T, D]
+            k_cache_left_aligned = kv_cache[2 * layer_idx]  # [B, T, D]
+            v_cache_left_aligned = kv_cache[2 * layer_idx + 1]  # [B, T, D]
+
+            # The state updater receives right-padded batches, i.e. valid cache entries are
+            # stored in the first state_lengths[b] positions. The transformer block still
+            # expects the valid prefix to be right-aligned within the cache tensor.
+            cache_len = k_cache_left_aligned.size(1)
+            cache_pos = torch.arange(cache_len, device=device, dtype=state_lengths.dtype).unsqueeze(0)
+            cache_shift = (cache_len - state_lengths).unsqueeze(1)
+            cache_src_pos = (cache_pos - cache_shift).clamp(min=0)
+            cache_gather_idx = cache_src_pos[:, :, None].expand(batch_size, cache_len, self.hid_dim)
+            cache_valid = (cache_pos >= cache_shift)[:, :, None]
+
+            k_cache = k_cache_left_aligned.gather(1, cache_gather_idx) * cache_valid.to(k_cache_left_aligned.dtype)
+            v_cache = v_cache_left_aligned.gather(1, cache_gather_idx) * cache_valid.to(v_cache_left_aligned.dtype)
 
             x, k_new, v_new = block.forward_with_kv_cache(
                 input=x,
@@ -533,7 +547,22 @@ class TransformerLmStateUpdater(TransformerLm):
                 k_cache=k_cache,
                 v_cache=v_cache,
             )  # [1, B, D], [B, 1, D], [B, 1, D]
-            new_states.extend([torch.cat([k_cache, k_new], dim=1), torch.cat([v_cache, v_new], dim=1)])
+
+            # Keep exported states left-aligned as expected by the right-padded batching.
+            k_state = torch.cat(
+                [k_cache_left_aligned, torch.zeros((batch_size, 1, self.hid_dim), dtype=k_new.dtype, device=device)],
+                dim=1,
+            )
+            v_state = torch.cat(
+                [v_cache_left_aligned, torch.zeros((batch_size, 1, self.hid_dim), dtype=v_new.dtype, device=device)],
+                dim=1,
+            )
+            new_states.extend(
+                [
+                    k_state.scatter(1, cache_insert_idx, k_new),
+                    v_state.scatter(1, cache_insert_idx, v_new),
+                ]
+            )
 
         x = self.output_layernorm(x) # [1, B, D]
         x = self.dropout(x)  # [1, B, D]
