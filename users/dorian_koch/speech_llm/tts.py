@@ -49,7 +49,7 @@ class ChatterboxInference(Job):
             str(self.speaker_dir.get()),
         ]
         env = os.environ.copy()
-        env["HF_HOME"] = HF_CACHE_DIR
+        env["HF_HOME"] = HF_CACHE_DIR.get()
 
         print(f"Running Chatterbox inference with command: {' '.join(command)}")
         print(f"Using HF cache directory: {HF_CACHE_DIR}")
@@ -61,9 +61,9 @@ class ParlerTTSInference(Job):
         self,
         *,
         venv_python_path: tk.Path,
-        prompt: str = None,
+        prompt: str | None = None,
         voices_per_prompt: int = 5,
-        voice_descriptions: list[str] = None,
+        voice_descriptions: list[str] | None = None,
     ):
         self.venv_python_path = venv_python_path
         self.out_dir = self.output_path("parlertts_output", directory=True)
@@ -112,7 +112,7 @@ class ParlerTTSInference(Job):
             str(self.voices_per_prompt),
             "--out_dir",
             str(self.out_dir),
-            +[
+            *[
                 item
                 for desc in self.voice_descriptions
                 for item in ["--voice_description", desc]
@@ -122,7 +122,8 @@ class ParlerTTSInference(Job):
             command += ["--text", self.prompt]
 
         env = os.environ.copy()
-        env["HF_HOME"] = HF_CACHE_DIR
+        env["HF_HOME"] = HF_CACHE_DIR.get()
+        env["PYTHONUNBUFFERED"] = "1"
 
         print(f"Running ParlerTTS inference with command: {' '.join(command)}")
         print(f"Using HF cache directory: {HF_CACHE_DIR}")

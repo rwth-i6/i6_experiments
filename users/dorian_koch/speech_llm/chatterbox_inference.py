@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import random
+from typing import Any
 
 SAMPLE_RATE = 24000  # Chatterbox default output is 24kHz
 
@@ -57,7 +58,7 @@ def speaker_name_to_path(speaker_name: str, speaker_dir: str) -> str:
 
 def gen_conversation(
     model, dialogue, device, speaker_dir, silence_length_sampler
-) -> map[str, torch.Tensor]:
+) -> tuple[dict[str, torch.Tensor], list[Any]]:
 
     print("Generating conversation...")
 

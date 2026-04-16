@@ -41,6 +41,7 @@ def main():
     # parler-tts is a bit broken, need specific revision https://github.com/rsxdalv/TTS-WebUI/issues/444#issuecomment-2927135363
     model = ParlerTTSForConditionalGeneration.from_pretrained("parler-tts/parler-tts-large-v1", revision="refs/pr/9").to(device)
     tokenizer = AutoTokenizer.from_pretrained("parler-tts/parler-tts-large-v1", revision="refs/pr/9")
+    print("Model loaded successfully.", flush=True)
 
     # 1. The script you want the voice to read 
     # (Keep it around 10-15 seconds for Chatterbox cloning)
@@ -58,7 +59,7 @@ def main():
 
     for prompt_idx, voice_prompt in enumerate(args.voice_description):
         for i in range(args.voices_per_prompt): # TODO batch https://github.com/huggingface/parler-tts/blob/main/INFERENCE.md
-            print(f"Generating voice {i+1}/{args.voices_per_prompt}")
+            print(f"Generating voice {i+1}/{args.voices_per_prompt}", flush=True)
             audio_arr = gen_voice(model, tokenizer, args.text, voice_prompt, device)
 
             # Save the generated audio to a WAV file
@@ -66,7 +67,7 @@ def main():
             output_filename = os.path.join(args.out_dir, output_filename)
             sf.write(output_filename, audio_arr, model.config.sampling_rate)
 
-            print(f"Success! High-quality voice saved to {output_filename}")
+            print(f"Success! High-quality voice saved to {output_filename}", flush=True)
 
 if __name__ == "__main__":
     main()

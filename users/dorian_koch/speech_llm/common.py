@@ -49,6 +49,9 @@ def vllm_server(hf_model: str):
         "true",
     ]
 
+    if hf_model == "google/gemma-4-31B-it":
+        cmd += ["--max-model-len", "65536"]
+
     print(f"Starting vLLM server: {' '.join(cmd)}")
     server_process = subprocess.Popen(
         cmd,
