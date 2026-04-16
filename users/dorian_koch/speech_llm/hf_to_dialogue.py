@@ -7,7 +7,7 @@ from datasets import load_dataset
 from openai import OpenAI
 
 
-def make_dialogue_gen(llm_url, model_name):
+def make_dialogue_gen(llm_url, model_name, dialogue_instructions):
     client = OpenAI(
         api_key=os.getenv("OPENAI_API_KEY", "nothing"),
         base_url=llm_url,
@@ -43,19 +43,7 @@ def make_dialogue_gen(llm_url, model_name):
             + ".\n"
         )  # TODO do we really want to give the agent so many different answers?
 
-        user_msg += (
-            "You are a helpful assistant for converting multiple choice questions into dialogues. "
-            "You will be given a multiple choice question, possible answers, and the single correct answer. "
-            "Your task is to create a dialogue between a user and an assistant, where the user asks the question and the assistant provides the correct answer with some explanation as to how it arrived at that answer. "
-            "Make the dialogue natural and engaging, while ensuring that the correct answer is clearly conveyed by the assistant. "
-            "The user may provide some potention options as answers, but the user should not just list them - they should be integrated into the dialogue in a natural way. "
-            "Because the dialogue will be spoken by a TTS system, do not use special characters or formatting. "
-            "I.e. you must translate any formatting or latex into spoken English words. Keep it natural. "
-            "The TTS system can handle  the paralinguistic tags [laugh], [chuckle] and [cough]. "
-            "While multiple speaker turns can be used, this is almost never necessary. "
-            "Now generate a dialogue between the user and the assistant based on the above information. "
-            "The dialogue must be outputted as a JSON array of objects, where each object has a 'speaker' field (either 'user' or 'assistant') and a 'text' field (the content of the speaker's turn). ONLY output the JSON array, and nothing else. Do not include any explanations or other text. "
-        )
+        user_msg += dialogue_instructions
 
         messages = [
             {"role": "user", "content": user_msg},
@@ -75,14 +63,10 @@ def make_dialogue_gen(llm_url, model_name):
 
 
 class HfToDialogue(Job):
-    def __init__(
-        self,
-        *,
-        dataset_name: str,
-        llm_name: str,
-    ):
+    def __init__(self, *, dataset_name: str, llm_name: str, dialogue_instructions: str):
         self.dataset_name = dataset_name
         self.llm_name = llm_name
+        self.dialogue_instructions = dialogue_instructions
 
         self.out_hf = self.output_path("dialogue_dataset", directory=True)
         self.out_json = self.output_path("dialogue_dataset.json")
@@ -104,10 +88,14 @@ class HfToDialogue(Job):
 
     def run(self):
         with vllm_server(self.llm_name) as llm_url:
+            print("Now loading dataset")
             dataset = load_dataset(self.dataset_name)
+            print("Dataset loaded successfully. Now generating dialogues...")
             dataset = dataset["validation"].map(
-                make_dialogue_gen(llm_url, self.llm_name), num_proc=4
+                make_dialogue_gen(llm_url, self.llm_name, self.dialogue_instructions),
+                num_proc=8,
             )
+            print("Dialogues generated successfully. Now saving the dataset...")
 
             dataset.save_to_disk(self.out_hf.get())
             dataset.to_json(self.out_json.get())

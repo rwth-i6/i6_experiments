@@ -32,7 +32,6 @@ def main():
     parser.add_argument("--voice_description", type=str, action="append", help="Description of the voice to generate.")
     args = parser.parse_args()
 
-    # Automatically use your GPU if available, otherwise fallback to CPU
     device = "cuda" if torch.cuda.is_available() else "cpu"
     set_seed(42)  # For reproducibility
     # Load the Parler-TTS Large model and its tokenizer
@@ -42,13 +41,6 @@ def main():
     model = ParlerTTSForConditionalGeneration.from_pretrained("parler-tts/parler-tts-large-v1", revision="refs/pr/9").to(device)
     tokenizer = AutoTokenizer.from_pretrained("parler-tts/parler-tts-large-v1", revision="refs/pr/9")
     print("Model loaded successfully.", flush=True)
-
-    # 1. The script you want the voice to read 
-    # (Keep it around 10-15 seconds for Chatterbox cloning)
-    
-    # 2. The description of the random voice you want to generate
-    # Change the gender, pitch, and speed to get completely different voices.
-    # ALWAYS keep the quality descriptions at the end!
 
     # TODO random description
     # voice_description = (

@@ -51,6 +51,7 @@ def speaker_name_to_path(speaker_name: str, speaker_dir: str) -> str:
                 f"No available speakers in directory {os.path.dirname(speaker_name)} for random selection"
             )
         chosen = random.choice(al)
+        print(f"Randomly chose speaker {chosen} from {al} for {speaker_name}")
         return os.path.join(speaker_dir, os.path.dirname(speaker_name), chosen + ".wav")
 
     return os.path.join(speaker_dir, speaker_name + ".wav")
@@ -63,13 +64,22 @@ def gen_conversation(
     print("Generating conversation...")
 
     speaker_to_path = {}
+    paths_used = set()
 
     # TODO get all speakers
-    speakers = set((turn["speaker"], turn["exaggeration"]) for turn in dialogue)
+    speakers = set(
+        (turn["speaker"], turn.get("exaggeration", 0.5)) for turn in dialogue
+    )
     speak_map = {}
     for s in speakers:
         if s[0] not in speaker_to_path:
-            speaker_to_path[s[0]] = speaker_name_to_path(s[0], speaker_dir)
+            for _ in range(5):  # try a few times to resolve random speaker if needed
+                p = speaker_name_to_path(s[0], speaker_dir)
+                if p not in paths_used:
+                    break
+            speaker_to_path[s[0]] = p
+            paths_used.add(p)
+
         model.prepare_conditionals(
             speaker_to_path[s[0]], exaggeration=s[1], norm_loudness=True
         )
@@ -99,12 +109,12 @@ def gen_conversation(
             )
             t_samples += int(SAMPLE_RATE * turn["pre_silence"])
 
-        model.conds = speak_map[(turn["speaker"], turn["exaggeration"])]
+        model.conds = speak_map[(turn["speaker"], turn.get("exaggeration", 0.5))]
         wav = model.generate(
             text=turn["text"],
             audio_prompt_path=None,  # we hack conditionals in directly
-            exaggeration=turn["exaggeration"],
-            cfg=turn["cfg"],
+            exaggeration=turn.get("exaggeration", 0.5),
+            cfg_weight=turn.get("cfg", 0.5),
         )
         model.conds = None
 
@@ -137,7 +147,7 @@ def gen_conversation(
         end_samples = max(end_samples, u["start"] + u["wav"].shape[-1])
 
     rendered = {}
-    for s in speakers:
+    for s, exagg in speakers:
         # single channel tensor
         rendered[s] = torch.zeros(
             1, end_samples, device=device, dtype=utterances[0]["wav"].dtype
@@ -176,6 +186,8 @@ def main():
     )
     args = parser.parse_args()
 
+    random.seed(42)  # For reproducibility
+
     # TODO figure out good way to sample silence
     def silence_length_sampler():
         val = random.gauss(0.2, 0.4)
@@ -186,31 +198,10 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = ChatterboxTurboTTS.from_pretrained(device=device)
 
-    # 2. Define the script with conversational tags and parameter tuning
-    # dialogue = [
-    #     {
-    #         "speaker": "Alice",
-    #         "text": "Hey there! [laugh] I really didn't expect to run into you today.",
-    #         "exaggeration": 0.6, # Slightly increased for a happy, expressive tone
-    #         "cfg": 0.4           # Lowering CFG slightly allows for more deliberate pacing
-    #     },
-    #     {
-    #         "speaker": "Bob",
-    #         "text": "Oh, hi Alice! [chuckle] Yeah, I decided to take an early break from the office.",
-    #         "exaggeration": 0.5, # Default neutral expression
-    #         "cfg": 0.5
-    #     },
-    #     {
-    #         "speaker": "Alice",
-    #         "text": "Well, it's a beautiful day for it. [sigh] Do you want to grab a coffee?",
-    #         "exaggeration": 0.5,
-    #         "cfg": 0.4
-    #     }
-    # ]
-
     # read in_text line by line
     with open(args.in_text, "r", encoding="utf-8") as f:
         for i, line in enumerate(f):
+            print(f"Processing dialogue {i}...")
             dialogue = json.loads(
                 line
             )  # each line is a json array that contains dialogues
@@ -251,3 +242,8 @@ def main():
                 )
             with open(f"{output_dir}/metadata.json", "w", encoding="utf-8") as f:
                 json.dump(metadata, f, indent=4)
+        print("All dialogues processed successfully!")
+
+
+if __name__ == "__main__":
+    main()

@@ -27,7 +27,7 @@ class ChatterboxInference(Job):
     @classmethod
     def hash(cls, parsed_args):
         d = dict(**parsed_args)
-        # d["__version"] = 5
+        d["__version"] = 3
         return super().hash(d)
 
     def tasks(self):
@@ -49,6 +49,7 @@ class ChatterboxInference(Job):
             str(self.speaker_dir.get()),
         ]
         env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
         env["HF_HOME"] = HF_CACHE_DIR.get()
 
         print(f"Running Chatterbox inference with command: {' '.join(command)}")
