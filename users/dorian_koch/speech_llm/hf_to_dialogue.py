@@ -59,6 +59,7 @@ def make_dialogue_gen(llm_url, model_name, dialogue_instructions):
             model=model_name,
             messages=messages,
             seed=example["question_id"],
+            response_format={"type": "json_object"},
         )
 
         prediction = response.choices[0].message.content
@@ -182,11 +183,12 @@ class HfDialogueToJsonFile(Job):
         else:
             assert type(dataset) is Dataset
 
-        any_errors = None
+        num_errors = 0
         # go through the dataset, parse the "dialogue" field as json, and append that json as a single line to a jsonl file
         with open(self.out_json.get(), "w") as f:
             for example in dataset:
                 dialogue_str:str  = example["dialogue"]
+                dialogue_str = dialogue_str.strip()
                 try:
                     if dialogue_str.startswith("```json"):
                         dialogue_str = dialogue_str[len("```json") :]
@@ -195,10 +197,14 @@ class HfDialogueToJsonFile(Job):
                     dialogue_json = json.loads(dialogue_str)
                     f.write(json.dumps(dialogue_json) + "\n")
                 except Exception as e:
-                    any_errors = e
+                    num_errors += 1
                     if not self.ignore_errors:
+                        print("###")
                         print(dialogue_str)
                         print(f"Error parsing dialogue: {e} for {example}")
+                        print("###")
 
-        if any_errors is not None and not self.ignore_errors:
-            raise any_errors
+        if num_errors > 0 and not self.ignore_errors:
+            raise ValueError(f"Encountered {num_errors} errors while parsing dialogues. See above for details.")
+        if num_errors > len(dataset) * 0.1:
+            raise ValueError(f"Encountered {num_errors} errors while parsing dialogues, which is more than 10% of the dataset. Something might be wrong. See above for details.")

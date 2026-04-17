@@ -6,12 +6,33 @@ import json
 import os
 import random
 from typing import Any
-from datasets import Features, Value, Sequence, Audio, Dataset
+from datasets import Features, Value, Sequence, Audio, Dataset, load_from_disk
 
 print("Imports successful", flush=True)
 
-SAMPLE_RATE = 24000  # Chatterbox default output is 24kHz
 SPEAKER_ALIAS = {}
+
+dialogue_features = Features(
+    {
+        # Unique identifier for the conversation
+        "id": Value("string"),
+        # The full-length audio tracks, one per speaker
+        "speaker_audio": Sequence(
+            {
+                "speaker": Value("string"),
+                "audio": Audio(),  # HF converts your file paths to audio bytes here
+            }
+        ),
+        # The chronological array of conversation turns
+        "turns": Sequence(
+            {
+                "speaker": Value("string"),
+                "start_time": Value("float32"),  # float32 is perfect for timestamps
+                "text": Value("string"),
+            }
+        ),
+    }
+)
 
 
 def available_speakers(speaker_dir: str) -> list[str]:
@@ -93,7 +114,7 @@ def gen_conversation(
             print(
                 f"Adding pre-silence of {turn['pre_silence']} seconds for {turn['speaker']}"
             )
-            t_samples += int(SAMPLE_RATE * turn["pre_silence"])
+            t_samples += int(model.sr * turn["pre_silence"])
 
         model.conds = speak_map[(turn["speaker"], turn.get("exaggeration", 0.5))]
         wav = model.generate(
@@ -120,7 +141,7 @@ def gen_conversation(
         # Negative silence means the next turn starts earlier (overlap), so we
         # subtract samples but never let time go below current utterance start.
         silence_seconds = float(silence_length_sampler())
-        delta = int(SAMPLE_RATE * silence_seconds)
+        delta = int(model.sr * silence_seconds)
         if silence_seconds >= 0:
             t_samples += delta
         else:
@@ -148,16 +169,88 @@ def gen_conversation(
     return rendered, utterances
 
 
+def process_dialogue(
+    model, dialogue, device, speaker_dir, silence_length_sampler, out_dir, diag_id
+):
+
+    assert isinstance(dialogue, list), (
+        "Each line in the input text file should be a json array that contains dialogues"
+    )
+    assert len(dialogue) > 0, "Each dialogue should contain at least one turn"
+    assert all("speaker" in turn and "text" in turn for turn in dialogue), (
+        "Each turn in the dialogue should contain 'speaker', 'text' fields"
+    )
+
+    output_dir = os.path.join(out_dir, f"dialogue_{diag_id}")
+    os.makedirs(output_dir, exist_ok=True)
+
+    audios_per_speaker, utterances = gen_conversation(
+        model, dialogue, device, speaker_dir, silence_length_sampler
+    )
+
+    for speaker, audio in audios_per_speaker.items():
+        torchaudio.save(f"{output_dir}/{speaker}.wav", audio.cpu(), model.sr)
+        print(f"Saved {speaker}'s audio to {output_dir}/{speaker}.wav")
+
+    # save utterances without audio as metadata.json
+    metadata = []
+    for u in utterances:
+        metadata.append(
+            {
+                "speaker": u["speaker"],
+                "text": u["text"],
+                "start_time": u["start"] / model.sr,
+            }
+        )
+    with open(f"{output_dir}/metadata.json", "w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=4)
+
+
 # chatterbox inference gets its own venv, so we let the job execute this file directly
+@torch.inference_mode()
 def main():
     global SPEAKER_ALIAS
+
+    try:
+        import torchcodec
+    except:
+        print(
+            "torchcodec could not be imported. If on slurm cluster, run ml load FFmpeg"
+        )
+    import torchcodec
+    # fail early. If this fails, its likely that the user doesn't have ffmpeg installed. on claix: `ml load FFmpeg``
+
     # READ args --in_text and --out_dir
     parser = argparse.ArgumentParser(description="Run Chatterbox TTS Inference")
     parser.add_argument(
         "--in_text",
         type=str,
-        required=True,
+        required=False,
         help="Path to input text file. Input text file is a line seperated list of json arrays that contain dialogues",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        required=False,
+        help="Limit the number of dialogues to process. Useful for testing.",
+    )
+    parser.add_argument(
+        "--in_hf",
+        type=str,
+        required=False,
+        help="Path to input in Hugging Face dataset format. If provided, will ignore --in_text and read dialogues from the Hugging Face dataset",
+    )
+    parser.add_argument(
+        "--in_hf_shard",
+        type=int,
+        required=False,
+        help="If --in_hf is provided and the dataset is sharded, provide the shard index to read from. If not provided, will read from the first shard (index 0)",
+    )
+    parser.add_argument(
+        "--in_hf_num_shards",
+        type=int,
+        required=False,
+        help="If --in_hf is provided and the dataset is sharded, provide the total number of shards. If not provided, will assume the dataset is not sharded",
     )
     parser.add_argument(
         "--out_dir",
@@ -192,83 +285,78 @@ def main():
         return val
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    assert device == "cuda"
     model = ChatterboxTurboTTS.from_pretrained(device=device)
 
+    # TODO there are some projects that try to make chatterbox faster
+    # https://github.com/rsxdalv/chatterbox/blob/faster/src/chatterbox/tts.py
+    # or chatterbox-vllm
+    # but I am not certain that they have no regressions. Just use shards for now for "speedup"
+    torch._dynamo.config.capture_scalar_outputs = True
+    torch.set_float32_matmul_precision("high")
+    # model.generate = torch.compile(model.generate, dynamic=True)
+    model.t3.inference_turbo = torch.compile(
+        model.t3.inference_turbo,
+        dynamic=True,  # fullgraph=True, backend="cudagraphs"
+    )
+
+    assert args.in_text is not None or args.in_hf is not None, (
+        "Either --in_text or --in_hf must be provided"
+    )
+    assert not (args.in_text is not None and args.in_hf is not None), (
+        "Cannot provide both --in_text and --in_hf. Please choose one."
+    )
+
     last_diag_id = 0
-    # read in_text line by line
-    with open(args.in_text, "r", encoding="utf-8") as f:
-        for i, line in enumerate(f):
+    if args.in_hf is not None:
+        assert args.limit is None, (
+            "Limiting number of dialogues is not supported when reading from Hugging Face dataset"
+        )
+        print(f"Loading dialogues from Hugging Face dataset at {args.in_hf}...")
+        dataset = load_from_disk(args.in_hf)
+        print("Dataset loaded successfully!")
+        if args.in_hf_shard is not None and args.in_hf_num_shards is not None:
+            dataset = dataset.shard(
+                num_shards=args.in_hf_num_shards, index=args.in_hf_shard
+            )
+            print(f"Using shard {args.in_hf_shard} of {args.in_hf_num_shards}")
+        for i, example in enumerate(dataset):
             print(f"Processing dialogue {i}...")
-            dialogue = json.loads(
-                line
-            )  # each line is a json array that contains dialogues
-            assert isinstance(dialogue, list), (
-                "Each line in the input text file should be a json array that contains dialogues"
+            dialogue = json.loads(example["dialogue"])
+            process_dialogue(
+                model,
+                dialogue,
+                device,
+                args.speaker_directory,
+                silence_length_sampler,
+                args.out_dir,
+                i,
             )
-            assert len(dialogue) > 0, "Each dialogue should contain at least one turn"
-            assert all("speaker" in turn and "text" in turn for turn in dialogue), (
-                "Each turn in the dialogue should contain 'speaker', 'text' fields"
-            )
-
-            output_dir = os.path.join(args.out_dir, f"dialogue_{i}")
             last_diag_id = i
-            os.makedirs(output_dir, exist_ok=True)
+    else:
+        with open(args.in_text, "r", encoding="utf-8") as f:
+            for i, line in enumerate(f):
+                if args.limit is not None and i >= args.limit:
+                    print(f"Reached limit of {args.limit} dialogues. Stopping.")
+                    break
+                print(f"Processing dialogue {i}...")
 
-            # speakers must not contain path symbols
-            # assert all(
-            #    "/" not in turn["speaker"] and "\\" not in turn["speaker"]
-            #    for turn in dialogue
-            # ), "Speaker names must not contain path symbols"
-
-            audios_per_speaker, utterances = gen_conversation(
-                model, dialogue, device, args.speaker_directory, silence_length_sampler
-            )
-
-            for speaker, audio in audios_per_speaker.items():
-                torchaudio.save(f"{output_dir}/{speaker}.wav", audio.cpu(), SAMPLE_RATE)
-                print(f"Saved {speaker}'s audio to {output_dir}/{speaker}.wav")
-
-            # save utterances without audio as metadata.json
-            metadata = []
-            for u in utterances:
-                metadata.append(
-                    {
-                        "speaker": u["speaker"],
-                        "text": u["text"],
-                        "start_time": u["start"] / SAMPLE_RATE,
-                    }
+                # each line is a json array that contains dialogues
+                dialogue = json.loads(line)
+                process_dialogue(
+                    model,
+                    dialogue,
+                    device,
+                    args.speaker_directory,
+                    silence_length_sampler,
+                    args.out_dir,
+                    i,
                 )
-            with open(f"{output_dir}/metadata.json", "w", encoding="utf-8") as f:
-                json.dump(metadata, f, indent=4)
-        print("All dialogues processed successfully!")
+                last_diag_id = i
+    print("All dialogues processed successfully!")
 
     if args.out_hf is not None:
         print(f"Saving output in Hugging Face dataset format to {args.out_hf}...")
-
-        # each row
-        dialogue_features = Features(
-            {
-                # Unique identifier for the conversation
-                "id": Value("string"),
-                # The full-length audio tracks, one per speaker
-                "speaker_audio": Sequence(
-                    {
-                        "speaker": Value("string"),
-                        "audio": Audio(),  # HF converts your file paths to audio bytes here
-                    }
-                ),
-                # The chronological array of conversation turns
-                "turns": Sequence(
-                    {
-                        "speaker": Value("string"),
-                        "start_time": Value(
-                            "float32"
-                        ),  # float32 is perfect for timestamps
-                        "text": Value("string"),
-                    }
-                ),
-            }
-        )
 
         def gen():
             for i in range(last_diag_id + 1):
@@ -291,8 +379,15 @@ def main():
                     speaker_audio[speaker] = audio_path
                 yield {
                     "id": f"dialogue_{i}",
-                    "speaker_audio": speaker_audio,
-                    "turns": metadata,
+                    "speaker_audio": {
+                        "speaker": list(speaker_audio.keys()),
+                        "audio": list(speaker_audio.values()),
+                    },
+                    "turns": {
+                        "speaker": [turn["speaker"] for turn in metadata],
+                        "start_time": [turn["start_time"] for turn in metadata],
+                        "text": [turn["text"] for turn in metadata],
+                    },
                 }
 
         dataset = Dataset.from_generator(

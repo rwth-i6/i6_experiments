@@ -69,7 +69,10 @@ class ChatterboxInference(Job):
         env["PYTHONUNBUFFERED"] = "1"
         env["HF_HOME"] = HF_CACHE_DIR.get()
 
-        print(f"Running Chatterbox inference with command: {' '.join(command)}")
+        print(
+            f"Running Chatterbox inference with command: {' '.join(command)}",
+            flush=True,
+        )
         print(f"Using HF cache directory: {HF_CACHE_DIR}")
         subprocess.run(command, env=env, check=True)
 
