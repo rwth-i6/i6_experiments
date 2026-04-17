@@ -8,6 +8,7 @@ import random
 from typing import Any
 
 SAMPLE_RATE = 24000  # Chatterbox default output is 24kHz
+SPEAKER_ALIAS = {}
 
 
 def _silence_audio(device: str, wav_like: torch.Tensor, seconds: float) -> torch.Tensor:
@@ -40,6 +41,7 @@ def available_speakers(speaker_dir: str) -> list[str]:
 
 
 def speaker_name_to_path(speaker_name: str, speaker_dir: str) -> str:
+    speaker_name = SPEAKER_ALIAS.get(speaker_name, speaker_name)
     based = os.path.basename(speaker_name)
     if based.startswith("rng_"):
         al = available_speakers(
@@ -184,7 +186,10 @@ def main():
         required=True,
         help="Directory that contains reference audio for each speaker.",
     )
+    parser.add_argument("--speaker_alias", type=str, default="{}", help="")
     args = parser.parse_args()
+
+    SPEAKER_ALIAS = json.loads(args.speaker_alias)
 
     random.seed(42)  # For reproducibility
 

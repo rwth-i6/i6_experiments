@@ -3,6 +3,7 @@ from sisyphus import Job, Task, tk
 import os
 import subprocess
 from .common import HF_CACHE_DIR
+import json
 
 
 class ChatterboxInference(Job):
@@ -12,14 +13,16 @@ class ChatterboxInference(Job):
         venv_python_path: tk.Path,
         in_text: tk.Path,
         speaker_dir: tk.Path,
+        speaker_alias: dict[str, str] | None = None,
     ):
         self.in_text = in_text
         self.venv_python_path = venv_python_path
         self.speaker_dir = speaker_dir
+        self.speaker_alias = speaker_alias if speaker_alias is not None else {}
         self.out_dir = self.output_path("chatterbox_output", directory=True)
         self.rqmt = {
             "gpu": 1,
-            "cpu": 2,
+            "cpu": 4,
             "mem": 16,
             "time": 2,
         }
@@ -47,6 +50,8 @@ class ChatterboxInference(Job):
             str(self.out_dir),
             "--speaker_dir",
             str(self.speaker_dir.get()),
+            "--speaker_alias",
+            json.dumps(self.speaker_alias),
         ]
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
@@ -81,7 +86,7 @@ class ParlerTTSInference(Job):
         )
         self.rqmt = {
             "gpu": 1,
-            "cpu": 2,
+            "cpu": 4,
             "mem": 16,
             "time": 2,
         }

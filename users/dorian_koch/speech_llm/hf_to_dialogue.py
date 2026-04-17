@@ -1,10 +1,10 @@
 from pathlib import Path
 from sisyphus import Job, Task, tk
 import os
-import subprocess
 from .common import HF_CACHE_DIR, vllm_server
-from datasets import load_dataset
+from datasets import load_dataset, load_from_disk, Dataset, DatasetDict
 from openai import OpenAI
+import json
 
 
 def make_dialogue_gen(llm_url, model_name, dialogue_instructions):
@@ -69,7 +69,8 @@ class HfToDialogue(Job):
         self.dialogue_instructions = dialogue_instructions
 
         self.out_hf = self.output_path("dialogue_dataset", directory=True)
-        self.out_json = self.output_path("dialogue_dataset.json")
+        self.out_json = self.output_path("json_files", directory=True)
+        self.out_keys = self.output_var("dataset_keys")
         self.rqmt = {
             "gpu": 1,
             "cpu": 2,
@@ -80,7 +81,7 @@ class HfToDialogue(Job):
     @classmethod
     def hash(cls, parsed_args):
         d = dict(**parsed_args)
-        d["__version"] = 1
+        d["__version"] = 2
         return super().hash(d)
 
     def tasks(self):
@@ -91,11 +92,55 @@ class HfToDialogue(Job):
             print("Now loading dataset")
             dataset = load_dataset(self.dataset_name)
             print("Dataset loaded successfully. Now generating dialogues...")
-            dataset = dataset["validation"].map(
+            dataset = dataset.map(
                 make_dialogue_gen(llm_url, self.llm_name, self.dialogue_instructions),
-                num_proc=8,
+                num_proc=32,
             )
             print("Dialogues generated successfully. Now saving the dataset...")
 
             dataset.save_to_disk(self.out_hf.get())
-            dataset.to_json(self.out_json.get())
+            for key in dataset.keys():
+                dataset[key].to_json(self.out_json.get() / f"{key}.json")
+            self.out_keys.set(list(dataset.keys()))
+
+
+class HfDialogueToJsonFile(Job):
+    def __init__(
+        self,
+        *,
+        hf_dataset_path: tk.Path,
+        split: str | None = None,
+        ignore_errors: bool = False,
+    ):
+        self.hf_dataset_path = hf_dataset_path
+        self.split = split
+        self.ignore_errors = ignore_errors
+        self.out_json = self.output_path("dialogue.jsonl")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        dataset = load_from_disk(self.hf_dataset_path.get())
+        if self.split is not None:
+            assert type(dataset) is DatasetDict
+            dataset = dataset[self.split]
+        else:
+            assert type(dataset) is Dataset
+
+        any_errors = None
+        # go through the dataset, parse the "dialogue" field as json, and append that json as a single line to a jsonl file
+        with open(self.out_json.get(), "w") as f:
+            for example in dataset:
+                dialogue_str = example["dialogue"]
+                try:
+                    dialogue_json = json.loads(dialogue_str)
+                    f.write(json.dumps(dialogue_json) + "\n")
+                except Exception as e:
+                    any_errors = e
+                    if not self.ignore_errors:
+                        print(dialogue_str)
+                        print(f"Error parsing dialogue: {e} for {example}")
+
+        if any_errors is not None and not self.ignore_errors:
+            raise any_errors
