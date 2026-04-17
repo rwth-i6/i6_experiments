@@ -2,7 +2,13 @@ from pathlib import Path
 from sisyphus import Job, Task, tk
 import os
 from .common import HF_CACHE_DIR, vllm_server
-from datasets import load_dataset, load_from_disk, Dataset, DatasetDict
+from datasets import (
+    load_dataset,
+    load_from_disk,
+    Dataset,
+    DatasetDict,
+    concatenate_datasets,
+)
 from openai import OpenAI
 import json
 
@@ -62,15 +68,38 @@ def make_dialogue_gen(llm_url, model_name, dialogue_instructions):
     return make_dialogue
 
 
-class HfToDialogue(Job):
-    def __init__(self, *, dataset_name: str, llm_name: str, dialogue_instructions: str):
+class HfDownloadSplit(Job):
+    def __init__(self, *, dataset_name: str, split: str):
         self.dataset_name = dataset_name
+        self.split = split
+        self.out_hf = self.output_path("hf_split", directory=True)
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        dataset = load_dataset(self.dataset_name, split=self.split)
+        dataset.save_to_disk(self.out_hf.get())
+
+
+class HfToDialogue(Job):
+    def __init__(
+        self,
+        *,
+        dataset_split_path: tk.Path,
+        llm_name: str,
+        dialogue_instructions: str,
+        shard: int | None = None,
+        num_shards: int | None = None,
+    ):
+        self.dataset_split_path = dataset_split_path
         self.llm_name = llm_name
         self.dialogue_instructions = dialogue_instructions
+        self.shard = shard
+        self.num_shards = num_shards
 
         self.out_hf = self.output_path("dialogue_dataset", directory=True)
-        self.out_json = self.output_path("json_files", directory=True)
-        self.out_keys = self.output_var("dataset_keys")
+        self.out_json = self.output_path("json_files")
         self.rqmt = {
             "gpu": 1,
             "cpu": 2,
@@ -84,13 +113,26 @@ class HfToDialogue(Job):
         d["__version"] = 2
         return super().hash(d)
 
+    @staticmethod
+    def sharded(*, num_shards: int, **kwargs):
+        if num_shards == 1:
+            return HfToDialogue(**kwargs).out_hf
+        assert num_shards > 1
+        shards = []
+        for shard in range(num_shards):
+            shards.append(HfToDialogue(shard=shard, num_shards=num_shards, **kwargs))
+        return HfMergeShards(shard_paths=[s.out_hf for s in shards]).out_hf
+
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
         with vllm_server(self.llm_name) as llm_url:
             print("Now loading dataset")
-            dataset = load_dataset(self.dataset_name)
+            dataset = load_from_disk(self.dataset_split_path.get())
+            if self.shard is not None and self.num_shards is not None:
+                dataset = dataset.shard(num_shards=self.num_shards, index=self.shard)
+
             print("Dataset loaded successfully. Now generating dialogues...")
             dataset = dataset.map(
                 make_dialogue_gen(llm_url, self.llm_name, self.dialogue_instructions),
@@ -99,9 +141,21 @@ class HfToDialogue(Job):
             print("Dialogues generated successfully. Now saving the dataset...")
 
             dataset.save_to_disk(self.out_hf.get())
-            for key in dataset.keys():
-                dataset[key].to_json(self.out_json.get() / f"{key}.json")
-            self.out_keys.set(list(dataset.keys()))
+            dataset.to_json(self.out_json.get())
+
+
+class HfMergeShards(Job):
+    def __init__(self, *, shard_paths: list[tk.Path]):
+        self.shard_paths = shard_paths
+        self.out_hf = self.output_path("merged_dataset", directory=True)
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        datasets = [load_from_disk(p.get()) for p in self.shard_paths]
+        merged = concatenate_datasets(datasets)
+        merged.save_to_disk(self.out_hf.get())
 
 
 class HfDialogueToJsonFile(Job):
@@ -132,8 +186,12 @@ class HfDialogueToJsonFile(Job):
         # go through the dataset, parse the "dialogue" field as json, and append that json as a single line to a jsonl file
         with open(self.out_json.get(), "w") as f:
             for example in dataset:
-                dialogue_str = example["dialogue"]
+                dialogue_str:str  = example["dialogue"]
                 try:
+                    if dialogue_str.startswith("```json"):
+                        dialogue_str = dialogue_str[len("```json") :]
+                    if dialogue_str.endswith("```"):
+                        dialogue_str = dialogue_str[: -len("```")]
                     dialogue_json = json.loads(dialogue_str)
                     f.write(json.dumps(dialogue_json) + "\n")
                 except Exception as e:

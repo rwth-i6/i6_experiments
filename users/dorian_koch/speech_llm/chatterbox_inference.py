@@ -6,28 +6,12 @@ import json
 import os
 import random
 from typing import Any
+from datasets import Features, Value, Sequence, Audio, Dataset
+
+print("Imports successful", flush=True)
 
 SAMPLE_RATE = 24000  # Chatterbox default output is 24kHz
 SPEAKER_ALIAS = {}
-
-
-def _silence_audio(device: str, wav_like: torch.Tensor, seconds: float) -> torch.Tensor:
-    """Create (possibly negative) silence.
-
-    Semantics for negative silence lengths (speaker overlap):
-    - Positive seconds: return that many zeros (delay).
-    - Zero: return empty tensor.
-    - Negative seconds: return empty tensor.
-
-    Negative overlap is handled later by truncating/aligning each speaker's
-    concatenation, so at this level we never create a "negative" tensor.
-    """
-    if seconds <= 0.0:
-        return torch.empty(1, 0, device=device, dtype=wav_like.dtype)
-    n = int(SAMPLE_RATE * seconds)
-    if n <= 0:
-        return torch.empty(1, 0, device=device, dtype=wav_like.dtype)
-    return torch.zeros(1, n, device=device, dtype=wav_like.dtype)
 
 
 def available_speakers(speaker_dir: str) -> list[str]:
@@ -166,6 +150,7 @@ def gen_conversation(
 
 # chatterbox inference gets its own venv, so we let the job execute this file directly
 def main():
+    global SPEAKER_ALIAS
     # READ args --in_text and --out_dir
     parser = argparse.ArgumentParser(description="Run Chatterbox TTS Inference")
     parser.add_argument(
@@ -179,6 +164,12 @@ def main():
         type=str,
         required=True,
         help="Directory to save output audio. Each line in the input text file will be saved as a directory that contains the audio channel for every speaker",
+    )
+    parser.add_argument(
+        "--out_hf",
+        type=str,
+        required=False,
+        help="Path to save output in Hugging Face dataset format. If not provided, will not save in Hugging Face format",
     )
     parser.add_argument(
         "--speaker_directory",
@@ -203,6 +194,7 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = ChatterboxTurboTTS.from_pretrained(device=device)
 
+    last_diag_id = 0
     # read in_text line by line
     with open(args.in_text, "r", encoding="utf-8") as f:
         for i, line in enumerate(f):
@@ -219,6 +211,7 @@ def main():
             )
 
             output_dir = os.path.join(args.out_dir, f"dialogue_{i}")
+            last_diag_id = i
             os.makedirs(output_dir, exist_ok=True)
 
             # speakers must not contain path symbols
@@ -248,6 +241,66 @@ def main():
             with open(f"{output_dir}/metadata.json", "w", encoding="utf-8") as f:
                 json.dump(metadata, f, indent=4)
         print("All dialogues processed successfully!")
+
+    if args.out_hf is not None:
+        print(f"Saving output in Hugging Face dataset format to {args.out_hf}...")
+
+        # each row
+        dialogue_features = Features(
+            {
+                # Unique identifier for the conversation
+                "id": Value("string"),
+                # The full-length audio tracks, one per speaker
+                "speaker_audio": Sequence(
+                    {
+                        "speaker": Value("string"),
+                        "audio": Audio(),  # HF converts your file paths to audio bytes here
+                    }
+                ),
+                # The chronological array of conversation turns
+                "turns": Sequence(
+                    {
+                        "speaker": Value("string"),
+                        "start_time": Value(
+                            "float32"
+                        ),  # float32 is perfect for timestamps
+                        "text": Value("string"),
+                    }
+                ),
+            }
+        )
+
+        def gen():
+            for i in range(last_diag_id + 1):
+                dialogue_dir = os.path.join(args.out_dir, f"dialogue_{i}")
+                metadata_path = os.path.join(dialogue_dir, "metadata.json")
+                if not os.path.exists(metadata_path):
+                    raise FileNotFoundError(f"metadata.json not found for dialogue {i}")
+                with open(metadata_path, "r", encoding="utf-8") as f:
+                    metadata = json.load(f)
+                speaker_audio = {}
+                for item in metadata:
+                    speaker = item["speaker"]
+                    if speaker in speaker_audio:
+                        continue
+                    audio_path = os.path.join(dialogue_dir, f"{speaker}.wav")
+                    if not os.path.exists(audio_path):
+                        raise FileNotFoundError(
+                            f"Audio file for speaker {speaker} not found in dialogue {i}"
+                        )
+                    speaker_audio[speaker] = audio_path
+                yield {
+                    "id": f"dialogue_{i}",
+                    "speaker_audio": speaker_audio,
+                    "turns": metadata,
+                }
+
+        dataset = Dataset.from_generator(
+            gen,
+            features=dialogue_features,
+        )
+        dataset.save_to_disk(args.out_hf)
+        print(f"Dataset saved successfully to {args.out_hf}!")
 
 
 if __name__ == "__main__":

@@ -14,12 +14,17 @@ class ChatterboxInference(Job):
         in_text: tk.Path,
         speaker_dir: tk.Path,
         speaker_alias: dict[str, str] | None = None,
+        with_audio_output: bool = False,
     ):
         self.in_text = in_text
         self.venv_python_path = venv_python_path
         self.speaker_dir = speaker_dir
         self.speaker_alias = speaker_alias if speaker_alias is not None else {}
-        self.out_dir = self.output_path("chatterbox_output", directory=True)
+        if with_audio_output:
+            self.out_dir = self.output_path("chatterbox_output", directory=True)
+        else:
+            self.out_dir = None
+        self.out_hf = self.output_path("out_hf", directory=True)
         self.rqmt = {
             "gpu": 1,
             "cpu": 4,
@@ -41,18 +46,25 @@ class ChatterboxInference(Job):
         this_file_path = Path(__file__).resolve()
         tts_script_path = this_file_path.parent / "chatterbox_inference.py"
 
+        work_dir = os.path.join(os.getcwd(), "chatterbox_inference_workdir")
+        os.makedirs(work_dir, exist_ok=True)
+
         command = [
             self.venv_python_path.get(),
             str(tts_script_path),
             "--in_text",
             str(self.in_text.get()),
-            "--out_dir",
-            str(self.out_dir),
+            "--out_hf",
+            str(self.out_hf.get()),
             "--speaker_dir",
             str(self.speaker_dir.get()),
             "--speaker_alias",
             json.dumps(self.speaker_alias),
         ]
+        if self.out_dir is not None:
+            command += ["--out_dir", str(self.out_dir.get())]
+        else:
+            command += ["--out_dir", str(work_dir)]
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
         env["HF_HOME"] = HF_CACHE_DIR.get()
