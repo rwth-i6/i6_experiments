@@ -1,7 +1,8 @@
-from typing import List, Literal, Optional
+__all__ = ["run", "get_model_config", "get_train_options"]
+
+from typing import Optional
 
 import torch
-from i6_core.returnn import PtCheckpoint
 from i6_models.assemblies.conformer import ConformerRelPosBlockV1Config, ConformerRelPosEncoderV1Config
 from i6_models.config import ModuleFactoryV1
 from i6_models.parts.conformer import (
@@ -12,33 +13,41 @@ from i6_models.parts.conformer import (
 from i6_models.parts.conformer.norm import LayerNormNC
 from i6_models.parts.frontend.generic_frontend import FrontendLayerType, GenericFrontendV1, GenericFrontendV1Config
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Config
-from sisyphus import tk
 
-from ...data.librispeech.bpe import bpe_to_vocab_size, get_bpe_vocab_file
-from ...data.librispeech.datasets import (
-    get_default_bpe_cv_data,
-    get_default_bpe_train_data,
-    get_default_recog_data,
-    get_default_score_corpus,
+from ....data.librispeech import datasets as librispeech_datasets
+from ....data.librispeech.bpe import bpe_to_vocab_size
+from ....model_pipelines.common.learning_rates import OCLRConfig
+from ....model_pipelines.common.optimizer import RAdamConfig
+from ....model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
+from ....model_pipelines.common.train import TrainedModel, train
+from ....model_pipelines.ffnn_transducer.pytorch_modules import (
+    FFNNTransducerConfig,
+    FFNNTransducerModel,
 )
-from ...model_pipelines.bpe_full_ctx_transducer.label_scorer_config import get_lstm_transducer_label_scorer_config
-from ...model_pipelines.bpe_full_ctx_transducer.pytorch_modules import LstmTransducerConfig, LstmTransducerEncoder
-from ...model_pipelines.bpe_full_ctx_transducer.train import LstmTransducerTrainOptions, train
-from ...model_pipelines.common.experiment_context import ExperimentContext
-from ...model_pipelines.common.imports import get_model_serializers
-from ...model_pipelines.common.learning_rates import OCLRConfig
-from ...model_pipelines.common.optimizer import RAdamConfig
-from ...model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
-from ...model_pipelines.common.recog import RecogResult, recog_rasr
-from ...model_pipelines.common.recog_rasr_config import RasrRecogOptions, get_rasr_config_file
-from ...model_pipelines.common.report import create_base_recog_report
-
-BPE_SIZE = 128
+from ....model_pipelines.ffnn_transducer.train import FFNNTransducerTrainOptions, get_train_step_import
 
 
-def get_baseline_model_config() -> LstmTransducerConfig:
-    vocab_size = bpe_to_vocab_size(BPE_SIZE)
-    return LstmTransducerConfig(
+def run(
+    descriptor: str,
+    model_config: Optional[FFNNTransducerConfig] = None,
+    train_options: Optional[FFNNTransducerTrainOptions] = None,
+) -> TrainedModel[FFNNTransducerConfig]:
+    if model_config is None:
+        model_config = get_model_config()
+    if train_options is None:
+        train_options = get_train_options()
+
+    return train(
+        descriptor=descriptor,
+        model_class=FFNNTransducerModel,
+        model_config=model_config,
+        options=train_options,
+        train_step_import=get_train_step_import(train_options),
+    )
+
+
+def get_model_config(bpe_size: int = 128) -> FFNNTransducerConfig:
+    return FFNNTransducerConfig(
         logmel_cfg=LogMelFeatureExtractionV1Config(
             sample_rate=16000,
             win_size=0.025,
@@ -122,29 +131,21 @@ def get_baseline_model_config() -> LstmTransducerConfig:
         ),
         dropout=0.1,
         enc_dim=512,
-        pred_num_layers=1,
+        pred_num_layers=2,
         pred_dim=640,
         pred_activation=torch.nn.Tanh(),
+        context_history_size=1,
         context_embedding_dim=256,
         joiner_dim=1024,
         joiner_activation=torch.nn.Tanh(),
-        target_size=vocab_size + 1,
+        target_size=bpe_to_vocab_size(bpe_size=bpe_size) + 1,
     )
 
 
-def get_baseline_train_options() -> LstmTransducerTrainOptions:
-    train_data_config = get_default_bpe_train_data(BPE_SIZE)
-    assert train_data_config.target_config
-    train_data_config.target_config["seq_postfix"] = [0]
-
-    cv_data_config = get_default_bpe_cv_data(BPE_SIZE)
-    assert cv_data_config.target_config
-    cv_data_config.target_config["seq_postfix"] = [0]
-
-    return LstmTransducerTrainOptions(
-        descriptor="baseline",
-        train_data_config=get_default_bpe_train_data(BPE_SIZE),
-        cv_data_config=get_default_bpe_cv_data(BPE_SIZE),
+def get_train_options(bpe_size: int = 128) -> FFNNTransducerTrainOptions:
+    return FFNNTransducerTrainOptions(
+        train_data_config=librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size),
+        cv_data_config=librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size),
         save_epochs=list(range(1500, 1900, 100)) + list(range(1900, 2001, 20)),
         batch_size=12_000 * 160,
         accum_grad_multiple_step=2,
@@ -163,77 +164,11 @@ def get_baseline_train_options() -> LstmTransducerTrainOptions:
             final_epochs=80,
         ),
         gradient_clip=1.0,
-        ctc_loss_scale=0.7,
         num_workers_per_gpu=2,
         automatic_mixed_precision=True,
         gpu_mem_rqmt=24,
+        enc_loss_scale=0.5,
+        pred_loss_scale=0.0,
+        max_seqs=None,
+        max_seq_length=None,
     )
-
-
-def get_baseline_recog_options() -> RasrRecogOptions:
-    return RasrRecogOptions(
-        blank_index=bpe_to_vocab_size(bpe_size=BPE_SIZE),
-        vocab_file=get_bpe_vocab_file(bpe_size=BPE_SIZE, add_blank=True),
-        max_beam_size=8,
-        score_threshold=12.0,
-        allow_label_loop=False,
-    )
-
-
-def run_recog(
-    descriptor: str,
-    corpus_name: str,
-    checkpoint: PtCheckpoint,
-    model_config: LstmTransducerConfig,
-    ilm_scale: float = 0.0,
-    blank_penalty: float = 0.0,
-    recog_options: Optional[RasrRecogOptions] = None,
-    device: Literal["cpu", "gpu"] = "cpu",
-) -> RecogResult:
-    recog_options = recog_options or get_baseline_recog_options()
-
-    lstm_transducer_scorer_config = get_lstm_transducer_label_scorer_config(
-        model_config=model_config,
-        checkpoint=checkpoint,
-        ilm_scale=ilm_scale,
-        blank_penalty=blank_penalty,
-    )
-
-    rasr_config_file = get_rasr_config_file(
-        recog_options=recog_options,
-        label_scorer_config=lstm_transducer_scorer_config,
-    )
-
-    return recog_rasr(
-        descriptor=descriptor,
-        recog_data_config=get_default_recog_data(corpus_name=corpus_name),
-        recog_corpus=get_default_score_corpus(corpus_name=corpus_name),
-        model_serializers=get_model_serializers(model_class=LstmTransducerEncoder, model_config=model_config),
-        rasr_config_file=rasr_config_file,
-        sample_rate=16000,
-        device=device,
-        checkpoint=checkpoint,
-    )
-
-
-def run_bpe_full_ctx_transducer_baseline(prefix: str = "librispeech/bpe_full_ctx_transducer") -> List[RecogResult]:
-    with ExperimentContext(prefix):
-        model_config = get_baseline_model_config()
-        train_config = get_baseline_train_options()
-
-        train_job = train(options=train_config, model_config=model_config)
-        checkpoint: PtCheckpoint = train_job.out_checkpoints[train_config.save_epochs[0]]  # type: ignore
-
-        recog_results = []
-        for corpus_name in ["dev-clean", "dev-other", "test-clean", "test-other"]:
-            recog_results.append(
-                run_recog(
-                    descriptor="bpe-lstm-transducer_recog-rasr",
-                    corpus_name=corpus_name,
-                    model_config=model_config,
-                    checkpoint=checkpoint,
-                )
-            )
-
-        tk.register_report(f"{prefix}/report.txt", values=create_base_recog_report(recog_results), required=True)
-    return recog_results

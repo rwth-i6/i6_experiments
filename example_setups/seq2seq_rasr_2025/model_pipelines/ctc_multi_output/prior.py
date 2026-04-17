@@ -1,6 +1,7 @@
 __all__ = ["compute_priors"]
 
 from dataclasses import fields
+
 from i6_core.returnn import PtCheckpoint
 from sisyphus import tk
 

@@ -17,6 +17,48 @@ from ...tools import returnn_python_exe, returnn_root
 from ..common.serializers import recipe_imports
 
 
+def compute_priors(
+    prior_data_config: DataConfig,
+    model_serializers: Collection,
+    checkpoint: PtCheckpoint,
+) -> tk.Path:
+    prior_returnn_config = ReturnnConfig(
+        config={
+            "extern_data": {
+                "data": {"dim": 1, "dtype": "float32"},
+            },
+            "backend": "torch",
+            "batch_size": 20_000 * 160,
+        },
+        python_prolog=recipe_imports,
+        python_epilog=[
+            model_serializers,
+            Import(
+                f"{_prior_step.__module__}.{_prior_step.__name__}",
+                import_as="forward_step",
+            ),
+            Import(
+                f"{ComputePriorCallback.__module__}.{ComputePriorCallback.__name__}",
+                import_as="forward_callback",
+            ),
+        ],  # type: ignore
+        sort_config=False,
+    )
+
+    prior_returnn_config.update(prior_data_config.get_returnn_data("forward_data"))
+
+    prior_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=prior_returnn_config,
+        returnn_python_exe=returnn_python_exe,
+        returnn_root=returnn_root,
+        output_files=["prior.txt"],
+    )
+    prior_job.rqmt["gpu_mem"] = 24
+
+    return prior_job.out_files["prior.txt"]
+
+
 class EncoderModel(Protocol):
     def forward(
         self, audio_samples: torch.Tensor, audio_samples_size: torch.Tensor
@@ -87,45 +129,3 @@ def _prior_step(*, model: EncoderModel, extern_data: TensorDict, **_):
         assert run_ctx.expected_outputs["log_probs"].dims[1].dyn_size_ext is not None
         run_ctx.expected_outputs["log_probs"].dims[1].dyn_size_ext.raw_tensor = sequence_lengths
     run_ctx.mark_as_output(log_probs, name="log_probs")
-
-
-def compute_priors(
-    prior_data_config: DataConfig,
-    model_serializers: Collection,
-    checkpoint: PtCheckpoint,
-) -> tk.Path:
-    prior_returnn_config = ReturnnConfig(
-        config={
-            "extern_data": {
-                "data": {"dim": 1, "dtype": "float32"},
-            },
-            "backend": "torch",
-            "batch_size": 20_000 * 160,
-        },
-        python_prolog=recipe_imports,
-        python_epilog=[
-            model_serializers,
-            Import(
-                f"{_prior_step.__module__}.{_prior_step.__name__}",
-                import_as="forward_step",
-            ),
-            Import(
-                f"{ComputePriorCallback.__module__}.{ComputePriorCallback.__name__}",
-                import_as="forward_callback",
-            ),
-        ],  # type: ignore
-        sort_config=False,
-    )
-
-    prior_returnn_config.update(prior_data_config.get_returnn_data("forward_data"))
-
-    prior_job = ReturnnForwardJobV2(
-        model_checkpoint=checkpoint,
-        returnn_config=prior_returnn_config,
-        returnn_python_exe=returnn_python_exe,
-        returnn_root=returnn_root,
-        output_files=["prior.txt"],
-    )
-    prior_job.rqmt["gpu_mem"] = 24
-
-    return prior_job.out_files["prior.txt"]

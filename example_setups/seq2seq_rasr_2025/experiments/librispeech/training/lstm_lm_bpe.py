@@ -1,3 +1,5 @@
+__all__ = ["run", "get_model_config", "get_train_options"]
+
 from typing import Optional
 
 from ....data.librispeech.bpe import bpe_to_vocab_size
@@ -7,9 +9,28 @@ from ....data.librispeech.datasets import (
 )
 from ....model_pipelines.common.learning_rates import ConstDecayLRConfig
 from ....model_pipelines.common.optimizer import RAdamConfig
-from ....model_pipelines.common.train import TrainOptions
-from ....model_pipelines.lstm_lm.pytorch_modules import LstmLmConfig
-from ....model_pipelines.lstm_lm.train import train, TrainedLstmLmModel
+from ....model_pipelines.common.train import TrainedModel, TrainOptions, train
+from ....model_pipelines.lstm_lm.pytorch_modules import LstmLm, LstmLmConfig
+from ....model_pipelines.lstm_lm.train import get_train_step_import
+
+
+def run(
+    descriptor: str,
+    model_config: Optional[LstmLmConfig] = None,
+    train_options: Optional[TrainOptions] = None,
+) -> TrainedModel[LstmLmConfig]:
+    if model_config is None:
+        model_config = get_model_config()
+    if train_options is None:
+        train_options = get_train_options()
+
+    return train(
+        descriptor=descriptor,
+        model_class=LstmLm,
+        model_config=model_config,
+        options=train_options,
+        train_step_import=get_train_step_import(),
+    )
 
 
 def get_model_config(bpe_size: int = 128) -> LstmLmConfig:
@@ -38,17 +59,4 @@ def get_train_options(bpe_size: int = 128) -> TrainOptions:
         gpu_mem_rqmt=11,
         max_seqs=None,
         max_seq_length=None,
-        register_outputs=True,
     )
-
-
-def run(
-    model_config: Optional[LstmLmConfig] = None,
-    train_options: Optional[TrainOptions] = None,
-) -> TrainedLstmLmModel:
-    if model_config is None:
-        model_config = get_model_config()
-    if train_options is None:
-        train_options = get_train_options()
-
-    return train(options=train_options, model_config=model_config)

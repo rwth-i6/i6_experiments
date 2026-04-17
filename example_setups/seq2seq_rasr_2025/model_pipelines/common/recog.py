@@ -71,6 +71,334 @@ class StreamingRecogParameters:
     gpu_mem_rqmt: int = 0
 
 
+def recog_rasr_offline(
+    descriptor: str,
+    recog_rasr_config_file: tk.Path,
+    recog_data_config: DataConfig,
+    recog_corpus: ScorableCorpus,
+    encoder_serializers: Collection,
+    sample_rate: int,
+    params: OfflineRecogParameters,
+    checkpoint: Optional[PtCheckpoint] = None,
+    align_rasr_config_file: Optional[tk.Path] = None,
+) -> RecogResult:
+    compute_search_errors = align_rasr_config_file is not None
+    model_outputs = {
+        "ctm_string": {
+            "dtype": "string",
+            "feature_dim_axis": None,
+            "time_dim_axis": None,
+        },
+        "audio_time": {
+            "dtype": "float32",
+            "feature_dim_axis": None,
+            "time_dim_axis": None,
+        },
+        "enc_time": {
+            "dtype": "float32",
+            "feature_dim_axis": None,
+            "time_dim_axis": None,
+        },
+        "search_time": {
+            "dtype": "float32",
+            "feature_dim_axis": None,
+            "time_dim_axis": None,
+        },
+    }
+    forward_step_kwargs = [
+        ("recog_rasr_config_file", DelayedFormat('tk.Path("{}")', recog_rasr_config_file)),
+        ("sample_rate", sample_rate),
+    ]
+
+    if compute_search_errors:
+        model_outputs.update(
+            {
+                "search_errors": {
+                    "dtype": "int32",
+                    "feature_dim_axis": None,
+                    "time_dim_axis": None,
+                },
+                "model_errors": {
+                    "dtype": "int32",
+                    "feature_dim_axis": None,
+                    "time_dim_axis": None,
+                },
+                "correct": {
+                    "dtype": "int32",
+                    "feature_dim_axis": None,
+                    "time_dim_axis": None,
+                },
+                "skipped": {
+                    "dtype": "int32",
+                    "feature_dim_axis": None,
+                    "time_dim_axis": None,
+                },
+            }
+        )
+        forward_step_kwargs.append(("align_rasr_config_file", DelayedFormat('tk.Path("{}")', align_rasr_config_file)))
+
+    recog_returnn_config = ReturnnConfig(
+        config={
+            "extern_data": {
+                "data": {"dim": 1, "dtype": "float32"},
+                "raw": {"feature_dim_axis": None, "time_dim_axis": None, "dtype": "string"},
+            },
+            "model_outputs": model_outputs,
+            "backend": "torch",
+            "batch_size": 360 * sample_rate,
+        },
+        python_prolog=recipe_imports + [ExternalImport(rasr_binary_path)],
+        python_epilog=[
+            encoder_serializers,
+            Import("sisyphus.tk"),
+        ]
+        + [
+            Import(
+                f"{OfflineSearchCallback.__module__}.{OfflineSearchCallback.__name__}",
+                import_as="forward_callback",
+            ),
+            Import(
+                f"{OfflineRasrRecogForwardStep.__module__}.{OfflineRasrRecogForwardStep.__name__}",
+            ),
+            Call(
+                OfflineRasrRecogForwardStep.__name__,
+                kwargs=forward_step_kwargs,
+                return_assign_variables="forward_step",
+            ),
+        ],  # type: ignore
+        sort_config=False,
+    )
+
+    recog_returnn_config.update(recog_data_config.get_returnn_data("forward_data"))
+
+    output_files = ["search_out.ctm", "rtf.py", "rasr.recog.log"]
+    if compute_search_errors:
+        output_files += ["search_errors.py", "rasr.align.log"]
+
+    recog_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=recog_returnn_config,
+        returnn_python_exe=returnn_python_exe,
+        returnn_root=returnn_root,
+        output_files=output_files,
+        device="gpu" if params.gpu_mem_rqmt > 0 else "cpu",
+        mem_rqmt=params.mem_rqmt,
+        time_rqmt=168,
+    )
+    recog_job.add_alias(f"recognition/{descriptor}/{recog_corpus.corpus_name}")
+    if params.gpu_mem_rqmt > 0:
+        recog_job.rqmt["gpu_mem"] = params.gpu_mem_rqmt
+
+    for output_file in output_files:
+        tk.register_output(
+            f"recognition/{descriptor}/{recog_corpus.corpus_name}/{output_file}",
+            recog_job.out_files[output_file],
+        )
+    if compute_search_errors:
+        search_error_job = ExtractSearchErrorDataJob(recog_job.out_files["search_errors.py"])
+        tk.register_output(
+            f"recognition/{descriptor}/{recog_corpus.corpus_name}/search_error_rate",
+            search_error_job.out_search_error_rate,
+        )
+        tk.register_output(
+            f"recognition/{descriptor}/{recog_corpus.corpus_name}/model_error_rate",
+            search_error_job.out_model_error_rate,
+        )
+        tk.register_output(
+            f"recognition/{descriptor}/{recog_corpus.corpus_name}/correct_rate", search_error_job.out_correct_rate
+        )
+        tk.register_output(
+            f"recognition/{descriptor}/{recog_corpus.corpus_name}/skipped_rate", search_error_job.out_skipped_rate
+        )
+
+    rtf_job = ExtractRTFDataJob(recog_job.out_files["rtf.py"])
+    tk.register_output(
+        f"recognition/{descriptor}/{recog_corpus.corpus_name}/enc_rtf",
+        rtf_job.out_enc_rtf,
+    )
+    tk.register_output(
+        f"recognition/{descriptor}/{recog_corpus.corpus_name}/search_rtf",
+        rtf_job.out_search_rtf,
+    )
+    tk.register_output(
+        f"recognition/{descriptor}/{recog_corpus.corpus_name}/total_rtf",
+        rtf_job.out_total_rtf,
+    )
+
+    score_job = recog_corpus.score_ctm(recog_job.out_files["search_out.ctm"])
+    tk.register_output(f"recognition/{descriptor}/{recog_corpus.corpus_name}/scoring_reports", score_job.out_report_dir)
+
+    extract_rasr_stats_job = ExtractRasrStatisticsJob(rasr_log_file=recog_job.out_files["rasr.recog.log"])
+
+    tk.register_output(
+        f"recognition/{descriptor}/{recog_corpus.corpus_name}/search_space_stats/out_step_hyps",
+        extract_rasr_stats_job.out_step_hyps,
+    )
+    tk.register_output(
+        f"recognition/{descriptor}/{recog_corpus.corpus_name}/search_space_stats/out_step_word_end_hyps",
+        extract_rasr_stats_job.out_step_word_end_hyps,
+    )
+    tk.register_output(
+        f"recognition/{descriptor}/{recog_corpus.corpus_name}/search_space_stats/out_step_trees",
+        extract_rasr_stats_job.out_step_trees,
+    )
+
+    return RecogResult(
+        descriptor=descriptor,
+        corpus_name=recog_corpus.corpus_name,
+        wer=score_job.out_wer,
+        deletion=score_job.out_percent_deletions,
+        insertion=score_job.out_percent_insertions,
+        substitution=score_job.out_percent_substitution,
+        search_error_rate=search_error_job.out_search_error_rate if compute_search_errors else None,
+        model_error_rate=search_error_job.out_model_error_rate if compute_search_errors else None,
+        correct_rate=search_error_job.out_correct_rate if compute_search_errors else None,
+        skipped_rate=search_error_job.out_skipped_rate if compute_search_errors else None,
+        enc_rtf=rtf_job.out_enc_rtf,
+        search_rtf=rtf_job.out_search_rtf,
+        total_rtf=rtf_job.out_total_rtf,
+        unstable_latency_stats=None,
+        stable_latency_stats=None,
+        step_hyps_stats=extract_rasr_stats_job.out_step_hyps,
+        step_word_end_hyps_stats=extract_rasr_stats_job.out_step_word_end_hyps,
+        step_trees_stats=extract_rasr_stats_job.out_step_trees,
+    )
+
+
+def recog_rasr_streaming(
+    descriptor: str,
+    recog_rasr_config_file: tk.Path,
+    recog_data_config: DataConfig,
+    recog_corpus: ScorableCorpus,
+    encoder_serializers: Collection,
+    sample_rate: int,
+    params: StreamingRecogParameters,
+    checkpoint: Optional[PtCheckpoint] = None,
+) -> RecogResult:
+    recog_returnn_config = ReturnnConfig(
+        config={
+            "extern_data": {
+                "data": {"dim": 1, "dtype": "float32"},
+                "raw": {"feature_dim_axis": None, "time_dim_axis": None, "dtype": "string"},
+            },
+            "model_outputs": {
+                "ctm_string": {
+                    "dtype": "string",
+                    "feature_dim_axis": None,
+                    "time_dim_axis": None,
+                },
+                "unstable_latencies": {
+                    "dtype": "float32",
+                    "feature_dim_axis": None,
+                },
+                "stable_latencies": {
+                    "dtype": "float32",
+                    "feature_dim_axis": None,
+                },
+            },
+            "backend": "torch",
+            "batch_size": 360 * sample_rate,
+        },
+        python_prolog=recipe_imports + [ExternalImport(rasr_binary_path)],
+        python_epilog=[
+            encoder_serializers,
+            Import(
+                f"{StreamingSearchCallback.__module__}.{StreamingSearchCallback.__name__}",
+                import_as="forward_callback",
+            ),
+            Import(
+                f"{StreamingRasrRecogForwardStep.__module__}.{StreamingRasrRecogForwardStep.__name__}",
+            ),
+            Import("sisyphus.tk"),
+            Call(
+                StreamingRasrRecogForwardStep.__name__,
+                kwargs=[
+                    ("recog_rasr_config_file", DelayedFormat('tk.Path("{}")', recog_rasr_config_file)),
+                    ("sample_rate", sample_rate),
+                    ("encoder_frame_shift_seconds", params.encoder_frame_shift_seconds),
+                    ("chunk_history_seconds", params.chunk_history_seconds),
+                    ("chunk_center_seconds", params.chunk_center_seconds),
+                    ("chunk_future_seconds", params.chunk_future_seconds),
+                ],
+                return_assign_variables="forward_step",
+            ),
+        ],  # type: ignore
+        sort_config=False,
+    )
+
+    recog_returnn_config.update(recog_data_config.get_returnn_data("forward_data"))
+
+    output_files = ["search_out.ctm", "unstable_latencies.py", "stable_latencies.py", "rasr.recog.log"]
+
+    recog_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=recog_returnn_config,
+        returnn_python_exe=returnn_python_exe,
+        returnn_root=returnn_root,
+        output_files=output_files,
+        device="gpu" if params.gpu_mem_rqmt > 0 else "cpu",
+        mem_rqmt=params.mem_rqmt,
+        time_rqmt=168,
+    )
+    recog_job.add_alias(f"recognition/{descriptor}/{recog_corpus.corpus_name}")
+    if params.gpu_mem_rqmt > 0:
+        recog_job.rqmt["gpu_mem"] = params.gpu_mem_rqmt
+
+    for output_file in output_files:
+        tk.register_output(
+            f"recognition/{descriptor}/{recog_corpus.corpus_name}/{output_file}",
+            recog_job.out_files[output_file],
+        )
+
+    unstable_latency_stats = ExtractStatisticsJob(recog_job.out_files["unstable_latencies.py"]).out_stats
+    stable_latency_stats = ExtractStatisticsJob(recog_job.out_files["stable_latencies.py"]).out_stats
+
+    tk.register_output(
+        f"recognition/{descriptor}/{recog_corpus.corpus_name}/latencies/unstable_latency_stats", unstable_latency_stats
+    )
+    tk.register_output(
+        f"recognition/{descriptor}/{recog_corpus.corpus_name}/latencies/stable_latency_stats", stable_latency_stats
+    )
+
+    score_job = recog_corpus.score_ctm(recog_job.out_files["search_out.ctm"])
+    tk.register_output(f"recognition/{descriptor}/{recog_corpus.corpus_name}/scoring_reports", score_job.out_report_dir)
+
+    extract_space_stats_job = ExtractRasrStatisticsJob(rasr_log_file=recog_job.out_files["rasr.recog.log"])
+    tk.register_output(
+        f"recognition/{descriptor}/{recog_corpus.corpus_name}/search_space_stats/out_step_hyps",
+        extract_space_stats_job.out_step_hyps,
+    )
+    tk.register_output(
+        f"recognition/{descriptor}/{recog_corpus.corpus_name}/search_space_stats/out_step_word_end_hyps",
+        extract_space_stats_job.out_step_word_end_hyps,
+    )
+    tk.register_output(
+        f"recognition/{descriptor}/{recog_corpus.corpus_name}/search_space_stats/out_step_trees",
+        extract_space_stats_job.out_step_trees,
+    )
+
+    return RecogResult(
+        descriptor=descriptor,
+        corpus_name=recog_corpus.corpus_name,
+        wer=score_job.out_wer,
+        deletion=score_job.out_percent_deletions,
+        insertion=score_job.out_percent_insertions,
+        substitution=score_job.out_percent_substitution,
+        search_error_rate=None,
+        model_error_rate=None,
+        correct_rate=None,
+        skipped_rate=None,
+        enc_rtf=None,
+        search_rtf=None,
+        total_rtf=None,
+        unstable_latency_stats=unstable_latency_stats,
+        stable_latency_stats=stable_latency_stats,
+        step_hyps_stats=extract_space_stats_job.out_step_hyps,
+        step_word_end_hyps_stats=extract_space_stats_job.out_step_word_end_hyps,
+        step_trees_stats=extract_space_stats_job.out_step_trees,
+    )
+
+
 # =============================
 # ========== Helpers ==========
 # =============================
@@ -869,8 +1197,6 @@ class StreamingRasrRecogForwardStep(RasrRecogForwardStep):
             run_ctx.expected_outputs["unstable_latencies"].dims[
                 1
             ].dyn_size_ext.raw_tensor = unstable_latency_lengths_array
-        # print(unstable_latencies_tensor.raw_tensor)
-        # print(unstable_latencies_tensor.dims[1].dyn_size_ext)
         run_ctx.mark_as_output(unstable_latencies_tensor, name="unstable_latencies")
 
         stable_latency_arrays_padded = [
@@ -888,323 +1214,3 @@ class StreamingRasrRecogForwardStep(RasrRecogForwardStep):
             assert run_ctx.expected_outputs["stable_latencies"].dims[1].dyn_size_ext is not None
             run_ctx.expected_outputs["stable_latencies"].dims[1].dyn_size_ext.raw_tensor = stable_latency_lengths_array
         run_ctx.mark_as_output(stable_latencies_tensor, name="stable_latencies")
-
-
-def recog_rasr_offline(
-    descriptor: str,
-    recog_rasr_config_file: tk.Path,
-    recog_data_config: DataConfig,
-    recog_corpus: ScorableCorpus,
-    encoder_serializers: Collection,
-    sample_rate: int,
-    params: OfflineRecogParameters,
-    checkpoint: Optional[PtCheckpoint] = None,
-    align_rasr_config_file: Optional[tk.Path] = None,
-) -> RecogResult:
-    compute_search_errors = align_rasr_config_file is not None
-    model_outputs = {
-        "ctm_string": {
-            "dtype": "string",
-            "feature_dim_axis": None,
-            "time_dim_axis": None,
-        },
-        "audio_time": {
-            "dtype": "float32",
-            "feature_dim_axis": None,
-            "time_dim_axis": None,
-        },
-        "enc_time": {
-            "dtype": "float32",
-            "feature_dim_axis": None,
-            "time_dim_axis": None,
-        },
-        "search_time": {
-            "dtype": "float32",
-            "feature_dim_axis": None,
-            "time_dim_axis": None,
-        },
-    }
-    forward_step_kwargs = [
-        ("recog_rasr_config_file", DelayedFormat('tk.Path("{}")', recog_rasr_config_file)),
-        ("sample_rate", sample_rate),
-    ]
-
-    if compute_search_errors:
-        model_outputs.update(
-            {
-                "search_errors": {
-                    "dtype": "int32",
-                    "feature_dim_axis": None,
-                    "time_dim_axis": None,
-                },
-                "model_errors": {
-                    "dtype": "int32",
-                    "feature_dim_axis": None,
-                    "time_dim_axis": None,
-                },
-                "correct": {
-                    "dtype": "int32",
-                    "feature_dim_axis": None,
-                    "time_dim_axis": None,
-                },
-                "skipped": {
-                    "dtype": "int32",
-                    "feature_dim_axis": None,
-                    "time_dim_axis": None,
-                },
-            }
-        )
-        forward_step_kwargs.append(("align_rasr_config_file", DelayedFormat('tk.Path("{}")', align_rasr_config_file)))
-
-    recog_returnn_config = ReturnnConfig(
-        config={
-            "extern_data": {
-                "data": {"dim": 1, "dtype": "float32"},
-                "raw": {"feature_dim_axis": None, "time_dim_axis": None, "dtype": "string"},
-            },
-            "model_outputs": model_outputs,
-            "backend": "torch",
-            "batch_size": 360 * sample_rate,
-        },
-        python_prolog=recipe_imports + [ExternalImport(rasr_binary_path)],
-        python_epilog=[
-            encoder_serializers,
-            Import("sisyphus.tk"),
-        ]
-        + [
-            Import(
-                f"{OfflineSearchCallback.__module__}.{OfflineSearchCallback.__name__}",
-                import_as="forward_callback",
-            ),
-            Import(
-                f"{OfflineRasrRecogForwardStep.__module__}.{OfflineRasrRecogForwardStep.__name__}",
-            ),
-            Call(
-                OfflineRasrRecogForwardStep.__name__,
-                kwargs=forward_step_kwargs,
-                return_assign_variables="forward_step",
-            ),
-        ],  # type: ignore
-        sort_config=False,
-    )
-
-    recog_returnn_config.update(recog_data_config.get_returnn_data("forward_data"))
-
-    output_files = ["search_out.ctm", "rtf.py", "rasr.recog.log"]
-    if compute_search_errors:
-        output_files += ["search_errors.py", "rasr.align.log"]
-
-    recog_job = ReturnnForwardJobV2(
-        model_checkpoint=checkpoint,
-        returnn_config=recog_returnn_config,
-        returnn_python_exe=returnn_python_exe,
-        returnn_root=returnn_root,
-        output_files=output_files,
-        device="gpu" if params.gpu_mem_rqmt > 0 else "cpu",
-        mem_rqmt=params.mem_rqmt,
-        time_rqmt=168,
-    )
-    recog_job.add_alias(f"{recog_corpus.corpus_name}/{descriptor}")
-    if params.gpu_mem_rqmt > 0:
-        recog_job.rqmt["gpu_mem"] = params.gpu_mem_rqmt
-
-    for output_file in output_files:
-        tk.register_output(
-            f"{recog_corpus.corpus_name}/{descriptor}/{output_file}",
-            recog_job.out_files[output_file],
-        )
-    if compute_search_errors:
-        search_error_job = ExtractSearchErrorDataJob(recog_job.out_files["search_errors.py"])
-        tk.register_output(
-            f"{recog_corpus.corpus_name}/{descriptor}/search_error_rate", search_error_job.out_search_error_rate
-        )
-        tk.register_output(
-            f"{recog_corpus.corpus_name}/{descriptor}/model_error_rate", search_error_job.out_model_error_rate
-        )
-        tk.register_output(f"{recog_corpus.corpus_name}/{descriptor}/correct_rate", search_error_job.out_correct_rate)
-        tk.register_output(f"{recog_corpus.corpus_name}/{descriptor}/skipped_rate", search_error_job.out_skipped_rate)
-
-    rtf_job = ExtractRTFDataJob(recog_job.out_files["rtf.py"])
-    tk.register_output(
-        f"{recog_corpus.corpus_name}/{descriptor}/enc_rtf",
-        rtf_job.out_enc_rtf,
-    )
-    tk.register_output(
-        f"{recog_corpus.corpus_name}/{descriptor}/search_rtf",
-        rtf_job.out_search_rtf,
-    )
-    tk.register_output(
-        f"{recog_corpus.corpus_name}/{descriptor}/total_rtf",
-        rtf_job.out_total_rtf,
-    )
-
-    score_job = recog_corpus.score_ctm(recog_job.out_files["search_out.ctm"])
-    tk.register_output(f"{recog_corpus.corpus_name}/{descriptor}/scoring_reports", score_job.out_report_dir)
-
-    extract_rasr_stats_job = ExtractRasrStatisticsJob(rasr_log_file=recog_job.out_files["rasr.recog.log"])
-
-    tk.register_output(
-        f"{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_hyps",
-        extract_rasr_stats_job.out_step_hyps,
-    )
-    tk.register_output(
-        f"{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_word_end_hyps",
-        extract_rasr_stats_job.out_step_word_end_hyps,
-    )
-    tk.register_output(
-        f"{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_trees",
-        extract_rasr_stats_job.out_step_trees,
-    )
-
-    return RecogResult(
-        descriptor=descriptor,
-        corpus_name=recog_corpus.corpus_name,
-        wer=score_job.out_wer,
-        deletion=score_job.out_percent_deletions,
-        insertion=score_job.out_percent_insertions,
-        substitution=score_job.out_percent_substitution,
-        search_error_rate=search_error_job.out_search_error_rate if compute_search_errors else None,
-        model_error_rate=search_error_job.out_model_error_rate if compute_search_errors else None,
-        correct_rate=search_error_job.out_correct_rate if compute_search_errors else None,
-        skipped_rate=search_error_job.out_skipped_rate if compute_search_errors else None,
-        enc_rtf=rtf_job.out_enc_rtf,
-        search_rtf=rtf_job.out_search_rtf,
-        total_rtf=rtf_job.out_total_rtf,
-        unstable_latency_stats=None,
-        stable_latency_stats=None,
-        step_hyps_stats=extract_rasr_stats_job.out_step_hyps,
-        step_word_end_hyps_stats=extract_rasr_stats_job.out_step_word_end_hyps,
-        step_trees_stats=extract_rasr_stats_job.out_step_trees,
-    )
-
-
-def recog_rasr_streaming(
-    descriptor: str,
-    recog_rasr_config_file: tk.Path,
-    recog_data_config: DataConfig,
-    recog_corpus: ScorableCorpus,
-    encoder_serializers: Collection,
-    sample_rate: int,
-    params: StreamingRecogParameters,
-    checkpoint: Optional[PtCheckpoint] = None,
-) -> RecogResult:
-    recog_returnn_config = ReturnnConfig(
-        config={
-            "extern_data": {
-                "data": {"dim": 1, "dtype": "float32"},
-                "raw": {"feature_dim_axis": None, "time_dim_axis": None, "dtype": "string"},
-            },
-            "model_outputs": {
-                "ctm_string": {
-                    "dtype": "string",
-                    "feature_dim_axis": None,
-                    "time_dim_axis": None,
-                },
-                "unstable_latencies": {
-                    "dtype": "float32",
-                    "feature_dim_axis": None,
-                },
-                "stable_latencies": {
-                    "dtype": "float32",
-                    "feature_dim_axis": None,
-                },
-            },
-            "backend": "torch",
-            "batch_size": 360 * sample_rate,
-        },
-        python_prolog=recipe_imports + [ExternalImport(rasr_binary_path)],
-        python_epilog=[
-            encoder_serializers,
-            Import(
-                f"{StreamingSearchCallback.__module__}.{StreamingSearchCallback.__name__}",
-                import_as="forward_callback",
-            ),
-            Import(
-                f"{StreamingRasrRecogForwardStep.__module__}.{StreamingRasrRecogForwardStep.__name__}",
-            ),
-            Import("sisyphus.tk"),
-            Call(
-                StreamingRasrRecogForwardStep.__name__,
-                kwargs=[
-                    ("recog_rasr_config_file", DelayedFormat('tk.Path("{}")', recog_rasr_config_file)),
-                    ("sample_rate", sample_rate),
-                    ("encoder_frame_shift_seconds", params.encoder_frame_shift_seconds),
-                    ("chunk_history_seconds", params.chunk_history_seconds),
-                    ("chunk_center_seconds", params.chunk_center_seconds),
-                    ("chunk_future_seconds", params.chunk_future_seconds),
-                ],
-                return_assign_variables="forward_step",
-            ),
-        ],  # type: ignore
-        sort_config=False,
-    )
-
-    recog_returnn_config.update(recog_data_config.get_returnn_data("forward_data"))
-
-    output_files = ["search_out.ctm", "unstable_latencies.py", "stable_latencies.py", "rasr.recog.log"]
-
-    recog_job = ReturnnForwardJobV2(
-        model_checkpoint=checkpoint,
-        returnn_config=recog_returnn_config,
-        returnn_python_exe=returnn_python_exe,
-        returnn_root=returnn_root,
-        output_files=output_files,
-        device="gpu" if params.gpu_mem_rqmt > 0 else "cpu",
-        mem_rqmt=params.mem_rqmt,
-        time_rqmt=168,
-    )
-    recog_job.add_alias(f"{recog_corpus.corpus_name}/{descriptor}")
-    if params.gpu_mem_rqmt > 0:
-        recog_job.rqmt["gpu_mem"] = params.gpu_mem_rqmt
-
-    for output_file in output_files:
-        tk.register_output(
-            f"{recog_corpus.corpus_name}/{descriptor}/{output_file}",
-            recog_job.out_files[output_file],
-        )
-
-    unstable_latency_stats = ExtractStatisticsJob(recog_job.out_files["unstable_latencies.py"]).out_stats
-    stable_latency_stats = ExtractStatisticsJob(recog_job.out_files["stable_latencies.py"]).out_stats
-
-    tk.register_output(
-        f"{recog_corpus.corpus_name}/{descriptor}/latencies/unstable_latency_stats", unstable_latency_stats
-    )
-    tk.register_output(f"{recog_corpus.corpus_name}/{descriptor}/latencies/stable_latency_stats", stable_latency_stats)
-
-    score_job = recog_corpus.score_ctm(recog_job.out_files["search_out.ctm"])
-    tk.register_output(f"{recog_corpus.corpus_name}/{descriptor}/scoring_reports", score_job.out_report_dir)
-
-    extract_space_stats_job = ExtractRasrStatisticsJob(rasr_log_file=recog_job.out_files["rasr.recog.log"])
-    tk.register_output(
-        f"{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_hyps",
-        extract_space_stats_job.out_step_hyps,
-    )
-    tk.register_output(
-        f"{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_word_end_hyps",
-        extract_space_stats_job.out_step_word_end_hyps,
-    )
-    tk.register_output(
-        f"{recog_corpus.corpus_name}/{descriptor}/search_space_stats/out_step_trees",
-        extract_space_stats_job.out_step_trees,
-    )
-
-    return RecogResult(
-        descriptor=descriptor,
-        corpus_name=recog_corpus.corpus_name,
-        wer=score_job.out_wer,
-        deletion=score_job.out_percent_deletions,
-        insertion=score_job.out_percent_insertions,
-        substitution=score_job.out_percent_substitution,
-        search_error_rate=None,
-        model_error_rate=None,
-        correct_rate=None,
-        skipped_rate=None,
-        enc_rtf=None,
-        search_rtf=None,
-        total_rtf=None,
-        unstable_latency_stats=unstable_latency_stats,
-        stable_latency_stats=stable_latency_stats,
-        step_hyps_stats=extract_space_stats_job.out_step_hyps,
-        step_word_end_hyps_stats=extract_space_stats_job.out_step_word_end_hyps,
-        step_trees_stats=extract_space_stats_job.out_step_trees,
-    )

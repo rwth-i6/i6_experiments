@@ -12,41 +12,6 @@ from ...tools import returnn_python_exe, returnn_root
 from ..common.serializers import recipe_imports
 
 
-class AddOnnxMetadataJob(Job):
-    """
-    Add metadata to a given Onnx model
-    """
-
-    def __init__(
-        self,
-        model_path: tk.Path,
-        metadata: Dict[str, str],
-    ):
-        """
-        :param model_path: path of the onnx model for which add metadata
-        :param metadata: model metadata dict
-        """
-        self.model_path = model_path
-        self.metadata = metadata
-
-        self.out_model = self.output_path("model.onnx")
-
-    def tasks(self):
-        yield Task("run", resume="run", mini_task=True)
-
-    def run(self):
-        import onnx
-
-        model = onnx.load(self.model_path)
-        for key, value in self.metadata.items():
-            meta = model.metadata_props.add()
-            meta.key = key
-            meta.value = value
-
-        onnx.checker.check_model(model)
-        onnx.save(model, self.out_model.get_path())
-
-
 def export_model(
     model_serializers: Collection,
     forward_step_import: Import,
@@ -91,3 +56,38 @@ def export_model(
         exported_model = AddOnnxMetadataJob(model_path=exported_model, metadata=metadata).out_model
 
     return exported_model
+
+
+class AddOnnxMetadataJob(Job):
+    """
+    Add metadata to a given Onnx model
+    """
+
+    def __init__(
+        self,
+        model_path: tk.Path,
+        metadata: Dict[str, str],
+    ):
+        """
+        :param model_path: path of the onnx model for which add metadata
+        :param metadata: model metadata dict
+        """
+        self.model_path = model_path
+        self.metadata = metadata
+
+        self.out_model = self.output_path("model.onnx")
+
+    def tasks(self):
+        yield Task("run", resume="run", mini_task=True)
+
+    def run(self):
+        import onnx
+
+        model = onnx.load(self.model_path)
+        for key, value in self.metadata.items():
+            meta = model.metadata_props.add()
+            meta.key = key
+            meta.value = value
+
+        onnx.checker.check_model(model)
+        onnx.save(model, self.out_model.get_path())

@@ -1,3 +1,5 @@
+__all__ = ["run", "get_model_config", "get_train_options"]
+
 from typing import Optional
 
 import torch
@@ -12,19 +14,42 @@ from i6_models.parts.conformer.norm import LayerNormNC
 from i6_models.parts.frontend.generic_frontend import FrontendLayerType, GenericFrontendV1, GenericFrontendV1Config
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Config
 
-from ....data.librispeech import datasets as librispeech_datasets
 from ....data.librispeech.bpe import bpe_to_vocab_size
-from ....model_pipelines.common.learning_rates import OCLRConfig
-from ....model_pipelines.common.optimizer import RAdamConfig
-from ....model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
-from ....model_pipelines.ffnn_transducer.pytorch_modules import (
-    FFNNTransducerConfig,
+from ....data.librispeech.datasets import (
+    get_default_bpe_cv_data,
+    get_default_bpe_train_data,
 )
-from ....model_pipelines.ffnn_transducer.train import FFNNTransducerTrainOptions, TrainedFFNNTransducerModel, train
+from ....model_pipelines.aed.pytorch_modules import AdditiveAttentionConfig, AttentionLSTMDecoderV1Config
+from ....model_pipelines.combination_model.pytorch_modules import CombinationModel, CombinationModelConfig
+from ....model_pipelines.combination_model.train import CombinationTrainOptions, get_train_step_import
+from ....model_pipelines.common.learning_rates import OCLRConfig
+from ....model_pipelines.common.optimizer import AdamWConfig
+from ....model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
+from ....model_pipelines.common.train import TrainedModel, train
 
 
-def get_model_config(bpe_size: int = 128) -> FFNNTransducerConfig:
-    return FFNNTransducerConfig(
+def run(
+    descriptor: str,
+    model_config: Optional[CombinationModelConfig] = None,
+    train_options: Optional[CombinationTrainOptions] = None,
+) -> TrainedModel[CombinationModelConfig]:
+    if model_config is None:
+        model_config = get_model_config()
+    if train_options is None:
+        train_options = get_train_options()
+
+    return train(
+        descriptor=descriptor,
+        model_class=CombinationModel,
+        model_config=model_config,
+        options=train_options,
+        train_step_import=get_train_step_import(train_options),
+    )
+
+
+def get_model_config(bpe_size: int = 128) -> CombinationModelConfig:
+    vocab_size = bpe_to_vocab_size(bpe_size)
+    return CombinationModelConfig(
         logmel_cfg=LogMelFeatureExtractionV1Config(
             sample_rate=16000,
             win_size=0.025,
@@ -106,30 +131,53 @@ def get_model_config(bpe_size: int = 128) -> FFNNTransducerConfig:
                 scales=[0.5, 1.0, 1.0, 0.5],
             ),
         ),
-        dropout=0.1,
+        attention_decoder_config=AttentionLSTMDecoderV1Config(
+            encoder_dim=512,
+            vocab_size=vocab_size,
+            target_embed_dim=640,
+            target_embed_dropout=0.1,
+            lstm_hidden_size=1024,
+            zoneout_drop_h=0.05,
+            zoneout_drop_c=0.15,
+            output_proj_dim=1024,
+            output_dropout=0.3,
+            attention_cfg=AdditiveAttentionConfig(
+                attention_dim=1024,
+                att_weights_dropout=0.1,
+            ),
+        ),
+        transducer_pred_num_layers=2,
+        transducer_pred_dim=640,
+        transducer_pred_activation=torch.nn.Tanh(),
+        transducer_context_history_size=1,
+        transducer_context_embedding_dim=256,
+        transducer_joiner_dim=1024,
+        transducer_joiner_activation=torch.nn.Tanh(),
+        transducer_decoder_dropout=0.1,
         enc_dim=512,
-        pred_num_layers=2,
-        pred_dim=640,
-        pred_activation=torch.nn.Tanh(),
-        context_history_size=1,
-        context_embedding_dim=256,
-        joiner_dim=1024,
-        joiner_activation=torch.nn.Tanh(),
-        target_size=bpe_to_vocab_size(bpe_size=bpe_size) + 1,
+        ctc_dropout=0.1,
+        target_size=vocab_size + 1,
     )
 
 
-def get_train_options(bpe_size: int = 128) -> FFNNTransducerTrainOptions:
-    return FFNNTransducerTrainOptions(
-        train_data_config=librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size),
-        cv_data_config=librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size),
+def get_train_options(bpe_size: int = 128) -> CombinationTrainOptions:
+    train_data_config = get_default_bpe_train_data(bpe_size)
+    assert train_data_config.target_config
+    train_data_config.target_config["seq_postfix"] = [0]
+
+    cv_data_config = get_default_bpe_cv_data(bpe_size)
+    assert cv_data_config.target_config
+    cv_data_config.target_config["seq_postfix"] = [0]
+
+    return CombinationTrainOptions(
+        train_data_config=train_data_config,
+        cv_data_config=cv_data_config,
         save_epochs=list(range(1500, 1900, 100)) + list(range(1900, 2001, 20)),
         batch_size=12_000 * 160,
         accum_grad_multiple_step=2,
-        optimizer_config=RAdamConfig(
-            epsilon=1e-12,
+        optimizer_config=AdamWConfig(
+            epsilon=1e-16,
             weight_decay=0.01,
-            decoupled_weight_decay=True,
         ),
         lr_config=OCLRConfig(
             init_lr=7e-06,
@@ -141,24 +189,14 @@ def get_train_options(bpe_size: int = 128) -> FFNNTransducerTrainOptions:
             final_epochs=80,
         ),
         gradient_clip=1.0,
+        ctc_loss_scale=0.7,
+        transducer_loss_scale=1.0,
+        attention_loss_scale=1.0,
+        attention_label_smoothing=0.1,
+        attention_label_smoothing_start_epoch=61,
         num_workers_per_gpu=2,
         automatic_mixed_precision=True,
         gpu_mem_rqmt=24,
-        enc_loss_scale=0.5,
-        pred_loss_scale=0.0,
         max_seqs=None,
         max_seq_length=None,
-        register_outputs=True,
     )
-
-
-def run(
-    model_config: Optional[FFNNTransducerConfig] = None,
-    train_options: Optional[FFNNTransducerTrainOptions] = None,
-) -> TrainedFFNNTransducerModel:
-    if model_config is None:
-        model_config = get_model_config()
-    if train_options is None:
-        train_options = get_train_options()
-
-    return train(options=train_options, model_config=model_config)

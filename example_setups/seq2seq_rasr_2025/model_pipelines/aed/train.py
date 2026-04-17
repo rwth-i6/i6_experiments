@@ -1,18 +1,14 @@
-__all__ = ["AEDTrainOptions", "train"]
+__all__ = ["AEDTrainOptions", "get_train_step_import"]
 
 from dataclasses import dataclass
+
 import torch
 from minireturnn.torch.context import RunCtx
 
 from i6_experiments.common.setups.serialization import PartialImport
 
-from ..common.serializers import get_model_serializers
-from ..common.train import TrainOptions, TrainedModel
-from ..common.train import train as train_
-from .pytorch_modules import AEDConfig, AEDModel
-
-
-TrainedAEDModel = TrainedModel[AEDConfig]
+from ..common.train import TrainOptions
+from .pytorch_modules import AEDModel
 
 
 @dataclass
@@ -20,6 +16,23 @@ class AEDTrainOptions(TrainOptions):
     ctc_loss_scale: float
     label_smoothing: float
     label_smoothing_start_epoch: int
+
+
+def get_train_step_import(
+    options: AEDTrainOptions,
+) -> PartialImport:
+    train_step = _train_step if options.ctc_loss_scale == 0 else _train_step_v2
+    return PartialImport(
+        code_object_path=f"{train_step.__module__}.{train_step.__name__}",
+        hashed_arguments={
+            "ctc_loss_scale": options.ctc_loss_scale,
+            "label_smoothing": options.label_smoothing,
+            "label_smoothing_start_epoch": options.label_smoothing_start_epoch,
+        },
+        unhashed_arguments={},
+        unhashed_package_root="",
+        import_as="train_step",
+    )
 
 
 def _train_step(
@@ -142,26 +155,3 @@ def _train_step_v2(
 
     num_labels = torch.sum(labels_len)
     run_ctx.mark_as_loss(name="decoder_ce", loss=ce_loss, inv_norm_factor=num_labels)
-
-
-def train(
-    options: AEDTrainOptions,
-    model_config: AEDConfig,
-) -> TrainedAEDModel:
-    model_serializers = get_model_serializers(model_class=AEDModel, model_config=model_config)
-    train_step = _train_step if options.ctc_loss_scale == 0 else _train_step_v2
-    train_step_import = PartialImport(
-        code_object_path=f"{train_step.__module__}.{train_step.__name__}",
-        hashed_arguments={
-            "ctc_loss_scale": options.ctc_loss_scale,
-            "label_smoothing": options.label_smoothing,
-            "label_smoothing_start_epoch": options.label_smoothing_start_epoch,
-        },
-        unhashed_arguments={},
-        unhashed_package_root="",
-        import_as="train_step",
-    )
-
-    train_job = train_(options=options, model_serializers=model_serializers, train_step_import=train_step_import)
-
-    return TrainedModel(model_config=model_config, train_job=train_job)

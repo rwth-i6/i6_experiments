@@ -3,21 +3,16 @@ from typing import List, Optional
 
 from i6_core.rasr import RasrConfig
 
-from ....model_pipelines.ffnn_transducer.label_scorer_config import get_ffnn_transducer_label_scorer_config
-from ....model_pipelines.ffnn_transducer.pytorch_modules import FFNNTransducerEncoder
-
 from ....data.librispeech import datasets as librispeech_datasets
 from ....data.librispeech import lm as librispeech_lm
 from ....data.librispeech.bpe import vocab_to_bpe_size
 from ....data.librispeech.recog import LibrispeechTreeTimesyncRecogParams
-from ....model_pipelines.common.recog import (
-    OfflineRecogParameters,
-    RecogResult,
-    StreamingRecogParameters,
-)
+from ....model_pipelines.common.recog import OfflineRecogParameters, RecogResult, StreamingRecogParameters
 from ....model_pipelines.common.recog_rasr_config import LexiconfreeTimesyncRecogParams
 from ....model_pipelines.common.serializers import get_model_serializers
-from ....model_pipelines.ffnn_transducer.train import TrainedFFNNTransducerModel
+from ....model_pipelines.common.train import TrainedModel
+from ....model_pipelines.full_ctx_transducer.label_scorer_config import get_lstm_transducer_label_scorer_config
+from ....model_pipelines.full_ctx_transducer.pytorch_modules import LstmTransducerConfig, LstmTransducerEncoder
 from .common import BaseRecogVariant, run_single_bpe_variant
 
 
@@ -29,29 +24,37 @@ class TransducerRecogVariant(BaseRecogVariant):
     blank_penalty: float = 0.0
 
 
-def _get_label_scorer_configs(model: TrainedFFNNTransducerModel, variant: TransducerRecogVariant) -> List[RasrConfig]:
-    bpe_size = vocab_to_bpe_size(model.model_config.target_size - 1)
-    use_gpu = variant.search_mode_params.gpu_mem_rqmt > 0
+def run(
+    model: TrainedModel[LstmTransducerConfig],
+    variants: Optional[List[TransducerRecogVariant]] = None,
+    corpora: Optional[List[librispeech_datasets.EvalSet]] = None,
+) -> List[RecogResult]:
+    if variants is None:
+        variants = default_recog_variants()
 
-    label_scorer_configs = [
-        get_ffnn_transducer_label_scorer_config(
-            model_config=model.model_config,
-            checkpoint=model.get_checkpoint(variant.epoch),
-            ilm_scale=variant.ilm_scale,
-            blank_penalty=variant.blank_penalty,
-            use_gpu=use_gpu,
-        )
+    if corpora is None:
+        corpora = librispeech_datasets.EVAL_SETS
+
+    results = []
+
+    for variant in variants:
+        results.extend(_run_single_variant(model=model, variant=variant, corpora=corpora))
+    return results
+
+
+def default_recog_variants() -> List[TransducerRecogVariant]:
+    return [
+        default_offline_lexfree_recog_variant(),
+        default_offline_lexfree_lstm_recog_variant(),
+        default_offline_tree_recog_variant(),
+        default_offline_tree_4gram_recog_variant(),
+        default_offline_tree_lstm_recog_variant(),
+        default_offline_tree_lstm_4gram_recog_variant(),
+        default_offline_tree_trafo_recog_variant(),
+        default_offline_tree_trafo_recog_variant_gpu(),
+        default_streaming_lexfree_recog_variant(),
+        default_streaming_tree_4gram_recog_variant(),
     ]
-    if variant.bpe_lstm_lm_scale != 0.0:
-        label_scorer_configs.append(
-            librispeech_lm.get_bpe_lstm_label_scorer_config(
-                bpe_size=bpe_size,
-                scale=variant.bpe_lstm_lm_scale,
-                use_gpu=use_gpu,
-            )
-        )
-
-    return label_scorer_configs
 
 
 def default_offline_lexfree_recog_variant() -> TransducerRecogVariant:
@@ -193,27 +196,41 @@ def default_streaming_tree_4gram_recog_variant() -> TransducerRecogVariant:
     )
 
 
-def default_recog_variants() -> List[TransducerRecogVariant]:
-    return [
-        default_offline_lexfree_recog_variant(),
-        default_offline_lexfree_lstm_recog_variant(),
-        default_offline_tree_recog_variant(),
-        default_offline_tree_4gram_recog_variant(),
-        default_offline_tree_lstm_recog_variant(),
-        default_offline_tree_lstm_4gram_recog_variant(),
-        default_offline_tree_trafo_recog_variant(),
-        default_offline_tree_trafo_recog_variant_gpu(),
-        default_streaming_lexfree_recog_variant(),
-        default_streaming_tree_4gram_recog_variant(),
+def _get_label_scorer_configs(
+    model: TrainedModel[LstmTransducerConfig], variant: TransducerRecogVariant
+) -> List[RasrConfig]:
+    bpe_size = vocab_to_bpe_size(model.model_config.target_size - 1)
+    use_gpu = variant.search_mode_params.gpu_mem_rqmt > 0
+
+    label_scorer_configs = [
+        get_lstm_transducer_label_scorer_config(
+            model_config=model.model_config,
+            checkpoint=model.get_checkpoint(variant.epoch),
+            ilm_scale=variant.ilm_scale,
+            blank_penalty=variant.blank_penalty,
+        )
     ]
+    if variant.bpe_lstm_lm_scale != 0.0:
+        label_scorer_configs.append(
+            librispeech_lm.get_bpe_lstm_label_scorer_config(
+                bpe_size=bpe_size,
+                scale=variant.bpe_lstm_lm_scale,
+                use_gpu=use_gpu,
+            )
+        )
+
+    return label_scorer_configs
 
 
 def _run_single_variant(
-    model: TrainedFFNNTransducerModel, variant: TransducerRecogVariant, corpora: List[librispeech_datasets.EvalSet]
+    model: TrainedModel[LstmTransducerConfig],
+    variant: TransducerRecogVariant,
+    corpora: List[librispeech_datasets.EvalSet],
 ) -> List[RecogResult]:
     return run_single_bpe_variant(
+        model_descriptor=model.descriptor,
         checkpoint=model.get_checkpoint(variant.epoch),
-        encoder_serializers=get_model_serializers(FFNNTransducerEncoder, model.model_config),
+        encoder_serializers=get_model_serializers(LstmTransducerEncoder, model.model_config),
         label_scorer_configs=_get_label_scorer_configs(model=model, variant=variant),
         bpe_size=vocab_to_bpe_size(model.model_config.target_size - 1),
         blank_index=model.model_config.target_size - 1,
@@ -221,21 +238,3 @@ def _run_single_variant(
         variant=variant,
         corpora=corpora,
     )
-
-
-def run(
-    model: TrainedFFNNTransducerModel,
-    variants: Optional[List[TransducerRecogVariant]] = None,
-    corpora: Optional[List[librispeech_datasets.EvalSet]] = None,
-) -> List[RecogResult]:
-    if variants is None:
-        variants = default_recog_variants()
-
-    if corpora is None:
-        corpora = librispeech_datasets.EVAL_SETS
-
-    results = []
-
-    for variant in variants:
-        results.extend(_run_single_variant(model=model, variant=variant, corpora=corpora))
-    return results

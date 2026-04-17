@@ -26,145 +26,6 @@ from .pytorch_modules import (
 )
 
 
-def _forward_step(*, model: TransformerLm, extern_data: TensorDict, **_):
-    import returnn.frontend as rf
-
-    run_ctx = rf.get_run_ctx()
-
-    tokens = extern_data["tokens"].raw_tensor
-    assert isinstance(tokens, torch.Tensor)
-    assert extern_data["tokens"].dims[1].dyn_size_ext is not None
-    tokens_size = extern_data["tokens"].dims[1].dyn_size_ext.raw_tensor  # [B]
-    assert tokens_size is not None
-
-    seq_mask = lengths_to_padding_mask(tokens_size)
-
-    logits = model.forward(input=tokens, seq_mask=seq_mask)  # [B, N, V]
-
-    batch_size = logits.size(0)
-    last_logits = logits[torch.arange(batch_size), tokens_size.long() - 1]
-    scores = -torch.nn.functional.log_softmax(last_logits, dim=-1)
-
-    run_ctx.mark_as_output(name="scores", tensor=scores)
-
-
-def _forward_step_v2(*, model: TransformerLmOnnxWrapper, extern_data: TensorDict, **_):
-    import returnn.frontend as rf
-    from returnn.tensor.dim import batch_dim
-
-    run_ctx = rf.get_run_ctx()
-
-    tokens = extern_data["tokens"].raw_tensor
-    assert isinstance(tokens, torch.Tensor)
-    assert extern_data["tokens"].dims[1].dyn_size_ext is not None
-    tokens_size = extern_data["tokens"].dims[1].dyn_size_ext.raw_tensor  # [B]
-    assert tokens_size is not None
-    tokens_size = tokens_size.long()
-
-    assert extern_data["state_l000_k_in"].dims[1].dyn_size_ext is not None
-    prefix_lens = extern_data["state_l000_k_in"].dims[1].dyn_size_ext.raw_tensor  # [B]
-    assert prefix_lens is not None
-    prefix_lens = prefix_lens.long()
-
-    kv_cache = []
-    for layer in range(model.num_layers):
-        kv_cache.append(extern_data[f"state_l{layer:03d}_k_in"].raw_tensor)
-        kv_cache.append(extern_data[f"state_l{layer:03d}_v_in"].raw_tensor)
-
-    scores, *new_kv_cache = model.forward(tokens, tokens_size, prefix_lens, *kv_cache)
-
-    run_ctx.mark_as_output(name="scores", tensor=scores)
-
-    suffix_time_dim = rf.Tensor("suffix_time", dims=[batch_dim], raw_tensor=tokens_size.long(), dtype="int32")
-
-    idx = 0
-    for layer in range(model.num_layers):
-        run_ctx.mark_as_output(name=f"state_l{layer:03d}_k_out", tensor=new_kv_cache[idx])
-        run_ctx.mark_as_output(name=f"state_l{layer:03d}_v_out", tensor=new_kv_cache[idx + 1])
-        if run_ctx.expected_outputs is not None:
-            run_ctx.expected_outputs[f"state_l{layer:03d}_k_out"].dims[1].dyn_size_ext = suffix_time_dim
-            run_ctx.expected_outputs[f"state_l{layer:03d}_v_out"].dims[1].dyn_size_ext = suffix_time_dim
-        idx += 2
-
-
-def _scorer_forward_step(*, model: TransformerLmScorer, extern_data: TensorDict, **_):
-    import returnn.frontend as rf
-
-    run_ctx = rf.get_run_ctx()
-
-    transformer_out = extern_data["transformer_out"].raw_tensor
-    assert transformer_out is not None
-
-    scores = model.forward(transformer_out=transformer_out)
-
-    run_ctx.mark_as_output(name="scores", tensor=scores)
-
-
-def _state_initializer_forward_step(*, model: TransformerLmStateInitializer, extern_data: TensorDict, **_):
-    import returnn.frontend as rf
-
-    run_ctx = rf.get_run_ctx()
-
-    transformer_out, *kv_cache = model.forward()
-
-    state_length = torch.full(
-        (kv_cache[0].size(0),), kv_cache[1].size(1), dtype=torch.int32, device=transformer_out.device
-    )
-
-    run_ctx.mark_as_output(name="transformer_out", tensor=transformer_out)
-    run_ctx.mark_as_output(name="state_length", tensor=state_length)
-
-    idx = 0
-    for layer in range(model.num_layers):
-        if run_ctx.expected_outputs is not None:
-            assert run_ctx.expected_outputs[f"state_l{layer:03d}_k"].dims[1].dyn_size_ext is not None
-            run_ctx.expected_outputs[f"state_l{layer:03d}_k"].dims[1].dyn_size_ext.raw_tensor = state_length
-            assert run_ctx.expected_outputs[f"state_l{layer:03d}_v"].dims[1].dyn_size_ext is not None
-            run_ctx.expected_outputs[f"state_l{layer:03d}_v"].dims[1].dyn_size_ext.raw_tensor = state_length
-        run_ctx.mark_as_output(name=f"state_l{layer:03d}_k", tensor=kv_cache[idx])
-        run_ctx.mark_as_output(name=f"state_l{layer:03d}_v", tensor=kv_cache[idx + 1])
-        idx += 2
-
-
-def _state_updater_forward_step(*, model: TransformerLmStateUpdater, extern_data: TensorDict, **_):
-    import returnn.frontend as rf
-
-    run_ctx = rf.get_run_ctx()
-
-    token = extern_data["token"].raw_tensor
-    assert token is not None
-
-    assert extern_data["state_l000_k_in"].dims[1].dyn_size_ext is not None
-    state_length = extern_data["state_l000_k_in"].dims[1].dyn_size_ext.raw_tensor
-    assert state_length is not None
-
-    kv_cache = []
-    for layer in range(model.num_layers):
-        state_k_in = extern_data[f"state_l{layer:03d}_k_in"].raw_tensor
-        assert state_k_in is not None
-        state_v_in = extern_data[f"state_l{layer:03d}_v_in"].raw_tensor
-        assert state_v_in is not None
-        kv_cache.extend([state_k_in, state_v_in])
-
-    transformer_out, *new_kv_cache = model.forward(token, state_length.long(), *kv_cache)
-
-    new_lengths = state_length + 1
-
-    run_ctx.mark_as_output(name="transformer_out", tensor=transformer_out)
-    run_ctx.mark_as_output(name="state_length_out", tensor=new_lengths)
-
-    idx = 0
-    for layer in range(model.num_layers):
-        if run_ctx.expected_outputs is not None:
-            assert run_ctx.expected_outputs[f"state_l{layer:03d}_k_out"].dims[1].dyn_size_ext is not None
-            run_ctx.expected_outputs[f"state_l{layer:03d}_k_out"].dims[1].dyn_size_ext.raw_tensor = new_lengths
-            assert run_ctx.expected_outputs[f"state_l{layer:03d}_v_out"].dims[1].dyn_size_ext is not None
-            run_ctx.expected_outputs[f"state_l{layer:03d}_v_out"].dims[1].dyn_size_ext.raw_tensor = new_lengths
-        run_ctx.mark_as_output(name=f"state_l{layer:03d}_k_out", tensor=new_kv_cache[idx])
-        run_ctx.mark_as_output(name=f"state_l{layer:03d}_v_out", tensor=new_kv_cache[idx + 1])
-        idx += 2
-
-
 def export_model_stateless(model_config: TransformerLmConfig, checkpoint: PtCheckpoint) -> tk.Path:
     model_serializers = get_model_serializers(model_class=TransformerLm, model_config=model_config)
 
@@ -444,3 +305,142 @@ def export_state_updater(model_config: TransformerLmConfig, checkpoint: PtCheckp
         output_names=output_names,
         metadata=metadata,
     )
+
+
+def _forward_step(*, model: TransformerLm, extern_data: TensorDict, **_):
+    import returnn.frontend as rf
+
+    run_ctx = rf.get_run_ctx()
+
+    tokens = extern_data["tokens"].raw_tensor
+    assert isinstance(tokens, torch.Tensor)
+    assert extern_data["tokens"].dims[1].dyn_size_ext is not None
+    tokens_size = extern_data["tokens"].dims[1].dyn_size_ext.raw_tensor  # [B]
+    assert tokens_size is not None
+
+    seq_mask = lengths_to_padding_mask(tokens_size)
+
+    logits = model.forward(input=tokens, seq_mask=seq_mask)  # [B, N, V]
+
+    batch_size = logits.size(0)
+    last_logits = logits[torch.arange(batch_size), tokens_size.long() - 1]
+    scores = -torch.nn.functional.log_softmax(last_logits, dim=-1)
+
+    run_ctx.mark_as_output(name="scores", tensor=scores)
+
+
+def _forward_step_v2(*, model: TransformerLmOnnxWrapper, extern_data: TensorDict, **_):
+    import returnn.frontend as rf
+    from returnn.tensor.dim import batch_dim
+
+    run_ctx = rf.get_run_ctx()
+
+    tokens = extern_data["tokens"].raw_tensor
+    assert isinstance(tokens, torch.Tensor)
+    assert extern_data["tokens"].dims[1].dyn_size_ext is not None
+    tokens_size = extern_data["tokens"].dims[1].dyn_size_ext.raw_tensor  # [B]
+    assert tokens_size is not None
+    tokens_size = tokens_size.long()
+
+    assert extern_data["state_l000_k_in"].dims[1].dyn_size_ext is not None
+    prefix_lens = extern_data["state_l000_k_in"].dims[1].dyn_size_ext.raw_tensor  # [B]
+    assert prefix_lens is not None
+    prefix_lens = prefix_lens.long()
+
+    kv_cache = []
+    for layer in range(model.num_layers):
+        kv_cache.append(extern_data[f"state_l{layer:03d}_k_in"].raw_tensor)
+        kv_cache.append(extern_data[f"state_l{layer:03d}_v_in"].raw_tensor)
+
+    scores, *new_kv_cache = model.forward(tokens, tokens_size, prefix_lens, *kv_cache)
+
+    run_ctx.mark_as_output(name="scores", tensor=scores)
+
+    suffix_time_dim = rf.Tensor("suffix_time", dims=[batch_dim], raw_tensor=tokens_size.long(), dtype="int32")
+
+    idx = 0
+    for layer in range(model.num_layers):
+        run_ctx.mark_as_output(name=f"state_l{layer:03d}_k_out", tensor=new_kv_cache[idx])
+        run_ctx.mark_as_output(name=f"state_l{layer:03d}_v_out", tensor=new_kv_cache[idx + 1])
+        if run_ctx.expected_outputs is not None:
+            run_ctx.expected_outputs[f"state_l{layer:03d}_k_out"].dims[1].dyn_size_ext = suffix_time_dim
+            run_ctx.expected_outputs[f"state_l{layer:03d}_v_out"].dims[1].dyn_size_ext = suffix_time_dim
+        idx += 2
+
+
+def _scorer_forward_step(*, model: TransformerLmScorer, extern_data: TensorDict, **_):
+    import returnn.frontend as rf
+
+    run_ctx = rf.get_run_ctx()
+
+    transformer_out = extern_data["transformer_out"].raw_tensor
+    assert transformer_out is not None
+
+    scores = model.forward(transformer_out=transformer_out)
+
+    run_ctx.mark_as_output(name="scores", tensor=scores)
+
+
+def _state_initializer_forward_step(*, model: TransformerLmStateInitializer, extern_data: TensorDict, **_):
+    import returnn.frontend as rf
+
+    run_ctx = rf.get_run_ctx()
+
+    transformer_out, *kv_cache = model.forward()
+
+    state_length = torch.full(
+        (kv_cache[0].size(0),), kv_cache[1].size(1), dtype=torch.int32, device=transformer_out.device
+    )
+
+    run_ctx.mark_as_output(name="transformer_out", tensor=transformer_out)
+    run_ctx.mark_as_output(name="state_length", tensor=state_length)
+
+    idx = 0
+    for layer in range(model.num_layers):
+        if run_ctx.expected_outputs is not None:
+            assert run_ctx.expected_outputs[f"state_l{layer:03d}_k"].dims[1].dyn_size_ext is not None
+            run_ctx.expected_outputs[f"state_l{layer:03d}_k"].dims[1].dyn_size_ext.raw_tensor = state_length
+            assert run_ctx.expected_outputs[f"state_l{layer:03d}_v"].dims[1].dyn_size_ext is not None
+            run_ctx.expected_outputs[f"state_l{layer:03d}_v"].dims[1].dyn_size_ext.raw_tensor = state_length
+        run_ctx.mark_as_output(name=f"state_l{layer:03d}_k", tensor=kv_cache[idx])
+        run_ctx.mark_as_output(name=f"state_l{layer:03d}_v", tensor=kv_cache[idx + 1])
+        idx += 2
+
+
+def _state_updater_forward_step(*, model: TransformerLmStateUpdater, extern_data: TensorDict, **_):
+    import returnn.frontend as rf
+
+    run_ctx = rf.get_run_ctx()
+
+    token = extern_data["token"].raw_tensor
+    assert token is not None
+
+    assert extern_data["state_l000_k_in"].dims[1].dyn_size_ext is not None
+    state_length = extern_data["state_l000_k_in"].dims[1].dyn_size_ext.raw_tensor
+    assert state_length is not None
+
+    kv_cache = []
+    for layer in range(model.num_layers):
+        state_k_in = extern_data[f"state_l{layer:03d}_k_in"].raw_tensor
+        assert state_k_in is not None
+        state_v_in = extern_data[f"state_l{layer:03d}_v_in"].raw_tensor
+        assert state_v_in is not None
+        kv_cache.extend([state_k_in, state_v_in])
+
+    transformer_out, *new_kv_cache = model.forward(token, state_length.long(), *kv_cache)
+
+    new_lengths = state_length + 1
+
+    run_ctx.mark_as_output(name="transformer_out", tensor=transformer_out)
+    run_ctx.mark_as_output(name="state_length_out", tensor=new_lengths)
+
+    idx = 0
+    for layer in range(model.num_layers):
+        if run_ctx.expected_outputs is not None:
+            assert run_ctx.expected_outputs[f"state_l{layer:03d}_k_out"].dims[1].dyn_size_ext is not None
+            run_ctx.expected_outputs[f"state_l{layer:03d}_k_out"].dims[1].dyn_size_ext.raw_tensor = new_lengths
+            assert run_ctx.expected_outputs[f"state_l{layer:03d}_v_out"].dims[1].dyn_size_ext is not None
+            run_ctx.expected_outputs[f"state_l{layer:03d}_v_out"].dims[1].dyn_size_ext.raw_tensor = new_lengths
+        run_ctx.mark_as_output(name=f"state_l{layer:03d}_k_out", tensor=new_kv_cache[idx])
+        run_ctx.mark_as_output(name=f"state_l{layer:03d}_v_out", tensor=new_kv_cache[idx + 1])
+        idx += 2

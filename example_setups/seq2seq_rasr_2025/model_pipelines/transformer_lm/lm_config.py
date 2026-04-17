@@ -2,12 +2,9 @@ from i6_core.rasr.config import RasrConfig
 from sisyphus import tk
 
 
-def get_lm_config_stateless(
-    onnx_model: tk.Path, vocab_file: tk.Path, lm_scale: float, use_gpu: bool = False
-) -> RasrConfig:
+def get_lm_config_stateless(onnx_model: tk.Path, vocab_file: tk.Path, use_gpu: bool = False) -> RasrConfig:
     rasr_config = RasrConfig()
     rasr_config.type = "onnx-stateless"
-    rasr_config.scale = lm_scale
     rasr_config.vocab_file = vocab_file
     rasr_config.max_batch_size = 4
     rasr_config.vocab_unknown_word = "<UNK>"
@@ -28,12 +25,9 @@ def get_lm_config_stateless(
     return rasr_config
 
 
-def get_lm_config_kv_cached(
-    onnx_model: tk.Path, vocab_file: tk.Path, lm_scale: float, use_gpu: bool = False
-) -> RasrConfig:
+def get_lm_config_kv_cached(onnx_model: tk.Path, vocab_file: tk.Path, use_gpu: bool = False) -> RasrConfig:
     rasr_config = RasrConfig()
     rasr_config.type = "onnx"
-    rasr_config.scale = lm_scale
     rasr_config.vocab_file = vocab_file
     rasr_config.max_batch_size = 64
     rasr_config.vocab_unknown_word = "<UNK>"

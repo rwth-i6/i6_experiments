@@ -6,11 +6,12 @@ from i6_core.returnn import PtCheckpoint
 from .export import export_model_stateless, export_scorer, export_state_initializer, export_state_updater
 from .pytorch_modules import TransformerLmConfig
 
+# TODO: Currently using stateless model which works but is very slow. LabelScorer with proper KV caching still needs to be added.
+
 
 def get_bpe_transformer_lm_label_scorer_config(
     model_config: TransformerLmConfig,
     checkpoint: PtCheckpoint,
-    scale: float = 1.0,
     execution_provider_type: Optional[str] = None,
 ) -> RasrConfig:
     model = export_model_stateless(model_config=model_config, checkpoint=checkpoint)
@@ -30,9 +31,6 @@ def get_bpe_transformer_lm_label_scorer_config(
     rasr_config.onnx_model.io_map.history = "tokens"
     rasr_config.onnx_model.io_map.history_length = "tokens:size1"
     rasr_config.onnx_model.io_map.scores = "scores"
-
-    if scale != 1.0:
-        rasr_config.scale = scale
 
     if execution_provider_type:
         rasr_config.onnx_model.session.execution_provider_type = execution_provider_type

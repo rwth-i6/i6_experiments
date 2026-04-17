@@ -1,6 +1,7 @@
 __all__ = ["get_lstm_lm_label_scorer_config"]
 
 from typing import Optional
+
 from i6_core.rasr.config import RasrConfig
 from i6_core.returnn.training import PtCheckpoint
 
@@ -11,7 +12,6 @@ from .pytorch_modules import LstmLmConfig
 def get_lstm_lm_label_scorer_config(
     model_config: LstmLmConfig,
     checkpoint: PtCheckpoint,
-    scale: float = 1.0,
     execution_provider_type: Optional[str] = None,
 ) -> RasrConfig:
     scorer_onnx_model = export_scorer(model_config=model_config, checkpoint=checkpoint)
@@ -45,9 +45,6 @@ def get_lstm_lm_label_scorer_config(
 
     rasr_config.state_updater_model.io_map = RasrConfig()
     rasr_config.state_updater_model.io_map.token = "token"
-
-    if scale != 1:
-        rasr_config.scale = scale
 
     if execution_provider_type:
         rasr_config.scorer_model.session.execution_provider_type = execution_provider_type

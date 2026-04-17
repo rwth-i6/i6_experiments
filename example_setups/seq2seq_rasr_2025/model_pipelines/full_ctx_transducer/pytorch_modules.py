@@ -66,6 +66,10 @@ class LstmTransducerModel(torch.nn.Module):
             bidirectional=False,
         )
         self.pred_act = cfg.pred_activation
+        self.pred_output = torch.nn.Sequential(
+            torch.nn.Dropout(cfg.dropout),
+            torch.nn.Linear(cfg.pred_dim, self.target_size),
+        )
 
         self.joiner = torch.nn.Sequential(
             torch.nn.Dropout(cfg.dropout),
@@ -208,24 +212,27 @@ class LstmTransducerScorer(LstmTransducerModel):
 
         scores[:, -1] += self.blank_penalty
 
-        zero_enc_combination = torch.concat([torch.zeros_like(encoder_states), lstm_out], dim=1)  # [B, E+P]
-        joint_output_ilm = self.joiner.forward(zero_enc_combination)  # [B, V]
-        ilm_log_probs = torch.nn.functional.log_softmax(joint_output_ilm, dim=1)  # [B, V]
+        if self.ilm_scale != 0:
+            zero_enc_combination = torch.concat([torch.zeros_like(encoder_states), lstm_out], dim=1)  # [B, E+P]
+            joint_output_ilm = self.joiner.forward(zero_enc_combination)  # [B, V]
+            ilm_log_probs = torch.nn.functional.log_softmax(joint_output_ilm, dim=1)  # [B, V]
 
-        # Set blank scores to zero and re-normalize the other scores
-        blank_log_probs = ilm_log_probs[:, -1:]  # [B, 1]
-        non_blank_log_probs = ilm_log_probs[:, :-1]  # [B, V-1]
-        ilm_log_probs = torch.concat(
-            [
-                non_blank_log_probs + torch.log(1.0 - torch.exp(blank_log_probs)),
-                torch.zeros_like(blank_log_probs),
-            ],
-            dim=-1,
-        )  # [B, V]
+            # Set blank scores to zero and re-normalize the other scores
+            blank_log_probs = ilm_log_probs[:, -1:]  # [B, 1]
+            non_blank_log_probs = ilm_log_probs[:, :-1]  # [B, V-1]
+            ilm_log_probs = torch.concat(
+                [
+                    non_blank_log_probs - torch.log1p(-torch.exp(blank_log_probs)),
+                    torch.zeros_like(blank_log_probs),
+                ],
+                dim=-1,
+            )  # [B, V]
 
-        ilm_scores = -ilm_log_probs
+            ilm_scores = -ilm_log_probs
 
-        return scores + self.ilm_scale * ilm_scores
+            scores -= self.ilm_scale * ilm_scores
+
+        return scores
 
 
 class LstmTransducerStateInitializer(LstmTransducerModel):

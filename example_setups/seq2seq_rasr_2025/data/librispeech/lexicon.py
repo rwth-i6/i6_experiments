@@ -6,7 +6,7 @@ from i6_experiments.common.datasets.librispeech.vocab import get_subword_nmt_bpe
 from sisyphus import tk
 
 from ...tools import subword_nmt_repo
-from ..base import RemoveSpecialLemmasFromLexiconJob
+from ..base import RemovePhonemeVariationsFromLexiconJob, RemoveSpecialLemmasFromLexiconJob
 
 
 def get_bpe_bliss_lexicon(bpe_size: int, add_blank: bool, add_sentence_end_pron: bool) -> tk.Path:
@@ -40,7 +40,11 @@ def get_bpe_bliss_lexicon(bpe_size: int, add_blank: bool, add_sentence_end_pron:
 
     lexicon_ext_file = WriteLexiconJob(lexicon_ext).out_bliss_lexicon
 
-    return MergeLexiconJob([bpe_lexicon_file, lexicon_ext_file]).out_bliss_lexicon
+    merged_lexicon = MergeLexiconJob([bpe_lexicon_file, lexicon_ext_file]).out_bliss_lexicon
+    return merged_lexicon
+    # TODO: Before finalizing, return cleaned_lexicon instead of merged_lexicon
+    # cleaned_lexicon = RemovePhonemeVariationsFromLexiconJob(merged_lexicon).out_lexicon
+    # return cleaned_lexicon
 
 
 def get_bliss_phoneme_lexicon() -> tk.Path:

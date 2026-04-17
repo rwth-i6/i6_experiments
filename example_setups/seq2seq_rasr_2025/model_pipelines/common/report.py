@@ -1,4 +1,4 @@
-__all__ = ["register_report", "create_recog_report", "register_recog_report"]
+__all__ = ["register_recog_report"]
 
 from typing import List, Optional
 
@@ -8,8 +8,8 @@ from sisyphus import gs, tk
 from .recog import RecogResult
 
 
-def register_report(report: TableReport, filename: str) -> None:
-    tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/{filename}", report, required=True)
+def register_recog_report(recog_results: List[RecogResult], filename: str = "report.txt") -> None:
+    tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/{filename}", _create_recog_report(recog_results), required=True)
 
 
 def _recog_result_to_dict(recog_result: RecogResult) -> dict[str, float]:
@@ -44,7 +44,7 @@ def _recog_result_to_dict(recog_result: RecogResult) -> dict[str, float]:
     return result
 
 
-def create_recog_report(recog_results: List[RecogResult]) -> TableReport:
+def _create_recog_report(recog_results: List[RecogResult]) -> TableReport:
     report = TableReport("Experiments", precision=5)
 
     recog_result_dicts = [
@@ -55,14 +55,10 @@ def create_recog_report(recog_results: List[RecogResult]) -> TableReport:
     for _, recog_result in recog_result_dicts:
         for name in recog_result:
             if name not in column_indices:
-                column_indices[name] = len(column_indices) + 1
+                column_indices[name] = len(column_indices) + 2
 
     for row_idx, (descriptor, recog_result) in enumerate(recog_result_dicts, start=1):
         for name, val in recog_result.items():
-            report.add_entry(col=f"{column_indices[name]} {name}", row=f"{row_idx}_{descriptor}", var=val)
+            report.add_entry(col=f"{column_indices[name]} {name}", row=f"{row_idx}__{descriptor}", var=val)
 
     return report
-
-
-def register_recog_report(recog_results: List[RecogResult], filename: str = "report.txt") -> None:
-    register_report(create_recog_report(recog_results), filename=filename)

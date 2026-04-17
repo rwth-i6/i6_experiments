@@ -18,25 +18,38 @@ minireturnn_root.hash_overwrite = "MINIRETURNN_ROOT"
 
 returnn_python_exe = tk.Path("/usr/bin/python3")
 
+# TODO: When everything necessary is merged, switch to master branch, update apptainer-setup
+# to torch-only image with CUDA enabled, update unhashed_package_roots and update lexicon
+# to version with no variations
+# And make all export returnn dims explicit
+
 # rasr_root = CloneGitRepositoryJob(
 #     "https://github.com/rwth-i6/rasr.git",
-#     branch="seq2seq-revamp",
+#     branch="master",
 #     checkout_folder_name="rasr",
 # ).out_repository
 # rasr_root.hash_overwrite = "RASR_ROOT"
+#
+# rasr_make_job = MakeJob(
+#     folder=rasr_root,
+#     make_sequence=["build", "install"],
+#     configure_opts=[
+#         "--apptainer-setup=2025-04-23_tensorflow-2.17_onnx-1.20_v2",
+#         "--disable-module=TENSORFLOW",
+#         "--disable-module=LM_TFRNN",
+#     ],
+#     num_processes=8,
+#     link_outputs={"binaries": "arch/linux-x86_64-standard/"},
+# )
+#
+# rasr_binary_path: tk.Path = rasr_make_job.out_links["binaries"]
+# rasr_binary_path.hash_overwrite = "RASR_BINARY_PATH"
+
 rasr_root = tk.Path(
     "/work/asr4/berger/rasr_dev/label_scorer/rasr/",
     hash_overwrite="RASR_ROOT",
 )
 
-# rasr_binary_path: tk.Path = MakeJob(
-#     folder=rasr_root,
-#     make_sequence=["build", "install"],
-#     configure_opts=["--apptainer-setup=2024-11-06_onnx-1.16_v1"],
-#     num_processes=8,
-#     link_outputs={"binaries": "arch/linux-x86_64-standard/"},
-# ).out_links["binaries"]
-# rasr_binary_path.hash_overwrite = "RASR_BINARY_PATH"
 rasr_binary_path = tk.Path(
     "/work/asr4/berger/rasr_dev/label_scorer/rasr/arch/linux-x86_64-standard",
     hash_overwrite="RASR_BINARY_PATH",

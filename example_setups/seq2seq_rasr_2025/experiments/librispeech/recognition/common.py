@@ -1,9 +1,11 @@
+__all__ = ["BaseRecogVariant", "run_single_bpe_variant", "run_single_phoneme_variant"]
+
 from dataclasses import dataclass, field, replace
 from typing import List, Optional, Union
 
-from i6_experiments.common.setups.serialization import Collection
 from i6_core.rasr import RasrConfig
 from i6_core.returnn import PtCheckpoint
+from i6_experiments.common.setups.serialization import Collection
 from sisyphus import tk
 
 from ....data.librispeech import datasets as librispeech_datasets
@@ -39,7 +41,66 @@ class BaseRecogVariant:
     compute_search_errors: bool = False
 
 
+def run_single_bpe_variant(
+    model_descriptor: str,
+    checkpoint: Optional[PtCheckpoint],
+    encoder_serializers: Collection,
+    label_scorer_configs: List[RasrConfig],
+    bpe_size: int,
+    blank_index: Optional[int],
+    sentence_end_index: Optional[int],
+    variant: BaseRecogVariant,
+    corpora: List[librispeech_datasets.EvalSet],
+) -> List[RecogResult]:
+    use_blank = blank_index is not None
+    use_sentence_end = sentence_end_index is not None
+    vocab_file = get_bpe_vocab_file(bpe_size=bpe_size, add_blank=use_blank)
+    lexicon_file = get_bpe_bliss_lexicon(bpe_size=bpe_size, add_blank=use_blank, add_sentence_end_pron=use_sentence_end)
+
+    return _run_single_variant(
+        model_descriptor=model_descriptor,
+        checkpoint=checkpoint,
+        encoder_serializers=encoder_serializers,
+        label_scorer_configs=label_scorer_configs,
+        vocab_file=vocab_file,
+        lexicon_file=lexicon_file,
+        blank_index=blank_index,
+        sentence_end_index=sentence_end_index,
+        variant=variant,
+        corpora=corpora,
+    )
+
+
+def run_single_phoneme_variant(
+    model_descriptor: str,
+    checkpoint: Optional[PtCheckpoint],
+    encoder_serializers: Collection,
+    label_scorer_configs: List[RasrConfig],
+    blank_index: Optional[int],
+    sentence_end_index: Optional[int],
+    variant: BaseRecogVariant,
+    corpora: List[librispeech_datasets.EvalSet],
+) -> List[RecogResult]:
+    assert not isinstance(variant.search_algorithm_params, LexiconfreeTimesyncRecogParams)
+    assert not isinstance(variant.search_algorithm_params, LexiconfreeLabelsyncRecogParams)
+    lexicon_file = get_bliss_phoneme_lexicon()
+
+    return _run_single_variant(
+        model_descriptor=model_descriptor,
+        checkpoint=checkpoint,
+        encoder_serializers=encoder_serializers,
+        label_scorer_configs=label_scorer_configs,
+        vocab_file=None,
+        lexicon_file=lexicon_file,
+        blank_index=blank_index,
+        sentence_end_index=sentence_end_index,
+        variant=variant,
+        corpora=corpora,
+    )
+
+
 def _run_single_variant(
+    model_descriptor: str,
     checkpoint: Optional[PtCheckpoint],
     encoder_serializers: Collection,
     label_scorer_configs: List[RasrConfig],
@@ -117,7 +178,7 @@ def _run_single_variant(
 
         if isinstance(variant.search_mode_params, OfflineRecogParameters):
             recog_result = recog_rasr_offline(
-                descriptor=variant.descriptor,
+                descriptor=f"{model_descriptor}__{variant.descriptor}",
                 checkpoint=checkpoint,
                 recog_rasr_config_file=recog_config,
                 align_rasr_config_file=align_config,
@@ -129,7 +190,7 @@ def _run_single_variant(
             )
         elif isinstance(variant.search_mode_params, StreamingRecogParameters):
             recog_result = recog_rasr_streaming(
-                descriptor=variant.descriptor,
+                descriptor=f"{model_descriptor}__{variant.descriptor}",
                 checkpoint=checkpoint,
                 recog_rasr_config_file=recog_config,
                 recog_data_config=recog_data,
@@ -142,57 +203,3 @@ def _run_single_variant(
         results.append(recog_result)
 
     return results
-
-
-def run_single_bpe_variant(
-    checkpoint: Optional[PtCheckpoint],
-    encoder_serializers: Collection,
-    label_scorer_configs: List[RasrConfig],
-    bpe_size: int,
-    blank_index: Optional[int],
-    sentence_end_index: Optional[int],
-    variant: BaseRecogVariant,
-    corpora: List[librispeech_datasets.EvalSet],
-) -> List[RecogResult]:
-    use_blank = blank_index is not None
-    use_sentence_end = sentence_end_index is not None
-    vocab_file = get_bpe_vocab_file(bpe_size=bpe_size, add_blank=use_blank)
-    lexicon_file = get_bpe_bliss_lexicon(bpe_size=bpe_size, add_blank=use_blank, add_sentence_end_pron=use_sentence_end)
-
-    return _run_single_variant(
-        checkpoint=checkpoint,
-        encoder_serializers=encoder_serializers,
-        label_scorer_configs=label_scorer_configs,
-        vocab_file=vocab_file,
-        lexicon_file=lexicon_file,
-        blank_index=blank_index,
-        sentence_end_index=sentence_end_index,
-        variant=variant,
-        corpora=corpora,
-    )
-
-
-def run_single_phoneme_variant(
-    checkpoint: Optional[PtCheckpoint],
-    encoder_serializers: Collection,
-    label_scorer_configs: List[RasrConfig],
-    blank_index: Optional[int],
-    sentence_end_index: Optional[int],
-    variant: BaseRecogVariant,
-    corpora: List[librispeech_datasets.EvalSet],
-) -> List[RecogResult]:
-    assert not isinstance(variant.search_algorithm_params, LexiconfreeTimesyncRecogParams)
-    assert not isinstance(variant.search_algorithm_params, LexiconfreeLabelsyncRecogParams)
-    lexicon_file = get_bliss_phoneme_lexicon()
-
-    return _run_single_variant(
-        checkpoint=checkpoint,
-        encoder_serializers=encoder_serializers,
-        label_scorer_configs=label_scorer_configs,
-        vocab_file=None,
-        lexicon_file=lexicon_file,
-        blank_index=blank_index,
-        sentence_end_index=sentence_end_index,
-        variant=variant,
-        corpora=corpora,
-    )

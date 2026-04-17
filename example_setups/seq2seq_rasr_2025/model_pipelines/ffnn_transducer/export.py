@@ -15,48 +15,6 @@ from .pytorch_modules import (
     FFNNTransducerScorer,
 )
 
-# -----------------------
-# --- Forward steps -----
-# -----------------------
-
-
-def _encoder_forward_step(*, model: FFNNTransducerEncoder, extern_data: TensorDict, **_):
-    import returnn.frontend as rf
-
-    run_ctx = rf.get_run_ctx()
-
-    audio_samples = extern_data["audio_samples"].raw_tensor  # [B, T, 1]
-    assert audio_samples is not None
-
-    assert extern_data["audio_samples"].dims[1].dyn_size_ext is not None
-    audio_samples_size = extern_data["audio_samples"].dims[1].dyn_size_ext.raw_tensor  # [B]
-    assert audio_samples_size is not None
-
-    encoder_states = model.forward(
-        audio_samples=audio_samples,
-        audio_samples_size=audio_samples_size,
-    )
-
-    run_ctx.mark_as_output(name="encoder_states", tensor=encoder_states)
-
-
-def _scorer_forward_step(*, model: FFNNTransducerScorer, extern_data: TensorDict, **_):
-    import returnn.frontend as rf
-
-    run_ctx = rf.get_run_ctx()
-
-    encoder_state = extern_data["encoder_state"].raw_tensor  # [B, V]
-    assert encoder_state is not None
-    history = extern_data["history"].raw_tensor  # [B, S]
-    assert history is not None
-
-    scores = model.forward(
-        encoder_state=encoder_state,
-        history=history,
-    )
-
-    run_ctx.mark_as_output(name="scores", tensor=scores)
-
 
 # -----------------------
 # --- Export routines ---
@@ -129,3 +87,46 @@ def export_scorer(model_config: FFNNTransducerRecogConfig, checkpoint: PtCheckpo
         input_names=["encoder_state", "history"],
         output_names=["scores"],
     )
+
+
+# -----------------------
+# --- Forward steps -----
+# -----------------------
+
+
+def _encoder_forward_step(*, model: FFNNTransducerEncoder, extern_data: TensorDict, **_):
+    import returnn.frontend as rf
+
+    run_ctx = rf.get_run_ctx()
+
+    audio_samples = extern_data["audio_samples"].raw_tensor  # [B, T, 1]
+    assert audio_samples is not None
+
+    assert extern_data["audio_samples"].dims[1].dyn_size_ext is not None
+    audio_samples_size = extern_data["audio_samples"].dims[1].dyn_size_ext.raw_tensor  # [B]
+    assert audio_samples_size is not None
+
+    encoder_states = model.forward(
+        audio_samples=audio_samples,
+        audio_samples_size=audio_samples_size,
+    )
+
+    run_ctx.mark_as_output(name="encoder_states", tensor=encoder_states)
+
+
+def _scorer_forward_step(*, model: FFNNTransducerScorer, extern_data: TensorDict, **_):
+    import returnn.frontend as rf
+
+    run_ctx = rf.get_run_ctx()
+
+    encoder_state = extern_data["encoder_state"].raw_tensor  # [B, V]
+    assert encoder_state is not None
+    history = extern_data["history"].raw_tensor  # [B, S]
+    assert history is not None
+
+    scores = model.forward(
+        encoder_state=encoder_state,
+        history=history,
+    )
+
+    run_ctx.mark_as_output(name="scores", tensor=scores)

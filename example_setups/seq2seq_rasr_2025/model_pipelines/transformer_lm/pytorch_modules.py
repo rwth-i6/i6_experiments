@@ -495,14 +495,14 @@ class TransformerLmStateInitializer(TransformerLm):
         x = self.dropout(x)  # [1, 1, D]
         transformer_out = x.reshape(1, self.hid_dim)  # [1, D]
 
-        return (transformer_out, *new_states) # [1, D], [[1, 1, D], ...]
+        return (transformer_out, *new_states)  # [1, D], [[1, 1, D], ...]
 
 
 class TransformerLmStateUpdater(TransformerLm):
     def forward(
         self,
         token: torch.Tensor,  # [B]
-        state_lengths: torch.Tensor, # [B]
+        state_lengths: torch.Tensor,  # [B]
         *kv_cache: torch.Tensor,
     ) -> tuple[torch.Tensor, ...]:
         assert (
@@ -564,7 +564,7 @@ class TransformerLmStateUpdater(TransformerLm):
                 ]
             )
 
-        x = self.output_layernorm(x) # [1, B, D]
+        x = self.output_layernorm(x)  # [1, B, D]
         x = self.dropout(x)  # [1, B, D]
         transformer_out = x.reshape(batch_size, self.hid_dim)  # [B, D]
 

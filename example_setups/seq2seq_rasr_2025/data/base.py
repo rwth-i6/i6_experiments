@@ -293,6 +293,29 @@ class RemoveSpecialLemmasFromLexiconJob(Job):
         write_xml(self.out_lexicon.get_path(), lexicon.to_xml())
 
 
+class RemovePhonemeVariationsFromLexiconJob(Job):
+    """
+    Set variation tag of all phonemes in lexicon to "none".
+    This is needed because CTC and transducer tree builders do not support context-aware phonemes
+    """
+
+    def __init__(self, lexicon_file: tk.Path) -> None:
+        self.lexicon_file = lexicon_file
+        self.out_lexicon = self.output_path("lexicon.xml.gz")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self) -> None:
+        lexicon = Lexicon()
+        lexicon.load(self.lexicon_file.get_path())
+
+        for phoneme in lexicon.phonemes:
+            lexicon.phonemes[phoneme] = "none"
+
+        write_xml(self.out_lexicon.get_path(), lexicon.to_xml())
+
+
 class BlissCorpusToTargetHdfJob(Job):
     """
     Use a bliss lexicon to convert all words in a bliss corpus into their phoneme representation

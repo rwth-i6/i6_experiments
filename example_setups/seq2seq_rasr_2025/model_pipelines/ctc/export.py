@@ -12,34 +12,6 @@ from ..common.serializers import get_model_serializers
 from .pytorch_modules import ConformerCTCRecogConfig, ConformerCTCRecogExportModel
 
 
-def _model_forward_step(*, model: ConformerCTCRecogExportModel, extern_data: TensorDict, **_):
-    import returnn.frontend as rf
-    from returnn.tensor.dim import batch_dim
-
-    run_ctx = rf.get_run_ctx()
-
-    features = extern_data["features"].raw_tensor  # [B, T, 1]
-    assert features is not None
-
-    assert extern_data["features"].dims[1].dyn_size_ext is not None
-    features_size = extern_data["features"].dims[1].dyn_size_ext.raw_tensor  # [B]
-    assert features_size is not None
-
-    scores, scores_size = model.forward(
-        features=features,
-        features_size=features_size,
-    )
-
-    run_ctx.mark_as_output(
-        name="enc_out",
-        tensor=scores,
-    )
-    if run_ctx.expected_outputs is not None:
-        run_ctx.expected_outputs["enc_out"].dims[1].dyn_size_ext = rf.Tensor(
-            "enc_out_time", dims=[batch_dim], raw_tensor=scores_size.long(), dtype="int64"
-        )
-
-
 def export_model(model_config: ConformerCTCRecogConfig, checkpoint: PtCheckpoint) -> tk.Path:
     model_serializers = get_model_serializers(model_class=ConformerCTCRecogExportModel, model_config=model_config)
 
@@ -68,3 +40,31 @@ def export_model(model_config: ConformerCTCRecogConfig, checkpoint: PtCheckpoint
         input_names=["features", "features:size1"],
         output_names=["enc_out"],
     )
+
+
+def _model_forward_step(*, model: ConformerCTCRecogExportModel, extern_data: TensorDict, **_):
+    import returnn.frontend as rf
+    from returnn.tensor.dim import batch_dim
+
+    run_ctx = rf.get_run_ctx()
+
+    features = extern_data["features"].raw_tensor  # [B, T, 1]
+    assert features is not None
+
+    assert extern_data["features"].dims[1].dyn_size_ext is not None
+    features_size = extern_data["features"].dims[1].dyn_size_ext.raw_tensor  # [B]
+    assert features_size is not None
+
+    scores, scores_size = model.forward(
+        features=features,
+        features_size=features_size,
+    )
+
+    run_ctx.mark_as_output(
+        name="enc_out",
+        tensor=scores,
+    )
+    if run_ctx.expected_outputs is not None:
+        run_ctx.expected_outputs["enc_out"].dims[1].dyn_size_ext = rf.Tensor(
+            "enc_out_time", dims=[batch_dim], raw_tensor=scores_size.long(), dtype="int64"
+        )

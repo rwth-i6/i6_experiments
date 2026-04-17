@@ -1,4 +1,5 @@
 from typing import Optional
+
 from i6_core.rasr.config import RasrConfig
 from sisyphus import tk
 

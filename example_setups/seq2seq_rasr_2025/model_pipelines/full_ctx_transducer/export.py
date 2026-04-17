@@ -6,96 +6,16 @@ from sisyphus import tk
 
 from i6_experiments.common.setups.serialization import Import
 
-from ..common.export import export_model as _export_model
-from ..common.imports import get_model_serializers
+from ..common.onnx_export import export_model as _export_model
+from ..common.serializers import get_model_serializers
 from .pytorch_modules import (
     LstmTransducerConfig,
-    LstmTransducerRecogConfig,
     LstmTransducerEncoder,
+    LstmTransducerRecogConfig,
     LstmTransducerScorer,
     LstmTransducerStateInitializer,
     LstmTransducerStateUpdater,
 )
-
-# -----------------------
-# --- Forward steps -----
-# -----------------------
-
-
-def _encoder_forward_step(*, model: LstmTransducerEncoder, extern_data: TensorDict, **_):
-    import returnn.frontend as rf
-
-    run_ctx = rf.get_run_ctx()
-
-    audio_samples = extern_data["audio_samples"].raw_tensor  # [B, T, 1]
-    assert audio_samples is not None
-
-    assert extern_data["audio_samples"].dims[1].dyn_size_ext is not None
-    audio_samples_size = extern_data["audio_samples"].dims[1].dyn_size_ext.raw_tensor  # [B]
-    assert audio_samples_size is not None
-
-    encoder_states = model.forward(
-        audio_samples=audio_samples,
-        audio_samples_size=audio_samples_size,
-    )
-
-    run_ctx.mark_as_output(name="encoder_states", tensor=encoder_states)
-
-
-def _scorer_forward_step(*, model: LstmTransducerScorer, extern_data: TensorDict, **_):
-    import returnn.frontend as rf
-
-    run_ctx = rf.get_run_ctx()
-
-    encoder_state = extern_data["encoder_state"].raw_tensor  # [B, E]
-    assert encoder_state is not None
-    lstm_out = extern_data["lstm_out"].raw_tensor  # [B, P]
-    assert lstm_out is not None
-
-    scores = model.forward(
-        encoder_state=encoder_state,
-        lstm_out=lstm_out,
-    )
-
-    run_ctx.mark_as_output(name="scores", tensor=scores)
-
-
-def _state_initializer_forward_step(*, model: LstmTransducerStateInitializer, extern_data: TensorDict, **_):
-    import returnn.frontend as rf
-
-    run_ctx = rf.get_run_ctx()
-
-    encoder_states = extern_data["encoder_states"].raw_tensor
-    assert encoder_states is not None
-    assert extern_data["encoder_states"].dims[1].dyn_size_ext is not None
-    encoder_states_size = extern_data["encoder_states"].dims[1].dyn_size_ext.raw_tensor
-    assert encoder_states_size is not None
-
-    lstm_out, lstm_h, lstm_c = model.forward()
-
-    run_ctx.mark_as_output(name="lstm_out", tensor=lstm_out)
-    run_ctx.mark_as_output(name="lstm_h", tensor=lstm_h)
-    run_ctx.mark_as_output(name="lstm_c", tensor=lstm_c)
-
-
-def _state_updater_forward_step(*, model: LstmTransducerStateUpdater, extern_data: TensorDict, **_):
-    import returnn.frontend as rf
-
-    run_ctx = rf.get_run_ctx()
-
-    token = extern_data["token"].raw_tensor
-    assert token is not None
-    lstm_c_in = extern_data["lstm_c_in"].raw_tensor
-    assert lstm_c_in is not None
-    lstm_h_in = extern_data["lstm_h_in"].raw_tensor
-    assert lstm_h_in is not None
-
-    lstm_out, lstm_h_out, lstm_c_out = model.forward(token=token, lstm_h=lstm_h_in, lstm_c=lstm_c_in)
-
-    run_ctx.mark_as_output(name="lstm_out", tensor=lstm_out)
-    run_ctx.mark_as_output(name="lstm_h_out", tensor=lstm_h_out)
-    run_ctx.mark_as_output(name="lstm_c_out", tensor=lstm_c_out)
-
 
 # -----------------------
 # --- Export routines ---
@@ -142,6 +62,12 @@ def export_scorer(model_config: LstmTransducerRecogConfig, checkpoint: PtCheckpo
         checkpoint=checkpoint,
         returnn_config_dict={
             "extern_data": {
+                "encoder_state": {
+                    "shape": (1, model_config.enc_dim),
+                    "dim": model_config.enc_dim,
+                    "dtype": "float32",
+                    "batch_dim_axis": None,
+                },
                 "lstm_out": {
                     "dim": model_config.pred_dim,
                     "time_dim_axis": None,
@@ -156,7 +82,7 @@ def export_scorer(model_config: LstmTransducerRecogConfig, checkpoint: PtCheckpo
                 },
             },
         },
-        input_names=["lstm_out"],
+        input_names=["encoder_state", "lstm_out"],
         output_names=["scores"],
         metadata={
             "lstm_out": "lstm_out",
@@ -281,3 +207,77 @@ def export_state_updater(model_config: LstmTransducerConfig, checkpoint: PtCheck
             "lstm_c_out": "lstm_c",
         },
     )
+
+
+# -----------------------
+# --- Forward steps -----
+# -----------------------
+
+
+def _encoder_forward_step(*, model: LstmTransducerEncoder, extern_data: TensorDict, **_):
+    import returnn.frontend as rf
+
+    run_ctx = rf.get_run_ctx()
+
+    audio_samples = extern_data["audio_samples"].raw_tensor  # [B, T, 1]
+    assert audio_samples is not None
+
+    assert extern_data["audio_samples"].dims[1].dyn_size_ext is not None
+    audio_samples_size = extern_data["audio_samples"].dims[1].dyn_size_ext.raw_tensor  # [B]
+    assert audio_samples_size is not None
+
+    encoder_states = model.forward(
+        audio_samples=audio_samples,
+        audio_samples_size=audio_samples_size,
+    )
+
+    run_ctx.mark_as_output(name="encoder_states", tensor=encoder_states)
+
+
+def _scorer_forward_step(*, model: LstmTransducerScorer, extern_data: TensorDict, **_):
+    import returnn.frontend as rf
+
+    run_ctx = rf.get_run_ctx()
+
+    encoder_state = extern_data["encoder_state"].raw_tensor  # [B, E]
+    assert encoder_state is not None
+    lstm_out = extern_data["lstm_out"].raw_tensor  # [B, P]
+    assert lstm_out is not None
+
+    scores = model.forward(
+        encoder_state=encoder_state,
+        lstm_out=lstm_out,
+    )
+
+    run_ctx.mark_as_output(name="scores", tensor=scores)
+
+
+def _state_initializer_forward_step(*, model: LstmTransducerStateInitializer, extern_data: TensorDict, **_):
+    import returnn.frontend as rf
+
+    run_ctx = rf.get_run_ctx()
+
+    lstm_out, lstm_h, lstm_c = model.forward()
+
+    run_ctx.mark_as_output(name="lstm_out", tensor=lstm_out)
+    run_ctx.mark_as_output(name="lstm_h", tensor=lstm_h)
+    run_ctx.mark_as_output(name="lstm_c", tensor=lstm_c)
+
+
+def _state_updater_forward_step(*, model: LstmTransducerStateUpdater, extern_data: TensorDict, **_):
+    import returnn.frontend as rf
+
+    run_ctx = rf.get_run_ctx()
+
+    token = extern_data["token"].raw_tensor
+    assert token is not None
+    lstm_c_in = extern_data["lstm_c_in"].raw_tensor
+    assert lstm_c_in is not None
+    lstm_h_in = extern_data["lstm_h_in"].raw_tensor
+    assert lstm_h_in is not None
+
+    lstm_out, lstm_h_out, lstm_c_out = model.forward(token=token, lstm_h=lstm_h_in, lstm_c=lstm_c_in)
+
+    run_ctx.mark_as_output(name="lstm_out", tensor=lstm_out)
+    run_ctx.mark_as_output(name="lstm_h_out", tensor=lstm_h_out)
+    run_ctx.mark_as_output(name="lstm_c_out", tensor=lstm_c_out)

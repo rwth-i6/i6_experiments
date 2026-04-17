@@ -1,20 +1,20 @@
-__all__ = ["TrainOptions", "train"]
+__all__ = ["TrainOptions", "TrainedModel", "train"]
 
 from dataclasses import dataclass
-from typing import Generic, List, Optional, TypeVar
+from typing import Generic, List, Optional, Type, TypeVar
 
 from i6_core.returnn import PtCheckpoint
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.training import ReturnnTrainingJob
-from i6_experiments.common.setups.serialization import Collection, ExternalImport, Import
-from i6_models.config import ModelConfiguration
+from i6_experiments.common.setups.serialization import ExternalImport, Import
+from i6_models.config import ModelConfiguration, ModuleType
 from sisyphus import tk
 
 from ...data.base import DataConfig
 from ...tools import minireturnn_root, returnn_python_exe
 from ..common.learning_rates import LRConfig
 from ..common.optimizer import OptimizerConfig
-from ..common.serializers import recipe_imports
+from ..common.serializers import get_model_serializers, recipe_imports
 
 
 @dataclass
@@ -32,7 +32,6 @@ class TrainOptions:
     gpu_mem_rqmt: float
     max_seqs: Optional[int]
     max_seq_length: Optional[int]
-    register_outputs: bool
 
 
 ModelConfigType = TypeVar("ModelConfigType", bound=ModelConfiguration)
@@ -40,16 +39,25 @@ ModelConfigType = TypeVar("ModelConfigType", bound=ModelConfiguration)
 
 @dataclass
 class TrainedModel(Generic[ModelConfigType]):
+    descriptor: str
     model_config: ModelConfigType
-    train_job: ReturnnTrainingJob
+    checkpoints: dict[int, PtCheckpoint]
 
     def get_checkpoint(self, epoch: Optional[int] = None) -> PtCheckpoint:
         if epoch is None:
-            epoch = max(self.train_job.out_checkpoints)
-        return self.train_job.out_checkpoints[epoch]  # type: ignore
+            epoch = max(self.checkpoints)
+        return self.checkpoints[epoch]
 
 
-def train(options: TrainOptions, model_serializers: Collection, train_step_import: Import) -> ReturnnTrainingJob:
+def train(
+    descriptor: str,
+    model_class: Type[ModuleType],
+    model_config: ModelConfigType,
+    options: TrainOptions,
+    train_step_import: Import,
+) -> TrainedModel[ModelConfigType]:
+    model_serializers = get_model_serializers(model_class=model_class, model_config=model_config)
+
     num_epochs = options.save_epochs[-1]
 
     config_dict = {
@@ -104,9 +112,8 @@ def train(options: TrainOptions, model_serializers: Collection, train_step_impor
     )
     train_job.rqmt["gpu_mem"] = options.gpu_mem_rqmt
 
-    if options.register_outputs:
-        train_job.add_alias("training")
-        tk.register_output("training/learning_rates", train_job.out_learning_rates)
-        tk.register_output("training/final_checkpoint", train_job.out_checkpoints[num_epochs].path)  # type: ignore
+    train_job.add_alias(f"training/{descriptor}")
+    tk.register_output(f"training/{descriptor}/learning_rates", train_job.out_learning_rates)
+    tk.register_output(f"training/{descriptor}/final_checkpoint", train_job.out_checkpoints[num_epochs].path)  # type: ignore
 
-    return train_job
+    return TrainedModel(descriptor=descriptor, model_config=model_config, checkpoints=train_job.out_checkpoints)  # type: ignore

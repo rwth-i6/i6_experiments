@@ -1,24 +1,31 @@
-__all__ = ["train"]
+__all__ = ["CTCMultiOutputTrainOptions", "get_train_step_import"]
 
 
 from dataclasses import dataclass
 from typing import List
+
 import torch
 from minireturnn.torch.context import RunCtx
 
 from i6_experiments.common.setups.serialization import PartialImport
 
-from ..common.serializers import get_model_serializers
-from ..common.train import TrainOptions, TrainedModel
-from ..common.train import train as train_
-from .pytorch_modules import ConformerCTCMultiOutputConfig, ConformerCTCMultiOutputModel
-
-TrainedCTCMultiOutputModel = TrainedModel[ConformerCTCMultiOutputConfig]
+from ..common.train import TrainOptions
+from .pytorch_modules import ConformerCTCMultiOutputModel
 
 
 @dataclass
 class CTCMultiOutputTrainOptions(TrainOptions):
     target_names: List[str]
+
+
+def get_train_step_import(options: CTCMultiOutputTrainOptions) -> PartialImport:
+    return PartialImport(
+        code_object_path=f"{_train_step.__module__}.{_train_step.__name__}",
+        hashed_arguments={"target_names": options.target_names},
+        unhashed_arguments={},
+        unhashed_package_root="",
+        import_as="train_step",
+    )
 
 
 def _train_step(*, model: ConformerCTCMultiOutputModel, data: dict, run_ctx: RunCtx, target_names: List[str], **_):
@@ -47,19 +54,3 @@ def _train_step(*, model: ConformerCTCMultiOutputModel, data: dict, run_ctx: Run
         )
 
         run_ctx.mark_as_loss(name=f"CTC_{target_name}", loss=loss, inv_norm_factor=torch.sum(targets_size))
-
-
-def train(
-    options: CTCMultiOutputTrainOptions, model_config: ConformerCTCMultiOutputConfig
-) -> TrainedCTCMultiOutputModel:
-    model_serializers = get_model_serializers(model_class=ConformerCTCMultiOutputModel, model_config=model_config)
-    train_step_import = PartialImport(
-        code_object_path=f"{_train_step.__module__}.{_train_step.__name__}",
-        hashed_arguments={"target_names": options.target_names},
-        unhashed_arguments={},
-        unhashed_package_root="",
-        import_as="train_step",
-    )
-
-    train_job = train_(options=options, model_serializers=model_serializers, train_step_import=train_step_import)
-    return TrainedModel(model_config=model_config, train_job=train_job)

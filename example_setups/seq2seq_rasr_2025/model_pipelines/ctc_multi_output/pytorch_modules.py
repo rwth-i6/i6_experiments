@@ -12,10 +12,7 @@ from typing import List, Tuple
 
 import numpy as np
 import torch
-from i6_models.assemblies.conformer import (
-    ConformerRelPosEncoderV1,
-    ConformerRelPosEncoderV1Config,
-)
+from i6_models.assemblies.conformer import ConformerRelPosEncoderV1, ConformerRelPosEncoderV1Config
 from i6_models.config import ModelConfiguration
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
 from i6_models.primitives.specaugment import specaugment_v1_by_length
