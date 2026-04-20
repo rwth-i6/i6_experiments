@@ -115,7 +115,7 @@ def export_model_kv_cached(model_config: TransformerLmConfig, checkpoint: PtChec
     return _export_model(
         model_serializers=model_serializers,
         forward_step_import=Import(
-            f"{_forward_step_v2.__module__}.{_forward_step_v2.__name__}", import_as="forward_step"
+            f"{_forward_step_kv_cache.__module__}.{_forward_step_kv_cache.__name__}", import_as="forward_step"
         ),
         checkpoint=checkpoint,
         returnn_config_dict={
@@ -329,7 +329,7 @@ def _forward_step(*, model: TransformerLm, extern_data: TensorDict, **_):
     run_ctx.mark_as_output(name="scores", tensor=scores)
 
 
-def _forward_step_v2(*, model: TransformerLmOnnxWrapper, extern_data: TensorDict, **_):
+def _forward_step_kv_cache(*, model: TransformerLmOnnxWrapper, extern_data: TensorDict, **_):
     import returnn.frontend as rf
     from returnn.tensor.dim import batch_dim
 
@@ -340,7 +340,6 @@ def _forward_step_v2(*, model: TransformerLmOnnxWrapper, extern_data: TensorDict
     assert extern_data["tokens"].dims[1].dyn_size_ext is not None
     tokens_size = extern_data["tokens"].dims[1].dyn_size_ext.raw_tensor  # [B]
     assert tokens_size is not None
-    tokens_size = tokens_size.long()
 
     assert extern_data["state_l000_k_in"].dims[1].dyn_size_ext is not None
     prefix_lens = extern_data["state_l000_k_in"].dims[1].dyn_size_ext.raw_tensor  # [B]
@@ -356,15 +355,10 @@ def _forward_step_v2(*, model: TransformerLmOnnxWrapper, extern_data: TensorDict
 
     run_ctx.mark_as_output(name="scores", tensor=scores)
 
-    suffix_time_dim = rf.Tensor("suffix_time", dims=[batch_dim], raw_tensor=tokens_size.long(), dtype="int32")
-
     idx = 0
     for layer in range(model.num_layers):
         run_ctx.mark_as_output(name=f"state_l{layer:03d}_k_out", tensor=new_kv_cache[idx])
         run_ctx.mark_as_output(name=f"state_l{layer:03d}_v_out", tensor=new_kv_cache[idx + 1])
-        if run_ctx.expected_outputs is not None:
-            run_ctx.expected_outputs[f"state_l{layer:03d}_k_out"].dims[1].dyn_size_ext = suffix_time_dim
-            run_ctx.expected_outputs[f"state_l{layer:03d}_v_out"].dims[1].dyn_size_ext = suffix_time_dim
         idx += 2
 
 

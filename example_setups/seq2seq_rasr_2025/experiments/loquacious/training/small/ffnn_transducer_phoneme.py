@@ -13,19 +13,39 @@ from i6_models.parts.frontend.generic_frontend import FrontendLayerType, Generic
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Config
 
 from .....data.loquacious import datasets as loquacious_datasets
-from .....data.loquacious.bpe import bpe_to_vocab_size
 from .....data.loquacious.phoneme import PHONEME_SIZE
 from .....model_pipelines.common.learning_rates import OCLRConfig
-from .....model_pipelines.common.optimizer import AdamWConfig
-from .....model_pipelines.ctc_multi_output.pytorch_modules import (
-    ConformerCTCMultiOutputConfig,
-    SpecaugmentByLengthConfig,
-)
-from .....model_pipelines.ctc_multi_output.train import CTCMultiOutputTrainOptions, TrainedCTCMultiOutputModel, train
+from .....model_pipelines.common.optimizer import RAdamConfig
+from .....model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
+from .....model_pipelines.common.train import TrainedModel, train
+from .....model_pipelines.ffnn_transducer.pytorch_modules import FFNNTransducerConfig, FFNNTransducerModel
+from .....model_pipelines.ffnn_transducer.train import FFNNTransducerTrainOptions, get_train_step_import
 
 
-def get_model_config(bpe_size: int = 128) -> ConformerCTCMultiOutputConfig:
-    return ConformerCTCMultiOutputConfig(
+def run(
+    descriptor: str,
+    model_config: Optional[FFNNTransducerConfig] = None,
+    train_options: Optional[FFNNTransducerTrainOptions] = None,
+) -> TrainedModel[FFNNTransducerConfig]:
+    if model_config is None:
+        model_config = get_model_config()
+    if train_options is None:
+        train_options = get_train_options()
+
+    return train(
+        descriptor=descriptor,
+        model_class=FFNNTransducerModel,
+        model_config=model_config,
+        options=train_options,
+        train_step_import=get_train_step_import(train_options),
+    )
+
+
+def get_model_config(
+    num_layers: int = 12,
+    layer_size: int = 512,
+) -> FFNNTransducerConfig:
+    return FFNNTransducerConfig(
         logmel_cfg=LogMelFeatureExtractionV1Config(
             sample_rate=16000,
             win_size=0.025,
@@ -38,7 +58,7 @@ def get_model_config(bpe_size: int = 128) -> ConformerCTCMultiOutputConfig:
             n_fft=400,
         ),
         specaug_cfg=SpecaugmentByLengthConfig(
-            start_epoch=51,
+            start_epoch=6,
             time_min_num_masks=2,
             time_max_mask_per_n_frames=25,
             time_mask_max_size=20,
@@ -47,7 +67,7 @@ def get_model_config(bpe_size: int = 128) -> ConformerCTCMultiOutputConfig:
             freq_mask_max_size=16,
         ),
         conformer_cfg=ConformerRelPosEncoderV1Config(
-            num_layers=12,
+            num_layers=num_layers,
             frontend=ModuleFactoryV1(
                 GenericFrontendV1,
                 GenericFrontendV1Config(
@@ -70,19 +90,19 @@ def get_model_config(bpe_size: int = 128) -> ConformerCTCMultiOutputConfig:
                     pool_strides=None,
                     pool_paddings=None,
                     activations=[torch.nn.ReLU(), torch.nn.ReLU()],
-                    out_features=512,
+                    out_features=layer_size,
                 ),
             ),
             block_cfg=ConformerRelPosBlockV1Config(
                 ff_cfg=ConformerPositionwiseFeedForwardV2Config(
-                    input_dim=512,
-                    hidden_dim=2048,
+                    input_dim=layer_size,
+                    hidden_dim=4 * layer_size,
                     dropout=0.1,
                     activation=torch.nn.SiLU(),
                     dropout_broadcast_axes=None,
                 ),
                 mhsa_cfg=ConformerMHSARelPosV1Config(
-                    input_dim=512,
+                    input_dim=layer_size,
                     num_att_heads=8,
                     att_weights_dropout=0.1,
                     dropout=0.1,
@@ -96,42 +116,49 @@ def get_model_config(bpe_size: int = 128) -> ConformerCTCMultiOutputConfig:
                     dropout_broadcast_axes=None,
                 ),
                 conv_cfg=ConformerConvolutionV2Config(
-                    channels=512,
+                    channels=layer_size,
                     kernel_size=31,
                     dropout=0.1,
                     activation=torch.nn.SiLU(),
-                    norm=LayerNormNC(512),
+                    norm=LayerNormNC(layer_size),
                     dropout_broadcast_axes=None,
                 ),
                 modules=["ff", "conv", "mhsa", "ff"],
                 scales=[0.5, 1.0, 1.0, 0.5],
             ),
         ),
-        dim=512,
-        layer_idx_target_size_list=[(11, PHONEME_SIZE + 1), (11, bpe_to_vocab_size(bpe_size=bpe_size) + 1)],
         dropout=0.1,
+        enc_dim=layer_size,
+        pred_num_layers=2,
+        pred_dim=640,
+        pred_activation=torch.nn.Tanh(),
+        context_history_size=1,
+        context_embedding_dim=256,
+        joiner_dim=1024,
+        joiner_activation=torch.nn.Tanh(),
+        target_size=PHONEME_SIZE + 1,
     )
 
 
-def get_train_options(bpe_size: int = 128) -> CTCMultiOutputTrainOptions:
-    train_data_config = loquacious_datasets.get_medium_bpe_phoneme_train_data(bpe_size=bpe_size)
-    cv_data_config = loquacious_datasets.get_medium_bpe_phoneme_cv_data(bpe_size=bpe_size)
+def get_train_options(num_epochs: int = 100, speed_perturbation: bool = True) -> FFNNTransducerTrainOptions:
+    train_data_config = loquacious_datasets.get_small_phoneme_train_data(speed_perturb=speed_perturbation)
+    cv_data_config = loquacious_datasets.get_phoneme_cv_data()
 
     partition_epoch = train_data_config.oggzip_config.partition_epoch
 
-    num_epochs = 40
     save_epochs = list(range(num_epochs * 3 // 4, num_epochs - 5, 5)) + list(range(num_epochs - 5, num_epochs + 1))
     save_subepochs = [epoch * partition_epoch for epoch in save_epochs]
 
-    return CTCMultiOutputTrainOptions(
+    return FFNNTransducerTrainOptions(
         train_data_config=train_data_config,
         cv_data_config=cv_data_config,
         save_epochs=save_subepochs,
-        batch_size=24_000 * 160,
-        accum_grad_multiple_step=1,
-        optimizer_config=AdamWConfig(
-            epsilon=1e-16,
+        batch_size=8_000 * 160,
+        accum_grad_multiple_step=3,
+        optimizer_config=RAdamConfig(
+            epsilon=1e-12,
             weight_decay=0.01,
+            decoupled_weight_decay=True,
         ),
         lr_config=OCLRConfig(
             init_lr=7e-06,
@@ -142,24 +169,12 @@ def get_train_options(bpe_size: int = 128) -> CTCMultiOutputTrainOptions:
             dec_epochs=(num_epochs - 4) // 2 * partition_epoch,
             final_epochs=4 * partition_epoch,
         ),
+        enc_loss_scale=0.5,
+        pred_loss_scale=0.0,
         gradient_clip=1.0,
         num_workers_per_gpu=2,
         automatic_mixed_precision=True,
         gpu_mem_rqmt=24,
         max_seqs=None,
         max_seq_length=None,
-        target_names=["phoneme", "bpe"],
-        register_outputs=True,
     )
-
-
-def run(
-    model_config: Optional[ConformerCTCMultiOutputConfig] = None,
-    train_options: Optional[CTCMultiOutputTrainOptions] = None,
-) -> TrainedCTCMultiOutputModel:
-    if model_config is None:
-        model_config = get_model_config()
-    if train_options is None:
-        train_options = get_train_options()
-
-    return train(options=train_options, model_config=model_config)

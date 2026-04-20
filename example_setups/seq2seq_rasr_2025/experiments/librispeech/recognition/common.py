@@ -178,7 +178,7 @@ def _run_single_variant(
 
         if isinstance(variant.search_mode_params, OfflineRecogParameters):
             recog_result = recog_rasr_offline(
-                descriptor=f"{model_descriptor}__{variant.descriptor}",
+                descriptor=f"{model_descriptor}__recog_{variant.descriptor}",
                 checkpoint=checkpoint,
                 recog_rasr_config_file=recog_config,
                 align_rasr_config_file=align_config,
@@ -190,7 +190,7 @@ def _run_single_variant(
             )
         elif isinstance(variant.search_mode_params, StreamingRecogParameters):
             recog_result = recog_rasr_streaming(
-                descriptor=f"{model_descriptor}__{variant.descriptor}",
+                descriptor=f"{model_descriptor}__recog_{variant.descriptor}",
                 checkpoint=checkpoint,
                 recog_rasr_config_file=recog_config,
                 recog_data_config=recog_data,

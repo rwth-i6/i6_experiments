@@ -14,17 +14,41 @@ from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Con
 
 from .....data.loquacious.bpe import bpe_to_vocab_size
 from .....data.loquacious.datasets import get_medium_bpe_cv_data, get_medium_bpe_train_data
-from .....model_pipelines.aed.pytorch_modules import AdditiveAttentionConfig, AttentionLSTMDecoderV1Config
-from .....model_pipelines.combination_model.pytorch_modules import CombinationModelConfig
-from .....model_pipelines.combination_model.train import CombinationTrainOptions, TrainedCombinationModel, train
-from .....model_pipelines.common.learning_rates import OCLRConfig
-from .....model_pipelines.common.optimizer import AdamWConfig
+from .....model_pipelines.aed.pytorch_modules import (
+    AdditiveAttentionConfig,
+    AEDConfig,
+    AEDModel,
+    AttentionLSTMDecoderV1Config,
+)
+from .....model_pipelines.aed.train import AEDTrainOptions, get_train_step_import
+from .....model_pipelines.common.learning_rates import ConstConstDecayLRConfig
+from .....model_pipelines.common.optimizer import RAdamConfig
 from .....model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
+from .....model_pipelines.common.train import TrainedModel, train
 
 
-def get_model_config(bpe_size: int = 128) -> CombinationModelConfig:
+def run(
+    descriptor: str,
+    model_config: Optional[AEDConfig] = None,
+    train_options: Optional[AEDTrainOptions] = None,
+) -> TrainedModel[AEDConfig]:
+    if model_config is None:
+        model_config = get_model_config()
+    if train_options is None:
+        train_options = get_train_options()
+
+    return train(
+        descriptor=descriptor,
+        model_class=AEDModel,
+        model_config=model_config,
+        options=train_options,
+        train_step_import=get_train_step_import(train_options),
+    )
+
+
+def get_model_config(bpe_size: int = 128) -> AEDConfig:
     vocab_size = bpe_to_vocab_size(bpe_size=bpe_size)
-    return CombinationModelConfig(
+    return AEDConfig(
         logmel_cfg=LogMelFeatureExtractionV1Config(
             sample_rate=16000,
             win_size=0.025,
@@ -65,7 +89,7 @@ def get_model_config(bpe_size: int = 128) -> CombinationModelConfig:
                     conv_out_dims=[32, 64, 64, 32],
                     conv_strides=None,
                     conv_paddings=None,
-                    pool_kernel_sizes=[(2, 1), (2, 1)],
+                    pool_kernel_sizes=[(3, 1), (2, 1)],
                     pool_strides=None,
                     pool_paddings=None,
                     activations=[torch.nn.ReLU(), torch.nn.ReLU()],
@@ -106,8 +130,9 @@ def get_model_config(bpe_size: int = 128) -> CombinationModelConfig:
                 scales=[0.5, 1.0, 1.0, 0.5],
             ),
         ),
+        final_dropout=0.1,
         enc_dim=512,
-        attention_decoder_config=AttentionLSTMDecoderV1Config(
+        decoder_config=AttentionLSTMDecoderV1Config(
             encoder_dim=512,
             vocab_size=vocab_size,
             target_embed_dim=640,
@@ -122,20 +147,11 @@ def get_model_config(bpe_size: int = 128) -> CombinationModelConfig:
                 att_weights_dropout=0.1,
             ),
         ),
-        transducer_pred_num_layers=2,
-        transducer_pred_dim=640,
-        transducer_pred_activation=torch.nn.Tanh(),
-        transducer_context_history_size=1,
-        transducer_context_embedding_dim=256,
-        transducer_joiner_dim=1024,
-        transducer_joiner_activation=torch.nn.Tanh(),
-        transducer_decoder_dropout=0.1,
-        ctc_dropout=0.1,
-        target_size=vocab_size + 1,
+        label_target_size=vocab_size,
     )
 
 
-def get_train_options(bpe_size: int = 128) -> CombinationTrainOptions:
+def get_train_options(bpe_size: int = 128) -> AEDTrainOptions:
     train_data_config = get_medium_bpe_train_data(bpe_size=bpe_size)
     assert train_data_config.target_config
     train_data_config.target_config["seq_postfix"] = [0]
@@ -150,47 +166,34 @@ def get_train_options(bpe_size: int = 128) -> CombinationTrainOptions:
     save_epochs = list(range(num_epochs * 3 // 4, num_epochs - 5, 5)) + list(range(num_epochs - 5, num_epochs + 1))
     save_subepochs = [epoch * partition_epoch for epoch in save_epochs]
 
-    return CombinationTrainOptions(
+    return AEDTrainOptions(
         train_data_config=train_data_config,
         cv_data_config=cv_data_config,
         save_epochs=save_subepochs,
-        batch_size=8_000 * 160,
-        accum_grad_multiple_step=3,
-        optimizer_config=AdamWConfig(
-            epsilon=1e-16,
+        batch_size=24_000 * 160,
+        accum_grad_multiple_step=1,
+        optimizer_config=RAdamConfig(
+            epsilon=1e-12,
             weight_decay=0.01,
+            decoupled_weight_decay=True,
         ),
-        lr_config=OCLRConfig(
-            init_lr=7e-06,
-            peak_lr=5e-04,
+        lr_config=ConstConstDecayLRConfig(
+            const_lr_1=5e-05,
+            const_lr_2=5e-04,
             decayed_lr=5e-05,
             final_lr=1e-07,
-            inc_epochs=(num_epochs - 4) // 2 * partition_epoch,
-            dec_epochs=(num_epochs - 4) // 2 * partition_epoch,
+            const_epochs_1=2 * partition_epoch,
+            const_epochs_2=(num_epochs // 2 - 4) * partition_epoch,
+            dec_epochs=(num_epochs // 2 - 2) * partition_epoch,
             final_epochs=4 * partition_epoch,
         ),
         gradient_clip=1.0,
         ctc_loss_scale=0.7,
-        transducer_loss_scale=1.0,
-        attention_loss_scale=1.0,
-        attention_label_smoothing=0.1,
-        attention_label_smoothing_start_epoch=3 * partition_epoch + 1,
+        label_smoothing=0.1,
+        label_smoothing_start_epoch=3 * partition_epoch + 1,
         num_workers_per_gpu=2,
         automatic_mixed_precision=True,
         gpu_mem_rqmt=24,
         max_seqs=None,
         max_seq_length=None,
-        register_outputs=True,
     )
-
-
-def run(
-    model_config: Optional[CombinationModelConfig] = None,
-    train_options: Optional[CombinationTrainOptions] = None,
-) -> TrainedCombinationModel:
-    if model_config is None:
-        model_config = get_model_config()
-    if train_options is None:
-        train_options = get_train_options()
-
-    return train(options=train_options, model_config=model_config)

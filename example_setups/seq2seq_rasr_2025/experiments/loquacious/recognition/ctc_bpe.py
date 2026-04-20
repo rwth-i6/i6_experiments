@@ -11,9 +11,9 @@ from ....model_pipelines.common.label_scorer_config import get_no_op_label_score
 from ....model_pipelines.common.recog import RecogResult, StreamingRecogParameters
 from ....model_pipelines.common.recog_rasr_config import LexiconfreeTimesyncRecogParams
 from ....model_pipelines.common.serializers import get_model_serializers
+from ....model_pipelines.common.train import TrainedModel
 from ....model_pipelines.ctc.prior import compute_priors
-from ....model_pipelines.ctc.pytorch_modules import ConformerCTCRecogConfig, ConformerCTCRecogModel
-from ....model_pipelines.ctc.train import TrainedCTCModel
+from ....model_pipelines.ctc.pytorch_modules import ConformerCTCConfig, ConformerCTCRecogConfig, ConformerCTCRecogModel
 from .common import BaseRecogVariant, run_single_bpe_variant
 
 
@@ -23,8 +23,39 @@ class CTCRecogVariant(BaseRecogVariant):
     blank_penalty: float = 0.0
 
 
+def run(
+    model: TrainedModel[ConformerCTCConfig],
+    train_corpus_key: loquacious_datasets.TrainSet,
+    variants: Optional[List[CTCRecogVariant]] = None,
+    corpora: Optional[List[loquacious_datasets.EvalSet]] = None,
+) -> List[RecogResult]:
+    if variants is None:
+        variants = default_recog_variants()
+
+    if corpora is None:
+        corpora = loquacious_datasets.EVAL_SETS
+
+    results = []
+
+    for variant in variants:
+        results.extend(
+            _run_single_variant(model=model, variant=variant, train_corpus_key=train_corpus_key, corpora=corpora)
+        )
+    return results
+
+
+def default_recog_variants() -> List[CTCRecogVariant]:
+    return [
+        default_offline_lexfree_recog_variant(),
+        default_offline_tree_recog_variant(),
+        default_offline_tree_4gram_recog_variant(),
+        default_streaming_lexfree_recog_variant(),
+        default_streaming_tree_4gram_recog_variant(),
+    ]
+
+
 def _get_model_serializers(
-    model: TrainedCTCModel, train_corpus_key: loquacious_datasets.TrainSet, variant: CTCRecogVariant
+    model: TrainedModel, train_corpus_key: loquacious_datasets.TrainSet, variant: CTCRecogVariant
 ) -> Collection:
     checkpoint = model.get_checkpoint(variant.epoch)
     if variant.prior_scale != 0.0:
@@ -106,24 +137,15 @@ def default_streaming_tree_4gram_recog_variant() -> CTCRecogVariant:
     )
 
 
-def default_recog_variants() -> List[CTCRecogVariant]:
-    return [
-        default_offline_lexfree_recog_variant(),
-        default_offline_tree_recog_variant(),
-        default_offline_tree_4gram_recog_variant(),
-        default_streaming_lexfree_recog_variant(),
-        default_streaming_tree_4gram_recog_variant(),
-    ]
-
-
 def _run_single_variant(
-    model: TrainedCTCModel,
+    model: TrainedModel[ConformerCTCConfig],
     variant: CTCRecogVariant,
     train_corpus_key: loquacious_datasets.TrainSet,
     corpora: List[loquacious_datasets.EvalSet],
 ) -> List[RecogResult]:
 
     return run_single_bpe_variant(
+        model_descriptor=model.descriptor,
         checkpoint=model.get_checkpoint(variant.epoch),
         encoder_serializers=_get_model_serializers(model=model, train_corpus_key=train_corpus_key, variant=variant),
         label_scorer_configs=[get_no_op_label_scorer_config()],
@@ -134,24 +156,3 @@ def _run_single_variant(
         train_corpus_key=train_corpus_key,
         corpora=corpora,
     )
-
-
-def run(
-    model: TrainedCTCModel,
-    train_corpus_key: loquacious_datasets.TrainSet,
-    variants: Optional[List[CTCRecogVariant]] = None,
-    corpora: Optional[List[loquacious_datasets.EvalSet]] = None,
-) -> List[RecogResult]:
-    if variants is None:
-        variants = default_recog_variants()
-
-    if corpora is None:
-        corpora = loquacious_datasets.EVAL_SETS
-
-    results = []
-
-    for variant in variants:
-        results.extend(
-            _run_single_variant(model=model, variant=variant, train_corpus_key=train_corpus_key, corpora=corpora)
-        )
-    return results

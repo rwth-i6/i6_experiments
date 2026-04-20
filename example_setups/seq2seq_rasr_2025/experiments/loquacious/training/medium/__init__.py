@@ -1,9 +1,9 @@
-from . import bpe_aed, bpe_combination_model, bpe_ffnn_transducer, bpe_phoneme_ctc, phoneme_ffnn_transducer
+from . import aed_bpe, combination_model_bpe, ctc_bpe_phoneme, ffnn_transducer_bpe, ffnn_transducer_phoneme
 
 __all__ = [
-    "bpe_aed",
-    "bpe_combination_model",
-    "bpe_ffnn_transducer",
-    "bpe_phoneme_ctc",
-    "phoneme_ffnn_transducer",
+    "aed_bpe",
+    "combination_model_bpe",
+    "ctc_bpe_phoneme",
+    "ffnn_transducer_bpe",
+    "ffnn_transducer_phoneme",
 ]

@@ -12,22 +12,48 @@ from ....model_pipelines.aed.label_scorer_config import (
     get_ctc_label_scorer_config,
     get_ctc_prefix_label_scorer_config,
 )
-from ....model_pipelines.aed.pytorch_modules import AEDEncoder
-from ....model_pipelines.aed.train import TrainedAEDModel
-from ....model_pipelines.common.recog import (
-    RecogResult,
-)
-from ....model_pipelines.common.recog_rasr_config import (
-    LexiconfreeLabelsyncRecogParams,
-    LexiconfreeTimesyncRecogParams,
-)
+from ....model_pipelines.aed.pytorch_modules import AEDConfig, AEDEncoder
+from ....model_pipelines.common.recog import RecogResult
+from ....model_pipelines.common.recog_rasr_config import LexiconfreeLabelsyncRecogParams, LexiconfreeTimesyncRecogParams
 from ....model_pipelines.common.serializers import get_model_serializers
+from ....model_pipelines.common.train import TrainedModel
 from .common import BaseRecogVariant, run_single_bpe_variant
 
 
 @dataclass
 class AEDRecogVariant(BaseRecogVariant):
     ctc_score_scale: float = 0.0
+
+
+def run(
+    model: TrainedModel[AEDConfig],
+    train_corpus_key: loquacious_datasets.TrainSet,
+    variants: Optional[List[AEDRecogVariant]] = None,
+    corpora: Optional[List[loquacious_datasets.EvalSet]] = None,
+) -> List[RecogResult]:
+    if variants is None:
+        variants = default_recog_variants()
+
+    if corpora is None:
+        corpora = loquacious_datasets.EVAL_SETS
+
+    results = []
+
+    for variant in variants:
+        results.extend(
+            _run_single_variant(model=model, variant=variant, train_corpus_key=train_corpus_key, corpora=corpora)
+        )
+    return results
+
+
+def default_recog_variants() -> List[AEDRecogVariant]:
+    return [
+        default_lexfree_recog_variant(),
+        default_lexfree_aed_ctc_recog_variant(),
+        default_lexfree_aed_ctc_timesync_recog_variant(),
+        default_tree_aed_ctc_recog_variant(),
+        default_tree_aed_ctc_4gram_recog_variant(),
+    ]
 
 
 def default_lexfree_recog_variant() -> AEDRecogVariant:
@@ -85,17 +111,7 @@ def default_tree_aed_ctc_4gram_recog_variant() -> AEDRecogVariant:
     )
 
 
-def default_recog_variants() -> List[AEDRecogVariant]:
-    return [
-        default_lexfree_recog_variant(),
-        default_lexfree_aed_ctc_recog_variant(),
-        default_lexfree_aed_ctc_timesync_recog_variant(),
-        default_tree_aed_ctc_recog_variant(),
-        default_tree_aed_ctc_4gram_recog_variant(),
-    ]
-
-
-def _get_label_scorer_configs(model: TrainedAEDModel, variant: AEDRecogVariant) -> List[RasrConfig]:
+def _get_label_scorer_configs(model: TrainedModel[AEDConfig], variant: AEDRecogVariant) -> List[RasrConfig]:
     checkpoint = model.get_checkpoint(variant.epoch)
     use_gpu = variant.search_mode_params.gpu_mem_rqmt > 0
     labelsync = isinstance(variant.search_algorithm_params, LexiconfreeLabelsyncRecogParams)
@@ -132,7 +148,7 @@ def _get_label_scorer_configs(model: TrainedAEDModel, variant: AEDRecogVariant) 
 
 
 def _run_single_variant(
-    model: TrainedAEDModel,
+    model: TrainedModel[AEDConfig],
     variant: AEDRecogVariant,
     train_corpus_key: loquacious_datasets.TrainSet,
     corpora: List[loquacious_datasets.EvalSet],
@@ -143,6 +159,7 @@ def _run_single_variant(
         blank_index = None
 
     return run_single_bpe_variant(
+        model_descriptor=model.descriptor,
         checkpoint=model.get_checkpoint(variant.epoch),
         encoder_serializers=get_model_serializers(AEDEncoder, model.model_config),
         label_scorer_configs=_get_label_scorer_configs(model=model, variant=variant),
@@ -153,24 +170,3 @@ def _run_single_variant(
         train_corpus_key=train_corpus_key,
         corpora=corpora,
     )
-
-
-def run(
-    model: TrainedAEDModel,
-    train_corpus_key: loquacious_datasets.TrainSet,
-    variants: Optional[List[AEDRecogVariant]] = None,
-    corpora: Optional[List[loquacious_datasets.EvalSet]] = None,
-) -> List[RecogResult]:
-    if variants is None:
-        variants = default_recog_variants()
-
-    if corpora is None:
-        corpora = loquacious_datasets.EVAL_SETS
-
-    results = []
-
-    for variant in variants:
-        results.extend(
-            _run_single_variant(model=model, variant=variant, train_corpus_key=train_corpus_key, corpora=corpora)
-        )
-    return results

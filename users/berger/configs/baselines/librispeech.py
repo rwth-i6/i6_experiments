@@ -3,6 +3,7 @@ from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.common.repo
 
 
 def run() -> None:
+    _, recog_results = run_all()
 
     # ================
     # === Training ===
@@ -50,14 +51,12 @@ def run() -> None:
     train_options = training.ffnn_transducer_bpe.get_train_options(bpe_size=10000)
     train_options.gpu_mem_rqmt = 48
     bpe_10k_transducer_model = training.ffnn_transducer_bpe.run(
-        descriptor="transducer_bpe-10k", model_config=model_config, train_options=train_options
+        descriptor="ffnn_transducer_bpe-10k", model_config=model_config, train_options=train_options
     )
 
     # ===================
     # === Recognition ===
     # ===================
-
-    recog_results = run_all(register_report=False)
 
     variants = list(
         filter(

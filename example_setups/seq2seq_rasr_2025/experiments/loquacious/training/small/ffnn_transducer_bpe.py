@@ -13,16 +13,36 @@ from i6_models.parts.frontend.generic_frontend import FrontendLayerType, Generic
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Config
 
 from .....data.loquacious import datasets as loquacious_datasets
-from .....data.loquacious.phoneme import PHONEME_SIZE
+from .....data.loquacious.bpe import bpe_to_vocab_size
 from .....model_pipelines.common.learning_rates import OCLRConfig
 from .....model_pipelines.common.optimizer import RAdamConfig
 from .....model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
-from .....model_pipelines.ffnn_transducer.pytorch_modules import FFNNTransducerConfig
-from .....model_pipelines.ffnn_transducer.train import FFNNTransducerTrainOptions, TrainedFFNNTransducerModel, train
+from .....model_pipelines.common.train import TrainedModel, train
+from .....model_pipelines.ffnn_transducer.pytorch_modules import FFNNTransducerConfig, FFNNTransducerModel
+from .....model_pipelines.ffnn_transducer.train import FFNNTransducerTrainOptions, get_train_step_import
+
+
+def run(
+    descriptor: str,
+    model_config: Optional[FFNNTransducerConfig] = None,
+    train_options: Optional[FFNNTransducerTrainOptions] = None,
+) -> TrainedModel[FFNNTransducerConfig]:
+    if model_config is None:
+        model_config = get_model_config()
+    if train_options is None:
+        train_options = get_train_options()
+
+    return train(
+        descriptor=descriptor,
+        model_class=FFNNTransducerModel,
+        model_config=model_config,
+        options=train_options,
+        train_step_import=get_train_step_import(train_options),
+    )
 
 
 def get_model_config(
-    num_layers: int = 12,
+    bpe_size: int = 128,
     layer_size: int = 512,
 ) -> FFNNTransducerConfig:
     return FFNNTransducerConfig(
@@ -47,7 +67,7 @@ def get_model_config(
             freq_mask_max_size=16,
         ),
         conformer_cfg=ConformerRelPosEncoderV1Config(
-            num_layers=num_layers,
+            num_layers=12,
             frontend=ModuleFactoryV1(
                 GenericFrontendV1,
                 GenericFrontendV1Config(
@@ -116,15 +136,21 @@ def get_model_config(
         context_embedding_dim=256,
         joiner_dim=1024,
         joiner_activation=torch.nn.Tanh(),
-        target_size=PHONEME_SIZE + 1,
+        target_size=bpe_to_vocab_size(bpe_size=bpe_size) + 1,
     )
 
 
-def get_train_options(num_epochs: int = 100, speed_perturbation: bool = True) -> FFNNTransducerTrainOptions:
-    train_data_config = loquacious_datasets.get_small_phoneme_train_data(speed_perturb=speed_perturbation)
-    cv_data_config = loquacious_datasets.get_phoneme_cv_data()
+def get_train_options(
+    bpe_size: int = 128,
+    num_epochs: int = 100,
+    batch_frames: int = 24_000,
+    accum_grad: int = 1,
+    speed_perturb: bool = True,
+) -> FFNNTransducerTrainOptions:
+    train_data_config = loquacious_datasets.get_small_bpe_train_data(bpe_size=bpe_size, speed_perturb=speed_perturb)
+    cv_data_config = loquacious_datasets.get_small_bpe_cv_data(bpe_size=bpe_size)
 
-    partition_epoch = train_data_config.oggzip_config.partition_epoch
+    partition_epoch = train_data_config.partition_epoch
 
     save_epochs = list(range(num_epochs * 3 // 4, num_epochs - 5, 5)) + list(range(num_epochs - 5, num_epochs + 1))
     save_subepochs = [epoch * partition_epoch for epoch in save_epochs]
@@ -133,8 +159,8 @@ def get_train_options(num_epochs: int = 100, speed_perturbation: bool = True) ->
         train_data_config=train_data_config,
         cv_data_config=cv_data_config,
         save_epochs=save_subepochs,
-        batch_size=8_000 * 160,
-        accum_grad_multiple_step=3,
+        batch_size=batch_frames * 160,
+        accum_grad_multiple_step=accum_grad,
         optimizer_config=RAdamConfig(
             epsilon=1e-12,
             weight_decay=0.01,
@@ -154,20 +180,7 @@ def get_train_options(num_epochs: int = 100, speed_perturbation: bool = True) ->
         gradient_clip=1.0,
         num_workers_per_gpu=2,
         automatic_mixed_precision=True,
-        gpu_mem_rqmt=24,
+        gpu_mem_rqmt=48,
         max_seqs=None,
         max_seq_length=None,
-        register_outputs=True,
     )
-
-
-def run(
-    model_config: Optional[FFNNTransducerConfig] = None,
-    train_options: Optional[FFNNTransducerTrainOptions] = None,
-) -> TrainedFFNNTransducerModel:
-    if model_config is None:
-        model_config = get_model_config()
-    if train_options is None:
-        train_options = get_train_options()
-
-    return train(options=train_options, model_config=model_config)

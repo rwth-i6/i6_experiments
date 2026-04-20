@@ -1,7 +1,6 @@
-from typing import List, Optional, Tuple
+from typing import Optional
 
 import torch
-from i6_core.returnn import ReturnnTrainingJob
 from i6_models.assemblies.conformer import ConformerRelPosBlockV1Config, ConformerRelPosEncoderV1Config
 from i6_models.config import ModuleFactoryV1
 from i6_models.parts.conformer import (
@@ -13,24 +12,40 @@ from i6_models.parts.conformer.norm import LayerNormNC
 from i6_models.parts.frontend.generic_frontend import FrontendLayerType, GenericFrontendV1, GenericFrontendV1Config
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Config
 
-from ....data.loquacious import datasets as loquacious_datasets
-from ....data.loquacious.bpe import bpe_to_vocab_size
-from ....data.loquacious.phoneme import PHONEME_SIZE
-from ....model_pipelines.common.learning_rates import OCLRConfig
-from ....model_pipelines.common.optimizer import AdamWConfig
-from ....model_pipelines.common.recog import (
-    RecogResult,
-)
-from ....model_pipelines.ctc_multi_output.pytorch_modules import (
+from .....data.loquacious import datasets as loquacious_datasets
+from .....data.loquacious.bpe import bpe_to_vocab_size
+from .....data.loquacious.phoneme import PHONEME_SIZE
+from .....model_pipelines.common.learning_rates import OCLRConfig
+from .....model_pipelines.common.optimizer import AdamWConfig
+from .....model_pipelines.common.train import TrainedModel, train
+from .....model_pipelines.ctc_multi_output.pytorch_modules import (
     ConformerCTCMultiOutputConfig,
+    ConformerCTCMultiOutputModel,
     SpecaugmentByLengthConfig,
 )
-from ....model_pipelines.ctc_multi_output.train import CTCMultiOutputTrainOptions, train
+from .....model_pipelines.ctc_multi_output.train import CTCMultiOutputTrainOptions, get_train_step_import
 
 
-def get_model_config(
-    bpe_size: int = 128,
-) -> ConformerCTCMultiOutputConfig:
+def run(
+    descriptor: str,
+    model_config: Optional[ConformerCTCMultiOutputConfig] = None,
+    train_options: Optional[CTCMultiOutputTrainOptions] = None,
+) -> TrainedModel[ConformerCTCMultiOutputConfig]:
+    if model_config is None:
+        model_config = get_model_config()
+    if train_options is None:
+        train_options = get_train_options()
+
+    return train(
+        descriptor=descriptor,
+        model_class=ConformerCTCMultiOutputModel,
+        model_config=model_config,
+        options=train_options,
+        train_step_import=get_train_step_import(train_options),
+    )
+
+
+def get_model_config(bpe_size: int = 128) -> ConformerCTCMultiOutputConfig:
     return ConformerCTCMultiOutputConfig(
         logmel_cfg=LogMelFeatureExtractionV1Config(
             sample_rate=16000,
@@ -156,22 +171,3 @@ def get_train_options(bpe_size: int = 128) -> CTCMultiOutputTrainOptions:
         max_seq_length=None,
         target_names=["phoneme", "bpe"],
     )
-
-
-def run_training(
-    model_config: Optional[ConformerCTCMultiOutputConfig] = None,
-    train_options: Optional[CTCMultiOutputTrainOptions] = None,
-) -> Tuple[ReturnnTrainingJob, ConformerCTCMultiOutputConfig]:
-    if model_config is None:
-        model_config = get_model_config()
-    if train_options is None:
-        train_options = get_train_options()
-
-    train_job = train(options=train_options, model_config=model_config)
-
-    return train_job, model_config
-
-
-def run_all() -> List[RecogResult]:
-    run_training()
-    return []
