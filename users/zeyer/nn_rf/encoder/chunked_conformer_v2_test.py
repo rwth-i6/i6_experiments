@@ -85,11 +85,7 @@ def _build_model(build_dict: Dict[str, Any]):
     )
     build_dict = dict_update_deep(base_build_dict, build_dict)
 
-    feature_extraction = rf.build_dict(
-        rf.Functional,
-        func=functools.partial(rf.audio.log_mel_filterbank_from_raw, sampling_rate=16_000, out_dim=feat_dim),
-        attribs={"out_dim": feat_dim},
-    )
+    # rf.audio.log_mel_filterbank_from_raw(..., sampling_rate=16_000, out_dim=feat_dim) but we skip that here
 
     encoder = rf.build_from_dict(build_dict, feat_dim)
     encoder: ConformerEncoder  # might not be true, but assume similar/same interface
