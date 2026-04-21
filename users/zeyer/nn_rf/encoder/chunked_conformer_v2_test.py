@@ -91,6 +91,7 @@ def test_conformer_v2():
     input_data, time_dim = _make_input_data()
     res, out_spatial_dim = model(input_data, in_spatial_dim=time_dim)
     res_v2, out_spatial_dim_v2 = model_v2(input_data, in_spatial_dim=time_dim)
+    print(f"out: {res} vs {res_v2}")
 
 
 def _build_model(build_dict: Dict[str, Any]):
@@ -111,7 +112,9 @@ def _build_model(build_dict: Dict[str, Any]):
         encoder_layer=rf.build_dict(
             ConformerEncoderLayer,
             ff=rf.build_dict(
-                ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                ConformerPositionwiseFeedForward,
+                activation=rf.build_dict(rf.relu_square),
+                with_bias=False,
             ),
             num_heads=8,
         ),
@@ -126,7 +129,13 @@ def _build_model(build_dict: Dict[str, Any]):
 
 
 def _make_input_data() -> Tuple[Tensor, Dim]:
-    time_dim = Dim(rf.convert_to_tensor([16_000 - i for i in range(batch_dim.get_dim_value())], dims=[batch_dim]))
+    time_dim = Dim(
+        rf.convert_to_tensor(
+            [201 - i * 11 for i in range(batch_dim.get_dim_value())],
+            dims=[batch_dim],
+            name="time",
+        )
+    )
     return rf.random_normal([batch_dim, time_dim, feat_dim]), time_dim
 
 
