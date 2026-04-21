@@ -5,6 +5,9 @@ python -m i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2_test
 
 Real-world examples:
 i6_experiments/users/zeyer/experiments/exp2025_10_21_chunked_ctc.py
+
+Similar tests, see: RETURNN tests.test_rf_encoder_conformer.test_e_branchformer,
+or other RF tests in RETURNN.
 """
 
 from typing import Dict, Any, Tuple
@@ -12,8 +15,10 @@ from typing import Dict, Any, Tuple
 import torch
 
 from returnn.util import BehaviorVersion, better_exchook
+from returnn.util.debug import PyTracer, check_py_traces_rf_to_pt_equal
 import returnn.frontend as rf
 from returnn.tensor import Dim, Tensor, batch_dim
+
 from returnn.frontend.encoder.conformer import (
     ConformerEncoder,
     ConformerEncoderLayer,
@@ -89,9 +94,55 @@ def test_conformer_v2():
             p.raw_tensor.copy_(p0.raw_tensor)
 
     input_data, time_dim = _make_input_data()
-    res, out_spatial_dim = model(input_data, in_spatial_dim=time_dim)
-    res_v2, out_spatial_dim_v2 = model_v2(input_data, in_spatial_dim=time_dim)
+
+    with (
+        PyTracer(
+            [
+                ConformerEncoder.__call__,
+                ChunkedConformerEncoderLayer.__call__,
+                ChunkedConformerEncoderLayerV2.__call__,
+            ],
+            Tensor,
+        ) as trace_v1,
+        torch.no_grad(),
+    ):
+        res, out_spatial_dim = model(input_data, in_spatial_dim=time_dim)
+
+    with (
+        PyTracer(
+            [
+                ConformerEncoder.__call__,
+                ChunkedConformerEncoderLayer.__call__,
+                ChunkedConformerEncoderLayerV2.__call__,
+            ],
+            Tensor,
+        ) as trace_v2,
+        torch.no_grad(),
+    ):
+        res_v2, out_spatial_dim_v2 = model_v2(input_data, in_spatial_dim=time_dim)
+
     print(f"out: {res} vs {res_v2}")
+    # Final check.
+    # Actually the check_py_traces_rf_to_pt_equal should already have covered also this final output,
+    # but anyway do it again now to be sure.
+    assert res.dims == (batch_dim, out_spatial_dim, model.out_dim)
+    assert res_v2.dims == (batch_dim, out_spatial_dim_v2, model_v2.out_dim)
+    assert res.raw_tensor.shape == res_v2.raw_tensor.shape  # [B,T,D]
+    assert (
+        res.raw_tensor.shape[:1] == out_spatial_dim.dyn_size_ext.raw_tensor.shape
+    )  # [B]
+    for b in range(res.raw_tensor.shape[0]):
+        seq_len = out_spatial_dim.dyn_size_ext.raw_tensor[b]
+        torch.testing.assert_allclose(
+            res.raw_tensor[b, :seq_len],
+            res_v2.raw_tensor[b, :seq_len],
+            rtol=1e-5,
+            atol=1e-5,
+        )
+    # Check that there is sth non-zero.
+    assert out_spatial_dim.dyn_size_ext.raw_tensor.max() > 0
+    assert torch.mean(res.raw_tensor**2) > 0.1
+    print("All matching!")
 
 
 def _build_model(build_dict: Dict[str, Any]):
