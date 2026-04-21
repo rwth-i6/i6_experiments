@@ -1,5 +1,6 @@
 """
 run:
+export PYTHONPATH=recipe:ext/returnn
 python -m i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2_test
 
 Real-world examples:
@@ -8,6 +9,7 @@ i6_experiments/users/zeyer/experiments/exp2025_10_21_chunked_ctc.py
 
 from typing import Dict, Any, Tuple
 
+from returnn.util import BehaviorVersion
 import returnn.frontend as rf
 from returnn.tensor import Dim, Tensor, batch_dim
 from returnn.frontend.encoder.conformer import (
@@ -30,11 +32,19 @@ _log_mel_feature_dim = 80
 feat_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
 
 
-def test_conformer_v2():
+def _setup_test():
+    BehaviorVersion.set_min_behavior_version(25)
     rf.select_backend_torch()
     if batch_dim.dyn_size_ext is None:
         batch_dim.dyn_size_ext = rf.convert_to_tensor(3, dims=[])
 
+
+def tests():
+    _setup_test()
+    test_conformer_v2()
+
+
+def test_conformer_v2():
     downsampling = 6
     left_n, center_size, right_size = (16, 5, 4)
 
@@ -46,6 +56,7 @@ def test_conformer_v2():
         input_chunk_size_dim=(center_size + right_size) * downsampling,
         end_chunk_size_dim=center_size,
     )
+    model = _build_model(build_dict)
 
     # f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2"
     # model.enc_build_dict
@@ -95,3 +106,7 @@ def _build_model(build_dict: Dict[str, Any]):
 def _make_input_data() -> Tuple[Dim, Tensor]:
     time_dim = Dim(rf.convert_to_tensor([16_000 - i for i in range(batch_dim.get_dim_value())]))
     return rf.random_normal([batch_dim, time_dim, feat_dim])
+
+
+if __name__ == "__main__":
+    tests()
