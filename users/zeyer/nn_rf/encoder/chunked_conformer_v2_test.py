@@ -9,7 +9,7 @@ i6_experiments/users/zeyer/experiments/exp2025_10_21_chunked_ctc.py
 
 from typing import Dict, Any, Tuple
 
-from returnn.util import BehaviorVersion
+from returnn.util import BehaviorVersion, better_exchook
 import returnn.frontend as rf
 from returnn.tensor import Dim, Tensor, batch_dim
 from returnn.frontend.encoder.conformer import (
@@ -40,6 +40,7 @@ def _setup_test():
 
 
 def tests():
+    better_exchook.install()
     _setup_test()
     test_conformer_v2()
 
@@ -70,6 +71,15 @@ def test_conformer_v2():
     )
     model_v2 = _build_model(build_dict_v2)
 
+    num_params = sum(p.num_elements() for p in model.parameters())
+    num_params_v2 = sum(p.num_elements() for p in model_v2.parameters())
+    print(f"num_params: {num_params:.2e} vs {num_params_v2:.2e}")
+    assert num_params_v2 == num_params
+
+    input_data, time_dim = _make_input_data()
+    res, out_spatial_dim = model(input_data, in_spatial_dim=time_dim)
+    res_v2, out_spatial_dim_v2 = model_v2(input_data, in_spatial_dim=time_dim)
+
 
 def _build_model(build_dict: Dict[str, Any]):
     base_build_dict = rf.build_dict(
@@ -84,8 +94,8 @@ def _build_model(build_dict: Dict[str, Any]):
         # original:
         # num_layers=16,
         # out_dim=1024,
-        num_layers=4,
-        out_dim=128,
+        num_layers=2,
+        out_dim=64,
         encoder_layer=rf.build_dict(
             ConformerEncoderLayer,
             ff=rf.build_dict(
@@ -103,9 +113,9 @@ def _build_model(build_dict: Dict[str, Any]):
     return encoder
 
 
-def _make_input_data() -> Tuple[Dim, Tensor]:
-    time_dim = Dim(rf.convert_to_tensor([16_000 - i for i in range(batch_dim.get_dim_value())]))
-    return rf.random_normal([batch_dim, time_dim, feat_dim])
+def _make_input_data() -> Tuple[Tensor, Dim]:
+    time_dim = Dim(rf.convert_to_tensor([16_000 - i for i in range(batch_dim.get_dim_value())], dims=[batch_dim]))
+    return rf.random_normal([batch_dim, time_dim, feat_dim]), time_dim
 
 
 if __name__ == "__main__":
