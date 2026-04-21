@@ -1,6 +1,7 @@
+[tool.ruff]
 line-length = 120
 target-version = "py39"
 
-[lint]
+[tool.ruff.lint]
 # Disable fix for unused imports (`F401`).
 unfixable = ["F401"]
