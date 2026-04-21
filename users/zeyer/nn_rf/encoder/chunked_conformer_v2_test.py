@@ -9,6 +9,8 @@ i6_experiments/users/zeyer/experiments/exp2025_10_21_chunked_ctc.py
 
 from typing import Dict, Any, Tuple
 
+import torch
+
 from returnn.util import BehaviorVersion, better_exchook
 import returnn.frontend as rf
 from returnn.tensor import Dim, Tensor, batch_dim
@@ -26,6 +28,7 @@ from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2 import (
     ChunkedConformerEncoderV2,
     ChunkedConformerEncoderLayerV2,
 )
+
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 
 _log_mel_feature_dim = 80
@@ -73,8 +76,17 @@ def test_conformer_v2():
 
     num_params = sum(p.num_elements() for p in model.parameters())
     num_params_v2 = sum(p.num_elements() for p in model_v2.parameters())
-    print(f"num_params: {num_params:.2e} vs {num_params_v2:.2e}")
+    print(f"num_params: {num_params} vs {num_params_v2}")
     assert num_params_v2 == num_params
+    params_by_name = {name: p for name, p in model.named_parameters()}
+    params_by_name_v2 = {name: p for name, p in model_v2.named_parameters()}
+    assert set(params_by_name_v2.keys()) == set(params_by_name.keys())
+    for name, p in params_by_name_v2.items():
+        p0 = params_by_name[name]
+        assert p.shape == p0.shape, f"{name} {p.shape} vs {p0.shape}"
+        assert p.dtype == p0.dtype, f"{name} {p.dtype} vs {p0.dtype}"
+        with torch.no_grad():
+            p.raw_tensor.copy_(p0.raw_tensor)
 
     input_data, time_dim = _make_input_data()
     res, out_spatial_dim = model(input_data, in_spatial_dim=time_dim)
