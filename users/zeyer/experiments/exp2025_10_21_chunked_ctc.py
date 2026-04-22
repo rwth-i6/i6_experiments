@@ -224,6 +224,8 @@ def py():
     )
 
     # Rope instead of relpos selfatt.
+    # (We don't expect really improvements in terms of WER. Hopefully mostly the same.
+    #  However, we can hope to have better speed here, maybe also less memory consumption. Check that.)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-rope",
         {
