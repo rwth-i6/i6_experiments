@@ -12,6 +12,7 @@ V2 improvements over V1:
   rather than the full chunk_history used for attention.
 - Chunk history adaptation (adapt_chunk_history_for_short_seqs): optionally reduces
   chunk_history at runtime when the input sequence is shorter than the configured sizes.
+- Support gradient checkpointing around mem_chunks to save memory.
 
 Configuration (encoder frame level, i.e. after input_layer downsampling, e.g. 60ms):
 
@@ -85,6 +86,7 @@ class ChunkedConformerEncoderV2(rf.Module):
         enc_lookahead_size_train_pool: Optional[List[int]] = None,
         version: int = 1,
         adapt_chunk_history_for_short_seqs: bool = True,
+        mem_chunks_grad_checkpointing: bool = False,
     ):
         """
         :param out_dim: the output feature dimension
@@ -113,6 +115,8 @@ class ChunkedConformerEncoderV2(rf.Module):
         :param version: version of chunked conformer. Must be 3 (kept as param for hashing stability).
         :param adapt_chunk_history_for_short_seqs: if True (default), reduce chunk_history at runtime
             when the input is shorter than what the configured chunk sizes require.
+        :param mem_chunks_grad_checkpointing: if True, use torch.utils.checkpoint per encoder layer during
+            training to trade memory for recompute. Only effective during training.
         """
         super().__init__()
 
@@ -132,6 +136,7 @@ class ChunkedConformerEncoderV2(rf.Module):
         self.enc_lookahead_size_train_pool = enc_lookahead_size_train_pool
         self.version = version
         self.adapt_chunk_history_for_short_seqs = adapt_chunk_history_for_short_seqs
+        self.mem_chunks_grad_checkpointing = mem_chunks_grad_checkpointing
         assert version == 3, f"Only version=3 is supported (got {version}). Set version=3 explicitly."
 
         if isinstance(input_layer, dict):
@@ -158,6 +163,7 @@ class ChunkedConformerEncoderV2(rf.Module):
                 num_heads=num_heads,
                 att_dropout=att_dropout,
                 version=version,
+                mem_chunks_grad_checkpointing=mem_chunks_grad_checkpointing,
             )
             encoder_layer_opts_ = {k: v for (k, v) in encoder_layer_opts_.items() if v is not NotSpecified}
             if encoder_layer_opts:
@@ -317,6 +323,7 @@ class ChunkedConformerEncoderLayerV2(rf.Module):
         att_dropout: float = 0.1,
         norm: Union[type, Dict[str, Any], rf.Module, Callable] = rf.LayerNorm,
         version: int = 1,
+        mem_chunks_grad_checkpointing: bool = False,
     ):
         """
         :param out_dim: the output feature dimension
@@ -335,12 +342,16 @@ class ChunkedConformerEncoderLayerV2(rf.Module):
         :param self_att_opts: options for the self-attention layer, for :class:`nn.RelPosSelfAttention`
         :param att_dropout: attention dropout value
         :param version: version of chunked conformer layer
+        :param mem_chunks_grad_checkpointing: if True, wrap the self-attention and conv-block calls
+            (which use _mem_chunks) under torch.utils.checkpoint during training.
+            Only effective when chunking is active (chunking=None path is unchanged).
         """
         super().__init__()
 
         self.dropout = dropout
         self.dropout_broadcast = rf.dropout_broadcast_default()
         self.out_dim = out_dim
+        self.mem_chunks_grad_checkpointing = mem_chunks_grad_checkpointing
 
         self.ffn1 = make_ff(ff=ff, out_dim=out_dim, ff_dim=ff_dim, dropout=dropout, ff_activation=ff_activation)
         self.ffn1_layer_norm = make_norm(norm, out_dim)
@@ -385,6 +396,8 @@ class ChunkedConformerEncoderLayerV2(rf.Module):
 
     def __call__(self, inp: Tensor, *, spatial_dim: Dim, chunking: Optional[_BatchChunkingSettings]) -> Tensor:
         """forward"""
+        use_mem_grad_ckpt = self.mem_chunks_grad_checkpointing and chunking is not None and rf.get_run_ctx().train_flag
+
         # FFN
         x_ffn1_ln = self.ffn1_layer_norm(inp)
         x_ffn1 = self.ffn1(x_ffn1_ln)
@@ -392,13 +405,36 @@ class ChunkedConformerEncoderLayerV2(rf.Module):
 
         # MHSA
         x_mhsa_ln = self.self_att_layer_norm(x_ffn1_out)
-        x_mhsa = self.self_att(x_mhsa_ln, axis=spatial_dim, chunking=chunking)
+        if use_mem_grad_ckpt:
+            import torch.utils.checkpoint
+
+            def _self_att_fn(raw_inp, _tmpl=x_mhsa_ln):
+                inp_ = _tmpl.copy_template()
+                inp_.raw_tensor = raw_inp
+                return self.self_att(inp_, axis=spatial_dim, chunking=chunking).raw_tensor
+
+            raw_mhsa = torch.utils.checkpoint.checkpoint(_self_att_fn, x_mhsa_ln.raw_tensor, use_reentrant=False)
+            x_mhsa = x_mhsa_ln.copy_template()
+            x_mhsa.raw_tensor = raw_mhsa
+        else:
+            x_mhsa = self.self_att(x_mhsa_ln, axis=spatial_dim, chunking=chunking)
         x_mhsa = rf.dropout(x_mhsa, self.dropout, axis=self.dropout_broadcast and self.out_dim)
         x_mhsa_out = x_mhsa + x_ffn1_out
 
         # Conv
         x_conv_ln = self.conv_layer_norm(x_mhsa_out)
-        x_conv = self.conv_block(x_conv_ln, spatial_dim=spatial_dim, chunking=chunking)
+        if use_mem_grad_ckpt:
+
+            def _conv_fn(raw_inp, _tmpl=x_conv_ln):
+                inp_ = _tmpl.copy_template()
+                inp_.raw_tensor = raw_inp
+                return self.conv_block(inp_, spatial_dim=spatial_dim, chunking=chunking).raw_tensor
+
+            raw_conv = torch.utils.checkpoint.checkpoint(_conv_fn, x_conv_ln.raw_tensor, use_reentrant=False)
+            x_conv = x_conv_ln.copy_template()
+            x_conv.raw_tensor = raw_conv
+        else:
+            x_conv = self.conv_block(x_conv_ln, spatial_dim=spatial_dim, chunking=chunking)
         x_conv_out = rf.dropout(x_conv, self.dropout, axis=self.dropout_broadcast and self.out_dim) + x_mhsa_out
 
         # FFN
