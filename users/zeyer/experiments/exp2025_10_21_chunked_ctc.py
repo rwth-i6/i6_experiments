@@ -203,6 +203,8 @@ def py():
     )
 
     # try grad checkpointing
+    # (In terms of WER, should really be the same.
+    # if in terms of speed this is better, and same for memory consumption, we could maybe just always enable it.)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-gdckpt",
         {
