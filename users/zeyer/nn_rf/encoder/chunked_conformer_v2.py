@@ -259,8 +259,6 @@ class ChunkedConformerEncoderV2(rf.Module):
             spatial_dim = input_chunk_size_dim
 
             chunking = _BatchChunkingSettings(
-                input_chunk_size_dim=input_chunk_size_dim,
-                chunk_stride=chunk_stride,
                 chunk_history=chunk_history,
                 end_chunk_size_dim=end_chunk_size_dim,
                 chunked_time_dim=chunked_time_dim,
@@ -697,8 +695,6 @@ class ChunkedRotaryPosSelfAttentionV2(rf.RotaryPosSelfAttention):
 
 @dataclass
 class _BatchChunkingSettings:
-    input_chunk_size_dim: Dim
-    chunk_stride: int
     chunk_history: int
     end_chunk_size_dim: Dim
     chunked_time_dim: Dim
