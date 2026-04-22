@@ -2,7 +2,10 @@
 V2:
 - Allow dynamic chunk sizes, strides, left/right contexts.
 - Support both online and offline mode.
-- Fix masking within chunks.
+- Faster convolution (avoid unnecessary computation).
+- Chunk history reduction option (adapt_chunk_history_for_short_seqs).
+  This is slightly different behavior from before,
+  but you can disable it to get same behavior as before.
 
 Earlier configuration options:
 
