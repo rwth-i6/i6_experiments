@@ -608,6 +608,95 @@ class ChunkedRelPosSelfAttentionV2(rf.RelPosSelfAttention):
         return output
 
 
+class ChunkedRotaryPosSelfAttentionV2(rf.RotaryPosSelfAttention):
+    """
+    Chunked RoPE self-attention for :class:`ChunkedConformerEncoderLayerV2`.
+
+    Drop-in replacement for :class:`ChunkedRelPosSelfAttentionV2` that uses RoPE instead of
+    Transformer-XL relative PE.
+
+    For the chunked path, positions are assigned so that:
+    - current chunk frames have positions 0 ... (spatial_dim - 1) (same as non-chunked q)
+    - history frames from n chunks ago start at -(n * end_chunk_size)
+
+    Because RoPE attention scores only depend on the difference pos_q - pos_k, this correctly
+    encodes the actual inter-frame distance across chunk boundaries.
+
+    The non-chunking path (chunking=None) is identical to :class:`rf.RotaryPosSelfAttention`.
+    """
+
+    def __init__(self, *, version: int = 3, **kwargs):
+        super().__init__(**kwargs)
+        self.version = version
+        assert version == 3, f"{self}: only version=3 is supported (got {version})"
+
+    def __call__(self, source: Tensor, *, axis: Dim, chunking: Optional[_BatchChunkingSettings], **_kwargs) -> Tensor:
+        """forward"""
+        from returnn.frontend.attention import _apply_rope
+
+        q, k, v = self.forward_qkv(source)
+        rope_base = 10_000 ** (1 - 2 / self.key_dim_per_head.dimension)
+
+        if chunking:
+            # query_offset = number of history frames = chunk_history * end_chunk_size
+            query_offset = chunking.chunk_history * (
+                chunking.end_chunk_size_dim.dimension
+                if chunking.end_chunk_size_dim.is_static()
+                else chunking.end_chunk_size_dim.get_size_tensor(device=source.device)
+            )
+
+            # Apply RoPE to queries with local positions 0 … (axis - 1).
+            q_pos_enc = rf.sinusoidal_positional_encoding(
+                spatial_dim=axis, feat_dim=self.key_dim_per_head, base=rope_base, device=source.device
+            )
+            q = _apply_rope(q, q_pos_enc, self.key_dim_per_head)
+
+            # Extend k and v with history.
+            hist_dim = Dim(None, name=f"{axis.description}:kv")
+            k, _ = rf.replace_dim(k, in_dim=axis, out_dim=hist_dim)
+            v, _ = rf.replace_dim(v, in_dim=axis, out_dim=hist_dim)
+            k, hist_dim_ = _mem_chunks(
+                k,
+                spatial_dim=hist_dim,
+                chunked_time_dim=chunking.chunked_time_dim,
+                mem_size=chunking.chunk_history,
+                end_chunk_size_dim=chunking.end_chunk_size_dim,
+            )
+            v, _ = _mem_chunks(
+                v,
+                spatial_dim=hist_dim,
+                chunked_time_dim=chunking.chunked_time_dim,
+                mem_size=chunking.chunk_history,
+                end_chunk_size_dim=chunking.end_chunk_size_dim,
+                out_spatial_dim=hist_dim_,
+            )
+
+            # Apply RoPE to extended k with positions -(query_offset) … (spatial_dim - 1).
+            # The negative offset ensures history frames carry positions that are smaller than
+            # the query positions, so pos_q - pos_k gives the true frame distance.
+            k_pos_enc = rf.sinusoidal_positional_encoding(
+                spatial_dim=hist_dim_,
+                feat_dim=self.key_dim_per_head,
+                offset=-query_offset,
+                base=rope_base,
+                device=source.device,
+            )
+            k = _apply_rope(k, k_pos_enc, self.key_dim_per_head)
+        else:
+            # Standard RoPE — identical to rf.RotaryPosSelfAttention.__call__.
+            pos_enc = rf.sinusoidal_positional_encoding(
+                spatial_dim=axis, feat_dim=self.key_dim_per_head, base=rope_base, device=source.device
+            )
+            q = _apply_rope(q, pos_enc, self.key_dim_per_head)
+            k = _apply_rope(k, pos_enc, self.key_dim_per_head)
+
+            hist_dim_ = Dim(None, name=f"{axis.description}:kv")
+            k, _ = rf.replace_dim(k, in_dim=axis, out_dim=hist_dim_)
+            v, _ = rf.replace_dim(v, in_dim=axis, out_dim=hist_dim_)
+
+        return self.attention(q, k, v, kv_axis=hist_dim_)
+
+
 @dataclass
 class _BatchChunkingSettings:
     input_chunk_size_dim: Dim
