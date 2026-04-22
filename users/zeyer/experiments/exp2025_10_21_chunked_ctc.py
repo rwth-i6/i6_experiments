@@ -104,7 +104,7 @@ def py():
         (1, 20, 15, 50_000),
         (1, 40, 15, 50_000),
         (1, 100, 15, 50_000),
-        (1, 1000, 15, (10_000, 10)),  # ~8h/subepoch... will take a month to train
+        # (1, 1000, 15, (10_000, 10)),  # ~8h/subepoch... will take a month to train  - broken?
         # (1, 5000, 15, (50_000, 1)),  # ~104h/subepoch..., not reasonable...
     ]:
         if isinstance(bs, tuple):
