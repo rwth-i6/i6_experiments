@@ -7,7 +7,7 @@ V2:
   This is slightly different behavior from before,
   but you can disable it to get same behavior as before.
 
-Earlier configuration options:
+Configuration options:
 
 - input_chunk_size_dim: on input (10ms) level. chunk size (including right context). default: 210
 - chunk_stride: on input (10ms) level. chunk stride. default: 120
