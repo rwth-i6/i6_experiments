@@ -242,13 +242,36 @@ def py():
         },
     )
 
+    # Dynamic chunking.
+    # Haotian did:
+    #   (I think sizes are on 10ms level.)
+    #   The schedule: have chunk_size_pool(128, 256, 512, 1024, unlimited frames in my most training),
+    #   chunk size is uniformly sampled from the pool and be set for whole batch.
+    #   The number of chunks for state carry over is also randomly selected
+    #     from 0 to max_chunk_size_in_pool // selected_chunk_size.
+    #   (No right context in that setup.)
+    # We do here some slightly different schedule, but similar.
+    # But also varying the lookahead.
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn",
+        {
+            "model.enc_build_dict": rf.build_dict(
+                ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
+                chunk_size=center_size,
+                chunk_history_size=left_n * center_size,
+                chunk_lookahead_size=right_size,
+                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+                chunk_lookahead_size_train_pool=[right_size, right_size // 2],
+                version=3,
+            ),
+            "train.batch_size": bs * configs._batch_size_factor,
+            "train.max_seqs": max_seqs,
+        },
+    )
+
     # TODO different left/right/center sizes per layer?
-    #   Do one variant also like Haotian:
-    #     The schedule: have chunk_size_pool(128, 256, 512, 1024, unlimited frames in my most training),
-    #     chunk size is uniformly sampled from the pool and be set for whole batch.
-    #     The number of chunks for state carry over is also randomly selected
-    #       from 0 to max_chunk_size_in_pool // selected_chunk_size.
-    #     (No right context in that setup.)
 
     # TODO measure latency
 
