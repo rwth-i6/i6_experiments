@@ -155,6 +155,7 @@ class ChunkedConformerEncoderLayerV2(rf.Module):
         self_att_opts: Optional[Dict[str, Any]] = None,
         att_dropout: float = 0.1,
         norm: Union[type, Dict[str, Any], rf.Module, Callable] = rf.LayerNorm,
+        version: int = 1,
     ):
         """
         :param out_dim: the output feature dimension
@@ -172,6 +173,7 @@ class ChunkedConformerEncoderLayerV2(rf.Module):
         :param self_att: the self-attention layer. RelPosSelfAttention originally and default
         :param self_att_opts: options for the self-attention layer, for :class:`nn.RelPosSelfAttention`
         :param att_dropout: attention dropout value
+        :param version: version of chunked conformer layer
         """
         super().__init__()
 
@@ -206,6 +208,7 @@ class ChunkedConformerEncoderLayerV2(rf.Module):
                 value_dim_total=out_dim,
                 num_heads=num_heads,
                 att_dropout=att_dropout,
+                version=version,
             )
             if self_att_opts:
                 self_att_opts_.update(self_att_opts)
@@ -273,6 +276,7 @@ class ChunkedConformerEncoderV2(rf.Module):
         chunk_history: int,
         end_chunk_size_dim: Union[int, Dim],
         version: int = 1,
+        adapt_chunk_history_for_short_seqs: Optional[bool] = None,
     ):
         """
         :param out_dim: the output feature dimension
@@ -294,6 +298,9 @@ class ChunkedConformerEncoderV2(rf.Module):
         :param chunk_history:
         :param end_chunk_size_dim:
         :param version: version of chunked conformer
+        :param adapt_chunk_history_for_short_seqs: if True, reduce chunk_history/input_chunk_size_dim
+            at runtime when the input is shorter than what the configured chunk sizes require.
+            If None (default), falls back to version-based behavior: enabled for version >= 2.
         """
         super().__init__()
 
@@ -314,7 +321,10 @@ class ChunkedConformerEncoderV2(rf.Module):
         self.chunk_history = chunk_history
         self.end_chunk_size_dim = end_chunk_size_dim
         self.version = version
-        assert version <= 2
+        if adapt_chunk_history_for_short_seqs is None:
+            adapt_chunk_history_for_short_seqs = version >= 2
+        self.adapt_chunk_history_for_short_seqs = adapt_chunk_history_for_short_seqs
+        assert version == 3, f"Only version=3 is supported (got {version}). Set version=3 explicitly."
 
         if isinstance(input_layer, dict):
             input_layer = rf.build_from_dict(input_layer, in_dim)
@@ -336,6 +346,7 @@ class ChunkedConformerEncoderV2(rf.Module):
                 conv_norm=conv_norm,
                 num_heads=num_heads,
                 att_dropout=att_dropout,
+                version=version,
             )
             encoder_layer_opts_ = {k: v for (k, v) in encoder_layer_opts_.items() if v is not NotSpecified}
             if encoder_layer_opts:
@@ -380,7 +391,7 @@ class ChunkedConformerEncoderV2(rf.Module):
             chunk_history = self.chunk_history
             end_chunk_size_dim = self.end_chunk_size_dim
 
-            if self.version >= 2:
+            if self.adapt_chunk_history_for_short_seqs:
                 # First potentially reduce chunk sizes, history, if the input is not long enough.
                 max_input_chunk_size_dim = Dim(int(in_spatial_dim.get_dim_value()), name="max_input_chunk_size")
                 max_chunk_size_dim = (
@@ -448,6 +459,19 @@ class ChunkedConformerEncoderV2(rf.Module):
 
 
 class ChunkedRelPosSelfAttentionV2(rf.RelPosSelfAttention):
+    """
+    Same attention logic as :class:`ChunkedRelPosSelfAttention` (V1), but with a different calling
+    convention: all chunking settings are passed at call time via the Optional[_BatchChunkingSettings]
+    bundle, enabling an explicit non-chunking path (chunking=None).
+
+    Requires version=3. Old default (version=1) raises AssertionError to prevent silent behavior change.
+    """
+
+    def __init__(self, *, version: int = 1, **kwargs):
+        super().__init__(**kwargs)
+        self.version = version
+        assert version == 3, f"{self}: only version=3 is supported (got {version})"
+
     def __call__(self, source: Tensor, *, axis: Dim, chunking: Optional[_BatchChunkingSettings], **_kwargs) -> Tensor:
         """forward"""
         q, k, v = self.forward_qkv(source)
@@ -464,14 +488,32 @@ class ChunkedRelPosSelfAttentionV2(rf.RelPosSelfAttention):
                 if chunking.end_chunk_size_dim.is_static()
                 else chunking.end_chunk_size_dim.get_size_tensor(device=source.device)
             )
-            hist_dim_ = chunking.chunk_history * chunking.end_chunk_size_dim + hist_dim
+            # Extend k and v with history before the matmul,
+            # so current queries attend to history keys/values.
+            k, hist_dim_ = _mem_chunks(
+                k,
+                spatial_dim=hist_dim,
+                chunked_time_dim=chunking.chunked_time_dim,
+                mem_size=chunking.chunk_history,
+                end_chunk_size_dim=chunking.end_chunk_size_dim,
+            )
+            v, _ = _mem_chunks(
+                v,
+                spatial_dim=hist_dim,
+                chunked_time_dim=chunking.chunked_time_dim,
+                mem_size=chunking.chunk_history,
+                end_chunk_size_dim=chunking.end_chunk_size_dim,
+                out_spatial_dim=hist_dim_,
+            )
         else:
             query_offset = None
             hist_dim_ = hist_dim
 
         if self.learned_pos_emb is not None:
             pos_emb, pos_emb_spatial_dim = self.learned_pos_emb(
-                query_spatial_dim=axis, key_value_spatial_dim=hist_dim_, query_offset=query_offset
+                query_spatial_dim=axis,
+                key_value_spatial_dim=hist_dim_,
+                query_offset=query_offset,
             )
         else:
             pos_emb, pos_emb_spatial_dim = rf.relative_positional_encoding(
@@ -492,18 +534,8 @@ class ChunkedRelPosSelfAttentionV2(rf.RelPosSelfAttention):
         # compute attention score
         # first compute matrix a and matrix c
         # as described in https://arxiv.org/abs/1901.02860 Section 3.3
-        # (batch, head, time1, time2')
+        # (batch, head, time1, time2)
         matrix_ac = rf.matmul(q_with_bias_u, k, reduce=self.key_dim_per_head)
-
-        if chunking:
-            matrix_ac, _ = _mem_chunks(
-                matrix_ac,
-                spatial_dim=hist_dim,
-                chunked_time_dim=chunking.chunked_time_dim,
-                mem_size=chunking.chunk_history,
-                end_chunk_size_dim=chunking.end_chunk_size_dim,
-                out_spatial_dim=hist_dim_,
-            )
 
         # compute matrix b and matrix d
         # (batch, head, time1, 2*time1-1)
@@ -514,37 +546,9 @@ class ChunkedRelPosSelfAttentionV2(rf.RelPosSelfAttention):
         scores *= self.key_dim_per_head.dimension**-0.5
         att_weights = rf.softmax(scores, axis=hist_dim_)
         att_weights = rf.dropout(att_weights, self.att_dropout, axis=self.att_dropout_broadcast and hist_dim_)
-
-        if chunking:
-            # Undo the _mem_chunks for att_weights to save memory
-            # and to be able to split the history dimension.
-            att_weights_parts = rf.split(
-                att_weights,
-                axis=hist_dim_,
-                out_dims=chunking.chunk_history * [chunking.end_chunk_size_dim] + [hist_dim],
-            )
-            att_weights_parts = [
-                rf.pad(
-                    part,
-                    axes=[chunking.end_chunk_size_dim],
-                    padding=[(0, hist_dim - chunking.end_chunk_size_dim)],
-                    value=0.0,
-                    out_dims=[hist_dim],
-                )[0]
-                for part in att_weights_parts[:-1]
-            ] + [att_weights_parts[-1]]
-            att_weights, history_parts_dim = rf.stack(att_weights_parts)
-            # (batch, head, time1, time2', history_parts)
-
-            # Masking not needed because softmax should already have masked,
-            # so we have 0.0 att weights for padded frames.
-            att = rf.matmul(att_weights, v, reduce=(hist_dim, history_parts_dim), use_mask=False)
-            # (batch, head, time1, feat)
-
-        else:
-            # Masking not needed because softmax should already have masked,
-            # so we have 0.0 att weights for padded frames.
-            att = rf.matmul(att_weights, v, reduce=hist_dim, use_mask=False)
+        # Masking not needed because softmax should already have masked,
+        # so we have 0.0 att weights for padded frames.
+        att = rf.matmul(att_weights, v, reduce=hist_dim_, use_mask=False)
 
         output, _ = rf.merge_dims(att, dims=(self.num_heads, self.value_dim_per_head), out_dim=self.value_dim_total)
         if self.proj:

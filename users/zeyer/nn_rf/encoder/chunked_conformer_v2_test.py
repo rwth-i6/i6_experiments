@@ -76,6 +76,8 @@ def test_conformer_v2():
         chunk_history=left_n,
         input_chunk_size_dim=(center_size + right_size) * downsampling,
         end_chunk_size_dim=center_size,
+        version=3,
+        adapt_chunk_history_for_short_seqs=False,
     )
     model_v2 = _build_model(build_dict_v2)
 
@@ -128,9 +130,7 @@ def test_conformer_v2():
     assert res.dims == (batch_dim, out_spatial_dim, model.out_dim)
     assert res_v2.dims == (batch_dim, out_spatial_dim_v2, model_v2.out_dim)
     assert res.raw_tensor.shape == res_v2.raw_tensor.shape  # [B,T,D]
-    assert (
-        res.raw_tensor.shape[:1] == out_spatial_dim.dyn_size_ext.raw_tensor.shape
-    )  # [B]
+    assert res.raw_tensor.shape[:1] == out_spatial_dim.dyn_size_ext.raw_tensor.shape  # [B]
     for b in range(res.raw_tensor.shape[0]):
         seq_len = out_spatial_dim.dyn_size_ext.raw_tensor[b]
         torch.testing.assert_allclose(
