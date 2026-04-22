@@ -1,32 +1,35 @@
 """
-V2:
-- Allow dynamic chunk sizes, strides, left/right contexts.
-- Support both online and offline mode.
-- Faster convolution (avoid unnecessary computation).
-- Chunk history reduction option (adapt_chunk_history_for_short_seqs).
-  This is slightly different behavior from before,
-  but you can disable it to get same behavior as before.
+Chunked Conformer V2.
 
-Configuration options:
+V2 improvements over V1:
 
-- input_chunk_size_dim: on input (10ms) level. chunk size (including right context). default: 210
-- chunk_stride: on input (10ms) level. chunk stride. default: 120
-- end_chunk_size_dim: on encoder (60ms) level. chunk size excluding right context.
-  The right context is cut off for AED cross-att and when adding history (left) context.
-  Because this is also used for the history context (concat prev chunks),
-  it should match the chunk_stride (which is on input level though, before downsampling).
-  default: 20
-- chunk_history: num prev chunks to add for history context. default: 2
+- New configuration scheme.
+- Possibility to disable chunking (enc_chunk_size=None)
+- Training pool options: enc_chunk_size, enc_history_size, enc_lookahead_size
+  can each have a pool list; one entry is sampled randomly each training step,
+  enabling dynamic variation of chunk sizes and context lengths during training.
+- Faster convolution: only concatenates as many history chunks as the conv kernel needs,
+  rather than the full chunk_history used for attention.
+- Chunk history adaptation (adapt_chunk_history_for_short_seqs): optionally reduces
+  chunk_history at runtime when the input sequence is shorter than the configured sizes.
 
-TODO New configuration options?
+Configuration (encoder frame level, i.e. after input_layer downsampling, e.g. 60ms):
 
-- input_chunk_stride: on input (10ms) level. chunk stride. default: 120
-- enc_history_chunk_size (left): on encoder (60ms) level. chunk size left context size.
-  This is used for the history context (concat prev chunks).
-  default: 40
-- enc_lookahead_chunk_size (right): on encoder (60ms) level. chunk size right context size.
-  The right context is cut off for AED cross-att and when adding history (left) context.
-  default: 20
+- enc_chunk_size: encoder frames per chunk (= stride). None means no chunking.
+- enc_history_size: encoder frames of left context (history). 0 = no history.
+- enc_lookahead_size: encoder frames of right context (lookahead). 0 = no lookahead.
+
+Training pool options (randomly sampled each step during training):
+
+- enc_chunk_size_train_pool: list of enc_chunk_size values; None element = no chunking.
+  None pool = always use enc_chunk_size.
+- enc_history_size_train_pool: list of enc_history_size values.
+  None pool = always use enc_history_size.
+- enc_lookahead_size_train_pool: list of enc_lookahead_size values.
+  None pool = always use enc_lookahead_size.
+
+The input-level chunk parameters are derived automatically from the encoder-level parameters
+using input_layer.downsample_factor.
 
 TODO diff kinds of overlap handling (for right ctx): concat, average, ...
    (currently it just throws it away)
@@ -40,7 +43,7 @@ TODO self-conditioning
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import copy as _copy
 from dataclasses import dataclass
 
@@ -49,14 +52,7 @@ from returnn.util.math import ceil_div
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 from returnn.frontend.encoder.base import ISeqDownsamplingEncoder
-from returnn.frontend.encoder.conformer import (
-    ConformerEncoder,
-    ConformerEncoderLayer,
-    ConformerConvSubsample,
-    ConformerPositionwiseFeedForward,
-    make_ff,
-    make_norm,
-)
+from returnn.frontend.encoder.conformer import ConformerEncoderLayer, ConformerConvSubsample, make_ff, make_norm
 
 
 class ChunkedConformerEncoderV2(rf.Module):
@@ -81,10 +77,12 @@ class ChunkedConformerEncoderV2(rf.Module):
         att_dropout: float = 0.1,
         encoder_layer: Optional[Union[ConformerEncoderLayer, rf.Module, type, Dict[str, Any], Any]] = None,
         encoder_layer_opts: Optional[Dict[str, Any]] = None,
-        input_chunk_size_dim: Union[int, Dim],
-        chunk_stride: int,
-        chunk_history: int,
-        end_chunk_size_dim: Union[int, Dim],
+        enc_chunk_size: Optional[int],
+        enc_history_size: int,
+        enc_lookahead_size: int,
+        enc_chunk_size_train_pool: Optional[List[Optional[int]]] = None,
+        enc_history_size_train_pool: Optional[List[int]] = None,
+        enc_lookahead_size_train_pool: Optional[List[int]] = None,
         version: int = 1,
         adapt_chunk_history_for_short_seqs: bool = True,
     ):
@@ -92,7 +90,7 @@ class ChunkedConformerEncoderV2(rf.Module):
         :param out_dim: the output feature dimension
         :param num_layers: the number of encoder layers
         :param input_layer: input/frontend/prenet with potential subsampling.
-            (x, in_spatial_dim) -> (y, out_spatial_dim)
+            (x, in_spatial_dim) -> (y, out_spatial_dim). Must have a downsample_factor attribute.
         :param input_dropout: applied after input_projection(input_layer(x))
         :param ff_dim: the dimension of feed-forward layers. 2048 originally, or 4 times out_dim
         :param ff_activation: activation function for feed-forward network
@@ -103,32 +101,35 @@ class ChunkedConformerEncoderV2(rf.Module):
         :param att_dropout: attention dropout value
         :param encoder_layer: an instance of :class:`ConformerEncoderLayer` or similar
         :param encoder_layer_opts: options for the encoder layer
-        :param input_chunk_size_dim:
-        :param chunk_stride:
-        :param chunk_history:
-        :param end_chunk_size_dim:
-        :param version: version of chunked conformer
-        :param adapt_chunk_history_for_short_seqs: if True (default), reduce chunk_history/input_chunk_size_dim
-            at runtime when the input is shorter than what the configured chunk sizes require.
+        :param enc_chunk_size: encoder frames per chunk (stride). None = no chunking (full context).
+        :param enc_history_size: encoder frames of left context (history). 0 = no history.
+        :param enc_lookahead_size: encoder frames of right lookahead context. 0 = no lookahead.
+        :param enc_chunk_size_train_pool: if not None, randomly sample enc_chunk_size from this list
+            during training. None element in list means no chunking for that choice.
+        :param enc_history_size_train_pool: if not None, randomly sample enc_history_size from this list
+            during training.
+        :param enc_lookahead_size_train_pool: if not None, randomly sample enc_lookahead_size from this list
+            during training.
+        :param version: version of chunked conformer. Must be 3 (kept as param for hashing stability).
+        :param adapt_chunk_history_for_short_seqs: if True (default), reduce chunk_history at runtime
+            when the input is shorter than what the configured chunk sizes require.
         """
         super().__init__()
 
         if isinstance(out_dim, int):
             out_dim = Dim(out_dim, name="model")
-        if isinstance(input_chunk_size_dim, int):
-            input_chunk_size_dim = Dim(input_chunk_size_dim, name="input_chunk_size")
-        if isinstance(end_chunk_size_dim, int):
-            end_chunk_size_dim = Dim(end_chunk_size_dim, name="end_chunk_size")
 
         self.in_dim = in_dim
         self.out_dim = out_dim
         self.dropout = dropout
         self.dropout_broadcast = rf.dropout_broadcast_default()
 
-        self.input_chunk_size_dim = input_chunk_size_dim
-        self.chunk_stride = chunk_stride
-        self.chunk_history = chunk_history
-        self.end_chunk_size_dim = end_chunk_size_dim
+        self.enc_chunk_size = enc_chunk_size
+        self.enc_history_size = enc_history_size
+        self.enc_lookahead_size = enc_lookahead_size
+        self.enc_chunk_size_train_pool = enc_chunk_size_train_pool
+        self.enc_history_size_train_pool = enc_history_size_train_pool
+        self.enc_lookahead_size_train_pool = enc_lookahead_size_train_pool
         self.version = version
         self.adapt_chunk_history_for_short_seqs = adapt_chunk_history_for_short_seqs
         assert version == 3, f"Only version=3 is supported (got {version}). Set version=3 explicitly."
@@ -138,6 +139,9 @@ class ChunkedConformerEncoderV2(rf.Module):
             input_layer: ConformerConvSubsample  # maybe not true, but assume for some attribs
 
         self.input_layer = input_layer
+
+        self._input_downsample_factor = input_layer.downsample_factor if input_layer is not None else 1
+
         self.input_projection = rf.Linear(
             self.input_layer.out_dim if self.input_layer else self.in_dim, self.out_dim, with_bias=False
         )
@@ -188,18 +192,44 @@ class ChunkedConformerEncoderV2(rf.Module):
         collected_outputs: Optional[Dict[str, Tensor]] = None,
     ) -> Tuple[Tensor, Dim]:
         """forward"""
-        if rf.get_run_ctx().step % 2 == 0 and rf.get_run_ctx().train_flag:
+        # Determine chunking settings, optionally sampling from training pools.
+        enc_chunk_size = self.enc_chunk_size
+        enc_history_size = self.enc_history_size
+        enc_lookahead_size = self.enc_lookahead_size
+
+        if rf.get_run_ctx().train_flag:
+            if self.enc_chunk_size_train_pool is not None:
+                idx = rf.random_uniform(
+                    [], dtype="int32", device="cpu", minval=0, maxval=len(self.enc_chunk_size_train_pool)
+                )
+                enc_chunk_size = self.enc_chunk_size_train_pool[idx.raw_tensor.item()]
+            if self.enc_history_size_train_pool is not None:
+                idx = rf.random_uniform(
+                    [], dtype="int32", device="cpu", minval=0, maxval=len(self.enc_history_size_train_pool)
+                )
+                enc_history_size = self.enc_history_size_train_pool[idx.raw_tensor.item()]
+            if self.enc_lookahead_size_train_pool is not None:
+                idx = rf.random_uniform(
+                    [], dtype="int32", device="cpu", minval=0, maxval=len(self.enc_lookahead_size_train_pool)
+                )
+                enc_lookahead_size = self.enc_lookahead_size_train_pool[idx.raw_tensor.item()]
+
+        if enc_chunk_size is None:
+            # No chunking (full-context / offline mode).
             chunking = None
             spatial_dim = in_spatial_dim
         else:
-            # Chunk
-            input_chunk_size_dim = self.input_chunk_size_dim
-            chunk_stride = self.chunk_stride
-            chunk_history = self.chunk_history
-            end_chunk_size_dim = self.end_chunk_size_dim
+            # Derive input-level chunking parameters from encoder-level params.
+            ds = self._input_downsample_factor
+            input_chunk_size = (enc_chunk_size + enc_lookahead_size) * ds
+            chunk_stride = enc_chunk_size * ds
+            chunk_history = enc_history_size // enc_chunk_size
+
+            input_chunk_size_dim = Dim(input_chunk_size, name="input_chunk_size")
+            end_chunk_size_dim = Dim(enc_chunk_size, name="end_chunk_size")
 
             if self.adapt_chunk_history_for_short_seqs:
-                # First potentially reduce chunk sizes, history, if the input is not long enough.
+                # Potentially reduce chunk sizes / history if the input is not long enough.
                 max_input_chunk_size_dim = Dim(int(in_spatial_dim.get_dim_value()), name="max_input_chunk_size")
                 max_chunk_size_dim = (
                     self.input_layer.get_out_spatial_dim(max_input_chunk_size_dim)

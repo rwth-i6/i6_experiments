@@ -72,10 +72,9 @@ def test_conformer_v2():
     build_dict_v2 = rf.build_dict(
         ChunkedConformerEncoderV2,
         encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
-        chunk_stride=center_size * downsampling,
-        chunk_history=left_n,
-        input_chunk_size_dim=(center_size + right_size) * downsampling,
-        end_chunk_size_dim=center_size,
+        enc_chunk_size=center_size,
+        enc_history_size=left_n * center_size,
+        enc_lookahead_size=right_size,
         version=3,
         adapt_chunk_history_for_short_seqs=False,
     )
