@@ -156,7 +156,7 @@ def py():
     # epoch train time (recipe/i6_experiments/users/zeyer/returnn/tools/check_train_times.py) mean:
     #   3738.79 (v1: 7728.30)
     # CTC-only: 11.74 (v1: 9.56)
-    # left_n, center_size, right_size, bs = (16, 5, 4, 50_000)
+    left_n, center_size, right_size, bs = (16, 5, 4, 50_000)
 
     # V2.2 (bugged): using ChunkedConformerEncoderV2, setting version=2:
     #   reduce chunk sizes, history, if the input is not long enough.
@@ -196,6 +196,24 @@ def py():
                 chunk_history_size=left_n * center_size,
                 chunk_lookahead_size=right_size,
                 version=3,
+            ),
+            "train.batch_size": bs * configs._batch_size_factor,
+            "train.max_seqs": max_seqs,
+        },
+    )
+
+    # try grad checkpointing
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-gdckpt",
+        {
+            "model.enc_build_dict": rf.build_dict(
+                ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
+                chunk_size=center_size,
+                chunk_history_size=left_n * center_size,
+                chunk_lookahead_size=right_size,
+                version=3,
+                mem_chunks_grad_checkpointing=True,
             ),
             "train.batch_size": bs * configs._batch_size_factor,
             "train.max_seqs": max_seqs,
