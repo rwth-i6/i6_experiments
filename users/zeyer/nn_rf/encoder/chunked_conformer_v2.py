@@ -21,10 +21,10 @@ Configuration options:
 TODO New configuration options?
 
 - input_chunk_stride: on input (10ms) level. chunk stride. default: 120
-- enc_history_chunk_size (right): on encoder (60ms) level. chunk size left context size.
+- enc_history_chunk_size (left): on encoder (60ms) level. chunk size left context size.
   This is used for the history context (concat prev chunks).
   default: 40
-- enc_lookahead_chunk_size (left): on encoder (60ms) level. chunk size right context size.
+- enc_lookahead_chunk_size (right): on encoder (60ms) level. chunk size right context size.
   The right context is cut off for AED cross-att and when adding history (left) context.
   default: 20
 
