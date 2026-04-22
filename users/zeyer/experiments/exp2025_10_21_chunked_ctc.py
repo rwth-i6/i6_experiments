@@ -48,6 +48,7 @@ from i6_experiments.users.zeyer.nn_rf.encoder import chunked_conformer_v1
 from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2 import (
     ChunkedConformerEncoderV2,
     ChunkedConformerEncoderLayerV2,
+    ChunkedRotaryPosSelfAttentionV2,
 )
 
 __setup_root_prefix__ = "exp2025_10_21_chunked_ctc"
@@ -222,7 +223,23 @@ def py():
         },
     )
 
-    # TODO rope instead of relpos selfatt
+    # Rope instead of relpos selfatt.
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-rope",
+        {
+            "model.enc_build_dict": rf.build_dict(
+                ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
+                chunk_size=center_size,
+                chunk_history_size=left_n * center_size,
+                chunk_lookahead_size=right_size,
+                version=3,
+            ),
+            "train.batch_size": bs * configs._batch_size_factor,
+            "train.max_seqs": max_seqs,
+        },
+    )
+
     # TODO different left/right/center sizes per layer?
     #   Do one variant also like Haotian:
     #     The schedule: have chunk_size_pool(128, 256, 512, 1024, unlimited frames in my most training),
@@ -230,7 +247,6 @@ def py():
     #     The number of chunks for state carry over is also randomly selected
     #       from 0 to max_chunk_size_in_pool // selected_chunk_size.
     #     (No right context in that setup.)
-    # TODO also grad checkpt
 
     # TODO measure latency
 
