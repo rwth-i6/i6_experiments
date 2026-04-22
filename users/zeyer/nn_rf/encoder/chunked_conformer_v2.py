@@ -86,7 +86,7 @@ class ChunkedConformerEncoderV2(rf.Module):
         chunk_history: int,
         end_chunk_size_dim: Union[int, Dim],
         version: int = 1,
-        adapt_chunk_history_for_short_seqs: Optional[bool] = None,
+        adapt_chunk_history_for_short_seqs: bool = True,
     ):
         """
         :param out_dim: the output feature dimension
@@ -108,9 +108,8 @@ class ChunkedConformerEncoderV2(rf.Module):
         :param chunk_history:
         :param end_chunk_size_dim:
         :param version: version of chunked conformer
-        :param adapt_chunk_history_for_short_seqs: if True, reduce chunk_history/input_chunk_size_dim
+        :param adapt_chunk_history_for_short_seqs: if True (default), reduce chunk_history/input_chunk_size_dim
             at runtime when the input is shorter than what the configured chunk sizes require.
-            If None (default), falls back to version-based behavior: enabled for version >= 2.
         """
         super().__init__()
 
@@ -131,8 +130,6 @@ class ChunkedConformerEncoderV2(rf.Module):
         self.chunk_history = chunk_history
         self.end_chunk_size_dim = end_chunk_size_dim
         self.version = version
-        if adapt_chunk_history_for_short_seqs is None:
-            adapt_chunk_history_for_short_seqs = version >= 2
         self.adapt_chunk_history_for_short_seqs = adapt_chunk_history_for_short_seqs
         assert version == 3, f"Only version=3 is supported (got {version}). Set version=3 explicitly."
 
