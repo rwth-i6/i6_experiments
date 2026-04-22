@@ -1,10 +1,7 @@
 """
 V2:
 - Allow dynamic chunk sizes, strides, left/right contexts.
-- Changed configuration options.
 - Support both online and offline mode.
-- Support different kinds of overlap handling:
-  concat, average, ...
 - Fix masking within chunks.
 
 Earlier configuration options:
@@ -18,9 +15,7 @@ Earlier configuration options:
   default: 20
 - chunk_history: num prev chunks to add for history context. default: 2
 
-New configuration options:
-
-TODO do this:
+TODO New configuration options?
 
 - input_chunk_stride: on input (10ms) level. chunk stride. default: 120
 - enc_right_chunk_size: on encoder (60ms) level. chunk size right context size.
