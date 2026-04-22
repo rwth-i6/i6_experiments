@@ -4,8 +4,8 @@ Chunked Conformer V2.
 V2 improvements over V1:
 
 - New configuration scheme.
-- Possibility to disable chunking (enc_chunk_size=None)
-- Training pool options: enc_chunk_size, enc_history_size, enc_lookahead_size
+- Possibility to disable chunking (chunk_size=None)
+- Training pool options: chunk_size, chunk_history_size, chunk_lookahead_size
   can each have a pool list; one entry is sampled randomly each training step,
   enabling dynamic variation of chunk sizes and context lengths during training.
 - Faster convolution: only concatenates as many history chunks as the conv kernel needs,
@@ -16,18 +16,18 @@ V2 improvements over V1:
 
 Configuration (encoder frame level, i.e. after input_layer downsampling, e.g. 60ms):
 
-- enc_chunk_size: encoder frames per chunk (= stride). None means no chunking.
-- enc_history_size: encoder frames of left context (history). 0 = no history.
-- enc_lookahead_size: encoder frames of right context (lookahead). 0 = no lookahead.
+- chunk_size: encoder frames per chunk (= stride). None means no chunking.
+- chunk_history_size: encoder frames of left context (history). 0 = no history.
+- chunk_lookahead_size: encoder frames of right context (lookahead). 0 = no lookahead.
 
 Training pool options (randomly sampled each step during training):
 
-- enc_chunk_size_train_pool: list of enc_chunk_size values; None element = no chunking.
-  None pool = always use enc_chunk_size.
-- enc_history_size_train_pool: list of enc_history_size values.
-  None pool = always use enc_history_size.
-- enc_lookahead_size_train_pool: list of enc_lookahead_size values.
-  None pool = always use enc_lookahead_size.
+- chunk_size_train_pool: list of chunk_size values; None element = no chunking.
+  None pool = always use chunk_size.
+- chunk_history_size_train_pool: list of chunk_history_size values.
+  None pool = always use chunk_history_size.
+- chunk_lookahead_size_train_pool: list of chunk_lookahead_size values.
+  None pool = always use chunk_lookahead_size.
 
 The input-level chunk parameters are derived automatically from the encoder-level parameters
 using input_layer.downsample_factor.
@@ -78,12 +78,12 @@ class ChunkedConformerEncoderV2(rf.Module):
         att_dropout: float = 0.1,
         encoder_layer: Optional[Union[ConformerEncoderLayer, rf.Module, type, Dict[str, Any], Any]] = None,
         encoder_layer_opts: Optional[Dict[str, Any]] = None,
-        enc_chunk_size: Optional[int],
-        enc_history_size: int,
-        enc_lookahead_size: int,
-        enc_chunk_size_train_pool: Optional[List[Optional[int]]] = None,
-        enc_history_size_train_pool: Optional[List[int]] = None,
-        enc_lookahead_size_train_pool: Optional[List[int]] = None,
+        chunk_size: Optional[int],
+        chunk_history_size: int,
+        chunk_lookahead_size: int,
+        chunk_size_train_pool: Optional[List[Optional[int]]] = None,
+        chunk_history_size_train_pool: Optional[List[int]] = None,
+        chunk_lookahead_size_train_pool: Optional[List[int]] = None,
         version: int = 1,
         adapt_chunk_history_for_short_seqs: bool = True,
         mem_chunks_grad_checkpointing: bool = False,
@@ -103,14 +103,14 @@ class ChunkedConformerEncoderV2(rf.Module):
         :param att_dropout: attention dropout value
         :param encoder_layer: an instance of :class:`ConformerEncoderLayer` or similar
         :param encoder_layer_opts: options for the encoder layer
-        :param enc_chunk_size: encoder frames per chunk (stride). None = no chunking (full context).
-        :param enc_history_size: encoder frames of left context (history). 0 = no history.
-        :param enc_lookahead_size: encoder frames of right lookahead context. 0 = no lookahead.
-        :param enc_chunk_size_train_pool: if not None, randomly sample enc_chunk_size from this list
+        :param chunk_size: encoder frames per chunk (stride). None = no chunking (full context).
+        :param chunk_history_size: encoder frames of left context (history). 0 = no history.
+        :param chunk_lookahead_size: encoder frames of right lookahead context. 0 = no lookahead.
+        :param chunk_size_train_pool: if not None, randomly sample chunk_size from this list
             during training. None element in list means no chunking for that choice.
-        :param enc_history_size_train_pool: if not None, randomly sample enc_history_size from this list
+        :param chunk_history_size_train_pool: if not None, randomly sample chunk_history_size from this list
             during training.
-        :param enc_lookahead_size_train_pool: if not None, randomly sample enc_lookahead_size from this list
+        :param chunk_lookahead_size_train_pool: if not None, randomly sample chunk_lookahead_size from this list
             during training.
         :param version: version of chunked conformer. Must be 3 (kept as param for hashing stability).
         :param adapt_chunk_history_for_short_seqs: if True (default), reduce chunk_history at runtime
@@ -128,12 +128,12 @@ class ChunkedConformerEncoderV2(rf.Module):
         self.dropout = dropout
         self.dropout_broadcast = rf.dropout_broadcast_default()
 
-        self.enc_chunk_size = enc_chunk_size
-        self.enc_history_size = enc_history_size
-        self.enc_lookahead_size = enc_lookahead_size
-        self.enc_chunk_size_train_pool = enc_chunk_size_train_pool
-        self.enc_history_size_train_pool = enc_history_size_train_pool
-        self.enc_lookahead_size_train_pool = enc_lookahead_size_train_pool
+        self.chunk_size = chunk_size
+        self.chunk_history_size = chunk_history_size
+        self.chunk_lookahead_size = chunk_lookahead_size
+        self.chunk_size_train_pool = chunk_size_train_pool
+        self.chunk_history_size_train_pool = chunk_history_size_train_pool
+        self.chunk_lookahead_size_train_pool = chunk_lookahead_size_train_pool
         self.version = version
         self.adapt_chunk_history_for_short_seqs = adapt_chunk_history_for_short_seqs
         self.mem_chunks_grad_checkpointing = mem_chunks_grad_checkpointing
@@ -199,40 +199,40 @@ class ChunkedConformerEncoderV2(rf.Module):
     ) -> Tuple[Tensor, Dim]:
         """forward"""
         # Determine chunking settings, optionally sampling from training pools.
-        enc_chunk_size = self.enc_chunk_size
-        enc_history_size = self.enc_history_size
-        enc_lookahead_size = self.enc_lookahead_size
+        chunk_size = self.chunk_size
+        chunk_history_size = self.chunk_history_size
+        chunk_lookahead_size = self.chunk_lookahead_size
 
         if rf.get_run_ctx().train_flag:
-            if self.enc_chunk_size_train_pool is not None:
+            if self.chunk_size_train_pool is not None:
                 idx = rf.random_uniform(
-                    [], dtype="int32", device="cpu", minval=0, maxval=len(self.enc_chunk_size_train_pool)
+                    [], dtype="int32", device="cpu", minval=0, maxval=len(self.chunk_size_train_pool)
                 )
-                enc_chunk_size = self.enc_chunk_size_train_pool[idx.raw_tensor.item()]
-            if self.enc_history_size_train_pool is not None:
+                chunk_size = self.chunk_size_train_pool[idx.raw_tensor.item()]
+            if self.chunk_history_size_train_pool is not None:
                 idx = rf.random_uniform(
-                    [], dtype="int32", device="cpu", minval=0, maxval=len(self.enc_history_size_train_pool)
+                    [], dtype="int32", device="cpu", minval=0, maxval=len(self.chunk_history_size_train_pool)
                 )
-                enc_history_size = self.enc_history_size_train_pool[idx.raw_tensor.item()]
-            if self.enc_lookahead_size_train_pool is not None:
+                chunk_history_size = self.chunk_history_size_train_pool[idx.raw_tensor.item()]
+            if self.chunk_lookahead_size_train_pool is not None:
                 idx = rf.random_uniform(
-                    [], dtype="int32", device="cpu", minval=0, maxval=len(self.enc_lookahead_size_train_pool)
+                    [], dtype="int32", device="cpu", minval=0, maxval=len(self.chunk_lookahead_size_train_pool)
                 )
-                enc_lookahead_size = self.enc_lookahead_size_train_pool[idx.raw_tensor.item()]
+                chunk_lookahead_size = self.chunk_lookahead_size_train_pool[idx.raw_tensor.item()]
 
-        if enc_chunk_size is None:
+        if chunk_size is None:
             # No chunking (full-context / offline mode).
             chunking = None
             spatial_dim = in_spatial_dim
         else:
             # Derive input-level chunking parameters from encoder-level params.
             ds = self._input_downsample_factor
-            input_chunk_size = (enc_chunk_size + enc_lookahead_size) * ds
-            chunk_stride = enc_chunk_size * ds
-            chunk_history = enc_history_size // enc_chunk_size
+            input_chunk_size = (chunk_size + chunk_lookahead_size) * ds
+            chunk_stride = chunk_size * ds
+            chunk_history = chunk_history_size // chunk_size
 
             input_chunk_size_dim = Dim(input_chunk_size, name="input_chunk_size")
-            end_chunk_size_dim = Dim(enc_chunk_size, name="end_chunk_size")
+            end_chunk_size_dim = Dim(chunk_size, name="end_chunk_size")
 
             if self.adapt_chunk_history_for_short_seqs:
                 # Potentially reduce chunk sizes / history if the input is not long enough.
