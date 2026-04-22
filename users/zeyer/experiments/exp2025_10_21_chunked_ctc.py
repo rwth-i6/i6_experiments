@@ -168,7 +168,7 @@ def py():
     # V2.3: using ChunkedConformerEncoderV2, setting version=3.
     # First exp, try to reproduce the orig.
     train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3",
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-compat",
         {
             "model.enc_build_dict": rf.build_dict(
                 ChunkedConformerEncoderV2,
@@ -178,6 +178,24 @@ def py():
                 chunk_lookahead_size=right_size,
                 version=3,
                 adapt_chunk_history_for_short_seqs=False,  # compat with V1
+            ),
+            "train.batch_size": bs * configs._batch_size_factor,
+            "train.max_seqs": max_seqs,
+        },
+    )
+
+    # V2.3: using ChunkedConformerEncoderV2, setting version=3.
+    #   reduce chunk sizes, history, if the input is not long enough.
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3",
+        {
+            "model.enc_build_dict": rf.build_dict(
+                ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
+                chunk_size=center_size,
+                chunk_history_size=left_n * center_size,
+                chunk_lookahead_size=right_size,
+                version=3,
             ),
             "train.batch_size": bs * configs._batch_size_factor,
             "train.max_seqs": max_seqs,
