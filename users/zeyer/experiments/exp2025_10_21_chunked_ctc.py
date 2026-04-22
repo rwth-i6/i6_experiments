@@ -273,7 +273,7 @@ def py():
 
     # Overlapping chunks
     train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3",
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-overlap",
         {
             "model.enc_build_dict": rf.build_dict(
                 ChunkedConformerEncoderV2,
