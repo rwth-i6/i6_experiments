@@ -271,7 +271,26 @@ def py():
         },
     )
 
-    # TODO different left/right/center sizes per layer?
+    # Overlapping chunks
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3",
+        {
+            "model.enc_build_dict": rf.build_dict(
+                ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
+                chunk_size=center_size,
+                chunk_history_size=left_n * center_size,
+                chunk_lookahead_size=right_size,
+                chunk_num_overlaps=2,
+                version=3,
+            ),
+            "train.batch_size": bs * configs._batch_size_factor,
+            "train.max_seqs": max_seqs,
+        },
+    )
+
+    # TODO if overlapping chunks works, and the dynamic chunking also works well,
+    #   do also dynamic num overlapping chunks.
 
     # TODO measure latency
 

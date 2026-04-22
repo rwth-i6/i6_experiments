@@ -46,6 +46,8 @@ TODO overlap handling also for mem ctx?
 TODO fix masking within chunks. set right window dim
 
 TODO self-conditioning
+
+TODO different left/right/center sizes per layer?
 """
 
 from __future__ import annotations
