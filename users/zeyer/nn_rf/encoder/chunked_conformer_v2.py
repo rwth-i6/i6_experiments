@@ -13,12 +13,17 @@ V2 improvements over V1:
 - Chunk history adaptation (adapt_chunk_history_for_short_seqs): optionally reduces
   chunk_history at runtime when the input sequence is shorter than the configured sizes.
 - Support gradient checkpointing around mem_chunks to save memory.
+- Overlap support (chunk_num_overlaps > 1): chunk_stride = chunk_size // chunk_num_overlaps,
+  so each output frame is covered by chunk_num_overlaps chunks (except at boundaries, but we ignore that).
+  The overlapping frames are averaged together.
 
 Configuration (encoder frame level, i.e. after input_layer downsampling, e.g. 60ms):
 
-- chunk_size: encoder frames per chunk (= stride). None means no chunking.
+- chunk_size: encoder frames per chunk. None means no chunking.
 - chunk_history_size: encoder frames of left context (history). 0 = no history.
 - chunk_lookahead_size: encoder frames of right context (lookahead). 0 = no lookahead.
+- chunk_num_overlaps: how many chunks cover each output frame. 1 = no overlap (default).
+  chunk_stride = chunk_size // chunk_num_overlaps.
 
 Training pool options (randomly sampled each step during training):
 
@@ -28,12 +33,15 @@ Training pool options (randomly sampled each step during training):
   None pool = always use chunk_history_size.
 - chunk_lookahead_size_train_pool: list of chunk_lookahead_size values.
   None pool = always use chunk_lookahead_size.
+- chunk_num_overlaps_train_pool: list of chunk_num_overlaps values.
+  None pool = always use chunk_num_overlaps.
 
 The input-level chunk parameters are derived automatically from the encoder-level parameters
 using input_layer.downsample_factor.
 
-TODO diff kinds of overlap handling (for right ctx): concat, average, ...
-   (currently it just throws it away)
+TODO diff kinds of overlap handling (for right ctx): concat, average, max, ...
+  Currently we just have average with chunk_num_overlaps>1.
+  Also maybe handling gradient differently, like passthrough to all.
 TODO overlap handling also for mem ctx?
 TODO fix masking within chunks. set right window dim
 
@@ -79,9 +87,11 @@ class ChunkedConformerEncoderV2(rf.Module):
         chunk_size: Optional[int],
         chunk_history_size: int,
         chunk_lookahead_size: int,
+        chunk_num_overlaps: int = 1,
         chunk_size_train_pool: Optional[List[Optional[int]]] = None,
         chunk_history_size_train_pool: Optional[List[int]] = None,
         chunk_lookahead_size_train_pool: Optional[List[int]] = None,
+        chunk_num_overlaps_train_pool: Optional[List[int]] = None,
         version: int = 1,
         adapt_chunk_history_for_short_seqs: bool = True,
         mem_chunks_grad_checkpointing: bool = False,
@@ -104,11 +114,15 @@ class ChunkedConformerEncoderV2(rf.Module):
         :param chunk_size: encoder frames per chunk (stride). None = no chunking (full context).
         :param chunk_history_size: encoder frames of left context (history). 0 = no history.
         :param chunk_lookahead_size: encoder frames of right lookahead context. 0 = no lookahead.
+        :param chunk_num_overlaps: how many chunks cover each output frame. 1 = no overlap (default).
+            chunk_stride = chunk_size // chunk_num_overlaps
         :param chunk_size_train_pool: if not None, randomly sample chunk_size from this list
             during training. None element in list means no chunking for that choice.
         :param chunk_history_size_train_pool: if not None, randomly sample chunk_history_size from this list
             during training.
         :param chunk_lookahead_size_train_pool: if not None, randomly sample chunk_lookahead_size from this list
+            during training.
+        :param chunk_num_overlaps_train_pool: if not None, randomly sample chunk_num_overlaps from this list
             during training.
         :param version: version of chunked conformer. Must be 3 (kept as param for hashing stability).
         :param adapt_chunk_history_for_short_seqs: if True (default), reduce chunk_history at runtime
@@ -129,9 +143,11 @@ class ChunkedConformerEncoderV2(rf.Module):
         self.chunk_size = chunk_size
         self.chunk_history_size = chunk_history_size
         self.chunk_lookahead_size = chunk_lookahead_size
+        self.chunk_num_overlaps = chunk_num_overlaps
         self.chunk_size_train_pool = chunk_size_train_pool
         self.chunk_history_size_train_pool = chunk_history_size_train_pool
         self.chunk_lookahead_size_train_pool = chunk_lookahead_size_train_pool
+        self.chunk_num_overlaps_train_pool = chunk_num_overlaps_train_pool
         self.version = version
         self.adapt_chunk_history_for_short_seqs = adapt_chunk_history_for_short_seqs
         self.mem_chunks_grad_checkpointing = mem_chunks_grad_checkpointing
@@ -200,6 +216,7 @@ class ChunkedConformerEncoderV2(rf.Module):
         chunk_size = self.chunk_size
         chunk_history_size = self.chunk_history_size
         chunk_lookahead_size = self.chunk_lookahead_size
+        chunk_num_overlaps = self.chunk_num_overlaps
 
         if rf.get_run_ctx().train_flag:
             if self.chunk_size_train_pool is not None:
@@ -217,20 +234,32 @@ class ChunkedConformerEncoderV2(rf.Module):
                     [], dtype="int32", device="cpu", minval=0, maxval=len(self.chunk_lookahead_size_train_pool)
                 )
                 chunk_lookahead_size = self.chunk_lookahead_size_train_pool[idx.raw_tensor.item()]
+            if self.chunk_num_overlaps_train_pool is not None:
+                idx = rf.random_uniform(
+                    [], dtype="int32", device="cpu", minval=0, maxval=len(self.chunk_num_overlaps_train_pool)
+                )
+                chunk_num_overlaps = self.chunk_num_overlaps_train_pool[idx.raw_tensor.item()]
 
         if chunk_size is None:
             # No chunking (full-context / offline mode).
             chunking = None
+            chunk_size_dim = None
             spatial_dim = in_spatial_dim
         else:
             # Derive input-level chunking parameters from encoder-level params.
             ds = self._input_downsample_factor
+            chunk_stride = chunk_size // chunk_num_overlaps
             input_chunk_size = (chunk_size + chunk_lookahead_size) * ds
-            chunk_stride = chunk_size * ds
-            chunk_history = chunk_history_size // chunk_size
+            input_chunk_stride = chunk_stride * ds
+            chunk_history = chunk_history_size // chunk_stride
 
             input_chunk_size_dim = Dim(input_chunk_size, name="input_chunk_size")
-            end_chunk_size_dim = Dim(chunk_size, name="end_chunk_size")
+            end_chunk_size_dim = Dim(chunk_stride, name="chunk_stride")
+            chunk_size_dim = (
+                Dim(chunk_num_overlaps * chunk_stride, name="chunk_size")
+                if chunk_num_overlaps > 1
+                else end_chunk_size_dim
+            )
 
             if self.adapt_chunk_history_for_short_seqs:
                 # Potentially reduce chunk sizes / history if the input is not long enough.
@@ -242,6 +271,8 @@ class ChunkedConformerEncoderV2(rf.Module):
                 )
                 if end_chunk_size_dim.dimension > max_chunk_size_dim.dimension:
                     end_chunk_size_dim = max_chunk_size_dim
+                    chunk_num_overlaps = 1
+                    chunk_size_dim = end_chunk_size_dim
                 if input_chunk_size_dim.dimension > max_input_chunk_size_dim.dimension:
                     input_chunk_size_dim = max_input_chunk_size_dim
                     chunk_history = 0
@@ -253,7 +284,7 @@ class ChunkedConformerEncoderV2(rf.Module):
                 spatial_dim=in_spatial_dim,
                 window_dim=input_chunk_size_dim,
                 window_left=0,
-                stride=chunk_stride,
+                stride=input_chunk_stride,
                 pad_value=0.0,
             )
             spatial_dim = input_chunk_size_dim
@@ -278,21 +309,28 @@ class ChunkedConformerEncoderV2(rf.Module):
             collected_outputs=collected_outputs,
         )
 
+        def _unchunk(x: Tensor, out_spatial_dim: Optional[Dim] = None) -> Tuple[Tensor, Dim]:
+            x, _ = rf.slice(x, axis=spatial_dim, size=chunk_size_dim)
+            if chunk_num_overlaps > 1:
+                x = _average_overlapping_chunks(
+                    x,
+                    chunked_time_dim=chunking.chunked_time_dim,
+                    chunk_size_dim=chunk_size_dim,
+                    chunk_stride_enc_dim=chunking.end_chunk_size_dim,
+                )
+            x, out_spatial_dim_ = rf.merge_dims(
+                x, dims=(chunking.chunked_time_dim, chunking.end_chunk_size_dim), out_dim=out_spatial_dim
+            )
+            return x, out_spatial_dim_
+
         if chunking:
-            # Unchunk
-            x, _ = rf.slice(x, axis=spatial_dim, size=chunking.end_chunk_size_dim)
-            x, out_spatial_dim = rf.merge_dims(x, dims=(chunking.chunked_time_dim, chunking.end_chunk_size_dim))
+            x, out_spatial_dim = _unchunk(x)
         else:
             out_spatial_dim = spatial_dim
 
-        if collected_outputs:
+        if chunking and collected_outputs:
             for k, v in list(collected_outputs.items()):
-                if chunking:
-                    v, _ = rf.slice(v, axis=spatial_dim, size=chunking.end_chunk_size_dim)
-                    v, _ = rf.merge_dims(
-                        v, dims=(chunking.chunked_time_dim, chunking.end_chunk_size_dim), out_dim=out_spatial_dim
-                    )
-                collected_outputs[k] = v
+                collected_outputs[k], _ = _unchunk(v, out_spatial_dim)
 
         return x, out_spatial_dim
 
@@ -698,6 +736,41 @@ class _BatchChunkingSettings:
     chunk_history: int
     end_chunk_size_dim: Dim
     chunked_time_dim: Dim
+
+
+def _average_overlapping_chunks(
+    x: Tensor,
+    *,
+    chunked_time_dim: Dim,
+    chunk_size_dim: Dim,
+    chunk_stride_enc_dim: Dim,
+) -> Tensor:
+    """
+    Uniformly average overlapping encoder chunk outputs.
+
+    :param x: [*, chunked_time_dim, chunk_size_dim, *feat*]
+    :param chunked_time_dim: the chunk axis
+    :param chunk_size_dim: Dim with dimension = chunk_num_overlaps * chunk_stride
+    :param chunk_stride_enc_dim: Dim with dimension = chunk_stride
+    :return: [*, chunked_time_dim, chunk_stride_enc_dim, *feat*]  scaled-sum output
+    """
+    chunk_size = chunk_size_dim.dimension
+    chunk_stride = chunk_stride_enc_dim.dimension
+    n_shifts = chunk_size // chunk_stride  # = chunk_num_overlaps
+
+    # Accumulate: acc[i] = sum_s shift_right(group_s, by=s)[i]
+    # where group_s = x[..., s*chunk_stride : (s+1)*chunk_stride, ...].
+    # After shifting group s by s steps, chunk i+s receives group s from chunk i.
+    acc: Optional[Tensor] = None
+    for s in range(n_shifts):
+        group_s, _ = rf.slice(x, axis=chunk_size_dim, start=s * chunk_stride, size=chunk_stride_enc_dim)
+        if s > 0:
+            group_s = rf.shift_right(group_s, axis=chunked_time_dim, amount=s, pad_value=0.0)
+        acc = group_s if acc is None else acc + group_s
+
+    # Note, strictly speaking, not for all frames we have n_shifts overlaps.
+    # But only for the boundary cases this is violated, and it greatly simplifies the logic here.
+    return acc * (1.0 / n_shifts)
 
 
 def _mem_chunks(

@@ -32,6 +32,7 @@ from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v1 import (
 from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2 import (
     ChunkedConformerEncoderV2,
     ChunkedConformerEncoderLayerV2,
+    _average_overlapping_chunks,
 )
 
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
@@ -51,6 +52,8 @@ def tests():
     better_exchook.install()
     _setup_test()
     test_conformer_v2()
+    test_conformer_v2_with_chunk_num_overlaps()
+    test_average_overlapping_chunks()
 
 
 def test_conformer_v2():
@@ -142,6 +145,80 @@ def test_conformer_v2():
     assert out_spatial_dim.dyn_size_ext.raw_tensor.max() > 0
     assert torch.mean(res.raw_tensor**2) > 0.1
     print("All matching!")
+
+
+def test_conformer_v2_with_chunk_num_overlaps():
+    """Smoke test: chunk_num_overlaps=2 (2x overlap) runs without errors."""
+    chunk_size = 10
+    chunk_num_overlaps = 2  # stride = chunk_size // 2 = 5
+    chunk_history_size = 80
+    chunk_lookahead_size = 4
+
+    build_dict_v2 = rf.build_dict(
+        ChunkedConformerEncoderV2,
+        encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
+        chunk_size=chunk_size,
+        chunk_history_size=chunk_history_size,
+        chunk_lookahead_size=chunk_lookahead_size,
+        chunk_num_overlaps=chunk_num_overlaps,
+        version=3,
+        adapt_chunk_history_for_short_seqs=False,
+    )
+    model = _build_model(build_dict_v2)
+
+    input_data, time_dim = _make_input_data()
+    with torch.no_grad():
+        res, out_spatial_dim = model(input_data, in_spatial_dim=time_dim)
+
+    # With 2x overlap the output has ~2x more steps than without.
+    assert out_spatial_dim.dyn_size_ext is not None
+    assert out_spatial_dim.dyn_size_ext.raw_tensor.max() > 0
+    assert torch.mean(res.raw_tensor**2) > 0.01
+    print(f"test_conformer_v2_with_chunk_num_overlaps: out={res}, out_spatial_dim={out_spatial_dim}  OK")
+
+
+def test_average_overlapping_chunks():
+    """Unit test for _average_overlapping_chunks with known small tensors."""
+    import torch
+
+    # chunk_size=4, chunk_num_overlaps=2 → chunk_stride=2, n_chunks=3, feat=1
+    chunk_size = 4
+    chunk_stride = 2  # = chunk_size // chunk_num_overlaps
+    n_chunks = 3
+    feat = 1
+
+    batch_dim_ = Dim(1, name="batch_test")
+    chunked_time_dim = Dim(n_chunks, name="chunks")
+    chunk_size_dim = Dim(chunk_size, name="chunk_size_enc")
+    chunk_stride_enc_dim = Dim(chunk_stride, name="chunk_stride_enc")
+    feat_dim_ = Dim(feat, name="feat_test")
+
+    # x[b, chunk, frame, feat]:
+    #   chunk 0: [a0, a1, a2, a3] = [10, 11, 12, 13]
+    #   chunk 1: [b0, b1, b2, b3] = [20, 21, 22, 23]
+    #   chunk 2: [c0, c1, c2, c3] = [30, 31, 32, 33]
+    raw = torch.tensor(
+        [[[[10.0], [11.0], [12.0], [13.0]], [[20.0], [21.0], [22.0], [23.0]], [[30.0], [31.0], [32.0], [33.0]]]]
+    )  # [1, 3, 4, 1]
+    x = rf.convert_to_tensor(raw, dims=[batch_dim_, chunked_time_dim, chunk_size_dim, feat_dim_])
+
+    result = _average_overlapping_chunks(
+        x,
+        chunked_time_dim=chunked_time_dim,
+        chunk_size_dim=chunk_size_dim,
+        chunk_stride_enc_dim=chunk_stride_enc_dim,
+    )
+    # result shape: [batch, n_chunks, chunk_stride, feat]
+    assert chunk_stride_enc_dim in result.dims, f"unexpected dims: {result.dims}"
+
+    out = result.raw_tensor  # [1, 3, 2, 1]
+    # With constant 1/n_shifts=0.5 scale (n_shifts=2):
+    #   chunk 0: (group0=[10,11] + shift_right(group1=[12,13],by=1)=pad[0,0]) * 0.5 = [5, 5.5]
+    #   chunk 1: (group0=[20,21] + shift_right(group1=[22,23],by=1)=[12,13])  * 0.5 = [16, 17]
+    #   chunk 2: (group0=[30,31] + shift_right(group1=[32,33],by=1)=[22,23])  * 0.5 = [26, 27]
+    expected = torch.tensor([[[[5.0], [5.5]], [[16.0], [17.0]], [[26.0], [27.0]]]])  # [1, 3, 2, 1]
+    torch.testing.assert_allclose(out, expected, rtol=1e-5, atol=1e-5)
+    print("test_average_overlapping_chunks: OK")
 
 
 def _build_model(build_dict: Dict[str, Any]):
