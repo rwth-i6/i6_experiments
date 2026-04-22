@@ -198,6 +198,12 @@ def py():
 
     # TODO rope instead of relpos selfatt
     # TODO different left/right/center sizes per layer?
+    #   Do one variant also like Haotian:
+    #     The schedule: have chunk_size_pool(128, 256, 512, 1024, unlimited frames in my most training),
+    #     chunk size is uniformly sampled from the pool and be set for whole batch.
+    #     The number of chunks for state carry over is also randomly selected
+    #       from 0 to max_chunk_size_in_pool // selected_chunk_size.
+    #     (No right context in that setup.)
 
     # TODO measure latency
 
