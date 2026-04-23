@@ -59,7 +59,7 @@ def default_recog_variants() -> List[TransducerRecogVariant]:
 
 def default_offline_lexfree_recog_variant() -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="recog_lexfree",
+        descriptor="lexfree",
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             max_beam_sizes=[1],
@@ -70,7 +70,7 @@ def default_offline_lexfree_recog_variant() -> TransducerRecogVariant:
 
 def default_offline_lexfree_lstm_recog_variant() -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="recog_lexfree_bpe-LSTM",
+        descriptor="lexfree_bpe-LSTM",
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             max_beam_sizes=[512, 256],
@@ -83,7 +83,7 @@ def default_offline_lexfree_lstm_recog_variant() -> TransducerRecogVariant:
 
 def default_offline_tree_recog_variant() -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="recog_tree",
+        descriptor="tree",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             max_beam_sizes=[8],
@@ -94,7 +94,7 @@ def default_offline_tree_recog_variant() -> TransducerRecogVariant:
 
 def default_offline_tree_4gram_recog_variant() -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="recog_tree_4gram",
+        descriptor="tree_4gram",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             word_lm_params=librispeech_lm.ArpaLmParams(scale=0.6),
@@ -109,7 +109,7 @@ def default_offline_tree_4gram_recog_variant() -> TransducerRecogVariant:
 
 def default_offline_tree_lstm_recog_variant() -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="recog_tree_bpe-LSTM",
+        descriptor="tree_bpe-LSTM",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             max_beam_sizes=[40, 20],
@@ -122,7 +122,7 @@ def default_offline_tree_lstm_recog_variant() -> TransducerRecogVariant:
 
 def default_offline_tree_lstm_4gram_recog_variant() -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="recog_tree_4gram_bpe-LSTM",
+        descriptor="tree_4gram_bpe-LSTM",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             max_beam_sizes=[16, 16],
@@ -138,7 +138,7 @@ def default_offline_tree_lstm_4gram_recog_variant() -> TransducerRecogVariant:
 
 def default_offline_tree_trafo_recog_variant() -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="recog_tree_trafoLM",
+        descriptor="tree_trafoLM",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             score_thresholds=[16.0],
@@ -154,7 +154,7 @@ def default_offline_tree_trafo_recog_variant() -> TransducerRecogVariant:
 
 def default_offline_tree_trafo_recog_variant_gpu() -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="recog_tree_trafoLM_gpu",
+        descriptor="tree_trafoLM_gpu",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             score_thresholds=[16.0],
@@ -170,7 +170,7 @@ def default_offline_tree_trafo_recog_variant_gpu() -> TransducerRecogVariant:
 
 def default_streaming_lexfree_recog_variant() -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="recog_streaming_lexfree",
+        descriptor="streaming_lexfree",
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             max_beam_sizes=[256],
@@ -182,7 +182,7 @@ def default_streaming_lexfree_recog_variant() -> TransducerRecogVariant:
 
 def default_streaming_tree_4gram_recog_variant() -> TransducerRecogVariant:
     return TransducerRecogVariant(
-        descriptor="recog_streaming_tree_4gram",
+        descriptor="streaming_tree_4gram",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
             max_beam_sizes=[1024],

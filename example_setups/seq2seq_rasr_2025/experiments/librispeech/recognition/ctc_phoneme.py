@@ -50,7 +50,7 @@ def default_recog_variants() -> List[CTCRecogVariant]:
 
 def default_offline_4gram_recog_variant() -> CTCRecogVariant:
     return CTCRecogVariant(
-        descriptor="recog_4gram",
+        descriptor="4gram",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=True,
             word_lm_params=librispeech_lm.ArpaLmParams(scale=0.6),
@@ -65,7 +65,7 @@ def default_offline_4gram_recog_variant() -> CTCRecogVariant:
 
 def default_offline_trafo_recog_variant() -> CTCRecogVariant:
     return CTCRecogVariant(
-        descriptor="recog_trafoLM",
+        descriptor="trafoLM",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=True,
             max_beam_sizes=[512],
@@ -81,7 +81,7 @@ def default_offline_trafo_recog_variant() -> CTCRecogVariant:
 
 def default_streaming_4gram_recog_variant() -> CTCRecogVariant:
     return CTCRecogVariant(
-        descriptor="recog_streaming_4gram",
+        descriptor="streaming_4gram",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=True,
             max_beam_sizes=[1024],
