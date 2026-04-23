@@ -123,10 +123,11 @@ def _get_label_scorer_configs(
         model_config=aed_model.model_config,
         checkpoint=aed_checkpoint,
         use_gpu=use_gpu,
-        scale=1.0 - variant.ctc_score_scale,
     )
     aed_label_scorer_config = get_encoder_decoder_label_scorer_config(
-        encoder_onnx_model=aed_onnx_encoder, decoder_label_scorer_config=aed_decoder_label_scorer_config
+        encoder_onnx_model=aed_onnx_encoder,
+        decoder_label_scorer_config=aed_decoder_label_scorer_config,
+        scale=1.0 - variant.ctc_score_scale,
     )
 
     ctc_checkpoint = ctc_model.get_checkpoint(variant.ctc_epoch)
@@ -149,10 +150,7 @@ def _get_label_scorer_configs(
     )
 
     if isinstance(variant.search_algorithm_params, LexiconfreeLabelsyncRecogParams):
-        ctc_decoder_label_scorer_config = get_ctc_prefix_label_scorer_config(
-            model_config=ctc_model.model_config,
-            scale=variant.ctc_score_scale,
-        )
+        ctc_decoder_label_scorer_config = get_ctc_prefix_label_scorer_config(model_config=ctc_model.model_config)
     else:
         ctc_decoder_label_scorer_config = None
 
