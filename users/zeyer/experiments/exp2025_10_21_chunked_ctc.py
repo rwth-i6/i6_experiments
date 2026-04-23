@@ -284,7 +284,7 @@ def py():
                 chunk_num_overlaps=2,
                 version=3,
             ),
-            "train.batch_size": bs * configs._batch_size_factor,
+            "train.batch_size": bs * configs._batch_size_factor // 2,
             "train.max_seqs": max_seqs,
         },
     )
