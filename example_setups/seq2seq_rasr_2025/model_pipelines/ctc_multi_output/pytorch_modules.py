@@ -70,9 +70,7 @@ class ConformerCTCMultiOutputModel(torch.nn.Module):
 
         with torch.no_grad():
             audio_samples = audio_samples.squeeze(-1)  # [B, T]
-            features, features_size = self.feature_extraction.forward(
-                audio_samples, audio_samples_size
-            )  # [B, T, F], [B]
+            features, features_size = self.feature_extraction(audio_samples, audio_samples_size)  # [B, T, F], [B]
             sequence_mask = lengths_to_padding_mask(features_size)  # [B, T]
 
             if self.training:
@@ -89,15 +87,15 @@ class ConformerCTCMultiOutputModel(torch.nn.Module):
                         freq_mask_max_size=self.specaug_config.freq_mask_max_size,
                     )  # [B, T, F]
 
-        encoder_states, sequence_mask = self.conformer.forward(
+        encoder_states, sequence_mask = self.conformer(
             features, sequence_mask, return_layers=self.output_layer_indices
         )  # [B, T, E], [B, T]
 
         out_log_probs = []
 
         for output_layer, encoder_states_index in zip(self.output_layers, self.matching_encoder_states_index):
-            encoder_layer_output = self.dropout.forward(encoder_states[encoder_states_index])  # [B, T, E]
-            logits = output_layer.forward(encoder_layer_output)  # [B, T, V]
+            encoder_layer_output = self.dropout(encoder_states[encoder_states_index])  # [B, T, E]
+            logits = output_layer(encoder_layer_output)  # [B, T, V]
             log_probs = torch.log_softmax(logits, dim=2)  # [B, T, V]
             out_log_probs.append(log_probs)
 
@@ -116,12 +114,10 @@ class ConformerCTCMultiOutputPriorModel(ConformerCTCMultiOutputModel):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         with torch.no_grad():
             audio_samples = audio_samples.squeeze(-1)  # [B, T]
-            features, features_size = self.feature_extraction.forward(
-                audio_samples, audio_samples_size
-            )  # [B, T, F], [B]
+            features, features_size = self.feature_extraction(audio_samples, audio_samples_size)  # [B, T, F], [B]
             sequence_mask = lengths_to_padding_mask(features_size)  # [B, T]
 
-        encoder_states, sequence_mask = self.conformer.forward(
+        encoder_states, sequence_mask = self.conformer(
             features,
             sequence_mask,
             return_layers=[self.output_idx],
@@ -129,7 +125,7 @@ class ConformerCTCMultiOutputPriorModel(ConformerCTCMultiOutputModel):
 
         encoder_states = encoder_states[0]  # [B, E]
 
-        logits = self.output_layers[self.output_idx].forward(encoder_states)  # [B, V]
+        logits = self.output_layers[self.output_idx](encoder_states)  # [B, V]
         return torch.log_softmax(logits, dim=-1), torch.sum(sequence_mask, dim=1).type(torch.int32)
 
 
@@ -139,23 +135,20 @@ class ConformerCTCMultiOutputEncoderModel(ConformerCTCMultiOutputModel):
 
     def forward(
         self,
-        audio_samples: torch.Tensor,  # [B, T, 1]
-        audio_samples_size: torch.Tensor,  # [B]
-    ) -> torch.Tensor:  # [B, T, O*E]
-        with torch.no_grad():
-            audio_samples = audio_samples.squeeze(-1)  # [B, T]
-            features, features_size = self.feature_extraction.forward(
-                audio_samples, audio_samples_size
-            )  # [B, T, F], [B]
-            sequence_mask = lengths_to_padding_mask(features_size)  # [B, T]
+        features: torch.Tensor,  # [B, T, F]
+        features_size: torch.Tensor,  # [B]
+    ) -> Tuple[torch.Tensor, torch.Tensor]:  # [B, T, O*E], [B]
+        sequence_mask = lengths_to_padding_mask(features_size)  # [B, T]
 
-        encoder_states, sequence_mask = self.conformer.forward(
+        encoder_states, sequence_mask = self.conformer(
             features,
             sequence_mask,
             return_layers=self.output_layer_indices,
         )  # [B, T, F], [B, T]
 
-        return torch.concat([encoder_states[idx] for idx in self.matching_encoder_states_index], dim=-1)
+        return torch.concat([encoder_states[idx] for idx in self.matching_encoder_states_index], dim=-1), torch.sum(
+            sequence_mask, dim=1
+        ).type(torch.int32)
 
 
 class ConformerCTCMultiOutputScorerModel(ConformerCTCMultiOutputModel):
@@ -175,7 +168,7 @@ class ConformerCTCMultiOutputScorerModel(ConformerCTCMultiOutputModel):
             :, self.encoder_state_index * self.enc_dim : (self.encoder_state_index + 1) * self.enc_dim
         ]  # [B, E]
 
-        logits = self.output_layers[self.output_idx].forward(encoder_state)  # [B, V]
+        logits = self.output_layers[self.output_idx](encoder_state)  # [B, V]
         scores = -torch.log_softmax(logits, dim=-1)  # [B, V]
 
         scores[:, -1] += self.blank_penalty  # [B, V]

@@ -117,7 +117,7 @@ class ZoneoutLSTMCell(torch.nn.Module):
         self, inputs: torch.Tensor, state: Tuple[torch.Tensor, torch.Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         with torch.autocast(device_type="cuda", enabled=False):
-            h, c = self.cell.forward(inputs)
+            h, c = self.cell(inputs)
         prev_h, prev_c = state
         h = self._zoneout(prev_h, h, self.zoneout_h)
         c = self._zoneout(prev_c, c, self.zoneout_c)
@@ -231,7 +231,7 @@ class AttentionLSTMDecoderV1(torch.nn.Module):
 
             # attention mechanism
             weight_feedback = self.weight_feedback(accum_att_weights)
-            att_context, att_weights = self.attention.forward(
+            att_context, att_weights = self.attention(
                 key=enc_ctx,
                 value=encoder_outputs,
                 query=s_transformed,
@@ -250,8 +250,8 @@ class AttentionLSTMDecoderV1(torch.nn.Module):
         readout_in = readout_in.view(readout_in.size(0), readout_in.size(1), -1, 2)  # [B,N,D/2,2]
         readout, _ = torch.max(readout_in, dim=-1)  # [B,N,D/2]
 
-        readout = self.output_dropout.forward(readout)
-        decoder_logits = self.output.forward(readout)
+        readout = self.output_dropout(readout)
+        decoder_logits = self.output(readout)
 
         return decoder_logits
 
@@ -277,7 +277,7 @@ class AEDModel(torch.nn.Module):
         squeezed_features = torch.squeeze(audio_samples, dim=-1)
 
         with torch.no_grad():
-            audio_features, audio_features_size = self.feature_extraction.forward(
+            audio_features, audio_features_size = self.feature_extraction(
                 squeezed_features, audio_samples_size
             )  # [B, T, F], [B]
 
@@ -300,17 +300,15 @@ class AEDModel(torch.nn.Module):
         # create the mask for the conformer input
         mask = lengths_to_padding_mask(audio_features_size)
 
-        conformer_out, out_mask = self.conformer.forward(conformer_in, mask)
+        conformer_out, out_mask = self.conformer(conformer_in, mask)
         conformer_out = conformer_out[-1]
 
-        conformer_out = self.final_dropout.forward(conformer_out)
-        logits = self.final_linear.forward(conformer_out)
+        conformer_out = self.final_dropout(conformer_out)
+        logits = self.final_linear(conformer_out)
 
         ctc_log_probs = torch.log_softmax(logits, dim=2)
 
-        decoder_logits = self.decoder.forward(
-            conformer_out, bpe_labels, audio_features_size.to(device=conformer_out.device)
-        )
+        decoder_logits = self.decoder(conformer_out, bpe_labels, audio_features_size.to(device=conformer_out.device))
         encoder_seq_len = torch.sum(out_mask, dim=1)
 
         return decoder_logits, encoder_seq_len, ctc_log_probs
@@ -325,7 +323,7 @@ class AEDEncoder(AEDModel):
         squeezed_features = torch.squeeze(audio_samples, dim=-1)
 
         with torch.no_grad():
-            audio_features, audio_features_size = self.feature_extraction.forward(
+            audio_features, audio_features_size = self.feature_extraction(
                 squeezed_features, audio_samples_size
             )  # [B, T, F], [B]
 
@@ -335,10 +333,10 @@ class AEDEncoder(AEDModel):
         # create the mask for the conformer input
         mask = lengths_to_padding_mask(audio_features_size)
 
-        conformer_out, _ = self.conformer.forward(conformer_in, mask)
+        conformer_out, _ = self.conformer(conformer_in, mask)
         conformer_out = conformer_out[-1]
-        enc_ctx = self.decoder.enc_ctx.forward(conformer_out)  # [B, T, A]
-        enc_inv_fertility = torch.nn.functional.sigmoid(self.decoder.inv_fertility.forward(conformer_out))  # [B,T,1]
+        enc_ctx = self.decoder.enc_ctx(conformer_out)  # [B, T, A]
+        enc_inv_fertility = torch.nn.functional.sigmoid(self.decoder.inv_fertility(conformer_out))  # [B,T,1]
         return torch.cat([conformer_out, enc_ctx, enc_inv_fertility], dim=2)  # [B, T, E+A+1]
 
 
@@ -351,12 +349,12 @@ class AEDExportEncoder(AEDModel):
         # create the mask for the conformer input
         mask = lengths_to_padding_mask(features_size)
 
-        conformer_out, out_mask = self.conformer.forward(features, mask)
+        conformer_out, out_mask = self.conformer(features, mask)
         conformer_out = conformer_out[-1]
-        enc_ctx = self.decoder.enc_ctx.forward(conformer_out)  # [B, T, A]
-        enc_inv_fertility = torch.nn.functional.sigmoid(self.decoder.inv_fertility.forward(conformer_out))  # [B,T,1]
+        enc_ctx = self.decoder.enc_ctx(conformer_out)  # [B, T, A]
+        enc_inv_fertility = torch.nn.functional.sigmoid(self.decoder.inv_fertility(conformer_out))  # [B,T,1]
 
-        encoder_seq_len = torch.sum(out_mask, dim=1)
+        encoder_seq_len = torch.sum(out_mask, dim=1, dtype=torch.int32)
 
         return torch.cat([conformer_out, enc_ctx, enc_inv_fertility], dim=2), encoder_seq_len  # [B, T, E+A+1], [B]
 
@@ -368,15 +366,13 @@ class AEDScorer(AEDModel):
         lstm_state_h: torch.Tensor,  # [B, H]
         att_context: torch.Tensor,  # [B, E]
     ) -> torch.Tensor:
-        readout_in = self.decoder.readout_in.forward(
-            torch.cat([lstm_state_h, token_embedding, att_context], dim=1)
-        )  # [B, D]
+        readout_in = self.decoder.readout_in(torch.cat([lstm_state_h, token_embedding, att_context], dim=1))  # [B, D]
 
         # maxout layer
         readout_in = readout_in.view(readout_in.size(0), -1, 2)  # [B, D/2, 2]
         readout, _ = torch.max(readout_in, dim=2)  # [B, D/2]
 
-        decoder_logits = self.decoder.output.forward(readout)  # [B, V]
+        decoder_logits = self.decoder.output(readout)  # [B, V]
         scores = -torch.log_softmax(decoder_logits, dim=1)  # [B, V]
 
         return scores
@@ -405,13 +401,13 @@ class AEDStateInitializer(AEDModel):
 
         token_embedding = encoder_out.new_zeros(1, self.decoder.target_embed_dim)  # [1, M]
 
-        new_lstm_state_h, new_lstm_state_c = self.decoder.s.forward(
+        new_lstm_state_h, new_lstm_state_c = self.decoder.s(
             torch.cat([token_embedding, att_context], dim=1),
             (lstm_state_h, lstm_state_c),
         )  # [1, H], [1, H]
-        s_transformed = self.decoder.s_transformed.forward(new_lstm_state_h)  # [1, A]
+        s_transformed = self.decoder.s_transformed(new_lstm_state_h)  # [1, A]
 
-        weight_feedback = self.decoder.weight_feedback.forward(accum_att_weights)  # [1, T, A]
+        weight_feedback = self.decoder.weight_feedback(accum_att_weights)  # [1, T, A]
 
         new_att_context, new_att_weights = self.decoder.attention(
             key=enc_ctx,
@@ -449,15 +445,15 @@ class AEDStateUpdater(AEDModel):
             dim=2,
         )  # [B, T, E], [B, T, A], [B, T, 1]
 
-        new_token_embedding = self.decoder.target_embed.forward(token)  # [B, M]
+        new_token_embedding = self.decoder.target_embed(token)  # [B, M]
 
-        new_lstm_state_h, new_lstm_state_c = self.decoder.s.forward(
+        new_lstm_state_h, new_lstm_state_c = self.decoder.s(
             torch.cat([new_token_embedding, att_context], dim=1),
             (lstm_state_h, lstm_state_c),
         )  # [B, H], [B, H]
-        s_transformed = self.decoder.s_transformed.forward(new_lstm_state_h)  # [B, A]
+        s_transformed = self.decoder.s_transformed(new_lstm_state_h)  # [B, A]
 
-        weight_feedback = self.decoder.weight_feedback.forward(accum_att_weights)  # [B, T, A]
+        weight_feedback = self.decoder.weight_feedback(accum_att_weights)  # [B, T, A]
 
         new_att_context, new_att_weights = self.decoder.attention(
             key=enc_ctx,
@@ -486,6 +482,6 @@ class AEDCTCScorer(AEDModel):
             dim=1,
         )  # [1, E], [1, A + 1]
 
-        logits = self.final_linear.forward(encoder_out)
+        logits = self.final_linear(encoder_out)
 
         return -torch.log_softmax(logits, dim=1)

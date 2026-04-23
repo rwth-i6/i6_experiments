@@ -22,29 +22,32 @@ def export_model(model_config: ConformerCTCRecogConfig, checkpoint: PtCheckpoint
         ),
         checkpoint=checkpoint,
         returnn_config_dict={
-            "dim_enc_out_time": CodeWrapper('Dim(name="enc_out_time", dimension=None)'),
-            "dim_enc_out_feature": CodeWrapper(f'Dim(name="enc_out_feature", dimension={model_config.target_size})'),
+            "tensor_in_time": CodeWrapper('Tensor(name="in_time", dims=[batch_dim], dtype="int32")'),
+            "dim_in_time": CodeWrapper('Dim(dimension=tensor_in_time, name="in_time")'),
+            "dim_feature": CodeWrapper(f'Dim(dimension={model_config.logmel_cfg.num_filters}, name="feature")'),
+            "tensor_out_time": CodeWrapper('Tensor(name="out_time", dims=[batch_dim], dtype="int32")'),
+            "dim_out_time": CodeWrapper('Dim(dimension=tensor_out_time, name="out_time")'),
+            "dim_target": CodeWrapper(f'Dim(dimension={model_config.target_size}, name="target")'),
             "extern_data": {
                 "features": {
-                    "dim": model_config.logmel_cfg.num_filters,
+                    "dim_tags": CodeWrapper("(batch_dim, dim_in_time, dim_feature)"),
                     "dtype": "float32",
                 },
             },
             "model_outputs": {
-                "enc_out": {
-                    "dim_tags": CodeWrapper("(batch_dim, dim_enc_out_time, dim_enc_out_feature)"),
+                "scores": {
+                    "dim_tags": CodeWrapper("(batch_dim, dim_out_time, dim_target)"),
                     "dtype": "float32",
                 },
             },
         },
         input_names=["features", "features:size1"],
-        output_names=["enc_out"],
+        output_names=["scores", "scores:size1"],
     )
 
 
 def _model_forward_step(*, model: ConformerCTCRecogExportModel, extern_data: TensorDict, **_):
     import returnn.frontend as rf
-    from returnn.tensor.dim import batch_dim
 
     run_ctx = rf.get_run_ctx()
 
@@ -55,16 +58,13 @@ def _model_forward_step(*, model: ConformerCTCRecogExportModel, extern_data: Ten
     features_size = extern_data["features"].dims[1].dyn_size_ext.raw_tensor  # [B]
     assert features_size is not None
 
-    scores, scores_size = model.forward(
+    scores, scores_size = model(
         features=features,
         features_size=features_size,
     )
 
-    run_ctx.mark_as_output(
-        name="enc_out",
-        tensor=scores,
-    )
-    if run_ctx.expected_outputs is not None:
-        run_ctx.expected_outputs["enc_out"].dims[1].dyn_size_ext = rf.Tensor(
-            "enc_out_time", dims=[batch_dim], raw_tensor=scores_size.long(), dtype="int64"
-        )
+    assert run_ctx.expected_outputs is not None
+    assert run_ctx.expected_outputs["scores"].dims[1].dyn_size_ext is not None
+    run_ctx.expected_outputs["scores"].dims[1].dyn_size_ext.raw_tensor = scores_size
+
+    run_ctx.mark_as_output(name="scores", tensor=scores)

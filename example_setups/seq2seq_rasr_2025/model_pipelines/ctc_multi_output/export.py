@@ -1,6 +1,7 @@
 __all__ = ["export_encoder", "export_scorer"]
 
 from i6_core.returnn import PtCheckpoint
+from i6_core.returnn.config import CodeWrapper
 from returnn.tensor.tensor_dict import TensorDict
 from sisyphus import tk
 
@@ -32,22 +33,30 @@ def export_encoder(model_config: ConformerCTCMultiOutputConfig, checkpoint: PtCh
         ),
         checkpoint=checkpoint,
         returnn_config_dict={
+            "tensor_in_time": CodeWrapper('Tensor(name="in_time", dims=[batch_dim], dtype="int32")'),
+            "dim_in_time": CodeWrapper('Dim(dimension=tensor_in_time, name="in_time")'),
+            "dim_feature": CodeWrapper(f'Dim(dimension={model_config.logmel_cfg.num_filters}, name="feature")'),
+            "tensor_out_time": CodeWrapper('Tensor(name="out_time", dims=[batch_dim], dtype="int32")'),
+            "dim_out_time": CodeWrapper('Dim(dimension=tensor_out_time, name="out_time")'),
+            "dim_enc": CodeWrapper(
+                f'Dim(dimension={model_config.dim * len(model_config.layer_idx_target_size_list)}, name="enc")'
+            ),
             "extern_data": {
-                "audio_samples": {
-                    "dim": 1,
+                "features": {
+                    "dim_tags": CodeWrapper("(batch_dim, dim_in_time, dim_feature)"),
                     "dtype": "float32",
                 },
             },
             "model_outputs": {
-                "encoder_states": {
-                    "dim": model_config.dim,
+                "enc_out": {
+                    "dim_tags": CodeWrapper("(batch_dim, dim_out_time, dim_enc)"),
                     "dtype": "float32",
                 },
             },
             "backend": "torch",
         },
-        input_names=["audio_samples", "audio_samples:size1"],
-        output_names=["encoder_states"],
+        input_names=["features", "features:size1"],
+        output_names=["enc_out", "enc_out:size1"],
     )
 
 
@@ -61,18 +70,22 @@ def export_scorer(model_config: ConformerCTCMultiOutputScorerConfig, checkpoint:
         ),
         checkpoint=checkpoint,
         returnn_config_dict={
+            "dim_in_feature": CodeWrapper(
+                f'Dim(dimension={model_config.dim * len(model_config.layer_idx_target_size_list)}, name="in_feature")'
+            ),
+            "dim_target": CodeWrapper(
+                f'Dim(dimension={model_config.layer_idx_target_size_list[model_config.output_idx][1]}, name="target")'
+            ),
             "extern_data": {
                 "encoder_state": {
-                    "dim": model_config.dim * len(model_config.layer_idx_target_size_list),
+                    "dim_tags": CodeWrapper("(batch_dim, dim_in_feature)"),
                     "dtype": "float32",
-                    "time_dim_axis": None,
                 },
             },
             "model_outputs": {
                 "scores": {
-                    "dim": model_config.layer_idx_target_size_list[model_config.output_idx][1],
+                    "dim_tags": CodeWrapper("(batch_dim, dim_target)"),
                     "dtype": "float32",
-                    "time_dim_axis": None,
                 },
             },
         },
@@ -91,19 +104,23 @@ def _encoder_forward_step(*, model: ConformerCTCMultiOutputEncoderModel, extern_
 
     run_ctx = rf.get_run_ctx()
 
-    audio_samples = extern_data["audio_samples"].raw_tensor  # [B, T, 1]
-    assert audio_samples is not None
+    features = extern_data["features"].raw_tensor  # [B, T, F]
+    assert features is not None
 
-    assert extern_data["audio_samples"].dims[1].dyn_size_ext is not None
-    audio_samples_size = extern_data["audio_samples"].dims[1].dyn_size_ext.raw_tensor  # [B]
-    assert audio_samples_size is not None
+    assert extern_data["features"].dims[1].dyn_size_ext is not None
+    features_size = extern_data["features"].dims[1].dyn_size_ext.raw_tensor  # [B]
+    assert features_size is not None
 
-    encoder_states = model.forward(
-        audio_samples=audio_samples,
-        audio_samples_size=audio_samples_size,
-    )
+    encoder_states, encoder_states_size = model(
+        features=features,
+        features_size=features_size,
+    )  # [B, T, O*E], [B]
 
-    run_ctx.mark_as_output(name="encoder_states", tensor=encoder_states)
+    assert run_ctx.expected_outputs is not None
+    assert run_ctx.expected_outputs["enc_out"].dims[1].dyn_size_ext is not None
+    run_ctx.expected_outputs["enc_out"].dims[1].dyn_size_ext.raw_tensor = encoder_states_size
+
+    run_ctx.mark_as_output(name="enc_out", tensor=encoder_states)
 
 
 def _scorer_forward_step(*, model: ConformerCTCMultiOutputScorerModel, extern_data: TensorDict, **_):
@@ -111,9 +128,9 @@ def _scorer_forward_step(*, model: ConformerCTCMultiOutputScorerModel, extern_da
 
     run_ctx = rf.get_run_ctx()
 
-    encoder_state = extern_data["encoder_state"].raw_tensor  # [B, V]
+    encoder_state = extern_data["encoder_state"].raw_tensor  # [B, F]
     assert encoder_state is not None
 
-    scores = model.forward(encoder_state=encoder_state)
+    scores = model(encoder_state=encoder_state)
 
     run_ctx.mark_as_output(name="scores", tensor=scores)

@@ -1,6 +1,7 @@
 __all__ = ["export_scorer", "export_state_initializer", "export_state_updater"]
 
 from i6_core.returnn import PtCheckpoint
+from i6_core.returnn.config import CodeWrapper
 from returnn.tensor.tensor_dict import TensorDict
 from sisyphus import tk
 
@@ -25,17 +26,17 @@ def export_scorer(model_config: LstmLmConfig, checkpoint: PtCheckpoint) -> tk.Pa
         ),
         checkpoint=checkpoint,
         returnn_config_dict={
+            "dim_lstm": CodeWrapper(f'Dim(dimension={model_config.lstm_hidden_size}, name="lstm")'),
+            "dim_vocab": CodeWrapper(f'Dim(dimension={model_config.vocab_size}, name="vocab")'),
             "extern_data": {
                 "lstm_out": {
-                    "dim": model_config.lstm_hidden_size,
-                    "time_dim_axis": None,
+                    "dim_tags": CodeWrapper("(batch_dim, dim_lstm)"),
                     "dtype": "float32",
                 },
             },
             "model_outputs": {
                 "scores": {
-                    "dim": model_config.vocab_size + 1,
-                    "time_dim_axis": None,
+                    "dim_tags": CodeWrapper("(batch_dim, dim_vocab)"),
                     "dtype": "float32",
                 },
             },
@@ -59,23 +60,21 @@ def export_state_initializer(model_config: LstmLmConfig, checkpoint: PtCheckpoin
         ),
         checkpoint=checkpoint,
         returnn_config_dict={
+            "dim_state_batch": CodeWrapper('Dim(dimension=1, name="state_batch")'),
+            "dim_lstm_layers": CodeWrapper(f'Dim(dimension={model_config.lstm_layers}, name="lstm_layers")'),
+            "dim_lstm": CodeWrapper(f'Dim(dimension={model_config.lstm_hidden_size}, name="lstm")'),
             "extern_data": {},
             "model_outputs": {
                 "lstm_c": {
-                    "dim": model_config.lstm_hidden_size,
-                    "shape": (model_config.lstm_layers, model_config.lstm_hidden_size),
-                    "time_dim_axis": None,
+                    "dim_tags": CodeWrapper("(dim_state_batch, dim_lstm_layers, dim_lstm)"),
                     "dtype": "float32",
                 },
                 "lstm_h": {
-                    "dim": model_config.lstm_hidden_size,
-                    "shape": (model_config.lstm_layers, model_config.lstm_hidden_size),
-                    "time_dim_axis": None,
+                    "dim_tags": CodeWrapper("(dim_state_batch, dim_lstm_layers, dim_lstm)"),
                     "dtype": "float32",
                 },
                 "lstm_out": {
-                    "dim": model_config.lstm_hidden_size,
-                    "time_dim_axis": None,
+                    "dim_tags": CodeWrapper("(dim_state_batch, dim_lstm)"),
                     "dtype": "float32",
                 },
             },
@@ -101,42 +100,35 @@ def export_state_updater(model_config: LstmLmConfig, checkpoint: PtCheckpoint) -
         ),
         checkpoint=checkpoint,
         returnn_config_dict={
+            "dim_lstm_layers": CodeWrapper(f'Dim(dimension={model_config.lstm_layers}, name="lstm_layers")'),
+            "dim_lstm": CodeWrapper(f'Dim(dimension={model_config.lstm_hidden_size}, name="lstm")'),
+            "dim_vocab": CodeWrapper(f'Dim(dimension={model_config.vocab_size}, name="vocab")'),
             "extern_data": {
                 "lstm_c_in": {
-                    "dim": model_config.lstm_hidden_size,
-                    "shape": (model_config.lstm_layers, model_config.lstm_hidden_size),
-                    "time_dim_axis": None,
+                    "dim_tags": CodeWrapper("(batch_dim, dim_lstm_layers, dim_lstm)"),
                     "dtype": "float32",
                 },
                 "lstm_h_in": {
-                    "dim": model_config.lstm_hidden_size,
-                    "shape": (model_config.lstm_layers, model_config.lstm_hidden_size),
-                    "time_dim_axis": None,
+                    "dim_tags": CodeWrapper("(batch_dim, dim_lstm_layers, dim_lstm)"),
                     "dtype": "float32",
                 },
                 "token": {
-                    "dim": model_config.vocab_size,
-                    "time_dim_axis": None,
-                    "sparse": True,
+                    "dim_tags": CodeWrapper("(batch_dim,)"),
+                    "sparse_dim": CodeWrapper("dim_vocab"),
                     "dtype": "int32",
                 },
             },
             "model_outputs": {
                 "lstm_c_out": {
-                    "dim": model_config.lstm_hidden_size,
-                    "shape": (model_config.lstm_layers, model_config.lstm_hidden_size),
-                    "time_dim_axis": None,
+                    "dim_tags": CodeWrapper("(batch_dim, dim_lstm_layers, dim_lstm)"),
                     "dtype": "float32",
                 },
                 "lstm_h_out": {
-                    "dim": model_config.lstm_hidden_size,
-                    "shape": (model_config.lstm_layers, model_config.lstm_hidden_size),
-                    "time_dim_axis": None,
+                    "dim_tags": CodeWrapper("(batch_dim, dim_lstm_layers, dim_lstm)"),
                     "dtype": "float32",
                 },
                 "lstm_out": {
-                    "dim": model_config.lstm_hidden_size,
-                    "time_dim_axis": None,
+                    "dim_tags": CodeWrapper("(batch_dim, dim_lstm)"),
                     "dtype": "float32",
                 },
             },
@@ -174,17 +166,17 @@ def _scorer_forward_step(*, model: LstmLmScorer, extern_data: TensorDict, **_):
     lstm_out = extern_data["lstm_out"].raw_tensor
     assert lstm_out is not None
 
-    scores = model.forward(lstm_out=lstm_out)
+    scores = model(lstm_out=lstm_out)
 
     run_ctx.mark_as_output(name="scores", tensor=scores)
 
 
-def _state_initializer_forward_step(*, model: LstmLmStateInitializer, extern_data: TensorDict, **_):
+def _state_initializer_forward_step(*, model: LstmLmStateInitializer, **_):
     import returnn.frontend as rf
 
     run_ctx = rf.get_run_ctx()
 
-    lstm_out, lstm_h, lstm_c = model.forward()
+    lstm_out, lstm_h, lstm_c = model()
 
     run_ctx.mark_as_output(name="lstm_c", tensor=lstm_c)
     run_ctx.mark_as_output(name="lstm_h", tensor=lstm_h)
@@ -198,12 +190,14 @@ def _state_updater_forward_step(*, model: LstmLmStateUpdater, extern_data: Tenso
 
     lstm_c_in = extern_data["lstm_c_in"].raw_tensor
     assert lstm_c_in is not None
+
     lstm_h_in = extern_data["lstm_h_in"].raw_tensor
     assert lstm_h_in is not None
+
     token = extern_data["token"].raw_tensor
     assert token is not None
 
-    lstm_out, lstm_h_out, lstm_c_out = model.forward(token=token, lstm_h=lstm_h_in, lstm_c=lstm_c_in)
+    lstm_out, lstm_h_out, lstm_c_out = model(token=token, lstm_h=lstm_h_in, lstm_c=lstm_c_in)
 
     run_ctx.mark_as_output(name="lstm_c_out", tensor=lstm_c_out)
     run_ctx.mark_as_output(name="lstm_h_out", tensor=lstm_h_out)

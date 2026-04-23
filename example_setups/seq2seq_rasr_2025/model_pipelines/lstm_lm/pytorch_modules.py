@@ -46,13 +46,13 @@ class LstmLm(torch.nn.Module):
         self,
         targets: torch.Tensor,  # [B, S]
     ) -> torch.Tensor:  # final log_probs [B, S, V]
-        embed = self.embed.forward(targets)  # [B, S, E]
-        embed = self.dropout.forward(embed)
+        embed = self.embed(targets)  # [B, S, E]
+        embed = self.dropout(embed)
 
-        lstm_out, _ = self.lstm.forward(embed)  # [B, S, H]
-        lstm_out = self.dropout.forward(lstm_out)
+        lstm_out, _ = self.lstm(embed)  # [B, S, H]
+        lstm_out = self.dropout(lstm_out)
 
-        logits = self.final_linear.forward(lstm_out)  # [B, S, V]
+        logits = self.final_linear(lstm_out)  # [B, S, V]
         return logits
 
 
@@ -62,21 +62,17 @@ class LstmLmScorer(LstmLm):
         lstm_out: torch.Tensor,  # [B, H]
     ) -> torch.Tensor:
         logits = self.final_linear(lstm_out)  # [B, V]
-        scores = -torch.nn.functional.log_softmax(logits, dim=-1)  # [B, V]
-        scores = torch.nn.functional.pad(
-            scores, [0, 1], value=0
-        )  # [B, V+1]  add 0 score for blank in model combination
-        return scores
+        return -torch.nn.functional.log_softmax(logits, dim=-1)  # [B, V]
 
 
 class LstmLmStateInitializer(LstmLm):
     def forward(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         token = torch.zeros([1, 1], dtype=torch.int32)  # [1, 1]
-        embed = self.embed.forward(token)  # [1, 1, E]
+        embed = self.embed(token)  # [1, 1, E]
         h_0 = torch.zeros((self.lstm.num_layers, 1, self.lstm.hidden_size), dtype=torch.float32)  # [L, 1, H]
         c_0 = torch.zeros((self.lstm.num_layers, 1, self.lstm.hidden_size), dtype=torch.float32)  # [L, 1, H]
 
-        lstm_out, (h_0, c_0) = self.lstm.forward(embed, (h_0, c_0))  # [1, 1, H], [L, 1, H], [L, 1, H]
+        lstm_out, (h_0, c_0) = self.lstm(embed, (h_0, c_0))  # [1, 1, H], [L, 1, H], [L, 1, H]
         lstm_out = lstm_out.reshape([1, self.lstm.hidden_size])  # [1, H]
 
         h_0 = h_0.transpose(0, 1)  # [1, L, H]
@@ -92,13 +88,13 @@ class LstmLmStateUpdater(LstmLm):
         lstm_h: torch.Tensor,  # [B, L, H]
         lstm_c: torch.Tensor,  # [B, L, H]
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        embed = self.embed.forward(token)  # [B, E]
+        embed = self.embed(token)  # [B, E]
         embed = embed.reshape([embed.size(0), 1, embed.size(1)])  # [B, 1, E]
 
         lstm_h = lstm_h.transpose(0, 1)  # [L, B, H]
         lstm_c = lstm_c.transpose(0, 1)  # [L, B, H]
 
-        lstm_out, (new_lstm_h, new_lstm_c) = self.lstm.forward(embed, (lstm_h, lstm_c))  # [B, 1, H] [L, B, H] [L, B, H]
+        lstm_out, (new_lstm_h, new_lstm_c) = self.lstm(embed, (lstm_h, lstm_c))  # [B, 1, H] [L, B, H] [L, B, H]
 
         lstm_out = lstm_out.reshape([-1, self.lstm.hidden_size])  # [B, H]
 

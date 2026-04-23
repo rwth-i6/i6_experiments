@@ -91,9 +91,7 @@ class LstmTransducerModel(torch.nn.Module):
 
         with torch.no_grad():
             audio_samples = audio_samples.squeeze(-1)  # [B, T]
-            features, features_size = self.feature_extraction.forward(
-                audio_samples, audio_samples_size
-            )  # [B, T, F], [B]
+            features, features_size = self.feature_extraction(audio_samples, audio_samples_size)  # [B, T, F], [B]
             sequence_mask = lengths_to_padding_mask(features_size)  # [B, T]
 
             if self.training:
@@ -110,10 +108,10 @@ class LstmTransducerModel(torch.nn.Module):
                         freq_mask_max_size=self.specaug_config.freq_mask_max_size,
                     )  # [B, T, F]
 
-        encoder_states, sequence_mask = self.conformer.forward(features, sequence_mask)  # [B, T, E], [B, T]
+        encoder_states, sequence_mask = self.conformer(features, sequence_mask)  # [B, T, E], [B, T]
         encoder_states = encoder_states[-1]
 
-        ctc_logits = self.enc_output.forward(encoder_states)  # [B, T, V]
+        ctc_logits = self.enc_output(encoder_states)  # [B, T, V]
         ctc_log_probs = torch.log_softmax(ctc_logits, dim=2)
 
         encoder_states_size = torch.sum(sequence_mask, dim=1).type(torch.int32)
@@ -127,9 +125,9 @@ class LstmTransducerModel(torch.nn.Module):
 
         context = torch.nn.functional.pad(targets, [1, 0], value=self.target_size - 1)  # [B, S+1]
 
-        embedding = self.token_embedding.forward(context)  # [B, S+1, A]
-        pred_states, _ = self.pred_lstm.forward(embedding)  # [B, S+1, P]
-        pred_states = self.pred_act.forward(pred_states)  # [B, S+1, P]
+        embedding = self.token_embedding(context)  # [B, S+1, A]
+        pred_states, _ = self.pred_lstm(embedding)  # [B, S+1, P]
+        pred_states = self.pred_act(pred_states)  # [B, S+1, P]
 
         return pred_states
 
@@ -157,26 +155,9 @@ class LstmTransducerModel(torch.nn.Module):
             batch_tensors.append(combination.reshape(-1, combination.size(2)))  # [T_b * (S_b+1), E+P]
 
         joint_input = torch.concat(batch_tensors, dim=0)  # [T_1 * (S_1+1) + T_2 * (S_2 + 1) + ... + T_B * (S_B+1), E+P]
-        joint_output = self.joiner.forward(joint_input)  # [T_1 * (S_1+1) + T_2 * (S_2 + 1) + ... + T_B * (S_B+1), V]
+        joint_output = self.joiner(joint_input)  # [T_1 * (S_1+1) + T_2 * (S_2 + 1) + ... + T_B * (S_B+1), V]
 
         return joint_output
-
-    def forward(
-        self,
-        audio_samples: torch.Tensor,  # [B, T, 1]
-        audio_samples_size: torch.Tensor,  # [B]
-        targets: torch.Tensor,  # [B, S]
-        targets_size: torch.Tensor,  # [B]
-    ) -> Tuple[
-        torch.Tensor,  # final logits [T_1 * (S_1+1) + T_2 * (S_2+1) + ... + T_B * (S_B+1), C]
-        torch.Tensor,  # ctc log_probs [B, T, C]
-        torch.Tensor,  # encoder lengths  [B]
-    ]:
-        encoder_states, ctc_log_probs, encoder_states_size = self.forward_encoder(audio_samples, audio_samples_size)
-        pred_states = self.forward_prediction_network(targets)
-        joint_output = self.forward_joint_network(encoder_states, encoder_states_size, pred_states, targets_size)
-
-        return joint_output, ctc_log_probs, encoder_states_size
 
 
 class LstmTransducerEncoder(LstmTransducerModel):
@@ -188,8 +169,9 @@ class LstmTransducerEncoder(LstmTransducerModel):
         self,
         audio_samples: torch.Tensor,  # [B, T, 1]
         audio_samples_size: torch.Tensor,  # [B]
-    ) -> torch.Tensor:  # [B, T, E]
-        encoder_states, _, _ = self.forward_encoder(audio_samples, audio_samples_size)
+    ) -> torch.Tensor:  # [B, T, E], [B]
+        encoder_states, _, _ = self.forward_encoder(audio_samples=audio_samples, audio_samples_size=audio_samples_size)
+
         return encoder_states  # [B, T, E]
 
 
@@ -207,14 +189,14 @@ class LstmTransducerScorer(LstmTransducerModel):
         encoder_states = encoder_state.expand([lstm_out.size(0), encoder_state.size(1)])
 
         combination = torch.concat([encoder_states, lstm_out], dim=1)  # [B, E+P]
-        joint_output = self.joiner.forward(combination)  # [B, V]
+        joint_output = self.joiner(combination)  # [B, V]
         scores = -torch.nn.functional.log_softmax(joint_output, dim=1)  # [B, V]
 
         scores[:, -1] += self.blank_penalty
 
         if self.ilm_scale != 0:
             zero_enc_combination = torch.concat([torch.zeros_like(encoder_states), lstm_out], dim=1)  # [B, E+P]
-            joint_output_ilm = self.joiner.forward(zero_enc_combination)  # [B, V]
+            joint_output_ilm = self.joiner(zero_enc_combination)  # [B, V]
             ilm_log_probs = torch.nn.functional.log_softmax(joint_output_ilm, dim=1)  # [B, V]
 
             # Set blank scores to zero and re-normalize the other scores
@@ -238,32 +220,38 @@ class LstmTransducerScorer(LstmTransducerModel):
 class LstmTransducerStateInitializer(LstmTransducerModel):
     def forward(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         token = torch.tensor([[self.target_size - 1]], dtype=torch.int32)  # [1, 1]
-        embed = self.token_embedding.forward(token)  # [1, 1, E]
+        embed = self.token_embedding(token)  # [1, 1, E]
         h_0 = torch.zeros((self.pred_lstm.num_layers, 1, self.pred_lstm.hidden_size), dtype=torch.float32)  # [L, 1, P]
         c_0 = torch.zeros((self.pred_lstm.num_layers, 1, self.pred_lstm.hidden_size), dtype=torch.float32)  # [L, 1, P]
 
-        lstm_out, (h_0, c_0) = self.pred_lstm.forward(embed, (h_0, c_0))  # [1, 1, P], [L, 1, P], [L, 1, P]
-        lstm_out = self.pred_act.forward(lstm_out)  # [1, 1, P]
-        lstm_out = lstm_out.reshape([1, self.pred_lstm.hidden_size])  # [1, P]
+        lstm_out, (h_0, c_0) = self.pred_lstm(embed, (h_0, c_0))  # [1, 1, P], [L, 1, P], [L, 1, P]
+        lstm_out = self.pred_act(lstm_out)  # [1, 1, P]
 
-        return lstm_out, h_0, c_0
+        lstm_out = lstm_out.reshape([1, self.pred_lstm.hidden_size])  # [1, P]
+        h_0 = h_0.transpose(0, 1)  # [1, L, P]
+        c_0 = c_0.transpose(0, 1)  # [1, L, P]
+
+        return lstm_out, h_0, c_0  # [1, P], [1, L, P], [1, L, P]
 
 
 class LstmTransducerStateUpdater(LstmTransducerModel):
     def forward(
         self,
-        token: torch.Tensor,  # [1]
-        lstm_h: torch.Tensor,  # [L, 1, P]
-        lstm_c: torch.Tensor,  # [L, 1, P]
+        token: torch.Tensor,  # [B]
+        lstm_h: torch.Tensor,  # [B, L, H]
+        lstm_c: torch.Tensor,  # [B, L, H]
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        embed = self.token_embedding.forward(token)  # [1, E]
-        embed = embed.reshape([embed.size(0), 1, embed.size(1)])  # [1, 1, E]
+        embed = self.token_embedding(token)  # [B, E]
+        embed = embed.reshape([embed.size(0), 1, embed.size(1)])  # [B, 1, E]
 
-        lstm_out, (new_lstm_h, new_lstm_c) = self.pred_lstm.forward(
-            embed, (lstm_h, lstm_c)
-        )  # [1, 1, P] [L, 1, P] [L, 1, P]
-        lstm_out = self.pred_act.forward(lstm_out)  # [1, 1, P]
+        lstm_h = lstm_h.transpose(0, 1)  # [B, L, P]
+        lstm_c = lstm_c.transpose(0, 1)  # [B, L, P]
 
-        lstm_out = lstm_out.reshape([-1, self.pred_lstm.hidden_size])  # [1, P]
+        lstm_out, (new_lstm_h, new_lstm_c) = self.pred_lstm(embed, (lstm_h, lstm_c))  # [B, 1, P] [L, 1, P] [L, 1, P]
+        lstm_out = self.pred_act(lstm_out)  # [B, 1, P]
+
+        lstm_out = lstm_out.reshape([-1, self.pred_lstm.hidden_size])  # [B, P]
+        new_lstm_h = new_lstm_h.transpose(0, 1)  # [B, L, P]
+        new_lstm_c = new_lstm_c.transpose(0, 1)  # [B, L, P]
 
         return lstm_out, new_lstm_h, new_lstm_c

@@ -56,9 +56,7 @@ class ConformerCTCModel(torch.nn.Module):
 
         with torch.no_grad():
             audio_samples = audio_samples.squeeze(-1)  # [B, T]
-            features, features_size = self.feature_extraction.forward(
-                audio_samples, audio_samples_size
-            )  # [B, T, F], [B]
+            features, features_size = self.feature_extraction(audio_samples, audio_samples_size)  # [B, T, F], [B]
             sequence_mask = lengths_to_padding_mask(features_size)  # [B, T]
 
             if self.training:
@@ -75,7 +73,7 @@ class ConformerCTCModel(torch.nn.Module):
                         freq_mask_max_size=self.specaug_config.freq_mask_max_size,
                     )  # [B, T, F]
 
-        encoder_states, sequence_mask = self.conformer.forward(features, sequence_mask)  # [B, T, F], [B, T]
+        encoder_states, sequence_mask = self.conformer(features, sequence_mask)  # [B, T, F], [B, T]
         encoder_states = encoder_states[-1]
 
         encoder_states = self.dropout(encoder_states)  # [B, T, F]
@@ -129,7 +127,7 @@ class ConformerCTCRecogExportModel(ConformerCTCModel):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         sequence_mask = lengths_to_padding_mask(features_size)  # [B, T]
 
-        encoder_states, sequence_mask = self.conformer.forward(features, sequence_mask)  # [B, T, F], [B, T]
+        encoder_states, sequence_mask = self.conformer(features, sequence_mask)  # [B, T, F], [B, T]
         encoder_states = encoder_states[-1]
 
         encoder_states = self.dropout(encoder_states)  # [B, T, F]

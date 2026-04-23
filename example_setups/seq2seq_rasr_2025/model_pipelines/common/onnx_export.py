@@ -31,8 +31,9 @@ def export_model(
         },
         python_prolog=recipe_imports
         + [
-            Import("returnn.tensor.dim.Dim"),
             Import("returnn.tensor.dim.batch_dim"),
+            Import("returnn.tensor.dim.Dim"),
+            Import("returnn.tensor.Tensor"),
         ]
         + extra_imports,
         python_epilog=[

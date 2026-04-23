@@ -10,9 +10,6 @@ __all__ = [
     "PositionalEncoding",
     "TransformerLm",
     "TransformerLmOnnxWrapper",
-    "TransformerLmScorer",
-    "TransformerLmStateInitializer",
-    "TransformerLmStateUpdater",
 ]
 
 import math
@@ -227,13 +224,13 @@ class TransformerLinear(torch.nn.Module):
             Tensor of shape [N, B, D]
         """
         x = input.transpose(0, 1)  # [B, N, D]
-        x = self.layernorm.forward(x)  # [B, N, D]
+        x = self.layernorm(x)  # [B, N, D]
         x = x.transpose(0, 1)  # [N, B, D]
-        x = self.ff1.forward(x)  # [N, B, F]
+        x = self.ff1(x)  # [N, B, F]
         x = torch.nn.functional.relu(x)  # [N, B, F]
-        x = self.dropout.forward(x)  # [N, B, F]
-        x = self.ff2.forward(x)  # [N, B, D]
-        return self.dropout.forward(x)  # [N, B, D]
+        x = self.dropout(x)  # [N, B, F]
+        x = self.ff2(x)  # [N, B, D]
+        return self.dropout(x)  # [N, B, D]
 
 
 class TransformerBlock(torch.nn.Module):
@@ -354,8 +351,6 @@ class TransformerLm(torch.nn.Module):
         self.num_layers = cfg.num_layers
         self.hid_dim = cfg.hid_dim
 
-        self._param_init()
-
     def forward(self, input: torch.Tensor, seq_mask: torch.Tensor) -> torch.Tensor:
         """
         Training/full-sequence forward.
@@ -379,17 +374,6 @@ class TransformerLm(torch.nn.Module):
         x = self.dropout(x)
         output_logit = self.output_linear(x)  # [N, B, V]
         return output_logit.transpose(0, 1)  # [B, N, V]
-
-    def _param_init(self):
-        """
-        initialization used in Kazuki's setup
-        """
-        for m in self.modules():
-            for name, param in m.named_parameters():
-                if "bias" or "layernorm" in name:
-                    continue
-                else:
-                    torch.nn.init.kaiming_uniform_(param, mode="fan_in", nonlinearity="linear")
 
 
 class TransformerLmOnnxWrapper(TransformerLm):
@@ -453,119 +437,3 @@ class TransformerLmOnnxWrapper(TransformerLm):
         scores = -torch.log_softmax(logits, dim=-1)
 
         return (scores, *new_states)
-
-
-class TransformerLmScorer(TransformerLm):
-    def forward(
-        self,
-        transformer_out: torch.Tensor,  # [B, D]
-    ) -> torch.Tensor:
-        logits = self.output_linear(transformer_out)  # [B, V]
-        return -torch.log_softmax(logits, dim=-1)  # [B, V]
-
-
-class TransformerLmStateInitializer(TransformerLm):
-    def forward(self) -> tuple[torch.Tensor]:
-        token = torch.zeros((1,), dtype=torch.int32)
-        device = token.device
-        dtype = torch.int64
-
-        labels_lens = torch.ones((1,), dtype=dtype, device=device)
-        state_lengths = torch.full((1,), 0, dtype=dtype, device=device)
-
-        x = token.reshape(1, 1)  # [1, 1]
-        x = self.embed(x)  # [1, 1, E]
-        x = self.positional_encoding.forward_with_offsets(x, state_lengths)  # [1, 1, E]
-        x = self.input_linear(x)  # [1, 1, D]
-
-        new_states = []
-
-        for block in self.transformer_blocks:
-            x, k_new, v_new = block.forward_with_kv_cache(
-                input=x,
-                labels_lens=labels_lens,
-                state_lengths=state_lengths,
-                k_cache=torch.zeros((1, 0, self.hid_dim), dtype=torch.float32),
-                v_cache=torch.zeros((1, 0, self.hid_dim), dtype=torch.float32),
-            )  # [1, 1, D], [1, 1, D], [1, 1, D]
-            new_states.append(k_new)
-            new_states.append(v_new)
-
-        x = self.output_layernorm(x)  # [1, 1, D]
-        x = self.dropout(x)  # [1, 1, D]
-        transformer_out = x.reshape(1, self.hid_dim)  # [1, D]
-
-        return (transformer_out, *new_states)  # [1, D], [[1, 1, D], ...]
-
-
-class TransformerLmStateUpdater(TransformerLm):
-    def forward(
-        self,
-        token: torch.Tensor,  # [B]
-        state_lengths: torch.Tensor,  # [B]
-        *kv_cache: torch.Tensor,
-    ) -> tuple[torch.Tensor, ...]:
-        assert (
-            len(kv_cache) == 2 * self.num_layers
-        ), f"Expected {2 * self.num_layers} KV cache tensors, got {len(kv_cache)}"
-
-        batch_size = token.size(0)
-        device = token.device
-        dtype = torch.int64
-
-        labels_lens = torch.ones((batch_size,), dtype=dtype, device=device)
-
-        x = token.reshape(batch_size, 1).transpose(0, 1)  # [1, B]
-        x = self.embed(x)  # [1, B, E]
-        x = self.positional_encoding.forward_with_offsets(x, state_lengths)  # [1, B, E]
-        x = self.input_linear(x)  # [1, B, D]
-
-        new_states = []
-        cache_insert_idx = state_lengths[:, None, None].expand(batch_size, 1, self.hid_dim)
-
-        for layer_idx, block in enumerate(self.transformer_blocks):
-            k_cache_left_aligned = kv_cache[2 * layer_idx]  # [B, T, D]
-            v_cache_left_aligned = kv_cache[2 * layer_idx + 1]  # [B, T, D]
-
-            # The state updater receives right-padded batches, i.e. valid cache entries are
-            # stored in the first state_lengths[b] positions. The transformer block still
-            # expects the valid prefix to be right-aligned within the cache tensor.
-            cache_len = k_cache_left_aligned.size(1)
-            cache_pos = torch.arange(cache_len, device=device, dtype=state_lengths.dtype).unsqueeze(0)
-            cache_shift = (cache_len - state_lengths).unsqueeze(1)
-            cache_src_pos = (cache_pos - cache_shift).clamp(min=0)
-            cache_gather_idx = cache_src_pos[:, :, None].expand(batch_size, cache_len, self.hid_dim)
-            cache_valid = (cache_pos >= cache_shift)[:, :, None]
-
-            k_cache = k_cache_left_aligned.gather(1, cache_gather_idx) * cache_valid.to(k_cache_left_aligned.dtype)
-            v_cache = v_cache_left_aligned.gather(1, cache_gather_idx) * cache_valid.to(v_cache_left_aligned.dtype)
-
-            x, k_new, v_new = block.forward_with_kv_cache(
-                input=x,
-                labels_lens=labels_lens,
-                state_lengths=state_lengths,
-                k_cache=k_cache,
-                v_cache=v_cache,
-            )  # [1, B, D], [B, 1, D], [B, 1, D]
-
-            # Keep exported states left-aligned as expected by the right-padded batching.
-            k_state = torch.cat(
-                [k_cache_left_aligned, torch.zeros((batch_size, 1, self.hid_dim), dtype=k_new.dtype, device=device)],
-                dim=1,
-            )
-            v_state = torch.cat(
-                [v_cache_left_aligned, torch.zeros((batch_size, 1, self.hid_dim), dtype=v_new.dtype, device=device)],
-                dim=1,
-            )
-            new_states.extend(
-                [
-                    k_state.scatter(1, cache_insert_idx, k_new),
-                    v_state.scatter(1, cache_insert_idx, v_new),
-                ]
-            )
-
-        x = self.output_layernorm(x)  # [1, B, D]
-        x = self.dropout(x)  # [1, B, D]
-        transformer_out = x.reshape(batch_size, self.hid_dim)  # [B, D]
-
-        return (transformer_out, *new_states)

@@ -91,9 +91,7 @@ class FFNNTransducerModel(torch.nn.Module):
     ]:
         with torch.no_grad():
             audio_samples = audio_samples.squeeze(-1)  # [B, T]
-            features, features_size = self.feature_extraction.forward(
-                audio_samples, audio_samples_size
-            )  # [B, T, F], [B]
+            features, features_size = self.feature_extraction(audio_samples, audio_samples_size)  # [B, T, F], [B]
             sequence_mask = lengths_to_padding_mask(features_size)  # [B, T]
 
             if self.training:
@@ -110,7 +108,7 @@ class FFNNTransducerModel(torch.nn.Module):
                         freq_mask_max_size=self.specaug_config.freq_mask_max_size,
                     )  # [B, T, F]
 
-        encoder_states, sequence_mask = self.conformer.forward(features, sequence_mask)  # [B, T, E], [B, T]
+        encoder_states, sequence_mask = self.conformer(features, sequence_mask)  # [B, T, E], [B, T]
         encoder_states = encoder_states[-1]
 
         encoder_states_size = torch.sum(sequence_mask, dim=1).type(torch.int32)
@@ -135,11 +133,11 @@ class FFNNTransducerModel(torch.nn.Module):
             dim=-1,
         )  # [B, S+1, H]
 
-        embedding = self.token_embedding.forward(context)  # [B, S+1, H, A]
+        embedding = self.token_embedding(context)  # [B, S+1, H, A]
         embedding = torch.reshape(
             embedding, shape=[*(embedding.shape[:-2]), embedding.shape[-2] * embedding.shape[-1]]
         )  # [B, S+1, H*A]
-        pred_states = self.prediction_net.forward(embedding)  # [B, S+1, P]
+        pred_states = self.prediction_net(embedding)  # [B, S+1, P]
 
         return pred_states
 
@@ -167,7 +165,7 @@ class FFNNTransducerModel(torch.nn.Module):
             batch_tensors.append(combination.reshape(-1, combination.size(2)))  # [T_b * (S_b+1), E+P]
 
         joint_input = torch.concat(batch_tensors, dim=0)  # [T_1 * (S_1+1) + T_2 * (S_2 + 1) + ... + T_B * (S_B+1), E+P]
-        joint_output = self.joint_net.forward(joint_input)  # [T_1 * (S_1+1) + T_2 * (S_2 + 1) + ... + T_B * (S_B+1), V]
+        joint_output = self.joint_net(joint_input)  # [T_1 * (S_1+1) + T_2 * (S_2 + 1) + ... + T_B * (S_B+1), V]
 
         return joint_output
 
@@ -181,9 +179,9 @@ class FFNNTransducerEncoder(FFNNTransducerModel):
         self,
         audio_samples: torch.Tensor,  # [B, T, 1]
         audio_samples_size: torch.Tensor,  # [B]
-    ) -> torch.Tensor:  # [B, T, V]
-        encoder_states, _ = self.forward_encoder(audio_samples, audio_samples_size)  # [B, T, E]
-        return encoder_states  # [B, T, E]
+    ) -> torch.Tensor:  # [B, T', E]
+        encoder_states, _ = self.forward_encoder(audio_samples=audio_samples, audio_samples_size=audio_samples_size)
+        return encoder_states  # [B, T', E]
 
 
 class FFNNTransducerScorer(FFNNTransducerModel):
@@ -197,14 +195,14 @@ class FFNNTransducerScorer(FFNNTransducerModel):
         encoder_state: torch.Tensor,  # [1, E]
         history: torch.Tensor,  # [B, H]
     ) -> torch.Tensor:  # [B, V]
-        embedding = self.token_embedding.forward(history)  # [B, H, A]
+        embedding = self.token_embedding(history)  # [B, H, A]
         embedding = torch.reshape(
             embedding, shape=[*(embedding.shape[:-2]), embedding.shape[-2] * embedding.shape[-1]]
         )  # [B, H*A]
-        pred_state = self.prediction_net.forward(embedding)  # [B, P]
+        pred_state = self.prediction_net(embedding)  # [B, P]
 
         joint_input = torch.concat([encoder_state.expand([pred_state.size(0), -1]), pred_state], dim=-1)  # [B, E+P]
-        joint_output = self.joint_net.forward(joint_input)  # [B, V]
+        joint_output = self.joint_net(joint_input)  # [B, V]
         scores = -torch.nn.functional.log_softmax(joint_output, dim=1)  # [B, V]
 
         scores[:, -1] += self.blank_penalty
@@ -212,7 +210,7 @@ class FFNNTransducerScorer(FFNNTransducerModel):
         if self.ilm_scale != 0:
             zero_enc = torch.zeros_like(encoder_state)  # [B, E]
             ilm_joint_input = torch.concat([zero_enc.expand([pred_state.size(0), -1]), pred_state], dim=-1)  # [B, E+P]
-            ilm_joint_output = self.joint_net.forward(ilm_joint_input)  # [B, V]
+            ilm_joint_output = self.joint_net(ilm_joint_input)  # [B, V]
             ilm_log_probs = torch.nn.functional.log_softmax(ilm_joint_output, dim=1)  # [B, V]
 
             # Set blank scores to zero and re-normalize the other scores
