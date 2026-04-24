@@ -11,6 +11,18 @@ from datasets import (
 )
 from openai import OpenAI
 import json
+from i6_experiments.users.dorian_koch.jobs.hf import (
+    HfDownloadSplit as implHfDownloadSplit,
+    HfMergeShards as implHfMergeShards,
+)
+
+
+class HfDownloadSplit(implHfDownloadSplit):
+    pass  # Epic hack to not break hashes
+
+
+class HfMergeShards(implHfMergeShards):
+    pass
 
 
 def make_dialogue_gen(llm_url, model_name, dialogue_instructions):
@@ -67,20 +79,6 @@ def make_dialogue_gen(llm_url, model_name, dialogue_instructions):
         return {"dialogue": prediction}
 
     return make_dialogue
-
-
-class HfDownloadSplit(Job):
-    def __init__(self, *, dataset_name: str, split: str):
-        self.dataset_name = dataset_name
-        self.split = split
-        self.out_hf = self.output_path("hf_split", directory=True)
-
-    def tasks(self):
-        yield Task("run", mini_task=True)
-
-    def run(self):
-        dataset = load_dataset(self.dataset_name, split=self.split)
-        dataset.save_to_disk(self.out_hf.get())
 
 
 class HfToDialogue(Job):
@@ -145,20 +143,6 @@ class HfToDialogue(Job):
             dataset.to_json(self.out_json.get())
 
 
-class HfMergeShards(Job):
-    def __init__(self, *, shard_paths: list[tk.Path]):
-        self.shard_paths = shard_paths
-        self.out_hf = self.output_path("merged_dataset", directory=True)
-
-    def tasks(self):
-        yield Task("run", mini_task=True)
-
-    def run(self):
-        datasets = [load_from_disk(p.get()) for p in self.shard_paths]
-        merged = concatenate_datasets(datasets)
-        merged.save_to_disk(self.out_hf.get())
-
-
 class HfDialogueToJsonFile(Job):
     def __init__(
         self,
@@ -187,7 +171,7 @@ class HfDialogueToJsonFile(Job):
         # go through the dataset, parse the "dialogue" field as json, and append that json as a single line to a jsonl file
         with open(self.out_json.get(), "w") as f:
             for example in dataset:
-                dialogue_str:str  = example["dialogue"]
+                dialogue_str: str = example["dialogue"]
                 dialogue_str = dialogue_str.strip()
                 try:
                     if dialogue_str.startswith("```json"):
@@ -205,6 +189,76 @@ class HfDialogueToJsonFile(Job):
                         print("###")
 
         if num_errors > 0 and not self.ignore_errors:
-            raise ValueError(f"Encountered {num_errors} errors while parsing dialogues. See above for details.")
+            raise ValueError(
+                f"Encountered {num_errors} errors while parsing dialogues. See above for details."
+            )
         if num_errors > len(dataset) * 0.1:
-            raise ValueError(f"Encountered {num_errors} errors while parsing dialogues, which is more than 10% of the dataset. Something might be wrong. See above for details.")
+            raise ValueError(
+                f"Encountered {num_errors} errors while parsing dialogues, which is more than 10% of the dataset. Something might be wrong. See above for details."
+            )
+
+
+# Same as above, but saves to Hf dataset
+class HfDialogueCleaner(Job):
+    def __init__(
+        self,
+        *,
+        hf_dataset_path: tk.Path,
+        split: str | None = None,
+        ignore_errors: bool = False,
+    ):
+        self.hf_dataset_path = hf_dataset_path
+        self.split = split
+        self.ignore_errors = ignore_errors
+        self.out_hf = self.output_path("out_hf", directory=True)
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        dataset = load_from_disk(self.hf_dataset_path.get())
+        if self.split is not None:
+            assert type(dataset) is DatasetDict
+            dataset = dataset[self.split]
+        else:
+            assert type(dataset) is Dataset
+
+        def clean_dialogue(example):
+            dialogue_str: str = example["dialogue"]
+            dialogue_str = dialogue_str.strip()
+
+            if dialogue_str.startswith("```json"):
+                dialogue_str = dialogue_str[len("```json") :]
+            if dialogue_str.endswith("```"):
+                dialogue_str = dialogue_str[: -len("```")]
+
+            example["dialogue"] = dialogue_str
+            return example
+
+        cleaned = dataset.map(clean_dialogue)
+
+        def filter_dialogue(example):
+            dialogue_str: str = example["dialogue"]
+            try:
+                json.loads(dialogue_str)
+                return True
+            except Exception as e:
+                if not self.ignore_errors:
+                    print("###")
+                    print(dialogue_str)
+                    print(f"Error parsing dialogue: {e} for {example}")
+                    print("###")
+                return False
+
+        previous_len = len(cleaned)
+        filtered = cleaned.filter(filter_dialogue)
+        num_errors = previous_len - len(filtered)
+        if num_errors > 0 and not self.ignore_errors:
+            print(
+                f"Encountered {num_errors} errors while parsing dialogues. See above for details."
+            )
+        if num_errors > len(dataset) * 0.1:
+            raise ValueError(
+                f"Encountered {num_errors} errors while parsing dialogues, which is more than 10% of the dataset. Something might be wrong. See above for details."
+            )
+        filtered.save_to_disk(self.out_hf.get())

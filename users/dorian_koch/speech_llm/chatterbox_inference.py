@@ -218,15 +218,14 @@ def main():
             "torchcodec could not be imported. If on slurm cluster, run ml load FFmpeg"
         )
     import torchcodec
-    # fail early. If this fails, its likely that the user doesn't have ffmpeg installed. on claix: `ml load FFmpeg``
+    # fail early. If this fails, its likely that the user doesn't have ffmpeg installed, or its broken somehow. use InstallFFmpeg job here
 
-    # READ args --in_text and --out_dir
     parser = argparse.ArgumentParser(description="Run Chatterbox TTS Inference")
     parser.add_argument(
-        "--in_text",
+        "--in_jsonl",
         type=str,
         required=False,
-        help="Path to input text file. Input text file is a line seperated list of json arrays that contain dialogues",
+        help="Path to input JSONL file. Input JSONL file is a line separated list of json arrays that contain dialogues",
     )
     parser.add_argument(
         "--limit",
@@ -238,7 +237,7 @@ def main():
         "--in_hf",
         type=str,
         required=False,
-        help="Path to input in Hugging Face dataset format. If provided, will ignore --in_text and read dialogues from the Hugging Face dataset",
+        help="Path to input in Hugging Face dataset format. If provided, will ignore --in_jsonl and read dialogues from the Hugging Face dataset",
     )
     parser.add_argument(
         "--in_hf_shard",
@@ -300,11 +299,11 @@ def main():
         dynamic=True,  # fullgraph=True, backend="cudagraphs"
     )
 
-    assert args.in_text is not None or args.in_hf is not None, (
-        "Either --in_text or --in_hf must be provided"
+    assert args.in_jsonl is not None or args.in_hf is not None, (
+        "Either --in_jsonl or --in_hf must be provided"
     )
-    assert not (args.in_text is not None and args.in_hf is not None), (
-        "Cannot provide both --in_text and --in_hf. Please choose one."
+    assert not (args.in_jsonl is not None and args.in_hf is not None), (
+        "Cannot provide both --in_jsonl and --in_hf. Please choose one."
     )
 
     last_diag_id = 0
@@ -334,7 +333,7 @@ def main():
             )
             last_diag_id = i
     else:
-        with open(args.in_text, "r", encoding="utf-8") as f:
+        with open(args.in_jsonl, "r", encoding="utf-8") as f:
             for i, line in enumerate(f):
                 if args.limit is not None and i >= args.limit:
                     print(f"Reached limit of {args.limit} dialogues. Stopping.")
