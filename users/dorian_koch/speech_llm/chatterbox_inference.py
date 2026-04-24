@@ -27,7 +27,8 @@ dialogue_features = Features(
         "turns": Sequence(
             {
                 "speaker": Value("string"),
-                "start_time": Value("float32"),  # float32 is perfect for timestamps
+                "start_time": Value("float32"),
+                "end_time": Value("float32"),
                 "text": Value("string"),
             }
         ),
@@ -132,6 +133,7 @@ def gen_conversation(
                 "speaker": turn["speaker"],
                 "wav": wav,
                 "start": start,
+                "end": start + wav.shape[-1],
                 "text": turn["text"],
             }
         )
@@ -151,7 +153,7 @@ def gen_conversation(
     # Determine total length.
     end_samples = 0
     for u in utterances:
-        end_samples = max(end_samples, u["start"] + u["wav"].shape[-1])
+        end_samples = max(end_samples, u["end"])
 
     rendered = {}
     for s, exagg in speakers:
@@ -163,7 +165,7 @@ def gen_conversation(
     for u in utterances:
         s = u["speaker"]
         st = u["start"]
-        en = st + u["wav"].shape[-1]
+        en = u["end"]
         rendered[s][0, st:en] += u["wav"][0]
 
     return rendered, utterances
@@ -200,6 +202,7 @@ def process_dialogue(
                 "speaker": u["speaker"],
                 "text": u["text"],
                 "start_time": u["start"] / model.sr,
+                "end_time": u["end"] / model.sr,
             }
         )
     with open(f"{output_dir}/metadata.json", "w", encoding="utf-8") as f:
@@ -385,6 +388,7 @@ def main():
                     "turns": {
                         "speaker": [turn["speaker"] for turn in metadata],
                         "start_time": [turn["start_time"] for turn in metadata],
+                        "end_time": [turn["end_time"] for turn in metadata],
                         "text": [turn["text"] for turn in metadata],
                     },
                 }
