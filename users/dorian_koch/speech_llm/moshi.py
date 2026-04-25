@@ -46,7 +46,7 @@ class MoshiAnnotate(Job):
             "gpu": 1,
             "cpu": 6,
             "mem": 8,
-            "time": 1,
+            "time": 4,
         }
 
     def tasks(self):
@@ -106,11 +106,12 @@ class MoshiFinetune(Job):
         self.train_data = train_data
         self.venv_python_path = venv_python_path
         self.out_config = self.output_path("config.yaml")
+        self.out_rundir = self.output_path("run_dir", directory=True)
         self.rqmt = {
             "gpu": 1,
             "cpu": 6,
             "mem": 24,
-            "time": 1,
+            "time": 23,
         }
 
     def tasks(self):
@@ -118,7 +119,7 @@ class MoshiFinetune(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def write_config(self):
-        run_dir = os.path.join(os.getcwd(), "run_dir/")
+        run_dir = self.out_rundir.get()
         txt = f"""
 # data
 data:
