@@ -145,7 +145,9 @@ class ChatterboxInference(Job):
             shards.append(
                 ChatterboxInference(shard=shard, num_shards=num_shards, **kwargs)
             )
-        return HfMergeShards(shard_paths=[s.out_hf for s in shards]).out_hf
+        return HfMergeShards(
+            shard_paths=[s.out_hf for s in shards], add_shard_to_id=True
+        ).out_hf
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)

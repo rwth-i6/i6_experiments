@@ -6,6 +6,8 @@ import argparse
 import os
 import numpy as np
 import soundfile as sf
+from concurrent.futures import ProcessPoolExecutor
+import functools
 
 # ln -s ../projects/moshi-finetune moshi_finetune
 from moshi_finetune.annotate import (
@@ -19,8 +21,19 @@ from moshi_finetune.annotate import (
 )
 
 
-def extract_hf_to_files(output_dir, dataset: Dataset):
+def extract_hf_to_files_multproc(output_dir, dataset: Dataset, num_proc):
     print(f"{len(dataset)} rows in dataset")
+    print(f"sharding into {num_proc}")
+    shards = [dataset.shard(num_shards=num_proc, index=i) for i in range(num_proc)]
+
+    with ProcessPoolExecutor(max_workers=num_proc) as executor:
+        # list() is used here to consume the generator and ensure execution finishes/catches errors
+        list(executor.map(functools.partial(extract_hf_to_files, output_dir), shards))
+
+
+def extract_hf_to_files(output_dir, dataset: Dataset):
+
+    num_files_written = 0
     for row in dataset:
         row_id = row["id"]
 
@@ -81,10 +94,14 @@ def extract_hf_to_files(output_dir, dataset: Dataset):
         # 4. Save to WAV file
         output_filename = f"{row_id}.wav"
         output_path = os.path.join(output_dir, output_filename)
+        assert not os.path.exists(output_path)
 
         sf.write(output_path, stereo_audio, sample_rate)
+        num_files_written += 1
 
-    print(f"Successfully extracted and saved stereo WAV files to '{output_dir}'")
+    print(
+        f"Successfully extracted and saved {num_files_written} stereo WAV files to '{output_dir}'"
+    )
 
 
 # TODO "temporary" setup, just convert our hf to something the moshi-finetune code can read
@@ -93,7 +110,7 @@ def hf_to_moshi_format(out_dir: str, dataset: Dataset):
     out_dir_audios = os.path.join(out_dir, "wav-dir/")
     os.makedirs(out_dir_audios, exist_ok=True)
 
-    extract_hf_to_files(out_dir_audios, dataset)
+    extract_hf_to_files_multproc(out_dir_audios, dataset, num_proc=6)
 
     paths = [str(f) for f in Path(out_dir_audios).glob("*.wav")]
     durations = sphn.durations(paths)
