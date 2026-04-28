@@ -3,9 +3,6 @@ __all__ = ["run", "get_model_config", "get_train_options"]
 from typing import Optional
 
 import torch
-
-from ....model_pipelines.common.train import TrainedModel, train
-from ....model_pipelines.full_ctx_transducer.pytorch_modules import LstmTransducerConfig, LstmTransducerModel
 from i6_models.assemblies.conformer import ConformerRelPosBlockV1Config, ConformerRelPosEncoderV1Config
 from i6_models.config import ModuleFactoryV1
 from i6_models.parts.conformer import (
@@ -22,13 +19,15 @@ from ....data.librispeech.bpe import bpe_to_vocab_size
 from ....model_pipelines.common.learning_rates import OCLRConfig
 from ....model_pipelines.common.optimizer import RAdamConfig
 from ....model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
-from ....model_pipelines.full_ctx_transducer.train import LstmTransducerPrunedTrainOptions, get_pruned_train_step_import
+from ....model_pipelines.common.train import TrainedModel, train
+from ....model_pipelines.full_ctx_transducer.pytorch_modules import LstmTransducerConfig, LstmTransducerModel
+from ....model_pipelines.full_ctx_transducer.train import LstmTransducerTrainOptions, get_train_step_import
 
 
 def run(
     descriptor: str,
     model_config: Optional[LstmTransducerConfig] = None,
-    train_options: Optional[LstmTransducerPrunedTrainOptions] = None,
+    train_options: Optional[LstmTransducerTrainOptions] = None,
 ) -> TrainedModel[LstmTransducerConfig]:
     if model_config is None:
         model_config = get_model_config()
@@ -40,7 +39,7 @@ def run(
         model_class=LstmTransducerModel,
         model_config=model_config,
         options=train_options,
-        train_step_import=get_pruned_train_step_import(train_options),
+        train_step_import=get_train_step_import(train_options),
     )
 
 
@@ -140,8 +139,8 @@ def get_model_config(bpe_size: int = 128) -> LstmTransducerConfig:
     )
 
 
-def get_train_options(bpe_size: int = 128) -> LstmTransducerPrunedTrainOptions:
-    return LstmTransducerPrunedTrainOptions(
+def get_train_options(bpe_size: int = 128) -> LstmTransducerTrainOptions:
+    return LstmTransducerTrainOptions(
         train_data_config=librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size),
         cv_data_config=librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size),
         save_epochs=list(range(1500, 1900, 100)) + list(range(1900, 2001, 20)),
@@ -165,12 +164,8 @@ def get_train_options(bpe_size: int = 128) -> LstmTransducerPrunedTrainOptions:
         num_workers_per_gpu=2,
         automatic_mixed_precision=True,
         gpu_mem_rqmt=24,
-        enc_loss_scale=0.0,
-        pred_loss_scale=0.25,
+        enc_loss_scale=0.5,
+        pred_loss_scale=0.0,
         max_seqs=None,
         max_seq_length=None,
-        delay_penalty=0.0,
-        skip_epochs_before_pruned_loss=20,
-        prune_range=5,
-        smoothed_loss_scale=0.5,
     )
