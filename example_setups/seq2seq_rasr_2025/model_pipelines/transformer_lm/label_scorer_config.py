@@ -9,8 +9,6 @@ from .export import (
 )
 from .pytorch_modules import TransformerLmConfig
 
-# TODO: Currently using stateless model which works but is very slow. LabelScorer with proper KV caching still needs to be added.
-
 
 def get_bpe_transformer_lm_stateless_label_scorer_config(
     model_config: TransformerLmConfig,
