@@ -495,7 +495,7 @@ class ExtractRasrStatisticsJob(Job):
         with open(self.rasr_log_file.get(), "r") as f:
             for line in f:
                 for log_str, counter in [
-                    ("<num-hyps-after-beam-pruning>", step_hyps_counts),
+                    ("<num-hyps-after-beam-pruning-1>", step_hyps_counts),
                     ("<num-word-end-hyps-after-beam-pruning>", step_word_end_hyps_counts),
                     ("<num-active-trees>", step_trees_counts),
                 ]:
