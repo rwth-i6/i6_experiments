@@ -1,5 +1,4 @@
 from i6_core.lexicon import AddEowPhonemesToLexiconJob
-from ..base import RemoveSpecialLemmasFromLexiconJob
 from i6_core.lexicon.bpe import CreateBPELexiconJob
 from i6_core.lexicon.modification import MergeLexiconJob, WriteLexiconJob
 from i6_core.lib.lexicon import Lemma, Lexicon
@@ -8,6 +7,7 @@ from i6_experiments.common.datasets.loquacious.vocab import get_subword_nmt_bpe
 from sisyphus import tk
 
 from ...tools import subword_nmt_repo
+from ..base import RemovePhonemeVariationsFromLexiconJob, RemoveSpecialLemmasFromLexiconJob
 
 
 def get_bpe_bliss_lexicon(bpe_size: int, corpus_key: str, add_blank: bool, add_sentence_end_pron: bool) -> tk.Path:
@@ -41,7 +41,8 @@ def get_bpe_bliss_lexicon(bpe_size: int, corpus_key: str, add_blank: bool, add_s
 
     lexicon_ext_file = WriteLexiconJob(lexicon_ext).out_bliss_lexicon
 
-    return MergeLexiconJob([bpe_lexicon_file, lexicon_ext_file]).out_bliss_lexicon
+    merged_lexicon = MergeLexiconJob([bpe_lexicon_file, lexicon_ext_file]).out_bliss_lexicon
+    return RemovePhonemeVariationsFromLexiconJob(merged_lexicon).out_lexicon
 
 
 def get_bliss_phoneme_lexicon() -> tk.Path:
@@ -61,4 +62,5 @@ def get_bliss_phoneme_lexicon() -> tk.Path:
 
     lexicon_ext_file = WriteLexiconJob(lexicon_ext).out_bliss_lexicon
 
-    return MergeLexiconJob([eow_lexicon_file, lexicon_ext_file]).out_bliss_lexicon
+    merged_lexicon = MergeLexiconJob([eow_lexicon_file, lexicon_ext_file]).out_bliss_lexicon
+    return RemovePhonemeVariationsFromLexiconJob(merged_lexicon).out_lexicon
