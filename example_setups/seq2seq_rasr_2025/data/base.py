@@ -1,7 +1,7 @@
+import textwrap
 from dataclasses import dataclass
 from functools import lru_cache
 from random import Random
-import textwrap
 from typing import Dict, Iterator, List, Literal, Optional, Protocol, Set
 
 try:
@@ -11,12 +11,12 @@ except ImportError:
 
 import numpy as np
 from i6_core.corpus.segments import SegmentCorpusJob
+from i6_core.lib.corpus import Corpus
 from i6_core.lib.lexicon import Lexicon
 from i6_core.returnn.config import CodeWrapper, ReturnnConfig
 from i6_core.returnn.hdf import get_returnn_simple_hdf_writer
 from i6_core.returnn.oggzip import BlissToOggZipJob
 from i6_core.util import uopen, write_xml
-from i6_core.lib.corpus import Corpus
 from i6_experiments.common.setups.serialization import Import
 from sisyphus import Job, Task, tk
 from sisyphus.delayed_ops import DelayedFormat
@@ -448,57 +448,3 @@ class BlissCorpusToTargetHdfJob(Job):
                 seq_tag=[segment.fullname()],
             )
         out_hdf_writer.close()
-
-
-class UppercaseLexiconJob(Job):
-    def __init__(self, bliss_lexicon: tk.Path) -> None:
-        self.bliss_lexicon = bliss_lexicon
-        self.out_bliss_lexicon = self.output_path("bliss_lexicon.xml.gz")
-
-    def tasks(self) -> Iterator[Task]:
-        yield Task("run", resume="run", mini_task=True)
-
-    def run(self) -> None:
-        lexicon = Lexicon()
-        lexicon.load(self.bliss_lexicon.get_path())
-
-        for lemma in lexicon.lemmata:
-            lemma.orth = [orth.upper() for orth in lemma.orth]
-
-        write_xml(self.out_bliss_lexicon.get_path(), lexicon.to_xml())
-
-
-class UppercaseTranscriptionsJob(Job):
-    def __init__(self, bliss_corpus: tk.Path) -> None:
-        self.bliss_corpus = bliss_corpus
-        self.out_bliss_corpus = self.output_path("bliss_corpus.xml.gz")
-
-    def tasks(self) -> Iterator[Task]:
-        yield Task("run", resume="run", mini_task=True)
-
-    def run(self) -> None:
-        c = Corpus()
-        c.load(self.bliss_corpus.get_path())
-
-        for segment in c.segments():
-            if segment.orth is not None:
-                segment.orth = segment.orth.upper()
-
-        c.dump(self.out_bliss_corpus.get_path())
-
-
-class UppercaseARPAFileJob(Job):
-    def __init__(self, arpa_file: tk.Path) -> None:
-        self.arpa_file = arpa_file
-        self.out_arpa_file = self.output_path("arpa.gz")
-
-    def tasks(self) -> Iterator[Task]:
-        yield Task("run", resume="run", mini_task=True)
-
-    def run(self) -> None:
-        with uopen(self.arpa_file.get_path(), "r") as read_f, uopen(self.out_arpa_file.get_path(), "w") as out_f:
-            for line in read_f:
-                if line.startswith(b"\\") or line.startswith(b"ngram"):
-                    out_f.write(line)
-                else:
-                    out_f.write(line.upper())
