@@ -90,10 +90,9 @@ def default_offline_lexfree_trafo_recog_variant() -> CTCRecogVariant:
         descriptor="lexfree_bpe-TrafoLM",
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
             collapse_repeated_labels=True,
-            score_thresholds=[14.0, 12.0],
-            max_beam_sizes=[2048, 256],
+            score_thresholds=[10.0, 8.0],
+            max_beam_sizes=[64, 32],
         ),
-        search_mode_params=OfflineRecogParameters(mem_rqmt=24),
         prior_scale=0.2,
         bpe_trafo_lm_scale=0.8,
     )
@@ -270,7 +269,7 @@ def _run_single_variant(
         label_scorer_configs=_get_label_scorer_configs(model=model, variant=variant),
         bpe_size=vocab_to_bpe_size(model.model_config.target_size - 1),
         blank_index=model.model_config.target_size - 1,
-        sentence_end_index=0 if variant.bpe_lstm_lm_scale != 0 else None,
+        sentence_end_index=0 if variant.bpe_lstm_lm_scale != 0 or variant.bpe_trafo_lm_scale != 0 else None,
         variant=variant,
         corpora=corpora,
     )
