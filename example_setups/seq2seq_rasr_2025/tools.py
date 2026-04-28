@@ -23,38 +23,37 @@ returnn_python_exe = tk.Path("/usr/bin/python3")
 # to version with no variations
 # And make all export returnn dims explicit
 
-# rasr_root = CloneGitRepositoryJob(
-#     "https://github.com/rwth-i6/rasr.git",
-#     branch="state_manager_label_scorer",
-#     checkout_folder_name="rasr",
-# ).out_repository
-# # rasr_root.hash_overwrite = "RASR_ROOT"
-#
-# rasr_make_job = MakeJob(
-#     folder=rasr_root,
-#     make_sequence=["build", "install"],
-#     configure_opts=[
-#         "--apptainer-setup=2025-04-23_tensorflow-2.17_onnx-1.20_v2",
-#         "--disable-module=TENSORFLOW",
-#         "--disable-module=LM_TFRNN",
-#         "--disable-module=CUDA",
-#     ],
-#     num_processes=8,
-#     link_outputs={"binaries": "arch/linux-x86_64-standard/"},
+rasr_root = CloneGitRepositoryJob(
+    "https://github.com/rwth-i6/rasr.git",
+    branch="berger_dev",
+    checkout_folder_name="rasr",
+).out_repository
+rasr_root.hash_overwrite = "RASR_ROOT"
+
+rasr_make_job = MakeJob(
+    folder=rasr_root,
+    make_sequence=["build", "install"],
+    configure_opts=[
+        "--apptainer-setup=2026-04-28_torch-2.8_onnx-1.22",
+    ],
+    num_processes=8,
+    link_outputs={"binaries": "arch/linux-x86_64-standard/"},
+)
+rasr_make_job.rqmt["gpu"] = 1
+rasr_make_job.rqmt["gpu_mem"] = 24
+
+rasr_binary_path: tk.Path = rasr_make_job.out_links["binaries"]
+rasr_binary_path.hash_overwrite = "RASR_BINARY_PATH"
+
+# rasr_root = tk.Path(
+#     "/work/asr4/berger/rasr_dev/label_scorer/rasr/",
+#     hash_overwrite="RASR_ROOT",
 # )
 #
-# rasr_binary_path: tk.Path = rasr_make_job.out_links["binaries"]
-# rasr_binary_path.hash_overwrite = "RASR_BINARY_PATH"
-
-rasr_root = tk.Path(
-    "/work/asr4/berger/rasr_dev/label_scorer/rasr/",
-    hash_overwrite="RASR_ROOT",
-)
-
-rasr_binary_path = tk.Path(
-    "/work/asr4/berger/rasr_dev/label_scorer/rasr/arch/linux-x86_64-standard",
-    hash_overwrite="RASR_BINARY_PATH",
-)
+# rasr_binary_path = tk.Path(
+#     "/work/asr4/berger/rasr_dev/label_scorer/rasr/arch/linux-x86_64-standard",
+#     hash_overwrite="RASR_BINARY_PATH",
+# )
 
 sctk_binary_path = compile_sctk(branch="v2.4.12")
 sctk_binary_path.hash_overwrite = "SCTK_BINARY_PATH"
