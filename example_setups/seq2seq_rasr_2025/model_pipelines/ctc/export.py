@@ -35,14 +35,14 @@ def export_model(model_config: ConformerCTCRecogConfig, checkpoint: PtCheckpoint
                 },
             },
             "model_outputs": {
-                "scores": {
+                "enc_out": {
                     "dim_tags": CodeWrapper("(batch_dim, dim_out_time, dim_target)"),
                     "dtype": "float32",
                 },
             },
         },
         input_names=["features", "features:size1"],
-        output_names=["scores", "scores:size1"],
+        output_names=["enc_out", "enc_out:size1"],
     )
 
 
@@ -64,7 +64,7 @@ def _model_forward_step(*, model: ConformerCTCRecogExportModel, extern_data: Ten
     )
 
     assert run_ctx.expected_outputs is not None
-    assert run_ctx.expected_outputs["scores"].dims[1].dyn_size_ext is not None
-    run_ctx.expected_outputs["scores"].dims[1].dyn_size_ext.raw_tensor = scores_size
+    assert run_ctx.expected_outputs["enc_out"].dims[1].dyn_size_ext is not None
+    run_ctx.expected_outputs["enc_out"].dims[1].dyn_size_ext.raw_tensor = scores_size
 
-    run_ctx.mark_as_output(name="scores", tensor=scores)
+    run_ctx.mark_as_output(name="enc_out", tensor=scores)

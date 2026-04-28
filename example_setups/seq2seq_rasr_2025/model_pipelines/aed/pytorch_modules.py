@@ -257,7 +257,7 @@ class AttentionLSTMDecoderV1(torch.nn.Module):
 
 
 class AEDModel(torch.nn.Module):
-    def __init__(self, cfg: AEDConfig, **net_kwargs):
+    def __init__(self, cfg: AEDConfig, **_):
         super().__init__()
         self.feature_extraction = LogMelFeatureExtractionV1(cfg.logmel_cfg)
         self.specaug_config = cfg.specaug_cfg

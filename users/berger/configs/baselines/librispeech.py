@@ -3,7 +3,7 @@ from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.common.repo
 
 
 def run() -> None:
-    _, recog_results = run_all()
+    base_models, recog_results = run_all()
 
     # ================
     # === Training ===
@@ -75,6 +75,36 @@ def run() -> None:
     recog_results.extend(recognition.aed_bpe.run(model=bpe_10k_aed_model, variants=variants))
     recog_results.extend(
         recognition.aed_bpe.run(model=no_ctc_aed_model, variants=[recognition.aed_bpe.default_lexfree_recog_variant()])
+    )
+
+    variants = []
+    # for beam_size_1 in [2, 4, 8, 16, 32, 64, 128, 256, 512]:
+    #     for beam_size_2 in [2, 4, 8, 16, 32, 64, 128, 256, 512]:
+    for beam_size_1 in [512]:
+        for beam_size_2 in [512]:
+            if beam_size_2 > beam_size_1:
+                continue
+            for score_threshold_1 in [2.0, 6.0, 10.0, 14.0]:
+                for score_threshold_2 in [2.0, 6.0, 10.0, 14.0]:
+                    variant = recognition.aed_bpe.default_lexfree_aed_ctc_recog_variant()
+                    variant.descriptor += (
+                        f"_beam-{beam_size_1}-{beam_size_2}_score-{score_threshold_1}-{score_threshold_2}"
+                    )
+                    variant.ctc_score_scale = 0.3
+                    variant.search_algorithm_params.max_beam_sizes = [beam_size_1, beam_size_2]
+                    variant.search_algorithm_params.score_thresholds = [score_threshold_1, score_threshold_2]
+                    variants.append(variant)
+
+                    variant = recognition.aed_bpe.default_lexfree_aed_ctc_timesync_recog_variant()
+                    variant.descriptor += (
+                        f"_beam-{beam_size_1}-{beam_size_2}_score-{score_threshold_1}-{score_threshold_2}"
+                    )
+                    variant.ctc_score_scale = 0.3
+                    variant.search_algorithm_params.max_beam_sizes = [beam_size_1, beam_size_2]
+                    variant.search_algorithm_params.score_thresholds = [score_threshold_1, score_threshold_2]
+                    variants.append(variant)
+    recog_results.extend(
+        recognition.aed_bpe.run(model=base_models["aed_bpe"], variants=variants, corpora=["dev-other"])
     )
 
     variants = list(

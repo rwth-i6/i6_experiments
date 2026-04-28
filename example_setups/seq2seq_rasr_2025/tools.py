@@ -19,16 +19,16 @@ minireturnn_root.hash_overwrite = "MINIRETURNN_ROOT"
 returnn_python_exe = tk.Path("/usr/bin/python3")
 
 # TODO: When everything necessary is merged, switch to master branch, update apptainer-setup
-# to torch-only image with CUDA enabled, update unhashed_package_roots and update lexicon
+# to torch-only image with CUDA enabled, update unhashed_package_roots
 # to version with no variations
 # And make all export returnn dims explicit
 
 # rasr_root = CloneGitRepositoryJob(
 #     "https://github.com/rwth-i6/rasr.git",
-#     branch="master",
+#     branch="state_manager_label_scorer",
 #     checkout_folder_name="rasr",
 # ).out_repository
-# rasr_root.hash_overwrite = "RASR_ROOT"
+# # rasr_root.hash_overwrite = "RASR_ROOT"
 #
 # rasr_make_job = MakeJob(
 #     folder=rasr_root,
@@ -37,6 +37,7 @@ returnn_python_exe = tk.Path("/usr/bin/python3")
 #         "--apptainer-setup=2025-04-23_tensorflow-2.17_onnx-1.20_v2",
 #         "--disable-module=TENSORFLOW",
 #         "--disable-module=LM_TFRNN",
+#         "--disable-module=CUDA",
 #     ],
 #     num_processes=8,
 #     link_outputs={"binaries": "arch/linux-x86_64-standard/"},

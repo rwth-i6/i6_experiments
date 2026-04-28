@@ -67,16 +67,16 @@ def export_scorer(model_config: AEDConfig, checkpoint: PtCheckpoint) -> tk.Path:
             "dim_embed": CodeWrapper(f'Dim(dimension={model_config.decoder_config.target_embed_dim}, name="embed")'),
             "dim_target": CodeWrapper(f'Dim(dimension={model_config.label_target_size}, name="target")'),
             "extern_data": {
-                "token_embedding": {
-                    "dim_tags": CodeWrapper("(batch_dim, dim_embed)"),
-                    "dtype": "float32",
-                },
                 "att_context": {
                     "dim_tags": CodeWrapper("(batch_dim, dim_att_context)"),
                     "dtype": "float32",
                 },
                 "lstm_h": {
                     "dim_tags": CodeWrapper("(batch_dim, dim_lstm)"),
+                    "dtype": "float32",
+                },
+                "token_embedding": {
+                    "dim_tags": CodeWrapper("(batch_dim, dim_embed)"),
                     "dtype": "float32",
                 },
             },

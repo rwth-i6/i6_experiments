@@ -4,9 +4,9 @@ from i6_core.returnn import PtCheckpoint
 from sisyphus import tk
 
 from ...data.base import DataConfig
-from ..common.imports import get_model_serializers
 from ..common.prior import compute_priors as _compute_priors
-from .pytorch_modules import CombinationModelConfig, CombinationCTCPriorModel
+from ..common.serializers import get_model_serializers
+from .pytorch_modules import CombinationCTCPriorModel, CombinationModelConfig
 
 
 def compute_priors(

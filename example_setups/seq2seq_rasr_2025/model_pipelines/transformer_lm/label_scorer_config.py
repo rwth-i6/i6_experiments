@@ -51,7 +51,7 @@ def get_bpe_transformer_lm_label_scorer_config(
     rasr_config = RasrConfig()
     rasr_config.type = "state-managed-onnx"
     rasr_config.max_batch_size = 64
-    rasr_config.start_label_index = 0
+    rasr_config.start_labels = 0
 
     rasr_config.onnx_model = RasrConfig()
     rasr_config.onnx_model.session = RasrConfig()

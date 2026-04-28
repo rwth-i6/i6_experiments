@@ -57,7 +57,7 @@ class CombinationModelTransducerRecogConfig(CombinationModelConfig):
 
 
 class CombinationModel(torch.nn.Module):
-    def __init__(self, cfg: CombinationModelConfig, **net_kwargs):
+    def __init__(self, cfg: CombinationModelConfig, **_):
         super().__init__()
 
         self.feature_extraction = LogMelFeatureExtractionV1(cfg.logmel_cfg)
@@ -284,7 +284,7 @@ class CombinationModelCTCScorer(CombinationModel):
 
 
 class CombinationModelTransducerScorer(CombinationModel):
-    def __init__(self, cfg: CombinationModelTransducerRecogConfig, epoch: int, **_):
+    def __init__(self, cfg: CombinationModelTransducerRecogConfig, **_):
         super().__init__(cfg=cfg)
         self.ilm_scale = cfg.ilm_scale
         self.blank_penalty = cfg.blank_penalty

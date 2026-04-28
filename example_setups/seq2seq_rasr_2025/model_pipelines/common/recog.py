@@ -630,7 +630,7 @@ def statistics_from_data(data: list[float]) -> dict[str, float]:
 
 
 class SearchCallback(ForwardCallbackIface):
-    def init(self, *, model):
+    def init(self, **_):
         self.ctm_file = open("search_out.ctm", "w")
         self.ctm_file.write(";; <name> <track> <start> <duration> <word> <confidence>\n")
 
@@ -662,14 +662,14 @@ class SearchCallback(ForwardCallbackIface):
 
         if self.total_skipped + self.total_correct + self.total_search_errors + self.total_model_errors > 0:
             search_error_data = {
-                "total_skipped": self.total_skipped,
-                "skipped_rate": self.total_skipped / self.total_seqs,
-                "total_correct": self.total_correct,
-                "correct_rate": self.total_correct / self.total_seqs,
-                "total_search_errors": self.total_search_errors,
-                "search_error_rate": self.total_search_errors / self.total_seqs,
-                "total_model_errors": self.total_model_errors,
-                "model_error_rate": self.total_model_errors / self.total_seqs,
+                "total_skipped": int(self.total_skipped),
+                "skipped_rate": float(self.total_skipped) / float(self.total_seqs),
+                "total_correct": int(self.total_correct),
+                "correct_rate": float(self.total_correct) / float(self.total_seqs),
+                "total_search_errors": int(self.total_search_errors),
+                "search_error_rate": float(self.total_search_errors) / float(self.total_seqs),
+                "total_model_errors": int(self.total_model_errors),
+                "model_error_rate": float(self.total_model_errors) / float(self.total_seqs),
             }
             print()
             print(
@@ -708,16 +708,16 @@ class OfflineSearchCallback(SearchCallback):
         super().finish()
 
         rtf_data = {
-            "audio_seconds": self.total_audio_time,
-            "enc_seconds": self.total_enc_time,
-            "enc_rtf": self.total_enc_time / self.total_audio_time,
-            "enc_rtfx": self.total_audio_time / self.total_enc_time,
-            "search_seconds": self.total_search_time,
-            "search_rtf": self.total_search_time / self.total_audio_time,
-            "search_rtfx": self.total_audio_time / self.total_search_time,
-            "total_seconds": self.total_enc_time + self.total_search_time,
-            "total_rtf": (self.total_enc_time + self.total_search_time) / self.total_audio_time,
-            "total_rtfx": self.total_audio_time / (self.total_enc_time + self.total_search_time),
+            "audio_seconds": float(self.total_audio_time),
+            "enc_seconds": float(self.total_enc_time),
+            "enc_rtf": float(self.total_enc_time) / float(self.total_audio_time),
+            "enc_rtfx": float(self.total_audio_time) / float(self.total_enc_time),
+            "search_seconds": float(self.total_search_time),
+            "search_rtf": float(self.total_search_time) / float(self.total_audio_time),
+            "search_rtfx": float(self.total_audio_time) / float(self.total_search_time),
+            "total_seconds": float(self.total_enc_time) + float(self.total_search_time),
+            "total_rtf": float(self.total_enc_time + self.total_search_time) / float(self.total_audio_time),
+            "total_rtfx": float(self.total_audio_time) / float(self.total_enc_time + self.total_search_time),
         }
 
         print(
