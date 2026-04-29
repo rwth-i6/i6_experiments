@@ -43,6 +43,9 @@ def eval_model(
     get_best_params: bool = False,
     run_rasr: bool = False,
     split_mem_init: bool = False,
+    search_gpu: Optional[int] = None,
+    split_args: Optional = None,
+    with_prior: bool = True,
 ):
     if specific_epoch is None:
         specific_epoch = train_job.returnn_config.post_config["num_epochs"]
@@ -60,18 +63,18 @@ def eval_model(
             training_name + f"/{epoch}",
             train_job,
             train_args if prior_args is None else prior_args,
-            with_prior=True,
+            with_prior=with_prior,
             datasets=train_data,
             get_specific_checkpoint=epoch,
             prior_config={"import_memristor": import_memristor} if import_memristor is True else None,
             split_preparation=split_mem_init,
-            split_args=train_args if split_mem_init else None, # TODO: this means that the converter settings are actually part of the init
+            split_args=(split_args or train_args) if split_mem_init else None, # TODO: this means that the converter settings are actually part of the init
         )
         if prior_args is not None:
             asr_model.net_args = train_args["net_args"]
             asr_model.network_module = train_args["network_module"]
-            if split_mem_init is True:
-                asr_model.network_module += "_mem_inited"
+        if split_mem_init is True:
+            asr_model.network_module += "_mem_inited"
         res, best_params = tune_and_evaluate_helper(
             training_name + f"/{epoch}",
             asr_model,
@@ -89,6 +92,7 @@ def eval_model(
             run_search_on_hpc=run_search_on_hpc,
             get_best_params=get_best_params,
             run_rasr=run_rasr,
+            search_gpu=search_gpu,
         )
         result_dict.update(res)
     if run_best_4 is True:
@@ -96,7 +100,7 @@ def eval_model(
             training_name + "/best4",
             train_job,
             train_args if prior_args is None else prior_args,
-            with_prior=True,
+            with_prior=with_prior,
             datasets=train_data,
             get_best_averaged_checkpoint=(4, loss_name),
             prior_config={"import_memristor": import_memristor} if import_memristor is True else None,
@@ -119,6 +123,7 @@ def eval_model(
             test_dataset_tuples=test_dataset_tuples,
             import_memristor=import_memristor,
             run_rasr=run_rasr,
+            search_gpu=search_gpu,
         )
         result_dict.update(res)
     if run_best is True:
@@ -126,7 +131,7 @@ def eval_model(
             training_name + "/best",
             train_job,
             train_args if prior_args is None else prior_args,
-            with_prior=True,
+            with_prior=with_prior,
             datasets=train_data,
             get_best_averaged_checkpoint=(1, loss_name),
             prior_config={"import_memristor": import_memristor} if import_memristor is True else None,
@@ -149,6 +154,7 @@ def eval_model(
             test_dataset_tuples=test_dataset_tuples,
             import_memristor=import_memristor,
             run_rasr=run_rasr,
+            search_gpu=search_gpu,
         )
         result_dict.update(res)
     if get_best_params is True:
@@ -174,6 +180,7 @@ def tune_and_evaluate_helper(
     run_search_on_hpc:bool = False,
     get_best_params: bool = False,
     run_rasr: bool = False,
+    search_gpu: Optional[int] = None,
 ):
     """
     Example helper to execute tuning over lm_scales and prior scales.
@@ -230,9 +237,13 @@ def tune_and_evaluate_helper(
                         f"{job._sis_path()}/finished.run.1"):  # sync back was successful
                         job.hold()
                         job.move_to_hpc = True
+            if search_gpu is not None:
+                for job in search_jobs:
+                    job.rqmt['gpu_mem'] = search_gpu
             tune_parameters.append((lm_weight, prior_scale))
             # tune_values_clean.append((wers[search_name + "/dev-clean"]))
-            tune_values_other.append((wers[search_name + "/dev-other"]))
+            if search_name + "/dev-other" in wers:
+                tune_values_other.append((wers[search_name + "/dev-other"]))
             results.update(wers)
     pick_optimal_params_job = None
     if run_test is True and test_dataset_tuples is not None and False:
@@ -254,6 +265,9 @@ def tune_and_evaluate_helper(
                 use_gpu=use_gpu,
                 **default_returnn,
             )
+            if search_gpu is not None:
+                for job in search_jobs:
+                    job.rqmt['gpu_mem'] = search_gpu
         results.update(wers)
     if get_best_params is True:
         pick_optimal_params_job = GetOptimalParametersAsVariableJob(

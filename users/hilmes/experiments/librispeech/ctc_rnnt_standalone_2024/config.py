@@ -10,7 +10,7 @@ from i6_experiments.common.setups.returnn_pytorch.serialization import (
     Collection as TorchCollection,
 )
 from i6_experiments.common.setups.serialization import Import
-from .data.common import TrainingDatasets
+from .data.common import TrainingDatasets, Dataset
 from .serializer import serialize_training, serialize_forward, PACKAGE
 
 
@@ -142,7 +142,7 @@ def get_mem_init_config(
     import_memristor: bool = False,
 ):
     """
-    Get a generic config for extracting output label priors
+    Get a generic config for initializing the memristor
 
     :param training_datasets: datasets for training
     :param network_module: path to the pytorch config file containing Model
@@ -181,6 +181,55 @@ def get_mem_init_config(
     returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
     return returnn_config
 
+
+def get_stats_config(
+    dataset: Dataset,
+    network_module: str,
+    config: Dict[str, Any],
+    net_args: Dict[str, Any],
+    unhashed_net_args: Optional[Dict[str, Any]] = None,
+    debug: bool = False,
+    import_memristor: bool = False,
+):
+    """
+    Get a generic config for initializing the memristor
+
+    :param training_datasets: datasets for training
+    :param network_module: path to the pytorch config file containing Model
+    :param config: config arguments for RETURNN
+    :param net_args: extra arguments for constructing the PyTorch model
+    :param unhashed_net_args: unhashed extra arguments for constructing the PyTorch model
+    :param debug: run training in debug mode (linking from recipe instead of copy)
+    """
+
+    # changing these does not change the hash
+    post_config = {
+        "num_workers_per_gpu": 2,
+    }
+
+    base_config = {
+        #############
+        "batch_size": 2500000,
+        "max_seqs": 240,
+        #############
+        "forward": copy.deepcopy(dataset.as_returnn_opts()),
+    }
+    config = {**base_config, **copy.deepcopy(config)}
+    post_config["backend"] = "torch"
+
+    serializer = serialize_forward(
+        network_module=network_module,
+        net_args=net_args,
+        unhashed_net_args=unhashed_net_args,
+        forward_module=None,  # same as network
+        forward_step_name="compute_stats",
+        forward_init_args=None,
+        unhashed_forward_init_args=None,
+        debug=debug,
+        import_memristor=import_memristor,
+    )
+    returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
+    return returnn_config
 
 def get_forward_config(
     network_module: str,

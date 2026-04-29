@@ -16,6 +16,10 @@ import numpy
 from i6_models.util import compat
 from i6_models.parts.dropout import BroadcastDropout
 
+try:
+    from torch_memristor.memristor_modules import TiledMemristorLinear
+except ModuleNotFoundError:
+    from synaptogen_ml.memristor_modules.linear import TiledMemristorLinear
 
 def get_quantization_range_from_bit_precision(bits, dtype):
 
@@ -365,6 +369,8 @@ class QuantizedMultiheadAttention(nn.Module):
         self.Av_quant_dtype = cfg.Av_quant_dtype
         self.Av_quant_method = cfg.Av_quant_method
         self.converter_hardware_settings = cfg.converter_hardware_settings
+        self.track_stats = False
+        self.stats = []
 
 
         assert not self.learnable_pos_emb or self.rel_pos_clip
@@ -372,7 +378,6 @@ class QuantizedMultiheadAttention(nn.Module):
         self.att_weights_dropout = nn.Dropout(cfg.att_weights_dropout)
 
         assert self.embed_dim % self.num_heads == 0, "embed_dim must be divisible by num_heads"
-        from torch_memristor.memristor_modules import TiledMemristorLinear
 
         # projection matrices
         self.qkv_proj = TiledMemristorLinear(
@@ -506,15 +511,30 @@ class QuantizedMultiheadAttention(nn.Module):
 
 
         if self.learnable_pos_emb:
-            pos_seq_q = torch.arange(time_dim_size, device=input_tensor.device)
-            pos_seq_k = torch.arange(time_dim_size, device=input_tensor.device)
+            # pos_seq_q = torch.arange(time_dim_size, device=input_tensor.device)
+            # pos_seq_k = torch.arange(time_dim_size, device=input_tensor.device)
+            #
+            # distance_mat = pos_seq_k[None, :] - pos_seq_q[:, None]
+            # distance_mat_clipped = torch.clamp(distance_mat, -self.rel_pos_clip, self.rel_pos_clip)
+            #
+            # final_mat = distance_mat_clipped + self.rel_pos_clip
+            #
+            # rel_pos_embeddings = self.rel_pos_embeddings[final_mat]  # [T, T', pos_emb_dim]
+            kv_pos_vec = torch.arange(time_dim_size, device=input_tensor.device)  # [kv_len]
 
-            distance_mat = pos_seq_k[None, :] - pos_seq_q[:, None]
-            distance_mat_clipped = torch.clamp(distance_mat, -self.rel_pos_clip, self.rel_pos_clip)
+            query_spatial_dim_m1 = time_dim_size - 1
+            q_pos_vec = torch.arange(query_spatial_dim_m1, device=input_tensor.device)  # [q_len-1]
 
-            final_mat = distance_mat_clipped + self.rel_pos_clip
-
-            rel_pos_embeddings = self.rel_pos_embeddings[final_mat]  # [T, T', pos_emb_dim]
+            # The min value is with kv_pos=0, q_pos=q_len-1: -(q_len-1)
+            # The max value is with kv_pos=kv_len-1, q_pos=0: k_len-1
+            indices = torch.concat((q_pos_vec - query_spatial_dim_m1, kv_pos_vec), dim=-1)
+            indices = torch.clamp(indices, -self.rel_pos_clip, self.rel_pos_clip)
+            # Shift values to be >= 0. Each integer still uniquely identifies a relative position difference.
+            indices = indices + self.rel_pos_clip
+            rel_pos_embeddings = self.rel_pos_embeddings[indices]  # [out_spatial_dim,n_out]
+            rel_pos_embeddings = rel_pos_embeddings.unsqueeze(0)
+            assert rel_pos_embeddings.shape == (1, 2 * time_dim_size - 1,
+                                                self.pos_emb_dim), "Something went wrong in reshaping"
         else:
             rel_pos_embeddings = self._sinusoidal_pe(
                 torch.arange(time_dim_size - 1, -time_dim_size, -1, device=input_tensor.device, dtype=torch.float32),
@@ -537,6 +557,9 @@ class QuantizedMultiheadAttention(nn.Module):
         if self.cfg.with_linear_pos:
             rel_pos_embeddings = self.learn_emb_out_quant(rel_pos_embeddings)
 
+        if self.track_stats:
+            self.stats.append(torch.squeeze(rel_pos_embeddings, dim=0).cpu())
+
         if self.separate_pos_emb_per_head:
             rel_pos_embeddings = rel_pos_embeddings.squeeze(2).reshape(
                 *rel_pos_embeddings.shape[:2], -1, self.embed_dim_per_head
@@ -553,8 +576,8 @@ class QuantizedMultiheadAttention(nn.Module):
             "bihf, ijhf -> bhij", q_with_bias_v, rel_pos_embeddings
         )  # [B, #heads, T, T'] or [B, #heads, T, T+T'+1]
 
-        if not self.learnable_pos_emb:
-            attn_bd = self._rel_shift_bhij(attn_bd, k_len=time_dim_size)  # [B, #heads, T, T']
+        attn_bd = self._rel_shift_bhij(attn_bd, k_len=time_dim_size)  # [B, #heads, T, T']
+        assert attn_bd.shape == (batch_dim_size, self.num_heads, time_dim_size, time_dim_size)
 
         attn = attn_ac + attn_bd + mask  # [B, #heads, T, T']
         attn_scaled = attn * (math.sqrt(1.0 / float(self.embed_dim_per_head)))  # [B, #heads, T, T']

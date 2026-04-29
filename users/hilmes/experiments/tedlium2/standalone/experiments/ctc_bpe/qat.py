@@ -999,45 +999,96 @@ def bpe_ted_qat_comparisons():
         include_gpu=False,
         forward_args={"max_seqs": 1}
     )
-    results = {}
-    results = eval_model(
-        training_name=training_name + "_max_1",
-        train_job=train_job,
-        train_args=train_args,
-        train_data=train_data_bpe256,
-        decoder_config=as_training_decoder_config,
-        dev_dataset_tuples=dev_dataset_tuples,
-        result_dict=results,
-        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
-        prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
-        lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
-        run_rtf=True,
-        rtf_args=rtf_args_max_1,
+
+    frontend_larger = VGG4LayerActFrontendV1Config_mod(
+        in_features=80,
+        conv1_channels=32,
+        conv2_channels=64,
+        conv3_channels=64,
+        conv4_channels=32,
+        conv_kernel_size=(3, 3),
+        conv_padding=None,
+        pool1_kernel_size=(3, 1),
+        pool1_stride=(2, 1),
+        pool1_padding=None,
+        pool2_kernel_size=(2, 1),
+        pool2_stride=(2, 1),
+        pool2_padding=None,
+        activation_str="ReLU",
+        out_features=512,
+        activation=None,
     )
 
-    rtf_args_max_1_v8 = RTFArgs(
-        beam_sizes=[256, 512, 1024, 4096, 6144],
-        beam_size_tokens=[4, 8, 12, 20, 30, 40, 100],
-        beam_thresholds=[4, 8, 20, 30, 40],
-        decoder_module="ctc.decoder.flashlight_ctc_v8_rescale_measure",
-        include_gpu=False,
-        forward_args={"max_seqs": 1},
-        run_quant=True
+    model_config_larger = QuantModelTrainConfigV4(
+        feature_extraction_config=fe_config,
+        frontend_config=frontend_larger,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=512,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=512 * 4,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specauc_start_epoch=11,
+        weight_quant_dtype="qint8",
+        weight_quant_method="per_tensor",
+        activation_quant_dtype="qint8",
+        activation_quant_method="per_tensor",
+        dot_quant_dtype="qint8",
+        dot_quant_method="per_tensor",
+        Av_quant_dtype="qint8",
+        Av_quant_method="per_tensor",
+        moving_average=None,
+        weight_bit_prec=8,
+        activation_bit_prec=8,
+        quantize_output=False,
+        extra_act_quant=False,
+        quantize_bias=None,
+        observer_only_in_train=False,
     )
+
+    train_args_larger = {
+        "config": train_config,
+        "network_module": network_module_v4,
+        "net_args": {"model_config_dict": asdict(model_config_larger)},
+        "debug": False,
+        "post_config": {"num_workers_per_gpu": 8},
+        "use_speed_perturbation": True,
+    }
+
+    training_name_larger = prefix_name + "/" + network_module_v4 + f"_8_8_bpe_larger"
+    train_job_larger = training(training_name_larger, train_data_bpe256, train_args_larger, num_epochs=250, **default_returnn)
+    train_job_larger.rqmt["gpu_mem"] = 48
+    results = {}
+
+    rtf_args_max_1 = RTFArgs(
+        beam_sizes=[1024, 4096],
+        beam_size_tokens=[14],
+        beam_thresholds=[12],
+        decoder_module="ctc.decoder.flashlight_ctc_v7_rescale_measure",
+        include_gpu=False,
+        forward_args={"max_seqs": 1}
+    )
+
     results = {}
     results = eval_model(
-        training_name=training_name + "_max_1_v8",
-        train_job=train_job,
-        train_args=train_args,
+        training_name=training_name_larger + "_max_1",
+        train_job=train_job_larger,
+        train_args=train_args_larger,
         train_data=train_data_bpe256,
         decoder_config=as_training_decoder_config,
         dev_dataset_tuples=dev_dataset_tuples,
         result_dict=results,
         decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
-        prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
-        lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+        prior_scales=[0.3, 0.5, 0.7],
+        lm_scales=[2.0, 2.2, 2.4, 2.6],
         run_rtf=True,
-        rtf_args=rtf_args_max_1_v8,
+        rtf_args=rtf_args_max_1,
     )
 
     # RASR SEARCH TRIAL 1

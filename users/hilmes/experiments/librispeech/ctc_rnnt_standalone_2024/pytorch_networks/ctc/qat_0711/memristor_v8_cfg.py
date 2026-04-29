@@ -11,7 +11,11 @@ from typing import Callable, Optional, Union, Dict, Literal, List
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1Config
 from i6_models.config import ModuleFactoryV1, ModelConfiguration
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Config
-from torch_memristor.memristor_modules import DacAdcHardwareSettings, CycleCorrectionSettings
+try:
+    from torch_memristor.memristor_modules import DacAdcHardwareSettings, CycleCorrectionSettings
+except ModuleNotFoundError:
+    from synaptogen_ml.memristor_modules.memristor import DacAdcHardwareSettings
+    from synaptogen_ml.memristor_modules.conv import CycleCorrectionSettings
 
 
 @dataclass(kw_only=True)

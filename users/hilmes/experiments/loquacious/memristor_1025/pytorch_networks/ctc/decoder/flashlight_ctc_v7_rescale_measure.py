@@ -262,6 +262,7 @@ def forward_step(*, model, data, run_ctx, **kwargs):
     import torch
 
     raw_audio = data["raw_audio"]  # [B, T', F]
+    assert raw_audio.shape[0] == 1, "No Batched recognition for now" # TODO: might need change for GPU
 
     raw_audio_len = data["raw_audio:size1"]  # [B]
 

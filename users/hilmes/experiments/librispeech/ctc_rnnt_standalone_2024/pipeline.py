@@ -118,6 +118,7 @@ def search(
     if asr_model.prior_file is not None:
         decoder_args["config"]["prior_file"] = asr_model.prior_file
 
+
     returnn_search_config = get_forward_config(
         network_module=asr_model.network_module,
         config=forward_config,
@@ -127,6 +128,7 @@ def search(
         debug=debug,
         import_memristor=import_memristor,
         run_rasr=run_rasr,
+        # unhashed_net_args={"run_new_mem": True} if "_test_synaptogenML" in prefix_name else None,
     )
 
     # use fixed last checkpoint for now, needs more fine-grained selection / average etc. here
@@ -136,8 +138,12 @@ def search(
         search_name = prefix_name + "/%s" % key
         if "hubert_tune" in search_name:
             mem = 30
-        elif "RelPosEnc" in search_name:
-            mem = 16
+        elif "width" in search_name:
+            mem = 32
+            if "2048" in search_name:
+                mem += 24
+        elif "1024" in search_name:
+            mem = 40
         else:
             mem = 16
         wers[search_name], search_job = search_single(
@@ -182,7 +188,7 @@ def compute_prior(
         returnn_config=returnn_config,
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
-        time_rqmt=4,
+        time_rqmt=12,
         device="gpu",
         cpu_rqmt=8,
         returnn_python_exe=returnn_exe,
@@ -229,13 +235,60 @@ def prepare_memristor(
         returnn_root=returnn_root,
         output_files=["converted_model.pt"],
     )
+    if any(str(x) in prefix_name for x in [1536]):
+        search_job.rqmt["mem"] += 24
+    if any(str(x) in prefix_name for x in [2048]):
+        search_job.rqmt["mem"] += 12
     search_job.add_alias(prefix_name + "/prepare_mem_job")
     search_job.set_keep_value(10)
     # search_job.set_vis_name(prefix_name + "/prior_job")
     return search_job.out_files["converted_model.pt"]
 
+@tk.block()
+def compute_statistics(
+    prefix_name: str,
+    returnn_config: ReturnnConfig,
+    checkpoint: tk.Path,
+    returnn_exe: tk.Path,
+    returnn_root: tk.Path,
+    mem_rqmt: int = 24,
+    cpu_rqmt: int = 8,
+    device: str = "cpu",
+    output_file: str = "stats.pkl"
+):
+    """
+    Get statistics for a specific dataset
 
-def training(training_name, datasets, train_args, num_epochs, returnn_exe, returnn_root):
+    :param prefix_name: prefix folder path for alias and output files
+    :param returnn_config: the RETURNN config to be used for forwarding
+    :param Checkpoint checkpoint: path to RETURNN PyTorch model checkpoint
+    :param returnn_exe: The python executable to run the job with (when using container just "python3")
+    :param returnn_root: Path to a checked out RETURNN repository
+    :param mem_rqmt: override the default memory requirement
+    """
+    search_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=72,
+        device=device,
+        cpu_rqmt=cpu_rqmt,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=[output_file],
+    )
+    if output_file == "stats.pkl":
+        search_job.add_alias(prefix_name + "/compute_mhsa_statistics")
+    else:
+        search_job.add_alias(prefix_name + f"/compute_mhsa_statistics_{output_file}")
+    search_job.rqmt['gpu_mem'] = 48
+    search_job.set_keep_value(10)
+    # search_job.set_vis_name(prefix_name + "/prior_job")
+    return search_job.out_files[output_file]
+
+
+def training(training_name, datasets, train_args, num_epochs, returnn_exe, returnn_root, device="gpu"):
     """
     :param training_name:
     :param datasets:
@@ -254,7 +307,7 @@ def training(training_name, datasets, train_args, num_epochs, returnn_exe, retur
         "returnn_root": returnn_root,
     }
 
-    train_job = ReturnnTrainingJob(returnn_config=returnn_config, num_epochs=num_epochs, **default_rqmt)
+    train_job = ReturnnTrainingJob(returnn_config=returnn_config, num_epochs=num_epochs, device=device, **default_rqmt)
     train_job.add_alias(training_name + "/training")
     tk.register_output(training_name + "/learning_rates", train_job.out_learning_rates)
     return train_job
@@ -348,9 +401,9 @@ def prepare_asr_model(
             returnn_root=MINI_RETURNN_ROOT,
         )
         tk.register_output(training_name + "/prior.txt", prior_file)
-    else:
-        if prior_config is not None:
-            raise ValueError("prior_config can only be set if with_prior is True")
+    # else:
+    #     if prior_config is not None:
+    #         raise ValueError("prior_config can only be set if with_prior is True")
 
     if split_preparation:
         assert split_args is not None

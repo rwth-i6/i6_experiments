@@ -292,7 +292,8 @@ def tune_and_evaluate_helper(
                         job.hold()
                         job.move_to_hpc = True
             tune_parameters.append((lm_weight, prior_scale))
-            tune_values.append((wers[search_name + "/dev"]))
+            if search_name + "/dev" in wers:
+                tune_values.append((wers[search_name + "/dev"]))
             results.update(wers)
     if quant_args is not None:
         assert quant_str is not None, "You want your quant to have a name"
@@ -601,7 +602,7 @@ def run_rtf_test(
                                         list(wers.values())[0],
                                     )
             tk.register_report(
-                f"reports/{search_name.split('/')[-1]}/{search_name.split('/')[-3]}", partial(build_rtf_report, report)
+                f"reports/{search_name.split('/')[-1]}/{'.'.join(search_name.split('/')[4:])}", partial(build_rtf_report, report)
             )
             if not rtf_args.run_quant:
                 return
@@ -624,7 +625,7 @@ def run_rtf_test(
                                     returnn_vocab=base_decoder_config.returnn_vocab,
                                     energy_device=device,
                                     arpa_lm=base_decoder_config.arpa_lm,
-                                    turn_off_quant=False,
+                                    turn_off_quant=rtf_args.run_quant if rtf_args.run_quant is not True else False,
                                 )
                                 name = search_name + f"/{beam_size}_{beam_size_token}_{beam_threshold}_quantized"
                                 search_jobs: List[ReturnnForwardJobV2]
@@ -671,7 +672,7 @@ def run_rtf_test(
                                     list(wers.values())[0],
                                     )
             tk.register_report(
-                f"reports/{search_name.split('/')[-1]}/{search_name.split('/')[-3]}_quantized",
+                f"reports/{search_name.split('/')[-1]}/{'.'.join(search_name.split('/')[4:])}_quantized",
                 partial(build_rtf_report, report),
             )
     else:
@@ -683,13 +684,40 @@ def run_rtf_test(
             decoder_module = rtf_args.decoder_module or "ctc.decoder.rasr_ctc_v1_rescale_measure_v1"
             from ...pytorch_networks.ctc.decoder.rasr_ctc_v1_rescale_measure_v1 import DecoderConfig
             quant_ls = ["leave_as_is"]
-            if rtf_args.run_quant == True:
-                quant_ls.append(False)
-            if rtf_args.run_quant == "torch":
-                quant_ls.append("torch")
+            if isinstance(rtf_args.run_quant, list):
+                for x in rtf_args.run_quant:
+                    if x == True:
+                        quant_ls.append(False)
+                    if x == "torch":
+                        quant_ls.append("torch")
+                    if x == "remove":
+                        quant_ls.append(True)
+                    if x == "real_torch":
+                        quant_ls.append(x)
+                    if x == "real_torch_conv":
+                        quant_ls.append(x)
+                    if x == "real_torch_ident":
+                        quant_ls.append(x)
+            else:
+                if rtf_args.run_quant == True:
+                    quant_ls.append(False)
+                if rtf_args.run_quant == "torch":
+                    quant_ls.append("torch")
+                if rtf_args.run_quant == "remove":
+                    quant_ls.append(True)
             for turn_off_quant in quant_ls:
-                if turn_off_quant == False or turn_off_quant == "torch":
+                if turn_off_quant == False:
                     s = "/quant"
+                elif turn_off_quant == "torch":
+                    s = "/torch_quant"
+                elif turn_off_quant == True:
+                    s = "/remove_quant"
+                elif turn_off_quant == "real_torch":
+                    s = "/real_torch_quant"
+                elif turn_off_quant == "real_torch_conv":
+                    s = "/real_torch_quant_conv"
+                elif turn_off_quant == "real_torch_ident":
+                    s = "/real_torch_quant_ident"
                 else:
                     s = "/full"
                 report = {}
@@ -759,7 +787,7 @@ def run_rtf_test(
                                     list(wers.values())[0],
                                 )
                 tk.register_report(
-                    f"reports/{search_name.split('/')[-1]}/{search_name.split('/')[-3]}{s}",
+                    f"reports/{search_name.split('/')[-1]}/{'.'.join(search_name.split('/')[4:])}{s}",
                     partial(build_rasr_rtf_report, report),
                 )
 

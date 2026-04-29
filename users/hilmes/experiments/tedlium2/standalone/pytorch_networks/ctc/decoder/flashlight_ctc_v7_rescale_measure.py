@@ -193,13 +193,22 @@ def forward_init_hook(run_ctx, **kwargs):
 
     run_ctx.print_hypothesis = extra_config.print_hypothesis
     if config.turn_off_quant is False:
-        print("Run quantization with torch")
+        print("Run quantization")
         run_ctx.engine._model.prep_quant()
+    elif config.turn_off_quant == "torch":
+        print("Run Torch Quantization")
+        run_ctx.engine._model.prep_torch_quant()
     elif config.turn_off_quant == "decomposed":
         run_ctx.engine._model.prep_quant(decompose=True)
         print("Use decomposed version, should match training")
     elif config.turn_off_quant == "leave_as_is":
         print("Use same version as in training")
+    elif config.turn_off_quant == True:
+        print("Turn off quantizers")
+        run_ctx.engine._model.remove_quant()
+    elif config.turn_off_quant == "real_torch":
+        print("Use the explicit torch quantization")
+        run_ctx.engine._model.real_torch_quant()
     else:
         raise NotImplementedError
         run_ctx.engine._model.prep_dequant()  # TODO: needs fix
