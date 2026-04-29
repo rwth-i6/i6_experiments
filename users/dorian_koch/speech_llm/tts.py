@@ -90,7 +90,7 @@ class ChatterboxInference(Job):
     def __init__(
         self,
         *,
-        venv_python_path: tk.Path,
+        venv_python_path: tk.AbstractPath,
         in_json: tk.Path | None = None,
         in_hf: tk.Path | None = None,
         speaker_dir: tk.Path,
@@ -205,7 +205,7 @@ class ParlerTTSInference(Job):
     def __init__(
         self,
         *,
-        venv_python_path: tk.Path,
+        venv_python_path: tk.AbstractPath,
         prompt: str | None = None,
         voices_per_prompt: int = 5,
         voice_descriptions: list[str] | None = None,

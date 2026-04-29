@@ -7,6 +7,7 @@ from sisyphus import Job, Task, tk
 import os
 import subprocess
 import json
+import shutil
 from i6_experiments.users.dorian_koch.jobs.hf import HfMergeShards
 import sys
 import moshi_finetune  # needed to get moshi_finetune path for PYTHONPATH below
@@ -27,12 +28,48 @@ def moshi_inference_server(model):
     pass
 
 
+class MergeMoshiAnnotationsViaSymlinks(Job):
+    def __init__(self, in_annotations: list[tk.Path]):
+        self.in_annotations = in_annotations
+        self.out_merged = self.output_path("merged_annotations", directory=True)
+
+    def tasks(self):
+        yield Task("merge", mini_task=True)
+
+    def merge(self):
+        os.makedirs(self.out_merged.get(), exist_ok=True)
+        out_jsonl = os.path.join(self.out_merged.get(), "annotations.jsonl")
+
+        dir_map = {}
+        dir_idx = 0
+
+        with open(out_jsonl, "w") as out_f:
+            for idx, in_path in enumerate(self.in_annotations):
+                # read all .jsonl files\
+                for file in os.listdir(in_path.get()):
+                    if not file.endswith(".jsonl"):
+                        continue
+                    src = os.path.join(in_path.get(), file)
+                    with open(src) as f:
+                        for line in f:
+                            data = json.loads(line)
+                            path = data["path"]
+                            path = os.path.dirname(path) # just get the folder the file is stored in
+                            if path not in dir_map:
+                                dir_map[path] = f"dir{dir_idx}"
+                                dir_idx += 1
+                                os.symlink(path, os.path.join(self.out_merged.get(), dir_map[path]), target_is_directory=True)
+                            data["path"] = os.path.join(self.out_merged.get(), dir_map[path], os.path.basename(data["path"]))
+                            out_f.write(json.dumps(data) + "\n")
+                        
+                
+
 # runs moshi annotate.py
 class MoshiAnnotate(Job):
     def __init__(
         self,
         *,
-        venv_python_path: tk.Path,
+        venv_python_path: tk.AbstractPath,
         in_hf: tk.Path,
         shard: int | None = None,
         num_shards: int | None = None,
@@ -51,6 +88,21 @@ class MoshiAnnotate(Job):
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
+
+    @staticmethod
+    def sharded(*, num_shards: int, **kwargs) -> tk.Path:
+        assert "in_hf" in kwargs, "Sharding only supported for HF input"
+        if num_shards == 1:
+            return MoshiAnnotate(**kwargs).out_annotations
+        assert num_shards > 1
+        shards = []
+        for shard in range(num_shards):
+            shards.append(
+                MoshiAnnotate(shard=shard, num_shards=num_shards, **kwargs)
+            )
+        return MergeMoshiAnnotationsViaSymlinks(
+            in_annotations=[s.out_annotations for s in shards]
+        ).out_merged
 
     def run(self):
         this_file_path = Path(__file__).resolve()
@@ -80,6 +132,7 @@ class MoshiAnnotate(Job):
         env["PYTHONUNBUFFERED"] = "1"
         env["HF_HOME"] = HF_CACHE_DIR.get()
         top_level_file = sys.modules["moshi_finetune"].__file__
+        assert top_level_file is not None, "Could not find moshi_finetune module file"
         package_base_dir = str(Path(top_level_file).parent.parent)
         env["PYTHONPATH"] = (
             f"{package_base_dir}{os.pathsep}{env['PYTHONPATH']}"
@@ -102,7 +155,7 @@ class MoshiAnnotate(Job):
 
 
 class MoshiFinetune(Job):
-    def __init__(self, venv_python_path: tk.Path, train_data: tk.Path):
+    def __init__(self, venv_python_path: tk.AbstractPath, train_data: tk.Path):
         self.train_data = train_data
         self.venv_python_path = venv_python_path
         self.out_config = self.output_path("config.yaml")
@@ -120,6 +173,17 @@ class MoshiFinetune(Job):
 
     def write_config(self):
         run_dir = self.out_rundir.get()
+        if os.path.exists(run_dir) and os.listdir(run_dir):
+            print(f"Warning: run_dir {run_dir} already exists and is not empty.")
+            # find dir in cwd to move existing contents to
+            new_dir = os.path.join(os.getcwd(), "moshi_finetune_old_runs")
+            os.makedirs(new_dir, exist_ok=True)
+            cand = os.path.join(new_dir, "0001")
+            while os.path.exists(cand):
+                cand = os.path.join(new_dir, f"{int(os.path.basename(cand))+1:04d}")
+            print(f"Moving existing contents to {cand}")
+            os.rename(run_dir, cand)
+
         txt = f"""
 # data
 data:
@@ -158,7 +222,7 @@ eval_freq: 100
 do_eval: false
 do_ckpt: true
 ckpt_freq: 100
-
+overwrite_run_dir: true
 
 save_adapters: true # Must be False if full_finetuning is True
 
@@ -183,6 +247,7 @@ run_dir: "{run_dir}"  # Fill
         env["PYTHONUNBUFFERED"] = "1"
         env["HF_HOME"] = HF_CACHE_DIR.get()
         top_level_file = sys.modules["moshi_finetune"].__file__
+        assert top_level_file is not None, "Could not find moshi_finetune module file"
         package_base_dir = f"{str(Path(top_level_file).parent.parent)}{os.pathsep}{str(Path(top_level_file).parent)}"
 
         env["PYTHONPATH"] = (
