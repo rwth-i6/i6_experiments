@@ -61,8 +61,6 @@ class MergeMoshiAnnotationsViaSymlinks(Job):
                                 os.symlink(path, os.path.join(self.out_merged.get(), dir_map[path]), target_is_directory=True)
                             data["path"] = os.path.join(self.out_merged.get(), dir_map[path], os.path.basename(data["path"]))
                             out_f.write(json.dumps(data) + "\n")
-                        
-                
 
 # runs moshi annotate.py
 class MoshiAnnotate(Job):
@@ -232,20 +230,29 @@ run_dir: "{run_dir}"  # Fill
             f.write(txt)
 
     def run(self):
+        good_hash = os.environ.get("CUDA_VISIBLE_DEVICES", "-1")
+        good_hash = abs(hash(good_hash)) % 100
+
+
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
+        env["HF_HOME"] = HF_CACHE_DIR.get()
+        env["MASTER_ADDR"] = "localhost"
+        env["MASTER_PORT"] = str(29600 + good_hash)  # to avoid conflicts if multiple run on same machine
+        print(f"Set MASTER_PORT to {env['MASTER_PORT']} based on hash of CUDA_VISIBLE_DEVICES")
+
         command = [
             self.venv_python_path.get(),
             "-m",
             "torch.distributed.run",
             "--nproc-per-node",
             str(self.rqmt["gpu"]),
+            f"--rdzv_endpoint={env['MASTER_ADDR']}:{env['MASTER_PORT']}",
             "-m",
             "moshi_finetune.train",
             self.out_config.get(),
         ]
 
-        env = os.environ.copy()
-        env["PYTHONUNBUFFERED"] = "1"
-        env["HF_HOME"] = HF_CACHE_DIR.get()
         top_level_file = sys.modules["moshi_finetune"].__file__
         assert top_level_file is not None, "Could not find moshi_finetune module file"
         package_base_dir = f"{str(Path(top_level_file).parent.parent)}{os.pathsep}{str(Path(top_level_file).parent)}"
