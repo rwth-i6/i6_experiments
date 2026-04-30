@@ -4,7 +4,7 @@ import torch
 from torch import nn
 
 from .wav2vec2_hf_ctc_v1_cfg import ModelConfig
-from i6_experiments.users.yang.experiments.generative_ctc.example_setups.librispeech.phmm.loss.fixed_ctc_loss import torch_ctc_fixed_grad, ctc_loss_forward_batch
+
 
 _HF_CACHE_DIR = "/work/asr4/zyang/hf_cache"
 os.environ["HF_HOME"] = _HF_CACHE_DIR
@@ -130,8 +130,6 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     for i, (log_probs, scale) in enumerate(zip(log_probs_list, model.scales)):
         if scale == 0.0:
             continue
-
-
         ctc_loss = nn.functional.ctc_loss(
             torch.permute(log_probs, (1, 0, 2)),
             labels,

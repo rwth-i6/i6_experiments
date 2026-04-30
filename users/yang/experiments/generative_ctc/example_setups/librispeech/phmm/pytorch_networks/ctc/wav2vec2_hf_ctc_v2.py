@@ -1,10 +1,13 @@
+# a generative version possible
+
 import os
 import numpy as np
 import torch
 from torch import nn
 
-from .wav2vec2_hf_ctc_v1_cfg import ModelConfig
-from i6_experiments.users.yang.experiments.generative_ctc.example_setups.librispeech.phmm.loss.fixed_ctc_loss import torch_ctc_fixed_grad, ctc_loss_forward_batch
+from .wav2vec2_hf_ctc_v2_cfg import ModelConfig
+from i6_models.parts.best_rq.quantizer_with_pca import IncrementalPCA
+
 
 _HF_CACHE_DIR = "/work/asr4/zyang/hf_cache"
 os.environ["HF_HOME"] = _HF_CACHE_DIR
@@ -18,6 +21,20 @@ def _lengths_to_attention_mask(lengths: torch.Tensor, max_length: int) -> torch.
     positions = torch.arange(max_length, device=lengths.device)
     return positions.unsqueeze(0) < lengths.unsqueeze(1)
 
+def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
+    """
+    mask a tensor with a "positive" mask (boolean true means position is used)
+
+    This function is traceable.
+
+    :param tensor: [B,T,....]
+    :param seq_len: [B]
+    :return: [B,T]
+    """
+    seq_len = seq_len.to(device=tensor.device)
+    r = torch.arange(tensor.shape[1], device=tensor.device)  # [T]
+    seq_mask = torch.less(r[None, :], seq_len[:, None])  # broadcast to [B,T]
+    return seq_mask
 
 class Model(nn.Module):
     def __init__(self, model_config_dict, **kwargs):
@@ -50,6 +67,7 @@ class Model(nn.Module):
         if self.cfg.pad_token_id is not None:
             hf_cfg.pad_token_id = self.cfg.pad_token_id
 
+
         if self.cfg.pretrained:
             self.wav2vec2 = Wav2Vec2Model.from_pretrained(
                 self.cfg.hf_model_name,
@@ -73,15 +91,23 @@ class Model(nn.Module):
         self.return_layers = self.cfg.aux_ctc_loss_layers or [-1]
         self.scales = self.cfg.aux_ctc_loss_scales or [1.0]
         assert len(self.return_layers) == len(self.scales), "aux_ctc_loss_layers/scales length mismatch"
+
+        if self.cfg.pca_dim:
+            self.pca_dim = self.cfg.pca_dim
+            self.pca = nn.ModuleList([IncrementalPCA(n_components=self.pca_dim) for _ in self.return_layers])
+        else:
+            self.pca = None
+        self.hidden_size = self.wav2vec2.config.hidden_size if not self.pca else self.pca_dim
         self.classifiers = nn.ModuleList(
             [
-                nn.Linear(self.wav2vec2.config.hidden_size, self.cfg.label_target_size + 1)
+                nn.Linear(self.hidden_size, self.cfg.label_target_size + 1)
                 for _ in self.return_layers
             ]
         )
         self.blank_index = (
             self.cfg.label_target_size if self.cfg.blank_index is None else self.cfg.blank_index
         )
+        self.pca_components = None
 
     def extract_hidden_states(self, raw_audio: torch.Tensor, raw_audio_len: torch.Tensor):
         squeezed_audio = torch.squeeze(raw_audio, dim=-1)
@@ -97,14 +123,39 @@ class Model(nn.Module):
         output_lengths = self.wav2vec2._get_feat_extract_output_lengths(raw_audio_len)
         return encoder_out.hidden_states, output_lengths.to(dtype=torch.long)
 
+    def transform_hidden_states(self, all_hidden_states, output_lengths, *, update_pca: bool):
+        hidden_states_mask = mask_tensor(all_hidden_states[0], output_lengths)
+        transformed_hidden_states = []
+
+        if self.pca:
+            for layer_idx, pca in zip(self.return_layers, self.pca):
+                hidden_states = all_hidden_states[layer_idx]
+                if update_pca:
+                    pca.partial_fit(hidden_states[hidden_states_mask].detach())
+                elif not hasattr(pca, "components_"):
+                    raise RuntimeError(
+                        f"PCA components for layer {layer_idx} are not initialized. "
+                        "Run training first or load a checkpoint with fitted PCA state."
+                    )
+                transformed_hidden_states.append(hidden_states @ pca.components_.T)
+        else:
+            for layer_idx in self.return_layers:
+                transformed_hidden_states.append(all_hidden_states[layer_idx])
+
+        return transformed_hidden_states
+
     def forward(self, raw_audio: torch.Tensor, raw_audio_len: torch.Tensor):
         all_hidden_states, output_lengths = self.extract_hidden_states(
             raw_audio=raw_audio, raw_audio_len=raw_audio_len
         )
-
+        transformed_hidden_states = self.transform_hidden_states(
+            all_hidden_states,
+            output_lengths,
+            update_pca=self.training,
+        )
         log_probs_list = []
-        for layer_idx, classifier in zip(self.return_layers, self.classifiers):
-            hidden_states = self.dropout(all_hidden_states[layer_idx])
+        for hidden_states, classifier in zip(transformed_hidden_states, self.classifiers):
+            hidden_states = self.dropout(hidden_states)
             logits = classifier(hidden_states)
             log_probs = torch.log_softmax(logits, dim=-1)
             log_probs_list.append(log_probs)
@@ -130,8 +181,6 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     for i, (log_probs, scale) in enumerate(zip(log_probs_list, model.scales)):
         if scale == 0.0:
             continue
-
-
         ctc_loss = nn.functional.ctc_loss(
             torch.permute(log_probs, (1, 0, 2)),
             labels,
@@ -213,12 +262,17 @@ def variance_step(*, model: Model, data, run_ctx, **kwargs):
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
     )
+    transformed_hidden_states = model.transform_hidden_states(
+        all_hidden_states,
+        output_lengths,
+        update_pca=False,
+    )
 
     max_t = int(output_lengths.max().item())
     frame_mask = torch.arange(max_t, device=output_lengths.device)[None, :] < output_lengths[:, None]
 
-    for layer in model.return_layers:
-        hidden_states = all_hidden_states[layer][:, :max_t]
+    for layer, hidden_states in zip(model.return_layers, transformed_hidden_states):
+        hidden_states = hidden_states[:, :max_t]
         valid_hidden_states = hidden_states[frame_mask]
         batch_sum = valid_hidden_states.sum(dim=0)
         batch_sum_sq = (valid_hidden_states ** 2).sum(dim=0)
