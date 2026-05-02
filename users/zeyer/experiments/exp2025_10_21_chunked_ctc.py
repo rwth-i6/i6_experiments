@@ -223,7 +223,7 @@ def py():
         },
     )
 
-    # Rope instead of relpos selfatt.
+    # Rope instead of relpos selfatt (ChunkedRotaryPosSelfAttentionV2).
     # (We don't expect really improvements in terms of WER. Hopefully mostly the same.
     #  However, we can hope to have better speed here, maybe also less memory consumption. Check that.)
     train(
@@ -258,6 +258,26 @@ def py():
             "model.enc_build_dict": rf.build_dict(
                 ChunkedConformerEncoderV2,
                 encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
+                chunk_size=center_size,
+                chunk_history_size=left_n * center_size,
+                chunk_lookahead_size=right_size,
+                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+                chunk_lookahead_size_train_pool=[right_size, right_size // 2],
+                version=3,
+            ),
+            "train.batch_size": bs * configs._batch_size_factor,
+            "train.max_seqs": max_seqs,
+        },
+    )
+
+    # Dynamic chunking + rope.
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope",
+        {
+            "model.enc_build_dict": rf.build_dict(
+                ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
                 chunk_size=center_size,
                 chunk_history_size=left_n * center_size,
                 chunk_lookahead_size=right_size,
