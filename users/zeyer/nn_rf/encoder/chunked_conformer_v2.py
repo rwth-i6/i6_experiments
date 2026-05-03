@@ -13,6 +13,9 @@ V2 improvements over V1:
 - Chunk history adaptation (adapt_chunk_history_for_short_seqs): optionally reduces
   chunk_history at runtime when the input sequence is shorter than the configured sizes.
 - Support gradient checkpointing around mem_chunks to save memory.
+- Optional chunk-type embedding (use_chunk_type_embedding): a 2-entry learned embedding added after
+  input_projection that tells each encoder frame whether it is a center frame (type 0) or a
+  lookahead/future-context frame (type 1). Disabled by default.
 - Overlap support (chunk_num_overlaps > 1): chunk_stride = chunk_size // chunk_num_overlaps,
   so each output frame is covered by chunk_num_overlaps chunks (except at boundaries, but we ignore that).
   The overlapping frames are averaged together.
@@ -97,6 +100,7 @@ class ChunkedConformerEncoderV2(rf.Module):
         version: int = 1,
         adapt_chunk_history_for_short_seqs: bool = True,
         mem_chunks_grad_checkpointing: bool = False,
+        use_chunk_type_embedding: bool = False,
     ):
         """
         :param out_dim: the output feature dimension
@@ -131,6 +135,11 @@ class ChunkedConformerEncoderV2(rf.Module):
             when the input is shorter than what the configured chunk sizes require.
         :param mem_chunks_grad_checkpointing: if True, use torch.utils.checkpoint per encoder layer during
             training to trade memory for recompute. Only effective during training.
+        :param use_chunk_type_embedding: if True, add a learned embedding (in out_dim space) to every encoder
+            frame after input_projection that encodes whether the frame is a center frame (index 0, will be
+            used in the output) or a lookahead/future-context frame (index 1, discarded after encoding).
+            In the offline case (chunk_size=None) all frames get type 0.
+            Disabled by default.
         """
         super().__init__()
 
@@ -154,6 +163,12 @@ class ChunkedConformerEncoderV2(rf.Module):
         self.adapt_chunk_history_for_short_seqs = adapt_chunk_history_for_short_seqs
         self.mem_chunks_grad_checkpointing = mem_chunks_grad_checkpointing
         assert version == 3, f"Only version=3 is supported (got {version}). Set version=3 explicitly."
+
+        self._chunk_type_dim = Dim(2, name="chunk_type")
+        if use_chunk_type_embedding:
+            self.chunk_type_embedding = rf.Embedding(self._chunk_type_dim, out_dim)
+        else:
+            self.chunk_type_embedding = None
 
         if isinstance(input_layer, dict):
             input_layer = rf.build_from_dict(input_layer, in_dim)
@@ -302,6 +317,20 @@ class ChunkedConformerEncoderV2(rf.Module):
         else:
             x_subsample = source
         x_linear = self.input_projection(x_subsample)
+
+        if self.chunk_type_embedding is not None:
+            frame_pos = rf.range_over_dim(spatial_dim, device=source.device)
+            if chunk_size is not None:
+                # Frames [0, chunk_size) are center frames (type 0); [chunk_size, ...) are lookahead (type 1).
+                # If the window was shortened by adapt_chunk_history_for_short_seqs, spatial_dim may be
+                # smaller than chunk_size + chunk_lookahead_size; frame_pos >= chunk_size may never fire,
+                # which correctly treats all surviving frames as center.
+                frame_type = rf.cast(frame_pos >= chunk_size, dtype="int32")
+            else:
+                # Offline / no chunking: no lookahead, all frames are center (type 0).
+                frame_type = rf.zeros((), dtype="int32", device=source.device)
+            frame_type.sparse_dim = self._chunk_type_dim
+            x_linear = x_linear + self.chunk_type_embedding(frame_type)
 
         x = rf.dropout(x_linear, self.input_dropout, axis=self.dropout_broadcast and self.input_projection.out_dim)
         x = self.layers(
