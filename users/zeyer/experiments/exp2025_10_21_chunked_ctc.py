@@ -239,6 +239,7 @@ def py():
             ),
             "train.batch_size": bs * configs._batch_size_factor,
             "train.max_seqs": max_seqs,
+            "lm_recog_extra.__serialization_version_stats": 2,
         },
     )
 
