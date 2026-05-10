@@ -186,6 +186,10 @@ def collect_statistics(
         "max": _prior_max_out_filename,
         "info": _prior_info_out_filename,
     }
+    # __serialization_version_stats can overwrite it
+    serialization_version_ex = get_from_config((config, model), "__serialization_version_stats", None)
+    if serialization_version_ex is not None:
+        serialization_version = serialization_version_ex
     if serialization_version is None:
         serialization_version = get_from_config((config, model), "__serialization_version", None)
     if serialization_version is None:

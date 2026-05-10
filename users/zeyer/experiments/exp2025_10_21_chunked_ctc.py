@@ -288,6 +288,7 @@ def py():
             ),
             "train.batch_size": bs * configs._batch_size_factor,
             "train.max_seqs": max_seqs,
+            "lm_recog_extra.__serialization_version_stats": 2,
         },
     )
 
@@ -310,6 +311,7 @@ def py():
             ),
             "train.batch_size": bs * configs._batch_size_factor,
             "train.max_seqs": max_seqs,
+            "lm_recog_extra.__serialization_version_stats": 2,
         },
     )
 
@@ -408,6 +410,7 @@ _base_config = {
     # TODO there is a bug, these are not used...
     "dataset_train_opts": {"train_epoch_split": 1, "train_epoch_wise_filter": None},
     "env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    "lm_recog_extra": {},
 }
 
 
@@ -439,6 +442,7 @@ def train(name: str, config: Dict[str, Any], config_overrides: Optional[Dict[str
     train_vocab_opts = config.pop("train_vocab_opts")
     dataset_train_opts = config.pop("dataset_train_opts")
     env_updates = config.pop("env_updates")
+    lm_recog_extra_config = config.pop("lm_recog_extra")
 
     assert not config
 
@@ -477,7 +481,8 @@ def train(name: str, config: Dict[str, Any], config_overrides: Optional[Dict[str
                             if i <= model_config["enc_build_dict"]["num_layers"]
                         ]
                     )
-                ]
+                ],
+                **lm_recog_extra_config,
             },
             lm=lm,
             prior_dataset=get_loquacious_train_subset_dataset_v2(vocab="spm10k"),

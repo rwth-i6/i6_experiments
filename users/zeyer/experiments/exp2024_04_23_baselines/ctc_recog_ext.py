@@ -1721,6 +1721,8 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     }
     if extra_config:
         base_config = dict_update_deep(base_config, extra_config)
+        if "__serialization_version_stats" in base_config:
+            base_config.pop("__serialization_version_stats")  # this is for prior above, should not be needed below
     if ctc_soft_collapse_threshold is not None:
         base_config.update(
             {
