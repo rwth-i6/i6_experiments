@@ -354,6 +354,9 @@ def py():
             "lm_recog_extra.__serialization_version_stats": 2,
         },
     )
+    # TODO check overfitting
+    # TODO test also other chunk sizes in recog
+    # TODO sample small center_size in chunk_size_train_pool more often
 
     # Overlapping chunks (chunk_num_overlaps=2)
     # TODO (running...)
