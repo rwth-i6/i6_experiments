@@ -189,8 +189,9 @@ def py():
 
     # V2.3: using ChunkedConformerEncoderV2, setting version=3.
     #   reduce chunk sizes, history, if the input is not long enough (adapt_chunk_history_for_short_seqs=True default)
-    # train_time_hours: 168.8 (v1: 215.6; adapt_chunk_history_...=False: 168.9)
-    # CTC-only: 9.46 (v1: 9.56; adapt_chunk_history_...=False: 9.45)
+    # train_time_hours: 168.8 (v1: 215.6; adapt_chunk_history_...=False: 168.9; offline: 66.2)
+    # CTC-only: 9.46 (v1: 9.56; adapt_chunk_history_...=False: 9.45; offline: 7.32)
+    # CTC+LM: 7.22 (offline: 6.12)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3",
         {
@@ -232,6 +233,8 @@ def py():
     # Rope instead of relpos selfatt (ChunkedRotaryPosSelfAttentionV2).
     # (We don't expect really improvements in terms of WER. Hopefully mostly the same.
     #  However, we can hope to have better speed here, maybe also less memory consumption. Check that.)
+    # train_time_hours: 237.1 (vs 168.8) (TODO ???)
+    # CTC-only: 9.31 (vs 9.46)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-rope",
         {
@@ -259,6 +262,8 @@ def py():
     #   (No right context in that setup.)
     # We do here some slightly different schedule, but similar.
     # But also varying the lookahead.
+    # train_time_hours: 103.9 (vs 168.8)
+    # CTC-only: 9.66 (vs 9.46)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn",
         {
@@ -279,6 +284,8 @@ def py():
     )
 
     # Dynamic chunking + rope.
+    # train_time_hours: 128.4 (without rope: 103.9; not dynamic, without rope: 168.8) (TODO ??? rope impl slow?)
+    # CTC-only: 9.55 (without rope: 9.66; not dynamic, without rope: 9.46)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope",
         {
@@ -301,6 +308,8 @@ def py():
 
     # Chunk-type embed (ctembed) (use_chunk_type_embedding=True)
     # Using with dynamic chunking + rope as base.
+    # train_time_hours: 128.3 (vs 128.4)
+    # CTC-only: 9.41 (vs 9.55; no dyn, no ctembed, just rope: 9.31)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed",
         {
@@ -322,7 +331,9 @@ def py():
         },
     )
 
-    # Dyn-v2: Try to make it faster.
+    # Dyn-v2 (dynV2): Try to make it faster.
+    # train_time_hours: 100.1 (vs 128.3)
+    # CTC-only: 11.0 (vs 9.41) (TODO...)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dynV2-rope-ctembed",
         {
@@ -345,6 +356,7 @@ def py():
     )
 
     # Overlapping chunks (chunk_num_overlaps=2)
+    # TODO (running...)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-overlap",
         {
@@ -363,6 +375,7 @@ def py():
     )
 
     # Dyn + rope + ctembed + overlap.
+    # TODO (running...)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-overlap",
         {
