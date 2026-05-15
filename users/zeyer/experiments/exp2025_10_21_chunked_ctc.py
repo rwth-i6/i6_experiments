@@ -355,7 +355,7 @@ def py():
         },
     )
     # TODO check overfitting
-    # TODO test also other chunk sizes in recog
+    # TODO test also other chunk sizes in recog, also offline. also compare then to other cases (base, no dyn)
     # TODO sample small center_size in chunk_size_train_pool more often
 
     # Overlapping chunks (chunk_num_overlaps=2)
