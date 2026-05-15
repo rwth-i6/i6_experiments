@@ -168,6 +168,8 @@ def py():
 
     # V2.3: using ChunkedConformerEncoderV2, setting version=3.
     # First exp, try to reproduce the orig.
+    # train_time_hours: 168.9 (v1: 215.6)
+    # CTC-only: 9.45 (v1: 9.56)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-compat",
         {
@@ -186,7 +188,9 @@ def py():
     )
 
     # V2.3: using ChunkedConformerEncoderV2, setting version=3.
-    #   reduce chunk sizes, history, if the input is not long enough.
+    #   reduce chunk sizes, history, if the input is not long enough (adapt_chunk_history_for_short_seqs=True default)
+    # train_time_hours: 168.8 (v1: 215.6; adapt_chunk_history_...=False: 168.9)
+    # CTC-only: 9.46 (v1: 9.56; adapt_chunk_history_...=False: 9.45)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3",
         {
@@ -203,9 +207,11 @@ def py():
         },
     )
 
-    # try grad checkpointing
+    # Try grad checkpointing (mem_chunks_grad_checkpointing=True).
     # (In terms of WER, should really be the same.
     # if in terms of speed this is better, and same for memory consumption, we could maybe just always enable it.)
+    # train_time_hours: 201.1 (v1: 215.6; ..._checkpointing=False: 168.8) (but requires less memory)
+    # CTC-only: 9.52 (..._checkpointing=False: 9.46)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-gdckpt",
         {
