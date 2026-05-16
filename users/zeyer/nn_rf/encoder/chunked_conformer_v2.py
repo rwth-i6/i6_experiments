@@ -437,7 +437,7 @@ class ChunkedConformerEncoderLayerV2(rf.Module):
         )
         self.conv_layer_norm = make_norm(norm, out_dim)
 
-        if self_att is None or isinstance(self_att, type):
+        if self_att is None or isinstance(self_att, (type, dict)):
             self_att_opts_ = dict(
                 in_dim=out_dim,
                 proj_dim=out_dim,
@@ -451,8 +451,11 @@ class ChunkedConformerEncoderLayerV2(rf.Module):
                 self_att_opts_.update(self_att_opts)
             if self_att is None:
                 self.self_att = ChunkedRelPosSelfAttentionV2(**self_att_opts_)
-            else:
+            elif isinstance(self_att, type):
                 self.self_att = self_att(**self_att_opts_)
+            else:  # dict
+                self_att_opts_ = {k: v for (k, v) in self_att_opts_.items() if k not in self_att}
+                self.self_att = rf.build_from_dict(self_att, **self_att_opts_)
         else:
             self.self_att = self_att
         self.self_att_layer_norm = make_norm(norm, out_dim)
