@@ -229,10 +229,11 @@ def _bench_rope_vs_relpos_profile(input_data: Tensor, time_dim: Dim, chunk_size:
     # Use the actual key_dim_per_head from the modules.
     kd = att_rope.key_dim_per_head  # e.g. Dim(8) for 64/8
 
-    def _bench(fn, label, **extra_globals):
+    def _bench(fn, label, *, with_grad: bool = False, **extra_globals):
         """Time fn() using torch.utils.benchmark (handles warmup and statistics)."""
+        stmt = "fn()" if with_grad else "with torch.no_grad(): fn()"
         t = benchmark.Timer(
-            stmt="with torch.no_grad(): fn()",
+            stmt=stmt,
             globals={"torch": torch, "fn": fn, **extra_globals},
             label=label,
             num_threads=1,
@@ -323,6 +324,8 @@ def _bench_rope_vs_relpos_profile(input_data: Tensor, time_dim: Dim, chunk_size:
     print(f"  {'T':>6}  {'compiled':>10}  {'RF ops':>10}  {'speedup':>8}")
     from returnn.frontend.attention import _apply_rope, _apply_rope_real
 
+    from returnn.torch.util.rope import apply_rope as _rope_compiled_raw
+
     batch_dim_s = Dim(batch_s, name="batch_s")
     for T in [14, 94, 200, 500, 1000, 2000, 5000]:
         t_dim = Dim(T, name=f"T{T}")
@@ -331,6 +334,36 @@ def _bench_rope_vs_relpos_profile(input_data: Tensor, time_dim: Dim, chunk_size:
         pe_s = rf.sinusoidal_positional_encoding(spatial_dim=t_dim, feat_dim=head_dim)
         t_c = _bench(lambda: _apply_rope(x_s, pe_s, head_dim), f"compiled T={T}")
         t_r = _bench(lambda: _apply_rope_real(x_s, pe_s, head_dim), f"RF T={T}")
+        print(f"  {T:6d}  {t_c:9.1f}µ  {t_r:9.1f}µ  {t_r / t_c:7.1f}x")
+
+    # -- fwd+bwd scaling with T --
+    # head_dim is already last in x_s, so no movedim needed.
+    # We pre-allocate leaf tensors with requires_grad once per T; grads accumulate across
+    # benchmark iterations but that does not affect timing.
+    print(f"\n  --- _apply_rope fwd+bwd scaling with T (batch={batch_s}, heads={num_heads}, head_dim={head_dim.dimension}) ---")
+    print(f"  {'T':>6}  {'compiled':>10}  {'RF ops':>10}  {'speedup':>8}")
+    for T in [14, 94, 200, 500, 1000, 2000, 5000]:
+        t_dim = Dim(T, name=f"T_bwd{T}")
+        heads_dim_s = Dim(num_heads, name="heads_s_bwd")
+        x_s = rf.random_uniform([batch_dim_s, t_dim, heads_dim_s, head_dim])
+        pe_s = rf.sinusoidal_positional_encoding(spatial_dim=t_dim, feat_dim=head_dim)
+        # head_dim is already last → no movedim; pe broadcast-aligned to x_s dims
+        pe_raw = pe_s.copy_compatible_to_dims_raw(x_s.dims)
+        # leaf tensor for compiled (raw): reused across iterations, grad just accumulates
+        x_leaf_c = x_s.raw_tensor.clone().requires_grad_(True)
+        # leaf tensor for RF: wrap raw leaf in RF Tensor so _apply_rope_real sees it
+        x_leaf_rf = x_s.copy_template()
+        x_leaf_rf.raw_tensor = x_s.raw_tensor.clone().requires_grad_(True)
+        t_c = _bench(
+            lambda: _rope_compiled_raw(x_leaf_c, pe_raw).sum().backward(),
+            f"compiled fwd+bwd T={T}",
+            with_grad=True,
+        )
+        t_r = _bench(
+            lambda: _apply_rope_real(x_leaf_rf, pe_s, head_dim).raw_tensor.sum().backward(),
+            f"RF fwd+bwd T={T}",
+            with_grad=True,
+        )
         print(f"  {T:6d}  {t_c:9.1f}µ  {t_r:9.1f}µ  {t_r / t_c:7.1f}x")
 
     print("=== end profile ===\n")
