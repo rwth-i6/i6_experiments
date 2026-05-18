@@ -302,9 +302,7 @@ def _bench_rope_vs_relpos_profile(input_data: Tensor, time_dim: Dim, chunk_size:
             pos_emb_proj, axis=att_relpos.key_dim_total, dims=(att_relpos.num_heads, att_relpos.key_dim_per_head)
         )
     q_bias_v = q_relpos + att_relpos.pos_bias_v if att_relpos.pos_bias_v is not None else q_relpos
-    t = _bench(
-        lambda: rf.matmul(q_bias_v, pos_emb_proj, reduce=att_relpos.key_dim_per_head), "matmul matrix_bd"
-    )
+    t = _bench(lambda: rf.matmul(q_bias_v, pos_emb_proj, reduce=att_relpos.key_dim_per_head), "matmul matrix_bd")
     print(f"  matmul matrix_bd  (q={axis.dimension}×pos={pos_emb_dim.dimension})                           {t:7.1f} µs")
 
     q_bias_u = q_relpos + att_relpos.pos_bias_u if att_relpos.pos_bias_u is not None else q_relpos
