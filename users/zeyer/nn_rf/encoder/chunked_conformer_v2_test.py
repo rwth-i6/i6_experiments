@@ -354,6 +354,10 @@ def _bench_rope_vs_relpos_profile(input_data: Tensor, time_dim: Dim, chunk_size:
         # leaf tensor for RF: wrap raw leaf in RF Tensor so _apply_rope_real sees it
         x_leaf_rf = x_s.copy_template()
         x_leaf_rf.raw_tensor = x_s.raw_tensor.clone().requires_grad_(True)
+        # Warmup: torch.compile compiles the backward lazily on first call;
+        # without this the first timed iteration includes compilation time.
+        _rope_compiled_raw(x_leaf_c, pe_raw).sum().backward()
+        _apply_rope_real(x_leaf_rf, pe_s, head_dim).raw_tensor.sum().backward()
         t_c = _bench(
             lambda: _rope_compiled_raw(x_leaf_c, pe_raw).sum().backward(),
             f"compiled fwd+bwd T={T}",
