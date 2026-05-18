@@ -359,7 +359,9 @@ def py():
     # TODO sample small center_size in chunk_size_train_pool more often
 
     # Overlapping chunks (chunk_num_overlaps=2)
-    # TODO (running...)
+    # train_time_hours: 391.4 (vs 168.8) !! (overlaps require twice as much compute, but also smaller batch size)
+    #   (maybe could get away with less training?)
+    # CTC-only: 9.26 (vs 9.46)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-overlap",
         {
