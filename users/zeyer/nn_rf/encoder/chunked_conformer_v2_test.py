@@ -32,6 +32,8 @@ from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v1 import (
 from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2 import (
     ChunkedConformerEncoderV2,
     ChunkedConformerEncoderLayerV2,
+    ChunkedRelPosSelfAttentionV2,
+    ChunkedRotaryPosSelfAttentionV2,
     _average_overlapping_chunks,
 )
 
@@ -54,6 +56,286 @@ def tests():
     test_conformer_v2()
     test_conformer_v2_with_chunk_num_overlaps()
     test_average_overlapping_chunks()
+
+
+def bench_rope_vs_relpos():
+    """
+    Benchmark :class:`ChunkedRelPosSelfAttentionV2` vs :class:`ChunkedRotaryPosSelfAttentionV2`.
+
+    With ``--bench-profile`` the function also runs a per-operation timing breakdown to show
+    exactly where time is spent inside each attention variant.
+    """
+    import torch.utils.benchmark as benchmark
+
+    better_exchook.install()
+    _setup_test()
+    batch_dim.dyn_size_ext = rf.convert_to_tensor(32, dims=[])
+
+    chunk_size = 10
+    chunk_history_size = 80
+    chunk_lookahead_size = 4
+
+    def _build(self_att_cls):
+        return _build_model(
+            rf.build_dict(
+                ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(
+                    ChunkedConformerEncoderLayerV2,
+                    self_att=rf.build_dict(self_att_cls),
+                ),
+                chunk_size=chunk_size,
+                chunk_history_size=chunk_history_size,
+                chunk_lookahead_size=chunk_lookahead_size,
+                version=3,
+                adapt_chunk_history_for_short_seqs=False,
+            )
+        )
+
+    model_relpos = _build(ChunkedRelPosSelfAttentionV2)
+    model_rope = _build(ChunkedRotaryPosSelfAttentionV2)
+
+    input_data, time_dim = _make_input_data(seq_len=1001)
+
+    def _bench(model, label):
+        t = benchmark.Timer(
+            stmt="with torch.no_grad(): model(input_data, in_spatial_dim=time_dim)",
+            globals={"torch": torch, "model": model, "input_data": input_data, "time_dim": time_dim},
+            label=label,
+            num_threads=1,
+        )
+        m = t.blocked_autorange()
+        print(f"  {label:42s}  median={m.median * 1000:.2f}ms  mean={m.mean * 1000:.2f}ms")
+        return m.median
+
+    print("\n=== bench_rope_vs_relpos ===")
+    median_relpos = _bench(model_relpos, "ChunkedRelPosSelfAttentionV2")
+    median_rope = _bench(model_rope, "ChunkedRotaryPosSelfAttentionV2")
+    print(
+        f"  rope / relpos  = {median_rope / median_relpos:.2f}x  "
+        f"(rope {'slower' if median_rope > median_relpos else 'faster'} than relpos)"
+    )
+    print("=== done ===\n")
+
+    if "--bench-profile" in sys.argv:
+        _bench_rope_vs_relpos_profile(input_data, time_dim, chunk_size, chunk_history_size)
+
+
+def _bench_rope_vs_relpos_profile(input_data: Tensor, time_dim: Dim, chunk_size: int, chunk_history_size: int):
+    """
+    Per-operation timing breakdown showing where time is spent inside each attention variant.
+
+    ``_apply_rope`` (torch backend, torch.compile-fused) is faster than ``_apply_rope_real``
+    (plain RF ops) because torch.compile fuses the element-wise operations into a single kernel.
+    """
+    import torch.utils.benchmark as benchmark
+    from returnn.frontend.attention import _apply_rope, sinusoidal_positional_encoding
+
+    chunk_lookahead_size = 4
+    ds = 6
+    chunk_stride = chunk_size
+    chunk_history = chunk_history_size // chunk_stride
+    input_chunk_size = (chunk_size + chunk_lookahead_size) * ds
+    input_chunk_stride = chunk_stride * ds
+
+    input_chunk_size_dim = Dim(input_chunk_size, name="input_chunk_size_profile")
+    end_chunk_size_dim = Dim(chunk_stride, name="chunk_stride_profile")
+
+    # Build a single model to get the attention module and realistic tensors.
+    from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2 import (
+        _mem_chunks,
+        _BatchChunkingSettings,
+    )
+    from returnn.frontend.encoder.conformer import ConformerConvSubsample
+
+    out_dim = Dim(64, name="model_profile")
+    num_heads = 8
+    head_dim = Dim(out_dim.dimension // num_heads, name="head_dim_profile")
+
+    att_relpos = ChunkedRelPosSelfAttentionV2(
+        in_dim=out_dim,
+        proj_dim=out_dim,
+        key_dim_total=out_dim,
+        value_dim_total=out_dim,
+        num_heads=num_heads,
+        att_dropout=0.0,
+        version=3,
+    )
+    att_rope = ChunkedRotaryPosSelfAttentionV2(
+        in_dim=out_dim,
+        proj_dim=out_dim,
+        key_dim_total=out_dim,
+        value_dim_total=out_dim,
+        num_heads=num_heads,
+        att_dropout=0.0,
+        version=3,
+    )
+
+    # Build a minimal ConformerConvSubsample to produce a realistic source tensor.
+    subsample = ConformerConvSubsample(
+        feat_dim,
+        out_dims=[32, 64, 64],
+        filter_sizes=[(3, 3), (3, 3), (3, 3)],
+        pool_sizes=[(1, 2)],
+        strides=[(1, 1), (3, 1), (2, 1)],
+    )
+
+    # Produce realistic windowed + subsampled input.
+    source_windowed, chunked_time_dim = rf.window(
+        input_data,
+        spatial_dim=time_dim,
+        window_dim=input_chunk_size_dim,
+        window_left=0,
+        stride=input_chunk_stride,
+        pad_value=0.0,
+    )
+    source_sub, enc_spatial_dim = subsample(source_windowed, in_spatial_dim=input_chunk_size_dim)
+    # Project to out_dim.
+    proj = rf.Linear(subsample.out_dim, out_dim, with_bias=False)
+    x = proj(source_sub)
+
+    chunking = _BatchChunkingSettings(
+        chunk_history=chunk_history,
+        end_chunk_size_dim=end_chunk_size_dim,
+        chunked_time_dim=chunked_time_dim,
+    )
+
+    axis = enc_spatial_dim
+    rope_base = 10_000 ** (1 - 2 / head_dim.dimension)
+    query_offset = chunk_history * end_chunk_size_dim.dimension
+
+    q_relpos, k_relpos, v_relpos = att_relpos.forward_qkv(x)
+    q_rope, k_rope, v_rope = att_rope.forward_qkv(x)
+
+    hist_dim = Dim(None, name="kv_profile")
+    k_relpos_r, _ = rf.replace_dim(k_relpos, in_dim=axis, out_dim=hist_dim)
+    k_ext, hist_dim_ = _mem_chunks(
+        k_relpos_r,
+        spatial_dim=hist_dim,
+        chunked_time_dim=chunked_time_dim,
+        mem_size=chunk_history,
+        end_chunk_size_dim=end_chunk_size_dim,
+    )
+
+    hist_dim2 = Dim(None, name="kv_rope_profile")
+    k_rope_r, _ = rf.replace_dim(k_rope, in_dim=axis, out_dim=hist_dim2)
+    k_ext_rope, hist_dim_rope_ = _mem_chunks(
+        k_rope_r,
+        spatial_dim=hist_dim2,
+        chunked_time_dim=chunked_time_dim,
+        mem_size=chunk_history,
+        end_chunk_size_dim=end_chunk_size_dim,
+    )
+
+    # Use the actual key_dim_per_head from the modules.
+    kd = att_rope.key_dim_per_head  # e.g. Dim(8) for 64/8
+
+    def _bench(fn, label, **extra_globals):
+        """Time fn() using torch.utils.benchmark (handles warmup and statistics)."""
+        t = benchmark.Timer(
+            stmt="with torch.no_grad(): fn()",
+            globals={"torch": torch, "fn": fn, **extra_globals},
+            label=label,
+            num_threads=1,
+        )
+        m = t.blocked_autorange()
+        return m.median * 1e6  # µs
+
+    print("\n=== per-op profile (median µs, torch.utils.benchmark) ===")
+
+    # -- _apply_rope on q (axis frames) and k_ext (kv frames) --
+    static_axis_dim = Dim(axis.dimension, name="axis_static_profile")
+    static_kv_dim = Dim(hist_dim_rope_.dimension, name="kv_static_profile")
+    pos_enc_q = rf.sinusoidal_positional_encoding(
+        spatial_dim=static_axis_dim, feat_dim=kd, base=rope_base, device="cpu"
+    )
+    pos_enc_q, _ = rf.replace_dim(pos_enc_q, in_dim=static_axis_dim, out_dim=axis)
+    q_for_rope, _, _ = att_rope.forward_qkv(x)
+    # noinspection PyProtectedMember
+    from returnn.frontend.attention import _apply_rope, _apply_rope_real
+
+    t = _bench(lambda: _apply_rope(q_for_rope, pos_enc_q, kd), "_apply_rope compiled q")
+    print(f"  _apply_rope       (q,     T={axis.dimension:2d}) [torch.compile]                         {t:7.1f} µs")
+    t = _bench(lambda: _apply_rope_real(q_for_rope, pos_enc_q, kd), "_apply_rope_real q")
+    print(f"  _apply_rope_real  (q,     T={axis.dimension:2d}) [RF ops]                                {t:7.1f} µs")
+
+    pos_enc_k = rf.sinusoidal_positional_encoding(
+        spatial_dim=static_kv_dim, feat_dim=kd, offset=-query_offset, base=rope_base, device="cpu"
+    )
+    pos_enc_k, _ = rf.replace_dim(pos_enc_k, in_dim=static_kv_dim, out_dim=hist_dim_rope_)
+    t = _bench(lambda: _apply_rope(k_ext_rope, pos_enc_k, kd), "_apply_rope compiled k_ext")
+    print(
+        f"  _apply_rope       (k_ext, T={hist_dim_rope_.dimension:2d}) [torch.compile]                         {t:7.1f} µs"
+    )
+    t = _bench(lambda: _apply_rope_real(k_ext_rope, pos_enc_k, kd), "_apply_rope_real k_ext")
+    print(
+        f"  _apply_rope_real  (k_ext, T={hist_dim_rope_.dimension:2d}) [RF ops]                                {t:7.1f} µs"
+    )
+
+    # -- RelPos components --
+    t = _bench(
+        lambda: rf.relative_positional_encoding(
+            query_spatial_dim=axis,
+            key_value_spatial_dim=hist_dim_,
+            feat_dim=att_relpos.pos_emb_feat_dim,
+            query_offset=query_offset,
+            device="cpu",
+        ),
+        "relative_positional_encoding",
+    )
+    print(
+        f"  relative_positional_encoding(q={axis.dimension}, kv={hist_dim_.dimension})                       {t:7.1f} µs"
+    )
+
+    pos_emb, pos_emb_dim = rf.relative_positional_encoding(
+        query_spatial_dim=axis,
+        key_value_spatial_dim=hist_dim_,
+        feat_dim=att_relpos.pos_emb_feat_dim,
+        query_offset=query_offset,
+        device="cpu",
+    )
+    if att_relpos.linear_pos is not None:
+        pos_emb_proj = att_relpos.linear_pos(pos_emb)
+    else:
+        pos_emb_proj = pos_emb
+    if att_relpos.separate_pos_emb_per_head:
+        pos_emb_proj = rf.split_dims(
+            pos_emb_proj, axis=att_relpos.key_dim_total, dims=(att_relpos.num_heads, att_relpos.key_dim_per_head)
+        )
+    q_bias_v = q_relpos + att_relpos.pos_bias_v if att_relpos.pos_bias_v is not None else q_relpos
+    t = _bench(
+        lambda: rf.matmul(q_bias_v, pos_emb_proj, reduce=att_relpos.key_dim_per_head), "matmul matrix_bd"
+    )
+    print(f"  matmul matrix_bd  (q={axis.dimension}×pos={pos_emb_dim.dimension})                           {t:7.1f} µs")
+
+    q_bias_u = q_relpos + att_relpos.pos_bias_u if att_relpos.pos_bias_u is not None else q_relpos
+    t = _bench(lambda: rf.matmul(q_bias_u, k_ext, reduce=att_relpos.key_dim_per_head), "matmul matrix_ac")
+    print(f"  matmul matrix_ac  (q={axis.dimension}×kv={hist_dim_.dimension})                              {t:7.1f} µs")
+
+    # -- full attention call --
+    t = _bench(lambda: att_relpos(x, axis=axis, chunking=chunking), "ChunkedRelPosSelfAttentionV2")
+    print(f"  ChunkedRelPosSelfAttentionV2  total                                  {t:7.1f} µs")
+
+    t = _bench(lambda: att_rope(x, axis=axis, chunking=chunking), "ChunkedRotaryPosSelfAttentionV2")
+    print(f"  ChunkedRotaryPosSelfAttentionV2 total                                {t:7.1f} µs")
+
+    # -- _apply_rope scaling with T --
+    # Use a large fixed batch so even small T is computation-dominated (not overhead-dominated).
+    batch_s = 256
+    print(f"\n  --- _apply_rope scaling with T (batch={batch_s}, heads={num_heads}, head_dim={head_dim.dimension}) ---")
+    print(f"  {'T':>6}  {'compiled':>10}  {'RF ops':>10}  {'speedup':>8}")
+    from returnn.frontend.attention import _apply_rope, _apply_rope_real
+
+    batch_dim_s = Dim(batch_s, name="batch_s")
+    for T in [14, 94, 200, 500, 1000, 2000, 5000]:
+        t_dim = Dim(T, name=f"T{T}")
+        heads_dim_s = Dim(num_heads, name="heads_s")
+        x_s = rf.random_uniform([batch_dim_s, t_dim, heads_dim_s, head_dim])
+        pe_s = rf.sinusoidal_positional_encoding(spatial_dim=t_dim, feat_dim=head_dim)
+        t_c = _bench(lambda: _apply_rope(x_s, pe_s, head_dim), f"compiled T={T}")
+        t_r = _bench(lambda: _apply_rope_real(x_s, pe_s, head_dim), f"RF T={T}")
+        print(f"  {T:6d}  {t_c:9.1f}µ  {t_r:9.1f}µ  {t_r / t_c:7.1f}x")
+
+    print("=== end profile ===\n")
 
 
 def test_conformer_v2():
@@ -255,10 +537,11 @@ def _build_model(build_dict: Dict[str, Any]):
     return encoder
 
 
-def _make_input_data() -> Tuple[Tensor, Dim]:
+def _make_input_data(*, seq_len: int = 201) -> Tuple[Tensor, Dim]:
+    """Create a random input tensor with dynamic sequence lengths around *seq_len*."""
     time_dim = Dim(
         rf.convert_to_tensor(
-            [201 - i * 11 for i in range(batch_dim.get_dim_value())],
+            [seq_len - i * 11 for i in range(batch_dim.get_dim_value())],
             dims=[batch_dim],
             name="time",
         )
@@ -267,4 +550,9 @@ def _make_input_data() -> Tuple[Tensor, Dim]:
 
 
 if __name__ == "__main__":
-    tests()
+    import sys
+
+    if "--bench" in sys.argv:
+        bench_rope_vs_relpos()
+    else:
+        tests()
