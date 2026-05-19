@@ -475,6 +475,11 @@ def py():
         },
     )
 
+    # New observations since 15.5.2026:
+    # - RoPE made much faster (faster apply_rope).
+    # - RoPE actually not expected to be faster than relpos self-att.
+    # - But RoPE was better? Why? This needs some more investigation. Trying also with learnable pos emb.
+
     # TODO if overlapping chunks works, and the dynamic chunking also works well,
     #   do also dynamic num overlapping chunks.
 
