@@ -403,9 +403,10 @@ def py():
         },
     )
 
-    # Dyn-v2 (dynV2): Try to make it faster.
+    # Dyn-v2 (dynV2): Try to make it faster:
+    # Offline more often. Also sometimes without any overhead, sometimes without any history.
     # train_time_hours: 100.1 (vs 128.3)
-    # CTC-only: 11.0 (vs 9.41) (TODO...)
+    # CTC-only: 11.0 (vs 9.41) (TODO... see dynV3)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dynV2-rope-ctembed",
         {
@@ -429,6 +430,28 @@ def py():
     # TODO check overfitting
     # TODO test also other chunk sizes in recog, also offline. also compare then to other cases (base, no dyn)
     # TODO sample small center_size in chunk_size_train_pool more often
+
+    # DynV3: Less often offline.
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dynV3-rope-ctembed",
+        {
+            "model.enc_build_dict": rf.build_dict(
+                ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
+                chunk_size=center_size,
+                chunk_history_size=left_n * center_size,
+                chunk_lookahead_size=right_size,
+                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2, 0],
+                chunk_lookahead_size_train_pool=[right_size, right_size // 2, 0],
+                use_chunk_type_embedding=True,
+                version=3,
+            ),
+            "train.batch_size": bs * configs._batch_size_factor,
+            "train.max_seqs": max_seqs,
+            "lm_recog_extra.__serialization_version_stats": 2,
+        },
+    )
 
     # Overlapping chunks (chunk_num_overlaps=2)
     # train_time_hours: 391.4 (vs 168.8) !! (overlaps require twice as much compute, but also smaller batch size)
