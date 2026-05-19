@@ -209,16 +209,18 @@ def _get_kazuki_trafo_lm_config(params: KazukiTrafoLmParams) -> RasrConfig:
 
 @lru_cache
 def _get_bpe_lstm_lm_artifacts(bpe_size: int) -> Tuple[LstmLmConfig, PtCheckpoint]:
-    assert bpe_size == 128
     model_config = lstm_lm_bpe.get_model_config(bpe_size=bpe_size)
+    train_options = lstm_lm_bpe.get_train_options(bpe_size=bpe_size)
 
-    checkpoint = PtCheckpoint(
-        tk.Path(
-            "/work/asr4/rossenbach/sisyphus_work_folders/tts_decoder_asr_work/i6_core/returnn/training/ReturnnTrainingJob.EuWaxahLY8Ab/output/models/epoch.300.pt"
-        )
+    # checkpoint = PtCheckpoint(
+    #     tk.Path(
+    #         "/work/asr4/rossenbach/sisyphus_work_folders/tts_decoder_asr_work/i6_core/returnn/training/ReturnnTrainingJob.EuWaxahLY8Ab/output/models/epoch.300.pt"
+    #     )
+    # )
+    model = lstm_lm_bpe.run(
+        descriptor=f"lstm-lm_bpe-{bpe_size}", model_config=model_config, train_options=train_options
     )
-
-    return model_config, checkpoint
+    return model.model_config, model.get_checkpoint()
 
 
 @lru_cache

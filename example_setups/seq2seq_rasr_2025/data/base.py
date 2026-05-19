@@ -193,8 +193,7 @@ class LmDataConfig:
             "seq_ordering": self.seq_ordering,
         }
         return ReturnnConfig(
-            python_prolog=textwrap.dedent(
-                """\
+            python_prolog=textwrap.dedent("""\
                 import os
                 
                 _cf_cache = {}
@@ -215,8 +214,7 @@ class LmDataConfig:
                     assert os.path.exists(cached_fn)
                     _cf_cache[filename] = cached_fn
                     return cached_fn
-                """
-            ),
+                """),
             config={dataset_type: dataset_config_dict},
             sort_config=False,
         )
@@ -448,3 +446,30 @@ class BlissCorpusToTargetHdfJob(Job):
                 seq_tag=[segment.fullname()],
             )
         out_hdf_writer.close()
+
+
+class VocabFromHuggingFaceTokenizerJob(Job):
+    def __init__(self, huggingface_repo_dir: tk.Path, blank_label_index: Optional[int] = None):
+        self.huggingface_repo_dir = huggingface_repo_dir
+        self.blank_label_index = blank_label_index
+
+        self.out_vocab_file = self.output_path("vocab.txt")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        from returnn.datasets.util.vocabulary import HuggingFaceTokenizer
+
+        tokenizer = HuggingFaceTokenizer(huggingface_repo_dir=self.huggingface_repo_dir.get())
+
+        with open(self.out_vocab_file.get(), "w") as f:
+            for token in tokenizer.labels:
+                f.write(f"{token}\n")
+
+            if self.blank_label_index is not None:
+                assert tokenizer.num_labels
+                assert self.blank_label_index >= tokenizer.num_labels
+                for i in range(tokenizer.num_labels, self.blank_label_index):
+                    f.write(f"<unused-{i}>\n")
+                f.write("<blank>\n")

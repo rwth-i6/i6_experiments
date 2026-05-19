@@ -183,4 +183,5 @@ def get_train_options(
         gpu_mem_rqmt=48,
         max_seqs=None,
         max_seq_length=None,
+        gradient_clip_norm_invalid_gradient_threshold=None,
     )

@@ -53,10 +53,11 @@ def get_train_options(bpe_size: int = 128) -> TrainOptions:
         accum_grad_multiple_step=1,
         optimizer_config=RAdamConfig(epsilon=1e-08, weight_decay=0, decoupled_weight_decay=False),
         gradient_clip=1.0,
-        lr_config=ConstDecayLRConfig(const_lr=1e-03, final_lr=1e-05, const_epochs=100, final_epochs=200),
+        lr_config=ConstDecayLRConfig(const_lr=7e-04, final_lr=1e-05, const_epochs=100, final_epochs=200),
         num_workers_per_gpu=1,
         automatic_mixed_precision=False,
-        gpu_mem_rqmt=11,
+        gpu_mem_rqmt=24,
         max_seqs=None,
         max_seq_length=None,
+        gradient_clip_norm_invalid_gradient_threshold=10,
     )

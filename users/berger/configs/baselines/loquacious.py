@@ -1,4 +1,5 @@
 from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.loquacious import recognition, training
+from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.loquacious import run_large
 from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.loquacious import run_medium as _run_medium
 from i6_experiments.example_setups.seq2seq_rasr_2025.experiments.loquacious import run_small as _run_small
 from i6_experiments.example_setups.seq2seq_rasr_2025.model_pipelines.common.report import register_recog_report

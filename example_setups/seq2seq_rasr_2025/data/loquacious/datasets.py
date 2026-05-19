@@ -1,17 +1,23 @@
 import functools
 from typing import List, Literal, get_args
-from .phoneme import get_phoneme_target_hdf_file
-from i6_core.corpus.segments import SegmentCorpusJob, ShuffleAndSplitSegmentsJob
-from i6_core.text.processing import HeadJob
+
+from i6_core.corpus.convert import CorpusToTxtJob
 from i6_core.corpus.filter import FilterCorpusBySegmentsJob
+from i6_core.corpus.segments import SegmentCorpusJob, ShuffleAndSplitSegmentsJob
+from i6_core.lm.vocabulary import LmIndexVocabulary, LmIndexVocabularyFromLexiconJob
+from i6_core.text.label.subword_nmt.apply import ApplyBPEToTextJob
+from i6_core.text.processing import HeadJob
 from i6_experiments.common.datasets.loquacious.corpus import get_bliss_corpus_dict as get_bliss_corpus_dict_
 from i6_experiments.common.datasets.loquacious.corpus import get_ogg_zip_dict
+from i6_experiments.common.datasets.loquacious.vocab import get_subword_nmt_bpe
 from sisyphus import tk
 
 from ...model_pipelines.common.corpus import ScorableCorpus
-from ..base import HdfDataConfig, MetaOggZipDataConfig, MetaOggZipHdfTargetDataConfig, OggZipDataConfig
+from ...tools import returnn_python_exe, returnn_root, subword_nmt_repo
+from ..base import HdfDataConfig, LmDataConfig, MetaOggZipDataConfig, MetaOggZipHdfTargetDataConfig, OggZipDataConfig
 from .bpe import get_default_bpe_target_config
-from ...tools import returnn_root, returnn_python_exe
+from .lexicon import get_bliss_phoneme_lexicon
+from .phoneme import get_phoneme_target_hdf_file
 
 TrainSet = Literal["train.medium", "train.small"]
 
@@ -56,6 +62,27 @@ def get_bliss_corpus_dict(**kwargs) -> dict:
     ).out_corpus
 
     return bliss_corpus_dict
+
+
+@functools.lru_cache
+def get_lm_train_text() -> tk.Path:
+    return tk.Path(
+        "/work/asr4/rossenbach/corpora/loquacious/LoquaciousAdditionalResources/loquacious-large.txt",
+        hash_overwrite="LOQUACIOUS_LARGE_TEXT",
+    )
+
+
+@functools.lru_cache
+def get_lm_vocab() -> LmIndexVocabulary:
+    train_text = tk.Path(
+        "/work/asr4/rossenbach/corpora/loquacious/LoquaciousAdditionalResources/loquacious-large.txt",
+        hash_overwrite="LOQUACIOUS_LARGE_TEXT",
+    )
+    index_vocab_job = LmIndexVocabularyFromLexiconJob(
+        bliss_lexicon=get_bliss_phoneme_lexicon(),
+        count_ordering_text=train_text,
+    )
+    return index_vocab_job.out_vocabulary_object
 
 
 def get_small_bpe_train_data(bpe_size: int, speed_perturb: bool = True) -> MetaOggZipDataConfig:
@@ -133,6 +160,38 @@ def get_medium_bpe_phoneme_train_data(bpe_size: int) -> MetaOggZipHdfTargetDataC
     )
 
 
+def get_default_bpe_lm_train_data(bpe_size: int) -> LmDataConfig:
+    train_text = tk.Path(
+        "/work/asr4/rossenbach/corpora/loquacious/LoquaciousAdditionalResources/loquacious-large.txt",
+        hash_overwrite="LOQUACIOUS_LARGE_TEXT",
+    )
+    bpe_settings = get_subword_nmt_bpe(corpus_key="train.medium", bpe_size=bpe_size)
+    lm_bpe_data_job = ApplyBPEToTextJob(
+        text_file=train_text,
+        bpe_codes=bpe_settings.bpe_codes,
+        bpe_vocab=bpe_settings.bpe_count_vocab,
+        gzip_output=True,
+        subword_nmt_repo=subword_nmt_repo,
+        mini_task=False,  # this is a large file, so run in cluster
+    )
+
+    return LmDataConfig(
+        corpus_file=lm_bpe_data_job.out_bpe_text,
+        vocab_file=bpe_settings.bpe_vocab,
+        partition_epoch=10,
+        seq_ordering="random",
+    )
+
+
+def get_default_word_lm_train_data() -> LmDataConfig:
+    return LmDataConfig(
+        corpus_file=get_lm_train_text(),
+        vocab_file=get_lm_vocab().vocab,
+        partition_epoch=10,
+        seq_ordering="random",
+    )
+
+
 def get_small_bpe_cv_data(bpe_size: int) -> MetaOggZipDataConfig:
     return MetaOggZipDataConfig(
         oggzip_files=[get_ogg_zip_dict(returnn_root=returnn_root, returnn_python_exe=returnn_python_exe)["dev.all"]],
@@ -152,6 +211,29 @@ def get_medium_bpe_cv_data(bpe_size: int) -> MetaOggZipDataConfig:
         seq_ordering="sorted",
         target_config=get_default_bpe_target_config(bpe_size, corpus_key="train.medium"),
         segment_file=_get_dev_short_segments(),
+    )
+
+
+def get_medium_bpe_cv_lm_data(bpe_size: int) -> LmDataConfig:
+    cv_text = CorpusToTxtJob(bliss_corpus=get_bliss_corpus_dict()["dev.all"], gzip=True).out_txt
+    bpe_settings = get_subword_nmt_bpe(corpus_key="train.medium", bpe_size=bpe_size)
+
+    return LmDataConfig(
+        corpus_file=cv_text,
+        vocab_file=bpe_settings.bpe_vocab,
+        partition_epoch=1,
+        seq_ordering="sorted",
+    )
+
+
+def get_medium_word_lm_cv_data() -> LmDataConfig:
+    cv_text = CorpusToTxtJob(bliss_corpus=get_bliss_corpus_dict()["dev.all"], gzip=True).out_txt
+
+    return LmDataConfig(
+        corpus_file=cv_text,
+        vocab_file=get_lm_vocab().vocab,
+        partition_epoch=1,
+        seq_ordering="sorted",
     )
 
 

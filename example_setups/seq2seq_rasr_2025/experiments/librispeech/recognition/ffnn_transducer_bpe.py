@@ -20,6 +20,7 @@ from .common import BaseRecogVariant, run_single_bpe_variant
 class TransducerRecogVariant(BaseRecogVariant):
     epoch: Optional[int] = None
     bpe_lstm_lm_scale: float = 0.0
+    bpe_trafo_lm_scale: float = 0.0
     ilm_scale: float = 0.0
     blank_penalty: float = 0.0
 
@@ -46,6 +47,7 @@ def default_recog_variants() -> List[TransducerRecogVariant]:
     return [
         default_offline_lexfree_recog_variant(),
         default_offline_lexfree_lstm_recog_variant(),
+        default_offline_lexfree_bpe_trafo_recog_variant(),
         default_offline_tree_recog_variant(),
         default_offline_tree_4gram_recog_variant(),
         default_offline_tree_lstm_recog_variant(),
@@ -78,6 +80,20 @@ def default_offline_lexfree_lstm_recog_variant() -> TransducerRecogVariant:
         ),
         ilm_scale=0.2,
         bpe_lstm_lm_scale=0.8,
+    )
+
+
+def default_offline_lexfree_bpe_trafo_recog_variant() -> TransducerRecogVariant:
+    return TransducerRecogVariant(
+        descriptor="lexfree_bpe-trafoLM",
+        search_algorithm_params=LexiconfreeTimesyncRecogParams(
+            collapse_repeated_labels=False,
+            score_thresholds=[10.0, 8.0],
+            max_beam_sizes=[64, 32],
+        ),
+        search_mode_params=OfflineRecogParameters(),
+        ilm_scale=0.2,
+        bpe_trafo_lm_scale=0.8,
     )
 
 
@@ -217,6 +233,14 @@ def _get_label_scorer_configs(
                 bpe_size=bpe_size,
                 scale=variant.bpe_lstm_lm_scale,
                 use_gpu=use_gpu,
+            )
+        )
+    if variant.bpe_trafo_lm_scale != 0.0:
+        label_scorer_configs.append(
+            librispeech_lm.get_bpe_transformer_label_scorer_config(
+                bpe_size=bpe_size,
+                use_gpu=use_gpu,
+                scale=variant.bpe_trafo_lm_scale,
             )
         )
 

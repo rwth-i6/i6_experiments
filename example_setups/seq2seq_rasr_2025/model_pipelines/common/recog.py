@@ -850,6 +850,9 @@ class OfflineRasrRecogForwardStep(RasrRecogForwardStep):
         search_times = []
 
         for b in range(audio_samples.size(0)):
+            print(f"Recognize sequence {repr(seq_tags[b])}")
+            print(f'    Ground truth: "{orths[b]}"', flush=True)
+
             seq_samples_size = audio_samples_size[b : b + 1]
             seq_samples = audio_samples[b : b + 1, : seq_samples_size[0]]  # [1, T, 1]
 
@@ -870,8 +873,6 @@ class OfflineRasrRecogForwardStep(RasrRecogForwardStep):
 
             seq_time = _samples_to_seconds(seq_samples_size[0], self.sample_rate)
 
-            print(f"Recognized sequence {repr(seq_tags[b])}")
-            print(f'    Ground truth: "{orths[b]}"', flush=True)
             print(f'    Recognized: "{_traceback_to_transcription(traceback)}"')
             print("    Traceback:")
             for item in traceback:

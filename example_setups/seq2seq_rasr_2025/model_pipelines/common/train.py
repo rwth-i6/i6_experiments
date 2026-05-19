@@ -32,6 +32,7 @@ class TrainOptions:
     gpu_mem_rqmt: float
     max_seqs: Optional[int]
     max_seq_length: Optional[int]
+    gradient_clip_norm_invalid_gradient_threshold: Optional[int]
 
 
 ModelConfigType = TypeVar("ModelConfigType", bound=ModelConfiguration)
@@ -81,6 +82,11 @@ def train(
 
     if options.max_seq_length:
         config_dict["max_seq_length"] = options.max_seq_length
+
+    if options.gradient_clip_norm_invalid_gradient_threshold:
+        config_dict["gradient_clip_norm_invalid_gradient_threshold"] = (
+            options.gradient_clip_norm_invalid_gradient_threshold
+        )
 
     train_returnn_config = ReturnnConfig(
         config=config_dict,

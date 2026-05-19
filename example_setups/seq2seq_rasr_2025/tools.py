@@ -1,5 +1,5 @@
 from i6_core.lm.kenlm import CompileKenLMJob
-from i6_core.tools.compile import MakeJob
+from i6_core.tools.compile import MakeJob, CMakeJob
 from i6_core.tools.git import CloneGitRepositoryJob
 from sisyphus import tk
 
@@ -30,19 +30,28 @@ rasr_root = CloneGitRepositoryJob(
 ).out_repository
 rasr_root.hash_overwrite = "RASR_ROOT"
 
-rasr_make_job = MakeJob(
-    folder=rasr_root,
-    make_sequence=["build", "install"],
-    configure_opts=[
-        "--apptainer-setup=2026-04-28_torch-2.8_onnx-1.22",
-    ],
+# rasr_make_job = MakeJob(
+#     folder=rasr_root,
+#     make_sequence=["build", "install"],
+#     configure_opts=[
+#         "--apptainer-setup=2026-04-28_torch-2.8_onnx-1.22",
+#     ],
+#     num_processes=8,
+#     link_outputs={"binaries": "arch/linux-x86_64-standard/"},
+# )
+# rasr_make_job.rqmt["gpu"] = 1
+# rasr_make_job.rqmt["gpu_mem"] = 24
+rasr_make_job = CMakeJob(
+    source_folder=rasr_root,
+    cmake_opts=["-DMODULE_TENSORFLOW=Off", "-DMODULE_LM_TFRNN=Off"],
     num_processes=8,
-    link_outputs={"binaries": "arch/linux-x86_64-standard/"},
+    mem_rqmt=8,
 )
-rasr_make_job.rqmt["gpu"] = 1
-rasr_make_job.rqmt["gpu_mem"] = 24
+# Needed to have CUDA headers available
+# rasr_make_job.rqmt["gpu"] = 1
+# rasr_make_job.rqmt["gpu_mem"] = 24
 
-rasr_binary_path: tk.Path = rasr_make_job.out_links["binaries"]
+rasr_binary_path: tk.Path = rasr_make_job.out_install_dir
 rasr_binary_path.hash_overwrite = "RASR_BINARY_PATH"
 
 # rasr_root = tk.Path(

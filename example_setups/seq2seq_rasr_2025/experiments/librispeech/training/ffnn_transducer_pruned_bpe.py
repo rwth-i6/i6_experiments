@@ -66,4 +66,5 @@ def get_train_options(bpe_size: int = 128) -> FFNNTransducerPrunedTrainOptions:
         skip_epochs_before_pruned_loss=40,
         prune_range=5,
         smoothed_loss_scale=0.5,
+        gradient_clip_norm_invalid_gradient_threshold=None,
     )

@@ -3,6 +3,7 @@ __all__ = ["BaseRecogVariant", "run_single_bpe_variant", "run_single_phoneme_var
 from dataclasses import dataclass, field, replace
 from typing import List, Optional, Union
 
+from ....data.base import VocabFromHuggingFaceTokenizerJob
 from i6_core.rasr import RasrConfig
 from i6_core.returnn import PtCheckpoint
 from i6_experiments.common.setups.serialization import Collection
@@ -96,6 +97,36 @@ def run_single_phoneme_variant(
         label_scorer_configs=label_scorer_configs,
         vocab_file=None,
         lexicon_file=lexicon_file,
+        blank_index=blank_index,
+        sentence_end_index=sentence_end_index,
+        variant=variant,
+        corpora=corpora,
+    )
+
+
+def run_single_hf_token_variant(
+    model_descriptor: str,
+    checkpoint: PtCheckpoint,
+    huggingface_repo_dir: tk.Path,
+    encoder_serializers: Collection,
+    label_scorer_configs: List[RasrConfig],
+    blank_index: Optional[int],
+    sentence_end_index: Optional[int],
+    variant: BaseRecogVariant,
+    corpora: List[loquacious_datasets.EvalSet],
+) -> List[RecogResult]:
+    vocab_file = VocabFromHuggingFaceTokenizerJob(
+        huggingface_repo_dir=huggingface_repo_dir,
+        blank_label_index=blank_index,
+    ).out_vocab_file
+
+    return _run_single_variant(
+        model_descriptor=model_descriptor,
+        checkpoint=checkpoint,
+        encoder_serializers=encoder_serializers,
+        label_scorer_configs=label_scorer_configs,
+        vocab_file=vocab_file,
+        lexicon_file=None,
         blank_index=blank_index,
         sentence_end_index=sentence_end_index,
         variant=variant,

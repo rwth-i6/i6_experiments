@@ -171,4 +171,5 @@ def get_train_options(bpe_size: int = 128) -> FFNNTransducerTrainOptions:
         pred_loss_scale=0.0,
         max_seqs=None,
         max_seq_length=None,
+        gradient_clip_norm_invalid_gradient_threshold=None,
     )

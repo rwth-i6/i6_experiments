@@ -2,15 +2,12 @@ __all__ = ["run", "get_model_config", "get_train_options"]
 
 from typing import Optional
 
-from ....data.librispeech.bpe import bpe_to_vocab_size
-from ....data.librispeech.datasets import (
-    get_default_bpe_lm_cv_data,
-    get_default_bpe_lm_train_data,
-)
-from ....model_pipelines.common.learning_rates import NewbobRelConfig
-from ....model_pipelines.common.optimizer import SGDConfig
-from ....model_pipelines.common.train import TrainedModel, TrainOptions, train
-from ....model_pipelines.transformer_lm.pytorch_modules import (
+from .....data.loquacious.bpe import bpe_to_vocab_size
+from .....data.loquacious.datasets import get_default_bpe_lm_train_data, get_medium_bpe_cv_lm_data
+from .....model_pipelines.common.learning_rates import NewbobRelConfig
+from .....model_pipelines.common.optimizer import SGDConfig
+from .....model_pipelines.common.train import TrainedModel, TrainOptions, train
+from .....model_pipelines.transformer_lm.pytorch_modules import (
     PositionalEncodingConfig,
     TransformerBlockConfig,
     TransformerLinearConfig,
@@ -18,7 +15,7 @@ from ....model_pipelines.transformer_lm.pytorch_modules import (
     TransformerLmConfig,
     TransformerMHSAConfig,
 )
-from ....model_pipelines.transformer_lm.train import get_train_step_import
+from .....model_pipelines.transformer_lm.train import get_train_step_import
 
 
 def run(
@@ -66,7 +63,7 @@ def get_model_config(bpe_size: int = 128) -> TransformerLmConfig:
 def get_train_options(bpe_size: int = 128) -> TrainOptions:
     return TrainOptions(
         train_data_config=get_default_bpe_lm_train_data(bpe_size),
-        cv_data_config=get_default_bpe_lm_cv_data(bpe_size),
+        cv_data_config=get_medium_bpe_cv_lm_data(bpe_size),
         save_epochs=[10, 20, 25, 26, 27, 28, 29, 30],
         batch_size=900,
         accum_grad_multiple_step=1,

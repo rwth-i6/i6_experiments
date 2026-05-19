@@ -50,11 +50,14 @@ def export_model(
         returnn_python_exe=returnn_python_exe,
         returnn_root=returnn_root,
     )
+    export_job.update_rqmt("run", {"mem": 16})
 
     exported_model = export_job.out_onnx_model
 
     if metadata is not None:
-        exported_model = AddOnnxMetadataJob(model_path=exported_model, metadata=metadata).out_model
+        metadata_job = AddOnnxMetadataJob(model_path=exported_model, metadata=metadata)
+        metadata_job.update_rqmt("run", {"mem": 16})
+        exported_model = metadata_job.out_model
 
     return exported_model
 
@@ -82,13 +85,36 @@ class AddOnnxMetadataJob(Job):
         yield Task("run", resume="run", mini_task=True)
 
     def run(self):
-        import onnx
+        import os
+        import shutil
 
-        model = onnx.load(self.model_path)
+        import onnx
+        from onnx import external_data_helper
+
+        model_path = self.model_path.get_path()
+        out_model_path = self.out_model.get_path()
+        model = onnx.load(model_path, load_external_data=False)
         for key, value in self.metadata.items():
             meta = model.metadata_props.add()
             meta.key = key
             meta.value = value
 
-        onnx.checker.check_model(model)
-        onnx.save(model, self.out_model.get_path())
+        model_dir = os.path.dirname(model_path)
+        out_model_dir = os.path.dirname(out_model_path)
+        external_data_locations = {
+            entry.value
+            for tensor in external_data_helper._get_all_tensors(model)
+            if external_data_helper.uses_external_data(tensor)
+            for entry in tensor.external_data
+            if entry.key == "location"
+        }
+        for location in external_data_locations:
+            if os.path.isabs(location):
+                raise ValueError(f"External ONNX tensor data location must be relative, got: {location!r}")
+            src = os.path.normpath(os.path.join(model_dir, location))
+            dst = os.path.normpath(os.path.join(out_model_dir, location))
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(src, dst)
+
+        onnx.save(model, out_model_path)
+        onnx.checker.check_model(out_model_path)

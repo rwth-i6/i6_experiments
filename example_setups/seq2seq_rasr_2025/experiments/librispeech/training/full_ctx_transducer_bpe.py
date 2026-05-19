@@ -21,13 +21,13 @@ from ....model_pipelines.common.optimizer import RAdamConfig
 from ....model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
 from ....model_pipelines.common.train import TrainedModel, train
 from ....model_pipelines.full_ctx_transducer.pytorch_modules import LstmTransducerConfig, LstmTransducerModel
-from ....model_pipelines.full_ctx_transducer.train import LstmTransducerTrainOptions, get_train_step_import
+from ....model_pipelines.full_ctx_transducer.train import LstmTransducerPrunedTrainOptions, get_pruned_train_step_import
 
 
 def run(
     descriptor: str,
     model_config: Optional[LstmTransducerConfig] = None,
-    train_options: Optional[LstmTransducerTrainOptions] = None,
+    train_options: Optional[LstmTransducerPrunedTrainOptions] = None,
 ) -> TrainedModel[LstmTransducerConfig]:
     if model_config is None:
         model_config = get_model_config()
@@ -39,7 +39,7 @@ def run(
         model_class=LstmTransducerModel,
         model_config=model_config,
         options=train_options,
-        train_step_import=get_train_step_import(train_options),
+        train_step_import=get_pruned_train_step_import(train_options),
     )
 
 
@@ -130,17 +130,17 @@ def get_model_config(bpe_size: int = 128) -> LstmTransducerConfig:
         dropout=0.1,
         enc_dim=512,
         pred_num_layers=1,
-        pred_dim=640,
+        pred_dim=512,
         pred_activation=torch.nn.Tanh(),
         context_embedding_dim=256,
-        joiner_dim=1024,
+        joiner_dim=640,
         joiner_activation=torch.nn.Tanh(),
         target_size=vocab_size + 1,
     )
 
 
-def get_train_options(bpe_size: int = 128) -> LstmTransducerTrainOptions:
-    return LstmTransducerTrainOptions(
+def get_train_options(bpe_size: int = 128) -> LstmTransducerPrunedTrainOptions:
+    return LstmTransducerPrunedTrainOptions(
         train_data_config=librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size),
         cv_data_config=librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size),
         save_epochs=list(range(1500, 1900, 100)) + list(range(1900, 2001, 20)),
@@ -165,7 +165,12 @@ def get_train_options(bpe_size: int = 128) -> LstmTransducerTrainOptions:
         automatic_mixed_precision=True,
         gpu_mem_rqmt=24,
         enc_loss_scale=0.5,
-        pred_loss_scale=0.0,
+        pred_loss_scale=0.25,
         max_seqs=None,
         max_seq_length=None,
+        delay_penalty=0.0,
+        skip_epochs_before_pruned_loss=40,
+        prune_range=5,
+        smoothed_loss_scale=0.5,
+        gradient_clip_norm_invalid_gradient_threshold=None,
     )
