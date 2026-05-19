@@ -512,7 +512,7 @@ def py():
                 chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
                 chunk_lookahead_size_train_pool=[right_size, right_size // 2],
                 chunk_num_overlaps=2,
-                chunk_num_overlaps_train_pool=[2, None],
+                chunk_num_overlaps_train_pool=[2, 1],
                 use_chunk_type_embedding=True,
                 version=3,
             ),
