@@ -67,9 +67,7 @@ def get_train_options() -> TrainOptions:
         cv_data_config=get_default_word_lm_cv_data(),
         save_epochs=[10, 20, 25, 26, 27, 28, 29, 30],
         batch_size=900,
-        accum_grad_multiple_step=1,
         optimizer_config=SGDConfig(weight_decay=0.0),
-        gradient_clip=1.0,
         lr_config=NewbobRelConfig(
             learning_rate=1.0,
             lr_decay=0.9,
@@ -80,9 +78,6 @@ def get_train_options() -> TrainOptions:
             relative_error_threshold=-0.005,
         ),
         num_workers_per_gpu=1,
-        automatic_mixed_precision=True,
-        gpu_mem_rqmt=24,
         max_seqs=64,
         max_seq_length=602,
-        gradient_clip_norm_invalid_gradient_threshold=None,
     )

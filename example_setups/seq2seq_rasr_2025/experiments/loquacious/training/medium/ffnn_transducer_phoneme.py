@@ -173,11 +173,5 @@ def get_train_options() -> FFNNTransducerTrainOptions:
         ),
         enc_loss_scale=0.5,
         pred_loss_scale=0.0,
-        gradient_clip=1.0,
-        num_workers_per_gpu=2,
-        automatic_mixed_precision=True,
         gpu_mem_rqmt=48,
-        max_seqs=None,
-        max_seq_length=None,
-        gradient_clip_norm_invalid_gradient_threshold=None,
     )

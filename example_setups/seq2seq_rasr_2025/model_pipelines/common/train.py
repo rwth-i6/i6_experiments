@@ -1,6 +1,6 @@
 __all__ = ["TrainOptions", "TrainedModel", "train"]
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Generic, List, Optional, Type, TypeVar
 
 from i6_core.returnn import PtCheckpoint
@@ -23,16 +23,16 @@ class TrainOptions:
     cv_data_config: DataConfig
     save_epochs: List[int]
     batch_size: int
-    accum_grad_multiple_step: int
     optimizer_config: OptimizerConfig
     lr_config: LRConfig
-    gradient_clip: float
-    num_workers_per_gpu: int
-    automatic_mixed_precision: bool
-    gpu_mem_rqmt: float
-    max_seqs: Optional[int]
-    max_seq_length: Optional[int]
-    gradient_clip_norm_invalid_gradient_threshold: Optional[int]
+    accum_grad_multiple_step: int = field(default=1, kw_only=True)
+    gradient_clip: float = field(default=1.0, kw_only=True)
+    num_workers_per_gpu: int = field(default=2, kw_only=True)
+    automatic_mixed_precision: bool = field(default=True, kw_only=True)
+    gpu_mem_rqmt: float = field(default=24, kw_only=True)
+    max_seqs: Optional[int] = field(default=None, kw_only=True)
+    max_seq_length: Optional[int] = field(default=None, kw_only=True)
+    gradient_clip_norm_invalid_gradient_threshold: Optional[int] = field(default=None, kw_only=True)
 
 
 ModelConfigType = TypeVar("ModelConfigType", bound=ModelConfiguration)
@@ -77,13 +77,13 @@ def train(
     if options.automatic_mixed_precision:
         config_dict["torch_amp_options"] = {"dtype": "bfloat16"}
 
-    if options.max_seqs:
+    if options.max_seqs is not None:
         config_dict["max_seqs"] = options.max_seqs
 
-    if options.max_seq_length:
+    if options.max_seq_length is not None:
         config_dict["max_seq_length"] = options.max_seq_length
 
-    if options.gradient_clip_norm_invalid_gradient_threshold:
+    if options.gradient_clip_norm_invalid_gradient_threshold is not None:
         config_dict["gradient_clip_norm_invalid_gradient_threshold"] = (
             options.gradient_clip_norm_invalid_gradient_threshold
         )

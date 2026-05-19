@@ -163,13 +163,6 @@ def get_train_options(bpe_size: int = 128) -> FFNNTransducerTrainOptions:
             dec_epochs=960,
             final_epochs=80,
         ),
-        gradient_clip=1.0,
-        num_workers_per_gpu=2,
-        automatic_mixed_precision=True,
-        gpu_mem_rqmt=24,
         enc_loss_scale=0.5,
         pred_loss_scale=0.0,
-        max_seqs=None,
-        max_seq_length=None,
-        gradient_clip_norm_invalid_gradient_threshold=None,
     )

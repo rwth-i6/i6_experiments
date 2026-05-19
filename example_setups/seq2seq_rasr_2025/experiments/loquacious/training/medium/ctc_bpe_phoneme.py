@@ -149,7 +149,6 @@ def get_train_options(bpe_size: int = 128) -> CTCMultiOutputTrainOptions:
         cv_data_config=cv_data_config,
         save_epochs=save_subepochs,
         batch_size=24_000 * 160,
-        accum_grad_multiple_step=1,
         optimizer_config=AdamWConfig(
             epsilon=1e-16,
             weight_decay=0.01,
@@ -163,12 +162,5 @@ def get_train_options(bpe_size: int = 128) -> CTCMultiOutputTrainOptions:
             dec_epochs=(num_epochs - 4) // 2 * partition_epoch,
             final_epochs=4 * partition_epoch,
         ),
-        gradient_clip=1.0,
-        num_workers_per_gpu=2,
-        automatic_mixed_precision=True,
-        gpu_mem_rqmt=24,
-        max_seqs=None,
-        max_seq_length=None,
         target_names=["phoneme", "bpe"],
-        gradient_clip_norm_invalid_gradient_threshold=None,
     )

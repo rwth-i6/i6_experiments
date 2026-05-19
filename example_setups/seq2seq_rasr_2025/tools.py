@@ -1,5 +1,5 @@
 from i6_core.lm.kenlm import CompileKenLMJob
-from i6_core.tools.compile import MakeJob, CMakeJob
+from i6_core.tools.compile import CMakeJob
 from i6_core.tools.git import CloneGitRepositoryJob
 from sisyphus import tk
 

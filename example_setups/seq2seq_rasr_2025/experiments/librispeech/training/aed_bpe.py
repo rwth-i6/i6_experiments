@@ -170,7 +170,6 @@ def get_train_options(bpe_size: int = 128) -> AEDTrainOptions:
         cv_data_config=cv_data_config,
         save_epochs=list(range(1500, 1900, 100)) + list(range(1900, 2001, 20)),
         batch_size=24_000 * 160,
-        accum_grad_multiple_step=1,
         optimizer_config=RAdamConfig(
             epsilon=1e-12,
             weight_decay=0.01,
@@ -186,14 +185,7 @@ def get_train_options(bpe_size: int = 128) -> AEDTrainOptions:
             dec_epochs=960,
             final_epochs=80,
         ),
-        gradient_clip=1.0,
         ctc_loss_scale=0.7,
         label_smoothing=0.1,
         label_smoothing_start_epoch=61,
-        num_workers_per_gpu=2,
-        automatic_mixed_precision=True,
-        gpu_mem_rqmt=24,
-        max_seqs=None,
-        max_seq_length=None,
-        gradient_clip_norm_invalid_gradient_threshold=None,
     )

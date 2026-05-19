@@ -9,7 +9,7 @@ from sisyphus import tk
 
 from ....data.loquacious import datasets as loquacious_datasets
 from ....data.loquacious.recog import LoquaciousTreeTimesyncRecogParams
-from ....model_pipelines.common.recog import RecogResult
+from ....model_pipelines.common.recog import OfflineRecogParameters, RecogResult
 from ....model_pipelines.common.recog_rasr_config import LexiconfreeLabelsyncRecogParams, LexiconfreeTimesyncRecogParams
 from ....model_pipelines.speech_llm.label_scorer_config import (
     get_ctc_label_scorer_config,
@@ -67,9 +67,11 @@ def default_lexfree_recog_variant() -> SLMRecogVariant:
     return SLMRecogVariant(
         descriptor="recog_lexfree_labelsync",
         search_algorithm_params=LexiconfreeLabelsyncRecogParams(
+            score_thresholds=[8.0],
             max_beam_sizes=[4],
             length_norm_scale=1.2,
         ),
+        search_mode_params=OfflineRecogParameters(mem_rqmt=24),
     )
 
 
@@ -77,9 +79,11 @@ def default_lexfree_slm_ctc_recog_variant() -> SLMRecogVariant:
     return SLMRecogVariant(
         descriptor="recog_lexfree_aed+ctc_labelsync",
         search_algorithm_params=LexiconfreeLabelsyncRecogParams(
+            score_thresholds=[8.0, 6.0],
             max_beam_sizes=[8, 4],
             length_norm_scale=1.2,
         ),
+        search_mode_params=OfflineRecogParameters(mem_rqmt=24),
         ctc_score_scale=0.3,
     )
 
@@ -88,9 +92,11 @@ def default_lexfree_slm_ctc_timesync_recog_variant() -> SLMRecogVariant:
     return SLMRecogVariant(
         descriptor="recog_lexfree_aed+ctc_timesync",
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
+            score_thresholds=[8.0, 6.0],
             max_beam_sizes=[8, 4],
             collapse_repeated_labels=True,
         ),
+        search_mode_params=OfflineRecogParameters(mem_rqmt=24),
         ctc_score_scale=0.3,
     )
 
@@ -164,7 +170,7 @@ def _run_single_variant(
             model_kwargs=model_kwargs, checkpoint=checkpoint, variant=variant
         ),
         blank_index=blank_index,
-        sentence_end_index=0,
+        sentence_end_index=151643,
         variant=variant,
         corpora=corpora,
     )

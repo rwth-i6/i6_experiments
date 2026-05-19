@@ -244,8 +244,11 @@ def _forward_step_initializer(*, model: SpeechLmInitializer, extern_data: Tensor
     suffix_prompt_size = extern_data["suffix_prompt"].dims[1].dyn_size_ext.raw_tensor  # [B]
     assert suffix_prompt_size is not None
 
-    scores, *out_states = model(
-        initial_prompt=initial_prompt, encoder_states=encoder_states, suffix_prompt=suffix_prompt
+    scores, encoder_adapted_size, *out_states = model(
+        initial_prompt=initial_prompt,
+        encoder_states=encoder_states,
+        encoder_states_size=encoder_states_size,
+        suffix_prompt=suffix_prompt,
     )  # [B, N, V]
 
     run_ctx.mark_as_output(name="scores", tensor=scores)
@@ -257,11 +260,11 @@ def _forward_step_initializer(*, model: SpeechLmInitializer, extern_data: Tensor
     for layer in range(model.decoder.qwen_config.num_hidden_layers):
         assert expected[f"state_l{layer:03d}_k_out"].dims[2].dyn_size_ext is not None
         expected[f"state_l{layer:03d}_k_out"].dims[2].dyn_size_ext.raw_tensor = (
-            initial_prompt_size + encoder_states_size + suffix_prompt_size
+            initial_prompt_size + encoder_adapted_size.int() + suffix_prompt_size
         )
         assert expected[f"state_l{layer:03d}_v_out"].dims[2].dyn_size_ext is not None
         expected[f"state_l{layer:03d}_v_out"].dims[2].dyn_size_ext.raw_tensor = (
-            initial_prompt_size + encoder_states_size + suffix_prompt_size
+            initial_prompt_size + encoder_adapted_size.int() + suffix_prompt_size
         )
 
         run_ctx.mark_as_output(name=f"state_l{layer:03d}_k_out", tensor=out_states[idx])

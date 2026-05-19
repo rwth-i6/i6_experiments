@@ -4,12 +4,6 @@ from speech_llm.prefix_lm.model.definitions.speech_lm import SpeechLmV2
 from transformers.cache_utils import DynamicCache
 
 
-def encode_audio_to_encoder_states(model: SpeechLmV2, data: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
-    with torch.inference_mode():
-        encoder_states, _ = SpeechLlmOnnxEncoder(model)(data, seq_len)
-    return encoder_states
-
-
 def _dynamic_cache_to_legacy_cache(dynamic_cache: DynamicCache) -> tuple:
     if hasattr(dynamic_cache, "to_legacy_cache"):
         return dynamic_cache.to_legacy_cache()
@@ -31,30 +25,38 @@ def _legacy_cache_from_flat(flat_cache):
     return tuple((flat_cache[i], flat_cache[i + 1]) for i in range(0, len(flat_cache), 2))
 
 
-def _kv_cache_names(model: SpeechLmV2):
-    num_layers = model.decoder.qwen_config.num_hidden_layers
-    state_input_names = []
-    state_output_names = []
-    for layer_idx in range(num_layers):
-        for kind in ("key", "value"):
-            state_input_names.append(f"past_key_values.{layer_idx}.{kind}")
-            state_output_names.append(f"present_key_values.{layer_idx}.{kind}")
-    return state_input_names, state_output_names
+def _pad_time_to_multiple(x: torch.Tensor, multiple: int) -> torch.Tensor:
+    if multiple <= 1:
+        return x
+
+    time = x.size(1)
+    pad_len = (multiple - time % multiple) % multiple
+    pad = x.new_zeros((x.size(0), pad_len, x.size(2)))
+    return torch.cat([x, pad], dim=1)
 
 
 class SpeechLmEncoder(SpeechLmV2):
     def forward(self, raw_audio: torch.Tensor, raw_audio_lens: torch.Tensor):
-        encoder_states, _, _, _, _ = super().forward(raw_audio, raw_audio_lens)
-        return encoder_states.float()
+        raw_audio = raw_audio.squeeze(dim=2)
+        encoder_output, _, _, _ = self.encoder.forward(raw_audio, raw_audio_lens)
+        return encoder_output.float()
 
 
 class SpeechLmInitializer(SpeechLmV2):
-    def forward(self, initial_prompt: torch.Tensor, encoder_states: torch.Tensor, suffix_prompt: torch.Tensor):
+    def forward(
+        self,
+        initial_prompt: torch.Tensor,
+        encoder_states: torch.Tensor,
+        encoder_states_size: torch.Tensor,
+        suffix_prompt: torch.Tensor,
+    ):
         initial_prompt = initial_prompt.to(torch.long)
         suffix_prompt = suffix_prompt.to(torch.long)
         batch_size = encoder_states.size(0)
 
+        encoder_states = _pad_time_to_multiple(encoder_states, self.adapter.downsampling_factor)
         encoder_adapted = self.adapter(encoder_states)
+        encoder_adapted_size = self.adapter.get_output_lengths(encoder_states_size.long())
 
         initial_prompt_embeds = self.decoder.embed_func(initial_prompt).expand(batch_size, -1, -1)
         suffix_prompt_embeds = self.decoder.embed_func(suffix_prompt).expand(batch_size, -1, -1)
@@ -83,7 +85,7 @@ class SpeechLmInitializer(SpeechLmV2):
         past_key_values = output.past_key_values
         if not tree.is_nested(past_key_values):
             past_key_values = _dynamic_cache_to_legacy_cache(past_key_values)
-        return (scores,) + _flatten_legacy_cache(past_key_values)
+        return (scores, encoder_adapted_size) + _flatten_legacy_cache(past_key_values)
 
 
 class SpeechLmStep(SpeechLmV2):

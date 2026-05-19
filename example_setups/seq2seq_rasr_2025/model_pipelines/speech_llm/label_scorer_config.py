@@ -39,8 +39,11 @@ def get_speech_lm_label_scorer_config(
 
     rasr_config.initializer_model.io_map = RasrConfig()
     rasr_config.initializer_model.io_map.initial_prompt = "initial_prompt"
+    rasr_config.initializer_model.io_map.initial_prompt_length = "initial_prompt:size1"
     rasr_config.initializer_model.io_map.encoder_states = "encoder_states"
+    rasr_config.initializer_model.io_map.encoder_states_size = "encoder_states:size1"
     rasr_config.initializer_model.io_map.suffix_prompt = "suffix_prompt"
+    rasr_config.initializer_model.io_map.suffix_prompt_length = "suffix_prompt:size1"
     rasr_config.initializer_model.io_map.scores = "scores"
 
     rasr_config.step_model = RasrConfig()

@@ -141,7 +141,6 @@ def get_train_options() -> TrainOptions:
         cv_data_config=librispeech_datasets.get_default_phoneme_cv_data(),
         save_epochs=list(range(1500, 1900, 100)) + list(range(1900, 2001, 20)),
         batch_size=24_000 * 160,
-        accum_grad_multiple_step=1,
         optimizer_config=AdamWConfig(
             epsilon=1e-16,
             weight_decay=0.01,
@@ -155,11 +154,4 @@ def get_train_options() -> TrainOptions:
             dec_epochs=960,
             final_epochs=80,
         ),
-        gradient_clip=1.0,
-        num_workers_per_gpu=2,
-        automatic_mixed_precision=True,
-        gpu_mem_rqmt=24,
-        max_seqs=None,
-        max_seq_length=None,
-        gradient_clip_norm_invalid_gradient_threshold=None,
     )
