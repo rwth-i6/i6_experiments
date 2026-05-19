@@ -48,6 +48,7 @@ from i6_experiments.users.zeyer.nn_rf.encoder import chunked_conformer_v1
 from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2 import (
     ChunkedConformerEncoderV2,
     ChunkedConformerEncoderLayerV2,
+    ChunkedRelPosSelfAttentionV2,
     ChunkedRotaryPosSelfAttentionV2,
 )
 
@@ -233,7 +234,7 @@ def py():
     # Rope instead of relpos selfatt (ChunkedRotaryPosSelfAttentionV2).
     # (We don't expect really improvements in terms of WER. Hopefully mostly the same.
     #  However, we can hope to have better speed here, maybe also less memory consumption. Check that.)
-    # train_time_hours: 237.1 (vs 168.8) (TODO ???)
+    # train_time_hours: 237.1 (vs 168.8) (slow apply_rope. better in run2 below with newer RETURNN)
     # CTC-only: 9.31 (vs 9.46)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-rope",
@@ -284,7 +285,7 @@ def py():
     )
 
     # Dynamic chunking + rope.
-    # train_time_hours: 128.4 (without rope: 103.9; not dynamic, without rope: 168.8) (TODO ??? rope impl slow?)
+    # train_time_hours: 128.4 (without rope: 103.9; not dynamic, without rope: 168.8) (slow apply_rope, see run2)
     # CTC-only: 9.55 (without rope: 9.66; not dynamic, without rope: 9.46)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope",
@@ -331,6 +332,10 @@ def py():
         },
     )
 
+    # Newer RETURNN. This has a faster apply_rope.
+    # Still not really faster than relpos self-att.
+    # This is because when we explicitly do the self-att computation, and using the relpos trick,
+    # there RoPE is actually not really cheaper.
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-run2",
         {
@@ -350,6 +355,51 @@ def py():
             "train.max_seqs": max_seqs,
             "train._run_version": 2,  # trigger hash change to run again with new RETURNN
             "lm_recog_extra.__serialization_version_stats": 2,
+        },
+    )
+
+    # Test relpos-self-att again.
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-ctembed",
+        {
+            "model.enc_build_dict": rf.build_dict(
+                ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
+                chunk_size=center_size,
+                chunk_history_size=left_n * center_size,
+                chunk_lookahead_size=right_size,
+                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+                chunk_lookahead_size_train_pool=[right_size, right_size // 2],
+                use_chunk_type_embedding=True,
+                version=3,
+            ),
+            "train.batch_size": bs * configs._batch_size_factor,
+            "train.max_seqs": max_seqs,
+        },
+    )
+
+    # Relpos self-att with learnable pos emb.
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-relposL-ctembed",
+        {
+            "model.enc_build_dict": rf.build_dict(
+                ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(
+                    ChunkedConformerEncoderLayerV2,
+                    self_att=rf.build_dict(ChunkedRelPosSelfAttentionV2, learnable_pos_emb=True),
+                ),
+                chunk_size=center_size,
+                chunk_history_size=left_n * center_size,
+                chunk_lookahead_size=right_size,
+                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+                chunk_lookahead_size_train_pool=[right_size, right_size // 2],
+                use_chunk_type_embedding=True,
+                version=3,
+            ),
+            "train.batch_size": bs * configs._batch_size_factor,
+            "train.max_seqs": max_seqs,
         },
     )
 
