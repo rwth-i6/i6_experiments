@@ -28,6 +28,9 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ae
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import (
     ctc_recog_recomb_labelwise_prior_auto_scale,
 )
+from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc import (
+    model_recog as ctc_model_recog,
+)
 
 from i6_experiments.users.zeyer.datasets.loquacious import (
     get_loquacious_task_raw_v2,
@@ -251,6 +254,7 @@ def py():
             "train.max_seqs": max_seqs,
             "lm_recog_extra.__serialization_version_stats": 2,
         },
+        recog_def_ctc_only=True,
     )
 
     # Dynamic chunking.
@@ -609,7 +613,13 @@ _base_config = {
 }
 
 
-def train(name: str, config: Dict[str, Any], config_overrides: Optional[Dict[str, Any]] = None):
+def train(
+    name: str,
+    config: Dict[str, Any],
+    config_overrides: Optional[Dict[str, Any]] = None,
+    *,
+    recog_def_ctc_only: bool = False,
+):
     prefix = get_setup_prefix_for_module(__name__)
 
     config = dict_update_deep(_base_config.copy(), config.copy())
@@ -652,6 +662,7 @@ def train(name: str, config: Dict[str, Any], config_overrides: Optional[Dict[str
         train_vocab_opts=train_vocab_opts,
         dataset_train_opts=dataset_train_opts,
         env_updates=env_updates,
+        recog_def=ctc_model_recog if recog_def_ctc_only else None,
     )
     aed_ctc_timesync_recog_recomb_auto_scale(
         prefix=prefix + "/aed/" + name + "/aed+ctc",
