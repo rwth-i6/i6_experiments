@@ -529,9 +529,6 @@ def py():
     # - Overlap dynamic (overlapD).
     # - DynV3...
 
-    # TODO if overlapping chunks works, and the dynamic chunking also works well,
-    #   do also dynamic num overlapping chunks.
-
     # TODO measure latency
 
 
