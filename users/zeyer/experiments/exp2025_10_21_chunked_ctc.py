@@ -651,6 +651,10 @@ def train(
 
     assert not config
 
+    aux_ctc_layer = max(
+        [i for i in train_config["aux_loss_layers"] if i <= model_config["enc_build_dict"]["num_layers"]]
+    )
+
     exp = aed_train_exp(
         name,
         train_config,
@@ -663,14 +667,13 @@ def train(
         dataset_train_opts=dataset_train_opts,
         env_updates=env_updates,
         recog_def=ctc_model_recog if recog_def_ctc_only else None,
+        search_config={"aux_loss_layers": [aux_ctc_layer]} if recog_def_ctc_only else None,
     )
     aed_ctc_timesync_recog_recomb_auto_scale(
         prefix=prefix + "/aed/" + name + "/aed+ctc",
         task=task,
         aed_ctc_model=exp.get_last_fixed_epoch(),
-        aux_ctc_layer=max(
-            [i for i in train_config["aux_loss_layers"] if i <= model_config["enc_build_dict"]["num_layers"]]
-        ),
+        aux_ctc_layer=aux_ctc_layer,
     )
     if vocab == "spm10k":
         lm_name, lm = get_lm(prefix=prefix, vocab=vocab)

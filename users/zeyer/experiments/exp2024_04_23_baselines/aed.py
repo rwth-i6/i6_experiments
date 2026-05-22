@@ -443,6 +443,7 @@ def train_exp(
     dataset_train_opts: Optional[Dict[str, Any]] = None,
     train_def: Optional[TrainDef[Model]] = None,
     recog_def: Optional[RecogDef[Model]] = None,
+    search_config: Optional[Dict[str, Any]] = None,
     model_config: Optional[Dict[str, Any]] = None,
     config_updates: Optional[Dict[str, Any]] = None,
     config_deletes: Optional[Sequence[str]] = None,
@@ -506,6 +507,7 @@ def train_exp(
         task,
         model_with_checkpoint,
         recog_def=recog_def or model_recog,
+        search_config=search_config,
         search_mem_rqmt=config.get("__mem_rqmt") or 6,
     )
 
