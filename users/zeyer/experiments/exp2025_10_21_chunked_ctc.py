@@ -254,7 +254,6 @@ def py():
             "train.max_seqs": max_seqs,
             "lm_recog_extra.__serialization_version_stats": 2,
         },
-        recog_def_ctc_only=True,
     )
 
     # Dynamic chunking.
@@ -618,7 +617,7 @@ def train(
     config: Dict[str, Any],
     config_overrides: Optional[Dict[str, Any]] = None,
     *,
-    recog_def_ctc_only: bool = False,
+    recog_def_ctc_only: bool = True,
 ):
     prefix = get_setup_prefix_for_module(__name__)
 
