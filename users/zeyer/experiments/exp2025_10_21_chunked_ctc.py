@@ -14,7 +14,10 @@ from __future__ import annotations
 from typing import Optional, Any, Dict, Tuple
 from functools import cache
 
-from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
+from sisyphus import tk
+
+from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint, ModelDefWithCfg
+from i6_experiments.users.zeyer.recog import recog_model
 from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import (
@@ -314,8 +317,9 @@ def py():
     # Using with dynamic chunking + rope as base.
     # train_time_hours: 128.3 (vs 128.4)
     # CTC-only: 9.41 (vs 9.55; no dyn, no ctembed, just rope: 9.31)
-    train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed",
+    name = f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed"
+    exp, task, aux_ctc_layer = train(
+        name,
         {
             "model.enc_build_dict": rf.build_dict(
                 ChunkedConformerEncoderV2,
@@ -334,6 +338,27 @@ def py():
             "lm_recog_extra.__serialization_version_stats": 2,
         },
     )
+    # CTC-only recog-time chunk-size / lookahead sweep on the last fixed epoch.
+    for cs, lh in [
+        (center_size, right_size),
+        (center_size * 2, right_size),
+        (center_size * 4, right_size),
+        (center_size * 8, right_size),
+        (center_size, right_size // 2),
+        (None, 0),
+    ]:
+        recog_model_with_config_overwrite(
+            model=exp.get_last_fixed_epoch(),
+            task=task,
+            recog_def=ctc_model_recog,
+            config_overwrites={
+                "enc_build_dict.chunk_size": cs,
+                "enc_build_dict.chunk_lookahead_size": lh,
+            },
+            extra_config={"aux_loss_layers": [aux_ctc_layer]},
+            name=name,
+            tag=f"L{left_n * center_size}-C{cs}-R{lh}" if cs is not None else "offline",
+        )
 
     # Newer RETURNN. This has a faster apply_rope.
     # Still not really faster than relpos self-att.
@@ -755,6 +780,40 @@ def train(
             lm=lm,
             prior_dataset=get_loquacious_train_subset_dataset_v2(vocab="spm10k"),
         )
+
+    return exp, task, aux_ctc_layer
+
+
+def recog_model_with_config_overwrite(
+    *,
+    model: ModelWithCheckpoint,
+    task,
+    recog_def,
+    config_overwrites: Optional[Dict[str, Any]] = None,
+    extra_config: Optional[Dict[str, Any]] = None,
+    name: str,
+    tag: str,
+):
+    """Run :func:`recog_model` after deep-merging ``config_overwrites`` into the model's
+    own config (dotted keys supported via :func:`dict_update_deep`). ``extra_config``
+    is passed through to ``recog_model`` as its top-level ``config`` arg. Registers
+    the result under ``name`` via :func:`tk.register_output`. Returns the score result.
+
+    Useful e.g. for sweeping recog-time chunking on a dyn-trained model without
+    touching shared infra.
+    """
+    _prefix = get_setup_prefix_for_module(__name__)
+    if config_overwrites:
+        orig_def = model.definition
+        if isinstance(orig_def, ModelDefWithCfg):
+            new_cfg = dict_update_deep(orig_def.config, config_overwrites)
+            new_def = ModelDefWithCfg(orig_def.model_def, new_cfg)
+        else:
+            new_def = ModelDefWithCfg(orig_def, dict(config_overwrites))
+        model = ModelWithCheckpoint(definition=new_def, checkpoint=model.checkpoint)
+    res = recog_model(task=task, model=model, recog_def=recog_def, config=extra_config)
+    tk.register_output(f"{_prefix}/aed/{name}/ctc-recog-sweep/{tag}", res.output)
+    return res
 
 
 @cache
