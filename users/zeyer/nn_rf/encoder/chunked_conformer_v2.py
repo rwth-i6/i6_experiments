@@ -101,6 +101,7 @@ class ChunkedConformerEncoderV2(rf.Module):
         adapt_chunk_history_for_short_seqs: bool = True,
         mem_chunks_grad_checkpointing: bool = False,
         use_chunk_type_embedding: bool = False,
+        overlap_mse_loss_scale: float = 0.0,
     ):
         """
         :param out_dim: the output feature dimension
@@ -162,6 +163,9 @@ class ChunkedConformerEncoderV2(rf.Module):
         self.version = version
         self.adapt_chunk_history_for_short_seqs = adapt_chunk_history_for_short_seqs
         self.mem_chunks_grad_checkpointing = mem_chunks_grad_checkpointing
+        # If > 0, mark MSE between overlapping chunk views (before averaging) as an auxiliary
+        # training loss; encourages the per-chunk encoder outputs to agree on overlapped frames.
+        self.overlap_mse_loss_scale = float(overlap_mse_loss_scale)
         assert version == 3, f"Only version=3 is supported (got {version}). Set version=3 explicitly."
 
         self._chunk_type_dim = Dim(2, name="chunk_type")
@@ -340,22 +344,40 @@ class ChunkedConformerEncoderV2(rf.Module):
             collected_outputs=collected_outputs,
         )
 
-        def _unchunk(x: Tensor, out_spatial_dim: Optional[Dim] = None) -> Tuple[Tensor, Dim]:
+        def _unchunk(
+            x: Tensor,
+            out_spatial_dim: Optional[Dim] = None,
+            *,
+            compute_mse: bool = False,
+        ) -> Tuple[Tensor, Dim]:
             x, _ = rf.slice(x, axis=spatial_dim, size=chunk_size_dim)
             if chunk_num_overlaps > 1:
-                x = _average_overlapping_chunks(
-                    x,
-                    chunked_time_dim=chunking.chunked_time_dim,
-                    chunk_size_dim=chunk_size_dim,
-                    chunk_stride_enc_dim=chunking.end_chunk_size_dim,
-                )
+                if compute_mse and self.overlap_mse_loss_scale > 0 and rf.get_run_ctx().train_flag:
+                    x, mse = _average_overlapping_chunks(
+                        x,
+                        chunked_time_dim=chunking.chunked_time_dim,
+                        chunk_size_dim=chunk_size_dim,
+                        chunk_stride_enc_dim=chunking.end_chunk_size_dim,
+                        compute_mse=True,
+                    )
+                    mse_scalar = rf.reduce_mean(mse, axis=mse.dims)
+                    mse_scalar.mark_as_loss(
+                        name="overlap_mse", scale=self.overlap_mse_loss_scale, as_error=False
+                    )
+                else:
+                    x = _average_overlapping_chunks(
+                        x,
+                        chunked_time_dim=chunking.chunked_time_dim,
+                        chunk_size_dim=chunk_size_dim,
+                        chunk_stride_enc_dim=chunking.end_chunk_size_dim,
+                    )
             x, out_spatial_dim_ = rf.merge_dims(
                 x, dims=(chunking.chunked_time_dim, chunking.end_chunk_size_dim), out_dim=out_spatial_dim
             )
             return x, out_spatial_dim_
 
         if chunking:
-            x, out_spatial_dim = _unchunk(x)
+            x, out_spatial_dim = _unchunk(x, compute_mse=True)
         else:
             out_spatial_dim = spatial_dim
 
@@ -778,7 +800,8 @@ def _average_overlapping_chunks(
     chunked_time_dim: Dim,
     chunk_size_dim: Dim,
     chunk_stride_enc_dim: Dim,
-) -> Tensor:
+    compute_mse: bool = False,
+) -> Union[Tensor, Tuple[Tensor, Tensor]]:
     """
     Uniformly average overlapping encoder chunk outputs.
 
@@ -786,25 +809,43 @@ def _average_overlapping_chunks(
     :param chunked_time_dim: the chunk axis
     :param chunk_size_dim: Dim with dimension = chunk_num_overlaps * chunk_stride
     :param chunk_stride_enc_dim: Dim with dimension = chunk_stride
-    :return: [*, chunked_time_dim, chunk_stride_enc_dim, *feat*]  scaled-sum output
+    :param compute_mse: if True, also return the mean squared distance of each per-shift
+        view from the resulting average (averaged over shifts). Same layout as the mean.
+    :return: [*, chunked_time_dim, chunk_stride_enc_dim, *feat*] averaged output, or
+        (averaged, mse) tuple if compute_mse=True.
     """
     chunk_size = chunk_size_dim.dimension
     chunk_stride = chunk_stride_enc_dim.dimension
     n_shifts = chunk_size // chunk_stride  # = chunk_num_overlaps
 
-    # Accumulate: acc[i] = sum_s shift_right(group_s, by=s)[i]
-    # where group_s = x[..., s*chunk_stride : (s+1)*chunk_stride, ...].
-    # After shifting group s by s steps, chunk i+s receives group s from chunk i.
-    acc: Optional[Tensor] = None
+    # Build the n_shifts per-shift views aligned to the chunked_time axis:
+    # group_s = x[..., s*chunk_stride : (s+1)*chunk_stride, ...] shifted right by s.
+    # After shifting, chunk i sees group s as the view from original chunk i-s.
+    groups: List[Tensor] = []
     for s in range(n_shifts):
         group_s, _ = rf.slice(x, axis=chunk_size_dim, start=s * chunk_stride, size=chunk_stride_enc_dim)
         if s > 0:
             group_s = rf.shift_right(group_s, axis=chunked_time_dim, amount=s, pad_value=0.0)
-        acc = group_s if acc is None else acc + group_s
+        groups.append(group_s)
+
+    mean = groups[0]
+    for g in groups[1:]:
+        mean = mean + g
+    mean = mean * (1.0 / n_shifts)
 
     # Note, strictly speaking, not for all frames we have n_shifts overlaps.
     # But only for the boundary cases this is violated, and it greatly simplifies the logic here.
-    return acc * (1.0 / n_shifts)
+    if not compute_mse:
+        return mean
+
+    # Mean squared distance of each per-shift view from the average, averaged over shifts.
+    # Boundary chunks (first n_shifts - 1) have padded-zero contributions from shifts that
+    # were never valid; we accept the slight inflation for simplicity (same as for `mean`).
+    mse = (groups[0] - mean) ** 2
+    for g in groups[1:]:
+        mse = mse + (g - mean) ** 2
+    mse = mse * (1.0 / n_shifts)
+    return mean, mse
 
 
 def _mem_chunks(

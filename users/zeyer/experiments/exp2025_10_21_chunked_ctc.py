@@ -477,8 +477,27 @@ def py():
         },
     )
 
+    # As v2.3-overlap, plus MSE loss between overlapping encoder views.
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-overlap-mse",
+        {
+            "model.enc_build_dict": rf.build_dict(
+                ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
+                chunk_size=center_size,
+                chunk_history_size=left_n * center_size,
+                chunk_lookahead_size=right_size,
+                chunk_num_overlaps=2,
+                overlap_mse_loss_scale=1.0,
+                version=3,
+            ),
+            "train.batch_size": bs * configs._batch_size_factor // 2,
+            "train.max_seqs": max_seqs,
+        },
+    )
+
     # Dyn + rope + ctembed + overlap.
-    # TODO (running...)
+    # CTC-only: 10.20 (top CTC head specifically degraded vs non-dyn overlap; see projects notes)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-overlap",
         {
@@ -493,6 +512,30 @@ def py():
                 chunk_lookahead_size_train_pool=[right_size, right_size // 2],
                 chunk_num_overlaps=2,
                 use_chunk_type_embedding=True,
+                version=3,
+            ),
+            "train.batch_size": bs * configs._batch_size_factor // 2,
+            "train.max_seqs": max_seqs,
+            "lm_recog_extra.__serialization_version_stats": 2,
+        },
+    )
+
+    # As v2.3-dyn-rope-ctembed-overlap, plus MSE loss between overlapping encoder views.
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-overlap-mse",
+        {
+            "model.enc_build_dict": rf.build_dict(
+                ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
+                chunk_size=center_size,
+                chunk_history_size=left_n * center_size,
+                chunk_lookahead_size=right_size,
+                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+                chunk_lookahead_size_train_pool=[right_size, right_size // 2],
+                chunk_num_overlaps=2,
+                use_chunk_type_embedding=True,
+                overlap_mse_loss_scale=1.0,
                 version=3,
             ),
             "train.batch_size": bs * configs._batch_size_factor // 2,
