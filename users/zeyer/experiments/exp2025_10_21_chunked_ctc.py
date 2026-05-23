@@ -409,7 +409,7 @@ def py():
     # Dyn-v2 (dynV2): Try to make it faster:
     # Offline more often. Also sometimes without any overhead, sometimes without any history.
     # train_time_hours: 100.1 (vs 128.3)
-    # CTC-only: 11.0 (vs 9.41) (TODO... see dynV3)
+    # CTC-only: 11.0 (vs 9.41) (but no overfitting, just bad) (TODO... see dynV3)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dynV2-rope-ctembed",
         {
@@ -430,7 +430,6 @@ def py():
             "lm_recog_extra.__serialization_version_stats": 2,
         },
     )
-    # TODO check overfitting
     # TODO test also other chunk sizes in recog, also offline. also compare then to other cases (base, no dyn)
     # TODO sample small center_size in chunk_size_train_pool more often
 
