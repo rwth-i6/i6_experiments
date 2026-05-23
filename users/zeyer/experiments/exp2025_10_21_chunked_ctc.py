@@ -568,6 +568,24 @@ def py():
         },
     )
 
+    # Limited history experiments.
+    for hs in [0, 40, 80]:
+        train(
+            f"chunked-L{hs}-C{center_size}-R{right_size}-v2.3",
+            {
+                "model.enc_build_dict": rf.build_dict(
+                    ChunkedConformerEncoderV2,
+                    encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
+                    chunk_size=center_size,
+                    chunk_history_size=hs,
+                    chunk_lookahead_size=right_size,
+                    version=3,
+                ),
+                "train.batch_size": bs * configs._batch_size_factor,
+                "train.max_seqs": max_seqs,
+            },
+        )
+
     # New observations since 15.5.2026:
     # - RoPE made much faster (faster apply_rope).
     # - Realization: RoPE actually not expected to be faster than relpos self-att.
