@@ -160,7 +160,7 @@ def collect_statistics(
     config: Optional[Dict[str, Any]] = None,
     forward_post_config: Optional[Dict[str, Any]] = None,
     forward_device: str = "gpu",
-    forward_mem_rqmt: Union[int, float] = 6,
+    forward_mem_rqmt: Union[int, float] = 8,
     forward_rqmt: Optional[Dict[str, Any]] = None,
     forward_alias_name: Optional[str] = None,
     # Note: the default is not None but 1, which overwrites if there is sth else in the config or model config.
@@ -230,7 +230,7 @@ def collect_statistics_sparse(
     config: Optional[Dict[str, Any]] = None,
     forward_post_config: Optional[Dict[str, Any]] = None,
     forward_device: str = "gpu",
-    forward_mem_rqmt: Union[int, float] = 6,
+    forward_mem_rqmt: Union[int, float] = 8,
     forward_rqmt: Optional[Dict[str, Any]] = None,
     forward_alias_name: Optional[str] = None,
     serialization_version: Optional[int] = None,

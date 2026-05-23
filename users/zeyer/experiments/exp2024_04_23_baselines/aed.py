@@ -508,7 +508,7 @@ def train_exp(
         model_with_checkpoint,
         recog_def=recog_def or model_recog,
         search_config=search_config,
-        search_mem_rqmt=config.get("__mem_rqmt") or 6,
+        search_mem_rqmt=config.get("__mem_rqmt") or 8,
     )
 
     _train_experiments[name] = model_with_checkpoint
