@@ -391,6 +391,23 @@ def py():
             tag=f"L{left_n * center_size}-C{cs}-R{lh}" if cs is not None else "offline",
         )
 
+    # Streaming-vs-offline log-prob consistency test (minimal: 3 train seqs).
+    from i6_experiments.users.zeyer.nn_rf.encoder.chunked_streaming_consistency_test import (
+        make_streaming_consistency_test_job,
+    )
+
+    _stream_consistency_job = make_streaming_consistency_test_job(
+        model=exp.get_last_fixed_epoch(),
+        dataset=get_loquacious_train_subset_dataset_v2(vocab="spm10k", num_seqs=3),
+        aux_loss_layers=[aux_ctc_layer],
+        segment_seconds=10.0,
+        version=2,  # bumped after fixing per-segment truncation
+    )
+    tk.register_output(
+        f"{get_setup_prefix_for_module(__name__)}/aed/{name}/streaming-consistency.json",
+        _stream_consistency_job.out_files["diff_stats.json"],
+    )
+
     # Newer RETURNN. This has a faster apply_rope.
     # Still not really faster than relpos self-att.
     # This is because when we explicitly do the self-att computation, and using the relpos trick,
