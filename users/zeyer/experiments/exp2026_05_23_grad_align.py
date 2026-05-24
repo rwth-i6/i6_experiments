@@ -18,7 +18,7 @@ Conventions:
       L01_grad    ↔  mult_grad_by_inputs=False, attr_reduction="L0.1"
       L1_grad     ↔  mult_grad_by_inputs=False, attr_reduction="L1"
       L2_grad     ↔  mult_grad_by_inputs=False, attr_reduction="L2"
-      dot_e_grad  ↔  (not yet supported by generic job — TODO)
+      dot_e_grad  ↔  mult_grad_by_inputs=True,  attr_reduction="sum"
 
 - Chunked long-form segmentation:
   :class:`exp2025_07_07_in_grads.jobs.chunk_segmentation.ChunkSegmentationFromModelJob`
@@ -66,6 +66,7 @@ from i6_experiments.users.zeyer.experiments.exp2025_05_05_align import (
 
 # (mult_grad_by_inputs, attr_reduction, old_grad_type_name_for_output_alias)
 _GRAD_VARIANTS = [
+    (True, "sum", "dot_e_grad"),
     (True, "L0.1", "L01_e_grad"),
     (True, "L1", "L1_e_grad"),
     (True, "L2", "L2_e_grad"),
