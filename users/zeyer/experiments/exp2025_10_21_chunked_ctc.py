@@ -341,6 +341,13 @@ def py():
     # Using with dynamic chunking + rope as base.
     # train_time_hours: 128.3 (vs 128.4)
     # CTC-only: 9.41 (vs 9.55; no dyn, no ctembed, just rope: 9.31)
+    # Recog-time chunk-size sweep (CTC-only, last ep):
+    #   C5-LA2   10.14
+    #   C5-LA4  (canonical)  9.41
+    #   C10-LA4  9.00
+    #   C20-LA4  8.61
+    #   C40-LA4  8.26
+    #   offline  7.80
     name = f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed"
     exp, task, aux_ctc_layer = train(
         name,
