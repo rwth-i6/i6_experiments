@@ -242,8 +242,9 @@ def py():
     #  However, we can hope to have better speed here, maybe also less memory consumption. Check that.)
     # train_time_hours: 237.1 (vs 168.8) (slow apply_rope. better in run2 below with newer RETURNN)
     # CTC-only: 9.31 (vs 9.46)
-    train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-rope",
+    name = f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-rope"
+    exp, task, aux_ctc_layer = train(
+        name,
         {
             "model.enc_build_dict": rf.build_dict(
                 ChunkedConformerEncoderV2,
@@ -258,6 +259,29 @@ def py():
             "lm_recog_extra.__serialization_version_stats": 2,
         },
     )
+    # Recog-time chunk-size / lookahead sweep, as the negative control for the dyn sweep:
+    # this model never saw chunk_size != center_size or lookahead != right_size during training,
+    # so it is expected to degrade off-canonical.
+    for cs, lh in [
+        (center_size, right_size),
+        (center_size * 2, right_size),
+        (center_size * 4, right_size),
+        (center_size * 8, right_size),
+        (center_size, right_size // 2),
+        (None, 0),
+    ]:
+        recog_model_with_config_overwrite(
+            model=exp.get_last_fixed_epoch(),
+            task=task,
+            recog_def=ctc_model_recog,
+            config_overwrites={
+                "enc_build_dict.chunk_size": cs,
+                "enc_build_dict.chunk_lookahead_size": lh,
+            },
+            extra_config={"aux_loss_layers": [aux_ctc_layer]},
+            name=name,
+            tag=f"L{left_n * center_size}-C{cs}-R{lh}" if cs is not None else "offline",
+        )
 
     # Dynamic chunking.
     # Haotian did:
