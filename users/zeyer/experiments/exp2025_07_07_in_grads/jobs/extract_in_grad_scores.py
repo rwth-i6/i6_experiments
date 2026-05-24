@@ -224,7 +224,9 @@ class ExtractInGradsFromModelJob(Job):
                     targets = batch_slice(forward_output.targets, (t0, t1))  # [B,t1-t0]->V
                     loss = batches_gather(loss, indices=targets, num_batch_dims=2)  # [B,t1-t0]
                     loss.masked_fill_(
-                        torch.arange(loss.shape[1], device=loss.device)[None, :] >= (t1 - t0)[:, None], 0.0
+                        torch.arange(loss.shape[1], device=loss.device)[None, :]
+                        >= (t1 - t0).to(loss.device)[:, None],
+                        0.0,
                     )
                     loss = loss.sum(dim=-1)  # [B]
                     if no_grad:
