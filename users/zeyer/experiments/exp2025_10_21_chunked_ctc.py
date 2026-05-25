@@ -830,6 +830,75 @@ def py():
             },
         )
 
+    # Long-context experiments: interleave standard ChunkedConformerEncoderLayerV2
+    # with a recurrent layer (Mamba-2 SSD or DeltaNet delta-rule). 16 total layers,
+    # alternating [std, rec, std, rec, ...] so 8 standard + 8 recurrent. Same
+    # outer chunked structure (chunk_size, history, lookahead, overlap-dynamic,
+    # chunk-type-embedding) as the v2.3-dyn-rope-ctembed-overlapD baseline so
+    # results are directly comparable.
+    from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2_mamba2 import (
+        Mamba2ChunkedLayerV2,
+    )
+    from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2_deltanet import (
+        DeltaNetChunkedLayerV2,
+    )
+
+    _std_layer_spec = rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2)
+    _mamba2_layer_spec = rf.build_dict(
+        Mamba2ChunkedLayerV2,
+        d_state=128,
+        d_conv=4,
+        expand=2,
+        head_dim=64,
+        n_groups=1,
+        block_len=64,
+    )
+    _deltanet_layer_spec = rf.build_dict(
+        DeltaNetChunkedLayerV2,
+        d_state=128,
+        head_dim=64,
+        block_len=32,
+    )
+    _num_layers = 16
+    _mamba2_per_layer = [_std_layer_spec if i % 2 == 0 else _mamba2_layer_spec for i in range(_num_layers)]
+    _deltanet_per_layer = [_std_layer_spec if i % 2 == 0 else _deltanet_layer_spec for i in range(_num_layers)]
+
+    def _hybrid_enc_build_dict(per_layer):
+        return rf.build_dict(
+            ChunkedConformerEncoderV2,
+            encoder_layer=_std_layer_spec,
+            encoder_layer_per_layer=per_layer,
+            chunk_size=center_size,
+            chunk_history_size=left_n * center_size,
+            chunk_lookahead_size=right_size,
+            chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+            chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+            chunk_lookahead_size_train_pool=[right_size, right_size // 2],
+            chunk_num_overlaps=2,
+            chunk_num_overlaps_train_pool=[2, 1],
+            use_chunk_type_embedding=True,
+            version=3,
+        )
+
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-mamba2",
+        {
+            "model.enc_build_dict": _hybrid_enc_build_dict(_mamba2_per_layer),
+            "train.batch_size": bs * configs._batch_size_factor // 2,
+            "train.max_seqs": max_seqs,
+            "lm_recog_extra.__serialization_version_stats": 2,
+        },
+    )
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-deltanet",
+        {
+            "model.enc_build_dict": _hybrid_enc_build_dict(_deltanet_per_layer),
+            "train.batch_size": bs * configs._batch_size_factor // 2,
+            "train.max_seqs": max_seqs,
+            "lm_recog_extra.__serialization_version_stats": 2,
+        },
+    )
+
     # New observations since 15.5.2026:
     # - RoPE made much faster (faster apply_rope).
     # - Realization: RoPE actually not expected to be faster than relpos self-att.
