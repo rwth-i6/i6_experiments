@@ -164,9 +164,9 @@ class Phi4MM(BaseModelInterface):
         n_frames = inputs_embeds.shape[1]
         n_samples = int(raw_input_seq_lens[0])  # B=1 enforced above
         edges = torch.arange(n_frames + 1, dtype=torch.float64) * (n_samples / n_frames)
-        input_raw_start_end = torch.stack(
-            [edges[:-1].round().long(), edges[1:].round().long()], dim=-1
-        ).unsqueeze(0)  # [B=1, n_frames, 2]
+        input_raw_start_end = torch.stack([edges[:-1].round().long(), edges[1:].round().long()], dim=-1).unsqueeze(
+            0
+        )  # [B=1, n_frames, 2]
 
         return ForwardOutput(
             inputs=inputs_embeds,
