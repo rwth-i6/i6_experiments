@@ -89,6 +89,7 @@ class ChunkedConformerEncoderV2(rf.Module):
         att_dropout: float = 0.1,
         encoder_layer: Optional[Union[ConformerEncoderLayer, rf.Module, type, Dict[str, Any], Any]] = None,
         encoder_layer_opts: Optional[Dict[str, Any]] = None,
+        encoder_layer_per_layer: Optional[List[Any]] = None,
         chunk_size: Optional[int],
         chunk_history_size: int,
         chunk_lookahead_size: int,
@@ -223,7 +224,26 @@ class ChunkedConformerEncoderV2(rf.Module):
             if not callable(encoder_layer):
                 raise TypeError(f"{self}: invalid non-callable encoder_layer {encoder_layer!r}")
 
-        self.layers = rf.Sequential(_copy.deepcopy(encoder_layer) for _ in range(num_layers))
+        if encoder_layer_per_layer is None:
+            self.layers = rf.Sequential(_copy.deepcopy(encoder_layer) for _ in range(num_layers))
+        else:
+            assert len(encoder_layer_per_layer) == num_layers, (
+                f"encoder_layer_per_layer has {len(encoder_layer_per_layer)} entries, expected {num_layers}"
+            )
+            _per_layer = []
+            for _spec in encoder_layer_per_layer:
+                if _spec is None:
+                    _per_layer.append(_copy.deepcopy(encoder_layer))
+                elif isinstance(_spec, dict):
+                    _opts = {k: v for (k, v) in encoder_layer_opts_.items() if k not in _spec}
+                    _per_layer.append(rf.build_from_dict(_spec, **_opts))
+                elif isinstance(_spec, type):
+                    _per_layer.append(_spec(**encoder_layer_opts_))
+                else:
+                    if not callable(_spec):
+                        raise TypeError(f"{self}: per-layer entry not callable: {_spec!r}")
+                    _per_layer.append(_copy.deepcopy(_spec))
+            self.layers = rf.Sequential(_per_layer)
 
     def __call__(
         self,
