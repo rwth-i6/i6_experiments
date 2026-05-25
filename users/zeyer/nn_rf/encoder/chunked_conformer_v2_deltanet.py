@@ -53,9 +53,9 @@ from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2 import _Batch
 
 
 def _delta_rule_chunked(
-    Q: torch.Tensor,   # [B, L, H, Dk]
-    K: torch.Tensor,   # [B, L, H, Dk]
-    V: torch.Tensor,   # [B, L, H, Dv]
+    Q: torch.Tensor,  # [B, L, H, Dk]
+    K: torch.Tensor,  # [B, L, H, Dk]
+    V: torch.Tensor,  # [B, L, H, Dv]
     beta: torch.Tensor,  # [B, L, H]   gate in (0, 1)
     block_len: int,
     initial_state: Optional[torch.Tensor] = None,  # [B, H, Dv, Dk] or None
@@ -75,22 +75,22 @@ def _delta_rule_chunked(
     B, H = Q.size(0), Q.size(2)
     Dk, Dv = Q.size(3), V.size(3)
 
-    Q = rearrange(Q, "b (c l) h d -> b c h l d", l=block_len)        # [B, C, H, L, Dk]
+    Q = rearrange(Q, "b (c l) h d -> b c h l d", l=block_len)  # [B, C, H, L, Dk]
     K = rearrange(K, "b (c l) h d -> b c h l d", l=block_len)
     V = rearrange(V, "b (c l) h d -> b c h l d", l=block_len)
-    beta = rearrange(beta, "b (c l) h -> b c h l", l=block_len)      # [B, C, H, L]
+    beta = rearrange(beta, "b (c l) h -> b c h l", l=block_len)  # [B, C, H, L]
 
     # Gate-weighted V and K: tilde_V = beta * V, tilde_K = beta * K.
-    tilde_V = V * beta.unsqueeze(-1)                                  # [B, C, H, L, Dv]
+    tilde_V = V * beta.unsqueeze(-1)  # [B, C, H, L, Dv]
 
     # Within-chunk attention-like matmul: A = K Q^T (per chunk).
     # KK^T inside the chunk (lower-triangular).
-    KK = torch.einsum("bchld,bchsd->bchls", K, K)                     # [B, C, H, L, L]
-    KK = KK * beta.unsqueeze(-1)                                      # scale rows by beta
+    KK = torch.einsum("bchld,bchsd->bchls", K, K)  # [B, C, H, L, L]
+    KK = KK * beta.unsqueeze(-1)  # scale rows by beta
     # T_inv = (I - tril(KK, -1))^{-1} computed via Neumann-like accumulation.
     # For small L (block_len ~32-64) we just invert.
     eye = torch.eye(block_len, device=Q.device, dtype=Q.dtype).expand_as(KK)
-    L_mat = eye - torch.tril(KK, diagonal=-1)                          # [B, C, H, L, L]
+    L_mat = eye - torch.tril(KK, diagonal=-1)  # [B, C, H, L, L]
     # Solve L_mat * U = tilde_V for U.  U = L_mat^{-1} tilde_V.
     # L_mat is lower triangular with 1s on the diag, so triangular_solve is exact.
     U = torch.linalg.solve_triangular(L_mat, tilde_V, upper=False, unitriangular=True)
@@ -99,10 +99,10 @@ def _delta_rule_chunked(
     # Within-chunk output: Y_diag = (Q K^T) * tril(diag=0) ... * (something with U).
     # Following the FLA reference: within-chunk output = causal-masked
     # softmax-free attention with V replaced by U.
-    QK = torch.einsum("bchld,bchsd->bchls", Q, K)                     # [B, C, H, L, L]
+    QK = torch.einsum("bchld,bchsd->bchls", Q, K)  # [B, C, H, L, L]
     causal_mask = torch.tril(torch.ones(block_len, block_len, device=Q.device, dtype=torch.bool))
     QK = QK.masked_fill(~causal_mask, 0.0)
-    Y_diag = torch.einsum("bchls,bchsd->bchld", QK, U)                # [B, C, H, L, Dv]
+    Y_diag = torch.einsum("bchls,bchsd->bchld", QK, U)  # [B, C, H, L, Dv]
 
     # Cross-chunk: maintain state S, [B, H, Dv, Dk]. Init zeros (or initial_state).
     # The state after a chunk: S' = block_op(S, K, U).
@@ -128,18 +128,18 @@ def _delta_rule_chunked(
     for c in range(n_chunks):
         # Cross-chunk contribution to this chunk's output:
         # y_l += q_l S (state at chunk start), for each l in this chunk.
-        Y_off_c = torch.einsum("bhld,bhvd->bhlv", Q[:, c], S)          # [B, H, L, Dv]
+        Y_off_c = torch.einsum("bhld,bhvd->bhlv", Q[:, c], S)  # [B, H, L, Dv]
         Y_off_list.append(Y_off_c)
 
         # Update S: apply each step in the chunk sequentially (cheap for small L).
         # S <- (I - beta_l k_l k_l^T) S + beta_l v_l k_l^T
-        K_c = K[:, c]                                                  # [B, H, L, Dk]
+        K_c = K[:, c]  # [B, H, L, Dk]
         V_c = V[:, c]
-        beta_c = beta[:, c]                                            # [B, H, L]
+        beta_c = beta[:, c]  # [B, H, L]
         for li in range(block_len):
-            k_l = K_c[:, :, li, :]                                     # [B, H, Dk]
-            v_l = V_c[:, :, li, :]                                     # [B, H, Dv]
-            b_l = beta_c[:, :, li]                                     # [B, H]
+            k_l = K_c[:, :, li, :]  # [B, H, Dk]
+            v_l = V_c[:, :, li, :]  # [B, H, Dv]
+            b_l = beta_c[:, :, li]  # [B, H]
             # delta = beta_l * (S @ k_l)              [B, H, Dv]
             delta = b_l.unsqueeze(-1) * torch.einsum("bhvd,bhd->bhv", S, k_l)
             # outer subtraction: S -= delta . k_l^T
@@ -148,8 +148,8 @@ def _delta_rule_chunked(
             add = (b_l.unsqueeze(-1) * v_l).unsqueeze(-1) * k_l.unsqueeze(-2)
             S = S + add
 
-    Y_off = torch.stack(Y_off_list, dim=1)                              # [B, C, H, L, Dv]
-    Y = Y_diag + Y_off                                                  # [B, C, H, L, Dv]
+    Y_off = torch.stack(Y_off_list, dim=1)  # [B, C, H, L, Dv]
+    Y = Y_diag + Y_off  # [B, C, H, L, Dv]
     Y = rearrange(Y, "b c h l d -> b (c l) h d")
     return Y
 
@@ -171,8 +171,10 @@ def _find_batch_dim(t: Tensor) -> Dim:
 
 def _to_BTF(t: Tensor, spatial_dim: Dim, feat_dim: Dim) -> torch.Tensor:
     b = _find_batch_dim(t)
-    s = spatial_dim if spatial_dim in t.dims else next(
-        d for d in t.dims if d.dimension == spatial_dim.dimension and d.name == spatial_dim.name
+    s = (
+        spatial_dim
+        if spatial_dim in t.dims
+        else next(d for d in t.dims if d.dimension == spatial_dim.dimension and d.name == spatial_dim.name)
     )
     order = list(t.dims)
     return t.raw_tensor.permute(order.index(b), order.index(s), order.index(feat_dim)).contiguous()
@@ -284,8 +286,8 @@ class DeltaNetBlock(rf.Module):
 
         # Scan.
         y_pad = _delta_rule_chunked(q_pad, k_pad, v_pad, beta_pad, block_len=self.block_len)
-        y_t = y_pad[:, :T_orig]                       # [B, T, H, head_dim]
-        y_t = y_t.reshape(b, T, H * self.head_dim)    # [B, T, d_v]
+        y_t = y_pad[:, :T_orig]  # [B, T, H, head_dim]
+        y_t = y_t.reshape(b, T, H * self.head_dim)  # [B, T, d_v]
         y = _from_BTF(y_t, x, spatial_dim, self.d_v_dim, name="dn_y")
         return self.out_proj(y)
 
@@ -343,9 +345,7 @@ class DeltaNetChunkedLayerV2(rf.Module):
             return x + self.dn(x_norm, spatial_dim=spatial_dim)
 
         x_stride, _ = rf.slice(x_norm, axis=spatial_dim, size=chunking.end_chunk_size_dim)
-        x_flat, full_time_dim = rf.merge_dims(
-            x_stride, dims=(chunking.chunked_time_dim, chunking.end_chunk_size_dim)
-        )
+        x_flat, full_time_dim = rf.merge_dims(x_stride, dims=(chunking.chunked_time_dim, chunking.end_chunk_size_dim))
         # TODO: streaming -- thread DeltaNet state via streaming_cache_v2 across segments.
         y_flat = self.dn(x_flat, spatial_dim=full_time_dim)
         y_windowed, new_chunked_time_dim = rf.window(
@@ -356,7 +356,5 @@ class DeltaNetChunkedLayerV2(rf.Module):
             stride=chunking.end_chunk_size_dim.dimension,
             pad_value=0.0,
         )
-        y_chunked = rf.replace_dim_v2(
-            y_windowed, in_dim=new_chunked_time_dim, out_dim=chunking.chunked_time_dim
-        )
+        y_chunked = rf.replace_dim_v2(y_windowed, in_dim=new_chunked_time_dim, out_dim=chunking.chunked_time_dim)
         return x + y_chunked

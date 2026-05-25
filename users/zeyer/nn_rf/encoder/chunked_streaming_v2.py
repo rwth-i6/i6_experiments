@@ -231,9 +231,7 @@ def streaming_encode_and_get_ctc_log_probs_v2(
         audio_torch = audio_torch.transpose(0, 1).contiguous()
     batch_size = audio_torch.shape[0]
     if batch_size != 1:
-        raise NotImplementedError(
-            f"Streaming impl requires batch_size=1, got {batch_size}. Set 'max_seqs': 1."
-        )
+        raise NotImplementedError(f"Streaming impl requires batch_size=1, got {batch_size}. Set 'max_seqs': 1.")
 
     if data_spatial_dim.dyn_size_ext is not None:
         audio_len = int(data_spatial_dim.dyn_size_ext.raw_tensor.reshape(-1)[0].item())
@@ -265,7 +263,10 @@ def streaming_encode_and_get_ctc_log_probs_v2(
             raw_tensor=torch.tensor([seg_len], dtype=torch.int32),
         )
         seg_audio_tensor = Tensor(
-            "audio_seg", dims=[batch_dim, seg_dim], dtype=data.dtype, raw_tensor=seg_audio,
+            "audio_seg",
+            dims=[batch_dim, seg_dim],
+            dtype=data.dtype,
+            raw_tensor=seg_audio,
         )
 
         trim_tail = 0 if is_last else 2 * lookahead

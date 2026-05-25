@@ -47,9 +47,7 @@ def _streaming_consistency_forward_step(*, model, extern_data, **_kwargs):
     data_spatial_dim = data.get_time_dim_tag()
 
     # Offline path (the existing implementation)
-    log_probs_off, _enc, enc_dim_off = model.encode_and_get_ctc_log_probs(
-        data, in_spatial_dim=data_spatial_dim
-    )
+    log_probs_off, _enc, enc_dim_off = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
 
     # Streaming path (the new implementation)
     log_probs_str, enc_dim_str = streaming_encode_and_get_ctc_log_probs(
@@ -73,8 +71,7 @@ def _streaming_consistency_forward_step(*, model, extern_data, **_kwargs):
     max_diff = float(diff.max().item())
     mean_diff = float(diff.mean().item())
     print(
-        f"streaming-consistency: T_off={t_off} T_str={t_str} "
-        f"max_abs_diff={max_diff:.6g} mean_abs_diff={mean_diff:.6g}",
+        f"streaming-consistency: T_off={t_off} T_str={t_str} max_abs_diff={max_diff:.6g} mean_abs_diff={mean_diff:.6g}",
         flush=True,
     )
 
@@ -132,9 +129,7 @@ def _streaming_consistency_forward_step_v2(*, model, extern_data, **_kwargs):
     data = extern_data[default_input_key]
     data_spatial_dim = data.get_time_dim_tag()
 
-    log_probs_off, _enc, enc_dim_off = model.encode_and_get_ctc_log_probs(
-        data, in_spatial_dim=data_spatial_dim
-    )
+    log_probs_off, _enc, enc_dim_off = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
     log_probs_str, enc_dim_str = streaming_encode_and_get_ctc_log_probs_v2(
         model, data, data_spatial_dim, segment_seconds=segment_seconds
     )
@@ -161,24 +156,38 @@ def _streaming_consistency_forward_step_v2(*, model, extern_data, **_kwargs):
 
     device = off_t.device
     rf.get_run_ctx().mark_as_output(
-        Tensor("max_diff", dims=[batch_dim], dtype="float32",
-               raw_tensor=torch.tensor([max_diff], dtype=torch.float32, device=device)),
-        "max_diff", dims=[batch_dim],
+        Tensor(
+            "max_diff",
+            dims=[batch_dim],
+            dtype="float32",
+            raw_tensor=torch.tensor([max_diff], dtype=torch.float32, device=device),
+        ),
+        "max_diff",
+        dims=[batch_dim],
     )
     rf.get_run_ctx().mark_as_output(
-        Tensor("mean_diff", dims=[batch_dim], dtype="float32",
-               raw_tensor=torch.tensor([mean_diff], dtype=torch.float32, device=device)),
-        "mean_diff", dims=[batch_dim],
+        Tensor(
+            "mean_diff",
+            dims=[batch_dim],
+            dtype="float32",
+            raw_tensor=torch.tensor([mean_diff], dtype=torch.float32, device=device),
+        ),
+        "mean_diff",
+        dims=[batch_dim],
     )
     rf.get_run_ctx().mark_as_output(
-        Tensor("t_off", dims=[batch_dim], dtype="int32",
-               raw_tensor=torch.tensor([t_off], dtype=torch.int32, device=device)),
-        "t_off", dims=[batch_dim],
+        Tensor(
+            "t_off", dims=[batch_dim], dtype="int32", raw_tensor=torch.tensor([t_off], dtype=torch.int32, device=device)
+        ),
+        "t_off",
+        dims=[batch_dim],
     )
     rf.get_run_ctx().mark_as_output(
-        Tensor("t_str", dims=[batch_dim], dtype="int32",
-               raw_tensor=torch.tensor([t_str], dtype=torch.int32, device=device)),
-        "t_str", dims=[batch_dim],
+        Tensor(
+            "t_str", dims=[batch_dim], dtype="int32", raw_tensor=torch.tensor([t_str], dtype=torch.int32, device=device)
+        ),
+        "t_str",
+        dims=[batch_dim],
     )
 
 
@@ -253,8 +262,7 @@ def make_streaming_consistency_test_job(
         config_dict["_model_def"] = model_def
     config_dict["get_model"] = _returnn_v2_get_model
     config_dict["forward_step"] = (
-        _streaming_consistency_forward_step_v2 if use_kv_cache_v2
-        else _streaming_consistency_forward_step
+        _streaming_consistency_forward_step_v2 if use_kv_cache_v2 else _streaming_consistency_forward_step
     )
     config_dict["forward_callback"] = _streaming_consistency_forward_callback
     config_dict["streaming_segment_seconds"] = segment_seconds

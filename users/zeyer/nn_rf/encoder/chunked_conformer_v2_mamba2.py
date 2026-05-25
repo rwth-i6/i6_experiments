@@ -51,10 +51,10 @@ def _segsum(x: torch.Tensor) -> torch.Tensor:
 
 
 def _ssd_chunked(
-    X: torch.Tensor,   # [B, L, H, P]   value
-    A: torch.Tensor,   # [B, L, H]      discretized A (a_t * dt_t, signed)
-    B: torch.Tensor,   # [B, L, H, N]   state-input (per-head shared groups assumed)
-    C: torch.Tensor,   # [B, L, H, N]   output-state
+    X: torch.Tensor,  # [B, L, H, P]   value
+    A: torch.Tensor,  # [B, L, H]      discretized A (a_t * dt_t, signed)
+    B: torch.Tensor,  # [B, L, H, N]   state-input (per-head shared groups assumed)
+    C: torch.Tensor,  # [B, L, H, N]   output-state
     block_len: int,
     initial_states: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
@@ -76,22 +76,22 @@ def _ssd_chunked(
     A_cumsum = torch.cumsum(A_perm, dim=-1)
 
     # 1) Diagonal blocks: within-chunk parallel attention-like matmul.
-    L_mat = torch.exp(_segsum(A_perm))   # [B, H, C, L, L]
+    L_mat = torch.exp(_segsum(A_perm))  # [B, H, C, L, L]
     Y_diag = torch.einsum("bclhn,bcshn,bhcls,bcshp->bclhp", C, B, L_mat, X)
 
     # 2) Inter-chunk: scan over chunk-end states.
-    decay_states = torch.exp(A_cumsum[..., -1:] - A_cumsum)             # [B, H, C, L]
+    decay_states = torch.exp(A_cumsum[..., -1:] - A_cumsum)  # [B, H, C, L]
     states = torch.einsum("bclhn,bhcl,bclhp->bchpn", B, decay_states, X)  # [B, C, H, P, N]
 
     if initial_states is None:
         initial_states = torch.zeros_like(states[:, :1])
-    states = torch.cat([initial_states, states], dim=1)                  # [B, C+1, H, P, N]
-    decay_chunk = torch.exp(_segsum(F.pad(A_cumsum[..., -1], (1, 0))))   # [B, H, C+1, C+1]
+    states = torch.cat([initial_states, states], dim=1)  # [B, C+1, H, P, N]
+    decay_chunk = torch.exp(_segsum(F.pad(A_cumsum[..., -1], (1, 0))))  # [B, H, C+1, C+1]
     new_states = torch.einsum("bhzc,bchpn->bzhpn", decay_chunk, states)
-    states = new_states[:, :-1]                                          # [B, C, H, P, N]
+    states = new_states[:, :-1]  # [B, C, H, P, N]
 
     # 3) Output: states-to-output via remaining decay.
-    state_decay_out = torch.exp(A_cumsum)                                # [B, H, C, L]
+    state_decay_out = torch.exp(A_cumsum)  # [B, H, C, L]
     Y_off = torch.einsum("bclhn,bchpn,bhcl->bclhp", C, states, state_decay_out)
 
     Y = rearrange(Y_diag + Y_off, "b c l h p -> b (c l) h p")
@@ -115,8 +115,10 @@ def _find_batch_dim(t: Tensor) -> Dim:
 
 def _to_BTF(t: Tensor, spatial_dim: Dim, feat_dim: Dim) -> torch.Tensor:
     b = _find_batch_dim(t)
-    s = spatial_dim if spatial_dim in t.dims else next(
-        d for d in t.dims if d.dimension == spatial_dim.dimension and d.name == spatial_dim.name
+    s = (
+        spatial_dim
+        if spatial_dim in t.dims
+        else next(d for d in t.dims if d.dimension == spatial_dim.dimension and d.name == spatial_dim.name)
     )
     order = list(t.dims)
     return t.raw_tensor.permute(order.index(b), order.index(s), order.index(feat_dim)).contiguous()
@@ -246,9 +248,9 @@ class Mamba2Block(rf.Module):
             # D = 1.
             self.D.raw_tensor.fill_(1.0)
             # dt bias so softplus(bias) ~ log-uniform[dt_min, dt_max].
-            dt = torch.exp(
-                torch.rand(n_heads) * (math.log(dt_max) - math.log(dt_min)) + math.log(dt_min)
-            ).clamp_min_(dt_init_floor)
+            dt = torch.exp(torch.rand(n_heads) * (math.log(dt_max) - math.log(dt_min)) + math.log(dt_min)).clamp_min_(
+                dt_init_floor
+            )
             inv_dt = dt + torch.log(-torch.expm1(-dt))
             self.dt_bias.raw_tensor.copy_(inv_dt)
 
@@ -288,9 +290,9 @@ class Mamba2Block(rf.Module):
             C_state = C_state.repeat_interleave(n_heads // n_groups, dim=2)
 
         # 4) dt -> softplus(+bias); A_disc = dt * A per head.
-        dt = F.softplus(dt_t + self.dt_bias.raw_tensor)        # [B, T, n_heads]
-        A = -torch.exp(self.A_log.raw_tensor)                  # [n_heads]
-        A_disc = dt * A                                        # [B, T, n_heads]
+        dt = F.softplus(dt_t + self.dt_bias.raw_tensor)  # [B, T, n_heads]
+        A = -torch.exp(self.A_log.raw_tensor)  # [n_heads]
+        A_disc = dt * A  # [B, T, n_heads]
 
         # 5) SSD scan. Pad T to a multiple of block_len.
         x_pad, T_orig = _pad_to_block_len(x_in, self.block_len, time_dim=1)
@@ -298,12 +300,12 @@ class Mamba2Block(rf.Module):
         B_pad, _ = _pad_to_block_len(B_state, self.block_len, time_dim=1)
         C_pad, _ = _pad_to_block_len(C_state, self.block_len, time_dim=1)
         y_pad = _ssd_chunked(x_pad, A_pad, B_pad, C_pad, block_len=self.block_len)
-        y_t = y_pad[:, :T_orig]                                # [B, T, n_heads, head_dim]
+        y_t = y_pad[:, :T_orig]  # [B, T, n_heads, head_dim]
 
         # 6) + D * x (per-head skip).
         D_view = self.D.raw_tensor.view(1, 1, n_heads, 1)
-        y_t = y_t + x_in * D_view                              # [B, T, n_heads, head_dim]
-        y_t = y_t.reshape(b, T, d_inner)                       # [B, T, d_inner]
+        y_t = y_t + x_in * D_view  # [B, T, n_heads, head_dim]
+        y_t = y_t.reshape(b, T, d_inner)  # [B, T, d_inner]
 
         # 7) Norm + gate(z) + out_proj.
         # silu(z) gate.
@@ -369,9 +371,7 @@ class Mamba2ChunkedLayerV2(rf.Module):
             return x + self.mamba(x_norm, spatial_dim=spatial_dim)
 
         x_stride, _ = rf.slice(x_norm, axis=spatial_dim, size=chunking.end_chunk_size_dim)
-        x_flat, full_time_dim = rf.merge_dims(
-            x_stride, dims=(chunking.chunked_time_dim, chunking.end_chunk_size_dim)
-        )
+        x_flat, full_time_dim = rf.merge_dims(x_stride, dims=(chunking.chunked_time_dim, chunking.end_chunk_size_dim))
         # TODO: streaming -- thread Mamba-2 state via streaming_cache_v2 across segments.
         y_flat = self.mamba(x_flat, spatial_dim=full_time_dim)
         y_windowed, new_chunked_time_dim = rf.window(
@@ -382,7 +382,5 @@ class Mamba2ChunkedLayerV2(rf.Module):
             stride=chunking.end_chunk_size_dim.dimension,
             pad_value=0.0,
         )
-        y_chunked = rf.replace_dim_v2(
-            y_windowed, in_dim=new_chunked_time_dim, out_dim=chunking.chunked_time_dim
-        )
+        y_chunked = rf.replace_dim_v2(y_windowed, in_dim=new_chunked_time_dim, out_dim=chunking.chunked_time_dim)
         return x + y_chunked
