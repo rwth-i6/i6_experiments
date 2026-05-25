@@ -59,14 +59,8 @@ def batches_gather(values: torch.Tensor, *, indices: torch.Tensor, num_batch_dim
     :return: shape [BatchDims...,IndicesDims...,ValuesDims...]
     """
     assert num_batch_dims >= 1
-    # Save the original batch dims shape *before* flatten so we can restore them.
-    # (The original code used indices.shape[:-1] after flatten which was incorrect for
-    # multi-batch-dim inputs and also broke with empty shape on torch >=2.7.)
-    batch_dims_shape = indices.shape[:num_batch_dims]
     values = values.flatten(0, num_batch_dims - 1)  # [FlatBatch,Indices,ValuesDims...]
     indices = indices.flatten(0, num_batch_dims - 1)  # [FlatBatch,IndicesDims...]
     res = batch_gather(values=values, indices=indices, batch_dim=0, index_dim=1)
-    # res: [FlatBatch,IndicesDims...,ValuesDims...]
-    if num_batch_dims > 1:
-        res = res.unflatten(0, batch_dims_shape)  # [BatchDims...,IndicesDims...,ValuesDims...]
+    res = res.unflatten(0, indices.shape[:-1])  # [BatchDims...,IndicesDims...,ValuesDims...]
     return res
