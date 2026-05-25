@@ -123,11 +123,19 @@ class Phi4MM(BaseModelInterface):
         report_dev_memory_stats(dev)
 
         targets = input_ids[:, dst_text_start:dst_text_end]  # [B,T']
+        n_targets = targets.shape[1]
+        # Append the assistant-end token (EOS) to targets so the chunk-exit log_prob
+        # can be looked up by batches_gather. target_start_end gets a matching entry
+        # below (one past the last word).
+        targets = torch.cat(
+            [targets, torch.tensor([[self.assistant_end_token_id]], device=targets.device, dtype=targets.dtype)],
+            dim=1,
+        )  # [B, T'+1]
 
         words_start_end = [[0, 1]]
         tokens = [tokenizer.decode(targets[0, :1])]
         words_ = [tokens[-1]]
-        for t in range(1, targets.shape[1]):
+        for t in range(1, n_targets):
             s = tokenizer.decode(targets[0, t : t + 1])
             tokens.append(s)
             if s.startswith(" "):  # new word
@@ -143,13 +151,28 @@ class Phi4MM(BaseModelInterface):
             words_ = words_[1:]
         assert len(words_start_end) == len(words_) == len(words), f"got {tokens=}"
         assert words_ == words, f"{tokens=} {words=} {words_=}"
+        # Add a matching entry for the EOS token appended above (one past the last word).
+        words_start_end = words_start_end + [[n_targets, n_targets + 1]]
 
         assert self.grad_wrt == "speech_embeddings", f"{self.grad_wrt=!r}"
+
+        # Map each model-internal speech-embedding frame back to its raw-audio sample
+        # range. Phi4-MM's audio front-end uses log-mel features at a 10ms hop (160
+        # samples @ 16kHz). For arbitrary sample rates we just linearly interpolate
+        # (raw samples are evenly divided across frames). This matches the timestamp
+        # convention used in :mod:`exp2025_05_05_align` (linear-interp frame -> time).
+        n_frames = inputs_embeds.shape[1]
+        n_samples = int(raw_input_seq_lens[0])  # B=1 enforced above
+        edges = torch.arange(n_frames + 1, dtype=torch.float64) * (n_samples / n_frames)
+        input_raw_start_end = torch.stack(
+            [edges[:-1].round().long(), edges[1:].round().long()], dim=-1
+        ).unsqueeze(0)  # [B=1, n_frames, 2]
+
         return ForwardOutput(
             inputs=inputs_embeds,
             input_seq_lens=torch.tensor([inputs_embeds.shape[1]]),  # [B]
             input_slice_start_end=None,
-            input_raw_start_end=None,  # TODO...
+            input_raw_start_end=input_raw_start_end,
             targets=targets,
             target_seq_lens=torch.tensor([targets.shape[1]]),  # [B]
             target_start_end=torch.tensor(words_start_end, dtype=torch.int64).unsqueeze(0),  # [B, T, 2]
