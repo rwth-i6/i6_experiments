@@ -202,7 +202,6 @@ def streaming_encode_and_get_ctc_log_probs_v2(
     """
     enc = model.encoder
     chunk_size = enc.chunk_size
-    history = enc.chunk_history_size  # encoder frames
     lookahead = enc.chunk_lookahead_size
     n_overlap = enc.chunk_num_overlaps
     ds_internal = enc._input_downsample_factor  # noqa: SLF001
