@@ -108,6 +108,7 @@ def _phi4mm_model_config(
     fake_loss_grad: bool = False,
     margin_grad: bool = False,
     first_subword_only: bool = False,
+    char_level: bool = False,
 ) -> Dict[str, Any]:
     """
     model_config dict consumed by the generic `make_model(type=..., **opts)`
@@ -130,6 +131,8 @@ def _phi4mm_model_config(
         cfg["margin_grad"] = True
     if first_subword_only:
         cfg["first_subword_only"] = True
+    if char_level:
+        cfg["char_level"] = True
     return cfg
 
 
@@ -202,6 +205,12 @@ class Phi4MMTorch27(Phi4MM):
       per-word loss/grad (ignore continuation subwords). Continuations are
       mostly LM-predictable so their gradients are small and add noise; this
       also normalizes signal strength across short / long words.
+    - ``char_level=True``: tokenize the reference at character level (one BPE
+      token per character via space-separated chars). Per-word grad becomes a
+      sum over per-character grads. Hypothesis: finer-granularity log-prob
+      signal may sharpen alignment. Implementation: explode words to chars
+      before calling ``super().forward()``, then post-process
+      ``target_start_end`` to re-group chars back into words.
     """
 
     def __init__(
@@ -210,6 +219,7 @@ class Phi4MMTorch27(Phi4MM):
         fake_loss_grad: bool = False,
         margin_grad: bool = False,
         first_subword_only: bool = False,
+        char_level: bool = False,
         **kwargs,
     ):
         _apply_torch27_patches()
@@ -218,18 +228,60 @@ class Phi4MMTorch27(Phi4MM):
         self._fake_loss_grad = fake_loss_grad
         self._margin_grad = margin_grad
         self._first_subword_only = first_subword_only
+        self._char_level = char_level
         super().__init__(**kwargs)
         n = _unwrap_checkpoint_wrappers(self.model)
         print(
             f"Phi4MMTorch27: unwrapped {n} CheckpointWrapper(s). "
             f"fake_loss_grad={fake_loss_grad} margin_grad={margin_grad} "
-            f"first_subword_only={first_subword_only}"
+            f"first_subword_only={first_subword_only} char_level={char_level}"
         )
 
-    def forward(self, **kwargs):
+    def forward(self, *, raw_targets=None, raw_target_seq_lens=None, **kwargs):
         import torch
 
-        out = super().forward(**kwargs)
+        if self._char_level and raw_targets is not None:
+            # Explode each word into its characters. Each char becomes a "word"
+            # from Phi4MM.forward's perspective, so its BPE tokenization treats
+            # space-separated chars as one token each. After super().forward(),
+            # we re-group chars back into words in target_start_end.
+            assert len(raw_targets) == 1, "char_level supports batch size 1 only"
+            orig_words = raw_targets[0]
+            chars = [c for word in orig_words for c in word]
+            char_targets = [chars]
+            char_target_seq_lens = torch.tensor([len(chars)])
+            # Track word boundaries in char indices.
+            word_char_ranges = []
+            idx = 0
+            for word in orig_words:
+                word_char_ranges.append((idx, idx + len(word)))
+                idx += len(word)
+
+            out = super().forward(
+                raw_targets=char_targets, raw_target_seq_lens=char_target_seq_lens, **kwargs
+            )
+            # out.target_start_end has shape [B, num_chars+1, 2] (chars + EOS).
+            tse = out.target_start_end  # on CPU
+            assert tse.shape[1] == len(chars) + 1, (
+                f"char_level: expected {len(chars) + 1} entries (chars + EOS), got {tse.shape[1]}"
+            )
+            # Build new target_start_end with one entry per WORD covering the
+            # subword range of that word's characters, plus the EOS entry.
+            new_entries = []
+            for cstart, cend in word_char_ranges:
+                t0 = int(tse[0, cstart, 0])
+                t1 = int(tse[0, cend - 1, 1])
+                new_entries.append([t0, t1])
+            # Append the EOS entry (unchanged).
+            new_entries.append([int(tse[0, -1, 0]), int(tse[0, -1, 1])])
+            out.target_start_end = torch.tensor([new_entries], dtype=tse.dtype, device=tse.device)
+            # Also fix up target_seq_lens since the parent recomputed from char count.
+            # Downstream code uses target_start_end directly, not target_seq_lens, so this
+            # is mostly cosmetic but keep it consistent.
+            out.target_seq_lens = torch.tensor([len(orig_words)])
+        else:
+            out = super().forward(raw_targets=raw_targets, raw_target_seq_lens=raw_target_seq_lens, **kwargs)
+
         if out.target_start_end.device != self.device:
             out.target_start_end = out.target_start_end.to(self.device)
         if self._first_subword_only:
@@ -368,6 +420,7 @@ def py():
         ("-fakegrad", {"fake_loss_grad": True}),  # OLD-style fake-loss-grad
         ("-margin", {"margin_grad": True}),  # log p(t) - log p(top non-t)
         ("-firstsub", {"first_subword_only": True}),  # only first subword per word
+        ("-charlev", {"char_level": True}),  # tokenize ref char-by-char
     ]:
         phi4mm_cfg = _phi4mm_model_config(dl_phi4mi_dir, **variant_kwargs)
         _build_timit_phi4mm(
