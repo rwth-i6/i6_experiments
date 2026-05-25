@@ -454,6 +454,39 @@ def py():
         _stream_consistency_job.out_files["diff_stats.json"],
     )
 
+    # Same comparison, but using the KV-cache streaming (v2) with overlap-and-trim.
+    _stream_consistency_job_v2 = make_streaming_consistency_test_job(
+        model=exp.get_last_fixed_epoch(),
+        dataset=get_loquacious_train_subset_dataset_v2(vocab="spm10k", num_seqs=3),
+        aux_loss_layers=[aux_ctc_layer],
+        segment_seconds=10.0,
+        version=1,
+        use_kv_cache_v2=True,
+    )
+    tk.register_output(
+        f"{get_setup_prefix_for_module(__name__)}/aed/{name}/streaming-consistency-kvcache.json",
+        _stream_consistency_job_v2.out_files["diff_stats.json"],
+    )
+
+    # CTC recog using the KV-cache streaming encoder on the standard eval sets.
+    # Should give WER matching the offline recog if the encoder log-probs match.
+    from i6_experiments.users.zeyer.nn_rf.encoder.chunked_streaming_v2 import (
+        model_recog_ctc_streaming_v2,
+    )
+
+    recog_model_with_config_overwrite(
+        model=exp.get_last_fixed_epoch(),
+        task=task,
+        recog_def=model_recog_ctc_streaming_v2,
+        extra_config={
+            "aux_loss_layers": [aux_ctc_layer],
+            "max_seqs": 1,  # streaming impl requires batch=1
+            "streaming_segment_seconds": 10.0,
+        },
+        name=name,
+        tag="streaming-kvcache-v2-seg10",
+    )
+
     # Newer RETURNN. This has a faster apply_rope.
     # Still not really faster than relpos self-att.
     # This is because when we explicitly do the self-att computation, and using the relpos trick,

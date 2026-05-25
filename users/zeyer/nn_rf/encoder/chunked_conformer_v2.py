@@ -856,6 +856,8 @@ def _mem_chunks(
     mem_size: int,
     end_chunk_size_dim: Dim,
     out_spatial_dim: Optional[Dim] = None,
+    external_left_context: Optional[Tensor] = None,
+    external_left_context_time_dim: Optional[Dim] = None,
 ) -> Tuple[Tensor, Dim]:
     """
     Concat the prev chunks to the current chunk, i.e. add history / memory.
@@ -866,12 +868,49 @@ def _mem_chunks(
     :param mem_size: how many previous chunks to concat
     :param end_chunk_size_dim: ...?
     :param out_spatial_dim: if given, use this as output spatial dim
+    :param external_left_context: optional cache from a previous segment, shape
+        ``(batch..., external_left_context_time_dim, end_chunk_size_dim, feat)``.
+        When provided, the shift-right padding region is filled with this cache
+        content instead of zeros, so streaming forward passes can match offline
+        attention exactly. Cache must have ``external_left_context_time_dim``
+        size == ``mem_size`` for full equivalence (smaller is also accepted and
+        the missing chunks default back to zero-pad).
+    :param external_left_context_time_dim: the chunked-time dim of the cache.
     :return: concatenated prev chunks, concatenated spatial dim
     """
-    concats = []
     source_sliced, _ = rf.slice(source, axis=spatial_dim, size=end_chunk_size_dim)
+
+    if external_left_context is not None:
+        assert external_left_context_time_dim is not None, \
+            "external_left_context requires external_left_context_time_dim"
+        # Prepend cache to source_sliced along chunked_time. After shift_right on
+        # the combined tensor, positions [cache_len, cache_len+T_orig) contain
+        # the original positions with the shift-pad region naturally filled by
+        # cache values. We then slice back to those positions.
+        combined_time_dim = external_left_context_time_dim + chunked_time_dim
+        source_sliced_combined, _ = rf.concat(
+            (external_left_context, external_left_context_time_dim),
+            (source_sliced, chunked_time_dim),
+            out_dim=combined_time_dim,
+            allow_broadcast=True,
+        )
+    else:
+        source_sliced_combined = source_sliced
+        combined_time_dim = chunked_time_dim
+
+    concats = []
     for shift_amount in range(mem_size, 0, -1):
-        shifted = rf.shift_right(source_sliced, axis=chunked_time_dim, amount=shift_amount, pad_value=0.0)
+        shifted = rf.shift_right(
+            source_sliced_combined, axis=combined_time_dim, amount=shift_amount, pad_value=0.0
+        )
+        if external_left_context is not None:
+            # Take only the original chunked_time positions.
+            shifted, _ = rf.slice(
+                shifted,
+                axis=combined_time_dim,
+                start=external_left_context_time_dim.get_dim_value_tensor(),
+                out_dim=chunked_time_dim,
+            )
         concats.append((shifted, end_chunk_size_dim))
     concats.append((source, spatial_dim))
-    return rf.concat(*concats, out_dim=out_spatial_dim)
+    return rf.concat(*concats, out_dim=out_spatial_dim, allow_broadcast=True)
