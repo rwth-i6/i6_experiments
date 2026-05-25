@@ -106,6 +106,8 @@ def _phi4mm_model_config(
     *,
     speech_prompt: str = "Transcribe the audio clip into text.",
     fake_loss_grad: bool = False,
+    margin_grad: bool = False,
+    first_subword_only: bool = False,
 ) -> Dict[str, Any]:
     """
     model_config dict consumed by the generic `make_model(type=..., **opts)`
@@ -113,10 +115,9 @@ def _phi4mm_model_config(
 
     Uses Phi4MMTorch27 (this module) to apply torch 2.7 compatibility patches.
 
-    :param fake_loss_grad: if True, replicate the OLD exp2025_05_05_align
-        gradient-injection trick (1/V - one_hot(target) at logits). If False
-        (default), use the actual ``d log p / d inputs``. Toggling this changes
-        the model_config hash, so the two variants produce separate jobs.
+    Each variant flag, when True, adds a key to the config dict and thus
+    changes the model_config hash (separate jobs). When False (default), the
+    key is omitted so the hash matches the original default-variant runs.
     """
     cfg = {
         "type": _PHI4MM_TORCH27_TYPE,
@@ -125,6 +126,10 @@ def _phi4mm_model_config(
     }
     if fake_loss_grad:
         cfg["fake_loss_grad"] = True
+    if margin_grad:
+        cfg["margin_grad"] = True
+    if first_subword_only:
+        cfg["first_subword_only"] = True
     return cfg
 
 
@@ -179,40 +184,96 @@ def _unwrap_checkpoint_wrappers(model) -> int:
 
 
 class Phi4MMTorch27(Phi4MM):
-    """Phi4-MM with torch 2.7 compatibility patches.
+    """Phi4-MM with torch 2.7 compatibility patches + several gradient-signal variants.
 
-    - Applies module-level monkey-patches (batches_gather) in __init__.
-    - Unwraps CheckpointWrapper layers after model load (incompatible with .grad()).
-    - Overrides forward() to put target_start_end on self.device so downstream
-      code that compares (t1 - t0) against cuda tensors does not hit a device
-      mismatch.
-    - With `fake_loss_grad=True`, reproduces the OLD ``exp2025_05_05_align``
-      grad-injection trick: the gradient injected at the logits is
+    All variant flags default to ``False`` so the default behavior (and Sis hashes)
+    is unchanged.
+
+    - ``fake_loss_grad=True``: reproduces the OLD ``exp2025_05_05_align``
+      grad-injection trick: gradient injected at logits is
       ``softmax(0) - one_hot(target) = 1/V - one_hot(target)``, independent of
-      model confidence. The default (False) uses the actual
-      ``d log p(target) / d inputs``, which is what the generic interface
-      naturally computes and what most "input gradient" papers do.
+      model confidence.
+    - ``margin_grad=True``: contrastive signal. Per (B, t, V) position, replace
+      ``log p[v]`` with ``log p[v] - log p[top_non_v_competitor]``. After
+      ``batches_gather(., target)`` this gives ``log p[target] - log p[top
+      non-target]``. Amplifies the target direction vs its strongest competitor.
+      Mutually exclusive with ``fake_loss_grad``.
+    - ``first_subword_only=True``: per word, only use the first subword for the
+      per-word loss/grad (ignore continuation subwords). Continuations are
+      mostly LM-predictable so their gradients are small and add noise; this
+      also normalizes signal strength across short / long words.
     """
 
-    def __init__(self, *, fake_loss_grad: bool = False, **kwargs):
+    def __init__(
+        self,
+        *,
+        fake_loss_grad: bool = False,
+        margin_grad: bool = False,
+        first_subword_only: bool = False,
+        **kwargs,
+    ):
         _apply_torch27_patches()
+        if fake_loss_grad and margin_grad:
+            raise ValueError("fake_loss_grad and margin_grad are mutually exclusive")
         self._fake_loss_grad = fake_loss_grad
+        self._margin_grad = margin_grad
+        self._first_subword_only = first_subword_only
         super().__init__(**kwargs)
         n = _unwrap_checkpoint_wrappers(self.model)
-        print(f"Phi4MMTorch27: unwrapped {n} CheckpointWrapper(s). fake_loss_grad={fake_loss_grad}")
+        print(
+            f"Phi4MMTorch27: unwrapped {n} CheckpointWrapper(s). "
+            f"fake_loss_grad={fake_loss_grad} margin_grad={margin_grad} "
+            f"first_subword_only={first_subword_only}"
+        )
 
     def forward(self, **kwargs):
+        import torch
+
         out = super().forward(**kwargs)
         if out.target_start_end.device != self.device:
             out.target_start_end = out.target_start_end.to(self.device)
+        if self._first_subword_only:
+            # Each entry's [t0, t1] gets restricted to [t0, t0 + 1] -- just the
+            # first subword. (The trailing EOS entry, added in Phi4MM.forward as
+            # [n_targets, n_targets + 1], is already a single token so this is
+            # a no-op for it.)
+            tse = out.target_start_end  # [B, num_words+1, 2]
+            out.target_start_end = torch.stack([tse[..., 0], tse[..., 0] + 1], dim=-1)
         return out
 
     def log_probs(self, *, forward_output, start, end):
         import torch
         from i6_experiments.users.zeyer.torch.batch_slice import batch_slice
 
-        if not self._fake_loss_grad:
-            return super().log_probs(forward_output=forward_output, start=start, end=end)
+        if self._fake_loss_grad:
+            log_p = self._log_probs_fake_loss(forward_output=forward_output, start=start, end=end)
+        else:
+            log_p = super().log_probs(forward_output=forward_output, start=start, end=end)
+
+        if self._margin_grad:
+            # For each (B, t, V) position, replace log_p[v] with
+            #   log_p[v] - log_p[top_non_v_competitor].
+            # We don't know `target` here -- it's used downstream in
+            # batches_gather. So we build a tensor where every entry already
+            # has its "best non-self" competitor subtracted. When batches_gather
+            # picks position v = target, we get
+            #   log_p[target] - log_p[top non-target competitor]
+            # which is the margin we want.
+            top2_vals, top2_idx = log_p.topk(2, dim=-1)  # values, indices: [B, T', 2]
+            top1_val = top2_vals[..., 0:1]
+            top2_val = top2_vals[..., 1:2]
+            top1_idx = top2_idx[..., 0:1]
+            V = log_p.shape[-1]
+            arange_v = torch.arange(V, device=log_p.device)
+            is_top1 = arange_v.view(1, 1, V) == top1_idx  # [B, T', V]
+            top_non_i = torch.where(is_top1, top2_val.expand_as(log_p), top1_val.expand_as(log_p))
+            log_p = log_p - top_non_i
+        return log_p
+
+    def _log_probs_fake_loss(self, *, forward_output, start, end):
+        import torch
+        from i6_experiments.users.zeyer.torch.batch_slice import batch_slice
+
         # Fake-loss-grad path: replicate the OLD exp2025_05_05_align trick.
         # Forward value of fake_logits is 0 (so log_softmax = log(1/V) for every class),
         # but gradient flows through real `logits`.
@@ -300,14 +361,18 @@ def py():
 
     # --- Short-form: TIMIT val/test, Phi4-multimodal -----------------------
     # Mirrors exp2025_05_05_align lines ~44-84 but via the generic Job.
-    # Two model_config variants: actual d log p / d inputs (default), and the
-    # OLD fake-loss-grad trick for direct comparison with the old setup.
+    # Several model_config variants of the per-word gradient signal.
 
-    for variant, fake_loss_grad in [("", False), ("-fakegrad", True)]:
-        phi4mm_cfg = _phi4mm_model_config(dl_phi4mi_dir, fake_loss_grad=fake_loss_grad)
+    for variant_suffix, variant_kwargs in [
+        ("", {}),  # default: actual d log p / d inputs
+        ("-fakegrad", {"fake_loss_grad": True}),  # OLD-style fake-loss-grad
+        ("-margin", {"margin_grad": True}),  # log p(t) - log p(top non-t)
+        ("-firstsub", {"first_subword_only": True}),  # only first subword per word
+    ]:
+        phi4mm_cfg = _phi4mm_model_config(dl_phi4mi_dir, **variant_kwargs)
         _build_timit_phi4mm(
             phi4mm_cfg=phi4mm_cfg,
-            variant_suffix=variant,
+            variant_suffix=variant_suffix,
             dl_ds_timit=dl_ds_timit,
         )
 
@@ -356,4 +421,4 @@ def _build_timit_phi4mm(*, phi4mm_cfg: Dict[str, Any], variant_suffix: str, dl_d
     #   from exp2025_05_05_align import CalcChunkedAlignmentMetricsJob
 
     # --- TODO: external-aligner baselines (MFA / WhisperX phoneme align) ---
-    # For comparison against the grad-align word-boundary numbers.
+    # Needed for the SLT paper headline table.
