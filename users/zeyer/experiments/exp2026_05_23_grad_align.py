@@ -42,7 +42,7 @@ Next steps, in rough priority:
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from sisyphus import tk
 
 from i6_experiments.users.zeyer.external_models.huggingface import (
@@ -70,9 +70,11 @@ from i6_experiments.users.zeyer.experiments.exp2025_05_05_align import (
 _GRAD_VARIANTS = [
     (True, "sum", "dot_e_grad"),
     (True, "L0.1", "L01_e_grad"),
+    (True, "L0.5", "L05_e_grad"),
     (True, "L1", "L1_e_grad"),
     (True, "L2", "L2_e_grad"),
     (False, "L0.1", "L01_grad"),
+    (False, "L0.5", "L05_grad"),
     (False, "L1", "L1_grad"),
     (False, "L2", "L2_grad"),
 ]
@@ -107,8 +109,10 @@ def _phi4mm_model_config(
     speech_prompt: str = "Transcribe the audio clip into text.",
     fake_loss_grad: bool = False,
     margin_grad: bool = False,
+    margin_grad_k: int = 1,
     first_subword_only: bool = False,
     char_level: bool = False,
+    char_level_sep: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     model_config dict consumed by the generic `make_model(type=..., **opts)`
@@ -129,10 +133,14 @@ def _phi4mm_model_config(
         cfg["fake_loss_grad"] = True
     if margin_grad:
         cfg["margin_grad"] = True
+    if margin_grad_k != 1:
+        cfg["margin_grad_k"] = margin_grad_k
     if first_subword_only:
         cfg["first_subword_only"] = True
     if char_level:
         cfg["char_level"] = True
+    if char_level_sep is not None:
+        cfg["char_level_sep"] = char_level_sep
     return cfg
 
 
@@ -218,23 +226,28 @@ class Phi4MMTorch27(Phi4MM):
         *,
         fake_loss_grad: bool = False,
         margin_grad: bool = False,
+        margin_grad_k: int = 1,
         first_subword_only: bool = False,
         char_level: bool = False,
+        char_level_sep: Optional[str] = None,
         **kwargs,
     ):
         _apply_torch27_patches()
         if fake_loss_grad and margin_grad:
             raise ValueError("fake_loss_grad and margin_grad are mutually exclusive")
+        assert margin_grad_k >= 1, f"margin_grad_k must be >= 1, got {margin_grad_k}"
         self._fake_loss_grad = fake_loss_grad
         self._margin_grad = margin_grad
+        self._margin_grad_k = margin_grad_k
         self._first_subword_only = first_subword_only
         self._char_level = char_level
+        self._char_level_sep = char_level_sep
         super().__init__(**kwargs)
         n = _unwrap_checkpoint_wrappers(self.model)
         print(
             f"Phi4MMTorch27: unwrapped {n} CheckpointWrapper(s). "
-            f"fake_loss_grad={fake_loss_grad} margin_grad={margin_grad} "
-            f"first_subword_only={first_subword_only} char_level={char_level}"
+            f"fake_loss_grad={fake_loss_grad} margin_grad={margin_grad} margin_grad_k={margin_grad_k} "
+            f"first_subword_only={first_subword_only} char_level={char_level} char_level_sep={char_level_sep!r}"
         )
 
     def forward(self, *, raw_targets=None, raw_target_seq_lens=None, **kwargs):
@@ -245,17 +258,22 @@ class Phi4MMTorch27(Phi4MM):
             # from Phi4MM.forward's perspective, so its BPE tokenization treats
             # space-separated chars as one token each. After super().forward(),
             # we re-group chars back into words in target_start_end.
+            # If char_level_sep is set, insert it as an extra "char" between
+            # words so the model sees an explicit inter-word boundary marker;
+            # default None gives the original behavior (no boundary cue).
             assert len(raw_targets) == 1, "char_level supports batch size 1 only"
             orig_words = raw_targets[0]
-            chars = [c for word in orig_words for c in word]
+            sep = self._char_level_sep
+            chars = []
+            word_char_ranges = []
+            for i, word in enumerate(orig_words):
+                if i > 0 and sep is not None:
+                    chars.append(sep)
+                cstart = len(chars)
+                chars.extend(word)
+                word_char_ranges.append((cstart, len(chars)))
             char_targets = [chars]
             char_target_seq_lens = torch.tensor([len(chars)])
-            # Track word boundaries in char indices.
-            word_char_ranges = []
-            idx = 0
-            for word in orig_words:
-                word_char_ranges.append((idx, idx + len(word)))
-                idx += len(word)
 
             out = super().forward(
                 raw_targets=char_targets, raw_target_seq_lens=char_target_seq_lens, **kwargs
@@ -304,22 +322,40 @@ class Phi4MMTorch27(Phi4MM):
 
         if self._margin_grad:
             # For each (B, t, V) position, replace log_p[v] with
-            #   log_p[v] - log_p[top_non_v_competitor].
+            #   log_p[v] - logsumexp(top-K of log_p, excluding v).
             # We don't know `target` here -- it's used downstream in
             # batches_gather. So we build a tensor where every entry already
-            # has its "best non-self" competitor subtracted. When batches_gather
-            # picks position v = target, we get
-            #   log_p[target] - log_p[top non-target competitor]
-            # which is the margin we want.
-            top2_vals, top2_idx = log_p.topk(2, dim=-1)  # values, indices: [B, T', 2]
-            top1_val = top2_vals[..., 0:1]
-            top2_val = top2_vals[..., 1:2]
-            top1_idx = top2_idx[..., 0:1]
+            # has its "best non-self competitor mass" subtracted. When
+            # batches_gather picks position v = target, we get
+            #   log_p[target] - logsumexp(top-K non-target competitors).
+            # K=1 reduces to the simple top-1 case (kept byte-exact below to
+            # preserve the existing -margin hash).
+            K = self._margin_grad_k
             V = log_p.shape[-1]
-            arange_v = torch.arange(V, device=log_p.device)
-            is_top1 = arange_v.view(1, 1, V) == top1_idx  # [B, T', V]
-            top_non_i = torch.where(is_top1, top2_val.expand_as(log_p), top1_val.expand_as(log_p))
-            log_p = log_p - top_non_i
+            if K == 1:
+                top2_vals, top2_idx = log_p.topk(2, dim=-1)  # values, indices: [B, T', 2]
+                top1_val = top2_vals[..., 0:1]
+                top2_val = top2_vals[..., 1:2]
+                top1_idx = top2_idx[..., 0:1]
+                arange_v = torch.arange(V, device=log_p.device)
+                is_top1 = arange_v.view(1, 1, V) == top1_idx  # [B, T', V]
+                top_non_i = torch.where(is_top1, top2_val.expand_as(log_p), top1_val.expand_as(log_p))
+                log_p = log_p - top_non_i
+            else:
+                topK1_vals, topK1_idx = log_p.topk(K + 1, dim=-1)  # [B, T', K+1]
+                arange_v = torch.arange(V, device=log_p.device)
+                is_in_topK1 = (
+                    topK1_idx.unsqueeze(-1) == arange_v.view(1, 1, 1, V)
+                ).any(dim=-2)  # [B, T', V]
+                # For v not in top-(K+1): subtract logsumexp(top-K).
+                lse_topK = topK1_vals[..., :K].logsumexp(dim=-1, keepdim=True)  # [B, T', 1]
+                # For v in top-(K+1): subtract log(exp(lse_topK+1) - exp(log_p[v])).
+                lse_topK1 = topK1_vals.logsumexp(dim=-1, keepdim=True)  # [B, T', 1]
+                m_in = lse_topK1 + torch.log1p(
+                    -torch.exp(log_p - lse_topK1).clamp(min=0.0, max=1.0 - 1e-6)
+                )
+                m = torch.where(is_in_topK1, m_in, lse_topK.expand_as(log_p))
+                log_p = log_p - m
         return log_p
 
     def _log_probs_fake_loss(self, *, forward_output, start, end):
@@ -420,7 +456,12 @@ def py():
         ("-fakegrad", {"fake_loss_grad": True}),  # OLD-style fake-loss-grad
         ("-margin", {"margin_grad": True}),  # log p(t) - log p(top non-t)
         ("-firstsub", {"first_subword_only": True}),  # only first subword per word
-        ("-charlev", {"char_level": True}),  # tokenize ref char-by-char
+        ("-charlev", {"char_level": True}),  # tokenize ref char-by-char, no boundary marker
+        # Phase 1: char-level boundary markers + margin top-K + flag combos.
+        ("-charlev-dot", {"char_level": True, "char_level_sep": "\u00b7"}),  # ·
+        ("-charlev-spc", {"char_level": True, "char_level_sep": " "}),
+        ("-margin-firstsub", {"margin_grad": True, "first_subword_only": True}),
+        ("-margin-k3", {"margin_grad": True, "margin_grad_k": 3}),
     ]:
         phi4mm_cfg = _phi4mm_model_config(dl_phi4mi_dir, **variant_kwargs)
         _build_timit_phi4mm(
