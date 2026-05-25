@@ -549,7 +549,18 @@ def py():
         seq_ordering="default",  # long-form has no duration column; skip sort
         sorting_seq_len_column="",
     )
-    _task_tedlium = _dataclasses.replace(task, score_recog_output_func=_hf_score)
+    def _hf_score_long_rqmt(dataset, recog_output):
+        # Wrap the standard sclite scorer so that for long-form recordings,
+        # the downstream ScliteJob runs on a partition
+        # with enough wallclock (default mini_task short partition = 30 min,
+        # which gets killed mid-alignment).
+        res = _hf_score(dataset, recog_output)
+        score_job = res.main_measure_value.creator
+        score_job.rqmt = {"cpu": 1, "mem": 4.0, "time": 4.0}
+        score_job.set_rqmt("run", score_job.rqmt)
+        return res
+
+    _task_tedlium = _dataclasses.replace(task, score_recog_output_func=_hf_score_long_rqmt)
 
     _tedlium_res = _recog_model(
         task=_task_tedlium,
