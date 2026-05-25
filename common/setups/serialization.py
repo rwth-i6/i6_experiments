@@ -367,8 +367,8 @@ class Call(SerializerObject):
     def __init__(
         self,
         callable_name: str,
-        kwargs: Optional[List[Tuple[str, Union[str, DelayedBase]]]] = None,
-        unhashed_kwargs: Optional[List[Tuple[str, Union[str, DelayedBase]]]] = None,
+        kwargs: Optional[List[Tuple[str, Any]]] = None,
+        unhashed_kwargs: Optional[List[Tuple[str, Any]]] = None,
         return_assign_variables: Optional[Union[str, List[str]]] = None,
     ) -> None:
         """
