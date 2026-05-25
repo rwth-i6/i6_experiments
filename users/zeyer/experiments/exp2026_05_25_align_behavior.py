@@ -30,7 +30,6 @@ from .exp2024_09_16_grad_align import (
     sis_get_ctc_model,
     ctc_forced_align,
     get_ctc_prior,
-    get_ctc_ref_label_log_probs,
 )
 
 
@@ -173,10 +172,6 @@ def py():
                     if k == "static_prior":
                         continue
                     name += f"-{k}{v}"
-
-                ref_log_probs = get_ctc_ref_label_log_probs(ctc_model, train_dataset, opts)
-                ref_log_probs.creator.add_alias(f"{prefix}ctc_ref_log_probs/{name}/log_probs")
-                tk.register_output(f"{prefix}ctc_ref_log_probs/{name}/log_probs.hdf", ref_log_probs)
 
                 prefix_ = f"{prefix}ctc_forced_align/{name}/"
                 alignment = ctc_forced_align(ctc_model, train_dataset, opts)
