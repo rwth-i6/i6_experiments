@@ -62,7 +62,53 @@ __setup_root_prefix__ = "exp2025_10_21_chunked_ctc"
 
 
 def py():
-    train("base", {})
+    _exp_base, _task_base, _aux_base = train("base", {})
+
+    # Verify the offline-trained base model runs correctly when loaded into
+    # ChunkedConformerEncoderV2 (v=3). Offline first (chunk_size=None) -- WER
+    # should match the base's existing offline recog. Then sweep chunk settings
+    # to see how much the offline-trained model degrades under chunked attention.
+    from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2 import (
+        ChunkedConformerEncoderLayerV2 as _ChunkLayer,
+        ChunkedConformerEncoderV2 as _ChunkEnc,
+    )
+    _base_v2_enc = rf.build_dict(
+        _ChunkEnc,
+        input_layer=rf.build_dict(
+            ConformerConvSubsample,
+            out_dims=[32, 64, 64],
+            filter_sizes=[(3, 3), (3, 3), (3, 3)],
+            pool_sizes=[(1, 2)],
+            strides=[(1, 1), (3, 1), (2, 1)],
+        ),
+        num_layers=16,
+        out_dim=1024,
+        encoder_layer=rf.build_dict(
+            _ChunkLayer,
+            ff=rf.build_dict(
+                ConformerPositionwiseFeedForward,
+                activation=rf.build_dict(rf.relu_square),
+                with_bias=False,
+            ),
+            num_heads=8,
+        ),
+        chunk_size=None,
+        version=3,
+    )
+    for cs, lh in [(None, 0), (5, 4), (10, 8), (20, 15)]:
+        enc = dict(_base_v2_enc)
+        enc["chunk_size"] = cs
+        enc["chunk_lookahead_size"] = lh
+        enc["chunk_history_size"] = 80 if cs is not None else 0
+        recog_model_with_config_overwrite(
+            model=_exp_base.get_last_fixed_epoch(),
+            task=_task_base,
+            recog_def=ctc_model_recog,
+            config_overwrites={"enc_build_dict": enc},
+            extra_config={"aux_loss_layers": [_aux_base]},
+            name="base-via-v2.3",
+            tag=f"L80-C{cs}-R{lh}" if cs is not None else "offline",
+        )
 
     train(
         "ff6",
