@@ -361,9 +361,7 @@ class ChunkedConformerEncoderV2(rf.Module):
                         compute_mse=True,
                     )
                     mse_scalar = rf.reduce_mean(mse, axis=mse.dims)
-                    mse_scalar.mark_as_loss(
-                        name="overlap_mse", scale=self.overlap_mse_loss_scale, as_error=False
-                    )
+                    mse_scalar.mark_as_loss(name="overlap_mse", scale=self.overlap_mse_loss_scale, as_error=False)
                 else:
                     x = _average_overlapping_chunks(
                         x,
@@ -881,8 +879,9 @@ def _mem_chunks(
     source_sliced, _ = rf.slice(source, axis=spatial_dim, size=end_chunk_size_dim)
 
     if external_left_context is not None:
-        assert external_left_context_time_dim is not None, \
+        assert external_left_context_time_dim is not None, (
             "external_left_context requires external_left_context_time_dim"
+        )
         # Prepend cache to source_sliced along chunked_time. After shift_right on
         # the combined tensor, positions [cache_len, cache_len+T_orig) contain
         # the original positions with the shift-pad region naturally filled by
@@ -900,9 +899,7 @@ def _mem_chunks(
 
     concats = []
     for shift_amount in range(mem_size, 0, -1):
-        shifted = rf.shift_right(
-            source_sliced_combined, axis=combined_time_dim, amount=shift_amount, pad_value=0.0
-        )
+        shifted = rf.shift_right(source_sliced_combined, axis=combined_time_dim, amount=shift_amount, pad_value=0.0)
         if external_left_context is not None:
             # Take only the original chunked_time positions.
             shifted, _ = rf.slice(
