@@ -113,6 +113,7 @@ def _phi4mm_model_config(
     first_subword_only: bool = False,
     char_level: bool = False,
     char_level_sep: Optional[str] = None,
+    char_level_brackets: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     model_config dict consumed by the generic `make_model(type=..., **opts)`
@@ -141,6 +142,8 @@ def _phi4mm_model_config(
         cfg["char_level"] = True
     if char_level_sep is not None:
         cfg["char_level_sep"] = char_level_sep
+    if char_level_brackets is not None:
+        cfg["char_level_brackets"] = char_level_brackets
     return cfg
 
 
@@ -230,6 +233,7 @@ class Phi4MMTorch27(Phi4MM):
         first_subword_only: bool = False,
         char_level: bool = False,
         char_level_sep: Optional[str] = None,
+        char_level_brackets: Optional[str] = None,
         **kwargs,
     ):
         _apply_torch27_patches()
@@ -240,8 +244,12 @@ class Phi4MMTorch27(Phi4MM):
         self._margin_grad = margin_grad
         self._margin_grad_k = margin_grad_k
         self._first_subword_only = first_subword_only
+        assert char_level_brackets in (None, "char", "word"), (
+            f"char_level_brackets must be None / 'char' / 'word', got {char_level_brackets!r}"
+        )
         self._char_level = char_level
         self._char_level_sep = char_level_sep
+        self._char_level_brackets = char_level_brackets
         super().__init__(**kwargs)
         n = _unwrap_checkpoint_wrappers(self.model)
         print(
@@ -264,13 +272,20 @@ class Phi4MMTorch27(Phi4MM):
             assert len(raw_targets) == 1, "char_level supports batch size 1 only"
             orig_words = raw_targets[0]
             sep = self._char_level_sep
+            brk = self._char_level_brackets
+            bow_tok = "[BOW]" if brk == "word" else ("[" if brk == "char" else None)
+            eow_tok = "[EOW]" if brk == "word" else ("]" if brk == "char" else None)
             chars = []
             word_char_ranges = []
             for i, word in enumerate(orig_words):
                 if i > 0 and sep is not None:
                     chars.append(sep)
                 cstart = len(chars)
+                if bow_tok is not None:
+                    chars.append(bow_tok)
                 chars.extend(word)
+                if eow_tok is not None:
+                    chars.append(eow_tok)
                 word_char_ranges.append((cstart, len(chars)))
             char_targets = [chars]
             char_target_seq_lens = torch.tensor([len(chars)])
@@ -470,13 +485,39 @@ def py():
             dl_ds_timit=dl_ds_timit,
         )
 
+    # Boundary-marker scouting variants: only L2_e_grad + val to keep the cost
+    # low. Wider sweep can be added later if any of these clearly wins.
+    for variant_suffix, variant_kwargs in [
+        ("-charlev-brk", {"char_level": True, "char_level_brackets": "char"}),
+        ("-charlev-brk-spc", {"char_level": True, "char_level_brackets": "char", "char_level_sep": " "}),
+        ("-charlev-brkw", {"char_level": True, "char_level_brackets": "word"}),
+        ("-charlev-brkw-spc", {"char_level": True, "char_level_brackets": "word", "char_level_sep": " "}),
+    ]:
+        phi4mm_cfg = _phi4mm_model_config(dl_phi4mi_dir, **variant_kwargs)
+        _build_timit_phi4mm(
+            phi4mm_cfg=phi4mm_cfg,
+            variant_suffix=variant_suffix,
+            dl_ds_timit=dl_ds_timit,
+            grad_variants_subset=[(True, "L2", "L2_e_grad")],
+            splits_subset=["val"],
+        )
 
-def _build_timit_phi4mm(*, phi4mm_cfg: Dict[str, Any], variant_suffix: str, dl_ds_timit) -> None:
+
+def _build_timit_phi4mm(
+    *,
+    phi4mm_cfg: Dict[str, Any],
+    variant_suffix: str,
+    dl_ds_timit,
+    grad_variants_subset: Optional[list] = None,
+    splits_subset: Optional[list] = None,
+) -> None:
+    grad_variants = grad_variants_subset if grad_variants_subset is not None else _GRAD_VARIANTS
+    splits = splits_subset if splits_subset is not None else ["val", "test"]
     for ds_name, ds_dl, keys in [
-        ("timit", dl_ds_timit, ["val", "test"]),
+        ("timit", dl_ds_timit, splits),
     ]:
         for key in keys:
-            for mult_grad_by_inputs, attr_reduction, grad_type_alias in _GRAD_VARIANTS:
+            for mult_grad_by_inputs, attr_reduction, grad_type_alias in grad_variants:
                 gen = ExtractInGradsFromModelJobTorch27(
                     dataset_dir=ds_dl.out_hub_cache_dir,
                     dataset_key=key,
