@@ -61,6 +61,28 @@ from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2 import (
 __setup_root_prefix__ = "exp2025_10_21_chunked_ctc"
 
 
+def _add_row_index_id_column(ds):
+    """Add a unique ``id`` column to a HF Dataset / DatasetDict using the row index.
+
+    Used for HF datasets that lack an ``id`` field (e.g. ``distil-whisper/
+    tedlium-long-form``). The RETURNN ``HuggingFaceDataset`` wrapper needs a
+    unique-per-row seq tag and ``id`` is the default ``seq_tag_column``.
+    Top-level so the function reference is stable for Sisyphus hashing.
+    """
+    from datasets import Dataset, DatasetDict
+
+    if isinstance(ds, DatasetDict):
+        return DatasetDict({
+            split: ds_split.add_column(
+                "id", [f"{split}_{i:06d}" for i in range(len(ds_split))]
+            )
+            for split, ds_split in ds.items()
+        })
+    if isinstance(ds, Dataset):
+        return ds.add_column("id", [f"{i:06d}" for i in range(len(ds))])
+    raise TypeError(f"unexpected ds type {type(ds)}")
+
+
 def py():
     _exp_base, _task_base, _aux_base = train("base", {})
 
@@ -485,6 +507,64 @@ def py():
         },
         name=name,
         tag="streaming-kvcache-v2-seg10",
+    )
+
+    # Tedlium: segmented (HF Open ASR Leaderboard) + long-form (distil-whisper/
+    # tedlium-long-form, full ~17-min talks). Both use streaming-kvcache recog.
+    import dataclasses as _dataclasses
+    import functools as _functools
+    from i6_core.datasets.huggingface import TransformAndMapHuggingFaceDatasetJob
+    from i6_experiments.users.zeyer.datasets.loquacious import get_vocab_by_str as _get_vocab
+    from i6_experiments.users.zeyer.datasets.hf_open_asr_leaderboard import (
+        HuggingFaceDataset as _HFDataset,
+        hacked_sclite_score_recog_out as _hf_score,
+        get_asr_leaderboard_hf_data_dir as _get_hf_leaderboard_dir,
+    )
+    from i6_experiments.users.zeyer.recog import recog_model as _recog_model
+
+    @_functools.cache
+    def _get_tedlium_longform_hf_dir():
+        _job = TransformAndMapHuggingFaceDatasetJob(
+            "distil-whisper/tedlium-long-form",
+            transform=_add_row_index_id_column,
+        )
+        _job.rqmt.update({"cpu": 4, "time": 1, "mem": 16})
+        _job.add_alias("datasets/tedlium-long-form")
+        tk.register_output("datasets/tedlium-long-form", _job.out_dir)
+        return _job.out_dir
+
+    _vocab_obj = _get_vocab("spm10k")
+    _tedlium_seg = _HFDataset(
+        hf_data_dir=_get_hf_leaderboard_dir("tedlium"),
+        name="tedlium",
+        split="test",
+        vocab=_vocab_obj,
+        sorting_seq_len_column="audio_length_s",
+    )
+    _tedlium_long = _HFDataset(
+        hf_data_dir=_get_tedlium_longform_hf_dir(),
+        name="tedlium-long-form",
+        split="test",
+        vocab=_vocab_obj,
+        seq_ordering="default",  # long-form has no duration column; skip sort
+        sorting_seq_len_column="",
+    )
+    _task_tedlium = _dataclasses.replace(task, score_recog_output_func=_hf_score)
+
+    _tedlium_res = _recog_model(
+        task=_task_tedlium,
+        model=exp.get_last_fixed_epoch(),
+        recog_def=model_recog_ctc_streaming_v2,
+        config={
+            "aux_loss_layers": [aux_ctc_layer],
+            "max_seqs": 1,
+            "streaming_segment_seconds": 10.0,
+        },
+        eval_sets={"tedlium-seg.test": _tedlium_seg, "tedlium-long.test": _tedlium_long},
+    )
+    tk.register_output(
+        f"{get_setup_prefix_for_module(__name__)}/aed/{name}/streaming-kvcache-v2-seg10-tedlium",
+        _tedlium_res.output,
     )
 
     # Newer RETURNN. This has a faster apply_rope.
