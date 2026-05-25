@@ -421,4 +421,4 @@ def _build_timit_phi4mm(*, phi4mm_cfg: Dict[str, Any], variant_suffix: str, dl_d
     #   from exp2025_05_05_align import CalcChunkedAlignmentMetricsJob
 
     # --- TODO: external-aligner baselines (MFA / WhisperX phoneme align) ---
-    # Needed for the SLT paper headline table.
+    # For comparison against the grad-align word-boundary numbers.
