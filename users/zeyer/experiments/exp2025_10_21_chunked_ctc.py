@@ -72,12 +72,12 @@ def _add_row_index_id_column(ds):
     from datasets import Dataset, DatasetDict
 
     if isinstance(ds, DatasetDict):
-        return DatasetDict({
-            split: ds_split.add_column(
-                "id", [f"{split}_{i:06d}" for i in range(len(ds_split))]
-            )
-            for split, ds_split in ds.items()
-        })
+        return DatasetDict(
+            {
+                split: ds_split.add_column("id", [f"{split}_{i:06d}" for i in range(len(ds_split))])
+                for split, ds_split in ds.items()
+            }
+        )
     if isinstance(ds, Dataset):
         return ds.add_column("id", [f"{i:06d}" for i in range(len(ds))])
     raise TypeError(f"unexpected ds type {type(ds)}")
@@ -94,6 +94,7 @@ def py():
         ChunkedConformerEncoderLayerV2 as _ChunkLayer,
         ChunkedConformerEncoderV2 as _ChunkEnc,
     )
+
     _base_v2_enc = rf.build_dict(
         _ChunkEnc,
         input_layer=rf.build_dict(
@@ -549,6 +550,7 @@ def py():
         seq_ordering="default",  # long-form has no duration column; skip sort
         sorting_seq_len_column="",
     )
+
     def _hf_score_long_rqmt(dataset, recog_output):
         # Wrap the standard sclite scorer so that for long-form recordings,
         # the downstream ScliteJob runs on a partition
