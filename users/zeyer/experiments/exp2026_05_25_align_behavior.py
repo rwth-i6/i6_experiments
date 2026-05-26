@@ -121,6 +121,104 @@ _SEQ_LIST_REF = _i6_ref(
 )
 
 
+def py():
+    """Sisyphus entry point."""
+    from i6_experiments.users.zeyer.datasets.librispeech import (
+        get_librispeech_task_raw_v2,
+        get_vocab_by_str,
+        seq_list_960_to_split_100_360_500,
+    )
+    from i6_core.text.label.sentencepiece.vocab import ExtractSentencePieceVocabJob
+
+    prefix = "exp2026_05_25_align_behavior/"
+
+    # ---- Train (or import if hash matches existing) ----
+    variants = [
+        ("base", _train_base()),
+        ("blankSep", _train_blanksep()),
+    ]
+    for ng_name, ng_opts in _LPNORMEDGRAD_VARIANTS.items():
+        variants.append((ng_name, _train_lpnormedgrad(ng_name, ng_opts)))
+
+    # ---- Forced-align + TSE / WER metrics on a 960h training subset ----
+    vocab = "spm10k"
+    vocab_meta = ("spm", ExtractSentencePieceVocabJob(get_vocab_by_str(vocab).model_file).out_vocab, 10_240)
+    seq_list = seq_list_960_to_split_100_360_500(_SEQ_LIST_REF)
+    task = get_librispeech_task_raw_v2(vocab=vocab)
+    train_dataset = task.train_dataset.copy_train_as_static()
+    train_dataset.main_dataset["seq_list_filter_file"] = seq_list
+
+    for shortname, model_with_checkpoints in variants:
+        if model_with_checkpoints is None:
+            continue  # train_exp returned None (e.g. enabled=False)
+        ctc_model = model_with_checkpoints.get_last_fixed_epoch()
+
+        # Prior on full train dataset (no seq_list filter).
+        prior_stats = get_ctc_prior(ctc_model, task.train_dataset.copy_train_as_static(), {"fix_log_probs": True})
+        prior_stats.mean.creator.add_alias(f"{prefix}ctc_prior/{shortname}/prior_stats_full")
+        tk.register_output(f"{prefix}ctc_prior/{shortname}/prior_stats_full.mean.txt", prior_stats.mean)
+
+        opts_variants = [{}]
+        for shift in [0, -5, -10, -15, -18, -20, -25]:
+            opts_variants.append({"fix_log_probs": True, "blank_logit_shift": shift})
+        for am_scale, prior_scale in [(1.0, 1.0), (1.0, 1.5), (1.0, 2.0), (1.0, 3.0)]:
+            opts_variants.append(
+                {
+                    "fix_log_probs": True,
+                    "ctc_prior_type": "static",
+                    "static_prior": {"type": "prob", "file": prior_stats.mean},
+                    "ctc_am_scale": am_scale,
+                    "ctc_prior_scale": prior_scale,
+                }
+            )
+        for shift in [-5, -10, -15, -20]:
+            opts_variants.append(
+                {
+                    "fix_log_probs": True,
+                    "blank_logit_shift": shift,
+                    "ctc_prior_type": "static",
+                    "static_prior": {"type": "prob", "file": prior_stats.mean},
+                    "ctc_am_scale": 1.0,
+                    "ctc_prior_scale": 1.0,
+                }
+            )
+
+        for opts in opts_variants:
+            name = shortname
+            for k, v in opts.items():
+                if k == "fix_log_probs" and v:
+                    name += "-fix"
+                    continue
+                if k == "static_prior":
+                    continue
+                name += f"-{k}{v}"
+
+            prefix_ = f"{prefix}ctc_forced_align/{name}/"
+            alignment = ctc_forced_align(ctc_model, train_dataset, opts)
+            alignment.creator.add_alias(f"{prefix_}align")
+            tk.register_output(f"{prefix_}align.hdf", alignment)
+
+            job = CalcAlignmentMetrics(
+                seq_list=seq_list,
+                seq_list_ref=_SEQ_LIST_REF,
+                alignment_hdf=alignment,
+                alignment_label_topology="ctc",
+                alignment_bpe_vocab=vocab_meta[1],
+                alignment_bpe_style=vocab_meta[0],
+                alignment_blank_idx=vocab_meta[2],
+                features_sprint_cache=_FEATURES_SPRINT_CACHE,
+                ref_alignment_sprint_cache=_GMM_ALIGNMENT_SPRINT_CACHE,
+                ref_alignment_allophones=_GMM_ALIGNMENT_ALLOPHONES,
+                ref_alignment_len_factor=6,
+            )
+            job.add_alias(f"{prefix_}align-metrics")
+            tk.register_output(f"{prefix_}align-metrics.json", job.out_scores)
+            tk.register_output(f"{prefix_}align-metrics.short_report.txt", job.out_short_report_str)
+
+    # NOTE Synthetic-framework experiments (FFNN / Conv / LSTM on artificial data)
+    # run from the standalone repo ``2024-alignment-analysis`` -- laptop-CPU, no Sis.
+
+
 def _enc_build_dict_l16_d1024():
     """Encoder spec for the L16-D1024 baseline. Mirrors ``ctc_claix2023.py``."""
     return rf.build_dict(
@@ -243,101 +341,3 @@ def _train_lpnormedgrad(name_suffix: str, log_prob_normed_grad_opts: dict):
             serialization.NonhashedCode(f"sys.path.append({gs.BASE_DIR + '/projects/2024-alignment-analysis'!r})\n")
         ],
     )
-
-
-def py():
-    """Sisyphus entry point."""
-    from i6_experiments.users.zeyer.datasets.librispeech import (
-        get_librispeech_task_raw_v2,
-        get_vocab_by_str,
-        seq_list_960_to_split_100_360_500,
-    )
-    from i6_core.text.label.sentencepiece.vocab import ExtractSentencePieceVocabJob
-
-    prefix = "exp2026_05_25_align_behavior/"
-
-    # ---- Train (or import if hash matches existing) ----
-    variants = [
-        ("base", _train_base()),
-        ("blankSep", _train_blanksep()),
-    ]
-    for ng_name, ng_opts in _LPNORMEDGRAD_VARIANTS.items():
-        variants.append((ng_name, _train_lpnormedgrad(ng_name, ng_opts)))
-
-    # ---- Forced-align + TSE / WER metrics on a 960h training subset ----
-    vocab = "spm10k"
-    vocab_meta = ("spm", ExtractSentencePieceVocabJob(get_vocab_by_str(vocab).model_file).out_vocab, 10_240)
-    seq_list = seq_list_960_to_split_100_360_500(_SEQ_LIST_REF)
-    task = get_librispeech_task_raw_v2(vocab=vocab)
-    train_dataset = task.train_dataset.copy_train_as_static()
-    train_dataset.main_dataset["seq_list_filter_file"] = seq_list
-
-    for shortname, model_with_checkpoints in variants:
-        if model_with_checkpoints is None:
-            continue  # train_exp returned None (e.g. enabled=False)
-        ctc_model = model_with_checkpoints.get_last_fixed_epoch()
-
-        # Prior on full train dataset (no seq_list filter).
-        prior_stats = get_ctc_prior(ctc_model, task.train_dataset.copy_train_as_static(), {"fix_log_probs": True})
-        prior_stats.mean.creator.add_alias(f"{prefix}ctc_prior/{shortname}/prior_stats_full")
-        tk.register_output(f"{prefix}ctc_prior/{shortname}/prior_stats_full.mean.txt", prior_stats.mean)
-
-        opts_variants = [{}]
-        for shift in [0, -5, -10, -15, -18, -20, -25]:
-            opts_variants.append({"fix_log_probs": True, "blank_logit_shift": shift})
-        for am_scale, prior_scale in [(1.0, 1.0), (1.0, 1.5), (1.0, 2.0), (1.0, 3.0)]:
-            opts_variants.append(
-                {
-                    "fix_log_probs": True,
-                    "ctc_prior_type": "static",
-                    "static_prior": {"type": "prob", "file": prior_stats.mean},
-                    "ctc_am_scale": am_scale,
-                    "ctc_prior_scale": prior_scale,
-                }
-            )
-        for shift in [-5, -10, -15, -20]:
-            opts_variants.append(
-                {
-                    "fix_log_probs": True,
-                    "blank_logit_shift": shift,
-                    "ctc_prior_type": "static",
-                    "static_prior": {"type": "prob", "file": prior_stats.mean},
-                    "ctc_am_scale": 1.0,
-                    "ctc_prior_scale": 1.0,
-                }
-            )
-
-        for opts in opts_variants:
-            name = shortname
-            for k, v in opts.items():
-                if k == "fix_log_probs" and v:
-                    name += "-fix"
-                    continue
-                if k == "static_prior":
-                    continue
-                name += f"-{k}{v}"
-
-            prefix_ = f"{prefix}ctc_forced_align/{name}/"
-            alignment = ctc_forced_align(ctc_model, train_dataset, opts)
-            alignment.creator.add_alias(f"{prefix_}align")
-            tk.register_output(f"{prefix_}align.hdf", alignment)
-
-            job = CalcAlignmentMetrics(
-                seq_list=seq_list,
-                seq_list_ref=_SEQ_LIST_REF,
-                alignment_hdf=alignment,
-                alignment_label_topology="ctc",
-                alignment_bpe_vocab=vocab_meta[1],
-                alignment_bpe_style=vocab_meta[0],
-                alignment_blank_idx=vocab_meta[2],
-                features_sprint_cache=_FEATURES_SPRINT_CACHE,
-                ref_alignment_sprint_cache=_GMM_ALIGNMENT_SPRINT_CACHE,
-                ref_alignment_allophones=_GMM_ALIGNMENT_ALLOPHONES,
-                ref_alignment_len_factor=6,
-            )
-            job.add_alias(f"{prefix_}align-metrics")
-            tk.register_output(f"{prefix_}align-metrics.json", job.out_scores)
-            tk.register_output(f"{prefix_}align-metrics.short_report.txt", job.out_short_report_str)
-
-    # NOTE Synthetic-framework experiments (FFNN / Conv / LSTM on artificial data)
-    # run from the standalone repo ``2024-alignment-analysis`` -- laptop-CPU, no Sis.
