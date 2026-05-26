@@ -858,6 +858,7 @@ def py():
         d_state=128,
         head_dim=64,
         block_len=32,
+        version=2,
     )
     _num_layers = 16
     _mamba2_per_layer = [_std_layer_spec if i % 2 == 0 else _mamba2_layer_spec for i in range(_num_layers)]

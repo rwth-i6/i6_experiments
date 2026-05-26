@@ -60,96 +60,71 @@ def _delta_rule_chunked(
     block_len: int,
     initial_state: Optional[torch.Tensor] = None,  # [B, H, Dv, Dk] or None
 ) -> torch.Tensor:
-    """Chunked parallel DeltaNet scan.
+    """Chunked parallel DeltaNet scan (closed-form WY representation).
 
     Returns Y of shape [B, L, H, Dv]. L must be a multiple of block_len.
 
-    Algorithm (per chunk):
-      1. Within-chunk: solve a small triangular system to get the per-token
-         contributions, expressed as matmuls.
-      2. Cross-chunk: propagate the state through the chunk-end via the
-         block's delta operator.
+    Recurrence (S of shape [Dv, Dk]):
+        S_l = S_{l-1} (I - beta_l k_l k_l^T) + beta_l v_l k_l^T
+        y_l = S_l q_l
+    With u_l = beta_l (v_l - S_{l-1} k_l) the recurrence becomes a rank-1
+    update S_l = S_{l-1} + u_l k_l^T, and within one block u solves the
+    unit-lower-triangular system
+        M u = beta V - beta (S_0 K^T)^T,   M = I + tril(beta * K K^T, -1)
+    Splitting the rhs gives u = U - W S_0^T where U = M^{-1} (beta V) and
+    W = M^{-1} (beta K). The block output and end-state are then
+        y_l    = sum_{j<=l} <k_j, q_l> U_j + (q_l - sum_{j<=l} <k_j, q_l> W_j) S_0^T
+        S_new  = S_0 - S_0 (W^T K) + U^T K
+    See Yang et al. 2024 (https://arxiv.org/abs/2406.06484) eqns (8)-(9).
+
+    The triangular solves run in fp32 even when Q/K/V are bf16/fp16: a bf16
+    unit-triangular solve with block_len=32 and near-correlated L2-normed
+    keys blows up to NaN on the first chunks.
     """
-    L = Q.size(1)
-    assert L % block_len == 0
+    L_ = Q.size(1)
+    assert L_ % block_len == 0
     B, H = Q.size(0), Q.size(2)
     Dk, Dv = Q.size(3), V.size(3)
+    dtype = Q.dtype
 
     Q = rearrange(Q, "b (c l) h d -> b c h l d", l=block_len)  # [B, C, H, L, Dk]
     K = rearrange(K, "b (c l) h d -> b c h l d", l=block_len)
     V = rearrange(V, "b (c l) h d -> b c h l d", l=block_len)
     beta = rearrange(beta, "b (c l) h -> b c h l", l=block_len)  # [B, C, H, L]
 
-    # Gate-weighted V and K: tilde_V = beta * V, tilde_K = beta * K.
-    tilde_V = V * beta.unsqueeze(-1)  # [B, C, H, L, Dv]
+    # M = I + tril(beta * K K^T, -1), unit lower triangular.
+    KK = torch.einsum("bchld,bchsd->bchls", K, K).float() * beta.unsqueeze(-1).float()
+    eye = torch.eye(block_len, device=Q.device, dtype=torch.float32).expand_as(KK)
+    M = eye + torch.tril(KK, diagonal=-1)  # [B, C, H, L, L], fp32
+    # U = M^{-1} (beta V), W = M^{-1} (beta K). Same M, two solves.
+    tilde_V = (V * beta.unsqueeze(-1)).float()
+    tilde_K = (K * beta.unsqueeze(-1)).float()
+    U = torch.linalg.solve_triangular(M, tilde_V, upper=False, unitriangular=True).to(dtype)
+    W = torch.linalg.solve_triangular(M, tilde_K, upper=False, unitriangular=True).to(dtype)
 
-    # Within-chunk attention-like matmul: A = K Q^T (per chunk).
-    # KK^T inside the chunk (lower-triangular).
-    KK = torch.einsum("bchld,bchsd->bchls", K, K)  # [B, C, H, L, L]
-    KK = KK * beta.unsqueeze(-1)  # scale rows by beta
-    # T_inv = (I - tril(KK, -1))^{-1} computed via Neumann-like accumulation.
-    # For small L (block_len ~32-64) we just invert.
-    eye = torch.eye(block_len, device=Q.device, dtype=Q.dtype).expand_as(KK)
-    L_mat = eye - torch.tril(KK, diagonal=-1)  # [B, C, H, L, L]
-    # Solve L_mat * U = tilde_V for U.  U = L_mat^{-1} tilde_V.
-    # L_mat is lower triangular with 1s on the diag, so triangular_solve is exact.
-    U = torch.linalg.solve_triangular(L_mat, tilde_V, upper=False, unitriangular=True)
-    # U[b,c,h,l,:] = decomposed value at position l within the chunk.
-
-    # Within-chunk output: Y_diag = (Q K^T) * tril(diag=0) ... * (something with U).
-    # Following the FLA reference: within-chunk output = causal-masked
-    # softmax-free attention with V replaced by U.
-    QK = torch.einsum("bchld,bchsd->bchls", Q, K)  # [B, C, H, L, L]
+    # Causal-masked QK (lower triangular incl. diagonal).
+    QK = torch.einsum("bchld,bchsd->bchls", Q, K)
     causal_mask = torch.tril(torch.ones(block_len, block_len, device=Q.device, dtype=torch.bool))
     QK = QK.masked_fill(~causal_mask, 0.0)
     Y_diag = torch.einsum("bchls,bchsd->bchld", QK, U)  # [B, C, H, L, Dv]
+    QW = torch.einsum("bchls,bchsd->bchld", QK, W)  # [B, C, H, L, Dk]
 
-    # Cross-chunk: maintain state S, [B, H, Dv, Dk]. Init zeros (or initial_state).
-    # The state after a chunk: S' = block_op(S, K, U).
-    # Per-chunk block_op: S' = S - sum_l (S k_l) (k_l^T) * beta_l + sum_l v'_l k_l^T (with v' = U).
-    #                    = S (I - tilde_K tilde_K^T_sum) + tilde_K^T U  -- block matrix form
-    # Equivalently: S' = (S - S K^T diag(beta) K) + U^T K   (using diag-beta absorbed in tilde_K).
-    # Concretely:
-    #   state_decay = (I - sum_l beta_l k_l k_l^T)  is hard to materialize for d_k > L; use
-    #   the running form: for each l from 0..L-1: S <- (I - beta_l k_l k_l^T) S + beta_l v_l k_l^T.
-    # That's the sequential form. For pure-PyTorch chunked, we can do block matmul:
-    #   K_chunk: [L, Dk]. The block update applies a sequence of rank-1 modifications. We
-    #   express it via U (already computed):
-    #       S_after = S_before - K^T (beta * (Q ... )) + K^T U ...
-    # See FLA implementation for the closed form. Here we keep it simple and correct via
-    # the per-time loop INSIDE each chunk (still vectorized across batch / heads).
-    # For block_len ~32-64 this loop is small (32-64 iterations) and runs entirely on GPU.
+    # Cross-chunk: closed-form block update (no per-step loop).
     if initial_state is None:
         S = Q.new_zeros((B, H, Dv, Dk))
     else:
         S = initial_state
     n_chunks = Q.size(1)
-    Y_off_list = []
+    Y_list = []
     for c in range(n_chunks):
-        # Cross-chunk contribution to this chunk's output:
-        # y_l += q_l S (state at chunk start), for each l in this chunk.
-        Y_off_c = torch.einsum("bhld,bhvd->bhlv", Q[:, c], S)  # [B, H, L, Dv]
-        Y_off_list.append(Y_off_c)
+        q_eff_c = Q[:, c] - QW[:, c]  # [B, H, L, Dk]
+        Y_off_c = torch.einsum("bhld,bhvd->bhlv", q_eff_c, S)  # [B, H, L, Dv]
+        Y_list.append(Y_diag[:, c] + Y_off_c)
+        WK = torch.einsum("bhld,bhle->bhde", W[:, c], K[:, c])  # [B, H, Dk, Dk]
+        UK = torch.einsum("bhlv,bhld->bhvd", U[:, c], K[:, c])  # [B, H, Dv, Dk]
+        S = S - torch.einsum("bhvd,bhde->bhve", S, WK) + UK
 
-        # Update S: apply each step in the chunk sequentially (cheap for small L).
-        # S <- (I - beta_l k_l k_l^T) S + beta_l v_l k_l^T
-        K_c = K[:, c]  # [B, H, L, Dk]
-        V_c = V[:, c]
-        beta_c = beta[:, c]  # [B, H, L]
-        for li in range(block_len):
-            k_l = K_c[:, :, li, :]  # [B, H, Dk]
-            v_l = V_c[:, :, li, :]  # [B, H, Dv]
-            b_l = beta_c[:, :, li]  # [B, H]
-            # delta = beta_l * (S @ k_l)              [B, H, Dv]
-            delta = b_l.unsqueeze(-1) * torch.einsum("bhvd,bhd->bhv", S, k_l)
-            # outer subtraction: S -= delta . k_l^T
-            S = S - delta.unsqueeze(-1) * k_l.unsqueeze(-2)
-            # outer addition: S += beta_l * v_l . k_l^T
-            add = (b_l.unsqueeze(-1) * v_l).unsqueeze(-1) * k_l.unsqueeze(-2)
-            S = S + add
-
-    Y_off = torch.stack(Y_off_list, dim=1)  # [B, C, H, L, Dv]
-    Y = Y_diag + Y_off  # [B, C, H, L, Dv]
+    Y = torch.stack(Y_list, dim=1)  # [B, C, H, L, Dv]
     Y = rearrange(Y, "b c h l d -> b (c l) h d")
     return Y
 
@@ -222,6 +197,9 @@ class DeltaNetBlock(rf.Module):
         head_dim: int = 64,
         n_heads: Optional[int] = None,
         block_len: int = 32,
+        normalize_eps: float = 1e-5,
+        beta_init: float = -4.0,
+        version: int = 1,
     ):
         """
         :param in_dim: input/output model dim.
@@ -231,9 +209,24 @@ class DeltaNetBlock(rf.Module):
             (if ``n_heads`` not given).
         :param n_heads: number of heads (overrides head_dim if given).
         :param block_len: chunk length for the chunkwise scan.
+        :param normalize_eps: eps for L2-normalizing q, k. Much larger than
+            F.normalize's default 1e-12 so near-zero untrained keys don't get
+            inflated to huge unit-vectors during warmup.
+        :param beta_init: initial constant for the beta-projection bias. With
+            sigmoid on top, default -4.0 gives beta ~ 0.018 at init, keeping
+            the within-block state-decay near identity until training has
+            stabilized.
+        :param version: implementation version. v1 (broken) had a sign error
+            in the within-block triangular factor and used bf16 for the solve;
+            v>=2 uses the corrected sign, fp32 solves, the WY closed-form for
+            cross-chunk state propagation, and the normalize_eps / beta_init
+            knobs above.
         """
         super().__init__()
+        assert version >= 2, f"DeltaNetBlock: version must be >= 2 (v1 broken); got {version}"
         self.in_dim = in_dim
+        self.normalize_eps = normalize_eps
+        self.version = version
         d_inner = in_dim.dimension * expand
         if n_heads is None:
             assert d_inner % head_dim == 0
@@ -254,6 +247,8 @@ class DeltaNetBlock(rf.Module):
         self.k_proj = rf.Linear(in_dim, self.d_qk_dim, with_bias=False)
         self.v_proj = rf.Linear(in_dim, self.d_v_dim, with_bias=False)
         self.beta_proj = rf.Linear(in_dim, self.d_beta_dim, with_bias=True)
+        # Init beta-projection bias to beta_init so sigmoid(beta) ~ 0.018 at start.
+        self.beta_proj.bias.initial = beta_init
 
         # Output projection. Note: input to out_proj is d_v (n_heads * head_dim).
         self.out_proj = rf.Linear(self.d_v_dim, in_dim, with_bias=False)
@@ -275,8 +270,8 @@ class DeltaNetBlock(rf.Module):
         beta = torch.sigmoid(beta)  # gate in (0, 1)
 
         # L2-normalize q, k (DeltaNet convention).
-        q = F.normalize(q, dim=-1)
-        k = F.normalize(k, dim=-1)
+        q = F.normalize(q, dim=-1, eps=self.normalize_eps)
+        k = F.normalize(k, dim=-1, eps=self.normalize_eps)
 
         # Pad to block_len.
         q_pad, T_orig = _pad_to_block_len(q, self.block_len, time_dim=1)
@@ -314,6 +309,9 @@ class DeltaNetChunkedLayerV2(rf.Module):
         n_heads: Optional[int] = None,
         block_len: int = 32,
         dropout: float = 0.0,
+        normalize_eps: float = 1e-5,
+        beta_init: float = -4.0,
+        version: int = 1,
         **_ignored_kwargs: Any,
     ):
         super().__init__()
@@ -327,6 +325,9 @@ class DeltaNetChunkedLayerV2(rf.Module):
             head_dim=head_dim,
             n_heads=n_heads,
             block_len=block_len,
+            normalize_eps=normalize_eps,
+            beta_init=beta_init,
+            version=version,
         )
 
     def __call__(
