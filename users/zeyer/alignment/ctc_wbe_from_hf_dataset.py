@@ -1,33 +1,38 @@
-"""Word-boundary error (WBE / TSE) for CTC forced alignments.
+"""
+Word-boundary error (WBE / TSE) for CTC forced alignments.
 
-Generic across CTC models and HF datasets with word-level reference
-boundaries (TIMIT, Buckeye, ...). Same TSE formula as the grad-align job at
-:class:`exp2025_05_05_align.CalcAlignmentMetricsJob` -- average over words of
-``0.5 * (|delta_start| + |delta_end|)``, then average over utterances --
-but driven by a hard frame-label CTC alignment HDF rather than a soft
-gradient-score matrix.
+Generic across CTC models and HF datasets
+with word-level reference boundaries (TIMIT, Buckeye, ...).
+Same TSE formula as the grad-align job at
+:class:`exp2025_05_05_align.CalcAlignmentMetricsJob`:
+average over words of ``0.5 * (|delta_start| + |delta_end|)``,
+then average over utterances.
+But driven by a hard frame-label CTC alignment HDF
+rather than a soft gradient-score matrix.
 
-Input HDF is whatever ``i6_experiments.users.zeyer.experiments.exp2024_09_16_grad_align.ctc_forced_align``
-(or any equivalent ``forward_to_hdf`` step that emits one CTC-with-blank
-label per encoder frame) writes: a sparse-int sequence per seq under the
-HDF's default ``data`` key.
+Input HDF is whatever
+:func:`i6_experiments.users.zeyer.experiments.exp2024_09_16_grad_align.ctc_forced_align`
+(or any equivalent ``forward_to_hdf`` step
+that emits one CTC-with-blank label per encoder frame) writes:
+a sparse-int sequence per seq under the HDF's default ``data`` key.
 
 The conversion CTC-frame-label-sequence -> word boundary times is:
 
-  1. Collapse consecutive frames carrying the same non-blank label (and
-     drop the intermediate blanks): yields a list of
-     ``(label_idx, start_frame, end_frame_excl)`` per emitted token.
-  2. Group consecutive tokens by the SPM word-boundary marker (``▁``): a
-     piece starting with ``▁`` begins a new word, pieces without it extend
-     the current word.
-  3. Map frame to time via ``frame_sec = audio_len_secs / num_frames``. The
-     encoder downsampling factor cancels because both numerator and
-     denominator are read from the same forward pass.
+  1. Collapse consecutive frames carrying the same non-blank label
+     (and drop the intermediate blanks):
+     yields a list of ``(label_idx, start_frame, end_frame_excl)`` per emitted token.
+  2. Group consecutive tokens by the SPM word-boundary marker (``▁``):
+     a piece starting with ``▁`` begins a new word,
+     pieces without it extend the current word.
+  3. Map frame to time via ``frame_sec = audio_len_secs / num_frames``.
+     The encoder downsampling factor cancels
+     because both numerator and denominator are read from the same forward pass.
 
-Reference offsets in ``word_detail.{start, stop}`` are interpreted via the
-caller-supplied ``dataset_offset_factor``: TIMIT stores sample indices
-(factor 1), Buckeye stores milliseconds (factor 1000). See
-:data:`i6_experiments.users.zeyer.datasets.hf_timit_buckeye.DATASET_OFFSET_FACTORS`.
+Reference offsets in ``word_detail.{start, stop}``
+are interpreted via the caller-supplied ``dataset_offset_factor``:
+TIMIT stores sample indices (factor 1),
+Buckeye stores milliseconds (factor 1000).
+See :data:`i6_experiments.users.zeyer.datasets.hf_timit_buckeye.DATASET_OFFSET_FACTORS`.
 """
 
 from __future__ import annotations
@@ -65,12 +70,14 @@ class CalcCtcWbeFromHfDatasetJob(Job):
         """
         :param alignment_hdf: per-seq frame-label HDF from ``ctc_forced_align``.
         :param spm_model_file: SentencePiece model used by the CTC model.
-        :param blank_idx: CTC blank label index. Typically equals the SPM vocab
-            size (the wb_target_dim is vocab_size + 1).
+        :param blank_idx: CTC blank label index.
+            Typically equals the SPM vocab size
+            (the ``wb_target_dim`` is ``vocab_size + 1``).
         :param dataset_dir: HF dataset dir (output of TIMIT/Buckeye prep job).
         :param dataset_key: HF split key, e.g. ``"val"`` / ``"test"``.
-        :param dataset_offset_factor: multiplier to convert ``word_detail``
-            offsets to "samples at sampling_rate". TIMIT = 1, Buckeye = 1000.
+        :param dataset_offset_factor: multiplier
+            to convert ``word_detail`` offsets to "samples at sampling_rate".
+            TIMIT = 1, Buckeye = 1000.
         :param returnn_root: optional, falls back to env default via i6_core.
         """
         super().__init__()
@@ -129,7 +136,7 @@ class CalcCtcWbeFromHfDatasetJob(Job):
 
         report_lines: List[str] = []
         report_lines.append(
-            f"CalcCtcAlignmentMetricsJob: {num_seqs} seqs, "
+            f"CalcCtcWbeFromHfDatasetJob: {num_seqs} seqs, "
             f"dataset_key={self.dataset_key!r}, "
             f"dataset_offset_factor={self.dataset_offset_factor}, "
             f"blank_idx={self.blank_idx}"

@@ -1188,11 +1188,14 @@ class ChunkedConformerEncoderLayer(chunked_conformer_v1.ChunkedConformerEncoderL
 
 
 def _aed_ctc_model_forced_align_step(*, model, extern_data, **_kwargs):
-    """Forward step: per-frame best-path CTC alignment from the AED model's top CTC head.
+    """
+    Forward step: per-frame best-path CTC alignment
+    from the AED model's top CTC head.
 
     Mirrors :func:`exp2024_09_16_grad_align._ctc_model_forced_align_step`,
-    but uses ``model.encode_and_get_ctc_log_probs`` instead of ``model(...)``
-    because the AED model's ``__call__`` performs AED decoding, not CTC forward.
+    but uses ``model.encode_and_get_ctc_log_probs`` instead of ``model(...)``,
+    because the AED model's ``__call__`` performs AED decoding,
+    not CTC forward.
     """
     from returnn.tensor import batch_dim
     from returnn.config import get_global_config
@@ -1227,10 +1230,12 @@ def _aed_ctc_forced_align(
     aux_ctc_layer: int,
     extra_config: Optional[Dict[str, Any]] = None,
 ) -> tk.Path:
-    """AED counterpart of :func:`exp2024_09_16_grad_align.ctc_forced_align`.
+    """
+    AED counterpart of :func:`exp2024_09_16_grad_align.ctc_forced_align`.
 
-    Selects the AED model's top CTC aux head via ``aux_loss_layers=[aux_ctc_layer]``
-    in the forward config (same wiring as the existing recog path).
+    Selects the AED model's top CTC aux head
+    via ``aux_loss_layers=[aux_ctc_layer]`` in the forward config,
+    same wiring as the existing recog path.
     """
     from i6_experiments.users.zeyer.forward_to_hdf import forward_to_hdf
 
@@ -1259,9 +1264,12 @@ def _aed_ctc_forced_align(
 
 
 def _run_align_stats(name: str, exp, aux_ctc_layer: int) -> None:
-    """Forced-align on TIMIT val+test + WBE / TSE metric for the given trained model.
+    """
+    Forced-align on TIMIT val+test + WBE / TSE metric
+    for the given trained model.
 
-    Single forced-align variant (no prior). Registers per-(corpus,split) outputs
+    Single forced-align variant (no prior).
+    Registers per-(corpus,split) outputs
     ``align-stats/<name>/<corpus>-<split>/{alignment.hdf, wbe.txt, report.txt}``.
     """
     from i6_experiments.users.zeyer.datasets.loquacious import get_vocab_by_str

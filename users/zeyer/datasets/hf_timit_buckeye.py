@@ -1,25 +1,29 @@
-"""HF TIMIT / Buckeye dataset wrappers for forced-align + WBE evaluation.
+"""
+HF TIMIT / Buckeye dataset wrappers for forced-align + WBE evaluation.
 
-Both ``nh0znoisung/timit`` and ``nh0znoisung/buckeye`` ship word-level reference
-boundaries in ``word_detail.{utterance, start, stop}``. The two corpora differ
-in how the boundary offsets are encoded:
+Both ``nh0znoisung/timit`` and ``nh0znoisung/buckeye``
+ship word-level reference boundaries in ``word_detail.{utterance, start, stop}``.
+The two corpora differ in how the boundary offsets are encoded:
 
-- TIMIT: ``start``/``stop`` are sample indices at the audio sample-rate
-  (16 kHz), so the conversion to seconds is ``offset / sampling_rate``.
-- Buckeye: ``start``/``stop`` are in milliseconds. To get to seconds, multiply
-  by 1000 then divide by ``sampling_rate``. Equivalently, scale by a factor
-  of 1000 before dividing by the sample-rate, matching the
-  ``dataset_offset_factors`` constant from
-  :mod:`exp2025_07_07_in_grads.jobs.extract_in_grad_scores`.
+- TIMIT: ``start``/``stop`` are sample indices at the audio sample-rate (16 kHz),
+  so the conversion to seconds is ``offset / sampling_rate``.
+- Buckeye: ``start``/``stop`` are in milliseconds.
+  To get to seconds, multiply by 1000 then divide by ``sampling_rate``.
+  Equivalently, scale by a factor of 1000 before dividing by the sample-rate,
+  matching the ``dataset_offset_factors`` constant
+  from :mod:`exp2025_07_07_in_grads.jobs.extract_in_grad_scores`.
 
 This module exposes:
 
-- :func:`get_hf_word_align_dataset_dir` -- a hash-stable preprocessed HF
-  dataset dir (adds ``text``, ``duration``, and ``id`` columns) suitable for
-  both RETURNN's ``HuggingFaceDataset`` and a downstream metrics job that
-  reads ``word_detail`` directly via ``datasets.load_dataset``.
-- :func:`get_hf_word_align_dataset_config` -- a :class:`DatasetConfigStatic`
-  wrapping that dir as audio (raw float32) + text (SPM-tokenized int32),
+- :func:`get_hf_word_align_dataset_dir` --
+  a hash-stable preprocessed HF dataset dir
+  (adds ``text``, ``duration``, and ``id`` columns),
+  suitable for both RETURNN's ``HuggingFaceDataset``
+  and a downstream metrics job that reads ``word_detail``
+  directly via ``datasets.load_dataset``.
+- :func:`get_hf_word_align_dataset_config` --
+  a :class:`DatasetConfigStatic` wrapping that dir as
+  audio (raw float32) + text (SPM-tokenized int32),
   ready to pass to ``ctc_forced_align`` / ``forward_to_hdf``.
 - :data:`DATASET_OFFSET_FACTORS` -- the per-corpus offset scale.
 """
@@ -58,10 +62,11 @@ DATASET_OFFSET_FACTORS = {"timit": 1, "buckeye": 1000}
 
 
 def _map_add_text_and_duration(example: Dict[str, Any]) -> Dict[str, Any]:
-    """Add ``text``, ``duration`` columns derived from ``word_detail`` and ``audio``.
+    """
+    Add ``text``, ``duration`` columns derived from ``word_detail`` and ``audio``.
 
-    Run via :class:`TransformAndMapHuggingFaceDatasetJob` ``map_func``. Top-level
-    so the function reference is stable across Sis hash recomputation.
+    Run via :class:`TransformAndMapHuggingFaceDatasetJob` ``map_func``.
+    Top-level so the function reference is stable across Sis hash recomputation.
     """
     example["text"] = " ".join(example["word_detail"]["utterance"]).lower()
     example["duration"] = float(len(example["audio"]["array"])) / float(example["audio"]["sampling_rate"])
@@ -70,11 +75,14 @@ def _map_add_text_and_duration(example: Dict[str, Any]) -> Dict[str, Any]:
 
 @cache
 def get_hf_word_align_dataset_dir(name: str) -> tk.Path:
-    """Get a hash-stable preprocessed HF dataset dir for TIMIT or Buckeye.
+    """
+    Get a hash-stable preprocessed HF dataset dir for TIMIT or Buckeye.
 
-    Adds ``text`` (joined lowercased ``word_detail.utterance``) and ``duration``
-    (seconds) columns. Keeps the original ``word_detail`` block so a downstream
-    metrics job can still read reference word boundaries via ``load_dataset``.
+    Adds ``text`` (joined lowercased ``word_detail.utterance``)
+    and ``duration`` (seconds) columns.
+    Keeps the original ``word_detail`` block
+    so a downstream metrics job can still read reference word boundaries
+    via ``load_dataset``.
 
     :param name: ``"timit"`` or ``"buckeye"``.
     """
@@ -96,17 +104,20 @@ def get_hf_word_align_dataset_config(
     vocab: VocabConfig,
     seq_ordering: str = "sorted_reverse",
 ) -> DatasetConfigStatic:
-    """Wrap a preprocessed HF TIMIT/Buckeye split as a RETURNN ``DatasetConfig``.
+    """
+    Wrap a preprocessed HF TIMIT/Buckeye split as a RETURNN ``DatasetConfig``.
 
-    Audio = raw float32 (re-cast to 16 kHz), text = SPM-tokenized int32 from
-    the lowercased word-joined transcript. ``default_input`` is ``"audio"``,
-    ``default_target`` is ``"text"`` -- matches what ``ctc_forced_align``
-    expects.
+    Audio = raw float32 (re-cast to 16 kHz),
+    text = SPM-tokenized int32 from the lowercased word-joined transcript.
+    ``default_input`` is ``"audio"``,
+    ``default_target`` is ``"text"``,
+    matching what ``ctc_forced_align`` expects.
 
     :param name: ``"timit"`` or ``"buckeye"``.
     :param split: HF split key, e.g. ``"val"`` / ``"test"``.
     :param vocab: SPM vocab (typically ``get_vocab_by_str("spm10k")``).
-    :param seq_ordering: RETURNN seq ordering. Default sorts by duration desc.
+    :param seq_ordering: RETURNN seq ordering.
+        Default sorts by duration desc.
     """
     hf_data_dir = get_hf_word_align_dataset_dir(name)
     vocab_opts = vocab.get_opts()
@@ -149,10 +160,12 @@ def get_hf_word_align_dataset_config(
 
 # Convenience pass-through to keep call sites short.
 def get_dataset_offset_factor(name: str) -> int:
-    """Return the per-corpus offset multiplier for word_detail.{start,stop}.
+    """
+    Return the per-corpus offset multiplier for word_detail.{start,stop}.
 
-    See module docstring. Used by the WBE-metric job to map raw offsets to
-    seconds via ``offset * factor / sampling_rate``.
+    See module docstring.
+    Used by the WBE-metric job
+    to map raw offsets to seconds via ``offset * factor / sampling_rate``.
     """
     assert name in DATASET_OFFSET_FACTORS, name
     return DATASET_OFFSET_FACTORS[name]
