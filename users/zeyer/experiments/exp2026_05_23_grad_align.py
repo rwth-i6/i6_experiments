@@ -110,6 +110,7 @@ def _phi4mm_model_config(
     fake_loss_grad: bool = False,
     margin_grad: bool = False,
     margin_grad_k: int = 1,
+    eos_margin: bool = False,
     first_subword_only: bool = False,
     char_level: bool = False,
     char_level_sep: Optional[str] = None,
@@ -136,6 +137,8 @@ def _phi4mm_model_config(
         cfg["margin_grad"] = True
     if margin_grad_k != 1:
         cfg["margin_grad_k"] = margin_grad_k
+    if eos_margin:
+        cfg["eos_margin"] = True
     if first_subword_only:
         cfg["first_subword_only"] = True
     if char_level:
@@ -230,6 +233,7 @@ class Phi4MMTorch27(Phi4MM):
         fake_loss_grad: bool = False,
         margin_grad: bool = False,
         margin_grad_k: int = 1,
+        eos_margin: bool = False,
         first_subword_only: bool = False,
         char_level: bool = False,
         char_level_sep: Optional[str] = None,
@@ -243,6 +247,7 @@ class Phi4MMTorch27(Phi4MM):
         self._fake_loss_grad = fake_loss_grad
         self._margin_grad = margin_grad
         self._margin_grad_k = margin_grad_k
+        self._eos_margin = eos_margin
         self._first_subword_only = first_subword_only
         assert char_level_brackets in (None, "char", "word"), (
             f"char_level_brackets must be None / 'char' / 'word', got {char_level_brackets!r}"
@@ -371,6 +376,12 @@ class Phi4MMTorch27(Phi4MM):
                 )
                 m = torch.where(is_in_topK1, m_in, lse_topK.expand_as(log_p))
                 log_p = log_p - m
+        if self._eos_margin:
+            # Subtract log_p[<|end|>] from every position. After batches_gather
+            # picks position v = target, we get log_p[target] - log_p[end]:
+            # margin against "stop now" rather than predicting the target.
+            eos_idx = self.assistant_end_token_id
+            log_p = log_p - log_p[..., eos_idx : eos_idx + 1]
         return log_p
 
     def _log_probs_fake_loss(self, *, forward_output, start, end):
@@ -452,6 +463,62 @@ class AddSizesToGradScoreHdfJob(Job):
             f.create_dataset("seqLengths", data=new_sl)
 
 
+class SmoothGradScoreHdfJob(Job):
+    """Apply temporal smoothing (Gaussian or median filter) to a grad-score HDF
+    along the input-frame axis. Preserves all other streams.
+
+    Assumes one chunk per sequence (short-form). For multi-chunk extracts, the
+    per-word reshape below would need to iterate chunks; not implemented yet.
+    """
+
+    def __init__(self, *, grad_score_hdf: tk.Path, smooth_kind: str, smooth_size: float):
+        super().__init__()
+        assert smooth_kind in ("gaussian", "median"), smooth_kind
+        self.grad_score_hdf = grad_score_hdf
+        self.smooth_kind = smooth_kind
+        self.smooth_size = smooth_size  # sigma for gaussian, kernel size for median
+        self.out_hdf = self.output_path("out.hdf")
+        self.rqmt = {"cpu": 1, "mem": 4, "time": 1}
+
+    def tasks(self):
+        from sisyphus import Task
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import shutil
+        import numpy as np
+        import h5py
+        from scipy.ndimage import gaussian_filter1d, median_filter
+
+        in_path = self.grad_score_hdf.get_path()
+        out_path = self.out_hdf.get_path()
+        shutil.copyfile(in_path, out_path)
+
+        with h5py.File(out_path, "r+") as f:
+            num_in = f["targets/data/num_input_frames"][:]  # [n_seqs, 1]
+            num_words = f["targets/data/num_words"][:]
+            n_seqs = num_in.shape[0]
+            assert num_in.shape == num_words.shape == (n_seqs, 1), (
+                f"SmoothGradScoreHdfJob: assumes one chunk per seq; got "
+                f"num_in.shape={num_in.shape}, n_seqs={n_seqs}"
+            )
+            data = f["inputs"][:].squeeze(-1)  # [total_frames]
+            offset = 0
+            for seq_idx in range(n_seqs):
+                T = int(num_in[seq_idx, 0])
+                W = int(num_words[seq_idx, 0])
+                n = W * T
+                chunk = data[offset:offset + n].reshape(W, T).astype(np.float32, copy=False)
+                if self.smooth_kind == "gaussian":
+                    chunk = gaussian_filter1d(chunk, sigma=float(self.smooth_size), axis=1)
+                else:
+                    chunk = median_filter(chunk, size=(1, int(self.smooth_size)))
+                data[offset:offset + n] = chunk.reshape(-1)
+                offset += n
+            assert offset == len(data), f"length mismatch: offset={offset} vs len={len(data)}"
+            f["inputs"][:] = data[:, None]
+
+
 def py():
     """Sisyphus entry point."""
     dl_phi4mi_dir = download_phi4multimodal_model()
@@ -492,6 +559,8 @@ def py():
         ("-charlev-brk-spc", {"char_level": True, "char_level_brackets": "char", "char_level_sep": " "}),
         ("-charlev-brkw", {"char_level": True, "char_level_brackets": "word"}),
         ("-charlev-brkw-spc", {"char_level": True, "char_level_brackets": "word", "char_level_sep": " "}),
+        # Phase 1c: scout EOS margin (log p(target) - log p(end-of-assistant)).
+        ("-eos-margin", {"eos_margin": True}),
     ]:
         phi4mm_cfg = _phi4mm_model_config(dl_phi4mi_dir, **variant_kwargs)
         _build_timit_phi4mm(
@@ -501,6 +570,51 @@ def py():
             grad_variants_subset=[(True, "L2", "L2_e_grad")],
             splits_subset=["val"],
         )
+
+    # Phase 1c: temporal smoothing scout. Re-uses the existing default and
+    # charlev-spc Extract HDFs (hash-identical to those already computed --
+    # no extra GPU work, only new Smooth + Calc).
+    for variant_suffix, variant_kwargs in [
+        ("", {}),
+        ("-charlev-spc", {"char_level": True, "char_level_sep": " "}),
+    ]:
+        phi4mm_cfg = _phi4mm_model_config(dl_phi4mi_dir, **variant_kwargs)
+        gen = ExtractInGradsFromModelJobTorch27(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=phi4mm_cfg,
+            mult_grad_by_inputs=True,
+            attr_reduction="L2",
+        )
+        gen.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        base_name = f"phi4mm-timit-val-L2_e_grad{variant_suffix}"
+        hdf_with_sizes = AddSizesToGradScoreHdfJob(grad_score_hdf=gen.out_hdf)
+        for smooth_kind, smooth_size in [
+            ("gaussian", 1.0),
+            ("gaussian", 2.0),
+            ("gaussian", 3.0),
+            ("median", 3),
+            ("median", 5),
+        ]:
+            tag = f"{smooth_kind}{smooth_size}".replace(".", "p")
+            smoother = SmoothGradScoreHdfJob(
+                grad_score_hdf=hdf_with_sizes.out_hdf,
+                smooth_kind=smooth_kind,
+                smooth_size=smooth_size,
+            )
+            smoother.add_alias(f"{base_name}-smooth-{tag}")
+            for align_opts in _ALIGN_OPTS_GRID:
+                align_name = f"align/{base_name}-smooth-{tag}-{_name_for_dict(align_opts)}"
+                align = CalcAlignmentMetricsJob(
+                    grad_score_hdf=smoother.out_hdf,
+                    grad_score_key="data",
+                    dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                    dataset_key="val",
+                    dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                    align_opts=align_opts,
+                )
+                align.add_alias(align_name)
+                tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
 
 def _build_timit_phi4mm(
