@@ -63,17 +63,60 @@ from .exp2024_09_16_grad_align import (
 )
 
 
-# Reference alignment paths (LibriSpeech GMM, Tina's setup).
-_GMM_ALIGNMENT_ALLOPHONES = Path(
+# LibriSpeech GMM reference alignment (Tina's setup) + Schmitt's seq_list.
+# The data originally lived on i6 (``/work/common/...``) and ``/u/schmitt/...``.
+# For the RWTH HPC, the same files were mirrored under
+# ``/hpcwork/az668407/setups-data/librispeech/data-from-i6/`` (the
+# ``.cache.bundle`` files were sed-rewritten to point at the new locations);
+# see project note ``2026-05-25-align-behavior.md``.
+#
+# Cluster detection: ``/hpcwork`` only exists on the RWTH HPC. ``_i6_ref``
+# picks the rz mirror if so, otherwise the canonical i6 path. ``hash_overwrite``
+# is always pinned to the i6 path so the resulting Sis job hashes are stable
+# across clusters.
+import os as _os
+
+_IS_RZ = _os.path.exists("/hpcwork")
+
+# Each entry maps an i6 canonical prefix to its rz mirror. Longest-prefix wins,
+# so list more specific entries first. Exact-file mappings are fine here too --
+# the seq_list lives in a different i6 tree and has a renamed mirror.
+_I6_TO_RZ_MIRRORS = [
+    (
+        "/u/schmitt/experiments/segmental_models_2022_23_rf/work/i6_core/corpus/segments/SegmentCorpusJob.AmDlp1YMZF1e/output/segments.1",
+        "/hpcwork/az668407/setups-data/librispeech/data-from-i6/seq-list-from-schmitt.1",
+    ),
+    (
+        "/work/common/asr/librispeech/data",
+        "/hpcwork/az668407/setups-data/librispeech/data-from-i6",
+    ),
+]
+
+
+def _i6_ref(i6_path: str) -> Path:
+    """Resolve a canonical i6 reference path to its rz mirror (or the original).
+
+    ``hash_overwrite`` is pinned to the i6 form so Sis job hashes stay stable
+    regardless of which cluster the recipe runs on.
+    """
+    if _IS_RZ:
+        for i6_pre, rz_pre in _I6_TO_RZ_MIRRORS:
+            if i6_path == i6_pre or i6_path.startswith(i6_pre + "/"):
+                return Path(rz_pre + i6_path[len(i6_pre) :], hash_overwrite=i6_path)
+        raise ValueError(f"_i6_ref: no rz mirror configured for {i6_path!r}")
+    return Path(i6_path, hash_overwrite=i6_path)
+
+
+_GMM_ALIGNMENT_ALLOPHONES = _i6_ref(
     "/work/common/asr/librispeech/data/sisyphus_export_setup/work/i6_core/lexicon/allophones/StoreAllophonesJob.bY339UmRbGhr/output/allophones"
 )
-_GMM_ALIGNMENT_SPRINT_CACHE = Path(
+_GMM_ALIGNMENT_SPRINT_CACHE = _i6_ref(
     "/work/common/asr/librispeech/data/sisyphus_work_dir/i6_core/mm/alignment/AlignmentJob.oyZ7O0XJcO20/output/alignment.cache.bundle"
 )
-_FEATURES_SPRINT_CACHE = Path(
+_FEATURES_SPRINT_CACHE = _i6_ref(
     "/work/common/asr/librispeech/data/sisyphus_work_dir/i6_core/features/extraction/FeatureExtractionJob.VTLN.upmU2hTb8dNH/output/vtln.cache.bundle"
 )
-_SEQ_LIST_REF = Path(
+_SEQ_LIST_REF = _i6_ref(
     "/u/schmitt/experiments/segmental_models_2022_23_rf/work/i6_core/corpus/segments/SegmentCorpusJob.AmDlp1YMZF1e/output/segments.1"
 )
 
