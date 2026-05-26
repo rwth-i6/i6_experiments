@@ -85,6 +85,7 @@ def _add_row_index_id_column(ds):
 
 def py():
     _exp_base, _task_base, _aux_base = train("base", {})
+    _run_align_stats("base", _exp_base, _aux_base)
 
     # Verify the offline-trained base model runs correctly when loaded into
     # ChunkedConformerEncoderV2 (v=3). Offline first (chunk_size=None) -- WER
@@ -438,6 +439,7 @@ def py():
             "lm_recog_extra.__serialization_version_stats": 2,
         },
     )
+    _run_align_stats(name, exp, aux_ctc_layer)
     # CTC-only recog-time chunk-size / lookahead sweep on the last fixed epoch.
     for cs, lh in [
         (center_size, right_size),
@@ -1178,3 +1180,120 @@ class ChunkedConformerEncoder(chunked_conformer_v1.ChunkedConformerEncoder):
 
 class ChunkedConformerEncoderLayer(chunked_conformer_v1.ChunkedConformerEncoderLayer):
     """alias"""
+
+
+# ---------------------------------------------------------------------------
+# Word-boundary alignment evaluation on TIMIT (forced-align + WBE/TSE).
+# ---------------------------------------------------------------------------
+
+
+def _aed_ctc_model_forced_align_step(*, model, extern_data, **_kwargs):
+    """Forward step: per-frame best-path CTC alignment from the AED model's top CTC head.
+
+    Mirrors :func:`exp2024_09_16_grad_align._ctc_model_forced_align_step`,
+    but uses ``model.encode_and_get_ctc_log_probs`` instead of ``model(...)``
+    because the AED model's ``__call__`` performs AED decoding, not CTC forward.
+    """
+    from returnn.tensor import batch_dim
+    from returnn.config import get_global_config
+    from i6_experiments.users.zeyer.nn_rf.fsa import best_path_ctc
+
+    config = get_global_config()
+    default_input_key = config.typed_value("default_input")
+    default_target_key = config.typed_value("target")
+    source = extern_data[default_input_key]
+    targets = extern_data[default_target_key]
+    expected_output = rf.get_run_ctx().expected_outputs["output"]
+    out_spatial_dim = expected_output.dims[-1]
+
+    log_probs, _, enc_spatial_dim = model.encode_and_get_ctc_log_probs(source, in_spatial_dim=source.get_time_dim_tag())
+    path, score = best_path_ctc(
+        logits=log_probs,
+        logits_normalized=True,
+        input_spatial_dim=enc_spatial_dim,
+        targets=targets,
+        targets_spatial_dim=targets.get_time_dim_tag(),
+        blank_index=model.blank_idx,
+    )
+    out_spatial_dim.declare_same_as(enc_spatial_dim)
+    path.mark_as_default_output(shape=[batch_dim, enc_spatial_dim])
+    score.mark_as_output("scores", shape=[batch_dim])
+
+
+def _aed_ctc_forced_align(
+    model: ModelWithCheckpoint,
+    dataset,
+    *,
+    aux_ctc_layer: int,
+    extra_config: Optional[Dict[str, Any]] = None,
+) -> tk.Path:
+    """AED counterpart of :func:`exp2024_09_16_grad_align.ctc_forced_align`.
+
+    Selects the AED model's top CTC aux head via ``aux_loss_layers=[aux_ctc_layer]``
+    in the forward config (same wiring as the existing recog path).
+    """
+    from i6_experiments.users.zeyer.forward_to_hdf import forward_to_hdf
+
+    extern_data_dict = dataset.get_extern_data()
+    default_target_dict = extern_data_dict[dataset.get_default_target()]
+    classes_dim = default_target_dict["sparse_dim"]
+    classes_with_blank_dim = classes_dim + 1
+
+    fwd_config = {
+        "model_outputs": {
+            "output": {"shape": (None,), "sparse_dim": classes_with_blank_dim},
+            "scores": {"shape": ()},
+        },
+        "aux_loss_layers": [aux_ctc_layer],
+    }
+    if extra_config:
+        fwd_config.update(extra_config)
+
+    return forward_to_hdf(
+        dataset=dataset,
+        model=model,
+        forward_step=_aed_ctc_model_forced_align_step,
+        config=fwd_config,
+        forward_rqmt={"time": 4},
+    )
+
+
+def _run_align_stats(name: str, exp, aux_ctc_layer: int) -> None:
+    """Forced-align on TIMIT val+test + WBE / TSE metric for the given trained model.
+
+    Single forced-align variant (no prior). Registers per-(corpus,split) outputs
+    ``align-stats/<name>/<corpus>-<split>/{alignment.hdf, wbe.txt, report.txt}``.
+    """
+    from i6_experiments.users.zeyer.datasets.loquacious import get_vocab_by_str
+    from i6_experiments.users.zeyer.datasets.hf_timit_buckeye import (
+        get_dataset_offset_factor,
+        get_hf_word_align_dataset_config,
+        get_hf_word_align_dataset_dir,
+    )
+    from i6_experiments.users.zeyer.alignment.ctc_wbe_from_hf_dataset import CalcCtcWbeFromHfDatasetJob
+
+    prefix = get_setup_prefix_for_module(__name__) + "/align-stats/" + name
+    vocab = get_vocab_by_str("spm10k")
+    model = exp.get_last_fixed_epoch()
+
+    for corpus in ["timit"]:
+        ds_dir = get_hf_word_align_dataset_dir(corpus)
+        offset_factor = get_dataset_offset_factor(corpus)
+        for split in ["val", "test"]:
+            tag = f"{corpus}-{split}"
+            ds = get_hf_word_align_dataset_config(name=corpus, split=split, vocab=vocab)
+            alignment_hdf = _aed_ctc_forced_align(model, ds, aux_ctc_layer=aux_ctc_layer)
+            alignment_hdf.creator.add_alias(f"{prefix}/{tag}/forced-align")
+            tk.register_output(f"{prefix}/{tag}/alignment.hdf", alignment_hdf)
+
+            metrics_job = CalcCtcWbeFromHfDatasetJob(
+                alignment_hdf=alignment_hdf,
+                spm_model_file=vocab.model_file,
+                blank_idx=vocab.dim,
+                dataset_dir=ds_dir,
+                dataset_key=split,
+                dataset_offset_factor=offset_factor,
+            )
+            metrics_job.add_alias(f"{prefix}/{tag}/wbe-metric")
+            tk.register_output(f"{prefix}/{tag}/wbe.txt", metrics_job.out_wbe)
+            tk.register_output(f"{prefix}/{tag}/report.txt", metrics_job.out_report)
