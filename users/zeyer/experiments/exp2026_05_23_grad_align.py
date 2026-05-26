@@ -1,8 +1,8 @@
 """
-Grad-based alignment for ASR
+Grad-based alignment for ASR.
 
-Continuation/cleanup of :mod:`exp2025_05_05_align` using the generic,
-model-agnostic job classes from :mod:`exp2025_07_07_in_grads`.
+Continuation / cleanup of :mod:`exp2025_05_05_align` using the generic,
+model-agnostic Job classes from :mod:`exp2025_07_07_in_grads`.
 
 Conventions:
 
@@ -12,13 +12,15 @@ Conventions:
   Output HDF has a single score key "data".
 
   Mapping to the old `grad_type` strings (see :mod:`exp2025_05_05_align`):
-      L01_e_grad  ↔  mult_grad_by_inputs=True,  attr_reduction="L0.1"
-      L1_e_grad   ↔  mult_grad_by_inputs=True,  attr_reduction="L1"
-      L2_e_grad   ↔  mult_grad_by_inputs=True,  attr_reduction="L2"
-      L01_grad    ↔  mult_grad_by_inputs=False, attr_reduction="L0.1"
-      L1_grad     ↔  mult_grad_by_inputs=False, attr_reduction="L1"
-      L2_grad     ↔  mult_grad_by_inputs=False, attr_reduction="L2"
-      dot_e_grad  ↔  mult_grad_by_inputs=True,  attr_reduction="sum"
+      L01_e_grad  <-> mult_grad_by_inputs=True,  attr_reduction="L0.1"
+      L05_e_grad  <-> mult_grad_by_inputs=True,  attr_reduction="L0.5"
+      L1_e_grad   <-> mult_grad_by_inputs=True,  attr_reduction="L1"
+      L2_e_grad   <-> mult_grad_by_inputs=True,  attr_reduction="L2"
+      L01_grad    <-> mult_grad_by_inputs=False, attr_reduction="L0.1"
+      L05_grad    <-> mult_grad_by_inputs=False, attr_reduction="L0.5"
+      L1_grad     <-> mult_grad_by_inputs=False, attr_reduction="L1"
+      L2_grad     <-> mult_grad_by_inputs=False, attr_reduction="L2"
+      dot_e_grad  <-> mult_grad_by_inputs=True,  attr_reduction="sum"
 
 - Chunked long-form segmentation:
   :class:`exp2025_07_07_in_grads.jobs.chunk_segmentation.ChunkSegmentationFromModelJob`
@@ -26,24 +28,19 @@ Conventions:
 - Alignment metric (WBE) computation: reuse
   :class:`exp2025_05_05_align.CalcAlignmentMetricsJob` and
   :class:`exp2025_05_05_align.CalcChunkedAlignmentMetricsJob` (already
-  model-agnostic — just take a grad-score HDF + dataset).
+  model-agnostic -- just take a grad-score HDF + dataset).
 
-Next steps, in rough priority:
-
-1. Port the prompt-sensitivity sweep (lines ~172-203 of old recipe).
-2. Port the long-form Buckeye block (lines ~86-170 of old recipe), using
-   `ChunkSegmentationFromModelJob` + `ExtractInGradsFromModelJob` chained.
-3. Add an external-aligner baseline (MFA or WhisperX phoneme-align) computing
-   WBE on the same TIMIT/Buckeye references.
-4. Optional stretch: Qwen2-Audio model_config — extend
-   `exp2025_07_07_in_grads.jobs.models` with a `Qwen2Audio` interface and
-   register via the `type` dispatcher.
+The Phi4MM model variant flags (margin_grad, char_level, ...) were folded
+into the base :class:`Phi4MM` class. This recipe just passes them via
+``rf.build_dict(Phi4MM, ...)``.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
-from sisyphus import tk
+from typing import Any, Dict, Optional, List
+
+import returnn.frontend as rf
+from sisyphus import Job, tk
 
 from i6_experiments.users.zeyer.external_models.huggingface import (
     DownloadHuggingFaceRepoJobV2,
@@ -52,7 +49,6 @@ from i6_experiments.users.zeyer.external_models.phi4multimodal import (
     download_phi4multimodal_model,
 )
 
-from sisyphus import Job
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.extract_in_grad_scores import (
     ExtractInGradsFromModelJob,
 )
@@ -80,8 +76,8 @@ _GRAD_VARIANTS = [
 ]
 
 
-# Align-opts grid (taken from the old recipe, lines ~57-72). Trim later;
-# for now keep both so we can re-confirm numbers.
+# Align-opts grid (taken from the old recipe). Trim later; for now keep both
+# so we can re-confirm numbers.
 _ALIGN_OPTS_GRID = [
     {"apply_softmax_over_time": True, "blank_score": -6},
     {
@@ -98,11 +94,6 @@ _ALIGN_OPTS_GRID = [
 _DATASET_OFFSET_FACTORS = {"timit": 1, "buckeye": 1000}
 
 
-# Dotted-path identifier of Phi4MMTorch27 below, for `make_model(type=...)` dispatch.
-# The generic registry imports the module via importlib when a dotted path is given.
-_PHI4MM_TORCH27_TYPE = "i6_experiments.users.zeyer.experiments.exp2026_05_23_grad_align.Phi4MMTorch27"
-
-
 def _phi4mm_model_config(
     model_dir: tk.Path,
     *,
@@ -117,299 +108,41 @@ def _phi4mm_model_config(
     char_level_brackets: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    model_config dict consumed by the generic `make_model(type=..., **opts)`
-    registry in :mod:`exp2025_07_07_in_grads.jobs.models`.
+    Build the model_config dict consumed by ``make_model`` in
+    :mod:`exp2025_07_07_in_grads.jobs.models`. Uses ``rf.build_dict`` so the
+    class is a code symbol (find-usages works).
 
-    Uses Phi4MMTorch27 (this module) to apply torch 2.7 compatibility patches.
-
-    Each variant flag, when True, adds a key to the config dict and thus
-    changes the model_config hash (separate jobs). When False (default), the
-    key is omitted so the hash matches the original default-variant runs.
+    Each variant flag, when at its default, is omitted from the resulting dict
+    so the hash matches across configs that don't touch it. The torch-2.7
+    compat flags (``unwrap_checkpoint_wrappers``, ``target_start_end_to_device``)
+    are always-on for this recipe -- they fix the audio-encoder vs. autograd
+    incompatibility and the CPU/CUDA target_start_end mismatch respectively.
     """
-    cfg = {
-        "type": _PHI4MM_TORCH27_TYPE,
-        "model_dir": model_dir,
-        "speech_prompt": speech_prompt,
-    }
+    extra: Dict[str, Any] = {}
     if fake_loss_grad:
-        cfg["fake_loss_grad"] = True
+        extra["fake_loss_grad"] = True
     if margin_grad:
-        cfg["margin_grad"] = True
+        extra["margin_grad"] = True
     if margin_grad_k != 1:
-        cfg["margin_grad_k"] = margin_grad_k
+        extra["margin_grad_k"] = margin_grad_k
     if eos_margin:
-        cfg["eos_margin"] = True
+        extra["eos_margin"] = True
     if first_subword_only:
-        cfg["first_subword_only"] = True
+        extra["first_subword_only"] = True
     if char_level:
-        cfg["char_level"] = True
+        extra["char_level"] = True
     if char_level_sep is not None:
-        cfg["char_level_sep"] = char_level_sep
+        extra["char_level_sep"] = char_level_sep
     if char_level_brackets is not None:
-        cfg["char_level_brackets"] = char_level_brackets
-    return cfg
-
-
-def _apply_torch27_patches() -> None:
-    """Apply runtime monkey-patches needed to run Phi4-MM on torch 2.7. Idempotent.
-
-    These are scoped to this recipe; they intentionally do NOT modify shared
-    code in `recipe/i6_experiments/users/zeyer/...`.
-    """
-    # i6_experiments...batch_gather.batches_gather: the original incorrectly
-    # uses indices.shape[:-1] *after* flatten which (a) does not recover the
-    # original batch dims and (b) raises on empty shape on torch>=2.7.
-    # Replace with a corrected variant that saves/restores batch_dims_shape.
-    from i6_experiments.users.zeyer.torch import batch_gather as _bg_mod
-
-    if not getattr(_bg_mod.batches_gather, "_torch27_patched", False):
-        _inner = _bg_mod.batch_gather
-
-        def _batches_gather_fixed(values, *, indices, num_batch_dims):
-            assert num_batch_dims >= 1
-            batch_dims_shape = indices.shape[:num_batch_dims]
-            values = values.flatten(0, num_batch_dims - 1)
-            indices = indices.flatten(0, num_batch_dims - 1)
-            res = _inner(values=values, indices=indices, batch_dim=0, index_dim=1)
-            if num_batch_dims > 1:
-                res = res.unflatten(0, batch_dims_shape)
-            return res
-
-        _batches_gather_fixed._torch27_patched = True
-        _bg_mod.batches_gather = _batches_gather_fixed
-
-
-def _unwrap_checkpoint_wrappers(model) -> int:
-    """Walk `model` and replace any `CheckpointWrapper` (torch.distributed) with
-    the wrapped module directly. Returns the number unwrapped.
-
-    Phi4-MM's audio encoder config enables `activation_checkpointing` which
-    wraps layers with REENTRANT-impl checkpointing -- incompatible with
-    `torch.autograd.grad()` on torch>=2.7. Inference-only use here, so we just
-    skip checkpointing entirely (small memory bump, no semantic change).
-    """
-    import torch.nn as nn
-    from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import CheckpointWrapper
-
-    count = 0
-    for module in model.modules():
-        for name, child in list(module.named_children()):
-            if isinstance(child, CheckpointWrapper):
-                setattr(module, name, child._checkpoint_wrapped_module)
-                count += 1
-    return count
-
-
-class Phi4MMTorch27(Phi4MM):
-    """Phi4-MM with torch 2.7 compatibility patches + several gradient-signal variants.
-
-    All variant flags default to ``False`` so the default behavior (and Sis hashes)
-    is unchanged.
-
-    - ``fake_loss_grad=True``: reproduces the OLD ``exp2025_05_05_align``
-      grad-injection trick: gradient injected at logits is
-      ``softmax(0) - one_hot(target) = 1/V - one_hot(target)``, independent of
-      model confidence.
-    - ``margin_grad=True``: contrastive signal. Per (B, t, V) position, replace
-      ``log p[v]`` with ``log p[v] - log p[top_non_v_competitor]``. After
-      ``batches_gather(., target)`` this gives ``log p[target] - log p[top
-      non-target]``. Amplifies the target direction vs its strongest competitor.
-      Mutually exclusive with ``fake_loss_grad``.
-    - ``first_subword_only=True``: per word, only use the first subword for the
-      per-word loss/grad (ignore continuation subwords). Continuations are
-      mostly LM-predictable so their gradients are small and add noise; this
-      also normalizes signal strength across short / long words.
-    - ``char_level=True``: tokenize the reference at character level (one BPE
-      token per character via space-separated chars). Per-word grad becomes a
-      sum over per-character grads. Hypothesis: finer-granularity log-prob
-      signal may sharpen alignment. Implementation: explode words to chars
-      before calling ``super().forward()``, then post-process
-      ``target_start_end`` to re-group chars back into words.
-    """
-
-    def __init__(
-        self,
-        *,
-        fake_loss_grad: bool = False,
-        margin_grad: bool = False,
-        margin_grad_k: int = 1,
-        eos_margin: bool = False,
-        first_subword_only: bool = False,
-        char_level: bool = False,
-        char_level_sep: Optional[str] = None,
-        char_level_brackets: Optional[str] = None,
-        **kwargs,
-    ):
-        _apply_torch27_patches()
-        if fake_loss_grad and margin_grad:
-            raise ValueError("fake_loss_grad and margin_grad are mutually exclusive")
-        assert margin_grad_k >= 1, f"margin_grad_k must be >= 1, got {margin_grad_k}"
-        self._fake_loss_grad = fake_loss_grad
-        self._margin_grad = margin_grad
-        self._margin_grad_k = margin_grad_k
-        self._eos_margin = eos_margin
-        self._first_subword_only = first_subword_only
-        assert char_level_brackets in (None, "char", "word"), (
-            f"char_level_brackets must be None / 'char' / 'word', got {char_level_brackets!r}"
-        )
-        self._char_level = char_level
-        self._char_level_sep = char_level_sep
-        self._char_level_brackets = char_level_brackets
-        super().__init__(**kwargs)
-        n = _unwrap_checkpoint_wrappers(self.model)
-        print(
-            f"Phi4MMTorch27: unwrapped {n} CheckpointWrapper(s). "
-            f"fake_loss_grad={fake_loss_grad} margin_grad={margin_grad} margin_grad_k={margin_grad_k} "
-            f"first_subword_only={first_subword_only} char_level={char_level} char_level_sep={char_level_sep!r}"
-        )
-
-    def forward(self, *, raw_targets=None, raw_target_seq_lens=None, **kwargs):
-        import torch
-
-        if self._char_level and raw_targets is not None:
-            # Explode each word into its characters. Each char becomes a "word"
-            # from Phi4MM.forward's perspective, so its BPE tokenization treats
-            # space-separated chars as one token each. After super().forward(),
-            # we re-group chars back into words in target_start_end.
-            # If char_level_sep is set, insert it as an extra "char" between
-            # words so the model sees an explicit inter-word boundary marker;
-            # default None gives the original behavior (no boundary cue).
-            assert len(raw_targets) == 1, "char_level supports batch size 1 only"
-            orig_words = raw_targets[0]
-            sep = self._char_level_sep
-            brk = self._char_level_brackets
-            bow_tok = "[BOW]" if brk == "word" else ("[" if brk == "char" else None)
-            eow_tok = "[EOW]" if brk == "word" else ("]" if brk == "char" else None)
-            chars = []
-            word_char_ranges = []
-            for i, word in enumerate(orig_words):
-                if i > 0 and sep is not None:
-                    chars.append(sep)
-                cstart = len(chars)
-                if bow_tok is not None:
-                    chars.append(bow_tok)
-                chars.extend(word)
-                if eow_tok is not None:
-                    chars.append(eow_tok)
-                word_char_ranges.append((cstart, len(chars)))
-            char_targets = [chars]
-            char_target_seq_lens = torch.tensor([len(chars)])
-
-            out = super().forward(
-                raw_targets=char_targets, raw_target_seq_lens=char_target_seq_lens, **kwargs
-            )
-            # out.target_start_end has shape [B, num_chars+1, 2] (chars + EOS).
-            tse = out.target_start_end  # on CPU
-            assert tse.shape[1] == len(chars) + 1, (
-                f"char_level: expected {len(chars) + 1} entries (chars + EOS), got {tse.shape[1]}"
-            )
-            # Build new target_start_end with one entry per WORD covering the
-            # subword range of that word's characters, plus the EOS entry.
-            new_entries = []
-            for cstart, cend in word_char_ranges:
-                t0 = int(tse[0, cstart, 0])
-                t1 = int(tse[0, cend - 1, 1])
-                new_entries.append([t0, t1])
-            # Append the EOS entry (unchanged).
-            new_entries.append([int(tse[0, -1, 0]), int(tse[0, -1, 1])])
-            out.target_start_end = torch.tensor([new_entries], dtype=tse.dtype, device=tse.device)
-            # Also fix up target_seq_lens since the parent recomputed from char count.
-            # Downstream code uses target_start_end directly, not target_seq_lens, so this
-            # is mostly cosmetic but keep it consistent.
-            out.target_seq_lens = torch.tensor([len(orig_words)])
-        else:
-            out = super().forward(raw_targets=raw_targets, raw_target_seq_lens=raw_target_seq_lens, **kwargs)
-
-        if out.target_start_end.device != self.device:
-            out.target_start_end = out.target_start_end.to(self.device)
-        if self._first_subword_only:
-            # Each entry's [t0, t1] gets restricted to [t0, t0 + 1] -- just the
-            # first subword. (The trailing EOS entry, added in Phi4MM.forward as
-            # [n_targets, n_targets + 1], is already a single token so this is
-            # a no-op for it.)
-            tse = out.target_start_end  # [B, num_words+1, 2]
-            out.target_start_end = torch.stack([tse[..., 0], tse[..., 0] + 1], dim=-1)
-        return out
-
-    def log_probs(self, *, forward_output, start, end):
-        import torch
-        from i6_experiments.users.zeyer.torch.batch_slice import batch_slice
-
-        if self._fake_loss_grad:
-            log_p = self._log_probs_fake_loss(forward_output=forward_output, start=start, end=end)
-        else:
-            log_p = super().log_probs(forward_output=forward_output, start=start, end=end)
-
-        if self._margin_grad:
-            # For each (B, t, V) position, replace log_p[v] with
-            #   log_p[v] - logsumexp(top-K of log_p, excluding v).
-            # We don't know `target` here -- it's used downstream in
-            # batches_gather. So we build a tensor where every entry already
-            # has its "best non-self competitor mass" subtracted. When
-            # batches_gather picks position v = target, we get
-            #   log_p[target] - logsumexp(top-K non-target competitors).
-            # K=1 reduces to the simple top-1 case (kept byte-exact below to
-            # preserve the existing -margin hash).
-            K = self._margin_grad_k
-            V = log_p.shape[-1]
-            if K == 1:
-                top2_vals, top2_idx = log_p.topk(2, dim=-1)  # values, indices: [B, T', 2]
-                top1_val = top2_vals[..., 0:1]
-                top2_val = top2_vals[..., 1:2]
-                top1_idx = top2_idx[..., 0:1]
-                arange_v = torch.arange(V, device=log_p.device)
-                is_top1 = arange_v.view(1, 1, V) == top1_idx  # [B, T', V]
-                top_non_i = torch.where(is_top1, top2_val.expand_as(log_p), top1_val.expand_as(log_p))
-                log_p = log_p - top_non_i
-            else:
-                topK1_vals, topK1_idx = log_p.topk(K + 1, dim=-1)  # [B, T', K+1]
-                arange_v = torch.arange(V, device=log_p.device)
-                is_in_topK1 = (
-                    topK1_idx.unsqueeze(-1) == arange_v.view(1, 1, 1, V)
-                ).any(dim=-2)  # [B, T', V]
-                # For v not in top-(K+1): subtract logsumexp(top-K).
-                lse_topK = topK1_vals[..., :K].logsumexp(dim=-1, keepdim=True)  # [B, T', 1]
-                # For v in top-(K+1): subtract log(exp(lse_topK+1) - exp(log_p[v])).
-                lse_topK1 = topK1_vals.logsumexp(dim=-1, keepdim=True)  # [B, T', 1]
-                m_in = lse_topK1 + torch.log1p(
-                    -torch.exp(log_p - lse_topK1).clamp(min=0.0, max=1.0 - 1e-6)
-                )
-                m = torch.where(is_in_topK1, m_in, lse_topK.expand_as(log_p))
-                log_p = log_p - m
-        if self._eos_margin:
-            # Subtract log_p[<|end|>] from every position. After batches_gather
-            # picks position v = target, we get log_p[target] - log_p[end]:
-            # margin against "stop now" rather than predicting the target.
-            eos_idx = self.assistant_end_token_id
-            log_p = log_p - log_p[..., eos_idx : eos_idx + 1]
-        return log_p
-
-    def _log_probs_fake_loss(self, *, forward_output, start, end):
-        import torch
-        from i6_experiments.users.zeyer.torch.batch_slice import batch_slice
-
-        # Fake-loss-grad path: replicate the OLD exp2025_05_05_align trick.
-        # Forward value of fake_logits is 0 (so log_softmax = log(1/V) for every class),
-        # but gradient flows through real `logits`.
-        last_out = forward_output.outputs["last_out"]
-        dst_text_start = forward_output.outputs["dst_text_start"]
-        last_out = batch_slice(last_out, (dst_text_start + start - 1, dst_text_start + end - 1))
-        logits = self.model.lm_head(last_out)
-        logits = logits.float()
-        for f in self.logits_transform:
-            logits = f(logits)
-        fake_logits = logits + (-logits).detach()  # value: 0; grads -> real logits
-        return fake_logits.log_softmax(-1)  # [B, T', V]
-
-
-class ExtractInGradsFromModelJobTorch27(ExtractInGradsFromModelJob):
-    """Wrapper that applies torch 2.7 patches *before* the base run() does its
-    local imports (which bind the original function names if patched too late).
-    """
-
-    def run(self):
-        _apply_torch27_patches()
-        super().run()
+        extra["char_level_brackets"] = char_level_brackets
+    return rf.build_dict(
+        Phi4MM,
+        model_dir=model_dir,
+        speech_prompt=speech_prompt,
+        unwrap_checkpoint_wrappers=True,
+        target_start_end_to_device=True,
+        **extra,
+    )
 
 
 class AddSizesToGradScoreHdfJob(Job):
@@ -482,6 +215,7 @@ class SmoothGradScoreHdfJob(Job):
 
     def tasks(self):
         from sisyphus import Task
+
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
@@ -539,8 +273,8 @@ def py():
         ("-margin", {"margin_grad": True}),  # log p(t) - log p(top non-t)
         ("-firstsub", {"first_subword_only": True}),  # only first subword per word
         ("-charlev", {"char_level": True}),  # tokenize ref char-by-char, no boundary marker
-        # Phase 1: char-level boundary markers + margin top-K + flag combos.
-        ("-charlev-dot", {"char_level": True, "char_level_sep": "\u00b7"}),  # ·
+        # char-level boundary markers + margin top-K + flag combos.
+        ("-charlev-dot", {"char_level": True, "char_level_sep": "·"}),  # ·
         ("-charlev-spc", {"char_level": True, "char_level_sep": " "}),
         ("-margin-firstsub", {"margin_grad": True, "first_subword_only": True}),
         ("-margin-k3", {"margin_grad": True, "margin_grad_k": 3}),
@@ -559,7 +293,7 @@ def py():
         ("-charlev-brk-spc", {"char_level": True, "char_level_brackets": "char", "char_level_sep": " "}),
         ("-charlev-brkw", {"char_level": True, "char_level_brackets": "word"}),
         ("-charlev-brkw-spc", {"char_level": True, "char_level_brackets": "word", "char_level_sep": " "}),
-        # Phase 1c: scout EOS margin (log p(target) - log p(end-of-assistant)).
+        # Scout EOS margin (log p(target) - log p(end-of-assistant)).
         ("-eos-margin", {"eos_margin": True}),
     ]:
         phi4mm_cfg = _phi4mm_model_config(dl_phi4mi_dir, **variant_kwargs)
@@ -571,15 +305,15 @@ def py():
             splits_subset=["val"],
         )
 
-    # Phase 1c: temporal smoothing scout. Re-uses the existing default and
-    # charlev-spc Extract HDFs (hash-identical to those already computed --
-    # no extra GPU work, only new Smooth + Calc).
+    # Temporal smoothing scout. Re-uses the existing default and charlev-spc
+    # Extract HDFs (hash-identical to those already computed -- no extra GPU
+    # work, only new Smooth + Calc).
     for variant_suffix, variant_kwargs in [
         ("", {}),
         ("-charlev-spc", {"char_level": True, "char_level_sep": " "}),
     ]:
         phi4mm_cfg = _phi4mm_model_config(dl_phi4mi_dir, **variant_kwargs)
-        gen = ExtractInGradsFromModelJobTorch27(
+        gen = ExtractInGradsFromModelJob(
             dataset_dir=dl_ds_timit.out_hub_cache_dir,
             dataset_key="val",
             model_config=phi4mm_cfg,
@@ -622,8 +356,8 @@ def _build_timit_phi4mm(
     phi4mm_cfg: Dict[str, Any],
     variant_suffix: str,
     dl_ds_timit,
-    grad_variants_subset: Optional[list] = None,
-    splits_subset: Optional[list] = None,
+    grad_variants_subset: Optional[List] = None,
+    splits_subset: Optional[List] = None,
 ) -> None:
     grad_variants = grad_variants_subset if grad_variants_subset is not None else _GRAD_VARIANTS
     splits = splits_subset if splits_subset is not None else ["val", "test"]
@@ -632,7 +366,7 @@ def _build_timit_phi4mm(
     ]:
         for key in keys:
             for mult_grad_by_inputs, attr_reduction, grad_type_alias in grad_variants:
-                gen = ExtractInGradsFromModelJobTorch27(
+                gen = ExtractInGradsFromModelJob(
                     dataset_dir=ds_dl.out_hub_cache_dir,
                     dataset_key=key,
                     model_config=phi4mm_cfg,
