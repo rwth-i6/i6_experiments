@@ -840,9 +840,11 @@ def py():
     # results are directly comparable.
     from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2_mamba2 import (
         Mamba2ChunkedLayerV2,
+        BidirMamba2ChunkedLayer,
     )
     from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2_deltanet import (
         DeltaNetChunkedLayerV2,
+        BidirDeltaNetChunkedLayer,
     )
 
     _std_layer_spec = rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2)
@@ -862,9 +864,34 @@ def py():
         block_len=32,
         version=2,
     )
+    # Bidir variants: forward = causal scan with cross-chunk continuity,
+    # backward = per-chunk reverse over [center+lookahead]. Outputs averaged at center.
+    _mamba2_bidir_layer_spec = rf.build_dict(
+        BidirMamba2ChunkedLayer,
+        d_state=128,
+        d_conv=4,
+        expand=2,
+        head_dim=64,
+        n_groups=1,
+        block_len=64,
+    )
+    _deltanet_bidir_layer_spec = rf.build_dict(
+        BidirDeltaNetChunkedLayer,
+        d_state=128,
+        head_dim=64,
+        block_len=32,
+        version=2,
+        # Separate fwd/bwd DeltaNet blocks (full capacity per direction); ConMamba pattern doesn't
+        # carry over for DeltaNet (no scan-internal weights to share independently of projections).
+        bidir_share_weights=False,
+    )
     _num_layers = 16
     _mamba2_per_layer = [_std_layer_spec if i % 2 == 0 else _mamba2_layer_spec for i in range(_num_layers)]
     _deltanet_per_layer = [_std_layer_spec if i % 2 == 0 else _deltanet_layer_spec for i in range(_num_layers)]
+    _mamba2_bidir_per_layer = [_std_layer_spec if i % 2 == 0 else _mamba2_bidir_layer_spec for i in range(_num_layers)]
+    _deltanet_bidir_per_layer = [
+        _std_layer_spec if i % 2 == 0 else _deltanet_bidir_layer_spec for i in range(_num_layers)
+    ]
 
     def _hybrid_enc_build_dict(per_layer):
         return rf.build_dict(
@@ -896,6 +923,28 @@ def py():
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-deltanet",
         {
             "model.enc_build_dict": _hybrid_enc_build_dict(_deltanet_per_layer),
+            "train.batch_size": bs * configs._batch_size_factor // 2,
+            "train.max_seqs": max_seqs,
+            "lm_recog_extra.__serialization_version_stats": 2,
+        },
+    )
+    # Bidir variants. Mamba2-bidir matches the ConMamba / Speech Slytherin hybrid:
+    # shared in_proj + out_proj, per-direction conv1d/A/D/dt_bias, average + shared gate.
+    # DeltaNet-bidir has fully separate forward / backward DeltaNetBlock instances (no scan-
+    # internal weights to share, so the binary choice is full duplication).
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-mamba2-bidir",
+        {
+            "model.enc_build_dict": _hybrid_enc_build_dict(_mamba2_bidir_per_layer),
+            "train.batch_size": bs * configs._batch_size_factor // 2,
+            "train.max_seqs": max_seqs,
+            "lm_recog_extra.__serialization_version_stats": 2,
+        },
+    )
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-deltanet-bidir",
+        {
+            "model.enc_build_dict": _hybrid_enc_build_dict(_deltanet_bidir_per_layer),
             "train.batch_size": bs * configs._batch_size_factor // 2,
             "train.max_seqs": max_seqs,
             "lm_recog_extra.__serialization_version_stats": 2,

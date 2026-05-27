@@ -339,6 +339,11 @@ class Mamba2ChunkedLayerV2(rf.Module):
         n_groups: int = 1,
         block_len: int = 64,
         dropout: float = 0.0,
+        # Optional Conformer-flavored wrappers (additive; defaults preserve current behavior).
+        # No ``with_local_conv`` because Mamba-2 already has an internal depthwise causal conv.
+        with_macaron_ff: bool = False,
+        macaron_ff_dim_factor: int = 4,
+        with_post_ln: bool = False,
         **_ignored_kwargs: Any,
     ):
         super().__init__()
@@ -354,22 +359,45 @@ class Mamba2ChunkedLayerV2(rf.Module):
             n_groups=n_groups,
             block_len=block_len,
         )
+        # Optional Conformer-flavored wrappers.
+        # Always declare attributes (default ``None``); see README "Optional submodules".
+        self.ffn1_layer_norm = None
+        self.ffn1 = None
+        self.ffn2_layer_norm = None
+        self.ffn2 = None
+        self.final_layer_norm = None
+        if with_macaron_ff:
+            from returnn.frontend.encoder.conformer import ConformerPositionwiseFeedForward
 
-    def __call__(
+            ff_dim = Dim(macaron_ff_dim_factor * out_dim.dimension, name="mamba-ff")
+            self.ffn1_layer_norm = rf.LayerNorm(out_dim)
+            self.ffn1 = ConformerPositionwiseFeedForward(
+                out_dim=out_dim, ff_dim=ff_dim, dropout=dropout, activation=rf.swish
+            )
+            self.ffn2_layer_norm = rf.LayerNorm(out_dim)
+            self.ffn2 = ConformerPositionwiseFeedForward(
+                out_dim=out_dim, ff_dim=ff_dim, dropout=dropout, activation=rf.swish
+            )
+        if with_post_ln:
+            self.final_layer_norm = rf.LayerNorm(out_dim)
+
+    def _mamba_block(
         self,
         x: Tensor,
         *,
         spatial_dim: Dim,
-        chunking: Optional[_BatchChunkingSettings] = None,
-        **_kwargs: Any,
+        chunking: Optional[_BatchChunkingSettings],
     ) -> Tensor:
+        """Run the bare Mamba-2 block (chunked-aware), returning the per-position output.
+
+        Extracted from the original ``__call__`` so the optional Conformer wrappers
+        can call into it cleanly.
+        """
         x_norm = self.norm(x)
         if self.dropout:
             x_norm = rf.dropout(x_norm, self.dropout, axis=self.out_dim)
-
         if chunking is None:
-            return x + self.mamba(x_norm, spatial_dim=spatial_dim)
-
+            return self.mamba(x_norm, spatial_dim=spatial_dim)
         x_stride, _ = rf.slice(x_norm, axis=spatial_dim, size=chunking.end_chunk_size_dim)
         x_flat, full_time_dim = rf.merge_dims(x_stride, dims=(chunking.chunked_time_dim, chunking.end_chunk_size_dim))
         # TODO: streaming -- thread Mamba-2 state via streaming_cache_v2 across segments.
@@ -382,5 +410,371 @@ class Mamba2ChunkedLayerV2(rf.Module):
             stride=chunking.end_chunk_size_dim.dimension,
             pad_value=0.0,
         )
-        y_chunked = rf.replace_dim_v2(y_windowed, in_dim=new_chunked_time_dim, out_dim=chunking.chunked_time_dim)
-        return x + y_chunked
+        return rf.replace_dim_v2(y_windowed, in_dim=new_chunked_time_dim, out_dim=chunking.chunked_time_dim)
+
+    def __call__(
+        self,
+        x: Tensor,
+        *,
+        spatial_dim: Dim,
+        chunking: Optional[_BatchChunkingSettings] = None,
+        **_kwargs: Any,
+    ) -> Tensor:
+        out = x
+        # 1/2 FFN before (macaron half-step).
+        if self.ffn1 is not None:
+            ffn1_in = self.ffn1_layer_norm(out)
+            ffn1_out = self.ffn1(ffn1_in)
+            out = out + 0.5 * rf.dropout(ffn1_out, self.dropout, axis=self.out_dim)
+        # Mamba-2 block.
+        out = out + self._mamba_block(out, spatial_dim=spatial_dim, chunking=chunking)
+        # 1/2 FFN after (macaron half-step).
+        if self.ffn2 is not None:
+            ffn2_in = self.ffn2_layer_norm(out)
+            ffn2_out = self.ffn2(ffn2_in)
+            out = out + 0.5 * rf.dropout(ffn2_out, self.dropout, axis=self.out_dim)
+        # Post-LN.
+        if self.final_layer_norm is not None:
+            out = self.final_layer_norm(out)
+        return out
+
+
+class BidirMamba2ChunkedLayer(rf.Module):
+    """
+    Bidirectional Mamba-2 chunked-encoder layer (ConMamba-style hybrid sharing).
+
+    Shared across directions:
+    input projection (``in_proj``),
+    output norm (``norm_pre_out``),
+    output projection (``out_proj``).
+
+    Per direction:
+    depthwise causal conv (``conv1d_fwd`` / ``conv1d_bwd``),
+    SSM state parameters ``A_log`` / ``D`` / ``dt_bias``.
+
+    Forward direction:
+    chunked flat-merge causal scan (cross-chunk continuity across center frames),
+    matching the existing causal layer.
+
+    Backward direction:
+    per-chunk reverse scan over ``[center + lookahead]``,
+    state resets per chunk.
+
+    Outputs averaged at center positions;
+    lookahead positions keep the forward output
+    (which carries the next chunk's first ``lookahead`` center frames
+    via the rf.window overlap pattern).
+    The ``silu(z)`` gate (with ``z`` from the shared in_proj output) is applied
+    after combining the two directions,
+    then the shared norm + out_proj close the block.
+
+    See ConMamba / Speech Slytherin (Jiang & Kim, Interspeech 2024,
+    https://arxiv.org/abs/2407.09732)
+    for the bi-Mamba layout this layer is modeled after.
+    The chunked-aware fwd/bwd time-topology split is our adaptation
+    for streaming-friendly chunked encoders.
+
+    Optional Conformer-flavored wrappers (macaron FFN, post-LN) as flags.
+    """
+
+    def __init__(
+        self,
+        out_dim: Dim,
+        *,
+        d_state: int = 128,
+        d_conv: int = 4,
+        expand: int = 2,
+        head_dim: int = 64,
+        n_groups: int = 1,
+        block_len: int = 64,
+        dropout: float = 0.0,
+        dt_min: float = 0.001,
+        dt_max: float = 0.1,
+        dt_init_floor: float = 1e-4,
+        with_macaron_ff: bool = False,
+        macaron_ff_dim_factor: int = 4,
+        with_post_ln: bool = False,
+        **_ignored_kwargs: Any,
+    ):
+        super().__init__()
+        self.out_dim = out_dim
+        d_inner = out_dim.dimension * expand
+        assert d_inner % head_dim == 0, f"d_inner={d_inner} not multiple of head_dim={head_dim}"
+        n_heads = d_inner // head_dim
+        self.d_inner = d_inner
+        self.n_heads = n_heads
+        self.head_dim = head_dim
+        self.d_state = d_state
+        self.n_groups = n_groups
+        self.d_conv = d_conv
+        self.block_len = block_len
+        self.dropout = dropout
+
+        # Dims used by the projections + per-head params.
+        self.d_inner_dim = Dim(d_inner, name="m2-bidir-inner")
+        d_in_proj = d_inner + d_inner + 2 * n_groups * d_state + n_heads
+        self.d_in_proj_dim = Dim(d_in_proj, name="m2-bidir-in-proj")
+        d_xBC = d_inner + 2 * n_groups * d_state
+        self.d_xBC_dim = Dim(d_xBC, name="m2-bidir-xBC")
+        self.d_xBC = d_xBC
+        self.n_heads_dim = Dim(n_heads, name="m2-bidir-heads")
+
+        # Pre-LN (shared) -- wraps the whole bidir block (Conformer pre-norm style).
+        self.norm = rf.LayerNorm(out_dim)
+        # Shared input projection.
+        self.in_proj = rf.Linear(out_dim, self.d_in_proj_dim, with_bias=False)
+        # Per-direction depthwise causal 1d conv on the xBC stream.
+        self.conv1d_fwd = rf.Conv1d(
+            in_dim=self.d_xBC_dim,
+            out_dim=self.d_xBC_dim,
+            filter_size=d_conv,
+            groups=d_xBC,
+            padding="valid",
+            with_bias=True,
+        )
+        self.conv1d_bwd = rf.Conv1d(
+            in_dim=self.d_xBC_dim,
+            out_dim=self.d_xBC_dim,
+            filter_size=d_conv,
+            groups=d_xBC,
+            padding="valid",
+            with_bias=True,
+        )
+        # Per-direction SSM state params.
+        self.A_log_fwd = rf.Parameter([self.n_heads_dim])
+        self.A_log_bwd = rf.Parameter([self.n_heads_dim])
+        self.dt_bias_fwd = rf.Parameter([self.n_heads_dim])
+        self.dt_bias_bwd = rf.Parameter([self.n_heads_dim])
+        self.D_fwd = rf.Parameter([self.n_heads_dim])
+        self.D_bwd = rf.Parameter([self.n_heads_dim])
+        # Shared output norm + projection.
+        self.norm_pre_out = rf.LayerNorm(self.d_inner_dim)
+        self.out_proj = rf.Linear(self.d_inner_dim, out_dim, with_bias=False)
+        # Init SSM params (per-direction independent random init for dt_bias).
+        self._init_ssm_params(dt_min=dt_min, dt_max=dt_max, dt_init_floor=dt_init_floor)
+
+        # Optional Conformer wrappers (declare as None up front; assign on demand).
+        self.ffn1_layer_norm = None
+        self.ffn1 = None
+        self.ffn2_layer_norm = None
+        self.ffn2 = None
+        self.final_layer_norm = None
+        if with_macaron_ff:
+            from returnn.frontend.encoder.conformer import ConformerPositionwiseFeedForward
+
+            ff_dim = Dim(macaron_ff_dim_factor * out_dim.dimension, name="bidir-mamba-ff")
+            self.ffn1_layer_norm = rf.LayerNorm(out_dim)
+            self.ffn1 = ConformerPositionwiseFeedForward(
+                out_dim=out_dim, ff_dim=ff_dim, dropout=dropout, activation=rf.swish
+            )
+            self.ffn2_layer_norm = rf.LayerNorm(out_dim)
+            self.ffn2 = ConformerPositionwiseFeedForward(
+                out_dim=out_dim, ff_dim=ff_dim, dropout=dropout, activation=rf.swish
+            )
+        if with_post_ln:
+            self.final_layer_norm = rf.LayerNorm(out_dim)
+
+    def _init_ssm_params(self, *, dt_min: float, dt_max: float, dt_init_floor: float):
+        # Legacy ``raw_tensor.copy_`` / ``fill_`` init pattern, mirroring :class:`Mamba2Block`.
+        # TODO: modernize to ``.initial = value`` per README "RF Parameter init: use .initial = value".
+        with torch.no_grad():
+            n_heads = self.n_heads
+            A_init = torch.log(torch.arange(1, n_heads + 1, dtype=torch.float32))
+            for A_log in (self.A_log_fwd, self.A_log_bwd):
+                A_log.raw_tensor.copy_(A_init)
+            for D in (self.D_fwd, self.D_bwd):
+                D.raw_tensor.fill_(1.0)
+            for dt_bias in (self.dt_bias_fwd, self.dt_bias_bwd):
+                dt = torch.exp(
+                    torch.rand(n_heads) * (math.log(dt_max) - math.log(dt_min)) + math.log(dt_min)
+                ).clamp_min_(dt_init_floor)
+                inv_dt = dt + torch.log(-torch.expm1(-dt))
+                dt_bias.raw_tensor.copy_(inv_dt)
+
+    def _ssd_one_direction(
+        self,
+        xBC: Tensor,
+        dt: Tensor,
+        *,
+        time_dim: Dim,
+        conv1d: rf.Conv1d,
+        A_log: rf.Parameter,
+        dt_bias: rf.Parameter,
+        D: rf.Parameter,
+    ) -> Tensor:
+        """
+        Run conv1d + SSD scan + D-skip for one direction.
+
+        Inputs and output are rf.Tensors.
+        Raw-torch is used only inside this method,
+        between the rf->torch boundary at the input
+        and the torch->rf boundary at the output.
+        The output has feature dim ``self.d_inner_dim``
+        and time axis ``time_dim``,
+        BEFORE the silu(z) gate and the shared norm + out_proj.
+        """
+        d_inner = self.d_inner
+        n_groups = self.n_groups
+        d_state = self.d_state
+        n_heads = self.n_heads
+        head_dim = self.head_dim
+        d_xBC = self.d_xBC
+        xBC_t = _to_BTF(xBC, time_dim, self.d_xBC_dim)
+        dt_t = _to_BTF(dt, time_dim, self.n_heads_dim)
+        b, T, _ = xBC_t.shape
+
+        # Causal depthwise 1d conv.
+        conv_w = conv1d.filter.raw_tensor
+        conv_b = conv1d.bias.raw_tensor if conv1d.with_bias else None
+        xBC_padded = F.pad(xBC_t.transpose(1, 2), (self.d_conv - 1, 0))
+        xBC_conv = F.conv1d(xBC_padded, conv_w, bias=conv_b, groups=d_xBC)
+        xBC_conv = F.silu(xBC_conv).transpose(1, 2)
+
+        # Split into x, B, C.
+        x_in = xBC_conv[:, :, :d_inner].reshape(b, T, n_heads, head_dim)
+        B_state = xBC_conv[:, :, d_inner : d_inner + n_groups * d_state].reshape(b, T, n_groups, d_state)
+        C_state = xBC_conv[:, :, d_inner + n_groups * d_state :].reshape(b, T, n_groups, d_state)
+        if n_groups != n_heads:
+            B_state = B_state.repeat_interleave(n_heads // n_groups, dim=2)
+            C_state = C_state.repeat_interleave(n_heads // n_groups, dim=2)
+
+        # dt + bias / A discretize.
+        dt = F.softplus(dt_t + dt_bias.raw_tensor)
+        A = -torch.exp(A_log.raw_tensor)
+        A_disc = dt * A
+
+        # SSD scan + D skip.
+        x_pad, T_orig = _pad_to_block_len(x_in, self.block_len, time_dim=1)
+        A_pad, _ = _pad_to_block_len(A_disc, self.block_len, time_dim=1)
+        B_pad, _ = _pad_to_block_len(B_state, self.block_len, time_dim=1)
+        C_pad, _ = _pad_to_block_len(C_state, self.block_len, time_dim=1)
+        y_pad = _ssd_chunked(x_pad, A_pad, B_pad, C_pad, block_len=self.block_len)
+        y_t = y_pad[:, :T_orig]
+        D_view = D.raw_tensor.view(1, 1, n_heads, 1)
+        y_t = y_t + x_in * D_view
+        y_t = y_t.reshape(b, T, d_inner)
+        return _from_BTF(y_t, xBC, time_dim, self.d_inner_dim, name="m2_bidir_dir_y")
+
+    def __call__(
+        self,
+        x: Tensor,
+        *,
+        spatial_dim: Dim,
+        chunking: Optional[_BatchChunkingSettings] = None,
+        **_kwargs: Any,
+    ) -> Tensor:
+        out = x
+        # 1/2 FFN before (macaron half-step).
+        if self.ffn1 is not None:
+            ffn1_in = self.ffn1_layer_norm(out)
+            ffn1_out = self.ffn1(ffn1_in)
+            out = out + 0.5 * rf.dropout(ffn1_out, self.dropout, axis=self.out_dim)
+
+        # Pre-LN + shared in_proj (Conformer pre-norm).
+        x_ln = self.norm(out)
+        if self.dropout:
+            x_ln = rf.dropout(x_ln, self.dropout, axis=self.out_dim)
+        proj = self.in_proj(x_ln)
+
+        # Split proj into z / xBC / dt at the rf-tensor level.
+        # All three keep the input's batch + time layout; only the feature dim is partitioned.
+        z, xBC, dt = rf.split(
+            proj,
+            axis=self.d_in_proj_dim,
+            out_dims=[self.d_inner_dim, self.d_xBC_dim, self.n_heads_dim],
+        )
+
+        if chunking is None:
+            # Non-chunked: both directions over the full sequence.
+            y_fwd = self._ssd_one_direction(
+                xBC,
+                dt,
+                time_dim=spatial_dim,
+                conv1d=self.conv1d_fwd,
+                A_log=self.A_log_fwd,
+                dt_bias=self.dt_bias_fwd,
+                D=self.D_fwd,
+            )
+            xBC_rev = rf.reverse_sequence(xBC, axis=spatial_dim, handle_dynamic_dims=False)
+            dt_rev = rf.reverse_sequence(dt, axis=spatial_dim, handle_dynamic_dims=False)
+            y_bwd_rev = self._ssd_one_direction(
+                xBC_rev,
+                dt_rev,
+                time_dim=spatial_dim,
+                conv1d=self.conv1d_bwd,
+                A_log=self.A_log_bwd,
+                dt_bias=self.dt_bias_bwd,
+                D=self.D_bwd,
+            )
+            y_bwd = rf.reverse_sequence(y_bwd_rev, axis=spatial_dim, handle_dynamic_dims=False)
+            y = 0.5 * (y_fwd + y_bwd) * rf.silu(z)
+        else:
+            # Chunked: fwd uses rf.slice + rf.merge_dims for the cross-chunk flat-merge
+            # (same wiring as :class:`Mamba2ChunkedLayerV2`).
+            # Bwd does per-chunk reverse over [center + lookahead] via rf.reverse_sequence
+            # + rf.merge_dims into a super-batch (kind=Batch so the inner BTF helpers find it).
+            chunked_time = chunking.chunked_time_dim
+            xBC_center, _ = rf.slice(xBC, axis=spatial_dim, size=chunking.end_chunk_size_dim)
+            dt_center, _ = rf.slice(dt, axis=spatial_dim, size=chunking.end_chunk_size_dim)
+            xBC_flat, flat_time = rf.merge_dims(xBC_center, dims=(chunked_time, chunking.end_chunk_size_dim))
+            dt_flat, _ = rf.merge_dims(dt_center, dims=(chunked_time, chunking.end_chunk_size_dim), out_dim=flat_time)
+            y_fwd_flat = self._ssd_one_direction(
+                xBC_flat,
+                dt_flat,
+                time_dim=flat_time,
+                conv1d=self.conv1d_fwd,
+                A_log=self.A_log_fwd,
+                dt_bias=self.dt_bias_fwd,
+                D=self.D_fwd,
+            )
+            y_fwd_windowed, new_chunked_time = rf.window(
+                y_fwd_flat,
+                spatial_dim=flat_time,
+                window_dim=spatial_dim,
+                window_left=0,
+                stride=chunking.end_chunk_size_dim.dimension,
+                pad_value=0.0,
+            )
+            y_fwd = rf.replace_dim_v2(y_fwd_windowed, in_dim=new_chunked_time, out_dim=chunked_time)
+
+            batch = _find_batch_dim(xBC)
+            super_batch = Dim(kind=Dim.Types.Batch, description="bidir-super-batch")
+            xBC_rev = rf.reverse_sequence(xBC, axis=spatial_dim, handle_dynamic_dims=False)
+            dt_rev = rf.reverse_sequence(dt, axis=spatial_dim, handle_dynamic_dims=False)
+            xBC_merged, _ = rf.merge_dims(xBC_rev, dims=(batch, chunked_time), out_dim=super_batch)
+            dt_merged, _ = rf.merge_dims(dt_rev, dims=(batch, chunked_time), out_dim=super_batch)
+            y_bwd_merged = self._ssd_one_direction(
+                xBC_merged,
+                dt_merged,
+                time_dim=spatial_dim,
+                conv1d=self.conv1d_bwd,
+                A_log=self.A_log_bwd,
+                dt_bias=self.dt_bias_bwd,
+                D=self.D_bwd,
+            )
+            y_bwd_split = rf.split_dims(y_bwd_merged, axis=super_batch, dims=(batch, chunked_time))
+            y_bwd = rf.reverse_sequence(y_bwd_split, axis=spatial_dim, handle_dynamic_dims=False)
+
+            # Combine: average at center positions, keep fwd at lookahead positions
+            # (fwd carries next chunk's content via the rf.window overlap).
+            center_size = chunking.end_chunk_size_dim.dimension
+            positions = rf.range_over_dim(spatial_dim)
+            mask = positions < center_size
+            y_combined = rf.where(mask, 0.5 * (y_fwd + y_bwd), y_fwd)
+            # Apply silu(z) gate (z is in the same chunked layout).
+            y = y_combined * rf.silu(z)
+
+        # Shared norm + out_proj.
+        y = self.norm_pre_out(y)
+        y_out = self.out_proj(y)
+        out = out + y_out
+
+        # 1/2 FFN after (macaron half-step).
+        if self.ffn2 is not None:
+            ffn2_in = self.ffn2_layer_norm(out)
+            ffn2_out = self.ffn2(ffn2_in)
+            out = out + 0.5 * rf.dropout(ffn2_out, self.dropout, axis=self.out_dim)
+        # Post-LN.
+        if self.final_layer_norm is not None:
+            out = self.final_layer_norm(out)
+        return out
