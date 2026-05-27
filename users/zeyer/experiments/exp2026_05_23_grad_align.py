@@ -48,6 +48,10 @@ from i6_experiments.users.zeyer.external_models.huggingface import (
 from i6_experiments.users.zeyer.external_models.phi4multimodal import (
     download_phi4multimodal_model,
 )
+from i6_experiments.users.zeyer.external_models.voxtral import (
+    download_voxtral_mini_3b_model,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.voxtral import Voxtral
 
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.extract_in_grad_scores import (
     ExtractInGradsFromModelJob,
@@ -529,6 +533,61 @@ def py():
         phi4mm_cfg=pt_csp_noapos_cfg, attr="L2", mgi=True,
         grad_alias="L2_e_grad", suffix="-charlev-spc-no-apos-with-sep",
     )
+
+
+    # --- Voxtral Mini 3B smoke test ---------------------------------
+    # First-pass integration: one extract + one recog on TIMIT val to
+    # validate the adapter (audio-embed splicing, prompt construction,
+    # log_probs path). No char_level yet -- per-token here means per-Mistral
+    # subword, K=1 for most words.
+    dl_voxtral = download_voxtral_mini_3b_model()
+    voxtral_cfg = rf.build_dict(Voxtral, model_dir=dl_voxtral)
+
+    vx_recog = RecogFromModelJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=voxtral_cfg,
+    )
+    vx_recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    vx_recog.add_alias("voxtral-timit-val-recog")
+    tk.register_output("voxtral-timit-val-recog.hyps.txt.gz", vx_recog.out_hyps_txt)
+    vx_refs = ExtractWordDetailFromHuggingFaceDatasetJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_split="val",
+    )
+    vx_refs.add_alias("voxtral-timit-val-refs")
+    vx_hyps_norm = text_dict_normalize_file(vx_recog.out_hyps_txt)
+    vx_refs_norm = text_dict_normalize_file(vx_refs.out_text)
+    vx_score = sclite_score_hyps_to_ref(
+        hyps_text_dict=vx_hyps_norm,
+        ref_text_dict=vx_refs_norm,
+        corpus_name="voxtral-timit-val",
+    )
+    tk.register_output("voxtral-timit-val-wer.txt", vx_score.main_measure_value)
+    tk.register_output("voxtral-timit-val-wer-report", vx_score.report)
+
+    vx_extract = ExtractInGradsPerTokenJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=voxtral_cfg,
+        mult_grad_by_inputs=True,
+        attr_reduction="L2",
+    )
+    vx_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    vx_extract_name = "voxtral-timit-val-L2_e_grad-pertoken"
+    vx_extract.add_alias(vx_extract_name)
+    tk.register_output(f"{vx_extract_name}.hdf", vx_extract.out_hdf)
+    for align_opts in _ALIGN_OPTS_GRID:
+        align_name = f"align/{vx_extract_name}-{_name_for_dict(align_opts)}"
+        align = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=vx_extract.out_hdf,
+            grad_score_key="data",
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=align_opts,
+        )
+        align.add_alias(align_name)
+        tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
 
 def _build_timit_phi4mm(
