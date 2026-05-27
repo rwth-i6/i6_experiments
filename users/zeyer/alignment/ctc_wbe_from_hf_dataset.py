@@ -160,6 +160,19 @@ class CalcCtcWbeFromHfDatasetJob(Job):
                 report_lines.append(f"** seq {seq_idx}: empty alignment, skipping")
                 skipped.append(seq_idx)
                 continue
+            # Fail loud on ``<unk>`` in the alignment:
+            # any unk-id frame means the forced-align target itself tokenized to ``<unk>``,
+            # i.e. the dataset prep's ``text_case`` does not match the SPM vocab.
+            # The resulting WBE numbers would be meaningless,
+            # so refuse to compute them rather than silently produce garbage.
+            unk_id = sp.unk_id()
+            if unk_id >= 0 and unk_id != self.blank_idx and bool((frame_labels == unk_id).any()):
+                raise RuntimeError(
+                    f"seq {seq_idx}: alignment contains <unk> (id={unk_id}) frame labels -- "
+                    f"the forced-align target was tokenized to <unk>, "
+                    f"which means the dataset prep's text_case does not match the SPM vocab. "
+                    f"Re-run dataset prep with the right text_case for this SPM model."
+                )
             frame_sec = audio_len_secs / float(num_frames)
 
             # 1. Collapse CTC: emit (label, start_frame, end_frame_excl) for each
