@@ -936,7 +936,14 @@ def py():
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-mamba2-bidir",
         {
             "model.enc_build_dict": _hybrid_enc_build_dict(_mamba2_bidir_per_layer),
-            "train.batch_size": bs * configs._batch_size_factor // 2,
+            # Bidir Mamba-2 OOMs at ``bs // 2``:
+            # the bwd direction merges (batch, num_chunks_per_seq) into a super-batch
+            # so each chunk decodes independently with state reset,
+            # which makes the SSD ``einsum("bclhn,bhcl,bclhp->bchpn", ...)`` tensor
+            # roughly ``num_chunks_per_seq``-times larger than the causal Mamba-2 one.
+            # ``bs // 4`` leaves enough headroom on a 94 GB GPU
+            # (DeltaNet-bidir is fine at ``bs // 2`` because its scan state is much smaller).
+            "train.batch_size": bs * configs._batch_size_factor // 4,
             "train.max_seqs": max_seqs,
             "lm_recog_extra.__serialization_version_stats": 2,
         },
