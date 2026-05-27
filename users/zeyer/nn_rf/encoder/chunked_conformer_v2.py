@@ -57,6 +57,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import copy as _copy
+import inspect
 from dataclasses import dataclass
 
 from returnn.util.basic import NotSpecified
@@ -65,6 +66,44 @@ from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 from returnn.frontend.encoder.base import ISeqDownsamplingEncoder
 from returnn.frontend.encoder.conformer import ConformerEncoderLayer, ConformerConvSubsample, make_ff, make_norm
+from returnn.frontend.build_from_dict import _get_cls
+
+
+def _filter_opts_for_target(opts: Dict[str, Any], target) -> Dict[str, Any]:
+    """
+    Drop keys from ``opts`` that the target callable's ``__init__`` doesn't declare.
+
+    The encoder builds ``encoder_layer_opts_`` from its own conformer-baseline kwargs
+    (``conv_kernel_size``, ``num_heads``, ``att_dropout``, ``mem_chunks_grad_checkpointing``, ...)
+    and forwards them to every per-layer spec, plus the default encoder-layer construction.
+    For a conformer-baseline layer (:class:`ChunkedConformerEncoderLayerV2` & subclasses)
+    every key is consumed, so nothing is dropped.
+    For a custom layer (DeltaNet, Mamba-2, ...) the unconsumed keys would otherwise show up
+    in the constructor call -- either silently absorbed via ``**kwargs`` (hides typos)
+    or surfaced as ``TypeError``.
+    Filtering at the source -- i.e. only putting a key into the per-target opts dict
+    if the target actually declares it as a parameter -- is the cleanest place to handle this.
+
+    ``target`` accepts a class / callable directly, or an ``rf.build_dict`` spec dict
+    (``{"class": "path.to.Cls", ...}``);
+    in the latter case the class is resolved via the same loader
+    :func:`rf.build_from_dict` uses.
+    If the target's signature can't be introspected (C extensions, etc.) or it accepts ``**kwargs``,
+    ``opts`` is returned unchanged.
+    """
+    cls = target
+    if isinstance(target, dict):
+        if "class" not in target:
+            return opts
+        cls = _get_cls(target["class"])
+    try:
+        sig = inspect.signature(cls)
+    except (TypeError, ValueError):
+        return opts
+    params = sig.parameters
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return opts
+    return {k: v for (k, v) in opts.items() if k in params}
 
 
 class ChunkedConformerEncoderV2(rf.Module):
@@ -202,22 +241,31 @@ class ChunkedConformerEncoderV2(rf.Module):
                 mem_chunks_grad_checkpointing=mem_chunks_grad_checkpointing,
             )
             encoder_layer_opts_ = {k: v for (k, v) in encoder_layer_opts_.items() if v is not NotSpecified}
-            if encoder_layer_opts:
-                encoder_layer_opts_.update(encoder_layer_opts)
+
+            # ``encoder_layer_opts_`` now holds *only* the encoder's auto-defaults
+            # (the kitchen-sink the encoder unconditionally would forward to every per-layer spec).
+            # Filter those defaults to the target layer's signature
+            # so kwargs the target doesn't declare are dropped at the source;
+            # see :func:`_filter_opts_for_target`.
+            # The user-supplied ``encoder_layer_opts`` is merged *after* the filter --
+            # those are kwargs the user passed deliberately,
+            # so an unknown one should surface as the constructor's ``TypeError``,
+            # not be silently absorbed.
+            def _opts_for(target):
+                _opts = _filter_opts_for_target(encoder_layer_opts_, target)
+                if encoder_layer_opts:
+                    _opts.update(encoder_layer_opts)
+                return _opts
+
             if not encoder_layer:
-                encoder_layer = ChunkedConformerEncoderLayerV2(**encoder_layer_opts_)
+                encoder_layer = ChunkedConformerEncoderLayerV2(**_opts_for(ChunkedConformerEncoderLayerV2))
             elif isinstance(encoder_layer, type):
-                encoder_layer = encoder_layer(**encoder_layer_opts_)
+                encoder_layer = encoder_layer(**_opts_for(encoder_layer))
             elif isinstance(encoder_layer, dict):
-                # Note: Reuse all the encoder_layer_opts_.
-                # If this does not make sense for the specific encoder_layer class here,
-                # we would suggest to use a different ConformerEncoder class.
-                # (The alternative, to not reuse encoder_layer_opts_ here,
-                #  would probably be more confusing, as those options are all ignored then.
-                #  It's also not clear what args to pass then and what not.)
-                # (Maybe we should do a ConformerEncoderV2 if this is confusing here...)
-                encoder_layer_opts_ = {k: v for (k, v) in encoder_layer_opts_.items() if k not in encoder_layer}
-                encoder_layer = rf.build_from_dict(encoder_layer, **encoder_layer_opts_)
+                _opts = _opts_for(encoder_layer)
+                # Kwargs already set in the spec dict still win.
+                _opts = {k: v for (k, v) in _opts.items() if k not in encoder_layer}
+                encoder_layer = rf.build_from_dict(encoder_layer, **_opts)
             else:
                 raise TypeError(f"unexpected encoder_layer {encoder_layer!r}")
         else:
@@ -235,10 +283,12 @@ class ChunkedConformerEncoderV2(rf.Module):
                 if _spec is None:
                     _per_layer.append(_copy.deepcopy(encoder_layer))
                 elif isinstance(_spec, dict):
-                    _opts = {k: v for (k, v) in encoder_layer_opts_.items() if k not in _spec}
+                    _opts = _opts_for(_spec)
+                    # Kwargs already set in the spec dict still win.
+                    _opts = {k: v for (k, v) in _opts.items() if k not in _spec}
                     _per_layer.append(rf.build_from_dict(_spec, **_opts))
                 elif isinstance(_spec, type):
-                    _per_layer.append(_spec(**encoder_layer_opts_))
+                    _per_layer.append(_spec(**_opts_for(_spec)))
                 else:
                     if not callable(_spec):
                         raise TypeError(f"{self}: per-layer entry not callable: {_spec!r}")

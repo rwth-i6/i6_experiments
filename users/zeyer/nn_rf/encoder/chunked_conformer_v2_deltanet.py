@@ -36,7 +36,7 @@ and offline recog work today (each forward initializes state to zeros).
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
 
 import torch
 import torch.nn.functional as F
@@ -332,7 +332,6 @@ class DeltaNetChunkedLayerV2(rf.Module):
         with_local_conv: bool = False,
         local_conv_kernel: int = 31,
         with_post_ln: bool = False,
-        **_ignored_kwargs: Any,
     ):
         super().__init__()
         self.out_dim = out_dim
@@ -422,7 +421,6 @@ class DeltaNetChunkedLayerV2(rf.Module):
         *,
         spatial_dim: Dim,
         chunking: Optional[_BatchChunkingSettings] = None,
-        **_kwargs: Any,
     ) -> Tensor:
         out = x
         # 1/2 FFN before (macaron half-step).
@@ -503,7 +501,6 @@ class BidirDeltaNetChunkedLayer(rf.Module):
         with_local_conv: bool = False,
         local_conv_kernel: int = 31,
         with_post_ln: bool = False,
-        **_ignored_kwargs: Any,
     ):
         """
         :param bidir_share_weights: if True,
@@ -634,7 +631,6 @@ class BidirDeltaNetChunkedLayer(rf.Module):
         *,
         spatial_dim: Dim,
         chunking: Optional[_BatchChunkingSettings] = None,
-        **_kwargs: Any,
     ) -> Tensor:
         out = x
         # 1/2 FFN before (macaron half-step).

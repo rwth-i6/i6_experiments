@@ -23,7 +23,7 @@ Reference: Dao & Gu, "Transformers are SSMs" (https://arxiv.org/abs/2405.21060).
 from __future__ import annotations
 
 import math
-from typing import Any, Optional
+from typing import Optional
 
 import torch
 import torch.nn.functional as F
@@ -345,7 +345,6 @@ class Mamba2ChunkedLayerV2(rf.Module):
         with_macaron_ff: bool = False,
         macaron_ff_dim_factor: int = 4,
         with_post_ln: bool = False,
-        **_ignored_kwargs: Any,
     ):
         super().__init__()
         self.out_dim = out_dim
@@ -419,7 +418,6 @@ class Mamba2ChunkedLayerV2(rf.Module):
         *,
         spatial_dim: Dim,
         chunking: Optional[_BatchChunkingSettings] = None,
-        **_kwargs: Any,
     ) -> Tensor:
         out = x
         # 1/2 FFN before (macaron half-step).
@@ -495,7 +493,6 @@ class BidirMamba2ChunkedLayer(rf.Module):
         with_macaron_ff: bool = False,
         macaron_ff_dim_factor: int = 4,
         with_post_ln: bool = False,
-        **_ignored_kwargs: Any,
     ):
         super().__init__()
         self.out_dim = out_dim
@@ -662,7 +659,6 @@ class BidirMamba2ChunkedLayer(rf.Module):
         *,
         spatial_dim: Dim,
         chunking: Optional[_BatchChunkingSettings] = None,
-        **_kwargs: Any,
     ) -> Tensor:
         out = x
         # 1/2 FFN before (macaron half-step).
