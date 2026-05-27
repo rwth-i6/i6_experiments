@@ -69,43 +69,6 @@ from returnn.frontend.encoder.conformer import ConformerEncoderLayer, ConformerC
 from returnn.frontend.build_from_dict import _get_cls
 
 
-def _filter_opts_for_target(opts: Dict[str, Any], target) -> Dict[str, Any]:
-    """
-    Drop keys from ``opts`` that the target callable's ``__init__`` doesn't declare.
-
-    The encoder builds ``encoder_layer_opts_`` from its own conformer-baseline kwargs
-    (``conv_kernel_size``, ``num_heads``, ``att_dropout``, ``mem_chunks_grad_checkpointing``, ...)
-    and forwards them to every per-layer spec, plus the default encoder-layer construction.
-    For a conformer-baseline layer (:class:`ChunkedConformerEncoderLayerV2` & subclasses)
-    every key is consumed, so nothing is dropped.
-    For a custom layer (DeltaNet, Mamba-2, ...) the unconsumed keys would otherwise show up
-    in the constructor call -- either silently absorbed via ``**kwargs`` (hides typos)
-    or surfaced as ``TypeError``.
-    Filtering at the source -- i.e. only putting a key into the per-target opts dict
-    if the target actually declares it as a parameter -- is the cleanest place to handle this.
-
-    ``target`` accepts a class / callable directly, or an ``rf.build_dict`` spec dict
-    (``{"class": "path.to.Cls", ...}``);
-    in the latter case the class is resolved via the same loader
-    :func:`rf.build_from_dict` uses.
-    If the target's signature can't be introspected (C extensions, etc.) or it accepts ``**kwargs``,
-    ``opts`` is returned unchanged.
-    """
-    cls = target
-    if isinstance(target, dict):
-        if "class" not in target:
-            return opts
-        cls = _get_cls(target["class"])
-    try:
-        sig = inspect.signature(cls)
-    except (TypeError, ValueError):
-        return opts
-    params = sig.parameters
-    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
-        return opts
-    return {k: v for (k, v) in opts.items() if k in params}
-
-
 class ChunkedConformerEncoderV2(rf.Module):
     """
     Represents Conformer encoder architecture
@@ -981,3 +944,40 @@ def _mem_chunks(
         concats.append((shifted, end_chunk_size_dim))
     concats.append((source, spatial_dim))
     return rf.concat(*concats, out_dim=out_spatial_dim, allow_broadcast=True)
+
+
+def _filter_opts_for_target(opts: Dict[str, Any], target) -> Dict[str, Any]:
+    """
+    Drop keys from ``opts`` that the target callable's ``__init__`` doesn't declare.
+
+    The encoder builds ``encoder_layer_opts_`` from its own conformer-baseline kwargs
+    (``conv_kernel_size``, ``num_heads``, ``att_dropout``, ``mem_chunks_grad_checkpointing``, ...)
+    and forwards them to every per-layer spec, plus the default encoder-layer construction.
+    For a conformer-baseline layer (:class:`ChunkedConformerEncoderLayerV2` & subclasses)
+    every key is consumed, so nothing is dropped.
+    For a custom layer (DeltaNet, Mamba-2, ...) the unconsumed keys would otherwise show up
+    in the constructor call -- either silently absorbed via ``**kwargs`` (hides typos)
+    or surfaced as ``TypeError``.
+    Filtering at the source -- i.e. only putting a key into the per-target opts dict
+    if the target actually declares it as a parameter -- is the cleanest place to handle this.
+
+    ``target`` accepts a class / callable directly, or an ``rf.build_dict`` spec dict
+    (``{"class": "path.to.Cls", ...}``);
+    in the latter case the class is resolved via the same loader
+    :func:`rf.build_from_dict` uses.
+    If the target's signature can't be introspected (C extensions, etc.) or it accepts ``**kwargs``,
+    ``opts`` is returned unchanged.
+    """
+    cls = target
+    if isinstance(target, dict):
+        if "class" not in target:
+            return opts
+        cls = _get_cls(target["class"])
+    try:
+        sig = inspect.signature(cls)
+    except (TypeError, ValueError):
+        return opts
+    params = sig.parameters
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return opts
+    return {k: v for (k, v) in opts.items() if k in params}
