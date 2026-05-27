@@ -58,6 +58,12 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.extract_
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.word_align_from_per_token_grads import (
     WordAlignFromPerTokenGradsJob,
 )
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.extract_per_token_with_sep_grads import (
+    ExtractInGradsPerTokenWithSepGradsJob,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.word_align_from_per_token_with_sep_grads import (
+    WordAlignFromPerTokenWithSepGradsJob,
+)
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.add_sizes_to_grad_score_hdf import (
     AddSizesToGradScoreHdfJob,
 )
@@ -121,6 +127,7 @@ def _phi4mm_model_config(
     char_level: bool = False,
     char_level_sep: Optional[str] = None,
     char_level_brackets: Optional[str] = None,
+    char_level_skip_chars: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     Build the model_config dict consumed by ``make_model`` in
@@ -150,6 +157,8 @@ def _phi4mm_model_config(
         extra["char_level_sep"] = char_level_sep
     if char_level_brackets is not None:
         extra["char_level_brackets"] = char_level_brackets
+    if char_level_skip_chars is not None:
+        extra["char_level_skip_chars"] = list(char_level_skip_chars)
     return rf.build_dict(
         Phi4MM,
         model_dir=model_dir,
@@ -375,6 +384,68 @@ def py():
             )
             align.add_alias(align_name)
             tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+
+
+    # (e) Two follow-up ideas on top of pertoken-charlev-spc:
+    #
+    # 1) no-apos: drop the apostrophe char from each word (e.g. 'don't' -> 'dont')
+    #    before char-level expansion. Apostrophe rows have weak/noisy grads in
+    #    the per-token matrix (no audio for the punctuation char itself), and
+    #    those rows force the Aligner to place tokens for non-acoustic events.
+    # 2) with-sep: also compute per-token grads for the separator subwords
+    #    sitting *between* words (the ' ' char in charlev-spc), and let the
+    #    Aligner see them as explicit silence anchors.
+    # 3) Combined: drop apostrophe AND use the separator grads.
+    #
+    # All three are val + L2_e_grad only for now.
+
+    # 1) no-apos
+    pt_csp_noapos_cfg = _phi4mm_model_config(
+        dl_phi4mi_dir, char_level=True, char_level_sep=" ", char_level_skip_chars=["'"]
+    )
+    _wire_pertoken(
+        dl_ds=dl_ds_timit, ds_name="timit", split="val",
+        phi4mm_cfg=pt_csp_noapos_cfg, attr="L2", mgi=True,
+        grad_alias="L2_e_grad", suffix="-charlev-spc-no-apos",
+    )
+
+    # 2) with-sep (and 3) no-apos + with-sep): use the new ExtractInGradsPerTokenWithSepGradsJob
+    # + WordAlignFromPerTokenWithSepGradsJob.
+    def _wire_pertoken_with_sep(*, dl_ds, ds_name, split, phi4mm_cfg, attr, mgi, grad_alias, suffix):
+        gen = ExtractInGradsPerTokenWithSepGradsJob(
+            dataset_dir=dl_ds.out_hub_cache_dir,
+            dataset_key=split,
+            model_config=phi4mm_cfg,
+            mult_grad_by_inputs=mgi,
+            attr_reduction=attr,
+        )
+        gen.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        name = f"phi4mm-{ds_name}-{split}-{grad_alias}-pertoken{suffix}"
+        gen.add_alias(name)
+        tk.register_output(f"{name}.hdf", gen.out_hdf)
+        for align_opts in _ALIGN_OPTS_GRID:
+            align_name = f"align/{name}-{_name_for_dict(align_opts)}"
+            align = WordAlignFromPerTokenWithSepGradsJob(
+                grad_score_hdf=gen.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds.out_hub_cache_dir,
+                dataset_key=split,
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS[ds_name],
+                align_opts=align_opts,
+            )
+            align.add_alias(align_name)
+            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+
+    _wire_pertoken_with_sep(
+        dl_ds=dl_ds_timit, ds_name="timit", split="val",
+        phi4mm_cfg=pt_csp_cfg, attr="L2", mgi=True,
+        grad_alias="L2_e_grad", suffix="-charlev-spc-with-sep",
+    )
+    _wire_pertoken_with_sep(
+        dl_ds=dl_ds_timit, ds_name="timit", split="val",
+        phi4mm_cfg=pt_csp_noapos_cfg, attr="L2", mgi=True,
+        grad_alias="L2_e_grad", suffix="-charlev-spc-no-apos-with-sep",
+    )
 
 
 def _build_timit_phi4mm(
