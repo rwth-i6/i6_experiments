@@ -55,6 +55,7 @@ class CalcCtcWbeFromHfDatasetJob(Job):
     """
 
     __sis_hash_exclude__ = {"returnn_root": None}
+    __sis_version__ = 2
 
     def __init__(
         self,
@@ -134,9 +135,20 @@ class CalcCtcWbeFromHfDatasetJob(Job):
             ds = ds[self.dataset_key]
         num_seqs = len(ds)
 
+        # The forced-align HDF is written in whatever ``seq_ordering`` the forward job used
+        # (typically ``sorted_reverse`` -- duration desc), while the HF dataset is in file order.
+        # Match by seq-tag (the HF ``id`` column) rather than positional index.
+        # The seq-tag stored in the HDF was set by ``HuggingFaceDataset`` via ``seq_tag_column="id"``
+        # (see :func:`i6_experiments.users.zeyer.datasets.hf_timit_buckeye.get_hf_word_align_dataset_config`),
+        # so HDF tag == HF ``id`` -- exact-string match works without normalization.
+        hf_id_col = ds["id"]
+        hf_id_to_idx = {str(t): i for i, t in enumerate(hf_id_col)}
+
+        num_hdf_seqs = int(align_hdf_ds.num_seqs)
+
         report_lines: List[str] = []
         report_lines.append(
-            f"CalcCtcWbeFromHfDatasetJob: {num_seqs} seqs, "
+            f"CalcCtcWbeFromHfDatasetJob: {num_hdf_seqs} HDF seqs, {num_seqs} HF seqs, "
             f"dataset_key={self.dataset_key!r}, "
             f"dataset_offset_factor={self.dataset_offset_factor}, "
             f"blank_idx={self.blank_idx}"
@@ -145,14 +157,24 @@ class CalcCtcWbeFromHfDatasetJob(Job):
         wbe_utts: List[float] = []
         skipped: List[int] = []
 
-        for seq_idx, data in enumerate(ds):
+        for hdf_seq_idx in range(num_hdf_seqs):
+            align_hdf_ds.load_seqs(hdf_seq_idx, hdf_seq_idx + 1)
+            hdf_tag = align_hdf_ds.get_tag(hdf_seq_idx)
+            hf_idx = hf_id_to_idx.get(str(hdf_tag))
+            if hf_idx is None:
+                report_lines.append(f"** hdf seq {hdf_seq_idx} tag {hdf_tag!r} has no matching HF row id; skipping")
+                skipped.append(hdf_seq_idx)
+                continue
+            # ``seq_idx`` is preserved as the report identifier --
+            # use the HF row index so the report stays sortable against the HF dataset.
+            seq_idx = hf_idx
+            data = ds[hf_idx]
             audio = data["audio"]["array"]
             samplerate = int(data["audio"]["sampling_rate"])
             num_audio_samples = len(audio)
             audio_len_secs = float(num_audio_samples) / float(samplerate)
 
-            align_hdf_ds.load_seqs(seq_idx, seq_idx + 1)
-            frame_labels = align_hdf_ds.get_data(seq_idx, "data")
+            frame_labels = align_hdf_ds.get_data(hdf_seq_idx, "data")
             # HDFDataset returns shape (T,) or (T, 1) depending on sparse settings; flatten.
             frame_labels = np.asarray(frame_labels).reshape(-1)
             num_frames = int(frame_labels.shape[0])
@@ -264,7 +286,7 @@ class CalcCtcWbeFromHfDatasetJob(Job):
         wbe = float(np.mean(wbe_utts)) if wbe_utts else float("nan")
         report_lines.append("")
         report_lines.append(f"Mean WBE: {wbe * 1000:.2f}ms ({wbe:.6f}s)")
-        report_lines.append(f"Aggregated over {len(wbe_utts)}/{num_seqs} seqs ({len(skipped)} skipped)")
+        report_lines.append(f"Aggregated over {len(wbe_utts)}/{num_hdf_seqs} HDF seqs ({len(skipped)} skipped)")
 
         report_text = "\n".join(report_lines) + "\n"
         with open(self.out_report.get_path(), "w") as f:
