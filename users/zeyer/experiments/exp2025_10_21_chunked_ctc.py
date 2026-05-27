@@ -892,6 +892,23 @@ def py():
     _deltanet_bidir_per_layer = [
         _std_layer_spec if i % 2 == 0 else _deltanet_bidir_layer_spec for i in range(_num_layers)
     ]
+    # Bidir Mamba-2 with the bwd-SSD super-batch processed in slices of 256
+    # (see :class:`BidirMamba2ChunkedLayer`'s ``ssd_super_batch_chunk``);
+    # lets us train at the same ``bs // 2`` as the causal hybrids and deltanet-bidir,
+    # for a fair memory/throughput comparison.
+    _mamba2_bidir_ssdchunk_layer_spec = rf.build_dict(
+        BidirMamba2ChunkedLayer,
+        d_state=128,
+        d_conv=4,
+        expand=2,
+        head_dim=64,
+        n_groups=1,
+        block_len=64,
+        ssd_super_batch_chunk=256,
+    )
+    _mamba2_bidir_ssdchunk_per_layer = [
+        _std_layer_spec if i % 2 == 0 else _mamba2_bidir_ssdchunk_layer_spec for i in range(_num_layers)
+    ]
 
     def _hybrid_enc_build_dict(per_layer):
         return rf.build_dict(
@@ -952,6 +969,18 @@ def py():
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-deltanet-bidir",
         {
             "model.enc_build_dict": _hybrid_enc_build_dict(_deltanet_bidir_per_layer),
+            "train.batch_size": bs * configs._batch_size_factor // 2,
+            "train.max_seqs": max_seqs,
+            "lm_recog_extra.__serialization_version_stats": 2,
+        },
+    )
+    # Bidir Mamba-2 with ``ssd_super_batch_chunk=256``, run at ``bs // 2``
+    # to compare directly against the causal mamba2 + bidir deltanet at the same batch size.
+    # See the existing ``-mamba2-bidir`` variant for the ``bs // 4`` fallback that doesn't need the chunking option.
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-mamba2-bidir-ssdchunk256",
+        {
+            "model.enc_build_dict": _hybrid_enc_build_dict(_mamba2_bidir_ssdchunk_per_layer),
             "train.batch_size": bs * configs._batch_size_factor // 2,
             "train.max_seqs": max_seqs,
             "lm_recog_extra.__serialization_version_stats": 2,

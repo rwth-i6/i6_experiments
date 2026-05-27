@@ -27,6 +27,7 @@ from typing import Optional
 
 import torch
 import torch.nn.functional as F
+import torch.utils.checkpoint
 from einops import rearrange, repeat
 from returnn.tensor import Dim, Tensor
 import returnn.frontend as rf
@@ -57,11 +58,52 @@ def _ssd_chunked(
     C: torch.Tensor,  # [B, L, H, N]   output-state
     block_len: int,
     initial_states: Optional[torch.Tensor] = None,
+    super_batch_chunk: Optional[int] = None,
 ) -> torch.Tensor:
     """SSD chunked algorithm. Returns Y of shape [B, L, H, P].
 
     L must be a multiple of block_len.
+
+    ``super_batch_chunk``: if set, process the super-batch dim ``B`` in slices of this size,
+    each slice wrapped in :func:`torch.utils.checkpoint.checkpoint`
+    so the per-einsum intermediates (``L_mat``, ``states``, ``Y_diag``, ``Y_off``)
+    don't have to be kept alive for the backward pass --
+    they're recomputed once per slice when backward visits it.
+    Peak GPU memory then scales with one slice instead of the full super-batch.
+    Trade-off: ~2x compute for the SSD scan portion (the rest of the layer is unchanged),
+    but the SSD is a small fraction of total step time at typical hyperparameters,
+    so end-to-end throughput hit is much smaller than 2x.
+    Useful for the bidir Mamba-2 path,
+    where the bwd direction merges ``(batch, num_chunks_per_seq)`` into a super-batch
+    and the SSD intermediates would otherwise eat 1-2 GB each
+    -- and crucially, retain them all simultaneously for the backward pass.
     """
+    if super_batch_chunk is not None and X.size(0) > super_batch_chunk:
+        outs = []
+        sb = X.size(0)
+        # Only use checkpoint when we're inside an autograd graph; otherwise
+        # (eval / inference) plain recursion is enough and skips the checkpoint overhead.
+        use_ckpt = torch.is_grad_enabled() and any(t.requires_grad for t in (X, A, B, C))
+        for s in range(0, sb, super_batch_chunk):
+            e = min(s + super_batch_chunk, sb)
+            init = None if initial_states is None else initial_states[s:e]
+
+            def _run(X_sl, A_sl, B_sl, C_sl, init=init):
+                return _ssd_chunked(
+                    X_sl, A_sl, B_sl, C_sl,
+                    block_len=block_len,
+                    initial_states=init,
+                    super_batch_chunk=None,  # recursion guard
+                )
+
+            if use_ckpt:
+                out = torch.utils.checkpoint.checkpoint(
+                    _run, X[s:e], A[s:e], B[s:e], C[s:e], use_reentrant=False
+                )
+            else:
+                out = _run(X[s:e], A[s:e], B[s:e], C[s:e])
+            outs.append(out)
+        return torch.cat(outs, dim=0)
     L = X.size(1)
     assert L % block_len == 0, f"L={L} not divisible by block_len={block_len}"
 
@@ -493,8 +535,16 @@ class BidirMamba2ChunkedLayer(rf.Module):
         with_macaron_ff: bool = False,
         macaron_ff_dim_factor: int = 4,
         with_post_ln: bool = False,
+        ssd_super_batch_chunk: Optional[int] = None,
     ):
         super().__init__()
+        # ``ssd_super_batch_chunk``: if set, the bwd-direction SSD scan processes its
+        # super-batch (``batch * num_chunks_per_seq``) in slices of this size,
+        # trading a small amount of throughput for a big drop in peak GPU memory.
+        # See :func:`_ssd_chunked`'s ``super_batch_chunk`` docstring;
+        # used by the bidir Mamba-2 path where the bwd direction's per-chunk reset
+        # would otherwise eat 1-2 GB per einsum intermediate.
+        self.ssd_super_batch_chunk = ssd_super_batch_chunk
         self.out_dim = out_dim
         d_inner = out_dim.dimension * expand
         assert d_inner % head_dim == 0, f"d_inner={d_inner} not multiple of head_dim={head_dim}"
@@ -646,7 +696,11 @@ class BidirMamba2ChunkedLayer(rf.Module):
         A_pad, _ = _pad_to_block_len(A_disc, self.block_len, time_dim=1)
         B_pad, _ = _pad_to_block_len(B_state, self.block_len, time_dim=1)
         C_pad, _ = _pad_to_block_len(C_state, self.block_len, time_dim=1)
-        y_pad = _ssd_chunked(x_pad, A_pad, B_pad, C_pad, block_len=self.block_len)
+        y_pad = _ssd_chunked(
+            x_pad, A_pad, B_pad, C_pad,
+            block_len=self.block_len,
+            super_batch_chunk=self.ssd_super_batch_chunk,
+        )
         y_t = y_pad[:, :T_orig]
         D_view = D.raw_tensor.view(1, 1, n_heads, 1)
         y_t = y_t + x_in * D_view
