@@ -119,8 +119,13 @@ def _from_BTF(raw: torch.Tensor, like: Tensor, spatial_dim: Dim, feat_dim: Dim, 
     """
     Wrap a raw torch tensor ``[B, T, F]`` as an rf.Tensor,
     re-using the batch dim from ``like``.
+
+    ``feat_dim`` is the *output* feature dim (what the wrapped tensor will carry).
+    ``like`` is only consulted to find the batch dim,
+    so it may have any feature dim (typically the block's *input* feature dim,
+    e.g. ``d_in_proj`` while ``feat_dim`` is the SSM block's output ``d_inner``).
     """
-    batch_dims = like.remaining_dims((spatial_dim, feat_dim))
+    batch_dims = like.remaining_dims((spatial_dim, like.feature_dim))
     assert len(batch_dims) == 1, f"_from_BTF expected exactly one batch-like dim in {like}, got {batch_dims}"
     return Tensor(
         name,
