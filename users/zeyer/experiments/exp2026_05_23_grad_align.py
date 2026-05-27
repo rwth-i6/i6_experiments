@@ -64,6 +64,9 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.extract_
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.word_align_from_per_token_with_sep_grads import (
     WordAlignFromPerTokenWithSepGradsJob,
 )
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.word_align_from_per_token_grads_ext_metrics import (
+    WordAlignFromPerTokenGradsExtMetricsJob,
+)
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.recog_from_model import (
     RecogFromModelJob,
 )
@@ -430,6 +433,41 @@ def py():
             align.add_alias(align_name)
             tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
+
+    # Extended-metrics scoring for the champion pertoken-charlev-spc variant
+    # (val + test). Adds mean/median WBE in ms, % within {10, 25, 50, 100} ms,
+    # F1 @ 20 ms collar. Matches the table format used in Rousso et al. 2024
+    # and Huang et al. 2024 -- direct comparability with MFA, WhisperX, MMS,
+    # Charsiu, less-peaky-CTC, etc.
+    for split in ("val", "test"):
+        ext_extract = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key=split,
+            model_config=pt_csp_cfg,
+            mult_grad_by_inputs=True,
+            attr_reduction="L2",
+        )
+        ext_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        for align_opts in _ALIGN_OPTS_GRID:
+            ext_name = f"phi4mm-timit-{split}-L2_e_grad-pertoken-charlev-spc-ext-{_name_for_dict(align_opts)}"
+            ext = WordAlignFromPerTokenGradsExtMetricsJob(
+                grad_score_hdf=ext_extract.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key=split,
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=align_opts,
+            )
+            ext.add_alias(f"align/{ext_name}")
+            tk.register_output(f"align/{ext_name}-wbe_ms.txt", ext.out_wbe_ms)
+            tk.register_output(f"align/{ext_name}-median_wbe_ms.txt", ext.out_median_wbe_ms)
+            tk.register_output(f"align/{ext_name}-pct_within_10ms.txt", ext.out_pct_within_10ms)
+            tk.register_output(f"align/{ext_name}-pct_within_25ms.txt", ext.out_pct_within_25ms)
+            tk.register_output(f"align/{ext_name}-pct_within_50ms.txt", ext.out_pct_within_50ms)
+            tk.register_output(f"align/{ext_name}-pct_within_100ms.txt", ext.out_pct_within_100ms)
+            tk.register_output(f"align/{ext_name}-f1_20ms.txt", ext.out_f1_20ms)
+            tk.register_output(f"align/{ext_name}-report.txt", ext.out_report)
+            tk.register_output(f"align/{ext_name}-word_boundaries.py.gz", ext.out_word_boundaries)
 
     # (e) Two follow-up ideas on top of pertoken-charlev-spc:
     #
