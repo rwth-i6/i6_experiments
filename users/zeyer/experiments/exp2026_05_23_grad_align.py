@@ -64,6 +64,18 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.extract_
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.word_align_from_per_token_with_sep_grads import (
     WordAlignFromPerTokenWithSepGradsJob,
 )
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.recog_from_model import (
+    RecogFromModelJob,
+)
+from i6_experiments.users.zeyer.datasets.huggingface.extract_text import (
+    ExtractWordDetailFromHuggingFaceDatasetJob,
+)
+from i6_experiments.users.zeyer.datasets.utils.sclite_generic_score import (
+    sclite_score_hyps_to_ref,
+)
+from i6_experiments.users.zeyer.datasets.huggingface.open_asr_leaderboard import (
+    text_dict_normalize_file,
+)
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.add_sizes_to_grad_score_hdf import (
     AddSizesToGradScoreHdfJob,
 )
@@ -178,6 +190,39 @@ def py():
 
     dl_ds_buckeye = DownloadHuggingFaceRepoJobV2(repo_id="nh0znoisung/buckeye", repo_type="dataset")
     tk.register_output("buckeye-dataset", dl_ds_buckeye.out_hub_cache_dir)
+
+    # --- Phi4-MM open recognition (WER sanity gate for hyp-mode alignment).
+    # Prerequisite for evaluating against open-recognition baselines
+    # (WhisperX, whisper-timestamped) on their native metric. If WER here is
+    # high, hyp-mode alignment numbers won't be meaningful. Reuses i6_core's
+    # ScliteJob via the zeyer sclite_score_hyps_to_ref helper.
+    phi4mm_recog_cfg = _phi4mm_model_config(dl_phi4mi_dir)
+    for split in ("val", "test"):
+        recog = RecogFromModelJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key=split,
+            model_config=phi4mm_recog_cfg,
+        )
+        recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        recog.add_alias(f"phi4mm-timit-{split}-recog")
+        tk.register_output(f"phi4mm-timit-{split}-recog.hyps.txt.gz", recog.out_hyps_txt)
+        refs = ExtractWordDetailFromHuggingFaceDatasetJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_split=split,
+        )
+        refs.add_alias(f"phi4mm-timit-{split}-refs")
+        # Normalize both sides with the same text normalizer before scoring,
+        # so the WER reflects acoustic-side errors, not punctuation /
+        # case / contraction-expansion differences. Swap the normalizer
+        # function if a different convention is desired.
+        hyps_norm = text_dict_normalize_file(recog.out_hyps_txt)
+        refs_norm = text_dict_normalize_file(refs.out_text)
+        score = sclite_score_hyps_to_ref(
+            hyps_text_dict=hyps_norm,
+            ref_text_dict=refs_norm,
+            corpus_name=f"phi4mm-timit-{split}",
+        )
+        tk.register_output(f"phi4mm-timit-{split}-wer.txt", score.main_measure_value)
+        tk.register_output(f"phi4mm-timit-{split}-wer-report", score.report)
 
     # --- Short-form: TIMIT val/test, Phi4-multimodal -----------------------
     # Mirrors exp2025_05_05_align lines ~44-84 but via the generic Job.
