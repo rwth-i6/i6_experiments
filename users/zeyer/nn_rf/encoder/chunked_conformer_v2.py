@@ -190,8 +190,16 @@ class ChunkedConformerEncoderV2(rf.Module):
         )
         self.input_dropout = input_dropout
 
-        if not encoder_layer or isinstance(encoder_layer, (dict, type)):
-            encoder_layer_opts_ = dict(
+        def _opts_for(target):
+            # Encoder auto-default kwargs forwarded to layer construction
+            # (both the default ``encoder_layer`` and any ``encoder_layer_per_layer`` entries).
+            # Filtered per target via :func:`_filter_opts_for_target` so kwargs the target
+            # doesn't declare are dropped at the source.
+            # The user-supplied ``encoder_layer_opts`` is merged *after* the filter --
+            # those are kwargs the user passed deliberately,
+            # so an unknown one should surface as the constructor's ``TypeError``,
+            # not be silently absorbed.
+            default_encoder_layer_opts = dict(
                 out_dim=out_dim,
                 ff_dim=ff_dim,
                 ff_activation=ff_activation,
@@ -203,23 +211,15 @@ class ChunkedConformerEncoderV2(rf.Module):
                 version=version,
                 mem_chunks_grad_checkpointing=mem_chunks_grad_checkpointing,
             )
-            encoder_layer_opts_ = {k: v for (k, v) in encoder_layer_opts_.items() if v is not NotSpecified}
+            default_encoder_layer_opts = {
+                k: v for (k, v) in default_encoder_layer_opts.items() if v is not NotSpecified
+            }
+            _opts = _filter_opts_for_target(default_encoder_layer_opts, target)
+            if encoder_layer_opts:
+                _opts.update(encoder_layer_opts)
+            return _opts
 
-            # ``encoder_layer_opts_`` now holds *only* the encoder's auto-defaults
-            # (the kitchen-sink the encoder unconditionally would forward to every per-layer spec).
-            # Filter those defaults to the target layer's signature
-            # so kwargs the target doesn't declare are dropped at the source;
-            # see :func:`_filter_opts_for_target`.
-            # The user-supplied ``encoder_layer_opts`` is merged *after* the filter --
-            # those are kwargs the user passed deliberately,
-            # so an unknown one should surface as the constructor's ``TypeError``,
-            # not be silently absorbed.
-            def _opts_for(target):
-                _opts = _filter_opts_for_target(encoder_layer_opts_, target)
-                if encoder_layer_opts:
-                    _opts.update(encoder_layer_opts)
-                return _opts
-
+        if not encoder_layer or isinstance(encoder_layer, (dict, type)):
             if not encoder_layer:
                 encoder_layer = ChunkedConformerEncoderLayerV2(**_opts_for(ChunkedConformerEncoderLayerV2))
             elif isinstance(encoder_layer, type):
@@ -950,7 +950,7 @@ def _filter_opts_for_target(opts: Dict[str, Any], target) -> Dict[str, Any]:
     """
     Drop keys from ``opts`` that the target callable's ``__init__`` doesn't declare.
 
-    The encoder builds ``encoder_layer_opts_`` from its own conformer-baseline kwargs
+    The encoder builds ``default_encoder_layer_opts`` from its own conformer-baseline kwargs
     (``conv_kernel_size``, ``num_heads``, ``att_dropout``, ``mem_chunks_grad_checkpointing``, ...)
     and forwards them to every per-layer spec, plus the default encoder-layer construction.
     For a conformer-baseline layer (:class:`ChunkedConformerEncoderLayerV2` & subclasses)
