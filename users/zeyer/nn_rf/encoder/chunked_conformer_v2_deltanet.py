@@ -41,7 +41,7 @@ from typing import Any, Optional
 import torch
 import torch.nn.functional as F
 from einops import rearrange
-from returnn.tensor import Dim, Tensor, batch_dim as _batch_dim
+from returnn.tensor import Dim, Tensor
 import returnn.frontend as rf
 
 from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2 import _BatchChunkingSettings
@@ -134,32 +134,28 @@ def _delta_rule_chunked(
 # ---------------------------------------------------------------------------
 
 
-def _find_batch_dim(t: Tensor) -> Dim:
-    for d in t.dims:
-        if d is _batch_dim:
-            return d
-    for d in t.dims:
-        if d.is_batch_dim():
-            return d
-    raise RuntimeError(f"no batch dim in {t.dims}")
-
-
 def _to_BTF(t: Tensor, spatial_dim: Dim, feat_dim: Dim) -> torch.Tensor:
-    b = _find_batch_dim(t)
-    s = (
-        spatial_dim
-        if spatial_dim in t.dims
-        else next(d for d in t.dims if d.dimension == spatial_dim.dimension and d.name == spatial_dim.name)
-    )
-    order = list(t.dims)
-    return t.raw_tensor.permute(order.index(b), order.index(s), order.index(feat_dim)).contiguous()
+    """
+    Permute the raw torch tensor of t to ``(batch, spatial, feat)`` order.
+
+    The batch dim is identified as the unique non-spatial, non-feature dim;
+    if t has multiple batch-like dims, merge them with ``rf.merge_dims`` first.
+    """
+    batch_dims = t.remaining_dims((spatial_dim, feat_dim))
+    assert len(batch_dims) == 1, f"_to_BTF expected exactly one batch-like dim in {t}, got {batch_dims}"
+    return t.copy_compatible_to_dims_raw([batch_dims[0], spatial_dim, feat_dim]).contiguous()
 
 
 def _from_BTF(raw: torch.Tensor, like: Tensor, spatial_dim: Dim, feat_dim: Dim, *, name: str) -> Tensor:
-    b = _find_batch_dim(like)
+    """
+    Wrap a raw torch tensor ``[B, T, F]`` as an rf.Tensor,
+    re-using the batch dim from ``like``.
+    """
+    batch_dims = like.remaining_dims((spatial_dim, feat_dim))
+    assert len(batch_dims) == 1, f"_from_BTF expected exactly one batch-like dim in {like}, got {batch_dims}"
     return Tensor(
         name,
-        dims=[b, spatial_dim, feat_dim],
+        dims=[batch_dims[0], spatial_dim, feat_dim],
         dtype=str(raw.dtype).split(".")[-1].replace("torch.", ""),
         raw_tensor=raw,
         feature_dim=feat_dim,
@@ -612,21 +608,19 @@ class BidirDeltaNetChunkedLayer(rf.Module):
         Each chunk is processed independently (no cross-chunk state).
         Sequence of pure-rf operations:
         ``reverse_sequence`` along the within-chunk spatial axis,
-        ``merge_dims`` to fold (batch, chunked_time) into a super-batch
-        (out_dim explicitly ``kind=Batch`` so the inner block's batch-dim lookup picks it up),
+        ``merge_dims`` to fold all batch-like dims (batch + chunked_time)
+        into a super-batch so each chunk becomes an independent batch element,
         run the backward DeltaNet block,
-        then the inverse: ``split_dims`` back into (batch, chunked_time) + ``reverse_sequence`` again.
+        then the inverse: ``split_dims`` + ``reverse_sequence`` again.
         Output dims match the input layout.
         Values at the lookahead positions are computed but discarded by the caller
         (the combine step keeps the forward output there for cross-chunk continuity).
         """
         x_rev = rf.reverse_sequence(x_ln, axis=spatial_dim, handle_dynamic_dims=False)
-        batch = _find_batch_dim(x_rev)
-        chunked_time = chunking.chunked_time_dim
-        super_batch = Dim(kind=Dim.Types.Batch, description="bidir-super-batch")
-        x_merged, _ = rf.merge_dims(x_rev, dims=(batch, chunked_time), out_dim=super_batch)
+        batch_dims = x_rev.remaining_dims((spatial_dim, x_rev.feature_dim))
+        x_merged, super_batch_dim = rf.merge_dims(x_rev, dims=batch_dims)
         y_merged = self._bwd_block_call(x_merged, spatial_dim=spatial_dim)
-        y_split = rf.split_dims(y_merged, axis=super_batch, dims=(batch, chunked_time))
+        y_split = rf.split_dims(y_merged, axis=super_batch_dim, dims=batch_dims)
         return rf.reverse_sequence(y_split, axis=spatial_dim, handle_dynamic_dims=False)
 
     def __call__(

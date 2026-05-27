@@ -28,7 +28,7 @@ from typing import Any, Optional
 import torch
 import torch.nn.functional as F
 from einops import rearrange, repeat
-from returnn.tensor import Dim, Tensor, batch_dim as _batch_dim
+from returnn.tensor import Dim, Tensor
 import returnn.frontend as rf
 
 from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2 import _BatchChunkingSettings
@@ -103,32 +103,28 @@ def _ssd_chunked(
 # ---------------------------------------------------------------------------
 
 
-def _find_batch_dim(t: Tensor) -> Dim:
-    for d in t.dims:
-        if d is _batch_dim:
-            return d
-    for d in t.dims:
-        if d.is_batch_dim():
-            return d
-    raise RuntimeError(f"no batch dim in {t.dims}")
-
-
 def _to_BTF(t: Tensor, spatial_dim: Dim, feat_dim: Dim) -> torch.Tensor:
-    b = _find_batch_dim(t)
-    s = (
-        spatial_dim
-        if spatial_dim in t.dims
-        else next(d for d in t.dims if d.dimension == spatial_dim.dimension and d.name == spatial_dim.name)
-    )
-    order = list(t.dims)
-    return t.raw_tensor.permute(order.index(b), order.index(s), order.index(feat_dim)).contiguous()
+    """
+    Permute the raw torch tensor of t to ``(batch, spatial, feat)`` order.
+
+    The batch dim is identified as the unique non-spatial, non-feature dim;
+    if t has multiple batch-like dims, merge them with ``rf.merge_dims`` first.
+    """
+    batch_dims = t.remaining_dims((spatial_dim, feat_dim))
+    assert len(batch_dims) == 1, f"_to_BTF expected exactly one batch-like dim in {t}, got {batch_dims}"
+    return t.copy_compatible_to_dims_raw([batch_dims[0], spatial_dim, feat_dim]).contiguous()
 
 
 def _from_BTF(raw: torch.Tensor, like: Tensor, spatial_dim: Dim, feat_dim: Dim, *, name: str) -> Tensor:
-    b = _find_batch_dim(like)
+    """
+    Wrap a raw torch tensor ``[B, T, F]`` as an rf.Tensor,
+    re-using the batch dim from ``like``.
+    """
+    batch_dims = like.remaining_dims((spatial_dim, feat_dim))
+    assert len(batch_dims) == 1, f"_from_BTF expected exactly one batch-like dim in {like}, got {batch_dims}"
     return Tensor(
         name,
-        dims=[b, spatial_dim, feat_dim],
+        dims=[batch_dims[0], spatial_dim, feat_dim],
         dtype=str(raw.dtype).split(".")[-1].replace("torch.", ""),
         raw_tensor=raw,
         feature_dim=feat_dim,
@@ -737,12 +733,12 @@ class BidirMamba2ChunkedLayer(rf.Module):
             )
             y_fwd = rf.replace_dim_v2(y_fwd_windowed, in_dim=new_chunked_time, out_dim=chunked_time)
 
-            batch = _find_batch_dim(xBC)
-            super_batch = Dim(kind=Dim.Types.Batch, description="bidir-super-batch")
             xBC_rev = rf.reverse_sequence(xBC, axis=spatial_dim, handle_dynamic_dims=False)
             dt_rev = rf.reverse_sequence(dt, axis=spatial_dim, handle_dynamic_dims=False)
-            xBC_merged, _ = rf.merge_dims(xBC_rev, dims=(batch, chunked_time), out_dim=super_batch)
-            dt_merged, _ = rf.merge_dims(dt_rev, dims=(batch, chunked_time), out_dim=super_batch)
+            xBC_batch_dims = xBC_rev.remaining_dims((spatial_dim, xBC_rev.feature_dim))
+            dt_batch_dims = dt_rev.remaining_dims((spatial_dim, dt_rev.feature_dim))
+            xBC_merged, super_batch_dim = rf.merge_dims(xBC_rev, dims=xBC_batch_dims)
+            dt_merged, _ = rf.merge_dims(dt_rev, dims=dt_batch_dims, out_dim=super_batch_dim)
             y_bwd_merged = self._ssd_one_direction(
                 xBC_merged,
                 dt_merged,
@@ -752,7 +748,7 @@ class BidirMamba2ChunkedLayer(rf.Module):
                 dt_bias=self.dt_bias_bwd,
                 D=self.D_bwd,
             )
-            y_bwd_split = rf.split_dims(y_bwd_merged, axis=super_batch, dims=(batch, chunked_time))
+            y_bwd_split = rf.split_dims(y_bwd_merged, axis=super_batch_dim, dims=xBC_batch_dims)
             y_bwd = rf.reverse_sequence(y_bwd_split, axis=spatial_dim, handle_dynamic_dims=False)
 
             # Combine: average at center positions, keep fwd at lookahead positions
