@@ -270,6 +270,12 @@ class Phi4MM(BaseModelInterface):
                 num_beams=1,
                 eos_token_id=self.assistant_end_token_id,
                 pad_token_id=self.assistant_end_token_id,
+                # Phi4MMForCausalLM.forward indexes hidden_states with
+                # ``-num_logits_to_keep:`` and crashes when this is None
+                # (the default when generate() doesn't forward it). Passing
+                # 1 here keeps logits only for the new token at each step,
+                # matching how generate uses logits anyway.
+                num_logits_to_keep=1,
             )
 
         hyp_ids = output_ids[0, prompt_len:]
