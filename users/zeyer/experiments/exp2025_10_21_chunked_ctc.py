@@ -815,16 +815,16 @@ def py():
     )
 
     # Limited history experiments.
-    for hs in [0, 40, 80]:
+    for ls_, rs_ in [(0, 0), (0, 4), (40, 4), (80, 4)]:
         train(
-            f"chunked-L{hs}-C{center_size}-R{right_size}-v2.3",
+            f"chunked-L{ls_}-C{center_size}-R{rs_}-v2.3",
             {
                 "model.enc_build_dict": rf.build_dict(
                     ChunkedConformerEncoderV2,
                     encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
                     chunk_size=center_size,
-                    chunk_history_size=hs,
-                    chunk_lookahead_size=right_size,
+                    chunk_history_size=ls_,
+                    chunk_lookahead_size=rs_,
                     version=3,
                 ),
                 "train.batch_size": bs * configs._batch_size_factor,
