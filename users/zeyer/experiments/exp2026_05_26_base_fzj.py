@@ -1,17 +1,23 @@
 """
-FZJ baselines port: Loquacious AED+CTC + chunked-CTC, plus a LibriSpeech AED+CTC sibling.
+FZJ baselines port: Loquacious AED+CTC (+ chunked variant), plus LibriSpeech AED+CTC
+with and without TTS augmentation. Each block ported verbatim from a corresponding
+RZ recipe so Job hashes match and rsync'd ``work/`` dirs are recognised as finished.
 
-Three trainings:
-- ``base`` (Loquacious, offline) -- copied from
-  ``exp2025_10_21_chunked_ctc.py:py():train('base', {})``;
-  arch + train config in :data:`_base_config` (copied verbatim from that recipe).
-- ``chunked-L80-C5-R4-v2.3-dyn-rope-ctembed`` (Loquacious, chunked) --
-  copied from the corresponding ``train(name, {...})`` block of the same recipe.
-- ``base-librispeech`` (LibriSpeech) -- copied from
-  ``exp2025_08_05_aed_large.py:py()``, the
-  ``EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxDec3-spm10k-bpeSample001-baseLr0.5-b100k``
-  entry (around line 2859). Architecturally identical to the Loquacious base
-  (bhv24, featBN, aux4_10_16, auxDec3, spm10k); LS-specific speed-pert enabled.
+Entry points:
+
+- :func:`_train_loquacious_base` -- ``base`` (offline) and
+  ``chunked-L80-C5-R4-v2.3-dyn-rope-ctembed``, from ``exp2025_10_21_chunked_ctc``.
+- :func:`_train_librispeech_base` -- ``base-librispeech`` (no TTS),
+  from ``exp2025_08_05_aed_large``.
+- :func:`_train_librispeech_tts_base` -- ``base-librispeech-tts``
+  (24-layer Conformer + 8-layer Transformer decoder + TTS-extended task),
+  from ``denoising_lm_aed_2024.sis_recipe.collapse_aed``.
+
+**Hash stability:**
+``train()``, ``get_lm()``, and ``_base_config`` are byte-identical to the RZ
+chunked-CTC recipe; the LS and LS+TTS blocks reproduce their respective
+``aed_train_exp(...)`` calls byte-identically. Don't refactor without verifying
+hashes still match (``hpc-sis-m.py --inspect`` or the dump-fzj-hashes pattern).
 """
 
 from __future__ import annotations
@@ -67,19 +73,28 @@ __setup_root_prefix__ = "exp2026_05_26_base_fzj"
 
 
 def py():
-    # ---- Loquacious AED+CTC, offline ----
-    # From exp2025_10_21_chunked_ctc.py:py() -- the ``train("base", {})`` call.
-    # Arch / train config defined in :data:`_base_config` below
-    # (16-layer Conformer 1024d + 6-layer Transformer decoder 1024d, spm10k,
-    # bhv24, featBN, aux_loss_layers=[4,10,16], dec_aux_loss_layers=[3]).
-    # RZ WER: 7.32 / 6.12 (ctc-only / ctc+lm).
+    _train_loquacious_base()
+    _train_librispeech_base()
+    _train_librispeech_tts_base()
+
+
+def _train_loquacious_base():
+    """Loquacious AED+CTC baselines: ``base`` (offline) and ``chunked-L80-C5-R4-v2.3-dyn-rope-ctembed``.
+
+    Both ported verbatim from ``exp2025_10_21_chunked_ctc.py:py()``;
+    arch + training config live in :data:`_base_config` below
+    (16-layer Conformer 1024d + 6-layer Transformer decoder 1024d, spm10k,
+    bhv24, featBN, aux_loss_layers=[4,10,16], dec_aux_loss_layers=[3]).
+
+    - ``base``: ``train("base", {})``.
+      RZ WER (ctc-only / ctc+lm): 7.32 / 6.12.
+    - ``chunked-L80-C5-R4-v2.3-dyn-rope-ctembed``: same encoder/decoder as ``base``
+      but with ChunkedConformerEncoderV2 (rotary self-att, chunk-type embedding,
+      dynamic chunk pool); from lines ~410-441 of the source recipe.
+      RZ WER: 9.41 / 7.09.
+    """
     train("base", {})
 
-    # ---- Loquacious AED+CTC, chunked (tight, streaming-realistic) ----
-    # From exp2025_10_21_chunked_ctc.py:py() -- the chunked-L80-C5-R4-v2.3-dyn-rope-ctembed
-    # variant (around lines 410-441), same encoder/decoder as ``base`` but with
-    # ChunkedConformerEncoderV2 (rotary self-att, chunk-type embedding, dynamic chunk pool).
-    # RZ WER: 9.41 / 7.09 (ctc-only / ctc+lm).
     left_n, center_size, right_size, bs, max_seqs = 16, 5, 4, 50_000, 200
     name = f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed"
     train(
@@ -103,21 +118,24 @@ def py():
         },
     )
 
-    # ---- LibriSpeech AED+CTC, offline ----
-    # From exp2025_08_05_aed_large.py:py() (around line 2859) --
-    # name "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxDec3-spm10k-bpeSample001-baseLr0.5-b100k"
-    # there; renamed here to "base-librispeech" for brevity.
-    # Architecturally identical to the Loquacious ``base`` above
-    # (bhv24, featBN, aux_loss_layers=[4,10,16], dec_aux_loss_layers=[3], spm10k);
-    # the LS-specific difference is speed-pert ([0.7..1.1]) since LS is much smaller.
-    # RZ WER (AED+CTC joint): dev-clean 1.87, dev-other 4.06, test-clean 2.06, test-other 4.38.
-    _train_librispeech_base()
-
 
 def _train_librispeech_base():
-    """Verbatim copy of the LS aed_train_exp call from exp2025_08_05_aed_large.py.
+    """LibriSpeech AED+CTC, alias ``base-librispeech``.
+
+    Verbatim port of the
+    ``EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxDec3-spm10k-bpeSample001-baseLr0.5-b100k``
+    entry from ``exp2025_08_05_aed_large.py:py()`` (~line 2859);
+    renamed here to ``base-librispeech`` for brevity.
+    Architecturally identical to the Loquacious ``base``
+    (bhv24, featBN, aux_loss_layers=[4,10,16], dec_aux_loss_layers=[3], spm10k);
+    the LS-specific difference is speed-pert ([0.7..1.1]) since LS is much smaller.
+
+    RZ WER (AED+CTC joint, rescored): dev-clean 1.87, dev-other 4.06,
+    test-clean 2.06, test-other 4.38.
+
     Don't refactor -- the call shape determines the Job hashes which we want to
-    match RZ so rsync'd work/ dirs are recognised."""
+    match RZ so rsync'd work/ dirs are recognised.
+    """
     prefix = get_setup_prefix_for_module(__name__)
     ls_task = get_librispeech_task_raw_v2(vocab="spm10k")
     name = "base-librispeech"
@@ -188,6 +206,106 @@ def _train_librispeech_base():
         task=ls_task,
         aed_ctc_model=exp.get_last_fixed_epoch(),
         aux_ctc_layer=16,
+    )
+
+
+def _train_librispeech_tts_base():
+    """LibriSpeech with TTS data augmentation, alias ``base-librispeech-tts``.
+
+    Verbatim port of the
+    ``EncL24-DecL8-D1024-AudioPadRnd100-DecPosEncAbs-featBN-aux4_10_16_24-auxShared-auxNoBias-auxDec3-spm10k-bpeSample001-baseLr0.5-b50k-tts``
+    entry from ``denoising_lm_aed_2024/sis_recipe/collapse_aed.py:py()``,
+    the opts row ``{"EncL": 24, "EncAux": [4, 10, 16, 24], "DecL": 8, "b": 50_000}``
+    (with TTS=True default). Renamed to ``base-librispeech-tts`` for brevity.
+
+    Larger than the no-TTS LS base: 24-layer Conformer / 1024d encoder + 8-layer
+    Transformer decoder / 1024d, ``AudioPadRnd100`` (random 0-100ms pad each side
+    during training), batch=50k, aux_loss_layers=[4,10,16,24], shared aux logits
+    (no bias). Training data = LibriSpeech + on-the-fly TTS-synthesised audio
+    from external text (via :func:`get_asr_tts_extended_task`).
+
+    RZ WER (AED+CTC joint, rescored): dev-clean 1.49, dev-other 3.31,
+    test-clean 1.60, test-other 3.56.
+
+    Requires the ``denoising_lm_2024`` package on the recipe path.
+    Don't refactor -- byte-identical call shape preserves the Job hashes.
+    """
+    # Local import to avoid hard-failing module import if denoising_lm_2024 isn't
+    # set up yet on a given setup; the call site is the only thing that needs it.
+    from denoising_lm_2024.sis_recipe.tts_data import get_asr_tts_extended_task
+
+    prefix = get_setup_prefix_for_module(__name__)
+    name = "base-librispeech-tts"
+
+    task = get_asr_tts_extended_task(
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        train_audio_preprocess=speed_pert_librosa_config,
+    )
+
+    exp = aed_train_exp(
+        name,
+        configs.config_96gb_bf16_accgrad1,
+        prefix=prefix + "/aed/",
+        task=task,
+        model_config={
+            "behavior_version": 24,
+            "__serialization_version": 2,
+            "enc_build_dict": rf.build_dict(
+                ConformerEncoder,
+                input_layer=rf.build_dict(
+                    ConformerConvSubsample,
+                    out_dims=[32, 64, 64],
+                    filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                    pool_sizes=[(1, 2)],
+                    strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
+                ),
+                num_layers=24,
+                out_dim=1024,
+                encoder_layer=rf.build_dict(
+                    ConformerEncoderLayer,
+                    ff=rf.build_dict(
+                        ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                    ),
+                    num_heads=8,
+                ),
+            ),
+            "dec_build_dict": rf.build_dict(
+                TransformerDecoder,
+                num_layers=8,
+                model_dim=1024,
+                norm=rf.build_dict(rf.RMSNorm),
+                ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+                layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+            ),
+            "pad_audio": {"train": ((0, 100), (0, 100))},
+            "feature_batch_norm": True,
+            "aux_loss_layers": [4, 10, 16, 24],
+            "enc_aux_logits_share_weights": True,
+            "enc_aux_logits_with_bias": False,
+        },
+        config_updates={
+            **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
+            "batch_size": 50_000 * configs._batch_size_factor,
+            "optimizer.weight_decay": 1e-2,
+            "accum_grad_multiple_step": 1,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "dec_aux_loss_layers": [3],
+            "max_seq_length_default_target": None,
+            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+        },
+        # NOTE: no ``__multi_proc_dataset`` here -- it doesn't work for TTS task
+        # (per the source recipe's comment).
+        post_config_updates={"log_grad_norm": True},
+        vocab="spm10k",
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    )
+    aed_ctc_timesync_recog_recomb_auto_scale(
+        prefix=prefix + "/aed/" + name + "/aed+ctc",
+        task=task,
+        aed_ctc_model=exp.get_last_fixed_epoch(),
+        aux_ctc_layer=24,
     )
 
 
