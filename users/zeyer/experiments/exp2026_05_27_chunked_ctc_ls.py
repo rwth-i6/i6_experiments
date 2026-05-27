@@ -40,6 +40,8 @@ from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2 import (
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
 from returnn.frontend.encoder.conformer import (
+    ConformerEncoder,
+    ConformerEncoderLayer,
     ConformerConvSubsample,
     ConformerPositionwiseFeedForward,
 )
@@ -49,6 +51,14 @@ __setup_root_prefix__ = "exp2026_05_27_chunked_ctc_ls"
 
 
 def py():
+    # Register the offline LS AED baseline under this setup's prefix
+    # with a byte-identical ``aed_train_exp(...)`` call,
+    # so its ``ReturnnTrainingJob`` hash matches the existing trained model
+    # at ``~/setups/2025-08-aed-large/work/.../ReturnnTrainingJob.IVB5xAuHZZA3``.
+    # The bulk-import script (``import_work_directory.py``) then symlinks
+    # that finished training in here -- no re-training.
+    _train_ls_offline_baseline()
+
     # ``(left_ctx, center, right_lookahead)`` in encoder frames (~60 ms each).
     # Causal variants (R=0) explore the encoder-only-latency budget;
     # (80, 5, 4) is the reference-streaming config matching the Loquacious sweep.
@@ -69,6 +79,94 @@ def py():
             chunk_lookahead_size=right,
             batch_size=bs,
         )
+
+
+def _train_ls_offline_baseline():
+    """
+    Re-register the offline LS AED baseline
+    ``EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxDec3-spm10k-bpeSample001-baseLr0.5-b100k``
+    (originally trained in :mod:`exp2025_08_05_aed_large`)
+    under this setup's prefix.
+
+    The :func:`aed_train_exp` call is byte-identical to the original
+    (encoder = :class:`ConformerEncoder`, no chunking;
+    no ``recog_def`` / ``search_config`` / ``max_seqs`` -- those are not passed in the original).
+    The resulting ``ReturnnTrainingJob`` hash therefore matches the existing
+    ``IVB5xAuHZZA3`` in ``~/setups/2025-08-aed-large/``,
+    so the bulk-import via ``import_work_directory.py`` symlinks the trained model
+    instead of triggering a new training.
+
+    The ``aed_ctc_timesync_recog_recomb_auto_scale`` call mirrors the original;
+    it depends on ``get_librispeech_task_raw_v2(vocab="spm10k")`` *without* the
+    ``train_vocab_opts`` / ``train_epoch_split`` kwargs (the training task uses those,
+    but the recog task is built default-style, matching the original).
+    """
+    prefix = get_setup_prefix_for_module(__name__)
+    name = "EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxDec3-spm10k-bpeSample001-baseLr0.5-b100k"
+    exp = aed_train_exp(
+        name,
+        config_96gb_bf16_accgrad1,
+        prefix=prefix + "/aed/",
+        model_config={
+            "behavior_version": 24,
+            "__serialization_version": 2,
+            "enc_build_dict": rf.build_dict(
+                ConformerEncoder,
+                input_layer=rf.build_dict(
+                    ConformerConvSubsample,
+                    out_dims=[32, 64, 64],
+                    filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                    pool_sizes=[(1, 2)],
+                    strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
+                ),
+                num_layers=16,
+                out_dim=1024,
+                encoder_layer=rf.build_dict(
+                    ConformerEncoderLayer,
+                    ff=rf.build_dict(
+                        ConformerPositionwiseFeedForward,
+                        activation=rf.build_dict(rf.relu_square),
+                        with_bias=False,
+                    ),
+                    num_heads=8,
+                ),
+            ),
+            "dec_build_dict": rf.build_dict(
+                TransformerDecoder,
+                num_layers=6,
+                model_dim=1024,
+                norm=rf.build_dict(rf.RMSNorm),
+                ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+                layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+            ),
+            "feature_batch_norm": True,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
+            "batch_size": 100_000 * _batch_size_factor,
+            "optimizer.weight_decay": 1e-2,
+            "accum_grad_multiple_step": 1,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_loss_layers": [4, 10, 16],
+            "dec_aux_loss_layers": [3],
+            "max_seq_length_default_target": None,
+            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+        },
+        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    )
+    task_spm10k = get_librispeech_task_raw_v2(vocab="spm10k")
+    aed_ctc_timesync_recog_recomb_auto_scale(
+        prefix=prefix + "/aed/" + name + "/aed+ctc",
+        task=task_spm10k,
+        aed_ctc_model=exp.get_last_fixed_epoch(),
+        aux_ctc_layer=16,
+    )
+    return exp
 
 
 def _train_ls(name: str, *, chunk_size: int, chunk_history_size: int, chunk_lookahead_size: int, batch_size: int):
