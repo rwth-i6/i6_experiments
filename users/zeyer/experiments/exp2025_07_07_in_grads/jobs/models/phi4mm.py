@@ -234,6 +234,57 @@ class Phi4MM(BaseModelInterface):
             out.target_start_end = torch.stack([tse[..., 0], tse[..., 0] + 1], dim=-1)
         return out
 
+    def recog(
+        self,
+        *,
+        raw_inputs: torch.Tensor,
+        raw_inputs_sample_rate: int,
+        raw_input_seq_lens: torch.Tensor,
+        max_new_tokens: int = 100,
+    ) -> List[List[str]]:
+        """Open recognition: greedy decode without a target prompt.
+
+        Same audio preprocessing as :meth:`forward` / :meth:`_forward_core`,
+        but the prompt stops after ``<|assistant|>`` -- the model then
+        generates the transcription. Returns one normalized word list per
+        batch item (currently batch size 1).
+        """
+        assert len(raw_inputs) == 1, f"recog: batch size 1 only, got {len(raw_inputs)=}"
+        assert isinstance(raw_inputs, torch.Tensor) and raw_inputs.ndim == 2
+        assert raw_input_seq_lens[0] == raw_inputs.shape[1]
+
+        prompt = f"<|user|><|audio_1|>{self.speech_prompt}<|end|><|assistant|>"
+        inputs = self.processor(
+            text=prompt,
+            audios=[(raw_inputs[0], raw_inputs_sample_rate)],
+            return_tensors="pt",
+        )
+        inputs = inputs.to(self.device)
+        prompt_len = inputs["input_ids"].shape[1]
+
+        with torch.no_grad():
+            output_ids = self.model.generate(
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+                num_beams=1,
+                eos_token_id=self.assistant_end_token_id,
+                pad_token_id=self.assistant_end_token_id,
+            )
+
+        hyp_ids = output_ids[0, prompt_len:]
+        # Trim at first EOS-equivalent token.
+        eos_idx = (hyp_ids == self.assistant_end_token_id).nonzero(as_tuple=False)
+        if eos_idx.numel() > 0:
+            hyp_ids = hyp_ids[: int(eos_idx[0, 0])]
+        hyp_text = self.processor.tokenizer.decode(hyp_ids, skip_special_tokens=True)
+        # Return raw decoded text (whitespace-split). Any normalization for
+        # WER (lowercasing, punctuation removal, contraction handling, ...) is
+        # a configurable post-processing step applied by the caller -- see
+        # e.g. ``text_dict_normalize_file`` in
+        # :mod:`i6_experiments.users.zeyer.datasets.huggingface.open_asr_leaderboard`.
+        return [hyp_text.strip().split()]
+
     def _forward_core(
         self,
         *,
