@@ -151,17 +151,36 @@ class Voxtral(BaseModelInterface):
                 {"type": "text", "text": self.speech_prompt},
             ],
         }
-        if transcription is None:
-            inputs = self.processor.apply_chat_template([user_msg], add_generation_prompt=True)
-            return inputs, None
-
-        full_conversation = [user_msg, {"role": "assistant", "content": transcription}]
-        inputs_full = self.processor.apply_chat_template(full_conversation)
-        # Identify where transcription tokens start by running user-only with
-        # add_generation_prompt=True; its token length = dst_text_start.
         inputs_user = self.processor.apply_chat_template([user_msg], add_generation_prompt=True)
+        if transcription is None:
+            return inputs_user, None
+
+        # Forced-target: VoxtralProcessor.apply_chat_template won't accept a
+        # trailing assistant message (mistral_common's validator rejects it,
+        # and both ``continue_final_message=True`` and per-message
+        # ``prefix=True`` get dropped by the processor's kwarg filter /
+        # dict->AssistantMessage conversion). Instead, get the user-only
+        # prompt + audio features above, tokenize the transcription with the
+        # raw tokenizer, and concatenate the IDs manually. The assistant turn
+        # is conventionally prefixed with a space so per-token decoding sees
+        # word-start markers consistently.
         dst_text_start = int(inputs_user["input_ids"].shape[1])
-        return inputs_full, dst_text_start
+        transc_text = transcription if transcription.startswith(" ") else " " + transcription
+        transc_ids = self.processor.tokenizer(
+            transc_text, add_special_tokens=False, return_tensors="pt"
+        )["input_ids"]
+        eos_col = torch.tensor(
+            [[self.assistant_end_token_id]], dtype=transc_ids.dtype
+        )
+        transc_ids = torch.cat([transc_ids, eos_col], dim=1)
+        inputs_user["input_ids"] = torch.cat(
+            [inputs_user["input_ids"], transc_ids], dim=1
+        )
+        if "attention_mask" in inputs_user:
+            inputs_user["attention_mask"] = torch.cat(
+                [inputs_user["attention_mask"], torch.ones_like(transc_ids)], dim=1
+            )
+        return inputs_user, dst_text_start
 
     def _splice_audio_into_embeds(self, inputs: Dict[str, torch.Tensor]):
         """Return (audio_embeds, inputs_embeds) where audio_embeds has
