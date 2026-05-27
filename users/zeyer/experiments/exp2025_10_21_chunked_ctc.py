@@ -815,7 +815,7 @@ def py():
     )
 
     # Limited history experiments.
-    for ls_, rs_ in [(0, 0), (0, 4), (40, 4), (80, 4)]:
+    for ls_, rs_ in [(0, 4), (40, 4), (80, 4)]:
         train(
             f"chunked-L{ls_}-C{center_size}-R{rs_}-v2.3",
             {
