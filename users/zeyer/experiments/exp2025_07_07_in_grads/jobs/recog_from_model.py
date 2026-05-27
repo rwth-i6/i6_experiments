@@ -20,7 +20,18 @@ class RecogFromModelJob(Job):
     Output ``out_hyps_txt`` is a TextDict (``{seq_tag: text}``, gzipped Python
     repr), compatible with :class:`i6_core.returnn.search.SearchWordsDummyTimesToCTMJob`
     and the zeyer ``sclite_score_hyps_to_ref`` helper.
+
+    Two seq-tag conventions:
+    - Default (``dataset_name=None``): seq_tag = ``seq-{idx}``. Matches our
+      TIMIT/Buckeye recipe convention (single-name HF dataset).
+    - ESB-style (``dataset_name`` set): ``load_dataset(name=, split=)`` is
+      called, seq_tag = ``{dataset_name}/{dataset_key}/{data['id']}``, matching
+      :class:`ExtractTextFromHuggingFaceDatasetJob`. Used for the
+      OpenASRLeaderboard ESB datasets (AMI, GigaSpeech, ...). The two TextDicts
+      then share seq tags and feed sclite directly.
     """
+
+    __sis_hash_exclude__ = {"dataset_name": None}
 
     def __init__(
         self,
@@ -30,6 +41,7 @@ class RecogFromModelJob(Job):
         returnn_root: Optional[tk.Path] = None,
         model_config: Dict[str, Any],
         max_new_tokens: int = 100,
+        dataset_name: Optional[str] = None,
     ):
         super().__init__()
         self.dataset_dir = dataset_dir
@@ -37,6 +49,7 @@ class RecogFromModelJob(Job):
         self.returnn_root = returnn_root
         self.model_config = model_config
         self.max_new_tokens = max_new_tokens
+        self.dataset_name = dataset_name
 
         self.rqmt = {"time": 10, "cpu": 2, "gpu": 1, "mem": 80}
         self.out_hyps_txt = self.output_path("hyps.txt.gz")
@@ -80,13 +93,25 @@ class RecogFromModelJob(Job):
 
         from datasets import load_dataset
 
-        ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))
-        n = len(ds[self.dataset_key])
+        if self.dataset_name is not None:
+            ds = load_dataset(
+                get_content_dir_from_hub_cache_dir(self.dataset_dir),
+                name=self.dataset_name,
+                split=self.dataset_key,
+                token=True,
+            )
+            n = len(ds)
+            iterable = ds
+        else:
+            ds_full = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))
+            ds = ds_full[self.dataset_key]
+            n = len(ds)
+            iterable = ds
         print(f"Num seqs: {n}")
 
         hyps: Dict[str, str] = {}
         total_time = 0.0
-        for seq_idx, data in enumerate(ds[self.dataset_key]):
+        for seq_idx, data in enumerate(iterable):
             audio = data["audio"]["array"]
             if not isinstance(audio, np.ndarray):
                 audio = np.array(audio)
@@ -102,12 +127,20 @@ class RecogFromModelJob(Job):
             elapsed = time.time() - t0
             total_time += elapsed
             hyp_words = hyp_words_batch[0]
-            seq_tag = f"seq-{seq_idx}"
+            if self.dataset_name is not None:
+                # ESB / OpenASRLeaderboard convention -- shared with
+                # ExtractTextFromHuggingFaceDatasetJob so seq tags match.
+                seq_tag = f"{self.dataset_name}/{self.dataset_key}/{data['id']}"
+            else:
+                seq_tag = f"seq-{seq_idx}"
             hyps[seq_tag] = " ".join(hyp_words)
             if seq_idx < 5 or seq_idx % 100 == 0:
-                ref_words = list(data["word_detail"]["utterance"])
-                print(f"seq {seq_idx} ({elapsed:.2f}s)")
-                print(f"  ref: {' '.join(ref_words)!r}")
+                ref_str = data.get("text")
+                if ref_str is None and "word_detail" in data:
+                    ref_str = " ".join(data["word_detail"]["utterance"])
+                print(f"seq {seq_idx} tag={seq_tag!r} ({elapsed:.2f}s)")
+                if ref_str is not None:
+                    print(f"  ref: {ref_str!r}")
                 print(f"  hyp: {hyps[seq_tag]!r}")
 
         print(f"Total recog time: {total_time:.1f}s = {total_time / 60:.1f}min")
