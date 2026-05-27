@@ -86,6 +86,7 @@ class Phi4MM(BaseModelInterface):
         char_level: bool = False,
         char_level_sep: Optional[str] = None,
         char_level_brackets: Optional[str] = None,
+        char_level_skip_chars: Optional[List[str]] = None,
         unwrap_checkpoint_wrappers: bool = False,
         target_start_end_to_device: bool = False,
     ):
@@ -116,6 +117,7 @@ class Phi4MM(BaseModelInterface):
         self._char_level = char_level
         self._char_level_sep = char_level_sep
         self._char_level_brackets = char_level_brackets
+        self._char_level_skip_chars = set(char_level_skip_chars) if char_level_skip_chars else None
         self._target_start_end_to_device = target_start_end_to_device
 
         print("Import Transformers...")
@@ -186,7 +188,11 @@ class Phi4MM(BaseModelInterface):
                 cstart = len(chars)
                 if bow_tok is not None:
                     chars.append(bow_tok)
-                chars.extend(word)
+                word_chars = list(word)
+                if self._char_level_skip_chars is not None:
+                    word_chars = [c for c in word_chars if c not in self._char_level_skip_chars]
+                assert word_chars, f"char_level_skip_chars filtered word {word!r} to empty"
+                chars.extend(word_chars)
                 if eow_tok is not None:
                     chars.append(eow_tok)
                 word_char_ranges.append((cstart, len(chars)))
