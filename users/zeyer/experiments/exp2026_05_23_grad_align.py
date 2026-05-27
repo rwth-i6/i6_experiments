@@ -52,6 +52,12 @@ from i6_experiments.users.zeyer.external_models.phi4multimodal import (
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.extract_in_grad_scores import (
     ExtractInGradsFromModelJob,
 )
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.extract_per_token_grads import (
+    ExtractInGradsPerTokenJob,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.word_align_from_per_token_grads import (
+    WordAlignFromPerTokenGradsJob,
+)
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.add_sizes_to_grad_score_hdf import (
     AddSizesToGradScoreHdfJob,
 )
@@ -193,6 +199,11 @@ def py():
         ("-charlev-brkw-spc", {"char_level": True, "char_level_brackets": "word", "char_level_sep": " "}),
         # Scout EOS margin (log p(target) - log p(end-of-assistant)).
         ("-eos-margin", {"eos_margin": True}),
+        # charlev-spc combos. Best single-flag variant so far is charlev-spc;
+        # see whether stacking margin / first-subword on top buys anything.
+        ("-charlev-spc-margin", {"char_level": True, "char_level_sep": " ", "margin_grad": True}),
+        ("-charlev-spc-firstsub", {"char_level": True, "char_level_sep": " ", "first_subword_only": True}),
+        ("-charlev-spc-margin-k3", {"char_level": True, "char_level_sep": " ", "margin_grad": True, "margin_grad_k": 3}),
     ]:
         phi4mm_cfg = _phi4mm_model_config(dl_phi4mi_dir, **variant_kwargs)
         _build_timit_phi4mm(
@@ -247,6 +258,40 @@ def py():
                 )
                 align.add_alias(align_name)
                 tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+
+
+    # Per-token variants. ExtractInGradsPerTokenJob does K backwards per word
+    # (one per subword/token) instead of 1, so we get per-token grad maps and
+    # can align at the token level then collapse to word boundaries via
+    # num_tokens_per_word. L2_e_grad val only; cost is ~K x base extract.
+    for variant_suffix, variant_kwargs in [
+        ("", {}),
+        ("-charlev-spc", {"char_level": True, "char_level_sep": " "}),
+    ]:
+        phi4mm_cfg = _phi4mm_model_config(dl_phi4mi_dir, **variant_kwargs)
+        gen = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=phi4mm_cfg,
+            mult_grad_by_inputs=True,
+            attr_reduction="L2",
+        )
+        gen.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        name = f"phi4mm-timit-val-L2_e_grad-pertoken{variant_suffix}"
+        gen.add_alias(name)
+        tk.register_output(f"{name}.hdf", gen.out_hdf)
+        for align_opts in _ALIGN_OPTS_GRID:
+            align_name = f"align/{name}-{_name_for_dict(align_opts)}"
+            align = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=gen.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=align_opts,
+            )
+            align.add_alias(align_name)
+            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
 
 def _build_timit_phi4mm(
