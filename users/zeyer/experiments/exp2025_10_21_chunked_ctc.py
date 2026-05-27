@@ -1333,12 +1333,16 @@ def _run_align_stats(name: str, exp, aux_ctc_layer: int) -> None:
     vocab = get_vocab_by_str("spm10k")
     model = exp.get_last_fixed_epoch()
 
+    # The Loquacious-trained SPM10k vocab here is all-uppercase
+    # (so we must uppercase the joined TIMIT / Buckeye utterance,
+    # otherwise every word tokenizes to <unk> silently).
+    text_case = "upper"
     for corpus in ["timit"]:
-        ds_dir = get_hf_word_align_dataset_dir(corpus)
+        ds_dir = get_hf_word_align_dataset_dir(corpus, text_case=text_case)
         offset_factor = get_dataset_offset_factor(corpus)
         for split in ["val", "test"]:
             tag = f"{corpus}-{split}"
-            ds = get_hf_word_align_dataset_config(name=corpus, split=split, vocab=vocab)
+            ds = get_hf_word_align_dataset_config(name=corpus, split=split, vocab=vocab, text_case=text_case)
             alignment_hdf = _aed_ctc_forced_align(model, ds, aux_ctc_layer=aux_ctc_layer)
             alignment_hdf.creator.add_alias(f"{prefix}/{tag}/forced-align")
             tk.register_output(f"{prefix}/{tag}/alignment.hdf", alignment_hdf)
