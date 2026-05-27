@@ -64,6 +64,9 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.add_size
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.smooth_grad_score_hdf import (
     SmoothGradScoreHdfJob,
 )
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.smooth_per_token_grad_score_hdf import (
+    SmoothPerTokenGradScoreHdfJob,
+)
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.phi4mm import Phi4MM
 
 # Alignment-metric jobs and the dict-naming helper live in the old recipe and
@@ -260,30 +263,110 @@ def py():
                 tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
 
-    # Per-token variants. ExtractInGradsPerTokenJob does K backwards per word
+    # Per-token block. ExtractInGradsPerTokenJob does K backwards per word
     # (one per subword/token) instead of 1, so we get per-token grad maps and
-    # can align at the token level then collapse to word boundaries via
-    # num_tokens_per_word. L2_e_grad val only; cost is ~K x base extract.
-    for variant_suffix, variant_kwargs in [
-        ("", {}),
-        ("-charlev-spc", {"char_level": True, "char_level_sep": " "}),
-    ]:
-        phi4mm_cfg = _phi4mm_model_config(dl_phi4mi_dir, **variant_kwargs)
+    # can align at token level, then collapse to word boundaries via
+    # num_tokens_per_word. Cost is ~K x base extract.
+    #
+    # On TIMIT val L2_e_grad, pertoken-charlev-spc gave WBE 0.087 vs 0.140
+    # for the per-word charlev-spc baseline (~40% rel improvement). This block
+    # scouts whether the gain transfers to other char_level configs, other
+    # grad reductions, the test split, and smoothing.
+
+    def _wire_pertoken(*, dl_ds, ds_name, split, phi4mm_cfg, attr, mgi, grad_alias, suffix):
         gen = ExtractInGradsPerTokenJob(
-            dataset_dir=dl_ds_timit.out_hub_cache_dir,
-            dataset_key="val",
+            dataset_dir=dl_ds.out_hub_cache_dir,
+            dataset_key=split,
             model_config=phi4mm_cfg,
-            mult_grad_by_inputs=True,
-            attr_reduction="L2",
+            mult_grad_by_inputs=mgi,
+            attr_reduction=attr,
         )
         gen.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-        name = f"phi4mm-timit-val-L2_e_grad-pertoken{variant_suffix}"
+        name = f"phi4mm-{ds_name}-{split}-{grad_alias}-pertoken{suffix}"
         gen.add_alias(name)
         tk.register_output(f"{name}.hdf", gen.out_hdf)
         for align_opts in _ALIGN_OPTS_GRID:
             align_name = f"align/{name}-{_name_for_dict(align_opts)}"
             align = WordAlignFromPerTokenGradsJob(
                 grad_score_hdf=gen.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds.out_hub_cache_dir,
+                dataset_key=split,
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS[ds_name],
+                align_opts=align_opts,
+            )
+            align.add_alias(align_name)
+            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+        return gen
+
+    # (a) Model-variant sweep, val + L2_e_grad. Pertoken on each char_level
+    # mode, including the BOW/EOW bracket variants we never tested per-token.
+    for variant_suffix, variant_kwargs in [
+        ("", {}),
+        ("-charlev", {"char_level": True}),
+        ("-charlev-spc", {"char_level": True, "char_level_sep": " "}),
+        ("-charlev-dot", {"char_level": True, "char_level_sep": "\u00b7"}),
+        ("-charlev-brk", {"char_level": True, "char_level_brackets": "char"}),
+        ("-charlev-brk-spc", {"char_level": True, "char_level_brackets": "char", "char_level_sep": " "}),
+        ("-charlev-brkw", {"char_level": True, "char_level_brackets": "word"}),
+        ("-charlev-brkw-spc", {"char_level": True, "char_level_brackets": "word", "char_level_sep": " "}),
+    ]:
+        phi4mm_cfg = _phi4mm_model_config(dl_phi4mi_dir, **variant_kwargs)
+        _wire_pertoken(
+            dl_ds=dl_ds_timit, ds_name="timit", split="val",
+            phi4mm_cfg=phi4mm_cfg, attr="L2", mgi=True,
+            grad_alias="L2_e_grad", suffix=variant_suffix,
+        )
+
+    # (b) pertoken-charlev-spc with other grad reductions, val.
+    pt_csp_cfg = _phi4mm_model_config(dl_phi4mi_dir, char_level=True, char_level_sep=" ")
+    for mgi, attr, grad_alias in [
+        (True, "L1", "L1_e_grad"),
+        (True, "L0.5", "L05_e_grad"),
+        (True, "sum", "dot_e_grad"),
+    ]:
+        _wire_pertoken(
+            dl_ds=dl_ds_timit, ds_name="timit", split="val",
+            phi4mm_cfg=pt_csp_cfg, attr=attr, mgi=mgi,
+            grad_alias=grad_alias, suffix="-charlev-spc",
+        )
+
+    # (c) pertoken-charlev-spc on test split, L2_e_grad.
+    _wire_pertoken(
+        dl_ds=dl_ds_timit, ds_name="timit", split="test",
+        phi4mm_cfg=pt_csp_cfg, attr="L2", mgi=True,
+        grad_alias="L2_e_grad", suffix="-charlev-spc",
+    )
+
+    # (d) Smoothing the pertoken-charlev-spc HDF. Reuses the val L2_e_grad
+    # extract (hash-identical to the one in (a)) -- only adds Smooth + Calc.
+    pt_csp_gen = ExtractInGradsPerTokenJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=pt_csp_cfg,
+        mult_grad_by_inputs=True,
+        attr_reduction="L2",
+    )
+    pt_csp_gen.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    smooth_base = "phi4mm-timit-val-L2_e_grad-pertoken-charlev-spc"
+    for smooth_kind, smooth_size in [
+        ("gaussian", 1.0),
+        ("gaussian", 2.0),
+        ("gaussian", 3.0),
+        ("median", 3),
+        ("median", 5),
+    ]:
+        tag = f"{smooth_kind}{smooth_size}".replace(".", "p")
+        smoother = SmoothPerTokenGradScoreHdfJob(
+            grad_score_hdf=pt_csp_gen.out_hdf,
+            smooth_kind=smooth_kind,
+            smooth_size=smooth_size,
+        )
+        smoother.add_alias(f"{smooth_base}-smooth-{tag}")
+        for align_opts in _ALIGN_OPTS_GRID:
+            align_name = f"align/{smooth_base}-smooth-{tag}-{_name_for_dict(align_opts)}"
+            align = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=smoother.out_hdf,
                 grad_score_key="data",
                 dataset_dir=dl_ds_timit.out_hub_cache_dir,
                 dataset_key="val",
