@@ -31,7 +31,7 @@ This module exposes:
 from __future__ import annotations
 
 from typing import Any, Dict
-from functools import cache
+from functools import cache, partial
 
 from sisyphus import tk
 
@@ -61,39 +61,70 @@ _HF_REPOS = {
 DATASET_OFFSET_FACTORS = {"timit": 1, "buckeye": 1000}
 
 
-def _map_add_text_and_duration(example: Dict[str, Any]) -> Dict[str, Any]:
+def _map_add_text_and_duration(example: Dict[str, Any], *, text_case: str) -> Dict[str, Any]:
     """
     Add ``text``, ``duration`` columns derived from ``word_detail`` and ``audio``.
 
-    Run via :class:`TransformAndMapHuggingFaceDatasetJob` ``map_func``.
-    Top-level so the function reference is stable across Sis hash recomputation.
+    Run via :class:`TransformAndMapHuggingFaceDatasetJob` ``map_func``,
+    typically wrapped with :func:`functools.partial` to bind ``text_case``
+    -- the bound kwarg participates in the Sis hash,
+    so different case-folding choices produce distinct prepared-dataset hashes.
+
+    :param text_case: how to case-fold the joined utterance.
+        Must be one of ``"as_is"``, ``"upper"``, ``"lower"``.
+        Pick to match the SPM vocab actually used downstream
+        (e.g. the Loquacious-trained SPM10k model has an all-uppercase vocab,
+        so its callers should pass ``"upper"``;
+        a lowercase-trained LibriSpeech SPM would use ``"lower"`` instead).
+        There is no default --
+        the right choice depends on the vocab,
+        and the silent-``<unk>`` failure mode is too easy to hit otherwise.
     """
-    example["text"] = " ".join(example["word_detail"]["utterance"]).lower()
+    text = " ".join(example["word_detail"]["utterance"])
+    if text_case == "upper":
+        text = text.upper()
+    elif text_case == "lower":
+        text = text.lower()
+    elif text_case == "as_is":
+        pass
+    else:
+        raise ValueError(f"unknown text_case={text_case!r}; expected 'as_is' / 'upper' / 'lower'")
+    example["text"] = text
     example["duration"] = float(len(example["audio"]["array"])) / float(example["audio"]["sampling_rate"])
     return example
 
 
 @cache
-def get_hf_word_align_dataset_dir(name: str) -> tk.Path:
+def get_hf_word_align_dataset_dir(name: str, *, text_case: str) -> tk.Path:
     """
     Get a hash-stable preprocessed HF dataset dir for TIMIT or Buckeye.
 
-    Adds ``text`` (joined lowercased ``word_detail.utterance``)
-    and ``duration`` (seconds) columns.
+    Adds a ``text`` column (joined ``word_detail.utterance``,
+    case-folded per the ``text_case`` argument)
+    and a ``duration`` column (audio length in seconds).
     Keeps the original ``word_detail`` block
     so a downstream metrics job can still read reference word boundaries
     via ``load_dataset``.
 
+    Different ``text_case`` choices produce distinct cached dataset dirs
+    (the kwarg is bound into the map_func via :func:`functools.partial`,
+    which participates in the Sis hash).
+
     :param name: ``"timit"`` or ``"buckeye"``.
+    :param text_case: ``"as_is"`` / ``"upper"`` / ``"lower"`` --
+        see :func:`_map_add_text_and_duration` for the trade-offs.
+        Must match the SPM vocab used downstream
+        (the Loquacious SPM10k model in this repo wants ``"upper"``).
     """
     assert name in _HF_REPOS, f"unknown dataset {name!r}; expected one of {sorted(_HF_REPOS)}"
     job = TransformAndMapHuggingFaceDatasetJob(
         _HF_REPOS[name],
-        map_func=_map_add_text_and_duration,
+        map_func=partial(_map_add_text_and_duration, text_case=text_case),
         map_opts={"batched": False},
     )
-    job.add_alias(f"datasets/hf_word_align/{name}")
-    tk.register_output(f"datasets/hf_word_align/{name}", job.out_dir)
+    alias = f"datasets/hf_word_align/{name}-{text_case}"
+    job.add_alias(alias)
+    tk.register_output(alias, job.out_dir)
     return job.out_dir
 
 
@@ -102,13 +133,15 @@ def get_hf_word_align_dataset_config(
     name: str,
     split: str,
     vocab: VocabConfig,
+    text_case: str,
     seq_ordering: str = "sorted_reverse",
 ) -> DatasetConfigStatic:
     """
     Wrap a preprocessed HF TIMIT/Buckeye split as a RETURNN ``DatasetConfig``.
 
     Audio = raw float32 (re-cast to 16 kHz),
-    text = SPM-tokenized int32 from the lowercased word-joined transcript.
+    text = SPM-tokenized int32 from the case-folded word-joined transcript
+    (case-folding per ``text_case``).
     ``default_input`` is ``"audio"``,
     ``default_target`` is ``"text"``,
     matching what ``ctc_forced_align`` expects.
@@ -116,10 +149,13 @@ def get_hf_word_align_dataset_config(
     :param name: ``"timit"`` or ``"buckeye"``.
     :param split: HF split key, e.g. ``"val"`` / ``"test"``.
     :param vocab: SPM vocab (typically ``get_vocab_by_str("spm10k")``).
+    :param text_case: ``"as_is"`` / ``"upper"`` / ``"lower"`` --
+        must match what the SPM vocab expects;
+        see :func:`_map_add_text_and_duration`.
     :param seq_ordering: RETURNN seq ordering.
         Default sorts by duration desc.
     """
-    hf_data_dir = get_hf_word_align_dataset_dir(name)
+    hf_data_dir = get_hf_word_align_dataset_dir(name, text_case=text_case)
     vocab_opts = vocab.get_opts()
     # Explicit ``sparse_dim`` for downstream callers (e.g. ``ctc_forced_align``)
     # that read it off ``get_extern_data()`` without consulting the vocab itself.
