@@ -189,7 +189,10 @@ class Voxtral(BaseModelInterface):
         """
         # Compute audio embeddings explicitly to expose them as a grad-able
         # tensor (default forward hides them inside masked_scatter).
+        print(f"  [splice] input_features shape={tuple(inputs['input_features'].shape)} dtype={inputs['input_features'].dtype}", flush=True)
         audio_embeds = self.model.get_audio_features(inputs["input_features"])
+        torch.cuda.synchronize()
+        print(f"  [splice] get_audio_features -> shape={tuple(audio_embeds.shape)} dtype={audio_embeds.dtype}", flush=True)
         # get_audio_features returns shape [num_audio_tokens, hidden_size];
         # transformers reshapes internally before scatter.
         if audio_embeds.dim() == 3:
@@ -197,10 +200,17 @@ class Voxtral(BaseModelInterface):
             audio_embeds = audio_embeds.reshape(-1, audio_embeds.shape[-1])
         audio_embeds.requires_grad_(True)
         audio_embeds.retain_grad()
+        print(f"  [splice] retain_grad ok; audio_embeds.requires_grad={audio_embeds.requires_grad}", flush=True)
 
         text_embeds = self.model.get_input_embeddings()(inputs["input_ids"])  # [B, T, H]
+        torch.cuda.synchronize()
+        print(f"  [splice] text_embeds shape={tuple(text_embeds.shape)} dtype={text_embeds.dtype}", flush=True)
         mask = (inputs["input_ids"] == self.audio_token_id).unsqueeze(-1).expand_as(text_embeds)
+        n_audio_slots = int(mask[..., 0].sum().item())
+        print(f"  [splice] audio mask: {n_audio_slots} slots, audio_embeds has {audio_embeds.shape[0]} rows", flush=True)
         merged = text_embeds.masked_scatter(mask, audio_embeds.to(text_embeds.dtype))
+        torch.cuda.synchronize()
+        print(f"  [splice] masked_scatter ok; merged shape={tuple(merged.shape)}", flush=True)
         return audio_embeds, merged
 
     # ---- Forward (forced alignment) -------------------------------------
@@ -231,6 +241,7 @@ class Voxtral(BaseModelInterface):
         if omitted_prev_context is not None and int(omitted_prev_context[0]) > 0:
             raise NotImplementedError("Voxtral chunked context not implemented yet")
 
+        print(f"[fwd] start; words={len(words)} transcription={transcription!r}", flush=True)
         audio_path = self._save_audio_tmp(raw_inputs[0], raw_inputs_sample_rate)
         try:
             inputs, dst_text_start = self._build_chat_inputs(
@@ -241,13 +252,16 @@ class Voxtral(BaseModelInterface):
                 os.unlink(audio_path)
             except OSError:
                 pass
+        print(f"[fwd] chat_inputs ok; dst_text_start={dst_text_start} input_ids.shape={tuple(inputs['input_ids'].shape)}", flush=True)
         inputs = inputs.to(dev)
         input_ids = inputs["input_ids"]
         assert input_ids.shape[0] == 1
         dst_text_end = input_ids.shape[1] - 1  # exclude trailing EOS
+        print(f"[fwd] inputs.to(dev) ok; dst_text_end={dst_text_end}", flush=True)
 
         audio_embeds, inputs_embeds = self._splice_audio_into_embeds(inputs)
         attention_mask = inputs.get("attention_mask")
+        print(f"[fwd] splice ok; about to run language model forward (inputs_embeds.shape={tuple(inputs_embeds.shape)})", flush=True)
 
         report_dev_memory_stats(dev)
         res = self.model(
@@ -255,10 +269,13 @@ class Voxtral(BaseModelInterface):
             attention_mask=attention_mask,
             output_hidden_states=True,
         )
+        torch.cuda.synchronize()
+        print(f"[fwd] model(...) returned; hidden_states={len(res.hidden_states)} layers, last shape={tuple(res.hidden_states[-1].shape)}", flush=True)
         last_out = res.hidden_states[-1]  # [B, T, H]
         del res
         assert last_out.shape[:2] == input_ids.shape
         report_dev_memory_stats(dev)
+        print(f"[fwd] returning ForwardOutput (n_audio_total={int(audio_embeds.shape[0])}, target_len={int(input_ids.shape[1] - dst_text_start)})", flush=True)
 
         targets = input_ids[:, dst_text_start:dst_text_end]
         n_targets = int(targets.shape[1])
