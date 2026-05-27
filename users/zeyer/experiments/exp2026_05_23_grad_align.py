@@ -52,6 +52,11 @@ from i6_experiments.users.zeyer.external_models.voxtral import (
     download_voxtral_mini_3b_model,
 )
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.voxtral import Voxtral
+from i6_experiments.users.zeyer.external_models.canary_qwen import (
+    download_canary_qwen_2_5b_model,
+    download_qwen3_1_7b_model,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.canary_qwen import CanaryQwen
 
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.extract_in_grad_scores import (
     ExtractInGradsFromModelJob,
@@ -82,6 +87,10 @@ from i6_experiments.users.zeyer.datasets.utils.sclite_generic_score import (
 )
 from i6_experiments.users.zeyer.datasets.huggingface.open_asr_leaderboard import (
     text_dict_normalize_file,
+    download_esb_datasets_test_only_sorted,
+)
+from i6_experiments.users.zeyer.datasets.huggingface.extract_text import (
+    ExtractTextFromHuggingFaceDatasetJob,
 )
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.add_sizes_to_grad_score_hdf import (
     AddSizesToGradScoreHdfJob,
@@ -543,6 +552,37 @@ def py():
     dl_voxtral = download_voxtral_mini_3b_model()
     voxtral_cfg = rf.build_dict(Voxtral, model_dir=dl_voxtral)
 
+    # Verbatim-prompt variant. Voxtral default prompt produced ~6.9%
+    # insertions on TIMIT val (LLM paraphrasing instead of transcribing).
+    # "Verbatim" hint may suppress that. Separate hash from the default
+    # variant so both numbers are kept side-by-side.
+    voxtral_verbatim_cfg = rf.build_dict(
+        Voxtral,
+        model_dir=dl_voxtral,
+        speech_prompt="Please transcribe the audio verbatim, exactly as spoken.",
+    )
+    for split in ("val",):
+        vx_v_recog = RecogFromModelJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key=split,
+            model_config=voxtral_verbatim_cfg,
+        )
+        vx_v_recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        vx_v_recog.add_alias(f"voxtral-verbatim-timit-{split}-recog")
+        tk.register_output(f"voxtral-verbatim-timit-{split}-recog.hyps.txt.gz", vx_v_recog.out_hyps_txt)
+        vx_v_refs = ExtractWordDetailFromHuggingFaceDatasetJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_split=split,
+        )
+        vx_v_hyps_norm = text_dict_normalize_file(vx_v_recog.out_hyps_txt)
+        vx_v_refs_norm = text_dict_normalize_file(vx_v_refs.out_text)
+        vx_v_score = sclite_score_hyps_to_ref(
+            hyps_text_dict=vx_v_hyps_norm,
+            ref_text_dict=vx_v_refs_norm,
+            corpus_name=f"voxtral-verbatim-timit-{split}",
+        )
+        tk.register_output(f"voxtral-verbatim-timit-{split}-wer.txt", vx_v_score.main_measure_value)
+        tk.register_output(f"voxtral-verbatim-timit-{split}-wer-report", vx_v_score.report)
+
     vx_recog = RecogFromModelJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir,
         dataset_key="val",
@@ -564,6 +604,69 @@ def py():
     )
     tk.register_output("voxtral-timit-val-wer.txt", vx_score.main_measure_value)
     tk.register_output("voxtral-timit-val-wer-report", vx_score.report)
+
+    # OpenASRLeaderboard consistency check: run Voxtral recog on a couple
+    # of ESB test sets and compare WER to the leaderboard's reported numbers.
+    # If our pipeline is consistent, we should land within ~0.5% of the
+    # leaderboard's published Voxtral WER on the same data. Large gap =>
+    # something's off (prompt, normalization, audio preproc).
+    dl_esb = download_esb_datasets_test_only_sorted()
+    # hf-audio/esb-datasets-test-only-sorted only contains:
+    # ami, common_voice, earnings22, gigaspeech, librispeech, spgispeech,
+    # voxpopuli (no tedlium). Use librispeech-test.clean for consistency check.
+    for esb_name, esb_split in (("librispeech", "test.clean"),):
+        vx_esb_recog = RecogFromModelJob(
+            dataset_dir=dl_esb,
+            dataset_name=esb_name,
+            dataset_key=esb_split,
+            model_config=voxtral_cfg,
+            max_new_tokens=512,
+        )
+        vx_esb_recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        vx_esb_recog.add_alias(f"voxtral-esb-{esb_name}-{esb_split}-recog")
+        tk.register_output(f"voxtral-esb-{esb_name}-{esb_split}-recog.hyps.txt.gz", vx_esb_recog.out_hyps_txt)
+        vx_esb_refs = ExtractTextFromHuggingFaceDatasetJob(
+            dataset_dir=dl_esb,
+            dataset_name=esb_name,
+            dataset_split=esb_split,
+        )
+        vx_esb_hyps_norm = text_dict_normalize_file(vx_esb_recog.out_hyps_txt)
+        vx_esb_refs_norm = text_dict_normalize_file(vx_esb_refs.out_text)
+        vx_esb_score = sclite_score_hyps_to_ref(
+            hyps_text_dict=vx_esb_hyps_norm,
+            ref_text_dict=vx_esb_refs_norm,
+            corpus_name=f"voxtral-esb-{esb_name}-{esb_split}",
+        )
+        tk.register_output(f"voxtral-esb-{esb_name}-{esb_split}-wer.txt", vx_esb_score.main_measure_value)
+        tk.register_output(f"voxtral-esb-{esb_name}-{esb_split}-wer-report", vx_esb_score.report)
+
+    # --- Canary-Qwen 2.5B (NeMo SALM) recog ----------------------------
+    # First pass: recog-only. Forward path (forced alignment) requires a
+    # grad-able hook into SALM internals -- deferred.
+    dl_canary = download_canary_qwen_2_5b_model()
+    dl_qwen3 = download_qwen3_1_7b_model()
+    canary_cfg = rf.build_dict(CanaryQwen, model_dir=dl_canary, llm_model_dir=dl_qwen3)
+
+    cq_recog = RecogFromModelJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=canary_cfg,
+    )
+    cq_recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    cq_recog.add_alias("canary-qwen-timit-val-recog")
+    tk.register_output("canary-qwen-timit-val-recog.hyps.txt.gz", cq_recog.out_hyps_txt)
+    cq_refs = ExtractWordDetailFromHuggingFaceDatasetJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_split="val",
+    )
+    cq_hyps_norm = text_dict_normalize_file(cq_recog.out_hyps_txt)
+    cq_refs_norm = text_dict_normalize_file(cq_refs.out_text)
+    cq_score = sclite_score_hyps_to_ref(
+        hyps_text_dict=cq_hyps_norm,
+        ref_text_dict=cq_refs_norm,
+        corpus_name="canary-qwen-timit-val",
+    )
+    tk.register_output("canary-qwen-timit-val-wer.txt", cq_score.main_measure_value)
+    tk.register_output("canary-qwen-timit-val-wer-report", cq_score.report)
 
     vx_extract = ExtractInGradsPerTokenJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir,
