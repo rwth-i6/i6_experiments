@@ -366,9 +366,7 @@ def _enc_conformer_layer_n12():
     """Mirror of the encoder_layer used in every n12 (D=512) experiment."""
     return rf.build_dict(
         ConformerEncoderLayer,
-        ff=rf.build_dict(
-            ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
-        ),
+        ff=rf.build_dict(ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False),
         num_heads=8,
     )
 
@@ -414,6 +412,7 @@ def _train_n12_sepff_alpha05():
         FeedForwardNet,
         ctc_training_with_sep_net,
     )
+
     return ctc_train_exp(
         "n12-spm10k-sepFf_alpha05-auxAED-b150k",
         config_96gb_bf16_accgrad1,
