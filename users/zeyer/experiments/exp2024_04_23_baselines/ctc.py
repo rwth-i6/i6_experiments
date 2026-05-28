@@ -1803,7 +1803,7 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     blank_idx = _ctc_model_def_blank_idx
     if blank_idx < 0:
         blank_idx = target_dim.dimension + 1 + blank_idx
-    return cls(
+    model_kwargs = dict(
         in_dim=in_dim,
         enc_build_dict=config.typed_value("enc_build_dict", None),  # alternative more generic/flexible way
         num_enc_layers=config.int("num_enc_layers", 12),
@@ -1819,6 +1819,10 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         enc_logits_with_bias=config.bool("enc_logits_with_bias", True),
         enc_aux_logits_share_weights=config.bool("enc_aux_logits_share_weights", False),
     )
+    # Alternative ctc_model_cls values (e.g. ModelSepNet) may not declare every
+    # Model-specific kwarg above. Drop the ones the target __init__ doesn't accept,
+    # so this shared model_def works for any model class. No-op for the standard Model.
+    return cls(**_filter_kwargs_for_cls(cls, model_kwargs))
 
 
 ctc_model_def: ModelDef[Model]
@@ -1827,6 +1831,22 @@ ctc_model_def.backend = "torch"
 ctc_model_def.batch_size_factor = _batch_size_factor
 
 _ctc_model_def_blank_idx: int = -1
+
+
+def _filter_kwargs_for_cls(cls, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """Drop kwargs that ``cls.__init__`` does not declare (no-op if it accepts ``**kwargs``).
+
+    Pattern mirrors :func:`...nn_rf.encoder.chunked_conformer_v2._filter_opts_for_target`.
+    """
+    import inspect
+
+    try:
+        params = inspect.signature(cls).parameters
+    except (TypeError, ValueError):
+        return kwargs
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return kwargs
+    return {k: v for k, v in kwargs.items() if k in params}
 
 
 def _get_bos_idx(target_dim: Dim) -> int:
