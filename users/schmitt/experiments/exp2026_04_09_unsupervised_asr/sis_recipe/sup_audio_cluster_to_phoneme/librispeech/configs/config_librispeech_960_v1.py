@@ -1,0 +1,80 @@
+import copy
+
+from ....train_exp import run_experiment
+from ..data.common import build_training_datasets
+from .... import optimizer_configs
+from ... import __setup_base_name__
+
+from sisyphus import tk
+
+base_num_epochs = 1_000
+num_gpus = 2
+
+train_data = build_training_datasets()
+
+base_config = {
+    "__network_module": "definitions.conformer_aed_discrete_shared_v1.Model",
+    "__train_step_module": "train_steps.aed_denoising_discrete.train_step",
+    "__baseline_alias": "v1",
+    "__forward_step_module": "recognition.discrete_audio_aed.forward_step.forward_step_v2",
+    "__callback_module": "recognition.aed.callback.RecognitionToTextDictCallback",
+    "train_rqmt": {
+        "cpu_rqmt": 6,
+    },
+    "general": {
+        "torch_dataloader_opts": {"num_workers": 1},  # for multi proc dataset
+        "behavior_version": 25,
+    },
+    "training": {
+        "__num_gpus": num_gpus,
+        "__num_epochs": base_num_epochs,
+        "__lr_opts": {
+            "type": "dyn_lr_piecewise_linear",
+            "piecewise_epochs": [0, 0.45 * base_num_epochs, 0.9 * base_num_epochs, base_num_epochs],
+            "piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+        },
+        "grad_scaler": None,
+        # "torch_amp": "bfloat16",
+        "batch_size": 15_000,
+        **optimizer_configs.v1,
+        # "max_seq_length": {"audio": 19.5 * sampling_rate},  # 19.5 seconds
+        "max_seqs": 200,
+        "accum_grad_multiple_step": 1,
+        "gradient_clip_global_norm": 5.0,
+    },
+    "model_args": {
+        "text_aux_loss_layers": (),
+        "audio_aux_loss_layers": (),
+        "num_enc_layers": 3,
+        "num_text_dec_layers": 3,
+        "num_audio_dec_layers": 3,
+        "num_heads": 8,
+        "model_dim": 512,
+        "share_decoder": True,
+        "text_out_dim": train_data.datastreams["target"].vocab_size,
+        "audio_out_dim": train_data.datastreams["data"].vocab_size,
+    },
+    "train_args": {
+        "aux_loss_scales": (),
+        "ce_loss_scale": 1.0,
+        "masked_ce_loss_scale": 0.0,
+        "masking_opts": {
+            "mask_prob": 0.0,
+            "min_span": 0,  # 1
+            "max_span": 0,  # 3
+        },
+    },
+}
+
+
+def py():
+    prefix_name = f"{__setup_base_name__}/librispeech/{__name__.split('.')[-1]}"
+
+    run_experiment(
+        training_name=f"{prefix_name}/baseline",
+        config=copy.deepcopy(base_config),
+        train_data=train_data,
+        test_data_dict={},
+        keep_epochs=[base_num_epochs],
+        skip_eval=True,
+    )

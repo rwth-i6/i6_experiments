@@ -59,6 +59,27 @@ def get_lid_model():
     ).out_file
 
 
+def get_rvad_root():
+    """
+    Clone the rVADfast repository and return its path.
+    """
+    out_repository = CloneGitRepositoryJob(
+        url="https://github.com/zhenghuatan/rVADfast.git",
+        checkout_folder_name="rVADfast",
+        commit="0ed4c1246ad5fdb1cead801153f455b9cf6d569b",
+    ).out_repository.copy()
+    tk.register_output("rVADfast", out_repository)
+    return out_repository
+
+
+def get_wav2letter_root():
+    return CloneGitRepositoryJob(
+        "https://github.com/flashlight/wav2letter",
+        commit="e5a4b62d87f15fde6a963d9ac174c8db8eb67fbc",
+        checkout_folder_name="wav2letter",
+    ).out_repository
+
+
 RETURNN_EXE = get_returnn_exe()
 
 RETURNN_ROOT = get_returnn_root()
