@@ -640,6 +640,54 @@ def py():
         tk.register_output(f"voxtral-esb-{esb_name}-{esb_split}-wer.txt", vx_esb_score.main_measure_value)
         tk.register_output(f"voxtral-esb-{esb_name}-{esb_split}-wer-report", vx_esb_score.report)
 
+    # --- Voxtral transcription-mode recogs (the leaderboard's mode) -------
+    # The chat-mode recogs above use apply_chat_template -> instruct behavior
+    # that paraphrases/reorders (inflated WER: 4.18% on LS-clean, mostly
+    # insertions). The OpenASR leaderboard uses apply_transcription_request;
+    # this config switches recog to that path for an apples-to-apples number.
+    voxtral_transcribe_cfg = rf.build_dict(Voxtral, model_dir=dl_voxtral, recog_mode="transcription")
+    vx_t_recog = RecogFromModelJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=voxtral_transcribe_cfg,
+    )
+    vx_t_recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    vx_t_recog.add_alias("voxtral-transcribe-timit-val-recog")
+    tk.register_output("voxtral-transcribe-timit-val-recog.hyps.txt.gz", vx_t_recog.out_hyps_txt)
+    vx_t_hyps_norm = text_dict_normalize_file(vx_t_recog.out_hyps_txt)
+    vx_t_score = sclite_score_hyps_to_ref(
+        hyps_text_dict=vx_t_hyps_norm,
+        ref_text_dict=vx_refs_norm,
+        corpus_name="voxtral-transcribe-timit-val",
+    )
+    tk.register_output("voxtral-transcribe-timit-val-wer.txt", vx_t_score.main_measure_value)
+    tk.register_output("voxtral-transcribe-timit-val-wer-report", vx_t_score.report)
+
+    vx_t_esb_recog = RecogFromModelJob(
+        dataset_dir=dl_esb,
+        dataset_name="librispeech",
+        dataset_key="test.clean",
+        model_config=voxtral_transcribe_cfg,
+        max_new_tokens=512,
+    )
+    vx_t_esb_recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    vx_t_esb_recog.add_alias("voxtral-transcribe-esb-librispeech-test.clean-recog")
+    tk.register_output(
+        "voxtral-transcribe-esb-librispeech-test.clean-recog.hyps.txt.gz", vx_t_esb_recog.out_hyps_txt
+    )
+    vx_t_esb_refs = ExtractTextFromHuggingFaceDatasetJob(
+        dataset_dir=dl_esb, dataset_name="librispeech", dataset_split="test.clean",
+    )
+    vx_t_esb_hyps_norm = text_dict_normalize_file(vx_t_esb_recog.out_hyps_txt)
+    vx_t_esb_refs_norm = text_dict_normalize_file(vx_t_esb_refs.out_text)
+    vx_t_esb_score = sclite_score_hyps_to_ref(
+        hyps_text_dict=vx_t_esb_hyps_norm,
+        ref_text_dict=vx_t_esb_refs_norm,
+        corpus_name="voxtral-transcribe-esb-librispeech-test.clean",
+    )
+    tk.register_output("voxtral-transcribe-esb-librispeech-test.clean-wer.txt", vx_t_esb_score.main_measure_value)
+    tk.register_output("voxtral-transcribe-esb-librispeech-test.clean-wer-report", vx_t_esb_score.report)
+
     # --- Canary-Qwen 2.5B (NeMo SALM) recog ----------------------------
     # First pass: recog-only. Forward path (forced alignment) requires a
     # grad-able hook into SALM internals -- deferred.
@@ -692,30 +740,74 @@ def py():
         align.add_alias(align_name)
         tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
-    # --- Canary-Qwen 2.5B grad extract on TIMIT val -----------------------
-    cq_extract = ExtractInGradsPerTokenJob(
-        dataset_dir=dl_ds_timit.out_hub_cache_dir,
-        dataset_key="val",
-        model_config=canary_cfg,
-        mult_grad_by_inputs=True,
-        attr_reduction="L2",
+    # --- Voxtral transcription-mode forced-align grad extract -------------
+    # The chat-mode forward above gave poor WBE (0.47-0.57): instruct mode
+    # diffuses audio attention. Redo the forced alignment in Voxtral's native
+    # transcription mode (forward_mode="transcription"), which should localize
+    # the per-token audio gradients -- same fix that dropped recog WER 10.2->2.6.
+    voxtral_transcribe_fwd_cfg = rf.build_dict(
+        Voxtral, model_dir=dl_voxtral, forward_mode="transcription"
     )
-    cq_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-    cq_extract_name = "canary-qwen-timit-val-L2_e_grad-pertoken"
-    cq_extract.add_alias(cq_extract_name)
-    tk.register_output(f"{cq_extract_name}.hdf", cq_extract.out_hdf)
-    for align_opts in _ALIGN_OPTS_GRID:
-        align_name = f"align/{cq_extract_name}-{_name_for_dict(align_opts)}"
-        align = WordAlignFromPerTokenGradsJob(
-            grad_score_hdf=cq_extract.out_hdf,
-            grad_score_key="data",
+    for mgi, attr, grad_alias in ((True, "L2", "L2_e_grad"), (True, "L1", "L1_e_grad"), (True, "L0.5", "L05_e_grad")):
+        vxt_extract = ExtractInGradsPerTokenJob(
             dataset_dir=dl_ds_timit.out_hub_cache_dir,
             dataset_key="val",
-            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
-            align_opts=align_opts,
+            model_config=voxtral_transcribe_fwd_cfg,
+            mult_grad_by_inputs=mgi,
+            attr_reduction=attr,
         )
-        align.add_alias(align_name)
-        tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+        vxt_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        vxt_extract_name = f"voxtral-transcribe-timit-val-{grad_alias}-pertoken"
+        vxt_extract.add_alias(vxt_extract_name)
+        tk.register_output(f"{vxt_extract_name}.hdf", vxt_extract.out_hdf)
+        for align_opts in _ALIGN_OPTS_GRID:
+            align_name = f"align/{vxt_extract_name}-{_name_for_dict(align_opts)}"
+            align = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=vxt_extract.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=align_opts,
+            )
+            align.add_alias(align_name)
+            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+
+    # --- Canary-Qwen 2.5B grad-variant sweep on TIMIT val -----------------
+    # A sensible subset (not the full 9x grid): the grad x input ("e_grad")
+    # family at a few norms, plus one plain-grad contrast. Each extract runs
+    # the full per-word backward sweep, so keep the count modest.
+    _canary_grad_variants = [
+        (True, "L2", "L2_e_grad"),
+        (True, "L1", "L1_e_grad"),
+        (True, "sum", "dot_e_grad"),
+        (True, "L0.5", "L05_e_grad"),
+        (False, "L2", "L2_grad"),
+    ]
+    for mgi, attr, grad_alias in _canary_grad_variants:
+        cq_extract = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=canary_cfg,
+            mult_grad_by_inputs=mgi,
+            attr_reduction=attr,
+        )
+        cq_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        cq_extract_name = f"canary-qwen-timit-val-{grad_alias}-pertoken"
+        cq_extract.add_alias(cq_extract_name)
+        tk.register_output(f"{cq_extract_name}.hdf", cq_extract.out_hdf)
+        for align_opts in _ALIGN_OPTS_GRID:
+            align_name = f"align/{cq_extract_name}-{_name_for_dict(align_opts)}"
+            align = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=cq_extract.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=align_opts,
+            )
+            align.add_alias(align_name)
+            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
     # Prompt variant: ask for accurate verbatim transcription, with the
     # best-ish grad variant (L2_e) so the prompt effect is isolated.
