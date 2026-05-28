@@ -191,6 +191,9 @@ class Voxtral(BaseModelInterface):
         # tensor (default forward hides them inside masked_scatter).
         print(f"  [splice] input_features shape={tuple(inputs['input_features'].shape)} dtype={inputs['input_features'].dtype}", flush=True)
         audio_embeds = self.model.get_audio_features(inputs["input_features"])
+        # Newer Voxtral wraps the encoder output in a ModelOutput; unwrap.
+        if not isinstance(audio_embeds, torch.Tensor):
+            audio_embeds = getattr(audio_embeds, "last_hidden_state", None) or audio_embeds[0]
         torch.cuda.synchronize()
         print(f"  [splice] get_audio_features -> shape={tuple(audio_embeds.shape)} dtype={audio_embeds.dtype}", flush=True)
         # get_audio_features returns shape [num_audio_tokens, hidden_size];
