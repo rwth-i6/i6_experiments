@@ -72,10 +72,17 @@ def py():
     )
 
 
-def _train_ls_base(name: str, *, feature_extraction: Optional[Dict[str, Any]] = None, behavior_version: int = 24):
+def _train_ls_base(
+    name: str,
+    *,
+    feature_extraction: Optional[Dict[str, Any]] = None,
+    behavior_version: int = 24,
+    prefix: Optional[str] = None,
+):
     """Standard LibriSpeech CTC+AED (EncL16-DecL6-D1024-spm10k), mirroring
     exp2026_05_26_base_fzj._train_librispeech_base, with an optional custom feature front-end."""
-    prefix = get_setup_prefix_for_module(__name__)
+    if prefix is None:
+        prefix = get_setup_prefix_for_module(__name__)
     ls_task = get_librispeech_task_raw_v2(vocab="spm10k")
 
     model_config: Dict[str, Any] = {
