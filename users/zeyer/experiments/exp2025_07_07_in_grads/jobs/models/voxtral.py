@@ -161,9 +161,10 @@ class Voxtral(BaseModelInterface):
         # ``prefix=True`` get dropped by the processor's kwarg filter /
         # dict->AssistantMessage conversion). Instead, get the user-only
         # prompt + audio features above, tokenize the transcription with the
-        # raw tokenizer, and concatenate the IDs manually. The assistant turn
-        # is conventionally prefixed with a space so per-token decoding sees
-        # word-start markers consistently.
+        # raw tokenizer, and concatenate the IDs manually. Return a plain
+        # dict -- mutating the BatchFeature wrapper doesn't update its
+        # internal tensor list, so a later ``.to(dev)`` would leave the
+        # replaced tensors on CPU.
         dst_text_start = int(inputs_user["input_ids"].shape[1])
         transc_text = transcription if transcription.startswith(" ") else " " + transcription
         transc_ids = self.processor.tokenizer(
@@ -173,14 +174,16 @@ class Voxtral(BaseModelInterface):
             [[self.assistant_end_token_id]], dtype=transc_ids.dtype
         )
         transc_ids = torch.cat([transc_ids, eos_col], dim=1)
-        inputs_user["input_ids"] = torch.cat(
-            [inputs_user["input_ids"], transc_ids], dim=1
-        )
+        new_input_ids = torch.cat([inputs_user["input_ids"], transc_ids], dim=1)
+        out = {
+            "input_ids": new_input_ids,
+            "input_features": inputs_user["input_features"],
+        }
         if "attention_mask" in inputs_user:
-            inputs_user["attention_mask"] = torch.cat(
+            out["attention_mask"] = torch.cat(
                 [inputs_user["attention_mask"], torch.ones_like(transc_ids)], dim=1
             )
-        return inputs_user, dst_text_start
+        return out, dst_text_start
 
     def _splice_audio_into_embeds(self, inputs: Dict[str, torch.Tensor]):
         """Return (audio_embeds, inputs_embeds) where audio_embeds has
@@ -261,7 +264,11 @@ class Voxtral(BaseModelInterface):
             except OSError:
                 pass
         print(f"[fwd] chat_inputs ok; dst_text_start={dst_text_start} input_ids.shape={tuple(inputs['input_ids'].shape)}", flush=True)
-        inputs = inputs.to(dev)
+        # ``inputs`` is a plain dict (forced) or BatchFeature (recog).
+        if hasattr(inputs, "to"):
+            inputs = inputs.to(dev)
+        else:
+            inputs = {k: (v.to(dev) if isinstance(v, torch.Tensor) else v) for k, v in inputs.items()}
         input_ids = inputs["input_ids"]
         assert input_ids.shape[0] == 1
         dst_text_end = input_ids.shape[1] - 1  # exclude trailing EOS
@@ -355,7 +362,10 @@ class Voxtral(BaseModelInterface):
         last_out = forward_output.outputs["last_out"]
         dst_text_start = forward_output.outputs["dst_text_start"]
         last_out = batch_slice(last_out, (dst_text_start + start - 1, dst_text_start + end - 1))
-        logits = self.model.lm_head(last_out).float()
+        # Newer Voxtral has lm_head on the inner LlamaForCausalLM, not the
+        # top-level VoxtralForConditionalGeneration.
+        lm_head = getattr(self.model, "lm_head", None) or self.model.language_model.lm_head
+        logits = lm_head(last_out).float()
         for f in self.logits_transform:
             logits = f(logits)
         return logits.log_softmax(-1)
