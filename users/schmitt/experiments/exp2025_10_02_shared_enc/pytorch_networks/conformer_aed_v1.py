@@ -29,8 +29,12 @@ from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1, VGG4LayerAc
 from i6_models.parts.masked_norm import MaskedBatchNorm1dV1
 
 
-from i6_experiments.users.schmitt.experiments.exp2025_10_02_shared_enc.recognition.aed import EncoderDecoderModel
-from i6_experiments.users.schmitt.experiments.exp2025_10_02_shared_enc.training.aed_ctc_train_step import SharedEncoderAedModel
+from i6_experiments.users.schmitt.experiments.exp2025_10_02_shared_enc.recognition.aed import (
+    EncoderDecoderModel,
+)
+from i6_experiments.users.schmitt.experiments.exp2025_10_02_shared_enc.training.aed_ctc_train_step import (
+    SharedEncoderAedModel,
+)
 
 
 def _relu_sq(x):
@@ -69,13 +73,7 @@ class LinearAudioDecoderPrenet(nn.Module):
 
 class SpeechT5BatchNormConvLayer(nn.Module):
     def __init__(
-            self,
-            model_dim: int,
-            out_dim: int,
-            num_layers: int,
-            kernel_size: int = 3,
-            dropout: float = 0.1,
-            layer_id=0
+        self, model_dim: int, out_dim: int, num_layers: int, kernel_size: int = 3, dropout: float = 0.1, layer_id=0
     ):
         super().__init__()
 
@@ -117,10 +115,10 @@ class SpeechT5BatchNormConvLayer(nn.Module):
 
 class ConvResnetAudioDecoderPostnet(nn.Module):
     def __init__(
-            self,
-            model_dim: int,
-            out_dim: int,
-            num_layers: int = 5,
+        self,
+        model_dim: int,
+        out_dim: int,
+        num_layers: int = 5,
     ):
         super().__init__()
 
@@ -133,12 +131,15 @@ class ConvResnetAudioDecoderPostnet(nn.Module):
                     out_dim=out_dim,
                     num_layers=num_layers,
                     layer_id=i,
-                ) for i in range(num_layers)
+                )
+                for i in range(num_layers)
             ]
         )
 
     def forward(self, hidden_states: torch.Tensor):
-        outputs_before_postnet = self.feat_out(hidden_states)  # .view(hidden_states.size(0), -1, self.config.num_mel_bins)
+        outputs_before_postnet = self.feat_out(
+            hidden_states
+        )  # .view(hidden_states.size(0), -1, self.config.num_mel_bins)
         outputs_after_postnet = self.postnet(outputs_before_postnet)
         return outputs_after_postnet
 
@@ -287,7 +288,9 @@ class Model(nn.Module, SharedEncoderAedModel, EncoderDecoderModel):
                 num_output=out_dim if name == "text" else model_dim,
                 logits_bias=logits_bias,
                 share_embedding=False,
-            ) for name, num_dec_layers in [("text", num_text_dec_layers), ("audio", num_audio_dec_layers)] if num_dec_layers > 0
+            )
+            for name, num_dec_layers in [("text", num_text_dec_layers), ("audio", num_audio_dec_layers)]
+            if num_dec_layers > 0
         }
         if "text" in dec_cfgs:
             self.text_decoder = TransformerDecoderV1(dec_cfgs["text"])
@@ -352,7 +355,7 @@ class Model(nn.Module, SharedEncoderAedModel, EncoderDecoderModel):
         return dec_out
 
     def decode_audio_seq(
-            self, x: Tensor, x_lens: Tensor, encoder_output: Tensor, encoder_output_lens: Tensor
+        self, x: Tensor, x_lens: Tensor, encoder_output: Tensor, encoder_output_lens: Tensor
     ) -> Tuple[Tensor, Tensor]:
         x = self.audio_decoder_prenet(x)
         state = self.audio_decoder.transform_encoder_output(

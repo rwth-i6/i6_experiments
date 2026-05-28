@@ -23,14 +23,19 @@ from i6_models.assemblies.transformer.transformer_decoder_v1 import (
     TransformerDecoderV1Config,
     TransformerDecoderV1State,
 )
+
 # from i6_models.config import ModuleFactoryV1
 # from i6_models.parts.decoder import CrossAttentionV1
 # from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1, VGG4LayerActFrontendV1Config
 from i6_models.parts.masked_norm import MaskedBatchNorm1dV1
 
 
-from i6_experiments.users.schmitt.experiments.exp2025_10_02_shared_enc.recognition.aed import EncoderDecoderModel
-from i6_experiments.users.schmitt.experiments.exp2025_10_02_shared_enc.training.aed_denoising_discrete import DenoisingAedModel
+from i6_experiments.users.schmitt.experiments.exp2025_10_02_shared_enc.recognition.aed import (
+    EncoderDecoderModel,
+)
+from i6_experiments.users.schmitt.experiments.exp2025_10_02_shared_enc.training.aed_denoising_discrete import (
+    DenoisingAedModel,
+)
 
 
 def _relu_sq(x):
