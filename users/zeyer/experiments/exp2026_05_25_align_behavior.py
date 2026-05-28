@@ -218,6 +218,10 @@ def py():
     # NOTE Synthetic-framework experiments (FFNN / Conv / LSTM on artificial data)
     # run from the standalone repo ``2024-alignment-analysis`` -- laptop-CPU, no Sis.
 
+    # ---- sepFf comparison block (set to False to skip) ----
+    if True:
+        _py_n12_sepff_tse(prefix=prefix, vocab_meta=vocab_meta, seq_list=seq_list, train_dataset=train_dataset)
+
 
 def _enc_build_dict_l16_d1024():
     """Encoder spec for the L16-D1024 baseline. Mirrors ``ctc_claix2023.py``."""
@@ -341,3 +345,207 @@ def _train_lpnormedgrad(name_suffix: str, log_prob_normed_grad_opts: dict):
             serialization.NonhashedCode(f"sys.path.append({gs.BASE_DIR + '/projects/2024-alignment-analysis'!r})\n")
         ],
     )
+
+
+# =============================================================================
+# sepFf TSE comparison
+#
+# `ctc_sep_net.py` (`ModelSepNet`) trains a joint Conformer + separate FF
+# network and interpolates the gradient of the main net's log-probs with the
+# sep-net's (alpha=share-of-sep-into-main, beta=share-of-main-into-sep). The
+# original 2016 Switchboard `ctcfbw.p2ff500c.*` config family. WER results for
+# 9 variants live in ctc_claix2023.py; alignment quality was never measured.
+#
+# This block imports those 9 checkpoints + the comparable n12-spm10k baseline
+# and runs forced-align + CalcAlignmentMetrics on them. Hash-stable wrt
+# ctc_claix2023.py, so the trained checkpoints are reused.
+# =============================================================================
+
+
+def _enc_conformer_layer_n12():
+    """Mirror of the encoder_layer used in every n12 (D=512) experiment."""
+    return rf.build_dict(
+        ConformerEncoderLayer,
+        ff=rf.build_dict(
+            ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+        ),
+        num_heads=8,
+    )
+
+
+def _train_n12_base():
+    """``n12-spm10k-auxAED-b150k`` -- comparable baseline for the sepFf experiments.
+
+    Byte-identical to the empty-name variant of the lpNormedGrad dict-loop in
+    ctc_claix2023.py (around line 1551).
+    """
+    return ctc_train_exp(
+        "n12-spm10k-auxAED-b150k",
+        config_96gb_bf16_accgrad1,
+        model_config={
+            "enc_conformer_layer": _enc_conformer_layer_n12(),
+            "feature_batch_norm": True,
+            "num_enc_layers": 12,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(150_000, 100, batch_size_factor=_batch_size_factor),
+            "optimizer.weight_decay": 1e-2,
+            "max_seq_length_default_target": None,
+            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),
+        },
+        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    )
+
+
+def _train_n12_sepff_alpha05():
+    """``n12-spm10k-sepFf_alpha05-auxAED-b150k`` -- standalone alpha=0.5, no beta.
+
+    Mirrors the first sepFf ctc_train_exp call in ctc_claix2023.py:560.
+    """
+    from .exp2024_04_23_baselines.model_ext.ctc_sep_net import (
+        ModelSepNet,
+        FeedForwardNet,
+        ctc_training_with_sep_net,
+    )
+    return ctc_train_exp(
+        "n12-spm10k-sepFf_alpha05-auxAED-b150k",
+        config_96gb_bf16_accgrad1,
+        train_def=ctc_training_with_sep_net,
+        model_config={
+            "ctc_model_cls": rf.build_dict(ModelSepNet)["class"],
+            "separate_enc_net": rf.build_dict(FeedForwardNet),
+            "enc_conformer_layer": _enc_conformer_layer_n12(),
+            "feature_batch_norm": True,
+            "num_enc_layers": 12,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(150_000, 100, batch_size_factor=_batch_size_factor),
+            "optimizer.weight_decay": 1e-2,
+            "max_seq_length_default_target": None,
+            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),
+            "use_fixed_ctc_grad": "v2",
+            "sep_net_grad_interpolate_alpha": 0.5,
+        },
+        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    )
+
+
+def _train_n12_sepff_listloop():
+    """8 variants from the (vocab, alpha, sep_aug, sep_net, sep_net_name) loop.
+
+    Mirrors ctc_claix2023.py:597+ exactly so hashes match the existing
+    checkpoints in work/i6_core/returnn/training/.
+    """
+    from .exp2024_04_23_baselines.model_ext.ctc_sep_net import (
+        ModelSepNet,
+        FeedForwardNet,
+        ctc_training_with_sep_net,
+    )
+
+    variants = [
+        ("spm10k", 0.1, False, None, None),
+        ("spm10k", 0.1, True, None, None),
+        ("spm10k", 0.1, True, "shared_enc_disable_self_att", "sharedNoSelfAtt"),
+        ("spm10k", 0.1, True, rf.build_dict(FeedForwardNet, num_layers=6), "6l"),
+        ("spm10k", 0.1, True, rf.build_dict(FeedForwardNet, activation=rf.build_dict(rf.gelu)), "gelu"),
+        ("spm10k", 0.2, False, None, None),
+        ("spm10k", 0.5, False, None, None),
+        ("spm512", 0.2, False, None, None),
+    ]
+
+    out = []
+    for vocab, alpha, sep_aug, sep_net, sep_net_name in variants:
+        sep_name = "sepFf"
+        if sep_net is None:
+            sep_net = rf.build_dict(FeedForwardNet)
+        if sep_net_name:
+            sep_name += f"_{sep_net_name}"
+        sep_name += f"_alpha{str(alpha).replace('.', '')}_beta05"
+        if sep_aug:
+            sep_name += "_sep"
+        model = ctc_train_exp(
+            f"n12-{vocab}-{sep_name}-auxAED-b150k",
+            config_96gb_bf16_accgrad1,
+            train_def=ctc_training_with_sep_net,
+            model_config={
+                "ctc_model_cls": rf.build_dict(ModelSepNet)["class"],
+                "separate_enc_net": sep_net,
+                "enc_conformer_layer": _enc_conformer_layer_n12(),
+                "feature_batch_norm": True,
+                "num_enc_layers": 12,
+            },
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep_v3(150_000, 100, batch_size_factor=_batch_size_factor),
+                "optimizer.weight_decay": 1e-2,
+                "max_seq_length_default_target": None,
+                "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+                "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),
+                "use_fixed_ctc_grad": "v2",
+                "sep_net_grad_interpolate_alpha": alpha,
+                "sep_net_grad_interpolate_beta": 0.5,
+                **({"separate_enc_with_sep_aug": True} if sep_aug else {}),
+            },
+            post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+            vocab=vocab,
+            train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+            dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+        )
+        out.append((f"n12-{vocab}-{sep_name}", model))
+    return out
+
+
+def _py_n12_sepff_tse(*, prefix: str, vocab_meta, seq_list, train_dataset):
+    """Forced-align + TSE for the n12 baseline + 9 sepFf variants.
+
+    The spm512 variant is skipped here -- its forced-align would need a
+    different vocab pipeline than the spm10k one set up in py().
+    """
+    variants = [("n12-base", _train_n12_base()), ("n12-sepFf_alpha05", _train_n12_sepff_alpha05())]
+    variants.extend(_train_n12_sepff_listloop())
+
+    align_opts = {"fix_log_probs": True}
+
+    for shortname, model_with_checkpoints in variants:
+        if model_with_checkpoints is None:
+            continue
+        if "spm512" in shortname:
+            continue
+        ctc_model = model_with_checkpoints.get_last_fixed_epoch()
+        name = f"{shortname}-fix"
+        prefix_ = f"{prefix}sepff_tse/{name}/"
+        alignment = ctc_forced_align(ctc_model, train_dataset, align_opts)
+        alignment.creator.add_alias(f"{prefix_}align")
+        tk.register_output(f"{prefix_}align.hdf", alignment)
+
+        job = CalcAlignmentMetrics(
+            seq_list=seq_list,
+            seq_list_ref=_SEQ_LIST_REF,
+            alignment_hdf=alignment,
+            alignment_label_topology="ctc",
+            alignment_bpe_vocab=vocab_meta[1],
+            alignment_bpe_style=vocab_meta[0],
+            alignment_blank_idx=vocab_meta[2],
+            features_sprint_cache=_FEATURES_SPRINT_CACHE,
+            ref_alignment_sprint_cache=_GMM_ALIGNMENT_SPRINT_CACHE,
+            ref_alignment_allophones=_GMM_ALIGNMENT_ALLOPHONES,
+            ref_alignment_len_factor=6,
+        )
+        job.add_alias(f"{prefix_}align-metrics")
+        tk.register_output(f"{prefix_}align-metrics.json", job.out_scores)
+        tk.register_output(f"{prefix_}align-metrics.short_report.txt", job.out_short_report_str)
