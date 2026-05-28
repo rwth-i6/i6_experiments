@@ -74,6 +74,7 @@ class Voxtral(BaseModelInterface):
         transcription_model_id: str = "mistralai/Voxtral-Mini-3B-2507",
         grad_wrt: str = "speech_embeddings",
         logits_transform: Union[None, str, Dict[str, Any], Sequence[Union[str, Dict[str, Any]]]] = None,
+        version: int = 1,
     ):
         """
         :param model_dir: HF hub cache dir (e.g. via DownloadHuggingFaceRepoJobV2).
@@ -103,11 +104,13 @@ class Voxtral(BaseModelInterface):
         self.transcription_model_id = transcription_model_id
         self.grad_wrt = grad_wrt
         self.logits_transform = make_logits_transform(logits_transform)
+        assert version >= 2, "version 1 had a buggy _splice_audio_into_embeds"
 
         print("Import Voxtral / transformers (from overlay)...")
         start_time = time.time()
         import transformers as _tf
         from transformers import AutoProcessor, VoxtralForConditionalGeneration
+
         print(f"  transformers={_tf.__version__} from {_tf.__file__}")
         print(f"  ({time.time() - start_time:.1f}s)")
 
@@ -144,6 +147,7 @@ class Voxtral(BaseModelInterface):
         (~50 KB per 3-second clip).
         """
         import soundfile as sf
+
         path = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
         sf.write(path, audio.cpu().numpy().astype(np.float32), sample_rate)
         return path
@@ -183,12 +187,8 @@ class Voxtral(BaseModelInterface):
         # replaced tensors on CPU.
         dst_text_start = int(inputs_user["input_ids"].shape[1])
         transc_text = transcription if transcription.startswith(" ") else " " + transcription
-        transc_ids = self.processor.tokenizer(
-            transc_text, add_special_tokens=False, return_tensors="pt"
-        )["input_ids"]
-        eos_col = torch.tensor(
-            [[self.assistant_end_token_id]], dtype=transc_ids.dtype
-        )
+        transc_ids = self.processor.tokenizer(transc_text, add_special_tokens=False, return_tensors="pt")["input_ids"]
+        eos_col = torch.tensor([[self.assistant_end_token_id]], dtype=transc_ids.dtype)
         transc_ids = torch.cat([transc_ids, eos_col], dim=1)
         new_input_ids = torch.cat([inputs_user["input_ids"], transc_ids], dim=1)
         out = {
@@ -196,9 +196,7 @@ class Voxtral(BaseModelInterface):
             "input_features": inputs_user["input_features"],
         }
         if "attention_mask" in inputs_user:
-            out["attention_mask"] = torch.cat(
-                [inputs_user["attention_mask"], torch.ones_like(transc_ids)], dim=1
-            )
+            out["attention_mask"] = torch.cat([inputs_user["attention_mask"], torch.ones_like(transc_ids)], dim=1)
         return out, dst_text_start
 
     def _build_transcription_inputs(self, *, audio_path: str, transcription: Optional[str]):
@@ -220,9 +218,7 @@ class Voxtral(BaseModelInterface):
             return pre, None
         dst_text_start = int(pre["input_ids"].shape[1])
         transc_text = transcription if transcription.startswith(" ") else " " + transcription
-        transc_ids = self.processor.tokenizer(
-            transc_text, add_special_tokens=False, return_tensors="pt"
-        )["input_ids"]
+        transc_ids = self.processor.tokenizer(transc_text, add_special_tokens=False, return_tensors="pt")["input_ids"]
         eos_col = torch.tensor([[self.assistant_end_token_id]], dtype=transc_ids.dtype)
         transc_ids = torch.cat([transc_ids, eos_col], dim=1)
         new_input_ids = torch.cat([pre["input_ids"], transc_ids], dim=1)
@@ -231,9 +227,7 @@ class Voxtral(BaseModelInterface):
             "input_features": pre["input_features"],
         }
         if "attention_mask" in pre:
-            out["attention_mask"] = torch.cat(
-                [pre["attention_mask"], torch.ones_like(transc_ids)], dim=1
-            )
+            out["attention_mask"] = torch.cat([pre["attention_mask"], torch.ones_like(transc_ids)], dim=1)
         return out, dst_text_start
 
     def _splice_audio_into_embeds(self, inputs: Dict[str, torch.Tensor]):
@@ -241,43 +235,36 @@ class Voxtral(BaseModelInterface):
         ``requires_grad=True`` and ``inputs_embeds`` is the merged text +
         audio embedding sequence ready for ``model(inputs_embeds=...)``.
         """
-        # Compute audio embeddings explicitly to expose them as a grad-able
-        # tensor (default forward hides them inside masked_scatter).
-        print(f"  [splice] input_features shape={tuple(inputs['input_features'].shape)} dtype={inputs['input_features'].dtype}", flush=True)
-        audio_embeds = self.model.get_audio_features(inputs["input_features"])
-        # Newer Voxtral wraps the encoder output in a ModelOutput; unwrap.
-        # Use explicit None-check -- `tensor or fallback` triggers
-        # "Boolean value of Tensor ... is ambiguous" on multi-value tensors.
-        if not isinstance(audio_embeds, torch.Tensor):
-            unwrapped = getattr(audio_embeds, "last_hidden_state", None)
-            if unwrapped is None:
-                unwrapped = audio_embeds[0]
-            audio_embeds = unwrapped
-        torch.cuda.synchronize()
-        print(f"  [splice] get_audio_features -> shape={tuple(audio_embeds.shape)} dtype={audio_embeds.dtype}", flush=True)
-        # get_audio_features returns shape [num_audio_tokens, hidden_size];
-        # transformers reshapes internally before scatter.
-        if audio_embeds.dim() == 3:
-            # Some versions return [B, T, H]; flatten.
-            audio_embeds = audio_embeds.reshape(-1, audio_embeds.shape[-1])
-        # Build the [1, N, H] grad leaf. masked_scatter reads the source
-        # flattened so the graph still connects it; storing this exact tensor
-        # as ForwardOutput.inputs lets autograd.grad(loss, inputs) find it
-        # (a later unsqueeze view would be a sibling branch, not an ancestor).
-        audio_embeds = audio_embeds.unsqueeze(0)  # [1, N, H]
-        audio_embeds.requires_grad_(True)
-        audio_embeds.retain_grad()
-        print(f"  [splice] retain_grad ok; audio_embeds.shape={tuple(audio_embeds.shape)} requires_grad={audio_embeds.requires_grad}", flush=True)
+        # Replicate VoxtralForConditionalGeneration.forward's audio path:
+        #   inputs_embeds[input_ids == audio_token_id] = get_audio_features(feat)
+        # get_audio_features ALREADY applies the multimodal projector (encoder
+        # 1500 frames -> 375 projected speech tokens via 4x downsample). The
+        # old code extracted pre-projection states and masked_scatter filled
+        # only the first 375 slots -> misaligned audio, bad gradients.
+        audio_out = self.model.get_audio_features(inputs["input_features"])
+        # get_audio_features returns a ModelOutput; .pooler_output = projected embeds [n, H]
+        if not isinstance(audio_out, torch.Tensor):
+            audio_2d = audio_out.pooler_output
+        else:
+            audio_2d = audio_out.reshape(-1, audio_out.shape[-1])
 
-        text_embeds = self.model.get_input_embeddings()(inputs["input_ids"])  # [B, T, H]
-        torch.cuda.synchronize()
-        print(f"  [splice] text_embeds shape={tuple(text_embeds.shape)} dtype={text_embeds.dtype}", flush=True)
-        mask = (inputs["input_ids"] == self.audio_token_id).unsqueeze(-1).expand_as(text_embeds)
-        n_audio_slots = int(mask[..., 0].sum().item())
-        print(f"  [splice] audio mask: {n_audio_slots} slots, audio_embeds has {audio_embeds.shape[1]} rows", flush=True)
-        merged = text_embeds.masked_scatter(mask, audio_embeds.to(text_embeds.dtype))
-        torch.cuda.synchronize()
-        print(f"  [splice] masked_scatter ok; merged shape={tuple(merged.shape)}", flush=True)
+        # Build [1, n_projected, H] grad leaf. detach() so grad flows through
+        # projected speech tokens only (not back into the Whisper encoder).
+        audio_embeds = audio_2d.detach().unsqueeze(0).requires_grad_(True)
+        audio_embeds.retain_grad()
+
+        text_embeds = self.model.get_input_embeddings()(inputs["input_ids"])  # [1, T, H]
+        audio_token_mask = inputs["input_ids"] == self.audio_token_id  # [1, T]
+        n_slots = int(audio_token_mask.sum().item())
+        assert n_slots == audio_embeds.shape[1], (
+            f"audio placeholder slots ({n_slots}) != projected audio embeds ({audio_embeds.shape[1]})"
+        )
+        merged = text_embeds.clone()
+        merged[audio_token_mask] = audio_embeds[0].to(text_embeds.dtype)
+        print(
+            f"  [splice] {n_slots} audio slots filled, audio_embeds {tuple(audio_embeds.shape)}, merged {tuple(merged.shape)}",
+            flush=True,
+        )
         return audio_embeds, merged
 
     # ---- Forward (forced alignment) -------------------------------------
@@ -316,15 +303,16 @@ class Voxtral(BaseModelInterface):
                     audio_path=audio_path, transcription=transcription
                 )
             else:
-                inputs, dst_text_start = self._build_chat_inputs(
-                    audio_path=audio_path, transcription=transcription
-                )
+                inputs, dst_text_start = self._build_chat_inputs(audio_path=audio_path, transcription=transcription)
         finally:
             try:
                 os.unlink(audio_path)
             except OSError:
                 pass
-        print(f"[fwd] {self.forward_mode}_inputs ok; dst_text_start={dst_text_start} input_ids.shape={tuple(inputs['input_ids'].shape)}", flush=True)
+        print(
+            f"[fwd] {self.forward_mode}_inputs ok; dst_text_start={dst_text_start} input_ids.shape={tuple(inputs['input_ids'].shape)}",
+            flush=True,
+        )
         # ``inputs`` is a plain dict (forced) or BatchFeature (recog).
         if hasattr(inputs, "to"):
             inputs = inputs.to(dev)
@@ -337,7 +325,10 @@ class Voxtral(BaseModelInterface):
 
         audio_embeds, inputs_embeds = self._splice_audio_into_embeds(inputs)
         attention_mask = inputs.get("attention_mask")
-        print(f"[fwd] splice ok; about to run language model forward (inputs_embeds.shape={tuple(inputs_embeds.shape)})", flush=True)
+        print(
+            f"[fwd] splice ok; about to run language model forward (inputs_embeds.shape={tuple(inputs_embeds.shape)})",
+            flush=True,
+        )
 
         report_dev_memory_stats(dev)
         res = self.model(
@@ -346,12 +337,18 @@ class Voxtral(BaseModelInterface):
             output_hidden_states=True,
         )
         torch.cuda.synchronize()
-        print(f"[fwd] model(...) returned; hidden_states={len(res.hidden_states)} layers, last shape={tuple(res.hidden_states[-1].shape)}", flush=True)
+        print(
+            f"[fwd] model(...) returned; hidden_states={len(res.hidden_states)} layers, last shape={tuple(res.hidden_states[-1].shape)}",
+            flush=True,
+        )
         last_out = res.hidden_states[-1]  # [B, T, H]
         del res
         assert last_out.shape[:2] == input_ids.shape
         report_dev_memory_stats(dev)
-        print(f"[fwd] returning ForwardOutput (n_audio_total={int(audio_embeds.shape[1])}, target_len={int(input_ids.shape[1] - dst_text_start)})", flush=True)
+        print(
+            f"[fwd] returning ForwardOutput (n_audio_total={int(audio_embeds.shape[1])}, target_len={int(input_ids.shape[1] - dst_text_start)})",
+            flush=True,
+        )
 
         targets = input_ids[:, dst_text_start:dst_text_end]
         n_targets = int(targets.shape[1])
@@ -392,9 +389,9 @@ class Voxtral(BaseModelInterface):
         )
 
         edges = torch.arange(n_audio_real + 1, dtype=torch.float64) * (n_samples / max(n_audio_real, 1))
-        input_raw_start_end = torch.stack(
-            [edges[:-1].round().long(), edges[1:].round().long()], dim=-1
-        ).unsqueeze(0)  # [1, n_audio_real, 2]
+        input_raw_start_end = torch.stack([edges[:-1].round().long(), edges[1:].round().long()], dim=-1).unsqueeze(
+            0
+        )  # [1, n_audio_real, 2]
 
         # ``audio_embeds`` is already the [1, N, H] grad leaf (built in
         # _splice_audio_into_embeds) and is the exact tensor consumed by the
@@ -500,12 +497,8 @@ class Voxtral(BaseModelInterface):
             inputs = inputs.to(self.device, dtype=torch.bfloat16)
             prompt_len = int(inputs["input_ids"].shape[1])
             with torch.no_grad():
-                output_ids = self.model.generate(
-                    **inputs, max_new_tokens=max_new_tokens, do_sample=False, num_beams=1
-                )
-            hyp_text = self.processor.batch_decode(
-                output_ids[:, prompt_len:], skip_special_tokens=True
-            )[0]
+                output_ids = self.model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False, num_beams=1)
+            hyp_text = self.processor.batch_decode(output_ids[:, prompt_len:], skip_special_tokens=True)[0]
         finally:
             try:
                 os.unlink(audio_path)
