@@ -212,15 +212,16 @@ def _train_librispeech_base():
 
 
 def _ls_train_forced_align(exp, name: str = "base-librispeech", aux_ctc_layer: int = 16) -> None:
-    """Run CTC forced-align of the full LS train set with the LS base AED+CTC model.
+    """Run CTC forced-align of LS train + dev with the LS base AED+CTC model.
 
     Used to supervise the streaming-decoder experiments in
     ``~/setups/2026-05-26-fast-slow-rna/``: each chunked architecture variant needs
     a per-utterance frame-to-label mapping so labels can be bucketed into the
-    audio chunks they "belong" to.
+    audio chunks they "belong" to. ``train`` is the training supervision;
+    ``dev-clean``/``dev-other`` provide the cross-validation alignment.
 
-    Output: ``align-stats/<name>/ls-train/alignment.hdf`` (one frame-level alignment
-    over the LS spm10k vocab per train utterance, blank index = vocab_dim).
+    Output: ``align-stats/<name>/ls-<key>/alignment.hdf`` per split (one frame-level
+    alignment over the LS spm10k vocab per utterance, blank index = vocab_dim).
 
     Quality of the source model (LS base, ``ReturnnTrainingJob.IVB5xAuHZZA3``)
     measured on TIMIT: WBE ~178 ms test / ~174 ms val
@@ -239,23 +240,16 @@ def _ls_train_forced_align(exp, name: str = "base-librispeech", aux_ctc_layer: i
     prefix = get_setup_prefix_for_module(__name__) + "/align-stats/" + name
     vocab = get_vocab_by_str("spm10k")
 
-    # Deterministic (no shuffling, no augmentation) full-train dataset:
-    # ``main_key="train"`` picks all four LS train splits and triggers the non-training
-    # branch of ``LibrispeechOggZip.get_dataset`` (fixed_random_seed=1, sorted_reverse).
-    ls_train = LibrispeechOggZip(
-        audio=_raw_audio_opts.copy(),
-        audio_dim=1,
-        vocab=vocab,
-        main_key="train",
-    )
-
-    alignment_hdf = _aed_ctc_forced_align(
-        exp.get_last_fixed_epoch(),
-        ls_train,
-        aux_ctc_layer=aux_ctc_layer,
-    )
-    alignment_hdf.creator.add_alias(f"{prefix}/ls-train/forced-align")
-    tk.register_output(f"{prefix}/ls-train/alignment.hdf", alignment_hdf)
+    # Deterministic (no shuffling/augmentation): the non-training branch of
+    # ``LibrispeechOggZip.get_dataset`` (fixed_random_seed=1, sorted_reverse).
+    # ``train`` supervises streaming training; ``dev-clean``/``dev-other`` give the
+    # cross-validation alignment. (``main_key="train"`` picks all LS train splits.)
+    model = exp.get_last_fixed_epoch()
+    for main_key in ["train", "dev-clean", "dev-other"]:
+        ls = LibrispeechOggZip(audio=_raw_audio_opts.copy(), audio_dim=1, vocab=vocab, main_key=main_key)
+        alignment_hdf = _aed_ctc_forced_align(model, ls, aux_ctc_layer=aux_ctc_layer)
+        alignment_hdf.creator.add_alias(f"{prefix}/ls-{main_key}/forced-align")
+        tk.register_output(f"{prefix}/ls-{main_key}/alignment.hdf", alignment_hdf)
 
 
 def _train_librispeech_tts_base():
