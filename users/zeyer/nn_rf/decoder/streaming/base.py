@@ -146,7 +146,7 @@ def streaming_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Streamin
     )
 
 
-streaming_model_def.behavior_version = 24
+streaming_model_def.behavior_version = 25
 streaming_model_def.backend = "torch"
 streaming_model_def.batch_size_factor = _batch_size_factor
 
