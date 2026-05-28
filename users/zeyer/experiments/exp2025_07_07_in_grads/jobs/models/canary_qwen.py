@@ -196,12 +196,16 @@ class CanaryQwen(BaseModelInterface):
         torch.cuda.synchronize()
         n_audio_total = int(audio_embeds_batched.shape[1])
         n_audio_real = int(audio_embed_lens[0])
-        audio_embeds = audio_embeds_batched[0, :n_audio_real].contiguous()  # (T_real, H)
-        audio_embeds.requires_grad_(True)
-        audio_embeds.retain_grad()
+        # Build the [1, T_real, H] tensor as the grad leaf and consume it via
+        # [0] in the graph. autograd.grad(loss, inputs) needs ``inputs`` to be
+        # the exact tensor used downstream -- a post-hoc unsqueeze view is a
+        # sibling branch, not an ancestor of the loss.
+        audio_embeds_b = audio_embeds_batched[:, :n_audio_real].contiguous()  # (1, T_real, H)
+        audio_embeds_b.requires_grad_(True)
+        audio_embeds_b.retain_grad()
         print(
             f"[fwd] perception ok; full={n_audio_total} real={n_audio_real} "
-            f"hidden={audio_embeds.shape[-1]} dtype={audio_embeds.dtype}",
+            f"hidden={audio_embeds_b.shape[-1]} dtype={audio_embeds_b.dtype}",
             flush=True,
         )
 
@@ -213,7 +217,7 @@ class CanaryQwen(BaseModelInterface):
             embeds=text_embeds,
             padding_id=self.text_pad_id,
             placeholder_id=self.audio_locator_tag_id,
-            replacements=[audio_embeds],
+            replacements=[audio_embeds_b[0]],
             target_ids=None,
         )
         torch.cuda.synchronize()
@@ -288,8 +292,6 @@ class CanaryQwen(BaseModelInterface):
             [edges[:-1].round().long(), edges[1:].round().long()], dim=-1
         ).unsqueeze(0)  # [1, n_audio_real, 2]
 
-        audio_embeds_b = audio_embeds.unsqueeze(0)  # [1, n_audio_real, hidden]
-
         print(
             f"[fwd] returning ForwardOutput (n_audio_real={n_audio_real}, n_targets={n_targets})",
             flush=True,
@@ -301,7 +303,7 @@ class CanaryQwen(BaseModelInterface):
             input_raw_start_end=input_raw_start_end,
             targets=targets,
             target_seq_lens=torch.tensor([targets.shape[1]]),
-            target_start_end=torch.tensor(words_start_end, dtype=torch.int64).unsqueeze(0),
+            target_start_end=torch.tensor(words_start_end, dtype=torch.int64, device=dev).unsqueeze(0),
             outputs=dict(embs_dst_text_start=embs_dst_text_start, last_out=last_out),
         )
 
