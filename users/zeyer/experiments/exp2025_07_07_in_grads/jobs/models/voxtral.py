@@ -192,8 +192,13 @@ class Voxtral(BaseModelInterface):
         print(f"  [splice] input_features shape={tuple(inputs['input_features'].shape)} dtype={inputs['input_features'].dtype}", flush=True)
         audio_embeds = self.model.get_audio_features(inputs["input_features"])
         # Newer Voxtral wraps the encoder output in a ModelOutput; unwrap.
+        # Use explicit None-check -- `tensor or fallback` triggers
+        # "Boolean value of Tensor ... is ambiguous" on multi-value tensors.
         if not isinstance(audio_embeds, torch.Tensor):
-            audio_embeds = getattr(audio_embeds, "last_hidden_state", None) or audio_embeds[0]
+            unwrapped = getattr(audio_embeds, "last_hidden_state", None)
+            if unwrapped is None:
+                unwrapped = audio_embeds[0]
+            audio_embeds = unwrapped
         torch.cuda.synchronize()
         print(f"  [splice] get_audio_features -> shape={tuple(audio_embeds.shape)} dtype={audio_embeds.dtype}", flush=True)
         # get_audio_features returns shape [num_audio_tokens, hidden_size];
