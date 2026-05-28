@@ -745,8 +745,11 @@ def py():
     # diffuses audio attention. Redo the forced alignment in Voxtral's native
     # transcription mode (forward_mode="transcription"), which should localize
     # the per-token audio gradients -- same fix that dropped recog WER 10.2->2.6.
+    # version=2: fixed _splice_audio_into_embeds to use get_audio_features'
+    # projected output (pooler_output, 375 tokens) instead of pre-projection
+    # encoder states (1500 rows). Old version misaligned audio in the splice.
     voxtral_transcribe_fwd_cfg = rf.build_dict(
-        Voxtral, model_dir=dl_voxtral, forward_mode="transcription"
+        Voxtral, model_dir=dl_voxtral, forward_mode="transcription", version=2
     )
     for mgi, attr, grad_alias in ((True, "L2", "L2_e_grad"), (True, "L1", "L1_e_grad"), (True, "L0.5", "L05_e_grad")):
         vxt_extract = ExtractInGradsPerTokenJob(
