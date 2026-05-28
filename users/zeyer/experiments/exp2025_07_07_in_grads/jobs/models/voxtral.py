@@ -69,6 +69,9 @@ class Voxtral(BaseModelInterface):
         device: torch.device,
         model_dir: str,
         speech_prompt: str = "Transcribe the audio clip into text.",
+        recog_mode: str = "chat",
+        forward_mode: str = "chat",
+        transcription_model_id: str = "mistralai/Voxtral-Mini-3B-2507",
         grad_wrt: str = "speech_embeddings",
         logits_transform: Union[None, str, Dict[str, Any], Sequence[Union[str, Dict[str, Any]]]] = None,
     ):
@@ -76,8 +79,18 @@ class Voxtral(BaseModelInterface):
         :param model_dir: HF hub cache dir (e.g. via DownloadHuggingFaceRepoJobV2).
             Expected repo: ``mistralai/Voxtral-Mini-3B-2507`` or larger.
         :param speech_prompt: text-only part of the user turn (the transcription
-            request); not yet meaningfully used by Voxtral's transcription path
-            but kept for parity with Phi4MM.
+            request). Used in chat-mode recog and in the forced-alignment
+            forward path.
+        :param recog_mode: ``"transcription"`` uses Voxtral's dedicated
+            transcription request (``processor.apply_transcription_request``),
+            which is what the OpenASR leaderboard uses and avoids instruct-mode
+            paraphrasing. ``"chat"`` uses the apply_chat_template path (kept
+            for comparison; tends to paraphrase -> inflated WER). The
+            forced-alignment ``forward`` always uses the chat/forced format
+            regardless of this flag.
+        :param transcription_model_id: hub model id passed to
+            ``apply_transcription_request`` (template selection only, no
+            network access). Must match the loaded model family.
         """
         super().__init__()
         _activate_overlay()
@@ -85,6 +98,9 @@ class Voxtral(BaseModelInterface):
         self.device = device
         self.model_dir = model_dir
         self.speech_prompt = speech_prompt
+        self.recog_mode = recog_mode
+        self.forward_mode = forward_mode
+        self.transcription_model_id = transcription_model_id
         self.grad_wrt = grad_wrt
         self.logits_transform = make_logits_transform(logits_transform)
 
@@ -185,6 +201,41 @@ class Voxtral(BaseModelInterface):
             )
         return out, dst_text_start
 
+    def _build_transcription_inputs(self, *, audio_path: str, transcription: Optional[str]):
+        """Forced-target inputs in Voxtral's native transcription mode.
+
+        ``apply_transcription_request`` builds the prefix ``[start, <audio>,
+        lang:en, TRANSCRIBE]`` -- the exact context the model uses for ASR
+        (no instruct wrapper, so audio attention/gradients localize better
+        than chat mode). For forced alignment we tokenize the reference and
+        append it after the prefix, mirroring :meth:`_build_chat_inputs`.
+        """
+        pre = self.processor.apply_transcription_request(
+            language="en",
+            audio=audio_path,
+            model_id=self.transcription_model_id,
+            return_tensors="pt",
+        )
+        if transcription is None:
+            return pre, None
+        dst_text_start = int(pre["input_ids"].shape[1])
+        transc_text = transcription if transcription.startswith(" ") else " " + transcription
+        transc_ids = self.processor.tokenizer(
+            transc_text, add_special_tokens=False, return_tensors="pt"
+        )["input_ids"]
+        eos_col = torch.tensor([[self.assistant_end_token_id]], dtype=transc_ids.dtype)
+        transc_ids = torch.cat([transc_ids, eos_col], dim=1)
+        new_input_ids = torch.cat([pre["input_ids"], transc_ids], dim=1)
+        out = {
+            "input_ids": new_input_ids,
+            "input_features": pre["input_features"],
+        }
+        if "attention_mask" in pre:
+            out["attention_mask"] = torch.cat(
+                [pre["attention_mask"], torch.ones_like(transc_ids)], dim=1
+            )
+        return out, dst_text_start
+
     def _splice_audio_into_embeds(self, inputs: Dict[str, torch.Tensor]):
         """Return (audio_embeds, inputs_embeds) where audio_embeds has
         ``requires_grad=True`` and ``inputs_embeds`` is the merged text +
@@ -207,18 +258,23 @@ class Voxtral(BaseModelInterface):
         # get_audio_features returns shape [num_audio_tokens, hidden_size];
         # transformers reshapes internally before scatter.
         if audio_embeds.dim() == 3:
-            # Some versions return [B, T, H]; flatten for masked_scatter.
+            # Some versions return [B, T, H]; flatten.
             audio_embeds = audio_embeds.reshape(-1, audio_embeds.shape[-1])
+        # Build the [1, N, H] grad leaf. masked_scatter reads the source
+        # flattened so the graph still connects it; storing this exact tensor
+        # as ForwardOutput.inputs lets autograd.grad(loss, inputs) find it
+        # (a later unsqueeze view would be a sibling branch, not an ancestor).
+        audio_embeds = audio_embeds.unsqueeze(0)  # [1, N, H]
         audio_embeds.requires_grad_(True)
         audio_embeds.retain_grad()
-        print(f"  [splice] retain_grad ok; audio_embeds.requires_grad={audio_embeds.requires_grad}", flush=True)
+        print(f"  [splice] retain_grad ok; audio_embeds.shape={tuple(audio_embeds.shape)} requires_grad={audio_embeds.requires_grad}", flush=True)
 
         text_embeds = self.model.get_input_embeddings()(inputs["input_ids"])  # [B, T, H]
         torch.cuda.synchronize()
         print(f"  [splice] text_embeds shape={tuple(text_embeds.shape)} dtype={text_embeds.dtype}", flush=True)
         mask = (inputs["input_ids"] == self.audio_token_id).unsqueeze(-1).expand_as(text_embeds)
         n_audio_slots = int(mask[..., 0].sum().item())
-        print(f"  [splice] audio mask: {n_audio_slots} slots, audio_embeds has {audio_embeds.shape[0]} rows", flush=True)
+        print(f"  [splice] audio mask: {n_audio_slots} slots, audio_embeds has {audio_embeds.shape[1]} rows", flush=True)
         merged = text_embeds.masked_scatter(mask, audio_embeds.to(text_embeds.dtype))
         torch.cuda.synchronize()
         print(f"  [splice] masked_scatter ok; merged shape={tuple(merged.shape)}", flush=True)
@@ -255,15 +311,20 @@ class Voxtral(BaseModelInterface):
         print(f"[fwd] start; words={len(words)} transcription={transcription!r}", flush=True)
         audio_path = self._save_audio_tmp(raw_inputs[0], raw_inputs_sample_rate)
         try:
-            inputs, dst_text_start = self._build_chat_inputs(
-                audio_path=audio_path, transcription=transcription
-            )
+            if self.forward_mode == "transcription":
+                inputs, dst_text_start = self._build_transcription_inputs(
+                    audio_path=audio_path, transcription=transcription
+                )
+            else:
+                inputs, dst_text_start = self._build_chat_inputs(
+                    audio_path=audio_path, transcription=transcription
+                )
         finally:
             try:
                 os.unlink(audio_path)
             except OSError:
                 pass
-        print(f"[fwd] chat_inputs ok; dst_text_start={dst_text_start} input_ids.shape={tuple(inputs['input_ids'].shape)}", flush=True)
+        print(f"[fwd] {self.forward_mode}_inputs ok; dst_text_start={dst_text_start} input_ids.shape={tuple(inputs['input_ids'].shape)}", flush=True)
         # ``inputs`` is a plain dict (forced) or BatchFeature (recog).
         if hasattr(inputs, "to"):
             inputs = inputs.to(dev)
@@ -290,7 +351,7 @@ class Voxtral(BaseModelInterface):
         del res
         assert last_out.shape[:2] == input_ids.shape
         report_dev_memory_stats(dev)
-        print(f"[fwd] returning ForwardOutput (n_audio_total={int(audio_embeds.shape[0])}, target_len={int(input_ids.shape[1] - dst_text_start)})", flush=True)
+        print(f"[fwd] returning ForwardOutput (n_audio_total={int(audio_embeds.shape[1])}, target_len={int(input_ids.shape[1] - dst_text_start)})", flush=True)
 
         targets = input_ids[:, dst_text_start:dst_text_end]
         n_targets = int(targets.shape[1])
@@ -322,7 +383,7 @@ class Voxtral(BaseModelInterface):
         # Slice audio_embeds to the real-audio span (drop Whisper-style
         # 30-s padding). Whisper encoder: 16 kHz input, 10 ms log-mel hop,
         # 2x downsample = 320 samples per output frame.
-        n_audio_total = int(audio_embeds.shape[0])
+        n_audio_total = int(audio_embeds.shape[1])
         n_samples = int(raw_input_seq_lens[0])
         n_audio_real = min(n_audio_total, (n_samples + 319) // 320)
         input_slice = (
@@ -335,18 +396,17 @@ class Voxtral(BaseModelInterface):
             [edges[:-1].round().long(), edges[1:].round().long()], dim=-1
         ).unsqueeze(0)  # [1, n_audio_real, 2]
 
-        # ``inputs`` in ForwardOutput is [B, T_in, F_in]. audio_embeds is
-        # already [num_audio_tokens, hidden] -- reshape to [1, T, H].
-        audio_embeds_b = audio_embeds.unsqueeze(0)  # [1, n_audio_total, hidden]
-
+        # ``audio_embeds`` is already the [1, N, H] grad leaf (built in
+        # _splice_audio_into_embeds) and is the exact tensor consumed by the
+        # forward graph, so it can be the differentiation target directly.
         return ForwardOutput(
-            inputs=audio_embeds_b,
+            inputs=audio_embeds,
             input_seq_lens=torch.tensor([n_audio_total]),
             input_slice_start_end=input_slice,
             input_raw_start_end=input_raw_start_end,
             targets=targets,
             target_seq_lens=torch.tensor([targets.shape[1]]),
-            target_start_end=torch.tensor(words_start_end, dtype=torch.int64).unsqueeze(0),
+            target_start_end=torch.tensor(words_start_end, dtype=torch.int64, device=dev).unsqueeze(0),
             outputs=dict(dst_text_start=dst_text_start, last_out=last_out),
         )
 
@@ -385,6 +445,12 @@ class Voxtral(BaseModelInterface):
         is left to the caller (apply ``text_dict_normalize_file`` etc. as a
         post-proc step)."""
         assert len(raw_inputs) == 1
+        if self.recog_mode == "transcription":
+            return self._recog_transcription(
+                raw_inputs=raw_inputs,
+                raw_inputs_sample_rate=raw_inputs_sample_rate,
+                max_new_tokens=max_new_tokens,
+            )
         audio_path = self._save_audio_tmp(raw_inputs[0], raw_inputs_sample_rate)
         try:
             inputs, _ = self._build_chat_inputs(audio_path=audio_path, transcription=None)
@@ -409,4 +475,40 @@ class Voxtral(BaseModelInterface):
         if eos_idx.numel() > 0:
             hyp_ids = hyp_ids[: int(eos_idx[0, 0])]
         hyp_text = self.processor.tokenizer.decode(hyp_ids, skip_special_tokens=True)
+        return [hyp_text.strip().split()]
+
+    def _recog_transcription(
+        self,
+        *,
+        raw_inputs: torch.Tensor,
+        raw_inputs_sample_rate: int,
+        max_new_tokens: int = 100,
+    ) -> List[List[str]]:
+        """Voxtral's dedicated transcription request -- the mode the OpenASR
+        leaderboard uses (``processor.apply_transcription_request``). Avoids
+        instruct-mode paraphrasing. We pass the audio as a temp WAV path so
+        the processor's ``is_str`` branch loads it directly (no format/
+        sampling_rate juggling)."""
+        audio_path = self._save_audio_tmp(raw_inputs[0], raw_inputs_sample_rate)
+        try:
+            inputs = self.processor.apply_transcription_request(
+                language="en",
+                audio=audio_path,
+                model_id=self.transcription_model_id,
+                return_tensors="pt",
+            )
+            inputs = inputs.to(self.device, dtype=torch.bfloat16)
+            prompt_len = int(inputs["input_ids"].shape[1])
+            with torch.no_grad():
+                output_ids = self.model.generate(
+                    **inputs, max_new_tokens=max_new_tokens, do_sample=False, num_beams=1
+                )
+            hyp_text = self.processor.batch_decode(
+                output_ids[:, prompt_len:], skip_special_tokens=True
+            )[0]
+        finally:
+            try:
+                os.unlink(audio_path)
+            except OSError:
+                pass
         return [hyp_text.strip().split()]
