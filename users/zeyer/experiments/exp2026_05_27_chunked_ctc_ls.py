@@ -166,7 +166,64 @@ def _train_ls_offline_baseline():
         aed_ctc_model=exp.get_last_fixed_epoch(),
         aux_ctc_layer=16,
     )
+    _run_ls_align_stats("base-librispeech", exp, 16)
     return exp
+
+
+def _run_ls_align_stats(name: str, exp, aux_ctc_layer: int) -> None:
+    """TIMIT WBE/TSE quality check for the LS-trained offline AED+CTC baseline
+    (``ReturnnTrainingJob.IVB5xAuHZZA3``, same arch as Loquacious ``base`` but trained on LS-960h only).
+    Output: ``align-stats/<name>/timit-{val,test}/{alignment.hdf, wbe.txt, report.txt}``
+    under this recipe's prefix.
+
+    Mirrors :func:`exp2025_10_21_chunked_ctc._run_align_stats` but registers under
+    *this* recipe's prefix (``exp2026_05_27_chunked_ctc_ls``); the underlying
+    forced-align + WBE Job hashes are identical since we reuse the same job-construction
+    helpers from chunked-CTC -- the same Job dirs are shared with the Loquacious
+    ``base`` align-stats jobs.
+
+    Loquacious ``base`` reference (chunked-ctc setup): WBE 0.140 s (test), 0.125 s (val).
+    """
+    from sisyphus import tk
+    from i6_experiments.users.zeyer.datasets.loquacious import get_vocab_by_str
+    from i6_experiments.users.zeyer.datasets.hf_timit_buckeye import (
+        get_dataset_offset_factor,
+        get_hf_word_align_dataset_config,
+        get_hf_word_align_dataset_dir,
+    )
+    from i6_experiments.users.zeyer.alignment.ctc_wbe_from_hf_dataset import CalcCtcWbeFromHfDatasetJob
+    from i6_experiments.users.zeyer.experiments.exp2025_10_21_chunked_ctc import _aed_ctc_forced_align
+
+    prefix = get_setup_prefix_for_module(__name__) + "/align-stats/" + name
+    vocab = get_vocab_by_str("spm10k")
+    model = exp.get_last_fixed_epoch()
+
+    # The spm10k vocab is all-uppercase (Loquacious-trained, shared with the LS
+    # spm10k tokenizer), so we must uppercase the joined TIMIT utterance --
+    # otherwise every word tokenizes to <unk> silently. Matches the recent
+    # chunked-CTC ``_run_align_stats`` (line ~1375 there).
+    text_case = "upper"
+    for corpus in ["timit"]:
+        ds_dir = get_hf_word_align_dataset_dir(corpus, text_case=text_case)
+        offset_factor = get_dataset_offset_factor(corpus)
+        for split in ["val", "test"]:
+            tag = f"{corpus}-{split}"
+            ds = get_hf_word_align_dataset_config(name=corpus, split=split, vocab=vocab, text_case=text_case)
+            alignment_hdf = _aed_ctc_forced_align(model, ds, aux_ctc_layer=aux_ctc_layer)
+            alignment_hdf.creator.add_alias(f"{prefix}/{tag}/forced-align")
+            tk.register_output(f"{prefix}/{tag}/alignment.hdf", alignment_hdf)
+
+            metrics_job = CalcCtcWbeFromHfDatasetJob(
+                alignment_hdf=alignment_hdf,
+                spm_model_file=vocab.model_file,
+                blank_idx=vocab.dim,
+                dataset_dir=ds_dir,
+                dataset_key=split,
+                dataset_offset_factor=offset_factor,
+            )
+            metrics_job.add_alias(f"{prefix}/{tag}/wbe-metric")
+            tk.register_output(f"{prefix}/{tag}/wbe.txt", metrics_job.out_wbe)
+            tk.register_output(f"{prefix}/{tag}/report.txt", metrics_job.out_report)
 
 
 def _train_ls(name: str, *, chunk_size: int, chunk_history_size: int, chunk_lookahead_size: int, batch_size: int):
