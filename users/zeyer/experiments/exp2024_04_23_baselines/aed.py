@@ -1124,13 +1124,8 @@ class Model(rf.Module):
         """encode, and extend the encoder output for things we need in the decoder"""
         if self.pad_audio:
             source, in_spatial_dim = pad_ext(source, in_spatial_dim=in_spatial_dim, opts=self.pad_audio)
-        # log mel filterbank features
-        source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
-            source,
-            in_spatial_dim=in_spatial_dim,
-            out_dim=self.in_dim,
-            sampling_rate=16_000,
-        )
+        # feature extraction (default: log mel filterbank; override via the "feature_extraction" config opt)
+        source, in_spatial_dim = self.feature_extraction(source, in_spatial_dim=in_spatial_dim)
         if self.feature_batch_norm:
             source = self.feature_batch_norm(source)
         if self.feature_norm:
