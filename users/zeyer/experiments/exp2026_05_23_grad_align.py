@@ -692,6 +692,31 @@ def py():
         align.add_alias(align_name)
         tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
+    # --- Canary-Qwen 2.5B grad extract on TIMIT val -----------------------
+    cq_extract = ExtractInGradsPerTokenJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=canary_cfg,
+        mult_grad_by_inputs=True,
+        attr_reduction="L2",
+    )
+    cq_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    cq_extract_name = "canary-qwen-timit-val-L2_e_grad-pertoken"
+    cq_extract.add_alias(cq_extract_name)
+    tk.register_output(f"{cq_extract_name}.hdf", cq_extract.out_hdf)
+    for align_opts in _ALIGN_OPTS_GRID:
+        align_name = f"align/{cq_extract_name}-{_name_for_dict(align_opts)}"
+        align = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=cq_extract.out_hdf,
+            grad_score_key="data",
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=align_opts,
+        )
+        align.add_alias(align_name)
+        tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+
 
 def _build_timit_phi4mm(
     *,
