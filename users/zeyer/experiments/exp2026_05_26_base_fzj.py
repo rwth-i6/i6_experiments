@@ -74,7 +74,8 @@ __setup_root_prefix__ = "exp2026_05_26_base_fzj"
 
 def py():
     _train_loquacious_base()
-    _train_librispeech_base()
+    _ls_exp = _train_librispeech_base()
+    _ls_train_forced_align(_ls_exp)
     _train_librispeech_tts_base()
 
 
@@ -207,6 +208,54 @@ def _train_librispeech_base():
         aed_ctc_model=exp.get_last_fixed_epoch(),
         aux_ctc_layer=16,
     )
+    return exp
+
+
+def _ls_train_forced_align(exp, name: str = "base-librispeech", aux_ctc_layer: int = 16) -> None:
+    """Run CTC forced-align of the full LS train set with the LS base AED+CTC model.
+
+    Used to supervise the streaming-decoder experiments in
+    ``~/setups/2026-05-26-fast-slow-rna/``: each chunked architecture variant needs
+    a per-utterance frame-to-label mapping so labels can be bucketed into the
+    audio chunks they "belong" to.
+
+    Output: ``align-stats/<name>/ls-train/alignment.hdf`` (one frame-level alignment
+    over the LS spm10k vocab per train utterance, blank index = vocab_dim).
+
+    Quality of the source model (LS base, ``ReturnnTrainingJob.IVB5xAuHZZA3``)
+    measured on TIMIT: WBE ~178 ms test / ~174 ms val
+    (vs Loquacious base reference ~140 / ~125 ms);
+    OK as a first-pass alignment but worth revisiting if a streaming variant's
+    WER suggests alignment is bottlenecking it.
+    """
+    from sisyphus import tk
+    from i6_experiments.users.zeyer.datasets.librispeech import (
+        LibrispeechOggZip,
+        _raw_audio_opts,
+        get_vocab_by_str,
+    )
+    from i6_experiments.users.zeyer.experiments.exp2025_10_21_chunked_ctc import _aed_ctc_forced_align
+
+    prefix = get_setup_prefix_for_module(__name__) + "/align-stats/" + name
+    vocab = get_vocab_by_str("spm10k")
+
+    # Deterministic (no shuffling, no augmentation) full-train dataset:
+    # ``main_key="train"`` picks all four LS train splits and triggers the non-training
+    # branch of ``LibrispeechOggZip.get_dataset`` (fixed_random_seed=1, sorted_reverse).
+    ls_train = LibrispeechOggZip(
+        audio=_raw_audio_opts.copy(),
+        audio_dim=1,
+        vocab=vocab,
+        main_key="train",
+    )
+
+    alignment_hdf = _aed_ctc_forced_align(
+        exp.get_last_fixed_epoch(),
+        ls_train,
+        aux_ctc_layer=aux_ctc_layer,
+    )
+    alignment_hdf.creator.add_alias(f"{prefix}/ls-train/forced-align")
+    tk.register_output(f"{prefix}/ls-train/alignment.hdf", alignment_hdf)
 
 
 def _train_librispeech_tts_base():
