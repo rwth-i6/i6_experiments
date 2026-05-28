@@ -23,6 +23,7 @@ import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, single_step_dim
 
 from .cross_attn import ChunkMaskedCrossAttention
+from .base import encoder_frame_chunk_idx
 
 
 class ChunkwiseDecoderLayer(rf.Module):
@@ -170,6 +171,89 @@ class ChunkwiseDecoder(rf.Module):
             )
         x = self.final_ln(x)
         return self.logits(x), new_state
+
+
+def chunkwise_train_forward(
+    model,
+    *,
+    data: Tensor,
+    data_spatial_dim: Dim,
+    aug_targets: Tensor,
+    aug_targets_spatial_dim: Dim,
+) -> Dict[str, Tuple[Tensor, Dim]]:
+    """
+    Teacher-forced forward for chunk-synchronous training.
+
+    ``aug_targets`` is the EOC-augmented label sequence (the single supervision
+    stream). Everything else is derived in-graph:
+    the per-position chunk index is the exclusive prefix count of EOC tokens, and
+    the raw spm labels (for the aux CTC head) are ``aug_targets`` with EOC removed.
+
+    :return: dict ``name -> (loss, inv_norm_spatial_dim)``.
+    """
+    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    key_chunk_idx = encoder_frame_chunk_idx(enc_spatial_dim, model.chunk_size)
+
+    # Per-position chunk index = number of EOC tokens strictly before each position.
+    is_eoc = rf.cast(aug_targets == model.eoc_idx, "int32")
+    pos_chunk_idx = rf.cumsum(is_eoc, spatial_dim=aug_targets_spatial_dim) - is_eoc
+
+    # Teacher forcing: decoder input is the right-shifted target, seeded with BOS.
+    input_labels = rf.shift_right(aug_targets, axis=aug_targets_spatial_dim, pad_value=model.bos_idx)
+
+    batch_dims = data.remaining_dims(
+        (data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim
+    )
+    encoder_kv = model.decoder.transform_encoder(enc, axis=enc_spatial_dim)
+    state = model.decoder.default_initial_state(batch_dims=batch_dims)
+    logits, _ = model.decoder(
+        input_labels,
+        spatial_dim=aug_targets_spatial_dim,
+        state=state,
+        encoder_kv=encoder_kv,
+        enc_spatial_dim=enc_spatial_dim,
+        query_chunk_idx=pos_chunk_idx,
+        key_chunk_idx=key_chunk_idx,
+    )
+    log_probs = rf.log_softmax(logits, axis=model.target_dim_ext)
+    ce = rf.cross_entropy(target=aug_targets, estimated=log_probs, estimated_type="log-probs", axis=model.target_dim_ext)
+    losses: Dict[str, Tuple[Tensor, Dim]] = {"ce": (ce, aug_targets_spatial_dim)}
+
+    # Aux CTC on the raw spm labels (aug_targets with EOC removed), over the final encoder output.
+    if model.enc_aux_logits:
+        raw_targets, raw_spatial_dim = rf.masked_select(
+            aug_targets, mask=aug_targets != model.eoc_idx, dims=[aug_targets_spatial_dim]
+        )
+        raw_targets.sparse_dim = model.target_dim
+        layer_idx = model.enc_aux_logits[-1]
+        aux_logits = getattr(model, f"enc_aux_logits_{layer_idx}")(enc)
+        aux_log_probs = rf.log_softmax(aux_logits, axis=model.wb_target_dim)
+        ctc = rf.ctc_loss(
+            logits=aux_log_probs,
+            logits_normalized=True,
+            targets=raw_targets,
+            input_spatial_dim=enc_spatial_dim,
+            targets_spatial_dim=raw_spatial_dim,
+            blank_index=model.blank_idx,
+        )
+        losses[f"ctc_{layer_idx}"] = (ctc, raw_spatial_dim)
+    return losses
+
+
+def chunkwise_training(*, model, data: Tensor, data_spatial_dim: Dim, targets: Tensor, targets_spatial_dim: Dim):
+    """TrainDef: ``targets`` is the EOC-augmented label sequence (the default target)."""
+    losses = chunkwise_train_forward(
+        model,
+        data=data,
+        data_spatial_dim=data_spatial_dim,
+        aug_targets=targets,
+        aug_targets_spatial_dim=targets_spatial_dim,
+    )
+    for name, (loss, norm_dim) in losses.items():
+        loss.mark_as_loss(name, custom_inv_norm_factor=norm_dim.get_size_tensor(), use_normalized_loss=True)
+
+
+chunkwise_training.learning_rate_control_error_measure = "ce"
 
 
 class _FeedForward(rf.Module):
