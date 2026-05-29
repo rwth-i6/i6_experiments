@@ -104,7 +104,13 @@ class Voxtral(BaseModelInterface):
         self.transcription_model_id = transcription_model_id
         self.grad_wrt = grad_wrt
         self.logits_transform = make_logits_transform(logits_transform)
-        assert version >= 2, "version 1 had a buggy _splice_audio_into_embeds"
+        assert version >= 3, (
+            "version 1: buggy splice (pre-projection encoder states). "
+            "version 2: wrong n_audio_real (Whisper encoder frame count, not projected-token count; "
+            "4x too many padding frames included in the grad slice). "
+            "version >= 3: correct n_audio_real = (n_samples + 1279) // 1280. "
+            "(version=1/2 defaults exist only for hash stability of old finished jobs.)"
+        )
 
         print("Import Voxtral / transformers (from overlay)...")
         start_time = time.time()
@@ -378,11 +384,12 @@ class Voxtral(BaseModelInterface):
         words_start_end = words_start_end + [[n_targets, n_targets + 1]]  # EOS slot
 
         # Slice audio_embeds to the real-audio span (drop Whisper-style
-        # 30-s padding). Whisper encoder: 16 kHz input, 10 ms log-mel hop,
-        # 2x downsample = 320 samples per output frame.
+        # 30-s silence padding). The projected tokens are 4x downsampled from
+        # the Whisper encoder output (10ms log-mel hop * 2x conv downsample *
+        # 4x projector downsample = 80ms = 1280 samples per projected token).
         n_audio_total = int(audio_embeds.shape[1])
         n_samples = int(raw_input_seq_lens[0])
-        n_audio_real = min(n_audio_total, (n_samples + 319) // 320)
+        n_audio_real = min(n_audio_total, (n_samples + 1279) // 1280)
         input_slice = (
             torch.tensor([0], dtype=torch.int64),
             torch.tensor([n_audio_real], dtype=torch.int64),

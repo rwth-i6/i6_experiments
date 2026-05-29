@@ -749,7 +749,7 @@ def py():
     # projected output (pooler_output, 375 tokens) instead of pre-projection
     # encoder states (1500 rows). Old version misaligned audio in the splice.
     voxtral_transcribe_fwd_cfg = rf.build_dict(
-        Voxtral, model_dir=dl_voxtral, forward_mode="transcription", version=2
+        Voxtral, model_dir=dl_voxtral, forward_mode="transcription", version=3
     )
     for mgi, attr, grad_alias in ((True, "L2", "L2_e_grad"), (True, "L1", "L1_e_grad"), (True, "L0.5", "L05_e_grad")):
         vxt_extract = ExtractInGradsPerTokenJob(
