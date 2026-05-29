@@ -1,5 +1,11 @@
 """
 Slow-fast-RNA streaming chunked-decoder experiments.
+
+Run from ``~/setups/2026-05-26-fast-slow-rna/``. The chunk-synchronous decoder
+(``chunkwise``) is the first variant: a chunked Conformer encoder + a Transformer
+decoder whose cross-attention is restricted to encoder chunks already streamed in,
+trained on the EOC-augmented per-chunk label sequence derived on the fly from the
+LS-base CTC forced alignment.
 """
 
 from __future__ import annotations
@@ -14,7 +20,13 @@ from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_modu
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.model_interfaces import ModelDefWithCfg
 from i6_experiments.users.zeyer import train_v4
-from i6_experiments.users.zeyer.datasets.librispeech import LibrispeechOggZip, _raw_audio_opts, get_vocab_by_str
+from i6_experiments.users.zeyer.datasets.librispeech import (
+    LibrispeechOggZip,
+    _raw_audio_opts,
+    get_vocab_by_str,
+    get_librispeech_task_raw_v2,
+)
+from i6_experiments.users.zeyer.recog import recog_model
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines import configs
 from i6_experiments.users.zeyer.experiments.exp2025_10_21_chunked_ctc import _aed_ctc_forced_align
 from i6_experiments.users.zeyer.experiments.exp2026_05_26_base_fzj import _train_librispeech_base
@@ -24,7 +36,7 @@ from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2 import (
     ChunkedRotaryPosSelfAttentionV2,
 )
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.base import streaming_model_def
-from i6_experiments.users.zeyer.nn_rf.decoder.streaming.chunkwise import ChunkwiseDecoder, chunkwise_training
+from i6_experiments.users.zeyer.nn_rf.decoder.streaming.chunkwise import ChunkwiseDecoder, chunkwise_training, model_recog
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.dataset import ChunkAlignDataset, ExtendVocabWithEocJob
 
 # Prefix for alias/ and output/ paths. Does not enter any Job hash (only naming);
@@ -34,6 +46,16 @@ __setup_root_prefix__ = "exp2026_05_26_slow_fast_rna_fzj"
 
 def py():
     _train_chunkwise_smoke()
+
+
+def _ls_align_hdfs(model, *, keys, aux_ctc_layer: int = 16) -> Dict[str, tk.Path]:
+    """Per-frame CTC forced-align HDF per LS split (dedups with the base recipe's alignments)."""
+    vocab = get_vocab_by_str("spm10k")
+    out = {}
+    for key in keys:
+        ds = LibrispeechOggZip(audio=_raw_audio_opts.copy(), audio_dim=1, vocab=vocab, main_key=key)
+        out[key] = _aed_ctc_forced_align(model, ds, aux_ctc_layer=aux_ctc_layer)
+    return out
 
 
 def _train_chunkwise_smoke():
@@ -110,7 +132,7 @@ def _train_chunkwise_smoke():
         },
     )
 
-    train_v4.train(
+    exp = train_v4.train(
         prefix + "/chunkwise-smoke",
         train_dataset=dataset,
         config=config,
@@ -119,12 +141,22 @@ def _train_chunkwise_smoke():
         train_def=chunkwise_training,
     )  # walltime is clipped globally to the FZJ 12h QOS cap in settings.py (check_engine_limits)
 
-
-def _ls_align_hdfs(model, *, keys, aux_ctc_layer: int = 16) -> Dict[str, tk.Path]:
-    """Per-frame CTC forced-align HDF per LS split (dedups with the base recipe's alignments)."""
-    vocab = get_vocab_by_str("spm10k")
-    out = {}
-    for key in keys:
-        ds = LibrispeechOggZip(audio=_raw_audio_opts.copy(), audio_dim=1, vocab=vocab, main_key=key)
-        out[key] = _aed_ctc_forced_align(model, ds, aux_ctc_layer=aux_ctc_layer)
-    return out
+    # Chunk-synchronous greedy recog -> dev-other WER (sclite). The decoder emits over
+    # spm+EOC, but the LS eval reference is plain spm10k, so pin the model's EOC-extended
+    # output vocab (and attach a vocab for rendering) via the search config.
+    task = get_librispeech_task_raw_v2(vocab="spm10k")
+    res = recog_model(
+        task=task,
+        model=exp.get_last_fixed_epoch(),
+        recog_def=model_recog,
+        config={
+            "target_dim_ext_int": vocab_size + 1,
+            "aug_vocab": aug_vocab,
+            "max_labels_per_chunk": 20,
+            "batch_size": 10_000 * configs._batch_size_factor,
+            "max_seqs": 100,
+        },
+        dev_sets=["dev-other"],
+        name=prefix + "/chunkwise-smoke/recog",
+    )
+    tk.register_output(prefix + "/chunkwise-smoke/recog/dev-other", res.output)
