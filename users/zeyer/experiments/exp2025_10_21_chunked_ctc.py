@@ -480,8 +480,6 @@ def py():
             tag=f"L{left_n * center_size}-C{cs}-R{lh}-ov2",
         )
 
-    # TODO start from offline, finetune with chunking, or dyn chunking
-
     # Streaming-vs-offline log-prob consistency test (minimal: 3 train seqs).
     from i6_experiments.users.zeyer.nn_rf.encoder.chunked_streaming_consistency_test import (
         make_streaming_consistency_test_job,
