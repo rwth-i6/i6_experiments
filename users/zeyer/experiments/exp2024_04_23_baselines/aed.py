@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import copy
 import functools
-from typing import TYPE_CHECKING, Optional, Union, Any, Tuple, Sequence, Dict
+from typing import TYPE_CHECKING, Optional, Union, Any, Callable, Tuple, Sequence, Dict
 import numpy
 import tree
 from dataclasses import dataclass
@@ -443,6 +443,8 @@ def train_exp(
     dataset_train_opts: Optional[Dict[str, Any]] = None,
     train_def: Optional[TrainDef[Model]] = None,
     recog_def: Optional[RecogDef[Model]] = None,
+    # default: recog_training_exp; pass recog_training_exp_batched for multi-GPU batched recog
+    recog_training_func: Optional[Callable] = None,
     search_config: Optional[Dict[str, Any]] = None,
     model_config: Optional[Dict[str, Any]] = None,
     config_updates: Optional[Dict[str, Any]] = None,
@@ -460,6 +462,9 @@ def train_exp(
     from i6_experiments.users.zeyer.train_v3 import train as train_v3
     from i6_experiments.users.zeyer.train_v4 import train as train_v4
     from i6_experiments.users.zeyer.recog import recog_training_exp
+
+    if recog_training_func is None:
+        recog_training_func = recog_training_exp
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2
 
     if prefix is not None:
@@ -504,7 +509,7 @@ def train_exp(
         time_rqmt=time_rqmt,
         env_updates=env_updates,
     )
-    recog_training_exp(
+    recog_training_func(
         prefix,
         task,
         model_with_checkpoint,
