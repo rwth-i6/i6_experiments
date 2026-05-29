@@ -586,6 +586,8 @@ def py():
     # Still not really faster than relpos self-att.
     # This is because when we explicitly do the self-att computation, and using the relpos trick,
     # there RoPE is actually not really cheaper.
+    # CTC-only: 9.52 (original dyn-rope-ctembed run: 9.41; diff is run-to-run + RETURNN-version variance).
+    # train_time_hours: faster with rope: 107.3 (with rope (old): 128.4, without rope: 103.9; not dynamic, without rope: 168.8)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-run2",
         {
@@ -609,54 +611,56 @@ def py():
     )
 
     # Test relpos-self-att again.
-    train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-ctembed",
-        {
-            "model.enc_build_dict": rf.build_dict(
-                ChunkedConformerEncoderV2,
-                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
-                chunk_size=center_size,
-                chunk_history_size=left_n * center_size,
-                chunk_lookahead_size=right_size,
-                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
-                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
-                chunk_lookahead_size_train_pool=[right_size, right_size // 2],
-                use_chunk_type_embedding=True,
-                version=3,
-            ),
-            "train.batch_size": bs * configs._batch_size_factor,
-            "train.max_seqs": max_seqs,
-        },
-    )
+    # CTC-only: 9.65 (rope variant dyn-rope-ctembed: 9.41).
+    # train(
+    #     f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-ctembed",
+    #     {
+    #         "model.enc_build_dict": rf.build_dict(
+    #             ChunkedConformerEncoderV2,
+    #             encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
+    #             chunk_size=center_size,
+    #             chunk_history_size=left_n * center_size,
+    #             chunk_lookahead_size=right_size,
+    #             chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+    #             chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+    #             chunk_lookahead_size_train_pool=[right_size, right_size // 2],
+    #             use_chunk_type_embedding=True,
+    #             version=3,
+    #         ),
+    #         "train.batch_size": bs * configs._batch_size_factor,
+    #         "train.max_seqs": max_seqs,
+    #     },
+    # )
 
     # Relpos self-att with learnable pos emb.
-    train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-relposL-ctembed",
-        {
-            "model.enc_build_dict": rf.build_dict(
-                ChunkedConformerEncoderV2,
-                encoder_layer=rf.build_dict(
-                    ChunkedConformerEncoderLayerV2,
-                    self_att=rf.build_dict(ChunkedRelPosSelfAttentionV2, learnable_pos_emb=True),
-                ),
-                chunk_size=center_size,
-                chunk_history_size=left_n * center_size,
-                chunk_lookahead_size=right_size,
-                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
-                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
-                chunk_lookahead_size_train_pool=[right_size, right_size // 2],
-                use_chunk_type_embedding=True,
-                version=3,
-            ),
-            "train.batch_size": bs * configs._batch_size_factor,
-            "train.max_seqs": max_seqs,
-        },
-    )
+    # CTC-only: 9.99 (plain relpos dyn-ctembed: 9.65; rope dyn-rope-ctembed: 9.41).
+    # train(
+    #     f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-relposL-ctembed",
+    #     {
+    #         "model.enc_build_dict": rf.build_dict(
+    #             ChunkedConformerEncoderV2,
+    #             encoder_layer=rf.build_dict(
+    #                 ChunkedConformerEncoderLayerV2,
+    #                 self_att=rf.build_dict(ChunkedRelPosSelfAttentionV2, learnable_pos_emb=True),
+    #             ),
+    #             chunk_size=center_size,
+    #             chunk_history_size=left_n * center_size,
+    #             chunk_lookahead_size=right_size,
+    #             chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+    #             chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+    #             chunk_lookahead_size_train_pool=[right_size, right_size // 2],
+    #             use_chunk_type_embedding=True,
+    #             version=3,
+    #         ),
+    #         "train.batch_size": bs * configs._batch_size_factor,
+    #         "train.max_seqs": max_seqs,
+    #     },
+    # )
 
     # Dyn-v2 (dynV2): Try to make it faster:
     # Offline more often. Also sometimes without any overhead, sometimes without any history.
     # train_time_hours: 100.1 (vs 128.3)
-    # CTC-only: 11.0 (vs 9.41) (but no overfitting, just bad) (TODO... see dynV3)
+    # CTC-only: 11.0 (vs 9.41) (but no overfitting, just bad) (see dynV3)
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dynV2-rope-ctembed",
         {
@@ -791,6 +795,7 @@ def py():
     )
 
     # Dynamic overlaps. (Also newer RETURNN, faster rope.)
+    # CTC-only: 9.83 (no overlap dyn-rope-ctembed: 9.41; the fixed-overlap -overlap variant above is worse still).
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-overlapD",
         {
@@ -817,7 +822,7 @@ def py():
     # Isolation: dyn + rope + overlapD WITHOUT ctembed.
     # Decisive test of whether the ctembed/overlap interaction regresses overlap+ctembed,
     # since overlap alone (relpos, no ctembed) helped (9.46 -> 9.26)
-    # but overlap+ctembed (9.75) is worse than ctembed-no-overlap (9.41).
+    # but overlap+ctembed (9.83) is worse than ctembed-no-overlap (9.41).
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-overlapD",
         {
@@ -840,6 +845,7 @@ def py():
         },
     )
 
+    # overlapD with ctembedfix.
     # As v2.3-dyn-rope-ctembed-overlapD,
     # but with the ctembed center/lookahead boundary aligned to the per-chunk output region (chunk_size_dim)
     # instead of raw chunk_size.
@@ -869,7 +875,8 @@ def py():
         },
     )
 
-    # Limited history experiments.
+    # Limited history experiments (vary history size L; C5-R4).
+    # CTC-only: L0 24.12 (no history); L40 still running; L80 = the -v2.3 baseline above (9.46).
     for ls_, rs_ in [(0, 4), (40, 4), (80, 4)]:
         train(
             f"chunked-L{ls_}-C{center_size}-R{rs_}-v2.3",
