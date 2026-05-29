@@ -464,7 +464,11 @@ def _add_empty_phonemes_map_seq(seq, *, phonemes_sparse_dim, **_kwargs):
     # Dynamic per-seq dim (length 0 here); PostprocessingDataset requires it dynamic to match map_outputs.
     spatial = _Dim(None, name="phon_seq")
     out.data[PHONEMES_DATA_KEY] = Tensor(
-        PHONEMES_DATA_KEY, dims=[spatial], dtype="int32", sparse_dim=phonemes_sparse_dim, raw_tensor=np.zeros([0], "int32")
+        PHONEMES_DATA_KEY,
+        dims=[spatial],
+        dtype="int32",
+        sparse_dim=phonemes_sparse_dim,
+        raw_tensor=np.zeros([0], "int32"),
     )
     return out
 
@@ -485,7 +489,9 @@ def _wrap_eval_with_empty_phonemes(
     eval_ds: Dict[str, Any], *, base_extern: Dict[str, Any], phon_extern: Dict[str, Any]
 ) -> Dict[str, Any]:
     """Wrap an audio-only eval dataset so it also emits an empty ``phonemes`` stream (extern_data contract)."""
-    map_outputs = {k: _extern_template_to_map_output(v) for k, v in {**base_extern, PHONEMES_DATA_KEY: phon_extern}.items()}
+    map_outputs = {
+        k: _extern_template_to_map_output(v) for k, v in {**base_extern, PHONEMES_DATA_KEY: phon_extern}.items()
+    }
     return {
         "class": "PostprocessingDataset",
         # Explicit "default": PostprocessingDataset rejects a non-default seq_ordering on itself, and RETURNN
