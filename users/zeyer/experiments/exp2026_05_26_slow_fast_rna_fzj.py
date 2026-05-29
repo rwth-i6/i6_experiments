@@ -5,12 +5,15 @@ Run from ``~/setups/2026-05-26-fast-slow-rna/``. Variants share the chunked Conf
 encoder + base-model CTC forced alignment, and differ only in the decoder:
 
 - ``chunkwise``: chunk-synchronous decoder (EOC-augmented per-chunk targets), chunk-masked
-  cross-attention. Tolerates speed-pert (coarse chunk bucketing).
+  cross-attention.
 - ``framewise``: frame-synchronous RNA fast-only decoder (one label/blank per encoder
   frame); the fast stack that ``ext_transducer`` will extend with a slow label-rate stack.
-  Speed-pert OFF (frame-sync needs the target 1:1 with encoder frames).
 
-All wired via :func:`_train_streaming_variant` (train + dev-other greedy recog -> WER).
+All wired via :func:`_train_streaming_variant` (train + dev-other greedy recog -> WER), with
+**consistent settings across variants** for a fair comparison: speed-pert OFF (the forced
+alignment is on un-perturbed audio; the planned co-perturb variant will re-enable it
+consistently) and length filtering by audio duration (not the inherited target-length cap,
+which is wrong for the long per-frame targets).
 """
 
 from __future__ import annotations
@@ -52,6 +55,11 @@ from i6_experiments.users.zeyer.nn_rf.decoder.streaming.framewise import (
     framewise_training,
     model_recog as framewise_model_recog,
 )
+from i6_experiments.users.zeyer.nn_rf.decoder.streaming.ext_transducer import (
+    ExtTransducerDecoder,
+    ext_transducer_training,
+    model_recog as ext_transducer_model_recog,
+)
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.dataset import ChunkAlignDataset, ExtendVocabWithEocJob
 
 # Prefix for alias/ and output/ paths. Does not enter any Job hash (only naming);
@@ -64,6 +72,7 @@ _CHUNK_SIZE = 10  # encoder frames (60ms each) -> 600ms chunks
 def py():
     _train_chunkwise_smoke()
     _train_framewise_smoke()
+    _train_ext_transducer_smoke()
 
 
 def _ls_align_hdfs(model, *, keys, aux_ctc_layer: int = 16) -> Dict[str, tk.Path]:
@@ -102,11 +111,10 @@ def _train_streaming_variant(
     *,
     dec_build_dict: Dict[str, Any],
     train_def,
-    recog_def,
+    recog_def=None,
     target_mode: str,
-    speed_pert: bool,
+    speed_pert: bool = False,
     recog_extra: Optional[Dict[str, Any]] = None,
-    config_extra: Optional[Dict[str, Any]] = None,
 ):
     """Train a streaming-decoder variant + greedy recog -> dev-other WER.
 
@@ -164,8 +172,13 @@ def _train_streaming_variant(
             "__multi_proc_dataset": False,  # keep the pipeline simple for the smoke test
         },
     )
-    if config_extra:
-        config = dict_update_deep(config, config_extra)
+    # Consistent length filtering for all variants: cap by audio length, and drop the
+    # inherited max_seq_length_default_target=75 (catastrophic for the long per-frame
+    # targets of the frame-sync variants, arbitrary for the chunk ones).
+    config = dict_update_deep(
+        config,
+        {"max_seq_length_default_target": None, "max_seq_length_default_input": 19.5 * _raw_sample_rate},
+    )
 
     exp = train_v4.train(
         prefix + "/" + name,
@@ -178,24 +191,26 @@ def _train_streaming_variant(
 
     # Greedy recog -> dev-other WER (sclite). The decoder emits over spm+extra, but the LS
     # reference is plain spm10k, so pin the model's extended output vocab via the search config.
-    task = get_librispeech_task_raw_v2(vocab="spm10k")
-    recog_cfg = {
-        "target_dim_ext_int": vocab_size + 1,
-        "aug_vocab": aug_vocab,
-        "batch_size": 10_000 * configs._batch_size_factor,
-        "max_seqs": 100,
-    }
-    if recog_extra:
-        recog_cfg.update(recog_extra)
-    res = recog_model(
-        task=task,
-        model=exp.get_last_fixed_epoch(),
-        recog_def=recog_def,
-        config=recog_cfg,
-        dev_sets=["dev-other"],
-        name=prefix + "/" + name + "/recog",
-    )
-    tk.register_output(prefix + "/" + name + "/recog/dev-other", res.output)
+    # (Skipped when recog_def is None -- e.g. ext_transducer, whose two-rate recog is WIP.)
+    if recog_def is not None:
+        task = get_librispeech_task_raw_v2(vocab="spm10k")
+        recog_cfg = {
+            "target_dim_ext_int": vocab_size + 1,
+            "aug_vocab": aug_vocab,
+            "batch_size": 10_000 * configs._batch_size_factor,
+            "max_seqs": 100,
+        }
+        if recog_extra:
+            recog_cfg.update(recog_extra)
+        res = recog_model(
+            task=task,
+            model=exp.get_last_fixed_epoch(),
+            recog_def=recog_def,
+            config=recog_cfg,
+            dev_sets=["dev-other"],
+            name=prefix + "/" + name + "/recog",
+        )
+        tk.register_output(prefix + "/" + name + "/recog/dev-other", res.output)
     return exp
 
 
@@ -207,7 +222,6 @@ def _train_chunkwise_smoke():
         train_def=chunkwise_training,
         recog_def=chunkwise_model_recog,
         target_mode="chunk_eoc",
-        speed_pert=True,
         recog_extra={"max_labels_per_chunk": 20},
     )
 
@@ -220,8 +234,15 @@ def _train_framewise_smoke():
         train_def=framewise_training,
         recog_def=framewise_model_recog,
         target_mode="rna_frame",
-        speed_pert=False,
-        # The default target is the per-frame rna_targets (~hundreds long); the inherited
-        # max_seq_length_default_target=75 would filter ~all seqs. Drop it, cap by audio length.
-        config_extra={"max_seq_length_default_target": None, "max_seq_length_default_input": 19.5 * _raw_sample_rate},
+    )
+
+
+def _train_ext_transducer_smoke():
+    """Extended-transducer slow+fast decoder (slow label-rate stack injected into the fast frame stack)."""
+    return _train_streaming_variant(
+        "ext-transducer-smoke",
+        dec_build_dict=rf.build_dict(ExtTransducerDecoder, model_dim=256, ff_dim=512, num_layers=4, num_heads=4),
+        train_def=ext_transducer_training,
+        recog_def=ext_transducer_model_recog,
+        target_mode="rna_frame",
     )
