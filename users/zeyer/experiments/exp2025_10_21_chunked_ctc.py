@@ -687,7 +687,8 @@ def py():
 
     # DynV3: Less often offline.
     # CTC-only: 10.49 (standard dyn dyn-rope-ctembed: 9.41; dynV2: 11.0).
-    # TODO... no 0 in chunk_history_size_train_pool, chunk_lookahead_size_train_pool
+    # Note: dynV3 without the 0 in history/lookahead train pool == the dyn-rope-ctembed baseline (9.41),
+    # which beats dynV3 (10.49) -> the 0 hurt.
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dynV3-rope-ctembed",
         {
