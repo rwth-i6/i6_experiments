@@ -814,6 +814,61 @@ def py():
         },
     )
 
+    # Isolation: dyn + rope + overlapD WITHOUT ctembed.
+    # Decisive test of whether the ctembed/overlap interaction regresses overlap+ctembed,
+    # since overlap alone (relpos, no ctembed) helped (9.46 -> 9.26)
+    # but overlap+ctembed (9.75) is worse than ctembed-no-overlap (9.41).
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-overlapD",
+        {
+            "model.enc_build_dict": rf.build_dict(
+                ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
+                chunk_size=center_size,
+                chunk_history_size=left_n * center_size,
+                chunk_lookahead_size=right_size,
+                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+                chunk_lookahead_size_train_pool=[right_size, right_size // 2],
+                chunk_num_overlaps=2,
+                chunk_num_overlaps_train_pool=[2, 1],
+                version=3,
+            ),
+            "train.batch_size": bs * configs._batch_size_factor // 2,
+            "train.max_seqs": max_seqs,
+            "lm_recog_extra.__serialization_version_stats": 2,
+        },
+    )
+
+    # As v2.3-dyn-rope-ctembed-overlapD,
+    # but with the ctembed center/lookahead boundary aligned to the per-chunk output region (chunk_size_dim)
+    # instead of raw chunk_size.
+    # Fixes the off-by-one for C=5/overlaps=2 (chunk_size_dim=4 < chunk_size=5):
+    # the last center-marked frame's output was dropped in _unchunk.
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-overlapD-ctembedfix",
+        {
+            "model.enc_build_dict": rf.build_dict(
+                ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
+                chunk_size=center_size,
+                chunk_history_size=left_n * center_size,
+                chunk_lookahead_size=right_size,
+                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+                chunk_lookahead_size_train_pool=[right_size, right_size // 2],
+                chunk_num_overlaps=2,
+                chunk_num_overlaps_train_pool=[2, 1],
+                use_chunk_type_embedding=True,
+                chunk_type_embedding_at_output_boundary=True,
+                version=3,
+            ),
+            "train.batch_size": bs * configs._batch_size_factor // 2,
+            "train.max_seqs": max_seqs,
+            "lm_recog_extra.__serialization_version_stats": 2,
+        },
+    )
+
     # Limited history experiments.
     for ls_, rs_ in [(0, 4), (40, 4), (80, 4)]:
         train(

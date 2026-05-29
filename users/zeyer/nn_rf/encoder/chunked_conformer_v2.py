@@ -104,6 +104,7 @@ class ChunkedConformerEncoderV2(rf.Module):
         adapt_chunk_history_for_short_seqs: bool = True,
         mem_chunks_grad_checkpointing: bool = False,
         use_chunk_type_embedding: bool = False,
+        chunk_type_embedding_at_output_boundary: bool = False,
         overlap_mse_loss_scale: float = 0.0,
     ):
         """
@@ -169,6 +170,7 @@ class ChunkedConformerEncoderV2(rf.Module):
         # If > 0, mark MSE between overlapping chunk views (before averaging) as an auxiliary
         # training loss; encourages the per-chunk encoder outputs to agree on overlapped frames.
         self.overlap_mse_loss_scale = float(overlap_mse_loss_scale)
+        self.chunk_type_embedding_at_output_boundary = bool(chunk_type_embedding_at_output_boundary)
         assert version == 3, f"Only version=3 is supported (got {version}). Set version=3 explicitly."
 
         self._chunk_type_dim = Dim(2, name="chunk_type")
@@ -358,11 +360,22 @@ class ChunkedConformerEncoderV2(rf.Module):
         if self.chunk_type_embedding is not None:
             frame_pos = rf.range_over_dim(spatial_dim, device=source.device)
             if chunk_size is not None:
-                # Frames [0, chunk_size) are center frames (type 0); [chunk_size, ...) are lookahead (type 1).
-                # If the window was shortened by adapt_chunk_history_for_short_seqs, spatial_dim may be
-                # smaller than chunk_size + chunk_lookahead_size; frame_pos >= chunk_size may never fire,
+                # Center frames (type 0) are [0, boundary); lookahead (type 1) is [boundary, ...).
+                # If the window was shortened by adapt_chunk_history_for_short_seqs,
+                # spatial_dim may be smaller than the boundary,
+                # so frame_pos >= boundary may never fire,
                 # which correctly treats all surviving frames as center.
-                frame_type = rf.cast(frame_pos >= chunk_size, dtype="int32")
+                # Default boundary = chunk_size.
+                # With overlap where chunk_size is not divisible by chunk_num_overlaps,
+                # the per-chunk output region (chunk_size_dim) is smaller than chunk_size,
+                # so the last center-marked frame's output is dropped in _unchunk;
+                # chunk_type_embedding_at_output_boundary aligns the boundary to chunk_size_dim.
+                ctembed_boundary = (
+                    chunk_size_dim.dimension
+                    if self.chunk_type_embedding_at_output_boundary and chunk_size_dim is not None
+                    else chunk_size
+                )
+                frame_type = rf.cast(frame_pos >= ctembed_boundary, dtype="int32")
             else:
                 # Offline / no chunking: no lookahead, all frames are center (type 0).
                 frame_type = rf.zeros((), dtype="int32", device=source.device)
