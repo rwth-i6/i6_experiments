@@ -135,3 +135,34 @@ def chunk_augmented_targets(
         out_pos_chunk[w] = c
         w += 1
     return out_targets, out_pos_chunk
+
+
+def rna_frame_targets(
+    frames: np.ndarray,
+    *,
+    blank_idx: int,
+    pad_to_multiple: int = 1,
+) -> np.ndarray:
+    """
+    Per-frame RNA target: exactly one symbol per frame -- the emitted label at each
+    label's emission frame, ``blank_idx`` everywhere else (CTC repeats collapsed, so
+    each label appears once). Removing blanks recovers the transcription.
+
+    The output length is padded up to a multiple of ``pad_to_multiple`` (trailing pad
+    frames are blank) to match the chunked encoder, which pads its output up to a full
+    ``chunk_size`` multiple (verified: ``T_enc == ceil(T_align / chunk_size) * chunk_size``).
+    Pass ``pad_to_multiple=chunk_size`` so the target length equals the encoder output
+    length frame-for-frame (the forward then just re-tags the dim).
+
+    :param frames: [T] int per-frame CTC best path (with blank).
+    :param blank_idx:
+    :param pad_to_multiple: pad output length up to a multiple of this (use chunk_size).
+    :return: rna [T_out] int64, T_out = ceil(T / pad_to_multiple) * pad_to_multiple.
+    """
+    frames = np.asarray(frames).reshape(-1)
+    T = int(frames.shape[0])
+    labels, emit_frames = ctc_collapse(frames, blank_idx)
+    T_out = num_chunks_for(T, pad_to_multiple) * pad_to_multiple if pad_to_multiple > 1 else T
+    rna = np.full((T_out,), blank_idx, dtype=np.int64)
+    rna[emit_frames] = labels
+    return rna
