@@ -239,7 +239,7 @@ def _train_tts_encoder(
             "glow_tts_text_spm_opts": get_vocab_by_str(vocab).get_opts(),
             "glow_tts_phone_info": get_glow_tts_phone_info(train=True),
         },
-        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 10}},
+        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset": {"num_workers": 4}},
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
     aed_ctc_timesync_recog_recomb_auto_scale(
