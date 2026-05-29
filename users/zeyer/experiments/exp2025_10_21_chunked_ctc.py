@@ -701,7 +701,7 @@ def py():
             "lm_recog_extra.__serialization_version_stats": 2,
         },
     )
-    # TODO sample small center_size in chunk_size_train_pool more often
+    # Oversampling small center_size: see -v2.3-dynCx3-rope-ctembed below.
 
     # DynV3: Less often offline.
     # CTC-only: 10.49 (standard dyn dyn-rope-ctembed: 9.41; dynV2: 11.0).
@@ -732,8 +732,8 @@ def py():
     # train_time_hours: 391.4 (vs 168.8) !! (overlaps require twice as much compute, but also smaller batch size)
     #   (maybe could get away with less training?)
     # CTC-only: 9.26 (vs 9.46)
-    # TODO is this just because we effectively train twice as much? check baseline trained for twice epochs
-    # TODO maybe no lookahead needed?
+    # Is overlap's gain just ~2x compute, and is lookahead needed?
+    # See follow-ups -v2.3-2xtrain and -C5-R0-v2.3-overlap below.
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-overlap",
         {
@@ -1068,6 +1068,71 @@ def py():
         {
             "model.enc_build_dict": _hybrid_enc_build_dict(_mamba2_bidir_ssdchunk_per_layer),
             "train.batch_size": bs * configs._batch_size_factor // 2,
+            "train.max_seqs": max_seqs,
+            "lm_recog_extra.__serialization_version_stats": 2,
+        },
+    )
+
+    # More epochs (2xtrain).
+    # Is overlap's gain (9.46 -> 9.26) just ~2x compute, and is lookahead even needed?
+    # Train the plain v2.3 baseline for 2x as long (total_k_hours 100 -> 200, i.e. 8 full epochs),
+    # then compare its CTC-only to overlap's 9.26.
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-2xtrain",
+        {
+            "total_k_hours": 200,
+            "model.enc_build_dict": rf.build_dict(
+                ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
+                chunk_size=center_size,
+                chunk_history_size=left_n * center_size,
+                chunk_lookahead_size=right_size,
+                version=3,
+            ),
+            "train.batch_size": bs * configs._batch_size_factor,
+            "train.max_seqs": max_seqs,
+        },
+    )
+
+    # Does overlap remove the need for lookahead?
+    # v2.3-overlap but with chunk_lookahead_size=0 (R0).
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R0-v2.3-overlap",
+        {
+            "model.enc_build_dict": rf.build_dict(
+                ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
+                chunk_size=center_size,
+                chunk_history_size=left_n * center_size,
+                chunk_lookahead_size=0,
+                chunk_num_overlaps=2,
+                version=3,
+            ),
+            "train.batch_size": bs * configs._batch_size_factor // 2,
+            "train.max_seqs": max_seqs,
+        },
+    )
+
+    # dynCx3:
+    # Oversample the small (streaming) center_size in the train pool,
+    # on the best dyn config (dyn-rope-ctembed).
+    # Pool: C x3 vs x1 for 2C/4C/8C/offline, so the deployment chunk (C=5) is seen ~3/7 instead of 1/5.
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dynCx3-rope-ctembed",
+        {
+            "model.enc_build_dict": rf.build_dict(
+                ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
+                chunk_size=center_size,
+                chunk_history_size=left_n * center_size,
+                chunk_lookahead_size=right_size,
+                chunk_size_train_pool=[center_size] * 3 + [center_size * 2, center_size * 4, center_size * 8, None],
+                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+                chunk_lookahead_size_train_pool=[right_size, right_size // 2],
+                use_chunk_type_embedding=True,
+                version=3,
+            ),
+            "train.batch_size": bs * configs._batch_size_factor,
             "train.max_seqs": max_seqs,
             "lm_recog_extra.__serialization_version_stats": 2,
         },
