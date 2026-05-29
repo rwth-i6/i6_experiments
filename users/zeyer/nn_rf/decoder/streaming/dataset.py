@@ -4,10 +4,15 @@ Dataset wiring for streaming chunked-decoder training.
 Combine the audio (an OggZip dataset) with the CTC forced-align HDF (per-frame
 best-path labels) via a ``MetaDataset``, then post-process each seq with
 :class:`returnn.datasets.postprocessing.PostprocessingDataset` to turn the
-per-frame alignment into the EOC-augmented target stream ``aug_targets`` (the
-single supervision stream the streaming decoder trains on; see
-:mod:`.segmentation`). The chunking is done on the fly so ``chunk_size`` is a
-config knob, not baked into a precomputed HDF.
+per-frame alignment into the per-seq target stream. Two ``target_mode``s:
+
+- ``chunk_eoc``: the EOC-augmented per-chunk label sequence ``aug_targets`` (for the
+  chunk-synchronous decoder; see :func:`...segmentation.chunk_augmented_targets`).
+- ``rna_frame``: the per-frame RNA alignment ``rna_targets`` (one label/blank per frame,
+  padded to the encoder chunk-multiple length; for frame-synchronous decoders, see
+  :func:`...segmentation.rna_frame_targets`).
+
+The target is derived on the fly so ``chunk_size`` is a config knob, not baked into HDFs.
 """
 
 from __future__ import annotations
@@ -20,15 +25,17 @@ from sisyphus import tk, Job, Task
 from returnn.tensor import Dim
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 
-from .segmentation import chunk_augmented_targets
+from .segmentation import chunk_augmented_targets, rna_frame_targets
 
 
 class ExtendVocabWithEocJob(Job):
     """Append an end-of-chunk symbol to a RETURNN ``{label: id}`` vocab file.
 
-    The streaming decoder vocab is the spm vocab plus one EOC marker at the last
-    index; ``train_v4`` requires the target sparse dim to carry a vocab, so we build
-    the extended one from the spm vocab (e.g. ``ExtractSentencePieceVocabJob.out_vocab``).
+    The streaming decoder vocab is the spm vocab plus one extra symbol at the last
+    index (EOC for chunk-sync, RNA-blank for frame-sync); ``train_v4`` requires the
+    target sparse dim to carry a vocab, so we build the extended one from the spm vocab
+    (e.g. ``ExtractSentencePieceVocabJob.out_vocab``). The extra symbol's name is cosmetic
+    (it is stripped from recog output), so the same vocab serves both modes.
     """
 
     def __init__(self, vocab_file: tk.Path, *, eoc_label: str = "<eoc>"):
@@ -61,14 +68,12 @@ def chunk_augment_map_seq(
     alignment_key: str = "alignment",
 ) -> Callable:
     """
-    Build the ``map_seq`` for :class:`PostprocessingDataset`.
+    Build the ``map_seq`` for :class:`PostprocessingDataset` (chunk-EOC target ``aug_targets``).
 
     :param vocab_ext_dim: EOC-extended target vocab (EOC at the last index).
     :param blank_idx: blank index in the alignment frames.
     :param chunk_size: chunk length in alignment/encoder frames.
     :param alignment_key: stream name of the per-frame alignment in the inner dataset.
-    :return: ``(seq: TensorDict, *, rng, **kwargs) -> TensorDict`` mapping
-        ``{data, <alignment_key>}`` -> ``{data, aug_targets}``.
     """
     return functools.partial(
         _chunk_augment_map_seq,
@@ -79,14 +84,44 @@ def chunk_augment_map_seq(
     )
 
 
+def rna_frame_map_seq(
+    vocab_ext_dim: Dim,
+    *,
+    blank_idx: int,
+    chunk_size: int,
+    alignment_key: str = "alignment",
+) -> Callable:
+    """
+    Build the ``map_seq`` for :class:`PostprocessingDataset` (per-frame RNA target ``rna_targets``).
+
+    The RNA target is padded to ``ceil(T_align/chunk_size)*chunk_size`` so it lines up
+    frame-for-frame with the chunked encoder output (which pads to a full chunk).
+
+    :param vocab_ext_dim: target vocab incl. the RNA blank at the last index.
+    :param blank_idx: blank index in the alignment frames (== the last vocab index).
+    :param chunk_size: chunk length in encoder frames (pad-to-multiple).
+    :param alignment_key: stream name of the per-frame alignment in the inner dataset.
+    """
+    return functools.partial(
+        _rna_frame_map_seq,
+        vocab_ext_dim=vocab_ext_dim,
+        blank_idx=blank_idx,
+        chunk_size=chunk_size,
+        alignment_key=alignment_key,
+    )
+
+
 class ChunkAlignDataset(DatasetConfig):
     """
-    Audio (OggZip) + CTC forced-align HDF, post-processed on the fly into the
-    EOC-augmented target stream ``aug_targets`` for streaming chunked-decoder training.
+    Audio (OggZip) + CTC forced-align HDF, post-processed on the fly into the per-seq
+    target stream for streaming-decoder training.
 
-    Streams: ``data`` (raw audio, default input) and ``aug_targets`` (sparse over the
-    EOC-extended vocab, default target). The raw spm labels + per-position chunk index
-    are derived in-graph in the train step (see :func:`...chunkwise.chunkwise_train_forward`).
+    ``target_mode``:
+    - ``chunk_eoc`` (default): target ``aug_targets`` (EOC-augmented per-chunk labels).
+    - ``rna_frame``: target ``rna_targets`` (per-frame RNA alignment).
+
+    Streams: ``data`` (raw audio, default input) and the target (default target, sparse
+    over the extended vocab). Everything else is derived in-graph in the train step.
     """
 
     def __init__(
@@ -97,6 +132,7 @@ class ChunkAlignDataset(DatasetConfig):
         vocab_ext_dim_int: int,
         blank_idx: int,
         chunk_size: int,
+        target_mode: str = "chunk_eoc",
         train_main_key: str = "train",
         dev_main_key: str = "dev-other",
         eval_subset: Optional[int] = None,
@@ -105,41 +141,53 @@ class ChunkAlignDataset(DatasetConfig):
         """
         :param oggzip: an audio-only ``LibrispeechOggZip`` (``vocab=None``); provides ``data``.
         :param alignment_hdfs: ``{main_key: forced-align out.hdf}`` (must cover train + dev keys).
-        :param vocab_ext_dim_int: EOC-extended vocab size (spm vocab + 1).
+        :param vocab_ext_dim_int: extended vocab size (spm vocab + 1).
         :param blank_idx: blank index in the alignment frames (== spm vocab size).
         :param chunk_size: chunk length in encoder frames (must match the encoder's chunk_size).
+        :param target_mode: ``chunk_eoc`` or ``rna_frame``.
         """
         super().__init__()
+        assert target_mode in ("chunk_eoc", "rna_frame"), target_mode
         self.oggzip = oggzip
         self.alignment_hdfs = alignment_hdfs
         self.vocab_ext_dim_int = vocab_ext_dim_int
         self.blank_idx = blank_idx
         self.chunk_size = chunk_size
+        self.target_mode = target_mode
         self.train_main_key = train_main_key
         self.dev_main_key = dev_main_key
         self.eval_subset = eval_subset
-        self.aug_vocab = aug_vocab  # RETURNN vocab opts for aug_targets (spm + EOC); train_v4 requires a vocab
+        self.aug_vocab = aug_vocab  # RETURNN vocab opts for the target; train_v4 requires a vocab
 
         self._time_dim = Dim(None, name="time", kind=Dim.Types.Spatial)
         self._feature_dim = Dim(oggzip.audio_dim, name="audio", kind=Dim.Types.Feature)
-        self._aug_spatial_dim = Dim(None, name="aug_spatial", kind=Dim.Types.Spatial)
         self._vocab_ext_dim = Dim(vocab_ext_dim_int, name="spm_ext", kind=Dim.Types.Feature)
+        if target_mode == "chunk_eoc":
+            self._target_name = "aug_targets"
+            self._target_spatial_dim = Dim(None, name="aug_spatial", kind=Dim.Types.Spatial)
+        else:
+            self._target_name = "rna_targets"
+            self._target_spatial_dim = Dim(None, name="rna_spatial", kind=Dim.Types.Spatial)
+
+    def _build_map_seq(self) -> Callable:
+        builder = chunk_augment_map_seq if self.target_mode == "chunk_eoc" else rna_frame_map_seq
+        return builder(self._vocab_ext_dim, blank_idx=self.blank_idx, chunk_size=self.chunk_size)
 
     def get_default_input(self) -> str:
         return "data"
 
     def get_default_target(self) -> str:
-        return "aug_targets"
+        return self._target_name
 
     def get_extern_data(self) -> Dict[str, Dict[str, Any]]:
         from returnn.tensor import batch_dim
 
-        aug_targets = {"dim_tags": [batch_dim, self._aug_spatial_dim], "sparse_dim": self._vocab_ext_dim}
+        target = {"dim_tags": [batch_dim, self._target_spatial_dim], "sparse_dim": self._vocab_ext_dim}
         if self.aug_vocab is not None:
-            aug_targets["vocab"] = self.aug_vocab
+            target["vocab"] = self.aug_vocab
         return {
             "data": {"dim_tags": [batch_dim, self._time_dim, self._feature_dim]},
-            "aug_targets": aug_targets,
+            self._target_name: target,
         }
 
     def _wrap(self, main_key: str, *, training: bool, subset: Optional[int] = None) -> Dict[str, Any]:
@@ -159,10 +207,14 @@ class ChunkAlignDataset(DatasetConfig):
             # the inner ogg_zip (laplace / sorted_reverse) via seq_order_control_dataset.
             "seq_ordering": "default",
             "dataset": meta,
-            "map_seq": chunk_augment_map_seq(self._vocab_ext_dim, blank_idx=self.blank_idx, chunk_size=self.chunk_size),
+            "map_seq": self._build_map_seq(),
             "map_outputs": {
                 "data": {"dims": [self._time_dim, self._feature_dim], "dtype": "float32"},
-                "aug_targets": {"dims": [self._aug_spatial_dim], "sparse_dim": self._vocab_ext_dim, "dtype": "int32"},
+                self._target_name: {
+                    "dims": [self._target_spatial_dim],
+                    "sparse_dim": self._vocab_ext_dim,
+                    "dtype": "int32",
+                },
             },
         }
 
@@ -180,7 +232,7 @@ class ChunkAlignDataset(DatasetConfig):
 
 
 # ``map_seq`` must accept ``**kwargs`` (PostprocessingDataset passes randomly named params for
-# forward-compat); the bound params come via the functools.partial in chunk_augment_map_seq.
+# forward-compat); the bound params come via the functools.partial in the *_map_seq builders.
 def _chunk_augment_map_seq(seq, *, rng=None, vocab_ext_dim: Dim, blank_idx: int, chunk_size: int, alignment_key: str, **kwargs):
     from returnn.tensor import Tensor, TensorDict
 
@@ -197,5 +249,21 @@ def _chunk_augment_map_seq(seq, *, rng=None, vocab_ext_dim: Dim, blank_idx: int,
     spatial = Dim(None, name="aug_spatial")
     out.data["aug_targets"] = Tensor(
         "aug_targets", dims=[spatial], dtype="int32", sparse_dim=vocab_ext_dim, raw_tensor=aug
+    )
+    return out
+
+
+def _rna_frame_map_seq(seq, *, rng=None, vocab_ext_dim: Dim, blank_idx: int, chunk_size: int, alignment_key: str, **kwargs):
+    from returnn.tensor import Tensor, TensorDict
+
+    align = seq[alignment_key]
+    frames = np.asarray(align.raw_tensor).reshape(-1)
+    rna = rna_frame_targets(frames, blank_idx=blank_idx, pad_to_multiple=chunk_size).astype("int32")
+
+    out = TensorDict()
+    out.data["data"] = seq["data"]
+    spatial = Dim(None, name="rna_spatial")
+    out.data["rna_targets"] = Tensor(
+        "rna_targets", dims=[spatial], dtype="int32", sparse_dim=vocab_ext_dim, raw_tensor=rna
     )
     return out
