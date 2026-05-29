@@ -25,7 +25,16 @@ from ...rasr import (
 )
 
 
-def eow_phon_phmm_ls960_base():
+def eow_phon_phmm_ls960_base(num_gpus=4, num_epochs=125, ckpt_list=None, do_search=True, name_suffix=""):
+    """
+    :param num_gpus: number of GPUs / processes. >1 => torch_distributed param-averaging (the new
+        default); 1 => single-GPU real-RETURNN run (no torch_distributed, hash = non-distributed path).
+    :param num_epochs: number of sub-epochs to train. The learning_rates list is kept fixed (the /4
+        = 125-subepoch schedule) regardless, so per-epoch LR stays comparable across GPU counts.
+    :param ckpt_list: checkpoints to keep + (if do_search) evaluate. Defaults to the full /4 list.
+    :param do_search: if False, only train (skip recognition) -- used by the single-GPU control run.
+    :param name_suffix: appended to the model/alias name to fork a distinct job from the 4-GPU default.
+    """
     prefix_name = "example_setups/librispeech/phmm_standalone_2024/ls960_phmm_eow_phon"
 
     train_settings = DatasetSettings(
@@ -198,10 +207,10 @@ def eow_phon_phmm_ls960_base():
     # gpu_mem is a Sisyphus job *requirement* (NOT part of the hash). batch_size is kept at the small
     # 24GB-tuned value and is hashed -> the GPU memory tier can be switched freely (just change gpu_mem)
     # without rehashing/restarting the training.
-    num_gpus = 4
     gpu_mem = 24
 
-    ckpt_list = [10, 20, 40, 60, 80, 100, 110, 125]  # checkpoints kept + evaluated (all of them)
+    if ckpt_list is None:
+        ckpt_list = [10, 20, 40, 60, 80, 100, 110, 125]  # checkpoints kept + evaluated (all of them)
 
     for peak_lr, init_lr in [(3e-4, 1e-5)]:
         train_config_24gbgpu_amp_radam = {
@@ -232,6 +241,12 @@ def eow_phon_phmm_ls960_base():
             "cleanup_old_models": {"keep": ckpt_list},
         }
 
+        # Single-GPU control: drop torch_distributed (and below: num_processes=None) so the only
+        # change vs the 4-GPU run is the distributed path itself -- isolates engine vs param-averaging.
+        # Popping (instead of conditionally adding) keeps the 4-GPU dict byte-identical => same hash.
+        if num_gpus == 1:
+            train_config_24gbgpu_amp_radam.pop("torch_distributed")
+
         network_module = "phmm.phmm_zhou"
         train_args_radam = {
             "config": train_config_24gbgpu_amp_radam,
@@ -246,7 +261,7 @@ def eow_phon_phmm_ls960_base():
             "debug": False,
         }
 
-        model_name = network_module + f".512dim_sub4_50eps_sp_lp_fullspec_gradnorm_radam_lr{peak_lr:.0e}"
+        model_name = network_module + f".512dim_sub4_50eps_sp_lp_fullspec_gradnorm_radam_lr{peak_lr:.0e}" + name_suffix
         # Training artifacts (learning_rates etc.) keep living under eow_phon/<model>; the
         # recognition results move under lexicon-search/<model> (see below).
         training_name = prefix_name + "/eow_phon/" + model_name
@@ -255,8 +270,8 @@ def eow_phon_phmm_ls960_base():
             training_name,
             train_data,
             train_args_radam,
-            num_epochs=125,  # single-GPU 500 / num_gpus=4
-            num_processes=num_gpus,
+            num_epochs=num_epochs,
+            num_processes=(num_gpus if num_gpus > 1 else None),
             distributed_launch_cmd="torchrun",
             **default_returnn,
         )
@@ -265,7 +280,7 @@ def eow_phon_phmm_ls960_base():
         train_job.rqmt["gpu_mem"] = gpu_mem
 
         asr_models_by_epoch = {}
-        for epoch in ckpt_list:
+        for epoch in ckpt_list if do_search else []:
             asr_model = prepare_asr_model(
                 training_name,
                 train_job,
