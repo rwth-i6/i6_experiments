@@ -850,6 +850,44 @@ def py():
         model_config=canary_acc_cfg,
     )
     cq_acc_recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    # Canary char-level variants (mirroring Phi4-MM; the best Phi4-MM variant
+    # was charlev-spc at WBE 0.087 vs 0.190 for word-level Canary)
+    for char_suf, char_extra in [
+        ("-charlev-spc", {"char_level": True, "char_level_sep": " "}),
+        ("-charlev", {"char_level": True}),
+        ("-charlev-spc-upper", {"char_level": True, "char_level_sep": " ", "char_level_case": "upper"}),
+        ("-charlev-spc-title", {"char_level": True, "char_level_sep": " ", "char_level_case": "title"}),
+    ]:
+        cq_char_cfg = rf.build_dict(
+            CanaryQwen,
+            model_dir=dl_canary,
+            llm_model_dir=dl_qwen3,
+            **char_extra,
+        )
+        cq_char_extract = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=cq_char_cfg,
+            mult_grad_by_inputs=True,
+            attr_reduction="L2",
+        )
+        cq_char_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        cq_char_name = f"canary-qwen-timit-val-L2_e_grad-pertoken{char_suf}"
+        cq_char_extract.add_alias(cq_char_name)
+        tk.register_output(f"{cq_char_name}.hdf", cq_char_extract.out_hdf)
+        for align_opts in _ALIGN_OPTS_GRID:
+            align_name = f"align/{cq_char_name}-{_name_for_dict(align_opts)}"
+            align = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=cq_char_extract.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=align_opts,
+            )
+            align.add_alias(align_name)
+            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+
     cq_acc_recog.add_alias("canary-qwen-acc-timit-val-recog")
     tk.register_output("canary-qwen-acc-timit-val-recog.hyps.txt.gz", cq_acc_recog.out_hyps_txt)
     cq_acc_hyps_norm = text_dict_normalize_file(cq_acc_recog.out_hyps_txt)

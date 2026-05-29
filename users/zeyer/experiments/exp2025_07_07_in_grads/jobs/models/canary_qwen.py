@@ -64,6 +64,11 @@ class CanaryQwen(BaseModelInterface):
         llm_model_dir: str,
         speech_prompt: str = "Transcribe the following:",
         logits_transform: Union[None, str, Dict[str, Any], Sequence[Union[str, Dict[str, Any]]]] = None,
+        char_level: bool = False,
+        char_level_sep: Optional[str] = None,
+        char_level_brackets: Optional[str] = None,
+        char_level_skip_chars: Optional[List[str]] = None,
+        char_level_case: Optional[str] = None,
     ):
         """
         :param model_dir: hub cache dir for ``nvidia/canary-qwen-2.5b``.
@@ -73,6 +78,14 @@ class CanaryQwen(BaseModelInterface):
         :param speech_prompt: user-turn text that precedes the audio_locator
             tag. Per the model card, "Transcribe the following: <audio>"
             is the documented ASR prompt.
+        :param char_level: if True, explode the reference into individual
+            characters and compute per-char gradients (finer alignment
+            resolution). Char ranges are grouped back to words in forward().
+        :param char_level_sep: optional separator inserted between characters
+            (e.g. " " forces each char into its own token, improving accuracy).
+        :param char_level_brackets: None, ``"char"`` (wrap each char in [/]),
+            or ``"word"`` (wrap each word's chars in [/]).
+        :param char_level_skip_chars: characters to skip entirely.
         """
         super().__init__()
         _activate_overlay()
@@ -82,6 +95,12 @@ class CanaryQwen(BaseModelInterface):
         self.llm_model_dir = llm_model_dir
         self.speech_prompt = speech_prompt
         self.logits_transform = make_logits_transform(logits_transform)
+        self._char_level = char_level
+        self._char_level_sep = char_level_sep
+        self._char_level_brackets = char_level_brackets
+        self._char_level_skip_chars = set(char_level_skip_chars) if char_level_skip_chars else None
+        assert char_level_case in (None, "lower", "upper", "title"), char_level_case
+        self._char_level_case = char_level_case
 
         # Merge canary + qwen hub_cache dirs by symlink so SALM's
         # AutoTokenizer (which only honors HF_HUB_CACHE / HF_HOME) can
@@ -177,9 +196,49 @@ class CanaryQwen(BaseModelInterface):
             raise NotImplementedError("CanaryQwen chunked context not implemented yet")
 
         dev = self.device
-        words = raw_targets[0]
-        transcription = " ".join(words)
-        print(f"[fwd] start; words={len(words)} transcription={transcription!r}", flush=True)
+        orig_words = raw_targets[0]
+
+        # Char-level: explode words into a flat char list, compute per-char
+        # gradients, then re-group char ranges back to word-level boundaries.
+        # Follows the same pattern as Phi4MM.
+        word_char_ranges: Optional[List[tuple]] = None
+        if self._char_level:
+            chars: List[str] = []
+            word_char_ranges = []
+            _case = self._char_level_case
+            for wi, word in enumerate(orig_words):
+                if _case == "upper":
+                    word = word.upper()
+                elif _case == "lower":
+                    word = word.lower()
+                elif _case == "title":
+                    word = word.title()
+                cstart = len(chars)
+                if self._char_level_brackets == "word":
+                    chars.append("[")
+                for ci, ch in enumerate(word):
+                    if self._char_level_skip_chars and ch in self._char_level_skip_chars:
+                        continue
+                    if self._char_level_brackets == "char":
+                        chars.append("[")
+                    if self._char_level_sep and len(chars) > cstart:
+                        chars.append(self._char_level_sep)
+                    chars.append(ch)
+                    if self._char_level_brackets == "char":
+                        chars.append("]")
+                if self._char_level_brackets == "word":
+                    chars.append("]")
+                word_char_ranges.append((cstart, len(chars)))
+                # inter-word separator
+                if self._char_level_sep and wi < len(orig_words) - 1:
+                    chars.append(self._char_level_sep)
+            words = chars
+            transcription = "".join(chars)
+        else:
+            words = orig_words
+            transcription = " ".join(words)
+
+        print(f"[fwd] start; words={len(orig_words)} transcription={transcription!r}", flush=True)
 
         input_ids, dst_text_start = self._build_chat_input_ids(transcription=transcription)
         input_ids = input_ids.to(dev)
@@ -279,6 +338,16 @@ class CanaryQwen(BaseModelInterface):
             f"word-grouping mismatch: target_decoded={words_!r} ref_words={words!r}"
         )
         assert words_ == words, f"target_decoded={words_!r} ref_words={words!r}"
+
+        # Char-level: re-group per-char target_start_end back to word level.
+        if word_char_ranges is not None:
+            regrouped = []
+            for cstart, cend in word_char_ranges:
+                t0 = int(words_start_end[cstart][0])
+                t1 = int(words_start_end[cend - 1][1])
+                regrouped.append([t0, t1])
+            words_start_end = regrouped
+
         words_start_end = words_start_end + [[n_targets, n_targets + 1]]  # EOS slot
 
         # Audio frame -> raw sample mapping.
