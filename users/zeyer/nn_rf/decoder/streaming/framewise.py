@@ -194,6 +194,72 @@ def framewise_training(*, model, data: Tensor, data_spatial_dim: Dim, targets: T
 framewise_training.learning_rate_control_error_measure = "ce"
 
 
+def model_recog(
+    *,
+    model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Frame-synchronous greedy recognition (beam size 1).
+
+    Runs exactly ``T_enc`` steps (one per encoder frame); each step feeds the previous
+    emitted symbol + the current encoder frame, argmaxes over labels+blank, and feeds it
+    back. Blanks are removed from the output, giving the plain spm transcription (rendered
+    via ``target_dim_ext``'s vocab; the blank == the last/extra symbol).
+
+    :return: (seq_targets {batch,beam,out_spatial} sparse over target_dim_ext,
+              seq_log_prob {batch,beam}, out_spatial_dim, beam_dim)
+    """
+    from returnn.frontend.tensor_array import TensorArray
+
+    batch_dims = data.remaining_dims(
+        (data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim
+    )
+    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    enc_lens = rf.copy_to_device(enc_spatial_dim.get_size_tensor())  # [batch]
+    T_max = int(rf.reduce_max(enc_lens, axis=enc_lens.dims).raw_tensor)
+
+    beam_dim = Dim(1, name="beam")
+    batch_dims_ = [beam_dim] + batch_dims
+    state = model.decoder.default_initial_state(batch_dims=batch_dims_)
+    prev = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim_ext, dtype="int32")
+    blank = rf.constant(model.blank_idx, dims=batch_dims_, sparse_dim=model.target_dim_ext, dtype="int32")
+    seq_log_prob = rf.constant(0.0, dims=batch_dims_)
+
+    seq = TensorArray(prev)
+    for t in range(T_max):
+        t_t = rf.constant(t, dims=batch_dims, dtype="int32")  # [batch]
+        valid = t_t < enc_lens  # [batch]: frame t is a real encoder frame for this seq
+        idx = rf.where(valid, t_t, enc_lens - 1)  # clip out-of-range (batch padding) frames
+        enc_t = rf.gather(enc, indices=idx, axis=enc_spatial_dim)  # [batch, enc_dim]
+        logits, state = model.decoder(prev, enc_t, spatial_dim=single_step_dim, state=state)
+        log_probs = rf.log_softmax(logits, axis=model.target_dim_ext)
+        sym = rf.cast(rf.reduce_argmax(log_probs, axis=model.target_dim_ext), "int32")
+        sym.sparse_dim = model.target_dim_ext
+        sym = rf.where(valid, sym, blank)  # batch-padding frames emit blank (dropped later)
+        lp_sym = rf.gather(log_probs, indices=sym, axis=model.target_dim_ext)
+        seq_log_prob = seq_log_prob + rf.where(valid, lp_sym, 0.0)
+        prev = sym
+        seq = seq.push_back(sym)
+
+    out_spatial_dim = Dim(T_max, name="out-spatial")
+    aligned = seq.stack(axis=out_spatial_dim)  # [beam, batch, T_max] over target_dim_ext
+
+    # Strip blanks -> plain spm label sequence (variable length per seq).
+    seq_targets_out, seq_targets_spatial_dim = rf.masked_select(
+        aligned, mask=aligned != model.blank_idx, dims=[out_spatial_dim]
+    )
+    seq_targets_out.sparse_dim = model.target_dim_ext
+    return seq_targets_out, seq_log_prob, seq_targets_spatial_dim, beam_dim
+
+
+model_recog: RecogDef
+model_recog.output_with_beam = True
+model_recog.output_blank_label = None
+model_recog.batch_size_dependent = False
+
+
 class _FeedForward(rf.Module):
     def __init__(self, model_dim: Dim, ff_dim: Dim, *, dropout: float):
         super().__init__()
