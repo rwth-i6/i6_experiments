@@ -59,7 +59,8 @@ def _ssd_chunked(
     block_len: int,
     initial_states: Optional[torch.Tensor] = None,
     super_batch_chunk: Optional[int] = None,
-) -> torch.Tensor:
+    return_final_states: bool = False,
+) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
     """SSD chunked algorithm. Returns Y of shape [B, L, H, P].
 
     L must be a multiple of block_len.
@@ -79,6 +80,7 @@ def _ssd_chunked(
     -- and crucially, retain them all simultaneously for the backward pass.
     """
     if super_batch_chunk is not None and X.size(0) > super_batch_chunk:
+        assert not return_final_states, "return_final_states not supported with super_batch_chunk"
         outs = []
         sb = X.size(0)
         # Only use checkpoint when we're inside an autograd graph; otherwise
@@ -137,6 +139,9 @@ def _ssd_chunked(
     Y_off = torch.einsum("bclhn,bchpn,bhcl->bclhp", C, states, state_decay_out)
 
     Y = rearrange(Y_diag + Y_off, "b c l h p -> b (c l) h p")
+    if return_final_states:
+        # new_states[:, 1:] = per-block END states (state after each block).
+        return Y, new_states[:, 1:]
     return Y
 
 
@@ -387,10 +392,12 @@ class Mamba2ChunkedLayerV2(rf.Module):
         with_macaron_ff: bool = False,
         macaron_ff_dim_factor: int = 4,
         with_post_ln: bool = False,
+        version: int = 1,
     ):
         super().__init__()
         self.out_dim = out_dim
         self.dropout = dropout
+        assert version == 2, f"Mamba2ChunkedLayerV2: only version=2 (lookahead-correct) supported, got {version}"
         self.norm = rf.LayerNorm(out_dim)
         self.mamba = Mamba2Block(
             out_dim,
@@ -440,19 +447,19 @@ class Mamba2ChunkedLayerV2(rf.Module):
             x_norm = rf.dropout(x_norm, self.dropout, axis=self.out_dim)
         if chunking is None:
             return self.mamba(x_norm, spatial_dim=spatial_dim)
-        x_stride, _ = rf.slice(x_norm, axis=spatial_dim, size=chunking.end_chunk_size_dim)
-        x_flat, full_time_dim = rf.merge_dims(x_stride, dims=(chunking.chunked_time_dim, chunking.end_chunk_size_dim))
-        # TODO: streaming -- thread Mamba-2 state via streaming_cache_v2 across segments.
-        y_flat = self.mamba(x_flat, spatial_dim=full_time_dim)
-        y_windowed, new_chunked_time_dim = rf.window(
-            y_flat,
-            spatial_dim=full_time_dim,
-            window_dim=spatial_dim,
-            window_left=0,
-            stride=chunking.end_chunk_size_dim.dimension,
-            pad_value=0.0,
+        # Lookahead-correct chunked path: unbounded-past centers (state carries across chunks) +
+        # strict-R per-chunk lookahead via state-seeded continuation. The old path reconstructed the
+        # lookahead by re-windowing the global center scan, which leaked/compounded the lookahead
+        # across layers -- removed. See chunked_recurrent_lookahead.mamba2_chunked_forward.
+        from .chunked_recurrent_lookahead import mamba2_chunked_forward
+
+        return mamba2_chunked_forward(
+            self.mamba,
+            x_norm,
+            spatial_dim=spatial_dim,
+            center_dim=chunking.end_chunk_size_dim,
+            chunked_time_dim=chunking.chunked_time_dim,
         )
-        return rf.replace_dim_v2(y_windowed, in_dim=new_chunked_time_dim, out_dim=chunking.chunked_time_dim)
 
     def __call__(
         self,

@@ -59,7 +59,8 @@ def _delta_rule_chunked(
     beta: torch.Tensor,  # [B, L, H]   gate in (0, 1)
     block_len: int,
     initial_state: Optional[torch.Tensor] = None,  # [B, H, Dv, Dk] or None
-) -> torch.Tensor:
+    return_final_states: bool = False,
+) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
     """Chunked parallel DeltaNet scan (closed-form WY representation).
 
     Returns Y of shape [B, L, H, Dv]. L must be a multiple of block_len.
@@ -116,6 +117,7 @@ def _delta_rule_chunked(
         S = initial_state
     n_chunks = Q.size(1)
     Y_list = []
+    states_list = []
     for c in range(n_chunks):
         q_eff_c = Q[:, c] - QW[:, c]  # [B, H, L, Dk]
         Y_off_c = torch.einsum("bhld,bhvd->bhlv", q_eff_c, S)  # [B, H, L, Dv]
@@ -123,9 +125,13 @@ def _delta_rule_chunked(
         WK = torch.einsum("bhld,bhle->bhde", W[:, c], K[:, c])  # [B, H, Dk, Dk]
         UK = torch.einsum("bhlv,bhld->bhvd", U[:, c], K[:, c])  # [B, H, Dv, Dk]
         S = S - torch.einsum("bhvd,bhde->bhve", S, WK) + UK
+        if return_final_states:
+            states_list.append(S)
 
     Y = torch.stack(Y_list, dim=1)  # [B, C, H, L, Dv]
     Y = rearrange(Y, "b c h l d -> b (c l) h d")
+    if return_final_states:
+        return Y, torch.stack(states_list, dim=1)  # [B, n_chunks, H, Dv, Dk]
     return Y
 
 
@@ -336,6 +342,7 @@ class DeltaNetChunkedLayerV2(rf.Module):
         super().__init__()
         self.out_dim = out_dim
         self.dropout = dropout
+        assert version == 3, f"DeltaNetChunkedLayerV2: only version=3 (lookahead-correct) supported, got {version}"
         self.norm = rf.LayerNorm(out_dim)
         self.dn = DeltaNetBlock(
             out_dim,
@@ -401,19 +408,17 @@ class DeltaNetChunkedLayerV2(rf.Module):
             x_norm = rf.dropout(x_norm, self.dropout, axis=self.out_dim)
         if chunking is None:
             return self.dn(x_norm, spatial_dim=spatial_dim)
-        x_stride, _ = rf.slice(x_norm, axis=spatial_dim, size=chunking.end_chunk_size_dim)
-        x_flat, full_time_dim = rf.merge_dims(x_stride, dims=(chunking.chunked_time_dim, chunking.end_chunk_size_dim))
-        # TODO: streaming -- thread DeltaNet state via streaming_cache_v2 across segments.
-        y_flat = self.dn(x_flat, spatial_dim=full_time_dim)
-        y_windowed, new_chunked_time_dim = rf.window(
-            y_flat,
-            spatial_dim=full_time_dim,
-            window_dim=spatial_dim,
-            window_left=0,
-            stride=chunking.end_chunk_size_dim.dimension,
-            pad_value=0.0,
+        # Lookahead-correct chunked path: unbounded-past centers + strict-R per-chunk lookahead.
+        # The old path re-windowed the global center scan (leaked/compounded the lookahead) -- removed.
+        from .chunked_recurrent_lookahead import deltanet_chunked_forward
+
+        return deltanet_chunked_forward(
+            self.dn,
+            x_norm,
+            spatial_dim=spatial_dim,
+            center_dim=chunking.end_chunk_size_dim,
+            chunked_time_dim=chunking.chunked_time_dim,
         )
-        return rf.replace_dim_v2(y_windowed, in_dim=new_chunked_time_dim, out_dim=chunking.chunked_time_dim)
 
     def __call__(
         self,
