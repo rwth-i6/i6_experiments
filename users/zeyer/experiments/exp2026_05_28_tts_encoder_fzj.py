@@ -26,8 +26,8 @@ NOTE: the data wiring (the text map_seq tokenization, CombinedDataset+alternate_
 map_seq, and the text-branch rf graph) is graph-buildable but NOT unit-testable -- validate with a 1-step smoke
 run (``time_rqmt<=1``) before a full run. See projects/2026-05-28-tts-encoder.md.
 
-Run from an FZJ setup:
-``py7 ./sis m recipe/i6_experiments/users/zeyer/experiments/exp2026_05_28_tts_encoder_fzj.py``
+Run from an FZJ setup (py7 is an RZ-only alias; on FZJ use the wrap.sh launcher, which does the module load):
+``/e/project1/spell/zeyer1/py-envs/py3.13-torch2.12/wrap.sh python ./sis m recipe/i6_experiments/users/zeyer/experiments/exp2026_05_28_tts_encoder_fzj.py``
 """
 
 from __future__ import annotations
