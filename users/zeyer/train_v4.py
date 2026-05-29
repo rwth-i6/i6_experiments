@@ -37,7 +37,7 @@ def train(
     post_config: Optional[Dict[str, Any]] = None,
     env_updates: Optional[Dict[str, str]] = None,
     model_def: Union[ModelDefWithCfg, ModelDef[ModelT]],
-    train_def: TrainDef[ModelT],
+    train_def: Optional[TrainDef[ModelT]] = None,
     init_params: Optional[Checkpoint] = None,
     gpu_mem: Optional[int] = None,
     num_processes: Optional[int] = None,
@@ -139,13 +139,23 @@ def train(
             if apply_multi_proc
             else train_dataset.get_eval_datasets()
         ),
-        learning_rate_control_error_measure=train_def.learning_rate_control_error_measure,
         newbob_multi_num_epochs=train_epoch_split or 1,
         get_model=functools.partial(
             _returnn_get_model, model_def=model_def.model_def if isinstance(model_def, ModelDefWithCfg) else model_def
         ),
-        train_step=functools.partial(_returnn_train_step, train_def=train_def),
     )
+    if train_def is not None:
+        returnn_train_config_dict["learning_rate_control_error_measure"] = train_def.learning_rate_control_error_measure
+        # Default train step (passes default_input + default_target to the train_def).
+        # A custom config["train_step"] (merged in below) overrides this; in that case train_def may be None.
+        returnn_train_config_dict["train_step"] = functools.partial(_returnn_train_step, train_def=train_def)
+    else:
+        # No TrainDef: the config must explicitly supply both the custom train_step and the lr-control measure
+        # (just add them to the config like any other entry).
+        assert "train_step" in config and "learning_rate_control_error_measure" in config, (
+            "train_v4.train: pass train_def, or set both config['train_step'] and"
+            " config['learning_rate_control_error_measure']"
+        )
     returnn_train_config_dict = dict_update_deep(returnn_train_config_dict, config)
     if isinstance(model_def, ModelDefWithCfg):
         returnn_train_config_dict = dict_update_deep(returnn_train_config_dict, model_def.config)

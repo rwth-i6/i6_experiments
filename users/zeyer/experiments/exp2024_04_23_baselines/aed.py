@@ -485,7 +485,9 @@ def train_exp(
         model_def = aed_model_def
     if model_config:
         model_def = ModelDefWithCfg(model_def, model_config)
-    if not train_def:
+    if not train_def and "train_step" not in config:
+        # A custom config["train_step"] does its own data extraction + loss; no TrainDef needed (train_v4
+        # only adds the default _returnn_train_step partial when a train_def is given).
         train_def = aed_training
     serialization_version = get_from_config((config, model_def), "__serialization_version", None)
     train = {None: train_v3, 1: train_v3, 2: train_v4}[serialization_version]
