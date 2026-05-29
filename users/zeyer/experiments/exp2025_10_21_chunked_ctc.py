@@ -1069,6 +1069,7 @@ def py():
     #   - dyn-rope-overlapD (without ctembed)
     # - DynV3 also not good. Needs more work.
     # - Running Mamba-2 SSD and DeltaNet, and bidir variants.
+    # - WBE/TSE. Goal is to also compute actual latency.
 
     # To report for next time:
     # - Running Mamba-2 SSD and DeltaNet and bidir variants
