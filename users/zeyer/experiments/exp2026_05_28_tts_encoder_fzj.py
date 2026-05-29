@@ -218,7 +218,7 @@ def _train_tts_encoder(
         model_config=model_config,
         config_updates={
             **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
-            "batch_size": {"asr": 100_000 * configs._batch_size_factor, "text": 100_000},
+            "batch_size": {"asr": 50_000 * configs._batch_size_factor, "text": 50_000},
             "optimizer.weight_decay": 1e-2,
             "accum_grad_multiple_step": 2,  # alternate_batching doubles the effective step
             "torch_batching": functools.partial(alternate_batching, asr_key=in_key),
