@@ -221,7 +221,7 @@ def _train_tts_encoder(
             "batch_size": {"asr": 100_000 * configs._batch_size_factor, "text": 100_000},
             "optimizer.weight_decay": 1e-2,
             "accum_grad_multiple_step": 2,  # alternate_batching doubles the effective step
-            "torch_batching": functools.partial(alternate_batching, asr_key=in_key),  # audio-presence key (we keep "data")
+            "torch_batching": functools.partial(alternate_batching, asr_key=in_key),
             "train_step": aed_glowtts_train_step,  # custom step; no TrainDef needed
             "learning_rate_control_error_measure": "ce",  # set explicitly since there is no TrainDef
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
