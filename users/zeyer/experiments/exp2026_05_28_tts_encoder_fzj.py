@@ -94,6 +94,7 @@ def _train_tts_encoder(
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc import (
         aed_ctc_timesync_recog_recomb_auto_scale,
     )
+    from i6_experiments.users.zeyer.recog_batched import recog_training_exp_batched
     from i6_experiments.users.zeyer.returnn.alternate_batching import alternate_batching
     from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
     from i6_experiments.users.zeyer.external_models.glow_tts import (
@@ -238,9 +239,21 @@ def _train_tts_encoder(
             # spm targets + GlowTTS phonemes (nested tk.Paths are resolved as config values).
             "glow_tts_text_spm_opts": get_vocab_by_str(vocab).get_opts(),
             "glow_tts_phone_info": get_glow_tts_phone_info(train=True),
+            # DDP across 4 GH200: each runs a model replica + its data shard, gradients all-reduced via NCCL.
+            # ~400 M trainable params (Enc L16 D1024 + Dec L6 D1024 + spm10k) fits one GH200 (95 GB) easily, so DDP
+            # is the right tool here -- FSDP would only add sharding overhead for no memory benefit.
+            "torch_distributed": {},
+            # Use most of the JUPITER node (~480 GiB total, ~440 usable): 4 DDP procs * (1 main + MPD workers)
+            # each load the ~4 GB LM corpus, plus model + activations. ~400 GiB gives comfortable headroom.
+            "__mem_rqmt": 400,
+            # 4 GPUs * 72 cores/Grace-Hopper = full node (288 cores). Helps MPD workers / data loading.
+            "__cpu_rqmt": 72,
         },
         post_config_updates={"log_grad_norm": True, "__multi_proc_dataset": {"num_workers": 4}},
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+        num_processes=4,  # DDP across the 4 GH200 per JUPITER node (billing is flat-per-node: must use all GPUs)
+        gpu_mem=96,  # GH200 has 96 GB HBM3
+        recog_training_func=recog_training_exp_batched,  # bundle per-epoch recog into one multi-GPU job
     )
     aed_ctc_timesync_recog_recomb_auto_scale(
         prefix=prefix + "/aed/" + name + "/aed+ctc",
