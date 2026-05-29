@@ -16,7 +16,7 @@ EOC, then advance to chunk k+1, stopping when the encoder chunks are exhausted.
 
 from __future__ import annotations
 
-from typing import Optional, Any, Dict, Sequence, Tuple, List
+from typing import Optional, Any, Dict, Sequence, Tuple, List, TYPE_CHECKING
 import functools
 
 import returnn.frontend as rf
@@ -24,6 +24,9 @@ from returnn.tensor import Tensor, Dim, single_step_dim
 
 from .cross_attn import ChunkMaskedCrossAttention
 from .base import encoder_frame_chunk_idx
+
+if TYPE_CHECKING:
+    from i6_experiments.users.zeyer.model_interfaces import RecogDef
 
 
 class ChunkwiseDecoderLayer(rf.Module):
@@ -254,6 +257,104 @@ def chunkwise_training(*, model, data: Tensor, data_spatial_dim: Dim, targets: T
 
 
 chunkwise_training.learning_rate_control_error_measure = "ce"
+
+
+def model_recog(
+    *,
+    model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Chunk-synchronous greedy recognition (beam size 1).
+
+    For each encoder chunk, emit labels autoregressively until the EOC marker, then
+    advance to the next chunk; stop once all chunks are consumed (or a per-chunk /
+    global step cap is hit). EOC markers are removed from the returned sequence, so
+    it is the plain spm transcription -- the labels are valid spm indices, rendered
+    via ``model.target_dim_ext``'s vocab (whose first entries are the spm pieces).
+
+    :return: (seq_targets {batch,beam,out_spatial} sparse over target_dim_ext,
+              seq_log_prob {batch,beam}, out_spatial_dim, beam_dim)
+    """
+    from returnn.config import get_global_config
+    from returnn.frontend.tensor_array import TensorArray
+
+    config = get_global_config(return_empty_if_none=True)
+    max_labels_per_chunk = config.int("max_labels_per_chunk", 0) or 20
+
+    batch_dims = data.remaining_dims(
+        (data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim
+    )
+    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    key_chunk_idx = encoder_frame_chunk_idx(enc_spatial_dim, model.chunk_size)  # [enc_spatial]
+    # number of chunks per seq = ceil(enc_len / chunk_size). Derive from the per-seq
+    # encoder lengths (key_chunk_idx itself lacks the batch axis, so can't masked-reduce it).
+    enc_lens = rf.copy_to_device(enc_spatial_dim.get_size_tensor())  # [batch]
+    num_chunks = (enc_lens - 1) // model.chunk_size + 1  # [batch]
+
+    beam_dim = Dim(1, name="beam")
+    batch_dims_ = [beam_dim] + batch_dims
+    encoder_kv = model.decoder.transform_encoder(enc, axis=enc_spatial_dim)
+    decoder_state = model.decoder.default_initial_state(batch_dims=batch_dims_)
+    target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim_ext)
+    eoc = rf.constant(model.eoc_idx, dims=batch_dims_, sparse_dim=model.target_dim_ext)
+    cur_chunk = rf.constant(0, dims=batch_dims_, dtype="int32")
+    labels_in_chunk = rf.constant(0, dims=batch_dims_, dtype="int32")
+    ended = rf.constant(False, dims=batch_dims_)
+    seq_log_prob = rf.constant(0.0, dims=batch_dims_)
+
+    # Global step cap: each chunk emits at most max_labels_per_chunk labels + 1 EOC.
+    max_steps = int(rf.reduce_max(num_chunks, axis=num_chunks.dims).raw_tensor) * (max_labels_per_chunk + 1)
+
+    i = 0
+    seq_targets = TensorArray(target)
+    while True:
+        logits, decoder_state = model.decoder(
+            target,
+            spatial_dim=single_step_dim,
+            state=decoder_state,
+            encoder_kv=encoder_kv,
+            enc_spatial_dim=enc_spatial_dim,
+            query_chunk_idx=cur_chunk,
+            key_chunk_idx=key_chunk_idx,
+        )
+        label_log_prob = rf.log_softmax(logits, axis=model.target_dim_ext)
+        best = rf.cast(rf.reduce_argmax(label_log_prob, axis=model.target_dim_ext), "int32")
+        best.sparse_dim = model.target_dim_ext
+        # Force EOC if this chunk hit its label budget, or carry EOC for finished seqs.
+        force_eoc = rf.logical_or(labels_in_chunk >= max_labels_per_chunk, ended)
+        best = rf.where(force_eoc, eoc, best)
+        best_lp = rf.gather(label_log_prob, indices=best, axis=model.target_dim_ext)
+        best_lp = rf.where(ended, 0.0, best_lp)
+
+        seq_log_prob = seq_log_prob + best_lp
+        target = best
+        seq_targets = seq_targets.push_back(target)
+
+        is_eoc = target == model.eoc_idx
+        cur_chunk = cur_chunk + rf.cast(is_eoc, "int32")
+        labels_in_chunk = rf.where(is_eoc, rf.constant(0, dims=batch_dims_, dtype="int32"), labels_in_chunk + 1)
+        ended = rf.logical_or(ended, cur_chunk >= num_chunks)
+        i += 1
+        if i >= max_steps or bool(rf.reduce_all(ended, axis=ended.dims).raw_tensor):
+            break
+
+    out_spatial_dim = Dim(i, name="out-spatial")
+    aug_out = seq_targets.stack(axis=out_spatial_dim)  # [beam, batch, out_spatial] over target_dim_ext
+
+    # Strip EOC markers -> plain spm label sequence (variable length per seq).
+    seq_targets_out, seq_targets_spatial_dim = rf.masked_select(
+        aug_out, mask=aug_out != model.eoc_idx, dims=[out_spatial_dim]
+    )
+    seq_targets_out.sparse_dim = model.target_dim_ext
+    return seq_targets_out, seq_log_prob, seq_targets_spatial_dim, beam_dim
+
+
+model_recog: RecogDef
+model_recog.output_with_beam = True
+model_recog.output_blank_label = None
+model_recog.batch_size_dependent = False
 
 
 class _FeedForward(rf.Module):

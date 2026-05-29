@@ -131,11 +131,26 @@ def streaming_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Streamin
 
     ``target_dim`` is the default-target (``aug_targets``) sparse dim, i.e. the
     EOC-extended decoder vocab. The variant is selected by ``dec_build_dict``.
+
+    At recog the eval dataset's default target is the raw spm vocab (one label
+    smaller, no EOC), so the model would be built too small to load the checkpoint.
+    Set ``target_dim_ext_int`` (+ optional ``aug_vocab`` opts, so the output dim
+    carries a vocab for rendering) in the (search) config to build the model's own
+    EOC-extended dim regardless of ``target_dim``. Training leaves it unset and so
+    keeps using the dataset's aug-targets dim (hash-stable, no re-train).
     """
     from returnn.config import get_global_config
 
     in_dim, epoch  # noqa  (raw audio input; model builds its own logmel frontend)
     config = get_global_config()
+    target_dim_ext_int = config.int("target_dim_ext_int", 0)
+    if target_dim_ext_int:
+        target_dim = Dim(target_dim_ext_int, name="aug_vocab")
+        aug_vocab_opts = config.typed_value("aug_vocab")
+        if aug_vocab_opts:
+            from returnn.datasets.util.vocabulary import Vocabulary
+
+            target_dim.vocab = Vocabulary.create_vocab(**aug_vocab_opts)
     return StreamingModel(
         target_dim_ext=target_dim,
         chunk_size=config.int("chunk_size", 0),
