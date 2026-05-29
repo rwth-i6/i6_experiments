@@ -1,16 +1,21 @@
 """
 Slow-fast-RNA streaming chunked-decoder experiments.
 
-Run from ``~/setups/2026-05-26-fast-slow-rna/``. The chunk-synchronous decoder
-(``chunkwise``) is the first variant: a chunked Conformer encoder + a Transformer
-decoder whose cross-attention is restricted to encoder chunks already streamed in,
-trained on the EOC-augmented per-chunk label sequence derived on the fly from the
-LS-base CTC forced alignment.
+Run from ``~/setups/2026-05-26-fast-slow-rna/``. Variants share the chunked Conformer
+encoder + base-model CTC forced alignment, and differ only in the decoder:
+
+- ``chunkwise``: chunk-synchronous decoder (EOC-augmented per-chunk targets), chunk-masked
+  cross-attention. Tolerates speed-pert (coarse chunk bucketing).
+- ``framewise``: frame-synchronous RNA fast-only decoder (one label/blank per encoder
+  frame); the fast stack that ``ext_transducer`` will extend with a slow label-rate stack.
+  Speed-pert OFF (frame-sync needs the target 1:1 with encoder frames).
+
+All wired via :func:`_train_streaming_variant` (train + dev-other greedy recog -> WER).
 """
 
 from __future__ import annotations
 
-from typing import Dict
+from typing import Any, Dict, Optional
 
 from sisyphus import tk
 import returnn.frontend as rf
@@ -28,6 +33,7 @@ from i6_experiments.users.zeyer.datasets.librispeech import (
 )
 from i6_experiments.users.zeyer.recog import recog_model
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines import configs
+from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import _raw_sample_rate
 from i6_experiments.users.zeyer.experiments.exp2025_10_21_chunked_ctc import _aed_ctc_forced_align
 from i6_experiments.users.zeyer.experiments.exp2026_05_26_base_fzj import _train_librispeech_base
 from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2 import (
@@ -36,16 +42,28 @@ from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2 import (
     ChunkedRotaryPosSelfAttentionV2,
 )
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.base import streaming_model_def
-from i6_experiments.users.zeyer.nn_rf.decoder.streaming.chunkwise import ChunkwiseDecoder, chunkwise_training, model_recog
+from i6_experiments.users.zeyer.nn_rf.decoder.streaming.chunkwise import (
+    ChunkwiseDecoder,
+    chunkwise_training,
+    model_recog as chunkwise_model_recog,
+)
+from i6_experiments.users.zeyer.nn_rf.decoder.streaming.framewise import (
+    FramewiseDecoder,
+    framewise_training,
+    model_recog as framewise_model_recog,
+)
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.dataset import ChunkAlignDataset, ExtendVocabWithEocJob
 
 # Prefix for alias/ and output/ paths. Does not enter any Job hash (only naming);
 # the helper walks the module hierarchy for this attribute.
 __setup_root_prefix__ = "exp2026_05_26_slow_fast_rna_fzj"
 
+_CHUNK_SIZE = 10  # encoder frames (60ms each) -> 600ms chunks
+
 
 def py():
     _train_chunkwise_smoke()
+    _train_framewise_smoke()
 
 
 def _ls_align_hdfs(model, *, keys, aux_ctc_layer: int = 16) -> Dict[str, tk.Path]:
@@ -58,40 +76,8 @@ def _ls_align_hdfs(model, *, keys, aux_ctc_layer: int = 16) -> Dict[str, tk.Path
     return out
 
 
-def _train_chunkwise_smoke():
-    """Small chunk-synchronous model, first end-to-end pipeline test on FZJ."""
-    prefix = get_setup_prefix_for_module(__name__)
-    vocab = get_vocab_by_str("spm10k")
-    vocab_size = vocab.get_num_classes()  # spm10k -> 10240
-    chunk_size = 10  # encoder frames (60ms each) -> 600ms chunks
-
-    # Borrow the LS-base model checkpoint only. Suppress its output registrations so the
-    # base model's recog (timesync + scale tuning, ~16 forward jobs) does not become a
-    # target in this streaming setup -- we just need the trained encoder/CTC for alignment.
-    with disable_register_output():
-        exp = _train_librispeech_base()
-    model = exp.get_last_fixed_epoch()
-    align_hdfs = _ls_align_hdfs(model, keys=["train", "dev-other"])
-
-    # aug_targets vocab (spm pieces + EOC): train_v4 requires a vocab on the target sparse dim.
-    from i6_core.text.label.sentencepiece.vocab import ExtractSentencePieceVocabJob
-
-    aug_vocab_file = ExtendVocabWithEocJob(ExtractSentencePieceVocabJob(vocab.model_file).out_vocab).out_vocab
-    aug_vocab = {"class": "Vocabulary", "vocab_file": aug_vocab_file, "unknown_label": None}
-
-    audio_oggzip = LibrispeechOggZip(audio=_raw_audio_opts.copy(), audio_dim=1, vocab=None)  # audio only
-    dataset = ChunkAlignDataset(
-        oggzip=audio_oggzip,
-        alignment_hdfs=align_hdfs,
-        vocab_ext_dim_int=vocab_size + 1,  # + EOC
-        blank_idx=vocab_size,
-        chunk_size=chunk_size,
-        train_main_key="train",
-        dev_main_key="dev-other",
-        aug_vocab=aug_vocab,
-    )
-
-    enc_build_dict = rf.build_dict(
+def _enc_build_dict():
+    return rf.build_dict(
         ChunkedConformerEncoderV2,
         input_layer=rf.build_dict(
             ConformerConvSubsample,
@@ -104,19 +90,66 @@ def _train_chunkwise_smoke():
         num_layers=4,
         out_dim=256,
         num_heads=4,
-        chunk_size=chunk_size,
-        chunk_history_size=chunk_size * 8,
+        chunk_size=_CHUNK_SIZE,
+        chunk_history_size=_CHUNK_SIZE * 8,
         chunk_lookahead_size=0,  # strictly causal by chunk for the first test
         version=3,
     )
-    dec_build_dict = rf.build_dict(
-        ChunkwiseDecoder, model_dim=256, ff_dim=512, num_layers=4, num_heads=4
-    )  # encoder_dim / vocab_dim / chunk_size / eoc_idx injected by StreamingModel
+
+
+def _train_streaming_variant(
+    name: str,
+    *,
+    dec_build_dict: Dict[str, Any],
+    train_def,
+    recog_def,
+    target_mode: str,
+    speed_pert: bool,
+    recog_extra: Optional[Dict[str, Any]] = None,
+    config_extra: Optional[Dict[str, Any]] = None,
+):
+    """Train a streaming-decoder variant + greedy recog -> dev-other WER.
+
+    Shared across variants: the LS-base model (for the forced alignment), the chunked
+    encoder, the EOC-extended vocab, and the small smoke training config. The decoder
+    (``dec_build_dict``), train/recog defs, target derivation (``target_mode``), and
+    speed-pert are the per-variant knobs.
+    """
+    prefix = get_setup_prefix_for_module(__name__)
+    vocab = get_vocab_by_str("spm10k")
+    vocab_size = vocab.get_num_classes()  # spm10k -> 10240
+
+    # Borrow the LS-base checkpoint only (suppress its own recog outputs); use it to forced-align.
+    with disable_register_output():
+        exp_base = _train_librispeech_base()
+    base_model = exp_base.get_last_fixed_epoch()
+    align_hdfs = _ls_align_hdfs(base_model, keys=["train", "dev-other"])
+
+    # Extended target vocab (spm pieces + 1 extra symbol = EOC / RNA-blank); train_v4 needs a vocab.
+    from i6_core.text.label.sentencepiece.vocab import ExtractSentencePieceVocabJob
+
+    aug_vocab_file = ExtendVocabWithEocJob(ExtractSentencePieceVocabJob(vocab.model_file).out_vocab).out_vocab
+    aug_vocab = {"class": "Vocabulary", "vocab_file": aug_vocab_file, "unknown_label": None}
+
+    # Frame-sync variants need the target 1:1 with encoder frames -> no speed-pert (would desync).
+    oggzip_kw = {} if speed_pert else {"train_audio_preprocess": None}
+    audio_oggzip = LibrispeechOggZip(audio=_raw_audio_opts.copy(), audio_dim=1, vocab=None, **oggzip_kw)
+    dataset = ChunkAlignDataset(
+        oggzip=audio_oggzip,
+        alignment_hdfs=align_hdfs,
+        vocab_ext_dim_int=vocab_size + 1,
+        blank_idx=vocab_size,
+        chunk_size=_CHUNK_SIZE,
+        target_mode=target_mode,
+        train_main_key="train",
+        dev_main_key="dev-other",
+        aug_vocab=aug_vocab,
+    )
 
     model_config = {
-        "enc_build_dict": enc_build_dict,
+        "enc_build_dict": _enc_build_dict(),
         "dec_build_dict": dec_build_dict,
-        "chunk_size": chunk_size,
+        "chunk_size": _CHUNK_SIZE,
         "aux_loss_layers": [4],
         "feature_batch_norm": True,
         "__serialization_version": 2,
@@ -131,32 +164,64 @@ def _train_chunkwise_smoke():
             "__multi_proc_dataset": False,  # keep the pipeline simple for the smoke test
         },
     )
+    if config_extra:
+        config = dict_update_deep(config, config_extra)
 
     exp = train_v4.train(
-        prefix + "/chunkwise-smoke",
+        prefix + "/" + name,
         train_dataset=dataset,
         config=config,
         post_config={"log_grad_norm": True},
         model_def=ModelDefWithCfg(streaming_model_def, model_config),
-        train_def=chunkwise_training,
+        train_def=train_def,
     )  # walltime is clipped globally to the FZJ 12h QOS cap in settings.py (check_engine_limits)
 
-    # Chunk-synchronous greedy recog -> dev-other WER (sclite). The decoder emits over
-    # spm+EOC, but the LS eval reference is plain spm10k, so pin the model's EOC-extended
-    # output vocab (and attach a vocab for rendering) via the search config.
+    # Greedy recog -> dev-other WER (sclite). The decoder emits over spm+extra, but the LS
+    # reference is plain spm10k, so pin the model's extended output vocab via the search config.
     task = get_librispeech_task_raw_v2(vocab="spm10k")
+    recog_cfg = {
+        "target_dim_ext_int": vocab_size + 1,
+        "aug_vocab": aug_vocab,
+        "batch_size": 10_000 * configs._batch_size_factor,
+        "max_seqs": 100,
+    }
+    if recog_extra:
+        recog_cfg.update(recog_extra)
     res = recog_model(
         task=task,
         model=exp.get_last_fixed_epoch(),
-        recog_def=model_recog,
-        config={
-            "target_dim_ext_int": vocab_size + 1,
-            "aug_vocab": aug_vocab,
-            "max_labels_per_chunk": 20,
-            "batch_size": 10_000 * configs._batch_size_factor,
-            "max_seqs": 100,
-        },
+        recog_def=recog_def,
+        config=recog_cfg,
         dev_sets=["dev-other"],
-        name=prefix + "/chunkwise-smoke/recog",
+        name=prefix + "/" + name + "/recog",
     )
-    tk.register_output(prefix + "/chunkwise-smoke/recog/dev-other", res.output)
+    tk.register_output(prefix + "/" + name + "/recog/dev-other", res.output)
+    return exp
+
+
+def _train_chunkwise_smoke():
+    """Chunk-synchronous decoder, first end-to-end pipeline test on FZJ."""
+    return _train_streaming_variant(
+        "chunkwise-smoke",
+        dec_build_dict=rf.build_dict(ChunkwiseDecoder, model_dim=256, ff_dim=512, num_layers=4, num_heads=4),
+        train_def=chunkwise_training,
+        recog_def=chunkwise_model_recog,
+        target_mode="chunk_eoc",
+        speed_pert=True,
+        recog_extra={"max_labels_per_chunk": 20},
+    )
+
+
+def _train_framewise_smoke():
+    """Frame-synchronous RNA fast-only decoder (speed-pert off)."""
+    return _train_streaming_variant(
+        "framewise-smoke",
+        dec_build_dict=rf.build_dict(FramewiseDecoder, model_dim=256, ff_dim=512, num_layers=4, num_heads=4),
+        train_def=framewise_training,
+        recog_def=framewise_model_recog,
+        target_mode="rna_frame",
+        speed_pert=False,
+        # The default target is the per-frame rna_targets (~hundreds long); the inherited
+        # max_seq_length_default_target=75 would filter ~all seqs. Drop it, cap by audio length.
+        config_extra={"max_seq_length_default_target": None, "max_seq_length_default_input": 19.5 * _raw_sample_rate},
+    )
