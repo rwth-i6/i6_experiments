@@ -15,14 +15,14 @@ TTS-encoder project, FZJ (Juelich) variant -- larger-scale runs.
 
   Data: a ``CombinedDataset`` interleaving
     "asr"  = LS OggZip (audio + spm, speed-perturbed); phonemes auto zero-filled (empty) by CombinedDataset.
-    "text" = a ``MetaDataset`` of two ``LmDataset``s over the *same* LS-LM corpus -- spm (orth_vocab) + phonemes
-             (phone_info). ``seq_order_control_dataset`` applies one permutation to both -> spm[i] & phon[i] are the
-             same line (LmDataset forbids orth_vocab+phone_info together, so two datasets are required).
+    "text" = one ``LmDataset`` emitting the raw utf8 bytes of each LS-LM line, wrapped in a ``PostprocessingDataset``
+             whose ``map_seq`` derives BOTH the spm target and the GlowTTS phonemes from that text (single corpus
+             read; spm + phone_info opts passed via the config). spm[i] & phon[i] are trivially the same line.
   CV (dev/devtrain) stays the baseline audio-only sets, wrapped in a ``PostprocessingDataset`` that adds an empty
   ``phonemes`` stream so they satisfy the extern_data contract (every declared key required in every batch, incl.
   CV). At CV ``have_audio=True`` so the empty phonemes is never used.
 
-NOTE: the data wiring (MetaDataset alignment, CombinedDataset+alternate_batching, the CV PostprocessingDataset
+NOTE: the data wiring (the text map_seq tokenization, CombinedDataset+alternate_batching, the CV PostprocessingDataset
 map_seq, and the text-branch rf graph) is graph-buildable but NOT unit-testable -- validate with a 1-step smoke
 run (``time_rqmt<=1``) before a full run. See projects/2026-05-28-tts-encoder.md.
 
@@ -97,7 +97,7 @@ def _train_tts_encoder(
     from i6_experiments.users.zeyer.returnn.alternate_batching import alternate_batching
     from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
     from i6_experiments.users.zeyer.external_models.glow_tts import (
-        get_glow_tts_phoneme_dataset_dict,
+        get_glow_tts_phone_info,
         get_glow_tts_phoneme_extern_data,
         get_glow_tts_preload_from_files,
     )
@@ -118,24 +118,32 @@ def _train_tts_encoder(
     asr_ds["audio"] = dict(asr_ds["audio"])
     asr_ds["audio"]["pre_process"] = speed_pert_librosa_config
 
-    # text-only sub-dataset: spm + phonemes from the same LM line (aligned via MetaDataset seq_order_control).
+    # text-only sub-dataset: one LmDataset emits the raw utf8 bytes of each LM line; a PostprocessingDataset
+    # derives BOTH the spm target and the GlowTTS phonemes from that text in its map_seq (single corpus read,
+    # no second tokenizing LmDataset). The spm + phone_info opts travel via the config (tk.Paths resolved there).
+    phon_extern = get_glow_tts_phoneme_extern_data()
     corpus_files = [get_librispeech_normalized_lm_data(), get_train_corpus_text()]
-    spm_ds = {
-        "class": "LmDataset",
-        "corpus_file": corpus_files,
-        "use_cache_manager": True,
-        "orth_vocab": get_vocab_by_str(vocab).get_opts().copy(),
-        "seq_end_symbol": None,
-        "unknown_symbol": None,
-    }
-    phon_ds = get_glow_tts_phoneme_dataset_dict(corpus_text=corpus_files, train=True)
+    spm_dim = base_extern[tgt_key]["sparse_dim"]  # spm vocab dim (same object as the audio target)
+    phon_dim = phon_extern["sparse_dim"]  # GlowTTS phoneme vocab dim
     text_ds = {
-        "class": "MetaDataset",
-        "datasets": {"spm": spm_ds, "phon": phon_ds},
-        "data_map": {tgt_key: ("spm", "data"), PHONEMES_DATA_KEY: ("phon", "data")},
-        "seq_order_control_dataset": "spm",
-        "partition_epoch": text_train_epoch_split,
-        "seq_ordering": "laplace:.1000",
+        "class": "PostprocessingDataset",
+        # real ordering stays on the inner LmDataset; "default" here (see notes_postprocessing_train_dataset).
+        "seq_ordering": "default",
+        "dataset": {
+            "class": "LmDataset",
+            "corpus_file": corpus_files,
+            "orth_vocab": {"class": "Utf8ByteTargets"},  # data = raw utf8 bytes of the line
+            "use_cache_manager": True,
+            "seq_end_symbol": None,
+            "unknown_symbol": None,
+            "partition_epoch": text_train_epoch_split,
+            "seq_ordering": "laplace:.1000",
+        },
+        "map_seq": functools.partial(_glowtts_text_map_seq, target_key=tgt_key, spm_dim=spm_dim, phon_dim=phon_dim),
+        "map_outputs": {
+            tgt_key: {"dims": [Dim(None, name="spm_seq")], "sparse_dim": spm_dim, "dtype": "int32"},
+            PHONEMES_DATA_KEY: {"dims": [Dim(None, name="phon_seq")], "sparse_dim": phon_dim, "dtype": "int32"},
+        },
     }
 
     # interleave audio + text-only; CombinedDataset zero-fills the missing stream per branch (empty length-0).
@@ -151,7 +159,6 @@ def _train_tts_encoder(
         "seq_ordering": "interleave",
     }
 
-    phon_extern = get_glow_tts_phoneme_extern_data()
     extern_data = {**base_extern, PHONEMES_DATA_KEY: phon_extern}
     eval_datasets = {
         k: _wrap_eval_with_empty_phonemes(v, base_extern=base_extern, phon_extern=phon_extern)
@@ -227,6 +234,10 @@ def _train_tts_encoder(
             "glow_tts_noise_scale_range": glow_tts_noise_scale_range,
             "txt_only_loss_scale": txt_only_loss_scale,
             "separate_txt_only_losses": True,
+            # text-only data pipeline: the PostprocessingDataset map_seq reads these to tokenize raw text into
+            # spm targets + GlowTTS phonemes (nested tk.Paths are resolved as config values).
+            "glow_tts_text_spm_opts": get_vocab_by_str(vocab).get_opts(),
+            "glow_tts_phone_info": get_glow_tts_phone_info(train=True),
         },
         post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 10}},
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
@@ -448,6 +459,46 @@ def aed_glowtts_train_step(*, model: Model, extern_data, **_kwargs_unused):
         best = rf.reduce_argmax(log_prob, axis=model.target_dim)
         frame_error = best != targets_packed
         frame_error.mark_as_loss(name=f"{loss_prefix}fer{postfix}", as_error=True)
+
+
+_glowtts_text_tok_cache = None
+
+
+def _glowtts_text_tokenizers():
+    """Lazily build + cache (per worker process) the spm vocab + GlowTTS PhoneSeqGenerator from the config."""
+    global _glowtts_text_tok_cache
+    if _glowtts_text_tok_cache is None:
+        from returnn.config import get_global_config
+        from returnn.datasets.util.vocabulary import Vocabulary
+        from returnn.datasets.lm import PhoneSeqGenerator
+
+        config = get_global_config()
+        spm = Vocabulary.create_vocab(**config.typed_value("glow_tts_text_spm_opts"))
+        seq_gen = PhoneSeqGenerator(**config.typed_value("glow_tts_phone_info"))
+        _glowtts_text_tok_cache = (spm, seq_gen)
+    return _glowtts_text_tok_cache
+
+
+def _glowtts_text_map_seq(seq, *, target_key, spm_dim, phon_dim, rng, **_kwargs):
+    """PostprocessingDataset map_seq: raw utf8 bytes -> (spm target, GlowTTS phonemes), both from the same text."""
+    import numpy as np
+    from returnn.tensor import Tensor, TensorDict, Dim as _Dim
+
+    spm, seq_gen = _glowtts_text_tokenizers()
+    orth = bytes(np.asarray(seq["data"].raw_tensor).astype("uint8").tolist()).decode("utf8")
+    spm_ids = np.array(spm.get_seq(orth), dtype="int32")
+    # per-seq silence/pronunciation-variant randomization, seeded from the epoch-seeded rng.
+    seq_gen.random_seed(int(rng.randint(0, 2**31 - 1)))
+    phon_ids = seq_gen.seq_to_class_idxs(seq_gen.generate_seq(orth), dtype="int32")
+
+    out = TensorDict()
+    out.data[target_key] = Tensor(
+        target_key, dims=[_Dim(None, name="spm_seq")], dtype="int32", sparse_dim=spm_dim, raw_tensor=spm_ids
+    )
+    out.data[PHONEMES_DATA_KEY] = Tensor(
+        PHONEMES_DATA_KEY, dims=[_Dim(None, name="phon_seq")], dtype="int32", sparse_dim=phon_dim, raw_tensor=phon_ids
+    )
+    return out
 
 
 def _add_empty_phonemes_map_seq(seq, *, phonemes_sparse_dim, **_kwargs):
