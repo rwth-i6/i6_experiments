@@ -226,7 +226,7 @@ class GlowTtsLogMel(rf.Module):
     def __call__(self, phonemes: Tensor, *, spatial_dim: Dim) -> Tuple[Tensor, Dim]:
         import torch
 
-        assert not self.glow_tts_model.training, "GlowTtsLogMel must run frozen (eval)"
+        self.glow_tts_model.eval()  # frozen TTS: force eval (RETURNN sets the parent model to train() each step)
         assert phonemes.sparse_dim.dimension == self.phoneme_vocab_dim.dimension, (
             f"phoneme vocab size mismatch: {phonemes.sparse_dim} vs {self.phoneme_vocab_dim}"
         )
