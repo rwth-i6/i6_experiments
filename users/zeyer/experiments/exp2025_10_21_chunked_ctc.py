@@ -1049,12 +1049,17 @@ def py():
         },
     )
 
-    # New observations since 15.5.2026:
+    # New observations 15.5.2026 - 29.5.2026:
     # - RoPE made much faster (faster apply_rope).
     # - Realization: RoPE actually not expected to be faster than relpos self-att.
     # - But RoPE was better? Why? This needs some more investigation. Trying also with learnable pos emb (relposL).
-    # - Overlap dynamic (overlapD).
-    # - DynV3...
+    # - Overlap helps on its own but regresses in dyn-rope-ctembed.
+    #   Overlap dynamic (overlapD) regresses less.
+    #   Testing also:
+    #   - dyn-rope-ctembed-overlapD-ctembedfix (ctembedfix)
+    #   - dyn-rope-overlapD (without ctembed)
+    # - DynV3 also not good. Needs more work.
+    # - Running Mamba-2 SSD and DeltaNet, and bidir variants.
 
     # TODO measure latency
 
