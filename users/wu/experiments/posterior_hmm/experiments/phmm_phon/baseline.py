@@ -25,7 +25,9 @@ from ...rasr import (
 )
 
 
-def eow_phon_phmm_ls960_base(num_gpus=4, num_epochs=125, ckpt_list=None, do_search=True, name_suffix=""):
+def eow_phon_phmm_ls960_base(
+    num_gpus=4, num_epochs=125, ckpt_list=None, do_search=True, name_suffix="", grad_clip_global_norm=10.0
+):
     """
     :param num_gpus: number of GPUs / processes. >1 => torch_distributed param-averaging (the new
         default); 1 => single-GPU real-RETURNN run (no torch_distributed, hash = non-distributed path).
@@ -34,6 +36,8 @@ def eow_phon_phmm_ls960_base(num_gpus=4, num_epochs=125, ckpt_list=None, do_sear
     :param ckpt_list: checkpoints to keep + (if do_search) evaluate. Defaults to the full /4 list.
     :param do_search: if False, only train (skip recognition) -- used by the single-GPU control run.
     :param name_suffix: appended to the model/alias name to fork a distinct job from the 4-GPU default.
+    :param grad_clip_global_norm: gradient_clip_global_norm value; None => no clipping (matches what
+        Mini-RETURNN effectively did, since it never read this config key).
     """
     prefix_name = "example_setups/librispeech/phmm_standalone_2024/ls960_phmm_eow_phon"
 
@@ -246,6 +250,13 @@ def eow_phon_phmm_ls960_base(num_gpus=4, num_epochs=125, ckpt_list=None, do_sear
         # Popping (instead of conditionally adding) keeps the 4-GPU dict byte-identical => same hash.
         if num_gpus == 1:
             train_config_24gbgpu_amp_radam.pop("torch_distributed")
+
+        # No-clip ablation: Mini-RETURNN never read gradient_clip_global_norm, so it trained without
+        # clipping. Pop the key to reproduce that. Default (10.0) leaves the 4-GPU dict byte-identical.
+        if grad_clip_global_norm is None:
+            train_config_24gbgpu_amp_radam.pop("gradient_clip_global_norm")
+        else:
+            train_config_24gbgpu_amp_radam["gradient_clip_global_norm"] = grad_clip_global_norm
 
         network_module = "phmm.phmm_zhou"
         train_args_radam = {
