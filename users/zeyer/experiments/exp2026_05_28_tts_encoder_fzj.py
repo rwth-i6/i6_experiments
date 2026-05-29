@@ -132,7 +132,7 @@ def _train_tts_encoder(
     text_ds = {
         "class": "MetaDataset",
         "datasets": {"spm": spm_ds, "phon": phon_ds},
-        "data_map": {"classes": ("spm", "data"), "phonemes": ("phon", "data")},
+        "data_map": {tgt_key: ("spm", "data"), PHONEMES_DATA_KEY: ("phon", "data")},
         "seq_order_control_dataset": "spm",
         "partition_epoch": text_train_epoch_split,
         "seq_ordering": "laplace:.1000",
@@ -145,14 +145,14 @@ def _train_tts_encoder(
         "data_map": {
             ("asr", in_key): in_key,
             ("asr", tgt_key): tgt_key,
-            ("text", "classes"): tgt_key,
-            ("text", "phonemes"): "phonemes",
+            ("text", tgt_key): tgt_key,
+            ("text", PHONEMES_DATA_KEY): PHONEMES_DATA_KEY,
         },
         "seq_ordering": "interleave",
     }
 
     phon_extern = get_glow_tts_phoneme_extern_data()
-    extern_data = {**base_extern, "phonemes": phon_extern}
+    extern_data = {**base_extern, PHONEMES_DATA_KEY: phon_extern}
     eval_datasets = {
         k: _wrap_eval_with_empty_phonemes(v, base_extern=base_extern, phon_extern=phon_extern)
         for k, v in base_eval.items()
@@ -463,8 +463,8 @@ def _add_empty_phonemes_map_seq(seq, *, phonemes_sparse_dim, **_kwargs):
         out.data[k] = v
     # Dynamic per-seq dim (length 0 here); PostprocessingDataset requires it dynamic to match map_outputs.
     spatial = _Dim(None, name="phon_seq")
-    out.data["phonemes"] = Tensor(
-        "phonemes", dims=[spatial], dtype="int32", sparse_dim=phonemes_sparse_dim, raw_tensor=np.zeros([0], "int32")
+    out.data[PHONEMES_DATA_KEY] = Tensor(
+        PHONEMES_DATA_KEY, dims=[spatial], dtype="int32", sparse_dim=phonemes_sparse_dim, raw_tensor=np.zeros([0], "int32")
     )
     return out
 
@@ -485,7 +485,7 @@ def _wrap_eval_with_empty_phonemes(
     eval_ds: Dict[str, Any], *, base_extern: Dict[str, Any], phon_extern: Dict[str, Any]
 ) -> Dict[str, Any]:
     """Wrap an audio-only eval dataset so it also emits an empty ``phonemes`` stream (extern_data contract)."""
-    map_outputs = {k: _extern_template_to_map_output(v) for k, v in {**base_extern, "phonemes": phon_extern}.items()}
+    map_outputs = {k: _extern_template_to_map_output(v) for k, v in {**base_extern, PHONEMES_DATA_KEY: phon_extern}.items()}
     return {
         "class": "PostprocessingDataset",
         # Explicit "default": PostprocessingDataset rejects a non-default seq_ordering on itself, and RETURNN
