@@ -155,19 +155,24 @@ def get_glow_tts_phoneme_dataset_dict(
         "seq_end_symbol": None,
         "unknown_symbol": None,
         "fixed_random_seed": fixed_random_seed,
-        "phone_info": {
-            "lexicon_file": get_glow_tts_lexicon(),
-            "phoneme_vocab_file": get_glow_tts_phoneme_vocab(),
-            "allo_num_states": 1,
-            "add_silence_beginning": 0.01 if train else 0.0,
-            "add_silence_between_words": 0.95 if train else 1.0,
-            "add_silence_end": 0.01 if train else 0.0,
-            "repetition": 0.01 if train else 0.0,
-            "silence_repetition": 0.01 if train else 0.0,
-            "silence_lemma_orth": "[space]",
-            "extra_begin_lemma": {"phons": [{"phon": "[start]"}]},
-            "extra_end_lemma": {"phons": [{"phon": "[end]"}]},
-        },
+        "phone_info": get_glow_tts_phone_info(train=train),
+    }
+
+
+def get_glow_tts_phone_info(*, train: bool) -> Dict[str, Any]:
+    """``phone_info`` for RETURNN's ``PhoneSeqGenerator``: text -> GlowTTS phonemes via the lexicon."""
+    return {
+        "lexicon_file": get_glow_tts_lexicon(),
+        "phoneme_vocab_file": get_glow_tts_phoneme_vocab(),
+        "allo_num_states": 1,
+        "add_silence_beginning": 0.01 if train else 0.0,
+        "add_silence_between_words": 0.95 if train else 1.0,
+        "add_silence_end": 0.01 if train else 0.0,
+        "repetition": 0.01 if train else 0.0,
+        "silence_repetition": 0.01 if train else 0.0,
+        "silence_lemma_orth": "[space]",
+        "extra_begin_lemma": {"phons": [{"phon": "[start]"}]},
+        "extra_end_lemma": {"phons": [{"phon": "[end]"}]},
     }
 
 
