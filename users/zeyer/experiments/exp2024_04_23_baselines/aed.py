@@ -1126,6 +1126,17 @@ class Model(rf.Module):
             source, in_spatial_dim = pad_ext(source, in_spatial_dim=in_spatial_dim, opts=self.pad_audio)
         # feature extraction (default: log mel filterbank; override via the "feature_extraction" config opt)
         source, in_spatial_dim = self.feature_extraction(source, in_spatial_dim=in_spatial_dim)
+        return self.encode_from_features(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
+
+    def encode_from_features(
+        self,
+        source: Tensor,
+        *,
+        in_spatial_dim: Dim,
+        collected_outputs: Optional[Dict[str, Tensor]] = None,
+    ) -> Tuple[Tensor, Dim]:
+        """Encode from already-extracted features (e.g. log-mel produced online by a TTS model),
+        skipping pad_audio + feature_extraction. source feature dim must be self.in_dim."""
         if self.feature_batch_norm:
             source = self.feature_batch_norm(source)
         if self.feature_norm:
