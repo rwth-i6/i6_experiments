@@ -1138,6 +1138,72 @@ def py():
         },
     )
 
+    # --- Offline -> chunked finetune comparison (all at ~2x base compute) ---
+    # base-2xtrain / dyn-rope-ctembed-2xtrain: from scratch for 2x epochs (total_k_hours 200).
+    # impBase: init from the 1x base, finetune dyn-rope-ctembed for 1x epochs,
+    #   so 100 base + 100 finetune = 200 -- same budget as the 2xtrain controls.
+    # Finetune LR: keep warmup but short (step_peak_fraction=0.01, ~1 epoch), sweep peak via base_lr.
+    # Partial preload (ignore_missing): conformer blocks + decoder transfer; rope/ctembed init fresh.
+    train("base-2xtrain", {"total_k_hours": 200})
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-2xtrain",
+        {
+            "total_k_hours": 200,
+            "model.enc_build_dict": rf.build_dict(
+                ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
+                chunk_size=center_size,
+                chunk_history_size=left_n * center_size,
+                chunk_lookahead_size=right_size,
+                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+                chunk_lookahead_size_train_pool=[right_size, right_size // 2],
+                use_chunk_type_embedding=True,
+                version=3,
+            ),
+            "train.batch_size": bs * configs._batch_size_factor,
+            "train.max_seqs": max_seqs,
+            "lm_recog_extra.__serialization_version_stats": 2,
+        },
+    )
+    _impbase_prefix = f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-impBase"
+    for _ft_base_lr in [0.5, 0.25, 0.1]:
+        train(
+            f"{_impbase_prefix}-baseLr{_ft_base_lr}",
+            {
+                "train_update_func_from_n_ep": (
+                    lambda n_ep, _lr=_ft_base_lr: {
+                        "train": configs._get_cfg_lrlin_oclr_by_bs_nep_v4(n_ep, base_lr=_lr, step_peak_fraction=0.01)
+                    }
+                ),
+                "model.enc_build_dict": rf.build_dict(
+                    ChunkedConformerEncoderV2,
+                    encoder_layer=rf.build_dict(
+                        ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2
+                    ),
+                    chunk_size=center_size,
+                    chunk_history_size=left_n * center_size,
+                    chunk_lookahead_size=right_size,
+                    chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+                    chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+                    chunk_lookahead_size_train_pool=[right_size, right_size // 2],
+                    use_chunk_type_embedding=True,
+                    version=3,
+                ),
+                "train.batch_size": bs * configs._batch_size_factor,
+                "train.max_seqs": max_seqs,
+                "train.preload_from_files": {
+                    "base": {
+                        "prefix": "",
+                        "filename": _exp_base.get_last_fixed_epoch().checkpoint,
+                        "init_for_train": True,
+                        "ignore_missing": True,
+                    }
+                },
+                "lm_recog_extra.__serialization_version_stats": 2,
+            },
+        )
+
     # New observations 15.5.2026 - 29.5.2026:
     # - RoPE made much faster (faster apply_rope).
     # - Realization: RoPE actually not expected to be faster than relpos self-att.
@@ -1159,6 +1225,9 @@ def py():
     # - R0-v2.3-overlap run. (TODO put result here once ready)
     # - 2xtrain (TODO put result here once ready)
     # - Overlap at recog only (-ov2) (TODO put result here once ready)
+    # - dyn-rope-ctembed-impBase (TODO put result here once ready)
+    # - base-2xtrain (TODO put result here once ready)
+    # - dyn-rope-ctembed-2xtrain (TODO put result here once ready)
     # - longform results (TODO summarize)
     # - WBE/TSE (TODO fix)
     # - latency (TODO)
