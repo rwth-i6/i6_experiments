@@ -543,6 +543,7 @@ class BidirMamba2ChunkedLayer(rf.Module):
         macaron_ff_dim_factor: int = 4,
         with_post_ln: bool = False,
         ssd_super_batch_chunk: Optional[int] = None,
+        version: int = 1,
     ):
         super().__init__()
         # ``ssd_super_batch_chunk``: if set, the bwd-direction SSD scan processes its
@@ -564,6 +565,7 @@ class BidirMamba2ChunkedLayer(rf.Module):
         self.d_conv = d_conv
         self.block_len = block_len
         self.dropout = dropout
+        assert version == 2, f"BidirMamba2ChunkedLayer: only version=2 (lookahead-correct) supported, got {version}"
 
         # Dims used by the projections + per-head params.
         self.d_inner_dim = Dim(d_inner, name="m2-bidir-inner")
@@ -772,28 +774,17 @@ class BidirMamba2ChunkedLayer(rf.Module):
             # Bwd does per-chunk reverse over [center + lookahead] via rf.reverse_sequence
             # + rf.merge_dims into a super-batch (kind=Batch so the inner BTF helpers find it).
             chunked_time = chunking.chunked_time_dim
-            xBC_center, _ = rf.slice(xBC, axis=spatial_dim, size=chunking.end_chunk_size_dim)
-            dt_center, _ = rf.slice(dt, axis=spatial_dim, size=chunking.end_chunk_size_dim)
-            xBC_flat, flat_time = rf.merge_dims(xBC_center, dims=(chunked_time, chunking.end_chunk_size_dim))
-            dt_flat, _ = rf.merge_dims(dt_center, dims=(chunked_time, chunking.end_chunk_size_dim), out_dim=flat_time)
-            y_fwd_flat = self._ssd_one_direction(
-                xBC_flat,
-                dt_flat,
-                time_dim=flat_time,
-                conv1d=self.conv1d_fwd,
-                A_log=self.A_log_fwd,
-                dt_bias=self.dt_bias_fwd,
-                D=self.D_fwd,
+            # Forward: unbounded-past centers + strict-R per-chunk lookahead (no rf.window overlap leak).
+            from .chunked_recurrent_lookahead import mamba2_bidir_fwd_chunked
+
+            y_fwd = mamba2_bidir_fwd_chunked(
+                self,
+                xBC,
+                dt,
+                spatial_dim=spatial_dim,
+                center_dim=chunking.end_chunk_size_dim,
+                chunked_time_dim=chunked_time,
             )
-            y_fwd_windowed, new_chunked_time = rf.window(
-                y_fwd_flat,
-                spatial_dim=flat_time,
-                window_dim=spatial_dim,
-                window_left=0,
-                stride=chunking.end_chunk_size_dim.dimension,
-                pad_value=0.0,
-            )
-            y_fwd = rf.replace_dim_v2(y_fwd_windowed, in_dim=new_chunked_time, out_dim=chunked_time)
 
             xBC_rev = rf.reverse_sequence(xBC, axis=spatial_dim, handle_dynamic_dims=False)
             dt_rev = rf.reverse_sequence(dt, axis=spatial_dim, handle_dynamic_dims=False)

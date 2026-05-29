@@ -527,6 +527,7 @@ class BidirDeltaNetChunkedLayer(rf.Module):
         super().__init__()
         self.out_dim = out_dim
         self.dropout = dropout
+        assert version == 3, f"BidirDeltaNetChunkedLayer: only version=3 (lookahead-correct) supported, got {version}"
         self.bidir_share_weights = bidir_share_weights
         # One shared pre-LN (ConMamba-style: a single LN wraps the whole bidir block).
         self.norm = rf.LayerNorm(out_dim)
@@ -596,18 +597,16 @@ class BidirDeltaNetChunkedLayer(rf.Module):
 
     def _fwd_chunked(self, x_ln: Tensor, *, spatial_dim: Dim, chunking: _BatchChunkingSettings) -> Tensor:
         """Forward chunked scan -- identical to the causal layer's chunked path."""
-        x_stride, _ = rf.slice(x_ln, axis=spatial_dim, size=chunking.end_chunk_size_dim)
-        x_flat, full_time_dim = rf.merge_dims(x_stride, dims=(chunking.chunked_time_dim, chunking.end_chunk_size_dim))
-        y_flat = self.dn_fwd(x_flat, spatial_dim=full_time_dim)
-        y_windowed, new_ct_dim = rf.window(
-            y_flat,
-            spatial_dim=full_time_dim,
-            window_dim=spatial_dim,
-            window_left=0,
-            stride=chunking.end_chunk_size_dim.dimension,
-            pad_value=0.0,
+        # Forward: unbounded-past centers + strict-R per-chunk lookahead (no rf.window overlap leak).
+        from .chunked_recurrent_lookahead import deltanet_chunked_forward
+
+        return deltanet_chunked_forward(
+            self.dn_fwd,
+            x_ln,
+            spatial_dim=spatial_dim,
+            center_dim=chunking.end_chunk_size_dim,
+            chunked_time_dim=chunking.chunked_time_dim,
         )
-        return rf.replace_dim_v2(y_windowed, in_dim=new_ct_dim, out_dim=chunking.chunked_time_dim)
 
     def _bwd_chunked(self, x_ln: Tensor, *, spatial_dim: Dim, chunking: _BatchChunkingSettings) -> Tensor:
         """Per-chunk reverse scan over ``[center + lookahead]``.

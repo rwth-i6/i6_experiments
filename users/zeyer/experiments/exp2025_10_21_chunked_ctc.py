@@ -940,13 +940,14 @@ def py():
         head_dim=64,
         n_groups=1,
         block_len=64,
+        version=2,
     )
     _deltanet_layer_spec = rf.build_dict(
         DeltaNetChunkedLayerV2,
         d_state=128,
         head_dim=64,
         block_len=32,
-        version=2,
+        version=3,
     )
     # Bidir variants: forward = causal scan with cross-chunk continuity,
     # backward = per-chunk reverse over [center+lookahead]. Outputs averaged at center.
@@ -958,13 +959,14 @@ def py():
         head_dim=64,
         n_groups=1,
         block_len=64,
+        version=2,
     )
     _deltanet_bidir_layer_spec = rf.build_dict(
         BidirDeltaNetChunkedLayer,
         d_state=128,
         head_dim=64,
         block_len=32,
-        version=2,
+        version=3,
         # Separate fwd/bwd DeltaNet blocks (full capacity per direction); ConMamba pattern doesn't
         # carry over for DeltaNet (no scan-internal weights to share independently of projections).
         bidir_share_weights=False,
@@ -989,6 +991,7 @@ def py():
         n_groups=1,
         block_len=64,
         ssd_super_batch_chunk=256,
+        version=2,
     )
     _mamba2_bidir_ssdchunk_per_layer = [
         _std_layer_spec if i % 2 == 0 else _mamba2_bidir_ssdchunk_layer_spec for i in range(_num_layers)
@@ -1005,8 +1008,6 @@ def py():
             chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
             chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
             chunk_lookahead_size_train_pool=[right_size, right_size // 2],
-            chunk_num_overlaps=2,
-            chunk_num_overlaps_train_pool=[2, 1],
             use_chunk_type_embedding=True,
             version=3,
         )
@@ -1033,22 +1034,7 @@ def py():
     # shared in_proj + out_proj, per-direction conv1d/A/D/dt_bias, average + shared gate.
     # DeltaNet-bidir has fully separate forward / backward DeltaNetBlock instances (no scan-
     # internal weights to share, so the binary choice is full duplication).
-    train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-mamba2-bidir",
-        {
-            "model.enc_build_dict": _hybrid_enc_build_dict(_mamba2_bidir_per_layer),
-            # Bidir Mamba-2 OOMs at ``bs // 2``:
-            # the bwd direction merges (batch, num_chunks_per_seq) into a super-batch
-            # so each chunk decodes independently with state reset,
-            # which makes the SSD ``einsum("bclhn,bhcl,bclhp->bchpn", ...)`` tensor
-            # roughly ``num_chunks_per_seq``-times larger than the causal Mamba-2 one.
-            # ``bs // 4`` leaves enough headroom on a 94 GB GPU
-            # (DeltaNet-bidir is fine at ``bs // 2`` because its scan state is much smaller).
-            "train.batch_size": bs * configs._batch_size_factor // 4,
-            "train.max_seqs": max_seqs,
-            "lm_recog_extra.__serialization_version_stats": 2,
-        },
-    )
+    # Plain mamba2-bidir (bs/4) dropped -- superseded by mamba2-bidir-ssdchunk256 (bs/2, fairer compare).
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-deltanet-bidir",
         {
