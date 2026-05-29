@@ -683,7 +683,6 @@ def py():
             "lm_recog_extra.__serialization_version_stats": 2,
         },
     )
-    # TODO test also other chunk sizes in recog, also offline. also compare then to other cases (base, no dyn)
     # TODO sample small center_size in chunk_size_train_pool more often
 
     # DynV3: Less often offline.
