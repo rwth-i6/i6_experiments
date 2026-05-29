@@ -462,6 +462,8 @@ def py():
             tag=f"L{left_n * center_size}-C{cs}-R{lh}" if cs is not None else "offline",
         )
 
+    # TODO start from offline, finetune with chunking, or dyn chunking
+
     # Streaming-vs-offline log-prob consistency test (minimal: 3 train seqs).
     from i6_experiments.users.zeyer.nn_rf.encoder.chunked_streaming_consistency_test import (
         make_streaming_consistency_test_job,
@@ -685,6 +687,8 @@ def py():
     # TODO sample small center_size in chunk_size_train_pool more often
 
     # DynV3: Less often offline.
+    # CTC-only: 10.49 (standard dyn dyn-rope-ctembed: 9.41; dynV2: 11.0).
+    # TODO... no 0 in chunk_history_size_train_pool, chunk_lookahead_size_train_pool
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dynV3-rope-ctembed",
         {
@@ -710,6 +714,8 @@ def py():
     # train_time_hours: 391.4 (vs 168.8) !! (overlaps require twice as much compute, but also smaller batch size)
     #   (maybe could get away with less training?)
     # CTC-only: 9.26 (vs 9.46)
+    # TODO is this just because we effectively train twice as much? check baseline trained for twice epochs
+    # TODO maybe no lookahead needed?
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-overlap",
         {
@@ -818,6 +824,7 @@ def py():
             "lm_recog_extra.__serialization_version_stats": 2,
         },
     )
+    # TODO no overlap in train, but use overlap in recog (no new exp, just new recog for ...-dyn-rope-ctembed)
 
     # Isolation: dyn + rope + overlapD WITHOUT ctembed.
     # Decisive test of whether the ctembed/overlap interaction regresses overlap+ctembed,
@@ -1062,6 +1069,10 @@ def py():
     #   - dyn-rope-overlapD (without ctembed)
     # - DynV3 also not good. Needs more work.
     # - Running Mamba-2 SSD and DeltaNet, and bidir variants.
+
+    # To report for next time:
+    # - Running Mamba-2 SSD and DeltaNet and bidir variants
+    # TODO fill here until next time...
 
     # TODO measure latency
 
