@@ -1197,7 +1197,7 @@ def py():
                         "prefix": "",
                         "filename": _exp_base.get_last_fixed_epoch().checkpoint,
                         "init_for_train": True,
-                        "ignore_missing": True,
+                        "ignore_missing": True,  # adds chunk_type_embedding and RoPE
                     }
                 },
                 "lm_recog_extra.__serialization_version_stats": 2,
