@@ -40,6 +40,10 @@ class NeuralLM:
     prefix_name: Optional[str]
     bpe_vocab: Optional[tk.Path] = None
     bpe_codes: Optional[tk.Path] = None
+    phon_vocab: Optional[tk.Path] = None
+    onnx_state_initializer: Optional[tk.Path] = None
+    onnx_state_updater: Optional[tk.Path] = None
+    onnx_scorer: Optional[tk.Path] = None
 
 
 def search_single(
@@ -67,7 +71,9 @@ def search_single(
     :param use_gpu: if to do GPU decoding
     """
     returnn_config = copy.deepcopy(returnn_config)
-    returnn_config.config["forward"] = recognition_dataset.as_returnn_opts()
+    # real RETURNN reads the forward dataset from the `forward_data` config key
+    # (MiniReturnn used `forward`); see __main__.execute_main_task.
+    returnn_config.config["forward_data"] = recognition_dataset.as_returnn_opts()
     search_job = ReturnnForwardJobV2(
         model_checkpoint=checkpoint,
         returnn_config=returnn_config,
@@ -192,7 +198,16 @@ def compute_prior(
     return search_job.out_files["prior.txt"]
 
 
-def training(training_name, datasets, train_args, num_epochs, returnn_exe, returnn_root):
+def training(
+    training_name,
+    datasets,
+    train_args,
+    num_epochs,
+    returnn_exe,
+    returnn_root,
+    num_processes=None,
+    distributed_launch_cmd="torchrun",
+):
     """
     :param training_name:
     :param datasets:
@@ -200,6 +215,12 @@ def training(training_name, datasets, train_args, num_epochs, returnn_exe, retur
     :param num_epochs:
     :param returnn_exe: The python executable to run the job with (when using container just "python3")
     :param returnn_root: Path to a checked out RETURNN repository
+    :param num_processes: if set, run single-node multi-GPU data-parallel training with this many
+        processes (= number of GPUs). i6_core scales the cpu/gpu/mem rqmt by this factor, and the
+        training config must set ``torch_distributed`` accordingly. None => single-GPU (the hash is
+        then identical to the non-distributed path).
+    :param distributed_launch_cmd: "torchrun" (torch backend) or "mpirun"; only passed through when
+        num_processes is set. Not part of the job hash, so it can be changed without rehashing.
     """
     returnn_config = get_training_config(training_datasets=datasets, **train_args)
     default_rqmt = {
@@ -210,8 +231,18 @@ def training(training_name, datasets, train_args, num_epochs, returnn_exe, retur
         "returnn_python_exe": returnn_exe,
         "returnn_root": returnn_root,
     }
+    distributed_rqmt = {}
+    if num_processes is not None:
+        # horovod_num_processes IS hashed (=> new experiment per GPU count); i6_core then multiplies
+        # the cpu/gpu/mem rqmt by it (single node). distributed_launch_cmd is not hashed.
+        distributed_rqmt = {
+            "horovod_num_processes": num_processes,
+            "distributed_launch_cmd": distributed_launch_cmd,
+        }
 
-    train_job = ReturnnTrainingJob(returnn_config=returnn_config, num_epochs=num_epochs, **default_rqmt)
+    train_job = ReturnnTrainingJob(
+        returnn_config=returnn_config, num_epochs=num_epochs, **default_rqmt, **distributed_rqmt
+    )
     train_job.add_alias(training_name + "/training")
     tk.register_output(training_name + "/learning_rates", train_job.out_learning_rates)
     return train_job

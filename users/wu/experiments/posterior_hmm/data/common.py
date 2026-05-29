@@ -103,6 +103,7 @@ def build_training_datasets(
     dev_other_ogg: tk.Path,
     label_datastream: LabelDatastream,
     settings: DatasetSettings,
+    use_raw_text_labels: bool = False,
 ) -> TrainingDatasets:
     """
     generic dataset construction helper to be used by the phon/bpe specific variants
@@ -112,6 +113,10 @@ def build_training_datasets(
     :param dev_other_ogg: path to the ls dev-other zip, potentially containing altered transcriptions
     :param label_datastream: label datastream (e.g. phoneme or bpe related)
     :param settings: settings object for the RETURNN data pipeline
+    :param use_raw_text_labels: if True, do not apply BPE/phoneme encoding on the target side.
+        The OggZipDataset will have targets=None so "classes" contains the unencoded text.
+        Needed for pHMM training where the FSA builder requires orthography text.
+        label_datastream is still kept in datastreams for vocab_size access.
     """
     audio_datastream = get_audio_raw_datastream(settings.preemphasis, settings.peak_normalization)
 
@@ -120,7 +125,14 @@ def build_training_datasets(
         "labels": label_datastream,
     }
 
-    data_map = {"raw_audio": ("zip_dataset", "data"), "labels": ("zip_dataset", "classes")}
+    if use_raw_text_labels:
+        # Map labels to "orth" (UTF-8 bytes as uint8 array) instead of BPE-encoded "classes".
+        # The train step must decode bytes back to text strings.
+        target_options = None
+        data_map = {"raw_audio": ("zip_dataset", "data"), "labels": ("zip_dataset", "orth")}
+    else:
+        target_options = label_datastream.as_returnn_targets_opts()
+        data_map = {"raw_audio": ("zip_dataset", "data"), "labels": ("zip_dataset", "classes")}
 
     training_audio_opts = audio_datastream.as_returnn_audio_opts()
 
@@ -132,7 +144,7 @@ def build_training_datasets(
     train_zip_dataset = OggZipDataset(
         files=train_ogg,
         audio_options=training_audio_opts,
-        target_options=label_datastream.as_returnn_targets_opts(),
+        target_options=target_options,
         partition_epoch=settings.train_partition_epoch,
         seq_ordering=settings.train_seq_ordering,
         additional_options=settings.train_additional_options,
@@ -142,7 +154,7 @@ def build_training_datasets(
     cv_zip_dataset = OggZipDataset(
         files=[dev_clean_ogg, dev_other_ogg],
         audio_options=audio_datastream.as_returnn_audio_opts(),
-        target_options=label_datastream.as_returnn_targets_opts(),
+        target_options=target_options,
         segment_file=get_mixed_cv_segments(),
         seq_ordering="sorted_reverse",
     )
@@ -151,7 +163,7 @@ def build_training_datasets(
     devtrain_zip_dataset = OggZipDataset(
         files=train_ogg,
         audio_options=audio_datastream.as_returnn_audio_opts(),
-        target_options=label_datastream.as_returnn_targets_opts(),
+        target_options=target_options,
         seq_ordering="sorted_reverse",
         random_subset=3000,
     )
@@ -160,7 +172,7 @@ def build_training_datasets(
     prior_zip_dataset = OggZipDataset(
         files=train_ogg,
         audio_options=training_audio_opts,
-        target_options=label_datastream.as_returnn_targets_opts(),
+        target_options=target_options,
         partition_epoch=1,
         seq_ordering="sorted_reverse",
         additional_options=None,

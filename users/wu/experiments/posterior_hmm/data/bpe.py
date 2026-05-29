@@ -3,15 +3,16 @@ Dataset helpers for the BPE-based training
 """
 from sisyphus import tk
 
+from i6_core.corpus.convert import CorpusToTxtJob
 from i6_core.g2p.convert import BlissLexiconToG2PLexiconJob
-from i6_core.lexicon.bpe import CreateBPELexiconJob
 
-from i6_experiments.common.datasets.librispeech import get_ogg_zip_dict, get_bliss_lexicon
+from i6_experiments.common.datasets.librispeech import get_ogg_zip_dict, get_bliss_corpus_dict
 from i6_experiments.common.datasets.librispeech.vocab import get_subword_nmt_bpe_v2
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import BpeDatastream
 
 from .common import DatasetSettings, TrainingDatasets, build_training_datasets
 from ..default_tools import MINI_RETURNN_ROOT, RETURNN_EXE, SUBWORD_NMT_REPO
+from ..rasr import CreateCorpusBpePhmmLexiconJob
 
 
 def get_bpe_datastream(librispeech_key: str, bpe_size: int, is_recog: bool, use_postfix: bool) -> BpeDatastream:
@@ -45,15 +46,15 @@ def get_bpe_lexicon(librispeech_key: str, bpe_size: int) -> tk.Path:
     :return: path to a lexicon bliss xml file
     """
     bpe_settings = get_subword_nmt_bpe_v2(corpus_key=librispeech_key, bpe_size=bpe_size, unk_label="<unk>")
-    bpe_lexicon = CreateBPELexiconJob(
-        base_lexicon_path=get_bliss_lexicon(add_unknown_phoneme_and_mapping=False, add_silence=False),
+    corpus_text = CorpusToTxtJob(get_bliss_corpus_dict(audio_format="ogg")[librispeech_key], gzip=True).out_txt
+
+    return CreateCorpusBpePhmmLexiconJob(
+        corpus_text=corpus_text,
         bpe_codes=bpe_settings.bpe_codes,
         bpe_vocab=bpe_settings.bpe_vocab,
         subword_nmt_repo=SUBWORD_NMT_REPO,
         unk_label="<unk>",
     ).out_lexicon
-
-    return bpe_lexicon
 
 
 def get_text_lexicon(prefix: str, librispeech_key: str, bpe_size: int) -> tk.Path:
@@ -80,6 +81,7 @@ def build_bpe_training_datasets(
     bpe_size: int,
     settings: DatasetSettings,
     use_postfix: bool,
+    use_raw_text_labels: bool = False,
 ) -> TrainingDatasets:
     """
 
@@ -87,6 +89,8 @@ def build_bpe_training_datasets(
     :param bpe_size: number of BPE splits
     :param settings: configuration object for the dataset pipeline
     :param use_postfix: True for RNN-T or Attention, False for CTC
+    :param use_raw_text_labels: if True, do not apply BPE encoding on the target side.
+        Needed for pHMM training where the FSA builder requires orthography text.
     """
     label_datastream = get_bpe_datastream(
         librispeech_key=librispeech_key, bpe_size=bpe_size, is_recog=False, use_postfix=use_postfix
@@ -103,4 +107,5 @@ def build_bpe_training_datasets(
         dev_other_ogg=dev_other_ogg,
         settings=settings,
         label_datastream=label_datastream,
+        use_raw_text_labels=use_raw_text_labels,
     )

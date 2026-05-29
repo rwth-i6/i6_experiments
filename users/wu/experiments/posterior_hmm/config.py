@@ -23,6 +23,8 @@ def get_training_config(
     include_native_ops=False,
     debug: bool = False,
     use_speed_perturbation: bool = False,
+    train_step_args: Optional[Dict[str, Any]] = None,
+    unhashed_train_step_args: Optional[Dict[str, Any]] = None,
     post_config: Optional[Dict[str, Any]] = None,
     add_cache_manager: bool = False,
 ) -> ReturnnConfig:
@@ -61,6 +63,8 @@ def get_training_config(
         unhashed_net_args=unhashed_net_args,
         include_native_ops=include_native_ops,
         debug=debug,
+        train_step_args=train_step_args,
+        unhashed_train_step_args=unhashed_train_step_args,
     )
     python_prolog_serializer_objects = []
 
@@ -113,11 +117,19 @@ def get_prior_config(
 
     base_config = {
         #############
+        # extern_data is required by real RETURNN (MiniReturnn did not need it). The prior
+        # forward step only consumes the audio, so only "raw_audio" is declared here.
+        "behavior_version": 21,
+        "extern_data": {
+            "raw_audio": {"dim": 1},
+        },
+        #############
         "num_workers_per_gpu": 2,
         "batch_size": 500 * 16000,
         "max_seqs": 240,
         #############
-        "forward": copy.deepcopy(training_datasets.prior.as_returnn_opts()),
+        # real RETURNN reads the forward dataset from `forward_data` (MiniReturnn used `forward`).
+        "forward_data": copy.deepcopy(training_datasets.prior.as_returnn_opts()),
     }
     config = {**base_config, **copy.deepcopy(config)}
 
@@ -127,6 +139,7 @@ def get_prior_config(
         unhashed_net_args=unhashed_net_args,
         forward_module=None,  # same as network
         forward_step_name="prior",
+        forward_callback_name="PriorCallback",
         forward_init_args=None,
         unhashed_forward_init_args=None,
         debug=debug,
@@ -163,6 +176,12 @@ def get_forward_config(
 
     # changeing these does change the hash
     base_config = {
+        # extern_data is required by real RETURNN (MiniReturnn did not need it). The decoder
+        # forward step only consumes the audio, so only "raw_audio" is declared here.
+        "behavior_version": 21,
+        "extern_data": {
+            "raw_audio": {"dim": 1},
+        },
         "num_workers_per_gpu": 2,
         "batch_size": 1000 * 16000,
         "max_seqs": 240,

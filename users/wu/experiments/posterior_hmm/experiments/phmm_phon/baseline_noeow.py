@@ -1,5 +1,12 @@
 """
-Posterior HMM baseline with EOW phonemes
+Posterior HMM baseline with NON-EOW (plain monophone) phonemes.
+
+Exact copy of :func:`experiments.phmm_phon.baseline.eow_phon_phmm_ls960_base`, with the only
+difference being the phoneme inventory: plain monophones instead of the EOW-augmented set. That
+means the lexicon is built without ``AddEowPhonemesToLexiconJob`` (``get_phmm_phon_lexicon`) and
+the training data uses the matching non-EOW vocab (``build_phon_phmm_training_datasets``). Network,
+optimizer, schedule, SpecAugment, aux losses, multi-GPU setup, FSA topology and recognition are
+all unchanged.
 """
 import copy
 from dataclasses import asdict
@@ -12,11 +19,10 @@ from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDat
 from ...data.common import DatasetSettings, build_test_dataset
 from i6_experiments.common.datasets.librispeech import get_bliss_corpus_dict
 
-from ...data.phon import build_eow_phon_phmm_training_datasets, get_phmm_eow_lexicon
+from ...data.phon import build_phon_phmm_training_datasets, get_phmm_phon_lexicon
 from ...default_tools import RETURNN_EXE, RETURNN_ROOT, LIBRASR_WHEEL
 from ...lm import get_4gram_lm_rasr_config
 from ...pipeline import training, prepare_asr_model, search, ASRModel
-from ...results import add_result
 from ...rasr import (
     AddSentenceBoundaryLemmataToPhmmLexiconJob,
     CreateLibrasrVenvJob,
@@ -25,8 +31,8 @@ from ...rasr import (
 )
 
 
-def eow_phon_phmm_ls960_base():
-    prefix_name = "example_setups/librispeech/phmm_standalone_2024/ls960_phmm_eow_phon"
+def phon_phmm_ls960_base():
+    prefix_name = "example_setups/librispeech/phmm_standalone_2024/ls960_phmm_phon"
 
     train_settings = DatasetSettings(
         preemphasis=0.97,
@@ -36,7 +42,7 @@ def eow_phon_phmm_ls960_base():
         train_seq_ordering="laplace:.1000",
     )
 
-    train_data = build_eow_phon_phmm_training_datasets(
+    train_data = build_phon_phmm_training_datasets(
         prefix=prefix_name,
         librispeech_key="train-other-960",
         settings=train_settings,
@@ -74,8 +80,10 @@ def eow_phon_phmm_ls960_base():
         "returnn_root": RETURNN_ROOT,
     }
 
-    phmm_lexicon = get_phmm_eow_lexicon(g2p_librispeech_key="train-other-960")
+    phmm_lexicon = get_phmm_phon_lexicon(g2p_librispeech_key="train-other-960")
+    tk.register_output(prefix_name + "/phmm_phon_lexicon.xml.gz", phmm_lexicon)
     phmm_recog_lexicon = AddSentenceBoundaryLemmataToPhmmLexiconJob(phmm_lexicon).out_lexicon
+    tk.register_output(prefix_name + "/phmm_phon_recog_lexicon.xml.gz", phmm_recog_lexicon)
     librispeech_corpus = get_bliss_corpus_dict(audio_format="ogg")["train-other-960"]
     fsa_exporter_config = build_fsa_exporter_config(
         lexicon_path=phmm_lexicon,
@@ -89,12 +97,13 @@ def eow_phon_phmm_ls960_base():
 
     from ...pytorch_networks.phmm.decoder.rasr_phmm_v1 import DecoderConfig as RasrDecoderConfig
 
-    def librasr_search_helper(search_prefix: str, asr_model: ASRModel, decoder_config: RasrDecoderConfig):
+    def librasr_search_helper(training_name: str, asr_model: ASRModel, decoder_config: RasrDecoderConfig):
         asr_model = copy.deepcopy(asr_model)
         asr_model.prior_file = None
 
+        search_name = training_name + "/search_librasr"
         search_jobs, wers = search(
-            search_prefix,
+            search_name,
             forward_config={"num_workers_per_gpu": 0},
             asr_model=asr_model,
             decoder_module="phmm.decoder.rasr_phmm_v1",
@@ -102,8 +111,6 @@ def eow_phon_phmm_ls960_base():
             test_dataset_tuples=dev_dataset_tuples,
             **default_returnn,
         )
-        # search() keys wers by the full "<search_prefix>/<dataset>" name -> dataset -> WER var.
-        return {name.split("/")[-1]: wer for name, wer in wers.items()}
 
     default_rasr_decoder_config = RasrDecoderConfig(
         rasr_config_file=recog_rasr_config,
@@ -246,11 +253,12 @@ def eow_phon_phmm_ls960_base():
             "debug": False,
         }
 
-        model_name = network_module + f".512dim_sub4_50eps_sp_lp_fullspec_gradnorm_radam_lr{peak_lr:.0e}"
-        # Training artifacts (learning_rates etc.) keep living under eow_phon/<model>; the
-        # recognition results move under lexicon-search/<model> (see below).
-        training_name = prefix_name + "/eow_phon/" + model_name
-        lexicon_search_root = prefix_name + "/lexicon-search/" + model_name
+        training_name = (
+            prefix_name
+            + "/phon/"
+            + network_module
+            + f".512dim_sub4_50eps_sp_lp_fullspec_gradnorm_radam_lr{peak_lr:.0e}"
+        )
         train_job = training(
             training_name,
             train_data,
@@ -275,21 +283,10 @@ def eow_phon_phmm_ls960_base():
                 get_specific_checkpoint=epoch,
             )
             asr_models_by_epoch[epoch] = asr_model
-            wers = librasr_search_helper(
-                lexicon_search_root + f"/recog_ep{epoch}", asr_model, default_rasr_decoder_config
-            )
-            add_result(
-                prefix_name,
-                search_type="lexicon",
-                model=model_name,
-                variant="4gram-word-lm",
-                epoch=epoch,
-                wers=wers,
-            )
+            librasr_search_helper(training_name + f"/recog_ep{epoch}", asr_model, default_rasr_decoder_config)
 
     return {
         "prefix_name": prefix_name,
-        "model_name": model_name,
         "training_name": training_name,
         "train_job": train_job,
         "train_args": train_args_radam,

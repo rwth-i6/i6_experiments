@@ -168,26 +168,39 @@ class Model(nn.Module):
         """
         initialization used in Kazuki's setup
         """
-        for m in self.modules():
-            for name, param in m.named_parameters():
-                if "bias" or "layernorm" in name:
-                    continue
-                else:
-                    nn.init.kaiming_uniform_(
-                        param, mode="fan_in", nonlinearity="linear"
-                    )  # consistent with kazuki's init
+        for name, param in self.named_parameters():
+            # skip biases and (1-D) layernorm affine params; kaiming fan-in needs >=2 dims
+            if "bias" in name or "layernorm" in name or param.dim() < 2:
+                continue
+            nn.init.kaiming_uniform_(
+                param, mode="fan_in", nonlinearity="linear"
+            )  # consistent with kazuki's init
 
 
-def train_step(*, model: Model, data, run_ctx, **kwargs):
-    labels = data["data"]
-    labels_len = data["data:size1"]
-    delayed_labels = data["delayed"]
+def train_step(*, model: Model, extern_data, **kwargs):
+    """
+    Standard RETURNN (torch backend) train_step interface.
 
-    seq_mask = mask_tensor(labels, labels_len)
-    lm_logits = model(delayed_labels, seq_mask)  # (B, S, F)
+    `extern_data` is a TensorDict with `data` and `delayed` int sequences.
+    The dataset emits them as int8 (vocab is small); cast to long for the
+    embedding lookup and the cross-entropy targets.
+    """
+    import returnn.frontend as rf
 
-    ce_loss = torch.nn.functional.cross_entropy(lm_logits.transpose(1, 2), labels.long(), reduction="none")
-    ce_loss = (ce_loss * seq_mask).sum()
-    total_length = torch.sum(labels_len)
+    run_ctx = rf.get_run_ctx()
 
-    run_ctx.mark_as_loss(name="ce", loss=ce_loss, inv_norm_factor=total_length)
+    labels = extern_data["data"].raw_tensor.long()  # [B, T]
+    labels_len = extern_data["data"].dims[1].dyn_size_ext.raw_tensor  # [B]
+    delayed_labels = extern_data["delayed"].raw_tensor.long()  # [B, T]
+
+    seq_mask = mask_tensor(labels, labels_len)  # [B, T] bool
+    lm_logits = model(delayed_labels, seq_mask)  # [B, T, V]
+
+    ce_loss = torch.nn.functional.cross_entropy(
+        lm_logits.transpose(1, 2), labels, reduction="none"
+    )  # [B, T]
+    ce_loss = (ce_loss * seq_mask.to(ce_loss.dtype)).sum()
+    total_length = torch.clamp(torch.sum(labels_len).to(ce_loss.dtype), min=1.0)
+    normalized_loss = ce_loss / total_length
+
+    run_ctx.mark_as_loss(loss=normalized_loss, name="ce", dims=[])

@@ -1,5 +1,21 @@
 """
-Posterior HMM baseline with EOW phonemes
+EOW-phoneme CTC baseline.
+
+This is the posterior-HMM baseline (``experiments.phmm_phon.baseline.eow_phon_phmm_ls960_base``)
+with the **FSA topology switched from HMM to CTC** -- nothing else changes. Training reuses the
+exact same path: the ``phmm.phmm_zhou`` network, the ``PhmmTrainStep`` (``i6_native_ops`` ``fbw2``
+full-sum loss over a RASR FSA built from the orthography), the raw-orth data pipeline, and the
+same optimizer / OCLR-style /4 schedule / 4-GPU parameter-averaging / SpecAugment / aux layers /
+label smoothing. The CTC loss is realized as ``fbw2`` over a ``topology="ctc"`` FSA (internal
+testing shows ``fbw2`` v2 matches ``torch.nn.functional.ctc_loss``), so this isolates the effect
+of the topology against the pHMM baseline.
+
+The only structural differences vs. the pHMM baseline:
+* lexicon has ``[BLANK]`` at index 0 (``special="blank"``) instead of ``[SILENCE]``
+  (:func:`get_ctc_eow_lexicon`),
+* the FSA exporter uses ``topology="ctc"``,
+* recognition uses :func:`build_librasr_ctc_recognition_config` (CTC label collapsing around the
+  blank) instead of the HMM recog config.
 """
 import copy
 from dataclasses import asdict
@@ -12,21 +28,20 @@ from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDat
 from ...data.common import DatasetSettings, build_test_dataset
 from i6_experiments.common.datasets.librispeech import get_bliss_corpus_dict
 
-from ...data.phon import build_eow_phon_phmm_training_datasets, get_phmm_eow_lexicon
+from ...data.phon import build_eow_phon_ctc_fsa_training_datasets, get_ctc_eow_lexicon
 from ...default_tools import RETURNN_EXE, RETURNN_ROOT, LIBRASR_WHEEL
 from ...lm import get_4gram_lm_rasr_config
 from ...pipeline import training, prepare_asr_model, search, ASRModel
-from ...results import add_result
 from ...rasr import (
     AddSentenceBoundaryLemmataToPhmmLexiconJob,
     CreateLibrasrVenvJob,
     build_fsa_exporter_config,
-    build_librasr_phmm_recognition_config,
+    build_librasr_ctc_recognition_config,
 )
 
 
-def eow_phon_phmm_ls960_base():
-    prefix_name = "example_setups/librispeech/phmm_standalone_2024/ls960_phmm_eow_phon"
+def eow_phon_ctc_ls960_base():
+    prefix_name = "example_setups/librispeech/phmm_standalone_2024/ls960_ctc_eow_phon"
 
     train_settings = DatasetSettings(
         preemphasis=0.97,
@@ -36,14 +51,14 @@ def eow_phon_phmm_ls960_base():
         train_seq_ordering="laplace:.1000",
     )
 
-    train_data = build_eow_phon_phmm_training_datasets(
+    train_data = build_eow_phon_ctc_fsa_training_datasets(
         prefix=prefix_name,
         librispeech_key="train-other-960",
         settings=train_settings,
     )
 
     label_datastream = cast(LabelDatastream, train_data.datastreams["labels"])
-    vocab_size_without_blank = label_datastream.vocab_size
+    vocab_size_without_blank = label_datastream.vocab_size  # = #EOW phonemes + 1 (incl. [BLANK])
 
     dev_dataset_tuples = {}
     for testset in ["dev-clean", "dev-other"]:
@@ -74,27 +89,36 @@ def eow_phon_phmm_ls960_base():
         "returnn_root": RETURNN_ROOT,
     }
 
-    phmm_lexicon = get_phmm_eow_lexicon(g2p_librispeech_key="train-other-960")
-    phmm_recog_lexicon = AddSentenceBoundaryLemmataToPhmmLexiconJob(phmm_lexicon).out_lexicon
+    # CTC lexicon: [BLANK] at index 0, then EOW phonemes. Used for both the training FSA and
+    # the recognition (with sentence-boundary lemmata added for the LM pass).
+    ctc_lexicon = get_ctc_eow_lexicon(g2p_librispeech_key="train-other-960")
+    tk.register_output(prefix_name + "/ctc_eow_phon_lexicon.xml.gz", ctc_lexicon)
+    ctc_recog_lexicon = AddSentenceBoundaryLemmataToPhmmLexiconJob(ctc_lexicon).out_lexicon
+    tk.register_output(prefix_name + "/ctc_eow_phon_recog_lexicon.xml.gz", ctc_recog_lexicon)
     librispeech_corpus = get_bliss_corpus_dict(audio_format="ogg")["train-other-960"]
+
+    # CTC training FSA: same exporter as the pHMM, but topology="ctc".
     fsa_exporter_config = build_fsa_exporter_config(
-        lexicon_path=phmm_lexicon,
+        lexicon_path=ctc_lexicon,
         corpus_path=librispeech_corpus,
+        topology="ctc",
     )
-    recog_rasr_config = build_librasr_phmm_recognition_config(
-        lexicon_path=phmm_recog_lexicon,
-        lm_config=get_4gram_lm_rasr_config(lexicon_file=phmm_recog_lexicon, scale=1.0),
-        logfile_suffix="phmm_phon_recog",
+
+    recog_rasr_config = build_librasr_ctc_recognition_config(
+        lexicon_path=ctc_recog_lexicon,
+        lm_config=get_4gram_lm_rasr_config(lexicon_file=ctc_recog_lexicon, scale=1.0),
+        logfile_suffix="ctc_phon_recog",
     )
 
     from ...pytorch_networks.phmm.decoder.rasr_phmm_v1 import DecoderConfig as RasrDecoderConfig
 
-    def librasr_search_helper(search_prefix: str, asr_model: ASRModel, decoder_config: RasrDecoderConfig):
+    def librasr_search_helper(training_name: str, asr_model: ASRModel, decoder_config: RasrDecoderConfig):
         asr_model = copy.deepcopy(asr_model)
         asr_model.prior_file = None
 
+        search_name = training_name + "/search_librasr"
         search_jobs, wers = search(
-            search_prefix,
+            search_name,
             forward_config={"num_workers_per_gpu": 0},
             asr_model=asr_model,
             decoder_module="phmm.decoder.rasr_phmm_v1",
@@ -102,12 +126,11 @@ def eow_phon_phmm_ls960_base():
             test_dataset_tuples=dev_dataset_tuples,
             **default_returnn,
         )
-        # search() keys wers by the full "<search_prefix>/<dataset>" name -> dataset -> WER var.
-        return {name.split("/")[-1]: wer for name, wer in wers.items()}
 
     default_rasr_decoder_config = RasrDecoderConfig(
         rasr_config_file=recog_rasr_config,
-        lexicon=phmm_recog_lexicon,
+        lexicon=ctc_recog_lexicon,
+        silence_label="[BLANK]",  # the CTC blank lemma's phoneme (index 0; must exist in the lexicon)
     )
 
     from ...pytorch_networks.phmm.phmm_zhou_cfg import (
@@ -167,7 +190,7 @@ def eow_phon_phmm_ls960_base():
         frontend_config=frontend_config,
         pos_emb_config=posemb_config,
         specaug_config=specaug_config,
-        label_target_size=vocab_size_without_blank,
+        label_target_size=vocab_size_without_blank,  # = #EOW phonemes + 1 (incl. [BLANK] at idx 0)
         conformer_size=512,
         num_layers=12,
         num_heads=8,
@@ -187,19 +210,9 @@ def eow_phon_phmm_ls960_base():
         aux_ctc_loss_scales=[0.2, 0.8],
     )
 
-    # --- Multi-GPU data-parallel training (new default) ---------------------------------------
-    # Single-node, `num_gpus` processes, RETURNN `torch_distributed` parameter-averaging (no DDP
-    # wrapping -> the custom RASR-FSA train step runs unchanged). With the default OggZip pipeline
-    # RETURNN uses the `random_seed_offset` data distribution (sharding needs DistributeFilesDataset),
-    # so each worker sees a different draw of the full data. The LR schedule / num_epochs / ckpt_list
-    # below are the single-GPU values divided by `num_gpus`, keeping total data/compute ~constant while
-    # cutting wall-clock ~num_gpus x.
-    #
-    # gpu_mem is a Sisyphus job *requirement* (NOT part of the hash). batch_size is kept at the small
-    # 24GB-tuned value and is hashed -> the GPU memory tier can be switched freely (just change gpu_mem)
-    # without rehashing/restarting the training.
+    # --- Multi-GPU data-parallel training (same as the pHMM baseline) -------------------------
     num_gpus = 4
-    gpu_mem = 24
+    gpu_mem = 48
 
     ckpt_list = [10, 20, 40, 60, 80, 100, 110, 125]  # checkpoints kept + evaluated (all of them)
 
@@ -207,11 +220,9 @@ def eow_phon_phmm_ls960_base():
         train_config_24gbgpu_amp_radam = {
             "optimizer": {"class": "radam", "epsilon": 1e-12, "weight_decay": 1e-2, "decoupled_weight_decay": True},
             # schedule = single-GPU 240/240/20 (=500) divided by num_gpus=4 -> 60/60/5 (=125 subepochs).
-            # peak_lr is NOT scaled: torch_distributed param-averaging is not a true large-batch step.
             "learning_rates": list(np.linspace(init_lr, peak_lr, 60))
             + list(np.linspace(peak_lr, init_lr, 60))
             + list(np.linspace(init_lr, 1e-7, 5)),
-            # Single-node multi-GPU via parameter averaging every 100 steps (i6-recommended mode).
             "torch_distributed": {"reduce_type": "param", "param_sync_step": 100},
             #############
             # extern_data is required by real RETURNN. "labels" maps to the OggZip "orth" stream,
@@ -246,11 +257,12 @@ def eow_phon_phmm_ls960_base():
             "debug": False,
         }
 
-        model_name = network_module + f".512dim_sub4_50eps_sp_lp_fullspec_gradnorm_radam_lr{peak_lr:.0e}"
-        # Training artifacts (learning_rates etc.) keep living under eow_phon/<model>; the
-        # recognition results move under lexicon-search/<model> (see below).
-        training_name = prefix_name + "/eow_phon/" + model_name
-        lexicon_search_root = prefix_name + "/lexicon-search/" + model_name
+        training_name = (
+            prefix_name
+            + "/eow_phon/"
+            + network_module
+            + f".512dim_sub4_50eps_sp_lp_fullspec_gradnorm_radam_lr{peak_lr:.0e}_ctc"
+        )
         train_job = training(
             training_name,
             train_data,
@@ -261,7 +273,6 @@ def eow_phon_phmm_ls960_base():
             **default_returnn,
         )
         # gpu_mem is a (non-hashed) requirement -> switch GPU tier here without rehashing.
-        # i6_core already scales cpu (6->24) / gpu (1->4) / mem (24->96 GB) by num_gpus.
         train_job.rqmt["gpu_mem"] = gpu_mem
 
         asr_models_by_epoch = {}
@@ -275,26 +286,16 @@ def eow_phon_phmm_ls960_base():
                 get_specific_checkpoint=epoch,
             )
             asr_models_by_epoch[epoch] = asr_model
-            wers = librasr_search_helper(
-                lexicon_search_root + f"/recog_ep{epoch}", asr_model, default_rasr_decoder_config
-            )
-            add_result(
-                prefix_name,
-                search_type="lexicon",
-                model=model_name,
-                variant="4gram-word-lm",
-                epoch=epoch,
-                wers=wers,
-            )
+            librasr_search_helper(training_name + f"/recog_ep{epoch}", asr_model, default_rasr_decoder_config)
 
     return {
         "prefix_name": prefix_name,
-        "model_name": model_name,
         "training_name": training_name,
         "train_job": train_job,
         "train_args": train_args_radam,
         "train_data": train_data,
-        "phmm_lexicon": phmm_lexicon,
+        "ctc_lexicon": ctc_lexicon,
+        "ctc_recog_lexicon": ctc_recog_lexicon,
         "dev_dataset_tuples": dev_dataset_tuples,
         "test_dataset_tuples": test_dataset_tuples,
         "asr_models_by_epoch": asr_models_by_epoch,

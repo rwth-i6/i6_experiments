@@ -1,8 +1,11 @@
 """
-Greedy CTC decoder without any extras
+Greedy decoder for posterior HMM BPE models.
 
-v3: add config objects
+Uses the phoneme inventory order from the Bliss lexicon as the label inventory.
+The non-emitting silence state is expected to be present in that inventory and is
+filtered after collapsing consecutive frame-level argmax labels.
 """
+
 from dataclasses import dataclass
 import time
 import torch
@@ -10,7 +13,8 @@ import torch
 
 @dataclass
 class DecoderConfig:
-    returnn_vocab: str
+    lexicon: str
+    silence_label: str = "[SILENCE]"
 
 
 @dataclass
@@ -24,8 +28,6 @@ class ExtraConfig:
 
 
 def forward_init_hook(run_ctx, **kwargs):
-    # we are storing durations, but call it output.hdf to match
-    # the default output of the ReturnnForwardJob
     config = DecoderConfig(**kwargs["config"])
     extra_config_dict = kwargs.get("extra_config", {})
     extra_config = ExtraConfig(**extra_config_dict)
@@ -33,10 +35,17 @@ def forward_init_hook(run_ctx, **kwargs):
     run_ctx.recognition_file = open("search_out.py", "wt")
     run_ctx.recognition_file.write("{\n")
 
-    from returnn.datasets.util.vocabulary import Vocabulary
+    from i6_core.lib import lexicon
 
-    vocab = Vocabulary.create_vocab(vocab_file=config.returnn_vocab, unknown_label=None)
-    run_ctx.labels = vocab.labels
+    lex = lexicon.Lexicon()
+    lex.load(config.lexicon)
+    run_ctx.labels = list(lex.phonemes.keys())
+    run_ctx.label_by_index = dict(enumerate(run_ctx.labels))
+    run_ctx.silence_label = config.silence_label
+
+    if config.silence_label not in lex.phonemes:
+        raise ValueError(f"Silence label {config.silence_label!r} not found in lexicon {config.lexicon!r}")
+    run_ctx.silence_idx = run_ctx.labels.index(config.silence_label)
 
     run_ctx.print_rtf = extra_config.print_rtf
     if run_ctx.print_rtf:
@@ -50,12 +59,13 @@ def forward_finish_hook(run_ctx, **kwargs):
     run_ctx.recognition_file.write("}\n")
     run_ctx.recognition_file.close()
 
-    print("Total-time: %.2f, Batch-RTF: %.3f" % (run_ctx.total_time, run_ctx.total_time / run_ctx.running_audio_len_s))
+    if run_ctx.print_rtf:
+        print("Total-time: %.2f, Batch-RTF: %.3f" % (run_ctx.total_time, run_ctx.total_time / run_ctx.running_audio_len_s))
 
 
 def forward_step(*, model, data, run_ctx, **kwargs):
     raw_audio = data["raw_audio"]  # [B, T', F]
-    raw_audio_len = data["raw_audio:size1"]  # [B]
+    raw_audio_len = data["raw_audio:seq_len"]  # [B]
 
     audio_len_batch = torch.sum(raw_audio_len).detach().cpu().numpy() / 16000
 
@@ -72,7 +82,8 @@ def forward_step(*, model, data, run_ctx, **kwargs):
 
     batch_indices = []
     for lp, l in zip(logprobs, audio_features_len):
-        batch_indices.append(torch.unique_consecutive(torch.argmax(lp[:l], dim=-1), dim=0).detach().cpu().numpy())
+        frame_labels = torch.argmax(lp[:l], dim=-1)
+        batch_indices.append(torch.unique_consecutive(frame_labels, dim=0).detach().cpu().tolist())
 
     if run_ctx.print_rtf:
         am_time = time.time() - am_start
@@ -82,8 +93,12 @@ def forward_step(*, model, data, run_ctx, **kwargs):
     tags = data["seq_tag"]
 
     for indices, tag in zip(batch_indices, tags):
-        sequence = [run_ctx.labels[idx] for idx in indices if idx < len(run_ctx.labels)]
-        sequence = [s for s in sequence if (not s.startswith("<") and not s.startswith("["))]
+        sequence = [run_ctx.label_by_index[idx] for idx in indices if idx in run_ctx.label_by_index]
+        sequence = [
+            s
+            for s in sequence
+            if s != run_ctx.silence_label and not s.startswith("<") and not s.startswith("[")
+        ]
         text = " ".join(sequence).replace("@@ ", "")
         if run_ctx.print_hypothesis:
             print(text)
