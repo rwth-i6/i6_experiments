@@ -51,11 +51,14 @@ class CalcCtcWbeFromHfDatasetJob(Job):
 
     Outputs:
       - ``out_wbe``: mean word-boundary error in seconds (single float).
+      - ``out_latency``: mean signed emission delay = mean(aligned_start - ref_start) over words,
+        in seconds. Positive = the CTC alignment emits *later* than the reference word boundary;
+        a streaming-latency proxy alongside the symmetric WBE.
       - ``out_report``: per-utt + summary text report (human-readable).
     """
 
     __sis_hash_exclude__ = {"returnn_root": None}
-    __sis_version__ = 2
+    __sis_version__ = 4
 
     def __init__(
         self,
@@ -91,6 +94,7 @@ class CalcCtcWbeFromHfDatasetJob(Job):
         self.returnn_root = returnn_root
 
         self.out_wbe = self.output_var("wbe.txt")
+        self.out_latency = self.output_var("latency.txt")
         self.out_report = self.output_path("report.txt")
 
     def tasks(self):
@@ -138,10 +142,12 @@ class CalcCtcWbeFromHfDatasetJob(Job):
         # The forced-align HDF is written in whatever ``seq_ordering`` the forward job used
         # (typically ``sorted_reverse`` -- duration desc), while the HF dataset is in file order.
         # Match by seq-tag (the HF ``id`` column) rather than positional index.
-        # The seq-tag stored in the HDF was set by ``HuggingFaceDataset`` via ``seq_tag_column="id"``
-        # (see :func:`i6_experiments.users.zeyer.datasets.hf_timit_buckeye.get_hf_word_align_dataset_config`),
-        # so HDF tag == HF ``id`` -- exact-string match works without normalization.
-        hf_id_col = ds["id"]
+        # The seq-tag stored in the HDF was set by ``HuggingFaceDataset`` via ``seq_tag_column="uid"``
+        # (see :func:`i6_experiments.users.zeyer.datasets.hf_timit_buckeye.get_hf_word_align_dataset_config`).
+        # ``uid`` is a unique per-row tag (the row index, added during preprocessing) -- the raw
+        # ``id`` column collides (e.g. TIMIT's SA1/SA2 appear across many speakers), which
+        # silently mismatched timings against the wrong speaker before the fix.
+        hf_id_col = ds["uid"]
         hf_id_to_idx = {str(t): i for i, t in enumerate(hf_id_col)}
 
         num_hdf_seqs = int(align_hdf_ds.num_seqs)
@@ -155,6 +161,7 @@ class CalcCtcWbeFromHfDatasetJob(Job):
         )
 
         wbe_utts: List[float] = []
+        lat_utts: List[float] = []
         skipped: List[int] = []
 
         for hdf_seq_idx in range(num_hdf_seqs):
@@ -278,17 +285,27 @@ class CalcCtcWbeFromHfDatasetJob(Job):
                 )
             )
             wbe_utts.append(wbe_utt)
+            # Signed emission delay (streaming-latency proxy): mean over words of
+            # aligned_start - ref_start. Positive = emitted later than the reference boundary.
+            lat_utt = float(
+                np.mean([aligned_secs[w][0] - ref_secs[w][0] for w in range(len(ref_words))])
+            )
+            lat_utts.append(lat_utt)
             report_lines.append(
                 f"** seq {seq_idx}: {len(ref_words)} words, audio={audio_len_secs:.3f}s, "
-                f"num_frames={num_frames}, frame_sec={frame_sec * 1000:.2f}ms, WBE={wbe_utt * 1000:.2f}ms"
+                f"num_frames={num_frames}, frame_sec={frame_sec * 1000:.2f}ms, "
+                f"WBE={wbe_utt * 1000:.2f}ms, lat={lat_utt * 1000:+.2f}ms"
             )
 
         wbe = float(np.mean(wbe_utts)) if wbe_utts else float("nan")
+        lat = float(np.mean(lat_utts)) if lat_utts else float("nan")
         report_lines.append("")
-        report_lines.append(f"Mean WBE: {wbe * 1000:.2f}ms ({wbe:.6f}s)")
+        report_lines.append(f"Mean WBE:     {wbe * 1000:.2f}ms ({wbe:.6f}s)")
+        report_lines.append(f"Mean latency: {lat * 1000:+.2f}ms ({lat:+.6f}s)  [aligned - ref word start; +ve = late]")
         report_lines.append(f"Aggregated over {len(wbe_utts)}/{num_hdf_seqs} HDF seqs ({len(skipped)} skipped)")
 
         report_text = "\n".join(report_lines) + "\n"
         with open(self.out_report.get_path(), "w") as f:
             f.write(report_text)
         self.out_wbe.set(wbe)
+        self.out_latency.set(lat)
