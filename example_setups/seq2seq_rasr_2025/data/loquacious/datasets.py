@@ -14,7 +14,14 @@ from sisyphus import tk
 
 from ...model_pipelines.common.corpus import ScorableCorpus
 from ...tools import returnn_python_exe, returnn_root, subword_nmt_repo
-from ..base import HdfDataConfig, LmDataConfig, MetaOggZipDataConfig, MetaOggZipHdfTargetDataConfig, OggZipDataConfig
+from ..base import (
+    HdfDataConfig,
+    HuggingFaceDataConfig,
+    LmDataConfig,
+    MetaOggZipDataConfig,
+    MetaOggZipHdfTargetDataConfig,
+    OggZipDataConfig,
+)
 from .bpe import get_default_bpe_target_config
 from .lexicon import get_bliss_phoneme_lexicon
 from .phoneme import get_phoneme_target_hdf_file
@@ -314,6 +321,25 @@ def get_default_recog_data(corpus_name: EvalSet) -> OggZipDataConfig:
         ogg_segments=1,
         partition_epoch=1,
         seq_ordering="sorted",
+    )
+
+
+def get_hf_recog_data(corpus_name: EvalSet) -> HuggingFaceDataConfig:
+    assert corpus_name == "dev.all"
+    return HuggingFaceDataConfig(
+        dataset_opts=tk.Path("/work/asr4/berger/rasr_dev/label_scorer/setup/speech_llm/robin_decoding/dev"),
+        seq_ordering="sorted_reverse",
+        seq_tag_column="id",
+        sorting_seq_len_column="duration",
+        use_file_cache=True,
+        sample_rate=16000,
+        audio_key="data",
+        text_key="raw",
+        data_format={
+            "data": {"dtype": "float32", "shape": [None]},
+            "raw": {"dtype": "string", "shape": ()},
+        },
+        rename_columns={"audio": "data", "text": "raw"},
     )
 
 

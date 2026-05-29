@@ -2,7 +2,7 @@ import textwrap
 from dataclasses import dataclass
 from functools import lru_cache
 from random import Random
-from typing import Dict, Iterator, List, Literal, Optional, Protocol, Set
+from typing import Any, Dict, Iterator, List, Literal, Optional, Protocol, Set
 
 try:
     from typing import Self
@@ -118,6 +118,67 @@ class HdfDataConfig:
 
         return ReturnnConfig(
             config={dataset_type: dataset_config_dict},
+            sort_config=False,
+        )
+
+
+@dataclass
+class HuggingFaceDataConfig:
+    dataset_opts: Any
+    huggingface_repo_dir: Optional[Any] = None
+    seq_ordering: str = "sorted_reverse"
+    seq_tag_column: str = "id"
+    sorting_seq_len_column: Optional[str] = "duration"
+    use_file_cache: bool = True
+    sample_rate: int = 16000
+    audio_key: str = "audio"
+    text_key: str = "text"
+    data_format: Optional[Dict[str, Dict[str, Any]]] = None
+    cast_columns: Optional[Dict[str, Dict[str, Any]]] = None
+    rename_columns: Optional[Dict[str, str]] = None
+
+    def _get_data_format(self) -> Dict[str, Dict[str, Any]]:
+        if self.data_format is not None:
+            return self.data_format
+        if self.huggingface_repo_dir is None:
+            raise ValueError("Need either data_format or huggingface_repo_dir for HuggingFaceDataConfig.")
+        return {
+            self.audio_key: {"dtype": "float32", "shape": [None]},
+            self.text_key: {
+                "dtype": "int32",
+                "shape": [None],
+                "sparse": True,
+                "vocab": {
+                    "class": "HuggingFaceTokenizer",
+                    "huggingface_repo_dir": self.huggingface_repo_dir,
+                },
+            },
+        }
+
+    def _get_cast_columns(self) -> Dict[str, Dict[str, Any]]:
+        if self.cast_columns is not None:
+            return self.cast_columns
+        return {self.audio_key: {"_type": "Audio", "sample_rate": self.sample_rate}}
+
+    def get_returnn_data(self, dataset_type: Literal["train", "dev", "forward_data"]) -> ReturnnConfig:
+        dataset_config_dict = {
+            "class": "HuggingFaceDataset",
+            "dataset_opts": self.dataset_opts,
+            "use_file_cache": self.use_file_cache,
+            "seq_tag_column": self.seq_tag_column,
+            "cast_columns": self._get_cast_columns(),
+            "data_format": self._get_data_format(),
+            "seq_ordering": self.seq_ordering,
+        }
+        if self.rename_columns is not None:
+            dataset_config_dict["rename_columns"] = self.rename_columns
+        if self.sorting_seq_len_column is not None:
+            dataset_config_dict["sorting_seq_len_column"] = self.sorting_seq_len_column
+
+        return ReturnnConfig(
+            config={
+                dataset_type: dataset_config_dict,
+            },
             sort_config=False,
         )
 

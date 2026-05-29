@@ -1,4 +1,4 @@
-__all__ = ["export_encoder", "export_scorer", "export_state_initializer", "export_state_updater"]
+__all__ = ["export_scorer", "export_state_initializer", "export_state_updater"]
 
 from i6_core.returnn import PtCheckpoint
 from i6_core.returnn.config import CodeWrapper
@@ -11,7 +11,6 @@ from ..common.onnx_export import export_model as _export_model
 from ..common.serializers import get_model_serializers
 from .pytorch_modules import (
     LstmTransducerConfig,
-    LstmTransducerEncoder,
     LstmTransducerRecogConfig,
     LstmTransducerScorer,
     LstmTransducerStateInitializer,
@@ -33,11 +32,11 @@ def export_scorer(model_config: LstmTransducerRecogConfig, checkpoint: PtCheckpo
         ),
         checkpoint=checkpoint,
         returnn_config_dict={
+            "dim_enc_batch": CodeWrapper('Dim(dimension=1, name="enc_batch")'),
+            "dim_enc_feature": CodeWrapper(f'Dim(dimension={model_config.enc_dim}, name="enc_feature")'),
+            "dim_pred": CodeWrapper(f'Dim(dimension={model_config.pred_dim}, name="pred")'),
+            "dim_target": CodeWrapper(f'Dim(dimension={model_config.target_size}, name="target")'),
             "extern_data": {
-                "dim_enc_batch": CodeWrapper('Dim(dimension=1, name="enc_batch")'),
-                "dim_enc_feature": CodeWrapper(f'Dim(dimension={model_config.enc_dim}, name="enc_feature")'),
-                "dim_pred": CodeWrapper(f'Dim(dimension={model_config.pred_dim}, name="pred")'),
-                "dim_target": CodeWrapper(f'Dim(dimension={model_config.target_size}, name="target")'),
                 "encoder_state": {
                     "dim_tags": CodeWrapper("(dim_enc_batch, dim_enc_feature)"),
                     "dtype": "float32",
@@ -151,6 +150,8 @@ def export_state_updater(model_config: LstmTransducerConfig, checkpoint: PtCheck
         metadata={
             "lstm_c_in": "lstm_c",
             "lstm_h_in": "lstm_h",
+            "lstm_c_out": "lstm_c",
+            "lstm_h_out": "lstm_h",
             "lstm_out": "lstm_out",
         },
     )

@@ -1,12 +1,13 @@
-__all__ = ["BaseRecogVariant", "run_single_bpe_variant", "run_single_phoneme_variant"]
+__all__ = ["BaseRecogVariant", "run_single_bpe_variant", "run_single_phoneme_variant", "run_single_hf_token_variant"]
 
 from dataclasses import dataclass, field, replace
-from typing import List, Optional, Union
+from typing import Any, Callable, List, Optional, Union
 
-from ....data.base import VocabFromHuggingFaceTokenizerJob
+from ....data.base import DataConfig, VocabFromHuggingFaceTokenizerJob
 from i6_core.rasr import RasrConfig
 from i6_core.returnn import PtCheckpoint
-from i6_experiments.common.setups.serialization import Collection
+from i6_core.util import DelayedFormat
+from i6_experiments.common.setups.serialization import Call, Collection, Import
 from sisyphus import tk
 
 from ....data.loquacious import datasets as loquacious_datasets
@@ -15,6 +16,7 @@ from ....data.loquacious.bpe import get_bpe_vocab_file
 from ....data.loquacious.lexicon import get_bliss_phoneme_lexicon, get_bpe_bliss_lexicon
 from ....data.loquacious.recog import LoquaciousTreeTimesyncRecogParams
 from ....model_pipelines.common.recog import (
+    HuggingFaceTracebackFormatter,
     OfflineRecogParameters,
     RecogResult,
     StreamingRecogParameters,
@@ -114,11 +116,29 @@ def run_single_hf_token_variant(
     sentence_end_index: Optional[int],
     variant: BaseRecogVariant,
     corpora: List[loquacious_datasets.EvalSet],
+    hf_transcription_case: Optional[str] = "upper",
+    recog_data_config_fn: Optional[Callable[[loquacious_datasets.EvalSet], DataConfig]] = None,
 ) -> List[RecogResult]:
+    if hf_transcription_case not in {None, "upper", "lower"}:
+        raise ValueError(
+            f"Invalid hf_transcription_case {hf_transcription_case!r}. Expected None, 'upper', or 'lower'."
+        )
+
     vocab_file = VocabFromHuggingFaceTokenizerJob(
         huggingface_repo_dir=huggingface_repo_dir,
         blank_label_index=blank_index,
     ).out_vocab_file
+    traceback_formatter_kwargs = [("huggingface_repo_dir", DelayedFormat('tk.Path("{}")', huggingface_repo_dir))]
+    if hf_transcription_case is not None:
+        traceback_formatter_kwargs.append(("case_normalization", repr(hf_transcription_case)))
+    traceback_formatter_serializers = [
+        Import(f"{HuggingFaceTracebackFormatter.__module__}.{HuggingFaceTracebackFormatter.__name__}"),
+        Call(
+            HuggingFaceTracebackFormatter.__name__,
+            kwargs=traceback_formatter_kwargs,
+            return_assign_variables="traceback_formatter",
+        ),
+    ]
 
     return _run_single_variant(
         model_descriptor=model_descriptor,
@@ -131,6 +151,8 @@ def run_single_hf_token_variant(
         sentence_end_index=sentence_end_index,
         variant=variant,
         corpora=corpora,
+        traceback_formatter_serializers=traceback_formatter_serializers,
+        recog_data_config_fn=recog_data_config_fn,
     )
 
 
@@ -145,6 +167,8 @@ def _run_single_variant(
     sentence_end_index: Optional[int],
     variant: BaseRecogVariant,
     corpora: List[loquacious_datasets.EvalSet],
+    traceback_formatter_serializers: Optional[List[Any]] = None,
+    recog_data_config_fn: Optional[Callable[[loquacious_datasets.EvalSet], DataConfig]] = None,
 ) -> List[RecogResult]:
     if isinstance(variant.search_algorithm_params, LexiconfreeLabelsyncRecogParams):
         assert vocab_file is not None
@@ -208,7 +232,10 @@ def _run_single_variant(
 
     results = []
     for corpus in corpora:
-        recog_data = loquacious_datasets.get_default_recog_data(corpus)
+        if recog_data_config_fn is not None:
+            recog_data = recog_data_config_fn(corpus)
+        else:
+            recog_data = loquacious_datasets.get_default_recog_data(corpus)
         score_corpus = loquacious_datasets.get_default_score_corpus(corpus)
 
         if isinstance(variant.search_mode_params, OfflineRecogParameters):
@@ -222,6 +249,7 @@ def _run_single_variant(
                 encoder_serializers=encoder_serializers,
                 sample_rate=16000,
                 params=variant.search_mode_params,
+                traceback_formatter_serializers=traceback_formatter_serializers,
             )
         elif isinstance(variant.search_mode_params, StreamingRecogParameters):
             recog_result = recog_rasr_streaming(
@@ -233,6 +261,7 @@ def _run_single_variant(
                 encoder_serializers=encoder_serializers,
                 sample_rate=16000,
                 params=variant.search_mode_params,
+                traceback_formatter_serializers=traceback_formatter_serializers,
             )
 
         results.append(recog_result)

@@ -1,6 +1,7 @@
 __all__ = ["register_recog_report"]
 
 from typing import List, Optional
+import numpy as np
 
 from i6_core.summary.wer import TableReport
 from sisyphus import gs, tk

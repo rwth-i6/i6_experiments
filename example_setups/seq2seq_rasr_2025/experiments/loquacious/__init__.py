@@ -117,6 +117,24 @@ def run_medium(report_filename: Optional[str] = None) -> Tuple[Dict[str, Trained
         )
     )
 
+    variants = []
+    for beam_size in [2, 4, 6, 8]:
+        for score_threshold in [2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0]:
+            variant = recognition.speech_llm.default_lexfree_recog_variant()
+            variant.descriptor += f"_beam-{beam_size}_score-{score_threshold}"
+            variant.search_algorithm_params.max_beam_sizes = [beam_size]
+            variant.search_algorithm_params.score_thresholds = [score_threshold]
+            variants.append(variant)
+    recog_results.extend(
+        recognition.speech_llm.run(
+            model_descriptor="slm_robin",
+            model_kwargs=model_kwargs,
+            checkpoint=checkpoint,
+            huggingface_repo_dir=tokenizer_huggingface_repo_dir,
+            variants=variants,
+        )
+    )
+
     if report_filename is not None:
         register_recog_report(recog_results, filename=report_filename)
 

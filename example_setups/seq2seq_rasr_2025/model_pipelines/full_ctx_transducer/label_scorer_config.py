@@ -26,7 +26,7 @@ def get_lstm_transducer_label_scorer_config(
     state_updater_onnx_model = export_state_updater(model_config=model_config, checkpoint=checkpoint)
 
     rasr_config = RasrConfig()
-    rasr_config.type = "stateful-onnx"
+    rasr_config.type = "stateful-transducer-onnx"
 
     rasr_config.scorer_model = RasrConfig()
     rasr_config.scorer_model.session = RasrConfig()
@@ -36,7 +36,7 @@ def get_lstm_transducer_label_scorer_config(
 
     rasr_config.scorer_model.io_map = RasrConfig()
     rasr_config.scorer_model.io_map.scores = "scores"
-    rasr_config.scorer_model.io_map.encoder_state = "encoder_state"
+    rasr_config.scorer_model.io_map.input_feature = "encoder_state"
 
     rasr_config.state_initializer_model = RasrConfig()
     rasr_config.state_initializer_model.session = RasrConfig()

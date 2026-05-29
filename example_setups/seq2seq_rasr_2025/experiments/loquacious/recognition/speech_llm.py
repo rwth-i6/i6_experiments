@@ -37,7 +37,7 @@ def run(
         variants = default_recog_variants()
 
     if corpora is None:
-        corpora = loquacious_datasets.EVAL_SETS
+        corpora = ["dev.all"]
 
     results = []
 
@@ -59,7 +59,7 @@ def default_recog_variants() -> List[SLMRecogVariant]:
     return [
         default_lexfree_recog_variant(),
         default_lexfree_slm_ctc_recog_variant(),
-        default_lexfree_slm_ctc_timesync_recog_variant(),
+        # default_lexfree_slm_ctc_timesync_recog_variant(),
     ]
 
 
@@ -67,9 +67,10 @@ def default_lexfree_recog_variant() -> SLMRecogVariant:
     return SLMRecogVariant(
         descriptor="recog_lexfree_labelsync",
         search_algorithm_params=LexiconfreeLabelsyncRecogParams(
-            score_thresholds=[8.0],
+            score_thresholds=[12.0],
             max_beam_sizes=[4],
-            length_norm_scale=1.2,
+            length_norm_scale=1.0,
+            recombination_mode="off",
         ),
         search_mode_params=OfflineRecogParameters(mem_rqmt=24),
     )
@@ -79,9 +80,10 @@ def default_lexfree_slm_ctc_recog_variant() -> SLMRecogVariant:
     return SLMRecogVariant(
         descriptor="recog_lexfree_aed+ctc_labelsync",
         search_algorithm_params=LexiconfreeLabelsyncRecogParams(
-            score_thresholds=[8.0, 6.0],
+            score_thresholds=[12.0, 12.0],
             max_beam_sizes=[8, 4],
-            length_norm_scale=1.2,
+            length_norm_scale=0.0,
+            recombination_mode="off",
         ),
         search_mode_params=OfflineRecogParameters(mem_rqmt=24),
         ctc_score_scale=0.3,
@@ -92,9 +94,10 @@ def default_lexfree_slm_ctc_timesync_recog_variant() -> SLMRecogVariant:
     return SLMRecogVariant(
         descriptor="recog_lexfree_aed+ctc_timesync",
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
-            score_thresholds=[8.0, 6.0],
-            max_beam_sizes=[8, 4],
+            score_thresholds=[8.0, 8.0],
+            max_beam_sizes=[32, 16],
             collapse_repeated_labels=True,
+            recombination_mode="on",
         ),
         search_mode_params=OfflineRecogParameters(mem_rqmt=24),
         ctc_score_scale=0.3,
@@ -173,4 +176,5 @@ def _run_single_variant(
         sentence_end_index=151643,
         variant=variant,
         corpora=corpora,
+        recog_data_config_fn=(lambda _corpus: loquacious_datasets.get_hf_recog_data(_corpus)),
     )

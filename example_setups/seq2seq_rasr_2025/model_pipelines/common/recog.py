@@ -2,6 +2,9 @@ __all__ = [
     "RecogResult",
     "OfflineRecogParameters",
     "StreamingRecogParameters",
+    "TracebackFormatter",
+    "BpeTracebackFormatter",
+    "HuggingFaceTracebackFormatter",
     "recog_rasr_offline",
     "recog_rasr_streaming",
 ]
@@ -10,11 +13,11 @@ import pprint
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from time import perf_counter
-from typing import Iterator, List, Optional, Protocol
+from typing import Any, Iterator, List, Literal, Optional, Protocol
 
 import numpy as np
 import torch
-from i6_core.returnn import PtCheckpoint
+from i6_core.returnn import CodeWrapper, PtCheckpoint
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.forward import ReturnnForwardJobV2
 from i6_core.util import DelayedFormat
@@ -23,7 +26,7 @@ from returnn.forward_iface import ForwardCallbackIface
 from returnn.tensor.tensor_dict import Tensor, TensorDict
 from sisyphus import Job, Task, tk
 
-from ...data.base import DataConfig
+from ...data.base import DataConfig, HuggingFaceDataConfig
 from ...tools import rasr_binary_path, returnn_python_exe, returnn_root
 from .corpus import ScorableCorpus
 from .serializers import recipe_imports
@@ -71,6 +74,132 @@ class StreamingRecogParameters:
     gpu_mem_rqmt: int = 0
 
 
+class TracebackItem(Protocol):
+    lemma: str
+    am_score: float
+    lm_score: float
+    confidence_score: Optional[float]
+    start_time: int
+    end_time: int
+
+
+class TracebackFormatter(Protocol):
+    def traceback_to_transcription(self, traceback: List[TracebackItem]) -> str: ...
+
+    def traceback_to_ctm_str(self, traceback: List[TracebackItem], ms_per_frame: int) -> str: ...
+
+
+class BpeTracebackFormatter:
+    def traceback_to_transcription(self, traceback: List[TracebackItem]) -> str:
+        return _traceback_to_transcription(traceback)
+
+    def traceback_to_ctm_str(self, traceback: List[TracebackItem], ms_per_frame: int) -> str:
+        return _traceback_to_ctm_str(traceback, ms_per_frame)
+
+
+class HuggingFaceTracebackFormatter:
+    def __init__(
+        self, huggingface_repo_dir: tk.Path, case_normalization: Optional[Literal["upper", "lower"]] = None
+    ) -> None:
+        self.huggingface_repo_dir = huggingface_repo_dir
+        self.case_normalization = case_normalization
+        self.tokenizer: Optional[Any] = None
+        self.vocab: Optional[dict[str, int]] = None
+
+    def __getstate__(self) -> dict:
+        state = dict(self.__dict__)
+        state["tokenizer"] = None
+        state["vocab"] = None
+        return state
+
+    def _get_tokenizer(self):
+        if self.tokenizer is None:
+            from transformers import AutoTokenizer
+
+            self.tokenizer = AutoTokenizer.from_pretrained(self.huggingface_repo_dir.get())
+            self.vocab = self.tokenizer.get_vocab()
+        return self.tokenizer
+
+    def _traceback_token_items(self, traceback: List[TracebackItem]) -> List[TracebackItem]:
+        tokenizer = self._get_tokenizer()
+        special_tokens = set(tokenizer.all_special_tokens)
+        token_items = []
+        for item in traceback:
+            lemma = item.lemma
+            if lemma in special_tokens:
+                continue
+            if lemma.startswith("<") and lemma.endswith(">"):
+                continue
+            if lemma.startswith("[") and lemma.endswith("]"):
+                continue
+            token_items.append(item)
+        return token_items
+
+    def _decode_tokens(self, tokens: List[str]) -> str:
+        if len(tokens) == 0:
+            return ""
+
+        tokenizer = self._get_tokenizer()
+        assert self.vocab is not None
+
+        if all(token in self.vocab for token in tokens):
+            token_ids = [self.vocab[token] for token in tokens]
+            text = tokenizer.decode(token_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)
+        else:
+            text = tokenizer.convert_tokens_to_string(tokens)
+
+        text = " ".join(text.split())
+        if self.case_normalization == "upper":
+            text = text.upper()
+        elif self.case_normalization == "lower":
+            text = text.lower()
+        return text
+
+    def traceback_to_transcription(self, traceback: List[TracebackItem]) -> str:
+        token_items = self._traceback_token_items(traceback)
+        return self._decode_tokens([item.lemma for item in token_items])
+
+    def traceback_to_ctm_str(self, traceback: List[TracebackItem], ms_per_frame: int) -> str:
+        token_items = self._traceback_token_items(traceback)
+        transcription = self._decode_tokens([item.lemma for item in token_items])
+        words = transcription.split()
+        if len(words) == 0:
+            return "[REC_NAME] 1 0.000 0.010 <empty-sequence> 0.99\n"
+
+        start_frame = min(item.start_time for item in token_items)
+        end_frame = max(item.end_time for item in token_items)
+        total_frames = max(end_frame - start_frame, len(words))
+        total_chars = sum(max(len(word), 1) for word in words)
+
+        confidences = [
+            item.confidence_score
+            for item in token_items
+            if hasattr(item, "confidence_score") and item.confidence_score is not None
+        ]
+        avg_confidence = sum(confidences) / len(confidences) if len(confidences) > 0 else 0.99
+
+        lines = []
+        current_start = start_frame
+        remaining_frames = total_frames
+        remaining_chars = total_chars
+        for idx, word in enumerate(words):
+            if idx == len(words) - 1:
+                duration_frames = remaining_frames
+            else:
+                duration_frames = max(1, round(remaining_frames * max(len(word), 1) / remaining_chars))
+            duration_frames = max(1, min(duration_frames, remaining_frames))
+
+            start_time = current_start * 0.001 * ms_per_frame
+            duration_time = duration_frames * 0.001 * ms_per_frame
+            lines.append(f"[REC_NAME] 1 {start_time:.3f} {duration_time:.3f} {word} {avg_confidence:.2f}")
+
+            current_start += duration_frames
+            remaining_frames -= duration_frames
+            remaining_chars -= max(len(word), 1)
+
+        return "\n".join(lines) + "\n"
+
+
 def recog_rasr_offline(
     descriptor: str,
     recog_rasr_config_file: tk.Path,
@@ -81,6 +210,7 @@ def recog_rasr_offline(
     params: OfflineRecogParameters,
     checkpoint: Optional[PtCheckpoint] = None,
     align_rasr_config_file: Optional[tk.Path] = None,
+    traceback_formatter_serializers: Optional[List[Any]] = None,
 ) -> RecogResult:
     compute_search_errors = align_rasr_config_file is not None
     model_outputs = {
@@ -137,21 +267,23 @@ def recog_rasr_offline(
         )
         forward_step_kwargs.append(("align_rasr_config_file", DelayedFormat('tk.Path("{}")', align_rasr_config_file)))
 
+    python_epilog = [
+        encoder_serializers,
+        Import("sisyphus.tk"),
+    ]
+    if traceback_formatter_serializers is not None:
+        python_epilog += traceback_formatter_serializers
+        forward_step_kwargs.append(("traceback_formatter", CodeWrapper("traceback_formatter")))
+
     recog_returnn_config = ReturnnConfig(
         config={
-            "extern_data": {
-                "data": {"dim": 1, "dtype": "float32"},
-                "raw": {"feature_dim_axis": None, "time_dim_axis": None, "dtype": "string"},
-            },
+            "extern_data": _get_recog_extern_data(recog_data_config),
             "model_outputs": model_outputs,
             "backend": "torch",
             "batch_size": 360 * sample_rate,
         },
         python_prolog=recipe_imports + [ExternalImport(rasr_binary_path)],
-        python_epilog=[
-            encoder_serializers,
-            Import("sisyphus.tk"),
-        ]
+        python_epilog=python_epilog
         + [
             Import(
                 f"{OfflineSearchCallback.__module__}.{OfflineSearchCallback.__name__}",
@@ -274,13 +406,34 @@ def recog_rasr_streaming(
     sample_rate: int,
     params: StreamingRecogParameters,
     checkpoint: Optional[PtCheckpoint] = None,
+    traceback_formatter_serializers: Optional[List[Any]] = None,
 ) -> RecogResult:
+    forward_step_kwargs = [
+        ("recog_rasr_config_file", DelayedFormat('tk.Path("{}")', recog_rasr_config_file)),
+        ("sample_rate", sample_rate),
+        ("encoder_frame_shift_seconds", params.encoder_frame_shift_seconds),
+        ("chunk_history_seconds", params.chunk_history_seconds),
+        ("chunk_center_seconds", params.chunk_center_seconds),
+        ("chunk_future_seconds", params.chunk_future_seconds),
+    ]
+    python_epilog = [
+        encoder_serializers,
+        Import(
+            f"{StreamingSearchCallback.__module__}.{StreamingSearchCallback.__name__}",
+            import_as="forward_callback",
+        ),
+        Import(
+            f"{StreamingRasrRecogForwardStep.__module__}.{StreamingRasrRecogForwardStep.__name__}",
+        ),
+        Import("sisyphus.tk"),
+    ]
+    if traceback_formatter_serializers is not None:
+        python_epilog += traceback_formatter_serializers
+        forward_step_kwargs.append(("traceback_formatter", CodeWrapper("traceback_formatter")))
+
     recog_returnn_config = ReturnnConfig(
         config={
-            "extern_data": {
-                "data": {"dim": 1, "dtype": "float32"},
-                "raw": {"feature_dim_axis": None, "time_dim_axis": None, "dtype": "string"},
-            },
+            "extern_data": _get_recog_extern_data(recog_data_config),
             "model_outputs": {
                 "ctm_string": {
                     "dtype": "string",
@@ -300,26 +453,11 @@ def recog_rasr_streaming(
             "batch_size": 360 * sample_rate,
         },
         python_prolog=recipe_imports + [ExternalImport(rasr_binary_path)],
-        python_epilog=[
-            encoder_serializers,
-            Import(
-                f"{StreamingSearchCallback.__module__}.{StreamingSearchCallback.__name__}",
-                import_as="forward_callback",
-            ),
-            Import(
-                f"{StreamingRasrRecogForwardStep.__module__}.{StreamingRasrRecogForwardStep.__name__}",
-            ),
-            Import("sisyphus.tk"),
+        python_epilog=python_epilog
+        + [
             Call(
                 StreamingRasrRecogForwardStep.__name__,
-                kwargs=[
-                    ("recog_rasr_config_file", DelayedFormat('tk.Path("{}")', recog_rasr_config_file)),
-                    ("sample_rate", sample_rate),
-                    ("encoder_frame_shift_seconds", params.encoder_frame_shift_seconds),
-                    ("chunk_history_seconds", params.chunk_history_seconds),
-                    ("chunk_center_seconds", params.chunk_center_seconds),
-                    ("chunk_future_seconds", params.chunk_future_seconds),
-                ],
+                kwargs=forward_step_kwargs,
                 return_assign_variables="forward_step",
             ),
         ],  # type: ignore
@@ -402,6 +540,17 @@ def recog_rasr_streaming(
 # =============================
 # ========== Helpers ==========
 # =============================
+
+
+def _get_recog_extern_data(recog_data_config: DataConfig) -> dict[str, dict[str, Any]]:
+    return {
+        "data": (
+            {"shape": [None], "dtype": "float32"}
+            if isinstance(recog_data_config, HuggingFaceDataConfig)
+            else {"dim": 1, "dtype": "float32"}
+        ),
+        "raw": {"feature_dim_axis": None, "time_dim_axis": None, "dtype": "string"},
+    }
 
 
 class ExtractSearchErrorDataJob(Job):
@@ -508,15 +657,6 @@ class ExtractRasrStatisticsJob(Job):
         self.out_step_trees.set(statistics_from_data(step_trees_counts))
 
 
-class TracebackItem(Protocol):
-    lemma: str
-    am_score: float
-    lm_score: float
-    confidence_score: Optional[float]
-    start_time: int
-    end_time: int
-
-
 def _samples_to_frames(n_samples: int, sample_rate: int, frame_shift_seconds: float) -> int:
     return int(np.round(n_samples / (sample_rate * frame_shift_seconds)))
 
@@ -616,11 +756,11 @@ def statistics_from_data(data: list[float]) -> dict[str, float]:
         p100 = np.percentile(data_array, 100).astype(float)
 
     return {
-        "avg": avg,
-        "p50": p50,
-        "p90": p90,
-        "p99": p99,
-        "p100": p100,
+        "avg": float(avg),
+        "p50": float(p50),
+        "p90": float(p90),
+        "p99": float(p99),
+        "p100": float(p100),
     }
 
 
@@ -648,7 +788,8 @@ class SearchCallback(ForwardCallbackIface):
         ctm_str = raw_outputs.get("ctm_string")
         assert ctm_str is not None
         ctm_str = ctm_str.item()
-        rec_name = seq_tag.split("/")[1]
+        rec_name_parts = seq_tag.split("/", 1)
+        rec_name = rec_name_parts[1] if len(rec_name_parts) > 1 else seq_tag
         self.ctm_file.write(f";; {seq_tag}\n")
         self.ctm_file.write(ctm_str.replace("[REC_NAME]", rec_name))
 
@@ -781,9 +922,11 @@ class RasrRecogForwardStep(ABC):
         recog_rasr_config_file: tk.Path,
         align_rasr_config_file: Optional[tk.Path] = None,
         sample_rate: int = 16000,
+        traceback_formatter: Optional[TracebackFormatter] = None,
     ) -> None:
         self.recog_rasr_config_file = recog_rasr_config_file
         self.sample_rate = sample_rate
+        self.traceback_formatter = traceback_formatter or BpeTracebackFormatter()
         self.search_algorithm = self.init_search_algorithm()
 
         self.align_rasr_config_file = align_rasr_config_file
@@ -855,6 +998,8 @@ class OfflineRasrRecogForwardStep(RasrRecogForwardStep):
 
             seq_samples_size = audio_samples_size[b : b + 1]
             seq_samples = audio_samples[b : b + 1, : seq_samples_size[0]]  # [1, T, 1]
+            if seq_samples.dim() == 2:
+                seq_samples = seq_samples.unsqueeze(-1)
 
             encoder_start = perf_counter()
             encoder_states = model.forward(seq_samples, seq_samples_size)
@@ -867,13 +1012,13 @@ class OfflineRasrRecogForwardStep(RasrRecogForwardStep):
 
             search_start = perf_counter()
 
-            traceback = self.search_algorithm.recognize_segment(features=encoder_states)
+            traceback = self.search_algorithm.recognize_segment(features=encoder_states.contiguous())
             search_time = perf_counter() - search_start
             search_times.append(search_time)
 
             seq_time = _samples_to_seconds(seq_samples_size[0], self.sample_rate)
 
-            print(f'    Recognized: "{_traceback_to_transcription(traceback)}"')
+            print(f'    Recognized: "{self.traceback_formatter.traceback_to_transcription(traceback)}"')
             print("    Traceback:")
             for item in traceback:
                 # if item.lemma.startswith("<") or item.lemma.startswith("["):
@@ -887,12 +1032,12 @@ class OfflineRasrRecogForwardStep(RasrRecogForwardStep):
             )
             print()
 
-            ctm_strs.append(_traceback_to_ctm_str(traceback, ms_per_enc_frame))
+            ctm_strs.append(self.traceback_formatter.traceback_to_ctm_str(traceback, ms_per_enc_frame))
 
             if self.aligner is not None:
                 align_traceback = self.aligner.align_segment(features=encoder_states, orth=orths[b] + " ")
-                recog_transcription = _traceback_to_transcription(traceback)
-                align_transcription = _traceback_to_transcription(align_traceback)
+                recog_transcription = self.traceback_formatter.traceback_to_transcription(traceback)
+                align_transcription = self.traceback_formatter.traceback_to_transcription(align_traceback)
 
                 recog_score = _traceback_to_score(traceback)
                 align_score = _traceback_to_score(align_traceback)
@@ -1041,11 +1186,12 @@ class StreamingRasrRecogForwardStep(RasrRecogForwardStep):
         stable_latency_lengths = []
 
         for b in range(audio_samples.size(0)):
-            self.search_algorithm.reset()
             self.search_algorithm.enter_segment()
 
             seq_samples_size = audio_samples_size[b].item()
             seq_samples = audio_samples[b : b + 1, :seq_samples_size]  # [1, T, 1]
+            if seq_samples.dim() == 2:
+                seq_samples = seq_samples.unsqueeze(-1)
 
             chunk_center_start_sample = 0
             num_prev_stable_results = 0
@@ -1152,11 +1298,11 @@ class StreamingRasrRecogForwardStep(RasrRecogForwardStep):
 
             self.search_algorithm.finish_segment()
             final_traceback = self.search_algorithm.get_current_best_traceback()
-            ctm_strs.append(_traceback_to_ctm_str(final_traceback, ms_per_enc_frame))
+            ctm_strs.append(self.traceback_formatter.traceback_to_ctm_str(final_traceback, ms_per_enc_frame))
 
             print(f"Recognized sequence {repr(seq_tags[b])}")
             print(f'    Ground truth: "{orths[b]}"', flush=True)
-            print(f'    Recognized: "{_traceback_to_transcription(final_traceback)}"')
+            print(f'    Recognized: "{self.traceback_formatter.traceback_to_transcription(final_traceback)}"')
             print("    Traceback:")
             for item in final_traceback:
                 if item.lemma.startswith("<") or item.lemma.startswith("["):

@@ -45,13 +45,15 @@ def get_model_config(bpe_size: int = 128) -> LstmLmConfig:
 
 
 def get_train_options(bpe_size: int = 128) -> TrainOptions:
+    train_data_config = get_default_bpe_lm_train_data(bpe_size)
+    train_data_config.partition_epoch = 100
     return TrainOptions(
-        train_data_config=get_default_bpe_lm_train_data(bpe_size),
+        train_data_config=train_data_config,
         cv_data_config=get_default_bpe_lm_cv_data(bpe_size),
         save_epochs=[100, 200, 240, 260, 280, 300],
         batch_size=1280,
         optimizer_config=RAdamConfig(epsilon=1e-08, weight_decay=0, decoupled_weight_decay=False),
-        lr_config=ConstDecayLRConfig(const_lr=7e-04, final_lr=1e-05, const_epochs=100, final_epochs=200),
+        lr_config=ConstDecayLRConfig(const_lr=1e-03, final_lr=1e-05, const_epochs=100, final_epochs=200),
         num_workers_per_gpu=1,
         automatic_mixed_precision=False,
         gradient_clip_norm_invalid_gradient_threshold=10,

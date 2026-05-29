@@ -43,7 +43,7 @@ rasr_root.hash_overwrite = "RASR_ROOT"
 # rasr_make_job.rqmt["gpu_mem"] = 24
 rasr_make_job = CMakeJob(
     source_folder=rasr_root,
-    cmake_opts=["-DMODULE_TENSORFLOW=Off", "-DMODULE_LM_TFRNN=Off"],
+    cmake_opts=["-DMODULE_TENSORFLOW=Off", "-DMODULE_LM_TFRNN=Off", "-DMARCH=x86-64-v3"],
     num_processes=8,
     mem_rqmt=8,
 )

@@ -39,6 +39,7 @@ class LexiconfreeTimesyncRecogParams:
     log_stepwise_statistics: bool = True
     maximum_stable_delay: Optional[int] = None
     maximum_stable_delay_pruning_interval: Optional[int] = None
+    recombination_mode: Optional[str] = None
 
 
 def get_lexiconfree_timesync_recog_config(
@@ -100,6 +101,9 @@ def get_lexiconfree_timesync_recog_config(
     rasr_config.lib_rasr.search_algorithm.allow_blank_after_sentence_end = params.allow_blank_after_sentence_end
     rasr_config.lib_rasr.search_algorithm.log_stepwise_statistics = params.log_stepwise_statistics
 
+    if params.recombination_mode is not None:
+        rasr_config.lib_rasr.search_algorithm.recombination_mode = params.recombination_mode
+
     _add_label_scorers_to_rasr_config(label_scorer_configs, rasr_config.lib_rasr)
 
     recog_rasr_config_path = WriteRasrConfigJob(rasr_config, rasr_post_config).out_config
@@ -116,6 +120,7 @@ class LexiconfreeLabelsyncRecogParams:
     log_stepwise_statistics: bool = True
     maximum_stable_delay: Optional[int] = None
     maximum_stable_delay_pruning_interval: Optional[int] = None
+    recombination_mode: Optional[str] = None
 
 
 def get_lexiconfree_labelsync_recog_config(
@@ -171,6 +176,9 @@ def get_lexiconfree_labelsync_recog_config(
                 params.maximum_stable_delay_pruning_interval
             )
 
+    if params.recombination_mode is not None:
+        rasr_config.lib_rasr.search_algorithm.recombination_mode = params.recombination_mode
+
     _add_label_scorers_to_rasr_config(label_scorer_configs, rasr_config.lib_rasr)
 
     recog_rasr_config_path = WriteRasrConfigJob(rasr_config, rasr_post_config).out_config
@@ -190,6 +198,7 @@ class TreeTimesyncRecogParams:
     maximum_stable_delay: Optional[int] = None
     maximum_stable_delay_pruning_interval: Optional[int] = None
     log_stepwise_statistics: bool = True
+    recombination_mode: Optional[str] = None
 
 
 def get_tree_timesync_recog_config(
@@ -270,6 +279,9 @@ def get_tree_timesync_recog_config(
             rasr_config.lib_rasr.search_algorithm.maximum_stable_delay_pruning_interval = (
                 params.maximum_stable_delay_pruning_interval
             )
+
+    if params.recombination_mode is not None:
+        rasr_config.lib_rasr.search_algorithm.recombination_mode = params.recombination_mode
 
     _add_label_scorers_to_rasr_config(label_scorer_configs, rasr_config.lib_rasr)
 

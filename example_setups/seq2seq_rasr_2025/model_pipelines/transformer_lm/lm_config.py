@@ -6,7 +6,7 @@ def get_lm_config_stateless(onnx_model: tk.Path, vocab_file: tk.Path, use_gpu: b
     rasr_config = RasrConfig()
     rasr_config.type = "onnx-stateless"
     rasr_config.vocab_file = vocab_file
-    rasr_config.max_batch_size = 4
+    rasr_config.max_batch_size = 3
     rasr_config.vocab_unknown_word = "<UNK>"
 
     rasr_config.onnx_model = RasrConfig()
