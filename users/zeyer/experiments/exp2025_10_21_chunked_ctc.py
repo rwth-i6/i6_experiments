@@ -462,6 +462,24 @@ def py():
             tag=f"L{left_n * center_size}-C{cs}-R{lh}" if cs is not None else "offline",
         )
 
+    # Overlap at recog only: this model trained WITHOUT overlap; does overlap-averaging help at decode?
+    # Exploratory: the weights never saw overlap, and with ctembed + C=5/overlaps=2 the per-chunk output
+    # region (chunk_size_dim=4) is smaller than the ctembed center boundary (chunk_size=5), an off-by-one.
+    for cs, lh in [(center_size, right_size), (center_size, right_size // 2)]:
+        recog_model_with_config_overwrite(
+            model=exp.get_last_fixed_epoch(),
+            task=task,
+            recog_def=ctc_model_recog,
+            config_overwrites={
+                "enc_build_dict.chunk_size": cs,
+                "enc_build_dict.chunk_lookahead_size": lh,
+                "enc_build_dict.chunk_num_overlaps": 2,
+            },
+            extra_config={"aux_loss_layers": [aux_ctc_layer]},
+            name=name,
+            tag=f"L{left_n * center_size}-C{cs}-R{lh}-ov2",
+        )
+
     # TODO start from offline, finetune with chunking, or dyn chunking
 
     # Streaming-vs-offline log-prob consistency test (minimal: 3 train seqs).
@@ -824,7 +842,6 @@ def py():
             "lm_recog_extra.__serialization_version_stats": 2,
         },
     )
-    # TODO no overlap in train, but use overlap in recog (no new exp, just new recog for ...-dyn-rope-ctembed)
 
     # Isolation: dyn + rope + overlapD WITHOUT ctembed.
     # Decisive test of whether the ctembed/overlap interaction regresses overlap+ctembed,
