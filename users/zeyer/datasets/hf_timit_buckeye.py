@@ -61,7 +61,7 @@ _HF_REPOS = {
 DATASET_OFFSET_FACTORS = {"timit": 1, "buckeye": 1000}
 
 
-def _map_add_text_and_duration(example: Dict[str, Any], *, text_case: str) -> Dict[str, Any]:
+def _map_add_text_and_duration(example: Dict[str, Any], idx: int, *, text_case: str) -> Dict[str, Any]:
     """
     Add ``text``, ``duration`` columns derived from ``word_detail`` and ``audio``.
 
@@ -91,6 +91,9 @@ def _map_add_text_and_duration(example: Dict[str, Any], *, text_case: str) -> Di
         raise ValueError(f"unknown text_case={text_case!r}; expected 'as_is' / 'upper' / 'lower'")
     example["text"] = text
     example["duration"] = float(len(example["audio"]["array"])) / float(example["audio"]["sampling_rate"])
+    # Unique seq tag: raw ``id`` collides (TIMIT's SA1/SA2 appear across speakers), so use the row
+    # index. Downstream uses this as the HDF seq-tag for forced-align + WBE matching.
+    example["uid"] = str(idx)
     return example
 
 
@@ -120,7 +123,7 @@ def get_hf_word_align_dataset_dir(name: str, *, text_case: str) -> tk.Path:
     job = TransformAndMapHuggingFaceDatasetJob(
         _HF_REPOS[name],
         map_func=partial(_map_add_text_and_duration, text_case=text_case),
-        map_opts={"batched": False},
+        map_opts={"batched": False, "with_indices": True},
     )
     alias = f"datasets/hf_word_align/{name}-{text_case}"
     job.add_alias(alias)
@@ -174,7 +177,7 @@ def get_hf_word_align_dataset_config(
         "class": "HuggingFaceDataset",
         "dataset_opts": hf_data_dir.join_right(split),
         "use_file_cache": True,
-        "seq_tag_column": "id",
+        "seq_tag_column": "uid",  # unique row-index tag; ``id`` is non-unique (TIMIT SA1/SA2 etc.)
         "sorting_seq_len_column": "duration",
         "cast_columns": {"audio": {"_type": "Audio", "sample_rate": 16_000}},
         # Keep data_format consistent with extern_data_dict.
