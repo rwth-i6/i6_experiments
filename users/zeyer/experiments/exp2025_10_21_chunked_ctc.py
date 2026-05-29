@@ -1154,8 +1154,14 @@ def py():
     # - WBE/TSE. Goal is to also compute actual latency.
 
     # To report for next time:
-    # - Running Mamba-2 SSD and DeltaNet and bidir variants
-    # - WBE/TSE
+    # - Running Mamba-2 SSD and DeltaNet and bidir variants (TODO summarize each)
+    # - dynCx3 run. (TODO put result here once ready)
+    # - R0-v2.3-overlap run. (TODO put result here once ready)
+    # - 2xtrain (TODO put result here once ready)
+    # - Overlap at recog only (-ov2) (TODO put result here once ready)
+    # - longform results (TODO summarize)
+    # - WBE/TSE (TODO fix)
+    # - latency (TODO)
     # TODO fill here until next time...
 
     # TODO measure latency
