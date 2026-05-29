@@ -1073,6 +1073,7 @@ def py():
 
     # To report for next time:
     # - Running Mamba-2 SSD and DeltaNet and bidir variants
+    # - WBE/TSE
     # TODO fill here until next time...
 
     # TODO measure latency
