@@ -96,6 +96,7 @@ def _train_tts_encoder(
     )
     from i6_experiments.users.zeyer.recog_batched import recog_training_exp_batched
     from i6_experiments.users.zeyer.returnn.alternate_batching import alternate_batching
+    from i6_experiments.users.zeyer.datasets.utils.multi_proc import multi_proc_dataset_opts
     from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
     from i6_experiments.users.zeyer.external_models.glow_tts import (
         get_glow_tts_phone_info,
@@ -118,6 +119,9 @@ def _train_tts_encoder(
     assert asr_ds["class"] == "OggZipDataset", asr_ds["class"]
     asr_ds["audio"] = dict(asr_ds["audio"])
     asr_ds["audio"]["pre_process"] = speed_pert_librosa_config
+    # OggZip decode + speed_pert is the heavy data-loading work; wrap *only* it in MPD.
+    # LmDataset is cheap and CombinedDataset does not support sharding, so we keep MPD off the outer levels.
+    asr_ds = multi_proc_dataset_opts(asr_ds, num_workers=4)
 
     # text-only sub-dataset: one LmDataset emits the raw utf8 bytes of each LM line; a PostprocessingDataset
     # derives BOTH the spm target and the GlowTTS phonemes from that text in its map_seq (single corpus read,
@@ -252,7 +256,8 @@ def _train_tts_encoder(
             # 4 GPUs * 72 cores/Grace-Hopper = full node (288 cores). Helps MPD workers / data loading.
             "__cpu_rqmt": 72,
         },
-        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset": {"num_workers": 4}},
+        # opt out of train_v4's default outer-MPD; CombinedDataset can't shard. MPD is wrapped around OggZip above.
+        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset": False},
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
         num_processes=4,  # DDP across the 4 GH200 per JUPITER node (billing is flat-per-node: must use all GPUs)
         gpu_mem=96,  # GH200 has 96 GB HBM3
