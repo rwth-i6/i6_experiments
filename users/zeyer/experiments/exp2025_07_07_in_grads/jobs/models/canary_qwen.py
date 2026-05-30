@@ -69,6 +69,7 @@ class CanaryQwen(BaseModelInterface):
         char_level_brackets: Optional[str] = None,
         char_level_skip_chars: Optional[List[str]] = None,
         char_level_case: Optional[str] = None,
+        version: int = 1,
     ):
         """
         :param model_dir: hub cache dir for ``nvidia/canary-qwen-2.5b``.
@@ -101,6 +102,8 @@ class CanaryQwen(BaseModelInterface):
         self._char_level_skip_chars = set(char_level_skip_chars) if char_level_skip_chars else None
         assert char_level_case in (None, "lower", "upper", "title"), char_level_case
         self._char_level_case = char_level_case
+        self.version = version
+        assert version >= 3
 
         # Merge canary + qwen hub_cache dirs by symlink so SALM's
         # AutoTokenizer (which only honors HF_HUB_CACHE / HF_HOME) can
@@ -213,34 +216,53 @@ class CanaryQwen(BaseModelInterface):
                     word = word.lower()
                 elif _case == "title":
                     word = word.title()
+                # Inter-word separator goes before this word (except the first).
+                if self._char_level_sep and wi > 0:
+                    chars.append(self._char_level_sep)
                 cstart = len(chars)
                 if self._char_level_brackets == "word":
                     chars.append("[")
-                for ci, ch in enumerate(word):
+                for ch in word:
                     if self._char_level_skip_chars and ch in self._char_level_skip_chars:
                         continue
                     if self._char_level_brackets == "char":
                         chars.append("[")
-                    if self._char_level_sep and len(chars) > cstart:
-                        chars.append(self._char_level_sep)
                     chars.append(ch)
                     if self._char_level_brackets == "char":
                         chars.append("]")
                 if self._char_level_brackets == "word":
                     chars.append("]")
                 word_char_ranges.append((cstart, len(chars)))
-                # inter-word separator
-                if self._char_level_sep and wi < len(orig_words) - 1:
-                    chars.append(self._char_level_sep)
             words = chars
-            transcription = "".join(chars)
+            transcription = "".join(chars)  # only for display
         else:
             words = orig_words
             transcription = " ".join(words)
 
         print(f"[fwd] start; words={len(orig_words)} transcription={transcription!r}", flush=True)
 
-        input_ids, dst_text_start = self._build_chat_input_ids(transcription=transcription)
+        if self._char_level and word_char_ranges is not None:
+            # Do NOT tokenize the concatenated char string: Qwen's BPE merges
+            # e.g. "s h e" back into "she". Instead look up each char's token
+            # ID directly in the vocabulary (same principle as Phi4-MM, which
+            # works because the Phi tokenizer doesn't merge single chars).
+            user_prefix, _ = self._build_chat_input_ids(transcription=None)
+            # user_prefix: [1, T_prefix]
+            dst_text_start = int(user_prefix.shape[1])
+            tok = self.model.tokenizer
+            char_ids = []
+            for ch in chars:
+                ids = tok.encode(ch, add_special_tokens=False)
+                assert len(ids) == 1, (
+                    f"char {ch!r} tokenizes to {len(ids)} tokens {ids} -- "
+                    "vocab lookup for char-level requires single-token chars"
+                )
+                char_ids.extend(ids)
+            char_ids.append(self.assistant_end_token_id)
+            char_tensor = torch.tensor([char_ids], dtype=user_prefix.dtype)
+            input_ids = torch.cat([user_prefix, char_tensor], dim=1)
+        else:
+            input_ids, dst_text_start = self._build_chat_input_ids(transcription=transcription)
         input_ids = input_ids.to(dev)
         print(
             f"[fwd] chat_inputs ok; dst_text_start={dst_text_start} "
@@ -322,18 +344,25 @@ class CanaryQwen(BaseModelInterface):
         )
 
         # Per-word target_start_end via incremental decode.
+        # In char_level mode, each token corresponds to one entry in `chars`,
+        # so we skip the space-prefix grouping (which doesn't apply to direct
+        # per-char vocab tokens) and build one entry per token.
         tokenizer = self.model.tokenizer
         words_start_end: List[List[int]] = []
         words_: List[str] = []
-        for t in range(n_targets):
-            tid = int(targets[0, t].item())
-            s = tokenizer.ids_to_text([tid])
-            if t == 0 or s.startswith(" "):
-                words_start_end.append([t, t + 1])
-                words_.append(s.lstrip(" "))
-            else:
-                words_[-1] += s
-                words_start_end[-1][1] = t + 1
+        if word_char_ranges is not None:
+            words_start_end = [[t, t + 1] for t in range(n_targets)]
+            words_ = list(chars)
+        else:
+            for t in range(n_targets):
+                tid = int(targets[0, t].item())
+                s = tokenizer.ids_to_text([tid])
+                if t == 0 or s.startswith(" "):
+                    words_start_end.append([t, t + 1])
+                    words_.append(s.lstrip(" "))
+                else:
+                    words_[-1] += s
+                    words_start_end[-1][1] = t + 1
         assert len(words_start_end) == len(words_) == len(words), (
             f"word-grouping mismatch: target_decoded={words_!r} ref_words={words!r}"
         )

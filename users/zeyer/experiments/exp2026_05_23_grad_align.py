@@ -693,7 +693,7 @@ def py():
     # grad-able hook into SALM internals -- deferred.
     dl_canary = download_canary_qwen_2_5b_model()
     dl_qwen3 = download_qwen3_1_7b_model()
-    canary_cfg = rf.build_dict(CanaryQwen, model_dir=dl_canary, llm_model_dir=dl_qwen3)
+    canary_cfg = rf.build_dict(CanaryQwen, model_dir=dl_canary, llm_model_dir=dl_qwen3, version=3)
 
     cq_recog = RecogFromModelJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir,
@@ -852,9 +852,10 @@ def py():
     cq_acc_recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     # Canary char-level variants (mirroring Phi4-MM; the best Phi4-MM variant
     # was charlev-spc at WBE 0.087 vs 0.190 for word-level Canary)
+    # Qwen char-level: use per-char vocab lookup (not string tokenization)
+    # so BPE merging is bypassed. All sep-based variants should now work.
     for char_suf, char_extra in [
         ("-charlev-spc", {"char_level": True, "char_level_sep": " "}),
-        ("-charlev", {"char_level": True}),
         ("-charlev-spc-upper", {"char_level": True, "char_level_sep": " ", "char_level_case": "upper"}),
         ("-charlev-spc-title", {"char_level": True, "char_level_sep": " ", "char_level_case": "title"}),
     ]:
