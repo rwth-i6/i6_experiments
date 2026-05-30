@@ -225,7 +225,7 @@ def _train_tts_encoder(
             # DDP per-rank random_seed_offset iterates the data N=4x per epoch, so divide nep by N
             **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(25, base_lr=0.5),
             # batch_size dict is keyed by ACTUAL data keys
-            "batch_size": {in_key: 25_000 * configs._batch_size_factor, PHONEMES_DATA_KEY: 12_500},
+            "batch_size": {in_key: 50_000 * configs._batch_size_factor, PHONEMES_DATA_KEY: 25_000},
             "optimizer.weight_decay": 1e-2,
             "torch_batching": functools.partial(alternate_batching, asr_key=in_key),
             "train_step": aed_glowtts_train_step,  # custom step; no TrainDef needed
