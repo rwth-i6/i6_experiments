@@ -819,6 +819,7 @@ def py():
         model_dir=dl_canary,
         llm_model_dir=dl_qwen3,
         speech_prompt="Transcribe the following exactly and accurately, word for word:",
+        version=3,
     )
     cq_acc_extract = ExtractInGradsPerTokenJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir,
@@ -863,6 +864,7 @@ def py():
             CanaryQwen,
             model_dir=dl_canary,
             llm_model_dir=dl_qwen3,
+            version=3,
             **char_extra,
         )
         cq_char_extract = ExtractInGradsPerTokenJob(
