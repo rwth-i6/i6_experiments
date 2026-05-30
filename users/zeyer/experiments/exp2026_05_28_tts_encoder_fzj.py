@@ -227,6 +227,7 @@ def _train_tts_encoder(
             # batch_size dict is keyed by ACTUAL data keys
             # 3k phonemes ~= 45k synth mel frames (GlowTTS ~15x expansion), matching the 50k audio cap
             "batch_size": {in_key: 400_000 * configs._batch_size_factor, PHONEMES_DATA_KEY: 25_000},
+            "max_seqs": 500,  # let phon cap bind (was 200, capped text bucket too early)
             "optimizer.weight_decay": 1e-2,
             "torch_batching": functools.partial(alternate_batching, asr_key=in_key),
             "train_step": aed_glowtts_train_step,  # custom step; no TrainDef needed
