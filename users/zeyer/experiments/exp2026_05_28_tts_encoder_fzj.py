@@ -252,7 +252,10 @@ def _train_tts_encoder(
             # DDP per-rank random_seed_offset iterates the data N=4x per epoch, so divide nep by N
             **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(25, base_lr=0.5),
             # batch_size dict is keyed by ACTUAL data keys; caps are per-variant
-            "batch_size": {in_key: batch_size_audio_frames * configs._batch_size_factor, PHONEMES_DATA_KEY: batch_size_phon},
+            "batch_size": {
+                in_key: batch_size_audio_frames * configs._batch_size_factor,
+                PHONEMES_DATA_KEY: batch_size_phon,
+            },
             "max_seqs": 500,  # let phon cap bind (was 200, capped text bucket too early)
             # max_seq_length: cap outlier phoneme seqs (variant-specific; keeps v1/v3 hashes stable when not set)
             **(
