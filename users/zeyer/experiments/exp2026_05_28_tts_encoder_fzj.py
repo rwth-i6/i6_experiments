@@ -247,7 +247,8 @@ def _train_tts_encoder(
             "torch_distributed": {"options": {"find_unused_parameters": True}},
             # Use most of the JUPITER node (~480 GiB total, ~440 usable): 4 DDP procs * (1 main + MPD workers)
             # each load the ~4 GB LM corpus, plus model + activations. ~400 GiB gives comfortable headroom.
-            "__mem_rqmt": 400,
+            # per-DDP-proc; sis multiplies by num_processes=4 -> 400 GiB total (node has ~480 GiB usable)
+            "__mem_rqmt": 100,
             # 4 GPUs * 72 cores/Grace-Hopper = full node (288 cores). Helps MPD workers / data loading.
             "__cpu_rqmt": 72,
         },
