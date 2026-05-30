@@ -300,8 +300,12 @@ def _train_tts_encoder(
             # 4 GPUs * 72 cores/Grace-Hopper = full node (288 cores). Helps MPD workers / data loading.
             "__cpu_rqmt": 72,
         },
-        # opt out of train_v4's default outer-MPD; CombinedDataset can't shard. MPD is wrapped around OggZip above.
-        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset": False},
+        post_config_updates={
+            "log_grad_norm": True,
+            # opt out of train_v4's default outer-MPD; CombinedDataset can't shard. MPD is wrapped around OggZip above.
+            "__multi_proc_dataset": False,
+            "stop_for_resubmission_when_low_time_left": True,
+        },
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
         num_processes=4,  # DDP across the 4 GH200 per JUPITER node (billing is flat-per-node: must use all GPUs)
         gpu_mem=96,  # GH200 has 96 GB HBM3
