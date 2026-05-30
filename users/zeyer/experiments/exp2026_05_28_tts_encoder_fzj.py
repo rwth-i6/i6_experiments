@@ -60,9 +60,29 @@ def py():
     # tts-enc-v1: pseudo-speech-enc-style text usage (~5 effective text passes, 100 ASR).
     _train_tts_encoder("tts-enc-v1", prefix=prefix)
     # tts-enc-v2: TTS-baseline-style text usage (~1.33 effective text passes).
-    _train_tts_encoder("tts-enc-v2-textP75", prefix=prefix, text_train_epoch_split=75)
-    # tts-enc-v3: highly compressed synth (length_scale ~0.1) -- much shorter pseudo-speech per phoneme.
-    _train_tts_encoder("tts-enc-v3-lenscale-low", prefix=prefix, glow_tts_length_scale_range=(0.05, 0.15))
+    # Slower text fill rate (partition_epoch=75) lets the audio bucket grow large under max_seqs=500,
+    # so cap audio batch + phoneme seq length explicitly.
+    _train_tts_encoder(
+        "tts-enc-v2-textP75",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,  # ~baseline 75 SPM equivalent (1 SPM token ~3-4 phonemes on LS, measured from v1 logs)
+    )
+    # v3 (phon cap 25k) and v3a (phon cap 50k) superseded by v3b (phon cap 75k): same scientific config
+    # (lenscale ~0.1, 5 effective text passes), v3b is ~28% faster wall-time than v3 at same memory peak.
+    # _train_tts_encoder("tts-enc-v3-lenscale-low", prefix=prefix, glow_tts_length_scale_range=(0.05, 0.15))
+    # _train_tts_encoder(
+    #     "tts-enc-v3a-lenscale-low-bigphon", prefix=prefix,
+    #     glow_tts_length_scale_range=(0.05, 0.15), batch_size_phon=50_000,
+    # )
+    # tts-enc-v3b: highly compressed synth (length_scale ~0.1), phon cap 75k (max_seqs=500 sometimes binds).
+    _train_tts_encoder(
+        "tts-enc-v3b-lenscale-low-biggerphon",
+        prefix=prefix,
+        glow_tts_length_scale_range=(0.05, 0.15),
+        batch_size_phon=75_000,
+    )
 
     # TODO: import the finished RZ base-ls-dbmel (ReturnnTrainingJob.8mdaueLDfiGP); do NOT re-train on FZJ.
 
@@ -75,6 +95,9 @@ def _train_tts_encoder(
     txt_only_loss_scale: float = 1.0,
     glow_tts_length_scale_range=(0.7, 1.1),
     glow_tts_noise_scale_range=(0.3, 0.9),
+    batch_size_audio_frames: int = 400_000,
+    batch_size_phon: int = 25_000,
+    max_phon_len: Optional[int] = None,
 ):
     from returnn.frontend.decoder.transformer import TransformerDecoder
     from returnn.frontend.encoder.conformer import (
@@ -228,10 +251,21 @@ def _train_tts_encoder(
         config_updates={
             # DDP per-rank random_seed_offset iterates the data N=4x per epoch, so divide nep by N
             **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(25, base_lr=0.5),
-            # batch_size dict is keyed by ACTUAL data keys
-            # 3k phonemes ~= 45k synth mel frames (GlowTTS ~15x expansion), matching the 50k audio cap
-            "batch_size": {in_key: 400_000 * configs._batch_size_factor, PHONEMES_DATA_KEY: 25_000},
+            # batch_size dict is keyed by ACTUAL data keys; caps are per-variant
+            "batch_size": {in_key: batch_size_audio_frames * configs._batch_size_factor, PHONEMES_DATA_KEY: batch_size_phon},
             "max_seqs": 500,  # let phon cap bind (was 200, capped text bucket too early)
+            # max_seq_length: cap outlier phoneme seqs (variant-specific; keeps v1/v3 hashes stable when not set)
+            **(
+                {
+                    "max_seq_length": {
+                        in_key: 19.5 * _raw_sample_rate,
+                        tgt_key: 75,
+                        PHONEMES_DATA_KEY: max_phon_len,
+                    }
+                }
+                if max_phon_len is not None
+                else {}
+            ),
             "optimizer.weight_decay": 1e-2,
             "torch_batching": functools.partial(alternate_batching, asr_key=in_key),
             "train_step": aed_glowtts_train_step,  # custom step; no TrainDef needed
