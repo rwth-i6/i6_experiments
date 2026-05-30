@@ -57,8 +57,12 @@ def py():
     prefix = get_setup_prefix_for_module(__name__)
     # Standard log-mel baseline. Same Job hash as RZ base-ls / the FZJ base setup -> imports, not re-trained.
     _train_ls_base("base-ls", prefix=prefix)
-    # TTS-encoder text-util training (single-GPU first, like base).
+    # tts-enc-v1: pseudo-speech-enc-style text usage (~5 effective text passes, 100 ASR).
     _train_tts_encoder("tts-enc-v1", prefix=prefix)
+    # tts-enc-v2: TTS-baseline-style text usage (~1.33 effective text passes).
+    _train_tts_encoder("tts-enc-v2-textP75", prefix=prefix, text_train_epoch_split=75)
+    # tts-enc-v3: highly compressed synth (length_scale ~0.1) -- much shorter pseudo-speech per phoneme.
+    _train_tts_encoder("tts-enc-v3-lenscale-low", prefix=prefix, glow_tts_length_scale_range=(0.05, 0.15))
 
     # TODO: import the finished RZ base-ls-dbmel (ReturnnTrainingJob.8mdaueLDfiGP); do NOT re-train on FZJ.
 
