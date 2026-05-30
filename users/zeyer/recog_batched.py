@@ -61,7 +61,7 @@ from i6_experiments.users.zeyer.recog import (
     search_config_v2,
     search_config_v3,
 )
-from i6_experiments.users.zeyer.task import Task as TaskCfg
+from i6_experiments.users.zeyer.datasets.task import Task as TaskCfg
 from i6_core.returnn.training import PtCheckpoint
 
 
@@ -369,10 +369,15 @@ class _BatchedRecogAndScoreFunc(_RecogAndScoreFunc):
     """
 
     def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> ScoreResultCollection:
+        # Each call corresponds to a distinct (epoch / checkpoint) and thus a distinct BatchedReturnnForwardJob.
+        # The alias must include that to avoid clobbering across epochs (sis warns + only the first sticks).
         if isinstance(epoch_or_ckpt, int):
             model_with_checkpoint = self.model.get_epoch(epoch_or_ckpt)
+            alias_name = self.prefix_name + f"/epoch{epoch_or_ckpt:03}"
         elif isinstance(epoch_or_ckpt, PtCheckpoint):
             model_with_checkpoint = ModelWithCheckpoint(definition=self.model.definition, checkpoint=epoch_or_ckpt)
+            # caller-provided checkpoint -- skip auto-alias; caller can alias the returned job if wanted
+            alias_name = None
         else:
             raise TypeError(f"{self} unexpected type {type(epoch_or_ckpt)}")
         res = recog_model_batched(
@@ -382,7 +387,7 @@ class _BatchedRecogAndScoreFunc(_RecogAndScoreFunc):
             config=self.search_config,
             search_post_config=self.search_post_config,
             recog_post_proc_funcs=self.recog_post_proc_funcs,
-            name=self.prefix_name,
+            name=alias_name,
         )
         if isinstance(epoch_or_ckpt, int):
             tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}", res.output)
