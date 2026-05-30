@@ -60,6 +60,11 @@ from i6_experiments.users.zeyer.nn_rf.decoder.streaming.ext_transducer import (
     ext_transducer_training,
     model_recog as ext_transducer_model_recog,
 )
+from i6_experiments.users.zeyer.nn_rf.decoder.streaming.two_tower import (
+    TwoTowerDecoder,
+    two_tower_training,
+    model_recog as two_tower_model_recog,
+)
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.dataset import ChunkAlignDataset, ExtendVocabWithEocJob
 
 # Prefix for alias/ and output/ paths. Does not enter any Job hash (only naming);
@@ -73,6 +78,7 @@ def py():
     _train_chunkwise_smoke()
     _train_framewise_smoke()
     _train_ext_transducer_smoke()
+    _train_two_tower_smoke()
 
 
 def _ls_align_hdfs(model, *, keys, aux_ctc_layer: int = 16) -> Dict[str, tk.Path]:
@@ -244,5 +250,16 @@ def _train_ext_transducer_smoke():
         dec_build_dict=rf.build_dict(ExtTransducerDecoder, model_dim=256, ff_dim=512, num_layers=4, num_heads=4),
         train_def=ext_transducer_training,
         recog_def=ext_transducer_model_recog,
+        target_mode="rna_frame",
+    )
+
+
+def _train_two_tower_smoke():
+    """Two-tower fast-slow decoder (text + speech stacks coupled by cross-attention)."""
+    return _train_streaming_variant(
+        "two-tower-smoke",
+        dec_build_dict=rf.build_dict(TwoTowerDecoder, model_dim=256, ff_dim=512, num_layers=4, num_heads=4),
+        train_def=two_tower_training,
+        recog_def=two_tower_model_recog,
         target_mode="rna_frame",
     )
