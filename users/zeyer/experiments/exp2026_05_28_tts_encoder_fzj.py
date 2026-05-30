@@ -240,8 +240,10 @@ def _train_tts_encoder(
             "glow_tts_phone_info": get_glow_tts_phone_info(train=True),
             # DDP across 4 GH200: each runs a model replica + its data shard, gradients all-reduced via NCCL.
             # ~400 M trainable params (Enc L16 D1024 + Dec L6 D1024 + spm10k) fits one GH200 (95 GB) easily, so DDP
-            # is the right tool here -- FSDP would only add sharding overhead for no memory benefit.
-            "torch_distributed": {},
+            # is the right tool sshere -- FSDP would only add sharding overhead for no memory benefit.
+            # alternate_batching alternates audio-batch vs text-only-batch:
+            # GlowTTS only fires on text, so its params are unused on audio steps
+            "torch_distributed": {"options": {"find_unused_parameters": True}},
             # Use most of the JUPITER node (~480 GiB total, ~440 usable): 4 DDP procs * (1 main + MPD workers)
             # each load the ~4 GB LM corpus, plus model + activations. ~400 GiB gives comfortable headroom.
             "__mem_rqmt": 400,
