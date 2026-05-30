@@ -252,7 +252,7 @@ class CanaryQwen(BaseModelInterface):
             tok = self.model.tokenizer
             char_ids = []
             for ch in chars:
-                ids = tok.encode(ch, add_special_tokens=False)
+                ids = tok.text_to_ids(ch)
                 assert len(ids) == 1, (
                     f"char {ch!r} tokenizes to {len(ids)} tokens {ids} -- "
                     "vocab lookup for char-level requires single-token chars"
