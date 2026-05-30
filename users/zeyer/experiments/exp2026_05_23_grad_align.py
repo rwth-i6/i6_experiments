@@ -864,7 +864,7 @@ def py():
             CanaryQwen,
             model_dir=dl_canary,
             llm_model_dir=dl_qwen3,
-            version=3,
+            version=4,
             **char_extra,
         )
         cq_char_extract = ExtractInGradsPerTokenJob(
