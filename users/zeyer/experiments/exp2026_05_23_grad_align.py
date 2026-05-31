@@ -781,6 +781,11 @@ def py():
     # of the projected speech embeddings. This gives 100 Hz time resolution
     # (vs ~12.5 Hz for projected) and unblocks char-level alignment, which is
     # the testbed for the variants documented in projects/2026-05-23-grad-align.md.
+    #
+    # Initial L2_e_grad run gave WBE 0.179/0.191 vs 0.130/0.157 for projected --
+    # log-mel was WORSE. Likely suspects: (a) `mult_grad_by_inputs` is questionable
+    # for log-mel (signed/varying magnitudes), (b) L2-over-mel-bins may wash out
+    # localization, (c) grad through full encoder is noisier. Sweep variants.
     voxtral_logmel_cfg = rf.build_dict(
         Voxtral,
         model_dir=dl_voxtral,
@@ -788,21 +793,154 @@ def py():
         grad_wrt="log_mel",
         version=4,
     )
-    vxt_lm_extract = ExtractInGradsPerTokenJob(
+    # Variants: cover both with/without input-mult and several reduction norms.
+    # "e_grad" suffix = mult_grad_by_inputs=True (input * grad).
+    # "_grad" suffix = plain grad.
+    _voxtral_logmel_variants = [
+        (True, "L2", "L2_e_grad"),         # initial run, WBE 0.179
+        (False, "L2", "L2_grad"),          # plain grad, L2 over mel
+        (False, "L1", "L1_grad"),          # plain grad, L1 over mel
+        (False, "sum", "dot_grad"),        # plain grad, signed sum over mel
+        (True, "L1", "L1_e_grad"),         # input * grad, L1
+        (True, "sum", "dot_e_grad"),       # input * grad, signed sum
+        (False, "L0.5", "L05_grad"),       # plain grad, L0.5 (sharper)
+    ]
+    for mgi, attr, grad_alias in _voxtral_logmel_variants:
+        vxt_lm_extract = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=voxtral_logmel_cfg,
+            mult_grad_by_inputs=mgi,
+            attr_reduction=attr,
+        )
+        vxt_lm_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        vxt_lm_extract_name = f"voxtral-transcribe-logmel-timit-val-{grad_alias}-pertoken"
+        vxt_lm_extract.add_alias(vxt_lm_extract_name)
+        tk.register_output(f"{vxt_lm_extract_name}.hdf", vxt_lm_extract.out_hdf)
+        for align_opts in _ALIGN_OPTS_GRID:
+            align_name = f"align/{vxt_lm_extract_name}-{_name_for_dict(align_opts)}"
+            align = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=vxt_lm_extract.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=align_opts,
+            )
+            align.add_alias(align_name)
+            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+
+    # --- Voxtral fixed audio time-stretch (variant 6) ------------------------
+    # Stretch every audio by a fixed factor (>1 = slower) via librosa
+    # phase-vocoder (pitch-preserving). Gives encoder more frames per syllable.
+    # Stays on the projected-speech-embeddings grad target since that gave the
+    # best WBE (0.130) in the previous sweep. WBE is reported on the ORIGINAL
+    # audio timeline (the model internally maps stretched encoder frames back
+    # via original n_samples).
+    for stretch in (1.2, 1.5):
+        suf = f"stretch{stretch:.1f}".replace(".", "")
+        voxtral_stretch_cfg = rf.build_dict(
+            Voxtral,
+            model_dir=dl_voxtral,
+            forward_mode="transcription",
+            audio_time_stretch=stretch,
+            version=5,
+        )
+        vxt_st_extract = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=voxtral_stretch_cfg,
+            mult_grad_by_inputs=True,
+            attr_reduction="L2",
+        )
+        vxt_st_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        vxt_st_extract_name = f"voxtral-transcribe-{suf}-timit-val-L2_e_grad-pertoken"
+        vxt_st_extract.add_alias(vxt_st_extract_name)
+        tk.register_output(f"{vxt_st_extract_name}.hdf", vxt_st_extract.out_hdf)
+        for align_opts in _ALIGN_OPTS_GRID:
+            align_name = f"align/{vxt_st_extract_name}-{_name_for_dict(align_opts)}"
+            align = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=vxt_st_extract.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=align_opts,
+            )
+            align.add_alias(align_name)
+            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+
+    # --- Voxtral conv1 grad target (100 Hz, d_model space) -------------------
+    # Variant 4 in the project notes: grad w.r.t. Whisper encoder's conv1
+    # output (captured via forward hook). Same 100 Hz time resolution as
+    # log_mel but in the model's learned feature space (d_model=1280),
+    # hopefully cleaner than raw log-mel grads.
+    voxtral_conv1_cfg = rf.build_dict(
+        Voxtral,
+        model_dir=dl_voxtral,
+        forward_mode="transcription",
+        grad_wrt="encoder_conv1_out",
+        version=6,
+    )
+    for mgi, attr, grad_alias in [
+        (True, "L2", "L2_e_grad"),
+        (False, "L2", "L2_grad"),
+        (False, "L1", "L1_grad"),
+    ]:
+        vxt_c1_extract = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=voxtral_conv1_cfg,
+            mult_grad_by_inputs=mgi,
+            attr_reduction=attr,
+        )
+        vxt_c1_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        vxt_c1_extract_name = f"voxtral-transcribe-conv1-timit-val-{grad_alias}-pertoken"
+        vxt_c1_extract.add_alias(vxt_c1_extract_name)
+        tk.register_output(f"{vxt_c1_extract_name}.hdf", vxt_c1_extract.out_hdf)
+        for align_opts in _ALIGN_OPTS_GRID:
+            align_name = f"align/{vxt_c1_extract_name}-{_name_for_dict(align_opts)}"
+            align = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=vxt_c1_extract.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=align_opts,
+            )
+            align.add_alias(align_name)
+            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+
+    # --- Voxtral char-level + per-seq just-enough resample -------------------
+    # Variant 12 (char-level vocab via per-char lookup, bypasses BPE merging)
+    # + variant 5 (per-seq just-enough time-stretch when char-count exceeds
+    # default encoder-frame count). Char-level alone might fail with S>T on
+    # short fast-speech seqs, so the two go together. Stays on the projected
+    # grad target (best WBE so far) for the initial test.
+    voxtral_charlev_cfg = rf.build_dict(
+        Voxtral,
+        model_dir=dl_voxtral,
+        forward_mode="transcription",
+        char_level=True,
+        char_level_sep=" ",
+        ensure_audio_long_enough=True,
+        version=8,
+    )
+    vxt_cl_extract = ExtractInGradsPerTokenJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir,
         dataset_key="val",
-        model_config=voxtral_logmel_cfg,
+        model_config=voxtral_charlev_cfg,
         mult_grad_by_inputs=True,
         attr_reduction="L2",
     )
-    vxt_lm_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-    vxt_lm_extract_name = "voxtral-transcribe-logmel-timit-val-L2_e_grad-pertoken"
-    vxt_lm_extract.add_alias(vxt_lm_extract_name)
-    tk.register_output(f"{vxt_lm_extract_name}.hdf", vxt_lm_extract.out_hdf)
+    vxt_cl_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    vxt_cl_extract_name = "voxtral-transcribe-charlev-spc-timit-val-L2_e_grad-pertoken"
+    vxt_cl_extract.add_alias(vxt_cl_extract_name)
+    tk.register_output(f"{vxt_cl_extract_name}.hdf", vxt_cl_extract.out_hdf)
     for align_opts in _ALIGN_OPTS_GRID:
-        align_name = f"align/{vxt_lm_extract_name}-{_name_for_dict(align_opts)}"
+        align_name = f"align/{vxt_cl_extract_name}-{_name_for_dict(align_opts)}"
         align = WordAlignFromPerTokenGradsJob(
-            grad_score_hdf=vxt_lm_extract.out_hdf,
+            grad_score_hdf=vxt_cl_extract.out_hdf,
             grad_score_key="data",
             dataset_dir=dl_ds_timit.out_hub_cache_dir,
             dataset_key="val",
@@ -900,7 +1038,8 @@ def py():
             CanaryQwen,
             model_dir=dl_canary,
             llm_model_dir=dl_qwen3,
-            version=4,
+            ensure_audio_long_enough=True,
+            version=5,
             **char_extra,
         )
         cq_char_extract = ExtractInGradsPerTokenJob(

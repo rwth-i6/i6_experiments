@@ -69,6 +69,8 @@ class CanaryQwen(BaseModelInterface):
         char_level_brackets: Optional[str] = None,
         char_level_skip_chars: Optional[List[str]] = None,
         char_level_case: Optional[str] = None,
+        audio_time_stretch: float = 1.0,
+        ensure_audio_long_enough: bool = False,
         version: int = 1,
     ):
         """
@@ -102,8 +104,16 @@ class CanaryQwen(BaseModelInterface):
         self._char_level_skip_chars = set(char_level_skip_chars) if char_level_skip_chars else None
         assert char_level_case in (None, "lower", "upper", "title"), char_level_case
         self._char_level_case = char_level_case
+        self.audio_time_stretch = float(audio_time_stretch)
+        assert self.audio_time_stretch > 0, audio_time_stretch
+        self.ensure_audio_long_enough = bool(ensure_audio_long_enough)
         self.version = version
         assert version >= 3
+        if self.audio_time_stretch != 1.0 or self.ensure_audio_long_enough:
+            assert version >= 5, (
+                "version >= 5 required for audio_time_stretch / "
+                "ensure_audio_long_enough (time-stretch preprocessing)."
+            )
 
         # Merge canary + qwen hub_cache dirs by symlink so SALM's
         # AutoTokenizer (which only honors HF_HUB_CACHE / HF_HOME) can
@@ -201,6 +211,20 @@ class CanaryQwen(BaseModelInterface):
         dev = self.device
         orig_words = raw_targets[0]
 
+        # ORIGINAL audio length, used for time-mapping (input_raw_start_end) so
+        # the aligner's word boundaries come out on the original audio timeline,
+        # not the stretched one.
+        orig_n_samples = int(raw_input_seq_lens[0])
+
+        # Optional fixed time-stretch (variant 6): stretch audio by
+        # audio_time_stretch (>1 = slower/longer), pitch-preserving.
+        if self.audio_time_stretch != 1.0:
+            import librosa
+            audio_np = raw_inputs[0].detach().cpu().numpy().astype(np.float32)
+            stretched = librosa.effects.time_stretch(audio_np, rate=1.0 / self.audio_time_stretch)
+            raw_inputs = torch.tensor(stretched, dtype=raw_inputs.dtype).unsqueeze(0)
+            raw_input_seq_lens = torch.tensor([raw_inputs.shape[1]], dtype=raw_input_seq_lens.dtype)
+
         # Char-level: explode words into a flat char list, compute per-char
         # gradients, then re-group char ranges back to word-level boundaries.
         # Follows the same pattern as Phi4MM.
@@ -270,17 +294,32 @@ class CanaryQwen(BaseModelInterface):
             flush=True,
         )
 
-        # Audio encoder.
-        audios = raw_inputs.to(dev).float()
-        audio_lens = raw_input_seq_lens.to(dev).long()
-        audio_embeds_batched, audio_embed_lens = self.model.perception(audios, audio_lens)
-        torch.cuda.synchronize()
+        # Audio encoder. Per-seq just-enough resample: if ensure_audio_long_enough
+        # and T < S (encoded frames < target tokens), stretch and re-encode.
+        n_target_tokens = input_ids.shape[1] - dst_text_start
+
+        def _encode_audio(inp: torch.Tensor):
+            a = inp.to(dev).float()
+            l = torch.tensor([inp.shape[1]], device=dev, dtype=torch.long)
+            out, lens = self.model.perception(a, l)
+            torch.cuda.synchronize()
+            return out, int(lens[0])
+
+        audio_embeds_batched, n_audio_real = _encode_audio(raw_inputs)
+        if self.ensure_audio_long_enough and n_audio_real < n_target_tokens:
+            import librosa
+            factor = (n_target_tokens * 1.05) / max(n_audio_real, 1)
+            audio_np = raw_inputs[0].detach().cpu().numpy().astype(np.float32)
+            stretched = librosa.effects.time_stretch(audio_np, rate=1.0 / factor)
+            raw_inputs = torch.tensor(stretched, dtype=raw_inputs.dtype).unsqueeze(0)
+            print(
+                f"[fwd] ensure_audio_long_enough: T={n_audio_real} < S={n_target_tokens}"
+                f" -> stretch x{factor:.3f}, re-encoding",
+                flush=True,
+            )
+            audio_embeds_batched, n_audio_real = _encode_audio(raw_inputs)
         n_audio_total = int(audio_embeds_batched.shape[1])
-        n_audio_real = int(audio_embed_lens[0])
-        # Build the [1, T_real, H] tensor as the grad leaf and consume it via
-        # [0] in the graph. autograd.grad(loss, inputs) needs ``inputs`` to be
-        # the exact tensor used downstream -- a post-hoc unsqueeze view is a
-        # sibling branch, not an ancestor of the loss.
+        # Build the [1, T_real, H] tensor as the grad leaf.
         audio_embeds_b = audio_embeds_batched[:, :n_audio_real].contiguous()  # (1, T_real, H)
         audio_embeds_b.requires_grad_(True)
         audio_embeds_b.retain_grad()
@@ -385,7 +424,7 @@ class CanaryQwen(BaseModelInterface):
             torch.tensor([0], dtype=torch.int64),
             torch.tensor([n_audio_real], dtype=torch.int64),
         )
-        edges = torch.arange(n_audio_real + 1, dtype=torch.float64) * (n_samples / max(n_audio_real, 1))
+        edges = torch.arange(n_audio_real + 1, dtype=torch.float64) * (orig_n_samples / max(n_audio_real, 1))
         input_raw_start_end = torch.stack(
             [edges[:-1].round().long(), edges[1:].round().long()], dim=-1
         ).unsqueeze(0)  # [1, n_audio_real, 2]

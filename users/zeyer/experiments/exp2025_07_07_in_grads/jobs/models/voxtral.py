@@ -73,6 +73,10 @@ class Voxtral(BaseModelInterface):
         forward_mode: str = "chat",
         transcription_model_id: str = "mistralai/Voxtral-Mini-3B-2507",
         grad_wrt: str = "speech_embeddings",
+        audio_time_stretch: float = 1.0,
+        ensure_audio_long_enough: bool = False,
+        char_level: bool = False,
+        char_level_sep: Optional[str] = None,
         logits_transform: Union[None, str, Dict[str, Any], Sequence[Union[str, Dict[str, Any]]]] = None,
         version: int = 1,
     ):
@@ -103,6 +107,11 @@ class Voxtral(BaseModelInterface):
         self.forward_mode = forward_mode
         self.transcription_model_id = transcription_model_id
         self.grad_wrt = grad_wrt
+        self.audio_time_stretch = float(audio_time_stretch)
+        assert self.audio_time_stretch > 0, audio_time_stretch
+        self.ensure_audio_long_enough = bool(ensure_audio_long_enough)
+        self._char_level = bool(char_level)
+        self._char_level_sep = char_level_sep
         self.logits_transform = make_logits_transform(logits_transform)
         assert version >= 3, (
             "version 1: buggy splice (pre-projection encoder states). "
@@ -111,11 +120,31 @@ class Voxtral(BaseModelInterface):
             "version >= 3: correct n_audio_real = (n_samples + 1279) // 1280. "
             "(version=1/2 defaults exist only for hash stability of old finished jobs.)"
         )
-        assert grad_wrt in ("speech_embeddings", "log_mel"), grad_wrt
+        assert grad_wrt in ("speech_embeddings", "log_mel", "encoder_conv1_out"), grad_wrt
         if grad_wrt != "speech_embeddings":
             assert version >= 4, (
                 "version >= 4 required when grad_wrt != 'speech_embeddings' "
                 "(log_mel grad path enabled)."
+            )
+        if grad_wrt == "encoder_conv1_out":
+            assert version >= 6, (
+                "version >= 6 required when grad_wrt == 'encoder_conv1_out' "
+                "(hook-based conv1 capture enabled)."
+            )
+        if self._char_level:
+            assert version >= 7, (
+                "version >= 7 required when char_level=True "
+                "(per-char vocab lookup for input_ids)."
+            )
+        if self.ensure_audio_long_enough:
+            assert version >= 8, (
+                "version >= 8 required when ensure_audio_long_enough=True "
+                "(per-seq just-enough time-stretch when S > T_default)."
+            )
+        if self.audio_time_stretch != 1.0:
+            assert version >= 5, (
+                "version >= 5 required when audio_time_stretch != 1.0 "
+                "(time-stretch audio preprocessing enabled)."
             )
         self.version = version
 
@@ -212,7 +241,10 @@ class Voxtral(BaseModelInterface):
             out["attention_mask"] = torch.cat([inputs_user["attention_mask"], torch.ones_like(transc_ids)], dim=1)
         return out, dst_text_start
 
-    def _build_transcription_inputs(self, *, audio_path: str, transcription: Optional[str]):
+    def _build_transcription_inputs(
+        self, *, audio_path: str, transcription: Optional[str],
+        transcription_ids: Optional[torch.Tensor] = None,
+    ):
         """Forced-target inputs in Voxtral's native transcription mode.
 
         ``apply_transcription_request`` builds the prefix ``[start, <audio>,
@@ -220,6 +252,11 @@ class Voxtral(BaseModelInterface):
         (no instruct wrapper, so audio attention/gradients localize better
         than chat mode). For forced alignment we tokenize the reference and
         append it after the prefix, mirroring :meth:`_build_chat_inputs`.
+
+        If ``transcription_ids`` is provided (shape ``[1, n_tokens]``), it is
+        used verbatim instead of tokenizing ``transcription``. This bypasses
+        the BPE merger so each char gets its own token in char-level mode
+        (same idea as in :class:`CanaryQwen`).
         """
         pre = self.processor.apply_transcription_request(
             language="en",
@@ -230,8 +267,11 @@ class Voxtral(BaseModelInterface):
         if transcription is None:
             return pre, None
         dst_text_start = int(pre["input_ids"].shape[1])
-        transc_text = transcription if transcription.startswith(" ") else " " + transcription
-        transc_ids = self.processor.tokenizer(transc_text, add_special_tokens=False, return_tensors="pt")["input_ids"]
+        if transcription_ids is not None:
+            transc_ids = transcription_ids
+        else:
+            transc_text = transcription if transcription.startswith(" ") else " " + transcription
+            transc_ids = self.processor.tokenizer(transc_text, add_special_tokens=False, return_tensors="pt")["input_ids"]
         eos_col = torch.tensor([[self.assistant_end_token_id]], dtype=transc_ids.dtype)
         transc_ids = torch.cat([transc_ids, eos_col], dim=1)
         new_input_ids = torch.cat([pre["input_ids"], transc_ids], dim=1)
@@ -285,6 +325,33 @@ class Voxtral(BaseModelInterface):
                 audio_2d = audio_out.reshape(-1, audio_out.shape[-1])
             audio_embeds = audio_2d.unsqueeze(0)  # NO detach -- grad flows through encoder.
             grad_leaf = input_features_T
+        elif self.grad_wrt == "encoder_conv1_out":
+            # Grad leaf is the activation after Whisper encoder's first conv
+            # (stride=1, output at 100 Hz in d_model space, e.g. 1280 dim).
+            # Captured via a forward hook on conv1. Same 10 ms time resolution
+            # as log_mel but in the model's learned feature space -- expected
+            # to be cleaner than raw log-mel.
+            captured: List[torch.Tensor] = []
+
+            def _conv1_hook(_module, _inp, out):
+                captured.append(out)
+
+            conv1_mod = self.model.audio_tower.conv1
+            handle = conv1_mod.register_forward_hook(_conv1_hook)
+            try:
+                audio_out = self.model.get_audio_features(input_features)
+            finally:
+                handle.remove()
+            assert len(captured) == 1, f"expected 1 conv1 call, got {len(captured)}"
+            conv1_out = captured[0]  # [1, d_model, T_mel] -- still in graph
+            conv1_out.retain_grad()
+            if not isinstance(audio_out, torch.Tensor):
+                audio_2d = audio_out.pooler_output
+            else:
+                audio_2d = audio_out.reshape(-1, audio_out.shape[-1])
+            audio_embeds = audio_2d.unsqueeze(0)  # grad flows through encoder.
+            # Expose grad leaf as [1, T_mel, d_model] for extract job's [B, T, F] reduce.
+            grad_leaf = conv1_out.transpose(1, 2)
         else:  # speech_embeddings (default)
             audio_out = self.model.get_audio_features(input_features)
             if not isinstance(audio_out, torch.Tensor):
@@ -333,6 +400,73 @@ class Voxtral(BaseModelInterface):
         dev = self.device
         words = raw_targets[0]
         transcription = " ".join(words)
+
+        # ORIGINAL audio length, kept for time-mapping in input_raw_start_end
+        # (so word boundaries from the aligner come out in the original audio's
+        # timeline -- not the stretched one). Encoder-side calculations use the
+        # stretched length below.
+        orig_n_samples = int(raw_input_seq_lens[0])
+
+        # --- char-level explosion (variant 12) ----------------------------
+        # Explode each word into individual characters, with optional inter-word
+        # separator. Build per-char token IDs via direct vocab lookup so the
+        # BPE merger doesn't recombine "s h e" -> "she" (same trick as in
+        # CanaryQwen). word_char_ranges is used later to re-group per-char
+        # target_start_end back to word-level boundaries for the WBE metric.
+        word_char_ranges: Optional[List[tuple]] = None
+        char_token_ids: Optional[torch.Tensor] = None
+        chars: Optional[List[str]] = None
+        if self._char_level:
+            chars = []
+            word_char_ranges = []
+            for wi, word in enumerate(words):
+                if self._char_level_sep and wi > 0:
+                    chars.append(self._char_level_sep)
+                cstart = len(chars)
+                for ch in word:
+                    chars.append(ch)
+                word_char_ranges.append((cstart, len(chars)))
+            tok = self.processor.tokenizer
+            char_ids: List[int] = []
+            for ch in chars:
+                ids = tok.encode(ch, add_special_tokens=False)
+                assert len(ids) == 1, (
+                    f"char {ch!r} tokenizes to {len(ids)} tokens {ids} -- "
+                    "per-char vocab lookup requires single-token chars"
+                )
+                char_ids.extend(ids)
+            char_token_ids = torch.tensor([char_ids], dtype=torch.long)
+            transcription = "".join(chars)  # for display / sanity print
+
+        # --- audio time-stretch (fixed and/or per-seq just-enough) --------
+        # Combined: ``audio_time_stretch`` sets a baseline; if
+        # ``ensure_audio_long_enough`` and char_level, also bump factor when
+        # S (#target tokens) > T_default (default encoder frame count).
+        effective_stretch = self.audio_time_stretch
+        if self.ensure_audio_long_enough and self._char_level:
+            n_target = len(chars)
+            samples_per_frame = 160 if self.grad_wrt in ("log_mel", "encoder_conv1_out") else 1280
+            T_default = (orig_n_samples + samples_per_frame - 1) // samples_per_frame
+            if n_target > T_default:
+                required_factor = (n_target * 1.05) / T_default  # 5% margin
+                if required_factor > effective_stretch:
+                    effective_stretch = required_factor
+                    print(
+                        f"[fwd] ensure_audio_long_enough: S={n_target} > T_default={T_default} -> "
+                        f"stretch={effective_stretch:.3f}",
+                        flush=True,
+                    )
+        if effective_stretch != 1.0:
+            import librosa
+            audio_np = raw_inputs[0].detach().cpu().numpy().astype(np.float32)
+            stretched = librosa.effects.time_stretch(audio_np, rate=1.0 / effective_stretch)
+            raw_inputs = torch.tensor(stretched, dtype=raw_inputs.dtype).unsqueeze(0)
+            raw_input_seq_lens = torch.tensor([raw_inputs.shape[1]], dtype=raw_input_seq_lens.dtype)
+            print(
+                f"[fwd] audio_time_stretch={effective_stretch:.3f}: "
+                f"orig_samples={orig_n_samples} stretched_samples={raw_inputs.shape[1]}",
+                flush=True,
+            )
         # Note: ``omitted_prev_context`` from chunked datasets is not yet
         # supported for Voxtral -- TIMIT is single-chunk so this is fine for
         # the first pass; Buckeye long-form would need similar handling to
@@ -345,9 +479,11 @@ class Voxtral(BaseModelInterface):
         try:
             if self.forward_mode == "transcription":
                 inputs, dst_text_start = self._build_transcription_inputs(
-                    audio_path=audio_path, transcription=transcription
+                    audio_path=audio_path, transcription=transcription,
+                    transcription_ids=char_token_ids,
                 )
             else:
+                assert not self._char_level, "char_level only supported with forward_mode='transcription' for now"
                 inputs, dst_text_start = self._build_chat_inputs(audio_path=audio_path, transcription=transcription)
         finally:
             try:
@@ -402,24 +538,41 @@ class Voxtral(BaseModelInterface):
             dim=1,
         )  # [B, T'+1] -- EOS appended for chunk-exit log_prob lookups
 
-        # Per-word target_start_end via incremental decode. Mistral's
-        # SentencePiece-like tokenizer marks word starts with a leading
-        # space in the decoded token text.
+        # Per-token target_start_end. In char_level mode, each token is one
+        # char (we built the IDs via per-char vocab lookup), so we know the
+        # grouping directly. Otherwise, use the incremental-decode trick:
+        # Mistral's SentencePiece-like tokenizer marks word starts with a
+        # leading space in the decoded token text.
         tokenizer = self.processor.tokenizer
         words_start_end: List[List[int]] = []
         words_: List[str] = []
-        for t in range(n_targets):
-            s = tokenizer.decode(targets[0, t : t + 1].tolist(), skip_special_tokens=True)
-            if t == 0 or s.startswith(" "):
-                words_start_end.append([t, t + 1])
-                words_.append(s.lstrip(" "))
-            else:
-                words_[-1] += s
-                words_start_end[-1][1] = t + 1
-        assert len(words_start_end) == len(words_) == len(words), (
-            f"word-grouping mismatch: target_decoded={words_!r} ref_words={words!r}"
+        if self._char_level:
+            words_start_end = [[t, t + 1] for t in range(n_targets)]
+            words_ = list(chars)
+            ref_token_list = chars
+        else:
+            for t in range(n_targets):
+                s = tokenizer.decode(targets[0, t : t + 1].tolist(), skip_special_tokens=True)
+                if t == 0 or s.startswith(" "):
+                    words_start_end.append([t, t + 1])
+                    words_.append(s.lstrip(" "))
+                else:
+                    words_[-1] += s
+                    words_start_end[-1][1] = t + 1
+            ref_token_list = words
+        assert len(words_start_end) == len(words_) == len(ref_token_list), (
+            f"word-grouping mismatch: target_decoded={words_!r} ref={ref_token_list!r}"
         )
-        assert words_ == words, f"target_decoded={words_!r} ref_words={words!r}"
+        assert words_ == ref_token_list, f"target_decoded={words_!r} ref={ref_token_list!r}"
+        # Re-group per-char target_start_end back to word level for the WBE
+        # metric (which operates on word boundaries, not chars).
+        if word_char_ranges is not None:
+            regrouped = []
+            for cstart, cend in word_char_ranges:
+                t0 = int(words_start_end[cstart][0])
+                t1 = int(words_start_end[cend - 1][1])
+                regrouped.append([t0, t1])
+            words_start_end = regrouped
         words_start_end = words_start_end + [[n_targets, n_targets + 1]]  # EOS slot
 
         # Slice the grad leaf to the real-audio span (drop Whisper-style
@@ -429,7 +582,8 @@ class Voxtral(BaseModelInterface):
         #   log_mel: 160 samples/log-mel-frame (16 kHz * 10ms hop).
         n_audio_total = int(audio_embeds.shape[1])
         n_samples = int(raw_input_seq_lens[0])
-        if self.grad_wrt == "log_mel":
+        if self.grad_wrt in ("log_mel", "encoder_conv1_out"):
+            # conv1 is stride=1, so its output is also at 100 Hz (160 samples/frame).
             samples_per_frame = 160
         else:
             samples_per_frame = 1280
@@ -439,7 +593,10 @@ class Voxtral(BaseModelInterface):
             torch.tensor([n_audio_real], dtype=torch.int64),
         )
 
-        edges = torch.arange(n_audio_real + 1, dtype=torch.float64) * (n_samples / max(n_audio_real, 1))
+        # Use ORIGINAL audio length for time mapping so word boundaries from
+        # the aligner come out in the original audio's timeline (relevant when
+        # audio_time_stretch != 1.0 -- otherwise orig_n_samples == n_samples).
+        edges = torch.arange(n_audio_real + 1, dtype=torch.float64) * (orig_n_samples / max(n_audio_real, 1))
         input_raw_start_end = torch.stack([edges[:-1].round().long(), edges[1:].round().long()], dim=-1).unsqueeze(
             0
         )  # [1, n_audio_real, 2]
