@@ -776,6 +776,42 @@ def py():
             align.add_alias(align_name)
             tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
+    # --- Voxtral log-mel grad target (100 Hz) --------------------------------
+    # Same model, but differentiate w.r.t. the log-mel input features instead
+    # of the projected speech embeddings. This gives 100 Hz time resolution
+    # (vs ~12.5 Hz for projected) and unblocks char-level alignment, which is
+    # the testbed for the variants documented in projects/2026-05-23-grad-align.md.
+    voxtral_logmel_cfg = rf.build_dict(
+        Voxtral,
+        model_dir=dl_voxtral,
+        forward_mode="transcription",
+        grad_wrt="log_mel",
+        version=4,
+    )
+    vxt_lm_extract = ExtractInGradsPerTokenJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=voxtral_logmel_cfg,
+        mult_grad_by_inputs=True,
+        attr_reduction="L2",
+    )
+    vxt_lm_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    vxt_lm_extract_name = "voxtral-transcribe-logmel-timit-val-L2_e_grad-pertoken"
+    vxt_lm_extract.add_alias(vxt_lm_extract_name)
+    tk.register_output(f"{vxt_lm_extract_name}.hdf", vxt_lm_extract.out_hdf)
+    for align_opts in _ALIGN_OPTS_GRID:
+        align_name = f"align/{vxt_lm_extract_name}-{_name_for_dict(align_opts)}"
+        align = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=vxt_lm_extract.out_hdf,
+            grad_score_key="data",
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=align_opts,
+        )
+        align.add_alias(align_name)
+        tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+
     # --- Canary-Qwen 2.5B grad-variant sweep on TIMIT val -----------------
     # A sensible subset (not the full 9x grid): the grad x input ("e_grad")
     # family at a few norms, plus one plain-grad contrast. Each extract runs
