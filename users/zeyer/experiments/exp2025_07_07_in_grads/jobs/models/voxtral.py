@@ -111,6 +111,13 @@ class Voxtral(BaseModelInterface):
             "version >= 3: correct n_audio_real = (n_samples + 1279) // 1280. "
             "(version=1/2 defaults exist only for hash stability of old finished jobs.)"
         )
+        assert grad_wrt in ("speech_embeddings", "log_mel"), grad_wrt
+        if grad_wrt != "speech_embeddings":
+            assert version >= 4, (
+                "version >= 4 required when grad_wrt != 'speech_embeddings' "
+                "(log_mel grad path enabled)."
+            )
+        self.version = version
 
         print("Import Voxtral / transformers (from overlay)...")
         start_time = time.time()
@@ -237,27 +244,58 @@ class Voxtral(BaseModelInterface):
         return out, dst_text_start
 
     def _splice_audio_into_embeds(self, inputs: Dict[str, torch.Tensor]):
-        """Return (audio_embeds, inputs_embeds) where audio_embeds has
-        ``requires_grad=True`` and ``inputs_embeds`` is the merged text +
-        audio embedding sequence ready for ``model(inputs_embeds=...)``.
+        """Return (grad_leaf, inputs_embeds).
+
+        ``grad_leaf`` is a [1, T, F] tensor with ``requires_grad=True`` and
+        ``retain_grad()`` set; differentiation target for per-token grads.
+        ``inputs_embeds`` is the merged text + audio embedding sequence ready
+        for ``model(inputs_embeds=...)``.
+
+        Two variants depending on ``self.grad_wrt``:
+
+        - ``speech_embeddings`` (default): grad leaf is the post-projection
+            audio embeds [1, n_projected, H_proj]. Encoder + projector run
+            without grad (detached). T resolution = 1280 samples/token
+            (~12.5 Hz). Fast, but coarse.
+        - ``log_mel``: grad leaf is the log-mel input feature tensor
+            transposed to [1, n_mel_frames, n_mel_bins]. The encoder + projector
+            stay in the forward graph so grad flows all the way back. T resolution
+            = 160 samples/frame (100 Hz). Slower backward but ~8x finer time
+            resolution -- needed for char-level alignment when projected
+            T < #chars.
         """
         # Replicate VoxtralForConditionalGeneration.forward's audio path:
         #   inputs_embeds[input_ids == audio_token_id] = get_audio_features(feat)
         # get_audio_features ALREADY applies the multimodal projector (encoder
-        # 1500 frames -> 375 projected speech tokens via 4x downsample). The
-        # old code extracted pre-projection states and masked_scatter filled
-        # only the first 375 slots -> misaligned audio, bad gradients.
-        audio_out = self.model.get_audio_features(inputs["input_features"])
-        # get_audio_features returns a ModelOutput; .pooler_output = projected embeds [n, H]
-        if not isinstance(audio_out, torch.Tensor):
-            audio_2d = audio_out.pooler_output
-        else:
-            audio_2d = audio_out.reshape(-1, audio_out.shape[-1])
+        # 1500 frames -> 375 projected speech tokens via 4x downsample).
+        input_features = inputs["input_features"]  # [1, n_mel, n_mel_frames]
 
-        # Build [1, n_projected, H] grad leaf. detach() so grad flows through
-        # projected speech tokens only (not back into the Whisper encoder).
-        audio_embeds = audio_2d.detach().unsqueeze(0).requires_grad_(True)
-        audio_embeds.retain_grad()
+        if self.grad_wrt == "log_mel":
+            # Grad leaf is the log-mel features, exposed as [1, T, F] = [1, n_mel_frames, n_mel].
+            # We requires_grad on the transposed view (which is the leaf),
+            # then transpose back for the encoder. Grad flows: input_features_T
+            # -> transpose -> encoder -> projector -> LLM -> loss.
+            input_features_T = input_features.transpose(1, 2).contiguous().requires_grad_(True)
+            input_features_T.retain_grad()
+            input_features_for_enc = input_features_T.transpose(1, 2)
+            audio_out = self.model.get_audio_features(input_features_for_enc)
+            if not isinstance(audio_out, torch.Tensor):
+                audio_2d = audio_out.pooler_output
+            else:
+                audio_2d = audio_out.reshape(-1, audio_out.shape[-1])
+            audio_embeds = audio_2d.unsqueeze(0)  # NO detach -- grad flows through encoder.
+            grad_leaf = input_features_T
+        else:  # speech_embeddings (default)
+            audio_out = self.model.get_audio_features(input_features)
+            if not isinstance(audio_out, torch.Tensor):
+                audio_2d = audio_out.pooler_output
+            else:
+                audio_2d = audio_out.reshape(-1, audio_out.shape[-1])
+            # Build [1, n_projected, H] grad leaf. detach() so grad flows
+            # through projected speech tokens only (not back into Whisper).
+            audio_embeds = audio_2d.detach().unsqueeze(0).requires_grad_(True)
+            audio_embeds.retain_grad()
+            grad_leaf = audio_embeds
 
         text_embeds = self.model.get_input_embeddings()(inputs["input_ids"])  # [1, T, H]
         audio_token_mask = inputs["input_ids"] == self.audio_token_id  # [1, T]
@@ -268,10 +306,11 @@ class Voxtral(BaseModelInterface):
         merged = text_embeds.clone()
         merged[audio_token_mask] = audio_embeds[0].to(text_embeds.dtype)
         print(
-            f"  [splice] {n_slots} audio slots filled, audio_embeds {tuple(audio_embeds.shape)}, merged {tuple(merged.shape)}",
+            f"  [splice] grad_wrt={self.grad_wrt} grad_leaf {tuple(grad_leaf.shape)} "
+            f"audio_embeds {tuple(audio_embeds.shape)} merged {tuple(merged.shape)}",
             flush=True,
         )
-        return audio_embeds, merged
+        return grad_leaf, merged
 
     # ---- Forward (forced alignment) -------------------------------------
 
@@ -383,13 +422,18 @@ class Voxtral(BaseModelInterface):
         assert words_ == words, f"target_decoded={words_!r} ref_words={words!r}"
         words_start_end = words_start_end + [[n_targets, n_targets + 1]]  # EOS slot
 
-        # Slice audio_embeds to the real-audio span (drop Whisper-style
-        # 30-s silence padding). The projected tokens are 4x downsampled from
-        # the Whisper encoder output (10ms log-mel hop * 2x conv downsample *
-        # 4x projector downsample = 80ms = 1280 samples per projected token).
+        # Slice the grad leaf to the real-audio span (drop Whisper-style
+        # 30-s silence padding). Samples-per-frame depends on grad_wrt:
+        #   speech_embeddings: 1280 samples/projected-token
+        #     (10ms log-mel hop * 2x conv * 4x projector = 80ms = 1280 samples).
+        #   log_mel: 160 samples/log-mel-frame (16 kHz * 10ms hop).
         n_audio_total = int(audio_embeds.shape[1])
         n_samples = int(raw_input_seq_lens[0])
-        n_audio_real = min(n_audio_total, (n_samples + 1279) // 1280)
+        if self.grad_wrt == "log_mel":
+            samples_per_frame = 160
+        else:
+            samples_per_frame = 1280
+        n_audio_real = min(n_audio_total, (n_samples + samples_per_frame - 1) // samples_per_frame)
         input_slice = (
             torch.tensor([0], dtype=torch.int64),
             torch.tensor([n_audio_real], dtype=torch.int64),
