@@ -1,29 +1,31 @@
 """
 Batched multi-GPU recog:
-one SLURM Job covers all test_sets for a given epoch across the GPUs of one node
+ONE SLURM Job covers all (epoch x test_set) recog cells of a training,
+run once at the end, across the GPUs of one node
 (JUPITER: 4 GH200, billing flat per node, must use all 4).
-Drop-in alternative to the per-(epoch, test_set) ``ReturnnForwardJobV2`` fan-out
+
+Replaces the per-(epoch, test_set) ``ReturnnForwardJobV2`` fan-out
 used by ``recog_training_exp`` -> ``_RecogAndScoreFunc`` -> ``recog_model`` -> ``search_dataset``.
 
-v1: per-epoch batched.
-One ``BatchedReturnnForwardJob`` per epoch covers all ``task.eval_datasets`` cells in one SLURM job.
+Design:
+``recog_training_exp_batched`` builds one ``BatchedReturnnForwardJob`` whose cells are the full
+cross product ``model.fixed_epochs x task.eval_datasets``.
+``fixed_epochs`` is known at graph-build time (the keep-epochs + last epoch),
+so the whole cell set is materialized upfront -- no per-epoch job fan-out.
 Inside the job, a thread-pool of ``self.rqmt["gpu"]`` workers pinned to ``CUDA_VISIBLE_DEVICES=<i>``
 pulls cells from a queue and runs ``rnn.py per_cell.config`` as a subprocess.
-Per-cell outputs are exposed as a dict,
-so the downstream post-processing + scoring sees them like a per-cell ``ReturnnForwardJobV2`` output.
-Corpus-agnostic; no assumption about the test-set count.
+A worker keeps the model loaded across consecutive cells of the same epoch
+(cells are emitted epoch-major), amortizing checkpoint load + RETURNN startup.
+
+The per-cell raw outputs feed the same post-processing + scoring as ``search_dataset``,
+then ``GetBestRecogTrainExp`` picks the best epoch (fed pre-computed per-epoch scores,
+so it does *not* spawn any further recog jobs).
+Dynamic LR-score-based epoch picking is intentionally dropped:
+we recog exactly the ``fixed_epochs`` set, which is what we can determine at graph-build.
 
 Opt-in:
 original ``recog_training_exp`` / ``_RecogAndScoreFunc`` / ``recog_model`` / ``search_dataset`` are unchanged;
-the batched path is a parallel set of functions.
-base-ls + other consumers keep their existing per-cell hashes by construction.
-
-Cross-epoch batching (one job for ALL picked epochs across ALL test_sets) is a clean v2 --
-it would create one ``BatchedReturnnForwardJob``
-with a cell list materialized inside ``GetBestRecogTrainExp`` after picking.
-Per-epoch v1 already gives the JUPITER wins
-(4x GPU utilization, ~test_sets x within-epoch startup amortization);
-v2 is a follow-up if startup still dominates.
+this is a parallel module. base-ls + other consumers keep their existing per-cell hashes.
 """
 
 from __future__ import annotations
@@ -45,16 +47,11 @@ from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 
 from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zeyer.model_interfaces import RecogDef
-from i6_experiments.users.zeyer.model_with_checkpoints import (
-    ModelWithCheckpoint,
-    ModelWithCheckpoints,
-)
+from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints
 from i6_experiments.users.zeyer.recog import (
     GetBestRecogTrainExp,
-    GetTorchAvgModelResult,
     RecogOutput,
     ScoreResultCollection,
-    _RecogAndScoreFunc,
     _v2_forward_ext_out_filename,
     _v2_forward_out_filename,
     get_from_config,
@@ -67,7 +64,6 @@ from i6_core.returnn.training import PtCheckpoint
 
 __all__ = [
     "BatchedReturnnForwardJob",
-    "recog_model_batched",
     "recog_training_exp_batched",
 ]
 
@@ -163,7 +159,7 @@ class BatchedReturnnForwardJob(Job):
                 {
                     "key": ck,
                     "config": os.path.abspath(config_path),
-                    "model_checkpoint": cs["model_checkpoint"].get_path(),
+                    "model_checkpoint": os.fspath(cs["model_checkpoint"]),
                     "output_dir": os.path.abspath(out_dir),
                     "output_files": list(cs["output_files"]),
                 }
@@ -218,12 +214,6 @@ class BatchedReturnnForwardJob(Job):
             raise RuntimeError(f"BatchedReturnnForwardJob: {len(errors)} cell(s) failed: {msg}")
 
 
-# -------------------------------------------------------------------------------------------------
-# Integration:
-# per-epoch batched search_dataset / recog_model / _RecogAndScoreFunc / recog_training_exp.
-# -------------------------------------------------------------------------------------------------
-
-
 def _post_process_search_output(
     raw_out: tk.Path,
     *,
@@ -269,129 +259,53 @@ def _post_process_search_output(
     return RecogOutput(output=res)
 
 
-def recog_model_batched(
-    task: TaskCfg,
-    model: ModelWithCheckpoint,
-    recog_def: RecogDef,
-    *,
-    config: Optional[Dict[str, Any]] = None,
-    search_post_config: Optional[Dict[str, Any]] = None,
-    recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
-    recog_pre_post_proc_funcs_ext: Sequence[Callable] = (),
-    eval_sets: Optional[Union[Collection[str], Dict[str, DatasetConfig]]] = None,
-    dev_sets: Optional[Union[Collection[str], Dict[str, DatasetConfig]]] = None,
-    name: Optional[str] = None,
-) -> ScoreResultCollection:
+# -------------------------------------------------------------------------------------------------
+# Cross-epoch batched recog: one job for ALL (epoch x test_set) cells, picked at the end.
+# -------------------------------------------------------------------------------------------------
+
+
+class _PrecomputedRecogScore:
     """
-    Like ``recog.recog_model`` but bundles all ``eval_sets`` into ONE ``BatchedReturnnForwardJob``.
+    A ``recog_and_score_func`` (epoch -> ScoreResultCollection) for ``GetBestRecogTrainExp``
+    that returns a *pre-computed* per-epoch score collection instead of creating a new recog job.
 
-    Only the **inner Job creation** is replaced;
-    epoch picking + scoring + result collection are unchanged.
-    Backend selection: requires ``model.definition.backend`` (the torch path);
-    the TF ``ReturnnSearchJobV2`` fallback is intentionally not supported here
-    (new code, only the modern backend).
+    All recogs already ran in the single ``BatchedReturnnForwardJob``;
+    this just hands the matching epoch's scored result to the summary job,
+    so the summary creates no further jobs.
     """
-    if dev_sets is not None:
-        assert eval_sets is None, "cannot specify both eval_sets and dev_sets"
-        eval_sets = dev_sets
-    if eval_sets is not None:
-        assert eval_sets
-        if isinstance(eval_sets, dict):
-            pass
-        else:
-            assert all(k in task.eval_datasets for k in eval_sets)
-            eval_sets = {k: task.eval_datasets[k] for k in eval_sets}
-    else:
-        eval_sets = task.eval_datasets
 
-    assert getattr(model.definition, "backend", None) is not None, (
-        "recog_model_batched: TF (backend=None) path not supported; use recog_model."
-    )
-
-    # Build per-cell returnn_configs (one per test_set),
-    # using the same builder as search_dataset.
-    cells: Dict[str, Dict[str, Any]] = {}
-    out_files = [_v2_forward_out_filename]
-    if get_from_config((config, model), "__recog_def_ext", False):
-        out_files.append(_v2_forward_ext_out_filename)
-    get_search_config = {None: search_config_v2, 1: search_config_v2, 2: search_config_v3}[
-        get_from_config((config, model), "__serialization_version", None)
-    ]
-    for dataset_name, dataset in eval_sets.items():
-        assert isinstance(dataset_name, str) and isinstance(dataset, DatasetConfig)
-        # Sanity: cell key is used as a path component.
-        assert "/" not in dataset_name and "\\" not in dataset_name, (
-            f"eval_set name {dataset_name!r} not usable as cell key (contains path separators)"
-        )
-        returnn_config = get_search_config(
-            dataset=dataset,
-            model_def=model.definition,
-            recog_def=recog_def,
-            config=config,
-            post_config=search_post_config,
-        )
-        cells[dataset_name] = {
-            "returnn_config": returnn_config,
-            "model_checkpoint": model.checkpoint,
-            "output_files": list(out_files),
-        }
-
-    batched_job = BatchedReturnnForwardJob(
-        cells=cells,
-        returnn_python_exe=tools_paths.get_returnn_python_exe(),
-        returnn_root=tools_paths.get_returnn_root(),
-    )
-    if name:
-        batched_job.add_alias(name + "/recog_batched")
-    if gs.DEFAULT_ENVIRONMENT_SET.get("TMPDIR"):
-        batched_job.set_env("TMPDIR", gs.DEFAULT_ENVIRONMENT_SET["TMPDIR"])
-
-    # Per-cell post-processing + scoring,
-    # mirroring search_dataset's tail.
-    outputs: Dict[str, ScoreResultCollection] = {}
-    for dataset_name, dataset in eval_sets.items():
-        raw = batched_job.out_files[dataset_name][_v2_forward_out_filename]
-        recog_out = _post_process_search_output(
-            raw,
-            dataset=dataset,
-            recog_def=recog_def,
-            recog_post_proc_funcs=list(recog_post_proc_funcs) + list(task.recog_post_proc_funcs),
-            recog_pre_post_proc_funcs_ext=recog_pre_post_proc_funcs_ext,
-        )
-        score_out = task.score_recog_output_func(dataset, recog_out)
-        outputs[dataset_name] = score_out
-    return task.collect_score_results_func(outputs)
-
-
-class _BatchedRecogAndScoreFunc(_RecogAndScoreFunc):
-    """
-    Same hash/contract as ``_RecogAndScoreFunc`` but per-epoch creates ONE ``BatchedReturnnForwardJob``.
-    """
+    def __init__(self, per_epoch_scores: Dict[int, ScoreResultCollection]):
+        self._per_epoch_scores = per_epoch_scores
 
     def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> ScoreResultCollection:
-        # Each call corresponds to a distinct (epoch / checkpoint) and thus a distinct BatchedReturnnForwardJob.
-        # The alias must include that to avoid clobbering across epochs (sis warns + only the first sticks).
-        if isinstance(epoch_or_ckpt, int):
-            model_with_checkpoint = self.model.get_epoch(epoch_or_ckpt)
-            alias_name = self.prefix_name + f"/epoch{epoch_or_ckpt:03}"
-        elif isinstance(epoch_or_ckpt, PtCheckpoint):
-            model_with_checkpoint = ModelWithCheckpoint(definition=self.model.definition, checkpoint=epoch_or_ckpt)
-            # caller-provided checkpoint -- skip auto-alias; caller can alias the returned job if wanted
-            alias_name = None
-        else:
-            raise TypeError(f"{self} unexpected type {type(epoch_or_ckpt)}")
-        res = recog_model_batched(
-            self.task,
-            model_with_checkpoint,
-            self.recog_def,
-            config=self.search_config,
-            search_post_config=self.search_post_config,
-            recog_post_proc_funcs=self.recog_post_proc_funcs,
-            name=alias_name,
-        )
-        if isinstance(epoch_or_ckpt, int):
-            tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}", res.output)
-        return res
+        if not isinstance(epoch_or_ckpt, int):
+            raise TypeError(f"{self}: only int epochs supported (cross-epoch batched recog), got {epoch_or_ckpt!r}")
+        if epoch_or_ckpt not in self._per_epoch_scores:
+            raise KeyError(
+                f"{self}: epoch {epoch_or_ckpt} not in pre-computed set {sorted(self._per_epoch_scores)};"
+                f" cross-epoch batched recog only covers model.fixed_epochs."
+            )
+        return self._per_epoch_scores[epoch_or_ckpt]
+
+    def _sis_hash(self) -> bytes:
+        from sisyphus.hash import sis_hash_helper
+
+        # Identifier kept stable (not the qualname) so the class can move modules without breaking hashes.
+        return sis_hash_helper({"class": "_PrecomputedRecogScore", "scores": self._per_epoch_scores})
+
+
+class _GetBestRecogTrainExpFixedEpochs(GetBestRecogTrainExp):
+    """
+    Like ``GetBestRecogTrainExp`` but without the dynamic LR-score epoch picking in ``update()``.
+
+    All ``fixed_epochs`` are already recog'd via the single ``BatchedReturnnForwardJob`` upfront,
+    and their scores are fed in via ``_PrecomputedRecogScore``,
+    so the dynamic ``update()`` (which would create more per-epoch recogs) must be a no-op.
+    """
+
+    def update(self):
+        """No dynamic epoch picking: the fixed_epochs set is materialized at graph-build."""
+        pass
 
 
 def recog_training_exp_batched(
@@ -403,27 +317,94 @@ def recog_training_exp_batched(
     search_config: Optional[Dict[str, Any]] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
-    search_mem_rqmt: Union[int, float] = 8,
+    recog_pre_post_proc_funcs_ext: Sequence[Callable] = (),
+    search_mem_rqmt: Union[int, float] = 8,  # unused: the BatchedReturnnForwardJob sets its own full-node rqmt
     exclude_epochs: Collection[int] = (),
     model_avg: bool = False,
 ):
     """
-    Drop-in for ``recog_training_exp`` that uses ``_BatchedRecogAndScoreFunc``:
-    one multi-GPU job per epoch instead of one per (epoch, test_set).
-    Same epoch picking (``GetBestRecogTrainExp``) and same output paths;
-    only the inner fan-out changes.
+    Cross-epoch batched recog, drop-in for ``recog_training_exp``.
+
+    Builds ONE ``BatchedReturnnForwardJob`` whose cells are ``model.fixed_epochs x task.eval_datasets``,
+    runs it once (at the end of training, when the checkpoints exist),
+    then post-processes + scores each cell and picks the best epoch.
+    Corpus-agnostic; one multi-GPU job instead of per-(epoch, test_set) fan-out.
+
+    Same registered outputs as ``recog_training_exp``
+    (``recog_results_best``, ``recog_results_all_epochs``).
     """
-    recog_and_score_func = _BatchedRecogAndScoreFunc(
-        prefix_name,
-        task,
-        model,
-        recog_def,
-        search_config=search_config,
-        search_post_config=search_post_config,
-        recog_post_proc_funcs=recog_post_proc_funcs,
-        search_mem_rqmt=search_mem_rqmt,
+    assert getattr(model.definition, "backend", None) is not None, (
+        "recog_training_exp_batched: TF (backend=None) path not supported; use recog_training_exp."
     )
-    summarize_job = GetBestRecogTrainExp(
+    assert not model_avg, "recog_training_exp_batched: model_avg not supported yet (averaged ckpt not in cells)."
+
+    epochs = sorted(e for e in model.fixed_epochs if e not in exclude_epochs)
+    assert epochs, f"no fixed_epochs to recog (fixed_epochs={model.fixed_epochs}, exclude={exclude_epochs})"
+    test_sets = task.eval_datasets  # name -> DatasetConfig
+
+    out_files = [_v2_forward_out_filename]
+    if get_from_config((search_config, model.definition), "__recog_def_ext", False):
+        out_files.append(_v2_forward_ext_out_filename)
+    get_search_config = {None: search_config_v2, 1: search_config_v2, 2: search_config_v3}[
+        get_from_config((search_config, model.definition), "__serialization_version", None)
+    ]
+
+    # Build all cells: (epoch x test_set), epoch-major so a worker reuses the loaded checkpoint.
+    cells: Dict[str, Dict[str, Any]] = {}
+    cell_meta: Dict[str, Tuple[int, str, DatasetConfig]] = {}  # cell_key -> (epoch, dataset_name, dataset)
+    for epoch in epochs:
+        model_with_checkpoint = model.get_epoch(epoch)
+        for dataset_name, dataset in test_sets.items():
+            assert isinstance(dataset_name, str) and isinstance(dataset, DatasetConfig)
+            assert "/" not in dataset_name and "\\" not in dataset_name, (
+                f"eval_set name {dataset_name!r} not usable as cell key (contains path separators)"
+            )
+            cell_key = f"ep{epoch:03}-{dataset_name}"
+            returnn_config = get_search_config(
+                dataset=dataset,
+                model_def=model.definition,
+                recog_def=recog_def,
+                config=search_config,
+                post_config=search_post_config,
+            )
+            cells[cell_key] = {
+                "returnn_config": returnn_config,
+                "model_checkpoint": model_with_checkpoint.checkpoint,
+                "output_files": list(out_files),
+            }
+            cell_meta[cell_key] = (epoch, dataset_name, dataset)
+
+    batched_job = BatchedReturnnForwardJob(
+        cells=cells,
+        returnn_python_exe=tools_paths.get_returnn_python_exe(),
+        returnn_root=tools_paths.get_returnn_root(),
+    )
+    batched_job.add_alias(prefix_name + "/recog_batched")
+    if gs.DEFAULT_ENVIRONMENT_SET.get("TMPDIR"):
+        batched_job.set_env("TMPDIR", gs.DEFAULT_ENVIRONMENT_SET["TMPDIR"])
+
+    # Per-cell post-processing + scoring (mirrors search_dataset's tail), collected per epoch.
+    per_epoch_outputs: Dict[int, Dict[str, ScoreResultCollection]] = {}
+    for cell_key, (epoch, dataset_name, dataset) in cell_meta.items():
+        raw = batched_job.out_files[cell_key][_v2_forward_out_filename]
+        recog_out = _post_process_search_output(
+            raw,
+            dataset=dataset,
+            recog_def=recog_def,
+            recog_post_proc_funcs=list(recog_post_proc_funcs) + list(task.recog_post_proc_funcs),
+            recog_pre_post_proc_funcs_ext=recog_pre_post_proc_funcs_ext,
+        )
+        score_out = task.score_recog_output_func(dataset, recog_out)
+        per_epoch_outputs.setdefault(epoch, {})[dataset_name] = score_out
+
+    per_epoch_scores: Dict[int, ScoreResultCollection] = {
+        epoch: task.collect_score_results_func(outputs) for epoch, outputs in per_epoch_outputs.items()
+    }
+
+    # Summary: reuse GetBestRecogTrainExp's best-epoch picking, fed pre-computed per-epoch scores
+    # (so it spawns no further recog jobs); dynamic LR-score picking disabled (fixed_epochs only).
+    recog_and_score_func = _PrecomputedRecogScore(per_epoch_scores)
+    summarize_job = _GetBestRecogTrainExpFixedEpochs(
         exp=model,
         recog_and_score_func=recog_and_score_func,
         main_measure_lower_is_better=task.main_measure_type.lower_is_better,
@@ -432,8 +413,3 @@ def recog_training_exp_batched(
     summarize_job.add_alias(prefix_name + "/train-summarize")
     tk.register_output(prefix_name + "/recog_results_best", summarize_job.out_summary_json)
     tk.register_output(prefix_name + "/recog_results_all_epochs", summarize_job.out_results_all_epochs_json)
-    if model_avg:
-        model_avg_res_job = GetTorchAvgModelResult(
-            exp=model, recog_and_score_func=recog_and_score_func, exclude_epochs=exclude_epochs
-        )
-        tk.register_output(prefix_name + "/recog_results_model_avg", model_avg_res_job.out_results)
