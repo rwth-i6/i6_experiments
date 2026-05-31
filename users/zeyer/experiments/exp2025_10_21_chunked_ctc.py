@@ -85,7 +85,6 @@ def _add_row_index_id_column(ds):
 
 def py():
     _exp_base, _task_base, _aux_base = train("base", {})
-    _run_align_stats("base", _exp_base, _aux_base)
 
     # Verify the offline-trained base model runs correctly when loaded into
     # ChunkedConformerEncoderV2 (v=3). Offline first (chunk_size=None) -- WER
@@ -439,7 +438,6 @@ def py():
             "lm_recog_extra.__serialization_version_stats": 2,
         },
     )
-    _run_align_stats(name, exp, aux_ctc_layer)
     # CTC-only recog-time chunk-size / lookahead sweep on the last fixed epoch.
     for cs, lh in [
         (center_size, right_size),
@@ -1381,6 +1379,24 @@ def train(
             prior_dataset=get_loquacious_train_subset_dataset_v2(vocab="spm10k"),
         )
 
+    # TIMIT forced-align stats (WBE + streaming latency) for every CTC model.
+    # ff* (feed-forward decoder) and *-bug experiments are not part of the
+    # chunked-CTC study, so they're skipped. Chunk geometry for the latency
+    # metric is read from the encoder build dict (chunk_size / lookahead);
+    # offline / full-context models have no chunk_size => None.
+    if not (name.startswith("ff") or name.endswith("-bug")):
+        _enc_bd = model_config.get("enc_build_dict") if isinstance(model_config, dict) else None
+        _chunk_c = _enc_bd.get("chunk_size") if isinstance(_enc_bd, dict) else None
+        _chunk_la = (_enc_bd.get("chunk_lookahead_size", 0) if isinstance(_enc_bd, dict) else 0) or 0
+        _run_align_stats(
+            name,
+            exp,
+            aux_ctc_layer,
+            chunk_center_frames=_chunk_c,
+            chunk_lookahead_frames=_chunk_la,
+            vocab_str=vocab,
+        )
+
     return exp, task, aux_ctc_layer
 
 
@@ -1571,14 +1587,25 @@ def _aed_ctc_forced_align(
     )
 
 
-def _run_align_stats(name: str, exp, aux_ctc_layer: int) -> None:
+def _run_align_stats(
+    name: str,
+    exp,
+    aux_ctc_layer: int,
+    *,
+    chunk_center_frames: Optional[int] = None,
+    chunk_lookahead_frames: int = 0,
+    vocab_str: str = "spm10k",
+) -> None:
     """
     Forced-align on TIMIT val+test + WBE / TSE metric
     for the given trained model.
 
     Single forced-align variant (no prior).
     Registers per-(corpus,split) outputs
-    ``align-stats/<name>/<corpus>-<split>/{alignment.hdf, wbe.txt, report.txt}``.
+    ``align-stats/<name>/<corpus>-<split>/{alignment.hdf, wbe.txt, report.txt,
+    latency.txt, latency-report.txt}``.
+    The latency metric (:class:`CalcCtcStreamingLatencyFromHfDatasetJob`) is
+    chunked-model specific; ``chunk_center_frames=None`` => offline (full sequence).
     """
     from i6_experiments.users.zeyer.datasets.loquacious import get_vocab_by_str
     from i6_experiments.users.zeyer.datasets.hf_timit_buckeye import (
@@ -1586,10 +1613,13 @@ def _run_align_stats(name: str, exp, aux_ctc_layer: int) -> None:
         get_hf_word_align_dataset_config,
         get_hf_word_align_dataset_dir,
     )
-    from i6_experiments.users.zeyer.alignment.ctc_wbe_from_hf_dataset import CalcCtcWbeFromHfDatasetJob
+    from i6_experiments.users.zeyer.alignment.ctc_wbe_from_hf_dataset import (
+        CalcCtcWbeFromHfDatasetJob,
+        CalcCtcStreamingLatencyFromHfDatasetJob,
+    )
 
     prefix = get_setup_prefix_for_module(__name__) + "/align-stats/" + name
-    vocab = get_vocab_by_str("spm10k")
+    vocab = get_vocab_by_str(vocab_str)
     model = exp.get_last_fixed_epoch()
 
     # The Loquacious-trained SPM10k vocab here is all-uppercase
@@ -1606,7 +1636,7 @@ def _run_align_stats(name: str, exp, aux_ctc_layer: int) -> None:
             alignment_hdf.creator.add_alias(f"{prefix}/{tag}/forced-align")
             tk.register_output(f"{prefix}/{tag}/alignment.hdf", alignment_hdf)
 
-            metrics_job = CalcCtcWbeFromHfDatasetJob(
+            wbe_job = CalcCtcWbeFromHfDatasetJob(
                 alignment_hdf=alignment_hdf,
                 spm_model_file=vocab.model_file,
                 blank_idx=vocab.dim,
@@ -1614,6 +1644,21 @@ def _run_align_stats(name: str, exp, aux_ctc_layer: int) -> None:
                 dataset_key=split,
                 dataset_offset_factor=offset_factor,
             )
-            metrics_job.add_alias(f"{prefix}/{tag}/wbe-metric")
-            tk.register_output(f"{prefix}/{tag}/wbe.txt", metrics_job.out_wbe)
-            tk.register_output(f"{prefix}/{tag}/report.txt", metrics_job.out_report)
+            wbe_job.add_alias(f"{prefix}/{tag}/wbe-metric")
+            tk.register_output(f"{prefix}/{tag}/wbe.txt", wbe_job.out_wbe)
+            tk.register_output(f"{prefix}/{tag}/report.txt", wbe_job.out_report)
+
+            latency_job = CalcCtcStreamingLatencyFromHfDatasetJob(
+                alignment_hdf=alignment_hdf,
+                spm_model_file=vocab.model_file,
+                blank_idx=vocab.dim,
+                dataset_dir=ds_dir,
+                dataset_key=split,
+                dataset_offset_factor=offset_factor,
+                chunk_center_frames=chunk_center_frames,
+                chunk_lookahead_frames=chunk_lookahead_frames,
+            )
+            latency_job.add_alias(f"{prefix}/{tag}/latency-metric")
+            tk.register_output(f"{prefix}/{tag}/latency.txt", latency_job.out_latency)
+            tk.register_output(f"{prefix}/{tag}/first-word-latency.txt", latency_job.out_first_word_latency)
+            tk.register_output(f"{prefix}/{tag}/latency-report.txt", latency_job.out_report)
