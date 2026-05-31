@@ -222,6 +222,16 @@ def py():
     if True:
         _py_n12_sepff_tse(prefix=prefix, vocab_meta=vocab_meta, seq_list=seq_list, train_dataset=train_dataset)
 
+    # ---- pure-FF (chunked-ctc, Loquacious-trained) TSE block ----
+    from i6_experiments.users.zeyer.datasets.loquacious import get_spm_vocab as _loq_get_spm_vocab
+
+    loq_vocab = _loq_get_spm_vocab(dim="10k")
+    loq_vocab_meta = ("spm", ExtractSentencePieceVocabJob(loq_vocab.model_file).out_vocab, 10_240)
+    loq_task = get_librispeech_task_raw_v2(vocab=loq_vocab)
+    loq_train_dataset = loq_task.train_dataset.copy_train_as_static()
+    loq_train_dataset.main_dataset["seq_list_filter_file"] = seq_list
+    _ff_tse(prefix=prefix, seq_list=seq_list, train_dataset_loq=loq_train_dataset, vocab_meta_loq=loq_vocab_meta)
+
 
 def _enc_build_dict_l16_d1024():
     """Encoder spec for the L16-D1024 baseline. Mirrors ``ctc_claix2023.py``."""
@@ -540,6 +550,132 @@ def _py_n12_sepff_tse(*, prefix: str, vocab_meta, seq_list, train_dataset):
             alignment_bpe_vocab=vocab_meta[1],
             alignment_bpe_style=vocab_meta[0],
             alignment_blank_idx=vocab_meta[2],
+            features_sprint_cache=_FEATURES_SPRINT_CACHE,
+            ref_alignment_sprint_cache=_GMM_ALIGNMENT_SPRINT_CACHE,
+            ref_alignment_allophones=_GMM_ALIGNMENT_ALLOPHONES,
+            ref_alignment_len_factor=6,
+        )
+        job.add_alias(f"{prefix_}align-metrics")
+        tk.register_output(f"{prefix_}align-metrics.json", job.out_scores)
+        tk.register_output(f"{prefix_}align-metrics.short_report.txt", job.out_short_report_str)
+
+
+# =============================================================================
+# Pure-FF chunked-ctc TSE block (cross-vocab eval on LBS).
+#
+# The pure-FF AED+CTC models (`ff6`/`ff12`/`ff12-dec3`) are trained on
+# Loquacious-large with Loquacious's own spm10k vocab; the trained checkpoints
+# live in ~/setups/2025-10-21-chunked-ctc and are symlinked into work/ here
+# (GY8GtyVV8aSe / HLbtbfdg400g / VJI0pcT3qW61). To get TSE on LBS we
+# re-tokenize the LBS-960h subset with the loq vocab and run forced-align via
+# `_aed_ctc_forced_align` (which calls `encode_and_get_ctc_log_probs` -- the
+# AED model's `__call__` does AED decoding, not CTC).
+#
+# We replicate the relevant body of ``chunked_ctc.train`` inline rather than
+# calling it, so we don't have to modify the chunked-ctc recipe (owned by a
+# different setup) and don't pull its downstream recog blocks (Loquacious LM
+# search, eval-set timesync recog) into our sis graph. Hash-stable wrt
+# chunked_ctc, so the symlinked checkpoints are reused.
+# =============================================================================
+
+
+def _train_ff(name: str, num_layers: int, *, dec_layers: int | None = None):
+    """Inline replica of ``chunked_ctc.train(name, ...)`` for the pure-FF
+    AED+CTC variants. Returns ``(exp, aux_ctc_layer)`` matching the symlinked
+    chunked-ctc training jobs (hash-stable).
+
+    A no-op ``recog_training_func`` is passed so ``aed_train_exp`` skips the
+    eval-set recog that would otherwise pull in the loq audio dataset.
+    """
+    from .exp2025_10_21_chunked_ctc import _base_config
+    from .exp2024_04_23_baselines.aed import train_exp as _aed_train_exp
+    from .exp2024_04_23_baselines.ctc import model_recog as _ctc_model_recog
+    from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
+    from i6_experiments.users.zeyer.datasets.loquacious import get_loquacious_task_raw_v2
+    from i6_experiments.users.zeyer.nn_rf.encoder import ff as ff_enc
+
+    aux_layers = [6, num_layers] if num_layers > 6 else [num_layers]
+    config = dict_update_deep(_base_config.copy(), {"train.aux_loss_layers": aux_layers})
+    if dec_layers is not None:
+        config = dict_update_deep(
+            config,
+            {"train.dec_aux_loss_layers": None, "model.dec_build_dict.num_layers": dec_layers},
+        )
+    config = dict_update_deep(
+        config,
+        {"model.enc_build_dict": rf.build_dict(ff_enc.FeedForwardEncoder, num_layers=num_layers, out_dim=1024)},
+        dict_value_merge=False,
+    )
+
+    train_epoch_split_per_subset = {"clean": 13, "small": 1, "medium": 2, "large": 25}
+    hours_per_subset = {"clean": 13_000, "small": 250, "medium": 2_500, "large": 25_000}
+    subset = config.pop("subset")
+    total_k_hours = config.pop("total_k_hours")
+    train_epoch_split = train_epoch_split_per_subset[subset]
+    n_ep = round(total_k_hours * 1_000 / hours_per_subset[subset] * train_epoch_split)
+
+    train_update_func_from_n_ep = config.pop("train_update_func_from_n_ep")
+    if train_update_func_from_n_ep:
+        config = dict_update_deep(config, train_update_func_from_n_ep(n_ep))
+
+    model_config = config.pop("model")
+    train_config = config.pop("train")
+    post_config = config.pop("train_post")
+    vocab = config.pop("vocab", "spm10k")
+    task = get_loquacious_task_raw_v2(vocab=vocab, subset_name=subset, train_epoch_split=train_epoch_split)
+    train_vocab_opts = config.pop("train_vocab_opts")
+    dataset_train_opts = config.pop("dataset_train_opts")
+    env_updates = config.pop("env_updates")
+    config.pop("lm_recog_extra")
+    assert not config
+
+    aux_ctc_layer = max(i for i in train_config["aux_loss_layers"] if i <= model_config["enc_build_dict"]["num_layers"])
+
+    exp = _aed_train_exp(
+        name,
+        train_config,
+        prefix="exp2025_10_21_chunked_ctc/aed/",  # same alias prefix chunked_ctc.train uses
+        task=task,
+        model_config=model_config,
+        post_config_updates=post_config,
+        vocab=vocab,
+        train_vocab_opts=train_vocab_opts,
+        dataset_train_opts=dataset_train_opts,
+        env_updates=env_updates,
+        recog_def=_ctc_model_recog,
+        search_config={"aux_loss_layers": [aux_ctc_layer]},
+        recog_training_func=lambda *a, **kw: None,
+    )
+    return exp, aux_ctc_layer
+
+
+def _ff_tse(*, prefix: str, vocab_meta_loq, seq_list, train_dataset_loq):
+    """Forced-align + TSE for the chunked-ctc pure-FF models on LBS."""
+    from .exp2025_10_21_chunked_ctc import _aed_ctc_forced_align as _ff_align
+
+    variants = [
+        ("ff6", *_train_ff("ff6", 6)),
+        ("ff12", *_train_ff("ff12", 12)),
+        ("ff12-dec3", *_train_ff("ff12-dec3", 12, dec_layers=3)),
+    ]
+    for shortname, exp, aux_ctc_layer in variants:
+        if exp is None:
+            continue
+        model = exp.get_last_fixed_epoch()
+        name = f"{shortname}-fix"
+        prefix_ = f"{prefix}ff_tse/{name}/"
+        alignment = _ff_align(model, train_dataset_loq, aux_ctc_layer=aux_ctc_layer)
+        alignment.creator.add_alias(f"{prefix_}align")
+        tk.register_output(f"{prefix_}align.hdf", alignment)
+
+        job = CalcAlignmentMetrics(
+            seq_list=seq_list,
+            seq_list_ref=_SEQ_LIST_REF,
+            alignment_hdf=alignment,
+            alignment_label_topology="ctc",
+            alignment_bpe_vocab=vocab_meta_loq[1],
+            alignment_bpe_style=vocab_meta_loq[0],
+            alignment_blank_idx=vocab_meta_loq[2],
             features_sprint_cache=_FEATURES_SPRINT_CACHE,
             ref_alignment_sprint_cache=_GMM_ALIGNMENT_SPRINT_CACHE,
             ref_alignment_allophones=_GMM_ALIGNMENT_ALLOPHONES,
