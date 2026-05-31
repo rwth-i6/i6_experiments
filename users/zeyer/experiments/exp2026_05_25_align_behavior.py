@@ -230,7 +230,7 @@ def py():
     loq_task = get_librispeech_task_raw_v2(vocab=loq_vocab)
     loq_train_dataset = loq_task.train_dataset.copy_train_as_static()
     loq_train_dataset.main_dataset["seq_list_filter_file"] = seq_list
-    _ff_tse(prefix=prefix, seq_list=seq_list, train_dataset_loq=loq_train_dataset, vocab_meta_loq=loq_vocab_meta)
+    _loq_tse(prefix=prefix, seq_list=seq_list, train_dataset_loq=loq_train_dataset, vocab_meta_loq=loq_vocab_meta)
 
 
 def _enc_build_dict_l16_d1024():
@@ -561,28 +561,29 @@ def _py_n12_sepff_tse(*, prefix: str, vocab_meta, seq_list, train_dataset):
 
 
 # =============================================================================
-# Pure-FF chunked-ctc TSE block (cross-vocab eval on LBS).
+# Loquacious-trained AED+CTC TSE block (cross-vocab eval on LBS).
 #
-# The pure-FF AED+CTC models (`ff6`/`ff12`/`ff12-dec3`) are trained on
-# Loquacious-large with Loquacious's own spm10k vocab; the trained checkpoints
-# live in ~/setups/2025-10-21-chunked-ctc and are symlinked into work/ here
-# (GY8GtyVV8aSe / HLbtbfdg400g / VJI0pcT3qW61). To get TSE on LBS we
-# re-tokenize the LBS-960h subset with the loq vocab and run forced-align via
-# `_aed_ctc_forced_align` (which calls `encode_and_get_ctc_log_probs` -- the
-# AED model's `__call__` does AED decoding, not CTC).
+# Four AED+CTC variants trained on Loquacious-large with Loquacious's own
+# spm10k vocab:
+#   - ``base``: 16-layer Conformer encoder (D=1024) + 6-layer Transformer
+#     decoder, the standard architecture.
+#   - ``ff6``/``ff12``/``ff12-dec3``: pure FeedForwardEncoder of varying depth
+#     (6 or 12 layers), with the default or a 3-layer decoder.
 #
-# We replicate the relevant body of ``chunked_ctc.train`` inline rather than
-# calling it, so we don't have to modify the chunked-ctc recipe (owned by a
-# different setup) and don't pull its downstream recog blocks (Loquacious LM
-# search, eval-set timesync recog) into our sis graph. Hash-stable wrt
-# chunked_ctc, so the symlinked checkpoints are reused.
+# To get TSE on LBS we re-tokenize the LBS-960h subset with the loq vocab and
+# run forced-align via ``_aed_ctc_forced_align``, which calls
+# ``model.encode_and_get_ctc_log_probs`` (the AED model's ``__call__`` does
+# AED decoding, not CTC). TIMIT WBE is computed by ``_run_align_stats``.
 # =============================================================================
 
 
-def _train_ff(name: str, num_layers: int, *, dec_layers: int | None = None):
-    """Inline replica of ``chunked_ctc.train(name, ...)`` for the pure-FF
-    AED+CTC variants. Returns ``(exp, aux_ctc_layer)`` matching the symlinked
-    chunked-ctc training jobs (hash-stable).
+def _train_loq_aed_ctc(name: str, *, train_overrides: dict | None = None, model_overrides: dict | None = None):
+    """Set up a Loquacious-large AED+CTC training and return ``(exp, aux_ctc_layer)``.
+
+    ``train_overrides`` are deep-merged into the base config (Conformer encoder
+    + Transformer decoder + spm10k vocab + standard training schedule);
+    ``model_overrides`` are layered on top with ``dict_value_merge=False``,
+    i.e. nested dicts (e.g. ``model.enc_build_dict``) get replaced wholesale.
 
     A no-op ``recog_training_func`` is passed so ``aed_train_exp`` skips the
     eval-set recog that would otherwise pull in the loq audio dataset.
@@ -592,20 +593,10 @@ def _train_ff(name: str, num_layers: int, *, dec_layers: int | None = None):
     from .exp2024_04_23_baselines.ctc import model_recog as _ctc_model_recog
     from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
     from i6_experiments.users.zeyer.datasets.loquacious import get_loquacious_task_raw_v2
-    from i6_experiments.users.zeyer.nn_rf.encoder import ff as ff_enc
 
-    aux_layers = [6, num_layers] if num_layers > 6 else [num_layers]
-    config = dict_update_deep(_base_config.copy(), {"train.aux_loss_layers": aux_layers})
-    if dec_layers is not None:
-        config = dict_update_deep(
-            config,
-            {"train.dec_aux_loss_layers": None, "model.dec_build_dict.num_layers": dec_layers},
-        )
-    config = dict_update_deep(
-        config,
-        {"model.enc_build_dict": rf.build_dict(ff_enc.FeedForwardEncoder, num_layers=num_layers, out_dim=1024)},
-        dict_value_merge=False,
-    )
+    config = dict_update_deep(_base_config.copy(), (train_overrides or {}).copy())
+    if model_overrides:
+        config = dict_update_deep(config, model_overrides, dict_value_merge=False)
 
     train_epoch_split_per_subset = {"clean": 13, "small": 1, "medium": 2, "large": 25}
     hours_per_subset = {"clean": 13_000, "small": 250, "medium": 2_500, "large": 25_000}
@@ -649,14 +640,33 @@ def _train_ff(name: str, num_layers: int, *, dec_layers: int | None = None):
     return exp, aux_ctc_layer
 
 
-def _ff_tse(*, prefix: str, vocab_meta_loq, seq_list, train_dataset_loq):
-    """Forced-align + TSE for the chunked-ctc pure-FF models on LBS."""
-    from .exp2025_10_21_chunked_ctc import _aed_ctc_forced_align as _ff_align
+def _loq_tse(*, prefix: str, vocab_meta_loq, seq_list, train_dataset_loq):
+    """Forced-align + TSE on LBS for Loquacious-trained AED+CTC variants.
+    Also kicks off TIMIT WBE on the same models (loq-spm10k vocab is native to
+    TIMIT's all-uppercase transcripts).
+    """
+    from .exp2025_10_21_chunked_ctc import _aed_ctc_forced_align as _ff_align, _run_align_stats
+    from i6_experiments.users.zeyer.nn_rf.encoder import ff as ff_enc
+
+    def _ff(num_layers):
+        return {"model.enc_build_dict": rf.build_dict(ff_enc.FeedForwardEncoder, num_layers=num_layers, out_dim=1024)}
 
     variants = [
-        ("ff6", *_train_ff("ff6", 6)),
-        ("ff12", *_train_ff("ff12", 12)),
-        ("ff12-dec3", *_train_ff("ff12-dec3", 12, dec_layers=3)),
+        ("base", *_train_loq_aed_ctc("base")),
+        ("ff6", *_train_loq_aed_ctc("ff6", train_overrides={"train.aux_loss_layers": [6]}, model_overrides=_ff(6))),
+        ("ff12", *_train_loq_aed_ctc("ff12", train_overrides={"train.aux_loss_layers": [6, 12]}, model_overrides=_ff(12))),
+        (
+            "ff12-dec3",
+            *_train_loq_aed_ctc(
+                "ff12-dec3",
+                train_overrides={
+                    "train.aux_loss_layers": [6, 12],
+                    "train.dec_aux_loss_layers": None,
+                    "model.dec_build_dict.num_layers": 3,
+                },
+                model_overrides=_ff(12),
+            ),
+        ),
     ]
     for shortname, exp, aux_ctc_layer in variants:
         if exp is None:
@@ -684,3 +694,7 @@ def _ff_tse(*, prefix: str, vocab_meta_loq, seq_list, train_dataset_loq):
         job.add_alias(f"{prefix_}align-metrics")
         tk.register_output(f"{prefix_}align-metrics.json", job.out_scores)
         tk.register_output(f"{prefix_}align-metrics.short_report.txt", job.out_short_report_str)
+
+        # TIMIT WBE via the chunked-ctc-side helper (loq-spm10k vocab native;
+        # registers outputs under exp2025_10_21_chunked_ctc/align-stats/<name>/).
+        _run_align_stats(shortname, exp, aux_ctc_layer)
