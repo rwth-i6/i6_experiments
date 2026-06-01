@@ -118,13 +118,21 @@ def run_medium(report_filename: Optional[str] = None) -> Tuple[Dict[str, Trained
     )
 
     variants = []
-    for beam_size in [2, 4, 6, 8]:
-        for score_threshold in [2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0]:
-            variant = recognition.speech_llm.default_lexfree_recog_variant()
-            variant.descriptor += f"_beam-{beam_size}_score-{score_threshold}"
-            variant.search_algorithm_params.max_beam_sizes = [beam_size]
-            variant.search_algorithm_params.score_thresholds = [score_threshold]
-            variants.append(variant)
+    for ctc_scale in [0.0, 0.3]:
+        for length_norm_scale in [0.0, 1.0]:
+            for beam_size in [3, 4, 5]:
+                for score_threshold in [0.5, 1.0, 1.5, 2.0, 2.5, 3.0]:
+                    variant = recognition.speech_llm.default_lexfree_recog_variant()
+                    variant.descriptor += (
+                        f"_beam-{beam_size}_score-{score_threshold}_ln-{length_norm_scale}_ctc-{ctc_scale}"
+                    )
+                    variant.search_algorithm_params.max_beam_sizes = [64, beam_size] if ctc_scale else [beam_size]
+                    variant.search_algorithm_params.score_thresholds = (
+                        [10.0, score_threshold] if ctc_scale else [score_threshold]
+                    )
+                    variant.search_algorithm_params.length_norm_scale = length_norm_scale
+                    variant.ctc_score_scale = ctc_scale
+                    variants.append(variant)
     recog_results.extend(
         recognition.speech_llm.run(
             model_descriptor="slm_robin",
