@@ -29,6 +29,7 @@ class PhonemizeTextDataJob(Job):
         phonemizer_engine: str = "G2P",
         python_env: Optional[tk.Path] = None,
         seq_tag_file: Optional[tk.Path] = None,
+        surround_w_sil: bool = True,
     ):
         self.text_file = text_file
         self.fairseq_root = fairseq_root
@@ -41,6 +42,7 @@ class PhonemizeTextDataJob(Job):
         self.python_env = python_env
         self.min_phoneme_occurrence = min_phoneme_occurrence
         self.phonemizer_engine = phonemizer_engine
+        self.surround_w_sil = surround_w_sil
 
         self.out_lexicon_file = self.output_path("lexicon_filtered.lst")
         self.out_phoneme_text = self.output_path("text.phonemes.txt")
@@ -258,7 +260,7 @@ class PhonemizeTextDataJob(Job):
             text_file="lm.upper.lid.txt",
             out_text_file="lm.phones.filtered.txt",
             sil_prob=self.sil_prob,
-            surround=True,
+            surround=self.surround_w_sil,
             seq_tags_file=seq_tag_file,
             lexicon=self.out_lexicon_file.get_path(),
         )
@@ -276,6 +278,12 @@ class PhonemizeTextDataJob(Job):
             for phon, i in vocab.items():
                 f.write(f'"{phon}": {i},\n')
             f.write("}\n")
+
+    @classmethod
+    def hash(cls, parsed_args: Dict[str, Any]) -> str:
+        if parsed_args["surround_w_sil"]:
+            del parsed_args["surround_w_sil"]
+        return super().hash(parsed_args)
 
 
 class DumpPhonemeIndicesToHdfJob(Job):

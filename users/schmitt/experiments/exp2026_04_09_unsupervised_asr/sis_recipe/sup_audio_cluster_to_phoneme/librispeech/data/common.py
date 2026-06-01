@@ -94,7 +94,10 @@ def get_audio_raw_datastream(
     return audio_datastream
 
 
-def build_training_datasets():
+def build_training_datasets(
+    sil_prob: float = 0.25,
+    surround_w_sil: bool = True,
+):
     _, clusters_960, pca_960, clusters_960_hdfs = audio.get_featurized_audio(
         librispeech_key="train-other-960",
         dump_hdf_concurrent=10,
@@ -118,24 +121,32 @@ def build_training_datasets():
         remove_cluster_repetitions=True,
     )
 
+    # we don't pass sil_prob here, because we just want to get the lexicon here
+    # we don't use the text-only data for training here
     _, phoneme_vocab, lexicon_file, _ = text.get_phonemized_text("lm_minus_librivox", dump_hdf_concurrent=100)
     phoneme_960_hdfs, _, _, train_seq_tags = text.get_phonemized_text(
         "train-other-960",
         lexicon_file=lexicon_file,
         dump_hdf_concurrent=10,
         vocab_file=phoneme_vocab,
+        sil_prob=sil_prob,
+        surround_w_sil=surround_w_sil,
     )
     phoneme_dev_clean_hdfs, _, _, dev_clean_seq_tags = text.get_phonemized_text(
         "dev-clean",
         lexicon_file=lexicon_file,
         dump_hdf_concurrent=1,
         vocab_file=phoneme_vocab,
+        sil_prob=sil_prob,
+        surround_w_sil=surround_w_sil,
     )
     phoneme_dev_other_hdfs, _, _, dev_other_seq_tags = text.get_phonemized_text(
         "dev-other",
         lexicon_file=lexicon_file,
         dump_hdf_concurrent=1,
         vocab_file=phoneme_vocab,
+        sil_prob=sil_prob,
+        surround_w_sil=surround_w_sil,
     )
 
     dev_seq_tags = ConcatenateJob([dev_clean_seq_tags, dev_other_seq_tags], zip_out=False).out

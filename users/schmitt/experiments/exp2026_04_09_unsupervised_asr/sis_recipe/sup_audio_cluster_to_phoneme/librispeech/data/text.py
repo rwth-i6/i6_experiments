@@ -70,6 +70,8 @@ def get_phonemized_text(
     dump_hdf_concurrent: int,
     lexicon_file: Optional[Path] = None,
     vocab_file: Optional[Path] = None,
+    sil_prob: float = 0.25,
+    surround_w_sil: bool = True,
 ):
     text_data, seq_tags = get_text(data_name)
 
@@ -81,4 +83,6 @@ def get_phonemized_text(
         lexicon_file=lexicon_file,
         seq_tag_file=seq_tags,
         vocab_file=vocab_file,
+        sil_prob=sil_prob,
+        surround_w_sil=surround_w_sil,
     )

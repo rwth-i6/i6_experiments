@@ -21,6 +21,7 @@ def get_phonemized_data(
     sil_prob: float = 0.25,
     seq_tag_file: Optional[Path] = None,
     vocab_file: Optional[Path] = None,
+    surround_w_sil: bool = True,
 ):
     prepare_text_job_training = PhonemizeTextDataJob(
         text_file=text_file,
@@ -32,6 +33,7 @@ def get_phonemized_data(
         lexicon_file=lexicon_file,
         seq_tag_file=seq_tag_file,
         min_phoneme_occurrence=1000,
+        surround_w_sil=surround_w_sil,
     )
     text_file = prepare_text_job_training.out_phoneme_text
     tk.register_output(f"data/{corpus_name}/text/phonemized/{dataset_name}.txt", text_file)
