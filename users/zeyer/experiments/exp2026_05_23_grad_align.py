@@ -880,7 +880,7 @@ def py():
         model_dir=dl_voxtral,
         forward_mode="transcription",
         grad_wrt="encoder_conv1_out",
-        version=6,
+        version=7,
     )
     for mgi, attr, grad_alias in [
         (True, "L2", "L2_e_grad"),

@@ -123,19 +123,15 @@ class Voxtral(BaseModelInterface):
         assert grad_wrt in ("speech_embeddings", "log_mel", "encoder_conv1_out"), grad_wrt
         if grad_wrt != "speech_embeddings":
             assert version >= 4, (
-                "version >= 4 required when grad_wrt != 'speech_embeddings' "
-                "(log_mel grad path enabled)."
+                "version >= 4 required when grad_wrt != 'speech_embeddings' (log_mel grad path enabled)."
             )
         if grad_wrt == "encoder_conv1_out":
-            assert version >= 6, (
-                "version >= 6 required when grad_wrt == 'encoder_conv1_out' "
-                "(hook-based conv1 capture enabled)."
+            assert version >= 7, (
+                "version >= 7 required when grad_wrt == 'encoder_conv1_out' "
+                "(v6: retain_grad bug fixed with requires_grad_ first)."
             )
         if self._char_level:
-            assert version >= 7, (
-                "version >= 7 required when char_level=True "
-                "(per-char vocab lookup for input_ids)."
-            )
+            assert version >= 7, "version >= 7 required when char_level=True (per-char vocab lookup for input_ids)."
         if self.ensure_audio_long_enough:
             assert version >= 8, (
                 "version >= 8 required when ensure_audio_long_enough=True "
@@ -143,8 +139,7 @@ class Voxtral(BaseModelInterface):
             )
         if self.audio_time_stretch != 1.0:
             assert version >= 5, (
-                "version >= 5 required when audio_time_stretch != 1.0 "
-                "(time-stretch audio preprocessing enabled)."
+                "version >= 5 required when audio_time_stretch != 1.0 (time-stretch audio preprocessing enabled)."
             )
         self.version = version
 
@@ -242,7 +237,10 @@ class Voxtral(BaseModelInterface):
         return out, dst_text_start
 
     def _build_transcription_inputs(
-        self, *, audio_path: str, transcription: Optional[str],
+        self,
+        *,
+        audio_path: str,
+        transcription: Optional[str],
         transcription_ids: Optional[torch.Tensor] = None,
     ):
         """Forced-target inputs in Voxtral's native transcription mode.
@@ -271,7 +269,9 @@ class Voxtral(BaseModelInterface):
             transc_ids = transcription_ids
         else:
             transc_text = transcription if transcription.startswith(" ") else " " + transcription
-            transc_ids = self.processor.tokenizer(transc_text, add_special_tokens=False, return_tensors="pt")["input_ids"]
+            transc_ids = self.processor.tokenizer(transc_text, add_special_tokens=False, return_tensors="pt")[
+                "input_ids"
+            ]
         eos_col = torch.tensor([[self.assistant_end_token_id]], dtype=transc_ids.dtype)
         transc_ids = torch.cat([transc_ids, eos_col], dim=1)
         new_input_ids = torch.cat([pre["input_ids"], transc_ids], dim=1)
@@ -331,10 +331,18 @@ class Voxtral(BaseModelInterface):
             # Captured via a forward hook on conv1. Same 10 ms time resolution
             # as log_mel but in the model's learned feature space -- expected
             # to be cleaner than raw log-mel.
+            # Model params are frozen, so conv1's output is NOT in the autograd
+            # graph on its own. The hook detaches it into a fresh leaf (in the
+            # [1, T_mel, d_model] output layout) and feeds the [1, d_model, T_mel]
+            # view back downstream, so conv2..projector..LM (and the loss) depend
+            # on the leaf -- the same input-leaf trick as the log_mel path.
             captured: List[torch.Tensor] = []
 
             def _conv1_hook(_module, _inp, out):
-                captured.append(out)
+                leaf = out.detach().transpose(1, 2).contiguous().requires_grad_(True)
+                leaf.retain_grad()
+                captured.append(leaf)
+                return leaf.transpose(1, 2)
 
             conv1_mod = self.model.audio_tower.conv1
             handle = conv1_mod.register_forward_hook(_conv1_hook)
@@ -343,15 +351,12 @@ class Voxtral(BaseModelInterface):
             finally:
                 handle.remove()
             assert len(captured) == 1, f"expected 1 conv1 call, got {len(captured)}"
-            conv1_out = captured[0]  # [1, d_model, T_mel] -- still in graph
-            conv1_out.retain_grad()
             if not isinstance(audio_out, torch.Tensor):
                 audio_2d = audio_out.pooler_output
             else:
                 audio_2d = audio_out.reshape(-1, audio_out.shape[-1])
-            audio_embeds = audio_2d.unsqueeze(0)  # grad flows through encoder.
-            # Expose grad leaf as [1, T_mel, d_model] for extract job's [B, T, F] reduce.
-            grad_leaf = conv1_out.transpose(1, 2)
+            audio_embeds = audio_2d.unsqueeze(0)  # grad flows through encoder to the conv1 leaf.
+            grad_leaf = captured[0]  # [1, T_mel, d_model], differentiation target
         else:  # speech_embeddings (default)
             audio_out = self.model.get_audio_features(input_features)
             if not isinstance(audio_out, torch.Tensor):
@@ -458,6 +463,7 @@ class Voxtral(BaseModelInterface):
                     )
         if effective_stretch != 1.0:
             import librosa
+
             audio_np = raw_inputs[0].detach().cpu().numpy().astype(np.float32)
             stretched = librosa.effects.time_stretch(audio_np, rate=1.0 / effective_stretch)
             raw_inputs = torch.tensor(stretched, dtype=raw_inputs.dtype).unsqueeze(0)
@@ -479,7 +485,8 @@ class Voxtral(BaseModelInterface):
         try:
             if self.forward_mode == "transcription":
                 inputs, dst_text_start = self._build_transcription_inputs(
-                    audio_path=audio_path, transcription=transcription,
+                    audio_path=audio_path,
+                    transcription=transcription,
                     transcription_ids=char_token_ids,
                 )
             else:
