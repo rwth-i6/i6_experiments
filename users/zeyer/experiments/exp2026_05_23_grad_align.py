@@ -413,6 +413,11 @@ def py():
         (True, "L1", "L1_e_grad"),
         (True, "L0.5", "L05_e_grad"),
         (True, "sum", "dot_e_grad"),
+        # Plain grad (mult off) is best at 100 Hz;
+        # Phi4's grad target is already ~100 Hz log-mel (input_audio_embeds),
+        # so plain L2/L1 should beat the L2_e champion (0.087).
+        (False, "L2", "L2_grad"),
+        (False, "L1", "L1_grad"),
     ]:
         _wire_pertoken(
             dl_ds=dl_ds_timit,
