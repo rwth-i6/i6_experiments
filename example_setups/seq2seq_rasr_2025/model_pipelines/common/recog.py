@@ -788,7 +788,7 @@ class SearchCallback(ForwardCallbackIface):
         ctm_str = raw_outputs.get("ctm_string")
         assert ctm_str is not None
         ctm_str = ctm_str.item()
-        rec_name_parts = seq_tag.split("/", 1)
+        rec_name_parts = seq_tag.split("/")
         rec_name = rec_name_parts[1] if len(rec_name_parts) > 1 else seq_tag
         self.ctm_file.write(f";; {seq_tag}\n")
         self.ctm_file.write(ctm_str.replace("[REC_NAME]", rec_name))
