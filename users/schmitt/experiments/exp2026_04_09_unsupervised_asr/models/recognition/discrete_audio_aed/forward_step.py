@@ -30,7 +30,7 @@ def forward_step(
         decoder_state=decoder_state,
         device=data.device,
         max_seq_len=max_seq_len,
-        decoder=model.text_decoder,
+        # decoder=model.text_decoder,
         bos_idx=model.text_bos_idx,
         eos_idx=model.text_eos_idx,
         out_dim=model.text_out_dim,

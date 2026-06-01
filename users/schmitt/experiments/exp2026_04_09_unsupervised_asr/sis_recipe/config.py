@@ -139,7 +139,6 @@ def get_forward_config(
         base_config = {}
     # changeing these does change the hash
     base_config = {
-        "batch_size": 15_000 * 160,
         "max_seqs": 200,
         **base_config,
     }

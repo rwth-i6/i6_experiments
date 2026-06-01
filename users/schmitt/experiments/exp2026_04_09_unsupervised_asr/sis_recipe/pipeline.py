@@ -213,13 +213,13 @@ def search_single(
         else:
             score_result, search_ctm = score_result
     else:
+        default_target_key = returnn_config.config.get("default_target_key", "text")
         score_result = generic_sclite_score_recog_out(
             dataset=dataset_dict,
             recog_output=search_out,
             corpus_name=dataset_name,
-            use_lowercase=lowercase_ref,
-            apply_text_norm=apply_text_norm,
             vocab_opts=vocab_opts,
+            target_key=default_target_key,
         )
         search_ctm = None
 

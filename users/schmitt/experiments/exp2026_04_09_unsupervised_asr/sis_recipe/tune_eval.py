@@ -195,7 +195,6 @@ def eval_model(
             datastreams=train_data.datastreams,
             callback_opts={
                 "include_beam": True,
-                "merge_labels": False,
             },
         )
 

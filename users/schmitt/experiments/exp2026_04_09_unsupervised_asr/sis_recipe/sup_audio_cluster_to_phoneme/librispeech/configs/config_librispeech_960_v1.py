@@ -1,29 +1,39 @@
 import copy
+from typing import List
 
 from ....train_exp import run_experiment
-from ..data.common import build_training_datasets
+from ..data.common import build_training_datasets, build_test_datasets
 from .... import optimizer_configs
 from ... import __setup_base_name__
 
 from sisyphus import tk
 
+
+def _get_keep_epochs(num_epochs: int) -> List[int]:
+    if num_epochs == 1_000:
+        return [250, 500, 750, 1_000]
+
+
 base_num_epochs = 1_000
 num_gpus = 2
 
 train_data = build_training_datasets()
+test_data_dict = build_test_datasets()
 
 base_config = {
     "__network_module": "definitions.conformer_aed_discrete_shared_v1.Model",
     "__train_step_module": "train_steps.aed_denoising_discrete.train_step",
     "__baseline_alias": "v1",
-    "__forward_step_module": "recognition.discrete_audio_aed.forward_step.forward_step_v2",
-    "__callback_module": "recognition.aed.callback.RecognitionToTextDictCallback",
+    "__forward_step_module": "recognition.discrete_audio_aed.forward_step.forward_step",
+    "__callback_module": "recognition.discrete_audio_aed.callback.RecognitionToTextDictCallback",
     "train_rqmt": {
         "cpu_rqmt": 6,
     },
     "general": {
         "torch_dataloader_opts": {"num_workers": 1},  # for multi proc dataset
         "behavior_version": 25,
+        "default_data_key": "data",
+        "default_target_key": "target",
     },
     "training": {
         "__num_gpus": num_gpus,
@@ -41,6 +51,9 @@ base_config = {
         "max_seqs": 200,
         "accum_grad_multiple_step": 1,
         "gradient_clip_global_norm": 5.0,
+    },
+    "recog": {
+        "batch_size": 15_000,
     },
     "model_args": {
         "text_aux_loss_layers": (),
@@ -74,7 +87,7 @@ def py():
         training_name=f"{prefix_name}/baseline",
         config=copy.deepcopy(base_config),
         train_data=train_data,
-        test_data_dict={},
-        keep_epochs=[base_num_epochs],
-        skip_eval=True,
+        test_data_dict=test_data_dict,
+        keep_epochs=_get_keep_epochs(base_num_epochs),
+        skip_eval=False,
     )

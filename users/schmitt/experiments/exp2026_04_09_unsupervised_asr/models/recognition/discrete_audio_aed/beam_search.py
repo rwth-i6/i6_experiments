@@ -172,7 +172,7 @@ def beam_search_v1(
         step = torch.tensor(0, device=device, dtype=torch.int32)
 
         while True:
-            logits, decoder_state = model.step_decoder(target.unsqueeze(-1), decoder_state)
+            logits, decoder_state = model.step_text_decoder(target.unsqueeze(-1), decoder_state)
             label_log_prob = F.log_softmax(logits, dim=-1)  # Batch, Beam, Vocab
             assert label_log_prob.shape[-2] == 1, f"time dim mismatch, is {label_log_prob.shape[-2]} but should be 1"
             label_log_prob = label_log_prob.squeeze(-2)

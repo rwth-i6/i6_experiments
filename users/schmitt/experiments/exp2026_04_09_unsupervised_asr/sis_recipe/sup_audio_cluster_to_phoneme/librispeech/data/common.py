@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 from sisyphus import tk
 
-from i6_core.text.processing import TakeNRandomLinesJob
+from i6_core.text.processing import TakeNRandomLinesJob, ConcatenateJob
 from i6_core.serialization import Import
 
 from i6_experiments.common.setups.returnn.datasets.base import MetaDataset
@@ -120,11 +120,25 @@ def build_training_datasets():
 
     _, phoneme_vocab, lexicon_file, _ = text.get_phonemized_text("lm_minus_librivox", dump_hdf_concurrent=100)
     phoneme_960_hdfs, _, _, train_seq_tags = text.get_phonemized_text(
-        "960h", lexicon_file=lexicon_file, dump_hdf_concurrent=10, phoneme_vocab=phoneme_vocab
+        "train-other-960",
+        lexicon_file=lexicon_file,
+        dump_hdf_concurrent=10,
+        vocab_file=phoneme_vocab,
     )
-    phoneme_dev_hdfs, _, _, dev_seq_tags = text.get_phonemized_text(
-        "dev", lexicon_file=lexicon_file, dump_hdf_concurrent=1, phoneme_vocab=phoneme_vocab
+    phoneme_dev_clean_hdfs, _, _, dev_clean_seq_tags = text.get_phonemized_text(
+        "dev-clean",
+        lexicon_file=lexicon_file,
+        dump_hdf_concurrent=1,
+        vocab_file=phoneme_vocab,
     )
+    phoneme_dev_other_hdfs, _, _, dev_other_seq_tags = text.get_phonemized_text(
+        "dev-other",
+        lexicon_file=lexicon_file,
+        dump_hdf_concurrent=1,
+        vocab_file=phoneme_vocab,
+    )
+
+    dev_seq_tags = ConcatenateJob([dev_clean_seq_tags, dev_other_seq_tags], zip_out=False).out
 
     devtrain_seq_tags = TakeNRandomLinesJob(text_file=train_seq_tags, num_lines=3000).out
     dev_seq_tags = TakeNRandomLinesJob(text_file=dev_seq_tags, num_lines=3000).out
@@ -174,7 +188,7 @@ def build_training_datasets():
                         segment_file=dev_seq_tags,
                     ),
                     "phon_indices": HdfDataset(
-                        files=phoneme_dev_hdfs,
+                        files=phoneme_dev_clean_hdfs + phoneme_dev_other_hdfs,
                         segment_file=dev_seq_tags,
                     ),
                 },
@@ -187,7 +201,7 @@ def build_training_datasets():
         },
         datastreams={
             "data": LabelDatastreamWoVocab(
-                available_for_inference=False,
+                available_for_inference=True,
                 vocab_size=128,
             ),
             "target": LabelDatastream(
@@ -197,3 +211,48 @@ def build_training_datasets():
             ),
         },
     )
+
+
+def build_test_datasets():
+    _, clusters_960, pca_960, _ = audio.get_featurized_audio(
+        librispeech_key="train-other-960",
+        dump_hdf_concurrent=10,
+        featurize_concurrent=10,
+        remove_cluster_repetitions=True,
+    )
+    _, _, _, clusters_dev_other_hdfs = audio.get_featurized_audio(
+        librispeech_key="dev-other",
+        existing_clusters=clusters_960,
+        existing_pca=pca_960,
+        dump_hdf_concurrent=1,
+        featurize_concurrent=1,
+        remove_cluster_repetitions=True,
+    )
+
+    _, phoneme_vocab, lexicon_file, _ = text.get_phonemized_text("lm_minus_librivox", dump_hdf_concurrent=100)
+    phoneme_dev_hdfs, _, _, dev_seq_tags = text.get_phonemized_text(
+        "dev-other",
+        lexicon_file=lexicon_file,
+        dump_hdf_concurrent=1,
+        vocab_file=phoneme_vocab,
+    )
+
+    return {
+        "dev-other": MetaDataset(
+            datasets={
+                "feature_clusters": HdfDataset(
+                    files=clusters_dev_other_hdfs,
+                    segment_file=dev_seq_tags,
+                ),
+                "phon_indices": HdfDataset(
+                    files=phoneme_dev_hdfs,
+                    segment_file=dev_seq_tags,
+                ),
+            },
+            data_map={
+                "data": ("feature_clusters", "data"),
+                "target": ("phon_indices", "data"),
+            },
+            seq_order_control_dataset="phon_indices",
+        ),
+    }

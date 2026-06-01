@@ -163,7 +163,7 @@ def run_experiment(
     ),
     recog_model_args: Optional[Dict] = None,
     additional_configs: Optional[List[ReturnnConfig]] = None,
-    main_eval_measure_key: str = "dev",
+    main_eval_measure_key: str = "dev-other",
     cleanup_old_models: Optional[Dict[str, Any]] = None,
     skip_eval: bool = False,
     recog_post_proc_funcs: Optional[List[Callable[[tk.Path], tk.Path]]] = None,

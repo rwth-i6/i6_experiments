@@ -53,29 +53,23 @@ def get_dev_text() -> Tuple[tk.Path, tk.Path]:
     return lowercase_text, concat_seq_tags
 
 
-def get_960_text() -> Tuple[tk.Path, tk.Path]:
-    text_960h, seq_tags_960h = get_corpus_text("train-other-960")
-    lowercase_text = PipelineJob(text_960h, pipeline=["tr A-Z a-z"]).out
+def get_text(librispeech_key: str) -> Tuple[tk.Path, Optional[tk.Path]]:
+    if librispeech_key == "dev":
+        lowercase_text, seq_tags = get_dev_text()
+    elif librispeech_key == "lm_minus_librivox":
+        lowercase_text, seq_tags = get_lm_minus_librivox()
+    else:
+        text, seq_tags = get_corpus_text(librispeech_key)
+        lowercase_text = PipelineJob(text, pipeline=["tr A-Z a-z"]).out
 
-    return lowercase_text, seq_tags_960h
-
-
-def get_text(data_name: str) -> Tuple[tk.Path, tk.Path]:
-    if data_name == "lm_minus_librivox":
-        return get_lm_minus_librivox()
-    if data_name == "960h":
-        return get_960_text()
-    if data_name == "dev":
-        return get_dev_text()
-
-    raise ValueError(f"Unknown dataset name: {data_name}")
+    return lowercase_text, seq_tags
 
 
 def get_phonemized_text(
     data_name: str,
     dump_hdf_concurrent: int,
     lexicon_file: Optional[Path] = None,
-    phoneme_vocab: Optional[Path] = None,
+    vocab_file: Optional[Path] = None,
 ):
     text_data, seq_tags = get_text(data_name)
 
@@ -83,8 +77,8 @@ def get_phonemized_text(
         dataset_name=data_name,
         corpus_name="librispeech",
         text_file=text_data,
-        phoneme_vocab=phoneme_vocab,
         dump_hdf_concurrent=dump_hdf_concurrent,
         lexicon_file=lexicon_file,
         seq_tag_file=seq_tags,
+        vocab_file=vocab_file,
     )

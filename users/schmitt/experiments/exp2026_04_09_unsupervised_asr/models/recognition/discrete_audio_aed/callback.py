@@ -1,6 +1,6 @@
 __all__ = ["RecognitionToTextDictCallback"]
 
-from typing import Union, Dict
+from typing import Union, Dict, Optional, List
 
 import numpy as np
 
@@ -11,9 +11,18 @@ from returnn.tensor import TensorDict
 
 
 class RecognitionToTextDictCallback(ForwardCallbackIface):
-    def __init__(self, *, vocab: Union[str, Dict], out_hyps_file: str = "search_out.py.gz"):
+    def __init__(
+        self,
+        *,
+        vocab: Union[str, Dict],
+        out_hyps_file: str = "search_out.py.gz",
+        include_beam: bool = False,
+        remove_labels: Optional[List[int]] = None,
+    ):
         self.vocab_opts = vocab
         self.out_hyps_file = out_hyps_file
+        self.include_beam = include_beam
+        self.remove_labels = remove_labels
 
         self.vocab: Vocabulary
 
@@ -37,26 +46,35 @@ class RecognitionToTextDictCallback(ForwardCallbackIface):
         scores: np.ndarray = outputs["scores"].raw_tensor  # Beam
         assert scores.ndim == 1
 
-        if not tokens.size or not scores.size:
-            self._out_file.write(f"  {repr(seq_tag)}: '',\n")
-            return
+        if self.include_beam:
+            num_beam = scores.shape[0]
+            self._out_file.write(f"{seq_tag!r}: [\n")
+            for i in range(num_beam):
+                score = float(scores[i])
+                hyp_ids = tokens[i, : tokens_lens[i] if tokens_lens.shape else tokens_lens]
+                labels = [self.vocab.id_to_label(int(l)) for l in hyp_ids]
+                hyp_serialized = " ".join(labels)
+                self._out_file.write(f"  ({score!r}, {hyp_serialized!r}),\n")
+            self._out_file.write("],\n")
+        else:
+            if not tokens.size or not scores.size:
+                self._out_file.write(f"  {repr(seq_tag)}: '',\n")
+                return
 
-        best_hyp_idx = np.argmax(scores)
-        best_hyp = tokens[best_hyp_idx]
-        best_hyp_len = tokens_lens[best_hyp_idx]
-        text = self.vocab.get_seq_labels(best_hyp[:best_hyp_len])
+            best_hyp_idx = np.argmax(scores)
+            best_hyp = tokens[best_hyp_idx]
+            best_hyp_len = tokens_lens[best_hyp_idx]
+            best_hyp = best_hyp[:best_hyp_len]
+            if self.remove_labels is not None:
+                best_hyp = np.array(
+                    [t for t in best_hyp if t not in self.remove_labels],
+                    dtype=best_hyp.dtype,
+                )
+            labels = [self.vocab.id_to_label(int(l)) for l in best_hyp]
+            text = " ".join(labels)
 
-        # for i, hyp in enumerate(tokens):
-        #     hyp_len = tokens_lens[i]
-        #     hyp_text = self.vocab.get_seq_labels(hyp[:hyp_len])
-        #     hyp_score = scores[i]
-        #     print(f"HYP {seq_tag} {i} SCORE {hyp_score:.4f}: {hyp_text}")
-        #     print("hyp_tokens:", hyp[:hyp_len])
-        #     print("hyp len:", hyp_len)
-        # exit()
-
-        self._out_file.write(f"  {repr(seq_tag)}: {repr(text)},\n")
-        self._out_file.flush()
+            self._out_file.write(f"  {repr(seq_tag)}: {repr(text)},\n")
+            self._out_file.flush()
 
     def finish(self, **kwargs):
         self._out_file.write("}\n")
