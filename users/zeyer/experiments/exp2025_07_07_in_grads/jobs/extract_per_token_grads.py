@@ -94,6 +94,16 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
 
         print(f"({time.time() - start_time} secs)")
 
+        from returnn.torch.util import diagnose_gpu
+
+        # Probe torch.cuda.is_available() early, under a timeout.
+        # On a wedged-GPU node it otherwise hangs for hours
+        # (e.g. inside transformers' flash-attn check during make_model),
+        # holding a GPU slot for nothing.
+        # Crash fast (SIGABRT) on timeout instead. Mirrors returnn.__main__.
+        with diagnose_gpu.timeout("torch.cuda.is_available()"):
+            torch.cuda.is_available()
+
         from returnn.util import better_exchook
         from returnn.datasets.hdf import SimpleHDFWriter
         from i6_experiments.users.zeyer.torch.batch_slice import batch_slice
