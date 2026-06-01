@@ -180,7 +180,7 @@ class CalcCtcStreamingLatencyFromHfDatasetJob(Job):
     """
 
     __sis_hash_exclude__ = {"returnn_root": None}
-    __sis_version__ = 1
+    __sis_version__ = 2
 
     def __init__(
         self,
@@ -193,6 +193,7 @@ class CalcCtcStreamingLatencyFromHfDatasetJob(Job):
         dataset_offset_factor: int,
         chunk_center_frames: Optional[int] = None,
         chunk_lookahead_frames: int = 0,
+        cap_audio_avail_to_seq_len: bool = False,
         returnn_root: Optional[tk.Path] = None,
     ):
         """
@@ -211,6 +212,10 @@ class CalcCtcStreamingLatencyFromHfDatasetJob(Job):
             (the whole sequence is needed to emit any word).
         :param chunk_lookahead_frames: streaming right-context (lookahead) in
             encoder-output frames. Ignored when ``chunk_center_frames`` is None.
+        :param cap_audio_avail_to_seq_len: if set, the audio available at an
+            emission frame is capped to the sequence length. Default off, so the
+            mean reflects the steady-state floor (C/2 + R) instead of being
+            deflated by short utterances saturating at end-of-audio.
         :param returnn_root: optional, falls back to env default via i6_core.
         """
         super().__init__()
@@ -222,6 +227,7 @@ class CalcCtcStreamingLatencyFromHfDatasetJob(Job):
         self.dataset_offset_factor = int(dataset_offset_factor)
         self.chunk_center_frames = None if chunk_center_frames is None else int(chunk_center_frames)
         self.chunk_lookahead_frames = int(chunk_lookahead_frames)
+        self.cap_audio_avail_to_seq_len = bool(cap_audio_avail_to_seq_len)
         self.returnn_root = returnn_root
 
         self.out_latency = self.output_var("latency.txt")
@@ -250,6 +256,18 @@ class CalcCtcStreamingLatencyFromHfDatasetJob(Job):
         )
         report_lines.extend(loaded.warnings)
 
+        if self.chunk_center_frames is None:
+            # Offline model: the whole sequence is needed to emit any word, so the
+            # streaming emission latency is unbounded. Report +inf without computing.
+            report_lines.append("")
+            report_lines.append("Offline model (chunk_center_frames=None): latency unbounded (+inf)")
+            report_text = "\n".join(report_lines) + "\n"
+            with open(self.out_report.get_path(), "w") as f:
+                f.write(report_text)
+            self.out_latency.set(float("inf"))
+            self.out_first_word_latency.set(float("inf"))
+            return
+
         lat_utts: List[float] = []
         first_lat_utts: List[float] = []
         for seq in loaded.seqs:
@@ -257,18 +275,15 @@ class CalcCtcStreamingLatencyFromHfDatasetJob(Job):
             # ingest before the word's emission is producible, minus the reference
             # word-end time. The emission frame is the word's last aligned frame;
             # the audio available there is the right edge of the chunk it falls in
-            # (center end + lookahead), or the whole sequence for an offline model.
+            # (center end + lookahead). By default this is uncapped; set
+            # cap_audio_avail_to_seq_len to clip it at end-of-audio.
             lat_word: List[float] = []
             for w in range(len(seq.ref_secs)):
                 emit_frame = max(0, seq.words_aligned[w][2] - 1)  # last frame of the word
-                if self.chunk_center_frames is None:
-                    audio_avail_frames = seq.num_frames  # offline: full sequence needed
-                else:
-                    chunk_idx = emit_frame // self.chunk_center_frames
-                    audio_avail_frames = min(
-                        (chunk_idx + 1) * self.chunk_center_frames + self.chunk_lookahead_frames,
-                        seq.num_frames,
-                    )
+                chunk_idx = emit_frame // self.chunk_center_frames
+                audio_avail_frames = (chunk_idx + 1) * self.chunk_center_frames + self.chunk_lookahead_frames
+                if self.cap_audio_avail_to_seq_len:
+                    audio_avail_frames = min(audio_avail_frames, seq.num_frames)
                 lat_word.append(audio_avail_frames * seq.frame_sec - seq.ref_secs[w][1])
             lat_utt = float(np.mean(lat_word))
             lat_utts.append(lat_utt)
