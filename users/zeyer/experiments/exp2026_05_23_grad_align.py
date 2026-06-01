@@ -223,7 +223,7 @@ def py():
         recog.add_alias(f"phi4mm-timit-{split}-recog")
         tk.register_output(f"phi4mm-timit-{split}-recog.hyps.txt.gz", recog.out_hyps_txt)
         refs = ExtractWordDetailFromHuggingFaceDatasetJob(
-            dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_split=split,
+            dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_split=split
         )
         refs.add_alias(f"phi4mm-timit-{split}-refs")
         # Normalize both sides with the same text normalizer before scoring,
@@ -276,7 +276,10 @@ def py():
         # see whether stacking margin / first-subword on top buys anything.
         ("-charlev-spc-margin", {"char_level": True, "char_level_sep": " ", "margin_grad": True}),
         ("-charlev-spc-firstsub", {"char_level": True, "char_level_sep": " ", "first_subword_only": True}),
-        ("-charlev-spc-margin-k3", {"char_level": True, "char_level_sep": " ", "margin_grad": True, "margin_grad_k": 3}),
+        (
+            "-charlev-spc-margin-k3",
+            {"char_level": True, "char_level_sep": " ", "margin_grad": True, "margin_grad_k": 3},
+        ),
     ]:
         phi4mm_cfg = _phi4mm_model_config(dl_phi4mi_dir, **variant_kwargs)
         _build_timit_phi4mm(
@@ -332,7 +335,6 @@ def py():
                 align.add_alias(align_name)
                 tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
-
     # Per-token block. ExtractInGradsPerTokenJob does K backwards per word
     # (one per subword/token) instead of 1, so we get per-token grad maps and
     # can align at token level, then collapse to word boundaries via
@@ -383,9 +385,14 @@ def py():
     ]:
         phi4mm_cfg = _phi4mm_model_config(dl_phi4mi_dir, **variant_kwargs)
         _wire_pertoken(
-            dl_ds=dl_ds_timit, ds_name="timit", split="val",
-            phi4mm_cfg=phi4mm_cfg, attr="L2", mgi=True,
-            grad_alias="L2_e_grad", suffix=variant_suffix,
+            dl_ds=dl_ds_timit,
+            ds_name="timit",
+            split="val",
+            phi4mm_cfg=phi4mm_cfg,
+            attr="L2",
+            mgi=True,
+            grad_alias="L2_e_grad",
+            suffix=variant_suffix,
         )
 
     # (b) pertoken-charlev-spc with other grad reductions, val.
@@ -396,16 +403,26 @@ def py():
         (True, "sum", "dot_e_grad"),
     ]:
         _wire_pertoken(
-            dl_ds=dl_ds_timit, ds_name="timit", split="val",
-            phi4mm_cfg=pt_csp_cfg, attr=attr, mgi=mgi,
-            grad_alias=grad_alias, suffix="-charlev-spc",
+            dl_ds=dl_ds_timit,
+            ds_name="timit",
+            split="val",
+            phi4mm_cfg=pt_csp_cfg,
+            attr=attr,
+            mgi=mgi,
+            grad_alias=grad_alias,
+            suffix="-charlev-spc",
         )
 
     # (c) pertoken-charlev-spc on test split, L2_e_grad.
     _wire_pertoken(
-        dl_ds=dl_ds_timit, ds_name="timit", split="test",
-        phi4mm_cfg=pt_csp_cfg, attr="L2", mgi=True,
-        grad_alias="L2_e_grad", suffix="-charlev-spc",
+        dl_ds=dl_ds_timit,
+        ds_name="timit",
+        split="test",
+        phi4mm_cfg=pt_csp_cfg,
+        attr="L2",
+        mgi=True,
+        grad_alias="L2_e_grad",
+        suffix="-charlev-spc",
     )
 
     # (d) Smoothing the pertoken-charlev-spc HDF. Reuses the val L2_e_grad
@@ -445,7 +462,6 @@ def py():
             )
             align.add_alias(align_name)
             tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
-
 
     # Extended-metrics scoring for the champion pertoken-charlev-spc variant
     # (val + test). Adds mean/median WBE in ms, % within {10, 25, 50, 100} ms,
@@ -500,9 +516,14 @@ def py():
         dl_phi4mi_dir, char_level=True, char_level_sep=" ", char_level_skip_chars=["'"]
     )
     _wire_pertoken(
-        dl_ds=dl_ds_timit, ds_name="timit", split="val",
-        phi4mm_cfg=pt_csp_noapos_cfg, attr="L2", mgi=True,
-        grad_alias="L2_e_grad", suffix="-charlev-spc-no-apos",
+        dl_ds=dl_ds_timit,
+        ds_name="timit",
+        split="val",
+        phi4mm_cfg=pt_csp_noapos_cfg,
+        attr="L2",
+        mgi=True,
+        grad_alias="L2_e_grad",
+        suffix="-charlev-spc-no-apos",
     )
 
     # 2) with-sep (and 3) no-apos + with-sep): use the new ExtractInGradsPerTokenWithSepGradsJob
@@ -533,16 +554,25 @@ def py():
             tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
     _wire_pertoken_with_sep(
-        dl_ds=dl_ds_timit, ds_name="timit", split="val",
-        phi4mm_cfg=pt_csp_cfg, attr="L2", mgi=True,
-        grad_alias="L2_e_grad", suffix="-charlev-spc-with-sep",
+        dl_ds=dl_ds_timit,
+        ds_name="timit",
+        split="val",
+        phi4mm_cfg=pt_csp_cfg,
+        attr="L2",
+        mgi=True,
+        grad_alias="L2_e_grad",
+        suffix="-charlev-spc-with-sep",
     )
     _wire_pertoken_with_sep(
-        dl_ds=dl_ds_timit, ds_name="timit", split="val",
-        phi4mm_cfg=pt_csp_noapos_cfg, attr="L2", mgi=True,
-        grad_alias="L2_e_grad", suffix="-charlev-spc-no-apos-with-sep",
+        dl_ds=dl_ds_timit,
+        ds_name="timit",
+        split="val",
+        phi4mm_cfg=pt_csp_noapos_cfg,
+        attr="L2",
+        mgi=True,
+        grad_alias="L2_e_grad",
+        suffix="-charlev-spc-no-apos-with-sep",
     )
-
 
     # --- Voxtral Mini 3B smoke test ---------------------------------
     # First-pass integration: one extract + one recog on TIMIT val to
@@ -571,7 +601,7 @@ def py():
         vx_v_recog.add_alias(f"voxtral-verbatim-timit-{split}-recog")
         tk.register_output(f"voxtral-verbatim-timit-{split}-recog.hyps.txt.gz", vx_v_recog.out_hyps_txt)
         vx_v_refs = ExtractWordDetailFromHuggingFaceDatasetJob(
-            dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_split=split,
+            dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_split=split
         )
         vx_v_hyps_norm = text_dict_normalize_file(vx_v_recog.out_hyps_txt)
         vx_v_refs_norm = text_dict_normalize_file(vx_v_refs.out_text)
@@ -591,9 +621,7 @@ def py():
     vx_recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     vx_recog.add_alias("voxtral-timit-val-recog")
     tk.register_output("voxtral-timit-val-recog.hyps.txt.gz", vx_recog.out_hyps_txt)
-    vx_refs = ExtractWordDetailFromHuggingFaceDatasetJob(
-        dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_split="val",
-    )
+    vx_refs = ExtractWordDetailFromHuggingFaceDatasetJob(dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_split="val")
     vx_refs.add_alias("voxtral-timit-val-refs")
     vx_hyps_norm = text_dict_normalize_file(vx_recog.out_hyps_txt)
     vx_refs_norm = text_dict_normalize_file(vx_refs.out_text)
@@ -672,11 +700,9 @@ def py():
     )
     vx_t_esb_recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     vx_t_esb_recog.add_alias("voxtral-transcribe-esb-librispeech-test.clean-recog")
-    tk.register_output(
-        "voxtral-transcribe-esb-librispeech-test.clean-recog.hyps.txt.gz", vx_t_esb_recog.out_hyps_txt
-    )
+    tk.register_output("voxtral-transcribe-esb-librispeech-test.clean-recog.hyps.txt.gz", vx_t_esb_recog.out_hyps_txt)
     vx_t_esb_refs = ExtractTextFromHuggingFaceDatasetJob(
-        dataset_dir=dl_esb, dataset_name="librispeech", dataset_split="test.clean",
+        dataset_dir=dl_esb, dataset_name="librispeech", dataset_split="test.clean"
     )
     vx_t_esb_hyps_norm = text_dict_normalize_file(vx_t_esb_recog.out_hyps_txt)
     vx_t_esb_refs_norm = text_dict_normalize_file(vx_t_esb_refs.out_text)
@@ -703,9 +729,7 @@ def py():
     cq_recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     cq_recog.add_alias("canary-qwen-timit-val-recog")
     tk.register_output("canary-qwen-timit-val-recog.hyps.txt.gz", cq_recog.out_hyps_txt)
-    cq_refs = ExtractWordDetailFromHuggingFaceDatasetJob(
-        dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_split="val",
-    )
+    cq_refs = ExtractWordDetailFromHuggingFaceDatasetJob(dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_split="val")
     cq_hyps_norm = text_dict_normalize_file(cq_recog.out_hyps_txt)
     cq_refs_norm = text_dict_normalize_file(cq_refs.out_text)
     cq_score = sclite_score_hyps_to_ref(
@@ -716,10 +740,14 @@ def py():
     tk.register_output("canary-qwen-timit-val-wer.txt", cq_score.main_measure_value)
     tk.register_output("canary-qwen-timit-val-wer-report", cq_score.report)
 
+    # Dedicated version=3 config (fixed splice/n_audio_real) for the chat-mode
+    # grad extract. voxtral_cfg stays at the default version so the already-finished voxtral recog jobs
+    # keep their hashes and are not re-run.
+    voxtral_grad_cfg = rf.build_dict(Voxtral, model_dir=dl_voxtral, version=3)
     vx_extract = ExtractInGradsPerTokenJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir,
         dataset_key="val",
-        model_config=voxtral_cfg,
+        model_config=voxtral_grad_cfg,
         mult_grad_by_inputs=True,
         attr_reduction="L2",
     )
@@ -748,9 +776,7 @@ def py():
     # version=2: fixed _splice_audio_into_embeds to use get_audio_features'
     # projected output (pooler_output, 375 tokens) instead of pre-projection
     # encoder states (1500 rows). Old version misaligned audio in the splice.
-    voxtral_transcribe_fwd_cfg = rf.build_dict(
-        Voxtral, model_dir=dl_voxtral, forward_mode="transcription", version=3
-    )
+    voxtral_transcribe_fwd_cfg = rf.build_dict(Voxtral, model_dir=dl_voxtral, forward_mode="transcription", version=3)
     for mgi, attr, grad_alias in ((True, "L2", "L2_e_grad"), (True, "L1", "L1_e_grad"), (True, "L0.5", "L05_e_grad")):
         vxt_extract = ExtractInGradsPerTokenJob(
             dataset_dir=dl_ds_timit.out_hub_cache_dir,
@@ -797,13 +823,13 @@ def py():
     # "e_grad" suffix = mult_grad_by_inputs=True (input * grad).
     # "_grad" suffix = plain grad.
     _voxtral_logmel_variants = [
-        (True, "L2", "L2_e_grad"),         # initial run, WBE 0.179
-        (False, "L2", "L2_grad"),          # plain grad, L2 over mel
-        (False, "L1", "L1_grad"),          # plain grad, L1 over mel
-        (False, "sum", "dot_grad"),        # plain grad, signed sum over mel
-        (True, "L1", "L1_e_grad"),         # input * grad, L1
-        (True, "sum", "dot_e_grad"),       # input * grad, signed sum
-        (False, "L0.5", "L05_grad"),       # plain grad, L0.5 (sharper)
+        (True, "L2", "L2_e_grad"),  # initial run, WBE 0.179
+        (False, "L2", "L2_grad"),  # plain grad, L2 over mel
+        (False, "L1", "L1_grad"),  # plain grad, L1 over mel
+        (False, "sum", "dot_grad"),  # plain grad, signed sum over mel
+        (True, "L1", "L1_e_grad"),  # input * grad, L1
+        (True, "sum", "dot_e_grad"),  # input * grad, signed sum
+        (False, "L0.5", "L05_grad"),  # plain grad, L0.5 (sharper)
     ]
     for mgi, attr, grad_alias in _voxtral_logmel_variants:
         vxt_lm_extract = ExtractInGradsPerTokenJob(
@@ -949,6 +975,42 @@ def py():
         )
         align.add_alias(align_name)
         tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+
+    # --- SmoothGrad on Voxtral (variant 7) -----------------------------------
+    # N=5 forward+backward passes per seq with Gaussian noise on raw audio;
+    # averaged grad maps. Tested on the best projected-grad config (L2_e).
+    # noise_std=0.01 is ~1% of typical waveform amplitude (signals in [-1,1]).
+    # ExtractInGradsPerTokenJob.__sis_version__=1 encodes the new noise params
+    # so old jobs (noise_n_samples=1, noise_std=0.0) are unaffected.
+    for sg_n, sg_std, sg_alias in [
+        (5, 0.01, "sg5-std001"),
+        (5, 0.05, "sg5-std005"),
+    ]:
+        vxt_sg_extract = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=voxtral_transcribe_fwd_cfg,
+            mult_grad_by_inputs=True,
+            attr_reduction="L2",
+            noise_n_samples=sg_n,
+            noise_std=sg_std,
+        )
+        vxt_sg_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        vxt_sg_name = f"voxtral-transcribe-timit-val-L2_e_grad-pertoken-{sg_alias}"
+        vxt_sg_extract.add_alias(vxt_sg_name)
+        tk.register_output(f"{vxt_sg_name}.hdf", vxt_sg_extract.out_hdf)
+        for align_opts in _ALIGN_OPTS_GRID:
+            align_name = f"align/{vxt_sg_name}-{_name_for_dict(align_opts)}"
+            align = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=vxt_sg_extract.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=align_opts,
+            )
+            align.add_alias(align_name)
+            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
     # --- Canary-Qwen 2.5B grad-variant sweep on TIMIT val -----------------
     # A sensible subset (not the full 9x grid): the grad x input ("e_grad")
