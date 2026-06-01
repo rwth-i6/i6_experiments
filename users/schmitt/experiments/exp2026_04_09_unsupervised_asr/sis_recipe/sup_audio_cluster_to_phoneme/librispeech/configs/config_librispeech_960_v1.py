@@ -9,7 +9,7 @@ from ... import __setup_base_name__
 from sisyphus import tk
 
 
-def _get_keep_epochs(num_epochs: int) -> List[int]:
+def get_keep_epochs(num_epochs: int) -> List[int]:
     if num_epochs == 1_000:
         return [250, 500, 750, 1_000]
 
@@ -88,6 +88,6 @@ def py():
         config=copy.deepcopy(base_config),
         train_data=train_data,
         test_data_dict=test_data_dict,
-        keep_epochs=_get_keep_epochs(base_num_epochs),
+        keep_epochs=get_keep_epochs(base_num_epochs),
         skip_eval=False,
     )
