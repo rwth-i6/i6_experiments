@@ -34,6 +34,7 @@ import functools
 import json
 import os
 import queue as queue_mod
+import shutil
 import subprocess
 import threading
 from typing import Any, Callable, Collection, Dict, List, Optional, Sequence, Tuple, Union
@@ -42,6 +43,7 @@ from sisyphus import Job, Task, tk
 from sisyphus import gs
 
 from i6_core.returnn.config import ReturnnConfig
+from i6_core.returnn.forward import ReturnnForwardJobV2
 from i6_core.returnn.search import SearchTakeBestJob
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 
@@ -84,6 +86,10 @@ class BatchedReturnnForwardJob(Job):
     Defaults target a full JUPITER node
     (4x GH200, 11.95h booster QOS cap, ~440 GiB usable host RAM, 288 cores).
     """
+
+    # Bump when the run() output placement / cell execution changes for an already-finished job.
+    # v2: place each cell's output at its declared output_path (was left in work/ -> lost on cleanup).
+    __sis_version__ = 2
 
     def __init__(
         self,
@@ -150,18 +156,14 @@ class BatchedReturnnForwardJob(Job):
             config_path = os.path.join(cell_dir, "returnn.config")
             cs["returnn_config"].write(config_path)
 
-            # Each cell runs rnn.py with cwd = outputs/<cell_key>/,
-            # where its declared output_files land.
-            out_dir = os.path.join("outputs", ck)
-            os.makedirs(out_dir, exist_ok=True)
-
             manifest.append(
                 {
                     "key": ck,
                     "config": os.path.abspath(config_path),
-                    "model_checkpoint": os.fspath(cs["model_checkpoint"]),
-                    "output_dir": os.path.abspath(out_dir),
                     "output_files": list(cs["output_files"]),
+                    # Where each produced file must end up: the declared output_path location
+                    # (under the job's output/), which sis + downstream jobs read.
+                    "output_dests": {fn: self.out_files[ck][fn].get_path() for fn in cs["output_files"]},
                 }
             )
         with open("manifest.json", "w") as f:
@@ -191,15 +193,27 @@ class BatchedReturnnForwardJob(Job):
                     cell = work.get_nowait()
                 except queue_mod.Empty:
                     return
+                ck = cell["key"]
+                # Run each cell in its own dir (under work/), then move the produced output files
+                # to their declared output_path destinations. rnn.py writes output files relative
+                # to cwd, so without the move they would stay in work/ (and get cleaned up).
+                run_dir = os.path.abspath(os.path.join("run", ck))
                 try:
-                    print(f"[BatchedRecog] GPU {gpu_idx}: starting cell {cell['key']}", flush=True)
-                    subprocess.run([python, rnn_py, cell["config"]], cwd=cell["output_dir"], env=env, check=True)
-                    print(f"[BatchedRecog] GPU {gpu_idx}: cell {cell['key']} done", flush=True)
+                    os.makedirs(run_dir, exist_ok=True)
+                    print(f"[BatchedRecog] GPU {gpu_idx}: starting cell {ck}", flush=True)
+                    subprocess.run([python, rnn_py, cell["config"]], cwd=run_dir, env=env, check=True)
+                    for fn, dest in cell["output_dests"].items():
+                        src = os.path.join(run_dir, fn)
+                        if not os.path.exists(src):
+                            raise FileNotFoundError(f"cell {ck}: expected output {fn!r} not produced in {run_dir}")
+                        os.makedirs(os.path.dirname(dest), exist_ok=True)
+                        shutil.move(src, dest)
+                    print(f"[BatchedRecog] GPU {gpu_idx}: cell {ck} done", flush=True)
                 except BaseException as exc:
                     # Capture + continue so other cells finish.
                     with errors_lock:
-                        errors.append((cell["key"], exc))
-                    print(f"[BatchedRecog] GPU {gpu_idx}: cell {cell['key']} FAILED: {exc!r}", flush=True)
+                        errors.append((ck, exc))
+                    print(f"[BatchedRecog] GPU {gpu_idx}: cell {ck} FAILED: {exc!r}", flush=True)
                 finally:
                     work.task_done()
 
@@ -367,8 +381,16 @@ def recog_training_exp_batched(
                 config=search_config,
                 post_config=search_post_config,
             )
+            # Transform the raw search config into a forward-ready one (sets task=forward + load=checkpoint),
+            # exactly as ReturnnForwardJobV2 does -- otherwise rnn.py defaults to task=train.
+            cell_config = ReturnnForwardJobV2.create_returnn_config(
+                model_checkpoint=model_with_checkpoint.checkpoint,
+                returnn_config=returnn_config,
+                log_verbosity=5,
+                device="gpu",
+            )
             cells[cell_key] = {
-                "returnn_config": returnn_config,
+                "returnn_config": cell_config,
                 "model_checkpoint": model_with_checkpoint.checkpoint,
                 "output_files": list(out_files),
             }
