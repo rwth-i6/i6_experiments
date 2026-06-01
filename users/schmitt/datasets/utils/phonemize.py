@@ -26,7 +26,6 @@ class PhonemizeTextDataJob(Job):
         lid_path: tk.Path,
         lexicon_file: Optional[tk.Path],
         min_phoneme_occurrence: int,
-        phoneme_file: Optional[tk.Path] = None,
         phonemizer_engine: str = "G2P",
         python_env: Optional[tk.Path] = None,
         seq_tag_file: Optional[tk.Path] = None,
@@ -36,7 +35,6 @@ class PhonemizeTextDataJob(Job):
         self.python_exe = python_exe
         self.lid_path = lid_path
         self.lexicon_file = lexicon_file
-        self.phoneme_file = phoneme_file
         self.language = language
         self.sil_prob = sil_prob
         self.seq_tag_file = seq_tag_file
@@ -46,6 +44,7 @@ class PhonemizeTextDataJob(Job):
 
         self.out_lexicon_file = self.output_path("lexicon_filtered.lst")
         self.out_phoneme_text = self.output_path("text.phonemes.txt")
+        self.out_phoneme_counts = self.output_path("phoneme_counts.txt")
         self.out_phoneme_vocab = self.output_path("phoneme_vocab.txt")
         if seq_tag_file is not None:
             self.out_seq_tags = self.output_path("seq-tags-after-phonemize.txt")
@@ -54,7 +53,8 @@ class PhonemizeTextDataJob(Job):
 
     def tasks(self) -> Iterator[Task]:
         yield Task("run", rqmt={"cpu": 4, "mem": 8, "time": 2})
-        yield Task("add_sil_to_vocab", mini_task=True)
+        if self.lexicon_file is None:
+            yield Task("create_phoneme_vocab", mini_task=True)
 
     @staticmethod
     def normalize_and_filter_text(
@@ -221,10 +221,9 @@ class PhonemizeTextDataJob(Job):
             lexicon_file = os.path.join(text_dir, "lexicon_filtered.lst")
             shutil.copy(lexicon_file, self.out_lexicon_file.get_path())
             shutil.move(os.path.join(text_dir, "lm.upper.lid.txt"), "lm.upper.lid.txt")
+            shutil.move(os.path.join(text_dir, "phones/dict.txt"), self.out_phoneme_counts.get_path())
         else:
-            assert self.phoneme_file is not None
             shutil.copy(self.lexicon_file, self.out_lexicon_file.get_path())
-            shutil.copy(self.phoneme_file, self.out_phoneme_vocab.get_path())
 
             self.normalize_and_filter_text(
                 text_file=self.text_file.get_path(),
@@ -239,18 +238,6 @@ class PhonemizeTextDataJob(Job):
                 if self.seq_tag_file is not None
                 else None
             )
-
-            # i6_experiments_mod = i6_experiments.__path__[0]
-            # normalize_cmd = (
-            #     f"{self.python_exe.get_path()} {i6_experiments_mod}/users/schmitt/experiments/exp2025_10_02_shared_enc/librispeech/data/normalize_and_filter_text.py "
-            #     f"{'--seq-tags-file ' + self.seq_tag_file.get_path() if self.seq_tag_file is not None else ''} "
-            #     f"--lang {self.language} --fasttext-model {self.lid_path.get_path()} < {self.text_file.get_path()} | grep -v '\-\-\-' > lm.upper.lid.txt"
-            # )
-            # sp.check_call(normalize_cmd, shell=True)
-            # # written by normalize_and_filter_text.py
-            # seq_tag_file = (
-            #     os.path.join(os.getcwd(), "seq-tags-after-norm-and-filter.txt") if self.seq_tag_file is not None else None
-            # )
 
             preprocess_cmd = (
                 f"{sys.executable} {self.fairseq_root.get_path()}/fairseq_cli/preprocess.py "
@@ -267,14 +254,6 @@ class PhonemizeTextDataJob(Job):
             cut_cmd = f"cut -f1 -d' ' dict.txt | grep -v -x '[[:punct:]]*' | grep -Pv '\d\d\d\d\d+' > words.txt"
             sp.check_call(cut_cmd, shell=True)
 
-        # phonemize_cmd = (
-        #     f"python {i6_experiments_mod}/users/schmitt/experiments/exp2025_10_02_shared_enc/librispeech/data/phonemize_with_sil.py "
-        #     f"-s {self.sil_prob} "
-        #     f"--surround "
-        #     f"{'--seq-tags-file ' + seq_tag_file if seq_tag_file is not None else ''} "
-        #     f"--lexicon {self.out_lexicon_file.get_path()} < lm.upper.lid.txt > lm.phones.filtered.txt"
-        # )
-        # sp.check_call(phonemize_cmd, shell=True)
         self.phonemize_with_sil(
             text_file="lm.upper.lid.txt",
             out_text_file="lm.phones.filtered.txt",
@@ -288,18 +267,22 @@ class PhonemizeTextDataJob(Job):
         if self.seq_tag_file is not None:
             shutil.move("seq-tags-after-phonemize.txt", self.out_seq_tags.get_path())
 
-    def add_sil_to_vocab(self):
-        with open(self.out_phoneme_vocab.get_path(), "a", encoding="utf-8") as f:
-            lines = open(self.out_phoneme_vocab.get_path(), "r", encoding="utf-8").readlines()
-            if not any("<SIL>" in line.strip() for line in lines):
-                f.write("<SIL> 0\n")
+    def create_phoneme_vocab(self):
+        with open(self.out_phoneme_counts.get(), "r") as f:
+            vocab = {line.strip().split()[0]: i for i, line in enumerate(f.readlines())}
+            vocab["<SIL>"] = len(vocab)
+        with open(self.out_phoneme_vocab.get_path(), "w") as f:
+            f.write("{\n")
+            for phon, i in vocab.items():
+                f.write(f'"{phon}": {i},\n')
+            f.write("}\n")
 
 
 class DumpPhonemeIndicesToHdfJob(Job):
     def __init__(
         self,
         text_file: Union[DelayedBase, tk.Path],
-        phoneme_file: Union[DelayedBase, tk.Path],
+        phoneme_vocab: Union[DelayedBase, tk.Path],
         concurrent: int = 10,
         fixed_random_subset: Optional[int] = None,
         seq_tag_file: Optional[tk.Path] = None,
@@ -308,12 +291,12 @@ class DumpPhonemeIndicesToHdfJob(Job):
 
         Args:
             text_file: each line contains a sequence of phonemes separated by space
-            phoneme_file: line format: <phoneme> <integer (count?)>
+            phoneme_vocab:
             concurrent: number of concurrent hdf files to dump
             fixed_random_subset: if given, only use a fixed random subset of the data
         """
         self.text_file = text_file
-        self.phoneme_file = phoneme_file
+        self.phoneme_vocab = phoneme_vocab
         self.concurrent = concurrent
         self.fixed_random_subset = fixed_random_subset
         self.seq_tag_file = seq_tag_file
@@ -337,29 +320,25 @@ class DumpPhonemeIndicesToHdfJob(Job):
         if self.seq_tag_file is not None:
             with open(self.seq_tag_file.get(), "r") as f:
                 seq_tags = [line.strip() for line in f.readlines()]
+                assert len(seq_tags) == len(lines)
         else:
             seq_tags = None
+        pairs = list(zip(lines, seq_tags)) if seq_tags is not None else [(line, None) for line in lines]
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_hdf = os.path.join(tmp_dir, f"data_{task_id}.hdf")
             hdf_writer = SimpleHDFWriter(filename=tmp_hdf, dim=len(vocab), ndim=1)
 
-            random.Random(42).shuffle(lines)
-            if seq_tags is not None:
-                random.Random(42).shuffle(seq_tags)
+            random.Random(42).shuffle(pairs)
 
-            num_lines = len(lines)
-            lines = [lines[i] for i in range(num_lines) if (i % self.concurrent) == (task_id - 1)]
-            if seq_tags is not None:
-                seq_tags = [seq_tags[i] for i in range(num_lines) if (i % self.concurrent) == (task_id - 1)]
+            num_lines = len(pairs)
+            pairs = [pairs[i] for i in range(num_lines) if (i % self.concurrent) == (task_id - 1)]
             if self.fixed_random_subset is not None:
-                lines = lines[: self.fixed_random_subset]
-                if seq_tags is not None:
-                    seq_tags = seq_tags[: self.fixed_random_subset]
+                pairs = pairs[: self.fixed_random_subset]
             num_lines = len(lines)
             gc.collect()
 
-            for i, line in enumerate(lines):
+            for i, (line, seq_tag) in enumerate(pairs):
                 phonemes = line.strip().split()
                 data = [vocab[p] for p in phonemes]
                 data = np.array([data])  # (1, T)
@@ -371,7 +350,7 @@ class DumpPhonemeIndicesToHdfJob(Job):
                 hdf_writer.insert_batch(
                     data,
                     seq_len=seq_lens,
-                    seq_tag=[f"lm-data-{i}" if seq_tags is None else seq_tags[i]],
+                    seq_tag=[f"lm-data-{i}" if seq_tag is None else seq_tag],
                     extra={"seq_sizes": batch_seq_sizes},
                 )
 
