@@ -1382,12 +1382,11 @@ def train(
     # TIMIT forced-align stats (WBE + streaming latency) for every CTC model.
     # ff* (feed-forward decoder) and *-bug experiments are not part of the
     # chunked-CTC study, so they're skipped. Chunk geometry for the latency
-    # metric is read from the encoder build dict (chunk_size / lookahead);
-    # offline / full-context models have no chunk_size => None.
+    # metric is read from the encoder build dict;
+    # offline / full-context models have no chunk geometry => None.
     if not (name.startswith("ff") or name.endswith("-bug")):
         _enc_bd = model_config.get("enc_build_dict") if isinstance(model_config, dict) else None
-        _chunk_c = _enc_bd.get("chunk_size") if isinstance(_enc_bd, dict) else None
-        _chunk_la = (_enc_bd.get("chunk_lookahead_size", 0) if isinstance(_enc_bd, dict) else 0) or 0
+        _chunk_c, _chunk_la = _chunk_geometry_from_enc_build_dict(_enc_bd)
         _run_align_stats(
             name,
             exp,
@@ -1585,6 +1584,36 @@ def _aed_ctc_forced_align(
         config=fwd_config,
         forward_rqmt={"time": 4},
     )
+
+
+def _chunk_geometry_from_enc_build_dict(enc_build_dict) -> Tuple[Optional[int], int]:
+    """
+    Chunk (center, lookahead) in encoder-output frames for the streaming-latency metric,
+    or (None, 0) for offline / non-chunked encoders.
+
+    Two encoder schemas carry the geometry differently:
+      - ChunkedConformerEncoderV2 (the ``-v2.3`` family):
+        ``chunk_size`` is the center, ``chunk_lookahead_size`` the lookahead,
+        both already in encoder-output frames.
+      - ChunkedConformerEncoder (the geometry sweep):
+        ``end_chunk_size_dim`` is the center in encoder frames,
+        ``chunk_stride`` is center * downsampling,
+        ``input_chunk_size_dim`` is (center + lookahead) * downsampling (raw frames),
+        so lookahead = input_chunk_size_dim // downsampling - center.
+    """
+    if not isinstance(enc_build_dict, dict):
+        return None, 0
+    if enc_build_dict.get("chunk_size") is not None:
+        center = int(enc_build_dict["chunk_size"])
+        return center, int(enc_build_dict.get("chunk_lookahead_size", 0) or 0)
+    end_dim = enc_build_dict.get("end_chunk_size_dim")
+    stride = enc_build_dict.get("chunk_stride")
+    input_dim = enc_build_dict.get("input_chunk_size_dim")
+    if end_dim is not None and stride and input_dim is not None:
+        center = int(end_dim)
+        downsampling = int(stride) // center
+        return center, int(input_dim) // downsampling - center
+    return None, 0
 
 
 def _run_align_stats(
