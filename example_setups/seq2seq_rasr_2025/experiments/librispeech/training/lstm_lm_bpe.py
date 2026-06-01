@@ -47,6 +47,7 @@ def get_model_config(bpe_size: int = 128) -> LstmLmConfig:
 def get_train_options(bpe_size: int = 128) -> TrainOptions:
     train_data_config = get_default_bpe_lm_train_data(bpe_size)
     train_data_config.partition_epoch = 100
+    train_data_config.seq_ordering = "laplace:.100"
     return TrainOptions(
         train_data_config=train_data_config,
         cv_data_config=get_default_bpe_lm_cv_data(bpe_size),
