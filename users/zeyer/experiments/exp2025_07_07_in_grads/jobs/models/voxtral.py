@@ -113,6 +113,18 @@ class Voxtral(BaseModelInterface):
         self._char_level = bool(char_level)
         self._char_level_sep = char_level_sep
         self.logits_transform = make_logits_transform(logits_transform)
+        # NOTE on these version asserts:
+        # only the >= 3 floor is a genuine behaviour fix (the v1/v2 splice / n_audio_real bugs).
+        # The per-feature floors below (>= 4 log_mel, >= 5 time_stretch, >= 7 conv1/char, >= 8 ensure_audio)
+        # were NOT strictly necessary:
+        # each is an opt-in feature already made hash-distinct by its own option (grad_wrt, audio_time_stretch, ...),
+        # and no finished or running speech_embeddings config was ever at risk.
+        # They are kept only for historical reasons;
+        # rewriting them now would re-hash the already-running / finished feature jobs, so we leave them as-is.
+        # A NEW version bump is warranted only when a change alters the output
+        # of an already-finished OR currently-running config;
+        # such a bump should jump straight to >= 9,
+        # one past every value used so far -- never reuse an intermediate number.
         assert version >= 3, (
             "version 1: buggy splice (pre-projection encoder states). "
             "version 2: wrong n_audio_real (Whisper encoder frame count, not projected-token count; "
@@ -331,11 +343,12 @@ class Voxtral(BaseModelInterface):
             # Captured via a forward hook on conv1. Same 10 ms time resolution
             # as log_mel but in the model's learned feature space -- expected
             # to be cleaner than raw log-mel.
-            # Model params are frozen, so conv1's output is NOT in the autograd
-            # graph on its own. The hook detaches it into a fresh leaf (in the
-            # [1, T_mel, d_model] output layout) and feeds the [1, d_model, T_mel]
-            # view back downstream, so conv2..projector..LM (and the loss) depend
-            # on the leaf -- the same input-leaf trick as the log_mel path.
+            # Model params are frozen,
+            # so conv1's output is NOT in the autograd graph on its own.
+            # The hook detaches it into a fresh leaf (in the [1, T_mel, d_model] output layout)
+            # and feeds the [1, d_model, T_mel] view back downstream,
+            # so conv2..projector..LM (and the loss) depend on the leaf --
+            # the same input-leaf trick as the log_mel path.
             captured: List[torch.Tensor] = []
 
             def _conv1_hook(_module, _inp, out):
