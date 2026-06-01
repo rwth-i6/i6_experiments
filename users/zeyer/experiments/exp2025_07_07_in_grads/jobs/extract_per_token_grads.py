@@ -27,6 +27,36 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
     backward passes per word (forward pass is shared via ``retain_graph=True``).
     """
 
+    # noise_n_samples=1 / noise_std=0.0 reproduce the pre-SmoothGrad single-pass behaviour exactly,
+    # so exclude them at their defaults: existing jobs keep their hash.
+    # Do NOT bump __sis_version__ for a behaviour-preserving optional kwarg --
+    # that would needlessly re-run every existing job.
+    # Only the SmoothGrad variants (noise_std != 0) differ from the defaults, and thus get a distinct hash.
+    __sis_hash_exclude__ = {"noise_n_samples": 1, "noise_std": 0.0}
+
+    def __init__(
+        self,
+        *,
+        noise_n_samples: int = 1,
+        noise_std: float = 0.0,
+        **kwargs,
+    ):
+        """Extends the base with SmoothGrad-style noise averaging.
+
+        :param noise_n_samples: number of noisy forward+backward passes per seq
+            to average. 1 = standard (no noise averaging).
+        :param noise_std: standard deviation of Gaussian noise added to the
+            raw audio waveform before each forward pass. 0.0 = no noise.
+            Typical useful range: 0.01-0.1 (audio waveforms are in [-1, 1]).
+        """
+        super().__init__(**kwargs)
+        self.noise_n_samples = int(noise_n_samples)
+        self.noise_std = float(noise_std)
+        assert self.noise_n_samples >= 1
+        assert self.noise_std >= 0.0
+        if self.noise_n_samples > 1:
+            self.rqmt = dict(self.rqmt, time=self.rqmt["time"] * self.noise_n_samples)
+
     rqmt = {"time": 100, "cpu": 2, "gpu": 1, "mem": 125}
 
     def tasks(self):
@@ -179,15 +209,6 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
                     f" words {words_start}-{words_end} ({words[words_start:words_end]!r})"
                 )
 
-                forward_output: ForwardOutput = model(
-                    raw_inputs=torch.tensor(audio[audio_start:audio_end])[None],
-                    raw_inputs_sample_rate=samplerate,
-                    raw_input_seq_lens=torch.tensor([audio_end - audio_start]),
-                    raw_targets=[words[words_start:words_end]],
-                    raw_target_seq_lens=torch.tensor([words_end - words_start]),
-                    omitted_prev_context=torch.tensor([words_start]),
-                )
-
                 # noinspection PyShadowingNames
                 def _calc_log_probs_and_per_token_grads(
                     w: int,
@@ -225,17 +246,74 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
 
                     return loss.detach(), num_tokens, attrs_per_token
 
-                print("** Calculating grads")
+                # SmoothGrad: run noise_n_samples forward+backward passes,
+                # accumulate per-token grad attrs, average at the end.
+                # When noise_n_samples==1 and noise_std==0.0 this is identical
+                # to the original single-pass behaviour.
+                _raw_audio_chunk = torch.tensor(audio[audio_start:audio_end])
+                _noise_n = self.noise_n_samples
+                _noise_std = self.noise_std
+                # We store attrs accumulated across samples for each word/token.
+                # attrs_accum[w][k] = sum of attr tensors for word w, token k.
+                _attrs_accum: List[Optional[List[Optional[torch.Tensor]]]] = []
+                for _sample_idx in range(_noise_n):
+                    if _noise_std > 0.0:
+                        _noisy = _raw_audio_chunk + torch.randn_like(_raw_audio_chunk) * _noise_std
+                    else:
+                        _noisy = _raw_audio_chunk
+                    _fwd: ForwardOutput = model(
+                        raw_inputs=_noisy[None],
+                        raw_inputs_sample_rate=samplerate,
+                        raw_input_seq_lens=torch.tensor([audio_end - audio_start]),
+                        raw_targets=[words[words_start:words_end]],
+                        raw_target_seq_lens=torch.tensor([words_end - words_start]),
+                        omitted_prev_context=torch.tensor([words_start]),
+                    )
+                    # On first sample, record frame count and structure.
+                    if _sample_idx == 0:
+                        forward_output = _fwd
+                    for _w in range(words_end - words_start):
+                        _, _n_tok, _attrs = _calc_log_probs_and_per_token_grads(
+                            _w,
+                            forward_output=_fwd,
+                            report_mem=(_w == 0 and _sample_idx == 0),
+                        )
+                        if _sample_idx == 0:
+                            _attrs_accum.append([_attrs[_k].clone() if _attrs else None for _k in range(_n_tok)])
+                        else:
+                            for _k in range(_n_tok):
+                                if _attrs_accum[_w][_k] is not None and _attrs:
+                                    _attrs_accum[_w][_k] = _attrs_accum[_w][_k] + _attrs[_k]
+                # Average accumulated attrs.
+                if _noise_n > 1:
+                    for _w in range(len(_attrs_accum)):
+                        for _k in range(len(_attrs_accum[_w])):
+                            if _attrs_accum[_w][_k] is not None:
+                                _attrs_accum[_w][_k] = _attrs_accum[_w][_k] / _noise_n
+                # Wrap accumulated attrs so existing code can consume them.
+                _attrs_accum_flat = _attrs_accum  # indexed [w][k]
+
+                print("** Calculating grads (or using SmoothGrad-averaged grads)")
                 chunk_num_input_frames = forward_output.get_inputs_seq_lens_sliced()[0].item()
                 num_input_frames.append(chunk_num_input_frames)
                 num_words_.append(words_end - words_start)
                 chunk_total_tokens = 0
                 for w in range(words_end - words_start):
-                    word_log_probs, n_tok, attrs = _calc_log_probs_and_per_token_grads(
-                        w,
-                        forward_output=forward_output,
-                        report_mem=w in {0, words_end - words_start - 1},
-                    )
+                    if _noise_n > 1 or _noise_std > 0.0:
+                        # Use pre-accumulated (averaged) attrs from the noise loop.
+                        word_log_probs, n_tok, _ = _calc_log_probs_and_per_token_grads(
+                            w,
+                            forward_output=forward_output,
+                            no_grad=True,
+                            report_mem=w in {0, words_end - words_start - 1},
+                        )
+                        attrs = _attrs_accum_flat[w]
+                    else:
+                        word_log_probs, n_tok, attrs = _calc_log_probs_and_per_token_grads(
+                            w,
+                            forward_output=forward_output,
+                            report_mem=w in {0, words_end - words_start - 1},
+                        )
                     assert word_log_probs.shape == (1, n_tok), f"got {word_log_probs.shape=} {n_tok=}"
                     for k in range(n_tok):
                         assert attrs[k].shape == (1, chunk_num_input_frames)
