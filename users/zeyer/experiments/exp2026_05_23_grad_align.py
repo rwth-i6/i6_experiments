@@ -896,7 +896,7 @@ def py():
     # best WBE (0.130) in the previous sweep. WBE is reported on the ORIGINAL
     # audio timeline (the model internally maps stretched encoder frames back
     # via original n_samples).
-    for stretch in (1.2, 1.5):
+    for stretch in (1.2, 1.5, 1.75, 2.0):
         suf = f"stretch{stretch:.1f}".replace(".", "")
         voxtral_stretch_cfg = rf.build_dict(
             Voxtral,
@@ -1037,6 +1037,23 @@ def py():
         char_level_sep=" ",
         version=7,
     )
+    # Stack the winning levers: char-level + 100 Hz + audio stretch.
+    # Stretch helped at projected resolution, and plain-L1 is the best reduction so far;
+    # sweep a couple of stretch factors on both 100 Hz targets.
+    _charlev_stretch = []
+    for _tgt, _gw in (("logmel", "log_mel"), ("conv1", "encoder_conv1_out")):
+        for _st, _stk in ((1.5, "15"), (2.0, "20")):
+            _st_cfg = rf.build_dict(
+                Voxtral,
+                model_dir=dl_voxtral,
+                forward_mode="transcription",
+                grad_wrt=_gw,
+                char_level=True,
+                char_level_sep=" ",
+                audio_time_stretch=_st,
+                version=7,
+            )
+            _charlev_stretch.append((_st_cfg, f"{_tgt}-st{_stk}", [(False, "L1", "L1_grad")]))
     # Plain grad (mult_grad_by_inputs=False) is best at 100 Hz;
     # keep one mult variant per target to confirm the mult-hurts pattern holds at char level.
     _charlev_100hz = [
@@ -1050,7 +1067,7 @@ def py():
             "conv1",
             [(False, "L1", "L1_grad"), (False, "L2", "L2_grad"), (True, "L2", "L2_e_grad")],
         ),
-    ]
+    ] + _charlev_stretch
     for cl_cfg, cl_tname, cl_variants in _charlev_100hz:
         for mgi, attr, grad_alias in cl_variants:
             vxt_cl2_extract = ExtractInGradsPerTokenJob(
