@@ -311,12 +311,16 @@ def _train_tts_encoder(
         gpu_mem=96,  # GH200 has 96 GB HBM3
         recog_training_func=recog_training_exp_batched,  # bundle per-epoch recog into one multi-GPU job
     )
-    aed_ctc_timesync_recog_recomb_auto_scale(
-        prefix=prefix + "/aed/" + name + "/aed+ctc",
-        task=task,
-        aed_ctc_model=exp.get_last_fixed_epoch(),
-        aux_ctc_layer=16,
-    )
+    # TODO: re-enable once the auto-scale recog is batched into full-node jobs.
+    # The plain aed_ctc_timesync_recog_recomb_auto_scale fans out into single-GPU ReturnnForwardJobV2
+    # cells (CTC N-best search + AED rescore + 1st-pass), each wasting 3/4 of a flat-billed FZJ node.
+    # Disabled so those jobs leave the graph entirely; the plain batched recog above still gives WERs.
+    # aed_ctc_timesync_recog_recomb_auto_scale(
+    #     prefix=prefix + "/aed/" + name + "/aed+ctc",
+    #     task=task,
+    #     aed_ctc_model=exp.get_last_fixed_epoch(),
+    #     aux_ctc_layer=16,
+    # )
     return exp
 
 
