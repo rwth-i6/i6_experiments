@@ -312,13 +312,43 @@ class _GetBestRecogTrainExpFixedEpochs(GetBestRecogTrainExp):
     """
     Like ``GetBestRecogTrainExp`` but without the dynamic LR-score epoch picking in ``update()``.
 
-    All ``fixed_epochs`` are already recog'd via the single ``BatchedReturnnForwardJob`` upfront,
-    and their scores are fed in via ``_PrecomputedRecogScore``,
-    so the dynamic ``update()`` (which would create more per-epoch recogs) must be a no-op.
+    Background: ``GetBestRecogTrainExp.update()`` is the sis graph-extension hook (runs in the manager,
+    gated on ``scores_and_learning_rates.available()``, i.e. after training finishes). It calls
+    ``get_relevant_epochs_from_training_learning_rate_scores`` to pick the best-by-train-score epochs
+    (which can be kept epochs *not* in ``fixed_epochs``) and adds a recog for each.
+
+    Here we build a single ``BatchedReturnnForwardJob`` over ``model.fixed_epochs`` upfront, and feed
+    the pre-computed per-epoch scores via ``_PrecomputedRecogScore`` -- which only knows about
+    ``fixed_epochs``. If ``update()`` asked it for a dynamically-picked non-fixed epoch it would
+    ``KeyError``. So we disable ``update()``: we deliberately pick the best only among ``fixed_epochs``.
+    The cost is small (the dynamic pick would, at most, find a slightly-better kept epoch near the end).
+
+    --- Two ways to restore dynamic epoch picking, if ever worth the complexity (decided NOT worth it
+    for now, 2026-06-01): ---
+
+    Approach 1 (reuse scoring; recog stays one batched job):
+    Write a ``GetBestRecogTrainExpBatched``. Override ``_add_recog`` to merely *collect* the epoch
+    (no per-epoch job, no ``add_input``). Override ``update()`` so that once all epochs are gathered
+    (fixed from ``__init__`` + dynamic from the base ``update`` logic), it builds ONE
+    ``BatchedReturnnForwardJob`` over ``(all epochs x test_sets)``, then runs each cell through the
+    existing ``_post_process_search_output`` + ``task.score_recog_output_func`` and ``add_input``s them.
+    ``run()`` picks best as usual. Pro: reuses the post-proc + sclite sis jobs. The batched job is just
+    constructed at update() time (post-training), which is the standard dynamic-extension pattern.
+
+    Approach 2 (self-contained job owns the pipeline):
+    A single job takes the model dir + the LR-scores file (training output) as inputs; at run time it
+    calls ``get_relevant_epochs_from_training_learning_rate_scores`` itself, recogs all
+    ``(epoch x test_set)`` cells across the 4 GPUs, and -- since sis ``output_path`` must be declared
+    in ``__init__`` before the epoch set is known -- emits aggregate outputs only: one ``summary.json``
+    (all results), a ``tk.Variable`` best-epoch, and a symlink to the best checkpoint
+    (cf. ``GetBestPtCheckpointJob``). Downside: it must reimplement post-proc + scoring (take-best,
+    spm->words, sclite via ``SCTK_PATH``, ref handling) internally. This monolithic shape is the right
+    fit for the *auto-scale* recog (multi-phase search->rescore->scale-tune->search), so build that one
+    this way; not worth forcing the plain recog into it.
     """
 
     def update(self):
-        """No dynamic epoch picking: the fixed_epochs set is materialized at graph-build."""
+        """Disabled: pick best only among model.fixed_epochs (see class docstring for why + alternatives)."""
         pass
 
 
