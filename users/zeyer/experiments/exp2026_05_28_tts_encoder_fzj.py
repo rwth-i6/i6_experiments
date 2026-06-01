@@ -288,8 +288,8 @@ def _train_tts_encoder(
             "glow_tts_text_spm_opts": get_vocab_by_str(vocab).get_opts(),
             "glow_tts_phone_info": get_glow_tts_phone_info(train=True),
             # DDP across 4 GH200: each runs a model replica + its data shard, gradients all-reduced via NCCL.
-            # ~400 M trainable params (Enc L16 D1024 + Dec L6 D1024 + spm10k) fits one GH200 (95 GB) easily, so DDP
-            # is the right tool sshere -- FSDP would only add sharding overhead for no memory benefit.
+            # ~400 M trainable params (Enc L16 D1024 + Dec L6 D1024 + spm10k) fits one GH200 (95 GB) easily,
+            # so DDP is the right tool here -- FSDP would only add sharding overhead for no memory benefit.
             # alternate_batching alternates audio-batch vs text-only-batch:
             # GlowTTS only fires on text, so its params are unused on audio steps
             "torch_distributed": {"options": {"find_unused_parameters": True}},
