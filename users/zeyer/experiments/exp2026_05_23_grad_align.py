@@ -57,6 +57,7 @@ from i6_experiments.users.zeyer.external_models.canary_qwen import (
     download_qwen3_1_7b_model,
 )
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.canary_qwen import CanaryQwen
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.wav2vec2_ctc import Wav2Vec2Ctc
 
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.extract_in_grad_scores import (
     ExtractInGradsFromModelJob,
@@ -239,6 +240,37 @@ def py():
             dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
         )
         tk.register_output(f"baseline-mms_fa-timit-{_split}-wbe.txt", fa_metric.out_wbe)
+
+    # --- Wav2Vec2-CTC grad-align: OUR method on the SAME model the MMS_FA
+    # baseline above uses (wav2vec2 + char-level CTC). Aligning one model two
+    # ways disentangles "different model" from "different alignment method".
+    # Grad target: the feature-extractor output (~50 Hz), the model's own
+    # emission rate; per-token score is the CTC partial score (incl. blank).
+    w2v_ctc_cfg = rf.build_dict(Wav2Vec2Ctc)
+    for _w_mgi, _w_attr, _w_ga in [(False, "L2", "L2_grad"), (True, "L2", "L2_e_grad"), (False, "L1", "L1_grad")]:
+        w2v_extract = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=w2v_ctc_cfg,
+            mult_grad_by_inputs=_w_mgi,
+            attr_reduction=_w_attr,
+        )
+        w2v_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        w2v_name = f"wav2vec2ctc-featext-timit-val-{_w_ga}-pertoken"
+        w2v_extract.add_alias(w2v_name)
+        tk.register_output(f"{w2v_name}.hdf", w2v_extract.out_hdf)
+        for align_opts in _ALIGN_OPTS_GRID:
+            align_name = f"align/{w2v_name}-{_name_for_dict(align_opts)}"
+            align = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=w2v_extract.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=align_opts,
+            )
+            align.add_alias(align_name)
+            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
     # --- Phi4 encoder-output (~12.5 Hz) grad target, for completeness vs the default
     # log-mel (100 Hz) target. Word-level only (encoder-out is too coarse for char-level).
