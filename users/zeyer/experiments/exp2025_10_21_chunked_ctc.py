@@ -11,7 +11,7 @@ Chunked Attention-based Encoder-Decoder Model for Streaming Speech Recognition, 
 
 from __future__ import annotations
 
-from typing import Optional, Any, Dict, Tuple
+from typing import Optional, Any, Dict, List, Tuple, Union
 from functools import cache
 
 from sisyphus import tk
@@ -1590,16 +1590,22 @@ def _aed_ctc_forced_align(
     *,
     aux_ctc_layer: int,
     extra_config: Optional[Dict[str, Any]] = None,
-) -> tk.Path:
+    num_shards: Optional[int] = None,
+) -> Union[tk.Path, List[tk.Path]]:
     """
     AED counterpart of :func:`exp2024_09_16_grad_align.ctc_forced_align`.
 
     Selects the AED model's top CTC aux head
     via ``aux_loss_layers=[aux_ctc_layer]`` in the forward config,
     same wiring as the existing recog path.
-    """
-    from i6_experiments.users.zeyer.forward_to_hdf import forward_to_hdf
 
+    Single-GPU by default (``num_shards=None``): one :func:`forward_to_hdf` job -> one HDF path.
+    With ``num_shards`` set, the same forward runs sharded across a full multi-GPU node via
+    :func:`batched_forward_to_hdf` (JUPITER policy: 4x GH200, flat-per-node billing, 12 h wall) and
+    returns the list of shard HDFs (feed to ``HDFDataset(files=[...])``). For large corpora (e.g.
+    Loquacious ~25k h) the single-GPU path would both waste 3/4 of the node and exceed the wall.
+    The ``num_shards`` default of None keeps the existing single-GPU callers hash-identical.
+    """
     extern_data_dict = dataset.get_extern_data()
     default_target_dict = extern_data_dict[dataset.get_default_target()]
     classes_dim = default_target_dict["sparse_dim"]
@@ -1614,6 +1620,19 @@ def _aed_ctc_forced_align(
     }
     if extra_config:
         fwd_config.update(extra_config)
+
+    if num_shards is not None:
+        from i6_experiments.users.zeyer.forward_batched import batched_forward_to_hdf
+
+        return batched_forward_to_hdf(
+            dataset=dataset,
+            num_shards=num_shards,
+            model=model,
+            forward_step=_aed_ctc_model_forced_align_step,
+            config=fwd_config,
+        )
+
+    from i6_experiments.users.zeyer.forward_to_hdf import forward_to_hdf
 
     return forward_to_hdf(
         dataset=dataset,
