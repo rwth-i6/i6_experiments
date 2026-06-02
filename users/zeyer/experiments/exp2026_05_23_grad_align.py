@@ -855,6 +855,42 @@ def py():
             align.add_alias(align_name)
             tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
+    # Consistency: Canary char + log-mel + stretch (same lever sweep as Voxtral).
+    canary_charlev_logmel_st15_cfg = rf.build_dict(
+        CanaryQwen,
+        model_dir=dl_canary,
+        llm_model_dir=dl_qwen3,
+        grad_wrt="log_mel",
+        char_level=True,
+        char_level_sep=" ",
+        ensure_audio_long_enough=True,
+        audio_time_stretch=1.5,
+        version=5,
+    )
+    cq_cls_extract = ExtractInGradsPerTokenJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=canary_charlev_logmel_st15_cfg,
+        mult_grad_by_inputs=False,
+        attr_reduction="L1",
+    )
+    cq_cls_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    cq_cls_name = "canary-qwen-charlev-spc-logmel-st15-timit-val-L1_grad-pertoken"
+    cq_cls_extract.add_alias(cq_cls_name)
+    tk.register_output(f"{cq_cls_name}.hdf", cq_cls_extract.out_hdf)
+    for align_opts in _ALIGN_OPTS_GRID:
+        align_name = f"align/{cq_cls_name}-{_name_for_dict(align_opts)}"
+        align = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=cq_cls_extract.out_hdf,
+            grad_score_key="data",
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=align_opts,
+        )
+        align.add_alias(align_name)
+        tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+
     cq_recog = RecogFromModelJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir,
         dataset_key="val",
