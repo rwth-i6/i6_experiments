@@ -339,13 +339,37 @@ class Phi4MM(BaseModelInterface):
         input_ids = inputs["input_ids"]
         inputs_embeds = inputs["input_audio_embeds"]
         print("inputs_embeds:", inputs_embeds)
-        inputs_embeds.requires_grad = True
-        inputs_embeds.retain_grad()
+        _captured = {}
+        if self.grad_wrt == "encoder_out":
+            # Grad leaf = the audio encoder's output (~12.5 Hz post-encoder speech tokens),
+            # not the 100 Hz log-mel input. Hook the audio-embedding module and leaf-ify its
+            # output, so grad flows loss -> LLM -> speech tokens.
+            _cands = [m for _n, m in self.model.named_modules() if type(m).__name__ == "Phi4MMAudioEmbedding"]
+            assert len(_cands) == 1, "audio-embed module not uniquely found: " + repr(
+                [type(m).__name__ for _n, m in self.model.named_modules() if "audio" in _n.lower()][:30]
+            )
+
+            def _audio_hook(_mod, _inp, out):
+                t = out[0] if isinstance(out, tuple) else out
+                leaf = t.detach().requires_grad_(True)
+                leaf.retain_grad()
+                _captured["leaf"] = leaf
+                print(f"[fwd][encoder_out] audio_embed out={tuple(t.shape)}", flush=True)
+                return (leaf, *out[1:]) if isinstance(out, tuple) else leaf
+
+            _hook_handle = _cands[0].register_forward_hook(_audio_hook)
+        else:
+            inputs_embeds.requires_grad = True
+            inputs_embeds.retain_grad()
         # We don't need the logits here. There is currently no way to not compute them,
         # so num_logits_to_keep=1 is the best we can do.
         # We then will compute only the needed logits below,
         # and for that, we need the last layer output, thus output_hidden_states=True.
-        res = self.model(**inputs, output_hidden_states=True, num_logits_to_keep=1)
+        try:
+            res = self.model(**inputs, output_hidden_states=True, num_logits_to_keep=1)
+        finally:
+            if self.grad_wrt == "encoder_out":
+                _hook_handle.remove()
         last_out = res.hidden_states[-1]  # [B,T,D]
         del res
         assert last_out.shape[:2] == input_ids.shape
@@ -383,23 +407,29 @@ class Phi4MM(BaseModelInterface):
         # Add a matching entry for the EOS token appended above (one past the last word).
         words_start_end = words_start_end + [[n_targets, n_targets + 1]]
 
-        assert self.grad_wrt == "speech_embeddings", f"{self.grad_wrt=!r}"
+        assert self.grad_wrt in ("speech_embeddings", "encoder_out"), f"{self.grad_wrt=!r}"
+        if self.grad_wrt == "encoder_out":
+            grad_leaf = _captured["leaf"]
+            n_grad_frames = grad_leaf.shape[-2]  # speech tokens [.., n_tokens, H]
+        else:
+            grad_leaf = inputs_embeds
+            n_grad_frames = inputs_embeds.shape[1]
 
         # Map each model-internal speech-embedding frame back to its raw-audio sample
         # range. Phi4-MM's audio front-end uses log-mel features at a 10ms hop (160
         # samples @ 16kHz). For arbitrary sample rates we just linearly interpolate
         # (raw samples are evenly divided across frames). This matches the timestamp
         # convention used in :mod:`exp2025_05_05_align` (linear-interp frame -> time).
-        n_frames = inputs_embeds.shape[1]
+        n_frames = n_grad_frames
         n_samples = int(raw_input_seq_lens[0])  # B=1 enforced above
         edges = torch.arange(n_frames + 1, dtype=torch.float64) * (n_samples / n_frames)
-        input_raw_start_end = torch.stack(
-            [edges[:-1].round().long(), edges[1:].round().long()], dim=-1
-        ).unsqueeze(0)  # [B=1, n_frames, 2]
+        input_raw_start_end = torch.stack([edges[:-1].round().long(), edges[1:].round().long()], dim=-1).unsqueeze(
+            0
+        )  # [B=1, n_frames, 2]
 
         return ForwardOutput(
-            inputs=inputs_embeds,
-            input_seq_lens=torch.tensor([inputs_embeds.shape[1]]),  # [B]
+            inputs=grad_leaf,
+            input_seq_lens=torch.tensor([n_grad_frames]),  # [B]
             input_slice_start_end=None,
             input_raw_start_end=input_raw_start_end,
             targets=targets,

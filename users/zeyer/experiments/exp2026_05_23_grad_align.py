@@ -64,6 +64,9 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.extract_
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.extract_per_token_grads import (
     ExtractInGradsPerTokenJob,
 )
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.forced_align_baseline import (
+    ForcedAlignBaselineJob,
+)
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.word_align_from_per_token_grads import (
     WordAlignFromPerTokenGradsJob,
 )
@@ -107,6 +110,7 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.p
 # are already model-agnostic. Reusing them avoids a copy-paste.
 from i6_experiments.users.zeyer.experiments.exp2025_05_05_align import (
     CalcAlignmentMetricsJob,
+    CalcAlignmentMetricsFromWordBoundariesJob,
     _name_for_dict,
 )
 
@@ -168,6 +172,7 @@ def _phi4mm_model_config(
     char_level_sep: Optional[str] = None,
     char_level_brackets: Optional[str] = None,
     char_level_skip_chars: Optional[List[str]] = None,
+    grad_wrt: str = "speech_embeddings",
 ) -> Dict[str, Any]:
     """
     Build the model_config dict consumed by ``make_model`` in
@@ -199,6 +204,8 @@ def _phi4mm_model_config(
         extra["char_level_brackets"] = char_level_brackets
     if char_level_skip_chars is not None:
         extra["char_level_skip_chars"] = list(char_level_skip_chars)
+    if grad_wrt != "speech_embeddings":
+        extra["grad_wrt"] = grad_wrt
     return rf.build_dict(
         Phi4MM,
         model_dir=model_dir,
@@ -218,6 +225,48 @@ def py():
 
     dl_ds_buckeye = DownloadHuggingFaceRepoJobV2(repo_id="nh0znoisung/buckeye", repo_type="dataset")
     tk.register_output("buckeye-dataset", dl_ds_buckeye.out_hub_cache_dir)
+
+    # --- External baseline: MMS_FA neural-CTC forced alignment (WhisperX-style) ---
+    # Forced-align the reference transcript -> per-word boundaries -> WBE via the
+    # existing metric job. Runs in the active env (torchaudio + cached MMS_FA model).
+    for _split in ("val", "test"):
+        fa_base = ForcedAlignBaselineJob(dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_key=_split)
+        fa_base.add_alias(f"baseline-mms_fa-timit-{_split}")
+        fa_metric = CalcAlignmentMetricsFromWordBoundariesJob(
+            word_boundaries_hdf=fa_base.out_hdf,
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key=_split,
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+        )
+        tk.register_output(f"baseline-mms_fa-timit-{_split}-wbe.txt", fa_metric.out_wbe)
+
+    # --- Phi4 encoder-output (~12.5 Hz) grad target, for completeness vs the default
+    # log-mel (100 Hz) target. Word-level only (encoder-out is too coarse for char-level).
+    phi4_enc_cfg = _phi4mm_model_config(dl_phi4mi_dir, grad_wrt="encoder_out")
+    for _p4e_mgi, _p4e_attr, _p4e_ga in [(True, "L2", "L2_e_grad"), (False, "L2", "L2_grad")]:
+        p4e_extract = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=phi4_enc_cfg,
+            mult_grad_by_inputs=_p4e_mgi,
+            attr_reduction=_p4e_attr,
+        )
+        p4e_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        p4e_name = f"phi4mm-encoderout-timit-val-{_p4e_ga}-pertoken"
+        p4e_extract.add_alias(p4e_name)
+        tk.register_output(f"{p4e_name}.hdf", p4e_extract.out_hdf)
+        for align_opts in _ALIGN_OPTS_GRID:
+            align_name = f"align/{p4e_name}-{_name_for_dict(align_opts)}"
+            align = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=p4e_extract.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=align_opts,
+            )
+            align.add_alias(align_name)
+            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
     # --- Phi4-MM open recognition (WER sanity gate for hyp-mode alignment).
     # Prerequisite for evaluating against open-recognition baselines
