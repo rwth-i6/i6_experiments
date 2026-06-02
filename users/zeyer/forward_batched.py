@@ -180,19 +180,17 @@ class BatchedReturnnForwardJob(Job):
         with open("manifest.json", "w") as f:
             json.dump(manifest, f, indent=2)
 
-        # Worker driver: serialize an import of the worker entry point with serialization_v2, so the
-        # logic lives as a real function in this module (:func:`_worker_main`) instead of a
+        # Worker driver: serialize an import of the worker entry point with i6_core's serialization_v2,
+        # so the logic lives as a real function in this module (:func:`_worker_main`) instead of a
         # source-string blob. The generated worker.py is run by a plain Python (not via rnn.py).
         # serialization_v2 resolves the direct i6_experiments import (and its sys.path); we add the
-        # remaining non-base sys.path entries (sisyphus, returnn, ...) explicitly, mirroring
-        # ReturnnConfigWithNewSerialization._serialize, then append the call.
+        # remaining non-base sys.path entries (sisyphus, returnn, ...) explicitly, then append the call.
         import sys
-        from i6_experiments.users.zeyer.serialization_v2 import serialize_config, _get_base_sys_path_list
+        from i6_core.serialization.serialization_v2 import serialize_config, get_base_sys_path_list
 
-        extra_sys_paths = [p for p in sys.path if p not in _get_base_sys_path_list()]
+        extra_sys_paths = [p for p in sys.path if p not in get_base_sys_path_list()]
         worker_code = (
-            serialize_config({"_worker_main": _worker_main}, extra_sys_paths=extra_sys_paths).as_serialized_code()
-            + "\n_worker_main()\n"
+            serialize_config({"_worker_main": _worker_main}, extra_sys_paths=extra_sys_paths) + "\n_worker_main()\n"
         )
         with open("worker.py", "w") as f:
             f.write(worker_code)
