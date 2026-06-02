@@ -2185,6 +2185,9 @@ class Model(rf.Module):
         self.out_blank_separated = config.bool("out_blank_separated", False)
         self.blank_logit_shift = config.float("blank_logit_shift", 0.0)
         self.blank_grad_scale = config.typed_value("blank_grad_scale", None)
+        # Where blank_grad_scale acts: "log_probs" (post-softmax, couples all classes via the
+        # softmax normalization) or "logits" (pre-softmax, rescales only the blank logit's grad).
+        self.blank_grad_scale_point = config.value("blank_grad_scale_point", "log_probs")
 
         self.ctc_am_scale = config.float("ctc_am_scale", 1.0)
         self.ctc_prior_scale = config.float("ctc_prior_scale", 0.0)
@@ -2409,6 +2412,18 @@ class Model(rf.Module):
             If out_blank_separated, we use a separate sigmoid for the blank.
             Also, potentially adds label smoothing on the gradients.
         """
+        if self.blank_grad_scale is not None and self.blank_grad_scale_point == "logits":
+            # Scale the blank logit's gradient pre-softmax. Scaling on log_probs instead leaks
+            # into every class through the softmax normalization term; here only the blank
+            # logit's own update is rescaled.
+            assert not self.out_blank_separated  # blank has no dedicated logit dim when separated
+            blank_logit_grad_scale = rf.where(
+                rf.range_over_dim(self.wb_target_dim) == self.blank_idx,
+                self.blank_grad_scale,
+                1.0,
+            )
+            logits = rf.scaled_gradient(logits, blank_logit_grad_scale)
+
         if not self.out_blank_separated:  # standard case, joint distrib incl blank
             if self.blank_logit_shift:
                 logits += rf.sparse_to_dense(
@@ -2510,7 +2525,11 @@ class Model(rf.Module):
 
         log_probs = self._maybe_apply_log_probs_normed_grad(log_probs, aux_layer=aux_layer)
 
-        if self.blank_grad_scale is not None and log_probs.feature_dim == self.wb_target_dim:
+        if (
+            self.blank_grad_scale is not None
+            and self.blank_grad_scale_point == "log_probs"
+            and log_probs.feature_dim == self.wb_target_dim
+        ):
             # Scale only the blank dim's gradient on the single-softmax posterior, labels stay at 1.
             blank_grad_scale = rf.where(
                 rf.range_over_dim(self.wb_target_dim) == self.blank_idx,
