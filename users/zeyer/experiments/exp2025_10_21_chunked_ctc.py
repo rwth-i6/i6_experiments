@@ -955,11 +955,11 @@ def py():
         )
 
     # Long-context experiments: interleave standard ChunkedConformerEncoderLayerV2
-    # with a recurrent layer (Mamba-2 SSD or DeltaNet delta-rule). 16 total layers,
-    # alternating [std, rec, std, rec, ...] so 8 standard + 8 recurrent. Same
-    # outer chunked structure (chunk_size, history, lookahead, overlap-dynamic,
-    # chunk-type-embedding) as the v2.3-dyn-rope-ctembed-overlapD baseline so
-    # results are directly comparable.
+    # with a recurrent layer (Mamba-2 SSD or DeltaNet delta-rule).
+    # 16 total layers, alternating [std, rec, std, rec, ...], so 8 standard + 8 recurrent.
+    # Same outer chunked structure (chunk_size, history, lookahead, chunk-type-embedding)
+    # as the v2.3-dyn-rope-ctembed baseline, so results are directly comparable.
+    # No overlap-dynamic here -- overlapD was dropped from these hybrids (it regressed).
     from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2_mamba2 import (
         Mamba2ChunkedLayerV2,
         BidirMamba2ChunkedLayer,
