@@ -654,7 +654,10 @@ def _loq_tse(*, prefix: str, vocab_meta_loq, seq_list, train_dataset_loq):
     variants = [
         ("base", *_train_loq_aed_ctc("base")),
         ("ff6", *_train_loq_aed_ctc("ff6", train_overrides={"train.aux_loss_layers": [6]}, model_overrides=_ff(6))),
-        ("ff12", *_train_loq_aed_ctc("ff12", train_overrides={"train.aux_loss_layers": [6, 12]}, model_overrides=_ff(12))),
+        (
+            "ff12",
+            *_train_loq_aed_ctc("ff12", train_overrides={"train.aux_loss_layers": [6, 12]}, model_overrides=_ff(12)),
+        ),
         (
             "ff12-dec3",
             *_train_loq_aed_ctc(
