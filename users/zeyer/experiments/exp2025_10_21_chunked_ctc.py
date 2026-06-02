@@ -463,6 +463,9 @@ def py():
     # Overlap at recog only: this model trained WITHOUT overlap; does overlap-averaging help at decode?
     # Exploratory: the weights never saw overlap, and with ctembed + C=5/overlaps=2 the per-chunk output
     # region (chunk_size_dim=4) is smaller than the ctembed center boundary (chunk_size=5), an off-by-one.
+    # Result: overlap at recog HURTS this no-overlap-trained model.
+    #   C5-R4-ov2 10.65 (vs C5-R4 9.41);  C5-R2-ov2 18.10 (vs C5-R2 10.14).
+    # (The weights never saw overlap; the C=5/overlaps=2 ctembed off-by-one above makes R2 far worse.)
     for cs, lh in [(center_size, right_size), (center_size, right_size // 2)]:
         recog_model_with_config_overwrite(
             model=exp.get_last_fixed_epoch(),
@@ -1206,7 +1209,7 @@ def py():
     # - dynCx3 run. (TODO put result here once ready)
     # - R0-v2.3-overlap run. (TODO put result here once ready)
     # - 2xtrain (TODO put result here once ready)
-    # - Overlap at recog only (-ov2) (TODO put result here once ready)
+    # - Overlap at recog only (-ov2): hurts; C5-R4-ov2 10.65 (vs 9.41), C5-R2-ov2 18.10 (vs 10.14).
     # - dyn-rope-ctembed-impBase (TODO put result here once ready)
     # - base-2xtrain (TODO put result here once ready)
     # - dyn-rope-ctembed-2xtrain (TODO put result here once ready)
