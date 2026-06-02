@@ -75,6 +75,7 @@ _CHUNK_SIZE = 10  # encoder frames (60ms each) -> 600ms chunks
 
 
 def py():
+    _validate_batched_forced_align()
     _train_chunkwise_smoke()
     _train_framewise_smoke()
     _train_ext_transducer_smoke()
@@ -89,6 +90,26 @@ def _ls_align_hdfs(model, *, keys, aux_ctc_layer: int = 16) -> Dict[str, tk.Path
         ds = LibrispeechOggZip(audio=_raw_audio_opts.copy(), audio_dim=1, vocab=vocab, main_key=key)
         out[key] = _aed_ctc_forced_align(model, ds, aux_ctc_layer=aux_ctc_layer)
     return out
+
+
+def _validate_batched_forced_align(*, num_shards: int = 8, aux_ctc_layer: int = 16) -> None:
+    """Smoke-test the multi-GPU BatchedReturnnForwardJob on a small LS split before the large Loquacious run.
+
+    Borrows the LS-base model and forced-aligns dev-other (the smallest split, ~2.9 h) with
+    ``num_shards`` so the same forward fans out across the full 4-GPU node. This exercises the parts
+    of BatchedReturnnForwardJob that have no other coverage -- worker spawn, round-robin shard assignment,
+    atomic per-shard HDF write + existing-HDF resume-skip, and the walltime barrier-stop / sis
+    resubmit -- on a real model + data. num_shards=8 (> 4 GPUs) gives each GPU two rounds, so the
+    round-robin and the per-shard-time stop heuristic both get touched even on this tiny split.
+    """
+    prefix = get_setup_prefix_for_module(__name__)
+    vocab = get_vocab_by_str("spm10k")
+    with disable_register_output():
+        base_model = _train_librispeech_base().get_last_fixed_epoch()
+    ds = LibrispeechOggZip(audio=_raw_audio_opts.copy(), audio_dim=1, vocab=vocab, main_key="dev-other")
+    shard_hdfs = _aed_ctc_forced_align(base_model, ds, aux_ctc_layer=aux_ctc_layer, num_shards=num_shards)
+    for i, hdf in enumerate(shard_hdfs):
+        tk.register_output(prefix + "/batched-align-validate/dev-other/shard_%03i.hdf" % i, hdf)
 
 
 def _enc_build_dict():
