@@ -738,6 +738,74 @@ def py():
     dl_qwen3 = download_qwen3_1_7b_model()
     canary_cfg = rf.build_dict(CanaryQwen, model_dir=dl_canary, llm_model_dir=dl_qwen3, version=3)
 
+    # Canary log-mel grad target: 100 Hz input-feature grad via the new perception split.
+    # Word-level plain-L2 first to validate the NeMo split; char-level follows once confirmed.
+    canary_logmel_cfg = rf.build_dict(
+        CanaryQwen, model_dir=dl_canary, llm_model_dir=dl_qwen3, grad_wrt="log_mel", version=5
+    )
+    cq_lm_extract = ExtractInGradsPerTokenJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=canary_logmel_cfg,
+        mult_grad_by_inputs=False,
+        attr_reduction="L2",
+    )
+    cq_lm_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    cq_lm_name = "canary-qwen-logmel-timit-val-L2_grad-pertoken"
+    cq_lm_extract.add_alias(cq_lm_name)
+    tk.register_output(f"{cq_lm_name}.hdf", cq_lm_extract.out_hdf)
+    for align_opts in _ALIGN_OPTS_GRID:
+        align_name = f"align/{cq_lm_name}-{_name_for_dict(align_opts)}"
+        align = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=cq_lm_extract.out_hdf,
+            grad_score_key="data",
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=align_opts,
+        )
+        align.add_alias(align_name)
+        tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+
+    # Canary char-level + log-mel (100 Hz): the headline cross-model target.
+    # ensure_audio_long_enough handles char-count > 18 Hz encoder frames in the splice;
+    # the grad leaf is the 100 Hz mel, so the resolution should finally pay off here
+    # (log-mel lost badly to the 18 Hz encoder-out at word level: 0.270 vs 0.187).
+    canary_charlev_logmel_cfg = rf.build_dict(
+        CanaryQwen,
+        model_dir=dl_canary,
+        llm_model_dir=dl_qwen3,
+        grad_wrt="log_mel",
+        char_level=True,
+        char_level_sep=" ",
+        ensure_audio_long_enough=True,
+        version=5,
+    )
+    for cl_mgi, cl_attr, cl_alias in [(False, "L1", "L1_grad"), (False, "L2", "L2_grad")]:
+        cq_cl_extract = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=canary_charlev_logmel_cfg,
+            mult_grad_by_inputs=cl_mgi,
+            attr_reduction=cl_attr,
+        )
+        cq_cl_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        cq_cl_name = f"canary-qwen-charlev-spc-logmel-timit-val-{cl_alias}-pertoken"
+        cq_cl_extract.add_alias(cq_cl_name)
+        tk.register_output(f"{cq_cl_name}.hdf", cq_cl_extract.out_hdf)
+        for align_opts in _ALIGN_OPTS_GRID:
+            align_name = f"align/{cq_cl_name}-{_name_for_dict(align_opts)}"
+            align = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=cq_cl_extract.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=align_opts,
+            )
+            align.add_alias(align_name)
+            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+
     cq_recog = RecogFromModelJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir,
         dataset_key="val",

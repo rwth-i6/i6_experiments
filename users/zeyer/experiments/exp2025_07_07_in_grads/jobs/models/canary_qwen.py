@@ -64,6 +64,7 @@ class CanaryQwen(BaseModelInterface):
         llm_model_dir: str,
         speech_prompt: str = "Transcribe the following:",
         logits_transform: Union[None, str, Dict[str, Any], Sequence[Union[str, Dict[str, Any]]]] = None,
+        grad_wrt: str = "speech_embeddings",
         char_level: bool = False,
         char_level_sep: Optional[str] = None,
         char_level_brackets: Optional[str] = None,
@@ -98,6 +99,12 @@ class CanaryQwen(BaseModelInterface):
         self.llm_model_dir = llm_model_dir
         self.speech_prompt = speech_prompt
         self.logits_transform = make_logits_transform(logits_transform)
+        self.grad_wrt = grad_wrt
+        assert grad_wrt in ("speech_embeddings", "log_mel"), grad_wrt
+        if grad_wrt == "log_mel":
+            assert version >= 2, (
+                "version >= 2 required for grad_wrt='log_mel' (split NeMo perception for input-feature grad)."
+            )
         self._char_level = char_level
         self._char_level_sep = char_level_sep
         self._char_level_brackets = char_level_brackets
@@ -298,9 +305,35 @@ class CanaryQwen(BaseModelInterface):
         # and T < S (encoded frames < target tokens), stretch and re-encode.
         n_target_tokens = input_ids.shape[1] - dst_text_start
 
+        _captured = {}  # log_mel: stash the mel-feature grad leaf
+
         def _encode_audio(inp: torch.Tensor):
             a = inp.to(dev).float()
             l = torch.tensor([inp.shape[1]], device=dev, dtype=torch.long)
+            if self.grad_wrt == "log_mel":
+                # Inject a grad leaf at the log-mel features via a preprocessor hook,
+                # then let NeMo perception run its normal encoder + projection on the leaf.
+                # (Manually composing the submodules misses perception's final transpose/projection
+                # to the LLM hidden dim.)
+                def _pre_hook(_mod, _inp, out):
+                    mel, mel_len = out  # mel [B, F, T_mel]
+                    leaf = mel.detach().transpose(1, 2).contiguous().requires_grad_(True)  # [B, T_mel, F]
+                    leaf.retain_grad()
+                    _captured["mel_leaf"] = leaf
+                    return leaf.transpose(1, 2), mel_len  # [B, F, T_mel] back into perception
+
+                h = self.model.perception.preprocessor.register_forward_hook(_pre_hook)
+                try:
+                    out, lens = self.model.perception(a, l)
+                finally:
+                    h.remove()
+                torch.cuda.synchronize()
+                print(
+                    f"[fwd][log_mel] mel_leaf={tuple(_captured['mel_leaf'].shape)}"
+                    f" out={tuple(out.shape)} enc_len={int(lens[0])}",
+                    flush=True,
+                )
+                return out, int(lens[0])
             out, lens = self.model.perception(a, l)
             torch.cuda.synchronize()
             return out, int(lens[0])
@@ -320,10 +353,17 @@ class CanaryQwen(BaseModelInterface):
             )
             audio_embeds_batched, n_audio_real = _encode_audio(raw_inputs)
         n_audio_total = int(audio_embeds_batched.shape[1])
-        # Build the [1, T_real, H] tensor as the grad leaf.
-        audio_embeds_b = audio_embeds_batched[:, :n_audio_real].contiguous()  # (1, T_real, H)
-        audio_embeds_b.requires_grad_(True)
-        audio_embeds_b.retain_grad()
+        audio_embeds_b = audio_embeds_batched[:, :n_audio_real].contiguous()  # (1, T_enc, H), spliced into LLM
+        if self.grad_wrt == "log_mel":
+            # audio_embeds_b stays graph-connected to the mel leaf (no requires_grad_);
+            # grad flows loss -> LLM -> encoder out -> encoder -> mel leaf.
+            grad_leaf = _captured["mel_leaf"]  # [1, T_mel, F]
+            n_grad = int(grad_leaf.shape[1])
+        else:
+            audio_embeds_b.requires_grad_(True)
+            audio_embeds_b.retain_grad()
+            grad_leaf = audio_embeds_b
+            n_grad = n_audio_real
         print(
             f"[fwd] perception ok; full={n_audio_total} real={n_audio_real} "
             f"hidden={audio_embeds_b.shape[-1]} dtype={audio_embeds_b.dtype}",
@@ -420,20 +460,20 @@ class CanaryQwen(BaseModelInterface):
         n_samples = int(raw_input_seq_lens[0])
         input_slice = (
             torch.tensor([0], dtype=torch.int64),
-            torch.tensor([n_audio_real], dtype=torch.int64),
+            torch.tensor([n_grad], dtype=torch.int64),
         )
-        edges = torch.arange(n_audio_real + 1, dtype=torch.float64) * (orig_n_samples / max(n_audio_real, 1))
-        input_raw_start_end = torch.stack(
-            [edges[:-1].round().long(), edges[1:].round().long()], dim=-1
-        ).unsqueeze(0)  # [1, n_audio_real, 2]
+        edges = torch.arange(n_grad + 1, dtype=torch.float64) * (orig_n_samples / max(n_grad, 1))
+        input_raw_start_end = torch.stack([edges[:-1].round().long(), edges[1:].round().long()], dim=-1).unsqueeze(
+            0
+        )  # [1, n_audio_real, 2]
 
         print(
             f"[fwd] returning ForwardOutput (n_audio_real={n_audio_real}, n_targets={n_targets})",
             flush=True,
         )
         return ForwardOutput(
-            inputs=audio_embeds_b,
-            input_seq_lens=torch.tensor([n_audio_real]),
+            inputs=grad_leaf,
+            input_seq_lens=torch.tensor([n_grad]),
             input_slice_start_end=input_slice,
             input_raw_start_end=input_raw_start_end,
             targets=targets,
