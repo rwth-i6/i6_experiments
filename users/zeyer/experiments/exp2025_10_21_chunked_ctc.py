@@ -727,6 +727,32 @@ def py():
         },
     )
 
+    # DynV4: like DynV3 but ALWAYS keep history (no 0 in the history train pool, as the baseline "dyn"),
+    # while keeping 0 in the LOOKAHEAD train pool.
+    # Motivation: history clearly helps WER (L0 24% vs L80 9.5%),
+    # and the DynV3 ablation showed the 0-history option hurt (10.49 vs 9.41).
+    # But we still want low latency, which the lookahead drives.
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dynV4-rope-ctembed",
+        {
+            "model.enc_build_dict": rf.build_dict(
+                ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
+                chunk_size=center_size,
+                chunk_history_size=left_n * center_size,
+                chunk_lookahead_size=right_size,
+                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+                chunk_lookahead_size_train_pool=[right_size, right_size // 2, 0],
+                use_chunk_type_embedding=True,
+                version=3,
+            ),
+            "train.batch_size": bs * configs._batch_size_factor,
+            "train.max_seqs": max_seqs,
+            "lm_recog_extra.__serialization_version_stats": 2,
+        },
+    )
+
     # Overlapping chunks (chunk_num_overlaps=2)
     # train_time_hours: 391.4 (vs 168.8) !! (overlaps require twice as much compute, but also smaller batch size)
     #   (maybe could get away with less training?)
