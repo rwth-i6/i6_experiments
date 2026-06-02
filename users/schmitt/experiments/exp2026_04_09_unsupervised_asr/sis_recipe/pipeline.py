@@ -25,7 +25,7 @@ from i6_core.returnn.forward import ReturnnForwardJobV2
 from i6_core.text.processing import PipelineJob
 
 from i6_experiments.common.setups.returnn.datasets import Dataset
-from i6_experiments.users.zeyer.datasets.utils import sclite_generic_score
+from i6_experiments.users.schmitt.datasets.utils import sclite_generic_score
 from i6_experiments.users.zeyer.datasets.utils.serialize import (
     ReturnnDatasetToTextDictJob,
 )
@@ -96,8 +96,12 @@ def generic_sclite_score_recog_out(
         ).out_txt
     )
 
+    # make the output of the silence label optional
+    ref = RecogOutput(output=PipelineJob(ref.output, pipeline=["sed 's/<SIL>/(<SIL>)/g'"]).out)
+
+    # -D flag is required for optional silence
     return sclite_generic_score.sclite_score_recog_out_to_ref(
-        RecogOutput(recog_output), ref=ref, corpus_name=corpus_name
+        RecogOutput(recog_output), ref=ref, corpus_name=corpus_name, sclite_additional_args=["-D"]
     )
 
 
