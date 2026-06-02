@@ -17,7 +17,7 @@ so the whole item set is materialized upfront -- no per-epoch job fan-out.
 The engine round-robins the items across the node's GPUs (one worker process per GPU),
 is resumable (an item whose output exists is skipped), and barrier-stops before the walltime;
 see :mod:`forward_batched` for the engine. When ``num_shards > 1`` the per-shard search outputs of
-each cell are merged back (disjoint seq sets -> dict union) by :class:`_MergeSearchOutputShardsJob`.
+each cell are merged back (disjoint seq sets -> dict union) by :class:`MergeSearchOutputShardsJob`.
 
 The per-cell raw outputs feed the same post-processing + scoring as ``search_dataset``,
 then ``GetBestRecogTrainExp`` picks the best epoch (fed pre-computed per-epoch scores,
@@ -66,7 +66,7 @@ __all__ = [
 ]
 
 
-class _MergeSearchOutputShardsJob(Job):
+class MergeSearchOutputShardsJob(Job):
     """
     Merge the per-shard search outputs of one recog cell into a single search-output file.
 
@@ -77,7 +77,7 @@ class _MergeSearchOutputShardsJob(Job):
 
     def __init__(self, shard_files: List[tk.Path], *, output_gzip: bool = True):
         super().__init__()
-        assert shard_files, "_MergeSearchOutputShardsJob: no shard files to merge"
+        assert shard_files, "MergeSearchOutputShardsJob: no shard files to merge"
         self.shard_files = shard_files
         self.out_search_results = self.output_path("output.py.gz" if output_gzip else "output.py")
 
@@ -338,7 +338,7 @@ def recog_training_exp_batched(
         keys = cell_shard_keys[cell_key]
         if len(keys) == 1:
             return batched_job.out_files[keys[0]][filename]
-        merge_job = _MergeSearchOutputShardsJob(
+        merge_job = MergeSearchOutputShardsJob(
             [batched_job.out_files[k][filename] for k in keys],
             output_gzip=filename.endswith(".gz"),
         )

@@ -11,7 +11,7 @@ The non-sharded pipeline (:func:`aed_ctc_timesync_recog_recomb_auto_scale`) runs
 Steps 1+2 are GPU work. On JUPITER (4x GH200, flat-per-node billing, 12 h QOS wall) a single-GPU
 search/rescore wastes 3/4 of the node, so we shard the dev set and run the shards across the whole
 node via the generic :class:`forward_batched.BatchedReturnnForwardJob` engine (one work item per
-shard; the per-shard outputs are merged by :class:`recog_batched._MergeSearchOutputShardsJob`).
+shard; the per-shard outputs are merged by :class:`recog_batched.MergeSearchOutputShardsJob`).
 
 The same checkpoint backs both the CTC search and the AED rescore, so each shard is ONE fused
 forward config (checkpoint loaded once): the forward step runs the search, collapses the align-frame
@@ -236,7 +236,7 @@ def aed_ctc_dev_scale_tuning_batched(
     from i6_core.returnn.forward import ReturnnForwardJobV2
     from i6_experiments.users.zeyer import tools_paths
     from i6_experiments.users.zeyer.forward_batched import BatchedReturnnForwardJob, _ShardedDataset
-    from i6_experiments.users.zeyer.recog_batched import _MergeSearchOutputShardsJob
+    from i6_experiments.users.zeyer.recog_batched import MergeSearchOutputShardsJob
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc import (
         get_aed_ctc_and_labelwise_prior,
     )
@@ -292,7 +292,7 @@ def aed_ctc_dev_scale_tuning_batched(
         """Single (num_shards=1) or merged (>1) output path for a given per-shard filename."""
         if num_shards == 1:
             return job.out_files[shard_keys[0]][filename]
-        return _MergeSearchOutputShardsJob(
+        return MergeSearchOutputShardsJob(
             [job.out_files[k][filename] for k in shard_keys], output_gzip=filename.endswith(".gz")
         ).out_search_results
 
