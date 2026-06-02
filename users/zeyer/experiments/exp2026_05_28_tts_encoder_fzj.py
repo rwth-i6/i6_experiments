@@ -60,9 +60,9 @@ def py():
     # Test the full-node batched dev-phase scale tuning on the (ready) base-ls checkpoint.
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2 as _get_ls_task_v2
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc_batched import (
-        aed_ctc_dev_scale_tuning_batched,
+        aed_ctc_timesync_recog_recomb_auto_scale_batched,
     )
-    aed_ctc_dev_scale_tuning_batched(
+    aed_ctc_timesync_recog_recomb_auto_scale_batched(
         prefix=prefix + "/aed/base-ls/aed+ctc-batched",
         task=_get_ls_task_v2(vocab="spm10k", train_epoch_split=1, train_epoch_wise_filter=None),
         aed_ctc_model=base_exp.get_last_fixed_epoch(),

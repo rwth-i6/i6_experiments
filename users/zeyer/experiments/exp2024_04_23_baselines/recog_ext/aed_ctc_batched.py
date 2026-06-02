@@ -215,7 +215,7 @@ def _fused_get_forward_callback():
     return _FusedCallback()
 
 
-def aed_ctc_dev_scale_tuning_batched(
+def aed_ctc_timesync_recog_recomb_auto_scale_batched(
     *,
     prefix: str,
     task,
@@ -223,15 +223,19 @@ def aed_ctc_dev_scale_tuning_batched(
     aux_ctc_layer: Optional[int],
     num_shards: int,
     n_best_list_size: int = 64,
+    first_pass_recog_beam_size: int = 64,
     recomb_type: str = "max",
     ctc_soft_collapse_threshold: Optional[float] = 0.8,
     extra_config: Optional[Dict[str, Any]] = None,
 ):
     """
-    Sharded dev-phase scale tuning, parallel over a full node. See module docstring.
+    Full sharded auto-scale pipeline, parallel over a full node. See module docstring.
 
-    Returns the :class:`ScaleTuningJob`; its ``out_real_scale_per_name["aed"]`` is the tuned AED scale
-    (CTC fixed at 1.0) to feed the later combined first-pass search.
+    Dev phase: CTC N-best search + AED rescore -> ScaleTuningJob -> tuned AED scale (CTC fixed at 1.0).
+    Then the first-pass joint AED+CTC recog (``model_recog_with_recomb`` with the tuned scale) over all
+    ``task.eval_datasets``, sharded across the node via the same engine, scored to WER.
+
+    :return: the first-pass :class:`ScoreResultCollection` (WERs on the eval sets).
     """
     from i6_core.returnn.forward import ReturnnForwardJobV2
     from i6_experiments.users.zeyer import tools_paths
@@ -319,4 +323,108 @@ def aed_ctc_dev_scale_tuning_batched(
     opt_scales_job.rqmt["engine"] = "short"
     tk.register_output(f"{prefix}/opt-real-scales", opt_scales_job.out_real_scales)
     tk.register_output(f"{prefix}/opt-rel-scales", opt_scales_job.out_scales)
-    return opt_scales_job
+    aed_scale = opt_scales_job.out_real_scale_per_name["aed"]
+
+    # First-pass joint AED+CTC recog with the tuned scale (CTC fixed at 1.0), sharded over the node.
+    first_pass_model = get_aed_ctc_and_labelwise_prior(aed_ctc_model=aed_ctc_model, aed_scale=aed_scale)
+    recog_config = {
+        **base_config,
+        "beam_size": first_pass_recog_beam_size,
+        # Beam-scaled batch size (encoder mem is ~beam-independent, but keep it simple/safe).
+        "batch_size": int(
+            20_000 * aed_ctc_model.definition.batch_size_factor * min(32 / first_pass_recog_beam_size, 1)
+        ),
+    }
+    score = _combined_recog_batched(
+        prefix=prefix, task=task, model=first_pass_model, config=recog_config, num_shards=num_shards
+    )
+    tk.register_output(f"{prefix}/recog-1stpass-res.txt", score.output)
+    return score
+
+
+def _combined_recog_batched(*, prefix: str, task, model, config: Dict[str, Any], num_shards: int):
+    """
+    First-pass joint AED+CTC recog over all ``task.eval_datasets``, sharded across the node.
+
+    One ``model_recog_with_recomb`` search per (eval set x shard) as work items of the generic
+    :class:`BatchedReturnnForwardJob`; the per-shard outputs are merged, post-processed (collapse
+    blanks, BPE->words, take best), and scored. Mirrors the tail of the non-sharded
+    ``aed_ctc_timesync_recog_recomb_auto_scale`` / ``recog_model``.
+
+    :return: :class:`ScoreResultCollection` over the eval sets.
+    """
+    from i6_core.returnn.forward import ReturnnForwardJobV2
+    from returnn_common.datasets_old_2022_10.interface import DatasetConfig
+    from i6_experiments.users.zeyer import tools_paths
+    from i6_experiments.users.zeyer.forward_batched import BatchedReturnnForwardJob, _ShardedDataset
+    from i6_experiments.users.zeyer.recog_batched import MergeSearchOutputShardsJob, _post_process_search_output
+    from i6_experiments.users.zeyer.recog import (
+        get_from_config,
+        search_config_v2,
+        search_config_v3,
+        _v2_forward_out_filename,
+        _v2_forward_ext_out_filename,
+    )
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc import (
+        model_recog_with_recomb,
+    )
+
+    recog_def = model_recog_with_recomb
+    out_files = [_v2_forward_out_filename]
+    if get_from_config((config, model.definition), "__recog_def_ext", False):
+        out_files.append(_v2_forward_ext_out_filename)
+    get_search_config = {None: search_config_v2, 1: search_config_v2, 2: search_config_v3}[
+        get_from_config((config, model.definition), "__serialization_version", None)
+    ]
+
+    work_items: Dict[str, Dict[str, Any]] = {}
+    cell_shard_keys: Dict[str, List[str]] = {}
+    cell_datasets: Dict[str, DatasetConfig] = {}
+    for ds_name, dataset in task.eval_datasets.items():
+        assert "/" not in ds_name and "\\" not in ds_name, f"eval set name {ds_name!r} not usable as work-item key"
+        shard_keys: List[str] = []
+        for s in range(num_shards):
+            if num_shards == 1:
+                wkey = ds_name
+                ds = dataset
+            else:
+                wkey = f"{ds_name}-sh{s:03}"
+                ds = _ShardedDataset(dataset, num_shards=num_shards, shard_index=s, seq_ordering="sorted")
+            cfg = get_search_config(dataset=ds, model_def=model.definition, recog_def=recog_def, config=config)
+            cfg = ReturnnForwardJobV2.create_returnn_config(
+                model_checkpoint=model.checkpoint, returnn_config=cfg, log_verbosity=5, device="gpu"
+            )
+            work_items[wkey] = {
+                "returnn_config": cfg,
+                "model_checkpoint": model.checkpoint,
+                "output_files": list(out_files),
+            }
+            shard_keys.append(wkey)
+        cell_shard_keys[ds_name] = shard_keys
+        cell_datasets[ds_name] = dataset
+
+    job = BatchedReturnnForwardJob(
+        work_items,
+        returnn_python_exe=tools_paths.get_returnn_python_exe(),
+        returnn_root=tools_paths.get_returnn_root(),
+    )
+    job.add_alias(f"{prefix}/recog-1stpass-batched")
+
+    def cell_output(ds_name: str, filename: str):
+        keys = cell_shard_keys[ds_name]
+        if len(keys) == 1:
+            return job.out_files[keys[0]][filename]
+        return MergeSearchOutputShardsJob(
+            [job.out_files[k][filename] for k in keys], output_gzip=filename.endswith(".gz")
+        ).out_search_results
+
+    outputs = {}
+    for ds_name, dataset in cell_datasets.items():
+        recog_out = _post_process_search_output(
+            cell_output(ds_name, _v2_forward_out_filename),
+            dataset=dataset,
+            recog_def=recog_def,
+            recog_post_proc_funcs=list(task.recog_post_proc_funcs),
+        )
+        outputs[ds_name] = task.score_recog_output_func(dataset, recog_out)
+    return task.collect_score_results_func(outputs)

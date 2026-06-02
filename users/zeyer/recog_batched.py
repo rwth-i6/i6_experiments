@@ -243,6 +243,7 @@ def recog_training_exp_batched(
     recog_pre_post_proc_funcs_ext: Sequence[Callable] = (),
     search_mem_rqmt: Union[int, float] = 8,  # unused: the BatchedReturnnForwardJob sets its own full-node rqmt
     num_shards: int = 1,
+    dev_sets: Optional[Collection[str]] = None,
     exclude_epochs: Collection[int] = (),
     model_avg: bool = False,
 ):
@@ -259,6 +260,8 @@ def recog_training_exp_batched(
         shards (more, smaller work items -> better GPU utilization + fits the 12h wall on large
         eval sets). The per-shard search outputs are merged back per cell. Default 1 (one item per
         cell, unchanged).
+    :param dev_sets: if given, recog only these eval datasets (subset of ``task.eval_datasets``);
+        None (default) recogs all of them.
 
     Same registered outputs as ``recog_training_exp``
     (``recog_results_best``, ``recog_results_all_epochs``).
@@ -271,7 +274,12 @@ def recog_training_exp_batched(
 
     epochs = sorted(e for e in model.fixed_epochs if e not in exclude_epochs)
     assert epochs, f"no fixed_epochs to recog (fixed_epochs={model.fixed_epochs}, exclude={exclude_epochs})"
-    test_sets = task.eval_datasets  # name -> DatasetConfig
+    if dev_sets is not None:
+        missing = set(dev_sets) - set(task.eval_datasets)
+        assert not missing, f"dev_sets {sorted(missing)} not in task.eval_datasets {sorted(task.eval_datasets)}"
+        test_sets = {name: task.eval_datasets[name] for name in dev_sets}
+    else:
+        test_sets = task.eval_datasets  # name -> DatasetConfig
 
     out_files = [_v2_forward_out_filename]
     if get_from_config((search_config, model.definition), "__recog_def_ext", False):
