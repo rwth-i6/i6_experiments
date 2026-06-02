@@ -925,7 +925,18 @@ def py():
     )
 
     # Limited history experiments (vary history size L; C5-R4).
-    # CTC-only: L0 24.12 (no history); L40 still running; L80 = the -v2.3 baseline above (9.46).
+    # CTC-only: L0 24.03 (no history); L40 9.41; L80 = the -v2.3 baseline above (9.46).
+    # Latency behavior (align-stats latency metric, measured vs the TIMIT word END):
+    # L0 emits each word ~300ms BEFORE its reference end (strong negative offset), L80 ~0.
+    # This is not future-peeking and not a metric bug.
+    # With no history the L0 encoder must lean heavily on the lookahead (right) frames,
+    # but the lookahead never emits (only the center frames do),
+    # so training shifts those emissions forward into the visible center region.
+    # An emergent behavior forced by the tight no-history constraint,
+    # and it co-occurs with the bad 24% WER (premature, low-confidence spikes).
+    # L80 doesn't need this:
+    # the history makes each center chunk recognizable on its own,
+    # so it emits where the labels actually occur (offset ~0) at 9.46% WER.
     for ls_, rs_ in [(0, 4), (40, 4), (80, 4)]:
         train(
             f"chunked-L{ls_}-C{center_size}-R{rs_}-v2.3",
