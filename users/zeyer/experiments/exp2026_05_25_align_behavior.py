@@ -139,6 +139,8 @@ def py():
     ]
     for ng_name, ng_opts in _LPNORMEDGRAD_VARIANTS.items():
         variants.append((ng_name, _train_lpnormedgrad(ng_name, ng_opts)))
+    for _gs in [0.1, 0.01]:
+        variants.append((f"blankGradScale-gs{_gs}", _train_blankgradscale(_gs)))
 
     # ---- Forced-align + TSE / WER metrics on a 960h training subset ----
     vocab = "spm10k"
@@ -299,6 +301,39 @@ def _train_blanksep():
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
             "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),
             "use_fixed_ctc_grad": "v2",
+            "max_seq_length_default_target": None,
+            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+        },
+        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    )
+
+
+def _train_blankgradscale(blank_grad_scale: float):
+    """Blank-only gradient scaling on the plain L16-D1024 baseline (single-softmax posterior).
+
+    Re-weights only the error signal flowing into the blank dim, no blank separation.
+    The synth-framework counterpart fully recovers the small-vocab nlf10 collapse;
+    this tests whether it transfers to real spm10k CTC alignment quality.
+    """
+    return ctc_train_exp(
+        f"L16-D1024-spm10k-auxAED-b100k-blankGradScale-gs{blank_grad_scale}",
+        config_96gb_bf16_accgrad1,
+        model_config={
+            "enc_build_dict": _enc_build_dict_l16_d1024(),
+            "feature_batch_norm": True,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(100_000, 100, batch_size_factor=_batch_size_factor),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),
+            "use_fixed_ctc_grad": "v2",
+            "blank_grad_scale": blank_grad_scale,
             "max_seq_length_default_target": None,
             "max_seq_length_default_input": 19.5 * _raw_sample_rate,
         },

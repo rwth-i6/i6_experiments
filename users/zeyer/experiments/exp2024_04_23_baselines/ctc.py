@@ -2184,6 +2184,7 @@ class Model(rf.Module):
             )
         self.out_blank_separated = config.bool("out_blank_separated", False)
         self.blank_logit_shift = config.float("blank_logit_shift", 0.0)
+        self.blank_grad_scale = config.typed_value("blank_grad_scale", None)
 
         self.ctc_am_scale = config.float("ctc_am_scale", 1.0)
         self.ctc_prior_scale = config.float("ctc_prior_scale", 0.0)
@@ -2508,6 +2509,15 @@ class Model(rf.Module):
             assert log_probs.feature_dim == self.wb_target_dim
 
         log_probs = self._maybe_apply_log_probs_normed_grad(log_probs, aux_layer=aux_layer)
+
+        if self.blank_grad_scale is not None and log_probs.feature_dim == self.wb_target_dim:
+            # Scale only the blank dim's gradient on the single-softmax posterior, labels stay at 1.
+            blank_grad_scale = rf.where(
+                rf.range_over_dim(self.wb_target_dim) == self.blank_idx,
+                self.blank_grad_scale,
+                1.0,
+            )
+            log_probs = rf.scaled_gradient(log_probs, blank_grad_scale)
 
         ctc_label_smoothing = self.ctc_label_smoothing if aux_layer is None else self.aux_ctc_label_smoothing
         if ctc_label_smoothing:
