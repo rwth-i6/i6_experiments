@@ -5,6 +5,7 @@ from i6_experiments.users.schmitt.util.dict_update import dict_update_deep
 
 from ....train_exp import run_experiment
 from ..data.common import build_training_datasets, build_test_datasets
+from ....data.common import DatasetSettings
 from .... import optimizer_configs
 from ... import __setup_base_name__
 
@@ -12,7 +13,11 @@ from .config_librispeech_960_v1 import base_config, get_keep_epochs, test_data_d
 
 from sisyphus import tk
 
-train_data = build_training_datasets(sil_prob=0.0, surround_w_sil=False)
+settings = DatasetSettings(
+    train_partition_epoch=20,
+    train_seq_ordering=None,
+)
+train_data = build_training_datasets(sil_prob=0.0, surround_w_sil=False, settings=settings)
 
 
 def py():

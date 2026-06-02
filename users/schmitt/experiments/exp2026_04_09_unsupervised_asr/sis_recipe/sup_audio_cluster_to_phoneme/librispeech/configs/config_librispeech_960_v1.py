@@ -3,6 +3,7 @@ from typing import List
 
 from ....train_exp import run_experiment
 from ..data.common import build_training_datasets, build_test_datasets
+from ....data.common import DatasetSettings
 from .... import optimizer_configs
 from ... import __setup_base_name__
 
@@ -17,7 +18,11 @@ def get_keep_epochs(num_epochs: int) -> List[int]:
 base_num_epochs = 1_000
 num_gpus = 2
 
-train_data = build_training_datasets()
+settings = DatasetSettings(
+    train_partition_epoch=20,
+    train_seq_ordering=None,
+)
+train_data = build_training_datasets(settings=settings)
 test_data_dict = build_test_datasets()
 
 base_config = {

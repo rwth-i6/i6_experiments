@@ -1,100 +1,15 @@
-from typing import Union, Dict, Optional, Any
-from dataclasses import dataclass
-
-from sisyphus import tk
-
 from i6_core.text.processing import TakeNRandomLinesJob, ConcatenateJob
-from i6_core.serialization import Import
 
 from i6_experiments.common.setups.returnn.datasets.base import MetaDataset
-from i6_experiments.common.setups.returnn.datastreams.base import Datastream
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
-from i6_experiments.common.setups.returnn.datastreams.audio import AudioRawDatastream, ReturnnAudioRawOptions
 from i6_experiments.users.schmitt.datasets.hdf import HdfDataset
 
 from ....data.librispeech import audio, text
-from ....data.common import TrainingDatasets
-
-
-class LabelDatastreamWoVocab(Datastream):
-    """
-    Defines a datastream for labels represented by indices using the default `Vocabulary` class of RETURNN
-
-    This defines a word-(unit)-based vocabulary
-    """
-
-    def __init__(
-        self,
-        available_for_inference: bool,
-        vocab_size: Union[tk.Variable, int],
-    ):
-        """
-
-        :param available_for_inference:
-        :param vocab: word vocab file path (pickle containing dictionary)
-        :param vocab_size: used for the actual dimension
-        :param unk_label: unknown label
-        """
-        super().__init__(available_for_inference)
-        self.vocab_size = vocab_size
-
-    def as_returnn_extern_data_opts(self, available_for_inference: Optional[bool] = None, **kwargs) -> Dict[str, Any]:
-        """
-        :param tk.Variable|int vocab_size: number of labels
-        :rtype: dict[str]
-        """
-        d = {
-            **super().as_returnn_extern_data_opts(available_for_inference=available_for_inference),
-            "shape": (None,),
-            "dim": self.vocab_size,
-            "sparse": True,
-        }
-        d.update(kwargs)
-        return d
-
-
-@dataclass()
-class DatasetSettings:
-    """
-    A helper structure for the dataset settings that are configurable in RETURNN
-
-    Args:
-        custom_prcessing_function: the name of a python function added to the config
-            this function can be used to process the input waveform
-        partition_epoch: use this split of the data for one training epoch
-        epoch_wise_filters: can be used to limit e.g. the sequence lengths at the beginning of the training
-        seq_ordering: see RETURNN settings on sequence sorting
-        preemphasis: filter scale for high-pass z-filter
-        peak_normalization: normalize input utterance to unit amplitude peak
-    """
-
-    # training settings
-    train_partition_epoch: int
-    train_seq_ordering: str
-
-    train_postprocessing_func: Optional[Import] = None
-
-    # multiproc settings
-    num_workers: int = 2
-
-
-def get_audio_raw_datastream(
-    preemphasis: Optional[float] = None, peak_normalization: bool = False
-) -> AudioRawDatastream:
-    """
-    Return the datastream for raw-audio input settings for RETURNN
-
-    :param preemphasis: set the pre-emphasis filter factor
-    :param peak_normalization: normalize every utterance to peak amplitude 1
-    """
-    audio_datastream = AudioRawDatastream(
-        available_for_inference=True,
-        options=ReturnnAudioRawOptions(peak_normalization=peak_normalization, preemphasis=preemphasis),
-    )
-    return audio_datastream
+from ....data.common import TrainingDatasets, LabelDatastreamWoVocab, DatasetSettings
 
 
 def build_training_datasets(
+    settings: DatasetSettings,
     sil_prob: float = 0.25,
     surround_w_sil: bool = True,
 ):
@@ -165,7 +80,8 @@ def build_training_datasets(
                     files=phoneme_960_hdfs,
                     segment_file=train_seq_tags,
                     # set here because this controls which seqs are loaded
-                    partition_epoch=20,
+                    partition_epoch=settings.train_partition_epoch,
+                    seq_ordering=settings.train_seq_ordering,
                 ),
             },
             data_map={
