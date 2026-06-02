@@ -1251,11 +1251,9 @@ def py():
     # - base-2xtrain (TODO put result here once ready)
     # - dyn-rope-ctembed-2xtrain (TODO put result here once ready)
     # - longform results (TODO summarize)
-    # - WBE/TSE (TODO fix)
-    # - latency (TODO)
+    # - WBE/TSE: now computed for every CTC model (TIMIT val+test); the uid seq-tag mismatch bug is fixed.
+    # - Streaming + first-word latency: now computed for every CTC model.
     # TODO fill here until next time...
-
-    # TODO measure latency
 
 
 _base_config = {
