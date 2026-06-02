@@ -179,6 +179,10 @@ def _train_streaming_variant(
         train_main_key="train",
         dev_main_key="dev-other",
         aug_vocab=aug_vocab,
+        # Full-node data pipeline: MPD parallelizes the OggZip decode (heavy), PostprocessingDataset's own
+        # workers parallelize the map_seq target derivation. Outer train_v4 auto-MPD is off (post_config).
+        train_mpd_num_workers=4,
+        postproc_num_workers=2,
     )
 
     model_config = {
@@ -196,7 +200,10 @@ def _train_streaming_variant(
             "batch_size": 10_000 * configs._batch_size_factor,
             "max_seqs": 100,
             "optimizer.weight_decay": 1e-2,
-            "__multi_proc_dataset": False,  # keep the pipeline simple for the smoke test
+            # Multi-GPU: use the full JUPITER node (4x GH200). Single-GPU bills 4x for 1/4 use.
+            "torch_distributed": {},  # DDP; every forward touches all params -> no find_unused_parameters
+            "__cpu_rqmt": 72,  # per-proc; x4 = 288 = full node (overrides the CLAIX-tuned base value)
+            "__mem_rqmt": 100,  # per-proc; x4 = 400 GiB
         },
     )
     # Consistent length filtering for all variants: cap by audio length, and drop the
@@ -211,9 +218,14 @@ def _train_streaming_variant(
         prefix + "/" + name,
         train_dataset=dataset,
         config=config,
-        post_config={"log_grad_norm": True},
+        # Opt out of train_v4's outer auto-MPD: the MPD now lives inside ChunkAlignDataset (around the
+        # MetaDataset), and PostprocessingDataset runs its own map_seq workers. See ChunkAlignDataset.
+        post_config={"log_grad_norm": True, "__multi_proc_dataset": False},
         model_def=ModelDefWithCfg(streaming_model_def, model_config),
         train_def=train_def,
+        num_processes=4,  # 4 GPUs / JUPITER node -> torchrun DDP
+        gpu_mem=96,
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )  # walltime is clipped globally to the FZJ 12h QOS cap in settings.py (check_engine_limits)
 
     # Greedy recog -> dev-other WER (sclite). The decoder emits over spm+extra, but the LS

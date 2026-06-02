@@ -137,6 +137,9 @@ class ChunkAlignDataset(DatasetConfig):
         dev_main_key: str = "dev-other",
         eval_subset: Optional[int] = None,
         aug_vocab: Optional[Dict[str, Any]] = None,
+        train_mpd_num_workers: Optional[int] = None,
+        mpd_buffer_size: int = 10,
+        postproc_num_workers: int = 0,
     ):
         """
         :param oggzip: an audio-only ``LibrispeechOggZip`` (``vocab=None``); provides ``data``.
@@ -158,6 +161,11 @@ class ChunkAlignDataset(DatasetConfig):
         self.dev_main_key = dev_main_key
         self.eval_subset = eval_subset
         self.aug_vocab = aug_vocab  # RETURNN vocab opts for the target; train_v4 requires a vocab
+        # if set, wrap the train MetaDataset in MPD for parallel OggZip decode (the heavy data work):
+        self.train_mpd_num_workers = train_mpd_num_workers
+        self.mpd_buffer_size = mpd_buffer_size
+        # if > 0, parallelize the map_seq postproc (chunk/RNA target derivation) across worker procs:
+        self.postproc_num_workers = postproc_num_workers
 
         self._time_dim = Dim(None, name="time", kind=Dim.Types.Spatial)
         self._feature_dim = Dim(oggzip.audio_dim, name="audio", kind=Dim.Types.Feature)
@@ -199,7 +207,18 @@ class ChunkAlignDataset(DatasetConfig):
             "data_map": {"data": ("ogg_zip", "data"), "alignment": ("align", "data")},
             "seq_order_control_dataset": "ogg_zip",
         }
-        return {
+        # Parallelize the heavy OggZip decode by wrapping the *MetaDataset* (not the inner OggZip: MPD has
+        # no get_current_seq_order, so it cannot be MetaDataset's seq_order_control_dataset). MetaDataset
+        # delegates supports_sharding / get_current_seq_order to ogg_zip, so MPD "seq_order" sharding works.
+        # Train only (dev is small). The outer train_v4 auto-MPD must be off (__multi_proc_dataset: False)
+        # so this stays the single MPD layer.
+        if training and self.train_mpd_num_workers:
+            from i6_experiments.users.zeyer.datasets.utils.multi_proc import multi_proc_dataset_opts
+
+            meta = multi_proc_dataset_opts(
+                meta, num_workers=self.train_mpd_num_workers, buffer_size=self.mpd_buffer_size
+            )
+        post = {
             "class": "PostprocessingDataset",
             # Explicit "default" required: PostprocessingDataset rejects any non-default seq_ordering
             # on itself, and RETURNN would otherwise inject one (train: config "batching"; dev:
@@ -217,6 +236,11 @@ class ChunkAlignDataset(DatasetConfig):
                 },
             },
         }
+        # Parallelize map_seq without replicating the inner dataset: unlike MPD, PostprocessingDataset
+        # instantiates the wrapped dataset only once and only fans out the map_seq across workers.
+        if self.postproc_num_workers:
+            post["num_workers"] = self.postproc_num_workers
+        return post
 
     def get_train_dataset(self) -> Dict[str, Any]:
         return self._wrap(self.train_main_key, training=True)
