@@ -56,7 +56,19 @@ PHONEMES_DATA_KEY = "phonemes"
 def py():
     prefix = get_setup_prefix_for_module(__name__)
     # Standard log-mel baseline. Same Job hash as RZ base-ls / the FZJ base setup -> imports, not re-trained.
-    _train_ls_base("base-ls", prefix=prefix)
+    base_exp = _train_ls_base("base-ls", prefix=prefix)
+    # Test the full-node batched dev-phase scale tuning on the (ready) base-ls checkpoint.
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2 as _get_ls_task_v2
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc_batched import (
+        aed_ctc_dev_scale_tuning_batched,
+    )
+    aed_ctc_dev_scale_tuning_batched(
+        prefix=prefix + "/aed/base-ls/aed+ctc-batched",
+        task=_get_ls_task_v2(vocab="spm10k", train_epoch_split=1, train_epoch_wise_filter=None),
+        aed_ctc_model=base_exp.get_last_fixed_epoch(),
+        aux_ctc_layer=16,
+        num_shards=8,
+    )
     # tts-enc-v1: pseudo-speech-enc-style text usage (~5 effective text passes, 100 ASR).
     _train_tts_encoder("tts-enc-v1", prefix=prefix)
     # tts-enc-v2: TTS-baseline-style text usage (~1.33 effective text passes).
