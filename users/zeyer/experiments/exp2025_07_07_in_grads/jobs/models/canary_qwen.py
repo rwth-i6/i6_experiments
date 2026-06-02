@@ -111,8 +111,7 @@ class CanaryQwen(BaseModelInterface):
         assert version >= 3
         if self.audio_time_stretch != 1.0 or self.ensure_audio_long_enough:
             assert version >= 5, (
-                "version >= 5 required for audio_time_stretch / "
-                "ensure_audio_long_enough (time-stretch preprocessing)."
+                "version >= 5 required for audio_time_stretch / ensure_audio_long_enough (time-stretch preprocessing)."
             )
 
         # Merge canary + qwen hub_cache dirs by symlink so SALM's
@@ -136,6 +135,7 @@ class CanaryQwen(BaseModelInterface):
         start_time = time.time()
         import nemo
         from nemo.collections.speechlm2.models import SALM
+
         print(f"  nemo={nemo.__version__} from {nemo.__file__}")
         print(f"  ({time.time() - start_time:.1f}s)")
 
@@ -158,6 +158,7 @@ class CanaryQwen(BaseModelInterface):
         )
 
         from nemo.collections.common.prompts import PromptFormatter
+
         self.formatter = PromptFormatter.resolve(self.model.cfg.prompt_format)(self.model.tokenizer)
         print(f"  prompt_format={self.model.cfg.prompt_format!r}")
 
@@ -165,6 +166,7 @@ class CanaryQwen(BaseModelInterface):
 
     def _save_audio_tmp(self, audio: torch.Tensor, sample_rate: int) -> str:
         import soundfile as sf
+
         path = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
         sf.write(path, audio.cpu().numpy().astype(np.float32), sample_rate)
         return path
@@ -183,9 +185,7 @@ class CanaryQwen(BaseModelInterface):
         user_only = self.formatter.encode_dialog([user_turn])["input_ids"]
         if transcription is None:
             return user_only.unsqueeze(0), None
-        full = self.formatter.encode_dialog(
-            [user_turn, {"role": "assistant", "content": transcription}]
-        )["input_ids"]
+        full = self.formatter.encode_dialog([user_turn, {"role": "assistant", "content": transcription}])["input_ids"]
         return full.unsqueeze(0), int(user_only.shape[0])
 
     # ---- Forward (forced alignment) -------------------------------------
@@ -220,6 +220,7 @@ class CanaryQwen(BaseModelInterface):
         # audio_time_stretch (>1 = slower/longer), pitch-preserving.
         if self.audio_time_stretch != 1.0:
             import librosa
+
             audio_np = raw_inputs[0].detach().cpu().numpy().astype(np.float32)
             stretched = librosa.effects.time_stretch(audio_np, rate=1.0 / self.audio_time_stretch)
             raw_inputs = torch.tensor(stretched, dtype=raw_inputs.dtype).unsqueeze(0)
@@ -289,8 +290,7 @@ class CanaryQwen(BaseModelInterface):
             input_ids, dst_text_start = self._build_chat_input_ids(transcription=transcription)
         input_ids = input_ids.to(dev)
         print(
-            f"[fwd] chat_inputs ok; dst_text_start={dst_text_start} "
-            f"input_ids.shape={tuple(input_ids.shape)}",
+            f"[fwd] chat_inputs ok; dst_text_start={dst_text_start} input_ids.shape={tuple(input_ids.shape)}",
             flush=True,
         )
 
@@ -308,6 +308,7 @@ class CanaryQwen(BaseModelInterface):
         audio_embeds_batched, n_audio_real = _encode_audio(raw_inputs)
         if self.ensure_audio_long_enough and n_audio_real < n_target_tokens:
             import librosa
+
             factor = (n_target_tokens * 1.05) / max(n_audio_real, 1)
             audio_np = raw_inputs[0].detach().cpu().numpy().astype(np.float32)
             stretched = librosa.effects.time_stretch(audio_np, rate=1.0 / factor)
@@ -342,8 +343,7 @@ class CanaryQwen(BaseModelInterface):
         )
         torch.cuda.synchronize()
         print(
-            f"[fwd] splice ok; input_embs.shape={tuple(input_embs.shape)} "
-            f"attn.shape={tuple(attention_mask.shape)}",
+            f"[fwd] splice ok; input_embs.shape={tuple(input_embs.shape)} attn.shape={tuple(attention_mask.shape)}",
             flush=True,
         )
 
@@ -375,9 +375,7 @@ class CanaryQwen(BaseModelInterface):
         targets = torch.cat(
             [
                 targets,
-                torch.tensor(
-                    [[self.assistant_end_token_id]], device=targets.device, dtype=targets.dtype
-                ),
+                torch.tensor([[self.assistant_end_token_id]], device=targets.device, dtype=targets.dtype),
             ],
             dim=1,
         )
