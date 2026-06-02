@@ -8,14 +8,16 @@ Replaces the per-(epoch, test_set) ``ReturnnForwardJobV2`` fan-out
 used by ``recog_training_exp`` -> ``_RecogAndScoreFunc`` -> ``recog_model`` -> ``search_dataset``.
 
 Design:
-``recog_training_exp_batched`` builds one ``BatchedReturnnForwardJob`` whose cells are the full
-cross product ``model.fixed_epochs x task.eval_datasets``.
+``recog_training_exp_batched`` builds one shared :class:`forward_batched.BatchedReturnnForwardJob`
+whose work items are the full cross product ``model.fixed_epochs x task.eval_datasets``
+(optionally each split into ``num_shards`` disjoint dataset shards for better GPU utilization /
+to fit the 12h QOS wall on large corpora).
 ``fixed_epochs`` is known at graph-build time (the keep-epochs + last epoch),
-so the whole cell set is materialized upfront -- no per-epoch job fan-out.
-Inside the job, a thread-pool of ``self.rqmt["gpu"]`` workers pinned to ``CUDA_VISIBLE_DEVICES=<i>``
-pulls cells from a queue and runs ``rnn.py per_cell.config`` as a subprocess.
-A worker keeps the model loaded across consecutive cells of the same epoch
-(cells are emitted epoch-major), amortizing checkpoint load + RETURNN startup.
+so the whole item set is materialized upfront -- no per-epoch job fan-out.
+The engine round-robins the items across the node's GPUs (one worker process per GPU),
+is resumable (an item whose output exists is skipped), and barrier-stops before the walltime;
+see :mod:`forward_batched` for the engine. When ``num_shards > 1`` the per-shard search outputs of
+each cell are merged back (disjoint seq sets -> dict union) by :class:`_MergeSearchOutputShardsJob`.
 
 The per-cell raw outputs feed the same post-processing + scoring as ``search_dataset``,
 then ``GetBestRecogTrainExp`` picks the best epoch (fed pre-computed per-epoch scores,
@@ -31,18 +33,12 @@ this is a parallel module. base-ls + other consumers keep their existing per-cel
 from __future__ import annotations
 
 import functools
-import json
-import os
-import queue as queue_mod
-import shutil
-import subprocess
-import threading
+import gzip
 from typing import Any, Callable, Collection, Dict, List, Optional, Sequence, Tuple, Union
 
 from sisyphus import Job, Task, tk
 from sisyphus import gs
 
-from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.forward import ReturnnForwardJobV2
 from i6_core.returnn.search import SearchTakeBestJob
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
@@ -50,6 +46,7 @@ from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zeyer.model_interfaces import RecogDef
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints
+from i6_experiments.users.zeyer.forward_batched import BatchedReturnnForwardJob, _ShardedDataset
 from i6_experiments.users.zeyer.recog import (
     GetBestRecogTrainExp,
     RecogOutput,
@@ -65,167 +62,49 @@ from i6_core.returnn.training import PtCheckpoint
 
 
 __all__ = [
-    "BatchedReturnnForwardJob",
     "recog_training_exp_batched",
 ]
 
 
-class BatchedReturnnForwardJob(Job):
+class _MergeSearchOutputShardsJob(Job):
     """
-    One SLURM job that runs N cell recogs in parallel across the GPUs of one node.
+    Merge the per-shard search outputs of one recog cell into a single search-output file.
 
-    Mirrors the per-cell semantics of ``i6_core.returnn.forward.ReturnnForwardJobV2``
-    (a returnn_config + model_checkpoint produces one or more output files via ``rnn.py``),
-    but runs many cells in one job, work-pool style.
-    Outputs are exposed as a dict keyed by cell name.
-
-    Hash inputs: ``cells`` (set + contents), ``returnn_python_exe``, ``returnn_root``.
-    Execution knobs (GPU count, time/mem/cpu, gpu_mem tier) live in ``self.rqmt``
-    and are *not* hashed;
-    callers tune them via ``job.rqmt[...] = ...`` after construction.
-    Defaults target a full JUPITER node
-    (4x GH200, 11.95h booster QOS cap, ~440 GiB usable host RAM, 288 cores).
+    Each shard file is a gzipped python-literal dict ``{seq_tag: <value>}`` (value = the beam list
+    for the main output, or list of dicts for the ext output) covering a disjoint set of seqs (the
+    shards partition the dataset). Merge = dict union; any seq-tag overlap across shards is an error.
     """
 
-    # Bump when the run() output placement / cell execution changes for an already-finished job.
-    # v2: place each cell's output at its declared output_path (was left in work/ -> lost on cleanup).
-    __sis_version__ = 2
-
-    def __init__(
-        self,
-        cells: Dict[str, Dict[str, Any]],
-        *,
-        returnn_python_exe: tk.Path,
-        returnn_root: tk.Path,
-    ):
-        """
-        :param cells: mapping ``cell_key -> {"returnn_config": ReturnnConfig, "model_checkpoint": tk.Path,
-            "output_files": list[str]}``.
-            ``cell_key`` must be a valid path component (no ``/``).
-            Each cell's ``returnn_config`` is written to ``cells/<cell_key>/returnn.config``;
-            ``rnn.py`` runs with ``cwd = outputs/<cell_key>/``,
-            so the output file the config writes lands there.
-        :param returnn_python_exe: path to the python exe to run ``rnn.py`` with.
-        :param returnn_root: path to the RETURNN root (``rnn.py`` lives at ``<root>/rnn.py``).
-        """
+    def __init__(self, shard_files: List[tk.Path], *, output_gzip: bool = True):
         super().__init__()
-        assert cells, "BatchedReturnnForwardJob: cells dict must be non-empty"
-        for ck, cs in cells.items():
-            assert isinstance(ck, str) and ck and "/" not in ck and "\\" not in ck, (
-                f"cell key {ck!r} must be a non-empty path component"
-            )
-            assert isinstance(cs.get("returnn_config"), ReturnnConfig), f"cell {ck}: returnn_config required"
-            assert "model_checkpoint" in cs, f"cell {ck}: model_checkpoint required"
-            out_files = cs.get("output_files")
-            assert isinstance(out_files, (list, tuple)) and out_files, (
-                f"cell {ck}: output_files must be a non-empty list"
-            )
-            for f in out_files:
-                assert isinstance(f, str), f"cell {ck}: output_files entries must be str"
-
-        self.cells = cells
-        self.returnn_python_exe = returnn_python_exe
-        self.returnn_root = returnn_root
-
-        # Per-cell outputs:
-        # dict cell_key -> dict output_filename -> Path inside the Job's output/.
-        self.out_files: Dict[str, Dict[str, tk.Path]] = {
-            ck: {fn: self.output_path(os.path.join("outputs", ck, fn)) for fn in cs["output_files"]}
-            for ck, cs in cells.items()
-        }
-        # Default rqmt: full JUPITER node.
-        # Override via job.rqmt[...] = ... after construction.
-        self.rqmt = {
-            "gpu": 4,
-            "time": 11.95,
-            "mem": 400,
-            "cpu": 72,
-            "gpu_mem": 96,
-        }
+        assert shard_files, "_MergeSearchOutputShardsJob: no shard files to merge"
+        self.shard_files = shard_files
+        self.out_search_results = self.output_path("output.py.gz" if output_gzip else "output.py")
 
     def tasks(self):
-        yield Task("create_files", mini_task=True)
-        yield Task("run", resume="run", rqmt=self.rqmt)
-
-    def create_files(self):
-        """Write each cell's returnn.config + a manifest for run()."""
-        manifest = []
-        for ck, cs in self.cells.items():
-            cell_dir = os.path.join("cells", ck)
-            os.makedirs(cell_dir, exist_ok=True)
-            config_path = os.path.join(cell_dir, "returnn.config")
-            cs["returnn_config"].write(config_path)
-
-            manifest.append(
-                {
-                    "key": ck,
-                    "config": os.path.abspath(config_path),
-                    "output_files": list(cs["output_files"]),
-                    # Where each produced file must end up: the declared output_path location
-                    # (under the job's output/), which sis + downstream jobs read.
-                    "output_dests": {fn: self.out_files[ck][fn].get_path() for fn in cs["output_files"]},
-                }
-            )
-        with open("manifest.json", "w") as f:
-            json.dump(manifest, f, indent=2)
+        yield Task("run", mini_task=True)
 
     def run(self):
-        """Spawn rqmt["gpu"] worker threads; each pins a GPU and pulls cells from a shared FIFO."""
-        with open("manifest.json") as f:
-            manifest: List[Dict[str, Any]] = json.load(f)
+        merged: Dict[Any, Any] = {}
+        for p in self.shard_files:
+            path = p.get_path()
+            opener = gzip.open if path.endswith(".gz") else open
+            with opener(path, "rt") as f:
+                d = eval(f.read())  # {seq_tag: value}; our own trusted, repr-written data
+            assert isinstance(d, dict), f"shard {path}: expected dict, got {type(d)}"
+            overlap = merged.keys() & d.keys()
+            assert not overlap, (
+                f"shard {path}: {len(overlap)} seq tag(s) overlap across shards, e.g. {next(iter(overlap))!r}"
+            )
+            merged.update(d)
 
-        work = queue_mod.Queue()
-        for cell in manifest:
-            work.put(cell)
-
-        errors: List[Tuple[str, BaseException]] = []
-        errors_lock = threading.Lock()
-
-        rnn_py = os.path.join(self.returnn_root.get_path(), "rnn.py")
-        python = self.returnn_python_exe.get_path()
-        num_gpus = int(self.rqmt["gpu"])
-
-        def worker(gpu_idx: int):
-            env = os.environ.copy()
-            env["CUDA_VISIBLE_DEVICES"] = str(gpu_idx)
-            while True:
-                try:
-                    cell = work.get_nowait()
-                except queue_mod.Empty:
-                    return
-                ck = cell["key"]
-                # Run each cell in its own dir (under work/), then move the produced output files
-                # to their declared output_path destinations. rnn.py writes output files relative
-                # to cwd, so without the move they would stay in work/ (and get cleaned up).
-                run_dir = os.path.abspath(os.path.join("run", ck))
-                try:
-                    os.makedirs(run_dir, exist_ok=True)
-                    print(f"[BatchedRecog] GPU {gpu_idx}: starting cell {ck}", flush=True)
-                    subprocess.run([python, rnn_py, cell["config"]], cwd=run_dir, env=env, check=True)
-                    for fn, dest in cell["output_dests"].items():
-                        src = os.path.join(run_dir, fn)
-                        if not os.path.exists(src):
-                            raise FileNotFoundError(f"cell {ck}: expected output {fn!r} not produced in {run_dir}")
-                        os.makedirs(os.path.dirname(dest), exist_ok=True)
-                        shutil.move(src, dest)
-                    print(f"[BatchedRecog] GPU {gpu_idx}: cell {ck} done", flush=True)
-                except BaseException as exc:
-                    # Capture + continue so other cells finish.
-                    with errors_lock:
-                        errors.append((ck, exc))
-                    print(f"[BatchedRecog] GPU {gpu_idx}: cell {ck} FAILED: {exc!r}", flush=True)
-                finally:
-                    work.task_done()
-
-        threads = [threading.Thread(target=worker, args=(i,), name=f"recog-gpu-{i}") for i in range(num_gpus)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-
-        if errors:
-            msg = "; ".join(f"cell {k}: {e!r}" for k, e in errors)
-            raise RuntimeError(f"BatchedReturnnForwardJob: {len(errors)} cell(s) failed: {msg}")
+        out_path = self.out_search_results.get_path()
+        opener = gzip.open if out_path.endswith(".gz") else open
+        with opener(out_path, "wt") as f:
+            f.write("{\n")
+            for k, v in merged.items():
+                f.write(f"{k!r}: {v!r},\n")
+            f.write("}\n")
 
 
 def _post_process_search_output(
@@ -363,16 +242,23 @@ def recog_training_exp_batched(
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     recog_pre_post_proc_funcs_ext: Sequence[Callable] = (),
     search_mem_rqmt: Union[int, float] = 8,  # unused: the BatchedReturnnForwardJob sets its own full-node rqmt
+    num_shards: int = 1,
     exclude_epochs: Collection[int] = (),
     model_avg: bool = False,
 ):
     """
     Cross-epoch batched recog, drop-in for ``recog_training_exp``.
 
-    Builds ONE ``BatchedReturnnForwardJob`` whose cells are ``model.fixed_epochs x task.eval_datasets``,
-    runs it once (at the end of training, when the checkpoints exist),
+    Builds ONE shared ``BatchedReturnnForwardJob`` whose work items are
+    ``model.fixed_epochs x task.eval_datasets`` (each cell optionally split into ``num_shards``
+    disjoint dataset shards), runs it once (at the end of training, when the checkpoints exist),
     then post-processes + scores each cell and picks the best epoch.
     Corpus-agnostic; one multi-GPU job instead of per-(epoch, test_set) fan-out.
+
+    :param num_shards: if > 1, split each (epoch x test_set) cell into this many disjoint dataset
+        shards (more, smaller work items -> better GPU utilization + fits the 12h wall on large
+        eval sets). The per-shard search outputs are merged back per cell. Default 1 (one item per
+        cell, unchanged).
 
     Same registered outputs as ``recog_training_exp``
     (``recog_results_best``, ``recog_results_all_epochs``).
@@ -381,6 +267,7 @@ def recog_training_exp_batched(
         "recog_training_exp_batched: TF (backend=None) path not supported; use recog_training_exp."
     )
     assert not model_avg, "recog_training_exp_batched: model_avg not supported yet (averaged ckpt not in cells)."
+    assert num_shards >= 1
 
     epochs = sorted(e for e in model.fixed_epochs if e not in exclude_epochs)
     assert epochs, f"no fixed_epochs to recog (fixed_epochs={model.fixed_epochs}, exclude={exclude_epochs})"
@@ -393,9 +280,10 @@ def recog_training_exp_batched(
         get_from_config((search_config, model.definition), "__serialization_version", None)
     ]
 
-    # Build all cells: (epoch x test_set), epoch-major so a worker reuses the loaded checkpoint.
-    cells: Dict[str, Dict[str, Any]] = {}
+    # Build all work items: (epoch x test_set [x shard]), epoch-major.
+    work_items: Dict[str, Dict[str, Any]] = {}
     cell_meta: Dict[str, Tuple[int, str, DatasetConfig]] = {}  # cell_key -> (epoch, dataset_name, dataset)
+    cell_shard_keys: Dict[str, List[str]] = {}  # cell_key -> [work_item_key per shard]
     for epoch in epochs:
         model_with_checkpoint = model.get_epoch(epoch)
         for dataset_name, dataset in test_sets.items():
@@ -404,30 +292,40 @@ def recog_training_exp_batched(
                 f"eval_set name {dataset_name!r} not usable as cell key (contains path separators)"
             )
             cell_key = f"ep{epoch:03}-{dataset_name}"
-            returnn_config = get_search_config(
-                dataset=dataset,
-                model_def=model.definition,
-                recog_def=recog_def,
-                config=search_config,
-                post_config=search_post_config,
-            )
-            # Transform the raw search config into a forward-ready one (sets task=forward + load=checkpoint),
-            # exactly as ReturnnForwardJobV2 does -- otherwise rnn.py defaults to task=train.
-            cell_config = ReturnnForwardJobV2.create_returnn_config(
-                model_checkpoint=model_with_checkpoint.checkpoint,
-                returnn_config=returnn_config,
-                log_verbosity=5,
-                device="gpu",
-            )
-            cells[cell_key] = {
-                "returnn_config": cell_config,
-                "model_checkpoint": model_with_checkpoint.checkpoint,
-                "output_files": list(out_files),
-            }
+            shard_keys: List[str] = []
+            for s in range(num_shards):
+                if num_shards == 1:
+                    work_item_key = cell_key
+                    ds: DatasetConfig = dataset
+                else:
+                    work_item_key = f"{cell_key}-sh{s:03}"
+                    ds = _ShardedDataset(dataset, num_shards=num_shards, shard_index=s, seq_ordering="sorted")
+                returnn_config = get_search_config(
+                    dataset=ds,
+                    model_def=model.definition,
+                    recog_def=recog_def,
+                    config=search_config,
+                    post_config=search_post_config,
+                )
+                # Transform the raw search config into a forward-ready one (task=forward + load=checkpoint),
+                # exactly as ReturnnForwardJobV2 does -- otherwise rnn.py defaults to task=train.
+                cell_config = ReturnnForwardJobV2.create_returnn_config(
+                    model_checkpoint=model_with_checkpoint.checkpoint,
+                    returnn_config=returnn_config,
+                    log_verbosity=5,
+                    device="gpu",
+                )
+                work_items[work_item_key] = {
+                    "returnn_config": cell_config,
+                    "model_checkpoint": model_with_checkpoint.checkpoint,
+                    "output_files": list(out_files),
+                }
+                shard_keys.append(work_item_key)
+            cell_shard_keys[cell_key] = shard_keys
             cell_meta[cell_key] = (epoch, dataset_name, dataset)
 
     batched_job = BatchedReturnnForwardJob(
-        cells=cells,
+        work_items,
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
         returnn_root=tools_paths.get_returnn_root(),
     )
@@ -435,10 +333,22 @@ def recog_training_exp_batched(
     if gs.DEFAULT_ENVIRONMENT_SET.get("TMPDIR"):
         batched_job.set_env("TMPDIR", gs.DEFAULT_ENVIRONMENT_SET["TMPDIR"])
 
+    def cell_output(cell_key: str, filename: str) -> tk.Path:
+        """The single (num_shards=1) or merged (>1) output path of a cell for a given filename."""
+        keys = cell_shard_keys[cell_key]
+        if len(keys) == 1:
+            return batched_job.out_files[keys[0]][filename]
+        merge_job = _MergeSearchOutputShardsJob(
+            [batched_job.out_files[k][filename] for k in keys],
+            output_gzip=filename.endswith(".gz"),
+        )
+        merge_job.add_alias(prefix_name + f"/recog_batched_merge/{cell_key}")
+        return merge_job.out_search_results
+
     # Per-cell post-processing + scoring (mirrors search_dataset's tail), collected per epoch.
     per_epoch_outputs: Dict[int, Dict[str, ScoreResultCollection]] = {}
     for cell_key, (epoch, dataset_name, dataset) in cell_meta.items():
-        raw = batched_job.out_files[cell_key][_v2_forward_out_filename]
+        raw = cell_output(cell_key, _v2_forward_out_filename)
         recog_out = _post_process_search_output(
             raw,
             dataset=dataset,

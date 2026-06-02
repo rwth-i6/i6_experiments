@@ -1,30 +1,42 @@
 """
-Batched multi-shard forward-to-HDF on a full multi-GPU node (JUPITER policy).
+Batched multi-shard / multi-cell RETURNN forward on a full multi-GPU node (JUPITER policy).
 
+:class:`BatchedReturnnForwardJob` is a generic engine: it runs a set of *work items*, each a
+ready-to-run RETURNN forward config (``task=forward``, i.e. forced-align forward OR search/recog)
+plus the output filename(s) that config writes, across the GPUs of one node and returns each item's
+output(s) at a declared ``output_path``. The same engine drives:
+
+- :func:`batched_forward_to_hdf` -- forward a dataset to HDF, split into ``num_shards >> num_gpus``
+  disjoint logical shards (one HDF per shard), and
+- ``recog_training_exp_batched`` (in ``recog_batched``) -- one job for all ``(epoch x test_set)``
+  recog cells of a training, optionally each split into shards.
+
+Why one node, sharded:
 :func:`forward_to_hdf` runs ONE single-GPU :class:`ReturnnForwardJobV2` -> one HDF. On JUPITER
 (4x GH200 / node, flat-per-node billing) that wastes 3/4 of the node, and for large corpora
-(Loquacious ~25k h) a single GPU exceeds the 12 h QOS wall. :class:`BatchedForwardJob` instead:
+(Loquacious ~25k h) a single GPU exceeds the 12 h QOS wall.
 
-- splits the dataset into ``num_shards >> num_gpus`` disjoint logical shards via RETURNN's
-  principled ``_num_shards`` / ``_shard_index`` (partition_epoch=1 -> disjoint partitions whose
-  union is all seqs exactly once; see :func:`Dataset._apply_partition_epoch_and_sharding`),
+Engine properties:
+
+- splits a dataset into disjoint logical shards via RETURNN's principled ``_num_shards`` /
+  ``_shard_index`` (partition_epoch=1 -> disjoint partitions whose union is all seqs exactly once;
+  see :func:`Dataset._apply_partition_epoch_and_sharding`) -- see :class:`_ShardedDataset`,
 - runs ``num_gpus`` independent worker processes (no NCCL: forward is per-seq independent) that
-  round-robin over the shards (rank r handles shards r, r+G, r+2G, ...), each writing
-  ``align.shard_{i}.hdf``,
-- is resumable: a shard whose output HDF already exists is skipped, so a walltime kill just
-  continues where it left off (the os.replace of the final HDF is atomic, so existence == done),
+  round-robin over the work items (rank r handles items r, r+G, r+2G, ...), each writing its
+  item's declared output file(s),
+- is resumable: an item whose output file(s) already exist is skipped, so a walltime kill just
+  continues where it left off (the os.replace of each final file is atomic, so existence == done),
 - proactively stops before the wall (mirrors :meth:`returnn...Engine._maybe_stop_for_resubmission`):
-  when EMA-per-shard-time * safety exceeds ``slurm_time_left_sec()``, a worker finishes its
-  in-flight shard, then waits at a filesystem barrier for the other still-active workers to reach
-  their own stop point, so all exit together cleanly; the parent run() then exits as interrupted
-  so sis resubmits via ``Task("run", resume="run")``,
-- exposes ``completed_fraction`` = (#shard HDFs written) / num_shards for sis ETA, mirroring
-  :meth:`ReturnnTrainingJob.completed_fraction`,
-- outputs the shard HDFs as a file list (consume via ``HDFDataset(files=[...])``); no merge -- a
-  :class:`MetaDataset` matches seq tags across the shard HDFs.
+  when EMA-per-item-time * safety exceeds ``slurm_time_left_sec()``, a worker finishes its in-flight
+  item, then waits at a filesystem barrier for the other still-active workers to reach their own
+  stop point, so all exit together cleanly; the parent run() then exits as interrupted so sis
+  resubmits via ``Task("run", resume="run")``,
+- exposes ``completed_fraction`` = (#items fully written) / (#items) for sis ETA, mirroring
+  :meth:`ReturnnTrainingJob.completed_fraction`.
 
-Same skeleton as the planned ``BatchedRecogJob``; the only variable is the per-shard work, so the
-forward def/step is the parameter (swap for a recog callable to get batched recog).
+Hashing: the job hashes on ``work_items`` (keys + each item's returnn_config + output filenames)
+plus ``returnn_python_exe`` / ``returnn_root``. The node shape + stop policy live in ``self.rqmt``
+and class attrs (not __init__ args -> not hashed).
 """
 
 from __future__ import annotations
@@ -33,6 +45,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from sisyphus import Job, Task, tk
 
+from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.forward import ReturnnForwardJobV2
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 
@@ -41,12 +54,17 @@ from i6_experiments.users.zeyer.model_interfaces import ForwardRFDef
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint
 from i6_experiments.users.zeyer.forward_to_hdf import _returnn_forward_config_v2
 
-__all__ = ["BatchedForwardJob", "batched_forward_to_hdf"]
+__all__ = ["BatchedReturnnForwardJob", "batched_forward_to_hdf"]
 
 
-class BatchedForwardJob(Job):
+class BatchedReturnnForwardJob(Job):
     """
-    Forward a dataset to HDF, sharded across a full multi-GPU node. See module docstring.
+    Run a set of RETURNN forward work items across a full multi-GPU node. See module docstring.
+
+    Each work item is a ready-to-run RETURNN forward config (already passed through
+    :meth:`ReturnnForwardJobV2.create_returnn_config`, so it has ``task=forward`` + the checkpoint
+    load) together with the filename(s) it writes in its cwd. The engine runs them all, resumably,
+    across the node's GPUs and places each item's output(s) at a declared ``output_path``.
     """
 
     # Runtime knobs (not __init__ args -> not hashed): node shape + stop policy.
@@ -56,52 +74,51 @@ class BatchedForwardJob(Job):
 
     def __init__(
         self,
+        work_items: Dict[str, Dict[str, Any]],
         *,
-        dataset: DatasetConfig,
-        num_shards: int,
-        model: Optional[ModelWithCheckpoint] = None,
-        forward_def: Optional[ForwardRFDef] = None,
-        forward_step: Optional[Callable] = None,
-        config: Optional[Dict[str, Any]] = None,
-        post_config: Optional[Dict[str, Any]] = None,
-        shard_seq_ordering: str = "random",
         returnn_python_exe: Optional[tk.Path] = None,
         returnn_root: Optional[tk.Path] = None,
     ):
         """
-        :param dataset: dataset to forward; its top-level ``get_main_dataset()`` dict must come
-            from a dataset that ``supports_sharding()`` (e.g. OggZip). The shard params are
-            injected at the top level.
-        :param num_shards: number of disjoint logical shards (>> num_gpus). Each becomes one
-            output HDF.
-        :param model: model whose checkpoint is loaded for the forward.
-        :param forward_def: forward def (mark_as_output); see :func:`forward_to_hdf`.
-        :param forward_step: alternatively a forward_step. Use either forward_def or forward_step.
-        :param config: extra RETURNN config (e.g. ``model_outputs``, ``aux_loss_layers``, batch_size).
-        :param post_config: extra non-hashed RETURNN post config.
-        :param shard_seq_ordering: seq ordering used when partitioning into shards. "random" gives
-            statistically duration-balanced shards (partitions are index ranges over the ordered
-            seqs); deterministic given epoch=1, so resume reproduces the same partition.
+        :param work_items: mapping ``key -> {"returnn_config": ReturnnConfig,
+            "output_files": list[str], "model_checkpoint": Optional[tk.Path]}``.
+            ``key`` must be a valid path component (no ``/``). ``returnn_config`` must already be a
+            forward-ready config (e.g. from :meth:`ReturnnForwardJobV2.create_returnn_config`); it is
+            written to ``items/<key>/returnn.config`` and run with ``rnn.py`` in a fresh tmp cwd, so
+            the file(s) named in ``output_files`` (written relative to cwd) are picked up there and
+            moved to their declared ``output_path`` destinations. ``model_checkpoint`` is optional
+            and only used for an existence pre-check (the checkpoint is already embedded in the
+            config); the config is what is hashed.
         :param returnn_python_exe:
         :param returnn_root:
         """
         super().__init__()
-        assert not (forward_def and forward_step), "either forward_def or forward_step, not both"
-        assert num_shards >= 1
-        self.dataset = dataset
-        self.num_shards = num_shards
-        self.model = model
-        self.forward_def = forward_def
-        self.forward_step = forward_step
-        self.config = config
-        self.post_config = post_config
-        self.shard_seq_ordering = shard_seq_ordering
+        assert work_items, "BatchedReturnnForwardJob: work_items dict must be non-empty"
+        for key, item in work_items.items():
+            assert isinstance(key, str) and key and "/" not in key and "\\" not in key, (
+                f"work item key {key!r} must be a non-empty path component"
+            )
+            assert isinstance(item.get("returnn_config"), ReturnnConfig), f"item {key}: returnn_config required"
+            out_files = item.get("output_files")
+            assert isinstance(out_files, (list, tuple)) and out_files, (
+                f"item {key}: output_files must be a non-empty list"
+            )
+            for fn in out_files:
+                assert isinstance(fn, str) and fn, f"item {key}: output_files entries must be non-empty str"
+
+        self.work_items = work_items
         self.returnn_python_exe = (
             returnn_python_exe if returnn_python_exe is not None else tools_paths.get_returnn_python_exe()
         )
         self.returnn_root = returnn_root if returnn_root is not None else tools_paths.get_returnn_root()
 
-        self.out_hdf_files: List[tk.Path] = [self.output_path("align.shard_%03i.hdf" % i) for i in range(num_shards)]
+        # Per-item outputs: dict key -> dict output_filename -> Path inside the Job's output/.
+        import os
+
+        self.out_files: Dict[str, Dict[str, tk.Path]] = {
+            key: {fn: self.output_path(os.path.join("outputs", key, fn)) for fn in item["output_files"]}
+            for key, item in work_items.items()
+        }
 
         # Full node: 4 GPUs, all 288 cores, ~400 GiB host RAM; clipped to the 12 h QOS wall.
         self.rqmt = {
@@ -117,46 +134,56 @@ class BatchedForwardJob(Job):
         yield Task("run", resume="run", rqmt=self.rqmt)
 
     def completed_count(self) -> int:
-        """:return: number of shards whose output HDF is already written."""
+        """:return: number of work items whose output file(s) are all already written."""
         import os
 
-        return sum(os.path.exists(p.get_path()) for p in self.out_hdf_files)
+        n = 0
+        for outs in self.out_files.values():
+            if all(os.path.exists(p.get_path()) for p in outs.values()):
+                n += 1
+        return n
 
     def completed_fraction(self) -> float:
-        """:return: fraction of shards done (for sis progress/ETA). Mirrors ReturnnTrainingJob."""
-        return self.completed_count() / self.num_shards
+        """:return: fraction of items done (for sis progress/ETA). Mirrors ReturnnTrainingJob."""
+        return self.completed_count() / len(self.work_items)
 
     def create_files(self):
-        """Write one RETURNN forward config per shard + the worker manifest and driver."""
+        """Write one RETURNN forward config per work item + the worker manifest and driver."""
         import os
         import json
 
-        os.makedirs("shards", exist_ok=True)
-        shards = []
-        for i in range(self.num_shards):
-            cfg = self._shard_returnn_config(i)
-            cfg_path = os.path.join("shards", "shard_%03i.config" % i)
-            cfg.write(cfg_path)
-            shards.append({"config": os.path.abspath(cfg_path), "hdf": self.out_hdf_files[i].get_path()})
+        items = []
+        for key, item in self.work_items.items():
+            item_dir = os.path.join("items", key)
+            os.makedirs(item_dir, exist_ok=True)
+            cfg_path = os.path.join(item_dir, "returnn.config")
+            item["returnn_config"].write(cfg_path)
+            items.append(
+                {
+                    "key": key,
+                    "config": os.path.abspath(cfg_path),
+                    # Where each file the config writes (relative to cwd) must end up.
+                    "outputs": {fn: self.out_files[key][fn].get_path() for fn in item["output_files"]},
+                }
+            )
+            ckpt = item.get("model_checkpoint")
+            if ckpt is not None:
+                ckpt_path = ckpt.get_path() if isinstance(ckpt, tk.Path) else getattr(ckpt, "path", ckpt).get_path()
+                assert os.path.exists(ckpt_path), "item %s: checkpoint missing: %s" % (key, ckpt_path)
 
         manifest = {
             "rnn_py": os.path.join(self.returnn_root.get_path(), "rnn.py"),
             "returnn_root": self.returnn_root.get_path(),
             "python_exe": self.returnn_python_exe.get_path(),
-            "num_shards": self.num_shards,
-            "shards": shards,
+            "items": items,
         }
         with open("manifest.json", "w") as f:
             json.dump(manifest, f, indent=2)
         with open("worker.py", "w") as f:
             f.write(_WORKER_PY_SRC)
 
-        if self.model is not None:
-            ckpt = self.model.checkpoint.path.get_path()
-            assert os.path.exists(ckpt), "checkpoint missing: %s" % ckpt
-
     def run(self):
-        """Spawn one worker per GPU; round-robin shards; resubmit if stopped early for walltime."""
+        """Spawn one worker per GPU; round-robin items; resubmit if stopped early for walltime."""
         import os
         import glob
         import subprocess
@@ -191,39 +218,18 @@ class BatchedForwardJob(Job):
         codes = [p.wait() for p in procs]
 
         n_done = self.completed_count()
-        if n_done >= self.num_shards:
-            return  # all shards written -> job done
+        n_total = len(self.work_items)
+        if n_done >= n_total:
+            return  # all items written -> job done
         if all(c in (0, self._stop_exit_code) for c in codes):
             # Clean low-time stop (mirrors returnn Engine._maybe_stop_for_resubmission). Exit as
-            # interrupted so sis resubmits via Task("run", resume="run"); the existing-HDF skip
-            # makes the re-run continue from the remaining shards.
-            # TODO confirm sis treats KeyboardInterrupt here as resubmit (not hard error) in this
-            #   setup. Worst case the next walltime kill + resume + skip still makes progress, so
-            #   the proactive stop is only an optimization, not required for correctness.
-            raise KeyboardInterrupt("BatchedForwardJob: stop for resubmission (%i/%i done)" % (n_done, self.num_shards))
-        raise RuntimeError("BatchedForwardJob: worker failure codes=%s (%i/%i done)" % (codes, n_done, self.num_shards))
-
-    def _shard_returnn_config(self, shard_index: int):
-        ds = _ShardedDataset(
-            self.dataset,
-            num_shards=self.num_shards,
-            shard_index=shard_index,
-            seq_ordering=self.shard_seq_ordering,
-        )
-        cfg = _returnn_forward_config_v2(
-            dataset=ds,
-            model_def=self.model.definition if self.model else None,
-            forward_def=self.forward_def,
-            forward_step=self.forward_step,
-            config=self.config,
-            post_config=self.post_config,
-        )
-        # Inject the checkpoint load + forward task defaults exactly like ReturnnForwardJobV2.
-        return ReturnnForwardJobV2.create_returnn_config(
-            model_checkpoint=self.model.checkpoint.path if self.model else None,
-            returnn_config=cfg,
-            log_verbosity=5,
-            device="gpu",
+            # interrupted so sis resubmits via Task("run", resume="run"); the existing-output skip
+            # makes the re-run continue from the remaining items.
+            raise KeyboardInterrupt(
+                "BatchedReturnnForwardJob: stop for resubmission (%i/%i done)" % (n_done, n_total)
+            )
+        raise RuntimeError(
+            "BatchedReturnnForwardJob: worker failure codes=%s (%i/%i done)" % (codes, n_done, n_total)
         )
 
 
@@ -236,24 +242,60 @@ def batched_forward_to_hdf(
     forward_step: Optional[Callable] = None,
     config: Optional[Dict[str, Any]] = None,
     forward_post_config: Optional[Dict[str, Any]] = None,
+    shard_seq_ordering: str = "random",
     alias_name: Optional[str] = None,
 ) -> List[tk.Path]:
     """
     Drop-in multi-GPU sharded counterpart of :func:`forward_to_hdf`, returning the list of shard
-    HDFs (feed to ``HDFDataset(files=[...])``; no merge needed).
+    HDFs (feed to ``HDFDataset(files=[...])``; no merge needed -- a MetaDataset matches seq tags
+    across the shard HDFs).
+
+    :param dataset: dataset to forward; its top-level ``get_main_dataset()`` dict must come from a
+        dataset that ``supports_sharding()`` (e.g. OggZip). The shard params are injected at the top.
+    :param num_shards: number of disjoint logical shards (>> num_gpus). Each becomes one output HDF.
+    :param model: model whose checkpoint is loaded for the forward.
+    :param forward_def: forward def (mark_as_output); see :func:`forward_to_hdf`.
+    :param forward_step: alternatively a forward_step. Use either forward_def or forward_step.
+    :param config: extra RETURNN config (e.g. ``model_outputs``, ``aux_loss_layers``, batch_size).
+    :param forward_post_config: extra non-hashed RETURNN post config.
+    :param shard_seq_ordering: seq ordering used when partitioning into shards. "random" gives
+        statistically duration-balanced shards (partitions are index ranges over the ordered seqs);
+        deterministic given epoch=1, so resume reproduces the same partition.
+    :param alias_name:
     """
-    job = BatchedForwardJob(
-        dataset=dataset,
-        num_shards=num_shards,
-        model=model,
-        forward_def=forward_def,
-        forward_step=forward_step,
-        config=config,
-        post_config=forward_post_config,
-    )
+    assert not (forward_def and forward_step), "either forward_def or forward_step, not both"
+    assert num_shards >= 1
+
+    work_items: Dict[str, Dict[str, Any]] = {}
+    keys: List[str] = []
+    for i in range(num_shards):
+        key = "shard_%03i" % i
+        ds = _ShardedDataset(dataset, num_shards=num_shards, shard_index=i, seq_ordering=shard_seq_ordering)
+        cfg = _returnn_forward_config_v2(
+            dataset=ds,
+            model_def=model.definition if model else None,
+            forward_def=forward_def,
+            forward_step=forward_step,
+            config=config,
+            post_config=forward_post_config,
+        )
+        cfg = ReturnnForwardJobV2.create_returnn_config(
+            model_checkpoint=model.checkpoint.path if model else None,
+            returnn_config=cfg,
+            log_verbosity=5,
+            device="gpu",
+        )
+        work_items[key] = {
+            "returnn_config": cfg,
+            "output_files": ["out.hdf"],
+            "model_checkpoint": model.checkpoint if model else None,
+        }
+        keys.append(key)
+
+    job = BatchedReturnnForwardJob(work_items)
     if alias_name:
         job.add_alias(alias_name)
-    return job.out_hdf_files
+    return [job.out_files[key]["out.hdf"] for key in keys]
 
 
 class _ShardedDataset(DatasetConfig):
@@ -289,8 +331,9 @@ class _ShardedDataset(DatasetConfig):
 
 
 _WORKER_PY_SRC = r'''#!/usr/bin/env python3
-"""Generated by BatchedForwardJob. One worker per GPU: round-robin over shards, write each shard
-HDF atomically, skip already-written shards, barrier-stop together when low on walltime."""
+"""Generated by BatchedReturnnForwardJob. One worker per GPU: round-robin over work items, write
+each item's output file(s) atomically, skip already-written items, barrier-stop together when low
+on walltime."""
 import argparse
 import glob
 import json
@@ -321,22 +364,22 @@ def main():
         def slurm_time_left_sec():
             return None
 
-    shards = manifest["shards"]
+    items = manifest["items"]
     python_exe = manifest["python_exe"]
     rnn_py = manifest["rnn_py"]
     job_dir = os.path.dirname(os.path.abspath(args.manifest))
 
     ema = None
-    for si in range(args.rank, len(shards), args.world):
-        sh = shards[si]
-        if os.path.exists(sh["hdf"]):  # atomic os.replace -> existence == complete
+    for si in range(args.rank, len(items), args.world):
+        item = items[si]
+        if _item_done(item):  # atomic os.replace -> existence == complete
             continue
         if ema is not None:  # walltime-aware stop, mirrors returnn _maybe_stop_for_resubmission
             left = slurm_time_left_sec()
             if left is not None and left < ema * args.safety:
                 _barrier_and_exit(args.rank, args.world, job_dir, ema)
         t0 = time.time()
-        _run_shard(python_exe, rnn_py, sh)
+        _run_item(python_exe, rnn_py, item)
         dt = time.time() - t0
         ema = dt if ema is None else 0.5 * ema + 0.5 * dt
 
@@ -345,19 +388,25 @@ def main():
     sys.exit(0)
 
 
-def _run_shard(python_exe, rnn_py, sh):
+def _item_done(item):
+    return all(os.path.exists(dest) for dest in item["outputs"].values())
+
+
+def _run_item(python_exe, rnn_py, item):
     with tempfile.TemporaryDirectory() as tmp:
-        subprocess.check_call([python_exe, rnn_py, sh["config"]], cwd=tmp)
-        out = os.path.join(tmp, "out.hdf")
-        assert os.path.exists(out), "shard produced no out.hdf: %s" % sh["config"]
-        staged = sh["hdf"] + ".inprogress"  # same fs as final -> os.replace is atomic
-        shutil.move(out, staged)
-        os.replace(staged, sh["hdf"])
+        subprocess.check_call([python_exe, rnn_py, item["config"]], cwd=tmp)
+        for fn, dest in item["outputs"].items():
+            src = os.path.join(tmp, fn)
+            assert os.path.exists(src), "item produced no %s: %s" % (fn, item["config"])
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            staged = dest + ".inprogress"  # same fs as final -> os.replace is atomic
+            shutil.move(src, staged)
+            os.replace(staged, dest)
 
 
 def _barrier_and_exit(rank, world, job_dir, ema):
     # Wait for the other still-active workers to reach their own stop point (finish their in-flight
-    # shard) so all exit together -- no aborted partial shard. Bounded by a timeout.
+    # item) so all exit together -- no aborted partial item. Bounded by a timeout.
     open(os.path.join(job_dir, "stopping.rank%i" % rank), "w").close()
     deadline = time.time() + max(600.0, 3.0 * (ema or 0.0))
     while time.time() < deadline:
