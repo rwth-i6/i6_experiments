@@ -54,7 +54,10 @@ def sclite_score_recog_out_to_ref(
     :return: score result
     """
     return sclite_score_hyps_to_ref(
-        hyps_text_dict=recog_output.output, ref_text_dict=ref.output, corpus_name=corpus_name
+        hyps_text_dict=recog_output.output,
+        ref_text_dict=ref.output,
+        corpus_name=corpus_name,
+        sclite_additional_args=sclite_additional_args,
     )
 
 
