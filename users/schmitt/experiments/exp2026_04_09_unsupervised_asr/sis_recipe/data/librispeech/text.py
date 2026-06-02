@@ -10,8 +10,8 @@ from i6_core.tools.download import DownloadJob
 from i6_core.corpus.convert import CorpusToTextDictJob, CorpusToTxtJob
 from i6_core.text.processing import ConcatenateJob, PipelineJob
 
-from ....data.text import get_phonemized_data
-from ....default_tools import get_wav2letter_root
+from ..text import get_phonemized_data
+from ...default_tools import get_wav2letter_root
 
 
 def get_lm_minus_librivox() -> Tuple[tk.Path, Optional[tk.Path]]:

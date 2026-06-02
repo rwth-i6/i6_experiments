@@ -2,7 +2,7 @@ import os
 
 from sisyphus import tk
 
-from ....data import audio
+from .. import audio
 
 
 def remove_silences_from_audio(librispeech_key: str):

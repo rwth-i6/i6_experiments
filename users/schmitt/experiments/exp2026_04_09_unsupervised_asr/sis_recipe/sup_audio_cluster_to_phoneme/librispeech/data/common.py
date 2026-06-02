@@ -12,7 +12,7 @@ from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDat
 from i6_experiments.common.setups.returnn.datastreams.audio import AudioRawDatastream, ReturnnAudioRawOptions
 from i6_experiments.users.schmitt.datasets.hdf import HdfDataset
 
-from . import audio, text
+from ....data.librispeech import audio, text
 from ....data.common import TrainingDatasets
 
 
