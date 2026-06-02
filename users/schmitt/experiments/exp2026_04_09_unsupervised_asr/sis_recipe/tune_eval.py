@@ -1,6 +1,6 @@
 import ast
 
-from speech_llm.prefix_lm.sis_recipe.exp2026_03_10_speech_llms.default_tools import (
+from i6_experiments.users.schmitt.experiments.exp2026_04_09_unsupervised_asr.sis_recipe.default_tools import (
     RETURNN_EXE,
     RETURNN_ROOT,
 )
