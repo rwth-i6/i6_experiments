@@ -94,7 +94,7 @@ def _train_loquacious_base():
       dynamic chunk pool); from lines ~410-441 of the source recipe.
       RZ WER: 9.41 / 7.09.
     """
-    train("base", {})
+    base_exp, _, base_aux_ctc_layer = train("base", {})
 
     left_n, center_size, right_size, bs, max_seqs = 16, 5, 4, 50_000, 200
     name = f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed"
@@ -118,6 +118,7 @@ def _train_loquacious_base():
             "lm_recog_extra.__serialization_version_stats": 2,
         },
     )
+    return base_exp, base_aux_ctc_layer
 
 
 def _train_librispeech_base():
