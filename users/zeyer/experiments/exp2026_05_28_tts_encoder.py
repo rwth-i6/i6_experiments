@@ -65,11 +65,7 @@ def py():
     # (b) DbMel front-end (== frozen GlowTTS feature space) -- the new training.
     #     Latest bhv (25). 24->25 only changes rf.scatter in padded areas (issue #1815), which this model
     #     does not use, so it is behavior-neutral vs the bhv-24 base-ls -- the front-end ablation stays clean.
-    _train_ls_base(
-        "base-ls-dbmel",
-        feature_extraction=rf.build_dict(DbMelFeatureExtractor),
-        behavior_version=BehaviorVersion._latest_behavior_version,
-    )
+    _train_ls_base("base-ls-dbmel", feature_extraction=rf.build_dict(DbMelFeatureExtractor), behavior_version=25)
 
 
 def _train_ls_base(
