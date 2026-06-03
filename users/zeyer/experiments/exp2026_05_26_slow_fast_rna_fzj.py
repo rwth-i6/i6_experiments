@@ -18,7 +18,7 @@ which is wrong for the long per-frame targets).
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from sisyphus import tk
 import returnn.frontend as rf
@@ -34,7 +34,7 @@ from i6_experiments.users.zeyer.datasets.librispeech import (
     get_vocab_by_str,
     get_librispeech_task_raw_v2,
 )
-from i6_experiments.users.zeyer.recog import recog_model
+from i6_experiments.users.zeyer.recog_batched import recog_training_exp_batched
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines import configs
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import _raw_sample_rate
 from i6_experiments.users.zeyer.experiments.exp2025_10_21_chunked_ctc import _aed_ctc_forced_align
@@ -82,13 +82,18 @@ def py():
     _train_two_tower_smoke()
 
 
-def _ls_align_hdfs(model, *, keys, aux_ctc_layer: int = 16) -> Dict[str, tk.Path]:
-    """Per-frame CTC forced-align HDF per LS split (dedups with the base recipe's alignments)."""
+def _ls_align_hdfs(model, *, keys, aux_ctc_layer: int = 16, num_shards: int = 8) -> Dict[str, List[tk.Path]]:
+    """Per-frame CTC forced-align shard HDFs per LS split, fanned out across the full 4-GPU node.
+
+    Multi-GPU only: FZJ flat-per-node billing forbids single-GPU forward jobs, so the forced-align
+    is sharded via ``num_shards`` (batched engine) and returns the list of shard HDFs per key
+    (loaded as one HDFDataset by ChunkAlignDataset).
+    """
     vocab = get_vocab_by_str("spm10k")
     out = {}
     for key in keys:
         ds = LibrispeechOggZip(audio=_raw_audio_opts.copy(), audio_dim=1, vocab=vocab, main_key=key)
-        out[key] = _aed_ctc_forced_align(model, ds, aux_ctc_layer=aux_ctc_layer)
+        out[key] = _aed_ctc_forced_align(model, ds, aux_ctc_layer=aux_ctc_layer, num_shards=num_shards)
     return out
 
 
@@ -241,15 +246,18 @@ def _train_streaming_variant(
         }
         if recog_extra:
             recog_cfg.update(recog_extra)
-        res = recog_model(
+        # Multi-GPU batched recog over the trained epochs on the full 4-GPU node: one
+        # BatchedReturnnForwardJob instead of a single-GPU ReturnnForwardJobV2 (the latter is
+        # forbidden on FZJ by the flat-per-node billing). Registers recog_results_best /
+        # recog_results_all_epochs under the recog prefix.
+        recog_training_exp_batched(
+            prefix + "/" + name + "/recog",
             task=task,
-            model=exp.get_last_fixed_epoch(),
+            model=exp,
             recog_def=recog_def,
-            config=recog_cfg,
+            search_config=recog_cfg,
             dev_sets=["dev-other"],
-            name=prefix + "/" + name + "/recog",
         )
-        tk.register_output(prefix + "/" + name + "/recog/dev-other", res.output)
     return exp
 
 
