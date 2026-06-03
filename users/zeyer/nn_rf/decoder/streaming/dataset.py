@@ -140,6 +140,8 @@ class ChunkAlignDataset(DatasetConfig):
         train_mpd_num_workers: Optional[int] = None,
         mpd_buffer_size: int = 10,
         postproc_num_workers: int = 0,
+        audio_data_key: str = "data",
+        audio_has_feature_dim: bool = True,
     ):
         """
         :param oggzip: an audio-only ``LibrispeechOggZip`` (``vocab=None``); provides ``data``.
@@ -167,9 +169,16 @@ class ChunkAlignDataset(DatasetConfig):
         self.mpd_buffer_size = mpd_buffer_size
         # if > 0, parallelize the map_seq postproc (chunk/RNA target derivation) across worker procs:
         self.postproc_num_workers = postproc_num_workers
+        # Audio source key within the inner audio dataset ("data" for OggZip, "audio" for the HF
+        # Loquacious dataset) and whether that audio carries an explicit feature axis. Raw HF audio is
+        # [B, T] (no feature dim); the streaming model squeezes/handles the missing axis (see base.py).
+        self.audio_data_key = audio_data_key
+        self.audio_has_feature_dim = audio_has_feature_dim
 
         self._time_dim = Dim(None, name="time", kind=Dim.Types.Spatial)
-        self._feature_dim = Dim(oggzip.audio_dim, name="audio", kind=Dim.Types.Feature)
+        self._feature_dim = (
+            Dim(oggzip.audio_dim, name="audio", kind=Dim.Types.Feature) if audio_has_feature_dim else None
+        )
         self._vocab_ext_dim = Dim(vocab_ext_dim_int, name="spm_ext", kind=Dim.Types.Feature)
         if target_mode == "chunk_eoc":
             self._target_name = "aug_targets"
@@ -194,8 +203,11 @@ class ChunkAlignDataset(DatasetConfig):
         target = {"dim_tags": [batch_dim, self._target_spatial_dim], "sparse_dim": self._vocab_ext_dim}
         if self.aug_vocab is not None:
             target["vocab"] = self.aug_vocab
+        data_dims = [batch_dim, self._time_dim]
+        if self._feature_dim is not None:
+            data_dims.append(self._feature_dim)
         return {
-            "data": {"dim_tags": [batch_dim, self._time_dim, self._feature_dim]},
+            "data": {"dim_tags": data_dims},
             self._target_name: target,
         }
 
@@ -207,7 +219,7 @@ class ChunkAlignDataset(DatasetConfig):
         meta = {
             "class": "MetaDataset",
             "datasets": {"ogg_zip": ogg, "align": hdf},
-            "data_map": {"data": ("ogg_zip", "data"), "alignment": ("align", "data")},
+            "data_map": {"data": ("ogg_zip", self.audio_data_key), "alignment": ("align", "data")},
             "seq_order_control_dataset": "ogg_zip",
         }
         # Parallelize the heavy OggZip decode by wrapping the *MetaDataset* (not the inner OggZip: MPD has
@@ -231,7 +243,7 @@ class ChunkAlignDataset(DatasetConfig):
             "dataset": meta,
             "map_seq": self._build_map_seq(),
             "map_outputs": {
-                "data": {"dims": [self._time_dim, self._feature_dim], "dtype": "float32"},
+                "data": {"dims": [self._time_dim, self._feature_dim] if self._feature_dim is not None else [self._time_dim], "dtype": "float32"},
                 self._target_name: {
                     "dims": [self._target_spatial_dim],
                     "sparse_dim": self._vocab_ext_dim,

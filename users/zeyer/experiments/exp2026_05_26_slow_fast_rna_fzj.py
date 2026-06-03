@@ -38,7 +38,12 @@ from i6_experiments.users.zeyer.recog_batched import recog_training_exp_batched
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines import configs
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import _raw_sample_rate
 from i6_experiments.users.zeyer.experiments.exp2025_10_21_chunked_ctc import _aed_ctc_forced_align
-from i6_experiments.users.zeyer.experiments.exp2026_05_26_base_fzj import _train_librispeech_base
+from i6_experiments.users.zeyer.experiments.exp2026_05_26_base_fzj import (
+    _train_librispeech_base,
+    _train_loquacious_base,
+)
+from i6_experiments.users.zeyer.datasets.loquacious import get_loquacious_task_raw_v2
+from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2 import (
     ChunkedConformerEncoderV2,
     ChunkedConformerEncoderLayerV2,
@@ -73,6 +78,13 @@ __setup_root_prefix__ = "exp2026_05_26_slow_fast_rna_fzj"
 
 _CHUNK_SIZE = 10  # encoder frames (60ms each) -> 600ms chunks
 
+# Loquacious scale-up: by default align + train a bounded subset of the large train split (validates
+# the HF-align -> ChunkAlignDataset -> train path end to end). Flip _LOQ_FULL_TRAIN to align + train
+# the full ~25k h split (sharded gpu=4). Subset selection is deterministic
+# (get_hf_random_sorted_subset_v2), so the align HDFs and the train audio see the identical seq set.
+_LOQ_SUBSET_TRAIN_SEQS = 50_000
+_LOQ_FULL_TRAIN = False
+
 
 def py():
     _validate_batched_forced_align()
@@ -80,6 +92,11 @@ def py():
     _train_framewise_smoke()
     _train_ext_transducer_smoke()
     _train_two_tower_smoke()
+    # Loquacious scale-up (subset smoke by default; full ~25k h gated behind _LOQ_FULL_TRAIN).
+    _train_chunkwise_loq_smoke()
+    _train_framewise_loq_smoke()
+    _train_ext_transducer_loq_smoke()
+    _train_two_tower_loq_smoke()
 
 
 def _ls_align_hdfs(model, *, keys, aux_ctc_layer: int = 16, num_shards: int = 8) -> Dict[str, List[tk.Path]]:
@@ -117,6 +134,101 @@ def _validate_batched_forced_align(*, num_shards: int = 8, aux_ctc_layer: int = 
         tk.register_output(prefix + "/batched-align-validate/dev-other/shard_%03i.hdf" % i, hdf)
 
 
+def _loq_vocab():
+    """The Loquacious-native spm10k (a distinct SentencePiece model from the LibriSpeech spm10k)."""
+    from i6_experiments.users.zeyer.datasets.loquacious import get_spm_vocab
+
+    return get_spm_vocab(dim="10k")
+
+
+def _loq_dataset_config(main_key: str, *, subset_seqs: Optional[int]):
+    """A Loquacious HF audio+text DatasetConfig for one split (audio = raw [B, T], seq-tag = ``id``).
+
+    ``subset_seqs`` selects a deterministic random-sorted subset (so the align HDF and the train audio
+    cover the identical seqs); ``None`` uses the full split (train via DistributeFilesDataset).
+    """
+    from i6_experiments.users.zeyer.datasets.loquacious import _make_hf_dataset, get_loquacious_hf_ogg
+
+    hf_dir = get_loquacious_hf_ogg(name="large")
+    split = {"train": "train", "dev": "dev"}[main_key]
+    if subset_seqs is not None:
+        return _make_hf_dataset(
+            hf_data_dir=hf_dir,
+            split=split,
+            vocab=_loq_vocab(),
+            take_random_sorted_subset=subset_seqs,
+            take_random_sorted_subset_version=2,
+        )
+    return _make_hf_dataset(
+        hf_data_dir=hf_dir, split=split, vocab=_loq_vocab(), use_distrib_files=(split == "train")
+    )
+
+
+class _LoqAlignSource(DatasetConfig):
+    """Loquacious HF dataset as a forced-align source: re-exposes the wrapped split but adds the
+    explicit target ``sparse_dim`` that ``_make_hf_dataset`` omits and ``_aed_ctc_forced_align`` needs.
+    """
+
+    def __init__(self, base: DatasetConfig, *, classes_dim):
+        super().__init__()
+        self._base = base
+        self._classes_dim = classes_dim
+
+    def get_extern_data(self) -> Dict[str, Any]:
+        import copy
+
+        d = copy.deepcopy(self._base.get_extern_data())
+        d[self._base.get_default_target()]["sparse_dim"] = self._classes_dim
+        return d
+
+    def get_default_input(self) -> str:
+        return self._base.get_default_input()
+
+    def get_default_target(self) -> str:
+        return self._base.get_default_target()
+
+    def get_main_name(self) -> str:
+        return self._base.get_main_name()
+
+    def get_main_dataset(self) -> Dict[str, Any]:
+        return self._base.get_main_dataset()
+
+
+class _LoqAudioProvider:
+    """Audio-only Loquacious provider for ChunkAlignDataset (mirrors the OggZip interface it needs:
+    ``audio_dim`` + ``get_dataset(main_key, training, subset)``). HF audio is raw [B, T] -> pair with
+    ``audio_has_feature_dim=False`` so ChunkAlignDataset declares no feature axis.
+    """
+
+    audio_dim = 1
+
+    def __init__(self, *, train_subset_seqs: Optional[int]):
+        self._train_subset_seqs = train_subset_seqs
+
+    def get_dataset(self, main_key: str, *, training: bool, subset: Optional[int] = None) -> Dict[str, Any]:
+        subset_seqs = self._train_subset_seqs if main_key == "train" else None
+        return _loq_dataset_config(main_key, subset_seqs=subset_seqs).main_dataset
+
+
+def _loq_align_hdfs(
+    model, *, num_shards: int, aux_ctc_layer: int, subset_seqs: Optional[int]
+) -> Dict[str, List[tk.Path]]:
+    """Sharded multi-GPU CTC forced-align HDFs for the Loquacious train (subset) + full dev splits.
+
+    The train subset here must match :class:`_LoqAudioProvider`'s train subset (same ``subset_seqs``)
+    so the alignment HDF and the training audio cover the identical seqs.
+    """
+    from returnn.tensor import Dim
+
+    vocab = _loq_vocab()
+    classes_dim = Dim(vocab.get_num_classes(), name="spm", kind=Dim.Types.Feature)
+    out = {}
+    for key, sub in [("train", subset_seqs), ("dev", None)]:
+        src = _LoqAlignSource(_loq_dataset_config(key, subset_seqs=sub), classes_dim=classes_dim)
+        out[key] = _aed_ctc_forced_align(model, src, aux_ctc_layer=aux_ctc_layer, num_shards=num_shards)
+    return out
+
+
 def _enc_build_dict():
     return rf.build_dict(
         ChunkedConformerEncoderV2,
@@ -147,6 +259,7 @@ def _train_streaming_variant(
     target_mode: str,
     speed_pert: bool = False,
     recog_extra: Optional[Dict[str, Any]] = None,
+    corpus: str = "ls",
 ):
     """Train a streaming-decoder variant + greedy recog -> dev-other WER.
 
@@ -156,14 +269,54 @@ def _train_streaming_variant(
     speed-pert are the per-variant knobs.
     """
     prefix = get_setup_prefix_for_module(__name__)
-    vocab = get_vocab_by_str("spm10k")
-    vocab_size = vocab.get_num_classes()  # spm10k -> 10240
 
-    # Borrow the LS-base checkpoint only (suppress its own recog outputs); use it to forced-align.
-    with disable_register_output():
-        exp_base = _train_librispeech_base()
-    base_model = exp_base.get_last_fixed_epoch()
-    align_hdfs = _ls_align_hdfs(base_model, keys=["train", "dev-other"])
+    # Corpus bundle: base model (for the forced alignment), vocab, per-split alignment HDFs, audio
+    # provider, and recog task. The "ls" branch is byte-identical to the original LibriSpeech wiring;
+    # "loq" swaps in the Loquacious base + native spm10k + HF audio (raw [B, T], no feature axis -> the
+    # streaming model squeezes it) over a (gated) train subset.
+    if corpus == "ls":
+        vocab = get_vocab_by_str("spm10k")
+        # Borrow the LS-base checkpoint only (suppress its own recog outputs); use it to forced-align.
+        with disable_register_output():
+            exp_base = _train_librispeech_base()
+        base_model = exp_base.get_last_fixed_epoch()
+        align_hdfs = _ls_align_hdfs(base_model, keys=["train", "dev-other"])
+        # Frame-sync variants need the target 1:1 with encoder frames -> no speed-pert (would desync).
+        oggzip_kw = {} if speed_pert else {"train_audio_preprocess": None}
+        audio_provider = LibrispeechOggZip(audio=_raw_audio_opts.copy(), audio_dim=1, vocab=None, **oggzip_kw)
+        # Full-node data pipeline: MPD parallelizes the OggZip decode (heavy), PostprocessingDataset's own
+        # workers parallelize the map_seq target derivation. Outer train_v4 auto-MPD is off (post_config).
+        chunk_data_kw: Dict[str, Any] = dict(
+            train_main_key="train", dev_main_key="dev-other", train_mpd_num_workers=4, postproc_num_workers=2
+        )
+        recog_task = lambda: get_librispeech_task_raw_v2(vocab="spm10k")  # noqa: E731
+        recog_dev_sets = ["dev-other"]
+    elif corpus == "loq":
+        assert not speed_pert, "loq smoke runs speed-pert off (forced align is on un-perturbed audio)"
+        vocab = _loq_vocab()
+        with disable_register_output():
+            exp_base, base_aux_ctc_layer = _train_loquacious_base()
+        base_model = exp_base.get_last_fixed_epoch()
+        subset_seqs = None if _LOQ_FULL_TRAIN else _LOQ_SUBSET_TRAIN_SEQS
+        align_hdfs = _loq_align_hdfs(
+            base_model, num_shards=8, aux_ctc_layer=base_aux_ctc_layer, subset_seqs=subset_seqs
+        )
+        audio_provider = _LoqAudioProvider(train_subset_seqs=subset_seqs)
+        # HF audio is raw [B, T]: declare no feature axis and map the "audio" key. No inner MPD (the HF
+        # subset is the MetaDataset seq-order control); the map_seq postproc is still parallelized.
+        chunk_data_kw = dict(
+            train_main_key="train",
+            dev_main_key="dev",
+            audio_data_key="audio",
+            audio_has_feature_dim=False,
+            train_mpd_num_workers=None,
+            postproc_num_workers=2,
+        )
+        recog_task = lambda: get_loquacious_task_raw_v2(vocab="spm10k")  # noqa: E731
+        recog_dev_sets = ["dev"]
+    else:
+        raise ValueError(f"unknown corpus {corpus!r}")
+    vocab_size = vocab.get_num_classes()  # spm10k -> 10240
 
     # Extended target vocab (spm pieces + 1 extra symbol = EOC / RNA-blank); train_v4 needs a vocab.
     from i6_core.text.label.sentencepiece.vocab import ExtractSentencePieceVocabJob
@@ -171,23 +324,15 @@ def _train_streaming_variant(
     aug_vocab_file = ExtendVocabWithEocJob(ExtractSentencePieceVocabJob(vocab.model_file).out_vocab).out_vocab
     aug_vocab = {"class": "Vocabulary", "vocab_file": aug_vocab_file, "unknown_label": None}
 
-    # Frame-sync variants need the target 1:1 with encoder frames -> no speed-pert (would desync).
-    oggzip_kw = {} if speed_pert else {"train_audio_preprocess": None}
-    audio_oggzip = LibrispeechOggZip(audio=_raw_audio_opts.copy(), audio_dim=1, vocab=None, **oggzip_kw)
     dataset = ChunkAlignDataset(
-        oggzip=audio_oggzip,
+        oggzip=audio_provider,
         alignment_hdfs=align_hdfs,
         vocab_ext_dim_int=vocab_size + 1,
         blank_idx=vocab_size,
         chunk_size=_CHUNK_SIZE,
         target_mode=target_mode,
-        train_main_key="train",
-        dev_main_key="dev-other",
         aug_vocab=aug_vocab,
-        # Full-node data pipeline: MPD parallelizes the OggZip decode (heavy), PostprocessingDataset's own
-        # workers parallelize the map_seq target derivation. Outer train_v4 auto-MPD is off (post_config).
-        train_mpd_num_workers=4,
-        postproc_num_workers=2,
+        **chunk_data_kw,
     )
 
     model_config = {
@@ -237,7 +382,7 @@ def _train_streaming_variant(
     # reference is plain spm10k, so pin the model's extended output vocab via the search config.
     # (Skipped when recog_def is None -- e.g. ext_transducer, whose two-rate recog is WIP.)
     if recog_def is not None:
-        task = get_librispeech_task_raw_v2(vocab="spm10k")
+        task = recog_task()
         recog_cfg = {
             "target_dim_ext_int": vocab_size + 1,
             "aug_vocab": aug_vocab,
@@ -256,7 +401,7 @@ def _train_streaming_variant(
             model=exp,
             recog_def=recog_def,
             search_config=recog_cfg,
-            dev_sets=["dev-other"],
+            dev_sets=recog_dev_sets,
         )
     return exp
 
@@ -303,4 +448,57 @@ def _train_two_tower_smoke():
         train_def=two_tower_training,
         recog_def=two_tower_model_recog,
         target_mode="rna_frame",
+    )
+
+
+# Loquacious counterparts of the four smoke variants: identical decoders / train+recog defs / target
+# modes, but corpus="loq" routes them through the Loquacious base align + HF audio (subset-gated).
+
+
+def _train_chunkwise_loq_smoke():
+    """Chunk-synchronous decoder on Loquacious (subset smoke by default)."""
+    return _train_streaming_variant(
+        "chunkwise-loq-smoke",
+        dec_build_dict=rf.build_dict(ChunkwiseDecoder, model_dim=256, ff_dim=512, num_layers=4, num_heads=4),
+        train_def=chunkwise_training,
+        recog_def=chunkwise_model_recog,
+        target_mode="chunk_eoc",
+        recog_extra={"max_labels_per_chunk": 20},
+        corpus="loq",
+    )
+
+
+def _train_framewise_loq_smoke():
+    """Frame-synchronous RNA fast-only decoder on Loquacious (subset smoke by default)."""
+    return _train_streaming_variant(
+        "framewise-loq-smoke",
+        dec_build_dict=rf.build_dict(FramewiseDecoder, model_dim=256, ff_dim=512, num_layers=4, num_heads=4),
+        train_def=framewise_training,
+        recog_def=framewise_model_recog,
+        target_mode="rna_frame",
+        corpus="loq",
+    )
+
+
+def _train_ext_transducer_loq_smoke():
+    """Extended-transducer slow+fast decoder on Loquacious (subset smoke by default)."""
+    return _train_streaming_variant(
+        "ext-transducer-loq-smoke",
+        dec_build_dict=rf.build_dict(ExtTransducerDecoder, model_dim=256, ff_dim=512, num_layers=4, num_heads=4),
+        train_def=ext_transducer_training,
+        recog_def=ext_transducer_model_recog,
+        target_mode="rna_frame",
+        corpus="loq",
+    )
+
+
+def _train_two_tower_loq_smoke():
+    """Two-tower fast-slow decoder on Loquacious (subset smoke by default)."""
+    return _train_streaming_variant(
+        "two-tower-loq-smoke",
+        dec_build_dict=rf.build_dict(TwoTowerDecoder, model_dim=256, ff_dim=512, num_layers=4, num_heads=4),
+        train_def=two_tower_training,
+        recog_def=two_tower_model_recog,
+        target_mode="rna_frame",
+        corpus="loq",
     )
