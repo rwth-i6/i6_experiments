@@ -2422,7 +2422,7 @@ class Model(rf.Module):
                 self.blank_grad_scale,
                 1.0,
             )
-            logits = rf.scaled_gradient(logits, blank_logit_grad_scale)
+            logits = rf.scaled_gradient_ext(logits, scale=blank_logit_grad_scale)
 
         if not self.out_blank_separated:  # standard case, joint distrib incl blank
             if self.blank_logit_shift:
@@ -2536,7 +2536,7 @@ class Model(rf.Module):
                 self.blank_grad_scale,
                 1.0,
             )
-            log_probs = rf.scaled_gradient(log_probs, blank_grad_scale)
+            log_probs = rf.scaled_gradient_ext(log_probs, scale=blank_grad_scale)
 
         ctc_label_smoothing = self.ctc_label_smoothing if aux_layer is None else self.aux_ctc_label_smoothing
         if ctc_label_smoothing:
