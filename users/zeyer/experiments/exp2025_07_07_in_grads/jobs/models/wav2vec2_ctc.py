@@ -63,6 +63,7 @@ class Wav2Vec2Ctc(BaseModelInterface):
         stop_grad_blank: bool = False,
         grad_wrt: str = "feat_extract_out",
         raw_pool: int = 320,
+        disable_self_attention: Optional[str] = None,
         char_level_sep: Optional[str] = None,
         version: int = 1,
     ):
@@ -101,6 +102,12 @@ class Wav2Vec2Ctc(BaseModelInterface):
             alignment (no smoothing), intermediate -> higher resolution with an
             RMS-envelope smoothing. The reshape ``[1, n_frames, raw_pool]`` lets
             the extract's feature-dim reduction do the pooling.
+        :param disable_self_attention: if set, bypass the transformer self-attention
+            (so a frame's representation no longer mixes other frames -> grads
+            stay local / token-specific). The model's posteriors/WER degrade, but
+            the gradient localization may improve. ``"value"`` = use the
+            current-frame value projection only (``out_proj(v_proj(x))``);
+            ``"zero"`` = drop the attention sublayer entirely (residual + FFN only).
         :param char_level_sep: optional separator char inserted between words
             before tokenization (e.g. ``"|"`` if the vocab has it). MMS_FA's
             uroman vocab has no space, so the default (None) simply
@@ -167,7 +174,28 @@ class Wav2Vec2Ctc(BaseModelInterface):
                 break
         assert self._feat_proj is not None, "could not find FeatureProjection submodule"
 
+        self.disable_self_attention = disable_self_attention
+        if disable_self_attention is not None:
+            assert disable_self_attention in ("value", "zero"), disable_self_attention
+            n_patched = 0
+            for m in self.model.modules():
+                if type(m).__name__ == "SelfAttention":
+                    m.register_forward_hook(self._attn_disable_hook)
+                    n_patched += 1
+            assert n_patched > 0, "no SelfAttention modules found to disable"
+            print(f"  disabled self-attention ({disable_self_attention}) on {n_patched} layers")
+
     # ---- Helpers --------------------------------------------------------
+
+    def _attn_disable_hook(self, module, inp, out):
+        """Replace a SelfAttention output: ``"value"`` -> current-frame value
+        projection only (no cross-frame mixing); ``"zero"`` -> drop it."""
+        x = inp[0]  # [B, T, D] input to the attention sublayer
+        if self.disable_self_attention == "zero":
+            new = torch.zeros_like(x)
+        else:  # "value"
+            new = module.out_proj(module.v_proj(x))
+        return (new, *out[1:]) if isinstance(out, tuple) else new
 
     def _resolve_hook_target(self, grad_wrt: str):
         """Return ``(module, channels_first)`` for a hooked grad target.
