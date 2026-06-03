@@ -62,6 +62,7 @@ def py():
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc_batched import (
         aed_ctc_timesync_recog_recomb_auto_scale_batched,
     )
+
     aed_ctc_timesync_recog_recomb_auto_scale_batched(
         prefix=prefix + "/aed/base-ls/aed+ctc-batched",
         task=_get_ls_task_v2(vocab="spm10k", train_epoch_split=1, train_epoch_wise_filter=None),
@@ -69,6 +70,18 @@ def py():
         aux_ctc_layer=16,
         num_shards=8,
     )
+    # No-TTS audio-only baseline trained with the SAME FZJ 4-GPU recipe as the TTS-encoder runs
+    # (DbMel front-end, nep=25 x4 DDP, batched recog) -> directly comparable reference: the TTS-encoder
+    # WERs differ from this only by the TTS/text augmentation.
+    _train_asr_base_multigpu("asr-base-mgpu", prefix=prefix, feature_extraction=rf.build_dict(DbMelFeatureExtractor))
+    # Front-end isolation: same 4-GPU recipe but STANDARD log-mel (no DbMel), with a peak-LR sweep.
+    #   logmel-mgpu vs asr-base-mgpu  -> log-mel-vs-DbMel front-end cost (mgpu held fixed)
+    #   logmel-mgpu vs base-ls        -> mgpu-vs-single-GPU cost (front-end held fixed; LR sweep
+    #                                    brackets the large-batch DDP retune: 0.5=no-scale, 1.0~sqrt, 2.0~linear)
+    for _lr_name, _lr in [("lr05", 0.5), ("lr10", 1.0), ("lr20", 2.0)]:
+        _train_asr_base_multigpu(
+            "asr-base-mgpu-logmel-" + _lr_name, prefix=prefix, feature_extraction=None, base_lr=_lr
+        )
     # tts-enc-v1: pseudo-speech-enc-style text usage (~5 effective text passes, 100 ASR).
     _train_tts_encoder("tts-enc-v1", prefix=prefix)
     # tts-enc-v2: TTS-baseline-style text usage (~1.33 effective text passes).
@@ -97,6 +110,126 @@ def py():
     )
 
     # TODO: import the finished RZ base-ls-dbmel (ReturnnTrainingJob.8mdaueLDfiGP); do NOT re-train on FZJ.
+
+
+def _train_asr_base_multigpu(
+    name: str, *, prefix: str, feature_extraction: Optional[Dict[str, Any]] = None, base_lr: float = 0.5
+):
+    """
+    No-TTS audio-only ASR baseline trained with the FZJ 4-GPU DDP recipe.
+
+    Same architecture + 4-GPU / nep=25 (x4 DDP -> ~100 effective passes) / batched recog as the
+    TTS-encoder runs, but trained on LibriSpeech-960 audio only (no TTS, no text data, default AED
+    model def, standard train step).
+
+    :param feature_extraction: None -> the default standard log-mel front-end (like base-ls); pass
+        ``rf.build_dict(DbMelFeatureExtractor)`` for the DbMel front-end (like the TTS-encoder runs).
+        log-mel here vs DbMel here isolates the front-end (mgpu held fixed); log-mel here vs base-ls
+        isolates mgpu-vs-single-GPU (front-end held fixed).
+    :param base_lr: peak-LR scale of the lrlin/OCLR schedule (for the DDP peak-LR sweep).
+    """
+    from returnn.frontend.decoder.transformer import TransformerDecoder
+    from returnn.frontend.encoder.conformer import (
+        ConformerEncoder,
+        ConformerEncoderLayer,
+        ConformerConvSubsample,
+        ConformerPositionwiseFeedForward,
+    )
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import (
+        train_exp as aed_train_exp,
+        _raw_sample_rate,
+    )
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines import configs
+    from i6_experiments.users.zeyer.recog_batched import recog_training_exp_batched
+    from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc_batched import (
+        aed_ctc_timesync_recog_recomb_auto_scale_batched,
+    )
+
+    vocab = "spm10k"
+    task = get_librispeech_task_raw_v2(vocab=vocab, train_epoch_split=1, train_epoch_wise_filter=None)
+
+    # Same model as the TTS-encoder runs (Conformer L16 D1024 + Transformer dec L6 D1024, DbMel),
+    # minus the GlowTTS attachment (default AED model def, no custom train step).
+    model_config: Dict[str, Any] = {
+        "behavior_version": 25,
+        "__serialization_version": 2,
+        "enc_build_dict": rf.build_dict(
+            ConformerEncoder,
+            input_layer=rf.build_dict(
+                ConformerConvSubsample,
+                out_dims=[32, 64, 64],
+                filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                pool_sizes=[(1, 2)],
+                strides=[(1, 1), (3, 1), (2, 1)],
+            ),
+            num_layers=16,
+            out_dim=1024,
+            encoder_layer=rf.build_dict(
+                ConformerEncoderLayer,
+                ff=rf.build_dict(
+                    ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                ),
+                num_heads=8,
+            ),
+        ),
+        "dec_build_dict": rf.build_dict(
+            TransformerDecoder,
+            num_layers=6,
+            model_dim=1024,
+            norm=rf.build_dict(rf.RMSNorm),
+            ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+            layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+        ),
+        "feature_batch_norm": True,
+    }
+    if feature_extraction is not None:
+        model_config["feature_extraction"] = feature_extraction
+
+    exp = aed_train_exp(
+        name,
+        configs.config_96gb_bf16_accgrad1,
+        prefix=prefix + "/aed/",
+        model_config=model_config,
+        config_updates={
+            # nep=25; with num_processes=4 DDP the data is iterated ~4x/epoch -> ~100 effective passes,
+            # matching base-ls (nep=100) and the TTS-encoder runs.
+            **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(25, base_lr=base_lr),
+            "batch_size": 400_000 * configs._batch_size_factor,  # per-rank audio frames, as in tts-enc-v1
+            "max_seqs": 500,
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_loss_layers": [4, 10, 16],
+            "dec_aux_loss_layers": [3],
+            "max_seq_length_default_target": None,
+            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+            # torch DDP across the 4 GH200 (NCCL all-reduce). Required: without it, num_processes=4
+            # falls back to horovod and asserts. No unused params here (plain AED, all used every
+            # step), so find_unused_parameters can stay off.
+            "torch_distributed": {"options": {"find_unused_parameters": False}},
+            "__mem_rqmt": 100,
+            "__cpu_rqmt": 72,
+        },
+        post_config_updates={"log_grad_norm": True, "stop_for_resubmission_when_low_time_left": True},
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+        vocab=vocab,
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+        num_processes=4,
+        gpu_mem=96,
+        recog_training_func=recog_training_exp_batched,
+    )
+    # Headline AED+CTC first-pass recog (sharded, tuned scales), same as base-ls.
+    aed_ctc_timesync_recog_recomb_auto_scale_batched(
+        prefix=prefix + "/aed/" + name + "/aed+ctc-batched",
+        task=task,
+        aed_ctc_model=exp.get_last_fixed_epoch(),
+        aux_ctc_layer=16,
+        num_shards=8,
+    )
+    return exp
 
 
 def _train_tts_encoder(
