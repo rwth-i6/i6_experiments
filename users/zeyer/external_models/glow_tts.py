@@ -137,6 +137,35 @@ def get_glow_tts_preload_from_files(prefix: str = "tts.glow_tts_model.") -> Dict
     return {"glow_tts": {"prefix": prefix, "filename": get_glow_tts_checkpoint()}}
 
 
+@cache
+def get_glow_tts_gl_checkpoint() -> tk.Path:
+    """Simple-GL (BLSTM linear-spec predictor) checkpoint (from Nick), for the Griffin-Lim waveform path."""
+    return generic_job_output("i6_core/returnn/training/ReturnnTrainingJob.H9EByABag8UN/output/models/epoch.050.pt")
+
+
+def get_glow_tts_gl_net_config() -> Dict[str, Any]:
+    """Config for the BLSTM GL-net (log-mel -> linear spectrogram), matching the GlowTTS DbMel space."""
+    return {
+        "hidden_size": 512,
+        "feature_extraction_config": {
+            "sample_rate": 16000,
+            "win_size": 0.05,
+            "hop_size": 0.0125,
+            "f_min": 0,
+            "f_max": 7600,
+            "min_amp": 1e-10,
+            "num_filters": 80,
+            "center": True,
+            "norm": (-72.83881497383118, 37.73079669103133),
+        },
+    }
+
+
+def get_glow_tts_gl_preload_from_files(prefix: str = "tts.gl_model.") -> Dict[str, Dict[str, Any]]:
+    """``preload_from_files`` entry for the (frozen) GL-net params, for the waveform path."""
+    return {"glow_tts_gl": {"prefix": prefix, "filename": get_glow_tts_gl_checkpoint()}}
+
+
 def get_glow_tts_phoneme_dataset_dict(
     *,
     corpus_text: tk.Path,
@@ -206,6 +235,10 @@ class GlowTtsLogMel(rf.Module):
         glow_tts_model_config: Optional[Dict[str, Any]] = None,
         glow_tts_noise_scale_range: Tuple[float, float] = (0.3, 0.9),
         glow_tts_length_scale_range: Tuple[float, float] = (0.7, 1.1),
+        return_waveform: bool = False,
+        gl_net_config: Optional[Dict[str, Any]] = None,
+        gl_iter: int = 32,
+        gl_momentum: float = 0.99,
     ):
         super().__init__()
         from i6_experiments.users.zeyer.experiments.nick_ctc_rnnt_standalone_2024.pytorch_networks.glow_tts.glow_tts_v1 import (
@@ -222,6 +255,30 @@ class GlowTtsLogMel(rf.Module):
         # (same DbMel space), so the log-mel feeds straight into the encoder without a dim rename.
         _target_channels = glow_tts_model_config["flow_decoder_config"]["target_channels"]
         self.out_dim = out_dim if out_dim is not None else Dim(_target_channels, name="logmel")
+        # Optional waveform mode: GlowTTS log-mel -> BLSTM GL-net (linear spec) -> Griffin-Lim -> waveform,
+        # so the synthetic audio re-enters the ASR through its OWN feature front-end (like the offline TTS
+        # pipeline) instead of feeding the GlowTTS log-mel directly. Tests whether the Griffin-Lim round-trip's
+        # realistic distortion transfers better to real audio.
+        self.return_waveform = return_waveform
+        self.gl_model = None
+        self.griffin_lim = None
+        if return_waveform:
+            import torchaudio
+            from i6_experiments.users.zeyer.experiments.nick_ctc_rnnt_standalone_2024.pytorch_networks.vocoder.simple_gl.blstm_gl_predictor import (
+                Model as BlstmGlPredictorModel,
+            )
+
+            if gl_net_config is None:
+                gl_net_config = get_glow_tts_gl_net_config()
+            self.gl_model = BlstmGlPredictorModel(config=gl_net_config)
+            self.griffin_lim = torchaudio.transforms.GriffinLim(
+                n_fft=800,
+                n_iter=gl_iter,
+                win_length=int(0.05 * 16000),
+                hop_length=int(0.0125 * 16000),
+                power=1.0,
+                momentum=gl_momentum,
+            )
 
     def __call__(self, phonemes: Tensor, *, spatial_dim: Dim) -> Tuple[Tensor, Dim]:
         import torch
@@ -249,10 +306,21 @@ class GlowTtsLogMel(rf.Module):
             (log_mels, _z_m, _z_logs, _logdet, _z_mask, y_lengths), _, _ = self.glow_tts_model(
                 phonemes_pt, phon_lens_pt, g=speaker_labels, gen=True, noise_scale=noise_scale, length_scale=length_scale
             )
-        # log_mels: [B, F_logmel, T_freq] -> [B, T_freq, F_logmel]
-        log_mels = log_mels.transpose(1, 2).contiguous()
-        feat_lens = y_lengths.to(torch.int32)  # [B]
+        # log_mels: [B, F_logmel, T_freq] (flow-decoder output, DbMel space)
+        if self.return_waveform:
+            self.gl_model.eval()
+            with torch.autocast(device_type=dev.type, enabled=False):
+                _, linears = self.gl_model(log_mels.transpose(1, 2), y_lengths)  # [B, T_freq, F_freq]
+                linears = linears.transpose(1, 2)  # [B, F_freq, T_freq]
+                wave = self.griffin_lim(linears)  # [B, T_wave], 16kHz
+            wave_lens = ((y_lengths - 1) * self.griffin_lim.hop_length).to(torch.int32)  # [B]
+            wave_lens_rf = rf.convert_to_tensor(wave_lens.cpu(), dims=[batch_dim])
+            wave_spatial_dim = Dim(wave_lens_rf, name="glowtts_wave")
+            wave_rf = rf.convert_to_tensor(wave, dims=[batch_dim, wave_spatial_dim])
+            return wave_rf, wave_spatial_dim
 
+        log_mels = log_mels.transpose(1, 2).contiguous()  # [B, T_freq, F_logmel]
+        feat_lens = y_lengths.to(torch.int32)  # [B]
         feat_lens_rf = rf.convert_to_tensor(feat_lens.cpu(), dims=[batch_dim])
         out_spatial_dim = Dim(feat_lens_rf, name="glowtts_time")
         log_mels_rf = rf.convert_to_tensor(log_mels, dims=[batch_dim, out_spatial_dim, self.out_dim])
