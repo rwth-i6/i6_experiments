@@ -74,6 +74,17 @@ def py():
     # (DbMel front-end, nep=25 x4 DDP, batched recog) -> directly comparable reference: the TTS-encoder
     # WERs differ from this only by the TTS/text augmentation.
     _train_asr_base_multigpu("asr-base-mgpu", prefix=prefix, feature_extraction=rf.build_dict(DbMelFeatureExtractor))
+    # Multi-GPU sync-strategy ablation on the no-TTS DbMel baseline:
+    # parameter averaging (local-SGD style) every N steps instead of per-step gradient all-reduce.
+    # Mirrors the 2024 torch config config_11gb_..._mgpu4_pavg100.
+    # Same model/data/base_lr as asr-base-mgpu; only the sync differs.
+    for _ps_name, _ps in [("psync100", 100), ("psync10", 10)]:
+        _train_asr_base_multigpu(
+            "asr-base-mgpu-" + _ps_name,
+            prefix=prefix,
+            feature_extraction=rf.build_dict(DbMelFeatureExtractor),
+            torch_distributed={"reduce_type": "param", "param_sync_step": _ps},
+        )
     # Front-end isolation: same 4-GPU recipe but STANDARD log-mel (no DbMel), with a peak-LR sweep.
     #   logmel-mgpu vs asr-base-mgpu  -> log-mel-vs-DbMel front-end cost (mgpu held fixed)
     #   logmel-mgpu vs base-ls        -> mgpu-vs-single-GPU cost (front-end held fixed; LR sweep
@@ -108,12 +119,46 @@ def py():
         glow_tts_length_scale_range=(0.05, 0.15),
         batch_size_phon=75_000,
     )
+    # GL-net / Griffin-Lim waveform variant of v2 (same data: textP75, ~1.33 text passes): the synthetic
+    # text branch goes GlowTTS->GL-net->Griffin-Lim->waveform->ASR DbMel front-end (like the offline TTS
+    # baseline), instead of feeding the GlowTTS log-mel directly. Tests whether the Griffin-Lim round-trip's
+    # realistic distortion helps. GL-net ckpt (H9EByABag8UN/epoch.050.pt) synced from RZ to FZJ.
+    _train_tts_encoder(
+        "tts-enc-v2-textP75-gl-wave",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        tts_waveform=True,
+    )
+    # Reference-match: replicate Nick's offline ls_lm_data synth EXACTLY --
+    # noise_scale 0.7 fixed, length_scale 1.0 fixed, waveform path (GL-net + Griffin-Lim), on the textP75 data.
+    # Closest possible replication of the 3.53 reference within our setup
+    # (residual diff: our DbMel-80Hz re-extraction vs the reference's standard log-mel 100Hz,
+    # ~+0.13 per base-ls-dbmel).
+    # ~3.5 -> reproduced; ~4.1 -> the gap is our 4-GPU/nep regime, not the TTS.
+    # See projects/2026-05-28-tts-encoder.md.
+    _train_tts_encoder(
+        "tts-enc-ref-match",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+    )
 
     # TODO: import the finished RZ base-ls-dbmel (ReturnnTrainingJob.8mdaueLDfiGP); do NOT re-train on FZJ.
 
 
 def _train_asr_base_multigpu(
-    name: str, *, prefix: str, feature_extraction: Optional[Dict[str, Any]] = None, base_lr: float = 0.5
+    name: str,
+    *,
+    prefix: str,
+    feature_extraction: Optional[Dict[str, Any]] = None,
+    base_lr: float = 0.5,
+    torch_distributed: Optional[Dict[str, Any]] = None,
 ):
     """
     No-TTS audio-only ASR baseline trained with the FZJ 4-GPU DDP recipe.
@@ -196,19 +241,34 @@ def _train_asr_base_multigpu(
             # nep=25; with num_processes=4 DDP the data is iterated ~4x/epoch -> ~100 effective passes,
             # matching base-ls (nep=100) and the TTS-encoder runs.
             **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(25, base_lr=base_lr),
-            "batch_size": 400_000 * configs._batch_size_factor,  # per-rank audio frames, as in tts-enc-v1
-            "max_seqs": 500,
+            # Match base-ls (imported single-GPU LibriSpeech AED baseline, identical model):
+            # batch_size 16M + max_seqs 200. The ONLY intended difference here is multi-GPU DDP.
+            # Earlier 400k/500, copied from the TTS runs' alternate audio/text batching
+            # (where those numbers don't translate), OOM'd this plain-ASR model on 96GB;
+            # even 200k/500 still OOM'd at step 0 (~203 seqs -> 91GB).
+            "batch_size": 100_000 * configs._batch_size_factor,  # = base-ls 16M
+            "max_seqs": 200,  # = base-ls
             "optimizer.weight_decay": 1e-2,
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
             "aux_loss_layers": [4, 10, 16],
             "dec_aux_loss_layers": [3],
-            "max_seq_length_default_target": None,
+            # AED BPE-target cap, matching base-ls/v1 (spm10k).
+            # This is NOT the frame-sync per-frame "75 trap":
+            # for this plain-AED model 75 is the standard cap;
+            # None lets very-long-target utterances through
+            # and OOMs the decoder at batch_size 64M / max_seqs 500.
+            "max_seq_length_default_target": 75,
             "max_seq_length_default_input": 19.5 * _raw_sample_rate,
             # torch DDP across the 4 GH200 (NCCL all-reduce). Required: without it, num_processes=4
             # falls back to horovod and asserts. No unused params here (plain AED, all used every
             # step), so find_unused_parameters can stay off.
-            "torch_distributed": {"options": {"find_unused_parameters": False}},
+            # Default: per-step gradient all-reduce (DDP).
+            # Override via torch_distributed=, e.g. {"reduce_type": "param", "param_sync_step": N}
+            # for local-SGD-style parameter averaging.
+            "torch_distributed": (
+                torch_distributed if torch_distributed is not None else {"options": {"find_unused_parameters": False}}
+            ),
             "__mem_rqmt": 100,
             "__cpu_rqmt": 72,
         },
@@ -243,6 +303,7 @@ def _train_tts_encoder(
     batch_size_audio_frames: int = 400_000,
     batch_size_phon: int = 25_000,
     max_phon_len: Optional[int] = None,
+    tts_waveform: bool = False,
 ):
     from returnn.frontend.decoder.transformer import TransformerDecoder
     from returnn.frontend.encoder.conformer import (
@@ -274,6 +335,7 @@ def _train_tts_encoder(
         get_glow_tts_phone_info,
         get_glow_tts_phoneme_extern_data,
         get_glow_tts_preload_from_files,
+        get_glow_tts_gl_preload_from_files,
     )
 
     vocab = "spm10k"
@@ -396,7 +458,13 @@ def _train_tts_encoder(
         config_updates={
             # DDP per-rank random_seed_offset iterates the data N=4x per epoch, so divide nep by N
             **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(25, base_lr=0.5),
-            # batch_size dict is keyed by ACTUAL data keys; caps are per-variant
+            # batch_size dict is keyed by ACTUAL data keys; caps are per-variant.
+            # NB: under alternate_batching the audio cap (default 400k*factor = 64M samples)
+            # is NOT the binding constraint -- these runs peak ~67GB.
+            # A full 64M batch of REAL audio (as the plain audio-only asr-base-mgpu baseline packs)
+            # costs ~91GB and OOMs the GPU.
+            # So 64M here is a loose upper bound under the alternating audio/text batching,
+            # NOT a validated plain-audio batch size -- do not copy it into a non-TTS / audio-only config.
             "batch_size": {
                 in_key: batch_size_audio_frames * configs._batch_size_factor,
                 PHONEMES_DATA_KEY: batch_size_phon,
@@ -423,7 +491,15 @@ def _train_tts_encoder(
             "dec_aux_loss_layers": [3],
             "max_seq_length_default_target": 75,  # text batches have no audio length cap
             "max_seq_length_default_input": 19.5 * _raw_sample_rate,
-            "preload_from_files": get_glow_tts_preload_from_files(),
+            "preload_from_files": {
+                **get_glow_tts_preload_from_files(),
+                **(get_glow_tts_gl_preload_from_files() if tts_waveform else {}),  # GL-net for the waveform path
+            },
+            # Only emit tts_waveform when True,
+            # so the non-waveform models (v1/v2/v3b) keep their original hash
+            # (this key is otherwise a no-op for them; model_def reads it via config.bool("tts_waveform", False)).
+            # Adding it unconditionally re-hashed finished trainings.
+            **({"tts_waveform": True} if tts_waveform else {}),
             "glow_tts_length_scale_range": glow_tts_length_scale_range,
             "glow_tts_noise_scale_range": glow_tts_noise_scale_range,
             "txt_only_loss_scale": txt_only_loss_scale,
@@ -456,7 +532,8 @@ def _train_tts_encoder(
         gpu_mem=96,  # GH200 has 96 GB HBM3
         recog_training_func=recog_training_exp_batched,  # bundle per-epoch recog into one multi-GPU job
     )
-    # Joint AED+CTC first-pass recog with tuned scales, sharded over the full node
+    # Joint AED+CTC first-pass recog with tuned scales, sharded over the full node. This is the
+    # headline WER; the plain-AED per-epoch recog above is only used for best-epoch picking.
     aed_ctc_timesync_recog_recomb_auto_scale_batched(
         prefix=prefix + "/aed/" + name + "/aed+ctc-batched",
         task=task,
@@ -480,6 +557,7 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         out_dim=model.in_dim,  # GlowTTS log-mel feeds straight into the encoder (same DbMel space)
         glow_tts_noise_scale_range=tuple(noise_scale_range),
         glow_tts_length_scale_range=tuple(length_scale_range),
+        return_waveform=config.bool("tts_waveform", False),  # waveform mode: GL-net + Griffin-Lim -> ASR front-end
     )
     # GlowTTS is frozen: imported params, never updated.
     for p in model.tts.parameters():
@@ -558,6 +636,12 @@ def aed_glowtts_train_step(*, model: Model, extern_data, **_kwargs_unused):
     collected_outputs = CollectOutputsDict(allowed_key_patterns=[str(layer_idx - 1) for layer_idx in aux_loss_layers])
     if have_audio:
         enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
+    elif config.bool("tts_waveform", False):
+        # waveform mode: model.tts returns a synthetic WAVEFORM (GlowTTS->GL-net->Griffin-Lim) that
+        # re-enters the ASR through its own feature front-end -- identical path to real audio (line above).
+        wave, wave_spatial_dim = model.tts(phonemes, spatial_dim=phonemes_spatial_dim)
+        wave = rf.stop_gradient(wave)  # TTS is frozen
+        enc, enc_spatial_dim = model.encode(wave, in_spatial_dim=wave_spatial_dim, collected_outputs=collected_outputs)
     else:
         log_mel, log_mel_spatial_dim = model.tts(phonemes, spatial_dim=phonemes_spatial_dim)
         log_mel = rf.stop_gradient(log_mel)  # TTS is frozen
