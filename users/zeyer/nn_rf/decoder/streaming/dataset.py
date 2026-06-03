@@ -17,7 +17,7 @@ The target is derived on the fly so ``chunk_size`` is a config knob, not baked i
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
 import functools
 
 import numpy as np
@@ -128,7 +128,7 @@ class ChunkAlignDataset(DatasetConfig):
         self,
         *,
         oggzip,
-        alignment_hdfs: Dict[str, tk.Path],
+        alignment_hdfs: Dict[str, Union[tk.Path, List[tk.Path]]],
         vocab_ext_dim_int: int,
         blank_idx: int,
         chunk_size: int,
@@ -143,7 +143,8 @@ class ChunkAlignDataset(DatasetConfig):
     ):
         """
         :param oggzip: an audio-only ``LibrispeechOggZip`` (``vocab=None``); provides ``data``.
-        :param alignment_hdfs: ``{main_key: forced-align out.hdf}`` (must cover train + dev keys).
+        :param alignment_hdfs: ``{main_key: forced-align out.hdf}`` (must cover train + dev keys);
+            the value may be a single HDF path or a list of shard HDF paths (loaded as one HDFDataset).
         :param vocab_ext_dim_int: extended vocab size (spm vocab + 1).
         :param blank_idx: blank index in the alignment frames (== spm vocab size).
         :param chunk_size: chunk length in encoder frames (must match the encoder's chunk_size).
@@ -200,7 +201,9 @@ class ChunkAlignDataset(DatasetConfig):
 
     def _wrap(self, main_key: str, *, training: bool, subset: Optional[int] = None) -> Dict[str, Any]:
         ogg = self.oggzip.get_dataset(main_key, training=training, subset=subset)
-        hdf = {"class": "HDFDataset", "files": [self.alignment_hdfs[main_key]], "use_cache_manager": True}
+        align_paths = self.alignment_hdfs[main_key]
+        align_files = list(align_paths) if isinstance(align_paths, (list, tuple)) else [align_paths]
+        hdf = {"class": "HDFDataset", "files": align_files, "use_cache_manager": True}
         meta = {
             "class": "MetaDataset",
             "datasets": {"ogg_zip": ogg, "align": hdf},
