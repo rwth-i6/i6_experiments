@@ -1,27 +1,7 @@
 """
 TTS-encoder project.
 
-Goal: feed the frozen GlowTTS log-mel output directly into a standard CTC/AED ASR encoder
-(skipping the GlowTTS gl-net + Griffin-Lim + ASR re-extraction detour),
-and make text-utilization cheap by shrinking the synthetic durations.
-
-Step 1 (this file): front-end ablation, no text-only data yet.
-The frozen GlowTTS emits log-mel in its own DbMel feature space
-(Slaney mel, f_max 7600, 12.5ms hop, fixed norm), which is incompatible bin-for-bin with
-the default ``rf.audio.log_mel_filterbank_from_raw`` (HTK mel, f_max 8000, 10ms hop).
-To allow zero-transform injection of the GlowTTS output later, we train the ASR baseline
-on the same DbMel front-end. This measures the WER cost of that front-end swap.
-
-Uses the standard CTC+AED baseline ``exp2024_04_23_baselines.aed`` (EncL16-DecL6-D1024-spm10k),
-configured via its ``feature_extraction`` opt -- no custom Model subclass.
-
-  - "base-ls":       default log-mel front-end (reference baseline).
-  - "base-ls-dbmel": same model, DbMel front-end (= the GlowTTS feature space).
-
-Run: py7 ./sis m recipe/i6_experiments/users/zeyer/experiments/exp2026_05_28_tts_encoder.py
-
-TODO (next steps): return_log_mel mode on the frozen TtsModel; text-only batch via alternate_batching;
-shrink / randomize GlowTTS durations (length_scale) for cheap text-util.
+See :file:`exp2026_05_28_tts_encoder_fzj.py` for follow-up.
 """
 
 from __future__ import annotations
