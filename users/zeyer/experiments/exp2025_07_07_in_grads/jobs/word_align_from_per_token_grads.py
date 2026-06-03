@@ -29,6 +29,9 @@ class WordAlignFromPerTokenGradsJob(Job):
     :class:`CalcChunkedAlignmentMetricsJob`.
     """
 
+    # audio_energy_pow=0.0 (no filter) excluded so existing aligns keep their hash.
+    __sis_hash_exclude__ = {"audio_energy_pow": 0.0}
+
     def __init__(
         self,
         *,
@@ -39,6 +42,7 @@ class WordAlignFromPerTokenGradsJob(Job):
         dataset_key: str,
         dataset_offset_factors: int,
         align_opts: Dict[str, Any],
+        audio_energy_pow: float = 0.0,
     ):
         """
         :param grad_score_hdf: from :class:`ExtractInGradsPerTokenJob`. Must
@@ -55,6 +59,7 @@ class WordAlignFromPerTokenGradsJob(Job):
         self.dataset_key = dataset_key
         self.dataset_offset_factors = dataset_offset_factors
         self.align_opts = align_opts
+        self.audio_energy_pow = float(audio_energy_pow)
 
         self.out_wbe = self.output_var("wbe.txt")
 
@@ -123,6 +128,23 @@ class WordAlignFromPerTokenGradsJob(Job):
             )
             grad_mat = grad_mat.reshape(chunk_num_tokens, chunk_num_timeframes)
             secs_per_timeframe = audio_len_secs / chunk_num_timeframes
+
+            if self.audio_energy_pow:
+                # Multiply each token's saliency by a smoothed audio-RMS-energy
+                # envelope^pow (silence-suppressing filter; conceptually grad*input
+                # at the raw-waveform level). Hanning-smoothed (~25 ms) so it works
+                # at any frame rate, sampled at the grad frame grid.
+                audio = np.asarray(data["audio"]["array"], dtype=np.float64)
+                win = max(int(0.025 * samplerate), 1)
+                hann = np.hanning(win)
+                hann = hann / hann.sum()
+                env = np.sqrt(np.convolve(audio * audio, hann, mode="same") + 1e-9)
+                centers = (
+                    (np.arange(chunk_num_timeframes) + 0.5) / chunk_num_timeframes * (len(env) - 1)
+                ).astype(int)
+                e = env[centers]
+                e = e / (e.max() + 1e-9)
+                grad_mat = grad_mat * (e[None, :] ** self.audio_energy_pow)
 
             align_token_start_ends = aligner.align(grad_mat)
             assert len(align_token_start_ends) == chunk_num_tokens
