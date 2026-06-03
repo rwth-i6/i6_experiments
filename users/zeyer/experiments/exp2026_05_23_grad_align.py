@@ -272,6 +272,152 @@ def py():
             align.add_alias(align_name)
             tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
 
+    # Port the in-house CTC grad-align winning combo (blankStopGrad +
+    # inclBlankState + low-p norm) to Wav2Vec2-CTC. inclBlankState is the
+    # adapter default; here we add stop_grad_blank and sweep the reduction p
+    # to isolate which lever closes the gap to CTC-forced-align (0.0365).
+    # (In the in-house ablation each lever barely helped alone, but the three
+    # together dropped boundary error ~11%; grad*input hurt, so mgi stays off.)
+    w2v_ctc_blankstop_cfg = rf.build_dict(Wav2Vec2Ctc, stop_grad_blank=True)
+    w2v_variants = [
+        (w2v_ctc_blankstop_cfg, "blankstop-L0.1", "L0.1"),
+        (w2v_ctc_blankstop_cfg, "blankstop-L0.5", "L0.5"),
+        (w2v_ctc_blankstop_cfg, "blankstop-L1", "L1"),
+        (w2v_ctc_blankstop_cfg, "blankstop-L2", "L2"),
+        (w2v_ctc_cfg, "L0.1", "L0.1"),
+        (w2v_ctc_cfg, "L0.5", "L0.5"),
+    ]
+    for _cfg, _tag, _attr in w2v_variants:
+        w2vs_extract = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=_cfg,
+            mult_grad_by_inputs=False,
+            attr_reduction=_attr,
+        )
+        w2vs_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        w2vs_name = f"wav2vec2ctc-featext-timit-val-{_tag}_grad-pertoken"
+        w2vs_extract.add_alias(w2vs_name)
+        tk.register_output(f"{w2vs_name}.hdf", w2vs_extract.out_hdf)
+        for align_opts in _ALIGN_OPTS_GRID:
+            align_name = f"align/{w2vs_name}-{_name_for_dict(align_opts)}"
+            align = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=w2vs_extract.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=align_opts,
+            )
+            align.add_alias(align_name)
+            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+
+    # CTC prefix-score modes x blank_score DP sweep on Wav2Vec2-CTC. The
+    # reduction was inert and stop_grad_blank hurt, so the live levers are
+    # (a) the partial-score telescoping (include_next_blank), which changes the
+    # grad scores, and (b) the DP blank_score, the most sensitive align knob in
+    # the in-house setup (best ~-6 there, but grad-target-specific). Reduction
+    # fixed to L2 (inert); mult off (grad*input hurt). -6 is already in the grid.
+    _w2v_bs_sweep = [{"apply_softmax_over_time": True, "blank_score": _bs} for _bs in (-2, -3, -4, -5, -7, -8)]
+    w2v_prefix_cfgs = [
+        ("inbTrue", w2v_ctc_cfg),
+        ("inbFalse", rf.build_dict(Wav2Vec2Ctc, include_next_blank=False)),
+        ("inbBoth", rf.build_dict(Wav2Vec2Ctc, include_next_blank="both")),
+        ("inbBothPrev", rf.build_dict(Wav2Vec2Ctc, include_next_blank="both_prev")),
+    ]
+    for _ptag, _pcfg in w2v_prefix_cfgs:
+        w2vp_extract = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=_pcfg,
+            mult_grad_by_inputs=False,
+            attr_reduction="L2",
+        )
+        w2vp_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        w2vp_name = f"wav2vec2ctc-featext-timit-val-{_ptag}-L2_grad-pertoken"
+        w2vp_extract.add_alias(w2vp_name)
+        tk.register_output(f"{w2vp_name}.hdf", w2vp_extract.out_hdf)
+        for align_opts in _ALIGN_OPTS_GRID + _w2v_bs_sweep:
+            align_name = f"align/{w2vp_name}-{_name_for_dict(align_opts)}"
+            align = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=w2vp_extract.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=align_opts,
+            )
+            align.add_alias(align_name)
+            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+
+    # grad_wrt = raw waveform: backprop through the whole conv feature-extractor
+    # to the 16 kHz input (leaf reshaped to [n_frames, 320] for per-frame
+    # pooling). The finest input-level grad target -- tests whether moving off
+    # the feature-extractor output (which leaks saliency into silence) toward
+    # the raw input sharpens the boundaries.
+    w2v_raw_cfg = rf.build_dict(Wav2Vec2Ctc, grad_wrt="raw_waveform")
+    w2v_raw_extract = ExtractInGradsPerTokenJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=w2v_raw_cfg,
+        mult_grad_by_inputs=False,
+        attr_reduction="L2",
+    )
+    w2v_raw_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    w2v_raw_name = "wav2vec2ctc-rawwav-timit-val-L2_grad-pertoken"
+    w2v_raw_extract.add_alias(w2v_raw_name)
+    tk.register_output(f"{w2v_raw_name}.hdf", w2v_raw_extract.out_hdf)
+    for align_opts in _ALIGN_OPTS_GRID + [{"apply_softmax_over_time": True, "blank_score": _b} for _b in (-4, -5)]:
+        align_name = f"align/{w2v_raw_name}-{_name_for_dict(align_opts)}"
+        align = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=w2v_raw_extract.out_hdf,
+            grad_score_key="data",
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=align_opts,
+        )
+        align.add_alias(align_name)
+        tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+
+    # grad_wrt sweep: conv blocks 0-5 (conv6 == feat_extract_out, already done at
+    # ~0.073), the feature_projection LayerNorm (512) + Linear (1024, transformer
+    # input), and raw-waveform at several resolutions (pool=1 -> full 16 kHz
+    # sample-level alignment, pool=80/16 -> finer-than-50 Hz with RMS smoothing).
+    # Tests which attribution surface localizes word boundaries best.
+    _w2v_gradwrt_sweep = [(f"conv{_i}", rf.build_dict(Wav2Vec2Ctc, grad_wrt=f"conv{_i}")) for _i in range(6)] + [
+        ("fproj_ln", rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_layernorm")),
+        ("fproj_out", rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out")),
+        ("rawwav-pool80", rf.build_dict(Wav2Vec2Ctc, grad_wrt="raw_waveform", raw_pool=80)),
+        ("rawwav-pool16", rf.build_dict(Wav2Vec2Ctc, grad_wrt="raw_waveform", raw_pool=16)),
+        ("rawwav-pool1", rf.build_dict(Wav2Vec2Ctc, grad_wrt="raw_waveform", raw_pool=1)),
+    ]
+    _w2v_gw_aligns = _ALIGN_OPTS_GRID + [{"apply_softmax_over_time": True, "blank_score": -5}]
+    for _gwtag, _gwcfg in _w2v_gradwrt_sweep:
+        gw_extract = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=_gwcfg,
+            mult_grad_by_inputs=False,
+            attr_reduction="L2",
+        )
+        gw_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        gw_name = f"wav2vec2ctc-{_gwtag}-timit-val-L2_grad-pertoken"
+        gw_extract.add_alias(gw_name)
+        tk.register_output(f"{gw_name}.hdf", gw_extract.out_hdf)
+        for align_opts in _w2v_gw_aligns:
+            align_name = f"align/{gw_name}-{_name_for_dict(align_opts)}"
+            align = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=gw_extract.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=align_opts,
+            )
+            align.add_alias(align_name)
+            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+
     # --- Phi4 encoder-output (~12.5 Hz) grad target, for completeness vs the default
     # log-mel (100 Hz) target. Word-level only (encoder-out is too coarse for char-level).
     phi4_enc_cfg = _phi4mm_model_config(dl_phi4mi_dir, grad_wrt="encoder_out")
@@ -287,7 +433,10 @@ def py():
         p4e_name = f"phi4mm-encoderout-timit-val-{_p4e_ga}-pertoken"
         p4e_extract.add_alias(p4e_name)
         tk.register_output(f"{p4e_name}.hdf", p4e_extract.out_hdf)
-        for align_opts in _ALIGN_OPTS_GRID:
+        # encoder-out (~12.5 Hz) is a confirmed dead-end (WBE 0.44); restrict to
+        # the bs-6 align -- the bscalc backtrace crashes (s=-1) on its degenerate,
+        # near-flat score matrix (a latent Aligner edge case, not worth chasing here).
+        for align_opts in _ALIGN_OPTS_GRID[:1]:
             align_name = f"align/{p4e_name}-{_name_for_dict(align_opts)}"
             align = WordAlignFromPerTokenGradsJob(
                 grad_score_hdf=p4e_extract.out_hdf,

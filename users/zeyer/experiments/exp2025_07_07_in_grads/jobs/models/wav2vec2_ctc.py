@@ -59,15 +59,48 @@ class Wav2Vec2Ctc(BaseModelInterface):
         self,
         *,
         device: torch.device,
-        include_next_blank: bool = True,
+        include_next_blank: Union[bool, str] = True,
+        stop_grad_blank: bool = False,
+        grad_wrt: str = "feat_extract_out",
+        raw_pool: int = 320,
         char_level_sep: Optional[str] = None,
         version: int = 1,
     ):
         """
-        :param include_next_blank: if True, the partial score numerator uses
-            the state *after* token i's trailing blank (``inclBlankState`` in
-            the in-house CTC grad-align, its best-performing variant);
-            if False, it stops at token i's label state.
+        :param include_next_blank: which extended states form the partial-score
+            numerator / denominator (telescoping ``Δ_i = num − denom``).
+            Mirrors ``nn_rf.fsa.ctc_partial_scores``. With label state ``2i+1``,
+            blank-before ``2i``, blank-after ``2i+2``, prev-label ``2i-1``:
+
+            - ``False``: num = label ``2i+1``, denom = blank-before ``2i``.
+            - ``True``: num = blank-after ``2i+2``, denom = blank-before ``2i``
+              (``inclBlankState``; the in-house headline variant).
+            - ``"both"``: num = logaddexp(label, blank-after), denom = blank-before.
+            - ``"both_prev"``: num = logaddexp(label, blank-after),
+              denom = logaddexp(blank-before, prev-label).
+        :param stop_grad_blank: if True, zero the gradient on the blank logit
+            (``blankStopGrad``) so the diffuse blank-emission gradient doesn't
+            pollute the per-token saliency. In the in-house CTC grad-align this
+            barely helped alone, but combined with ``include_next_blank`` and a
+            low-p reduction (L0.5/L0.1) it was the winning config.
+        :param grad_wrt: differentiation target (saliency surface). All grad
+            flows back to this tensor; everything below it runs without grad via
+            a leaf hook. Options:
+            - ``"feat_extract_out"`` (default): feature-extractor output
+              (~50 Hz, 512-dim). Same tensor as ``conv6``.
+            - ``"conv0"``..``"conv6"``: output of each of the 7 conv blocks.
+              Cumulative strides 5,10,20,40,80,160,320 -> 3200,1600,800,400,200,
+              100,50 Hz. Earlier blocks = finer time grid, more channels-mixed.
+            - ``"feat_proj_layernorm"`` / ``"feat_proj_out"``: the LayerNorm
+              (512-dim) and the Linear (1024-dim) of feature_projection -- the
+              normalized features and the transformer input, both ~50 Hz.
+            - ``"raw_waveform"``: the raw 16 kHz waveform, backprop through the
+              whole conv stack. Pooled per ``raw_pool`` (see below).
+        :param raw_pool: only for ``grad_wrt="raw_waveform"``. Samples per
+            saliency frame: 320 -> ~50 Hz, 1 -> full 16 kHz sample-level
+            alignment (no smoothing), intermediate -> higher resolution with an
+            RMS-envelope smoothing. The reshape ``[1, n_frames, raw_pool]`` lets
+            the extract's feature-dim reduction do the pooling.
         :param char_level_sep: optional separator char inserted between words
             before tokenization (e.g. ``"|"`` if the vocab has it). MMS_FA's
             uroman vocab has no space, so the default (None) simply
@@ -80,7 +113,19 @@ class Wav2Vec2Ctc(BaseModelInterface):
         super().__init__()
         assert version >= 1
         self.device = device
-        self.include_next_blank = bool(include_next_blank)
+        assert include_next_blank in (False, True, "both", "both_prev"), include_next_blank
+        self.include_next_blank = include_next_blank
+        self.stop_grad_blank = bool(stop_grad_blank)
+        _valid_grad_wrt = {"feat_extract_out", "raw_waveform", "feat_proj_layernorm", "feat_proj_out"} | {
+            f"conv{i}" for i in range(7)
+        }
+        assert grad_wrt in _valid_grad_wrt, f"{grad_wrt!r} not in {sorted(_valid_grad_wrt)}"
+        self.grad_wrt = grad_wrt
+        # raw_waveform pooling window (samples per saliency frame): 320 -> ~50 Hz,
+        # 1 -> full 16 kHz sample-level alignment (no smoothing), intermediate ->
+        # higher resolution with RMS-envelope smoothing. Only used for raw_waveform.
+        assert raw_pool >= 1, raw_pool
+        self.raw_pool = int(raw_pool)
         self._char_level_sep = char_level_sep
         self.version = version
 
@@ -111,8 +156,36 @@ class Wav2Vec2Ctc(BaseModelInterface):
                     break
         assert fe is not None, "could not find wav2vec2 FeatureExtractor submodule"
         self._feature_extractor = fe
+        # The 7 conv blocks (raw wav -> ~50 Hz; cumulative strides 5,10,20,40,
+        # 80,160,320) and the feature_projection (LayerNorm 512 + Linear 512->1024),
+        # for the grad_wrt sweep.
+        self._conv_layers = fe.conv_layers
+        self._feat_proj = None
+        for m in self.model.modules():
+            if type(m).__name__ == "FeatureProjection":
+                self._feat_proj = m
+                break
+        assert self._feat_proj is not None, "could not find FeatureProjection submodule"
 
     # ---- Helpers --------------------------------------------------------
+
+    def _resolve_hook_target(self, grad_wrt: str):
+        """Return ``(module, channels_first)`` for a hooked grad target.
+
+        ``channels_first`` True for the conv blocks (output ``[B, C, T]``, needs
+        a transpose to ``[B, T, C]``); False for the feature-extractor output
+        and feature_projection points (already ``[B, T, F]``).
+        """
+        if grad_wrt == "feat_extract_out":
+            return self._feature_extractor, False  # [B, T, 512] (~50 Hz)
+        if grad_wrt == "feat_proj_layernorm":
+            return self._feat_proj.layer_norm, False  # [B, T, 512], normalized
+        if grad_wrt == "feat_proj_out":
+            return self._feat_proj.projection, False  # [B, T, 1024], transformer input
+        if grad_wrt.startswith("conv"):
+            i = int(grad_wrt[len("conv"):])  # conv0..conv6
+            return self._conv_layers[i], True  # [B, 512, T_i], channels-first
+        raise ValueError(f"unhooked grad_wrt {grad_wrt!r}")
 
     def _norm(self, word: str) -> str:
         """Lowercase + keep only in-vocab chars (mirrors the MMS_FA baseline).
@@ -180,11 +253,29 @@ class Wav2Vec2Ctc(BaseModelInterface):
             accum = torch.logaddexp(accum, alpha)
 
         idx_label = torch.arange(S, device=device) * 2 + 1
-        accum_label = accum[idx_label]
-        accum_prev_blank = accum[idx_label - 1]
-        accum_next_blank = accum[idx_label + 1]
-        numerator = accum_next_blank if self.include_next_blank else accum_label
-        return numerator - accum_prev_blank  # [S]
+        accum_label = accum[idx_label]  # 2i+1
+        accum_prev_blank = accum[idx_label - 1]  # 2i
+        accum_next_blank = accum[idx_label + 1]  # 2i+2
+
+        inb = self.include_next_blank
+        if inb is False:
+            numerator, denominator = accum_label, accum_prev_blank
+        elif inb is True:
+            numerator, denominator = accum_next_blank, accum_prev_blank
+        elif inb == "both":
+            numerator = torch.logaddexp(accum_label, accum_next_blank)
+            denominator = accum_prev_blank
+        elif inb == "both_prev":
+            numerator = torch.logaddexp(accum_label, accum_next_blank)
+            # prev label state 2i-1; invalid (-> log-zero) for i=0.
+            idx_prev_label = idx_label - 2
+            valid = idx_prev_label >= 0
+            accum_prev_label = accum[idx_prev_label.clamp(min=0)]
+            accum_prev_label = torch.where(valid, accum_prev_label, torch.full_like(accum_prev_label, neg))
+            denominator = torch.logaddexp(accum_prev_blank, accum_prev_label)
+        else:
+            raise ValueError(f"invalid include_next_blank: {inb!r}")
+        return numerator - denominator  # [S]
 
     # ---- Forward (forced alignment) -------------------------------------
 
@@ -236,29 +327,68 @@ class Wav2Vec2Ctc(BaseModelInterface):
         s_len = len(flat_ids)
         assert s_len > 0, f"empty target for words={words!r}"
 
-        # Forward with a feature-extractor leaf hook so grad flows
-        # feat_extract_out -> encoder -> CTC head -> emission -> partial scores.
-        captured: List[torch.Tensor] = []
-
-        def _fe_hook(_module, _inp, out):
-            x, lengths = out
-            leaf = x.detach().requires_grad_(True)
-            leaf.retain_grad()
-            captured.append(leaf)
-            return leaf, lengths
-
-        handle = self._feature_extractor.register_forward_hook(_fe_hook)
-        try:
+        # Build the grad leaf and run the model. MMS_FA's forward returns raw
+        # CTC logits (the bundle aligner applies log_softmax itself).
+        if self.grad_wrt == "raw_waveform":
+            # Leaf is the raw waveform, reshaped to [1, n_frames, raw_pool] so the
+            # extract's feature-dim reduction collapses each raw_pool-sample block
+            # to one per-frame value (RMS envelope). raw_pool=1 keeps full 16 kHz
+            # sample-level resolution. Grad flows through the conv feature-extractor.
+            spf = self.raw_pool
+            n_blocks = int(wav.shape[1]) // spf
+            assert n_blocks > 0, f"audio too short: {wav.shape=} raw_pool={spf}"
+            wav_trim = wav[:, : n_blocks * spf].contiguous()
+            grad_leaf = wav_trim.reshape(1, n_blocks, spf).detach().requires_grad_(True)  # [1, n_blocks, raw_pool]
+            grad_leaf.retain_grad()
             with torch.enable_grad():
-                # MMS_FA's forward returns raw CTC logits (the bundle aligner
-                # applies the log_softmax itself), so we normalize here.
-                emission, _ = self.model(wav)  # [1, T_feat, V] logits
-        finally:
-            handle.remove()
-        assert len(captured) == 1, f"expected 1 feature_extractor call, got {len(captured)}"
-        grad_leaf = captured[0]  # [1, T_feat, C]
-        t_feat = int(emission.shape[1])
-        assert grad_leaf.shape[1] == t_feat, f"{grad_leaf.shape=} vs T_feat={t_feat}"
+                emission, _ = self.model(grad_leaf.reshape(1, n_blocks * spf))  # [1, T_emit, V] logits
+            t_feat = n_blocks  # saliency/alignment frame grid (not emission length)
+        else:
+            # Leaf-ify an intermediate activation via a forward hook. Conv blocks
+            # output [B, C, T] (channels-first -> transpose to [B, T, C] so the
+            # extract's feature-dim reduction collapses the channels); the
+            # feature-extractor output and feature_projection points are already
+            # [B, T, F]. The grad leaf's T defines the saliency/alignment grid.
+            module, channels_first = self._resolve_hook_target(self.grad_wrt)
+            captured: List[torch.Tensor] = []
+
+            def _hook(_module, _inp, out):
+                is_tuple = isinstance(out, tuple)
+                x = out[0] if is_tuple else out
+                if channels_first:
+                    leaf = x.detach().transpose(1, 2).contiguous().requires_grad_(True)  # [B, T, C]
+                    leaf.retain_grad()
+                    captured.append(leaf)
+                    x_back = leaf.transpose(1, 2)
+                else:
+                    leaf = x.detach().requires_grad_(True)
+                    leaf.retain_grad()
+                    captured.append(leaf)
+                    x_back = leaf
+                return (x_back, *out[1:]) if is_tuple else x_back
+
+            handle = module.register_forward_hook(_hook)
+            try:
+                with torch.enable_grad():
+                    emission, _ = self.model(wav)  # [1, T_emit, V] logits
+            finally:
+                handle.remove()
+            assert len(captured) == 1, f"expected 1 hook call, got {len(captured)}"
+            grad_leaf = captured[0]  # [1, T_feat, C]
+            t_feat = int(grad_leaf.shape[1])  # saliency grid (= emission T only for ~50 Hz targets)
+
+        if self.stop_grad_blank:
+            # Zero the blank-logit gradient on every backward through emission
+            # (registered once; persists across the extract loop's per-token
+            # retain_graph backwards). Mirrors the in-house _zero_grad_blank_hook.
+            _blank = self.blank_idx
+
+            def _zero_blank_grad(grad):
+                grad = grad.clone()
+                grad[:, :, _blank] = 0.0
+                return grad
+
+            emission.register_hook(_zero_blank_grad)
 
         log_probs = torch.log_softmax(emission.float(), dim=-1)  # [1, T_feat, V]
         vocab_size = int(log_probs.shape[-1])
