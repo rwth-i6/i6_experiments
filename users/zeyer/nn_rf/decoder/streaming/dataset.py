@@ -260,7 +260,9 @@ class ChunkAlignDataset(DatasetConfig):
 
 # ``map_seq`` must accept ``**kwargs`` (PostprocessingDataset passes randomly named params for
 # forward-compat); the bound params come via the functools.partial in the *_map_seq builders.
-def _chunk_augment_map_seq(seq, *, rng=None, vocab_ext_dim: Dim, blank_idx: int, chunk_size: int, alignment_key: str, **kwargs):
+def _chunk_augment_map_seq(
+    seq, *, rng=None, vocab_ext_dim: Dim, blank_idx: int, chunk_size: int, alignment_key: str, **kwargs
+):
     from returnn.tensor import Tensor, TensorDict
 
     align = seq[alignment_key]
@@ -280,7 +282,9 @@ def _chunk_augment_map_seq(seq, *, rng=None, vocab_ext_dim: Dim, blank_idx: int,
     return out
 
 
-def _rna_frame_map_seq(seq, *, rng=None, vocab_ext_dim: Dim, blank_idx: int, chunk_size: int, alignment_key: str, **kwargs):
+def _rna_frame_map_seq(
+    seq, *, rng=None, vocab_ext_dim: Dim, blank_idx: int, chunk_size: int, alignment_key: str, **kwargs
+):
     from returnn.tensor import Tensor, TensorDict
 
     align = seq[alignment_key]
