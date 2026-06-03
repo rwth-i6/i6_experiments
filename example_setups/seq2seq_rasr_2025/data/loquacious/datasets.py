@@ -21,6 +21,7 @@ from ..base import (
     MetaOggZipDataConfig,
     MetaOggZipHdfTargetDataConfig,
     OggZipDataConfig,
+    get_default_byte_target_config,
 )
 from .bpe import get_default_bpe_target_config
 from .lexicon import get_bliss_phoneme_lexicon
@@ -133,6 +134,18 @@ def get_medium_bpe_train_data(bpe_size: int) -> MetaOggZipDataConfig:
     )
 
 
+def get_medium_byte_train_data() -> MetaOggZipDataConfig:
+    return MetaOggZipDataConfig(
+        oggzip_files=[
+            get_ogg_zip_dict(returnn_root=returnn_root, returnn_python_exe=returnn_python_exe)["train.medium"]
+        ],
+        speed_perturbation=True,
+        partition_epoch=50,
+        seq_ordering="laplace:.1000",
+        target_config=get_default_byte_target_config(),
+    )
+
+
 def get_medium_phoneme_train_data() -> MetaOggZipHdfTargetDataConfig:
     return MetaOggZipHdfTargetDataConfig(
         oggzip_config=OggZipDataConfig(
@@ -217,6 +230,17 @@ def get_medium_bpe_cv_data(bpe_size: int) -> MetaOggZipDataConfig:
         partition_epoch=1,
         seq_ordering="sorted",
         target_config=get_default_bpe_target_config(bpe_size, corpus_key="train.medium"),
+        segment_file=_get_dev_short_segments(),
+    )
+
+
+def get_medium_byte_cv_data() -> MetaOggZipDataConfig:
+    return MetaOggZipDataConfig(
+        oggzip_files=[get_ogg_zip_dict(returnn_root=returnn_root, returnn_python_exe=returnn_python_exe)["dev.all"]],
+        speed_perturbation=False,
+        partition_epoch=1,
+        seq_ordering="sorted",
+        target_config=get_default_byte_target_config(),
         segment_file=_get_dev_short_segments(),
     )
 

@@ -1,9 +1,21 @@
-from . import aed_bpe, combination_model_bpe, ctc_bpe_phoneme, ffnn_transducer_bpe, ffnn_transducer_phoneme
+from . import (
+    aed_bpe,
+    aed_byte,
+    combination_model_bpe,
+    ctc_bpe_phoneme,
+    ctc_byte,
+    ffnn_transducer_bpe,
+    ffnn_transducer_byte,
+    ffnn_transducer_phoneme,
+)
 
 __all__ = [
     "aed_bpe",
+    "aed_byte",
     "combination_model_bpe",
     "ctc_bpe_phoneme",
+    "ctc_byte",
     "ffnn_transducer_bpe",
+    "ffnn_transducer_byte",
     "ffnn_transducer_phoneme",
 ]

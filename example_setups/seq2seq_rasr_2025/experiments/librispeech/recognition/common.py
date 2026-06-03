@@ -1,13 +1,14 @@
-__all__ = ["BaseRecogVariant", "run_single_bpe_variant", "run_single_phoneme_variant"]
+__all__ = ["BaseRecogVariant", "run_single_bpe_variant", "run_single_byte_variant", "run_single_phoneme_variant"]
 
 from dataclasses import dataclass, field, replace
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
 from i6_core.rasr import RasrConfig
 from i6_core.returnn import PtCheckpoint
-from i6_experiments.common.setups.serialization import Collection
+from i6_experiments.common.setups.serialization import Call, Collection, Import
 from sisyphus import tk
 
+from ....data.base import get_byte_vocab_file
 from ....data.librispeech import datasets as librispeech_datasets
 from ....data.librispeech import lm as librispeech_lm
 from ....data.librispeech.bpe import get_bpe_vocab_file
@@ -17,6 +18,7 @@ from ....model_pipelines.common.recog import (
     OfflineRecogParameters,
     RecogResult,
     StreamingRecogParameters,
+    Utf8ByteTracebackFormatter,
     recog_rasr_offline,
     recog_rasr_streaming,
 )
@@ -71,6 +73,38 @@ def run_single_bpe_variant(
     )
 
 
+def run_single_byte_variant(
+    model_descriptor: str,
+    checkpoint: Optional[PtCheckpoint],
+    encoder_serializers: Collection,
+    label_scorer_configs: List[RasrConfig],
+    blank_index: Optional[int],
+    sentence_end_index: Optional[int],
+    variant: BaseRecogVariant,
+    corpora: List[librispeech_datasets.EvalSet],
+) -> List[RecogResult]:
+    use_blank = blank_index is not None
+    vocab_file = get_byte_vocab_file(add_blank=use_blank)
+    traceback_formatter_serializers = [
+        Import(f"{Utf8ByteTracebackFormatter.__module__}.{Utf8ByteTracebackFormatter.__name__}"),
+        Call(Utf8ByteTracebackFormatter.__name__, return_assign_variables="traceback_formatter"),
+    ]
+
+    return _run_single_variant(
+        model_descriptor=model_descriptor,
+        checkpoint=checkpoint,
+        encoder_serializers=encoder_serializers,
+        label_scorer_configs=label_scorer_configs,
+        vocab_file=vocab_file,
+        lexicon_file=None,
+        blank_index=blank_index,
+        sentence_end_index=sentence_end_index,
+        variant=variant,
+        corpora=corpora,
+        traceback_formatter_serializers=traceback_formatter_serializers,
+    )
+
+
 def run_single_phoneme_variant(
     model_descriptor: str,
     checkpoint: Optional[PtCheckpoint],
@@ -80,6 +114,7 @@ def run_single_phoneme_variant(
     sentence_end_index: Optional[int],
     variant: BaseRecogVariant,
     corpora: List[librispeech_datasets.EvalSet],
+    traceback_formatter_serializers: Optional[List[Any]] = None,
 ) -> List[RecogResult]:
     assert not isinstance(variant.search_algorithm_params, LexiconfreeTimesyncRecogParams)
     assert not isinstance(variant.search_algorithm_params, LexiconfreeLabelsyncRecogParams)
@@ -96,6 +131,7 @@ def run_single_phoneme_variant(
         sentence_end_index=sentence_end_index,
         variant=variant,
         corpora=corpora,
+        traceback_formatter_serializers=traceback_formatter_serializers,
     )
 
 
@@ -110,6 +146,7 @@ def _run_single_variant(
     sentence_end_index: Optional[int],
     variant: BaseRecogVariant,
     corpora: List[librispeech_datasets.EvalSet],
+    traceback_formatter_serializers: Optional[List[Any]] = None,
 ) -> List[RecogResult]:
     if isinstance(variant.search_algorithm_params, LexiconfreeLabelsyncRecogParams):
         assert vocab_file is not None
@@ -187,6 +224,7 @@ def _run_single_variant(
                 encoder_serializers=encoder_serializers,
                 sample_rate=16000,
                 params=variant.search_mode_params,
+                traceback_formatter_serializers=traceback_formatter_serializers,
             )
         elif isinstance(variant.search_mode_params, StreamingRecogParameters):
             recog_result = recog_rasr_streaming(
@@ -198,6 +236,7 @@ def _run_single_variant(
                 encoder_serializers=encoder_serializers,
                 sample_rate=16000,
                 params=variant.search_mode_params,
+                traceback_formatter_serializers=traceback_formatter_serializers,
             )
 
         results.append(recog_result)

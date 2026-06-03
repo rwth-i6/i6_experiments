@@ -15,20 +15,23 @@ from i6_models.parts.frontend.generic_frontend import FrontendLayerType, Generic
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Config
 
 from ....data.librispeech import datasets as librispeech_datasets
-from ....data.librispeech.bpe import bpe_to_vocab_size
+from ....data.base import BYTE_VOCAB_SIZE
 from ....model_pipelines.common.learning_rates import OCLRConfig
-from ....model_pipelines.common.optimizer import RAdamConfig
-from ....model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
-from ....model_pipelines.common.train import TrainedModel, train
-from ....model_pipelines.full_ctx_transducer.pytorch_modules import LstmTransducerConfig, LstmTransducerModel
-from ....model_pipelines.full_ctx_transducer.train import LstmTransducerTrainOptions, get_train_step_import
+from ....model_pipelines.common.optimizer import AdamWConfig
+from ....model_pipelines.common.train import TrainOptions, TrainedModel, train
+from ....model_pipelines.ctc.pytorch_modules import (
+    ConformerCTCConfig,
+    ConformerCTCModel,
+    SpecaugmentByLengthConfig,
+)
+from ....model_pipelines.ctc.train import get_train_step_import
 
 
 def run(
     descriptor: str,
-    model_config: Optional[LstmTransducerConfig] = None,
-    train_options: Optional[LstmTransducerTrainOptions] = None,
-) -> TrainedModel[LstmTransducerConfig]:
+    model_config: Optional[ConformerCTCConfig] = None,
+    train_options: Optional[TrainOptions] = None,
+) -> TrainedModel[ConformerCTCConfig]:
     if model_config is None:
         model_config = get_model_config()
     if train_options is None:
@@ -36,16 +39,17 @@ def run(
 
     return train(
         descriptor=descriptor,
-        model_class=LstmTransducerModel,
+        model_class=ConformerCTCModel,
         model_config=model_config,
         options=train_options,
-        train_step_import=get_train_step_import(train_options),
+        train_step_import=get_train_step_import(),
     )
 
 
-def get_model_config(bpe_size: int = 128) -> LstmTransducerConfig:
-    vocab_size = bpe_to_vocab_size(bpe_size)
-    return LstmTransducerConfig(
+def get_model_config(
+    layer_size: int = 512,
+) -> ConformerCTCConfig:
+    return ConformerCTCConfig(
         logmel_cfg=LogMelFeatureExtractionV1Config(
             sample_rate=16000,
             win_size=0.025,
@@ -58,7 +62,7 @@ def get_model_config(bpe_size: int = 128) -> LstmTransducerConfig:
             n_fft=400,
         ),
         specaug_cfg=SpecaugmentByLengthConfig(
-            start_epoch=41,
+            start_epoch=21,
             time_min_num_masks=2,
             time_max_mask_per_n_frames=25,
             time_mask_max_size=20,
@@ -90,19 +94,19 @@ def get_model_config(bpe_size: int = 128) -> LstmTransducerConfig:
                     pool_strides=None,
                     pool_paddings=None,
                     activations=[torch.nn.ReLU(), torch.nn.ReLU()],
-                    out_features=512,
+                    out_features=layer_size,
                 ),
             ),
             block_cfg=ConformerRelPosBlockV1Config(
                 ff_cfg=ConformerPositionwiseFeedForwardV2Config(
-                    input_dim=512,
-                    hidden_dim=2048,
+                    input_dim=layer_size,
+                    hidden_dim=4 * layer_size,
                     dropout=0.1,
                     activation=torch.nn.SiLU(),
                     dropout_broadcast_axes=None,
                 ),
                 mhsa_cfg=ConformerMHSARelPosV1Config(
-                    input_dim=512,
+                    input_dim=layer_size,
                     num_att_heads=8,
                     att_weights_dropout=0.1,
                     dropout=0.1,
@@ -116,50 +120,48 @@ def get_model_config(bpe_size: int = 128) -> LstmTransducerConfig:
                     dropout_broadcast_axes=None,
                 ),
                 conv_cfg=ConformerConvolutionV2Config(
-                    channels=512,
+                    channels=layer_size,
                     kernel_size=31,
                     dropout=0.1,
                     activation=torch.nn.SiLU(),
-                    norm=LayerNormNC(512),
+                    norm=LayerNormNC(layer_size),
                     dropout_broadcast_axes=None,
                 ),
                 modules=["ff", "conv", "mhsa", "ff"],
                 scales=[0.5, 1.0, 1.0, 0.5],
             ),
         ),
+        dim=layer_size,
+        target_size=BYTE_VOCAB_SIZE + 1,
         dropout=0.1,
-        enc_dim=512,
-        pred_num_layers=1,
-        pred_dim=512,
-        pred_activation=torch.nn.Tanh(),
-        context_embedding_dim=256,
-        joiner_dim=640,
-        joiner_activation=torch.nn.Tanh(),
-        target_size=vocab_size + 1,
     )
 
 
-def get_train_options(bpe_size: int = 128) -> LstmTransducerTrainOptions:
-    return LstmTransducerTrainOptions(
-        train_data_config=librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size),
-        cv_data_config=librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size),
-        save_epochs=list(range(1500, 1900, 100)) + list(range(1900, 2001, 20)),
-        batch_size=12_000 * 160,
-        accum_grad_multiple_step=2,
-        optimizer_config=RAdamConfig(
-            epsilon=1e-12,
+def get_train_options(num_epochs: int = 100) -> TrainOptions:
+    train_data_config = librispeech_datasets.get_default_byte_train_data()
+    cv_data_config = librispeech_datasets.get_default_byte_cv_data()
+
+    partition_epoch = train_data_config.partition_epoch
+
+    save_epochs = list(range(num_epochs * 3 // 4, num_epochs - 5, 5)) + list(range(num_epochs - 5, num_epochs + 1))
+    save_subepochs = [epoch * partition_epoch for epoch in save_epochs]
+
+    return TrainOptions(
+        train_data_config=train_data_config,
+        cv_data_config=cv_data_config,
+        save_epochs=save_subepochs,
+        batch_size=24_000 * 160,
+        optimizer_config=AdamWConfig(
+            epsilon=1e-16,
             weight_decay=0.01,
-            decoupled_weight_decay=True,
         ),
         lr_config=OCLRConfig(
             init_lr=7e-06,
             peak_lr=5e-04,
             decayed_lr=5e-05,
             final_lr=1e-07,
-            inc_epochs=960,
-            dec_epochs=960,
-            final_epochs=80,
+            inc_epochs=(num_epochs - 4) // 2 * partition_epoch,
+            dec_epochs=(num_epochs - 4) // 2 * partition_epoch,
+            final_epochs=4 * partition_epoch,
         ),
-        enc_loss_scale=0.5,
-        pred_loss_scale=0.25,
     )

@@ -1,5 +1,3 @@
-__all__ = ["run", "get_model_config", "get_train_options"]
-
 from typing import Optional
 
 import torch
@@ -14,21 +12,26 @@ from i6_models.parts.conformer.norm import LayerNormNC
 from i6_models.parts.frontend.generic_frontend import FrontendLayerType, GenericFrontendV1, GenericFrontendV1Config
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Config
 
-from ....data.librispeech import datasets as librispeech_datasets
-from ....data.librispeech.bpe import bpe_to_vocab_size
-from ....model_pipelines.common.learning_rates import OCLRConfig
-from ....model_pipelines.common.optimizer import RAdamConfig
-from ....model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
-from ....model_pipelines.common.train import TrainedModel, train
-from ....model_pipelines.full_ctx_transducer.pytorch_modules import LstmTransducerConfig, LstmTransducerModel
-from ....model_pipelines.full_ctx_transducer.train import LstmTransducerTrainOptions, get_train_step_import
+from .....data.base import BYTE_VOCAB_SIZE, get_default_byte_target_config
+from .....data.loquacious.datasets import get_medium_byte_cv_data, get_medium_byte_train_data
+from .....model_pipelines.aed.pytorch_modules import (
+    AdditiveAttentionConfig,
+    AEDConfig,
+    AEDModel,
+    AttentionLSTMDecoderV1Config,
+)
+from .....model_pipelines.aed.train import AEDTrainOptions, get_train_step_import
+from .....model_pipelines.common.learning_rates import ConstConstDecayLRConfig
+from .....model_pipelines.common.optimizer import RAdamConfig
+from .....model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
+from .....model_pipelines.common.train import TrainedModel, train
 
 
 def run(
     descriptor: str,
-    model_config: Optional[LstmTransducerConfig] = None,
-    train_options: Optional[LstmTransducerTrainOptions] = None,
-) -> TrainedModel[LstmTransducerConfig]:
+    model_config: Optional[AEDConfig] = None,
+    train_options: Optional[AEDTrainOptions] = None,
+) -> TrainedModel[AEDConfig]:
     if model_config is None:
         model_config = get_model_config()
     if train_options is None:
@@ -36,16 +39,16 @@ def run(
 
     return train(
         descriptor=descriptor,
-        model_class=LstmTransducerModel,
+        model_class=AEDModel,
         model_config=model_config,
         options=train_options,
         train_step_import=get_train_step_import(train_options),
     )
 
 
-def get_model_config(bpe_size: int = 128) -> LstmTransducerConfig:
-    vocab_size = bpe_to_vocab_size(bpe_size)
-    return LstmTransducerConfig(
+def get_model_config() -> AEDConfig:
+    vocab_size = BYTE_VOCAB_SIZE
+    return AEDConfig(
         logmel_cfg=LogMelFeatureExtractionV1Config(
             sample_rate=16000,
             win_size=0.025,
@@ -58,12 +61,12 @@ def get_model_config(bpe_size: int = 128) -> LstmTransducerConfig:
             n_fft=400,
         ),
         specaug_cfg=SpecaugmentByLengthConfig(
-            start_epoch=41,
+            start_epoch=51,
             time_min_num_masks=2,
             time_max_mask_per_n_frames=25,
             time_mask_max_size=20,
             freq_min_num_masks=2,
-            freq_max_num_masks=5,
+            freq_max_num_masks=3,
             freq_mask_max_size=16,
         ),
         conformer_cfg=ConformerRelPosEncoderV1Config(
@@ -86,7 +89,7 @@ def get_model_config(bpe_size: int = 128) -> LstmTransducerConfig:
                     conv_out_dims=[32, 64, 64, 32],
                     conv_strides=None,
                     conv_paddings=None,
-                    pool_kernel_sizes=[(2, 1), (2, 1)],
+                    pool_kernel_sizes=[(3, 1), (2, 1)],
                     pool_strides=None,
                     pool_paddings=None,
                     activations=[torch.nn.ReLU(), torch.nn.ReLU()],
@@ -127,39 +130,61 @@ def get_model_config(bpe_size: int = 128) -> LstmTransducerConfig:
                 scales=[0.5, 1.0, 1.0, 0.5],
             ),
         ),
-        dropout=0.1,
+        final_dropout=0.1,
         enc_dim=512,
-        pred_num_layers=1,
-        pred_dim=512,
-        pred_activation=torch.nn.Tanh(),
-        context_embedding_dim=256,
-        joiner_dim=640,
-        joiner_activation=torch.nn.Tanh(),
-        target_size=vocab_size + 1,
+        decoder_config=AttentionLSTMDecoderV1Config(
+            encoder_dim=512,
+            vocab_size=vocab_size,
+            target_embed_dim=640,
+            target_embed_dropout=0.1,
+            lstm_hidden_size=1024,
+            zoneout_drop_h=0.05,
+            zoneout_drop_c=0.15,
+            output_proj_dim=1024,
+            output_dropout=0.3,
+            attention_cfg=AdditiveAttentionConfig(
+                attention_dim=1024,
+                att_weights_dropout=0.1,
+            ),
+        ),
+        label_target_size=vocab_size,
     )
 
 
-def get_train_options(bpe_size: int = 128) -> LstmTransducerTrainOptions:
-    return LstmTransducerTrainOptions(
-        train_data_config=librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size),
-        cv_data_config=librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size),
-        save_epochs=list(range(1500, 1900, 100)) + list(range(1900, 2001, 20)),
-        batch_size=12_000 * 160,
-        accum_grad_multiple_step=2,
+def get_train_options() -> AEDTrainOptions:
+    train_data_config = get_medium_byte_train_data()
+    train_data_config.target_config = get_default_byte_target_config(seq_postfix=[0])
+
+    cv_data_config = get_medium_byte_cv_data()
+    cv_data_config.target_config = get_default_byte_target_config(seq_postfix=[0])
+
+    partition_epoch = train_data_config.partition_epoch
+
+    num_epochs = 40
+    save_epochs = list(range(num_epochs * 3 // 4, num_epochs - 5, 5)) + list(range(num_epochs - 5, num_epochs + 1))
+    save_subepochs = [epoch * partition_epoch for epoch in save_epochs]
+
+    return AEDTrainOptions(
+        train_data_config=train_data_config,
+        cv_data_config=cv_data_config,
+        save_epochs=save_subepochs,
+        batch_size=24_000 * 160,
         optimizer_config=RAdamConfig(
             epsilon=1e-12,
             weight_decay=0.01,
             decoupled_weight_decay=True,
         ),
-        lr_config=OCLRConfig(
-            init_lr=7e-06,
-            peak_lr=5e-04,
+        lr_config=ConstConstDecayLRConfig(
+            const_lr_1=5e-05,
+            const_lr_2=5e-04,
             decayed_lr=5e-05,
             final_lr=1e-07,
-            inc_epochs=960,
-            dec_epochs=960,
-            final_epochs=80,
+            const_epochs_1=2 * partition_epoch,
+            const_epochs_2=(num_epochs // 2 - 4) * partition_epoch,
+            dec_epochs=(num_epochs // 2 - 2) * partition_epoch,
+            final_epochs=4 * partition_epoch,
         ),
-        enc_loss_scale=0.5,
-        pred_loss_scale=0.25,
+        ctc_loss_scale=0.7,
+        label_smoothing=0.1,
+        label_smoothing_start_epoch=3 * partition_epoch + 1,
     )

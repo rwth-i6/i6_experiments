@@ -9,7 +9,14 @@ from i6_experiments.common.datasets.librispeech.vocab import get_lm_vocab, get_s
 
 from ...model_pipelines.common.corpus import ScorableCorpus
 from ...tools import subword_nmt_repo
-from ..base import HdfDataConfig, LmDataConfig, MetaOggZipDataConfig, MetaOggZipHdfTargetDataConfig, OggZipDataConfig
+from ..base import (
+    HdfDataConfig,
+    LmDataConfig,
+    MetaOggZipDataConfig,
+    MetaOggZipHdfTargetDataConfig,
+    OggZipDataConfig,
+    get_default_byte_target_config,
+)
 from .bpe import get_default_bpe_target_config
 from .phoneme import get_phoneme_target_hdf_file
 
@@ -26,6 +33,17 @@ def get_default_bpe_train_data(bpe_size: int) -> MetaOggZipDataConfig:
         partition_epoch=20,
         seq_ordering="laplace:.1000",
         target_config=get_default_bpe_target_config(bpe_size),
+    )
+
+
+def get_default_byte_train_data() -> MetaOggZipDataConfig:
+    return MetaOggZipDataConfig.from_bliss(
+        bliss_corpus_files=[get_bliss_corpus_dict("wav")["train-other-960"]],
+        speed_perturbation=True,
+        ogg_segments=200,
+        partition_epoch=20,
+        seq_ordering="laplace:.1000",
+        target_config=get_default_byte_target_config(),
     )
 
 
@@ -119,6 +137,18 @@ def get_default_bpe_cv_data(bpe_size: int) -> MetaOggZipDataConfig:
         partition_epoch=1,
         seq_ordering="sorted",
         target_config=get_default_bpe_target_config(bpe_size),
+    )
+
+
+def get_default_byte_cv_data() -> MetaOggZipDataConfig:
+    bliss_corpus_dict = get_bliss_corpus_dict("wav")
+    return MetaOggZipDataConfig.from_bliss(
+        bliss_corpus_files=[bliss_corpus_dict["dev-clean"], bliss_corpus_dict["dev-other"]],
+        speed_perturbation=False,
+        ogg_segments=1,
+        partition_epoch=1,
+        seq_ordering="sorted",
+        target_config=get_default_byte_target_config(),
     )
 
 

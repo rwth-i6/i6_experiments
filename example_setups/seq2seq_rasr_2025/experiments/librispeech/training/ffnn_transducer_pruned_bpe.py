@@ -53,10 +53,10 @@ def get_train_options(bpe_size: int = 128) -> FFNNTransducerPrunedTrainOptions:
             dec_epochs=960,
             final_epochs=80,
         ),
-        enc_loss_scale=0.5,
+        enc_loss_scale=0.0,
         pred_loss_scale=0.25,
         delay_penalty=0.0,
-        skip_epochs_before_pruned_loss=40,
+        skip_epochs_before_pruned_loss=5,
         prune_range=5,
         smoothed_loss_scale=0.5,
     )

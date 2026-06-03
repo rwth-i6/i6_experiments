@@ -15,20 +15,23 @@ from i6_models.parts.frontend.generic_frontend import FrontendLayerType, Generic
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Config
 
 from ....data.librispeech import datasets as librispeech_datasets
-from ....data.librispeech.bpe import bpe_to_vocab_size
+from ....data.base import BYTE_VOCAB_SIZE
 from ....model_pipelines.common.learning_rates import OCLRConfig
 from ....model_pipelines.common.optimizer import RAdamConfig
 from ....model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
 from ....model_pipelines.common.train import TrainedModel, train
-from ....model_pipelines.full_ctx_transducer.pytorch_modules import LstmTransducerConfig, LstmTransducerModel
-from ....model_pipelines.full_ctx_transducer.train import LstmTransducerTrainOptions, get_train_step_import
+from ....model_pipelines.ffnn_transducer.pytorch_modules import (
+    FFNNTransducerConfig,
+    FFNNTransducerModel,
+)
+from ....model_pipelines.ffnn_transducer.train import FFNNTransducerTrainOptions, get_train_step_import
 
 
 def run(
     descriptor: str,
-    model_config: Optional[LstmTransducerConfig] = None,
-    train_options: Optional[LstmTransducerTrainOptions] = None,
-) -> TrainedModel[LstmTransducerConfig]:
+    model_config: Optional[FFNNTransducerConfig] = None,
+    train_options: Optional[FFNNTransducerTrainOptions] = None,
+) -> TrainedModel[FFNNTransducerConfig]:
     if model_config is None:
         model_config = get_model_config()
     if train_options is None:
@@ -36,16 +39,15 @@ def run(
 
     return train(
         descriptor=descriptor,
-        model_class=LstmTransducerModel,
+        model_class=FFNNTransducerModel,
         model_config=model_config,
         options=train_options,
         train_step_import=get_train_step_import(train_options),
     )
 
 
-def get_model_config(bpe_size: int = 128) -> LstmTransducerConfig:
-    vocab_size = bpe_to_vocab_size(bpe_size)
-    return LstmTransducerConfig(
+def get_model_config() -> FFNNTransducerConfig:
+    return FFNNTransducerConfig(
         logmel_cfg=LogMelFeatureExtractionV1Config(
             sample_rate=16000,
             win_size=0.025,
@@ -129,20 +131,21 @@ def get_model_config(bpe_size: int = 128) -> LstmTransducerConfig:
         ),
         dropout=0.1,
         enc_dim=512,
-        pred_num_layers=1,
-        pred_dim=512,
+        pred_num_layers=2,
+        pred_dim=640,
         pred_activation=torch.nn.Tanh(),
+        context_history_size=1,
         context_embedding_dim=256,
-        joiner_dim=640,
+        joiner_dim=1024,
         joiner_activation=torch.nn.Tanh(),
-        target_size=vocab_size + 1,
+        target_size=BYTE_VOCAB_SIZE + 1,
     )
 
 
-def get_train_options(bpe_size: int = 128) -> LstmTransducerTrainOptions:
-    return LstmTransducerTrainOptions(
-        train_data_config=librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size),
-        cv_data_config=librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size),
+def get_train_options() -> FFNNTransducerTrainOptions:
+    return FFNNTransducerTrainOptions(
+        train_data_config=librispeech_datasets.get_default_byte_train_data(),
+        cv_data_config=librispeech_datasets.get_default_byte_cv_data(),
         save_epochs=list(range(1500, 1900, 100)) + list(range(1900, 2001, 20)),
         batch_size=12_000 * 160,
         accum_grad_multiple_step=2,
@@ -161,5 +164,5 @@ def get_train_options(bpe_size: int = 128) -> LstmTransducerTrainOptions:
             final_epochs=80,
         ),
         enc_loss_scale=0.5,
-        pred_loss_scale=0.25,
+        pred_loss_scale=0.0,
     )

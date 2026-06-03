@@ -35,6 +35,9 @@ def run_medium(report_filename: Optional[str] = None) -> Tuple[Dict[str, Trained
         "ctc_bpe_phoneme": training.medium.ctc_bpe_phoneme.run(descriptor="ctc_bpe_phoneme"),
         "ffnn_transducer_bpe": training.medium.ffnn_transducer_bpe.run(descriptor="ffnn_transducer_bpe"),
         "ffnn_transducer_phoneme": training.medium.ffnn_transducer_phoneme.run(descriptor="ffnn_transducer_phoneme"),
+        "aed_byte": training.medium.aed_byte.run(descriptor="aed_byte"),
+        "ctc_byte": training.medium.ctc_byte.run(descriptor="ctc_byte"),
+        "ffnn_transducer_byte": training.medium.ffnn_transducer_byte.run(descriptor="ffnn_transducer_byte"),
     }
 
     recog_results = []
@@ -43,6 +46,9 @@ def run_medium(report_filename: Optional[str] = None) -> Tuple[Dict[str, Trained
         recognition.ffnn_transducer_bpe.run(model=models["ffnn_transducer_bpe"], train_corpus_key="train.medium")
     )
     recog_results.extend(recognition.ffnn_transducer_phoneme.run(model=models["ffnn_transducer_phoneme"]))
+    recog_results.extend(recognition.aed_byte.run(model=models["aed_byte"]))
+    recog_results.extend(recognition.ctc_byte.run(model=models["ctc_byte"], train_corpus_key="train.medium"))
+    recog_results.extend(recognition.ffnn_transducer_byte.run(model=models["ffnn_transducer_byte"]))
 
     decoder_huggingface_cache_dir = tk.Path(
         "/work/asr4/berger/rasr_dev/label_scorer/setup/speech_llm/robin_decoding/DownloadHuggingFaceRepoJob.eP43CafWC8I4/output/hub_cache"

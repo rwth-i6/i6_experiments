@@ -1,9 +1,12 @@
 from . import (
     aed_bpe,
+    aed_byte,
     combination_bpe,
     ctc_bpe,
+    ctc_byte,
     ctc_phoneme,
     ffnn_transducer_bpe,
+    ffnn_transducer_byte,
     ffnn_transducer_pruned_bpe,
     full_ctx_transducer_bpe,
     lstm_lm_bpe,
@@ -13,10 +16,13 @@ from . import (
 
 __all__ = [
     "aed_bpe",
+    "aed_byte",
     "combination_bpe",
     "ctc_bpe",
+    "ctc_byte",
     "ctc_phoneme",
     "ffnn_transducer_bpe",
+    "ffnn_transducer_byte",
     "ffnn_transducer_pruned_bpe",
     "full_ctx_transducer_bpe",
     "lstm_lm_bpe",

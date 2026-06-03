@@ -4,6 +4,7 @@ __all__ = [
     "StreamingRecogParameters",
     "TracebackFormatter",
     "BpeTracebackFormatter",
+    "Utf8ByteTracebackFormatter",
     "HuggingFaceTracebackFormatter",
     "recog_rasr_offline",
     "recog_rasr_streaming",
@@ -95,6 +96,80 @@ class BpeTracebackFormatter:
 
     def traceback_to_ctm_str(self, traceback: List[TracebackItem], ms_per_frame: int) -> str:
         return _traceback_to_ctm_str(traceback, ms_per_frame)
+
+
+class Utf8ByteTracebackFormatter:
+    def __init__(self, blank_label: str = "<blank>") -> None:
+        self.blank_label = blank_label
+
+    def _traceback_byte_items(self, traceback: List[TracebackItem]) -> List[tuple[TracebackItem, int]]:
+        byte_items = []
+        for item in traceback:
+            lemma = item.lemma
+            if lemma == self.blank_label:
+                continue
+            if lemma.isdecimal():
+                byte_value = int(lemma)
+                if 0 < byte_value < 256:
+                    byte_items.append((item, byte_value))
+            elif lemma.startswith("<byte-") and lemma.endswith(">"):
+                byte_value = int(lemma[len("<byte-") : -1], 16)
+                if 0 < byte_value < 256:
+                    byte_items.append((item, byte_value))
+            elif len(lemma) == 1:
+                byte_value = ord(lemma)
+                if 0 < byte_value < 256:
+                    byte_items.append((item, byte_value))
+        return byte_items
+
+    @staticmethod
+    def _decode_bytes(byte_values: List[int]) -> str:
+        text = bytes(byte_values).decode("utf-8", errors="replace")
+        return " ".join(text.split())
+
+    def traceback_to_transcription(self, traceback: List[TracebackItem]) -> str:
+        return self._decode_bytes([byte for _, byte in self._traceback_byte_items(traceback)])
+
+    def traceback_to_ctm_str(self, traceback: List[TracebackItem], ms_per_frame: int) -> str:
+        byte_items = self._traceback_byte_items(traceback)
+        transcription = self._decode_bytes([byte for _, byte in byte_items])
+        words = transcription.split()
+        if len(words) == 0:
+            return "[REC_NAME] 1 0.000 0.010 <empty-sequence> 0.99\n"
+
+        token_items = [item for item, _ in byte_items]
+        start_frame = min(item.start_time for item in token_items)
+        end_frame = max(item.end_time for item in token_items)
+        total_frames = max(end_frame - start_frame, len(words))
+        total_chars = sum(max(len(word), 1) for word in words)
+
+        confidences = [
+            item.confidence_score
+            for item in token_items
+            if hasattr(item, "confidence_score") and item.confidence_score is not None
+        ]
+        avg_confidence = sum(confidences) / len(confidences) if len(confidences) > 0 else 0.99
+
+        lines = []
+        current_start = start_frame
+        remaining_frames = total_frames
+        remaining_chars = total_chars
+        for idx, word in enumerate(words):
+            if idx == len(words) - 1:
+                duration_frames = remaining_frames
+            else:
+                duration_frames = max(1, round(remaining_frames * max(len(word), 1) / remaining_chars))
+            duration_frames = max(1, min(duration_frames, remaining_frames))
+
+            start_time = current_start * 0.001 * ms_per_frame
+            duration_time = duration_frames * 0.001 * ms_per_frame
+            lines.append(f"[REC_NAME] 1 {start_time:.3f} {duration_time:.3f} {word} {avg_confidence:.2f}")
+
+            current_start += duration_frames
+            remaining_frames -= duration_frames
+            remaining_chars -= max(len(word), 1)
+
+        return "\n".join(lines) + "\n"
 
 
 class HuggingFaceTracebackFormatter:

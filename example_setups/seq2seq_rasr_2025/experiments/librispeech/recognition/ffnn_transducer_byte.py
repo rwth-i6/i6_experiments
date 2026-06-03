@@ -1,0 +1,99 @@
+from dataclasses import dataclass
+from typing import List, Optional
+
+from i6_core.rasr import RasrConfig
+
+from ....data.librispeech import datasets as librispeech_datasets
+from ....model_pipelines.common.recog import RecogResult, StreamingRecogParameters
+from ....model_pipelines.common.recog_rasr_config import LexiconfreeTimesyncRecogParams
+from ....model_pipelines.common.serializers import get_model_serializers
+from ....model_pipelines.common.train import TrainedModel
+from ....model_pipelines.ffnn_transducer.label_scorer_config import get_ffnn_transducer_label_scorer_config
+from ....model_pipelines.ffnn_transducer.pytorch_modules import FFNNTransducerConfig, FFNNTransducerEncoder
+from .common import BaseRecogVariant, run_single_byte_variant
+
+
+@dataclass
+class TransducerRecogVariant(BaseRecogVariant):
+    epoch: Optional[int] = None
+    ilm_scale: float = 0.0
+    blank_penalty: float = 0.0
+
+
+def run(
+    model: TrainedModel[FFNNTransducerConfig],
+    variants: Optional[List[TransducerRecogVariant]] = None,
+    corpora: Optional[List[librispeech_datasets.EvalSet]] = None,
+) -> List[RecogResult]:
+    if variants is None:
+        variants = default_recog_variants()
+
+    if corpora is None:
+        corpora = librispeech_datasets.EVAL_SETS
+
+    results = []
+    for variant in variants:
+        results.extend(_run_single_variant(model=model, variant=variant, corpora=corpora))
+    return results
+
+
+def default_recog_variants() -> List[TransducerRecogVariant]:
+    return [
+        default_offline_lexfree_recog_variant(),
+        default_streaming_lexfree_recog_variant(),
+    ]
+
+
+def default_offline_lexfree_recog_variant() -> TransducerRecogVariant:
+    return TransducerRecogVariant(
+        descriptor="lexfree",
+        search_algorithm_params=LexiconfreeTimesyncRecogParams(
+            collapse_repeated_labels=False,
+            max_beam_sizes=[1],
+            score_thresholds=[0.0],
+        ),
+    )
+
+
+def default_streaming_lexfree_recog_variant() -> TransducerRecogVariant:
+    return TransducerRecogVariant(
+        descriptor="streaming_lexfree",
+        search_algorithm_params=LexiconfreeTimesyncRecogParams(
+            collapse_repeated_labels=False,
+            max_beam_sizes=[256],
+            score_thresholds=[14.0],
+        ),
+        search_mode_params=StreamingRecogParameters(encoder_frame_shift_seconds=0.04),
+    )
+
+
+def _get_label_scorer_configs(
+    model: TrainedModel[FFNNTransducerConfig], variant: TransducerRecogVariant
+) -> List[RasrConfig]:
+    use_gpu = variant.search_mode_params.gpu_mem_rqmt > 0
+    return [
+        get_ffnn_transducer_label_scorer_config(
+            model_config=model.model_config,
+            checkpoint=model.get_checkpoint(variant.epoch),
+            ilm_scale=variant.ilm_scale,
+            blank_penalty=variant.blank_penalty,
+            use_gpu=use_gpu,
+        )
+    ]
+
+
+def _run_single_variant(
+    model: TrainedModel[FFNNTransducerConfig],
+    variant: TransducerRecogVariant,
+    corpora: List[librispeech_datasets.EvalSet],
+) -> List[RecogResult]:
+    return run_single_byte_variant(
+        model_descriptor=model.descriptor,
+        checkpoint=model.get_checkpoint(variant.epoch),
+        encoder_serializers=get_model_serializers(FFNNTransducerEncoder, model.model_config),
+        label_scorer_configs=_get_label_scorer_configs(model=model, variant=variant),
+        blank_index=model.model_config.target_size - 1,
+        sentence_end_index=None,
+        variant=variant,
+        corpora=corpora,
+    )

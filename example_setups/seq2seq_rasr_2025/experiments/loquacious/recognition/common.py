@@ -1,9 +1,16 @@
-__all__ = ["BaseRecogVariant", "run_single_bpe_variant", "run_single_phoneme_variant", "run_single_hf_token_variant"]
+__all__ = [
+    "BaseRecogVariant",
+    "run_single_bpe_variant",
+    "run_single_byte_variant",
+    "run_single_phoneme_variant",
+    "run_single_hf_token_variant",
+]
 
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, List, Optional, Union
 
 from ....data.base import DataConfig, VocabFromHuggingFaceTokenizerJob
+from ....data.base import get_byte_vocab_file
 from i6_core.rasr import RasrConfig
 from i6_core.returnn import PtCheckpoint
 from i6_core.util import DelayedFormat
@@ -20,6 +27,7 @@ from ....model_pipelines.common.recog import (
     OfflineRecogParameters,
     RecogResult,
     StreamingRecogParameters,
+    Utf8ByteTracebackFormatter,
     recog_rasr_offline,
     recog_rasr_streaming,
 )
@@ -75,6 +83,38 @@ def run_single_bpe_variant(
         sentence_end_index=sentence_end_index,
         variant=variant,
         corpora=corpora,
+    )
+
+
+def run_single_byte_variant(
+    model_descriptor: str,
+    checkpoint: PtCheckpoint,
+    encoder_serializers: Collection,
+    label_scorer_configs: List[RasrConfig],
+    blank_index: Optional[int],
+    sentence_end_index: Optional[int],
+    variant: BaseRecogVariant,
+    corpora: List[loquacious_datasets.EvalSet],
+) -> List[RecogResult]:
+    use_blank = blank_index is not None
+    vocab_file = get_byte_vocab_file(add_blank=use_blank)
+    traceback_formatter_serializers = [
+        Import(f"{Utf8ByteTracebackFormatter.__module__}.{Utf8ByteTracebackFormatter.__name__}"),
+        Call(Utf8ByteTracebackFormatter.__name__, return_assign_variables="traceback_formatter"),
+    ]
+
+    return _run_single_variant(
+        model_descriptor=model_descriptor,
+        checkpoint=checkpoint,
+        encoder_serializers=encoder_serializers,
+        label_scorer_configs=label_scorer_configs,
+        vocab_file=vocab_file,
+        lexicon_file=None,
+        blank_index=blank_index,
+        sentence_end_index=sentence_end_index,
+        variant=variant,
+        corpora=corpora,
+        traceback_formatter_serializers=traceback_formatter_serializers,
     )
 
 

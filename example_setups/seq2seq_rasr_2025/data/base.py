@@ -302,6 +302,37 @@ class BPEVocabToTextFileConversionJob(Job):
                 f.write(f"{token}\n")
 
 
+BYTE_VOCAB_SIZE = 256
+
+
+class ByteVocabToTextFileJob(Job):
+    def __init__(self, add_blank: bool = False) -> None:
+        self.add_blank = add_blank
+        self.out_vocab_file = self.output_path("vocab.txt")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", resume="run", mini_task=True)
+
+    def run(self) -> None:
+        with open(self.out_vocab_file.get(), "w") as f:
+            for byte in range(BYTE_VOCAB_SIZE):
+                f.write(f"<byte-{byte:02x}>\n")
+
+            if self.add_blank:
+                f.write("<blank>\n")
+
+
+def get_byte_vocab_file(add_blank: bool = False) -> tk.Path:
+    return ByteVocabToTextFileJob(add_blank=add_blank).out_vocab_file
+
+
+def get_default_byte_target_config(seq_postfix: Optional[List[int]] = None) -> dict:
+    config = {"class": "Utf8ByteTargets"}
+    if seq_postfix is not None:
+        config["seq_postfix"] = seq_postfix
+    return config
+
+
 class RemoveWordsFromTranscriptionsJob(Job):
     def __init__(self, corpus_file: tk.Path, remove_words: List[str]) -> None:
         self.corpus_file = corpus_file

@@ -14,6 +14,9 @@ def run_all(report_filename: Optional[str] = None) -> Tuple[Dict[str, TrainedMod
         "ffnn_transducer_bpe": training.ffnn_transducer_bpe.run(descriptor="ffnn_transducer_bpe"),
         "ffnn_transducer_pruned_bpe": training.ffnn_transducer_pruned_bpe.run(descriptor="ffnn_transducer_pruned_bpe"),
         "full_ctx_transducer_bpe": training.full_ctx_transducer_bpe.run(descriptor="full_ctx_transducer_bpe"),
+        "aed_byte": training.aed_byte.run(descriptor="aed_byte"),
+        "ctc_byte": training.ctc_byte.run(descriptor="ctc_byte"),
+        "ffnn_transducer_byte": training.ffnn_transducer_byte.run(descriptor="ffnn_transducer_byte"),
     }
 
     recog_results = []
@@ -24,6 +27,9 @@ def run_all(report_filename: Optional[str] = None) -> Tuple[Dict[str, TrainedMod
     recog_results.extend(recognition.full_ctx_transducer_bpe.run(model=models["full_ctx_transducer_bpe"]))
     recog_results.extend(recognition.ctc_phoneme.run(model=models["ctc_phoneme"]))
     recog_results.extend(recognition.aed_ctc_bpe.run(aed_model=models["aed_bpe"], ctc_model=models["ctc_bpe"]))
+    recog_results.extend(recognition.aed_byte.run(model=models["aed_byte"]))
+    recog_results.extend(recognition.ctc_byte.run(model=models["ctc_byte"]))
+    recog_results.extend(recognition.ffnn_transducer_byte.run(model=models["ffnn_transducer_byte"]))
 
     if report_filename is not None:
         register_recog_report(recog_results, filename=report_filename)
