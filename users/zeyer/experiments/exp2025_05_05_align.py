@@ -1999,7 +1999,7 @@ class Aligner:
         self.non_blank_score_reduce = non_blank_score_reduce
         self.blank_score_flipped_percentile = blank_score_flipped_percentile
 
-    def align(self, score_matrix: np.ndarray, *, plot_filename: Optional[str] = None) -> List[Tuple[int, int]]:
+    def align(self, score_matrix: np.ndarray, *, plot_filename: Optional[str] = None, blank_override: Optional[np.ndarray] = None) -> List[Tuple[int, int]]:
         """
         :param score_matrix: [S,T]
         :param plot_filename: if given, plots the scores and alignment as PDF into this file
@@ -2101,7 +2101,12 @@ class Aligner:
 
         score_matrix_ = np.zeros((T, S * 2 + 1), dtype=np.float32)  # [T, S*2+1]
         score_matrix_[:, 1::2] = score_matrix.T
-        if isinstance(self.blank_score, (int, float)):
+        if blank_override is not None:
+            # Externally supplied per-frame blank row (e.g. a self-calibrating
+            # std-margin blank computed from the original, non-energy-weighted
+            # tokens by the caller). Used as-is.
+            score_matrix_[:, 0::2] = np.asarray(blank_override, dtype=np.float32)[:, None]
+        elif isinstance(self.blank_score, (int, float)):
             score_matrix_[:, 0::2] = self.blank_score  # blank score
         elif self.blank_score == "calc":
             score_matrix_[:, 0::2] = blank_score[:, None]

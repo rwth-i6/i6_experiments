@@ -30,7 +30,7 @@ class WordAlignFromPerTokenGradsJob(Job):
     """
 
     # audio_energy_pow=0.0 (no filter) excluded so existing aligns keep their hash.
-    __sis_hash_exclude__ = {"audio_energy_pow": 0.0}
+    __sis_hash_exclude__ = {"audio_energy_pow": 0.0, "blank_grad_zscore_kappa": 0.0}
 
     def __init__(
         self,
@@ -43,6 +43,7 @@ class WordAlignFromPerTokenGradsJob(Job):
         dataset_offset_factors: int,
         align_opts: Dict[str, Any],
         audio_energy_pow: float = 0.0,
+        blank_grad_zscore_kappa: float = 0.0,
     ):
         """
         :param grad_score_hdf: from :class:`ExtractInGradsPerTokenJob`. Must
@@ -60,6 +61,7 @@ class WordAlignFromPerTokenGradsJob(Job):
         self.dataset_offset_factors = dataset_offset_factors
         self.align_opts = align_opts
         self.audio_energy_pow = float(audio_energy_pow)
+        self.blank_grad_zscore_kappa = float(blank_grad_zscore_kappa)
 
         self.out_wbe = self.output_var("wbe.txt")
 
@@ -129,6 +131,19 @@ class WordAlignFromPerTokenGradsJob(Job):
             grad_mat = grad_mat.reshape(chunk_num_tokens, chunk_num_timeframes)
             secs_per_timeframe = audio_len_secs / chunk_num_timeframes
 
+            blank_override = None
+            if self.blank_grad_zscore_kappa:
+                # Self-calibrating per-frame blank from the ORIGINAL (pre-energy)
+                # tokens: beta_t = mean_t + kappa*std_t over tokens, on the
+                # softmax-over-time scores (= the Aligner's token transform). A token
+                # wins iff its within-frame z-score over tokens > kappa. Computed
+                # before the energy multiply so it still fires in silence (decoupled).
+                _s = np.log(grad_mat.astype(np.float64) + 1e-12)
+                _s = _s - max(float(_s.max()), 0.0)
+                _m = _s.max(axis=1, keepdims=True)
+                _s = _s - _m - np.log(np.sum(np.exp(_s - _m), axis=1, keepdims=True))
+                blank_override = _s.mean(0) + self.blank_grad_zscore_kappa * _s.std(0)
+
             if self.audio_energy_pow:
                 # Multiply each token's saliency by a smoothed audio-RMS-energy
                 # envelope^pow (silence-suppressing filter; conceptually grad*input
@@ -146,7 +161,7 @@ class WordAlignFromPerTokenGradsJob(Job):
                 e = e / (e.max() + 1e-9)
                 grad_mat = grad_mat * (e[None, :] ** self.audio_energy_pow)
 
-            align_token_start_ends = aligner.align(grad_mat)
+            align_token_start_ends = aligner.align(grad_mat, blank_override=blank_override)
             assert len(align_token_start_ends) == chunk_num_tokens
 
             # Collapse to per-word boundaries.

@@ -471,6 +471,34 @@ def py():
         tk.register_output(f"{_mname}.hdf", _mex.out_hdf)
         _w2v_aligns(_mex, _mname, energy_pows=(0.0, 0.5))
 
+    # Decoupled silence combo (best so far, full-val ~58.4): energy-weighted
+    # tokens (edges) + std-margin self-calibrating blank from the ORIGINAL
+    # tokens (interior). zsk = blank_grad_zscore_kappa. On the two best surfaces.
+    for _dc_cfg, _dc_name in [
+        (rf.build_dict(Wav2Vec2Ctc), "wav2vec2ctc-featext-timit-val-L2_grad-pertoken"),
+        (rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out"), "wav2vec2ctc-fproj_out-timit-val-L2_grad-pertoken"),
+    ]:
+        _dc_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_key="val",
+            model_config=_dc_cfg, mult_grad_by_inputs=False, attr_reduction="L2",
+        )
+        _dc_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        for _ep, _kap in [(0.0, 2.0), (0.3, 1.0), (0.5, 1.0)]:
+            _ao = {"apply_softmax_over_time": True, "blank_score": -5}
+            _sfx = _name_for_dict(_ao) + (f"-en{_ep}" if _ep else "") + f"-zsk{_kap}"
+            _al = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=_dc_ex.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=_ao,
+                audio_energy_pow=_ep,
+                blank_grad_zscore_kappa=_kap,
+            )
+            _al.add_alias(f"align/{_dc_name}-{_sfx}")
+            tk.register_output(f"align/{_dc_name}-{_sfx}-wbe.txt", _al.out_wbe)
+
     # --- Phi4 encoder-output (~12.5 Hz) grad target, for completeness vs the default
     # log-mel (100 Hz) target. Word-level only (encoder-out is too coarse for char-level).
     phi4_enc_cfg = _phi4mm_model_config(dl_phi4mi_dir, grad_wrt="encoder_out")
