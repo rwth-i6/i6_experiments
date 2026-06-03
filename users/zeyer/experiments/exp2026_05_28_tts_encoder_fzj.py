@@ -130,8 +130,8 @@ def _train_tts_encoder(
         _raw_sample_rate,
     )
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines import configs
-    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc import (
-        aed_ctc_timesync_recog_recomb_auto_scale,
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc_batched import (
+        aed_ctc_timesync_recog_recomb_auto_scale_batched,
     )
     from i6_experiments.users.zeyer.recog_batched import recog_training_exp_batched
     from i6_experiments.users.zeyer.returnn.alternate_batching import alternate_batching
@@ -323,16 +323,14 @@ def _train_tts_encoder(
         gpu_mem=96,  # GH200 has 96 GB HBM3
         recog_training_func=recog_training_exp_batched,  # bundle per-epoch recog into one multi-GPU job
     )
-    # TODO: re-enable once the auto-scale recog is batched into full-node jobs.
-    # The plain aed_ctc_timesync_recog_recomb_auto_scale fans out into single-GPU ReturnnForwardJobV2
-    # cells (CTC N-best search + AED rescore + 1st-pass), each wasting 3/4 of a flat-billed FZJ node.
-    # Disabled so those jobs leave the graph entirely; the plain batched recog above still gives WERs.
-    # aed_ctc_timesync_recog_recomb_auto_scale(
-    #     prefix=prefix + "/aed/" + name + "/aed+ctc",
-    #     task=task,
-    #     aed_ctc_model=exp.get_last_fixed_epoch(),
-    #     aux_ctc_layer=16,
-    # )
+    # Joint AED+CTC first-pass recog with tuned scales, sharded over the full node
+    aed_ctc_timesync_recog_recomb_auto_scale_batched(
+        prefix=prefix + "/aed/" + name + "/aed+ctc-batched",
+        task=task,
+        aed_ctc_model=exp.get_last_fixed_epoch(),
+        aux_ctc_layer=16,
+        num_shards=8,
+    )
     return exp
 
 
