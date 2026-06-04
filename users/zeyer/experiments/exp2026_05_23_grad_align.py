@@ -236,6 +236,10 @@ def py():
     tk.register_output("timit-dataset", dl_ds_timit.out_hub_cache_dir)
 
     dl_ds_buckeye = DownloadHuggingFaceRepoJobV2(repo_id="nh0znoisung/buckeye", repo_type="dataset")
+    # Fine-resolution Buckeye (float-ms GT, pre-segmented at silence into 2-25 s utterances, audio bundled);
+    # supersedes the 62.5 ms-quantized nh0znoisung copy for long-form WBE eval.
+    dl_ds_buckeye_fine = DownloadHuggingFaceRepoJobV2(repo_id="alexwengg/buckeye", repo_type="dataset")
+    tk.register_output("buckeye-fine-raw", dl_ds_buckeye_fine.out_hub_cache_dir)
     tk.register_output("buckeye-dataset", dl_ds_buckeye.out_hub_cache_dir)
 
     dl_whisper = DownloadHuggingFaceRepoJobV2(repo_id="openai/whisper-base", repo_type="model")
