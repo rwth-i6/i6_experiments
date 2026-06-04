@@ -74,6 +74,9 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.forced_a
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.whisper_crossattn_align import (
     WhisperCrossAttnForcedAlignJob,
 )
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.buckeye_fine_dataset import (
+    BuildBuckeyeFineDatasetJob,
+)
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.word_align_from_per_token_grads import (
     WordAlignFromPerTokenGradsJob,
 )
@@ -239,6 +242,9 @@ def py():
     # Fine-resolution Buckeye (float-ms GT, pre-segmented at silence into 2-25 s utterances, audio bundled);
     # supersedes the 62.5 ms-quantized nh0znoisung copy for long-form WBE eval.
     dl_ds_buckeye_fine = DownloadHuggingFaceRepoJobV2(repo_id="alexwengg/buckeye", repo_type="dataset")
+    # The xet protocol's read-token endpoint gets HTTP-429 rate-limited on the shared
+    # cluster IP; disable it so the download falls back to the standard LFS fetch.
+    dl_ds_buckeye_fine.set_env("HF_HUB_DISABLE_XET", "1")
     tk.register_output("buckeye-fine-raw", dl_ds_buckeye_fine.out_hub_cache_dir)
     tk.register_output("buckeye-dataset", dl_ds_buckeye.out_hub_cache_dir)
 
@@ -663,6 +669,21 @@ def py():
         )
         _re_al.add_alias(f"align/{rnnt_name}-{_re_sfx}")
         tk.register_output(f"align/{rnnt_name}-{_re_sfx}-wbe.txt", _re_al.out_wbe)
+    for _re_ep, _re_sc in [(0.5, 1.0), (0.3, 1.0)]:
+        _re_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+        _re_sfx = _name_for_dict(_re_ao) + f"-en{_re_ep}-sil{_re_sc}"
+        _re_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=rnnt_extract.out_hdf,
+            grad_score_key="data",
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=_re_ao,
+            audio_energy_pow=_re_ep,
+            blank_silence_energy_scale=_re_sc,
+        )
+        _re_al.add_alias(f"align/{rnnt_name}-{_re_sfx}")
+        tk.register_output(f"align/{rnnt_name}-{_re_sfx}-wbe.txt", _re_al.out_wbe)
 
     # RNN-T with the PROPER transducer prefix-score (RNN-T forward; analog of the CTC partial score)
     # instead of the crude logsumexp-emission --
@@ -693,6 +714,23 @@ def py():
             align_opts=_rpx_ao,
             audio_energy_pow=_rpx_ep,
             blank_grad_zscore_kappa=_rpx_kap,
+        )
+        _rpx_al.add_alias(f"align/{rnnt_px_name}-{_rpx_sfx}")
+        tk.register_output(f"align/{rnnt_px_name}-{_rpx_sfx}-wbe.txt", _rpx_al.out_wbe)
+    # Energy-driven silence (sil) vs the grad-background z-score (zsk) above:
+    # the Parakeet transducers LIKE sil, so test it apples-to-apples on the Emformer.
+    for _rpx_ep, _rpx_sc in [(0.5, 1.0), (0.3, 1.0)]:
+        _rpx_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+        _rpx_sfx = _name_for_dict(_rpx_ao) + f"-en{_rpx_ep}-sil{_rpx_sc}"
+        _rpx_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=rnnt_px_extract.out_hdf,
+            grad_score_key="data",
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=_rpx_ao,
+            audio_energy_pow=_rpx_ep,
+            blank_silence_energy_scale=_rpx_sc,
         )
         _rpx_al.add_alias(f"align/{rnnt_px_name}-{_rpx_sfx}")
         tk.register_output(f"align/{rnnt_px_name}-{_rpx_sfx}-wbe.txt", _rpx_al.out_wbe)
@@ -2105,6 +2143,117 @@ def py():
             _sll_nm = f"align/{_sll_name}-{_name_for_dict(_sll_ao)}{_sll_sfx}"
             _sll_al.add_alias(_sll_nm)
             tk.register_output(f"{_sll_nm}-wbe.txt", _sll_al.out_wbe)
+
+    # --- TIMIT TEST split (headline models) -- generalization beyond the val-tuned config.
+    # The two best grad-align surfaces with the generic en0.5-sil1.0 setting,
+    # plus the Whisper-native cross-attn baseline on test (MMS_FA test already exists).
+    _test_specs = [
+        (
+            rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir, char_level=True, char_level_sep=" "),
+            "whisper-base-logmel-timit-test-L2_grad-pertoken-charlev-spc",
+        ),
+        (
+            rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out"),
+            "wav2vec2ctc-fproj_out-timit-test-L2_grad-pertoken",
+        ),
+    ]
+    for _t_cfg, _t_name in _test_specs:
+        _t_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="test",
+            model_config=_t_cfg,
+            mult_grad_by_inputs=False,
+            attr_reduction="L2",
+        )
+        _t_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _t_ex.add_alias(_t_name)
+        tk.register_output(f"{_t_name}.hdf", _t_ex.out_hdf)
+        _t_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+        _t_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_t_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="test",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=_t_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=1.0,
+        )
+        _t_nm = f"align/{_t_name}-{_name_for_dict(_t_ao)}-en0.5-sil1.0"
+        _t_al.add_alias(_t_nm)
+        tk.register_output(f"{_t_nm}-wbe.txt", _t_al.out_wbe)
+    whisper_fa_test = WhisperCrossAttnForcedAlignJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_key="test", overlay=_WHISPER_TS_OVERLAY
+    )
+    whisper_fa_test.add_alias("baseline-whisper-crossattn-timit-test")
+    whisper_fa_test_metric = CalcAlignmentMetricsFromWordBoundariesJob(
+        word_boundaries_hdf=whisper_fa_test.out_hdf,
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="test",
+        dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+    )
+    tk.register_output("baseline-whisper-crossattn-timit-test-wbe.txt", whisper_fa_test_metric.out_wbe)
+
+    # --- Buckeye long-form (fine-resolution, literature-comparable) ------------
+    # Convert the alexwengg manifest+wav benchmark to our schema, then run the headline
+    # grad-align (en0.5-sil1.0) + MMS_FA forced-align on it.
+    # vs Huang et al. 2024: Buckeye WBE 43 ms (label-prior CTC) / 58 ms (plain CTC).
+    buckeye_fine = BuildBuckeyeFineDatasetJob(raw_dir=dl_ds_buckeye_fine.out_hub_cache_dir, max_segments=300)
+    tk.register_output("buckeye-fine-dataset", buckeye_fine.out_hub_cache_dir)
+    _bk_dir = buckeye_fine.out_hub_cache_dir
+    _bk_off = _DATASET_OFFSET_FACTORS["timit"]  # start/stop in samples (factor 1), like TIMIT
+
+    bk_fa = ForcedAlignBaselineJob(dataset_dir=_bk_dir, dataset_key="test")
+    bk_fa.add_alias("baseline-mms_fa-buckeye")
+    bk_fa_metric = CalcAlignmentMetricsFromWordBoundariesJob(
+        word_boundaries_hdf=bk_fa.out_hdf,
+        dataset_dir=_bk_dir,
+        dataset_key="test",
+        dataset_offset_factors=_bk_off,
+    )
+    tk.register_output("baseline-mms_fa-buckeye-wbe.txt", bk_fa_metric.out_wbe)
+
+    # Headline grad-align on Buckeye. Long segments (2-25 s, up to 123 words) -> heavier
+    # per-token backward, so bump GPU memory + walltime.
+    for _bk_cfg, _bk_name in [
+        (
+            # Subword (not char-level): long Buckeye segments exceed Whisper's 448-token
+            # decoder context at char level (device-side assert); subword stays well under.
+            rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir),
+            "whisper-base-logmel-buckeye-L2_grad-pertoken",
+        ),
+        (
+            rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out"),
+            "wav2vec2ctc-fproj_out-buckeye-L2_grad-pertoken",
+        ),
+    ]:
+        _bk_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=_bk_dir,
+            dataset_key="test",
+            model_config=_bk_cfg,
+            mult_grad_by_inputs=False,
+            attr_reduction="L2",
+        )
+        _bk_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        # Long-form (2-25 s, up to 123 words/seg) -> more walltime than the default;
+        # keep the default GPU/partition selection (gpu_mem here routed to an invalid partition).
+        _bk_ex.rqmt = {**_bk_ex.rqmt, "time": 12}
+        _bk_ex.add_alias(_bk_name)
+        tk.register_output(f"{_bk_name}.hdf", _bk_ex.out_hdf)
+        _bk_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+        _bk_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_bk_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_bk_dir,
+            dataset_key="test",
+            dataset_offset_factors=_bk_off,
+            align_opts=_bk_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=1.0,
+        )
+        _bk_nm = f"align/{_bk_name}-{_name_for_dict(_bk_ao)}-en0.5-sil1.0"
+        _bk_al.add_alias(_bk_nm)
+        tk.register_output(f"{_bk_nm}-wbe.txt", _bk_al.out_wbe)
 
 
 def _build_timit_phi4mm(

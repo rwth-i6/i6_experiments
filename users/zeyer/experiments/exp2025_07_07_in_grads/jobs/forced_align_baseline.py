@@ -77,7 +77,12 @@ class ForcedAlignBaselineJob(Job):
         model = bundle.get_model().to(dev).eval()
         tokenizer = bundle.get_tokenizer()
         aligner = bundle.get_aligner()
-        valid_chars = set(bundle.get_dict().keys())
+        _mms_dict = bundle.get_dict()
+        valid_chars = set(_mms_dict.keys())
+        # The aligner treats index 0 as blank and rejects it in targets. In the MMS_FA
+        # uroman dict that index is the hyphen '-', which appears in spontaneous Buckeye
+        # words (um-hum, twenty-one, ...); strip those chars so the targets stay blank-free.
+        blank_chars = {c for c, idx in _mms_dict.items() if idx == 0}
         target_sr = bundle.sample_rate
 
         ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))
@@ -86,8 +91,9 @@ class ForcedAlignBaselineJob(Job):
         writer = SimpleHDFWriter(self.out_hdf.get_path(), dim=2, ndim=2)
 
         def _norm(word: str) -> str:
-            # MMS_FA tokenizer wants lowercased uroman chars; never feed an empty word.
-            w = "".join(c for c in word.lower() if c in valid_chars)
+            # MMS_FA tokenizer wants lowercased uroman chars (no blank-index chars);
+            # never feed an empty word.
+            w = "".join(c for c in word.lower() if c in valid_chars and c not in blank_chars)
             return w or "*"
 
         for seq_idx, data in enumerate(ds[self.dataset_key]):
