@@ -65,6 +65,8 @@ class Wav2Vec2Ctc(BaseModelInterface):
         raw_pool: int = 320,
         disable_self_attention: Optional[str] = None,
         char_level_sep: Optional[str] = None,
+        audio_time_stretch: float = 1.0,
+        time_stretch_method: str = "vocoder",
         version: int = 1,
     ):
         """
@@ -134,6 +136,17 @@ class Wav2Vec2Ctc(BaseModelInterface):
         assert raw_pool >= 1, raw_pool
         self.raw_pool = int(raw_pool)
         self._char_level_sep = char_level_sep
+        # Pitch-preserving per-seq time-stretch (>1 = slower/longer audio).
+        # The model then emits ~`audio_time_stretch`x more frames over the same speech,
+        # giving a finer (sub-20ms) alignment grid;
+        # the WordAlign job maps frames back via orig_audio_len / num_frames,
+        # so boundaries stay in the original timeline automatically.
+        self.audio_time_stretch = float(audio_time_stretch)
+        assert self.audio_time_stretch > 0, audio_time_stretch
+        # "vocoder" = librosa.effects.time_stretch (pitch-preserving phase vocoder, has artifacts);
+        # "resample" = resample to sr*s samples fed as sr (pitch-shifted but a clean interpolation).
+        assert time_stretch_method in ("vocoder", "resample"), time_stretch_method
+        self.time_stretch_method = time_stretch_method
         self.version = version
 
         print("Import torchaudio / MMS_FA bundle...")
@@ -211,7 +224,7 @@ class Wav2Vec2Ctc(BaseModelInterface):
         if grad_wrt == "feat_proj_out":
             return self._feat_proj.projection, False  # [B, T, 1024], transformer input
         if grad_wrt.startswith("conv"):
-            i = int(grad_wrt[len("conv"):])  # conv0..conv6
+            i = int(grad_wrt[len("conv") :])  # conv0..conv6
             return self._conv_layers[i], True  # [B, 512, T_i], channels-first
         raise ValueError(f"unhooked grad_wrt {grad_wrt!r}")
 
@@ -335,6 +348,25 @@ class Wav2Vec2Ctc(BaseModelInterface):
 
             wav = torchaudio.functional.resample(wav, raw_inputs_sample_rate, self.target_sr)
 
+        # Time-stretch (>1 = slower/longer) for a finer frame grid.
+        # orig_n_samples stays the ORIGINAL count,
+        # so the frame->time mapping (orig_audio_len / num_frames) recovers the original timeline.
+        if self.audio_time_stretch != 1.0:
+            if self.time_stretch_method == "resample":
+                # Resample to sr*s samples and feed them as sr: slows the audio by s
+                # (pitch drops) but is a clean interpolation -- no phase-vocoder smearing.
+                import torchaudio
+
+                new_sr = int(round(self.target_sr * self.audio_time_stretch))
+                wav = torchaudio.functional.resample(wav, self.target_sr, new_sr)
+            else:
+                # Pitch-preserving phase vocoder (introduces artifacts at large stretch).
+                import librosa
+
+                audio_np = wav[0].detach().cpu().numpy().astype(np.float32)
+                stretched = librosa.effects.time_stretch(audio_np, rate=1.0 / self.audio_time_stretch)
+                wav = torch.tensor(stretched, dtype=wav.dtype, device=dev).unsqueeze(0)
+
         # Per-word char tokenization. tokenizer([w0, w1, ...]) -> list of
         # per-word token-id lists. Flatten to one target seq and record each
         # word's char range for target_start_end (word-level WBE regrouping).
@@ -440,13 +472,12 @@ class Wav2Vec2Ctc(BaseModelInterface):
             torch.tensor([t_feat], dtype=torch.int64),
         )
         edges = torch.arange(t_feat + 1, dtype=torch.float64) * (orig_n_samples / max(t_feat, 1))
-        input_raw_start_end = torch.stack(
-            [edges[:-1].round().long(), edges[1:].round().long()], dim=-1
-        ).unsqueeze(0)  # [1, T_feat, 2]
+        input_raw_start_end = torch.stack([edges[:-1].round().long(), edges[1:].round().long()], dim=-1).unsqueeze(
+            0
+        )  # [1, T_feat, 2]
 
         print(
-            f"[fwd] words={len(words)} chars={s_len} T_feat={t_feat} "
-            f"transcription={''.join(norm_words)!r}",
+            f"[fwd] words={len(words)} chars={s_len} T_feat={t_feat} transcription={''.join(norm_words)!r}",
             flush=True,
         )
         return ForwardOutput(

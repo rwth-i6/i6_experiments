@@ -1821,6 +1821,9 @@ class CalcAlignmentMetricsFromWordBoundariesJob(Job):
     (I.e. no alignment is happening here; that is already given via word boundaries.)
     """
 
+    # v2: emit the richer metric set (acc@collar, edge/interior, start/end MAE) via align_metrics.
+    __sis_version__ = 2
+
     def __init__(
         self,
         *,
@@ -1850,6 +1853,11 @@ class CalcAlignmentMetricsFromWordBoundariesJob(Job):
         self.dataset_offset_factors = dataset_offset_factors
 
         self.out_wbe = self.output_var("wbe.txt")
+        # Richer metrics (see align_metrics): collar accuracy, edge/interior WBE, start/end MAE.
+        self.out_metrics = self.output_var("metrics.txt")
+        self.out_acc50 = self.output_var("acc50.txt")
+        self.out_interior_wbe = self.output_var("interior_wbe.txt")
+        self.out_edge_wbe = self.output_var("edge_wbe.txt")
 
     def tasks(self):
         yield Task("run", rqmt={"cpu": 2, "mem": 10, "time": 5})
@@ -1911,21 +1919,24 @@ class CalcAlignmentMetricsFromWordBoundariesJob(Job):
             ]
             assert len(words) == len(ref_word_start_ends) == len(align_word_start_ends)
 
-            wbe_utt = np.mean(
-                [
-                    0.5
-                    * (
-                        abs(ref_word_start_ends[w][0] - align_word_start_ends[w][0])
-                        + abs(ref_word_start_ends[w][1] - align_word_start_ends[w][1])
-                    )
-                    for w in range(len(words))
-                ]
+            from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.align_metrics import (
+                per_utt_boundary_errors,
+                aggregate_corpus,
             )
-            print("  WBE:", float(wbe_utt))
-            wbe_utts.append(wbe_utt)
 
-        wbe = float(np.mean(wbe_utts))
-        self.out_wbe.set(wbe)
+            utt_err = per_utt_boundary_errors(
+                [tuple(map(float, se)) for se in align_word_start_ends], ref_word_start_ends
+            )
+            print("  WBE:", float(np.mean(utt_err["wbe"])))
+            wbe_utts.append(utt_err)
+
+        metrics = aggregate_corpus(wbe_utts)
+        print("CORPUS METRICS:", metrics)
+        self.out_wbe.set(metrics["wbe"])
+        self.out_metrics.set(metrics)
+        self.out_acc50.set(metrics["acc_50ms"])
+        self.out_interior_wbe.set(metrics["interior_wbe"])
+        self.out_edge_wbe.set(metrics["edge_wbe"])
 
 
 class Aligner:
@@ -1999,7 +2010,13 @@ class Aligner:
         self.non_blank_score_reduce = non_blank_score_reduce
         self.blank_score_flipped_percentile = blank_score_flipped_percentile
 
-    def align(self, score_matrix: np.ndarray, *, plot_filename: Optional[str] = None, blank_override: Optional[np.ndarray] = None) -> List[Tuple[int, int]]:
+    def align(
+        self,
+        score_matrix: np.ndarray,
+        *,
+        plot_filename: Optional[str] = None,
+        blank_override: Optional[np.ndarray] = None,
+    ) -> List[Tuple[int, int]]:
         """
         :param score_matrix: [S,T]
         :param plot_filename: if given, plots the scores and alignment as PDF into this file

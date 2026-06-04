@@ -30,7 +30,14 @@ class WordAlignFromPerTokenGradsJob(Job):
     """
 
     # audio_energy_pow=0.0 (no filter) excluded so existing aligns keep their hash.
-    __sis_hash_exclude__ = {"audio_energy_pow": 0.0, "blank_grad_zscore_kappa": 0.0}
+    __sis_hash_exclude__ = {
+        "audio_energy_pow": 0.0,
+        "blank_grad_zscore_kappa": 0.0,
+        "blank_silence_energy_scale": 0.0,
+    }
+
+    # v2: emit the richer metric set (acc@collar, edge/interior, start/end MAE) via align_metrics.
+    __sis_version__ = 2
 
     def __init__(
         self,
@@ -44,6 +51,7 @@ class WordAlignFromPerTokenGradsJob(Job):
         align_opts: Dict[str, Any],
         audio_energy_pow: float = 0.0,
         blank_grad_zscore_kappa: float = 0.0,
+        blank_silence_energy_scale: float = 0.0,
     ):
         """
         :param grad_score_hdf: from :class:`ExtractInGradsPerTokenJob`. Must
@@ -62,8 +70,18 @@ class WordAlignFromPerTokenGradsJob(Job):
         self.align_opts = align_opts
         self.audio_energy_pow = float(audio_energy_pow)
         self.blank_grad_zscore_kappa = float(blank_grad_zscore_kappa)
+        self.blank_silence_energy_scale = float(blank_silence_energy_scale)
+        assert not (self.blank_grad_zscore_kappa and self.blank_silence_energy_scale), (
+            "blank_grad_zscore_kappa and blank_silence_energy_scale are mutually exclusive"
+        )
 
         self.out_wbe = self.output_var("wbe.txt")
+        # Richer metrics (see align_metrics): tolerance-collar accuracy,
+        # edge-vs-interior WBE, start/end MAE. out_metrics holds the full dict.
+        self.out_metrics = self.output_var("metrics.txt")
+        self.out_acc50 = self.output_var("acc50.txt")
+        self.out_interior_wbe = self.output_var("interior_wbe.txt")
+        self.out_edge_wbe = self.output_var("edge_wbe.txt")
 
     def tasks(self):
         yield Task("run", rqmt={"cpu": 2, "mem": 10, "time": 5})
@@ -87,6 +105,10 @@ class WordAlignFromPerTokenGradsJob(Job):
 
         from returnn.datasets.hdf import HDFDataset
         from i6_experiments.users.zeyer.experiments.exp2025_05_05_align import Aligner
+        from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.align_metrics import (
+            per_utt_boundary_errors,
+            aggregate_corpus,
+        )
 
         grad_score_hdf_ds = HDFDataset([self.grad_score_hdf.get_path()])
         grad_score_hdf_ds.initialize()
@@ -102,7 +124,7 @@ class WordAlignFromPerTokenGradsJob(Job):
 
         aligner = Aligner(**self.align_opts)
 
-        wbe_utts = []
+        utt_errs = []
 
         for seq_idx, data in enumerate(ds[self.dataset_key]):
             grad_score_hdf_ds.load_seqs(seq_idx, seq_idx + 1)
@@ -119,9 +141,7 @@ class WordAlignFromPerTokenGradsJob(Job):
             chunk_num_timeframes = int(num_input_frames[0, 0])
             chunk_num_tokens = int(num_tokens[0, 0])
             tokens_per_word = num_tokens_per_word.reshape(-1).astype(int)
-            assert tokens_per_word.sum() == chunk_num_tokens, (
-                f"{tokens_per_word.sum()=} != {chunk_num_tokens=}"
-            )
+            assert tokens_per_word.sum() == chunk_num_tokens, f"{tokens_per_word.sum()=} != {chunk_num_tokens=}"
             num_words = len(tokens_per_word)
 
             grad_mat = grad_score_hdf_ds.get_data(seq_idx, self.grad_score_key)
@@ -131,34 +151,51 @@ class WordAlignFromPerTokenGradsJob(Job):
             grad_mat = grad_mat.reshape(chunk_num_tokens, chunk_num_timeframes)
             secs_per_timeframe = audio_len_secs / chunk_num_timeframes
 
-            blank_override = None
-            if self.blank_grad_zscore_kappa:
-                # Self-calibrating per-frame blank from the ORIGINAL (pre-energy)
-                # tokens: beta_t = mean_t + kappa*std_t over tokens, on the
-                # softmax-over-time scores (= the Aligner's token transform). A token
-                # wins iff its within-frame z-score over tokens > kappa. Computed
-                # before the energy multiply so it still fires in silence (decoupled).
-                _s = np.log(grad_mat.astype(np.float64) + 1e-12)
-                _s = _s - max(float(_s.max()), 0.0)
-                _m = _s.max(axis=1, keepdims=True)
-                _s = _s - _m - np.log(np.sum(np.exp(_s - _m), axis=1, keepdims=True))
-                blank_override = _s.mean(0) + self.blank_grad_zscore_kappa * _s.std(0)
-
-            if self.audio_energy_pow:
-                # Multiply each token's saliency by a smoothed audio-RMS-energy
-                # envelope^pow (silence-suppressing filter; conceptually grad*input
-                # at the raw-waveform level). Hanning-smoothed (~25 ms) so it works
-                # at any frame rate, sampled at the grad frame grid.
+            # Smoothed audio-RMS-energy envelope on the grad frame grid, in [0,1].
+            # Used both to energy-weight tokens (audio_energy_pow)
+            # and to drive an explicit energy/VAD-derived silence emission for the blank row.
+            e = None
+            if self.audio_energy_pow or self.blank_silence_energy_scale:
                 audio = np.asarray(data["audio"]["array"], dtype=np.float64)
                 win = max(int(0.025 * samplerate), 1)
                 hann = np.hanning(win)
                 hann = hann / hann.sum()
                 env = np.sqrt(np.convolve(audio * audio, hann, mode="same") + 1e-9)
-                centers = (
-                    (np.arange(chunk_num_timeframes) + 0.5) / chunk_num_timeframes * (len(env) - 1)
-                ).astype(int)
+                centers = ((np.arange(chunk_num_timeframes) + 0.5) / chunk_num_timeframes * (len(env) - 1)).astype(int)
                 e = env[centers]
                 e = e / (e.max() + 1e-9)
+
+            blank_override = None
+            if self.blank_grad_zscore_kappa or self.blank_silence_energy_scale:
+                # Per-frame token score distribution on the Aligner's transform
+                # (log-softmax-over-time, per token),
+                # computed from the ORIGINAL (pre-energy) grads
+                # so the blank still calibrates in silence.
+                _s = np.log(grad_mat.astype(np.float64) + 1e-12)
+                _s = _s - max(float(_s.max()), 0.0)
+                _m = _s.max(axis=1, keepdims=True)
+                _s = _s - _m - np.log(np.sum(np.exp(_s - _m), axis=1, keepdims=True))
+                _mean_t, _std_t = _s.mean(0), _s.std(0)
+                if self.blank_grad_zscore_kappa:
+                    # Self-calibrating constant-margin blank: beta_t = mean_t + kappa*std_t.
+                    # A token wins iff its within-frame z-score over tokens exceeds kappa
+                    # (decoupled from the energy weighting).
+                    blank_override = _mean_t + self.blank_grad_zscore_kappa * _std_t
+                else:
+                    # Explicit silence label (whisper-timestamped-style VAD analog):
+                    # an energy-driven blank emission, beta_t = mean_t - scale*z(E_t)*std_t,
+                    # with z(E) the per-frame energy z-score over time.
+                    # In low-energy (silence) frames z(E)<0,
+                    # so the blank is raised above the token mean and owns the frame;
+                    # in speech z(E)>0, so the blank drops and tokens win.
+                    # Self-calibrating via the token spread std_t.
+                    _ze = (e - e.mean()) / (e.std() + 1e-9)
+                    blank_override = _mean_t - self.blank_silence_energy_scale * _ze * _std_t
+
+            if self.audio_energy_pow:
+                # Multiply each token's saliency by the energy envelope^pow
+                # (a silence-suppressing filter; conceptually grad*input at the raw-waveform level).
+                # Works at any frame rate.
                 grad_mat = grad_mat * (e[None, :] ** self.audio_energy_pow)
 
             align_token_start_ends = aligner.align(grad_mat, blank_override=blank_override)
@@ -190,18 +227,14 @@ class WordAlignFromPerTokenGradsJob(Job):
                 for ts in zip(ref_word_starts, ref_word_ends)
             ]
 
-            wbe_utt = np.mean(
-                [
-                    0.5
-                    * (
-                        abs(ref_word_start_ends[w][0] - align_word_start_ends[w][0])
-                        + abs(ref_word_start_ends[w][1] - align_word_start_ends[w][1])
-                    )
-                    for w in range(num_words)
-                ]
-            )
-            print("  WBE:", float(wbe_utt))
-            wbe_utts.append(wbe_utt)
+            utt_err = per_utt_boundary_errors(align_word_start_ends, ref_word_start_ends)
+            print("  WBE:", float(np.mean(utt_err["wbe"])))
+            utt_errs.append(utt_err)
 
-        wbe = float(np.mean(wbe_utts))
-        self.out_wbe.set(wbe)
+        metrics = aggregate_corpus(utt_errs)
+        print("CORPUS METRICS:", metrics)
+        self.out_wbe.set(metrics["wbe"])
+        self.out_metrics.set(metrics)
+        self.out_acc50.set(metrics["acc_50ms"])
+        self.out_interior_wbe.set(metrics["interior_wbe"])
+        self.out_edge_wbe.set(metrics["edge_wbe"])

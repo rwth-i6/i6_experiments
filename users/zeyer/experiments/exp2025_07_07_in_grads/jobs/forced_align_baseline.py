@@ -19,10 +19,25 @@ from sisyphus import Job, Task, tk
 class ForcedAlignBaselineJob(Job):
     """MMS_FA forced-alignment of the reference transcript -> per-word boundaries HDF."""
 
-    def __init__(self, *, dataset_dir: tk.Path, dataset_key: str, returnn_root: Optional[tk.Path] = None):
+    # Defaults excluded so the existing baselines keep their hash.
+    __sis_hash_exclude__ = {"audio_time_stretch": 1.0, "time_stretch_method": "vocoder"}
+
+    def __init__(
+        self,
+        *,
+        dataset_dir: tk.Path,
+        dataset_key: str,
+        audio_time_stretch: float = 1.0,
+        time_stretch_method: str = "vocoder",
+        returnn_root: Optional[tk.Path] = None,
+    ):
         super().__init__()
         self.dataset_dir = dataset_dir
         self.dataset_key = dataset_key
+        self.audio_time_stretch = float(audio_time_stretch)
+        assert self.audio_time_stretch > 0, audio_time_stretch
+        assert time_stretch_method in ("vocoder", "resample"), time_stretch_method
+        self.time_stretch_method = time_stretch_method
         self.returnn_root = returnn_root
         self.rqmt = {"time": 4, "cpu": 2, "gpu": 1, "mem": 16}
         self.out_hdf = self.output_path("word_boundaries.hdf")
@@ -83,10 +98,26 @@ class ForcedAlignBaselineJob(Job):
             wav = torch.tensor(audio, device=dev)[None]  # [1, T]
             if sr != target_sr:
                 wav = torchaudio.functional.resample(wav, sr, target_sr)
+            n_orig_samples = int(wav.shape[1])  # before any stretch
+            # Time-stretch (>1 = slower) for a finer emission grid.
+            # ratio uses the ORIGINAL sample count,
+            # so the boundaries come out directly in the original timeline (no extra rescale needed).
+            if self.audio_time_stretch != 1.0:
+                if self.time_stretch_method == "resample":
+                    # Resample to sr*s samples fed as sr: a clean interpolation (no vocoder smearing),
+                    # at the cost of a pitch shift.
+                    new_sr = int(round(target_sr * self.audio_time_stretch))
+                    wav = torchaudio.functional.resample(wav, target_sr, new_sr)
+                else:
+                    import librosa
+
+                    audio_np = wav[0].detach().cpu().numpy().astype(np.float32)
+                    stretched = librosa.effects.time_stretch(audio_np, rate=1.0 / self.audio_time_stretch)
+                    wav = torch.tensor(stretched, device=dev)[None]
             with torch.inference_mode():
                 emission, _ = model(wav)  # [1, n_frames, n_tokens]
             n_frames = int(emission.shape[1])
-            ratio = wav.shape[1] / n_frames  # samples per emission frame
+            ratio = n_orig_samples / n_frames  # original samples per emission frame
             token_spans = aligner(emission[0], tokenizer([_norm(w) for w in words]))
             assert len(token_spans) == len(words), f"{len(token_spans)=} {len(words)=}"
 
