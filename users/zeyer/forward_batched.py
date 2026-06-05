@@ -190,6 +190,7 @@ class BatchedReturnnForwardJob(Job):
             num_gpus=self._num_gpus,
             returnn_python_exe_path=self.returnn_python_exe.get_path(),
             stop_safety_factor=self._stop_safety_factor,
+            stop_exit_code=self._stop_exit_code,
         )
         _finish_run(
             codes=codes,
@@ -405,6 +406,7 @@ class BatchedReturnnForwardDynamicJob(Job):
                 num_gpus=self._num_gpus,
                 returnn_python_exe_path=self.returnn_python_exe.get_path(),
                 stop_safety_factor=self._stop_safety_factor,
+                stop_exit_code=self._stop_exit_code,
             )
         else:
             codes = [0]  # nothing left (all cells already present)
@@ -726,11 +728,23 @@ def _write_worker_driver():
         f.write(worker_code)
 
 
-def _spawn_and_wait_workers(*, num_gpus: int, returnn_python_exe_path: str, stop_safety_factor: float) -> List[int]:
-    """Clear stale barrier markers, spawn one worker per GPU (round-robin items), wait; return exit codes."""
+def _spawn_and_wait_workers(
+    *, num_gpus: int, returnn_python_exe_path: str, stop_safety_factor: float, stop_exit_code: int
+) -> List[int]:
+    """
+    Clear stale barrier markers, spawn one worker per GPU (round-robin items), wait; return exit codes.
+
+    Fail-fast: if any worker exits with an unexpected code (not 0, not the clean low-walltime
+    ``stop_exit_code``), terminate every still-running worker -- whole process group, so its in-flight
+    rnn.py child dies too -- instead of letting survivors grind through their full strides. Such a
+    failure is of unknown origin (e.g. /tmp ENOSPC, where continuing would only keep the disk full),
+    so the job should fail as a unit. Killed workers report their negative terminating signal as code.
+    """
     import os
     import glob
+    import signal
     import subprocess
+    import time
 
     # Clear stale barrier markers from a previous (interrupted) run.
     for f in glob.glob("stopping.rank*"):
@@ -758,8 +772,36 @@ def _spawn_and_wait_workers(*, num_gpus: int, returnn_python_exe_path: str, stop
             "--safety",
             str(stop_safety_factor),
         ]
-        procs.append(subprocess.Popen(cmd, env=env))
-    return [p.wait() for p in procs]
+        # Own session/process group so a fail-fast kill takes the worker's rnn.py child with it.
+        procs.append(subprocess.Popen(cmd, env=env, start_new_session=True))
+
+    codes: List[Optional[int]] = [None] * world
+    while any(c is None for c in codes):
+        for i, p in enumerate(procs):
+            if codes[i] is None:
+                codes[i] = p.poll()
+        if any(c is not None and c not in (0, stop_exit_code) for c in codes):
+            break  # unexpected failure -> stop every still-running worker
+        if any(c is None for c in codes):
+            time.sleep(2.0)
+
+    for i, p in enumerate(procs):  # no-op on the all-clean path (loop drained naturally)
+        if codes[i] is None:
+            try:
+                os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+    for i, p in enumerate(procs):
+        if codes[i] is None:
+            try:
+                codes[i] = p.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                codes[i] = p.wait()
+    return codes
 
 
 def _finish_run(*, codes: List[int], n_done: int, n_total: int, stop_exit_code: int, label: str):
