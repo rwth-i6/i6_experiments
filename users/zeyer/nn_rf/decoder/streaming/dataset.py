@@ -142,6 +142,7 @@ class ChunkAlignDataset(DatasetConfig):
         postproc_num_workers: int = 0,
         audio_data_key: str = "data",
         audio_has_feature_dim: bool = True,
+        train_coshard: Optional[Dict[str, Any]] = None,
     ):
         """
         :param oggzip: an audio-only ``LibrispeechOggZip`` (``vocab=None``); provides ``data``.
@@ -174,6 +175,10 @@ class ChunkAlignDataset(DatasetConfig):
         # [B, T] (no feature dim); the streaming model squeezes/handles the missing axis (see base.py).
         self.audio_data_key = audio_data_key
         self.audio_has_feature_dim = audio_has_feature_dim
+        # When set (full-train co-shard), get_train_dataset builds a DistributeFilesDataset that
+        # co-distributes audio arrow shards with their per-shard alignment HDFs; see
+        # _build_coshard_train_dataset.
+        self.train_coshard = train_coshard
 
         self._time_dim = Dim(None, name="time", kind=Dim.Types.Spatial)
         self._feature_dim = (
@@ -211,53 +216,66 @@ class ChunkAlignDataset(DatasetConfig):
             self._target_name: target,
         }
 
+    def _build_map_outputs(self) -> Dict[str, Any]:
+        data_dims = [self._time_dim, self._feature_dim] if self._feature_dim is not None else [self._time_dim]
+        return {
+            "data": {"dims": data_dims, "dtype": "float32"},
+            self._target_name: {
+                "dims": [self._target_spatial_dim],
+                "sparse_dim": self._vocab_ext_dim,
+                "dtype": "int32",
+            },
+        }
+
+    def _train_mpd_opts(self) -> Optional[Dict[str, Any]]:
+        if not self.train_mpd_num_workers:
+            return None
+        return {"num_workers": self.train_mpd_num_workers, "buffer_size": self.mpd_buffer_size}
+
     def _wrap(self, main_key: str, *, training: bool, subset: Optional[int] = None) -> Dict[str, Any]:
         ogg = self.oggzip.get_dataset(main_key, training=training, subset=subset)
         align_paths = self.alignment_hdfs[main_key]
         align_files = list(align_paths) if isinstance(align_paths, (list, tuple)) else [align_paths]
-        hdf = {"class": "HDFDataset", "files": align_files, "use_cache_manager": True}
-        meta = {
-            "class": "MetaDataset",
-            "datasets": {"ogg_zip": ogg, "align": hdf},
-            "data_map": {"data": ("ogg_zip", self.audio_data_key), "alignment": ("align", "data")},
-            "seq_order_control_dataset": "ogg_zip",
-        }
-        # Parallelize the heavy OggZip decode by wrapping the *MetaDataset* (not the inner OggZip: MPD has
-        # no get_current_seq_order, so it cannot be MetaDataset's seq_order_control_dataset). MetaDataset
-        # delegates supports_sharding / get_current_seq_order to ogg_zip, so MPD "seq_order" sharding works.
-        # Train only (dev is small). The outer train_v4 auto-MPD must be off (__multi_proc_dataset: False)
-        # so this stays the single MPD layer.
-        if training and self.train_mpd_num_workers:
-            from i6_experiments.users.zeyer.datasets.utils.multi_proc import multi_proc_dataset_opts
+        return _build_meta_post(
+            audio_dict=ogg,
+            align_files=align_files,
+            audio_data_key=self.audio_data_key,
+            map_seq=self._build_map_seq(),
+            map_outputs=self._build_map_outputs(),
+            train_mpd_opts=self._train_mpd_opts() if training else None,
+            postproc_num_workers=self.postproc_num_workers,
+            training=training,
+        )
 
-            meta = multi_proc_dataset_opts(
-                meta, num_workers=self.train_mpd_num_workers, buffer_size=self.mpd_buffer_size
-            )
-        post = {
-            "class": "PostprocessingDataset",
-            # Explicit "default" required: PostprocessingDataset rejects any non-default seq_ordering
-            # on itself, and RETURNN would otherwise inject one (train: config "batching"; dev:
-            # eval-default "sorted") into this top-level dataset. The actual order is controlled by
-            # the inner ogg_zip (laplace / sorted_reverse) via seq_order_control_dataset.
-            "seq_ordering": "default",
-            "dataset": meta,
-            "map_seq": self._build_map_seq(),
-            "map_outputs": {
-                "data": {"dims": [self._time_dim, self._feature_dim] if self._feature_dim is not None else [self._time_dim], "dtype": "float32"},
-                self._target_name: {
-                    "dims": [self._target_spatial_dim],
-                    "sparse_dim": self._vocab_ext_dim,
-                    "dtype": "int32",
-                },
-            },
+    def _build_coshard_train_dataset(
+        self, *, audio_files, audio_sub_epoch_dataset, align_dir, partition_epoch
+    ) -> Dict[str, Any]:
+        """Full-train co-shard: a DistributeFilesDataset over ``(audio arrow shard, alignment HDF)`` file
+        pairs, kept together per subepoch, building the inner MetaDataset(audio + align) +
+        PostprocessingDataset on the fly. This inverts the normal MetaDataset-on-DFD wiring, which breaks
+        for the full train: a DistributeFilesDataset cannot serve as a MetaDataset seq_order_control for
+        partition_epoch>1 (its get_all_tags is undefined there). Putting the DFD on top, with the alignment
+        co-distributed by shard, sidesteps that entirely.
+        """
+        return {
+            "class": "DistributeFilesDataset",
+            "files": functools.partial(_coshard_get_files, audio_files=audio_files, align_dir=align_dir),
+            "get_sub_epoch_dataset": functools.partial(
+                _coshard_get_sub_epoch_dataset,
+                audio_sub_epoch_dataset=audio_sub_epoch_dataset,
+                audio_data_key=self.audio_data_key,
+                map_seq=self._build_map_seq(),
+                map_outputs=self._build_map_outputs(),
+                train_mpd_opts=self._train_mpd_opts(),
+                postproc_num_workers=self.postproc_num_workers,
+            ),
+            "seq_ordering": "random",
+            "partition_epoch": partition_epoch,
         }
-        # Parallelize map_seq without replicating the inner dataset: unlike MPD, PostprocessingDataset
-        # instantiates the wrapped dataset only once and only fans out the map_seq across workers.
-        if self.postproc_num_workers:
-            post["num_workers"] = self.postproc_num_workers
-        return post
 
     def get_train_dataset(self) -> Dict[str, Any]:
+        if self.train_coshard is not None:
+            return self._build_coshard_train_dataset(**self.train_coshard)
         return self._wrap(self.train_main_key, training=True)
 
     def get_eval_datasets(self) -> Dict[str, Dict[str, Any]]:
@@ -267,7 +285,102 @@ class ChunkAlignDataset(DatasetConfig):
         return self.train_main_key
 
     def get_main_dataset(self) -> Dict[str, Any]:
+        if self.train_coshard is not None:
+            return self._build_coshard_train_dataset(**self.train_coshard)
         return self._wrap(self.train_main_key, training=False)
+
+
+def _build_meta_post(
+    *,
+    audio_dict: Dict[str, Any],
+    align_files: List[Union[str, tk.Path]],
+    audio_data_key: str,
+    map_seq: Callable,
+    map_outputs: Dict[str, Any],
+    train_mpd_opts: Optional[Dict[str, Any]],
+    postproc_num_workers: int,
+    training: bool,
+) -> Dict[str, Any]:
+    """MetaDataset(audio + per-frame align HDF) wrapped by a PostprocessingDataset that derives the
+    per-seq target on the fly. Shared by :meth:`ChunkAlignDataset._wrap` (dev / subset, a single audio
+    dataset) and :func:`_coshard_get_sub_epoch_dataset` (one subepoch of the full-train co-shard DFD).
+    """
+    from i6_experiments.users.zeyer.datasets.utils.multi_proc import multi_proc_dataset_opts
+
+    hdf = {"class": "HDFDataset", "files": list(align_files), "use_cache_manager": True}
+    meta = {
+        "class": "MetaDataset",
+        "datasets": {"ogg_zip": audio_dict, "align": hdf},
+        "data_map": {"data": ("ogg_zip", audio_data_key), "alignment": ("align", "data")},
+        "seq_order_control_dataset": "ogg_zip",
+    }
+    # Parallelize the heavy audio decode by wrapping the *MetaDataset* (not the inner audio dataset: MPD
+    # has no get_current_seq_order, so it cannot be MetaDataset's seq_order_control_dataset). MetaDataset
+    # delegates supports_sharding / get_current_seq_order to ogg_zip, so MPD "seq_order" sharding works.
+    # Train only (dev is small); the outer train_v4 auto-MPD must be off so this stays the single MPD layer.
+    if training and train_mpd_opts:
+        meta = multi_proc_dataset_opts(meta, **train_mpd_opts)
+    post = {
+        "class": "PostprocessingDataset",
+        # Explicit "default" required: PostprocessingDataset rejects any non-default seq_ordering on
+        # itself, and RETURNN would otherwise inject one (train: config "batching"; dev: eval-default
+        # "sorted") here. The actual order is controlled by the inner ogg_zip via seq_order_control_dataset.
+        "seq_ordering": "default",
+        "dataset": meta,
+        "map_seq": map_seq,
+        "map_outputs": map_outputs,
+    }
+    # Parallelize map_seq without replicating the inner dataset: unlike MPD, PostprocessingDataset
+    # instantiates the wrapped dataset only once and only fans out the map_seq across workers.
+    if postproc_num_workers:
+        post["num_workers"] = postproc_num_workers
+    return post
+
+
+def _coshard_get_files(*, audio_files: Callable[[], List[str]], align_dir) -> List[tuple]:
+    """DistributeFilesDataset ``files`` for the co-shard train: pair each audio arrow shard with its
+    co-named alignment HDF (``<arrow basename without .arrow>.hdf`` under ``align_dir``) so the DFD keeps
+    the pair together per subepoch. ``audio_files`` is the audio DFD's own lazy shard-listing callable;
+    the naming matches forward_batched._enumerate_arrow_shard_cells that produced the HDFs.
+    """
+    import os
+
+    align_dir = os.fspath(align_dir)
+    pairs = []
+    for af in audio_files():
+        base = os.path.basename(os.fspath(af))
+        assert base.endswith(".arrow"), f"unexpected audio shard {af!r}"
+        pairs.append((af, os.path.join(align_dir, base[: -len(".arrow")] + ".hdf")))
+    return pairs
+
+
+def _coshard_get_sub_epoch_dataset(
+    files: List[tuple],
+    *,
+    audio_sub_epoch_dataset: Callable[[List[str]], Dict[str, Any]],
+    audio_data_key: str,
+    map_seq: Callable,
+    map_outputs: Dict[str, Any],
+    train_mpd_opts: Optional[Dict[str, Any]],
+    postproc_num_workers: int,
+) -> Dict[str, Any]:
+    """Per-subepoch builder for the co-shard train DFD: split the ``(arrow, align)`` pairs, build the
+    audio sub-dataset over this subepoch's arrow shards (the audio DFD's own per-subepoch builder) and the
+    union align HDFDataset, and combine them via :func:`_build_meta_post`.
+    """
+    audio_files = [f[0] for f in files]
+    align_files = [f[1] for f in files]
+    audio_dict = audio_sub_epoch_dataset(audio_files)
+    return _build_meta_post(
+        audio_dict=audio_dict,
+        align_files=align_files,
+        audio_data_key=audio_data_key,
+        map_seq=map_seq,
+        map_outputs=map_outputs,
+        train_mpd_opts=train_mpd_opts,
+        postproc_num_workers=postproc_num_workers,
+        training=True,
+    )
 
 
 # ``map_seq`` must accept ``**kwargs`` (PostprocessingDataset passes randomly named params for
