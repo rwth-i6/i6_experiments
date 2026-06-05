@@ -111,6 +111,7 @@ def py():
     # )
     # (3) Muon -- orthogonalized-momentum, as in the nanogpt speedruns / nanochat.
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.optim_ext.muon import Muon
+
     _train_asr_base_multigpu(
         "asr-base-mgpu-logmel-muon",
         prefix=prefix,
@@ -382,6 +383,9 @@ def _train_tts_encoder(
     batch_size_phon: int = 25_000,
     max_phon_len: Optional[int] = None,
     tts_waveform: bool = False,
+    num_processes: int = 4,
+    gpu_mem: int = 96,
+    nep: int = 25,
 ):
     from returnn.frontend.decoder.transformer import TransformerDecoder
     from returnn.frontend.encoder.conformer import (
@@ -415,6 +419,12 @@ def _train_tts_encoder(
         get_glow_tts_preload_from_files,
         get_glow_tts_gl_preload_from_files,
     )
+
+    # multi-GPU: full-node batched recog; single-GPU (RZ): the standard non-batched recog.
+    if num_processes > 1:
+        recog_training_func = recog_training_exp_batched
+    else:
+        from i6_experiments.users.zeyer.recog import recog_training_exp as recog_training_func
 
     vocab = "spm10k"
     task = get_librispeech_task_raw_v2(vocab=vocab, train_epoch_split=1, train_epoch_wise_filter=None)
@@ -535,7 +545,7 @@ def _train_tts_encoder(
         model_config=model_config,
         config_updates={
             # DDP per-rank random_seed_offset iterates the data N=4x per epoch, so divide nep by N
-            **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(25, base_lr=0.5),
+            **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(nep, base_lr=0.5),
             # batch_size dict is keyed by ACTUAL data keys; caps are per-variant.
             # NB: under alternate_batching the audio cap (default 400k*factor = 64M samples)
             # is NOT the binding constraint -- these runs peak ~67GB.
@@ -591,13 +601,13 @@ def _train_tts_encoder(
             # so DDP is the right tool here -- FSDP would only add sharding overhead for no memory benefit.
             # alternate_batching alternates audio-batch vs text-only-batch:
             # GlowTTS only fires on text, so its params are unused on audio steps
-            "torch_distributed": {"options": {"find_unused_parameters": True}},
+            **({"torch_distributed": {"options": {"find_unused_parameters": True}}} if num_processes > 1 else {}),
             # Use most of the JUPITER node (~480 GiB total, ~440 usable): 4 DDP procs * (1 main + MPD workers)
             # each load the ~4 GB LM corpus, plus model + activations. ~400 GiB gives comfortable headroom.
             # per-DDP-proc; sis multiplies by num_processes=4 -> 400 GiB total (node has ~480 GiB usable)
-            "__mem_rqmt": 100,
+            "__mem_rqmt": 100 if num_processes > 1 else 60,
             # 4 GPUs * 72 cores/Grace-Hopper = full node (288 cores). Helps MPD workers / data loading.
-            "__cpu_rqmt": 72,
+            "__cpu_rqmt": 72 if num_processes > 1 else 24,
         },
         post_config_updates={
             "log_grad_norm": True,
@@ -606,19 +616,33 @@ def _train_tts_encoder(
             "stop_for_resubmission_when_low_time_left": True,
         },
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-        num_processes=4,  # DDP across the 4 GH200 per JUPITER node (billing is flat-per-node: must use all GPUs)
-        gpu_mem=96,  # GH200 has 96 GB HBM3
-        recog_training_func=recog_training_exp_batched,  # bundle per-epoch recog into one multi-GPU job
+        # single-GPU must pass None, NOT 1: any num_processes sets horovod_num_processes and picks a
+        # distributed launcher, and without torch_distributed returnn falls back to horovod -> TF assert.
+        num_processes=num_processes if num_processes > 1 else None,
+        gpu_mem=gpu_mem,
+        recog_training_func=recog_training_func,
     )
-    # Joint AED+CTC first-pass recog with tuned scales, sharded over the full node. This is the
-    # headline WER; the plain-AED per-epoch recog above is only used for best-epoch picking.
-    aed_ctc_timesync_recog_recomb_auto_scale_batched(
-        prefix=prefix + "/aed/" + name + "/aed+ctc-batched",
-        task=task,
-        aed_ctc_model=exp.get_last_fixed_epoch(),
-        aux_ctc_layer=16,
-        num_shards=8,
-    )
+    # Joint AED+CTC first-pass recog with tuned scales. multi-GPU: sharded over the full node
+    # (batched); single-GPU (RZ): the standard non-batched recog. This is the headline WER.
+    if num_processes > 1:
+        aed_ctc_timesync_recog_recomb_auto_scale_batched(
+            prefix=prefix + "/aed/" + name + "/aed+ctc-batched",
+            task=task,
+            aed_ctc_model=exp.get_last_fixed_epoch(),
+            aux_ctc_layer=16,
+            num_shards=8,
+        )
+    else:
+        from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc import (
+            aed_ctc_timesync_recog_recomb_auto_scale,
+        )
+
+        aed_ctc_timesync_recog_recomb_auto_scale(
+            prefix=prefix + "/aed/" + name + "/aed+ctc",
+            task=task,
+            aed_ctc_model=exp.get_last_fixed_epoch(),
+            aux_ctc_layer=16,
+        )
     return exp
 
 
