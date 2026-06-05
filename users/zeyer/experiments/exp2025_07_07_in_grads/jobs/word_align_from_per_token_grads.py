@@ -34,6 +34,7 @@ class WordAlignFromPerTokenGradsJob(Job):
         "audio_energy_pow": 0.0,
         "blank_grad_zscore_kappa": 0.0,
         "blank_silence_energy_scale": 0.0,
+        "local_norm_window_s": None,
     }
 
     # v2: emit the richer metric set (acc@collar, edge/interior, start/end MAE) via align_metrics.
@@ -52,6 +53,7 @@ class WordAlignFromPerTokenGradsJob(Job):
         audio_energy_pow: float = 0.0,
         blank_grad_zscore_kappa: float = 0.0,
         blank_silence_energy_scale: float = 0.0,
+        local_norm_window_s: Optional[float] = None,
     ):
         """
         :param grad_score_hdf: from :class:`ExtractInGradsPerTokenJob`. Must
@@ -71,6 +73,7 @@ class WordAlignFromPerTokenGradsJob(Job):
         self.audio_energy_pow = float(audio_energy_pow)
         self.blank_grad_zscore_kappa = float(blank_grad_zscore_kappa)
         self.blank_silence_energy_scale = float(blank_silence_energy_scale)
+        self.local_norm_window_s = local_norm_window_s
         assert not (self.blank_grad_zscore_kappa and self.blank_silence_energy_scale), (
             "blank_grad_zscore_kappa and blank_silence_energy_scale are mutually exclusive"
         )
@@ -197,6 +200,15 @@ class WordAlignFromPerTokenGradsJob(Job):
                 # (a silence-suppressing filter; conceptually grad*input at the raw-waveform level).
                 # Works at any frame rate.
                 grad_mat = grad_mat * (e[None, :] ** self.audio_energy_pow)
+
+            if self.local_norm_window_s:
+                # Local emission normalization: divide each token row by a sliding-window mean, with
+                # the window given in SECONDS (-> frames per seq, so it is frame-rate-comparable across
+                # models). A ~1.5 s window gently de-trends without the noise blow-up of a tiny window.
+                from scipy.ndimage import uniform_filter1d
+
+                _w = max(3, int(round(self.local_norm_window_s / secs_per_timeframe)))
+                grad_mat = grad_mat / (uniform_filter1d(grad_mat, _w, axis=1, mode="nearest") + 1e-9)
 
             align_token_start_ends = aligner.align(grad_mat, blank_override=blank_override)
             assert len(align_token_start_ends) == chunk_num_tokens

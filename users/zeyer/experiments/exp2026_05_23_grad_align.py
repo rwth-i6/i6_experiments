@@ -84,6 +84,10 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.apptaine
     PullApptainerImageJob,
     ApptainerExeWrapperJob,
 )
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.mfa_forced_align import (
+    MfaDownloadModelJob,
+    MfaForcedAlignJob,
+)
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.extract_per_token_with_sep_grads import (
     ExtractInGradsPerTokenWithSepGradsJob,
 )
@@ -943,6 +947,74 @@ def py():
         )
         _whc_al.add_alias(f"align/{whisper_char_name}-{_whc_sfx}")
         tk.register_output(f"align/{whisper_char_name}-{_whc_sfx}-wbe.txt", _whc_al.out_wbe)
+
+    # Integrated-Gradients ablation (attribution axis A) on the headline char Whisper: integrate the
+    # per-token gradient along the audio-amplitude path (ig_steps Riemann steps), vs single-pass 47 ms.
+    _ig_ex = ExtractInGradsPerTokenJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=whisper_char_cfg,
+        mult_grad_by_inputs=False,
+        attr_reduction="L2",
+        ig_steps=16,
+    )
+    _ig_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    _ig_name = "whisper-base-logmel-timit-val-L2-integrated-grad-pertoken-charlev-spc-ig16"
+    _ig_ex.add_alias(_ig_name)
+    tk.register_output(f"{_ig_name}.hdf", _ig_ex.out_hdf)
+    _ig_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+    _ig_al = WordAlignFromPerTokenGradsJob(
+        grad_score_hdf=_ig_ex.out_hdf,
+        grad_score_key="data",
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+        align_opts=_ig_ao,
+        audio_energy_pow=0.5,
+        blank_silence_energy_scale=1.0,
+    )
+    _ig_nm = f"align/{_ig_name}-{_name_for_dict(_ig_ao)}-en0.5-sil1.0"
+    _ig_al.add_alias(_ig_nm)
+    tk.register_output(f"{_ig_nm}-wbe.txt", _ig_al.out_wbe)
+
+    # Local-emission-normalization ablation (seconds-based window) on the headline char Whisper, on
+    # BOTH TIMIT val + Buckeye-reseg, to validate the small AED collar win found offline (the reseg
+    # extract is reconstructed by config -> same hash -> reuses the finished hdf).
+    _ln_bk_ds = BuildBuckeyeFineDatasetJob(
+        raw_dir=dl_ds_buckeye_fine.out_hub_cache_dir, max_duration_s=20.0, resegment_gap_s=1.0, min_words=2
+    )
+    _ln_bk_ex = ExtractInGradsPerTokenJob(
+        dataset_dir=_ln_bk_ds.out_hub_cache_dir,
+        dataset_key="test",
+        model_config=whisper_char_cfg,
+        mult_grad_by_inputs=False,
+        attr_reduction="L2",
+    )
+    for _ln_ex, _ln_name, _ln_dir, _ln_key in [
+        (whisper_char_extract, whisper_char_name, dl_ds_timit.out_hub_cache_dir, "val"),
+        (
+            _ln_bk_ex,
+            "whisper-base-logmel-buckeye-reseg-L2_grad-pertoken-charlev-spc",
+            _ln_bk_ds.out_hub_cache_dir,
+            "test",
+        ),
+    ]:
+        for _ln_w in [1.0, 1.5]:
+            _ln_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+            _ln_al = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=_ln_ex.out_hdf,
+                grad_score_key="data",
+                dataset_dir=_ln_dir,
+                dataset_key=_ln_key,
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=_ln_ao,
+                audio_energy_pow=0.5,
+                blank_silence_energy_scale=1.0,
+                local_norm_window_s=_ln_w,
+            )
+            _ln_nm = f"align/{_ln_name}-{_name_for_dict(_ln_ao)}-en0.5-sil1.0-ln{_ln_w}s"
+            _ln_al.add_alias(_ln_nm)
+            tk.register_output(f"{_ln_nm}-wbe.txt", _ln_al.out_wbe)
 
     # --- Phi4 encoder-output (~12.5 Hz) grad target, for completeness vs the default
     # log-mel (100 Hz) target. Word-level only (encoder-out is too coarse for char-level).
@@ -2237,8 +2309,39 @@ def py():
     # is wired once the in-container MFA CLI is verified.
     _mfa_image = PullApptainerImageJob("docker://mmcauliffe/montreal-forced-aligner:latest")
     tk.register_output("mfa/image.sif", _mfa_image.out_image)
-    _mfa_exe = ApptainerExeWrapperJob(_mfa_image.out_image, command="mfa")
+    # `work` symlinks to the hpcwork scratch FS, which is a per-PROJECT nested mount
+    # (/rwthfs/rz/cluster/hpcwork/p0023999) -- binding the hpcwork parent misses it. Bind home (the
+    # symlink + recipe paths) AND the project hpcwork mount (the symlink targets / actual job files).
+    _mfa_exe = ApptainerExeWrapperJob(
+        _mfa_image.out_image,
+        command="mfa",
+        bind=["/rwthfs/rz/cluster/home", "/rwthfs/rz/cluster/hpcwork/p0023999"],
+    )
     tk.register_output("mfa/mfa-run.sh", _mfa_exe.out_exe)
+    _mfa_models = MfaDownloadModelJob(
+        mfa_exe=_mfa_exe.out_exe,
+        models=[("acoustic", "english_us_arpa"), ("dictionary", "english_us_arpa"), ("g2p", "english_us_arpa")],
+    )
+    # MFA forced-align baseline (vs GOLD boundaries) on TIMIT val + Buckeye-reseg, like MMS_FA.
+    _mfa_bk = BuildBuckeyeFineDatasetJob(
+        raw_dir=dl_ds_buckeye_fine.out_hub_cache_dir, max_duration_s=20.0, resegment_gap_s=1.0, min_words=2
+    )
+    for _mfa_dir, _mfa_key, _mfa_tag in [
+        (dl_ds_timit.out_hub_cache_dir, "val", "timit-val"),
+        (_mfa_bk.out_hub_cache_dir, "test", "buckeye-reseg"),
+    ]:
+        _mfa_al = MfaForcedAlignJob(
+            dataset_dir=_mfa_dir, dataset_key=_mfa_key, mfa_exe=_mfa_exe.out_exe, model_root=_mfa_models.out_model_root
+        )
+        _mfa_al.add_alias(f"baseline-mfa-{_mfa_tag}")
+        _mfa_m = CalcAlignmentMetricsFromWordBoundariesJob(
+            word_boundaries_hdf=_mfa_al.out_hdf,
+            dataset_dir=_mfa_dir,
+            dataset_key=_mfa_key,
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+        )
+        tk.register_output(f"baseline-mfa-{_mfa_tag}-wbe.txt", _mfa_m.out_wbe)
+        tk.register_output(f"baseline-mfa-{_mfa_tag}-coverage.txt", _mfa_al.out_coverage)
 
     # --- Buckeye long-form (fine-resolution, literature-comparable) ------------
     # Convert the alexwengg manifest+wav benchmark to our schema, then run the headline

@@ -1,0 +1,174 @@
+"""Montreal Forced Aligner (MFA) baseline.
+
+Two jobs:
+- :class:`MfaDownloadModelJob` downloads MFA pretrained models (acoustic / dictionary / g2p) into a
+  tracked model store (an ``MFA_ROOT_DIR``), so the align job needs no network at run time.
+- :class:`MfaForcedAlignJob` runs ``mfa align`` on a dataset's reference transcripts and writes
+  per-word boundaries in the same HDF layout as the other forced-align baselines.
+
+Both take a configurable ``mfa_exe`` (RETURNN-style): a native ``mfa`` binary, or an
+Apptainer/Singularity wrapper (see :class:`...jobs.apptainer.ApptainerExeWrapperJob`).
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+import glob
+import json
+import subprocess
+from typing import List, Optional, Tuple, Union
+
+from sisyphus import Job, Task, tk
+
+
+def _exe(mfa_exe: Union[tk.Path, str]) -> str:
+    return mfa_exe.get_path() if isinstance(mfa_exe, tk.Path) else mfa_exe
+
+
+class MfaDownloadModelJob(Job):
+    """Download MFA pretrained models into a tracked model store (mini_task: login-node internet)."""
+
+    def __init__(self, *, mfa_exe: Union[tk.Path, str], models: List[Tuple[str, str]]):
+        """
+        :param mfa_exe: native ``mfa`` or a containerized wrapper.
+        :param models: list of ``(kind, name)``, e.g. ``[("acoustic", "english_us_arpa"),
+            ("dictionary", "english_us_arpa"), ("g2p", "english_us_arpa")]``.
+        """
+        super().__init__()
+        self.mfa_exe = mfa_exe
+        self.models = list(models)
+        self.out_model_root = self.output_path("mfa_root", directory=True)
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        # APPTAINERENV_* injects the var INTO the container, overriding the image's own ENV (the MFA
+        # image hard-sets MFA_ROOT_DIR=/mfa, a read-only path). Set both so the job works whether
+        # mfa_exe is a native binary or an apptainer wrapper.
+        # realpath: the setup `work` dir is a multi-hop symlink (home -> hpcwork-pXXXX -> /rwthfs/.../
+        # hpcwork) that the container cannot follow; the REAL path is directly bind-mounted, so hand MFA
+        # the resolved path (no in-container symlink traversal).
+        root = os.path.realpath(self.out_model_root.get_path())
+        env = dict(os.environ, MFA_ROOT_DIR=root, APPTAINERENV_MFA_ROOT_DIR=root)
+        for kind, name in self.models:
+            subprocess.check_call([_exe(self.mfa_exe), "model", "download", kind, name], env=env)
+
+
+class MfaForcedAlignJob(Job):
+    """``mfa align`` a dataset's reference transcripts -> per-word boundaries HDF (seconds).
+
+    Output matches :class:`...forced_align_baseline.ForcedAlignBaselineJob`: ``out_hdf`` holds one
+    ``[n_words, 2]`` (start, end in seconds) array per sequence tag. Only sequences whose MFA word
+    count matches the reference are written; ``out_coverage`` reports the covered fraction.
+    """
+
+    def __init__(
+        self,
+        *,
+        dataset_dir: tk.Path,
+        dataset_key: str,
+        mfa_exe: Union[tk.Path, str],
+        model_root: tk.Path,
+        acoustic_model: str = "english_us_arpa",
+        dictionary: str = "english_us_arpa",
+        g2p_model: Optional[str] = "english_us_arpa",
+        num_jobs: int = 4,
+        returnn_root: Optional[tk.Path] = None,
+    ):
+        super().__init__()
+        self.dataset_dir = dataset_dir
+        self.dataset_key = dataset_key
+        self.mfa_exe = mfa_exe
+        self.model_root = model_root
+        self.acoustic_model = acoustic_model
+        self.dictionary = dictionary
+        self.g2p_model = g2p_model
+        self.num_jobs = num_jobs
+        self.returnn_root = returnn_root
+        self.out_hdf = self.output_path("word_boundaries.hdf")
+        self.out_coverage = self.output_var("coverage.txt")
+        self.rqmt = {"cpu": num_jobs + 1, "mem": 16, "time": 8}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import numpy as np
+        import soundfile as sf
+        from i6_experiments.users.zeyer.external_models.huggingface import (
+            set_hf_offline_mode,
+            get_content_dir_from_hub_cache_dir,
+        )
+
+        set_hf_offline_mode()
+        import i6_experiments
+
+        # i6_core lives next to i6_experiments in the recipe dir; put it on the path (like the other jobs).
+        sys.path.insert(0, os.path.dirname(os.path.dirname(i6_experiments.__file__)))
+        import i6_core.util as util
+
+        returnn_root = util.get_returnn_root(self.returnn_root)
+        sys.path.insert(0, returnn_root.get_path())
+        from returnn.datasets.hdf import SimpleHDFWriter
+        from datasets import load_dataset
+
+        # realpath: see MfaDownloadModelJob -- the container can't follow the work symlink chain, so
+        # operate on the resolved real path (which IS bind-mounted) for all MFA-accessed dirs.
+        cwd = os.path.realpath(os.getcwd())
+        corpus, out_dir, tmp = (os.path.join(cwd, d) for d in ("corpus", "out", "mfa_tmp"))
+        for d in (corpus, out_dir, tmp):
+            os.makedirs(d, exist_ok=True)
+
+        ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))[self.dataset_key]
+        print(f"num seqs: {len(ds)}", flush=True)
+
+        # Build the MFA corpus: one {uid}.wav + {uid}.lab per sequence. Keep the reference word list
+        # (lowercased, kept verbatim so the MFA word count maps 1:1 to the reference boundaries).
+        ref_words = {}
+        for i in range(len(ds)):
+            uid = str(ds[i].get("id") or f"seq-{i}")
+            audio = np.asarray(ds[i]["audio"]["array"], dtype=np.float32)
+            sr = int(ds[i]["audio"]["sampling_rate"])
+            words = [w.lower() for w in ds[i]["word_detail"]["utterance"]]
+            sf.write(os.path.join(corpus, f"{uid}.wav"), audio, sr)
+            with open(os.path.join(corpus, f"{uid}.lab"), "w") as f:
+                f.write(" ".join(words))
+            ref_words[uid] = words
+
+        # APPTAINERENV_* injects MFA_ROOT_DIR into the container (overrides the image's /mfa default);
+        # realpath so the container sees the bind-mounted real path, not the unfollowable symlink.
+        root = os.path.realpath(self.model_root.get_path())
+        env = dict(os.environ, MFA_ROOT_DIR=root, APPTAINERENV_MFA_ROOT_DIR=root)
+        cmd = [
+            _exe(self.mfa_exe), "align",
+            "--single_speaker", "--clean", "--no_textgrid_cleanup",
+            "--output_format", "json", "-t", tmp, "-j", str(self.num_jobs), "--quiet",
+        ]
+        if self.g2p_model:
+            # auto-generate pronunciations for OOV words (spontaneous Buckeye has many).
+            cmd += ["--g2p_model_path", self.g2p_model]
+        cmd += [corpus, self.dictionary, self.acoustic_model, out_dir]
+        print("RUN:", " ".join(cmd), flush=True)
+        subprocess.check_call(cmd, env=env)
+
+        writer = SimpleHDFWriter(self.out_hdf.get_path(), dim=2, ndim=2)
+        n_total, n_covered, n_missing, n_mismatch = len(ref_words), 0, 0, 0
+        for uid, ref in ref_words.items():
+            jf = os.path.join(out_dir, f"{uid}.json")
+            if not os.path.exists(jf):
+                n_missing += 1
+                continue
+            entries = json.load(open(jf))["tiers"]["words"]["entries"]
+            if len(entries) != len(ref):
+                n_mismatch += 1
+                continue
+            word_se = np.array([[float(e[0]), float(e[1])] for e in entries], dtype=np.float32)
+            writer.insert_batch(word_se[None], [word_se.shape[0]], [uid])
+            n_covered += 1
+        writer.close()
+        cov = n_covered / max(n_total, 1)
+        print(f"coverage {n_covered}/{n_total} = {cov:.3f}  (missing {n_missing}, count-mismatch {n_mismatch})")
+        self.out_coverage.set({"covered": n_covered, "total": n_total, "fraction": cov,
+                               "missing": n_missing, "mismatch": n_mismatch})

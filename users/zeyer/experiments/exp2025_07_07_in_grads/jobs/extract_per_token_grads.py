@@ -32,13 +32,14 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
     # Do NOT bump __sis_version__ for a behaviour-preserving optional kwarg --
     # that would needlessly re-run every existing job.
     # Only the SmoothGrad variants (noise_std != 0) differ from the defaults, and thus get a distinct hash.
-    __sis_hash_exclude__ = {"noise_n_samples": 1, "noise_std": 0.0}
+    __sis_hash_exclude__ = {"noise_n_samples": 1, "noise_std": 0.0, "ig_steps": 1}
 
     def __init__(
         self,
         *,
         noise_n_samples: int = 1,
         noise_std: float = 0.0,
+        ig_steps: int = 1,
         **kwargs,
     ):
         """Extends the base with SmoothGrad-style noise averaging.
@@ -52,10 +53,17 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         super().__init__(**kwargs)
         self.noise_n_samples = int(noise_n_samples)
         self.noise_std = float(noise_std)
+        self.ig_steps = int(ig_steps)
         assert self.noise_n_samples >= 1
         assert self.noise_std >= 0.0
+        assert self.ig_steps >= 1
+        assert not (self.ig_steps > 1 and (self.noise_n_samples > 1 or self.noise_std > 0.0)), (
+            "ig_steps is mutually exclusive with SmoothGrad noise"
+        )
         if self.noise_n_samples > 1:
             self.rqmt = dict(self.rqmt, time=self.rqmt["time"] * self.noise_n_samples)
+        if self.ig_steps > 1:
+            self.rqmt = dict(self.rqmt, time=self.rqmt["time"] * self.ig_steps)
 
     rqmt = {"time": 100, "cpu": 2, "gpu": 1, "mem": 125}
 
@@ -226,6 +234,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
                     report_mem: bool = False,
                     forward_output: ForwardOutput,
                     no_grad: bool = False,
+                    raw_grad: bool = False,
                 ):
                     t0, t1 = forward_output.target_start_end[:, w].unbind(1)  # [B], [B]
                     loss = model.log_probs(forward_output=forward_output, start=t0, end=t1)  # [B, t1-t0, V]
@@ -245,11 +254,12 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
                         (grad,) = torch.autograd.grad(single_loss, forward_output.inputs, retain_graph=True)
                         with torch.no_grad():
                             attr = batch_slice(grad.float(), forward_output.input_slice_start_end)  # [B, T, F]
-                            if self.mult_grad_by_inputs:
-                                e = batch_slice(forward_output.inputs.float(), forward_output.input_slice_start_end)
-                                attr = attr * e
-                            attr = attr_reduce_func(attr)  # [B, T]
-                        attrs_per_token.append(attr)
+                            if not raw_grad:
+                                if self.mult_grad_by_inputs:
+                                    e = batch_slice(forward_output.inputs.float(), forward_output.input_slice_start_end)
+                                    attr = attr * e
+                                attr = attr_reduce_func(attr)  # [B, T]
+                        attrs_per_token.append(attr)  # [B,T,F] if raw_grad else [B,T]
 
                     if report_mem:
                         report_dev_memory_stats(dev)
@@ -303,13 +313,47 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
                 # Wrap accumulated attrs so existing code can consume them.
                 _attrs_accum_flat = _attrs_accum  # indexed [w][k]
 
+                if self.ig_steps > 1:
+                    # Integrated Gradients: integrate the per-token RAW grad along the audio-amplitude
+                    # path baseline(0)->x (alpha=k/N), average, multiply by the leaf input at x (baseline
+                    # 0), then reduce. forward_output above is the full-x forward, reused as the leaf.
+                    # Exact IG for grad_wrt='raw_waveform'; amplitude-path saliency integral otherwise.
+                    _ig_n = self.ig_steps
+                    _leaf_x = batch_slice(forward_output.inputs.float(), forward_output.input_slice_start_end)
+                    _grad_sum = {}  # (w, k) -> [B, T, F]
+                    for _step in range(_ig_n):
+                        _alpha = (_step + 1) / _ig_n
+                        _fwd_ig = model(
+                            raw_inputs=(_raw_audio_chunk * _alpha)[None],
+                            raw_inputs_sample_rate=samplerate,
+                            raw_input_seq_lens=torch.tensor([audio_end - audio_start]),
+                            raw_targets=[words[words_start:words_end]],
+                            raw_target_seq_lens=torch.tensor([words_end - words_start]),
+                            omitted_prev_context=torch.tensor([words_start]),
+                        )
+                        for _w in range(words_end - words_start):
+                            _, _n_tok, _raw = _calc_log_probs_and_per_token_grads(
+                                _w, forward_output=_fwd_ig, raw_grad=True, report_mem=(_w == 0 and _step == 0)
+                            )
+                            for _k in range(_n_tok):
+                                _key = (_w, _k)
+                                _grad_sum[_key] = _raw[_k] if _key not in _grad_sum else _grad_sum[_key] + _raw[_k]
+                    _attrs_accum_flat = []
+                    for _w in range(words_end - words_start):
+                        _, _n_tok, _ = _calc_log_probs_and_per_token_grads(
+                            _w, forward_output=forward_output, no_grad=True
+                        )
+                        _attrs_accum_flat.append(
+                            [attr_reduce_func((_grad_sum[(_w, _k)] / _ig_n) * _leaf_x) for _k in range(_n_tok)]
+                        )
+
                 print("** Calculating grads (or using SmoothGrad-averaged grads)")
                 chunk_num_input_frames = forward_output.get_inputs_seq_lens_sliced()[0].item()
                 num_input_frames.append(chunk_num_input_frames)
                 num_words_.append(words_end - words_start)
                 chunk_total_tokens = 0
                 for w in range(words_end - words_start):
-                    if _noise_n > 1 or _noise_std > 0.0:
+                    if self.ig_steps > 1 or _noise_n > 1 or _noise_std > 0.0:
                         # Use pre-accumulated (averaged) attrs from the noise loop.
                         word_log_probs, n_tok, _ = _calc_log_probs_and_per_token_grads(
                             w,
