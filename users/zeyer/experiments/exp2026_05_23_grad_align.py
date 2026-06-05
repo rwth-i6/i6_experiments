@@ -2198,7 +2198,7 @@ def py():
     # Convert the alexwengg manifest+wav benchmark to our schema, then run the headline
     # grad-align (en0.5-sil1.0) + MMS_FA forced-align on it.
     # vs Huang et al. 2024: Buckeye WBE 43 ms (label-prior CTC) / 58 ms (plain CTC).
-    buckeye_fine = BuildBuckeyeFineDatasetJob(raw_dir=dl_ds_buckeye_fine.out_hub_cache_dir, max_segments=300)
+    buckeye_fine = BuildBuckeyeFineDatasetJob(raw_dir=dl_ds_buckeye_fine.out_hub_cache_dir, max_duration_s=20.0)
     tk.register_output("buckeye-fine-dataset", buckeye_fine.out_hub_cache_dir)
     _bk_dir = buckeye_fine.out_hub_cache_dir
     _bk_off = _DATASET_OFFSET_FACTORS["timit"]  # start/stop in samples (factor 1), like TIMIT
@@ -2217,10 +2217,10 @@ def py():
     # per-token backward, so bump GPU memory + walltime.
     for _bk_cfg, _bk_name in [
         (
-            # Subword (not char-level): long Buckeye segments exceed Whisper's 448-token
-            # decoder context at char level (device-side assert); subword stays well under.
-            rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir),
-            "whisper-base-logmel-buckeye-L2_grad-pertoken",
+            # Char-level (our best TIMIT config): the <=20 s segment filter keeps char-token
+            # counts <=385, under Whisper's 448 decoder-context limit, so char-level fits here.
+            rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir, char_level=True, char_level_sep=" "),
+            "whisper-base-logmel-buckeye-L2_grad-pertoken-charlev-spc",
         ),
         (
             rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out"),

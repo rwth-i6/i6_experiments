@@ -27,14 +27,18 @@ class BuildBuckeyeFineDatasetJob(Job):
         split_name: str = "test",
         num_shards: int = 8,
         max_segments: Optional[int] = None,
+        max_duration_s: Optional[float] = None,
         returnn_root: Optional[tk.Path] = None,
     ):
         super().__init__()
         self.raw_dir = raw_dir
         self.split_name = split_name
         self.num_shards = num_shards
-        # Optional subset (first N segments): the full 2478 long-form segments are too slow
-        # for the per-token-backward grad extracts within walltime; a subset is representative.
+        # Keep only short segments (duration <= max_duration_s): the full set is mostly capped at
+        # ~25 s, which (a) at char-level exceeds Whisper's 448-token decoder context and (b) makes the
+        # per-token-backward extracts too slow. <=20 s segments have <=385 chars (char-level fits) and
+        # are much cheaper. max_segments is an additional first-N cap.
+        self.max_duration_s = max_duration_s
         self.max_segments = max_segments
         self.returnn_root = returnn_root
         self.rqmt = {"cpu": 4, "mem": 48, "time": 4}
@@ -62,8 +66,11 @@ class BuildBuckeyeFineDatasetJob(Job):
         with open(os.path.join(content, "manifest.json")) as f:
             manifest = json.load(f)
         samples = manifest["samples"]
+        if self.max_duration_s is not None:
+            samples = [s for s in samples if s["duration_s"] <= self.max_duration_s]
         if self.max_segments is not None:
             samples = samples[: self.max_segments]
+        print(f"kept {len(samples)} segments after filters", flush=True)
         print(f"{len(samples)} segments in manifest", flush=True)
 
         feats = datasets.Features(
