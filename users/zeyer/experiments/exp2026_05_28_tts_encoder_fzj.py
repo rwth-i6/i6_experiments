@@ -121,7 +121,7 @@ def py():
         extra_config_deletes=["optimizer.epsilon", "optimizer.weight_decay_modules_blacklist"],
     )
     # Muon LR sweep (the most critical Muon knob) bracketing the 2e-2 run above.
-    for _mlr_name, _mlr in [("lr1e2", 1e-2), ("lr4e2", 4e-2)]:
+    for _mlr_name, _mlr in [("lr1e2", 1e-2), ("lr4e2", 4e-2), ("lr5e3", 5e-3)]:
         _train_asr_base_multigpu(
             "asr-base-mgpu-logmel-muon-" + _mlr_name,
             prefix=prefix,
@@ -131,6 +131,40 @@ def py():
             extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
             extra_config_deletes=["optimizer.epsilon", "optimizer.weight_decay_modules_blacklist"],
         )
+    # WSD LR schedule (warmup ~2% / stable ~78% / decay ~20%) vs our OCLR (45% warmup / 45% decay),
+    # same 5e-4 peak as lr05. Tests whether the long OCLR warmup wastes our scarce nep=25 updates.
+    _train_asr_base_multigpu(
+        "asr-base-mgpu-logmel-wsd",
+        prefix=prefix,
+        feature_extraction=None,
+        base_lr=0.5,
+        extra_config_updates={
+            "learning_rate_piecewise_steps": [0.5, 20, 25],  # epochs: warmup->peak, hold, decay
+            "learning_rate_piecewise_values": [1e-05, 1e-03, 1e-03, 1e-06],
+        },
+    )
+    # LAMB -- the canonical large-batch optimizer (You et al., trust-ratio); the on-the-nose comparison.
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.optim_ext.lamb import LAMB
+    _train_asr_base_multigpu(
+        "asr-base-mgpu-logmel-lamb",
+        prefix=prefix,
+        feature_extraction=None,
+        base_lr=1.0,
+        peak_lr=2e-3,  # LAMB's trust-ratio normalizes the step; starts higher than AdamW's 5e-4
+        extra_config_updates={"optimizer.class": rf.build_dict(LAMB)["class"]},
+        extra_config_deletes=["optimizer.epsilon", "optimizer.weight_decay_modules_blacklist"],
+    )
+    # AdEMAMix -- AdamW + a slow gradient EMA (more progress per update); same 5e-4 peak as the AdamW best.
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.optim_ext.ademamix import AdEMAMix
+    _train_asr_base_multigpu(
+        "asr-base-mgpu-logmel-ademamix",
+        prefix=prefix,
+        feature_extraction=None,
+        base_lr=0.5,
+        peak_lr=1e-3,
+        extra_config_updates={"optimizer.class": rf.build_dict(AdEMAMix)["class"]},
+        extra_config_deletes=["optimizer.epsilon", "optimizer.weight_decay_modules_blacklist"],
+    )
     # tts-enc-v1: pseudo-speech-enc-style text usage (~5 effective text passes, 100 ASR).
     _train_tts_encoder("tts-enc-v1", prefix=prefix)
     # tts-enc-v2: TTS-baseline-style text usage (~1.33 effective text passes).
