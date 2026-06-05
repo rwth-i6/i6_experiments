@@ -80,6 +80,10 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.buckeye_
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.word_align_from_per_token_grads import (
     WordAlignFromPerTokenGradsJob,
 )
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.apptainer import (
+    PullApptainerImageJob,
+    ApptainerExeWrapperJob,
+)
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.extract_per_token_with_sep_grads import (
     ExtractInGradsPerTokenWithSepGradsJob,
 )
@@ -2225,6 +2229,16 @@ def py():
         dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
     )
     tk.register_output("baseline-whisper-crossattn-timit-test-wbe.txt", whisper_fa_test_metric.out_wbe)
+
+    # --- MFA (Montreal Forced Aligner) baseline infra ---------------------------
+    # Pull the MFA Docker image into a tracked .sif, and wrap `mfa` as a plain executable so the
+    # (to-be-added) MfaForcedAlignJob can take a configurable mfa_exe (native binary OR this
+    # container wrapper). Image/wrapper registered as outputs so they build now; the align job
+    # is wired once the in-container MFA CLI is verified.
+    _mfa_image = PullApptainerImageJob("docker://mmcauliffe/montreal-forced-aligner:latest")
+    tk.register_output("mfa/image.sif", _mfa_image.out_image)
+    _mfa_exe = ApptainerExeWrapperJob(_mfa_image.out_image, command="mfa")
+    tk.register_output("mfa/mfa-run.sh", _mfa_exe.out_exe)
 
     # --- Buckeye long-form (fine-resolution, literature-comparable) ------------
     # Convert the alexwengg manifest+wav benchmark to our schema, then run the headline
