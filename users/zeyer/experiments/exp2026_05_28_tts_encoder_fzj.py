@@ -156,14 +156,23 @@ def py():
         extra_config_deletes=["optimizer.epsilon", "optimizer.weight_decay_modules_blacklist"],
     )
     # AdEMAMix -- AdamW + a slow gradient EMA (more progress per update); same 5e-4 peak as the AdamW best.
-    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.optim_ext.ademamix import AdEMAMix
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.optim_ext.ademamix import AdEMAMixV2
     _train_asr_base_multigpu(
-        "asr-base-mgpu-logmel-ademamix",
+        "asr-base-mgpu-logmel-ademamix2",
         prefix=prefix,
         feature_extraction=None,
         base_lr=0.5,
         peak_lr=1e-3,
-        extra_config_updates={"optimizer.class": rf.build_dict(AdEMAMix)["class"]},
+        extra_config_updates={
+            "optimizer.class": rf.build_dict(AdEMAMixV2)["class"],
+            "optimizer.betas": (0.9, 0.999, 0.9999),
+            "optimizer.alpha": 5.0,
+            # paper's alpha/beta3 warmup (official apple/ml-ademamix): ramp alpha 0->5 and beta3
+            # (in EMA-half-life space) over ~the full run (~100k steps) so the slow EMA phases in gradually.
+            # Required for stability -- fixed alpha=5 from step 0 diverged at ep8.
+            "optimizer.alpha_warmup": 100_000,
+            "optimizer.beta3_warmup": 100_000,
+        },
         extra_config_deletes=["optimizer.epsilon", "optimizer.weight_decay_modules_blacklist"],
     )
     # tts-enc-v1: pseudo-speech-enc-style text usage (~5 effective text passes, 100 ASR).
