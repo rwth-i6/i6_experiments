@@ -2232,23 +2232,34 @@ def py():
         )
         tk.register_output(f"baseline-mms_fa-{_bk_tag}-wbe.txt", bk_fa_metric.out_wbe)
 
-        # Headline grad-align on Buckeye (char-level Whisper = best TIMIT config; Wav2Vec2-CTC).
-        for _bk_cfg, _bk_name in [
+        # Headline grad-align surfaces (char-level Whisper / Wav2Vec2-CTC) on every variant; on the
+        # clean reseg primary ALSO a speech-LLM (Voxtral char, best LLM on TIMIT) and a transducer
+        # (Parakeet RNN-T, best transducer on TIMIT) to test whether the cross-model TIMIT ranking
+        # generalizes to spontaneous speech -- in particular whether transducers collapse like CTC.
+        _bk_models = [
             (
                 rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir, char_level=True, char_level_sep=" "),
                 f"whisper-base-logmel-{_bk_tag}-L2_grad-pertoken-charlev-spc",
+                "L2",
             ),
             (
                 rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out"),
                 f"wav2vec2ctc-fproj_out-{_bk_tag}-L2_grad-pertoken",
+                "L2",
             ),
-        ]:
+        ]
+        if _bk_tag == "buckeye-reseg":
+            _bk_models += [
+                (voxtral_charlev_logmel_cfg, f"voxtral-charlevlogmel-{_bk_tag}-L1_grad-pertoken", "L1"),
+                (pk_cfg, f"parakeet-rnnt-1.1b-logmel-{_bk_tag}-L2_grad-pertoken", "L2"),
+            ]
+        for _bk_cfg, _bk_name, _bk_attr in _bk_models:
             _bk_ex = ExtractInGradsPerTokenJob(
                 dataset_dir=_bk_dir,
                 dataset_key="test",
                 model_config=_bk_cfg,
                 mult_grad_by_inputs=False,
-                attr_reduction="L2",
+                attr_reduction=_bk_attr,
             )
             _bk_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
             # Long-form segments -> more walltime than the default; keep the default GPU/partition.
