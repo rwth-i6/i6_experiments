@@ -352,6 +352,49 @@ def py():
             tag=f"L{left_n * center_size}-C{cs}-R{lh}" if cs is not None else "offline",
         )
 
+    # Non-dyn (fixed chunk) + rope + ctembed: the fixed-chunk control for the dyn-pool ablation,
+    # holding rope and ctembed constant so only dyn-vs-fixed differs.
+    # In the no-rope/no-ctembed comparison, fixed beat dyn (9.46 vs 9.66); this checks if that still holds.
+    name = f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-rope-ctembed"
+    exp, task, aux_ctc_layer = train(
+        name,
+        {
+            "model.enc_build_dict": rf.build_dict(
+                ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
+                chunk_size=center_size,
+                chunk_history_size=left_n * center_size,
+                chunk_lookahead_size=right_size,
+                use_chunk_type_embedding=True,
+                version=3,
+            ),
+            "train.batch_size": bs * configs._batch_size_factor,
+            "train.max_seqs": max_seqs,
+            "lm_recog_extra.__serialization_version_stats": 2,
+        },
+    )
+    # Recog-time chunk-size / lookahead sweep (negative control, as for -v2.3-rope above).
+    for cs, lh in [
+        (center_size, right_size),
+        (center_size * 2, right_size),
+        (center_size * 4, right_size),
+        (center_size * 8, right_size),
+        (center_size, right_size // 2),
+        (None, 0),
+    ]:
+        recog_model_with_config_overwrite(
+            model=exp.get_last_fixed_epoch(),
+            task=task,
+            recog_def=ctc_model_recog,
+            config_overwrites={
+                "enc_build_dict.chunk_size": cs,
+                "enc_build_dict.chunk_lookahead_size": lh,
+            },
+            extra_config={"aux_loss_layers": [aux_ctc_layer]},
+            name=name,
+            tag=f"L{left_n * center_size}-C{cs}-R{lh}" if cs is not None else "offline",
+        )
+
     # Dynamic chunking.
     # Haotian did:
     #   (I think sizes are on 10ms level.)
