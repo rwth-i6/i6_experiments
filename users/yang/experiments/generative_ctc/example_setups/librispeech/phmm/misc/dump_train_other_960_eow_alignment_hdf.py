@@ -164,3 +164,30 @@ def py():
             returnn_root=returnn_root,
         ).out_hdf
         tk.register_output(f"lbs_mono_phone_eow_lexicon/alignment_{i}.hdf", hdf_file)
+
+    for i in range(1, 11):
+        filename = (
+            f"/work/common/asr/librispeech/data/sisyphus_work_dir/i6_core/mm/alignment/"
+            f"AlignmentJob.UJFxX637xhAE/output/alignment.cache.{i}"
+        )
+        dataset_config = {
+            "class": "SprintCacheDataset",
+            "data": {
+                "data": {
+                    "filename": filename,
+                    "data_type": "align",
+                    "allophone_labeling": {
+                        "allophone_file": allophone_file,
+                        "silence_phone": "[SILENCE]",
+                        "state_tying_file": eow_state_tying_job.out_state_tying,
+                    },
+                }
+            },
+        }
+
+        hdf_file = ReturnnDumpHDFJob(
+            dataset_config,
+            returnn_python_exe=returnn_python_exe,
+            returnn_root=returnn_root,
+        ).out_hdf
+        tk.register_output(f"lbs_mono_phone_eow_lexicon_dev_other/alignment_{i}.hdf", hdf_file)

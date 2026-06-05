@@ -92,6 +92,76 @@ def get_training_config(
     return returnn_config
 
 
+def get_training_config_v2(
+    training_datasets: TrainingDatasets,
+    network_module: str,
+    config: Dict[str, Any],
+    net_args: Dict[str, Any],
+    unhashed_net_args: Optional[Dict[str, Any]] = None,
+    include_native_ops=False,
+    debug: bool = False,
+    use_speed_perturbation: bool = False,
+    train_step_args: Optional[Dict[str, Any]] = None,
+    unhashed_train_step_args: Optional[Dict[str, Any]] = None,
+    post_config: Optional[Dict[str, Any]] = None,
+    add_cache_manager: bool = False,
+) -> ReturnnConfig:
+    """
+    Like get_training_config, but always adds the recipe root to sys.path via the Python prolog.
+    """
+    # changing these does not change the hash
+    base_post_config = {"stop_on_nonfinite_train_score": True, "backend": "torch"}
+
+    base_config = {
+        "cleanup_old_models": {
+            "keep_last_n": 4,
+            "keep_best_n": 4,
+        },
+        #############
+        "train": copy.deepcopy(training_datasets.train.as_returnn_opts()),
+        "dev": training_datasets.cv.as_returnn_opts(),
+        "eval_datasets": {"devtrain": training_datasets.devtrain.as_returnn_opts()},
+    }
+    config = {**base_config, **copy.deepcopy(config)}
+    post_config = {**base_post_config, **copy.deepcopy(post_config or {})}
+
+    serializer = serialize_training(
+        network_module=network_module,
+        net_args=net_args,
+        unhashed_net_args=unhashed_net_args,
+        include_native_ops=include_native_ops,
+        debug=debug,
+        train_step_args=train_step_args,
+        unhashed_train_step_args=unhashed_train_step_args,
+    )
+    python_prolog_serializer_objects = [
+        Import(
+            code_object_path=PACKAGE + ".extra_code.noop.ensure_recipe_on_sys_path",
+            unhashed_package_root=PACKAGE,
+        )
+    ]
+
+    if use_speed_perturbation:
+        python_prolog_serializer_objects.append(
+            Import(
+                code_object_path=PACKAGE + ".extra_code.speed_perturbation.legacy_speed_perturbation",
+                unhashed_package_root=PACKAGE,
+            )
+        )
+        config["train"]["datasets"]["zip_dataset"]["audio"]["pre_process"] = CodeWrapper("legacy_speed_perturbation")
+
+    if add_cache_manager:
+        from i6_experiments.common.setups.serialization import PythonCacheManagerFunctionNonhashedCode
+
+        python_prolog_serializer_objects.append(PythonCacheManagerFunctionNonhashedCode)
+
+    python_prolog = [TorchCollection(python_prolog_serializer_objects)]
+    returnn_config = ReturnnConfig(
+        config=config, post_config=post_config, python_prolog=python_prolog, python_epilog=[serializer]
+    )
+    return returnn_config
+
+
 def get_prior_config(
     training_datasets: TrainingDatasets,  # TODO: replace by single dataset
     network_module: str,
