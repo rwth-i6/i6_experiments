@@ -948,6 +948,37 @@ def py():
         _whc_al.add_alias(f"align/{whisper_char_name}-{_whc_sfx}")
         tk.register_output(f"align/{whisper_char_name}-{_whc_sfx}-wbe.txt", _whc_al.out_wbe)
 
+    # VarGrad ablation (attribution axis A): per-frame STD of the saliency across SmoothGrad noise
+    # samples (vs the SmoothGrad mean). Headline char Whisper.
+    _vg_ex = ExtractInGradsPerTokenJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=whisper_char_cfg,
+        mult_grad_by_inputs=False,
+        attr_reduction="L2",
+        noise_std=0.02,
+        noise_n_samples=16,
+        vargrad=True,
+    )
+    _vg_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    _vg_name = "whisper-base-logmel-timit-val-L2-vargrad-pertoken-charlev-spc-std0.02-n16"
+    _vg_ex.add_alias(_vg_name)
+    tk.register_output(f"{_vg_name}.hdf", _vg_ex.out_hdf)
+    _vg_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+    _vg_al = WordAlignFromPerTokenGradsJob(
+        grad_score_hdf=_vg_ex.out_hdf,
+        grad_score_key="data",
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+        align_opts=_vg_ao,
+        audio_energy_pow=0.5,
+        blank_silence_energy_scale=1.0,
+    )
+    _vg_nm = f"align/{_vg_name}-{_name_for_dict(_vg_ao)}-en0.5-sil1.0"
+    _vg_al.add_alias(_vg_nm)
+    tk.register_output(f"{_vg_nm}-wbe.txt", _vg_al.out_wbe)
+
     # Integrated-Gradients ablation (attribution axis A) on the headline char Whisper: integrate the
     # per-token gradient along the audio-amplitude path (ig_steps Riemann steps), vs single-pass 47 ms.
     _ig_ex = ExtractInGradsPerTokenJob(

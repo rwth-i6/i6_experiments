@@ -64,6 +64,10 @@ class MfaForcedAlignJob(Job):
     count matches the reference are written; ``out_coverage`` reports the covered fraction.
     """
 
+    # v2: job-local MFA_ROOT_DIR (concurrency-safe model unpack) + default textgrid cleanup (1:1 word
+    # counts). Forces a re-run of the v1 attempts (timit errored, buckeye 0-coverage).
+    __sis_version__ = 2
+
     def __init__(
         self,
         *,
@@ -137,14 +141,32 @@ class MfaForcedAlignJob(Job):
                 f.write(" ".join(words))
             ref_words[uid] = words
 
-        # APPTAINERENV_* injects MFA_ROOT_DIR into the container (overrides the image's /mfa default);
-        # realpath so the container sees the bind-mounted real path, not the unfollowable symlink.
-        root = os.path.realpath(self.model_root.get_path())
-        env = dict(os.environ, MFA_ROOT_DIR=root, APPTAINERENV_MFA_ROOT_DIR=root)
+        # Each concurrent align job needs its OWN MFA_ROOT_DIR: MFA unpacks the acoustic archive into
+        # MFA_ROOT_DIR/extracted_models, so jobs sharing the download store race on it ("File exists").
+        # Symlink the read-only pretrained models into a job-local root; extracted/ stays job-local.
+        # APPTAINERENV_* injects MFA_ROOT_DIR into the container; realpath so the container sees the
+        # bind-mounted real path, not the unfollowable work symlink.
+        mfa_root = os.path.join(cwd, "mfa_root")
+        os.makedirs(mfa_root, exist_ok=True)
+        _src_pre = os.path.join(os.path.realpath(self.model_root.get_path()), "pretrained_models")
+        _dst_pre = os.path.join(mfa_root, "pretrained_models")
+        if not os.path.exists(_dst_pre):
+            os.symlink(_src_pre, _dst_pre)
+        env = dict(os.environ, MFA_ROOT_DIR=mfa_root, APPTAINERENV_MFA_ROOT_DIR=mfa_root)
+        # NOTE: default textgrid cleanup (recombine clitics) keeps MFA's word count 1:1 with the
+        # reference; --no_textgrid_cleanup splits clitics and breaks the count match.
         cmd = [
-            _exe(self.mfa_exe), "align",
-            "--single_speaker", "--clean", "--no_textgrid_cleanup",
-            "--output_format", "json", "-t", tmp, "-j", str(self.num_jobs), "--quiet",
+            _exe(self.mfa_exe),
+            "align",
+            "--single_speaker",
+            "--clean",
+            "--output_format",
+            "json",
+            "-t",
+            tmp,
+            "-j",
+            str(self.num_jobs),
+            "--quiet",
         ]
         if self.g2p_model:
             # auto-generate pronunciations for OOV words (spontaneous Buckeye has many).
@@ -170,5 +192,6 @@ class MfaForcedAlignJob(Job):
         writer.close()
         cov = n_covered / max(n_total, 1)
         print(f"coverage {n_covered}/{n_total} = {cov:.3f}  (missing {n_missing}, count-mismatch {n_mismatch})")
-        self.out_coverage.set({"covered": n_covered, "total": n_total, "fraction": cov,
-                               "missing": n_missing, "mismatch": n_mismatch})
+        self.out_coverage.set(
+            {"covered": n_covered, "total": n_total, "fraction": cov, "missing": n_missing, "mismatch": n_mismatch}
+        )

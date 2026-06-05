@@ -32,7 +32,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
     # Do NOT bump __sis_version__ for a behaviour-preserving optional kwarg --
     # that would needlessly re-run every existing job.
     # Only the SmoothGrad variants (noise_std != 0) differ from the defaults, and thus get a distinct hash.
-    __sis_hash_exclude__ = {"noise_n_samples": 1, "noise_std": 0.0, "ig_steps": 1}
+    __sis_hash_exclude__ = {"noise_n_samples": 1, "noise_std": 0.0, "ig_steps": 1, "vargrad": False}
 
     def __init__(
         self,
@@ -40,6 +40,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         noise_n_samples: int = 1,
         noise_std: float = 0.0,
         ig_steps: int = 1,
+        vargrad: bool = False,
         **kwargs,
     ):
         """Extends the base with SmoothGrad-style noise averaging.
@@ -54,6 +55,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         self.noise_n_samples = int(noise_n_samples)
         self.noise_std = float(noise_std)
         self.ig_steps = int(ig_steps)
+        self.vargrad = bool(vargrad)
         assert self.noise_n_samples >= 1
         assert self.noise_std >= 0.0
         assert self.ig_steps >= 1
@@ -276,6 +278,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
                 # We store attrs accumulated across samples for each word/token.
                 # attrs_accum[w][k] = sum of attr tensors for word w, token k.
                 _attrs_accum: List[Optional[List[Optional[torch.Tensor]]]] = []
+                _attrs_sq: List[Optional[List[Optional[torch.Tensor]]]] = []  # sum of squares, for VarGrad
                 for _sample_idx in range(_noise_n):
                     if _noise_std > 0.0:
                         _noisy = _raw_audio_chunk + torch.randn_like(_raw_audio_chunk) * _noise_std
@@ -300,16 +303,28 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
                         )
                         if _sample_idx == 0:
                             _attrs_accum.append([_attrs[_k].clone() if _attrs else None for _k in range(_n_tok)])
+                            if self.vargrad:
+                                _attrs_sq.append(
+                                    [(_attrs[_k] ** 2).clone() if _attrs else None for _k in range(_n_tok)]
+                                )
                         else:
                             for _k in range(_n_tok):
                                 if _attrs_accum[_w][_k] is not None and _attrs:
                                     _attrs_accum[_w][_k] = _attrs_accum[_w][_k] + _attrs[_k]
+                                    if self.vargrad:
+                                        _attrs_sq[_w][_k] = _attrs_sq[_w][_k] + _attrs[_k] ** 2
                 # Average accumulated attrs.
                 if _noise_n > 1:
                     for _w in range(len(_attrs_accum)):
                         for _k in range(len(_attrs_accum[_w])):
                             if _attrs_accum[_w][_k] is not None:
-                                _attrs_accum[_w][_k] = _attrs_accum[_w][_k] / _noise_n
+                                if self.vargrad:
+                                    # VarGrad: per-frame STD of the saliency across the noise samples.
+                                    _mean = _attrs_accum[_w][_k] / _noise_n
+                                    _var = _attrs_sq[_w][_k] / _noise_n - _mean**2
+                                    _attrs_accum[_w][_k] = torch.sqrt(torch.clamp(_var, min=0.0) + 1e-12)
+                                else:
+                                    _attrs_accum[_w][_k] = _attrs_accum[_w][_k] / _noise_n
                 # Wrap accumulated attrs so existing code can consume them.
                 _attrs_accum_flat = _attrs_accum  # indexed [w][k]
 
