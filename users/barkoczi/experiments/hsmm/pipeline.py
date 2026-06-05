@@ -1,0 +1,424 @@
+"""
+Pipeline parts to create the necessary jobs for training / forwarding / search etc...
+"""
+import copy
+import enum
+from dataclasses import dataclass, asdict
+import os.path
+from typing import Any, Dict, List, Optional, Tuple
+
+from sisyphus import tk
+
+from i6_core.corpus.convert import CorpusToStmJob
+from i6_core.recognition.scoring import ScliteJob
+
+from i6_core.returnn.config import ReturnnConfig
+from i6_core.returnn.search import SearchWordsToCTMJob
+from i6_core.returnn.training import ReturnnTrainingJob, AverageTorchCheckpointsJob, GetBestPtCheckpointJob
+from i6_core.returnn.forward import ReturnnForwardJobV2
+
+from i6_experiments.common.setups.returnn.datasets import Dataset
+
+from .config import get_forward_config, get_training_config, get_prior_config, TrainingDatasets
+from .default_tools import SCTK_BINARY_PATH, RETURNN_EXE, MINI_RETURNN_ROOT
+
+
+@dataclass
+class ASRModel:
+    checkpoint: tk.Path
+    net_args: Dict[str, Any]
+    network_module: str
+    prior_file: Optional[tk.Path]
+    prior_files: Optional[Dict[int, tk.Path]]
+    prefix_name: Optional[str]
+
+
+@dataclass
+class NeuralLM:
+    checkpoint: tk.Path
+    net_args: Dict[str, Any]
+    network_module: str
+    prefix_name: Optional[str]
+    bpe_vocab: Optional[tk.Path] = None
+    bpe_codes: Optional[tk.Path] = None
+
+
+def search_single(
+    prefix_name: str,
+    returnn_config: ReturnnConfig,
+    checkpoint: tk.Path,
+    recognition_dataset: Dataset,
+    recognition_bliss_corpus: tk.Path,
+    returnn_exe: tk.Path,
+    returnn_root: tk.Path,
+    mem_rqmt: float = 16,
+    use_gpu: bool = False,
+):
+    returnn_config = copy.deepcopy(returnn_config)
+    returnn_config.config["forward"] = recognition_dataset.as_returnn_opts()
+    search_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=24,
+        device="gpu" if use_gpu else "cpu",
+        cpu_rqmt=2,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=["search_out.py"],
+    )
+    search_job.add_alias(prefix_name + "/search_job")
+
+    search_ctm = SearchWordsToCTMJob(
+        recog_words_file=search_job.out_files["search_out.py"],
+        bliss_corpus=recognition_bliss_corpus,
+    ).out_ctm_file
+
+    stm_file = CorpusToStmJob(bliss_corpus=recognition_bliss_corpus).out_stm_path
+
+    sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH, precision_ndigit=2)
+    tk.register_output(prefix_name + "/sclite/wer", sclite_job.out_wer)
+    tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
+
+    return sclite_job.out_wer, search_job
+
+
+@tk.block()
+def search(
+    prefix_name: str,
+    forward_config: Dict[str, Any],
+    asr_model: ASRModel,
+    decoder_module: str,
+    decoder_args: Dict[str, Any],
+    test_dataset_tuples: Dict[str, Tuple[Dataset, tk.Path]],
+    returnn_exe: tk.Path,
+    returnn_root: tk.Path,
+    unhashed_decoder_args: Optional[Dict[str, Any]] = None,
+    use_gpu: bool = False,
+    debug: bool = False,
+):
+    if asr_model.prior_file is not None:
+        decode_layer_index = decoder_args["config"].get("decode_layer_index", None)
+        if asr_model.prior_files is not None and decode_layer_index in asr_model.prior_files:
+            decoder_args["config"]["prior_file"] = asr_model.prior_files[decode_layer_index]
+        else:
+            decoder_args["config"]["prior_file"] = asr_model.prior_file
+
+    returnn_search_config = get_forward_config(
+        network_module=asr_model.network_module,
+        config=forward_config,
+        net_args=asr_model.net_args,
+        decoder_args=decoder_args,
+        unhashed_decoder_args=unhashed_decoder_args,
+        decoder=decoder_module,
+        debug=debug,
+    )
+
+    wers = {}
+    search_jobs = []
+    for key, (test_dataset, test_dataset_reference) in test_dataset_tuples.items():
+        search_name = prefix_name + "/%s" % key
+        wers[search_name], search_job = search_single(
+            search_name,
+            returnn_search_config,
+            asr_model.checkpoint,
+            test_dataset,
+            test_dataset_reference,
+            returnn_exe,
+            returnn_root,
+            use_gpu=use_gpu,
+        )
+        search_jobs.append(search_job)
+
+    return search_jobs, wers
+
+
+@tk.block()
+def compute_prior(
+    prefix_name: str,
+    returnn_config: ReturnnConfig,
+    checkpoint: tk.Path,
+    returnn_exe: tk.Path,
+    returnn_root: tk.Path,
+    mem_rqmt: int = 16,
+    output_files: Optional[List[str]] = None,
+):
+    search_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=8,
+        device="gpu",
+        cpu_rqmt=8,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=output_files or ["prior.txt"],
+    )
+    search_job.add_alias(prefix_name + "/prior_job")
+    return search_job.out_files
+
+
+@tk.block()
+def compute_feature_variance(
+    prefix_name: str,
+    returnn_config: ReturnnConfig,
+    checkpoint: tk.Path,
+    returnn_exe: tk.Path,
+    returnn_root: tk.Path,
+    output_files: Optional[List[str]] = None,
+    mem_rqmt: int = 16,
+    use_gpu: bool = True,
+):
+    forward_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=8,
+        device="gpu" if use_gpu else "cpu",
+        cpu_rqmt=4,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=output_files or ["variance_-1.txt"],
+    )
+    forward_job.add_alias(prefix_name + "/variance_job")
+    for output_file, out_file in forward_job.out_files.items():
+        tk.register_output(prefix_name + f"/{output_file}", out_file)
+    return forward_job.out_files, forward_job
+
+
+@tk.block()
+def compute_pca_state(
+    prefix_name: str,
+    returnn_config: ReturnnConfig,
+    returnn_exe: tk.Path,
+    returnn_root: tk.Path,
+    output_files: Optional[List[str]] = None,
+    mem_rqmt: int = 16,
+    use_gpu: bool = True,
+):
+    forward_job = ReturnnForwardJobV2(
+        model_checkpoint=None,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=24,
+        device="gpu" if use_gpu else "cpu",
+        cpu_rqmt=4,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=output_files or ["pca_state.pt"],
+    )
+    forward_job.add_alias(prefix_name + "/pca_fit_job")
+    for output_file, out_file in forward_job.out_files.items():
+        tk.register_output(prefix_name + f"/{output_file}", out_file)
+    return forward_job.out_files, forward_job
+
+
+@tk.block()
+def dump_pca_features(
+    prefix_name: str,
+    returnn_config: ReturnnConfig,
+    returnn_exe: tk.Path,
+    returnn_root: tk.Path,
+    output_filename: str = "pca_features.hdf",
+    mem_rqmt: int = 16,
+    use_gpu: bool = True,
+):
+    forward_job = ReturnnForwardJobV2(
+        model_checkpoint=None,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=24,
+        device="gpu" if use_gpu else "cpu",
+        cpu_rqmt=4,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=[output_filename], 
+    )
+    
+    forward_job.add_alias(prefix_name + "/dump_features_job")
+    
+    for output_file, out_file in forward_job.out_files.items():
+        tk.register_output(prefix_name + f"/{output_file}", out_file)
+
+    return forward_job.out_files, forward_job
+
+
+@tk.block()
+def compute_pca_label_stats(
+    prefix_name: str,
+    returnn_config: ReturnnConfig,
+    returnn_exe: tk.Path,
+    returnn_root: tk.Path,
+    output_files: Optional[List[str]] = None,
+    mem_rqmt: int = 16,
+    use_gpu: bool = True,
+):
+    """
+    Run a forward-only job that computes pooled PCA-feature variance and per-label mean vectors.
+    """
+    forward_job = ReturnnForwardJobV2(
+        model_checkpoint=None,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=24,
+        device="gpu" if use_gpu else "cpu",
+        cpu_rqmt=4,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=output_files
+        or [
+            "pooled_variance.txt",
+            "pooled_variance.npy",
+            "pooled_variance.pt",
+            "phoneme_feature_means.txt",
+            "phoneme_feature_means.npy",
+            "phoneme_feature_means.pt",
+        ],
+    )
+    forward_job.add_alias(prefix_name + "/label_stats_job")
+    for output_file, out_file in forward_job.out_files.items():
+        tk.register_output(prefix_name + f"/{output_file}", out_file)
+    return forward_job.out_files, forward_job
+
+
+@tk.block()
+def compute_hmm_frame_accuracy(
+    prefix_name: str,
+    returnn_config: ReturnnConfig,
+    returnn_exe: tk.Path,
+    returnn_root: tk.Path,
+    output_files: Optional[List[str]] = None,
+    mem_rqmt: int = 16,
+    use_gpu: bool = True,
+):
+    forward_job = ReturnnForwardJobV2(
+        model_checkpoint=None,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=24,
+        device="gpu" if use_gpu else "cpu",
+        cpu_rqmt=4,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=output_files or ["frame_accuracy.txt", "frame_accuracy.json"],
+    )
+    forward_job.add_alias(prefix_name + "/frame_accuracy_job")
+    for output_file, out_file in forward_job.out_files.items():
+        tk.register_output(prefix_name + f"/{output_file}", out_file)
+    return forward_job.out_files, forward_job
+
+
+def training(training_name, datasets, train_args, num_epochs, returnn_exe, returnn_root):
+    returnn_config = get_training_config(training_datasets=datasets, **train_args)
+    default_rqmt = {
+        "mem_rqmt": 48,
+        "time_rqmt": 168,
+        "cpu_rqmt": 6,
+        "log_verbosity": 5,
+        "returnn_python_exe": returnn_exe,
+        "returnn_root": returnn_root,
+    }
+
+    train_job = ReturnnTrainingJob(returnn_config=returnn_config, num_epochs=num_epochs, **default_rqmt)
+    train_job.add_alias(training_name + "/training")
+    tk.register_output(training_name + "/learning_rates", train_job.out_learning_rates)
+    return train_job
+
+
+def prepare_asr_model(
+    training_name,
+    train_job,
+    train_args,
+    with_prior,
+    datasets: Optional[TrainingDatasets] = None,
+    get_specific_checkpoint: Optional[int] = None,
+    get_best_averaged_checkpoint: Optional[Tuple[int, str]] = None,
+    get_last_averaged_checkpoint: Optional[int] = None,
+    prior_config: Optional[Dict[str, Any]] = None,
+):
+    params = [get_specific_checkpoint, get_last_averaged_checkpoint, get_best_averaged_checkpoint]
+    assert sum([p is not None for p in params]) == 1
+    assert not with_prior or datasets is not None
+
+    if get_best_averaged_checkpoint is not None:
+        num_checkpoints, loss_key = get_best_averaged_checkpoint
+        checkpoints = []
+        for index in range(num_checkpoints):
+            best_job = GetBestPtCheckpointJob(
+                train_job.out_model_dir,
+                train_job.out_learning_rates,
+                key=loss_key,
+                index=index,
+            )
+            best_job.add_alias(training_name + f"/get_best_job_{index}")
+            checkpoints.append(best_job.out_checkpoint)
+        if num_checkpoints > 1:
+            avg = AverageTorchCheckpointsJob(
+                checkpoints=checkpoints, returnn_python_exe=RETURNN_EXE, returnn_root=MINI_RETURNN_ROOT
+            )
+            checkpoint = avg.out_checkpoint
+            training_name = training_name + "/avg_best_%i_cpkt" % num_checkpoints
+        else:
+            checkpoint = checkpoints[0]
+            training_name = training_name + "/best_cpkt"
+    elif get_last_averaged_checkpoint is not None:
+        assert get_last_averaged_checkpoint >= 2, "For the single last checkpoint use get_specific_checkpoint instead"
+        num_checkpoints = len(train_job.out_checkpoints)
+        avg = AverageTorchCheckpointsJob(
+            checkpoints=[train_job.out_checkpoints[num_checkpoints - i] for i in range(get_last_averaged_checkpoint)],
+            returnn_python_exe=RETURNN_EXE,
+            returnn_root=MINI_RETURNN_ROOT,
+        )
+        checkpoint = avg.out_checkpoint
+        training_name = training_name + "/avg_last_%i_cpkt" % num_checkpoints
+    else:
+        checkpoint = train_job.out_checkpoints[get_specific_checkpoint]
+        training_name = training_name + "/ep_%i_cpkt" % get_specific_checkpoint
+
+    prior_file = None
+    prior_files = None
+    if with_prior:
+        model_config_dict = train_args["net_args"].get("model_config_dict", {})
+        prior_layers = model_config_dict.get("aux_ctc_loss_layers", None) or [-1]
+        prior_output_files = [f"prior_{layer}.txt" for layer in prior_layers]
+        returnn_config = get_prior_config(
+            training_datasets=datasets,
+            network_module=train_args["network_module"],
+            config=prior_config if prior_config is not None else {},
+            net_args=train_args["net_args"],
+            unhashed_net_args=train_args.get("unhashed_net_args", None),
+            debug=train_args.get("debug", False),
+        )
+        prior_outputs = compute_prior(
+            training_name,
+            returnn_config,
+            checkpoint=checkpoint,
+            returnn_exe=RETURNN_EXE,
+            returnn_root=MINI_RETURNN_ROOT,
+            output_files=prior_output_files,
+        )
+        prior_files = {layer: prior_outputs[f"prior_{layer}.txt"] for layer in prior_layers}
+        prior_file = prior_files[prior_layers[-1]]
+        for layer, out_file in prior_files.items():
+            tk.register_output(training_name + f"/prior_{layer}.txt", out_file)
+    else:
+        if prior_config is not None:
+            raise ValueError("prior_config can only be set if with_prior is True")
+
+    asr_model = ASRModel(
+        checkpoint=checkpoint,
+        network_module=train_args["network_module"],
+        net_args=train_args["net_args"],
+        prior_file=prior_file,
+        prior_files=prior_files,
+        prefix_name=training_name,
+    )
+
+    return asr_model
