@@ -79,6 +79,7 @@ class MfaForcedAlignJob(Job):
         dictionary: str = "english_us_arpa",
         g2p_model: Optional[str] = "english_us_arpa",
         num_jobs: int = 4,
+        dataset_offset_factors: int = 1,
         returnn_root: Optional[tk.Path] = None,
     ):
         super().__init__()
@@ -90,8 +91,12 @@ class MfaForcedAlignJob(Job):
         self.dictionary = dictionary
         self.g2p_model = g2p_model
         self.num_jobs = num_jobs
+        self.dataset_offset_factors = dataset_offset_factors
         self.returnn_root = returnn_root
-        self.out_hdf = self.output_path("word_boundaries.hdf")
+        # WBE computed in-job (robust to partial MFA coverage); same align_metrics as the grad-align jobs.
+        self.out_wbe = self.output_var("wbe.txt")
+        self.out_metrics = self.output_var("metrics.txt")
+        self.out_acc50 = self.output_var("acc50.txt")
         self.out_coverage = self.output_var("coverage.txt")
         self.rqmt = {"cpu": num_jobs + 1, "mem": 16, "time": 8}
 
@@ -128,18 +133,25 @@ class MfaForcedAlignJob(Job):
         ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))[self.dataset_key]
         print(f"num seqs: {len(ds)}", flush=True)
 
-        # Build the MFA corpus: one {uid}.wav + {uid}.lab per sequence. Keep the reference word list
-        # (lowercased, kept verbatim so the MFA word count maps 1:1 to the reference boundaries).
-        ref_words = {}
+        # Build the MFA corpus: one u{i}.wav + u{i}.lab per sequence with a UNIQUE index key (dataset
+        # ids can collide -- e.g. TIMIT). Keep the ref word boundaries (seconds) for the in-job WBE.
+        from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.align_metrics import (
+            per_utt_boundary_errors,
+            aggregate_corpus,
+        )
+
+        ref = {}  # uid -> list of (start, end) seconds
         for i in range(len(ds)):
-            uid = str(ds[i].get("id") or f"seq-{i}")
-            audio = np.asarray(ds[i]["audio"]["array"], dtype=np.float32)
+            uid = f"u{i:06d}"
             sr = int(ds[i]["audio"]["sampling_rate"])
             words = [w.lower() for w in ds[i]["word_detail"]["utterance"]]
-            sf.write(os.path.join(corpus, f"{uid}.wav"), audio, sr)
+            sf.write(os.path.join(corpus, f"{uid}.wav"), np.asarray(ds[i]["audio"]["array"], dtype=np.float32), sr)
             with open(os.path.join(corpus, f"{uid}.lab"), "w") as f:
                 f.write(" ".join(words))
-            ref_words[uid] = words
+            ref[uid] = [
+                (s * self.dataset_offset_factors / sr, e * self.dataset_offset_factors / sr)
+                for s, e in zip(ds[i]["word_detail"]["start"], ds[i]["word_detail"]["stop"])
+            ]
 
         # Each concurrent align job needs its OWN MFA_ROOT_DIR: MFA unpacks the acoustic archive into
         # MFA_ROOT_DIR/extracted_models, so jobs sharing the download store race on it ("File exists").
@@ -175,23 +187,27 @@ class MfaForcedAlignJob(Job):
         print("RUN:", " ".join(cmd), flush=True)
         subprocess.check_call(cmd, env=env)
 
-        writer = SimpleHDFWriter(self.out_hdf.get_path(), dim=2, ndim=2)
-        n_total, n_covered, n_missing, n_mismatch = len(ref_words), 0, 0, 0
-        for uid, ref in ref_words.items():
+        n_total, n_covered, n_missing, n_mismatch = len(ref), 0, 0, 0
+        utt_errs = []
+        for uid, ref_se in ref.items():
             jf = os.path.join(out_dir, f"{uid}.json")
             if not os.path.exists(jf):
                 n_missing += 1
                 continue
             entries = json.load(open(jf))["tiers"]["words"]["entries"]
-            if len(entries) != len(ref):
+            if len(entries) != len(ref_se):
                 n_mismatch += 1
                 continue
-            word_se = np.array([[float(e[0]), float(e[1])] for e in entries], dtype=np.float32)
-            writer.insert_batch(word_se[None], [word_se.shape[0]], [uid])
+            hyp_se = [(float(e[0]), float(e[1])) for e in entries]
+            utt_errs.append(per_utt_boundary_errors(hyp_se, ref_se))
             n_covered += 1
-        writer.close()
+        metrics = aggregate_corpus(utt_errs)
         cov = n_covered / max(n_total, 1)
-        print(f"coverage {n_covered}/{n_total} = {cov:.3f}  (missing {n_missing}, count-mismatch {n_mismatch})")
+        print(f"coverage {n_covered}/{n_total} = {cov:.3f} (missing {n_missing}, mismatch {n_mismatch})")
+        print("CORPUS METRICS:", metrics)
+        self.out_wbe.set(metrics["wbe"])
+        self.out_metrics.set(metrics)
+        self.out_acc50.set(metrics["acc_50ms"])
         self.out_coverage.set(
             {"covered": n_covered, "total": n_total, "fraction": cov, "missing": n_missing, "mismatch": n_mismatch}
         )

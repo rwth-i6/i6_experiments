@@ -2362,16 +2362,16 @@ def py():
         (_mfa_bk.out_hub_cache_dir, "test", "buckeye-reseg"),
     ]:
         _mfa_al = MfaForcedAlignJob(
-            dataset_dir=_mfa_dir, dataset_key=_mfa_key, mfa_exe=_mfa_exe.out_exe, model_root=_mfa_models.out_model_root
-        )
-        _mfa_al.add_alias(f"baseline-mfa-{_mfa_tag}")
-        _mfa_m = CalcAlignmentMetricsFromWordBoundariesJob(
-            word_boundaries_hdf=_mfa_al.out_hdf,
             dataset_dir=_mfa_dir,
             dataset_key=_mfa_key,
+            mfa_exe=_mfa_exe.out_exe,
+            model_root=_mfa_models.out_model_root,
             dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
         )
-        tk.register_output(f"baseline-mfa-{_mfa_tag}-wbe.txt", _mfa_m.out_wbe)
+        _mfa_al.add_alias(f"baseline-mfa-{_mfa_tag}")
+        # WBE computed in-job (robust to partial MFA coverage); no separate metric job needed.
+        tk.register_output(f"baseline-mfa-{_mfa_tag}-wbe.txt", _mfa_al.out_wbe)
+        tk.register_output(f"baseline-mfa-{_mfa_tag}-metrics.txt", _mfa_al.out_metrics)
         tk.register_output(f"baseline-mfa-{_mfa_tag}-coverage.txt", _mfa_al.out_coverage)
 
     # --- Buckeye long-form (fine-resolution, literature-comparable) ------------
