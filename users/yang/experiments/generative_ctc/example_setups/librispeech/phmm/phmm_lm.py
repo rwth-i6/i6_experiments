@@ -1,6 +1,9 @@
 """
 Language model helpers
 """
+import os
+from typing import Optional, Tuple
+
 from sisyphus import tk
 
 from i6_core.lm.kenlm import CreateBinaryLMJob
@@ -50,3 +53,49 @@ def get_4gram_lm_rasr_config(lexicon_file: tk.Path, scale: float = 1.0) -> RasrC
     rasr_config.image = tk.uncached_path(CreateLmImageJob(crp, mem=8).out_image)
 
     return rasr_config
+
+
+
+
+def create_lm_image_for_lexicon(
+    lexicon_file: tk.Path,
+    scale: float = 1.0,
+    *,
+    output_prefix: Optional[str] = None,
+    mem: int = 8,
+) -> Tuple[RasrConfig, tk.Path]:
+    """
+    Create and register a RASR LM image for a specific lexicon.
+
+    :param lexicon_file: lexicon used to build the LM image
+    :param scale: LM scale used by lexical search
+    :param output_prefix: optional Sisyphus output prefix for the LM image
+    :param mem: memory requirement for CreateLmImageJob
+    :return: tuple of RASR LM config and LM image path
+    """
+    rasr_config = RasrConfig()
+    rasr_config.type = "ARPA"
+    rasr_config.file = get_arpa_lm_dict()["4gram"]
+    rasr_config.scale = scale
+
+    crp = CommonRasrParameters()
+    crp_add_default_output(crp)
+    crp.lm_util_exe = LM_UTIL_EXE
+    crp.language_model_config = rasr_config
+    crp.lexicon_config = RasrConfig()
+    crp.lexicon_config.file = lexicon_file
+    crp.lexicon_config.normalize_pronunciation = False
+
+    lm_image_job = CreateLmImageJob(crp, mem=mem)
+    lm_image = lm_image_job.out_image
+    # LibRASR loads the LM in-process and does not expand Sisyphus cached-path markers like `cf ...`.
+    # Use the plain filesystem path to the prebuilt LM image instead.
+    rasr_config.image = tk.uncached_path(lm_image)
+
+    if output_prefix is not None:
+        lm_image_job.add_alias(output_prefix + "/create_lm_image")
+        tk.register_output(output_prefix + "/lm.image", lm_image)
+    else:
+        tk.register_output("lm_images/%s/lm.image" % os.path.basename(str(lexicon_file)), lm_image)
+
+    return rasr_config, lm_image

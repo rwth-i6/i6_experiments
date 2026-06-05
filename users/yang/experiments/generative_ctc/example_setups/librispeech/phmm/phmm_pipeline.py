@@ -19,7 +19,7 @@ from i6_core.returnn.forward import ReturnnForwardJobV2
 
 from i6_experiments.common.setups.returnn.datasets import Dataset
 
-from .phmm_config import get_forward_config, get_training_config, get_prior_config, TrainingDatasets
+from .phmm_config import get_forward_config, get_training_config, get_training_config_v2, get_prior_config, TrainingDatasets
 from .phmm_default_tools import SCTK_BINARY_PATH, RETURNN_EXE, MINI_RETURNN_ROOT
 
 
@@ -243,7 +243,10 @@ def training(training_name, datasets, train_args, num_epochs, returnn_exe, retur
     :param returnn_exe: The python executable to run the job with (when using container just "python3")
     :param returnn_root: Path to a checked out RETURNN repository
     """
-    returnn_config = get_training_config(training_datasets=datasets, **train_args)
+    train_args = dict(train_args)
+    use_training_config_v2 = train_args.pop("use_training_config_v2", False)
+    training_config_fn = get_training_config_v2 if use_training_config_v2 else get_training_config
+    returnn_config = training_config_fn(training_datasets=datasets, **train_args)
     default_rqmt = {
         "mem_rqmt": 24,
         "time_rqmt": 168,

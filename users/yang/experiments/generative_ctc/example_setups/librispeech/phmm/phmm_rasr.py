@@ -637,3 +637,77 @@ def build_librasr_phmm_recognition_config(
 
     write_job = WriteRasrConfigJob(config, post_config)
     return write_job.out_config
+
+
+def build_librasr_phone_table_recognition_config(
+    lexicon_path: tk.Path,
+    lm_config: Optional[RasrConfig] = None,
+    am_config: Optional[RasrConfig] = None,
+    collapse_repeated_labels: bool = False,
+    max_beam_size: int = 1024,
+    max_word_end_beam_size: Optional[int] = None,
+    intermediate_max_beam_size: int = 1024,
+    score_threshold: float = 18.0,
+    word_end_score_threshold: Optional[float] = None,
+    intermediate_score_threshold: float = 18.0,
+    sentence_end_fallback: bool = True,
+    maximum_stable_delay: Optional[int] = None,
+    log_stepwise_statistics: bool = True,
+    logfile_suffix: str = "recog",
+) -> tk.Path:
+    """
+    Build a LibRASR recognition config for phoneme pHMM lexical search.
+
+    This uses the HMM tree builder and keeps repeated-label collapse disabled
+    to match the current pHMM prototype assumptions.
+    """
+    config = RasrConfig()
+    post_config = RasrConfig()
+
+    logfile_name = f"rasr.{logfile_suffix}.log"
+    config["*.log.channel"] = logfile_name
+    config["*.warning.channel"] = logfile_name
+    config["*.error.channel"] = logfile_name
+    config["*.statistics.channel"] = logfile_name
+    config["*.unbuffered"] = False
+    post_config["*.encoding"] = "UTF-8"
+
+    config.lib_rasr = RasrConfig()
+    config.lib_rasr.global_cache = RasrConfig()
+    config.lib_rasr.global_cache.file = "global.cache"
+    config.lib_rasr.global_cache.read_only = False
+    config.lib_rasr.lexicon = RasrConfig()
+    config.lib_rasr.lexicon.file = lexicon_path
+    config.lib_rasr.lexicon.normalize_pronunciation = False
+
+    if lm_config is not None:
+        config.lib_rasr.lm = lm_config
+    else:
+        config.lib_rasr.lm = RasrConfig()
+        config.lib_rasr.lm.scale = 0.0
+
+    config.lib_rasr.acoustic_model = am_config if am_config is not None else build_phmm_am_config()
+    config.lib_rasr.label_scorer = RasrConfig()
+    config.lib_rasr.label_scorer.type = "no-op"
+
+    search_algorithm = RasrConfig()
+    search_algorithm.type = "tree-timesync-beam-search"
+    search_algorithm.tree_builder_type = "hmm"
+    search_algorithm.collapse_repeated_labels = collapse_repeated_labels
+    search_algorithm.force_blank_between_repeated_labels = False
+    search_algorithm.max_beam_size = max_beam_size
+    search_algorithm.intermediate_max_beam_size = intermediate_max_beam_size
+    search_algorithm.score_threshold = score_threshold
+    search_algorithm.intermediate_score_threshold = intermediate_score_threshold
+    search_algorithm.sentence_end_fall_back = sentence_end_fallback
+    search_algorithm.log_stepwise_statistics = log_stepwise_statistics
+    if max_word_end_beam_size is not None:
+        search_algorithm.max_word_end_beam_size = max_word_end_beam_size
+    if word_end_score_threshold is not None:
+        search_algorithm.word_end_score_threshold = word_end_score_threshold
+    if maximum_stable_delay is not None:
+        search_algorithm.maximum_stable_delay = maximum_stable_delay
+    config.lib_rasr.search_algorithm = search_algorithm
+
+    write_job = WriteRasrConfigJob(config, post_config)
+    return write_job.out_config
