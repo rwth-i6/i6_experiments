@@ -20,6 +20,14 @@ from sisyphus import Job, Task, tk
 class BuildBuckeyeFineDatasetJob(Job):
     """alexwengg/buckeye manifest+wav -> parquet dataset in our schema. See module docstring."""
 
+    # v2: skip empty/corrupt WAVs (e.g. s1901b_020 = 0 samples) that crash conv feature extraction.
+    __sis_version__ = 2
+
+    # Opt-in re-segmentation excluded-at-default from the hash so enabling it does NOT re-hash the
+    # original (no-resegment) dataset (keeps already-running extracts attached). MUST be a CLASS
+    # attr: Job.hash() reads cls.__sis_hash_exclude__; an instance attr set in __init__ is ignored.
+    __sis_hash_exclude__ = {"resegment_gap_s": None, "min_words": 1}
+
     def __init__(
         self,
         *,
@@ -28,12 +36,16 @@ class BuildBuckeyeFineDatasetJob(Job):
         num_shards: int = 8,
         max_segments: Optional[int] = None,
         max_duration_s: Optional[float] = None,
+        resegment_gap_s: Optional[float] = None,
+        min_words: int = 1,
         returnn_root: Optional[tk.Path] = None,
     ):
         super().__init__()
         self.raw_dir = raw_dir
         self.split_name = split_name
         self.num_shards = num_shards
+        self.resegment_gap_s = resegment_gap_s
+        self.min_words = min_words
         # Keep only short segments (duration <= max_duration_s): the full set is mostly capped at
         # ~25 s, which (a) at char-level exceeds Whisper's 448-token decoder context and (b) makes the
         # per-token-backward extracts too slow. <=20 s segments have <=385 chars (char-level fits) and
@@ -108,6 +120,12 @@ class BuildBuckeyeFineDatasetJob(Job):
                 wav = np.asarray(wav, dtype=np.float32)
                 if wav.ndim > 1:
                     wav = wav[:, 0]
+                # A few alexwengg WAVs are empty/corrupt (e.g. s1901b_020 = 0 samples) -- skip them;
+                # an empty input crashes the wav2vec2 conv feature extractor (input size 0).
+                if len(wav) < 1600:
+                    print(f"skip {s['id']}: {len(wav)} samples", flush=True)
+                    n_skipped += 1
+                    continue
                 words = [w for w in s["words"] if not (w["word"].startswith("<") or w["word"].startswith("{"))]
                 if not words:
                     n_skipped += 1
@@ -115,16 +133,49 @@ class BuildBuckeyeFineDatasetJob(Job):
                 utt = [w["word"] for w in words]
                 start = [int(round(w["start_ms"] * sr / 1000.0)) for w in words]
                 stop = [int(round(w["end_ms"] * sr / 1000.0)) for w in words]
-                n_words += len(utt)
-                n_segs += 1
-                recs.append(
-                    {
-                        "id": s["id"],
-                        "speaker": s.get("speaker", ""),
-                        "audio": {"array": wav, "sampling_rate": int(sr)},
-                        "word_detail": {"utterance": utt, "start": start, "stop": stop},
-                    }
-                )
+                if self.resegment_gap_s is None:
+                    n_words += len(utt)
+                    n_segs += 1
+                    recs.append(
+                        {
+                            "id": s["id"],
+                            "speaker": s.get("speaker", ""),
+                            "audio": {"array": wav, "sampling_rate": int(sr)},
+                            "word_detail": {"utterance": utt, "start": start, "stop": stop},
+                        }
+                    )
+                    continue
+                # Split at inter-word silences > resegment_gap_s so no sub-segment spans a long
+                # (other-speaker) silence; slice the audio per sub-segment with a small pad and
+                # re-reference word times to the sub-segment start.
+                gap_samples = self.resegment_gap_s * sr
+                spans = []
+                a = 0
+                for w in range(1, len(utt) + 1):
+                    if w == len(utt) or (start[w] - stop[w - 1]) > gap_samples:
+                        spans.append((a, w))
+                        a = w
+                pad = int(0.15 * sr)
+                for k, (a, b) in enumerate(spans):
+                    if b - a < self.min_words:
+                        n_skipped += 1
+                        continue
+                    w0 = max(0, start[a] - pad)
+                    w1 = min(len(wav), stop[b - 1] + pad)
+                    n_words += b - a
+                    n_segs += 1
+                    recs.append(
+                        {
+                            "id": f"{s['id']}_{k}",
+                            "speaker": s.get("speaker", ""),
+                            "audio": {"array": wav[w0:w1], "sampling_rate": int(sr)},
+                            "word_detail": {
+                                "utterance": utt[a:b],
+                                "start": [start[w] - w0 for w in range(a, b)],
+                                "stop": [stop[w] - w0 for w in range(a, b)],
+                            },
+                        }
+                    )
             ds = datasets.Dataset.from_list(recs, features=feats)
             out_pq = os.path.join(data_dir, f"{self.split_name}-{shard:05d}-of-{self.num_shards:05d}.parquet")
             ds.to_parquet(out_pq)
