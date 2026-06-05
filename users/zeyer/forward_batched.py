@@ -295,6 +295,14 @@ class BatchedReturnnForwardDynamicJob(Job):
     _num_gpus = 4
     _stop_safety_factor = 1.2
     _stop_exit_code = 3
+    # FileCache tuning, injected into each cell's post_config in run() so it stays hash-free.
+    # The 4 workers share one /tmp cache (fixed 96 GB tmpfs cap on the GH200 node). RETURNN's
+    # proactive-cleanup "wanted" threshold defaults to 1 day, so within a multi-hour run no
+    # released .arrow shard is ever old enough to evict and the cache grows until ENOSPC.
+    # ~1 min lets the want-branch keep the 20% free margin during the run; it stays well above
+    # the ~10 s in-use detection window, so shards being read are never evicted (each shard is
+    # forwarded exactly once, so there is no re-copy cost to evicting promptly).
+    _file_cache_opts = {"cleanup_files_wanted_older_than_days": 1.0 / (24 * 60)}
 
     def __init__(
         self,
@@ -379,6 +387,8 @@ class BatchedReturnnForwardDynamicJob(Job):
             if all(os.path.exists(dest) for dest in dests.values()):
                 continue  # resumable: this cell already done
             cfg = make_config()
+            if self._file_cache_opts:
+                cfg.post_config.setdefault("file_cache_opts", self._file_cache_opts)
             item_dir = os.path.join("items", key)
             os.makedirs(item_dir, exist_ok=True)
             cfg_path = os.path.join(item_dir, "returnn.config")
