@@ -586,6 +586,8 @@ def _worker_main():
     rnn_py = manifest["rnn_py"]
     job_dir = os.path.dirname(os.path.abspath(args.manifest))
 
+    if args.rank == 0:
+        _log_node_usage("worker start")
     ema = None
     for si in range(args.rank, len(items), args.world):
         item = items[si]
@@ -595,6 +597,8 @@ def _worker_main():
             left = slurm_time_left_sec()
             if left is not None and left < ema * args.safety:
                 _worker_barrier_and_exit(args.rank, args.world, job_dir, ema)
+        if args.rank == 0:  # node-global /tmp+RAM snapshot, to diagnose the RAM-tmpfs ENOSPC
+            _log_node_usage("before %s (item %i/%i)" % (item["key"], si, len(items)))
         t0 = time.time()
         _worker_run_item(python_exe, rnn_py, item)
         dt = time.time() - t0
@@ -652,6 +656,28 @@ def _worker_barrier_and_exit(rank, world, job_dir, ema):
             break
         time.sleep(5.0)
     sys.exit(3)
+
+
+def _log_node_usage(tag):
+    """
+    Log node /tmp (RAM-backed tmpfs) + RAM usage, to diagnose the tmpfs ENOSPC crashes.
+
+    Node-global view, so call from rank 0 only. ``du`` of /tmp's top level reveals which entry eats
+    the 96 GB rootfs, given our own output staging is only ~12 MB/shard.
+    """
+    import subprocess
+    import sys
+
+    print("=== node-usage [%s] ===" % tag, flush=True)
+    for cmd in (["df", "-h", "/tmp"], ["free", "-g"], ["du", "-xh", "--max-depth=1", "/tmp"]):
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            sys.stdout.write(r.stdout)
+            if r.stderr:
+                sys.stdout.write(r.stderr)
+        except Exception as e:
+            print("  %s failed: %r" % (" ".join(cmd), e))
+    sys.stdout.flush()
 
 
 def _write_manifest(*, items: List[Dict[str, Any]], returnn_root_path: str, returnn_python_exe_path: str):
