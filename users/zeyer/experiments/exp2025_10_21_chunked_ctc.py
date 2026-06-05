@@ -1292,8 +1292,13 @@ def py():
     # - R0-v2.3-overlap run. (TODO put result here once ready)
     # - 2xtrain (TODO put result here once ready)
     # - Overlap at recog only (-ov2): hurts; C5-R4-ov2 10.65 (vs 9.41), C5-R2-ov2 18.10 (vs 10.14).
-    # - dyn-rope-ctembed-impBase (TODO put result here once ready)
-    # - base-2xtrain (TODO put result here once ready)
+    # - dyn-rope-ctembed-overlap-mse: MSE helps the overlap variant (dev 10.20 -> 9.99),
+    #   but overlap still regresses vs no-overlap dyn-rope-ctembed (9.41).
+    #   Reference: overlap 10.20 / 11.03, overlap-mse 9.99 / 10.85, overlapD 9.75 / 10.56.
+    # - dyn-rope-ctembed-impBase (finetune from offline base): clear gain.
+    #   baseLr0.25 best (dev 8.83 / test 9.68), baseLr0.5 ~tied (8.84 / 9.71),
+    #   baseLr0.1 weaker (8.97 / 9.85); vs from-scratch dyn-rope-ctembed 9.41 / 10.29.
+    # - base-2xtrain: dev 6.58 / test 7.41 (vs base 1x 7.32 / 8.10).
     # - dyn-rope-ctembed-2xtrain (TODO put result here once ready)
     # - longform results (TODO summarize)
     # - WBE/TSE: now computed for every CTC model (TIMIT val+test); the uid seq-tag mismatch bug is fixed.
