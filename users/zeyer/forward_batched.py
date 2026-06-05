@@ -41,6 +41,7 @@ and class attrs (not __init__ args -> not hashed).
 
 from __future__ import annotations
 
+import functools
 from typing import Any, Callable, Dict, List, Optional
 
 from sisyphus import Job, Task, tk
@@ -54,7 +55,12 @@ from i6_experiments.users.zeyer.model_interfaces import ForwardRFDef
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint
 from i6_experiments.users.zeyer.forward_to_hdf import _returnn_forward_config_v2
 
-__all__ = ["BatchedReturnnForwardJob", "batched_forward_to_hdf"]
+__all__ = [
+    "BatchedReturnnForwardJob",
+    "batched_forward_to_hdf",
+    "BatchedReturnnForwardDynamicJob",
+    "batched_forward_per_arrow_shard_to_hdf",
+]
 
 
 class BatchedReturnnForwardJob(Job):
@@ -150,7 +156,6 @@ class BatchedReturnnForwardJob(Job):
     def create_files(self):
         """Write one RETURNN forward config per work item + the worker manifest and driver."""
         import os
-        import json
 
         items = []
         for key, item in self.work_items.items():
@@ -171,75 +176,27 @@ class BatchedReturnnForwardJob(Job):
                 ckpt_path = ckpt.get_path() if isinstance(ckpt, tk.Path) else getattr(ckpt, "path", ckpt).get_path()
                 assert os.path.exists(ckpt_path), "item %s: checkpoint missing: %s" % (key, ckpt_path)
 
-        manifest = {
-            "rnn_py": os.path.join(self.returnn_root.get_path(), "rnn.py"),
-            "returnn_root": self.returnn_root.get_path(),
-            "python_exe": self.returnn_python_exe.get_path(),
-            "items": items,
-        }
-        with open("manifest.json", "w") as f:
-            json.dump(manifest, f, indent=2)
-
-        # Worker driver: serialize an import of the worker entry point with i6_core's serialization_v2,
-        # so the logic lives as a real function in this module (:func:`_worker_main`) instead of a
-        # source-string blob. The generated worker.py is run by a plain Python (not via rnn.py).
-        # serialization_v2 resolves the direct i6_experiments import (and its sys.path); we add the
-        # remaining non-base sys.path entries (sisyphus, returnn, ...) explicitly, then append the call.
-        import sys
-        from i6_core.serialization.serialization_v2 import serialize_config, get_base_sys_path_list
-
-        extra_sys_paths = [p for p in sys.path if p not in get_base_sys_path_list()]
-        worker_code = (
-            serialize_config({"_worker_main": _worker_main}, extra_sys_paths=extra_sys_paths) + "\n_worker_main()\n"
+        _write_manifest(
+            items=items,
+            returnn_root_path=self.returnn_root.get_path(),
+            returnn_python_exe_path=self.returnn_python_exe.get_path(),
         )
-        with open("worker.py", "w") as f:
-            f.write(worker_code)
+        _write_worker_driver()
 
     def run(self):
         """Spawn one worker per GPU; round-robin items; resubmit if stopped early for walltime."""
-        import os
-        import glob
-        import subprocess
-
-        # Clear stale barrier markers from a previous (interrupted) run.
-        for f in glob.glob("stopping.rank*"):
-            os.remove(f)
-
-        parent_cvd = os.environ.get("CUDA_VISIBLE_DEVICES")
-        gpu_ids = parent_cvd.split(",") if parent_cvd else [str(i) for i in range(self._num_gpus)]
-        world = len(gpu_ids)
-        manifest = os.path.abspath("manifest.json")
-        worker = os.path.abspath("worker.py")
-
-        procs = []
-        for r in range(world):
-            env = os.environ.copy()
-            env["CUDA_VISIBLE_DEVICES"] = gpu_ids[r]
-            cmd = [
-                self.returnn_python_exe.get_path(),
-                worker,
-                "--rank",
-                str(r),
-                "--world",
-                str(world),
-                "--manifest",
-                manifest,
-                "--safety",
-                str(self._stop_safety_factor),
-            ]
-            procs.append(subprocess.Popen(cmd, env=env))
-        codes = [p.wait() for p in procs]
-
-        n_done = self.completed_count()
-        n_total = len(self.work_items)
-        if n_done >= n_total:
-            return  # all items written -> job done
-        if all(c in (0, self._stop_exit_code) for c in codes):
-            # Clean low-time stop (mirrors returnn Engine._maybe_stop_for_resubmission). Exit as
-            # interrupted so sis resubmits via Task("run", resume="run"); the existing-output skip
-            # makes the re-run continue from the remaining items.
-            raise KeyboardInterrupt("BatchedReturnnForwardJob: stop for resubmission (%i/%i done)" % (n_done, n_total))
-        raise RuntimeError("BatchedReturnnForwardJob: worker failure codes=%s (%i/%i done)" % (codes, n_done, n_total))
+        codes = _spawn_and_wait_workers(
+            num_gpus=self._num_gpus,
+            returnn_python_exe_path=self.returnn_python_exe.get_path(),
+            stop_safety_factor=self._stop_safety_factor,
+        )
+        _finish_run(
+            codes=codes,
+            n_done=self.completed_count(),
+            n_total=len(self.work_items),
+            stop_exit_code=self._stop_exit_code,
+            label="BatchedReturnnForwardJob",
+        )
 
 
 def batched_forward_to_hdf(
@@ -305,6 +262,262 @@ def batched_forward_to_hdf(
     if alias_name:
         job.add_alias(alias_name)
     return [job.out_files[key]["out.hdf"] for key in keys]
+
+
+class BatchedReturnnForwardDynamicJob(Job):
+    """
+    Like :class:`BatchedReturnnForwardJob`, but the set of work items (cells) is NOT known at
+    __init__ -- it is enumerated at run time by a user callable. Hence a single directory output
+    ``out/`` into which each cell writes its file(s) at a cell-chosen relative path, instead of one
+    declared ``output_path`` per (statically known) cell. Use this when the cell list is only
+    discoverable at run time (e.g. one cell per dynamically-discovered data shard); for a statically
+    known cell set use :class:`BatchedReturnnForwardJob`.
+
+    The cell enumeration separates cheap listing from expensive config building, so
+    ``completed_fraction`` / resumability never build configs. ``enumerate_cells()`` returns an
+    ordered ``list[(key, make_config, outputs)]`` where
+
+    - ``key`` is a path component (no ``/``) naming the cell,
+    - ``make_config`` is a zero-arg callable returning the cell's forward-ready ``ReturnnConfig``
+      (already through :meth:`ReturnnForwardJobV2.create_returnn_config`); invoked only for cells
+      whose output(s) are not yet present,
+    - ``outputs`` maps each cwd filename the config writes to its destination path *relative to* this
+      job's ``out/`` directory.
+
+    ``enumerate_cells`` itself must be cheap + deterministic + picklable + hashable (e.g. a
+    ``functools.partial`` of a module-level function); it is what the job hashes on (plus
+    ``returnn_python_exe`` / ``returnn_root``). Same multi-GPU node engine + walltime barrier-stop +
+    resumability (a cell whose output(s) exist is skipped) as :class:`BatchedReturnnForwardJob`.
+    """
+
+    # Runtime knobs (not __init__ args -> not hashed): node shape + stop policy.
+    _num_gpus = 4
+    _stop_safety_factor = 1.2
+    _stop_exit_code = 3
+
+    def __init__(
+        self,
+        enumerate_cells: Callable[[], List[Any]],
+        *,
+        returnn_python_exe: Optional[tk.Path] = None,
+        returnn_root: Optional[tk.Path] = None,
+    ):
+        """
+        :param enumerate_cells: zero-arg callable returning ``list[(key, make_config, outputs)]``
+            (see the class docstring). Invoked at run time (returnn on sys.path) and for
+            ``completed_fraction``, so it must be cheap, deterministic, picklable + hashable.
+        :param returnn_python_exe:
+        :param returnn_root:
+        """
+        super().__init__()
+        self.enumerate_cells = enumerate_cells
+        self.returnn_python_exe = (
+            returnn_python_exe if returnn_python_exe is not None else tools_paths.get_returnn_python_exe()
+        )
+        self.returnn_root = returnn_root if returnn_root is not None else tools_paths.get_returnn_root()
+
+        # Single dynamic-count directory output: filled with each cell's file(s) in run().
+        self.out_dir = self.output_path("out", directory=True)
+
+        # Full node: 4 GPUs, all 288 cores, ~400 GiB host RAM; clipped to the 12 h QOS wall.
+        self.rqmt = {
+            "gpu": self._num_gpus,
+            "gpu_mem": 96,
+            "cpu": 72 * self._num_gpus,
+            "mem": 100 * self._num_gpus,
+            "time": 11.95,
+        }
+
+    def tasks(self):
+        yield Task("create_files", mini_task=True)
+        yield Task("run", resume="run", rqmt=self.rqmt)
+
+    def _cell_dest(self, rel_dest: str) -> str:
+        """:return: absolute destination of a cell output file (``rel_dest`` is under ``out/``)."""
+        import os
+
+        return os.path.join(self.out_dir.get_path(), rel_dest)
+
+    def _cell_done(self, outputs: Dict[str, str]) -> bool:
+        """:return: whether all of a cell's output files already exist."""
+        import os
+
+        return all(os.path.exists(self._cell_dest(rel)) for rel in outputs.values())
+
+    def completed_count(self) -> int:
+        """:return: number of cells whose output file(s) are all already written."""
+        return sum(1 for (_key, _make_config, outputs) in self.enumerate_cells() if self._cell_done(outputs))
+
+    def completed_fraction(self) -> float:
+        """:return: fraction of cells done (for sis progress/ETA). Mirrors ReturnnTrainingJob."""
+        cells = self.enumerate_cells()
+        if not cells:
+            return 0.0
+        done = sum(1 for (_key, _make_config, outputs) in cells if self._cell_done(outputs))
+        return done / len(cells)
+
+    def create_files(self):
+        """Write just the worker driver; the per-cell configs + manifest are built in run() (dynamic)."""
+        _write_worker_driver()
+
+    def run(self):
+        """Enumerate cells, build a config per not-yet-done cell, run them all across the node."""
+        import os
+        import sys
+
+        # Config building (whatever enumerate_cells' make_config does) may import returnn.
+        sys.path.insert(0, self.returnn_root.get_path())
+        os.makedirs(self.out_dir.get_path(), exist_ok=True)
+
+        cells = self.enumerate_cells()
+        assert cells, "enumerate_cells() returned no cells"
+
+        items = []
+        for key, make_config, outputs in cells:
+            dests = {fn: self._cell_dest(rel) for fn, rel in outputs.items()}
+            if all(os.path.exists(dest) for dest in dests.values()):
+                continue  # resumable: this cell already done
+            cfg = make_config()
+            item_dir = os.path.join("items", key)
+            os.makedirs(item_dir, exist_ok=True)
+            cfg_path = os.path.join(item_dir, "returnn.config")
+            cfg.write(cfg_path)
+            items.append({"key": key, "config": os.path.abspath(cfg_path), "outputs": dests})
+
+        if items:
+            _write_manifest(
+                items=items,
+                returnn_root_path=self.returnn_root.get_path(),
+                returnn_python_exe_path=self.returnn_python_exe.get_path(),
+            )
+            codes = _spawn_and_wait_workers(
+                num_gpus=self._num_gpus,
+                returnn_python_exe_path=self.returnn_python_exe.get_path(),
+                stop_safety_factor=self._stop_safety_factor,
+            )
+        else:
+            codes = [0]  # nothing left (all cells already present)
+
+        _finish_run(
+            codes=codes,
+            n_done=self.completed_count(),
+            n_total=len(cells),
+            stop_exit_code=self._stop_exit_code,
+            label="BatchedReturnnForwardDynamicJob",
+        )
+
+
+def batched_forward_per_arrow_shard_to_hdf(
+    *,
+    hf_data_dir: tk.Path,
+    make_dataset: Callable[[List[str]], DatasetConfig],
+    model: Optional[ModelWithCheckpoint] = None,
+    forward_def: Optional[ForwardRFDef] = None,
+    forward_step: Optional[Callable] = None,
+    config: Optional[Dict[str, Any]] = None,
+    forward_post_config: Optional[Dict[str, Any]] = None,
+    alias_name: Optional[str] = None,
+) -> tk.Path:
+    """
+    Co-sharded counterpart of :func:`batched_forward_to_hdf`, on :class:`BatchedReturnnForwardDynamicJob`:
+    instead of ``num_shards`` seq-order partitions, produce exactly one HDF per ``data-*.arrow`` of
+    ``hf_data_dir``, named by the arrow shard, returned as a single directory. A DistributeFilesDataset
+    can then distribute file tuples ``(arrow_i, out_dir/<shard_key>.hdf)`` and pair audio with its
+    alignment per subepoch.
+
+    :param hf_data_dir: HF dataset dir holding the ``data-*.arrow`` shards.
+    :param make_dataset: ``list[str] -> DatasetConfig`` building the forward dataset for one shard's
+        arrow file(s). Must be picklable (e.g. a ``functools.partial`` of a module-level function).
+    :param model: model whose checkpoint is loaded for the forward.
+    :param forward_def: forward def (mark_as_output); use either this or forward_step.
+    :param forward_step: alternatively a forward_step.
+    :param config: extra RETURNN config.
+    :param forward_post_config: extra non-hashed RETURNN post config.
+    :param alias_name:
+    :return: the ``out/`` directory Path holding ``<shard_key>.hdf`` per arrow shard.
+    """
+    assert not (forward_def and forward_step), "either forward_def or forward_step, not both"
+    job = BatchedReturnnForwardDynamicJob(
+        functools.partial(
+            _enumerate_arrow_shard_cells,
+            hf_data_dir=hf_data_dir,
+            make_dataset=make_dataset,
+            model=model,
+            forward_def=forward_def,
+            forward_step=forward_step,
+            config=config,
+            forward_post_config=forward_post_config,
+        )
+    )
+    if alias_name:
+        job.add_alias(alias_name)
+    return job.out_dir
+
+
+def _enumerate_arrow_shard_cells(
+    *,
+    hf_data_dir: tk.Path,
+    make_dataset: Callable[[List[str]], DatasetConfig],
+    model: Optional[ModelWithCheckpoint],
+    forward_def: Optional[ForwardRFDef],
+    forward_step: Optional[Callable],
+    config: Optional[Dict[str, Any]],
+    forward_post_config: Optional[Dict[str, Any]],
+) -> List[Any]:
+    """
+    Enumerate one forward cell per ``data-*.arrow`` shard of ``hf_data_dir`` (cheap; no config built).
+
+    Cell key = arrow basename without ``.arrow`` (e.g. ``data-00007-of-00848``); the config's
+    ``out.hdf`` lands at ``<key>.hdf`` under the job's ``out/``. Uses the same
+    :func:`get_arrow_shard_files_from_hf_dataset_dir` as the DFD pairing, so the sets line up.
+    """
+    import os
+    from returnn.datasets.huggingface import get_arrow_shard_files_from_hf_dataset_dir
+
+    cells = []
+    for arrow_file in sorted(get_arrow_shard_files_from_hf_dataset_dir(hf_data_dir.get_path())):
+        base = os.path.basename(arrow_file)
+        key = base[: -len(".arrow")] if base.endswith(".arrow") else base
+        make_config = functools.partial(
+            _make_shard_forward_config,
+            arrow_files=[arrow_file],
+            make_dataset=make_dataset,
+            model=model,
+            forward_def=forward_def,
+            forward_step=forward_step,
+            config=config,
+            forward_post_config=forward_post_config,
+        )
+        cells.append((key, make_config, {"out.hdf": key + ".hdf"}))
+    return cells
+
+
+def _make_shard_forward_config(
+    *,
+    arrow_files: List[str],
+    make_dataset: Callable[[List[str]], DatasetConfig],
+    model: Optional[ModelWithCheckpoint],
+    forward_def: Optional[ForwardRFDef],
+    forward_step: Optional[Callable],
+    config: Optional[Dict[str, Any]],
+    forward_post_config: Optional[Dict[str, Any]],
+) -> ReturnnConfig:
+    """Build the forward-ready ReturnnConfig for one shard (its arrow file(s)); called lazily in run()."""
+    ds = make_dataset(arrow_files)
+    cfg = _returnn_forward_config_v2(
+        dataset=ds,
+        model_def=model.definition if model else None,
+        forward_def=forward_def,
+        forward_step=forward_step,
+        config=config,
+        post_config=forward_post_config,
+    )
+    return ReturnnForwardJobV2.create_returnn_config(
+        model_checkpoint=model.checkpoint.path if model else None,
+        returnn_config=cfg,
+        log_verbosity=5,
+        device="gpu",
+    )
 
 
 class _ShardedDataset(DatasetConfig):
@@ -438,3 +651,90 @@ def _worker_barrier_and_exit(rank, world, job_dir, ema):
             break
         time.sleep(5.0)
     sys.exit(3)
+
+
+def _write_manifest(*, items: List[Dict[str, Any]], returnn_root_path: str, returnn_python_exe_path: str):
+    """Write the worker ``manifest.json`` (the work items + the returnn/python paths used to run them)."""
+    import os
+    import json
+
+    manifest = {
+        "rnn_py": os.path.join(returnn_root_path, "rnn.py"),
+        "returnn_root": returnn_root_path,
+        "python_exe": returnn_python_exe_path,
+        "items": items,
+    }
+    with open("manifest.json", "w") as f:
+        json.dump(manifest, f, indent=2)
+
+
+def _write_worker_driver():
+    """
+    Write the per-GPU worker driver ``worker.py``.
+
+    Serialize an import of the worker entry point with i6_core's serialization_v2, so the logic lives
+    as a real function in this module (:func:`_worker_main`) instead of a source-string blob. The
+    generated worker.py is run by a plain Python (not via rnn.py). serialization_v2 resolves the direct
+    i6_experiments import (and its sys.path); we add the remaining non-base sys.path entries (sisyphus,
+    returnn, ...) explicitly, then append the call.
+    """
+    import sys
+    from i6_core.serialization.serialization_v2 import serialize_config, get_base_sys_path_list
+
+    extra_sys_paths = [p for p in sys.path if p not in get_base_sys_path_list()]
+    worker_code = (
+        serialize_config({"_worker_main": _worker_main}, extra_sys_paths=extra_sys_paths) + "\n_worker_main()\n"
+    )
+    with open("worker.py", "w") as f:
+        f.write(worker_code)
+
+
+def _spawn_and_wait_workers(*, num_gpus: int, returnn_python_exe_path: str, stop_safety_factor: float) -> List[int]:
+    """Clear stale barrier markers, spawn one worker per GPU (round-robin items), wait; return exit codes."""
+    import os
+    import glob
+    import subprocess
+
+    # Clear stale barrier markers from a previous (interrupted) run.
+    for f in glob.glob("stopping.rank*"):
+        os.remove(f)
+
+    parent_cvd = os.environ.get("CUDA_VISIBLE_DEVICES")
+    gpu_ids = parent_cvd.split(",") if parent_cvd else [str(i) for i in range(num_gpus)]
+    world = len(gpu_ids)
+    manifest = os.path.abspath("manifest.json")
+    worker = os.path.abspath("worker.py")
+
+    procs = []
+    for r in range(world):
+        env = os.environ.copy()
+        env["CUDA_VISIBLE_DEVICES"] = gpu_ids[r]
+        cmd = [
+            returnn_python_exe_path,
+            worker,
+            "--rank",
+            str(r),
+            "--world",
+            str(world),
+            "--manifest",
+            manifest,
+            "--safety",
+            str(stop_safety_factor),
+        ]
+        procs.append(subprocess.Popen(cmd, env=env))
+    return [p.wait() for p in procs]
+
+
+def _finish_run(*, codes: List[int], n_done: int, n_total: int, stop_exit_code: int, label: str):
+    """
+    Shared post-spawn verdict for both engine jobs.
+
+    All items written -> return (done). Else if every worker exited cleanly (0) or via the clean
+    low-walltime stop (``stop_exit_code``), raise KeyboardInterrupt so sis resubmits ``run`` and the
+    existing-output skip continues from the remaining items. Otherwise a real worker failure.
+    """
+    if n_done >= n_total:
+        return
+    if all(c in (0, stop_exit_code) for c in codes):
+        raise KeyboardInterrupt("%s: stop for resubmission (%i/%i done)" % (label, n_done, n_total))
+    raise RuntimeError("%s: worker failure codes=%s (%i/%i done)" % (label, codes, n_done, n_total))
