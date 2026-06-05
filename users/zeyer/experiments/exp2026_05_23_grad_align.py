@@ -877,6 +877,38 @@ def py():
     whisper_char_extract.add_alias(whisper_char_name)
     tk.register_output(f"{whisper_char_name}.hdf", whisper_char_extract.out_hdf)
     _w2v_aligns(whisper_char_extract, whisper_char_name, energy_pows=(0.0, 0.5))
+
+    # SmoothGrad ablation (attribution axis A) on the headline char-level Whisper surface: average the
+    # per-token gradient over noise_n_samples noisy forward+backward passes (Gaussian noise on the raw
+    # waveform). Tests whether saliency denoising sharpens boundaries vs the single-pass 47 ms baseline.
+    for _sg_std, _sg_n in [(0.01, 8), (0.03, 8)]:
+        _sg_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=whisper_char_cfg,
+            mult_grad_by_inputs=False,
+            attr_reduction="L2",
+            noise_std=_sg_std,
+            noise_n_samples=_sg_n,
+        )
+        _sg_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _sg_name = f"{whisper_char_name}-smoothgrad-std{_sg_std}-n{_sg_n}"
+        _sg_ex.add_alias(_sg_name)
+        tk.register_output(f"{_sg_name}.hdf", _sg_ex.out_hdf)
+        _sg_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+        _sg_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_sg_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=_sg_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=1.0,
+        )
+        _sg_nm = f"align/{_sg_name}-{_name_for_dict(_sg_ao)}-en0.5-sil1.0"
+        _sg_al.add_alias(_sg_nm)
+        tk.register_output(f"{_sg_nm}-wbe.txt", _sg_al.out_wbe)
     for _whc_ep, _whc_kap in [(0.5, 1.0), (0.3, 1.0)]:
         _whc_ao = {"apply_softmax_over_time": True, "blank_score": -5}
         _whc_sfx = _name_for_dict(_whc_ao) + f"-en{_whc_ep}-zsk{_whc_kap}"
@@ -2250,6 +2282,15 @@ def py():
             _bk_models += [
                 (voxtral_charlev_logmel_cfg, f"voxtral-charlevlogmel-{_bk_tag}-L1_grad-pertoken", "L1", False),
                 (pk_cfg, f"parakeet-rnnt-1.1b-logmel-{_bk_tag}-L2_grad-pertoken", "L2", False),
+                # Remaining speech-LLMs on Buckeye (Voxtral already above): Phi4-MM (char L2_e_grad) and
+                # Canary-Qwen (char L1, st1.5) -- complete the cross-model Buckeye column.
+                (pt_csp_cfg, f"phi4mm-{_bk_tag}-L2_e_grad-pertoken-charlev-spc", "L2", True),
+                (
+                    canary_charlev_logmel_st15_cfg,
+                    f"canary-qwen-charlev-spc-logmel-st15-{_bk_tag}-L1_grad-pertoken",
+                    "L1",
+                    False,
+                ),
                 # Re-tune the model/grad-score axes on Buckeye (vs the TIMIT-tuned char-L2_grad surface):
                 # subword tokenization (char vs SPM), grad*input (L2_e_grad), and L1 reduction.
                 (
