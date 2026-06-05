@@ -1286,7 +1286,9 @@ def py():
 
     # To report for next time:
     # - Running Mamba-2 SSD and DeltaNet and bidir variants (TODO summarize each)
-    # - dynCx3 run. (TODO put result here once ready)
+    # - dynCx3-rope-ctembed: no gain vs dyn-rope-ctembed (dev 9.47 / test 10.28 vs 9.41 / 10.29).
+    #   TODO put a more comprehensive comparison here, comparing non-dyn, dyn, dynV2, dynV3, dynV4, dnCx3,
+    #     wrt WER but also train time. also summarizing the actual diff between those (train pools).
     # - R0-v2.3-overlap run. (TODO put result here once ready)
     # - 2xtrain (TODO put result here once ready)
     # - Overlap at recog only (-ov2): hurts; C5-R4-ov2 10.65 (vs 9.41), C5-R2-ov2 18.10 (vs 10.14).
