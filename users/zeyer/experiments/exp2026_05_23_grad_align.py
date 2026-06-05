@@ -2236,29 +2236,37 @@ def py():
         # clean reseg primary ALSO a speech-LLM (Voxtral char, best LLM on TIMIT) and a transducer
         # (Parakeet RNN-T, best transducer on TIMIT) to test whether the cross-model TIMIT ranking
         # generalizes to spontaneous speech -- in particular whether transducers collapse like CTC.
+        _whc_cfg = rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir, char_level=True, char_level_sep=" ")
         _bk_models = [
-            (
-                rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir, char_level=True, char_level_sep=" "),
-                f"whisper-base-logmel-{_bk_tag}-L2_grad-pertoken-charlev-spc",
-                "L2",
-            ),
+            (_whc_cfg, f"whisper-base-logmel-{_bk_tag}-L2_grad-pertoken-charlev-spc", "L2", False),
             (
                 rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out"),
                 f"wav2vec2ctc-fproj_out-{_bk_tag}-L2_grad-pertoken",
                 "L2",
+                False,
             ),
         ]
         if _bk_tag == "buckeye-reseg":
             _bk_models += [
-                (voxtral_charlev_logmel_cfg, f"voxtral-charlevlogmel-{_bk_tag}-L1_grad-pertoken", "L1"),
-                (pk_cfg, f"parakeet-rnnt-1.1b-logmel-{_bk_tag}-L2_grad-pertoken", "L2"),
+                (voxtral_charlev_logmel_cfg, f"voxtral-charlevlogmel-{_bk_tag}-L1_grad-pertoken", "L1", False),
+                (pk_cfg, f"parakeet-rnnt-1.1b-logmel-{_bk_tag}-L2_grad-pertoken", "L2", False),
+                # Re-tune the model/grad-score axes on Buckeye (vs the TIMIT-tuned char-L2_grad surface):
+                # subword tokenization (char vs SPM), grad*input (L2_e_grad), and L1 reduction.
+                (
+                    rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir),
+                    f"whisper-base-logmel-{_bk_tag}-L2_grad-pertoken",
+                    "L2",
+                    False,
+                ),
+                (_whc_cfg, f"whisper-base-logmel-{_bk_tag}-L2_e_grad-pertoken-charlev-spc", "L2", True),
+                (_whc_cfg, f"whisper-base-logmel-{_bk_tag}-L1_grad-pertoken-charlev-spc", "L1", False),
             ]
-        for _bk_cfg, _bk_name, _bk_attr in _bk_models:
+        for _bk_cfg, _bk_name, _bk_attr, _bk_mgi in _bk_models:
             _bk_ex = ExtractInGradsPerTokenJob(
                 dataset_dir=_bk_dir,
                 dataset_key="test",
                 model_config=_bk_cfg,
-                mult_grad_by_inputs=False,
+                mult_grad_by_inputs=_bk_mgi,
                 attr_reduction=_bk_attr,
             )
             _bk_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
