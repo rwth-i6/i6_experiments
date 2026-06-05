@@ -35,7 +35,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import functools
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Sequence
 
 import returnn.frontend as rf
 from returnn.tensor import Dim
@@ -87,12 +87,42 @@ def py():
         )
     # Front-end isolation: same 4-GPU recipe but STANDARD log-mel (no DbMel), with a peak-LR sweep.
     #   logmel-mgpu vs asr-base-mgpu  -> log-mel-vs-DbMel front-end cost (mgpu held fixed)
-    #   logmel-mgpu vs base-ls        -> mgpu-vs-single-GPU cost (front-end held fixed; LR sweep
-    #                                    brackets the large-batch DDP retune: 0.5=no-scale, 1.0~sqrt, 2.0~linear)
-    for _lr_name, _lr in [("lr05", 0.5), ("lr10", 1.0), ("lr20", 2.0)]:
+    #   logmel-mgpu vs base-ls        -> mgpu-vs-single-GPU cost (front-end held fixed).
+    # Peak-LR sweep: 0.5=no-scale, 1.0~sqrt, 2.0~linear (the usual large-batch UP-scaling).
+    # But lr05 (no-scale) won, so 0.1/0.05 probe BELOW base-ls's LR:
+    # the 64M effective batch + 1/4 the optimizer updates may want a gentler peak, not a larger one.
+    for _lr_name, _lr in [("lr05", 0.5), ("lr10", 1.0), ("lr20", 2.0), ("lr01", 0.1), ("lr005", 0.05)]:
         _train_asr_base_multigpu(
             "asr-base-mgpu-logmel-" + _lr_name, prefix=prefix, feature_extraction=None, base_lr=_lr
         )
+    # mgpu-gap experiments (close base-ls 4.06 vs mgpu-logmel 4.35), all on the no-TTS log-mel baseline:
+    # (1) effective-batch match -- per-rank 4M (1/4) -> 16M effective = base-ls,
+    #     restoring the update count (100*S vs the 64M run's 25*S). A diagnostic for the batch/updates cause.
+    _train_asr_base_multigpu(
+        "asr-base-mgpu-logmel-bs4m", prefix=prefix, feature_extraction=None, base_lr=0.5, batch_size_feat=25_000
+    )
+    # (2) SOAP -- keep the big 64M batch, get more progress per update via Shampoo-eigenbasis preconditioning.
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.optim_ext.soap import SOAP
+    _train_asr_base_multigpu(
+        "asr-base-mgpu-logmel-soap",
+        prefix=prefix,
+        feature_extraction=None,
+        base_lr=1.0,
+        peak_lr=3e-3,  # SOAP-native LR scale (not comparable to AdamW's 5e-4 here)
+        extra_config_updates={"optimizer.class": rf.build_dict(SOAP)["class"]},
+        extra_config_deletes=["optimizer.epsilon", "optimizer.weight_decay_modules_blacklist"],
+    )
+    # (3) Muon -- orthogonalized-momentum, as in the nanogpt speedruns / nanochat.
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.optim_ext.muon import Muon
+    _train_asr_base_multigpu(
+        "asr-base-mgpu-logmel-muon",
+        prefix=prefix,
+        feature_extraction=None,
+        base_lr=1.0,
+        peak_lr=2e-2,  # Muon LR on the orthogonalized 2-D update; Adam-grouped params scaled down internally
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon", "optimizer.weight_decay_modules_blacklist"],
+    )
     # tts-enc-v1: pseudo-speech-enc-style text usage (~5 effective text passes, 100 ASR).
     _train_tts_encoder("tts-enc-v1", prefix=prefix)
     # tts-enc-v2: TTS-baseline-style text usage (~1.33 effective text passes).
@@ -158,7 +188,11 @@ def _train_asr_base_multigpu(
     prefix: str,
     feature_extraction: Optional[Dict[str, Any]] = None,
     base_lr: float = 0.5,
+    peak_lr: float = 1e-3,
     torch_distributed: Optional[Dict[str, Any]] = None,
+    batch_size_feat: int = 100_000,
+    extra_config_updates: Optional[Dict[str, Any]] = None,
+    extra_config_deletes: Optional[Sequence[str]] = None,
 ):
     """
     No-TTS audio-only ASR baseline trained with the FZJ 4-GPU DDP recipe.
@@ -240,13 +274,13 @@ def _train_asr_base_multigpu(
         config_updates={
             # nep=25; with num_processes=4 DDP the data is iterated ~4x/epoch -> ~100 effective passes,
             # matching base-ls (nep=100) and the TTS-encoder runs.
-            **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(25, base_lr=base_lr),
+            **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(25, base_lr=base_lr, peak_lr=peak_lr),
             # Match base-ls (imported single-GPU LibriSpeech AED baseline, identical model):
             # batch_size 16M + max_seqs 200. The ONLY intended difference here is multi-GPU DDP.
             # Earlier 400k/500, copied from the TTS runs' alternate audio/text batching
             # (where those numbers don't translate), OOM'd this plain-ASR model on 96GB;
             # even 200k/500 still OOM'd at step 0 (~203 seqs -> 91GB).
-            "batch_size": 100_000 * configs._batch_size_factor,  # = base-ls 16M
+            "batch_size": batch_size_feat * configs._batch_size_factor,  # = base-ls 16M at the 100k default
             "max_seqs": 200,  # = base-ls
             "optimizer.weight_decay": 1e-2,
             "__train_audio_preprocess": speed_pert_librosa_config,
@@ -271,7 +305,9 @@ def _train_asr_base_multigpu(
             ),
             "__mem_rqmt": 100,
             "__cpu_rqmt": 72,
+            **(extra_config_updates or {}),
         },
+        config_deletes=extra_config_deletes,
         post_config_updates={"log_grad_norm": True, "stop_for_resubmission_when_low_time_left": True},
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
         vocab=vocab,
