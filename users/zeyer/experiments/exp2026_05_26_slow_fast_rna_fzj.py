@@ -18,6 +18,7 @@ which is wrong for the long per-frame targets).
 
 from __future__ import annotations
 
+import functools
 from typing import Any, Dict, List, Optional
 
 from sisyphus import tk
@@ -83,7 +84,7 @@ _CHUNK_SIZE = 10  # encoder frames (60ms each) -> 600ms chunks
 # the full ~25k h split (sharded gpu=4). Subset selection is deterministic
 # (get_hf_random_sorted_subset_v2), so the align HDFs and the train audio see the identical seq set.
 _LOQ_SUBSET_TRAIN_SEQS = 50_000
-_LOQ_FULL_TRAIN = False
+_LOQ_FULL_TRAIN = True
 
 
 def py():
@@ -211,22 +212,105 @@ class _LoqAudioProvider:
 
 
 def _loq_align_hdfs(
-    model, *, num_shards: int, aux_ctc_layer: int, subset_seqs: Optional[int]
+    model, *, num_shards: int, aux_ctc_layer: int, subset_seqs: Optional[int], keys=("train", "dev")
 ) -> Dict[str, List[tk.Path]]:
     """Sharded multi-GPU CTC forced-align HDFs for the Loquacious train (subset) + full dev splits.
 
     The train subset here must match :class:`_LoqAudioProvider`'s train subset (same ``subset_seqs``)
-    so the alignment HDF and the training audio cover the identical seqs.
+    so the alignment HDF and the training audio cover the identical seqs. ``keys`` selects which splits
+    to build (the full-train path takes only ``dev`` here; its train alignment is co-sharded instead, via
+    :func:`_loq_coshard_align_dir`).
     """
     from returnn.tensor import Dim
 
     vocab = _loq_vocab()
     classes_dim = Dim(vocab.get_num_classes(), name="spm", kind=Dim.Types.Feature)
+    key_subset = {"train": subset_seqs, "dev": None}
     out = {}
-    for key, sub in [("train", subset_seqs), ("dev", None)]:
-        src = _LoqAlignSource(_loq_dataset_config(key, subset_seqs=sub), classes_dim=classes_dim)
+    for key in keys:
+        src = _LoqAlignSource(_loq_dataset_config(key, subset_seqs=key_subset[key]), classes_dim=classes_dim)
         out[key] = _aed_ctc_forced_align(model, src, aux_ctc_layer=aux_ctc_layer, num_shards=num_shards)
     return out
+
+
+def _loq_make_shard_align_dataset(arrow_files, *, hf_data_dir, classes_dim):
+    """Forced-align source over one audio arrow shard's file(s): the loq HF audio+text dataset restricted
+    to ``arrow_files`` (reusing the audio DistributeFilesDataset's per-subepoch builder), plus the explicit
+    target ``sparse_dim`` that :func:`_aed_ctc_forced_align` needs. Module-level + picklable (bound to a
+    tk.Path + Dim) so it can be the ``make_dataset`` of :func:`batched_forward_per_arrow_shard_to_hdf`.
+    """
+    import copy
+    from returnn_common.datasets_old_2022_10.interface import DatasetConfigStatic
+    from i6_experiments.users.zeyer.datasets.loquacious import _make_hf_dataset
+
+    base = _make_hf_dataset(hf_data_dir=hf_data_dir, split="train", vocab=_loq_vocab(), use_distrib_files=True)
+    audio_dict = base.main_dataset["get_sub_epoch_dataset"](arrow_files)
+    extern = copy.deepcopy(base.extern_data)
+    extern[base.default_target]["sparse_dim"] = classes_dim
+    return DatasetConfigStatic(
+        main_name="train",
+        main_dataset=audio_dict,
+        extern_data=extern,
+        default_input=base.default_input,
+        default_target=base.default_target,
+        use_deep_copy=True,
+    )
+
+
+def _loq_coshard_align_dir(model, *, aux_ctc_layer: int) -> tk.Path:
+    """One CTC forced-align HDF per audio arrow shard (co-named), as a single dir, via the dynamic batched
+    forward job. Mirrors :func:`_aed_ctc_forced_align`'s forward config, but enumerates cells per arrow
+    shard so the HDFs pair 1:1 with the audio DistributeFilesDataset shards for the co-shard train path.
+    """
+    from returnn.tensor import Dim
+    from i6_experiments.users.zeyer.forward_batched import batched_forward_per_arrow_shard_to_hdf
+    from i6_experiments.users.zeyer.datasets.loquacious import get_loquacious_hf_ogg
+    from i6_experiments.users.zeyer.experiments.exp2025_10_21_chunked_ctc import _aed_ctc_model_forced_align_step
+
+    vocab = _loq_vocab()
+    classes_dim = Dim(vocab.get_num_classes(), name="spm", kind=Dim.Types.Feature)
+    classes_with_blank_dim = classes_dim + 1
+    fwd_config = {
+        "model_outputs": {
+            "output": {"shape": (None,), "sparse_dim": classes_with_blank_dim},
+            "scores": {"shape": ()},
+        },
+        "aux_loss_layers": [aux_ctc_layer],
+        # Forced align is forward-only (no backward / optimizer state), so a large batch fits easily on
+        # the 96GB GH200 and keeps each per-shard cell GPU-bound. Without this the forward inherits a
+        # tiny default batch and leaves the GPU ~95% empty (per-cell model reload is only ~3% of wall).
+        "batch_size": 200_000 * configs._batch_size_factor,
+        "max_seqs": 200,
+    }
+    hf_dir = get_loquacious_hf_ogg(name="large")
+    return batched_forward_per_arrow_shard_to_hdf(
+        hf_data_dir=hf_dir.join_right("train"),
+        make_dataset=functools.partial(_loq_make_shard_align_dataset, hf_data_dir=hf_dir, classes_dim=classes_dim),
+        model=model,
+        forward_step=_aed_ctc_model_forced_align_step,
+        config=fwd_config,
+    )
+
+
+def _loq_coshard_train_parts(model, *, aux_ctc_layer: int, partition_epoch: int = 25) -> Dict[str, Any]:
+    """Ingredients for :attr:`ChunkAlignDataset.train_coshard` (full ~25k h train): the audio
+    DistributeFilesDataset's own lazy arrow-shard ``files`` callable + per-subepoch audio builder, the
+    per-arrow-shard alignment dir, and the DFD ``partition_epoch`` (25 -> ~1000 h/subepoch, matching the
+    loq base full train's ``train_epoch_split``).
+    """
+    from i6_experiments.users.zeyer.datasets.loquacious import _make_hf_dataset, get_loquacious_hf_ogg
+
+    hf_dir = get_loquacious_hf_ogg(name="large")
+    audio_dfd = _make_hf_dataset(
+        hf_data_dir=hf_dir, split="train", vocab=_loq_vocab(), use_distrib_files=True
+    ).main_dataset
+    assert audio_dfd["class"] == "DistributeFilesDataset", audio_dfd["class"]
+    return dict(
+        audio_files=audio_dfd["files"],
+        audio_sub_epoch_dataset=audio_dfd["get_sub_epoch_dataset"],
+        align_dir=_loq_coshard_align_dir(model, aux_ctc_layer=aux_ctc_layer),
+        partition_epoch=partition_epoch,
+    )
 
 
 def _enc_build_dict():
@@ -297,13 +381,8 @@ def _train_streaming_variant(
         with disable_register_output():
             exp_base, base_aux_ctc_layer = _train_loquacious_base()
         base_model = exp_base.get_last_fixed_epoch()
-        subset_seqs = None if _LOQ_FULL_TRAIN else _LOQ_SUBSET_TRAIN_SEQS
-        align_hdfs = _loq_align_hdfs(
-            base_model, num_shards=8, aux_ctc_layer=base_aux_ctc_layer, subset_seqs=subset_seqs
-        )
-        audio_provider = _LoqAudioProvider(train_subset_seqs=subset_seqs)
         # HF audio is raw [B, T]: declare no feature axis and map the "audio" key. No inner MPD (the HF
-        # subset is the MetaDataset seq-order control); the map_seq postproc is still parallelized.
+        # dataset is the MetaDataset seq-order control); the map_seq postproc is still parallelized.
         chunk_data_kw = dict(
             train_main_key="train",
             dev_main_key="dev",
@@ -312,6 +391,23 @@ def _train_streaming_variant(
             train_mpd_num_workers=None,
             postproc_num_workers=2,
         )
+        if _LOQ_FULL_TRAIN:
+            # Full ~25k h: co-shard the train alignment with the audio arrow shards (one align HDF per
+            # shard, distributed together by a DistributeFilesDataset). Dev stays on the normal sharded
+            # MetaDataset path. The audio provider is used only for dev (the DFD builds train per subepoch).
+            align_hdfs = _loq_align_hdfs(
+                base_model, num_shards=8, aux_ctc_layer=base_aux_ctc_layer, subset_seqs=None, keys=("dev",)
+            )
+            audio_provider = _LoqAudioProvider(train_subset_seqs=None)
+            chunk_data_kw["train_coshard"] = _loq_coshard_train_parts(
+                base_model, aux_ctc_layer=base_aux_ctc_layer
+            )
+        else:
+            subset_seqs = _LOQ_SUBSET_TRAIN_SEQS
+            align_hdfs = _loq_align_hdfs(
+                base_model, num_shards=8, aux_ctc_layer=base_aux_ctc_layer, subset_seqs=subset_seqs
+            )
+            audio_provider = _LoqAudioProvider(train_subset_seqs=subset_seqs)
         recog_task = lambda: get_loquacious_task_raw_v2(vocab="spm10k")  # noqa: E731
         recog_dev_sets = ["dev"]
     else:
@@ -363,6 +459,18 @@ def _train_streaming_variant(
         config,
         {"max_seq_length_default_target": None, "max_seq_length_default_input": 19.5 * _raw_sample_rate},
     )
+    if corpus == "loq" and _LOQ_FULL_TRAIN:
+        # Full ~25k h Loquacious-large: 4 full epochs. n_ep counts subepochs and partition_epoch=25
+        # -> 25 subepochs = 1 pass, so n_ep = 4 * 25 = 100 (matches exp2026_05_26_base_fzj). The DFD
+        # shards across the 4 DDP ranks, so the data is covered once per cycle (no division by num_gpus).
+        # Full-node batch_size like the base full-train (the shared smoke default above is 10x smaller).
+        config = dict_update_deep(
+            config,
+            {
+                **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
+                "batch_size": 100_000 * configs._batch_size_factor,
+            },
+        )
 
     exp = train_v4.train(
         prefix + "/" + name,
