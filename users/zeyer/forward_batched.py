@@ -157,7 +157,6 @@ class BatchedReturnnForwardJob(Job):
     def create_files(self):
         """Write one RETURNN forward config per work item + the worker manifest and driver."""
         import os
-        import json
 
         items = []
         for key, item in self.work_items.items():
@@ -178,75 +177,27 @@ class BatchedReturnnForwardJob(Job):
                 ckpt_path = ckpt.get_path() if isinstance(ckpt, tk.Path) else getattr(ckpt, "path", ckpt).get_path()
                 assert os.path.exists(ckpt_path), "item %s: checkpoint missing: %s" % (key, ckpt_path)
 
-        manifest = {
-            "rnn_py": os.path.join(self.returnn_root.get_path(), "rnn.py"),
-            "returnn_root": self.returnn_root.get_path(),
-            "python_exe": self.returnn_python_exe.get_path(),
-            "items": items,
-        }
-        with open("manifest.json", "w") as f:
-            json.dump(manifest, f, indent=2)
-
-        # Worker driver: serialize an import of the worker entry point with i6_core's serialization_v2,
-        # so the logic lives as a real function in this module (:func:`_worker_main`) instead of a
-        # source-string blob. The generated worker.py is run by a plain Python (not via rnn.py).
-        # serialization_v2 resolves the direct i6_experiments import (and its sys.path); we add the
-        # remaining non-base sys.path entries (sisyphus, returnn, ...) explicitly, then append the call.
-        import sys
-        from i6_core.serialization.serialization_v2 import serialize_config, get_base_sys_path_list
-
-        extra_sys_paths = [p for p in sys.path if p not in get_base_sys_path_list()]
-        worker_code = (
-            serialize_config({"_worker_main": _worker_main}, extra_sys_paths=extra_sys_paths) + "\n_worker_main()\n"
+        _write_manifest(
+            items=items,
+            returnn_root_path=self.returnn_root.get_path(),
+            returnn_python_exe_path=self.returnn_python_exe.get_path(),
         )
-        with open("worker.py", "w") as f:
-            f.write(worker_code)
+        _write_worker_driver()
 
     def run(self):
         """Spawn one worker per GPU; round-robin items; resubmit if stopped early for walltime."""
-        import os
-        import glob
-        import subprocess
-
-        # Clear stale barrier markers from a previous (interrupted) run.
-        for f in glob.glob("stopping.rank*"):
-            os.remove(f)
-
-        parent_cvd = os.environ.get("CUDA_VISIBLE_DEVICES")
-        gpu_ids = parent_cvd.split(",") if parent_cvd else [str(i) for i in range(self._num_gpus)]
-        world = len(gpu_ids)
-        manifest = os.path.abspath("manifest.json")
-        worker = os.path.abspath("worker.py")
-
-        procs = []
-        for r in range(world):
-            env = os.environ.copy()
-            env["CUDA_VISIBLE_DEVICES"] = gpu_ids[r]
-            cmd = [
-                self.returnn_python_exe.get_path(),
-                worker,
-                "--rank",
-                str(r),
-                "--world",
-                str(world),
-                "--manifest",
-                manifest,
-                "--safety",
-                str(self._stop_safety_factor),
-            ]
-            procs.append(subprocess.Popen(cmd, env=env))
-        codes = [p.wait() for p in procs]
-
-        n_done = self.completed_count()
-        n_total = len(self.work_items)
-        if n_done >= n_total:
-            return  # all items written -> job done
-        if all(c in (0, self._stop_exit_code) for c in codes):
-            # Clean low-time stop (mirrors returnn Engine._maybe_stop_for_resubmission). Exit as
-            # interrupted so sis resubmits via Task("run", resume="run"); the existing-output skip
-            # makes the re-run continue from the remaining items.
-            raise KeyboardInterrupt("BatchedReturnnForwardJob: stop for resubmission (%i/%i done)" % (n_done, n_total))
-        raise RuntimeError("BatchedReturnnForwardJob: worker failure codes=%s (%i/%i done)" % (codes, n_done, n_total))
+        codes = _spawn_and_wait_workers(
+            num_gpus=self._num_gpus,
+            returnn_python_exe_path=self.returnn_python_exe.get_path(),
+            stop_safety_factor=self._stop_safety_factor,
+        )
+        _finish_run(
+            codes=codes,
+            n_done=self.completed_count(),
+            n_total=len(self.work_items),
+            stop_exit_code=self._stop_exit_code,
+            label="BatchedReturnnForwardJob",
+        )
 
 
 def batched_forward_to_hdf(
