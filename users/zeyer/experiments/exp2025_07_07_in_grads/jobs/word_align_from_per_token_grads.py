@@ -35,6 +35,7 @@ class WordAlignFromPerTokenGradsJob(Job):
         "blank_grad_zscore_kappa": 0.0,
         "blank_silence_energy_scale": 0.0,
         "local_norm_window_s": None,
+        "boundary_source": "word_detail",
     }
 
     # v2: emit the richer metric set (acc@collar, edge/interior, start/end MAE) via align_metrics.
@@ -54,6 +55,7 @@ class WordAlignFromPerTokenGradsJob(Job):
         blank_grad_zscore_kappa: float = 0.0,
         blank_silence_energy_scale: float = 0.0,
         local_norm_window_s: Optional[float] = None,
+        boundary_source: str = "word_detail",
     ):
         """
         :param grad_score_hdf: from :class:`ExtractInGradsPerTokenJob`. Must
@@ -74,6 +76,8 @@ class WordAlignFromPerTokenGradsJob(Job):
         self.blank_grad_zscore_kappa = float(blank_grad_zscore_kappa)
         self.blank_silence_energy_scale = float(blank_silence_energy_scale)
         self.local_norm_window_s = local_norm_window_s
+        self.boundary_source = boundary_source
+        assert boundary_source in ("word_detail", "phonetic_detail"), boundary_source
         assert not (self.blank_grad_zscore_kappa and self.blank_silence_energy_scale), (
             "blank_grad_zscore_kappa and blank_silence_energy_scale are mutually exclusive"
         )
@@ -228,9 +232,10 @@ class WordAlignFromPerTokenGradsJob(Job):
                 f" {audio_len_secs=} {num_audio_samples=} {secs_per_timeframe=}"
             )
 
-            words: List[str] = data["word_detail"]["utterance"]
-            ref_word_starts: List[float] = data["word_detail"]["start"]
-            ref_word_ends: List[float] = data["word_detail"]["stop"]
+            _bsrc = getattr(self, "boundary_source", "word_detail")
+            words: List[str] = data[_bsrc]["utterance"]
+            ref_word_starts: List[float] = data[_bsrc]["start"]
+            ref_word_ends: List[float] = data[_bsrc]["stop"]
             assert num_words == len(words) == len(ref_word_starts) == len(ref_word_ends), (
                 f"{num_words=} {len(words)=} {len(ref_word_starts)=}"
             )

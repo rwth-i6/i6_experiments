@@ -58,6 +58,9 @@ from i6_experiments.users.zeyer.external_models.canary_qwen import (
 )
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.canary_qwen import CanaryQwen
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.wav2vec2_ctc import Wav2Vec2Ctc
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.wav2vec2_phoneme_ctc import (
+    Wav2Vec2PhonemeCtc,
+)
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.emformer_rnnt import EmformerRnnt
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.parakeet_rnnt import ParakeetRnnt
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.whisper import Whisper
@@ -79,6 +82,12 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.buckeye_
 )
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.word_align_from_per_token_grads import (
     WordAlignFromPerTokenGradsJob,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.phoneme_word_wbe import (
+    PhonemeAlignWordWbeJob,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.phoneme_forced_align_baseline import (
+    ForcedAlignPhonemeBaselineJob,
 )
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.apptainer import (
     PullApptainerImageJob,
@@ -886,6 +895,72 @@ def py():
     tk.register_output(f"{whisper_char_name}.hdf", whisper_char_extract.out_hdf)
     _w2v_aligns(whisper_char_extract, whisper_char_name, energy_pows=(0.0, 0.5))
 
+    # --- Phoneme-CTC grad-align (axis: native phoneme model, WhisperX-style) ---
+    # vitouphy/wav2vec2-xls-r-300m-timit-phoneme: wav2vec2 + 39-IPA CTC head, TIMIT-trained.
+    # Targets = TIMIT's own phone labels (phonetic_detail), folded 61->39 IPA inside the adapter;
+    # each phone segment = one CTC unit. The align job measures PHONE-boundary error vs the dataset's
+    # phone boundaries -- a strictly finer, on-distribution alignment than word/char. CTC => may front-load.
+    dl_w2v_phoneme = DownloadHuggingFaceRepoJobV2(
+        repo_id="vitouphy/wav2vec2-xls-r-300m-timit-phoneme", repo_type="model"
+    )
+    tk.register_output("w2v-phoneme-model", dl_w2v_phoneme.out_hub_cache_dir)
+    w2v_phoneme_cfg = rf.build_dict(Wav2Vec2PhonemeCtc, model_dir=dl_w2v_phoneme.out_hub_cache_dir)
+    w2v_ph_extract = ExtractInGradsPerTokenJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=w2v_phoneme_cfg,
+        mult_grad_by_inputs=False,
+        attr_reduction="L2",
+        target_source="phonetic_detail",
+    )
+    w2v_ph_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    w2v_ph_name = "w2v-phoneme-timit-val-L2_grad-perphone"
+    w2v_ph_extract.add_alias(w2v_ph_name)
+    tk.register_output(f"{w2v_ph_name}.hdf", w2v_ph_extract.out_hdf)
+    for _ph_ep, _ph_sc in [(0.0, 0.0), (0.5, 1.0)]:
+        _ph_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+        _ph_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=w2v_ph_extract.out_hdf,
+            grad_score_key="data",
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=_ph_ao,
+            audio_energy_pow=_ph_ep,
+            blank_silence_energy_scale=_ph_sc,
+            boundary_source="phonetic_detail",
+        )
+        _ph_nm = f"align/{w2v_ph_name}-en{_ph_ep}-sil{_ph_sc}"
+        _ph_al.add_alias(_ph_nm)
+        tk.register_output(f"{_ph_nm}-wbe.txt", _ph_al.out_wbe)
+        # Collapse the per-phone grad-align to per-WORD boundaries -> word-WBE
+        # (comparable to the cross-model word table). Reuses the same grad HDF + DP.
+        _ph_ww = PhonemeAlignWordWbeJob(
+            grad_score_hdf=w2v_ph_extract.out_hdf,
+            grad_score_key="data",
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=_ph_ao,
+            audio_energy_pow=_ph_ep,
+            blank_silence_energy_scale=_ph_sc,
+        )
+        _ph_ww.add_alias(f"{_ph_nm}-wordcollapse")
+        tk.register_output(f"{_ph_nm}-word-wbe.txt", _ph_ww.out_word_wbe)
+
+    # Standard CTC forced-alignment baseline on the SAME phoneme model (torchaudio
+    # Viterbi): the "WhisperX on its own phoneme model" point. Brackets our grad-align
+    # phone-WBE from above; reports both phone-WBE and word-WBE.
+    _ph_fa = ForcedAlignPhonemeBaselineJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        model_dir=dl_w2v_phoneme.out_hub_cache_dir,
+        dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+    )
+    _ph_fa.add_alias("align/w2v-phoneme-timit-val-ctc-forced-align")
+    tk.register_output("align/w2v-phoneme-timit-val-ctc-forced-align-phone-wbe.txt", _ph_fa.out_phone_wbe)
+    tk.register_output("align/w2v-phoneme-timit-val-ctc-forced-align-word-wbe.txt", _ph_fa.out_word_wbe)
+
     # SmoothGrad ablation (attribution axis A) on the headline char-level Whisper surface: average the
     # per-token gradient over noise_n_samples noisy forward+backward passes (Gaussian noise on the raw
     # waveform). Tests whether saliency denoising sharpens boundaries vs the single-pass 47 ms baseline.
@@ -1009,6 +1084,37 @@ def py():
         _ig_nm = f"align/{_ig_name}-{_name_for_dict(_ig_ao)}-en0.5-sil1.0"
         _ig_al.add_alias(_ig_nm)
         tk.register_output(f"{_ig_nm}-wbe.txt", _ig_al.out_wbe)
+
+    # Expected-Gradients ablation (axis A): IG with RANDOM noise baselines x' (baseline-std SWEEP) +
+    # random alpha per step. Headline char Whisper.
+    for _eg_std in [0.01, 0.05, 0.1]:
+        _eg_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=whisper_char_cfg,
+            mult_grad_by_inputs=False,
+            attr_reduction="L2",
+            eg_steps=16,
+            eg_baseline_std=_eg_std,
+        )
+        _eg_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _eg_name = f"whisper-base-logmel-timit-val-L2-expected-grad-pertoken-charlev-spc-eg16-bstd{_eg_std}"
+        _eg_ex.add_alias(_eg_name)
+        tk.register_output(f"{_eg_name}.hdf", _eg_ex.out_hdf)
+        _eg_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+        _eg_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_eg_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=_eg_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=1.0,
+        )
+        _eg_nm = f"align/{_eg_name}-{_name_for_dict(_eg_ao)}-en0.5-sil1.0"
+        _eg_al.add_alias(_eg_nm)
+        tk.register_output(f"{_eg_nm}-wbe.txt", _eg_al.out_wbe)
 
     # Local-emission-normalization ablation (seconds-based window) on the headline char Whisper, on
     # BOTH TIMIT val + Buckeye-reseg, to validate the small AED collar win found offline (the reseg

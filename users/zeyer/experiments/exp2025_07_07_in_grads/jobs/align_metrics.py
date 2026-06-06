@@ -81,3 +81,43 @@ def aggregate_corpus(
     for c in collars_sec:
         out[f"acc_{int(round(c * 1000))}ms"] = mean([1.0 if b <= c else 0.0 for b in all_bnd])
     return out
+
+
+def collapse_phones_to_words(
+    pred_phone_start_ends: Sequence[Tuple[float, float]],
+    phone_starts_samples: Sequence[float],
+    phone_stops_samples: Sequence[float],
+    word_starts_samples: Sequence[float],
+    word_stops_samples: Sequence[float],
+    time_scale: float,
+) -> Tuple[List[Tuple[float, float]], List[Tuple[float, float]]]:
+    """Collapse per-phone PREDICTED boundaries to per-word boundaries.
+
+    A phone belongs to the word whose GT span contains the phone's GT midpoint
+    (inter-word silences h#/pau fall in no word and are dropped). The word's
+    predicted boundary = (predicted start of its first phone, predicted end of
+    its last phone); its reference boundary = the GT word span.
+
+    :param pred_phone_start_ends: per-phone (start, end) seconds, PREDICTED,
+        same order/length as the GT phone segments.
+    :param phone_starts_samples / phone_stops_samples: GT phone segment bounds (samples).
+    :param word_starts_samples / word_stops_samples: GT word segment bounds (samples).
+    :param time_scale: samples -> seconds factor (``dataset_offset_factors / samplerate``).
+    :return: ``(pred_word_start_ends, ref_word_start_ends)``, 1:1 per word (seconds).
+    """
+    n_ph = len(pred_phone_start_ends)
+    assert n_ph == len(phone_starts_samples) == len(phone_stops_samples), (
+        f"{n_ph=} {len(phone_starts_samples)=} {len(phone_stops_samples)=}"
+    )
+    phone_mid = [0.5 * (s + e) for s, e in zip(phone_starts_samples, phone_stops_samples)]
+    pred_word, ref_word = [], []
+    for ws, we in zip(word_starts_samples, word_stops_samples):
+        idxs = [i for i, m in enumerate(phone_mid) if ws <= m < we]
+        if not idxs:  # fallback: any GT overlap
+            idxs = [i for i in range(n_ph) if phone_starts_samples[i] < we and phone_stops_samples[i] > ws]
+        if not idxs:  # degenerate (e.g. zero-width word span in TIMIT): nearest phone by GT midpoint
+            wmid = 0.5 * (ws + we)
+            idxs = [min(range(n_ph), key=lambda i: abs(phone_mid[i] - wmid))]
+        pred_word.append((pred_phone_start_ends[idxs[0]][0], pred_phone_start_ends[idxs[-1]][1]))
+        ref_word.append((ws * time_scale, we * time_scale))
+    return pred_word, ref_word

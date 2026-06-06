@@ -32,7 +32,15 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
     # Do NOT bump __sis_version__ for a behaviour-preserving optional kwarg --
     # that would needlessly re-run every existing job.
     # Only the SmoothGrad variants (noise_std != 0) differ from the defaults, and thus get a distinct hash.
-    __sis_hash_exclude__ = {"noise_n_samples": 1, "noise_std": 0.0, "ig_steps": 1, "vargrad": False}
+    __sis_hash_exclude__ = {
+        "noise_n_samples": 1,
+        "noise_std": 0.0,
+        "ig_steps": 1,
+        "vargrad": False,
+        "eg_steps": 1,
+        "eg_baseline_std": 0.0,
+        "target_source": "word_detail",
+    }
 
     def __init__(
         self,
@@ -41,6 +49,9 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         noise_std: float = 0.0,
         ig_steps: int = 1,
         vargrad: bool = False,
+        eg_steps: int = 1,
+        eg_baseline_std: float = 0.0,
+        target_source: str = "word_detail",
         **kwargs,
     ):
         """Extends the base with SmoothGrad-style noise averaging.
@@ -56,6 +67,13 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         self.noise_std = float(noise_std)
         self.ig_steps = int(ig_steps)
         self.vargrad = bool(vargrad)
+        self.eg_steps = int(eg_steps)
+        self.eg_baseline_std = float(eg_baseline_std)
+        self.target_source = str(target_source)
+        assert self.target_source in ("word_detail", "phonetic_detail"), self.target_source
+        assert sum(x > 1 for x in (self.ig_steps, self.eg_steps)) <= 1, "ig_steps / eg_steps exclusive"
+        if self.eg_steps > 1:
+            self.rqmt = dict(self.rqmt, time=self.rqmt["time"] * self.eg_steps)
         assert self.noise_n_samples >= 1
         assert self.noise_std >= 0.0
         assert self.ig_steps >= 1
@@ -75,7 +93,15 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
     def run(self):
         # Back-compat: instances pickled before these optional attrs existed lack them on unpickle
         # (e.g. the IG job was created before `vargrad` was added).
-        for _a, _d in (("noise_n_samples", 1), ("noise_std", 0.0), ("ig_steps", 1), ("vargrad", False)):
+        for _a, _d in (
+            ("noise_n_samples", 1),
+            ("noise_std", 0.0),
+            ("ig_steps", 1),
+            ("vargrad", False),
+            ("eg_steps", 1),
+            ("eg_baseline_std", 0.0),
+            ("target_source", "word_detail"),
+        ):
             if not hasattr(self, _a):
                 setattr(self, _a, _d)
         import os
@@ -191,7 +217,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
             if not isinstance(audio, np.ndarray):
                 audio = np.array(audio)
             samplerate = data["audio"]["sampling_rate"]
-            words = data["word_detail"]["utterance"]
+            words = data[self.target_source]["utterance"]
             transcription = " ".join(words)
             print(f"seq {seq_idx}, {audio.shape=}, {samplerate=}, {transcription!r}")
             num_words = len(words)
@@ -369,13 +395,48 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
                             [attr_reduce_func((_grad_sum[(_w, _k)] / _ig_n) * _leaf_x) for _k in range(_n_tok)]
                         )
 
+                if self.eg_steps > 1:
+                    # Expected Gradients: per step a RANDOM noise baseline x' (std eg_baseline_std) and a
+                    # random alpha~U(0,1); integrate the raw grad over x'+alpha*(x-x'), avg, x leaf-at-x,
+                    # reduce. Amplitude-path approximation for intermediate grad targets (exact raw_waveform).
+                    _eg_n = self.eg_steps
+                    _leaf_x = batch_slice(forward_output.inputs.float(), forward_output.input_slice_start_end).detach()
+                    _grad_sum = {}
+                    for _step in range(_eg_n):
+                        _xp = torch.randn_like(_raw_audio_chunk) * self.eg_baseline_std
+                        _alpha = float(torch.rand(1).item())
+                        _x_point = _xp + _alpha * (_raw_audio_chunk - _xp)
+                        _fwd_eg = model(
+                            raw_inputs=_x_point[None],
+                            raw_inputs_sample_rate=samplerate,
+                            raw_input_seq_lens=torch.tensor([audio_end - audio_start]),
+                            raw_targets=[words[words_start:words_end]],
+                            raw_target_seq_lens=torch.tensor([words_end - words_start]),
+                            omitted_prev_context=torch.tensor([words_start]),
+                        )
+                        for _w in range(words_end - words_start):
+                            _, _n_tok, _raw = _calc_log_probs_and_per_token_grads(
+                                _w, forward_output=_fwd_eg, raw_grad=True, report_mem=(_w == 0 and _step == 0)
+                            )
+                            for _k in range(_n_tok):
+                                _key = (_w, _k)
+                                _grad_sum[_key] = _raw[_k] if _key not in _grad_sum else _grad_sum[_key] + _raw[_k]
+                    _attrs_accum_flat = []
+                    for _w in range(words_end - words_start):
+                        _, _n_tok, _ = _calc_log_probs_and_per_token_grads(
+                            _w, forward_output=forward_output, no_grad=True
+                        )
+                        _attrs_accum_flat.append(
+                            [attr_reduce_func((_grad_sum[(_w, _k)] / _eg_n) * _leaf_x) for _k in range(_n_tok)]
+                        )
+
                 print("** Calculating grads (or using SmoothGrad-averaged grads)")
                 chunk_num_input_frames = forward_output.get_inputs_seq_lens_sliced()[0].item()
                 num_input_frames.append(chunk_num_input_frames)
                 num_words_.append(words_end - words_start)
                 chunk_total_tokens = 0
                 for w in range(words_end - words_start):
-                    if self.ig_steps > 1 or _noise_n > 1 or _noise_std > 0.0:
+                    if self.ig_steps > 1 or self.eg_steps > 1 or _noise_n > 1 or _noise_std > 0.0:
                         # Use pre-accumulated (averaged) attrs from the noise loop.
                         word_log_probs, n_tok, _ = _calc_log_probs_and_per_token_grads(
                             w,
