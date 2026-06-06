@@ -122,7 +122,7 @@ def py():
         extra_config_deletes=["optimizer.epsilon", "optimizer.weight_decay_modules_blacklist"],
     )
     # Muon LR sweep (the most critical Muon knob) bracketing the 2e-2 run above.
-    for _mlr_name, _mlr in [("lr1e2", 1e-2), ("lr4e2", 4e-2), ("lr5e3", 5e-3)]:
+    for _mlr_name, _mlr in [("lr1e2", 1e-2), ("lr4e2", 4e-2), ("lr5e3", 5e-3), ("lr2_5e3", 2.5e-3), ("lr1e3", 1e-3)]:
         _train_asr_base_multigpu(
             "asr-base-mgpu-logmel-muon-" + _mlr_name,
             prefix=prefix,
@@ -141,6 +141,18 @@ def py():
         base_lr=0.5,
         extra_config_updates={
             "learning_rate_piecewise_steps": [0.5, 20, 25],  # epochs: warmup->peak, hold, decay
+            "learning_rate_piecewise_values": [1e-05, 1e-03, 1e-03, 1e-06],
+        },
+    )
+    # WSD with a longer decay (40% vs 20%): shorter stable phase, longer anneal.
+    # Tests whether WSD's short decay was the problem (the anneal phase is where much of the gain is).
+    _train_asr_base_multigpu(
+        "asr-base-mgpu-logmel-wsd-longdecay",
+        prefix=prefix,
+        feature_extraction=None,
+        base_lr=0.5,
+        extra_config_updates={
+            "learning_rate_piecewise_steps": [0.5, 15, 25],  # decay ep15->25 (40%)
             "learning_rate_piecewise_values": [1e-05, 1e-03, 1e-03, 1e-06],
         },
     )
