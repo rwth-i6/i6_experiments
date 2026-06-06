@@ -271,6 +271,10 @@ class ChunkAlignDataset(DatasetConfig):
             ),
             "seq_ordering": "random",
             "partition_epoch": partition_epoch,
+            # Shard the (arrow, align) file pairs across the DDP ranks: each rank caches only its ~1/4 of
+            # the subepoch into the shared tmpfs FileCache (else 4x redundant -> tmpfs ENOSPC), and the
+            # ranks cover the data disjointly (one pass per partition cycle, so n_ep = passes * partition).
+            "distrib_shard_files": True,
         }
 
     def get_train_dataset(self) -> Dict[str, Any]:
