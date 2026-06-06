@@ -889,7 +889,7 @@ def py():
     # SmoothGrad ablation (attribution axis A) on the headline char-level Whisper surface: average the
     # per-token gradient over noise_n_samples noisy forward+backward passes (Gaussian noise on the raw
     # waveform). Tests whether saliency denoising sharpens boundaries vs the single-pass 47 ms baseline.
-    for _sg_std, _sg_n in [(0.01, 8), (0.03, 8)]:
+    for _sg_std, _sg_n in [(0.005, 8), (0.01, 8), (0.03, 8)]:
         _sg_ex = ExtractInGradsPerTokenJob(
             dataset_dir=dl_ds_timit.out_hub_cache_dir,
             dataset_key="val",
@@ -950,63 +950,65 @@ def py():
 
     # VarGrad ablation (attribution axis A): per-frame STD of the saliency across SmoothGrad noise
     # samples (vs the SmoothGrad mean). Headline char Whisper.
-    _vg_ex = ExtractInGradsPerTokenJob(
-        dataset_dir=dl_ds_timit.out_hub_cache_dir,
-        dataset_key="val",
-        model_config=whisper_char_cfg,
-        mult_grad_by_inputs=False,
-        attr_reduction="L2",
-        noise_std=0.02,
-        noise_n_samples=16,
-        vargrad=True,
-    )
-    _vg_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-    _vg_name = "whisper-base-logmel-timit-val-L2-vargrad-pertoken-charlev-spc-std0.02-n16"
-    _vg_ex.add_alias(_vg_name)
-    tk.register_output(f"{_vg_name}.hdf", _vg_ex.out_hdf)
-    _vg_ao = {"apply_softmax_over_time": True, "blank_score": -5}
-    _vg_al = WordAlignFromPerTokenGradsJob(
-        grad_score_hdf=_vg_ex.out_hdf,
-        grad_score_key="data",
-        dataset_dir=dl_ds_timit.out_hub_cache_dir,
-        dataset_key="val",
-        dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
-        align_opts=_vg_ao,
-        audio_energy_pow=0.5,
-        blank_silence_energy_scale=1.0,
-    )
-    _vg_nm = f"align/{_vg_name}-{_name_for_dict(_vg_ao)}-en0.5-sil1.0"
-    _vg_al.add_alias(_vg_nm)
-    tk.register_output(f"{_vg_nm}-wbe.txt", _vg_al.out_wbe)
+    for _vg_std in [0.01, 0.02, 0.04]:  # std SWEEP (best-of for the ablation)
+        _vg_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=whisper_char_cfg,
+            mult_grad_by_inputs=False,
+            attr_reduction="L2",
+            noise_std=_vg_std,
+            noise_n_samples=16,
+            vargrad=True,
+        )
+        _vg_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _vg_name = f"whisper-base-logmel-timit-val-L2-vargrad-pertoken-charlev-spc-std{_vg_std}-n16"
+        _vg_ex.add_alias(_vg_name)
+        tk.register_output(f"{_vg_name}.hdf", _vg_ex.out_hdf)
+        _vg_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+        _vg_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_vg_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=_vg_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=1.0,
+        )
+        _vg_nm = f"align/{_vg_name}-{_name_for_dict(_vg_ao)}-en0.5-sil1.0"
+        _vg_al.add_alias(_vg_nm)
+        tk.register_output(f"{_vg_nm}-wbe.txt", _vg_al.out_wbe)
 
     # Integrated-Gradients ablation (attribution axis A) on the headline char Whisper: integrate the
     # per-token gradient along the audio-amplitude path (ig_steps Riemann steps), vs single-pass 47 ms.
-    _ig_ex = ExtractInGradsPerTokenJob(
-        dataset_dir=dl_ds_timit.out_hub_cache_dir,
-        dataset_key="val",
-        model_config=whisper_char_cfg,
-        mult_grad_by_inputs=False,
-        attr_reduction="L2",
-        ig_steps=16,
-    )
-    _ig_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-    _ig_name = "whisper-base-logmel-timit-val-L2-integrated-grad-pertoken-charlev-spc-ig16"
-    _ig_ex.add_alias(_ig_name)
-    tk.register_output(f"{_ig_name}.hdf", _ig_ex.out_hdf)
-    _ig_ao = {"apply_softmax_over_time": True, "blank_score": -5}
-    _ig_al = WordAlignFromPerTokenGradsJob(
-        grad_score_hdf=_ig_ex.out_hdf,
-        grad_score_key="data",
-        dataset_dir=dl_ds_timit.out_hub_cache_dir,
-        dataset_key="val",
-        dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
-        align_opts=_ig_ao,
-        audio_energy_pow=0.5,
-        blank_silence_energy_scale=1.0,
-    )
-    _ig_nm = f"align/{_ig_name}-{_name_for_dict(_ig_ao)}-en0.5-sil1.0"
-    _ig_al.add_alias(_ig_nm)
-    tk.register_output(f"{_ig_nm}-wbe.txt", _ig_al.out_wbe)
+    for _ig_n in [8, 16, 32]:  # IG step-count SWEEP (convergence to grad)
+        _ig_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=whisper_char_cfg,
+            mult_grad_by_inputs=False,
+            attr_reduction="L2",
+            ig_steps=_ig_n,
+        )
+        _ig_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _ig_name = f"whisper-base-logmel-timit-val-L2-integrated-grad-pertoken-charlev-spc-ig{_ig_n}"
+        _ig_ex.add_alias(_ig_name)
+        tk.register_output(f"{_ig_name}.hdf", _ig_ex.out_hdf)
+        _ig_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+        _ig_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_ig_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=_ig_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=1.0,
+        )
+        _ig_nm = f"align/{_ig_name}-{_name_for_dict(_ig_ao)}-en0.5-sil1.0"
+        _ig_al.add_alias(_ig_nm)
+        tk.register_output(f"{_ig_nm}-wbe.txt", _ig_al.out_wbe)
 
     # Local-emission-normalization ablation (seconds-based window) on the headline char Whisper, on
     # BOTH TIMIT val + Buckeye-reseg, to validate the small AED collar win found offline (the reseg

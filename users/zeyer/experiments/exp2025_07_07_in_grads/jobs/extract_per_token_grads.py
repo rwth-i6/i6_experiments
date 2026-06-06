@@ -73,6 +73,11 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
+        # Back-compat: instances pickled before these optional attrs existed lack them on unpickle
+        # (e.g. the IG job was created before `vargrad` was added).
+        for _a, _d in (("noise_n_samples", 1), ("noise_std", 0.0), ("ig_steps", 1), ("vargrad", False)):
+            if not hasattr(self, _a):
+                setattr(self, _a, _d)
         import os
         import sys
         import time
@@ -334,7 +339,9 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
                     # 0), then reduce. forward_output above is the full-x forward, reused as the leaf.
                     # Exact IG for grad_wrt='raw_waveform'; amplitude-path saliency integral otherwise.
                     _ig_n = self.ig_steps
-                    _leaf_x = batch_slice(forward_output.inputs.float(), forward_output.input_slice_start_end)
+                    # detach: forward_output.inputs requires grad (it's the grad leaf); the IG attr is a
+                    # value, not part of any graph, so detach before it flows into the stored saliency.
+                    _leaf_x = batch_slice(forward_output.inputs.float(), forward_output.input_slice_start_end).detach()
                     _grad_sum = {}  # (w, k) -> [B, T, F]
                     for _step in range(_ig_n):
                         _alpha = (_step + 1) / _ig_n
