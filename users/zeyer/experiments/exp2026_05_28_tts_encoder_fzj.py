@@ -132,6 +132,16 @@ def py():
             extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
             extra_config_deletes=["optimizer.epsilon", "optimizer.weight_decay_modules_blacklist"],
         )
+    # SyncBatchNorm ablation: does global (cross-rank) BatchNorm close the mgpu gap?
+    # Same as lr05 (AdamW, base_lr 0.5), plus the new rf_batch_norm_distributed flag,
+    # so all rf.BatchNorm (the 16 Conformer conv BNs + feature BN) use global stats.
+    _train_asr_base_multigpu(
+        "asr-base-mgpu-logmel-syncbn",
+        prefix=prefix,
+        feature_extraction=None,
+        base_lr=0.5,
+        extra_config_updates={"rf_batch_norm_distributed": True},
+    )
     # WSD LR schedule (warmup ~2% / stable ~78% / decay ~20%) vs our OCLR (45% warmup / 45% decay),
     # same 5e-4 peak as lr05. Tests whether the long OCLR warmup wastes our scarce nep=25 updates.
     _train_asr_base_multigpu(
@@ -179,8 +189,9 @@ def py():
             "optimizer.class": rf.build_dict(AdEMAMixV2)["class"],
             "optimizer.betas": (0.9, 0.999, 0.9999),
             "optimizer.alpha": 5.0,
-            # paper's alpha/beta3 warmup (official apple/ml-ademamix): ramp alpha 0->5 and beta3
-            # (in EMA-half-life space) over ~the full run (~100k steps) so the slow EMA phases in gradually.
+            # paper's alpha/beta3 warmup (official apple/ml-ademamix):
+            # ramp alpha 0->5 and beta3 (in EMA-half-life space) over ~the full run (~100k steps),
+            # so the slow EMA phases in gradually.
             # Required for stability -- fixed alpha=5 from step 0 diverged at ep8.
             "optimizer.alpha_warmup": 100_000,
             "optimizer.beta3_warmup": 100_000,
