@@ -1,0 +1,966 @@
+Mini-RETURNN starting up, version 0.5, date/time 2026-06-07-13-48-12 (UTC+0200), pid 2010890, cwd /work/smt4/azim.javed/repositories/i6_experiments/users/azim_javed/qat, Python /usr/bin/python3
+RETURNN command line options: ['/work/smt4/azim.javed/sisyphus_work/i6_core/returnn/training/ReturnnTrainingJob.NTvE4Xwb8vuG/output/returnn.config']
+Hostname: cn-233
+Use of deprecated keyword 'gpu' to set device. Using 'cuda' instead.
+CUDA_VISIBLE_DEVICES is set to '0'.
+  1/1: cuda:0
+       name: NVIDIA GeForce RTX 3090
+       total_memory: 23.6GB
+       capability: 8.6
+       device_index: 0
+Using gpu device 0: NVIDIA GeForce RTX 3090
+  input: 1
+  output: {'raw': {'dtype': 'string', 'shape': ()}, 'orth': [256, 1], 'classes': [184, 1], 'data': [1, 2]}
+  OggZipDataset, sequences: 0, frames: unknown
+Reading sequence list for MetaDataset 'train' from sub-dataset 'train_data'
+  input: 0
+  output: {'classes': [184, 1], 'data': [1, 2]}
+  MetaDataset, sequences: 0, frames: unknown
+  input: 1
+  output: {'raw': {'dtype': 'string', 'shape': ()}, 'orth': [256, 1], 'classes': [184, 1], 'data': [1, 2]}
+  OggZipDataset, sequences: 0, frames: unknown
+Reading sequence list for MetaDataset 'dev' from sub-dataset 'dev_data'
+  input: 0
+  output: {'classes': [184, 1], 'data': [1, 2]}
+  MetaDataset, sequences: 0, frames: unknown
+Learning-rate-control: file learning_rates does not exist yet
+Using fresh model
+Model: FFNNTransducerQATEncoderModel(
+  (feature_extraction): LogMelFeatureExtractionV1()
+  (conformer): ConformerEncoderQuant(
+    (frontend): GenericFrontendV1(
+      (frontend_layers): ModuleList(
+        (0): Conv2d(1, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (1): Conv2d(32, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (2): ReLU()
+        (3): MaxPool2d(kernel_size=(2, 1), stride=(2, 1), padding=(0, 0), dilation=1, ceil_mode=False)
+        (4): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (5): Conv2d(64, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (6): ReLU()
+        (7): MaxPool2d(kernel_size=(2, 1), stride=(2, 1), padding=(0, 0), dilation=1, ceil_mode=False)
+      )
+      (linear): Linear(in_features=2560, out_features=512, bias=True)
+    )
+    (module_list): ModuleList(
+      (0-11): 12 x ConformerBlockQuant(
+        (final_layer_norm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+        (module_list): ModuleList(
+          (0): ConformerPositionwiseFeedForwardQuant(
+            (layer_norm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+            (linear_ff): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (activation): SiLU()
+            (linear_out): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (lin_1_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_1_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_2_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_2_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+          )
+          (1): ConformerConvolutionQuant(
+            (pointwise_conv1): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (depthwise_conv): Conv1dQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (dconv_1_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (dconv_1_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (pointwise_conv2): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (pconv_1_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (pconv_1_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (pconv_2_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (pconv_2_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (layer_norm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+            (norm): LayerNormNC((512,), eps=1e-05, elementwise_affine=True)
+            (dropout): Dropout(p=0.1, inplace=False)
+            (activation): SiLU()
+          )
+          (2): ConformerMHSAQuant(
+            (layernorm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+            (mhsa): QuantizedMultiheadAttention(
+              (layernorm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+              (pos_emb_dropout): Dropout(p=0.0, inplace=False)
+              (att_weights_dropout): Dropout(p=0.1, inplace=False)
+              (qkv_proj): LinearQuant(
+                (weight_quantizer): WeightQuantizer(
+                  (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+                )
+              )
+              (in_proj_in_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (in_proj_out_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (q_quantizer): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (k_quantizer): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (out_proj): LinearQuant(
+                (weight_quantizer): WeightQuantizer(
+                  (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+                )
+              )
+              (out_proj_in_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (out_proj_out_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (linear_pos): LinearQuant(
+                (weight_quantizer): WeightQuantizer(
+                  (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+                )
+              )
+              (learn_emb_in_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (learn_emb_out_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (dropout): BroadcastDropout()
+            )
+          )
+          (3): ConformerPositionwiseFeedForwardQuant(
+            (layer_norm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+            (linear_ff): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (activation): SiLU()
+            (linear_out): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (lin_1_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_1_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_2_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_2_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+          )
+        )
+      )
+    )
+  )
+  (encoder_output): Sequential(
+    (0): Dropout(p=0.1, inplace=False)
+    (1): Linear(in_features=512, out_features=185, bias=True)
+  )
+  (token_embedding): Embedding(185, 256, padding_idx=184)
+  (prediction_net): Sequential(
+    (0): Dropout(p=0.1, inplace=False)
+    (1): Linear(in_features=256, out_features=640, bias=True)
+    (2): Tanh()
+    (3): Dropout(p=0.1, inplace=False)
+    (4): Linear(in_features=640, out_features=640, bias=True)
+    (5): Tanh()
+  )
+  (prediction_output): Sequential(
+    (0): Dropout(p=0.1, inplace=False)
+    (1): Linear(in_features=640, out_features=185, bias=True)
+  )
+  (joint_net): Sequential(
+    (0): Dropout(p=0.1, inplace=False)
+    (1): Linear(in_features=1152, out_features=1024, bias=True)
+    (2): Tanh()
+    (3): Dropout(p=0.1, inplace=False)
+    (4): Linear(in_features=1024, out_features=185, bias=True)
+  )
+)
+Total number of parameters: 79488139
+Optimizer: RAdam (
+Parameter Group 0
+    betas: (0.9, 0.999)
+    capturable: False
+    decoupled_weight_decay: True
+    differentiable: False
+    eps: 1e-12
+    foreach: None
+    lr: 1.0
+    maximize: False
+    weight_decay: 0.01
+)
+Starting training at epoch 1.
+start epoch 1 with learning rate 7e-06 ...
+train epoch 1, step:0, step time: 4.627, GMEM: 4.8/5.8/23.6, total (grad) loss: 24.511711, enc_ctc: 15.30440, mono_rnnt: 16.85951
+train epoch 1, step:1, step time: 1.051, total time: 1.058, GMEM: 5.2/6.8/23.6, total (grad) loss: 23.264149, enc_ctc: 14.35896, mono_rnnt: 16.08467
+train epoch 1, step:2, step time: 0.507, total time: 0.512, GMEM: 6.2/8.1/23.6, total (grad) loss: 24.175529, enc_ctc: 14.88201, mono_rnnt: 16.73452
+train epoch 1, step:3, step time: 0.520, total time: 0.525, GMEM: 6.4/8.2/23.6, total (grad) loss: 25.654671, enc_ctc: 15.88798, mono_rnnt: 17.71068
+train epoch 1, step:4, step time: 0.536, total time: 0.541, GMEM: 6.4/8.2/23.6, total (grad) loss: 23.975071, enc_ctc: 14.87509, mono_rnnt: 16.53753
+train epoch 1, step:5, step time: 0.598, total time: 0.604, GMEM: 6.8/8.2/23.6, total (grad) loss: 22.760527, enc_ctc: 14.09818, mono_rnnt: 15.71144
+train epoch 1, step:6, step time: 0.536, total time: 0.541, GMEM: 7.1/8.2/23.6, total (grad) loss: 22.463888, enc_ctc: 13.76645, mono_rnnt: 15.58066
+train epoch 1, step:7, step time: 0.508, total time: 0.512, GMEM: 7.4/8.2/23.6, total (grad) loss: 22.480358, enc_ctc: 13.94418, mono_rnnt: 15.50827
+train epoch 1, step:8, step time: 0.509, total time: 0.513, GMEM: 7.4/8.2/23.6, total (grad) loss: 24.958637, enc_ctc: 15.43939, mono_rnnt: 17.23894
+train epoch 1, step:9, step time: 0.520, total time: 0.524, GMEM: 7.5/8.2/23.6, total (grad) loss: 24.256760, enc_ctc: 14.93501, mono_rnnt: 16.78926
+train epoch 1, step:10, step time: 0.526, total time: 0.531, GMEM: 7.5/8.2/23.6, total (grad) loss: 22.706882, enc_ctc: 14.01202, mono_rnnt: 15.70087
+train epoch 1, step:11, step time: 0.540, total time: 0.544, GMEM: 7.5/8.2/23.6, total (grad) loss: 24.215595, enc_ctc: 14.75728, mono_rnnt: 16.83696
+train epoch 1, step:12, step time: 0.523, total time: 0.528, GMEM: 7.5/8.2/23.6, total (grad) loss: 24.129665, enc_ctc: 14.81785, mono_rnnt: 16.72074
+train epoch 1, step:13, step time: 0.544, total time: 0.549, GMEM: 7.9/8.5/23.6, total (grad) loss: 23.236227, enc_ctc: 14.10314, mono_rnnt: 16.18466
+train epoch 1, step:14, step time: 0.534, total time: 0.539, GMEM: 8.3/8.9/23.6, total (grad) loss: 22.294470, enc_ctc: 13.73699, mono_rnnt: 15.42598
+train epoch 1, step:15, step time: 0.553, total time: 0.558, GMEM: 8.3/8.9/23.6, total (grad) loss: 24.500919, enc_ctc: 14.94159, mono_rnnt: 17.03013
+train epoch 1, step:16, step time: 0.539, total time: 0.544, GMEM: 8.3/8.9/23.6, total (grad) loss: 19.988977, enc_ctc: 12.25790, mono_rnnt: 13.86003
+train epoch 1, step:17, step time: 0.622, total time: 0.632, GMEM: 8.3/8.9/23.6, total (grad) loss: 24.580069, enc_ctc: 15.04133, mono_rnnt: 17.05940
+train epoch 1, step:18, step time: 0.533, total time: 0.540, GMEM: 8.5/8.9/23.6, total (grad) loss: 23.812351, enc_ctc: 14.45312, mono_rnnt: 16.58579
+train epoch 1, step:19, step time: 0.558, total time: 0.563, GMEM: 8.9/9.7/23.6, total (grad) loss: 22.842670, enc_ctc: 14.04926, mono_rnnt: 15.81804
+train epoch 1, step:20, step time: 0.527, total time: 0.532, GMEM: 9.4/10.8/23.6, total (grad) loss: 23.523338, enc_ctc: 14.56686, mono_rnnt: 16.23991
+train epoch 1, step:21, step time: 0.543, total time: 0.548, GMEM: 9.6/10.8/23.6, total (grad) loss: 24.166775, enc_ctc: 14.89550, mono_rnnt: 16.71902
+train epoch 1, step:22, step time: 0.517, total time: 0.522, GMEM: 9.6/11.9/23.6, total (grad) loss: 21.648474, enc_ctc: 13.41364, mono_rnnt: 14.94165
+train epoch 1, step:23, step time: 0.527, total time: 0.533, GMEM: 9.9/11.9/23.6, total (grad) loss: 21.882509, enc_ctc: 13.34974, mono_rnnt: 15.20764
+train epoch 1, step:24, step time: 0.524, total time: 0.529, GMEM: 9.9/11.9/23.6, total (grad) loss: 23.297720, enc_ctc: 14.19497, mono_rnnt: 16.20023
+train epoch 1, step:25, step time: 0.538, total time: 0.543, GMEM: 9.9/11.9/23.6, total (grad) loss: 23.049269, enc_ctc: 14.06895, mono_rnnt: 16.01479
+train epoch 1, step:26, step time: 0.521, total time: 0.526, GMEM: 9.9/11.9/23.6, total (grad) loss: 23.932993, enc_ctc: 14.49424, mono_rnnt: 16.68587
+train epoch 1, step:27, step time: 0.537, total time: 0.542, GMEM: 9.9/11.9/23.6, total (grad) loss: 21.492310, enc_ctc: 13.03606, mono_rnnt: 14.97428
+train epoch 1, step:28, step time: 0.510, total time: 0.515, GMEM: 9.9/11.9/23.6, total (grad) loss: 21.534407, enc_ctc: 13.09007, mono_rnnt: 14.98937
+train epoch 1, step:29, step time: 0.523, total time: 0.528, GMEM: 9.9/11.9/23.6, total (grad) loss: 22.925325, enc_ctc: 13.88609, mono_rnnt: 15.98228
+train epoch 1, step:30, step time: 0.544, total time: 0.548, GMEM: 9.9/13.0/23.6, total (grad) loss: 20.792524, enc_ctc: 12.63877, mono_rnnt: 14.47314
+train epoch 1, step:31, step time: 0.538, total time: 0.544, GMEM: 9.9/13.0/23.6, total (grad) loss: 23.302248, enc_ctc: 14.16061, mono_rnnt: 16.22194
+train epoch 1, step:32, step time: 0.567, total time: 0.573, GMEM: 9.9/13.0/23.6, total (grad) loss: 24.090967, enc_ctc: 14.41434, mono_rnnt: 16.88379
+train epoch 1, step:33, step time: 0.546, total time: 0.551, GMEM: 9.9/13.0/23.6, total (grad) loss: 22.609135, enc_ctc: 13.66931, mono_rnnt: 15.77448
+train epoch 1, step:34, step time: 0.542, total time: 0.547, GMEM: 9.9/13.0/23.6, total (grad) loss: 23.498241, enc_ctc: 14.09152, mono_rnnt: 16.45248
+train epoch 1, step:35, step time: 0.584, total time: 0.591, GMEM: 9.9/13.0/23.6, total (grad) loss: 23.615341, enc_ctc: 14.18235, mono_rnnt: 16.52417
+train epoch 1, step:36, step time: 0.550, total time: 0.556, GMEM: 9.9/13.0/23.6, total (grad) loss: 22.976164, enc_ctc: 13.63475, mono_rnnt: 16.15879
+train epoch 1, step:37, step time: 0.544, total time: 0.548, GMEM: 10.0/14.1/23.6, total (grad) loss: 20.689989, enc_ctc: 12.44024, mono_rnnt: 14.46987
+train epoch 1, step:38, step time: 0.532, total time: 0.537, GMEM: 10.0/14.1/23.6, total (grad) loss: 25.411564, enc_ctc: 15.05055, mono_rnnt: 17.88629
+train epoch 1, step:39, step time: 0.541, total time: 0.546, GMEM: 10.0/14.1/23.6, total (grad) loss: 23.063232, enc_ctc: 13.71143, mono_rnnt: 16.20752
+train epoch 1, step:40, step time: 0.552, total time: 0.557, GMEM: 10.3/15.3/23.6, total (grad) loss: 18.945101, enc_ctc: 11.28219, mono_rnnt: 13.30401
+train epoch 1, step:41, step time: 0.547, total time: 0.552, GMEM: 10.3/15.3/23.6, total (grad) loss: 23.276421, enc_ctc: 13.71013, mono_rnnt: 16.42135
+train epoch 1, step:42, step time: 0.528, total time: 0.533, GMEM: 10.3/15.3/23.6, total (grad) loss: 22.252188, enc_ctc: 13.11481, mono_rnnt: 15.69478
+train epoch 1, step:43, step time: 0.550, total time: 0.555, GMEM: 10.3/15.3/23.6, total (grad) loss: 23.227394, enc_ctc: 13.69421, mono_rnnt: 16.38029
+train epoch 1, step:44, step time: 0.531, total time: 0.535, GMEM: 10.3/15.3/23.6, total (grad) loss: 24.705900, enc_ctc: 14.39533, mono_rnnt: 17.50823
+train epoch 1, step:45, step time: 0.550, total time: 0.554, GMEM: 10.3/15.3/23.6, total (grad) loss: 23.347471, enc_ctc: 13.63383, mono_rnnt: 16.53055
+train epoch 1, step:46, step time: 0.534, total time: 0.538, GMEM: 10.3/15.3/23.6, total (grad) loss: 21.494181, enc_ctc: 12.48855, mono_rnnt: 15.24991
+train epoch 1, step:47, step time: 0.552, total time: 0.557, GMEM: 10.3/15.3/23.6, total (grad) loss: 21.061958, enc_ctc: 12.26472, mono_rnnt: 14.92959
+train epoch 1, step:48, step time: 0.530, total time: 0.535, GMEM: 10.3/15.3/23.6, total (grad) loss: 25.195391, enc_ctc: 14.44129, mono_rnnt: 17.97475
+train epoch 1, step:49, step time: 0.541, total time: 0.546, GMEM: 10.3/15.3/23.6, total (grad) loss: 20.655560, enc_ctc: 11.96633, mono_rnnt: 14.67239
+train epoch 1, step:50, step time: 0.528, total time: 0.532, GMEM: 10.3/15.3/23.6, total (grad) loss: 21.481459, enc_ctc: 12.21035, mono_rnnt: 15.37628
+train epoch 1, step:51, step time: 0.533, total time: 0.537, GMEM: 10.3/15.3/23.6, total (grad) loss: 21.118086, enc_ctc: 12.05169, mono_rnnt: 15.09224
+train epoch 1, step:52, step time: 0.542, total time: 0.547, GMEM: 10.3/15.3/23.6, total (grad) loss: 25.299503, enc_ctc: 14.10460, mono_rnnt: 18.24721
+train epoch 1, step:53, step time: 0.544, total time: 0.551, GMEM: 10.3/15.3/23.6, total (grad) loss: 21.898504, enc_ctc: 12.34666, mono_rnnt: 15.72517
+train epoch 1, step:54, step time: 0.539, total time: 0.543, GMEM: 10.3/15.3/23.6, total (grad) loss: 21.938782, enc_ctc: 12.14648, mono_rnnt: 15.86554
+train epoch 1, step:55, step time: 0.537, total time: 0.542, GMEM: 10.3/15.3/23.6, total (grad) loss: 22.254406, enc_ctc: 12.38285, mono_rnnt: 16.06298
+train epoch 1, step:56, step time: 0.543, total time: 0.547, GMEM: 10.3/15.3/23.6, total (grad) loss: 22.214371, enc_ctc: 12.21545, mono_rnnt: 16.10664
+train epoch 1, step:57, step time: 0.536, total time: 0.541, GMEM: 10.3/15.3/23.6, total (grad) loss: 21.731997, enc_ctc: 11.94576, mono_rnnt: 15.75912
+train epoch 1, step:58, step time: 0.531, total time: 0.536, GMEM: 10.3/15.3/23.6, total (grad) loss: 20.973812, enc_ctc: 11.40123, mono_rnnt: 15.27320
+train epoch 1, step:59, step time: 0.539, total time: 0.544, GMEM: 10.3/15.3/23.6, total (grad) loss: 19.113920, enc_ctc: 10.52401, mono_rnnt: 13.85192
+train epoch 1, step:60, step time: 0.535, total time: 0.540, GMEM: 10.3/15.3/23.6, total (grad) loss: 18.919905, enc_ctc: 10.24899, mono_rnnt: 13.79541
+train epoch 1, step:61, step time: 0.543, total time: 0.547, GMEM: 10.3/15.3/23.6, total (grad) loss: 19.366964, enc_ctc: 10.49424, mono_rnnt: 14.11984
+train epoch 1, step:62, step time: 0.548, total time: 0.553, GMEM: 10.3/15.3/23.6, total (grad) loss: 21.177324, enc_ctc: 11.27863, mono_rnnt: 15.53801
+train epoch 1, step:63, step time: 0.568, total time: 0.573, GMEM: 10.3/15.3/23.6, total (grad) loss: 22.504335, enc_ctc: 11.77332, mono_rnnt: 16.61768
+train epoch 1, step:64, step time: 0.540, total time: 0.544, GMEM: 10.3/15.3/23.6, total (grad) loss: 21.795080, enc_ctc: 11.29902, mono_rnnt: 16.14557
+train epoch 1, step:65, step time: 0.540, total time: 0.545, GMEM: 10.3/15.3/23.6, total (grad) loss: 22.240797, enc_ctc: 11.48288, mono_rnnt: 16.49936
+train epoch 1, step:66, step time: 0.524, total time: 0.529, GMEM: 10.3/15.3/23.6, total (grad) loss: 19.848989, enc_ctc: 10.18336, mono_rnnt: 14.75731
+train epoch 1, step:67, step time: 0.538, total time: 0.543, GMEM: 10.3/15.3/23.6, total (grad) loss: 19.060513, enc_ctc: 9.81767, mono_rnnt: 14.15168
+train epoch 1, step:68, step time: 0.542, total time: 0.546, GMEM: 10.3/15.3/23.6, total (grad) loss: 20.359545, enc_ctc: 10.27789, mono_rnnt: 15.22060
+train epoch 1, step:69, step time: 0.550, total time: 0.555, GMEM: 10.3/15.3/23.6, total (grad) loss: 22.314371, enc_ctc: 11.11975, mono_rnnt: 16.75450
+train epoch 1, step:70, step time: 0.545, total time: 0.549, GMEM: 10.3/15.3/23.6, total (grad) loss: 20.677170, enc_ctc: 10.15448, mono_rnnt: 15.59993
+train epoch 1, step:71, step time: 0.619, total time: 0.625, GMEM: 10.3/15.3/23.6, total (grad) loss: 21.889946, enc_ctc: 10.72280, mono_rnnt: 16.52855
+train epoch 1, step:72, step time: 0.579, total time: 0.584, GMEM: 10.3/15.3/23.6, total (grad) loss: 19.776770, enc_ctc: 9.69975, mono_rnnt: 14.92689
+train epoch 1, step:73, step time: 0.552, total time: 0.556, GMEM: 10.3/15.3/23.6, total (grad) loss: 20.543585, enc_ctc: 9.98726, mono_rnnt: 15.54995
+train epoch 1, step:74, step time: 0.553, total time: 0.558, GMEM: 10.6/18.0/23.6, total (grad) loss: 17.816853, enc_ctc: 8.75905, mono_rnnt: 13.43733
+train epoch 1, step:75, step time: 0.540, total time: 0.545, GMEM: 10.6/18.0/23.6, total (grad) loss: 21.642469, enc_ctc: 10.22108, mono_rnnt: 16.53193
+train epoch 1, step:76, step time: 0.525, total time: 0.530, GMEM: 10.7/20.7/23.6, total (grad) loss: 17.616858, enc_ctc: 8.50113, mono_rnnt: 13.36629
+train epoch 1, step:77, step time: 0.531, total time: 0.536, GMEM: 10.9/20.7/23.6, total (grad) loss: 17.773056, enc_ctc: 8.53141, mono_rnnt: 13.50735
+train epoch 1, step:78, step time: 0.552, total time: 0.557, GMEM: 10.9/20.7/23.6, total (grad) loss: 18.701651, enc_ctc: 8.72447, mono_rnnt: 14.33941
+train epoch 1, step:79, step time: 0.549, total time: 0.553, GMEM: 10.9/20.7/23.6, total (grad) loss: 22.547422, enc_ctc: 10.09276, mono_rnnt: 17.50104
+train epoch 1, step:80, step time: 0.540, total time: 0.544, GMEM: 10.9/20.7/23.6, total (grad) loss: 20.944761, enc_ctc: 9.24721, mono_rnnt: 16.32116
+train epoch 1, step:81, step time: 0.558, total time: 0.563, GMEM: 10.9/20.7/23.6, total (grad) loss: 18.102810, enc_ctc: 8.28687, mono_rnnt: 13.95937
+train epoch 1, step:82, step time: 0.542, total time: 0.547, GMEM: 10.9/20.7/23.6, total (grad) loss: 19.807423, enc_ctc: 8.67079, mono_rnnt: 15.47203
+train epoch 1, step:83, step time: 0.555, total time: 0.560, GMEM: 10.9/20.7/23.6, total (grad) loss: 19.478659, enc_ctc: 8.54581, mono_rnnt: 15.20575
+train epoch 1, step:84, step time: 0.545, total time: 0.549, GMEM: 10.9/20.7/23.6, total (grad) loss: 18.969343, enc_ctc: 8.24064, mono_rnnt: 14.84902
+train epoch 1, step:85, step time: 0.561, total time: 0.566, GMEM: 10.9/20.7/23.6, total (grad) loss: 17.929564, enc_ctc: 7.92023, mono_rnnt: 13.96945
+train epoch 1, step:86, step time: 0.554, total time: 0.561, GMEM: 10.9/20.7/23.6, total (grad) loss: 18.137455, enc_ctc: 7.80837, mono_rnnt: 14.23327
+train epoch 1, step:87, step time: 0.585, total time: 0.591, GMEM: 10.9/20.7/23.6, total (grad) loss: 21.762657, enc_ctc: 8.84408, mono_rnnt: 17.34062
+train epoch 1, step:88, step time: 0.547, total time: 0.552, GMEM: 10.9/20.7/23.6, total (grad) loss: 19.003304, enc_ctc: 7.90666, mono_rnnt: 15.04997
+train epoch 1, step:89, step time: 0.561, total time: 0.566, GMEM: 10.9/20.7/23.6, total (grad) loss: 18.372473, enc_ctc: 7.72167, mono_rnnt: 14.51164
+train epoch 1, step:90, step time: 0.553, total time: 0.557, GMEM: 10.9/20.7/23.6, total (grad) loss: 17.618980, enc_ctc: 7.38480, mono_rnnt: 13.92658
+train epoch 1, step:91, step time: 0.598, total time: 0.604, GMEM: 10.9/20.7/23.6, total (grad) loss: 18.115017, enc_ctc: 7.50522, mono_rnnt: 14.36240
+train epoch 1, step:92, step time: 0.561, total time: 0.567, GMEM: 10.9/20.7/23.6, total (grad) loss: 17.562347, enc_ctc: 7.20912, mono_rnnt: 13.95779
+train epoch 1, step:93, step time: 0.546, total time: 0.551, GMEM: 10.9/20.7/23.6, total (grad) loss: 20.805861, enc_ctc: 8.02665, mono_rnnt: 16.79253
+train epoch 1, step:94, step time: 0.553, total time: 0.558, GMEM: 10.9/20.7/23.6, total (grad) loss: 19.860006, enc_ctc: 7.66814, mono_rnnt: 16.02594
+train epoch 1, step:95, step time: 0.580, total time: 0.586, GMEM: 10.9/20.7/23.6, total (grad) loss: 19.572605, enc_ctc: 7.54925, mono_rnnt: 15.79798
+train epoch 1, step:96, step time: 0.554, total time: 0.559, GMEM: 10.9/20.7/23.6, total (grad) loss: 16.763670, enc_ctc: 6.78315, mono_rnnt: 13.37209
+train epoch 1, step:97, step time: 0.551, total time: 0.556, GMEM: 10.9/20.7/23.6, total (grad) loss: 18.252308, enc_ctc: 7.12174, mono_rnnt: 14.69144
+train epoch 1, step:98, step time: 0.532, total time: 0.537, GMEM: 10.9/20.7/23.6, total (grad) loss: 18.336475, enc_ctc: 6.94641, mono_rnnt: 14.86327
+train epoch 1, step:99, step time: 0.546, total time: 0.550, GMEM: 10.9/20.7/23.6, total (grad) loss: 17.814251, enc_ctc: 6.89198, mono_rnnt: 14.36826
+train epoch 1, step:100, step time: 0.539, total time: 0.544, GMEM: 10.9/20.7/23.6, total (grad) loss: 18.604109, enc_ctc: 6.96764, mono_rnnt: 15.12029
+train epoch 1, step:101, step time: 0.561, total time: 0.565, GMEM: 10.9/20.7/23.6, total (grad) loss: 17.024853, enc_ctc: 6.67238, mono_rnnt: 13.68866
+train epoch 1, step:102, step time: 0.534, total time: 0.538, GMEM: 10.9/20.7/23.6, total (grad) loss: 15.561873, enc_ctc: 6.25473, mono_rnnt: 12.43451
+train epoch 1, step:103, step time: 0.526, total time: 0.532, GMEM: 10.9/20.7/23.6, total (grad) loss: 19.003378, enc_ctc: 6.85648, mono_rnnt: 15.57514
+train epoch 1, step:104, step time: 0.546, total time: 0.551, GMEM: 10.9/20.7/23.6, total (grad) loss: 17.500204, enc_ctc: 6.55314, mono_rnnt: 14.22363
+train epoch 1, step:105, step time: 0.584, total time: 0.590, GMEM: 10.9/20.7/23.6, total (grad) loss: 17.511574, enc_ctc: 6.51732, mono_rnnt: 14.25292
+train epoch 1, step:106, step time: 0.537, total time: 0.541, GMEM: 10.9/20.7/23.6, total (grad) loss: 17.641106, enc_ctc: 6.44957, mono_rnnt: 14.41632
+train epoch 1, step:107, step time: 0.556, total time: 0.560, GMEM: 10.9/20.7/23.6, total (grad) loss: 15.584625, enc_ctc: 6.11857, mono_rnnt: 12.52534
+train epoch 1, step:108, step time: 0.509, total time: 0.514, GMEM: 10.9/20.7/23.6, total (grad) loss: 15.516523, enc_ctc: 6.07072, mono_rnnt: 12.48116
+train epoch 1, step:109, step time: 0.508, total time: 0.513, GMEM: 10.9/20.7/23.6, total (grad) loss: 17.156549, enc_ctc: 6.33268, mono_rnnt: 13.99021
+train epoch 1, step:110, step time: 0.540, total time: 0.544, GMEM: 10.9/20.7/23.6, total (grad) loss: 14.895376, enc_ctc: 5.87503, mono_rnnt: 11.95786
+train epoch 1, step:111, step time: 0.554, total time: 0.559, GMEM: 10.9/20.7/23.6, total (grad) loss: 14.768970, enc_ctc: 5.83966, mono_rnnt: 11.84914
+train epoch 1, step:112, step time: 0.540, total time: 0.544, GMEM: 10.9/20.7/23.6, total (grad) loss: 18.421663, enc_ctc: 6.42594, mono_rnnt: 15.20869
+train epoch 1, step:113, step time: 0.542, total time: 0.546, GMEM: 10.9/20.7/23.6, total (grad) loss: 18.017038, enc_ctc: 6.30261, mono_rnnt: 14.86573
+train epoch 1, step:114, step time: 0.533, total time: 0.538, GMEM: 10.9/20.7/23.6, total (grad) loss: 16.069710, enc_ctc: 5.95377, mono_rnnt: 13.09282
+train epoch 1, step:115, step time: 0.552, total time: 0.557, GMEM: 10.9/20.7/23.6, total (grad) loss: 15.704513, enc_ctc: 6.00767, mono_rnnt: 12.70068
+train epoch 1, step:116, step time: 0.542, total time: 0.547, GMEM: 10.9/20.7/23.6, total (grad) loss: 17.412437, enc_ctc: 6.15592, mono_rnnt: 14.33448
+train epoch 1, step:117, step time: 0.557, total time: 0.563, GMEM: 10.9/20.7/23.6, total (grad) loss: 17.196959, enc_ctc: 6.12506, mono_rnnt: 14.13443
+train epoch 1, step:118, step time: 0.594, total time: 0.600, GMEM: 10.9/20.7/23.6, total (grad) loss: 16.494003, enc_ctc: 5.96871, mono_rnnt: 13.50965
+train epoch 1, step:119, step time: 0.558, total time: 0.564, GMEM: 10.9/20.7/23.6, total (grad) loss: 15.872738, enc_ctc: 5.87973, mono_rnnt: 12.93287
+train epoch 1, step:120, step time: 0.602, total time: 0.609, GMEM: 10.9/20.7/23.6, total (grad) loss: 15.630798, enc_ctc: 5.91524, mono_rnnt: 12.67318
+train epoch 1, step:121, step time: 0.573, total time: 0.585, GMEM: 10.9/20.7/23.6, total (grad) loss: 14.960945, enc_ctc: 5.79289, mono_rnnt: 12.06450
+train epoch 1, step:122, step time: 0.555, total time: 0.560, GMEM: 10.9/20.7/23.6, total (grad) loss: 14.553254, enc_ctc: 5.71693, mono_rnnt: 11.69479
+train epoch 1, step:123, step time: 0.571, total time: 0.576, GMEM: 10.9/20.7/23.6, total (grad) loss: 15.075551, enc_ctc: 5.79749, mono_rnnt: 12.17681
+train epoch 1, step:124, step time: 0.540, total time: 0.545, GMEM: 10.9/20.7/23.6, total (grad) loss: 15.592630, enc_ctc: 5.89003, mono_rnnt: 12.64762
+train epoch 1, step:125, step time: 0.559, total time: 0.564, GMEM: 10.9/20.7/23.6, total (grad) loss: 14.855813, enc_ctc: 5.81224, mono_rnnt: 11.94969
+train epoch 1, step:126, step time: 0.546, total time: 0.551, GMEM: 10.9/20.7/23.6, total (grad) loss: 15.974319, enc_ctc: 5.88878, mono_rnnt: 13.02993
+train epoch 1, step:127, step time: 0.610, total time: 0.616, GMEM: 10.9/20.7/23.6, total (grad) loss: 15.381055, enc_ctc: 5.80170, mono_rnnt: 12.48020
+train epoch 1, step:128, step time: 0.540, total time: 0.551, GMEM: 10.9/20.7/23.6, total (grad) loss: 14.756146, enc_ctc: 5.75447, mono_rnnt: 11.87891
+train epoch 1, step:129, step time: 0.581, total time: 0.587, GMEM: 10.9/20.7/23.6, total (grad) loss: 14.367516, enc_ctc: 5.73125, mono_rnnt: 11.50189
+train epoch 1, step:130, step time: 0.574, total time: 0.580, GMEM: 10.9/20.7/23.6, total (grad) loss: 14.960804, enc_ctc: 5.84705, mono_rnnt: 12.03728
+train epoch 1, step:131, step time: 0.553, total time: 0.558, GMEM: 10.9/20.7/23.6, total (grad) loss: 15.579543, enc_ctc: 5.85362, mono_rnnt: 12.65273
+train epoch 1, step:132, step time: 0.533, total time: 0.538, GMEM: 10.9/20.7/23.6, total (grad) loss: 16.123945, enc_ctc: 5.94605, mono_rnnt: 13.15092
+train epoch 1, step:133, step time: 0.536, total time: 0.542, GMEM: 10.9/20.7/23.6, total (grad) loss: 16.112749, enc_ctc: 5.96156, mono_rnnt: 13.13197
+train epoch 1, step:134, step time: 0.540, total time: 0.545, GMEM: 10.9/20.7/23.6, total (grad) loss: 15.418345, enc_ctc: 5.86198, mono_rnnt: 12.48736
+train epoch 1, step:135, step time: 0.553, total time: 0.558, GMEM: 10.9/20.7/23.6, total (grad) loss: 15.130270, enc_ctc: 5.82913, mono_rnnt: 12.21571
+train epoch 1, step:136, step time: 0.523, total time: 0.528, GMEM: 10.9/20.7/23.6, total (grad) loss: 15.224925, enc_ctc: 5.92513, mono_rnnt: 12.26236
+train epoch 1, step:137, step time: 0.534, total time: 0.539, GMEM: 10.9/20.7/23.6, total (grad) loss: 14.939222, enc_ctc: 5.84932, mono_rnnt: 12.01456
+train epoch 1, step:138, step time: 0.535, total time: 0.540, GMEM: 10.9/20.7/23.6, total (grad) loss: 15.670808, enc_ctc: 5.97251, mono_rnnt: 12.68455
+train epoch 1, step:139, step time: 0.551, total time: 0.555, GMEM: 10.9/20.7/23.6, total (grad) loss: 15.129848, enc_ctc: 5.87362, mono_rnnt: 12.19304
+train epoch 1, step:140, step time: 0.520, total time: 0.525, GMEM: 10.9/20.7/23.6, total (grad) loss: 14.992747, enc_ctc: 5.87046, mono_rnnt: 12.05752
+train epoch 1, step:141, step time: 0.535, total time: 0.540, GMEM: 10.9/20.7/23.6, total (grad) loss: 15.034351, enc_ctc: 5.87283, mono_rnnt: 12.09794
+train epoch 1, step:142, step time: 0.533, total time: 0.538, GMEM: 10.9/20.7/23.6, total (grad) loss: 14.792481, enc_ctc: 5.83258, mono_rnnt: 11.87619
+train epoch 1, step:143, step time: 0.553, total time: 0.558, GMEM: 10.9/20.7/23.6, total (grad) loss: 14.995015, enc_ctc: 5.90163, mono_rnnt: 12.04420
+train epoch 1, step:144, step time: 0.536, total time: 0.541, GMEM: 10.9/20.7/23.6, total (grad) loss: 13.860726, enc_ctc: 5.71897, mono_rnnt: 11.00124
+train epoch 1, step:145, step time: 0.589, total time: 0.594, GMEM: 10.9/20.7/23.6, total (grad) loss: 14.093966, enc_ctc: 5.77211, mono_rnnt: 11.20791
+train epoch 1, step:146, step time: 0.560, total time: 0.564, GMEM: 10.9/20.7/23.6, total (grad) loss: 13.827357, enc_ctc: 5.71346, mono_rnnt: 10.97063
+train epoch 1, step:147, step time: 0.617, total time: 0.624, GMEM: 11.1/20.7/23.6, total (grad) loss: 13.551231, enc_ctc: 5.70483, mono_rnnt: 10.69882
+train epoch 1, step:148, step time: 0.588, total time: 0.600, GMEM: 11.1/20.7/23.6, total (grad) loss: 14.622410, enc_ctc: 5.83933, mono_rnnt: 11.70275
+train epoch 1, step:149, step time: 0.659, total time: 0.664, GMEM: 11.2/22.1/23.6, total (grad) loss: 13.156495, enc_ctc: 5.68558, mono_rnnt: 10.31370
+train epoch 1, step:150, step time: 0.557, total time: 0.562, GMEM: 11.2/22.1/23.6, total (grad) loss: 14.766139, enc_ctc: 5.92069, mono_rnnt: 11.80579
+train epoch 1, step:151, step time: 0.557, total time: 0.562, GMEM: 11.2/22.1/23.6, total (grad) loss: 14.071673, enc_ctc: 5.83677, mono_rnnt: 11.15329
+train epoch 1, step:152, step time: 0.541, total time: 0.546, GMEM: 11.2/22.1/23.6, total (grad) loss: 14.640545, enc_ctc: 5.88430, mono_rnnt: 11.69839
+train epoch 1, step:153, step time: 0.560, total time: 0.565, GMEM: 11.2/22.1/23.6, total (grad) loss: 14.117151, enc_ctc: 5.81199, mono_rnnt: 11.21116
+train epoch 1, step:154, step time: 0.571, total time: 0.576, GMEM: 11.2/22.1/23.6, total (grad) loss: 13.572688, enc_ctc: 5.75765, mono_rnnt: 10.69386
+train epoch 1, step:155, step time: 0.566, total time: 0.571, GMEM: 11.2/22.1/23.6, total (grad) loss: 14.489497, enc_ctc: 5.87418, mono_rnnt: 11.55241
+train epoch 1, step:156, step time: 0.559, total time: 0.564, GMEM: 11.2/22.1/23.6, total (grad) loss: 14.385774, enc_ctc: 5.87201, mono_rnnt: 11.44977
+train epoch 1, step:157, step time: 0.559, total time: 0.564, GMEM: 11.2/22.1/23.6, total (grad) loss: 14.297045, enc_ctc: 5.84828, mono_rnnt: 11.37291
+train epoch 1, step:158, step time: 0.559, total time: 0.564, GMEM: 11.2/22.1/23.6, total (grad) loss: 13.102360, enc_ctc: 5.71518, mono_rnnt: 10.24477
+train epoch 1, step:159, step time: 0.564, total time: 0.569, GMEM: 11.2/22.1/23.6, total (grad) loss: 13.515889, enc_ctc: 5.76397, mono_rnnt: 10.63391
+train epoch 1, step:160, step time: 0.550, total time: 0.554, GMEM: 11.2/22.1/23.6, total (grad) loss: 14.104506, enc_ctc: 5.84536, mono_rnnt: 11.18183
+train epoch 1, step:161, step time: 0.565, total time: 0.573, GMEM: 11.2/22.1/23.6, total (grad) loss: 14.237787, enc_ctc: 5.85535, mono_rnnt: 11.31011
+train epoch 1, step:162, step time: 0.542, total time: 0.547, GMEM: 11.2/22.1/23.6, total (grad) loss: 12.459324, enc_ctc: 5.60185, mono_rnnt: 9.65840
+train epoch 1, step:163, step time: 0.576, total time: 0.581, GMEM: 11.2/22.1/23.6, total (grad) loss: 13.857833, enc_ctc: 5.84535, mono_rnnt: 10.93516
+train epoch 1, step:164, step time: 0.544, total time: 0.549, GMEM: 11.2/22.1/23.6, total (grad) loss: 13.603798, enc_ctc: 5.79026, mono_rnnt: 10.70867
+train epoch 1, step:165, step time: 0.600, total time: 0.606, GMEM: 11.2/22.1/23.6, total (grad) loss: 13.513203, enc_ctc: 5.79699, mono_rnnt: 10.61471
+train epoch 1, step:166, step time: 0.534, total time: 0.539, GMEM: 11.2/22.1/23.6, total (grad) loss: 12.698483, enc_ctc: 5.65646, mono_rnnt: 9.87025
+train epoch 1, step:167, step time: 0.556, total time: 0.561, GMEM: 11.2/22.1/23.6, total (grad) loss: 13.339621, enc_ctc: 5.76434, mono_rnnt: 10.45745
+train epoch 1, step:168, step time: 0.564, total time: 0.569, GMEM: 11.2/22.1/23.6, total (grad) loss: 12.308228, enc_ctc: 5.58310, mono_rnnt: 9.51668
+train epoch 1, step:169, step time: 0.561, total time: 0.565, GMEM: 11.2/22.1/23.6, total (grad) loss: 12.389952, enc_ctc: 5.58143, mono_rnnt: 9.59924
+train epoch 1, step:170, step time: 0.561, total time: 0.565, GMEM: 11.2/22.1/23.6, total (grad) loss: 12.112249, enc_ctc: 5.55477, mono_rnnt: 9.33487
+train epoch 1, step:171, step time: 0.569, total time: 0.574, GMEM: 11.2/22.1/23.6, total (grad) loss: 12.259110, enc_ctc: 5.57495, mono_rnnt: 9.47164
+train epoch 1, step:172, step time: 0.549, total time: 0.554, GMEM: 11.2/22.1/23.6, total (grad) loss: 12.226194, enc_ctc: 5.57422, mono_rnnt: 9.43909
+train epoch 1, step:173, step time: 0.542, total time: 0.547, GMEM: 11.2/22.1/23.6, total (grad) loss: 13.808919, enc_ctc: 5.85740, mono_rnnt: 10.88022
+train epoch 1, step:174, step time: 0.511, total time: 0.516, GMEM: 11.2/22.1/23.6, total (grad) loss: 13.988291, enc_ctc: 5.91954, mono_rnnt: 11.02852
+train epoch 1, step:175, step time: 0.521, total time: 0.527, GMEM: 11.2/22.1/23.6, total (grad) loss: 13.189461, enc_ctc: 5.74503, mono_rnnt: 10.31694
+train epoch 1, step:176, step time: 0.532, total time: 0.538, GMEM: 11.2/22.1/23.6, total (grad) loss: 12.919465, enc_ctc: 5.74735, mono_rnnt: 10.04579
+train epoch 1, step:177, step time: 0.541, total time: 0.546, GMEM: 11.2/22.1/23.6, total (grad) loss: 13.392151, enc_ctc: 5.79586, mono_rnnt: 10.49422
+train epoch 1, step:178, step time: 0.543, total time: 0.547, GMEM: 11.2/22.1/23.6, total (grad) loss: 12.845880, enc_ctc: 5.70453, mono_rnnt: 9.99361
+train epoch 1, step:179, step time: 0.545, total time: 0.552, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.940548, enc_ctc: 5.56630, mono_rnnt: 9.15740
+train epoch 1, step:180, step time: 0.536, total time: 0.543, GMEM: 11.2/22.1/23.6, total (grad) loss: 12.899540, enc_ctc: 5.73429, mono_rnnt: 10.03239
+train epoch 1, step:181, step time: 0.545, total time: 0.551, GMEM: 11.2/22.1/23.6, total (grad) loss: 13.462490, enc_ctc: 5.79292, mono_rnnt: 10.56603
+train epoch 1, step:182, step time: 0.544, total time: 0.548, GMEM: 11.2/22.1/23.6, total (grad) loss: 12.844829, enc_ctc: 5.71049, mono_rnnt: 9.98958
+train epoch 1, step:183, step time: 0.543, total time: 0.548, GMEM: 11.2/22.1/23.6, total (grad) loss: 13.241558, enc_ctc: 5.76719, mono_rnnt: 10.35796
+train epoch 1, step:184, step time: 0.539, total time: 0.543, GMEM: 11.2/22.1/23.6, total (grad) loss: 12.045272, enc_ctc: 5.58866, mono_rnnt: 9.25094
+train epoch 1, step:185, step time: 0.542, total time: 0.547, GMEM: 11.2/22.1/23.6, total (grad) loss: 12.105841, enc_ctc: 5.59286, mono_rnnt: 9.30941
+train epoch 1, step:186, step time: 0.538, total time: 0.543, GMEM: 11.2/22.1/23.6, total (grad) loss: 12.011880, enc_ctc: 5.58590, mono_rnnt: 9.21893
+train epoch 1, step:187, step time: 0.554, total time: 0.559, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.466628, enc_ctc: 5.47674, mono_rnnt: 8.72826
+train epoch 1, step:188, step time: 0.538, total time: 0.543, GMEM: 11.2/22.1/23.6, total (grad) loss: 12.587631, enc_ctc: 5.69450, mono_rnnt: 9.74038
+train epoch 1, step:189, step time: 0.565, total time: 0.571, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.599941, enc_ctc: 5.52265, mono_rnnt: 8.83862
+train epoch 1, step:190, step time: 0.531, total time: 0.536, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.326297, enc_ctc: 5.49553, mono_rnnt: 8.57853
+train epoch 1, step:191, step time: 0.530, total time: 0.535, GMEM: 11.2/22.1/23.6, total (grad) loss: 12.404602, enc_ctc: 5.65437, mono_rnnt: 9.57742
+train epoch 1, step:192, step time: 0.545, total time: 0.550, GMEM: 11.2/22.1/23.6, total (grad) loss: 13.142565, enc_ctc: 5.76909, mono_rnnt: 10.25802
+train epoch 1, step:193, step time: 0.548, total time: 0.554, GMEM: 11.2/22.1/23.6, total (grad) loss: 12.411325, enc_ctc: 5.67861, mono_rnnt: 9.57202
+train epoch 1, step:194, step time: 0.582, total time: 0.588, GMEM: 11.2/22.1/23.6, total (grad) loss: 14.146852, enc_ctc: 5.97191, mono_rnnt: 11.16090
+train epoch 1, step:195, step time: 0.547, total time: 0.552, GMEM: 11.2/22.1/23.6, total (grad) loss: 12.433202, enc_ctc: 5.65235, mono_rnnt: 9.60703
+train epoch 1, step:196, step time: 0.527, total time: 0.532, GMEM: 11.2/22.1/23.6, total (grad) loss: 12.800872, enc_ctc: 5.74288, mono_rnnt: 9.92943
+train epoch 1, step:197, step time: 0.565, total time: 0.571, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.757773, enc_ctc: 5.56193, mono_rnnt: 8.97681
+train epoch 1, step:198, step time: 0.563, total time: 0.569, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.398746, enc_ctc: 5.50334, mono_rnnt: 8.64707
+train epoch 1, step:199, step time: 0.555, total time: 0.560, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.457078, enc_ctc: 5.54575, mono_rnnt: 8.68420
+train epoch 1, step:200, step time: 0.521, total time: 0.526, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.414841, enc_ctc: 5.53078, mono_rnnt: 8.64945
+train epoch 1, step:201, step time: 0.538, total time: 0.543, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.423237, enc_ctc: 5.54542, mono_rnnt: 8.65053
+train epoch 1, step:202, step time: 0.541, total time: 0.546, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.177776, enc_ctc: 5.53038, mono_rnnt: 8.41259
+train epoch 1, step:203, step time: 0.551, total time: 0.556, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.082458, enc_ctc: 5.44327, mono_rnnt: 8.36082
+train epoch 1, step:204, step time: 0.552, total time: 0.556, GMEM: 11.2/22.1/23.6, total (grad) loss: 12.268365, enc_ctc: 5.68219, mono_rnnt: 9.42727
+train epoch 1, step:205, step time: 0.591, total time: 0.601, GMEM: 11.2/22.1/23.6, total (grad) loss: 12.299534, enc_ctc: 5.69708, mono_rnnt: 9.45099
+train epoch 1, step:206, step time: 0.597, total time: 0.603, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.674123, enc_ctc: 5.56107, mono_rnnt: 8.89359
+train epoch 1, step:207, step time: 0.571, total time: 0.576, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.341249, enc_ctc: 5.53075, mono_rnnt: 8.57587
+train epoch 1, step:208, step time: 0.551, total time: 0.556, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.349148, enc_ctc: 5.54407, mono_rnnt: 8.57711
+train epoch 1, step:209, step time: 0.545, total time: 0.550, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.065197, enc_ctc: 5.51596, mono_rnnt: 8.30722
+train epoch 1, step:210, step time: 0.543, total time: 0.548, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.455606, enc_ctc: 5.56209, mono_rnnt: 8.67456
+train epoch 1, step:211, step time: 0.554, total time: 0.559, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.400929, enc_ctc: 5.56474, mono_rnnt: 8.61856
+train epoch 1, step:212, step time: 0.541, total time: 0.546, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.188746, enc_ctc: 5.52835, mono_rnnt: 8.42457
+train epoch 1, step:213, step time: 0.546, total time: 0.551, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.100760, enc_ctc: 5.54543, mono_rnnt: 8.32804
+train epoch 1, step:214, step time: 0.544, total time: 0.548, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.513489, enc_ctc: 5.61504, mono_rnnt: 8.70597
+train epoch 1, step:215, step time: 0.540, total time: 0.545, GMEM: 11.2/22.1/23.6, total (grad) loss: 12.273939, enc_ctc: 5.73335, mono_rnnt: 9.40727
+train epoch 1, step:216, step time: 0.543, total time: 0.547, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.381326, enc_ctc: 5.62752, mono_rnnt: 8.56757
+train epoch 1, step:217, step time: 0.563, total time: 0.567, GMEM: 11.2/22.1/23.6, total (grad) loss: 12.013773, enc_ctc: 5.69101, mono_rnnt: 9.16827
+train epoch 1, step:218, step time: 0.532, total time: 0.537, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.075562, enc_ctc: 5.53553, mono_rnnt: 8.30780
+train epoch 1, step:219, step time: 0.544, total time: 0.549, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.351990, enc_ctc: 5.42607, mono_rnnt: 7.63896
+train epoch 1, step:220, step time: 0.525, total time: 0.529, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.953901, enc_ctc: 5.52343, mono_rnnt: 8.19219
+train epoch 1, step:221, step time: 0.543, total time: 0.548, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.948934, enc_ctc: 5.51699, mono_rnnt: 8.19044
+train epoch 1, step:222, step time: 0.546, total time: 0.551, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.969799, enc_ctc: 5.51523, mono_rnnt: 8.21218
+train epoch 1, step:223, step time: 0.553, total time: 0.558, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.948031, enc_ctc: 5.52756, mono_rnnt: 8.18425
+train epoch 1, step:224, step time: 0.531, total time: 0.536, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.827679, enc_ctc: 5.52480, mono_rnnt: 8.06528
+train epoch 1, step:225, step time: 0.552, total time: 0.557, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.100601, enc_ctc: 5.56353, mono_rnnt: 8.31884
+train epoch 1, step:226, step time: 0.530, total time: 0.535, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.314197, enc_ctc: 5.42113, mono_rnnt: 7.60363
+train epoch 1, step:227, step time: 0.535, total time: 0.540, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.558985, enc_ctc: 5.68278, mono_rnnt: 8.71760
+train epoch 1, step:228, step time: 0.518, total time: 0.523, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.594562, enc_ctc: 5.47193, mono_rnnt: 7.85860
+train epoch 1, step:229, step time: 0.534, total time: 0.539, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.328587, enc_ctc: 5.44999, mono_rnnt: 7.60359
+train epoch 1, step:230, step time: 0.521, total time: 0.526, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.212791, enc_ctc: 5.59948, mono_rnnt: 8.41305
+train epoch 1, step:231, step time: 0.541, total time: 0.546, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.136894, enc_ctc: 5.57265, mono_rnnt: 8.35057
+train epoch 1, step:232, step time: 0.529, total time: 0.534, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.284946, enc_ctc: 5.46930, mono_rnnt: 7.55029
+train epoch 1, step:233, step time: 0.533, total time: 0.538, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.717768, enc_ctc: 5.51509, mono_rnnt: 7.96022
+train epoch 1, step:234, step time: 0.507, total time: 0.512, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.949450, enc_ctc: 5.58535, mono_rnnt: 8.15678
+train epoch 1, step:235, step time: 0.512, total time: 0.517, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.504620, enc_ctc: 5.49862, mono_rnnt: 7.75531
+train epoch 1, step:236, step time: 0.514, total time: 0.519, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.302560, enc_ctc: 5.42554, mono_rnnt: 7.58979
+train epoch 1, step:237, step time: 0.526, total time: 0.531, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.285159, enc_ctc: 5.47290, mono_rnnt: 7.54871
+train epoch 1, step:238, step time: 0.509, total time: 0.513, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.902813, enc_ctc: 5.56242, mono_rnnt: 8.12160
+train epoch 1, step:239, step time: 0.523, total time: 0.528, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.226219, enc_ctc: 5.62356, mono_rnnt: 8.41444
+train epoch 1, step:240, step time: 0.514, total time: 0.518, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.678826, enc_ctc: 5.53117, mono_rnnt: 7.91324
+train epoch 1, step:241, step time: 0.531, total time: 0.536, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.601878, enc_ctc: 5.51469, mono_rnnt: 7.84453
+train epoch 1, step:242, step time: 0.505, total time: 0.509, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.418133, enc_ctc: 5.55585, mono_rnnt: 7.64021
+train epoch 1, step:243, step time: 0.505, total time: 0.510, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.474306, enc_ctc: 5.52912, mono_rnnt: 7.70975
+train epoch 1, step:244, step time: 0.520, total time: 0.525, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.363323, enc_ctc: 5.54371, mono_rnnt: 7.59147
+train epoch 1, step:245, step time: 0.543, total time: 0.548, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.872767, enc_ctc: 5.68718, mono_rnnt: 8.02918
+train epoch 1, step:246, step time: 0.531, total time: 0.535, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.850058, enc_ctc: 5.69655, mono_rnnt: 8.00178
+train epoch 1, step:247, step time: 0.553, total time: 0.558, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.345156, enc_ctc: 5.75748, mono_rnnt: 8.46642
+train epoch 1, step:248, step time: 0.514, total time: 0.519, GMEM: 11.2/22.1/23.6, total (grad) loss: 11.039791, enc_ctc: 5.65881, mono_rnnt: 8.21039
+train epoch 1, step:249, step time: 0.515, total time: 0.520, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.895832, enc_ctc: 5.60309, mono_rnnt: 8.09429
+train epoch 1, step:250, step time: 0.519, total time: 0.523, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.973314, enc_ctc: 5.60566, mono_rnnt: 8.17048
+train epoch 1, step:251, step time: 0.539, total time: 0.545, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.576012, enc_ctc: 5.54175, mono_rnnt: 7.80513
+train epoch 1, step:252, step time: 0.503, total time: 0.508, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.097160, enc_ctc: 5.43527, mono_rnnt: 7.37952
+train epoch 1, step:253, step time: 0.554, total time: 0.565, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.461794, enc_ctc: 5.49231, mono_rnnt: 7.71564
+train epoch 1, step:254, step time: 0.525, total time: 0.530, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.154929, enc_ctc: 5.42419, mono_rnnt: 7.44284
+train epoch 1, step:255, step time: 0.544, total time: 0.549, GMEM: 11.2/22.1/23.6, total (grad) loss: 9.922414, enc_ctc: 5.38897, mono_rnnt: 7.22793
+train epoch 1, step:256, step time: 0.516, total time: 0.521, GMEM: 11.2/22.1/23.6, total (grad) loss: 9.796234, enc_ctc: 5.40530, mono_rnnt: 7.09359
+train epoch 1, step:257, step time: 0.529, total time: 0.534, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.283565, enc_ctc: 5.47178, mono_rnnt: 7.54768
+train epoch 1, step:258, step time: 0.523, total time: 0.528, GMEM: 11.2/22.1/23.6, total (grad) loss: 9.974187, enc_ctc: 5.39808, mono_rnnt: 7.27515
+train epoch 1, step:259, step time: 0.535, total time: 0.540, GMEM: 11.2/22.1/23.6, total (grad) loss: 9.918645, enc_ctc: 5.41889, mono_rnnt: 7.20920
+train epoch 1, step:260, step time: 0.542, total time: 0.547, GMEM: 11.2/22.1/23.6, total (grad) loss: 9.837940, enc_ctc: 5.39212, mono_rnnt: 7.14188
+train epoch 1, step:261, step time: 0.550, total time: 0.555, GMEM: 11.2/22.1/23.6, total (grad) loss: 9.851853, enc_ctc: 5.38958, mono_rnnt: 7.15706
+train epoch 1, step:262, step time: 0.543, total time: 0.548, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.001217, enc_ctc: 5.42182, mono_rnnt: 7.29031
+train epoch 1, step:263, step time: 0.605, total time: 0.610, GMEM: 11.2/22.1/23.6, total (grad) loss: 9.474087, enc_ctc: 5.38671, mono_rnnt: 6.78073
+train epoch 1, step:264, step time: 0.522, total time: 0.529, GMEM: 11.2/22.1/23.6, total (grad) loss: 9.905874, enc_ctc: 5.41182, mono_rnnt: 7.19996
+train epoch 1, step:265, step time: 0.539, total time: 0.545, GMEM: 11.2/22.1/23.6, total (grad) loss: 9.739727, enc_ctc: 5.40899, mono_rnnt: 7.03523
+train epoch 1, step:266, step time: 0.547, total time: 0.553, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.341927, enc_ctc: 5.53179, mono_rnnt: 7.57603
+train epoch 1, step:267, step time: 0.537, total time: 0.542, GMEM: 11.2/22.1/23.6, total (grad) loss: 9.835028, enc_ctc: 5.42497, mono_rnnt: 7.12254
+train epoch 1, step:268, step time: 0.543, total time: 0.548, GMEM: 11.2/22.1/23.6, total (grad) loss: 9.883480, enc_ctc: 5.45752, mono_rnnt: 7.15472
+train epoch 1, step:269, step time: 0.625, total time: 0.631, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.065807, enc_ctc: 5.48168, mono_rnnt: 7.32497
+train epoch 1, step:270, step time: 0.546, total time: 0.553, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.273881, enc_ctc: 5.55963, mono_rnnt: 7.49407
+train epoch 1, step:271, step time: 0.557, total time: 0.561, GMEM: 11.2/22.1/23.6, total (grad) loss: 9.810215, enc_ctc: 5.45238, mono_rnnt: 7.08402
+train epoch 1, step:272, step time: 0.542, total time: 0.547, GMEM: 11.2/22.1/23.6, total (grad) loss: 9.658158, enc_ctc: 5.45027, mono_rnnt: 6.93302
+train epoch 1, step:273, step time: 0.535, total time: 0.540, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.033104, enc_ctc: 5.48209, mono_rnnt: 7.29206
+train epoch 1, step:274, step time: 0.524, total time: 0.529, GMEM: 11.2/22.1/23.6, total (grad) loss: 9.937222, enc_ctc: 5.47461, mono_rnnt: 7.19992
+train epoch 1, step:275, step time: 0.552, total time: 0.557, GMEM: 11.2/22.1/23.6, total (grad) loss: 9.544485, enc_ctc: 5.38980, mono_rnnt: 6.84959
+train epoch 1, step:276, step time: 0.528, total time: 0.533, GMEM: 11.2/22.1/23.6, total (grad) loss: 10.017447, enc_ctc: 5.51126, mono_rnnt: 7.26182
+train epoch 1, step:277, step time: 0.557, total time: 0.564, GMEM: 11.2/22.1/23.6, total (grad) loss: 9.909354, enc_ctc: 5.44804, mono_rnnt: 7.18534
+KeyboardInterrupt
+Quitting
+Mini-RETURNN starting up, version 0.5, date/time 2026-06-07-15-50-35 (UTC+0200), pid 2012957, cwd /work/smt4/azim.javed/repositories/i6_experiments/users/azim_javed/qat, Python /usr/bin/python3
+RETURNN command line options: ['/work/smt4/azim.javed/sisyphus_work/i6_core/returnn/training/ReturnnTrainingJob.xIAynTIQCABX/output/returnn.config']
+Hostname: cn-233
+Use of deprecated keyword 'gpu' to set device. Using 'cuda' instead.
+CUDA_VISIBLE_DEVICES is set to '0'.
+  1/1: cuda:0
+       name: NVIDIA GeForce RTX 3090
+       total_memory: 23.6GB
+       capability: 8.6
+       device_index: 0
+Using gpu device 0: NVIDIA GeForce RTX 3090
+  input: 1
+  output: {'raw': {'dtype': 'string', 'shape': ()}, 'orth': [256, 1], 'classes': [184, 1], 'data': [1, 2]}
+  OggZipDataset, sequences: 0, frames: unknown
+Reading sequence list for MetaDataset 'train' from sub-dataset 'train_data'
+  input: 0
+  output: {'classes': [184, 1], 'data': [1, 2]}
+  MetaDataset, sequences: 0, frames: unknown
+  input: 1
+  output: {'raw': {'dtype': 'string', 'shape': ()}, 'orth': [256, 1], 'classes': [184, 1], 'data': [1, 2]}
+  OggZipDataset, sequences: 0, frames: unknown
+Reading sequence list for MetaDataset 'dev' from sub-dataset 'dev_data'
+  input: 0
+  output: {'classes': [184, 1], 'data': [1, 2]}
+  MetaDataset, sequences: 0, frames: unknown
+Learning-rate-control: file learning_rates does not exist yet
+Using fresh model
+Model: QATConformerCTCModel(
+  (feature_extraction): LogMelFeatureExtractionV1()
+  (conformer): ConformerEncoderQuant(
+    (frontend): GenericFrontendV1(
+      (frontend_layers): ModuleList(
+        (0): Conv2d(1, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (1): Conv2d(32, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (2): ReLU()
+        (3): MaxPool2d(kernel_size=(2, 1), stride=(2, 1), padding=(0, 0), dilation=1, ceil_mode=False)
+        (4): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (5): Conv2d(64, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (6): ReLU()
+        (7): MaxPool2d(kernel_size=(2, 1), stride=(2, 1), padding=(0, 0), dilation=1, ceil_mode=False)
+      )
+      (linear): Linear(in_features=2560, out_features=512, bias=True)
+    )
+    (module_list): ModuleList(
+      (0-11): 12 x ConformerBlockQuant(
+        (final_layer_norm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+        (module_list): ModuleList(
+          (0): ConformerPositionwiseFeedForwardQuant(
+            (layer_norm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+            (linear_ff): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (activation): SiLU()
+            (linear_out): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (lin_1_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_1_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_2_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_2_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+          )
+          (1): ConformerConvolutionQuant(
+            (pointwise_conv1): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (depthwise_conv): Conv1dQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (dconv_1_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (dconv_1_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (pointwise_conv2): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (pconv_1_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (pconv_1_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (pconv_2_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (pconv_2_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (layer_norm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+            (norm): LayerNormNC((512,), eps=1e-05, elementwise_affine=True)
+            (dropout): Dropout(p=0.1, inplace=False)
+            (activation): SiLU()
+          )
+          (2): ConformerMHSAQuant(
+            (layernorm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+            (mhsa): QuantizedMultiheadAttention(
+              (layernorm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+              (pos_emb_dropout): Dropout(p=0.0, inplace=False)
+              (att_weights_dropout): Dropout(p=0.1, inplace=False)
+              (qkv_proj): LinearQuant(
+                (weight_quantizer): WeightQuantizer(
+                  (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+                )
+              )
+              (in_proj_in_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (in_proj_out_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (q_quantizer): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (k_quantizer): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (out_proj): LinearQuant(
+                (weight_quantizer): WeightQuantizer(
+                  (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+                )
+              )
+              (out_proj_in_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (out_proj_out_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (linear_pos): LinearQuant(
+                (weight_quantizer): WeightQuantizer(
+                  (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+                )
+              )
+              (learn_emb_in_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (learn_emb_out_quant): ActivationQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+              (dropout): BroadcastDropout()
+            )
+          )
+          (3): ConformerPositionwiseFeedForwardQuant(
+            (layer_norm): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
+            (linear_ff): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (activation): SiLU()
+            (linear_out): LinearQuant(
+              (weight_quantizer): WeightQuantizer(
+                (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+              )
+            )
+            (lin_1_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_1_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_2_in_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+            (lin_2_out_quant): ActivationQuantizer(
+              (observer): MinMaxObserver(min_val=inf, max_val=-inf)
+            )
+          )
+        )
+      )
+    )
+  )
+  (dropout): Dropout(p=0.1, inplace=False)
+  (final_linear): Linear(in_features=512, out_features=185, bias=True)
+)
+Total number of parameters: 77377177
+Optimizer: AdamW (
+Parameter Group 0
+    amsgrad: False
+    betas: (0.9, 0.999)
+    capturable: False
+    decoupled_weight_decay: True
+    differentiable: False
+    eps: 1e-16
+    foreach: None
+    fused: None
+    lr: 1.0
+    maximize: False
+    weight_decay: 0.01
+)
+Starting training at epoch 1.
+start epoch 1 with learning rate 7e-06 ...
+train epoch 1, step:0, step time: 4.280, GMEM: 7.4/7.9/23.6, total (grad) loss: 15.137120, CTC: 15.13712
+train epoch 1, step:1, step time: 0.562, total time: 0.568, GMEM: 8.0/8.4/23.6, total (grad) loss: 12.304336, CTC: 12.30434
+train epoch 1, step:2, step time: 0.739, total time: 0.746, GMEM: 8.3/8.8/23.6, total (grad) loss: 9.664475, CTC: 9.66448
+train epoch 1, step:3, step time: 0.796, total time: 0.811, GMEM: 8.3/9.3/23.6, total (grad) loss: 7.713030, CTC: 7.71303
+train epoch 1, step:4, step time: 0.740, total time: 0.748, GMEM: 8.7/9.8/23.6, total (grad) loss: 6.359196, CTC: 6.35920
+train epoch 1, step:5, step time: 0.689, total time: 0.704, GMEM: 8.7/9.8/23.6, total (grad) loss: 5.767102, CTC: 5.76710
+train epoch 1, step:6, step time: 0.894, total time: 0.901, GMEM: 8.7/9.8/23.6, total (grad) loss: 5.437078, CTC: 5.43708
+train epoch 1, step:7, step time: 0.836, total time: 0.847, GMEM: 8.7/9.8/23.6, total (grad) loss: 5.394765, CTC: 5.39477
+train epoch 1, step:8, step time: 0.933, total time: 0.947, GMEM: 8.9/9.9/23.6, total (grad) loss: 5.467512, CTC: 5.46751
+train epoch 1, step:9, step time: 0.613, total time: 0.622, GMEM: 9.0/9.9/23.6, total (grad) loss: 5.409356, CTC: 5.40936
+train epoch 1, step:10, step time: 0.660, total time: 0.668, GMEM: 9.0/10.1/23.6, total (grad) loss: 5.346482, CTC: 5.34648
+train epoch 1, step:11, step time: 0.743, total time: 0.754, GMEM: 9.0/10.1/23.6, total (grad) loss: 5.299355, CTC: 5.29935
+train epoch 1, step:12, step time: 0.673, total time: 0.677, GMEM: 9.0/10.1/23.6, total (grad) loss: 5.282070, CTC: 5.28207
+train epoch 1, step:13, step time: 0.664, total time: 0.672, GMEM: 9.0/10.1/23.6, total (grad) loss: 5.211610, CTC: 5.21161
+train epoch 1, step:14, step time: 0.786, total time: 0.793, GMEM: 9.1/10.1/23.6, total (grad) loss: 5.222467, CTC: 5.22247
+train epoch 1, step:15, step time: 0.753, total time: 0.769, GMEM: 9.1/10.1/23.6, total (grad) loss: 5.224397, CTC: 5.22440
+train epoch 1, step:16, step time: 0.838, total time: 0.845, GMEM: 9.1/10.1/23.6, total (grad) loss: 5.165836, CTC: 5.16584
+train epoch 1, step:17, step time: 0.799, total time: 0.811, GMEM: 9.1/10.1/23.6, total (grad) loss: 5.116334, CTC: 5.11633
+train epoch 1, step:18, step time: 0.862, total time: 0.870, GMEM: 9.1/10.1/23.6, total (grad) loss: 5.128060, CTC: 5.12806
+train epoch 1, step:19, step time: 0.793, total time: 0.805, GMEM: 9.1/10.1/23.6, total (grad) loss: 5.150510, CTC: 5.15051
+train epoch 1, step:20, step time: 0.855, total time: 0.876, GMEM: 9.1/10.1/23.6, total (grad) loss: 5.090061, CTC: 5.09006
+train epoch 1, step:21, step time: 0.799, total time: 0.814, GMEM: 9.3/10.4/23.6, total (grad) loss: 5.056686, CTC: 5.05669
+train epoch 1, step:22, step time: 0.812, total time: 0.819, GMEM: 9.3/10.4/23.6, total (grad) loss: 5.100704, CTC: 5.10070
+train epoch 1, step:23, step time: 0.884, total time: 0.895, GMEM: 9.3/10.4/23.6, total (grad) loss: 5.026793, CTC: 5.02679
+train epoch 1, step:24, step time: 0.780, total time: 0.787, GMEM: 9.3/10.4/23.6, total (grad) loss: 5.049004, CTC: 5.04900
+train epoch 1, step:25, step time: 0.813, total time: 0.821, GMEM: 9.3/10.4/23.6, total (grad) loss: 5.013307, CTC: 5.01331
+train epoch 1, step:26, step time: 0.855, total time: 0.874, GMEM: 9.3/10.4/23.6, total (grad) loss: 4.995525, CTC: 4.99553
+train epoch 1, step:27, step time: 0.862, total time: 0.876, GMEM: 9.3/10.4/23.6, total (grad) loss: 4.998362, CTC: 4.99836
+train epoch 1, step:28, step time: 0.773, total time: 0.784, GMEM: 9.3/10.4/23.6, total (grad) loss: 5.035946, CTC: 5.03595
+train epoch 1, step:29, step time: 0.764, total time: 0.771, GMEM: 9.3/10.4/23.6, total (grad) loss: 4.946957, CTC: 4.94696
+train epoch 1, step:30, step time: 0.762, total time: 0.777, GMEM: 9.3/10.4/23.6, total (grad) loss: 4.963807, CTC: 4.96381
+train epoch 1, step:31, step time: 0.806, total time: 0.822, GMEM: 9.3/10.4/23.6, total (grad) loss: 5.007796, CTC: 5.00780
+train epoch 1, step:32, step time: 0.634, total time: 0.642, GMEM: 9.3/10.4/23.6, total (grad) loss: 4.931094, CTC: 4.93109
+train epoch 1, step:33, step time: 0.883, total time: 0.899, GMEM: 9.3/10.4/23.6, total (grad) loss: 4.924016, CTC: 4.92402
+train epoch 1, step:34, step time: 0.854, total time: 0.869, GMEM: 9.3/10.4/23.6, total (grad) loss: 4.975033, CTC: 4.97503
+train epoch 1, step:35, step time: 0.745, total time: 0.756, GMEM: 9.3/10.4/23.6, total (grad) loss: 4.967555, CTC: 4.96756
+train epoch 1, step:36, step time: 0.723, total time: 0.741, GMEM: 9.3/10.4/23.6, total (grad) loss: 4.942554, CTC: 4.94255
+train epoch 1, step:37, step time: 0.788, total time: 0.799, GMEM: 9.3/10.4/23.6, total (grad) loss: 4.968012, CTC: 4.96801
+train epoch 1, step:38, step time: 0.903, total time: 0.911, GMEM: 9.3/10.4/23.6, total (grad) loss: 4.939129, CTC: 4.93913
+train epoch 1, step:39, step time: 0.642, total time: 0.657, GMEM: 9.3/10.4/23.6, total (grad) loss: 4.928847, CTC: 4.92885
+train epoch 1, step:40, step time: 0.712, total time: 0.719, GMEM: 9.3/10.4/23.6, total (grad) loss: 4.948226, CTC: 4.94823
+train epoch 1, step:41, step time: 0.825, total time: 0.832, GMEM: 9.3/10.4/23.6, total (grad) loss: 4.927550, CTC: 4.92755
+train epoch 1, step:42, step time: 0.757, total time: 0.768, GMEM: 9.3/10.4/23.6, total (grad) loss: 4.914848, CTC: 4.91485
+train epoch 1, step:43, step time: 0.871, total time: 0.887, GMEM: 9.3/10.4/23.6, total (grad) loss: 4.965571, CTC: 4.96557
+train epoch 1, step:44, step time: 0.737, total time: 0.752, GMEM: 9.4/10.4/23.6, total (grad) loss: 4.967468, CTC: 4.96747
+train epoch 1, step:45, step time: 0.678, total time: 0.689, GMEM: 9.4/10.4/23.6, total (grad) loss: 4.962772, CTC: 4.96277
+train epoch 1, step:46, step time: 0.796, total time: 0.803, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.911267, CTC: 4.91127
+train epoch 1, step:47, step time: 0.837, total time: 0.845, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.942249, CTC: 4.94225
+train epoch 1, step:48, step time: 0.822, total time: 0.830, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.951560, CTC: 4.95156
+train epoch 1, step:49, step time: 0.712, total time: 0.727, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.958313, CTC: 4.95831
+train epoch 1, step:50, step time: 0.936, total time: 0.942, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.875102, CTC: 4.87510
+train epoch 1, step:51, step time: 0.750, total time: 0.758, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.929425, CTC: 4.92943
+train epoch 1, step:52, step time: 0.825, total time: 0.844, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.902670, CTC: 4.90267
+train epoch 1, step:53, step time: 0.806, total time: 0.817, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.923048, CTC: 4.92305
+train epoch 1, step:54, step time: 0.867, total time: 0.874, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.917593, CTC: 4.91759
+train epoch 1, step:55, step time: 0.761, total time: 0.769, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.895340, CTC: 4.89534
+train epoch 1, step:56, step time: 0.788, total time: 0.803, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.882284, CTC: 4.88228
+train epoch 1, step:57, step time: 0.808, total time: 0.816, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.892321, CTC: 4.89232
+train epoch 1, step:58, step time: 0.756, total time: 0.771, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.929062, CTC: 4.92906
+train epoch 1, step:59, step time: 0.810, total time: 0.831, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.913297, CTC: 4.91330
+train epoch 1, step:60, step time: 0.782, total time: 0.798, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.937124, CTC: 4.93712
+train epoch 1, step:61, step time: 0.952, total time: 0.959, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.909343, CTC: 4.90934
+train epoch 1, step:62, step time: 0.860, total time: 0.875, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.910854, CTC: 4.91085
+train epoch 1, step:63, step time: 0.818, total time: 0.833, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.929465, CTC: 4.92947
+train epoch 1, step:64, step time: 0.682, total time: 0.690, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.958379, CTC: 4.95838
+train epoch 1, step:65, step time: 0.733, total time: 0.750, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.957276, CTC: 4.95728
+train epoch 1, step:66, step time: 0.727, total time: 0.744, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.905080, CTC: 4.90508
+train epoch 1, step:67, step time: 0.773, total time: 0.780, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.944704, CTC: 4.94470
+train epoch 1, step:68, step time: 0.799, total time: 0.807, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.880318, CTC: 4.88032
+train epoch 1, step:69, step time: 0.765, total time: 0.773, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.940166, CTC: 4.94017
+train epoch 1, step:70, step time: 0.905, total time: 0.919, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.917944, CTC: 4.91794
+train epoch 1, step:71, step time: 0.716, total time: 0.729, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.942366, CTC: 4.94237
+train epoch 1, step:72, step time: 0.790, total time: 0.801, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.899890, CTC: 4.89989
+train epoch 1, step:73, step time: 0.834, total time: 0.850, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.869390, CTC: 4.86939
+train epoch 1, step:74, step time: 0.775, total time: 0.790, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.885124, CTC: 4.88512
+train epoch 1, step:75, step time: 0.877, total time: 0.888, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.965739, CTC: 4.96574
+train epoch 1, step:76, step time: 0.767, total time: 0.778, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.902010, CTC: 4.90201
+train epoch 1, step:77, step time: 0.733, total time: 0.744, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.934897, CTC: 4.93490
+train epoch 1, step:78, step time: 0.770, total time: 0.784, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.925830, CTC: 4.92583
+train epoch 1, step:79, step time: 0.775, total time: 0.783, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.911506, CTC: 4.91151
+train epoch 1, step:80, step time: 0.736, total time: 0.751, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.917737, CTC: 4.91774
+train epoch 1, step:81, step time: 0.813, total time: 0.821, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.892817, CTC: 4.89282
+train epoch 1, step:82, step time: 0.894, total time: 0.909, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.963726, CTC: 4.96373
+train epoch 1, step:83, step time: 0.616, total time: 0.627, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.890333, CTC: 4.89033
+train epoch 1, step:84, step time: 0.657, total time: 0.673, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.907281, CTC: 4.90728
+train epoch 1, step:85, step time: 0.765, total time: 0.777, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.915865, CTC: 4.91587
+train epoch 1, step:86, step time: 0.875, total time: 0.885, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.901451, CTC: 4.90145
+train epoch 1, step:87, step time: 0.694, total time: 0.701, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.875942, CTC: 4.87594
+train epoch 1, step:88, step time: 0.761, total time: 0.769, GMEM: 9.5/10.4/23.6, total (grad) loss: 4.905905, CTC: 4.90591
+train epoch 1, step:89, step time: 0.710, total time: 0.717, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.898926, CTC: 4.89893
+train epoch 1, step:90, step time: 0.759, total time: 0.767, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.933033, CTC: 4.93303
+train epoch 1, step:91, step time: 0.798, total time: 0.813, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.918408, CTC: 4.91841
+train epoch 1, step:92, step time: 0.771, total time: 0.786, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.862865, CTC: 4.86286
+train epoch 1, step:93, step time: 0.815, total time: 0.823, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.945361, CTC: 4.94536
+train epoch 1, step:94, step time: 0.832, total time: 0.848, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.955716, CTC: 4.95572
+train epoch 1, step:95, step time: 0.835, total time: 0.855, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.878714, CTC: 4.87871
+train epoch 1, step:96, step time: 0.680, total time: 0.697, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.898894, CTC: 4.89889
+train epoch 1, step:97, step time: 0.802, total time: 0.810, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.926200, CTC: 4.92620
+train epoch 1, step:98, step time: 0.850, total time: 0.866, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.904807, CTC: 4.90481
+train epoch 1, step:99, step time: 0.798, total time: 0.806, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.894231, CTC: 4.89423
+train epoch 1, step:100, step time: 0.736, total time: 0.751, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.919979, CTC: 4.91998
+train epoch 1, step:101, step time: 0.723, total time: 0.738, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.881651, CTC: 4.88165
+train epoch 1, step:102, step time: 0.814, total time: 0.823, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.913888, CTC: 4.91389
+train epoch 1, step:103, step time: 0.749, total time: 0.757, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.885713, CTC: 4.88571
+train epoch 1, step:104, step time: 0.726, total time: 0.741, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.883127, CTC: 4.88313
+train epoch 1, step:105, step time: 0.744, total time: 0.752, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.946288, CTC: 4.94629
+train epoch 1, step:106, step time: 0.789, total time: 0.804, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.880897, CTC: 4.88090
+train epoch 1, step:107, step time: 0.753, total time: 0.762, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.906213, CTC: 4.90621
+train epoch 1, step:108, step time: 0.908, total time: 0.919, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.909101, CTC: 4.90910
+train epoch 1, step:109, step time: 0.651, total time: 0.659, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.900974, CTC: 4.90097
+train epoch 1, step:110, step time: 0.686, total time: 0.701, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.893520, CTC: 4.89352
+train epoch 1, step:111, step time: 0.745, total time: 0.753, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.921630, CTC: 4.92163
+train epoch 1, step:112, step time: 0.730, total time: 0.745, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.938670, CTC: 4.93867
+train epoch 1, step:113, step time: 0.760, total time: 0.775, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.968249, CTC: 4.96825
+train epoch 1, step:114, step time: 0.619, total time: 0.630, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.895670, CTC: 4.89567
+train epoch 1, step:115, step time: 0.697, total time: 0.704, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.912262, CTC: 4.91226
+train epoch 1, step:116, step time: 0.690, total time: 0.698, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.885370, CTC: 4.88537
+train epoch 1, step:117, step time: 0.694, total time: 0.709, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.916014, CTC: 4.91601
+train epoch 1, step:118, step time: 0.575, total time: 0.583, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.964041, CTC: 4.96404
+train epoch 1, step:119, step time: 0.685, total time: 0.697, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.931780, CTC: 4.93178
+train epoch 1, step:120, step time: 0.810, total time: 0.818, GMEM: 9.5/10.8/23.6, total (grad) loss: 5.011160, CTC: 5.01116
+train epoch 1, step:121, step time: 0.785, total time: 0.792, GMEM: 9.5/10.8/23.6, total (grad) loss: 5.016160, CTC: 5.01616
+train epoch 1, step:122, step time: 0.741, total time: 0.748, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.939456, CTC: 4.93946
+train epoch 1, step:123, step time: 0.783, total time: 0.798, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.927148, CTC: 4.92715
+train epoch 1, step:124, step time: 0.812, total time: 0.823, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.895197, CTC: 4.89520
+train epoch 1, step:125, step time: 0.771, total time: 0.786, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.899220, CTC: 4.89922
+train epoch 1, step:126, step time: 0.721, total time: 0.729, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.881395, CTC: 4.88140
+train epoch 1, step:127, step time: 0.766, total time: 0.778, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.939446, CTC: 4.93945
+train epoch 1, step:128, step time: 0.969, total time: 0.977, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.876669, CTC: 4.87667
+train epoch 1, step:129, step time: 0.861, total time: 0.869, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.919182, CTC: 4.91918
+train epoch 1, step:130, step time: 0.945, total time: 0.963, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.902114, CTC: 4.90211
+train epoch 1, step:131, step time: 0.686, total time: 0.702, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.858654, CTC: 4.85865
+train epoch 1, step:132, step time: 0.781, total time: 0.788, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.920573, CTC: 4.92057
+train epoch 1, step:133, step time: 0.794, total time: 0.813, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.903686, CTC: 4.90369
+train epoch 1, step:134, step time: 0.804, total time: 0.811, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.919565, CTC: 4.91956
+train epoch 1, step:135, step time: 0.824, total time: 0.836, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.874361, CTC: 4.87436
+train epoch 1, step:136, step time: 0.812, total time: 0.821, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.895437, CTC: 4.89544
+train epoch 1, step:137, step time: 0.732, total time: 0.747, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.846509, CTC: 4.84651
+train epoch 1, step:138, step time: 0.771, total time: 0.779, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.885712, CTC: 4.88571
+train epoch 1, step:139, step time: 0.748, total time: 0.760, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.918836, CTC: 4.91884
+train epoch 1, step:140, step time: 0.888, total time: 0.896, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.895469, CTC: 4.89547
+train epoch 1, step:141, step time: 0.679, total time: 0.697, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.829689, CTC: 4.82969
+train epoch 1, step:142, step time: 0.663, total time: 0.671, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.933106, CTC: 4.93311
+train epoch 1, step:143, step time: 0.814, total time: 0.821, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.925980, CTC: 4.92598
+train epoch 1, step:144, step time: 0.755, total time: 0.763, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.895895, CTC: 4.89589
+train epoch 1, step:145, step time: 0.822, total time: 0.830, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.913969, CTC: 4.91397
+train epoch 1, step:146, step time: 0.724, total time: 0.740, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.923859, CTC: 4.92386
+train epoch 1, step:147, step time: 0.843, total time: 0.850, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.891236, CTC: 4.89124
+train epoch 1, step:148, step time: 0.862, total time: 0.876, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.920302, CTC: 4.92030
+train epoch 1, step:149, step time: 0.815, total time: 0.834, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.876904, CTC: 4.87690
+train epoch 1, step:150, step time: 0.983, total time: 1.001, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.902312, CTC: 4.90231
+train epoch 1, step:151, step time: 0.783, total time: 0.791, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.878447, CTC: 4.87845
+train epoch 1, step:152, step time: 0.777, total time: 0.789, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.929008, CTC: 4.92901
+train epoch 1, step:153, step time: 0.868, total time: 0.888, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.855671, CTC: 4.85567
+train epoch 1, step:154, step time: 0.738, total time: 0.748, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.906186, CTC: 4.90619
+train epoch 1, step:155, step time: 0.879, total time: 0.891, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.818016, CTC: 4.81802
+train epoch 1, step:156, step time: 0.740, total time: 0.750, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.869229, CTC: 4.86923
+train epoch 1, step:157, step time: 0.735, total time: 0.743, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.868201, CTC: 4.86820
+train epoch 1, step:158, step time: 0.769, total time: 0.784, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.873536, CTC: 4.87354
+train epoch 1, step:159, step time: 0.774, total time: 0.781, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.907839, CTC: 4.90784
+train epoch 1, step:160, step time: 0.906, total time: 0.918, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.879165, CTC: 4.87916
+train epoch 1, step:161, step time: 0.816, total time: 0.829, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.889675, CTC: 4.88968
+train epoch 1, step:162, step time: 0.807, total time: 0.815, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.891020, CTC: 4.89102
+train epoch 1, step:163, step time: 0.812, total time: 0.820, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.853132, CTC: 4.85313
+train epoch 1, step:164, step time: 0.877, total time: 0.897, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.886690, CTC: 4.88669
+train epoch 1, step:165, step time: 0.793, total time: 0.811, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.870588, CTC: 4.87059
+train epoch 1, step:166, step time: 0.809, total time: 0.820, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.866714, CTC: 4.86671
+train epoch 1, step:167, step time: 0.872, total time: 0.886, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.909442, CTC: 4.90944
+train epoch 1, step:168, step time: 0.753, total time: 0.760, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.847286, CTC: 4.84729
+train epoch 1, step:169, step time: 0.807, total time: 0.818, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.823868, CTC: 4.82387
+train epoch 1, step:170, step time: 0.781, total time: 0.789, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.847517, CTC: 4.84752
+train epoch 1, step:171, step time: 0.753, total time: 0.761, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.835659, CTC: 4.83566
+train epoch 1, step:172, step time: 0.749, total time: 0.759, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.861960, CTC: 4.86196
+train epoch 1, step:173, step time: 0.916, total time: 0.924, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.881486, CTC: 4.88149
+train epoch 1, step:174, step time: 0.785, total time: 0.800, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.828000, CTC: 4.82800
+train epoch 1, step:175, step time: 0.850, total time: 0.858, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.847511, CTC: 4.84751
+train epoch 1, step:176, step time: 0.877, total time: 0.894, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.858082, CTC: 4.85808
+train epoch 1, step:177, step time: 0.856, total time: 0.869, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.906575, CTC: 4.90657
+train epoch 1, step:178, step time: 0.777, total time: 0.788, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.871250, CTC: 4.87125
+train epoch 1, step:179, step time: 0.766, total time: 0.781, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.881233, CTC: 4.88123
+train epoch 1, step:180, step time: 0.753, total time: 0.760, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.822568, CTC: 4.82257
+train epoch 1, step:181, step time: 0.756, total time: 0.771, GMEM: 9.5/10.8/23.6, total (grad) loss: 4.894401, CTC: 4.89440
+train epoch 1, step:182, step time: 0.912, total time: 0.927, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.899666, CTC: 4.89967
+train epoch 1, step:183, step time: 0.683, total time: 0.699, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.916430, CTC: 4.91643
+train epoch 1, step:184, step time: 0.763, total time: 0.774, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.870316, CTC: 4.87032
+train epoch 1, step:185, step time: 0.792, total time: 0.803, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.893863, CTC: 4.89386
+train epoch 1, step:186, step time: 0.840, total time: 0.846, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.852826, CTC: 4.85283
+train epoch 1, step:187, step time: 0.862, total time: 0.870, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.872849, CTC: 4.87285
+train epoch 1, step:188, step time: 0.828, total time: 0.840, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.830216, CTC: 4.83022
+train epoch 1, step:189, step time: 0.768, total time: 0.784, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.855104, CTC: 4.85510
+train epoch 1, step:190, step time: 0.666, total time: 0.673, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.843868, CTC: 4.84387
+train epoch 1, step:191, step time: 0.811, total time: 0.821, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.880697, CTC: 4.88070
+train epoch 1, step:192, step time: 0.849, total time: 0.869, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.905319, CTC: 4.90532
+train epoch 1, step:193, step time: 0.868, total time: 0.876, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.880665, CTC: 4.88067
+train epoch 1, step:194, step time: 0.872, total time: 0.883, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.879625, CTC: 4.87962
+train epoch 1, step:195, step time: 0.820, total time: 0.828, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.873310, CTC: 4.87331
+train epoch 1, step:196, step time: 0.790, total time: 0.802, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.920977, CTC: 4.92098
+train epoch 1, step:197, step time: 0.876, total time: 0.883, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.867119, CTC: 4.86712
+train epoch 1, step:198, step time: 0.822, total time: 0.833, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.867554, CTC: 4.86755
+train epoch 1, step:199, step time: 0.758, total time: 0.765, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.899796, CTC: 4.89980
+train epoch 1, step:200, step time: 0.754, total time: 0.772, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.853576, CTC: 4.85358
+train epoch 1, step:201, step time: 0.772, total time: 0.780, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.873901, CTC: 4.87390
+train epoch 1, step:202, step time: 0.806, total time: 0.814, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.873930, CTC: 4.87393
+train epoch 1, step:203, step time: 0.746, total time: 0.754, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.915019, CTC: 4.91502
+train epoch 1, step:204, step time: 0.738, total time: 0.746, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.890773, CTC: 4.89077
+train epoch 1, step:205, step time: 0.800, total time: 0.811, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.877094, CTC: 4.87709
+train epoch 1, step:206, step time: 0.838, total time: 0.845, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.839385, CTC: 4.83938
+train epoch 1, step:207, step time: 0.717, total time: 0.729, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.886789, CTC: 4.88679
+train epoch 1, step:208, step time: 0.722, total time: 0.734, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.896788, CTC: 4.89679
+train epoch 1, step:209, step time: 0.800, total time: 0.808, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.862913, CTC: 4.86291
+train epoch 1, step:210, step time: 0.772, total time: 0.780, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.874252, CTC: 4.87425
+train epoch 1, step:211, step time: 0.704, total time: 0.716, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.837317, CTC: 4.83732
+train epoch 1, step:212, step time: 0.701, total time: 0.709, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.870152, CTC: 4.87015
+train epoch 1, step:213, step time: 0.696, total time: 0.708, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.826966, CTC: 4.82697
+train epoch 1, step:214, step time: 0.810, total time: 0.818, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.874193, CTC: 4.87419
+train epoch 1, step:215, step time: 0.827, total time: 0.838, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.897027, CTC: 4.89703
+train epoch 1, step:216, step time: 0.822, total time: 0.837, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.870562, CTC: 4.87056
+train epoch 1, step:217, step time: 0.811, total time: 0.818, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.886927, CTC: 4.88693
+train epoch 1, step:218, step time: 0.756, total time: 0.763, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.889467, CTC: 4.88947
+train epoch 1, step:219, step time: 0.720, total time: 0.728, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.901283, CTC: 4.90128
+train epoch 1, step:220, step time: 0.767, total time: 0.775, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.873621, CTC: 4.87362
+train epoch 1, step:221, step time: 0.742, total time: 0.761, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.904285, CTC: 4.90429
+train epoch 1, step:222, step time: 0.848, total time: 0.855, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.855901, CTC: 4.85590
+train epoch 1, step:223, step time: 0.738, total time: 0.749, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.852908, CTC: 4.85291
+train epoch 1, step:224, step time: 0.681, total time: 0.689, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.860569, CTC: 4.86057
+train epoch 1, step:225, step time: 0.801, total time: 0.812, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.903202, CTC: 4.90320
+train epoch 1, step:226, step time: 0.953, total time: 0.965, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.866485, CTC: 4.86648
+train epoch 1, step:227, step time: 0.864, total time: 0.872, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.886559, CTC: 4.88656
+train epoch 1, step:228, step time: 0.762, total time: 0.778, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.853229, CTC: 4.85323
+train epoch 1, step:229, step time: 0.887, total time: 0.895, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.860804, CTC: 4.86080
+train epoch 1, step:230, step time: 0.814, total time: 0.830, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.844393, CTC: 4.84439
+train epoch 1, step:231, step time: 0.684, total time: 0.692, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.846959, CTC: 4.84696
+train epoch 1, step:232, step time: 0.767, total time: 0.774, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.886007, CTC: 4.88601
+train epoch 1, step:233, step time: 0.816, total time: 0.832, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.947515, CTC: 4.94752
+train epoch 1, step:234, step time: 0.798, total time: 0.806, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.943649, CTC: 4.94365
+train epoch 1, step:235, step time: 0.753, total time: 0.761, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.915094, CTC: 4.91509
+train epoch 1, step:236, step time: 0.666, total time: 0.682, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.930629, CTC: 4.93063
+train epoch 1, step:237, step time: 0.708, total time: 0.716, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.943289, CTC: 4.94329
+train epoch 1, step:238, step time: 0.642, total time: 0.650, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.963145, CTC: 4.96314
+train epoch 1, step:239, step time: 0.700, total time: 0.708, GMEM: 9.6/10.8/23.6, total (grad) loss: 4.934845, CTC: 4.93485
+train epoch 1, step:240, step time: 0.690, total time: 0.702, GMEM: 9.6/10.8/23.6, total (grad) loss: 5.000392, CTC: 5.00039
+Mini-RETURNN starting up, version 0.5, date/time 2026-06-07-15-54-47 (UTC+0200), pid 2013296, cwd /work/smt4/azim.javed/repositories/i6_experiments/users/azim_javed/qat, Python /usr/bin/python3
+RETURNN command line options: ['/work/smt4/azim.javed/sisyphus_work/i6_core/returnn/training/ReturnnTrainingJob.xIAynTIQCABX/output/returnn.config']
+Hostname: cn-233
+Use of deprecated keyword 'gpu' to set device. Using 'cuda' instead.
+CUDA_VISIBLE_DEVICES is set to '0'.
