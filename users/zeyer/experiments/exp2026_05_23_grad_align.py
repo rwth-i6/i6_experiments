@@ -61,6 +61,7 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.w
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.wav2vec2_phoneme_ctc import (
     Wav2Vec2PhonemeCtc,
 )
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.owls import Owls
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.emformer_rnnt import EmformerRnnt
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.parakeet_rnnt import ParakeetRnnt
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.whisper import Whisper
@@ -894,6 +895,130 @@ def py():
     whisper_char_extract.add_alias(whisper_char_name)
     tk.register_output(f"{whisper_char_name}.hdf", whisper_char_extract.out_hdf)
     _w2v_aligns(whisper_char_extract, whisper_char_name, energy_pows=(0.0, 0.5))
+
+    # --- Whisper SCALE sweep (does a bigger/stronger AED align better?) -------------
+    # The headline AED is whisper-BASE (74M), which already BEATS the giant speech-LLMs
+    # (47 vs 82-86 ms) -> alignment quality may NOT track ASR quality/size. Sweep
+    # base->small->medium->large-v3 with the SAME char-level grad-align at the headline
+    # config (en0.5-sil1.0). base = the existing whisper-char headline (reused).
+    for _ws in ["small", "medium", "large-v3"]:
+        _ws_dl = DownloadHuggingFaceRepoJobV2(repo_id=f"openai/whisper-{_ws}", repo_type="model")
+        tk.register_output(f"whisper-{_ws}-model", _ws_dl.out_hub_cache_dir)
+        _ws_cfg = rf.build_dict(Whisper, model_dir=_ws_dl.out_hub_cache_dir, char_level=True, char_level_sep=" ")
+        _ws_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=_ws_cfg,
+            mult_grad_by_inputs=False,
+            attr_reduction="L2",
+        )
+        _ws_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _ws_ex.rqmt = {**_ws_ex.rqmt, "time": 12}  # large-v3 ~1.5B params -> slower than base
+        _ws_name = f"whisper-{_ws}-logmel-timit-val-L2_grad-pertoken-charlev-spc"
+        _ws_ex.add_alias(_ws_name)
+        tk.register_output(f"{_ws_name}.hdf", _ws_ex.out_hdf)
+        _ws_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+        _ws_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_ws_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=_ws_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=1.0,
+        )
+        _ws_nm = f"align/{_ws_name}-{_name_for_dict(_ws_ao)}-en0.5-sil1.0"
+        _ws_al.add_alias(_ws_nm)
+        tk.register_output(f"{_ws_nm}-wbe.txt", _ws_al.out_wbe)
+
+    # --- Transducer scale points (matched-variant 0.6b<->1.1b pairs; same adapter) -----
+    # Fixes the headline mismatch (RNN-T 1.1b vs TDT 0.6b-v2 were picked as best-per-type,
+    # not a size pair): add RNN-T 0.6b and TDT 1.1b so each variant has a 0.6b<->1.1b pair.
+    # en0.5-sil1.0 (headline) + en0.5 no-sil (transducers double-count silence).
+    for _pk_repo, _pk_pts, _pk_sname in [
+        ("nvidia/parakeet-rnnt-0.6b", "prefix", "parakeet-rnnt-0.6b-logmel-timit-val-L2_grad-pertoken"),
+        ("nvidia/parakeet-tdt-1.1b", "emission", "parakeet-tdt-1.1b-logmel-timit-val-L2_grad-pertoken"),
+    ]:
+        _pk_sdl = DownloadHuggingFaceRepoJobV2(repo_id=_pk_repo, repo_type="model")
+        tk.register_output(f"{_pk_repo.split('/')[-1]}-model", _pk_sdl.out_hub_cache_dir)
+        _pk_scfg = rf.build_dict(
+            ParakeetRnnt, model_dir=_pk_sdl.out_hub_cache_dir, per_token_score=_pk_pts, overlay_path=_NEMO_OVERLAY
+        )
+        _pk_sex = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=_pk_scfg,
+            mult_grad_by_inputs=False,
+            attr_reduction="L2",
+        )
+        _pk_sex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _pk_sex.rqmt = {**_pk_sex.rqmt, "time": 12}
+        _pk_sex.add_alias(_pk_sname)
+        tk.register_output(f"{_pk_sname}.hdf", _pk_sex.out_hdf)
+        for _pk_ep, _pk_sc in [(0.5, 1.0), (0.5, 0.0)]:
+            _pk_sao = {"apply_softmax_over_time": True, "blank_score": -5}
+            _pk_sal = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=_pk_sex.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=_pk_sao,
+                audio_energy_pow=_pk_ep,
+                blank_silence_energy_scale=_pk_sc,
+            )
+            _pk_snm = f"align/{_pk_sname}-{_name_for_dict(_pk_sao)}-en{_pk_ep}-sil{_pk_sc}"
+            _pk_sal.add_alias(_pk_snm)
+            tk.register_output(f"{_pk_snm}-wbe.txt", _pk_sal.out_wbe)
+
+    # --- OWLS controlled scaling suite (ESPnet Whisper-style AED) -------------------
+    # The methodologically clean scale axis: ONE recipe/data, scaled. Two axes here
+    # (model size @180K hrs; data scale @1B params); training-intermediates axis is
+    # separate (DeepSpeed checkpoints, needs consolidation). Subword grad-align,
+    # log-mel @100Hz leaf, en0.5-sil1.0 (AED headline config). TIMIT val.
+    _owls_models = [
+        # model-size ladder (all 180K hrs)
+        ("espnet/owls_025B_180K", "owls-025B-180K"),
+        ("espnet/owls_05B_180K", "owls-05B-180K"),
+        ("espnet/owls_1B_180K", "owls-1B-180K"),
+        ("espnet/owls_2B_180K", "owls-2B-180K"),
+        # data-scale axis (1B params, varied hours; 180K point = owls-1B-180K above)
+        ("espnet/owls_1b_11k", "owls-1b-11k"),
+        ("espnet/owls_1b_22K", "owls-1b-22K"),
+        ("espnet/owls_1b_45k", "owls-1b-45k"),
+        ("espnet/owls_1b_90k", "owls-1b-90k"),
+    ]
+    for _ow_repo, _ow_tag in _owls_models:
+        _ow_dl = DownloadHuggingFaceRepoJobV2(repo_id=_ow_repo, repo_type="model")
+        tk.register_output(f"{_ow_tag}-model", _ow_dl.out_hub_cache_dir)
+        _ow_cfg = rf.build_dict(Owls, model_dir=_ow_dl.out_hub_cache_dir, char_level=True)
+        _ow_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=_ow_cfg,
+            mult_grad_by_inputs=False,
+            attr_reduction="L2",
+        )
+        _ow_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _ow_ex.rqmt = {**_ow_ex.rqmt, "time": 12}
+        _ow_name = f"{_ow_tag}-charlev-logmel-timit-val-L2_grad-pertoken"
+        _ow_ex.add_alias(_ow_name)
+        tk.register_output(f"{_ow_name}.hdf", _ow_ex.out_hdf)
+        _ow_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+        _ow_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_ow_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=_ow_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=1.0,
+        )
+        _ow_nm = f"align/{_ow_name}-{_name_for_dict(_ow_ao)}-en0.5-sil1.0"
+        _ow_al.add_alias(_ow_nm)
+        tk.register_output(f"{_ow_nm}-wbe.txt", _ow_al.out_wbe)
 
     # --- Phoneme-CTC grad-align (axis: native phoneme model, WhisperX-style) ---
     # vitouphy/wav2vec2-xls-r-300m-timit-phoneme: wav2vec2 + 39-IPA CTC head, TIMIT-trained.
@@ -2394,41 +2519,76 @@ def py():
     # --- TIMIT TEST split (headline models) -- generalization beyond the val-tuned config.
     # The two best grad-align surfaces with the generic en0.5-sil1.0 setting,
     # plus the Whisper-native cross-attn baseline on test (MMS_FA test already exists).
+    # Full headline cross-model set on the held-out TEST split, each with its generic
+    # en0.5-sil1.0 align (transducers ALSO get plain en0.5 -- silence double-counts their
+    # internal blank). (cfg, name, attr_reduction, mult_grad_by_inputs, [(energy_pow, sil_scale), ...])
+    _whc_cfg_test = rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir, char_level=True, char_level_sep=" ")
     _test_specs = [
-        (
-            rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir, char_level=True, char_level_sep=" "),
-            "whisper-base-logmel-timit-test-L2_grad-pertoken-charlev-spc",
-        ),
+        (_whc_cfg_test, "whisper-base-logmel-timit-test-L2_grad-pertoken-charlev-spc", "L2", False, [(0.5, 1.0)]),
         (
             rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out"),
             "wav2vec2ctc-fproj_out-timit-test-L2_grad-pertoken",
+            "L2",
+            False,
+            [(0.5, 1.0)],
+        ),
+        (
+            voxtral_charlev_logmel_cfg,
+            "voxtral-charlevlogmel-timit-test-L1_grad-pertoken",
+            "L1",
+            False,
+            [(0.5, 1.0)],
+        ),
+        (pt_csp_cfg, "phi4mm-timit-test-L2_e_grad-pertoken-charlev-spc", "L2", True, [(0.5, 1.0)]),
+        (
+            canary_charlev_logmel_st15_cfg,
+            "canary-qwen-charlev-spc-logmel-st15-timit-test-L1_grad-pertoken",
+            "L1",
+            False,
+            [(0.5, 1.0)],
+        ),
+        (
+            pk_cfg,
+            "parakeet-rnnt-1.1b-logmel-timit-test-L2_grad-pertoken",
+            "L2",
+            False,
+            [(0.5, 1.0), (0.5, 0.0)],
+        ),
+        (
+            tdt_cfg,
+            "parakeet-tdt-0.6b-v2-logmel-timit-test-L2_grad-pertoken",
+            "L2",
+            False,
+            [(0.5, 1.0), (0.5, 0.0)],
         ),
     ]
-    for _t_cfg, _t_name in _test_specs:
+    for _t_cfg, _t_name, _t_attr, _t_mgi, _t_aligns in _test_specs:
         _t_ex = ExtractInGradsPerTokenJob(
             dataset_dir=dl_ds_timit.out_hub_cache_dir,
             dataset_key="test",
             model_config=_t_cfg,
-            mult_grad_by_inputs=False,
-            attr_reduction="L2",
+            mult_grad_by_inputs=_t_mgi,
+            attr_reduction=_t_attr,
         )
         _t_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _t_ex.rqmt = {**_t_ex.rqmt, "time": 12}
         _t_ex.add_alias(_t_name)
         tk.register_output(f"{_t_name}.hdf", _t_ex.out_hdf)
-        _t_ao = {"apply_softmax_over_time": True, "blank_score": -5}
-        _t_al = WordAlignFromPerTokenGradsJob(
-            grad_score_hdf=_t_ex.out_hdf,
-            grad_score_key="data",
-            dataset_dir=dl_ds_timit.out_hub_cache_dir,
-            dataset_key="test",
-            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
-            align_opts=_t_ao,
-            audio_energy_pow=0.5,
-            blank_silence_energy_scale=1.0,
-        )
-        _t_nm = f"align/{_t_name}-{_name_for_dict(_t_ao)}-en0.5-sil1.0"
-        _t_al.add_alias(_t_nm)
-        tk.register_output(f"{_t_nm}-wbe.txt", _t_al.out_wbe)
+        for _t_ep, _t_sc in _t_aligns:
+            _t_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+            _t_al = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=_t_ex.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="test",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=_t_ao,
+                audio_energy_pow=_t_ep,
+                blank_silence_energy_scale=_t_sc,
+            )
+            _t_nm = f"align/{_t_name}-{_name_for_dict(_t_ao)}-en{_t_ep}-sil{_t_sc}"
+            _t_al.add_alias(_t_nm)
+            tk.register_output(f"{_t_nm}-wbe.txt", _t_al.out_wbe)
     whisper_fa_test = WhisperCrossAttnForcedAlignJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_key="test", overlay=_WHISPER_TS_OVERLAY
     )
@@ -2467,6 +2627,7 @@ def py():
     )
     for _mfa_dir, _mfa_key, _mfa_tag in [
         (dl_ds_timit.out_hub_cache_dir, "val", "timit-val"),
+        (dl_ds_timit.out_hub_cache_dir, "test", "timit-test"),
         (_mfa_bk.out_hub_cache_dir, "test", "buckeye-reseg"),
     ]:
         _mfa_al = MfaForcedAlignJob(
