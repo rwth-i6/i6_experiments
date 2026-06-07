@@ -637,8 +637,9 @@ def _train_tts_encoder(
             "stop_for_resubmission_when_low_time_left": True,
         },
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-        # single-GPU must pass None, NOT 1: any num_processes sets horovod_num_processes and picks a
-        # distributed launcher, and without torch_distributed returnn falls back to horovod -> TF assert.
+        # single-GPU must pass None, NOT 1:
+        # any num_processes sets horovod_num_processes and picks a distributed launcher,
+        # and without torch_distributed returnn falls back to horovod -> TF assert.
         num_processes=num_processes if num_processes > 1 else None,
         gpu_mem=gpu_mem,
         recog_training_func=recog_training_func,
