@@ -1062,11 +1062,12 @@ class Model(rf.Module):
         self.pad_audio = config.typed_value("pad_audio", None)
 
         self.feature_batch_norm = None
-        feature_norm = config.typed_value("feature_norm", None)
-        if feature_norm is not None:
+        feature_norm_module = config.typed_value("feature_norm_module", None)
+        if feature_norm_module is not None:
             # Configurable front-end normalization (e.g. GroupNorm) in place of the feature BatchNorm.
             # Kept on the same attribute name for checkpoint compatibility with the BatchNorm variant.
-            self.feature_batch_norm = rf.build_from_dict(feature_norm, self.in_dim)
+            # NB: distinct from the existing boolean ``feature_norm`` option further below.
+            self.feature_batch_norm = rf.build_from_dict(feature_norm_module, self.in_dim)
         elif config.bool("feature_batch_norm", False):
             self.feature_batch_norm = rf.BatchNorm(self.in_dim, affine=False, use_mask=True)
         self.feature_norm = config.bool("feature_norm", False)

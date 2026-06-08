@@ -371,8 +371,9 @@ def _train_asr_base_multigpu(
         model_config["enc_build_dict"]["encoder_layer"]["conv_norm"] = conv_norm
     if feature_norm is not None:
         # Replace the feature BatchNorm front-end with a batch-independent norm (e.g. GroupNorm).
+        # NB: key is feature_norm_module, NOT the existing boolean feature_norm option in aed.py.
         model_config["feature_batch_norm"] = False
-        model_config["feature_norm"] = feature_norm
+        model_config["feature_norm_module"] = feature_norm
 
     exp = aed_train_exp(
         name,
