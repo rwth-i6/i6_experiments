@@ -46,6 +46,11 @@ def py():
     #     Latest bhv (25). 24->25 only changes rf.scatter in padded areas (issue #1815), which this model
     #     does not use, so it is behavior-neutral vs the bhv-24 base-ls -- the front-end ablation stays clean.
     _train_ls_base("base-ls-dbmel", feature_extraction=rf.build_dict(DbMelFeatureExtractor), behavior_version=25)
+    # (c) base-ls re-run under the CURRENT RZ RETURNN (single-GPU), isolating the RETURNN-version effect
+    #     vs the original base-ls (4.06, trained Aug-2025 with RETURNN f81cb9a2 + torch 2.5).
+    #     Identical config (bhv 24, log-mel, nep 100); _meta_hash_trigger forces the rerun
+    #     because the RETURNN version is not part of the job hash.
+    _train_ls_base("base-ls-newrtrn", config_updates_extra={"_meta_hash_trigger": "new-returnn-2026-06"})
 
 
 def _train_ls_base(
@@ -53,6 +58,7 @@ def _train_ls_base(
     *,
     feature_extraction: Optional[Dict[str, Any]] = None,
     behavior_version: int = 24,
+    config_updates_extra: Optional[Dict[str, Any]] = None,
     prefix: Optional[str] = None,
 ):
     """Standard LibriSpeech CTC+AED (EncL16-DecL6-D1024-spm10k), mirroring
@@ -112,6 +118,7 @@ def _train_ls_base(
             "dec_aux_loss_layers": [3],
             "max_seq_length_default_target": None,
             "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+            **(config_updates_extra or {}),
         },
         post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
         vocab="spm10k",
