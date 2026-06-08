@@ -140,7 +140,10 @@ def py():
         prefix=prefix,
         feature_extraction=None,
         base_lr=0.5,
-        extra_config_updates={"rf_batch_norm_distributed": True},
+        # _meta_hash_trigger forces a fresh from-scratch run: the fp32 SyncBN-stats fix is a RETURNN
+        # code change (not a config change), so the job hash would otherwise be unchanged. We want the
+        # complete run under the fixed (fp32, numerically stable) distributed BatchNorm statistics.
+        extra_config_updates={"rf_batch_norm_distributed": True, "_meta_hash_trigger": "syncbn-fp32-stats"},
     )
     # GroupNorm ablation: batch-independent normalization, removing BatchNorm from the mgpu-gap picture.
     # Three variants vs lr05 (AdamW base_lr 0.5): Conformer conv-block norm, feature front-end norm, and both.
