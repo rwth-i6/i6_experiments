@@ -51,7 +51,9 @@ def get_glow_tts_lexicon() -> tk.Path:
 @cache
 def get_glow_tts_phoneme_vocab() -> tk.Path:
     """GlowTTS phoneme vocab (44 symbols; special symbols at the end, see special_symbols below)."""
-    return generic_job_output("i6_core/returnn/vocabulary/ReturnnVocabFromPhonemeInventory.z2RlZd9Y0jWQ/output/vocab.pkl")
+    return generic_job_output(
+        "i6_core/returnn/vocabulary/ReturnnVocabFromPhonemeInventory.z2RlZd9Y0jWQ/output/vocab.pkl"
+    )
 
 
 def get_glow_tts_phoneme_vocab_size() -> int:
