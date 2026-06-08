@@ -293,7 +293,9 @@ class GlowTtsLogMel(rf.Module):
         assert batch_dims == [batch_dim], f"only single batch dim supported, got {batch_dims}"
 
         phonemes_pt = phonemes.copy_compatible_to_dims_raw([batch_dim, spatial_dim])  # [B, T_phon] sparse
-        phon_lens_pt = spatial_dim.get_size_tensor(device=phonemes.device).copy_compatible_to_dims_raw([batch_dim])  # [B]
+        phon_lens_pt = spatial_dim.get_size_tensor(device=phonemes.device).copy_compatible_to_dims_raw(
+            [batch_dim]
+        )  # [B]
         bs = phonemes_pt.size(0)
         dev = phonemes_pt.device
 
@@ -306,7 +308,12 @@ class GlowTtsLogMel(rf.Module):
         # GlowTTS gen uses a flow inverse; force float32 (bf16 autocast can be unstable / unsupported here).
         with torch.autocast(device_type=dev.type, enabled=False):
             (log_mels, _z_m, _z_logs, _logdet, _z_mask, y_lengths), _, _ = self.glow_tts_model(
-                phonemes_pt, phon_lens_pt, g=speaker_labels, gen=True, noise_scale=noise_scale, length_scale=length_scale
+                phonemes_pt,
+                phon_lens_pt,
+                g=speaker_labels,
+                gen=True,
+                noise_scale=noise_scale,
+                length_scale=length_scale,
             )
         # log_mels: [B, F_logmel, T_freq] (flow-decoder output, DbMel space)
         if self.return_waveform:
