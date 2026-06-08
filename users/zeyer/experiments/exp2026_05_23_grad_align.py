@@ -90,6 +90,7 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.phoneme_
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.phoneme_forced_align_baseline import (
     ForcedAlignPhonemeBaselineJob,
 )
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.wer_noise_sweep import WerNoiseSweepJob
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.apptainer import (
     PullApptainerImageJob,
     ApptainerExeWrapperJob,
@@ -1223,6 +1224,29 @@ def py():
             param_noise_seed=_pn_seed,
         )
         tk.register_output(f"paramnoise/phoneme-forced-std{_pn_std}-phone-wbe.txt", _pn_pf.out_phone_wbe)
+
+    # WER/PER vs the SAME param-noise, to overlay on the robustness plot (does recognition collapse where
+    # alignment does?). Whisper: WER on a 200-utt subset (autoregressive decode is slow). CTC: PER, full val.
+    _wer_sigmas = [0.01, 0.02, 0.04, 0.08, 0.15, 0.3, 0.6, 1.2]
+    _wer_wh = WerNoiseSweepJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        model_kind="whisper",
+        model_dir=dl_whisper.out_hub_cache_dir,
+        sigmas=_wer_sigmas,
+        max_seqs=200,
+    )
+    _wer_wh.add_alias("paramnoise/wer-whisper")
+    tk.register_output("paramnoise/wer-whisper.txt", _wer_wh.out_wer)
+    _wer_ph = WerNoiseSweepJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        model_kind="wav2vec2ctc",
+        model_dir=dl_w2v_phoneme.out_hub_cache_dir,
+        sigmas=_wer_sigmas,
+    )
+    _wer_ph.add_alias("paramnoise/per-phoneme")
+    tk.register_output("paramnoise/per-phoneme.txt", _wer_ph.out_wer)
 
     # SmoothGrad ablation (attribution axis A) on the headline char-level Whisper surface: average the
     # per-token gradient over noise_n_samples noisy forward+backward passes (Gaussian noise on the raw
