@@ -221,6 +221,7 @@ def py():
     )
     # LAMB -- the canonical large-batch optimizer (You et al., trust-ratio); the on-the-nose comparison.
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.optim_ext.lamb import LAMB
+
     _train_asr_base_multigpu(
         "asr-base-mgpu-logmel-lamb",
         prefix=prefix,
@@ -232,6 +233,7 @@ def py():
     )
     # AdEMAMix -- AdamW + a slow gradient EMA (more progress per update); same 5e-4 peak as the AdamW best.
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.optim_ext.ademamix import AdEMAMixV2
+
     _train_asr_base_multigpu(
         "asr-base-mgpu-logmel-ademamix2",
         prefix=prefix,
