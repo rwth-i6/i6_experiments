@@ -339,21 +339,19 @@ def py():
     # Same as -lensamp, but with the SpecAugment time-mask width scaled per-seq by the sampled length_scale,
     # so compressed synthetic sequences are not over-masked (SpecAugment's absolute 20-frame width erases
     # short low-length_scale seqs). Tests whether length-aware augmentation recovers WER.
-    # HOLD: launch once the peak-norm fix is confirmed on the lensamp baseline,
-    # to keep the untested per-seq specaug-width path out of the peak-norm verification.
-    # _train_tts_encoder(
-    #     "tts-enc-ref-match-logmel-lensamp-specaug",
-    #     prefix=prefix,
-    #     text_train_epoch_split=75,
-    #     batch_size_audio_frames=120_000,
-    #     max_phon_len=300,
-    #     tts_waveform=True,
-    #     asr_logmel=True,
-    #     tts_waveform_peak_norm=True,
-    #     specaugment_length_scaled=True,
-    #     glow_tts_noise_scale_range=(0.7, 0.7),
-    #     glow_tts_length_scale_range=(0.5, 1.0),
-    # )
+    _train_tts_encoder(
+        "tts-enc-ref-match-logmel-lensamp-specaug",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        specaugment_length_scaled=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(0.5, 1.0),
+    )
 
     # TODO: import the finished RZ base-ls-dbmel (ReturnnTrainingJob.8mdaueLDfiGP); do NOT re-train on FZJ.
 
