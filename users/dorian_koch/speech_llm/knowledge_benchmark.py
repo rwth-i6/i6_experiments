@@ -28,6 +28,7 @@ from .common import HF_CACHE_DIR
 # Dataset loading job
 # ---------------------------------------------------------------------------
 
+
 class LoadRawDataset(Job):
     """Load and normalize a benchmark dataset into a standard format.
 
@@ -163,6 +164,7 @@ class LLMPreprocess(Job):
 # TTS -- single-speaker synthesis for benchmark questions
 # ---------------------------------------------------------------------------
 
+
 class ChatterboxSingleSpeakerInference(Job):
     """Synthesize a single speaker voice from question text using Chatterbox TTS."""
 
@@ -179,50 +181,37 @@ class ChatterboxSingleSpeakerInference(Job):
         self.speaker_dir = speaker_dir
         self.speaker_name = speaker_name
         self.out_dir = self.output_path("tts_output", directory=True)
-        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 4}
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 24}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
-        import torch
-        import torchaudio
-        from chatterbox.tts_turbo import ChatterboxTurboTTS
-        from datasets import load_from_disk
+        script_path = Path(__file__).resolve().parent / "chatterbox_benchmark_inference.py"
 
-        random.seed(42)
-        ds = load_from_disk(str(self.in_hf.get()))
+        command = [
+            self.venv_python_path.get(),
+            str(script_path),
+            "--in_hf",
+            str(self.in_hf.get()),
+            "--speaker_dir",
+            str(self.speaker_dir.get()),
+            "--speaker_name",
+            self.speaker_name,
+            "--out_dir",
+            str(self.out_dir.get()),
+        ]
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
 
-        # Resolve speaker path (supports rng_ prefix for random selection)
-        speaker_dir = str(self.speaker_dir.get())
-        speaker_name = self.speaker_name
-        based = os.path.basename(speaker_name)
-        if based.startswith("rng_"):
-            dirname = os.path.dirname(speaker_name)
-            search_dir = os.path.join(speaker_dir, dirname) if dirname else speaker_dir
-            wavs = [f for f in os.listdir(search_dir) if f.endswith(".wav")]
-            speaker_path = os.path.join(search_dir, random.choice(wavs))
-        else:
-            speaker_path = os.path.join(speaker_dir, speaker_name + ".wav")
-
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        model = ChatterboxTurboTTS.from_pretrained(device=device)
-        torch._dynamo.config.capture_scalar_outputs = True
-        torch.set_float32_matmul_precision("high")
-        model.t3.inference_turbo = torch.compile(model.t3.inference_turbo, dynamic=True)
-
-        model.prepare_conditionals(speaker_path, exaggeration=0.5, norm_loudness=True)
-
-        os.makedirs(str(self.out_dir.get()), exist_ok=True)
-        for i, example in enumerate(ds):
-            wav = model.generate(text=example["question"], audio_prompt_path=None)
-            out_path = os.path.join(str(self.out_dir.get()), f"{i}.wav")
-            torchaudio.save(out_path, wav.cpu(), model.sr)
+        print(f"Running Chatterbox benchmark inference: {' '.join(command)}", flush=True)
+        subprocess.run(command, env=env, check=True)
 
 
 # ---------------------------------------------------------------------------
 # Speech LLM inference (Moshi)
 # ---------------------------------------------------------------------------
+
 
 class MoshiInference(Job):
     """Run Moshi speech LLM inference on audio questions.
@@ -246,9 +235,7 @@ class MoshiInference(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
-        # Lazy import to avoid pulling in moshified_fdb at module level
-        from .fdb import moshi_server, _ws_url
-        from moshified_fdb_v1_v15.model_inference.moshi.inference import MoshiFileClient
+        from .moshi_client import moshi_server, _ws_url, MoshiFileClient
 
         in_dir = str(self.in_dir.get())
         out_dir = str(self.out_dir.get())
@@ -264,12 +251,13 @@ class MoshiInference(Job):
                         MoshiFileClient(ws_url, wav, out).run()
                         break
                     except Exception as e:
-                        print(f"[RETRY {attempt+1}/3] {wav.name}: {e}")
+                        print(f"[RETRY {attempt + 1}/3] {wav.name}: {e}")
 
 
 # ---------------------------------------------------------------------------
 # ASR -- Whisper transcription
 # ---------------------------------------------------------------------------
+
 
 class WhisperTranscription(Job):
     """Transcribe Moshi response audio using Whisper."""
@@ -296,14 +284,19 @@ class WhisperTranscription(Job):
                 if not os.path.exists(audio_path):
                     continue
                 result = model.transcribe(audio_path)
-                f.write(json.dumps({
-                    "question": example["question"],
-                    "answer": example["answer"],
-                    "aliases": example["aliases"],
-                    "category": example.get("category", "unknown"),
-                    "transcription": result["text"],
-                    "duration": result.get("duration", 0),
-                }) + "\n")
+                f.write(
+                    json.dumps(
+                        {
+                            "question": example["question"],
+                            "answer": example["answer"],
+                            "aliases": example["aliases"],
+                            "category": example.get("category", "unknown"),
+                            "transcription": result["text"],
+                            "duration": result.get("duration", 0),
+                        }
+                    )
+                    + "\n"
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -368,15 +361,17 @@ class LLMGrading(Job):
                 except (json.JSONDecodeError, KeyError):
                     grade = {"binary": 0, "quality": 1, "reasoning": "LLM response parse error"}
 
-                eval_results.append({
-                    "question": r["question"],
-                    "reference": r["answer"],
-                    "transcription": r["transcription"],
-                    "category": r.get("category", "unknown"),
-                    "binary_correct": grade.get("binary", 0),
-                    "quality_score": grade.get("quality", 1),
-                    "reasoning": grade.get("reasoning", ""),
-                })
+                eval_results.append(
+                    {
+                        "question": r["question"],
+                        "reference": r["answer"],
+                        "transcription": r["transcription"],
+                        "category": r.get("category", "unknown"),
+                        "binary_correct": grade.get("binary", 0),
+                        "quality_score": grade.get("quality", 1),
+                        "reasoning": grade.get("reasoning", ""),
+                    }
+                )
 
         with open(str(self.out_eval.get()), "w") as f:
             for er in eval_results:
@@ -406,6 +401,7 @@ class LLMGrading(Job):
 # Pipeline
 # ---------------------------------------------------------------------------
 
+
 def knowledge_benchmark_py(
     dataset_name: str = "triviaqa",
     split: str = "validation",
@@ -416,7 +412,11 @@ def knowledge_benchmark_py(
 
     Imports venvs and speakers from synthetic_train_data to reuse existing jobs.
     """
-    from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import chatterbox_venv, moshi_venv, make_speakers
+    from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import (
+        chatterbox_venv,
+        moshi_venv,
+        make_speakers,
+    )
 
     # 1. Load dataset
     raw = LoadRawDataset(dataset_name=dataset_name, split=split)
