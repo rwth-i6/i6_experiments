@@ -160,9 +160,7 @@ def _loq_dataset_config(main_key: str, *, subset_seqs: Optional[int]):
             take_random_sorted_subset=subset_seqs,
             take_random_sorted_subset_version=2,
         )
-    return _make_hf_dataset(
-        hf_data_dir=hf_dir, split=split, vocab=_loq_vocab(), use_distrib_files=(split == "train")
-    )
+    return _make_hf_dataset(hf_data_dir=hf_dir, split=split, vocab=_loq_vocab(), use_distrib_files=(split == "train"))
 
 
 class _LoqAlignSource(DatasetConfig):
@@ -399,9 +397,7 @@ def _train_streaming_variant(
                 base_model, num_shards=8, aux_ctc_layer=base_aux_ctc_layer, subset_seqs=None, keys=("dev",)
             )
             audio_provider = _LoqAudioProvider(train_subset_seqs=None)
-            chunk_data_kw["train_coshard"] = _loq_coshard_train_parts(
-                base_model, aux_ctc_layer=base_aux_ctc_layer
-            )
+            chunk_data_kw["train_coshard"] = _loq_coshard_train_parts(base_model, aux_ctc_layer=base_aux_ctc_layer)
         else:
             subset_seqs = _LOQ_SUBSET_TRAIN_SEQS
             align_hdfs = _loq_align_hdfs(
