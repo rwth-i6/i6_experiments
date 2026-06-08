@@ -142,6 +142,30 @@ def py():
         base_lr=0.5,
         extra_config_updates={"rf_batch_norm_distributed": True},
     )
+    # GroupNorm ablation: batch-independent normalization, removing BatchNorm from the mgpu-gap picture.
+    # Three variants vs lr05 (AdamW base_lr 0.5): Conformer conv-block norm, feature front-end norm, and both.
+    _train_asr_base_multigpu(
+        "asr-base-mgpu-logmel-gn-conv",
+        prefix=prefix,
+        feature_extraction=None,
+        base_lr=0.5,
+        conv_norm=rf.build_dict(rf.GroupNorm, num_groups=32),
+    )
+    _train_asr_base_multigpu(
+        "asr-base-mgpu-logmel-gn-feat",
+        prefix=prefix,
+        feature_extraction=None,
+        base_lr=0.5,
+        feature_norm=rf.build_dict(rf.GroupNorm, num_groups=16),
+    )
+    _train_asr_base_multigpu(
+        "asr-base-mgpu-logmel-gn-both",
+        prefix=prefix,
+        feature_extraction=None,
+        base_lr=0.5,
+        conv_norm=rf.build_dict(rf.GroupNorm, num_groups=32),
+        feature_norm=rf.build_dict(rf.GroupNorm, num_groups=16),
+    )
     # WSD LR schedule (warmup ~2% / stable ~78% / decay ~20%) vs our OCLR (45% warmup / 45% decay),
     # same 5e-4 peak as lr05. Tests whether the long OCLR warmup wastes our scarce nep=25 updates.
     _train_asr_base_multigpu(
@@ -266,6 +290,8 @@ def _train_asr_base_multigpu(
     peak_lr: float = 1e-3,
     torch_distributed: Optional[Dict[str, Any]] = None,
     batch_size_feat: int = 100_000,
+    conv_norm: Optional[Dict[str, Any]] = None,
+    feature_norm: Optional[Dict[str, Any]] = None,
     extra_config_updates: Optional[Dict[str, Any]] = None,
     extra_config_deletes: Optional[Sequence[str]] = None,
 ):
@@ -340,6 +366,13 @@ def _train_asr_base_multigpu(
     }
     if feature_extraction is not None:
         model_config["feature_extraction"] = feature_extraction
+    if conv_norm is not None:
+        # Replace the Conformer conv-block BatchNorm with a batch-independent norm (e.g. GroupNorm).
+        model_config["enc_build_dict"]["encoder_layer"]["conv_norm"] = conv_norm
+    if feature_norm is not None:
+        # Replace the feature BatchNorm front-end with a batch-independent norm (e.g. GroupNorm).
+        model_config["feature_batch_norm"] = False
+        model_config["feature_norm"] = feature_norm
 
     exp = aed_train_exp(
         name,
