@@ -81,6 +81,7 @@ class Owls(BaseModelInterface):
         *,
         device: torch.device,
         model_dir: str,
+        state_override_dir: Optional[str] = None,
         language: str = "eng",
         char_level: bool = False,
         char_level_sep: Optional[str] = "▁",
@@ -117,6 +118,22 @@ class Owls(BaseModelInterface):
             self.model, train_args = S2TTask.build_model_from_file(cfg, ckpt, str(device))
         finally:
             os.chdir(_prev_cwd)
+        if state_override_dir is not None:
+            # Load an OWLS training-intermediate (DeepSpeed) checkpoint over the final-built model.
+            # Its ['module'] state_dict has exactly the ESPnet model keys (verified).
+            ov = glob.glob(
+                os.path.join(
+                    get_content_dir_from_hub_cache_dir(state_override_dir), "**", "mp_rank_00_model_states.pt"
+                ),
+                recursive=True,
+            )
+            assert len(ov) == 1, f"expected 1 intermediate model_states.pt, got {ov}"
+            _sd = torch.load(ov[0], map_location=str(device), weights_only=False)
+            self.global_steps = int(_sd.get("global_steps", -1))
+            self.global_samples = int(_sd.get("global_samples", -1))
+            print(f"  intermediate ckpt: global_steps={self.global_steps} global_samples={self.global_samples}")
+            missing, unexpected = self.model.load_state_dict(_sd["module"], strict=False)
+            assert not missing and not unexpected, f"state mismatch missing={missing[:4]} unexpected={unexpected[:4]}"
         self.model.eval()
         for p in self.model.parameters():
             p.requires_grad = False

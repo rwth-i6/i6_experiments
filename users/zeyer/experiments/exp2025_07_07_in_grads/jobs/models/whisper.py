@@ -33,6 +33,8 @@ class Whisper(BaseModelInterface):
         char_level: bool = False,
         char_level_sep: Optional[str] = None,
         char_level_case: Optional[str] = None,
+        param_noise_std: float = 0.0,
+        param_noise_seed: int = 0,
         version: int = 1,
     ):
         super().__init__()
@@ -53,6 +55,9 @@ class Whisper(BaseModelInterface):
         d = get_content_dir_from_hub_cache_dir(model_dir)
         self.processor = WhisperProcessor.from_pretrained(d)
         self.model = WhisperForConditionalGeneration.from_pretrained(d).to(device).eval()
+        from ..param_noise import apply_param_noise
+
+        apply_param_noise(self.model, param_noise_std, param_noise_seed)
         tok = self.processor.tokenizer
         self.feature_extractor = self.processor.feature_extractor
         self.prefix_ids = tok.convert_tokens_to_ids(

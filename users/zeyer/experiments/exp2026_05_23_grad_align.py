@@ -1020,6 +1020,52 @@ def py():
         _ow_al.add_alias(_ow_nm)
         tk.register_output(f"{_ow_nm}-wbe.txt", _ow_al.out_wbe)
 
+    # OWLS training-INTERMEDIATES axis (does a checkpoint align better AS it trains?).
+    # The *_intermediates repos are DeepSpeed ckpts -> download only <step>/mp_rank_00_model_states.pt for a
+    # log-spaced subset of the 45 saved steps; build from the final 1B config + load the intermediate
+    # ['module'] (keys verified identical). 1B SUBWORD (OWLS char underperformed). TIMIT val, en0.5-sil1.0.
+    dl_owls_1b_full = DownloadHuggingFaceRepoJobV2(repo_id="espnet/owls_1B_180K", repo_type="model")
+    for _ow_step in [1, 2, 4, 8, 16, 32, 45]:
+        _ow_sdl = DownloadHuggingFaceRepoJobV2(
+            repo_id="espnet/owls_1B_180K_intermediates",
+            repo_type="model",
+            include=[f"{_ow_step}/mp_rank_00_model_states.pt"],
+        )
+        # both granularities: subword (opt-in absent -> existing jobs reused) + char (best variant, user ask)
+        for _ow_cl, _ow_clsfx in [(False, ""), (True, "-charlev")]:
+            _ow_scfg = rf.build_dict(
+                Owls,
+                model_dir=dl_owls_1b_full.out_hub_cache_dir,
+                state_override_dir=_ow_sdl.out_hub_cache_dir,
+                **({"char_level": True} if _ow_cl else {}),
+            )
+            _ow_sex = ExtractInGradsPerTokenJob(
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                model_config=_ow_scfg,
+                mult_grad_by_inputs=False,
+                attr_reduction="L2",
+            )
+            _ow_sex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            _ow_sex.rqmt = {**_ow_sex.rqmt, "time": 12}
+            _ow_sname = f"owls-1B-180K-step{_ow_step:02d}{_ow_clsfx}-logmel-timit-val-L2_grad-pertoken"
+            _ow_sex.add_alias(_ow_sname)
+            tk.register_output(f"{_ow_sname}.hdf", _ow_sex.out_hdf)
+            _ow_sao = {"apply_softmax_over_time": True, "blank_score": -5}
+            _ow_sal = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=_ow_sex.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=_ow_sao,
+                audio_energy_pow=0.5,
+                blank_silence_energy_scale=1.0,
+            )
+            _ow_snm = f"align/{_ow_sname}-{_name_for_dict(_ow_sao)}-en0.5-sil1.0"
+            _ow_sal.add_alias(_ow_snm)
+            tk.register_output(f"{_ow_snm}-wbe.txt", _ow_sal.out_wbe)
+
     # --- Phoneme-CTC grad-align (axis: native phoneme model, WhisperX-style) ---
     # vitouphy/wav2vec2-xls-r-300m-timit-phoneme: wav2vec2 + 39-IPA CTC head, TIMIT-trained.
     # Targets = TIMIT's own phone labels (phonetic_detail), folded 61->39 IPA inside the adapter;
@@ -1085,6 +1131,98 @@ def py():
     _ph_fa.add_alias("align/w2v-phoneme-timit-val-ctc-forced-align")
     tk.register_output("align/w2v-phoneme-timit-val-ctc-forced-align-phone-wbe.txt", _ph_fa.out_phone_wbe)
     tk.register_output("align/w2v-phoneme-timit-val-ctc-forced-align-word-wbe.txt", _ph_fa.out_word_wbe)
+
+    # --- CONTROLLED PARAM-NOISE robustness (user idea): degrade the model with Gaussian param noise,
+    # compare how grad-align vs the model's NATIVE align (Whisper cross-attn-DTW / CTC forced-align) decay.
+    # sigma=0 = the existing baselines (whisper-char 47 / crossattn 86.8 / phone-grad 39.4 / phone-forced 31.1).
+    # Each method's headline align config. Opt-in param-pass so the sigma=0 jobs keep their hash.
+    _pn_seed = 42
+    for _pn_std in [0.01, 0.02, 0.04, 0.08]:
+        # (1a) Whisper char grad-align
+        _pn_wg_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=rf.build_dict(
+                Whisper,
+                model_dir=dl_whisper.out_hub_cache_dir,
+                char_level=True,
+                char_level_sep=" ",
+                param_noise_std=_pn_std,
+                param_noise_seed=_pn_seed,
+            ),
+            mult_grad_by_inputs=False,
+            attr_reduction="L2",
+        )
+        _pn_wg_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _pn_wg_ex.add_alias(f"paramnoise/whisper-char-grad-std{_pn_std}")
+        _pn_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+        _pn_wg_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_pn_wg_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=_pn_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=1.0,
+        )
+        tk.register_output(f"paramnoise/whisper-char-grad-std{_pn_std}-wbe.txt", _pn_wg_al.out_wbe)
+
+        # (1b) Whisper cross-attention DTW (the whisper-timestamped-style native method)
+        _pn_wca = WhisperCrossAttnForcedAlignJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            overlay=_WHISPER_TS_OVERLAY,
+            param_noise_std=_pn_std,
+            param_noise_seed=_pn_seed,
+        )
+        _pn_wca_m = CalcAlignmentMetricsFromWordBoundariesJob(
+            word_boundaries_hdf=_pn_wca.out_hdf,
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+        )
+        tk.register_output(f"paramnoise/whisper-crossattn-std{_pn_std}-wbe.txt", _pn_wca_m.out_wbe)
+
+        # (2a) phoneme-CTC grad-align (en0/sil0 = the phone headline)
+        _pn_pg_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=rf.build_dict(
+                Wav2Vec2PhonemeCtc,
+                model_dir=dl_w2v_phoneme.out_hub_cache_dir,
+                param_noise_std=_pn_std,
+                param_noise_seed=_pn_seed,
+            ),
+            mult_grad_by_inputs=False,
+            attr_reduction="L2",
+            target_source="phonetic_detail",
+        )
+        _pn_pg_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _pn_pg_ex.add_alias(f"paramnoise/phoneme-grad-std{_pn_std}")
+        _pn_pg_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_pn_pg_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=_pn_ao,
+            audio_energy_pow=0.0,
+            blank_silence_energy_scale=0.0,
+            boundary_source="phonetic_detail",
+        )
+        tk.register_output(f"paramnoise/phoneme-grad-std{_pn_std}-wbe.txt", _pn_pg_al.out_wbe)
+
+        # (2b) phoneme-CTC forced-align (torchaudio Viterbi) -- SAME perturbed model as (2a)
+        _pn_pf = ForcedAlignPhonemeBaselineJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_dir=dl_w2v_phoneme.out_hub_cache_dir,
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            param_noise_std=_pn_std,
+            param_noise_seed=_pn_seed,
+        )
+        tk.register_output(f"paramnoise/phoneme-forced-std{_pn_std}-phone-wbe.txt", _pn_pf.out_phone_wbe)
 
     # SmoothGrad ablation (attribution axis A) on the headline char-level Whisper surface: average the
     # per-token gradient over noise_n_samples noisy forward+backward passes (Gaussian noise on the raw

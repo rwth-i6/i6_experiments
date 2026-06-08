@@ -113,6 +113,8 @@ class Wav2Vec2PhonemeCtc(BaseModelInterface):
         model_dir: str,
         include_next_blank: Union[bool, str] = True,
         grad_wrt: str = "feat_extract_out",
+        param_noise_std: float = 0.0,
+        param_noise_seed: int = 0,
         version: int = 1,
     ):
         """
@@ -140,6 +142,9 @@ class Wav2Vec2PhonemeCtc(BaseModelInterface):
         d = get_content_dir_from_hub_cache_dir(model_dir)
         self.processor = Wav2Vec2Processor.from_pretrained(d)
         self.model = Wav2Vec2ForCTC.from_pretrained(d).to(device).eval()
+        from ..param_noise import apply_param_noise
+
+        apply_param_noise(self.model, param_noise_std, param_noise_seed)
         self.feature_extractor = self.processor.feature_extractor
         self.target_sr = int(self.feature_extractor.sampling_rate)
         self.vocab: Dict[str, int] = dict(self.processor.tokenizer.get_vocab())
