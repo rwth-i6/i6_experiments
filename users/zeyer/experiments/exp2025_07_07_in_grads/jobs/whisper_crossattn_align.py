@@ -32,6 +32,8 @@ class WhisperCrossAttnForcedAlignJob(Job):
         dataset_key: str,
         overlay: str,
         whisper_model: str = "base",
+        param_noise_std: float = 0.0,
+        param_noise_seed: int = 0,
         returnn_root: Optional[tk.Path] = None,
     ):
         """:param overlay: openai-whisper + whisper-timestamped env overlay (passed from the recipe)."""
@@ -40,6 +42,8 @@ class WhisperCrossAttnForcedAlignJob(Job):
         self.dataset_key = dataset_key
         self.overlay = overlay
         self.whisper_model = whisper_model
+        self.param_noise_std = param_noise_std
+        self.param_noise_seed = param_noise_seed
         self.returnn_root = returnn_root
         self.rqmt = {"time": 4, "cpu": 2, "gpu": 1, "mem": 16}
         self.out_hdf = self.output_path("word_boundaries.hdf")
@@ -78,6 +82,9 @@ class WhisperCrossAttnForcedAlignJob(Job):
 
         dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model = whisper.load_model(self.whisper_model).to(dev).eval()
+        from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.param_noise import apply_param_noise
+
+        apply_param_noise(model, self.param_noise_std, self.param_noise_seed)
         tokenizer = whisper.tokenizer.get_tokenizer(
             model.is_multilingual,
             num_languages=getattr(model, "num_languages", 99),

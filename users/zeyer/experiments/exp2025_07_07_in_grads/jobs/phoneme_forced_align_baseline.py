@@ -32,6 +32,8 @@ class ForcedAlignPhonemeBaselineJob(Job):
         dataset_key: str,
         model_dir: tk.Path,
         dataset_offset_factors: int,
+        param_noise_std: float = 0.0,
+        param_noise_seed: int = 0,
         returnn_root: Optional[tk.Path] = None,
     ):
         super().__init__()
@@ -39,6 +41,8 @@ class ForcedAlignPhonemeBaselineJob(Job):
         self.dataset_key = dataset_key
         self.model_dir = model_dir
         self.dataset_offset_factors = dataset_offset_factors
+        self.param_noise_std = param_noise_std
+        self.param_noise_seed = param_noise_seed
         self.returnn_root = returnn_root
         self.rqmt = {"time": 4, "cpu": 2, "gpu": 1, "mem": 16}
         self.out_phone_wbe = self.output_var("phone_wbe.txt")
@@ -83,6 +87,9 @@ class ForcedAlignPhonemeBaselineJob(Job):
         d = get_content_dir_from_hub_cache_dir(self.model_dir)
         processor = Wav2Vec2Processor.from_pretrained(d)
         model = Wav2Vec2ForCTC.from_pretrained(d).to(dev).eval()
+        from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.param_noise import apply_param_noise
+
+        apply_param_noise(model, self.param_noise_std, self.param_noise_seed)
         vocab = dict(processor.tokenizer.get_vocab())
         blank = int(model.config.pad_token_id)
         target_sr = int(processor.feature_extractor.sampling_rate)
