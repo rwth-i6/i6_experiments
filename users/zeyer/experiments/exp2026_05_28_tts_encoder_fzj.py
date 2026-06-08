@@ -318,6 +318,7 @@ def py():
         max_phon_len=300,
         tts_waveform=True,
         asr_logmel=True,
+        tts_waveform_peak_norm=True,
         glow_tts_noise_scale_range=(0.7, 0.7),
         glow_tts_length_scale_range=(1.0, 1.0),
     )
@@ -331,9 +332,28 @@ def py():
         max_phon_len=300,
         tts_waveform=True,
         asr_logmel=True,
+        tts_waveform_peak_norm=True,
         glow_tts_noise_scale_range=(0.7, 0.7),
         glow_tts_length_scale_range=(0.5, 1.0),
     )
+    # Same as -lensamp, but with the SpecAugment time-mask width scaled per-seq by the sampled length_scale,
+    # so compressed synthetic sequences are not over-masked (SpecAugment's absolute 20-frame width erases
+    # short low-length_scale seqs). Tests whether length-aware augmentation recovers WER.
+    # HOLD: launch once the peak-norm fix is confirmed on the lensamp baseline,
+    # to keep the untested per-seq specaug-width path out of the peak-norm verification.
+    # _train_tts_encoder(
+    #     "tts-enc-ref-match-logmel-lensamp-specaug",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     max_phon_len=300,
+    #     tts_waveform=True,
+    #     asr_logmel=True,
+    #     tts_waveform_peak_norm=True,
+    #     specaugment_length_scaled=True,
+    #     glow_tts_noise_scale_range=(0.7, 0.7),
+    #     glow_tts_length_scale_range=(0.5, 1.0),
+    # )
 
     # TODO: import the finished RZ base-ls-dbmel (ReturnnTrainingJob.8mdaueLDfiGP); do NOT re-train on FZJ.
 
@@ -507,6 +527,8 @@ def _train_tts_encoder(
     max_phon_len: Optional[int] = None,
     tts_waveform: bool = False,
     asr_logmel: bool = False,
+    specaugment_length_scaled: bool = False,
+    tts_waveform_peak_norm: bool = False,
     num_processes: int = 4,
     gpu_mem: int = 96,
     nep: int = 25,
@@ -718,8 +740,14 @@ def _train_tts_encoder(
             # (this key is otherwise a no-op for them; model_def reads it via config.bool("tts_waveform", False)).
             # Adding it unconditionally re-hashed finished trainings.
             **({"tts_waveform": True} if tts_waveform else {}),
+            # Peak-normalize the synthetic waveform per-seq to match the real-audio path
+            # (OggZipDataset peak_normalization=True). Opt-in: the raw-log-mel ASR front-end
+            # needs it (else feature_batch_norm NaNs on the arbitrary synthetic scale);
+            # the DbMel front-end has its own fixed norm and is left unchanged.
+            **({"tts_waveform_peak_norm": True} if tts_waveform_peak_norm else {}),
             "glow_tts_length_scale_range": glow_tts_length_scale_range,
             "glow_tts_noise_scale_range": glow_tts_noise_scale_range,
+            **({"specaugment_length_scaled": True} if specaugment_length_scaled else {}),
             "txt_only_loss_scale": txt_only_loss_scale,
             "separate_txt_only_losses": True,
             # text-only data pipeline: the PostprocessingDataset map_seq reads these to tokenize raw text into
@@ -791,6 +819,7 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         glow_tts_noise_scale_range=tuple(noise_scale_range),
         glow_tts_length_scale_range=tuple(length_scale_range),
         return_waveform=config.bool("tts_waveform", False),  # waveform mode: GL-net + Griffin-Lim -> ASR front-end
+        peak_normalize_waveform=config.bool("tts_waveform_peak_norm", False),
     )
     # GlowTTS is frozen: imported params, never updated.
     for p in model.tts.parameters():
@@ -802,6 +831,16 @@ aed_glowtts_model_def: ModelDef[Model]
 aed_glowtts_model_def.behavior_version = 25
 aed_glowtts_model_def.backend = "torch"
 aed_glowtts_model_def.batch_size_factor = _aed.aed_model_def.batch_size_factor
+
+
+def _tts_specaug_max_spatial_dims(config, sampled_scales):
+    """Per-seq SpecAugment time-mask width, scaled by the sampled length_scale, so compressed synthetic
+    sequences are not over-masked (SpecAugment's absolute width erases short low-length_scale seqs).
+    Returns None (-> baseline absolute width) unless specaugment_length_scaled is set."""
+    if not config.bool("specaugment_length_scaled", False):
+        return None
+    base = config.typed_value("specaugment_max_consecutive_spatial_dims") or 20
+    return rf.maximum(rf.cast(sampled_scales["length_scale"] * float(base), "int32"), 1)
 
 
 def aed_glowtts_train_step(*, model: Model, extern_data, **_kwargs_unused):
@@ -872,14 +911,28 @@ def aed_glowtts_train_step(*, model: Model, extern_data, **_kwargs_unused):
     elif config.bool("tts_waveform", False):
         # waveform mode: model.tts returns a synthetic WAVEFORM (GlowTTS->GL-net->Griffin-Lim) that
         # re-enters the ASR through its own feature front-end -- identical path to real audio (line above).
-        wave, wave_spatial_dim = model.tts(phonemes, spatial_dim=phonemes_spatial_dim)
+        sampled_scales = {}
+        wave, wave_spatial_dim = model.tts(
+            phonemes, spatial_dim=phonemes_spatial_dim, out_sampled_scales=sampled_scales
+        )
         wave = rf.stop_gradient(wave)  # TTS is frozen
-        enc, enc_spatial_dim = model.encode(wave, in_spatial_dim=wave_spatial_dim, collected_outputs=collected_outputs)
+        enc, enc_spatial_dim = model.encode(
+            wave,
+            in_spatial_dim=wave_spatial_dim,
+            collected_outputs=collected_outputs,
+            specaugment_max_spatial_dims=_tts_specaug_max_spatial_dims(config, sampled_scales),
+        )
     else:
-        log_mel, log_mel_spatial_dim = model.tts(phonemes, spatial_dim=phonemes_spatial_dim)
+        sampled_scales = {}
+        log_mel, log_mel_spatial_dim = model.tts(
+            phonemes, spatial_dim=phonemes_spatial_dim, out_sampled_scales=sampled_scales
+        )
         log_mel = rf.stop_gradient(log_mel)  # TTS is frozen
         enc_raw, enc_spatial_dim = model.encode_from_features(
-            log_mel, in_spatial_dim=log_mel_spatial_dim, collected_outputs=collected_outputs
+            log_mel,
+            in_spatial_dim=log_mel_spatial_dim,
+            collected_outputs=collected_outputs,
+            specaugment_max_spatial_dims=_tts_specaug_max_spatial_dims(config, sampled_scales),
         )
         enc = model.decoder.transform_encoder(enc_raw, axis=enc_spatial_dim)
 

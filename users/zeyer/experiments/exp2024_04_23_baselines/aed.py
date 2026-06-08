@@ -1133,13 +1133,19 @@ class Model(rf.Module):
         *,
         in_spatial_dim: Dim,
         collected_outputs: Optional[Dict[str, Tensor]] = None,
+        specaugment_max_spatial_dims: Optional[Tensor] = None,
     ) -> Tuple[Tensor, Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
         if self.pad_audio:
             source, in_spatial_dim = pad_ext(source, in_spatial_dim=in_spatial_dim, opts=self.pad_audio)
         # feature extraction (default: log mel filterbank; override via the "feature_extraction" config opt)
         source, in_spatial_dim = self.feature_extraction(source, in_spatial_dim=in_spatial_dim)
-        return self.encode_from_features(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
+        return self.encode_from_features(
+            source,
+            in_spatial_dim=in_spatial_dim,
+            collected_outputs=collected_outputs,
+            specaugment_max_spatial_dims=specaugment_max_spatial_dims,
+        )
 
     def encode_from_features(
         self,
@@ -1147,9 +1153,12 @@ class Model(rf.Module):
         *,
         in_spatial_dim: Dim,
         collected_outputs: Optional[Dict[str, Tensor]] = None,
+        specaugment_max_spatial_dims: Optional[Tensor] = None,
     ) -> Tuple[Tensor, Dim]:
         """Encode from already-extracted features (e.g. log-mel produced online by a TTS model),
-        skipping pad_audio + feature_extraction. source feature dim must be self.in_dim."""
+        skipping pad_audio + feature_extraction. source feature dim must be self.in_dim.
+        specaugment_max_spatial_dims (per-seq) overrides the SpecAugment time-mask width,
+        e.g. scaled down for short synthetic sequences."""
         if self.feature_batch_norm:
             source = self.feature_batch_norm(source)
         if self.feature_norm:
@@ -1159,21 +1168,32 @@ class Model(rf.Module):
         if self._mixup:
             source = self._mixup(source, spatial_dim=in_spatial_dim)
         # SpecAugment
+        specaugment_opts = self._specaugment_opts
+        if specaugment_max_spatial_dims is not None:
+            specaugment_opts = {**specaugment_opts, "max_consecutive_spatial_dims": specaugment_max_spatial_dims}
         source = rf.audio.specaugment(
             source,
             spatial_dim=in_spatial_dim,
             feature_dim=self.in_dim,
-            **self._specaugment_opts,
+            **specaugment_opts,
         )
         # Encoder including convolutional frontend
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
         return enc, enc_spatial_dim
 
     def encode(
-        self, source: Tensor, *, in_spatial_dim: Dim, collected_outputs: Optional[Dict[str, Tensor]] = None
+        self,
+        source: Tensor,
+        *,
+        in_spatial_dim: Dim,
+        collected_outputs: Optional[Dict[str, Tensor]] = None,
+        specaugment_max_spatial_dims: Optional[Tensor] = None,
     ) -> Tuple[rf.State, Dim]:
         enc, enc_spatial_dim = self.encode_no_transform(
-            source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs
+            source,
+            in_spatial_dim=in_spatial_dim,
+            collected_outputs=collected_outputs,
+            specaugment_max_spatial_dims=specaugment_max_spatial_dims,
         )
         return self.decoder.transform_encoder(enc, axis=enc_spatial_dim), enc_spatial_dim
 

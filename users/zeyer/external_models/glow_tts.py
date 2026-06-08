@@ -238,6 +238,7 @@ class GlowTtsLogMel(rf.Module):
         glow_tts_noise_scale_range: Tuple[float, float] = (0.3, 0.9),
         glow_tts_length_scale_range: Tuple[float, float] = (0.7, 1.1),
         return_waveform: bool = False,
+        peak_normalize_waveform: bool = False,
         gl_net_config: Optional[Dict[str, Any]] = None,
         gl_iter: int = 32,
         gl_momentum: float = 0.99,
@@ -262,6 +263,7 @@ class GlowTtsLogMel(rf.Module):
         # pipeline) instead of feeding the GlowTTS log-mel directly. Tests whether the Griffin-Lim round-trip's
         # realistic distortion transfers better to real audio.
         self.return_waveform = return_waveform
+        self.peak_normalize_waveform = peak_normalize_waveform
         self.gl_model = None
         self.griffin_lim = None
         if return_waveform:
@@ -282,7 +284,9 @@ class GlowTtsLogMel(rf.Module):
                 momentum=gl_momentum,
             )
 
-    def __call__(self, phonemes: Tensor, *, spatial_dim: Dim) -> Tuple[Tensor, Dim]:
+    def __call__(
+        self, phonemes: Tensor, *, spatial_dim: Dim, out_sampled_scales: Optional[Dict[str, Tensor]] = None
+    ) -> Tuple[Tensor, Dim]:
         import torch
 
         self.glow_tts_model.eval()  # frozen TTS: force eval (RETURNN sets the parent model to train() each step)
@@ -304,6 +308,9 @@ class GlowTtsLogMel(rf.Module):
         llo, lhi = self.glow_tts_length_scale_range
         noise_scale = nlo + torch.rand((bs, 1, 1), device=dev) * (nhi - nlo)  # [B, 1, 1]
         length_scale = llo + torch.rand((bs, 1, 1), device=dev) * (lhi - llo)  # [B, 1, 1]
+        if out_sampled_scales is not None:
+            # expose the per-seq sampled length_scale (rf [B]) for length-aware downstream augmentation.
+            out_sampled_scales["length_scale"] = rf.convert_to_tensor(length_scale.reshape(bs), dims=[batch_dim])
 
         # GlowTTS gen uses a flow inverse; force float32 (bf16 autocast can be unstable / unsupported here).
         with torch.autocast(device_type=dev.type, enabled=False):
@@ -323,6 +330,20 @@ class GlowTtsLogMel(rf.Module):
                 linears = linears.transpose(1, 2)  # [B, F_freq, T_freq]
                 wave = self.griffin_lim(linears)  # [B, T_wave], 16kHz
             wave_lens = ((y_lengths - 1) * self.griffin_lim.hop_length).to(torch.int32)  # [B]
+            if self.peak_normalize_waveform:
+                # Peak-normalize per-seq to match the real-audio path:
+                # OggZipDataset's ExtractAudioFeatures runs peak_normalization=True,
+                # i.e. audio /= max(|audio|), on every real utterance, so real audio always
+                # enters the ASR front-end at peak amplitude 1.
+                # The Griffin-Lim waveform is otherwise at an arbitrary amplitude scale,
+                # so its log-mel lands far outside the range the ASR front-end
+                # (and its feature_batch_norm running stats) ever saw on real audio.
+                wave_lens = wave_lens.clamp_min(0)
+                t_wave = wave.size(1)
+                wave_mask = torch.arange(t_wave, device=dev)[None, :] < wave_lens[:, None]  # [B, T_wave]
+                wave = wave * wave_mask  # drop GL padding garbage beyond each seq length
+                peak = wave.abs().amax(dim=1, keepdim=True).clamp_min(1e-8)  # [B, 1]; clamp keeps silent seqs finite
+                wave = wave / peak
             wave_lens_rf = rf.convert_to_tensor(wave_lens.cpu(), dims=[batch_dim])
             wave_spatial_dim = Dim(wave_lens_rf, name="glowtts_wave")
             wave_rf = rf.convert_to_tensor(wave, dims=[batch_dim, wave_spatial_dim])
