@@ -1137,7 +1137,7 @@ def py():
     # sigma=0 = the existing baselines (whisper-char 47 / crossattn 86.8 / phone-grad 39.4 / phone-forced 31.1).
     # Each method's headline align config. Opt-in param-pass so the sigma=0 jobs keep their hash.
     _pn_seed = 42
-    for _pn_std in [0.01, 0.02, 0.04, 0.08]:
+    for _pn_std in [0.01, 0.02, 0.04, 0.08, 0.15, 0.3, 0.6, 1.2]:
         # (1a) Whisper char grad-align
         _pn_wg_ex = ExtractInGradsPerTokenJob(
             dataset_dir=dl_ds_timit.out_hub_cache_dir,
