@@ -306,6 +306,32 @@ def py():
         glow_tts_noise_scale_range=(0.7, 0.7),
         glow_tts_length_scale_range=(1.0, 1.0),
     )
+    # ref-match but with the reference's standard log-mel 100Hz ASR front-end (waveform path required):
+    # closes the ~+0.13 DbMel-80Hz-vs-log-mel-100Hz re-extraction gap -> the actual reference ceiling.
+    _train_tts_encoder(
+        "tts-enc-ref-match-logmel",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+    )
+    # Same, but length sampled (0.5,1.0) -- noise stays fixed at the reference 0.7:
+    # tests whether shorter / variable synthetic durations keep the WER (the cheap-able axis).
+    _train_tts_encoder(
+        "tts-enc-ref-match-logmel-lensamp",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(0.5, 1.0),
+    )
 
     # TODO: import the finished RZ base-ls-dbmel (ReturnnTrainingJob.8mdaueLDfiGP); do NOT re-train on FZJ.
 
@@ -478,6 +504,7 @@ def _train_tts_encoder(
     batch_size_phon: int = 25_000,
     max_phon_len: Optional[int] = None,
     tts_waveform: bool = False,
+    asr_logmel: bool = False,
     num_processes: int = 4,
     gpu_mem: int = 96,
     nep: int = 25,
@@ -630,6 +657,12 @@ def _train_tts_encoder(
         "feature_batch_norm": True,
         "feature_extraction": rf.build_dict(DbMelFeatureExtractor),
     }
+    if asr_logmel:
+        # Standard log-mel (100Hz) ASR front-end instead of DbMel (80Hz), matching the reference.
+        # Requires the waveform path: the frozen-TTS DbMel log-mel can be injected directly only when
+        # the ASR front-end is also DbMel; with log-mel the ASR must re-extract from the waveform.
+        assert tts_waveform, "asr_logmel requires the waveform path (tts_waveform=True)"
+        del model_config["feature_extraction"]  # -> default log_mel_filterbank_from_raw (100Hz)
 
     exp = aed_train_exp(
         name,
