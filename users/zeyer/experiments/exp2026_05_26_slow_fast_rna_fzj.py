@@ -474,7 +474,15 @@ def _train_streaming_variant(
         config=config,
         # Opt out of train_v4's outer auto-MPD: the MPD now lives inside ChunkAlignDataset (around the
         # MetaDataset), and PostprocessingDataset runs its own map_seq workers. See ChunkAlignDataset.
-        post_config={"log_grad_norm": True, "__multi_proc_dataset": False},
+        # file_cache_opts: FZJ /var/tmp is a 96 GB overlay shared by the 4 ranks.
+        # The default 1-day "wanted" cleanup never evicts a released DFD shard mid-run,
+        # so the cache grows until ENOSPC; ~1 min keeps the proactive 20% free margin.
+        # post_config -> no hash change. Same value as forward_batched's _file_cache_opts.
+        post_config={
+            "log_grad_norm": True,
+            "__multi_proc_dataset": False,
+            "file_cache_opts": {"cleanup_files_wanted_older_than_days": 1.0 / (24 * 60)},
+        },
         model_def=ModelDefWithCfg(streaming_model_def, model_config),
         train_def=train_def,
         num_processes=4,  # 4 GPUs / JUPITER node -> torchrun DDP
