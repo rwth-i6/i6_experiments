@@ -54,6 +54,28 @@ class LoadRawDataset(Job):
         ds.save_to_disk(str(self.out_hf.get()))
 
 
+class SubsampleDataset(Job):
+    """Reproducible random subsample of an HF dataset.
+
+    Kept as a separate downstream step so the expensive LLM preprocessing can run once on the
+    full dataset (and stay cached); changing the sample size/seed only re-runs this cheap job.
+    """
+
+    def __init__(self, *, in_hf: tk.Path, n: int, seed: int = 42):
+        self.in_hf = in_hf
+        self.n = n
+        self.seed = seed
+        self.out_hf = self.output_path("out_hf", directory=True)
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        ds = load_from_disk(str(self.in_hf.get()))
+        ds = ds.shuffle(seed=self.seed).select(range(min(self.n, len(ds))))
+        ds.save_to_disk(str(self.out_hf.get()))
+
+
 # ---------------------------------------------------------------------------
 # Dataset registry
 # ---------------------------------------------------------------------------
@@ -255,7 +277,9 @@ class MoshiInference(Job):
         shard: int | None = None,
         num_shards: int | None = None,
         lead_in_s: float = 2.0,
-        capture_s: float = 60.0,
+        capture_s: float = 24.0,
+        backend: str = "offline",
+        batch_size: int = 32,
     ):
         self.venv_python_path = venv_python_path
         self.in_dir = in_dir
@@ -263,9 +287,12 @@ class MoshiInference(Job):
         self.num_shards = num_shards
         # Feed `lead_in_s` of silence (Moshi greets), the question, then `capture_s` of trailing
         # silence, and capture Moshi's ENTIRE reply -- greeting included, nothing skipped/trimmed.
-        # See MoshiFileClient for the capture semantics.
         self.lead_in_s = lead_in_s
         self.capture_s = capture_s
+        # backend "offline" = fast batched, as-fast-as-GPU via moshi_offline_inference.py;
+        # "server" = legacy realtime websocket (moshi.server + MoshiFileClient, batch_size 1, ~1x realtime).
+        self.backend = backend
+        self.batch_size = batch_size
         self.out_dir = self.output_path("moshi_output", directory=True)
         self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 8}
 
@@ -281,6 +308,34 @@ class MoshiInference(Job):
         return MergeMoshiOutputsViaSymlinks(in_dirs=[s.out_dir for s in shards]).out_merged
 
     def run(self):
+        if self.backend == "offline":
+            return self._run_offline()
+        return self._run_server()
+
+    def _run_offline(self):
+        script = Path(__file__).resolve().parent.parent / "moshi_offline_inference.py"
+        command = [
+            self.venv_python_path.get(),
+            str(script),
+            "--in_dir",
+            str(self.in_dir.get()),
+            "--out_dir",
+            str(self.out_dir.get()),
+            "--lead_in_s",
+            str(self.lead_in_s),
+            "--capture_s",
+            str(self.capture_s),
+            "--batch_size",
+            str(self.batch_size),
+        ]
+        if self.shard is not None and self.num_shards is not None:
+            command += ["--shard", str(self.shard), "--num_shards", str(self.num_shards)]
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
+        print(f"Running offline Moshi inference: {' '.join(command)}", flush=True)
+        subprocess.run(command, env=env, check=True)
+
+    def _run_server(self):
         from .moshi_client import moshi_server, _ws_url, MoshiFileClient
 
         in_dir = str(self.in_dir.get())
@@ -496,13 +551,20 @@ def knowledge_benchmark_py(
         make_speakers,
     )
 
-    # 1. Load dataset
-    raw = LoadRawDataset(dataset_name=dataset_name, split=split, max_examples=max_examples)
+    # 1. Load the full dataset
+    raw = LoadRawDataset(dataset_name=dataset_name, split=split)
     tk.register_output("benchmark/raw_dataset", raw.out_hf)
 
-    # 2. LLM preprocessing
+    # 2. LLM preprocessing on the FULL dataset (cached; reused across subsamples)
     preprocess = LLMPreprocess(in_hf=raw.out_hf, llm_name=llm_name)
     tk.register_output("benchmark/preprocessed", preprocess.out_hf)
+
+    # 2b. Reproducible random subsample AFTER preprocessing, so changing the sample size/seed
+    # only re-runs this cheap step rather than the whole preprocess.
+    data = preprocess.out_hf
+    if max_examples is not None:
+        data = SubsampleDataset(in_hf=preprocess.out_hf, n=max_examples).out_hf
+        tk.register_output("benchmark/sampled", data)
 
     # 3. Speaker voice (reuse existing speaker pool)
     speakers = make_speakers()
@@ -510,7 +572,7 @@ def knowledge_benchmark_py(
     # 4. TTS synthesis
     tts = ChatterboxSingleSpeakerInference(
         venv_python_path=chatterbox_venv(),
-        in_hf=preprocess.out_hf,
+        in_hf=data,
         speaker_dir=speakers.out_dir,
     )
     tk.register_output("benchmark/tts_output", tts.out_dir)
@@ -527,7 +589,7 @@ def knowledge_benchmark_py(
     transcription = WhisperTranscription(
         venv_python_path=whisper_venv(),
         in_dir=moshi_out,
-        reference_data=preprocess.out_hf,
+        reference_data=data,
         model_size=whisper_model,
     )
     tk.register_output("benchmark/transcription", transcription.out_json)
