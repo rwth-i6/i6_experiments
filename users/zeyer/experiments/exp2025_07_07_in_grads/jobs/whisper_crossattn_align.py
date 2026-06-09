@@ -25,6 +25,16 @@ class WhisperCrossAttnForcedAlignJob(Job):
     # current value leaves the finished baseline's hash unchanged.
     __sis_hash_exclude__ = {"overlay": "/home/az668407/work/whisper-ts-overlay"}
 
+    @classmethod
+    def hash(cls, parsed_args):
+        # keep finished param-noise/baseline jobs' hashes: the perturb kwargs are
+        # hash-invisible when at their no-op default (only non-default values hash).
+        parsed_args = dict(parsed_args)
+        for _k in ("input_noise_std", "act_noise_std", "act_dropout", "perturb_seed"):
+            if not parsed_args.get(_k):
+                parsed_args.pop(_k, None)
+        return super().hash(parsed_args)
+
     def __init__(
         self,
         *,
@@ -34,6 +44,10 @@ class WhisperCrossAttnForcedAlignJob(Job):
         whisper_model: str = "base",
         param_noise_std: float = 0.0,
         param_noise_seed: int = 0,
+        input_noise_std: float = 0.0,
+        act_noise_std: float = 0.0,
+        act_dropout: float = 0.0,
+        perturb_seed: int = 0,
         returnn_root: Optional[tk.Path] = None,
     ):
         """:param overlay: openai-whisper + whisper-timestamped env overlay (passed from the recipe)."""
@@ -44,6 +58,10 @@ class WhisperCrossAttnForcedAlignJob(Job):
         self.whisper_model = whisper_model
         self.param_noise_std = param_noise_std
         self.param_noise_seed = param_noise_seed
+        self.input_noise_std = input_noise_std
+        self.act_noise_std = act_noise_std
+        self.act_dropout = act_dropout
+        self.perturb_seed = perturb_seed
         self.returnn_root = returnn_root
         self.rqmt = {"time": 4, "cpu": 2, "gpu": 1, "mem": 16}
         self.out_hdf = self.output_path("word_boundaries.hdf")
@@ -85,6 +103,13 @@ class WhisperCrossAttnForcedAlignJob(Job):
         from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.param_noise import apply_param_noise
 
         apply_param_noise(model, self.param_noise_std, self.param_noise_seed)
+        if self.act_noise_std or self.act_dropout:
+            from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.perturb import (
+                install_activation_perturbation,
+            )
+
+            _kind = "act_noise" if self.act_noise_std else "act_dropout"
+            install_activation_perturbation(model, _kind, self.act_noise_std or self.act_dropout, self.perturb_seed)
         tokenizer = whisper.tokenizer.get_tokenizer(
             model.is_multilingual,
             num_languages=getattr(model, "num_languages", 99),
@@ -100,6 +125,10 @@ class WhisperCrossAttnForcedAlignJob(Job):
         n_skip = 0
         for seq_idx, data in enumerate(ds[self.dataset_key]):
             audio = np.asarray(data["audio"]["array"], dtype=np.float32)
+            if self.input_noise_std:
+                from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.perturb import apply_input_noise
+
+                audio = apply_input_noise(audio, self.input_noise_std, self.perturb_seed)
             sr = int(data["audio"]["sampling_rate"])
             words = list(data["word_detail"]["utterance"])
             wav = torch.tensor(audio)

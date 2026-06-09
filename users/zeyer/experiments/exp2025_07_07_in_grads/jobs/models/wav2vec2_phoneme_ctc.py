@@ -115,6 +115,10 @@ class Wav2Vec2PhonemeCtc(BaseModelInterface):
         grad_wrt: str = "feat_extract_out",
         param_noise_std: float = 0.0,
         param_noise_seed: int = 0,
+        input_noise_std: float = 0.0,
+        act_noise_std: float = 0.0,
+        act_dropout: float = 0.0,
+        perturb_seed: int = 0,
         version: int = 1,
     ):
         """
@@ -145,6 +149,13 @@ class Wav2Vec2PhonemeCtc(BaseModelInterface):
         from ..param_noise import apply_param_noise
 
         apply_param_noise(self.model, param_noise_std, param_noise_seed)
+        self._input_noise_std = input_noise_std
+        self._perturb_seed = perturb_seed
+        if act_noise_std or act_dropout:
+            from ..perturb import install_activation_perturbation
+
+            _kind = "act_noise" if act_noise_std else "act_dropout"
+            install_activation_perturbation(self.model, _kind, act_noise_std or act_dropout, perturb_seed)
         self.feature_extractor = self.processor.feature_extractor
         self.target_sr = int(self.feature_extractor.sampling_rate)
         self.vocab: Dict[str, int] = dict(self.processor.tokenizer.get_vocab())
@@ -263,9 +274,14 @@ class Wav2Vec2PhonemeCtc(BaseModelInterface):
         phone_start_end: List[List[int]] = [[i, i + 1] for i in range(s_len)]
 
         # Normalize per the processor (do_normalize) and feed input_values.
-        input_values = self.processor(
-            wav[0].detach().cpu().numpy(), sampling_rate=self.target_sr, return_tensors="pt"
-        ).input_values.to(dev)  # [1, T_samples]
+        _wav_np = wav[0].detach().cpu().numpy()
+        if self._input_noise_std:
+            from ..perturb import apply_input_noise
+
+            _wav_np = apply_input_noise(_wav_np, self._input_noise_std, self._perturb_seed)
+        input_values = self.processor(_wav_np, sampling_rate=self.target_sr, return_tensors="pt").input_values.to(
+            dev
+        )  # [1, T_samples]
 
         # Leaf-ify the feature-extractor output ([B, C, T] channels-first) via a
         # forward hook, mirroring Wav2Vec2Ctc's conv path.

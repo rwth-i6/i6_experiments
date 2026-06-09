@@ -35,6 +35,10 @@ class Whisper(BaseModelInterface):
         char_level_case: Optional[str] = None,
         param_noise_std: float = 0.0,
         param_noise_seed: int = 0,
+        input_noise_std: float = 0.0,
+        act_noise_std: float = 0.0,
+        act_dropout: float = 0.0,
+        perturb_seed: int = 0,
         version: int = 1,
     ):
         super().__init__()
@@ -58,6 +62,13 @@ class Whisper(BaseModelInterface):
         from ..param_noise import apply_param_noise
 
         apply_param_noise(self.model, param_noise_std, param_noise_seed)
+        self._input_noise_std = input_noise_std
+        self._perturb_seed = perturb_seed
+        if act_noise_std or act_dropout:
+            from ..perturb import install_activation_perturbation
+
+            kind = "act_noise" if act_noise_std else "act_dropout"
+            install_activation_perturbation(self.model, kind, act_noise_std or act_dropout, perturb_seed)
         tok = self.processor.tokenizer
         self.feature_extractor = self.processor.feature_extractor
         self.prefix_ids = tok.convert_tokens_to_ids(
@@ -88,6 +99,10 @@ class Whisper(BaseModelInterface):
         words = raw_targets[0]
         orig_n_samples = int(raw_input_seq_lens[0])
         wav = raw_inputs[0].detach().cpu().numpy().astype(np.float32)
+        if self._input_noise_std:
+            from ..perturb import apply_input_noise
+
+            wav = apply_input_noise(wav, self._input_noise_std, self._perturb_seed)
 
         # Log-mel features [1, 80, 3000] (30 s padded).
         # Grad leaf is the transposed [1, 3000, 80] (time x mel) so the extract reduces over mel.

@@ -267,6 +267,13 @@ def py():
     tk.register_output("buckeye-fine-raw", dl_ds_buckeye_fine.out_hub_cache_dir)
     tk.register_output("buckeye-dataset", dl_ds_buckeye.out_hub_cache_dir)
 
+    # POWSM: phonetic Whisper/OWSM-style foundation model (espnet/powsm). One repo holds TWO checkpoints --
+    # the AED (exp/s2t_train_s2t_ebf...) and the encoder-only POWSM-CTC
+    # (textnorm_retrained/exp/s2t_train_ctc3...). Loaded via ESPnet S2T, same path as the OWLS adapter.
+    dl_powsm = DownloadHuggingFaceRepoJobV2(repo_id="espnet/powsm", repo_type="model")
+    dl_powsm.set_env("HF_HUB_DISABLE_XET", "1")
+    tk.register_output("powsm-model", dl_powsm.out_hub_cache_dir)
+
     dl_whisper = DownloadHuggingFaceRepoJobV2(repo_id="openai/whisper-base", repo_type="model")
     dl_parakeet_rnnt = DownloadHuggingFaceRepoJobV2(repo_id="nvidia/parakeet-rnnt-1.1b", repo_type="model")
     dl_parakeet_tdt = DownloadHuggingFaceRepoJobV2(repo_id="nvidia/parakeet-tdt-0.6b-v2", repo_type="model")
@@ -1247,6 +1254,121 @@ def py():
     )
     _wer_ph.add_alias("paramnoise/per-phoneme")
     tk.register_output("paramnoise/per-phoneme.txt", _wer_ph.out_wer)
+
+    # --- CONTROLLED NON-PARAM degradation (user idea): input noise / activation dropout, expected to
+    # give a SMOOTH ramp vs the param-noise cliff. Same 4 methods + recognition; opt-in perturb kwargs so
+    # the level=0 jobs keep the existing baseline hashes.
+    _nz_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+    for _nz_key, _nz_levels, _nz_rkind in [
+        ("input_noise_std", [0.05, 0.1, 0.2, 0.4, 0.8, 1.6], "input"),
+        ("act_dropout", [0.02, 0.05, 0.1, 0.2, 0.3, 0.5], "act_dropout"),
+    ]:
+        for _nz in _nz_levels:
+            _pk = {_nz_key: _nz, "perturb_seed": _pn_seed}
+            _ntag = f"{_nz_key}{_nz}"
+            # (1a) Whisper char grad-align
+            _nz_wg_ex = ExtractInGradsPerTokenJob(
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                model_config=rf.build_dict(
+                    Whisper,
+                    model_dir=dl_whisper.out_hub_cache_dir,
+                    char_level=True,
+                    char_level_sep=" ",
+                    **_pk,
+                ),
+                mult_grad_by_inputs=False,
+                attr_reduction="L2",
+            )
+            _nz_wg_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            _nz_wg_ex.add_alias(f"noise/whisper-char-grad-{_ntag}")
+            _nz_wg_al = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=_nz_wg_ex.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=_nz_ao,
+                audio_energy_pow=0.5,
+                blank_silence_energy_scale=1.0,
+            )
+            tk.register_output(f"noise/whisper-char-grad-{_ntag}-wbe.txt", _nz_wg_al.out_wbe)
+
+            # (1b) Whisper cross-attention DTW
+            _nz_wca = WhisperCrossAttnForcedAlignJob(
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                overlay=_WHISPER_TS_OVERLAY,
+                **_pk,
+            )
+            _nz_wca_m = CalcAlignmentMetricsFromWordBoundariesJob(
+                word_boundaries_hdf=_nz_wca.out_hdf,
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            )
+            tk.register_output(f"noise/whisper-crossattn-{_ntag}-wbe.txt", _nz_wca_m.out_wbe)
+
+            # (2a) phoneme-CTC grad-align
+            _nz_pg_ex = ExtractInGradsPerTokenJob(
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                model_config=rf.build_dict(
+                    Wav2Vec2PhonemeCtc,
+                    model_dir=dl_w2v_phoneme.out_hub_cache_dir,
+                    **_pk,
+                ),
+                mult_grad_by_inputs=False,
+                attr_reduction="L2",
+                target_source="phonetic_detail",
+            )
+            _nz_pg_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            _nz_pg_ex.add_alias(f"noise/phoneme-grad-{_ntag}")
+            _nz_pg_al = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=_nz_pg_ex.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=_nz_ao,
+                audio_energy_pow=0.0,
+                blank_silence_energy_scale=0.0,
+                boundary_source="phonetic_detail",
+            )
+            tk.register_output(f"noise/phoneme-grad-{_ntag}-wbe.txt", _nz_pg_al.out_wbe)
+
+            # (2b) phoneme-CTC forced-align -- SAME perturbed model as (2a)
+            _nz_pf = ForcedAlignPhonemeBaselineJob(
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                model_dir=dl_w2v_phoneme.out_hub_cache_dir,
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                **_pk,
+            )
+            tk.register_output(f"noise/phoneme-forced-{_ntag}-phone-wbe.txt", _nz_pf.out_phone_wbe)
+
+        # recognition (WER/PER) under the SAME degradation axis (one job, all levels)
+        _nz_wer_wh = WerNoiseSweepJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_kind="whisper",
+            model_dir=dl_whisper.out_hub_cache_dir,
+            sigmas=_nz_levels,
+            max_seqs=200,
+            perturb_kind=_nz_rkind,
+        )
+        _nz_wer_wh.add_alias(f"noise/wer-whisper-{_nz_key}")
+        tk.register_output(f"noise/wer-whisper-{_nz_key}.txt", _nz_wer_wh.out_wer)
+        _nz_wer_ph = WerNoiseSweepJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            model_kind="wav2vec2ctc",
+            model_dir=dl_w2v_phoneme.out_hub_cache_dir,
+            sigmas=_nz_levels,
+            perturb_kind=_nz_rkind,
+        )
+        _nz_wer_ph.add_alias(f"noise/per-phoneme-{_nz_key}")
+        tk.register_output(f"noise/per-phoneme-{_nz_key}.txt", _nz_wer_ph.out_wer)
 
     # SmoothGrad ablation (attribution axis A) on the headline char-level Whisper surface: average the
     # per-token gradient over noise_n_samples noisy forward+backward passes (Gaussian noise on the raw
@@ -2843,6 +2965,18 @@ def py():
         )
         tk.register_output(f"baseline-mms_fa-{_bk_tag}-wbe.txt", bk_fa_metric.out_wbe)
 
+        # Whisper cross-attn DTW = the AED-native baseline (the "grad beats Whisper's own attention"
+        # comparison), on Buckeye too, matching TIMIT val/test.
+        bk_wca = WhisperCrossAttnForcedAlignJob(dataset_dir=_bk_dir, dataset_key="test", overlay=_WHISPER_TS_OVERLAY)
+        bk_wca.add_alias(f"baseline-whisper-crossattn-{_bk_tag}")
+        bk_wca_metric = CalcAlignmentMetricsFromWordBoundariesJob(
+            word_boundaries_hdf=bk_wca.out_hdf,
+            dataset_dir=_bk_dir,
+            dataset_key="test",
+            dataset_offset_factors=_bk_off,
+        )
+        tk.register_output(f"baseline-whisper-crossattn-{_bk_tag}-wbe.txt", bk_wca_metric.out_wbe)
+
         # Headline grad-align surfaces (char-level Whisper / Wav2Vec2-CTC) on every variant; on the
         # clean reseg primary ALSO a speech-LLM (Voxtral char, best LLM on TIMIT) and a transducer
         # (Parakeet RNN-T, best transducer on TIMIT) to test whether the cross-model TIMIT ranking
@@ -2861,6 +2995,8 @@ def py():
             _bk_models += [
                 (voxtral_charlev_logmel_cfg, f"voxtral-charlevlogmel-{_bk_tag}-L1_grad-pertoken", "L1", False),
                 (pk_cfg, f"parakeet-rnnt-1.1b-logmel-{_bk_tag}-L2_grad-pertoken", "L2", False),
+                # Parakeet-TDT (2nd transducer) to complete the transducer pair on Buckeye, matching TIMIT.
+                (tdt_cfg, f"parakeet-tdt-0.6b-v2-logmel-{_bk_tag}-L2_grad-pertoken", "L2", False),
                 # Remaining speech-LLMs on Buckeye (Voxtral already above): Phi4-MM (char L2_e_grad) and
                 # Canary-Qwen (char L1, st1.5) -- complete the cross-model Buckeye column.
                 (pt_csp_cfg, f"phi4mm-{_bk_tag}-L2_e_grad-pertoken-charlev-spc", "L2", True),

@@ -25,6 +25,16 @@ from i6_experiments.users.zeyer.external_models.huggingface import (
 class ForcedAlignPhonemeBaselineJob(Job):
     """CTC forced-alignment (torchaudio) of TIMIT phones on the vitouphy model."""
 
+    @classmethod
+    def hash(cls, parsed_args):
+        # keep finished param-noise/baseline jobs' hashes: the perturb kwargs are
+        # hash-invisible when at their no-op default (only non-default values hash).
+        parsed_args = dict(parsed_args)
+        for _k in ("input_noise_std", "act_noise_std", "act_dropout", "perturb_seed"):
+            if not parsed_args.get(_k):
+                parsed_args.pop(_k, None)
+        return super().hash(parsed_args)
+
     def __init__(
         self,
         *,
@@ -34,6 +44,10 @@ class ForcedAlignPhonemeBaselineJob(Job):
         dataset_offset_factors: int,
         param_noise_std: float = 0.0,
         param_noise_seed: int = 0,
+        input_noise_std: float = 0.0,
+        act_noise_std: float = 0.0,
+        act_dropout: float = 0.0,
+        perturb_seed: int = 0,
         returnn_root: Optional[tk.Path] = None,
     ):
         super().__init__()
@@ -43,6 +57,10 @@ class ForcedAlignPhonemeBaselineJob(Job):
         self.dataset_offset_factors = dataset_offset_factors
         self.param_noise_std = param_noise_std
         self.param_noise_seed = param_noise_seed
+        self.input_noise_std = input_noise_std
+        self.act_noise_std = act_noise_std
+        self.act_dropout = act_dropout
+        self.perturb_seed = perturb_seed
         self.returnn_root = returnn_root
         self.rqmt = {"time": 4, "cpu": 2, "gpu": 1, "mem": 16}
         self.out_phone_wbe = self.output_var("phone_wbe.txt")
@@ -90,6 +108,13 @@ class ForcedAlignPhonemeBaselineJob(Job):
         from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.param_noise import apply_param_noise
 
         apply_param_noise(model, self.param_noise_std, self.param_noise_seed)
+        if self.act_noise_std or self.act_dropout:
+            from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.perturb import (
+                install_activation_perturbation,
+            )
+
+            _kind = "act_noise" if self.act_noise_std else "act_dropout"
+            install_activation_perturbation(model, _kind, self.act_noise_std or self.act_dropout, self.perturb_seed)
         vocab = dict(processor.tokenizer.get_vocab())
         blank = int(model.config.pad_token_id)
         target_sr = int(processor.feature_extractor.sampling_rate)
@@ -101,6 +126,10 @@ class ForcedAlignPhonemeBaselineJob(Job):
         phone_errs, word_errs = [], []
         for seq_idx, data in enumerate(ds[self.dataset_key]):
             audio = np.asarray(data["audio"]["array"], dtype=np.float32)
+            if self.input_noise_std:
+                from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.perturb import apply_input_noise
+
+                audio = apply_input_noise(audio, self.input_noise_std, self.perturb_seed)
             sr = int(data["audio"]["sampling_rate"])
             ph = data["phonetic_detail"]
             wd = data["word_detail"]
