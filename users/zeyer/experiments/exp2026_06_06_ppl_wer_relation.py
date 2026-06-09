@@ -178,6 +178,8 @@ def _train_ls_chunked():
         (0, 10, 0, 75_000),
         (0, 20, 0, 75_000),
         (0, 40, 0, 75_000),
+        (0, 80, 0, 75_000),
+        (0, 160, 0, 50_000),
         (80, 5, 4, 50_000),
     ]:
         _train_ls(
@@ -187,6 +189,18 @@ def _train_ls_chunked():
             chunk_lookahead_size=right,
             batch_size=bs,
         )
+
+    # Batch-size A/B for C=160: the in-loop entry uses bs=50k (conservative for
+    # the larger per-chunk attention activation); this second entry retrains the
+    # same chunked-CTC config at bs=75k under a distinct alias to compare
+    # throughput and convergence.
+    _train_ls(
+        "chunked-L0-C160-R0-v2.3-bs75k",
+        chunk_size=160,
+        chunk_history_size=0,
+        chunk_lookahead_size=0,
+        batch_size=75_000,
+    )
 
 
 def _train_ls_offline_baseline():
