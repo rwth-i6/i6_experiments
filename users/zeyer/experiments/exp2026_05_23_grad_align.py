@@ -3045,6 +3045,92 @@ def py():
             _bk_al.add_alias(_bk_nm)
             tk.register_output(f"{_bk_nm}-wbe.txt", _bk_al.out_wbe)
 
+    # --- Buckeye SEGMENTATION-PROTOCOL ablation: variants A/B/C, ~5 h speaker-stratified each -----------
+    # A = split>1s + recursive split-to-<=20s (floor .5); B = size-only split-to-<=20s; C = split>1s + drop>20s.
+    # All forced <=20s so EVERY method (incl char-level) runs on the SAME data. Few methods only, to pick the
+    # headline Buckeye segmentation later -- do NOT yet run on all models.
+    _seg_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+    _seg_whc_cfg = rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir, char_level=True, char_level_sep=" ")
+    _seg_grad_methods = [
+        (_seg_whc_cfg, "whisper-base-logmel-{tag}-L2_grad-pertoken-charlev-spc", "L2", False),
+        (
+            rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out"),
+            "wav2vec2ctc-fproj_out-{tag}-L2_grad-pertoken",
+            "L2",
+            False,
+        ),
+    ]
+    for _sv, _sv_kw in [
+        ("A", dict(resegment_gap_s=1.0, split_up_to_max_seq_len_s=18.0)),
+        ("B", dict(split_up_to_max_seq_len_s=18.0)),
+        ("C", dict(resegment_gap_s=1.0, drop_above_max_seq_len_s=18.0)),
+    ]:
+        _sv_tag = f"buckeye-seg{_sv}-5h"
+        _sv_ds = BuildBuckeyeFineDatasetJob(
+            raw_dir=dl_ds_buckeye_fine.out_hub_cache_dir,
+            min_words=2,
+            subsample_target_h=5.0,
+            subsample_seed=42,
+            **_sv_kw,
+        )
+        tk.register_output(f"{_sv_tag}-dataset", _sv_ds.out_hub_cache_dir)
+        _sv_dir = _sv_ds.out_hub_cache_dir
+
+        # MMS_FA (CTC forced-align) baseline
+        _sv_fa = ForcedAlignBaselineJob(dataset_dir=_sv_dir, dataset_key="test")
+        _sv_fa.add_alias(f"baseline-mms_fa-{_sv_tag}")
+        _sv_fa_m = CalcAlignmentMetricsFromWordBoundariesJob(
+            word_boundaries_hdf=_sv_fa.out_hdf, dataset_dir=_sv_dir, dataset_key="test", dataset_offset_factors=_bk_off
+        )
+        tk.register_output(f"baseline-mms_fa-{_sv_tag}-wbe.txt", _sv_fa_m.out_wbe)
+
+        # Whisper cross-attn DTW baseline
+        _sv_wca = WhisperCrossAttnForcedAlignJob(dataset_dir=_sv_dir, dataset_key="test", overlay=_WHISPER_TS_OVERLAY)
+        _sv_wca.add_alias(f"baseline-whisper-crossattn-{_sv_tag}")
+        _sv_wca_m = CalcAlignmentMetricsFromWordBoundariesJob(
+            word_boundaries_hdf=_sv_wca.out_hdf, dataset_dir=_sv_dir, dataset_key="test", dataset_offset_factors=_bk_off
+        )
+        tk.register_output(f"baseline-whisper-crossattn-{_sv_tag}-wbe.txt", _sv_wca_m.out_wbe)
+
+        # MFA (GMM-HMM) baseline -- the ceiling
+        _sv_mfa = MfaForcedAlignJob(
+            dataset_dir=_sv_dir,
+            dataset_key="test",
+            mfa_exe=_mfa_exe.out_exe,
+            model_root=_mfa_models.out_model_root,
+            dataset_offset_factors=_bk_off,
+        )
+        _sv_mfa.add_alias(f"baseline-mfa-{_sv_tag}")
+        tk.register_output(f"baseline-mfa-{_sv_tag}-wbe.txt", _sv_mfa.out_wbe)
+
+        # grad-align surfaces (en0.5-sil1.0): AED-Whisper char + CTC-Wav2Vec2
+        for _cfg, _nmt, _attr, _mgi in _seg_grad_methods:
+            _nm = _nmt.format(tag=_sv_tag)
+            _ex = ExtractInGradsPerTokenJob(
+                dataset_dir=_sv_dir,
+                dataset_key="test",
+                model_config=_cfg,
+                mult_grad_by_inputs=_mgi,
+                attr_reduction=_attr,
+            )
+            _ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            _ex.rqmt = {**_ex.rqmt, "time": 12}
+            _ex.add_alias(_nm)
+            tk.register_output(f"{_nm}.hdf", _ex.out_hdf)
+            _al = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=_ex.out_hdf,
+                grad_score_key="data",
+                dataset_dir=_sv_dir,
+                dataset_key="test",
+                dataset_offset_factors=_bk_off,
+                align_opts=_seg_ao,
+                audio_energy_pow=0.5,
+                blank_silence_energy_scale=1.0,
+            )
+            _alnm = f"align/{_nm}-{_name_for_dict(_seg_ao)}-en0.5-sil1.0"
+            _al.add_alias(_alnm)
+            tk.register_output(f"{_alnm}-wbe.txt", _al.out_wbe)
+
 
 def _build_timit_phi4mm(
     *,
