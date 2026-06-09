@@ -166,6 +166,7 @@ def _train_ls_offline_baseline():
         aed_ctc_model=exp.get_last_fixed_epoch(),
         aux_ctc_layer=16,
     )
+    _run_ls_ctc_lm(name, exp, task_spm10k)
     _run_ls_align_stats("base-librispeech", exp, 16)
     return exp
 
@@ -311,4 +312,36 @@ def _train_ls(name: str, *, chunk_size: int, chunk_history_size: int, chunk_look
         aed_ctc_model=exp.get_last_fixed_epoch(),
         aux_ctc_layer=16,
     )
+    _run_ls_ctc_lm(name, exp, task)
     return exp
+
+
+def _run_ls_ctc_lm(name: str, exp, task, aux_ctc_layer: int = 16) -> None:
+    """
+    CTC + LibriSpeech-LM recog (``ctc+lm-v2``) for an LS chunked-CTC model.
+
+    Uses the proper LibriSpeech-trained spm10k Transformer LM ``n32-d1024-claix2023``
+    (``trafo-n32-d1024-...-b400_20k-spm10k``, trained on ``get_librispeech_lm_dataset``)
+    resolved via the shared :func:`_get_lm_model` / :data:`_lms` registry,
+    so no new LM training is triggered -- the finished LM job is reused (import it if absent).
+
+    Recog is ``ctc_recog_recomb_labelwise_prior_auto_scale`` (same ``ctc+lm-v2`` path as
+    the Loquacious setup): the CTC head is read from aux layer ``aux_ctc_layer``,
+    and the label prior is estimated on this task's LS train data.
+    """
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import (
+        ctc_recog_recomb_labelwise_prior_auto_scale,
+        _get_lm_model,
+        _lms,
+    )
+
+    prefix = get_setup_prefix_for_module(__name__)
+    lm_name = "n32-d1024-claix2023"
+    lm = _get_lm_model(_lms[lm_name])
+    ctc_recog_recomb_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/aed/{name}/ctc+lm-v2/{lm_name}",
+        task=task,
+        ctc_model=exp.get_last_fixed_epoch(),
+        extra_config={"aux_loss_layers": [aux_ctc_layer]},
+        lm=lm,
+    )
