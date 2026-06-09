@@ -77,7 +77,7 @@ from i6_experiments.users.zeyer.nn_rf.decoder.streaming.dataset import ChunkAlig
 # the helper walks the module hierarchy for this attribute.
 __setup_root_prefix__ = "exp2026_05_26_slow_fast_rna_fzj"
 
-_CHUNK_SIZE = 10  # encoder frames (60ms each) -> 600ms chunks
+_CHUNK_SIZE = 5  # center chunk in encoder frames (60ms each) -> 300ms chunks; H80-C5-R4 base config
 
 # Loquacious scale-up: by default align + train a bounded subset of the large train split (validates
 # the HF-align -> ChunkAlignDataset -> train path end to end). Flip _LOQ_FULL_TRAIN to align + train
@@ -326,8 +326,11 @@ def _enc_build_dict(*, num_layers: int = 4, out_dim: int = 256, num_heads: int =
         out_dim=out_dim,
         num_heads=num_heads,
         chunk_size=_CHUNK_SIZE,
-        chunk_history_size=_CHUNK_SIZE * 8,
-        chunk_lookahead_size=0,  # strictly causal by chunk for the first test
+        chunk_history_size=_CHUNK_SIZE * 16,  # H80 (16 chunks back), matching the base chunked-L80-C5-R4 config
+        chunk_lookahead_size=4,  # R4 -- the proven base config; strict-causal R0 was the weak first cut (enc CTC ~23 vs ~9)
+        use_chunk_type_embedding=True,
+        # No dynamic chunk_*_train_pool: it varies the encoder chunk geometry per step, which would
+        # desync from the fixed-chunk decoder targets (chunk_eoc / rna_frame). Fixed is also >= dyn on WER.
         version=3,
     )
 
@@ -584,7 +587,7 @@ def _train_chunkwise_loq_smoke():
     """Chunk-synchronous decoder on Loquacious (subset smoke by default)."""
     return _train_streaming_variant(
         "chunkwise-loq",
-        dec_build_dict=rf.build_dict(ChunkwiseDecoder, model_dim=1024, ff_dim=4096, num_layers=4, num_heads=8),
+        dec_build_dict=rf.build_dict(ChunkwiseDecoder, model_dim=1024, ff_dim=4096, num_layers=6, num_heads=8),
         enc_opts={"num_layers": 16, "out_dim": 1024, "num_heads": 8},
         aux_loss_layers=[4, 10, 16],
         train_def=chunkwise_training,
@@ -599,8 +602,9 @@ def _train_framewise_loq_smoke():
     """Frame-synchronous RNA fast-only decoder on Loquacious (subset smoke by default)."""
     return _train_streaming_variant(
         "framewise-loq",
-        dec_build_dict=rf.build_dict(FramewiseDecoder, model_dim=1024, ff_dim=4096, num_layers=4, num_heads=8),
+        dec_build_dict=rf.build_dict(FramewiseDecoder, model_dim=1024, ff_dim=4096, num_layers=6, num_heads=8),
         enc_opts={"num_layers": 16, "out_dim": 1024, "num_heads": 8},
+        aux_loss_layers=[4, 10, 16],
         train_def=framewise_training,
         recog_def=framewise_model_recog,
         target_mode="rna_frame",
@@ -612,8 +616,9 @@ def _train_ext_transducer_loq_smoke():
     """Extended-transducer slow+fast decoder on Loquacious (subset smoke by default)."""
     return _train_streaming_variant(
         "ext-transducer-loq",
-        dec_build_dict=rf.build_dict(ExtTransducerDecoder, model_dim=1024, ff_dim=4096, num_layers=4, num_heads=8),
+        dec_build_dict=rf.build_dict(ExtTransducerDecoder, model_dim=1024, ff_dim=4096, num_layers=6, num_heads=8),
         enc_opts={"num_layers": 16, "out_dim": 1024, "num_heads": 8},
+        aux_loss_layers=[4, 10, 16],
         train_def=ext_transducer_training,
         recog_def=ext_transducer_model_recog,
         target_mode="rna_frame",
@@ -625,8 +630,9 @@ def _train_two_tower_loq_smoke():
     """Two-tower fast-slow decoder on Loquacious (subset smoke by default)."""
     return _train_streaming_variant(
         "two-tower-loq",
-        dec_build_dict=rf.build_dict(TwoTowerDecoder, model_dim=1024, ff_dim=4096, num_layers=4, num_heads=8),
+        dec_build_dict=rf.build_dict(TwoTowerDecoder, model_dim=1024, ff_dim=4096, num_layers=6, num_heads=8),
         enc_opts={"num_layers": 16, "out_dim": 1024, "num_heads": 8},
+        aux_loss_layers=[4, 10, 16],
         train_def=two_tower_training,
         recog_def=two_tower_model_recog,
         target_mode="rna_frame",

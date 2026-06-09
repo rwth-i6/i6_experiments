@@ -123,6 +123,30 @@ class StreamingModel(rf.Module):
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
         return enc, enc_spatial_dim
 
+    def aux_logits_from_collected_outputs(self, aux_layer: int, collected_outputs: Dict[str, Tensor]) -> Tensor:
+        """Aux CTC logits for ``aux_layer`` (1-indexed) from the encoder's per-layer ``collected_outputs``."""
+        linear: rf.Linear = getattr(self, f"enc_aux_logits_{aux_layer}")
+        return linear(collected_outputs[str(aux_layer - 1)])
+
+    def aux_ctc_losses(
+        self, *, collected_outputs: Dict[str, Tensor], raw_targets: Tensor, raw_spatial_dim: Dim, enc_spatial_dim: Dim
+    ) -> Dict[str, Tuple[Tensor, Dim]]:
+        """CTC aux loss for every configured ``enc_aux_logits`` layer, each tapping its own encoder layer."""
+        losses: Dict[str, Tuple[Tensor, Dim]] = {}
+        for layer_idx in self.enc_aux_logits:
+            aux_logits = self.aux_logits_from_collected_outputs(layer_idx, collected_outputs)
+            aux_log_probs = rf.log_softmax(aux_logits, axis=self.wb_target_dim)
+            ctc = rf.ctc_loss(
+                logits=aux_log_probs,
+                logits_normalized=True,
+                targets=raw_targets,
+                input_spatial_dim=enc_spatial_dim,
+                targets_spatial_dim=raw_spatial_dim,
+                blank_index=self.blank_idx,
+            )
+            losses[f"ctc_{layer_idx}"] = (ctc, raw_spatial_dim)
+        return losses
+
 
 def streaming_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> StreamingModel:
     """ModelDef: build a :class:`StreamingModel` from the global config.
@@ -172,9 +196,10 @@ def model_recog_ctc(*, model: StreamingModel, data: Tensor, data_spatial_dim: Di
     so it isolates the encoder from the alignment-trained decoder. RecogDef signature.
     """
     assert model.enc_aux_logits, "model_recog_ctc needs an aux CTC head (set aux_loss_layers)"
-    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    collected_outputs = {}
+    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
     layer_idx = model.enc_aux_logits[-1]
-    aux_logits = getattr(model, f"enc_aux_logits_{layer_idx}")(enc)
+    aux_logits = model.aux_logits_from_collected_outputs(layer_idx, collected_outputs)
     labels, out_spatial_dim = rf.ctc_greedy_decode(
         aux_logits, in_spatial_dim=enc_spatial_dim, blank_index=model.blank_idx, wb_target_dim=model.wb_target_dim
     )

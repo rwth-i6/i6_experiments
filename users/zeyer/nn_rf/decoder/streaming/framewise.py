@@ -140,7 +140,8 @@ def framewise_train_forward(
 
     :return: dict ``name -> (loss, inv_norm_spatial_dim)``.
     """
-    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    collected_outputs = {} if model.enc_aux_logits else None
+    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
     # Dataset padded the RNA target to ceil(T_align/chunk)*chunk == T_enc; relabel the dim
     # onto enc_spatial_dim (same per-seq sizes; replace_dim is a tag swap, not size-checked).
     rna, _ = rf.replace_dim(rna_targets, in_dim=rna_targets_spatial_dim, out_dim=enc_spatial_dim)
@@ -148,9 +149,7 @@ def framewise_train_forward(
     # Teacher forcing: decoder input at frame t is the previous frame's symbol (BOS at t=0).
     input_labels = rf.shift_right(rna, axis=enc_spatial_dim, pad_value=model.bos_idx)
 
-    batch_dims = data.remaining_dims(
-        (data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim
-    )
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim)
     state = model.decoder.default_initial_state(batch_dims=batch_dims)
     logits, _ = model.decoder(input_labels, enc, spatial_dim=enc_spatial_dim, state=state)
     log_probs = rf.log_softmax(logits, axis=model.target_dim_ext)
@@ -159,22 +158,16 @@ def framewise_train_forward(
 
     # Aux CTC on the blank-removed labels (== transcription), over the final encoder output.
     if model.enc_aux_logits:
-        raw_targets, raw_spatial_dim = rf.masked_select(
-            rna, mask=rna != model.blank_idx, dims=[enc_spatial_dim]
-        )
+        raw_targets, raw_spatial_dim = rf.masked_select(rna, mask=rna != model.blank_idx, dims=[enc_spatial_dim])
         raw_targets.sparse_dim = model.target_dim
-        layer_idx = model.enc_aux_logits[-1]
-        aux_logits = getattr(model, f"enc_aux_logits_{layer_idx}")(enc)
-        aux_log_probs = rf.log_softmax(aux_logits, axis=model.wb_target_dim)
-        ctc = rf.ctc_loss(
-            logits=aux_log_probs,
-            logits_normalized=True,
-            targets=raw_targets,
-            input_spatial_dim=enc_spatial_dim,
-            targets_spatial_dim=raw_spatial_dim,
-            blank_index=model.blank_idx,
+        losses.update(
+            model.aux_ctc_losses(
+                collected_outputs=collected_outputs,
+                raw_targets=raw_targets,
+                raw_spatial_dim=raw_spatial_dim,
+                enc_spatial_dim=enc_spatial_dim,
+            )
         )
-        losses[f"ctc_{layer_idx}"] = (ctc, raw_spatial_dim)
     return losses
 
 
@@ -213,9 +206,7 @@ def model_recog(
     """
     from returnn.frontend.tensor_array import TensorArray
 
-    batch_dims = data.remaining_dims(
-        (data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim
-    )
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim)
     enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     enc_lens = rf.copy_to_device(enc_spatial_dim.get_size_tensor())  # [batch]
     T_max = int(rf.reduce_max(enc_lens, axis=enc_lens.dims).raw_tensor)

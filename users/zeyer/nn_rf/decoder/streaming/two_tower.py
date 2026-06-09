@@ -41,14 +41,22 @@ class SpeechTextCrossLayer(rf.Module):
         super().__init__()
         self.self_att_ln = rf.LayerNorm(model_dim)
         self.self_att = rf.CausalSelfAttention(
-            model_dim, proj_dim=model_dim, key_dim_total=model_dim, value_dim_total=model_dim,
-            num_heads=num_heads, att_dropout=att_dropout,
+            model_dim,
+            proj_dim=model_dim,
+            key_dim_total=model_dim,
+            value_dim_total=model_dim,
+            num_heads=num_heads,
+            att_dropout=att_dropout,
         )
         self.cross_att_ln = rf.LayerNorm(model_dim)
         # encoder_dim=model_dim: keys/values come from text states (also model_dim), not the audio encoder.
         self.cross_att = ChunkMaskedCrossAttention(
-            model_dim, model_dim, key_dim_total=model_dim, value_dim_total=model_dim,
-            num_heads=num_heads, att_dropout=att_dropout,
+            model_dim,
+            model_dim,
+            key_dim_total=model_dim,
+            value_dim_total=model_dim,
+            num_heads=num_heads,
+            att_dropout=att_dropout,
         )
         self.ff_ln = rf.LayerNorm(model_dim)
         self.ff = _FeedForward(model_dim, ff_dim, dropout=dropout)
@@ -56,16 +64,25 @@ class SpeechTextCrossLayer(rf.Module):
 
     def __call__(
         self,
-        x: Tensor, *, spatial_dim: Dim, self_att_state: rf.State,
-        keys: Tensor, values: Tensor,
-        text_ext_spatial_dim: Dim, query_n_t: Tensor, key_label_idx: Tensor,
+        x: Tensor,
+        *,
+        spatial_dim: Dim,
+        self_att_state: rf.State,
+        keys: Tensor,
+        values: Tensor,
+        text_ext_spatial_dim: Dim,
+        query_n_t: Tensor,
+        key_label_idx: Tensor,
     ) -> Tuple[Tensor, rf.State]:
         h, new_state = self.self_att(self.self_att_ln(x), spatial_dim, state=self_att_state)
         x = x + rf.dropout(h, self.dropout, axis=h.feature_dim)
         h = self.cross_att(
-            self.cross_att_ln(x), keys=keys, values=values,
+            self.cross_att_ln(x),
+            keys=keys,
+            values=values,
             enc_spatial_dim=text_ext_spatial_dim,
-            query_chunk_idx=query_n_t, key_chunk_idx=key_label_idx,
+            query_chunk_idx=query_n_t,
+            key_chunk_idx=key_label_idx,
         )
         x = x + rf.dropout(h, self.dropout, axis=h.feature_dim)
         x = x + self.ff(self.ff_ln(x))
@@ -76,9 +93,19 @@ class TwoTowerDecoder(rf.Module):
     """Two-tower fast-slow decoder: text + speech stacks, speech cross-attends to text."""
 
     def __init__(
-        self, *, encoder_dim: Dim, vocab_dim: Dim, chunk_size: int, eoc_idx: int,
-        model_dim: int = 512, ff_dim: int = 2048, num_layers: int = 6, num_heads: int = 8,
-        dropout: float = 0.1, att_dropout: float = 0.1, text_num_layers: int = None,
+        self,
+        *,
+        encoder_dim: Dim,
+        vocab_dim: Dim,
+        chunk_size: int,
+        eoc_idx: int,
+        model_dim: int = 512,
+        ff_dim: int = 2048,
+        num_layers: int = 6,
+        num_heads: int = 8,
+        dropout: float = 0.1,
+        att_dropout: float = 0.1,
+        text_num_layers: int = None,
     ):
         super().__init__()
         if isinstance(model_dim, int):
@@ -135,12 +162,21 @@ class TwoTowerDecoder(rf.Module):
 
     def transform_text(self, text_states: Tensor, *, axis: Dim) -> rf.State:
         """Precompute cross-attention keys/values from text states (one pair per speech layer)."""
-        return rf.State({k: layer.cross_att.transform_encoder(text_states, axis=axis) for k, layer in self.speech_layers.items()})
+        return rf.State(
+            {k: layer.cross_att.transform_encoder(text_states, axis=axis) for k, layer in self.speech_layers.items()}
+        )
 
     def speech_forward(
-        self, prev_symbol: Tensor, enc_frame: Tensor, *,
-        spatial_dim: Dim, state: rf.State,
-        text_kv: rf.State, text_ext_spatial_dim: Dim, query_n_t: Tensor, key_label_idx: Tensor,
+        self,
+        prev_symbol: Tensor,
+        enc_frame: Tensor,
+        *,
+        spatial_dim: Dim,
+        state: rf.State,
+        text_kv: rf.State,
+        text_ext_spatial_dim: Dim,
+        query_n_t: Tensor,
+        key_label_idx: Tensor,
     ) -> Tuple[Tensor, rf.State]:
         """Speech stack: causal self-attn + cross-attn to text + FFN -> logits."""
         new_state = rf.State()
@@ -152,16 +188,26 @@ class TwoTowerDecoder(rf.Module):
         for name, layer in self.speech_layers.items():
             keys, values = text_kv[name]
             x, new_state[name] = layer(
-                x, spatial_dim=spatial_dim, self_att_state=state[name],
-                keys=keys, values=values,
-                text_ext_spatial_dim=text_ext_spatial_dim, query_n_t=query_n_t, key_label_idx=key_label_idx,
+                x,
+                spatial_dim=spatial_dim,
+                self_att_state=state[name],
+                keys=keys,
+                values=values,
+                text_ext_spatial_dim=text_ext_spatial_dim,
+                query_n_t=query_n_t,
+                key_label_idx=key_label_idx,
             )
         x = self.speech_final_ln(x)
         return self.logits(x), new_state
 
 
 def two_tower_train_forward(
-    model, *, data: Tensor, data_spatial_dim: Dim, rna_targets: Tensor, rna_targets_spatial_dim: Dim,
+    model,
+    *,
+    data: Tensor,
+    data_spatial_dim: Dim,
+    rna_targets: Tensor,
+    rna_targets_spatial_dim: Dim,
 ) -> Dict[str, Tuple[Tensor, Dim]]:
     """
     Teacher-forced two-tower training over the per-frame RNA target.
@@ -170,11 +216,10 @@ def two_tower_train_forward(
     Run the text stack over y -> text states; prepend a BOS state and use that as the cross-attn
     keys/values for the speech stack, which cross-attn-masks to ``key_label_idx <= n_t``.
     """
-    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    collected_outputs = {} if model.enc_aux_logits else None
+    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
     rna, _ = rf.replace_dim(rna_targets, in_dim=rna_targets_spatial_dim, out_dim=enc_spatial_dim)
-    batch_dims = data.remaining_dims(
-        (data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim
-    )
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim)
     dec = model.decoder
     blank = model.blank_idx
 
@@ -198,19 +243,21 @@ def two_tower_train_forward(
     # Prepend a (zero) BOS text state: frames with n_t=0 then always have >=1 key in cross-attn,
     # and text_ext positions map [0->BOS, k>=1 -> text_{k-1}]; the cross-attn mask
     # ``key_label_idx <= n_t`` admits BOS + the first n_t emitted labels for each frame.
-    text_ext, (text_ext_spatial_dim,) = rf.pad(
-        text_states, axes=[label_spatial_dim], padding=[(1, 0)], value=0.0
-    )
+    text_ext, (text_ext_spatial_dim,) = rf.pad(text_states, axes=[label_spatial_dim], padding=[(1, 0)], value=0.0)
     text_kv = dec.transform_text(text_ext, axis=text_ext_spatial_dim)
     key_label_idx = rf.range_over_dim(text_ext_spatial_dim)  # [text_ext]: 0..U positions
 
     # Speech stack over frames; cross-attn mask: key_label_idx <= n_t (per frame).
     speech_prev = rf.shift_right(rna, axis=enc_spatial_dim, pad_value=model.bos_idx)
     logits, _ = dec.speech_forward(
-        speech_prev, enc,
-        spatial_dim=enc_spatial_dim, state=dec.speech_initial_state(batch_dims=batch_dims),
-        text_kv=text_kv, text_ext_spatial_dim=text_ext_spatial_dim,
-        query_n_t=n_t, key_label_idx=key_label_idx,
+        speech_prev,
+        enc,
+        spatial_dim=enc_spatial_dim,
+        state=dec.speech_initial_state(batch_dims=batch_dims),
+        text_kv=text_kv,
+        text_ext_spatial_dim=text_ext_spatial_dim,
+        query_n_t=n_t,
+        key_label_idx=key_label_idx,
     )
 
     log_probs = rf.log_softmax(logits, axis=model.target_dim_ext)
@@ -220,22 +267,25 @@ def two_tower_train_forward(
     if model.enc_aux_logits:
         raw_targets, raw_spatial_dim = rf.masked_select(rna, mask=rna != blank, dims=[enc_spatial_dim])
         raw_targets.sparse_dim = model.target_dim
-        layer_idx = model.enc_aux_logits[-1]
-        aux_logits = getattr(model, f"enc_aux_logits_{layer_idx}")(enc)
-        aux_log_probs = rf.log_softmax(aux_logits, axis=model.wb_target_dim)
-        ctc = rf.ctc_loss(
-            logits=aux_log_probs, logits_normalized=True, targets=raw_targets,
-            input_spatial_dim=enc_spatial_dim, targets_spatial_dim=raw_spatial_dim, blank_index=blank,
+        losses.update(
+            model.aux_ctc_losses(
+                collected_outputs=collected_outputs,
+                raw_targets=raw_targets,
+                raw_spatial_dim=raw_spatial_dim,
+                enc_spatial_dim=enc_spatial_dim,
+            )
         )
-        losses[f"ctc_{layer_idx}"] = (ctc, raw_spatial_dim)
     return losses
 
 
 def two_tower_training(*, model, data: Tensor, data_spatial_dim: Dim, targets: Tensor, targets_spatial_dim: Dim):
     """TrainDef: ``targets`` is the per-frame RNA alignment (the default target)."""
     losses = two_tower_train_forward(
-        model, data=data, data_spatial_dim=data_spatial_dim,
-        rna_targets=targets, rna_targets_spatial_dim=targets_spatial_dim,
+        model,
+        data=data,
+        data_spatial_dim=data_spatial_dim,
+        rna_targets=targets,
+        rna_targets_spatial_dim=targets_spatial_dim,
     )
     for name, (loss, norm_dim) in losses.items():
         loss.mark_as_loss(name, custom_inv_norm_factor=norm_dim.get_size_tensor(), use_normalized_loss=True)
@@ -245,7 +295,10 @@ two_tower_training.learning_rate_control_error_measure = "ce"
 
 
 def model_recog(
-    *, model, data: Tensor, data_spatial_dim: Dim,
+    *,
+    model,
+    data: Tensor,
+    data_spatial_dim: Dim,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Frame-synchronous greedy recog for two_tower (beam size 1).
@@ -261,9 +314,7 @@ def model_recog(
     config = get_global_config(return_empty_if_none=True)
     max_labels = config.int("max_labels", 0) or 200
 
-    batch_dims = data.remaining_dims(
-        (data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim
-    )
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim)
     enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     enc_lens = rf.copy_to_device(enc_spatial_dim.get_size_tensor())
     T_max = int(rf.reduce_max(enc_lens, axis=enc_lens.dims).raw_tensor)
@@ -302,19 +353,21 @@ def model_recog(
         query_n_t = n_emitted  # [bd] int
 
         logits, speech_state = dec.speech_forward(
-            prev_symbol, enc_t,
-            spatial_dim=single_step_dim, state=speech_state,
-            text_kv=text_kv, text_ext_spatial_dim=text_ext_dim,
-            query_n_t=query_n_t, key_label_idx=key_label_idx,
+            prev_symbol,
+            enc_t,
+            spatial_dim=single_step_dim,
+            state=speech_state,
+            text_kv=text_kv,
+            text_ext_spatial_dim=text_ext_dim,
+            query_n_t=query_n_t,
+            key_label_idx=key_label_idx,
         )
         log_probs = rf.log_softmax(logits, axis=model.target_dim_ext)
         sym = rf.cast(rf.reduce_argmax(log_probs, axis=model.target_dim_ext), "int32")
         sym.sparse_dim = model.target_dim_ext
         sym = rf.where(valid, sym, blank_t)
         is_label = sym != blank
-        seq_log_prob = seq_log_prob + rf.where(
-            valid, rf.gather(log_probs, indices=sym, axis=model.target_dim_ext), 0.0
-        )
+        seq_log_prob = seq_log_prob + rf.where(valid, rf.gather(log_probs, indices=sym, axis=model.target_dim_ext), 0.0)
         seq = seq.push_back(sym)
         prev_symbol = sym
 
@@ -336,9 +389,7 @@ def model_recog(
 
     out_spatial_dim = Dim(T_max, name="out-spatial")
     aligned = seq.stack(axis=out_spatial_dim)
-    seq_targets_out, seq_targets_spatial_dim = rf.masked_select(
-        aligned, mask=aligned != blank, dims=[out_spatial_dim]
-    )
+    seq_targets_out, seq_targets_spatial_dim = rf.masked_select(aligned, mask=aligned != blank, dims=[out_spatial_dim])
     seq_targets_out.sparse_dim = model.target_dim_ext
     return seq_targets_out, seq_log_prob, seq_targets_spatial_dim, beam_dim
 

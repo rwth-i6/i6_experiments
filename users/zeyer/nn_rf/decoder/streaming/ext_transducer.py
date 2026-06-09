@@ -139,11 +139,10 @@ def ext_transducer_train_forward(
     (masked_select). The slow stack runs over y -> s_slow; gathering s_slow by n_t gives each
     frame its current slow state, which the fast stack consumes alongside h_t.
     """
-    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    collected_outputs = {} if model.enc_aux_logits else None
+    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
     rna, _ = rf.replace_dim(rna_targets, in_dim=rna_targets_spatial_dim, out_dim=enc_spatial_dim)
-    batch_dims = data.remaining_dims(
-        (data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim
-    )
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim)
     dec = model.decoder
     blank = model.blank_idx
 
@@ -183,18 +182,14 @@ def ext_transducer_train_forward(
     if model.enc_aux_logits:
         raw_targets, raw_spatial_dim = rf.masked_select(rna, mask=rna != blank, dims=[enc_spatial_dim])
         raw_targets.sparse_dim = model.target_dim
-        layer_idx = model.enc_aux_logits[-1]
-        aux_logits = getattr(model, f"enc_aux_logits_{layer_idx}")(enc)
-        aux_log_probs = rf.log_softmax(aux_logits, axis=model.wb_target_dim)
-        ctc = rf.ctc_loss(
-            logits=aux_log_probs,
-            logits_normalized=True,
-            targets=raw_targets,
-            input_spatial_dim=enc_spatial_dim,
-            targets_spatial_dim=raw_spatial_dim,
-            blank_index=blank,
+        losses.update(
+            model.aux_ctc_losses(
+                collected_outputs=collected_outputs,
+                raw_targets=raw_targets,
+                raw_spatial_dim=raw_spatial_dim,
+                enc_spatial_dim=enc_spatial_dim,
+            )
         )
-        losses[f"ctc_{layer_idx}"] = (ctc, raw_spatial_dim)
     return losses
 
 
@@ -237,9 +232,7 @@ def model_recog(
     config = get_global_config(return_empty_if_none=True)
     max_labels = config.int("max_labels", 0) or 200
 
-    batch_dims = data.remaining_dims(
-        (data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim
-    )
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim)
     enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     enc_lens = rf.copy_to_device(enc_spatial_dim.get_size_tensor())
     T_max = int(rf.reduce_max(enc_lens, axis=enc_lens.dims).raw_tensor)
@@ -300,9 +293,7 @@ def model_recog(
 
     out_spatial_dim = Dim(T_max, name="out-spatial")
     aligned = seq.stack(axis=out_spatial_dim)
-    seq_targets_out, seq_targets_spatial_dim = rf.masked_select(
-        aligned, mask=aligned != blank, dims=[out_spatial_dim]
-    )
+    seq_targets_out, seq_targets_spatial_dim = rf.masked_select(aligned, mask=aligned != blank, dims=[out_spatial_dim])
     seq_targets_out.sparse_dim = model.target_dim_ext
     return seq_targets_out, seq_log_prob, seq_targets_spatial_dim, beam_dim
 
