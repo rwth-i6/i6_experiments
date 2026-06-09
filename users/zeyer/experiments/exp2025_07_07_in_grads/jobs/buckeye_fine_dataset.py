@@ -40,6 +40,7 @@ class BuildBuckeyeFineDatasetJob(Job):
         "min_words": 1,
         "split_up_to_max_seq_len_s": None,
         "drop_above_max_seq_len_s": None,
+        "skip_misaligned_wavs": False,
         "subsample_target_h": None,
         "subsample_seed": 0,
     }
@@ -55,6 +56,7 @@ class BuildBuckeyeFineDatasetJob(Job):
         resegment_gap_s: Optional[float] = None,
         split_up_to_max_seq_len_s: Optional[float] = None,
         drop_above_max_seq_len_s: Optional[float] = None,
+        skip_misaligned_wavs: bool = False,
         min_words: int = 1,
         subsample_target_h: Optional[float] = None,
         subsample_seed: int = 0,
@@ -75,6 +77,9 @@ class BuildBuckeyeFineDatasetJob(Job):
             None = no length splitting.
         :param drop_above_max_seq_len_s: POST, on the produced output sequences:
             drop any piece still longer than this; None = keep all.
+        :param skip_misaligned_wavs: drop whole source segments whose last word ends past the actual audio,
+            i.e. the WAV is truncated relative to its annotation (e.g. s1901b_019: words run to 11.6 s,
+            WAV is ~2 s). These produce short clips with phantom words and break strict-CTC forced-align.
         :param min_words: drop pieces with fewer than this many words.
         :param subsample_target_h: speaker-stratified subsample of the final pieces to ~this many hours,
             proportional per speaker, seeded; None = keep all.
@@ -92,6 +97,7 @@ class BuildBuckeyeFineDatasetJob(Job):
         self.resegment_gap_s = resegment_gap_s
         self.split_up_to_max_seq_len_s = split_up_to_max_seq_len_s
         self.drop_above_max_seq_len_s = drop_above_max_seq_len_s
+        self.skip_misaligned_wavs = skip_misaligned_wavs
         self.min_words = min_words
         self.subsample_target_h = subsample_target_h
         self.subsample_seed = subsample_seed
@@ -220,6 +226,11 @@ class BuildBuckeyeFineDatasetJob(Job):
             utt = [w["word"] for w in words]
             start = [int(round(w["start_ms"] * sr / 1000.0)) for w in words]
             stop = [int(round(w["end_ms"] * sr / 1000.0)) for w in words]
+            if self.skip_misaligned_wavs and stop[-1] > len(wav) + int(0.25 * sr):
+                # WAV is truncated relative to its annotation -> the words past len(wav) have no audio.
+                print(f"skip {s['id']}: words to {stop[-1] / sr:.1f}s but wav {len(wav) / sr:.1f}s", flush=True)
+                n_skipped += 1
+                continue
             pad = int(0.15 * sr)
             for k, (a, b) in enumerate(self._spans(start, stop, len(utt), sr)):
                 if whole:

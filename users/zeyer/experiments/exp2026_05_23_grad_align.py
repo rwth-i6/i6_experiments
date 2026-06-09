@@ -3069,6 +3069,7 @@ def py():
         _sv_ds = BuildBuckeyeFineDatasetJob(
             raw_dir=dl_ds_buckeye_fine.out_hub_cache_dir,
             min_words=2,
+            skip_misaligned_wavs=True,
             subsample_target_h=5.0,
             subsample_seed=42,
             **_sv_kw,
@@ -3130,6 +3131,46 @@ def py():
             _alnm = f"align/{_nm}-{_name_for_dict(_seg_ao)}-en0.5-sil1.0"
             _al.add_alias(_alnm)
             tk.register_output(f"{_alnm}-wbe.txt", _al.out_wbe)
+
+        if _sv == "A":
+            # Variant A is the chosen headline Buckeye -> run the remaining cross-model set on it
+            # (whisper-char + wav2vec2 grad + MMS_FA / cross-attn / MFA already wired on segA above).
+            for _hA_cfg, _hA_name, _hA_attr, _hA_mgi in [
+                (voxtral_charlev_logmel_cfg, f"voxtral-charlevlogmel-{_sv_tag}-L1_grad-pertoken", "L1", False),
+                (pk_cfg, f"parakeet-rnnt-1.1b-logmel-{_sv_tag}-L2_grad-pertoken", "L2", False),
+                (tdt_cfg, f"parakeet-tdt-0.6b-v2-logmel-{_sv_tag}-L2_grad-pertoken", "L2", False),
+                (pt_csp_cfg, f"phi4mm-{_sv_tag}-L2_e_grad-pertoken-charlev-spc", "L2", True),
+                (
+                    canary_charlev_logmel_st15_cfg,
+                    f"canary-qwen-charlev-spc-logmel-st15-{_sv_tag}-L1_grad-pertoken",
+                    "L1",
+                    False,
+                ),
+            ]:
+                _hA_ex = ExtractInGradsPerTokenJob(
+                    dataset_dir=_sv_dir,
+                    dataset_key="test",
+                    model_config=_hA_cfg,
+                    mult_grad_by_inputs=_hA_mgi,
+                    attr_reduction=_hA_attr,
+                )
+                _hA_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+                _hA_ex.rqmt = {**_hA_ex.rqmt, "time": 12}
+                _hA_ex.add_alias(_hA_name)
+                tk.register_output(f"{_hA_name}.hdf", _hA_ex.out_hdf)
+                _hA_al = WordAlignFromPerTokenGradsJob(
+                    grad_score_hdf=_hA_ex.out_hdf,
+                    grad_score_key="data",
+                    dataset_dir=_sv_dir,
+                    dataset_key="test",
+                    dataset_offset_factors=_bk_off,
+                    align_opts=_seg_ao,
+                    audio_energy_pow=0.5,
+                    blank_silence_energy_scale=1.0,
+                )
+                _hA_alnm = f"align/{_hA_name}-{_name_for_dict(_seg_ao)}-en0.5-sil1.0"
+                _hA_al.add_alias(_hA_alnm)
+                tk.register_output(f"{_hA_alnm}-wbe.txt", _hA_al.out_wbe)
 
 
 def _build_timit_phi4mm(
