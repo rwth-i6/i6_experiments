@@ -50,7 +50,7 @@ from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2 import (
     ChunkedConformerEncoderLayerV2,
     ChunkedRotaryPosSelfAttentionV2,
 )
-from i6_experiments.users.zeyer.nn_rf.decoder.streaming.base import streaming_model_def
+from i6_experiments.users.zeyer.nn_rf.decoder.streaming.base import streaming_model_def, model_recog_ctc
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.chunkwise import (
     ChunkwiseDecoder,
     chunkwise_training,
@@ -517,6 +517,17 @@ def _train_streaming_variant(
             search_config=recog_cfg,
             dev_sets=recog_dev_sets,
         )
+        if corpus == "loq":
+            # CTC-only probe on the encoder aux CTC head (final encoder output): alignment-independent,
+            # so it isolates encoder quality from the alignment-trained streaming decoder.
+            recog_training_exp_batched(
+                prefix + "/" + name + "/recog-ctc",
+                task=task,
+                model=exp,
+                recog_def=model_recog_ctc,
+                search_config={**recog_cfg, "aux_loss_layers": model_config["aux_loss_layers"]},
+                dev_sets=recog_dev_sets,
+            )
     return exp
 
 

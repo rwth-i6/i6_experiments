@@ -166,6 +166,34 @@ streaming_model_def.backend = "torch"
 streaming_model_def.batch_size_factor = _batch_size_factor
 
 
+def model_recog_ctc(*, model: StreamingModel, data: Tensor, data_spatial_dim: Dim):
+    """
+    Greedy CTC recog using the encoder's aux CTC head (on the final encoder output).
+
+    Encoder-quality probe: CTC marginalizes over alignments and ignores the streaming decoder,
+    so it isolates the encoder from the alignment-trained decoder. RecogDef signature.
+    """
+    assert model.enc_aux_logits, "model_recog_ctc needs an aux CTC head (set aux_loss_layers)"
+    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    layer_idx = model.enc_aux_logits[-1]
+    aux_logits = getattr(model, f"enc_aux_logits_{layer_idx}")(enc)
+    labels, out_spatial_dim = rf.ctc_greedy_decode(
+        aux_logits, in_spatial_dim=enc_spatial_dim, blank_index=model.blank_idx, wb_target_dim=model.wb_target_dim
+    )
+    # Render with the EOC-extended vocab; blank-removed ids (< blank) are exactly the raw spm pieces.
+    labels.sparse_dim = model.target_dim_ext
+    beam_dim = Dim(1, name="beam")
+    labels = rf.expand_dim(labels, dim=beam_dim)
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim)
+    seq_log_prob = rf.zeros([beam_dim, *batch_dims], dtype="float32")
+    return labels, seq_log_prob, out_spatial_dim, beam_dim
+
+
+model_recog_ctc.output_with_beam = True
+model_recog_ctc.output_blank_label = None
+model_recog_ctc.batch_size_dependent = False
+
+
 def encoder_frame_chunk_idx(enc_spatial_dim: Dim, chunk_size: int) -> Tensor:
     """int [enc_spatial_dim] giving the chunk index ``frame // chunk_size`` of each encoder frame."""
     return rf.range_over_dim(enc_spatial_dim) // chunk_size
