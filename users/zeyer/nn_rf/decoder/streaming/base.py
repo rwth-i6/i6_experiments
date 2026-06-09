@@ -120,9 +120,7 @@ class StreamingModel(rf.Module):
         source = rf.audio.specaugment(
             source, spatial_dim=in_spatial_dim, feature_dim=self.in_dim, **self._specaugment_opts
         )
-        enc, enc_spatial_dim = self.encoder(
-            source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs
-        )
+        enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
         return enc, enc_spatial_dim
 
 
