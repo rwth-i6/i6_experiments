@@ -35,9 +35,10 @@ class LoadRawDataset(Job):
     Output HF dataset has keys: question, answer, aliases, category
     """
 
-    def __init__(self, *, dataset_name: str, split: str = "validation"):
+    def __init__(self, *, dataset_name: str, split: str = "validation", max_examples: int | None = None):
         self.dataset_name = dataset_name
         self.split = split
+        self.max_examples = max_examples
         self.out_hf = self.output_path("out_hf", directory=True)
         self.rqmt = {"cpu": 2, "mem": 8, "time": 1}
 
@@ -47,6 +48,8 @@ class LoadRawDataset(Job):
     def run(self):
         loader = DATASET_REGISTRY[self.dataset_name]
         ds = loader(split=self.split)
+        if self.max_examples is not None:
+            ds = ds.select(range(min(self.max_examples, len(ds))))
         ds.save_to_disk(str(self.out_hf.get()))
 
 
@@ -250,13 +253,20 @@ class MoshiInference(Job):
         in_dir: tk.Path,
         shard: int | None = None,
         num_shards: int | None = None,
+        lead_in_s: float = 2.0,
+        answer_window_s: float = 10.0,
     ):
         self.venv_python_path = venv_python_path
         self.in_dir = in_dir
         self.shard = shard
         self.num_shards = num_shards
+        # Delay the question by `lead_in_s` of silence so Moshi's reflexive opening greeting
+        # lands in the lead-in, then capture `answer_window_s` of reply after the question --
+        # the model's actual answer. See MoshiFileClient for the capture semantics.
+        self.lead_in_s = lead_in_s
+        self.answer_window_s = answer_window_s
         self.out_dir = self.output_path("moshi_output", directory=True)
-        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 4}
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 8}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -281,14 +291,23 @@ class MoshiInference(Job):
             wav_files = wav_files[self.shard :: self.num_shards]
         with moshi_server() as server_addr:
             ws_url = _ws_url(server_addr)
-            for wav in wav_files:
+            print(f"[moshi-inference] processing {len(wav_files)} clips", flush=True)
+            for i, wav in enumerate(wav_files):
                 out = Path(out_dir) / wav.name
                 for attempt in range(3):
                     try:
-                        MoshiFileClient(ws_url, wav, out).run()
+                        MoshiFileClient(
+                            ws_url,
+                            wav,
+                            out,
+                            lead_in_s=self.lead_in_s,
+                            answer_window_s=self.answer_window_s,
+                        ).run()
                         break
                     except Exception as e:
                         print(f"[RETRY {attempt + 1}/3] {wav.name}: {e}")
+                if (i + 1) % 50 == 0:
+                    print(f"[moshi-inference] {i + 1}/{len(wav_files)} clips done", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -366,12 +385,14 @@ class LLMGrading(Job):
         self.llm_name = llm_name
         self.out_eval = self.output_path("eval_results.jsonl")
         self.out_summary = self.output_path("summary.json")
-        self.rqmt = {"gpu": 1, "cpu": 2, "mem": 16, "time": 2}
+        self.rqmt = {"gpu": 1, "cpu": 6, "mem": 16, "time": 2}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
+        from datasets import Dataset
+
         from .common import vllm_server
         from openai import OpenAI
 
@@ -381,9 +402,11 @@ class LLMGrading(Job):
                 results.append(json.loads(line))
 
         with vllm_server(self.llm_name) as llm_url:
-            client = OpenAI(api_key="EMPTY", base_url=llm_url)
-            eval_results = []
-            for r in results:
+            _client = OpenAI(api_key="EMPTY", base_url=llm_url)
+            _client.models.list()  # block until the server is ready to serve
+
+            def grade_fn(r):
+                client = OpenAI(api_key="EMPTY", base_url=llm_url)
                 aliases = r["aliases"] if isinstance(r["aliases"], list) else json.loads(r["aliases"])
                 prompt = GRADING_PROMPT_TEMPLATE.format(
                     question=r["question"],
@@ -391,27 +414,38 @@ class LLMGrading(Job):
                     aliases=", ".join(aliases),
                     transcription=r["transcription"],
                 )
-                resp = client.chat.completions.create(
-                    model=self.llm_name,
-                    messages=[{"role": "user", "content": prompt}],
-                    response_format={"type": "json_object"},
-                )
                 try:
+                    resp = client.chat.completions.create(
+                        model=self.llm_name,
+                        messages=[{"role": "user", "content": prompt}],
+                        response_format={"type": "json_object"},
+                    )
                     grade = json.loads(resp.choices[0].message.content)
-                except (json.JSONDecodeError, KeyError):
-                    grade = {"binary": 0, "quality": 1, "reasoning": "LLM response parse error"}
+                except Exception:
+                    grade = {"binary": 0, "quality": 1, "reasoning": "LLM request/parse error"}
+                return {
+                    "binary_correct": grade.get("binary", 0),
+                    "quality_score": grade.get("quality", 1),
+                    "reasoning": grade.get("reasoning", ""),
+                }
 
-                eval_results.append(
-                    {
-                        "question": r["question"],
-                        "reference": r["answer"],
-                        "transcription": r["transcription"],
-                        "category": r.get("category", "unknown"),
-                        "binary_correct": grade.get("binary", 0),
-                        "quality_score": grade.get("quality", 1),
-                        "reasoning": grade.get("reasoning", ""),
-                    }
-                )
+            # Concurrency via datasets.map(num_proc=...), matching the other vLLM jobs
+            # (e.g. LLMPreprocess): each worker opens its own client and the vLLM server
+            # multiplexes the requests, instead of the old one-request-at-a-time loop.
+            graded = Dataset.from_list(results).map(grade_fn, num_proc=64)
+
+        eval_results = [
+            {
+                "question": r["question"],
+                "reference": r["answer"],
+                "transcription": r["transcription"],
+                "category": r.get("category", "unknown"),
+                "binary_correct": r["binary_correct"],
+                "quality_score": r["quality_score"],
+                "reasoning": r["reasoning"],
+            }
+            for r in graded
+        ]
 
         with open(str(self.out_eval.get()), "w") as f:
             for er in eval_results:
@@ -428,10 +462,11 @@ class LLMGrading(Job):
                 "accuracy": sum(i["binary_correct"] for i in items) / len(items),
                 "avg_quality": sum(i["quality_score"] for i in items) / len(items),
             }
+        n = len(eval_results)
         summary["overall"] = {
-            "n": len(eval_results),
-            "accuracy": sum(i["binary_correct"] for i in eval_results) / len(eval_results),
-            "avg_quality": sum(i["quality_score"] for i in eval_results) / len(eval_results),
+            "n": n,
+            "accuracy": sum(i["binary_correct"] for i in eval_results) / n if n else 0.0,
+            "avg_quality": sum(i["quality_score"] for i in eval_results) / n if n else 0.0,
         }
         with open(str(self.out_summary.get()), "w") as f:
             json.dump(summary, f, indent=2)
@@ -447,6 +482,7 @@ def knowledge_benchmark_py(
     split: str = "validation",
     llm_name: str = "google/gemma-4-31B-it",
     whisper_model: str = "large-v3-turbo",
+    max_examples: int | None = None,
 ):
     """Build the knowledge benchmark pipeline.
 
@@ -460,7 +496,7 @@ def knowledge_benchmark_py(
     )
 
     # 1. Load dataset
-    raw = LoadRawDataset(dataset_name=dataset_name, split=split)
+    raw = LoadRawDataset(dataset_name=dataset_name, split=split, max_examples=max_examples)
     tk.register_output("benchmark/raw_dataset", raw.out_hf)
 
     # 2. LLM preprocessing
