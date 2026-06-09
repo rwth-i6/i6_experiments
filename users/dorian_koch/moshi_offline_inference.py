@@ -5,9 +5,13 @@ the realtime websocket server (which is hardcoded batch_size=1 and paces to ~1x 
 each clip we feed ``[lead_in silence + question + capture_s trailing silence]``; Moshi emits one
 output frame per input frame and stops when the input ends, so the captured output is its full
 reply (greeting + answer) -- nothing skipped or trimmed. Used by MoshiInference(backend="offline").
+
+Optionally applies a fine-tuned LoRA adapter (``--lora_weights`` + ``--lora_config``) on top of
+the base model, so the same harness can benchmark both the base and the fine-tuned Moshi.
 """
 
 import argparse
+import json
 from pathlib import Path
 
 import numpy as np
@@ -31,6 +35,18 @@ def main():
     p.add_argument("--cfg_coef", type=float, default=1.0)
     p.add_argument("--device", type=str, default="cuda")
     p.add_argument(
+        "--lora_weights",
+        type=str,
+        default=None,
+        help="Path to a fine-tuned LoRA adapter (safetensors) to apply on top of the base model.",
+    )
+    p.add_argument(
+        "--lora_config",
+        type=str,
+        default=None,
+        help="Path to the LoRA checkpoint's config.json (supplies lora_rank/lora_scaling).",
+    )
+    p.add_argument(
         "--tail_check_s",
         type=float,
         default=4.0,
@@ -41,6 +57,21 @@ def main():
     device = args.device
     print(f"[moshi-offline] loading model {args.hf_repo}", flush=True)
     ckpt = loaders.CheckpointInfo.from_hf_repo(args.hf_repo)
+    if args.lora_weights is not None:
+        # Apply a fine-tuned LoRA adapter on top of the base model. We mutate the base lm_config
+        # (rather than passing the checkpoint's config.json as config_path) so the base model's
+        # lm_gen_config / tokenizer / mimi stay identical to the base run -- only the LoRA layers
+        # are added, keeping base-vs-finetuned a fair comparison.
+        lora_cfg = json.loads(Path(args.lora_config).read_text()) if args.lora_config else {}
+        ckpt.lm_config["lora"] = True
+        ckpt.lm_config["lora_rank"] = lora_cfg.get("lora_rank", 128)
+        ckpt.lm_config["lora_scaling"] = lora_cfg.get("lora_scaling", 2.0)
+        ckpt.lora_weights = Path(args.lora_weights)
+        print(
+            f"[moshi-offline] applying LoRA {args.lora_weights} "
+            f"(rank={ckpt.lm_config['lora_rank']}, scaling={ckpt.lm_config['lora_scaling']})",
+            flush=True,
+        )
     mimi = ckpt.get_mimi(device=device)
     text_tokenizer = ckpt.get_text_tokenizer()
     lm = ckpt.get_moshi(device=device, dtype=torch.bfloat16)

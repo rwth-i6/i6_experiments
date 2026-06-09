@@ -9,7 +9,8 @@ Extensible via DATASET_REGISTRY -- add new datasets by registering a loader.
 Usage (from synthetic_train_data.py):
 
     from .knowledge_benchmark import knowledge_benchmark_py
-    knowledge_benchmark_py()
+    knowledge_benchmark_py()                                   # base moshiko
+    knowledge_benchmark_py(moshi_checkpoint=ft.out_rundir, tag="moshi_ft")  # fine-tuned
 """
 
 from sisyphus import Job, Task, tk
@@ -239,6 +240,39 @@ class ChatterboxSingleSpeakerInference(Job):
 # ---------------------------------------------------------------------------
 
 
+class ResolveLoraCheckpoint(Job):
+    """Resolve a moshi-finetune ``run_dir`` to a single checkpoint's config + LoRA weights.
+
+    ``MoshiFinetune`` writes adapters to ``run_dir/checkpoints/checkpoint_<step>/consolidated/``
+    (``config.json`` + ``lora.safetensors``). This job picks one checkpoint (latest by default,
+    or a specific ``step``) and exposes its two files as stable outputs so the inference job can
+    depend on them directly.
+    """
+
+    def __init__(self, *, run_dir: tk.Path, step: int | None = None):
+        self.run_dir = run_dir
+        self.step = step  # None -> latest checkpoint
+        self.out_config = self.output_path("config.json")
+        self.out_lora = self.output_path("lora.safetensors")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        ckpt_root = Path(self.run_dir.get()) / "checkpoints"
+        ckpts = sorted(ckpt_root.glob("checkpoint_*"), key=lambda p: int(p.name.split("_")[-1]))
+        assert ckpts, f"No checkpoints found in {ckpt_root}"
+        if self.step is not None:
+            chosen = ckpt_root / f"checkpoint_{self.step:06d}"
+            assert chosen.exists(), f"{chosen} not found; have {[c.name for c in ckpts]}"
+        else:
+            chosen = ckpts[-1]
+        consolidated = chosen / "consolidated"
+        print(f"Resolved LoRA checkpoint: {chosen.name}", flush=True)
+        os.symlink(consolidated / "config.json", self.out_config.get())
+        os.symlink(consolidated / "lora.safetensors", self.out_lora.get())
+
+
 class MergeMoshiOutputsViaSymlinks(Job):
     """Merge sharded MoshiInference outputs into a single dir via symlinks."""
 
@@ -265,8 +299,9 @@ class MergeMoshiOutputsViaSymlinks(Job):
 class MoshiInference(Job):
     """Run Moshi speech LLM inference on audio questions.
 
-    Starts a Moshi server, sends each question audio, captures the response.
-    Uses the same WebSocket protocol as FullDuplexBench.
+    Default (fast) backend runs offline batched inference; an optional LoRA adapter
+    (``lora_weights`` + ``lora_config``) is applied on top of the base model so the same
+    job can benchmark either the base or a fine-tuned Moshi.
     """
 
     def __init__(
@@ -280,6 +315,8 @@ class MoshiInference(Job):
         capture_s: float = 24.0,
         backend: str = "offline",
         batch_size: int = 32,
+        lora_weights: tk.Path | None = None,
+        lora_config: tk.Path | None = None,
     ):
         self.venv_python_path = venv_python_path
         self.in_dir = in_dir
@@ -293,6 +330,9 @@ class MoshiInference(Job):
         # "server" = legacy realtime websocket (moshi.server + MoshiFileClient, batch_size 1, ~1x realtime).
         self.backend = backend
         self.batch_size = batch_size
+        # Optional fine-tuned LoRA adapter (offline backend only). None -> base moshiko.
+        self.lora_weights = lora_weights
+        self.lora_config = lora_config
         self.out_dir = self.output_path("moshi_output", directory=True)
         self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 8}
 
@@ -328,6 +368,10 @@ class MoshiInference(Job):
             "--batch_size",
             str(self.batch_size),
         ]
+        if self.lora_weights is not None:
+            command += ["--lora_weights", str(self.lora_weights.get())]
+            if self.lora_config is not None:
+                command += ["--lora_config", str(self.lora_config.get())]
         if self.shard is not None and self.num_shards is not None:
             command += ["--shard", str(self.shard), "--num_shards", str(self.num_shards)]
         env = os.environ.copy()
@@ -336,6 +380,7 @@ class MoshiInference(Job):
         subprocess.run(command, env=env, check=True)
 
     def _run_server(self):
+        assert self.lora_weights is None, "LoRA adapters are only supported by the offline backend."
         from .moshi_client import moshi_server, _ws_url, MoshiFileClient
 
         in_dir = str(self.in_dir.get())
@@ -539,10 +584,24 @@ def knowledge_benchmark_py(
     llm_name: str = "google/gemma-4-31B-it",
     whisper_model: str = "large-v3-turbo",
     max_examples: int | None = None,
+    moshi_checkpoint: tk.Path | None = None,
+    checkpoint_step: int | None = None,
+    tag: str = "moshi_base",
 ):
     """Build the knowledge benchmark pipeline.
 
     Imports venvs and speakers from synthetic_train_data to reuse existing jobs.
+
+    The data stages (load -> preprocess -> subsample -> TTS) are model-independent and shared
+    across runs (registered under ``benchmark/...``); the model-dependent stages
+    (Moshi -> Whisper -> grading) are namespaced under ``benchmark/<tag>/...`` so a base and a
+    fine-tuned run coexist without clobbering each other.
+
+    Args:
+        moshi_checkpoint: a ``MoshiFinetune.out_rundir`` to benchmark a fine-tuned (LoRA) model.
+            ``None`` benchmarks the base ``kyutai/moshiko``.
+        checkpoint_step: which fine-tune checkpoint step to use (``None`` = latest).
+        tag: output namespace for the model-dependent stages (e.g. ``moshi_base`` / ``moshi_ft``).
     """
     from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import (
         chatterbox_venv,
@@ -577,13 +636,23 @@ def knowledge_benchmark_py(
     )
     tk.register_output("benchmark/tts_output", tts.out_dir)
 
+    # --- model-dependent stages (namespaced by tag) -------------------------
+
+    # Optional LoRA adapter for a fine-tuned Moshi.
+    lora_weights = lora_config = None
+    if moshi_checkpoint is not None:
+        ckpt = ResolveLoraCheckpoint(run_dir=moshi_checkpoint, step=checkpoint_step)
+        lora_weights, lora_config = ckpt.out_lora, ckpt.out_config
+
     # 5. Moshi inference (sharded across GPUs for throughput)
     moshi_out = MoshiInference.sharded(
         num_shards=2,
         venv_python_path=moshi_venv(),
         in_dir=tts.out_dir,
+        lora_weights=lora_weights,
+        lora_config=lora_config,
     )
-    tk.register_output("benchmark/moshi_output", moshi_out)
+    tk.register_output(f"benchmark/{tag}/moshi_output", moshi_out)
 
     # 6. Whisper transcription
     transcription = WhisperTranscription(
@@ -592,9 +661,9 @@ def knowledge_benchmark_py(
         reference_data=data,
         model_size=whisper_model,
     )
-    tk.register_output("benchmark/transcription", transcription.out_json)
+    tk.register_output(f"benchmark/{tag}/transcription", transcription.out_json)
 
     # 7. LLM grading
     grading = LLMGrading(in_json=transcription.out_json, llm_name=llm_name)
-    tk.register_output("benchmark/eval_results", grading.out_eval)
-    tk.register_output("benchmark/summary", grading.out_summary)
+    tk.register_output(f"benchmark/{tag}/eval_results", grading.out_eval)
+    tk.register_output(f"benchmark/{tag}/summary", grading.out_summary)
