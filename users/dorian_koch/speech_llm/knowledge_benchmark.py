@@ -213,6 +213,29 @@ class ChatterboxSingleSpeakerInference(Job):
 # ---------------------------------------------------------------------------
 
 
+class MergeMoshiOutputsViaSymlinks(Job):
+    """Merge sharded MoshiInference outputs into a single dir via symlinks."""
+
+    def __init__(self, *, in_dirs: list[tk.Path]):
+        self.in_dirs = in_dirs
+        self.out_merged = self.output_path("moshi_output", directory=True)
+
+    def tasks(self):
+        yield Task("merge", mini_task=True)
+
+    def merge(self):
+        out = self.out_merged.get()
+        os.makedirs(out, exist_ok=True)
+        for in_dir in self.in_dirs:
+            src_dir = in_dir.get()
+            for name in os.listdir(src_dir):
+                if not name.endswith(".wav"):
+                    continue
+                link = os.path.join(out, name)
+                if not os.path.exists(link):
+                    os.symlink(os.path.join(src_dir, name), link)
+
+
 class MoshiInference(Job):
     """Run Moshi speech LLM inference on audio questions.
 
@@ -225,14 +248,26 @@ class MoshiInference(Job):
         *,
         venv_python_path: tk.AbstractPath,
         in_dir: tk.Path,
+        shard: int | None = None,
+        num_shards: int | None = None,
     ):
         self.venv_python_path = venv_python_path
         self.in_dir = in_dir
+        self.shard = shard
+        self.num_shards = num_shards
         self.out_dir = self.output_path("moshi_output", directory=True)
         self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 4}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
+
+    @staticmethod
+    def sharded(*, num_shards: int, **kwargs) -> tk.Path:
+        if num_shards == 1:
+            return MoshiInference(**kwargs).out_dir
+        assert num_shards > 1
+        shards = [MoshiInference(shard=i, num_shards=num_shards, **kwargs) for i in range(num_shards)]
+        return MergeMoshiOutputsViaSymlinks(in_dirs=[s.out_dir for s in shards]).out_merged
 
     def run(self):
         from .moshi_client import moshi_server, _ws_url, MoshiFileClient
@@ -242,6 +277,8 @@ class MoshiInference(Job):
         os.makedirs(out_dir, exist_ok=True)
 
         wav_files = sorted(Path(in_dir).glob("*.wav"))
+        if self.shard is not None and self.num_shards is not None:
+            wav_files = wav_files[self.shard :: self.num_shards]
         with moshi_server() as server_addr:
             ws_url = _ws_url(server_addr)
             for wav in wav_files:
@@ -262,7 +299,15 @@ class MoshiInference(Job):
 class WhisperTranscription(Job):
     """Transcribe Moshi response audio using Whisper."""
 
-    def __init__(self, *, in_dir: tk.Path, reference_data: tk.Path, model_size: str = "medium"):
+    def __init__(
+        self,
+        *,
+        venv_python_path: tk.AbstractPath,
+        in_dir: tk.Path,
+        reference_data: tk.Path,
+        model_size: str = "medium",
+    ):
+        self.venv_python_path = venv_python_path
         self.in_dir = in_dir
         self.reference_data = reference_data
         self.model_size = model_size
@@ -273,30 +318,25 @@ class WhisperTranscription(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
-        import whisper
+        script_path = Path(__file__).resolve().parent / "whisper_benchmark_inference.py"
 
-        model = whisper.load_model(self.model_size)
-        ref_ds = load_from_disk(str(self.reference_data.get()))
+        command = [
+            self.venv_python_path.get(),
+            str(script_path),
+            "--in_dir",
+            str(self.in_dir.get()),
+            "--reference_data",
+            str(self.reference_data.get()),
+            "--out_json",
+            str(self.out_json.get()),
+            "--model_size",
+            self.model_size,
+        ]
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
 
-        with open(str(self.out_json.get()), "w") as f:
-            for i, example in enumerate(ref_ds):
-                audio_path = os.path.join(str(self.in_dir.get()), f"{i}.wav")
-                if not os.path.exists(audio_path):
-                    continue
-                result = model.transcribe(audio_path)
-                f.write(
-                    json.dumps(
-                        {
-                            "question": example["question"],
-                            "answer": example["answer"],
-                            "aliases": example["aliases"],
-                            "category": example.get("category", "unknown"),
-                            "transcription": result["text"],
-                            "duration": result.get("duration", 0),
-                        }
-                    )
-                    + "\n"
-                )
+        print(f"Running Whisper benchmark transcription: {' '.join(command)}", flush=True)
+        subprocess.run(command, env=env, check=True)
 
 
 # ---------------------------------------------------------------------------
@@ -406,7 +446,7 @@ def knowledge_benchmark_py(
     dataset_name: str = "triviaqa",
     split: str = "validation",
     llm_name: str = "google/gemma-4-31B-it",
-    whisper_model: str = "medium",
+    whisper_model: str = "large-v3-turbo",
 ):
     """Build the knowledge benchmark pipeline.
 
@@ -415,6 +455,7 @@ def knowledge_benchmark_py(
     from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import (
         chatterbox_venv,
         moshi_venv,
+        whisper_venv,
         make_speakers,
     )
 
@@ -437,16 +478,18 @@ def knowledge_benchmark_py(
     )
     tk.register_output("benchmark/tts_output", tts.out_dir)
 
-    # 5. Moshi inference
-    moshi = MoshiInference(
+    # 5. Moshi inference (sharded across GPUs for throughput)
+    moshi_out = MoshiInference.sharded(
+        num_shards=4,
         venv_python_path=moshi_venv(),
         in_dir=tts.out_dir,
     )
-    tk.register_output("benchmark/moshi_output", moshi.out_dir)
+    tk.register_output("benchmark/moshi_output", moshi_out)
 
     # 6. Whisper transcription
     transcription = WhisperTranscription(
-        in_dir=moshi.out_dir,
+        venv_python_path=whisper_venv(),
+        in_dir=moshi_out,
         reference_data=preprocess.out_hf,
         model_size=whisper_model,
     )
