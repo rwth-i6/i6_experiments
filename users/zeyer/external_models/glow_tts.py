@@ -344,6 +344,14 @@ class GlowTtsLogMel(rf.Module):
                 wave = wave * wave_mask  # drop GL padding garbage beyond each seq length
                 peak = wave.abs().amax(dim=1, keepdim=True).clamp_min(1e-8)  # [B, 1]; clamp keeps silent seqs finite
                 wave = wave / peak
+                # Floor the synthetic length: an ultra-short text line (e.g. 3 phonemes -> ~200 samples)
+                # otherwise collapses to a zero-length encoder sequence
+                # (100Hz log-mel + conv subsample -> 0 frames -> NaN on the synthetic text branch).
+                # Pad such seqs with trailing silence to a safe minimum (~6400 samples -> >= ~6 encoder frames).
+                min_wave_samples = 6400
+                if wave.size(1) < min_wave_samples:
+                    wave = torch.nn.functional.pad(wave, (0, min_wave_samples - wave.size(1)))
+                wave_lens = wave_lens.clamp_min(min_wave_samples)
             wave_lens_rf = rf.convert_to_tensor(wave_lens.cpu(), dims=[batch_dim])
             wave_spatial_dim = Dim(wave_lens_rf, name="glowtts_wave")
             wave_rf = rf.convert_to_tensor(wave, dims=[batch_dim, wave_spatial_dim])
