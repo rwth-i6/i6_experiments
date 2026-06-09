@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import copy
 import functools
+import inspect
 from typing import TYPE_CHECKING, Optional, Union, Any, Callable, Tuple, Sequence, Dict
 import numpy
 import tree
@@ -1070,6 +1071,11 @@ class Model(rf.Module):
             self.feature_batch_norm = rf.build_from_dict(feature_norm_module, self.in_dim)
         elif config.bool("feature_batch_norm", False):
             self.feature_batch_norm = rf.BatchNorm(self.in_dim, affine=False, use_mask=True)
+        # Some feature norms (e.g. GroupNormSpatial) need the spatial dim to pool the statistics over time;
+        # detect it once here and pass it through where the feature norm is applied.
+        self.feature_norm_wants_spatial_dim = self.feature_batch_norm is not None and (
+            "spatial_dim" in inspect.signature(self.feature_batch_norm).parameters
+        )
         self.feature_norm = config.bool("feature_norm", False)
         self.feature_stats = None
         feature_stats = config.typed_value("feature_stats")
@@ -1160,7 +1166,10 @@ class Model(rf.Module):
         specaugment_max_spatial_dims (per-seq) overrides the SpecAugment time-mask width,
         e.g. scaled down for short synthetic sequences."""
         if self.feature_batch_norm:
-            source = self.feature_batch_norm(source)
+            if self.feature_norm_wants_spatial_dim:
+                source = self.feature_batch_norm(source, spatial_dim=in_spatial_dim)
+            else:
+                source = self.feature_batch_norm(source)
         if self.feature_norm:
             source = rf.normalize(source, axis=in_spatial_dim)
         if self.feature_stats:
