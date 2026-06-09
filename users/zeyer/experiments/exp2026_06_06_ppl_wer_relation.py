@@ -184,7 +184,7 @@ def _train_ls_chunked():
         (80, 5, 4, 50_000),
     ]:
         _name_post = ""
-        if bs != 50_000:
+        if bs != 75_000:
             _name_post += f"-bs{bs // 1000}k"
         _train_ls(
             f"chunked-L{left}-C{center}-R{right}-v2.3{_name_post}",
