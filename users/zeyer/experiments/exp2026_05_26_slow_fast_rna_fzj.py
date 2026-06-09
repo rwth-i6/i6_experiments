@@ -89,10 +89,11 @@ _LOQ_FULL_TRAIN = True
 
 def py():
     _validate_batched_forced_align()
-    _train_chunkwise_smoke()
-    _train_framewise_smoke()
-    _train_ext_transducer_smoke()
-    _train_two_tower_smoke()
+    # Dummy-vocab pipeline smoke tests -- superseded by the loq variants below; skip to save 4 nodes.
+    # _train_chunkwise_smoke()
+    # _train_framewise_smoke()
+    # _train_ext_transducer_smoke()
+    # _train_two_tower_smoke()
     # Loquacious scale-up (subset smoke by default; full ~25k h gated behind _LOQ_FULL_TRAIN).
     _train_chunkwise_loq_smoke()
     _train_framewise_loq_smoke()
@@ -469,7 +470,9 @@ def _train_streaming_variant(
             config,
             {
                 **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
-                "batch_size": 100_000 * configs._batch_size_factor,
+                # 50k (not 100k): the C5-R4 chunked encoder + all-layer aux collection is memory-heavy
+                # (overlapping windows, 2x more chunks than C10); matches the base chunked-L80-C5-R4 bs=50k.
+                "batch_size": 50_000 * configs._batch_size_factor,
             },
         )
 
