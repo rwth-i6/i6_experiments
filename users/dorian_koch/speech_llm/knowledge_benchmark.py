@@ -49,7 +49,8 @@ class LoadRawDataset(Job):
         loader = DATASET_REGISTRY[self.dataset_name]
         ds = loader(split=self.split)
         if self.max_examples is not None:
-            ds = ds.select(range(min(self.max_examples, len(ds))))
+            # reproducible random subsample
+            ds = ds.shuffle(seed=42).select(range(min(self.max_examples, len(ds))))
         ds.save_to_disk(str(self.out_hf.get()))
 
 
@@ -78,7 +79,7 @@ def register_dataset(name: str):
 def load_triviaqa(split: str = "validation"):
     from datasets import load_dataset
 
-    ds = load_dataset("mandarjoshi/trivia_qa", "rc.nocontext", split=split, trust_remote_code=True)
+    ds = load_dataset("mandarjoshi/trivia_qa", "rc.wikipedia.nocontext", split=split, trust_remote_code=True)
 
     def normalize(example):
         return {
@@ -254,17 +255,17 @@ class MoshiInference(Job):
         shard: int | None = None,
         num_shards: int | None = None,
         lead_in_s: float = 2.0,
-        answer_window_s: float = 10.0,
+        capture_s: float = 60.0,
     ):
         self.venv_python_path = venv_python_path
         self.in_dir = in_dir
         self.shard = shard
         self.num_shards = num_shards
-        # Delay the question by `lead_in_s` of silence so Moshi's reflexive opening greeting
-        # lands in the lead-in, then capture `answer_window_s` of reply after the question --
-        # the model's actual answer. See MoshiFileClient for the capture semantics.
+        # Feed `lead_in_s` of silence (Moshi greets), the question, then `capture_s` of trailing
+        # silence, and capture Moshi's ENTIRE reply -- greeting included, nothing skipped/trimmed.
+        # See MoshiFileClient for the capture semantics.
         self.lead_in_s = lead_in_s
-        self.answer_window_s = answer_window_s
+        self.capture_s = capture_s
         self.out_dir = self.output_path("moshi_output", directory=True)
         self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 8}
 
@@ -301,7 +302,7 @@ class MoshiInference(Job):
                             wav,
                             out,
                             lead_in_s=self.lead_in_s,
-                            answer_window_s=self.answer_window_s,
+                            capture_s=self.capture_s,
                         ).run()
                         break
                     except Exception as e:
@@ -516,7 +517,7 @@ def knowledge_benchmark_py(
 
     # 5. Moshi inference (sharded across GPUs for throughput)
     moshi_out = MoshiInference.sharded(
-        num_shards=4,
+        num_shards=2,
         venv_python_path=moshi_venv(),
         in_dir=tts.out_dir,
     )

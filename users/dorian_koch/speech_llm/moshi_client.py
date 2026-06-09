@@ -216,7 +216,7 @@ class MoshiFileClient:
         out,
         *,
         lead_in_s: float = 0.0,
-        answer_window_s: float | None = None,
+        capture_s: float | None = None,
         silence_timeout_s: float = 2.0,
     ):
         import sphn
@@ -230,26 +230,23 @@ class MoshiFileClient:
         self._reply_len = 0  # reply samples captured so far
         self._reply_done = False
 
-        # Capture mode. When ``answer_window_s`` is None we keep the legacy behaviour: stream
-        # only the prompt and capture the reply that overlaps it, trimmed to the prompt length
-        # (used by fdb.py). When it is set we delay the question by ``lead_in_s`` of leading
-        # silence -- so Moshi's reflexive opening greeting lands in the lead-in rather than being
-        # mistaken for the answer -- then stream ``answer_window_s`` of trailing silence and
-        # capture the reply only during that trailing window, which is the model's actual answer.
-        self._answer_window_s = answer_window_s
-        # Capture ends this many seconds after the model stops emitting audio (variable-length
-        # answer). It also bounds every recv(), so a model that goes silent can never hang us.
+        # Capture mode. When ``capture_s`` is None we keep the legacy behaviour: stream only the
+        # prompt and capture the reply overlapping it, trimmed to the prompt length (fdb.py).
+        # When set, we feed ``lead_in_s`` of leading silence (Moshi does its reflexive greeting
+        # up front) + the question + ``capture_s`` of trailing silence, and capture Moshi's ENTIRE
+        # reply from the first frame -- greeting included, nothing skipped. Capture ends once Moshi
+        # has gone quiet for ``silence_timeout`` after it started talking, is hard-capped at
+        # ``capture_s``, and every recv() is time-bounded so it can never hang.
+        self._capture_s = capture_s
         self._silence_timeout = silence_timeout_s
         self._lead_in = int(round(lead_in_s * SAMPLE_RATE))
-        if answer_window_s is not None:
-            self._answer_window = int(round(answer_window_s * SAMPLE_RATE))
-            self._capture_start = self._lead_in + self._prompt_len
-            self._reply_seen = 0  # total reply samples observed (including skipped)
+        if capture_s is not None:
+            self._capture_max = int(round(capture_s * SAMPLE_RATE))
             self._input = np.concatenate(
                 [
                     np.zeros(self._lead_in, dtype=self._prompt.dtype),
                     self._prompt,
-                    np.zeros(self._answer_window, dtype=self._prompt.dtype),
+                    np.zeros(self._capture_max, dtype=self._prompt.dtype),
                 ]
             )
 
@@ -296,7 +293,7 @@ class MoshiFileClient:
 
         # Legacy mode streams only the prompt; answer-window mode streams
         # lead-in silence + prompt + trailing answer-window silence.
-        audio = self._prompt if self._answer_window_s is None else self._input
+        audio = self._prompt if self._capture_s is None else self._input
         for frame in _iter_frames(audio):
             packet = self._encoder.append_pcm(frame.astype(np.float32) / 32768.0)
             if not isinstance(packet, (bytes, bytearray)):
@@ -309,7 +306,7 @@ class MoshiFileClient:
         # Hold the socket open until the receiver is done. In legacy mode that means a full
         # overlapping reply; in answer-window mode the receiver ends the turn on a silence
         # timeout, so we just wait for that signal.
-        if self._answer_window_s is None:
+        if self._capture_s is None:
             while self._reply_len < self._prompt_len and not self._reply_done:
                 await asyncio.sleep(0.1)
         else:
@@ -319,9 +316,9 @@ class MoshiFileClient:
 
     async def _save_reply(self, ws, primer):
         """Decode the server's audio frames and write the captured reply to the output wav."""
-        if self._answer_window_s is None:
+        if self._capture_s is None:
             return await self._save_reply_legacy(ws, primer)
-        return await self._save_reply_answer_window(ws, primer)
+        return await self._save_reply_capture(ws, primer)
 
     async def _save_reply_legacy(self, ws, primer):
         """Capture the reply overlapping the prompt, trimmed to the prompt length (fdb.py)."""
@@ -372,14 +369,12 @@ class MoshiFileClient:
             if self._reply_len < self._prompt_len:
                 sink.write(np.zeros(self._prompt_len - self._reply_len, dtype=np.int16))
 
-    async def _save_reply_answer_window(self, ws, primer):
-        """Skip the reply overlapping the lead-in + question, then capture the model's answer.
+    async def _save_reply_capture(self, ws, primer):
+        """Capture Moshi's entire reply from the first frame (greeting included); nothing skipped.
 
-        Moshi emits one output frame per input frame, so it keeps streaming (silence) frames for
-        the whole trailing-silence window. Capture therefore ends on *content* silence: once Moshi
-        has actually started answering and then stays quiet for ``silence_timeout`` seconds. A
-        leading pause (before the answer starts) does not count, the answer window is a hard cap,
-        and a time-bounded ``recv`` is a backstop so we can never hang even if frames stop coming.
+        Moshi emits one output frame per input frame, so it streams audio for the whole input.
+        Capture ends once Moshi has gone quiet for ``silence_timeout`` after it started talking,
+        is hard-capped at ``capture_s``, and every recv() is time-bounded so it can never hang.
         """
         import asyncio
 
@@ -388,22 +383,22 @@ class MoshiFileClient:
         from websockets.exceptions import ConnectionClosed
 
         self._reply_len = 0
-        target = self._answer_window
+        cap = self._capture_max
         silence_needed = int(round(self._silence_timeout * SAMPLE_RATE))
-        # Wait this long for the answer to begin (Moshi works through lead-in + question first);
-        # once it is talking, a tighter recv bound is just the no-frames-at-all hang backstop.
+        # Generous wait for the first frame; tight bound once frames are flowing (hang backstop).
         first_audio_timeout = self._lead_in / SAMPLE_RATE + self._prompt_len / SAMPLE_RATE + 10.0
+        got_frame = False
         speech_started = False
         trailing_silence = 0
         pending = primer
 
         with sf.SoundFile(self._out, "w", samplerate=SAMPLE_RATE, channels=1, subtype="PCM_16") as sink:
             try:
-                while self._reply_len < target:
+                while self._reply_len < cap:
                     if pending is not None:
                         message, pending = pending, None
                     else:
-                        timeout = (self._silence_timeout + 3.0) if speech_started else first_audio_timeout
+                        timeout = (self._silence_timeout + 3.0) if got_frame else first_audio_timeout
                         message = await asyncio.wait_for(ws.recv(), timeout=timeout)
                     if not message:
                         continue
@@ -413,16 +408,12 @@ class MoshiFileClient:
                         continue
                     if tag != _TAG_AUDIO:
                         continue
+                    got_frame = True
 
                     pcm = self._decoder.append_bytes(payload)
                     ended = False
                     while pcm.size:
-                        if self._reply_seen < self._capture_start:
-                            skip = min(pcm.size, self._capture_start - self._reply_seen)
-                            self._reply_seen += skip
-                            pcm = pcm[skip:]
-                            continue
-                        remaining = target - self._reply_len
+                        remaining = cap - self._reply_len
                         if remaining <= 0:
                             ended = True
                             break
@@ -430,7 +421,6 @@ class MoshiFileClient:
                         chunk = pcm[:take]
                         sink.write(_pcm_to_int16(chunk))
                         self._reply_len += take
-                        self._reply_seen += take
                         if float(np.max(np.abs(chunk))) >= _SPEECH_THRESHOLD:
                             speech_started = True
                             trailing_silence = 0
@@ -443,6 +433,3 @@ class MoshiFileClient:
                 pass
             finally:
                 self._reply_done = True
-
-            if self._reply_len < target:
-                sink.write(np.zeros(target - self._reply_len, dtype=np.int16))
