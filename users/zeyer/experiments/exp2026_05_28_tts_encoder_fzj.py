@@ -195,6 +195,19 @@ def py():
         conv_norm=rf.build_dict(rf.GroupNorm, num_groups=32),
         feature_norm=rf.build_dict(rf.GroupNorm, num_groups=16),
     )
+    # gn-conv (Conformer conv-block GroupNorm) combined with the muon-lr5e3-wdbl variant: gn-conv gave
+    # ~-0.2 dev-other on the plain AdamW baseline (4.49 vs 4.69), and muon-lr5e3-wdbl is at 4.22 dev-other,
+    # so the combination tests whether it reaches the 1-GPU 4.06.
+    _train_asr_base_multigpu(
+        "asr-base-mgpu-logmel-muon-lr5e3-wdbl-gn-conv",
+        prefix=prefix,
+        feature_extraction=None,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+        conv_norm=rf.build_dict(rf.GroupNorm, num_groups=32),
+    )
     # WSD LR schedule (warmup ~2% / stable ~78% / decay ~20%) vs our OCLR (45% warmup / 45% decay),
     # same 5e-4 peak as lr05. Tests whether the long OCLR warmup wastes our scarce nep=25 updates.
     _train_asr_base_multigpu(
