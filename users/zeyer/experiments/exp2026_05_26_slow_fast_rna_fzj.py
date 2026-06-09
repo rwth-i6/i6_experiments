@@ -311,7 +311,7 @@ def _loq_coshard_train_parts(model, *, aux_ctc_layer: int, partition_epoch: int 
     )
 
 
-def _enc_build_dict():
+def _enc_build_dict(*, num_layers: int = 4, out_dim: int = 256, num_heads: int = 4):
     return rf.build_dict(
         ChunkedConformerEncoderV2,
         input_layer=rf.build_dict(
@@ -322,9 +322,9 @@ def _enc_build_dict():
             strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6 (matches the alignment frame rate)
         ),
         encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
-        num_layers=4,
-        out_dim=256,
-        num_heads=4,
+        num_layers=num_layers,
+        out_dim=out_dim,
+        num_heads=num_heads,
         chunk_size=_CHUNK_SIZE,
         chunk_history_size=_CHUNK_SIZE * 8,
         chunk_lookahead_size=0,  # strictly causal by chunk for the first test
@@ -336,6 +336,8 @@ def _train_streaming_variant(
     name: str,
     *,
     dec_build_dict: Dict[str, Any],
+    enc_opts: Optional[Dict[str, Any]] = None,
+    aux_loss_layers: Optional[List[int]] = None,
     train_def,
     recog_def=None,
     target_mode: str,
@@ -428,10 +430,10 @@ def _train_streaming_variant(
     )
 
     model_config = {
-        "enc_build_dict": _enc_build_dict(),
+        "enc_build_dict": _enc_build_dict(**(enc_opts or {})),
         "dec_build_dict": dec_build_dict,
         "chunk_size": _CHUNK_SIZE,
-        "aux_loss_layers": [4],
+        "aux_loss_layers": aux_loss_layers or [4],
         "feature_batch_norm": True,
         "__serialization_version": 2,
     }
@@ -570,8 +572,10 @@ def _train_two_tower_smoke():
 def _train_chunkwise_loq_smoke():
     """Chunk-synchronous decoder on Loquacious (subset smoke by default)."""
     return _train_streaming_variant(
-        "chunkwise-loq-smoke",
-        dec_build_dict=rf.build_dict(ChunkwiseDecoder, model_dim=256, ff_dim=512, num_layers=4, num_heads=4),
+        "chunkwise-loq",
+        dec_build_dict=rf.build_dict(ChunkwiseDecoder, model_dim=1024, ff_dim=4096, num_layers=4, num_heads=8),
+        enc_opts={"num_layers": 16, "out_dim": 1024, "num_heads": 8},
+        aux_loss_layers=[4, 10, 16],
         train_def=chunkwise_training,
         recog_def=chunkwise_model_recog,
         target_mode="chunk_eoc",
@@ -583,8 +587,9 @@ def _train_chunkwise_loq_smoke():
 def _train_framewise_loq_smoke():
     """Frame-synchronous RNA fast-only decoder on Loquacious (subset smoke by default)."""
     return _train_streaming_variant(
-        "framewise-loq-smoke",
-        dec_build_dict=rf.build_dict(FramewiseDecoder, model_dim=256, ff_dim=512, num_layers=4, num_heads=4),
+        "framewise-loq",
+        dec_build_dict=rf.build_dict(FramewiseDecoder, model_dim=1024, ff_dim=4096, num_layers=4, num_heads=8),
+        enc_opts={"num_layers": 16, "out_dim": 1024, "num_heads": 8},
         train_def=framewise_training,
         recog_def=framewise_model_recog,
         target_mode="rna_frame",
@@ -595,8 +600,9 @@ def _train_framewise_loq_smoke():
 def _train_ext_transducer_loq_smoke():
     """Extended-transducer slow+fast decoder on Loquacious (subset smoke by default)."""
     return _train_streaming_variant(
-        "ext-transducer-loq-smoke",
-        dec_build_dict=rf.build_dict(ExtTransducerDecoder, model_dim=256, ff_dim=512, num_layers=4, num_heads=4),
+        "ext-transducer-loq",
+        dec_build_dict=rf.build_dict(ExtTransducerDecoder, model_dim=1024, ff_dim=4096, num_layers=4, num_heads=8),
+        enc_opts={"num_layers": 16, "out_dim": 1024, "num_heads": 8},
         train_def=ext_transducer_training,
         recog_def=ext_transducer_model_recog,
         target_mode="rna_frame",
@@ -607,8 +613,9 @@ def _train_ext_transducer_loq_smoke():
 def _train_two_tower_loq_smoke():
     """Two-tower fast-slow decoder on Loquacious (subset smoke by default)."""
     return _train_streaming_variant(
-        "two-tower-loq-smoke",
-        dec_build_dict=rf.build_dict(TwoTowerDecoder, model_dim=256, ff_dim=512, num_layers=4, num_heads=4),
+        "two-tower-loq",
+        dec_build_dict=rf.build_dict(TwoTowerDecoder, model_dim=1024, ff_dim=4096, num_layers=4, num_heads=8),
+        enc_opts={"num_layers": 16, "out_dim": 1024, "num_heads": 8},
         train_def=two_tower_training,
         recog_def=two_tower_model_recog,
         target_mode="rna_frame",
