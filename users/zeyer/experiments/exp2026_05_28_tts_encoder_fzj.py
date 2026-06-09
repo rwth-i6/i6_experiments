@@ -208,6 +208,19 @@ def py():
         extra_config_deletes=["optimizer.epsilon"],
         conv_norm=rf.build_dict(rf.GroupNorm, num_groups=32),
     )
+    # Same, but with the standard time-pooled GroupNorm (GroupNormSpatial: reduces over the in-group
+    # channels AND time, = torch.nn.GroupNorm) instead of the per-frame rf.GroupNorm above.
+    # Direct standard-vs-per-frame comparison on the conv-block norm.
+    _train_asr_base_multigpu(
+        "asr-base-mgpu-logmel-muon-lr5e3-wdbl-gn-conv-tp",
+        prefix=prefix,
+        feature_extraction=None,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+        conv_norm=rf.build_dict(rf.GroupNormSpatial, num_groups=32),
+    )
     # WSD LR schedule (warmup ~2% / stable ~78% / decay ~20%) vs our OCLR (45% warmup / 45% decay),
     # same 5e-4 peak as lr05. Tests whether the long OCLR warmup wastes our scarce nep=25 updates.
     _train_asr_base_multigpu(
