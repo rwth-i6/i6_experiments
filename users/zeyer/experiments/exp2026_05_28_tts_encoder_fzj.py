@@ -221,6 +221,29 @@ def py():
         extra_config_deletes=["optimizer.epsilon"],
         conv_norm=rf.build_dict(rf.GroupNormSpatial, num_groups=32),
     )
+    # gn-feat retry on muon-lr5e3-wdbl with the standard time-pooled GroupNorm (GroupNormSpatial), testing
+    # whether time-pooling rescues the feature front-end norm (per-frame gn-feat was 5.91). Two group counts:
+    # 16 (as the original) and 1 (a single group = per-sequence global feature norm over channels+time).
+    _train_asr_base_multigpu(
+        "asr-base-mgpu-logmel-muon-lr5e3-wdbl-gn-feat-tp",
+        prefix=prefix,
+        feature_extraction=None,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+        feature_norm=rf.build_dict(rf.GroupNormSpatial, num_groups=16),
+    )
+    _train_asr_base_multigpu(
+        "asr-base-mgpu-logmel-muon-lr5e3-wdbl-gn-feat-tp-g1",
+        prefix=prefix,
+        feature_extraction=None,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+        feature_norm=rf.build_dict(rf.GroupNormSpatial, num_groups=1),
+    )
     # WSD LR schedule (warmup ~2% / stable ~78% / decay ~20%) vs our OCLR (45% warmup / 45% decay),
     # same 5e-4 peak as lr05. Tests whether the long OCLR warmup wastes our scarce nep=25 updates.
     _train_asr_base_multigpu(
