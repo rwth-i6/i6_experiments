@@ -295,6 +295,10 @@ class ChunkAlignDataset(DatasetConfig):
                 map_outputs=self._build_map_outputs(),
                 train_mpd_opts=self._train_mpd_opts(),
                 postproc_num_workers=self.postproc_num_workers,
+                # v2 = sub-epoch dataset does NOT seq-shard (the double-sharding fix, see
+                # _coshard_get_sub_epoch_dataset). Bound here (hashed partial kwarg) so the fix
+                # moves the job hash; a function-body-only change would not.
+                version=2,
             ),
             "seq_ordering": "random",
             "partition_epoch": partition_epoch,
@@ -394,6 +398,7 @@ def _coshard_get_sub_epoch_dataset(
     map_outputs: Dict[str, Any],
     train_mpd_opts: Optional[Dict[str, Any]],
     postproc_num_workers: int,
+    version: int = 1,
 ) -> Dict[str, Any]:
     """Per-subepoch builder for the co-shard train DFD: split the ``(arrow, align)`` pairs, build the
     audio sub-dataset over this subepoch's arrow shards (the audio DFD's own per-subepoch builder) and the
@@ -402,7 +407,7 @@ def _coshard_get_sub_epoch_dataset(
     audio_files = [f[0] for f in files]
     align_files = [f[1] for f in files]
     audio_dict = audio_sub_epoch_dataset(audio_files)
-    return _build_meta_post(
+    d = _build_meta_post(
         audio_dict=audio_dict,
         align_files=align_files,
         audio_data_key=audio_data_key,
@@ -412,6 +417,19 @@ def _coshard_get_sub_epoch_dataset(
         postproc_num_workers=postproc_num_workers,
         training=True,
     )
+    # No seq-level sharding inside the sub-epoch dataset: the outer DistributeFilesDataset
+    # (distrib_shard_files=True) already shards the FILES across the DDP ranks,
+    # but extend_dataset_dict_from_parent_dataset setdefaults the parent's _num_shards/_shard_index
+    # into this dict, and the sub-epoch dataset then ALSO shard-slices its seq order [rank::num_ranks].
+    # That double-sharding made every rank consume 1/16 (union 1/4) of the data:
+    # 382 vs 6629 steps/subepoch vs the single-GPU baseline, ~0.85 vs ~3.7 passes total.
+    # Explicit keys win over the setdefault, restoring full consumption of each rank's file shard.
+    # version-gated: v1 = the double-sharding behavior (broken; only kept so old frozen configs,
+    # which serialized the partial without ``version``, still construct), v2 = fixed.
+    if version >= 2:
+        d["_num_shards"] = 1
+        d["_shard_index"] = 0
+    return d
 
 
 # ``map_seq`` must accept ``**kwargs`` (PostprocessingDataset passes randomly named params for
