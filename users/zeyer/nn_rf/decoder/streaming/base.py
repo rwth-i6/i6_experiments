@@ -217,6 +217,22 @@ model_recog_ctc.output_blank_label = None
 model_recog_ctc.batch_size_dependent = False
 
 
+def label_smoothed_log_probs(log_probs: Tensor, *, axis: Dim) -> Tensor:
+    """Config-gated label smoothing on the decoder CE log-probs (gradient-only,
+    via :func:`rf.label_smoothed_log_prob_gradient`, as in the AED baseline).
+
+    ``label_smoothing`` config float, default 0 = off -- opt-in,
+    so existing finished trainings (which do not set it) are unaffected.
+    """
+    from returnn.config import get_global_config
+
+    config = get_global_config(return_empty_if_none=True)
+    smoothing = config.float("label_smoothing", 0.0)
+    if smoothing:
+        log_probs = rf.label_smoothed_log_prob_gradient(log_probs, smoothing, axis=axis)
+    return log_probs
+
+
 def encoder_frame_chunk_idx(enc_spatial_dim: Dim, chunk_size: int) -> Tensor:
     """int [enc_spatial_dim] giving the chunk index ``frame // chunk_size`` of each encoder frame."""
     return rf.range_over_dim(enc_spatial_dim) // chunk_size

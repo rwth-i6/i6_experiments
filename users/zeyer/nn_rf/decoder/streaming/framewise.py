@@ -16,30 +16,37 @@ frame-for-frame.
 
 from __future__ import annotations
 
-from typing import Dict, Sequence, Tuple, TYPE_CHECKING
-import functools
+from typing import Dict, Optional, Sequence, Tuple, TYPE_CHECKING
 
 import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, single_step_dim
+from returnn.frontend.decoder.transformer import FeedForwardGated
+
+from .base import label_smoothed_log_probs
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import RecogDef
 
 
 class FramewiseDecoderLayer(rf.Module):
-    def __init__(self, model_dim: Dim, ff_dim: Dim, *, num_heads: int, dropout: float, att_dropout: float):
+    """Transformer++ (Llama-style) causal block, as in the AED/LM baseline decoders:
+    RoPE causal self-attention (no bias), RMSNorm, gated FF; positions via RoPE (no abs pos enc).
+    """
+
+    def __init__(self, model_dim: Dim, ff_dim: Optional[Dim], *, num_heads: int, dropout: float, att_dropout: float):
         super().__init__()
-        self.self_att_ln = rf.LayerNorm(model_dim)
-        self.self_att = rf.CausalSelfAttention(
+        self.self_att_ln = rf.RMSNorm(model_dim)
+        self.self_att = rf.RotaryPosCausalSelfAttention(
             model_dim,
             proj_dim=model_dim,
             key_dim_total=model_dim,
             value_dim_total=model_dim,
             num_heads=num_heads,
+            with_bias=False,
             att_dropout=att_dropout,
         )
-        self.ff_ln = rf.LayerNorm(model_dim)
-        self.ff = _FeedForward(model_dim, ff_dim, dropout=dropout)
+        self.ff_ln = rf.RMSNorm(model_dim)
+        self.ff = FeedForwardGated(model_dim, ff_dim=ff_dim, dropout=dropout)
         self.dropout = dropout
 
     def __call__(self, x: Tensor, *, spatial_dim: Dim, self_att_state: rf.State) -> Tuple[Tensor, rf.State]:
@@ -60,13 +67,18 @@ class FramewiseDecoder(rf.Module):
         chunk_size: int,
         eoc_idx: int,
         model_dim: int = 512,
-        ff_dim: int = 2048,
+        ff_dim: Optional[int] = None,  # None -> FeedForwardGated default (Llama-style ~8/3 * model_dim)
         num_layers: int = 6,
         num_heads: int = 8,
         dropout: float = 0.1,
         att_dropout: float = 0.1,
+        version: int = 1,
     ):
         super().__init__()
+        # v1 = the pre-Transformer++ decoder (LayerNorm + abs sin pos-enc + non-gated FF); that code is gone.
+        # v2 = RMSNorm + RoPE causal self-att + gated FF. rf.build_dict hashes the dict not the module source,
+        # so this explicit version is what forces a new sis hash for the rewrite -- see README "Sis hash safety".
+        assert version >= 2, "FramewiseDecoder v1 (pre-Transformer++) is removed; build with version=2"
         if isinstance(model_dim, int):
             model_dim = Dim(model_dim, name="dec_model")
         if isinstance(ff_dim, int):
@@ -79,7 +91,6 @@ class FramewiseDecoder(rf.Module):
 
         self.input_embedding = rf.Embedding(vocab_dim, model_dim)
         self.enc_proj = rf.Linear(encoder_dim, model_dim, with_bias=False)
-        self.pos_enc = functools.partial(rf.sinusoidal_positional_encoding, feat_dim=model_dim)
         self.input_embedding_scale = model_dim.dimension**0.5
         self.dropout = dropout
 
@@ -87,13 +98,11 @@ class FramewiseDecoder(rf.Module):
             FramewiseDecoderLayer(model_dim, ff_dim, num_heads=num_heads, dropout=dropout, att_dropout=att_dropout)
             for _ in range(num_layers)
         )
-        self.final_ln = rf.LayerNorm(model_dim)
+        self.final_ln = rf.RMSNorm(model_dim)
         self.logits = rf.Linear(model_dim, vocab_dim)
 
     def default_initial_state(self, *, batch_dims: Sequence[Dim]) -> rf.State:
-        state = rf.State({k: v.self_att.default_initial_state(batch_dims=batch_dims) for k, v in self.layers.items()})
-        state.pos = rf.zeros((), dtype="int32", device="cpu")
-        return state
+        return rf.State({k: v.self_att.default_initial_state(batch_dims=batch_dims) for k, v in self.layers.items()})
 
     def __call__(
         self,
@@ -107,14 +116,12 @@ class FramewiseDecoder(rf.Module):
         :param source: previous-frame symbol(s), sparse over ``vocab_dim``, on ``spatial_dim``.
         :param enc_frame: encoder output aligned to ``source`` (same ``spatial_dim``).
         :param spatial_dim: the frame axis (``enc_spatial_dim`` in training, ``single_step_dim`` at recog).
-        :param state: self-attn state + position counter.
+        :param state: self-attn state (carries the RoPE positions).
         """
         new_state = rf.State()
         x = self.input_embedding(source) * self.input_embedding_scale
         x = x + self.enc_proj(enc_frame)
-        x = x + self.pos_enc(spatial_dim=spatial_dim, offset=state.pos)
         x = rf.dropout(x, self.dropout, axis=x.feature_dim)
-        new_state.pos = state.pos + (1 if spatial_dim == single_step_dim else spatial_dim.get_size_tensor())
 
         for name, layer in self.layers.items():
             x, new_state[name] = layer(x, spatial_dim=spatial_dim, self_att_state=state[name])
@@ -153,6 +160,7 @@ def framewise_train_forward(
     state = model.decoder.default_initial_state(batch_dims=batch_dims)
     logits, _ = model.decoder(input_labels, enc, spatial_dim=enc_spatial_dim, state=state)
     log_probs = rf.log_softmax(logits, axis=model.target_dim_ext)
+    log_probs = label_smoothed_log_probs(log_probs, axis=model.target_dim_ext)  # config-gated, default off
     ce = rf.cross_entropy(target=rna, estimated=log_probs, estimated_type="log-probs", axis=model.target_dim_ext)
     losses: Dict[str, Tuple[Tensor, Dim]] = {"ce": (ce, enc_spatial_dim)}
 
@@ -249,17 +257,3 @@ model_recog: RecogDef
 model_recog.output_with_beam = True
 model_recog.output_blank_label = None
 model_recog.batch_size_dependent = False
-
-
-class _FeedForward(rf.Module):
-    def __init__(self, model_dim: Dim, ff_dim: Dim, *, dropout: float):
-        super().__init__()
-        self.lin1 = rf.Linear(model_dim, ff_dim)
-        self.lin2 = rf.Linear(ff_dim, model_dim)
-        self.dropout = dropout
-
-    def __call__(self, x: Tensor) -> Tensor:
-        x = self.lin1(x)
-        x = rf.relu_square(x)
-        x = rf.dropout(x, self.dropout, axis=x.feature_dim)
-        return self.lin2(x)

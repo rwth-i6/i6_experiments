@@ -18,13 +18,13 @@ derived in-graph from the per-frame RNA target (see ``segmentation.rna_frame_tar
 
 from __future__ import annotations
 
-from typing import Dict, Sequence, Tuple, TYPE_CHECKING
-import functools
+from typing import Dict, Optional, Sequence, Tuple, TYPE_CHECKING
 
 import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, single_step_dim
 
 from .framewise import FramewiseDecoderLayer
+from .base import label_smoothed_log_probs
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import RecogDef
@@ -41,14 +41,19 @@ class ExtTransducerDecoder(rf.Module):
         chunk_size: int,
         eoc_idx: int,
         model_dim: int = 512,
-        ff_dim: int = 2048,
+        ff_dim: Optional[int] = None,  # None -> FeedForwardGated default (Llama-style ~8/3 * model_dim)
         num_layers: int = 6,
         num_heads: int = 8,
         dropout: float = 0.1,
         att_dropout: float = 0.1,
         slow_num_layers: int = None,
+        version: int = 1,
     ):
         super().__init__()
+        # v1 = the pre-Transformer++ decoder (LayerNorm + abs sin pos-enc + non-gated FF); that code is gone.
+        # v2 = RMSNorm + RoPE causal self-att + gated FF. rf.build_dict hashes the dict not the module source,
+        # so this explicit version is what forces a new sis hash for the rewrite -- see README "Sis hash safety".
+        assert version >= 2, "ExtTransducerDecoder v1 (pre-Transformer++) is removed; build with version=2"
         if isinstance(model_dim, int):
             model_dim = Dim(model_dim, name="dec_model")
         if isinstance(ff_dim, int):
@@ -59,7 +64,6 @@ class ExtTransducerDecoder(rf.Module):
         self.blank_idx = eoc_idx  # the extra (last) vocab symbol is the RNA blank
         self.input_embedding_scale = model_dim.dimension**0.5
         self.dropout = dropout
-        self.pos_enc = functools.partial(rf.sinusoidal_positional_encoding, feat_dim=model_dim)
 
         def _layers(n):
             return rf.Sequential(
@@ -71,20 +75,18 @@ class ExtTransducerDecoder(rf.Module):
         self.slow_embedding = rf.Embedding(vocab_dim, model_dim)
         self.slow_enc_proj = rf.Linear(encoder_dim, model_dim, with_bias=False)  # h at emission frame
         self.slow_layers = _layers(slow_num_layers or num_layers)
-        self.slow_final_ln = rf.LayerNorm(model_dim)
+        self.slow_final_ln = rf.RMSNorm(model_dim)
 
         # Fast (frame-rate) stack.
         self.fast_embedding = rf.Embedding(vocab_dim, model_dim)
         self.fast_enc_proj = rf.Linear(encoder_dim, model_dim, with_bias=False)  # current frame h_t
         self.slow_to_fast = rf.Linear(model_dim, model_dim, with_bias=False)  # inject slow state
         self.fast_layers = _layers(num_layers)
-        self.fast_final_ln = rf.LayerNorm(model_dim)
+        self.fast_final_ln = rf.RMSNorm(model_dim)
         self.logits = rf.Linear(model_dim, vocab_dim)
 
     def _initial_state(self, layers: rf.Sequential, *, batch_dims: Sequence[Dim]) -> rf.State:
-        state = rf.State({k: v.self_att.default_initial_state(batch_dims=batch_dims) for k, v in layers.items()})
-        state.pos = rf.zeros((), dtype="int32", device="cpu")
-        return state
+        return rf.State({k: v.self_att.default_initial_state(batch_dims=batch_dims) for k, v in layers.items()})
 
     def slow_initial_state(self, *, batch_dims: Sequence[Dim]) -> rf.State:
         return self._initial_state(self.slow_layers, batch_dims=batch_dims)
@@ -99,9 +101,7 @@ class ExtTransducerDecoder(rf.Module):
         new_state = rf.State()
         x = self.slow_embedding(prev_label) * self.input_embedding_scale
         x = x + self.slow_enc_proj(h_emit)
-        x = x + self.pos_enc(spatial_dim=spatial_dim, offset=state.pos)
         x = rf.dropout(x, self.dropout, axis=x.feature_dim)
-        new_state.pos = state.pos + (1 if spatial_dim == single_step_dim else spatial_dim.get_size_tensor())
         for name, layer in self.slow_layers.items():
             x, new_state[name] = layer(x, spatial_dim=spatial_dim, self_att_state=state[name])
         return self.slow_final_ln(x), new_state
@@ -114,9 +114,7 @@ class ExtTransducerDecoder(rf.Module):
         x = self.fast_embedding(prev_symbol) * self.input_embedding_scale
         x = x + self.fast_enc_proj(enc_frame)
         x = x + self.slow_to_fast(slow_state)
-        x = x + self.pos_enc(spatial_dim=spatial_dim, offset=state.pos)
         x = rf.dropout(x, self.dropout, axis=x.feature_dim)
-        new_state.pos = state.pos + (1 if spatial_dim == single_step_dim else spatial_dim.get_size_tensor())
         for name, layer in self.fast_layers.items():
             x, new_state[name] = layer(x, spatial_dim=spatial_dim, self_att_state=state[name])
         x = self.fast_final_ln(x)
@@ -176,6 +174,7 @@ def ext_transducer_train_forward(
     )
 
     log_probs = rf.log_softmax(logits, axis=model.target_dim_ext)
+    log_probs = label_smoothed_log_probs(log_probs, axis=model.target_dim_ext)  # config-gated, default off
     ce = rf.cross_entropy(target=rna, estimated=log_probs, estimated_type="log-probs", axis=model.target_dim_ext)
     losses: Dict[str, Tuple[Tensor, Dim]] = {"ce": (ce, enc_spatial_dim)}
 

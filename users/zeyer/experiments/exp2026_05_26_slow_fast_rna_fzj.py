@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional
 
 from sisyphus import tk
 import returnn.frontend as rf
-from returnn.frontend.encoder.conformer import ConformerConvSubsample
+from returnn.frontend.encoder.conformer import ConformerConvSubsample, ConformerPositionwiseFeedForward
 
 from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module, disable_register_output
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
@@ -301,7 +301,7 @@ def _loq_coshard_train_parts(model, *, aux_ctc_layer: int, partition_epoch: int 
 
     hf_dir = get_loquacious_hf_ogg(name="large")
     audio_dfd = _make_hf_dataset(
-        hf_data_dir=hf_dir, split="train", vocab=_loq_vocab(), use_distrib_files=True
+        hf_data_dir=hf_dir, split="train", vocab=_loq_vocab(), use_distrib_files=True, seq_ordering="laplace:.1000"
     ).main_dataset
     assert audio_dfd["class"] == "DistributeFilesDataset", audio_dfd["class"]
     return dict(
@@ -322,7 +322,13 @@ def _enc_build_dict(*, num_layers: int = 4, out_dim: int = 256, num_heads: int =
             pool_sizes=[(1, 2)],
             strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6 (matches the alignment frame rate)
         ),
-        encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
+        encoder_layer=rf.build_dict(
+            ChunkedConformerEncoderLayerV2,
+            ff=rf.build_dict(
+                ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+            ),
+            self_att=ChunkedRotaryPosSelfAttentionV2,
+        ),
         num_layers=num_layers,
         out_dim=out_dim,
         num_heads=num_heads,
@@ -473,6 +479,8 @@ def _train_streaming_variant(
                 # 50k (not 100k): the C5-R4 chunked encoder + all-layer aux collection is memory-heavy
                 # (overlapping windows, 2x more chunks than C10); matches the base chunked-L80-C5-R4 bs=50k.
                 "batch_size": 50_000 * configs._batch_size_factor,
+                "max_seqs": 200,  # matches the base chunked-L80-C5-R4 train config (smoke default above is 100)
+                "label_smoothing": 0.1,  # Decoder-CE label smoothing as in the AED baseline
             },
         )
 
@@ -591,7 +599,7 @@ def _train_chunkwise_loq_smoke():
     """Chunk-synchronous decoder on Loquacious (subset smoke by default)."""
     return _train_streaming_variant(
         "chunkwise-loq",
-        dec_build_dict=rf.build_dict(ChunkwiseDecoder, model_dim=1024, ff_dim=4096, num_layers=6, num_heads=8),
+        dec_build_dict=rf.build_dict(ChunkwiseDecoder, model_dim=1024, num_layers=6, num_heads=8, version=2),
         enc_opts={"num_layers": 16, "out_dim": 1024, "num_heads": 8},
         aux_loss_layers=[4, 10, 16],
         train_def=chunkwise_training,
@@ -606,7 +614,7 @@ def _train_framewise_loq_smoke():
     """Frame-synchronous RNA fast-only decoder on Loquacious (subset smoke by default)."""
     return _train_streaming_variant(
         "framewise-loq",
-        dec_build_dict=rf.build_dict(FramewiseDecoder, model_dim=1024, ff_dim=4096, num_layers=6, num_heads=8),
+        dec_build_dict=rf.build_dict(FramewiseDecoder, model_dim=1024, num_layers=6, num_heads=8, version=2),
         enc_opts={"num_layers": 16, "out_dim": 1024, "num_heads": 8},
         aux_loss_layers=[4, 10, 16],
         train_def=framewise_training,
@@ -620,7 +628,7 @@ def _train_ext_transducer_loq_smoke():
     """Extended-transducer slow+fast decoder on Loquacious (subset smoke by default)."""
     return _train_streaming_variant(
         "ext-transducer-loq",
-        dec_build_dict=rf.build_dict(ExtTransducerDecoder, model_dim=1024, ff_dim=4096, num_layers=6, num_heads=8),
+        dec_build_dict=rf.build_dict(ExtTransducerDecoder, model_dim=1024, num_layers=6, num_heads=8, version=2),
         enc_opts={"num_layers": 16, "out_dim": 1024, "num_heads": 8},
         aux_loss_layers=[4, 10, 16],
         train_def=ext_transducer_training,
@@ -634,7 +642,7 @@ def _train_two_tower_loq_smoke():
     """Two-tower fast-slow decoder on Loquacious (subset smoke by default)."""
     return _train_streaming_variant(
         "two-tower-loq",
-        dec_build_dict=rf.build_dict(TwoTowerDecoder, model_dim=1024, ff_dim=4096, num_layers=6, num_heads=8),
+        dec_build_dict=rf.build_dict(TwoTowerDecoder, model_dim=1024, num_layers=6, num_heads=8, version=2),
         enc_opts={"num_layers": 16, "out_dim": 1024, "num_heads": 8},
         aux_loss_layers=[4, 10, 16],
         train_def=two_tower_training,

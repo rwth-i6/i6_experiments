@@ -21,34 +21,39 @@ stack over the prefix on each emission, mirroring the ext_transducer recog patte
 
 from __future__ import annotations
 
-from typing import Dict, Sequence, Tuple, TYPE_CHECKING
-import functools
+from typing import Dict, Optional, Sequence, Tuple, TYPE_CHECKING
 
 import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, single_step_dim
+from returnn.frontend.decoder.transformer import FeedForwardGated
 
 from .framewise import FramewiseDecoderLayer
 from .cross_attn import ChunkMaskedCrossAttention
+from .base import label_smoothed_log_probs
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import RecogDef
 
 
 class SpeechTextCrossLayer(rf.Module):
-    """Speech-stack layer: causal self-attn over frames + cross-attn to text states + FFN."""
+    """Speech-stack layer: causal self-attn over frames + cross-attn to text states + FFN.
 
-    def __init__(self, model_dim: Dim, ff_dim: Dim, *, num_heads: int, dropout: float, att_dropout: float):
+    Transformer++ components as in :class:`FramewiseDecoderLayer` (RoPE self-att, RMSNorm, gated FF).
+    """
+
+    def __init__(self, model_dim: Dim, ff_dim: Optional[Dim], *, num_heads: int, dropout: float, att_dropout: float):
         super().__init__()
-        self.self_att_ln = rf.LayerNorm(model_dim)
-        self.self_att = rf.CausalSelfAttention(
+        self.self_att_ln = rf.RMSNorm(model_dim)
+        self.self_att = rf.RotaryPosCausalSelfAttention(
             model_dim,
             proj_dim=model_dim,
             key_dim_total=model_dim,
             value_dim_total=model_dim,
             num_heads=num_heads,
+            with_bias=False,
             att_dropout=att_dropout,
         )
-        self.cross_att_ln = rf.LayerNorm(model_dim)
+        self.cross_att_ln = rf.RMSNorm(model_dim)
         # encoder_dim=model_dim: keys/values come from text states (also model_dim), not the audio encoder.
         self.cross_att = ChunkMaskedCrossAttention(
             model_dim,
@@ -58,8 +63,8 @@ class SpeechTextCrossLayer(rf.Module):
             num_heads=num_heads,
             att_dropout=att_dropout,
         )
-        self.ff_ln = rf.LayerNorm(model_dim)
-        self.ff = _FeedForward(model_dim, ff_dim, dropout=dropout)
+        self.ff_ln = rf.RMSNorm(model_dim)
+        self.ff = FeedForwardGated(model_dim, ff_dim=ff_dim, dropout=dropout)
         self.dropout = dropout
 
     def __call__(
@@ -100,14 +105,19 @@ class TwoTowerDecoder(rf.Module):
         chunk_size: int,
         eoc_idx: int,
         model_dim: int = 512,
-        ff_dim: int = 2048,
+        ff_dim: Optional[int] = None,  # None -> FeedForwardGated default (Llama-style ~8/3 * model_dim)
         num_layers: int = 6,
         num_heads: int = 8,
         dropout: float = 0.1,
         att_dropout: float = 0.1,
         text_num_layers: int = None,
+        version: int = 1,
     ):
         super().__init__()
+        # v1 = the pre-Transformer++ decoder (LayerNorm + abs sin pos-enc + non-gated FF); that code is gone.
+        # v2 = RMSNorm + RoPE causal self-att + gated FF. rf.build_dict hashes the dict not the module source,
+        # so this explicit version is what forces a new sis hash for the rewrite -- see README "Sis hash safety".
+        assert version >= 2, "TwoTowerDecoder v1 (pre-Transformer++) is removed; build with version=2"
         if isinstance(model_dim, int):
             model_dim = Dim(model_dim, name="dec_model")
         if isinstance(ff_dim, int):
@@ -118,7 +128,6 @@ class TwoTowerDecoder(rf.Module):
         self.blank_idx = eoc_idx
         self.input_embedding_scale = model_dim.dimension**0.5
         self.dropout = dropout
-        self.pos_enc = functools.partial(rf.sinusoidal_positional_encoding, feat_dim=model_dim)
 
         # Text stack (label-rate, plain causal self-attn).
         self.text_embedding = rf.Embedding(vocab_dim, model_dim)
@@ -126,7 +135,7 @@ class TwoTowerDecoder(rf.Module):
             FramewiseDecoderLayer(model_dim, ff_dim, num_heads=num_heads, dropout=dropout, att_dropout=att_dropout)
             for _ in range(text_num_layers or num_layers)
         )
-        self.text_final_ln = rf.LayerNorm(model_dim)
+        self.text_final_ln = rf.RMSNorm(model_dim)
 
         # Speech stack (frame-rate, self-attn + cross-attn to text + FFN).
         self.speech_embedding = rf.Embedding(vocab_dim, model_dim)
@@ -135,13 +144,11 @@ class TwoTowerDecoder(rf.Module):
             SpeechTextCrossLayer(model_dim, ff_dim, num_heads=num_heads, dropout=dropout, att_dropout=att_dropout)
             for _ in range(num_layers)
         )
-        self.speech_final_ln = rf.LayerNorm(model_dim)
+        self.speech_final_ln = rf.RMSNorm(model_dim)
         self.logits = rf.Linear(model_dim, vocab_dim)
 
     def _initial_state(self, layers: rf.Sequential, *, batch_dims: Sequence[Dim]) -> rf.State:
-        state = rf.State({k: v.self_att.default_initial_state(batch_dims=batch_dims) for k, v in layers.items()})
-        state.pos = rf.zeros((), dtype="int32", device="cpu")
-        return state
+        return rf.State({k: v.self_att.default_initial_state(batch_dims=batch_dims) for k, v in layers.items()})
 
     def text_initial_state(self, *, batch_dims: Sequence[Dim]) -> rf.State:
         return self._initial_state(self.text_layers, batch_dims=batch_dims)
@@ -153,9 +160,7 @@ class TwoTowerDecoder(rf.Module):
         """Text stack: causal self-attn over labels -> text states."""
         new_state = rf.State()
         x = self.text_embedding(prev_label) * self.input_embedding_scale
-        x = x + self.pos_enc(spatial_dim=spatial_dim, offset=state.pos)
         x = rf.dropout(x, self.dropout, axis=x.feature_dim)
-        new_state.pos = state.pos + (1 if spatial_dim == single_step_dim else spatial_dim.get_size_tensor())
         for name, layer in self.text_layers.items():
             x, new_state[name] = layer(x, spatial_dim=spatial_dim, self_att_state=state[name])
         return self.text_final_ln(x), new_state
@@ -182,9 +187,7 @@ class TwoTowerDecoder(rf.Module):
         new_state = rf.State()
         x = self.speech_embedding(prev_symbol) * self.input_embedding_scale
         x = x + self.speech_enc_proj(enc_frame)
-        x = x + self.pos_enc(spatial_dim=spatial_dim, offset=state.pos)
         x = rf.dropout(x, self.dropout, axis=x.feature_dim)
-        new_state.pos = state.pos + (1 if spatial_dim == single_step_dim else spatial_dim.get_size_tensor())
         for name, layer in self.speech_layers.items():
             keys, values = text_kv[name]
             x, new_state[name] = layer(
@@ -261,6 +264,7 @@ def two_tower_train_forward(
     )
 
     log_probs = rf.log_softmax(logits, axis=model.target_dim_ext)
+    log_probs = label_smoothed_log_probs(log_probs, axis=model.target_dim_ext)  # config-gated, default off
     ce = rf.cross_entropy(target=rna, estimated=log_probs, estimated_type="log-probs", axis=model.target_dim_ext)
     losses: Dict[str, Tuple[Tensor, Dim]] = {"ce": (ce, enc_spatial_dim)}
 
@@ -398,17 +402,3 @@ model_recog: RecogDef
 model_recog.output_with_beam = True
 model_recog.output_blank_label = None
 model_recog.batch_size_dependent = False
-
-
-class _FeedForward(rf.Module):
-    def __init__(self, model_dim: Dim, ff_dim: Dim, *, dropout: float):
-        super().__init__()
-        self.lin1 = rf.Linear(model_dim, ff_dim)
-        self.lin2 = rf.Linear(ff_dim, model_dim)
-        self.dropout = dropout
-
-    def __call__(self, x: Tensor) -> Tensor:
-        x = self.lin1(x)
-        x = rf.relu_square(x)
-        x = rf.dropout(x, self.dropout, axis=x.feature_dim)
-        return self.lin2(x)
