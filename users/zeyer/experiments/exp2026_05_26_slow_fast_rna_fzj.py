@@ -72,6 +72,7 @@ from i6_experiments.users.zeyer.nn_rf.decoder.streaming.two_tower import (
     model_recog as two_tower_model_recog,
 )
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.dataset import ChunkAlignDataset, ExtendVocabWithEocJob
+from i6_experiments.users.zeyer.nn_rf.decoder.streaming.standard_aed import standard_aed_training
 
 # Prefix for alias/ and output/ paths. Does not enter any Job hash (only naming);
 # the helper walks the module hierarchy for this attribute.
@@ -95,9 +96,12 @@ def py():
     # _train_ext_transducer_smoke()
     # _train_two_tower_smoke()
     # Loquacious scale-up (subset smoke by default; full ~25k h gated behind _LOQ_FULL_TRAIN).
-    # Iteration 3, focused: run only the chunked AED (chunkwise) on the dyn-rope-ctembed encoder vs the
-    # existing standard-AED base (9.41, same encoder). Frame-rate variants held until this control lands
-    # (and they cannot use the dynamic encoder as-is -- see _enc_build_dict dynamic note).
+    # Iteration 3, focused: two controls on the same dyn-rope-ctembed encoder + pipeline,
+    # differing only in the decoder --
+    # the standard (full-attention) AED, and the chunked AED (chunkwise).
+    # Frame-rate variants held until these land
+    # (and they cannot use the dynamic encoder as-is; see the _enc_build_dict dynamic note).
+    _train_standard_aed_loq()
     _train_chunkwise_loq_smoke()
     # _train_framewise_loq_smoke()
     # _train_ext_transducer_loq_smoke()
@@ -523,10 +527,10 @@ def _train_streaming_variant(
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )  # walltime is clipped globally to the FZJ 12h QOS cap in settings.py (check_engine_limits)
 
-    # Greedy recog -> dev-other WER (sclite). The decoder emits over spm+extra, but the LS
-    # reference is plain spm10k, so pin the model's extended output vocab via the search config.
-    # (Skipped when recog_def is None -- e.g. ext_transducer, whose two-rate recog is WIP.)
-    if recog_def is not None:
+    # Recog -> dev WER (sclite).
+    # The decoder emits over spm+extra, but the reference is plain spm10k,
+    # so pin the model's extended output vocab via the search config.
+    if recog_def is not None or corpus == "loq":
         task = recog_task()
         recog_cfg = {
             "target_dim_ext_int": vocab_size + 1,
@@ -536,10 +540,11 @@ def _train_streaming_variant(
         }
         if recog_extra:
             recog_cfg.update(recog_extra)
-        # Multi-GPU batched recog over the trained epochs on the full 4-GPU node: one
-        # BatchedReturnnForwardJob instead of a single-GPU ReturnnForwardJobV2 (the latter is
-        # forbidden on FZJ by the flat-per-node billing). Registers recog_results_best /
-        # recog_results_all_epochs under the recog prefix.
+    # Decoder recog.
+    # Skipped when recog_def is None -- ext_transducer's two-rate recog is WIP,
+    # and the standard-AED control is scored CTC-only.
+    # Multi-GPU batched (single-GPU forward is forbidden on FZJ).
+    if recog_def is not None:
         recog_training_exp_batched(
             prefix + "/" + name + "/recog",
             task=task,
@@ -548,17 +553,19 @@ def _train_streaming_variant(
             search_config=recog_cfg,
             dev_sets=recog_dev_sets,
         )
-        if corpus == "loq":
-            # CTC-only probe on the encoder aux CTC head (final encoder output): alignment-independent,
-            # so it isolates encoder quality from the alignment-trained streaming decoder.
-            recog_training_exp_batched(
-                prefix + "/" + name + "/recog-ctc",
-                task=task,
-                model=exp,
-                recog_def=model_recog_ctc,
-                search_config={**recog_cfg, "aux_loss_layers": model_config["aux_loss_layers"]},
-                dev_sets=recog_dev_sets,
-            )
+    # CTC-only probe on the encoder aux CTC head (final encoder output).
+    # Alignment-independent, so it isolates encoder quality from the decoder.
+    # Run for ALL loq variants (incl. recog_def=None):
+    # it is the base 9.41 metric, hence also the standard-AED control's headline number.
+    if corpus == "loq":
+        recog_training_exp_batched(
+            prefix + "/" + name + "/recog-ctc",
+            task=task,
+            model=exp,
+            recog_def=model_recog_ctc,
+            search_config={**recog_cfg, "aux_loss_layers": model_config["aux_loss_layers"]},
+            dev_sets=recog_dev_sets,
+        )
     return exp
 
 
@@ -665,5 +672,30 @@ def _train_two_tower_loq_smoke():
         train_def=two_tower_training,
         recog_def=two_tower_model_recog,
         target_mode="rna_frame",
+        corpus="loq",
+    )
+
+
+def _train_standard_aed_loq():
+    """Standard (full-attention) AED decoder control, via the SAME pipeline as the streaming variants.
+
+    Routed through _train_streaming_variant (not a hand-rolled aed_train_exp),
+    so it inherits the identical encoder + dataset pipeline + FZJ infra
+    (torch_distributed, file_cache_opts, rqmt, recog harness),
+    and the decoder is the only difference.
+    Reuses ChunkwiseDecoder with UNMASKED cross-att (full-context AED; see standard_aed.standard_aed_training)
+    on target_mode="labels" (the plain transcript, BOS/EOS).
+    Reproduces the base chunked-...-dyn-rope-ctembed (CTC-only 9.41) from scratch in-setup
+    on the dyn-rope-ctembed encoder, scored CTC-only (recog_def=None -> only recog-ctc, the 9.41 metric).
+    Expect a small untuned FZJ/4-GPU degradation vs the RZ single-GPU 9.41.
+    """
+    return _train_streaming_variant(
+        "standard-aed-loq",
+        dec_build_dict=rf.build_dict(ChunkwiseDecoder, model_dim=1024, num_layers=6, num_heads=8, version=2),
+        enc_opts={"num_layers": 16, "out_dim": 1024, "num_heads": 8, "dynamic": True},
+        aux_loss_layers=[4, 10, 16],
+        train_def=standard_aed_training,
+        recog_def=None,  # CTC-only recog (= the base 9.41 metric); AED decoder search deferred
+        target_mode="labels",
         corpus="loq",
     )

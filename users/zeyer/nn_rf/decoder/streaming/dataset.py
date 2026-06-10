@@ -25,7 +25,7 @@ from sisyphus import tk, Job, Task
 from returnn.tensor import Dim
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 
-from .segmentation import chunk_augmented_targets, rna_frame_targets
+from .segmentation import chunk_augmented_targets, ctc_collapse, rna_frame_targets
 
 
 class ExtendVocabWithEocJob(Job):
@@ -111,6 +111,24 @@ def rna_frame_map_seq(
     )
 
 
+def labels_map_seq(
+    vocab_dim: Dim,
+    *,
+    blank_idx: int,
+    chunk_size: int,
+    alignment_key: str = "alignment",
+) -> Callable:
+    """
+    Build the ``map_seq`` for :class:`PostprocessingDataset` (plain-transcript target ``labels``).
+
+    The target is the CTC-collapsed alignment == exactly the reference transcript (verified in
+    :mod:`.segmentation`); for the standard-AED control, no EOC / no per-frame structure.
+    ``vocab_dim`` is the plain (un-extended) vocab; ``chunk_size`` is unused (signature parity).
+    """
+    chunk_size  # noqa  # unused, signature parity with the other builders
+    return functools.partial(_labels_map_seq, vocab_dim=vocab_dim, blank_idx=blank_idx, alignment_key=alignment_key)
+
+
 class ChunkAlignDataset(DatasetConfig):
     """
     Audio (OggZip) + CTC forced-align HDF, post-processed on the fly into the per-seq
@@ -119,6 +137,7 @@ class ChunkAlignDataset(DatasetConfig):
     ``target_mode``:
     - ``chunk_eoc`` (default): target ``aug_targets`` (EOC-augmented per-chunk labels).
     - ``rna_frame``: target ``rna_targets`` (per-frame RNA alignment).
+    - ``labels``: target ``labels`` (CTC-collapsed alignment = plain transcript; AED control).
 
     Streams: ``data`` (raw audio, default input) and the target (default target, sparse
     over the extended vocab). Everything else is derived in-graph in the train step.
@@ -154,7 +173,7 @@ class ChunkAlignDataset(DatasetConfig):
         :param target_mode: ``chunk_eoc`` or ``rna_frame``.
         """
         super().__init__()
-        assert target_mode in ("chunk_eoc", "rna_frame"), target_mode
+        assert target_mode in ("chunk_eoc", "rna_frame", "labels"), target_mode
         self.oggzip = oggzip
         self.alignment_hdfs = alignment_hdfs
         self.vocab_ext_dim_int = vocab_ext_dim_int
@@ -188,12 +207,17 @@ class ChunkAlignDataset(DatasetConfig):
         if target_mode == "chunk_eoc":
             self._target_name = "aug_targets"
             self._target_spatial_dim = Dim(None, name="aug_spatial", kind=Dim.Types.Spatial)
-        else:
+        elif target_mode == "rna_frame":
             self._target_name = "rna_targets"
             self._target_spatial_dim = Dim(None, name="rna_spatial", kind=Dim.Types.Spatial)
+        else:  # labels
+            self._target_name = "labels"
+            self._target_spatial_dim = Dim(None, name="labels_spatial", kind=Dim.Types.Spatial)
 
     def _build_map_seq(self) -> Callable:
-        builder = chunk_augment_map_seq if self.target_mode == "chunk_eoc" else rna_frame_map_seq
+        builder = {"chunk_eoc": chunk_augment_map_seq, "rna_frame": rna_frame_map_seq, "labels": labels_map_seq}[
+            self.target_mode
+        ]
         return builder(self._vocab_ext_dim, blank_idx=self.blank_idx, chunk_size=self.chunk_size)
 
     def get_default_input(self) -> str:
@@ -408,6 +432,21 @@ def _chunk_augment_map_seq(
     out.data["aug_targets"] = Tensor(
         "aug_targets", dims=[spatial], dtype="int32", sparse_dim=vocab_ext_dim, raw_tensor=aug
     )
+    return out
+
+
+def _labels_map_seq(seq, *, rng=None, vocab_dim: Dim, blank_idx: int, alignment_key: str, **kwargs):
+    from returnn.tensor import Tensor, TensorDict
+
+    align = seq[alignment_key]
+    frames = np.asarray(align.raw_tensor).reshape(-1)
+    labels, _ = ctc_collapse(frames, blank_idx)
+    labels = labels.astype("int32")
+
+    out = TensorDict()
+    out.data["data"] = seq["data"]
+    spatial = Dim(None, name="labels_spatial")
+    out.data["labels"] = Tensor("labels", dims=[spatial], dtype="int32", sparse_dim=vocab_dim, raw_tensor=labels)
     return out
 
 
