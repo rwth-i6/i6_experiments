@@ -3189,7 +3189,7 @@ def py():
     _xa_off = _DATASET_OFFSET_FACTORS["timit"]
     _xa_ao = {"apply_softmax_over_time": True, "blank_score": -5}
 
-    def _xa_extract(cfg, name, attr, mgi):
+    def _xa_extract(cfg, name, attr, mgi, time=24):
         ex = ExtractInGradsPerTokenJob(
             dataset_dir=_xa_dir,
             dataset_key="test",
@@ -3198,7 +3198,7 @@ def py():
             attr_reduction=attr,
         )
         ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-        ex.rqmt = {**ex.rqmt, "time": 24}
+        ex.rqmt = {**ex.rqmt, "time": time}
         if name is not None:  # None -> reuse a job already aliased/registered elsewhere
             ex.add_alias(name)
             tk.register_output(f"{name}.hdf", ex.out_hdf)
@@ -3283,6 +3283,68 @@ def py():
             _xa_mgi,
         )
         _xa_align(_xa_av, _xa_av_name, "en0.5-sil1.0")
+
+    # (6) Complete the char-vs-subword grid for the speech LLMs: grad SUBWORD extracts (the
+    # char-level counterparts are already wired in the headline-A block). Each model uses its own
+    # best grad attribution (voxtral/canary L1, phi4 L2_e). These are heavy models -> 24h walltime.
+    for _xa_s_cfg, _xa_s_name, _xa_s_attr, _xa_s_mgi in [
+        (
+            rf.build_dict(Voxtral, model_dir=dl_voxtral, forward_mode="transcription", grad_wrt="log_mel", version=7),
+            f"voxtral-logmel-{_xa_tag}-L1_grad-pertoken-subword",
+            "L1",
+            False,
+        ),
+        (
+            phi4mm_recog_cfg,
+            f"phi4mm-{_xa_tag}-L2_e_grad-pertoken-subword",
+            "L2",
+            True,
+        ),
+        (
+            rf.build_dict(
+                CanaryQwen,
+                model_dir=dl_canary,
+                llm_model_dir=dl_qwen3,
+                grad_wrt="log_mel",
+                ensure_audio_long_enough=True,
+                audio_time_stretch=1.5,
+                version=5,
+            ),
+            f"canary-qwen-logmel-st15-{_xa_tag}-L1_grad-pertoken-subword",
+            "L1",
+            False,
+        ),
+    ]:
+        _xa_s_ex = _xa_extract(_xa_s_cfg, _xa_s_name, _xa_s_attr, _xa_s_mgi, time=24)
+        _xa_align(_xa_s_ex, _xa_s_name, "en0.5-sil1.0")
+
+    # (7) grad-score x energy/silence x align-opts ablation on a speech LLM (Voxtral). The char-level
+    # L1 extract is the headline; we add grad-score variants (L2, L2_e), re-align the headline extract
+    # across energy/silence settings, and sweep the full align-opts grid -- mirroring the whisper-char
+    # ablation in (5) so the LLM gets the same ablation coverage.
+    _xa_vx = _xa_extract(voxtral_charlev_logmel_cfg, None, "L1", False, time=24)
+    _xa_vx_name = f"voxtral-charlevlogmel-{_xa_tag}-L1_grad-pertoken"
+    _xa_align(_xa_vx, _xa_vx_name, "en0.5", sil=0.0)
+    _xa_align(_xa_vx, _xa_vx_name, "en0.5-sil2.0", sil=2.0)
+    _xa_align(_xa_vx, _xa_vx_name, "en0.5-zsk1.0", zsk=1.0)
+    for _xa_v_ao in _ALIGN_OPTS_GRID:
+        _xa_v_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_xa_vx.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_xa_dir,
+            dataset_key="test",
+            dataset_offset_factors=_xa_off,
+            align_opts=_xa_v_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=1.0,
+        )
+        _xa_v_alnm = f"align/{_xa_vx_name}-{_name_for_dict(_xa_v_ao)}-en0.5-sil1.0"
+        _xa_v_al.add_alias(_xa_v_alnm)
+        tk.register_output(f"{_xa_v_alnm}-wbe.txt", _xa_v_al.out_wbe)
+    for _xa_v_mgi, _xa_v_attr, _xa_v_ga in [(True, "L2", "L2_e_grad"), (False, "L2", "L2_grad")]:
+        _xa_v_name = f"voxtral-charlevlogmel-{_xa_tag}-{_xa_v_ga}-pertoken"
+        _xa_v_ex = _xa_extract(voxtral_charlev_logmel_cfg, _xa_v_name, _xa_v_attr, _xa_v_mgi, time=24)
+        _xa_align(_xa_v_ex, _xa_v_name, "en0.5-sil1.0")
 
 
 def _build_timit_phi4mm(
