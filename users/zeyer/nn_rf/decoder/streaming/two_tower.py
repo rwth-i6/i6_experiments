@@ -115,8 +115,9 @@ class TwoTowerDecoder(rf.Module):
     ):
         super().__init__()
         # v1 = the pre-Transformer++ decoder (LayerNorm + abs sin pos-enc + non-gated FF); that code is gone.
-        # v2 = RMSNorm + RoPE causal self-att + gated FF. rf.build_dict hashes the dict not the module source,
-        # so this explicit version is what forces a new sis hash for the rewrite -- see README "Sis hash safety".
+        # v2 = RMSNorm + RoPE causal self-att + gated FF.
+        # rf.build_dict hashes the dict, not the module source,
+        # so this explicit version is what forces a new sis hash for the rewrite.
         assert version >= 2, "TwoTowerDecoder v1 (pre-Transformer++) is removed; build with version=2"
         if isinstance(model_dim, int):
             model_dim = Dim(model_dim, name="dec_model")
