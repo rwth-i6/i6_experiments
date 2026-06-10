@@ -325,6 +325,11 @@ def main():
         for i, example in enumerate(dataset):
             print(f"Processing dialogue {i}...")
             dialogue = json.loads(example["dialogue"])
+            if isinstance(dialogue, dict):
+                for _v in dialogue.values():
+                    if isinstance(_v, list):
+                        dialogue = _v
+                        break
             process_dialogue(
                 model,
                 dialogue,

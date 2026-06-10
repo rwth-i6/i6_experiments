@@ -12,16 +12,25 @@ import json
 
 
 class HfDownloadSplit(Job):
-    def __init__(self, *, dataset_name: str, split: str):
+    def __init__(self, *, dataset_name: str, split: str, config_name: str | None = None):
         self.dataset_name = dataset_name
         self.split = split
+        self.config_name = config_name
         self.out_hf = self.output_path("hf_split", directory=True)
+
+    @classmethod
+    def hash(cls, parsed_args):
+        d = dict(**parsed_args)
+        if not d.get("config_name"):
+            d.pop("config_name", None)
+        return super().hash(d)
 
     def tasks(self):
         yield Task("run", mini_task=True)
 
     def run(self):
-        dataset = load_dataset(self.dataset_name, split=self.split)
+        args = [self.config_name] if self.config_name else []
+        dataset = load_dataset(self.dataset_name, *args, split=self.split)
         dataset.save_to_disk(self.out_hf.get())
 
 

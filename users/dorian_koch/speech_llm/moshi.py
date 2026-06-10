@@ -54,13 +54,18 @@ class MergeMoshiAnnotationsViaSymlinks(Job):
                         for line in f:
                             data = json.loads(line)
                             path = data["path"]
-                            path = os.path.dirname(path) # just get the folder the file is stored in
+                            path = os.path.dirname(path)  # just get the folder the file is stored in
                             if path not in dir_map:
                                 dir_map[path] = f"dir{dir_idx}"
                                 dir_idx += 1
-                                os.symlink(path, os.path.join(self.out_merged.get(), dir_map[path]), target_is_directory=True)
-                            data["path"] = os.path.join(self.out_merged.get(), dir_map[path], os.path.basename(data["path"]))
+                                os.symlink(
+                                    path, os.path.join(self.out_merged.get(), dir_map[path]), target_is_directory=True
+                                )
+                            data["path"] = os.path.join(
+                                self.out_merged.get(), dir_map[path], os.path.basename(data["path"])
+                            )
                             out_f.write(json.dumps(data) + "\n")
+
 
 # runs moshi annotate.py
 class MoshiAnnotate(Job):
@@ -76,7 +81,9 @@ class MoshiAnnotate(Job):
         self.in_hf = in_hf
         self.shard = shard
         self.num_shards = num_shards
-        self.out_annotations = self.output_path("annotations", directory=True)
+        self.out_hf = self.output_path("out_hf", directory=True)
+        # Keep out_annotations as alias for backward compat with callers that haven't updated
+        self.out_annotations = self.out_hf
         self.rqmt = {
             "gpu": 1,
             "cpu": 6,
@@ -87,20 +94,22 @@ class MoshiAnnotate(Job):
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
 
+    @classmethod
+    def hash(cls, parsed_args):
+        d = dict(**parsed_args)
+        d["__version"] = 2  # bumped: arrow-native output format
+        return super().hash(d)
+
     @staticmethod
     def sharded(*, num_shards: int, **kwargs) -> tk.Path:
         assert "in_hf" in kwargs, "Sharding only supported for HF input"
         if num_shards == 1:
-            return MoshiAnnotate(**kwargs).out_annotations
+            return MoshiAnnotate(**kwargs).out_hf
         assert num_shards > 1
         shards = []
         for shard in range(num_shards):
-            shards.append(
-                MoshiAnnotate(shard=shard, num_shards=num_shards, **kwargs)
-            )
-        return MergeMoshiAnnotationsViaSymlinks(
-            in_annotations=[s.out_annotations for s in shards]
-        ).out_merged
+            shards.append(MoshiAnnotate(shard=shard, num_shards=num_shards, **kwargs))
+        return HfMergeShards(shard_paths=[s.out_hf for s in shards]).out_hf
 
     def run(self):
         this_file_path = Path(__file__).resolve()
@@ -118,7 +127,8 @@ class MoshiAnnotate(Job):
         # if self.out_dir is not None:
         #   command += ["--out_dir", str(self.out_dir.get())]
         # else:
-        command += ["--out_dir", str(self.out_annotations.get())]
+        command += ["--out_dir", str(self.out_hf.get())]
+        command += ["--mode", "arrow"]
         if self.shard is not None and self.num_shards is not None:
             command += [
                 "--in_hf_shard",
@@ -133,9 +143,7 @@ class MoshiAnnotate(Job):
         assert top_level_file is not None, "Could not find moshi_finetune module file"
         package_base_dir = str(Path(top_level_file).parent.parent)
         env["PYTHONPATH"] = (
-            f"{package_base_dir}{os.pathsep}{env['PYTHONPATH']}"
-            if "PYTHONPATH" in env
-            else package_base_dir
+            f"{package_base_dir}{os.pathsep}{env['PYTHONPATH']}" if "PYTHONPATH" in env else package_base_dir
         )
 
         print("Env:")
@@ -178,7 +186,7 @@ class MoshiFinetune(Job):
             os.makedirs(new_dir, exist_ok=True)
             cand = os.path.join(new_dir, "0001")
             while os.path.exists(cand):
-                cand = os.path.join(new_dir, f"{int(os.path.basename(cand))+1:04d}")
+                cand = os.path.join(new_dir, f"{int(os.path.basename(cand)) + 1:04d}")
             print(f"Moving existing contents to {cand}")
             os.rename(run_dir, cand)
 
@@ -233,7 +241,6 @@ run_dir: "{run_dir}"  # Fill
         good_hash = os.environ.get("CUDA_VISIBLE_DEVICES", "-1")
         good_hash = abs(hash(good_hash)) % 100
 
-
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
         env["HF_HOME"] = HF_CACHE_DIR.get()
@@ -249,7 +256,7 @@ run_dir: "{run_dir}"  # Fill
             str(self.rqmt["gpu"]),
             f"--rdzv_endpoint={env['MASTER_ADDR']}:{env['MASTER_PORT']}",
             "-m",
-            "moshi_finetune.train",
+            "i6_experiments.users.dorian_koch.speech_llm.moshi_finetune_launcher",
             self.out_config.get(),
         ]
 
@@ -258,9 +265,7 @@ run_dir: "{run_dir}"  # Fill
         package_base_dir = f"{str(Path(top_level_file).parent.parent)}{os.pathsep}{str(Path(top_level_file).parent)}"
 
         env["PYTHONPATH"] = (
-            f"{package_base_dir}{os.pathsep}{env['PYTHONPATH']}"
-            if "PYTHONPATH" in env
-            else package_base_dir
+            f"{package_base_dir}{os.pathsep}{env['PYTHONPATH']}" if "PYTHONPATH" in env else package_base_dir
         )
         print(
             f"Running Moshi training with command: {' '.join(command)}",
