@@ -158,6 +158,19 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+    # LR-floor check on the wdbl setting: base_lr 0.5 + peak_lr 1e-2 keeps the same effective peak
+    # (base_lr * peak_lr = 5e-3) but halves the decay targets (low 1e-5 -> 5e-6, final 1e-6 -> 5e-7).
+    # The Muon LR sweep held base_lr=1.0 throughout, so the floor is its one untested axis;
+    # wsd-longdecay > wsd suggests deeper annealing helps.
+    _train_asr_base_multigpu(
+        "asr-base-mgpu-logmel-muon-lr5e3-wdbl-baselr05",
+        prefix=prefix,
+        feature_extraction=None,
+        base_lr=0.5,
+        peak_lr=1e-2,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
     # SyncBatchNorm ablation: does global (cross-rank) BatchNorm close the mgpu gap?
     # Same as lr05 (AdamW, base_lr 0.5), plus the new rf_batch_norm_distributed flag,
     # so all rf.BatchNorm (the 16 Conformer conv BNs + feature BN) use global stats.
