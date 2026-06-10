@@ -121,9 +121,12 @@ def labels_map_seq(
     """
     Build the ``map_seq`` for :class:`PostprocessingDataset` (plain-transcript target ``labels``).
 
-    The target is the CTC-collapsed alignment == exactly the reference transcript (verified in
-    :mod:`.segmentation`); for the standard-AED control, no EOC / no per-frame structure.
-    ``vocab_dim`` is the plain (un-extended) vocab; ``chunk_size`` is unused (signature parity).
+    The target is the CTC-collapsed alignment,
+    which equals the reference transcript exactly (verified in :mod:`.segmentation`):
+    no EOC, no per-frame structure -- for the standard-AED control.
+    ``vocab_dim`` is the EOC-extended vocab
+    (the labels are plain spm < blank, so they fit; the extra slot is reused as EOS by the AED train def).
+    ``chunk_size`` is unused (signature parity with the other builders).
     """
     chunk_size  # noqa  # unused, signature parity with the other builders
     return functools.partial(_labels_map_seq, vocab_dim=vocab_dim, blank_idx=blank_idx, alignment_key=alignment_key)

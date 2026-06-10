@@ -30,8 +30,9 @@ if TYPE_CHECKING:
 
 
 class ChunkwiseDecoderLayer(rf.Module):
-    """Transformer++ (Llama-style) block as in the AED baseline decoder -- RoPE causal self-att
-    (no bias), RMSNorm, gated FF -- plus the chunk-masked cross-attention to the encoder.
+    """Transformer++ (Llama-style) block as in the AED baseline decoder:
+    RoPE causal self-att (no bias), RMSNorm, gated FF,
+    plus the chunk-masked cross-attention to the encoder.
     """
 
     def __init__(
