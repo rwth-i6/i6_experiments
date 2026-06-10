@@ -40,6 +40,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         "eg_steps": 1,
         "eg_baseline_std": 0.0,
         "target_source": "word_detail",
+        "batched_backward": False,
     }
 
     def __init__(
@@ -52,6 +53,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         eg_steps: int = 1,
         eg_baseline_std: float = 0.0,
         target_source: str = "word_detail",
+        batched_backward: bool = False,
         **kwargs,
     ):
         """Extends the base with SmoothGrad-style noise averaging.
@@ -61,6 +63,10 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         :param noise_std: standard deviation of Gaussian noise added to the
             raw audio waveform before each forward pass. 0.0 = no noise.
             Typical useful range: 0.01-0.1 (audio waveforms are in [-1, 1]).
+        :param batched_backward: compute the per-token grads of a word in one vmapped backward
+            (autograd.grad with is_grads_batched=True) instead of K sequential backwards.
+            Mathematically identical; faster where the shared graph dominates. Off by default
+            because vmap-incompatible backward kernels (some fused/custom ops) would raise.
         """
         super().__init__(**kwargs)
         self.noise_n_samples = int(noise_n_samples)
@@ -70,6 +76,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         self.eg_steps = int(eg_steps)
         self.eg_baseline_std = float(eg_baseline_std)
         self.target_source = str(target_source)
+        self.batched_backward = bool(batched_backward)
         assert self.target_source in ("word_detail", "phonetic_detail"), self.target_source
         assert sum(x > 1 for x in (self.ig_steps, self.eg_steps)) <= 1, "ig_steps / eg_steps exclusive"
         if self.eg_steps > 1:
@@ -101,6 +108,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
             ("eg_steps", 1),
             ("eg_baseline_std", 0.0),
             ("target_source", "word_detail"),
+            ("batched_backward", False),
         ):
             if not hasattr(self, _a):
                 setattr(self, _a, _d)
@@ -281,10 +289,13 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
                         return loss.detach(), num_tokens, None
 
                     # K backwards: one per token. Forward graph is shared via retain_graph=True.
+                    # With batched_backward, the K vector-Jacobian products are computed in a single
+                    # vmapped autograd.grad (is_grads_batched=True): mathematically identical to the K
+                    # sequential backwards, but the shared graph is traversed once. grad_outputs[k] is
+                    # a one-hot over loss's token dim, selecting token k (matching loss[:, k].sum()).
                     attrs_per_token: List[torch.Tensor] = []
-                    for k in range(num_tokens):
-                        single_loss = loss[:, k].sum()  # scalar
-                        (grad,) = torch.autograd.grad(single_loss, forward_output.inputs, retain_graph=True)
+
+                    def _reduce_grad(grad):
                         with torch.no_grad():
                             attr = batch_slice(grad.float(), forward_output.input_slice_start_end)  # [B, T, F]
                             if not raw_grad:
@@ -292,7 +303,22 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
                                     e = batch_slice(forward_output.inputs.float(), forward_output.input_slice_start_end)
                                     attr = attr * e
                                 attr = attr_reduce_func(attr)  # [B, T]
-                        attrs_per_token.append(attr)  # [B,T,F] if raw_grad else [B,T]
+                        return attr  # [B,T,F] if raw_grad else [B,T]
+
+                    if self.batched_backward and num_tokens > 1:
+                        v = torch.zeros((num_tokens,) + loss.shape, device=loss.device, dtype=loss.dtype)
+                        for k in range(num_tokens):
+                            v[k, :, k] = 1.0  # one-hot per token, summed over B like loss[:, k].sum()
+                        (grads,) = torch.autograd.grad(
+                            loss, forward_output.inputs, grad_outputs=v, is_grads_batched=True, retain_graph=True
+                        )  # [num_tokens, *inputs.shape]
+                        for k in range(num_tokens):
+                            attrs_per_token.append(_reduce_grad(grads[k]))
+                    else:
+                        for k in range(num_tokens):
+                            single_loss = loss[:, k].sum()  # scalar
+                            (grad,) = torch.autograd.grad(single_loss, forward_output.inputs, retain_graph=True)
+                            attrs_per_token.append(_reduce_grad(grad))
 
                     if report_mem:
                         report_dev_memory_stats(dev)

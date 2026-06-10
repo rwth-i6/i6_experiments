@@ -3346,6 +3346,47 @@ def py():
         _xa_v_ex = _xa_extract(voxtral_charlev_logmel_cfg, _xa_v_name, _xa_v_attr, _xa_v_mgi, time=24)
         _xa_align(_xa_v_ex, _xa_v_name, "en0.5-sil1.0")
 
+    # === Speed: batched per-token backward (autograd.grad is_grads_batched=True). Exact same per-token
+    # math as the K sequential backwards -- one vmapped traversal of the shared graph, no logic change.
+    # Validate numerical equivalence (and surface any vmap-incompatible backward kernels, e.g. on the
+    # transducer / flash-attn LLMs) on a tiny subset before enabling on the slow models. The bb0 extract
+    # shares the existing (unbatched) hash; bb1 is a distinct job, so we can diff their HDFs. ===
+    _sb_ds = BuildBuckeyeFineDatasetJob(
+        raw_dir=dl_ds_buckeye_fine.out_hub_cache_dir,
+        resegment_gap_s=1.0,
+        split_up_to_max_seq_len_s=18.0,
+        min_words=2,
+        skip_misaligned_wavs=True,
+        subsample_target_h=0.25,
+        subsample_seed=42,
+    )
+    _sb_dir = _sb_ds.out_hub_cache_dir
+    for _sb_cfg, _sb_name, _sb_attr, _sb_mgi in [
+        (
+            rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir, char_level=True, char_level_sep=" "),
+            "whisper-base-charlev",
+            "L2",
+            False,
+        ),
+        (pk_cfg, "parakeet-rnnt", "L2", False),
+        (voxtral_charlev_logmel_cfg, "voxtral-charlevlogmel", "L1", False),
+        (pt_csp_cfg, "phi4mm-charlev-spc", "L2", True),
+    ]:
+        for _sb_bb in [False, True]:
+            _sb_ex = ExtractInGradsPerTokenJob(
+                dataset_dir=_sb_dir,
+                dataset_key="test",
+                model_config=_sb_cfg,
+                mult_grad_by_inputs=_sb_mgi,
+                attr_reduction=_sb_attr,
+                batched_backward=_sb_bb,
+            )
+            _sb_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            _sb_ex.rqmt = {**_sb_ex.rqmt, "time": 4}
+            _sb_alias = f"speedcmp/{_sb_name}-bb{int(_sb_bb)}"
+            _sb_ex.add_alias(_sb_alias)
+            tk.register_output(f"{_sb_alias}.hdf", _sb_ex.out_hdf)
+
 
 def _build_timit_phi4mm(
     *,
