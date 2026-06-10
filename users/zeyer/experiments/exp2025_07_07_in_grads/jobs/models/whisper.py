@@ -228,3 +228,31 @@ class Whisper(BaseModelInterface):
         sl = batch_slice(dec_hidden, (dst_text_start + start - 1, dst_text_start + end - 1))
         logits = self.model.proj_out(sl).float()
         return logits.log_softmax(-1)
+
+    def recog(
+        self,
+        *,
+        raw_inputs: torch.Tensor,
+        raw_inputs_sample_rate: int,
+        raw_input_seq_lens: torch.Tensor,
+        max_new_tokens: int = 100,
+    ) -> List[List[str]]:
+        """Greedy transcription via HF generate (forced language/task prefix, no timestamps).
+        Returns the decoded hyp text whitespace-split into words;
+        normalization for WER/matching is left to the caller."""
+        assert len(raw_inputs) == 1
+        wav = raw_inputs[0].detach().cpu().numpy().astype(np.float32)
+        feats = self.feature_extractor(
+            wav, sampling_rate=raw_inputs_sample_rate, return_tensors="pt"
+        ).input_features.to(self.device)
+        with torch.no_grad():
+            output_ids = self.model.generate(
+                feats,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+                num_beams=1,
+                language=self.language,
+                task="transcribe",
+            )
+        text = self.processor.tokenizer.decode(output_ids[0], skip_special_tokens=True)
+        return [text.split()]

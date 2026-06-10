@@ -2016,10 +2016,16 @@ class Aligner:
         *,
         plot_filename: Optional[str] = None,
         blank_override: Optional[np.ndarray] = None,
+        collect_posteriors: Optional[dict] = None,
     ) -> List[Tuple[int, int]]:
         """
         :param score_matrix: [S,T]
         :param plot_filename: if given, plots the scores and alignment as PDF into this file
+        :param collect_posteriors: if given, additionally runs the forward-backward DP
+            (log-sum-exp over the same lattice the Viterbi path searches)
+            and fills in per-label posterior occupancies at the Viterbi spans:
+            ``mean_occ``/``start_occ``/``end_occ``, each a list of len S of probs --
+            an alignment-confidence signal.
         :return: list of start/end offsets, both are including. len is S
         """
         import numpy as np
@@ -2191,6 +2197,39 @@ class Aligner:
                 labels_start_end[-1] = (labels_start_end[-1][0], t - 1)  # update end
             prev_s = s
         assert S == len(labels_start_end), f"{labels_start_end=}, {len(labels_start_end)=}, {alignment=}, {S=}, {T=}"
+
+        if collect_posteriors is not None:
+            # Forward-backward over the same lattice (log-sum-exp instead of max),
+            # same transitions: horizontal, diagonal, diagonal-skip (skip only into label states).
+            alpha = np.full((T, S * 2 + 1), -inf, dtype=np.float64)
+            alpha[0, :2] = score_matrix_[0, :2]
+            for t in range(1, T):
+                stay = alpha[t - 1, :]
+                diag = np.concatenate([[-inf], alpha[t - 1, :-1]])
+                skip = np.concatenate([[-inf, -inf], alpha[t - 1, :-2]])
+                skip[::2] = -inf
+                alpha[t] = np.logaddexp(np.logaddexp(stay, diag), skip) + score_matrix_[t, :]
+            beta = np.full((T, S * 2 + 1), -inf, dtype=np.float64)
+            beta[-1, S * 2 - 1 :] = 0.0
+            for t in range(T - 2, -1, -1):
+                nxt = beta[t + 1, :] + score_matrix_[t + 1, :]
+                stay = nxt
+                diag = np.concatenate([nxt[1:], [-inf]])
+                skip_in = np.full(S * 2 + 1, -inf)
+                skip_in[:-2] = nxt[2:]
+                skip_in[1::2] = -inf  # diagonal-skip only lands in label (odd) states
+                beta[t] = np.logaddexp(np.logaddexp(stay, diag), skip_in)
+            log_z = np.logaddexp(alpha[-1, S * 2 - 1], alpha[-1, S * 2])
+            gamma = alpha + beta - log_z  # [T, 2S+1] log posterior occupancy
+            occ = np.exp(np.clip(gamma[:, 1::2], -100.0, 0.0))  # [T, S]
+            mean_occ, start_occ, end_occ = [], [], []
+            for i, (t0, t1) in enumerate(labels_start_end):
+                mean_occ.append(float(np.mean(occ[t0 : t1 + 1, i])))
+                start_occ.append(float(occ[t0, i]))
+                end_occ.append(float(occ[t1, i]))
+            collect_posteriors["mean_occ"] = mean_occ
+            collect_posteriors["start_occ"] = start_occ
+            collect_posteriors["end_occ"] = end_occ
 
         if plot_filename is not None:
             assert plot_filename.endswith(".pdf")

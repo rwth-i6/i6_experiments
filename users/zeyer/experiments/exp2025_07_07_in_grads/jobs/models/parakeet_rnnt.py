@@ -272,3 +272,22 @@ class ParakeetRnnt(BaseModelInterface):
         out = partial_padded.new_zeros((1, n, v))
         out[0, torch.arange(n, device=device), targets_slice] = vals
         return out
+
+    def recog(
+        self,
+        *,
+        raw_inputs: torch.Tensor,
+        raw_inputs_sample_rate: int,
+        raw_input_seq_lens: torch.Tensor,
+        max_new_tokens: int = 100,
+    ) -> List[List[str]]:
+        """Greedy RNN-T decoding via NeMo ``transcribe``. Returns the hyp text
+        whitespace-split into words; normalization is left to the caller.
+        (``max_new_tokens`` is unused -- NeMo decodes until end of audio.)"""
+        assert len(raw_inputs) == 1
+        assert raw_inputs_sample_rate == 16000, "NeMo transcribe expects 16 kHz"
+        wav = raw_inputs[0].detach().cpu().numpy().astype("float32")
+        with torch.no_grad():
+            hyp = self.model.transcribe([wav], batch_size=1, verbose=False)[0]
+        text = hyp.text if hasattr(hyp, "text") else str(hyp)
+        return [text.split()]

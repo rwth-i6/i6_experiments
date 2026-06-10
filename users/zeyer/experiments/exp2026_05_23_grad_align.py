@@ -81,6 +81,10 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.whisper_
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.buckeye_fine_dataset import (
     BuildBuckeyeFineDatasetJob,
 )
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.hyp_align import (
+    BuildDatasetWithHypTranscriptsJob,
+    CalcHypAlignMetricsJob,
+)
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.word_align_from_per_token_grads import (
     WordAlignFromPerTokenGradsJob,
 )
@@ -3135,15 +3139,19 @@ def py():
         if _sv == "A":
             # Variant A is the chosen headline Buckeye -> run the remaining cross-model set on it
             # (whisper-char + wav2vec2 grad + MMS_FA / cross-attn / MFA already wired on segA above).
-            for _hA_cfg, _hA_name, _hA_attr, _hA_mgi in [
-                (voxtral_charlev_logmel_cfg, f"voxtral-charlevlogmel-{_sv_tag}-L1_grad-pertoken", "L1", False),
-                (pk_cfg, f"parakeet-rnnt-1.1b-logmel-{_sv_tag}-L2_grad-pertoken", "L2", False),
-                (tdt_cfg, f"parakeet-tdt-0.6b-v2-logmel-{_sv_tag}-L2_grad-pertoken", "L2", False),
-                (pt_csp_cfg, f"phi4mm-{_sv_tag}-L2_e_grad-pertoken-charlev-spc", "L2", True),
+            # parakeet-rnnt: batched_backward (validated exact-equivalent, CPU+GPU test node) --
+            # the sequential variant times out even at 24h. All finished extracts keep the default
+            # (False, hash-excluded) so they don't re-hash.
+            for _hA_cfg, _hA_name, _hA_attr, _hA_mgi, _hA_bb in [
+                (voxtral_charlev_logmel_cfg, f"voxtral-charlevlogmel-{_sv_tag}-L1_grad-pertoken", "L1", False, False),
+                (pk_cfg, f"parakeet-rnnt-1.1b-logmel-{_sv_tag}-L2_grad-pertoken", "L2", False, True),
+                (tdt_cfg, f"parakeet-tdt-0.6b-v2-logmel-{_sv_tag}-L2_grad-pertoken", "L2", False, False),
+                (pt_csp_cfg, f"phi4mm-{_sv_tag}-L2_e_grad-pertoken-charlev-spc", "L2", True, False),
                 (
                     canary_charlev_logmel_st15_cfg,
                     f"canary-qwen-charlev-spc-logmel-st15-{_sv_tag}-L1_grad-pertoken",
                     "L1",
+                    False,
                     False,
                 ),
             ]:
@@ -3153,6 +3161,7 @@ def py():
                     model_config=_hA_cfg,
                     mult_grad_by_inputs=_hA_mgi,
                     attr_reduction=_hA_attr,
+                    batched_backward=_hA_bb,
                 )
                 _hA_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
                 _hA_ex.rqmt = {**_hA_ex.rqmt, "time": 24}
@@ -3189,13 +3198,14 @@ def py():
     _xa_off = _DATASET_OFFSET_FACTORS["timit"]
     _xa_ao = {"apply_softmax_over_time": True, "blank_score": -5}
 
-    def _xa_extract(cfg, name, attr, mgi, time=24):
+    def _xa_extract(cfg, name, attr, mgi, time=24, bb=False):
         ex = ExtractInGradsPerTokenJob(
             dataset_dir=_xa_dir,
             dataset_key="test",
             model_config=cfg,
             mult_grad_by_inputs=mgi,
             attr_reduction=attr,
+            batched_backward=bb,
         )
         ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         ex.rqmt = {**ex.rqmt, "time": time}
@@ -3261,12 +3271,13 @@ def py():
     _xa_phfa.add_alias(f"baseline-phoneme-fa-{_xa_tag}")
     tk.register_output(f"baseline-phoneme-fa-{_xa_tag}-word-wbe.txt", _xa_phfa.out_word_wbe)
 
-    # (4) Transducer no-sil (TIMIT showed transducers prefer sil0.0): re-align the shared extracts.
-    for _xa_t_cfg, _xa_t_name in [
-        (pk_cfg, f"parakeet-rnnt-1.1b-logmel-{_xa_tag}-L2_grad-pertoken"),
-        (tdt_cfg, f"parakeet-tdt-0.6b-v2-logmel-{_xa_tag}-L2_grad-pertoken"),
+    # (4) Transducer no-sil (TIMIT showed transducers prefer sil0.0): re-align the shared extracts
+    # (parakeet-rnnt: batched_backward, matching the headline-A job).
+    for _xa_t_cfg, _xa_t_name, _xa_t_bb in [
+        (pk_cfg, f"parakeet-rnnt-1.1b-logmel-{_xa_tag}-L2_grad-pertoken", True),
+        (tdt_cfg, f"parakeet-tdt-0.6b-v2-logmel-{_xa_tag}-L2_grad-pertoken", False),
     ]:
-        _xa_align(_xa_extract(_xa_t_cfg, None, "L2", False), _xa_t_name, "en0.5-sil0.0", sil=0.0)
+        _xa_align(_xa_extract(_xa_t_cfg, None, "L2", False, bb=_xa_t_bb), _xa_t_name, "en0.5-sil0.0", sil=0.0)
 
     # (5) grad-score x energy/silence ablation on the headline whisper-char extract (shared; free aligns).
     _xa_whc = _xa_extract(whisper_char_cfg, None, "L2", False)
@@ -3346,6 +3357,26 @@ def py():
         _xa_v_ex = _xa_extract(voxtral_charlev_logmel_cfg, _xa_v_name, _xa_v_attr, _xa_v_mgi, time=24)
         _xa_align(_xa_v_ex, _xa_v_name, "en0.5-sil1.0")
 
+    # === FB-DP confidence: re-align headline extracts with with_confidence=True -> per-word
+    # posterior-occupancy confidence + conf-vs-WBE correlation (cheap CPU; extracts shared). ===
+    for _cf_ex, _cf_name in [
+        (_xa_whc, f"whisper-base-logmel-{_xa_tag}-L2_grad-pertoken-charlev-spc"),
+        (_xa_vx, f"voxtral-charlevlogmel-{_xa_tag}-L1_grad-pertoken"),
+    ]:
+        _cf_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_cf_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_xa_dir,
+            dataset_key="test",
+            dataset_offset_factors=_xa_off,
+            align_opts=_xa_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=1.0,
+            with_confidence=True,
+        )
+        _cf_al.add_alias(f"conf/{_cf_name}")
+        tk.register_output(f"conf/{_cf_name}-conf-corr.txt", _cf_al.out_conf_corr)
+
     # === Speed: batched per-token backward (autograd.grad is_grads_batched=True). Exact same per-token
     # math as the K sequential backwards -- one vmapped traversal of the shared graph, no logic change.
     # Validate numerical equivalence (and surface any vmap-incompatible backward kernels, e.g. on the
@@ -3371,6 +3402,8 @@ def py():
         (pk_cfg, "parakeet-rnnt", "L2", False),
         (voxtral_charlev_logmel_cfg, "voxtral-charlevlogmel", "L1", False),
         (pt_csp_cfg, "phi4mm-charlev-spc", "L2", True),
+        (rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out"), "wav2vec2ctc-fproj_out", "L2", False),
+        (canary_charlev_logmel_st15_cfg, "canary-qwen-charlev-spc-logmel-st15", "L1", False),
     ]:
         for _sb_bb in [False, True]:
             _sb_ex = ExtractInGradsPerTokenJob(
@@ -3386,6 +3419,86 @@ def py():
             _sb_alias = f"speedcmp/{_sb_name}-bb{int(_sb_bb)}"
             _sb_ex.add_alias(_sb_alias)
             tk.register_output(f"{_sb_alias}.hdf", _sb_ex.out_hdf)
+
+    # === Hypothesis-mode alignment on Buckeye variant A: recog -> swap the hyps in as the dataset
+    # transcript -> align with each model's best setting -> identity-gated F1@collar + matched WBE
+    # vs the reference (standard 1:1 WBE is undefined when hyp != ref). The align runs with
+    # with_ref_metrics=False (hyp word_detail carries no times). On the whisper hyps additionally
+    # the method grid (cross-attn DTW, MMS_FA) for a same-hyps method comparison. ===
+    def _hy_metrics(name, boundaries_hdf, hyp_dir):
+        m = CalcHypAlignMetricsJob(
+            word_boundaries_hdf=boundaries_hdf,
+            hyp_dataset_dir=hyp_dir,
+            ref_dataset_dir=_xa_dir,
+            dataset_key="test",
+            dataset_offset_factors=_xa_off,
+        )
+        m.add_alias(f"hyp-align/{name}")
+        tk.register_output(f"hyp-align/{name}-metrics.txt", m.out_metrics)
+        tk.register_output(f"hyp-align/{name}-f1-100ms.txt", m.out_f1_100)
+
+    for _hy_name, _hy_recog_cfg, _hy_ex_cfg, _hy_attr, _hy_mgi, _hy_sil, _hy_bb in [
+        (
+            "whisper-base-charlev",
+            rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir),
+            rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir, char_level=True, char_level_sep=" "),
+            "L2",
+            False,
+            1.0,
+            False,
+        ),
+        ("voxtral-charlevlogmel", voxtral_transcribe_cfg, voxtral_charlev_logmel_cfg, "L1", False, 1.0, False),
+        ("phi4mm-charlev-spc", phi4mm_recog_cfg, pt_csp_cfg, "L2", True, 1.0, False),
+        ("canary-qwen-charlev-spc-logmel-st15", canary_cfg, canary_charlev_logmel_st15_cfg, "L1", False, 1.0, False),
+        # Transducers: best align is sil0.0 (TIMIT + segA); parakeet-rnnt needs the batched backward.
+        ("parakeet-rnnt-1.1b-logmel", pk_cfg, pk_cfg, "L2", False, 0.0, True),
+        ("parakeet-tdt-0.6b-v2-logmel", tdt_cfg, tdt_cfg, "L2", False, 0.0, False),
+    ]:
+        _hy_recog = RecogFromModelJob(
+            dataset_dir=_xa_dir, dataset_key="test", model_config=_hy_recog_cfg, max_new_tokens=256
+        )
+        _hy_recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _hy_recog.add_alias(f"hyp-align/{_hy_name}-{_xa_tag}-recog")
+        tk.register_output(f"hyp-align/{_hy_name}-{_xa_tag}-recog.hyps.txt.gz", _hy_recog.out_hyps_txt)
+        _hy_ds = BuildDatasetWithHypTranscriptsJob(
+            dataset_dir=_xa_dir,
+            dataset_key="test",
+            hyps_txt=text_dict_normalize_file(_hy_recog.out_hyps_txt),
+        )
+        _hy_dir = _hy_ds.out_hub_cache_dir
+        _hy_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=_hy_dir,
+            dataset_key="test",
+            model_config=_hy_ex_cfg,
+            mult_grad_by_inputs=_hy_mgi,
+            attr_reduction=_hy_attr,
+            batched_backward=_hy_bb,
+        )
+        _hy_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _hy_ex.rqmt = {**_hy_ex.rqmt, "time": 24}
+        _hy_ex.add_alias(f"hyp-align/{_hy_name}-{_xa_tag}-extract")
+        _hy_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_hy_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_hy_dir,
+            dataset_key="test",
+            dataset_offset_factors=_xa_off,
+            align_opts=_xa_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=_hy_sil,
+            with_ref_metrics=False,
+        )
+        _hy_al.add_alias(f"hyp-align/{_hy_name}-{_xa_tag}-align")
+        _hy_metrics(f"{_hy_name}-{_xa_tag}-grad", _hy_al.out_word_boundaries_hdf, _hy_dir)
+        if _hy_name == "whisper-base-charlev":
+            _hy_wca = WhisperCrossAttnForcedAlignJob(
+                dataset_dir=_hy_dir, dataset_key="test", overlay=_WHISPER_TS_OVERLAY
+            )
+            _hy_wca.add_alias(f"hyp-align/whisper-crossattn-{_xa_tag}-align")
+            _hy_metrics(f"whisper-crossattn-{_xa_tag}", _hy_wca.out_hdf, _hy_dir)
+            _hy_fa = ForcedAlignBaselineJob(dataset_dir=_hy_dir, dataset_key="test")
+            _hy_fa.add_alias(f"hyp-align/mms_fa-{_xa_tag}-align")
+            _hy_metrics(f"mms_fa-{_xa_tag}", _hy_fa.out_hdf, _hy_dir)
 
 
 def _build_timit_phi4mm(

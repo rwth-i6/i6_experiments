@@ -121,3 +121,87 @@ def collapse_phones_to_words(
         pred_word.append((pred_phone_start_ends[idxs[0]][0], pred_phone_start_ends[idxs[-1]][1]))
         ref_word.append((ws * time_scale, we * time_scale))
     return pred_word, ref_word
+
+
+def levenshtein_word_matches(hyp_words: Sequence[str], ref_words: Sequence[str]) -> List[Tuple[int, int]]:
+    """Levenshtein-align two word sequences; return the identity matches.
+
+    Standard edit-distance DP (match 0, sub/ins/del 1), backtraced preferring
+    matches. Only pairs with equal words are returned
+    (substitutions carry no usable boundary correspondence).
+
+    :return: list of (hyp_idx, ref_idx), strictly increasing in both.
+    """
+    n, m = len(hyp_words), len(ref_words)
+    d = [[0] * (m + 1) for _ in range(n + 1)]
+    for i in range(1, n + 1):
+        d[i][0] = i
+    for j in range(1, m + 1):
+        d[0][j] = j
+    for i in range(1, n + 1):
+        hw = hyp_words[i - 1]
+        for j in range(1, m + 1):
+            sub = d[i - 1][j - 1] + (0 if hw == ref_words[j - 1] else 1)
+            d[i][j] = min(sub, d[i - 1][j] + 1, d[i][j - 1] + 1)
+    matches = []
+    i, j = n, m
+    while i > 0 and j > 0:
+        if hyp_words[i - 1] == ref_words[j - 1] and d[i][j] == d[i - 1][j - 1]:
+            matches.append((i - 1, j - 1))
+            i, j = i - 1, j - 1
+        elif d[i][j] == d[i - 1][j - 1] + 1:
+            i, j = i - 1, j - 1
+        elif d[i][j] == d[i - 1][j] + 1:
+            i -= 1
+        else:
+            j -= 1
+    matches.reverse()
+    return matches
+
+
+def hyp_aggregate_corpus(
+    utt_stats: Sequence[Dict[str, object]],
+    collars_sec: Sequence[float] = (0.02, 0.05, 0.1, 0.2),
+) -> Dict[str, float]:
+    """Aggregate hypothesis-mode alignment stats to corpus metrics.
+
+    Identity-gated F1@collar (WhisperX protocol): a hyp word is a TP at collar c
+    iff it Levenshtein-matches a ref word by identity AND both its boundaries
+    are within c of that ref word's. Precision over hyp words, recall over ref
+    words. Plus the Levenshtein-matched mean WBE (Rousso protocol; macro over
+    utterances, like ``aggregate_corpus``) and match/coverage rates.
+
+    :param utt_stats: per utt: ``n_hyp``, ``n_ref``,
+        ``match_errs`` (per matched word: (start_abs, end_abs) seconds).
+    """
+    n_utt = len(utt_stats)
+    assert n_utt > 0
+    n_hyp = sum(u["n_hyp"] for u in utt_stats)
+    n_ref = sum(u["n_ref"] for u in utt_stats)
+    all_match_errs = [e for u in utt_stats for e in u["match_errs"]]
+    n_match = len(all_match_errs)
+
+    utt_wbe = []
+    for u in utt_stats:
+        if u["match_errs"]:
+            utt_wbe.append(sum(0.5 * (s + e) for s, e in u["match_errs"]) / len(u["match_errs"]))
+
+    out = {
+        "n_utt": float(n_utt),
+        "n_hyp_words": float(n_hyp),
+        "n_ref_words": float(n_ref),
+        "n_matched_words": float(n_match),
+        "match_rate_ref": float(n_match / n_ref) if n_ref else float("nan"),
+        "match_rate_hyp": float(n_match / n_hyp) if n_hyp else float("nan"),
+        "matched_wbe": float(sum(utt_wbe) / len(utt_wbe)) if utt_wbe else float("nan"),
+    }
+    for c in collars_sec:
+        tp = sum(1 for s, e in all_match_errs if s <= c and e <= c)
+        prec = tp / n_hyp if n_hyp else float("nan")
+        rec = tp / n_ref if n_ref else float("nan")
+        f1 = 2 * prec * rec / (prec + rec) if (prec + rec) else 0.0
+        ms = int(round(c * 1000))
+        out[f"precision_{ms}ms"] = float(prec)
+        out[f"recall_{ms}ms"] = float(rec)
+        out[f"f1_{ms}ms"] = float(f1)
+    return out

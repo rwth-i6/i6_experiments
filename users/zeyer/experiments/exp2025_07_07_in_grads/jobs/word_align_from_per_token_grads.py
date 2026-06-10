@@ -36,6 +36,8 @@ class WordAlignFromPerTokenGradsJob(Job):
         "blank_silence_energy_scale": 0.0,
         "local_norm_window_s": None,
         "boundary_source": "word_detail",
+        "with_ref_metrics": True,
+        "with_confidence": False,
     }
 
     # v2: emit the richer metric set (acc@collar, edge/interior, start/end MAE) via align_metrics.
@@ -56,6 +58,8 @@ class WordAlignFromPerTokenGradsJob(Job):
         blank_silence_energy_scale: float = 0.0,
         local_norm_window_s: Optional[float] = None,
         boundary_source: str = "word_detail",
+        with_ref_metrics: bool = True,
+        with_confidence: bool = False,
     ):
         """
         :param grad_score_hdf: from :class:`ExtractInGradsPerTokenJob`. Must
@@ -63,6 +67,15 @@ class WordAlignFromPerTokenGradsJob(Job):
             ``num_tokens_per_word`` (single chunk per seq).
         :param grad_score_key: usually ``"data"``.
         :param align_opts: see :class:`exp2025_05_05_align.Aligner`.
+        :param with_ref_metrics: compare to the dataset's reference boundaries
+            (the default). Set False when the dataset carries hypothesis
+            transcripts without meaningful start/stop times;
+            then only ``out_word_boundaries_hdf`` is produced
+            and the metric outputs are set to None.
+        :param with_confidence: additionally run the forward-backward DP over the
+            alignment lattice (see ``Aligner.align(collect_posteriors=...)``) and report
+            per-word posterior-occupancy confidence and its correlation with the per-word
+            WBE in ``out_conf_corr`` (requires ``with_ref_metrics``).
         """
         super().__init__()
         self.returnn_root = returnn_root
@@ -77,6 +90,8 @@ class WordAlignFromPerTokenGradsJob(Job):
         self.blank_silence_energy_scale = float(blank_silence_energy_scale)
         self.local_norm_window_s = local_norm_window_s
         self.boundary_source = boundary_source
+        self.with_ref_metrics = with_ref_metrics
+        self.with_confidence = with_confidence
         assert boundary_source in ("word_detail", "phonetic_detail"), boundary_source
         assert not (self.blank_grad_zscore_kappa and self.blank_silence_energy_scale), (
             "blank_grad_zscore_kappa and blank_silence_energy_scale are mutually exclusive"
@@ -89,6 +104,11 @@ class WordAlignFromPerTokenGradsJob(Job):
         self.out_acc50 = self.output_var("acc50.txt")
         self.out_interior_wbe = self.output_var("interior_wbe.txt")
         self.out_edge_wbe = self.output_var("edge_wbe.txt")
+        # Aligned per-word (start, end) in samples, [num_words, 2] per seq -- same format as
+        # the forced-align baseline jobs. (Jobs finished before this output existed lack the file.)
+        self.out_word_boundaries_hdf = self.output_path("word_boundaries.hdf")
+        # Confidence-vs-error analysis (with_confidence): correlations + quartile WBEs.
+        self.out_conf_corr = self.output_var("conf_corr.txt")
 
     def tasks(self):
         yield Task("run", rqmt={"cpu": 2, "mem": 10, "time": 5})
@@ -131,7 +151,11 @@ class WordAlignFromPerTokenGradsJob(Job):
 
         aligner = Aligner(**self.align_opts)
 
+        from returnn.datasets.hdf import SimpleHDFWriter
+
+        boundaries_writer = SimpleHDFWriter(self.out_word_boundaries_hdf.get_path(), dim=2, ndim=2)
         utt_errs = []
+        conf_wbe_pairs = []  # (per-word confidence, per-word wbe), with_confidence only
 
         for seq_idx, data in enumerate(ds[self.dataset_key]):
             grad_score_hdf_ds.load_seqs(seq_idx, seq_idx + 1)
@@ -214,16 +238,20 @@ class WordAlignFromPerTokenGradsJob(Job):
                 _w = max(3, int(round(self.local_norm_window_s / secs_per_timeframe)))
                 grad_mat = grad_mat / (uniform_filter1d(grad_mat, _w, axis=1, mode="nearest") + 1e-9)
 
-            align_token_start_ends = aligner.align(grad_mat, blank_override=blank_override)
+            _conf = {} if getattr(self, "with_confidence", False) else None
+            align_token_start_ends = aligner.align(grad_mat, blank_override=blank_override, collect_posteriors=_conf)
             assert len(align_token_start_ends) == chunk_num_tokens
 
-            # Collapse to per-word boundaries.
+            # Collapse to per-word boundaries (and token confidences to per-word).
             align_word_start_ends = []
+            word_confs = []
             cursor = 0
             for w, k in enumerate(tokens_per_word):
                 first = align_token_start_ends[cursor]
                 last = align_token_start_ends[cursor + k - 1]
                 align_word_start_ends.append((first[0] * secs_per_timeframe, last[1] * secs_per_timeframe))
+                if _conf is not None:
+                    word_confs.append(float(np.mean(_conf["mean_occ"][cursor : cursor + k])))
                 cursor += k
             assert cursor == chunk_num_tokens
 
@@ -234,11 +262,22 @@ class WordAlignFromPerTokenGradsJob(Job):
 
             _bsrc = getattr(self, "boundary_source", "word_detail")
             words: List[str] = data[_bsrc]["utterance"]
+            assert num_words == len(words), f"{num_words=} {len(words)=}"
+
+            boundaries_writer.insert_batch(
+                np.array(
+                    [[(round(s * samplerate), round(e * samplerate)) for s, e in align_word_start_ends]],
+                    dtype="int32",
+                ),
+                [num_words],
+                [f"seq-{seq_idx}"],
+            )
+
+            if not getattr(self, "with_ref_metrics", True):
+                continue
             ref_word_starts: List[float] = data[_bsrc]["start"]
             ref_word_ends: List[float] = data[_bsrc]["stop"]
-            assert num_words == len(words) == len(ref_word_starts) == len(ref_word_ends), (
-                f"{num_words=} {len(words)=} {len(ref_word_starts)=}"
-            )
+            assert num_words == len(ref_word_starts) == len(ref_word_ends), f"{num_words=} {len(ref_word_starts)=}"
             ref_word_start_ends = [
                 tuple(t * self.dataset_offset_factors / samplerate for t in ts)
                 for ts in zip(ref_word_starts, ref_word_ends)
@@ -247,7 +286,21 @@ class WordAlignFromPerTokenGradsJob(Job):
             utt_err = per_utt_boundary_errors(align_word_start_ends, ref_word_start_ends)
             print("  WBE:", float(np.mean(utt_err["wbe"])))
             utt_errs.append(utt_err)
+            if getattr(self, "with_confidence", False):
+                conf_wbe_pairs.extend(zip(word_confs, utt_err["wbe"]))
 
+        boundaries_writer.close()
+        if not getattr(self, "with_ref_metrics", True):
+            for out in (
+                self.out_wbe,
+                self.out_metrics,
+                self.out_acc50,
+                self.out_interior_wbe,
+                self.out_edge_wbe,
+                self.out_conf_corr,
+            ):
+                out.set(None)
+            return
         metrics = aggregate_corpus(utt_errs)
         print("CORPUS METRICS:", metrics)
         self.out_wbe.set(metrics["wbe"])
@@ -255,3 +308,30 @@ class WordAlignFromPerTokenGradsJob(Job):
         self.out_acc50.set(metrics["acc_50ms"])
         self.out_interior_wbe.set(metrics["interior_wbe"])
         self.out_edge_wbe.set(metrics["edge_wbe"])
+
+        if not getattr(self, "with_confidence", False):
+            self.out_conf_corr.set(None)
+            return
+        # Does the FB-DP posterior confidence predict the boundary error?
+        conf = np.array([c for c, _ in conf_wbe_pairs])
+        wbe = np.array([w for _, w in conf_wbe_pairs])
+
+        def _pearson(x, y):
+            x, y = x - x.mean(), y - y.mean()
+            d = float(np.sqrt((x**2).sum() * (y**2).sum()))
+            return float((x * y).sum() / d) if d else float("nan")
+
+        def _ranks(x):
+            return np.argsort(np.argsort(x)).astype(np.float64)
+
+        order = np.argsort(-conf)  # most-confident first
+        quartile_wbe = [float(wbe[idx].mean()) for idx in np.array_split(order, 4)]
+        conf_corr = {
+            "pearson": _pearson(conf, wbe),
+            "spearman": _pearson(_ranks(conf), _ranks(wbe)),
+            "n_words": int(len(conf)),
+            "mean_conf": float(conf.mean()),
+            "quartile_wbe_by_conf_desc": quartile_wbe,
+        }
+        print("CONF-vs-WBE:", conf_corr)
+        self.out_conf_corr.set(conf_corr)
