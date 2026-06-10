@@ -342,13 +342,16 @@ def _enc_build_dict(*, num_layers: int = 4, out_dim: int = 256, num_heads: int =
         version=3,
     )
     if dynamic:
-        # Exactly the base chunked-L80-C5-R4-v2.3-dyn-rope-ctembed pools (the 9.41 encoder). Training-only
-        # (encoder samples chunk_size per step iff train_flag; recog uses the fixed chunk_size=5 -> streamable),
-        # and trains ~38% faster than fixed C5. The streaming decoder stays fixed at _CHUNK_SIZE: the encoder
-        # preserves frame indexing regardless of sampled chunk_size, so the fixed-chunk targets still line up --
-        # the only effect is a train/test receptive-field mismatch (deferred dyn-vs-fixed-encoder control).
-        # Safe for chunkwise (label-seq targets) + the standard AED (no chunk mask); NOT for the frame-rate
-        # variants, whose rna_frame target length is padded to the (chunk_size-dependent) encoder output length.
+        # Exactly the base chunked-L80-C5-R4-v2.3-dyn-rope-ctembed pools (the 9.41 encoder).
+        # Training-only: the encoder samples chunk_size per step iff train_flag,
+        # recog uses the fixed chunk_size=5 (streamable), and it trains ~38% faster than fixed C5.
+        # The streaming decoder stays fixed at _CHUNK_SIZE:
+        # the encoder preserves frame indexing regardless of the sampled chunk_size,
+        # so the fixed-chunk targets still line up,
+        # and the only effect is a train/test receptive-field mismatch (a deferred dyn-vs-fixed-encoder control).
+        # Safe for chunkwise (label-seq targets) + the standard AED (no chunk mask),
+        # NOT for the frame-rate variants,
+        # whose rna_frame target length is padded to the (chunk_size-dependent) encoder output length.
         d["chunk_size_train_pool"] = [_CHUNK_SIZE, _CHUNK_SIZE * 2, _CHUNK_SIZE * 4, _CHUNK_SIZE * 8, None]
         d["chunk_history_size_train_pool"] = [_CHUNK_SIZE * 16, _CHUNK_SIZE * 8]
         d["chunk_lookahead_size_train_pool"] = [4, 2]
