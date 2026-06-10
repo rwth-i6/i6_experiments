@@ -496,8 +496,9 @@ def _train_streaming_variant(
             config,
             {
                 **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
-                # 50k (not 100k): the C5-R4 chunked encoder + all-layer aux collection is memory-heavy
-                # (overlapping windows, 2x more chunks than C10); matches the base chunked-L80-C5-R4 bs=50k.
+                # 50k (not 100k): matches the base chunked-L80-C5-R4 bs=50k.
+                # The chunked encoder + all-layer aux collection is memory-heavy
+                # (overlapping windows, ~2x more chunks than C10).
                 "batch_size": 50_000 * configs._batch_size_factor,
                 "max_seqs": 200,  # matches the base chunked-L80-C5-R4 train config (smoke default above is 100)
                 "label_smoothing": 0.1,  # Decoder-CE label smoothing as in the AED baseline
