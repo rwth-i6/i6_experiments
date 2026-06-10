@@ -186,6 +186,24 @@ def _build_user_message(spec: dict, template: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+# JSON schema enforced at decode time (vLLM structured output): a top-level
+# array of {speaker, text} turns.  This is what the prompts ask for; without a
+# schema, response_format json_object forces a wrapper dict around the array.
+_DIALOGUE_JSON_SCHEMA = {
+    "type": "array",
+    "minItems": 1,
+    "items": {
+        "type": "object",
+        "properties": {
+            "speaker": {"type": "string", "enum": ["user", "assistant"]},
+            "text": {"type": "string"},
+        },
+        "required": ["speaker", "text"],
+        "additionalProperties": False,
+    },
+}
+
+
 def make_dialogue_gen(llm_url: str, model_name: str, adapter_name: str):
     """Return a datasets.map-compatible function that generates one dialogue."""
     adapter = DATASET_ADAPTER_REGISTRY[adapter_name]
@@ -215,19 +233,19 @@ def make_dialogue_gen(llm_url: str, model_name: str, adapter_name: str):
                 messages=messages,
                 seed=(seed + attempt) % (2**31),
                 temperature=temp,
-                response_format={"type": "json_object"},
+                extra_body={"guided_json": _DIALOGUE_JSON_SCHEMA},
             )
             raw = response.choices[0].message.content
-            parsed = json.loads(raw) if raw else []
-            if isinstance(parsed, dict):
-                for _v in parsed.values():
-                    if isinstance(_v, list):
-                        parsed = _v
-                        break
+            try:
+                parsed = json.loads(raw) if raw else []
+            except json.JSONDecodeError:
+                print(f"JSONDecodeError on attempt {attempt + 1} (uid={spec['uid']!r}): raw={raw!r}")
+                parsed = []
             if isinstance(parsed, list) and parsed and parsed[0].get("speaker") == "user":
                 return {"dialogue": json.dumps(parsed)}
             print(
-                f"Attempt {attempt + 1} failed (uid={spec['uid']!r}): first speaker={parsed[0].get('speaker') if parsed else 'none'!r}"
+                f"Attempt {attempt + 1} failed (uid={spec['uid']!r}): "
+                f"first speaker={parsed[0].get('speaker') if isinstance(parsed, list) and parsed else repr(parsed)[:120]!r}"
             )
             print(f"  Generated: {json.dumps(parsed)[:300]}")
         raise ValueError(

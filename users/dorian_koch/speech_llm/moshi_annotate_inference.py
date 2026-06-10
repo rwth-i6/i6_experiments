@@ -223,11 +223,14 @@ def annotate_hf_to_hf(
         }
 
     _log.info("Annotating %d rows …", len(dataset))
-    annotated = dataset.map(
-        process_row,
-        remove_columns=[c for c in dataset.column_names if c not in ("id",)],
-        desc="annotating",
-    )
+    import datasets as _ds_lib
+    with _ds_lib.disable_caching():
+        annotated = dataset.map(
+            process_row,
+            remove_columns=[c for c in dataset.column_names if c not in ("id",)],
+            desc="annotating",
+            writer_batch_size=8,
+        )
     # Drop rows that failed (audio=None)
     annotated = annotated.filter(lambda row: row["audio"] is not None)
     annotated.save_to_disk(out_dir)
