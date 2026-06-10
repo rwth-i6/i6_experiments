@@ -244,6 +244,32 @@ def py():
         extra_config_deletes=["optimizer.epsilon"],
         feature_norm=rf.build_dict(rf.GroupNormSpatial, num_groups=1),
     )
+    # Combine the two batch-independent norms that each track the muon-lr5e3-wdbl baseline:
+    # per-frame GroupNorm conv norm (as in gn-conv) + per-seq global feature norm (as in gn-feat-tp-g1).
+    # Retry of the failed gn-both with the feature side fixed (time-pooled).
+    _train_asr_base_multigpu(
+        "asr-base-mgpu-logmel-muon-lr5e3-wdbl-gn-conv-feat-g1",
+        prefix=prefix,
+        feature_extraction=None,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+        conv_norm=rf.build_dict(rf.GroupNorm, num_groups=32),
+        feature_norm=rf.build_dict(rf.GroupNormSpatial, num_groups=1),
+    )
+    # torchaudio's Conformer conv-norm choice: standard time-pooled GroupNorm with a single group
+    # (= per-seq global norm over channels+time in the conv block).
+    _train_asr_base_multigpu(
+        "asr-base-mgpu-logmel-muon-lr5e3-wdbl-gn-conv-tp-g1",
+        prefix=prefix,
+        feature_extraction=None,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+        conv_norm=rf.build_dict(rf.GroupNormSpatial, num_groups=1),
+    )
     # WSD LR schedule (warmup ~2% / stable ~78% / decay ~20%) vs our OCLR (45% warmup / 45% decay),
     # same 5e-4 peak as lr05. Tests whether the long OCLR warmup wastes our scarce nep=25 updates.
     _train_asr_base_multigpu(
@@ -400,6 +426,41 @@ def py():
         specaugment_length_scaled=True,
         glow_tts_noise_scale_range=(0.7, 0.7),
         glow_tts_length_scale_range=(0.5, 1.0),
+    )
+    # Muon (lr5e3 + weight-decay blacklist, the best 4-GPU optimizer setting,
+    # see asr-base-mgpu-logmel-muon-lr5e3-wdbl) on the ref-match-logmel TTS config:
+    # tests whether the TTS text-utilization gain stacks with the optimizer gain.
+    _train_tts_encoder(
+        "tts-enc-ref-match-logmel-muon",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        base_lr=1.0,
+        peak_lr=5e-3,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+    # Stronger duration compression: length 0.3-0.7 (mean 0.5 -> ~2x cheaper synthetic speech than
+    # ref-match length 1.0), with the length-scaled SpecAugment.
+    # Cost-vs-WER axis point below lensamp (0.5-1.0).
+    _train_tts_encoder(
+        "tts-enc-ref-match-logmel-lensamp-low-specaug",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        specaugment_length_scaled=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(0.3, 0.7),
     )
 
     # TODO: import the finished RZ base-ls-dbmel (ReturnnTrainingJob.8mdaueLDfiGP); do NOT re-train on FZJ.
@@ -579,6 +640,10 @@ def _train_tts_encoder(
     num_processes: int = 4,
     gpu_mem: int = 96,
     nep: int = 25,
+    base_lr: float = 0.5,
+    peak_lr: Optional[float] = None,
+    extra_config_updates: Optional[Dict[str, Any]] = None,
+    extra_config_deletes: Optional[Sequence[str]] = None,
 ):
     from returnn.frontend.decoder.transformer import TransformerDecoder
     from returnn.frontend.encoder.conformer import (
@@ -744,7 +809,9 @@ def _train_tts_encoder(
         model_config=model_config,
         config_updates={
             # DDP per-rank random_seed_offset iterates the data N=4x per epoch, so divide nep by N
-            **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(nep, base_lr=0.5),
+            **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(
+                nep, base_lr=base_lr, **({"peak_lr": peak_lr} if peak_lr is not None else {})
+            ),
             # batch_size dict is keyed by ACTUAL data keys; caps are per-variant.
             # NB: under alternate_batching the audio cap (default 400k*factor = 64M samples)
             # is NOT the binding constraint -- these runs peak ~67GB.
@@ -813,7 +880,9 @@ def _train_tts_encoder(
             "__mem_rqmt": 100 if num_processes > 1 else 60,
             # 4 GPUs * 72 cores/Grace-Hopper = full node (288 cores). Helps MPD workers / data loading.
             "__cpu_rqmt": 72 if num_processes > 1 else 24,
+            **(extra_config_updates or {}),
         },
+        config_deletes=extra_config_deletes,
         post_config_updates={
             "log_grad_norm": True,
             # opt out of train_v4's default outer-MPD; CombinedDataset can't shard. MPD is wrapped around OggZip above.
