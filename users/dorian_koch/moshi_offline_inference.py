@@ -63,6 +63,8 @@ def main():
         # lm_gen_config / tokenizer / mimi stay identical to the base run -- only the LoRA layers
         # are added, keeping base-vs-finetuned a fair comparison.
         lora_cfg = json.loads(Path(args.lora_config).read_text()) if args.lora_config else {}
+        if ckpt.lm_config is None:
+            ckpt.lm_config = dict(loaders._lm_kwargs)
         ckpt.lm_config["lora"] = True
         ckpt.lm_config["lora_rank"] = lora_cfg.get("lora_rank", 128)
         ckpt.lm_config["lora_scaling"] = lora_cfg.get("lora_scaling", 2.0)
