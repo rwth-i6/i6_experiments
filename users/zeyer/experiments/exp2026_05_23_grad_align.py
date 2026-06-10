@@ -921,7 +921,7 @@ def py():
             attr_reduction="L2",
         )
         _ws_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-        _ws_ex.rqmt = {**_ws_ex.rqmt, "time": 12}  # large-v3 ~1.5B params -> slower than base
+        _ws_ex.rqmt = {**_ws_ex.rqmt, "time": 24}  # large-v3 ~1.5B params -> slower than base
         _ws_name = f"whisper-{_ws}-logmel-timit-val-L2_grad-pertoken-charlev-spc"
         _ws_ex.add_alias(_ws_name)
         tk.register_output(f"{_ws_name}.hdf", _ws_ex.out_hdf)
@@ -961,7 +961,7 @@ def py():
             attr_reduction="L2",
         )
         _pk_sex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-        _pk_sex.rqmt = {**_pk_sex.rqmt, "time": 12}
+        _pk_sex.rqmt = {**_pk_sex.rqmt, "time": 24}
         _pk_sex.add_alias(_pk_sname)
         tk.register_output(f"{_pk_sname}.hdf", _pk_sex.out_hdf)
         for _pk_ep, _pk_sc in [(0.5, 1.0), (0.5, 0.0)]:
@@ -1009,7 +1009,7 @@ def py():
             attr_reduction="L2",
         )
         _ow_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-        _ow_ex.rqmt = {**_ow_ex.rqmt, "time": 12}
+        _ow_ex.rqmt = {**_ow_ex.rqmt, "time": 24}
         _ow_name = f"{_ow_tag}-charlev-logmel-timit-val-L2_grad-pertoken"
         _ow_ex.add_alias(_ow_name)
         tk.register_output(f"{_ow_name}.hdf", _ow_ex.out_hdf)
@@ -1055,7 +1055,7 @@ def py():
                 attr_reduction="L2",
             )
             _ow_sex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-            _ow_sex.rqmt = {**_ow_sex.rqmt, "time": 12}
+            _ow_sex.rqmt = {**_ow_sex.rqmt, "time": 24}
             _ow_sname = f"owls-1B-180K-step{_ow_step:02d}{_ow_clsfx}-logmel-timit-val-L2_grad-pertoken"
             _ow_sex.add_alias(_ow_sname)
             tk.register_output(f"{_ow_sname}.hdf", _ow_sex.out_hdf)
@@ -2855,7 +2855,7 @@ def py():
             attr_reduction=_t_attr,
         )
         _t_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-        _t_ex.rqmt = {**_t_ex.rqmt, "time": 12}
+        _t_ex.rqmt = {**_t_ex.rqmt, "time": 24}
         _t_ex.add_alias(_t_name)
         tk.register_output(f"{_t_name}.hdf", _t_ex.out_hdf)
         for _t_ep, _t_sc in _t_aligns:
@@ -3027,7 +3027,7 @@ def py():
             )
             _bk_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
             # Long-form segments -> more walltime than the default; keep the default GPU/partition.
-            _bk_ex.rqmt = {**_bk_ex.rqmt, "time": 12}
+            _bk_ex.rqmt = {**_bk_ex.rqmt, "time": 24}
             _bk_ex.add_alias(_bk_name)
             tk.register_output(f"{_bk_name}.hdf", _bk_ex.out_hdf)
             _bk_ao = {"apply_softmax_over_time": True, "blank_score": -5}
@@ -3115,7 +3115,7 @@ def py():
                 attr_reduction=_attr,
             )
             _ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-            _ex.rqmt = {**_ex.rqmt, "time": 12}
+            _ex.rqmt = {**_ex.rqmt, "time": 24}
             _ex.add_alias(_nm)
             tk.register_output(f"{_nm}.hdf", _ex.out_hdf)
             _al = WordAlignFromPerTokenGradsJob(
@@ -3155,7 +3155,7 @@ def py():
                     attr_reduction=_hA_attr,
                 )
                 _hA_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-                _hA_ex.rqmt = {**_hA_ex.rqmt, "time": 12}
+                _hA_ex.rqmt = {**_hA_ex.rqmt, "time": 24}
                 _hA_ex.add_alias(_hA_name)
                 tk.register_output(f"{_hA_name}.hdf", _hA_ex.out_hdf)
                 _hA_al = WordAlignFromPerTokenGradsJob(
@@ -3198,7 +3198,7 @@ def py():
             attr_reduction=attr,
         )
         ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-        ex.rqmt = {**ex.rqmt, "time": 12}
+        ex.rqmt = {**ex.rqmt, "time": 24}
         if name is not None:  # None -> reuse a job already aliased/registered elsewhere
             ex.add_alias(name)
             tk.register_output(f"{name}.hdf", ex.out_hdf)
