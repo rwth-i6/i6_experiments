@@ -30,7 +30,7 @@ class WhisperCrossAttnForcedAlignJob(Job):
         # keep finished param-noise/baseline jobs' hashes: the perturb kwargs are
         # hash-invisible when at their no-op default (only non-default values hash).
         parsed_args = dict(parsed_args)
-        for _k in ("input_noise_std", "act_noise_std", "act_dropout", "perturb_seed"):
+        for _k in ("input_noise_std", "act_noise_std", "act_dropout", "perturb_seed", "char_level"):
             if not parsed_args.get(_k):
                 parsed_args.pop(_k, None)
         return super().hash(parsed_args)
@@ -42,6 +42,7 @@ class WhisperCrossAttnForcedAlignJob(Job):
         dataset_key: str,
         overlay: str,
         whisper_model: str = "base",
+        char_level: bool = False,
         param_noise_std: float = 0.0,
         param_noise_seed: int = 0,
         input_noise_std: float = 0.0,
@@ -56,6 +57,7 @@ class WhisperCrossAttnForcedAlignJob(Job):
         self.dataset_key = dataset_key
         self.overlay = overlay
         self.whisper_model = whisper_model
+        self.char_level = char_level
         self.param_noise_std = param_noise_std
         self.param_noise_seed = param_noise_seed
         self.input_noise_std = input_noise_std
@@ -139,8 +141,19 @@ class WhisperCrossAttnForcedAlignJob(Job):
 
             mel = whisper.log_mel_spectrogram(whisper.pad_or_trim(wav), n_mels=model.dims.n_mels).to(dev)
             num_frames = int(wav.shape[0]) // 160  # real content frames
-            text = " " + " ".join(w.lower() for w in words)
-            text_tokens = tokenizer.encode(text)
+            if self.char_level:
+                # One token per char (separator before each word), mirroring the grad char adapter,
+                # so the cross-attn DTW runs at CHAR granularity; find_alignment regroups to words
+                # by the space separators (so grad-char vs crossattn-char is an apples-to-apples
+                # method comparison at identical tokenization).
+                text_tokens = []
+                for w in words:
+                    text_tokens += tokenizer.encode(" ")
+                    for ch in w.lower():
+                        text_tokens += tokenizer.encode(ch)
+            else:
+                text = " " + " ".join(w.lower() for w in words)
+                text_tokens = tokenizer.encode(text)
             alignment = find_alignment(model, tokenizer, text_tokens, mel, num_frames)
 
             if len(alignment) != len(words):

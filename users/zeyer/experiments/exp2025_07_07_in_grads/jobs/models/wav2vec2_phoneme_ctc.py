@@ -119,6 +119,7 @@ class Wav2Vec2PhonemeCtc(BaseModelInterface):
         act_noise_std: float = 0.0,
         act_dropout: float = 0.0,
         perturb_seed: int = 0,
+        g2p_word_targets: bool = False,
         version: int = 1,
     ):
         """
@@ -127,6 +128,10 @@ class Wav2Vec2PhonemeCtc(BaseModelInterface):
             score (see :class:`Wav2Vec2Ctc`). ``True`` = the headline variant.
         :param grad_wrt: ``"feat_extract_out"`` (default, ~50 Hz feature-extractor
             output) or ``"raw_waveform"``.
+        :param g2p_word_targets: targets are WORDS (no phone ground truth, e.g. Buckeye);
+            each word is converted to IPA-39 phones via espeak-ng G2P,
+            and the per-word phone group is the alignment unit (word boundaries out).
+            Default False = TIMIT mode (targets are GT phone labels, one unit each).
         :param version: bump only if a change alters an already-finished config.
         """
         super().__init__()
@@ -165,6 +170,11 @@ class Wav2Vec2PhonemeCtc(BaseModelInterface):
         # Every folded IPA symbol must be a real vocab class.
         for _ph, _ipa in _TIMIT61_TO_IPA.items():
             assert _ipa in self.vocab, f"folded IPA {_ipa!r} (from {_ph!r}) not in vocab"
+        self._g2p = None
+        if g2p_word_targets:
+            from ..g2p_en_ipa39 import G2pEnIpa39
+
+            self._g2p = G2pEnIpa39(self.vocab)
         print(
             f"  ({time.time() - start_time:.1f}s) |vocab|={len(self.vocab)} blank={self.blank_idx} sr={self.target_sr}"
         )
@@ -262,16 +272,27 @@ class Wav2Vec2PhonemeCtc(BaseModelInterface):
 
             wav = torchaudio.functional.resample(wav, raw_inputs_sample_rate, self.target_sr)
 
-        # Each phone label -> one folded-IPA vocab id; each phone is its own
-        # "word" group (target_start_end [i, i+1]).
         flat_ids: List[int] = []
-        for ph in phones:
-            ipa = _TIMIT61_TO_IPA.get(ph.lower())
-            assert ipa is not None, f"unknown TIMIT phone label {ph!r}"
-            flat_ids.append(int(self.vocab[ipa]))
+        phone_start_end: List[List[int]] = []
+        if self._g2p is not None:
+            # G2P word mode: each target is a WORD; its phones (via espeak-ng) form one
+            # alignment unit -> word boundaries out.
+            for word in phones:
+                phs = self._g2p(word)
+                assert phs, f"g2p produced no phones for word {word!r}"
+                a = len(flat_ids)
+                flat_ids.extend(int(self.vocab[p]) for p in phs)
+                phone_start_end.append([a, len(flat_ids)])
+        else:
+            # TIMIT mode: each phone label -> one folded-IPA vocab id; each phone is its
+            # own "word" group (target_start_end [i, i+1]).
+            for ph in phones:
+                ipa = _TIMIT61_TO_IPA.get(ph.lower())
+                assert ipa is not None, f"unknown TIMIT phone label {ph!r}"
+                flat_ids.append(int(self.vocab[ipa]))
+            phone_start_end = [[i, i + 1] for i in range(len(flat_ids))]
         s_len = len(flat_ids)
         assert s_len > 0, f"empty phone target {phones!r}"
-        phone_start_end: List[List[int]] = [[i, i + 1] for i in range(s_len)]
 
         # Normalize per the processor (do_normalize) and feed input_values.
         _wav_np = wav[0].detach().cpu().numpy()

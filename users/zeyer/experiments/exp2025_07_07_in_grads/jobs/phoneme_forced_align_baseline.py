@@ -30,7 +30,7 @@ class ForcedAlignPhonemeBaselineJob(Job):
         # keep finished param-noise/baseline jobs' hashes: the perturb kwargs are
         # hash-invisible when at their no-op default (only non-default values hash).
         parsed_args = dict(parsed_args)
-        for _k in ("input_noise_std", "act_noise_std", "act_dropout", "perturb_seed"):
+        for _k in ("input_noise_std", "act_noise_std", "act_dropout", "perturb_seed", "g2p_word_targets"):
             if not parsed_args.get(_k):
                 parsed_args.pop(_k, None)
         return super().hash(parsed_args)
@@ -48,9 +48,16 @@ class ForcedAlignPhonemeBaselineJob(Job):
         act_noise_std: float = 0.0,
         act_dropout: float = 0.0,
         perturb_seed: int = 0,
+        g2p_word_targets: bool = False,
         returnn_root: Optional[tk.Path] = None,
     ):
+        """
+        :param g2p_word_targets: no phone ground truth (e.g. Buckeye): phone targets come from
+            espeak-ng G2P per word; only WORD-boundary metrics are computed (vs word_detail),
+            the phone outputs are set to None. Default False = TIMIT phonetic_detail mode.
+        """
         super().__init__()
+        self.g2p_word_targets = g2p_word_targets
         self.dataset_dir = dataset_dir
         self.dataset_key = dataset_key
         self.model_dir = model_dir
@@ -123,6 +130,12 @@ class ForcedAlignPhonemeBaselineJob(Job):
         ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))
         print("Using key:", self.dataset_key, "num seqs:", len(ds[self.dataset_key]), flush=True)
 
+        g2p = None
+        if getattr(self, "g2p_word_targets", False):
+            from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.g2p_en_ipa39 import G2pEnIpa39
+
+            g2p = G2pEnIpa39(vocab)
+
         phone_errs, word_errs = [], []
         for seq_idx, data in enumerate(ds[self.dataset_key]):
             audio = np.asarray(data["audio"]["array"], dtype=np.float32)
@@ -131,10 +144,24 @@ class ForcedAlignPhonemeBaselineJob(Job):
 
                 audio = apply_input_noise(audio, self.input_noise_std, self.perturb_seed)
             sr = int(data["audio"]["sampling_rate"])
-            ph = data["phonetic_detail"]
             wd = data["word_detail"]
-            phones = list(ph["utterance"])
-            target_ids = [int(vocab[_TIMIT61_TO_IPA[p.lower()]]) for p in phones]
+            if g2p is not None:
+                # G2P word mode: phone targets per word; remember each word's phone span.
+                words = list(wd["utterance"])
+                target_ids = []
+                word_phone_spans = []
+                for w in words:
+                    phs = g2p(w)
+                    assert phs, f"g2p produced no phones for word {w!r}"
+                    a = len(target_ids)
+                    target_ids.extend(int(vocab[p]) for p in phs)
+                    word_phone_spans.append((a, len(target_ids)))
+                ph = None
+                phones = None
+            else:
+                ph = data["phonetic_detail"]
+                phones = list(ph["utterance"])
+                target_ids = [int(vocab[_TIMIT61_TO_IPA[p.lower()]]) for p in phones]
 
             wav = torch.tensor(audio, device=dev)[None]
             if sr != target_sr:
@@ -156,20 +183,32 @@ class ForcedAlignPhonemeBaselineJob(Job):
 
             pred_phone_se = [(s.start * ratio / target_sr, s.end * ratio / target_sr) for s in spans]
             scale = self.dataset_offset_factors / target_sr
-            ref_phone_se = [(s * scale, e * scale) for s, e in zip(ph["start"], ph["stop"])]
-            phone_errs.append(per_utt_boundary_errors(pred_phone_se, ref_phone_se))
-            pred_word_se, ref_word_se = collapse_phones_to_words(
-                pred_phone_se, ph["start"], ph["stop"], wd["start"], wd["stop"], scale
-            )
+            if g2p is not None:
+                # Word span = first..last phone of the word; ref word boundaries from word_detail.
+                pred_word_se = [(pred_phone_se[a][0], pred_phone_se[b - 1][1]) for a, b in word_phone_spans]
+                ref_word_se = [(s * scale, e * scale) for s, e in zip(wd["start"], wd["stop"])]
+            else:
+                ref_phone_se = [(s * scale, e * scale) for s, e in zip(ph["start"], ph["stop"])]
+                phone_errs.append(per_utt_boundary_errors(pred_phone_se, ref_phone_se))
+                pred_word_se, ref_word_se = collapse_phones_to_words(
+                    pred_phone_se, ph["start"], ph["stop"], wd["start"], wd["stop"], scale
+                )
             word_errs.append(per_utt_boundary_errors(pred_word_se, ref_word_se))
             if seq_idx % 200 == 0:
-                print(f"seq {seq_idx}: {len(phones)} phones, {len(ref_word_se)} words, n_frames={n_frames}", flush=True)
+                print(
+                    f"seq {seq_idx}: {len(target_ids)} phones, {len(ref_word_se)} words, n_frames={n_frames}",
+                    flush=True,
+                )
 
-        phone_metrics = aggregate_corpus(phone_errs)
         word_metrics = aggregate_corpus(word_errs)
-        print("PHONE METRICS:", phone_metrics)
         print("WORD METRICS:", word_metrics)
-        self.out_phone_wbe.set(phone_metrics["wbe"])
         self.out_word_wbe.set(word_metrics["wbe"])
-        self.out_phone_metrics.set(phone_metrics)
         self.out_word_metrics.set(word_metrics)
+        if phone_errs:
+            phone_metrics = aggregate_corpus(phone_errs)
+            print("PHONE METRICS:", phone_metrics)
+            self.out_phone_wbe.set(phone_metrics["wbe"])
+            self.out_phone_metrics.set(phone_metrics)
+        else:
+            self.out_phone_wbe.set(None)
+            self.out_phone_metrics.set(None)

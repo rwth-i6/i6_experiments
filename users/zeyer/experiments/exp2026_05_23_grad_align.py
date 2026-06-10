@@ -3172,6 +3172,118 @@ def py():
                 _hA_al.add_alias(_hA_alnm)
                 tk.register_output(f"{_hA_alnm}-wbe.txt", _hA_al.out_wbe)
 
+    # === Buckeye variant A (headline) extra experiments: fairness 2x2 (grad/cross-attn x char/subword),
+    # phoneme model via espeak-ng G2P, transducer no-sil, and grad-score x energy/silence ablations
+    # (cheap on the small whisper-base). The segA dataset job is shared (same params -> same hash). ===
+    _xa_ds = BuildBuckeyeFineDatasetJob(
+        raw_dir=dl_ds_buckeye_fine.out_hub_cache_dir,
+        resegment_gap_s=1.0,
+        split_up_to_max_seq_len_s=18.0,
+        min_words=2,
+        skip_misaligned_wavs=True,
+        subsample_target_h=5.0,
+        subsample_seed=42,
+    )
+    _xa_dir = _xa_ds.out_hub_cache_dir
+    _xa_tag = "buckeye-segA-5h"
+    _xa_off = _DATASET_OFFSET_FACTORS["timit"]
+    _xa_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+
+    def _xa_extract(cfg, name, attr, mgi):
+        ex = ExtractInGradsPerTokenJob(
+            dataset_dir=_xa_dir,
+            dataset_key="test",
+            model_config=cfg,
+            mult_grad_by_inputs=mgi,
+            attr_reduction=attr,
+        )
+        ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        ex.rqmt = {**ex.rqmt, "time": 12}
+        if name is not None:  # None -> reuse a job already aliased/registered elsewhere
+            ex.add_alias(name)
+            tk.register_output(f"{name}.hdf", ex.out_hdf)
+        return ex
+
+    def _xa_align(ex, name, sfx, energy=0.5, sil=1.0, zsk=None):
+        kw = {"blank_grad_zscore_kappa": zsk} if zsk is not None else {"blank_silence_energy_scale": sil}
+        al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_xa_dir,
+            dataset_key="test",
+            dataset_offset_factors=_xa_off,
+            align_opts=_xa_ao,
+            audio_energy_pow=energy,
+            **kw,
+        )
+        nm = f"align/{name}-{_name_for_dict(_xa_ao)}-{sfx}"
+        al.add_alias(nm)
+        tk.register_output(f"{nm}-wbe.txt", al.out_wbe)
+        return al
+
+    # (1) Fairness: grad SUBWORD whisper (compare to the existing crossattn-subword baseline).
+    _xa_sub_ex = _xa_extract(
+        rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir),
+        f"whisper-base-logmel-{_xa_tag}-L2_grad-pertoken-subword",
+        "L2",
+        False,
+    )
+    _xa_align(_xa_sub_ex, f"whisper-base-logmel-{_xa_tag}-L2_grad-pertoken-subword", "en0.5-sil1.0")
+
+    # (2) Fairness: cross-attn CHAR (compare to grad-char) -- identical char tokenization, only the signal differs.
+    _xa_cac = WhisperCrossAttnForcedAlignJob(
+        dataset_dir=_xa_dir, dataset_key="test", overlay=_WHISPER_TS_OVERLAY, char_level=True
+    )
+    _xa_cac.add_alias(f"baseline-whisper-crossattn-charlev-{_xa_tag}")
+    _xa_cac_m = CalcAlignmentMetricsFromWordBoundariesJob(
+        word_boundaries_hdf=_xa_cac.out_hdf,
+        dataset_dir=_xa_dir,
+        dataset_key="test",
+        dataset_offset_factors=_xa_off,
+    )
+    tk.register_output(f"baseline-whisper-crossattn-charlev-{_xa_tag}-wbe.txt", _xa_cac_m.out_wbe)
+
+    # (3) Phoneme model (vitouphy) via espeak-ng G2P word targets: grad-align + CTC forced-align baseline.
+    _xa_ph_ex = _xa_extract(
+        rf.build_dict(Wav2Vec2PhonemeCtc, model_dir=dl_w2v_phoneme.out_hub_cache_dir, g2p_word_targets=True),
+        f"phoneme-vitouphy-{_xa_tag}-L2_grad-pertoken-g2pword",
+        "L2",
+        False,
+    )
+    _xa_align(_xa_ph_ex, f"phoneme-vitouphy-{_xa_tag}-L2_grad-pertoken-g2pword", "en0.5-sil1.0")
+    _xa_phfa = ForcedAlignPhonemeBaselineJob(
+        dataset_dir=_xa_dir,
+        dataset_key="test",
+        model_dir=dl_w2v_phoneme.out_hub_cache_dir,
+        dataset_offset_factors=_xa_off,
+        g2p_word_targets=True,
+    )
+    _xa_phfa.add_alias(f"baseline-phoneme-fa-{_xa_tag}")
+    tk.register_output(f"baseline-phoneme-fa-{_xa_tag}-word-wbe.txt", _xa_phfa.out_word_wbe)
+
+    # (4) Transducer no-sil (TIMIT showed transducers prefer sil0.0): re-align the shared extracts.
+    for _xa_t_cfg, _xa_t_name in [
+        (pk_cfg, f"parakeet-rnnt-1.1b-logmel-{_xa_tag}-L2_grad-pertoken"),
+        (tdt_cfg, f"parakeet-tdt-0.6b-v2-logmel-{_xa_tag}-L2_grad-pertoken"),
+    ]:
+        _xa_align(_xa_extract(_xa_t_cfg, None, "L2", False), _xa_t_name, "en0.5-sil0.0", sil=0.0)
+
+    # (5) grad-score x energy/silence ablation on the headline whisper-char extract (shared; free aligns).
+    _xa_whc = _xa_extract(whisper_char_cfg, None, "L2", False)
+    _xa_whc_name = f"whisper-base-logmel-{_xa_tag}-L2_grad-pertoken-charlev-spc"
+    _xa_align(_xa_whc, _xa_whc_name, "en0.5", sil=0.0)
+    _xa_align(_xa_whc, _xa_whc_name, "en0.5-sil2.0", sil=2.0)
+    _xa_align(_xa_whc, _xa_whc_name, "en0.5-zsk1.0", zsk=1.0)
+    for _xa_mgi, _xa_attr, _xa_ga in [(True, "L2", "L2_e_grad"), (False, "L1", "L1_grad")]:
+        _xa_av_name = f"whisper-base-logmel-{_xa_tag}-{_xa_ga}-pertoken-charlev-spc"
+        _xa_av = _xa_extract(
+            rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir, char_level=True, char_level_sep=" "),
+            _xa_av_name,
+            _xa_attr,
+            _xa_mgi,
+        )
+        _xa_align(_xa_av, _xa_av_name, "en0.5-sil1.0")
+
 
 def _build_timit_phi4mm(
     *,
