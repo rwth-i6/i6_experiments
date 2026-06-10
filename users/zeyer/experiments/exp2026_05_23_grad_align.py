@@ -3421,6 +3421,25 @@ def py():
             _sb_ex.add_alias(_sb_alias)
             tk.register_output(f"{_sb_alias}.hdf", _sb_ex.out_hdf)
 
+    # Seq-level batching (B>1 per forward; wav2vec2 adapter only so far):
+    # sb4 = seq_batch_size=4 with sequential backwards, sb4-bb1 = combined with the vmapped backward.
+    # Both must reproduce the wav2vec2 bb0 reference HDF within fp noise.
+    for _sb4_bb, _sb4_sfx in [(False, "sb4"), (True, "sb4-bb1")]:
+        _sb4_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=_sb_dir,
+            dataset_key="test",
+            model_config=rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out"),
+            mult_grad_by_inputs=False,
+            attr_reduction="L2",
+            batched_backward=_sb4_bb,
+            seq_batch_size=4,
+        )
+        _sb4_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _sb4_ex.rqmt = {**_sb4_ex.rqmt, "time": 4}
+        _sb4_alias = f"speedcmp/wav2vec2ctc-fproj_out-{_sb4_sfx}"
+        _sb4_ex.add_alias(_sb4_alias)
+        tk.register_output(f"{_sb4_alias}.hdf", _sb4_ex.out_hdf)
+
     # === Hypothesis-mode alignment on Buckeye variant A: recog -> swap the hyps in as the dataset
     # transcript -> align with each model's best setting -> identity-gated F1@collar + matched WBE
     # vs the reference (standard 1:1 WBE is undefined when hyp != ref). The align runs with

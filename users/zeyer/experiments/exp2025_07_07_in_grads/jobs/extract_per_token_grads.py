@@ -41,6 +41,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         "eg_baseline_std": 0.0,
         "target_source": "word_detail",
         "batched_backward": False,
+        "seq_batch_size": 1,
     }
 
     def __init__(
@@ -54,6 +55,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         eg_baseline_std: float = 0.0,
         target_source: str = "word_detail",
         batched_backward: bool = False,
+        seq_batch_size: int = 1,
         **kwargs,
     ):
         """Extends the base with SmoothGrad-style noise averaging.
@@ -67,6 +69,12 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
             (autograd.grad with is_grads_batched=True) instead of K sequential backwards.
             Mathematically identical; faster where the shared graph dominates. Off by default
             because vmap-incompatible backward kernels (some fused/custom ops) would raise.
+        :param seq_batch_size: forward this many sequences per model call
+            and compute each backward for one token of every sequence simultaneously
+            (their grads live in separate batch rows; the models have no cross-seq interaction).
+            Mathematically identical to the default per-seq loop; amortizes both passes.
+            Requires a model adapter with B>1 forward support (e.g. Wav2Vec2Ctc).
+            Composes with ``batched_backward`` (vmap over tokens on the batched graph).
         """
         super().__init__(**kwargs)
         self.noise_n_samples = int(noise_n_samples)
@@ -77,6 +85,8 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         self.eg_baseline_std = float(eg_baseline_std)
         self.target_source = str(target_source)
         self.batched_backward = bool(batched_backward)
+        self.seq_batch_size = int(seq_batch_size)
+        assert self.seq_batch_size >= 1
         assert self.target_source in ("word_detail", "phonetic_detail"), self.target_source
         assert sum(x > 1 for x in (self.ig_steps, self.eg_steps)) <= 1, "ig_steps / eg_steps exclusive"
         if self.eg_steps > 1:
@@ -109,6 +119,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
             ("eg_baseline_std", 0.0),
             ("target_source", "word_detail"),
             ("batched_backward", False),
+            ("seq_batch_size", 1),
         ):
             if not hasattr(self, _a):
                 setattr(self, _a, _d)
@@ -219,6 +230,20 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
             chunk_segmentation_hdf_ds = HDFDataset([self.chunk_segmentation_hdf.get_path()])
             chunk_segmentation_hdf_ds.initialize()
             chunk_segmentation_hdf_ds.init_seq_order(epoch=1)
+
+        if self.seq_batch_size > 1:
+            assert chunk_segmentation_hdf_ds is None, "seq_batch_size: chunking not supported"
+            assert self.noise_n_samples == 1 and self.noise_std == 0.0, "seq_batch_size: SmoothGrad not supported"
+            assert self.ig_steps == 1 and self.eg_steps == 1, "seq_batch_size: IG/EG not supported"
+            self._run_seq_batched(
+                model=model,
+                ds=ds[self.dataset_key],
+                hdf_writer=hdf_writer,
+                attr_reduce_func=attr_reduce_func,
+                dev=dev,
+            )
+            hdf_writer.close()
+            return
 
         for seq_idx, data in enumerate(ds[self.dataset_key]):
             audio = data["audio"]["array"]
@@ -530,3 +555,141 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
             )
 
         hdf_writer.close()
+
+    def _run_seq_batched(self, *, model, ds, hdf_writer, attr_reduce_func, dev):
+        """Seq-batched (seq_batch_size>1) extraction loop:
+        one forward per batch of consecutive seqs,
+        each backward computes one token of EVERY sequence simultaneously
+        (one-hot grad_outputs; grads land in separate batch rows,
+        exact because the models have no cross-seq interaction).
+        Same per-seq math and HDF layout as the default loop.
+        """
+        import time
+        import gc
+        import numpy as np
+        import torch
+        from i6_experiments.users.zeyer.torch.batch_slice import batch_slice
+        from i6_experiments.users.zeyer.torch.batch_gather import batches_gather
+
+        def _process(batch):
+            start_time = time.time()
+            nb = len(batch)
+            sr = batch[0][2]
+            assert all(b[2] == sr for b in batch)
+            lens = [len(b[1]) for b in batch]
+            raw = torch.zeros((nb, max(lens)))
+            for i, (_, audio, _, _) in enumerate(batch):
+                raw[i, : len(audio)] = torch.tensor(audio)
+            fwd = model(
+                raw_inputs=raw,
+                raw_inputs_sample_rate=sr,
+                raw_input_seq_lens=torch.tensor(lens),
+                raw_targets=[b[3] for b in batch],
+                raw_target_seq_lens=torch.tensor([len(b[3]) for b in batch]),
+                omitted_prev_context=torch.zeros(nb, dtype=torch.int64),
+            )
+            tse = fwd.target_start_end.cpu()  # [B, W_max+1, 2]
+            # Per seq: in-word token positions (word order; separators excluded) + per-word counts.
+            tok_pos: list = []
+            toks_per_word: list = []
+            for i, (_, _, _, words) in enumerate(batch):
+                pos: list = []
+                counts: list = []
+                for w in range(len(words)):
+                    t0, t1 = int(tse[i, w, 0]), int(tse[i, w, 1])
+                    pos.extend(range(t0, t1))
+                    counts.append(t1 - t0)
+                tok_pos.append(pos)
+                toks_per_word.append(counts)
+            # All token scores (incl. each seq's exit slot) from ONE log_probs call over [0, S_b+1).
+            n_targets = torch.tensor([int(tse[i, len(b[3]), 1]) for i, b in enumerate(batch)])
+            loss = model.log_probs(
+                forward_output=fwd, start=torch.zeros(nb, dtype=torch.int64), end=n_targets
+            )  # [B, n_max, V]
+            targets_sl = batch_slice(
+                fwd.targets,
+                (torch.zeros(nb, dtype=torch.int64, device=fwd.targets.device), n_targets.to(fwd.targets.device)),
+            )
+            loss = batches_gather(loss, indices=targets_sl, num_batch_dims=2)  # [B, n_max]
+            mask = torch.arange(loss.shape[1], device=loss.device)[None, :] >= n_targets.to(loss.device)[:, None]
+            loss.masked_fill_(mask, 0.0)
+
+            def _reduce(grad):  # [B, T_max, F] -> [B, T_sliced_max]
+                with torch.no_grad():
+                    attr = batch_slice(grad.float(), fwd.input_slice_start_end)
+                    if self.mult_grad_by_inputs:
+                        e = batch_slice(fwd.inputs.float(), fwd.input_slice_start_end)
+                        attr = attr * e
+                    return attr_reduce_func(attr)
+
+            m_max = max(len(p) for p in tok_pos)
+            attr_rows = [[None] * len(p) for p in tok_pos]
+            if self.batched_backward:
+                # vmap in chunks: the one-hot bank over all tokens at once would hold
+                # m_max grad buffers of the whole batched graph.
+                chunk = 32
+                for j0 in range(0, m_max, chunk):
+                    js = range(j0, min(j0 + chunk, m_max))
+                    v = loss.new_zeros((len(js),) + tuple(loss.shape))
+                    for jj, j in enumerate(js):
+                        for i in range(nb):
+                            if j < len(tok_pos[i]):
+                                v[jj, i, tok_pos[i][j]] = 1.0
+                    (grads,) = torch.autograd.grad(
+                        loss, fwd.inputs, grad_outputs=v, is_grads_batched=True, retain_graph=True
+                    )
+                    for jj, j in enumerate(js):
+                        attr = _reduce(grads[jj])
+                        for i in range(nb):
+                            if j < len(tok_pos[i]):
+                                attr_rows[i][j] = attr[i]
+            else:
+                for j in range(m_max):
+                    v = loss.new_zeros(tuple(loss.shape))
+                    for i in range(nb):
+                        if j < len(tok_pos[i]):
+                            v[i, tok_pos[i][j]] = 1.0
+                    (grad,) = torch.autograd.grad(loss, fwd.inputs, grad_outputs=v, retain_graph=True)
+                    attr = _reduce(grad)
+                    for i in range(nb):
+                        if j < len(tok_pos[i]):
+                            attr_rows[i][j] = attr[i]
+
+            in_lens = fwd.get_inputs_seq_lens_sliced()
+            loss_det = loss.detach().cpu()
+            for i, (seq_idx, _, _, words) in enumerate(batch):
+                t_b = int(in_lens[i])
+                pos = tok_pos[i]
+                grad_mat_ = torch.stack([attr_rows[i][j][:t_b] for j in range(len(pos))]).flatten()
+                hdf_writer.insert_batch(
+                    grad_mat_.cpu().numpy()[None, :, None],
+                    seq_len=[len(grad_mat_)],
+                    seq_tag=[f"seq-{seq_idx}"],
+                    extra={
+                        "audio_frames_start_end": fwd.input_raw_start_end[i, :t_b].cpu().numpy()[None],
+                        "num_input_frames": np.array([[[t_b]]], dtype="int32"),
+                        "num_words": np.array([[[len(words)]]], dtype="int32"),
+                        "num_tokens": np.array([[[len(pos)]]], dtype="int32"),
+                        "num_tokens_per_word": np.array(toks_per_word[i], dtype="int32")[None, :, None],
+                        "log_probs_per_token": loss_det[i, pos].numpy().astype("float32")[None, :, None],
+                        "exit_log_probs": np.array(
+                            [[[float(loss_det[i, int(tse[i, len(words), 0])])]]], dtype="float32"
+                        ),
+                    },
+                )
+            gc.collect()
+            print(f"({time.time() - start_time} secs for the batch of {nb})", flush=True)
+
+        buf: list = []
+        for seq_idx, data in enumerate(ds):
+            audio = data["audio"]["array"]
+            if not isinstance(audio, np.ndarray):
+                audio = np.array(audio)
+            words = list(data[self.target_source]["utterance"])
+            print(f"seq {seq_idx}, {audio.shape=}, {' '.join(words)!r}", flush=True)
+            buf.append((seq_idx, audio, data["audio"]["sampling_rate"], words))
+            if len(buf) == self.seq_batch_size:
+                _process(buf)
+                buf = []
+        if buf:
+            _process(buf)

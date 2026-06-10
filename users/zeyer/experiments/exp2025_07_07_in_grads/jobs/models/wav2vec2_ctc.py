@@ -331,6 +331,15 @@ class Wav2Vec2Ctc(BaseModelInterface):
         omitted_prev_context: Optional[torch.Tensor] = None,
     ) -> ForwardOutput:
         assert raw_inputs_sample_rate is not None
+        if isinstance(raw_inputs, torch.Tensor) and len(raw_inputs) > 1:
+            return self._forward_batched(
+                raw_inputs=raw_inputs,
+                raw_inputs_sample_rate=raw_inputs_sample_rate,
+                raw_input_seq_lens=raw_input_seq_lens,
+                raw_targets=raw_targets,
+                raw_target_seq_lens=raw_target_seq_lens,
+                omitted_prev_context=omitted_prev_context,
+            )
         assert len(raw_inputs) == 1, "Wav2Vec2Ctc wrapper supports batch size 1 only"
         assert isinstance(raw_inputs, torch.Tensor) and raw_inputs.ndim == 2
         if omitted_prev_context is not None and int(omitted_prev_context[0]) > 0:
@@ -504,6 +513,8 @@ class Wav2Vec2Ctc(BaseModelInterface):
         tensor at the target indices, so the gather-based extract loop reads
         ``Delta_i`` at each target token. B=1.
         """
+        if forward_output.inputs.shape[0] > 1:
+            return self._log_probs_batched(forward_output=forward_output, start=start, end=end)
         partial_padded = forward_output.outputs["partial_padded"]  # [S+1], grad-attached
         v = forward_output.outputs["vocab_size"]
         start_i = int(start[0]) if isinstance(start, torch.Tensor) else int(start)
@@ -515,4 +526,179 @@ class Wav2Vec2Ctc(BaseModelInterface):
         targets_slice = forward_output.targets[0, start_i:end_i].to(device)  # [n]
         out = partial_padded.new_zeros((1, n, v))
         out[0, torch.arange(n, device=device), targets_slice] = vals
+        return out
+
+    # ---- batched (B>1) variants, for seq-batched extraction ---------------
+
+    def _forward_batched(
+        self,
+        *,
+        raw_inputs: torch.Tensor,
+        raw_inputs_sample_rate: int,
+        raw_input_seq_lens: torch.Tensor,
+        raw_targets: List[List[str]],
+        raw_target_seq_lens: torch.Tensor,
+        omitted_prev_context: Optional[torch.Tensor] = None,
+    ) -> ForwardOutput:
+        """Batched (B>1) variant of :func:`forward`,
+        for ``ExtractInGradsPerTokenJob(seq_batch_size>1)``.
+        Valid rows match the B=1 forward exactly
+        (torchaudio masks padded positions when given lengths).
+        Restricted to the 50 Hz hook targets (grad grid = emission grid),
+        no resampling, no time-stretch.
+        """
+        dev = self.device
+        assert raw_inputs_sample_rate == self.target_sr, "batched: resampling not supported"
+        assert self.audio_time_stretch == 1.0, "batched: time-stretch not supported"
+        assert self.grad_wrt in ("feat_proj_out", "feat_proj_layernorm"), "batched: 50 Hz hook targets only"
+        assert isinstance(raw_inputs, torch.Tensor) and raw_inputs.ndim == 2
+        if omitted_prev_context is not None:
+            assert int(omitted_prev_context.max()) == 0
+        bsz = raw_inputs.shape[0]
+        wav = raw_inputs.to(dev).float()  # [B, T_samples_max], zero-padded
+        lens = raw_input_seq_lens.to(dev)
+
+        # Per-seq char tokenization (same as B=1).
+        sep_ids: List[int] = []
+        if self._char_level_sep is not None:
+            sep_ids = list(self.tokenizer([self._char_level_sep])[0])
+        per_seq_flat_ids: List[List[int]] = []
+        per_seq_word_start_end: List[List[List[int]]] = []
+        for b in range(bsz):
+            words = list(raw_targets[b])[: int(raw_target_seq_lens[b])]
+            per_word_ids = self.tokenizer([self._norm(w) for w in words])
+            flat_ids: List[int] = []
+            word_start_end: List[List[int]] = []
+            for wi, ids in enumerate(per_word_ids):
+                if self._char_level_sep is not None and wi > 0:
+                    flat_ids.extend(sep_ids)
+                cstart = len(flat_ids)
+                flat_ids.extend(int(i) for i in ids)
+                word_start_end.append([cstart, len(flat_ids)])
+            assert flat_ids, f"empty target for words={words!r}"
+            word_start_end.append([len(flat_ids), len(flat_ids) + 1])  # EOS/exit slot
+            per_seq_flat_ids.append(flat_ids)
+            per_seq_word_start_end.append(word_start_end)
+
+        module, channels_first = self._resolve_hook_target(self.grad_wrt)
+        assert not channels_first
+        captured: List[torch.Tensor] = []
+
+        def _hook(_module, _inp, out):
+            is_tuple = isinstance(out, tuple)
+            x = out[0] if is_tuple else out
+            leaf = x.detach().requires_grad_(True)
+            leaf.retain_grad()
+            captured.append(leaf)
+            # Non-leaf clone: torchaudio zeroes padded positions IN-PLACE downstream,
+            # which is illegal on a grad-requiring leaf. Grad through clone is identity.
+            x_back = leaf.clone()
+            return (x_back, *out[1:]) if is_tuple else x_back
+
+        # Replicate the torchaudio _Wav2Vec2Model wrapper batch-correctly:
+        # its input layer_norm normalizes over the WHOLE tensor
+        # (per-seq stats in B=1; cross-seq + padding stats for B>1 -- wrong),
+        # and its star column is hardcoded to batch size 1.
+        # So: normalize per seq, call the inner model, then log_softmax + star like the wrapper.
+        wrapper = self.model
+        assert hasattr(wrapper, "normalize_waveform"), "expected the torchaudio _Wav2Vec2Model wrapper"
+        if wrapper.normalize_waveform:
+            wav_n = wav.clone()
+            for b in range(bsz):
+                n_b = int(lens[b])
+                wav_n[b, :n_b] = torch.nn.functional.layer_norm(wav[b, :n_b], (n_b,))
+            wav = wav_n
+        handle = module.register_forward_hook(_hook)
+        try:
+            with torch.enable_grad():
+                emission, out_lens = wrapper.model(wav, lens)  # [B, T_emit_max, V'] logits, [B]
+        finally:
+            handle.remove()
+        if wrapper.apply_log_softmax:
+            emission = torch.nn.functional.log_softmax(emission, dim=-1)
+        if wrapper.append_star:
+            emission = torch.cat([emission, emission.new_zeros((*emission.shape[:2], 1))], dim=-1)
+        assert len(captured) == 1, f"expected 1 hook call, got {len(captured)}"
+        grad_leaf = captured[0]  # [B, T_feat_max, F]
+        assert grad_leaf.shape[1] == emission.shape[1], "hook target not on the emission grid"
+        t_feat = out_lens.to(torch.int64).cpu()  # [B] valid frames per seq
+
+        if self.stop_grad_blank:
+            _blank = self.blank_idx
+
+            def _zero_blank_grad(grad):
+                grad = grad.clone()
+                grad[:, :, _blank] = 0.0
+                return grad
+
+            emission.register_hook(_zero_blank_grad)
+
+        log_probs = torch.log_softmax(emission.float(), dim=-1)  # [B, T_feat_max, V]
+        vocab_size = int(log_probs.shape[-1])
+        s_max = max(len(ids) for ids in per_seq_flat_ids)
+        partials = []
+        for b in range(bsz):
+            flat_ids = per_seq_flat_ids[b]
+            assert max(flat_ids) < vocab_size
+            partial = self._ctc_partial_scores(log_probs[b, : int(t_feat[b])], flat_ids)  # [S_b]
+            # Zero-pad up to s_max+1: covers each seq's exit slot (index S_b) and beyond.
+            partials.append(torch.cat([partial, partial.new_zeros(s_max + 1 - len(flat_ids))]))
+        partial_padded = torch.stack(partials)  # [B, s_max+1]
+
+        targets = torch.full((bsz, s_max + 1), self.blank_idx, dtype=torch.long, device=dev)
+        for b, flat_ids in enumerate(per_seq_flat_ids):
+            targets[b, : len(flat_ids)] = torch.tensor(flat_ids, dtype=torch.long, device=dev)
+        w_max = max(len(wse) for wse in per_seq_word_start_end)
+        target_start_end = torch.zeros((bsz, w_max, 2), dtype=torch.int64, device=dev)
+        for b, wse in enumerate(per_seq_word_start_end):
+            target_start_end[b, : len(wse)] = torch.tensor(wse, dtype=torch.int64, device=dev)
+
+        t_feat_max = int(grad_leaf.shape[1])
+        input_raw_start_end = torch.zeros((bsz, t_feat_max, 2), dtype=torch.int64)
+        for b in range(bsz):
+            n_b = int(t_feat[b])
+            edges = torch.arange(n_b + 1, dtype=torch.float64) * (int(raw_input_seq_lens[b]) / max(n_b, 1))
+            input_raw_start_end[b, :n_b] = torch.stack([edges[:-1].round().long(), edges[1:].round().long()], dim=-1)
+
+        print(
+            f"[fwd batched] B={bsz} words={[int(n) for n in raw_target_seq_lens]}"
+            f" chars={[len(i) for i in per_seq_flat_ids]} T_feat={t_feat.tolist()}",
+            flush=True,
+        )
+        return ForwardOutput(
+            inputs=grad_leaf,
+            input_seq_lens=t_feat,
+            input_slice_start_end=(torch.zeros(bsz, dtype=torch.int64), t_feat),
+            input_raw_start_end=input_raw_start_end,
+            targets=targets,
+            target_seq_lens=torch.tensor([len(ids) + 1 for ids in per_seq_flat_ids]),
+            target_start_end=target_start_end,
+            outputs=dict(partial_padded=partial_padded, vocab_size=vocab_size),
+        )
+
+    def _log_probs_batched(
+        self,
+        *,
+        forward_output: ForwardOutput,
+        start: torch.Tensor,
+        end: torch.Tensor,
+    ) -> torch.Tensor:
+        """B>1 variant of :func:`log_probs`: per-seq ``start``/``end`` [B],
+        rows padded with zeros beyond each seq's range."""
+        partial_padded = forward_output.outputs["partial_padded"]  # [B, s_max+1], grad-attached
+        v = forward_output.outputs["vocab_size"]
+        bsz = partial_padded.shape[0]
+        device = partial_padded.device
+        start = start.to(torch.int64)
+        end = end.to(torch.int64)
+        n = int((end - start).max())
+        out = partial_padded.new_zeros((bsz, n, v))
+        for b in range(bsz):
+            s_b, e_b = int(start[b]), int(end[b])
+            n_b = e_b - s_b
+            if n_b <= 0:
+                continue
+            vals = partial_padded[b, s_b:e_b]  # [n_b], grad-attached
+            tgt = forward_output.targets[b, s_b:e_b].to(device)
+            out[b, torch.arange(n_b, device=device), tgt] = vals
         return out

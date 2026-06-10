@@ -27,8 +27,8 @@ def batch_slice(
     assert start.shape == end.shape == input.shape[:1]
 
     slice_len = (end - start).max()
-    slice_indices = torch.arange(slice_len)  # [T']
-    indices = start[:, None] + slice_indices[None, :]  # [B, T']
+    slice_indices = torch.arange(slice_len, device=start.device)  # [T']
+    indices = (start[:, None] + slice_indices[None, :]).to(input.device)  # [B, T']
     if input.ndim > 2:
         indices = indices.reshape(*(indices.shape + (1,) * (input.ndim - 2)))  # [B, T', 1, 1, ...]
         indices = indices.expand(-1, -1, *input.shape[2:])  # [B, T', ...]

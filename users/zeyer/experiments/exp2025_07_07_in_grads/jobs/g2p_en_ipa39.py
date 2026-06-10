@@ -12,8 +12,24 @@ e.g. ɔ->ɑ, ʌ->ə, ʒ->ʃ, r->ɹ).
 
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
-from typing import Dict, List, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
+
+# Compute nodes lack the system espeak-ng; a relocated copy (binary + libs + voice data)
+# lives in the home FS, driven via LD_LIBRARY_PATH / ESPEAK_DATA_PATH.
+_ESPEAK_HOME = "/home/az668407/tools/espeak-ng"
+
+
+def _espeak_exe_env() -> Tuple[str, Optional[Dict[str, str]]]:
+    exe = shutil.which("espeak-ng")
+    if exe:
+        return exe, None
+    env = dict(os.environ)
+    env["LD_LIBRARY_PATH"] = _ESPEAK_HOME + "/lib:" + env.get("LD_LIBRARY_PATH", "")
+    env["ESPEAK_DATA_PATH"] = _ESPEAK_HOME
+    return _ESPEAK_HOME + "/bin/espeak-ng", env
 
 
 # Strip before lookup: stress, length, syllabicity, ties (incl. the zero-width
@@ -108,11 +124,13 @@ class G2pEnIpa39:
         return self._cache[w]
 
     def _convert(self, word: str) -> List[str]:
+        exe, env = _espeak_exe_env()
         out = subprocess.run(
-            ["espeak-ng", "-q", "-v", "en-us", "--ipa", "--sep=_", word],
+            [exe, "-q", "-v", "en-us", "--ipa", "--sep=_", word],
             capture_output=True,
             text=True,
             check=True,
+            env=env,
         ).stdout.strip()
         phones: List[str] = []
         # espeak separates words by spaces and phonemes by '_' (ipa=3).
