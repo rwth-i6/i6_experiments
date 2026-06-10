@@ -117,11 +117,13 @@ class CalcHypAlignMetricsJob(Job):
         returnn_root: Optional[tk.Path] = None,
     ):
         """
-        :param word_boundaries_hdf: aligned hyp-word (start, end) in samples,
-            [num_hyp_words, 2] per seq (e.g. ``out_word_boundaries_hdf`` of
+        :param word_boundaries_hdf: aligned hyp-word (start, end) in seconds, [num_hyp_words, 2] per seq,
+            produced on the HYP dataset
+            (e.g. ``out_word_boundaries_hdf`` of
             :class:`..word_align_from_per_token_grads.WordAlignFromPerTokenGradsJob`,
-            or ``out_hdf`` of the forced-align baseline jobs), produced on the
-            HYP dataset.
+            or ``out_hdf`` of the forced-align baseline jobs).
+            Sequences are matched by tag (``seq-{idx}``);
+            seqs missing from the HDF (e.g. MFA coverage gaps) are skipped and reported.
         :param hyp_dataset_dir: the :class:`BuildDatasetWithHypTranscriptsJob` output
             the alignment ran on (provides the hyp words, 1:1 with the boundaries).
         :param ref_dataset_dir: the original dataset with reference words and times.
@@ -173,6 +175,8 @@ class CalcHypAlignMetricsJob(Job):
         boundaries = HDFDataset([self.word_boundaries_hdf.get_path()])
         boundaries.initialize()
         boundaries.init_seq_order(epoch=1)
+        boundaries.load_seqs(0, boundaries.num_seqs)
+        tag_to_hdf_idx = {boundaries.get_tag(i): i for i in range(boundaries.num_seqs)}
 
         ref_ds = load_dataset(get_content_dir_from_hub_cache_dir(self.ref_dataset_dir))[self.dataset_key]
         hyp_ds = load_dataset(get_content_dir_from_hub_cache_dir(self.hyp_dataset_dir))[self.dataset_key]
@@ -180,16 +184,20 @@ class CalcHypAlignMetricsJob(Job):
         assert len(ref_ds) == len(hyp_ds)
 
         utt_stats = []
+        n_uncovered = 0
         for seq_idx, (ref_data, hyp_data) in enumerate(zip(ref_ds, hyp_ds)):
-            boundaries.load_seqs(seq_idx, seq_idx + 1)
+            hdf_idx = tag_to_hdf_idx.get(f"seq-{seq_idx}")
+            if hdf_idx is None:  # e.g. MFA coverage gap
+                n_uncovered += 1
+                continue
             samplerate = ref_data["audio"]["sampling_rate"]
 
             hyp_words: List[str] = [self._norm_word(w) for w in hyp_data["word_detail"]["utterance"]]
             ref_words: List[str] = [self._norm_word(w) for w in ref_data["word_detail"]["utterance"]]
 
-            hyp_se = boundaries.get_data(seq_idx, "data")
+            hyp_se = boundaries.get_data(hdf_idx, "data")
             assert hyp_se.shape == (len(hyp_words), 2), f"{hyp_se.shape=} vs {len(hyp_words)=}"
-            hyp_times = [(float(s) / samplerate, float(e) / samplerate) for s, e in hyp_se]
+            hyp_times = [(float(s), float(e)) for s, e in hyp_se]  # seconds
             time_scale = self.dataset_offset_factors / samplerate
             ref_times = [
                 (s * time_scale, e * time_scale)
@@ -204,6 +212,7 @@ class CalcHypAlignMetricsJob(Job):
                 print(f"seq {seq_idx}: n_hyp={len(hyp_words)} n_ref={len(ref_words)} n_match={len(match_errs)}")
 
         metrics = hyp_aggregate_corpus(utt_stats)
+        metrics["n_uncovered_seqs"] = float(n_uncovered)
         print("CORPUS METRICS:", metrics)
         self.out_metrics.set(metrics)
         self.out_f1_100.set(metrics["f1_100ms"])

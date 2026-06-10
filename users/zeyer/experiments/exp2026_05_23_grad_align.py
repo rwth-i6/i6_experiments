@@ -3500,6 +3500,18 @@ def py():
             _hy_fa = ForcedAlignBaselineJob(dataset_dir=_hy_dir, dataset_key="test")
             _hy_fa.add_alias(f"hyp-align/mms_fa-{_xa_tag}-align")
             _hy_metrics(f"mms_fa-{_xa_tag}", _hy_fa.out_hdf, _hy_dir)
+            # MFA on the same hyps (OOV hyp words handled by its G2P model).
+            # Its built-in out_wbe is meaningless here (hyp word_detail has dummy times) --
+            # only out_word_boundaries_hdf is used.
+            _hy_mfa = MfaForcedAlignJob(
+                dataset_dir=_hy_dir,
+                dataset_key="test",
+                mfa_exe=_mfa_exe.out_exe,
+                model_root=_mfa_models.out_model_root,
+                dataset_offset_factors=_xa_off,
+            )
+            _hy_mfa.add_alias(f"hyp-align/mfa-{_xa_tag}-align")
+            _hy_metrics(f"mfa-{_xa_tag}", _hy_mfa.out_word_boundaries_hdf, _hy_dir)
 
 
 def _build_timit_phi4mm(

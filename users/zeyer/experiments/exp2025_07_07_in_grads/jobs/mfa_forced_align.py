@@ -98,6 +98,9 @@ class MfaForcedAlignJob(Job):
         self.out_metrics = self.output_var("metrics.txt")
         self.out_acc50 = self.output_var("acc50.txt")
         self.out_coverage = self.output_var("coverage.txt")
+        # Aligned per-word (start, end) in SECONDS (float), [n_words, 2] per covered seq,
+        # tags "seq-{idx}". (Jobs finished before this output existed lack the file.)
+        self.out_word_boundaries_hdf = self.output_path("word_boundaries.hdf")
         self.rqmt = {"cpu": num_jobs + 1, "mem": 16, "time": 8}
 
     def tasks(self):
@@ -187,6 +190,7 @@ class MfaForcedAlignJob(Job):
         print("RUN:", " ".join(cmd), flush=True)
         subprocess.check_call(cmd, env=env)
 
+        boundaries_writer = SimpleHDFWriter(self.out_word_boundaries_hdf.get_path(), dim=2, ndim=2)
         n_total, n_covered, n_missing, n_mismatch = len(ref), 0, 0, 0
         utt_errs = []
         for uid, ref_se in ref.items():
@@ -199,8 +203,10 @@ class MfaForcedAlignJob(Job):
                 n_mismatch += 1
                 continue
             hyp_se = [(float(e[0]), float(e[1])) for e in entries]
+            boundaries_writer.insert_batch(np.array([hyp_se], dtype="float32"), [len(hyp_se)], [f"seq-{int(uid[1:])}"])
             utt_errs.append(per_utt_boundary_errors(hyp_se, ref_se))
             n_covered += 1
+        boundaries_writer.close()
         metrics = aggregate_corpus(utt_errs)
         cov = n_covered / max(n_total, 1)
         print(f"coverage {n_covered}/{n_total} = {cov:.3f} (missing {n_missing}, mismatch {n_mismatch})")

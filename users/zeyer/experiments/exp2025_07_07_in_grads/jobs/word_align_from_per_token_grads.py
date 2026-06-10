@@ -109,8 +109,9 @@ class WordAlignFromPerTokenGradsJob(Job):
         self.out_acc50 = self.output_var("acc50.txt")
         self.out_interior_wbe = self.output_var("interior_wbe.txt")
         self.out_edge_wbe = self.output_var("edge_wbe.txt")
-        # Aligned per-word (start, end) in samples, [num_words, 2] per seq -- same format as
-        # the forced-align baseline jobs. (Jobs finished before this output existed lack the file.)
+        # Aligned per-word (start, end) in SECONDS (float), [num_words, 2] per seq --
+        # same format as the forced-align baseline jobs.
+        # (Jobs finished before this output existed lack the file.)
         self.out_word_boundaries_hdf = self.output_path("word_boundaries.hdf")
         # Confidence-vs-error analysis (with_confidence): correlations + quartile WBEs.
         self.out_conf_corr = self.output_var("conf_corr.txt")
@@ -273,10 +274,7 @@ class WordAlignFromPerTokenGradsJob(Job):
             assert num_words == len(words), f"{num_words=} {len(words)=}"
 
             boundaries_writer.insert_batch(
-                np.array(
-                    [[(round(s * samplerate), round(e * samplerate)) for s, e in align_word_start_ends]],
-                    dtype="int32",
-                ),
+                np.array([align_word_start_ends], dtype="float32"),  # [1, num_words, 2], seconds
                 [num_words],
                 [f"seq-{seq_idx}"],
             )
