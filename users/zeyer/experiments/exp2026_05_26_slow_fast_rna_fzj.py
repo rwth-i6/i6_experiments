@@ -95,10 +95,13 @@ def py():
     # _train_ext_transducer_smoke()
     # _train_two_tower_smoke()
     # Loquacious scale-up (subset smoke by default; full ~25k h gated behind _LOQ_FULL_TRAIN).
+    # Iteration 3, focused: run only the chunked AED (chunkwise) on the dyn-rope-ctembed encoder vs the
+    # existing standard-AED base (9.41, same encoder). Frame-rate variants held until this control lands
+    # (and they cannot use the dynamic encoder as-is -- see _enc_build_dict dynamic note).
     _train_chunkwise_loq_smoke()
-    _train_framewise_loq_smoke()
-    _train_ext_transducer_loq_smoke()
-    _train_two_tower_loq_smoke()
+    # _train_framewise_loq_smoke()
+    # _train_ext_transducer_loq_smoke()
+    # _train_two_tower_loq_smoke()
 
 
 def _ls_align_hdfs(model, *, keys, aux_ctc_layer: int = 16, num_shards: int = 8) -> Dict[str, List[tk.Path]]:
@@ -312,8 +315,8 @@ def _loq_coshard_train_parts(model, *, aux_ctc_layer: int, partition_epoch: int 
     )
 
 
-def _enc_build_dict(*, num_layers: int = 4, out_dim: int = 256, num_heads: int = 4):
-    return rf.build_dict(
+def _enc_build_dict(*, num_layers: int = 4, out_dim: int = 256, num_heads: int = 4, dynamic: bool = False):
+    d = rf.build_dict(
         ChunkedConformerEncoderV2,
         input_layer=rf.build_dict(
             ConformerConvSubsample,
@@ -334,12 +337,22 @@ def _enc_build_dict(*, num_layers: int = 4, out_dim: int = 256, num_heads: int =
         num_heads=num_heads,
         chunk_size=_CHUNK_SIZE,
         chunk_history_size=_CHUNK_SIZE * 16,  # H80 (16 chunks back), matching the base chunked-L80-C5-R4 config
-        chunk_lookahead_size=4,  # R4 -- the proven base config; strict-causal R0 was the weak first cut (enc CTC ~23 vs ~9)
+        chunk_lookahead_size=4,  # R4 -- the proven base config (strict-causal R0 was the weak first cut)
         use_chunk_type_embedding=True,
-        # No dynamic chunk_*_train_pool: it varies the encoder chunk geometry per step, which would
-        # desync from the fixed-chunk decoder targets (chunk_eoc / rna_frame). Fixed is also >= dyn on WER.
         version=3,
     )
+    if dynamic:
+        # Exactly the base chunked-L80-C5-R4-v2.3-dyn-rope-ctembed pools (the 9.41 encoder). Training-only
+        # (encoder samples chunk_size per step iff train_flag; recog uses the fixed chunk_size=5 -> streamable),
+        # and trains ~38% faster than fixed C5. The streaming decoder stays fixed at _CHUNK_SIZE: the encoder
+        # preserves frame indexing regardless of sampled chunk_size, so the fixed-chunk targets still line up --
+        # the only effect is a train/test receptive-field mismatch (deferred dyn-vs-fixed-encoder control).
+        # Safe for chunkwise (label-seq targets) + the standard AED (no chunk mask); NOT for the frame-rate
+        # variants, whose rna_frame target length is padded to the (chunk_size-dependent) encoder output length.
+        d["chunk_size_train_pool"] = [_CHUNK_SIZE, _CHUNK_SIZE * 2, _CHUNK_SIZE * 4, _CHUNK_SIZE * 8, None]
+        d["chunk_history_size_train_pool"] = [_CHUNK_SIZE * 16, _CHUNK_SIZE * 8]
+        d["chunk_lookahead_size_train_pool"] = [4, 2]
+    return d
 
 
 def _train_streaming_variant(
@@ -600,7 +613,8 @@ def _train_chunkwise_loq_smoke():
     return _train_streaming_variant(
         "chunkwise-loq",
         dec_build_dict=rf.build_dict(ChunkwiseDecoder, model_dim=1024, num_layers=6, num_heads=8, version=2),
-        enc_opts={"num_layers": 16, "out_dim": 1024, "num_heads": 8},
+        # dynamic=True: the exact base dyn-rope-ctembed encoder (9.41), training-only pool; recog at fixed C5.
+        enc_opts={"num_layers": 16, "out_dim": 1024, "num_heads": 8, "dynamic": True},
         aux_loss_layers=[4, 10, 16],
         train_def=chunkwise_training,
         recog_def=chunkwise_model_recog,
