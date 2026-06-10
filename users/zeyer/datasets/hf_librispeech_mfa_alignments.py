@@ -187,12 +187,29 @@ class ComputeMfaPhoneMeanLogMelJob(Job):
             return feats.copy_compatible_to_dims_raw([batch_dim, feats_dim, out_dim])[0].numpy()
 
         ds_all = load_from_disk(self.dataset_dir.get_path())
+        n_len_mismatch = 0
         for split in self.splits:
             ds = ds_all[split]
             for ex in ds:
                 audio = ex["audio"]["array"]
                 assert ex["audio"]["sampling_rate"] == self.sample_rate
-                feats = _log_mel(numpy.asarray(audio, dtype=numpy.float32))  # [T, F]
+                audio_np = numpy.asarray(audio, dtype=numpy.float32)
+                audio_dur = len(audio_np) / self.sample_rate
+                # Consistency check: the alignment must fit into the audio
+                # (catches audio/alignment pairing or time-unit errors).
+                last_end = max((ph["end"] for ph in ex["phonemes"]), default=0.0)
+                if last_end > audio_dur + 0.05:
+                    n_len_mismatch += 1
+                    assert n_len_mismatch < 100, (
+                        f"too many alignment/audio length mismatches, e.g. {ex['id']}: "
+                        f"alignment end {last_end} vs audio duration {audio_dur}"
+                    )
+                    continue
+                feats = _log_mel(audio_np)  # [T, F]
+                # Front-end consistency: number of feature frames must match the audio duration.
+                assert abs(feats.shape[0] * self.step_len - audio_dur) <= self.window_len + 2 * self.step_len, (
+                    f"{ex['id']}: {feats.shape[0]} feature frames vs audio duration {audio_dur}s"
+                )
                 # frame t covers [t*step, t*step+window); assign by frame center time
                 t_centers = (numpy.arange(feats.shape[0]) * self.step_len) + self.window_len / 2
                 frame_label = numpy.full((feats.shape[0],), silence_idx, dtype=numpy.int64)
@@ -222,6 +239,7 @@ class ComputeMfaPhoneMeanLogMelJob(Job):
         )
         stats = {
             "n_seqs": n_seqs,
+            "n_len_mismatch": n_len_mismatch,
             "frame_counts": {labels[i]: int(counts[i]) for i in range(num_labels)},
             "unmapped": unmapped,
             "splits": list(self.splits),
