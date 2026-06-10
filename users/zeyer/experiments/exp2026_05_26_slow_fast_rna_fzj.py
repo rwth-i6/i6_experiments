@@ -490,6 +490,7 @@ def _train_streaming_variant(
             "log_grad_norm": True,
             "__multi_proc_dataset": False,
             "file_cache_opts": {"cleanup_files_wanted_older_than_days": 1.0 / (24 * 60)},
+            "stop_for_resubmission_when_low_time_left": True,
         },
         model_def=ModelDefWithCfg(streaming_model_def, model_config),
         train_def=train_def,
