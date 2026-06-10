@@ -239,6 +239,8 @@ class GlowTtsLogMel(rf.Module):
         glow_tts_length_scale_range: Tuple[float, float] = (0.7, 1.1),
         return_waveform: bool = False,
         peak_normalize_waveform: bool = False,
+        random_durations_jitter: Optional[Tuple[float, float]] = None,
+        fixed_speaker: Optional[int] = None,
         gl_net_config: Optional[Dict[str, Any]] = None,
         gl_iter: int = 32,
         gl_momentum: float = 0.99,
@@ -264,6 +266,12 @@ class GlowTtsLogMel(rf.Module):
         # realistic distortion transfers better to real audio.
         self.return_waveform = return_waveform
         self.peak_normalize_waveform = peak_normalize_waveform
+        # If set, replace the learned per-phoneme durations by random ones (same per-seq total);
+        # see glow_tts_v1.Model.forward gen_duration_jitter.
+        self.random_durations_jitter = random_durations_jitter
+        # If set, always use this speaker id instead of sampling a random speaker per sequence
+        # (no voice diversity).
+        self.fixed_speaker = fixed_speaker
         self.gl_model = None
         self.griffin_lim = None
         if return_waveform:
@@ -303,7 +311,10 @@ class GlowTtsLogMel(rf.Module):
         bs = phonemes_pt.size(0)
         dev = phonemes_pt.device
 
-        speaker_labels = torch.randint(0, self.glow_tts_model.num_speakers, (bs, 1), device=dev)  # [B, 1]
+        if self.fixed_speaker is not None:
+            speaker_labels = torch.full((bs, 1), self.fixed_speaker, dtype=torch.long, device=dev)  # [B, 1]
+        else:
+            speaker_labels = torch.randint(0, self.glow_tts_model.num_speakers, (bs, 1), device=dev)  # [B, 1]
         nlo, nhi = self.glow_tts_noise_scale_range
         llo, lhi = self.glow_tts_length_scale_range
         noise_scale = nlo + torch.rand((bs, 1, 1), device=dev) * (nhi - nlo)  # [B, 1, 1]
@@ -321,6 +332,7 @@ class GlowTtsLogMel(rf.Module):
                 gen=True,
                 noise_scale=noise_scale,
                 length_scale=length_scale,
+                gen_duration_jitter=self.random_durations_jitter,
             )
         # log_mels: [B, F_logmel, T_freq] (flow-decoder output, DbMel space)
         if self.return_waveform:

@@ -164,8 +164,25 @@ class Model(BaseTTSModelV1):
         self.decoder = FlowDecoder(cfg=config.flow_decoder_config, speaker_embedding_size=config.speaker_embedding_size)
 
     def forward(
-        self, x, x_lengths, raw_audio=None, raw_audio_lengths=None, g=None, gen=False, noise_scale=1.0, length_scale=1.0
+        self,
+        x,
+        x_lengths,
+        raw_audio=None,
+        raw_audio_lengths=None,
+        g=None,
+        gen=False,
+        noise_scale=1.0,
+        length_scale=1.0,
+        gen_duration_jitter=None,
     ):
+        """
+        :param gen_duration_jitter: optional (low, high) tuple. If given (generation only),
+            the per-phoneme durations are replaced by i.i.d. uniform samples from [low, high),
+            renormalized per sequence to the duration-predictor total (* length_scale),
+            so the total length (and thus cost) is unchanged --
+            only the learned per-phoneme alignment structure is removed.
+            Default None: unchanged behavior (durations from the duration predictor).
+        """
         if not gen:
             y, y_lengths = self.extract_features(raw_audio=raw_audio, raw_audio_lengths=raw_audio_lengths)
             feature_lengths = y_lengths
@@ -186,6 +203,13 @@ class Model(BaseTTSModelV1):
 
         if gen:  # durations from dp only used during generation
             w = torch.exp(log_durations) * h_mask * length_scale  # durations
+            if gen_duration_jitter is not None:
+                # Random durations: i.i.d. uniform per phoneme, renormalized per seq to the predictor total
+                # (see docstring above).
+                lo, hi = gen_duration_jitter
+                w_rand = (lo + (hi - lo) * torch.rand_like(w)) * h_mask
+                w_rand_sum = torch.clamp_min(w_rand.sum(dim=[1, 2], keepdim=True), 1e-8)
+                w = w_rand * (w.sum(dim=[1, 2], keepdim=True) / w_rand_sum)
             w_ceil = torch.ceil(w)  # durations ceiled
             y_lengths = torch.clamp_min(torch.sum(w_ceil, [1, 2]), 1).long()
             y_max_length = None

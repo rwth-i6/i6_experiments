@@ -35,10 +35,10 @@ from __future__ import annotations
 import copy
 import dataclasses
 import functools
-from typing import Optional, Dict, Any, Sequence
+from typing import Optional, Dict, Any, Sequence, Tuple
 
 import returnn.frontend as rf
-from returnn.tensor import Dim
+from returnn.tensor import Tensor, Dim
 
 from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
 from i6_experiments.users.zeyer.model_interfaces import ModelDef
@@ -462,6 +462,105 @@ def py():
         glow_tts_noise_scale_range=(0.7, 0.7),
         glow_tts_length_scale_range=(0.3, 0.7),
     )
+    # Speech-likeness 2x2, cell A (acoustics=embedding, durations=random): pseudo-speech-encoder --
+    # TRAINABLE phoneme embedding, blank-interleaved, random durations (labels 1 frame, blanks 0-3;
+    # the earlier study's winning setting), no TTS at all. SpecAugment time-mask width scaled to the
+    # ~3x-compressed pseudo sequences (20 -> 6).
+    # Same text/audio regime as ref-match-logmel (cell D: acoustics=TTS, durations=learned).
+    _train_tts_encoder(
+        "pseudo-enc-logmel",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_specaug_max_width=6,
+    )
+    # Unit-granularity ablation (CJST-style): the ASR's own spm10k subword units as pseudo-enc input
+    # instead of phonemes (identity output mapping; no lexicon/phoneme step needed; the earlier study
+    # also used the ASR target units). Same duration setting -> ~3.2x shorter sequences than the
+    # phoneme variant (cheapness bonus of coarser units).
+    _train_tts_encoder(
+        "pseudo-enc-logmel-spm",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_units="spm",
+        pseudo_enc_specaug_max_width=6,
+    )
+    # Speech-likeness 2x2, cell B (acoustics=TTS, durations=random): frozen GlowTTS acoustics, but the
+    # per-phoneme durations replaced by i.i.d. uniform samples renormalized to the predictor total
+    # (same length/cost as ref-match-logmel; only the learned alignment structure is removed).
+    _train_tts_encoder(
+        "tts-enc-ref-match-logmel-rnddur",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        glow_tts_random_durations_jitter=(0.2, 1.8),
+    )
+    # Synthetic-variability axes on ref-match-logmel (one knob each):
+    # noise0 -> deterministic acoustics (no flow sampling noise; ref uses 0.7);
+    # 1spk -> single fixed speaker (no voice diversity; ref samples one of 1172 per seq).
+    _train_tts_encoder(
+        "tts-enc-ref-match-logmel-noise0",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        glow_tts_noise_scale_range=(0.0, 0.0),
+        glow_tts_length_scale_range=(1.0, 1.0),
+    )
+    _train_tts_encoder(
+        "tts-enc-ref-match-logmel-1spk",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        glow_tts_fixed_speaker=0,
+    )
+    # Text-amount axis: text_train_epoch_split 37 / 150 = ~2x / ~0.5x text per audio epoch vs the 75 default.
+    _train_tts_encoder(
+        "tts-enc-ref-match-logmel-textP37",
+        prefix=prefix,
+        text_train_epoch_split=37,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+    )
+    _train_tts_encoder(
+        "tts-enc-ref-match-logmel-textP150",
+        prefix=prefix,
+        text_train_epoch_split=150,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+    )
 
     # TODO: import the finished RZ base-ls-dbmel (ReturnnTrainingJob.8mdaueLDfiGP); do NOT re-train on FZJ.
 
@@ -637,6 +736,13 @@ def _train_tts_encoder(
     asr_logmel: bool = False,
     specaugment_length_scaled: bool = False,
     tts_waveform_peak_norm: bool = False,
+    pseudo_speech_enc: bool = False,
+    pseudo_enc_duration_range: Tuple[int, int] = (1, 1),
+    pseudo_enc_units: str = "phonemes",
+    pseudo_enc_blank_duration_range: Tuple[int, int] = (0, 3),
+    pseudo_enc_specaug_max_width: Optional[int] = None,
+    glow_tts_random_durations_jitter: Optional[Tuple[float, float]] = None,
+    glow_tts_fixed_speaker: Optional[int] = None,
     num_processes: int = 4,
     gpu_mem: int = 96,
     nep: int = 25,
@@ -797,7 +903,10 @@ def _train_tts_encoder(
         # Standard log-mel (100Hz) ASR front-end instead of DbMel (80Hz), matching the reference.
         # Requires the waveform path: the frozen-TTS DbMel log-mel can be injected directly only when
         # the ASR front-end is also DbMel; with log-mel the ASR must re-extract from the waveform.
-        assert tts_waveform, "asr_logmel requires the waveform path (tts_waveform=True)"
+        assert tts_waveform or pseudo_speech_enc, (
+            "asr_logmel requires the waveform path (tts_waveform=True), "
+            "unless pseudo_speech_enc (whose features live in the front-end space by construction)"
+        )
         del model_config["feature_extraction"]  # -> default log_mel_filterbank_from_raw (100Hz)
 
     exp = aed_train_exp(
@@ -846,7 +955,8 @@ def _train_tts_encoder(
             "max_seq_length_default_target": 75,  # text batches have no audio length cap
             "max_seq_length_default_input": 19.5 * _raw_sample_rate,
             "preload_from_files": {
-                **get_glow_tts_preload_from_files(),
+                # No GlowTTS params for the pseudo-speech-encoder (its embedding is trainable, not preloaded).
+                **(get_glow_tts_preload_from_files() if not pseudo_speech_enc else {}),
                 **(get_glow_tts_gl_preload_from_files() if tts_waveform else {}),  # GL-net for the waveform path
             },
             # Only emit tts_waveform when True,
@@ -862,6 +972,27 @@ def _train_tts_encoder(
             "glow_tts_length_scale_range": glow_tts_length_scale_range,
             "glow_tts_noise_scale_range": glow_tts_noise_scale_range,
             **({"specaugment_length_scaled": True} if specaugment_length_scaled else {}),
+            **(
+                {
+                    "pseudo_speech_enc": True,
+                    "pseudo_enc_duration_range": pseudo_enc_duration_range,
+                    "pseudo_enc_blank_duration_range": pseudo_enc_blank_duration_range,
+                }
+                if pseudo_speech_enc
+                else {}
+            ),
+            **({"pseudo_enc_units": pseudo_enc_units} if pseudo_speech_enc and pseudo_enc_units != "phonemes" else {}),
+            **(
+                {"pseudo_enc_specaug_max_width": pseudo_enc_specaug_max_width}
+                if pseudo_enc_specaug_max_width is not None
+                else {}
+            ),
+            **(
+                {"glow_tts_random_durations_jitter": glow_tts_random_durations_jitter}
+                if glow_tts_random_durations_jitter is not None
+                else {}
+            ),
+            **({"glow_tts_fixed_speaker": glow_tts_fixed_speaker} if glow_tts_fixed_speaker is not None else {}),
             "txt_only_loss_scale": txt_only_loss_scale,
             "separate_txt_only_losses": True,
             # text-only data pipeline: the PostprocessingDataset map_seq reads these to tokenize raw text into
@@ -922,13 +1053,35 @@ def _train_tts_encoder(
 
 
 def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
-    """Standard aed.Model + frozen GlowTTS attached as model.tts (log-mel out_dim == encoder in_dim)."""
+    """Standard aed.Model + frozen GlowTTS attached as model.tts (log-mel out_dim == encoder in_dim).
+    With config pseudo_speech_enc, a trainable PseudoSpeechEncoder is attached as model.pseudo_enc
+    instead (no TTS)."""
     from returnn.config import get_global_config
 
     config = get_global_config()  # noqa
     model = _aed.aed_model_def(epoch=epoch, in_dim=in_dim, target_dim=target_dim)
+    model.tts = None
+    model.pseudo_enc = None
+    if config.bool("pseudo_speech_enc", False):
+        # Pseudo-speech-encoder instead of the frozen TTS: trainable token embedding + random durations,
+        # the simple/cheap end of the speech-likeness axis.
+        # Units: "phonemes" (default), or "spm" = the ASR's own subword units (CJST-style; no lexicon).
+        units = config.typed_value("pseudo_enc_units", "phonemes")
+        if units == "spm":
+            vocab_dim = target_dim
+        else:
+            assert units == "phonemes", f"unknown pseudo_enc_units {units!r}"
+            vocab_dim = Dim(get_glow_tts_phoneme_vocab_size(), name="glowtts_phonemes")
+        model.pseudo_enc = PseudoSpeechEncoder(
+            vocab_dim=vocab_dim,
+            out_dim=model.in_dim,
+            label_duration_range=tuple(config.typed_value("pseudo_enc_duration_range", (1, 1))),
+            blank_duration_range=tuple(config.typed_value("pseudo_enc_blank_duration_range", (0, 3))),
+        )
+        return model
     noise_scale_range = config.typed_value("glow_tts_noise_scale_range", (0.3, 0.9))
     length_scale_range = config.typed_value("glow_tts_length_scale_range", (0.7, 1.1))
+    rnd_dur_jitter = config.typed_value("glow_tts_random_durations_jitter", None)
     model.tts = GlowTtsLogMel(
         phoneme_vocab_dim=Dim(get_glow_tts_phoneme_vocab_size(), name="glowtts_phonemes"),
         out_dim=model.in_dim,  # GlowTTS log-mel feeds straight into the encoder (same DbMel space)
@@ -936,6 +1089,8 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         glow_tts_length_scale_range=tuple(length_scale_range),
         return_waveform=config.bool("tts_waveform", False),  # waveform mode: GL-net + Griffin-Lim -> ASR front-end
         peak_normalize_waveform=config.bool("tts_waveform_peak_norm", False),
+        random_durations_jitter=tuple(rnd_dur_jitter) if rnd_dur_jitter is not None else None,
+        fixed_speaker=config.typed_value("glow_tts_fixed_speaker", None),
     )
     # GlowTTS is frozen: imported params, never updated.
     for p in model.tts.parameters():
@@ -957,6 +1112,70 @@ def _tts_specaug_max_spatial_dims(config, sampled_scales):
         return None
     base = config.typed_value("specaugment_max_consecutive_spatial_dims") or 20
     return rf.maximum(rf.cast(sampled_scales["length_scale"] * float(base), "int32"), 1)
+
+
+class PseudoSpeechEncoder(rf.Module):
+    """Trainable pseudo-speech encoder for text injection (no TTS),
+    following the earlier pseudo-speech-encoder study's simple winning design
+    (cf. RandomDurationPredictor + interleaver_mode="targets" there):
+    the label sequence is interleaved with a blank index, CTC-alignment-style
+    (blank, l0, blank, l1, ..., blank), per-position random durations are sampled
+    separately for labels and blanks (blanks may get duration 0),
+    then a single embedding lookup over the with-blank vocab and upsampling via rf.repeat.
+    Produces pseudo feature frames in the ASR front-end feature space (in_dim),
+    fed through Model.encode_from_features.
+    Unlike the frozen TTS path, this is trained jointly with the ASR model (no stop_gradient)."""
+
+    def __init__(
+        self,
+        *,
+        vocab_dim: Dim,
+        out_dim: Dim,
+        label_duration_range: Tuple[int, int] = (1, 1),
+        blank_duration_range: Tuple[int, int] = (0, 3),
+    ):
+        super().__init__()
+        self.vocab_dim = vocab_dim
+        self.out_dim = out_dim
+        # Durations in output frames, sampled uniform int [lo, hi] per position.
+        # Defaults follow the earlier study's winning setting:
+        # labels always exactly 1 frame, blanks 0-3 frames (mean total ~2.5 frames per label).
+        assert label_duration_range[0] >= 1
+        self.label_duration_range = label_duration_range
+        self.blank_duration_range = blank_duration_range
+        self.blank_idx = vocab_dim.dimension
+        self.wb_vocab_dim = vocab_dim + 1
+        self.embedding = rf.Embedding(self.wb_vocab_dim, out_dim)
+
+    def __call__(self, labels: Tensor, *, spatial_dim: Dim) -> Tuple[Tensor, Dim]:
+        import torch
+        from returnn.tensor import batch_dim
+
+        assert labels.sparse_dim.dimension == self.vocab_dim.dimension, (
+            f"vocab size mismatch: {labels.sparse_dim} vs {self.vocab_dim}"
+        )
+        ids_raw = labels.copy_compatible_to_dims_raw([batch_dim, spatial_dim])  # [B, T] int
+        lens = spatial_dim.get_size_tensor(device=labels.device).copy_compatible_to_dims_raw([batch_dim])
+        bs, t = ids_raw.shape
+        dev = ids_raw.device
+        # Interleave with the blank index: [blank, l0, blank, l1, ..., l_{T-1}, blank],
+        # per-seq length 2*len+1 (padding positions are blank too; masked via the dyn dim).
+        inter_raw = torch.full((bs, 2 * t + 1), self.blank_idx, dtype=ids_raw.dtype, device=dev)
+        inter_raw[:, 1::2] = ids_raw
+        inter_lens = rf.convert_to_tensor((2 * lens + 1).to(torch.int32).cpu(), dims=[batch_dim])
+        inter_dim = Dim(inter_lens, name="pseudo_enc_interleaved")
+        interleaved = rf.convert_to_tensor(inter_raw, dims=[batch_dim, inter_dim], sparse_dim=self.wb_vocab_dim)
+        # Random durations, separately for blanks (even positions) and labels (odd positions).
+        l_lo, l_hi = self.label_duration_range
+        b_lo, b_hi = self.blank_duration_range
+        label_dur = rf.random_uniform(interleaved.dims, minval=l_lo, maxval=l_hi + 1, dtype="int32")
+        blank_dur = rf.random_uniform(interleaved.dims, minval=b_lo, maxval=b_hi + 1, dtype="int32")
+        durations = rf.where(rf.range_over_dim(inter_dim) % 2 == 0, blank_dur, label_dur)
+        durations = durations.copy_masked(0, dims=[inter_dim])
+        emb = self.embedding(interleaved)
+        feats, out_spatial_dim = rf.repeat(emb, in_spatial_dim=inter_dim, repeats=durations)
+        feats.feature_dim = self.out_dim
+        return feats, out_spatial_dim
 
 
 def _dbg_dump_if_nonfinite(*, wave, wave_spatial_dim, enc, enc_spatial_dim, phonemes, phonemes_spatial_dim):
@@ -1072,6 +1291,24 @@ def aed_glowtts_train_step(*, model: Model, extern_data, **_kwargs_unused):
     collected_outputs = CollectOutputsDict(allowed_key_patterns=[str(layer_idx - 1) for layer_idx in aux_loss_layers])
     if have_audio:
         enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
+    elif model.pseudo_enc is not None:
+        # Pseudo-speech-encoder text branch: TRAINABLE embedding upsampled by random durations
+        # (no TTS, no stop_gradient -- the pseudo encoder learns jointly with the ASR model).
+        if config.typed_value("pseudo_enc_units", "phonemes") == "spm":
+            # CJST-style: the ASR's own subword units as injection input (identity output mapping).
+            pseudo_src, pseudo_src_spatial_dim = targets, targets_spatial_dim
+        else:
+            pseudo_src, pseudo_src_spatial_dim = phonemes, phonemes_spatial_dim
+        feats, feats_spatial_dim = model.pseudo_enc(pseudo_src, spatial_dim=pseudo_src_spatial_dim)
+        enc_raw, enc_spatial_dim = model.encode_from_features(
+            feats,
+            in_spatial_dim=feats_spatial_dim,
+            collected_outputs=collected_outputs,
+            # Pseudo sequences are much shorter than real speech (~3x), so the absolute SpecAugment
+            # time-mask width over-masks them; scale it down (cf. specaugment_length_scaled for TTS).
+            specaugment_max_spatial_dims=config.typed_value("pseudo_enc_specaug_max_width", None),
+        )
+        enc = model.decoder.transform_encoder(enc_raw, axis=enc_spatial_dim)
     elif config.bool("tts_waveform", False):
         # waveform mode: model.tts returns a synthetic WAVEFORM (GlowTTS->GL-net->Griffin-Lim) that
         # re-enters the ASR through its own feature front-end -- identical path to real audio (line above).
