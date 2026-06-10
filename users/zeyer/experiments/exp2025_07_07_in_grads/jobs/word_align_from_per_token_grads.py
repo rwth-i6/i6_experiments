@@ -38,6 +38,7 @@ class WordAlignFromPerTokenGradsJob(Job):
         "boundary_source": "word_detail",
         "with_ref_metrics": True,
         "with_confidence": False,
+        "confidence_version": 1,
     }
 
     # v2: emit the richer metric set (acc@collar, edge/interior, start/end MAE) via align_metrics.
@@ -60,6 +61,7 @@ class WordAlignFromPerTokenGradsJob(Job):
         boundary_source: str = "word_detail",
         with_ref_metrics: bool = True,
         with_confidence: bool = False,
+        confidence_version: int = 1,
     ):
         """
         :param grad_score_hdf: from :class:`ExtractInGradsPerTokenJob`. Must
@@ -76,6 +78,8 @@ class WordAlignFromPerTokenGradsJob(Job):
             alignment lattice (see ``Aligner.align(collect_posteriors=...)``) and report
             per-word posterior-occupancy confidence and its correlation with the per-word
             WBE in ``out_conf_corr`` (requires ``with_ref_metrics``).
+        :param confidence_version: 1 = span-mean occupancy (saturates; near-zero corr on segA);
+            2 = negative posterior-mass leak outside the Viterbi span (boundary-localized).
         """
         super().__init__()
         self.returnn_root = returnn_root
@@ -92,6 +96,7 @@ class WordAlignFromPerTokenGradsJob(Job):
         self.boundary_source = boundary_source
         self.with_ref_metrics = with_ref_metrics
         self.with_confidence = with_confidence
+        self.confidence_version = confidence_version
         assert boundary_source in ("word_detail", "phonetic_detail"), boundary_source
         assert not (self.blank_grad_zscore_kappa and self.blank_silence_energy_scale), (
             "blank_grad_zscore_kappa and blank_silence_energy_scale are mutually exclusive"
@@ -251,7 +256,10 @@ class WordAlignFromPerTokenGradsJob(Job):
                 last = align_token_start_ends[cursor + k - 1]
                 align_word_start_ends.append((first[0] * secs_per_timeframe, last[1] * secs_per_timeframe))
                 if _conf is not None:
-                    word_confs.append(float(np.mean(_conf["mean_occ"][cursor : cursor + k])))
+                    if getattr(self, "confidence_version", 1) >= 2:
+                        word_confs.append(-float(np.sum(_conf["leak"][cursor : cursor + k])))
+                    else:
+                        word_confs.append(float(np.mean(_conf["mean_occ"][cursor : cursor + k])))
                 cursor += k
             assert cursor == chunk_num_tokens
 
@@ -315,6 +323,9 @@ class WordAlignFromPerTokenGradsJob(Job):
         # Does the FB-DP posterior confidence predict the boundary error?
         conf = np.array([c for c, _ in conf_wbe_pairs])
         wbe = np.array([w for _, w in conf_wbe_pairs])
+        _finite = np.isfinite(conf) & np.isfinite(wbe)
+        n_dropped_nan = int(len(conf) - _finite.sum())
+        conf, wbe = conf[_finite], wbe[_finite]
 
         def _pearson(x, y):
             x, y = x - x.mean(), y - y.mean()
@@ -330,6 +341,8 @@ class WordAlignFromPerTokenGradsJob(Job):
             "pearson": _pearson(conf, wbe),
             "spearman": _pearson(_ranks(conf), _ranks(wbe)),
             "n_words": int(len(conf)),
+            "n_dropped_nan": n_dropped_nan,
+            "confidence_version": getattr(self, "confidence_version", 1),
             "mean_conf": float(conf.mean()),
             "quartile_wbe_by_conf_desc": quartile_wbe,
         }

@@ -2220,16 +2220,24 @@ class Aligner:
                 skip_in[1::2] = -inf  # diagonal-skip only lands in label (odd) states
                 beta[t] = np.logaddexp(np.logaddexp(stay, diag), skip_in)
             log_z = np.logaddexp(alpha[-1, S * 2 - 1], alpha[-1, S * 2])
-            gamma = alpha + beta - log_z  # [T, 2S+1] log posterior occupancy
-            occ = np.exp(np.clip(gamma[:, 1::2], -100.0, 0.0))  # [T, S]
-            mean_occ, start_occ, end_occ = [], [], []
+            if not np.isfinite(log_z):
+                print(f"WARNING: forward-backward not normalizable (log_z={log_z}, {S=}, {T=})")
+            with np.errstate(invalid="ignore"):
+                gamma = alpha + beta - log_z  # [T, 2S+1] log posterior occupancy
+                occ = np.exp(np.clip(gamma[:, 1::2], -100.0, 0.0))  # [T, S]
+            mean_occ, start_occ, end_occ, leak = [], [], [], []
+            total_mass = occ.sum(axis=0)  # [S] expected frames per label
             for i, (t0, t1) in enumerate(labels_start_end):
                 mean_occ.append(float(np.mean(occ[t0 : t1 + 1, i])))
                 start_occ.append(float(occ[t0, i]))
                 end_occ.append(float(occ[t1, i]))
+                # Posterior mass of this label OUTSIDE its Viterbi span (frames):
+                # boundary-localized uncertainty, unlike mean_occ which saturates.
+                leak.append(float(total_mass[i] - np.sum(occ[t0 : t1 + 1, i])))
             collect_posteriors["mean_occ"] = mean_occ
             collect_posteriors["start_occ"] = start_occ
             collect_posteriors["end_occ"] = end_occ
+            collect_posteriors["leak"] = leak
 
         if plot_filename is not None:
             assert plot_filename.endswith(".pdf")

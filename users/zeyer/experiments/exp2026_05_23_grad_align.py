@@ -3373,9 +3373,10 @@ def py():
             audio_energy_pow=0.5,
             blank_silence_energy_scale=1.0,
             with_confidence=True,
+            confidence_version=2,
         )
-        _cf_al.add_alias(f"conf/{_cf_name}")
-        tk.register_output(f"conf/{_cf_name}-conf-corr.txt", _cf_al.out_conf_corr)
+        _cf_al.add_alias(f"conf/{_cf_name}-v2")
+        tk.register_output(f"conf/{_cf_name}-v2-conf-corr.txt", _cf_al.out_conf_corr)
 
     # === Speed: batched per-token backward (autograd.grad is_grads_batched=True). Exact same per-token
     # math as the K sequential backwards -- one vmapped traversal of the shared graph, no logic change.
