@@ -562,6 +562,12 @@ def py():
         glow_tts_length_scale_range=(1.0, 1.0),
     )
 
+    # MFA per-phone mean log-mel table ("table-lookup TTS"), for the upcoming frozen pseudo-enc variant
+    # (consistency ladder (d), see projects notes). CPU-only jobs: HF dataset download + mean computation.
+    from i6_experiments.users.zeyer.datasets.hf_librispeech_mfa_alignments import get_mfa_phone_mean_logmel_table
+
+    get_mfa_phone_mean_logmel_table()
+
     # TODO: import the finished RZ base-ls-dbmel (ReturnnTrainingJob.8mdaueLDfiGP); do NOT re-train on FZJ.
 
 
