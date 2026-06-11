@@ -537,6 +537,24 @@ def py():
         pseudo_enc_frozen_table=get_mfa_phone_mean_logmel_table().out_mean_table,
         pseudo_enc_specaug_max_width=6,
     )
+    # Encoder-share / layer-split injection (earlier study's insight #1), at the ENC frame rate:
+    # the pseudo features live in the encoder model space and enter the Conformer at layer N directly
+    # (no conv front-end on the text branch -- this matches the earlier study's injection point;
+    # the pseudo-enc-logmel variants instead pass the full front-end incl. 6x subsampling).
+    # N=0 = faithful reproduction of the earlier study's setting; N=4/8 share fewer encoder layers.
+    # Same duration setting (label 1, blank 0-3), now counted in encoder frames like there.
+    for _start_layer in (0, 4, 8):
+        _train_tts_encoder(
+            f"pseudo-enc-layer{_start_layer}",
+            prefix=prefix,
+            text_train_epoch_split=75,
+            batch_size_audio_frames=120_000,
+            max_phon_len=300,
+            asr_logmel=True,
+            pseudo_speech_enc=True,
+            pseudo_enc_start_layer=_start_layer,
+            pseudo_enc_specaug_max_width=6,
+        )
     # Unit-granularity ablation (CJST-style): the ASR's own spm10k subword units as pseudo-enc input
     # instead of phonemes (identity output mapping; no lexicon/phoneme step needed; the earlier study
     # also used the ASR target units). Same duration setting -> ~3.2x shorter sequences than the
@@ -567,6 +585,37 @@ def py():
         glow_tts_noise_scale_range=(0.7, 0.7),
         glow_tts_length_scale_range=(1.0, 1.0),
         glow_tts_random_durations_jitter=(0.2, 1.8),
+    )
+    # Multiplicative duration jitter (online analogue of the offline pipeline's variability finding):
+    # w = w_pred * U(0.7, 1.3) per phoneme, NOT renormalized -- keeps the learned alignment structure,
+    # varies per-phoneme speaking rate and total length (rnddur removes the structure instead).
+    _train_tts_encoder(
+        "tts-enc-ref-match-logmel-rnddur-mult",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        glow_tts_random_durations_jitter_mult=(0.7, 1.3),
+    )
+    # Wide length-scale range 0.1-1.0 (+ per-seq length-scaled SpecAugment): pushes the compression
+    # axis below lensamp-low (0.3-0.7) toward the v3b-lenscale-low regime, now with length-aware masking.
+    _train_tts_encoder(
+        "tts-enc-ref-match-logmel-lensamp-wide-specaug",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        specaugment_length_scaled=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(0.1, 1.0),
     )
     # Synthetic-variability axes on ref-match-logmel (one knob each):
     # noise0 -> deterministic acoustics (no flow sampling noise; ref uses 0.7);
@@ -808,8 +857,10 @@ def _train_tts_encoder(
     pseudo_enc_units: str = "phonemes",
     pseudo_enc_blank_duration_range: Tuple[int, int] = (0, 3),
     pseudo_enc_frozen_table: Optional[tk.Path] = None,
+    pseudo_enc_start_layer: Optional[int] = None,
     pseudo_enc_specaug_max_width: Optional[int] = None,
     glow_tts_random_durations_jitter: Optional[Tuple[float, float]] = None,
+    glow_tts_random_durations_jitter_mult: Optional[Tuple[float, float]] = None,
     glow_tts_fixed_speaker: Optional[int] = None,
     num_processes: int = 4,
     gpu_mem: int = 96,
@@ -1051,6 +1102,7 @@ def _train_tts_encoder(
             ),
             **({"pseudo_enc_units": pseudo_enc_units} if pseudo_speech_enc and pseudo_enc_units != "phonemes" else {}),
             **({"pseudo_enc_frozen_table": pseudo_enc_frozen_table} if pseudo_enc_frozen_table is not None else {}),
+            **({"pseudo_enc_start_layer": pseudo_enc_start_layer} if pseudo_enc_start_layer is not None else {}),
             **(
                 {"pseudo_enc_specaug_max_width": pseudo_enc_specaug_max_width}
                 if pseudo_enc_specaug_max_width is not None
@@ -1059,6 +1111,11 @@ def _train_tts_encoder(
             **(
                 {"glow_tts_random_durations_jitter": glow_tts_random_durations_jitter}
                 if glow_tts_random_durations_jitter is not None
+                else {}
+            ),
+            **(
+                {"glow_tts_random_durations_jitter_mult": glow_tts_random_durations_jitter_mult}
+                if glow_tts_random_durations_jitter_mult is not None
                 else {}
             ),
             **({"glow_tts_fixed_speaker": glow_tts_fixed_speaker} if glow_tts_fixed_speaker is not None else {}),
@@ -1141,9 +1198,12 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         else:
             assert units == "phonemes", f"unknown pseudo_enc_units {units!r}"
             vocab_dim = Dim(get_glow_tts_phoneme_vocab_size(), name="glowtts_phonemes")
+        # Layer-split injection (pseudo_enc_start_layer >= 0): the pseudo features live in the encoder
+        # model space at the subsampled encoder frame rate, entering the Conformer at that layer.
+        start_layer = config.int("pseudo_enc_start_layer", -1)
         model.pseudo_enc = PseudoSpeechEncoder(
             vocab_dim=vocab_dim,
-            out_dim=model.in_dim,
+            out_dim=model.encoder.out_dim if start_layer >= 0 else model.in_dim,
             label_duration_range=tuple(config.typed_value("pseudo_enc_duration_range", (1, 1))),
             blank_duration_range=tuple(config.typed_value("pseudo_enc_blank_duration_range", (0, 3))),
         )
@@ -1152,6 +1212,7 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
             import numpy
 
             assert units == "phonemes", "pseudo_enc_frozen_table is a phoneme-vocab table"
+            assert start_layer < 0, "the frozen table lives in the front-end feature space"
             npz = numpy.load(frozen_table, allow_pickle=True)
             means, table_labels = npz["means"], list(npz["labels"])
             assert means.shape == (vocab_dim.dimension, model.in_dim.dimension)
@@ -1164,6 +1225,7 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     noise_scale_range = config.typed_value("glow_tts_noise_scale_range", (0.3, 0.9))
     length_scale_range = config.typed_value("glow_tts_length_scale_range", (0.7, 1.1))
     rnd_dur_jitter = config.typed_value("glow_tts_random_durations_jitter", None)
+    rnd_dur_jitter_mult = config.typed_value("glow_tts_random_durations_jitter_mult", None)
     model.tts = GlowTtsLogMel(
         phoneme_vocab_dim=Dim(get_glow_tts_phoneme_vocab_size(), name="glowtts_phonemes"),
         out_dim=model.in_dim,  # GlowTTS log-mel feeds straight into the encoder (same DbMel space)
@@ -1172,6 +1234,7 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         return_waveform=config.bool("tts_waveform", False),  # waveform mode: GL-net + Griffin-Lim -> ASR front-end
         peak_normalize_waveform=config.bool("tts_waveform_peak_norm", False),
         random_durations_jitter=tuple(rnd_dur_jitter) if rnd_dur_jitter is not None else None,
+        random_durations_jitter_mult=tuple(rnd_dur_jitter_mult) if rnd_dur_jitter_mult is not None else None,
         fixed_speaker=config.typed_value("glow_tts_fixed_speaker", None),
     )
     # GlowTTS is frozen: imported params, never updated.
@@ -1334,14 +1397,28 @@ def aed_glowtts_train_step(*, model: Model, extern_data, **_kwargs_unused):
         else:
             pseudo_src, pseudo_src_spatial_dim = phonemes, phonemes_spatial_dim
         feats, feats_spatial_dim = model.pseudo_enc(pseudo_src, spatial_dim=pseudo_src_spatial_dim)
-        enc_raw, enc_spatial_dim = model.encode_from_features(
-            feats,
-            in_spatial_dim=feats_spatial_dim,
-            collected_outputs=collected_outputs,
-            # Pseudo sequences are much shorter than real speech (~3x), so the absolute SpecAugment
-            # time-mask width over-masks them; scale it down (cf. specaugment_length_scaled for TTS).
-            specaugment_max_spatial_dims=config.typed_value("pseudo_enc_specaug_max_width", None),
-        )
+        start_layer = config.int("pseudo_enc_start_layer", -1)
+        if start_layer >= 0:
+            # Layer-split injection: the pseudo features live in the encoder model space and enter the
+            # Conformer at layer start_layer directly (no conv front-end on the text branch -- the
+            # earlier study's injection point). Aux losses below start_layer are skipped via the
+            # collected_outputs guard in the loop below.
+            enc_raw, enc_spatial_dim = model.encode_from_enc_space(
+                feats,
+                spatial_dim=feats_spatial_dim,
+                start_layer=start_layer,
+                collected_outputs=collected_outputs,
+                specaugment_max_spatial_dims=config.typed_value("pseudo_enc_specaug_max_width", None),
+            )
+        else:
+            enc_raw, enc_spatial_dim = model.encode_from_features(
+                feats,
+                in_spatial_dim=feats_spatial_dim,
+                collected_outputs=collected_outputs,
+                # Pseudo sequences are much shorter than real speech (~3x), so the absolute SpecAugment
+                # time-mask width over-masks them; scale it down (cf. specaugment_length_scaled for TTS).
+                specaugment_max_spatial_dims=config.typed_value("pseudo_enc_specaug_max_width", None),
+            )
         enc = model.decoder.transform_encoder(enc_raw, axis=enc_spatial_dim)
     elif config.bool("tts_waveform", False):
         # waveform mode: model.tts returns a synthetic WAVEFORM (GlowTTS->GL-net->Griffin-Lim) that
@@ -1374,6 +1451,8 @@ def aed_glowtts_train_step(*, model: Model, extern_data, **_kwargs_unused):
     for i, layer_idx in enumerate(aux_loss_layers):
         if layer_idx > len(model.encoder.layers):
             continue
+        if str(layer_idx - 1) not in collected_outputs:
+            continue  # text branch entering above this layer (layer-split injection)
         linear = getattr(model, f"enc_aux_logits_{layer_idx}")
         aux_logits = linear(collected_outputs[str(layer_idx - 1)])
         aux_ctc_log_probs = rf.log_softmax(aux_logits, axis=model.wb_target_dim)

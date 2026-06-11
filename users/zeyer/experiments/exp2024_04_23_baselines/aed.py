@@ -1190,6 +1190,45 @@ class Model(rf.Module):
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
         return enc, enc_spatial_dim
 
+    def encode_from_enc_space(
+        self,
+        source: Tensor,
+        *,
+        spatial_dim: Dim,
+        start_layer: int = 0,
+        collected_outputs: Optional[Dict[str, Tensor]] = None,
+        specaugment_max_spatial_dims: Optional[Tensor] = None,
+    ) -> Tuple[Tensor, Dim]:
+        """Encode from features already in the encoder model space
+        (feature dim = encoder out_dim, at the subsampled encoder frame rate),
+        skipping the feature front-end and the conv subsampling,
+        entering the Conformer at layer ``start_layer`` (0 = all Conformer layers).
+        ``collected_outputs`` gets the per-layer outputs only for layers >= start_layer
+        (same keys as rf.Sequential), so the caller must skip aux losses attached below.
+        ``specaugment_max_spatial_dims``: as in :func:`encode_from_features`,
+        but the time-mask width counts encoder frames here."""
+        assert self.encoder.out_dim in source.dims
+        specaugment_opts = self._specaugment_opts
+        if specaugment_max_spatial_dims is not None:
+            specaugment_opts = {**specaugment_opts, "max_consecutive_spatial_dims": specaugment_max_spatial_dims}
+        source = rf.audio.specaugment(
+            source,
+            spatial_dim=spatial_dim,
+            feature_dim=self.encoder.out_dim,
+            **specaugment_opts,
+        )
+        # Absolute pos enc / input scaling would belong before the first layer; not handled here
+        # (this baseline uses rel pos enc inside the layers).
+        assert self.encoder.pos_enc is None and self.encoder.input_embedding_scale == 1.0
+        x = rf.dropout(source, self.encoder.input_dropout, axis=self.encoder.dropout_broadcast and self.encoder.out_dim)
+        for name, layer in self.encoder.layers.items():
+            if int(name) < start_layer:
+                continue
+            x = layer(x, spatial_dim=spatial_dim)
+            if collected_outputs is not None:
+                collected_outputs[name] = x
+        return x, spatial_dim
+
     def encode(
         self,
         source: Tensor,
