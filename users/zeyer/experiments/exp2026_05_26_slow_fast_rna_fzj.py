@@ -353,9 +353,9 @@ def _enc_build_dict(*, num_layers: int = 4, out_dim: int = 256, num_heads: int =
         # the encoder preserves frame indexing regardless of the sampled chunk_size,
         # so the fixed-chunk targets still line up,
         # and the only effect is a train/test receptive-field mismatch (a deferred dyn-vs-fixed-encoder control).
-        # Safe for chunkwise (label-seq targets) + the standard AED (no chunk mask),
-        # NOT for the frame-rate variants,
-        # whose rna_frame target length is padded to the (chunk_size-dependent) encoder output length.
+        # Safe for ALL variants: chunkwise (label-seq targets), the standard AED (no chunk mask),
+        # and the frame-rate variants (their train defs re-align the rna_frame target onto the
+        # actual encoder length via base.rna_targets_on_enc_spatial, so the encoder chunking is free).
         d["chunk_size_train_pool"] = [_CHUNK_SIZE, _CHUNK_SIZE * 2, _CHUNK_SIZE * 4, _CHUNK_SIZE * 8, None]
         d["chunk_history_size_train_pool"] = [_CHUNK_SIZE * 16, _CHUNK_SIZE * 8]
         d["chunk_lookahead_size_train_pool"] = [4, 2]

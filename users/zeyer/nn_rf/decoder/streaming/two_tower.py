@@ -29,7 +29,7 @@ from returnn.frontend.decoder.transformer import FeedForwardGated
 
 from .framewise import FramewiseDecoderLayer
 from .cross_attn import ChunkMaskedCrossAttention
-from .base import label_smoothed_log_probs
+from .base import label_smoothed_log_probs, rna_targets_on_enc_spatial
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import RecogDef
@@ -222,7 +222,11 @@ def two_tower_train_forward(
     """
     collected_outputs = {} if model.enc_aux_logits else None
     enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
-    rna, _ = rf.replace_dim(rna_targets, in_dim=rna_targets_spatial_dim, out_dim=enc_spatial_dim)
+    # Re-align the RNA target onto the encoder length (pad blank / cut blank padding),
+    # so the encoder chunking is free to differ from the dataset's fixed pad-to-chunk-multiple.
+    rna = rna_targets_on_enc_spatial(
+        rna_targets, in_spatial_dim=rna_targets_spatial_dim, enc_spatial_dim=enc_spatial_dim, blank_idx=model.blank_idx
+    )
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim)
     dec = model.decoder
     blank = model.blank_idx

@@ -233,6 +233,27 @@ def label_smoothed_log_probs(log_probs: Tensor, *, axis: Dim) -> Tensor:
     return log_probs
 
 
+def rna_targets_on_enc_spatial(
+    rna_targets: Tensor, *, in_spatial_dim: Dim, enc_spatial_dim: Dim, blank_idx: int
+) -> Tensor:
+    """Re-align the per-frame RNA target onto the encoder output length (per seq).
+
+    The dataset pads the RNA target to a fixed chunk multiple of the alignment length,
+    while the encoder pads its output to a multiple of ITS chunk size
+    (which can differ, e.g. a dynamic chunk_size_train_pool, or no padding for chunk_size=None),
+    so the two per-seq lengths can differ in both directions.
+    Every frame beyond the alignment length is blank on the target side and padding on the encoder side,
+    so pad with blank / truncate (only ever cutting blank padding) to exactly the encoder length.
+    With equal lengths this is just the old dim re-tag, numerically identical.
+    """
+    idx = rf.range_over_dim(enc_spatial_dim, device=rna_targets.device)  # [enc_spatial]
+    tgt_lens = rf.copy_to_device(in_spatial_dim.get_size_tensor(), rna_targets.device)  # [B]
+    valid = idx < tgt_lens  # [B, enc_spatial]
+    gathered = rf.gather(rna_targets, indices=rf.minimum(idx, tgt_lens - 1), axis=in_spatial_dim)
+    blank = rf.constant(blank_idx, dims=(), sparse_dim=rna_targets.sparse_dim, dtype=rna_targets.dtype)
+    return rf.where(valid, gathered, blank)
+
+
 def encoder_frame_chunk_idx(enc_spatial_dim: Dim, chunk_size: int) -> Tensor:
     """int [enc_spatial_dim] giving the chunk index ``frame // chunk_size`` of each encoder frame."""
     return rf.range_over_dim(enc_spatial_dim) // chunk_size

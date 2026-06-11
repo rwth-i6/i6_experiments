@@ -22,7 +22,7 @@ import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, single_step_dim
 from returnn.frontend.decoder.transformer import FeedForwardGated
 
-from .base import label_smoothed_log_probs
+from .base import label_smoothed_log_probs, rna_targets_on_enc_spatial
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import RecogDef
@@ -150,9 +150,12 @@ def framewise_train_forward(
     """
     collected_outputs = {} if model.enc_aux_logits else None
     enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
-    # Dataset padded the RNA target to ceil(T_align/chunk)*chunk == T_enc; relabel the dim
-    # onto enc_spatial_dim (same per-seq sizes; replace_dim is a tag swap, not size-checked).
-    rna, _ = rf.replace_dim(rna_targets, in_dim=rna_targets_spatial_dim, out_dim=enc_spatial_dim)
+    # Re-align the RNA target onto the encoder length (pad blank / cut blank padding),
+    # so the encoder chunking is free to differ from the dataset's fixed pad-to-chunk-multiple
+    # (dynamic chunk pools, offline, ...).
+    rna = rna_targets_on_enc_spatial(
+        rna_targets, in_spatial_dim=rna_targets_spatial_dim, enc_spatial_dim=enc_spatial_dim, blank_idx=model.blank_idx
+    )
 
     # Teacher forcing: decoder input at frame t is the previous frame's symbol (BOS at t=0).
     input_labels = rf.shift_right(rna, axis=enc_spatial_dim, pad_value=model.bos_idx)
