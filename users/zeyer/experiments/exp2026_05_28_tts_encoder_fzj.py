@@ -1260,54 +1260,6 @@ class PseudoSpeechEncoder(rf.Module):
         return feats, out_spatial_dim
 
 
-def _dbg_dump_if_nonfinite(*, wave, wave_spatial_dim, enc, enc_spatial_dim, phonemes, phonemes_spatial_dim):
-    """TEMP debug: on the synthetic text branch, if the encoder output or synthetic waveform is non-finite,
-    dump per-seq wave/enc lengths + wave range + phoneme length, then raise -- to localize the step-1689 NaN."""
-    import torch
-    from returnn.tensor import Tensor, batch_dim
-
-    def _tensors(obj):
-        # enc is a nested rf.State (subclasses dict): walk it to reach the encoder cross-att k/v Tensors.
-        if isinstance(obj, Tensor):
-            yield obj
-        elif isinstance(obj, dict):
-            for v in obj.values():
-                yield from _tensors(v)
-        elif isinstance(obj, (list, tuple)):
-            for v in obj:
-                yield from _tensors(v)
-
-    wave_raw = wave.copy_compatible_to_dims_raw([batch_dim, wave_spatial_dim])
-    enc_tensors = list(_tensors(enc))
-    wave_ok = bool(torch.isfinite(wave_raw).all())
-    enc_ok = all(bool(torch.isfinite(t.raw_tensor).all()) for t in enc_tensors)
-    if wave_ok and enc_ok:
-        return
-    wl = wave_spatial_dim.get_size_tensor().copy_compatible_to_dims_raw([batch_dim])
-    el = enc_spatial_dim.get_size_tensor().copy_compatible_to_dims_raw([batch_dim])
-    phl = phonemes_spatial_dim.get_size_tensor().copy_compatible_to_dims_raw([batch_dim])
-    print(
-        f"[TTSNAN] wave_ok={wave_ok} enc_ok={enc_ok} n_enc_tensors={len(enc_tensors)} "
-        f"wave_nan={bool(torch.isnan(wave_raw).any())} wave_inf={bool(torch.isinf(wave_raw).any())}",
-        flush=True,
-    )
-    for i in range(wave_raw.size(0)):
-        n = int(wl[i])
-        if n > 0:
-            w = wave_raw[i, :n]
-            wf = bool(torch.isfinite(w).all())
-            wmin = float(w.min())
-            wmax = float(w.max())
-        else:
-            wf, wmin, wmax = None, 0.0, 0.0
-        print(
-            f"[TTSNAN] seq{i} phon_len={int(phl[i])} wave_len={n} enc_len={int(el[i])} "
-            f"wave_finite={wf} wave_min={wmin:.4g} wave_max={wmax:.4g}",
-            flush=True,
-        )
-    raise RuntimeError("[TTSNAN] non-finite enc/wave on synthetic text branch (see [TTSNAN] dump above)")
-
-
 def aed_glowtts_train_step(*, model: Model, extern_data, **_kwargs_unused):
     """Custom RETURNN train_step: dual-branch AED+CTC (paired audio + text-only via GlowTTS).
 
@@ -1404,14 +1356,6 @@ def aed_glowtts_train_step(*, model: Model, extern_data, **_kwargs_unused):
             in_spatial_dim=wave_spatial_dim,
             collected_outputs=collected_outputs,
             specaugment_max_spatial_dims=_tts_specaug_max_spatial_dims(config, sampled_scales),
-        )
-        _dbg_dump_if_nonfinite(
-            wave=wave,
-            wave_spatial_dim=wave_spatial_dim,
-            enc=enc,
-            enc_spatial_dim=enc_spatial_dim,
-            phonemes=phonemes,
-            phonemes_spatial_dim=phonemes_spatial_dim,
         )
     else:
         sampled_scales = {}
