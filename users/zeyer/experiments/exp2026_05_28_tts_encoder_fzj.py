@@ -37,6 +37,8 @@ import dataclasses
 import functools
 from typing import Optional, Dict, Any, Sequence, Tuple
 
+from sisyphus import tk
+
 import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim
 
@@ -155,6 +157,20 @@ def py():
         feature_extraction=None,
         base_lr=1.0,
         peak_lr=5e-3,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+    # Train longer on the wdbl setting: nep 25 -> 38 (+50%), LR schedule stretched accordingly.
+    # Tests whether the remaining 4-GPU gap (4.22 vs base-ls 4.06) is simply too few optimizer steps
+    # (4x batch at fixed nep = 1/4 the updates); the final WER vs the nep=25 run (4.22) brackets
+    # how much longer is needed.
+    _train_asr_base_multigpu(
+        "asr-base-mgpu-logmel-muon-lr5e3-wdbl-nep38",
+        prefix=prefix,
+        feature_extraction=None,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
@@ -490,6 +506,37 @@ def py():
         pseudo_speech_enc=True,
         pseudo_enc_specaug_max_width=6,
     )
+    # Consistency-ladder (b): NO blank insertion -- blanks get duration 0, so the feature sequence is
+    # pure label embeddings (labels still 1 frame each). Isolates the contribution of the random blank
+    # frames; the phoneme seq itself already carries [space] silence tokens between words.
+    _train_tts_encoder(
+        "pseudo-enc-logmel-noblank",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_specaug_max_width=6,
+    )
+    # Consistency-ladder (d): like (b) no-blank, but the embedding is the FROZEN per-phoneme mean
+    # log-mel table from real audio + MFA alignments ("table-lookup TTS"): acoustics from data, zero
+    # trained text-encoder params. [space] keeps its real-silence row; [start]/[end] = global mean.
+    from i6_experiments.users.zeyer.datasets.hf_librispeech_mfa_alignments import get_mfa_phone_mean_logmel_table
+
+    _train_tts_encoder(
+        "pseudo-enc-logmel-noblank-mfatable",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_frozen_table=get_mfa_phone_mean_logmel_table().out_mean_table,
+        pseudo_enc_specaug_max_width=6,
+    )
     # Unit-granularity ablation (CJST-style): the ASR's own spm10k subword units as pseudo-enc input
     # instead of phonemes (identity output mapping; no lexicon/phoneme step needed; the earlier study
     # also used the ASR target units). Same duration setting -> ~3.2x shorter sequences than the
@@ -591,6 +638,7 @@ def _train_asr_base_multigpu(
     feature_extraction: Optional[Dict[str, Any]] = None,
     base_lr: float = 0.5,
     peak_lr: float = 1e-3,
+    nep: int = 25,
     torch_distributed: Optional[Dict[str, Any]] = None,
     batch_size_feat: int = 100_000,
     conv_norm: Optional[Dict[str, Any]] = None,
@@ -684,9 +732,9 @@ def _train_asr_base_multigpu(
         prefix=prefix + "/aed/",
         model_config=model_config,
         config_updates={
-            # nep=25; with num_processes=4 DDP the data is iterated ~4x/epoch -> ~100 effective passes,
-            # matching base-ls (nep=100) and the TTS-encoder runs.
-            **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(25, base_lr=base_lr, peak_lr=peak_lr),
+            # nep=25 default; with num_processes=4 DDP the data is iterated ~4x/epoch -> ~100 effective
+            # passes, matching base-ls (nep=100) and the TTS-encoder runs.
+            **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(nep, base_lr=base_lr, peak_lr=peak_lr),
             # Match base-ls (imported single-GPU LibriSpeech AED baseline, identical model):
             # batch_size 16M + max_seqs 200. The ONLY intended difference here is multi-GPU DDP.
             # Earlier 400k/500, copied from the TTS runs' alternate audio/text batching
@@ -759,6 +807,7 @@ def _train_tts_encoder(
     pseudo_enc_duration_range: Tuple[int, int] = (1, 1),
     pseudo_enc_units: str = "phonemes",
     pseudo_enc_blank_duration_range: Tuple[int, int] = (0, 3),
+    pseudo_enc_frozen_table: Optional[tk.Path] = None,
     pseudo_enc_specaug_max_width: Optional[int] = None,
     glow_tts_random_durations_jitter: Optional[Tuple[float, float]] = None,
     glow_tts_fixed_speaker: Optional[int] = None,
@@ -1001,6 +1050,7 @@ def _train_tts_encoder(
                 else {}
             ),
             **({"pseudo_enc_units": pseudo_enc_units} if pseudo_speech_enc and pseudo_enc_units != "phonemes" else {}),
+            **({"pseudo_enc_frozen_table": pseudo_enc_frozen_table} if pseudo_enc_frozen_table is not None else {}),
             **(
                 {"pseudo_enc_specaug_max_width": pseudo_enc_specaug_max_width}
                 if pseudo_enc_specaug_max_width is not None
@@ -1097,6 +1147,19 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
             label_duration_range=tuple(config.typed_value("pseudo_enc_duration_range", (1, 1))),
             blank_duration_range=tuple(config.typed_value("pseudo_enc_blank_duration_range", (0, 3))),
         )
+        frozen_table = config.typed_value("pseudo_enc_frozen_table", None)
+        if frozen_table:
+            import numpy
+
+            assert units == "phonemes", "pseudo_enc_frozen_table is a phoneme-vocab table"
+            npz = numpy.load(frozen_table, allow_pickle=True)
+            means, table_labels = npz["means"], list(npz["labels"])
+            assert means.shape == (vocab_dim.dimension, model.in_dim.dimension)
+            # Blank row := [space] (real silence acoustics; silence and blank share one row by design;
+            # with blank duration 0 the blank row is never emitted anyway).
+            table = numpy.concatenate([means, means[table_labels.index("[space]")][None]], axis=0)
+            model.pseudo_enc.embedding.weight.initial = table
+            model.pseudo_enc.embedding.weight.trainable = False
         return model
     noise_scale_range = config.typed_value("glow_tts_noise_scale_range", (0.3, 0.9))
     length_scale_range = config.typed_value("glow_tts_length_scale_range", (0.7, 1.1))
