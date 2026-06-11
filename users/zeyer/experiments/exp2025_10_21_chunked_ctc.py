@@ -1289,22 +1289,34 @@ def py():
     # - WBE/TSE. Goal is to also compute actual latency.
 
     # To report for next time:
-    # - Running Mamba-2 SSD and DeltaNet and bidir variants (TODO summarize each)
-    # - dynCx3-rope-ctembed: no gain vs dyn-rope-ctembed (dev 9.47 / test 10.28 vs 9.41 / 10.29).
-    #   TODO put a more comprehensive comparison here, comparing non-dyn, dyn, dynV2, dynV3, dynV4, dnCx3,
-    #     wrt WER but also train time. also summarizing the actual diff between those (train pools).
+    # - Linear-attention encoders (all worse than conformer dyn-rope-ctembed 9.41 / 10.29):
+    #   mamba2 dev 10.47 / test 11.35 (174.0h); deltanet 11.09 / 11.93 (164.3h);
+    #   deltanet-bidir 11.41 / 12.28 (197.9h, bidir HURTS vs uni).
+    #   mamba2 best of the linear-attn set.
+    #   TODO still running: mamba2-bidir, mamba2-bidir-ssdchunk256.
+    # - Dyn-pool comparison (rope+ctembed fixed; only the train pools vary), dev / test (train h):
+    #   dyn 9.41 / 10.29 (128.3h; run2 9.52 / 10.21, 107.3h);
+    #   dynCx3 9.47 / 10.28 (120.8h, oversample small C, no gain);
+    #   dynV3 10.33 / 10.99 (97.1h, adds 0 to history+lookahead pools); dynV2 10.85 / 11.71 (100.1h, worst).
+    #   non-dyn and dynV4 still running.
+    #   Decisive knob: a 0 in the history/lookahead pools hurts; standard dyn best.
     # - R0-v2.3-overlap run. (TODO put result here once ready)
     # - 2xtrain (TODO put result here once ready)
     # - Overlap at recog only (-ov2): hurts; C5-R4-ov2 10.65 (vs 9.41), C5-R2-ov2 18.10 (vs 10.14).
     # - dyn-rope-ctembed-overlap-mse: MSE helps the overlap variant (dev 10.20 -> 9.99),
     #   but overlap still regresses vs no-overlap dyn-rope-ctembed (9.41).
-    #   Reference: overlap 10.20 / 11.03, overlap-mse 9.99 / 10.85, overlapD 9.75 / 10.56.
+    #   Reference: overlap 10.20 / 11.03, overlap-mse 9.99 / 10.85, overlapD 9.75 / 10.56;
+    #   overlapD-ctembedfix 9.76 / 10.63 (~= overlapD, ctembedfix no help);
+    #   dyn-rope-overlapD (no ctembed) 10.41 / 11.44.
     # - dyn-rope-ctembed-impBase (finetune from offline base): clear gain.
     #   baseLr0.25 best (dev 8.83 / test 9.68), baseLr0.5 ~tied (8.84 / 9.71),
     #   baseLr0.1 weaker (8.97 / 9.85); vs from-scratch dyn-rope-ctembed 9.41 / 10.29.
     # - base-2xtrain: dev 6.58 / test 7.41 (vs base 1x 7.32 / 8.10).
-    # - dyn-rope-ctembed-2xtrain (TODO put result here once ready)
-    # - longform results (TODO summarize)
+    # - dyn-rope-ctembed-2xtrain: dev 8.49 / test 9.19 (213.7h); clear gain over 1x (9.41 / 10.29).
+    #   AED+CTC first-pass dev 7.25 / test 7.90.
+    #   (Best from-scratch chunked streaming result so far.)
+    # - longform (TEDLium; dyn-rope-ctembed, streaming-KV seg10):
+    #   seg.test 5.12 / long.test 4.97 (long-form ~beats segmented).
     # - WBE/TSE: now computed for every CTC model (TIMIT val+test); the uid seq-tag mismatch bug is fixed.
     # - Streaming + first-word latency: now computed for every CTC model.
     # TODO fill here until next time...
