@@ -550,6 +550,10 @@ def py():
             text_train_epoch_split=75,
             batch_size_audio_frames=120_000,
             max_phon_len=300,
+            # At the enc rate there is no 6x subsampling on the text branch, so a phoneme costs ~6x
+            # more than in the pseudo-enc-logmel variants; 25k phon OOMed at step 1. 8k phon
+            # (~20k enc frames at ~2.5 frames/phoneme) matches the audio batch's enc-frame volume.
+            batch_size_phon=8_000,
             asr_logmel=True,
             pseudo_speech_enc=True,
             pseudo_enc_start_layer=_start_layer,
