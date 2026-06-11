@@ -1,7 +1,7 @@
 from i6_experiments.users.zeyer.external_models.huggingface import (
     DownloadHuggingFaceRepoJob,
 )
-from .common import HF_CACHE_DIR
+from .common import HF_CACHE_DIR, job_progress_fraction, last_jsonl_value
 from pathlib import Path
 from sisyphus import Job, Task, tk
 import os
@@ -94,6 +94,10 @@ class MoshiAnnotate(Job):
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
 
+    def completed_fraction(self):
+        # moshi_annotate_inference.py writes progress.json into the job work dir.
+        return job_progress_fraction(self)
+
     @classmethod
     def hash(cls, parsed_args):
         d = dict(**parsed_args)
@@ -176,6 +180,17 @@ class MoshiFinetune(Job):
     def tasks(self):
         yield Task("write_config", mini_task=True)
         yield Task("run", rqmt=self.rqmt)
+
+    def completed_fraction(self):
+        # moshi-finetune logs every step to run_dir/metrics.train.jsonl with a
+        # percent_done field; tail-read it (no edits to the fork needed).
+        pct = last_jsonl_value(
+            os.path.join(self.out_rundir.get_path(), "metrics.train.jsonl"),
+            "percent_done",
+        )
+        if pct is None:
+            return None
+        return max(0.0, min(1.0, pct / 100.0))
 
     def write_config(self):
         run_dir = self.out_rundir.get()

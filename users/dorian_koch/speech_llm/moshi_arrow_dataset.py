@@ -55,6 +55,23 @@ def _is_arrow_source(path: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _norm_aligns(raw) -> list:
+    """Normalize an alignments column value to positional tuples
+    ``(text, (start, end), speaker)`` expected by the fork's ``dicho`` /
+    ``Interleaver``. Handles both the struct schema (list of dicts) written by
+    the current annotate job and the legacy ``[text, [start, end], speaker]``
+    layout stored via the Json feature (where numeric-looking words decode back
+    to numbers, hence the ``str(...)``).
+    """
+    out = []
+    for a in raw:
+        if isinstance(a, dict):
+            out.append((str(a["text"]), (a["start"], a["end"]), a["speaker"]))
+        else:
+            out.append((str(a[0]), (a[1][0], a[1][1]), a[2]))
+    return out
+
+
 def tokenize_arrow_row(
     row: dict,
     instruct_tokenizer: InterleavedTokenizer,
@@ -98,7 +115,7 @@ def tokenize_arrow_row(
         )
         audio_tokens = audio_tokens.view(1, -1, num_audio_frames)
 
-        alignments = row.get("alignments", [])
+        alignments = _norm_aligns(row.get("alignments", []))
         # Slice alignments to [start_sec, start_sec + duration_sec]
         start_align = dicho(alignments, start_sec)
         end_align = dicho(alignments, start_sec + duration_sec)

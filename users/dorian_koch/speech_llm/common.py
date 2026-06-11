@@ -131,3 +131,90 @@ def vllm_server(hf_model: str):
                     server_process.kill()
                 server_process.wait()
 
+
+# ---------------------------------------------------------------------------
+# Progress reporting helpers (for Job.completed_fraction)
+# ---------------------------------------------------------------------------
+#
+# Sisyphus calls Job.completed_fraction() manager-side for every running job and
+# prints "[XX.X%]". It must be cheap and read progress off the shared filesystem.
+# Two flavours:
+#   - job_progress_fraction(job): reads a tiny progress.json our worker scripts
+#     write into their cwd (= the job work dir) as {"done", "total"}.
+#   - last_jsonl_value(path, field): tail-reads the last JSON line of a .jsonl
+#     metrics file (e.g. moshi-finetune's metrics.train.jsonl "percent_done").
+
+
+def write_progress(done: int, total: int, path: str = "progress.json") -> None:
+    """Worker-side: atomically write a {done, total} progress marker.
+
+    Call this from an inference loop; the file lands in the process cwd, which is
+    the Sisyphus job work dir, so Job.completed_fraction() can read it back.
+    """
+    import json
+    import os
+    import tempfile
+
+    d = os.path.dirname(os.path.abspath(path)) or "."
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".progress-")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump({"done": int(done), "total": int(total)}, f)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def job_progress_fraction(job) -> "float | None":
+    """Manager-side: read a worker-written progress.json from the job work dir.
+
+    :return: fraction in [0, 1], or None if no usable progress yet.
+    """
+    import json
+    import os
+    from sisyphus import global_settings as gs
+
+    try:
+        with open(os.path.join(job._sis_path(gs.JOB_WORK_DIR), "progress.json")) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return None
+    total = d.get("total") or 0
+    if total <= 0:
+        return None
+    return max(0.0, min(1.0, d.get("done", 0) / total))
+
+
+def last_jsonl_value(path: str, field: str):
+    """Tail-read the last complete JSON line of a .jsonl file and return field.
+
+    Cheap: only the file tail is read. Returns None if unavailable/unparseable.
+    """
+    import json
+    import os
+
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return None
+    if size == 0:
+        return None
+    with open(path, "rb") as f:
+        f.seek(max(0, size - 4096))
+        tail = f.read()
+    for line in reversed(tail.splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if field in obj:
+            return obj[field]
+    return None
+

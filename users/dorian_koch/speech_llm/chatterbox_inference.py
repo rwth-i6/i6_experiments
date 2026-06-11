@@ -10,6 +10,26 @@ from datasets import Features, Value, Sequence, Audio, Dataset, load_from_disk
 
 print("Imports successful", flush=True)
 
+
+def _write_progress(done, total, path="progress.json"):
+    """Write a tiny {done,total} marker so Sisyphus Job.completed_fraction can
+    report progress. Lands in cwd, which is the job work dir."""
+    import tempfile
+
+    d = os.path.dirname(os.path.abspath(path)) or "."
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".progress-")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump({"done": int(done), "total": int(total)}, f)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 SPEAKER_ALIAS = {}
 
 dialogue_features = Features(
@@ -183,6 +203,13 @@ def process_dialogue(
         "Each turn in the dialogue should contain 'speaker', 'text' fields"
     )
 
+    # Some upstream dialogues emit a turn's text as a (usually single-element)
+    # list instead of a string; normalize so downstream synthesis
+    # (chatterbox punc_norm -> text.split()) and metadata both get a plain str.
+    for turn in dialogue:
+        if isinstance(turn["text"], list):
+            turn["text"] = " ".join(str(t) for t in turn["text"])
+
     output_dir = os.path.join(out_dir, f"dialogue_{diag_id}")
     os.makedirs(output_dir, exist_ok=True)
 
@@ -322,6 +349,8 @@ def main():
                 num_shards=args.in_hf_num_shards, index=args.in_hf_shard
             )
             print(f"Using shard {args.in_hf_shard} of {args.in_hf_num_shards}")
+        total_dialogues = len(dataset)
+        _write_progress(0, total_dialogues)
         for i, example in enumerate(dataset):
             print(f"Processing dialogue {i}...")
             dialogue = json.loads(example["dialogue"])
@@ -340,6 +369,7 @@ def main():
                 i,
             )
             last_diag_id = i
+            _write_progress(i + 1, total_dialogues)
     else:
         with open(args.in_jsonl, "r", encoding="utf-8") as f:
             for i, line in enumerate(f):

@@ -46,11 +46,45 @@ import importlib
 
 transcribe_mod = importlib.import_module("whisper_timestamped.transcribe")
 
-from datasets import load_from_disk, Dataset
+from datasets import load_from_disk, Dataset, Features, List, Value
 from concurrent.futures import ProcessPoolExecutor
 import functools
 
 _log = logging.getLogger(__name__)
+
+
+def _write_progress(done, total, path="progress.json"):
+    """Write a tiny {done,total} marker so Sisyphus Job.completed_fraction can
+    report progress. Lands in cwd, which is the job work dir."""
+    import tempfile
+
+    d = os.path.dirname(os.path.abspath(path)) or "."
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".progress-")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump({"done": int(done), "total": int(total)}, f)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+# On-disk schema for the per-row alignments column. Stored as a struct (list of
+# dicts) rather than a ragged [text, [start, end], speaker] list so HF datasets
+# represents it natively instead of falling back to the Json feature, whose
+# decode silently re-parses numeric-looking words (e.g. "100" -> 100) and breaks
+# Interleaver._tokenize (word.strip()). See moshi_arrow_dataset._norm_aligns.
+ALIGNMENT_FEATURE = List(
+    {
+        "text": Value("string"),
+        "start": Value("float32"),
+        "end": Value("float32"),
+        "speaker": Value("string"),
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +199,18 @@ def annotate_hf_to_hf(
         shard=0,
     )
 
+    # Progress tracking for Sisyphus Job.completed_fraction (dataset.map runs
+    # process_row sequentially in-process, so a simple counter is accurate).
+    _progress = {"done": 0, "total": len(dataset)}
+    _write_progress(0, _progress["total"])
+
+    def _tick():
+        _progress["done"] += 1
+        if _progress["done"] % 8 == 0 or _progress["done"] == _progress["total"]:
+            _write_progress(_progress["done"], _progress["total"])
+
     def process_row(row: dict) -> dict:
+        _tick()
         # Extract speaker tracks from the HF Audio-feature structure.
         # ChatterboxInference stores speaker_audio as a dict of lists.
         d = row.get("speaker_audio", {})
@@ -213,26 +258,42 @@ def annotate_hf_to_hf(
             _log.exception("Error annotating row; returning empty alignments.")
             aligns = []
 
+        # Emit alignments as a struct (list of dicts) matching ALIGNMENT_FEATURE
+        # so the column is stored natively rather than via the Json fallback.
+        aligns_struct = [
+            {
+                "text": str(a[0]),
+                "start": float(a[1][0]),
+                "end": float(a[1][1]),
+                "speaker": a[2],
+            }
+            for a in aligns
+        ]
+
         return {
             "audio": {
                 "array": stereo.T.tolist(),  # (T, 2) for HF Audio
                 "sampling_rate": sample_rate,
             },
-            "alignments": aligns,
+            "alignments": aligns_struct,
             "duration": duration,
         }
 
     _log.info("Annotating %d rows …", len(dataset))
     import datasets as _ds_lib
-    with _ds_lib.disable_caching():
-        annotated = dataset.map(
-            process_row,
-            remove_columns=[c for c in dataset.column_names if c not in ("id",)],
-            desc="annotating",
-            writer_batch_size=8,
-        )
+
+    _ds_lib.disable_caching()
+    annotated = dataset.map(
+        process_row,
+        remove_columns=[c for c in dataset.column_names if c not in ("id",)],
+        desc="annotating",
+        writer_batch_size=8,
+    )
     # Drop rows that failed (audio=None)
     annotated = annotated.filter(lambda row: row["audio"] is not None)
+    # Pin the alignments schema (float32 timestamps, string text) so it is never
+    # stored via the Json feature regardless of inference.
+    annotated = annotated.cast_column("alignments", ALIGNMENT_FEATURE)
     annotated.save_to_disk(out_dir)
     _log.info("Wrote annotated dataset to %s (%d rows).", out_dir, len(annotated))
 

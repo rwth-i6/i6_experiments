@@ -2,7 +2,7 @@ from pathlib import Path
 from sisyphus import Job, Task, tk
 import os
 import subprocess
-from .common import HF_CACHE_DIR
+from .common import HF_CACHE_DIR, job_progress_fraction
 import json
 from i6_experiments.users.dorian_koch.jobs.hf import HfMergeShards
 
@@ -152,6 +152,10 @@ class ChatterboxInference(Job):
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
 
+    def completed_fraction(self):
+        # chatterbox_inference.py writes progress.json into the job work dir.
+        return job_progress_fraction(self)
+
     def run(self):
         this_file_path = Path(__file__).resolve()
         tts_script_path = this_file_path.parent / "chatterbox_inference.py"
@@ -190,8 +194,6 @@ class ChatterboxInference(Job):
         if self.ffmpeg_path is not None:
             print(f"Adding FFmpeg from {self.ffmpeg_path.get()} to environment")
             InstallFFmpeg.add_to_env(self.ffmpeg_path, env)
-
-        print(f"Env: {env}")
 
         print(
             f"Running Chatterbox inference with command: {' '.join(command)}",
