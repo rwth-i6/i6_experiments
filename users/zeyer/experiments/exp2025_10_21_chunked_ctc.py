@@ -1315,9 +1315,18 @@ def py():
     # - dyn-rope-ctembed-2xtrain: dev 8.49 / test 9.19 (213.7h); clear gain over 1x (9.41 / 10.29).
     #   AED+CTC first-pass dev 7.25 / test 7.90.
     #   (Best from-scratch chunked streaming result so far.)
-    # - longform (TEDLium; dyn-rope-ctembed, streaming-KV seg10):
-    #   seg.test 5.12 / long.test 4.97 (long-form ~beats segmented).
-    # - WBE/TSE: now computed for every CTC model (TIMIT val+test); the uid seq-tag mismatch bug is fixed.
+    # - longform: so far ONLY chunked-L80-C5-R4-v2.3-dyn-rope-ctembed, streaming-KV seg10.
+    #   seg.test 5.12, long.test 4.97 -- but these are two SEPARATE HF datasets:
+    #   seg = HF Open-ASR-Leaderboard "tedlium" (its own segmentation + text normalization),
+    #   long = distil-whisper/tedlium-long-form (full talks). NOT verified to use the same reference
+    #   text / normalization / ignored-region handling, so seg-vs-long is NOT a valid comparison yet.
+    #   TODO: verify reference comparability before comparing the two numbers; and run long-form for
+    #   more models (other chunk sizes, offline base) to make long-form itself comparable across models.
+    # - WBE (TIMIT test, mean word-boundary error in s, lower=better; computed for every CTC model,
+    #   val close to test; full WBE/TSE breakdown in each model's align-stats/<m>/timit-*/report.txt):
+    #   offline base 0.109; streaming dyn-rope-ctembed 0.154 (2xtrain 0.173; impBase ~0.13; overlap 0.124).
+    #   Bigger center chunk = coarser boundaries: C5 ~0.15-0.19, C20 ~0.24, C40 ~0.35, C100 ~0.65.
+    #   NB WBE does NOT track WER: dynV2/V3 best WBE (~0.12) but worst WER; 2xtrain best WER but worse WBE.
     # - Streaming + first-word latency: now computed for every CTC model.
     # TODO fill here until next time...
 
