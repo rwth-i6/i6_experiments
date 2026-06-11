@@ -174,6 +174,7 @@ class Model(BaseTTSModelV1):
         noise_scale=1.0,
         length_scale=1.0,
         gen_duration_jitter=None,
+        gen_duration_jitter_mult=None,
     ):
         """
         :param gen_duration_jitter: optional (low, high) tuple. If given (generation only),
@@ -182,6 +183,11 @@ class Model(BaseTTSModelV1):
             so the total length (and thus cost) is unchanged --
             only the learned per-phoneme alignment structure is removed.
             Default None: unchanged behavior (durations from the duration predictor).
+        :param gen_duration_jitter_mult: optional (low, high) tuple. If given (generation only),
+            each predicted per-phoneme duration is multiplied by an i.i.d. uniform sample from
+            [low, high), NOT renormalized -- the learned alignment structure is kept,
+            but the per-phoneme speaking rate (and the total length) varies.
+            Default None: unchanged behavior.
         """
         if not gen:
             y, y_lengths = self.extract_features(raw_audio=raw_audio, raw_audio_lengths=raw_audio_lengths)
@@ -210,6 +216,10 @@ class Model(BaseTTSModelV1):
                 w_rand = (lo + (hi - lo) * torch.rand_like(w)) * h_mask
                 w_rand_sum = torch.clamp_min(w_rand.sum(dim=[1, 2], keepdim=True), 1e-8)
                 w = w_rand * (w.sum(dim=[1, 2], keepdim=True) / w_rand_sum)
+            if gen_duration_jitter_mult is not None:
+                # Multiplicative jitter (see docstring above): structure kept, rate/total varies.
+                lo, hi = gen_duration_jitter_mult
+                w = w * (lo + (hi - lo) * torch.rand_like(w))
             w_ceil = torch.ceil(w)  # durations ceiled
             y_lengths = torch.clamp_min(torch.sum(w_ceil, [1, 2]), 1).long()
             y_max_length = None
