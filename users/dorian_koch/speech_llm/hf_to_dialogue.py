@@ -154,10 +154,25 @@ DIALOGUE_INSTRUCTION_TEMPLATES = [
 ]
 
 
-def _pick_template(uid: str) -> str:
-    """Deterministically pick a template index from uid."""
+# Human-readable names for each template (same order as DIALOGUE_INSTRUCTION_TEMPLATES).
+# Stored as provenance metadata per dialogue row.
+DIALOGUE_INSTRUCTION_TEMPLATE_NAMES = [
+    "qa_direct",
+    "qa_user_guesses",
+    "casual_brief",
+    "multi_turn_explanation",
+    "skeptical_user",
+    "socratic",
+]
+assert len(DIALOGUE_INSTRUCTION_TEMPLATE_NAMES) == len(DIALOGUE_INSTRUCTION_TEMPLATES)
+
+
+def _pick_template(uid: str) -> tuple[str, str]:
+    """Deterministically pick a template and its name from uid.
+    Returns (template_text, template_name)."""
     h = int(hashlib.md5(uid.encode()).hexdigest(), 16)
-    return DIALOGUE_INSTRUCTION_TEMPLATES[h % len(DIALOGUE_INSTRUCTION_TEMPLATES)]
+    idx = h % len(DIALOGUE_INSTRUCTION_TEMPLATES)
+    return DIALOGUE_INSTRUCTION_TEMPLATES[idx], DIALOGUE_INSTRUCTION_TEMPLATE_NAMES[idx]
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +211,7 @@ _DIALOGUE_JSON_SCHEMA = {
         "type": "object",
         "properties": {
             "speaker": {"type": "string", "enum": ["user", "assistant"]},
-            "text": {"type": "string"},
+            "text": {"type": "string", "minLength": 1},
         },
         "required": ["speaker", "text"],
         "additionalProperties": False,
@@ -214,7 +229,7 @@ def make_dialogue_gen(llm_url: str, model_name: str, adapter_name: str):
             base_url=llm_url,
         )
         spec = adapter(example)
-        template = _pick_template(str(spec["uid"]))
+        template, template_name = _pick_template(str(spec["uid"]))
         user_msg = _build_user_message(spec, template)
 
         # Deterministic but varied seed: combine uid hash with a per-run offset
@@ -242,16 +257,15 @@ def make_dialogue_gen(llm_url: str, model_name: str, adapter_name: str):
                 print(f"JSONDecodeError on attempt {attempt + 1} (uid={spec['uid']!r}): raw={raw!r}")
                 parsed = []
             if isinstance(parsed, list) and parsed and parsed[0].get("speaker") == "user":
-                return {"dialogue": json.dumps(parsed)}
+                return {"dialogue": json.dumps(parsed), "llm_name": model_name, "template_name": template_name}
             print(
                 f"Attempt {attempt + 1} failed (uid={spec['uid']!r}): "
                 f"first speaker={parsed[0].get('speaker') if isinstance(parsed, list) and parsed else repr(parsed)[:120]!r}"
             )
             print(f"  Generated: {json.dumps(parsed)[:300]}")
-        raise ValueError(
-            f"Dialogue does not start with user after {max_attempts} attempts (uid={spec['uid']!r}). "
-            f"Last output: {json.dumps(parsed)[:200]}"
-        )
+        # All attempts failed — mark row as None so HfToDialogue.run() can filter and count
+        print(f"All {max_attempts} attempts failed for uid={spec['uid']!r}. Marking as failed.")
+        return {"dialogue": None, "llm_name": model_name, "template_name": template_name}
 
     return make_dialogue
 
@@ -351,7 +365,19 @@ class HfToDialogue(Job):
 
             gen_fn = make_dialogue_gen(llm_url, self.llm_name, self.adapter_name)
             dataset = dataset.map(gen_fn, num_proc=32)
-            print("Dialogues generated. Saving …")
+
+            # Count and remove failed rows; abort if failure rate > 1%
+            num_failures = sum(1 for row in dataset if row["dialogue"] is None)
+            if num_failures > 0:
+                print(f"Dialogue generation: {num_failures}/{len(dataset)} rows failed.")
+            if num_failures > len(dataset) * 0.01:
+                raise ValueError(
+                    f"Dialogue generation failure rate too high: "
+                    f"{num_failures}/{len(dataset)} ({100*num_failures/len(dataset):.1f}% > 1%). "
+                    "Check vLLM server or reduce temperature."
+                )
+            dataset = dataset.filter(lambda row: row["dialogue"] is not None)
+            print(f"Dialogues generated ({len(dataset)} rows after filtering). Saving …")
 
             dataset.save_to_disk(self.out_hf.get())
             dataset.to_json(self.out_json.get())
@@ -403,10 +429,10 @@ class HfDialogueToJsonFile(Job):
 
         if num_errors > 0 and not self.ignore_errors:
             raise ValueError(f"Encountered {num_errors} errors while parsing dialogues.")
-        if num_errors > len(dataset) * 0.1:
+        if num_errors > len(dataset) * 0.01:
             raise ValueError(
                 f"Encountered {num_errors} errors while parsing dialogues "
-                f"({num_errors}/{len(dataset)}, > 10%). Something might be wrong."
+                f"({num_errors}/{len(dataset)}, > 1%). Something might be wrong."
             )
 
 
@@ -462,9 +488,9 @@ class HfDialogueCleaner(Job):
         num_errors = previous_len - len(filtered)
         if num_errors > 0 and not self.ignore_errors:
             print(f"Encountered {num_errors} errors while parsing dialogues.")
-        if num_errors > len(dataset) * 0.1:
+        if num_errors > len(dataset) * 0.01:
             raise ValueError(
                 f"Encountered {num_errors} errors while parsing dialogues "
-                f"({num_errors}/{len(dataset)}, > 10%). Something might be wrong."
+                f"({num_errors}/{len(dataset)}, > 1%). Something might be wrong."
             )
         filtered.save_to_disk(self.out_hf.get())

@@ -87,7 +87,7 @@ class MoshiAnnotate(Job):
         self.rqmt = {
             "gpu": 1,
             "cpu": 6,
-            "mem": 8,
+            "mem": 16,
             "time": 4,
         }
 
@@ -165,9 +165,10 @@ class MoshiAnnotate(Job):
 
 
 class MoshiFinetune(Job):
-    def __init__(self, venv_python_path: tk.AbstractPath, train_data: tk.Path):
+    def __init__(self, venv_python_path: tk.AbstractPath, train_data: tk.Path, seed: int = 0):
         self.train_data = train_data
         self.venv_python_path = venv_python_path
+        self.seed = seed
         self.out_config = self.output_path("config.yaml")
         self.out_rundir = self.output_path("run_dir", directory=True)
         self.rqmt = {
@@ -191,6 +192,20 @@ class MoshiFinetune(Job):
         if pct is None:
             return None
         return max(0.0, min(1.0, pct / 100.0))
+
+    def info(self):
+        eta_s = last_jsonl_value(
+            os.path.join(self.out_rundir.get_path(), "metrics.train.jsonl"),
+            "eta_in_seconds",
+        )
+        if eta_s is None:
+            return None
+        eta_s = int(eta_s)
+        h, rem = divmod(eta_s, 3600)
+        m = rem // 60
+        if h > 0:
+            return f"ETA {h}h{m:02d}m"
+        return f"ETA {m}m"
 
     def write_config(self):
         run_dir = self.out_rundir.get()
@@ -237,7 +252,7 @@ optim:
   pct_start: 0.05
 
 # other
-seed: 0
+seed: {getattr(self, "seed", 0)}
 log_freq: 1
 eval_freq: 100
 do_eval: false

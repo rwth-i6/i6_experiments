@@ -57,13 +57,13 @@ dialogue_features = Features(
 
 
 def available_speakers(speaker_dir: str) -> list[str]:
-    """List available speakers based on the files in the speaker directory."""
-    speakers = []
-    for filename in os.listdir(speaker_dir):
-        if filename.endswith(".wav"):
-            speaker_name = os.path.splitext(filename)[0]
-            speakers.append(speaker_name)
-    return speakers
+    """List available speakers based on the files in the speaker directory.
+    Returns sorted list so random.choice gives the same result regardless of filesystem order."""
+    return sorted(
+        os.path.splitext(filename)[0]
+        for filename in os.listdir(speaker_dir)
+        if filename.endswith(".wav")
+    )
 
 
 def speaker_name_to_path(speaker_name: str, speaker_dir: str) -> str:
@@ -188,7 +188,7 @@ def gen_conversation(
         en = u["end"]
         rendered[s][0, st:en] += u["wav"][0]
 
-    return rendered, utterances
+    return rendered, utterances, speaker_to_path
 
 
 def process_dialogue(
@@ -213,15 +213,19 @@ def process_dialogue(
     output_dir = os.path.join(out_dir, f"dialogue_{diag_id}")
     os.makedirs(output_dir, exist_ok=True)
 
-    audios_per_speaker, utterances = gen_conversation(
+    audios_per_speaker, utterances, speaker_to_path = gen_conversation(
         model, dialogue, device, speaker_dir, silence_length_sampler
     )
 
     for speaker, audio in audios_per_speaker.items():
+        clipped = (audio.abs() > 1.0).any().item()
+        if clipped:
+            print(f"Warning: audio for speaker {speaker!r} clipped; clamping to [-1, 1].")
+        torch.clamp_(audio, -1.0, 1.0)
         torchaudio.save(f"{output_dir}/{speaker}.wav", audio.cpu(), model.sr)
         print(f"Saved {speaker}'s audio to {output_dir}/{speaker}.wav")
 
-    # save utterances without audio as metadata.json
+    # save utterances without audio as metadata.json; include resolved voice path
     metadata = []
     for u in utterances:
         metadata.append(
@@ -230,6 +234,7 @@ def process_dialogue(
                 "text": u["text"],
                 "start_time": u["start"] / model.sr,
                 "end_time": u["end"] / model.sr,
+                "voice": os.path.relpath(speaker_to_path[u["speaker"]], speaker_dir),
             }
         )
     with open(f"{output_dir}/metadata.json", "w", encoding="utf-8") as f:

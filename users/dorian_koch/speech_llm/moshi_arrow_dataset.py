@@ -82,10 +82,24 @@ def tokenize_arrow_row(
     Mirrors InterleavedTokenizer.__call__ but reads audio/alignments from the
     dict rather than from disk.
     """
-    sr_native = row["audio"]["sampling_rate"]
-    audio_array = np.array(row["audio"]["array"], dtype=np.float32)  # (T, 2) or (2, T)
-    if audio_array.ndim == 2 and audio_array.shape[0] == 2:
-        audio_array = audio_array.T  # → (T, 2)
+    # New format (Option B): two mono HF Audio columns (audio_assistant/_user).
+    # Legacy format: a single stereo "audio" column. Read both for back-compat.
+    if row.get("audio_assistant") is not None:
+        a, u = row["audio_assistant"], row["audio_user"]
+        sr_native = a["sampling_rate"]
+        assistant = np.asarray(a["array"], dtype=np.float32).reshape(-1)
+        user = np.asarray(u["array"], dtype=np.float32).reshape(-1)
+        n = max(assistant.shape[0], user.shape[0])
+        if assistant.shape[0] < n:
+            assistant = np.pad(assistant, (0, n - assistant.shape[0]))
+        if user.shape[0] < n:
+            user = np.pad(user, (0, n - user.shape[0]))
+        audio_array = np.stack([assistant, user], axis=1)  # (T, 2): ch0=assistant, ch1=user
+    else:
+        sr_native = row["audio"]["sampling_rate"]
+        audio_array = np.array(row["audio"]["array"], dtype=np.float32)  # (T, 2) or (2, T)
+        if audio_array.ndim == 2 and audio_array.shape[0] == 2:
+            audio_array = audio_array.T  # → (T, 2)
 
     # Convert to torch stereo tensor (2, T) expected by mimi.encode
     wav = torch.from_numpy(audio_array.T).float()  # (2, T)
@@ -123,6 +137,11 @@ def tokenize_arrow_row(
             (a[0], (a[1][0] - start_sec, a[1][1] - start_sec), a[2]) for a in alignments[start_align:end_align]
         ]
 
+        # this_num is in audio frames (not seconds). The upstream fork's own
+        # InterleavedTokenizer.__call__ passes frames identically (interleaver.py:279).
+        # build_token_stream produces T = frames * frame_rate tokens but word placement
+        # is also in frame units, so the oversized stream is then truncated back to
+        # num_audio_frames by the pad below. Accidentally correct; don't 'fix' to seconds.
         text_tokens = instruct_tokenizer.interleaver.prepare_item(sliced_aligns, this_num)
         text_tokens = torch.nn.functional.pad(
             text_tokens,

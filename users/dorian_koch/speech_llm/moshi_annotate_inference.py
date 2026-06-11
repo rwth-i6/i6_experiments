@@ -4,9 +4,11 @@ moshi_annotate_inference.py — Moshi annotation using whisper_timestamped.
 Two modes:
   1. Arrow-native (new, default): reads a Chatterbox TTS out_hf dataset,
      annotates each row in-memory, writes an HF dataset with columns:
-       audio  ({"array": float32[], "sampling_rate": int})
+       audio_assistant, audio_user  (HF Audio(), mono per speaker)
        alignments  (list of [text, [start_s, end_s], "SPEAKER_MAIN"])
        duration  (float, seconds)
+     (Legacy datasets instead have a single stereo "audio" column; the
+      moshi_arrow_dataset consumer reads both formats.)
   2. Legacy file mode: converts to wav+json on disk (kept for compat).
 
 The core Whisper alignment is factored into annotate_array() which is
@@ -46,7 +48,7 @@ import importlib
 
 transcribe_mod = importlib.import_module("whisper_timestamped.transcribe")
 
-from datasets import load_from_disk, Dataset, Features, List, Value
+from datasets import load_from_disk, Dataset, Features, List, Value, Audio
 from concurrent.futures import ProcessPoolExecutor
 import functools
 
@@ -131,20 +133,30 @@ def annotate_array(
             return outs
 
         transcribe_mod.get_vad_segments = _patched_get_vad_segments
-
-    pipe_output = whisper.transcribe(
-        w_model,
-        vocals,
-        language=language,
-        vad="auditok" if dur > 10 else None,
-        best_of=5,
-        beam_size=5,
-        temperature=(0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
-        verbose=None,
-    )
-
-    # Restore original VAD function
-    transcribe_mod.get_vad_segments = old_get_vad_segments
+        try:
+            pipe_output = whisper.transcribe(
+                w_model,
+                vocals,
+                language=language,
+                vad="auditok" if dur > 10 else None,
+                best_of=5,
+                beam_size=5,
+                temperature=(0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
+                verbose=None,
+            )
+        finally:
+            transcribe_mod.get_vad_segments = old_get_vad_segments
+    else:
+        pipe_output = whisper.transcribe(
+            w_model,
+            vocals,
+            language=language,
+            vad="auditok" if dur > 10 else None,
+            best_of=5,
+            beam_size=5,
+            temperature=(0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
+            verbose=None,
+        )
 
     alignments = []
     for segment in pipe_output.get("segments", []):
@@ -169,7 +181,7 @@ def annotate_hf_to_hf(
     *,
     whisper_model: str = "medium",
     language: str = "en",
-    keep_silence_in_segments: float = True,
+    keep_silence_in_segments: float = 1.0,
 ):
     """Read a Chatterbox TTS out_hf dataset and write an annotated HF dataset.
 
@@ -199,15 +211,18 @@ def annotate_hf_to_hf(
         shard=0,
     )
 
-    # Progress tracking for Sisyphus Job.completed_fraction (dataset.map runs
-    # process_row sequentially in-process, so a simple counter is accurate).
+    # Progress tracking and failure counters (map is single-process, so mutable
+    # dicts are safe for accumulation across process_row calls).
     _progress = {"done": 0, "total": len(dataset)}
+    _counters = {"missing_audio": 0, "annotate_error": 0}
     _write_progress(0, _progress["total"])
 
     def _tick():
         _progress["done"] += 1
         if _progress["done"] % 8 == 0 or _progress["done"] == _progress["total"]:
             _write_progress(_progress["done"], _progress["total"])
+
+    _FAILED_SENTINEL = {"audio_assistant": None, "audio_user": None, "alignments": [], "duration": 0.0}
 
     def process_row(row: dict) -> dict:
         _tick()
@@ -217,7 +232,6 @@ def annotate_hf_to_hf(
         if d:
             speaker_tracks = [dict(zip(d.keys(), vals)) for vals in zip(*d.values())]
         else:
-            # Fallback: try direct 'audio' column (single speaker)
             speaker_tracks = []
 
         user_audio = None
@@ -237,7 +251,8 @@ def annotate_hf_to_hf(
 
         if user_audio is None or assistant_audio is None:
             _log.warning("Row missing user or assistant audio; skipping.")
-            return {"audio": None, "alignments": [], "duration": 0.0}
+            _counters["missing_audio"] += 1
+            return _FAILED_SENTINEL
 
         # Align lengths with graceful zero-pad (don't crash on minor mismatches)
         max_len = max(len(user_audio), len(assistant_audio))
@@ -255,8 +270,9 @@ def annotate_hf_to_hf(
         except Exception as exc:
             if "cuda" in repr(exc).lower():
                 raise
-            _log.exception("Error annotating row; returning empty alignments.")
-            aligns = []
+            _log.exception("Error annotating row; marking as failed.")
+            _counters["annotate_error"] += 1
+            return _FAILED_SENTINEL
 
         # Emit alignments as a struct (list of dicts) matching ALIGNMENT_FEATURE
         # so the column is stored natively rather than via the Json fallback.
@@ -271,31 +287,61 @@ def annotate_hf_to_hf(
         ]
 
         return {
-            "audio": {
-                "array": stereo.T.tolist(),  # (T, 2) for HF Audio
+            # Two mono HF Audio() columns (torchcodec-encoded in moshi_venv),
+            # mirroring ChatterboxInference's per-speaker Audio storage.
+            "audio_assistant": {
+                "array": np.ascontiguousarray(assistant_audio, dtype=np.float32),
+                "sampling_rate": sample_rate,
+            },
+            "audio_user": {
+                "array": np.ascontiguousarray(user_audio, dtype=np.float32),
                 "sampling_rate": sample_rate,
             },
             "alignments": aligns_struct,
             "duration": duration,
         }
 
-    _log.info("Annotating %d rows …", len(dataset))
+    rows_in = len(dataset)
+    _log.info("Annotating %d rows …", rows_in)
     import datasets as _ds_lib
 
     _ds_lib.disable_caching()
+    # Store per-speaker audio as HF Audio() (torchcodec-encoded) rather than raw
+    # nested float lists: far cheaper in memory/on disk and the canonical format.
+    out_features = Features(
+        {
+            "id": Value("string"),
+            "audio_assistant": Audio(),
+            "audio_user": Audio(),
+            "alignments": ALIGNMENT_FEATURE,
+            "duration": Value("float32"),
+        }
+    )
     annotated = dataset.map(
         process_row,
         remove_columns=[c for c in dataset.column_names if c not in ("id",)],
+        features=out_features,
         desc="annotating",
-        writer_batch_size=8,
+        writer_batch_size=4,
     )
-    # Drop rows that failed (audio=None)
-    annotated = annotated.filter(lambda row: row["audio"] is not None)
-    # Pin the alignments schema (float32 timestamps, string text) so it is never
-    # stored via the Json feature regardless of inference.
-    annotated = annotated.cast_column("alignments", ALIGNMENT_FEATURE)
+    # Drop rows that failed (audio None) — includes both missing-audio and annotate-error rows
+    annotated = annotated.filter(lambda row: row["audio_assistant"] is not None)
     annotated.save_to_disk(out_dir)
-    _log.info("Wrote annotated dataset to %s (%d rows).", out_dir, len(annotated))
+    rows_out = len(annotated)
+    _log.info(
+        "Wrote annotated dataset to %s (%d/%d rows; dropped %d missing-audio, %d annotate-errors).",
+        out_dir, rows_out, rows_in, _counters["missing_audio"], _counters["annotate_error"],
+    )
+    # Persist per-job stats so they survive after the job directory is inspected.
+    import json as _json_stats
+    stats = {
+        "rows_in": rows_in,
+        "rows_out": rows_out,
+        "dropped_missing_audio": _counters["missing_audio"],
+        "dropped_annotate_error": _counters["annotate_error"],
+    }
+    with open(os.path.join(out_dir, "stats.json"), "w") as _sf:
+        _json_stats.dump(stats, _sf, indent=2)
 
 
 # ---------------------------------------------------------------------------
