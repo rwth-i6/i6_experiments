@@ -69,17 +69,11 @@ class BuildDatasetWithHypTranscriptsJob(Job):
         ds = ds_all[self.dataset_key]
         print(f"source: {len(ds)} seqs, replacing transcripts with {len(hyps)} hyps")
         assert len(ds) == len(hyps), f"{len(ds)=} vs {len(hyps)=}"
-        orig_audio_feat = ds.features["audio"]
-        ds = ds.cast_column("audio", datasets.Audio(decode=False))
-
-        def _map(data, idx):
-            text = hyps[f"seq-{idx}"]
-            words = text.split()
-            assert words, f"empty hyp for seq-{idx}"
-            return {"word_detail": {"utterance": words, "start": [0] * len(words), "stop": [0] * len(words)}}
-
-        ds = ds.map(_map, with_indices=True)
-        ds = ds.cast_column("audio", orig_audio_feat)
+        # The audio column is a PLAIN struct ({array: List(float32), sampling_rate}),
+        # not an Audio feature -- pass it through untouched with identical features,
+        # so nothing ever (re-)encodes audio. Sharded build to bound memory
+        # (Python float lists of the decoded audio are large).
+        feats = ds.features.copy()
 
         ref = "hyp0"
         root = os.path.join(self.out_hub_cache_dir.get_path(), "datasets--local--hyp_transcripts")
@@ -89,12 +83,29 @@ class BuildDatasetWithHypTranscriptsJob(Job):
         with open(os.path.join(root, "refs", "main"), "w") as f:
             f.write(ref)
 
-        num_shards = 4
+        num_shards = 8
+        n = len(ds)
+        n_empty = 0
+        shard_size = (n + num_shards - 1) // num_shards
         for shard in range(num_shards):
-            ds.shard(num_shards=num_shards, index=shard, contiguous=True).to_parquet(
+            records = []
+            for idx in range(shard * shard_size, min((shard + 1) * shard_size, n)):
+                data = ds[idx]
+                words = hyps[f"seq-{idx}"].split()
+                if not words:
+                    # Empty recog hypothesis: keep the seq (downstream tags index by position)
+                    # with a placeholder that never matches a reference word --
+                    # the F1 metric then counts it honestly as an unmatched hyp word.
+                    print(f"WARNING: empty hyp for seq-{idx}, using placeholder", flush=True)
+                    n_empty += 1
+                    words = ["qqq"]
+                data["word_detail"] = {"utterance": words, "start": [0] * len(words), "stop": [0] * len(words)}
+                records.append(data)
+            datasets.Dataset.from_list(records, features=feats).to_parquet(
                 os.path.join(data_dir, f"{self.dataset_key}-{shard:05d}-of-{num_shards:05d}.parquet")
             )
-        print(f"done: {len(ds)} seqs")
+            print(f"shard {shard}: {len(records)} seqs", flush=True)
+        print(f"done: {n} seqs ({n_empty} empty hyps -> placeholder)")
 
 
 class CalcHypAlignMetricsJob(Job):
@@ -117,13 +128,12 @@ class CalcHypAlignMetricsJob(Job):
         returnn_root: Optional[tk.Path] = None,
     ):
         """
-        :param word_boundaries_hdf: aligned hyp-word (start, end) in seconds, [num_hyp_words, 2] per seq,
-            produced on the HYP dataset
-            (e.g. ``out_word_boundaries_hdf`` of
+        :param word_boundaries_hdf: aligned hyp-word (start, end) in seconds,
+            [num_hyp_words, 2] per seq (e.g. ``out_word_boundaries_hdf`` of
             :class:`..word_align_from_per_token_grads.WordAlignFromPerTokenGradsJob`,
-            or ``out_hdf`` of the forced-align baseline jobs).
-            Sequences are matched by tag (``seq-{idx}``);
-            seqs missing from the HDF (e.g. MFA coverage gaps) are skipped and reported.
+            or ``out_hdf`` of the forced-align baseline jobs), produced on the
+            HYP dataset. Sequences are matched by tag (``seq-{idx}``); seqs missing
+            from the HDF (e.g. MFA coverage gaps) are skipped and reported.
         :param hyp_dataset_dir: the :class:`BuildDatasetWithHypTranscriptsJob` output
             the alignment ran on (provides the hyp words, 1:1 with the boundaries).
         :param ref_dataset_dir: the original dataset with reference words and times.

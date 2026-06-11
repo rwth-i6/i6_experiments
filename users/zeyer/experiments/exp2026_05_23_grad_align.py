@@ -85,6 +85,13 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.hyp_alig
     BuildDatasetWithHypTranscriptsJob,
     CalcHypAlignMetricsJob,
 )
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.native_transducer_align import (
+    NativeTransducerAlignJob,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.extract_self_attn import (
+    SelectSelfAttnAlignHeadsJob,
+    ExtractSelfAttnPerTokenJob,
+)
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.word_align_from_per_token_grads import (
     WordAlignFromPerTokenGradsJob,
 )
@@ -211,6 +218,7 @@ def _phi4mm_model_config(
     char_level_brackets: Optional[str] = None,
     char_level_skip_chars: Optional[List[str]] = None,
     grad_wrt: str = "speech_embeddings",
+    attn_implementation: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Build the model_config dict consumed by ``make_model`` in
@@ -244,6 +252,8 @@ def _phi4mm_model_config(
         extra["char_level_skip_chars"] = list(char_level_skip_chars)
     if grad_wrt != "speech_embeddings":
         extra["grad_wrt"] = grad_wrt
+    if attn_implementation is not None:
+        extra["attn_implementation"] = attn_implementation
     return rf.build_dict(
         Phi4MM,
         model_dir=model_dir,
@@ -279,6 +289,8 @@ def py():
     tk.register_output("powsm-model", dl_powsm.out_hub_cache_dir)
 
     dl_whisper = DownloadHuggingFaceRepoJobV2(repo_id="openai/whisper-base", repo_type="model")
+    dl_whisper_l3 = DownloadHuggingFaceRepoJobV2(repo_id="openai/whisper-large-v3", repo_type="model")
+    dl_crisper = DownloadHuggingFaceRepoJobV2(repo_id="nyrahealth/CrisperWhisper", repo_type="model")
     dl_parakeet_rnnt = DownloadHuggingFaceRepoJobV2(repo_id="nvidia/parakeet-rnnt-1.1b", repo_type="model")
     dl_parakeet_tdt = DownloadHuggingFaceRepoJobV2(repo_id="nvidia/parakeet-tdt-0.6b-v2", repo_type="model")
     tk.register_output("whisper-base-model", dl_whisper.out_hub_cache_dir)
@@ -2814,6 +2826,20 @@ def py():
     _test_specs = [
         (_whc_cfg_test, "whisper-base-logmel-timit-test-L2_grad-pertoken-charlev-spc", "L2", False, [(0.5, 1.0)]),
         (
+            rf.build_dict(Whisper, model_dir=dl_whisper_l3.out_hub_cache_dir, char_level=True, char_level_sep=" "),
+            "whisper-large-v3-logmel-timit-test-L2_grad-pertoken-charlev-spc",
+            "L2",
+            False,
+            [(0.5, 1.0)],
+        ),
+        (
+            rf.build_dict(Whisper, model_dir=dl_crisper.out_hub_cache_dir, char_level=True, char_level_sep=" "),
+            "crisperwhisper-logmel-timit-test-L2_grad-pertoken-charlev-spc",
+            "L2",
+            False,
+            [(0.5, 1.0)],
+        ),
+        (
             rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out"),
             "wav2vec2ctc-fproj_out-timit-test-L2_grad-pertoken",
             "L2",
@@ -3279,6 +3305,163 @@ def py():
     ]:
         _xa_align(_xa_extract(_xa_t_cfg, None, "L2", False, bb=_xa_t_bb), _xa_t_name, "en0.5-sil0.0", sil=0.0)
 
+    # (4b) TDT duration-aware prefix score (the emission-scored TDT rows above are the cruder
+    # time-marginal): exact TDT forward incl. per-emission durations, vectorized + verified
+    # like the RNN-T lattice. Both silence settings (TDT preferred sil1.0 on segA).
+    _xa_tdtp_name = f"parakeet-tdt-0.6b-v2-logmel-prefix-{_xa_tag}-L2_grad-pertoken"
+    _xa_tdtp_ex = _xa_extract(
+        rf.build_dict(
+            ParakeetRnnt,
+            model_dir=dl_parakeet_tdt.out_hub_cache_dir,
+            per_token_score="prefix",
+            overlay_path=_NEMO_OVERLAY,
+        ),
+        _xa_tdtp_name,
+        "L2",
+        False,
+    )
+    _xa_align(_xa_tdtp_ex, _xa_tdtp_name, "en0.5-sil1.0")
+    _xa_align(_xa_tdtp_ex, _xa_tdtp_name, "en0.5-sil0.0", sil=0.0)
+
+    # (4c) Whisper-large-v3 (largest released Whisper): scale-up of the headline AED row,
+    # char-level. batched_backward as verified for whisper-base (same architecture/kernels;
+    # re-verified on the test node before the job runs).
+    _xa_wl3_name = f"whisper-large-v3-logmel-{_xa_tag}-L2_grad-pertoken-charlev-spc"
+    _xa_wl3_ex = _xa_extract(
+        rf.build_dict(Whisper, model_dir=dl_whisper_l3.out_hub_cache_dir, char_level=True, char_level_sep=" "),
+        _xa_wl3_name,
+        "L2",
+        False,
+        bb=True,
+    )
+    _xa_align(_xa_wl3_ex, _xa_wl3_name, "en0.5-sil1.0")
+
+    # (4e) Native transducer Viterbi alignment (the transducer's OWN alignment path,
+    # quantized to its 80 ms encoder grid): the same-model counterpart of the parakeet grad rows.
+    for _nt_cfg, _nt_name in [
+        (pk_cfg, "parakeet-rnnt-1.1b"),
+        (tdt_cfg, "parakeet-tdt-0.6b-v2"),
+    ]:
+        for _nt_dir, _nt_key, _nt_off, _nt_tag in [
+            (_xa_dir, "test", _xa_off, _xa_tag),
+            (dl_ds_timit.out_hub_cache_dir, "test", _DATASET_OFFSET_FACTORS["timit"], "timit-test"),
+        ]:
+            _nt = NativeTransducerAlignJob(dataset_dir=_nt_dir, dataset_key=_nt_key, model_config=_nt_cfg)
+            _nt.add_alias(f"baseline-{_nt_name}-native-viterbi-{_nt_tag}")
+            _nt_m = CalcAlignmentMetricsFromWordBoundariesJob(
+                word_boundaries_hdf=_nt.out_word_boundaries_hdf,
+                dataset_dir=_nt_dir,
+                dataset_key=_nt_key,
+                dataset_offset_factors=_nt_off,
+            )
+            tk.register_output(f"baseline-{_nt_name}-native-viterbi-{_nt_tag}-wbe.txt", _nt_m.out_wbe)
+
+    # (4d) Whisper-large-v3 cross-attn DTW (whisper-timestamped heads for large-v3):
+    # the same-model attention counterpart of the large-v3 grad row, on segA and TIMIT-test.
+    for _ca3_dir, _ca3_key, _ca3_off, _ca3_tag in [
+        (_xa_dir, "test", _xa_off, _xa_tag),
+        (dl_ds_timit.out_hub_cache_dir, "test", _DATASET_OFFSET_FACTORS["timit"], "timit-test"),
+    ]:
+        _ca3 = WhisperCrossAttnForcedAlignJob(
+            dataset_dir=_ca3_dir, dataset_key=_ca3_key, overlay=_WHISPER_TS_OVERLAY, whisper_model="large-v3"
+        )
+        _ca3.add_alias(f"baseline-whisper-large-v3-crossattn-{_ca3_tag}")
+        _ca3_m = CalcAlignmentMetricsFromWordBoundariesJob(
+            word_boundaries_hdf=_ca3.out_hdf,
+            dataset_dir=_ca3_dir,
+            dataset_key=_ca3_key,
+            dataset_offset_factors=_ca3_off,
+        )
+        tk.register_output(f"baseline-whisper-large-v3-crossattn-{_ca3_tag}-wbe.txt", _ca3_m.out_wbe)
+
+    # (4g) CrisperWhisper (Whisper finetuned for verbatim transcription + silence-aware
+    # timestamps): grad-align on their checkpoint -- does training-free grad-align already
+    # give what they finetuned for? Their OFFICIAL pipeline is decoding-time -> hyp-mode
+    # row via a separate wrapper job (TODO, see readme spec). Auto-head cross-attn rows
+    # for their checkpoint AND whisper-base are wired in (4h) below.
+    _cw_name = f"crisperwhisper-logmel-{_xa_tag}-L2_grad-pertoken-charlev-spc"
+    _cw_ex = _xa_extract(
+        rf.build_dict(Whisper, model_dir=dl_crisper.out_hub_cache_dir, char_level=True, char_level_sep=" "),
+        _cw_name,
+        "L2",
+        False,
+        bb=True,
+    )
+    _xa_align(_cw_ex, _cw_name, "en0.5-sil1.0")
+
+    # (4h) Auto-head cross-attn (generic attention method, heads selected on TIMIT val):
+    # for whisper-base (contrast with the official hand-picked heads in the crossattn baseline)
+    # and CrisperWhisper (their model + generic method; the official pipeline is separate).
+    for _ah_dl, _ah_model in [(dl_whisper, "whisper-base"), (dl_crisper, "crisperwhisper")]:
+        _ah_cfg = rf.build_dict(Whisper, model_dir=_ah_dl.out_hub_cache_dir, attn_implementation="eager")
+        _ah_sel = SelectSelfAttnAlignHeadsJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_key="val", model_config=_ah_cfg
+        )
+        _ah_sel.add_alias(f"selfattn/{_ah_model}-head-selection")
+        tk.register_output(f"selfattn/{_ah_model}-heads.txt", _ah_sel.out_heads)
+        tk.register_output(f"selfattn/{_ah_model}-heads-report.txt", _ah_sel.out_report)
+        for _ah_dir, _ah_key, _ah_off, _ah_tag in [
+            (_xa_dir, "test", _xa_off, _xa_tag),
+            (dl_ds_timit.out_hub_cache_dir, "test", _DATASET_OFFSET_FACTORS["timit"], "timit-test"),
+        ]:
+            _ah_ex = ExtractSelfAttnPerTokenJob(
+                dataset_dir=_ah_dir, dataset_key=_ah_key, model_config=_ah_cfg, heads=_ah_sel.out_heads
+            )
+            _ah_name = f"baseline-{_ah_model}-crossattn-auto-{_ah_tag}"
+            _ah_ex.add_alias(f"{_ah_name}-extract")
+            tk.register_output(f"{_ah_name}.hdf", _ah_ex.out_hdf)
+            for _ah_ep, _ah_sc, _ah_sfx in [(0.5, 1.0, "-en0.5-sil1.0"), (0.0, 0.0, "")]:
+                _ah_al = WordAlignFromPerTokenGradsJob(
+                    grad_score_hdf=_ah_ex.out_hdf,
+                    grad_score_key="data",
+                    dataset_dir=_ah_dir,
+                    dataset_key=_ah_key,
+                    dataset_offset_factors=_ah_off,
+                    align_opts=_xa_ao,
+                    audio_energy_pow=_ah_ep,
+                    blank_silence_energy_scale=_ah_sc,
+                )
+                _ah_al.add_alias(f"align/{_ah_name}-{_name_for_dict(_xa_ao)}{_ah_sfx}")
+                tk.register_output(f"align/{_ah_name}-{_name_for_dict(_xa_ao)}{_ah_sfx}-wbe.txt", _ah_al.out_wbe)
+
+    # (4f) Speech-LLM SELF-attention DTW (voxtral): the attention analog of whisper's
+    # cross-attn timestamps. No published alignment-head masks exist for these models,
+    # so heads are auto-selected on TIMIT val (gold) and frozen for the eval rows.
+    # Same DP as grad-align -> "same DP, different signal"; also the direct
+    # 80 ms-attention-grid vs 10 ms-grad-grid resolution comparison on one model.
+    _sa_cfg = rf.build_dict(
+        Voxtral, model_dir=dl_voxtral, forward_mode="transcription", attn_implementation="eager", version=3
+    )
+    _sa_sel = SelectSelfAttnAlignHeadsJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_key="val", model_config=_sa_cfg
+    )
+    _sa_sel.add_alias("selfattn/voxtral-head-selection")
+    tk.register_output("selfattn/voxtral-heads.txt", _sa_sel.out_heads)
+    tk.register_output("selfattn/voxtral-heads-report.txt", _sa_sel.out_report)
+    for _sa_dir, _sa_key, _sa_off, _sa_tag in [
+        (_xa_dir, "test", _xa_off, _xa_tag),
+        (dl_ds_timit.out_hub_cache_dir, "test", _DATASET_OFFSET_FACTORS["timit"], "timit-test"),
+    ]:
+        _sa_ex = ExtractSelfAttnPerTokenJob(
+            dataset_dir=_sa_dir, dataset_key=_sa_key, model_config=_sa_cfg, heads=_sa_sel.out_heads
+        )
+        _sa_name = f"baseline-voxtral-selfattn-{_sa_tag}"
+        _sa_ex.add_alias(f"{_sa_name}-extract")
+        tk.register_output(f"{_sa_name}.hdf", _sa_ex.out_hdf)
+        for _sa_ep, _sa_sc, _sa_sfx in [(0.5, 1.0, "-en0.5-sil1.0"), (0.0, 0.0, "")]:
+            _sa_al = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=_sa_ex.out_hdf,
+                grad_score_key="data",
+                dataset_dir=_sa_dir,
+                dataset_key=_sa_key,
+                dataset_offset_factors=_sa_off,
+                align_opts=_xa_ao,
+                audio_energy_pow=_sa_ep,
+                blank_silence_energy_scale=_sa_sc,
+            )
+            _sa_al.add_alias(f"align/{_sa_name}-{_name_for_dict(_xa_ao)}{_sa_sfx}")
+            tk.register_output(f"align/{_sa_name}-{_name_for_dict(_xa_ao)}{_sa_sfx}-wbe.txt", _sa_al.out_wbe)
+
     # (5) grad-score x energy/silence ablation on the headline whisper-char extract (shared; free aligns).
     _xa_whc = _xa_extract(whisper_char_cfg, None, "L2", False)
     _xa_whc_name = f"whisper-base-logmel-{_xa_tag}-L2_grad-pertoken-charlev-spc"
@@ -3407,6 +3590,9 @@ def py():
         (canary_charlev_logmel_st15_cfg, "canary-qwen-charlev-spc-logmel-st15", "L1", False),
     ]:
         for _sb_bb in [False, True]:
+            if _sb_bb and _sb_name == "phi4mm-charlev-spc":
+                # flash-attn backward has no vmap batching rule (verified crash): sequential only.
+                continue
             _sb_ex = ExtractInGradsPerTokenJob(
                 dataset_dir=_sb_dir,
                 dataset_key="test",
@@ -3420,6 +3606,23 @@ def py():
             _sb_alias = f"speedcmp/{_sb_name}-bb{int(_sb_bb)}"
             _sb_ex.add_alias(_sb_alias)
             tk.register_output(f"{_sb_alias}.hdf", _sb_ex.out_hdf)
+
+    # Phi4 eager-attention equality probe: the checkpoint defaults to flash-attn-2
+    # (no output_attentions, no vmap); eager would unblock self-attn alignment and
+    # batched backwards. Must reproduce the FA2-produced phi4-bb0 reference HDF.
+    _p4e_ex = ExtractInGradsPerTokenJob(
+        dataset_dir=_sb_dir,
+        dataset_key="test",
+        model_config=_phi4mm_model_config(
+            dl_phi4mi_dir, char_level=True, char_level_sep=" ", attn_implementation="eager"
+        ),
+        mult_grad_by_inputs=True,
+        attr_reduction="L2",
+    )
+    _p4e_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    _p4e_ex.rqmt = {**_p4e_ex.rqmt, "time": 4}
+    _p4e_ex.add_alias("speedcmp/phi4mm-charlev-spc-eager-bb0")
+    tk.register_output("speedcmp/phi4mm-charlev-spc-eager-bb0.hdf", _p4e_ex.out_hdf)
 
     # Seq-level batching (B>1 per forward; wav2vec2 adapter only so far):
     # sb4 = seq_batch_size=4 with sequential backwards, sb4-bb1 = combined with the vmapped backward.
@@ -3467,7 +3670,15 @@ def py():
             1.0,
             False,
         ),
-        ("voxtral-charlevlogmel", voxtral_transcribe_cfg, voxtral_charlev_logmel_cfg, "L1", False, 1.0, False),
+        (
+            "voxtral-charlevlogmel",
+            rf.build_dict(Voxtral, model_dir=dl_voxtral, recog_mode="transcription", version=3),
+            voxtral_charlev_logmel_cfg,
+            "L1",
+            False,
+            1.0,
+            False,
+        ),
         ("phi4mm-charlev-spc", phi4mm_recog_cfg, pt_csp_cfg, "L2", True, 1.0, False),
         ("canary-qwen-charlev-spc-logmel-st15", canary_cfg, canary_charlev_logmel_st15_cfg, "L1", False, 1.0, False),
         # Transducers: best align is sil0.0 (TIMIT + segA); parakeet-rnnt needs the batched backward.

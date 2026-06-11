@@ -89,6 +89,7 @@ class Phi4MM(BaseModelInterface):
         char_level_skip_chars: Optional[List[str]] = None,
         unwrap_checkpoint_wrappers: bool = False,
         target_start_end_to_device: bool = False,
+        attn_implementation: Optional[str] = None,
     ):
         """
         :param model_dir: hub cache dir of model e.g. via DownloadHuggingFaceRepoJob.out_hub_cache_dir
@@ -132,7 +133,14 @@ class Phi4MM(BaseModelInterface):
         model_dir = get_content_dir_from_hub_cache_dir(self.model_dir)
         processor = AutoProcessor.from_pretrained(model_dir, trust_remote_code=True)
         model = AutoModelForCausalLM.from_pretrained(
-            model_dir, local_files_only=True, torch_dtype="auto", trust_remote_code=True, device_map=str(device)
+            model_dir,
+            local_files_only=True,
+            torch_dtype="auto",
+            trust_remote_code=True,
+            device_map=str(device),
+            # The checkpoint config defaults to flash_attention_2; "eager" enables
+            # output_attentions (self-attn alignment) and vmap-able backwards.
+            **({"attn_implementation": attn_implementation} if attn_implementation else {}),
         ).to(device)
 
         from transformers.models.phi4_multimodal.modeling_phi4_multimodal import Phi4MultimodalForCausalLM

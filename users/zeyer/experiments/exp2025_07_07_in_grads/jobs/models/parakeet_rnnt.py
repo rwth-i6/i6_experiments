@@ -89,6 +89,14 @@ class ParakeetRnnt(BaseModelInterface):
         RNN-T forward over the T x (U+1) lattice,
         then the telescoping difference of the time-integrated occupancy.
 
+        Vectorized as a wavefront over anti-diagonals ``d = t + u``:
+        each cell is the same two-term ``logaddexp`` as the scalar recursion
+        (see :func:`_rnnt_prefix_scores_loop`),
+        with missing predecessors entering as ``-1e9``,
+        which ``logaddexp`` absorbs exactly in fp.
+        ~(T+U) vector graph nodes instead of T*U scalar nodes --
+        the difference between ~50 s/seq and a few s/seq on real Buckeye segments.
+
         :param logp: ``[T, U+1, V]`` log-probs from the joint (teacher-forced).
         :param ys: length-U target subword ids.
         :return: ``[U]`` prefix scores ``Δ_u = accum(u) - accum(u-1)``,
@@ -103,6 +111,39 @@ class ParakeetRnnt(BaseModelInterface):
         loglabel = logp[torch.arange(T, device=dev)[:, None], torch.arange(U, device=dev)[None, :], ys_t[None, :]]
         # ^ [T, U]: from predictor-position u emit ys[u] -> advance to u+1, stay t
 
+        alpha_mat = logp.new_full((T, U1), neg)  # filled diagonal by diagonal
+        prev_t_lo = 0
+        prev_vec = None
+        for d in range(T + U1 - 1):
+            t_lo = max(0, d - (U1 - 1))
+            t_hi = min(d, T - 1)
+            ts = torch.arange(t_lo, t_hi + 1, device=dev)  # [n] cells (t, d-t)
+            us = d - ts
+            if d == 0:
+                vec = logp.new_zeros(1)  # alpha[0, 0] = 0
+            else:
+                # blank predecessor (t-1, u): valid iff t > 0.
+                bl = prev_vec[(ts - 1 - prev_t_lo).clamp(min=0)] + logblank[(ts - 1).clamp(min=0), us]
+                bl = torch.where(ts > 0, bl, torch.full_like(bl, neg))
+                # label predecessor (t, u-1): valid iff u > 0.
+                la = prev_vec[(ts - prev_t_lo).clamp(max=prev_vec.shape[0] - 1)] + loglabel[ts, (us - 1).clamp(min=0)]
+                la = torch.where(us > 0, la, torch.full_like(la, neg))
+                vec = torch.logaddexp(bl, la)
+            alpha_mat = alpha_mat.index_put((ts, us), vec)
+            prev_t_lo, prev_vec = t_lo, vec
+        accum = torch.logsumexp(alpha_mat, dim=0)  # [U+1]
+        return accum[1:] - accum[:-1]  # [U]
+
+    def _rnnt_prefix_scores_loop(self, logp: torch.Tensor, ys: List[int]) -> torch.Tensor:
+        """Scalar reference implementation of :func:`_rnnt_prefix_scores`
+        (the original per-cell recursion; kept for equivalence verification)."""
+        T, U1, _ = logp.shape
+        U = len(ys)
+        dev = logp.device
+        ys_t = torch.tensor(ys, device=dev, dtype=torch.long)
+        logblank = logp[:, :, self.blank_idx]  # [T, U+1]: stay at u, advance t
+        loglabel = logp[torch.arange(T, device=dev)[:, None], torch.arange(U, device=dev)[None, :], ys_t[None, :]]
+
         # alpha[t][u]: log prob of reaching (t,u) having emitted u labels.
         alpha = [[None] * U1 for _ in range(T)]
         alpha[0][0] = logp.new_zeros(())
@@ -116,6 +157,91 @@ class ParakeetRnnt(BaseModelInterface):
                 if u > 0:
                     terms.append(alpha[t][u - 1] + loglabel[t, u - 1])  # emit ys[u-1] from (t,u-1)
                 alpha[t][u] = terms[0] if len(terms) == 1 else torch.logaddexp(terms[0], terms[1])
+        accum = torch.stack([torch.logsumexp(torch.stack([alpha[t][u] for t in range(T)]), 0) for u in range(U1)])
+        return accum[1:] - accum[:-1]  # [U]
+
+    def _tdt_prefix_scores(
+        self, logp: torch.Tensor, logdur: torch.Tensor, ys: List[int], durations: List[int]
+    ) -> torch.Tensor:
+        """Duration-aware TDT prefix score (analog of :func:`_rnnt_prefix_scores`).
+        TDT forward over the T x (U+1) lattice where every emission carries a duration
+        ``d`` from ``durations``: a token advances ``(t, u) -> (t+d, u+1)``,
+        a blank advances ``(t, u) -> (t+d, u)`` with ``d >= 1``
+        (blank duration 0 is excluded, matching TDT decoding -- it would not terminate).
+
+        Vectorized as a row loop over ``t``:
+        cross-row transitions (``d >= 1``) are vector logaddexp accumulations;
+        the in-row token-with-``d=0`` recurrence ``A_u = logaddexp(B_u, A_{u-1} + c_{u-1})``
+        is solved exactly via ``logcumsumexp`` (``A = S + logcumsumexp(B - S)``,
+        ``S_u = sum_{j<u} c_j``).
+
+        :param logp: ``[T, U+1, V]`` token log-probs from the joint (teacher-forced).
+        :param logdur: ``[T, U+1, D]`` duration log-probs from the joint.
+        :param ys: length-U target subword ids.
+        :param durations: the duration values (e.g. ``[0, 1, 2, 3, 4]``), index-aligned to ``logdur``.
+        :return: ``[U]`` prefix scores, grad-attached (as in :func:`_rnnt_prefix_scores`).
+        """
+        T, U1, _ = logp.shape
+        U = len(ys)
+        dev = logp.device
+        neg = -1.0e9  # finite log-zero (true -inf -> 0*inf=NaN grads)
+        ys_t = torch.tensor(ys, device=dev, dtype=torch.long)
+        logblank = logp[:, :, self.blank_idx]  # [T, U+1]
+        loglabel = logp[torch.arange(T, device=dev)[:, None], torch.arange(U, device=dev)[None, :], ys_t[None, :]]
+        # ^ [T, U]: from predictor-position u emit ys[u] -> u+1
+        d0_i = durations.index(0) if 0 in durations else None
+
+        alpha_rows: List[torch.Tensor] = []
+        for t in range(T):
+            base = logp.new_full((U1,), neg)
+            if t == 0:
+                base = base.index_put((torch.zeros(1, dtype=torch.long, device=dev),), logp.new_zeros(1))
+            for d_i, d in enumerate(durations):
+                if d < 1 or d > t:
+                    continue
+                prev = alpha_rows[t - d]  # [U+1]
+                base = torch.logaddexp(base, prev + logblank[t - d] + logdur[t - d, :, d_i])  # blank, same u
+                shifted = prev[:-1] + loglabel[t - d] + logdur[t - d, :-1, d_i]  # token u-1 -> u
+                base = torch.cat([base[:1], torch.logaddexp(base[1:], shifted)])
+            if d0_i is not None and U > 0:
+                c = loglabel[t] + logdur[t, :-1, d0_i]  # [U] in-row token-with-d=0 weights
+                s = torch.cat([logp.new_zeros(1), torch.cumsum(c, 0)])  # [U+1]
+                alpha_rows.append(s + torch.logcumsumexp(base - s, 0))
+            else:
+                alpha_rows.append(base)
+        accum = torch.logsumexp(torch.stack(alpha_rows), dim=0)  # [U+1]
+        return accum[1:] - accum[:-1]  # [U]
+
+    def _tdt_prefix_scores_loop(
+        self, logp: torch.Tensor, logdur: torch.Tensor, ys: List[int], durations: List[int]
+    ) -> torch.Tensor:
+        """Scalar reference implementation of :func:`_tdt_prefix_scores`
+        (per-cell recursion; kept for equivalence verification)."""
+        T, U1, _ = logp.shape
+        U = len(ys)
+        dev = logp.device
+        ys_t = torch.tensor(ys, device=dev, dtype=torch.long)
+        logblank = logp[:, :, self.blank_idx]
+        loglabel = logp[torch.arange(T, device=dev)[:, None], torch.arange(U, device=dev)[None, :], ys_t[None, :]]
+
+        alpha = [[None] * U1 for _ in range(T)]
+        for t in range(T):
+            for u in range(U1):
+                if t == 0 and u == 0:
+                    alpha[0][0] = logp.new_zeros(())
+                    continue
+                terms = []
+                for d_i, d in enumerate(durations):
+                    if 1 <= d <= t:
+                        terms.append(alpha[t - d][u] + logblank[t - d, u] + logdur[t - d, u, d_i])
+                        if u > 0:
+                            terms.append(alpha[t - d][u - 1] + loglabel[t - d, u - 1] + logdur[t - d, u - 1, d_i])
+                    if d == 0 and u > 0:
+                        terms.append(alpha[t][u - 1] + loglabel[t, u - 1] + logdur[t, u - 1, d_i])
+                a = terms[0]
+                for x in terms[1:]:
+                    a = torch.logaddexp(a, x)
+                alpha[t][u] = a
         accum = torch.stack([torch.logsumexp(torch.stack([alpha[t][u] for t in range(T)]), 0) for u in range(U1)])
         return accum[1:] - accum[:-1]  # [U]
 
@@ -159,7 +285,17 @@ class ParakeetRnnt(BaseModelInterface):
         raw_targets: List[List[str]],
         raw_target_seq_lens: torch.Tensor,
         omitted_prev_context: Optional[torch.Tensor] = None,
+        collect_lattice: Optional[list] = None,
     ) -> ForwardOutput:
+        """See :class:`BaseModelInterface`.
+
+        :param collect_lattice: if given, a dict is appended with the teacher-forced
+            joint outputs as numpy:
+            ``log_probs`` [T, U+1, V] token log-probs,
+            ``log_dur`` [T, U+1, D] duration log-probs (TDT; else None),
+            ``durations`` (TDT; else None).
+            Used by the native-Viterbi alignment baseline job.
+        """
         assert raw_inputs_sample_rate is not None
         assert len(raw_inputs) == 1, "ParakeetRnnt wrapper supports batch size 1 only"
         assert isinstance(raw_inputs, torch.Tensor) and raw_inputs.ndim == 2
@@ -207,12 +343,26 @@ class ParakeetRnnt(BaseModelInterface):
             # the slice is a no-op there.
             num_dur = int(logits.shape[-1]) - self.vocab_size
             log_probs = torch.log_softmax(logits[0, ..., : self.vocab_size].float(), dim=-1)  # [T_enc, U+1, V]
-            assert not (num_dur > 0 and self.per_token_score == "prefix"), (
-                f"TDT detected ({num_dur} duration outputs): the RNN-T prefix forward ignores durations "
-                "and would be wrong. Use per_token_score='emission' for TDT (duration-aware TDT forward TODO)."
-            )
 
-            if self.per_token_score == "prefix":
+            if collect_lattice is not None:
+                _cl_dur = None
+                _cl_durs = None
+                if num_dur > 0:
+                    _cl_dur = (
+                        torch.log_softmax(logits[0, ..., self.vocab_size :].float(), dim=-1).detach().cpu().numpy()
+                    )
+                    _cl_durs = [int(d) for d in self.model.cfg["decoding"]["durations"]]
+                collect_lattice.append(
+                    dict(log_probs=log_probs.detach().cpu().numpy(), log_dur=_cl_dur, durations=_cl_durs)
+                )
+
+            if self.per_token_score == "prefix" and num_dur > 0:
+                # TDT: duration-aware prefix score (durations from the decoding cfg).
+                durations = [int(d) for d in self.model.cfg["decoding"]["durations"]]
+                assert len(durations) == num_dur, f"{durations=} vs {num_dur=}"
+                log_dur = torch.log_softmax(logits[0, ..., self.vocab_size :].float(), dim=-1)  # [T, U+1, D]
+                partial = self._tdt_prefix_scores(log_probs, log_dur, sub_ids, durations)  # [S]
+            elif self.per_token_score == "prefix":
                 # Proper transducer prefix score (RNN-T forward); best.
                 partial = self._rnnt_prefix_scores(log_probs, sub_ids)  # [S]
             else:

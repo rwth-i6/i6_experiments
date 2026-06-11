@@ -78,6 +78,7 @@ class Voxtral(BaseModelInterface):
         char_level: bool = False,
         char_level_sep: Optional[str] = None,
         logits_transform: Union[None, str, Dict[str, Any], Sequence[Union[str, Dict[str, Any]]]] = None,
+        attn_implementation: Optional[str] = None,
         version: int = 1,
     ):
         """
@@ -168,7 +169,11 @@ class Voxtral(BaseModelInterface):
         start_time = time.time()
         self.processor = AutoProcessor.from_pretrained(model_dir_str)
         self.model = VoxtralForConditionalGeneration.from_pretrained(
-            model_dir_str, dtype=torch.bfloat16, device_map=str(device)
+            model_dir_str,
+            dtype=torch.bfloat16,
+            device_map=str(device),
+            # eager attention is required for output_attentions (self-attn alignment jobs)
+            **({"attn_implementation": attn_implementation} if attn_implementation else {}),
         ).to(device)
         print(f"  ({time.time() - start_time:.1f}s)")
         print(self.model)
@@ -408,7 +413,18 @@ class Voxtral(BaseModelInterface):
         raw_targets: List[List[str]],
         raw_target_seq_lens: torch.Tensor,
         omitted_prev_context: Optional[torch.Tensor] = None,
+        collect_attentions: Optional[list] = None,
     ) -> ForwardOutput:
+        """See :class:`BaseModelInterface`.
+
+        :param collect_attentions: if given, the LM runs with ``output_attentions=True``
+            and a dict is appended:
+            ``attns`` = per layer ``[H, S_targets, n_audio]``
+            (query = the position PREDICTING each transcript token,
+            keys = the audio token block),
+            ``n_audio`` = audio block length.
+            Used by the self-attention alignment jobs.
+        """
         assert raw_inputs_sample_rate is not None
         assert (len(raw_inputs),) == raw_input_seq_lens.shape == (len(raw_targets),) == raw_target_seq_lens.shape
         assert len(raw_inputs) == 1, "Voxtral wrapper supports batch size 1 only"
@@ -536,6 +552,7 @@ class Voxtral(BaseModelInterface):
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
             output_hidden_states=True,
+            output_attentions=collect_attentions is not None,
         )
         torch.cuda.synchronize()
         print(
@@ -543,6 +560,22 @@ class Voxtral(BaseModelInterface):
             flush=True,
         )
         last_out = res.hidden_states[-1]  # [B, T, H]
+        if collect_attentions is not None:
+            # Rows = the query positions that PREDICT each transcript token
+            # (dst_text_start + u - 1), cols = the (contiguous) audio token block.
+            audio_pos = (input_ids[0] == self.audio_token_id).nonzero(as_tuple=True)[0]
+            a0, a1 = int(audio_pos[0]), int(audio_pos[-1]) + 1
+            assert a1 - a0 == int(audio_pos.numel()), "audio token block not contiguous"
+            n_tgt = int(input_ids.shape[1] - 1 - dst_text_start)
+            rows = torch.arange(dst_text_start - 1, dst_text_start - 1 + n_tgt, device=input_ids.device)
+            _ca_tok_samples = int(round(0.08 * raw_inputs_sample_rate))  # 80 ms audio tokens
+            collect_attentions.append(
+                dict(
+                    attns=[a[0][:, rows][:, :, a0:a1].float().cpu() for a in res.attentions],
+                    n_audio=a1 - a0,
+                    n_audio_real=min(a1 - a0, -(-orig_n_samples // _ca_tok_samples)),
+                )
+            )
         del res
         assert last_out.shape[:2] == input_ids.shape
         report_dev_memory_stats(dev)

@@ -39,6 +39,7 @@ class Whisper(BaseModelInterface):
         act_noise_std: float = 0.0,
         act_dropout: float = 0.0,
         perturb_seed: int = 0,
+        attn_implementation: Optional[str] = None,
         version: int = 1,
     ):
         super().__init__()
@@ -58,7 +59,15 @@ class Whisper(BaseModelInterface):
 
         d = get_content_dir_from_hub_cache_dir(model_dir)
         self.processor = WhisperProcessor.from_pretrained(d)
-        self.model = WhisperForConditionalGeneration.from_pretrained(d).to(device).eval()
+        self.model = (
+            WhisperForConditionalGeneration.from_pretrained(
+                d,
+                # eager attention is required for output_attentions (cross-attn alignment jobs)
+                **({"attn_implementation": attn_implementation} if attn_implementation else {}),
+            )
+            .to(device)
+            .eval()
+        )
         from ..param_noise import apply_param_noise
 
         apply_param_noise(self.model, param_noise_std, param_noise_seed)
@@ -88,7 +97,18 @@ class Whisper(BaseModelInterface):
         raw_targets: List[List[str]],
         raw_target_seq_lens: torch.Tensor,
         omitted_prev_context: Optional[torch.Tensor] = None,
+        collect_attentions: Optional[list] = None,
     ) -> ForwardOutput:
+        """See :class:`BaseModelInterface`.
+
+        :param collect_attentions: if given, the decoder runs with ``output_attentions=True``
+            and a dict is appended:
+            ``attns`` = per decoder layer CROSS-attention ``[H, n_targets, enc_frames]``
+            (query = the position PREDICTING each transcript token),
+            ``n_audio`` = padded encoder frames (1500),
+            ``n_audio_real`` = encoder frames covering real audio (20 ms grid).
+            Used by the attention alignment jobs (auto head selection).
+        """
         assert raw_inputs_sample_rate is not None
         assert len(raw_inputs) == 1, "Whisper wrapper supports batch size 1 only"
         assert isinstance(raw_inputs, torch.Tensor) and raw_inputs.ndim == 2
@@ -161,8 +181,25 @@ class Whisper(BaseModelInterface):
         dst_text_start = len(self.prefix_ids)
 
         with torch.enable_grad():
-            out = self.model(input_features=feats_for_model, decoder_input_ids=dec_in, output_hidden_states=True)
+            out = self.model(
+                input_features=feats_for_model,
+                decoder_input_ids=dec_in,
+                output_hidden_states=True,
+                output_attentions=collect_attentions is not None,
+            )
             dec_hidden = out.decoder_hidden_states[-1]  # [1, P+U, H]
+        if collect_attentions is not None:
+            # Rows = the query positions that PREDICT each transcript token; cols = encoder frames.
+            n_enc = int(out.cross_attentions[0].shape[-1])
+            n_enc_real = min(n_enc, orig_n_samples // (2 * self.hop) + 1)  # 20 ms grid
+            rows_t = torch.arange(dst_text_start - 1, dst_text_start - 1 + n_targets, device=dev)
+            collect_attentions.append(
+                dict(
+                    attns=[a[0][:, rows_t].float().cpu() for a in out.cross_attentions],
+                    n_audio=n_enc,
+                    n_audio_real=int(n_enc_real),
+                )
+            )
         del out
 
         if not self._char_level:
