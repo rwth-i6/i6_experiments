@@ -197,7 +197,11 @@ class CalcHypAlignMetricsJob(Job):
         n_uncovered = 0
         for seq_idx, (ref_data, hyp_data) in enumerate(zip(ref_ds, hyp_ds)):
             hdf_idx = tag_to_hdf_idx.get(f"seq-{seq_idx}")
-            if hdf_idx is None:  # e.g. MFA coverage gap
+            if hdf_idx is None:
+                # The baseline align jobs (MMS_FA, whisper cross-attn) tag by the
+                # dataset's own utterance id instead of seq-{idx}.
+                hdf_idx = tag_to_hdf_idx.get(str(ref_data.get("id")))
+            if hdf_idx is None:  # e.g. MFA / forced-align coverage gap
                 n_uncovered += 1
                 continue
             samplerate = ref_data["audio"]["sampling_rate"]

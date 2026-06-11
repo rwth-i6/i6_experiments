@@ -124,7 +124,14 @@ class ForcedAlignBaselineJob(Job):
                 emission, _ = model(wav)  # [1, n_frames, n_tokens]
             n_frames = int(emission.shape[1])
             ratio = n_orig_samples / n_frames  # original samples per emission frame
-            token_spans = aligner(emission[0], tokenizer([_norm(w) for w in words]))
+            try:
+                token_spans = aligner(emission[0], tokenizer([_norm(w) for w in words]))
+            except RuntimeError as exc:
+                # Unalignable seq: e.g. a degenerate (hallucination-looped) hyp transcript
+                # with more CTC targets than emission frames. Skip the seq -- it is then
+                # missing from the HDF and counted as uncovered by the metric jobs.
+                print(f"WARNING: seq {seq_idx} unalignable, skipping: {exc}", flush=True)
+                continue
             assert len(token_spans) == len(words), f"{len(token_spans)=} {len(words)=}"
 
             word_se = np.zeros((len(words), 2), dtype=np.float32)

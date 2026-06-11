@@ -35,6 +35,10 @@ class SelectSelfAttnAlignHeadsJob(Job):
     boundaries are compared to the gold ones, and heads are ranked by mean WBE.
     """
 
+    # Default (subword, no upsample) keeps the original hash -> finished subword head-sel
+    # jobs reuse; only char rows (True) re-hash and run fresh.
+    __sis_hash_exclude__ = {"time_upsample_when_short": False}
+
     def __init__(
         self,
         *,
@@ -43,14 +47,23 @@ class SelectSelfAttnAlignHeadsJob(Job):
         model_config: Dict[str, Any],
         num_seqs: int = 50,
         top_k: int = 8,
+        time_upsample_when_short: bool = False,
         returnn_root: Optional[tk.Path] = None,
     ):
+        """
+        :param time_upsample_when_short: if a head's [n_tok, n_audio] matrix has more
+            tokens than audio frames (char-level targets on a coarse ~80 ms token grid),
+            the monotonic DP (needs S<=T) can't run. When set, repeat the time axis
+            k=ceil(S/T)x so the DP runs (boundaries resolve to sec_per_frame/k; the
+            underlying 80 ms grid is the real limit). Needed for char-level self-attn.
+        """
         super().__init__()
         self.dataset_dir = dataset_dir
         self.dataset_key = dataset_key
         self.model_config = model_config
         self.num_seqs = num_seqs
         self.top_k = top_k
+        self.time_upsample_when_short = time_upsample_when_short
         self.returnn_root = returnn_root
 
         self.rqmt = {"time": 8, "cpu": 4, "gpu": 1, "mem": 80}
@@ -103,6 +116,8 @@ class SelectSelfAttnAlignHeadsJob(Job):
         print(f"Scoring heads on {n_seqs} seqs")
 
         aligner = Aligner(apply_softmax_over_time=True, blank_score=-5)
+        n_align_fail = 0
+        last_align_err = None
         wbe_sum: Optional[np.ndarray] = None  # [L, H]
         wbe_cnt = 0
 
@@ -141,20 +156,35 @@ class SelectSelfAttnAlignHeadsJob(Job):
                 tok_per_word.append(b - a)
             ref = [(s / sr, e / sr) for s, e in zip(data["word_detail"]["start"], data["word_detail"]["stop"])]
 
+            # Char-level targets can exceed the ~80 ms audio-token frames (S>T) -> the DP
+            # can't run. Upsample the time axis k=ceil(S/T)x so it can (boundaries then
+            # resolve to sec_per_frame/up_k). Per-seq constant (tok_rows, n_real fixed).
+            up_k = 1
+            if self.time_upsample_when_short and len(tok_rows) > n_real:
+                up_k = -(-len(tok_rows) // n_real)
+            sec_per_frame_eff = sec_per_frame / up_k
             for li in range(n_layers):
                 mat_all = attns[li].numpy()  # [H, S, n_audio]
                 for hi in range(n_heads):
                     mat = mat_all[hi][tok_rows][:, :n_real]  # [n_tok, n_real]
+                    if up_k > 1:
+                        mat = np.repeat(mat, up_k, axis=1)
                     try:
                         spans = aligner.align(mat + 1e-8)
-                    except Exception:
-                        wbe_sum[li, hi] += 10.0  # degenerate head
+                    except Exception as exc:
+                        # A genuinely degenerate head (flat scores) still aligns -- it
+                        # just scores poorly. A RAISE here means a structural problem
+                        # (e.g. S>T without upsampling): record it and fail loudly after
+                        # the sweep rather than silently selecting a random head.
+                        wbe_sum[li, hi] += 10.0
+                        n_align_fail += 1
+                        last_align_err = repr(exc)
                         continue
                     bounds = []
                     cur = 0
                     for k in tok_per_word:
                         # ends inclusive, same convention as the production align job
-                        bounds.append((spans[cur][0] * sec_per_frame, spans[cur + k - 1][1] * sec_per_frame))
+                        bounds.append((spans[cur][0] * sec_per_frame_eff, spans[cur + k - 1][1] * sec_per_frame_eff))
                         cur += k
                     errs = per_utt_boundary_errors(bounds, ref)
                     wbe_sum[li, hi] += float(np.mean(errs["wbe"]))
@@ -169,7 +199,18 @@ class SelectSelfAttnAlignHeadsJob(Job):
             "median_wbe": float(np.median(mean_wbe)),
             "best_wbe": float(mean_wbe[order[0][0], order[0][1]]),
         }
+        report["n_align_fail"] = int(n_align_fail)
+        report["last_align_err"] = last_align_err
         print("REPORT:", report)
+        # Fail loudly on a degenerate selection instead of silently emitting random heads.
+        # A real alignment head scores ~0.05-0.20 s WBE on gold dev; >0.5 s means the DP
+        # failed for (nearly) all heads -- e.g. char tokens exceed the audio-token grid
+        # (S>T) and time_upsample_when_short was not set. See the upsample note.
+        assert report["best_wbe"] < 0.5, (
+            f"degenerate head selection: best_wbe={report['best_wbe']:.3f}s (expected ~0.1s); "
+            f"{n_align_fail} per-head align failures, last error: {last_align_err}. "
+            "Likely S>T (char tokens > audio frames) -- pass time_upsample_when_short=True."
+        )
         self.out_heads.set(top)
         self.out_report.set(report)
 

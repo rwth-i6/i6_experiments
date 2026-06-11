@@ -72,6 +72,7 @@ class CanaryQwen(BaseModelInterface):
         char_level_case: Optional[str] = None,
         audio_time_stretch: float = 1.0,
         ensure_audio_long_enough: bool = False,
+        attn_implementation: Optional[str] = None,
         version: int = 1,
     ):
         """
@@ -90,6 +91,10 @@ class CanaryQwen(BaseModelInterface):
         :param char_level_brackets: None, ``"char"`` (wrap each char in [/]),
             or ``"word"`` (wrap each word's chars in [/]).
         :param char_level_skip_chars: characters to skip entirely.
+        :param attn_implementation: override the LLM attention implementation
+            (e.g. ``"eager"``, needed for ``collect_attentions`` --
+            SDPA/flash return no attention weights). Mathematically identical
+            attention, so no version bump.
         """
         super().__init__()
         _activate_overlay()
@@ -155,6 +160,15 @@ class CanaryQwen(BaseModelInterface):
         print(f"  ({time.time() - start_time:.1f}s)")
         print("model type:", type(self.model).__name__)
 
+        self.attn_implementation = attn_implementation
+        if attn_implementation is not None:
+            llm = self.model.llm
+            if hasattr(llm, "set_attn_implementation"):
+                llm.set_attn_implementation(attn_implementation)
+            else:
+                llm.config._attn_implementation = attn_implementation
+            print(f"  attn_implementation={attn_implementation}")
+
         self.audio_locator_tag = self.model.audio_locator_tag
         self.audio_locator_tag_id = int(self.model.audio_locator_tag_id)
         self.assistant_end_token_id = int(self.model.text_eos_id)
@@ -206,6 +220,7 @@ class CanaryQwen(BaseModelInterface):
         raw_targets: List[List[str]],
         raw_target_seq_lens: torch.Tensor,
         omitted_prev_context: Optional[torch.Tensor] = None,
+        collect_attentions: Optional[list] = None,
     ) -> ForwardOutput:
         from nemo.collections.speechlm2.models.salm import replace_placeholders_and_build_targets
 
@@ -392,10 +407,33 @@ class CanaryQwen(BaseModelInterface):
             inputs_embeds=input_embs,
             attention_mask=attention_mask,
             output_hidden_states=True,
+            output_attentions=collect_attentions is not None,
             return_dict=True,
         )
         torch.cuda.synchronize()
         last_out = res.hidden_states[-1]
+        if collect_attentions is not None:
+            # Same contract as the Voxtral adapter: per layer ``[H, S_targets, n_audio]``,
+            # rows = the positions PREDICTING each target token, cols = the audio block
+            # (the single audio_locator token expanded into n_audio_real frames).
+            # Requires attn_implementation="eager" (SDPA returns no weights).
+            assert res.attentions is not None and res.attentions[0] is not None, (
+                "no attention weights returned -- construct with attn_implementation='eager'"
+            )
+            audio_pos = (input_ids[0] == self.audio_locator_tag_id).nonzero(as_tuple=True)[0]
+            assert audio_pos.numel() == 1, "expected exactly one audio_locator tag"
+            a0 = int(audio_pos[0])
+            a1 = a0 + n_audio_real
+            n_tgt = int(input_ids.shape[1] - 1 - dst_text_start)
+            r0 = dst_text_start + n_audio_real - 1 - 1  # predictor of the first target token
+            rows = torch.arange(r0, r0 + n_tgt, device=input_embs.device)
+            collect_attentions.append(
+                dict(
+                    attns=[a[0][:, rows][:, :, a0:a1].float().cpu() for a in res.attentions],
+                    n_audio=n_audio_real,
+                    n_audio_real=n_audio_real,
+                )
+            )
         del res
         print(
             f"[fwd] llm forward ok; last_out.shape={tuple(last_out.shape)}",

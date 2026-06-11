@@ -92,6 +92,10 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.extract_
     SelectSelfAttnAlignHeadsJob,
     ExtractSelfAttnPerTokenJob,
 )
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.crisper_whisper_align import (
+    CrisperWhisperOfficialAlignJob,
+)
+from i6_core.tools.git import CloneGitRepositoryJob
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.word_align_from_per_token_grads import (
     WordAlignFromPerTokenGradsJob,
 )
@@ -3389,6 +3393,21 @@ def py():
     )
     _xa_align(_cw_ex, _cw_name, "en0.5-sil1.0")
 
+    # grad-align with CrisperWhisper's OWN (retokenized verbatim) targets: subword mode
+    # uses the checkpoint's native tokenizer (the special vocab w/ uh/um filler tokens,
+    # standalone spaces), same targets their official pipeline aligns. This is the fair
+    # "same model + SAME targets, grad vs their cross-attn DTW / vs generic auto-crossattn"
+    # comparison (the charlev row above uses different, generic char targets).
+    _cw_sub_name = f"crisperwhisper-logmel-{_xa_tag}-L2_grad-pertoken-subword"
+    _cw_sub_ex = _xa_extract(
+        rf.build_dict(Whisper, model_dir=dl_crisper.out_hub_cache_dir),
+        _cw_sub_name,
+        "L2",
+        False,
+        bb=True,
+    )
+    _xa_align(_cw_sub_ex, _cw_sub_name, "en0.5-sil1.0")
+
     # (4h) Auto-head cross-attn (generic attention method, heads selected on TIMIT val):
     # for whisper-base (contrast with the official hand-picked heads in the crossattn baseline)
     # and CrisperWhisper (their model + generic method; the official pipeline is separate).
@@ -3424,43 +3443,93 @@ def py():
                 _ah_al.add_alias(f"align/{_ah_name}-{_name_for_dict(_xa_ao)}{_ah_sfx}")
                 tk.register_output(f"align/{_ah_name}-{_name_for_dict(_xa_ao)}{_ah_sfx}-wbe.txt", _ah_al.out_wbe)
 
-    # (4f) Speech-LLM SELF-attention DTW (voxtral): the attention analog of whisper's
-    # cross-attn timestamps. No published alignment-head masks exist for these models,
-    # so heads are auto-selected on TIMIT val (gold) and frozen for the eval rows.
-    # Same DP as grad-align -> "same DP, different signal"; also the direct
+    # (4f) Speech-LLM SELF-attention DTW (voxtral + canary-qwen): the attention analog
+    # of whisper's cross-attn timestamps. No published alignment-head masks exist for
+    # these models, so heads are auto-selected on TIMIT val (gold) and frozen for the
+    # eval rows. Same DP as grad-align -> "same DP, different signal"; also the direct
     # 80 ms-attention-grid vs 10 ms-grad-grid resolution comparison on one model.
-    _sa_cfg = rf.build_dict(
-        Voxtral, model_dir=dl_voxtral, forward_mode="transcription", attn_implementation="eager", version=3
-    )
-    _sa_sel = SelectSelfAttnAlignHeadsJob(
-        dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_key="val", model_config=_sa_cfg
-    )
-    _sa_sel.add_alias("selfattn/voxtral-head-selection")
-    tk.register_output("selfattn/voxtral-heads.txt", _sa_sel.out_heads)
-    tk.register_output("selfattn/voxtral-heads-report.txt", _sa_sel.out_report)
-    for _sa_dir, _sa_key, _sa_off, _sa_tag in [
-        (_xa_dir, "test", _xa_off, _xa_tag),
-        (dl_ds_timit.out_hub_cache_dir, "test", _DATASET_OFFSET_FACTORS["timit"], "timit-test"),
+    # Tokenization axis: "subword" (model-native) AND "char" (forced char-level,
+    # same as the grad rows), so the grad-vs-self-attn comparison is same-target.
+    # The subword cfg/aliases are byte-identical to the original (empty char kwargs),
+    # so the already-finished subword jobs reuse their hashes; char rows are new.
+    # Explicit per-tokenization configs (char needs a higher model version than
+    # subword for voxtral: char_level=True asserts version>=7; canary char is fine
+    # at version 3). subword cfgs are byte-identical to the originals -> finished
+    # subword jobs reuse their hashes; char rows are new.
+    for _sa_model, _sa_cfgs in [
+        (
+            "voxtral",
+            {
+                "subword": rf.build_dict(
+                    Voxtral, model_dir=dl_voxtral, forward_mode="transcription", attn_implementation="eager", version=3
+                ),
+                "char": rf.build_dict(
+                    Voxtral,
+                    model_dir=dl_voxtral,
+                    forward_mode="transcription",
+                    attn_implementation="eager",
+                    char_level=True,
+                    char_level_sep=" ",
+                    version=7,
+                ),
+            },
+        ),
+        (
+            "canary-qwen",
+            {
+                "subword": rf.build_dict(
+                    CanaryQwen, model_dir=dl_canary, llm_model_dir=dl_qwen3, attn_implementation="eager", version=3
+                ),
+                "char": rf.build_dict(
+                    CanaryQwen,
+                    model_dir=dl_canary,
+                    llm_model_dir=dl_qwen3,
+                    attn_implementation="eager",
+                    char_level=True,
+                    char_level_sep=" ",
+                    version=3,
+                ),
+            },
+        ),
     ]:
-        _sa_ex = ExtractSelfAttnPerTokenJob(
-            dataset_dir=_sa_dir, dataset_key=_sa_key, model_config=_sa_cfg, heads=_sa_sel.out_heads
-        )
-        _sa_name = f"baseline-voxtral-selfattn-{_sa_tag}"
-        _sa_ex.add_alias(f"{_sa_name}-extract")
-        tk.register_output(f"{_sa_name}.hdf", _sa_ex.out_hdf)
-        for _sa_ep, _sa_sc, _sa_sfx in [(0.5, 1.0, "-en0.5-sil1.0"), (0.0, 0.0, "")]:
-            _sa_al = WordAlignFromPerTokenGradsJob(
-                grad_score_hdf=_sa_ex.out_hdf,
-                grad_score_key="data",
-                dataset_dir=_sa_dir,
-                dataset_key=_sa_key,
-                dataset_offset_factors=_sa_off,
-                align_opts=_xa_ao,
-                audio_energy_pow=_sa_ep,
-                blank_silence_energy_scale=_sa_sc,
+        for _sa_tokn, _sa_cfg in _sa_cfgs.items():
+            # Keep the bare model name for subword (stable aliases); suffix char rows.
+            _sa_mt = _sa_model if _sa_tokn == "subword" else f"{_sa_model}-char"
+            _sa_sel = SelectSelfAttnAlignHeadsJob(
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                model_config=_sa_cfg,
+                # char tokens exceed the 80 ms audio-token grid (S>T) -> upsample so head
+                # selection can DP-align (else every head is degenerate). Bumps only the
+                # char head-sel hash, cascading a fresh char extract+align; subword unchanged.
+                time_upsample_when_short=(_sa_tokn == "char"),
             )
-            _sa_al.add_alias(f"align/{_sa_name}-{_name_for_dict(_xa_ao)}{_sa_sfx}")
-            tk.register_output(f"align/{_sa_name}-{_name_for_dict(_xa_ao)}{_sa_sfx}-wbe.txt", _sa_al.out_wbe)
+            _sa_sel.add_alias(f"selfattn/{_sa_mt}-head-selection")
+            tk.register_output(f"selfattn/{_sa_mt}-heads.txt", _sa_sel.out_heads)
+            tk.register_output(f"selfattn/{_sa_mt}-heads-report.txt", _sa_sel.out_report)
+            for _sa_dir, _sa_key, _sa_off, _sa_tag in [
+                (_xa_dir, "test", _xa_off, _xa_tag),
+                (dl_ds_timit.out_hub_cache_dir, "test", _DATASET_OFFSET_FACTORS["timit"], "timit-test"),
+            ]:
+                _sa_ex = ExtractSelfAttnPerTokenJob(
+                    dataset_dir=_sa_dir, dataset_key=_sa_key, model_config=_sa_cfg, heads=_sa_sel.out_heads
+                )
+                _sa_name = f"baseline-{_sa_mt}-selfattn-{_sa_tag}"
+                _sa_ex.add_alias(f"{_sa_name}-extract")
+                tk.register_output(f"{_sa_name}.hdf", _sa_ex.out_hdf)
+                for _sa_ep, _sa_sc, _sa_sfx in [(0.5, 1.0, "-en0.5-sil1.0"), (0.0, 0.0, "")]:
+                    _sa_al = WordAlignFromPerTokenGradsJob(
+                        grad_score_hdf=_sa_ex.out_hdf,
+                        grad_score_key="data",
+                        dataset_dir=_sa_dir,
+                        dataset_key=_sa_key,
+                        dataset_offset_factors=_sa_off,
+                        align_opts=_xa_ao,
+                        audio_energy_pow=_sa_ep,
+                        blank_silence_energy_scale=_sa_sc,
+                    )
+                    _sa_al.add_alias(f"align/{_sa_name}-{_name_for_dict(_xa_ao)}{_sa_sfx}")
+                    tk.register_output(f"align/{_sa_name}-{_name_for_dict(_xa_ao)}{_sa_sfx}-wbe.txt", _sa_al.out_wbe)
 
     # (5) grad-score x energy/silence ablation on the headline whisper-char extract (shared; free aligns).
     _xa_whc = _xa_extract(whisper_char_cfg, None, "L2", False)
@@ -3742,6 +3811,35 @@ def py():
             )
             _hy_mfa.add_alias(f"hyp-align/mfa-{_xa_tag}-align")
             _hy_metrics(f"mfa-{_xa_tag}", _hy_mfa.out_word_boundaries_hdf, _hy_dir)
+
+    # CrisperWhisper OFFICIAL pipeline row (hyp-mode): their decode-time word timestamps
+    # (verbatim retokenized vocab + heads finetuned with attention loss + cross-attn DTW
+    # + pause splitting, capped 160 ms). Needs their transformers fork. Their heads were
+    # trained on timestamped TIMIT, so ONLY the Buckeye row is clean -- no TIMIT row here.
+    # Contrast rows on the same checkpoint: grad-align (4g) and auto-head cross-attn (4h).
+    _cw_fork = CloneGitRepositoryJob(
+        url="https://github.com/nyrahealth/transformers",
+        branch="crisper_whisper",
+        checkout_folder_name="transformers",
+    )
+    _cw_repo = CloneGitRepositoryJob(
+        url="https://github.com/nyrahealth/CrisperWhisper",
+        checkout_folder_name="CrisperWhisper",
+    )
+    _cw_off = CrisperWhisperOfficialAlignJob(
+        model_dir=dl_crisper.out_hub_cache_dir,
+        transformers_fork_dir=_cw_fork.out_repository,
+        crisper_repo_dir=_cw_repo.out_repository,
+        dataset_dir=_xa_dir,
+        dataset_key="test",
+    )
+    _cw_off.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    _cw_off.add_alias(f"hyp-align/crisperwhisper-official-{_xa_tag}-decode")
+    tk.register_output(f"hyp-align/crisperwhisper-official-{_xa_tag}-hyps.txt.gz", _cw_off.out_hyps_txt)
+    _cw_off_ds = BuildDatasetWithHypTranscriptsJob(
+        dataset_dir=_xa_dir, dataset_key="test", hyps_txt=_cw_off.out_hyps_txt
+    )
+    _hy_metrics(f"crisperwhisper-official-{_xa_tag}", _cw_off.out_word_boundaries_hdf, _cw_off_ds.out_hub_cache_dir)
 
 
 def _build_timit_phi4mm(

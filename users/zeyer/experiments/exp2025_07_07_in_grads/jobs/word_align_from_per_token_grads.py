@@ -188,6 +188,19 @@ class WordAlignFromPerTokenGradsJob(Job):
             grad_mat = grad_mat.reshape(chunk_num_tokens, chunk_num_timeframes)
             secs_per_timeframe = audio_len_secs / chunk_num_timeframes
 
+            # More tokens than time frames (char-level targets on a coarse ~80 ms attention
+            # grid) -> the monotonic DP (needs S<=T) can't run. Upsample the time axis by
+            # repeating each frame k times so S<=k*T. Boundaries then resolve to
+            # secs_per_timeframe/k, but the underlying signal is unchanged (the coarse grid
+            # is the real resolution limit; this just lets >1 token share a frame). No-op for
+            # all grad rows (tokens<=frames), so finished jobs are unaffected (logic-only,
+            # no hash change).
+            if chunk_num_tokens > chunk_num_timeframes:
+                _up_k = -(-chunk_num_tokens // chunk_num_timeframes)  # ceil
+                grad_mat = np.repeat(grad_mat, _up_k, axis=1)
+                chunk_num_timeframes = chunk_num_timeframes * _up_k
+                secs_per_timeframe = audio_len_secs / chunk_num_timeframes
+
             # Smoothed audio-RMS-energy envelope on the grad frame grid, in [0,1].
             # Used both to energy-weight tokens (audio_energy_pow)
             # and to drive an explicit energy/VAD-derived silence emission for the blank row.
