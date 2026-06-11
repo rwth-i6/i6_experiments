@@ -1093,6 +1093,7 @@ def py():
             version=3,
         )
 
+    # CTC-only: 10.52 (vs conformer dyn-rope-ctembed 9.41; Mamba-2 SSD hybrid encoder).
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-mamba2",
         {
@@ -1102,6 +1103,7 @@ def py():
             "lm_recog_extra.__serialization_version_stats": 2,
         },
     )
+    # CTC-only: 11.09 (vs conformer dyn-rope-ctembed 9.41; DeltaNet hybrid encoder).
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-deltanet",
         {
@@ -1116,6 +1118,7 @@ def py():
     # DeltaNet-bidir has fully separate forward / backward DeltaNetBlock instances (no scan-
     # internal weights to share, so the binary choice is full duplication).
     # Plain mamba2-bidir (bs/4) dropped -- superseded by mamba2-bidir-ssdchunk256 (bs/2, fairer compare).
+    # CTC-only: 11.41 (uni deltanet 11.09 -- bidir does NOT help here).
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-deltanet-bidir",
         {
@@ -1210,6 +1213,7 @@ def py():
     # Finetune LR: keep warmup but short (step_peak_fraction=0.01, ~1 epoch), sweep peak via base_lr.
     # Partial preload (ignore_missing): conformer blocks + decoder transfer; rope/ctembed init fresh.
     train("base-2xtrain", {"total_k_hours": 200})
+    # CTC-only: 8.52 (1x dyn-rope-ctembed 9.41; clear gain). AED+CTC first-pass dev 7.25.
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-2xtrain",
         {
