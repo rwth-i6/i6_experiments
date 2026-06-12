@@ -1289,12 +1289,6 @@ def py():
     # - WBE/TSE. Goal is to also compute actual latency.
 
     # To report for next time:
-    # - Linear-attention encoders, all worse than conformer dyn-rope-ctembed 9.41 / 10.29:
-    #   mamba2 dev 10.47 / test 11.35 (174.0h),
-    #   deltanet 11.09 / 11.93 (164.3h),
-    #   deltanet-bidir 11.41 / 12.28 (197.9h, bidir HURTS vs uni).
-    #   mamba2 best of the linear-attn set.
-    #   TODO still running: mamba2-bidir, mamba2-bidir-ssdchunk256.
     # - Dyn-pool comparison (rope+ctembed fixed, only the train pools vary), dev / test (train h):
     #   dyn 9.41 / 10.29 (128.3h; run2 9.52 / 10.21, 107.3h),
     #   dynCx3 9.47 / 10.28 (120.8h, oversample small C, no gain),
@@ -1303,8 +1297,8 @@ def py():
     #   non-dyn and dynV4 still running.
     #   Decisive knob: a 0 in the history/lookahead pools hurts, standard dyn best.
     # - R0-v2.3-overlap run. (TODO put result here once ready)
-    # - 2xtrain (TODO put result here once ready)
     # - Overlap at recog only (-ov2): hurts; C5-R4-ov2 10.65 (vs 9.41), C5-R2-ov2 18.10 (vs 10.14).
+    # - 2xtrain (TODO put result here once ready)
     # - dyn-rope-ctembed-overlap-mse: MSE helps the overlap variant (dev 10.20 -> 9.99),
     #   but overlap still regresses vs no-overlap dyn-rope-ctembed (9.41).
     #   Reference: overlap 10.20 / 11.03, overlap-mse 9.99 / 10.85, overlapD 9.75 / 10.56;
@@ -1341,6 +1335,12 @@ def py():
     #   so mean-latency is unreliable for large chunks; first-word latency is the cleaner metric there.
     #   Net: latency adds little beyond WER + (C, R); it mainly detects premature emission.
     #   offline base +inf (whole seq needed).
+    # - Linear-attention encoders, all worse than conformer dyn-rope-ctembed 9.41 / 10.29:
+    #   mamba2 dev 10.47 / test 11.35 (174.0h),
+    #   deltanet 11.09 / 11.93 (164.3h),
+    #   deltanet-bidir 11.41 / 12.28 (197.9h, bidir HURTS vs uni).
+    #   mamba2 best of the linear-attn set.
+    #   TODO still running: mamba2-bidir, mamba2-bidir-ssdchunk256.
     # TODO fill here until next time...
 
 
