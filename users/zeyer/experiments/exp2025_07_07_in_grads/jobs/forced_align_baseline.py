@@ -22,6 +22,13 @@ class ForcedAlignBaselineJob(Job):
     # Defaults excluded so the existing baselines keep their hash.
     __sis_hash_exclude__ = {"audio_time_stretch": 1.0, "time_stretch_method": "vocoder"}
 
+    # v1: never skip a seq.
+    # An empty hyp now gets a 0-row entry (was: no entry), and an S>T (more tokens than emission
+    # frames) seq is upsampled to align (was: skipped with a warning).
+    # This changes the output of any FINISHED baseline that hit those cases (notably mms_fa-hyp,
+    # where 2 of 2739 seqs were skipped), so bump the hash to force a rerun.
+    __sis_version__ = 1
+
     def __init__(
         self,
         *,

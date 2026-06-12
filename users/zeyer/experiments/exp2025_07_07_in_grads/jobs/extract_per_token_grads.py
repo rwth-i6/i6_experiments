@@ -254,6 +254,28 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
             transcription = " ".join(words)
             print(f"seq {seq_idx}, {audio.shape=}, {samplerate=}, {transcription!r}")
             num_words = len(words)
+            if num_words == 0:
+                # Empty recog (0 words): there is nothing to extract per-token.
+                # We must NEVER skip a seq -- every seq gets an entry, so the HDF stays
+                # index-aligned and no seq is ever missing downstream (a missing entry is a bug).
+                # Write a valid 0-token entry: 0 grad rows, 0 chunks, every stream empty.
+                # WordAlignFromPerTokenGradsJob detects num_tokens.size==0 and emits a 0-row
+                # boundary for it. (Forced-mode references are never empty; this is a hyp-mode path.)
+                hdf_writer.insert_batch(
+                    np.zeros((1, 0, 1), dtype="float32"),
+                    seq_len=[0],
+                    seq_tag=[f"seq-{seq_idx}"],
+                    extra={
+                        "audio_frames_start_end": np.zeros((1, 0, 2), dtype="int32"),
+                        "num_input_frames": np.zeros((1, 0, 1), dtype="int32"),
+                        "num_words": np.zeros((1, 0, 1), dtype="int32"),
+                        "num_tokens": np.zeros((1, 0, 1), dtype="int32"),
+                        "num_tokens_per_word": np.zeros((1, 0, 1), dtype="int32"),
+                        "log_probs_per_token": np.zeros((1, 0, 1), dtype="float32"),
+                        "exit_log_probs": np.zeros((1, 0, 1), dtype="float32"),
+                    },
+                )
+                continue
             assert len(transcription.split(" ")) == num_words
 
             if seq_idx == 0:
