@@ -1330,6 +1330,7 @@ def py():
     #   Net: latency adds little beyond WER + (C, R); it mainly detects premature emission.
     #   offline base +inf (whole seq needed).
     # - Also running some linear-attention variants (Deltanet, Mamba), not good so far, some are still running.
+    # - Also testing long-form on Tedlium. In progress, looks like we might get some improvements.
 
     # For next time:
     # - R0-v2.3-overlap run. (TODO put result here once ready)
