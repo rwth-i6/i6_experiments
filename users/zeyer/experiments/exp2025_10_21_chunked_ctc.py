@@ -1333,6 +1333,8 @@ def py():
     # - Also running some linear-attention variants (Deltanet, Mamba), not good so far, some are still running.
     # - Also testing long-form on Tedlium. In progress, looks like we might get some improvements.
 
+    # TODO 4xtrain... base also with rope?
+
     # For next time:
     # - R0-v2.3-overlap run. (TODO put result here once ready)
     # - 2xtrain (TODO put result here once ready)
