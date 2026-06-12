@@ -1289,14 +1289,15 @@ def py():
     # - WBE/TSE. Goal is to also compute actual latency.
 
     # To report for next time:
-    # - Dyn-pool comparison (rope+ctembed fixed, only the train pools vary), dev / test (train h):
-    #   dyn 9.41 / 10.29 (128.3h; run2 9.52 / 10.21, 107.3h),
-    #   dynCx3 9.47 / 10.28 (120.8h, oversample small C, no gain),
-    #   dynV3 10.33 / 10.99 (97.1h) -- standard dyn pool PLUS a 0 in the history & lookahead pools,
-    #   dynV2 10.85 / 11.71 (100.1h) -- dynV3's 0s AND offline (None) oversampled 4x in the chunk-size pool.
+    # - Train-pool comparison (rope+ctembed fixed; pools = chunk_size / history / lookahead), dev / test.
+    #   Recipe dirs: chunked-L80-C5-R4-v2.3-{dyn,dynCx3,dynV3,dynV2}-rope-ctembed.
+    #   [5,10,20,40,None] / [80,40] / [4,2]: 9.41 / 10.29 (=dyn; 107.3h, run1 was 128.3h on slower impl),
+    #   [5,5,5,10,20,40,None] / [80,40] / [4,2]: 9.47 / 10.28 (=dynCx3, oversample small C; no gain, 120.8h),
+    #   [5,10,20,40,None] / [80,40,0] / [4,2,0]: 10.33 / 10.99 (=dynV3, adds 0 to history+lookahead; 97.1h),
+    #   [5,10,20,40,None,None,None,None] / [80,40,0] / [4,2,0]: 10.85 / 11.71 (=dynV2, +offline x4; 100.1h slower impl).
     #   TODO non-dyn and dynV4 still running for rope+ctembed.
-    #   So the 0 in the history/lookahead pools costs ~0.9 (dyn 9.41 -> dynV3 10.33);
-    #   oversampling offline costs another ~0.5 (dynV3 -> dynV2 10.85). Standard dyn is best.
+    #   A 0 in the history/lookahead pools costs ~0.9 (-> dynV3); the extra offline x4 another ~0.5 (-> dynV2).
+    #   Plain dyn (no 0, single None) is best.
     #   earlier non-dyn vs dyn (matched features, recog at C5; dev / test, train h):
     #   plain non-dyn 9.46 / 10.29 (168.8h) vs dyn 9.66 / 10.39 (103.9h);
     #   +rope non-dyn 9.31 / 10.16 (237.1h) vs dyn 9.55 / 10.30 (128.4h).
