@@ -1336,16 +1336,25 @@ def py():
     #   Bigger center chunk = coarser boundaries: C5 ~0.15-0.19, C20 ~0.24, C40 ~0.35, C100 ~0.65.
     #   NB WBE does NOT track WER:
     #   dynV2/V3 have best WBE (~0.12) but worst WER, while 2xtrain has best WER but worse WBE.
-    # - Streaming emission latency (TIMIT test, mean over words):
+    # - Streaming emission latency (TIMIT test, mean over words),
+    #   always paired below with CTC-only dev WER as +Lms / WER:
     #   metric = audio-needed(emission chunk, incl. lookahead) - ref word end,
-    #   chunk-aware, per-model chunk geometry, +ve = waits past word end.
-    #   offline base +inf (whole seq needed),
-    #   C5 streaming dyn-rope-ctembed ~+360ms, 2xtrain +388, impBase +335,
-    #   dynV2 +193 / dynV3 +247 (emit earlier -> lower latency but worse WER),
-    #   deltanet +366, mamba2 +422.
-    #   Bigger chunk/lookahead -> higher: C10-R8 +512, C20-R15 +920, C40-R0 +528.
-    #   CAVEAT: L0 (no history) reads +77ms but that is misleading (emits into the lookahead, 24% WER);
-    #   latency-vs-word-end mixes chunk_delay (avail-emit) + emit offset, so read jointly with WER.
+    #   chunk-aware (per-model chunk geometry), +ve = waits past word end.
+    #   It mixes chunk_delay (avail-emit) + emit offset, so a model can buy latency by emitting earlier.
+    #   Ablation, all L80-C5-R4 (identical geometry -> latency reflects emission timing only):
+    #   non-dyn base +411 / 9.46;
+    #   +rope +421 / 9.31 (rope improves WER at ~no latency cost);
+    #   dyn +366 / 9.66 (dyn emits earlier -> lower latency but worse WER);
+    #   dyn-rope +371 / 9.55;
+    #   dyn-rope-ctembed +360 / 9.41 (ctembed recovers WER and keeps low latency -> dominates the base);
+    #   dynV3 +247 / 10.49, dynV2 +193 / 11.0 (aggressive pools emit much earlier: big latency cut, big WER hit);
+    #   dynCx3 +406 / 9.47 (no WER gain, higher latency than dyn-rope-ctembed).
+    #   History sweep (C5-R4): L0 +77 / 24.1 (degenerate, emits into lookahead),
+    #   L40 +428 / 9.41, L80 +411 / 9.46 (history >= 40 barely moves WER or latency).
+    #   Chunk geometry (this is what drives structural latency), with WER:
+    #   C10-R8 +512 / 8.68, C40-R0 +528 / 8.65, C20-R15 +920 / 7.94, C100-R15 +1937 / 7.36
+    #   (bigger chunk/lookahead buys WER with latency; lookahead R dominates -- C20-R15 920ms vs C40-R0 528ms).
+    #   offline base +inf / 7.32 (whole seq needed).
     # TODO fill here until next time...
 
 
