@@ -92,13 +92,10 @@ class BuildDatasetWithHypTranscriptsJob(Job):
             for idx in range(shard * shard_size, min((shard + 1) * shard_size, n)):
                 data = ds[idx]
                 words = hyps[f"seq-{idx}"].split()
-                if not words:
-                    # Empty recog hypothesis: keep the seq (downstream tags index by position)
-                    # with a placeholder that never matches a reference word --
-                    # the F1 metric then counts it honestly as an unmatched hyp word.
-                    print(f"WARNING: empty hyp for seq-{idx}, using placeholder", flush=True)
-                    n_empty += 1
-                    words = ["qqq"]
+                # An empty recog (0 words) is fine and kept as-is:
+                # the seq stays present with an entry (just 0 words) -- a bad recog we accept,
+                # NOT a lost seq. Downstream produces no boundaries for it,
+                # and the metric counts it as 0 matches (a recall penalty). Never faked, never dropped.
                 data["word_detail"] = {"utterance": words, "start": [0] * len(words), "stop": [0] * len(words)}
                 records.append(data)
             datasets.Dataset.from_list(records, features=feats).to_parquet(
@@ -132,8 +129,9 @@ class CalcHypAlignMetricsJob(Job):
             [num_hyp_words, 2] per seq (e.g. ``out_word_boundaries_hdf`` of
             :class:`..word_align_from_per_token_grads.WordAlignFromPerTokenGradsJob`,
             or ``out_hdf`` of the forced-align baseline jobs), produced on the
-            HYP dataset. Sequences are matched by tag (``seq-{idx}``); seqs missing
-            from the HDF (e.g. MFA coverage gaps) are skipped and reported.
+            HYP dataset. Sequences are matched by tag (``seq-{idx}``); a seq missing
+            from the HDF (empty recog or an aligner that could not align it) is counted
+            as a 0-match utterance (honest precision/recall penalty), never skipped.
         :param hyp_dataset_dir: the :class:`BuildDatasetWithHypTranscriptsJob` output
             the alignment ran on (provides the hyp words, 1:1 with the boundaries).
         :param ref_dataset_dir: the original dataset with reference words and times.
@@ -196,18 +194,25 @@ class CalcHypAlignMetricsJob(Job):
         utt_stats = []
         n_uncovered = 0
         for seq_idx, (ref_data, hyp_data) in enumerate(zip(ref_ds, hyp_ds)):
+            samplerate = ref_data["audio"]["sampling_rate"]
+            hyp_words: List[str] = [self._norm_word(w) for w in hyp_data["word_detail"]["utterance"]]
+            ref_words: List[str] = [self._norm_word(w) for w in ref_data["word_detail"]["utterance"]]
+
             hdf_idx = tag_to_hdf_idx.get(f"seq-{seq_idx}")
             if hdf_idx is None:
                 # The baseline align jobs (MMS_FA, whisper cross-attn) tag by the
                 # dataset's own utterance id instead of seq-{idx}.
                 hdf_idx = tag_to_hdf_idx.get(str(ref_data.get("id")))
-            if hdf_idx is None:  # e.g. MFA / forced-align coverage gap
-                n_uncovered += 1
-                continue
-            samplerate = ref_data["audio"]["sampling_rate"]
-
-            hyp_words: List[str] = [self._norm_word(w) for w in hyp_data["word_detail"]["utterance"]]
-            ref_words: List[str] = [self._norm_word(w) for w in ref_data["word_detail"]["utterance"]]
+            if hdf_idx is None:
+                # No entry at all for this seq -> it is genuinely MISSING from the HDF -> a BUG.
+                # Every seq must have an entry; an empty recog gets a 0-row entry (0 boundaries),
+                # NOT no entry. So a missing entry always means a seq was lost upstream.
+                raise KeyError(
+                    f"seq-{seq_idx} (id {ref_data.get('id')!r}) has NO entry in"
+                    f" {self.word_boundaries_hdf.get_path()} -- a seq must never be missing"
+                    " (an empty recog should still have a 0-row entry)."
+                )
+            # hyp_se may be (0, 2) for an empty recog -> 0 boundaries -> 0 matches below (accepted).
 
             hyp_se = boundaries.get_data(hdf_idx, "data")
             assert hyp_se.shape == (len(hyp_words), 2), f"{hyp_se.shape=} vs {len(hyp_words)=}"

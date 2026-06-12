@@ -189,12 +189,14 @@ class CrisperWhisperOfficialAlignJob(Job):
                     e = s
                 words.append(w)
                 times.append((float(s), float(e)))
-            if not words:
-                # Empty hyp: keep the seq; the hyp-dataset job substitutes a
-                # 1-word placeholder, so write one dummy boundary row to match.
-                n_empty += 1
-                times = [(0.0, 0.0)]
             hyps[f"seq-{seq_idx}"] = " ".join(words)
+            if not words:
+                # Empty recog (0 words): the seq must still have an ENTRY so it is present,
+                # not missing. Write a 0-row [0, 2] boundary entry (nothing to align);
+                # the metric reads it as 0 matches (a recall penalty). Accepted, not dropped.
+                n_empty += 1
+                writer.insert_batch(np.zeros((1, 0, 2), dtype="float32"), seq_len=[0], seq_tag=[f"seq-{seq_idx}"])
+                continue
             writer.insert_batch(np.array([times], dtype="float32"), seq_len=[len(times)], seq_tag=[f"seq-{seq_idx}"])
             if seq_idx % 50 == 0:
                 print(

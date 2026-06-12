@@ -123,10 +123,13 @@ class ForcedAlignBaselineJob(Job):
             with torch.inference_mode():
                 emission, _ = model(wav)  # [1, n_frames, n_tokens]
             n_frames = int(emission.shape[1])
-            # An empty word list (empty recog) must never reach here --
-            # it is caught upstream (BuildDatasetWithHypTranscriptsJob fails on empty hyps);
-            # assert so a lost seq can never slip through silently.
-            assert words, f"seq {seq_idx} has no words -- a seq must never be lost"
+            if not words:
+                # Empty recog (0 words): nothing to align, but the seq must still have an ENTRY
+                # so it is present, not missing. Write a 0-row [0, 2] boundary entry;
+                # the metric reads it as 0 boundaries -> 0 matches (a recall penalty).
+                tag = str(data.get("id", f"seq-{seq_idx}"))
+                writer.insert_batch(np.zeros((1, 0, 2), dtype="float32"), seq_len=[0], seq_tag=[tag])
+                continue
             token_lists = tokenizer([_norm(w) for w in words])
             # CTC forced-align needs frames >= tokens. A degenerate (hallucination-looped)
             # hyp can have more tokens than emission frames -> upsample the emission time axis
