@@ -1318,7 +1318,7 @@ def py():
     #   also better than dyn-rope-ctembed-impBase.
     #   (Best from-scratch chunked streaming result so far.)
     # - Streaming emission latency (TIMIT test, mean over words; +Lms / CTC-only dev WER).
-    #   The mean is essentially the structural E[latency] = (C/2 + R) frames * ~58ms,
+    #   The mean is essentially the structural E[latency] = (C/2 + R) frames,
     #   so at matched geometry it carries little signal beyond C and R.
     #   At L80-C5-R4 (expected ~380ms) the well-behaved variants just cluster there (+-40ms is noise):
     #   non-dyn 411 / 9.46, rope 421 / 9.31, dyn 366 / 9.66, dyn-rope 371 / 9.55,
@@ -1334,6 +1334,9 @@ def py():
     # - Also testing long-form on Tedlium. In progress, looks like we might get some improvements.
 
     # TODO 4xtrain... base also with rope? plot to extrapolate. run all models also in consistent recog (offline)
+    #   maybe more train scale tuning?
+    # TODO overlap on posteriors?
+    # TODO summarize findings for all these streaming/chunking experiments
 
     # For next time:
     # - R0-v2.3-overlap run. (TODO put result here once ready)
