@@ -1330,15 +1330,13 @@ def py():
     #   Net: latency adds little beyond WER + (C, R); it mainly detects premature emission.
     #   offline base +inf (whole seq needed).
 
-    # TODO 4xtrain... base also with rope? plot to extrapolate. run all models also in consistent recog (offline)
-    #   maybe more train scale tuning?
-    # TODO overlap on posteriors?
-    # TODO summarize findings for all these streaming/chunking experiments
-
     # For next time:
     # - non-dyn vs dynV4 for rope+ctembed still running. (TODO put results here once ready)
+    #   TODO complete dyn comparison, maybe make dedicated table, extracting what we already listed above.
+    #     Not sure if we get new insights here.
     # - R0-v2.3-overlap run. (TODO put result here once ready)
     # - chunked-L80-C5-R4-v2.3-(nondyn)-2xtrain (TODO put result here once ready)
+    #   TODO complete the other 2xtrain results maybe in dedicated table? Or maybe not. Not sure if we learn sth here.
     # - longform: so far ONLY chunked-L80-C5-R4-v2.3-dyn-rope-ctembed, streaming-KV seg10.
     #   seg.test 5.12, long.test 4.97 -- two separate HF datasets:
     #   seg = HF Open-ASR-Leaderboard "tedlium" (1155 utts, 27500 ref words),
@@ -1355,7 +1353,10 @@ def py():
     #   deltanet-bidir 11.41 / 12.28 (197.9h, bidir HURTS vs uni).
     #   mamba2 best of the linear-attn set.
     #   TODO still running: mamba2-bidir, mamba2-bidir-ssdchunk256.
-    # TODO fill here until next time...
+    # - TODO 4xtrain... base also with rope? plot to extrapolate. run all models also in consistent recog (offline)
+    #     maybe more train scale tuning?
+    # - TODO overlap on posteriors?
+    # - TODO summarize findings for all these streaming/chunking experiments
 
 
 _base_config = {
