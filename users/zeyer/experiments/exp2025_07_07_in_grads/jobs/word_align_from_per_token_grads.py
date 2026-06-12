@@ -146,6 +146,12 @@ class WordAlignFromPerTokenGradsJob(Job):
         grad_score_hdf_ds = HDFDataset([self.grad_score_hdf.get_path()])
         grad_score_hdf_ds.initialize()
         grad_score_hdf_ds.init_seq_order(epoch=1)
+        # The extract writes exactly one entry per dataset seq, in order (a 0-token entry for an
+        # empty recog -- it never skips), so this HDF is index-aligned with the dataset and we
+        # iterate it in lockstep (load_seqs expects in-order, gap-free access). Map tag -> position
+        # purely as a sanity check: a missing tag (lost seq) raises below, and `assert seq_idx == _gi`
+        # makes any reordering/drift fail loudly. get_all_tags reads tags only (no data preload).
+        _g_tag2idx = {t: i for i, t in enumerate(grad_score_hdf_ds.get_all_tags())}
 
         from datasets import load_dataset
 
@@ -164,6 +170,19 @@ class WordAlignFromPerTokenGradsJob(Job):
         conf_wbe_pairs = []  # (per-word confidence, per-word wbe), with_confidence only
 
         for seq_idx, data in enumerate(ds[self.dataset_key]):
+            _gi = _g_tag2idx.get(f"seq-{seq_idx}")
+            if _gi is None:
+                # The extract writes an entry for EVERY seq (a 0-token entry for an empty recog),
+                # so a missing entry here is never "just empty" -- it means a seq was lost in the
+                # extract, which is a bug. Fail loudly instead of silently backfilling.
+                raise KeyError(
+                    f"seq-{seq_idx} has NO entry in {self.grad_score_hdf.get_path()} --"
+                    " every seq must have an entry (an empty recog still gets a 0-token entry);"
+                    " a missing entry means a seq was lost in the extract."
+                )
+            # In order, no holes: the extract never skips, so the entry must sit at seq_idx.
+            # (We then load/read in lockstep with seq_idx, not _gi -- HDFDataset wants ordered access.)
+            assert seq_idx == _gi, f"extract HDF not in dataset order: seq-{seq_idx} at position {_gi}"
             grad_score_hdf_ds.load_seqs(seq_idx, seq_idx + 1)
 
             samplerate = data["audio"]["sampling_rate"]
@@ -172,6 +191,13 @@ class WordAlignFromPerTokenGradsJob(Job):
 
             num_input_frames = grad_score_hdf_ds.get_data(seq_idx, "num_input_frames")
             num_tokens = grad_score_hdf_ds.get_data(seq_idx, "num_tokens")
+            if num_tokens.size == 0:
+                # 0-token entry: an empty recog (the extract writes a 0-row entry, never skips).
+                # No tokens to align -> emit a 0-row boundary so the seq stays present, then skip.
+                # Must precede the single-chunk asserts and the secs_per_timeframe division below,
+                # which both assume >=1 chunk/token/frame. (Empties only occur in hyp-mode.)
+                boundaries_writer.insert_batch(np.zeros((1, 0, 2), dtype="float32"), [0], [f"seq-{seq_idx}"])
+                continue
             num_tokens_per_word = grad_score_hdf_ds.get_data(seq_idx, "num_tokens_per_word")
             assert num_input_frames.shape == (1, 1), f"single-chunk only, got {num_input_frames.shape=}"
             assert num_tokens.shape == (1, 1), f"single-chunk only, got {num_tokens.shape=}"
