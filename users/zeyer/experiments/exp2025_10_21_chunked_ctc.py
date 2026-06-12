@@ -1295,7 +1295,6 @@ def py():
     #   [5,5,5,10,20,40,None] / [80,40] / [4,2]: 9.47 / 10.28 (=dynCx3, oversample small C; no gain, 120.8h),
     #   [5,10,20,40,None] / [80,40,0] / [4,2,0]: 10.33 / 10.99 (=dynV3, adds 0 to history+lookahead; 97.1h),
     #   [5,10,20,40,None,None,None,None] / [80,40,0] / [4,2,0]: 10.85 / 11.71 (=dynV2, +offline x4; 100.1h slower impl).
-    #   TODO non-dyn and dynV4 still running for rope+ctembed.
     #   A 0 in the history/lookahead pools costs ~0.9 (-> dynV3); the extra offline x4 another ~0.5 (-> dynV2).
     #   Plain dyn (no 0, single None) is best.
     #   earlier non-dyn vs dyn (matched features, recog at C5; dev / test, train h):
@@ -1337,6 +1336,7 @@ def py():
     # TODO summarize findings for all these streaming/chunking experiments
 
     # For next time:
+    # - non-dyn vs dynV4 for rope+ctembed still running. (TODO put results here once ready)
     # - R0-v2.3-overlap run. (TODO put result here once ready)
     # - chunked-L80-C5-R4-v2.3-(nondyn)-2xtrain (TODO put result here once ready)
     # - longform: so far ONLY chunked-L80-C5-R4-v2.3-dyn-rope-ctembed, streaming-KV seg10.
