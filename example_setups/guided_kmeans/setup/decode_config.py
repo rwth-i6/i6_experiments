@@ -20,9 +20,9 @@ from .clustering_config import (
 )
 from .librasr_recognition import RecogConfig, create_rasr_config
 from .score import JiwerScoringJob, ScoreResult
-from config.corpus_setup import py as setup_corpus
+from .corpus_setup import py as setup_corpus
 
-from i6_experiments.users.mann.external.unsupervised.lib.pytorch.decode import ClusteringDecodeCallback
+from i6_experiments.example_setups.guided_kmeans.lib.guided_kmeans.decode import ClusteringDecodeCallback
 
 def get_callback_config(
     centroids: tk.Path,

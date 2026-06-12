@@ -9,7 +9,7 @@ from i6_core.util import uopen, write_xml
 from i6_core.text import PipelineJob
 from i6_core.lib import lexicon
 
-from .external.recog_rasr_config import get_tree_timesync_recog_config
+from .external.recog_rasr_config import get_tree_timesync_recog_config, get_linear_search_recog_config
 
 phonetic_vocabulary_path = tk.Path("/work/smt4/zeineldeen/enrique.leon.lozano/setups-data/ubuntu_22_setups"
                                    "/fairseq_2025_06_02/work/i6_experiments/users/enrique/jobs/fairseq/wav2vec"
@@ -120,7 +120,7 @@ def get_lm_config(lm_path, scale=3.0) -> RasrConfig:
 
     return config
 
-def get_label_scorer_config(emission_scale = 1.0, transition_scale = 0.5, loop_probability = 0.5) -> RasrConfig:
+def get_label_scorer_config(emission_scale = 1.0, transition_scale = 0.5, loop_probability = 0.5, silence_loop_probability = 0.75) -> RasrConfig:
     config = RasrConfig()
     config.type = "combine"
     config.num_scorers = 2
@@ -132,9 +132,13 @@ def get_label_scorer_config(emission_scale = 1.0, transition_scale = 0.5, loop_p
     transition_config = RasrConfig()
     transition_config.type = "transition"
     transition_config.scale = transition_scale
+
     transition_config.label_to_label_score = neg_log(1.0 - loop_probability)
+    transition_config.label_to_blank_score = neg_log(1.0 - loop_probability)
     transition_config.label_loop_score = neg_log(loop_probability)
-    transition_config.blank_loop_score = neg_log(0.75)
+
+    transition_config.blank_to_label_score = neg_log(1.0 - silence_loop_probability)
+    transition_config.blank_loop_score = neg_log(silence_loop_probability)
 
     config.scorer_2 = transition_config
 
@@ -149,6 +153,7 @@ class RecogConfig:
     emission_scale: float = 1.0
     transition_scale: float | None = None
     loop_probability: float = 0.1
+    silence_loop_probability: float = 0.1
     max_beam_size: int = 100_000
     lm_path: str | tk.Path = phonetic_lm_path
 
@@ -157,29 +162,50 @@ def create_recog_rasr_config(
     emission_scale=1.0,
     transition_scale=None,
     loop_probability=0.1,
+    silence_loop_probability=0.1,
     max_beam_size=100_000,
     lm_path=phonetic_lm_path,
+    use_tree_search=False
 ):
     if transition_scale is None:
         transition_scale = lm_scale
-    recog_config = get_tree_timesync_recog_config(
-        lexicon_file=create_lexicon(),
-        collapse_repeated_labels=True,
-        label_scorer_config=get_label_scorer_config(
-            emission_scale=emission_scale,
-            transition_scale=transition_scale,
-            loop_probability=loop_probability,
-        ),
-        lm_config=get_lm_config(lm_path, lm_scale),
-        blank_index=0,
-        max_beam_size=max_beam_size,
-        intermediate_max_beam_size=None,
-        score_threshold=None,
-        word_end_score_threshold=None,
-        max_word_end_beam_size=None,
-        sentence_end_fallback=False,
-        log_stepwise_statistics=False,
-    )
+    if use_tree_search:
+        recog_config = get_tree_timesync_recog_config(
+            lexicon_file=create_lexicon(),
+            collapse_repeated_labels=True,
+            label_scorer_config=get_label_scorer_config(
+                emission_scale=emission_scale,
+                transition_scale=transition_scale,
+                loop_probability=loop_probability,
+                silence_loop_probability=silence_loop_probability
+            ),
+            lm_config=get_lm_config(lm_path, lm_scale),
+            blank_index=0,
+            max_beam_size=max_beam_size,
+            intermediate_max_beam_size=None,
+            score_threshold=None,
+            word_end_score_threshold=None,
+            max_word_end_beam_size=None,
+            sentence_end_fallback=False,
+            log_stepwise_statistics=False,
+        )
+    else:
+        recog_config = get_linear_search_recog_config(
+            lexicon_file=create_lexicon(),
+            collapse_repeated_labels=True,
+            label_scorer_config=get_label_scorer_config(
+                emission_scale=emission_scale,
+                transition_scale=transition_scale,
+                loop_probability=loop_probability,
+                silence_loop_probability=silence_loop_probability
+            ),
+            lm_config=get_lm_config(lm_path, lm_scale),
+            blank_index=0,
+            max_beam_size=max_beam_size,
+            score_threshold=None,
+            log_statistics=False,
+            log_stepwise_statistics=False,
+        )
     return recog_config
 
 def create_rasr_config(recog_config: RecogConfig):

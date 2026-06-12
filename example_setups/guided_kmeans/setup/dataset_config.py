@@ -7,7 +7,7 @@ from i6_core.returnn import ReturnnConfig
 from i6_core.corpus.segments import ShuffleAndSplitSegmentsJob
 from i6_core.text import PipelineJob
 
-from config.corpus_setup import py as setup_corpus
+from .corpus_setup import py as setup_corpus
 
 @dataclass(frozen=True)
 class All:
@@ -67,6 +67,7 @@ def sample_segments_by_number(all_segments: tk.Path, num_segments: int = 20) -> 
     return pipe.out
 
 def select_segments(method: SamplingMethod, segments: tk.Path) -> tk.Path | None:
+    sampled_segments = tk.Path("")
     match method:
         case All():
             sampled_segments = None
