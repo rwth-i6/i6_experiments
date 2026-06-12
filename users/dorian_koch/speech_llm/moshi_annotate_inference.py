@@ -16,11 +16,14 @@ array-in / alignment-list-out and can be called without touching disk.
 """
 
 import argparse
+import faulthandler
 import gc
 import json
 import logging
 import os
+import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -53,6 +56,31 @@ from concurrent.futures import ProcessPoolExecutor
 import functools
 
 _log = logging.getLogger(__name__)
+
+# Bound on CUDA init + Whisper load. A cached `medium` load on a healthy GPU is
+# seconds; 300s only trips on a wedged driver. Overridable for debugging.
+LOAD_TIMEOUT_S = int(os.environ.get("MOSHI_LOAD_TIMEOUT_S", "300"))
+
+
+def _watchdog(seconds, label):
+    """Force-kill this process if `label` is not cancelled within `seconds`.
+
+    Bounds CUDA calls that can hang *inside the driver*: a SIGALRM handler or
+    future.result(timeout=) cannot fire there, because the C call never returns
+    control to the Python interpreter. A daemon thread calling os._exit is the
+    only thing that reliably fires. Returns a cancel() callable.
+    """
+    done = threading.Event()
+
+    def _worker():
+        if not done.wait(seconds):  # deadline passed, watched call still running
+            _log.error("WATCHDOG: %s did not finish within %ds; aborting.", label, seconds)
+            faulthandler.dump_traceback()  # dumps the hung main thread's stack to stderr
+            sys.stderr.flush()
+            os._exit(2)  # bypass atexit/cleanup (which would touch CUDA)
+
+    threading.Thread(target=_worker, name="load-watchdog", daemon=True).start()
+    return done.set
 
 
 def _write_progress(done, total, path="progress.json"):
@@ -196,9 +224,26 @@ def annotate_hf_to_hf(
     if shard_idx is not None and num_shards is not None:
         dataset = dataset.shard(num_shards=num_shards, index=shard_idx)
 
-    _log.info("Loading Whisper model %s …", whisper_model)
-    device = _torch.device("cuda" if _torch.cuda.is_available() else "cpu")
-    w_model = whisper.load_model(whisper_model, device=device)
+    node = os.uname().nodename
+    _log.info("Loading Whisper model %s on node %s …", whisper_model, node)
+
+    # Snapshot GPU state so any hang records the node's GPU condition. The 30s
+    # subprocess timeout is a real OS-level kill, so this cannot hang us itself.
+    try:
+        smi = subprocess.run(["nvidia-smi"], capture_output=True, text=True, timeout=30)
+        _log.info("nvidia-smi at load:\n%s", smi.stdout)
+    except Exception as e:
+        _log.warning("nvidia-smi failed: %r", e)
+
+    # Watchdog covers cuda.is_available() AND load_model — both can stall in the
+    # driver on a bad node.
+    cancel = _watchdog(LOAD_TIMEOUT_S, f"CUDA init + whisper.load_model({whisper_model}) on {node}")
+    try:
+        device = _torch.device("cuda" if _torch.cuda.is_available() else "cpu")
+        w_model = whisper.load_model(whisper_model, device=device)
+    finally:
+        cancel()
+    _log.info("Whisper model loaded on %s.", device)
 
     params = Params(
         egs=Path("/dev/null"),  # unused
@@ -330,10 +375,15 @@ def annotate_hf_to_hf(
     rows_out = len(annotated)
     _log.info(
         "Wrote annotated dataset to %s (%d/%d rows; dropped %d missing-audio, %d annotate-errors).",
-        out_dir, rows_out, rows_in, _counters["missing_audio"], _counters["annotate_error"],
+        out_dir,
+        rows_out,
+        rows_in,
+        _counters["missing_audio"],
+        _counters["annotate_error"],
     )
     # Persist per-job stats so they survive after the job directory is inspected.
     import json as _json_stats
+
     stats = {
         "rows_in": rows_in,
         "rows_out": rows_out,

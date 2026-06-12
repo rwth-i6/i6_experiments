@@ -11,7 +11,7 @@ from pathlib import Path
 from sisyphus import Job, Task, tk
 import os
 import hashlib
-from .common import HF_CACHE_DIR, vllm_server
+from .common import HF_CACHE_DIR, vllm_server, write_progress
 from datasets import (
     load_dataset,
     load_from_disk,
@@ -219,9 +219,10 @@ _DIALOGUE_JSON_SCHEMA = {
 }
 
 
-def make_dialogue_gen(llm_url: str, model_name: str, adapter_name: str):
+def make_dialogue_gen(llm_url: str, model_name: str, adapter_name: str, work_dir: str | None = None, total: int | None = None):
     """Return a datasets.map-compatible function that generates one dialogue."""
     adapter = DATASET_ADAPTER_REGISTRY[adapter_name]
+    _local_done = [0]
 
     def make_dialogue(example, seed_offset: int = 0):
         client = OpenAI(
@@ -243,29 +244,48 @@ def make_dialogue_gen(llm_url: str, model_name: str, adapter_name: str):
         messages = [{"role": "user", "content": user_msg}]
         max_attempts = 5
         for attempt in range(max_attempts):
-            response = client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                seed=(seed + attempt) % (2**31),
-                temperature=temp,
-                extra_body={"guided_json": _DIALOGUE_JSON_SCHEMA},
-            )
-            raw = response.choices[0].message.content
             try:
-                parsed = json.loads(raw) if raw else []
-            except json.JSONDecodeError:
-                print(f"JSONDecodeError on attempt {attempt + 1} (uid={spec['uid']!r}): raw={raw!r}")
+                response = client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    seed=(seed + attempt) % (2**31),
+                    temperature=temp,
+                    extra_body={"guided_json": _DIALOGUE_JSON_SCHEMA},
+                    max_tokens=800,
+                )
+            except Exception as e:
+                print(f"API error on attempt {attempt + 1} (uid={spec['uid']!r}): {e!r}")
                 parsed = []
+            else:
+                finish_reason = response.choices[0].finish_reason
+                raw = response.choices[0].message.content
+                if finish_reason == "length":
+                    print(f"Truncated by max_tokens on attempt {attempt + 1} (uid={spec['uid']!r})")
+                try:
+                    parsed = json.loads(raw) if raw else []
+                except json.JSONDecodeError:
+                    print(f"JSONDecodeError on attempt {attempt + 1} (uid={spec['uid']!r}): raw={raw!r}")
+                    parsed = []
             if isinstance(parsed, list) and parsed and parsed[0].get("speaker") == "user":
-                return {"dialogue": json.dumps(parsed), "llm_name": model_name, "template_name": template_name}
+                result = {"dialogue": json.dumps(parsed), "llm_name": model_name, "template_name": template_name,
+                          "truncated": finish_reason == "length"}
+                break
             print(
                 f"Attempt {attempt + 1} failed (uid={spec['uid']!r}): "
                 f"first speaker={parsed[0].get('speaker') if isinstance(parsed, list) and parsed else repr(parsed)[:120]!r}"
             )
             print(f"  Generated: {json.dumps(parsed)[:300]}")
-        # All attempts failed — mark row as None so HfToDialogue.run() can filter and count
-        print(f"All {max_attempts} attempts failed for uid={spec['uid']!r}. Marking as failed.")
-        return {"dialogue": None, "llm_name": model_name, "template_name": template_name}
+        else:
+            # All attempts failed — mark row as None so HfToDialogue.run() can filter and count
+            print(f"All {max_attempts} attempts failed for uid={spec['uid']!r}. Marking as failed.")
+            result = {"dialogue": None, "llm_name": model_name, "template_name": template_name, "truncated": False}
+        _local_done[0] += 1
+        if work_dir and total and _local_done[0] % 10 == 0:
+            try:
+                write_progress(_local_done[0], total, os.path.join(work_dir, f"progress_{os.getpid()}.json"))
+            except Exception:
+                pass
+        return result
 
     return make_dialogue
 
@@ -347,6 +367,27 @@ class HfToDialogue(Job):
             )
         return HfMergeShards(shard_paths=[s.out_hf for s in shards]).out_hf
 
+    def completed_fraction(self):
+        import glob
+        from sisyphus import global_settings as gs
+        work_dir = self._sis_path(gs.JOB_WORK_DIR)
+        files = glob.glob(os.path.join(work_dir, "progress_*.json"))
+        if not files:
+            return None
+        total = None
+        done = 0
+        for f in files:
+            try:
+                d = json.load(open(f))
+                done += d.get("done", 0)
+                if total is None:
+                    total = d.get("total")
+            except (OSError, ValueError):
+                pass
+        if not total:
+            return None
+        return min(done / total, 1.0)
+
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
 
@@ -363,7 +404,8 @@ class HfToDialogue(Job):
                 f"shard={self.shard}/{self.num_shards}) …"
             )
 
-            gen_fn = make_dialogue_gen(llm_url, self.llm_name, self.adapter_name)
+            work_dir = os.getcwd()
+            gen_fn = make_dialogue_gen(llm_url, self.llm_name, self.adapter_name, work_dir=work_dir, total=len(dataset))
             dataset = dataset.map(gen_fn, num_proc=32)
 
             # Count and remove failed rows; abort if failure rate > 1%
@@ -377,6 +419,17 @@ class HfToDialogue(Job):
                     "Check vLLM server or reduce temperature."
                 )
             dataset = dataset.filter(lambda row: row["dialogue"] is not None)
+
+            # Check truncation rate on surviving rows
+            num_truncated = sum(1 for row in dataset if row.get("truncated"))
+            if num_truncated > 0:
+                print(f"Truncated by max_tokens: {num_truncated}/{len(dataset)} ({100*num_truncated/len(dataset):.1f}%)")
+            if num_truncated > len(dataset) * 0.01:
+                raise ValueError(
+                    f"Too many responses truncated by max_tokens: "
+                    f"{num_truncated}/{len(dataset)} ({100*num_truncated/len(dataset):.1f}% > 1%). "
+                    "Increase max_tokens or tighten the prompt."
+                )
             print(f"Dialogues generated ({len(dataset)} rows after filtering). Saving …")
 
             dataset.save_to_disk(self.out_hf.get())

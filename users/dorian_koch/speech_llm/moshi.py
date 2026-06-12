@@ -193,20 +193,6 @@ class MoshiFinetune(Job):
             return None
         return max(0.0, min(1.0, pct / 100.0))
 
-    def info(self):
-        eta_s = last_jsonl_value(
-            os.path.join(self.out_rundir.get_path(), "metrics.train.jsonl"),
-            "eta_in_seconds",
-        )
-        if eta_s is None:
-            return None
-        eta_s = int(eta_s)
-        h, rem = divmod(eta_s, 3600)
-        m = rem // 60
-        if h > 0:
-            return f"ETA {h}h{m:02d}m"
-        return f"ETA {m}m"
-
     def write_config(self):
         run_dir = self.out_rundir.get()
         if os.path.exists(run_dir) and os.listdir(run_dir):
