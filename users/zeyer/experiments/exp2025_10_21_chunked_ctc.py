@@ -1338,7 +1338,7 @@ def py():
 
     # For next time:
     # - R0-v2.3-overlap run. (TODO put result here once ready)
-    # - 2xtrain (TODO put result here once ready)
+    # - chunked-L80-C5-R4-v2.3-(nondyn)-2xtrain (TODO put result here once ready)
     # - longform: so far ONLY chunked-L80-C5-R4-v2.3-dyn-rope-ctembed, streaming-KV seg10.
     #   seg.test 5.12, long.test 4.97 -- two separate HF datasets:
     #   seg = HF Open-ASR-Leaderboard "tedlium" (1155 utts, 27500 ref words),
