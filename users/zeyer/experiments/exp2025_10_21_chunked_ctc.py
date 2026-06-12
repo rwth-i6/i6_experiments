@@ -1294,7 +1294,8 @@ def py():
     #   dynCx3 9.47 / 10.28 (120.8h, oversample small C, no gain),
     #   dynV3 10.33 / 10.99 (97.1h, adds 0 to history+lookahead pools),
     #   dynV2 10.85 / 11.71 (100.1h, worst).
-    #   non-dyn and dynV4 still running.
+    #   TODO non-dyn and dynV4 still running.
+    #   TODO earlier non-dyn vs dyn comparison: ... (please fill in here)
     #   Decisive knob: a 0 in the history/lookahead pools hurts, standard dyn best.
     # - R0-v2.3-overlap run. (TODO put result here once ready)
     # - Overlap at recog only (-ov2): hurts; C5-R4-ov2 10.65 (vs 9.41), C5-R2-ov2 18.10 (vs 10.14).
