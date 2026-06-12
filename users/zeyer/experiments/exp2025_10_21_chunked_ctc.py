@@ -1316,16 +1316,6 @@ def py():
     #   clear gain over 1x (9.41 / 10.29),
     #   also better than dyn-rope-ctembed-impBase.
     #   (Best from-scratch chunked streaming result so far.)
-    # - longform: so far ONLY chunked-L80-C5-R4-v2.3-dyn-rope-ctembed, streaming-KV seg10.
-    #   seg.test 5.12, long.test 4.97 -- two separate HF datasets:
-    #   seg = HF Open-ASR-Leaderboard "tedlium" (1155 utts, 27500 ref words),
-    #   long = distil-whisper/tedlium-long-form (11 talks, 25906 ref words).
-    #   Verified comparability: same normalization, and the 11 long-form talks have byte-identical
-    #   references in seg (per-talk word counts match exactly); seg merely adds ~1594 words
-    #   (TomWujec's talk + a few short segments) that long-form omits.
-    #   So seg-vs-long is over DIFFERENT talk sets (94% overlap) -> NOT directly comparable;
-    #   restrict seg to the 11 long-form talks (identical refs) to get a valid segmented-vs-longform number.
-    #   TODO: run long-form for more models (other chunk sizes, offline base) for a real cross-model comparison.
     # - Streaming emission latency (TIMIT test, mean over words; +Lms / CTC-only dev WER).
     #   The mean is essentially the structural E[latency] = (C/2 + R) frames * ~58ms,
     #   so at matched geometry it carries little signal beyond C and R.
@@ -1344,6 +1334,16 @@ def py():
     # For next time:
     # - R0-v2.3-overlap run. (TODO put result here once ready)
     # - 2xtrain (TODO put result here once ready)
+    # - longform: so far ONLY chunked-L80-C5-R4-v2.3-dyn-rope-ctembed, streaming-KV seg10.
+    #   seg.test 5.12, long.test 4.97 -- two separate HF datasets:
+    #   seg = HF Open-ASR-Leaderboard "tedlium" (1155 utts, 27500 ref words),
+    #   long = distil-whisper/tedlium-long-form (11 talks, 25906 ref words).
+    #   Verified comparability: same normalization, and the 11 long-form talks have byte-identical
+    #   references in seg (per-talk word counts match exactly); seg merely adds ~1594 words
+    #   (TomWujec's talk + a few short segments) that long-form omits.
+    #   So seg-vs-long is over DIFFERENT talk sets (94% overlap) -> NOT directly comparable;
+    #   restrict seg to the 11 long-form talks (identical refs) to get a valid segmented-vs-longform number.
+    #   TODO: run long-form for more models (other chunk sizes, offline base) for a real cross-model comparison.
     # - Linear-attention encoders, all worse than conformer dyn-rope-ctembed 9.41 / 10.29:
     #   mamba2 dev 10.47 / test 11.35 (174.0h),
     #   deltanet 11.09 / 11.93 (164.3h),
