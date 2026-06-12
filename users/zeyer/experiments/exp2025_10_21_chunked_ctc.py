@@ -1315,7 +1315,6 @@ def py():
     # - base-2xtrain: dev 6.58 / test 7.41 (vs base 1x 7.32 / 8.10).
     # - dyn-rope-ctembed-2xtrain: dev 8.49 / test 9.19 (213.7h),
     #   clear gain over 1x (9.41 / 10.29).
-    #   AED+CTC first-pass dev 7.25 / test 7.90.
     #   (Best from-scratch chunked streaming result so far.)
     # - longform: so far ONLY chunked-L80-C5-R4-v2.3-dyn-rope-ctembed, streaming-KV seg10.
     #   seg.test 5.12, long.test 4.97,
