@@ -1292,10 +1292,11 @@ def py():
     # - Dyn-pool comparison (rope+ctembed fixed, only the train pools vary), dev / test (train h):
     #   dyn 9.41 / 10.29 (128.3h; run2 9.52 / 10.21, 107.3h),
     #   dynCx3 9.47 / 10.28 (120.8h, oversample small C, no gain),
-    #   dynV2 10.85 / 11.71 (100.1h, worst).
-    #   dynV3 10.33 / 10.99 (97.1h, adds 0 to history+lookahead pools),
+    #   dynV3 10.33 / 10.99 (97.1h) -- standard dyn pool PLUS a 0 in the history & lookahead pools,
+    #   dynV2 10.85 / 11.71 (100.1h) -- dynV3's 0s AND offline (None) oversampled 4x in the chunk-size pool.
     #   TODO non-dyn and dynV4 still running for rope+ctembed.
-    #   Decisive knob: a 0 in the history/lookahead pools hurts, standard dyn best.
+    #   So the 0 in the history/lookahead pools costs ~0.9 (dyn 9.41 -> dynV3 10.33);
+    #   oversampling offline costs another ~0.5 (dynV3 -> dynV2 10.85). Standard dyn is best.
     #   earlier non-dyn vs dyn (matched features, recog at C5; dev / test, train h):
     #   plain non-dyn 9.46 / 10.29 (168.8h) vs dyn 9.66 / 10.39 (103.9h);
     #   +rope non-dyn 9.31 / 10.16 (237.1h) vs dyn 9.55 / 10.30 (128.4h).
@@ -1316,15 +1317,15 @@ def py():
     #   also better than dyn-rope-ctembed-impBase.
     #   (Best from-scratch chunked streaming result so far.)
     # - longform: so far ONLY chunked-L80-C5-R4-v2.3-dyn-rope-ctembed, streaming-KV seg10.
-    #   seg.test 5.12, long.test 4.97,
-    #   but these are two SEPARATE HF datasets:
-    #   seg = HF Open-ASR-Leaderboard "tedlium" (its own segmentation + text normalization),
-    #   long = distil-whisper/tedlium-long-form (full talks).
-    #   NOT verified to use the same reference text / normalization / ignored-region handling,
-    #   so seg-vs-long is NOT a valid comparison yet.
-    #   TODO: verify reference comparability before comparing the two numbers,
-    #   and run long-form for more models (other chunk sizes, offline base),
-    #   to make long-form itself comparable across models.
+    #   seg.test 5.12, long.test 4.97 -- two separate HF datasets:
+    #   seg = HF Open-ASR-Leaderboard "tedlium" (1155 utts, 27500 ref words),
+    #   long = distil-whisper/tedlium-long-form (11 talks, 25906 ref words).
+    #   Verified comparability: same normalization, and the 11 long-form talks have byte-identical
+    #   references in seg (per-talk word counts match exactly); seg merely adds ~1594 words
+    #   (TomWujec's talk + a few short segments) that long-form omits.
+    #   So seg-vs-long is over DIFFERENT talk sets (94% overlap) -> NOT directly comparable;
+    #   restrict seg to the 11 long-form talks (identical refs) to get a valid segmented-vs-longform number.
+    #   TODO: run long-form for more models (other chunk sizes, offline base) for a real cross-model comparison.
     # - Streaming emission latency (TIMIT test, mean over words; +Lms / CTC-only dev WER).
     #   The mean is essentially the structural E[latency] = (C/2 + R) frames * ~58ms,
     #   so at matched geometry it carries little signal beyond C and R.
