@@ -15,6 +15,11 @@ Columns expected in the HF dataset:
 
 The loader mirrors the signature of finetune.data.data_loader.build_data_loader
 so it can be installed as a drop-in replacement.
+
+Data/augmentation knobs (e.g. leading-silence jitter) come from an
+``ArrowDataConfig`` installed via ``set_active_config`` by the launcher entry
+point (moshi_finetune_launcher.py), so the fork's strict TrainArgs schema is
+left untouched.
 """
 
 from __future__ import annotations
@@ -37,9 +42,22 @@ from finetune.data.interleaver import (
 )
 from finetune.data.dataset import parse_data_sources
 
+from i6_experiments.users.dorian_koch.speech_llm.moshi_arrow_config import ArrowDataConfig
+
 _log = logging.getLogger(__name__)
 
 _HF_SENTINEL = "dataset_info.json"  # marker file in every arrow dataset dir
+
+# Active data/augmentation config, installed by the launcher before training
+# (see moshi_finetune_launcher.py). Defaults to a no-op so legacy runs are
+# unchanged when no sidecar is present.
+_ACTIVE_CONFIG = ArrowDataConfig()
+
+
+def set_active_config(cfg: ArrowDataConfig) -> None:
+    """Install the data/augmentation config used by build_data_loader."""
+    global _ACTIVE_CONFIG
+    _ACTIVE_CONFIG = cfg
 
 
 def _is_arrow_source(path: str) -> bool:
@@ -76,11 +94,16 @@ def tokenize_arrow_row(
     row: dict,
     instruct_tokenizer: InterleavedTokenizer,
     start_sec: float,
+    jitter_sec: float = 0.0,
 ) -> Sample:
     """Tokenize one (sliced) row from the arrow dataset.
 
     Mirrors InterleavedTokenizer.__call__ but reads audio/alignments from the
     dict rather than from disk.
+
+    ``jitter_sec`` prepends that many seconds of leading silence to the audio
+    (and shifts the alignments by the same amount), so the dialogue does not
+    always start at frame 0. 0.0 reproduces the original behaviour exactly.
     """
     # New format (Option B): two mono HF Audio columns (audio_assistant/_user).
     # Legacy format: a single stereo "audio" column. Read both for back-compat.
@@ -112,6 +135,14 @@ def tokenize_arrow_row(
     num_audio_frames = instruct_tokenizer.num_audio_frames
     mimi_sr = instruct_tokenizer.mimi.sample_rate
 
+    # Augmentation: prepend `jitter_sec` of leading silence so the dialogue does
+    # not always start at frame 0. The alignments are shifted by the same amount
+    # below so audio and text stay frame-synced.
+    if jitter_sec > 0.0:
+        pad_samples = int(jitter_sec * mimi_sr)
+        if pad_samples > 0:
+            wav = torch.nn.functional.pad(wav, (pad_samples, 0))
+
     # Slice to [start_sec, start_sec + duration_sec]
     start_sample = int(start_sec * mimi_sr)
     end_sample = start_sample + int(duration_sec * mimi_sr)
@@ -130,6 +161,9 @@ def tokenize_arrow_row(
         audio_tokens = audio_tokens.view(1, -1, num_audio_frames)
 
         alignments = _norm_aligns(row.get("alignments", []))
+        # Shift alignments to match the prepended leading silence.
+        if jitter_sec > 0.0:
+            alignments = [(a[0], (a[1][0] + jitter_sec, a[1][1] + jitter_sec), a[2]) for a in alignments]
         # Slice alignments to [start_sec, start_sec + duration_sec]
         start_align = dicho(alignments, start_sec)
         end_align = dicho(alignments, start_sec + duration_sec)
@@ -167,6 +201,7 @@ def _arrow_source_iterator(
     is_finite: bool,
     seed: int | None,
     shuffle_at_epoch: bool,
+    jitter_max_sec: float = 0.0,
 ) -> Iterator[Sample]:
     duration_sec = instruct_tokenizer.duration_sec
     epoch = 1
@@ -178,11 +213,20 @@ def _arrow_source_iterator(
         if shuffle_at_epoch and seed is not None:
             dataset = dataset.shuffle(seed=seed + epoch)
 
+        # Per-epoch RNG for jitter; rank/epoch-distinct and reproducible.
+        rng = np.random.RandomState(np.array((seed if seed is not None else 0, epoch, rank)))
+
         for row in dataset:
             total_dur = float(row.get("duration", 0.0))
             start_sec = 0.0
             while start_sec < total_dur:
-                yield tokenize_arrow_row(row, instruct_tokenizer, start_sec)
+                jitter = 0.0
+                # Leading-silence jitter on the first window only, clamped to the
+                # window headroom so no content is pushed past duration_sec.
+                if jitter_max_sec > 0.0 and start_sec == 0.0:
+                    headroom = max(0.0, duration_sec - total_dur)
+                    jitter = float(rng.uniform(0.0, min(jitter_max_sec, headroom)))
+                yield tokenize_arrow_row(row, instruct_tokenizer, start_sec, jitter)
                 start_sec += duration_sec
 
         if is_finite:
@@ -206,6 +250,7 @@ def build_arrow_dataset(
     world_size: int,
     is_eval: bool,
     shuffle_pretrain: bool = False,
+    jitter_max_sec: float = 0.0,
 ) -> Iterator[Sample]:
     """Build an iterator that mixes arrow and legacy sources.
 
@@ -235,6 +280,7 @@ def build_arrow_dataset(
                     is_finite=is_eval,
                     seed=seed,
                     shuffle_at_epoch=shuffle,
+                    jitter_max_sec=jitter_max_sec,
                 )
             )
         else:
@@ -283,6 +329,9 @@ def build_data_loader(
         assert args.eval_data != "", "No eval data provided."
     pretrain_data = args.train_data if not is_eval else args.eval_data
 
+    # No jitter during eval; training jitter comes from the installed config.
+    jitter_max_sec = 0.0 if is_eval else _ACTIVE_CONFIG.jitter_max_sec
+
     dataset = build_arrow_dataset(
         pretrain_data=pretrain_data,
         instruct_tokenizer=instruct_tokenizer,
@@ -291,6 +340,7 @@ def build_data_loader(
         world_size=world_size,
         is_eval=is_eval,
         shuffle_pretrain=args.shuffle,
+        jitter_max_sec=jitter_max_sec,
     )
 
     sample_list = []

@@ -2,6 +2,7 @@ from i6_experiments.users.zeyer.external_models.huggingface import (
     DownloadHuggingFaceRepoJob,
 )
 from .common import HF_CACHE_DIR, job_progress_fraction, last_jsonl_value
+from .moshi_arrow_config import ArrowDataConfig
 from pathlib import Path
 from sisyphus import Job, Task, tk
 import os
@@ -165,10 +166,33 @@ class MoshiAnnotate(Job):
 
 
 class MoshiFinetune(Job):
-    def __init__(self, venv_python_path: tk.AbstractPath, train_data: tk.Path, seed: int = 0):
+    # New optional params are dropped from the hash when left at these legacy
+    # defaults, so existing finetunes (constructed without them) keep their hash
+    # and are not re-run. See sisyphus/job.py Job.hash + __sis_hash_exclude__.
+    __sis_hash_exclude__ = {
+        "duration_sec": 100,
+        "audio_jitter_sec": 0.0,
+        "num_epochs": None,
+        "max_steps": 2000,
+    }
+
+    def __init__(
+        self,
+        venv_python_path: tk.AbstractPath,
+        train_data: tk.Path,
+        seed: int = 0,
+        duration_sec: int = 100,
+        audio_jitter_sec: float = 0.0,
+        num_epochs: int | None = None,
+        max_steps: int = 2000,
+    ):
         self.train_data = train_data
         self.venv_python_path = venv_python_path
         self.seed = seed
+        self.duration_sec = duration_sec
+        self.audio_jitter_sec = audio_jitter_sec
+        self.num_epochs = num_epochs
+        self.max_steps = max_steps
         self.out_config = self.output_path("config.yaml")
         self.out_rundir = self.output_path("run_dir", directory=True)
         self.rqmt = {
@@ -193,6 +217,32 @@ class MoshiFinetune(Job):
             return None
         return max(0.0, min(1.0, pct / 100.0))
 
+    def _resolve_max_steps(self, batch_size: int) -> int:
+        """Sanity-check durations and, if num_epochs is set, size max_steps to
+        cover that many epochs over the whole dataset.
+
+        Raises if >1% of dialogues are longer than duration_sec (otherwise the
+        loader would silently truncate content and the window count below would
+        be wrong). Assumes single-GPU training (rqmt gpu == 1, world_size == 1).
+        """
+        import numpy as np
+        from datasets import load_from_disk
+
+        durations = np.asarray(load_from_disk(self.train_data.get())["duration"], dtype=float)
+        over_frac = float((durations > self.duration_sec).mean())
+        if over_frac > 0.01:
+            raise ValueError(
+                f"{over_frac:.2%} of audios exceed duration_sec={self.duration_sec} "
+                f"(>1% not allowed; p99={np.percentile(durations, 99):.1f}s). "
+                f"Increase duration_sec."
+            )
+        if self.num_epochs is None:
+            return self.max_steps
+        # windows per row = ceil(duration / duration_sec); matches the loader.
+        windows = int(np.ceil(durations / self.duration_sec).sum())
+        steps_per_epoch = int(np.ceil(windows / batch_size))
+        return steps_per_epoch * self.num_epochs
+
     def write_config(self):
         run_dir = self.out_rundir.get()
         if os.path.exists(run_dir) and os.listdir(run_dir):
@@ -205,6 +255,12 @@ class MoshiFinetune(Job):
                 cand = os.path.join(new_dir, f"{int(os.path.basename(cand)) + 1:04d}")
             print(f"Moving existing contents to {cand}")
             os.rename(run_dir, cand)
+
+        batch_size = 16
+        max_steps = self._resolve_max_steps(batch_size)
+        # Persist our data/augmentation config beside config.yaml; the launcher
+        # loads it at training time (avoids touching the fork's TrainArgs schema).
+        ArrowDataConfig(jitter_max_sec=self.audio_jitter_sec).save_beside(self.out_config.get())
 
         txt = f"""
 # data
@@ -228,9 +284,9 @@ first_codebook_weight_multiplier: 100.
 text_padding_weight: .5
 
 # optim
-duration_sec: 100
-batch_size: 16
-max_steps: 2000
+duration_sec: {self.duration_sec}
+batch_size: {batch_size}
+max_steps: {max_steps}
 gradient_checkpointing: true
 optim:
   lr: 2e-6

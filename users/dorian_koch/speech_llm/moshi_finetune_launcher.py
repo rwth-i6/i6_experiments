@@ -35,7 +35,20 @@ train_module.build_data_loader = arrow_build_data_loader
 
 
 def main():
-    """Entry point; delegates to fire.Fire(train_module.train)."""
+    """Entry point; installs our data config, then delegates to fire.Fire(train)."""
+    # The config.yaml path is the sole CLI arg (see MoshiFinetune.run). Load the
+    # ArrowDataConfig sidecar written beside it and install it before fire builds
+    # the data loader. No-op default if the sidecar is absent.
+    from i6_experiments.users.dorian_koch.speech_llm.moshi_arrow_config import (
+        ArrowDataConfig,
+    )
+    from i6_experiments.users.dorian_koch.speech_llm import moshi_arrow_dataset
+
+    if len(sys.argv) > 1:
+        cfg = ArrowDataConfig.load_beside(sys.argv[1])
+        moshi_arrow_dataset.set_active_config(cfg)
+        print(f"[launcher] installed ArrowDataConfig: {cfg}", flush=True)
+
     fire.Fire(train_module.train)
 
 
