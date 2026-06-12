@@ -123,15 +123,23 @@ class ForcedAlignBaselineJob(Job):
             with torch.inference_mode():
                 emission, _ = model(wav)  # [1, n_frames, n_tokens]
             n_frames = int(emission.shape[1])
+            # An empty word list (empty recog) must never reach here --
+            # it is caught upstream (BuildDatasetWithHypTranscriptsJob fails on empty hyps);
+            # assert so a lost seq can never slip through silently.
+            assert words, f"seq {seq_idx} has no words -- a seq must never be lost"
+            token_lists = tokenizer([_norm(w) for w in words])
+            # CTC forced-align needs frames >= tokens. A degenerate (hallucination-looped)
+            # hyp can have more tokens than emission frames -> upsample the emission time axis
+            # k=ceil(S/T)x (repeat frames) so it aligns, same trick used elsewhere for the
+            # coarse-grid cases. No fake, no skip; boundaries resolve at the original frame
+            # granularity. No-op for normal seqs (tokens <= frames).
+            n_tok = sum(len(t) for t in token_lists)
+            if n_tok > n_frames:
+                up_k = -(-n_tok // n_frames)
+                emission = emission.repeat_interleave(up_k, dim=1)
+                n_frames = int(emission.shape[1])
             ratio = n_orig_samples / n_frames  # original samples per emission frame
-            try:
-                token_spans = aligner(emission[0], tokenizer([_norm(w) for w in words]))
-            except RuntimeError as exc:
-                # Unalignable seq: e.g. a degenerate (hallucination-looped) hyp transcript
-                # with more CTC targets than emission frames. Skip the seq -- it is then
-                # missing from the HDF and counted as uncovered by the metric jobs.
-                print(f"WARNING: seq {seq_idx} unalignable, skipping: {exc}", flush=True)
-                continue
+            token_spans = aligner(emission[0], token_lists)
             assert len(token_spans) == len(words), f"{len(token_spans)=} {len(words)=}"
 
             word_se = np.zeros((len(words), 2), dtype=np.float32)
