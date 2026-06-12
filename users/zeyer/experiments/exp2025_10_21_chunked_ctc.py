@@ -83,8 +83,128 @@ def _add_row_index_id_column(ds):
     raise TypeError(f"unexpected ds type {type(ds)}")
 
 
+# TEDLium segmented-vs-long-form comparability.
+# The HF Open-ASR-Leaderboard "tedlium" test (1155 utts) is a superset of
+# distil-whisper/tedlium-long-form (11 talks): it has 4 extra talks/segments
+# (TomWujec + S164 + S182 + RobertGupta_2010U_S57) = the 61 utts / 1594 words below.
+# Dropping exactly these makes the filtered segmented reference word-for-word
+# identical to long-form (verified per talk), so seg vs long is directly comparable.
+# Fixed/verified list; if it changes, rename _filter_tedlium_seg_to_longform so the dataset re-hashes.
+_TEDLIUM_SEG_STRIP_IDS = [
+    "RobertGupta_2010U_S57-361.23-362.2-<o,f0,>",
+    "S164-1015.53-1018.04-<o,f0,male>",
+    "S164-1020.06-1024.85-<o,f0,male>",
+    "S164-1024.85-1030.49-<o,f0,male>",
+    "S164-1030.49-1034.21-<o,f0,male>",
+    "S164-1068.44-1069.39-<o,f0,male>",
+    "S164-1108.1-1113.9-<o,f0,male>",
+    "S164-1115.01-1122.74-<o,f0,male>",
+    "S164-1122.74-1132.73-<o,f0,male>",
+    "S164-1188.29-1192.25-<o,f0,male>",
+    "S164-1192.25-1198.31-<o,f0,male>",
+    "S164-1198.31-1199.44-<o,f0,male>",
+    "S182-1132.37-1133.83-<o,f0,male>",
+    "S182-1139.4-1145.5-<o,f0,male>",
+    "S182-1145.5-1150.06-<o,f0,male>",
+    "S182-1188.32-1201.11-<o,f0,male>",
+    "S182-1227.43-1231.56-<o,f0,male>",
+    "S182-1263.35-1270.77-<o,f0,male>",
+    "S182-1310.91-1319.37-<o,f0,male>",
+    "S182-1362.83-1368.54-<o,f0,male>",
+    "S182-1421.25-1422.21-<o,f0,>",
+    "S182-1424.31-1431.26-<o,f0,male>",
+    "S182-1480.76-1489.37-<o,f0,>",
+    "S182-1560.73-1561.13-<o,f0,>",
+    "S182-1562.02-1579.59-<o,f0,male>",
+    "S182-1650.73-1656.53-<o,f0,male>",
+    "TomWujec-109.54-116.82-<o,f0,male>",
+    "TomWujec-119.38-131.52-<o,f0,male>",
+    "TomWujec-132.99-133.34-<o,f0,male>",
+    "TomWujec-134.81-144.91-<o,f0,male>",
+    "TomWujec-144.91-152.69-<o,f0,male>",
+    "TomWujec-152.69-162.19-<o,f0,male>",
+    "TomWujec-16.26-41.56-<o,f0,male>",
+    "TomWujec-162.19-169.49-<o,f0,male>",
+    "TomWujec-171.316-179.95-<o,f0,male>",
+    "TomWujec-179.95-188.63-<o,f0,male>",
+    "TomWujec-188.63-196.12-<o,f0,male>",
+    "TomWujec-196.12-202-<o,f0,male>",
+    "TomWujec-202-213.85-<o,f0,male>",
+    "TomWujec-213.85-217.67-<o,f0,male>",
+    "TomWujec-222.35-234.55-<o,f0,male>",
+    "TomWujec-234.55-243.81-<o,f0,male>",
+    "TomWujec-245.54-246.88-<o,f0,male>",
+    "TomWujec-246.88-260.94-<o,f0,male>",
+    "TomWujec-260.94-270.44-<o,f0,male>",
+    "TomWujec-270.44-277.76-<o,f0,male>",
+    "TomWujec-277.76-286.93-<o,f0,male>",
+    "TomWujec-286.93-290.55-<o,f0,male>",
+    "TomWujec-290.55-311.42-<o,f0,male>",
+    "TomWujec-311.42-325.19-<o,f0,male>",
+    "TomWujec-325.19-338.57-<o,f0,male>",
+    "TomWujec-338.57-345.12-<o,f0,male>",
+    "TomWujec-345.12-369.27-<o,f0,male>",
+    "TomWujec-369.27-375.43-<o,f0,male>",
+    "TomWujec-375.43-402.17-<o,f0,male>",
+    "TomWujec-41.56-49.2-<o,f0,male>",
+    "TomWujec-49.2-66.66-<o,f0,male>",
+    "TomWujec-66.66-87-<o,f0,male>",
+    "TomWujec-87-95.87-<o,f0,male>",
+    "TomWujec-95.87-97.48-<o,f0,male>",
+    "TomWujec-97.48-109.54-<o,f0,male>",
+]
+
+
+def _filter_tedlium_seg_to_longform(ds):
+    """Drop :data:`_TEDLIUM_SEG_STRIP_IDS` from the leaderboard TEDLium test split,
+    so the filtered segmented set matches distil-whisper/tedlium-long-form exactly.
+    Top-level for stable Sisyphus hashing."""
+    from datasets import DatasetDict
+
+    strip = set(_TEDLIUM_SEG_STRIP_IDS)
+    if isinstance(ds, DatasetDict):
+        before = sum(len(d) for d in ds.values())
+        out = DatasetDict({s: d.filter(lambda ex: ex["id"] not in strip) for s, d in ds.items()})
+        after = sum(len(d) for d in out.values())
+    else:
+        before, out = len(ds), ds.filter(lambda ex: ex["id"] not in strip)
+        after = len(out)
+    assert before - after == len(strip), f"TEDLium strip: expected {len(strip)}, dropped {before - after}"
+    return out
+
+
 def py():
     _exp_base, _task_base, _aux_base = train("base", {})
+
+    # base-rope: offline base + RoPE encoder self-attention (vs the default RelPosSelfAttention).
+    # Isolates the rope effect in the offline/full-context setting,
+    # parallel to the chunked -v2.3 vs -v2.3-rope ablation.
+    # (No ctembed: chunk-type embedding is meaningless without chunks.)
+    train(
+        "base-rope",
+        {
+            "model.enc_build_dict": rf.build_dict(
+                ConformerEncoder,
+                input_layer=rf.build_dict(
+                    ConformerConvSubsample,
+                    out_dims=[32, 64, 64],
+                    filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                    pool_sizes=[(1, 2)],
+                    strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
+                ),
+                num_layers=16,
+                out_dim=1024,
+                encoder_layer=rf.build_dict(
+                    ConformerEncoderLayer,
+                    ff=rf.build_dict(
+                        ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                    ),
+                    num_heads=8,
+                    self_att=rf.build_dict(rf.RotaryPosSelfAttention),
+                ),
+            ),
+        },
+    )
 
     # Verify the offline-trained base model runs correctly when loaded into
     # ChunkedConformerEncoderV2 (v=3). Offline first (chunk_size=None) -- WER
@@ -615,6 +735,27 @@ def py():
         sorting_seq_len_column="",
     )
 
+    @_functools.cache
+    def _get_tedlium_seg_filtered_hf_dir():
+        _job = TransformAndMapHuggingFaceDatasetJob(
+            _get_hf_leaderboard_dir("tedlium"),
+            transform=_filter_tedlium_seg_to_longform,
+        )
+        _job.rqmt.update({"cpu": 4, "time": 1, "mem": 16})
+        _job.add_alias("datasets/tedlium-seg-filtered")
+        tk.register_output("datasets/tedlium-seg-filtered", _job.out_dir)
+        return _job.out_dir
+
+    # tedlium-seg-filtered: the segmented set restricted to the 11 long-form talks,
+    # so its reference == long-form word-for-word (verified) -> directly comparable.
+    _tedlium_seg_filtered = _HFDataset(
+        hf_data_dir=_get_tedlium_seg_filtered_hf_dir(),
+        name="tedlium",
+        split="test",
+        vocab=_vocab_obj,
+        sorting_seq_len_column="audio_length_s",
+    )
+
     def _hf_score_long_rqmt(dataset, recog_output):
         # Wrap the standard sclite scorer so that for long-form recordings,
         # the downstream ScliteJob runs on a partition
@@ -637,7 +778,11 @@ def py():
             "max_seqs": 1,
             "streaming_segment_seconds": 10.0,
         },
-        eval_sets={"tedlium-seg.test": _tedlium_seg, "tedlium-long.test": _tedlium_long},
+        eval_sets={
+            "tedlium-seg.test": _tedlium_seg,
+            "tedlium-seg-filtered.test": _tedlium_seg_filtered,
+            "tedlium-long.test": _tedlium_long,
+        },
     )
     tk.register_output(
         f"{get_setup_prefix_for_module(__name__)}/aed/{name}/streaming-kvcache-v2-seg10-tedlium",
