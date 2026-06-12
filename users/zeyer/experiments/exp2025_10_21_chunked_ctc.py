@@ -1301,9 +1301,7 @@ def py():
     #   +rope non-dyn 9.31 / 10.16 (237.1h) vs dyn 9.55 / 10.30 (128.4h).
     #   non-dyn wins WER by ~0.2 at matched features, but trains slower (fixed small C5 = many chunks);
     #   dyn trains faster and one model generalizes across recog chunk sizes.
-    # - R0-v2.3-overlap run. (TODO put result here once ready)
     # - Overlap at recog only (-ov2): hurts; C5-R4-ov2 10.65 (vs 9.41), C5-R2-ov2 18.10 (vs 10.14).
-    # - 2xtrain (TODO put result here once ready)
     # - dyn-rope-ctembed-overlap-mse: MSE helps the overlap variant (dev 10.20 -> 9.99),
     #   but overlap still regresses vs no-overlap dyn-rope-ctembed (9.41).
     #   Reference: overlap 10.20 / 11.03, overlap-mse 9.99 / 10.85, overlapD 9.75 / 10.56;
@@ -1314,7 +1312,8 @@ def py():
     #   baseLr0.1 weaker (8.97 / 9.85); vs from-scratch dyn-rope-ctembed 9.41 / 10.29.
     # - base-2xtrain: dev 6.58 / test 7.41 (vs base 1x 7.32 / 8.10).
     # - dyn-rope-ctembed-2xtrain: dev 8.49 / test 9.19 (213.7h),
-    #   clear gain over 1x (9.41 / 10.29).
+    #   clear gain over 1x (9.41 / 10.29),
+    #   also better than dyn-rope-ctembed-impBase.
     #   (Best from-scratch chunked streaming result so far.)
     # - longform: so far ONLY chunked-L80-C5-R4-v2.3-dyn-rope-ctembed, streaming-KV seg10.
     #   seg.test 5.12, long.test 4.97,
@@ -1342,6 +1341,8 @@ def py():
     # - Also running some linear-attention variants (Deltanet, Mamba), not good so far, some are still running.
 
     # For next time:
+    # - R0-v2.3-overlap run. (TODO put result here once ready)
+    # - 2xtrain (TODO put result here once ready)
     # - Linear-attention encoders, all worse than conformer dyn-rope-ctembed 9.41 / 10.29:
     #   mamba2 dev 10.47 / test 11.35 (174.0h),
     #   deltanet 11.09 / 11.93 (164.3h),
