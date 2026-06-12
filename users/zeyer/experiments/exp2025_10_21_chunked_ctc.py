@@ -1292,11 +1292,15 @@ def py():
     # - Dyn-pool comparison (rope+ctembed fixed, only the train pools vary), dev / test (train h):
     #   dyn 9.41 / 10.29 (128.3h; run2 9.52 / 10.21, 107.3h),
     #   dynCx3 9.47 / 10.28 (120.8h, oversample small C, no gain),
-    #   dynV3 10.33 / 10.99 (97.1h, adds 0 to history+lookahead pools),
     #   dynV2 10.85 / 11.71 (100.1h, worst).
-    #   TODO non-dyn and dynV4 still running.
-    #   TODO earlier non-dyn vs dyn comparison: ... (please fill in here)
+    #   dynV3 10.33 / 10.99 (97.1h, adds 0 to history+lookahead pools),
+    #   TODO non-dyn and dynV4 still running for rope+ctembed.
     #   Decisive knob: a 0 in the history/lookahead pools hurts, standard dyn best.
+    #   earlier non-dyn vs dyn (matched features, recog at C5; dev / test, train h):
+    #   plain non-dyn 9.46 / 10.29 (168.8h) vs dyn 9.66 / 10.39 (103.9h);
+    #   +rope non-dyn 9.31 / 10.16 (237.1h) vs dyn 9.55 / 10.30 (128.4h).
+    #   non-dyn wins WER by ~0.2 at matched features, but trains slower (fixed small C5 = many chunks);
+    #   dyn trains faster and one model generalizes across recog chunk sizes.
     # - R0-v2.3-overlap run. (TODO put result here once ready)
     # - Overlap at recog only (-ov2): hurts; C5-R4-ov2 10.65 (vs 9.41), C5-R2-ov2 18.10 (vs 10.14).
     # - 2xtrain (TODO put result here once ready)
