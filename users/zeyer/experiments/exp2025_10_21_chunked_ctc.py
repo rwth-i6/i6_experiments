@@ -1330,8 +1330,6 @@ def py():
     #   so mean-latency is unreliable for large chunks; first-word latency is the cleaner metric there.
     #   Net: latency adds little beyond WER + (C, R); it mainly detects premature emission.
     #   offline base +inf (whole seq needed).
-    # - Also running some linear-attention variants (Deltanet, Mamba), not good so far, some are still running.
-    # - Also testing long-form on Tedlium. In progress, looks like we might get some improvements.
 
     # TODO 4xtrain... base also with rope? plot to extrapolate. run all models also in consistent recog (offline)
     #   maybe more train scale tuning?
