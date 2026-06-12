@@ -10,12 +10,12 @@ The only new compute here is per-LM PPL on each eval set
 via :func:`...decoding.perplexity.get_lm_perplexities_for_task_evals_v2`.
 
 Also hosts the LibriSpeech chunked-CTC encoder-context-length experiments
-(RQ4: how encoder context length affects external-LM gain and the PPL-WER
-relation), merged in from the former ``exp2026_05_27_chunked_ctc_ls`` recipe.
-They register under the pinned ``exp2026_05_27_chunked_ctc_ls`` prefix
-(:data:`_LS_CHUNKED_PREFIX`) so their output/alias paths are unchanged; Sis job
-hashes are prefix-independent, so the merge re-runs nothing. See
-:func:`_train_ls_chunked`.
+(RQ4: how encoder context length affects external-LM gain and the PPL-WER relation),
+merged in from the former ``exp2026_05_27_chunked_ctc_ls`` recipe.
+They register under the pinned ``exp2026_05_27_chunked_ctc_ls`` prefix (:data:`_LS_CHUNKED_PREFIX`),
+so their output/alias paths are unchanged.
+Sis job hashes are prefix-independent, so the merge re-runs nothing.
+See :func:`_train_ls_chunked`.
 """
 
 from __future__ import annotations
@@ -66,8 +66,8 @@ __setup_root_prefix__ = "exp2026_06_06_ppl_wer_relation"
 _CTC_MODEL_NAME = "L16-D1024-spm10k-auxAED-b100k"
 
 # Pinned output/alias prefix for the merged LibriSpeech chunked-CTC experiments.
-# Kept at the original recipe name so result/alias paths don't move; Sis hashes
-# don't depend on it, so nothing re-runs.
+# Kept at the original recipe name so result/alias paths don't move;
+# Sis hashes don't depend on it, so nothing re-runs.
 _LS_CHUNKED_PREFIX = "exp2026_05_27_chunked_ctc_ls"
 
 
@@ -145,19 +145,19 @@ def _train_ls_chunked():
     """
     LibriSpeech chunked-CTC encoder-context-length experiments (RQ4).
 
-    LS counterpart of :mod:`exp2025_10_21_chunked_ctc` (Loquacious): same LS data
-    + recipe as the offline AED baseline
+    LS counterpart of :mod:`exp2025_10_21_chunked_ctc` (Loquacious):
+    same LS data + recipe as the offline AED baseline
     ``EncL16-DecL6-D1024-DecPosEncAbs-featBN-aux4_10_16-auxDec3-spm10k-bpeSample001-baseLr0.5-b100k``
-    in :mod:`exp2025_08_05_aed_large`, only the encoder is swapped for
-    :class:`ChunkedConformerEncoderV2`.
+    in :mod:`exp2025_08_05_aed_large`,
+    only the encoder is swapped for :class:`ChunkedConformerEncoderV2`.
 
-    Sweeps ``(left_ctx, center, right_lookahead)`` configs (encoder frames after
-    the ``ConformerConvSubsample`` /6 downsampling, so one frame ~= 60 ms): a
-    limited-context causal sweep (zero history, zero lookahead) over chunk size,
+    Sweeps ``(left_ctx, center, right_lookahead)`` configs
+    (encoder frames after the ``ConformerConvSubsample`` /6 downsampling, so one frame ~= 60 ms):
+    a limited-context causal sweep (zero history, zero lookahead) over chunk size,
     plus an (80, 5, 4) streaming reference.
 
-    Merged here from the former ``exp2026_05_27_chunked_ctc_ls`` recipe; registers
-    under the pinned :data:`_LS_CHUNKED_PREFIX`.
+    Merged here from the former ``exp2026_05_27_chunked_ctc_ls`` recipe;
+    registers under the pinned :data:`_LS_CHUNKED_PREFIX`.
     """
     # Register the offline LS AED baseline under the pinned prefix
     # with a byte-identical ``aed_train_exp(...)`` call,
@@ -439,8 +439,8 @@ def _run_ls_ctc_lm(name: str, exp, task, aux_ctc_layer: int = 16) -> None:
     resolved via the shared :func:`_get_lm_model` / :data:`_lms` registry,
     so no new LM training is triggered -- the finished LM job is reused (import it if absent).
 
-    Recog is ``ctc_recog_recomb_labelwise_prior_auto_scale`` (same ``ctc+lm-v2`` path as
-    the Loquacious setup): the CTC head is read from aux layer ``aux_ctc_layer``,
+    Recog is ``ctc_recog_recomb_labelwise_prior_auto_scale`` (same ``ctc+lm-v2`` path as the Loquacious setup):
+    the CTC head is read from aux layer ``aux_ctc_layer``,
     and the label prior is estimated on this task's LS train data.
     """
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import (
