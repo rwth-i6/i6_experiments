@@ -1336,6 +1336,9 @@ def py():
     #   so mean-latency is unreliable for large chunks; first-word latency is the cleaner metric there.
     #   Net: latency adds little beyond WER + (C, R); it mainly detects premature emission.
     #   offline base +inf (whole seq needed).
+    # - Also running some linear-attention variants (Deltanet, Mamba), not good so far, some are still running.
+
+    # For next time:
     # - Linear-attention encoders, all worse than conformer dyn-rope-ctembed 9.41 / 10.29:
     #   mamba2 dev 10.47 / test 11.35 (174.0h),
     #   deltanet 11.09 / 11.93 (164.3h),
