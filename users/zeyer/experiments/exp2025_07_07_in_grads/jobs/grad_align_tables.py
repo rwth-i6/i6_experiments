@@ -19,7 +19,8 @@ _RESULTS = {}
 def build_tables(results):
     global _RESULTS
     _RESULTS = results
-    _compare_table()
+    _compare_table()  # ground-truth forced-mode only (separate hyp table below)
+    _compare_table(with_hyp=True)  # variant: hyp-mode columns merged onto the grad rows
     _hyp_table()
 
 
@@ -42,7 +43,7 @@ def _acc(base, key):
 # T1: per-model grad-align vs the model's own alternative aligner (same model, different method).
 #     Rows grouped by model; columns = align method + per-dataset metrics (TIMIT, Buckeye).
 # ----------------------------------------------------------------------------------------
-def _compare_table():
+def _compare_table(with_hyp=False):
     S, T = "buckeye-segA-5h", "timit-test"
 
     def g(stem_sa, stem_ti):  # grad-align align/ output bases (segA, TIMIT)
@@ -207,6 +208,19 @@ def _compare_table():
         ("MFA (GMM-HMM)", [("posteriors", f"baseline-mfa-{S}", f"baseline-mfa-{T}")]),
     ]
 
+    # Hyp-mode (each model aligns its OWN recognition, Buckeye only) -> grad rows only, where it exists.
+    HYP = {
+        "Whisper-base": f"whisper-base-charlev-{S}-grad",
+        "Voxtral": f"voxtral-charlevlogmel-{S}-grad",
+        "Phi-4-MM": f"phi4mm-charlev-spc-{S}-grad",
+        "Canary-Qwen": f"canary-qwen-charlev-spc-logmel-st15-{S}-grad",
+        "Parakeet RNN-T": f"parakeet-rnnt-1.1b-logmel-{S}-grad",
+        "Parakeet TDT": f"parakeet-tdt-0.6b-v2-logmel-{S}-grad",
+    }
+
+    def _hm(name, key, mul, fmt):
+        return {"var": _RESULTS.get(f"hyp-align/{name}-metrics.txt"), "key": key, "mul": mul, "fmt": fmt}
+
     # Two-level header: TIMIT / Buckeye groups, each with WBE + acc@{50,100}.
     cols = [
         {"key": "method", "header": "Align \\\\ method"},
@@ -217,6 +231,12 @@ def _compare_table():
         {"key": "s_a50", "header": "acc@50 \\\\ {[\\%]}", "group": "Buckeye"},
         {"key": "s_a100", "header": "acc@100 \\\\ {[\\%]}", "group": "Buckeye"},
     ]
+    if with_hyp:
+        # hyp-mode (own-recognition) columns: matched-WBE + F1@50, on grad rows only.
+        cols += [
+            {"key": "h_mwbe", "header": "m-WBE \\\\ {[ms]}", "group": "Buckeye (hyp)"},
+            {"key": "h_f50", "header": "F1@50", "group": "Buckeye (hyp)"},
+        ]
 
     def _model_rows(groups, lead_hline):
         rows = []
@@ -226,40 +246,46 @@ def _compare_table():
             for mi, (mlabel, sa, ti) in enumerate(methods):
                 if mi > 0:
                     rows.append({"cline": True})  # \cline between a model's own methods
-                rows.append(
-                    {
-                        "label": model if mi == 0 else "",
-                        "cells": {
-                            "method": mlabel,
-                            "t_wbe": _wbe(ti) if ti else None,
-                            "t_a50": _acc(ti, "acc_50ms") if ti else None,
-                            "t_a100": _acc(ti, "acc_100ms") if ti else None,
-                            "s_wbe": _wbe(sa) if sa else None,
-                            "s_a50": _acc(sa, "acc_50ms") if sa else None,
-                            "s_a100": _acc(sa, "acc_100ms") if sa else None,
-                        },
-                    }
-                )
+                cells = {
+                    "method": mlabel,
+                    "t_wbe": _wbe(ti) if ti else None,
+                    "t_a50": _acc(ti, "acc_50ms") if ti else None,
+                    "t_a100": _acc(ti, "acc_100ms") if ti else None,
+                    "s_wbe": _wbe(sa) if sa else None,
+                    "s_a50": _acc(sa, "acc_50ms") if sa else None,
+                    "s_a100": _acc(sa, "acc_100ms") if sa else None,
+                }
+                if with_hyp:
+                    hn = HYP.get(model) if mi == 0 else None  # hyp only on the grad row
+                    cells["h_mwbe"] = _hm(hn, "matched_wbe", 1000.0, "{:.1f}") if hn else None
+                    cells["h_f50"] = _hm(hn, "f1_50ms", 1.0, "{:.3f}") if hn else None
+                rows.append({"label": model if mi == 0 else "", "cells": cells})
         return rows
 
     rows = _model_rows(MODELS, False) + _model_rows(REFERENCE, True)
 
+    caption = (
+        "Per-model alignment quality: gradient-based alignment vs. the model's own native / "
+        "attention aligner, on TIMIT-test and Buckeye (segment-A 5h subset). "
+        "The attention aligners (cross-/self-attn weights) use each model's native subword "
+        "tokenization -- their best setting, as the coarse attention grid cannot resolve "
+        "char-level targets; grad-align and the CTC / transducer aligners use the same per-token "
+        "units within each model. MFA (GMM-HMM) is a dedicated-aligner reference."
+    )
+    if with_hyp:
+        caption += (
+            " The rightmost group adds hypothesis-mode metrics (each model aligns its OWN "
+            "recognition; matched-WBE and identity-gated F1@50ms), shown on the grad row where available."
+        )
     job = WriteLatexTableJob(
         columns=cols,
         rows=rows,
-        caption=(
-            "Per-model alignment quality: gradient-based alignment vs. the model's own native / "
-            "attention aligner, on TIMIT-test and Buckeye (segment-A 5h subset). "
-            "The attention aligners (cross-/self-attn weights) use each model's native subword "
-            "tokenization -- their best setting, as the coarse attention grid cannot resolve "
-            "char-level targets; grad-align and the CTC / transducer aligners use the same per-token "
-            "units within each model. MFA (GMM-HMM) is a dedicated-aligner reference."
-        ),
-        label="tab:per-model-methods",
+        caption=caption,
+        label="tab:per-model-methods" + ("-hyp" if with_hyp else ""),
         label_header="Model",
-        col_align="|l|l|r|r|r|r|r|r|",
+        col_align="|l|l|r|r|r|r|r|r|" + ("r|r|" if with_hyp else ""),
     )
-    tk.register_output("tables/per-model-methods.tex", job.out_tex)
+    tk.register_output("tables/per-model-" + ("merged" if with_hyp else "methods") + ".tex", job.out_tex)
 
 
 # ----------------------------------------------------------------------------------------
