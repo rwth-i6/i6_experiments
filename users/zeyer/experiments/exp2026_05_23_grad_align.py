@@ -3899,12 +3899,12 @@ def py():
     _hy_metrics(f"crisperwhisper-official-{_xa_tag}", _cw_off.out_word_boundaries_hdf, _cw_off_ds.out_hub_cache_dir)
 
     # --- Auto-generated LaTeX result tables (in-graph; reference only this recipe's outputs) ---
-    from i6_experiments.users.zeyer.experiments.exp2026_05_23_grad_align_tables import build_tables
+    from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.grad_align_tables import build_tables
 
     build_tables(_table_results)
 
     # --- Auto-generated grad-score figures (in-graph; same captured-outputs dict) ---
-    from i6_experiments.users.zeyer.experiments.exp2026_05_23_grad_align_plots import build_plots
+    from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.grad_align_plots import build_plots
 
     build_plots(_table_results)
 
