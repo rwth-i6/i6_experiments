@@ -40,7 +40,7 @@ def _acc(base, key):
 
 # ----------------------------------------------------------------------------------------
 # T1: per-model grad-align vs the model's own alternative aligner (same model, different method).
-#     Rows grouped by model; columns = method + metrics.
+#     Rows grouped by model; columns = align method + per-dataset metrics (TIMIT, Buckeye).
 # ----------------------------------------------------------------------------------------
 def _compare_table():
     S, T = "buckeye-segA-5h", "timit-test"
@@ -48,33 +48,35 @@ def _compare_table():
     def g(stem_sa, stem_ti):  # grad-align align/ output bases (segA, TIMIT)
         return (f"align/{stem_sa}", f"align/{stem_ti}" if stem_ti else None)
 
-    # (Model, [(method label, segA base, TIMIT base), ...])  -- grad first, then its alternative.
+    # (Model, [(align-method label, segA base, TIMIT base), ...])  -- grad first, then its alternative.
+    # The method label names the alignment SIGNAL: grad / posteriors (CTC, transducer, GMM-HMM) /
+    # cross-attn weights / self-attn weights.
     MODELS = [
         (
             "Wav2Vec2-CTC",
             [
                 (
-                    "grad (ours)",
+                    "grad",
                     *g(
                         f"wav2vec2ctc-fproj_out-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                         f"wav2vec2ctc-fproj_out-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
-                ("CTC forced-align", f"baseline-mms_fa-{S}", f"baseline-mms_fa-{T}"),
+                ("posteriors", f"baseline-mms_fa-{S}", f"baseline-mms_fa-{T}"),
             ],
         ),
         (
             "Phoneme-CTC",
             [
                 (
-                    "grad (ours)",
+                    "grad",
                     *g(
                         f"phoneme-vitouphy-{S}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-sil1.0",
                         "w2v-phoneme-timit-test-L2_grad-perphone-en0.5-sil1.0-word",
                     ),
                 ),
                 (
-                    "CTC forced-align",
+                    "posteriors",
                     f"baseline-phoneme-fa-{S}-word",
                     "align/w2v-phoneme-timit-test-ctc-forced-align-word",
                 ),
@@ -84,14 +86,14 @@ def _compare_table():
             "Whisper-base",
             [
                 (
-                    "grad (ours)",
+                    "grad",
                     *g(
                         f"whisper-base-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
                         f"whisper-base-logmel-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 (
-                    "cross-attn DTW",
+                    "cross-attn weights",
                     f"align/baseline-whisper-base-crossattn-auto-{S}-asotTrue-bs-5-en0.5-sil1.0",
                     f"align/baseline-whisper-base-crossattn-auto-{T}-asotTrue-bs-5-en0.5-sil1.0",
                 ),
@@ -101,14 +103,14 @@ def _compare_table():
             "Whisper-large-v3",
             [
                 (
-                    "grad (ours)",
+                    "grad",
                     *g(
                         f"whisper-large-v3-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
                         f"whisper-large-v3-logmel-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 (
-                    "cross-attn DTW",
+                    "cross-attn weights",
                     f"baseline-whisper-large-v3-crossattn-{S}",
                     f"baseline-whisper-large-v3-crossattn-{T}",
                 ),
@@ -118,14 +120,14 @@ def _compare_table():
             "Parakeet RNN-T",
             [
                 (
-                    "grad (ours)",
+                    "grad",
                     *g(
                         f"parakeet-rnnt-1.1b-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                         f"parakeet-rnnt-1.1b-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 (
-                    "native Viterbi",
+                    "posteriors",
                     f"baseline-parakeet-rnnt-1.1b-native-viterbi-{S}",
                     f"baseline-parakeet-rnnt-1.1b-native-viterbi-{T}",
                 ),
@@ -135,14 +137,14 @@ def _compare_table():
             "Parakeet TDT",
             [
                 (
-                    "grad (ours)",
+                    "grad",
                     *g(
                         f"parakeet-tdt-0.6b-v2-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                         f"parakeet-tdt-0.6b-v2-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 (
-                    "native Viterbi",
+                    "posteriors",
                     f"baseline-parakeet-tdt-0.6b-v2-native-viterbi-{S}",
                     f"baseline-parakeet-tdt-0.6b-v2-native-viterbi-{T}",
                 ),
@@ -152,14 +154,14 @@ def _compare_table():
             "Voxtral",
             [
                 (
-                    "grad (ours)",
+                    "grad",
                     *g(
                         f"voxtral-charlevlogmel-{S}-L1_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                         f"voxtral-charlevlogmel-{T}-L1_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 (
-                    "self-attn DTW",
+                    "self-attn weights",
                     f"align/baseline-voxtral-selfattn-{S}-asotTrue-bs-5-en0.5-sil1.0",
                     f"align/baseline-voxtral-selfattn-{T}-asotTrue-bs-5-en0.5-sil1.0",
                 ),
@@ -169,14 +171,14 @@ def _compare_table():
             "Phi-4-MM",
             [
                 (
-                    "grad (ours)",
+                    "grad",
                     *g(
                         f"phi4mm-{S}-L2_e_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
                         f"phi4mm-{T}-L2_e_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 (
-                    "self-attn DTW",
+                    "self-attn weights",
                     f"align/baseline-phi4mm-selfattn-{S}-asotTrue-bs-5-en0.5-sil1.0",
                     f"align/baseline-phi4mm-selfattn-{T}-asotTrue-bs-5-en0.5-sil1.0",
                 ),
@@ -186,14 +188,14 @@ def _compare_table():
             "Canary-Qwen",
             [
                 (
-                    "grad (ours)",
+                    "grad",
                     *g(
                         f"canary-qwen-charlev-spc-logmel-st15-{S}-L1_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                         f"canary-qwen-charlev-spc-logmel-st15-{T}-L1_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 (
-                    "self-attn DTW",
+                    "self-attn weights",
                     f"align/baseline-canary-qwen-selfattn-{S}-asotTrue-bs-5-en0.5-sil1.0",
                     f"align/baseline-canary-qwen-selfattn-{T}-asotTrue-bs-5-en0.5-sil1.0",
                 ),
@@ -202,15 +204,18 @@ def _compare_table():
     ]
     # Dedicated-aligner ceiling (model-agnostic), shown for reference.
     REFERENCE = [
-        ("MFA (GMM-HMM)", [("forced-align", f"baseline-mfa-{S}", f"baseline-mfa-{T}")]),
+        ("MFA (GMM-HMM)", [("posteriors", f"baseline-mfa-{S}", f"baseline-mfa-{T}")]),
     ]
 
+    # Two-level header: TIMIT / Buckeye groups, each with WBE + acc@{50,100}.
     cols = [
-        {"key": "method", "header": "Method"},
-        {"key": "t_wbe", "header": "TIMIT WBE [ms]"},
-        {"key": "s_wbe", "header": "segA WBE [ms]"},
-        {"key": "s_a50", "header": "segA acc@50 [\\%]"},
-        {"key": "s_a100", "header": "segA acc@100 [\\%]"},
+        {"key": "method", "header": "Align \\\\ method"},
+        {"key": "t_wbe", "header": "WBE \\\\ {[ms]}", "group": "TIMIT"},
+        {"key": "t_a50", "header": "acc@50 \\\\ {[\\%]}", "group": "TIMIT"},
+        {"key": "t_a100", "header": "acc@100 \\\\ {[\\%]}", "group": "TIMIT"},
+        {"key": "s_wbe", "header": "WBE \\\\ {[ms]}", "group": "Buckeye"},
+        {"key": "s_a50", "header": "acc@50 \\\\ {[\\%]}", "group": "Buckeye"},
+        {"key": "s_a100", "header": "acc@100 \\\\ {[\\%]}", "group": "Buckeye"},
     ]
 
     def _model_rows(groups, lead_hline):
@@ -227,6 +232,8 @@ def _compare_table():
                         "cells": {
                             "method": mlabel,
                             "t_wbe": _wbe(ti) if ti else None,
+                            "t_a50": _acc(ti, "acc_50ms") if ti else None,
+                            "t_a100": _acc(ti, "acc_100ms") if ti else None,
                             "s_wbe": _wbe(sa) if sa else None,
                             "s_a50": _acc(sa, "acc_50ms") if sa else None,
                             "s_a100": _acc(sa, "acc_100ms") if sa else None,
@@ -242,11 +249,15 @@ def _compare_table():
         rows=rows,
         caption=(
             "Per-model alignment quality: gradient-based alignment vs. the model's own native / "
-            "attention aligner, on TIMIT-test and Buckeye-segA. Dedicated aligner (MFA) for reference."
+            "attention aligner, on TIMIT-test and Buckeye (segment-A 5h subset). "
+            "The attention aligners (cross-/self-attn weights) use each model's native subword "
+            "tokenization -- their best setting, as the coarse attention grid cannot resolve "
+            "char-level targets; grad-align and the CTC / transducer aligners use the same per-token "
+            "units within each model. MFA (GMM-HMM) is a dedicated-aligner reference."
         ),
         label="tab:per-model-methods",
         label_header="Model",
-        col_align="|l|l|r|r|r|r|",
+        col_align="|l|l|r|r|r|r|r|r|",
     )
     tk.register_output("tables/per-model-methods.tex", job.out_tex)
 

@@ -3,7 +3,10 @@
 Table generation is part of the Sis graph: a :class:`WriteLatexTableJob` depends on the
 metric-output Variables and renders a ``table.tex`` (vertical rules + ``\\hline``, bold
 bracketed-unit headers, optional bold-best) that the paper ``\\input``s. Auto-updates when the
-upstream results do.
+upstream results do. Supports a two-level header: columns with the same ``"group"`` share a
+``\\multicolumn`` group cell on the top row, ungrouped columns span both header rows
+(``\\multirow{2}``); a header containing ``\\\\`` is wrapped in ``\\makecell`` for multi-line.
+Needs ``\\usepackage{multirow,makecell}`` in the document.
 """
 
 from typing import Optional, List, Dict, Any
@@ -20,10 +23,11 @@ def _latex_escape(s: str) -> str:
 class WriteLatexTableJob(Job):
     """Render a LaTeX table (i6 ruled style) from result Variables.
 
-    :param columns: ordered list of column dicts. Each: ``{"key", "header", "best"?}``.
+    :param columns: ordered list of column dicts. Each: ``{"key", "header", "best"?, "group"?}``.
         ``best`` in ``{"min", "max"}`` bolds the best numeric cell in that column. ``header`` is
-        the column title WITHOUT bold/units markup -- it is wrapped in ``\\textbf{...}`` and should
-        already carry its unit, e.g. ``"WBE [ms]"``.
+        the column sub-title; it carries its own unit (e.g. ``"WBE [ms]"``) and may contain ``\\\\``
+        for a multi-line ``\\makecell`` header. ``group`` (optional) is the top-level header label
+        (e.g. ``"TIMIT"``); contiguous columns with the same ``group`` share one ``\\multicolumn``.
     :param rows: ordered list of row dicts. Each: ``{"label", "cells": {col_key: cell}}``.
         A ``cell`` is a literal (str/number) OR a dict
         ``{"var": Variable|Path, "key"?: str, "mul"?: float, "fmt"?: str, "missing"?: str}``:
@@ -124,10 +128,44 @@ class WriteLatexTableJob(Job):
             out.append(f"  \\label{{{self.label}}}")
         out.append(f"  \\begin{{tabular}}{{{col_align}}}")
         out.append("    \\hline")
-        hdr = ([f"\\textbf{{{self.label_header}}}"] if self.label_header else [""]) + [
-            f"\\textbf{{{c['header']}}}" for c in cols
-        ]
-        out.append("    " + " & ".join(hdr) + r" \\ \hline\hline")
+
+        def _hdr(s):
+            # bold; wrap a multi-line header (contains a literal "\\") in \makecell.
+            return f"\\textbf{{\\makecell{{{s}}}}}" if "\\\\" in s else f"\\textbf{{{s}}}"
+
+        if any(c.get("group") for c in cols):
+            # Two-level header: ungrouped leading columns span both rows (\multirow{2});
+            # contiguous same-"group" columns share a \multicolumn group cell on the top row.
+            top = [f"\\multirow{{2}}{{*}}{{{_hdr(self.label_header)}}}" if self.label_header else ""]
+            bottom = [""]
+            clines = []
+            pos = 2  # 1-based tabular column index (column 1 is the row label)
+            i = 0
+            while i < len(cols):
+                g = cols[i].get("group")
+                if not g:
+                    top.append(f"\\multirow{{2}}{{*}}{{{_hdr(cols[i]['header'])}}}")
+                    bottom.append("")
+                    pos += 1
+                    i += 1
+                else:
+                    j = i
+                    while j < len(cols) and cols[j].get("group") == g:
+                        j += 1
+                    span = j - i
+                    top.append(f"\\multicolumn{{{span}}}{{c|}}{{\\textbf{{{g}}}}}")
+                    for c in cols[i:j]:
+                        bottom.append(_hdr(c["header"]))
+                    clines.append((pos, pos + span - 1))
+                    pos += span
+                    i = j
+            out.append("    " + " & ".join(top) + r" \\")
+            out.append("    " + " ".join(f"\\cline{{{a}-{b}}}" for a, b in clines))
+            out.append("    " + " & ".join(bottom) + r" \\ \hline\hline")
+        else:
+            hdr = ([_hdr(self.label_header)] if self.label_header else [""]) + [_hdr(c["header"]) for c in cols]
+            out.append("    " + " & ".join(hdr) + r" \\ \hline\hline")
+
         for i, g in enumerate(grid):
             if g == "CLINE":
                 out.append(f"    \\cline{{2-{n_cols_total}}}")

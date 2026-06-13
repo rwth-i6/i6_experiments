@@ -19,8 +19,8 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.plot_gra
 _SEQ = 3  # same utterance across families -> directly comparable
 
 
-def _fig(hdf, title, *, key="test", seq=_SEQ, boundary="word_detail", sil=1.0, en=0.5):
-    return dict(hdf=hdf, title=title, key=key, seq=seq, boundary=boundary, sil=sil, en=en)
+def _fig(hdf, title, *, key="test", seq=_SEQ, boundary="word_detail", sil=1.0, en=0.5, tok_reg=None):
+    return dict(hdf=hdf, title=title, key=key, seq=seq, boundary=boundary, sil=sil, en=en, tok_reg=tok_reg)
 
 
 _FIGURES = [
@@ -58,7 +58,10 @@ _FIGURES = [
         key="val",
     ),
     _fig(
-        "whisper-base-logmel-timit-val-L2_grad-pertoken", "Whisper-base SUBWORD-level grad-align (TIMIT-val)", key="val"
+        "whisper-base-logmel-timit-val-L2_grad-pertoken",
+        "Whisper-base SUBWORD-level grad-align (TIMIT-val)",
+        key="val",
+        tok_reg="whisper-base-model",
     ),
 ]
 
@@ -82,6 +85,7 @@ def build_plots(results):
             audio_energy_pow=f["en"],
             blank_silence_energy_scale=f["sil"],
             boundary_source=f["boundary"],
+            tokenizer_dir=(results.get(f["tok_reg"]) if f.get("tok_reg") else None),
             title=f["title"],
         )
         name = f"{f['hdf']}-seq{f['seq']}-en{f['en']}-sil{f['sil']}"

@@ -29,6 +29,7 @@ class PlotGradAlignJob(Job):
 
     # v2: show the actual DP emission (softmax-over-time) + silence strip + per-token (char) y-labels.
     __sis_version__ = 2
+    __sis_hash_exclude__ = {"tokenizer_dir": None}
 
     def __init__(
         self,
@@ -44,6 +45,7 @@ class PlotGradAlignJob(Job):
         blank_silence_energy_scale: float = 0.0,
         boundary_source: str = "word_detail",
         title: Optional[str] = None,
+        tokenizer_dir: Optional[tk.Path] = None,
         returnn_root: Optional[tk.Path] = None,
     ):
         super().__init__()
@@ -58,6 +60,7 @@ class PlotGradAlignJob(Job):
         self.blank_silence_energy_scale = float(blank_silence_energy_scale)
         self.boundary_source = boundary_source
         self.title = title
+        self.tokenizer_dir = tokenizer_dir
         self.returnn_root = returnn_root
         self.out_png = self.output_path("plot.png")
         self.out_pdf = self.output_path("plot.pdf")
@@ -182,6 +185,15 @@ class PlotGradAlignJob(Job):
         assert len(words) == len(tokens_per_word) == len(gold)
 
         tok_labels = self._token_labels(words, tokens_per_word, n_tok)
+        if tok_labels is None and self.tokenizer_dir is not None:
+            # Subword/BPE: recover the actual pieces by re-tokenizing the SAME string the extract used
+            # (the word-level path: " " + " ".join(words)) and decoding each token. \u2423 = space.
+            from transformers import AutoTokenizer
+
+            _tk = AutoTokenizer.from_pretrained(get_content_dir_from_hub_cache_dir(self.tokenizer_dir))
+            _ids = _tk(" " + " ".join(words), add_special_tokens=False).input_ids
+            if len(_ids) == n_tok:
+                tok_labels = [(_tk.decode([i]).replace(" ", "\u2423") or "\u00b7") for i in _ids]
 
         # silence strip (softmax-over-time of the blank row, for display) above the token emission.
         _b = blank_row - blank_row.max()
