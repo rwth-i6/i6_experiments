@@ -101,7 +101,10 @@ class MfaForcedAlignJob(Job):
         # Aligned per-word (start, end) in SECONDS (float), [n_words, 2] per covered seq,
         # tags "seq-{idx}". (Jobs finished before this output existed lack the file.)
         self.out_word_boundaries_hdf = self.output_path("word_boundaries.hdf")
-        self.rqmt = {"cpu": num_jobs + 1, "mem": 16, "time": 8}
+        # mem 48: hyp-transcript corpora hit heavy OOV/G2P load (junk hyp words) and
+        # OOM-killed a worker at 16G -> MFA multiprocessing deadlocked until walltime.
+        # (Forced-mode segA ran in ~13 min within 16G; rqmt changes don't affect the hash.)
+        self.rqmt = {"cpu": num_jobs + 1, "mem": 48, "time": 8}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)

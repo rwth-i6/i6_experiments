@@ -3737,7 +3737,7 @@ def py():
             "L2",
             False,
             1.0,
-            False,
+            True,
         ),
         (
             "voxtral-charlevlogmel",
@@ -3755,7 +3755,16 @@ def py():
         ("parakeet-tdt-0.6b-v2-logmel", tdt_cfg, tdt_cfg, "L2", False, 0.0, False),
     ]:
         _hy_recog = RecogFromModelJob(
-            dataset_dir=_xa_dir, dataset_key="test", model_config=_hy_recog_cfg, max_new_tokens=256
+            dataset_dir=_xa_dir,
+            dataset_key="test",
+            model_config=_hy_recog_cfg,
+            max_new_tokens=256,
+            # Cap generation length vs audio duration to kill hallucination loops
+            # (e.g. whisper's "i am sorry" x64) that overflow char-level downstream.
+            # Opt-in per model (hash-excluded at None) so only enabled models re-run.
+            # Enabled on whisper (the one that looped); ~12 subword-tokens/s of audio
+            # never truncates real speech (~7 words/s).
+            max_tokens_per_sec=12.0 if _hy_name == "whisper-base-charlev" else None,
         )
         _hy_recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         _hy_recog.add_alias(f"hyp-align/{_hy_name}-{_xa_tag}-recog")
@@ -3796,21 +3805,10 @@ def py():
             )
             _hy_wca.add_alias(f"hyp-align/whisper-crossattn-{_xa_tag}-align")
             _hy_metrics(f"whisper-crossattn-{_xa_tag}", _hy_wca.out_hdf, _hy_dir)
-            _hy_fa = ForcedAlignBaselineJob(dataset_dir=_hy_dir, dataset_key="test")
-            _hy_fa.add_alias(f"hyp-align/mms_fa-{_xa_tag}-align")
-            _hy_metrics(f"mms_fa-{_xa_tag}", _hy_fa.out_hdf, _hy_dir)
-            # MFA on the same hyps (OOV hyp words handled by its G2P model).
-            # Its built-in out_wbe is meaningless here (hyp word_detail has dummy times) --
-            # only out_word_boundaries_hdf is used.
-            _hy_mfa = MfaForcedAlignJob(
-                dataset_dir=_hy_dir,
-                dataset_key="test",
-                mfa_exe=_mfa_exe.out_exe,
-                model_root=_mfa_models.out_model_root,
-                dataset_offset_factors=_xa_off,
-            )
-            _hy_mfa.add_alias(f"hyp-align/mfa-{_xa_tag}-align")
-            _hy_metrics(f"mfa-{_xa_tag}", _hy_mfa.out_word_boundaries_hdf, _hy_dir)
+            # NOTE: MMS_FA (= wav2vec2 + CTC forced-align) and MFA used to force-align WHISPER's hyp
+            # here. That was inconsistent: every method should align its OWN model's recognition.
+            # MMS_FA now aligns wav2vec2's own CTC hyp (wired below); MFA stays the forced-mode
+            # ceiling only (its tool exposes no recognizer).
 
     # CrisperWhisper OFFICIAL pipeline row (hyp-mode): their decode-time word timestamps
     # (verbatim retokenized vocab + heads finetuned with attention loss + cross-attn DTW

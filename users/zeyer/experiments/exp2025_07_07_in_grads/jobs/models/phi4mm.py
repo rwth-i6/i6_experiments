@@ -411,7 +411,13 @@ class Phi4MM(BaseModelInterface):
             words_start_end = words_start_end[1:]
             words_ = words_[1:]
         assert len(words_start_end) == len(words_) == len(words), f"got {tokens=}"
-        assert words_ == words, f"{tokens=} {words=} {words_=}"
+        # words_ concatenates per-token decodes, which splits a multi-byte char (e.g. the cent sign
+        # -> 2 byte tokens) into invalid byte fragments, so words_ itself can mismatch words. The
+        # token SPANS are still one-per-char and correct; re-decode each word's full token span
+        # (the bytes recombine into the real char) and verify that instead.
+        words_decoded = [tokenizer.decode(targets[0, a:b]) for a, b in words_start_end]
+        words_decoded = [w[1:] if w.startswith(" ") else w for w in words_decoded]
+        assert words_decoded == words, f"{words_decoded=} {words=}"
         # Add a matching entry for the EOS token appended above (one past the last word).
         words_start_end = words_start_end + [[n_targets, n_targets + 1]]
 

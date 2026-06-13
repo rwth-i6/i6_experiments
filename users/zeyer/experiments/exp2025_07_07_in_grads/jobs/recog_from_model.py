@@ -31,7 +31,7 @@ class RecogFromModelJob(Job):
       then share seq tags and feed sclite directly.
     """
 
-    __sis_hash_exclude__ = {"dataset_name": None}
+    __sis_hash_exclude__ = {"dataset_name": None, "max_tokens_per_sec": None}
 
     def __init__(
         self,
@@ -41,6 +41,7 @@ class RecogFromModelJob(Job):
         returnn_root: Optional[tk.Path] = None,
         model_config: Dict[str, Any],
         max_new_tokens: int = 100,
+        max_tokens_per_sec: Optional[float] = None,
         dataset_name: Optional[str] = None,
     ):
         super().__init__()
@@ -49,6 +50,12 @@ class RecogFromModelJob(Job):
         self.returnn_root = returnn_root
         self.model_config = model_config
         self.max_new_tokens = max_new_tokens
+        # Optional cap on generated tokens RELATIVE to audio length (tokens per second of audio).
+        # A hallucination loop (e.g. "i am sorry" x64 in a 5 s clip) otherwise emits a hyp far longer
+        # than any real utterance, which downstream overflows e.g. whisper's 448-token decoder limit
+        # at char level. None = no cap (old behavior); hash-excluded at None so existing recogs keep
+        # their hash and only the recogs we opt in re-run.
+        self.max_tokens_per_sec = max_tokens_per_sec
         self.dataset_name = dataset_name
 
         self.rqmt = {"time": 10, "cpu": 2, "gpu": 1, "mem": 80}
@@ -111,18 +118,28 @@ class RecogFromModelJob(Job):
 
         hyps: Dict[str, str] = {}
         total_time = 0.0
+        n_capped = 0
         for seq_idx, data in enumerate(iterable):
             audio = data["audio"]["array"]
             if not isinstance(audio, np.ndarray):
                 audio = np.array(audio)
             samplerate = data["audio"]["sampling_rate"]
 
+            eff_max_new_tokens = self.max_new_tokens
+            if self.max_tokens_per_sec is not None:
+                # Bound generation by audio duration so a hallucination loop can't run away.
+                audio_sec = len(audio) / samplerate
+                cap = max(1, int(np.ceil(audio_sec * self.max_tokens_per_sec)))
+                eff_max_new_tokens = min(self.max_new_tokens, cap)
+                if eff_max_new_tokens < self.max_new_tokens:
+                    n_capped += 1
+
             t0 = time.time()
             hyp_words_batch = model.recog(
                 raw_inputs=torch.tensor(audio)[None],
                 raw_inputs_sample_rate=samplerate,
                 raw_input_seq_lens=torch.tensor([len(audio)]),
-                max_new_tokens=self.max_new_tokens,
+                max_new_tokens=eff_max_new_tokens,
             )
             elapsed = time.time() - t0
             total_time += elapsed
@@ -145,6 +162,8 @@ class RecogFromModelJob(Job):
 
         print(f"Total recog time: {total_time:.1f}s = {total_time / 60:.1f}min")
         print(f"Per-seq avg: {total_time / max(n, 1):.2f}s")
+        if self.max_tokens_per_sec is not None:
+            print(f"Recog length cap engaged on {n_capped}/{n} seqs (max_tokens_per_sec={self.max_tokens_per_sec})")
 
         with util.uopen(self.out_hyps_txt.get_path(), "wt") as f:
             f.write(repr(hyps))

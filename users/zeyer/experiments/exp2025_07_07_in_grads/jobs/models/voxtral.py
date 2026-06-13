@@ -451,24 +451,24 @@ class Voxtral(BaseModelInterface):
         char_token_ids: Optional[torch.Tensor] = None
         chars: Optional[List[str]] = None
         if self._char_level:
+            # A char may map to >1 token (e.g. the pound sign -> 2 byte-tokens, no merge in the
+            # vocab); keep all of them and record the per-word range in TOKEN units, so the
+            # multi-token char is interior to its word and the per-token downstream stays correct.
             chars = []
-            word_char_ranges = []
+            word_char_ranges = []  # per word, [token_start, token_end)
+            tok = self.processor.tokenizer
+            char_ids: List[int] = []
             for wi, word in enumerate(words):
                 if self._char_level_sep and wi > 0:
                     chars.append(self._char_level_sep)
-                cstart = len(chars)
+                    char_ids.extend(tok.encode(self._char_level_sep, add_special_tokens=False))
+                tstart = len(char_ids)
                 for ch in word:
+                    ids = tok.encode(ch, add_special_tokens=False)
+                    assert len(ids) >= 1, f"char {ch!r} tokenizes to 0 tokens"
                     chars.append(ch)
-                word_char_ranges.append((cstart, len(chars)))
-            tok = self.processor.tokenizer
-            char_ids: List[int] = []
-            for ch in chars:
-                ids = tok.encode(ch, add_special_tokens=False)
-                assert len(ids) == 1, (
-                    f"char {ch!r} tokenizes to {len(ids)} tokens {ids} -- "
-                    "per-char vocab lookup requires single-token chars"
-                )
-                char_ids.extend(ids)
+                    char_ids.extend(ids)
+                word_char_ranges.append((tstart, len(char_ids)))
             char_token_ids = torch.tensor([char_ids], dtype=torch.long)
             transcription = "".join(chars)  # for display / sanity print
 
@@ -478,7 +478,7 @@ class Voxtral(BaseModelInterface):
         # S (#target tokens) > T_default (default encoder frame count).
         effective_stretch = self.audio_time_stretch
         if self.ensure_audio_long_enough and self._char_level:
-            n_target = len(chars)
+            n_target = int(char_token_ids.shape[1])  # number of target TOKENS (a char may be >1)
             samples_per_frame = 160 if self.grad_wrt in ("log_mel", "encoder_conv1_out") else 1280
             T_default = (orig_n_samples + samples_per_frame - 1) // samples_per_frame
             if n_target > T_default:
@@ -597,13 +597,19 @@ class Voxtral(BaseModelInterface):
         # Mistral's SentencePiece-like tokenizer marks word starts with a
         # leading space in the decoded token text.
         tokenizer = self.processor.tokenizer
-        words_start_end: List[List[int]] = []
-        words_: List[str] = []
+        words_start_end: List[List[int]]
         if self._char_level:
-            words_start_end = [[t, t + 1] for t in range(n_targets)]
-            words_ = list(chars)
-            ref_token_list = chars
+            # word_char_ranges already holds per-word [token_start, token_end) (a char may map to
+            # >1 token), so the per-word target_start_end is exactly those ranges. No per-token
+            # decode check here -- it assumed 1 token == 1 char, which multi-token chars break.
+            assert word_char_ranges is not None and len(word_char_ranges) == len(words), (
+                f"char word-grouping mismatch: {len(word_char_ranges) if word_char_ranges else None}"
+                f" vs {len(words)} ({words!r})"
+            )
+            words_start_end = [[int(a), int(b)] for a, b in word_char_ranges]
         else:
+            words_start_end = []
+            words_: List[str] = []
             for t in range(n_targets):
                 s = tokenizer.decode(targets[0, t : t + 1].tolist(), skip_special_tokens=True)
                 if t == 0 or s.startswith(" "):
@@ -612,20 +618,10 @@ class Voxtral(BaseModelInterface):
                 else:
                     words_[-1] += s
                     words_start_end[-1][1] = t + 1
-            ref_token_list = words
-        assert len(words_start_end) == len(words_) == len(ref_token_list), (
-            f"word-grouping mismatch: target_decoded={words_!r} ref={ref_token_list!r}"
-        )
-        assert words_ == ref_token_list, f"target_decoded={words_!r} ref={ref_token_list!r}"
-        # Re-group per-char target_start_end back to word level for the WBE
-        # metric (which operates on word boundaries, not chars).
-        if word_char_ranges is not None:
-            regrouped = []
-            for cstart, cend in word_char_ranges:
-                t0 = int(words_start_end[cstart][0])
-                t1 = int(words_start_end[cend - 1][1])
-                regrouped.append([t0, t1])
-            words_start_end = regrouped
+            assert len(words_start_end) == len(words_) == len(words), (
+                f"word-grouping mismatch: target_decoded={words_!r} ref={words!r}"
+            )
+            assert words_ == words, f"target_decoded={words_!r} ref={words!r}"
         words_start_end = words_start_end + [[n_targets, n_targets + 1]]  # EOS slot
 
         # Slice the grad leaf to the real-audio span (drop Whisper-style

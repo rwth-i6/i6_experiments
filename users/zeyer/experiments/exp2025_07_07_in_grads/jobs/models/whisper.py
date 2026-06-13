@@ -136,15 +136,18 @@ class Whisper(BaseModelInterface):
         # Teacher-forced decoder input: prefix + transcription tokens.
         tok = self.processor.tokenizer
         if self._char_level:
-            # Explode words into a flat char list
-            # and look up each char's single token id directly
+            # Explode words into a flat char list and look up each char's token id(s) directly
             # (do NOT tokenize the concatenated string:
             # Whisper BPE would merge "t h e" back into "the").
             # A separator token (e.g. space, id 220) precedes every word as autoregressive context;
             # it is never part of a word range, hence never scored -- only the per-char word tokens are.
+            # A char may map to >1 BPE token (e.g. the pound sign -> 2 byte-tokens, no merge in the
+            # vocab); we keep all of them and track the word ranges in TOKEN units, so the multi-token
+            # char is simply interior to its word and the per-token downstream stays correct.
             # Mirrors the Canary/Phi4 char-level adapters.
             chars: List[str] = []
-            word_char_ranges: List[List[int]] = []
+            transc_ids: List[int] = []
+            word_char_ranges: List[List[int]] = []  # per word, [token_start, token_end)
             for word in words:
                 if self._char_level_case == "upper":
                     word = word.upper()
@@ -154,17 +157,14 @@ class Whisper(BaseModelInterface):
                     word = word.title()
                 if self._char_level_sep:
                     chars.append(self._char_level_sep)
-                cstart = len(chars)
+                    transc_ids.extend(tok.encode(self._char_level_sep, add_special_tokens=False))
+                tstart = len(transc_ids)
                 for ch in word:
+                    ids = tok.encode(ch, add_special_tokens=False)
+                    assert len(ids) >= 1, f"char {ch!r} tokenizes to 0 tokens"
                     chars.append(ch)
-                word_char_ranges.append([cstart, len(chars)])
-            transc_ids = []
-            for ch in chars:
-                ids = tok.encode(ch, add_special_tokens=False)
-                assert len(ids) == 1, (
-                    f"char {ch!r} tokenizes to {len(ids)} tokens {ids} -- char-level needs single-token chars"
-                )
-                transc_ids.append(ids[0])
+                    transc_ids.extend(ids)
+                word_char_ranges.append([tstart, len(transc_ids)])
             n_targets = len(transc_ids)
             assert n_targets > 0, f"empty target for words={words!r}"
             words_start_end: List[List[int]] = [list(r) for r in word_char_ranges]

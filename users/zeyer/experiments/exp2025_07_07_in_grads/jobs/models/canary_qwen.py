@@ -298,12 +298,14 @@ class CanaryQwen(BaseModelInterface):
             dst_text_start = int(user_prefix.shape[1])
             tok = self.model.tokenizer
             char_ids = []
+            char_token_ranges: List[tuple] = []  # per entry in `chars`, [token_start, token_end)
             for ch in chars:
                 ids = tok.text_to_ids(ch)
-                assert len(ids) == 1, (
-                    f"char {ch!r} tokenizes to {len(ids)} tokens {ids} -- "
-                    "vocab lookup for char-level requires single-token chars"
-                )
+                # A char may map to >1 token (e.g. the pound sign -> 2 byte-tokens, no merge in
+                # the vocab); keep all of them and record this char's token span so the per-word
+                # range below is in TOKEN units and multi-token chars stay interior to their word.
+                assert len(ids) >= 1, f"char {ch!r} tokenizes to 0 tokens"
+                char_token_ranges.append((len(char_ids), len(char_ids) + len(ids)))
                 char_ids.extend(ids)
             char_ids.append(self.assistant_end_token_id)
             char_tensor = torch.tensor([char_ids], dtype=user_prefix.dtype)
@@ -463,12 +465,22 @@ class CanaryQwen(BaseModelInterface):
         # so we skip the space-prefix grouping (which doesn't apply to direct
         # per-char vocab tokens) and build one entry per token.
         tokenizer = self.model.tokenizer
-        words_start_end: List[List[int]] = []
-        words_: List[str] = []
+        words_start_end: List[List[int]]
         if word_char_ranges is not None:
-            words_start_end = [[t, t + 1] for t in range(n_targets)]
-            words_ = list(chars)
+            # `chars` (incl seps/brackets) may each tokenize to >1 token, so map every per-word
+            # char range [cstart, cend) to its TOKEN span via char_token_ranges, then collapse to
+            # word-level boundaries. No per-token char==token check -- multi-token chars break it.
+            words_start_end = []
+            for cstart, cend in word_char_ranges:
+                t0 = int(char_token_ranges[cstart][0])
+                t1 = int(char_token_ranges[cend - 1][1])
+                words_start_end.append([t0, t1])
+            assert len(words_start_end) == len(orig_words), (
+                f"char word-grouping mismatch: {len(words_start_end)} vs {len(orig_words)}"
+            )
         else:
+            words_start_end = []
+            words_: List[str] = []
             for t in range(n_targets):
                 tid = int(targets[0, t].item())
                 s = tokenizer.ids_to_text([tid])
@@ -478,19 +490,10 @@ class CanaryQwen(BaseModelInterface):
                 else:
                     words_[-1] += s
                     words_start_end[-1][1] = t + 1
-        assert len(words_start_end) == len(words_) == len(words), (
-            f"word-grouping mismatch: target_decoded={words_!r} ref_words={words!r}"
-        )
-        assert words_ == words, f"target_decoded={words_!r} ref_words={words!r}"
-
-        # Char-level: re-group per-char target_start_end back to word level.
-        if word_char_ranges is not None:
-            regrouped = []
-            for cstart, cend in word_char_ranges:
-                t0 = int(words_start_end[cstart][0])
-                t1 = int(words_start_end[cend - 1][1])
-                regrouped.append([t0, t1])
-            words_start_end = regrouped
+            assert len(words_start_end) == len(words_) == len(words), (
+                f"word-grouping mismatch: target_decoded={words_!r} ref_words={words!r}"
+            )
+            assert words_ == words, f"target_decoded={words_!r} ref_words={words!r}"
 
         words_start_end = words_start_end + [[n_targets, n_targets + 1]]  # EOS slot
 
