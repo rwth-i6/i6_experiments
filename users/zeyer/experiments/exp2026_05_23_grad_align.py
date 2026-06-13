@@ -268,12 +268,26 @@ def _phi4mm_model_config(
     )
 
 
+# Capture every registered output's Variable as it is created (during py()), keyed by output name,
+# so the auto-generated result tables (build_tables) reference only outputs THIS recipe actually
+# produces -- never stale on-disk aliases. (sis_graph isn't introspectable mid-py(): targets is
+# empty, jobs() only partial -- so we collect at registration time. Module-level so the helper
+# functions that also register outputs share it.)
+_table_results: Dict[str, Any] = {}
+
+
+def reg(name, value, **kwargs):
+    tk.register_output(name, value, **kwargs)
+    _table_results[name] = value
+    return value
+
+
 def py():
     """Sisyphus entry point."""
     dl_phi4mi_dir = download_phi4multimodal_model()
 
     dl_ds_timit = DownloadHuggingFaceRepoJobV2(repo_id="nh0znoisung/timit", repo_type="dataset")
-    tk.register_output("timit-dataset", dl_ds_timit.out_hub_cache_dir)
+    reg("timit-dataset", dl_ds_timit.out_hub_cache_dir)
 
     dl_ds_buckeye = DownloadHuggingFaceRepoJobV2(repo_id="nh0znoisung/buckeye", repo_type="dataset")
     # Fine-resolution Buckeye (float-ms GT, pre-segmented at silence into 2-25 s utterances, audio bundled);
@@ -282,22 +296,22 @@ def py():
     # The xet protocol's read-token endpoint gets HTTP-429 rate-limited on the shared
     # cluster IP; disable it so the download falls back to the standard LFS fetch.
     dl_ds_buckeye_fine.set_env("HF_HUB_DISABLE_XET", "1")
-    tk.register_output("buckeye-fine-raw", dl_ds_buckeye_fine.out_hub_cache_dir)
-    tk.register_output("buckeye-dataset", dl_ds_buckeye.out_hub_cache_dir)
+    reg("buckeye-fine-raw", dl_ds_buckeye_fine.out_hub_cache_dir)
+    reg("buckeye-dataset", dl_ds_buckeye.out_hub_cache_dir)
 
     # POWSM: phonetic Whisper/OWSM-style foundation model (espnet/powsm). One repo holds TWO checkpoints --
     # the AED (exp/s2t_train_s2t_ebf...) and the encoder-only POWSM-CTC
     # (textnorm_retrained/exp/s2t_train_ctc3...). Loaded via ESPnet S2T, same path as the OWLS adapter.
     dl_powsm = DownloadHuggingFaceRepoJobV2(repo_id="espnet/powsm", repo_type="model")
     dl_powsm.set_env("HF_HUB_DISABLE_XET", "1")
-    tk.register_output("powsm-model", dl_powsm.out_hub_cache_dir)
+    reg("powsm-model", dl_powsm.out_hub_cache_dir)
 
     dl_whisper = DownloadHuggingFaceRepoJobV2(repo_id="openai/whisper-base", repo_type="model")
     dl_whisper_l3 = DownloadHuggingFaceRepoJobV2(repo_id="openai/whisper-large-v3", repo_type="model")
     dl_crisper = DownloadHuggingFaceRepoJobV2(repo_id="nyrahealth/CrisperWhisper", repo_type="model")
     dl_parakeet_rnnt = DownloadHuggingFaceRepoJobV2(repo_id="nvidia/parakeet-rnnt-1.1b", repo_type="model")
     dl_parakeet_tdt = DownloadHuggingFaceRepoJobV2(repo_id="nvidia/parakeet-tdt-0.6b-v2", repo_type="model")
-    tk.register_output("whisper-base-model", dl_whisper.out_hub_cache_dir)
+    reg("whisper-base-model", dl_whisper.out_hub_cache_dir)
 
     # --- External baseline: MMS_FA neural-CTC forced alignment (WhisperX-style) ---
     # Forced-align the reference transcript -> per-word boundaries -> WBE via the
@@ -311,7 +325,7 @@ def py():
             dataset_key=_split,
             dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
         )
-        tk.register_output(f"baseline-mms_fa-timit-{_split}-wbe.txt", fa_metric.out_wbe)
+        reg(f"baseline-mms_fa-timit-{_split}-wbe.txt", fa_metric.out_wbe)
 
     # MMS_FA forced-align with per-seq time-stretch:
     # a finer emission grid for the SAME forced aligner
@@ -336,7 +350,7 @@ def py():
                 dataset_key="val",
                 dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
             )
-            tk.register_output(f"baseline-mms_fa-timit-val-ts{_fa_ts}{_fa_msfx}-wbe.txt", fa_ts_metric.out_wbe)
+            reg(f"baseline-mms_fa-timit-val-ts{_fa_ts}{_fa_msfx}-wbe.txt", fa_ts_metric.out_wbe)
 
     # Whisper-native forced alignment (cross-attention DTW) --
     # the same-model baseline for our grad-align ON Whisper (vs the model's own alignment method).
@@ -350,7 +364,7 @@ def py():
         dataset_key="val",
         dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
     )
-    tk.register_output("baseline-whisper-crossattn-timit-val-wbe.txt", whisper_fa_metric.out_wbe)
+    reg("baseline-whisper-crossattn-timit-val-wbe.txt", whisper_fa_metric.out_wbe)
 
     # --- Wav2Vec2-CTC grad-align: OUR method on the SAME model the MMS_FA
     # baseline above uses (wav2vec2 + char-level CTC). Aligning one model two
@@ -369,7 +383,7 @@ def py():
         w2v_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         w2v_name = f"wav2vec2ctc-featext-timit-val-{_w_ga}-pertoken"
         w2v_extract.add_alias(w2v_name)
-        tk.register_output(f"{w2v_name}.hdf", w2v_extract.out_hdf)
+        reg(f"{w2v_name}.hdf", w2v_extract.out_hdf)
         for align_opts in _ALIGN_OPTS_GRID:
             align_name = f"align/{w2v_name}-{_name_for_dict(align_opts)}"
             align = WordAlignFromPerTokenGradsJob(
@@ -381,7 +395,7 @@ def py():
                 align_opts=align_opts,
             )
             align.add_alias(align_name)
-            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+            reg(f"{align_name}-wbe.txt", align.out_wbe)
 
     # Port the in-house CTC grad-align winning combo (blankStopGrad +
     # inclBlankState + low-p norm) to Wav2Vec2-CTC. inclBlankState is the
@@ -409,7 +423,7 @@ def py():
         w2vs_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         w2vs_name = f"wav2vec2ctc-featext-timit-val-{_tag}_grad-pertoken"
         w2vs_extract.add_alias(w2vs_name)
-        tk.register_output(f"{w2vs_name}.hdf", w2vs_extract.out_hdf)
+        reg(f"{w2vs_name}.hdf", w2vs_extract.out_hdf)
         for align_opts in _ALIGN_OPTS_GRID:
             align_name = f"align/{w2vs_name}-{_name_for_dict(align_opts)}"
             align = WordAlignFromPerTokenGradsJob(
@@ -421,7 +435,7 @@ def py():
                 align_opts=align_opts,
             )
             align.add_alias(align_name)
-            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+            reg(f"{align_name}-wbe.txt", align.out_wbe)
 
     # CTC prefix-score modes x blank_score DP sweep on Wav2Vec2-CTC. The
     # reduction was inert and stop_grad_blank hurt, so the live levers are
@@ -447,7 +461,7 @@ def py():
         w2vp_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         w2vp_name = f"wav2vec2ctc-featext-timit-val-{_ptag}-L2_grad-pertoken"
         w2vp_extract.add_alias(w2vp_name)
-        tk.register_output(f"{w2vp_name}.hdf", w2vp_extract.out_hdf)
+        reg(f"{w2vp_name}.hdf", w2vp_extract.out_hdf)
         for align_opts in _ALIGN_OPTS_GRID + _w2v_bs_sweep:
             align_name = f"align/{w2vp_name}-{_name_for_dict(align_opts)}"
             align = WordAlignFromPerTokenGradsJob(
@@ -459,7 +473,7 @@ def py():
                 align_opts=align_opts,
             )
             align.add_alias(align_name)
-            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+            reg(f"{align_name}-wbe.txt", align.out_wbe)
 
     # grad_wrt = raw waveform: backprop through the whole conv feature-extractor
     # to the 16 kHz input (leaf reshaped to [n_frames, 320] for per-frame
@@ -477,7 +491,7 @@ def py():
     w2v_raw_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     w2v_raw_name = "wav2vec2ctc-rawwav-timit-val-L2_grad-pertoken"
     w2v_raw_extract.add_alias(w2v_raw_name)
-    tk.register_output(f"{w2v_raw_name}.hdf", w2v_raw_extract.out_hdf)
+    reg(f"{w2v_raw_name}.hdf", w2v_raw_extract.out_hdf)
     for align_opts in _ALIGN_OPTS_GRID + [{"apply_softmax_over_time": True, "blank_score": _b} for _b in (-4, -5)]:
         align_name = f"align/{w2v_raw_name}-{_name_for_dict(align_opts)}"
         align = WordAlignFromPerTokenGradsJob(
@@ -489,7 +503,7 @@ def py():
             align_opts=align_opts,
         )
         align.add_alias(align_name)
-        tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+        reg(f"{align_name}-wbe.txt", align.out_wbe)
 
     # grad_wrt sweep: conv blocks 0-5 (conv6 == feat_extract_out, already done at
     # ~0.073), the feature_projection LayerNorm (512) + Linear (1024, transformer
@@ -515,7 +529,7 @@ def py():
         gw_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         gw_name = f"wav2vec2ctc-{_gwtag}-timit-val-L2_grad-pertoken"
         gw_extract.add_alias(gw_name)
-        tk.register_output(f"{gw_name}.hdf", gw_extract.out_hdf)
+        reg(f"{gw_name}.hdf", gw_extract.out_hdf)
         for align_opts in _w2v_gw_aligns:
             align_name = f"align/{gw_name}-{_name_for_dict(align_opts)}"
             align = WordAlignFromPerTokenGradsJob(
@@ -527,7 +541,7 @@ def py():
                 align_opts=align_opts,
             )
             align.add_alias(align_name)
-            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+            reg(f"{align_name}-wbe.txt", align.out_wbe)
 
     # === audio-energy filter, grad*input on conv/raw, attention-disabled grads ===
     def _w2v_aligns(extract_job, base_name, energy_pows=(0.0,)):
@@ -544,7 +558,7 @@ def py():
                 audio_energy_pow=_ep,
             )
             _al.add_alias(f"align/{base_name}-{_sfx}")
-            tk.register_output(f"align/{base_name}-{_sfx}-wbe.txt", _al.out_wbe)
+            reg(f"align/{base_name}-{_sfx}-wbe.txt", _al.out_wbe)
 
     # Audio-energy filter (grad x energy^pow) on the best existing surfaces.
     for _en_cfg, _en_name in [
@@ -589,7 +603,7 @@ def py():
         _mex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         _mname = f"wav2vec2ctc-{_mtag}-timit-val-{'L2_e' if _mgi else 'L2'}_grad-pertoken"
         _mex.add_alias(_mname)
-        tk.register_output(f"{_mname}.hdf", _mex.out_hdf)
+        reg(f"{_mname}.hdf", _mex.out_hdf)
         _w2v_aligns(_mex, _mname, energy_pows=(0.0, 0.5))
 
     # Decoupled silence combo (best so far, full-val ~58.4): energy-weighted
@@ -621,7 +635,7 @@ def py():
                 blank_grad_zscore_kappa=_kap,
             )
             _al.add_alias(f"align/{_dc_name}-{_sfx}")
-            tk.register_output(f"align/{_dc_name}-{_sfx}-wbe.txt", _al.out_wbe)
+            reg(f"align/{_dc_name}-{_sfx}-wbe.txt", _al.out_wbe)
         # Explicit silence label (whisper-timestamped VAD analog):
         # an energy-driven blank emission beta_t = mean_t - scale*z(E_t)*std_t,
         # optionally with energy-weighted tokens too.
@@ -640,7 +654,7 @@ def py():
                 blank_silence_energy_scale=_sc,
             )
             _al.add_alias(f"align/{_dc_name}-{_sfx}")
-            tk.register_output(f"align/{_dc_name}-{_sfx}-wbe.txt", _al.out_wbe)
+            reg(f"align/{_dc_name}-{_sfx}-wbe.txt", _al.out_wbe)
 
     # Wav2Vec2 grad-align with per-seq time-stretch: a finer (sub-20ms) saliency grid for the SAME model.
     # Mirror of the MMS_FA-forced-align time-stretch,
@@ -665,7 +679,7 @@ def py():
             _ts_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
             _ts_name = f"wav2vec2ctc-fproj_out-timit-val-L2_grad-pertoken-ts{_ts}{_ts_msfx}"
             _ts_ex.add_alias(_ts_name)
-            tk.register_output(f"{_ts_name}.hdf", _ts_ex.out_hdf)
+            reg(f"{_ts_name}.hdf", _ts_ex.out_hdf)
             _w2v_aligns(_ts_ex, _ts_name, energy_pows=(0.0, 0.5))
             for _ts_ep, _ts_sc in [(0.5, 1.0), (0.0, 2.0)]:
                 _ts_ao = {"apply_softmax_over_time": True, "blank_score": -5}
@@ -681,7 +695,7 @@ def py():
                     blank_silence_energy_scale=_ts_sc,
                 )
                 _ts_al.add_alias(f"align/{_ts_name}-{_ts_sfx}")
-                tk.register_output(f"align/{_ts_name}-{_ts_sfx}-wbe.txt", _ts_al.out_wbe)
+                reg(f"align/{_ts_name}-{_ts_sfx}-wbe.txt", _ts_al.out_wbe)
 
     # --- Transducer (Emformer RNN-T): the 4th architecture family (CTC + AED/LLM
     # + RNN-T). torchaudio EMFORMER_RNNT_BASE_LIBRISPEECH; subword-level, log-mel
@@ -698,7 +712,7 @@ def py():
     rnnt_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     rnnt_name = "emformer-rnnt-logmel-timit-val-L2_grad-pertoken"
     rnnt_extract.add_alias(rnnt_name)
-    tk.register_output(f"{rnnt_name}.hdf", rnnt_extract.out_hdf)
+    reg(f"{rnnt_name}.hdf", rnnt_extract.out_hdf)
     _w2v_aligns(rnnt_extract, rnnt_name, energy_pows=(0.0, 0.5))
     for _re_ep, _re_kap in [(0.5, 1.0), (0.3, 1.0)]:
         _re_ao = {"apply_softmax_over_time": True, "blank_score": -5}
@@ -714,7 +728,7 @@ def py():
             blank_grad_zscore_kappa=_re_kap,
         )
         _re_al.add_alias(f"align/{rnnt_name}-{_re_sfx}")
-        tk.register_output(f"align/{rnnt_name}-{_re_sfx}-wbe.txt", _re_al.out_wbe)
+        reg(f"align/{rnnt_name}-{_re_sfx}-wbe.txt", _re_al.out_wbe)
     for _re_ep, _re_sc in [(0.5, 1.0), (0.3, 1.0)]:
         _re_ao = {"apply_softmax_over_time": True, "blank_score": -5}
         _re_sfx = _name_for_dict(_re_ao) + f"-en{_re_ep}-sil{_re_sc}"
@@ -729,7 +743,7 @@ def py():
             blank_silence_energy_scale=_re_sc,
         )
         _re_al.add_alias(f"align/{rnnt_name}-{_re_sfx}")
-        tk.register_output(f"align/{rnnt_name}-{_re_sfx}-wbe.txt", _re_al.out_wbe)
+        reg(f"align/{rnnt_name}-{_re_sfx}-wbe.txt", _re_al.out_wbe)
 
     # RNN-T with the PROPER transducer prefix-score (RNN-T forward; analog of the CTC partial score)
     # instead of the crude logsumexp-emission --
@@ -746,7 +760,7 @@ def py():
     rnnt_px_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     rnnt_px_name = "emformer-rnnt-prefix-logmel-timit-val-L2_grad-pertoken"
     rnnt_px_extract.add_alias(rnnt_px_name)
-    tk.register_output(f"{rnnt_px_name}.hdf", rnnt_px_extract.out_hdf)
+    reg(f"{rnnt_px_name}.hdf", rnnt_px_extract.out_hdf)
     _w2v_aligns(rnnt_px_extract, rnnt_px_name, energy_pows=(0.0, 0.5))
     for _rpx_ep, _rpx_kap in [(0.5, 1.0), (0.3, 1.0)]:
         _rpx_ao = {"apply_softmax_over_time": True, "blank_score": -5}
@@ -762,7 +776,7 @@ def py():
             blank_grad_zscore_kappa=_rpx_kap,
         )
         _rpx_al.add_alias(f"align/{rnnt_px_name}-{_rpx_sfx}")
-        tk.register_output(f"align/{rnnt_px_name}-{_rpx_sfx}-wbe.txt", _rpx_al.out_wbe)
+        reg(f"align/{rnnt_px_name}-{_rpx_sfx}-wbe.txt", _rpx_al.out_wbe)
     # Energy-driven silence (sil) vs the grad-background z-score (zsk) above:
     # the Parakeet transducers LIKE sil, so test it apples-to-apples on the Emformer.
     for _rpx_ep, _rpx_sc in [(0.5, 1.0), (0.3, 1.0)]:
@@ -779,7 +793,7 @@ def py():
             blank_silence_energy_scale=_rpx_sc,
         )
         _rpx_al.add_alias(f"align/{rnnt_px_name}-{_rpx_sfx}")
-        tk.register_output(f"align/{rnnt_px_name}-{_rpx_sfx}-wbe.txt", _rpx_al.out_wbe)
+        reg(f"align/{rnnt_px_name}-{_rpx_sfx}-wbe.txt", _rpx_al.out_wbe)
 
     # Parakeet RNN-T 1.1B (NeMo FastConformer-Transducer): a STRONG leaderboard-grade
     # transducer, vs the tiny Emformer base above (139 ms).
@@ -797,7 +811,7 @@ def py():
     pk_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     pk_name = "parakeet-rnnt-1.1b-logmel-timit-val-L2_grad-pertoken"
     pk_extract.add_alias(pk_name)
-    tk.register_output(f"{pk_name}.hdf", pk_extract.out_hdf)
+    reg(f"{pk_name}.hdf", pk_extract.out_hdf)
     _w2v_aligns(pk_extract, pk_name, energy_pows=(0.0, 0.5))
     for _pk_ep, _pk_sc in [(0.5, 1.0), (0.3, 1.0)]:
         _pk_ao = {"apply_softmax_over_time": True, "blank_score": -5}
@@ -813,7 +827,7 @@ def py():
             blank_silence_energy_scale=_pk_sc,
         )
         _pk_al.add_alias(f"align/{pk_name}-{_pk_sfx}")
-        tk.register_output(f"align/{pk_name}-{_pk_sfx}-wbe.txt", _pk_al.out_wbe)
+        reg(f"align/{pk_name}-{_pk_sfx}-wbe.txt", _pk_al.out_wbe)
 
     # Parakeet TDT 0.6B v2 (NeMo Token-and-Duration Transducer): the top transducer
     # on the Open ASR Leaderboard. Same adapter; the joint appends duration logits,
@@ -835,7 +849,7 @@ def py():
     tdt_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     tdt_name = "parakeet-tdt-0.6b-v2-logmel-timit-val-L2_grad-pertoken"
     tdt_extract.add_alias(tdt_name)
-    tk.register_output(f"{tdt_name}.hdf", tdt_extract.out_hdf)
+    reg(f"{tdt_name}.hdf", tdt_extract.out_hdf)
     _w2v_aligns(tdt_extract, tdt_name, energy_pows=(0.0, 0.5))
     for _tdt_ep, _tdt_sc in [(0.5, 1.0), (0.3, 1.0)]:
         _tdt_ao = {"apply_softmax_over_time": True, "blank_score": -5}
@@ -851,7 +865,7 @@ def py():
             blank_silence_energy_scale=_tdt_sc,
         )
         _tdt_al.add_alias(f"align/{tdt_name}-{_tdt_sfx}")
-        tk.register_output(f"align/{tdt_name}-{_tdt_sfx}-wbe.txt", _tdt_al.out_wbe)
+        reg(f"align/{tdt_name}-{_tdt_sfx}-wbe.txt", _tdt_al.out_wbe)
 
     # --- Whisper AED (classic encoder-decoder, distinct from the LLM-decoders;
     # also the basis of the WhisperX baseline). Autoregressive -> per-token score
@@ -867,7 +881,7 @@ def py():
     whisper_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     whisper_name = "whisper-base-logmel-timit-val-L2_grad-pertoken"
     whisper_extract.add_alias(whisper_name)
-    tk.register_output(f"{whisper_name}.hdf", whisper_extract.out_hdf)
+    reg(f"{whisper_name}.hdf", whisper_extract.out_hdf)
     _w2v_aligns(whisper_extract, whisper_name, energy_pows=(0.0, 0.5))
     for _wh_ep, _wh_kap in [(0.5, 1.0), (0.3, 1.0)]:
         _wh_ao = {"apply_softmax_over_time": True, "blank_score": -5}
@@ -883,7 +897,7 @@ def py():
             blank_grad_zscore_kappa=_wh_kap,
         )
         _wh_al.add_alias(f"align/{whisper_name}-{_wh_sfx}")
-        tk.register_output(f"align/{whisper_name}-{_wh_sfx}-wbe.txt", _wh_al.out_wbe)
+        reg(f"align/{whisper_name}-{_wh_sfx}-wbe.txt", _wh_al.out_wbe)
     # Explicit silence label for Whisper (the same-model analog of what whisper-timestamped does with VAD):
     # an energy-driven blank emission beta_t = mean_t - scale*z(E_t)*std_t,
     # +/- energy-weighted tokens.
@@ -901,7 +915,7 @@ def py():
             blank_silence_energy_scale=_wh_sc,
         )
         _wh_al.add_alias(f"align/{whisper_name}-{_wh_sfx}")
-        tk.register_output(f"align/{whisper_name}-{_wh_sfx}-wbe.txt", _wh_al.out_wbe)
+        reg(f"align/{whisper_name}-{_wh_sfx}-wbe.txt", _wh_al.out_wbe)
 
     # Whisper char-level (per-char teacher-forced scoring;
     # the big win for the LLM decoders, e.g. Phi4-MM 0.190->0.087).
@@ -921,7 +935,7 @@ def py():
     whisper_char_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     whisper_char_name = "whisper-base-logmel-timit-val-L2_grad-pertoken-charlev-spc"
     whisper_char_extract.add_alias(whisper_char_name)
-    tk.register_output(f"{whisper_char_name}.hdf", whisper_char_extract.out_hdf)
+    reg(f"{whisper_char_name}.hdf", whisper_char_extract.out_hdf)
     _w2v_aligns(whisper_char_extract, whisper_char_name, energy_pows=(0.0, 0.5))
 
     # --- Whisper SCALE sweep (does a bigger/stronger AED align better?) -------------
@@ -931,7 +945,7 @@ def py():
     # config (en0.5-sil1.0). base = the existing whisper-char headline (reused).
     for _ws in ["small", "medium", "large-v3"]:
         _ws_dl = DownloadHuggingFaceRepoJobV2(repo_id=f"openai/whisper-{_ws}", repo_type="model")
-        tk.register_output(f"whisper-{_ws}-model", _ws_dl.out_hub_cache_dir)
+        reg(f"whisper-{_ws}-model", _ws_dl.out_hub_cache_dir)
         _ws_cfg = rf.build_dict(Whisper, model_dir=_ws_dl.out_hub_cache_dir, char_level=True, char_level_sep=" ")
         _ws_ex = ExtractInGradsPerTokenJob(
             dataset_dir=dl_ds_timit.out_hub_cache_dir,
@@ -944,7 +958,7 @@ def py():
         _ws_ex.rqmt = {**_ws_ex.rqmt, "time": 24}  # large-v3 ~1.5B params -> slower than base
         _ws_name = f"whisper-{_ws}-logmel-timit-val-L2_grad-pertoken-charlev-spc"
         _ws_ex.add_alias(_ws_name)
-        tk.register_output(f"{_ws_name}.hdf", _ws_ex.out_hdf)
+        reg(f"{_ws_name}.hdf", _ws_ex.out_hdf)
         _ws_ao = {"apply_softmax_over_time": True, "blank_score": -5}
         _ws_al = WordAlignFromPerTokenGradsJob(
             grad_score_hdf=_ws_ex.out_hdf,
@@ -958,7 +972,7 @@ def py():
         )
         _ws_nm = f"align/{_ws_name}-{_name_for_dict(_ws_ao)}-en0.5-sil1.0"
         _ws_al.add_alias(_ws_nm)
-        tk.register_output(f"{_ws_nm}-wbe.txt", _ws_al.out_wbe)
+        reg(f"{_ws_nm}-wbe.txt", _ws_al.out_wbe)
 
     # --- Transducer scale points (matched-variant 0.6b<->1.1b pairs; same adapter) -----
     # Fixes the headline mismatch (RNN-T 1.1b vs TDT 0.6b-v2 were picked as best-per-type,
@@ -969,7 +983,7 @@ def py():
         ("nvidia/parakeet-tdt-1.1b", "emission", "parakeet-tdt-1.1b-logmel-timit-val-L2_grad-pertoken"),
     ]:
         _pk_sdl = DownloadHuggingFaceRepoJobV2(repo_id=_pk_repo, repo_type="model")
-        tk.register_output(f"{_pk_repo.split('/')[-1]}-model", _pk_sdl.out_hub_cache_dir)
+        reg(f"{_pk_repo.split('/')[-1]}-model", _pk_sdl.out_hub_cache_dir)
         _pk_scfg = rf.build_dict(
             ParakeetRnnt, model_dir=_pk_sdl.out_hub_cache_dir, per_token_score=_pk_pts, overlay_path=_NEMO_OVERLAY
         )
@@ -983,7 +997,7 @@ def py():
         _pk_sex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         _pk_sex.rqmt = {**_pk_sex.rqmt, "time": 24}
         _pk_sex.add_alias(_pk_sname)
-        tk.register_output(f"{_pk_sname}.hdf", _pk_sex.out_hdf)
+        reg(f"{_pk_sname}.hdf", _pk_sex.out_hdf)
         for _pk_ep, _pk_sc in [(0.5, 1.0), (0.5, 0.0)]:
             _pk_sao = {"apply_softmax_over_time": True, "blank_score": -5}
             _pk_sal = WordAlignFromPerTokenGradsJob(
@@ -998,7 +1012,7 @@ def py():
             )
             _pk_snm = f"align/{_pk_sname}-{_name_for_dict(_pk_sao)}-en{_pk_ep}-sil{_pk_sc}"
             _pk_sal.add_alias(_pk_snm)
-            tk.register_output(f"{_pk_snm}-wbe.txt", _pk_sal.out_wbe)
+            reg(f"{_pk_snm}-wbe.txt", _pk_sal.out_wbe)
 
     # --- OWLS controlled scaling suite (ESPnet Whisper-style AED) -------------------
     # The methodologically clean scale axis: ONE recipe/data, scaled. Two axes here
@@ -1019,7 +1033,7 @@ def py():
     ]
     for _ow_repo, _ow_tag in _owls_models:
         _ow_dl = DownloadHuggingFaceRepoJobV2(repo_id=_ow_repo, repo_type="model")
-        tk.register_output(f"{_ow_tag}-model", _ow_dl.out_hub_cache_dir)
+        reg(f"{_ow_tag}-model", _ow_dl.out_hub_cache_dir)
         _ow_cfg = rf.build_dict(Owls, model_dir=_ow_dl.out_hub_cache_dir, char_level=True)
         _ow_ex = ExtractInGradsPerTokenJob(
             dataset_dir=dl_ds_timit.out_hub_cache_dir,
@@ -1032,7 +1046,7 @@ def py():
         _ow_ex.rqmt = {**_ow_ex.rqmt, "time": 24}
         _ow_name = f"{_ow_tag}-charlev-logmel-timit-val-L2_grad-pertoken"
         _ow_ex.add_alias(_ow_name)
-        tk.register_output(f"{_ow_name}.hdf", _ow_ex.out_hdf)
+        reg(f"{_ow_name}.hdf", _ow_ex.out_hdf)
         _ow_ao = {"apply_softmax_over_time": True, "blank_score": -5}
         _ow_al = WordAlignFromPerTokenGradsJob(
             grad_score_hdf=_ow_ex.out_hdf,
@@ -1046,7 +1060,7 @@ def py():
         )
         _ow_nm = f"align/{_ow_name}-{_name_for_dict(_ow_ao)}-en0.5-sil1.0"
         _ow_al.add_alias(_ow_nm)
-        tk.register_output(f"{_ow_nm}-wbe.txt", _ow_al.out_wbe)
+        reg(f"{_ow_nm}-wbe.txt", _ow_al.out_wbe)
 
     # OWLS training-INTERMEDIATES axis (does a checkpoint align better AS it trains?).
     # The *_intermediates repos are DeepSpeed ckpts -> download only <step>/mp_rank_00_model_states.pt for a
@@ -1078,7 +1092,7 @@ def py():
             _ow_sex.rqmt = {**_ow_sex.rqmt, "time": 24}
             _ow_sname = f"owls-1B-180K-step{_ow_step:02d}{_ow_clsfx}-logmel-timit-val-L2_grad-pertoken"
             _ow_sex.add_alias(_ow_sname)
-            tk.register_output(f"{_ow_sname}.hdf", _ow_sex.out_hdf)
+            reg(f"{_ow_sname}.hdf", _ow_sex.out_hdf)
             _ow_sao = {"apply_softmax_over_time": True, "blank_score": -5}
             _ow_sal = WordAlignFromPerTokenGradsJob(
                 grad_score_hdf=_ow_sex.out_hdf,
@@ -1092,7 +1106,7 @@ def py():
             )
             _ow_snm = f"align/{_ow_sname}-{_name_for_dict(_ow_sao)}-en0.5-sil1.0"
             _ow_sal.add_alias(_ow_snm)
-            tk.register_output(f"{_ow_snm}-wbe.txt", _ow_sal.out_wbe)
+            reg(f"{_ow_snm}-wbe.txt", _ow_sal.out_wbe)
 
     # --- Phoneme-CTC grad-align (axis: native phoneme model, WhisperX-style) ---
     # vitouphy/wav2vec2-xls-r-300m-timit-phoneme: wav2vec2 + 39-IPA CTC head, TIMIT-trained.
@@ -1102,7 +1116,7 @@ def py():
     dl_w2v_phoneme = DownloadHuggingFaceRepoJobV2(
         repo_id="vitouphy/wav2vec2-xls-r-300m-timit-phoneme", repo_type="model"
     )
-    tk.register_output("w2v-phoneme-model", dl_w2v_phoneme.out_hub_cache_dir)
+    reg("w2v-phoneme-model", dl_w2v_phoneme.out_hub_cache_dir)
     w2v_phoneme_cfg = rf.build_dict(Wav2Vec2PhonemeCtc, model_dir=dl_w2v_phoneme.out_hub_cache_dir)
     w2v_ph_extract = ExtractInGradsPerTokenJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir,
@@ -1115,7 +1129,7 @@ def py():
     w2v_ph_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     w2v_ph_name = "w2v-phoneme-timit-val-L2_grad-perphone"
     w2v_ph_extract.add_alias(w2v_ph_name)
-    tk.register_output(f"{w2v_ph_name}.hdf", w2v_ph_extract.out_hdf)
+    reg(f"{w2v_ph_name}.hdf", w2v_ph_extract.out_hdf)
     for _ph_ep, _ph_sc in [(0.0, 0.0), (0.5, 1.0)]:
         _ph_ao = {"apply_softmax_over_time": True, "blank_score": -5}
         _ph_al = WordAlignFromPerTokenGradsJob(
@@ -1131,7 +1145,7 @@ def py():
         )
         _ph_nm = f"align/{w2v_ph_name}-en{_ph_ep}-sil{_ph_sc}"
         _ph_al.add_alias(_ph_nm)
-        tk.register_output(f"{_ph_nm}-wbe.txt", _ph_al.out_wbe)
+        reg(f"{_ph_nm}-wbe.txt", _ph_al.out_wbe)
         # Collapse the per-phone grad-align to per-WORD boundaries -> word-WBE
         # (comparable to the cross-model word table). Reuses the same grad HDF + DP.
         _ph_ww = PhonemeAlignWordWbeJob(
@@ -1145,7 +1159,7 @@ def py():
             blank_silence_energy_scale=_ph_sc,
         )
         _ph_ww.add_alias(f"{_ph_nm}-wordcollapse")
-        tk.register_output(f"{_ph_nm}-word-wbe.txt", _ph_ww.out_word_wbe)
+        reg(f"{_ph_nm}-word-wbe.txt", _ph_ww.out_word_wbe)
 
     # Standard CTC forced-alignment baseline on the SAME phoneme model (torchaudio
     # Viterbi): the "WhisperX on its own phoneme model" point. Brackets our grad-align
@@ -1157,8 +1171,45 @@ def py():
         dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
     )
     _ph_fa.add_alias("align/w2v-phoneme-timit-val-ctc-forced-align")
-    tk.register_output("align/w2v-phoneme-timit-val-ctc-forced-align-phone-wbe.txt", _ph_fa.out_phone_wbe)
-    tk.register_output("align/w2v-phoneme-timit-val-ctc-forced-align-word-wbe.txt", _ph_fa.out_word_wbe)
+    reg("align/w2v-phoneme-timit-val-ctc-forced-align-phone-wbe.txt", _ph_fa.out_phone_wbe)
+    reg("align/w2v-phoneme-timit-val-ctc-forced-align-word-wbe.txt", _ph_fa.out_word_wbe)
+
+    # Same phoneme-CTC model on TIMIT TEST (generalization column for the per-model table;
+    # only the headline en0.5-sil1.0 grad word-collapse + the forced-align baseline, both word-WBE).
+    w2v_ph_extract_te = ExtractInGradsPerTokenJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="test",
+        model_config=w2v_phoneme_cfg,
+        mult_grad_by_inputs=False,
+        attr_reduction="L2",
+        target_source="phonetic_detail",
+    )
+    w2v_ph_extract_te.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    w2v_ph_name_te = "w2v-phoneme-timit-test-L2_grad-perphone"
+    w2v_ph_extract_te.add_alias(w2v_ph_name_te)
+    reg(f"{w2v_ph_name_te}.hdf", w2v_ph_extract_te.out_hdf)
+    _ph_ww_te = PhonemeAlignWordWbeJob(
+        grad_score_hdf=w2v_ph_extract_te.out_hdf,
+        grad_score_key="data",
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="test",
+        dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+        align_opts={"apply_softmax_over_time": True, "blank_score": -5},
+        audio_energy_pow=0.5,
+        blank_silence_energy_scale=1.0,
+    )
+    _ph_nm_te = f"align/{w2v_ph_name_te}-en0.5-sil1.0"
+    _ph_ww_te.add_alias(f"{_ph_nm_te}-wordcollapse")
+    reg(f"{_ph_nm_te}-word-wbe.txt", _ph_ww_te.out_word_wbe)
+    _ph_fa_te = ForcedAlignPhonemeBaselineJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="test",
+        model_dir=dl_w2v_phoneme.out_hub_cache_dir,
+        dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+    )
+    _ph_fa_te.add_alias("align/w2v-phoneme-timit-test-ctc-forced-align")
+    reg("align/w2v-phoneme-timit-test-ctc-forced-align-phone-wbe.txt", _ph_fa_te.out_phone_wbe)
+    reg("align/w2v-phoneme-timit-test-ctc-forced-align-word-wbe.txt", _ph_fa_te.out_word_wbe)
 
     # --- CONTROLLED PARAM-NOISE robustness (user idea): degrade the model with Gaussian param noise,
     # compare how grad-align vs the model's NATIVE align (Whisper cross-attn-DTW / CTC forced-align) decay.
@@ -1194,7 +1245,7 @@ def py():
             audio_energy_pow=0.5,
             blank_silence_energy_scale=1.0,
         )
-        tk.register_output(f"paramnoise/whisper-char-grad-std{_pn_std}-wbe.txt", _pn_wg_al.out_wbe)
+        reg(f"paramnoise/whisper-char-grad-std{_pn_std}-wbe.txt", _pn_wg_al.out_wbe)
 
         # (1b) Whisper cross-attention DTW (the whisper-timestamped-style native method)
         _pn_wca = WhisperCrossAttnForcedAlignJob(
@@ -1210,7 +1261,7 @@ def py():
             dataset_key="val",
             dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
         )
-        tk.register_output(f"paramnoise/whisper-crossattn-std{_pn_std}-wbe.txt", _pn_wca_m.out_wbe)
+        reg(f"paramnoise/whisper-crossattn-std{_pn_std}-wbe.txt", _pn_wca_m.out_wbe)
 
         # (2a) phoneme-CTC grad-align (en0/sil0 = the phone headline)
         _pn_pg_ex = ExtractInGradsPerTokenJob(
@@ -1239,7 +1290,7 @@ def py():
             blank_silence_energy_scale=0.0,
             boundary_source="phonetic_detail",
         )
-        tk.register_output(f"paramnoise/phoneme-grad-std{_pn_std}-wbe.txt", _pn_pg_al.out_wbe)
+        reg(f"paramnoise/phoneme-grad-std{_pn_std}-wbe.txt", _pn_pg_al.out_wbe)
 
         # (2b) phoneme-CTC forced-align (torchaudio Viterbi) -- SAME perturbed model as (2a)
         _pn_pf = ForcedAlignPhonemeBaselineJob(
@@ -1250,7 +1301,7 @@ def py():
             param_noise_std=_pn_std,
             param_noise_seed=_pn_seed,
         )
-        tk.register_output(f"paramnoise/phoneme-forced-std{_pn_std}-phone-wbe.txt", _pn_pf.out_phone_wbe)
+        reg(f"paramnoise/phoneme-forced-std{_pn_std}-phone-wbe.txt", _pn_pf.out_phone_wbe)
 
     # WER/PER vs the SAME param-noise, to overlay on the robustness plot (does recognition collapse where
     # alignment does?). Whisper: WER on a 200-utt subset (autoregressive decode is slow). CTC: PER, full val.
@@ -1264,7 +1315,7 @@ def py():
         max_seqs=200,
     )
     _wer_wh.add_alias("paramnoise/wer-whisper")
-    tk.register_output("paramnoise/wer-whisper.txt", _wer_wh.out_wer)
+    reg("paramnoise/wer-whisper.txt", _wer_wh.out_wer)
     _wer_ph = WerNoiseSweepJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir,
         dataset_key="val",
@@ -1273,7 +1324,7 @@ def py():
         sigmas=_wer_sigmas,
     )
     _wer_ph.add_alias("paramnoise/per-phoneme")
-    tk.register_output("paramnoise/per-phoneme.txt", _wer_ph.out_wer)
+    reg("paramnoise/per-phoneme.txt", _wer_ph.out_wer)
 
     # --- CONTROLLED NON-PARAM degradation (user idea): input noise / activation dropout, expected to
     # give a SMOOTH ramp vs the param-noise cliff. Same 4 methods + recognition; opt-in perturb kwargs so
@@ -1312,7 +1363,7 @@ def py():
                 audio_energy_pow=0.5,
                 blank_silence_energy_scale=1.0,
             )
-            tk.register_output(f"noise/whisper-char-grad-{_ntag}-wbe.txt", _nz_wg_al.out_wbe)
+            reg(f"noise/whisper-char-grad-{_ntag}-wbe.txt", _nz_wg_al.out_wbe)
 
             # (1b) Whisper cross-attention DTW
             _nz_wca = WhisperCrossAttnForcedAlignJob(
@@ -1327,7 +1378,7 @@ def py():
                 dataset_key="val",
                 dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
             )
-            tk.register_output(f"noise/whisper-crossattn-{_ntag}-wbe.txt", _nz_wca_m.out_wbe)
+            reg(f"noise/whisper-crossattn-{_ntag}-wbe.txt", _nz_wca_m.out_wbe)
 
             # (2a) phoneme-CTC grad-align
             _nz_pg_ex = ExtractInGradsPerTokenJob(
@@ -1355,7 +1406,7 @@ def py():
                 blank_silence_energy_scale=0.0,
                 boundary_source="phonetic_detail",
             )
-            tk.register_output(f"noise/phoneme-grad-{_ntag}-wbe.txt", _nz_pg_al.out_wbe)
+            reg(f"noise/phoneme-grad-{_ntag}-wbe.txt", _nz_pg_al.out_wbe)
 
             # (2b) phoneme-CTC forced-align -- SAME perturbed model as (2a)
             _nz_pf = ForcedAlignPhonemeBaselineJob(
@@ -1365,7 +1416,7 @@ def py():
                 dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
                 **_pk,
             )
-            tk.register_output(f"noise/phoneme-forced-{_ntag}-phone-wbe.txt", _nz_pf.out_phone_wbe)
+            reg(f"noise/phoneme-forced-{_ntag}-phone-wbe.txt", _nz_pf.out_phone_wbe)
 
         # recognition (WER/PER) under the SAME degradation axis (one job, all levels)
         _nz_wer_wh = WerNoiseSweepJob(
@@ -1378,7 +1429,7 @@ def py():
             perturb_kind=_nz_rkind,
         )
         _nz_wer_wh.add_alias(f"noise/wer-whisper-{_nz_key}")
-        tk.register_output(f"noise/wer-whisper-{_nz_key}.txt", _nz_wer_wh.out_wer)
+        reg(f"noise/wer-whisper-{_nz_key}.txt", _nz_wer_wh.out_wer)
         _nz_wer_ph = WerNoiseSweepJob(
             dataset_dir=dl_ds_timit.out_hub_cache_dir,
             dataset_key="val",
@@ -1388,7 +1439,7 @@ def py():
             perturb_kind=_nz_rkind,
         )
         _nz_wer_ph.add_alias(f"noise/per-phoneme-{_nz_key}")
-        tk.register_output(f"noise/per-phoneme-{_nz_key}.txt", _nz_wer_ph.out_wer)
+        reg(f"noise/per-phoneme-{_nz_key}.txt", _nz_wer_ph.out_wer)
 
     # SmoothGrad ablation (attribution axis A) on the headline char-level Whisper surface: average the
     # per-token gradient over noise_n_samples noisy forward+backward passes (Gaussian noise on the raw
@@ -1406,7 +1457,7 @@ def py():
         _sg_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         _sg_name = f"{whisper_char_name}-smoothgrad-std{_sg_std}-n{_sg_n}"
         _sg_ex.add_alias(_sg_name)
-        tk.register_output(f"{_sg_name}.hdf", _sg_ex.out_hdf)
+        reg(f"{_sg_name}.hdf", _sg_ex.out_hdf)
         _sg_ao = {"apply_softmax_over_time": True, "blank_score": -5}
         _sg_al = WordAlignFromPerTokenGradsJob(
             grad_score_hdf=_sg_ex.out_hdf,
@@ -1420,7 +1471,7 @@ def py():
         )
         _sg_nm = f"align/{_sg_name}-{_name_for_dict(_sg_ao)}-en0.5-sil1.0"
         _sg_al.add_alias(_sg_nm)
-        tk.register_output(f"{_sg_nm}-wbe.txt", _sg_al.out_wbe)
+        reg(f"{_sg_nm}-wbe.txt", _sg_al.out_wbe)
     for _whc_ep, _whc_kap in [(0.5, 1.0), (0.3, 1.0)]:
         _whc_ao = {"apply_softmax_over_time": True, "blank_score": -5}
         _whc_sfx = _name_for_dict(_whc_ao) + f"-en{_whc_ep}-zsk{_whc_kap}"
@@ -1435,7 +1486,7 @@ def py():
             blank_grad_zscore_kappa=_whc_kap,
         )
         _whc_al.add_alias(f"align/{whisper_char_name}-{_whc_sfx}")
-        tk.register_output(f"align/{whisper_char_name}-{_whc_sfx}-wbe.txt", _whc_al.out_wbe)
+        reg(f"align/{whisper_char_name}-{_whc_sfx}-wbe.txt", _whc_al.out_wbe)
     for _whc_ep, _whc_sc in [(0.0, 1.0), (0.5, 1.0)]:
         _whc_ao = {"apply_softmax_over_time": True, "blank_score": -5}
         _whc_sfx = _name_for_dict(_whc_ao) + (f"-en{_whc_ep}" if _whc_ep else "") + f"-sil{_whc_sc}"
@@ -1450,7 +1501,7 @@ def py():
             blank_silence_energy_scale=_whc_sc,
         )
         _whc_al.add_alias(f"align/{whisper_char_name}-{_whc_sfx}")
-        tk.register_output(f"align/{whisper_char_name}-{_whc_sfx}-wbe.txt", _whc_al.out_wbe)
+        reg(f"align/{whisper_char_name}-{_whc_sfx}-wbe.txt", _whc_al.out_wbe)
 
     # VarGrad ablation (attribution axis A): per-frame STD of the saliency across SmoothGrad noise
     # samples (vs the SmoothGrad mean). Headline char Whisper.
@@ -1468,7 +1519,7 @@ def py():
         _vg_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         _vg_name = f"whisper-base-logmel-timit-val-L2-vargrad-pertoken-charlev-spc-std{_vg_std}-n16"
         _vg_ex.add_alias(_vg_name)
-        tk.register_output(f"{_vg_name}.hdf", _vg_ex.out_hdf)
+        reg(f"{_vg_name}.hdf", _vg_ex.out_hdf)
         _vg_ao = {"apply_softmax_over_time": True, "blank_score": -5}
         _vg_al = WordAlignFromPerTokenGradsJob(
             grad_score_hdf=_vg_ex.out_hdf,
@@ -1482,7 +1533,7 @@ def py():
         )
         _vg_nm = f"align/{_vg_name}-{_name_for_dict(_vg_ao)}-en0.5-sil1.0"
         _vg_al.add_alias(_vg_nm)
-        tk.register_output(f"{_vg_nm}-wbe.txt", _vg_al.out_wbe)
+        reg(f"{_vg_nm}-wbe.txt", _vg_al.out_wbe)
 
     # Integrated-Gradients ablation (attribution axis A) on the headline char Whisper: integrate the
     # per-token gradient along the audio-amplitude path (ig_steps Riemann steps), vs single-pass 47 ms.
@@ -1498,7 +1549,7 @@ def py():
         _ig_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         _ig_name = f"whisper-base-logmel-timit-val-L2-integrated-grad-pertoken-charlev-spc-ig{_ig_n}"
         _ig_ex.add_alias(_ig_name)
-        tk.register_output(f"{_ig_name}.hdf", _ig_ex.out_hdf)
+        reg(f"{_ig_name}.hdf", _ig_ex.out_hdf)
         _ig_ao = {"apply_softmax_over_time": True, "blank_score": -5}
         _ig_al = WordAlignFromPerTokenGradsJob(
             grad_score_hdf=_ig_ex.out_hdf,
@@ -1512,7 +1563,7 @@ def py():
         )
         _ig_nm = f"align/{_ig_name}-{_name_for_dict(_ig_ao)}-en0.5-sil1.0"
         _ig_al.add_alias(_ig_nm)
-        tk.register_output(f"{_ig_nm}-wbe.txt", _ig_al.out_wbe)
+        reg(f"{_ig_nm}-wbe.txt", _ig_al.out_wbe)
 
     # Expected-Gradients ablation (axis A): IG with RANDOM noise baselines x' (baseline-std SWEEP) +
     # random alpha per step. Headline char Whisper.
@@ -1529,7 +1580,7 @@ def py():
         _eg_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         _eg_name = f"whisper-base-logmel-timit-val-L2-expected-grad-pertoken-charlev-spc-eg16-bstd{_eg_std}"
         _eg_ex.add_alias(_eg_name)
-        tk.register_output(f"{_eg_name}.hdf", _eg_ex.out_hdf)
+        reg(f"{_eg_name}.hdf", _eg_ex.out_hdf)
         _eg_ao = {"apply_softmax_over_time": True, "blank_score": -5}
         _eg_al = WordAlignFromPerTokenGradsJob(
             grad_score_hdf=_eg_ex.out_hdf,
@@ -1543,7 +1594,7 @@ def py():
         )
         _eg_nm = f"align/{_eg_name}-{_name_for_dict(_eg_ao)}-en0.5-sil1.0"
         _eg_al.add_alias(_eg_nm)
-        tk.register_output(f"{_eg_nm}-wbe.txt", _eg_al.out_wbe)
+        reg(f"{_eg_nm}-wbe.txt", _eg_al.out_wbe)
 
     # Local-emission-normalization ablation (seconds-based window) on the headline char Whisper, on
     # BOTH TIMIT val + Buckeye-reseg, to validate the small AED collar win found offline (the reseg
@@ -1582,7 +1633,7 @@ def py():
             )
             _ln_nm = f"align/{_ln_name}-{_name_for_dict(_ln_ao)}-en0.5-sil1.0-ln{_ln_w}s"
             _ln_al.add_alias(_ln_nm)
-            tk.register_output(f"{_ln_nm}-wbe.txt", _ln_al.out_wbe)
+            reg(f"{_ln_nm}-wbe.txt", _ln_al.out_wbe)
 
     # --- Phi4 encoder-output (~12.5 Hz) grad target, for completeness vs the default
     # log-mel (100 Hz) target. Word-level only (encoder-out is too coarse for char-level).
@@ -1598,7 +1649,7 @@ def py():
         p4e_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         p4e_name = f"phi4mm-encoderout-timit-val-{_p4e_ga}-pertoken"
         p4e_extract.add_alias(p4e_name)
-        tk.register_output(f"{p4e_name}.hdf", p4e_extract.out_hdf)
+        reg(f"{p4e_name}.hdf", p4e_extract.out_hdf)
         # encoder-out (~12.5 Hz) is a confirmed dead-end (WBE 0.44); restrict to
         # the bs-6 align -- the bscalc backtrace crashes (s=-1) on its degenerate,
         # near-flat score matrix (a latent Aligner edge case, not worth chasing here).
@@ -1613,7 +1664,7 @@ def py():
                 align_opts=align_opts,
             )
             align.add_alias(align_name)
-            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+            reg(f"{align_name}-wbe.txt", align.out_wbe)
 
     # --- Phi4-MM open recognition (WER sanity gate for hyp-mode alignment).
     # Prerequisite for evaluating against open-recognition baselines
@@ -1629,7 +1680,7 @@ def py():
         )
         recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         recog.add_alias(f"phi4mm-timit-{split}-recog")
-        tk.register_output(f"phi4mm-timit-{split}-recog.hyps.txt.gz", recog.out_hyps_txt)
+        reg(f"phi4mm-timit-{split}-recog.hyps.txt.gz", recog.out_hyps_txt)
         refs = ExtractWordDetailFromHuggingFaceDatasetJob(
             dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_split=split
         )
@@ -1645,8 +1696,8 @@ def py():
             ref_text_dict=refs_norm,
             corpus_name=f"phi4mm-timit-{split}",
         )
-        tk.register_output(f"phi4mm-timit-{split}-wer.txt", score.main_measure_value)
-        tk.register_output(f"phi4mm-timit-{split}-wer-report", score.report)
+        reg(f"phi4mm-timit-{split}-wer.txt", score.main_measure_value)
+        reg(f"phi4mm-timit-{split}-wer-report", score.report)
 
     # --- Short-form: TIMIT val/test, Phi4-multimodal -----------------------
     # Mirrors exp2025_05_05_align lines ~44-84 but via the generic Job.
@@ -1741,7 +1792,7 @@ def py():
                     align_opts=align_opts,
                 )
                 align.add_alias(align_name)
-                tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+                reg(f"{align_name}-wbe.txt", align.out_wbe)
 
     # Per-token block. ExtractInGradsPerTokenJob does K backwards per word
     # (one per subword/token) instead of 1, so we get per-token grad maps and
@@ -1764,7 +1815,7 @@ def py():
         gen.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         name = f"phi4mm-{ds_name}-{split}-{grad_alias}-pertoken{suffix}"
         gen.add_alias(name)
-        tk.register_output(f"{name}.hdf", gen.out_hdf)
+        reg(f"{name}.hdf", gen.out_hdf)
         for align_opts in _ALIGN_OPTS_GRID:
             align_name = f"align/{name}-{_name_for_dict(align_opts)}"
             align = WordAlignFromPerTokenGradsJob(
@@ -1776,7 +1827,7 @@ def py():
                 align_opts=align_opts,
             )
             align.add_alias(align_name)
-            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+            reg(f"{align_name}-wbe.txt", align.out_wbe)
         return gen
 
     # (a) Model-variant sweep, val + L2_e_grad. Pertoken on each char_level
@@ -1890,7 +1941,7 @@ def py():
                 align_opts=align_opts,
             )
             align.add_alias(align_name)
-            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+            reg(f"{align_name}-wbe.txt", align.out_wbe)
 
     # Extended-metrics scoring for the champion pertoken-charlev-spc variant
     # (val + test). Adds mean/median WBE in ms, % within {10, 25, 50, 100} ms,
@@ -1917,15 +1968,15 @@ def py():
                 align_opts=align_opts,
             )
             ext.add_alias(f"align/{ext_name}")
-            tk.register_output(f"align/{ext_name}-wbe_ms.txt", ext.out_wbe_ms)
-            tk.register_output(f"align/{ext_name}-median_wbe_ms.txt", ext.out_median_wbe_ms)
-            tk.register_output(f"align/{ext_name}-pct_within_10ms.txt", ext.out_pct_within_10ms)
-            tk.register_output(f"align/{ext_name}-pct_within_25ms.txt", ext.out_pct_within_25ms)
-            tk.register_output(f"align/{ext_name}-pct_within_50ms.txt", ext.out_pct_within_50ms)
-            tk.register_output(f"align/{ext_name}-pct_within_100ms.txt", ext.out_pct_within_100ms)
-            tk.register_output(f"align/{ext_name}-f1_20ms.txt", ext.out_f1_20ms)
-            tk.register_output(f"align/{ext_name}-report.txt", ext.out_report)
-            tk.register_output(f"align/{ext_name}-word_boundaries.py.gz", ext.out_word_boundaries)
+            reg(f"align/{ext_name}-wbe_ms.txt", ext.out_wbe_ms)
+            reg(f"align/{ext_name}-median_wbe_ms.txt", ext.out_median_wbe_ms)
+            reg(f"align/{ext_name}-pct_within_10ms.txt", ext.out_pct_within_10ms)
+            reg(f"align/{ext_name}-pct_within_25ms.txt", ext.out_pct_within_25ms)
+            reg(f"align/{ext_name}-pct_within_50ms.txt", ext.out_pct_within_50ms)
+            reg(f"align/{ext_name}-pct_within_100ms.txt", ext.out_pct_within_100ms)
+            reg(f"align/{ext_name}-f1_20ms.txt", ext.out_f1_20ms)
+            reg(f"align/{ext_name}-report.txt", ext.out_report)
+            reg(f"align/{ext_name}-word_boundaries.py.gz", ext.out_word_boundaries)
 
     # (e) Two follow-up ideas on top of pertoken-charlev-spc:
     #
@@ -1968,7 +2019,7 @@ def py():
         gen.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         name = f"phi4mm-{ds_name}-{split}-{grad_alias}-pertoken{suffix}"
         gen.add_alias(name)
-        tk.register_output(f"{name}.hdf", gen.out_hdf)
+        reg(f"{name}.hdf", gen.out_hdf)
         for align_opts in _ALIGN_OPTS_GRID:
             align_name = f"align/{name}-{_name_for_dict(align_opts)}"
             align = WordAlignFromPerTokenWithSepGradsJob(
@@ -1980,7 +2031,7 @@ def py():
                 align_opts=align_opts,
             )
             align.add_alias(align_name)
-            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+            reg(f"{align_name}-wbe.txt", align.out_wbe)
 
     _wire_pertoken_with_sep(
         dl_ds=dl_ds_timit,
@@ -2028,7 +2079,7 @@ def py():
         )
         vx_v_recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         vx_v_recog.add_alias(f"voxtral-verbatim-timit-{split}-recog")
-        tk.register_output(f"voxtral-verbatim-timit-{split}-recog.hyps.txt.gz", vx_v_recog.out_hyps_txt)
+        reg(f"voxtral-verbatim-timit-{split}-recog.hyps.txt.gz", vx_v_recog.out_hyps_txt)
         vx_v_refs = ExtractWordDetailFromHuggingFaceDatasetJob(
             dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_split=split
         )
@@ -2039,8 +2090,8 @@ def py():
             ref_text_dict=vx_v_refs_norm,
             corpus_name=f"voxtral-verbatim-timit-{split}",
         )
-        tk.register_output(f"voxtral-verbatim-timit-{split}-wer.txt", vx_v_score.main_measure_value)
-        tk.register_output(f"voxtral-verbatim-timit-{split}-wer-report", vx_v_score.report)
+        reg(f"voxtral-verbatim-timit-{split}-wer.txt", vx_v_score.main_measure_value)
+        reg(f"voxtral-verbatim-timit-{split}-wer-report", vx_v_score.report)
 
     vx_recog = RecogFromModelJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir,
@@ -2049,7 +2100,7 @@ def py():
     )
     vx_recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     vx_recog.add_alias("voxtral-timit-val-recog")
-    tk.register_output("voxtral-timit-val-recog.hyps.txt.gz", vx_recog.out_hyps_txt)
+    reg("voxtral-timit-val-recog.hyps.txt.gz", vx_recog.out_hyps_txt)
     vx_refs = ExtractWordDetailFromHuggingFaceDatasetJob(dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_split="val")
     vx_refs.add_alias("voxtral-timit-val-refs")
     vx_hyps_norm = text_dict_normalize_file(vx_recog.out_hyps_txt)
@@ -2059,8 +2110,8 @@ def py():
         ref_text_dict=vx_refs_norm,
         corpus_name="voxtral-timit-val",
     )
-    tk.register_output("voxtral-timit-val-wer.txt", vx_score.main_measure_value)
-    tk.register_output("voxtral-timit-val-wer-report", vx_score.report)
+    reg("voxtral-timit-val-wer.txt", vx_score.main_measure_value)
+    reg("voxtral-timit-val-wer-report", vx_score.report)
 
     # OpenASRLeaderboard consistency check: run Voxtral recog on a couple
     # of ESB test sets and compare WER to the leaderboard's reported numbers.
@@ -2081,7 +2132,7 @@ def py():
         )
         vx_esb_recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         vx_esb_recog.add_alias(f"voxtral-esb-{esb_name}-{esb_split}-recog")
-        tk.register_output(f"voxtral-esb-{esb_name}-{esb_split}-recog.hyps.txt.gz", vx_esb_recog.out_hyps_txt)
+        reg(f"voxtral-esb-{esb_name}-{esb_split}-recog.hyps.txt.gz", vx_esb_recog.out_hyps_txt)
         vx_esb_refs = ExtractTextFromHuggingFaceDatasetJob(
             dataset_dir=dl_esb,
             dataset_name=esb_name,
@@ -2094,8 +2145,8 @@ def py():
             ref_text_dict=vx_esb_refs_norm,
             corpus_name=f"voxtral-esb-{esb_name}-{esb_split}",
         )
-        tk.register_output(f"voxtral-esb-{esb_name}-{esb_split}-wer.txt", vx_esb_score.main_measure_value)
-        tk.register_output(f"voxtral-esb-{esb_name}-{esb_split}-wer-report", vx_esb_score.report)
+        reg(f"voxtral-esb-{esb_name}-{esb_split}-wer.txt", vx_esb_score.main_measure_value)
+        reg(f"voxtral-esb-{esb_name}-{esb_split}-wer-report", vx_esb_score.report)
 
     # --- Voxtral transcription-mode recogs (the leaderboard's mode) -------
     # The chat-mode recogs above use apply_chat_template -> instruct behavior
@@ -2110,15 +2161,15 @@ def py():
     )
     vx_t_recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     vx_t_recog.add_alias("voxtral-transcribe-timit-val-recog")
-    tk.register_output("voxtral-transcribe-timit-val-recog.hyps.txt.gz", vx_t_recog.out_hyps_txt)
+    reg("voxtral-transcribe-timit-val-recog.hyps.txt.gz", vx_t_recog.out_hyps_txt)
     vx_t_hyps_norm = text_dict_normalize_file(vx_t_recog.out_hyps_txt)
     vx_t_score = sclite_score_hyps_to_ref(
         hyps_text_dict=vx_t_hyps_norm,
         ref_text_dict=vx_refs_norm,
         corpus_name="voxtral-transcribe-timit-val",
     )
-    tk.register_output("voxtral-transcribe-timit-val-wer.txt", vx_t_score.main_measure_value)
-    tk.register_output("voxtral-transcribe-timit-val-wer-report", vx_t_score.report)
+    reg("voxtral-transcribe-timit-val-wer.txt", vx_t_score.main_measure_value)
+    reg("voxtral-transcribe-timit-val-wer-report", vx_t_score.report)
 
     vx_t_esb_recog = RecogFromModelJob(
         dataset_dir=dl_esb,
@@ -2129,7 +2180,7 @@ def py():
     )
     vx_t_esb_recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     vx_t_esb_recog.add_alias("voxtral-transcribe-esb-librispeech-test.clean-recog")
-    tk.register_output("voxtral-transcribe-esb-librispeech-test.clean-recog.hyps.txt.gz", vx_t_esb_recog.out_hyps_txt)
+    reg("voxtral-transcribe-esb-librispeech-test.clean-recog.hyps.txt.gz", vx_t_esb_recog.out_hyps_txt)
     vx_t_esb_refs = ExtractTextFromHuggingFaceDatasetJob(
         dataset_dir=dl_esb, dataset_name="librispeech", dataset_split="test.clean"
     )
@@ -2140,8 +2191,8 @@ def py():
         ref_text_dict=vx_t_esb_refs_norm,
         corpus_name="voxtral-transcribe-esb-librispeech-test.clean",
     )
-    tk.register_output("voxtral-transcribe-esb-librispeech-test.clean-wer.txt", vx_t_esb_score.main_measure_value)
-    tk.register_output("voxtral-transcribe-esb-librispeech-test.clean-wer-report", vx_t_esb_score.report)
+    reg("voxtral-transcribe-esb-librispeech-test.clean-wer.txt", vx_t_esb_score.main_measure_value)
+    reg("voxtral-transcribe-esb-librispeech-test.clean-wer-report", vx_t_esb_score.report)
 
     # --- Canary-Qwen 2.5B (NeMo SALM) recog ----------------------------
     # First pass: recog-only. Forward path (forced alignment) requires a
@@ -2165,7 +2216,7 @@ def py():
     cq_lm_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     cq_lm_name = "canary-qwen-logmel-timit-val-L2_grad-pertoken"
     cq_lm_extract.add_alias(cq_lm_name)
-    tk.register_output(f"{cq_lm_name}.hdf", cq_lm_extract.out_hdf)
+    reg(f"{cq_lm_name}.hdf", cq_lm_extract.out_hdf)
     for align_opts in _ALIGN_OPTS_GRID:
         align_name = f"align/{cq_lm_name}-{_name_for_dict(align_opts)}"
         align = WordAlignFromPerTokenGradsJob(
@@ -2177,7 +2228,7 @@ def py():
             align_opts=align_opts,
         )
         align.add_alias(align_name)
-        tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+        reg(f"{align_name}-wbe.txt", align.out_wbe)
 
     # Canary char-level + log-mel (100 Hz): the headline cross-model target.
     # ensure_audio_long_enough handles char-count > 18 Hz encoder frames in the splice;
@@ -2204,7 +2255,7 @@ def py():
         cq_cl_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         cq_cl_name = f"canary-qwen-charlev-spc-logmel-timit-val-{cl_alias}-pertoken"
         cq_cl_extract.add_alias(cq_cl_name)
-        tk.register_output(f"{cq_cl_name}.hdf", cq_cl_extract.out_hdf)
+        reg(f"{cq_cl_name}.hdf", cq_cl_extract.out_hdf)
         for align_opts in _ALIGN_OPTS_GRID:
             align_name = f"align/{cq_cl_name}-{_name_for_dict(align_opts)}"
             align = WordAlignFromPerTokenGradsJob(
@@ -2216,7 +2267,7 @@ def py():
                 align_opts=align_opts,
             )
             align.add_alias(align_name)
-            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+            reg(f"{align_name}-wbe.txt", align.out_wbe)
         # Audio-energy silence filter (transfers across models; Canary 133->106).
         _w2v_aligns(cq_cl_extract, cq_cl_name, energy_pows=(0.5, 1.0))
 
@@ -2242,7 +2293,7 @@ def py():
     cq_cls_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     cq_cls_name = "canary-qwen-charlev-spc-logmel-st15-timit-val-L1_grad-pertoken"
     cq_cls_extract.add_alias(cq_cls_name)
-    tk.register_output(f"{cq_cls_name}.hdf", cq_cls_extract.out_hdf)
+    reg(f"{cq_cls_name}.hdf", cq_cls_extract.out_hdf)
     for align_opts in _ALIGN_OPTS_GRID:
         align_name = f"align/{cq_cls_name}-{_name_for_dict(align_opts)}"
         align = WordAlignFromPerTokenGradsJob(
@@ -2254,7 +2305,7 @@ def py():
             align_opts=align_opts,
         )
         align.add_alias(align_name)
-        tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+        reg(f"{align_name}-wbe.txt", align.out_wbe)
 
     cq_recog = RecogFromModelJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir,
@@ -2263,7 +2314,7 @@ def py():
     )
     cq_recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     cq_recog.add_alias("canary-qwen-timit-val-recog")
-    tk.register_output("canary-qwen-timit-val-recog.hyps.txt.gz", cq_recog.out_hyps_txt)
+    reg("canary-qwen-timit-val-recog.hyps.txt.gz", cq_recog.out_hyps_txt)
     cq_refs = ExtractWordDetailFromHuggingFaceDatasetJob(dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_split="val")
     cq_hyps_norm = text_dict_normalize_file(cq_recog.out_hyps_txt)
     cq_refs_norm = text_dict_normalize_file(cq_refs.out_text)
@@ -2272,8 +2323,8 @@ def py():
         ref_text_dict=cq_refs_norm,
         corpus_name="canary-qwen-timit-val",
     )
-    tk.register_output("canary-qwen-timit-val-wer.txt", cq_score.main_measure_value)
-    tk.register_output("canary-qwen-timit-val-wer-report", cq_score.report)
+    reg("canary-qwen-timit-val-wer.txt", cq_score.main_measure_value)
+    reg("canary-qwen-timit-val-wer-report", cq_score.report)
 
     # Dedicated version=3 config (fixed splice/n_audio_real) for the chat-mode
     # grad extract. voxtral_cfg stays at the default version so the already-finished voxtral recog jobs
@@ -2289,7 +2340,7 @@ def py():
     vx_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     vx_extract_name = "voxtral-timit-val-L2_e_grad-pertoken"
     vx_extract.add_alias(vx_extract_name)
-    tk.register_output(f"{vx_extract_name}.hdf", vx_extract.out_hdf)
+    reg(f"{vx_extract_name}.hdf", vx_extract.out_hdf)
     for align_opts in _ALIGN_OPTS_GRID:
         align_name = f"align/{vx_extract_name}-{_name_for_dict(align_opts)}"
         align = WordAlignFromPerTokenGradsJob(
@@ -2301,7 +2352,7 @@ def py():
             align_opts=align_opts,
         )
         align.add_alias(align_name)
-        tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+        reg(f"{align_name}-wbe.txt", align.out_wbe)
 
     # --- Voxtral transcription-mode forced-align grad extract -------------
     # The chat-mode forward above gave poor WBE (0.47-0.57): instruct mode
@@ -2329,7 +2380,7 @@ def py():
         vxt_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         vxt_extract_name = f"voxtral-transcribe-timit-val-{grad_alias}-pertoken"
         vxt_extract.add_alias(vxt_extract_name)
-        tk.register_output(f"{vxt_extract_name}.hdf", vxt_extract.out_hdf)
+        reg(f"{vxt_extract_name}.hdf", vxt_extract.out_hdf)
         for align_opts in _ALIGN_OPTS_GRID:
             align_name = f"align/{vxt_extract_name}-{_name_for_dict(align_opts)}"
             align = WordAlignFromPerTokenGradsJob(
@@ -2341,7 +2392,7 @@ def py():
                 align_opts=align_opts,
             )
             align.add_alias(align_name)
-            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+            reg(f"{align_name}-wbe.txt", align.out_wbe)
 
     # --- Voxtral log-mel grad target (100 Hz) --------------------------------
     # Same model, but differentiate w.r.t. the log-mel input features instead
@@ -2383,7 +2434,7 @@ def py():
         vxt_lm_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         vxt_lm_extract_name = f"voxtral-transcribe-logmel-timit-val-{grad_alias}-pertoken"
         vxt_lm_extract.add_alias(vxt_lm_extract_name)
-        tk.register_output(f"{vxt_lm_extract_name}.hdf", vxt_lm_extract.out_hdf)
+        reg(f"{vxt_lm_extract_name}.hdf", vxt_lm_extract.out_hdf)
         for align_opts in _ALIGN_OPTS_GRID:
             align_name = f"align/{vxt_lm_extract_name}-{_name_for_dict(align_opts)}"
             align = WordAlignFromPerTokenGradsJob(
@@ -2395,7 +2446,7 @@ def py():
                 align_opts=align_opts,
             )
             align.add_alias(align_name)
-            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+            reg(f"{align_name}-wbe.txt", align.out_wbe)
         # Signed sum reductions ("dot") additionally get the signed-score align;
         # the magnitude grid above mishandles arbitrarily-signed scores.
         if attr == "sum":
@@ -2410,7 +2461,7 @@ def py():
                     align_opts=align_opts,
                 )
                 align.add_alias(align_name)
-                tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+                reg(f"{align_name}-wbe.txt", align.out_wbe)
 
     # --- Voxtral fixed audio time-stretch (variant 6) ------------------------
     # Stretch every audio by a fixed factor (>1 = slower) via librosa
@@ -2438,7 +2489,7 @@ def py():
         vxt_st_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         vxt_st_extract_name = f"voxtral-transcribe-{suf}-timit-val-L2_e_grad-pertoken"
         vxt_st_extract.add_alias(vxt_st_extract_name)
-        tk.register_output(f"{vxt_st_extract_name}.hdf", vxt_st_extract.out_hdf)
+        reg(f"{vxt_st_extract_name}.hdf", vxt_st_extract.out_hdf)
         for align_opts in _ALIGN_OPTS_GRID:
             align_name = f"align/{vxt_st_extract_name}-{_name_for_dict(align_opts)}"
             align = WordAlignFromPerTokenGradsJob(
@@ -2450,7 +2501,7 @@ def py():
                 align_opts=align_opts,
             )
             align.add_alias(align_name)
-            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+            reg(f"{align_name}-wbe.txt", align.out_wbe)
 
     # --- Voxtral conv1 grad target (100 Hz, d_model space) -------------------
     # Variant 4 in the project notes: grad w.r.t. Whisper encoder's conv1
@@ -2479,7 +2530,7 @@ def py():
         vxt_c1_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         vxt_c1_extract_name = f"voxtral-transcribe-conv1-timit-val-{grad_alias}-pertoken"
         vxt_c1_extract.add_alias(vxt_c1_extract_name)
-        tk.register_output(f"{vxt_c1_extract_name}.hdf", vxt_c1_extract.out_hdf)
+        reg(f"{vxt_c1_extract_name}.hdf", vxt_c1_extract.out_hdf)
         for align_opts in _ALIGN_OPTS_GRID:
             align_name = f"align/{vxt_c1_extract_name}-{_name_for_dict(align_opts)}"
             align = WordAlignFromPerTokenGradsJob(
@@ -2491,7 +2542,7 @@ def py():
                 align_opts=align_opts,
             )
             align.add_alias(align_name)
-            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+            reg(f"{align_name}-wbe.txt", align.out_wbe)
 
     # --- Voxtral char-level + per-seq just-enough resample -------------------
     # Variant 12 (char-level vocab via per-char lookup, bypasses BPE merging)
@@ -2520,7 +2571,7 @@ def py():
         vxt_cl_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         vxt_cl_extract_name = f"voxtral-transcribe-charlev-spc-timit-val-{grad_alias}-pertoken"
         vxt_cl_extract.add_alias(vxt_cl_extract_name)
-        tk.register_output(f"{vxt_cl_extract_name}.hdf", vxt_cl_extract.out_hdf)
+        reg(f"{vxt_cl_extract_name}.hdf", vxt_cl_extract.out_hdf)
         for align_opts in _ALIGN_OPTS_GRID:
             align_name = f"align/{vxt_cl_extract_name}-{_name_for_dict(align_opts)}"
             align = WordAlignFromPerTokenGradsJob(
@@ -2532,7 +2583,7 @@ def py():
                 align_opts=align_opts,
             )
             align.add_alias(align_name)
-            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+            reg(f"{align_name}-wbe.txt", align.out_wbe)
 
     # --- Voxtral char-level on 100 Hz grad targets (log_mel / conv1) ----------
     # Char-level wants fine time resolution.
@@ -2603,7 +2654,7 @@ def py():
             vxt_cl2_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
             vxt_cl2_extract_name = f"voxtral-transcribe-charlev-spc-{cl_tname}-timit-val-{grad_alias}-pertoken"
             vxt_cl2_extract.add_alias(vxt_cl2_extract_name)
-            tk.register_output(f"{vxt_cl2_extract_name}.hdf", vxt_cl2_extract.out_hdf)
+            reg(f"{vxt_cl2_extract_name}.hdf", vxt_cl2_extract.out_hdf)
             for align_opts in _ALIGN_OPTS_GRID:
                 align_name = f"align/{vxt_cl2_extract_name}-{_name_for_dict(align_opts)}"
                 align = WordAlignFromPerTokenGradsJob(
@@ -2615,7 +2666,7 @@ def py():
                     align_opts=align_opts,
                 )
                 align.add_alias(align_name)
-                tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+                reg(f"{align_name}-wbe.txt", align.out_wbe)
 
     # --- SmoothGrad on Voxtral (variant 7) -----------------------------------
     # N=5 forward+backward passes per seq with Gaussian noise on raw audio;
@@ -2637,7 +2688,7 @@ def py():
         vxt_sg_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         vxt_sg_name = f"voxtral-transcribe-timit-val-L2_e_grad-pertoken-{sg_alias}"
         vxt_sg_extract.add_alias(vxt_sg_name)
-        tk.register_output(f"{vxt_sg_name}.hdf", vxt_sg_extract.out_hdf)
+        reg(f"{vxt_sg_name}.hdf", vxt_sg_extract.out_hdf)
         for align_opts in _ALIGN_OPTS_GRID:
             align_name = f"align/{vxt_sg_name}-{_name_for_dict(align_opts)}"
             align = WordAlignFromPerTokenGradsJob(
@@ -2649,7 +2700,7 @@ def py():
                 align_opts=align_opts,
             )
             align.add_alias(align_name)
-            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+            reg(f"{align_name}-wbe.txt", align.out_wbe)
 
     # --- Canary-Qwen 2.5B grad-variant sweep on TIMIT val -----------------
     # A sensible subset (not the full 9x grid): the grad x input ("e_grad")
@@ -2673,7 +2724,7 @@ def py():
         cq_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         cq_extract_name = f"canary-qwen-timit-val-{grad_alias}-pertoken"
         cq_extract.add_alias(cq_extract_name)
-        tk.register_output(f"{cq_extract_name}.hdf", cq_extract.out_hdf)
+        reg(f"{cq_extract_name}.hdf", cq_extract.out_hdf)
         for align_opts in _ALIGN_OPTS_GRID:
             align_name = f"align/{cq_extract_name}-{_name_for_dict(align_opts)}"
             align = WordAlignFromPerTokenGradsJob(
@@ -2685,7 +2736,7 @@ def py():
                 align_opts=align_opts,
             )
             align.add_alias(align_name)
-            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+            reg(f"{align_name}-wbe.txt", align.out_wbe)
 
     # Prompt variant: ask for accurate verbatim transcription, with the
     # best-ish grad variant (L2_e) so the prompt effect is isolated.
@@ -2706,7 +2757,7 @@ def py():
     cq_acc_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     cq_acc_name = "canary-qwen-acc-timit-val-L2_e_grad-pertoken"
     cq_acc_extract.add_alias(cq_acc_name)
-    tk.register_output(f"{cq_acc_name}.hdf", cq_acc_extract.out_hdf)
+    reg(f"{cq_acc_name}.hdf", cq_acc_extract.out_hdf)
     for align_opts in _ALIGN_OPTS_GRID:
         align_name = f"align/{cq_acc_name}-{_name_for_dict(align_opts)}"
         align = WordAlignFromPerTokenGradsJob(
@@ -2718,7 +2769,7 @@ def py():
             align_opts=align_opts,
         )
         align.add_alias(align_name)
-        tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+        reg(f"{align_name}-wbe.txt", align.out_wbe)
 
     cq_acc_recog = RecogFromModelJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir,
@@ -2753,7 +2804,7 @@ def py():
         cq_char_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         cq_char_name = f"canary-qwen-timit-val-L2_e_grad-pertoken{char_suf}"
         cq_char_extract.add_alias(cq_char_name)
-        tk.register_output(f"{cq_char_name}.hdf", cq_char_extract.out_hdf)
+        reg(f"{cq_char_name}.hdf", cq_char_extract.out_hdf)
         for align_opts in _ALIGN_OPTS_GRID:
             align_name = f"align/{cq_char_name}-{_name_for_dict(align_opts)}"
             align = WordAlignFromPerTokenGradsJob(
@@ -2765,18 +2816,18 @@ def py():
                 align_opts=align_opts,
             )
             align.add_alias(align_name)
-            tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+            reg(f"{align_name}-wbe.txt", align.out_wbe)
 
     cq_acc_recog.add_alias("canary-qwen-acc-timit-val-recog")
-    tk.register_output("canary-qwen-acc-timit-val-recog.hyps.txt.gz", cq_acc_recog.out_hyps_txt)
+    reg("canary-qwen-acc-timit-val-recog.hyps.txt.gz", cq_acc_recog.out_hyps_txt)
     cq_acc_hyps_norm = text_dict_normalize_file(cq_acc_recog.out_hyps_txt)
     cq_acc_score = sclite_score_hyps_to_ref(
         hyps_text_dict=cq_acc_hyps_norm,
         ref_text_dict=cq_refs_norm,
         corpus_name="canary-qwen-acc-timit-val",
     )
-    tk.register_output("canary-qwen-acc-timit-val-wer.txt", cq_acc_score.main_measure_value)
-    tk.register_output("canary-qwen-acc-timit-val-wer-report", cq_acc_score.report)
+    reg("canary-qwen-acc-timit-val-wer.txt", cq_acc_score.main_measure_value)
+    reg("canary-qwen-acc-timit-val-wer-report", cq_acc_score.report)
 
     # Speech-LLM generic-setting check: does the CTC/AED energy+silence recipe
     # transfer to the LLM-decoders (Phi4 / Voxtral / Canary)?
@@ -2818,7 +2869,7 @@ def py():
             )
             _sll_nm = f"align/{_sll_name}-{_name_for_dict(_sll_ao)}{_sll_sfx}"
             _sll_al.add_alias(_sll_nm)
-            tk.register_output(f"{_sll_nm}-wbe.txt", _sll_al.out_wbe)
+            reg(f"{_sll_nm}-wbe.txt", _sll_al.out_wbe)
 
     # --- TIMIT TEST split (headline models) -- generalization beyond the val-tuned config.
     # The two best grad-align surfaces with the generic en0.5-sil1.0 setting,
@@ -2891,7 +2942,7 @@ def py():
         _t_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         _t_ex.rqmt = {**_t_ex.rqmt, "time": 24}
         _t_ex.add_alias(_t_name)
-        tk.register_output(f"{_t_name}.hdf", _t_ex.out_hdf)
+        reg(f"{_t_name}.hdf", _t_ex.out_hdf)
         for _t_ep, _t_sc in _t_aligns:
             _t_ao = {"apply_softmax_over_time": True, "blank_score": -5}
             _t_al = WordAlignFromPerTokenGradsJob(
@@ -2906,7 +2957,7 @@ def py():
             )
             _t_nm = f"align/{_t_name}-{_name_for_dict(_t_ao)}-en{_t_ep}-sil{_t_sc}"
             _t_al.add_alias(_t_nm)
-            tk.register_output(f"{_t_nm}-wbe.txt", _t_al.out_wbe)
+            reg(f"{_t_nm}-wbe.txt", _t_al.out_wbe)
     whisper_fa_test = WhisperCrossAttnForcedAlignJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_key="test", overlay=_WHISPER_TS_OVERLAY
     )
@@ -2917,7 +2968,7 @@ def py():
         dataset_key="test",
         dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
     )
-    tk.register_output("baseline-whisper-crossattn-timit-test-wbe.txt", whisper_fa_test_metric.out_wbe)
+    reg("baseline-whisper-crossattn-timit-test-wbe.txt", whisper_fa_test_metric.out_wbe)
 
     # --- MFA (Montreal Forced Aligner) baseline infra ---------------------------
     # Pull the MFA Docker image into a tracked .sif, and wrap `mfa` as a plain executable so the
@@ -2925,7 +2976,7 @@ def py():
     # container wrapper). Image/wrapper registered as outputs so they build now; the align job
     # is wired once the in-container MFA CLI is verified.
     _mfa_image = PullApptainerImageJob("docker://mmcauliffe/montreal-forced-aligner:latest")
-    tk.register_output("mfa/image.sif", _mfa_image.out_image)
+    reg("mfa/image.sif", _mfa_image.out_image)
     # `work` symlinks to the hpcwork scratch FS, which is a per-PROJECT nested mount
     # (/rwthfs/rz/cluster/hpcwork/p0023999) -- binding the hpcwork parent misses it. Bind home (the
     # symlink + recipe paths) AND the project hpcwork mount (the symlink targets / actual job files).
@@ -2934,7 +2985,7 @@ def py():
         command="mfa",
         bind=["/rwthfs/rz/cluster/home", "/rwthfs/rz/cluster/hpcwork/p0023999"],
     )
-    tk.register_output("mfa/mfa-run.sh", _mfa_exe.out_exe)
+    reg("mfa/mfa-run.sh", _mfa_exe.out_exe)
     _mfa_models = MfaDownloadModelJob(
         mfa_exe=_mfa_exe.out_exe,
         models=[("acoustic", "english_us_arpa"), ("dictionary", "english_us_arpa"), ("g2p", "english_us_arpa")],
@@ -2957,9 +3008,9 @@ def py():
         )
         _mfa_al.add_alias(f"baseline-mfa-{_mfa_tag}")
         # WBE computed in-job (robust to partial MFA coverage); no separate metric job needed.
-        tk.register_output(f"baseline-mfa-{_mfa_tag}-wbe.txt", _mfa_al.out_wbe)
-        tk.register_output(f"baseline-mfa-{_mfa_tag}-metrics.txt", _mfa_al.out_metrics)
-        tk.register_output(f"baseline-mfa-{_mfa_tag}-coverage.txt", _mfa_al.out_coverage)
+        reg(f"baseline-mfa-{_mfa_tag}-wbe.txt", _mfa_al.out_wbe)
+        reg(f"baseline-mfa-{_mfa_tag}-metrics.txt", _mfa_al.out_metrics)
+        reg(f"baseline-mfa-{_mfa_tag}-coverage.txt", _mfa_al.out_coverage)
 
     # --- Buckeye long-form (fine-resolution, literature-comparable) ------------
     # Convert the alexwengg manifest+wav benchmark to our schema, then run the headline
@@ -2986,7 +3037,7 @@ def py():
             "buckeye-reseg",
         ),
     ]:
-        tk.register_output(f"{_bk_tag}-fine-dataset", _bk_ds_job.out_hub_cache_dir)
+        reg(f"{_bk_tag}-fine-dataset", _bk_ds_job.out_hub_cache_dir)
         _bk_dir = _bk_ds_job.out_hub_cache_dir
 
         bk_fa = ForcedAlignBaselineJob(dataset_dir=_bk_dir, dataset_key="test")
@@ -2997,7 +3048,7 @@ def py():
             dataset_key="test",
             dataset_offset_factors=_bk_off,
         )
-        tk.register_output(f"baseline-mms_fa-{_bk_tag}-wbe.txt", bk_fa_metric.out_wbe)
+        reg(f"baseline-mms_fa-{_bk_tag}-wbe.txt", bk_fa_metric.out_wbe)
 
         # Whisper cross-attn DTW = the AED-native baseline (the "grad beats Whisper's own attention"
         # comparison), on Buckeye too, matching TIMIT val/test.
@@ -3009,7 +3060,7 @@ def py():
             dataset_key="test",
             dataset_offset_factors=_bk_off,
         )
-        tk.register_output(f"baseline-whisper-crossattn-{_bk_tag}-wbe.txt", bk_wca_metric.out_wbe)
+        reg(f"baseline-whisper-crossattn-{_bk_tag}-wbe.txt", bk_wca_metric.out_wbe)
 
         # Headline grad-align surfaces (char-level Whisper / Wav2Vec2-CTC) on every variant; on the
         # clean reseg primary ALSO a speech-LLM (Voxtral char, best LLM on TIMIT) and a transducer
@@ -3063,7 +3114,7 @@ def py():
             # Long-form segments -> more walltime than the default; keep the default GPU/partition.
             _bk_ex.rqmt = {**_bk_ex.rqmt, "time": 24}
             _bk_ex.add_alias(_bk_name)
-            tk.register_output(f"{_bk_name}.hdf", _bk_ex.out_hdf)
+            reg(f"{_bk_name}.hdf", _bk_ex.out_hdf)
             _bk_ao = {"apply_softmax_over_time": True, "blank_score": -5}
             _bk_al = WordAlignFromPerTokenGradsJob(
                 grad_score_hdf=_bk_ex.out_hdf,
@@ -3077,7 +3128,7 @@ def py():
             )
             _bk_nm = f"align/{_bk_name}-{_name_for_dict(_bk_ao)}-en0.5-sil1.0"
             _bk_al.add_alias(_bk_nm)
-            tk.register_output(f"{_bk_nm}-wbe.txt", _bk_al.out_wbe)
+            reg(f"{_bk_nm}-wbe.txt", _bk_al.out_wbe)
 
     # --- Buckeye SEGMENTATION-PROTOCOL ablation: variants A/B/C, ~5 h speaker-stratified each -----------
     # A = split>1s + recursive split-to-<=20s (floor .5); B = size-only split-to-<=20s; C = split>1s + drop>20s.
@@ -3108,7 +3159,7 @@ def py():
             subsample_seed=42,
             **_sv_kw,
         )
-        tk.register_output(f"{_sv_tag}-dataset", _sv_ds.out_hub_cache_dir)
+        reg(f"{_sv_tag}-dataset", _sv_ds.out_hub_cache_dir)
         _sv_dir = _sv_ds.out_hub_cache_dir
 
         # MMS_FA (CTC forced-align) baseline
@@ -3117,7 +3168,7 @@ def py():
         _sv_fa_m = CalcAlignmentMetricsFromWordBoundariesJob(
             word_boundaries_hdf=_sv_fa.out_hdf, dataset_dir=_sv_dir, dataset_key="test", dataset_offset_factors=_bk_off
         )
-        tk.register_output(f"baseline-mms_fa-{_sv_tag}-wbe.txt", _sv_fa_m.out_wbe)
+        reg(f"baseline-mms_fa-{_sv_tag}-wbe.txt", _sv_fa_m.out_wbe)
 
         # Whisper cross-attn DTW baseline
         _sv_wca = WhisperCrossAttnForcedAlignJob(dataset_dir=_sv_dir, dataset_key="test", overlay=_WHISPER_TS_OVERLAY)
@@ -3125,7 +3176,7 @@ def py():
         _sv_wca_m = CalcAlignmentMetricsFromWordBoundariesJob(
             word_boundaries_hdf=_sv_wca.out_hdf, dataset_dir=_sv_dir, dataset_key="test", dataset_offset_factors=_bk_off
         )
-        tk.register_output(f"baseline-whisper-crossattn-{_sv_tag}-wbe.txt", _sv_wca_m.out_wbe)
+        reg(f"baseline-whisper-crossattn-{_sv_tag}-wbe.txt", _sv_wca_m.out_wbe)
 
         # MFA (GMM-HMM) baseline -- the ceiling
         _sv_mfa = MfaForcedAlignJob(
@@ -3136,7 +3187,7 @@ def py():
             dataset_offset_factors=_bk_off,
         )
         _sv_mfa.add_alias(f"baseline-mfa-{_sv_tag}")
-        tk.register_output(f"baseline-mfa-{_sv_tag}-wbe.txt", _sv_mfa.out_wbe)
+        reg(f"baseline-mfa-{_sv_tag}-wbe.txt", _sv_mfa.out_wbe)
 
         # grad-align surfaces (en0.5-sil1.0): AED-Whisper char + CTC-Wav2Vec2
         for _cfg, _nmt, _attr, _mgi in _seg_grad_methods:
@@ -3151,7 +3202,7 @@ def py():
             _ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
             _ex.rqmt = {**_ex.rqmt, "time": 24}
             _ex.add_alias(_nm)
-            tk.register_output(f"{_nm}.hdf", _ex.out_hdf)
+            reg(f"{_nm}.hdf", _ex.out_hdf)
             _al = WordAlignFromPerTokenGradsJob(
                 grad_score_hdf=_ex.out_hdf,
                 grad_score_key="data",
@@ -3164,7 +3215,7 @@ def py():
             )
             _alnm = f"align/{_nm}-{_name_for_dict(_seg_ao)}-en0.5-sil1.0"
             _al.add_alias(_alnm)
-            tk.register_output(f"{_alnm}-wbe.txt", _al.out_wbe)
+            reg(f"{_alnm}-wbe.txt", _al.out_wbe)
 
         if _sv == "A":
             # Variant A is the chosen headline Buckeye -> run the remaining cross-model set on it
@@ -3196,7 +3247,7 @@ def py():
                 _hA_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
                 _hA_ex.rqmt = {**_hA_ex.rqmt, "time": 24}
                 _hA_ex.add_alias(_hA_name)
-                tk.register_output(f"{_hA_name}.hdf", _hA_ex.out_hdf)
+                reg(f"{_hA_name}.hdf", _hA_ex.out_hdf)
                 _hA_al = WordAlignFromPerTokenGradsJob(
                     grad_score_hdf=_hA_ex.out_hdf,
                     grad_score_key="data",
@@ -3209,7 +3260,7 @@ def py():
                 )
                 _hA_alnm = f"align/{_hA_name}-{_name_for_dict(_seg_ao)}-en0.5-sil1.0"
                 _hA_al.add_alias(_hA_alnm)
-                tk.register_output(f"{_hA_alnm}-wbe.txt", _hA_al.out_wbe)
+                reg(f"{_hA_alnm}-wbe.txt", _hA_al.out_wbe)
 
     # === Buckeye variant A (headline) extra experiments: fairness 2x2 (grad/cross-attn x char/subword),
     # phoneme model via espeak-ng G2P, transducer no-sil, and grad-score x energy/silence ablations
@@ -3241,7 +3292,7 @@ def py():
         ex.rqmt = {**ex.rqmt, "time": time}
         if name is not None:  # None -> reuse a job already aliased/registered elsewhere
             ex.add_alias(name)
-            tk.register_output(f"{name}.hdf", ex.out_hdf)
+            reg(f"{name}.hdf", ex.out_hdf)
         return ex
 
     def _xa_align(ex, name, sfx, energy=0.5, sil=1.0, zsk=None):
@@ -3258,7 +3309,7 @@ def py():
         )
         nm = f"align/{name}-{_name_for_dict(_xa_ao)}-{sfx}"
         al.add_alias(nm)
-        tk.register_output(f"{nm}-wbe.txt", al.out_wbe)
+        reg(f"{nm}-wbe.txt", al.out_wbe)
         return al
 
     # (1) Fairness: grad SUBWORD whisper (compare to the existing crossattn-subword baseline).
@@ -3281,7 +3332,7 @@ def py():
         dataset_key="test",
         dataset_offset_factors=_xa_off,
     )
-    tk.register_output(f"baseline-whisper-crossattn-charlev-{_xa_tag}-wbe.txt", _xa_cac_m.out_wbe)
+    reg(f"baseline-whisper-crossattn-charlev-{_xa_tag}-wbe.txt", _xa_cac_m.out_wbe)
 
     # (3) Phoneme model (vitouphy) via espeak-ng G2P word targets: grad-align + CTC forced-align baseline.
     _xa_ph_ex = _xa_extract(
@@ -3299,7 +3350,7 @@ def py():
         g2p_word_targets=True,
     )
     _xa_phfa.add_alias(f"baseline-phoneme-fa-{_xa_tag}")
-    tk.register_output(f"baseline-phoneme-fa-{_xa_tag}-word-wbe.txt", _xa_phfa.out_word_wbe)
+    reg(f"baseline-phoneme-fa-{_xa_tag}-word-wbe.txt", _xa_phfa.out_word_wbe)
 
     # (4) Transducer no-sil (TIMIT showed transducers prefer sil0.0): re-align the shared extracts
     # (parakeet-rnnt: batched_backward, matching the headline-A job).
@@ -3358,7 +3409,7 @@ def py():
                 dataset_key=_nt_key,
                 dataset_offset_factors=_nt_off,
             )
-            tk.register_output(f"baseline-{_nt_name}-native-viterbi-{_nt_tag}-wbe.txt", _nt_m.out_wbe)
+            reg(f"baseline-{_nt_name}-native-viterbi-{_nt_tag}-wbe.txt", _nt_m.out_wbe)
 
     # (4d) Whisper-large-v3 cross-attn DTW (whisper-timestamped heads for large-v3):
     # the same-model attention counterpart of the large-v3 grad row, on segA and TIMIT-test.
@@ -3376,7 +3427,7 @@ def py():
             dataset_key=_ca3_key,
             dataset_offset_factors=_ca3_off,
         )
-        tk.register_output(f"baseline-whisper-large-v3-crossattn-{_ca3_tag}-wbe.txt", _ca3_m.out_wbe)
+        reg(f"baseline-whisper-large-v3-crossattn-{_ca3_tag}-wbe.txt", _ca3_m.out_wbe)
 
     # (4g) CrisperWhisper (Whisper finetuned for verbatim transcription + silence-aware
     # timestamps): grad-align on their checkpoint -- does training-free grad-align already
@@ -3417,8 +3468,8 @@ def py():
             dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_key="val", model_config=_ah_cfg
         )
         _ah_sel.add_alias(f"selfattn/{_ah_model}-head-selection")
-        tk.register_output(f"selfattn/{_ah_model}-heads.txt", _ah_sel.out_heads)
-        tk.register_output(f"selfattn/{_ah_model}-heads-report.txt", _ah_sel.out_report)
+        reg(f"selfattn/{_ah_model}-heads.txt", _ah_sel.out_heads)
+        reg(f"selfattn/{_ah_model}-heads-report.txt", _ah_sel.out_report)
         for _ah_dir, _ah_key, _ah_off, _ah_tag in [
             (_xa_dir, "test", _xa_off, _xa_tag),
             (dl_ds_timit.out_hub_cache_dir, "test", _DATASET_OFFSET_FACTORS["timit"], "timit-test"),
@@ -3428,7 +3479,7 @@ def py():
             )
             _ah_name = f"baseline-{_ah_model}-crossattn-auto-{_ah_tag}"
             _ah_ex.add_alias(f"{_ah_name}-extract")
-            tk.register_output(f"{_ah_name}.hdf", _ah_ex.out_hdf)
+            reg(f"{_ah_name}.hdf", _ah_ex.out_hdf)
             for _ah_ep, _ah_sc, _ah_sfx in [(0.5, 1.0, "-en0.5-sil1.0"), (0.0, 0.0, "")]:
                 _ah_al = WordAlignFromPerTokenGradsJob(
                     grad_score_hdf=_ah_ex.out_hdf,
@@ -3441,7 +3492,7 @@ def py():
                     blank_silence_energy_scale=_ah_sc,
                 )
                 _ah_al.add_alias(f"align/{_ah_name}-{_name_for_dict(_xa_ao)}{_ah_sfx}")
-                tk.register_output(f"align/{_ah_name}-{_name_for_dict(_xa_ao)}{_ah_sfx}-wbe.txt", _ah_al.out_wbe)
+                reg(f"align/{_ah_name}-{_name_for_dict(_xa_ao)}{_ah_sfx}-wbe.txt", _ah_al.out_wbe)
 
     # (4f) Speech-LLM SELF-attention DTW (voxtral + canary-qwen): the attention analog
     # of whisper's cross-attn timestamps. No published alignment-head masks exist for
@@ -3491,6 +3542,14 @@ def py():
                 ),
             },
         ),
+        (
+            "phi4mm",
+            {
+                # Phi-4-MM is a decoder-LLM like Voxtral/Canary; its native attention aligner is
+                # decoder self-attn over the audio-token block (eager attn enables output_attentions).
+                "subword": _phi4mm_model_config(dl_phi4mi_dir, attn_implementation="eager"),
+            },
+        ),
     ]:
         for _sa_tokn, _sa_cfg in _sa_cfgs.items():
             # Keep the bare model name for subword (stable aliases); suffix char rows.
@@ -3505,8 +3564,8 @@ def py():
                 time_upsample_when_short=(_sa_tokn == "char"),
             )
             _sa_sel.add_alias(f"selfattn/{_sa_mt}-head-selection")
-            tk.register_output(f"selfattn/{_sa_mt}-heads.txt", _sa_sel.out_heads)
-            tk.register_output(f"selfattn/{_sa_mt}-heads-report.txt", _sa_sel.out_report)
+            reg(f"selfattn/{_sa_mt}-heads.txt", _sa_sel.out_heads)
+            reg(f"selfattn/{_sa_mt}-heads-report.txt", _sa_sel.out_report)
             for _sa_dir, _sa_key, _sa_off, _sa_tag in [
                 (_xa_dir, "test", _xa_off, _xa_tag),
                 (dl_ds_timit.out_hub_cache_dir, "test", _DATASET_OFFSET_FACTORS["timit"], "timit-test"),
@@ -3516,7 +3575,7 @@ def py():
                 )
                 _sa_name = f"baseline-{_sa_mt}-selfattn-{_sa_tag}"
                 _sa_ex.add_alias(f"{_sa_name}-extract")
-                tk.register_output(f"{_sa_name}.hdf", _sa_ex.out_hdf)
+                reg(f"{_sa_name}.hdf", _sa_ex.out_hdf)
                 for _sa_ep, _sa_sc, _sa_sfx in [(0.5, 1.0, "-en0.5-sil1.0"), (0.0, 0.0, "")]:
                     _sa_al = WordAlignFromPerTokenGradsJob(
                         grad_score_hdf=_sa_ex.out_hdf,
@@ -3529,7 +3588,7 @@ def py():
                         blank_silence_energy_scale=_sa_sc,
                     )
                     _sa_al.add_alias(f"align/{_sa_name}-{_name_for_dict(_xa_ao)}{_sa_sfx}")
-                    tk.register_output(f"align/{_sa_name}-{_name_for_dict(_xa_ao)}{_sa_sfx}-wbe.txt", _sa_al.out_wbe)
+                    reg(f"align/{_sa_name}-{_name_for_dict(_xa_ao)}{_sa_sfx}-wbe.txt", _sa_al.out_wbe)
 
     # (5) grad-score x energy/silence ablation on the headline whisper-char extract (shared; free aligns).
     _xa_whc = _xa_extract(whisper_char_cfg, None, "L2", False)
@@ -3603,7 +3662,7 @@ def py():
         )
         _xa_v_alnm = f"align/{_xa_vx_name}-{_name_for_dict(_xa_v_ao)}-en0.5-sil1.0"
         _xa_v_al.add_alias(_xa_v_alnm)
-        tk.register_output(f"{_xa_v_alnm}-wbe.txt", _xa_v_al.out_wbe)
+        reg(f"{_xa_v_alnm}-wbe.txt", _xa_v_al.out_wbe)
     for _xa_v_mgi, _xa_v_attr, _xa_v_ga in [(True, "L2", "L2_e_grad"), (False, "L2", "L2_grad")]:
         _xa_v_name = f"voxtral-charlevlogmel-{_xa_tag}-{_xa_v_ga}-pertoken"
         _xa_v_ex = _xa_extract(voxtral_charlev_logmel_cfg, _xa_v_name, _xa_v_attr, _xa_v_mgi, time=24)
@@ -3628,7 +3687,7 @@ def py():
             confidence_version=2,
         )
         _cf_al.add_alias(f"conf/{_cf_name}-v2")
-        tk.register_output(f"conf/{_cf_name}-v2-conf-corr.txt", _cf_al.out_conf_corr)
+        reg(f"conf/{_cf_name}-v2-conf-corr.txt", _cf_al.out_conf_corr)
 
     # === Speed: batched per-token backward (autograd.grad is_grads_batched=True). Exact same per-token
     # math as the K sequential backwards -- one vmapped traversal of the shared graph, no logic change.
@@ -3674,7 +3733,7 @@ def py():
             _sb_ex.rqmt = {**_sb_ex.rqmt, "time": 4}
             _sb_alias = f"speedcmp/{_sb_name}-bb{int(_sb_bb)}"
             _sb_ex.add_alias(_sb_alias)
-            tk.register_output(f"{_sb_alias}.hdf", _sb_ex.out_hdf)
+            reg(f"{_sb_alias}.hdf", _sb_ex.out_hdf)
 
     # Phi4 eager-attention equality probe: the checkpoint defaults to flash-attn-2
     # (no output_attentions, no vmap); eager would unblock self-attn alignment and
@@ -3691,7 +3750,7 @@ def py():
     _p4e_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     _p4e_ex.rqmt = {**_p4e_ex.rqmt, "time": 4}
     _p4e_ex.add_alias("speedcmp/phi4mm-charlev-spc-eager-bb0")
-    tk.register_output("speedcmp/phi4mm-charlev-spc-eager-bb0.hdf", _p4e_ex.out_hdf)
+    reg("speedcmp/phi4mm-charlev-spc-eager-bb0.hdf", _p4e_ex.out_hdf)
 
     # Seq-level batching (B>1 per forward; wav2vec2 adapter only so far):
     # sb4 = seq_batch_size=4 with sequential backwards, sb4-bb1 = combined with the vmapped backward.
@@ -3710,7 +3769,7 @@ def py():
         _sb4_ex.rqmt = {**_sb4_ex.rqmt, "time": 4}
         _sb4_alias = f"speedcmp/wav2vec2ctc-fproj_out-{_sb4_sfx}"
         _sb4_ex.add_alias(_sb4_alias)
-        tk.register_output(f"{_sb4_alias}.hdf", _sb4_ex.out_hdf)
+        reg(f"{_sb4_alias}.hdf", _sb4_ex.out_hdf)
 
     # === Hypothesis-mode alignment on Buckeye variant A: recog -> swap the hyps in as the dataset
     # transcript -> align with each model's best setting -> identity-gated F1@collar + matched WBE
@@ -3726,8 +3785,8 @@ def py():
             dataset_offset_factors=_xa_off,
         )
         m.add_alias(f"hyp-align/{name}")
-        tk.register_output(f"hyp-align/{name}-metrics.txt", m.out_metrics)
-        tk.register_output(f"hyp-align/{name}-f1-100ms.txt", m.out_f1_100)
+        reg(f"hyp-align/{name}-metrics.txt", m.out_metrics)
+        reg(f"hyp-align/{name}-f1-100ms.txt", m.out_f1_100)
 
     for _hy_name, _hy_recog_cfg, _hy_ex_cfg, _hy_attr, _hy_mgi, _hy_sil, _hy_bb in [
         (
@@ -3768,7 +3827,7 @@ def py():
         )
         _hy_recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         _hy_recog.add_alias(f"hyp-align/{_hy_name}-{_xa_tag}-recog")
-        tk.register_output(f"hyp-align/{_hy_name}-{_xa_tag}-recog.hyps.txt.gz", _hy_recog.out_hyps_txt)
+        reg(f"hyp-align/{_hy_name}-{_xa_tag}-recog.hyps.txt.gz", _hy_recog.out_hyps_txt)
         _hy_ds = BuildDatasetWithHypTranscriptsJob(
             dataset_dir=_xa_dir,
             dataset_key="test",
@@ -3833,11 +3892,21 @@ def py():
     )
     _cw_off.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     _cw_off.add_alias(f"hyp-align/crisperwhisper-official-{_xa_tag}-decode")
-    tk.register_output(f"hyp-align/crisperwhisper-official-{_xa_tag}-hyps.txt.gz", _cw_off.out_hyps_txt)
+    reg(f"hyp-align/crisperwhisper-official-{_xa_tag}-hyps.txt.gz", _cw_off.out_hyps_txt)
     _cw_off_ds = BuildDatasetWithHypTranscriptsJob(
         dataset_dir=_xa_dir, dataset_key="test", hyps_txt=_cw_off.out_hyps_txt
     )
     _hy_metrics(f"crisperwhisper-official-{_xa_tag}", _cw_off.out_word_boundaries_hdf, _cw_off_ds.out_hub_cache_dir)
+
+    # --- Auto-generated LaTeX result tables (in-graph; reference only this recipe's outputs) ---
+    from i6_experiments.users.zeyer.experiments.exp2026_05_23_grad_align_tables import build_tables
+
+    build_tables(_table_results)
+
+    # --- Auto-generated grad-score figures (in-graph; same captured-outputs dict) ---
+    from i6_experiments.users.zeyer.experiments.exp2026_05_23_grad_align_plots import build_plots
+
+    build_plots(_table_results)
 
 
 def _build_timit_phi4mm(
@@ -3865,7 +3934,7 @@ def _build_timit_phi4mm(
                 gen.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
                 name = f"phi4mm-{ds_name}-{key}-{grad_type_alias}{variant_suffix}"
                 gen.add_alias(name)
-                tk.register_output(f"{name}.hdf", gen.out_hdf)
+                reg(f"{name}.hdf", gen.out_hdf)
 
                 # Add `sizes` key to the HDF (CalcAlignmentMetricsJob expects it).
                 hdf_with_sizes = AddSizesToGradScoreHdfJob(grad_score_hdf=gen.out_hdf)
@@ -3882,7 +3951,7 @@ def _build_timit_phi4mm(
                         align_opts=align_opts,
                     )
                     align.add_alias(align_name)
-                    tk.register_output(f"{align_name}-wbe.txt", align.out_wbe)
+                    reg(f"{align_name}-wbe.txt", align.out_wbe)
 
     # --- TODO: prompt sensitivity sweep ------------------------------------
     # See exp2025_05_05_align lines ~172-203.

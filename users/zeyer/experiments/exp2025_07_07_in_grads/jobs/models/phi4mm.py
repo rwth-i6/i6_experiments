@@ -132,15 +132,27 @@ class Phi4MM(BaseModelInterface):
         start_time = time.time()
         model_dir = get_content_dir_from_hub_cache_dir(self.model_dir)
         processor = AutoProcessor.from_pretrained(model_dir, trust_remote_code=True)
+        _from_pretrained_kw = {}
+        if attn_implementation:
+            # The checkpoint config ships _attn_implementation_autoset=True + flash_attention_2, which
+            # makes from_pretrained IGNORE the attn_implementation= kwarg -> the flash-attn-2 path
+            # force-disables output_attentions (self-attn alignment then gets all-None attns). Force the
+            # impl on a freshly-loaded config so the decoder layers instantiate the eager Phi4MMAttention
+            # (PHI4MM_ATTENTION_CLASSES[config._attn_implementation]), which returns attn weights. Also
+            # enables vmap-able backwards. The default (no attn_implementation) path is unchanged.
+            from transformers import AutoConfig
+
+            _cfg = AutoConfig.from_pretrained(model_dir, trust_remote_code=True)
+            _cfg._attn_implementation = attn_implementation
+            _cfg._attn_implementation_autoset = False
+            _from_pretrained_kw["config"] = _cfg
         model = AutoModelForCausalLM.from_pretrained(
             model_dir,
             local_files_only=True,
             torch_dtype="auto",
             trust_remote_code=True,
             device_map=str(device),
-            # The checkpoint config defaults to flash_attention_2; "eager" enables
-            # output_attentions (self-attn alignment) and vmap-able backwards.
-            **({"attn_implementation": attn_implementation} if attn_implementation else {}),
+            **_from_pretrained_kw,
         ).to(device)
 
         from transformers.models.phi4_multimodal.modeling_phi4_multimodal import Phi4MultimodalForCausalLM
@@ -177,6 +189,7 @@ class Phi4MM(BaseModelInterface):
         raw_targets: List[List[str]],
         raw_target_seq_lens: torch.Tensor,
         omitted_prev_context: Optional[torch.Tensor] = None,
+        collect_attentions: Optional[list] = None,
     ) -> ForwardOutput:
         # char_level pre-processing: explode each word into per-char "words"
         # (optionally with separators and BOW/EOW wrappers), call the core
@@ -219,6 +232,7 @@ class Phi4MM(BaseModelInterface):
             raw_targets=core_raw_targets,
             raw_target_seq_lens=core_raw_target_seq_lens,
             omitted_prev_context=omitted_prev_context,
+            collect_attentions=collect_attentions,
         )
 
         if word_char_ranges is not None:
@@ -308,6 +322,7 @@ class Phi4MM(BaseModelInterface):
         raw_targets: List[List[str]],
         raw_target_seq_lens: torch.Tensor,
         omitted_prev_context: Optional[torch.Tensor] = None,
+        collect_attentions: Optional[list] = None,
     ) -> ForwardOutput:
         # Original forward() body. Unchanged so default behavior (no variant
         # flags set) is byte-identical to the pre-refactor Phi4MM.
@@ -374,11 +389,41 @@ class Phi4MM(BaseModelInterface):
         # We then will compute only the needed logits below,
         # and for that, we need the last layer output, thus output_hidden_states=True.
         try:
-            res = self.model(**inputs, output_hidden_states=True, num_logits_to_keep=1)
+            res = self.model(
+                **inputs,
+                output_hidden_states=True,
+                num_logits_to_keep=1,
+                output_attentions=collect_attentions is not None,
+            )
         finally:
             if self.grad_wrt == "encoder_out":
                 _hook_handle.remove()
         last_out = res.hidden_states[-1]  # [B,T,D]
+        if collect_attentions is not None:
+            # Self-attn alignment: per layer [H, S_targets, n_audio]. Rows = the query
+            # positions that PREDICT each transcript token (dst_text_start-1 + u); cols =
+            # the contiguous audio-token block the processor splices in (one token per
+            # ~80 ms post-encoder speech frame). Mirrors the Voxtral wrapper. Needs an
+            # eager attn_implementation (the checkpoint default flash-attn-2 returns no attns).
+            # The checkpoint's remote code (Phi4MMForCausalLM) marks audio positions with
+            # _AUDIO_SPECIAL_TOKEN_ID (200011, "<|endoftext11|>"); read it from that module.
+            import importlib
+
+            audio_token_id = int(importlib.import_module(type(self.model).__module__)._AUDIO_SPECIAL_TOKEN_ID)
+            audio_pos = (input_ids[0] == audio_token_id).nonzero(as_tuple=True)[0]
+            a0, a1 = int(audio_pos[0]), int(audio_pos[-1]) + 1
+            assert a1 - a0 == int(audio_pos.numel()), "audio token block not contiguous"
+            n_tgt = int(input_ids.shape[1] - 1 - dst_text_start)
+            rows = torch.arange(dst_text_start - 1, dst_text_start - 1 + n_tgt, device=input_ids.device)
+            # Batch-1 phi4 sizes the audio-token block to the real audio (no Whisper-style
+            # 30 s pad), so every audio token is real -> n_audio_real == n_audio.
+            collect_attentions.append(
+                dict(
+                    attns=[a[0][:, rows][:, :, a0:a1].float().cpu() for a in res.attentions],
+                    n_audio=a1 - a0,
+                    n_audio_real=a1 - a0,
+                )
+            )
         del res
         assert last_out.shape[:2] == input_ids.shape
         report_dev_memory_stats(dev)
