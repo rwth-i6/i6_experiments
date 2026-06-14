@@ -1032,6 +1032,22 @@ def _train_tts_encoder(
         )
         del model_config["feature_extraction"]  # -> default log_mel_filterbank_from_raw (100Hz)
 
+    # Recog-only model config: the pseudo-speech-encoder flags live in config_updates (training only)
+    # and do NOT travel into recog via ModelDefWithCfg (only model_config does), so without this the
+    # recog rebuilds the default TTS model (model.tts) and fails to load the pseudo-enc checkpoint
+    # (missing tts.* keys). Pass the construction-relevant flags through search_config (per-epoch recog)
+    # + extra_config (headline recog) -- recog-only, so the training hash is unchanged.
+    recog_model_cfg = (
+        {
+            "pseudo_speech_enc": True,
+            "pseudo_enc_duration_range": pseudo_enc_duration_range,
+            "pseudo_enc_blank_duration_range": pseudo_enc_blank_duration_range,
+            **({"pseudo_enc_units": pseudo_enc_units} if pseudo_enc_units != "phonemes" else {}),
+            **({"pseudo_enc_start_layer": pseudo_enc_start_layer} if pseudo_enc_start_layer is not None else {}),
+        }
+        if pseudo_speech_enc
+        else None
+    )
     exp = aed_train_exp(
         name,
         configs.config_96gb_bf16_accgrad1,
@@ -1039,6 +1055,7 @@ def _train_tts_encoder(
         task=task,
         model_def=aed_glowtts_model_def,
         model_config=model_config,
+        search_config=recog_model_cfg,
         config_updates={
             # DDP per-rank random_seed_offset iterates the data N=4x per epoch, so divide nep by N
             **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(
@@ -1167,6 +1184,7 @@ def _train_tts_encoder(
             aed_ctc_model=exp.get_last_fixed_epoch(),
             aux_ctc_layer=16,
             num_shards=8,
+            extra_config=recog_model_cfg,
         )
     else:
         from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc import (
