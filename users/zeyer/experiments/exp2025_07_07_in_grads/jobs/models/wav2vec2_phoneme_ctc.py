@@ -112,6 +112,7 @@ class Wav2Vec2PhonemeCtc(BaseModelInterface):
         device: torch.device,
         model_dir: str,
         include_next_blank: Union[bool, str] = True,
+        per_token_score: Optional[str] = None,
         grad_wrt: str = "feat_extract_out",
         param_noise_std: float = 0.0,
         param_noise_seed: int = 0,
@@ -140,6 +141,7 @@ class Wav2Vec2PhonemeCtc(BaseModelInterface):
         self.model_dir = model_dir
         assert include_next_blank in (False, True, "both", "both_prev"), include_next_blank
         self.include_next_blank = include_next_blank
+        self.per_token_score = per_token_score
         assert grad_wrt in ("feat_extract_out", "raw_waveform"), grad_wrt
         self.grad_wrt = grad_wrt
         self.version = version
@@ -182,6 +184,10 @@ class Wav2Vec2PhonemeCtc(BaseModelInterface):
     # ---- CTC partial scores (verbatim from Wav2Vec2Ctc) -----------------
 
     def _ctc_partial_scores(self, lp: torch.Tensor, target_ids: List[int]) -> torch.Tensor:
+        if self.per_token_score is not None:
+            from .ctc_partial import ctc_partial_scores
+
+            return ctc_partial_scores(lp, target_ids, self.blank_idx, mode=self.per_token_score)
         device = lp.device
         dtype = lp.dtype
         T = lp.shape[0]

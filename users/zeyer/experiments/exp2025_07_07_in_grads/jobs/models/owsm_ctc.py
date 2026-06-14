@@ -89,6 +89,7 @@ class OwsmCtc(BaseModelInterface):
         language: str = "eng",
         version: int = 1,
         layer: Optional[int] = None,
+        per_token_score: str = "raw_partial",
     ):
         """:param layer: emit from this inter-CTC self-conditioning block (one of interctc_layer_idx,
         e.g. 6/12/15/21) instead of the final encoder output. None = final (the default; keeps the
@@ -100,6 +101,7 @@ class OwsmCtc(BaseModelInterface):
         self.language = language
         self.version = version
         self.layer = layer
+        self.per_token_score = per_token_score
 
         print("Import / load OWSM-CTC (ESPnet S2T-CTC)...")
         start_time = time.time()
@@ -154,37 +156,10 @@ class OwsmCtc(BaseModelInterface):
         print(f"  ({time.time() - start_time:.1f}s) vocab={self.vocab_size} blank={self.blank_idx}")
 
     def _ctc_partial_scores(self, lp: torch.Tensor, target_ids: List[int]) -> torch.Tensor:
-        """CTC forward partial scores Delta_i, differentiable w.r.t. ``lp`` ([T,V]). See Wav2Vec2Ctc."""
-        device, dtype = lp.device, lp.dtype
-        T = lp.shape[0]
-        blank = self.blank_idx
-        neg = -1.0e9
-        ext: List[int] = [blank]
-        for c in target_ids:
-            ext.append(int(c))
-            ext.append(blank)
-        sx = len(ext)
-        ext_t = torch.tensor(ext, device=device, dtype=torch.long)
-        emit = lp[:, ext_t]  # [T, sx]
-        same = torch.zeros(sx, dtype=torch.bool, device=device)
-        same[2:] = ext_t[2:] == ext_t[:-2]
-        log_state = torch.full((sx,), neg, device=device, dtype=dtype)
-        log_state[0] = emit[0, 0]
-        if sx > 1:
-            log_state[1] = emit[0, 1]
-        acc = log_state.clone()
-        for t in range(1, T):
-            stay = log_state
-            prev1 = torch.cat([torch.full((1,), neg, device=device, dtype=dtype), log_state[:-1]])
-            prev2 = torch.cat([torch.full((2,), neg, device=device, dtype=dtype), log_state[:-2]])
-            prev2 = torch.where(same, prev2, torch.full_like(prev2, neg))
-            log_state = emit[t] + torch.logsumexp(torch.stack([stay, prev1, prev2], 0), 0)
-            acc = torch.logaddexp(acc, log_state)
-        # telescoping difference: state after token i (odd index 2i+1) minus the blank before it.
-        partial = []
-        for i in range(len(target_ids)):
-            partial.append(acc[2 * i + 1])
-        return torch.stack(partial) if partial else lp.new_zeros(0)
+        """Per-token CTC partial scores via the shared routine (mode = self.per_token_score)."""
+        from .ctc_partial import ctc_partial_scores
+
+        return ctc_partial_scores(lp, target_ids, self.blank_idx, mode=self.per_token_score)
 
     def _encode(self, wav: torch.Tensor, n_samples: int):
         """log-mel leaf -> normalize -> prompt-conditioned self-cond-CTC encoder -> CTC emission logits.

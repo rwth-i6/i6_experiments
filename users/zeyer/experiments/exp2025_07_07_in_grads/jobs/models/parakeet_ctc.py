@@ -35,14 +35,20 @@ class ParakeetCtc(BaseModelInterface):
         model_dir: str,
         overlay_path: str,
         version: int = 1,
+        per_token_score: str = "raw_partial",
     ):
-        """:param overlay_path: NeMo env overlay to activate on sys.path (passed from the recipe)."""
+        """:param overlay_path: NeMo env overlay to activate on sys.path (passed from the recipe).
+        :param per_token_score: CTC per-token score mode (see jobs.models.ctc_partial). Default
+            ``raw_partial`` keeps the original (non-telescoping) behaviour for hash-stability;
+            ``prefix_diff`` is the AED-consistent prefix-score difference that grad-aligns far better.
+        """
         super().__init__()
         assert version >= 1
         self.device = device
         self.model_dir = model_dir
         self.overlay_path = overlay_path
         self.version = version
+        self.per_token_score = per_token_score
 
         if overlay_path not in sys.path:
             sys.path.insert(0, overlay_path)
@@ -71,34 +77,10 @@ class ParakeetCtc(BaseModelInterface):
         )
 
     def _ctc_partial_scores(self, lp: torch.Tensor, target_ids: List[int]) -> torch.Tensor:
-        """CTC forward partial scores Delta_i, differentiable w.r.t. ``lp`` ([T,V]). See Wav2Vec2Ctc."""
-        device, dtype = lp.device, lp.dtype
-        T = lp.shape[0]
-        blank = self.blank_idx
-        neg = -1.0e9
-        ext: List[int] = [blank]
-        for c in target_ids:
-            ext.append(int(c))
-            ext.append(blank)
-        sx = len(ext)
-        ext_t = torch.tensor(ext, device=device, dtype=torch.long)
-        emit = lp[:, ext_t]  # [T, sx]
-        same = torch.zeros(sx, dtype=torch.bool, device=device)
-        same[2:] = ext_t[2:] == ext_t[:-2]
-        log_state = torch.full((sx,), neg, device=device, dtype=dtype)
-        log_state[0] = emit[0, 0]
-        if sx > 1:
-            log_state[1] = emit[0, 1]
-        acc = log_state.clone()
-        for t in range(1, T):
-            stay = log_state
-            prev1 = torch.cat([torch.full((1,), neg, device=device, dtype=dtype), log_state[:-1]])
-            prev2 = torch.cat([torch.full((2,), neg, device=device, dtype=dtype), log_state[:-2]])
-            prev2 = torch.where(same, prev2, torch.full_like(prev2, neg))
-            log_state = emit[t] + torch.logsumexp(torch.stack([stay, prev1, prev2], 0), 0)
-            acc = torch.logaddexp(acc, log_state)
-        partial = [acc[2 * i + 1] for i in range(len(target_ids))]
-        return torch.stack(partial) if partial else lp.new_zeros(0)
+        """Per-token CTC partial scores via the shared routine (mode = self.per_token_score)."""
+        from .ctc_partial import ctc_partial_scores
+
+        return ctc_partial_scores(lp, target_ids, self.blank_idx, mode=self.per_token_score)
 
     def _tokenize_words(self, words: List[str]):
         """Encode to subwords and group into words via the '▁' (word-start) marker.

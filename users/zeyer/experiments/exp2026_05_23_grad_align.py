@@ -829,6 +829,41 @@ def py():
     parakeet_ctc_cfg = rf.build_dict(
         ParakeetCtc, model_dir=dl_parakeet_ctc.out_hub_cache_dir, overlay_path=_NEMO_OVERLAY
     )
+    # prefix_diff per-token score = the AED-consistent CTC prefix-score difference (vs the raw acc[2i+1]
+    # the parakeet/owsm wrappers used). Fixes grad-align for these conformer/branchformer CTCs
+    # (parakeet TIMIT 237 -> ~149 ms on a 100-seq probe). See jobs.models.ctc_partial.
+    parakeet_ctc_prefdiff_cfg = rf.build_dict(
+        ParakeetCtc,
+        model_dir=dl_parakeet_ctc.out_hub_cache_dir,
+        overlay_path=_NEMO_OVERLAY,
+        per_token_score="prefix_diff",
+    )
+    owsm_ctc_prefdiff_cfg = rf.build_dict(
+        OwsmCtc, model_dir=dl_owsm_ctc.out_hub_cache_dir, version=2, per_token_score="prefix_diff"
+    )
+    # inb_true = the blank-anchored (robust, universal) prefix-score diff. On the subword CTCs we expect
+    # prefix_diff to win, but quantify the gap full-corpus to choose uniform-inb_true vs per-model best.
+    parakeet_ctc_inbtrue_cfg = rf.build_dict(
+        ParakeetCtc,
+        model_dir=dl_parakeet_ctc.out_hub_cache_dir,
+        overlay_path=_NEMO_OVERLAY,
+        per_token_score="inb_true",
+    )
+    owsm_ctc_inbtrue_cfg = rf.build_dict(
+        OwsmCtc, model_dir=dl_owsm_ctc.out_hub_cache_dir, version=2, per_token_score="inb_true"
+    )
+    # prefix_fwd = the REAL CTC prefix score (Graves/ESPnet, as in DLM-sum label-sync) = exact
+    # log p(y_i|y_<i,x). Blank-aware, robust to repeats. Best on the parakeet probe (98ms). The
+    # candidate for a single uniform per-token score across all CTCs.
+    parakeet_ctc_prefixfwd_cfg = rf.build_dict(
+        ParakeetCtc,
+        model_dir=dl_parakeet_ctc.out_hub_cache_dir,
+        overlay_path=_NEMO_OVERLAY,
+        per_token_score="prefix_fwd",
+    )
+    owsm_ctc_prefixfwd_cfg = rf.build_dict(
+        OwsmCtc, model_dir=dl_owsm_ctc.out_hub_cache_dir, version=2, per_token_score="prefix_fwd"
+    )
     pk_extract = ExtractInGradsPerTokenJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir,
         dataset_key="val",
@@ -2929,6 +2964,27 @@ def py():
             False,
             [(0.5, 1.0)],
         ),
+        # prefix_diff on the CTCs that already grad-align well (wav2vec2 uses inb_true at 59ms; phoneme
+        # likewise): does prefix_diff also beat inb_true, or is inb_true model-specifically better here?
+        (
+            rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out", per_token_score="prefix_diff"),
+            "wav2vec2ctc-fproj_out-prefdiff-timit-test-L2_grad-pertoken",
+            "L2",
+            False,
+            [(0.5, 1.0)],
+        ),
+        (
+            rf.build_dict(
+                Wav2Vec2PhonemeCtc,
+                model_dir=dl_w2v_phoneme.out_hub_cache_dir,
+                g2p_word_targets=True,
+                per_token_score="prefix_diff",
+            ),
+            "phoneme-vitouphy-prefdiff-timit-test-L2_grad-pertoken-g2pword",
+            "L2",
+            False,
+            [(0.5, 1.0)],
+        ),
         (
             voxtral_charlev_logmel_cfg,
             "voxtral-charlevlogmel-timit-test-L1_grad-pertoken",
@@ -2962,6 +3018,46 @@ def py():
         (owsm_ctc_cfg, "owsm-ctc-v4-1b-timit-test-L2_grad-pertoken", "L2", False, [(0.5, 1.0)]),
         # Nvidia CTC (parakeet-ctc-1.1b): the general graphemic CTC representative (plain FastConformer).
         (parakeet_ctc_cfg, "parakeet-ctc-1.1b-timit-test-L2_grad-pertoken", "L2", False, [(0.5, 1.0)]),
+        # prefix_diff (AED-consistent) score -- the fix for the conformer/branchformer CTCs.
+        (
+            parakeet_ctc_prefdiff_cfg,
+            "parakeet-ctc-1.1b-prefdiff-timit-test-L2_grad-pertoken",
+            "L2",
+            False,
+            [(0.5, 1.0)],
+        ),
+        (owsm_ctc_prefdiff_cfg, "owsm-ctc-v4-1b-prefdiff-timit-test-L2_grad-pertoken", "L2", False, [(0.5, 1.0)]),
+        # inb_true (robust universal) on the same subword CTCs, to compare vs prefix_diff.
+        (parakeet_ctc_inbtrue_cfg, "parakeet-ctc-1.1b-inbtrue-timit-test-L2_grad-pertoken", "L2", False, [(0.5, 1.0)]),
+        (owsm_ctc_inbtrue_cfg, "owsm-ctc-v4-1b-inbtrue-timit-test-L2_grad-pertoken", "L2", False, [(0.5, 1.0)]),
+        # prefix_fwd (the real CTC prefix score) on all four CTCs -- the uniform-winner candidate.
+        (
+            parakeet_ctc_prefixfwd_cfg,
+            "parakeet-ctc-1.1b-prefixfwd-timit-test-L2_grad-pertoken",
+            "L2",
+            False,
+            [(0.5, 1.0)],
+        ),
+        (owsm_ctc_prefixfwd_cfg, "owsm-ctc-v4-1b-prefixfwd-timit-test-L2_grad-pertoken", "L2", False, [(0.5, 1.0)]),
+        (
+            rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out", per_token_score="prefix_fwd"),
+            "wav2vec2ctc-fproj_out-prefixfwd-timit-test-L2_grad-pertoken",
+            "L2",
+            False,
+            [(0.5, 1.0)],
+        ),
+        (
+            rf.build_dict(
+                Wav2Vec2PhonemeCtc,
+                model_dir=dl_w2v_phoneme.out_hub_cache_dir,
+                g2p_word_targets=True,
+                per_token_score="prefix_fwd",
+            ),
+            "phoneme-vitouphy-prefixfwd-timit-test-L2_grad-pertoken-g2pword",
+            "L2",
+            False,
+            [(0.5, 1.0)],
+        ),
         # OWSM-CTC per inter-CTC layer (side table): grad-align WBE from blocks 6/12/15/21 (27=above).
         *[
             (_ocfg, f"owsm-ctc-v4-1b-lyr{_ol}-timit-test-L2_grad-pertoken", "L2", False, [(0.5, 1.0)])
@@ -3780,6 +3876,50 @@ def py():
         (owsm_ctc_cfg, f"owsm-ctc-v4-1b-{_xa_tag}-L2_grad-pertoken", "L2", False),
         # Nvidia CTC (parakeet-ctc-1.1b): the general graphemic CTC representative (plain FastConformer).
         (parakeet_ctc_cfg, f"parakeet-ctc-1.1b-{_xa_tag}-L2_grad-pertoken", "L2", False),
+        # prefix_diff (AED-consistent) score -- the fix for the conformer/branchformer CTCs.
+        (parakeet_ctc_prefdiff_cfg, f"parakeet-ctc-1.1b-prefdiff-{_xa_tag}-L2_grad-pertoken", "L2", False),
+        (owsm_ctc_prefdiff_cfg, f"owsm-ctc-v4-1b-prefdiff-{_xa_tag}-L2_grad-pertoken", "L2", False),
+        # inb_true (robust universal) on the same subword CTCs, to compare vs prefix_diff.
+        (parakeet_ctc_inbtrue_cfg, f"parakeet-ctc-1.1b-inbtrue-{_xa_tag}-L2_grad-pertoken", "L2", False),
+        (owsm_ctc_inbtrue_cfg, f"owsm-ctc-v4-1b-inbtrue-{_xa_tag}-L2_grad-pertoken", "L2", False),
+        # prefix_fwd (the real CTC prefix score) on all four CTCs -- the uniform-winner candidate.
+        (parakeet_ctc_prefixfwd_cfg, f"parakeet-ctc-1.1b-prefixfwd-{_xa_tag}-L2_grad-pertoken", "L2", False),
+        (owsm_ctc_prefixfwd_cfg, f"owsm-ctc-v4-1b-prefixfwd-{_xa_tag}-L2_grad-pertoken", "L2", False),
+        (
+            rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out", per_token_score="prefix_fwd"),
+            f"wav2vec2ctc-fproj_out-prefixfwd-{_xa_tag}-L2_grad-pertoken",
+            "L2",
+            False,
+        ),
+        (
+            rf.build_dict(
+                Wav2Vec2PhonemeCtc,
+                model_dir=dl_w2v_phoneme.out_hub_cache_dir,
+                g2p_word_targets=True,
+                per_token_score="prefix_fwd",
+            ),
+            f"phoneme-vitouphy-prefixfwd-{_xa_tag}-L2_grad-pertoken-g2pword",
+            "L2",
+            False,
+        ),
+        # prefix_diff on the already-good CTCs (wav2vec2 / phoneme), to compare vs their inb_true.
+        (
+            rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out", per_token_score="prefix_diff"),
+            f"wav2vec2ctc-fproj_out-prefdiff-{_xa_tag}-L2_grad-pertoken",
+            "L2",
+            False,
+        ),
+        (
+            rf.build_dict(
+                Wav2Vec2PhonemeCtc,
+                model_dir=dl_w2v_phoneme.out_hub_cache_dir,
+                g2p_word_targets=True,
+                per_token_score="prefix_diff",
+            ),
+            f"phoneme-vitouphy-prefdiff-{_xa_tag}-L2_grad-pertoken-g2pword",
+            "L2",
+            False,
+        ),
         # OWSM-CTC per inter-CTC layer (side table): grad-align WBE from blocks 6/12/15/21 (27=above).
         *[
             (_ocfg, f"owsm-ctc-v4-1b-lyr{_ol}-{_xa_tag}-L2_grad-pertoken", "L2", False)

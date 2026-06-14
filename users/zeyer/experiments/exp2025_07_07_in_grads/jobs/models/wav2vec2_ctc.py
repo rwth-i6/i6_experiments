@@ -60,6 +60,7 @@ class Wav2Vec2Ctc(BaseModelInterface):
         *,
         device: torch.device,
         include_next_blank: Union[bool, str] = True,
+        per_token_score: Optional[str] = None,
         stop_grad_blank: bool = False,
         grad_wrt: str = "feat_extract_out",
         raw_pool: int = 320,
@@ -124,6 +125,8 @@ class Wav2Vec2Ctc(BaseModelInterface):
         self.device = device
         assert include_next_blank in (False, True, "both", "both_prev"), include_next_blank
         self.include_next_blank = include_next_blank
+        # per_token_score (shared ctc_partial modes) overrides include_next_blank when set; None = legacy.
+        self.per_token_score = per_token_score
         self.stop_grad_blank = bool(stop_grad_blank)
         _valid_grad_wrt = {"feat_extract_out", "raw_waveform", "feat_proj_layernorm", "feat_proj_out"} | {
             f"conv{i}" for i in range(7)
@@ -249,6 +252,10 @@ class Wav2Vec2Ctc(BaseModelInterface):
         telescoping difference (state after token i minus the blank before it),
         matching ``nn_rf.fsa.ctc_partial_scores``.
         """
+        if self.per_token_score is not None:
+            from .ctc_partial import ctc_partial_scores
+
+            return ctc_partial_scores(lp, target_ids, self.blank_idx, mode=self.per_token_score)
         device = lp.device
         dtype = lp.dtype
         T = lp.shape[0]
