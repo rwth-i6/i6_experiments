@@ -24,6 +24,7 @@ def build_tables(results):
     _hyp_table()
     _owsm_layer_table()  # OWSM-CTC grad-align per inter-CTC emit block (side table)
     _phi4_prompt_table()  # Phi-4-MM grad-align vs the spliced instruction (side table)
+    _cost_table()  # forward vs batched grad-backward per model (T5 cost)
 
 
 def _wbe(base):
@@ -99,8 +100,8 @@ def _compare_table(with_hyp=False):
             ],
         ),
         (
-            # OWSM-CTC: general graphemic CTC whose self-attention encoder delocalizes the input-grad.
-            # Shown with its BEST emit block (6, earliest inter-CTC); per-block detail in tab:owsm-per-layer.
+            # OWSM-CTC: general graphemic CTC, our least-favourable model for grad-align (still runs,
+            # just imprecise). Shown with its BEST emit block (6); per-block detail in tab:owsm-per-layer.
             "OWSM-CTC",
             [
                 (
@@ -431,10 +432,9 @@ def _owsm_layer_table():
     caption = (
         "OWSM-CTC gradient alignment emitted from each inter-CTC self-conditioning block "
         "(6/12/15/21) vs the final block (27), on TIMIT-test and Buckeye-segA. The CTC emission "
-        "forced-aligns well at every block ($\\sim$142\\,ms), but the gradient localizes at none "
-        "of them -- all worse than the 153\\,ms uniform-split trivial baseline, the earliest block 6 "
-        "being marginally best. The encoder's global self-attention delocalizes the input-gradient "
-        "already within the first few blocks."
+        "forced-aligns well at every block ($\\sim$142\\,ms), but grad-align is weak at all of them "
+        "-- worse than the 153\\,ms uniform-split trivial baseline, the earliest block 6 the least weak. "
+        "The method still runs; this is simply our least-favourable model (see discussion)."
     )
     job = WriteLatexTableJob(
         columns=cols,
@@ -490,3 +490,58 @@ def _phi4_prompt_table():
         col_align="|l|r|r|",
     )
     tk.register_output("tables/phi4-prompt.tex", job.out_tex)
+
+
+# ----------------------------------------------------------------------------------------
+# T5: cost -- forward vs batched grad-backward, per model (same GPU).
+# ----------------------------------------------------------------------------------------
+def _cost_table():
+    m = _RESULTS.get("cost-benchmark-metrics.txt")
+
+    def cell(name, metric):
+        return {"var": m, "key": f"{name}|{metric}", "fmt": "{:.0f}", "missing": "(*)"}
+
+    cols = [
+        {"key": "fwd", "header": "forward [ms/s]"},
+        {"key": "bwd", "header": "+grad backward [ms/s]"},
+        {"key": "tot", "header": "grad total [ms/s]"},
+    ]
+    models = [
+        "Wav2Vec2-CTC",
+        "Nvidia CTC",
+        "OWSM-CTC",
+        "Whisper-base",
+        "Parakeet RNN-T",
+        "Parakeet TDT",
+        "Voxtral",
+        "Phi-4-MM",
+        "Canary-Qwen",
+    ]
+    rows = [
+        {
+            "label": name,
+            "cells": {
+                "fwd": cell(name, "fwd_ms_per_s"),
+                "bwd": cell(name, "bwd_ms_per_s"),
+                "tot": cell(name, "total_ms_per_s"),
+            },
+        }
+        for name in models
+    ]
+    caption = (
+        "Cost of gradient alignment, per model, on a single GPU (TIMIT-test, 40 seqs): "
+        "wall-clock for the forward pass vs the batched per-token grad backward, in ms per second "
+        "of audio. The native methods (forced-align / attention-DTW) consume the same forward and "
+        "skip the backward, so the forward column is their cost; gradient alignment adds the backward "
+        "(fast batched variant). The align/DP step (shared, ~identical across methods) is excluded. "
+        "(*) = batched backward unavailable for this model (vmap-incompatible attention kernel)."
+    )
+    job = WriteLatexTableJob(
+        columns=cols,
+        rows=rows,
+        caption=caption,
+        label="tab:cost",
+        label_header="Model",
+        col_align="|l|r|r|r|",
+    )
+    tk.register_output("tables/cost.tex", job.out_tex)
