@@ -819,6 +819,20 @@ def py():
         _rpx_al.add_alias(f"align/{rnnt_px_name}-{_rpx_sfx}")
         reg(f"align/{rnnt_px_name}-{_rpx_sfx}-wbe.txt", _rpx_al.out_wbe)
 
+    # Native RNN-T Viterbi forced-align for the streaming Emformer: the same-model forced-vs-grad
+    # counterpart, on TIMIT-val (where the Emformer grad rows live). Uses the collect_lattice hook.
+    _em_nt = NativeTransducerAlignJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_key="val", model_config=rnnt_cfg
+    )
+    _em_nt.add_alias("baseline-emformer-rnnt-native-viterbi-timit-val")
+    _em_nt_m = CalcAlignmentMetricsFromWordBoundariesJob(
+        word_boundaries_hdf=_em_nt.out_word_boundaries_hdf,
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+    )
+    reg("baseline-emformer-rnnt-native-viterbi-timit-val-wbe.txt", _em_nt_m.out_wbe)
+
     # Parakeet RNN-T 1.1B (NeMo FastConformer-Transducer): a STRONG leaderboard-grade
     # transducer, vs the tiny Emformer base above (139 ms).
     # Same proper RNN-T prefix-score; log-mel grad target (~100 Hz). + energy/silence.
@@ -892,20 +906,27 @@ def py():
         _pk_al.add_alias(f"align/{pk_name}-{_pk_sfx}")
         reg(f"align/{pk_name}-{_pk_sfx}-wbe.txt", _pk_al.out_wbe)
 
-    # Parakeet TDT 0.6B v2 (NeMo Token-and-Duration Transducer): the top transducer
-    # on the Open ASR Leaderboard. Same adapter; the joint appends duration logits,
-    # so we score the TOKEN emission (per_token_score='emission'); a duration-aware
-    # TDT-forward prefix-score is a follow-up. + energy/silence.
+    # Parakeet TDT 0.6B v2 (NeMo Token-and-Duration Transducer): the top transducer on the Open ASR
+    # Leaderboard. tdt_cfg (emission) is the hash-stable cfg for the score-agnostic uses (native-viterbi
+    # forced-align, recog); the grad extracts + cost use tdt_grad_cfg with the proper duration-aware
+    # TDT-forward prefix score (per_token_score='prefix' auto-dispatches to the TDT lattice; the TDT
+    # analog of the CTC prefix_fwd / RNN-T prefix, verified == reference loop == brute-force).
     tdt_cfg = rf.build_dict(
         ParakeetRnnt,
         model_dir=dl_parakeet_tdt.out_hub_cache_dir,
         per_token_score="emission",
         overlay_path=_NEMO_OVERLAY,
     )
+    tdt_grad_cfg = rf.build_dict(
+        ParakeetRnnt,
+        model_dir=dl_parakeet_tdt.out_hub_cache_dir,
+        per_token_score="prefix",
+        overlay_path=_NEMO_OVERLAY,
+    )
     tdt_extract = ExtractInGradsPerTokenJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir,
         dataset_key="val",
-        model_config=tdt_cfg,
+        model_config=tdt_grad_cfg,
         mult_grad_by_inputs=False,
         attr_reduction="L2",
     )
@@ -3008,7 +3029,7 @@ def py():
             [(0.5, 1.0), (0.5, 0.0)],
         ),
         (
-            tdt_cfg,
+            tdt_grad_cfg,
             "parakeet-tdt-0.6b-v2-logmel-timit-test-L2_grad-pertoken",
             "L2",
             False,
@@ -3181,7 +3202,7 @@ def py():
             Whisper, model_dir=dl_whisper.out_hub_cache_dir, char_level=True, char_level_sep=" "
         ),
         "Parakeet RNN-T": pk_cfg,
-        "Parakeet TDT": tdt_cfg,
+        "Parakeet TDT": tdt_grad_cfg,
         "Voxtral": voxtral_charlev_logmel_cfg,
         "Phi-4-MM": _phi4mm_model_config(
             dl_phi4mi_dir, char_level=True, char_level_sep=" ", attn_implementation="eager"
@@ -3320,7 +3341,7 @@ def py():
                 (voxtral_charlev_logmel_cfg, f"voxtral-charlevlogmel-{_bk_tag}-L1_grad-pertoken", "L1", False),
                 (pk_cfg, f"parakeet-rnnt-1.1b-logmel-{_bk_tag}-L2_grad-pertoken", "L2", False),
                 # Parakeet-TDT (2nd transducer) to complete the transducer pair on Buckeye, matching TIMIT.
-                (tdt_cfg, f"parakeet-tdt-0.6b-v2-logmel-{_bk_tag}-L2_grad-pertoken", "L2", False),
+                (tdt_grad_cfg, f"parakeet-tdt-0.6b-v2-logmel-{_bk_tag}-L2_grad-pertoken", "L2", False),
                 # Remaining speech-LLMs on Buckeye (Voxtral already above): Phi4-MM (char L2_e_grad) and
                 # Canary-Qwen (char L1, st1.5) -- complete the cross-model Buckeye column.
                 (pt_csp_cfg, f"phi4mm-{_bk_tag}-L2_e_grad-pertoken-charlev-spc", "L2", True),
@@ -3465,7 +3486,7 @@ def py():
             for _hA_cfg, _hA_name, _hA_attr, _hA_mgi, _hA_bb in [
                 (voxtral_charlev_logmel_cfg, f"voxtral-charlevlogmel-{_sv_tag}-L1_grad-pertoken", "L1", False, False),
                 (pk_cfg, f"parakeet-rnnt-1.1b-logmel-{_sv_tag}-L2_grad-pertoken", "L2", False, True),
-                (tdt_cfg, f"parakeet-tdt-0.6b-v2-logmel-{_sv_tag}-L2_grad-pertoken", "L2", False, False),
+                (tdt_grad_cfg, f"parakeet-tdt-0.6b-v2-logmel-{_sv_tag}-L2_grad-pertoken", "L2", False, False),
                 (pt_csp_cfg, f"phi4mm-{_sv_tag}-L2_e_grad-pertoken-charlev-spc", "L2", True, False),
                 (
                     canary_charlev_logmel_st15_cfg,
@@ -3595,7 +3616,7 @@ def py():
     # (parakeet-rnnt: batched_backward, matching the headline-A job).
     for _xa_t_cfg, _xa_t_name, _xa_t_bb in [
         (pk_cfg, f"parakeet-rnnt-1.1b-logmel-{_xa_tag}-L2_grad-pertoken", True),
-        (tdt_cfg, f"parakeet-tdt-0.6b-v2-logmel-{_xa_tag}-L2_grad-pertoken", False),
+        (tdt_grad_cfg, f"parakeet-tdt-0.6b-v2-logmel-{_xa_tag}-L2_grad-pertoken", False),
     ]:
         _xa_align(_xa_extract(_xa_t_cfg, None, "L2", False, bb=_xa_t_bb), _xa_t_name, "en0.5-sil0.0", sil=0.0)
 
@@ -4139,7 +4160,7 @@ def py():
         ("canary-qwen-charlev-spc-logmel-st15", canary_cfg, canary_charlev_logmel_st15_cfg, "L1", False, 1.0, False),
         # Transducers: best align is sil0.0 (TIMIT + segA); parakeet-rnnt needs the batched backward.
         ("parakeet-rnnt-1.1b-logmel", pk_cfg, pk_cfg, "L2", False, 0.0, True),
-        ("parakeet-tdt-0.6b-v2-logmel", tdt_cfg, tdt_cfg, "L2", False, 0.0, False),
+        ("parakeet-tdt-0.6b-v2-logmel", tdt_cfg, tdt_grad_cfg, "L2", False, 0.0, False),
     ]:
         _hy_recog = RecogFromModelJob(
             dataset_dir=_xa_dir,

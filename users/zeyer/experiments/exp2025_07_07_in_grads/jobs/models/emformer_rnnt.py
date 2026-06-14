@@ -137,6 +137,7 @@ class EmformerRnnt(BaseModelInterface):
         raw_targets: List[List[str]],
         raw_target_seq_lens: torch.Tensor,
         omitted_prev_context: Optional[torch.Tensor] = None,
+        collect_lattice: Optional[list] = None,
     ) -> ForwardOutput:
         assert raw_inputs_sample_rate is not None
         assert len(raw_inputs) == 1, "EmformerRnnt wrapper supports batch size 1 only"
@@ -178,6 +179,10 @@ class EmformerRnnt(BaseModelInterface):
             pred, pred_len, _ = self.model.predict(tgt, tgt_len, None)  # [1, U+1, H]
             logits, _, _ = self.model.join(enc, enc_len, pred, pred_len)  # [1, T_enc, U+1, V]
             log_probs = torch.log_softmax(logits[0].float(), dim=-1)  # [T_enc, U+1, V]
+
+            if collect_lattice is not None:
+                # RNN-T (no durations): native-viterbi forced-align reads this teacher-forced lattice.
+                collect_lattice.append(dict(log_probs=log_probs.detach().cpu().numpy(), log_dur=None, durations=None))
 
             if self.per_token_score == "prefix":
                 # Proper transducer prefix score (RNN-T forward); best.

@@ -33,8 +33,17 @@ def per_utt_boundary_errors(
     assert n == len(pred_word_start_ends) and n > 0, f"{len(pred_word_start_ends)=} {n=}"
     start_abs = [abs(p[0] - r[0]) for p, r in zip(pred_word_start_ends, ref_word_start_ends)]
     end_abs = [abs(p[1] - r[1]) for p, r in zip(pred_word_start_ends, ref_word_start_ends)]
+    # signed (pred - ref): + = predicted boundary later than reference (delayed emission).
+    start_signed = [p[0] - r[0] for p, r in zip(pred_word_start_ends, ref_word_start_ends)]
+    end_signed = [p[1] - r[1] for p, r in zip(pred_word_start_ends, ref_word_start_ends)]
     wbe = [0.5 * (s + e) for s, e in zip(start_abs, end_abs)]
-    return {"start_abs": start_abs, "end_abs": end_abs, "wbe": wbe}
+    return {
+        "start_abs": start_abs,
+        "end_abs": end_abs,
+        "wbe": wbe,
+        "start_signed": start_signed,
+        "end_signed": end_signed,
+    }
 
 
 def aggregate_corpus(
@@ -53,6 +62,9 @@ def aggregate_corpus(
     utt_wbe = [sum(u["wbe"]) / len(u["wbe"]) for u in utt_errors]
     utt_start = [sum(u["start_abs"]) / len(u["start_abs"]) for u in utt_errors]
     utt_end = [sum(u["end_abs"]) / len(u["end_abs"]) for u in utt_errors]
+    # signed offsets (macro per-utt then over utts), like start_mae/end_mae but keeping sign.
+    utt_start_signed = [sum(u["start_signed"]) / len(u["start_signed"]) for u in utt_errors]
+    utt_end_signed = [sum(u["end_signed"]) / len(u["end_signed"]) for u in utt_errors]
     # edge = first + last word; interior = the rest.
     utt_edge, utt_interior = [], []
     for u in utt_errors:
@@ -73,6 +85,9 @@ def aggregate_corpus(
         "wbe": mean(utt_wbe),
         "start_mae": mean(utt_start),
         "end_mae": mean(utt_end),
+        "start_signed_mean": mean(utt_start_signed),
+        "end_signed_mean": mean(utt_end_signed),
+        "signed_mean": mean(utt_start_signed + utt_end_signed),
         "edge_wbe": mean(utt_edge),
         "interior_wbe": mean(utt_interior),
         "n_utt": float(n_utt),
