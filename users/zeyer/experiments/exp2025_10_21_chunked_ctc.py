@@ -1435,13 +1435,14 @@ def py():
 
     # To report for next time:
     # - Train-pool comparison (rope+ctembed fixed; pools = chunk_size / history / lookahead), dev / test.
-    #   Recipe dirs: chunked-L80-C5-R4-v2.3-{dyn,dynCx3,dynV3,dynV2}-rope-ctembed.
+    #   Recipe dirs: chunked-L80-C5-R4-v2.3-{dyn,dynCx3,dynV4,dynV3,dynV2}-rope-ctembed.
     #   [5,10,20,40,None] / [80,40] / [4,2]: 9.41 / 10.29 (=dyn; 107.3h, run1 was 128.3h on slower impl),
     #   [5,5,5,10,20,40,None] / [80,40] / [4,2]: 9.47 / 10.28 (=dynCx3, oversample small C; no gain, 120.8h),
-    #   [5,10,20,40,None] / [80,40,0] / [4,2,0]: 10.33 / 10.99 (=dynV3, adds 0 to history+lookahead; 97.1h),
+    #   [5,10,20,40,None] / [80,40] / [4,2,0]: 9.65 / 10.42 (=dynV4, 0 in lookahead only; 103.7h),
+    #   [5,10,20,40,None] / [80,40,0] / [4,2,0]: 10.33 / 10.99 (=dynV3, 0 in history+lookahead; 97.1h),
     #   [5,10,20,40,None,None,None,None] / [80,40,0] / [4,2,0]: 10.85 / 11.71 (=dynV2, +offline x4; 100.1h slower impl).
-    #   A 0 in the history/lookahead pools costs ~0.9 (-> dynV3); the extra offline x4 another ~0.5 (-> dynV2).
-    #   Plain dyn (no 0, single None) is best.
+    #   A 0 in the lookahead pool alone costs ~0.24 (-> dynV4 9.65); adding a 0 in history too -> dynV3 10.33;
+    #   the extra offline x4 -> dynV2 10.85. Plain dyn (no 0, single None) is best.
     #   earlier non-dyn vs dyn (matched features, recog at C5; dev / test, train h):
     #   plain non-dyn 9.46 / 10.29 (168.8h) vs dyn 9.66 / 10.39 (103.9h);
     #   +rope non-dyn 9.31 / 10.16 (237.1h) vs dyn 9.55 / 10.30 (128.4h).
@@ -1476,28 +1477,29 @@ def py():
     #   offline base +inf (whole seq needed).
 
     # For next time:
-    # - non-dyn vs dynV4 for rope+ctembed still running. (TODO put results here once ready)
+    # - non-dyn rope-ctembed still running. (TODO put result here once ready; dynV4 now in the table above.)
     #   TODO complete dyn comparison, maybe make dedicated table, extracting what we already listed above.
     #     Not sure if we get new insights here.
     # - R0-v2.3-overlap run. (TODO put result here once ready)
     # - chunked-L80-C5-R4-v2.3-(nondyn)-2xtrain (TODO put result here once ready)
     #   TODO complete the other 2xtrain results maybe in dedicated table? Or maybe not. Not sure if we learn sth here.
-    # - longform: so far ONLY chunked-L80-C5-R4-v2.3-dyn-rope-ctembed, streaming-KV seg10.
-    #   seg.test 5.12, long.test 4.97 -- two separate HF datasets:
-    #   seg = HF Open-ASR-Leaderboard "tedlium" (1155 utts, 27500 ref words),
-    #   long = distil-whisper/tedlium-long-form (11 talks, 25906 ref words).
-    #   Verified comparability: same normalization, and the 11 long-form talks have byte-identical
-    #   references in seg (per-talk word counts match exactly); seg merely adds ~1594 words
-    #   (TomWujec's talk + a few short segments) that long-form omits.
-    #   So seg-vs-long is over DIFFERENT talk sets (94% overlap) -> NOT directly comparable;
-    #   restrict seg to the 11 long-form talks (identical refs) to get a valid segmented-vs-longform number.
+    # - longform (TEDLium; so far ONLY chunked-L80-C5-R4-v2.3-dyn-rope-ctembed, streaming-KV seg10):
+    #   seg.test 5.12, seg-filtered.test 4.88, long.test 4.97.
+    #   seg = HF Open-ASR-Leaderboard "tedlium" (1155 utts, 27500 words),
+    #   long = distil-whisper/tedlium-long-form (11 talks, 25906 words):
+    #   the 11 long-form talks have byte-identical references in seg (verified per-talk word-for-word),
+    #   seg just adds 61 segments / 1594 words (TomWujec + S164 + S182 + RobertGupta_2010U_S57) that long omits.
+    #   tedlium-seg-filtered = seg restricted to those 11 talks -> identical refs -> directly comparable to long:
+    #   seg-filtered 4.88 vs long 4.97 (segmented ~= / slightly better than long-form on the same content;
+    #   the raw seg 5.12 vs long 4.97 gap was just the extra TomWujec talk).
     #   TODO: run long-form for more models (other chunk sizes, offline base) for a real cross-model comparison.
     # - Linear-attention encoders, all worse than conformer dyn-rope-ctembed 9.41 / 10.29:
     #   mamba2 dev 10.47 / test 11.35 (174.0h),
     #   deltanet 11.09 / 11.93 (164.3h),
     #   deltanet-bidir 11.41 / 12.28 (197.9h, bidir HURTS vs uni).
     #   mamba2 best of the linear-attn set.
-    #   TODO still running: mamba2-bidir, mamba2-bidir-ssdchunk256.
+    #   mamba2-bidir-ssdchunk256 10.74 / 11.52 (291.5h): bidir HURTS mamba2 too (vs uni 10.47);
+    #   plain mamba2-bidir (bs/4) was dropped, superseded by ssdchunk256.
     # - TODO 4xtrain... base also with rope? plot to extrapolate. run all models also in consistent recog (offline)
     #     maybe more train scale tuning?
     # - TODO overlap on posteriors?
