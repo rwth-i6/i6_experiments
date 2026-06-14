@@ -312,7 +312,7 @@ def _compare_table(with_hyp=False):
         "Per-model alignment quality: gradient-based alignment vs. the model's own native / "
         "attention aligner, on TIMIT-test and Buckeye (segment-A 5h subset). "
         "The attention aligners (cross-/self-attn weights) use each model's native subword "
-        "tokenization -- their best setting, as the coarse attention grid cannot resolve "
+        "tokenization -- their best setting per align method, as the coarse attention grid cannot resolve "
         "char-level targets; grad-align and the CTC / transducer aligners use the same per-token "
         "units within each model. MFA (GMM-HMM) is a dedicated-aligner reference."
     )
