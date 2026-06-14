@@ -42,7 +42,7 @@ class WordAlignFromPerTokenGradsJob(Job):
     }
 
     # v2: emit the richer metric set (acc@collar, edge/interior, start/end MAE) via align_metrics.
-    __sis_version__ = 2
+    __sis_version__ = 3  # +word_boundaries.hdf output & signed-offset metric (align_metrics)
 
     def __init__(
         self,
@@ -117,7 +117,7 @@ class WordAlignFromPerTokenGradsJob(Job):
         self.out_conf_corr = self.output_var("conf_corr.txt")
 
     def tasks(self):
-        yield Task("run", rqmt={"cpu": 2, "mem": 10, "time": 5})
+        yield Task("run", rqmt={"cpu": 1, "mem": 8, "time": 5, "engine": "short"})
 
     def run(self):
         import os

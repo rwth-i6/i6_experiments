@@ -335,6 +335,15 @@ def py():
     dl_parakeet_rnnt = DownloadHuggingFaceRepoJobV2(repo_id="nvidia/parakeet-rnnt-1.1b", repo_type="model")
     dl_parakeet_tdt = DownloadHuggingFaceRepoJobV2(repo_id="nvidia/parakeet-tdt-0.6b-v2", repo_type="model")
     dl_parakeet_ctc = DownloadHuggingFaceRepoJobV2(repo_id="nvidia/parakeet-ctc-1.1b", repo_type="model")
+    # NeMo cache-aware streaming FastConformer (hybrid CTC + RNN-T on ONE streaming encoder): the
+    # streaming representative -- both a streaming CTC and a streaming transducer from one checkpoint.
+    # Limited-context attention (att_context_size=[left,right]) + cache-aware; here a single masked
+    # forward at the chosen look-ahead. Same FastConformer family as offline Parakeet -> controlled
+    # offline-vs-streaming comparison. Ref: Noroozi et al. arXiv:2312.17279.
+    dl_fc_stream = DownloadHuggingFaceRepoJobV2(
+        repo_id="nvidia/stt_en_fastconformer_hybrid_large_streaming_multi", repo_type="model"
+    )
+    reg("fastconformer-streaming-model", dl_fc_stream.out_hub_cache_dir)
     reg("whisper-base-model", dl_whisper.out_hub_cache_dir)
 
     # --- External baseline: MMS_FA neural-CTC forced alignment (WhisperX-style) ---
