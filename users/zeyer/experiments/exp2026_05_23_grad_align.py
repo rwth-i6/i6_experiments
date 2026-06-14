@@ -3071,6 +3071,9 @@ def py():
             model_config=_t_cfg,
             mult_grad_by_inputs=_t_mgi,
             attr_reduction=_t_attr,
+            # batched_backward (vmap per-token VJP) for the prefix_fwd CTC extracts: ~tokens-per-word
+            # faster, mathematically identical. Opt-in (hash-stable) so finished bb=False jobs untouched.
+            **({"batched_backward": True} if "prefixfwd" in _t_name else {}),
         )
         _t_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         _t_ex.rqmt = {**_t_ex.rqmt, "time": 24}
@@ -3171,9 +3174,9 @@ def py():
     # Speech LLMs need eager attention for the batched backward (FlashAttention's backward has no vmap
     # rule); the CTC/transducer/Whisper models batch on their default attention.
     _cost_models = {
-        "Wav2Vec2-CTC": rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out"),
-        "Nvidia CTC": parakeet_ctc_cfg,
-        "OWSM-CTC": owsm_ctc_cfg,
+        "Wav2Vec2-CTC": rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out", per_token_score="prefix_fwd"),
+        "Nvidia CTC": parakeet_ctc_prefixfwd_cfg,
+        "OWSM-CTC": owsm_ctc_prefixfwd_cfg,
         "Whisper-base": rf.build_dict(
             Whisper, model_dir=dl_whisper.out_hub_cache_dir, char_level=True, char_level_sep=" "
         ),
@@ -3784,6 +3787,9 @@ def py():
                 # Phi-4-MM is a decoder-LLM like Voxtral/Canary; its native attention aligner is
                 # decoder self-attn over the audio-token block (eager attn enables output_attentions).
                 "subword": _phi4mm_model_config(dl_phi4mi_dir, attn_implementation="eager"),
+                "char": _phi4mm_model_config(
+                    dl_phi4mi_dir, attn_implementation="eager", char_level=True, char_level_sep=" "
+                ),
             },
         ),
     ]:
@@ -3926,7 +3932,9 @@ def py():
             for _ol, _ocfg in owsm_ctc_cfg_by_layer.items()
         ],
     ]:
-        _xa_s_ex = _xa_extract(_xa_s_cfg, _xa_s_name, _xa_s_attr, _xa_s_mgi, time=24)
+        # batched_backward for the prefix_fwd CTC extracts (vmap per-token VJP, ~tokens-per-word
+        # faster, mathematically identical). bb=False for the rest keeps their hash unchanged.
+        _xa_s_ex = _xa_extract(_xa_s_cfg, _xa_s_name, _xa_s_attr, _xa_s_mgi, time=24, bb="prefixfwd" in _xa_s_name)
         _xa_align(_xa_s_ex, _xa_s_name, "en0.5-sil1.0")
     # Nvidia CTC posteriors baseline on segA: torchaudio CTC forced-align on parakeet-ctc's own emission.
     _xa_pc_fa = ParakeetCtcForcedAlignJob(

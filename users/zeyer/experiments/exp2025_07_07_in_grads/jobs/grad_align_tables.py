@@ -62,8 +62,8 @@ def _compare_table(with_hyp=False):
                 (
                     "grad",
                     *g(
-                        f"wav2vec2ctc-fproj_out-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                        f"wav2vec2ctc-fproj_out-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"wav2vec2ctc-fproj_out-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"wav2vec2ctc-fproj_out-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 ("posteriors", f"baseline-mms_fa-{S}", f"baseline-mms_fa-{T}"),
@@ -75,8 +75,8 @@ def _compare_table(with_hyp=False):
                 (
                     "grad",
                     *g(
-                        f"phoneme-vitouphy-{S}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-sil1.0",
-                        "w2v-phoneme-timit-test-L2_grad-perphone-en0.5-sil1.0-word",
+                        f"phoneme-vitouphy-prefixfwd-{S}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-sil1.0",
+                        f"phoneme-vitouphy-prefixfwd-{T}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 (
@@ -92,8 +92,8 @@ def _compare_table(with_hyp=False):
                 (
                     "grad",
                     *g(
-                        f"parakeet-ctc-1.1b-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                        f"parakeet-ctc-1.1b-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"parakeet-ctc-1.1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"parakeet-ctc-1.1b-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 ("posteriors", f"baseline-parakeet-ctc-1.1b-{S}", f"baseline-parakeet-ctc-1.1b-{T}"),
@@ -107,8 +107,8 @@ def _compare_table(with_hyp=False):
                 (
                     "grad",
                     *g(
-                        f"owsm-ctc-v4-1b-lyr6-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                        f"owsm-ctc-v4-1b-lyr6-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"owsm-ctc-v4-1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"owsm-ctc-v4-1b-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 # posteriors = CTC forced-align of the model's emission; best/natural at the final block.
