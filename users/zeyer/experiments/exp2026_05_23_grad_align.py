@@ -62,8 +62,10 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.w
     Wav2Vec2PhonemeCtc,
 )
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.owls import Owls
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.owsm_ctc import OwsmCtc
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.emformer_rnnt import EmformerRnnt
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.parakeet_rnnt import ParakeetRnnt
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.parakeet_ctc import ParakeetCtc
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.whisper import Whisper
 
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.extract_in_grad_scores import (
@@ -104,6 +106,12 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.phoneme_
 )
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.phoneme_forced_align_baseline import (
     ForcedAlignPhonemeBaselineJob,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.parakeet_ctc_forced_align import (
+    ParakeetCtcForcedAlignJob,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.owsm_ctc_forced_align import (
+    OwsmCtcForcedAlignJob,
 )
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.wer_noise_sweep import WerNoiseSweepJob
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.apptainer import (
@@ -305,12 +313,25 @@ def py():
     dl_powsm = DownloadHuggingFaceRepoJobV2(repo_id="espnet/powsm", repo_type="model")
     dl_powsm.set_env("HF_HUB_DISABLE_XET", "1")
     reg("powsm-model", dl_powsm.out_hub_cache_dir)
+    # OWSM-CTC v4 1B: a GENERAL graphemic (BPE-50k) transcription CTC -- the representative general CTC
+    # (vs MMS_FA = an aligner, vitouphy / POWSM = phonetic). Loaded via ESPnet S2TCTCTask (CTC head).
+    dl_owsm_ctc = DownloadHuggingFaceRepoJobV2(repo_id="espnet/owsm_ctc_v4_1B", repo_type="model")
+    dl_owsm_ctc.set_env("HF_HUB_DISABLE_XET", "1")
+    reg("owsm-ctc-v4-1b-model", dl_owsm_ctc.out_hub_cache_dir)
+    owsm_ctc_cfg = rf.build_dict(OwsmCtc, model_dir=dl_owsm_ctc.out_hub_cache_dir, version=2)
+    # Per-layer OWSM-CTC grad-align (side table): emit from each inter-CTC self-cond block (6/12/15/21).
+    # The final block (27) is the default `owsm_ctc_cfg` above (layer=None). See PLAN: OWSM per-layer table.
+    owsm_ctc_cfg_by_layer = {
+        _ol: rf.build_dict(OwsmCtc, model_dir=dl_owsm_ctc.out_hub_cache_dir, version=2, layer=_ol)
+        for _ol in [6, 12, 15, 21]
+    }
 
     dl_whisper = DownloadHuggingFaceRepoJobV2(repo_id="openai/whisper-base", repo_type="model")
     dl_whisper_l3 = DownloadHuggingFaceRepoJobV2(repo_id="openai/whisper-large-v3", repo_type="model")
     dl_crisper = DownloadHuggingFaceRepoJobV2(repo_id="nyrahealth/CrisperWhisper", repo_type="model")
     dl_parakeet_rnnt = DownloadHuggingFaceRepoJobV2(repo_id="nvidia/parakeet-rnnt-1.1b", repo_type="model")
     dl_parakeet_tdt = DownloadHuggingFaceRepoJobV2(repo_id="nvidia/parakeet-tdt-0.6b-v2", repo_type="model")
+    dl_parakeet_ctc = DownloadHuggingFaceRepoJobV2(repo_id="nvidia/parakeet-ctc-1.1b", repo_type="model")
     reg("whisper-base-model", dl_whisper.out_hub_cache_dir)
 
     # --- External baseline: MMS_FA neural-CTC forced alignment (WhisperX-style) ---
@@ -800,6 +821,10 @@ def py():
     # Same proper RNN-T prefix-score; log-mel grad target (~100 Hz). + energy/silence.
     pk_cfg = rf.build_dict(
         ParakeetRnnt, model_dir=dl_parakeet_rnnt.out_hub_cache_dir, per_token_score="prefix", overlay_path=_NEMO_OVERLAY
+    )
+    # nvidia/parakeet-ctc-1.1b: a plain FastConformer CTC -- the general graphemic CTC representative.
+    parakeet_ctc_cfg = rf.build_dict(
+        ParakeetCtc, model_dir=dl_parakeet_ctc.out_hub_cache_dir, overlay_path=_NEMO_OVERLAY
     )
     pk_extract = ExtractInGradsPerTokenJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir,
@@ -2930,6 +2955,15 @@ def py():
             False,
             [(0.5, 1.0), (0.5, 0.0)],
         ),
+        # OWSM-CTC: a general graphemic CTC (BPE subword units, ~12.5 Hz emission).
+        (owsm_ctc_cfg, "owsm-ctc-v4-1b-timit-test-L2_grad-pertoken", "L2", False, [(0.5, 1.0)]),
+        # Nvidia CTC (parakeet-ctc-1.1b): the general graphemic CTC representative (plain FastConformer).
+        (parakeet_ctc_cfg, "parakeet-ctc-1.1b-timit-test-L2_grad-pertoken", "L2", False, [(0.5, 1.0)]),
+        # OWSM-CTC per inter-CTC layer (side table): grad-align WBE from blocks 6/12/15/21 (27=above).
+        *[
+            (_ocfg, f"owsm-ctc-v4-1b-lyr{_ol}-timit-test-L2_grad-pertoken", "L2", False, [(0.5, 1.0)])
+            for _ol, _ocfg in owsm_ctc_cfg_by_layer.items()
+        ],
     ]
     for _t_cfg, _t_name, _t_attr, _t_mgi, _t_aligns in _test_specs:
         _t_ex = ExtractInGradsPerTokenJob(
@@ -2958,6 +2992,77 @@ def py():
             _t_nm = f"align/{_t_name}-{_name_for_dict(_t_ao)}-en{_t_ep}-sil{_t_sc}"
             _t_al.add_alias(_t_nm)
             reg(f"{_t_nm}-wbe.txt", _t_al.out_wbe)
+    # Nvidia CTC posteriors baseline: torchaudio CTC forced-align on parakeet-ctc's own emission.
+    _pc_fa_test = ParakeetCtcForcedAlignJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="test",
+        model_dir=dl_parakeet_ctc.out_hub_cache_dir,
+        overlay_path=_NEMO_OVERLAY,
+        dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+    )
+    _pc_fa_test.add_alias("baseline-parakeet-ctc-1.1b-timit-test")
+    reg("baseline-parakeet-ctc-1.1b-timit-test-wbe.txt", _pc_fa_test.out_word_wbe)
+    # OWSM-CTC posteriors baseline per inter-CTC emit block (forced-align of the block's emission).
+    for _ol in [None, 6, 12, 15, 21]:
+        _otag = "" if _ol is None else f"lyr{_ol}-"
+        _ofa = OwsmCtcForcedAlignJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="test",
+            model_dir=dl_owsm_ctc.out_hub_cache_dir,
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            layer=_ol,
+        )
+        _ofa.add_alias(f"baseline-owsm-ctc-v4-1b-{_otag}timit-test")
+        reg(f"baseline-owsm-ctc-v4-1b-{_otag}timit-test-wbe.txt", _ofa.out_word_wbe)
+
+    # === Speech-LLM prompt-splice sensitivity (Phi-4-MM, side table) ===================
+    # Forced GT transcription on TIMIT-test; vary ONLY the instruction spliced around the audio.
+    # char + subword targets; one prompt instructs char-level (user idea). Batched grad extract.
+    _PP_PROMPTS = [
+        ("default", "Transcribe the audio clip into text."),
+        ("verbatim", "Please transcribe the audio verbatim, exactly as spoken."),
+        ("word", "Transcribe the following exactly and accurately, word for word:"),
+        ("char", "Transcribe the audio at the character level, spelling out each word letter by letter."),
+    ]
+    for _pp_tag, _pp_prompt in _PP_PROMPTS:
+        for _pp_level in ["subword", "char"]:
+            if _pp_tag == "char" and _pp_level == "subword":
+                continue  # the char-level instruction only pairs with char-level targets
+            if _pp_level == "char":
+                _pp_cfg = _phi4mm_model_config(
+                    dl_phi4mi_dir, char_level=True, char_level_sep=" ", speech_prompt=_pp_prompt
+                )
+            else:
+                _pp_cfg = _phi4mm_model_config(dl_phi4mi_dir, speech_prompt=_pp_prompt)
+            _pp_name = f"phi4mm-prompt-{_pp_tag}-{_pp_level}-timit-test-L2_e_grad-pertoken"
+            _pp_ex = ExtractInGradsPerTokenJob(
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="test",
+                model_config=_pp_cfg,
+                mult_grad_by_inputs=True,
+                attr_reduction="L2",
+                # NB: no batched_backward -- Phi-4-MM uses FlashAttention, whose backward has no vmap
+                # batching rule (RuntimeError: flash_attn::_flash_attn_backward), so we use the standard
+                # sequential per-token path like every other Phi-4-MM extract. (CTC models CAN batch.)
+            )
+            _pp_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            _pp_ex.rqmt = {**_pp_ex.rqmt, "time": 24}
+            _pp_ex.add_alias(_pp_name)
+            reg(f"{_pp_name}.hdf", _pp_ex.out_hdf)
+            _pp_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+            _pp_al = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=_pp_ex.out_hdf,
+                grad_score_key="data",
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="test",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=_pp_ao,
+                audio_energy_pow=0.5,
+                blank_silence_energy_scale=1.0,
+            )
+            _pp_nm = f"align/{_pp_name}-{_name_for_dict(_pp_ao)}-en0.5-sil1.0"
+            _pp_al.add_alias(_pp_nm)
+            reg(f"{_pp_nm}-wbe.txt", _pp_al.out_wbe)
     whisper_fa_test = WhisperCrossAttnForcedAlignJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_key="test", overlay=_WHISPER_TS_OVERLAY
     )
@@ -3636,9 +3741,40 @@ def py():
             "L1",
             False,
         ),
+        # OWSM-CTC: a general graphemic CTC (BPE subword units, ~12.5 Hz emission).
+        (owsm_ctc_cfg, f"owsm-ctc-v4-1b-{_xa_tag}-L2_grad-pertoken", "L2", False),
+        # Nvidia CTC (parakeet-ctc-1.1b): the general graphemic CTC representative (plain FastConformer).
+        (parakeet_ctc_cfg, f"parakeet-ctc-1.1b-{_xa_tag}-L2_grad-pertoken", "L2", False),
+        # OWSM-CTC per inter-CTC layer (side table): grad-align WBE from blocks 6/12/15/21 (27=above).
+        *[
+            (_ocfg, f"owsm-ctc-v4-1b-lyr{_ol}-{_xa_tag}-L2_grad-pertoken", "L2", False)
+            for _ol, _ocfg in owsm_ctc_cfg_by_layer.items()
+        ],
     ]:
         _xa_s_ex = _xa_extract(_xa_s_cfg, _xa_s_name, _xa_s_attr, _xa_s_mgi, time=24)
         _xa_align(_xa_s_ex, _xa_s_name, "en0.5-sil1.0")
+    # Nvidia CTC posteriors baseline on segA: torchaudio CTC forced-align on parakeet-ctc's own emission.
+    _xa_pc_fa = ParakeetCtcForcedAlignJob(
+        dataset_dir=_xa_dir,
+        dataset_key="test",
+        model_dir=dl_parakeet_ctc.out_hub_cache_dir,
+        overlay_path=_NEMO_OVERLAY,
+        dataset_offset_factors=_xa_off,
+    )
+    _xa_pc_fa.add_alias(f"baseline-parakeet-ctc-1.1b-{_xa_tag}")
+    reg(f"baseline-parakeet-ctc-1.1b-{_xa_tag}-wbe.txt", _xa_pc_fa.out_word_wbe)
+    # OWSM-CTC posteriors baseline per inter-CTC emit block on segA.
+    for _ol in [None, 6, 12, 15, 21]:
+        _otag = "" if _ol is None else f"lyr{_ol}-"
+        _ofa = OwsmCtcForcedAlignJob(
+            dataset_dir=_xa_dir,
+            dataset_key="test",
+            model_dir=dl_owsm_ctc.out_hub_cache_dir,
+            dataset_offset_factors=_xa_off,
+            layer=_ol,
+        )
+        _ofa.add_alias(f"baseline-owsm-ctc-v4-1b-{_otag}{_xa_tag}")
+        reg(f"baseline-owsm-ctc-v4-1b-{_otag}{_xa_tag}-wbe.txt", _ofa.out_word_wbe)
 
     # (7) grad-score x energy/silence x align-opts ablation on a speech LLM (Voxtral). The char-level
     # L1 extract is the headline; we add grad-score variants (L2, L2_e), re-align the headline extract
@@ -3799,6 +3935,15 @@ def py():
             True,
         ),
         (
+            "whisper-large-v3-charlev",
+            rf.build_dict(Whisper, model_dir=dl_whisper_l3.out_hub_cache_dir),
+            rf.build_dict(Whisper, model_dir=dl_whisper_l3.out_hub_cache_dir, char_level=True, char_level_sep=" "),
+            "L2",
+            False,
+            1.0,
+            True,
+        ),
+        (
             "voxtral-charlevlogmel",
             rf.build_dict(Voxtral, model_dir=dl_voxtral, recog_mode="transcription", version=3),
             voxtral_charlev_logmel_cfg,
@@ -3823,7 +3968,7 @@ def py():
             # Opt-in per model (hash-excluded at None) so only enabled models re-run.
             # Enabled on whisper (the one that looped); ~12 subword-tokens/s of audio
             # never truncates real speech (~7 words/s).
-            max_tokens_per_sec=12.0 if _hy_name == "whisper-base-charlev" else None,
+            max_tokens_per_sec=12.0 if _hy_name.startswith("whisper") else None,
         )
         _hy_recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         _hy_recog.add_alias(f"hyp-align/{_hy_name}-{_xa_tag}-recog")

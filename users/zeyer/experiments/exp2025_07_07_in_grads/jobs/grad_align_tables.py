@@ -22,6 +22,8 @@ def build_tables(results):
     _compare_table()  # ground-truth forced-mode only (separate hyp table below)
     _compare_table(with_hyp=True)  # variant: hyp-mode columns merged onto the grad rows
     _hyp_table()
+    _owsm_layer_table()  # OWSM-CTC grad-align per inter-CTC emit block (side table)
+    _phi4_prompt_table()  # Phi-4-MM grad-align vs the spliced instruction (side table)
 
 
 def _wbe(base):
@@ -81,6 +83,35 @@ def _compare_table(with_hyp=False):
                     f"baseline-phoneme-fa-{S}-word",
                     "align/w2v-phoneme-timit-test-ctc-forced-align-word",
                 ),
+            ],
+        ),
+        (
+            "Nvidia CTC",
+            [
+                (
+                    "grad",
+                    *g(
+                        f"parakeet-ctc-1.1b-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"parakeet-ctc-1.1b-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                    ),
+                ),
+                ("posteriors", f"baseline-parakeet-ctc-1.1b-{S}", f"baseline-parakeet-ctc-1.1b-{T}"),
+            ],
+        ),
+        (
+            # OWSM-CTC: general graphemic CTC whose self-attention encoder delocalizes the input-grad.
+            # Shown with its BEST emit block (6, earliest inter-CTC); per-block detail in tab:owsm-per-layer.
+            "OWSM-CTC",
+            [
+                (
+                    "grad",
+                    *g(
+                        f"owsm-ctc-v4-1b-lyr6-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"owsm-ctc-v4-1b-lyr6-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                    ),
+                ),
+                # posteriors = CTC forced-align of the model's emission; best/natural at the final block.
+                ("posteriors", f"baseline-owsm-ctc-v4-1b-{S}", f"baseline-owsm-ctc-v4-1b-{T}"),
             ],
         ),
         (
@@ -216,7 +247,11 @@ def _compare_table(with_hyp=False):
         "Canary-Qwen": f"canary-qwen-charlev-spc-logmel-st15-{S}-grad",
         "Parakeet RNN-T": f"parakeet-rnnt-1.1b-logmel-{S}-grad",
         "Parakeet TDT": f"parakeet-tdt-0.6b-v2-logmel-{S}-grad",
+        "Whisper-large-v3": f"whisper-large-v3-charlev-{S}-grad",
     }
+    # Models with no word-level own-recognition -> hyp-mode is structurally n/a (not "unrun"):
+    # MMS_FA (Wav2Vec2-CTC) + Phoneme-CTC emit no word boundaries; MFA is a forced-aligner, not a recognizer.
+    HYP_NA = {"Wav2Vec2-CTC", "Phoneme-CTC", "MFA (GMM-HMM)"}
 
     def _hm(name, key, mul, fmt):
         return {"var": _RESULTS.get(f"hyp-align/{name}-metrics.txt"), "key": key, "mul": mul, "fmt": fmt}
@@ -257,8 +292,16 @@ def _compare_table(with_hyp=False):
                 }
                 if with_hyp:
                     hn = HYP.get(model) if mi == 0 else None  # hyp only on the grad row
-                    cells["h_mwbe"] = _hm(hn, "matched_wbe", 1000.0, "{:.1f}") if hn else None
-                    cells["h_f50"] = _hm(hn, "f1_50ms", 1.0, "{:.3f}") if hn else None
+                    if hn:
+                        cells["h_mwbe"] = _hm(hn, "matched_wbe", 1000.0, "{:.1f}")
+                        cells["h_f50"] = _hm(hn, "f1_50ms", 1.0, "{:.3f}")
+                    elif mi == 0 and model in HYP_NA:
+                        # structurally no word-level own-recognition -> mark, don't leave empty
+                        cells["h_mwbe"] = "n/a"
+                        cells["h_f50"] = "n/a"
+                    else:
+                        cells["h_mwbe"] = None
+                        cells["h_f50"] = None
                 rows.append({"label": model if mi == 0 else "", "cells": cells})
         return rows
 
@@ -275,7 +318,9 @@ def _compare_table(with_hyp=False):
     if with_hyp:
         caption += (
             " The rightmost group adds hypothesis-mode metrics (each model aligns its OWN "
-            "recognition; matched-WBE and identity-gated F1@50ms), shown on the grad row where available."
+            "recognition; matched-WBE and identity-gated F1@50ms), shown on the grad row. "
+            "n/a = no word-level own-recognition (MMS_FA / Phoneme-CTC emit no word boundaries; "
+            "MFA is a forced-aligner)."
         )
     job = WriteLatexTableJob(
         columns=cols,
@@ -311,6 +356,7 @@ def _hyp_table():
 
     grad = [
         ("Whisper-base", f"whisper-base-charlev-{S}-grad"),
+        ("Whisper-large-v3", f"whisper-large-v3-charlev-{S}-grad"),
         ("Voxtral", f"voxtral-charlevlogmel-{S}-grad"),
         ("Phi-4-MM", f"phi4mm-charlev-spc-{S}-grad"),
         ("Canary-Qwen", f"canary-qwen-charlev-spc-logmel-st15-{S}-grad"),
@@ -344,3 +390,103 @@ def _hyp_table():
         col_align="|l|r|r|r|r|r|",
     )
     tk.register_output("tables/hyp.tex", job.out_tex)
+
+
+# ----------------------------------------------------------------------------------------
+# T7: OWSM-CTC grad-align emitted from each inter-CTC self-conditioning block (side table).
+# ----------------------------------------------------------------------------------------
+def _owsm_layer_table():
+    S, T = "buckeye-segA-5h", "timit-test"
+
+    def _tag(layer):
+        # blocks 6/12/15/21 carry an `lyr{N}-` tag; block 27 is the default final-emission base.
+        return "" if layer == 27 else f"lyr{layer}-"
+
+    def gbase(layer, ds):  # grad-align output base
+        return f"align/owsm-ctc-v4-1b-{_tag(layer)}{ds}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0"
+
+    def fbase(layer, ds):  # forced-align (posteriors) baseline base
+        return f"baseline-owsm-ctc-v4-1b-{_tag(layer)}{ds}"
+
+    cols = [
+        {"key": "layer", "header": "Emit \\\\ block"},
+        {"key": "t_grad", "header": "grad \\\\ {[ms]}", "group": "TIMIT"},
+        {"key": "t_fa", "header": "posteriors \\\\ {[ms]}", "group": "TIMIT"},
+        {"key": "s_grad", "header": "grad \\\\ {[ms]}", "group": "Buckeye"},
+        {"key": "s_fa", "header": "posteriors \\\\ {[ms]}", "group": "Buckeye"},
+    ]
+    rows = []
+    for layer in [6, 12, 15, 21, 27]:
+        rows.append(
+            {
+                "label": f"{layer} (final)" if layer == 27 else f"{layer}",
+                "cells": {
+                    "t_grad": _wbe(gbase(layer, T)),
+                    "t_fa": _wbe(fbase(layer, T)),
+                    "s_grad": _wbe(gbase(layer, S)),
+                    "s_fa": _wbe(fbase(layer, S)),
+                },
+            }
+        )
+    caption = (
+        "OWSM-CTC gradient alignment emitted from each inter-CTC self-conditioning block "
+        "(6/12/15/21) vs the final block (27), on TIMIT-test and Buckeye-segA. The CTC emission "
+        "forced-aligns well at every block ($\\sim$142\\,ms), but the gradient localizes at none "
+        "of them -- all worse than the 153\\,ms uniform-split trivial baseline, the earliest block 6 "
+        "being marginally best. The encoder's global self-attention delocalizes the input-gradient "
+        "already within the first few blocks."
+    )
+    job = WriteLatexTableJob(
+        columns=cols,
+        rows=rows,
+        caption=caption,
+        label="tab:owsm-per-layer",
+        label_header="OWSM-CTC",
+        col_align="|l|r|r|r|r|",
+    )
+    tk.register_output("tables/owsm-per-layer.tex", job.out_tex)
+
+
+# ----------------------------------------------------------------------------------------
+# T8: Speech-LLM prompt-splice sensitivity (Phi-4-MM): grad-align WBE vs the instruction.
+# ----------------------------------------------------------------------------------------
+def _phi4_prompt_table():
+    def base(tag, level):
+        return f"align/phi4mm-prompt-{tag}-{level}-timit-test-L2_e_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0"
+
+    cols = [
+        {"key": "sub", "header": "subword [ms]"},
+        {"key": "char", "header": "char [ms]"},
+    ]
+    prompts = [
+        ("default", "into text (neutral)"),
+        ("verbatim", "verbatim, exactly as spoken"),
+        ("word", "exactly, word for word"),
+        ("char", "at the character level"),
+    ]
+    rows = []
+    for tag, label in prompts:
+        rows.append(
+            {
+                "label": label,
+                "cells": {
+                    "sub": "n/a" if tag == "char" else _wbe(base(tag, "subword")),
+                    "char": _wbe(base(tag, "char")),
+                },
+            }
+        )
+    caption = (
+        "Prompt sensitivity of gradient alignment on a speech LLM (Phi-4-MM), TIMIT-test, forced "
+        "ground-truth transcription -- only the text instruction spliced around the audio is varied. "
+        "Word-boundary error for subword and character-level targets. The last row instructs "
+        "character-level output, paired only with character-level targets."
+    )
+    job = WriteLatexTableJob(
+        columns=cols,
+        rows=rows,
+        caption=caption,
+        label="tab:phi4-prompt",
+        label_header="Instruction",
+        col_align="|l|r|r|",
+    )
+    tk.register_output("tables/phi4-prompt.tex", job.out_tex)
