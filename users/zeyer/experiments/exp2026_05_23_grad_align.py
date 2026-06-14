@@ -113,6 +113,9 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.parakeet
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.owsm_ctc_forced_align import (
     OwsmCtcForcedAlignJob,
 )
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.align_cost_benchmark import (
+    AlignCostBenchmarkJob,
+)
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.wer_noise_sweep import WerNoiseSweepJob
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.apptainer import (
     PullApptainerImageJob,
@@ -3028,12 +3031,18 @@ def py():
         for _pp_level in ["subword", "char"]:
             if _pp_tag == "char" and _pp_level == "subword":
                 continue  # the char-level instruction only pairs with char-level targets
+            # eager attention so batched_backward (vmap-VJP) works -- FlashAttention's backward has no
+            # vmap rule; eager's forward is a bit slower but the single batched backward more than pays it back.
             if _pp_level == "char":
                 _pp_cfg = _phi4mm_model_config(
-                    dl_phi4mi_dir, char_level=True, char_level_sep=" ", speech_prompt=_pp_prompt
+                    dl_phi4mi_dir,
+                    char_level=True,
+                    char_level_sep=" ",
+                    speech_prompt=_pp_prompt,
+                    attn_implementation="eager",
                 )
             else:
-                _pp_cfg = _phi4mm_model_config(dl_phi4mi_dir, speech_prompt=_pp_prompt)
+                _pp_cfg = _phi4mm_model_config(dl_phi4mi_dir, speech_prompt=_pp_prompt, attn_implementation="eager")
             _pp_name = f"phi4mm-prompt-{_pp_tag}-{_pp_level}-timit-test-L2_e_grad-pertoken"
             _pp_ex = ExtractInGradsPerTokenJob(
                 dataset_dir=dl_ds_timit.out_hub_cache_dir,
@@ -3041,9 +3050,7 @@ def py():
                 model_config=_pp_cfg,
                 mult_grad_by_inputs=True,
                 attr_reduction="L2",
-                # NB: no batched_backward -- Phi-4-MM uses FlashAttention, whose backward has no vmap
-                # batching rule (RuntimeError: flash_attn::_flash_attn_backward), so we use the standard
-                # sequential per-token path like every other Phi-4-MM extract. (CTC models CAN batch.)
+                batched_backward=True,  # OK with eager attn (FlashAttention's backward has no vmap rule)
             )
             _pp_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
             _pp_ex.rqmt = {**_pp_ex.rqmt, "time": 24}
@@ -3063,6 +3070,34 @@ def py():
             _pp_nm = f"align/{_pp_name}-{_name_for_dict(_pp_ao)}-en0.5-sil1.0"
             _pp_al.add_alias(_pp_nm)
             reg(f"{_pp_nm}-wbe.txt", _pp_al.out_wbe)
+
+    # === Cost benchmark: forward vs batched grad-backward, per model, same GPU =========
+    # Speech LLMs need eager attention for the batched backward (FlashAttention's backward has no vmap
+    # rule); the CTC/transducer/Whisper models batch on their default attention.
+    _cost_models = {
+        "Wav2Vec2-CTC": rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out"),
+        "Nvidia CTC": parakeet_ctc_cfg,
+        "OWSM-CTC": owsm_ctc_cfg,
+        "Whisper-base": rf.build_dict(
+            Whisper, model_dir=dl_whisper.out_hub_cache_dir, char_level=True, char_level_sep=" "
+        ),
+        "Parakeet RNN-T": pk_cfg,
+        "Parakeet TDT": tdt_cfg,
+        "Voxtral": voxtral_charlev_logmel_cfg,
+        "Phi-4-MM": _phi4mm_model_config(
+            dl_phi4mi_dir, char_level=True, char_level_sep=" ", attn_implementation="eager"
+        ),
+        "Canary-Qwen": canary_charlev_logmel_st15_cfg,
+    }
+    _cost_bench = AlignCostBenchmarkJob(
+        model_configs=_cost_models,
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="test",
+        num_seqs=40,
+    )
+    _cost_bench.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    _cost_bench.add_alias("cost-benchmark")
+    reg("cost-benchmark-metrics.txt", _cost_bench.out_metrics)
     whisper_fa_test = WhisperCrossAttnForcedAlignJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_key="test", overlay=_WHISPER_TS_OVERLAY
     )
