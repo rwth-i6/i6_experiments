@@ -183,7 +183,7 @@ def build_test_datasets():
             },
             data_map={
                 "data": ("feature_clusters", "data"),
-                "target": ("phon_indices", "data"),
+                "phon_indices": ("phon_indices", "data"),
             },
             seq_order_control_dataset="phon_indices",
         ),
