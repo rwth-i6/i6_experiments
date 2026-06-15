@@ -3496,6 +3496,36 @@ def py():
             _alnm = f"align/{_nm}-{_name_for_dict(_seg_ao)}-en0.5-sil1.0"
             _al.add_alias(_alnm)
             reg(f"{_alnm}-wbe.txt", _al.out_wbe)
+            # zsk (audio-free, grad-stats silence): compare vs energy-driven on the noisier segments
+            # (segB), where low energy != silence (background noise) may fool the energy blank.
+            _al_zsk = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=_ex.out_hdf,
+                grad_score_key="data",
+                dataset_dir=_sv_dir,
+                dataset_key="test",
+                dataset_offset_factors=_bk_off,
+                align_opts=_seg_ao,
+                audio_energy_pow=0.5,
+                blank_grad_zscore_kappa=1.0,
+            )
+            _zsknm = f"align/{_nm}-{_name_for_dict(_seg_ao)}-en0.5-zsk1.0"
+            _al_zsk.add_alias(_zsknm)
+            reg(f"{_zsknm}-wbe.txt", _al_zsk.out_wbe)
+            # word-topology twin on the segments too.
+            _al_wt = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=_ex.out_hdf,
+                grad_score_key="data",
+                dataset_dir=_sv_dir,
+                dataset_key="test",
+                dataset_offset_factors=_bk_off,
+                align_opts=_seg_ao,
+                audio_energy_pow=0.5,
+                blank_silence_energy_scale=1.0,
+                word_topology=True,
+            )
+            _wtnm = f"align/{_nm}-{_name_for_dict(_seg_ao)}-en0.5-sil1.0-wordtopo"
+            _al_wt.add_alias(_wtnm)
+            reg(f"{_wtnm}-wbe.txt", _al_wt.out_wbe)
 
         if _sv == "A":
             # Variant A is the chosen headline Buckeye -> run the remaining cross-model set on it
@@ -3575,10 +3605,25 @@ def py():
             reg(f"{name}.hdf", ex.out_hdf)
         return ex
 
-    def _xa_align(ex, name, sfx, energy=0.5, sil=1.0, zsk=None, word_topology=False):
+    def _xa_align(
+        ex,
+        name,
+        sfx,
+        energy=0.5,
+        sil=1.0,
+        zsk=None,
+        word_topology=False,
+        dtw_no_blank=False,
+        whisper_dtw=False,
+        _twin=True,
+    ):
         kw = {"blank_grad_zscore_kappa": zsk} if zsk is not None else {"blank_silence_energy_scale": sil}
         if word_topology:
             kw["word_topology"] = True
+        if dtw_no_blank:
+            kw["dtw_no_blank"] = True
+        if whisper_dtw:
+            kw["whisper_dtw"] = True
         al = WordAlignFromPerTokenGradsJob(
             grad_score_hdf=ex.out_hdf,
             grad_score_key="data",
@@ -3592,6 +3637,12 @@ def py():
         nm = f"align/{name}-{_name_for_dict(_xa_ao)}-{sfx}"
         al.add_alias(nm)
         reg(f"{nm}-wbe.txt", al.out_wbe)
+        # Word-aware-topology twin of every headline (en0.5-sil1.0) align: blank only between words,
+        # not within. Broad degradation sweep across all segA models before making it the default.
+        if _twin and not word_topology and not dtw_no_blank and not whisper_dtw and sfx == "en0.5-sil1.0":
+            _xa_align(ex, name, sfx + "-wordtopo", energy=energy, sil=sil, zsk=zsk, word_topology=True, _twin=False)
+            _xa_align(ex, name, sfx + "-dtw", energy=energy, sil=sil, zsk=zsk, dtw_no_blank=True, _twin=False)
+            _xa_align(ex, name, sfx + "-wdtw", energy=energy, sil=sil, zsk=zsk, whisper_dtw=True, _twin=False)
         return al
 
     # (1) Fairness: grad SUBWORD whisper (compare to the existing crossattn-subword baseline).
@@ -3844,6 +3895,28 @@ def py():
                 )
                 _ah_al.add_alias(f"align/{_ah_name}-{_name_for_dict(_xa_ao)}{_ah_sfx}")
                 reg(f"align/{_ah_name}-{_name_for_dict(_xa_ao)}{_ah_sfx}-wbe.txt", _ah_al.out_wbe)
+                # FORCED (ground-truth) cross-attn: our Aligner word-topology, no-blank DTW, and the
+                # faithful openai DTW (= forced Whisper-DTW / CrisperWhisper-DTW, no hyp-mode).
+                if _ah_sfx == "-en0.5-sil1.0":
+                    for _ah_kw, _ah_tsfx in [
+                        ({"word_topology": True}, "-wordtopo"),
+                        ({"dtw_no_blank": True}, "-dtw"),
+                        ({"whisper_dtw": True}, "-wdtw"),
+                    ]:
+                        _ah_t = WordAlignFromPerTokenGradsJob(
+                            grad_score_hdf=_ah_ex.out_hdf,
+                            grad_score_key="data",
+                            dataset_dir=_ah_dir,
+                            dataset_key=_ah_key,
+                            dataset_offset_factors=_ah_off,
+                            align_opts=_xa_ao,
+                            audio_energy_pow=_ah_ep,
+                            blank_silence_energy_scale=_ah_sc,
+                            **_ah_kw,
+                        )
+                        _ah_tnm = f"align/{_ah_name}-{_name_for_dict(_xa_ao)}{_ah_sfx}{_ah_tsfx}"
+                        _ah_t.add_alias(_ah_tnm)
+                        reg(f"{_ah_tnm}-wbe.txt", _ah_t.out_wbe)
 
     # (4f) Speech-LLM SELF-attention DTW (voxtral + canary-qwen): the attention analog
     # of whisper's cross-attn timestamps. No published alignment-head masks exist for
@@ -3943,6 +4016,27 @@ def py():
                     )
                     _sa_al.add_alias(f"align/{_sa_name}-{_name_for_dict(_xa_ao)}{_sa_sfx}")
                     reg(f"align/{_sa_name}-{_name_for_dict(_xa_ao)}{_sa_sfx}-wbe.txt", _sa_al.out_wbe)
+                    # word-topology + DTW (no-blank) twins of the self-attn headline align.
+                    if _sa_sfx == "-en0.5-sil1.0":
+                        for _sa_kw, _sa_tsfx in [
+                            ({"word_topology": True}, "-wordtopo"),
+                            ({"dtw_no_blank": True}, "-dtw"),
+                            ({"whisper_dtw": True}, "-wdtw"),
+                        ]:
+                            _sa_t = WordAlignFromPerTokenGradsJob(
+                                grad_score_hdf=_sa_ex.out_hdf,
+                                grad_score_key="data",
+                                dataset_dir=_sa_dir,
+                                dataset_key=_sa_key,
+                                dataset_offset_factors=_sa_off,
+                                align_opts=_xa_ao,
+                                audio_energy_pow=_sa_ep,
+                                blank_silence_energy_scale=_sa_sc,
+                                **_sa_kw,
+                            )
+                            _sa_tnm = f"align/{_sa_name}-{_name_for_dict(_xa_ao)}{_sa_sfx}{_sa_tsfx}"
+                            _sa_t.add_alias(_sa_tnm)
+                            reg(f"{_sa_tnm}-wbe.txt", _sa_t.out_wbe)
 
     # (5) grad-score x energy/silence ablation on the headline whisper-char extract (shared; free aligns).
     _xa_whc = _xa_extract(whisper_char_cfg, None, "L2", False)

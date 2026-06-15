@@ -2203,7 +2203,7 @@ class Aligner:
                 if s % 2 != 0:  # non-sil new label
                     labels_start_end.append((t, t))
             if s % 2 != 0:  # in non-sil label
-                labels_start_end[-1] = (labels_start_end[-1][0], t - 1)  # update end
+                labels_start_end[-1] = (labels_start_end[-1][0], t)  # update end (incl. current frame)
             prev_s = s
         assert S == len(labels_start_end), f"{labels_start_end=}, {len(labels_start_end)=}, {alignment=}, {S=}, {T=}"
 

@@ -8,6 +8,67 @@ from i6_experiments.users.zeyer.external_models.huggingface import (
 )
 
 
+def _openai_dtw_path(cost):
+    """openai-whisper's DTW (whisper/timing.py dtw_cpu), copied. cost: [N,M]; returns the min-cost
+    monotonic path as a list of (text_idx, time_idx). Transitions: diagonal / up (text advances,
+    no time) / left (time advances, same text). Allows zero-duration tokens, unlike our Viterbi."""
+    import numpy as np
+
+    n, m = cost.shape
+    d = np.full((n + 1, m + 1), np.inf, dtype=np.float64)
+    tr = np.zeros((n + 1, m + 1), dtype=np.int8)
+    d[0, 0] = 0.0
+    tr[0, :] = 2  # came from left
+    tr[:, 0] = 1  # came from up
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            c0, c1, c2 = d[i - 1, j - 1], d[i - 1, j], d[i, j - 1]
+            if c0 <= c1 and c0 <= c2:
+                d[i, j] = cost[i - 1, j - 1] + c0
+                tr[i, j] = 0
+            elif c1 <= c2:
+                d[i, j] = cost[i - 1, j - 1] + c1
+                tr[i, j] = 1
+            else:
+                d[i, j] = cost[i - 1, j - 1] + c2
+                tr[i, j] = 2
+    i, j = n, m
+    path = []
+    while i > 0 or j > 0:
+        path.append((i - 1, j - 1))
+        t = tr[i, j]
+        if t == 0:
+            i, j = i - 1, j - 1
+        elif t == 1:
+            i -= 1
+        else:
+            j -= 1
+    path.reverse()
+    return path
+
+
+def _openai_dtw_align(score_matrix):
+    """Token start/end frames via openai's DTW on the score matrix. Same non-blank score transform
+    (log-softmax over time) as our Aligner, so only the DP differs."""
+    import numpy as np
+    from scipy.special import logsumexp
+
+    s, t = score_matrix.shape
+    logp = score_matrix - logsumexp(score_matrix, axis=1, keepdims=True)  # [S,T] log-softmax over time
+    path = _openai_dtw_path(-logp.astype(np.float64))  # cost = -logprob (path maximizes prob)
+    text = np.array([p[0] for p in path])
+    time = np.array([p[1] for p in path])
+    spans = []
+    for i in range(s):
+        fr = time[text == i]
+        if len(fr) == 0:
+            prev = spans[-1][1] if spans else 0
+            spans.append((prev, prev))
+        else:
+            spans.append((int(fr.min()), int(fr.max()) + 1))
+    return spans
+
+
 class WordAlignFromPerTokenGradsJob(Job):
     """Align per-token grad scores then collapse to word boundaries; compute WBE.
 
@@ -40,10 +101,12 @@ class WordAlignFromPerTokenGradsJob(Job):
         "with_confidence": False,
         "confidence_version": 1,
         "word_topology": False,
+        "dtw_no_blank": False,
+        "whisper_dtw": False,
     }
 
     # v2: emit the richer metric set (acc@collar, edge/interior, start/end MAE) via align_metrics.
-    __sis_version__ = 4  # +center_offset / center_abs / width_signed_err (uniform align_metrics keys)
+    __sis_version__ = 5  # boundary off-by-one fix (end frame t, was t-1 -> inverted 1-frame tokens)
 
     def __init__(
         self,
@@ -64,6 +127,8 @@ class WordAlignFromPerTokenGradsJob(Job):
         with_confidence: bool = False,
         confidence_version: int = 1,
         word_topology: bool = False,
+        dtw_no_blank: bool = False,
+        whisper_dtw: bool = False,
     ):
         """
         :param grad_score_hdf: from :class:`ExtractInGradsPerTokenJob`. Must
@@ -101,6 +166,10 @@ class WordAlignFromPerTokenGradsJob(Job):
         self.confidence_version = confidence_version
         # Word-aware DP topology: blank/silence only between words, not within (opt-in).
         self.word_topology = bool(word_topology)
+        # DTW-style: no blank/silence states at all (monotonic token->frame).
+        self.dtw_no_blank = bool(dtw_no_blank)
+        # Faithful openai-whisper DTW (their actual algorithm on the score matrix).
+        self.whisper_dtw = bool(whisper_dtw)
         assert boundary_source in ("word_detail", "phonetic_detail"), boundary_source
         assert not (self.blank_grad_zscore_kappa and self.blank_silence_energy_scale), (
             "blank_grad_zscore_kappa and blank_silence_energy_scale are mutually exclusive"
@@ -289,16 +358,28 @@ class WordAlignFromPerTokenGradsJob(Job):
 
             _conf = {} if getattr(self, "with_confidence", False) else None
             _blank_state_mask = None
-            if getattr(self, "word_topology", False):
+            if getattr(self, "dtw_no_blank", False):
+                # DTW analog: no INTERIOR silence (keep only the leading/trailing blank so a path
+                # exists even for short token sequences); inter-word pauses absorbed into words.
+                _blank_state_mask = np.array(
+                    [(i == 0 or i == chunk_num_tokens) for i in range(chunk_num_tokens + 1)], dtype=bool
+                )
+            elif getattr(self, "word_topology", False):
                 # Keep blank only at word boundaries (+ start/end); forbid intra-word blanks.
                 _word_starts = set(int(x) for x in np.cumsum(tokens_per_word)[:-1])
                 _blank_state_mask = np.array(
                     [(i == 0 or i == chunk_num_tokens or i in _word_starts) for i in range(chunk_num_tokens + 1)],
                     dtype=bool,
                 )
-            align_token_start_ends = aligner.align(
-                grad_mat, blank_override=blank_override, blank_state_mask=_blank_state_mask, collect_posteriors=_conf
-            )
+            if getattr(self, "whisper_dtw", False):
+                align_token_start_ends = _openai_dtw_align(grad_mat)
+            else:
+                align_token_start_ends = aligner.align(
+                    grad_mat,
+                    blank_override=blank_override,
+                    blank_state_mask=_blank_state_mask,
+                    collect_posteriors=_conf,
+                )
             assert len(align_token_start_ends) == chunk_num_tokens
 
             # Collapse to per-word boundaries (and token confidences to per-word).
