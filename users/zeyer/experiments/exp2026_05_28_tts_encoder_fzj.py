@@ -537,6 +537,20 @@ def py():
         pseudo_enc_frozen_table=get_mfa_phone_mean_logmel_table().out_mean_table,
         pseudo_enc_specaug_max_width=6,
     )
+    # Rung (d) WITH blank: the frozen MFA mean-logmel table, but blanks restored (0-3 frames) like the
+    # phoneme winner -- the apples-to-apples mfatable comparison (blank gave -0.67 abs dev-other for the
+    # trained embedding). Blank row = [space] silence acoustics (frozen-table loader, by design).
+    _train_tts_encoder(
+        "pseudo-enc-logmel-mfatable",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_frozen_table=get_mfa_phone_mean_logmel_table().out_mean_table,
+        pseudo_enc_specaug_max_width=6,
+    )
     # Encoder-share / layer-split injection (earlier study's insight #1), at the ENC frame rate:
     # the pseudo features live in the encoder model space and enter the Conformer at layer N directly
     # (no conv front-end on the text branch -- this matches the earlier study's injection point;
