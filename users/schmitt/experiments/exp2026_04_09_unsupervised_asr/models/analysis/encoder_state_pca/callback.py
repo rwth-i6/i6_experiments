@@ -24,6 +24,39 @@ def _project(samples: np.ndarray, mean: np.ndarray, components: np.ndarray) -> n
     return (samples.astype(np.float32) - mean[None]) @ components
 
 
+def _l2_normalize(x: np.ndarray) -> np.ndarray:
+    x = x.astype(np.float64)
+    return x / np.clip(np.linalg.norm(x, axis=1, keepdims=True), 1e-12, None)
+
+
+def _avg_pairwise_cosine_distance(x: np.ndarray, y: Optional[np.ndarray] = None) -> float:
+    """
+    Average pairwise cosine distance (``1 - cosine_similarity``) in the *original* feature space.
+
+    Operates on the raw (pre-PCA) encoder states, so it is not affected by the 2D PCA collapse.
+
+    :param x: ``[N, F]`` states.
+    :param y: if given, ``[M, F]`` states from the other modality -> average over all cross pairs
+        (x_i, y_j). If ``None`` -> average over all distinct within-set pairs (i < j) of ``x``.
+    :return: mean cosine distance, or ``nan`` if there are no valid pairs.
+    """
+    x_norm = _l2_normalize(x)
+    if y is None:
+        n = x_norm.shape[0]
+        if n < 2:
+            return float("nan")
+        sims = x_norm @ x_norm.T
+        # sum over off-diagonal entries = sum over ordered pairs i!=j; divide by their count
+        off_diag_sum = float(sims.sum() - np.trace(sims))
+        mean_sim = off_diag_sum / (n * (n - 1))
+        return mean_sim
+    y_norm = _l2_normalize(y)
+    if x_norm.shape[0] == 0 or y_norm.shape[0] == 0:
+        return float("nan")
+    mean_sim = float((x_norm @ y_norm.T).mean())
+    return mean_sim
+
+
 class EncoderStatePcaCallback(ForwardCallbackIface):
     """
     Forward callback for the shared-encoder state PCA analysis.
@@ -47,6 +80,7 @@ class EncoderStatePcaCallback(ForwardCallbackIface):
         max_points_per_modality: int = 50_000,
         plot_seq_tags: Optional[List[str]] = None,
         max_plotted_seqs: int = 20,
+        cosine_distance_summary: bool = False,
         audio_output: str = "audio_states",
         text_output: str = "text_states",
         vocab=None,  # injected by serialize_forward; unused here (we plot states, not labels)
@@ -55,6 +89,9 @@ class EncoderStatePcaCallback(ForwardCallbackIface):
         self.max_points_per_modality = max_points_per_modality
         self.plot_seq_tags = set(plot_seq_tags) if plot_seq_tags is not None else None
         self.max_plotted_seqs = max_plotted_seqs
+        # if True, also summarize avg pairwise cosine distances (within/between modalities) in the
+        # original feature space, which -- unlike the 2D PCA -- is not distorted by dim reduction.
+        self.cosine_distance_summary = cosine_distance_summary
         self.audio_output = audio_output
         self.text_output = text_output
 
@@ -131,24 +168,45 @@ class EncoderStatePcaCallback(ForwardCallbackIface):
 
         paired_seq_tags = sorted(set(self._audio_seqs) & set(self._text_seqs))
 
+        # seq_tag -> {"audio_audio", "text_text", "audio_text"} avg pairwise cosine distances
+        cosine_distances: Dict[str, Dict[str, float]] = {}
+
         with open(os.path.join(self.out_dir, "summary.txt"), "w") as summary:
             summary.write(f"pooled_audio_points={self._audio_pool_size}\n")
             summary.write(f"pooled_text_points={self._text_pool_size}\n")
             summary.write(f"num_paired_seqs={len(paired_seq_tags)}\n")
 
             for seq_tag in paired_seq_tags:
-                audio_coords = _project(self._audio_seqs[seq_tag], mean, components)
-                text_coords = _project(self._text_seqs[seq_tag], mean, components)
+                audio_states = self._audio_seqs[seq_tag]
+                text_states = self._text_seqs[seq_tag]
+                audio_coords = _project(audio_states, mean, components)
+                text_coords = _project(text_states, mean, components)
 
-                safe_seq_tag = seq_tag.replace("/", "_")
-                np.savez(
-                    os.path.join(self.out_dir, f"{safe_seq_tag}.npz"),
+                npz_data = dict(
                     seq_tag=seq_tag,
                     audio_coords=audio_coords,
                     text_coords=text_coords,
                     audio_time_idx=np.arange(audio_coords.shape[0]),
                     text_time_idx=np.arange(text_coords.shape[0]),
                 )
+
+                if self.cosine_distance_summary:
+                    # computed on the raw encoder states (original feature space), not on the
+                    # 2D PCA coordinates.
+                    cos = {
+                        "audio_audio": _avg_pairwise_cosine_distance(audio_states),
+                        "text_text": _avg_pairwise_cosine_distance(text_states),
+                        "audio_text": _avg_pairwise_cosine_distance(audio_states, text_states),
+                    }
+                    cosine_distances[seq_tag] = cos
+                    npz_data.update(
+                        audio_audio_cos_dist=cos["audio_audio"],
+                        text_text_cos_dist=cos["text_text"],
+                        audio_text_cos_dist=cos["audio_text"],
+                    )
+
+                safe_seq_tag = seq_tag.replace("/", "_")
+                np.savez(os.path.join(self.out_dir, f"{safe_seq_tag}.npz"), **npz_data)
 
                 plt.figure(figsize=(8, 8))
                 plt.scatter(audio_coords[:, 0], audio_coords[:, 1], s=18, alpha=0.7, label="audio", c="#1f77b4")
@@ -157,7 +215,14 @@ class EncoderStatePcaCallback(ForwardCallbackIface):
                     plt.plot(audio_coords[:, 0], audio_coords[:, 1], alpha=0.35, c="#1f77b4")
                 if len(text_coords) > 1:
                     plt.plot(text_coords[:, 0], text_coords[:, 1], alpha=0.35, c="#d62728")
-                plt.title(f"Shared encoder PCA for {seq_tag}")
+                title = f"Shared encoder PCA for {seq_tag}"
+                if self.cosine_distance_summary:
+                    cos = cosine_distances[seq_tag]
+                    title += (
+                        f"\navg cos-dist (orig. space)  a-a {cos['audio_audio']:.3f}"
+                        f"  t-t {cos['text_text']:.3f}  a-t {cos['audio_text']:.3f}"
+                    )
+                plt.title(title)
                 plt.xlabel("PC1")
                 plt.ylabel("PC2")
                 plt.legend()
@@ -168,3 +233,23 @@ class EncoderStatePcaCallback(ForwardCallbackIface):
                 summary.write(
                     f"{seq_tag} audio_points={audio_coords.shape[0]} text_points={text_coords.shape[0]}\n"
                 )
+
+        if self.cosine_distance_summary:
+            self._write_cosine_summary(cosine_distances)
+
+    def _write_cosine_summary(self, cosine_distances: Dict[str, Dict[str, float]]) -> None:
+        """Write a human-readable table of avg pairwise cosine distances + overall means."""
+        keys = ("audio_audio", "text_text", "audio_text")
+        with open(os.path.join(self.out_dir, "cosine_distances.txt"), "w") as f:
+            f.write("# average pairwise cosine distance (1 - cos sim) in the original feature space\n")
+            f.write("# (NOT the 2D PCA space); a-a = within audio, t-t = within text, a-t = audio<->text\n")
+            f.write(f"{'seq_tag':<60} {'a-a':>8} {'t-t':>8} {'a-t':>8}\n")
+            for seq_tag in sorted(cosine_distances):
+                cos = cosine_distances[seq_tag]
+                f.write(f"{seq_tag:<60} {cos['audio_audio']:>8.4f} {cos['text_text']:>8.4f} {cos['audio_text']:>8.4f}\n")
+            f.write("-" * 88 + "\n")
+            means = {
+                k: float(np.nanmean([cos[k] for cos in cosine_distances.values()])) if cosine_distances else float("nan")
+                for k in keys
+            }
+            f.write(f"{'MEAN over seqs':<60} {means['audio_audio']:>8.4f} {means['text_text']:>8.4f} {means['audio_text']:>8.4f}\n")
