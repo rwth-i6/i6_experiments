@@ -28,7 +28,7 @@ class PlotGradAlignJob(Job):
     """
 
     # v2: show the actual DP emission (softmax-over-time) + silence strip + per-token (char) y-labels.
-    __sis_version__ = 2
+    __sis_version__ = 3  # Aligner boundary off-by-one fix (end frame t, was t-1)
     __sis_hash_exclude__ = {"tokenizer_dir": None}
 
     def __init__(

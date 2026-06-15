@@ -29,6 +29,7 @@ from i6_experiments.users.zeyer.external_models.huggingface import (
 class WordAlignFromPerTokenGradsExtMetricsJob(Job):
     """See module docstring."""
 
+    __sis_version__ = 1  # Aligner boundary off-by-one fix (end frame t, was t-1)
     __sis_hash_exclude__ = {"hyps_text_dict": None}
 
     def __init__(
@@ -144,9 +145,7 @@ class WordAlignFromPerTokenGradsExtMetricsJob(Job):
             ref_words: List[str] = list(data["word_detail"]["utterance"])
             ref_starts = [t * self.dataset_offset_factors / samplerate for t in data["word_detail"]["start"]]
             ref_ends = [t * self.dataset_offset_factors / samplerate for t in data["word_detail"]["stop"]]
-            assert len(align_word_se) == len(ref_words), (
-                f"forced: {len(align_word_se)=} vs {len(ref_words)=}"
-            )
+            assert len(align_word_se) == len(ref_words), f"forced: {len(align_word_se)=} vs {len(ref_words)=}"
 
             seq_tag = f"seq-{seq_idx}"
             word_boundaries[seq_tag] = [

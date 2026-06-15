@@ -35,6 +35,8 @@ class SelectSelfAttnAlignHeadsJob(Job):
     boundaries are compared to the gold ones, and heads are ranked by mean WBE.
     """
 
+    __sis_version__ = 1  # Aligner boundary off-by-one fix (end frame t, was t-1)
+
     # Default (subword, no upsample) keeps the original hash -> finished subword head-sel
     # jobs reuse; only char rows (True) re-hash and run fresh.
     __sis_hash_exclude__ = {"time_upsample_when_short": False}

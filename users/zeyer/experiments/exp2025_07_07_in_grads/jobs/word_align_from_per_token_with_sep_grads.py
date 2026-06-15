@@ -25,6 +25,8 @@ class WordAlignFromPerTokenWithSepGradsJob(Job):
     Single-chunk only for now.
     """
 
+    __sis_version__ = 1  # Aligner boundary off-by-one fix (end frame t, was t-1)
+
     def __init__(
         self,
         *,
@@ -118,9 +120,7 @@ class WordAlignFromPerTokenWithSepGradsJob(Job):
                 k = num_tokens_per_word[w]
                 first = token_se[cursor]
                 last = token_se[cursor + k - 1]
-                align_word_start_ends.append(
-                    (first[0] * secs_per_tf, last[1] * secs_per_tf)
-                )
+                align_word_start_ends.append((first[0] * secs_per_tf, last[1] * secs_per_tf))
                 cursor += k
                 if w < num_words - 1:
                     cursor += num_inter_word_tokens[w]

@@ -1534,6 +1534,8 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
 
 
 class CalcAlignmentMetricsJob(Job):
+    __sis_version__ = 1  # Aligner boundary off-by-one fix (end frame t, was t-1)
+
     def __init__(
         self,
         *,
@@ -1661,6 +1663,8 @@ class CalcAlignmentMetricsJob(Job):
 
 
 class CalcChunkedAlignmentMetricsJob(Job):
+    __sis_version__ = 1  # Aligner boundary off-by-one fix (end frame t, was t-1)
+
     def __init__(
         self,
         *,
