@@ -10,6 +10,7 @@ from i6_core.returnn.config import CodeWrapper, ReturnnConfig
 
 from . import learning_rate_configs
 from .tune_eval import eval_model
+from .analysis import analyze_encoder_states
 from .pipeline import training
 from .default_tools import RETURNN_EXE, RETURNN_ROOT
 from ..models.recognition.discrete_audio_aed.beam_search import DecoderConfig
@@ -149,6 +150,32 @@ def run_eval(
     )
 
 
+def run_analysis(
+    training_name: str,
+    train_job,
+    train_args,
+    config: Dict,
+    train_data,
+    test_data_dict: Dict[str, Tuple],
+    checkpoints: List[Union[int, str]],
+    analysis_name: str = "encoder_pca",
+    extra_forward_config: Optional[ReturnnConfig] = None,
+    **analysis_kwargs,
+):
+    analyze_encoder_states(
+        config={**config["general"], **config.get("recog", {})},
+        training_name=training_name,
+        analysis_name=analysis_name,
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data,
+        test_data_dict=test_data_dict,
+        checkpoints=checkpoints,
+        extra_forward_config=extra_forward_config,
+        **analysis_kwargs,
+    )
+
+
 def run_experiment(
     training_name: str,
     config: Dict,
@@ -167,6 +194,7 @@ def run_experiment(
     cleanup_old_models: Optional[Dict[str, Any]] = None,
     skip_eval: bool = False,
     recog_post_proc_funcs: Optional[List[Callable[[tk.Path], tk.Path]]] = None,
+    analysis_opts: Optional[Dict[str, Any]] = None,
 ):
     train_job, train_args = run_train(
         training_name=training_name,
@@ -176,6 +204,17 @@ def run_experiment(
         additional_configs=additional_configs,
         cleanup_old_models=cleanup_old_models,
     )
+
+    if analysis_opts is not None:
+        run_analysis(
+            training_name=training_name,
+            train_job=train_job,
+            train_args=train_args,
+            config=copy.deepcopy(config),
+            train_data=train_data,
+            test_data_dict=test_data_dict,
+            **analysis_opts,
+        )
 
     if skip_eval:
         return train_job
