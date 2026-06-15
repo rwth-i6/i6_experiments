@@ -44,7 +44,10 @@ def get_training_config(
 
     # changing these does not change the hash
     base_post_config = {
-        "stop_on_nonfinite_train_score": True,
+        # NOTE: stop_on_nonfinite_train_score is functional (it decides whether a non-finite
+        # train score aborts training), so it must NOT live in the non-hashed post_config.
+        # RETURNN defaults it to True; set it explicitly in the (hashed) training config when
+        # a specific experiment needs a different value.
         "backend": "torch",
         "torch_log_memory_usage": True,
         "watch_memory": True,
