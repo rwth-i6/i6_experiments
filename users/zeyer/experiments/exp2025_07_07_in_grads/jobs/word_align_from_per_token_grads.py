@@ -42,7 +42,7 @@ class WordAlignFromPerTokenGradsJob(Job):
     }
 
     # v2: emit the richer metric set (acc@collar, edge/interior, start/end MAE) via align_metrics.
-    __sis_version__ = 3  # +word_boundaries.hdf output & signed-offset metric (align_metrics)
+    __sis_version__ = 4  # +center_offset / center_abs / width_signed_err (uniform align_metrics keys)
 
     def __init__(
         self,

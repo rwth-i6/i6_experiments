@@ -4009,6 +4009,21 @@ def py():
             "L2",
             False,
         ),
+        # Normalized-gradient (ICLR 2024) applied at EXTRACTION (not training): reweight the
+        # per-class emission gradient by clamped inverse occupancy to de-emphasize blank's
+        # diffuse gradient (probe on the documented Wav2Vec2-CTC front-loading; same MMS_FA
+        # forced-align reference). C05_11 = the paper's clamp (0.5, 1.1).
+        (
+            rf.build_dict(
+                Wav2Vec2Ctc,
+                grad_wrt="feat_proj_out",
+                per_token_score="prefix_fwd",
+                normed_grad_opts={"clamp_min": 0.5, "clamp_max": 1.1, "prior_exp": 1.0},
+            ),
+            f"wav2vec2ctc-fproj_out-prefixfwd-normedgradC05_11-{_xa_tag}-L2_grad-pertoken",
+            "L2",
+            False,
+        ),
         (
             rf.build_dict(
                 Wav2Vec2PhonemeCtc,

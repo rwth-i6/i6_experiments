@@ -62,6 +62,7 @@ class Wav2Vec2Ctc(BaseModelInterface):
         include_next_blank: Union[bool, str] = True,
         per_token_score: Optional[str] = None,
         stop_grad_blank: bool = False,
+        normed_grad_opts: Optional[dict] = None,
         grad_wrt: str = "feat_extract_out",
         raw_pool: int = 320,
         disable_self_attention: Optional[str] = None,
@@ -128,6 +129,10 @@ class Wav2Vec2Ctc(BaseModelInterface):
         # per_token_score (shared ctc_partial modes) overrides include_next_blank when set; None = legacy.
         self.per_token_score = per_token_score
         self.stop_grad_blank = bool(stop_grad_blank)
+        # ICLR-2024 normalized-gradient applied at extraction (not training): reweight the
+        # per-class emission gradient by clamped inverse occupancy. dict(clamp_min, clamp_max,
+        # prior_exp) or None (off). See `_maybe_register_normed_grad`.
+        self.normed_grad_opts = dict(normed_grad_opts) if normed_grad_opts else None
         _valid_grad_wrt = {"feat_extract_out", "raw_waveform", "feat_proj_layernorm", "feat_proj_out"} | {
             f"conv{i}" for i in range(7)
         }
@@ -325,6 +330,35 @@ class Wav2Vec2Ctc(BaseModelInterface):
             raise ValueError(f"invalid include_next_blank: {inb!r}")
         return numerator - denominator  # [S]
 
+    def _maybe_register_normed_grad(self, emission: torch.Tensor, t_feat) -> None:
+        """Reweight the per-class emission gradient by the clamped inverse occupancy.
+
+        The ICLR-2024 normalized-gradient idea (counteract blank's class imbalance), but
+        applied at grad-align extraction on the frozen model instead of in training: identity
+        in the forward, and in the backward the gradient on class ``j`` is scaled by
+        ``clamp((upsilon_j * V) ** -prior_exp, clamp_min, clamp_max)``, where ``upsilon`` is the
+        posterior occupancy averaged over the seq's valid frames. This down-weights blank's
+        diffuse gradient so it front-loads the per-token saliency less.
+        """
+        opts = self.normed_grad_opts
+        if not opts:
+            return
+        clamp_min = float(opts.get("clamp_min", 0.5))
+        clamp_max = float(opts.get("clamp_max", 1.1))
+        prior_exp = float(opts.get("prior_exp", 1.0))
+        bsz, t_max, vocab = emission.shape
+        with torch.no_grad():
+            post = torch.softmax(emission.float(), dim=-1)  # [B, T, V]
+            if torch.is_tensor(t_feat):
+                lens = t_feat.to(emission.device).long()
+            else:
+                lens = torch.full((bsz,), int(t_feat), device=emission.device, dtype=torch.long)
+            frame_idx = torch.arange(t_max, device=emission.device)[None, :]  # [1, T]
+            mask = (frame_idx < lens[:, None]).to(post.dtype)[:, :, None]  # [B, T, 1]
+            upsilon = (post * mask).sum(dim=1, keepdim=True) / mask.sum(dim=1, keepdim=True).clamp_min(1.0)
+            weight = (upsilon * vocab).clamp_min(1e-6).pow(-prior_exp).clamp(clamp_min, clamp_max)  # [B,1,V]
+        emission.register_hook(lambda grad: grad * weight)
+
     # ---- Forward (forced alignment) -------------------------------------
 
     def forward(
@@ -465,6 +499,8 @@ class Wav2Vec2Ctc(BaseModelInterface):
                 return grad
 
             emission.register_hook(_zero_blank_grad)
+
+        self._maybe_register_normed_grad(emission, t_feat)
 
         log_probs = torch.log_softmax(emission.float(), dim=-1)  # [1, T_feat, V]
         vocab_size = int(log_probs.shape[-1])
@@ -639,6 +675,8 @@ class Wav2Vec2Ctc(BaseModelInterface):
                 return grad
 
             emission.register_hook(_zero_blank_grad)
+
+        self._maybe_register_normed_grad(emission, t_feat)
 
         log_probs = torch.log_softmax(emission.float(), dim=-1)  # [B, T_feat_max, V]
         vocab_size = int(log_probs.shape[-1])
