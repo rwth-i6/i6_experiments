@@ -95,4 +95,10 @@ def py():
         test_data_dict=test_data_dict,
         keep_epochs=get_keep_epochs(base_num_epochs),
         skip_eval=False,
+        # run the shared-encoder PCA analysis (models/analysis/encoder_state_pca) on the final
+        # checkpoint, plotting the audio vs. text encoder states of a few dev-other sequences.
+        analysis_opts={
+            "checkpoints": [base_num_epochs],
+            "max_plotted_seqs": 20,
+        },
     )
