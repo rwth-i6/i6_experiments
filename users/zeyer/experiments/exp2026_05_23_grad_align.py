@@ -3467,7 +3467,15 @@ def py():
             dataset_offset_factors=_bk_off,
         )
         _sv_mfa.add_alias(f"baseline-mfa-{_sv_tag}")
-        reg(f"baseline-mfa-{_sv_tag}-wbe.txt", _sv_mfa.out_wbe)
+        # Offset stats (center/width/|center|) from the SAVED MFA boundaries -- no aligner rerun,
+        # same pattern as the MMS_FA row above. Repoint wbe.txt so its sibling metrics.txt is uniform.
+        _sv_mfa_m = CalcAlignmentMetricsFromWordBoundariesJob(
+            word_boundaries_hdf=_sv_mfa.out_word_boundaries_hdf,
+            dataset_dir=_sv_dir,
+            dataset_key="test",
+            dataset_offset_factors=_bk_off,
+        )
+        reg(f"baseline-mfa-{_sv_tag}-wbe.txt", _sv_mfa_m.out_wbe)
 
         # grad-align surfaces (en0.5-sil1.0): AED-Whisper char + CTC-Wav2Vec2
         for _cfg, _nmt, _attr, _mgi in _seg_grad_methods:
