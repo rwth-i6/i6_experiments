@@ -65,6 +65,10 @@ def aggregate_corpus(
     # signed offsets (macro per-utt then over utts), like start_mae/end_mae but keeping sign.
     utt_start_signed = [sum(u["start_signed"]) / len(u["start_signed"]) for u in utt_errors]
     utt_end_signed = [sum(u["end_signed"]) / len(u["end_signed"]) for u in utt_errors]
+    # per-utt mean |word-center offset| (= |0.5*(start+end) signed|): width-robust accuracy.
+    utt_center_abs = [
+        sum(abs(0.5 * (s + e)) for s, e in zip(u["start_signed"], u["end_signed"])) / len(u["wbe"]) for u in utt_errors
+    ]
     # edge = first + last word; interior = the rest.
     utt_edge, utt_interior = [], []
     for u in utt_errors:
@@ -88,6 +92,10 @@ def aggregate_corpus(
         "start_signed_mean": mean(utt_start_signed),
         "end_signed_mean": mean(utt_end_signed),
         "signed_mean": mean(utt_start_signed + utt_end_signed),
+        # center (midpoint) signed offset, word-width signed error, |center| (width-robust accuracy):
+        "center_offset": (mean(utt_start_signed) + mean(utt_end_signed)) / 2,
+        "width_signed_err": mean(utt_end_signed) - mean(utt_start_signed),
+        "center_abs": mean(utt_center_abs),
         "edge_wbe": mean(utt_edge),
         "interior_wbe": mean(utt_interior),
         "n_utt": float(n_utt),

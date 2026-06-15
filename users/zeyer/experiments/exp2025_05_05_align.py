@@ -1822,7 +1822,8 @@ class CalcAlignmentMetricsFromWordBoundariesJob(Job):
     """
 
     # v2: emit the richer metric set (acc@collar, edge/interior, start/end MAE) via align_metrics.
-    __sis_version__ = 2
+    # v3: + center_offset / width_signed_err / center_abs.
+    __sis_version__ = 3
 
     def __init__(
         self,

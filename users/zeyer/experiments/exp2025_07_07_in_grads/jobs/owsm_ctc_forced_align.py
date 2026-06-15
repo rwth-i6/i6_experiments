@@ -19,6 +19,8 @@ from i6_experiments.users.zeyer.external_models.huggingface import (
 class OwsmCtcForcedAlignJob(Job):
     """torchaudio CTC forced-alignment of reference words on espnet/owsm_ctc_v4_1B (per emit block)."""
 
+    __sis_version__ = 2  # center_offset / width_signed_err / center_abs (align_metrics)
+
     @classmethod
     def hash(cls, parsed_args):
         # layer=None (final block) is the default -> drop it so a per-block table that adds the

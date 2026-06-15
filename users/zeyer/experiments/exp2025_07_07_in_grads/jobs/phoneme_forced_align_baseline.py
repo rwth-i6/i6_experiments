@@ -25,6 +25,8 @@ from i6_experiments.users.zeyer.external_models.huggingface import (
 class ForcedAlignPhonemeBaselineJob(Job):
     """CTC forced-alignment (torchaudio) of TIMIT phones on the vitouphy model."""
 
+    __sis_version__ = 2  # center_offset / width_signed_err / center_abs (align_metrics)
+
     @classmethod
     def hash(cls, parsed_args):
         # keep finished param-noise/baseline jobs' hashes: the perturb kwargs are

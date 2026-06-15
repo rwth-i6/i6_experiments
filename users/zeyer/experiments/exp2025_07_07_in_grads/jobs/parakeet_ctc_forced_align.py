@@ -24,6 +24,7 @@ class ParakeetCtcForcedAlignJob(Job):
     # model_config (opt-in, hash-excluded when None) generalizes this to any CTC model with a
     # forced_align_words() method (e.g. streaming FastConformer); None keeps the ParakeetCtc path.
     __sis_hash_exclude__ = {"model_config": None}
+    __sis_version__ = 2  # center_offset / width_signed_err / center_abs (align_metrics)
 
     def __init__(
         self,
