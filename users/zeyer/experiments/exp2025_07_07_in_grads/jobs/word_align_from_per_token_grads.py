@@ -39,6 +39,7 @@ class WordAlignFromPerTokenGradsJob(Job):
         "with_ref_metrics": True,
         "with_confidence": False,
         "confidence_version": 1,
+        "word_topology": False,
     }
 
     # v2: emit the richer metric set (acc@collar, edge/interior, start/end MAE) via align_metrics.
@@ -62,6 +63,7 @@ class WordAlignFromPerTokenGradsJob(Job):
         with_ref_metrics: bool = True,
         with_confidence: bool = False,
         confidence_version: int = 1,
+        word_topology: bool = False,
     ):
         """
         :param grad_score_hdf: from :class:`ExtractInGradsPerTokenJob`. Must
@@ -97,6 +99,8 @@ class WordAlignFromPerTokenGradsJob(Job):
         self.with_ref_metrics = with_ref_metrics
         self.with_confidence = with_confidence
         self.confidence_version = confidence_version
+        # Word-aware DP topology: blank/silence only between words, not within (opt-in).
+        self.word_topology = bool(word_topology)
         assert boundary_source in ("word_detail", "phonetic_detail"), boundary_source
         assert not (self.blank_grad_zscore_kappa and self.blank_silence_energy_scale), (
             "blank_grad_zscore_kappa and blank_silence_energy_scale are mutually exclusive"
@@ -284,7 +288,17 @@ class WordAlignFromPerTokenGradsJob(Job):
                 grad_mat = grad_mat / (uniform_filter1d(grad_mat, _w, axis=1, mode="nearest") + 1e-9)
 
             _conf = {} if getattr(self, "with_confidence", False) else None
-            align_token_start_ends = aligner.align(grad_mat, blank_override=blank_override, collect_posteriors=_conf)
+            _blank_state_mask = None
+            if getattr(self, "word_topology", False):
+                # Keep blank only at word boundaries (+ start/end); forbid intra-word blanks.
+                _word_starts = set(int(x) for x in np.cumsum(tokens_per_word)[:-1])
+                _blank_state_mask = np.array(
+                    [(i == 0 or i == chunk_num_tokens or i in _word_starts) for i in range(chunk_num_tokens + 1)],
+                    dtype=bool,
+                )
+            align_token_start_ends = aligner.align(
+                grad_mat, blank_override=blank_override, blank_state_mask=_blank_state_mask, collect_posteriors=_conf
+            )
             assert len(align_token_start_ends) == chunk_num_tokens
 
             # Collapse to per-word boundaries (and token confidences to per-word).

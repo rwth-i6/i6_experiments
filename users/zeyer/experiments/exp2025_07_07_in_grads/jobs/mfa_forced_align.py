@@ -66,7 +66,7 @@ class MfaForcedAlignJob(Job):
 
     # v2: job-local MFA_ROOT_DIR (concurrency-safe model unpack) + default textgrid cleanup (1:1 word
     # counts). Forces a re-run of the v1 attempts (timit errored, buckeye 0-coverage).
-    __sis_version__ = 2
+    __sis_version__ = 3  # rerun: old finished job lacks word_boundaries.hdf + offset metric keys
 
     def __init__(
         self,

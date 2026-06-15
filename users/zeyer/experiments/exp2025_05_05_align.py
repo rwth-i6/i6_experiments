@@ -2017,6 +2017,7 @@ class Aligner:
         *,
         plot_filename: Optional[str] = None,
         blank_override: Optional[np.ndarray] = None,
+        blank_state_mask: Optional[np.ndarray] = None,
         collect_posteriors: Optional[dict] = None,
     ) -> List[Tuple[int, int]]:
         """
@@ -2136,6 +2137,13 @@ class Aligner:
             score_matrix_[:, 0::2] = blank_score[:, None]
         else:
             raise ValueError(f"invalid blank_score {self.blank_score!r} setting")
+
+        if blank_state_mask is not None:
+            # Word-aware topology: forbid blank/silence on the intra-word blank states (keep blank
+            # only at word boundaries + start/end). Safe because the topology allows a direct
+            # label->label skip, so repeated chars within a word still align.
+            _blank_cols = np.arange(0, 2 * S + 1, 2)
+            score_matrix_[:, _blank_cols[~np.asarray(blank_state_mask, dtype=bool)]] = -np.inf
 
         # The first two states are valid start states.
         align_scores[0, :2] = score_matrix_[0, :2]

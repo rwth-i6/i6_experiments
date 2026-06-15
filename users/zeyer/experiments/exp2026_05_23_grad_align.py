@@ -3467,15 +3467,7 @@ def py():
             dataset_offset_factors=_bk_off,
         )
         _sv_mfa.add_alias(f"baseline-mfa-{_sv_tag}")
-        # Offset stats (center/width/|center|) from the SAVED MFA boundaries -- no aligner rerun,
-        # same pattern as the MMS_FA row above. Repoint wbe.txt so its sibling metrics.txt is uniform.
-        _sv_mfa_m = CalcAlignmentMetricsFromWordBoundariesJob(
-            word_boundaries_hdf=_sv_mfa.out_word_boundaries_hdf,
-            dataset_dir=_sv_dir,
-            dataset_key="test",
-            dataset_offset_factors=_bk_off,
-        )
-        reg(f"baseline-mfa-{_sv_tag}-wbe.txt", _sv_mfa_m.out_wbe)
+        reg(f"baseline-mfa-{_sv_tag}-wbe.txt", _sv_mfa.out_wbe)
 
         # grad-align surfaces (en0.5-sil1.0): AED-Whisper char + CTC-Wav2Vec2
         for _cfg, _nmt, _attr, _mgi in _seg_grad_methods:
@@ -3583,8 +3575,10 @@ def py():
             reg(f"{name}.hdf", ex.out_hdf)
         return ex
 
-    def _xa_align(ex, name, sfx, energy=0.5, sil=1.0, zsk=None):
+    def _xa_align(ex, name, sfx, energy=0.5, sil=1.0, zsk=None, word_topology=False):
         kw = {"blank_grad_zscore_kappa": zsk} if zsk is not None else {"blank_silence_energy_scale": sil}
+        if word_topology:
+            kw["word_topology"] = True
         al = WordAlignFromPerTokenGradsJob(
             grad_score_hdf=ex.out_hdf,
             grad_score_key="data",
@@ -4069,8 +4063,24 @@ def py():
     ]:
         # batched_backward for the prefix_fwd CTC extracts (vmap per-token VJP, ~tokens-per-word
         # faster, mathematically identical). bb=False for the rest keeps their hash unchanged.
-        _xa_s_ex = _xa_extract(_xa_s_cfg, _xa_s_name, _xa_s_attr, _xa_s_mgi, time=24, bb="prefixfwd" in _xa_s_name)
+        _xa_s_ex = _xa_extract(_xa_s_cfg, _xa_s_name, _xa_s_attr, _xa_s_mgi, time=24, bb="prefix" in _xa_s_name)
         _xa_align(_xa_s_ex, _xa_s_name, "en0.5-sil1.0")
+    # Word-aware DP topology probe (blank only between words, not within): the documented Wav2Vec2-CTC
+    # front-loading case + an AED model (whisper-char). Same DP, so it also covers the self-attn path.
+    _wt_w2v_ex = _xa_extract(
+        rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out", per_token_score="prefix_fwd"),
+        f"wav2vec2ctc-fproj_out-prefixfwd-{_xa_tag}-L2_grad-pertoken",
+        "L2",
+        False,
+        bb=True,
+    )
+    _xa_align(
+        _wt_w2v_ex,
+        f"wav2vec2ctc-fproj_out-prefixfwd-{_xa_tag}-L2_grad-pertoken",
+        "en0.5-sil1.0-wordtopo",
+        word_topology=True,
+    )
+    _xa_align(_xa_whc, _xa_whc_name, "en0.5-sil1.0-wordtopo", word_topology=True)
     # Nvidia CTC posteriors baseline on segA: torchaudio CTC forced-align on parakeet-ctc's own emission.
     _xa_pc_fa = ParakeetCtcForcedAlignJob(
         dataset_dir=_xa_dir,
