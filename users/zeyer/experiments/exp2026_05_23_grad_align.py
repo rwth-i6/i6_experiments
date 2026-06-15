@@ -845,39 +845,6 @@ def py():
     )
     reg("baseline-emformer-rnnt-native-viterbi-timit-val-wbe.txt", _em_nt_m.out_wbe)
 
-    # --- Streaming FastConformer (NeMo hybrid CTC + RNN-T, cache-aware streaming): the streaming
-    # representative -- streaming CTC + streaming transducer from one checkpoint. att_context_size
-    # [70, 6] ~= 480 ms look-ahead. Two grad extracts first to GPU-verify the wrapper end-to-end.
-    _fc_att = [70, 6]
-    fc_ctc_cfg = rf.build_dict(
-        FastConformerStreaming,
-        model_dir=dl_fc_stream.out_hub_cache_dir,
-        overlay_path=_NEMO_OVERLAY,
-        head="ctc",
-        att_context_size=_fc_att,
-    )
-    fc_rnnt_cfg = rf.build_dict(
-        FastConformerStreaming,
-        model_dir=dl_fc_stream.out_hub_cache_dir,
-        overlay_path=_NEMO_OVERLAY,
-        head="rnnt",
-        att_context_size=_fc_att,
-    )
-    for _fc_cfg, _fc_name in [
-        (fc_ctc_cfg, "fastconformer-stream-ctc-timit-test-L2_grad-pertoken"),
-        (fc_rnnt_cfg, "fastconformer-stream-rnnt-timit-test-L2_grad-pertoken"),
-    ]:
-        _fc_ex = ExtractInGradsPerTokenJob(
-            dataset_dir=dl_ds_timit.out_hub_cache_dir,
-            dataset_key="test",
-            model_config=_fc_cfg,
-            mult_grad_by_inputs=False,
-            attr_reduction="L2",
-        )
-        _fc_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-        _fc_ex.add_alias(_fc_name)
-        reg(f"{_fc_name}.hdf", _fc_ex.out_hdf)
-
     # Parakeet RNN-T 1.1B (NeMo FastConformer-Transducer): a STRONG leaderboard-grade
     # transducer, vs the tiny Emformer base above (139 ms).
     # Same proper RNN-T prefix-score; log-mel grad target (~100 Hz). + energy/silence.
@@ -3724,6 +3691,74 @@ def py():
                 dataset_offset_factors=_nt_off,
             )
             reg(f"baseline-{_nt_name}-native-viterbi-{_nt_tag}-wbe.txt", _nt_m.out_wbe)
+
+    # --- Streaming FastConformer (NeMo hybrid CTC + RNN-T, cache-aware streaming): one checkpoint
+    # gives a streaming CTC and a streaming transducer. att_context_size [70,6] ~= 480 ms look-ahead.
+    # Both heads GPU-verified. grad (CTC+RNN-T) + CTC forced-align + RNN-T native-viterbi, test+segA.
+    _fc_att = [70, 6]
+    fc_ctc_cfg = rf.build_dict(
+        FastConformerStreaming,
+        model_dir=dl_fc_stream.out_hub_cache_dir,
+        overlay_path=_NEMO_OVERLAY,
+        head="ctc",
+        att_context_size=_fc_att,
+    )
+    fc_rnnt_cfg = rf.build_dict(
+        FastConformerStreaming,
+        model_dir=dl_fc_stream.out_hub_cache_dir,
+        overlay_path=_NEMO_OVERLAY,
+        head="rnnt",
+        att_context_size=_fc_att,
+    )
+    for _fc_dir, _fc_key, _fc_off, _fc_tag in [
+        (dl_ds_timit.out_hub_cache_dir, "test", _DATASET_OFFSET_FACTORS["timit"], "timit-test"),
+        (_xa_dir, "test", _xa_off, _xa_tag),
+    ]:
+        _fc_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+        for _fc_cfg, _fc_h in [(fc_ctc_cfg, "ctc"), (fc_rnnt_cfg, "rnnt")]:
+            _fc_name = f"fastconformer-stream-{_fc_h}-{_fc_tag}-L2_grad-pertoken"
+            _fc_ex = ExtractInGradsPerTokenJob(
+                dataset_dir=_fc_dir,
+                dataset_key=_fc_key,
+                model_config=_fc_cfg,
+                mult_grad_by_inputs=False,
+                attr_reduction="L2",
+            )
+            _fc_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            _fc_ex.add_alias(_fc_name)
+            reg(f"{_fc_name}.hdf", _fc_ex.out_hdf)
+            _fc_al = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=_fc_ex.out_hdf,
+                grad_score_key="data",
+                dataset_dir=_fc_dir,
+                dataset_key=_fc_key,
+                dataset_offset_factors=_fc_off,
+                align_opts=_fc_ao,
+                audio_energy_pow=0.5,
+                blank_silence_energy_scale=1.0,
+            )
+            _fc_alnm = f"align/{_fc_name}-{_name_for_dict(_fc_ao)}-en0.5-sil1.0"
+            _fc_al.add_alias(_fc_alnm)
+            reg(f"{_fc_alnm}-wbe.txt", _fc_al.out_wbe)
+        # CTC forced-align (torchaudio Viterbi on the streaming CTC emission)
+        _fc_cfa = ParakeetCtcForcedAlignJob(
+            dataset_dir=_fc_dir,
+            dataset_key=_fc_key,
+            model_config=fc_ctc_cfg,
+            dataset_offset_factors=_fc_off,
+        )
+        _fc_cfa.add_alias(f"baseline-fastconformer-stream-ctc-{_fc_tag}")
+        reg(f"baseline-fastconformer-stream-ctc-{_fc_tag}-wbe.txt", _fc_cfa.out_word_wbe)
+        # RNN-T native-viterbi forced-align
+        _fc_nt = NativeTransducerAlignJob(dataset_dir=_fc_dir, dataset_key=_fc_key, model_config=fc_rnnt_cfg)
+        _fc_nt.add_alias(f"baseline-fastconformer-stream-rnnt-native-viterbi-{_fc_tag}")
+        _fc_nt_m = CalcAlignmentMetricsFromWordBoundariesJob(
+            word_boundaries_hdf=_fc_nt.out_word_boundaries_hdf,
+            dataset_dir=_fc_dir,
+            dataset_key=_fc_key,
+            dataset_offset_factors=_fc_off,
+        )
+        reg(f"baseline-fastconformer-stream-rnnt-native-viterbi-{_fc_tag}-wbe.txt", _fc_nt_m.out_wbe)
 
     # (4d) Whisper-large-v3 cross-attn DTW (whisper-timestamped heads for large-v3):
     # the same-model attention counterpart of the large-v3 grad row, on segA and TIMIT-test.

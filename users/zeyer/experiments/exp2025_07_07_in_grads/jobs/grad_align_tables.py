@@ -203,6 +203,40 @@ def _compare_table(with_hyp=False):
             ],
         ),
         (
+            "FastConformer-CTC (stream)",
+            [
+                (
+                    "grad",
+                    *g(
+                        f"fastconformer-stream-ctc-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"fastconformer-stream-ctc-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                    ),
+                ),
+                (
+                    "posteriors",
+                    f"baseline-fastconformer-stream-ctc-{S}",
+                    f"baseline-fastconformer-stream-ctc-{T}",
+                ),
+            ],
+        ),
+        (
+            "FastConformer-RNN-T (stream)",
+            [
+                (
+                    "grad",
+                    *g(
+                        f"fastconformer-stream-rnnt-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"fastconformer-stream-rnnt-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                    ),
+                ),
+                (
+                    "posteriors",
+                    f"baseline-fastconformer-stream-rnnt-native-viterbi-{S}",
+                    f"baseline-fastconformer-stream-rnnt-native-viterbi-{T}",
+                ),
+            ],
+        ),
+        (
             "Voxtral",
             [
                 (

@@ -15,20 +15,26 @@ from i6_experiments.users.zeyer.external_models.huggingface import (
     set_hf_offline_mode,
     get_content_dir_from_hub_cache_dir,
 )
+from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate_delayed_copy
 
 
 class ParakeetCtcForcedAlignJob(Job):
     """torchaudio CTC forced-alignment of reference words on nvidia/parakeet-ctc-1.1b."""
+
+    # model_config (opt-in, hash-excluded when None) generalizes this to any CTC model with a
+    # forced_align_words() method (e.g. streaming FastConformer); None keeps the ParakeetCtc path.
+    __sis_hash_exclude__ = {"model_config": None}
 
     def __init__(
         self,
         *,
         dataset_dir: tk.Path,
         dataset_key: str,
-        model_dir: tk.Path,
-        overlay_path: str,
+        model_dir: Optional[tk.Path] = None,
+        overlay_path: Optional[str] = None,
         dataset_offset_factors: int,
         returnn_root: Optional[tk.Path] = None,
+        model_config: Optional[dict] = None,
     ):
         super().__init__()
         self.dataset_dir = dataset_dir
@@ -37,6 +43,7 @@ class ParakeetCtcForcedAlignJob(Job):
         self.overlay_path = overlay_path
         self.dataset_offset_factors = dataset_offset_factors
         self.returnn_root = returnn_root
+        self.model_config = model_config
         self.rqmt = {"time": 4, "cpu": 2, "gpu": 1, "mem": 16}
         self.out_word_wbe = self.output_var("word_wbe.txt")
         self.out_word_metrics = self.output_var("word_metrics.txt")
@@ -70,7 +77,12 @@ class ParakeetCtcForcedAlignJob(Job):
         )
 
         dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model = ParakeetCtc(device=dev, model_dir=self.model_dir.get_path(), overlay_path=self.overlay_path)
+        if self.model_config is not None:
+            from .models import make_model
+
+            model = make_model(**instanciate_delayed_copy(self.model_config), device=dev)
+        else:
+            model = ParakeetCtc(device=dev, model_dir=self.model_dir.get_path(), overlay_path=self.overlay_path)
         scale = self.dataset_offset_factors / model.target_sr
 
         ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))

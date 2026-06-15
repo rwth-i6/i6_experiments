@@ -232,3 +232,30 @@ class FastConformerStreaming(BaseModelInterface):
         h = out[0]
         text = h.text if hasattr(h, "text") else (h[0] if isinstance(h, (list, tuple)) else h)
         return [str(text).split()]
+
+    def forced_align_words(self, *, audio: torch.Tensor, sample_rate: int, words: List[str]):
+        """torchaudio CTC forced-alignment on the streaming CTC head's own emission (head='ctc' only).
+        The 'posteriors' baseline for the streaming CTC, analogous to ParakeetCtc.forced_align_words."""
+        assert self.head == "ctc", "forced_align_words is the CTC-head baseline"
+        import torchaudio
+
+        dev = self.device
+        wav = audio.to(dev).float()
+        dur = int(wav.shape[0]) / sample_rate
+        if sample_rate != self.target_sr:
+            wav = torchaudio.functional.resample(wav[None], sample_rate, self.target_sr)[0]
+        sub_ids, word_ranges = self._tokenize_words(words)
+        assert len(word_ranges) == len(words)
+        with torch.no_grad():
+            wav_len = torch.tensor([wav.shape[0]], device=dev, dtype=torch.long)
+            proc, proc_len = self.model.preprocessor(input_signal=wav[None], length=wav_len)  # [1, F, T_mel]
+            enc, enc_len = self.model.encoder(audio_signal=proc, length=proc_len)  # [1, H, T_enc]
+            log_probs = self.model.ctc_decoder(encoder_output=enc).float()  # [1, T_enc, V] (log_softmax)
+        n_frames = int(log_probs.shape[1])
+        spf = dur / max(n_frames, 1)
+        targets = torch.tensor([sub_ids], dtype=torch.int32, device=dev)
+        aligned, scores = torchaudio.functional.forced_align(log_probs, targets, blank=self.blank_idx)
+        spans = torchaudio.functional.merge_tokens(aligned[0], scores[0], blank=self.blank_idx)
+        assert len(spans) == len(sub_ids), f"{len(spans)} vs {len(sub_ids)}"
+        pred_sub_se = [(s.start * spf, s.end * spf) for s in spans]
+        return [(pred_sub_se[a][0], pred_sub_se[b - 1][1]) for a, b in word_ranges]
