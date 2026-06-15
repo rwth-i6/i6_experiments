@@ -64,6 +64,9 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.w
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.owls import Owls
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.owsm_ctc import OwsmCtc
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.emformer_rnnt import EmformerRnnt
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.fastconformer_streaming import (
+    FastConformerStreaming,
+)
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.parakeet_rnnt import ParakeetRnnt
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.parakeet_ctc import ParakeetCtc
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.whisper import Whisper
@@ -841,6 +844,39 @@ def py():
         dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
     )
     reg("baseline-emformer-rnnt-native-viterbi-timit-val-wbe.txt", _em_nt_m.out_wbe)
+
+    # --- Streaming FastConformer (NeMo hybrid CTC + RNN-T, cache-aware streaming): the streaming
+    # representative -- streaming CTC + streaming transducer from one checkpoint. att_context_size
+    # [70, 6] ~= 480 ms look-ahead. Two grad extracts first to GPU-verify the wrapper end-to-end.
+    _fc_att = [70, 6]
+    fc_ctc_cfg = rf.build_dict(
+        FastConformerStreaming,
+        model_dir=dl_fc_stream.out_hub_cache_dir,
+        overlay_path=_NEMO_OVERLAY,
+        head="ctc",
+        att_context_size=_fc_att,
+    )
+    fc_rnnt_cfg = rf.build_dict(
+        FastConformerStreaming,
+        model_dir=dl_fc_stream.out_hub_cache_dir,
+        overlay_path=_NEMO_OVERLAY,
+        head="rnnt",
+        att_context_size=_fc_att,
+    )
+    for _fc_cfg, _fc_name in [
+        (fc_ctc_cfg, "fastconformer-stream-ctc-timit-test-L2_grad-pertoken"),
+        (fc_rnnt_cfg, "fastconformer-stream-rnnt-timit-test-L2_grad-pertoken"),
+    ]:
+        _fc_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="test",
+            model_config=_fc_cfg,
+            mult_grad_by_inputs=False,
+            attr_reduction="L2",
+        )
+        _fc_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _fc_ex.add_alias(_fc_name)
+        reg(f"{_fc_name}.hdf", _fc_ex.out_hdf)
 
     # Parakeet RNN-T 1.1B (NeMo FastConformer-Transducer): a STRONG leaderboard-grade
     # transducer, vs the tiny Emformer base above (139 ms).
@@ -3037,6 +3073,14 @@ def py():
             False,
             [(0.5, 1.0), (0.5, 0.0)],
         ),
+        # Emformer RNN-T: the STREAMING transducer (prefix score); same splits as the offline ones.
+        (
+            rnnt_px_cfg,
+            "emformer-rnnt-prefix-logmel-timit-test-L2_grad-pertoken",
+            "L2",
+            False,
+            [(0.5, 1.0), (0.5, 0.0)],
+        ),
         (
             tdt_grad_cfg,
             "parakeet-tdt-0.6b-v2-logmel-timit-test-L2_grad-pertoken",
@@ -3665,6 +3709,7 @@ def py():
     for _nt_cfg, _nt_name in [
         (pk_cfg, "parakeet-rnnt-1.1b"),
         (tdt_cfg, "parakeet-tdt-0.6b-v2"),
+        (rnnt_cfg, "emformer-rnnt"),  # streaming transducer
     ]:
         for _nt_dir, _nt_key, _nt_off, _nt_tag in [
             (_xa_dir, "test", _xa_off, _xa_tag),
@@ -3921,6 +3966,8 @@ def py():
         # prefix_fwd (the real CTC prefix score) on all four CTCs -- the uniform-winner candidate.
         (parakeet_ctc_prefixfwd_cfg, f"parakeet-ctc-1.1b-prefixfwd-{_xa_tag}-L2_grad-pertoken", "L2", False),
         (owsm_ctc_prefixfwd_cfg, f"owsm-ctc-v4-1b-prefixfwd-{_xa_tag}-L2_grad-pertoken", "L2", False),
+        # Emformer RNN-T: the STREAMING transducer (prefix score).
+        (rnnt_px_cfg, f"emformer-rnnt-prefix-logmel-{_xa_tag}-L2_grad-pertoken", "L2", False),
         (
             rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out", per_token_score="prefix_fwd"),
             f"wav2vec2ctc-fproj_out-prefixfwd-{_xa_tag}-L2_grad-pertoken",

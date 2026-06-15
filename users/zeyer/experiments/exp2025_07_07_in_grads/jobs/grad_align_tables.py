@@ -184,6 +184,25 @@ def _compare_table(with_hyp=False):
             ],
         ),
         (
+            # Emformer RNN-T: the streaming transducer (vs offline Parakeet). grad resists the
+            # streaming emission delay that the native forced alignment carries.
+            "Emformer (streaming)",
+            [
+                (
+                    "grad",
+                    *g(
+                        f"emformer-rnnt-prefix-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"emformer-rnnt-prefix-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                    ),
+                ),
+                (
+                    "posteriors",
+                    f"baseline-emformer-rnnt-native-viterbi-{S}",
+                    f"baseline-emformer-rnnt-native-viterbi-{T}",
+                ),
+            ],
+        ),
+        (
             "Voxtral",
             [
                 (
