@@ -23,10 +23,12 @@ def get_random_mask(seq_lens: Tensor, mask_prob: float, min_span: int, max_span:
     T = seq_lens.max().item()  # noqa
 
     num_to_mask = (seq_lens.float() * mask_prob).ceil().int()
-    # max_span should at most be as large as the smallest num_to_mask
-    # otherwise, it can happen that a sequence receives no mask at all
-    # because mask_lens_cum_sum > num_to_mask.unsqueeze(1) is True for the first sampled length
-    max_span = min(max_span, num_to_mask.min().item())
+    # # max_span should at most be as large as the smallest num_to_mask
+    # # otherwise, it can happen that a sequence receives no mask at all
+    # # because mask_lens_cum_sum > num_to_mask.unsqueeze(1) is True for the first sampled length
+    # max_span = min(max_span, num_to_mask.min().item())
+    # min_span = min(min_span, max_span - 1)
+    # assert min_span > 0, "min_span must be strictly positive; otherwise, there might be no masked positions"
     seed = int.from_bytes(os.urandom(4), "little")
     torch.manual_seed(seed)
     mask_lens = torch.randint(low=min_span, high=max_span + 1, size=(B, T), device=seq_lens.device)
