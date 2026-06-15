@@ -47,7 +47,11 @@ _DEFAULT_PORT = 8998
 
 
 @contextmanager
-def moshi_server():
+def moshi_server(
+    lora_weight: str | None = None,
+    config_path: str | None = None,
+    python_exe: str | None = None,
+):
     # first: find a free port
     # take my slurm job id and modulo
     if "SLURM_JOB_ID" in os.environ:
@@ -66,15 +70,23 @@ def moshi_server():
 
     print(f"Selected port {port} for Moshi server")
 
+    # moshi_venv has moshi pip-installed as a regular package -> "moshi.server"
+    # (self-contained). The setup .venv runs moshi from source at projects/moshi,
+    # where the module is "moshi.moshi.server" and needs that cwd (below).
+    server_module = "moshi.server" if python_exe is not None else "moshi.moshi.server"
     cmd = [
-        sys.executable,
+        python_exe or sys.executable,
         "-m",
-        "moshi.moshi.server",
+        server_module,
         "--host",
         "127.0.0.1",
         "--port",
         str(port),
     ]
+    if lora_weight is not None:
+        cmd += ["--lora-weight", str(lora_weight)]
+    if config_path is not None:
+        cmd += ["--config-path", str(config_path)]
 
     print(f"Starting Moshi server: {' '.join(cmd)}")
     server_process = subprocess.Popen(
@@ -85,7 +97,9 @@ def moshi_server():
         bufsize=1,
         universal_newlines=True,
         preexec_fn=os.setsid if hasattr(os, "setsid") else None,  # Create process group
-        cwd=os.environ.get("MOSHI_SERVER_CWD", "/home/tt201262/setups/2026-01-speech-llm/projects/moshi"),
+        cwd=None
+        if python_exe is not None
+        else os.environ.get("MOSHI_SERVER_CWD", "/home/tt201262/setups/2026-01-speech-llm/projects/moshi"),
         env={**os.environ, "PYTHONUNBUFFERED": "1"},
     )
 

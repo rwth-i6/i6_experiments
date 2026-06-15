@@ -11,6 +11,8 @@ import signal
 import sys
 import subprocess
 from .common import HF_CACHE_DIR, vllm_server
+from i6_experiments.users.dorian_koch.jobs.venv import CreateVenv
+from functools import lru_cache
 from contextlib import contextmanager
 import shutil
 import time
@@ -18,6 +20,67 @@ import random
 import socket
 
 from .moshi_client import MoshiFileClient, _ws_url, moshi_server
+
+# `moshified_fdb_v1_v15` lives at recipe/moshified_fdb_v1_v15 (a sibling of i6_experiments).
+# Sisyphus's RecipeFinder resolves recipe imports relative to the cwd, but a worker's cwd can
+# change during run() (e.g. the moshi server block below), which breaks the lazy imports of
+# moshified_fdb_v1_v15. Pin the recipe dir on sys.path so those imports work regardless of cwd.
+import i6_experiments as _i6_experiments
+
+_recipe_dir = os.path.dirname(os.path.dirname(_i6_experiments.__file__))
+if _recipe_dir not in sys.path:
+    sys.path.insert(0, _recipe_dir)
+
+
+@lru_cache
+def fdb_asr_venv():
+    """Dedicated venv for the Full-Duplex-Bench NeMo ASR scoring (asr.py).
+
+    The manager .venv pins NeMo 2.0.0 (forced by transformers>=5.5.0), which lacks
+    transcribe(timestamps=True). This isolated venv installs NeMo >=2.2 so asr.py
+    runs unmodified (upstream-style), invoked as a subprocess.
+    """
+    venv = CreateVenv(
+        packages=[
+            [
+                "torch",
+                "torchaudio",
+                "--index-url",
+                "https://download.pytorch.org/whl/cu128",
+            ],
+            ["nemo_toolkit[asr]>=2.2", "soundfile"],
+        ],
+        hash_overwrite="fdb_asr_venv_v1",
+    )
+    tk.register_output("venv/fdb_asr", venv.out_env_path)
+    return venv.out_python_path
+
+
+@lru_cache
+def fdb_eval_venv():
+    """Dedicated venv for the Full-Duplex-Bench non-LLM scoring (the fork's evaluate.py).
+
+    The fork eval scripts (backchannel / pause / turn-taking) need silero-vad + scipy +
+    tqdm on top of torch/torchaudio/soundfile, and load wavs via soundfile (no torchcodec).
+    Kept separate from the manager .venv so its torch/torchaudio churn (which made
+    torchaudio.load hard-require torchcodec) can't break scoring. Versions are pinned to
+    the manager .venv at port time so metrics stay identical; CPU wheels suffice since the
+    eval runs as a login-node mini_task. Invoked as a subprocess via out_python_path.
+    """
+    venv = CreateVenv(
+        packages=[
+            [
+                "torch==2.11.0",
+                "torchaudio==2.11.0",
+                "--index-url",
+                "https://download.pytorch.org/whl/cpu",
+            ],
+            ["silero-vad==6.2.1", "scipy==1.17.1", "numpy==2.2.6", "tqdm==4.67.3", "soundfile"],
+        ],
+        hash_overwrite="fdb_eval_venv_v1",
+    )
+    tk.register_output("venv/fdb_eval", venv.out_env_path)
+    return venv.out_python_path
 
 
 def fdb_files_for_tasks(ds_path: Path, tasks: Sequence[str]) -> List[Tuple[str, Path]]:
@@ -58,7 +121,20 @@ FDB_TASK_MAP = {
 
 
 class FullDuplexBenchEval_Inference(Job):
-    def __init__(self, *, fdb_task: str, model):
+    # Optional LoRA adapter; excluded from the hash when absent so existing
+    # base-model FDB runs keep their hash and are not re-run.
+    __sis_hash_exclude__ = {"lora_weights": None, "lora_config": None}
+
+    def __init__(
+        self,
+        *,
+        fdb_task: str,
+        model,
+        lora_weights: tk.Path | None = None,
+        lora_config: tk.Path | None = None,
+        asr_venv_python: tk.AbstractPath | None = None,
+        server_venv_python: tk.AbstractPath | None = None,
+    ):
         self.fdb_data = tk.Path(
             "/home/tt201262/setups/2026-01-speech-llm/projects/Full-Duplex-Bench/v1_v1.5/dataset/v1.0",
             hash_overwrite="FullDuplexBench-datasets",
@@ -66,6 +142,14 @@ class FullDuplexBenchEval_Inference(Job):
 
         self.fdb_task = fdb_task
         self.model = model
+        # None -> base moshiko; set -> serve a LoRA finetune (passed to moshi_server).
+        self.lora_weights = lora_weights
+        self.lora_config = lora_config
+        # Interpreter from a dedicated CreateVenv with NeMo >=2.2 for ASR scoring.
+        self.asr_venv_python = asr_venv_python
+        # Interpreter for serving Moshi; should match the finetune's training env
+        # (moshi_venv). None -> the worker's own setup .venv (sys.executable).
+        self.server_venv_python = server_venv_python
 
         self.out_audios = self.output_path("audios", directory=True)
 
@@ -88,7 +172,11 @@ class FullDuplexBenchEval_Inference(Job):
         files = fdb_files_for_tasks(Path(self.fdb_data.get_path()), [self.fdb_task])
         assert len(files) > 0, f"No files found for task {self.fdb_task} in dataset {self.fdb_data.get_path()}"
 
-        with self.model() as url:
+        with self.model(
+            lora_weight=self.lora_weights.get_path() if self.lora_weights is not None else None,
+            config_path=self.lora_config.get_path() if self.lora_config is not None else None,
+            python_exe=self.server_venv_python.get() if self.server_venv_python is not None else None,
+        ) as url:
             url = _ws_url(url)
             print(f"Running inference with Moshi server at {url}...")
 
@@ -112,25 +200,32 @@ class FullDuplexBenchEval_Inference(Job):
                     out_json = out.parent / json_file.name
                     shutil.copy(json_file, out_json)
 
-        # pys v1_v1.5/get_transcript/asr.py --root_dir v1_v1.5/dataset/v1.0/icc_backchannel --task default
+        # Score the generated audio with the benchmark's NeMo ASR (asr.py writes an
+        # output.json next to each output.wav). This runs in a dedicated CreateVenv
+        # (NeMo >=2.2 for transcribe(timestamps=True)), since the manager .venv pins
+        # NeMo 2.0.0. We invoke asr.py's CLI as a subprocess with the venv interpreter.
+        assert self.asr_venv_python is not None, "asr_venv_python is required for scoring"
 
-        """
-        choices=[
-            "backchannel",
-            "pause_handling",
-            "smooth_turn_taking",
-            "user_interruption",
-            "behavior",
-            "general_before_after",
-        ],
-        """
+        import moshified_fdb_v1_v15
 
-        # this takes output.wav and puts output.json in the same folder
-        from moshified_fdb_v1_v15.get_transcript.asr import (
-            get_time_aligned_transcription,
+        asr_script = os.path.join(os.path.dirname(moshified_fdb_v1_v15.__file__), "get_transcript", "asr.py")
+        # asr.py only special-cases "user_interruption" (crops the lead-in); every
+        # other task is scored as "default".
+        asr_task = (
+            "user_interruption" if FDB_TASK_MAP.get(self.fdb_task, self.fdb_task) == "user_interruption" else "default"
         )
-
-        get_time_aligned_transcription(self.out_audios.get_path(), FDB_TASK_MAP.get(self.fdb_task, self.fdb_task))
+        cmd = [
+            self.asr_venv_python.get(),
+            asr_script,
+            "--root_dir",
+            self.out_audios.get_path(),
+            "--task",
+            asr_task,
+        ]
+        print("[asr]", " ".join(cmd), flush=True)
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
+        subprocess.run(cmd, env=env, check=True)
 
 
 class FullDuplexBenchEval_Evaluation(Job):
@@ -140,10 +235,14 @@ class FullDuplexBenchEval_Evaluation(Job):
         fdb_task: str,
         in_audios: tk.Path,
         hf_model: str = "openai/gpt-oss-120b",
+        eval_venv_python: tk.AbstractPath | None = None,
     ):
         self.fdb_task = fdb_task
 
         self.in_audios = in_audios
+        # Venv python used to run the fork's evaluate.py as a subprocess for the non-LLM
+        # tasks (hash-excluded: only affects how scoring runs, not the produced result).
+        self.eval_venv_python = eval_venv_python
         self.out_log = self.output_path("evaluation_output.txt")
         self.out_eval = self.output_path("eval.json")
         self.needs_llm_inference = FDB_TASK_MAP.get(self.fdb_task, self.fdb_task) in [
@@ -165,6 +264,10 @@ class FullDuplexBenchEval_Evaluation(Job):
     @classmethod
     def hash(cls, parsed_args):
         d = dict(**parsed_args)
+        # Hash the eval venv only when it is actually used (non-LLM tasks); excluding it
+        # when None keeps the expensive LLM (user_interruption) eval job hashes stable.
+        if d.get("eval_venv_python") is None:
+            d.pop("eval_venv_python", None)
         d["__version"] = 5
         return super().hash(d)
 
@@ -175,42 +278,124 @@ class FullDuplexBenchEval_Evaluation(Job):
             yield Task("run", rqmt=self.rqmt)
 
     def run(self):
-        # pys evaluate.py --task backchannel --root_dir ../dataset/v1.0/icc_backchannel
-        # hacky...
+        import moshified_fdb_v1_v15
+
+        mapped_task = FDB_TASK_MAP.get(self.fdb_task, self.fdb_task)
+
+        if not self.needs_llm_inference:
+            # Non-LLM scoring: run the fork's evaluate.py as a subprocess in a venv with a
+            # working audio stack (fdb_asr_venv). Avoids importing the fork into the manager
+            # .venv, whose torchaudio now hard-requires torchcodec (absent here and on the
+            # login node). The fork loads wavs via soundfile, so no torchcodec is needed.
+            assert self.eval_venv_python is not None, "eval_venv_python required for non-LLM scoring"
+            evaluate_py = os.path.join(os.path.dirname(moshified_fdb_v1_v15.__file__), "evaluation", "evaluate.py")
+            cmd = [
+                self.eval_venv_python.get(),
+                evaluate_py,
+                "--task",
+                mapped_task,
+                "--root_dir",
+                self.in_audios.get_path(),
+                "--out-json",
+                self.out_eval.get_path(),
+            ]
+            env = dict(os.environ)
+            env["PYTHONUNBUFFERED"] = "1"
+            with open(self.out_log, "w", encoding="utf-8") as f:
+                subprocess.run(cmd, env=env, check=True, stdout=f, stderr=subprocess.STDOUT)
+            return
+
+        # LLM-judged task (user_interruption): needs the vLLM server, so run in-process in
+        # the manager .venv. eval_user_interruption does not load audio via torchaudio, so
+        # torchcodec is not involved on this path.
         import moshified_fdb_v1_v15.evaluation.evaluate as moshified_fdb_v1_v15_evaluate
         from moshified_fdb_v1_v15.evaluation.evaluate import main as evaluate_main
 
         sys.argv = [
             "evaluate.py",
             "--task",
-            FDB_TASK_MAP.get(self.fdb_task, self.fdb_task),
+            mapped_task,
             "--root_dir",
             self.in_audios.get_path(),
         ]
-        # also now record stdout into a file (but still also regular stdout) in self.output_path("evaluation_output.txt")
         with open(self.out_log, "w", encoding="utf-8") as f:
-            # redirect stdout to both console and file
             tee = Tee(sys.stdout, f)
             sys.stdout = tee
-
-            # add the path of evaluate.py to sys.path so it can import modules
             sys.path.append(str(Path(moshified_fdb_v1_v15_evaluate.__file__).parent))
-
-            if self.needs_llm_inference:
-                # TODO fdb code would be faster if it utilized batching...
-                with vllm_server(self.hf_model) as llm_url:
-                    sys.argv += ["--llm-api-url", llm_url, "--llm-model", self.hf_model]
-                    # set OPENAI_API_KEY
-                    os.environ["OPENAI_API_KEY"] = "fake_key_for_vllm"
-                    res = evaluate_main()
-            else:
+            with vllm_server(self.hf_model) as llm_url:
+                sys.argv += ["--llm-api-url", llm_url, "--llm-model", self.hf_model]
+                os.environ["OPENAI_API_KEY"] = "fake_key_for_vllm"
                 res = evaluate_main()
             with open(self.out_eval, "w", encoding="utf-8") as f_eval:
                 json.dump(res, f_eval, indent=4)
-            sys.stdout = sys.__stdout__  # restore original stdout
+            sys.stdout = sys.__stdout__
 
 
-def moshified_fdb_eval(fdb_task: str, model):
-    infer = FullDuplexBenchEval_Inference(fdb_task=fdb_task, model=model)
-    _eval = FullDuplexBenchEval_Evaluation(fdb_task=fdb_task, in_audios=infer.out_audios)
+def moshified_fdb_eval(
+    fdb_task: str, model, lora_weights=None, lora_config=None, asr_venv_python=None, server_venv_python=None
+):
+    infer = FullDuplexBenchEval_Inference(
+        fdb_task=fdb_task,
+        model=model,
+        lora_weights=lora_weights,
+        lora_config=lora_config,
+        asr_venv_python=asr_venv_python,
+        server_venv_python=server_venv_python,
+    )
+    needs_llm = FDB_TASK_MAP.get(fdb_task, fdb_task) in [
+        "user_interruption",
+        "behavior",
+        "general_before_after",
+    ]
+    _eval = FullDuplexBenchEval_Evaluation(
+        fdb_task=fdb_task,
+        in_audios=infer.out_audios,
+        eval_venv_python=None if needs_llm else fdb_eval_venv(),
+    )
     return _eval.out_eval
+
+
+FDB_TASKS = [
+    "icc_backchannel",
+    "candor_turn_taking",
+    "candor_pause_handling",
+    "synthetic_pause_handling",
+    "synthetic_user_interruption",
+]
+
+
+def fdb_benchmark_py(
+    tag: str = "moshi_base",
+    moshi_checkpoint: tk.Path | None = None,
+    checkpoint_step: int | None = None,
+    server_venv_python: tk.AbstractPath | None = None,
+):
+    """Full Duplex Bench eval over all tasks for one model, namespaced by ``tag``.
+
+    ``moshi_checkpoint`` is a ``MoshiFinetune.out_rundir`` to eval a fine-tuned (LoRA)
+    model via the moshi server; ``None`` evals the base ``kyutai/moshiko``. Registered
+    under ``fdb/<tag>/<task>/...`` so base and finetuned runs coexist.
+    """
+    lora_weights = lora_config = None
+    if moshi_checkpoint is not None:
+        # Local import avoids a module-load cycle (knowledge_benchmark imports fdb-side helpers).
+        from i6_experiments.users.dorian_koch.speech_llm.knowledge_benchmark import (
+            ResolveLoraCheckpoint,
+        )
+
+        ckpt = ResolveLoraCheckpoint(run_dir=moshi_checkpoint, step=checkpoint_step)
+        lora_weights, lora_config = ckpt.out_lora, ckpt.out_config
+
+    asr_venv_python = fdb_asr_venv()
+    for t in FDB_TASKS:
+        bench = moshified_fdb_eval(
+            fdb_task=t,
+            model=moshi_server,
+            lora_weights=lora_weights,
+            lora_config=lora_config,
+            asr_venv_python=asr_venv_python,
+            server_venv_python=server_venv_python,
+        )
+        tk.register_output(f"fdb/{tag}/{t}/eval", bench)
+        tk.register_output(f"fdb/{tag}/{t}/audio", bench.creator.in_audios)
+        bench.creator.add_alias(f"fdb/{tag}/{t}")
