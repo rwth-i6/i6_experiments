@@ -49,7 +49,7 @@ def analyze_encoder_states(
     max_points_per_modality: int = 50_000,
     plot_seq_tags: Optional[List[str]] = None,
     max_plotted_seqs: int = 20,
-    cosine_distance_summary: bool = False,
+    cosine_similarity_summary: bool = False,
     out_dir_name: str = "encoder_pca",
     loss_name: str = "dev_loss_ce",
     extra_forward_config: Optional[ReturnnConfig] = None,
@@ -65,9 +65,9 @@ def analyze_encoder_states(
         ``default_data_key`` / ``default_target_key``.
     :param plot_seq_tags: if given, only these seq_tags are plotted; else the first
         ``max_plotted_seqs`` seqs are plotted (all seqs still contribute to the PCA pool).
-    :param cosine_distance_summary: if True, also summarize, for each plotted seq, the avg pairwise
-        cosine distance within audio, within text, and between modalities in the original (pre-PCA)
-        feature space (written to ``cosine_distances.txt`` + each ``*.npz``).
+    :param cosine_similarity_summary: if True, also summarize, for each plotted seq, the avg pairwise
+        cosine similarity within audio, within text, and between modalities in the original (pre-PCA)
+        feature space (written to ``cosine_similarities.txt`` + each ``*.npz``).
     """
     if base_analysis_config is None:
         base_analysis_config = EncoderPcaConfig(
@@ -76,7 +76,7 @@ def analyze_encoder_states(
         )
 
     # When ADDING a new callback option, only put it into callback_opts when it is non-default
-    # (like cosine_distance_summary below). That keeps the hash of jobs that ran before the option
+    # (like cosine_similarity_summary below). That keeps the hash of jobs that ran before the option
     # existed unchanged. Don't make the already-present opts conditional -- that would instead
     # change the hash of the jobs that already ran with them.
     callback_opts = {
@@ -85,8 +85,8 @@ def analyze_encoder_states(
         "plot_seq_tags": plot_seq_tags,
         "max_plotted_seqs": max_plotted_seqs,
     }
-    if cosine_distance_summary:
-        callback_opts["cosine_distance_summary"] = cosine_distance_summary
+    if cosine_similarity_summary:
+        callback_opts["cosine_similarity_summary"] = cosine_similarity_summary
 
     # both modalities must be available to the forward_step, so declare the text key in extern_data
     returnn_forward_config = get_forward_config(

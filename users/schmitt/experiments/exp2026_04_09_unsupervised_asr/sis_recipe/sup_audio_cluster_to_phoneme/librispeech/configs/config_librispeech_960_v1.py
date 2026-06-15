@@ -97,10 +97,10 @@ def py():
         skip_eval=False,
         # run the shared-encoder PCA analysis (models/analysis/encoder_state_pca) on the final
         # checkpoint, plotting the audio vs. text encoder states of a few dev-other sequences.
-        # also summarize avg pairwise cosine distances in the original (pre-PCA) feature space.
+        # also summarize avg pairwise cosine similarities in the original (pre-PCA) feature space.
         analysis_opts={
             "checkpoints": [base_num_epochs],
             "max_plotted_seqs": 20,
-            "cosine_distance_summary": True,
+            "cosine_similarity_summary": True,
         },
     )
