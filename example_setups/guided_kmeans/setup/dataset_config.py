@@ -2,12 +2,11 @@ __all__ = ["DatasetConfig", "SamplingMethod"]
 
 from dataclasses import dataclass
 
-from sisyphus import tk
+from sisyphus import tk, Job, Task
 from i6_core.returnn import ReturnnConfig
 from i6_core.corpus.segments import ShuffleAndSplitSegmentsJob
 from i6_core.text import PipelineJob
-
-from .corpus_setup import py as setup_corpus
+from i6_core.lib.corpus import Corpus
 
 @dataclass(frozen=True)
 class All:
@@ -79,15 +78,19 @@ def select_segments(method: SamplingMethod, segments: tk.Path) -> tk.Path | None
     return sampled_segments
 
 
-def create_config(dataset_config: DatasetConfig):
-    corpus_res = setup_corpus()
+class CreateSequenceWhitelistJob(Job):
+    def __init__(self, corpus):
 
-    match dataset_config.sampling_method:
-        case All():
-            sampled_segments = None
-        case RandomFraction(f):
-            sampled_segments = sample_segments_by_fraction(corpus_res.segments, fraction=f)
-        case RandomNumber(n):
-            sampled_segments = sample_segments_by_number(corpus_res.segments, num_segments=n)
-    
-    return get_dataset_config(dataset_config.audio_hdf_path, sampled_segments), sampled_segments
+        self.corpus = corpus
+        self.out_whitelist = self.output_path("segments_whitelist.txt")
+
+
+    def tasks(self):
+        yield Task("run", resume="run", mini_task=True)
+
+    def run(self):
+        corpus = Corpus()
+        corpus.load(self.corpus.get_path())
+        sampled_segments = [rec.fullname() for rec in corpus.recordings]
+        with open(self.out_whitelist, "wt") as f:
+            f.write("\n".join(sampled_segments))

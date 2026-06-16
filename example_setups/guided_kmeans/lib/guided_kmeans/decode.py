@@ -96,8 +96,8 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
         assert isinstance(hidden_state_tensor, np.ndarray)
         assert self.search_algo is not None
 
-        if self.verbosity >= 2:
-            print(f"Processing sequence {seq_tag}.")
+       # if self.verbosity >= 2:
+       #     print(f"Processing sequence {seq_tag}.")
 
         if self.subsampling:
             hidden_state_tensor = self.pool(
@@ -112,7 +112,7 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
 
         traceback = self.search_algo.recognize_segment(scaled_distances)
 
-        print(traceback)
+       # print(traceback)
 
         hyp = " ".join(filter(
             lambda lem: lem not in self.exclude_lemmata,
@@ -123,6 +123,6 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
 
     def finish(self):
         """Close file buffer."""
-        print(self.hyp_buffer)
+       # print(self.hyp_buffer)
         with open("hyp.txt", "w+") as fp:
             fp.write("\n".join(self.hyp_buffer))

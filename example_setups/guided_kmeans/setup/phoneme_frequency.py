@@ -10,7 +10,7 @@ from i6_core.corpus.stats import CountCorpusWordFrequenciesJob
 from i6_core.lib.lexicon import Lexicon
 from i6_core.lib.corpus import Corpus
 
-from .corpus_setup import py as setup_corpus
+from .corpus_setup import setup_corpus
 
 class SampleSegmentsWithMinPhonemeCountJobV(Job):
     def __init__(
@@ -50,10 +50,12 @@ class SampleSegmentsWithMinPhonemeCountJobV(Job):
         # sample segments at random until each phoneme has at least min_phoneme_count occurrences
         segments_list = list(corpus.segments())
         random.shuffle(list(segments_list))
-        random_segment_iter = iter(segments_list)
+        # random_segment_iter = iter(segments_list)
         sampled_segments = set()
-        while any(phoneme_counts[p] < self.min_phoneme_count for p in phoneme_set):
-            segment = next(random_segment_iter)
+        for segment in segments_list:
+            if not any(phoneme_counts[p] < self.min_phoneme_count for p in phoneme_set):
+                break
+            # segment = next(random_segment_iter)
             sampled_segments.add(segment)
             for phoneme in segment.orth.split():
                 phoneme_counts[phoneme] += 1
@@ -65,7 +67,7 @@ class SampleSegmentsWithMinPhonemeCountJobV(Job):
         self.out_counts.set(dict(phoneme_counts))
 
 
-def py():
+def get_sampled_segments_file(min_phoneme_count=5):
     # print(gs.worker_wrapper)
     # print(inspect.getsource(gs.worker_wrapper))
     # gs.worker_wrapper = None
@@ -80,7 +82,7 @@ def py():
 
     sample_segments = SampleSegmentsWithMinPhonemeCountJobV(
         phonetic_corpus=phoneme_corpus,
-        min_phoneme_count=5,
+        min_phoneme_count=min_phoneme_count,
         lexicon=setup_result.lexicon,
     )
 

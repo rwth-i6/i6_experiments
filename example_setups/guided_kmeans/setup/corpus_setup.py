@@ -17,32 +17,33 @@ class CorpusSetupResult:
     segments: tk.Path | None = None
 
 @cache
-def py() -> CorpusSetupResult:
+def setup_corpus(key="train-clean-100") -> CorpusSetupResult:
     corpora = get_bliss_corpus_dict(audio_format="ogg")
 
-    train_clean = corpora["train-clean-100"]
+    corpus = corpora[key]
 
-    segment_corpus = SegmentCorpusJob(train_clean, num_segments=1)
+    segment_corpus = SegmentCorpusJob(corpus, num_segments=1)
     all_segments = segment_corpus.out_single_segment_files[1]
 
-    split_segments = ShuffleAndSplitSegmentsJob(
-        all_segments,
-        split={
-            "relevant": 0.1,
-            "remainder": 0.9,
-        }
-    )
+    if key == "train-clean-100":
+        split_segments = ShuffleAndSplitSegmentsJob(
+            all_segments,
+            split={
+                "relevant": 0.1,
+                "remainder": 0.9,
+            }
+        )
 
-    segment_file = split_segments.out_segments["relevant"]
-    tk.register_output("datasets/LibriSpeech/segments/train-clean-100-10%.txt", segment_file)
+        segment_file = split_segments.out_segments["relevant"]
+        tk.register_output("datasets/LibriSpeech/segments/train-clean-100-10%.txt", segment_file)
 
-    # Lexicon
-    # lex = get_bliss_lexicon(use_stress_marker=False)
-    debug_segments = HeadJob(all_segments, num_lines=10, zip_output=False)
-    tk.register_output("datasets/LibriSpeech/segments/small_debug.txt", debug_segments.out)
+        # Lexicon
+        # lex = get_bliss_lexicon(use_stress_marker=False)
+        debug_segments = HeadJob(all_segments, num_lines=10, zip_output=False)
+        tk.register_output("datasets/LibriSpeech/segments/small_debug.txt", debug_segments.out)
 
     lexica = get_g2p_augmented_bliss_lexicon_dict()
     lex = lexica["train-clean-100"]
 
 
-    return CorpusSetupResult(train_clean, lex, all_segments)
+    return CorpusSetupResult(corpus, lex, all_segments)
