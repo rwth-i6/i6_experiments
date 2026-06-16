@@ -3615,6 +3615,7 @@ def py():
         word_topology=False,
         dtw_no_blank=False,
         whisper_dtw=False,
+        apply_log=True,
         _twin=True,
     ):
         kw = {"blank_grad_zscore_kappa": zsk} if zsk is not None else {"blank_silence_energy_scale": sil}
@@ -3624,17 +3625,19 @@ def py():
             kw["dtw_no_blank"] = True
         if whisper_dtw:
             kw["whisper_dtw"] = True
+        # apply_log=True reuses _xa_ao exactly (hash-stable); False = the no-log variant.
+        _ao = _xa_ao if apply_log else {**_xa_ao, "apply_log": False}
         al = WordAlignFromPerTokenGradsJob(
             grad_score_hdf=ex.out_hdf,
             grad_score_key="data",
             dataset_dir=_xa_dir,
             dataset_key="test",
             dataset_offset_factors=_xa_off,
-            align_opts=_xa_ao,
+            align_opts=_ao,
             audio_energy_pow=energy,
             **kw,
         )
-        nm = f"align/{name}-{_name_for_dict(_xa_ao)}-{sfx}"
+        nm = f"align/{name}-{_name_for_dict(_ao)}-{sfx}"
         al.add_alias(nm)
         reg(f"{nm}-wbe.txt", al.out_wbe)
         # Word-aware-topology twin of every headline (en0.5-sil1.0) align: blank only between words,
@@ -4044,6 +4047,51 @@ def py():
     _xa_align(_xa_whc, _xa_whc_name, "en0.5", sil=0.0)
     _xa_align(_xa_whc, _xa_whc_name, "en0.5-sil2.0", sil=2.0)
     _xa_align(_xa_whc, _xa_whc_name, "en0.5-zsk1.0", zsk=1.0)
+    # space-as-silence (CrisperWhisper-style): align the separator tokens as the silence anchors
+    # (no DP blank); word boundaries from char rows only. CrisperWhisper (standalone space IS trained
+    # -> should work) vs whisper-base (untrained -> contrast). Buckeye-segA.
+    for _ws_dl, _ws_tag in [(dl_crisper, "crisperwhisper"), (dl_whisper, "whisper-base")]:
+        _ws_cfg = rf.build_dict(Whisper, model_dir=_ws_dl.out_hub_cache_dir, char_level=True, char_level_sep=" ")
+        _ws_ex = ExtractInGradsPerTokenWithSepGradsJob(
+            dataset_dir=_xa_dir,
+            dataset_key="test",
+            model_config=_ws_cfg,
+            mult_grad_by_inputs=False,
+            attr_reduction="L2",
+        )
+        _ws_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _ws_ex.rqmt = {**_ws_ex.rqmt, "time": 24}
+        _ws_exname = f"{_ws_tag}-logmel-{_xa_tag}-L2_grad-pertoken-charlev-spc-with-sep"
+        _ws_ex.add_alias(_ws_exname)
+        reg(f"{_ws_exname}.hdf", _ws_ex.out_hdf)
+        for _ws_ao in _ALIGN_OPTS_GRID:
+            _ws_al = WordAlignFromPerTokenWithSepGradsJob(
+                grad_score_hdf=_ws_ex.out_hdf,
+                grad_score_key="data",
+                dataset_dir=_xa_dir,
+                dataset_key="test",
+                dataset_offset_factors=_xa_off,
+                align_opts=_ws_ao,
+            )
+            _ws_alnm = f"align/{_ws_exname}-{_name_for_dict(_ws_ao)}"
+            _ws_al.add_alias(_ws_alnm)
+            reg(f"{_ws_alnm}-wbe.txt", _ws_al.out_wbe)
+    # apply_log on/off ablation (small): grad-CTC (wav2vec2 prefix_fwd) + grad-AED (whisper-char),
+    # x silence-on (en0.5-sil1.0) and silence-off (dtw no-blank). apply_log=True rows exist already;
+    # add the apply_log=False rows. (apply_log=False + sil-off == the openai-DTW config.)
+    _ab_w2v = _xa_extract(
+        rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out", per_token_score="prefix_fwd"),
+        f"wav2vec2ctc-fproj_out-prefixfwd-{_xa_tag}-L2_grad-pertoken",
+        "L2",
+        False,
+        bb=True,
+    )
+    for _ab_ex, _ab_name in [
+        (_ab_w2v, f"wav2vec2ctc-fproj_out-prefixfwd-{_xa_tag}-L2_grad-pertoken"),
+        (_xa_whc, _xa_whc_name),
+    ]:
+        _xa_align(_ab_ex, _ab_name, "en0.5-sil1.0", apply_log=False, _twin=False)
+        _xa_align(_ab_ex, _ab_name, "en0.5-sil1.0-dtw", apply_log=False, dtw_no_blank=True, _twin=False)
     for _xa_mgi, _xa_attr, _xa_ga in [(True, "L2", "L2_e_grad"), (False, "L1", "L1_grad")]:
         _xa_av_name = f"whisper-base-logmel-{_xa_tag}-{_xa_ga}-pertoken-charlev-spc"
         _xa_av = _xa_extract(
