@@ -475,6 +475,45 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+    # Same as ref-match-logmel-muon (= ref-match-logmel + muon-lr5e3-wdbl), but nep 25 -> 38 (+50% updates):
+    # the training-matched point removing the 4-GPU step-count penalty (audio-only nep38 bought 4.22 -> 4.01).
+    # Isolates whether the ~0 TTS text-util gain is the regime, not the TTS.
+    _train_tts_encoder(
+        "tts-enc-ref-match-logmel-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+    # noise0 (deterministic acoustics, the best synthesis variant at 4.26) in that same best regime
+    # (muon-lr5e3-wdbl + nep38).
+    _train_tts_encoder(
+        "tts-enc-ref-match-logmel-noise0-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        glow_tts_noise_scale_range=(0.0, 0.0),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
     # Stronger duration compression: length 0.3-0.7 (mean 0.5 -> ~2x cheaper synthetic speech than
     # ref-match length 1.0), with the length-scaled SpecAugment.
     # Cost-vs-WER axis point below lensamp (0.5-1.0).
@@ -505,6 +544,22 @@ def py():
         asr_logmel=True,
         pseudo_speech_enc=True,
         pseudo_enc_specaug_max_width=6,
+    )
+    # pseudo-enc-logmel (best pseudo-enc at 4.30) in the best 4-GPU regime: muon-lr5e3-wdbl + nep38.
+    _train_tts_encoder(
+        "pseudo-enc-logmel-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_specaug_max_width=6,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
     )
     # Consistency-ladder (b): NO blank insertion -- blanks get duration 0, so the feature sequence is
     # pure label embeddings (labels still 1 frame each). Isolates the contribution of the random blank
