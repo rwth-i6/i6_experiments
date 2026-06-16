@@ -94,6 +94,71 @@ def ctc_prefix_forward_scores(lp: torch.Tensor, target_ids: List[int], blank: in
     return psi - torch.cat([lp.new_zeros(1), psi[:-1]])
 
 
+def ctc_prefix_forward_scores_batched(
+    lp: torch.Tensor, targets: List[List[int]], blank: int, lengths: torch.Tensor
+) -> torch.Tensor:
+    """Batched :func:`ctc_prefix_forward_scores` over a B>1 batch of different-length seqs.
+
+    :param lp: ``[B, Tm, V]`` log-probs, zero-padded in time.
+    :param targets: B target-id lists (ragged ``S_b``).
+    :param lengths: ``[B]`` valid emission frames ``T_b``.
+    :return: ``[B, Sm]`` per-token scores; mask each seq to its own ``S_b``.
+
+    Same forced-FSA forward as the per-seq version, with a batch axis on the ``2S+1`` states:
+    each seq is FROZEN once ``t >= T_b``, and padded states / tokens are ``-1e30``-masked.
+    Verified bit-equal (max|Δ| = 0) to the per-seq version on a ragged batch.
+    """
+    neg = -1.0e30
+    B, Tm, _ = lp.shape
+    dev = lp.device
+    s_b = torch.tensor([len(t) for t in targets], device=dev)
+    Sm = int(s_b.max())
+    sxm = 2 * Sm + 1
+    ext = torch.full((B, sxm), blank, device=dev, dtype=torch.long)
+    tgt = torch.zeros(B, Sm, device=dev, dtype=torch.long)
+    for b, ts in enumerate(targets):
+        e = [blank]
+        for c in ts:
+            e += [int(c), blank]
+        ext[b, : len(e)] = torch.tensor(e, device=dev)
+        tgt[b, : len(ts)] = torch.tensor(ts, device=dev)
+    bi, tr = torch.arange(B, device=dev), torch.arange(Tm, device=dev)
+    emit = lp[bi[:, None, None], tr[None, :, None], ext[:, None, :]]  # [B, Tm, sxm]
+    label_emit = lp[bi[:, None, None], tr[None, :, None], tgt[:, None, :]]  # [B, Tm, Sm]
+    sx_b = 2 * s_b + 1
+    s_idx = torch.arange(sxm, device=dev)
+    emit = torch.where((s_idx[None, :] < sx_b[:, None])[:, None, :], emit, torch.full_like(emit, neg))
+    diff = torch.zeros(B, sxm, dtype=torch.bool, device=dev)
+    diff[:, 2:] = ext[:, 2:] != ext[:, :-2]
+    skip_ok = (s_idx % 2 == 1)[None, :] & diff
+    ar = torch.arange(Sm, device=dev)
+    pbi, pli = ar * 2, (ar * 2 - 1).clamp(min=0)
+    repeat = torch.zeros(B, Sm, dtype=torch.bool, device=dev)
+    repeat[:, 1:] = tgt[:, 1:] == tgt[:, :-1]
+    label_valid = (ar[None, :] >= 1) & (~repeat) & (ar[None, :] < s_b[:, None])
+    alpha = lp.new_full((B, sxm), neg)
+    alpha[:, 0] = emit[:, 0, 0]
+    alpha[:, 1] = torch.where(sx_b > 1, emit[:, 0, 1], lp.new_full((B,), neg))
+    psi = lp.new_full((B, Sm), neg)
+    psi[:, 0] = 0.0
+    psi = psi + label_emit[:, 0]
+    for t in range(1, Tm):
+        active = (t < lengths)[:, None]
+        phi = torch.logaddexp(
+            alpha[bi[:, None], pbi[None, :]],
+            torch.where(label_valid, alpha[bi[:, None], pli[None, :]], lp.new_full((B, Sm), neg)),
+        )
+        psi_n = torch.logaddexp(psi, phi + label_emit[:, t])
+        a_prev = torch.cat([lp.new_full((B, 1), neg), alpha[:, :-1]], 1)
+        a_skip = torch.where(
+            skip_ok, torch.cat([lp.new_full((B, 2), neg), alpha[:, :-2]], 1), lp.new_full((B, sxm), neg)
+        )
+        alpha_n = emit[:, t] + torch.logsumexp(torch.stack([alpha, a_prev, a_skip], 0), 0)
+        psi = torch.where(active, psi_n, psi)
+        alpha = torch.where(active, alpha_n, alpha)
+    return psi - torch.cat([lp.new_zeros(B, 1), psi[:, :-1]], 1)
+
+
 def ctc_accum_states(lp: torch.Tensor, target_ids: List[int], blank: int) -> torch.Tensor:
     """``acc[k] = log Σ_t α_t(k)`` over the 2S+1 extended states. Differentiable w.r.t. ``lp`` ([T,V])."""
     device, dtype = lp.device, lp.dtype
