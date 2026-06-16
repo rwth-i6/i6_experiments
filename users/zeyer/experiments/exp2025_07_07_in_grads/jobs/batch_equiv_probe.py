@@ -5,8 +5,9 @@ match the same seq run inside a B>1 batch,
 and how large is the diff?
 Reports the per-seq max|Δ| in the final log_probs (real tokens),
 under default math and under safe math (TF32 off / deterministic).
-The seq-batch adapter does the actual masking;
-this only measures whether it ends up equivalent.
+Uses the shared seq_batch_check.single_vs_batch_diff
+(same util the actual jobs use);
+the seq-batch masking does the patching, this only measures equivalence.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ class BatchForwardEquivalenceProbeJob(Job):
         dataset_dir: tk.Path,
         dataset_key: str,
         num_seqs: int = 8,
-        probe_version: int = 5,
+        probe_version: int = 6,
         returnn_root: Optional[tk.Path] = None,
     ):
         super().__init__()
@@ -65,52 +66,23 @@ class BatchForwardEquivalenceProbeJob(Job):
         import torch
         from datasets import load_dataset
         from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models import make_model
+        from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.seq_batch_check import (
+            single_vs_batch_diff,
+        )
 
         dev = torch.device("cuda")
         ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))[self.dataset_key]
         idx = sorted(range(min(len(ds), 200)), key=lambda i: len(ds[i]["audio"]["array"]))
         sel = [idx[t] for t in np.linspace(0, len(idx) - 1, self.num_seqs).round().astype(int)]
-        seqs = []
-        for i in sel:
-            d = ds[i]
-            seqs.append(
-                (
-                    torch.tensor(np.asarray(d["audio"]["array"], dtype=np.float32)),
-                    int(d["audio"]["sampling_rate"]),
-                    list(d["word_detail"]["utterance"]),
-                )
+        seqs = [
+            (
+                torch.tensor(np.asarray(ds[i]["audio"]["array"], dtype=np.float32)),
+                int(ds[i]["audio"]["sampling_rate"]),
+                list(ds[i]["word_detail"]["utterance"]),
             )
+            for i in sel
+        ]
         report = [f"{len(seqs)} seqs, lengths {[int(a.shape[0]) for a, _, _ in seqs]}"]
-
-        def log_probs(batch):
-            """final per-token log_probs [B, n_max, V] for a batch (any B)."""
-            nb = len(batch)
-            ml = max(int(a.shape[0]) for a, _, _ in batch)
-            raw = torch.zeros((nb, ml))
-            for i, (a, _, _) in enumerate(batch):
-                raw[i, : a.shape[0]] = a
-            fwd = model(
-                raw_inputs=raw,
-                raw_inputs_sample_rate=batch[0][1],
-                raw_input_seq_lens=torch.tensor([int(a.shape[0]) for a, _, _ in batch]),
-                raw_targets=[w for _, _, w in batch],
-                raw_target_seq_lens=torch.tensor([len(w) for _, _, w in batch]),
-                omitted_prev_context=torch.zeros(nb, dtype=torch.int64),
-            )
-            tse = fwd.target_start_end.cpu()
-            n_tgt = torch.tensor([int(tse[i, len(b[2]), 1]) for i, b in enumerate(batch)])
-            lp = model.log_probs(forward_output=fwd, start=torch.zeros(nb, dtype=torch.int64), end=n_tgt)
-            return lp.detach().float().cpu(), n_tgt.tolist()
-
-        def diff_single_vs_batch():
-            """per-seq max|Δ| (and mean) of single(B=1) vs the same seq inside the full batch."""
-            lp_b, ntb = log_probs(seqs)
-            ds_ = []
-            for i, b in enumerate(seqs):
-                lp_s, nts = log_probs([b])
-                n = min(ntb[i], nts[0])
-                ds_.append(float((lp_b[i, :n] - lp_s[0, :n]).abs().max()))
-            return max(ds_), sum(ds_) / len(ds_), ds_
 
         def set_math(safe):
             torch.backends.cuda.matmul.allow_tf32 = not safe
@@ -124,13 +96,15 @@ class BatchForwardEquivalenceProbeJob(Job):
                 for p in model.parameters():
                     p.requires_grad = False
                 set_math(False)
-                mx_d, mean_d, _ = diff_single_vs_batch()
+                d_def = single_vs_batch_diff(model, seqs)
                 set_math(True)
-                mx_s, mean_s, per = diff_single_vs_batch()
+                d_safe = single_vs_batch_diff(model, seqs)
                 report.append(f"\n### {name}: log_probs |Δ| single(B=1) vs in-batch")
-                report.append(f"    default math (TF32 on) : max {mx_d:.2e}  mean {mean_d:.2e}")
-                report.append(f"    safe math (TF32 off)   : max {mx_s:.2e}  mean {mean_s:.2e}")
-                report.append(f"    per-seq (safe): {[f'{d:.1e}' for d in per]}")
+                report.append(f"    default math (TF32 on): max {max(d_def):.2e}  mean {sum(d_def) / len(d_def):.2e}")
+                report.append(
+                    f"    safe math (TF32 off)  : max {max(d_safe):.2e}  mean {sum(d_safe) / len(d_safe):.2e}"
+                )
+                report.append(f"    per-seq (safe): {[f'{d:.1e}' for d in d_safe]}")
                 del model
                 torch.cuda.empty_cache()
             except Exception:
