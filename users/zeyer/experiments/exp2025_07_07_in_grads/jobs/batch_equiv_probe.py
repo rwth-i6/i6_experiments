@@ -1,7 +1,12 @@
-"""Batched-forward equivalence probe: the ONLY question is whether a seq's output run SINGLE (B=1)
-matches the SAME seq run inside a B>1 batch, and how large the diff is. Reports the per-seq max|Δ| in
-the final log_probs (real tokens), under default math and under safe math (TF32 off / deterministic).
-No masking / garbage / identical-batch experiments -- those were misleading.
+"""Batched-forward equivalence probe.
+The only question:
+does a seq's output run single (B=1)
+match the same seq run inside a B>1 batch,
+and how large is the diff?
+Reports the per-seq max|Δ| in the final log_probs (real tokens),
+under default math and under safe math (TF32 off / deterministic).
+The seq-batch adapter does the actual masking;
+this only measures whether it ends up equivalent.
 """
 
 from __future__ import annotations
