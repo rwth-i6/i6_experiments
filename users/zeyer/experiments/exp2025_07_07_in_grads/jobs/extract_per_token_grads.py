@@ -87,6 +87,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         "seq_batch_size": 1,
         "amp_dtype": None,
         "amp_attn_fp32": False,
+        "amp_attn_fp32_module": False,
     }
 
     def __init__(
@@ -103,6 +104,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         seq_batch_size: int = 1,
         amp_dtype: Optional[str] = None,
         amp_attn_fp32: bool = False,
+        amp_attn_fp32_module: bool = False,
         **kwargs,
     ):
         """Extends the base with SmoothGrad-style noise averaging.
@@ -137,6 +139,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         self.amp_dtype = amp_dtype
         assert self.amp_dtype in (None, "bfloat16", "float16"), self.amp_dtype
         self.amp_attn_fp32 = bool(amp_attn_fp32)
+        self.amp_attn_fp32_module = bool(amp_attn_fp32_module)
         assert self.target_source in ("word_detail", "phonetic_detail"), self.target_source
         assert sum(x > 1 for x in (self.ig_steps, self.eg_steps)) <= 1, "ig_steps / eg_steps exclusive"
         if self.eg_steps > 1:
@@ -172,6 +175,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
             ("seq_batch_size", 1),
             ("amp_dtype", None),
             ("amp_attn_fp32", False),
+            ("amp_attn_fp32_module", False),
         ):
             if not hasattr(self, _a):
                 setattr(self, _a, _d)
@@ -250,6 +254,23 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         # AMP: log_probs recomputes logits from saved hidden -> wrap it too so the score path
         # matches the forward. Instance-patch persists into _run_seq_batched (same model object).
         _AMP_ATTN_FP32["v"] = self.amp_attn_fp32
+        if self.amp_attn_fp32_module and self.amp_dtype is not None:
+            # Force every attention module forward to f32 (autocast off + f32 inputs). Catches
+            # explicit-matmul attention (NeMo conformer) that the F.sdpa patch does not see.
+            def _wrap_attn_f32(_orig):
+                def _fwd(*a, **k):
+                    with torch.autocast("cuda", enabled=False):
+                        a2 = tuple(x.float() if torch.is_tensor(x) and x.is_floating_point() else x for x in a)
+                        return _orig(*a2, **k)
+
+                return _fwd
+
+            _n_attn = 0
+            for _m in model.modules():
+                if "attention" in type(_m).__name__.lower():
+                    _m.forward = _wrap_attn_f32(_m.forward)
+                    _n_attn += 1
+            print(f"amp_attn_fp32_module: wrapped {_n_attn} attention modules in f32")
         if self.amp_dtype is not None:
             _orig_log_probs = model.log_probs
             _amp_dtype = self.amp_dtype

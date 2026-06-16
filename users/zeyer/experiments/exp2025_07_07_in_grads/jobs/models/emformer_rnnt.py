@@ -64,13 +64,14 @@ class EmformerRnnt(BaseModelInterface):
 
     def _rnnt_prefix_scores(self, logp: torch.Tensor, ys: List[int]) -> torch.Tensor:
         """Proper transducer per-token prefix score (analog of the CTC partial score).
-        RNN-T forward over the T x (U+1) lattice,
-        then the telescoping difference of the time-integrated occupancy.
+        RNN-T forward over the T x (U+1) lattice, then the telescoping difference of the
+        time-integrated occupancy. Vectorized as a wavefront over anti-diagonals ``d = t + u``:
+        ~(T+U) vector graph nodes instead of T*U scalar nodes (the scalar reference is kept as
+        :func:`_rnnt_prefix_scores_loop`). Removes the launch-bound T*U tiny-op backward.
 
         :param logp: ``[T, U+1, V]`` log-probs from the joiner (teacher-forced).
         :param ys: length-U target subword ids.
-        :return: ``[U]`` prefix scores ``Δ_u = accum(u) - accum(u-1)``,
-            ``accum(u) = logsumexp_t α(t,u)``. Grad-attached.
+        :return: ``[U]`` prefix scores ``Δ_u = accum(u) - accum(u-1)``, grad-attached.
         """
         T, U1, _ = logp.shape
         U = len(ys)
@@ -81,7 +82,37 @@ class EmformerRnnt(BaseModelInterface):
         loglabel = logp[torch.arange(T, device=dev)[:, None], torch.arange(U, device=dev)[None, :], ys_t[None, :]]
         # ^ [T, U]: from predictor-position u emit ys[u] -> advance to u+1, stay t
 
-        # alpha[t][u]: log prob of reaching (t,u) having emitted u labels.
+        alpha_mat = logp.new_full((T, U1), neg)  # filled diagonal by diagonal
+        prev_t_lo = 0
+        prev_vec = None
+        for d in range(T + U1 - 1):
+            t_lo = max(0, d - (U1 - 1))
+            t_hi = min(d, T - 1)
+            ts = torch.arange(t_lo, t_hi + 1, device=dev)  # [n] cells (t, d-t)
+            us = d - ts
+            if d == 0:
+                vec = logp.new_zeros(1)  # alpha[0, 0] = 0
+            else:
+                # blank predecessor (t-1, u): valid iff t > 0.
+                bl = prev_vec[(ts - 1 - prev_t_lo).clamp(min=0)] + logblank[(ts - 1).clamp(min=0), us]
+                bl = torch.where(ts > 0, bl, torch.full_like(bl, neg))
+                # label predecessor (t, u-1): valid iff u > 0.
+                la = prev_vec[(ts - prev_t_lo).clamp(max=prev_vec.shape[0] - 1)] + loglabel[ts, (us - 1).clamp(min=0)]
+                la = torch.where(us > 0, la, torch.full_like(la, neg))
+                vec = torch.logaddexp(bl, la)
+            alpha_mat = alpha_mat.index_put((ts, us), vec)
+            prev_t_lo, prev_vec = t_lo, vec
+        accum = torch.logsumexp(alpha_mat, dim=0)  # [U+1]
+        return accum[1:] - accum[:-1]  # [U]
+
+    def _rnnt_prefix_scores_loop(self, logp: torch.Tensor, ys: List[int]) -> torch.Tensor:
+        """Scalar reference implementation of :func:`_rnnt_prefix_scores` (kept for equivalence)."""
+        T, U1, _ = logp.shape
+        U = len(ys)
+        dev = logp.device
+        ys_t = torch.tensor(ys, device=dev, dtype=torch.long)
+        logblank = logp[:, :, self.blank_idx]  # [T, U+1]
+        loglabel = logp[torch.arange(T, device=dev)[:, None], torch.arange(U, device=dev)[None, :], ys_t[None, :]]
         alpha = [[None] * U1 for _ in range(T)]
         alpha[0][0] = logp.new_zeros(())
         for t in range(T):
@@ -90,9 +121,9 @@ class EmformerRnnt(BaseModelInterface):
                     continue
                 terms = []
                 if t > 0:
-                    terms.append(alpha[t - 1][u] + logblank[t - 1, u])  # blank from (t-1,u)
+                    terms.append(alpha[t - 1][u] + logblank[t - 1, u])
                 if u > 0:
-                    terms.append(alpha[t][u - 1] + loglabel[t, u - 1])  # emit ys[u-1] from (t,u-1)
+                    terms.append(alpha[t][u - 1] + loglabel[t, u - 1])
                 alpha[t][u] = terms[0] if len(terms) == 1 else torch.logaddexp(terms[0], terms[1])
         accum = torch.stack([torch.logsumexp(torch.stack([alpha[t][u] for t in range(T)]), 0) for u in range(U1)])
         return accum[1:] - accum[:-1]  # [U]

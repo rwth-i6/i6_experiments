@@ -4148,11 +4148,9 @@ def py():
         # prefix_fwd (the real CTC prefix score) on all four CTCs -- the uniform-winner candidate.
         (parakeet_ctc_prefixfwd_cfg, f"parakeet-ctc-1.1b-prefixfwd-{_xa_tag}-L2_grad-pertoken", "L2", False),
         (owsm_ctc_prefixfwd_cfg, f"owsm-ctc-v4-1b-prefixfwd-{_xa_tag}-L2_grad-pertoken", "L2", False),
-        # Emformer RNN-T: the STREAMING transducer (prefix score). TEMPORARILY DISABLED 2026-06-16:
-        # single-seq + T*U^2 backward can't finish in the 24h walltime (no resume). Re-enable once the
-        # seq-batch transducer adapter lands -> fast re-run. FastConf-RNNT covers the Buckeye streaming
-        # cell meanwhile; TIMIT Emformer grad (137/142ms) already exists.
-        # (rnnt_px_cfg, f"emformer-rnnt-prefix-logmel-{_xa_tag}-L2_grad-pertoken", "L2", False),
+        # Emformer RNN-T: the STREAMING transducer (prefix score). Re-enabled 2026-06-16 with the
+        # VECTORIZED RNN-T wavefront (~3x bwd, exact) -- the scalar T*U version was the launch-bound bottleneck.
+        (rnnt_px_cfg, f"emformer-rnnt-prefix-logmel-{_xa_tag}-L2_grad-pertoken", "L2", False),
         (
             rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out", per_token_score="prefix_fwd"),
             f"wav2vec2ctc-fproj_out-prefixfwd-{_xa_tag}-L2_grad-pertoken",
@@ -4423,6 +4421,61 @@ def py():
     )
     _amp_af_al.add_alias(f"{_amp_af_alias}-wbe")
     reg(f"{_amp_af_alias}-wbe.txt", _amp_af_al.out_wbe)
+
+    # amp-bf16 + attention MODULES forced to f32 (catches NeMo conformer's explicit-matmul attn).
+    _amp_am_ex = ExtractInGradsPerTokenJob(
+        dataset_dir=_sb_dir,
+        dataset_key="test",
+        model_config=pk_cfg,
+        mult_grad_by_inputs=False,
+        attr_reduction="L2",
+        batched_backward=True,
+        amp_dtype="bfloat16",
+        amp_attn_fp32_module=True,
+    )
+    _amp_am_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    _amp_am_ex.rqmt = {**_amp_am_ex.rqmt, "time": 4}
+    _amp_am_alias = "speedcmp/parakeet-rnnt-ampbf16-attnmodf32"
+    _amp_am_ex.add_alias(_amp_am_alias)
+    reg(f"{_amp_am_alias}.hdf", _amp_am_ex.out_hdf)
+    _amp_am_al = WordAlignFromPerTokenGradsJob(
+        grad_score_hdf=_amp_am_ex.out_hdf,
+        grad_score_key="data",
+        dataset_dir=_sb_dir,
+        dataset_key="test",
+        dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+        align_opts=_ALIGN_OPTS_GRID[0],
+    )
+    _amp_am_al.add_alias(f"{_amp_am_alias}-wbe")
+    reg(f"{_amp_am_alias}-wbe.txt", _amp_am_al.out_wbe)
+
+    # Emformer (torchaudio) amp speed/WBE check: f32 ref vs amp-bf16 + attn-module-f32. The real
+    # target -- Buckeye-Emformer grad is ~50h single-seq; amp ~6x would finish before the deadline.
+    for _em_amp, _em_sfx in [({}, "f32"), ({"amp_dtype": "bfloat16", "amp_attn_fp32_module": True}, "ampbf16amf32")]:
+        _em_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=_sb_dir,
+            dataset_key="test",
+            model_config=rnnt_px_cfg,
+            mult_grad_by_inputs=False,
+            attr_reduction="L2",
+            batched_backward=True,
+            **_em_amp,
+        )
+        _em_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _em_ex.rqmt = {**_em_ex.rqmt, "time": 6}
+        _em_alias = f"speedcmp/emformer-rnnt-{_em_sfx}"
+        _em_ex.add_alias(_em_alias)
+        reg(f"{_em_alias}.hdf", _em_ex.out_hdf)
+        _em_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_em_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_sb_dir,
+            dataset_key="test",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=_ALIGN_OPTS_GRID[0],
+        )
+        _em_al.add_alias(f"{_em_alias}-wbe")
+        reg(f"{_em_alias}-wbe.txt", _em_al.out_wbe)
 
     # Track 2 -- single-vs-batched forward equivalence + leak localization: which leaf submodule
     # first diverges under B>1 right-padding. wav2vec2 (conv feature extractor + GroupNorm over the
