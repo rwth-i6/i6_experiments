@@ -1,11 +1,10 @@
-"""Probe: single-seq forward vs batched (B>1, padded) forward — does padding leak INTO the real
-(non-masked) frames? For each leaf submodule we compare batched-output[i] vs single-output[i] on the
-REAL frames only, split into:
-  - INTERIOR: real frames excluding the last `margin` (a genuine masking bug if this leaks), and
-  - BOUNDARY: the last `margin` real frames (where a conv/attn receptive field reaches the now-nonzero
-    padded region -> maskable by re-zeroing padding before each cross-frame op).
-Padded-region outputs are IGNORED (every bias-add makes them nonzero; that's harmless). The leak only
-matters where it crosses into real frames: conv / pool / self-/cross-attn / the prefix sum.
+"""Probe v3: is the batched-vs-single difference a PADDING leak (maskable) or GPU kernel fp
+non-determinism (not maskable)? Two batched modes vs the single-seq forward:
+  - VARIED batch: 10 seqs of different length (real padding) -> padding-leak + kernel-fp.
+  - IDENTICAL batch: 10 copies of one seq (NO padding) -> kernel-fp ONLY.
+If IDENTICAL already shows the diff, padding/masking is not the cause. We report the diff in the
+FINAL log_probs (the score that drives the grad, at real token positions) for both modes, plus the
+first interior submodule leak. No extra masking is applied (we measure the model's own behavior).
 """
 
 from __future__ import annotations
@@ -20,7 +19,7 @@ from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate
 
 
 class BatchForwardEquivalenceProbeJob(Job):
-    """Per-model single-vs-batched forward equivalence; interior-vs-boundary leak localization."""
+    """single vs (varied / identical) batched forward; final-log_probs + first-interior-leak."""
 
     def __init__(
         self,
@@ -30,7 +29,7 @@ class BatchForwardEquivalenceProbeJob(Job):
         dataset_key: str,
         num_seqs: int = 10,
         margin: int = 4,
-        probe_version: int = 2,
+        probe_version: int = 4,
         returnn_root: Optional[tk.Path] = None,
     ):
         super().__init__()
@@ -83,111 +82,116 @@ class BatchForwardEquivalenceProbeJob(Job):
                 )
             )
         lens = [int(a.shape[0]) for a, _, _ in seqs]
-        report = [f"batch of {len(seqs)} seqs, sample lengths {lens}; margin={self.margin}"]
+        report = [f"batch of {len(seqs)} seqs, lengths {lens}; margin={self.margin}"]
 
-        def compare(sb, ss):
-            """real-frame interior/boundary max|Δ|. sb=batched[i], ss=single[0] (no batch dim).
-            time axis = the axis whose sizes differ (padded). Returns (interior, boundary, time_ax)."""
-            if sb.shape == ss.shape:
-                d = float((sb - ss).abs().max()) if sb.numel() else 0.0
-                return d, 0.0, None  # no padded axis -> all "interior"
-            diff_axes = [ax for ax in range(sb.ndim) if sb.shape[ax] != ss.shape[ax]]
-            if len(diff_axes) != 1:
-                sl = tuple(slice(0, min(sb.shape[ax], ss.shape[ax])) for ax in range(sb.ndim))
-                d = float((sb[sl] - ss[sl]).abs().max()) if ss.numel() else 0.0
-                return d, d, -1
-            t = diff_axes[0]
-            L = ss.shape[t]  # real length at this layer
-            real_b = sb.index_select(t, torch.arange(L))
-            diff = (real_b - ss).abs()
-            m = min(self.margin, L)
-            inter = diff.index_select(t, torch.arange(0, L - m)) if L - m > 0 else None
-            bound = diff.index_select(t, torch.arange(L - m, L))
-            inter_max = float(inter.max()) if inter is not None and inter.numel() else 0.0
-            bound_max = float(bound.max()) if bound.numel() else 0.0
-            return inter_max, bound_max, t
+        class SeqMasker:
+            """Zero padded positions before every feature-extractor Conv1d, threading the per-sample
+            valid length through the conv geometry. (The transformer is already length-masked by HF.)"""
 
+            def __init__(self, model, input_lengths):
+                self.valid = input_lengths.long().clone().to(dev)
+                self.handles = []
+                for nm, m in model.named_modules():
+                    if isinstance(m, torch.nn.Conv1d) and "feature_extractor" in nm:
+                        self.handles.append(m.register_forward_pre_hook(self._pre))
+                        self.handles.append(m.register_forward_hook(self._post))
+
+            def _pre(self, module, inputs):
+                x = inputs[0]
+                T = x.shape[-1]
+                mask = torch.arange(T, device=x.device)[None, :] < self.valid[:, None]
+                return (x * mask[:, None, :].to(x.dtype),) + tuple(inputs[1:])
+
+            def _post(self, module, inp, out):
+                k = module.kernel_size[0]
+                s = module.stride[0]
+                p = module.padding[0] if isinstance(module.padding, tuple) else module.padding
+                d = module.dilation[0]
+                self.valid = (self.valid + 2 * p - d * (k - 1) - 1) // s + 1
+
+            def remove(self):
+                for h in self.handles:
+                    h.remove()
+
+        def call(model, batch, mask_lengths=None):
+            sr = batch[0][1]
+            nb = len(batch)
+            ml = max(int(a.shape[0]) for a, _, _ in batch)
+            raw = torch.zeros((nb, ml))
+            for i, (a, _, _) in enumerate(batch):
+                raw[i, : a.shape[0]] = a
+            masker = SeqMasker(model, torch.tensor(mask_lengths)) if mask_lengths is not None else None
+            try:
+                fwd = model(
+                    raw_inputs=raw,
+                    raw_inputs_sample_rate=sr,
+                    raw_input_seq_lens=torch.tensor([int(a.shape[0]) for a, _, _ in batch]),
+                    raw_targets=[w for _, _, w in batch],
+                    raw_target_seq_lens=torch.tensor([len(w) for _, _, w in batch]),
+                    omitted_prev_context=torch.zeros(nb, dtype=torch.int64),
+                )
+            finally:
+                if masker is not None:
+                    masker.remove()
+            tse = fwd.target_start_end.cpu()
+            n_tgt = torch.tensor([int(tse[i, len(b[2]), 1]) for i, b in enumerate(batch)])
+            lp = model.log_probs(forward_output=fwd, start=torch.zeros(nb, dtype=torch.int64), end=n_tgt)
+            return lp.detach().float().cpu(), n_tgt.tolist(), tse
+
+        def lp_diff(model, batch, mask=False):
+            """max|Δ| in final per-token log_probs (real tokens) batched vs single, over the batch.
+            mask=True installs the SeqMasker on the batched forward (single forward needs no mask)."""
+            ml = [int(a.shape[0]) for a, _, _ in batch] if mask else None
+            lp_b, ntb, _ = call(model, batch, mask_lengths=ml)
+            mx = 0.0
+            for i, b in enumerate(batch):
+                lp_s, nts, _ = call(model, [b])
+                n = min(ntb[i], nts[0])
+                d = (lp_b[i, :n] - lp_s[0, :n]).abs().max()
+                mx = max(mx, float(d))
+            return mx
+
+        def set_math(safe):
+            # safe = full-precision + deterministic: TF32 OFF, no cudnn autotune, deterministic algos.
+            torch.backends.cuda.matmul.allow_tf32 = not safe
+            torch.backends.cudnn.allow_tf32 = not safe
+            torch.backends.cudnn.benchmark = not safe
+            torch.backends.cudnn.deterministic = safe
+
+        report.append(
+            f"\ndefault math: tf32(matmul)={torch.backends.cuda.matmul.allow_tf32} "
+            f"tf32(cudnn)={torch.backends.cudnn.allow_tf32} benchmark={torch.backends.cudnn.benchmark}"
+        )
         for name, cfg in self.model_configs.items():
             try:
                 mc = instanciate_delayed_copy(cfg)
                 model = make_model(**mc, device=dev)
                 for p in model.parameters():
                     p.requires_grad = False
-                sr = seqs[0][1]
-                nb = len(seqs)
-                maxlen = max(lens)
-                raw = torch.zeros((nb, maxlen))
-                for i, (a, _, _) in enumerate(seqs):
-                    raw[i, : a.shape[0]] = a
+                mid = seqs[len(seqs) // 2]
+                ident_batch = [mid for _ in range(len(seqs))]
 
-                def hook_capture(store):
-                    handles = []
+                set_math(False)
+                varied_def = lp_diff(model, seqs)
+                ident_def = lp_diff(model, ident_batch)
+                set_math(True)
+                varied_safe = lp_diff(model, seqs)
+                ident_safe = lp_diff(model, ident_batch)
+                varied_masked_safe = lp_diff(model, seqs, mask=True)
 
-                    def mk(nm):
-                        def h(_m, _inp, out):
-                            t = out[0] if isinstance(out, tuple) else out
-                            if isinstance(t, torch.Tensor):
-                                store[nm] = t.detach().float().cpu()
-
-                        return h
-
-                    for nm, m in model.named_modules():
-                        if nm and len(list(m.children())) == 0:
-                            handles.append(m.register_forward_hook(mk(nm)))
-                    return handles
-
-                store_b: Dict[str, Any] = {}
-                hs = hook_capture(store_b)
-                _ = model(
-                    raw_inputs=raw,
-                    raw_inputs_sample_rate=sr,
-                    raw_input_seq_lens=torch.tensor(lens),
-                    raw_targets=[w for _, _, w in seqs],
-                    raw_target_seq_lens=torch.tensor([len(w) for _, _, w in seqs]),
-                    omitted_prev_context=torch.zeros(nb, dtype=torch.int64),
-                )
-                for h in hs:
-                    h.remove()
-
-                inter_agg: Dict[str, float] = {}
-                bound_agg: Dict[str, float] = {}
-                for i, (a, _, w) in enumerate(seqs):
-                    store_s: Dict[str, Any] = {}
-                    hs = hook_capture(store_s)
-                    _ = model(
-                        raw_inputs=a[None],
-                        raw_inputs_sample_rate=sr,
-                        raw_input_seq_lens=torch.tensor([int(a.shape[0])]),
-                        raw_targets=[w],
-                        raw_target_seq_lens=torch.tensor([len(w)]),
-                        omitted_prev_context=torch.zeros(1, dtype=torch.int64),
-                    )
-                    for h in hs:
-                        h.remove()
-                    for nm, s in store_s.items():
-                        b = store_b.get(nm)
-                        if b is None or b.shape[0] != nb:
-                            continue
-                        inter, bound, _t = compare(b[i], s[0])
-                        inter_agg[nm] = max(inter_agg.get(nm, 0.0), inter)
-                        bound_agg[nm] = max(bound_agg.get(nm, 0.0), bound)
-
-                ordered = [nm for nm, _ in model.named_modules() if nm in inter_agg]
-                report.append(f"\n### {name}: real-frame max|Δ| (INTERIOR | BOUNDARY) per leaf submodule")
-                interior_leaks = [nm for nm in ordered if inter_agg[nm] > 1e-5]
+                report.append(f"\n### {name}: FINAL log_probs max|Δ| (real tokens), batched vs single")
+                report.append(f"    VARIED  batch, default math (TF32 on) : {varied_def:.3e}")
+                report.append(f"    VARIED  batch, SAFE math (TF32 off)   : {varied_safe:.3e}")
+                report.append(f"    IDENTICAL batch (no pad), default     : {ident_def:.3e}")
+                report.append(f"    IDENTICAL batch (no pad), SAFE        : {ident_safe:.3e}")
+                report.append(f"    VARIED  batch, SAFE + MASKED          : {varied_masked_safe:.3e}")
                 report.append(
-                    f"  >>> first INTERIOR leak (>1e-5, = real masking bug): "
-                    f"{interior_leaks[0] if interior_leaks else 'NONE'}"
+                    f"    -> masking {'CLOSES residual to floor' if varied_masked_safe < 2 * ident_safe else 'does NOT close it'}"
                 )
-                for nm in ordered:
-                    iv, bv = inter_agg[nm], bound_agg[nm]
-                    if iv > 1e-5 or bv > 1e-5:
-                        flag = "  <-- INTERIOR" if iv > 1e-5 else ""
-                        report.append(f"    int {iv:.2e} | bnd {bv:.2e}   {nm}{flag}")
-                del model, store_b
+                del model
                 torch.cuda.empty_cache()
             except Exception:
-                report.append(f"\n### {name}: SKIPPED/ERROR\n{traceback.format_exc()}")
+                report.append(f"\n### {name}: SKIPPED/ERROR\n{traceback.format_exc().splitlines()[-1]}")
 
         txt = "\n".join(report)
         print(txt)
