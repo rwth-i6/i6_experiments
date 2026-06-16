@@ -1,41 +1,46 @@
 from dataclasses import dataclass
 
-import torch
-from torch import nn
-from typing import Callable, Optional, Union
-
-from i6_models.assemblies.conformer.conformer_v1 import ConformerBlockV1Config
-from i6_models.config import ModelConfiguration, ModuleFactoryV1
-from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1Config
-from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Config
+from typing import Optional, Tuple
 
 
-@dataclass(kw_only=True)
-class VGG4LayerActFrontendV1ConfigMod(VGG4LayerActFrontendV1Config):
+@dataclass
+class LogMelFeatureExtractionV1Config:
+    sample_rate: int
+    win_size: float
+    hop_size: float
+    f_min: int
+    f_max: int
+    min_amp: float
+    num_filters: int
+    center: bool
+
+
+@dataclass
+class VGG4LayerActFrontendV1ConfigMod:
+    in_features: int
+    conv1_channels: int
+    conv2_channels: int
+    conv3_channels: int
+    conv4_channels: int
+    conv_kernel_size: Tuple[int, int]
+    conv_padding: Optional[Tuple[int, int]]
+    pool1_kernel_size: Tuple[int, int]
+    pool1_stride: Tuple[int, int]
+    pool1_padding: Optional[Tuple[int, int]]
+    pool2_kernel_size: Tuple[int, int]
+    pool2_stride: Tuple[int, int]
+    pool2_padding: Optional[Tuple[int, int]]
+    out_features: int
     activation_str: str = ""
-    activation: Optional[Union[nn.Module, Callable[[torch.Tensor], torch.Tensor]]] = None
+    activation: Optional[object] = None
 
     @classmethod
     def from_dict(cls, d):
-        d = d.copy()
-        activation_str = d.pop("activation_str")
-        if activation_str == "ReLU":
-            activation = nn.ReLU()
-        else:
-            raise ValueError(f"Unsupported activation {activation_str!r}")
-        d["activation"] = activation
-        return VGG4LayerActFrontendV1Config(**d)
+        return cls(**d)
 
 
 @dataclass
-class ConformerEncoderV1Config(ModelConfiguration):
-    num_layers: int
-    frontend: ModuleFactoryV1
-    block_cfg: ConformerBlockV1Config
-
-
-@dataclass
-class SpecaugConfig(ModelConfiguration):
+class SpecaugConfig:
     repeat_per_n_frames: int
     max_dim_time: int
     num_repeat_feat: int
@@ -45,7 +50,7 @@ class SpecaugConfig(ModelConfiguration):
 @dataclass
 class ModelConfig:
     feature_extraction_config: LogMelFeatureExtractionV1Config
-    frontend_config: VGG4LayerActFrontendV1Config
+    frontend_config: VGG4LayerActFrontendV1ConfigMod
     specaug_config: SpecaugConfig
     specauc_start_epoch: int
     label_target_size: int
@@ -67,7 +72,18 @@ class ModelConfig:
     @classmethod
     def from_dict(cls, d):
         d = d.copy()
-        d["feature_extraction_config"] = LogMelFeatureExtractionV1Config(**d["feature_extraction_config"])
-        d["frontend_config"] = VGG4LayerActFrontendV1ConfigMod.from_dict(d["frontend_config"])
+        from torch import nn
+
+        from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1Config
+        from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Config as I6LogMelConfig
+
+        d["feature_extraction_config"] = I6LogMelConfig(**d["feature_extraction_config"])
+        frontend_dict = d["frontend_config"].copy()
+        activation_str = frontend_dict.pop("activation_str")
+        if activation_str == "ReLU":
+            frontend_dict["activation"] = nn.ReLU()
+        else:
+            raise ValueError(f"Unsupported activation {activation_str!r}")
+        d["frontend_config"] = VGG4LayerActFrontendV1Config(**frontend_dict)
         d["specaug_config"] = SpecaugConfig(**d["specaug_config"])
         return cls(**d)
