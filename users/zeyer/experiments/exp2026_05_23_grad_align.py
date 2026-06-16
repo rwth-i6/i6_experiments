@@ -4145,8 +4145,11 @@ def py():
         # prefix_fwd (the real CTC prefix score) on all four CTCs -- the uniform-winner candidate.
         (parakeet_ctc_prefixfwd_cfg, f"parakeet-ctc-1.1b-prefixfwd-{_xa_tag}-L2_grad-pertoken", "L2", False),
         (owsm_ctc_prefixfwd_cfg, f"owsm-ctc-v4-1b-prefixfwd-{_xa_tag}-L2_grad-pertoken", "L2", False),
-        # Emformer RNN-T: the STREAMING transducer (prefix score).
-        (rnnt_px_cfg, f"emformer-rnnt-prefix-logmel-{_xa_tag}-L2_grad-pertoken", "L2", False),
+        # Emformer RNN-T: the STREAMING transducer (prefix score). TEMPORARILY DISABLED 2026-06-16:
+        # single-seq + T*U^2 backward can't finish in the 24h walltime (no resume). Re-enable once the
+        # seq-batch transducer adapter lands -> fast re-run. FastConf-RNNT covers the Buckeye streaming
+        # cell meanwhile; TIMIT Emformer grad (137/142ms) already exists.
+        # (rnnt_px_cfg, f"emformer-rnnt-prefix-logmel-{_xa_tag}-L2_grad-pertoken", "L2", False),
         (
             rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out", per_token_score="prefix_fwd"),
             f"wav2vec2ctc-fproj_out-prefixfwd-{_xa_tag}-L2_grad-pertoken",
@@ -4351,6 +4354,44 @@ def py():
             )
             _sb_al.add_alias(f"{_sb_alias}-wbe")
             reg(f"{_sb_alias}-wbe.txt", _sb_al.out_wbe)
+
+    # AMP A/B: run fp32 models (AED / transducer / CTC) with bf16 activations (weights stay f32)
+    # via amp_dtype, on top of batched_backward=True (the standard). Compare WBE to the f32
+    # reference (-bb1-wbe) -> WBE-close gate; job runtime -> the 'actually faster' gate.
+    for _amp_cfg, _amp_name, _amp_attr, _amp_mgi in [
+        (
+            rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir, char_level=True, char_level_sep=" "),
+            "whisper-base-charlev",
+            "L2",
+            False,
+        ),
+        (pk_cfg, "parakeet-rnnt", "L2", False),
+        (rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out"), "wav2vec2ctc-fproj_out", "L2", False),
+    ]:
+        _amp_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=_sb_dir,
+            dataset_key="test",
+            model_config=_amp_cfg,
+            mult_grad_by_inputs=_amp_mgi,
+            attr_reduction=_amp_attr,
+            batched_backward=True,
+            amp_dtype="bfloat16",
+        )
+        _amp_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _amp_ex.rqmt = {**_amp_ex.rqmt, "time": 4}
+        _amp_alias = f"speedcmp/{_amp_name}-ampbf16"
+        _amp_ex.add_alias(_amp_alias)
+        reg(f"{_amp_alias}.hdf", _amp_ex.out_hdf)
+        _amp_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_amp_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_sb_dir,
+            dataset_key="test",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=_ALIGN_OPTS_GRID[0],
+        )
+        _amp_al.add_alias(f"{_amp_alias}-wbe")
+        reg(f"{_amp_alias}-wbe.txt", _amp_al.out_wbe)
 
     # Phi4 eager-attention equality probe: the checkpoint defaults to flash-attn-2
     # (no output_attentions, no vmap); eager would unblock self-attn alignment and

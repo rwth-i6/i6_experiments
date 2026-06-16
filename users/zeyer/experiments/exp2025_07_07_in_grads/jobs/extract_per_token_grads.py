@@ -5,6 +5,20 @@ from sisyphus import Task
 from .extract_in_grad_scores import ExtractInGradsFromModelJob
 
 
+def _amp_forward(model, amp_dtype, **kw):
+    """Run the model forward under ``torch.autocast`` if ``amp_dtype`` is set (activations in
+    amp_dtype, weights untouched), else a plain forward. Used at every model() call site so the
+    forward graph records the mixed-precision casts; the per-token ``autograd.grad`` is taken
+    OUTSIDE autocast (backward replays those recorded casts)."""
+    if amp_dtype is None:
+        return model(**kw)
+    import torch
+
+    dt = {"bfloat16": torch.bfloat16, "float16": torch.float16}[amp_dtype]
+    with torch.autocast("cuda", dtype=dt):
+        return model(**kw)
+
+
 class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
     """Per-token version of :class:`ExtractInGradsFromModelJob`.
 
@@ -42,6 +56,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         "target_source": "word_detail",
         "batched_backward": False,
         "seq_batch_size": 1,
+        "amp_dtype": None,
     }
 
     def __init__(
@@ -56,6 +71,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         target_source: str = "word_detail",
         batched_backward: bool = False,
         seq_batch_size: int = 1,
+        amp_dtype: Optional[str] = None,
         **kwargs,
     ):
         """Extends the base with SmoothGrad-style noise averaging.
@@ -87,6 +103,8 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         self.batched_backward = bool(batched_backward)
         self.seq_batch_size = int(seq_batch_size)
         assert self.seq_batch_size >= 1
+        self.amp_dtype = amp_dtype
+        assert self.amp_dtype in (None, "bfloat16", "float16"), self.amp_dtype
         assert self.target_source in ("word_detail", "phonetic_detail"), self.target_source
         assert sum(x > 1 for x in (self.ig_steps, self.eg_steps)) <= 1, "ig_steps / eg_steps exclusive"
         if self.eg_steps > 1:
@@ -120,6 +138,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
             ("target_source", "word_detail"),
             ("batched_backward", False),
             ("seq_batch_size", 1),
+            ("amp_dtype", None),
         ):
             if not hasattr(self, _a):
                 setattr(self, _a, _d)
@@ -194,6 +213,18 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
 
         for p in model.parameters():
             p.requires_grad = False
+
+        # AMP: log_probs recomputes logits from saved hidden -> wrap it too so the score path
+        # matches the forward. Instance-patch persists into _run_seq_batched (same model object).
+        if self.amp_dtype is not None:
+            _amp_dt = {"bfloat16": torch.bfloat16, "float16": torch.float16}[self.amp_dtype]
+            _orig_log_probs = model.log_probs
+
+            def _amp_log_probs(*a, **k):
+                with torch.autocast("cuda", dtype=_amp_dt):
+                    return _orig_log_probs(*a, **k)
+
+            model.log_probs = _amp_log_probs
 
         report_dev_memory_stats(dev)
 
@@ -388,7 +419,9 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
                         _noisy = _raw_audio_chunk + torch.randn_like(_raw_audio_chunk) * _noise_std
                     else:
                         _noisy = _raw_audio_chunk
-                    _fwd: ForwardOutput = model(
+                    _fwd: ForwardOutput = _amp_forward(
+                        model,
+                        self.amp_dtype,
                         raw_inputs=_noisy[None],
                         raw_inputs_sample_rate=samplerate,
                         raw_input_seq_lens=torch.tensor([audio_end - audio_start]),
@@ -444,7 +477,9 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
                     _grad_sum = {}  # (w, k) -> [B, T, F]
                     for _step in range(_ig_n):
                         _alpha = (_step + 1) / _ig_n
-                        _fwd_ig = model(
+                        _fwd_ig = _amp_forward(
+                            model,
+                            self.amp_dtype,
                             raw_inputs=(_raw_audio_chunk * _alpha)[None],
                             raw_inputs_sample_rate=samplerate,
                             raw_input_seq_lens=torch.tensor([audio_end - audio_start]),
@@ -479,7 +514,9 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
                         _xp = torch.randn_like(_raw_audio_chunk) * self.eg_baseline_std
                         _alpha = float(torch.rand(1).item())
                         _x_point = _xp + _alpha * (_raw_audio_chunk - _xp)
-                        _fwd_eg = model(
+                        _fwd_eg = _amp_forward(
+                            model,
+                            self.amp_dtype,
                             raw_inputs=_x_point[None],
                             raw_inputs_sample_rate=samplerate,
                             raw_input_seq_lens=torch.tensor([audio_end - audio_start]),
@@ -602,7 +639,9 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
             raw = torch.zeros((nb, max(lens)))
             for i, (_, audio, _, _) in enumerate(batch):
                 raw[i, : len(audio)] = torch.tensor(audio)
-            fwd = model(
+            fwd = _amp_forward(
+                model,
+                self.amp_dtype,
                 raw_inputs=raw,
                 raw_inputs_sample_rate=sr,
                 raw_input_seq_lens=torch.tensor(lens),
