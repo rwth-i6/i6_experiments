@@ -665,6 +665,28 @@ def py():
             pseudo_enc_start_layer=_start_layer,
             pseudo_enc_specaug_max_width=6,
         )
+    # Layer-split depth sweep in the best regime (muon-lr5e3-wdbl + nep38): inject the pseudo-speech at
+    # encoder layer N (= share the top 16-N encoder layers). layer8 won at nep25 (3.95, first text-util
+    # variant below the no-text baseline). 0-indexed layers "0".."15", so N=16 = share ZERO encoder layers
+    # (degenerate endpoint; the collected_outputs guard skips all aux losses there).
+    for _start_layer in (0, 4, 8, 12, 16):
+        _train_tts_encoder(
+            f"pseudo-enc-layer{_start_layer}-muon-nep38",
+            prefix=prefix,
+            text_train_epoch_split=75,
+            batch_size_audio_frames=120_000,
+            max_phon_len=300,
+            batch_size_phon=8_000,
+            asr_logmel=True,
+            pseudo_speech_enc=True,
+            pseudo_enc_start_layer=_start_layer,
+            pseudo_enc_specaug_max_width=6,
+            base_lr=1.0,
+            peak_lr=5e-3,
+            nep=38,
+            extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+            extra_config_deletes=["optimizer.epsilon"],
+        )
     # Unit-granularity ablation (CJST-style): the ASR's own spm10k subword units as pseudo-enc input
     # instead of phonemes (identity output mapping; no lexicon/phoneme step needed; the earlier study
     # also used the ASR target units). Same duration setting -> ~3.2x shorter sequences than the
