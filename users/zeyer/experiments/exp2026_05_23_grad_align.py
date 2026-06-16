@@ -4396,6 +4396,34 @@ def py():
         _amp_al.add_alias(f"{_amp_alias}-wbe")
         reg(f"{_amp_alias}-wbe.txt", _amp_al.out_wbe)
 
+    # SDPA-f32 probe: amp-bf16 but force the attention core (Q*K, softmax, attn*V) to f32 -> does
+    # the +5.3ms recover while keeping bf16 speed? (parakeet-rnnt conformer self-attn = suspect.)
+    _amp_af_ex = ExtractInGradsPerTokenJob(
+        dataset_dir=_sb_dir,
+        dataset_key="test",
+        model_config=pk_cfg,
+        mult_grad_by_inputs=False,
+        attr_reduction="L2",
+        batched_backward=True,
+        amp_dtype="bfloat16",
+        amp_attn_fp32=True,
+    )
+    _amp_af_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    _amp_af_ex.rqmt = {**_amp_af_ex.rqmt, "time": 4}
+    _amp_af_alias = "speedcmp/parakeet-rnnt-ampbf16-attnf32"
+    _amp_af_ex.add_alias(_amp_af_alias)
+    reg(f"{_amp_af_alias}.hdf", _amp_af_ex.out_hdf)
+    _amp_af_al = WordAlignFromPerTokenGradsJob(
+        grad_score_hdf=_amp_af_ex.out_hdf,
+        grad_score_key="data",
+        dataset_dir=_sb_dir,
+        dataset_key="test",
+        dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+        align_opts=_ALIGN_OPTS_GRID[0],
+    )
+    _amp_af_al.add_alias(f"{_amp_af_alias}-wbe")
+    reg(f"{_amp_af_alias}-wbe.txt", _amp_af_al.out_wbe)
+
     # Track 2 -- single-vs-batched forward equivalence + leak localization: which leaf submodule
     # first diverges under B>1 right-padding. wav2vec2 (conv feature extractor + GroupNorm over the
     # time axis) is the canonical case and already supports B>1 forward.

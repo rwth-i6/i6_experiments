@@ -5,17 +5,46 @@ from sisyphus import Task
 from .extract_in_grad_scores import ExtractInGradsFromModelJob
 
 
-def _amp_forward(model, amp_dtype, **kw):
-    """Run the model forward under ``torch.autocast`` if ``amp_dtype`` is set (activations in
-    amp_dtype, weights untouched), else a plain forward. Used at every model() call site so the
-    forward graph records the mixed-precision casts; the per-token ``autograd.grad`` is taken
-    OUTSIDE autocast (backward replays those recorded casts)."""
-    if amp_dtype is None:
-        return model(**kw)
+import contextlib
+
+# Set once per run() to self.amp_attn_fp32 (process-local; one job = one config).
+_AMP_ATTN_FP32 = {"v": False}
+
+
+@contextlib.contextmanager
+def _amp_ctx(amp_dtype):
+    """autocast(amp_dtype) for the forward graph. If _AMP_ATTN_FP32 is set, additionally force the
+    scaled-dot-product attention core (Q*K, softmax, attn*V) to f32 while projections / FFN / conv
+    stay in amp_dtype -- a probe for whether the bf16 attention matmuls are what cost WBE."""
     import torch
 
+    if amp_dtype is None:
+        yield
+        return
     dt = {"bfloat16": torch.bfloat16, "float16": torch.float16}[amp_dtype]
-    with torch.autocast("cuda", dtype=dt):
+    import torch.nn.functional as F
+
+    _orig_sdpa = F.scaled_dot_product_attention
+    if _AMP_ATTN_FP32["v"]:
+
+        def _sdpa_f32(q, k, v, *a, **k_):
+            odt = q.dtype
+            with torch.autocast("cuda", enabled=False):
+                o = _orig_sdpa(q.float(), k.float(), v.float(), *a, **k_)
+            return o.to(odt)
+
+        F.scaled_dot_product_attention = _sdpa_f32
+    try:
+        with torch.autocast("cuda", dtype=dt):
+            yield
+    finally:
+        F.scaled_dot_product_attention = _orig_sdpa
+
+
+def _amp_forward(model, amp_dtype, **kw):
+    """Forward under AMP (see :func:`_amp_ctx`). The per-token ``autograd.grad`` is taken OUTSIDE
+    this context (backward replays the recorded forward casts)."""
+    with _amp_ctx(amp_dtype):
         return model(**kw)
 
 
@@ -57,6 +86,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         "batched_backward": False,
         "seq_batch_size": 1,
         "amp_dtype": None,
+        "amp_attn_fp32": False,
     }
 
     def __init__(
@@ -72,6 +102,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         batched_backward: bool = False,
         seq_batch_size: int = 1,
         amp_dtype: Optional[str] = None,
+        amp_attn_fp32: bool = False,
         **kwargs,
     ):
         """Extends the base with SmoothGrad-style noise averaging.
@@ -105,6 +136,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         assert self.seq_batch_size >= 1
         self.amp_dtype = amp_dtype
         assert self.amp_dtype in (None, "bfloat16", "float16"), self.amp_dtype
+        self.amp_attn_fp32 = bool(amp_attn_fp32)
         assert self.target_source in ("word_detail", "phonetic_detail"), self.target_source
         assert sum(x > 1 for x in (self.ig_steps, self.eg_steps)) <= 1, "ig_steps / eg_steps exclusive"
         if self.eg_steps > 1:
@@ -139,6 +171,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
             ("batched_backward", False),
             ("seq_batch_size", 1),
             ("amp_dtype", None),
+            ("amp_attn_fp32", False),
         ):
             if not hasattr(self, _a):
                 setattr(self, _a, _d)
@@ -216,12 +249,13 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
 
         # AMP: log_probs recomputes logits from saved hidden -> wrap it too so the score path
         # matches the forward. Instance-patch persists into _run_seq_batched (same model object).
+        _AMP_ATTN_FP32["v"] = self.amp_attn_fp32
         if self.amp_dtype is not None:
-            _amp_dt = {"bfloat16": torch.bfloat16, "float16": torch.float16}[self.amp_dtype]
             _orig_log_probs = model.log_probs
+            _amp_dtype = self.amp_dtype
 
             def _amp_log_probs(*a, **k):
-                with torch.autocast("cuda", dtype=_amp_dt):
+                with _amp_ctx(_amp_dtype):
                     return _orig_log_probs(*a, **k)
 
             model.log_probs = _amp_log_probs

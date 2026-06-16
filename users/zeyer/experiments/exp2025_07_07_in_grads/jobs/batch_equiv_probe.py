@@ -1,9 +1,11 @@
-"""Probe: single-seq forward vs batched (B>1, padded) forward — how much do per-seq outputs differ,
-and WHERE does the leak originate? Runs a representative mixed-length batch through each model's
-wrapper (needs B>1 forward support; transducers don't have it yet -> reported as skipped), compares
-per-seq log_probs at REAL (unpadded) positions, and localizes the leak by hooking the underlying
-module tree: for each submodule, batched-output[i, :Lvalid] vs single-output[i] -> first divergent
-submodule = the leak origin (expected: a norm/conv over the time axis that includes padded frames).
+"""Probe: single-seq forward vs batched (B>1, padded) forward — does padding leak INTO the real
+(non-masked) frames? For each leaf submodule we compare batched-output[i] vs single-output[i] on the
+REAL frames only, split into:
+  - INTERIOR: real frames excluding the last `margin` (a genuine masking bug if this leaks), and
+  - BOUNDARY: the last `margin` real frames (where a conv/attn receptive field reaches the now-nonzero
+    padded region -> maskable by re-zeroing padding before each cross-frame op).
+Padded-region outputs are IGNORED (every bias-add makes them nonzero; that's harmless). The leak only
+matters where it crosses into real frames: conv / pool / self-/cross-attn / the prefix sum.
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate
 
 
 class BatchForwardEquivalenceProbeJob(Job):
-    """Per-model single-vs-batched forward equivalence + per-submodule leak localization."""
+    """Per-model single-vs-batched forward equivalence; interior-vs-boundary leak localization."""
 
     def __init__(
         self,
@@ -27,6 +29,8 @@ class BatchForwardEquivalenceProbeJob(Job):
         dataset_dir: tk.Path,
         dataset_key: str,
         num_seqs: int = 10,
+        margin: int = 4,
+        probe_version: int = 2,
         returnn_root: Optional[tk.Path] = None,
     ):
         super().__init__()
@@ -34,6 +38,8 @@ class BatchForwardEquivalenceProbeJob(Job):
         self.dataset_dir = dataset_dir
         self.dataset_key = dataset_key
         self.num_seqs = num_seqs
+        self.margin = margin
+        self.probe_version = probe_version
         self.returnn_root = returnn_root
         self.rqmt = {"time": 2, "cpu": 2, "gpu": 1, "mem": 48}
         self.out_report = self.output_var("report.txt")
@@ -63,7 +69,6 @@ class BatchForwardEquivalenceProbeJob(Job):
 
         dev = torch.device("cuda")
         ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))[self.dataset_key]
-        # pick num_seqs of VARIED length (sort by len, take a spread) so the batch has real padding
         idx_by_len = sorted(range(min(len(ds), 200)), key=lambda i: len(ds[i]["audio"]["array"]))
         take = np.linspace(0, len(idx_by_len) - 1, self.num_seqs).round().astype(int)
         sel = [idx_by_len[i] for i in take]
@@ -78,7 +83,29 @@ class BatchForwardEquivalenceProbeJob(Job):
                 )
             )
         lens = [int(a.shape[0]) for a, _, _ in seqs]
-        report = [f"batch of {len(seqs)} seqs, sample lengths {lens}"]
+        report = [f"batch of {len(seqs)} seqs, sample lengths {lens}; margin={self.margin}"]
+
+        def compare(sb, ss):
+            """real-frame interior/boundary max|Δ|. sb=batched[i], ss=single[0] (no batch dim).
+            time axis = the axis whose sizes differ (padded). Returns (interior, boundary, time_ax)."""
+            if sb.shape == ss.shape:
+                d = float((sb - ss).abs().max()) if sb.numel() else 0.0
+                return d, 0.0, None  # no padded axis -> all "interior"
+            diff_axes = [ax for ax in range(sb.ndim) if sb.shape[ax] != ss.shape[ax]]
+            if len(diff_axes) != 1:
+                sl = tuple(slice(0, min(sb.shape[ax], ss.shape[ax])) for ax in range(sb.ndim))
+                d = float((sb[sl] - ss[sl]).abs().max()) if ss.numel() else 0.0
+                return d, d, -1
+            t = diff_axes[0]
+            L = ss.shape[t]  # real length at this layer
+            real_b = sb.index_select(t, torch.arange(L))
+            diff = (real_b - ss).abs()
+            m = min(self.margin, L)
+            inter = diff.index_select(t, torch.arange(0, L - m)) if L - m > 0 else None
+            bound = diff.index_select(t, torch.arange(L - m, L))
+            inter_max = float(inter.max()) if inter is not None and inter.numel() else 0.0
+            bound_max = float(bound.max()) if bound.numel() else 0.0
+            return inter_max, bound_max, t
 
         for name, cfg in self.model_configs.items():
             try:
@@ -93,8 +120,6 @@ class BatchForwardEquivalenceProbeJob(Job):
                 for i, (a, _, _) in enumerate(seqs):
                     raw[i, : a.shape[0]] = a
 
-                # capture per-submodule outputs; record valid time-length per submodule from the
-                # single-seq run (its output length IS the valid length at that layer).
                 def hook_capture(store):
                     handles = []
 
@@ -107,14 +132,13 @@ class BatchForwardEquivalenceProbeJob(Job):
                         return h
 
                     for nm, m in model.named_modules():
-                        if nm and len(list(m.children())) == 0:  # leaf modules only
+                        if nm and len(list(m.children())) == 0:
                             handles.append(m.register_forward_hook(mk(nm)))
                     return handles
 
-                # batched forward
                 store_b: Dict[str, Any] = {}
                 hs = hook_capture(store_b)
-                fwd_b = model(
+                _ = model(
                     raw_inputs=raw,
                     raw_inputs_sample_rate=sr,
                     raw_input_seq_lens=torch.tensor(lens),
@@ -125,8 +149,8 @@ class BatchForwardEquivalenceProbeJob(Job):
                 for h in hs:
                     h.remove()
 
-                # single forwards; for each seq capture submodule outputs, compare to batched slice
-                first_leak = {}  # submodule -> max diff (per-seq aggregated)
+                inter_agg: Dict[str, float] = {}
+                bound_agg: Dict[str, float] = {}
                 for i, (a, _, w) in enumerate(seqs):
                     store_s: Dict[str, Any] = {}
                     hs = hook_capture(store_s)
@@ -144,28 +168,22 @@ class BatchForwardEquivalenceProbeJob(Job):
                         b = store_b.get(nm)
                         if b is None or b.shape[0] != nb:
                             continue
-                        # find the time axis = the axis whose single-len differs from batched-len
-                        # (others should match). Compare batched[i, :L] vs single[0, :L] on that axis.
-                        sb = b[i]
-                        ss = s[0]
-                        if sb.shape == ss.shape:
-                            d = float((sb - ss).abs().max()) if sb.numel() else 0.0
-                        else:
-                            # slice each tensor's mismatched axis to the single's length
-                            sl = tuple(slice(0, min(sb.shape[ax], ss.shape[ax])) for ax in range(sb.ndim))
-                            d = float((sb[sl] - ss[sl]).abs().max()) if ss.numel() else 0.0
-                        first_leak[nm] = max(first_leak.get(nm, 0.0), d)
+                        inter, bound, _t = compare(b[i], s[0])
+                        inter_agg[nm] = max(inter_agg.get(nm, 0.0), inter)
+                        bound_agg[nm] = max(bound_agg.get(nm, 0.0), bound)
 
-                # report the leak-localization: submodules with nonzero diff, in module order
-                ordered = [nm for nm, _ in model.named_modules() if nm in first_leak]
-                report.append(f"\n### {name}: batched(B={nb}) vs single, max|Δ| per leaf submodule")
-                nonzero = [(nm, first_leak[nm]) for nm in ordered if first_leak[nm] > 1e-6]
-                if not nonzero:
-                    report.append("  no submodule leak > 1e-6 (batched == single)")
-                else:
-                    report.append(f"  FIRST leaking submodule: {nonzero[0][0]}  max|Δ|={nonzero[0][1]:.3e}")
-                    for nm, d in nonzero[:25]:
-                        report.append(f"    {d:.3e}  {nm}")
+                ordered = [nm for nm, _ in model.named_modules() if nm in inter_agg]
+                report.append(f"\n### {name}: real-frame max|Δ| (INTERIOR | BOUNDARY) per leaf submodule")
+                interior_leaks = [nm for nm in ordered if inter_agg[nm] > 1e-5]
+                report.append(
+                    f"  >>> first INTERIOR leak (>1e-5, = real masking bug): "
+                    f"{interior_leaks[0] if interior_leaks else 'NONE'}"
+                )
+                for nm in ordered:
+                    iv, bv = inter_agg[nm], bound_agg[nm]
+                    if iv > 1e-5 or bv > 1e-5:
+                        flag = "  <-- INTERIOR" if iv > 1e-5 else ""
+                        report.append(f"    int {iv:.2e} | bnd {bv:.2e}   {nm}{flag}")
                 del model, store_b
                 torch.cuda.empty_cache()
             except Exception:
