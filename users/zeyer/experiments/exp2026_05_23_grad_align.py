@@ -119,6 +119,9 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.owsm_ctc
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.align_cost_benchmark import (
     AlignCostBenchmarkJob,
 )
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.batch_equiv_probe import (
+    BatchForwardEquivalenceProbeJob,
+)
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.wer_noise_sweep import WerNoiseSweepJob
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.apptainer import (
     PullApptainerImageJob,
@@ -4392,6 +4395,18 @@ def py():
         )
         _amp_al.add_alias(f"{_amp_alias}-wbe")
         reg(f"{_amp_alias}-wbe.txt", _amp_al.out_wbe)
+
+    # Track 2 -- single-vs-batched forward equivalence + leak localization: which leaf submodule
+    # first diverges under B>1 right-padding. wav2vec2 (conv feature extractor + GroupNorm over the
+    # time axis) is the canonical case and already supports B>1 forward.
+    _be_probe = BatchForwardEquivalenceProbeJob(
+        model_configs={"wav2vec2ctc-fproj_out": rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out")},
+        dataset_dir=_sb_dir,
+        dataset_key="test",
+        num_seqs=10,
+    )
+    _be_probe.add_alias("speedcmp/batch-equiv-probe-wav2vec2")
+    reg("speedcmp/batch-equiv-probe-wav2vec2.txt", _be_probe.out_report)
 
     # Phi4 eager-attention equality probe: the checkpoint defaults to flash-attn-2
     # (no output_attentions, no vmap); eager would unblock self-attn alignment and
