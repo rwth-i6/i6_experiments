@@ -4340,6 +4340,17 @@ def py():
             _sb_alias = f"speedcmp/{_sb_name}-bb{int(_sb_bb)}"
             _sb_ex.add_alias(_sb_alias)
             reg(f"{_sb_alias}.hdf", _sb_ex.out_hdf)
+            # WBE A/B: same fixed align_opts on batched vs unbatched grads -> verify identical WBE.
+            _sb_al = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=_sb_ex.out_hdf,
+                grad_score_key="data",
+                dataset_dir=_sb_dir,
+                dataset_key="test",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                align_opts=_ALIGN_OPTS_GRID[0],
+            )
+            _sb_al.add_alias(f"{_sb_alias}-wbe")
+            reg(f"{_sb_alias}-wbe.txt", _sb_al.out_wbe)
 
     # Phi4 eager-attention equality probe: the checkpoint defaults to flash-attn-2
     # (no output_attentions, no vmap); eager would unblock self-attn alignment and
@@ -4376,6 +4387,16 @@ def py():
         _sb4_alias = f"speedcmp/wav2vec2ctc-fproj_out-{_sb4_sfx}"
         _sb4_ex.add_alias(_sb4_alias)
         reg(f"{_sb4_alias}.hdf", _sb4_ex.out_hdf)
+        _sb4_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_sb4_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_sb_dir,
+            dataset_key="test",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=_ALIGN_OPTS_GRID[0],
+        )
+        _sb4_al.add_alias(f"{_sb4_alias}-wbe")
+        reg(f"{_sb4_alias}-wbe.txt", _sb4_al.out_wbe)
 
     # === Hypothesis-mode alignment on Buckeye variant A: recog -> swap the hyps in as the dataset
     # transcript -> align with each model's best setting -> identity-gated F1@collar + matched WBE
