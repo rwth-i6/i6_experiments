@@ -95,12 +95,13 @@ def ctc_prefix_forward_scores(lp: torch.Tensor, target_ids: List[int], blank: in
 
 
 def ctc_prefix_forward_scores_batched(
-    lp: torch.Tensor, targets: List[List[int]], blank: int, lengths: torch.Tensor
+    lp: torch.Tensor, targets: torch.Tensor, target_lengths: torch.Tensor, blank: int, lengths: torch.Tensor
 ) -> torch.Tensor:
     """Batched :func:`ctc_prefix_forward_scores` over a B>1 batch of different-length seqs.
 
     :param lp: ``[B, Tm, V]`` log-probs, zero-padded in time.
-    :param targets: B target-id lists (ragged ``S_b``).
+    :param targets: ``[B, Sm]`` padded token ids.
+    :param target_lengths: ``[B]`` = ``S_b``.
     :param lengths: ``[B]`` valid emission frames ``T_b``.
     :return: ``[B, Sm]`` per-token scores; mask each seq to its own ``S_b``.
 
@@ -111,17 +112,12 @@ def ctc_prefix_forward_scores_batched(
     neg = -1.0e30
     B, Tm, _ = lp.shape
     dev = lp.device
-    s_b = torch.tensor([len(t) for t in targets], device=dev)
-    Sm = int(s_b.max())
+    s_b = target_lengths
+    Sm = targets.shape[1]
     sxm = 2 * Sm + 1
+    tgt = targets
     ext = torch.full((B, sxm), blank, device=dev, dtype=torch.long)
-    tgt = torch.zeros(B, Sm, device=dev, dtype=torch.long)
-    for b, ts in enumerate(targets):
-        e = [blank]
-        for c in ts:
-            e += [int(c), blank]
-        ext[b, : len(e)] = torch.tensor(e, device=dev)
-        tgt[b, : len(ts)] = torch.tensor(ts, device=dev)
+    ext[:, 1::2] = tgt  # even=blank, odd=label
     bi, tr = torch.arange(B, device=dev), torch.arange(Tm, device=dev)
     emit = lp[bi[:, None, None], tr[None, :, None], ext[:, None, :]]  # [B, Tm, sxm]
     label_emit = lp[bi[:, None, None], tr[None, :, None], tgt[:, None, :]]  # [B, Tm, Sm]
