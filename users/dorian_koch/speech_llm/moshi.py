@@ -1,8 +1,13 @@
 from i6_experiments.users.zeyer.external_models.huggingface import (
     DownloadHuggingFaceRepoJob,
 )
-from .common import HF_CACHE_DIR, job_progress_fraction, last_jsonl_value
-from .moshi_arrow_config import ArrowDataConfig
+from .common import HF_CACHE_DIR, job_progress_fraction
+from .finetune import (
+    MOSHI_ADAPTER,
+    finetune_completed_fraction,
+    launch_training,
+    write_finetune_config,
+)
 from pathlib import Path
 from sisyphus import Job, Task, tk
 import os
@@ -165,6 +170,58 @@ class MoshiAnnotate(Job):
         subprocess.run(command, env=env, check=True)
 
 
+class SplitAnnotatedDataset(Job):
+    """Deterministic train/val split of an annotated HF dataset by hashing a key column.
+
+    Rows whose stable content hash of ``split_key`` falls below ``val_fraction`` go to
+    the val split, the rest to train. The hash is content-based (not row order), so the
+    split is reproducible and independent of shard layout. Only the key column is read
+    and audio columns are copied as encoded bytes (no torchcodec decode), so this is a
+    light CPU job. Output features (Audio columns, alignments struct) are preserved, so
+    the arrow loader reads both splits unchanged.
+    """
+
+    def __init__(
+        self,
+        dataset: tk.Path,
+        val_fraction: float = 0.05,
+        split_key: str = "id",
+        seed: int = 42,
+    ):
+        self.dataset = dataset
+        self.val_fraction = val_fraction
+        self.split_key = split_key
+        self.seed = seed
+        self.out_train = self.output_path("train", directory=True)
+        self.out_val = self.output_path("val", directory=True)
+        self.rqmt = {"cpu": 4, "mem": 16, "time": 4}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import hashlib
+        from datasets import load_from_disk
+
+        ds = load_from_disk(self.dataset.get())
+        keys = ds[self.split_key]  # single-column read; no audio decode
+
+        def in_val(k) -> bool:
+            h = hashlib.md5(f"{self.seed}:{k}".encode()).hexdigest()
+            return (int(h[:8], 16) % 1_000_000) / 1_000_000.0 < self.val_fraction
+
+        val_idx = [i for i, k in enumerate(keys) if in_val(k)]
+        train_idx = [i for i, k in enumerate(keys) if not in_val(k)]
+        assert val_idx and train_idx, "empty split; check val_fraction/split_key"
+        print(
+            f"[split] {len(keys)} rows -> train {len(train_idx)} / val {len(val_idx)} "
+            f"({100 * len(val_idx) / len(keys):.1f}% val) by hash({self.split_key})",
+            flush=True,
+        )
+        ds.select(train_idx).save_to_disk(self.out_train.get())
+        ds.select(val_idx).save_to_disk(self.out_val.get())
+
+
 class MoshiFinetune(Job):
     # New optional params are dropped from the hash when left at these legacy
     # defaults, so existing finetunes (constructed without them) keep their hash
@@ -174,6 +231,8 @@ class MoshiFinetune(Job):
         "audio_jitter_sec": 0.0,
         "num_epochs": None,
         "max_steps": 2000,
+        "eval_data": None,
+        "lora_rank": 128,
     }
 
     def __init__(
@@ -185,14 +244,18 @@ class MoshiFinetune(Job):
         audio_jitter_sec: float = 0.0,
         num_epochs: int | None = None,
         max_steps: int = 2000,
+        eval_data: tk.Path | None = None,
+        lora_rank: int = 128,
     ):
         self.train_data = train_data
+        self.eval_data = eval_data
         self.venv_python_path = venv_python_path
         self.seed = seed
         self.duration_sec = duration_sec
         self.audio_jitter_sec = audio_jitter_sec
         self.num_epochs = num_epochs
         self.max_steps = max_steps
+        self.lora_rank = lora_rank
         self.out_config = self.output_path("config.yaml")
         self.out_rundir = self.output_path("run_dir", directory=True)
         self.rqmt = {
@@ -207,141 +270,10 @@ class MoshiFinetune(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def completed_fraction(self):
-        # moshi-finetune logs every step to run_dir/metrics.train.jsonl with a
-        # percent_done field; tail-read it (no edits to the fork needed).
-        pct = last_jsonl_value(
-            os.path.join(self.out_rundir.get_path(), "metrics.train.jsonl"),
-            "percent_done",
-        )
-        if pct is None:
-            return None
-        return max(0.0, min(1.0, pct / 100.0))
-
-    def _resolve_max_steps(self, batch_size: int) -> int:
-        """Sanity-check durations and, if num_epochs is set, size max_steps to
-        cover that many epochs over the whole dataset.
-
-        Raises if >1% of dialogues are longer than duration_sec (otherwise the
-        loader would silently truncate content and the window count below would
-        be wrong). Assumes single-GPU training (rqmt gpu == 1, world_size == 1).
-        """
-        import numpy as np
-        from datasets import load_from_disk
-
-        durations = np.asarray(load_from_disk(self.train_data.get())["duration"], dtype=float)
-        over_frac = float((durations > self.duration_sec).mean())
-        if over_frac > 0.01:
-            raise ValueError(
-                f"{over_frac:.2%} of audios exceed duration_sec={self.duration_sec} "
-                f"(>1% not allowed; p99={np.percentile(durations, 99):.1f}s). "
-                f"Increase duration_sec."
-            )
-        if self.num_epochs is None:
-            return self.max_steps
-        # windows per row = ceil(duration / duration_sec); matches the loader.
-        windows = int(np.ceil(durations / self.duration_sec).sum())
-        steps_per_epoch = int(np.ceil(windows / batch_size))
-        return steps_per_epoch * self.num_epochs
+        return finetune_completed_fraction(self, MOSHI_ADAPTER)
 
     def write_config(self):
-        run_dir = self.out_rundir.get()
-        if os.path.exists(run_dir) and os.listdir(run_dir):
-            print(f"Warning: run_dir {run_dir} already exists and is not empty.")
-            # find dir in cwd to move existing contents to
-            new_dir = os.path.join(os.getcwd(), "moshi_finetune_old_runs")
-            os.makedirs(new_dir, exist_ok=True)
-            cand = os.path.join(new_dir, "0001")
-            while os.path.exists(cand):
-                cand = os.path.join(new_dir, f"{int(os.path.basename(cand)) + 1:04d}")
-            print(f"Moving existing contents to {cand}")
-            os.rename(run_dir, cand)
-
-        batch_size = 16
-        max_steps = self._resolve_max_steps(batch_size)
-        # Persist our data/augmentation config beside config.yaml; the launcher
-        # loads it at training time (avoids touching the fork's TrainArgs schema).
-        ArrowDataConfig(jitter_max_sec=self.audio_jitter_sec).save_beside(self.out_config.get())
-
-        txt = f"""
-# data
-data:
-  eval_data: '' # Optional Fill
-  shuffle: true
-  train_data: '{self.train_data.get()}' # Fill
-
-# model
-moshi_paths: 
-  hf_repo_id: "kyutai/moshiko-pytorch-bf16"
-
-full_finetuning: false # Activate lora.enable if partial finetuning
-lora:
-  enable: true # Set to False if full_finetuning is True
-  rank: 128
-  scaling: 2.
-  ft_embed: false # Optional, set to True if you want to finetune the embedding layer
-
-first_codebook_weight_multiplier: 100.
-text_padding_weight: .5
-
-# optim
-duration_sec: {self.duration_sec}
-batch_size: {batch_size}
-max_steps: {max_steps}
-gradient_checkpointing: true
-optim:
-  lr: 2e-6
-  weight_decay: 0.1
-  pct_start: 0.05
-
-# other
-seed: {getattr(self, "seed", 0)}
-log_freq: 1
-eval_freq: 100
-do_eval: false
-do_ckpt: true
-ckpt_freq: 100
-overwrite_run_dir: true
-
-save_adapters: true # Must be False if full_finetuning is True
-
-run_dir: "{run_dir}"  # Fill
-"""
-        with open(self.out_config, "w") as f:
-            f.write(txt)
+        write_finetune_config(self, MOSHI_ADAPTER)
 
     def run(self):
-        good_hash = os.environ.get("CUDA_VISIBLE_DEVICES", "-1")
-        good_hash = abs(hash(good_hash)) % 100
-
-        env = os.environ.copy()
-        env["PYTHONUNBUFFERED"] = "1"
-        env["HF_HOME"] = HF_CACHE_DIR.get()
-        env["MASTER_ADDR"] = "localhost"
-        env["MASTER_PORT"] = str(29600 + good_hash)  # to avoid conflicts if multiple run on same machine
-        print(f"Set MASTER_PORT to {env['MASTER_PORT']} based on hash of CUDA_VISIBLE_DEVICES")
-
-        command = [
-            self.venv_python_path.get(),
-            "-m",
-            "torch.distributed.run",
-            "--nproc-per-node",
-            str(self.rqmt["gpu"]),
-            f"--rdzv_endpoint={env['MASTER_ADDR']}:{env['MASTER_PORT']}",
-            "-m",
-            "i6_experiments.users.dorian_koch.speech_llm.moshi_finetune_launcher",
-            self.out_config.get(),
-        ]
-
-        top_level_file = sys.modules["moshi_finetune"].__file__
-        assert top_level_file is not None, "Could not find moshi_finetune module file"
-        package_base_dir = f"{str(Path(top_level_file).parent.parent)}{os.pathsep}{str(Path(top_level_file).parent)}"
-
-        env["PYTHONPATH"] = (
-            f"{package_base_dir}{os.pathsep}{env['PYTHONPATH']}" if "PYTHONPATH" in env else package_base_dir
-        )
-        print(
-            f"Running Moshi training with command: {' '.join(command)}",
-            flush=True,
-        )
-        print(f"Using HF cache directory: {HF_CACHE_DIR}")
-        subprocess.run(command, env=env, check=True)
+        launch_training(self, MOSHI_ADAPTER)

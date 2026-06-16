@@ -48,10 +48,16 @@ _DEFAULT_PORT = 8998
 
 @contextmanager
 def moshi_server(
-    lora_weight: str | None = None,
-    config_path: str | None = None,
+    *,
+    lora_weights: str | None = None,
+    lora_config: str | None = None,
     python_exe: str | None = None,
+    unmute_llm: str | None = None,
+    **_,
 ):
+    # Uniform backend signature (see speech_backends.py): ``unmute_llm`` and any
+    # other backend-only kwargs are accepted and ignored so run() can call every
+    # backend's server the same way. ``lora_weights``/``lora_config`` are Moshi's.
     # first: find a free port
     # take my slurm job id and modulo
     if "SLURM_JOB_ID" in os.environ:
@@ -83,10 +89,10 @@ def moshi_server(
         "--port",
         str(port),
     ]
-    if lora_weight is not None:
-        cmd += ["--lora-weight", str(lora_weight)]
-    if config_path is not None:
-        cmd += ["--config-path", str(config_path)]
+    if lora_weights is not None:
+        cmd += ["--lora-weight", str(lora_weights)]
+    if lora_config is not None:
+        cmd += ["--config-path", str(lora_config)]
 
     print(f"Starting Moshi server: {' '.join(cmd)}")
     server_process = subprocess.Popen(

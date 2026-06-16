@@ -23,6 +23,8 @@ import sys
 from pathlib import Path
 
 from .common import HF_CACHE_DIR
+from .moshi_client import moshi_server, _ws_url, MoshiFileClient
+from .speech_backends import MOSHI_BACKEND
 
 
 # ---------------------------------------------------------------------------
@@ -304,6 +306,22 @@ class MoshiInference(Job):
     job can benchmark either the base or a fine-tuned Moshi.
     """
 
+    __sis_hash_exclude__ = {
+        # Pluggable speech-LLM backend (see speech_backends.py): server ctx-mgr,
+        # streaming file client, handle->url adapter, and the cascaded-backend LLM.
+        # Defaults are Moshi and excluded at those defaults, so existing Moshi inference
+        # jobs keep their exact hash; a non-Moshi backend's callables differ and so
+        # already yield a distinct hash.
+        "server": moshi_server,
+        "file_client": MoshiFileClient,
+        "ws_url": _ws_url,
+        "unmute_llm": None,
+        # Offline driver defaults (Moshi); excluded so Moshi jobs keep their hash. A
+        # non-Moshi offline backend sets a different script -> distinct hash.
+        "offline_script": "moshi_offline_inference.py",
+        "offline_extra_args": (),
+    }
+
     def __init__(
         self,
         *,
@@ -317,6 +335,12 @@ class MoshiInference(Job):
         batch_size: int = 32,
         lora_weights: tk.Path | None = None,
         lora_config: tk.Path | None = None,
+        server=moshi_server,
+        file_client=MoshiFileClient,
+        ws_url=_ws_url,
+        unmute_llm: str | None = None,
+        offline_script: str = "moshi_offline_inference.py",
+        offline_extra_args: tuple = (),
     ):
         self.venv_python_path = venv_python_path
         self.in_dir = in_dir
@@ -330,7 +354,18 @@ class MoshiInference(Job):
         # "server" = legacy realtime websocket (moshi.server + MoshiFileClient, batch_size 1, ~1x realtime).
         self.backend = backend
         self.batch_size = batch_size
-        # Optional fine-tuned LoRA adapter (offline backend only). None -> base moshiko.
+        # Pluggable speech-LLM backend (Moshi by default). ``backend`` above selects the
+        # inference *mode* ("offline" = fast batched, Moshi-only; "server" = streaming,
+        # used by any cascaded/server backend incl. Unmute); these select *which* model.
+        self.server = server
+        self.file_client = file_client
+        self.ws_url = ws_url
+        self.unmute_llm = unmute_llm
+        # Offline driver script (under dorian_koch/) + extra CLI args; selects WHICH
+        # offline model runs (Moshi by default; PersonaPlex sets its own).
+        self.offline_script = offline_script
+        self.offline_extra_args = tuple(offline_extra_args)
+        # Optional fine-tuned LoRA adapter. None -> base moshiko.
         self.lora_weights = lora_weights
         self.lora_config = lora_config
         self.out_dir = self.output_path("moshi_output", directory=True)
@@ -353,7 +388,7 @@ class MoshiInference(Job):
         return self._run_server()
 
     def _run_offline(self):
-        script = Path(__file__).resolve().parent.parent / "moshi_offline_inference.py"
+        script = Path(__file__).resolve().parent.parent / self.offline_script
         command = [
             self.venv_python_path.get(),
             str(script),
@@ -374,15 +409,16 @@ class MoshiInference(Job):
                 command += ["--lora_config", str(self.lora_config.get())]
         if self.shard is not None and self.num_shards is not None:
             command += ["--shard", str(self.shard), "--num_shards", str(self.num_shards)]
+        command += list(self.offline_extra_args)
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
-        print(f"Running offline Moshi inference: {' '.join(command)}", flush=True)
+        print(f"Running offline inference: {' '.join(command)}", flush=True)
         subprocess.run(command, env=env, check=True)
 
     def _run_server(self):
-        assert self.lora_weights is None, "LoRA adapters are only supported by the offline backend."
-        from .moshi_client import moshi_server, _ws_url, MoshiFileClient
-
+        # Streaming path: bring up the selected backend's server and stream each question
+        # wav through its file client. Backend-agnostic (Moshi server, Unmute stack, ...);
+        # the server ctx-mgr takes a uniform kwargs signature and ignores what it doesn't use.
         in_dir = str(self.in_dir.get())
         out_dir = str(self.out_dir.get())
         os.makedirs(out_dir, exist_ok=True)
@@ -390,15 +426,20 @@ class MoshiInference(Job):
         wav_files = sorted(Path(in_dir).glob("*.wav"))
         if self.shard is not None and self.num_shards is not None:
             wav_files = wav_files[self.shard :: self.num_shards]
-        with moshi_server() as server_addr:
-            ws_url = _ws_url(server_addr)
-            print(f"[moshi-inference] processing {len(wav_files)} clips", flush=True)
+        with self.server(
+            lora_weights=self.lora_weights.get_path() if self.lora_weights is not None else None,
+            lora_config=self.lora_config.get_path() if self.lora_config is not None else None,
+            python_exe=self.venv_python_path.get(),
+            unmute_llm=self.unmute_llm,
+        ) as handle:
+            url = self.ws_url(handle)
+            print(f"[{getattr(self.server, '__name__', 'server')}] processing {len(wav_files)} clips", flush=True)
             for i, wav in enumerate(wav_files):
                 out = Path(out_dir) / wav.name
                 for attempt in range(3):
                     try:
-                        MoshiFileClient(
-                            ws_url,
+                        self.file_client(
+                            url,
                             wav,
                             out,
                             lead_in_s=self.lead_in_s,
@@ -408,7 +449,7 @@ class MoshiInference(Job):
                     except Exception as e:
                         print(f"[RETRY {attempt + 1}/3] {wav.name}: {e}")
                 if (i + 1) % 50 == 0:
-                    print(f"[moshi-inference] {i + 1}/{len(wav_files)} clips done", flush=True)
+                    print(f"[inference] {i + 1}/{len(wav_files)} clips done", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -587,6 +628,8 @@ def knowledge_benchmark_py(
     moshi_checkpoint: tk.Path | None = None,
     checkpoint_step: int | None = None,
     tag: str = "moshi_base",
+    speech_backend=MOSHI_BACKEND,
+    unmute_llm: str | None = None,
 ):
     """Build the knowledge benchmark pipeline.
 
@@ -645,12 +688,20 @@ def knowledge_benchmark_py(
         lora_weights, lora_config = ckpt.out_lora, ckpt.out_config
 
     # 5. Moshi inference (sharded across GPUs for throughput)
+    inference_venv = speech_backend.inference_venv() if speech_backend.inference_venv else moshi_venv()
     moshi_out = MoshiInference.sharded(
         num_shards=2,
-        venv_python_path=moshi_venv(),
+        venv_python_path=inference_venv,
         in_dir=tts.out_dir,
         lora_weights=lora_weights,
         lora_config=lora_config,
+        backend="offline" if speech_backend.offline_script else "server",
+        offline_script=speech_backend.offline_script or "moshi_offline_inference.py",
+        offline_extra_args=speech_backend.offline_extra_args,
+        server=speech_backend.server,
+        file_client=speech_backend.file_client,
+        ws_url=speech_backend.ws_url,
+        unmute_llm=unmute_llm,
     )
     tk.register_output(f"benchmark/{tag}/moshi_output", moshi_out)
 
