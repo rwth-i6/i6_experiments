@@ -687,6 +687,28 @@ def py():
             extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
             extra_config_deletes=["optimizer.epsilon"],
         )
+    # Reduced-blank layer-split: max 1 blank (uniform 0-1, avg 0.5 -> ~1.5 enc-frames/phoneme vs 2.5 at
+    # blank 0-3), so the un-subsampled text sequence is ~40% shorter -> fixes the layer0 OOM and is closer to
+    # real speech length. layer0 (OOM-prone) + layer8 (the winner), best regime (muon-lr5e3-wdbl + nep38).
+    for _start_layer in (0, 8):
+        _train_tts_encoder(
+            f"pseudo-enc-layer{_start_layer}-blank1-muon-nep38",
+            prefix=prefix,
+            text_train_epoch_split=75,
+            batch_size_audio_frames=120_000,
+            max_phon_len=300,
+            batch_size_phon=8_000,
+            asr_logmel=True,
+            pseudo_speech_enc=True,
+            pseudo_enc_start_layer=_start_layer,
+            pseudo_enc_blank_duration_range=(0, 1),
+            pseudo_enc_specaug_max_width=6,
+            base_lr=1.0,
+            peak_lr=5e-3,
+            nep=38,
+            extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+            extra_config_deletes=["optimizer.epsilon"],
+        )
     # Unit-granularity ablation (CJST-style): the ASR's own spm10k subword units as pseudo-enc input
     # instead of phonemes (identity output mapping; no lexicon/phoneme step needed; the earlier study
     # also used the ASR target units). Same duration setting -> ~3.2x shorter sequences than the
