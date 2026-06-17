@@ -155,6 +155,80 @@ def ctc_prefix_forward_scores_batched(
     return psi - torch.cat([lp.new_zeros(B, 1), psi[:, :-1]], 1)
 
 
+def ctc_prefix_forward_scores_scan(
+    lp: torch.Tensor, targets: torch.Tensor, target_lengths: torch.Tensor, blank: int, lengths: torch.Tensor
+) -> torch.Tensor:
+    """``torch.compile``-friendly twin of :func:`ctc_prefix_forward_scores_batched`, via ``torch.scan``.
+
+    Identical ``[B, Sm]`` per-token scores and FSA-forward, but the T-loop is a ``scan`` HOP -- so it does NOT
+    unroll (a Python ``for t in range(Tm)`` unrolls -> recompiles per length). Wrap in
+    ``torch.compile(fullgraph=True)`` and ``maybe_mark_dynamic(lp/targets, 0)`` (batch) + ``mark_dynamic`` on
+    Tm/Sm: then B+Tm+Sm are all dynamic, fused (inductor), correct grad, compiled ONCE for all shapes.
+
+    Each non-obvious line works around a specific torch-2.12 scan/inductor limitation, tagged [WA: ...]:
+    """
+    from torch._higher_order_ops.scan import scan
+
+    neg = -1.0e30
+    B, Tm, _ = lp.shape
+    dev = lp.device
+    Sm = targets.shape[1]
+    sxm = 2 * Sm + 1
+    # [WA strided-assign] ext[:,1::2]=targets specializes Sm under compile -> interleave [blank,tok] via stack+flatten.
+    blanks = torch.full((B, Sm), blank, device=dev, dtype=torch.long)
+    ext = torch.cat(
+        [torch.stack([blanks, targets], 2).flatten(1), torch.full((B, 1), blank, device=dev, dtype=torch.long)], 1
+    )  # [B, sxm] = blank, t0, blank, t1, ..., blank
+    # [WA advanced-index] lp[bi,tr,ext] specializes B -> torch.gather; expand(-1,..) keeps B/sxm symbolic.
+    emit = lp.gather(2, ext[:, None, :].expand(-1, Tm, -1))  # [B, Tm, sxm]
+    label_emit = lp.gather(2, targets[:, None, :].expand(-1, Tm, -1))  # [B, Tm, Sm]
+    s_idx = torch.arange(sxm, device=dev)
+    sx_b = 2 * target_lengths + 1
+    emit = torch.where((s_idx[None, :] < sx_b[:, None])[:, None, :], emit, torch.full_like(emit, neg))
+    diff = torch.zeros(B, sxm, dtype=torch.bool, device=dev)
+    diff[:, 2:] = ext[:, 2:] != ext[:, :-2]
+    skip_ok = (s_idx % 2 == 1)[None, :] & diff
+    ar = torch.arange(Sm, device=dev)
+    pbi, pli = ar * 2, (ar * 2 - 1).clamp(min=0)
+    repeat = torch.zeros(B, Sm, dtype=torch.bool, device=dev)
+    repeat[:, 1:] = targets[:, 1:] == targets[:, :-1]
+    label_valid = (ar[None, :] >= 1) & (~repeat) & (ar[None, :] < target_lengths[:, None])
+    neg_BSm, neg_Bsxm = lp.new_full((B, Sm), neg), lp.new_full((B, sxm), neg)
+    neg_B1, neg_B2 = lp.new_full((B, 1), neg), lp.new_full((B, 2), neg)
+    # [WA const-init] scan zeros the xs-grad unless the carry init REQUIRES grad -> build alpha0/psi0 from lp
+    # (the real frame-0 state) via where (not in-place); t=0 is then a no-op inside the scan.
+    alpha0 = torch.where(s_idx[None, :] < 2, emit[:, 0, :], neg_Bsxm)
+    psi0 = torch.where(ar[None, :] == 0, label_emit[:, 0, :], neg_BSm)
+    tr = torch.arange(Tm, device=dev)
+    # [WA derived-scan-len] xs=emit[1:] makes the scan length Tm-1 (a DERIVED symbol) -> inductor
+    # decompose_scan KeyError s84. Pass FULL-length xs (scan length = bound Tm); skip t=0 via is_first.
+    is_first = (tr == 0)[:, None, None]  # [Tm,1,1]; broadcasts over B in combine (no B-size expand)
+    active = tr[:, None, None] < lengths[None, :, None]  # [Tm, B, 1]
+    xs = (
+        emit.transpose(0, 1).contiguous(),
+        label_emit.transpose(0, 1).contiguous(),
+        active.contiguous(),
+        is_first.contiguous(),
+    )
+
+    def combine(carry, x):
+        alpha, psi = carry
+        emt, lmt, act, isf = x
+        # index_select (1-D index), not alpha[:,pbi] advanced indexing (dynamic-friendly).
+        phi = torch.logaddexp(alpha.index_select(1, pbi), torch.where(label_valid, alpha.index_select(1, pli), neg_BSm))
+        psi_n = torch.logaddexp(psi, phi + lmt)
+        a_prev = torch.cat([neg_B1, alpha[:, :-1]], 1)
+        a_skip = torch.where(skip_ok, torch.cat([neg_B2, alpha[:, :-2]], 1), neg_Bsxm)
+        # [WA logsumexp] logsumexp(stack(...)) errors inside compiled scan -> chained logaddexp.
+        a_n = emt + torch.logaddexp(torch.logaddexp(alpha, a_prev), a_skip)
+        upd = act & (~isf)  # t=0 no-op (init already IS frame 0); t>=1 active frames recurse.
+        a_o, psi_o = torch.where(upd, a_n, alpha), torch.where(upd, psi_n, psi)
+        return (a_o, psi_o), psi_o.clone()  # [WA aliasing] clone y -> HOPs forbid carry<->output aliasing.
+
+    (_, psi_f), _ = scan(combine, (alpha0, psi0), xs)
+    return psi_f - torch.cat([lp.new_zeros(B, 1), psi_f[:, :-1]], 1)
+
+
 def ctc_accum_states(lp: torch.Tensor, target_ids: List[int], blank: int) -> torch.Tensor:
     """``acc[k] = log Σ_t α_t(k)`` over the 2S+1 extended states. Differentiable w.r.t. ``lp`` ([T,V])."""
     device, dtype = lp.device, lp.dtype
