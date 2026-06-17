@@ -233,6 +233,7 @@ class MoshiFinetune(Job):
         "max_steps": 2000,
         "eval_data": None,
         "lora_rank": 128,
+        "eval_loader_version": 0,
     }
 
     def __init__(
@@ -246,6 +247,11 @@ class MoshiFinetune(Job):
         max_steps: int = 2000,
         eval_data: tk.Path | None = None,
         lora_rank: int = 128,
+        # Cache-version token: the eval data-loader fix (cycling + seeded shuffle)
+        # lives in runtime code (moshi_arrow_dataset, not hashed), so bump this to
+        # force eval-enabled runs to re-run with the new loader. Excluded at 0, so
+        # non-eval finetunes keep their hash.
+        eval_loader_version: int = 0,
     ):
         self.train_data = train_data
         self.eval_data = eval_data
@@ -256,6 +262,7 @@ class MoshiFinetune(Job):
         self.num_epochs = num_epochs
         self.max_steps = max_steps
         self.lora_rank = lora_rank
+        self.eval_loader_version = eval_loader_version
         self.out_config = self.output_path("config.yaml")
         self.out_rundir = self.output_path("run_dir", directory=True)
         self.rqmt = {

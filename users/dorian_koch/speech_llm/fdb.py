@@ -14,8 +14,6 @@ from .common import HF_CACHE_DIR, vllm_server
 from i6_experiments.users.dorian_koch.jobs.venv import CreateVenv
 from functools import lru_cache
 from contextlib import contextmanager
-import shutil
-import time
 import random
 import socket
 
@@ -138,6 +136,9 @@ class FullDuplexBenchEval_Inference(Job):
         # FDB jobs keep their hash. A backend with an offline_script gets a distinct hash.
         "offline_script": None,
         "offline_extra_args": (),
+        # Cloud realtime API (Gemini/OpenAI): inference runs as a login-node mini_task
+        # (remote model, no GPU). Excluded at False so existing FDB jobs keep their hash.
+        "cloud_api": False,
     }
 
     def __init__(
@@ -154,6 +155,7 @@ class FullDuplexBenchEval_Inference(Job):
         unmute_llm: str | None = None,
         offline_script: str | None = None,
         offline_extra_args: tuple = (),
+        cloud_api: bool = False,
     ):
         self.fdb_data = tk.Path(
             "/home/tt201262/setups/2026-01-speech-llm/projects/Full-Duplex-Bench/v1_v1.5/dataset/v1.0",
@@ -172,6 +174,9 @@ class FullDuplexBenchEval_Inference(Job):
         # path; set => this backend runs the offline driver over a manifest (PersonaPlex).
         self.offline_script = offline_script
         self.offline_extra_args = tuple(offline_extra_args)
+        # Cloud realtime backend => remote model, no GPU: run as a login-node mini_task
+        # (the streaming inference + the ASR subprocess then run on the login node).
+        self.cloud_api = cloud_api
         # None -> base moshiko; set -> serve a LoRA finetune (passed to moshi_server).
         self.lora_weights = lora_weights
         self.lora_config = lora_config
@@ -191,7 +196,10 @@ class FullDuplexBenchEval_Inference(Job):
         }
 
     def tasks(self):
-        yield Task("run", rqmt=self.rqmt)
+        if self.cloud_api:
+            yield Task("run", mini_task=True)
+        else:
+            yield Task("run", rqmt=self.rqmt)
 
     def run(self):
         # check if dataset is valid
@@ -238,94 +246,46 @@ class FullDuplexBenchEval_Inference(Job):
         subprocess.run(cmd, env=env, check=True)
 
     def _run_server(self, files):
-        """Streaming path: bring up the backend's realtime server and stream each clip."""
-        with self.model(
-            lora_weights=self.lora_weights.get_path() if self.lora_weights is not None else None,
-            lora_config=self.lora_config.get_path() if self.lora_config is not None else None,
-            python_exe=self.server_venv_python.get() if self.server_venv_python is not None else None,
-            unmute_llm=self.unmute_llm,
-        ) as handle:
-            url = self.ws_url(handle)
-            print(f"Running inference with {getattr(self.model, '__name__', self.model)} at {url}...")
+        """Streaming path via the shared harness: bring up the backend's realtime server
+        and stream each clip. resume + sidecar-copy + length-check are FDB-specific opts
+        (see inference_harness.py); the access loop itself is shared with knowledge."""
+        from .inference_harness import StreamOptions, stream_inference
 
-            # Run inference on all files
-            for task, inp in files:
-                ind = inp.parent.name  # e.g. "1" in "v1.0/candor_pause_handling/1/input.wav"
-
-                out = Path(self.out_audios.get_path()) / str(ind) / "output.wav"
-                out.parent.mkdir(parents=True, exist_ok=True)
-                # Resume: skip clips whose reply audio already exists (non-empty), so a
-                # re-run after a downstream (ASR) failure doesn't redo the expensive
-                # inference. Does not affect the Sisyphus hash (run() body only).
-                if out.exists() and out.stat().st_size > 0:
-                    print("[SKIP]", task, inp, "(already done)")
-                    continue
-                print("[RUN]", task, inp)
-                for _ in range(3):  # retry a few times if it fails
-                    try:
-                        self.file_client(url, inp, out).run()
-                        break
-                    except Exception as e:
-                        print(f"Error processing {inp}: {e}")
-                        time.sleep(1)
-
-                # Sanity: a served full-duplex reply must span (roughly) the whole conversation
-                # timeline, not just the spoken segment -- else FDB latency is measured from the
-                # wrong zero (the Unmute output-alignment bug). Warn loudly if it is far short.
-                try:
-                    import soundfile as _sf
-
-                    olen = _sf.info(str(out)).frames / _sf.info(str(out)).samplerate
-                    ilen = _sf.info(str(inp)).frames / _sf.info(str(inp)).samplerate
-                    if olen < 0.5 * ilen:
-                        print(
-                            f"[WARN] {task}/{ind}: reply {olen:.2f}s << input {ilen:.2f}s -- output may be "
-                            "truncated to the spoken segment (breaks latency alignment)",
-                            flush=True,
-                        )
-                except Exception as _e:
-                    print(f"[WARN] could not length-check {out}: {_e}", flush=True)
-
-                # Find all other .json files in that folder, and copy them
-                for json_file in inp.parent.glob("*.json"):
-                    out_json = out.parent / json_file.name
-                    shutil.copy(json_file, out_json)
+        items = [(inp, Path(self.out_audios.get_path()) / str(inp.parent.name) / "output.wav") for _task, inp in files]
+        stream_inference(
+            server=self.model,
+            file_client=self.file_client,
+            ws_url=self.ws_url,
+            items=items,
+            server_kwargs=dict(
+                lora_weights=self.lora_weights.get_path() if self.lora_weights is not None else None,
+                lora_config=self.lora_config.get_path() if self.lora_config is not None else None,
+                python_exe=self.server_venv_python.get() if self.server_venv_python is not None else None,
+                unmute_llm=self.unmute_llm,
+            ),
+            # FDB uses the client's legacy capture mode (lead_in_s=0, capture_s=None),
+            # matching the previous bare file_client(url, inp, out) call.
+            opts=StreamOptions(resume=True, copy_sidecars=True, length_check=True, retry_sleep_s=1.0),
+        )
 
     def _run_offline(self, files):
-        """Offline path: write a manifest of (input wav -> output wav) pairs + copy each
-        clip's sidecar jsons, then run the backend's offline driver once over the manifest.
-        A causal pass over a clip yields the same full-duplex output as the realtime server,
-        so end-to-end models (PersonaPlex) need no websocket server here."""
-        pairs = []
-        for task, inp in files:
-            ind = inp.parent.name
-            out = Path(self.out_audios.get_path()) / str(ind) / "output.wav"
-            out.parent.mkdir(parents=True, exist_ok=True)
-            pairs.append([str(inp), str(out)])
-            for json_file in inp.parent.glob("*.json"):
-                shutil.copy(json_file, out.parent / json_file.name)
-
-        manifest = os.path.join(os.getcwd(), "offline_manifest.json")
-        with open(manifest, "w") as f:
-            json.dump(pairs, f)
+        """Offline path via the shared harness: write a manifest of (input -> output)
+        pairs (+ copy each clip's sidecar jsons), then run the backend's offline driver
+        once over it. A causal pass over a clip yields the same full-duplex output as the
+        realtime server, so end-to-end models (PersonaPlex) need no websocket server."""
+        from .inference_harness import run_offline_driver, write_pair_manifest
 
         assert self.server_venv_python is not None, "offline FDB needs server_venv_python (the model venv)"
-        script = Path(__file__).resolve().parent.parent / self.offline_script
-        command = [
-            self.server_venv_python.get(),
-            str(script),
-            "--manifest",
-            manifest,
-        ]
-        command += list(self.offline_extra_args)
-        if self.lora_weights is not None:
-            command += ["--lora_weights", str(self.lora_weights.get())]
-            if self.lora_config is not None:
-                command += ["--lora_config", str(self.lora_config.get())]
-        env = os.environ.copy()
-        env["PYTHONUNBUFFERED"] = "1"
-        print("[fdb-offline]", " ".join(command), flush=True)
-        subprocess.run(command, env=env, check=True)
+        items = [(inp, Path(self.out_audios.get_path()) / str(inp.parent.name) / "output.wav") for _task, inp in files]
+        manifest = write_pair_manifest(items, copy_sidecars=True)
+        run_offline_driver(
+            python_exe=self.server_venv_python.get(),
+            script_path=Path(__file__).resolve().parent.parent / self.offline_script,
+            manifest=manifest,
+            lora_weights=self.lora_weights.get() if self.lora_weights is not None else None,
+            lora_config=self.lora_config.get() if self.lora_config is not None else None,
+            extra_args=self.offline_extra_args,
+        )
 
 
 class FullDuplexBenchEval_Evaluation(Job):
@@ -440,6 +400,7 @@ def moshified_fdb_eval(
     server_venv_python=None,
     unmute_llm=None,
 ):
+    # Cloud realtime backends (Gemini/OpenAI) run as a login-node mini_task.
     infer = FullDuplexBenchEval_Inference(
         fdb_task=fdb_task,
         model=backend.server,
@@ -455,6 +416,7 @@ def moshified_fdb_eval(
         asr_venv_python=asr_venv_python,
         server_venv_python=server_venv_python,
         unmute_llm=unmute_llm,
+        cloud_api=backend.cloud_api,
     )
     needs_llm = FDB_TASK_MAP.get(fdb_task, fdb_task) in [
         "user_interruption",

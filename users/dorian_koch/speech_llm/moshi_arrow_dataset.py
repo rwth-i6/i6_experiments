@@ -265,7 +265,11 @@ def build_arrow_dataset(
     )
 
     sources, probabilities = parse_data_sources(pretrain_data=pretrain_data)
-    shuffle = not is_eval and shuffle_pretrain
+    # Train shuffles per args; eval also shuffles (seeded) so each cycled 40-batch
+    # eval subset is representative of the whole val set rather than a biased
+    # contiguous chunk. Determinism comes from the fixed eval seed injected in
+    # build_data_loader (the fork passes seed=None for eval).
+    shuffle = shuffle_pretrain if not is_eval else True
 
     iterators = []
     for source in sources:
@@ -277,7 +281,15 @@ def build_arrow_dataset(
                     instruct_tokenizer,
                     rank=rank,
                     world_size=world_size,
-                    is_finite=is_eval,
+                    # Eval loader must CYCLE, not run finite. The fork builds the
+                    # eval loader once (train.py) and reuses that one generator for
+                    # every eval, pulling ~40 batches each time. A finite val source
+                    # (here: 3027 rows ~= 189 batches) drains after ~5 evals; the next
+                    # eval then iterates zero batches and evaluate() divides loss by
+                    # total_num_samples==0 -> NaN eval_loss/perplexity (train_loss is
+                    # fine, separate loader). No shuffle/jitter on eval, so cycling
+                    # just replays the same val windows -> a stable 40-batch estimate.
+                    is_finite=False,
                     seed=seed,
                     shuffle_at_epoch=shuffle,
                     jitter_max_sec=jitter_max_sec,
@@ -311,6 +323,9 @@ def build_arrow_dataset(
 # ---------------------------------------------------------------------------
 
 
+_EVAL_SHUFFLE_SEED = 12345  # fixed seed for the seeded, cycling eval loader shuffle
+
+
 def build_data_loader(
     instruct_tokenizer,
     args,
@@ -328,6 +343,11 @@ def build_data_loader(
     if is_eval:
         assert args.eval_data != "", "No eval data provided."
     pretrain_data = args.train_data if not is_eval else args.eval_data
+
+    # The fork builds the eval loader with seed=None. Supply a fixed eval seed so the
+    # (now cycling) eval loader shuffles deterministically and reproducibly run-to-run.
+    if is_eval and seed is None:
+        seed = _EVAL_SHUFFLE_SEED
 
     # No jitter during eval; training jitter comes from the installed config.
     jitter_max_sec = 0.0 if is_eval else _ACTIVE_CONFIG.jitter_max_sec

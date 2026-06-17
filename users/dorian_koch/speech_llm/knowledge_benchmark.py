@@ -320,6 +320,9 @@ class MoshiInference(Job):
         # non-Moshi offline backend sets a different script -> distinct hash.
         "offline_script": "moshi_offline_inference.py",
         "offline_extra_args": (),
+        # Cloud realtime API (Gemini/OpenAI): run inference as a login-node mini_task
+        # (remote model, no GPU). Excluded at False so existing jobs keep their hash.
+        "cloud_api": False,
     }
 
     def __init__(
@@ -341,6 +344,7 @@ class MoshiInference(Job):
         unmute_llm: str | None = None,
         offline_script: str = "moshi_offline_inference.py",
         offline_extra_args: tuple = (),
+        cloud_api: bool = False,
     ):
         self.venv_python_path = venv_python_path
         self.in_dir = in_dir
@@ -365,6 +369,8 @@ class MoshiInference(Job):
         # offline model runs (Moshi by default; PersonaPlex sets its own).
         self.offline_script = offline_script
         self.offline_extra_args = tuple(offline_extra_args)
+        # Cloud realtime backend => remote model, no GPU: run as a login-node mini_task.
+        self.cloud_api = cloud_api
         # Optional fine-tuned LoRA adapter. None -> base moshiko.
         self.lora_weights = lora_weights
         self.lora_config = lora_config
@@ -372,7 +378,11 @@ class MoshiInference(Job):
         self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 8}
 
     def tasks(self):
-        yield Task("run", rqmt=self.rqmt)
+        if self.cloud_api:
+            # Remote model: no GPU, but needs the login node's internet.
+            yield Task("run", mini_task=True)
+        else:
+            yield Task("run", rqmt=self.rqmt)
 
     @staticmethod
     def sharded(*, num_shards: int, **kwargs) -> tk.Path:
@@ -388,68 +398,49 @@ class MoshiInference(Job):
         return self._run_server()
 
     def _run_offline(self):
-        script = Path(__file__).resolve().parent.parent / self.offline_script
-        command = [
-            self.venv_python_path.get(),
-            str(script),
-            "--in_dir",
-            str(self.in_dir.get()),
-            "--out_dir",
-            str(self.out_dir.get()),
-            "--lead_in_s",
-            str(self.lead_in_s),
-            "--capture_s",
-            str(self.capture_s),
-            "--batch_size",
-            str(self.batch_size),
-        ]
-        if self.lora_weights is not None:
-            command += ["--lora_weights", str(self.lora_weights.get())]
-            if self.lora_config is not None:
-                command += ["--lora_config", str(self.lora_config.get())]
-        if self.shard is not None and self.num_shards is not None:
-            command += ["--shard", str(self.shard), "--num_shards", str(self.num_shards)]
-        command += list(self.offline_extra_args)
-        env = os.environ.copy()
-        env["PYTHONUNBUFFERED"] = "1"
-        print(f"Running offline inference: {' '.join(command)}", flush=True)
-        subprocess.run(command, env=env, check=True)
+        # Shared offline-driver harness (dir-mode); see inference_harness.py.
+        from .inference_harness import run_offline_driver
+
+        run_offline_driver(
+            python_exe=self.venv_python_path.get(),
+            script_path=Path(__file__).resolve().parent.parent / self.offline_script,
+            in_dir=str(self.in_dir.get()),
+            out_dir=str(self.out_dir.get()),
+            lead_in_s=self.lead_in_s,
+            capture_s=self.capture_s,
+            batch_size=self.batch_size,
+            shard=self.shard,
+            num_shards=self.num_shards,
+            lora_weights=self.lora_weights.get() if self.lora_weights is not None else None,
+            lora_config=self.lora_config.get() if self.lora_config is not None else None,
+            extra_args=self.offline_extra_args,
+        )
 
     def _run_server(self):
-        # Streaming path: bring up the selected backend's server and stream each question
-        # wav through its file client. Backend-agnostic (Moshi server, Unmute stack, ...);
-        # the server ctx-mgr takes a uniform kwargs signature and ignores what it doesn't use.
-        in_dir = str(self.in_dir.get())
-        out_dir = str(self.out_dir.get())
-        os.makedirs(out_dir, exist_ok=True)
+        # Shared streaming harness: bring up the backend's server and stream each
+        # question wav through its file client. Backend-agnostic (Moshi server, Unmute
+        # stack, cloud realtime APIs, ...). See inference_harness.py.
+        from .inference_harness import StreamOptions, stream_inference
 
-        wav_files = sorted(Path(in_dir).glob("*.wav"))
+        out_dir = Path(self.out_dir.get())
+        out_dir.mkdir(parents=True, exist_ok=True)
+        wav_files = sorted(Path(self.in_dir.get()).glob("*.wav"))
         if self.shard is not None and self.num_shards is not None:
             wav_files = wav_files[self.shard :: self.num_shards]
-        with self.server(
-            lora_weights=self.lora_weights.get_path() if self.lora_weights is not None else None,
-            lora_config=self.lora_config.get_path() if self.lora_config is not None else None,
-            python_exe=self.venv_python_path.get(),
-            unmute_llm=self.unmute_llm,
-        ) as handle:
-            url = self.ws_url(handle)
-            print(f"[{getattr(self.server, '__name__', 'server')}] processing {len(wav_files)} clips", flush=True)
-            for i, wav in enumerate(wav_files):
-                out = Path(out_dir) / wav.name
-                for attempt in range(3):
-                    try:
-                        self.file_client(
-                            url,
-                            wav,
-                            out,
-                            lead_in_s=self.lead_in_s,
-                            capture_s=self.capture_s,
-                        ).run()
-                        break
-                    except Exception as e:
-                        print(f"[RETRY {attempt + 1}/3] {wav.name}: {e}")
-                if (i + 1) % 50 == 0:
-                    print(f"[inference] {i + 1}/{len(wav_files)} clips done", flush=True)
+        items = [(wav, out_dir / wav.name) for wav in wav_files]
+        stream_inference(
+            server=self.server,
+            file_client=self.file_client,
+            ws_url=self.ws_url,
+            items=items,
+            server_kwargs=dict(
+                lora_weights=self.lora_weights.get_path() if self.lora_weights is not None else None,
+                lora_config=self.lora_config.get_path() if self.lora_config is not None else None,
+                python_exe=self.venv_python_path.get(),
+                unmute_llm=self.unmute_llm,
+            ),
+            opts=StreamOptions(lead_in_s=self.lead_in_s, capture_s=self.capture_s, progress_every=50),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -687,10 +678,11 @@ def knowledge_benchmark_py(
         ckpt = ResolveLoraCheckpoint(run_dir=moshi_checkpoint, step=checkpoint_step)
         lora_weights, lora_config = ckpt.out_lora, ckpt.out_config
 
-    # 5. Moshi inference (sharded across GPUs for throughput)
+    # 5. Moshi inference (sharded across GPUs for throughput; a cloud realtime backend
+    # runs as a single login-node mini_task, so it is not sharded).
     inference_venv = speech_backend.inference_venv() if speech_backend.inference_venv else moshi_venv()
     moshi_out = MoshiInference.sharded(
-        num_shards=2,
+        num_shards=1 if speech_backend.cloud_api else 2,
         venv_python_path=inference_venv,
         in_dir=tts.out_dir,
         lora_weights=lora_weights,
@@ -702,6 +694,7 @@ def knowledge_benchmark_py(
         file_client=speech_backend.file_client,
         ws_url=speech_backend.ws_url,
         unmute_llm=unmute_llm,
+        cloud_api=speech_backend.cloud_api,
     )
     tk.register_output(f"benchmark/{tag}/moshi_output", moshi_out)
 

@@ -58,6 +58,13 @@ class BackendSpec:
     # => the knowledge pipeline falls back to ``moshi_venv()``. (FDB passes its own.)
     inference_venv: Callable | None = None
 
+    # --- cloud realtime API modality (Gemini Live, OpenAI Realtime) -----------
+    # True => the model is remote (no GPU, but needs outbound internet). The benchmark
+    # jobs then run inference as a login-node mini_task (compute nodes are air-gapped).
+    # Uses the streaming-server fields above with a no-op local ``server``; see
+    # cloud_realtime.py. API key is read from the env at run time (gated, not hashed).
+    cloud_api: bool = False
+
 
 # The default backend. Its callables double as the jobs' default arguments, so existing
 # Moshi runs keep their exact Sisyphus hash (these defaults are hash-excluded; only a
@@ -108,4 +115,38 @@ def personaplex_backend_spec() -> BackendSpec:
         server=None,  # end-to-end + causal: no websocket server, offline path only
         offline_script="personaplex_offline_inference.py",
         inference_venv=_venv,
+    )
+
+
+def gemini_backend_spec() -> BackendSpec:
+    """Gemini Live API as a streaming backend (cloud realtime; no local server/GPU).
+
+    Runs through the shared streaming harness like Moshi/Unmute, but the websocket is
+    Google's. Needs ``GEMINI_API_KEY`` (or ``GOOGLE_API_KEY``) in the job env and the
+    ``cloud_venv`` (websockets); see cloud_realtime.py / personaplex.md gating notes.
+    """
+    from .cloud_realtime import GeminiLiveFileClient, gemini_live_server, gemini_ws_url
+
+    return BackendSpec(
+        name="gemini",
+        server=gemini_live_server,
+        file_client=GeminiLiveFileClient,
+        ws_url=gemini_ws_url,
+        cloud_api=True,
+    )
+
+
+def openai_backend_spec() -> BackendSpec:
+    """OpenAI Realtime API as a streaming backend (cloud realtime; no local server/GPU).
+
+    Needs ``OPENAI_API_KEY`` in the job env and the ``cloud_venv`` (websockets).
+    """
+    from .cloud_realtime import OpenAIRealtimeFileClient, openai_realtime_server, openai_ws_url
+
+    return BackendSpec(
+        name="openai",
+        server=openai_realtime_server,
+        file_client=OpenAIRealtimeFileClient,
+        ws_url=openai_ws_url,
+        cloud_api=True,
     )
