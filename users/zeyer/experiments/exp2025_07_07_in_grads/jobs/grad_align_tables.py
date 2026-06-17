@@ -19,7 +19,6 @@ _RESULTS = {}
 def build_tables(results):
     global _RESULTS
     _RESULTS = results
-    _headline_table()  # T1 breadth: grad WBE + acc@50, main models + cross-attn DTW baseline
     _compare_table()  # ground-truth forced-mode only (separate hyp table below)
     _compare_table(with_hyp=True)  # variant: hyp-mode columns merged onto the grad rows
     _hyp_table()
@@ -367,124 +366,6 @@ def _acc(base, key):
         # ForcedAlignPhonemeBaselineJob names its (same aggregate_corpus) metrics dict out_word_metrics.
         m = getattr(j, "out_word_metrics", None)
     return {"var": m, "key": key, "mul": 100.0, "fmt": "{:.1f}"}
-
-
-# ----------------------------------------------------------------------------------------
-# T1 headline (breadth): grad-align WBE + acc@50 across the main models + the whisper cross-attn
-#     DTW baseline. Grad bases == _compare_table grad rows (best per-model config), so the two agree.
-# ----------------------------------------------------------------------------------------
-def _headline_table():
-    S, T = "buckeye-segA-5h", "timit-test"
-
-    def g(stem_sa, stem_ti):
-        return (f"align/{stem_sa}", f"align/{stem_ti}" if stem_ti else None)
-
-    # (Model label, segA grad base, TIMIT grad base) -- mirror _compare_table's grad rows.
-    MODELS = [
-        (
-            "Wav2Vec2-CTC",
-            *g(
-                f"wav2vec2ctc-fproj_out-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                f"wav2vec2ctc-fproj_out-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-            ),
-        ),
-        (
-            "Phoneme-CTC (G2P)",
-            *g(f"phoneme-vitouphy-prefixfwd-{S}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-sil1.0", None),
-        ),
-        (
-            "Whisper-base",
-            *g(
-                f"whisper-base-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
-                f"whisper-base-logmel-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
-            ),
-        ),
-        (
-            "Whisper-large-v3",
-            *g(
-                f"whisper-large-v3-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
-                f"whisper-large-v3-logmel-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
-            ),
-        ),
-        (
-            "Parakeet RNN-T",
-            *g(
-                f"parakeet-rnnt-1.1b-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                f"parakeet-rnnt-1.1b-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-            ),
-        ),
-        (
-            "Parakeet TDT",
-            *g(
-                f"parakeet-tdt-0.6b-v2-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                f"parakeet-tdt-0.6b-v2-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-            ),
-        ),
-        (
-            "Voxtral",
-            *g(
-                f"voxtral-charlevlogmel-{S}-L1_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                f"voxtral-charlevlogmel-{T}-L1_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-            ),
-        ),
-        (
-            "Phi-4-MM",
-            *g(
-                f"phi4mm-{S}-L2_e_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
-                f"phi4mm-{T}-L2_e_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
-            ),
-        ),
-        (
-            "Canary-Qwen",
-            *g(
-                f"canary-qwen-charlev-spc-logmel-st15-{S}-L1_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                f"canary-qwen-charlev-spc-logmel-st15-{T}-L1_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-            ),
-        ),
-    ]
-    BASELINE = (
-        "Whisper cross-attn DTW",
-        f"align/baseline-whisper-base-crossattn-auto-{S}-asotTrue-bs-5-en0.5-sil1.0",
-        f"align/baseline-whisper-base-crossattn-auto-{T}-asotTrue-bs-5-en0.5-sil1.0",
-    )
-
-    cols = [
-        {"key": "t_wbe", "header": "WBE \\\\ {[ms]}", "group": "TIMIT"},
-        {"key": "t_a50", "header": "acc@50 \\\\ {[\\%]}", "group": "TIMIT"},
-        {"key": "s_wbe", "header": "WBE \\\\ {[ms]}", "group": "Buckeye"},
-        {"key": "s_a50", "header": "acc@50 \\\\ {[\\%]}", "group": "Buckeye"},
-    ]
-
-    def row(label, sa, ti):
-        return {
-            "label": label,
-            "cells": {
-                "t_wbe": _wbe(ti) if ti else None,
-                "t_a50": _acc(ti, "acc_50ms") if ti else None,
-                "s_wbe": _wbe(sa) if sa else None,
-                "s_a50": _acc(sa, "acc_50ms") if sa else None,
-            },
-        }
-
-    rows = [row(m, sa, ti) for (m, sa, ti) in MODELS]
-    rows.append({"label": None, "cells": {}})  # \\hline before the baseline
-    rows.append(row(*BASELINE))
-
-    caption = (
-        "Headline breadth: gradient-based word alignment across ASR families on TIMIT-test and "
-        "Buckeye-segA (word-boundary error and acc@50ms tolerance accuracy), best per-model config. "
-        "The whisper cross-attention DTW baseline is shown for reference. Grad-align runs on every "
-        "family; the per-model table breaks each model out against its own native / attention aligner."
-    )
-    job = WriteLatexTableJob(
-        columns=cols,
-        rows=rows,
-        caption=caption,
-        label="tab:headline",
-        label_header="Model",
-        col_align="|l|r|r|r|r|",
-    )
-    tk.register_output("tables/headline.tex", job.out_tex)
 
 
 # ----------------------------------------------------------------------------------------
