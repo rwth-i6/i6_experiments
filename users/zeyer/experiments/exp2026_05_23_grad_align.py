@@ -4124,6 +4124,74 @@ def py():
         )
         _xa_align(_xa_av, _xa_av_name, "en0.5-sil1.0")
 
+    # === Cross-model grad-SIGNAL ablation (Table A): grad-score reduction across all five families,
+    # plus attribution method on the two fast models (multi-pass IG/EG is prohibitive on the
+    # transducer / streaming / speech-LLM). Buckeye-segA, fixed word-topology + en0.5-sil1.0 so the
+    # signal choice is not confounded by the DP opts (those are ablated separately). ===
+    _abl_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+
+    def _abl_align(ex, ename):
+        al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_xa_dir,
+            dataset_key="test",
+            dataset_offset_factors=_xa_off,
+            align_opts=_abl_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=1.0,
+            word_topology=True,
+        )
+        nm = f"align/{ename}-{_name_for_dict(_abl_ao)}-en0.5-sil1.0-wordtopo"
+        al.add_alias(nm)
+        reg(f"{nm}-wbe.txt", al.out_wbe)
+
+    # (model_config, name_prefix, batched_backward, run_attribution)
+    _ABL_MODELS = [
+        (
+            rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out", per_token_score="prefix_fwd"),
+            "wav2vec2ctc-fproj_out-prefixfwd",
+            True,
+            True,
+        ),
+        (whisper_char_cfg, "whisper-base-logmel-charlev-spc", False, True),
+        (pk_cfg, "parakeet-rnnt-1.1b-logmel", True, False),
+        (rnnt_px_cfg, "emformer-rnnt-prefix-logmel", False, False),
+        (voxtral_charlev_logmel_cfg, "voxtral-charlevlogmel", False, False),
+    ]
+    for _ac, _apre, _abb, _ado_attr in _ABL_MODELS:
+        # grad-score axis: L0.5 / L1 / L2 / L2_e (L2_e = L2 norm on grad*input).
+        for _ar, _amgi, _arn in [
+            ("L0.5", False, "L0.5_grad"),
+            ("L1", False, "L1_grad"),
+            ("L2", False, "L2_grad"),
+            ("L2", True, "L2_e_grad"),
+        ]:
+            _aen = f"{_apre}-abl-{_xa_tag}-{_arn}-pertoken"
+            _abl_align(_xa_extract(_ac, _aen, _ar, _amgi, bb=_abb), _aen)
+        # attribution axis (fast models only): SmoothGrad / VarGrad / IG / EG, on L2.
+        if _ado_attr:
+            for _akw, _asfx in [
+                ({"noise_std": 0.01, "noise_n_samples": 8}, "smoothgrad-std0.01-n8"),
+                ({"noise_std": 0.02, "noise_n_samples": 16, "vargrad": True}, "vargrad-std0.02-n16"),
+                ({"ig_steps": 16}, "integrated-grad-ig16"),
+                ({"eg_steps": 16, "eg_baseline_std": 0.05}, "expected-grad-eg16-bstd0.05"),
+            ]:
+                _aen = f"{_apre}-abl-{_xa_tag}-L2-{_asfx}-pertoken"
+                _aex = ExtractInGradsPerTokenJob(
+                    dataset_dir=_xa_dir,
+                    dataset_key="test",
+                    model_config=_ac,
+                    mult_grad_by_inputs=False,
+                    attr_reduction="L2",
+                    **_akw,
+                )
+                _aex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+                _aex.rqmt = {**_aex.rqmt, "time": 24}
+                _aex.add_alias(_aen)
+                reg(f"{_aen}.hdf", _aex.out_hdf)
+                _abl_align(_aex, _aen)
+
     # (6) Complete the char-vs-subword grid for the speech LLMs: grad SUBWORD extracts (the
     # char-level counterparts are already wired in the headline-A block). Each model uses its own
     # best grad attribution (voxtral/canary L1, phi4 L2_e). These are heavy models -> 24h walltime.
