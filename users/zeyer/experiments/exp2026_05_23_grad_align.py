@@ -4674,6 +4674,13 @@ def py():
         # Transducers: best align is sil0.0 (TIMIT + segA); parakeet-rnnt needs the batched backward.
         ("parakeet-rnnt-1.1b-logmel", pk_cfg, pk_cfg, "L2", False, 0.0, True),
         ("parakeet-tdt-0.6b-v2-logmel", tdt_cfg, tdt_grad_cfg, "L2", False, 0.0, False),
+        # CTC + streaming models (added 2026-06-17) to fill the per-model-merged hyp cells:
+        # they recognise words, so hyp-mode is real (not structurally n/a).
+        # Emformer is omitted -- its model class has no recog() yet.
+        ("parakeet-ctc-1.1b", parakeet_ctc_cfg, parakeet_ctc_prefixfwd_cfg, "L2", False, 1.0, False),
+        ("owsm-ctc-v4-1b", owsm_ctc_cfg, owsm_ctc_prefixfwd_cfg, "L2", False, 1.0, False),
+        ("fastconformer-stream-ctc", fc_ctc_cfg, fc_ctc_cfg, "L2", False, 1.0, False),
+        ("fastconformer-stream-rnnt", fc_rnnt_cfg, fc_rnnt_cfg, "L2", False, 1.0, False),
     ]:
         _hy_recog = RecogFromModelJob(
             dataset_dir=_xa_dir,

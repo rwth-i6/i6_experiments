@@ -682,6 +682,10 @@ def _compare_table(with_hyp=False):
         "Parakeet RNN-T": f"parakeet-rnnt-1.1b-logmel-{S}-grad",
         "Parakeet TDT": f"parakeet-tdt-0.6b-v2-logmel-{S}-grad",
         "Whisper-large-v3": f"whisper-large-v3-charlev-{S}-grad",
+        "Nvidia CTC": f"parakeet-ctc-1.1b-{S}-grad",
+        "OWSM-CTC": f"owsm-ctc-v4-1b-{S}-grad",
+        "FastConformer-CTC (streaming)": f"fastconformer-stream-ctc-{S}-grad",
+        "FastConformer-RNN-T (streaming)": f"fastconformer-stream-rnnt-{S}-grad",
     }
     # Models with no word-level own-recognition -> hyp-mode is structurally n/a (not "unrun"):
     # MMS_FA (Wav2Vec2-CTC) + Phoneme-CTC emit no word boundaries; MFA is a forced-aligner, not a recognizer.
