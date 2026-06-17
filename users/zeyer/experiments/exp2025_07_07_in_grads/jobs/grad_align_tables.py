@@ -27,6 +27,7 @@ def build_tables(results):
     _cost_table()  # forward vs batched grad-backward per model (T5 cost)
     _streaming_offset_table()  # streaming start/end signed offset (grad vs native viterbi)
     _time_stretch_table()  # length robustness (grad vs MMS-FA, vocoder vs resample)
+    _word_length_table()  # word-duration accuracy (signed word-width error) per model
     _fairness_table()  # T2 fairness 2x2 (grad vs cross-attn x char/subword)
     _ablation_table()  # T3a grad-score reduction (cross-model)
     _attribution_table()  # T3b attribution method (cross-model, fast models)
@@ -206,6 +207,119 @@ def _time_stretch_table():
         col_align="|l|l|r|r|r|r|",
     )
     tk.register_output("tables/time-stretch.tex", job.out_tex)
+
+
+# ----------------------------------------------------------------------------------------
+# Word-length (duration) accuracy: signed word-WIDTH error (width_signed_err = end_offset - start_offset,
+#     ms; 0 = correct word length, negative = words predicted too short) per model, grad-align vs the
+#     model's alternative aligner, on TIMIT-test and Buckeye-segA. grad stays near 0; the CTC/forced-align
+#     posteriors systematically TRUNCATE words (-60..-190 ms). So grad is consistently more accurate on word
+#     duration (the one near-tie is whisper cross-attn on TIMIT).
+# ----------------------------------------------------------------------------------------
+def _word_length_table():
+    S, T = "buckeye-segA-5h", "timit-test"
+
+    def _w(base):
+        v = _RESULTS.get(f"{base}-wbe.txt")
+        j = getattr(v, "creator", None) if v is not None else None
+        m = getattr(j, "out_metrics", None) if j is not None else None
+        if m is None and j is not None:
+            m = getattr(j, "out_word_metrics", None)
+        return {"var": m, "key": "width_signed_err", "mul": 1000.0, "fmt": "{:+.0f}"}
+
+    MODELS = [
+        (
+            "Wav2Vec2-CTC",
+            [
+                (
+                    "grad",
+                    f"align/wav2vec2ctc-fproj_out-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                    f"align/wav2vec2ctc-fproj_out-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                ),
+                ("posteriors", f"baseline-mms_fa-{S}", f"baseline-mms_fa-{T}"),
+            ],
+        ),
+        (
+            "Phoneme-CTC",
+            [
+                (
+                    "grad",
+                    f"align/phoneme-vitouphy-prefixfwd-{S}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-sil1.0",
+                    f"align/phoneme-vitouphy-prefixfwd-{T}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-sil1.0",
+                ),
+                ("posteriors", f"baseline-phoneme-fa-{S}-word", "align/w2v-phoneme-timit-test-ctc-forced-align-word"),
+            ],
+        ),
+        (
+            "Nvidia CTC",
+            [
+                (
+                    "grad",
+                    f"align/parakeet-ctc-1.1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                    f"align/parakeet-ctc-1.1b-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                ),
+                ("posteriors", f"baseline-parakeet-ctc-1.1b-{S}", f"baseline-parakeet-ctc-1.1b-{T}"),
+            ],
+        ),
+        (
+            "OWSM-CTC",
+            [
+                (
+                    "grad",
+                    f"align/owsm-ctc-v4-1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                    f"align/owsm-ctc-v4-1b-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                ),
+                ("posteriors", f"baseline-owsm-ctc-v4-1b-{S}", f"baseline-owsm-ctc-v4-1b-{T}"),
+            ],
+        ),
+        (
+            "Whisper-base",
+            [
+                (
+                    "grad",
+                    f"align/whisper-base-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
+                    f"align/whisper-base-logmel-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
+                ),
+                (
+                    "cross-attn",
+                    f"align/baseline-whisper-base-crossattn-auto-{S}-asotTrue-bs-5-en0.5-sil1.0",
+                    f"align/baseline-whisper-base-crossattn-auto-{T}-asotTrue-bs-5-en0.5-sil1.0",
+                ),
+            ],
+        ),
+    ]
+
+    cols = [
+        {"key": "method", "header": "Align method"},
+        {"key": "t_w", "header": "TIMIT", "group": "word-width signed error [ms]"},
+        {"key": "s_w", "header": "Buckeye", "group": "word-width signed error [ms]"},
+    ]
+    rows = []
+    for gi, (model, methods) in enumerate(MODELS):
+        if gi > 0:
+            rows.append({"label": None, "cells": {}})
+        for mi, (mlabel, sa, ti) in enumerate(methods):
+            if mi > 0:
+                rows.append({"cline": True})
+            rows.append({"label": model if mi == 0 else "", "cells": {"method": mlabel, "t_w": _w(ti), "s_w": _w(sa)}})
+
+    caption = (
+        "Word-length (duration) accuracy: signed word-width error (predicted minus reference word width, "
+        "i.e. end-offset minus start-offset; ms, 0 = correct duration, negative = words predicted too short) "
+        "per model, grad-align vs the model's own alternative aligner, on TIMIT-test and Buckeye-segA. "
+        "Grad-align stays close to zero, whereas the CTC / forced-align posteriors systematically truncate "
+        "words (-60 to -190 ms). So grad-align is consistently more accurate on word duration across models; "
+        "the only near-tie is whisper cross-attention on TIMIT."
+    )
+    job = WriteLatexTableJob(
+        columns=cols,
+        rows=rows,
+        caption=caption,
+        label="tab:word-length",
+        label_header="Model",
+        col_align="|l|l|r|r|",
+    )
+    tk.register_output("tables/word-length.tex", job.out_tex)
 
 
 # ----------------------------------------------------------------------------------------
