@@ -26,6 +26,7 @@ def build_tables(results):
     _phi4_prompt_table()  # Phi-4-MM grad-align vs the spliced instruction (side table)
     _cost_table()  # forward vs batched grad-backward per model (T5 cost)
     _streaming_offset_table()  # streaming start/end signed offset (grad vs native viterbi)
+    _time_stretch_table()  # length robustness (grad vs MMS-FA, vocoder vs resample)
     _fairness_table()  # T2 fairness 2x2 (grad vs cross-attn x char/subword)
     _ablation_table()  # T3a grad-score reduction (cross-model)
     _attribution_table()  # T3b attribution method (cross-model, fast models)
@@ -147,6 +148,64 @@ def _streaming_offset_table():
         col_align="|l|l|r|r|r|r|",
     )
     tk.register_output("tables/streaming-offset.tex", job.out_tex)
+
+
+# ----------------------------------------------------------------------------------------
+# Length robustness: grad-align (wav2vec2) vs MMS-FA forced-align under audio time-stretch,
+#     vocoder (librosa.effects.time_stretch, pitch-preserving) vs resample (pitch-shifted),
+#     at 1.0/1.5/2.0/3.0x on TIMIT-val. grad-align tolerates mild stretch but degrades sharply
+#     at 2-3x (resample worst); forced-align re-runs viterbi so it stays robust.
+# ----------------------------------------------------------------------------------------
+def _time_stretch_table():
+    GRAD0 = "align/wav2vec2ctc-fproj_out-timit-val-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0"
+
+    def _grad(ts, method):
+        if ts == "1.0":
+            return GRAD0
+        sfx = f"-ts{ts}" + ("-resample" if method == "resample" else "")
+        return f"align/wav2vec2ctc-fproj_out-timit-val-L2_grad-pertoken{sfx}-asotTrue-bs-5-en0.5-sil1.0"
+
+    def _mms(ts, method):
+        if ts == "1.0":
+            return "baseline-mms_fa-timit-val"
+        return "baseline-mms_fa-timit-val" + f"-ts{ts}" + ("-resample" if method == "resample" else "")
+
+    MODELS = [("grad-align", _grad), ("MMS-FA", _mms)]
+    TS = ["1.0", "1.5", "2.0", "3.0"]
+    KEYS = ["ts10", "ts15", "ts20", "ts30"]
+
+    cols = [{"key": "method", "header": "Stretch method"}]
+    cols += [{"key": k, "header": ts, "group": "WBE [ms]"} for k, ts in zip(KEYS, TS)]
+
+    rows = []
+    for gi, (model, basefn) in enumerate(MODELS):
+        if gi > 0:
+            rows.append({"label": None, "cells": {}})
+        for mi, method in enumerate(("vocoder", "resample")):
+            if mi > 0:
+                rows.append({"cline": True})
+            cells = {"method": method}
+            for k, ts in zip(KEYS, TS):
+                cells[k] = _wbe(basefn(ts, method))
+            rows.append({"label": model if mi == 0 else "", "cells": cells})
+
+    caption = (
+        "Length-perturbation robustness on TIMIT-val: word-boundary error (WBE, ms) of grad-align "
+        "(wav2vec2-CTC) vs the MMS-FA forced-align baseline under audio time-stretch at factors 1.0 to 3.0 "
+        "(columns), with two stretch methods: vocoder (phase vocoder, pitch-preserving) and resample "
+        "(pitch-shifted). Grad-align tolerates mild stretch but degrades sharply at 2-3x (resample, which "
+        "also shifts pitch, is worst), whereas native forced-align re-runs Viterbi on the stretched audio "
+        "and stays robust."
+    )
+    job = WriteLatexTableJob(
+        columns=cols,
+        rows=rows,
+        caption=caption,
+        label="tab:time-stretch",
+        label_header="Model",
+        col_align="|l|l|r|r|r|r|",
+    )
+    tk.register_output("tables/time-stretch.tex", job.out_tex)
 
 
 # ----------------------------------------------------------------------------------------
