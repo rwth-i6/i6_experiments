@@ -9,7 +9,6 @@ Run from the setup root:
 No GPU or heavy venv (chatterbox/moshi) required.
 """
 
-import hashlib
 import importlib.machinery
 import json
 import os
@@ -66,9 +65,7 @@ class _AutoMockFinder:
 
     def find_spec(self, fullname, path, target=None):
         if _should_mock(fullname):
-            return importlib.machinery.ModuleSpec(
-                fullname, loader=self, is_package=True
-            )
+            return importlib.machinery.ModuleSpec(fullname, loader=self, is_package=True)
         return None
 
     def create_module(self, spec):
@@ -85,6 +82,7 @@ class _AutoMockFinder:
             val = MagicMock()
             setattr(module, attr, val)
             return val
+
         module.__getattr__ = _getattr
 
 
@@ -92,11 +90,16 @@ sys.meta_path.insert(0, _AutoMockFinder())
 
 # Give sisyphus.Job a real base class so subclasses can inherit from it.
 import importlib as _il
+
 _sis = _il.import_module("sisyphus")
-_sis.Job = type("Job", (), {
-    "output_path": lambda self, *a, **k: MagicMock(),
-    "output_var": lambda self, *a, **k: MagicMock(),
-})
+_sis.Job = type(
+    "Job",
+    (),
+    {
+        "output_path": lambda self, *a, **k: MagicMock(),
+        "output_var": lambda self, *a, **k: MagicMock(),
+    },
+)
 _sis.Task = MagicMock()
 _sis.tk = MagicMock()
 
@@ -106,8 +109,18 @@ try:
 except ImportError:
     _ds = types.ModuleType("datasets")
     _ds.__path__ = []
-    for _attr in ["Dataset", "DatasetDict", "Features", "Value", "Sequence", "Audio",
-                  "List", "load_dataset", "load_from_disk", "concatenate_datasets"]:
+    for _attr in [
+        "Dataset",
+        "DatasetDict",
+        "Features",
+        "Value",
+        "Sequence",
+        "Audio",
+        "List",
+        "load_dataset",
+        "load_from_disk",
+        "concatenate_datasets",
+    ]:
         setattr(_ds, _attr, MagicMock())
     sys.modules["datasets"] = _ds
 
@@ -122,6 +135,7 @@ def test_template_names_length():
         DIALOGUE_INSTRUCTION_TEMPLATES,
         DIALOGUE_INSTRUCTION_TEMPLATE_NAMES,
     )
+
     assert len(DIALOGUE_INSTRUCTION_TEMPLATE_NAMES) == len(DIALOGUE_INSTRUCTION_TEMPLATES)
 
 
@@ -129,6 +143,7 @@ def test_template_names_unique():
     from i6_experiments.users.dorian_koch.speech_llm.hf_to_dialogue import (
         DIALOGUE_INSTRUCTION_TEMPLATE_NAMES,
     )
+
     assert len(set(DIALOGUE_INSTRUCTION_TEMPLATE_NAMES)) == len(DIALOGUE_INSTRUCTION_TEMPLATE_NAMES)
 
 
@@ -149,14 +164,13 @@ def test_pick_template_spread():
         DIALOGUE_INSTRUCTION_TEMPLATES,
         _pick_template,
     )
+
     n = len(DIALOGUE_INSTRUCTION_TEMPLATES)
     seen_names = set()
     for i in range(n * 100):
         _, name = _pick_template(str(i))
         seen_names.add(name)
-    assert len(seen_names) == n, (
-        f"Expected all {n} templates to be selected; got {len(seen_names)}: {seen_names}"
-    )
+    assert len(seen_names) == n, f"Expected all {n} templates to be selected; got {len(seen_names)}: {seen_names}"
 
 
 def test_dialogue_schema_rejects_empty_text():
@@ -213,9 +227,7 @@ def test_silence_sampler_bounds():
         return val
 
     samples = [silence_length_sampler() for _ in range(2000)]
-    assert all(-0.3 <= s <= 0.6 for s in samples), (
-        "Silence sampler produced out-of-range value"
-    )
+    assert all(-0.3 <= s <= 0.6 for s in samples), "Silence sampler produced out-of-range value"
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +239,7 @@ def _clean_dialogue_str(s: str) -> str:
     """Replicate HfDialogueCleaner.clean_dialogue's strip logic."""
     s = s.strip()
     if s.startswith("```json"):
-        s = s[len("```json"):]
+        s = s[len("```json") :]
     if s.endswith("```"):
         s = s[: -len("```")]
     return s.strip()
@@ -252,6 +264,7 @@ def test_cleaner_passes_plain_json():
 def _try_import_norm_aligns():
     try:
         from i6_experiments.users.dorian_koch.speech_llm.moshi_arrow_dataset import _norm_aligns
+
         return _norm_aligns
     except (ImportError, Exception):
         return None
@@ -262,10 +275,12 @@ def test_norm_aligns_struct_format():
     if fn is None:
         pytest.skip("finetune (moshi-finetune fork) not on PYTHONPATH")
 
-    result = fn([
-        {"text": "hello", "start": 0.1, "end": 0.5, "speaker": "SPEAKER_MAIN"},
-        {"text": "world", "start": 0.6, "end": 1.0, "speaker": "SPEAKER_MAIN"},
-    ])
+    result = fn(
+        [
+            {"text": "hello", "start": 0.1, "end": 0.5, "speaker": "SPEAKER_MAIN"},
+            {"text": "world", "start": 0.6, "end": 1.0, "speaker": "SPEAKER_MAIN"},
+        ]
+    )
     assert result == [("hello", (0.1, 0.5), "SPEAKER_MAIN"), ("world", (0.6, 1.0), "SPEAKER_MAIN")]
 
 
@@ -283,3 +298,49 @@ def test_norm_aligns_empty():
     if fn is None:
         pytest.skip("finetune (moshi-finetune fork) not on PYTHONPATH")
     assert fn([]) == []
+
+
+# ---------------------------------------------------------------------------
+# common.py: shared subprocess/server helpers (added with the de-dup refactor)
+# ---------------------------------------------------------------------------
+
+
+def test_pick_free_port_is_bindable():
+    """pick_free_port returns an int near the base that is actually bindable."""
+    import socket
+
+    os.environ.pop("SLURM_JOB_ID", None)
+    from i6_experiments.users.dorian_koch.speech_llm.common import pick_free_port
+
+    p = pick_free_port(18000)
+    assert isinstance(p, int)
+    assert 18000 <= p <= 18000 + 999 + 50
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("localhost", p))
+    s.close()
+
+
+def test_run_worker_script_builds_cmd_and_env():
+    """run_worker_script stringifies argv and applies PYTHONUNBUFFERED + extra_env,
+    and omits HF_HOME when with_hf_home=False."""
+    from i6_experiments.users.dorian_koch.speech_llm import common
+
+    captured = {}
+
+    def fake_run(cmd, env=None, check=None):
+        captured["cmd"] = cmd
+        captured["env"] = env
+
+    with patch.object(common.subprocess, "run", fake_run):
+        common.run_worker_script(
+            "py",
+            "/s.py",
+            ["--a", 1, "--b", "x"],
+            log_label="unit",
+            with_hf_home=False,
+            extra_env={"FOO": "bar"},
+        )
+    assert captured["cmd"] == ["py", "/s.py", "--a", "1", "--b", "x"]
+    assert captured["env"]["PYTHONUNBUFFERED"] == "1"
+    assert captured["env"]["FOO"] == "bar"
+    assert "HF_HOME" not in captured["env"]

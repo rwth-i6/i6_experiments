@@ -15,17 +15,13 @@ protocol; it does not reuse any third-party client code.
 from __future__ import annotations
 
 import os
-import random
-import signal
-import socket
-import subprocess
 import sys
-import threading
-import time
 from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
+
+from .common import managed_subprocess_server, pick_free_port
 
 # Moshi streams 24 kHz mono audio split into 80 ms Opus frames.
 SAMPLE_RATE = 24_000
@@ -58,22 +54,7 @@ def moshi_server(
     # Uniform backend signature (see speech_backends.py): ``unmute_llm`` and any
     # other backend-only kwargs are accepted and ignored so run() can call every
     # backend's server the same way. ``lora_weights``/``lora_config`` are Moshi's.
-    # first: find a free port
-    # take my slurm job id and modulo
-    if "SLURM_JOB_ID" in os.environ:
-        job_id = int(os.environ["SLURM_JOB_ID"])
-        port = 8998 + (job_id % 1000)
-    else:
-        port = 8998 + random.randint(0, 999)
-    # check if in use
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        for _ in range(50):
-            try:
-                s.bind(("localhost", port))
-                break
-            except OSError:
-                port += 1
-
+    port = pick_free_port(8998)
     print(f"Selected port {port} for Moshi server")
 
     # moshi_venv has moshi pip-installed as a regular package -> "moshi.server"
@@ -94,87 +75,22 @@ def moshi_server(
     if lora_config is not None:
         cmd += ["--config-path", str(lora_config)]
 
-    print(f"Starting Moshi server: {' '.join(cmd)}")
-    server_process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-        universal_newlines=True,
-        preexec_fn=os.setsid if hasattr(os, "setsid") else None,  # Create process group
-        cwd=None
+    # From-source moshi needs to run with projects/moshi as cwd; the pip-installed
+    # package (python_exe set) is self-contained and runs from anywhere.
+    cwd = (
+        None
         if python_exe is not None
-        else os.environ.get("MOSHI_SERVER_CWD", "/home/tt201262/setups/2026-01-speech-llm/projects/moshi"),
-        env={**os.environ, "PYTHONUNBUFFERED": "1"},
+        else os.environ.get("MOSHI_SERVER_CWD", "/home/tt201262/setups/2026-01-speech-llm/projects/moshi")
     )
-
-    # Wait for server to be ready (check port 8998)
-    max_wait = 15 * 60  # seconds
-    start_time = time.time()
-    server_ready = False
-
-    # Also read output to look for ready signal
-    def read_server_output():
-        nonlocal server_ready
-        if server_process.stdout:
-            for line in iter(server_process.stdout.readline, ""):
-                if line and "frame handled" not in line:
-                    print(f"[Moshi Server] {line.rstrip()}", flush=True)
-                if "Access the Web UI directly at" in line:
-                    server_ready = True
-        print("Moshi server output thread exiting")
-
-    output_thread = threading.Thread(target=read_server_output, daemon=True)
-    output_thread.start()
-
-    # Wait for server to be ready
-    while time.time() - start_time < max_wait:
-        # Check if server process died
-        if server_process.poll() is not None:
-            stdout, _ = server_process.communicate()
-            raise RuntimeError(f"Moshi server died during startup:\n{stdout}")
-
-        # Try to connect to port
-        try:
-            sock = socket.create_connection(("localhost", port), timeout=1)
-            sock.close()
-            if server_ready:
-                print("Moshi server is ready and accepting connections")
-                break
-            else:
-                print("Moshi server port is open but server not ready yet")
-        except (ConnectionRefusedError, socket.timeout):
-            pass
-
-        time.sleep(0.5)
-    else:
-        raise TimeoutError(f"Moshi server not ready after {max_wait} seconds")
-    print("Moshi server started successfully")
-
-    try:
+    with managed_subprocess_server(
+        cmd,
+        port=port,
+        ready_substrings=("Access the Web UI directly at",),
+        log_prefix="Moshi",
+        cwd=cwd,
+        drop_line="frame handled",
+    ):
         yield f"localhost:{port}"
-    finally:
-        # Stop the Moshi server if it's still running
-        if server_process and server_process.poll() is None:
-            print("Stopping Moshi server...")
-            try:
-                if hasattr(os, "killpg"):
-                    os.killpg(os.getpgid(server_process.pid), signal.SIGTERM)
-                else:
-                    server_process.terminate()
-                server_process.wait(timeout=10)
-                print("Moshi server stopped gracefully")
-            except (subprocess.TimeoutExpired, ProcessLookupError, OSError):
-                print("Force killing Moshi server...")
-                if hasattr(os, "killpg"):
-                    try:
-                        os.killpg(os.getpgid(server_process.pid), signal.SIGKILL)
-                    except (ProcessLookupError, OSError):
-                        pass
-                else:
-                    server_process.kill()
-                server_process.wait()
 
 
 def _ws_url(addr: str) -> str:

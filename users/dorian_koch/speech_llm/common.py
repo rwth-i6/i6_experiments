@@ -3,26 +3,35 @@ import os
 import signal
 import sys
 import subprocess
+import threading
 import time
 import socket
 import random
 from contextlib import contextmanager
-from pathlib import Path
 
-HF_CACHE_DIR = tk.Path(
-    "/hpcwork/p0023999/common_hf_home/hub", hash_overwrite="HF_CACHE_DIR"
-)
+HF_CACHE_DIR = tk.Path("/hpcwork/p0023999/common_hf_home/hub", hash_overwrite="HF_CACHE_DIR")
 
 
-@contextmanager
-def vllm_server(hf_model: str):
-    # first: find a free port
+# ---------------------------------------------------------------------------
+# Subprocess-server scaffolding (shared by vllm_server + moshi_client.moshi_server)
+# ---------------------------------------------------------------------------
+#
+# Both servers boot a local model server in a subprocess and need the exact same
+# lifecycle: pick a free port, Popen in its own process group, tail stdout in a
+# thread until a "ready" line appears, poll the port with a timeout, and tear the
+# whole process group down on exit. None of this is hashed (pure runtime).
+
+
+def pick_free_port(base: int) -> int:
+    """Pick a free port near ``base``.
+
+    Seeded by ``SLURM_JOB_ID`` (so concurrent array tasks spread out) and then
+    bumped past any port already in use.
+    """
     if "SLURM_JOB_ID" in os.environ:
-        job_id = int(os.environ["SLURM_JOB_ID"])
-        port = 18998 + (job_id % 1000)
+        port = base + (int(os.environ["SLURM_JOB_ID"]) % 1000)
     else:
-        port = 18998 + random.randint(0, 999)
-    # check if in use
+        port = base + random.randint(0, 999)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         for _ in range(50):
             try:
@@ -30,9 +39,110 @@ def vllm_server(hf_model: str):
                 break
             except OSError:
                 port += 1
+    return port
 
+
+def _terminate_process_group(proc, log_prefix: str) -> None:
+    """SIGTERM (then SIGKILL) the server's whole process group."""
+    if not (proc and proc.poll() is None):
+        return
+    print(f"Stopping {log_prefix} server...")
+    try:
+        if hasattr(os, "killpg"):
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        else:
+            proc.terminate()
+        proc.wait(timeout=10)
+        print(f"{log_prefix} server stopped gracefully")
+    except (subprocess.TimeoutExpired, ProcessLookupError, OSError):
+        print(f"Force killing {log_prefix} server...")
+        if hasattr(os, "killpg"):
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
+        else:
+            proc.kill()
+        proc.wait()
+
+
+@contextmanager
+def managed_subprocess_server(
+    cmd,
+    *,
+    port: int,
+    ready_substrings,
+    log_prefix: str,
+    cwd: str | None = None,
+    env: dict | None = None,
+    drop_line: str | None = None,
+    max_wait: int = 15 * 60,
+):
+    """Run ``cmd`` as a model server, yield once it is ready, tear it down after.
+
+    Streams the server's stdout (dropping lines containing ``drop_line`` if set),
+    marks the server ready when any of ``ready_substrings`` is seen, and waits for
+    the port to accept connections. Raises if the process dies during startup or
+    is not ready within ``max_wait`` seconds.
+    """
+    full_env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+    if env:
+        full_env.update(env)
+    print(f"Starting {log_prefix} server: {' '.join(cmd)}")
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        universal_newlines=True,
+        preexec_fn=os.setsid if hasattr(os, "setsid") else None,
+        cwd=cwd,
+        env=full_env,
+    )
+
+    ready = {"flag": False}
+
+    def read_server_output():
+        if proc.stdout:
+            for line in iter(proc.stdout.readline, ""):
+                if line and (drop_line is None or drop_line not in line):
+                    print(f"[{log_prefix} Server] {line.rstrip()}", flush=True)
+                if any(sub in line for sub in ready_substrings):
+                    ready["flag"] = True
+        print(f"{log_prefix} server output thread exiting")
+
+    threading.Thread(target=read_server_output, daemon=True).start()
+
+    start_time = time.time()
+    while time.time() - start_time < max_wait:
+        if proc.poll() is not None:
+            stdout, _ = proc.communicate()
+            raise RuntimeError(f"{log_prefix} server died during startup:\n{stdout}")
+        try:
+            sock = socket.create_connection(("localhost", port), timeout=1)
+            sock.close()
+            if ready["flag"]:
+                print(f"{log_prefix} server is ready and accepting connections")
+                break
+            print(f"{log_prefix} server port is open but server not ready yet")
+        except (ConnectionRefusedError, socket.timeout):
+            pass
+        time.sleep(0.5)
+    else:
+        raise TimeoutError(f"{log_prefix} server not ready after {max_wait} seconds")
+    print(f"{log_prefix} server started successfully")
+
+    try:
+        yield port
+    finally:
+        _terminate_process_group(proc, log_prefix)
+
+
+@contextmanager
+def vllm_server(hf_model: str):
+    port = pick_free_port(18998)
     print(f"Selected port {port} for vLLM server")
-
     cmd = [
         sys.executable,
         "-m",
@@ -48,88 +158,53 @@ def vllm_server(hf_model: str):
         "--enable-prefix-caching",
         "true",
     ]
-
     if hf_model == "google/gemma-4-31B-it":
         cmd += ["--max-model-len", "65536"]
 
-    print(f"Starting vLLM server: {' '.join(cmd)}")
-    server_process = subprocess.Popen(
+    with managed_subprocess_server(
         cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-        universal_newlines=True,
-        preexec_fn=os.setsid if hasattr(os, "setsid") else None,
-        env={**os.environ, "PYTHONUNBUFFERED": "1"},
-    )
-
-    max_wait = 15 * 60  # seconds
-    start_time = time.time()
-    server_ready = False
-
-    def read_server_output():
-        nonlocal server_ready
-        if server_process.stdout:
-            for line in iter(server_process.stdout.readline, ""):
-                if line:
-                    print(f"[vLLM Server] {line.rstrip()}", flush=True)
-                if (
-                    "Uvicorn running on" in line
-                    or "Application startup complete" in line
-                ):
-                    server_ready = True
-        print("vLLM server output thread exiting")
-
-    import threading
-
-    output_thread = threading.Thread(target=read_server_output, daemon=True)
-    output_thread.start()
-
-    while time.time() - start_time < max_wait:
-        if server_process.poll() is not None:
-            stdout, _ = server_process.communicate()
-            raise RuntimeError(f"vLLM server died during startup:\n{stdout}")
-
-        try:
-            sock = socket.create_connection(("localhost", port), timeout=1)
-            sock.close()
-            if server_ready:
-                print("vLLM server is ready and accepting connections")
-                break
-            else:
-                print("vLLM server port is open but server not ready yet")
-        except (ConnectionRefusedError, socket.timeout):
-            pass
-
-        time.sleep(0.5)
-    else:
-        raise TimeoutError(f"vLLM server not ready after {max_wait} seconds")
-    print("vLLM server started successfully")
-
-    try:
+        port=port,
+        ready_substrings=("Uvicorn running on", "Application startup complete"),
+        log_prefix="vLLM",
+    ):
         yield f"http://localhost:{port}/v1"
-    finally:
-        if server_process and server_process.poll() is None:
-            print("Stopping vLLM server...")
-            try:
-                if hasattr(os, "killpg"):
-                    os.killpg(os.getpgid(server_process.pid), signal.SIGTERM)
-                else:
-                    server_process.terminate()
 
-                server_process.wait(timeout=10)
-                print("vLLM server stopped gracefully")
-            except (subprocess.TimeoutExpired, ProcessLookupError, OSError):
-                print("Force killing vLLM server...")
-                if hasattr(os, "killpg"):
-                    try:
-                        os.killpg(os.getpgid(server_process.pid), signal.SIGKILL)
-                    except (ProcessLookupError, OSError):
-                        pass
-                else:
-                    server_process.kill()
-                server_process.wait()
+
+# ---------------------------------------------------------------------------
+# Worker-script subprocess launcher (shared by the Job.run() wrappers that shell
+# out to a sibling worker script in their own venv).
+# ---------------------------------------------------------------------------
+
+
+def run_worker_script(
+    python_exe,
+    script_path,
+    args,
+    *,
+    log_label: str,
+    with_hf_home: bool = True,
+    extra_env: dict | None = None,
+    env_hook=None,
+) -> None:
+    """Run ``python_exe script_path *args`` as a checked subprocess.
+
+    Sets ``PYTHONUNBUFFERED`` (and ``HF_HOME`` when ``with_hf_home``), then applies
+    ``extra_env`` and finally ``env_hook(env)`` (in-place mutation, e.g. to splice in
+    an FFmpeg install) before launching. Pure runtime helper; nothing here is hashed.
+    """
+    cmd = [str(python_exe), str(script_path), *[str(a) for a in args]]
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+    if with_hf_home:
+        env["HF_HOME"] = HF_CACHE_DIR.get()
+    if extra_env:
+        env.update({k: str(v) for k, v in extra_env.items()})
+    if env_hook is not None:
+        env_hook(env)
+    print(f"Running {log_label}: {' '.join(cmd)}", flush=True)
+    if with_hf_home:
+        print(f"Using HF cache directory: {HF_CACHE_DIR}")
+    subprocess.run(cmd, env=env, check=True)
 
 
 # ---------------------------------------------------------------------------
@@ -217,4 +292,3 @@ def last_jsonl_value(path: str, field: str):
         if field in obj:
             return obj[field]
     return None
-

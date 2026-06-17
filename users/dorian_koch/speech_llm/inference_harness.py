@@ -219,3 +219,69 @@ def run_with_optional_retrieval(job, drive) -> None:
             os.environ.pop("CUDA_VISIBLE_DEVICES", None)
         else:
             os.environ["CUDA_VISIBLE_DEVICES"] = saved
+
+
+# ---------------------------------------------------------------------------
+# Shared run-body glue for the two backend-driven inference jobs
+# (knowledge MoshiInference + FDB FullDuplexBenchEval_Inference).
+# ---------------------------------------------------------------------------
+
+
+class BackendInferenceMixin:
+    """Runtime-only mixin factoring the backend access shared by both inference jobs.
+
+    Nothing here enters a Sisyphus hash. The two jobs keep their own
+    ``__init__``/``hash``/``__sis_hash_exclude__`` and differ only in attribute
+    names and output layout, which they bridge via the two hooks below.
+    """
+
+    # --- hooks: attribute-name indirection between the two jobs ----------------
+    def _server_callable(self):
+        """The backend's server context manager (``self.server`` vs ``self.model``)."""
+        raise NotImplementedError
+
+    def _python_exe(self):
+        """Interpreter the server/driver runs under, or None for the worker's own."""
+        raise NotImplementedError
+
+    # --- shared helpers --------------------------------------------------------
+    def _server_kwargs(self) -> dict:
+        return dict(
+            lora_weights=self.lora_weights.get_path() if self.lora_weights is not None else None,
+            lora_config=self.lora_config.get_path() if self.lora_config is not None else None,
+            python_exe=self._python_exe(),
+            unmute_llm=self.unmute_llm,
+        )
+
+    def _stream(self, items, *, opts: "StreamOptions") -> None:
+        stream_inference(
+            server=self._server_callable(),
+            file_client=self.file_client,
+            ws_url=self.ws_url,
+            items=items,
+            server_kwargs=self._server_kwargs(),
+            opts=opts,
+        )
+
+    def _offline(self, *, python_exe, **driver_kwargs) -> None:
+        """Run the backend's offline driver (optionally behind a RAG retrieval LLM).
+
+        ``driver_kwargs`` are forwarded to ``run_offline_driver`` (dir-mode for the
+        knowledge benchmark, manifest-mode for FDB); LoRA paths and the backend's
+        extra args are spliced in here so both callers stay one line."""
+        script_path = Path(__file__).resolve().parent.parent / self.offline_script
+        lora_weights = self.lora_weights.get() if self.lora_weights is not None else None
+        lora_config = self.lora_config.get() if self.lora_config is not None else None
+
+        def _drive(extra_args, extra_env=None):
+            run_offline_driver(
+                python_exe=python_exe,
+                script_path=script_path,
+                lora_weights=lora_weights,
+                lora_config=lora_config,
+                extra_args=tuple(self.offline_extra_args) + tuple(extra_args),
+                extra_env=extra_env,
+                **driver_kwargs,
+            )
+
+        run_with_optional_retrieval(self, _drive)

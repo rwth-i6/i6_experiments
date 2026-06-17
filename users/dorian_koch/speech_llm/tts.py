@@ -2,7 +2,7 @@ from pathlib import Path
 from sisyphus import Job, Task, tk
 import os
 import subprocess
-from .common import HF_CACHE_DIR, job_progress_fraction
+from .common import job_progress_fraction, run_worker_script
 import json
 from i6_experiments.users.dorian_koch.jobs.hf import HfMergeShards
 
@@ -11,9 +11,7 @@ from i6_experiments.users.dorian_koch.jobs.hf import HfMergeShards
 class InstallFFmpeg(Job):
     def __init__(self, additional_options: list[str] | None = None):
         self.out_path = self.output_path("out", directory=True)
-        self.additional_options = (
-            additional_options if additional_options is not None else []
-        )
+        self.additional_options = additional_options if additional_options is not None else []
         self.rqmt = {
             "cpu": 8,
             "mem": 8,
@@ -26,12 +24,8 @@ class InstallFFmpeg(Job):
     @staticmethod
     def add_to_env(out_path: tk.Path, env: dict[str, str]):
         env["PATH"] = f"{out_path.get()}/bin:" + env.get("PATH", "")
-        env["LD_LIBRARY_PATH"] = f"{out_path.get()}/lib:" + env.get(
-            "LD_LIBRARY_PATH", ""
-        )
-        env["PKG_CONFIG_PATH"] = f"{out_path.get()}/lib/pkgconfig:" + env.get(
-            "PKG_CONFIG_PATH", ""
-        )
+        env["LD_LIBRARY_PATH"] = f"{out_path.get()}/lib:" + env.get("LD_LIBRARY_PATH", "")
+        env["PKG_CONFIG_PATH"] = f"{out_path.get()}/lib/pkgconfig:" + env.get("PKG_CONFIG_PATH", "")
 
     def run(self):
         # wget https://ffmpeg.org/releases/ffmpeg-8.1.tar.xz
@@ -103,9 +97,7 @@ class ChatterboxInference(Job):
     ):
         self.in_json = in_json
         self.in_hf = in_hf
-        assert (in_json is not None) ^ (in_hf is not None), (
-            "Must provide exactly one of in_json or in_hf"
-        )
+        assert (in_json is not None) ^ (in_hf is not None), "Must provide exactly one of in_json or in_hf"
         self.venv_python_path = venv_python_path
         self.speaker_dir = speaker_dir
         self.speaker_alias = speaker_alias if speaker_alias is not None else {}
@@ -142,12 +134,8 @@ class ChatterboxInference(Job):
         assert num_shards > 1
         shards = []
         for shard in range(num_shards):
-            shards.append(
-                ChatterboxInference(shard=shard, num_shards=num_shards, **kwargs)
-            )
-        return HfMergeShards(
-            shard_paths=[s.out_hf for s in shards], add_shard_to_id=True
-        ).out_hf
+            shards.append(ChatterboxInference(shard=shard, num_shards=num_shards, **kwargs))
+        return HfMergeShards(shard_paths=[s.out_hf for s in shards], add_shard_to_id=True).out_hf
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -157,50 +145,41 @@ class ChatterboxInference(Job):
         return job_progress_fraction(self)
 
     def run(self):
-        this_file_path = Path(__file__).resolve()
-        tts_script_path = this_file_path.parent / "chatterbox_inference.py"
+        tts_script_path = Path(__file__).resolve().parent / "chatterbox_inference.py"
 
         work_dir = os.path.join(os.getcwd(), "chatterbox_inference_workdir")
         os.makedirs(work_dir, exist_ok=True)
 
-        command = [
-            self.venv_python_path.get(),
-            str(tts_script_path),
+        args = [
             "--out_hf",
-            str(self.out_hf.get()),
+            self.out_hf.get(),
             "--speaker_dir",
-            str(self.speaker_dir.get()),
+            self.speaker_dir.get(),
             "--speaker_alias",
             json.dumps(self.speaker_alias),
         ]
         if self.in_json is not None:
-            command += ["--in_jsonl", str(self.in_json.get())]
+            args += ["--in_jsonl", self.in_json.get()]
         elif self.in_hf is not None:
-            command += ["--in_hf", str(self.in_hf.get())]
-        if self.out_dir is not None:
-            command += ["--out_dir", str(self.out_dir.get())]
-        else:
-            command += ["--out_dir", str(work_dir)]
+            args += ["--in_hf", self.in_hf.get()]
+        args += ["--out_dir", self.out_dir.get() if self.out_dir is not None else work_dir]
         if self.shard is not None and self.num_shards is not None:
-            command += [
-                "--in_hf_shard",
-                str(self.shard),
-                "--in_hf_num_shards",
-                str(self.num_shards),
-            ]
-        env = os.environ.copy()
-        env["PYTHONUNBUFFERED"] = "1"
-        env["HF_HOME"] = HF_CACHE_DIR.get()
+            args += ["--in_hf_shard", self.shard, "--in_hf_num_shards", self.num_shards]
+
+        env_hook = None
         if self.ffmpeg_path is not None:
             print(f"Adding FFmpeg from {self.ffmpeg_path.get()} to environment")
-            InstallFFmpeg.add_to_env(self.ffmpeg_path, env)
 
-        print(
-            f"Running Chatterbox inference with command: {' '.join(command)}",
-            flush=True,
+            def env_hook(env):
+                InstallFFmpeg.add_to_env(self.ffmpeg_path, env)
+
+        run_worker_script(
+            self.venv_python_path.get(),
+            tts_script_path,
+            args,
+            log_label="Chatterbox inference",
+            env_hook=env_hook,
         )
-        print(f"Using HF cache directory: {HF_CACHE_DIR}")
-        subprocess.run(command, env=env, check=True)
 
 
 class ParlerTTSInference(Job):
@@ -248,30 +227,17 @@ class ParlerTTSInference(Job):
                 yield output_filename
 
     def run(self):
+        tts_script_path = Path(__file__).resolve().parent / "parlertts_inference.py"
 
-        this_file_path = Path(__file__).resolve()
-        tts_script_path = this_file_path.parent / "parlertts_inference.py"
-
-        command = [
-            self.venv_python_path.get(),
-            str(tts_script_path),
-            "--voices_per_prompt",
-            str(self.voices_per_prompt),
-            "--out_dir",
-            str(self.out_dir),
-            *[
-                item
-                for desc in self.voice_descriptions
-                for item in ["--voice_description", desc]
-            ],
-        ]
+        args = ["--voices_per_prompt", self.voices_per_prompt, "--out_dir", self.out_dir]
+        for desc in self.voice_descriptions:
+            args += ["--voice_description", desc]
         if self.prompt is not None:
-            command += ["--text", self.prompt]
+            args += ["--text", self.prompt]
 
-        env = os.environ.copy()
-        env["HF_HOME"] = HF_CACHE_DIR.get()
-        env["PYTHONUNBUFFERED"] = "1"
-
-        print(f"Running ParlerTTS inference with command: {' '.join(command)}")
-        print(f"Using HF cache directory: {HF_CACHE_DIR}")
-        subprocess.run(command, env=env, check=True)
+        run_worker_script(
+            self.venv_python_path.get(),
+            tts_script_path,
+            args,
+            log_label="ParlerTTS inference",
+        )

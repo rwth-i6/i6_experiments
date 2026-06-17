@@ -17,12 +17,10 @@ from sisyphus import Job, Task, tk
 from datasets import load_from_disk
 import json
 import os
-import random
-import subprocess
-import sys
 from pathlib import Path
 
-from .common import HF_CACHE_DIR
+from .common import run_worker_script
+from .inference_harness import BackendInferenceMixin
 from .moshi_client import moshi_server, _ws_url, MoshiFileClient
 from .speech_backends import MOSHI_BACKEND
 
@@ -217,24 +215,23 @@ class ChatterboxSingleSpeakerInference(Job):
 
     def run(self):
         script_path = Path(__file__).resolve().parent / "chatterbox_benchmark_inference.py"
-
-        command = [
-            self.venv_python_path.get(),
-            str(script_path),
+        args = [
             "--in_hf",
-            str(self.in_hf.get()),
+            self.in_hf.get(),
             "--speaker_dir",
-            str(self.speaker_dir.get()),
+            self.speaker_dir.get(),
             "--speaker_name",
             self.speaker_name,
             "--out_dir",
-            str(self.out_dir.get()),
+            self.out_dir.get(),
         ]
-        env = os.environ.copy()
-        env["PYTHONUNBUFFERED"] = "1"
-
-        print(f"Running Chatterbox benchmark inference: {' '.join(command)}", flush=True)
-        subprocess.run(command, env=env, check=True)
+        run_worker_script(
+            self.venv_python_path.get(),
+            script_path,
+            args,
+            log_label="Chatterbox benchmark inference",
+            with_hf_home=False,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -275,6 +272,16 @@ class ResolveLoraCheckpoint(Job):
         os.symlink(consolidated / "lora.safetensors", self.out_lora.get())
 
 
+def resolve_lora(moshi_checkpoint, checkpoint_step=None):
+    """Map a MoshiFinetune run_dir (+ optional step) to (lora_weights, lora_config)
+    output handles, or (None, None) for the base model. Shared by both benchmark
+    builders (knowledge + FDB) so the LoRA-resolve wiring lives in one place."""
+    if moshi_checkpoint is None:
+        return None, None
+    ckpt = ResolveLoraCheckpoint(run_dir=moshi_checkpoint, step=checkpoint_step)
+    return ckpt.out_lora, ckpt.out_config
+
+
 class MergeMoshiOutputsViaSymlinks(Job):
     """Merge sharded MoshiInference outputs into a single dir via symlinks."""
 
@@ -298,7 +305,7 @@ class MergeMoshiOutputsViaSymlinks(Job):
                     os.symlink(os.path.join(src_dir, name), link)
 
 
-class MoshiInference(Job):
+class MoshiInference(BackendInferenceMixin, Job):
     """Run Moshi speech LLM inference on audio questions.
 
     Default (fast) backend runs offline batched inference; an optional LoRA adapter
@@ -408,36 +415,31 @@ class MoshiInference(Job):
             return self._run_offline()
         return self._run_server()
 
+    # BackendInferenceMixin hooks (knowledge attribute names).
+    def _server_callable(self):
+        return self.server
+
+    def _python_exe(self):
+        return self.venv_python_path.get()
+
     def _run_offline(self):
-        # Shared offline-driver harness (dir-mode); see inference_harness.py. A RAG backend
-        # (retrieval_llm set) runs the driver behind a vLLM retrieval server; otherwise the
-        # driver runs once. run_with_optional_retrieval keeps that wiring shared with FDB.
-        from .inference_harness import run_offline_driver, run_with_optional_retrieval
-
-        def _drive(extra_args, extra_env=None):
-            run_offline_driver(
-                python_exe=self.venv_python_path.get(),
-                script_path=Path(__file__).resolve().parent.parent / self.offline_script,
-                in_dir=str(self.in_dir.get()),
-                out_dir=str(self.out_dir.get()),
-                lead_in_s=self.lead_in_s,
-                capture_s=self.capture_s,
-                batch_size=self.batch_size,
-                shard=self.shard,
-                num_shards=self.num_shards,
-                lora_weights=self.lora_weights.get() if self.lora_weights is not None else None,
-                lora_config=self.lora_config.get() if self.lora_config is not None else None,
-                extra_args=tuple(self.offline_extra_args) + tuple(extra_args),
-                extra_env=extra_env,
-            )
-
-        run_with_optional_retrieval(self, _drive)
+        # Dir-mode offline driver via the shared mixin (optionally behind a RAG
+        # retrieval server); see inference_harness.BackendInferenceMixin.
+        self._offline(
+            python_exe=self.venv_python_path.get(),
+            in_dir=str(self.in_dir.get()),
+            out_dir=str(self.out_dir.get()),
+            lead_in_s=self.lead_in_s,
+            capture_s=self.capture_s,
+            batch_size=self.batch_size,
+            shard=self.shard,
+            num_shards=self.num_shards,
+        )
 
     def _run_server(self):
-        # Shared streaming harness: bring up the backend's server and stream each
-        # question wav through its file client. Backend-agnostic (Moshi server, Unmute
-        # stack, cloud realtime APIs, ...). See inference_harness.py.
-        from .inference_harness import StreamOptions, stream_inference
+        # Streaming path via the shared mixin: stream each question wav through the
+        # backend's realtime server/file client.
+        from .inference_harness import StreamOptions
 
         out_dir = Path(self.out_dir.get())
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -445,17 +447,8 @@ class MoshiInference(Job):
         if self.shard is not None and self.num_shards is not None:
             wav_files = wav_files[self.shard :: self.num_shards]
         items = [(wav, out_dir / wav.name) for wav in wav_files]
-        stream_inference(
-            server=self.server,
-            file_client=self.file_client,
-            ws_url=self.ws_url,
-            items=items,
-            server_kwargs=dict(
-                lora_weights=self.lora_weights.get_path() if self.lora_weights is not None else None,
-                lora_config=self.lora_config.get_path() if self.lora_config is not None else None,
-                python_exe=self.venv_python_path.get(),
-                unmute_llm=self.unmute_llm,
-            ),
+        self._stream(
+            items,
             opts=StreamOptions(lead_in_s=self.lead_in_s, capture_s=self.capture_s, progress_every=50),
         )
 
@@ -488,24 +481,23 @@ class WhisperTranscription(Job):
 
     def run(self):
         script_path = Path(__file__).resolve().parent / "whisper_benchmark_inference.py"
-
-        command = [
-            self.venv_python_path.get(),
-            str(script_path),
+        args = [
             "--in_dir",
-            str(self.in_dir.get()),
+            self.in_dir.get(),
             "--reference_data",
-            str(self.reference_data.get()),
+            self.reference_data.get(),
             "--out_json",
-            str(self.out_json.get()),
+            self.out_json.get(),
             "--model_size",
             self.model_size,
         ]
-        env = os.environ.copy()
-        env["PYTHONUNBUFFERED"] = "1"
-
-        print(f"Running Whisper benchmark transcription: {' '.join(command)}", flush=True)
-        subprocess.run(command, env=env, check=True)
+        run_worker_script(
+            self.venv_python_path.get(),
+            script_path,
+            args,
+            log_label="Whisper benchmark transcription",
+            with_hf_home=False,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -689,11 +681,8 @@ def knowledge_benchmark_py(
 
     # --- model-dependent stages (namespaced by tag) -------------------------
 
-    # Optional LoRA adapter for a fine-tuned Moshi.
-    lora_weights = lora_config = None
-    if moshi_checkpoint is not None:
-        ckpt = ResolveLoraCheckpoint(run_dir=moshi_checkpoint, step=checkpoint_step)
-        lora_weights, lora_config = ckpt.out_lora, ckpt.out_config
+    # Optional LoRA adapter for a fine-tuned Moshi (shared resolver).
+    lora_weights, lora_config = resolve_lora(moshi_checkpoint, checkpoint_step)
 
     # 5. Moshi inference (sharded across GPUs for throughput; a cloud realtime backend
     # runs as a single login-node mini_task, so it is not sharded).

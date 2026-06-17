@@ -1,14 +1,9 @@
-from pathlib import Path
 from sisyphus import Job, Task, tk
-import os
 from datasets import (
     load_dataset,
     load_from_disk,
-    Dataset,
-    DatasetDict,
     concatenate_datasets,
 )
-import json
 
 
 class HfDownloadSplit(Job):
@@ -59,9 +54,7 @@ class HfMergeShards(Job):
                 ds = datasets[i]
                 assert "id" in ds.column_names
                 # Prefix the existing ID with the shard index
-                datasets[i] = ds.map(
-                    lambda x: {"id": f"shard_{i}_{x['id']}"}, num_proc=4
-                )
+                datasets[i] = ds.map(lambda x: {"id": f"shard_{i}_{x['id']}"}, num_proc=4)
 
         merged = concatenate_datasets(datasets)
         merged.save_to_disk(self.out_hf.get())

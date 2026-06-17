@@ -1,7 +1,4 @@
-from i6_experiments.users.zeyer.external_models.huggingface import (
-    DownloadHuggingFaceRepoJob,
-)
-from .common import HF_CACHE_DIR, job_progress_fraction
+from .common import job_progress_fraction, run_worker_script
 from .finetune import (
     MOSHI_ADAPTER,
     finetune_completed_fraction,
@@ -11,66 +8,7 @@ from .finetune import (
 from pathlib import Path
 from sisyphus import Job, Task, tk
 import os
-import subprocess
-import json
-import shutil
 from i6_experiments.users.dorian_koch.jobs.hf import HfMergeShards
-import sys
-import moshi_finetune  # needed to get moshi_finetune path for PYTHONPATH below
-
-# None of this is used anywhere i think
-
-
-def download_moshi():
-    # projects/moshi/moshi/moshi/models/loaders.py
-    # untested code...
-
-    repo = DownloadHuggingFaceRepoJob(model_id="kyutai/moshiko-pytorch-bf16")
-    repo.out_hub_cache_dir = HF_CACHE_DIR
-    return repo.out_hub_cache_dir
-
-
-def moshi_inference_server(model):
-    pass
-
-
-class MergeMoshiAnnotationsViaSymlinks(Job):
-    def __init__(self, in_annotations: list[tk.Path]):
-        self.in_annotations = in_annotations
-        self.out_merged = self.output_path("merged_annotations", directory=True)
-
-    def tasks(self):
-        yield Task("merge", mini_task=True)
-
-    def merge(self):
-        os.makedirs(self.out_merged.get(), exist_ok=True)
-        out_jsonl = os.path.join(self.out_merged.get(), "annotations.jsonl")
-
-        dir_map = {}
-        dir_idx = 0
-
-        with open(out_jsonl, "w") as out_f:
-            for idx, in_path in enumerate(self.in_annotations):
-                # read all .jsonl files\
-                for file in os.listdir(in_path.get()):
-                    if not file.endswith(".jsonl"):
-                        continue
-                    src = os.path.join(in_path.get(), file)
-                    with open(src) as f:
-                        for line in f:
-                            data = json.loads(line)
-                            path = data["path"]
-                            path = os.path.dirname(path)  # just get the folder the file is stored in
-                            if path not in dir_map:
-                                dir_map[path] = f"dir{dir_idx}"
-                                dir_idx += 1
-                                os.symlink(
-                                    path, os.path.join(self.out_merged.get(), dir_map[path]), target_is_directory=True
-                                )
-                            data["path"] = os.path.join(
-                                self.out_merged.get(), dir_map[path], os.path.basename(data["path"])
-                            )
-                            out_f.write(json.dumps(data) + "\n")
 
 
 # runs moshi annotate.py
@@ -122,52 +60,37 @@ class MoshiAnnotate(Job):
         return HfMergeShards(shard_paths=[s.out_hf for s in shards]).out_hf
 
     def run(self):
-        this_file_path = Path(__file__).resolve()
-        moshi_annotate_path = this_file_path.parent / "moshi_annotate_inference.py"
+        # Import the moshi_finetune fork lazily (on the compute node, where its venv has
+        # it) so the manager env need not have it; the annotate worker imports it too, so
+        # put it on PYTHONPATH. Mirrors finetune.launch_training's lazy fork import.
+        import moshi_finetune
 
-        work_dir = os.path.join(os.getcwd(), "annotate_inference_workdir")
-        os.makedirs(work_dir, exist_ok=True)
+        moshi_annotate_path = Path(__file__).resolve().parent / "moshi_annotate_inference.py"
 
-        command = [
-            self.venv_python_path.get(),
-            str(moshi_annotate_path),
+        args = [
             "--in_hf",
-            str(self.in_hf.get()),
+            self.in_hf.get(),
+            "--out_dir",
+            self.out_hf.get(),
+            "--mode",
+            "arrow",
         ]
-        # if self.out_dir is not None:
-        #   command += ["--out_dir", str(self.out_dir.get())]
-        # else:
-        command += ["--out_dir", str(self.out_hf.get())]
-        command += ["--mode", "arrow"]
         if self.shard is not None and self.num_shards is not None:
-            command += [
-                "--in_hf_shard",
-                str(self.shard),
-                "--in_hf_num_shards",
-                str(self.num_shards),
-            ]
-        env = os.environ.copy()
-        env["PYTHONUNBUFFERED"] = "1"
-        env["HF_HOME"] = HF_CACHE_DIR.get()
-        top_level_file = sys.modules["moshi_finetune"].__file__
+            args += ["--in_hf_shard", self.shard, "--in_hf_num_shards", self.num_shards]
+
+        top_level_file = moshi_finetune.__file__
         assert top_level_file is not None, "Could not find moshi_finetune module file"
         package_base_dir = str(Path(top_level_file).parent.parent)
-        env["PYTHONPATH"] = (
-            f"{package_base_dir}{os.pathsep}{env['PYTHONPATH']}" if "PYTHONPATH" in env else package_base_dir
-        )
+        existing = os.environ.get("PYTHONPATH")
+        pythonpath = f"{package_base_dir}{os.pathsep}{existing}" if existing else package_base_dir
 
-        print("Env:")
-        for k, v in env.items():
-            if k not in ["PYTHONPATH"]:
-                continue
-            print(f"{k}: {v}")
-
-        print(
-            f"Running Moshi annotate with command: {' '.join(command)}",
-            flush=True,
+        run_worker_script(
+            self.venv_python_path.get(),
+            moshi_annotate_path,
+            args,
+            log_label="Moshi annotate",
+            extra_env={"PYTHONPATH": pythonpath},
         )
-        print(f"Using HF cache directory: {HF_CACHE_DIR}")
-        subprocess.run(command, env=env, check=True)
 
 
 class SplitAnnotatedDataset(Job):

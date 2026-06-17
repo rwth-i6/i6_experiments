@@ -3,19 +3,13 @@ import json
 from pathlib import Path
 from typing import List, Sequence, Tuple
 from sisyphus import Job, Task, tk
-from i6_experiments.users.zeyer.external_models.huggingface import (
-    DownloadHuggingFaceRepoJob,
-)
 import os
-import signal
 import sys
 import subprocess
-from .common import HF_CACHE_DIR, vllm_server
+from .common import vllm_server
+from .inference_harness import BackendInferenceMixin
 from i6_experiments.users.dorian_koch.jobs.venv import CreateVenv
 from functools import lru_cache
-from contextlib import contextmanager
-import random
-import socket
 
 from .moshi_client import MoshiFileClient, _ws_url, moshi_server
 from .speech_backends import MOSHI_BACKEND
@@ -90,12 +84,6 @@ def fdb_files_for_tasks(ds_path: Path, tasks: Sequence[str]) -> List[Tuple[str, 
     return files
 
 
-def get_fdb_asr_download():
-    repo = DownloadHuggingFaceRepoJob(model_id="kyutai/moshiko-pytorch-bf16")
-    repo.out_hub_cache_dir = HF_CACHE_DIR
-    return repo.out_hub_cache_dir
-
-
 class Tee:
     def __init__(self, *files):
         self.files = files
@@ -119,7 +107,7 @@ FDB_TASK_MAP = {
 }
 
 
-class FullDuplexBenchEval_Inference(Job):
+class FullDuplexBenchEval_Inference(BackendInferenceMixin, Job):
     # Optional LoRA adapter; excluded from the hash when absent so existing
     # base-model FDB runs keep their hash and are not re-run.
     __sis_hash_exclude__ = {
@@ -256,54 +244,36 @@ class FullDuplexBenchEval_Inference(Job):
         env["PYTHONUNBUFFERED"] = "1"
         subprocess.run(cmd, env=env, check=True)
 
+    # BackendInferenceMixin hooks (FDB names the server `model` and the interpreter
+    # `server_venv_python`).
+    def _server_callable(self):
+        return self.model
+
+    def _python_exe(self):
+        return self.server_venv_python.get() if self.server_venv_python is not None else None
+
     def _run_server(self, files):
-        """Streaming path via the shared harness: bring up the backend's realtime server
-        and stream each clip. resume + sidecar-copy + length-check are FDB-specific opts
-        (see inference_harness.py); the access loop itself is shared with knowledge."""
-        from .inference_harness import StreamOptions, stream_inference
+        """Streaming path via the shared mixin. resume + sidecar-copy + length-check are
+        FDB-specific opts; the access loop is shared with the knowledge benchmark."""
+        from .inference_harness import StreamOptions
 
         items = [(inp, Path(self.out_audios.get_path()) / str(inp.parent.name) / "output.wav") for _task, inp in files]
-        stream_inference(
-            server=self.model,
-            file_client=self.file_client,
-            ws_url=self.ws_url,
-            items=items,
-            server_kwargs=dict(
-                lora_weights=self.lora_weights.get_path() if self.lora_weights is not None else None,
-                lora_config=self.lora_config.get_path() if self.lora_config is not None else None,
-                python_exe=self.server_venv_python.get() if self.server_venv_python is not None else None,
-                unmute_llm=self.unmute_llm,
-            ),
-            # FDB uses the client's legacy capture mode (lead_in_s=0, capture_s=None),
-            # matching the previous bare file_client(url, inp, out) call.
+        # FDB uses the client's legacy capture mode (lead_in_s=0, capture_s=None).
+        self._stream(
+            items,
             opts=StreamOptions(resume=True, copy_sidecars=True, length_check=True, retry_sleep_s=1.0),
         )
 
     def _run_offline(self, files):
-        """Offline path via the shared harness: write a manifest of (input -> output)
-        pairs (+ copy each clip's sidecar jsons), then run the backend's offline driver
-        once over it. A causal pass over a clip yields the same full-duplex output as the
-        realtime server, so end-to-end models (PersonaPlex) need no websocket server."""
-        from .inference_harness import run_offline_driver, run_with_optional_retrieval, write_pair_manifest
+        """Offline path via the shared mixin: write a manifest of (input -> output) pairs
+        (+ copy sidecars), then run the backend's offline driver once over it. A causal
+        pass yields the same full-duplex output as the realtime server (PersonaPlex)."""
+        from .inference_harness import write_pair_manifest
 
         assert self.server_venv_python is not None, "offline FDB needs server_venv_python (the model venv)"
         items = [(inp, Path(self.out_audios.get_path()) / str(inp.parent.name) / "output.wav") for _task, inp in files]
         manifest = write_pair_manifest(items, copy_sidecars=True)
-
-        def _drive(extra_args, extra_env=None):
-            run_offline_driver(
-                python_exe=self.server_venv_python.get(),
-                script_path=Path(__file__).resolve().parent.parent / self.offline_script,
-                manifest=manifest,
-                lora_weights=self.lora_weights.get() if self.lora_weights is not None else None,
-                lora_config=self.lora_config.get() if self.lora_config is not None else None,
-                extra_args=tuple(self.offline_extra_args) + tuple(extra_args),
-                extra_env=extra_env,
-            )
-
-        # RAG backend (retrieval_llm set) runs the driver behind a vLLM retrieval server;
-        # plain offline backends just run it once. Shared with the knowledge benchmark.
-        run_with_optional_retrieval(self, _drive)
+        self._offline(python_exe=self.server_venv_python.get(), manifest=manifest)
 
 
 class FullDuplexBenchEval_Evaluation(Job):
@@ -475,15 +445,10 @@ def fdb_benchmark_py(
     model via the moshi server; ``None`` evals the base ``kyutai/moshiko``. Registered
     under ``fdb/<tag>/<task>/...`` so base and finetuned runs coexist.
     """
-    lora_weights = lora_config = None
-    if moshi_checkpoint is not None:
-        # Local import avoids a module-load cycle (knowledge_benchmark imports fdb-side helpers).
-        from i6_experiments.users.dorian_koch.speech_llm.knowledge_benchmark import (
-            ResolveLoraCheckpoint,
-        )
+    # Local import avoids a module-load cycle (knowledge_benchmark imports fdb-side helpers).
+    from i6_experiments.users.dorian_koch.speech_llm.knowledge_benchmark import resolve_lora
 
-        ckpt = ResolveLoraCheckpoint(run_dir=moshi_checkpoint, step=checkpoint_step)
-        lora_weights, lora_config = ckpt.out_lora, ckpt.out_config
+    lora_weights, lora_config = resolve_lora(moshi_checkpoint, checkpoint_step)
 
     asr_venv_python = fdb_asr_venv()
     for t in FDB_TASKS:

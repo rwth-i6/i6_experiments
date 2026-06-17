@@ -24,7 +24,6 @@ left untouched.
 
 from __future__ import annotations
 
-import math
 import logging
 from typing import Iterator
 
@@ -35,7 +34,6 @@ import torchaudio.functional as F_audio
 from datasets import load_from_disk, Dataset
 from finetune.data.interleaver import (
     InterleavedTokenizer,
-    Interleaver,
     Sample,
     Batch,
     dicho,
@@ -259,8 +257,6 @@ def build_arrow_dataset(
     """
     from finetune.data.dataset import (
         get_dataset_iterator,
-        DataDir,
-        DataFile,
         interleave_iterators,
     )
 

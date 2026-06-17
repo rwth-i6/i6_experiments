@@ -1,20 +1,14 @@
 import venv
-from glob import glob
-import json
-from pathlib import Path
-from typing import List, Sequence, Tuple
-from sisyphus import Job, Task, tk
+from sisyphus import Job, Task
 import os
 import subprocess
 
 
 class CreateVenv(Job):
-    def __init__(
-        self, *, packages: List[List[str]] = [], hash_overwrite: str | None = None
-    ):
+    def __init__(self, *, packages: list[list[str]] | None = None, hash_overwrite: str | None = None):
         self.out_env_path = self.output_path("venv", directory=True)
         self.out_python_path = self.output_var("venv_python_path")
-        self.packages = packages
+        self.packages = packages if packages is not None else []
         self.hash_overwrite = hash_overwrite
 
     @classmethod

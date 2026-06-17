@@ -7,17 +7,14 @@ dialogue-instruction prompt templates chosen deterministically per example to ma
 style diversity and avoid the "That would be …" monoculture.
 """
 
-from pathlib import Path
 from sisyphus import Job, Task, tk
 import os
 import hashlib
-from .common import HF_CACHE_DIR, vllm_server, write_progress
+from .common import vllm_server, write_progress
 from datasets import (
-    load_dataset,
     load_from_disk,
     Dataset,
     DatasetDict,
-    concatenate_datasets,
 )
 from openai import OpenAI
 import json
@@ -219,7 +216,9 @@ _DIALOGUE_JSON_SCHEMA = {
 }
 
 
-def make_dialogue_gen(llm_url: str, model_name: str, adapter_name: str, work_dir: str | None = None, total: int | None = None):
+def make_dialogue_gen(
+    llm_url: str, model_name: str, adapter_name: str, work_dir: str | None = None, total: int | None = None
+):
     """Return a datasets.map-compatible function that generates one dialogue."""
     adapter = DATASET_ADAPTER_REGISTRY[adapter_name]
     _local_done = [0]
@@ -267,8 +266,12 @@ def make_dialogue_gen(llm_url: str, model_name: str, adapter_name: str, work_dir
                     print(f"JSONDecodeError on attempt {attempt + 1} (uid={spec['uid']!r}): raw={raw!r}")
                     parsed = []
             if isinstance(parsed, list) and parsed and parsed[0].get("speaker") == "user":
-                result = {"dialogue": json.dumps(parsed), "llm_name": model_name, "template_name": template_name,
-                          "truncated": finish_reason == "length"}
+                result = {
+                    "dialogue": json.dumps(parsed),
+                    "llm_name": model_name,
+                    "template_name": template_name,
+                    "truncated": finish_reason == "length",
+                }
                 break
             print(
                 f"Attempt {attempt + 1} failed (uid={spec['uid']!r}): "
@@ -370,6 +373,7 @@ class HfToDialogue(Job):
     def completed_fraction(self):
         import glob
         from sisyphus import global_settings as gs
+
         work_dir = self._sis_path(gs.JOB_WORK_DIR)
         files = glob.glob(os.path.join(work_dir, "progress_*.json"))
         if not files:
@@ -415,7 +419,7 @@ class HfToDialogue(Job):
             if num_failures > len(dataset) * 0.01:
                 raise ValueError(
                     f"Dialogue generation failure rate too high: "
-                    f"{num_failures}/{len(dataset)} ({100*num_failures/len(dataset):.1f}% > 1%). "
+                    f"{num_failures}/{len(dataset)} ({100 * num_failures / len(dataset):.1f}% > 1%). "
                     "Check vLLM server or reduce temperature."
                 )
             dataset = dataset.filter(lambda row: row["dialogue"] is not None)
@@ -423,70 +427,19 @@ class HfToDialogue(Job):
             # Check truncation rate on surviving rows
             num_truncated = sum(1 for row in dataset if row.get("truncated"))
             if num_truncated > 0:
-                print(f"Truncated by max_tokens: {num_truncated}/{len(dataset)} ({100*num_truncated/len(dataset):.1f}%)")
+                print(
+                    f"Truncated by max_tokens: {num_truncated}/{len(dataset)} ({100 * num_truncated / len(dataset):.1f}%)"
+                )
             if num_truncated > len(dataset) * 0.01:
                 raise ValueError(
                     f"Too many responses truncated by max_tokens: "
-                    f"{num_truncated}/{len(dataset)} ({100*num_truncated/len(dataset):.1f}% > 1%). "
+                    f"{num_truncated}/{len(dataset)} ({100 * num_truncated / len(dataset):.1f}% > 1%). "
                     "Increase max_tokens or tighten the prompt."
                 )
             print(f"Dialogues generated ({len(dataset)} rows after filtering). Saving …")
 
             dataset.save_to_disk(self.out_hf.get())
             dataset.to_json(self.out_json.get())
-
-
-class HfDialogueToJsonFile(Job):
-    def __init__(
-        self,
-        *,
-        hf_dataset_path: tk.Path,
-        split: str | None = None,
-        ignore_errors: bool = False,
-    ):
-        self.hf_dataset_path = hf_dataset_path
-        self.split = split
-        self.ignore_errors = ignore_errors
-        self.out_json = self.output_path("dialogue.jsonl")
-
-    def tasks(self):
-        yield Task("run", mini_task=True)
-
-    def run(self):
-        dataset = load_from_disk(self.hf_dataset_path.get())
-        if self.split is not None:
-            assert type(dataset) is DatasetDict
-            dataset = dataset[self.split]
-        else:
-            assert type(dataset) is Dataset
-
-        num_errors = 0
-        with open(self.out_json.get(), "w") as f:
-            for example in dataset:
-                dialogue_str: str = example["dialogue"]
-                dialogue_str = dialogue_str.strip()
-                try:
-                    if dialogue_str.startswith("```json"):
-                        dialogue_str = dialogue_str[len("```json") :]
-                    if dialogue_str.endswith("```"):
-                        dialogue_str = dialogue_str[: -len("```")]
-                    dialogue_json = json.loads(dialogue_str)
-                    f.write(json.dumps(dialogue_json) + "\n")
-                except Exception as e:
-                    num_errors += 1
-                    if not self.ignore_errors:
-                        print("###")
-                        print(dialogue_str)
-                        print(f"Error parsing dialogue: {e} for {example}")
-                        print("###")
-
-        if num_errors > 0 and not self.ignore_errors:
-            raise ValueError(f"Encountered {num_errors} errors while parsing dialogues.")
-        if num_errors > len(dataset) * 0.01:
-            raise ValueError(
-                f"Encountered {num_errors} errors while parsing dialogues "
-                f"({num_errors}/{len(dataset)}, > 1%). Something might be wrong."
-            )
 
 
 class HfDialogueCleaner(Job):

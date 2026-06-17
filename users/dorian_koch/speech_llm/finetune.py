@@ -135,16 +135,19 @@ def finetune_completed_fraction(job: "SpeechFinetune", adapter: FinetuneAdapter)
 def launch_training(job: "SpeechFinetune", adapter: FinetuneAdapter) -> None:
     """Shared ``run`` body: single-node ``torch.distributed.run`` of the adapter's
     launcher module, with the fork on ``PYTHONPATH`` and the HF cache wired."""
+    import hashlib
     import subprocess
 
-    good_hash = os.environ.get("CUDA_VISIBLE_DEVICES", "-1")
-    good_hash = abs(hash(good_hash)) % 100
+    # Deterministic per-GPU MASTER_PORT (PYTHONHASHSEED-independent) so concurrent
+    # single-node trainings on one machine don't collide.
+    cuda_devices = os.environ.get("CUDA_VISIBLE_DEVICES", "-1")
+    port_offset = int(hashlib.md5(cuda_devices.encode()).hexdigest()[:4], 16) % 100
 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     env["HF_HOME"] = HF_CACHE_DIR.get()
     env["MASTER_ADDR"] = "localhost"
-    env["MASTER_PORT"] = str(29600 + good_hash)  # avoid conflicts if multiple run on one machine
+    env["MASTER_PORT"] = str(29600 + port_offset)  # avoid conflicts if multiple run on one machine
     print(f"Set MASTER_PORT to {env['MASTER_PORT']} based on hash of CUDA_VISIBLE_DEVICES")
 
     command = [
