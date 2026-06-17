@@ -24,6 +24,9 @@ from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate
 class AlignCost4WayBenchmarkJob(Job):
     """Per-model Forward / Prefix-fwd / Prefix-bwd / Backward wall-clock, same GPU. See module docstring."""
 
+    # v1 passed CUDA audio (phi4 failed on a host-side numpy conversion); v2 passes CPU audio.
+    __sis_version__ = 2
+
     def __init__(
         self,
         *,
@@ -89,7 +92,9 @@ class AlignCost4WayBenchmarkJob(Job):
             torch.cuda.synchronize()
             t0 = time.perf_counter()
             fwd = model(
-                raw_inputs=audio[None].to(dev),
+                # CPU audio (like ExtractInGradsPerTokenJob): the wrappers move it to device internally,
+                # and phi4 does a host-side numpy conversion that fails on a CUDA tensor.
+                raw_inputs=audio[None],
                 raw_inputs_sample_rate=sr,
                 raw_input_seq_lens=torch.tensor([int(audio.shape[0])]),
                 raw_targets=[words],
