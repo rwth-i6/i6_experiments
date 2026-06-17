@@ -686,6 +686,7 @@ def _compare_table(with_hyp=False):
         "OWSM-CTC": f"owsm-ctc-v4-1b-{S}-grad",
         "FastConformer-CTC (streaming)": f"fastconformer-stream-ctc-{S}-grad",
         "FastConformer-RNN-T (streaming)": f"fastconformer-stream-rnnt-{S}-grad",
+        "Emformer (streaming)": f"emformer-rnnt-prefix-logmel-{S}-grad",
     }
     # Models with no word-level own-recognition -> hyp-mode is structurally n/a (not "unrun"):
     # MMS_FA (Wav2Vec2-CTC) + Phoneme-CTC emit no word boundaries; MFA is a forced-aligner, not a recognizer.

@@ -276,3 +276,35 @@ class EmformerRnnt(BaseModelInterface):
         out = partial_padded.new_zeros((1, n, v))
         out[0, torch.arange(n, device=device), targets_slice] = vals
         return out
+
+    # ---- Open recognition (hyp-mode) ------------------------------------
+
+    def recog(
+        self,
+        *,
+        raw_inputs: Union[np.ndarray, torch.Tensor],
+        raw_inputs_sample_rate: int,
+        raw_input_seq_lens: torch.Tensor,
+        max_new_tokens: int = 100,
+    ) -> List[List[str]]:
+        """Open RNN-T recognition via torchaudio's RNNTBeamSearch (full-context, batch size 1)."""
+        assert len(raw_inputs) == 1, "EmformerRnnt recog supports batch size 1 only"
+        from torchaudio.models import RNNTBeamSearch
+
+        dev = self.device
+        wav = raw_inputs[0]
+        if not isinstance(wav, torch.Tensor):
+            wav = torch.as_tensor(np.asarray(wav))
+        wav = wav.to(dev).float()
+        if raw_inputs_sample_rate != self.target_sr:
+            import torchaudio
+
+            wav = torchaudio.functional.resample(wav[None], raw_inputs_sample_rate, self.target_sr)[0]
+        feats, flen = self.feature_extractor(wav.cpu())  # [T_feat, 80] (extractor runs on CPU)
+        feats = feats.to(dev)
+        flen = flen.reshape(1).to(dev)
+        decoder = RNNTBeamSearch(self.model, self.blank_idx)
+        with torch.no_grad():
+            hypos = decoder(feats, flen, 10)  # beam width 10
+        text = self.token_processor(hypos[0][0])
+        return [str(text).split()]

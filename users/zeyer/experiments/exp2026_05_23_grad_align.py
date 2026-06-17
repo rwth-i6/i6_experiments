@@ -4681,6 +4681,7 @@ def py():
         ("owsm-ctc-v4-1b", owsm_ctc_cfg, owsm_ctc_prefixfwd_cfg, "L2", False, 1.0, False),
         ("fastconformer-stream-ctc", fc_ctc_cfg, fc_ctc_cfg, "L2", False, 1.0, False),
         ("fastconformer-stream-rnnt", fc_rnnt_cfg, fc_rnnt_cfg, "L2", False, 1.0, False),
+        ("emformer-rnnt-prefix-logmel", rnnt_cfg, rnnt_px_cfg, "L2", False, 1.0, True),
     ]:
         _hy_recog = RecogFromModelJob(
             dataset_dir=_xa_dir,
