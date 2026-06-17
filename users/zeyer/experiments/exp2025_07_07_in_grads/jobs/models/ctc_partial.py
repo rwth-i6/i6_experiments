@@ -229,6 +229,26 @@ def ctc_prefix_forward_scores_scan(
     return psi_f - torch.cat([lp.new_zeros(B, 1), psi_f[:, :-1]], 1)
 
 
+_COMPILED_PREFIX_SCAN = None
+
+
+def compiled_prefix_forward_scores_scan():
+    """Lazily-compiled + cached :func:`ctc_prefix_forward_scores_scan`.
+
+    The compiled scan is 3-5x faster than the eager prefix for BOTH the forward and the per-token
+    backward (GPU H100, B=1), but it cannot be vmapped (the scan HOP has no batched-autograd kernel),
+    so it serves the "split at lp" backward: loop the prefix per token, vmap only the encoder.
+    ``donated_buffer`` must be off to allow ``retain_graph=True`` across the per-token backward loop.
+    """
+    global _COMPILED_PREFIX_SCAN
+    if _COMPILED_PREFIX_SCAN is None:
+        import torch._functorch.config as _ffc
+
+        _ffc.donated_buffer = False
+        _COMPILED_PREFIX_SCAN = torch.compile(ctc_prefix_forward_scores_scan, fullgraph=True)
+    return _COMPILED_PREFIX_SCAN
+
+
 def ctc_accum_states(lp: torch.Tensor, target_ids: List[int], blank: int) -> torch.Tensor:
     """``acc[k] = log Σ_t α_t(k)`` over the 2S+1 extended states. Differentiable w.r.t. ``lp`` ([T,V])."""
     device, dtype = lp.device, lp.dtype

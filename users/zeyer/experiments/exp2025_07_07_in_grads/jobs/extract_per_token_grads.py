@@ -84,6 +84,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         "eg_baseline_std": 0.0,
         "target_source": "word_detail",
         "batched_backward": False,
+        "split_prefix_backward": False,
         "seq_batch_size": 1,
         "amp_dtype": None,
         "amp_attn_fp32": False,
@@ -101,6 +102,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         eg_baseline_std: float = 0.0,
         target_source: str = "word_detail",
         batched_backward: bool = False,
+        split_prefix_backward: bool = False,
         seq_batch_size: int = 1,
         amp_dtype: Optional[str] = None,
         amp_attn_fp32: bool = False,
@@ -134,6 +136,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         self.eg_baseline_std = float(eg_baseline_std)
         self.target_source = str(target_source)
         self.batched_backward = bool(batched_backward)
+        self.split_prefix_backward = bool(split_prefix_backward)
         self.seq_batch_size = int(seq_batch_size)
         assert self.seq_batch_size >= 1
         self.amp_dtype = amp_dtype
@@ -172,6 +175,7 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
             ("eg_baseline_std", 0.0),
             ("target_source", "word_detail"),
             ("batched_backward", False),
+            ("split_prefix_backward", False),
             ("seq_batch_size", 1),
             ("amp_dtype", None),
             ("amp_attn_fp32", False),
@@ -438,7 +442,27 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
                                 attr = attr_reduce_func(attr)  # [B, T]
                         return attr  # [B,T,F] if raw_grad else [B,T]
 
-                    if self.batched_backward and num_tokens > 1:
+                    outs = forward_output.outputs
+                    if self.split_prefix_backward and isinstance(outs, dict) and "prefix_from_lp" in outs:
+                        # Split the backward at lp (the encoder log-probs): loop the compiled-scan prefix per
+                        # token for J = d score / d lp [num_tokens, *lp.shape], then ONE vmapped encoder backward
+                        # d lp / d inputs. Sidesteps the scan-vmap incompatibility while keeping the encoder
+                        # backward K-batched. start_i = this word's offset into the full-utterance prefix.
+                        lp = outs["lp"]  # grad-attached to inputs
+                        lp_leaf = lp.detach().requires_grad_(True)
+                        partial_full = outs["prefix_from_lp"](lp_leaf)  # [S]
+                        start_i = int(t0[0]) if isinstance(t0, torch.Tensor) else int(t0)
+                        js = []
+                        for k in range(num_tokens):
+                            (j,) = torch.autograd.grad(partial_full[start_i + k], lp_leaf, retain_graph=True)
+                            js.append(j)
+                        jac = torch.stack(js, 0)  # [num_tokens, *lp.shape]
+                        (grads,) = torch.autograd.grad(
+                            lp, forward_output.inputs, grad_outputs=jac, is_grads_batched=True, retain_graph=True
+                        )  # [num_tokens, *inputs.shape]
+                        for k in range(num_tokens):
+                            attrs_per_token.append(_reduce_grad(grads[k]))
+                    elif self.batched_backward and num_tokens > 1:
                         v = torch.zeros((num_tokens,) + loss.shape, device=loss.device, dtype=loss.dtype)
                         for k in range(num_tokens):
                             v[k, :, k] = 1.0  # one-hot per token, summed over B like loss[:, k].sum()

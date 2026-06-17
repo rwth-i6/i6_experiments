@@ -535,6 +535,32 @@ class Wav2Vec2Ctc(BaseModelInterface):
             f"[fwd] words={len(words)} chars={s_len} T_feat={t_feat} transcription={''.join(norm_words)!r}",
             flush=True,
         )
+        # Split-backward support (prefix_fwd only): expose the grad-attached lp (encoder log-probs)
+        # and a closure recomputing the prefix scores from a fresh-leaf lp via the COMPILED SCAN. The
+        # extract job's split_prefix_backward loops this per token (scan can't vmap) then vmaps only the
+        # encoder backward. Only valid for prefix_fwd: the scan computes that specific score.
+        extra_outputs = {}
+        if self.per_token_score == "prefix_fwd":
+            _flat_ids_t = torch.tensor([flat_ids], dtype=torch.long, device=dev)  # [1, S]
+            _tl = torch.tensor([len(flat_ids)], device=dev)
+            _blank = self.blank_idx
+
+            def _prefix_from_lp(lp_full):  # lp_full [1, T, V] -> [S] prefix_fwd scores
+                import torch._dynamo as _dyn
+
+                from .ctc_partial import compiled_prefix_forward_scores_scan
+
+                # Mark T (time) and S (state) dynamic so the compiled scan is built ONCE, not per (T, S)
+                # shape (B stays via maybe_mark_dynamic -- mark_dynamic raises a spurious B constraint).
+                _dyn.maybe_mark_dynamic(lp_full, 0)
+                _dyn.mark_dynamic(lp_full, 1)
+                _dyn.maybe_mark_dynamic(_flat_ids_t, 0)
+                _dyn.mark_dynamic(_flat_ids_t, 1)
+                il = torch.tensor([lp_full.shape[1]], device=lp_full.device)
+                return compiled_prefix_forward_scores_scan()(lp_full, _flat_ids_t, _tl, _blank, il)[0]
+
+            extra_outputs = dict(lp=log_probs, prefix_from_lp=_prefix_from_lp)
+
         return ForwardOutput(
             inputs=grad_leaf,
             input_seq_lens=torch.tensor([t_feat]),
@@ -543,7 +569,7 @@ class Wav2Vec2Ctc(BaseModelInterface):
             targets=targets,
             target_seq_lens=torch.tensor([targets.shape[1]]),
             target_start_end=torch.tensor(word_start_end, dtype=torch.int64, device=dev).unsqueeze(0),
-            outputs=dict(partial_padded=partial_padded, vocab_size=vocab_size),
+            outputs=dict(partial_padded=partial_padded, vocab_size=vocab_size, **extra_outputs),
         )
 
     # ---- log_probs -------------------------------------------------------
