@@ -137,7 +137,101 @@ def eow_phon_ls960_1023_generative_nce():
     train_job = training(training_name, train_data, train_args, num_epochs=1000, **default_returnn)
     train_job.rqmt["gpu_mem"] = 24
 
-    asr_model = prepare_asr_model(
+    def tune_and_evaluate_helper(
+        *,
+        tuning_name,
+        asr_model,
+        lm_scales,
+        prior_scales,
+        tuning_names,
+    ):
+        tune_parameters = []
+        tune_values_clean = []
+        tune_values_other = []
+        report_values = {}
+        for lm_scale in lm_scales:
+            for prior_scale in prior_scales:
+                decoder_config = DecoderConfig(
+                    lexicon=get_text_lexicon(),
+                    returnn_vocab=label_datastream.vocab,
+                    beam_size=1024,
+                    beam_size_token=12,
+                    arpa_lm=arpa_4gram_lm,
+                    beam_threshold=14,
+                    lm_scale=lm_scale,
+                    prior_scale=prior_scale,
+                    prior_file=None,
+                )
+                search_name = tuning_name + "/search_lm%.1f_prior%.1f" % (lm_scale, prior_scale)
+                _search_jobs, wers = search(
+                    search_name,
+                    forward_config={},
+                    asr_model=copy.deepcopy(asr_model),
+                    decoder_module="ctc.decoder.flashlight_ctc_v2",
+                    decoder_args={"config": asdict(decoder_config)},
+                    test_dataset_tuples=dev_dataset_tuples,
+                    **default_returnn,
+                )
+                tune_parameters.append((lm_scale, prior_scale))
+                tune_values_clean.append(wers[search_name + "/dev-clean"])
+                tune_values_other.append(wers[search_name + "/dev-other"])
+
+        for key, tune_values in [("test-clean", tune_values_clean), ("test-other", tune_values_other)]:
+            pick_optimal_params_job = GetOptimalParametersAsVariableJob(
+                parameters=tune_parameters,
+                values=tune_values,
+                mode="minimize",
+            )
+            pick_optimal_params_job.add_alias(tuning_name + f"/pick_best_{key}")
+            decoder_config = DecoderConfig(
+                lexicon=get_text_lexicon(),
+                returnn_vocab=label_datastream.vocab,
+                beam_size=1024,
+                beam_size_token=12,
+                arpa_lm=arpa_4gram_lm,
+                beam_threshold=14,
+                lm_scale=pick_optimal_params_job.out_optimal_parameters[0],
+                prior_scale=pick_optimal_params_job.out_optimal_parameters[1],
+                prior_file=None,
+            )
+            test_search_name = tuning_name + f"/best_{key}"
+            _search_jobs, wers = search(
+                test_search_name,
+                forward_config={},
+                asr_model=copy.deepcopy(asr_model),
+                decoder_module="ctc.decoder.flashlight_ctc_v2",
+                decoder_args={"config": asdict(decoder_config)},
+                test_dataset_tuples={key: test_dataset_tuples[key]},
+                **default_returnn,
+            )
+            report_values[key] = wers[test_search_name + "/" + key]
+
+        tune_and_evalue_report(
+            training_name=tuning_name,
+            tune_parameters=tune_parameters,
+            tuning_names=tuning_names,
+            tune_values_clean=tune_values_clean,
+            tune_values_other=tune_values_other,
+            report_values=report_values,
+        )
+
+    asr_model_with_prior = prepare_asr_model(
+        training_name,
+        train_job,
+        train_args,
+        with_prior=True,
+        datasets=train_data,
+        get_specific_checkpoint=1000,
+    )
+    tune_and_evaluate_helper(
+        tuning_name=training_name + "/decode_with_prior",
+        asr_model=asr_model_with_prior,
+        lm_scales=[1.6, 1.8, 2.0],
+        prior_scales=[0.2, 0.3, 0.4],
+        tuning_names=["LM", "Prior"],
+    )
+
+    asr_model_no_prior = prepare_asr_model(
         training_name,
         train_job,
         train_args,
@@ -145,74 +239,12 @@ def eow_phon_ls960_1023_generative_nce():
         datasets=None,
         get_specific_checkpoint=1000,
     )
-
-    tune_parameters = []
-    tune_values_clean = []
-    tune_values_other = []
-    report_values = {}
-    for lm_scale in [0.6, 0.8, 1.0, 1.2, 1.6, 2.0]:
-        decoder_config = DecoderConfig(
-            lexicon=get_text_lexicon(),
-            returnn_vocab=label_datastream.vocab,
-            beam_size=1024,
-            beam_size_token=12,
-            arpa_lm=arpa_4gram_lm,
-            beam_threshold=14,
-            lm_scale=lm_scale,
-            prior_scale=0.0,
-            prior_file=None,
-        )
-        search_name = training_name + "/search_lm%.1f" % lm_scale
-        _search_jobs, wers = search(
-            search_name,
-            forward_config={},
-            asr_model=copy.deepcopy(asr_model),
-            decoder_module="ctc.decoder.flashlight_ctc_v2",
-            decoder_args={"config": asdict(decoder_config)},
-            test_dataset_tuples=dev_dataset_tuples,
-            **default_returnn,
-        )
-        tune_parameters.append((lm_scale,))
-        tune_values_clean.append(wers[search_name + "/dev-clean"])
-        tune_values_other.append(wers[search_name + "/dev-other"])
-
-    for key, tune_values in [("test-clean", tune_values_clean), ("test-other", tune_values_other)]:
-        pick_optimal_params_job = GetOptimalParametersAsVariableJob(
-            parameters=tune_parameters,
-            values=tune_values,
-            mode="minimize",
-        )
-        pick_optimal_params_job.add_alias(training_name + f"/pick_best_{key}")
-        decoder_config = DecoderConfig(
-            lexicon=get_text_lexicon(),
-            returnn_vocab=label_datastream.vocab,
-            beam_size=1024,
-            beam_size_token=12,
-            arpa_lm=arpa_4gram_lm,
-            beam_threshold=14,
-            lm_scale=pick_optimal_params_job.out_optimal_parameters[0],
-            prior_scale=0.0,
-            prior_file=None,
-        )
-        test_search_name = training_name + f"/best_{key}"
-        _search_jobs, wers = search(
-            test_search_name,
-            forward_config={},
-            asr_model=copy.deepcopy(asr_model),
-            decoder_module="ctc.decoder.flashlight_ctc_v2",
-            decoder_args={"config": asdict(decoder_config)},
-            test_dataset_tuples={key: test_dataset_tuples[key]},
-            **default_returnn,
-        )
-        report_values[key] = wers[test_search_name + "/" + key]
-
-    tune_and_evalue_report(
-        training_name=training_name,
-        tune_parameters=tune_parameters,
-        tuning_names=["LM"],
-        tune_values_clean=tune_values_clean,
-        tune_values_other=tune_values_other,
-        report_values=report_values,
+    tune_and_evaluate_helper(
+        tuning_name=training_name + "/decode_no_prior",
+        asr_model=asr_model_no_prior,
+        lm_scales=[1.6, 1.8, 2.0],
+        prior_scales=[0.0],
+        tuning_names=["LM", "Prior"],
     )
 
 
