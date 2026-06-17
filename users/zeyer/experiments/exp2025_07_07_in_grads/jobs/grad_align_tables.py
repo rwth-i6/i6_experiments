@@ -339,6 +339,7 @@ def _ablation_table():
     SFX = "asotTrue-bs-5-en0.5-sil1.0-wordtopo"
     MODELS = [
         ("Wav2Vec2-CTC", "wav2vec2ctc-fproj_out-prefixfwd"),
+        ("Nvidia CTC", "parakeet-ctc-1.1b-prefixfwd"),
         ("Whisper-base", "whisper-base-logmel-charlev-spc"),
         ("Parakeet RNN-T", "parakeet-rnnt-1.1b-logmel"),
         ("Emformer (streaming)", "emformer-rnnt-prefix-logmel"),

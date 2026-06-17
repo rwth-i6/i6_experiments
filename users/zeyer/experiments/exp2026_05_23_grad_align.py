@@ -2701,6 +2701,17 @@ def py():
         char_level_sep=" ",
         version=7,
     )
+    # eager attention so the per-token VJP vmaps (batched_backward) -- used for voxtral ATTRIBUTION only.
+    voxtral_charlev_logmel_eager_cfg = rf.build_dict(
+        Voxtral,
+        model_dir=dl_voxtral,
+        forward_mode="transcription",
+        grad_wrt="log_mel",
+        char_level=True,
+        char_level_sep=" ",
+        version=7,
+        attn_implementation="eager",
+    )
     voxtral_charlev_conv1_cfg = rf.build_dict(
         Voxtral,
         model_dir=dl_voxtral,
@@ -4154,6 +4165,11 @@ def py():
             True,
             True,
         ),
+        # Standard word-level CTC (parakeet-ctc): wav2vec2-CTC is char-level / no word separator,
+        # so add a proper graphemic CTC as a second CTC point (2026-06-17, user). Fast bb=True.
+        (parakeet_ctc_prefixfwd_cfg, "parakeet-ctc-1.1b-prefixfwd", True, False),
+        # grad-score bb left as the finished runs used it (don't re-run done extracts); attribution
+        # enabled per-family and gets bb=True below regardless (it is a fresh, not-yet-run axis here).
         (whisper_char_cfg, "whisper-base-logmel-charlev-spc", False, True),
         (pk_cfg, "parakeet-rnnt-1.1b-logmel", True, False),
         (rnnt_px_cfg, "emformer-rnnt-prefix-logmel", False, False),
@@ -4181,9 +4197,12 @@ def py():
                 _aex = ExtractInGradsPerTokenJob(
                     dataset_dir=_xa_dir,
                     dataset_key="test",
-                    model_config=_ac,
+                    model_config=(voxtral_charlev_logmel_eager_cfg if _apre == "voxtral-charlevlogmel" else _ac),
                     mult_grad_by_inputs=False,
                     attr_reduction="L2",
+                    # fast token-batched VJP (composes with the multi-pass methods); whisper's
+                    # attribution already finished at bb=False, so keep it there to avoid a no-gain re-run.
+                    batched_backward=(_apre != "whisper-base-logmel-charlev-spc"),
                     **_akw,
                 )
                 _aex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
@@ -4677,10 +4696,10 @@ def py():
         # CTC + streaming models (added 2026-06-17) to fill the per-model-merged hyp cells:
         # they recognise words, so hyp-mode is real (not structurally n/a).
         # Emformer is omitted -- its model class has no recog() yet.
-        ("parakeet-ctc-1.1b", parakeet_ctc_cfg, parakeet_ctc_prefixfwd_cfg, "L2", False, 1.0, False),
-        ("owsm-ctc-v4-1b", owsm_ctc_cfg, owsm_ctc_prefixfwd_cfg, "L2", False, 1.0, False),
-        ("fastconformer-stream-ctc", fc_ctc_cfg, fc_ctc_cfg, "L2", False, 1.0, False),
-        ("fastconformer-stream-rnnt", fc_rnnt_cfg, fc_rnnt_cfg, "L2", False, 1.0, False),
+        ("parakeet-ctc-1.1b", parakeet_ctc_cfg, parakeet_ctc_prefixfwd_cfg, "L2", False, 1.0, True),
+        ("owsm-ctc-v4-1b", owsm_ctc_cfg, owsm_ctc_prefixfwd_cfg, "L2", False, 1.0, True),
+        ("fastconformer-stream-ctc", fc_ctc_cfg, fc_ctc_cfg, "L2", False, 1.0, True),
+        ("fastconformer-stream-rnnt", fc_rnnt_cfg, fc_rnnt_cfg, "L2", False, 1.0, True),
         ("emformer-rnnt-prefix-logmel", rnnt_cfg, rnnt_px_cfg, "L2", False, 1.0, True),
     ]:
         _hy_recog = RecogFromModelJob(
