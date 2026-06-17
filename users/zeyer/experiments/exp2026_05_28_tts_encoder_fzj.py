@@ -643,13 +643,40 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+    # mfatable with realistic durations: NO blanks (the phoneme seq already carries [space] silence) + label
+    # duration 4-8 frames at the 100Hz front-end (avg ~60ms/phon, like real speech; ~1 enc-frame/phon after
+    # 6x down, vs ~25ms / 0.4-frame at the old label-1 + blank-0-3). Tests whether the frozen mean-log-mel
+    # table needs realistic durations to be usable. muon-lr5e3-wdbl + nep38.
+    _train_tts_encoder(
+        "pseudo-enc-logmel-mfatable-realdur-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        # label dur 4-8 makes the 100Hz front-end seqs ~2.4x longer than label-1 -> shrink the phon batch
+        # (default 25k OOMed at step 1; 8k matches the old front-end-frame volume).
+        batch_size_phon=8_000,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_frozen_table=get_mfa_phone_mean_logmel_table().out_mean_table,
+        pseudo_enc_duration_range=(4, 8),
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_specaug_max_width=6,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
     # Encoder-share / layer-split injection (earlier study's insight #1), at the ENC frame rate:
     # the pseudo features live in the encoder model space and enter the Conformer at layer N directly
     # (no conv front-end on the text branch -- this matches the earlier study's injection point;
     # the pseudo-enc-logmel variants instead pass the full front-end incl. 6x subsampling).
     # N=0 = faithful reproduction of the earlier study's setting; N=4/8 share fewer encoder layers.
     # Same duration setting (label 1, blank 0-3), now counted in encoder frames like there.
-    for _start_layer in (0, 4, 8):
+    # layer0 dropped 2026-06-17: its text branch runs all 16 encoder layers at the un-subsampled enc-rate
+    # and OOMs (measured 89.7 GB peak on a long text batch; it is also the worst injection point). See notes.
+    for _start_layer in (4, 8):
         _train_tts_encoder(
             f"pseudo-enc-layer{_start_layer}",
             prefix=prefix,
@@ -709,6 +736,27 @@ def py():
             extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
             extra_config_deletes=["optimizer.epsilon"],
         )
+    # layer8 with NO blanks (the phoneme seq already carries [space] silence): label 1 frame at the enc-rate
+    # = ~1 enc-frame/phon (still feasible, unlike the front-end noblank which collapsed to ~0.17 enc-frame).
+    # Tests whether blanks help layer8 or just bloat it, and whether the noblank regression transfers here.
+    _train_tts_encoder(
+        "pseudo-enc-layer8-noblank-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        batch_size_phon=8_000,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_start_layer=8,
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_specaug_max_width=6,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
     # Unit-granularity ablation (CJST-style): the ASR's own spm10k subword units as pseudo-enc input
     # instead of phonemes (identity output mapping; no lexicon/phoneme step needed; the earlier study
     # also used the ASR target units). Same duration setting -> ~3.2x shorter sequences than the
