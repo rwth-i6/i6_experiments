@@ -95,6 +95,32 @@ def py():
         analysis_opts={
             "checkpoints": get_keep_epochs(base_num_epochs),
             "max_plotted_seqs": 20,
+            "cosine_similarity_summary": True,
+        },
+    )
+
+    # baseline settings (3 enc / 3 dec layers) + a GumbelVectorQuantizer codebook on top of the
+    # shared encoder (à la SpeechT5), to push the audio and text encoder states into a shared
+    # discrete space. The codebook diversity loss encourages using the full codebook.
+    codebook_config = dict_update_deep(
+        copy.deepcopy(base_config),
+        {
+            "model_args": {"codebook_opts": {}},  # {} -> enable codebook with default settings
+            "train_args": {"codebook_diversity_loss_scale": 0.1},
+            "training.batch_size": 10_000,
+        },
+    )
+    run_experiment(
+        training_name=f"{prefix_name}/baseline_codebook",
+        config=copy.deepcopy(codebook_config),
+        train_data=train_data,
+        test_data_dict=test_data_dict,
+        keep_epochs=get_keep_epochs(base_num_epochs),
+        skip_eval=True,
+        additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
+        analysis_opts={
+            "checkpoints": get_keep_epochs(base_num_epochs),
+            "max_plotted_seqs": 20,
         },
     )
 
@@ -191,6 +217,48 @@ def py():
                     f"baseline_audio-mask-p-{mask_prob}-span-{min_span}-{max_span}",
                 )
                 for mask_prob, min_span, max_span in ((0.4, 4, 20),)
+            ]
+        ]
+    ):
+        num_epochs = config["training"]["__num_epochs"]
+        run_experiment(
+            training_name=f"{prefix_name}/{train_name}",
+            config=copy.deepcopy(config),
+            train_data=train_data,
+            test_data_dict=test_data_dict,
+            keep_epochs=get_keep_epochs(num_epochs),
+            skip_eval=True,
+            additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
+        )
+
+    for exp_idx, (config, train_name) in enumerate(
+        [
+            *[
+                (
+                    dict_update_deep(
+                        copy.deepcopy(base_config),
+                        {
+                            "train_args": {
+                                "audio_masking_opts": {
+                                    "mask_prob": mask_prob,
+                                    "min_span": min_span,
+                                    "max_span": max_span,
+                                },
+                                "text_masking_opts": {
+                                    "mask_prob": mask_prob,
+                                    "min_span": min_span,
+                                    "max_span": max_span,
+                                },
+                            },
+                        },
+                    ),
+                    f"baseline_audio-and-text-mask-p-{mask_prob}-span-{min_span}-{max_span}",
+                )
+                for mask_prob, min_span, max_span in (
+                    (0.1, 1, 1),
+                    (0.2, 1, 1),
+                    (0.3, 1, 1),
+                )
             ]
         ]
     ):
