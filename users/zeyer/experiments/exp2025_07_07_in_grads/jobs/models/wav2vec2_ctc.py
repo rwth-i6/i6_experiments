@@ -739,6 +739,30 @@ class Wav2Vec2Ctc(BaseModelInterface):
             f" chars={[len(i) for i in per_seq_flat_ids]} T_feat={t_feat.tolist()}",
             flush=True,
         )
+        # Split-backward support (prefix_fwd only): expose grad-attached lp [B, T, V] + a closure that
+        # recomputes per-seq prefix scores from a fresh-leaf lp via the BATCHED COMPILED SCAN. B>1 here is
+        # what amortizes the launch-bound per-frame lattice kernels (the B=1 prefix backward is GPU-idle).
+        extra_outputs = {}
+        if self.per_token_score == "prefix_fwd":
+            _targets = targets[:, :s_max].contiguous()  # [B, s_max], blank-padded beyond each S_b
+            _tl = torch.tensor([len(ids) for ids in per_seq_flat_ids], device=dev)  # [B]
+            _il = t_feat.to(dev)  # [B] valid frames per seq (scan masks padded frames)
+            _blank = self.blank_idx
+
+            def _prefix_from_lp(lp_full):  # lp_full [B, T, V] -> [B, s_max+1] (exit slot zero-padded)
+                import torch._dynamo as _dyn
+
+                from .ctc_partial import compiled_prefix_forward_scores_scan
+
+                _dyn.maybe_mark_dynamic(lp_full, 0)
+                _dyn.mark_dynamic(lp_full, 1)
+                _dyn.maybe_mark_dynamic(_targets, 0)
+                _dyn.mark_dynamic(_targets, 1)
+                sc = compiled_prefix_forward_scores_scan()(lp_full, _targets, _tl, _blank, _il)  # [B, s_max]
+                return torch.cat([sc, sc.new_zeros(sc.shape[0], 1)], 1)
+
+            extra_outputs = dict(lp=log_probs, prefix_from_lp=_prefix_from_lp)
+
         return ForwardOutput(
             inputs=grad_leaf,
             input_seq_lens=t_feat,
@@ -747,7 +771,7 @@ class Wav2Vec2Ctc(BaseModelInterface):
             targets=targets,
             target_seq_lens=torch.tensor([len(ids) + 1 for ids in per_seq_flat_ids]),
             target_start_end=target_start_end,
-            outputs=dict(partial_padded=partial_padded, vocab_size=vocab_size),
+            outputs=dict(partial_padded=partial_padded, vocab_size=vocab_size, **extra_outputs),
         )
 
     def _log_probs_batched(

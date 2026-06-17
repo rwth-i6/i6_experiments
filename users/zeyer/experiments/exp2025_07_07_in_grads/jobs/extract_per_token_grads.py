@@ -764,7 +764,35 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
 
             m_max = max(len(p) for p in tok_pos)
             attr_rows = [[None] * len(p) for p in tok_pos]
-            if self.batched_backward:
+            if self.split_prefix_backward and isinstance(fwd.outputs, dict) and "prefix_from_lp" in fwd.outputs:
+                # Split at lp: per chunk-position, ONE B-batched compiled-scan prefix backward -> a J row,
+                # then ONE vmapped encoder backward over the chunk. B>1 amortizes the launch-bound per-frame
+                # lattice kernels (the B=1 prefix backward leaves the GPU idle). Token positions per seq come
+                # from tok_pos exactly as in the fused path, just applied to the recomputed prefix scores.
+                lp = fwd.outputs["lp"]
+                lp_leaf = lp.detach().requires_grad_(True)
+                partial = fwd.outputs["prefix_from_lp"](lp_leaf)  # [B, s_max+1]
+                chunk = 32
+                for j0 in range(0, m_max, chunk):
+                    js = range(j0, min(j0 + chunk, m_max))
+                    jac = []
+                    for j in js:
+                        cot = partial.new_zeros(partial.shape)  # [B, s_max+1]
+                        for i in range(nb):
+                            if j < len(tok_pos[i]):
+                                cot[i, tok_pos[i][j]] = 1.0
+                        (jrow,) = torch.autograd.grad(partial, lp_leaf, grad_outputs=cot, retain_graph=True)
+                        jac.append(jrow)
+                    jac = torch.stack(jac, 0)  # [len(js), B, T, V]
+                    (grads,) = torch.autograd.grad(
+                        lp, fwd.inputs, grad_outputs=jac, is_grads_batched=True, retain_graph=True
+                    )
+                    for jj, j in enumerate(js):
+                        attr = _reduce(grads[jj])
+                        for i in range(nb):
+                            if j < len(tok_pos[i]):
+                                attr_rows[i][j] = attr[i]
+            elif self.batched_backward:
                 # vmap in chunks: the one-hot bank over all tokens at once would hold
                 # m_max grad buffers of the whole batched graph.
                 chunk = 32
