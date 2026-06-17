@@ -139,6 +139,10 @@ class FullDuplexBenchEval_Inference(Job):
         # Cloud realtime API (Gemini/OpenAI): inference runs as a login-node mini_task
         # (remote model, no GPU). Excluded at False so existing FDB jobs keep their hash.
         "cloud_api": False,
+        # RAG retrieval LLM + GPU-count override (MoshiRAG); None defaults so existing
+        # offline/streaming FDB jobs keep their hash.
+        "retrieval_llm": None,
+        "rqmt_override": None,
     }
 
     def __init__(
@@ -156,6 +160,8 @@ class FullDuplexBenchEval_Inference(Job):
         offline_script: str | None = None,
         offline_extra_args: tuple = (),
         cloud_api: bool = False,
+        retrieval_llm: str | None = None,
+        rqmt_override: dict | None = None,
     ):
         self.fdb_data = tk.Path(
             "/home/tt201262/setups/2026-01-speech-llm/projects/Full-Duplex-Bench/v1_v1.5/dataset/v1.0",
@@ -186,6 +192,9 @@ class FullDuplexBenchEval_Inference(Job):
         # (moshi_venv). None -> the worker's own setup .venv (sys.executable).
         self.server_venv_python = server_venv_python
 
+        # RAG retrieval LLM served (via vllm_server) as the offline driver's retrieval
+        # backend (MoshiRAG). None -> plain offline/streaming run, no retrieval server.
+        self.retrieval_llm = retrieval_llm
         self.out_audios = self.output_path("audios", directory=True)
 
         self.rqmt = {
@@ -194,6 +203,8 @@ class FullDuplexBenchEval_Inference(Job):
             "mem": 16,
             "time": 4,
         }
+        if rqmt_override is not None:
+            self.rqmt = {**self.rqmt, **rqmt_override}
 
     def tasks(self):
         if self.cloud_api:
@@ -273,19 +284,26 @@ class FullDuplexBenchEval_Inference(Job):
         pairs (+ copy each clip's sidecar jsons), then run the backend's offline driver
         once over it. A causal pass over a clip yields the same full-duplex output as the
         realtime server, so end-to-end models (PersonaPlex) need no websocket server."""
-        from .inference_harness import run_offline_driver, write_pair_manifest
+        from .inference_harness import run_offline_driver, run_with_optional_retrieval, write_pair_manifest
 
         assert self.server_venv_python is not None, "offline FDB needs server_venv_python (the model venv)"
         items = [(inp, Path(self.out_audios.get_path()) / str(inp.parent.name) / "output.wav") for _task, inp in files]
         manifest = write_pair_manifest(items, copy_sidecars=True)
-        run_offline_driver(
-            python_exe=self.server_venv_python.get(),
-            script_path=Path(__file__).resolve().parent.parent / self.offline_script,
-            manifest=manifest,
-            lora_weights=self.lora_weights.get() if self.lora_weights is not None else None,
-            lora_config=self.lora_config.get() if self.lora_config is not None else None,
-            extra_args=self.offline_extra_args,
-        )
+
+        def _drive(extra_args, extra_env=None):
+            run_offline_driver(
+                python_exe=self.server_venv_python.get(),
+                script_path=Path(__file__).resolve().parent.parent / self.offline_script,
+                manifest=manifest,
+                lora_weights=self.lora_weights.get() if self.lora_weights is not None else None,
+                lora_config=self.lora_config.get() if self.lora_config is not None else None,
+                extra_args=tuple(self.offline_extra_args) + tuple(extra_args),
+                extra_env=extra_env,
+            )
+
+        # RAG backend (retrieval_llm set) runs the driver behind a vLLM retrieval server;
+        # plain offline backends just run it once. Shared with the knowledge benchmark.
+        run_with_optional_retrieval(self, _drive)
 
 
 class FullDuplexBenchEval_Evaluation(Job):
@@ -411,6 +429,9 @@ def moshified_fdb_eval(
         # offline_script stays None and their FDB hashes are unchanged.
         offline_script=backend.offline_script if backend.server is None else None,
         offline_extra_args=backend.offline_extra_args if backend.server is None else (),
+        # RAG retrieval (MoshiRAG) only applies to the offline/server-less path.
+        retrieval_llm=backend.retrieval_llm if backend.server is None else None,
+        rqmt_override=backend.rqmt_override if backend.server is None else None,
         lora_weights=lora_weights,
         lora_config=lora_config,
         asr_venv_python=asr_venv_python,

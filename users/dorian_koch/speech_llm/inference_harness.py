@@ -147,11 +147,14 @@ def run_offline_driver(
     lora_weights: str | None = None,
     lora_config: str | None = None,
     extra_args: Sequence[str] = (),
+    extra_env: dict | None = None,
 ) -> None:
     """Build + run an offline inference driver as a subprocess. Supports both the
     knowledge dir-mode (``--in_dir/--out_dir/--batch_size/--shard``) and the FDB
     manifest-mode (``--manifest``); the caller passes whichever set its driver wants.
-    argparse is order-independent, so the two callers share one builder."""
+    argparse is order-independent, so the two callers share one builder. ``extra_env``
+    is merged into the subprocess env (e.g. ``CUDA_VISIBLE_DEVICES`` to pin a
+    retrieval-LLM-backed driver to a different GPU than the co-running vLLM server)."""
     cmd = [python_exe, str(script_path)]
     if manifest is not None:
         cmd += ["--manifest", manifest]
@@ -174,5 +177,45 @@ def run_offline_driver(
     cmd += list(extra_args)
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    if extra_env:
+        env.update({k: str(v) for k, v in extra_env.items()})
     print("[offline]", " ".join(cmd), flush=True)
     subprocess.run(cmd, env=env, check=True)
+
+
+def run_with_optional_retrieval(job, drive) -> None:
+    """Run an offline driver, optionally behind a RAG retrieval LLM (MoshiRAG seam).
+
+    ``drive(extra_args, extra_env)`` is a callback that invokes ``run_offline_driver`` for
+    the concrete benchmark (knowledge dir-mode or FDB manifest-mode). If ``job.retrieval_llm``
+    is set, this brings up our existing ``common.vllm_server`` (in the *job* process's venv,
+    which has vLLM) on the first GPU and runs the driver -- pinned to the second GPU via
+    ``CUDA_VISIBLE_DEVICES`` -- passing the server url through ``--llm_base_url`` /
+    ``--llm_model_name``. The job must request >=2 GPUs for this (see ``rqmt_override`` on the
+    backend spec). Plain offline backends (Moshi/PersonaPlex) leave ``retrieval_llm`` None and
+    just run the driver once. Keeping this here (not in the jobs) means knowledge + FDB share
+    the exact same retrieval wiring."""
+    retrieval_llm = getattr(job, "retrieval_llm", None)
+    if not retrieval_llm:
+        drive((), None)
+        return
+    from .common import vllm_server
+
+    # GPU split: vLLM retrieval server on the first visible GPU, the offline driver (the
+    # speech model + its reference encoder) on the last one. VERIFY(moshirag): tune for the
+    # actual GPU memory once the model is staged (gemma-4-31B may want >1 GPU of its own).
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES", "0,1").split(",")
+    driver_dev = visible[-1] if len(visible) > 1 else visible[0]
+    saved = os.environ.get("CUDA_VISIBLE_DEVICES")
+    os.environ["CUDA_VISIBLE_DEVICES"] = visible[0]
+    try:
+        with vllm_server(retrieval_llm) as llm_url:
+            drive(
+                ("--llm_base_url", llm_url, "--llm_model_name", retrieval_llm),
+                {"CUDA_VISIBLE_DEVICES": driver_dev},
+            )
+    finally:
+        if saved is None:
+            os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+        else:
+            os.environ["CUDA_VISIBLE_DEVICES"] = saved

@@ -323,6 +323,10 @@ class MoshiInference(Job):
         # Cloud realtime API (Gemini/OpenAI): run inference as a login-node mini_task
         # (remote model, no GPU). Excluded at False so existing jobs keep their hash.
         "cloud_api": False,
+        # RAG retrieval LLM + GPU-count override (MoshiRAG). None defaults => no retrieval
+        # server and the default rqmt, so existing offline jobs keep their hash.
+        "retrieval_llm": None,
+        "rqmt_override": None,
     }
 
     def __init__(
@@ -345,6 +349,8 @@ class MoshiInference(Job):
         offline_script: str = "moshi_offline_inference.py",
         offline_extra_args: tuple = (),
         cloud_api: bool = False,
+        retrieval_llm: str | None = None,
+        rqmt_override: dict | None = None,
     ):
         self.venv_python_path = venv_python_path
         self.in_dir = in_dir
@@ -371,11 +377,16 @@ class MoshiInference(Job):
         self.offline_extra_args = tuple(offline_extra_args)
         # Cloud realtime backend => remote model, no GPU: run as a login-node mini_task.
         self.cloud_api = cloud_api
+        # RAG retrieval LLM served (via vllm_server) as the offline driver's retrieval
+        # backend (MoshiRAG). None -> plain offline run, no retrieval server.
+        self.retrieval_llm = retrieval_llm
         # Optional fine-tuned LoRA adapter. None -> base moshiko.
         self.lora_weights = lora_weights
         self.lora_config = lora_config
         self.out_dir = self.output_path("moshi_output", directory=True)
         self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 8}
+        if rqmt_override is not None:
+            self.rqmt = {**self.rqmt, **rqmt_override}
 
     def tasks(self):
         if self.cloud_api:
@@ -398,23 +409,29 @@ class MoshiInference(Job):
         return self._run_server()
 
     def _run_offline(self):
-        # Shared offline-driver harness (dir-mode); see inference_harness.py.
-        from .inference_harness import run_offline_driver
+        # Shared offline-driver harness (dir-mode); see inference_harness.py. A RAG backend
+        # (retrieval_llm set) runs the driver behind a vLLM retrieval server; otherwise the
+        # driver runs once. run_with_optional_retrieval keeps that wiring shared with FDB.
+        from .inference_harness import run_offline_driver, run_with_optional_retrieval
 
-        run_offline_driver(
-            python_exe=self.venv_python_path.get(),
-            script_path=Path(__file__).resolve().parent.parent / self.offline_script,
-            in_dir=str(self.in_dir.get()),
-            out_dir=str(self.out_dir.get()),
-            lead_in_s=self.lead_in_s,
-            capture_s=self.capture_s,
-            batch_size=self.batch_size,
-            shard=self.shard,
-            num_shards=self.num_shards,
-            lora_weights=self.lora_weights.get() if self.lora_weights is not None else None,
-            lora_config=self.lora_config.get() if self.lora_config is not None else None,
-            extra_args=self.offline_extra_args,
-        )
+        def _drive(extra_args, extra_env=None):
+            run_offline_driver(
+                python_exe=self.venv_python_path.get(),
+                script_path=Path(__file__).resolve().parent.parent / self.offline_script,
+                in_dir=str(self.in_dir.get()),
+                out_dir=str(self.out_dir.get()),
+                lead_in_s=self.lead_in_s,
+                capture_s=self.capture_s,
+                batch_size=self.batch_size,
+                shard=self.shard,
+                num_shards=self.num_shards,
+                lora_weights=self.lora_weights.get() if self.lora_weights is not None else None,
+                lora_config=self.lora_config.get() if self.lora_config is not None else None,
+                extra_args=tuple(self.offline_extra_args) + tuple(extra_args),
+                extra_env=extra_env,
+            )
+
+        run_with_optional_retrieval(self, _drive)
 
     def _run_server(self):
         # Shared streaming harness: bring up the backend's server and stream each
@@ -681,8 +698,11 @@ def knowledge_benchmark_py(
     # 5. Moshi inference (sharded across GPUs for throughput; a cloud realtime backend
     # runs as a single login-node mini_task, so it is not sharded).
     inference_venv = speech_backend.inference_venv() if speech_backend.inference_venv else moshi_venv()
+    # Single shard for a cloud API (one login-node mini_task) or a RAG backend (one shared
+    # vLLM retrieval server); otherwise shard across GPUs for throughput.
+    single = speech_backend.cloud_api or speech_backend.retrieval_llm is not None
     moshi_out = MoshiInference.sharded(
-        num_shards=1 if speech_backend.cloud_api else 2,
+        num_shards=1 if single else 2,
         venv_python_path=inference_venv,
         in_dir=tts.out_dir,
         lora_weights=lora_weights,
@@ -695,6 +715,8 @@ def knowledge_benchmark_py(
         ws_url=speech_backend.ws_url,
         unmute_llm=unmute_llm,
         cloud_api=speech_backend.cloud_api,
+        retrieval_llm=speech_backend.retrieval_llm,
+        rqmt_override=speech_backend.rqmt_override,
     )
     tk.register_output(f"benchmark/{tag}/moshi_output", moshi_out)
 

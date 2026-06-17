@@ -257,6 +257,33 @@ PERSONAPLEX_ADAPTER = FinetuneAdapter(
 
 
 # --------------------------------------------------------------------------- #
+# MoshiRAG adapter (SCAFFOLD -- see projects/2026-01-speech-llm/moshirag.md).
+# MoshiRAG (kyutai-labs/moshi-rag, arXiv 2604.12928) adds an ARC-Encoder reference
+# conditioner + a <ret> retrieval-trigger token to Moshi. The released fork is
+# *inference-only*; training requires wiring that conditioner's forward/collate +
+# <ret>/reference-dropout/retrieval-delay-sim into the loop (the launcher stub raises until
+# then). We design for BOTH init paths but only checkpoint-init is wired now:
+#   * init_from = "kyutai/moshika-rag-pytorch-bf16"  (LoRA on top; conditioner + <ret>
+#     already trained) -- the path we'd actually run.  [WIRED as the config base below]
+#   * init_from = None / base moshiko  (train the conditioner from scratch -- the biggest
+#     run we'd ever do, base-moshi -> moshirag) -- SEAM ONLY, multi-month; see D3 in
+#     moshirag.md.  To enable, swap hf_repo_id below + extend the launcher.
+# Wire via ``SpeechFinetune(adapter=MOSHIRAG_ADAPTER, venv_python_path=moshirag_venv(), ...)``.
+# --------------------------------------------------------------------------- #
+MOSHIRAG_ADAPTER = FinetuneAdapter(
+    name="moshirag",
+    batch_size=16,
+    # Checkpoint-init: LoRA-finetune on top of the released MoshiRAG checkpoint (conditioner
+    # + <ret> already present). VERIFY(moshirag): the RAG trainer needs extra config
+    # (reference conditioner on, reference-dropout 0.2, retrieval-delay sim) the moshi-finetune
+    # schema does not express -- the launcher must inject those; see moshirag.md.
+    render_config=partial(_render_moshi_finetune_config, hf_repo_id="kyutai/moshika-rag-pytorch-bf16"),
+    launcher_module="i6_experiments.users.dorian_koch.speech_llm.moshirag_finetune_launcher",
+    fork_module="moshi",  # the moshi-rag fork (import name `moshi`); installed by moshirag_venv()
+)
+
+
+# --------------------------------------------------------------------------- #
 # Generic job for *new* architectures (Moshi keeps its own frozen class).
 # --------------------------------------------------------------------------- #
 class SpeechFinetune(Job):

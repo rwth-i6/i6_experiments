@@ -57,6 +57,13 @@ class BackendSpec:
     # Lazy ``() -> tk.Path`` for the interpreter the offline driver runs under; ``None``
     # => the knowledge pipeline falls back to ``moshi_venv()``. (FDB passes its own.)
     inference_venv: Callable | None = None
+    # OpenAI-compatible LLM model name to serve (via common.vllm_server) as the RAG
+    # *retrieval* backend (MoshiRAG). ``None`` => no retrieval server (plain offline). When
+    # set, the inference job brings up vLLM and passes its url to the offline driver.
+    retrieval_llm: str | None = None
+    # Optional override of the inference job's ``rqmt`` (e.g. ``{"gpu": 2, ...}`` so a
+    # retrieval-LLM-backed run gets a second GPU for the vLLM server). ``None`` => default.
+    rqmt_override: dict | None = None
 
     # --- cloud realtime API modality (Gemini Live, OpenAI Realtime) -----------
     # True => the model is remote (no GPU, but needs outbound internet). The benchmark
@@ -149,4 +156,36 @@ def openai_backend_spec() -> BackendSpec:
         file_client=OpenAIRealtimeFileClient,
         ws_url=openai_ws_url,
         cloud_api=True,
+    )
+
+
+def moshirag_backend_spec(retrieval_llm: str = "google/gemma-4-31B-it") -> BackendSpec:
+    """MoshiRAG (kyutai-labs/moshi-rag, arXiv 2604.12928) as an offline backend.
+
+    A full-duplex Moshi variant that emits a ``<ret>`` token to asynchronously retrieve a
+    reference document and fold it into its reply (ARC-Encoder conditioner). It runs through
+    the **offline** driver (``moshirag_offline_inference.py``) like Moshi/PersonaPlex, but the
+    driver co-launches a reference-encoder GPU server and the job brings up our existing vLLM
+    ``retrieval_llm`` as the text-in/text-out retrieval backend (the paper's own setup). That
+    second model wants its own GPU, so ``rqmt_override`` bumps the job to 2 GPUs.
+
+    GATED: stage ``kyutai/moshika-rag-pytorch-bf16`` into the HF cache first (CC-BY; see
+    ``moshirag.md``). ``inference_venv`` is resolved lazily to avoid an import cycle with the
+    recipe that defines ``moshirag_venv``.
+    """
+
+    def _venv():
+        from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import (
+            moshirag_venv,
+        )
+
+        return moshirag_venv()
+
+    return BackendSpec(
+        name="moshirag",
+        server=None,  # end-to-end + causal: offline driver, no websocket server
+        offline_script="moshirag_offline_inference.py",
+        inference_venv=_venv,
+        retrieval_llm=retrieval_llm,
+        rqmt_override={"gpu": 2, "cpu": 6, "mem": 48, "time": 12},
     )
