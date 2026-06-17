@@ -277,11 +277,15 @@ def generate_report(results, exp_name, report_template=baseline_report_format):
 def build_qat_report(report: Dict):
     import numpy as np
 
-    exps = ["combined", "cycle", "smaller", "greedy"]
+    exps = ["combined", "fixed", "bal", "posadc", "learnpos", "keep_encs", "nolinpos", "greedy", "cycle", "smaller"]
     report = copy.deepcopy(report)
     best_dc = {}
-    bits = [8, 7, 6, 5, 4, 3, 2, 1.5]
+    w_bits = [8, 7, 6, 5, 4, 3, 2, 1.5]
+    a_bits = [8, 7, 6, 5, 4, 3, 2, 1.5]
     for exp, dic in report.items():
+        if dic == "Diverged":
+            best_dc[" ".join(exp.split("/")[3:])] = ("Diverged", "")
+            continue
         instanciate_delayed(dic)
         new_dic = {k: v for k, v in dic.items() if "other" in k}
         if all(new_dic.values()):
@@ -297,7 +301,7 @@ def build_qat_report(report: Dict):
                 ln = len(new_dic.values())
                 best_dc[" ".join(exp.split("/")[3:])] = (
                     "{:.1f}".format(mean),
-                    best + f"/{mean=} {std=} min: {'{:.1f}'.format(mini)} max: {'{:.1f}'.format(maxi)} runs: {ln}",
+                    best + f"/{mean=} {std=} min: {'{:.1f}'.format(mini)} max: {'{:.1f}'.format(maxi)} runs: {ln}    " + "{:.1f} $\pm$ {:.2f} & [{:.1f}, {:.1f}]".format(mean, std, mini, maxi),
                 )
             else:
                 best_dc[" ".join(exp.split("/")[3:])] = ("{:.1f}".format(float(new_dic[best])), best)
@@ -312,21 +316,24 @@ def build_qat_report(report: Dict):
             del tmp[exp]
     best_dc = tmp
     tmp = copy.deepcopy(best_dc)
-    for bit in bits:
-        best_dc = tmp
-        tmp = copy.deepcopy(best_dc)
-        first = False
-        for exp, value in best_dc.items():
-            if any(x in exp for x in exps):
-                continue
-            if f"{bit}_8" not in exp:
-                continue
-            line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
-            if first == False:
-                first = True
-            del tmp[exp]
-        if first == True:
-            line.append("")
+    for a_bit in a_bits:
+
+        for w_bit in w_bits:
+            best_dc = tmp
+            tmp = copy.deepcopy(best_dc)
+            first = False
+            for exp, value in best_dc.items():
+                if any(x in exp for x in exps):
+                    continue
+                if f"{w_bit}_{a_bit}" not in exp and f"w{w_bit}_a{a_bit}" not in exp:
+                    continue
+                if first == False:
+                    line.append(f"Weight:{w_bit} Activation: {a_bit}")
+                    first = True
+                line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
+            if first == True:
+                line.append("")
     tmp = best_dc
     for x in exps:
         first = True
@@ -421,3 +428,298 @@ def build_qat_report(report: Dict):
             line.append("")
     assert len(tmp) == 0, tmp
     return "\n".join(line)
+
+
+def build_qat_report_v2(report: Dict) -> str:
+    """Cleaned-up version of build_qat_report for LibriSpeech experiments.
+
+    Groups experiments by type, aggregates seeds into columns, and shows
+    cycle statistics with relative deviation vs. the no-hardware baseline.
+    Works with all 7 call sites across ctc_bpe/memristor.py and ctc_phon/memristor.py.
+    """
+    import re
+
+    report = copy.deepcopy(report)
+
+    TYPE_KEYWORDS = [
+        "greedy", "posadc", "keep_encs", "nolinpos", "learnpos", "quantout",
+        "pertensor", "batched", "combined", "fixed", "bal",
+        "ideal_correct", "ideal", "adc", "correction", "noise", "frontend",
+    ]
+
+    # ── filter helper: LibriSpeech evaluates on dev-other ────────────────────
+
+    def other_vals(dic: Dict) -> Dict:
+        return {k: v for k, v in dic.items() if "other" in k}
+
+    # ── token extraction (same logic as loquacious, adapted for LBS paths) ───
+
+    def exp_tokens(exp: str) -> frozenset:
+        last = exp.split("/")[-1]
+        # cycle keys end with /cycle_N — grab the module component instead
+        part = exp.split("/")[-2] if last.startswith("cycle") else last
+        tokens = set()
+        for pattern, fmt in [
+            (r"seed_(\d+)", "seed_{}"),
+            (r"(\d+)eps", "{}eps"),
+            (r"(\d+)dim", "{}dim"),
+            (r"(\d+)lay", "{}lay"),
+        ]:
+            m = re.search(pattern, part)
+            if m:
+                tokens.add(fmt.format(m.group(1)))
+        m = re.search(r"w([\dx_]+)_a(\d+)", part)
+        if m:
+            tokens.update({f"w{m.group(1)}", f"a{m.group(2)}"})
+        else:
+            m = re.search(r"_(\d+)_(\d+)(?:_pertensor|_ideal|_seed|_adc|_no_correction|_correction)", part)
+            if m:
+                tokens.update({f"w{m.group(1)}", f"a{m.group(2)}"})
+        for mod in ("pertensor", "batched", "nolinpos", "learnpos", "ideal_correct", "greedy", "quantout", "keep_encs"):
+            if mod in part:
+                tokens.add(mod)
+        # cycle keys like cycle_0_greedy: pick up modifiers from the last component too
+        if last.startswith("cycle") and last != part:
+            for mod in ("greedy",):
+                if mod in last:
+                    tokens.add(mod)
+        if "ideal" in part and "ideal_correct" not in part:
+            tokens.add("ideal")
+        return frozenset(tokens)
+
+    def _exp_prefix(exp: str) -> str:
+        """Parent directory of the module, consistent for both /cycle_N and _cycle suffix forms."""
+        last = exp.split("/")[-1]
+        if last.startswith("cycle"):
+            return exp.rsplit("/", 2)[0]
+        return exp.rsplit("/", 1)[0]
+
+    # ── no-hw pre-pass ────────────────────────────────────────────────────────
+
+    non_mem_wers: Dict = {}
+    for exp, dic in report.items():
+        if "cycle" in exp:
+            continue
+        if isinstance(dic, str):
+            continue
+        tokens = exp_tokens(exp)
+        if not tokens:
+            continue
+        instanciate_delayed(dic)
+        filtered = other_vals(dic)
+        vals = [v for v in filtered.values() if v is not None]
+        if not vals:
+            continue
+        try:
+            key = (_exp_prefix(exp), tokens)
+            non_mem_wers.setdefault(key, float(min(vals)))
+        except (TypeError, ValueError):
+            pass
+
+    HW_ONLY_TOKENS = frozenset({"ideal", "ideal_correct"})
+
+    def find_non_mem(prefix: str, tokens: frozenset):
+        lookup = tokens - HW_ONLY_TOKENS
+        candidates = [(t, w) for (p, t), w in non_mem_wers.items()
+                      if p == prefix and lookup.issubset(t)]
+        return min(candidates, key=lambda x: len(x[0]))[1] if candidates else None
+
+    # ── build summary dict ────────────────────────────────────────────────────
+
+    def shorten(exp: str) -> str:
+        return " ".join(exp.split("/")[3:])
+
+    def _parse_scales(key: str) -> str:
+        m = re.search(r"search_lm([\d.]+)_prior([\d.]+)", key)
+        return f"lm{m.group(1)}/p{m.group(2)}" if m else "—"
+
+    summary: Dict[str, tuple] = {}
+    cycle_raw: Dict[str, Dict] = {}
+    scales_info: Dict[str, str] = {}
+
+    for exp, dic in report.items():
+        short = shorten(exp)
+        if isinstance(dic, str):
+            summary[short] = (dic[:3].lower(), "")
+            continue
+        instanciate_delayed(dic)
+        filtered = other_vals(dic)
+        if not filtered:
+            summary[short] = ("rng", "")
+            continue
+        if "cycle" in exp:
+            if not all(filtered.values()):
+                summary[short] = ("rng", "")
+                continue
+            vals = list(filtered.values())
+            mean = float(np.round(np.mean(vals), decimals=1))
+            std = float(np.round(np.std(vals), decimals=4))
+            mini, maxi = float(np.min(vals)), float(np.max(vals))
+            best = min(filtered, key=filtered.get)
+            bline = find_non_mem(_exp_prefix(exp), exp_tokens(exp))
+            rel = (mean - bline) / bline * 100 if (bline and bline > 0) else None
+            rel_str = "" if rel is None else " ({:+.1f}% vs no-hw [{:.1f}])".format(rel, bline)
+            wer_str = "{:.1f} \u00b1 {:.2f} [{:.1f},{:.1f}] n={}{}".format(
+                mean, std, mini, maxi, len(vals), rel_str)
+            detail = "best={} mean={:.2f} std={:.4f} min={:.1f} max={:.1f} n={}".format(
+                best, mean, std, mini, maxi, len(vals))
+            summary[short] = (wer_str, detail)
+            cycle_raw[short] = {"mean": mean, "std": std, "min": mini, "max": maxi, "n": len(vals), "rel": rel, "bline": bline, "scales": _parse_scales(best)}
+        else:
+            def _ckpt_min(d, tag):
+                if tag == "best4":
+                    group = {k: v for k, v in d.items() if "/best4" in k}
+                elif tag == "best":
+                    group = {k: v for k, v in d.items() if "/best" in k and "/best4" not in k}
+                else:
+                    group = {k: v for k, v in d.items() if "/best" not in k}
+                if not group:
+                    return "—"
+                if not all(group.values()):
+                    return "rng"
+                return "{:.1f}".format(float(min(group.values())))
+            has_best = any("/best" in k for k in filtered)
+            if has_best:
+                parts = [_ckpt_min(filtered, t) for t in ("last", "best", "best4")]
+                summary[short] = ("/".join(parts), "")
+            else:
+                summary[short] = (_ckpt_min(filtered, "last"), "")
+            if all(filtered.values()):
+                scales_info[short] = _parse_scales(min(filtered, key=filtered.get))
+
+    # ── classification helpers ────────────────────────────────────────────────
+
+    def exp_label(exp_short: str) -> str:
+        return " ".join(exp_short.split(".")[2:]).strip("_")
+
+    def get_type(exp_short: str) -> str:
+        for kw in TYPE_KEYWORDS:
+            if kw in exp_short:
+                return kw
+        return "standard"
+
+    def group_by_type(exps_dict: Dict) -> Dict[str, Dict]:
+        groups: Dict[str, Dict] = {}
+        for k, v in exps_dict.items():
+            groups.setdefault(get_type(k), {})[k] = v
+        return groups
+
+    baseline_exps = {k: v for k, v in summary.items() if "baseline" in k and not k.endswith("_greedy")}
+    cycle_exps = {k: v for k, v in summary.items() if "cycle" in k}
+    qat_exps = {k: v for k, v in summary.items()
+                if k not in baseline_exps and k not in cycle_exps and not k.endswith("_greedy")}
+
+    # ── table helpers ─────────────────────────────────────────────────────────
+
+    def _two_row_table(header2: List[str], data_rows: List[List[str]],
+                       split_spans: List[tuple], double_after=None) -> List[str]:
+        """Render a table with a two-row header.
+
+        split_spans: list of (split_name, start_col, n_cols) describing how
+        the first header row spans columns (1-indexed, after Experiment col).
+        double_after: set of 0-based column indices after which to use || separator.
+        """
+        double_after = set(double_after or [])
+        all_rows = [header2] + data_rows
+        widths = [max(len(str(r[i])) for r in all_rows) for i in range(len(header2))]
+
+        def col_sep(i):
+            return " || " if i in double_after else " | "
+
+        def dash_sep(i):
+            return "-++-" if i in double_after else "-+-"
+
+        sep_parts = ["-" * widths[0]]
+        for i in range(len(widths) - 1):
+            sep_parts.append(dash_sep(i))
+            sep_parts.append("-" * widths[i + 1])
+        sep = "".join(sep_parts)
+
+        def fmt(row: List[str]) -> str:
+            result = str(row[0]).ljust(widths[0])
+            for i in range(len(row) - 1):
+                result += col_sep(i) + str(row[i + 1]).ljust(widths[i + 1])
+            return result
+
+        header1_parts = [" " * widths[0]]
+        for split_name, start, n_cols in split_spans:
+            span = sum(widths[start + j] for j in range(n_cols))
+            for j in range(n_cols - 1):
+                span += len(col_sep(start + j))
+            header1_parts.append(split_name.center(span))
+        header1 = col_sep(0).join(header1_parts)
+
+        return [header1, fmt(header2), sep] + [fmt(r) for r in data_rows]
+
+    def qat_table(exps_dict: Dict) -> List[str]:
+        seed_groups: Dict[str, List[str]] = {}
+        for e in exps_dict:
+            base = re.sub(r"_seed_\d+", "", e)
+            seed_groups.setdefault(base, []).append(e)
+        MAX_SEEDS = 3
+        COLS_PER_SEED = 3
+        data_rows = []
+        for base, exps_list in seed_groups.items():
+            seed_map = {}
+            for e in exps_list:
+                m = re.search(r"_seed_(\d+)", e)
+                idx = int(m.group(1)) if m else 0
+                seed_map[idx] = e
+            row = [exp_label(base)]
+            for i in range(MAX_SEEDS):
+                e = seed_map.get(i)
+                row.append(summary.get(e, ("—", ""))[0] if e else "—")
+                row.append(scales_info.get(e, "—") if e else "—")
+                greedy_e = (e + "_greedy") if e else None
+                row.append(summary.get(greedy_e, ("—", ""))[0] if greedy_e else "—")
+            data_rows.append(row)
+        header2 = ["Experiment"] + [c for i in range(MAX_SEEDS) for c in (f"s{i}", "scales", "greedy")]
+        # || after the last col of each seed group except the final one
+        double_after = [COLS_PER_SEED * (i + 1) for i in range(MAX_SEEDS - 1)]
+        return _two_row_table(header2, data_rows, [("dev-other", 1, MAX_SEEDS * COLS_PER_SEED)], double_after=double_after)
+
+    def cycle_table(exps_dict: Dict) -> List[str]:
+        has_rel = any(cycle_raw.get(e, {}).get("rel") is not None for e in exps_dict)
+        sub_cols = ["mean", "±std"] + (["rel%"] if has_rel else []) + ["min", "max", "n", "scales"]
+        n_sub = len(sub_cols)
+
+        def raw_cells(e: str) -> List[str]:
+            r = cycle_raw.get(e)
+            if not r:
+                return ["—"] * n_sub
+            cells = ["{:.1f}".format(r["mean"]), "{:.2f}".format(r["std"])]
+            if has_rel:
+                cells.append("{:+.1f} ({:.1f})".format(r["rel"], r["bline"])
+                             if r.get("rel") is not None else "—")
+            cells += ["{:.1f}".format(r["min"]), "{:.1f}".format(r["max"]), str(r["n"]), r.get("scales", "—")]
+            return cells
+
+        data_rows = [[exp_label(e)] + raw_cells(e) for e in exps_dict]
+        header2 = ["Experiment"] + sub_cols
+        return _two_row_table(header2, data_rows, [("dev-other", 1, n_sub)])
+
+    # ── render ────────────────────────────────────────────────────────────────
+
+    lines: List[str] = []
+
+    def render_section(title: str, exps_dict: Dict, table_fn) -> None:
+        if not exps_dict:
+            return
+        lines.append(title)
+        lines.append("=" * len(title))
+        if table_fn is qat_table:
+            lines.append("(WER cells: last epoch / best / best4)")
+        groups = group_by_type(exps_dict)
+        for gtype, entries in groups.items():
+            if len(groups) > 1:
+                lines.append("")
+                lines.append(f"  -- {gtype} --")
+                lines.append("")
+            lines.extend(table_fn(entries))
+        lines.append("")
+
+    render_section("Baseline", baseline_exps, qat_table)
+    render_section("QAT (no hardware)", qat_exps, qat_table)
+    render_section("Memristor (hardware cycles)", cycle_exps, cycle_table)
+
+    return "\n".join(lines)

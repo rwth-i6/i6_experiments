@@ -1,41 +1,68 @@
 
 
-v1 = {
-    "aux_loss_layers": (4, 8),
-    "num_enc_layers": 12,
-    "num_dec_layers": 6,
+audio_text_v1 = {
+    "aux_loss_layers": (),
+    "num_enc_layers": 6,
+    "num_text_dec_layers": 3,
+    "num_audio_dec_layers": 3,
     "num_heads": 8,
     "model_dim": 512,
-    "out_dim": 10_240,
-    "sampling_rate": 16_000,
-    "share_embedding": True,
-    "specaug_start": (5_000, 15_000, 25_000),
-    "use_rf_init": True,
-    "bos_idx": 1,
-    "eos_idx": 0,
+    # "text_out_dim": 41,  # this is set later
 }
 
-v2 = {
-    "aux_loss_layers": (4, 8),
-    "num_enc_layers": 12,
-    "num_dec_layers": 6,
+audio_text_v2 = {
+    "aux_loss_layers": (),
+    "num_enc_layers": 6,
+    "num_text_dec_layers": 3,
+    "num_audio_dec_layers": 3,
     "num_heads": 8,
     "model_dim": 512,
-    "out_dim": 10_240,
-    "sampling_rate": 16_000,
-    "share_embedding": True,
-    "specaug_start": (5_000, 15_000, 25_000),
-    "use_rf_init": True,
-    "bos_idx": 1,
-    "eos_idx": 0,
-    "feature_extraction_config": {
-        "class": "LogMelFeatureExtractionV1",
-        "win_size": 0.025,
-        "hop_size": 0.01,
-        "f_min": 60,
-        "f_max": 7600,
-        "min_amp": 1e-10,
-        "num_filters": 80,
-        "center": False,
-    }
+}
+
+audio_v1 = {
+    "aux_loss_layers": (),
+    "num_enc_layers": 6,
+    "num_text_dec_layers": 0,
+    "num_audio_dec_layers": 3,
+    "num_heads": 8,
+    "model_dim": 512,
+    # "text_out_dim": 41,  # this is set later
+}
+
+audio_v2 = {
+    "aux_loss_layers": (),
+    "num_enc_layers": 4,
+    "num_text_dec_layers": 0,
+    "num_audio_dec_layers": 2,
+    "num_heads": 8,
+    "model_dim": 512,
+}
+
+audio_v3 = {
+    "aux_loss_layers": (),
+    "num_enc_layers": 4,
+    "num_text_dec_layers": 0,
+    "num_audio_dec_layers": 2,
+    "num_heads": 8,
+    "model_dim": 512,
+    "audio_decoder_prenet": "linear",
+    "audio_decoder_postnet": "conv_res",
+}
+
+discrete_audio_v1 = {
+    "aux_loss_layers": (),
+    "num_enc_layers": 4,
+    "num_dec_layers": 2,
+    "num_heads": 8,
+    "model_dim": 512,
+}
+
+text_v1 = {
+    "aux_loss_layers": (),
+    "num_enc_layers": 6,
+    "num_text_dec_layers": 3,
+    "num_audio_dec_layers": 0,
+    "num_heads": 8,
+    "model_dim": 512,
+    # "text_out_dim": 41,  # this is set later
 }

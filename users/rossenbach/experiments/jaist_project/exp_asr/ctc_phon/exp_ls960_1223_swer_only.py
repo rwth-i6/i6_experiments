@@ -304,5 +304,5 @@ def eow_phon_ls960_1023_swer_only():
                     checkpoint=checkpoint,
                     search_args=search_args_fast_v1,
                     prior_file=prior_file,
-                    store_system_with_name="ls960eow_phon_ctc_50eps_fastsearch",
+                    # store_system_with_name="ls960eow_phon_ctc_50eps_fastsearch",
                 )

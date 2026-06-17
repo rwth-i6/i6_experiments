@@ -434,9 +434,9 @@ def prepare_asr_model(
             returnn_root=MINI_RETURNN_ROOT,
         )
         tk.register_output(training_name + "/prior.txt", prior_file)
-    else:
-        if prior_config is not None:
-            raise ValueError("prior_config can only be set if with_prior is True")
+    # else:
+    #     if prior_config is not None:
+    #         raise ValueError("prior_config can only be set if with_prior is True")
 
     if split_preparation:
         assert split_args is not None

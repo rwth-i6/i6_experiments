@@ -256,9 +256,11 @@ def rnnt_bpe_ls100_low_vocab0824():
             training_name, train_job, train_args_11gb_frontendfix, with_prior=False,
             datasets=train_data_bpe, get_specific_checkpoint=300
         )
-        evaluate_helper(
-            training_name + "/keep_%i" % 300,
-            asr_model,
-            decoder_config,
-            use_gpu=True,
-        )
+        for beam_size in [1,4,8,12,16]:
+            evaluate_helper(
+                training_name + "/keep_%i" % 300,
+                asr_model,
+                decoder_config,
+                use_gpu=True,
+                beam_size=beam_size
+            )

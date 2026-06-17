@@ -229,6 +229,7 @@ def eow_phon_ls960_relposencoder_0924_base():
     asr_model.returnn_vocab = label_datastream.vocab
     asr_model.settings = train_settings
     asr_model.label_datastream = label_datastream
+    asr_model.lexicon = get_text_lexicon()
     add_ctc_model(network_module + ".eow_phon.512dim_sub4_24gbgpu_100eps_sp_lp_fullspec_gradnorm_lr07_work8", asr_model)
 
 

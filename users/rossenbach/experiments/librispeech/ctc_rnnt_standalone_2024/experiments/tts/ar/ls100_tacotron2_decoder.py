@@ -190,7 +190,6 @@ def run_tacotron2_decoder_tts():
 
     run_exp(prefix + "/" + net_module + "_fromglow_v1", train_args=train_args, target_durations=duration_hdf, num_epochs=200)
 
-    return
     # generate_synthetic(prefix, net_module + "_fromglow_v1_syn", "train-clean-100",
     #                    train.out_checkpoints[200], params, net_module,
     #                    extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
@@ -234,72 +233,74 @@ def run_tacotron2_decoder_tts():
     #                    extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
     #                    decoder_options=decoder_options_synthetic, debug=True)
 
-    config_400eps = copy.deepcopy(config)
-    config_400eps["learning_rates"] = list(np.linspace(5e-5, 5e-4, 100)) + list(np.linspace(5e-4, 5e-7, 300))
-    #train, forward = run_exp(net_module + "_fromglowbase256_400eps_v1", params, net_module, config_400eps,
-    #                         extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True, num_epochs=400)
+    train_args_400eps = copy.deepcopy(train_args)
+    train_args_400eps["config"]["learning_rates"] = list(np.linspace(5e-5, 5e-4, 100)) + list(np.linspace(5e-4, 5e-7, 300))
+    train = run_exp(net_module + "_fromglowbase256_400eps_v1",  train_args=train_args_400eps, target_durations=duration_hdf, num_epochs=400)
+    train.rqmt["gpu_mem"] = 48
+    #train.hold()
+    #train.move_to_hpc = True
 
-    train, forward = tts_training(prefix, net_module + "_fromglowbase256_400eps_v1", params, net_module, config_400eps,
-                                  extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True, num_epochs=400, evaluate_swer="ls960eow_phon_ctc_50eps_fastsearch")
-
-
-    # Spectrogram plot job
-    decoder_options_gl32_plot = copy.deepcopy(decoder_options_synthetic_gl32)
-    decoder_options_gl32_plot["create_plots"] = True
-    decoder_options_gl32_plot["store_log_mels"] = True
-    cross_validation_nisqa(prefix,
-                           net_module + "_fromglowbase256_400eps_v1/plot_export",
-                           params, net_module, checkpoint=train.out_checkpoints[400],
-                           decoder_options=decoder_options_gl32_plot, extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder")
+    # train, forward = tts_training(prefix, net_module + "_fromglowbase256_400eps_v1", params, net_module, config_400eps,
+    #                               extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True, num_epochs=400, evaluate_swer="ls960eow_phon_ctc_50eps_fastsearch")
 
 
-    generate_synthetic(prefix, net_module + "_fromglowbase256_400eps_v1_syn", "train-clean-100",
-                           train.out_checkpoints[400], params, net_module,
-                           extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
-                           decoder_options=decoder_options_synthetic, debug=True)
-
-    # with gl32
-    generate_synthetic(prefix, net_module + "_fromglowbase256_400eps_gl32_syn", "train-clean-100",
-                       train.out_checkpoints[400], params, net_module,
-                       extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
-                       decoder_options=decoder_options_synthetic_gl32, debug=True)
-
-    generate_synthetic(prefix, net_module + "_fromglowbase256_400eps_gl32_syn_fixspk", "train-clean-100",
-                       train.out_checkpoints[400], params, net_module,
-                       extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
-                       decoder_options=decoder_options_synthetic, debug=True, randomize_speaker=False)
-
-    generate_synthetic(prefix, net_module + "_fromglowbase256_400eps_gl32_syn", "train-clean-360",
-                       train.out_checkpoints[400], params, net_module,
-                       extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
-                       decoder_options=decoder_options_synthetic, debug=True, use_subset=True)
-
-    generate_synthetic(prefix, net_module + "_fromglowbase256_400eps_gl32_syn", "train-clean-360",
-                       train.out_checkpoints[400], params, net_module,
-                       extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
-                       decoder_options=decoder_options_synthetic, debug=True)
+    # # Spectrogram plot job
+    # decoder_options_gl32_plot = copy.deepcopy(decoder_options_synthetic_gl32)
+    # decoder_options_gl32_plot["create_plots"] = True
+    # decoder_options_gl32_plot["store_log_mels"] = True
+    # cross_validation_nisqa(prefix,
+    #                        net_module + "_fromglowbase256_400eps_v1/plot_export",
+    #                        params, net_module, checkpoint=train.out_checkpoints[400],
+    #                        decoder_options=decoder_options_gl32_plot, extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder")
 
 
+    # generate_synthetic(prefix, net_module + "_fromglowbase256_400eps_v1_syn", "train-clean-100",
+    #                        train.out_checkpoints[400], params, net_module,
+    #                        extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
+    #                        decoder_options=decoder_options_synthetic, debug=True)
 
-    # large model
-    model_config_large = copy.deepcopy(model_config)
-    model_config_large.encoder_config.prenet_config.input_embedding_size = 320
-    model_config_large.encoder_config.prenet_config.hidden_dimension = 320
-    model_config_large.encoder_config.prenet_config.output_dimension = 320
-    model_config_large.encoder_config.basic_dim = 320
-    model_config_large.encoder_config.conv_dim = 1280
-    model_config_large.encoder_config.mhsa_config.input_dim = 320
-    model_config_large.duration_predictor_config.hidden_dim = 512
-    model_config_large.decoder_config.dunits = 1280
-    model_config_large.decoder_config.prenet_units = 320
-    model_config_large.decoder_config.postnet_chans = 640
-    params_large = {
-        "config": asdict(model_config_large)
-    }
-    train, forward = tts_training(prefix, net_module + "_base320_fromglowbase256_400eps_v1", params_large, net_module, config_400eps,
-                                  extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True, num_epochs=400, evaluate_swer="ls960eow_phon_ctc_50eps_fastsearch")
-    
-    generate_synthetic(prefix, net_module + "_base320_fromglowbase256_400eps_gl32_syn", "train-clean-360",
-                       train.out_checkpoints[400], params_large, net_module,
-                       extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
-                       decoder_options=decoder_options_synthetic, debug=True, use_subset=True)
+    # # with gl32
+    # generate_synthetic(prefix, net_module + "_fromglowbase256_400eps_gl32_syn", "train-clean-100",
+    #                    train.out_checkpoints[400], params, net_module,
+    #                    extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
+    #                    decoder_options=decoder_options_synthetic_gl32, debug=True)
+
+    # generate_synthetic(prefix, net_module + "_fromglowbase256_400eps_gl32_syn_fixspk", "train-clean-100",
+    #                    train.out_checkpoints[400], params, net_module,
+    #                    extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
+    #                    decoder_options=decoder_options_synthetic, debug=True, randomize_speaker=False)
+
+    # generate_synthetic(prefix, net_module + "_fromglowbase256_400eps_gl32_syn", "train-clean-360",
+    #                    train.out_checkpoints[400], params, net_module,
+    #                    extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
+    #                    decoder_options=decoder_options_synthetic, debug=True, use_subset=True)
+
+    # generate_synthetic(prefix, net_module + "_fromglowbase256_400eps_gl32_syn", "train-clean-360",
+    #                    train.out_checkpoints[400], params, net_module,
+    #                    extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
+    #                    decoder_options=decoder_options_synthetic, debug=True)
+
+
+
+    # # large model
+    # model_config_large = copy.deepcopy(model_config)
+    # model_config_large.encoder_config.prenet_config.input_embedding_size = 320
+    # model_config_large.encoder_config.prenet_config.hidden_dimension = 320
+    # model_config_large.encoder_config.prenet_config.output_dimension = 320
+    # model_config_large.encoder_config.basic_dim = 320
+    # model_config_large.encoder_config.conv_dim = 1280
+    # model_config_large.encoder_config.mhsa_config.input_dim = 320
+    # model_config_large.duration_predictor_config.hidden_dim = 512
+    # model_config_large.decoder_config.dunits = 1280
+    # model_config_large.decoder_config.prenet_units = 320
+    # model_config_large.decoder_config.postnet_chans = 640
+    # params_large = {
+    #     "config": asdict(model_config_large)
+    # }
+    # train, forward = tts_training(prefix, net_module + "_base320_fromglowbase256_400eps_v1", params_large, net_module, config_400eps,
+    #                               extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True, num_epochs=400, evaluate_swer="ls960eow_phon_ctc_50eps_fastsearch")
+    #
+    # generate_synthetic(prefix, net_module + "_base320_fromglowbase256_400eps_gl32_syn", "train-clean-360",
+    #                    train.out_checkpoints[400], params_large, net_module,
+    #                    extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
+    #                    decoder_options=decoder_options_synthetic, debug=True, use_subset=True)

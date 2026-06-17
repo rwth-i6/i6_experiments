@@ -1,0 +1,370 @@
+import copy
+import numpy as np
+from sisyphus import tk
+from dataclasses import asdict
+
+from i6_core.returnn.oggzip import BlissToOggZipJob
+from i6_core.corpus.convert import CorpusReplaceOrthFromReferenceCorpus
+
+from i6_experiments.common.setups.returnn.datastreams.audio import DBMelFilterbankOptions
+from i6_experiments.users.rossenbach.tts.speaker_embedding import ResemblyzerEmbeddingHDFFromBliss
+
+from ....config import get_forward_config
+from ....pipeline import training, prepare_tts_model, TTSModel, tts_eval_v2, extract_durations
+from ....data.tts.tts_phon import get_tts_log_mel_datastream, build_durationtts_training_dataset
+from ....data.tts.tts_phon import build_dynamic_speakers_generating_dataset
+from ....data.common import get_bliss_corpus_dict
+from ....data.tts.tts_phon import get_tts_extended_bliss, get_tts_bliss_and_zip, GeneratingDataset
+
+from ....default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
+from ....storage import vocoders, duration_alignments, add_synthetic_data
+
+
+def run_fastspeech_tts():
+    """
+    """
+
+    prefix = "experiments/loquacious/standalone_2025/tts/nar/fastspeech_like/"
+
+    log_mel_datastream = get_tts_log_mel_datastream(loq_corpus_key="train.small", silence_preprocessed=False)
+
+    # verify that normalization exists
+    assert "norm_mean" in log_mel_datastream.additional_options
+    assert "norm_std_dev" in log_mel_datastream.additional_options
+
+    norm = (log_mel_datastream.additional_options["norm_mean"], log_mel_datastream.additional_options["norm_std_dev"])
+
+    loq_bliss = get_bliss_corpus_dict()["train.small"]
+    speaker_embedding_hdf = ResemblyzerEmbeddingHDFFromBliss(loq_bliss).out_speaker_hdf
+    training_datasets = build_durationtts_training_dataset(
+        duration_hdf=duration_alignments["base"],
+        loq_corpus_key="train.small",
+        partition_epoch=1,
+        dynamic_speaker_embeddings=speaker_embedding_hdf,
+        dynamic_speaker_embedding_size=256,
+    )
+    
+    def run_exp(name, train_args, num_epochs=100):
+        train_job = training(
+            training_name=prefix + name,
+            datasets=training_datasets,
+            train_args=train_args,
+            returnn_exe=RETURNN_EXE,
+            returnn_root=MINI_RETURNN_ROOT,
+            num_epochs=num_epochs,
+        )
+        return train_job
+
+    def synthesize_dataset(
+            name,
+            tts_model: TTSModel,
+            decoder,
+            decoder_options,
+            corpus_name: str,
+            dataset: GeneratingDataset,
+            cpu_rqmt=10,
+            use_gpu=True,
+            local_prefix=None,
+            seed=None,
+    ):
+        if local_prefix is None:
+            local_prefix = prefix
+        forward_config = get_forward_config(
+            network_module=tts_model.network_module,
+            net_args=tts_model.net_args,
+            decoder=decoder,
+            decoder_args=decoder_options,
+            config={
+                "forward": dataset.split_datasets[0].as_returnn_opts()
+            },
+            debug=False,
+        )
+        # this is now characters!
+        forward_config.config["batch_size"] = 10000
+        forward_config.config["max_seqs"] = 8
+        forward_config.config["torch_amp_options"] = {"dtype": "bfloat16"}
+        if seed is not None:
+            forward_config.config["random_seed"] = seed
+        forward_job = tts_eval_v2(
+            prefix_name=local_prefix + "/" + tts_model.prefix_name + "/" + name,
+            returnn_config=forward_config,
+            checkpoint=tts_model.checkpoint,
+            returnn_exe=RETURNN_EXE,
+            returnn_root=MINI_RETURNN_ROOT,
+            mem_rqmt=12,
+            cpu_rqmt=cpu_rqmt,
+            use_gpu=use_gpu,
+        )
+        forward_job.rqmt["gpu_mem"] = 48
+        forward_job.add_alias(local_prefix + "/" + tts_model.prefix_name + "/" + name + "/forward")
+        tk.register_output(local_prefix + "/" + tts_model.prefix_name + "/" + name + "/audio_files",
+                           forward_job.out_files["audio_files"])
+        corpus = forward_job.out_files["out_corpus.xml.gz"]
+        from i6_experiments.users.rossenbach.corpus.transform import MergeCorporaWithPathResolveJob, MergeStrategy
+        realpath_corpus = MergeCorporaWithPathResolveJob(bliss_corpora=[corpus],
+                                                         name=corpus_name,
+                                                         # important to keep the original sequence names for matching later
+                                                         merge_strategy=MergeStrategy.FLAT
+                                                         )
+        return realpath_corpus.out_merged_corpus
+
+
+    net_module = "nar_tts.fastspeech_like.fastspeech_like_v2"
+
+    from ....pytorch_networks.nar_tts.fastspeech_like.fastspeech_like_v2 import (
+        DbMelFeatureExtractionConfig,
+        FastSpeechDecoderConfig,
+        TTSTransformerTextEncoderV2Config,
+        GlowTTSMultiHeadAttentionV1Config,
+        SimpleConvDurationPredictorV1Config,
+        Config
+    )
+    from ....pytorch_networks.tts_shared.encoder.prenet import TTSEncoderPreNetV1Config
+
+    assert isinstance(log_mel_datastream.options.feature_options, DBMelFilterbankOptions)
+    fe_config = DbMelFeatureExtractionConfig(
+        sample_rate=log_mel_datastream.options.sample_rate,
+        win_size=log_mel_datastream.options.window_len,
+        hop_size=log_mel_datastream.options.step_len,
+        f_min=log_mel_datastream.options.feature_options.fmin,
+        f_max=log_mel_datastream.options.feature_options.fmax,
+        min_amp=log_mel_datastream.options.feature_options.min_amp,
+        num_filters=log_mel_datastream.options.num_feature_filters,
+        center=log_mel_datastream.options.feature_options.center,
+        norm=norm
+    )
+
+    prenet_config = TTSEncoderPreNetV1Config(
+        input_embedding_size=256,
+        hidden_dimension=256,
+        kernel_size=5,
+        num_layers=3,
+        dropout=0.5,
+        output_dimension=256,
+    )
+    mhsa_config = GlowTTSMultiHeadAttentionV1Config(
+        input_dim=256,
+        num_att_heads=2,
+        dropout=0.1,
+        att_weights_dropout=0.1,
+        window_size=4,  # one-sided, so technically 9
+        heads_share=True,
+    )
+    encoder_config = TTSTransformerTextEncoderV2Config(
+        num_layers=6,
+        vocab_size=training_datasets.datastreams["phonemes"].vocab_size,
+        basic_dim=256,
+        conv_dim=1024,
+        conv_kernel_size=3,
+        dropout=0.1,
+        mhsa_config=mhsa_config,
+        prenet_config=prenet_config,
+        combine_speaker_embedding_at_layer=3,
+    )
+    duration_predictor_config = SimpleConvDurationPredictorV1Config(
+        num_convs=2,
+        hidden_dim=384,
+        kernel_size=3,
+        dropout=0.1,
+    )
+
+    mhsa_decoder_config = GlowTTSMultiHeadAttentionV1Config(
+        input_dim=256,
+        num_att_heads=2,
+        dropout=0.1,
+        att_weights_dropout=0.1,
+        window_size=16,  # one-sided, so technically 9
+        heads_share=True,
+    )
+
+    decoder_config = FastSpeechDecoderConfig(
+        target_channels=log_mel_datastream.options.num_feature_filters,
+        basic_dim=256,
+        conv_dim=1024,
+        conv_kernel_size=3,
+        num_layers=6,
+        dropout=0.1,
+        mhsa_config=mhsa_decoder_config,
+    )
+
+    model_config = Config(
+        speaker_embedding_size=256,
+        num_speakers=251,
+        encoder_config=encoder_config,
+        decoder_config=decoder_config,
+        duration_predictor_config=duration_predictor_config,
+        feature_extraction_config=fe_config,
+    )
+
+    vocoder = vocoders["blstm_gl_v1"]
+    decoder_options_base = {
+        "norm_mean": norm[0],
+        "norm_std_dev": norm[1],
+        "gl_net_checkpoint": vocoder.checkpoint,
+        "gl_net_config": vocoder.config,
+    }
+
+    decoder_options = copy.deepcopy(decoder_options_base)
+    decoder_options["glowtts_noise_scale"] = 0.3
+
+    decoder_options_synthetic = copy.deepcopy(decoder_options)
+    decoder_options_synthetic["glowtts_noise_scale"] = 0.7
+    decoder_options_synthetic["gl_momentum"] = 0.99
+    decoder_options_synthetic["gl_iter"] = 32
+    decoder_options_synthetic["create_plots"] = False
+    
+    config = {
+        "cleanup_old_models": {
+            "keep_last_n": 4,
+            "keep_best_n": 1,
+            "keep": [100, 200, 300, 400]
+        },  # overwrite default
+        "optimizer": {"class": "adam", "epsilon": 1e-9},
+        "learning_rates": list(np.linspace(5e-5, 5e-4, 100)) + list(np.linspace(5e-4, 5e-7, 300)),
+        "gradient_clip_norm": 2.0,
+        #############
+        "batch_size": 600 * 16000,
+        "max_seq_length": {"audio_features": 30 * 16000},
+        "max_seqs": 200,
+        "torch_amp_options": {"dtype": "bfloat16"},
+    }
+
+    train_args = {
+        "network_module": net_module,
+        "net_args": {"config": asdict(model_config)},
+        "config": config,
+        "debug": True,
+    }
+    
+    train_name = "train.small_" + net_module + "_glowttsv2align_400eps"
+
+    train_job = run_exp(train_name, train_args=train_args, num_epochs=400)
+    train_job.rqmt["gpu_mem"] = 48
+    #train_job.hold()
+    #train_job.move_to_hpc = True
+
+    tts_model = prepare_tts_model(train_name, train_job, train_args, get_specific_checkpoint=400)
+
+    train_small_tts_bliss = get_tts_extended_bliss(loq_corpus_key="train.small",
+                                                   lexicon_loq_corpus_key="train.small")
+    train_medium_wo_small_tts_bliss = get_tts_extended_bliss(loq_corpus_key="train.medium-wo-small",
+                                                   lexicon_loq_corpus_key="train.medium")
+    train_small_bliss = get_bliss_corpus_dict()["train.small"]
+    train_medium_wo_small_bliss = get_bliss_corpus_dict()["train.medium-wo-small"]
+
+
+    syn_name = "train.small_shuffled_syn"
+    dataset_part = build_dynamic_speakers_generating_dataset(
+        text_bliss=train_small_tts_bliss,
+        speaker_embedding_hdf=speaker_embedding_hdf,
+        speaker_embedding_size=256,
+        num_splits=1,
+        distribute_speakers=True,
+        loq_corpus_key="train.small",
+    )
+    result_corpus = synthesize_dataset(
+        syn_name,
+        tts_model=tts_model,
+        decoder="nar_tts.fastspeech_like.simple_gl_decoder",
+        decoder_options=decoder_options_synthetic,
+        corpus_name="loquacious-train-small",
+        dataset=dataset_part,
+    )
+
+    merged_corpus_with_text = CorpusReplaceOrthFromReferenceCorpus(
+        bliss_corpus=result_corpus,
+        reference_bliss_corpus=train_small_bliss,
+    ).out_corpus
+    tk.register_output(prefix + "/" + train_name + "/" + "generated_synthetic/train-small-shuffled-speakers.xml.gz",
+                       merged_corpus_with_text)
+
+    ogg_zip_job = BlissToOggZipJob(
+        bliss_corpus=merged_corpus_with_text,
+        no_conversion=True,
+        returnn_python_exe=RETURNN_EXE,
+        returnn_root=MINI_RETURNN_ROOT,
+    )
+    ogg_zip_job.rqmt = {"cpu": 1, "mem": 4, "time": 4}
+    add_synthetic_data(
+        train_name + "_train-small-shuffled",
+        ogg_zip=ogg_zip_job.out_ogg_zip,
+        bliss=merged_corpus_with_text,
+    )
+
+    # static
+    syn_name = "train.small_static_syn"
+    dataset_part = build_dynamic_speakers_generating_dataset(
+        text_bliss=train_small_tts_bliss,
+        speaker_embedding_hdf=speaker_embedding_hdf,
+        speaker_embedding_size=256,
+        num_splits=1,
+        distribute_speakers=False,
+        loq_corpus_key="train.small",
+    )
+    result_corpus = synthesize_dataset(
+        syn_name,
+        tts_model=tts_model,
+        decoder="nar_tts.fastspeech_like.simple_gl_decoder",
+        decoder_options=decoder_options_synthetic,
+        corpus_name="loquacious-train-small",
+        dataset=dataset_part,
+    )
+
+    merged_corpus_with_text = CorpusReplaceOrthFromReferenceCorpus(
+        bliss_corpus=result_corpus,
+        reference_bliss_corpus=train_small_bliss,
+    ).out_corpus
+    tk.register_output(prefix + "/" + train_name + "/" + "generated_synthetic/train-small-static-speakers.xml.gz",
+                       merged_corpus_with_text)
+
+    ogg_zip_job = BlissToOggZipJob(
+        bliss_corpus=merged_corpus_with_text,
+        no_conversion=True,
+        returnn_python_exe=RETURNN_EXE,
+        returnn_root=MINI_RETURNN_ROOT,
+    )
+    ogg_zip_job.rqmt = {"cpu": 1, "mem": 4, "time": 4}
+    add_synthetic_data(
+        train_name + "_train-small-static",
+        ogg_zip=ogg_zip_job.out_ogg_zip,
+        bliss=merged_corpus_with_text,
+    )
+
+    # medium-wo-small
+    syn_name = "train.medium-wo-small_shuffled_syn"
+    dataset_part = build_dynamic_speakers_generating_dataset(
+        text_bliss=train_medium_wo_small_tts_bliss,
+        speaker_embedding_hdf=speaker_embedding_hdf,
+        speaker_embedding_size=256,
+        num_splits=1,
+        distribute_speakers=True,
+        loq_corpus_key="train.medium-wo-small",
+    )
+    result_corpus = synthesize_dataset(
+        syn_name,
+        tts_model=tts_model,
+        decoder="nar_tts.fastspeech_like.simple_gl_decoder",
+        decoder_options=decoder_options_synthetic,
+        corpus_name="loquacious-train-medium-wo-small",
+        dataset=dataset_part,
+    )
+
+    merged_corpus_with_text = CorpusReplaceOrthFromReferenceCorpus(
+        bliss_corpus=result_corpus,
+        reference_bliss_corpus=train_medium_wo_small_bliss,
+    ).out_corpus
+    tk.register_output(prefix + "/" + train_name + "/" + "generated_synthetic/train-medium-wo-small-shuffled-speakers.xml.gz",
+                       merged_corpus_with_text)
+
+    ogg_zip_job = BlissToOggZipJob(
+        bliss_corpus=merged_corpus_with_text,
+        no_conversion=True,
+        returnn_python_exe=RETURNN_EXE,
+        returnn_root=MINI_RETURNN_ROOT,
+    )
+    ogg_zip_job.rqmt = {"cpu": 1, "mem": 4, "time": 4}
+    add_synthetic_data(
+        train_name + "_train-medium-wo-small-shuffled",
+        ogg_zip=ogg_zip_job.out_ogg_zip,
+        bliss=merged_corpus_with_text,
+    )

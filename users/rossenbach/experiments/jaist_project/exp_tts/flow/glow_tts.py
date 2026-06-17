@@ -461,6 +461,14 @@ def run_flow_tts():
                                           extra_decoder="glow_tts.simple_gl_decoder",
                                           decoder_options=decoder_options_gl32, debug=True)
 
+
+
+    # take this final settings and do noise ablation again
+
+
+
+
+
     # run this by accident, so keep it
     decoder_options_half_gl64 = copy.deepcopy(decoder_options_synthetic)
     decoder_options_half_gl64["gl_momentum"] = 0.99

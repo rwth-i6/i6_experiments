@@ -212,7 +212,9 @@ def rnnt_bpe_ls960_1023_low_bpe_from_scratch():
         }
 
 
-        if BPE_SIZE == 128 or BPE_SIZE == 1024:
+        # 1024 crashed
+        #if BPE_SIZE == 128 or BPE_SIZE == 1024:
+        if BPE_SIZE == 128:
             # Better and more efficient
             train_args_11gb_no_accum = copy.deepcopy(train_args_11gb)
             train_args_11gb_no_accum["config"]["accum_grad_multiple_step"] = 1

@@ -201,6 +201,38 @@ def bpe_ls960_0924_relposencoder():
             test_dataset_tuples={**dev_dataset_tuples, **test_dataset_tuples},
             **default_returnn,
         )
+        
+    def greedy_search_helper_v2(
+            training_name: str,
+            asr_model: ASRModel,
+            decoder_config: GreedyDecoderConfig,
+            dev_dataset_tuples,
+            test_dataset_tuples,
+            forward_config = None,
+            use_dynamic_quant = False,
+            debug=False,
+        ):
+        # remove prior if exists
+        asr_model = copy.deepcopy(asr_model)
+        asr_model.prior_file = None
+
+        search_name = training_name + "/search_greedy"
+        if isinstance(use_dynamic_quant, str):
+            decoder_module = use_dynamic_quant
+        else:
+            decoder_module = "ctc.decoder.greedy_bpe_ctc_v3_dynamic_quant" if use_dynamic_quant else "ctc.decoder.greedy_bpe_ctc_v3"
+
+        search_jobs, wers = search(
+            search_name,
+            forward_config={} if forward_config is None else forward_config,
+            asr_model=asr_model,
+            decoder_module=decoder_module,
+            decoder_args={"config": asdict(decoder_config)},
+            test_dataset_tuples={**dev_dataset_tuples, **test_dataset_tuples},
+            debug=debug,
+            **default_returnn,
+        )
+        return search_jobs
 
     # for BPE_SIZE in [0, 128, 512]:
     for BPE_SIZE in [128]:
@@ -292,6 +324,60 @@ def bpe_ls960_0924_relposencoder():
         )
         tune_and_evaluate_helper(training_name, dev_dataset_tuples, test_dataset_tuples, asr_model, default_decoder_config_bpe, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4])
         greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
+
+        search_jobs = greedy_search_helper_v2(
+            training_name + "/RTF_TEST_CPU8",
+            asr_model=asr_model,
+            decoder_config=greedy_decoder_config,
+            dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
+            test_dataset_tuples={},
+            forward_config={"seed": 1}
+        )
+        search_jobs[0].rqmt["sbatch_args"] = f"-p rescale_amd -A rescale_speed"
+        search_jobs = greedy_search_helper_v2(
+            training_name + "/RTF_DYNAMIC_QUANT_TEST_CPU8",
+            asr_model=asr_model,
+            decoder_config=greedy_decoder_config,
+            dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
+            test_dataset_tuples={},
+            forward_config={"seed": 1},
+            use_dynamic_quant=True,
+        )
+        search_jobs[0].rqmt["sbatch_args"] = f"-p rescale_amd -A rescale_speed"
+
+
+        search_jobs = greedy_search_helper_v2(
+            training_name + "/RTF_TEST_CPU2",
+            asr_model=asr_model,
+            decoder_config=greedy_decoder_config,
+            dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
+            test_dataset_tuples={},
+            forward_config={"seed": 2}
+        )
+        search_jobs[0].rqmt["sbatch_args"] = f"-p rescale_amd -A rescale_speed"
+        search_jobs[0].rqmt["cpu"] = 2
+        search_jobs = greedy_search_helper_v2(
+            training_name + "/RTF_DYNAMIC_QUANT_TEST_CPU2",
+            asr_model=asr_model,
+            decoder_config=greedy_decoder_config,
+            dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
+            test_dataset_tuples={},
+            forward_config={"seed": 2},
+            use_dynamic_quant=True,
+        )
+        search_jobs[0].rqmt["sbatch_args"] = f"-p rescale_amd -A rescale_speed"
+        search_jobs[0].rqmt["cpu"] = 2
+        
+        search_jobs = greedy_search_helper_v2(
+            training_name + "/quant_linear_selection_debug",
+            asr_model=asr_model,
+            decoder_config=greedy_decoder_config,
+            dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
+            test_dataset_tuples={},
+            forward_config={"seed": 3},
+            use_dynamic_quant="ctc.decoder.greedy_bpe_ctc_v4_dynamic_quant",
+            debug=True,
+        )
 
 
         # LM STUFF HERE

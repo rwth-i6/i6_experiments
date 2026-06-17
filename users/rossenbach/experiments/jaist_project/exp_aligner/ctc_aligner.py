@@ -166,7 +166,6 @@ def get_ctc_alignment():
     local_config["batch_size"] = 28000 * samples_per_frame
     train, duration_hdf = run_exp(net_module + "_tfstyle_v2", params, net_module, local_config, debug=True,
                            v2=True)
-    # train.hold()
 
     add_duration(net_module + "_tfstyle_v2", duration_hdf)
     
@@ -175,31 +174,8 @@ def get_ctc_alignment():
     local_config["optimizer"] = {"class": "adamw", "epsilon": 1e-8, "weight_decay": 1e-4}
     local_config["accum_grad_multiple_step"] = 2
     local_config["max_seq_length"] = {"audio_features": 3000 * samples_per_frame}
-    # local_config["torch_amp_options"] = {"dtype": "bfloat16"}
     local_config["batch_size"] = 28000 * samples_per_frame
     train, duration_hdf = run_exp(net_module + "_tfstyle_v2_fulllength", params, net_module, local_config, debug=True,
                            v2=True)
-    # train.hold()
 
     add_duration(net_module + "_tfstyle_v2_fullength", duration_hdf)
-    
-    #duration_hdf = run_exp(net_module + "_tfstyle_v2_prior0.3", params, net_module, local_config, debug=True,
-    #                       v2=True, with_prior=0.3)
-    #add_duration(net_module + "_tfstyle_v2_prior0.3", duration_hdf)
-
-
-     # local_config = copy.deepcopy(config)
-     # local_config["optimizer"] = {"class": "adamw", "epsilon": 1e-8, "weight_decay": 1e-4}
-     # local_config["accum_grad_multiple_step"] = 2
-     # local_config["max_seq_length"] = {"audio_features": 3000 * samples_per_frame}
-     # # local_config["torch_amp_options"] = {"dtype": "bfloat16"}
-     # local_config["batch_size"] = 28000 * samples_per_frame
-     # train, duration_hdf = run_exp(net_module + "_tfstyle_v2_fulllength", params, net_module, local_config, debug=True,
-     #                        v2=True)
-     # # train.hold()
-
-     # add_duration(net_module + "_tfstyle_v2_fullength", duration_hdf)
-
-
-
-    ##################################

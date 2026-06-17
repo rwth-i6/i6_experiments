@@ -1,5 +1,5 @@
 import os.path
-from typing import Iterator
+from typing import Iterator, Optional
 
 from sisyphus import Job, Task, tk
 import enum
@@ -114,7 +114,9 @@ class RandomAssignSpeakersFromCorpus(Job):
     Used e.g. for synthetic TTS data
     """
 
-    def __init__(self, bliss_corpus: tk.Path, speaker_reference_bliss_corpus: tk.Path, seed: int = 42):
+    __sis_hash_exclude__ = {"limit_speakers_to": None}
+
+    def __init__(self, bliss_corpus: tk.Path, speaker_reference_bliss_corpus: tk.Path, seed: int = 42, limit_speakers_to: Optional[int] = None):
         """
 
         :param bliss_corpus: bliss corpus to assign speakers to
@@ -124,6 +126,7 @@ class RandomAssignSpeakersFromCorpus(Job):
         self.bliss_corpus = bliss_corpus
         self.speaker_reference_bliss_corpus = speaker_reference_bliss_corpus
         self.seed = seed
+        self.limit_speakers_to = limit_speakers_to
 
         self.out_corpus = self.output_path("corpus.xml.gz")
 
@@ -143,6 +146,10 @@ class RandomAssignSpeakersFromCorpus(Job):
         out_corpus.speakers = speaker_corpus.speakers
         speaker_name_list = list(out_corpus.speakers.keys())
         num_speakers = len(speaker_name_list)
+
+        if self.limit_speakers_to:
+            np.random.shuffle(speaker_name_list)
+            num_speakers = self.limit_speakers_to
 
         for recording in out_corpus.all_recordings():
             recording.speaker_name = None

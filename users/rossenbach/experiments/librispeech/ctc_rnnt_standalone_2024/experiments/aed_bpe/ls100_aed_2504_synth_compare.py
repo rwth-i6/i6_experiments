@@ -122,7 +122,7 @@ def aed_bpe_ls100_2504_synth_compare():
             asr_model = copy.deepcopy(asr_model)
             asr_model.prior_file = None
 
-            search_name = training_name + "/search_bs"
+            search_name = training_name + "/search_bs_%i" % decoder_config.beam_search_opts.beam_size
             search_jobs, wers = search(
                 search_name,
                 forward_config={"max_seqs": 20} if seed is None else {"max_seqs": 20, "seed": seed},
@@ -355,7 +355,7 @@ def aed_bpe_ls100_2504_synth_compare():
         ]
 
         for synth_key in synth_keys:
-            name = ".512dim_sub6_work4_100eps/combine_3to1_synth_partition12/" + synth_key
+            name = ".512dim_sub6_work4_100eps/combine_3to1_synth_partition3/" + synth_key
             synth_ogg = synthetic_ogg_zip_data[synth_key]  # bliss and zip, so take zip
             train_data_bpe = build_bpe_training_datasets(
                 prefix=prefix_name,
@@ -390,7 +390,7 @@ def aed_bpe_ls100_2504_synth_compare():
         # do it again with correct partition
 
         for synth_key in synth_keys:
-            name = ".512dim_sub6_work4_100eps/combine_3to1_synth_partition3/" + synth_key
+            name = ".512dim_sub6_work4_100eps/combine_3to1_synth_partition12/" + synth_key
             synth_ogg = synthetic_ogg_zip_data[synth_key]  # bliss and zip, so take zip
             train_data_bpe = build_bpe_training_datasets(
                 prefix=prefix_name,
@@ -421,4 +421,129 @@ def aed_bpe_ls100_2504_synth_compare():
                 decoder_config=bs_decoder_config,
                 use_gpu=True,
             )
+
+
+        # LM only from scratch not continued
+        for num_datasets in [1, 5, 10, 20]:
+            name = ".512dim_sub6_work4_100eps/only_lm_data/with_%i_datasets" % num_datasets
+
+            synth_oggs = []
+            for i in range(num_datasets):
+                synth_bliss, synth_ogg = get_synthetic_data("glowtts460_lm_data_%i" % i)
+                synth_oggs.append(synth_ogg)
+
+            train_data_bpe = build_bpe_training_datasets(
+                prefix=prefix_name,
+                librispeech_key="train-clean-100",
+                bpe_size=BPE_SIZE,
+                settings=get_training_settings_with_partition(3*num_datasets),
+                use_postfix=True,  # AED, use postfix
+                extra_train_ogg_zips=synth_oggs,
+                data_repetition_factors=[0] + num_datasets * [1], ## only synth
+            )
+
+            training_name = base_name + name
+            train_job = training(training_name, train_data_bpe, train_args, num_epochs=300,
+                                 **default_returnn)
+            train_job.rqmt["gpu_mem"] = 24
+            train_job.rqmt["mem"] = 48
+            asr_model = prepare_asr_model(
+                training_name, train_job, train_args_resume, with_prior=False, datasets=train_data_bpe,
+                get_specific_checkpoint=300,
+            )
+            greedy_search_helper(
+                training_name + "/keep_%i" % 300,
+                asr_model=asr_model,
+                decoder_config=greedy_decoder_config,
+                use_gpu=True
+            )
+            beam_search_prototype(
+                training_name,
+                asr_model=asr_model,
+                decoder_config=bs_decoder_config,
+                use_gpu=True,
+            )
+
+        # mixed training
+        for num_datasets in [1, 5, 10, 20]:
+            name = ".512dim_sub6_work4_100eps/mixed_lm_data_50h_subep/with_%i_datasets" % num_datasets
+
+            synth_oggs = []
+            for i in range(num_datasets):
+                synth_bliss, synth_ogg = get_synthetic_data("glowtts460_lm_data_%i" % i)
+                synth_oggs.append(synth_ogg)
+
+            train_data_bpe = build_bpe_training_datasets(
+                prefix=prefix_name,
+                librispeech_key="train-clean-100",
+                bpe_size=BPE_SIZE,
+                settings=get_training_settings_with_partition(4*num_datasets),
+                use_postfix=True,  # AED, use postfix
+                extra_train_ogg_zips=synth_oggs,
+                data_repetition_factors=[num_datasets] + num_datasets * [1], ## only synth
+            )
+
+            training_name = base_name + name
+            train_job = training(training_name, train_data_bpe, train_args, num_epochs=300,
+                                 **default_returnn)
+            train_job.rqmt["gpu_mem"] = 24
+            train_job.rqmt["mem"] = 48
+            asr_model = prepare_asr_model(
+                training_name, train_job, train_args_resume, with_prior=False, datasets=train_data_bpe,
+                get_specific_checkpoint=300,
+            )
+            greedy_search_helper(
+                training_name + "/keep_%i" % 300,
+                asr_model=asr_model,
+                decoder_config=greedy_decoder_config,
+                use_gpu=True
+            )
+            beam_search_prototype(
+                training_name,
+                asr_model=asr_model,
+                decoder_config=bs_decoder_config,
+                use_gpu=True,
+            )
+
+        # now correct with resume
+        #for num_datasets in [1, 5, 10, 20]:
+        #    name = ".512dim_sub6_work4_100eps_resume/mixed_lm_data_50h_subep/with_%i_datasets" % num_datasets
+
+        #    synth_oggs = []
+        #    for i in range(num_datasets):
+        #        synth_bliss, synth_ogg = get_synthetic_data("glowtts460_lm_data_%i" % i)
+        #        synth_oggs.append(synth_ogg)
+
+        #    train_data_bpe = build_bpe_training_datasets(
+        #        prefix=prefix_name,
+        #        librispeech_key="train-clean-100",
+        #        bpe_size=BPE_SIZE,
+        #        settings=get_training_settings_with_partition(4*num_datasets),
+        #        use_postfix=True,  # AED, use postfix
+        #        extra_train_ogg_zips=synth_oggs,
+        #        data_repetition_factors=[num_datasets] + num_datasets * [1], ## only synth
+        #    )
+
+        #    training_name = base_name + name
+        #    train_job = training(training_name, train_data_bpe, train_args_resume, num_epochs=300,
+        #                         **default_returnn)
+        #    train_job.rqmt["gpu_mem"] = 48
+        #    train_job.rqmt["mem"] = 48
+        #    asr_model = prepare_asr_model(
+        #        training_name, train_job, train_args_resume, with_prior=False, datasets=train_data_bpe,
+        #        get_specific_checkpoint=300,
+        #    )
+        #    greedy_search_helper(
+        #        training_name + "/keep_%i" % 300,
+        #        asr_model=asr_model,
+        #        decoder_config=greedy_decoder_config,
+        #        use_gpu=True
+        #    )
+        #    beam_search_prototype(
+        #        training_name,
+        #        asr_model=asr_model,
+        #        decoder_config=bs_decoder_config,
+        #        use_gpu=True,
+        #    )
+
 

@@ -17,7 +17,7 @@ from ...report import generate_report
 from ...rasr_recog_config import get_tree_timesync_recog_config, get_no_op_label_scorer_config
 import os
 
-from ...tune_eval import eval_model, build_base_report, build_qat_report
+from ...tune_eval import eval_model, build_base_report, build_qat_report, build_qat_report_v2
 
 def bpe_loq_small_1025():
     prefix_name = "experiments/loquacious/small/memristor_1025/bpe_ctc_bpe/128"
@@ -174,7 +174,6 @@ def bpe_loq_small_1025():
     rasr_prior_scales = [0.3, 0.4, 0.5]
     rasr_lm_scales = [0.9, 1.0, 1.1, 1.2, 1.3, 1.4]
 
-    full_results = {}
     memristor_results = {}
     for epochs in [500, 1000]:
         train_config_24gbgpu_amp = {
@@ -194,7 +193,7 @@ def bpe_loq_small_1025():
         train_args["net_args"] = {"model_config_dict": asdict(model_config)}
         train_args["config"] = train_config_24gbgpu_amp
 
-        training_name = prefix_name + "/" + network_module_pos_enc_v1 + f".512dim_sub{4}_48gbgpu_{epochs//5}eps_sp_lp_fullspec_gradnorm_smallbatch"
+        training_name = prefix_name + "/" + network_module_pos_enc_v1 + f".512dim_sub{4}_48gbgpu_{epochs//5}eps_sp_lp_fullspec_gradnorm_smallbatch_baseline"
         train_job = training(training_name, train_data_bpe, train_args, num_epochs=epochs, **default_returnn)
         train_job.rqmt["gpu_mem"] = 48
         if not os.path.exists(f"{train_job._sis_path()}/finished.run.1"):  # sync back was successful
@@ -221,15 +220,54 @@ def bpe_loq_small_1025():
             run_test=True,
             loss_name="dev_loss_ctc_loss_layer12"
         )
-        full_results[training_name + "_full_dev"] = {"dev_all": results.pop(training_name + f"/{epochs}" + "_dev_all", None)}
-        full_results[training_name + "_full_test"] = {"test_all": results.pop(training_name + f"/{epochs}" + "_test_all", None)}
-        generate_report(results=results, exp_name=training_name)
-        full_results[training_name] = copy.deepcopy(results)
+        dev_results = {"dev_all": results.pop(training_name + f"/{epochs}" + "_dev_all", None)}
+        memristor_results[training_name + "_full_dev"] = dev_results
+        test_results = {"test_all": results.pop(training_name + f"/{epochs}" + "_test_all", None)}
+        for set_name in ['yodas', 'librispeech', 'voxpopuli', 'commonvoice']:
+            dev = {set_name: results.pop(training_name + f"/{epochs}" + f"/dev.{set_name}", None)}
+            test = {set_name: results.pop(training_name + f"/{epochs}" + f"/test.{set_name}", None)}
+            memristor_results[training_name + f"_dev_{set_name}"] = dev
+            memristor_results[training_name + f"_test_{set_name}"] = test
+        memristor_results[training_name + "_full_test"] = test_results
+        generate_report(results=results, exp_name=training_name + "/non_memristor")
+        memristor_results[training_name] = results
+        if epochs == 500:
+            results = {}
+            results = eval_model(
+                training_name=training_name + "_batched",
+                train_job=train_job,
+                train_args=train_args,
+                train_data=train_data_bpe,
+                decoder_config=as_training_rasr_config,
+                dev_dataset_tuples=short_dev_dataset_tuples,
+                result_dict=results,
+                decoder_module="ctc.decoder.rasr_ctc_v1_batched",
+                prior_scales=rasr_prior_scales,
+                lm_scales=rasr_lm_scales,
+                run_rasr=True,
+                run_best_4=False,
+                run_best=False,
+                test_dataset_tuples={**dev_dataset_tuples, **test_dataset_tuples},
+                run_test=True,
+                loss_name="dev_loss_ctc_loss_layer12"
+            )
+            dev_results = {"dev_all": results.pop(training_name + f"_batched/{epochs}" + "_dev_all", None)}
+            memristor_results[training_name + "_batched_full_dev"] = dev_results
+            test_results = {"test_all": results.pop(training_name + f"_batched/{epochs}" + "_test_all", None)}
+            for set_name in ['yodas', 'librispeech', 'voxpopuli', 'commonvoice']:
+                dev = {set_name: results.pop(training_name + f"_batched/{epochs}" + f"/dev.{set_name}", None)}
+                test = {set_name: results.pop(training_name + f"_batched/{epochs}" + f"/test.{set_name}", None)}
+                memristor_results[training_name + f"_batched_dev_{set_name}"] = dev
+                memristor_results[training_name + f"_batched_test_{set_name}"] = test
+            memristor_results[training_name + "_batched_full_test"] = test_results
+            generate_report(results=results, exp_name=training_name + "_batched/non_memristor")
+            memristor_results[training_name] = results
 
     # network_module_mem_v8 = "ctc.memristor_1025.memristor_v8"
     network_module_mem_v9 = "ctc.memristor_1025.memristor_v9"
     network_module_mem_v10 = "ctc.memristor_1025.memristor_v10"
     network_module_mem_v10_keep_encs = "ctc.memristor_1025.memristor_v10_keep_encs"
+    network_module_mem_v11 = "ctc.memristor_1025.memristor_v11"
 
     from torch_memristor.memristor_modules import DacAdcHardwareSettings, CycleCorrectionSettings
     train_dac_settings = DacAdcHardwareSettings(
@@ -240,6 +278,9 @@ def bpe_loq_small_1025():
         hardware_output_current_scaling=8020.0,
     )
     from ...pytorch_networks.ctc.memristor_1025.memristor_v8_cfg import QuantModelTrainConfigV8 as MemristorModelTrainConfigV8
+    from ...pytorch_networks.ctc.memristor_1025.memristor_v11_cfg import \
+        QuantModelTrainConfigV11 as MemristorModelTrainConfigV11
+
 
     global_model_config = MemristorModelTrainConfigV8(
         feature_extraction_config=fe_config,
@@ -290,13 +331,16 @@ def bpe_loq_small_1025():
         hardware_input_vmax=0.6,
         hardware_output_current_scaling=8020.0,
     )
+    memristor_prior = 0.5
+    memristor_lm = 1.0
+
 
 
     for epochs in [500, 1000]:
         for activation_bit in [8]:
             for weight_bit in [3, 4, 5, 6, 7, 8]:
                 res_seeds_total = {}
-                res_adc_total = {}
+                # res_adc_total = {}
                 res_keep_total = {}
                 for seed in range(3):
                     train_config_24gbgpu_amp = {
@@ -350,19 +394,59 @@ def bpe_loq_small_1025():
                         run_test=True,
                     )
                     dev_results = {"dev_all": results.pop(training_name + f"/{epochs}" + "_dev_all", None)}
-                    full_results[training_name + "_full_dev"] = dev_results
                     memristor_results[training_name + "_full_dev"] = dev_results
                     test_results = {"test_all": results.pop(training_name + f"/{epochs}" + "_test_all", None)}
-                    full_results[training_name + "_full_test"] = test_results
+                    for set_name in ['yodas', 'librispeech', 'voxpopuli', 'commonvoice']:
+                        dev = {set_name: results.pop(training_name + f"/{epochs}" + f"/dev.{set_name}", None)}
+                        test = {set_name: results.pop(training_name + f"/{epochs}" + f"/test.{set_name}", None)}
+                        memristor_results[training_name + f"_dev_{set_name}"] = dev
+                        memristor_results[training_name + f"_test_{set_name}"] = test
                     memristor_results[training_name + "_full_test"] = test_results
                     generate_report(results=results, exp_name=training_name + "/non_memristor")
-                    full_results[training_name] = results
                     memristor_results[training_name] = results
 
-                    max_cycles = 3
-                    seeds = [0]
-                    if seed in seeds:
-                        for precision, bit_range in [(4, 4), (8, 8)]:
+                    if epochs == 500 and weight_bit in [4, 8]:
+                        results = {}
+                        results, best_params_job = eval_model(
+                            training_name=training_name+"_batched",
+                            train_job=train_job,
+                            train_args=train_args,
+                            train_data=train_data_bpe,
+                            decoder_config=as_training_rasr_config,
+                            dev_dataset_tuples=short_dev_dataset_tuples,
+                            result_dict=results,
+                            decoder_module="ctc.decoder.rasr_ctc_v1_batched",
+                            prior_scales=rasr_prior_scales,
+                            lm_scales=rasr_lm_scales,
+                            import_memristor=True,
+                            get_best_params=True,
+                            run_rasr=True,
+                            run_best_4=False,
+                            run_best=False,
+                            test_dataset_tuples={**dev_dataset_tuples, **test_dataset_tuples},
+                            run_test=True,
+                        )
+                        dev_results = {"dev_all": results.pop(training_name + f"_batched/{epochs}" + "_dev_all", None)}
+                        memristor_results[training_name + "_batched_full_dev"] = dev_results
+                        test_results = {
+                            "test_all": results.pop(training_name + f"_batched/{epochs}" + "_test_all", None)}
+                        for set_name in ['yodas', 'librispeech', 'voxpopuli', 'commonvoice']:
+                            dev = {
+                                set_name: results.pop(training_name + f"_batched/{epochs}" + f"/dev.{set_name}", None)}
+                            test = {
+                                set_name: results.pop(training_name + f"_batched/{epochs}" + f"/test.{set_name}", None)}
+                            memristor_results[training_name + f"_batched_dev_{set_name}"] = dev
+                            memristor_results[training_name + f"_batched_test_{set_name}"] = test
+                        memristor_results[training_name + "_batched_full_test"] = test_results
+                        generate_report(results=results, exp_name=training_name + "_batched/non_memristor")
+                        memristor_results[training_name] = results
+
+                    max_cycles = 5
+                    seeds = [0, 1, 2]
+                    if epochs == 1000:
+                        continue
+                    if seed in seeds and weight_bit in [4, 8]:
+                        for precision, bit_range in [(4, 4), (3, 5), (2, 6), (8, 8), (4, 8), (4, 12), (4, 6), (6, 6), (6, 8), (1, 7), (0, 8), (8, 4)]:
                             res_conv = {}
                             recog_dac_settings_test = DacAdcHardwareSettings(
                                 input_bits=8,
@@ -394,32 +478,150 @@ def bpe_loq_small_1025():
                                     dev_dataset_tuples=short_dev_dataset_tuples,
                                     result_dict=res_conv,
                                     decoder_module="ctc.decoder.rasr_ctc_v1_batched",
-                                    prior_scales=[best_params_job.out_optimal_parameters[1]],
-                                    lm_scales=[(best_params_job.out_optimal_parameters[0], "best")],
+                                    prior_scales=[memristor_prior],
+                                    lm_scales=[memristor_lm],
                                     use_gpu=True,
                                     import_memristor=True,
                                     extra_forward_config={
-                                        "batch_size": 7000000 * 4,
+                                        "batch_size": 3500000 if not weight_bit in [8] else 2500000,
                                     },
                                     run_best_4=False,
                                     run_best=False,
                                     prior_args=prior_args,
                                     run_search_on_hpc=False,
                                     run_rasr=True,
-                                    test_dataset_tuples={**dev_dataset_tuples, **test_dataset_tuples},
-                                    run_test=False,
+                                    test_dataset_tuples={**dev_dataset_tuples},
+                                    run_test=weight_bit in [8, 4],
                                     split_mem_init=True
                                 )
                             recog_name = prefix_name + "/" + network_module_mem_v10 + f"_{epochs // 5}eps_{weight_bit}_{activation_bit}_adc_{precision}_{bit_range}_seed_{seed}_cycle"
+                            res_else = {}
+                            res_yodas = {}
+                            res_common = {}
+                            res_librispeech = {}
+                            res_vox = {}
+                            for x, item in res_conv.items():
+                                if "yodas" in x:
+                                    res_yodas[x] = item
+                                elif "commonvoice" in x:
+                                    res_common[x] = item
+                                elif "librispeech" in x:
+                                    res_librispeech[x] = item
+                                elif "voxpopuli" in x:
+                                    res_vox[x] = item
+                                else:
+                                    res_else[x] = item
+                            res_conv = res_else
                             res_seeds_total.update(res_conv)
+                            if len(res_yodas) > 0:
+                                # if "dev_all" in res_conv:
+                                #     memristor_results[recog_name + "_full_dev"] = {"dev_all": res_conv.pop("dev_all")}
+                                #     assert False, (memristor_results[recog_name + "_full_dev"], recog_name + "_full_dev")
+                                # if "test_all" in res_conv:
+                                #     memristor_results[recog_name + "_full_test"] = {"test_all": res_conv.pop("test_all")}
+                                # res_seeds_total.update(res_conv)
+                                memristor_results[recog_name + "_yodas"] = copy.deepcopy(res_yodas)
+                                memristor_results[recog_name + "_common"] = copy.deepcopy(res_common)
+                                memristor_results[recog_name + "_librispeech"] = copy.deepcopy(res_librispeech)
+                                memristor_results[recog_name + "_voxpopuli"] = copy.deepcopy(res_vox)
                             generate_report(results=res_conv, exp_name=recog_name)
                             memristor_results[recog_name] = copy.deepcopy(res_conv)
-                            if f"{precision}.{bit_range}" not in res_adc_total:
-                                res_adc_total[f"{precision}.{bit_range}"] = {}
-                            res_adc_total[f"{precision}.{bit_range}"].update(res_conv)
+                        if weight_bit in [4, 8]:
+                            for precision, bit_range in [(0, 8), (1, 7), (2, 6), (3, 5), (4, 8), (8, 8), (4, 12), (4, 6), (6, 6), (6, 8)]:
+                                res_conv = {}
+                                model_config_balanced_adc = MemristorModelTrainConfigV11(
+                                    **model_config.__dict__,
+                                    pos_enc_converter_hardware_settings=None,
+                                )
+                                recog_dac_settings_larger = DacAdcHardwareSettings(
+                                    input_bits=8,
+                                    output_precision_bits=precision,
+                                    output_range_bits=bit_range,
+                                    hardware_input_vmax=0.6,
+                                    hardware_output_current_scaling=8020.0,
+                                )
+                                recog_dac_settings_normal = DacAdcHardwareSettings(
+                                input_bits=8,
+                                output_precision_bits=4,
+                                output_range_bits=4,
+                                hardware_input_vmax=0.6,
+                                hardware_output_current_scaling=8020.0,
+                                )
+
+                                for num_cycles in range(1, max_cycles+1):
+                                    model_config_recog = copy.deepcopy(model_config_balanced_adc)
+                                    model_config_recog.converter_hardware_settings = recog_dac_settings_normal
+                                    model_config_recog.pos_enc_converter_hardware_settings = recog_dac_settings_larger
+                                    model_config_recog.num_cycles = num_cycles
+
+                                    prior_args = copy.deepcopy(train_args)
+                                    train_args_recog = copy.deepcopy(train_args)
+                                    train_args_recog["net_args"] = {"model_config_dict": asdict(model_config_recog)}
+
+                                    recog_name = prefix_name + "/" + network_module_mem_v11 + f"_posadc_{bit_range}_{precision}_{epochs // 5}eps_{weight_bit}_{activation_bit}_seed_{seed}/cycle_{num_cycles // 11}"
+                                    train_args_recog_test = copy.deepcopy(train_args_recog)
+                                    train_args_recog_test["network_module"] = network_module_mem_v11
+                                    train_args_recog_test["debug"] = False
+                                    res_conv = eval_model(
+                                        training_name=recog_name + f"_{num_cycles}",
+                                        train_job=train_job,
+                                        train_args=train_args_recog_test,
+                                        train_data=train_data_bpe,
+                                        decoder_config=rasr_config_memristor,
+                                        dev_dataset_tuples=short_dev_dataset_tuples,
+                                        result_dict=res_conv,
+                                        decoder_module="ctc.decoder.rasr_ctc_v1_batched",
+                                        prior_scales=[memristor_prior],
+                                        lm_scales=[memristor_lm],
+                                        use_gpu=True,
+                                        import_memristor=True,
+                                        extra_forward_config={
+                                            "batch_size": 3500000 if not weight_bit in [8] else 2500000,
+                                        },
+                                        run_best_4=False,
+                                        run_best=False,
+                                        prior_args=prior_args,
+                                        run_search_on_hpc=False,
+                                        run_rasr=True,
+                                        test_dataset_tuples={**dev_dataset_tuples},
+                                        run_test=weight_bit in [8, 4],
+                                        split_mem_init=True
+                                    )
+                                recog_name = prefix_name + "/" + network_module_mem_v11 + f"_posadc_{bit_range}_{precision}_{epochs // 5}eps_{weight_bit}_{activation_bit}_adc_{precision}_{bit_range}_seed_{seed}_cycle"
+                                res_else = {}
+                                res_yodas = {}
+                                res_common = {}
+                                res_librispeech = {}
+                                res_vox = {}
+                                for x, item in res_conv.items():
+                                    if "yodas" in x:
+                                        res_yodas[x] = item
+                                    elif "commonvoice" in x:
+                                        res_common[x] = item
+                                    elif "librispeech" in x:
+                                        res_librispeech[x] = item
+                                    elif "voxpopuli" in x:
+                                        res_vox[x] = item
+                                    else:
+                                        res_else[x] = item
+                                res_conv = res_else
+                                res_seeds_total.update(res_conv)
+                                if len(res_yodas) > 0:
+                                    # if "dev_all" in res_conv:
+                                    #     memristor_results[recog_name + "_full_dev"] = {"dev_all": res_conv.pop("dev_all")}
+                                    #     assert False, (memristor_results[recog_name + "_full_dev"], recog_name + "_full_dev")
+                                    # if "test_all" in res_conv:
+                                    #     memristor_results[recog_name + "_full_test"] = {"test_all": res_conv.pop("test_all")}
+                                    # res_seeds_total.update(res_conv)
+                                    memristor_results[recog_name + "_yodas"] = copy.deepcopy(res_yodas)
+                                    memristor_results[recog_name + "_common"] = copy.deepcopy(res_common)
+                                    memristor_results[recog_name + "_librispeech"] = copy.deepcopy(res_librispeech)
+                                    memristor_results[recog_name + "_voxpopuli"] = copy.deepcopy(res_vox)
+                                generate_report(results=res_conv, exp_name=recog_name)
+                                memristor_results[recog_name] = copy.deepcopy(res_conv)
 
                         results = {}
-                        for num_cycles in range(1, max_cycles):
+                        for num_cycles in range(1, max_cycles+1):
                             model_config_recog = copy.deepcopy(model_config)
                             model_config_recog.converter_hardware_settings = recog_dac_settings
                             model_config_recog.num_cycles = num_cycles
@@ -441,24 +643,54 @@ def bpe_loq_small_1025():
                                 dev_dataset_tuples=short_dev_dataset_tuples,
                                 result_dict=results,
                                 decoder_module="ctc.decoder.rasr_ctc_v1_batched",
-                                prior_scales=[best_params_job.out_optimal_parameters[1]],
-                                lm_scales=[(best_params_job.out_optimal_parameters[0], "best")],
+                                prior_scales=[memristor_prior],
+                                lm_scales=[memristor_lm],
                                 use_gpu=True,
                                 import_memristor=True,
                                 extra_forward_config={
-                                    "batch_size": 7000000 * 2,
+                                    "batch_size": 3500000 if not weight_bit in [8] else 2500000,
                                 },
                                 run_best_4=False,
                                 run_best=False,
                                 prior_args=prior_args,
                                 run_search_on_hpc=False,
                                 run_rasr=True,
-                                test_dataset_tuples={**dev_dataset_tuples, **test_dataset_tuples},
-                                run_test=False,
+                                test_dataset_tuples={**dev_dataset_tuples},
+                                run_test=weight_bit in [8, 4],
                                 split_mem_init=True
                             )
                         recog_name = prefix_name + "/" + network_module_mem_v10_keep_encs + f"_{epochs // 5}eps_{weight_bit}_{activation_bit}_seed_{seed}_cycle"
                         res_keep_total.update(results)
+
+                        res_else = {}
+                        res_yodas = {}
+                        res_common = {}
+                        res_librispeech = {}
+                        res_vox = {}
+                        for x, item in results.items():
+                            if "yodas" in x:
+                                res_yodas[x] = item
+                            elif "commonvoice" in x:
+                                res_common[x] = item
+                            elif "librispeech" in x:
+                                res_librispeech[x] = item
+                            elif "voxpopuli" in x:
+                                res_vox[x] = item
+                            else:
+                                res_else[x] = item
+                        results = res_else
+                        res_seeds_total.update(results)
+                        if len(res_yodas) > 0:
+                            # if "dev_all" in results:
+                            #     memristor_results[recog_name + "_full_dev"] = {"dev_all": results.pop("dev_all")}
+                            #     assert False, (memristor_results[recog_name + "_full_dev"], recog_name + "_full_dev")
+                            # if "test_all" in results:
+                            #     memristor_results[recog_name + "_full_test"] = {"test_all": results.pop("test_all")}
+                            # res_seeds_total.update(results)
+                            memristor_results[recog_name + "_yodas"] = copy.deepcopy(res_yodas)
+                            memristor_results[recog_name + "_common"] = copy.deepcopy(res_common)
+                            memristor_results[recog_name + "_librispeech"] = copy.deepcopy(res_librispeech)
+                            memristor_results[recog_name + "_voxpopuli"] = copy.deepcopy(res_vox)
                         generate_report(results=results, exp_name=recog_name)
                         memristor_results[recog_name] = copy.deepcopy(results)
 
@@ -510,16 +742,18 @@ def bpe_loq_small_1025():
                                 run_test=True,
                             )
                             dev_results = {"dev_all": results.pop(training_name + f"/{epochs}" + "_dev_all", None)}
-                            full_results[training_name + "_full_dev"] = dev_results
                             memristor_results[training_name + "_full_dev"] = dev_results
                             test_results = {"test_all": results.pop(training_name + f"/{epochs}" + "_test_all", None)}
-                            full_results[training_name + "_full_test"] = test_results
+                            for set_name in ['yodas', 'librispeech', 'voxpopuli', 'commonvoice']:
+                                dev = {set_name: results.pop(training_name + f"/{epochs}" + f"/dev.{set_name}", None)}
+                                test = {set_name: results.pop(training_name + f"/{epochs}" + f"/test.{set_name}", None)}
+                                memristor_results[training_name + f"_dev_{set_name}"] = dev
+                                memristor_results[training_name + f"_test_{set_name}"] = test
                             memristor_results[training_name + "_full_test"] = test_results
                             generate_report(results=results, exp_name=training_name + "/non_memristor")
-                            full_results[training_name] = results
                             memristor_results[training_name] = results
 
-                            for precision, bit_range in [(4, 4), (8, 8)]:
+                            for precision, bit_range in [(4, 4), (4, 8)]:
                                 res_conv = {}
                                 recog_dac_settings_test = DacAdcHardwareSettings(
                                     input_bits=8,
@@ -551,29 +785,184 @@ def bpe_loq_small_1025():
                                         dev_dataset_tuples=short_dev_dataset_tuples,
                                         result_dict=res_conv,
                                         decoder_module="ctc.decoder.rasr_ctc_v1_batched",
-                                        prior_scales=[best_params_job.out_optimal_parameters[1]],
-                                        lm_scales=[(best_params_job.out_optimal_parameters[0], "best")],
+                                        prior_scales=[memristor_prior],
+                                        lm_scales=[memristor_lm],
                                         use_gpu=True,
                                         import_memristor=True,
                                         extra_forward_config={
-                                            "batch_size": 7000000 * 4,
+                                            "batch_size": 3500000 if not weight_bit in [8] else 2500000,
                                         },
                                         run_best_4=False,
                                         run_best=False,
                                         prior_args=prior_args,
                                         run_search_on_hpc=False,
                                         run_rasr=True,
-                                        test_dataset_tuples={**dev_dataset_tuples, **test_dataset_tuples},
-                                        run_test=False,
+                                        test_dataset_tuples={**dev_dataset_tuples},
+                                        run_test=(precision, bit_range) in [(4, 4)],
                                         split_mem_init=True
                                     )
                                 recog_name = prefix_name + "/" + network_module_mem_v10 + f"_nolinpos_{epochs // 5}eps_{weight_bit}_{activation_bit}_adc_{precision}_{bit_range}_seed_{seed}_cycle"
+                                res_else = {}
+                                res_yodas = {}
+                                res_common = {}
+                                res_librispeech = {}
+                                res_vox = {}
+                                for x, item in res_conv.items():
+                                    if "yodas" in x:
+                                        res_yodas[x] = item
+                                    elif "commonvoice" in x:
+                                        res_common[x] = item
+                                    elif "librispeech" in x:
+                                        res_librispeech[x] = item
+                                    elif "voxpopuli" in x:
+                                        res_vox[x] = item
+                                    else:
+                                        res_else[x] = item
+                                res_conv = res_else
                                 res_seeds_total.update(res_conv)
+                                if len(res_yodas) > 0:
+                                    memristor_results[recog_name + "_yodas"] = copy.deepcopy(res_yodas)
+                                    memristor_results[recog_name + "_common"] = copy.deepcopy(res_common)
+                                    memristor_results[recog_name + "_librispeech"] = copy.deepcopy(res_librispeech)
+                                    memristor_results[recog_name + "_voxpopuli"] = copy.deepcopy(res_vox)
                                 generate_report(results=res_conv, exp_name=recog_name)
                                 memristor_results[recog_name] = copy.deepcopy(res_conv)
-                                if f"{precision}.{bit_range}" not in res_adc_total:
-                                    res_adc_total[f"{precision}.{bit_range}"] = {}
-                                res_adc_total[f"{precision}.{bit_range}"].update(res_conv)
+                            if seed in [0, 1]:
+                                learn_no_lin_pos_emb_cfg = ConformerPosEmbConfig(
+                                    learnable_pos_emb=True,
+                                    rel_pos_clip=16,
+                                    with_linear_pos=False,
+                                    with_pos_bias=True,
+                                    separate_pos_emb_per_head=True,
+                                    pos_emb_dropout=0.0,
+                                )
+                                model_config = copy.deepcopy(global_model_config)
+                                model_config.weight_bit_prec = weight_bit
+                                model_config.activation_bit_prec = activation_bit
+                                model_config.pos_emb_config = learn_no_lin_pos_emb_cfg
+                                train_args = copy.deepcopy(global_train_args)
+                                train_args["net_args"] = {"model_config_dict": asdict(model_config)}
+                                train_args["config"] = train_config_24gbgpu_amp
+                                train_args["network_module"] = network_module_mem_v9
+
+                                training_name = prefix_name + "/" + network_module_mem_v9 + f"_learn_nolinpos_{epochs // 5}eps_{weight_bit}_{activation_bit}_seed_{seed}"
+
+                                train_job = training(training_name, train_data_bpe, train_args, num_epochs=epochs,
+                                                     **default_returnn)
+                                # if not os.path.exists(
+                                #         f"{train_job._sis_path()}/finished.run.1"):  # sync back was successful
+                                #     train_job.rqmt['cpu'] = 8
+                                #     train_job.rqmt['time'] = 100
+                                #     train_job.hold()
+                                #     train_job.move_to_hpc = True
+                                train_job.rqmt['gpu_mem'] = 48
+
+                                results = {}
+                                results, best_params_job = eval_model(
+                                    training_name=training_name,
+                                    train_job=train_job,
+                                    train_args=train_args,
+                                    train_data=train_data_bpe,
+                                    decoder_config=as_training_rasr_config,
+                                    dev_dataset_tuples=short_dev_dataset_tuples,
+                                    result_dict=results,
+                                    decoder_module="ctc.decoder.rasr_ctc_v1",
+                                    prior_scales=rasr_prior_scales,
+                                    lm_scales=rasr_lm_scales,
+                                    import_memristor=True,
+                                    get_best_params=True,
+                                    run_rasr=True,
+                                    run_best_4=False,
+                                    run_best=False,
+                                    test_dataset_tuples={**dev_dataset_tuples, **test_dataset_tuples},
+                                    run_test=True,
+                                )
+                                dev_results = {"dev_all": results.pop(training_name + f"/{epochs}" + "_dev_all", None)}
+                                memristor_results[training_name + "_full_dev"] = dev_results
+                                test_results = {"test_all": results.pop(training_name + f"/{epochs}" + "_test_all", None)}
+                                for set_name in ['yodas', 'librispeech', 'voxpopuli', 'commonvoice']:
+                                    dev = {set_name: results.pop(training_name + f"/{epochs}" + f"/dev.{set_name}", None)}
+                                    test = {set_name: results.pop(training_name + f"/{epochs}" + f"/test.{set_name}", None)}
+                                    memristor_results[training_name + f"_dev_{set_name}"] = dev
+                                    memristor_results[training_name + f"_test_{set_name}"] = test
+                                memristor_results[training_name + "_full_test"] = test_results
+                                generate_report(results=results, exp_name=training_name + "/non_memristor")
+                                memristor_results[training_name] = results
+
+                                for precision, bit_range in [(4, 4)]:
+                                    res_conv = {}
+                                    recog_dac_settings_test = DacAdcHardwareSettings(
+                                        input_bits=8,
+                                        output_precision_bits=precision,
+                                        output_range_bits=bit_range,
+                                        hardware_input_vmax=0.6,
+                                        hardware_output_current_scaling=8020.0,
+                                    )
+
+                                    for num_cycles in range(1, max_cycles + 1):
+                                        model_config_recog = copy.deepcopy(model_config)
+                                        model_config_recog.converter_hardware_settings = recog_dac_settings_test
+                                        model_config_recog.num_cycles = num_cycles
+
+                                        prior_args = copy.deepcopy(train_args)
+                                        train_args_recog = copy.deepcopy(train_args)
+                                        train_args_recog["net_args"] = {"model_config_dict": asdict(model_config_recog)}
+
+                                        recog_name = prefix_name + "/" + network_module_mem_v10 + f"_learn_nolinpos_{epochs // 5}eps_{weight_bit}_{activation_bit}_adc_{precision}_{bit_range}_seed_{seed}/cycle_{num_cycles // 11}"
+                                        train_args_recog_test = copy.deepcopy(train_args_recog)
+                                        train_args_recog_test["network_module"] = network_module_mem_v10
+                                        train_args_recog_test["debug"] = False
+                                        res_conv = eval_model(
+                                            training_name=recog_name + f"_{num_cycles}",
+                                            train_job=train_job,
+                                            train_args=train_args_recog_test,
+                                            train_data=train_data_bpe,
+                                            decoder_config=rasr_config_memristor,
+                                            dev_dataset_tuples=short_dev_dataset_tuples,
+                                            result_dict=res_conv,
+                                            decoder_module="ctc.decoder.rasr_ctc_v1_batched",
+                                            prior_scales=[memristor_prior],
+                                            lm_scales=[memristor_lm],
+                                            use_gpu=True,
+                                            import_memristor=True,
+                                            extra_forward_config={
+                                                "batch_size": 3500000 if not weight_bit in [8] else 2500000,
+                                            },
+                                            run_best_4=False,
+                                            run_best=False,
+                                            prior_args=prior_args,
+                                            run_search_on_hpc=False,
+                                            run_rasr=True,
+                                            test_dataset_tuples={**dev_dataset_tuples},
+                                            run_test=(precision, bit_range) in [(4, 4)],
+                                            split_mem_init=True,
+                                        )
+                                    recog_name = prefix_name + "/" + network_module_mem_v10 + f"_learn_nolinpos_{epochs // 5}eps_{weight_bit}_{activation_bit}_adc_{precision}_{bit_range}_seed_{seed}_cycle"
+                                    res_else = {}
+                                    res_yodas = {}
+                                    res_common = {}
+                                    res_librispeech = {}
+                                    res_vox = {}
+                                    for x, item in res_conv.items():
+                                        if "yodas" in x:
+                                            res_yodas[x] = item
+                                        elif "commonvoice" in x:
+                                            res_common[x] = item
+                                        elif "librispeech" in x:
+                                            res_librispeech[x] = item
+                                        elif "voxpopuli" in x:
+                                            res_vox[x] = item
+                                        else:
+                                            res_else[x] = item
+                                    res_conv = res_else
+                                    res_seeds_total.update(res_conv)
+                                    if len(res_yodas) > 0:
+                                        memristor_results[recog_name + "_yodas"] = copy.deepcopy(res_yodas)
+                                        memristor_results[recog_name + "_common"] = copy.deepcopy(res_common)
+                                        memristor_results[recog_name + "_librispeech"] = copy.deepcopy(res_librispeech)
+                                        memristor_results[recog_name + "_voxpopuli"] = copy.deepcopy(res_vox)
+                                    generate_report(results=res_conv, exp_name=recog_name)
+                                    memristor_results[recog_name] = copy.deepcopy(res_conv)
 
                             learnable_pos_emb_cfg = ConformerPosEmbConfig(
                                 learnable_pos_emb=True,
@@ -622,16 +1011,18 @@ def bpe_loq_small_1025():
                                 run_test=True,
                             )
                             dev_results = {"dev_all": results.pop(training_name + f"/{epochs}" + "_dev_all", None)}
-                            full_results[training_name + "_full_dev"] = dev_results
                             memristor_results[training_name + "_full_dev"] = dev_results
                             test_results = {"test_all": results.pop(training_name + f"/{epochs}" + "_test_all", None)}
-                            full_results[training_name + "_full_test"] = test_results
+                            for set_name in ['yodas', 'librispeech', 'voxpopuli', 'commonvoice']:
+                                dev = {set_name: results.pop(training_name + f"/{epochs}" + f"/dev.{set_name}", None)}
+                                test = {set_name: results.pop(training_name + f"/{epochs}" + f"/test.{set_name}", None)}
+                                memristor_results[training_name + f"_dev_{set_name}"] = dev
+                                memristor_results[training_name + f"_test_{set_name}"] = test
                             memristor_results[training_name + "_full_test"] = test_results
                             generate_report(results=results, exp_name=training_name + "/non_memristor")
-                            full_results[training_name] = results
                             memristor_results[training_name] = results
 
-                            for precision, bit_range in [(4, 4), (8, 8)]:
+                            for precision, bit_range in []: # [(4, 4), (4, 8)]:
                                 res_conv = {}
                                 recog_dac_settings_test = DacAdcHardwareSettings(
                                     input_bits=8,
@@ -663,12 +1054,12 @@ def bpe_loq_small_1025():
                                         dev_dataset_tuples=short_dev_dataset_tuples,
                                         result_dict=res_conv,
                                         decoder_module="ctc.decoder.rasr_ctc_v1_batched",
-                                        prior_scales=[best_params_job.out_optimal_parameters[1]],
-                                        lm_scales=[(best_params_job.out_optimal_parameters[0], "best")],
+                                        prior_scales=[memristor_prior],
+                                        lm_scales=[memristor_lm],
                                         use_gpu=True,
                                         import_memristor=True,
                                         extra_forward_config={
-                                            "batch_size": 7000000 * 4,
+                                            "batch_size": 3500000 if not weight_bit in [8] else 2500000,
                                         },
                                         run_best_4=False,
                                         run_best=False,
@@ -679,15 +1070,15 @@ def bpe_loq_small_1025():
                                         run_test=False,
                                         split_mem_init=True
                                     )
-                                recog_name = prefix_name + "/" + network_module_mem_v10 + f"_nolinpos_{epochs // 5}eps_{weight_bit}_{activation_bit}_adc_{precision}_{bit_range}_seed_{seed}_cycle"
+                                recog_name = prefix_name + "/" + network_module_mem_v10 + f"_learnpos_{epochs // 5}eps_{weight_bit}_{activation_bit}_adc_{precision}_{bit_range}_seed_{seed}_cycle"
                                 res_seeds_total.update(res_conv)
                                 generate_report(results=res_conv, exp_name=recog_name)
                                 memristor_results[recog_name] = copy.deepcopy(res_conv)
-                                if f"{precision}.{bit_range}" not in res_adc_total:
-                                    res_adc_total[f"{precision}.{bit_range}"] = {}
-                                res_adc_total[f"{precision}.{bit_range}"].update(res_conv)
+                                # if f"{precision}.{bit_range}" not in res_adc_total:
+                                #     res_adc_total[f"{precision}.{bit_range}"] = {}
+                                # res_adc_total[f"{precision}.{bit_range}"].update(res_conv)
 
-                    if weight_bit in [4, 5, 6, 7, 8]:
+                    if weight_bit in [4, 5, 6, 7, 8] and seed == 0:
                         model_config = copy.deepcopy(global_model_config)
                         model_config.weight_bit_prec = weight_bit
                         model_config.activation_bit_prec = activation_bit
@@ -728,13 +1119,15 @@ def bpe_loq_small_1025():
                             run_test=True,
                         )
                         dev_results = {"dev_all": results.pop(training_name + f"/{epochs}" + "_dev_all", None)}
-                        full_results[training_name + "_full_dev"] = dev_results
                         memristor_results[training_name + "_full_dev"] = dev_results
                         test_results = {"test_all": results.pop(training_name + f"/{epochs}" + "_test_all", None)}
-                        full_results[training_name + "_full_test"] = test_results
+                        for set_name in ['yodas', 'librispeech', 'voxpopuli', 'commonvoice']:
+                            dev = {set_name: results.pop(training_name + f"/{epochs}" + f"/dev.{set_name}", None)}
+                            test = {set_name: results.pop(training_name + f"/{epochs}" + f"/test.{set_name}", None)}
+                            memristor_results[training_name + f"_dev_{set_name}"] = dev
+                            memristor_results[training_name + f"_test_{set_name}"] = test
                         memristor_results[training_name + "_full_test"] = test_results
                         generate_report(results=results, exp_name=training_name + "/non_memristor")
-                        full_results[training_name] = results
                         memristor_results[training_name] = results
                         if seed == 0 and False:
                             for num_cycles in range(1, 3):
@@ -758,8 +1151,8 @@ def bpe_loq_small_1025():
                                     dev_dataset_tuples=short_dev_dataset_tuples,
                                     result_dict=res_conv,
                                     decoder_module="ctc.decoder.rasr_ctc_v1",
-                                    prior_scales=[best_params_job.out_optimal_parameters[1]],
-                                    lm_scales=[(best_params_job.out_optimal_parameters[0], "best")],
+                                    prior_scales=[memristor_prior],
+                                    lm_scales=[memristor_lm],
                                     use_gpu=True,
                                     import_memristor=True,
                                     extra_forward_config={
@@ -778,22 +1171,23 @@ def bpe_loq_small_1025():
                             generate_report(results=res_conv, exp_name=recog_name)
                             memristor_results[recog_name] = copy.deepcopy(res_conv)
 
-                recog_name = prefix_name + "/" + network_module_mem_v10 + f"_{epochs//5}eps_{weight_bit}_{activation_bit}_test_save_seeds_combined_cycle"
-                generate_report(results=res_seeds_total, exp_name=recog_name)
-                memristor_results[recog_name] = copy.deepcopy(res_seeds_total)
-                for nm in res_adc_total:
-                    prec, rn = nm.split(".")
-                    recog_name = prefix_name + "/" + network_module_mem_v10 + f"_{epochs//5}eps_{weight_bit}_{activation_bit}_adc_{prec}_{rn}_seeds_combined_cycle"
-                    generate_report(results=res_adc_total[nm], exp_name=recog_name)
-                    memristor_results[recog_name] = copy.deepcopy(res_adc_total[nm])
-                recog_name = prefix_name + "/" + network_module_mem_v10_keep_encs + f"_{epochs//5}eps_{weight_bit}_{activation_bit}_seeds_combined_cycle"
-                generate_report(results=res_keep_total, exp_name=recog_name)
-                memristor_results[recog_name] = copy.deepcopy(res_keep_total)
+                # recog_name = prefix_name + "/" + network_module_mem_v10 + f"_{epochs//5}eps_{weight_bit}_{activation_bit}_seeds_combined_cycle"
+                # generate_report(results=res_seeds_total, exp_name=recog_name)
+                # memristor_results[recog_name] = copy.deepcopy(res_seeds_total)
+                # for nm in res_adc_total:
+                #     prec, rn = nm.split(".")
+                #     recog_name = prefix_name + "/" + network_module_mem_v10 + f"_{epochs//5}eps_{weight_bit}_{activation_bit}_adc_{prec}_{rn}_seeds_combined_cycle"
+                #     generate_report(results=res_adc_total[nm], exp_name=recog_name)
+                #     memristor_results[recog_name] = copy.deepcopy(res_adc_total[nm])
+                # recog_name = prefix_name + "/" + network_module_mem_v10_keep_encs + f"_{epochs//5}eps_{weight_bit}_{activation_bit}_seeds_combined_cycle"
+                # generate_report(results=res_keep_total, exp_name=recog_name)
+                # memristor_results[recog_name] = copy.deepcopy(res_keep_total)
 
 
-    tk.register_report("reports/loquacious/baseline_report", partial(build_base_report, full_results, False), required=full_results, update_frequency=600)
-    tk.register_report("reports/loquacious/baseline_report_new", partial(build_qat_report, memristor_results, False),
+    tk.register_report("reports/loquacious/baseline_report", partial(build_qat_report, memristor_results, False),
         required=memristor_results, update_frequency=600)
+    tk.register_report("reports/loquacious/v2/baseline_report", partial(build_qat_report_v2, memristor_results),
+                       required=memristor_results, update_frequency=600)
 
 
 def bpe_loq_small_1225_nopos():
@@ -940,7 +1334,7 @@ def bpe_loq_small_1225_nopos():
     rasr_lm_scales = [0.9, 1.0, 1.1, 1.2, 1.3, 1.4]
 
     memristor_results = {}
-    for epochs in [1000]: # [500, 1000]:
+    for epochs in [500, 1000]: # [500, 1000]:
         train_config_24gbgpu_amp = {
             "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-2},
             "learning_rates": list(np.linspace(7e-6, 5e-4, (epochs - 20) // 2))
@@ -985,14 +1379,17 @@ def bpe_loq_small_1225_nopos():
             run_test=True,
             loss_name="dev_loss_ctc_loss_layer12"
         )
-        memristor_results[training_name + "_full_dev"] = {"dev_all": results.pop(training_name + f"/{epochs}" + "_dev_all", None)}
-        memristor_results[training_name + "_full_test"] = {"test_all": results.pop(training_name + f"/{epochs}" + "_test_all", None)}
-        res_else = {}
-        for x, item in results.items():
-            if not any(y in x for y in ['yodas', "commonvoice", "librispeech", "voxpopuli"]):
-                res_else[x] = item
-        generate_report(results=res_else, exp_name=training_name)
-        memristor_results[training_name] = copy.deepcopy(results)
+        dev_results = {"dev_all": results.pop(training_name + f"/{epochs}" + "_dev_all", None)}
+        memristor_results[training_name + "_full_dev"] = dev_results
+        test_results = {"test_all": results.pop(training_name + f"/{epochs}" + "_test_all", None)}
+        memristor_results[training_name + "_full_test"] = test_results
+        for set_name in ['yodas', 'librispeech', 'voxpopuli', 'commonvoice']:
+            dev = {set_name: results.pop(training_name + f"/{epochs}" + f"/dev.{set_name}", None)}
+            test = {set_name: results.pop(training_name + f"/{epochs}" + f"/test.{set_name}", None)}
+            memristor_results[training_name + f"_dev_{set_name}"] = dev
+            memristor_results[training_name + f"_test_{set_name}"] = test
+        generate_report(results=results, exp_name=training_name)
+        memristor_results[training_name] = results
 
     network_module_mem_v7 = "ctc.memristor_1025.memristor_v7"
 
@@ -1162,7 +1559,7 @@ def bpe_loq_small_1225_nopos():
                                 split_mem_init=True,
                             )
                         if seed == 0 and weight_bit in [4, 8]:
-                            for lm, prior in [(0.5 , 1.0), (0.5 , 1.2), (0.3 , 1.0)]:
+                            for prior, lm in [(0.5 , 1.0), (0.5 , 1.2), (0.3 , 1.0)]:
                                 results_lm = {}
                                 for num_cycles in range(1, 11):
                                     model_config_recog = copy.deepcopy(model_config)
@@ -1247,4 +1644,5 @@ def bpe_loq_small_1225_nopos():
 
     tk.register_report("reports/loquacious/no_pos_enc", partial(build_qat_report, memristor_results, False),
         required=memristor_results, update_frequency=600)
-
+    tk.register_report("reports/loquacious/v2/no_pos_enc", partial(build_qat_report_v2, memristor_results),
+                       required=memristor_results, update_frequency=600)

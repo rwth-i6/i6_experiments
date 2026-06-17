@@ -86,6 +86,7 @@ def eval_model(
     unhashed_decoder_args: Optional = None,
     run_rasr: bool = False,
     split_mem_init: bool = False,
+    search_gpu: Optional[int] = None,
 ):
     if specific_epoch is None:
         specific_epoch = train_job.returnn_config.post_config["num_epochs"]
@@ -108,16 +109,15 @@ def eval_model(
             datasets=train_data,
             get_specific_checkpoint=epoch,
             prior_config={"import_memristor": import_memristor}
-            if import_memristor is True and with_prior is True
-            else None,
+            if import_memristor is True else None,
             split_preparation=split_mem_init,
             split_args=train_args if split_mem_init else None,
         )
         if prior_args is not None:
             asr_model.net_args = train_args["net_args"]
             asr_model.network_module = train_args["network_module"]
-            if split_mem_init is True:
-                asr_model.network_module += "_mem_inited"
+        if split_mem_init is True:
+            asr_model.network_module += "_mem_inited"
         res, best_params = tune_and_evaluate_helper(
             training_name + f"/{epoch}",
             asr_model,
@@ -138,6 +138,7 @@ def eval_model(
             run_search_on_hpc=run_search_on_hpc,
             unhashed_decoder_args=unhashed_decoder_args,
             run_rasr=run_rasr,
+            search_gpu=search_gpu,
         )
         result_dict.update(res)
     if run_best_4 is True:
@@ -172,6 +173,7 @@ def eval_model(
             test_dataset_tuples=test_dataset_tuples,
             unhashed_decoder_args=unhashed_decoder_args,
             run_rasr=run_rasr,
+            search_gpu=search_gpu,
         )
         result_dict.update(res)
     if run_best is True:
@@ -206,6 +208,7 @@ def eval_model(
             test_dataset_tuples=test_dataset_tuples,
             unhashed_decoder_args=unhashed_decoder_args,
             run_rasr=run_rasr,
+            search_gpu=search_gpu,
         )
         result_dict.update(res)
     if get_best_params is True:
@@ -236,6 +239,7 @@ def tune_and_evaluate_helper(
     run_search_on_hpc: bool = False,
     unhashed_decoder_args: Optional = None,
     run_rasr: bool = False,
+    search_gpu: Optional[int] = None,
 ):
     """
     Example helper to execute tuning over lm_scales and prior scales.
@@ -298,6 +302,9 @@ def tune_and_evaluate_helper(
                         job.rqmt["cpu"] = 12
                         job.hold()
                         job.move_to_hpc = True
+            if search_gpu is not None:
+                for job in search_jobs:
+                    job.rqmt['gpu_mem'] = search_gpu
             tune_parameters.append((lm_weight, prior_scale))
             tune_values.append((wers[search_name + "/dev"]))
             results.update(wers)
@@ -947,15 +954,19 @@ def build_base_report(report: Dict, print_larger_params: bool = True):
         wers = []
         if exp + "_full_dev" in best_dc:
             wers.append(best_dc[exp + "_full_dev"][0])
-            wers.append(("CV:", best_dc[exp + "_dev_commonvoice"][0], "LBS:",best_dc[exp + "_dev_librispeech"][0], "VP:",best_dc[exp + "_dev_voxpopuli"][0], "YD:",best_dc[exp + "_dev_yodas"][0], ))
+            wers.append(
+                " ".join(
+                    ("(CV:", best_dc[exp + "_dev_commonvoice"][0], "LBS:", best_dc[exp + "_dev_librispeech"][0], "VP:",
+                        best_dc[exp + "_dev_voxpopuli"][0], "YD:", best_dc[exp + "_dev_yodas"][0], ")     ")))
         else:
             wers.append("None")
             # if not "cycle" in exp:
             #     assert False, (exp, best_dc)
         if exp + "_full_test" in best_dc:
             wers.append(best_dc[exp + "_full_test"][0])
-            wers.append(("CV:", best_dc[exp + "_test_commonvoice"][0], "LBS:",best_dc[exp + "_test_librispeech"][0],
-                         "VP:",best_dc[exp + "_test_voxpopuli"][0], "YD:",best_dc[exp + "_test_yodas"][0],))
+            wers.append(
+                " ".join(("(CV:", best_dc[exp + "_test_commonvoice"][0], "LBS:", best_dc[exp + "_test_librispeech"][0],
+                    "VP:", best_dc[exp + "_test_voxpopuli"][0], "YD:", best_dc[exp + "_test_yodas"][0], ")     ")))
         else:
             wers.append("None")
 
@@ -1342,10 +1353,95 @@ def build_hubert_distill_report(report: Dict):
 def build_qat_report(report: Dict, print_larger_params: bool = True):
     import numpy as np
 
-    exps = ["baseline", "correction", "noise", "cycle", "smaller", "greedy", "correction_baseline", "quant_out"]
+    exps = ["batched", "combined", "fixed", "bal", "posadc", "learnpos", "keep_encs", "nolinpos", "cycle", "smaller", "greedy", "quant_out", "pertensor"]
     report = copy.deepcopy(report)
     best_dc = {}
     bits = [8, 7, 6, 5, 4, 3, 2, 1.5]
+
+    import re as _re
+
+    def _exp_tokens(exp):
+        """Normalised identifying tokens for matching cycle keys to non-memristor keys.
+
+        Handles both _W_A_seed_S and _wW_aA_seed_S bit-notation styles.
+        Ignores decoding-only suffixes like _p05_l1 that do not affect the trained model.
+        """
+        part = exp.split("/")[-1]
+        tokens = set()
+        m = _re.search(r'seed_(\d+)', part)
+        if m:
+            tokens.add(f"seed_{m.group(1)}")
+        m = _re.search(r'(\d+)eps', part)
+        if m:
+            tokens.add(f"{m.group(1)}eps")
+        m = _re.search(r'(\d+)dim', part)
+        if m:
+            tokens.add(f"{m.group(1)}dim")
+        # Normalise bit notation: w4_a8 and _4_8_ both become w4/a8 tokens
+        m = _re.search(r'w(\d+)_a(\d+)', part)
+        if m:
+            tokens.add(f"w{m.group(1)}")
+            tokens.add(f"a{m.group(2)}")
+        else:
+            m = _re.search(r'_(\d+)_(\d+)(?:_pertensor|_ideal|_seed)', part)
+            if m:
+                tokens.add(f"w{m.group(1)}")
+                tokens.add(f"a{m.group(2)}")
+        # Training-relevant modifiers
+        if 'ideal_correct' in part:
+            tokens.add('ideal_correct')
+        elif 'ideal' in part:
+            tokens.add('ideal')
+        if 'pertensor' in part:
+            tokens.add('pertensor')
+        if 'batched' in part:
+            tokens.add('batched')
+        return frozenset(tokens)
+
+    # Pre-pass: collect non-memristor WERs keyed by (6-part path prefix, token frozenset).
+    # Cycle results are then compared against the same trained model run without memristor hardware.
+    non_mem_wers = {}
+    for exp, dic in report.items():
+        if "cycle" in exp:
+            continue
+        tokens = _exp_tokens(exp)
+        if not tokens:
+            continue
+        if "_full_dev" in exp:
+            suffix = "dev"
+        elif "_full_test" in exp:
+            suffix = "test"
+        elif not any(x in exp for x in ["_full_dev", "_full_test", "_dev_", "_test_"]):
+            suffix = "general"
+        else:
+            continue
+        instanciate_delayed(dic)
+        vals = [v for v in dic.values() if v is not None]
+        if not vals:
+            continue
+        try:
+            key = ("/".join(exp.split("/")[:6]), tokens)
+            if key not in non_mem_wers:
+                non_mem_wers[key] = {}
+            non_mem_wers[key][suffix] = float(min(vals))
+        except (TypeError, ValueError):
+            pass
+
+    def _find_non_mem(prefix, cycle_tokens):
+        """Return WER dict for the best-matching non-memristor experiment.
+
+        Picks the non-memristor entry whose token set is a superset of cycle_tokens,
+        preferring the most specific (smallest) superset to avoid false matches.
+        """
+        candidates = [
+            (tokens, wers) for (p, tokens), wers in non_mem_wers.items()
+            if p == prefix and cycle_tokens.issubset(tokens)
+        ]
+        if not candidates:
+            return {}
+        candidates.sort(key=lambda x: len(x[0]))
+        return candidates[0][1]
+
     for exp, dic in report.items():
         instanciate_delayed(dic)
         if all(dic.values()):
@@ -1361,6 +1457,8 @@ def build_qat_report(report: Dict, print_larger_params: bool = True):
                         dev[item] = dic[item]
                     else:
                         general[item] = dic[item]
+                prefix = "/".join(exp.split("/")[:6])
+                non_mem = _find_non_mem(prefix, _exp_tokens(exp))
                 for dc in [general, dev, test]:
                     if len(dc) == 0:
                         continue
@@ -1371,13 +1469,21 @@ def build_qat_report(report: Dict, print_larger_params: bool = True):
                     ln = len(dc.values())
                     if dc == test:
                         st = "_test_all"
+                        bline = non_mem.get("test")
                     elif dc == dev:
                         st = "_dev_all"
+                        bline = non_mem.get("dev")
                     else:
                         st = ""
+                        bline = non_mem.get("general")
                     best = min(dc, key=dc.get)
+                    if bline is not None and bline > 0:
+                        rel_dev = (float(mean) - bline) / bline * 100
+                        rel_str = " ({:+.1f}% vs Base ({:.1f}%))".format(rel_dev, bline)
+                    else:
+                        rel_str = ""
                     best_dc[" ".join(exp.split("/")[5:]) + st] = (
-                        "{:.1f} $\pm$ {:.2f} \\\\{{}} [{:.1f}, {:.1f}]".format(mean, std, mini, maxi),
+                        "{:.1f} $\pm$ {:.2f} & [{:.1f}, {:.1f}]{}".format(mean, std, mini, maxi, rel_str),
                         best + f"/{mean=} {std=} min: {'{:.1f}'.format(mini)} max: {'{:.1f}'.format(maxi)} runs: {ln}",
                     )
             else:
@@ -1386,6 +1492,58 @@ def build_qat_report(report: Dict, print_larger_params: bool = True):
             best_dc[" ".join(exp.split("/")[5:])] = ("None", "")
     line = []
     tmp = copy.deepcopy(best_dc)
+
+    first = True
+    for exp, value in best_dc.items():
+        if "baseline" in exp:
+            if any(y in exp for y in ["larger_search", "largerer_search", "full_dev", "full_test"]):
+                continue
+            if any(y in exp for y in ['commonvoice', 'librispeech', 'voxpopuli', 'yodas']):
+                continue
+            if first is True:
+                line.append("Baseline")
+                line.append("")
+                first = False
+            ln = f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[8:])}"
+            wers = []
+            if exp + "_full_dev" in best_dc:
+                wers.append(best_dc[exp + "_full_dev"][0])
+                if exp + "_dev_commonvoice" in best_dc:
+                    wers.append(
+                        " ".join(("(CV:", best_dc[exp + "_dev_commonvoice"][0], "LBS:",
+                            best_dc[exp + "_dev_librispeech"][0], "VP:",
+                            best_dc[exp + "_dev_voxpopuli"][0], "YD:", best_dc[exp + "_dev_yodas"][0],
+                            ")     ")))
+                    del tmp[exp + "_dev_commonvoice"]
+                    del tmp[exp + "_dev_librispeech"]
+                    del tmp[exp + "_dev_voxpopuli"]
+                    del tmp[exp + "_dev_yodas"]
+                del tmp[exp + "_full_dev"]
+            else:
+                wers.append("None")
+                # if not "cycle" in exp:
+                #     assert False, (exp, best_dc)
+            if exp + "_full_test" in best_dc:
+                wers.append(best_dc[exp + "_full_test"][0])
+                if exp + "_test_commonvoice" in best_dc:
+                    wers.append(
+                        " ".join(("(CV:", best_dc[exp + "_test_commonvoice"][0], "LBS:",
+                            best_dc[exp + "_test_librispeech"][0],
+                            "VP:", best_dc[exp + "_test_voxpopuli"][0], "YD:", best_dc[exp + "_test_yodas"][0],
+                            ")     ")))
+                    del tmp[exp + "_test_commonvoice"]
+                    del tmp[exp + "_test_librispeech"]
+                    del tmp[exp + "_test_voxpopuli"]
+                    del tmp[exp + "_test_yodas"]
+                del tmp[exp + "_full_test"]
+            else:
+                wers.append("None")
+            ln += f"  {', '.join(wers)}"
+            line.append(ln)
+            del tmp[exp]
+
+    if first == False:
+        line.append("")
     for bit in bits:
         best_dc = tmp
         tmp = copy.deepcopy(best_dc)
@@ -1395,7 +1553,7 @@ def build_qat_report(report: Dict, print_larger_params: bool = True):
                 continue
             if any(y in exp for y in ["larger_search", "largerer_search", "full_dev", "full_test", "commonvoice", "librispeech", "voxpopuli", "yodas"]):
                 continue
-            if f"{bit}_8" not in exp:
+            if f"{bit}_8" not in exp and f"w{bit}_a8" not in exp:
                 continue
             ln = (f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[8:])}")
             wers = []
@@ -1696,12 +1854,12 @@ def build_qat_report(report: Dict, print_larger_params: bool = True):
                                     f"{str(w_bit).ljust(10)}{str(cycle).ljust(10)}{str(test_v).ljust(10)}{str(dev).ljust(10)}{mem[0].ljust(10)}{' '.join(mem[1].split(' ')[1:])} {' ' if len(mem[1]) <= 1 else mem[1].split('/')[-2].ljust(25)}"
                                 )
             line.append("")
-        else:
+        elif x == "baseline":
             for exp, value in best_dc.items():
                 if x in exp:
-                    if x == "baseline" and "correction_baseline" in exp:
-                        continue
                     if any(y in exp for y in ["larger_search", "largerer_search", "full_dev", "full_test"]):
+                        continue
+                    if any(y in exp for y in ['commonvoice', 'librispeech', 'voxpopuli', 'yodas']):
                         continue
                     if first is True:
                         line.append(x)
@@ -1711,19 +1869,406 @@ def build_qat_report(report: Dict, print_larger_params: bool = True):
                     wers = []
                     if exp + "_full_dev" in best_dc:
                         wers.append(best_dc[exp + "_full_dev"][0])
+                        if exp + "_dev_commonvoice" in best_dc:
+                            wers.append(
+                                " ".join(("(CV:", best_dc[exp + "_dev_commonvoice"][0], "LBS:",
+                                    best_dc[exp + "_dev_librispeech"][0], "VP:",
+                                    best_dc[exp + "_dev_voxpopuli"][0], "YD:", best_dc[exp + "_dev_yodas"][0],
+                                    ")     ")))
+                            del tmp[exp + "_dev_commonvoice"]
+                            del tmp[exp + "_dev_librispeech"]
+                            del tmp[exp + "_dev_voxpopuli"]
+                            del tmp[exp + "_dev_yodas"]
                         del tmp[exp + "_full_dev"]
                     else:
                         wers.append("None")
+                        # if not "cycle" in exp:
+                        #     assert False, (exp, best_dc)
                     if exp + "_full_test" in best_dc:
-                        del tmp[exp + "_full_test"]
                         wers.append(best_dc[exp + "_full_test"][0])
+                        if exp + "_test_commonvoice" in best_dc:
+                            wers.append(
+                                " ".join(("(CV:", best_dc[exp + "_test_commonvoice"][0], "LBS:",
+                                    best_dc[exp + "_test_librispeech"][0],
+                                    "VP:", best_dc[exp + "_test_voxpopuli"][0], "YD:", best_dc[exp + "_test_yodas"][0],
+                                    ")     ")))
+                            del tmp[exp + "_test_commonvoice"]
+                            del tmp[exp + "_test_librispeech"]
+                            del tmp[exp + "_test_voxpopuli"]
+                            del tmp[exp + "_test_yodas"]
+                        del tmp[exp + "_full_test"]
                     else:
                         wers.append("None")
                     if not x in ["correction", "cycle"]:
                         ln += f"  {', '.join(wers)}"
                     line.append(ln)
                     del tmp[exp]
+        else:
+            for exp, value in best_dc.items():
+                if x in exp:
+                    if x == "baseline" and "correction_baseline" in exp:
+                        continue
+                    if any(y in exp for y in ["larger_search", "largerer_search"]):
+                        continue
+                    if first is True:
+                        line.append(x)
+                        line.append("")
+                        first = False
+                    ln = f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[8:])}"
+                    line.append(ln)
+                    del tmp[exp]
         if first is False:
             line.append("")
     assert len(tmp) == 0, tmp
     return "\n".join(line)
+
+def build_qat_report_v2(report: Dict) -> str:
+    """Tabular version of build_qat_report_v2. QAT and Memristor sections are rendered as aligned tables."""
+    import numpy as np
+    import re
+
+    report = copy.deepcopy(report)
+
+    DATASETS_FULL = ["commonvoice", "librispeech", "voxpopuli", "yodas"]
+    DATASETS_SHORT = ["common", "librispeech", "voxpopuli", "yodas"]
+    DS_LABEL = {"commonvoice": "CV", "common": "CV", "librispeech": "LBS", "voxpopuli": "VP", "yodas": "YD"}
+    TYPE_KEYWORDS = [
+        "posadc", "keep_encs", "nolinpos", "learnpos", "quant_out", "quantout",
+        "pertensor", "batched", "combined", "fixed", "bal", "smaller", "greedy",
+        "ideal_correct", "ideal", "adc",
+    ]
+
+    # ── token extraction & no-hw pre-pass (identical to v2) ──────────────────
+
+    def exp_tokens(exp: str) -> frozenset:
+        part = exp.split("/")[-1]
+        tokens = set()
+        for pattern, fmt in [(r"seed_(\d+)", "seed_{}"), (r"(\d+)eps", "{}eps"), (r"(\d+)dim", "{}dim")]:
+            m = re.search(pattern, part)
+            if m:
+                tokens.add(fmt.format(m.group(1)))
+        m = re.search(r"w([\dx_]+)_a(\d+)", part)
+        if m:
+            tokens.update({f"w{m.group(1)}", f"a{m.group(2)}"})
+        else:
+            m = re.search(r"_(\d+)_(\d+)(?:_pertensor|_ideal|_seed|_adc)", part)
+            if m:
+                tokens.update({f"w{m.group(1)}", f"a{m.group(2)}"})
+        for mod in ("ideal_correct", "pertensor", "batched", "nolinpos", "learnpos", "keep_encs", "quantout", "quant_out", "greedy"):
+            if mod in part:
+                tokens.add(mod)
+        if "ideal" in part and "ideal_correct" not in part:
+            tokens.add("ideal")
+        return frozenset(tokens)
+
+    non_mem_wers: Dict = {}
+    for exp, dic in report.items():
+        if "cycle" in exp:
+            continue
+        if exp.endswith("_best") or exp.endswith("_best4"):
+            continue
+        tokens = exp_tokens(exp)
+        if not tokens:
+            continue
+        if "_full_dev" in exp:
+            suffix = "dev"
+        elif "_full_test" in exp:
+            suffix = "test"
+        elif not any(s in exp for s in ("_full_dev", "_full_test", "_dev_", "_test_")):
+            suffix = "general"
+        else:
+            continue
+        instanciate_delayed(dic)
+        vals = [v for k, v in dic.items() if v is not None and "/best" not in k]
+        if not vals:
+            continue
+        try:
+            key = ("/".join(exp.split("/")[:6]), tokens)
+            non_mem_wers.setdefault(key, {})[suffix] = float(min(vals))
+        except (TypeError, ValueError):
+            pass
+
+    HW_ONLY_TOKENS = frozenset({"ideal", "ideal_correct"})
+
+    def find_non_mem(prefix: str, tokens: frozenset) -> Dict:
+        lookup = tokens - HW_ONLY_TOKENS
+        candidates = [(t, w) for (p, t), w in non_mem_wers.items()
+                      if p == prefix and lookup.issubset(t)]
+        return min(candidates, key=lambda x: len(x[0]))[1] if candidates else {}
+
+    # ── build summary dict (identical to v2) ─────────────────────────────────
+
+    def shorten(exp: str) -> str:
+        return " ".join(exp.split("/")[5:])
+
+    summary: Dict[str, tuple] = {}
+    cycle_raw: Dict[str, Dict] = {}
+
+    for exp, dic in report.items():
+        short = shorten(exp)
+        instanciate_delayed(dic)
+        if "cycle" in exp:
+            if not all(dic.values()):
+                summary[short] = ("rng", "")
+                continue
+            groups = {"": {}, "_dev_all": {}, "_test_all": {}}
+            for k, v in dic.items():
+                if "test_all" in k:
+                    groups["_test_all"][k] = v
+                elif "dev_all" in k:
+                    groups["_dev_all"][k] = v
+                else:
+                    groups[""][k] = v
+            prefix = "/".join(exp.split("/")[:6])
+            non_mem = find_non_mem(prefix, exp_tokens(exp))
+            bline_by_st = {"": non_mem.get("general"), "_dev_all": non_mem.get("dev"), "_test_all": non_mem.get("test")}
+            for st, dc in groups.items():
+                if not dc:
+                    continue
+                vals = list(dc.values())
+                mean = float(np.round(np.mean(vals), decimals=2))
+                std = float(np.round(np.std(vals), decimals=4))
+                mini, maxi = float(np.min(vals)), float(np.max(vals))
+                best = min(dc, key=dc.get)
+                bline = bline_by_st[st]
+                rel = (mean - bline) / bline * 100 if (bline and bline > 0) else None
+                rel_str = "" if rel is None else " ({:+.1f}% vs no-hw [{:.1f}])".format(rel, bline)
+                wer_str = "{:.1f} \u00b1 {:.2f} [{:.1f},{:.1f}] n={}{}".format(mean, std, mini, maxi, len(vals), rel_str)
+                detail = "best={} mean={:.2f} std={:.4f} min={:.1f} max={:.1f} n={}".format(
+                    best, mean, std, mini, maxi, len(vals))
+                summary[short + st] = (wer_str, detail)
+                cycle_raw[short + st] = {"mean": mean, "std": std, "min": mini, "max": maxi, "n": len(vals), "rel": rel, "bline": bline}
+        else:
+            def _ckpt_min(d, tag):
+                if tag == "best4":
+                    group = {k: v for k, v in d.items() if "/best4" in k}
+                elif tag == "best":
+                    group = {k: v for k, v in d.items() if "/best" in k and "/best4" not in k}
+                else:
+                    group = {k: v for k, v in d.items() if "/best" not in k}
+                if not group:
+                    return "—"
+                if not all(group.values()):
+                    return "rng"
+                return "{:.1f}".format(float(min(group.values())))
+            has_best = any("/best" in k for k in dic)
+            if has_best:
+                parts = [_ckpt_min(dic, t) for t in ("last", "best", "best4")]
+                summary[short] = ("/".join(parts), "")
+            else:
+                last_val = _ckpt_min(dic, "last")
+                summary[short] = (last_val, "")
+
+    # ── classification helpers (identical to v2) ──────────────────────────────
+
+    CYCLE_STAT_SUFFIXES = {"_dev_all", "_test_all"}
+    SPLIT_SUFFIXES = (
+        {f"_full_{s}" for s in ("dev", "test")}
+        | {f"_full_{s}_best" for s in ("dev", "test")}
+        | {f"_{s}_{ds}" for s in ("dev", "test") for ds in DATASETS_FULL + DATASETS_SHORT}
+        | {f"_{s}_{ds}_best" for s in ("dev", "test") for ds in DATASETS_FULL + DATASETS_SHORT}
+    )
+    DATASET_CYCLE_SUFFIXES = {f"_{ds}" for ds in ("yodas", "common", "commonvoice", "librispeech", "voxpopuli")}
+
+    def is_sub_entry(key: str) -> bool:
+        return any(key.endswith(s) for s in CYCLE_STAT_SUFFIXES | SPLIT_SUFFIXES | DATASET_CYCLE_SUFFIXES)
+
+    def exp_label(exp_short: str) -> str:
+        return " ".join(exp_short.split(".")[2:])
+
+    def get_type(exp_short: str) -> str:
+        for kw in TYPE_KEYWORDS:
+            if kw in exp_short:
+                return kw
+        return "standard"
+
+    def group_by_type(exps_dict: Dict) -> Dict[str, Dict]:
+        groups: Dict[str, Dict] = {}
+        for k, v in exps_dict.items():
+            groups.setdefault(get_type(k), {})[k] = v
+        return groups
+
+    top = {k: v for k, v in summary.items() if not is_sub_entry(k)}
+    baseline_exps = {k: v for k, v in top.items() if "baseline" in k}
+    cycle_exps = {k: v for k, v in top.items() if "cycle" in k}
+    qat_exps = {k: v for k, v in top.items() if k not in baseline_exps and k not in cycle_exps}
+
+    # ── dump helpers (identical to v2) ────────────────────────────────────────
+
+    def dataset_breakdown_for(exp_short: str, split: str) -> str:
+        parts = []
+        for ds_full, ds_short in zip(DATASETS_FULL, DATASETS_SHORT):
+            for ds in (ds_full, ds_short):
+                key = exp_short + f"_{split}_{ds}"
+                if key in summary and summary[key][0] not in ("rng", "—"):
+                    parts.append(f"{DS_LABEL[ds]}: {summary[key][0]}")
+                    break
+        return "  ".join(parts)
+
+    def cycle_dataset_breakdown(exp_short: str) -> str:
+        parts = []
+        for ds in ("yodas", "common", "commonvoice", "librispeech", "voxpopuli"):
+            key = exp_short + f"_{ds}"
+            if key in summary and summary[key][0] not in ("rng", "—"):
+                parts.append(f"{DS_LABEL.get(ds, ds.upper())}: {summary[key][0]}")
+        return "  ".join(parts)
+
+    def dump_lines_for(exp_short: str) -> List[str]:
+        out = []
+        label = exp_label(exp_short)
+        for split in ("dev", "test"):
+            bd = dataset_breakdown_for(exp_short, split)
+            if bd:
+                out.append(f"  {label} {split}: {bd}")
+        cycle_bd = cycle_dataset_breakdown(exp_short)
+        if cycle_bd:
+            out.append(f"  {label} dev: {cycle_bd}")
+        return out
+
+    # ── table rendering ───────────────────────────────────────────────────────
+
+    def make_table(headers: List[str], rows: List[List[str]]) -> List[str]:
+        if not rows:
+            return []
+        all_rows = [headers] + rows
+        widths = [max(len(str(r[i])) for r in all_rows) for i in range(len(headers))]
+        sep = "-+-".join("-" * w for w in widths)
+        def fmt(row):
+            return " | ".join(str(cell).ljust(w) for cell, w in zip(row, widths))
+        return [fmt(headers), sep] + [fmt(r) for r in rows]
+
+    def cell(exp_short: str, st: str) -> str:
+        return summary.get(exp_short + st, ("—", ""))[0]
+
+    def qat_table(exps_dict: Dict) -> List[str]:
+        seed_groups: Dict[str, List[str]] = {}
+        for e in exps_dict:
+            base = re.sub(r"_seed_\d+", "", e)
+            seed_groups.setdefault(base, []).append(e)
+
+        MAX_SEEDS = 3
+        seed_labels = [f"s{i}" for i in range(MAX_SEEDS)]
+        splits = [("Short-dev", "", False), ("Full dev", "_full_dev", True), ("Full test", "_full_test", True)]
+        n_splits = len(splits)
+
+        def cell_val(e: str, st: str, has_best: bool) -> str:
+            last = summary.get(e + st, ("—", ""))[0]
+            if has_best:
+                best = summary.get(e + st + "_best", ("—", ""))[0]
+                if best != "—":
+                    return f"{last}/{best}"
+            return last
+
+        data_rows = []
+        for base, exps in seed_groups.items():
+            seed_map = {}
+            for e in exps:
+                m = re.search(r"_seed_(\d+)", e)
+                idx = int(m.group(1)) if m else 0
+                seed_map[idx] = e
+            row = [exp_label(base)]
+            for _, st, hb in splits:
+                for i in range(MAX_SEEDS):
+                    e = seed_map.get(i)
+                    row.append(cell_val(e, st, hb) if e else "—")
+            data_rows.append(row)
+
+        header2 = ["Experiment"] + seed_labels * n_splits
+        all_rows = [header2] + data_rows
+        widths = [max(len(str(r[i])) for r in all_rows) for i in range(len(header2))]
+
+        header1_parts = [" " * widths[0]]
+        for i, (split_name, _, _hb) in enumerate(splits):
+            span = sum(widths[1 + i * MAX_SEEDS + j] for j in range(MAX_SEEDS)) + 3 * (MAX_SEEDS - 1)
+            header1_parts.append(split_name.center(span))
+        header1 = " | ".join(header1_parts)
+
+        sep = "-+-".join("-" * w for w in widths)
+
+        def fmt(row: List[str]) -> str:
+            return " | ".join(str(c).ljust(w) for c, w in zip(row, widths))
+
+        return [header1, fmt(header2), sep] + [fmt(r) for r in data_rows]
+
+    def cycle_table(exps_dict: Dict) -> List[str]:
+        splits = [("Short-dev", ""), ("Dev", "_dev_all"), ("Test", "_test_all")]
+        has_rel = any(
+            cycle_raw.get(e + st_sfx, {}).get("rel") is not None
+            for e in exps_dict for _, st_sfx in splits
+        )
+        sub_cols = ["mean", "±std"] + (["rel%"] if has_rel else []) + ["min", "max", "n"]
+        n_sub = len(sub_cols)
+
+        def raw_cells(e: str, st_sfx: str) -> List[str]:
+            r = cycle_raw.get(e + st_sfx)
+            if not r:
+                return ["—"] * n_sub
+            cells = [
+                "{:.1f}".format(r["mean"]),
+                "{:.2f}".format(r["std"]),
+            ]
+            if has_rel:
+                if r.get("rel") is not None:
+                    cells.append("{:+.1f} ({:.1f})".format(r["rel"], r["bline"]))
+                else:
+                    cells.append("—")
+            cells += [
+                "{:.1f}".format(r["min"]),
+                "{:.1f}".format(r["max"]),
+                str(r["n"]),
+            ]
+            return cells
+
+        data_rows = [[exp_label(e)] + [c for _, st_sfx in splits for c in raw_cells(e, st_sfx)]
+                     for e in exps_dict]
+        header2 = ["Experiment"] + sub_cols * len(splits)
+        all_rows = [header2] + data_rows
+        widths = [max(len(str(r[i])) for r in all_rows) for i in range(len(header2))]
+
+        # first header row: blank exp column, then split name centred over its sub-columns
+        header1_parts = [" " * widths[0]]
+        for i, (split_name, _) in enumerate(splits):
+            span = sum(widths[1 + i * n_sub + j] for j in range(n_sub)) + 3 * (n_sub - 1)
+            header1_parts.append(split_name.center(span))
+        header1 = " | ".join(header1_parts)
+
+        sep = "-+-".join("-" * w for w in widths)
+
+        def fmt(row: List[str]) -> str:
+            return " | ".join(str(c).ljust(w) for c, w in zip(row, widths))
+
+        return [header1, fmt(header2), sep] + [fmt(r) for r in data_rows]
+
+    # ── render ────────────────────────────────────────────────────────────────
+
+    lines = []
+    dump: List[str] = []
+
+    def render_table_section(title: str, exps_dict: Dict, table_fn) -> None:
+        if not exps_dict:
+            return
+        lines.append(title)
+        lines.append("=" * len(title))
+        if table_fn is qat_table:
+            lines.append("(WER cells: last epoch / best / best4)")
+        groups = group_by_type(exps_dict)
+        for gtype, entries in groups.items():
+            if len(groups) > 1:
+                lines.append("")
+                lines.append(f"  -- {gtype} --")
+                lines.append("")
+            lines.extend(table_fn(entries))
+            for exp_short in entries:
+                dump.extend(dump_lines_for(exp_short))
+        lines.append("")
+
+    render_table_section("Baseline", baseline_exps, qat_table)
+    render_table_section("QAT (no hardware)", qat_exps, qat_table)
+    render_table_section("Memristor (hardware cycles)", cycle_exps, cycle_table)
+
+    if dump:
+        lines.append("Per-dataset results")
+        lines.append("=" * len("Per-dataset results"))
+        lines.extend(dump)
+
+    return "\n".join(lines)

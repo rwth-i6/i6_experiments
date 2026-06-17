@@ -77,8 +77,8 @@ class Wav2VecUDeleteSilencesInAudioJob(Job):
     def __init__(
             self,
             environment: Optional[tk.Path],
-            fairseq_root: Type[tk.Path],
-            audio_dir: Type[tk.Path],
+            fairseq_root: tk.Path,
+            audio_dir: tk.Path,
             valid_percent: Optional[float] = 0,
             extension: Optional[str] = "flac",
             rvad_root: Optional[tk.Path] = None,

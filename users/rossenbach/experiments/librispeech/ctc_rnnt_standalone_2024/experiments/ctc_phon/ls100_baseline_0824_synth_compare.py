@@ -214,6 +214,8 @@ def eow_phon_ls100_0824_synth_compare():
         "use_speed_perturbation": True,
         "debug": False,
     }
+    train_args_conv_first_mixed_precision = copy.deepcopy(train_args_conv_first)
+    train_args_conv_first_mixed_precision["config"]["torch_amp_options"] = {"dtype": "bfloat16"}
 
     from i6_experiments.users.rossenbach.experiments.jaist_project.storage import synthetic_bliss_data
 
@@ -224,7 +226,13 @@ def eow_phon_ls100_0824_synth_compare():
         "ar_tts.tacotron2_decoding.tacotron2_decoding_v2_base320_fromglowbase256_400eps_gl32_syn_train-clean-360-sub100",
         "ar_tts.tacotron2_decoding.tacotron2_decoding_v2_fromglowbase256_400eps_gl32_syn_train-clean-360-sub100",
         "nar_tts.fastspeech_like.fastspeech_like_v1_glow256align_400eps_bs300_oclr_fp16_gl32_syn_train-clean-360-sub100",
+        "nar_tts.fastspeech_like.fastspeech_like_v1_ctcalign_400eps_bs300_oclr_fp16_gl32_syn_train-clean-360-sub100",
+        "nar_tts.fastspeech_like.fastspeech_like_v1_gmmalign_400eps_bs300_oclr_fp16_gl32_syn_train-clean-360-sub100",
+        "nar_tts.fastspeech_like.fastspeech_like_v1_duration_offset_gmmalign_400eps_bs300_oclr_fp16_gl32_syn_train-clean-360-sub100",
         "nar_tts.tacotron2_like.tacotron2_like_vanilla_blstm_size512_glow256align_400eps_bs600_oclr_gl32_syn_train-clean-360-sub100",
+        "nar_tts.tacotron2_like.tacotron2_like_vanilla_blstm_size512_gmmalign_400eps_bs600_oclr_gl32_syn_train-clean-360-sub100",
+        "nar_tts.tacotron2_like.tacotron2_like_vanilla_blstm_duration_offset_size512_gmmalign_400eps_bs600_oclr_gl32_syn_train-clean-360-sub100",
+        "nar_tts.tacotron2_like.tacotron2_like_vanilla_blstm_size512_ctcalign_400eps_bs600_oclr_gl32_syn_train-clean-360-sub100",
         "glow_tts.glow_tts_v1_glow256align_400eps_oclr_gl32_noise0.7_syn_train-clean-360-sub100",
         "glow_tts.glow_tts_v1_glow256align_400eps_oclr_nodrop_gl32_noise0.7_syn_train-clean-360-sub100",
         "glow_tts.glow_tts_v1_bs600_v2_800eps_base256_newgl_extdur_noise0.7_syn_train-clean-360-sub100",
@@ -250,20 +258,70 @@ def eow_phon_ls100_0824_synth_compare():
             data_repetition_factors=[0, 1], ## only synth
         )
 
+        train_args_conv_first_ = train_args_conv_first
+        if synth_key == "nar_tts.fastspeech_like.fastspeech_like_v1_gmmalign_400eps_bs300_oclr_fp16_gl32_syn_train-clean-360-sub100":
+            train_args_conv_first_ = copy.deepcopy(train_args_conv_first)
+            train_args_conv_first_["config"]["seed"] = 2
+
+        training_name = prefix_name + "/" + network_module_conv_first + name
+        train_job = training(training_name, train_data_synth, train_args_conv_first_, num_epochs=300, **default_returnn)
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args_conv_first_, with_prior=True, datasets=train_data,
+            get_specific_checkpoint=300
+        )
+        tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[3.0, 3.5, 4.0], prior_scales=[0.2, 0.3, 0.4])
+
+
+    # Experiments from Benedikts Thesis, pure ls-100
+    bene_prefix = "/u/hilmes/experiments/tts_new_sis/alias/experiments/librispeech/nar_tts_2022/conformer_training/synthetic/"
+    corpus_path = "/LibriSpeech/synthetic_ogg_zip_job/input/i6_core_corpus_convert_CorpusReplaceOrthFromReferenceCorpus."
+    corpus_output = "/output/corpus.xml.gz"
+    
+    ls100_bliss_corpus_bene = [
+        # SAT Align, No silence processing, Gaussian Upsampling
+        ("bene/pred_sat_gauss_no_silence_prep", tk.Path(f"{bene_prefix}tts_align_sat/no_sil_p_gauss_pred{corpus_path}CMjOgKby8nAc{corpus_output}")),
+        ("bene/pred_sat_gauss", tk.Path(f"{bene_prefix}tts_align_sat_gauss_pred{corpus_path}7aaBs0XrzrLj{corpus_output}")),
+        ("bene/pred_sat_repeat", tk.Path(f"{bene_prefix}tts_align_sat_repeat_pred{corpus_path}4lnlbRuYGpvu{corpus_output}")),
+        ("bene/pred_ctc_gauss", tk.Path(f"{bene_prefix}ctc_gauss_pred{corpus_path}Gp1OQK5h7Ay3{corpus_output}")),
+    ]
+
+    for synth_key, bliss in ls100_bliss_corpus_bene:
+        name = ".384dim_sub4_11gbgpu_100eps_sp_lp_fullspec_gradnorm_smallbatch/full_synth/" + synth_key
+        lexicon_key = "train-clean-100"
+        synth_ogg = synthetic_librispeech_bliss_to_ogg_zip(
+            prefix=prefix_name + "/synth_data_prep/" + synth_key,
+            bliss=bliss,
+            lexicon_librispeech_key=lexicon_key)
+        train_data_synth = build_eow_phon_training_datasets(
+            prefix=prefix_name,
+            librispeech_key="train-clean-100",
+            settings=train_settings,
+            extra_train_ogg_zips=[synth_ogg],
+            data_repetition_factors=[0, 1], ## only synth
+        )
         training_name = prefix_name + "/" + network_module_conv_first + name
         train_job = training(training_name, train_data_synth, train_args_conv_first, num_epochs=300, **default_returnn)
         asr_model = prepare_asr_model(
             training_name, train_job, train_args_conv_first, with_prior=True, datasets=train_data,
             get_specific_checkpoint=300
         )
-        tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[3.0, 3.5, 4.0], prior_scales=[0.2, 0.3, 0.4])
+        tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[3.0, 3.5, 4.0, 4.5, 5.0], prior_scales=[0.2, 0.3, 0.4, 0.5])
+
 
 
     # take over data from legacy paper experiments
-    ls360_bliss_corpora = [
-        # Comparison paper Table 2 row 2
-        ("comparison_paper_threshold_fixed_phonemes", tk.Path("/u/rossenbach/experiments/librispeech_tts/output/input_tts_experiments/threshold_fixed_phonemes/tts_outputs/librispeech-360_corpus.xml.gz")),
-    ]
+    # Comparison paper Table 2 row 2 uses threshold_fixed_phonemes
+    ls360_bliss_corpora = []
+    for silence_method in ["gmm_0.0", "gmm_0.5", "threshold"]:
+        for speaker_method in ["fixed", "gst"]:
+            for label_method in ["characters", "phonemes"]:
+                identifier = f"{silence_method}_{speaker_method}_{label_method}"
+                ls360_bliss_corpora.append(
+                    (
+                        f"comparison_paper_{identifier}",
+                        tk.Path(f"/u/rossenbach/experiments/librispeech_tts/output/input_tts_experiments/{identifier}/tts_outputs/librispeech-360_corpus.xml.gz")
+                    )
+                )
 
     from i6_experiments.users.rossenbach.datasets.librispeech import get_100_from_ls360_segment_list
     ls100_from_360_segments = get_100_from_ls360_segment_list()
@@ -296,7 +354,7 @@ def eow_phon_ls100_0824_synth_compare():
             training_name, train_job, train_args_conv_first, with_prior=True, datasets=train_data,
             get_specific_checkpoint=300
         )
-        tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[3.0, 3.5, 4.0], prior_scales=[0.2, 0.3, 0.4])
+        tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[3.0, 3.5, 4.0, 4.5, 5.0], prior_scales=[0.2, 0.3, 0.4, 0.5])
 
 
 
@@ -305,6 +363,7 @@ def eow_phon_ls100_0824_synth_compare():
     synth_keys = [
         "ar_tts.tacotron2_decoding.tacotron2_decoding_v2_base320_fromglowbase256_400eps_gl32_syn_train-clean-360",
         "ar_tts.tacotron2_decoding.tacotron2_decoding_v2_fromglowbase256_400eps_gl32_syn_train-clean-360",
+        "ar_tts.tacotron2_decoding.tacotron2_decoding_v2_fromglowbase256_400eps_gl32_syn_speak1_train-clean-360",
         "nar_tts.fastspeech_like.fastspeech_like_v1_glow256align_400eps_bs300_oclr_fp16_gl32_syn_train-clean-360",
         "nar_tts.tacotron2_like.tacotron2_like_vanilla_blstm_size512_glow256align_400eps_bs600_oclr_gl32_syn_train-clean-360",
         "glow_tts.glow_tts_v1_glow256align_400eps_oclr_gl32_noise0.7_syn_train-clean-360",
@@ -348,6 +407,63 @@ def eow_phon_ls100_0824_synth_compare():
         tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[3.0, 3.5, 4.0], prior_scales=[0.2, 0.3, 0.4])
 
 
+
+    # resume experiments for data ratio experiments
+    # the original experiments were done without the threshold silence filtering
+    ls360_bliss_corpora_ratiocompare = []
+    for silence_method in ["gmm_0.0", "gmm_0.5"]:
+        for speaker_method in ["fixed", "gst"]:
+            for label_method in ["phonemes"]:
+                identifier = f"{silence_method}_{speaker_method}_{label_method}"
+                ls360_bliss_corpora_ratiocompare.append(
+                    (
+                        f"comparison_paper_{identifier}",
+                        tk.Path(f"/u/rossenbach/experiments/librispeech_tts/output/input_tts_experiments/{identifier}/tts_outputs/librispeech-360_corpus.xml.gz")
+                    )
+                )
+
+    for ratio, partition in [(1, 8),(2, 10),(3, 12), (4, 14)]:
+        for synth_key, bliss in ls360_bliss_corpora_ratiocompare:
+            name = f".384dim_sub4_11gbgpu_100eps_sp_lp_fullspec_gradnorm_smallbatch/ratio_synth/ratio_{ratio}:3/full_synth/" + synth_key
+            resume_name = f".384dim_sub4_11gbgpu_100eps_sp_lp_fullspec_gradnorm_smallbatch_resume/ratio_synth/ratio_{ratio}:3/full_synth/" + synth_key
+            lexicon_key = "train-clean-460"
+            synth_ogg = synthetic_librispeech_bliss_to_ogg_zip(
+                prefix=prefix_name + "/synth_data_prep/" + synth_key,
+                bliss=bliss,
+                lexicon_librispeech_key=lexicon_key)
+
+            train_settings_resume_partitioned = copy.deepcopy(train_settings_resume)
+            train_settings_resume_partitioned.train_partition_epoch = partition
+
+            train_data_synth = build_eow_phon_training_datasets(
+                prefix=prefix_name,
+                librispeech_key="train-clean-100",
+                settings=train_settings_resume_partitioned,
+                extra_train_ogg_zips=[synth_ogg],
+                data_repetition_factors=[ratio, 1], ## 3x original + 1x synth
+            )
+
+            # This was actually without resume
+            training_name = prefix_name + "/" + network_module_conv_first + name
+            train_job = training(training_name, train_data_synth, train_args_conv_first, num_epochs=300, **default_returnn)
+            train_job.rqmt["gpu_mem"] = 24  # just move to 24 gb, even without mixed precision training
+            asr_model = prepare_asr_model(
+                training_name, train_job, train_args_conv_first, with_prior=True, datasets=train_data,
+                get_specific_checkpoint=300
+            )
+            tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[3.0, 3.5, 4.0, 4.5, 5.0], prior_scales=[0.2, 0.3, 0.4, 0.5])
+
+            # now with resume
+            training_name = prefix_name + "/" + network_module_conv_first + resume_name
+            train_job = training(training_name, train_data_synth, train_args_resume, num_epochs=300, **default_returnn)
+            train_job.rqmt["gpu_mem"] = 24  # just move to 24 gb, even without mixed precision training
+            asr_model = prepare_asr_model(
+                training_name, train_job, train_args_resume, with_prior=True, datasets=train_data,
+                get_specific_checkpoint=300
+            )
+            tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[3.0, 3.5, 4.0, 4.5, 5.0], prior_scales=[0.2, 0.3, 0.4, 0.5])
+
+
     # Data from new experiments
 
     from ...storage import get_synthetic_data
@@ -389,7 +505,7 @@ def eow_phon_ls100_0824_synth_compare():
     lm_data_lexicon = get_synthetic_data_lexicon("ls_lm_data_lexicon")
     from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
     lm_data_lexicon = AddEowPhonemesToLexiconJob(lm_data_lexicon).out_lexicon
-    for num_datasets in [1,2,3,4,5,6,7,8,9,10]:
+    for num_datasets in [1,2,3,4,5,6,7,8,9,10,20]:
         name = ".384dim_sub4_11gbgpu_100eps_sp_lp_fullspec_gradnorm_smallbatch/only_lm_data/with_%i_datasets" % num_datasets
 
         synth_oggs = []
@@ -420,4 +536,68 @@ def eow_phon_ls100_0824_synth_compare():
         )
         tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[3.0, 3.5, 4.0], prior_scales=[0.2, 0.3, 0.4])
 
+    # the same with longer training
+    for num_datasets in [1,5,10,20]:
+        name = ".384dim_sub4_11gbgpu_100eps_sp_lp_fullspec_gradnorm_smallbatch/only_lm_data_long_training/with_%i_datasets" % num_datasets
+
+        synth_oggs = []
+        for i in range(num_datasets):
+            synth_bliss, _ = get_synthetic_data("glowtts460_lm_data_%i" % i)
+            synth_ogg = synthetic_librispeech_bliss_to_ogg_zip(
+                prefix=prefix_name + "/synth_data_prep/lm_data_%i" % i,
+                bliss=synth_bliss,
+                lexicon_librispeech_key=None,
+                custom_lexicon=lm_data_lexicon,
+            )
+            synth_oggs.append(synth_ogg)
+
+        train_data_synth = build_eow_phon_training_datasets(
+            prefix=prefix_name,
+            librispeech_key="train-clean-100",
+            settings=get_training_settings_with_partition(1*num_datasets),
+            extra_train_ogg_zips=synth_oggs,
+            data_repetition_factors=[0] + num_datasets * [1], ## only synth
+        )
+
+        training_name = prefix_name + "/" + network_module_conv_first + name
+        train_job = training(training_name, train_data_synth, train_args_conv_first, num_epochs=300, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 24  # just move to 24 gb, even without mixed precision training
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args_conv_first, with_prior=True, datasets=train_data,
+            get_specific_checkpoint=300
+        )
+        tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[3.0, 3.5, 4.0], prior_scales=[0.2, 0.3, 0.4])
+
+
+    # combined training
+    for num_datasets in [1, 5, 10, 20]:
+        name = ".384dim_sub4_11gbgpu_100eps_sp_lp_fullspec_gradnorm_smallbatch/mixed_lm_data_50h_subep/with_%i_datasets" % num_datasets
+
+        synth_oggs = []
+        for i in range(num_datasets):
+            synth_bliss, _ = get_synthetic_data("glowtts460_lm_data_%i" % i)
+            synth_ogg = synthetic_librispeech_bliss_to_ogg_zip(
+                prefix=prefix_name + "/synth_data_prep/lm_data_%i" % i,
+                bliss=synth_bliss,
+                lexicon_librispeech_key=None,
+                custom_lexicon=lm_data_lexicon,
+            )
+            synth_oggs.append(synth_ogg)
+
+        train_data_synth = build_eow_phon_training_datasets(
+            prefix=prefix_name,
+            librispeech_key="train-clean-100",
+            settings=get_training_settings_with_partition(4*num_datasets),
+            extra_train_ogg_zips=synth_oggs,
+            data_repetition_factors=[num_datasets] + num_datasets * [1], ## only synth
+        )
+
+        training_name = prefix_name + "/" + network_module_conv_first + name
+        train_job = training(training_name, train_data_synth, train_args_conv_first_mixed_precision, num_epochs=300, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 24
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args_conv_first, with_prior=True, datasets=train_data,
+            get_specific_checkpoint=300
+        )
+        tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[2.0, 2.5, 3.0, 3.5, 4.0], prior_scales=[0.0, 0.1, 0.2, 0.3, 0.4])
 

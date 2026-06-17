@@ -225,8 +225,11 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     phonemes = data["phonemes"]  # [B, N] (sparse)
     phonemes_len = data["phonemes:size1"]  # [B, N]
     speaker_labels = data["speaker_labels"]  # [B, 1] (sparse)
-    durations = data["durations"]  # [B, N]
+    durations = data["durations"]  # [B, N] or [B, N, 1]
     durations_len = data["durations:size1"]  # [B]
+
+    if durations.ndim == 3:
+        durations = durations.squeeze(dim=2)
 
     output_features, target_features, features_lengths, log_durations = model(
         phonemes, phonemes_len, speaker_labels, raw_samples, audio_features_len, durations,

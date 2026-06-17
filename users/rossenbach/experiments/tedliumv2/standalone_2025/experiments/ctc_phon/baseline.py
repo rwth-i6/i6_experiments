@@ -278,3 +278,5 @@ def eow_phon_ted_pos_enc_baseline(get_report=False):
         lm_scales=[1.6, 1.8, 2.0, 2.2, 2.4, 2.6],
         prior_scales=[0.2, 0.3, 0.4, 0.5],
     )
+
+    ######################## Long training

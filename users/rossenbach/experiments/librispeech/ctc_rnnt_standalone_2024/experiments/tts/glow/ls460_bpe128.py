@@ -14,7 +14,7 @@ from i6_experiments.common.setups.returnn.datastreams.audio import DBMelFilterba
 from ....data.tts.aligner import build_training_dataset
 from ....config import get_forward_config
 from ....pipeline import training, prepare_tts_model, TTSModel, tts_eval_v2
-from ....data.tts.tts_phon import get_tts_log_mel_datastream, build_durationtts_training_dataset
+from ....data.tts.tts_bpe import get_tts_log_mel_datastream, build_durationtts_training_dataset
 
 from ....default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ....storage import vocoders
@@ -31,7 +31,7 @@ def run_bpe_flow_tts_460h():
 
 
 
-    prefix = "experiments/librispeech/ctc_rnnt_standalone_2024/tts/glow_tts_460h/"
+    prefix = "experiments/librispeech/ctc_rnnt_standalone_2024/tts/glow_tts_460h_bpe/"
     training_datasets = build_training_dataset(ls_corpus_key="train-clean-460", partition_epoch=1)
 
     def run_exp(name, train_args, target_durations=None, num_epochs=100):

@@ -1534,6 +1534,8 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
 
 
 class CalcAlignmentMetricsJob(Job):
+    __sis_version__ = 1  # Aligner boundary off-by-one fix (end frame t, was t-1)
+
     def __init__(
         self,
         *,
@@ -1661,6 +1663,8 @@ class CalcAlignmentMetricsJob(Job):
 
 
 class CalcChunkedAlignmentMetricsJob(Job):
+    __sis_version__ = 1  # Aligner boundary off-by-one fix (end frame t, was t-1)
+
     def __init__(
         self,
         *,
@@ -1821,6 +1825,10 @@ class CalcAlignmentMetricsFromWordBoundariesJob(Job):
     (I.e. no alignment is happening here; that is already given via word boundaries.)
     """
 
+    # v2: emit the richer metric set (acc@collar, edge/interior, start/end MAE) via align_metrics.
+    # v3: + center_offset / width_signed_err / center_abs.
+    __sis_version__ = 3
+
     def __init__(
         self,
         *,
@@ -1850,6 +1858,11 @@ class CalcAlignmentMetricsFromWordBoundariesJob(Job):
         self.dataset_offset_factors = dataset_offset_factors
 
         self.out_wbe = self.output_var("wbe.txt")
+        # Richer metrics (see align_metrics): collar accuracy, edge/interior WBE, start/end MAE.
+        self.out_metrics = self.output_var("metrics.txt")
+        self.out_acc50 = self.output_var("acc50.txt")
+        self.out_interior_wbe = self.output_var("interior_wbe.txt")
+        self.out_edge_wbe = self.output_var("edge_wbe.txt")
 
     def tasks(self):
         yield Task("run", rqmt={"cpu": 2, "mem": 10, "time": 5})
@@ -1911,21 +1924,24 @@ class CalcAlignmentMetricsFromWordBoundariesJob(Job):
             ]
             assert len(words) == len(ref_word_start_ends) == len(align_word_start_ends)
 
-            wbe_utt = np.mean(
-                [
-                    0.5
-                    * (
-                        abs(ref_word_start_ends[w][0] - align_word_start_ends[w][0])
-                        + abs(ref_word_start_ends[w][1] - align_word_start_ends[w][1])
-                    )
-                    for w in range(len(words))
-                ]
+            from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.align_metrics import (
+                per_utt_boundary_errors,
+                aggregate_corpus,
             )
-            print("  WBE:", float(wbe_utt))
-            wbe_utts.append(wbe_utt)
 
-        wbe = float(np.mean(wbe_utts))
-        self.out_wbe.set(wbe)
+            utt_err = per_utt_boundary_errors(
+                [tuple(map(float, se)) for se in align_word_start_ends], ref_word_start_ends
+            )
+            print("  WBE:", float(np.mean(utt_err["wbe"])))
+            wbe_utts.append(utt_err)
+
+        metrics = aggregate_corpus(wbe_utts)
+        print("CORPUS METRICS:", metrics)
+        self.out_wbe.set(metrics["wbe"])
+        self.out_metrics.set(metrics)
+        self.out_acc50.set(metrics["acc_50ms"])
+        self.out_interior_wbe.set(metrics["interior_wbe"])
+        self.out_edge_wbe.set(metrics["edge_wbe"])
 
 
 class Aligner:
@@ -1999,10 +2015,23 @@ class Aligner:
         self.non_blank_score_reduce = non_blank_score_reduce
         self.blank_score_flipped_percentile = blank_score_flipped_percentile
 
-    def align(self, score_matrix: np.ndarray, *, plot_filename: Optional[str] = None) -> List[Tuple[int, int]]:
+    def align(
+        self,
+        score_matrix: np.ndarray,
+        *,
+        plot_filename: Optional[str] = None,
+        blank_override: Optional[np.ndarray] = None,
+        blank_state_mask: Optional[np.ndarray] = None,
+        collect_posteriors: Optional[dict] = None,
+    ) -> List[Tuple[int, int]]:
         """
         :param score_matrix: [S,T]
         :param plot_filename: if given, plots the scores and alignment as PDF into this file
+        :param collect_posteriors: if given, additionally runs the forward-backward DP
+            (log-sum-exp over the same lattice the Viterbi path searches)
+            and fills in per-label posterior occupancies at the Viterbi spans:
+            ``mean_occ``/``start_occ``/``end_occ``, each a list of len S of probs --
+            an alignment-confidence signal.
         :return: list of start/end offsets, both are including. len is S
         """
         import numpy as np
@@ -2101,12 +2130,24 @@ class Aligner:
 
         score_matrix_ = np.zeros((T, S * 2 + 1), dtype=np.float32)  # [T, S*2+1]
         score_matrix_[:, 1::2] = score_matrix.T
-        if isinstance(self.blank_score, (int, float)):
+        if blank_override is not None:
+            # Externally supplied per-frame blank row (e.g. a self-calibrating
+            # std-margin blank computed from the original, non-energy-weighted
+            # tokens by the caller). Used as-is.
+            score_matrix_[:, 0::2] = np.asarray(blank_override, dtype=np.float32)[:, None]
+        elif isinstance(self.blank_score, (int, float)):
             score_matrix_[:, 0::2] = self.blank_score  # blank score
         elif self.blank_score == "calc":
             score_matrix_[:, 0::2] = blank_score[:, None]
         else:
             raise ValueError(f"invalid blank_score {self.blank_score!r} setting")
+
+        if blank_state_mask is not None:
+            # Word-aware topology: forbid blank/silence on the intra-word blank states (keep blank
+            # only at word boundaries + start/end). Safe because the topology allows a direct
+            # label->label skip, so repeated chars within a word still align.
+            _blank_cols = np.arange(0, 2 * S + 1, 2)
+            score_matrix_[:, _blank_cols[~np.asarray(blank_state_mask, dtype=bool)]] = -np.inf
 
         # The first two states are valid start states.
         align_scores[0, :2] = score_matrix_[0, :2]
@@ -2166,9 +2207,50 @@ class Aligner:
                 if s % 2 != 0:  # non-sil new label
                     labels_start_end.append((t, t))
             if s % 2 != 0:  # in non-sil label
-                labels_start_end[-1] = (labels_start_end[-1][0], t - 1)  # update end
+                labels_start_end[-1] = (labels_start_end[-1][0], t)  # update end (incl. current frame)
             prev_s = s
         assert S == len(labels_start_end), f"{labels_start_end=}, {len(labels_start_end)=}, {alignment=}, {S=}, {T=}"
+
+        if collect_posteriors is not None:
+            # Forward-backward over the same lattice (log-sum-exp instead of max),
+            # same transitions: horizontal, diagonal, diagonal-skip (skip only into label states).
+            alpha = np.full((T, S * 2 + 1), -inf, dtype=np.float64)
+            alpha[0, :2] = score_matrix_[0, :2]
+            for t in range(1, T):
+                stay = alpha[t - 1, :]
+                diag = np.concatenate([[-inf], alpha[t - 1, :-1]])
+                skip = np.concatenate([[-inf, -inf], alpha[t - 1, :-2]])
+                skip[::2] = -inf
+                alpha[t] = np.logaddexp(np.logaddexp(stay, diag), skip) + score_matrix_[t, :]
+            beta = np.full((T, S * 2 + 1), -inf, dtype=np.float64)
+            beta[-1, S * 2 - 1 :] = 0.0
+            for t in range(T - 2, -1, -1):
+                nxt = beta[t + 1, :] + score_matrix_[t + 1, :]
+                stay = nxt
+                diag = np.concatenate([nxt[1:], [-inf]])
+                skip_in = np.full(S * 2 + 1, -inf)
+                skip_in[:-2] = nxt[2:]
+                skip_in[1::2] = -inf  # diagonal-skip only lands in label (odd) states
+                beta[t] = np.logaddexp(np.logaddexp(stay, diag), skip_in)
+            log_z = np.logaddexp(alpha[-1, S * 2 - 1], alpha[-1, S * 2])
+            if not np.isfinite(log_z):
+                print(f"WARNING: forward-backward not normalizable (log_z={log_z}, {S=}, {T=})")
+            with np.errstate(invalid="ignore"):
+                gamma = alpha + beta - log_z  # [T, 2S+1] log posterior occupancy
+                occ = np.exp(np.clip(gamma[:, 1::2], -100.0, 0.0))  # [T, S]
+            mean_occ, start_occ, end_occ, leak = [], [], [], []
+            total_mass = occ.sum(axis=0)  # [S] expected frames per label
+            for i, (t0, t1) in enumerate(labels_start_end):
+                mean_occ.append(float(np.mean(occ[t0 : t1 + 1, i])))
+                start_occ.append(float(occ[t0, i]))
+                end_occ.append(float(occ[t1, i]))
+                # Posterior mass of this label OUTSIDE its Viterbi span (frames):
+                # boundary-localized uncertainty, unlike mean_occ which saturates.
+                leak.append(float(total_mass[i] - np.sum(occ[t0 : t1 + 1, i])))
+            collect_posteriors["mean_occ"] = mean_occ
+            collect_posteriors["start_occ"] = start_occ
+            collect_posteriors["end_occ"] = end_occ
+            collect_posteriors["leak"] = leak
 
         if plot_filename is not None:
             assert plot_filename.endswith(".pdf")

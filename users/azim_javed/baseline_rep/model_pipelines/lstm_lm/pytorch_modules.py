@@ -1,0 +1,104 @@
+from dataclasses import dataclass
+from typing import Tuple
+
+import torch
+from i6_models.config import ModelConfiguration
+
+
+@dataclass
+class LstmLmConfig(ModelConfiguration):
+    vocab_size: int
+    embed_dim: int
+    lstm_hidden_size: int
+    lstm_layers: int
+    dropout: float
+
+
+class LstmLm(torch.nn.Module):
+    def __init__(self, cfg: LstmLmConfig, **_):
+        super().__init__()
+
+        self.embed_dim = cfg.embed_dim
+        self.embed = torch.nn.Embedding(num_embeddings=cfg.vocab_size, embedding_dim=cfg.embed_dim)
+
+        self.dropout = torch.nn.Dropout(cfg.dropout)
+
+        self.lstm = torch.nn.LSTM(
+            input_size=cfg.embed_dim,
+            hidden_size=cfg.lstm_hidden_size,
+            num_layers=cfg.lstm_layers,
+            bias=True,
+            batch_first=True,
+            dropout=cfg.dropout,
+            bidirectional=False,
+        )
+
+        self.final_linear = torch.nn.Linear(cfg.lstm_hidden_size, cfg.vocab_size)
+
+        self._param_init()
+
+    def _param_init(self):
+        for m in self.modules():
+            for _, param in m.named_parameters():
+                torch.nn.init.normal_(param, mean=0, std=0.1)  # type: ignore
+
+    def forward(
+        self,
+        targets: torch.Tensor,  # [B, S]
+    ) -> torch.Tensor:  # final log_probs [B, S, V]
+        embed = self.embed(targets)  # [B, S, E]
+        embed = self.dropout(embed)
+
+        lstm_out, _ = self.lstm(embed)  # [B, S, H]
+        lstm_out = self.dropout(lstm_out)
+
+        logits = self.final_linear(lstm_out)  # [B, S, V]
+        return logits
+
+
+class LstmLmScorer(LstmLm):
+    def forward(
+        self,
+        lstm_out: torch.Tensor,  # [B, H]
+    ) -> torch.Tensor:
+        logits = self.final_linear(lstm_out)  # [B, V]
+        return -torch.nn.functional.log_softmax(logits, dim=-1)  # [B, V]
+
+
+class LstmLmStateInitializer(LstmLm):
+    def forward(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        token = torch.zeros([1, 1], dtype=torch.int32)  # [1, 1]
+        embed = self.embed(token)  # [1, 1, E]
+        h_0 = torch.zeros((self.lstm.num_layers, 1, self.lstm.hidden_size), dtype=torch.float32)  # [L, 1, H]
+        c_0 = torch.zeros((self.lstm.num_layers, 1, self.lstm.hidden_size), dtype=torch.float32)  # [L, 1, H]
+
+        lstm_out, (h_0, c_0) = self.lstm(embed, (h_0, c_0))  # [1, 1, H], [L, 1, H], [L, 1, H]
+        lstm_out = lstm_out.reshape([1, self.lstm.hidden_size])  # [1, H]
+
+        h_0 = h_0.transpose(0, 1)  # [1, L, H]
+        c_0 = c_0.transpose(0, 1)  # [1, L, H]
+
+        return lstm_out, h_0, c_0
+
+
+class LstmLmStateUpdater(LstmLm):
+    def forward(
+        self,
+        token: torch.Tensor,  # [B]
+        lstm_h: torch.Tensor,  # [B, L, H]
+        lstm_c: torch.Tensor,  # [B, L, H]
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        embed = self.embed(token)  # [B, E]
+        embed = embed.reshape([embed.size(0), 1, embed.size(1)])  # [B, 1, E]
+
+        lstm_h = lstm_h.transpose(0, 1)  # [L, B, H]
+        lstm_c = lstm_c.transpose(0, 1)  # [L, B, H]
+
+        lstm_out, (new_lstm_h, new_lstm_c) = self.lstm(embed, (lstm_h, lstm_c))  # [B, 1, H] [L, B, H] [L, B, H]
+
+        lstm_out = lstm_out.reshape([-1, self.lstm.hidden_size])  # [B, H]
+
+        new_lstm_h = new_lstm_h.transpose(0, 1)  # [B, L, H]
+        new_lstm_c = new_lstm_c.transpose(0, 1)  # [B, L, H]
+
+        return lstm_out, new_lstm_h, new_lstm_c

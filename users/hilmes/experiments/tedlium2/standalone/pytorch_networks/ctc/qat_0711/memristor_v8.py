@@ -192,6 +192,8 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
                 "quant_max": self.linear_out.weight_quantizer.quant_max,
             },
         )
+
+    def remove_quant(self):
         self.lin_1_in_quant = nn.Identity()
         self.lin_2_in_quant = nn.Identity()
 
@@ -230,6 +232,9 @@ class ConformerMHSAQuant(torch.nn.Module):
 
     def prep_torch_quant(self):
         self.mhsa.prep_torch_quant()
+
+    def remove_quant(self):
+        self.mhsa.remove_quant()
 
 
 class ConformerConvolutionQuant(nn.Module):
@@ -470,6 +475,14 @@ class ConformerConvolutionQuant(nn.Module):
                 "quant_max": self.pointwise_conv2.weight_quantizer.quant_max,
             },
         )
+        # self.pconv_1_in_quant = nn.Identity()
+        # self.pconv_1_out_quant = nn.Identity()
+        # self.dconv_1_in_quant = nn.Identity()
+        # self.dconv_1_out_quant = nn.Identity()
+        # self.pconv_2_in_quant = nn.Identity()
+        # self.pconv_2_out_quant = nn.Identity()
+
+    def remove_quant(self):
         self.pconv_1_in_quant = nn.Identity()
         self.pconv_1_out_quant = nn.Identity()
         self.dconv_1_in_quant = nn.Identity()
@@ -525,6 +538,10 @@ class ConformerBlockQuant(nn.Module):
         for module in self.module_list:
             module.prep_torch_quant()
 
+    def remove_quant(self):
+        for module in self.module_list:
+            module.remove_quant()
+
 
 class ConformerEncoderQuant(nn.Module):
     """
@@ -577,6 +594,10 @@ class ConformerEncoderQuant(nn.Module):
     def prep_torch_quant(self):
         for module in self.module_list:
             module.prep_torch_quant()
+
+    def remove_quant(self):
+        for module in self.module_list:
+            module.remove_quant()
 
 
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
@@ -840,6 +861,9 @@ class Model(torch.nn.Module):
             )
             self.final_linear = torch.nn.Sequential(self.lin_out_in_quant[-1], final_lin, self.lin_out_out_quant[-1])
         self.conformer.prep_torch_quant()
+
+    def remove_quant(self):
+        self.conformer.remove_quant()
 
 
 

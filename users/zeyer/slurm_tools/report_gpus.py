@@ -41,6 +41,7 @@ def main():
     reserved = defaultdict(int)
     drain = defaultdict(int)
     down = defaultdict(int)
+    total_theoretic = defaultdict(int)
     for _, node_info in nodes_info.items():
         for partition in node_info.get("Partitions", "").split(","):
             state, *state_flags = node_info["State"].split("+")
@@ -52,6 +53,7 @@ def main():
                 node_total_count = cfg_tres[count_arg]
                 node_alloc_count = alloc_tres.get(count_arg, 0)
                 key = (count_arg, partition)
+                total_theoretic[key] += node_total_count
                 if "RESERVED" in state_flags:
                     reserved[key] += node_total_count
                 elif "DRAIN" in state_flags:
@@ -62,7 +64,8 @@ def main():
                 else:
                     down[key] += node_total_count
 
-    for key in total:
+    for key in total_theoretic:
+        total_theoretic_ = total_theoretic[key]
         total_ = total[key]
         alloc_ = alloc[key]
         reserved_ = reserved[key]
@@ -70,7 +73,7 @@ def main():
         down_ = down[key]
         print(
             f"Count {key}: {alloc_}/{total_} used, {total_ - alloc_}/{total_} free,"
-            f" {drain_} drain, {reserved_} reserved, {down_} down"
+            f" {drain_} drain, {reserved_} reserved, {down_} down, {total_theoretic_} total"
         )
 
 

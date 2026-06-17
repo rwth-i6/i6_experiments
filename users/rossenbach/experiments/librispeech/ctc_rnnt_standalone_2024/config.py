@@ -25,6 +25,7 @@ def get_training_config(
     use_speed_perturbation: bool = False,
     post_config: Optional[Dict[str, Any]] = None,
     add_cache_manager: bool = False,
+    exclude_devtrain: bool = False,
 ) -> ReturnnConfig:
     """
     Get a generic config for training a model
@@ -37,6 +38,8 @@ def get_training_config(
     :param debug: run training in debug mode (linking from recipe instead of copy)
     :param use_speed_perturbation: Use speedperturbation in the training
     :param post_config: Add non-hashed arguments for RETURNN
+    :param add_cache_manager: Explicitly add cache_manager helper code, used for LM training
+    :param exclude_devtrain: do not use devtrain because of memory issues
     """
 
     # changing these does not change the hash
@@ -52,6 +55,8 @@ def get_training_config(
         "dev": training_datasets.cv.as_returnn_opts(),
         "eval_datasets": {"devtrain": training_datasets.devtrain.as_returnn_opts()},
     }
+    if exclude_devtrain:
+        base_config.pop("eval_datasets")
     config = {**base_config, **copy.deepcopy(config)}
     post_config = {**base_post_config, **copy.deepcopy(post_config or {})}
 

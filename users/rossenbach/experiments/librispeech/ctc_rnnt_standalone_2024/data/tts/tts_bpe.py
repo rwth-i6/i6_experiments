@@ -32,6 +32,7 @@ from i6_experiments.users.rossenbach.setups.tts.preprocessing import (
     extend_lexicon_with_blank
 )
 from ..common import get_audio_raw_datastream, TrainingDatasets
+from ..bpe import get_bpe_datastream
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 
 DATA_PREFIX = "experiments/alignment_analysis_tts/data/"
@@ -125,18 +126,6 @@ def get_tts_bliss_and_zip(ls_corpus_key, silence_preprocessed=False):
     return bliss_dataset, zip_dataset
 
 
-def get_lexicon(with_blank: bool = False, corpus_key="train-clean-100") -> tk.Path:
-    """
-    Get the TTS/CTC lexicon
-
-    :param with_blank: add blank (e.g. for CTC training or extraction)
-    :return: path to bliss lexicon file
-    """
-    lexicon = get_librispeech_lexicon(corpus_key=corpus_key)
-    lexicon = extend_lexicon_with_tts_lemmas(lexicon)
-    if with_blank:
-        lexicon = extend_lexicon_with_blank(lexicon)
-    return lexicon
 
 
 def get_vocab_datastream(with_blank: bool = False, corpus_key="train-clean-100") -> LabelDatastream:

@@ -63,7 +63,9 @@ class SharedDenoisingAedModel(DenoisingAedModel):
         """
 
     @abstractmethod
-    def decode_audio_seq(self, x: Tensor, x_lens: Tensor, encoder_output: Tensor, encoder_output_lens: Tensor) -> Tensor:
+    def decode_audio_seq(
+        self, x: Tensor, x_lens: Tensor, encoder_output: Tensor, encoder_output_lens: Tensor
+    ) -> Tensor:
         """
         Forward the decoder for the entire sequence in `x`, discarding any intermediate state afterwards.
 
@@ -127,10 +129,7 @@ def backtranslation_step(
         with torch.no_grad():
             seq_len = src_indices_lens.to(src_indices.device)
             target_decoder_state = model.forward_encoder(
-                src_indices,
-                seq_len,
-                decoder=target_decoder,
-                forward_func=forward_src
+                src_indices, seq_len, decoder=target_decoder, forward_func=forward_src
             )
             pseudo_target_indices, _, _, pseudo_target_indices_lens = beam_search_v1(
                 model=model,
@@ -152,28 +151,28 @@ def backtranslation_step(
             pseudo_target_lens_data = rf.convert_to_tensor(pseudo_target_indices_lens, dims=[batch_dim])
             pseudo_target_lens_dim = ReturnnDim(pseudo_target_lens_data, name="seq_len")
             pseudo_target_indices_ = rf.convert_to_tensor(
-                pseudo_target_indices, dims=[batch_dim, pseudo_target_lens_dim], sparse_dim=target_vocab_dim)
+                pseudo_target_indices, dims=[batch_dim, pseudo_target_lens_dim], sparse_dim=target_vocab_dim
+            )
 
             src_vocab_dim = ReturnnDim(src_out_dim, name="vocab")
             src_indices_lens_data = rf.convert_to_tensor(src_indices_lens, dims=[batch_dim])
             src_indices_lens_dim = ReturnnDim(src_indices_lens_data, name="seq_len")
             src_indices_ = rf.convert_to_tensor(
-                src_indices, dims=[batch_dim, src_indices_lens_dim], sparse_dim=src_vocab_dim)
+                src_indices, dims=[batch_dim, src_indices_lens_dim], sparse_dim=src_vocab_dim
+            )
 
         model.decode_seq = decode_src_seq
         model.forward = forward_target
-        model.mask_idx = None # model.audio_mask_idx  # not used
+        model.mask_idx = None  # model.audio_mask_idx  # not used
         model.bos_idx = src_bos_idx
         model.eos_idx = src_eos_idx
         model.blank_idx = src_blank_idx
         model.decoder = src_decoder
         aed_denoising_discrete.train_step(
             model=model,
-            extern_data=TensorDict({
-                "data": pseudo_target_indices_,
-                "target": src_indices_,
-                "seq_tag": extern_data["seq_tag"]
-            }),
+            extern_data=TensorDict(
+                {"data": pseudo_target_indices_, "target": src_indices_, "seq_tag": extern_data["seq_tag"]}
+            ),
             ce_loss_scale=ce_loss_scale,
             masked_ce_loss_scale=0.0,
             label_smoothing=label_smoothing,
@@ -189,23 +188,23 @@ def backtranslation_step(
 
 
 def train_step(
-        *,
-        model: SharedDenoisingAedModel,
-        extern_data: TensorDict,
-        audio_ce_loss_scale: Optional[float] = None,
-        audio_masked_ce_loss_scale: Optional[float] = None,
-        text_ce_loss_scale: Optional[float] = None,
-        text_masked_ce_loss_scale: Optional[float] = None,
-        label_smoothing: float = 0.0,
-        label_smoothing_start_epoch: int = 0,
-        text_masking_opts: Optional[Dict] = None,
-        audio_masking_opts: Optional[Dict] = None,
-        text_aux_loss_scales: Optional[Sequence[float]] = None,
-        audio_aux_loss_scales: Optional[Sequence[float]] = None,
-        pseudo_audio_text_ce_loss_scale: float = 1.0,
-        pseudo_text_audio_ce_loss_scale: float = 0.0,
-        adv_loss_scale: float = 0.0,
-        **_kwargs,
+    *,
+    model: SharedDenoisingAedModel,
+    extern_data: TensorDict,
+    audio_ce_loss_scale: Optional[float] = None,
+    audio_masked_ce_loss_scale: Optional[float] = None,
+    text_ce_loss_scale: Optional[float] = None,
+    text_masked_ce_loss_scale: Optional[float] = None,
+    label_smoothing: float = 0.0,
+    label_smoothing_start_epoch: int = 0,
+    text_masking_opts: Optional[Dict] = None,
+    audio_masking_opts: Optional[Dict] = None,
+    text_aux_loss_scales: Optional[Sequence[float]] = None,
+    audio_aux_loss_scales: Optional[Sequence[float]] = None,
+    pseudo_audio_text_ce_loss_scale: float = 1.0,
+    pseudo_text_audio_ce_loss_scale: float = 0.0,
+    adv_loss_scale: float = 0.0,
+    **_kwargs,
 ):
     assert set(extern_data.data.keys()) == {"data", "phon_indices", "seq_tag"}
     if "data" in extern_data:
@@ -306,5 +305,5 @@ def train_step(
             src_eos_idx=model.audio_eos_idx,
             src_blank_idx=model.audio_blank_idx,
             src_out_dim=model.audio_out_dim,
-            loss_name="pseudo_text-audio"
+            loss_name="pseudo_text-audio",
         )

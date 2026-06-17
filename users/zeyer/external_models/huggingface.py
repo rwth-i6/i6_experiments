@@ -2,7 +2,7 @@
 Generic HuggingFace model downloader
 """
 
-from typing import Union
+from typing import Union, Optional, List
 import os
 from sisyphus import tk, Job, Task
 
@@ -67,10 +67,14 @@ class DownloadHuggingFaceRepoJobV2(Job):
     i.e. here we can also download datasets.
     """
 
-    def __init__(self, *, repo_id: str, repo_type: str):
+    # `include` (download only matching files) excluded so existing full-repo downloads keep their hash.
+    __sis_hash_exclude__ = {"include": None}
+
+    def __init__(self, *, repo_id: str, repo_type: str, include: Optional[List[str]] = None):
         """
         :param repo_id: e.g. "CohereLabs/aya-expanse-32b" or so
         :param repo_type: `model`, `dataset` or `space`
+        :param include: optional glob patterns; download only matching files (huggingface-cli --include).
 
         Note for token auth:
         It will use the standard HF methods to determine the token.
@@ -82,6 +86,7 @@ class DownloadHuggingFaceRepoJobV2(Job):
         super().__init__()
         self.repo_id = repo_id
         self.repo_type = repo_type
+        self.include = include
         self.rqmt = {"time": 4, "cpu": 2, "mem": 8}
         self.out_hub_cache_dir = self.output_path("hub_cache", directory=True)
 
@@ -104,7 +109,10 @@ class DownloadHuggingFaceRepoJobV2(Job):
         parser = ArgumentParser("huggingface-cli", usage="huggingface-cli <command> [<args>]")
         commands_parser = parser.add_subparsers(help="huggingface-cli command helpers")
         DownloadCommand.register_subcommand(commands_parser)
-        args = parser.parse_args(["download", self.repo_id, "--repo-type", self.repo_type])
+        _argv = ["download", self.repo_id, "--repo-type", self.repo_type]
+        if getattr(self, "include", None):
+            _argv += ["--include", *self.include]
+        args = parser.parse_args(_argv)
         service = args.func(args)
         print(service)
         service.run()

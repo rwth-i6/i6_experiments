@@ -63,6 +63,7 @@ def bpe_ted_1023_base():
     }
 
     from ...pytorch_networks.ctc.decoder.flashlight_ctc_v1 import DecoderConfig
+    from ..ctc_phon.tune_eval import RasrRTFArgs, RTFArgs, run_rtf_test
 
     def tune_and_evaluate_helper(
         training_name: str,
@@ -73,6 +74,7 @@ def bpe_ted_1023_base():
         eval_test: bool = False,
         extra_forward_config: Optional[dict] = None,
         import_memristor: bool = False,
+        rtf_args: Optional[Union[RTFArgs, RasrRTFArgs]] = None,
     ):
         """
         Example helper to execute tuning over lm_scales and prior scales.
@@ -138,6 +140,41 @@ def bpe_ted_1023_base():
                     **default_returnn,
                 )
                 results.update(wers)
+        if rtf_args is not None:
+            for key, tune_values in [("test", tune_values)]:
+                pick_optimal_params_job = GetOptimalParametersAsVariableJob(
+                    parameters=tune_parameters, values=tune_values, mode="minimize"
+                )
+
+                pick_optimal_params_job.add_alias(training_name + f"/pick_best_{key}")
+                if rtf_args.include_cpu is True:
+                    run_rtf_test(
+                        search_name=training_name + f"/rtf_amd_new",
+                        base_decoder_config=base_decoder_config,
+                        lm_scales=[pick_optimal_params_job.out_optimal_parameters[0]],
+                        prior_scales=[pick_optimal_params_job.out_optimal_parameters[1]],
+                        dev_dataset_tuples=dev_dataset_tuples,
+                        device="amd",
+                        asr_model=asr_model,
+                        rtf_args=rtf_args,
+                        extra_forward_config=extra_forward_config or None,
+                        import_memristor=import_memristor,
+                    )
+                if rtf_args.include_gpu is True:
+                    run_rtf_test(
+                        search_name=training_name + f"/rtf_gpu_new",
+                        base_decoder_config=base_decoder_config,
+                        lm_scales=[pick_optimal_params_job.out_optimal_parameters[0]],
+                        prior_scales=[pick_optimal_params_job.out_optimal_parameters[1]],
+                        dev_dataset_tuples=dev_dataset_tuples,
+                        device="gpu_24gb",
+                        asr_model=asr_model,
+                        rtf_args=rtf_args,
+                        use_gpu=True,
+                        extra_forward_config=extra_forward_config or None,
+                        import_memristor=import_memristor,
+                    )
+
         return results
 
     default_decoder_config_bpe1024 = DecoderConfig(
@@ -297,6 +334,7 @@ def bpe_ted_1023_base():
     network_module_mem_v9 = "ctc.qat_0711.memristor_v9"
     from ...pytorch_networks.ctc.qat_0711.memristor_v8_cfg import QuantModelTrainConfigV8 as MemristorModelTrainConfigV8
 
+
     for epochs in [1000]: # [500, 1500]
         for batch_size in [360]: # [180]
             for dim in [384, 512]: # [768]
@@ -430,6 +468,37 @@ def bpe_ted_1023_base():
                             turn_off_quant="leave_as_is",
                         )
 
+                        default_decoder_config_bpe = DecoderConfig(
+                            lexicon=get_text_lexicon(prefix=prefix_name_bpe, bpe_size=bpe),
+                            returnn_vocab=label_datastream_bpe.vocab,
+                            beam_size=1024,  # Untuned
+                            beam_size_token=16,
+                            # makes it much faster (0.3 search RTF -> 0.04 search RTF), but looses 0.1% WER over 128
+                            arpa_lm=arpa_4gram_lm,
+                            beam_threshold=14,  # Untuned
+                        )
+
+                        rasr_rtf = RasrRTFArgs(
+                            max_beam_size=[4096],
+                            score_threshold=[20.0],
+                            decoder_module="ctc.decoder.rasr_ctc_v1_rescale_measure_v2",
+                            include_gpu=False,
+                            include_cpu=True,
+                            run_quant=False,
+                        )
+
+                        rtf_args_max_1 = RTFArgs(
+                            beam_sizes=[1024],
+                            beam_size_tokens=[14],
+                            beam_thresholds=[12],
+                            decoder_module="ctc.decoder.flashlight_ctc_v7_rescale_measure",
+                            include_gpu=False,
+                            forward_args={"max_seqs": 1},
+                            run_quant=False,
+                            include_cpu=True,
+                        )
+                        rtf_args_max_1 = None
+
                         results = {}
                         res = tune_and_evaluate_helper(
                             training_name + "_rasr_larger",
@@ -437,10 +506,26 @@ def bpe_ted_1023_base():
                             as_training_rasr_config,
                             lm_scales=rasr_lm_scales,
                             prior_scales=rasr_prior_scales,
+                            rtf_args=rasr_rtf if dim == 512 else None,
                         )
                         results.update(res)
                         generate_report(results=results, exp_name=training_name + "_rasr_larger")
                         full_res[training_name + f"_{bpe}" + "_rasr"] = copy.deepcopy(results)
+                        del results
+
+                        results = {}
+                        res = tune_and_evaluate_helper(
+                            training_name + "_flashlight",
+                            asr_model,
+                            default_decoder_config_bpe,
+                            lm_scales=[2.0, 2.3, 2.6],
+                            prior_scales=[0.3, 0.5],
+                            import_memristor=True,
+                            rtf_args=rtf_args_max_1 if dim == 512 else None,
+                        )
+                        results.update(res)
+                        generate_report(results=results, exp_name=training_name + "_flashlight")
+                        full_res[training_name + f"_{bpe}" + "_flashlight"] = copy.deepcopy(results)
                         del results
 
                         model_config_sub4 = MemristorModelTrainConfigV8(
@@ -467,11 +552,11 @@ def bpe_ted_1023_base():
                             pos_emb_config=pos_emb_cfg,
                             weight_quant_dtype="qint8",
                             weight_quant_method="per_tensor",
-                            activation_quant_dtype="qint8",
+                            activation_quant_dtype="quint8",
                             activation_quant_method="per_tensor",
-                            dot_quant_dtype="qint8",
+                            dot_quant_dtype="quint8",
                             dot_quant_method="per_tensor",
-                            Av_quant_dtype="qint8",
+                            Av_quant_dtype="quint8",
                             Av_quant_method="per_tensor",
                             moving_average=None,
                             weight_bit_prec=8,
@@ -502,7 +587,7 @@ def bpe_ted_1023_base():
                             "config": train_config_24gbgpu_amp,
                             "network_module": network_module_mem_v9,
                             "net_args": {"model_config_dict": asdict(model_config_sub4)},
-                            "debug": False,
+                            "debug": True,
                             "use_speed_perturbation": True,
                         }
                         training_name = (
@@ -514,7 +599,7 @@ def bpe_ted_1023_base():
                         train_job = training(
                             training_name, train_data_bpe, train_args, num_epochs=epochs, **default_returnn
                         )
-                        train_job.rqmt["gpu_mem"] = 24
+                        train_job.rqmt["gpu_mem"] = 48
                         asr_model = prepare_asr_model(
                             training_name,
                             train_job,
@@ -545,6 +630,34 @@ def bpe_ted_1023_base():
                             turn_off_quant="leave_as_is",
                         )
 
+
+                        rasr_rtf = RasrRTFArgs(
+                            max_beam_size=[4096],
+                            score_threshold=[20.0],
+                            decoder_module="ctc.decoder.rasr_ctc_v1_rescale_measure_v2",
+                            include_gpu=False,
+                            include_cpu=True,
+                            run_quant=["torch", "real_torch_conv"],
+                        )
+                        _ = tune_and_evaluate_helper(
+                            training_name + "_rasr_larger",
+                            asr_model,
+                            as_training_rasr_config,
+                            lm_scales=rasr_lm_scales,
+                            prior_scales=rasr_prior_scales,
+                            import_memristor=True,
+                            rtf_args=rasr_rtf if dim == 512 else None,
+                        )
+
+                        rasr_rtf = RasrRTFArgs(
+                            max_beam_size=[6144, 4096, 2048, 1024, 512, 256, 128],
+                            score_threshold=[30.0, 20.0, 18.0, 16.0, 14.0, 12.0, 10.0, 8.0],
+                            decoder_module="ctc.decoder.rasr_ctc_v1_rescale_measure_v2",
+                            include_gpu=False,
+                            include_cpu=True,
+                            run_quant=['remove', "real_torch", "real_torch_ident"],
+                        )
+
                         results = {}
                         res = tune_and_evaluate_helper(
                             training_name + "_rasr_larger",
@@ -553,10 +666,51 @@ def bpe_ted_1023_base():
                             lm_scales=rasr_lm_scales,
                             prior_scales=rasr_prior_scales,
                             import_memristor=True,
+                            rtf_args=rasr_rtf if (dim == 512 and bpe == 256) else None,
                         )
                         results.update(res)
                         generate_report(results=results, exp_name=training_name + "_rasr_larger")
                         full_res[training_name + f"_{bpe}" + "_rasr"] = copy.deepcopy(results)
                         del results
+
+                        default_decoder_config_bpe = DecoderConfig(
+                            lexicon=get_text_lexicon(prefix=prefix_name_bpe, bpe_size=bpe),
+                            returnn_vocab=label_datastream_bpe.vocab,
+                            beam_size=1024,  # Untuned
+                            beam_size_token=16,
+                            # makes it much faster (0.3 search RTF -> 0.04 search RTF), but looses 0.1% WER over 128
+                            arpa_lm=arpa_4gram_lm,
+                            beam_threshold=14,  # Untuned
+                        )
+
+                        rtf_args_max_1 = RTFArgs(
+                            beam_sizes=[1024],
+                            beam_size_tokens=[14],
+                            beam_thresholds=[14],
+                            decoder_module="ctc.decoder.flashlight_ctc_v7_rescale_measure",
+                            include_gpu=False,
+                            forward_args={"max_seqs": 1},
+                            run_quant="torch",
+                            include_cpu=True,
+                        )
+                        rtf_args_max_1 = None
+
+                        res = tune_and_evaluate_helper(
+                            training_name + "_flashlight",
+                            asr_model,
+                            default_decoder_config_bpe,
+                            lm_scales=[2.0, 2.3, 2.6],
+                            prior_scales=[0.3, 0.5],
+                            import_memristor=True,
+                            rtf_args=rtf_args_max_1 if dim == 512 else None,
+                        )
+                        results = {}
+                        results.update(res)
+                        generate_report(results=results, exp_name=training_name + "_flashlight")
+                        full_res[training_name + f"_{bpe}" + "_flashlight"] = copy.deepcopy(results)
+                        del results
+
+
+
 
     tk.register_report("reports/ted/bpe_tune_report", partial(build_base_report, full_res, False), required=full_res, update_frequency=1200)

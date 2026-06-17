@@ -1,3 +1,5 @@
+from sisyphus import tk
+
 import copy
 import numpy as np
 from dataclasses import asdict
@@ -5,14 +7,14 @@ from dataclasses import asdict
 from i6_experiments.common.setups.returnn.datastreams.audio import DBMelFilterbankOptions
 
 from i6_experiments.users.rossenbach.experiments.jaist_project.data.tts_phon import get_vocab_datastream
-from i6_experiments.users.rossenbach.experiments.jaist_project.data.tts_phon import get_tts_log_mel_datastream
-
+from i6_experiments.users.rossenbach.experiments.jaist_project.data.tts_phon import get_tts_log_mel_datastream, get_tts_bliss_and_zip
 from i6_experiments.users.rossenbach.experiments.jaist_project.pipeline import generate_synthetic, cross_validation_nisqa, tts_training
-
 from i6_experiments.users.rossenbach.experiments.jaist_project.storage import duration_alignments, vocoders
+from i6_experiments.users.rossenbach.tts.duration_extraction import ExtractDurationsFromRASRAlignmentJob
 
+from ...default_tools import MINI_RETURNN_ROOT
 
-def run_fastspeech_like_tts():
+def run_fastspeech_like_tts(gmm_align=None, gmm_allo=None):
     """
     TTS experiments using the shared encoder and a Fastspeech-style Transformer decoder
     """
@@ -296,5 +298,99 @@ def run_fastspeech_like_tts():
 
     generate_synthetic(prefix, net_module + "_glow256align_400eps_bs300_oclr_fp16_gl32_syn", "train-clean-360",
                        train.out_checkpoints[400], params, net_module,
+                       extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
+                       decoder_options=decoder_options_final_gl32, debug=True)
+
+    # -------------------------------
+    # Alignment Comparison for thesis
+    # -------------------------------
+
+    duration_hdf_ctc = duration_alignments["ctc.tts_aligner_1223.ctc_aligner_tts_fe_v8_tfstyle_v2_fullength"]
+    train, forward = tts_training(prefix, net_module + "_ctcalign_400eps_bs300_oclr_fp16", params, net_module, config_longer_oclr,
+                             extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf_ctc, debug=True, num_epochs=400,  evaluate_swer="ls960eow_phon_ctc_50eps_fastsearch")
+    train.rqmt["gpu_mem"] = 48
+    #train.hold()
+    #train.move_to_hpc = True
+
+    extra_forward_config = {"max_seqs": 8}
+    generate_synthetic(prefix, net_module + "_ctcalign_400eps_bs300_oclr_fp16_gl32_syn", "train-clean-100",
+                       train.out_checkpoints[400], params, net_module,
+                       extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
+                       decoder_options=decoder_options_final_gl32, debug=True)
+
+    # somehow this jobs went OOM
+    generate_synthetic(prefix, net_module + "_ctcalign_400eps_bs300_oclr_fp16_gl32_syn", "train-clean-360",
+                       train.out_checkpoints[400], params, net_module,
+                       extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
+                       decoder_options=decoder_options_final_gl32, debug=True, use_subset=True, extra_forward_config=extra_forward_config)
+
+    generate_synthetic(prefix, net_module + "_ctcalign_400eps_bs300_oclr_fp16_gl32_syn", "train-clean-360",
+                       train.out_checkpoints[400], params, net_module,
+                       extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
+                       decoder_options=decoder_options_final_gl32, debug=True)
+
+
+    # RASR durations, somewhat hacky due to center=True vs center=False mismatch but lets try
+    bliss_dataset, zip_dataset = get_tts_bliss_and_zip(ls_corpus_key="train-clean-100", silence_preprocessed=False)
+    extract_duration_job = ExtractDurationsFromRASRAlignmentJob(
+        rasr_alignment=gmm_align,
+        rasr_allophones=gmm_allo,
+        bliss_corpus=bliss_dataset,
+        returnn_root=MINI_RETURNN_ROOT,
+        target_duration_hdf=duration_hdf,
+        mem_rqmt=8,
+        silence_token="[SILENCE]",
+        start_token="[start]",
+        end_token="[end]",
+        boundary_token="[space]",
+    )
+    tk.register_output("extract_dur_test.hdf", extract_duration_job.out_durations_hdf)
+
+    # net module with duration offset
+    net_module_duration_offset = "nar_tts.fastspeech_like.fastspeech_like_v1_duration_offset"
+
+    duration_hdf_gmm = extract_duration_job.out_durations_hdf
+    train, forward = tts_training(prefix, net_module + "_gmmalign_400eps_bs300_oclr_fp16", params, net_module, config_longer_oclr,
+                             extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf_gmm, debug=True, num_epochs=400,  evaluate_swer="ls960eow_phon_ctc_50eps_fastsearch", custom_transcription_bliss=extract_duration_job.out_bliss)
+    train.rqmt["gpu_mem"] = 48
+    #train.hold()
+    #train.move_to_hpc = True
+
+    extra_forward_config = {"max_seqs": 8}
+    generate_synthetic(prefix, net_module + "_gmmalign_400eps_bs300_oclr_fp16_gl32_syn", "train-clean-100",
+                       train.out_checkpoints[400], params, net_module,
+                       extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
+                       decoder_options=decoder_options_final_gl32, debug=True)
+
+    generate_synthetic(prefix, net_module + "_gmmalign_400eps_bs300_oclr_fp16_gl32_syn", "train-clean-360",
+                       train.out_checkpoints[400], params, net_module,
+                       extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
+                       decoder_options=decoder_options_final_gl32, debug=True, use_subset=True, extra_forward_config=extra_forward_config)
+
+    generate_synthetic(prefix, net_module + "_gmmalign_400eps_bs300_oclr_fp16_gl32_syn", "train-clean-360",
+                       train.out_checkpoints[400], params, net_module,
+                       extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
+                       decoder_options=decoder_options_final_gl32, debug=True)
+
+    # try again with duration offset
+    train, forward = tts_training(prefix, net_module_duration_offset + "_gmmalign_400eps_bs300_oclr_fp16", params, net_module_duration_offset, config_longer_oclr,
+                             extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf_gmm, debug=True, num_epochs=400,  evaluate_swer="ls960eow_phon_ctc_50eps_fastsearch", custom_transcription_bliss=extract_duration_job.out_bliss)
+    train.rqmt["gpu_mem"] = 48
+    #train.hold()
+    #train.move_to_hpc = True
+
+    extra_forward_config = {"max_seqs": 8}
+    generate_synthetic(prefix, net_module_duration_offset + "_gmmalign_400eps_bs300_oclr_fp16_gl32_syn", "train-clean-100",
+                       train.out_checkpoints[400], params, net_module_duration_offset,
+                       extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
+                       decoder_options=decoder_options_final_gl32, debug=True)
+
+    generate_synthetic(prefix, net_module_duration_offset + "_gmmalign_400eps_bs300_oclr_fp16_gl32_syn", "train-clean-360",
+                       train.out_checkpoints[400], params, net_module_duration_offset,
+                       extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
+                       decoder_options=decoder_options_final_gl32, debug=True, use_subset=True, extra_forward_config=extra_forward_config)
+
+    generate_synthetic(prefix, net_module_duration_offset + "_gmmalign_400eps_bs300_oclr_fp16_gl32_syn", "train-clean-360",
+                       train.out_checkpoints[400], params, net_module_duration_offset,
                        extra_decoder="nar_tts.fastspeech_like.simple_gl_decoder",
                        decoder_options=decoder_options_final_gl32, debug=True)

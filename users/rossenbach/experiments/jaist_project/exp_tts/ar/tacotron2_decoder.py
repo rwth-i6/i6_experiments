@@ -246,6 +246,12 @@ def run_tacotron2_decoder_tts():
                        extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
                        decoder_options=decoder_options_synthetic, debug=True)
 
+    generate_synthetic(prefix, net_module + "_fromglowbase256_400eps_gl32_syn_speak1", "train-clean-360",
+                       train.out_checkpoints[400], params, net_module,
+                       extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
+                       decoder_options=decoder_options_synthetic, debug=True, limit_speakers_to=1)
+
+
 
 
     # large model
@@ -265,7 +271,12 @@ def run_tacotron2_decoder_tts():
     }
     train, forward = tts_training(prefix, net_module + "_base320_fromglowbase256_400eps_v1", params_large, net_module, config_400eps,
                                   extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder", decoder_options=decoder_options,duration_hdf=duration_hdf, debug=True, num_epochs=400, evaluate_swer="ls960eow_phon_ctc_50eps_fastsearch")
-    
+
+    generate_synthetic(prefix, net_module + "_base320_fromglowbase256_400eps_gl32_syn", "train-clean-360",
+                       train.out_checkpoints[400], params_large, net_module,
+                       extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",
+                       decoder_options=decoder_options_synthetic, debug=True)
+
     generate_synthetic(prefix, net_module + "_base320_fromglowbase256_400eps_gl32_syn", "train-clean-360",
                        train.out_checkpoints[400], params_large, net_module,
                        extra_decoder="ar_tts.tacotron2_decoding.simple_gl_decoder",

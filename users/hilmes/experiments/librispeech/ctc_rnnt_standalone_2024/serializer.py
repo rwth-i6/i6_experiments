@@ -94,6 +94,17 @@ def serialize_forward(
 
     package = PACKAGE + ".pytorch_networks"
 
+    # if unhashed_net_args is not None and unhashed_net_args.pop("run_new_mem", False):
+    #     from i6_core.tools.git import CloneGitRepositoryJob
+    #     TORCH_MEMRISTOR_PATH = CloneGitRepositoryJob(
+    #         url="https://github.com/rwth-i6/SynaptogenML",
+    #         commit="163328b6b957c3ef37d1be0b3f5d9a7161e3f409",
+    #         checkout_folder_name="SynaptogenML",
+    #     ).out_repository.copy()
+    #     TORCH_MEMRISTOR_PATH = TORCH_MEMRISTOR_PATH + "/.."
+    # else:
+    #     from .default_tools import TORCH_MEMRISTOR_PATH
+
     pytorch_model_import = PartialImport(
         code_object_path=package + ".%s.Model" % network_module,
         unhashed_package_root=PACKAGE,
@@ -110,6 +121,7 @@ def serialize_forward(
     ]
 
     if import_memristor is True:
+        # print(TORCH_MEMRISTOR_PATH)
         memristor_modules = ExternalImport(import_path=TORCH_MEMRISTOR_PATH)
         serializer_objects.insert(1, memristor_modules)
 
