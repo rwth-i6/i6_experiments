@@ -884,7 +884,7 @@ def _compare_table(with_hyp=False):
         caption += (
             " The rightmost group adds hypothesis-mode metrics (each model aligns its OWN "
             "recognition; matched-WBE and identity-gated F1@50ms), shown on the grad row. "
-            "n/a = no word-level own-recognition (MMS_FA / Phoneme-CTC emit no word boundaries; "
+            "n/a = no word-level own-recognition (MMS\\_FA / Phoneme-CTC emit no word boundaries; "
             "MFA is a forced-aligner)."
         )
     job = WriteLatexTableJob(
@@ -1006,7 +1006,7 @@ def _owsm_layer_table():
         caption=caption,
         label="tab:owsm-per-layer",
         label_header="OWSM-CTC",
-        col_align="|l|r|r|r|r|",
+        col_align="|l|l|r|r|r|r|",
     )
     tk.register_output("tables/owsm-per-layer.tex", job.out_tex)
 
