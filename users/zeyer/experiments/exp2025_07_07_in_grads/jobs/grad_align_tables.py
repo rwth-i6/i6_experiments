@@ -27,6 +27,9 @@ def build_tables(results):
     _cost_table()  # forward vs batched grad-backward per model (T5 cost)
     _streaming_offset_table()  # streaming start/end signed offset (grad vs native viterbi)
     _fairness_table()  # T2 fairness 2x2 (grad vs cross-attn x char/subword)
+    _ablation_table()  # T3a grad-score reduction (cross-model)
+    _attribution_table()  # T3b attribution method (cross-model, fast models)
+    _alignopts_table()  # T3b align-opts (grad vs cross-attn, same DP)
 
 
 # ----------------------------------------------------------------------------------------
@@ -218,139 +221,150 @@ def _fairness_table():
 
 
 # ----------------------------------------------------------------------------------------
-# T3 ablation (whisper-char, Buckeye-segA): grad-score reduction, silence scale, apply_log on/off.
-#     grad-score variants are ~2 ms apart; apply_log-off and silence-off are the only large moves.
+# T3a grad-score reduction ablation (cross-model, Buckeye-segA, word-topology fixed): the per-token
+#     reduction L0.5 / L1 / L2 / L2_e across one representative model per family. A few ms apart -> the
+#     reduction choice is not critical; the saliency signal, not the norm, carries the alignment.
+#     ("dot"/sum reductions are excluded: signed, they break the time-softmax scoring.)
 # ----------------------------------------------------------------------------------------
 def _ablation_table():
-    P = "align/whisper-base-logmel-buckeye-segA-5h"
-    GROUPS = [
-        (
-            "grad-score",
-            [
-                ("L1", f"{P}-L1_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0"),
-                ("L2 (default)", f"{P}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0"),
-                ("L2_e", f"{P}-L2_e_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0"),
-            ],
-        ),
-        (
-            "silence scale",
-            [
-                ("1.0 (default)", f"{P}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0"),
-                ("0 (off)", f"{P}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5"),
-                ("2.0", f"{P}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil2.0"),
-                ("z-score k=1", f"{P}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0"),
-            ],
-        ),
-        (
-            "apply-log",
-            [
-                ("on (default)", f"{P}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0"),
-                ("off", f"{P}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-alFalse-en0.5-sil1.0"),
-            ],
-        ),
+    S = "buckeye-segA-5h"
+    SFX = "asotTrue-bs-5-en0.5-sil1.0-wordtopo"
+    MODELS = [
+        ("Wav2Vec2-CTC", "wav2vec2ctc-fproj_out-prefixfwd"),
+        ("Whisper-base", "whisper-base-logmel-charlev-spc"),
+        ("Parakeet RNN-T", "parakeet-rnnt-1.1b-logmel"),
+        ("Emformer (stream)", "emformer-rnnt-prefix-logmel"),
+        ("Voxtral", "voxtral-charlevlogmel"),
     ]
-    cols = [
-        {"key": "setting", "header": "setting"},
-        {"key": "wbe", "header": "WBE \\\\ {[ms]}"},
-        {"key": "a50", "header": "acc@50 \\\\ {[\\%]}"},
-    ]
+    REDS = [("L0.5", "L0.5_grad"), ("L1", "L1_grad"), ("L2", "L2_grad"), ("L2_e", "L2_e_grad")]
+    cols = [{"key": rk, "header": rl} for rl, rk in REDS]
     rows = []
-    for gi, (axis, variants) in enumerate(GROUPS):
-        if gi > 0:
-            rows.append({"label": None, "cells": {}})
-        for vi, (vlabel, base) in enumerate(variants):
-            if vi > 0:
-                rows.append({"cline": True})
-            rows.append(
-                {
-                    "label": axis if vi == 0 else "",
-                    "cells": {"setting": vlabel, "wbe": _wbe(base), "a50": _acc(base, "acc_50ms")},
-                }
-            )
+    for mlabel, mpre in MODELS:
+        rows.append(
+            {
+                "label": mlabel,
+                "cells": {rk: _wbe(f"align/{mpre}-abl-{S}-{rk}-pertoken-{SFX}") for _, rk in REDS},
+            }
+        )
     caption = (
-        "Ablation of the alignment levers on whisper-base char-level grad-align, Buckeye-segA. The grad-score "
-        "reduction (L1 / L2 / L2_e) moves the result by ~2 ms; the silence scale and z-score variants are "
-        "similarly small around the default. Only turning the silence row off, and especially turning "
-        "apply-log off (the openai-DTW score), degrade markedly -- so the defaults are robust."
+        "Grad-score reduction ablation across families, Buckeye-segA (word-topology fixed; WBE ms). The "
+        "per-token reduction (L0.5 / L1 / L2 / L2_e) moves the word-boundary error by only a few ms on every "
+        "family, so the reduction is not critical -- alignment quality is set by the model's saliency, not "
+        "the norm. (dot/sum reductions are excluded: signed, they break the time-softmax scoring.)"
     )
     job = WriteLatexTableJob(
         columns=cols,
         rows=rows,
         caption=caption,
-        label="tab:ablation",
-        label_header="Lever",
-        col_align="|l|l|r|r|",
+        label="tab:gradscore",
+        label_header="Model",
+        col_align="|l|r|r|r|r|",
     )
     tk.register_output("tables/ablation.tex", job.out_tex)
 
 
 # ----------------------------------------------------------------------------------------
-# T3b attribution axis (whisper-char, TIMIT-val): plain input-gradient vs SmoothGrad / VarGrad /
-#     Integrated-Gradients / Expected-Gradients sweeps. IG converges back to plain grad; the noise
-#     methods barely move it -- the single-pass gradient is already the good attribution.
+# T3b attribution-method ablation (cross-model, Buckeye-segA, word-topology fixed): plain L2 input-grad
+#     vs SmoothGrad / VarGrad / Integrated-Gradients / Expected-Gradients, on the two fast models. The
+#     single-pass gradient is already a good attribution -> the multi-pass methods are not worth it
+#     (the slow families are omitted for the same cost reason).
 # ----------------------------------------------------------------------------------------
 def _attribution_table():
-    P = "align/whisper-base-logmel-timit-val"
-    ao = "asotTrue-bs-5-en0.5-sil1.0"
-    GROUPS = [
-        ("plain grad (L2)", [("--", f"{P}-L2_grad-pertoken-charlev-spc-{ao}")]),
-        (
-            "SmoothGrad",
-            [
-                (f"std {s}", f"{P}-L2_grad-pertoken-charlev-spc-smoothgrad-std{s}-n8-{ao}")
-                for s in ("0.005", "0.01", "0.03")
-            ],
-        ),
-        (
-            "VarGrad",
-            [(f"std {s}", f"{P}-L2-vargrad-pertoken-charlev-spc-std{s}-n16-{ao}") for s in ("0.01", "0.02", "0.04")],
-        ),
-        (
-            "Integrated-Grad",
-            [(f"{n} steps", f"{P}-L2-integrated-grad-pertoken-charlev-spc-ig{n}-{ao}") for n in ("8", "16", "32")],
-        ),
-        (
-            "Expected-Grad",
-            [
-                (f"bstd {s}", f"{P}-L2-expected-grad-pertoken-charlev-spc-eg16-bstd{s}-{ao}")
-                for s in ("0.01", "0.05", "0.1")
-            ],
-        ),
+    S = "buckeye-segA-5h"
+    SFX = "asotTrue-bs-5-en0.5-sil1.0-wordtopo"
+    MODELS = [
+        ("Wav2Vec2-CTC", "wav2vec2ctc-fproj_out-prefixfwd"),
+        ("Whisper-base", "whisper-base-logmel-charlev-spc"),
     ]
-    cols = [
-        {"key": "param", "header": "param"},
-        {"key": "wbe", "header": "WBE \\\\ {[ms]}"},
-        {"key": "a50", "header": "acc@50 \\\\ {[\\%]}"},
+    METHODS = [
+        ("grad (L2)", "L2_grad"),
+        ("SmoothGrad", "L2-smoothgrad-std0.01-n8"),
+        ("VarGrad", "L2-vargrad-std0.02-n16"),
+        ("IntGrad", "L2-integrated-grad-ig16"),
+        ("ExpGrad", "L2-expected-grad-eg16-bstd0.05"),
     ]
+    cols = [{"key": mk, "header": ml} for ml, mk in METHODS]
     rows = []
-    for gi, (method, variants) in enumerate(GROUPS):
-        if gi > 0:
-            rows.append({"label": None, "cells": {}})
-        for vi, (vlabel, base) in enumerate(variants):
-            if vi > 0:
-                rows.append({"cline": True})
-            rows.append(
-                {
-                    "label": method if vi == 0 else "",
-                    "cells": {"param": vlabel, "wbe": _wbe(base), "a50": _acc(base, "acc_50ms")},
-                }
-            )
+    for mlabel, mpre in MODELS:
+        rows.append(
+            {
+                "label": mlabel,
+                "cells": {mk: _wbe(f"align/{mpre}-abl-{S}-{mk}-pertoken-{SFX}") for _, mk in METHODS},
+            }
+        )
     caption = (
-        "Attribution-method ablation on whisper-base char-level grad-align, TIMIT-val. The plain single-pass "
-        "input-gradient (L2) is compared to SmoothGrad, VarGrad, Integrated-Gradients (step sweep) and "
-        "Expected-Gradients (baseline-std sweep). Integrated-Gradients converges back to the plain gradient as "
-        "steps grow, and the noise-averaging variants barely move it -- the single-pass gradient is already a "
-        "good attribution for alignment, so the costlier attribution methods are not worth their extra passes."
+        "Attribution-method ablation on the two fast models, Buckeye-segA (word-topology fixed; WBE ms). "
+        "The plain single-pass L2 input-gradient vs SmoothGrad, VarGrad, Integrated-Gradients (16 steps) and "
+        "Expected-Gradients. The multi-pass methods do not improve over the single-pass gradient "
+        "(Integrated-Gradients converges back to it), so they are not worth their extra passes; the slower "
+        "model families are omitted for the same cost reason."
     )
     job = WriteLatexTableJob(
         columns=cols,
         rows=rows,
         caption=caption,
         label="tab:attribution",
-        label_header="Method",
-        col_align="|l|l|r|r|",
+        label_header="Model",
+        col_align="|l|r|r|r|r|r|",
     )
     tk.register_output("tables/attribution.tex", job.out_tex)
+
+
+# ----------------------------------------------------------------------------------------
+# T3b align-OPTS (DP decoding) on Buckeye-segA: the SAME DP applied to whisper grad (char) and whisper
+#     cross-attn (auto heads) -- different signal, same decoder. word-topology / silence / DTW corners.
+#     Mostly consistent across signals; silence modeling helps grad but not attention (the attention
+#     matrix already has ~no mass in silence). The openai whisper-DTW is the apply-log-off corner.
+# ----------------------------------------------------------------------------------------
+def _alignopts_table():
+    GP = "align/whisper-base-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc-asotTrue-bs-5"
+    AP = "align/baseline-whisper-base-crossattn-auto-buckeye-segA-5h-asotTrue-bs-5"
+    # (row label, grad suffix, cross-attn suffix)
+    ROWS = [
+        ("default (CTC-topo)", "-en0.5-sil1.0", "-en0.5-sil1.0"),
+        ("word-topology", "-en0.5-sil1.0-wordtopo", "-en0.5-sil1.0-wordtopo"),
+        ("silence off", "-en0.5", ""),
+        ("DTW (no blank)", "-en0.5-sil1.0-dtw", "-en0.5-sil1.0-dtw"),
+        ("whisper-DTW (openai)", "-en0.5-sil1.0-wdtw", "-en0.5-sil1.0-wdtw"),
+    ]
+    cols = [
+        {"key": "g_wbe", "header": "WBE \\\\ {[ms]}", "group": "grad"},
+        {"key": "g_a50", "header": "acc@50 \\\\ {[\\%]}", "group": "grad"},
+        {"key": "a_wbe", "header": "WBE \\\\ {[ms]}", "group": "cross-attn"},
+        {"key": "a_a50", "header": "acc@50 \\\\ {[\\%]}", "group": "cross-attn"},
+    ]
+    rows = []
+    for lbl, gs, as_ in ROWS:
+        gb, ab = GP + gs, AP + as_
+        rows.append(
+            {
+                "label": lbl,
+                "cells": {
+                    "g_wbe": _wbe(gb),
+                    "g_a50": _acc(gb, "acc_50ms"),
+                    "a_wbe": _wbe(ab),
+                    "a_a50": _acc(ab, "acc_50ms"),
+                },
+            }
+        )
+    caption = (
+        "Alignment DP options on Buckeye-segA, applied to the same decoder for both signals: whisper grad "
+        "(char-level) and whisper cross-attention (auto-selected heads). The decoding is shared "
+        "infrastructure -- the grad-vs-attention difference lives in the signal, not the decoder -- and the "
+        "options behave mostly consistently. The exception is silence modeling, which helps the grad signal "
+        "but not the attention signal (the attention matrix already carries ~no mass in silence). The openai "
+        "whisper-DTW row is the apply-log-off / no-silence corner, an exact special case of our DP, and the "
+        "weakest setting for both."
+    )
+    job = WriteLatexTableJob(
+        columns=cols,
+        rows=rows,
+        caption=caption,
+        label="tab:alignopts",
+        label_header="DP option",
+        col_align="|l|r|r|r|r|",
+    )
+    tk.register_output("tables/alignopts.tex", job.out_tex)
 
 
 def _wbe(base):

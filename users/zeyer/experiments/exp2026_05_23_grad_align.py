@@ -4314,6 +4314,8 @@ def py():
         word_topology=True,
     )
     _xa_align(_xa_whc, _xa_whc_name, "en0.5-sil1.0-wordtopo", word_topology=True)
+    _xa_align(_xa_whc, _xa_whc_name, "en0.5-sil1.0-dtw", dtw_no_blank=True, _twin=False)
+    _xa_align(_xa_whc, _xa_whc_name, "en0.5-sil1.0-wdtw", whisper_dtw=True, _twin=False)
     # Nvidia CTC posteriors baseline on segA: torchaudio CTC forced-align on parakeet-ctc's own emission.
     _xa_pc_fa = ParakeetCtcForcedAlignJob(
         dataset_dir=_xa_dir,
