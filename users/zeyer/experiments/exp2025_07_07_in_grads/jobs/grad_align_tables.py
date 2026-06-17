@@ -36,7 +36,6 @@ def build_tables(results):
     _hyp_table()
     _owsm_layer_table()  # OWSM-CTC grad-align per inter-CTC emit block (side table)
     _phi4_prompt_table()  # Phi-4-MM grad-align vs the spliced instruction (side table)
-    _cost_table()  # forward vs batched grad-backward per model (T5 cost)
     _streaming_offset_table()  # streaming start/end signed offset (grad vs native viterbi)
     _time_stretch_table()  # length robustness (grad vs MMS-FA, vocoder vs resample)
     _word_length_table()  # word-duration accuracy (signed word-width error) per model
@@ -853,38 +852,3 @@ def _phi4_prompt_table():
             }
         )
     _emit("phi4-prompt", columns, rows)
-
-
-# ----------------------------------------------------------------------------------------
-# T5: cost -- forward vs batched grad-backward, per model (same GPU).
-# ----------------------------------------------------------------------------------------
-def _cost_table():
-    m = _RESULTS.get("cost-benchmark-metrics.txt")
-
-    def cell(name, metric):
-        return {"var": m, "key": f"{name}|{metric}", "src": "cost-benchmark-metrics.txt"}
-
-    columns = ["fwd", "bwd", "tot"]
-    models = [
-        "Wav2Vec2-CTC",
-        "Nvidia CTC",
-        "OWSM-CTC",
-        "Whisper-base",
-        "Parakeet RNN-T",
-        "Parakeet TDT",
-        "Voxtral",
-        "Phi-4-MM",
-        "Canary-Qwen",
-    ]
-    rows = [
-        {
-            "label": name,
-            "cells": {
-                "fwd": cell(name, "fwd_ms_per_s"),
-                "bwd": cell(name, "bwd_ms_per_s"),
-                "tot": cell(name, "total_ms_per_s"),
-            },
-        }
-        for name in models
-    ]
-    _emit("cost", columns, rows)
