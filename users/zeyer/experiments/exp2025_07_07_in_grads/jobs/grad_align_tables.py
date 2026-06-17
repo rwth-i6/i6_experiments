@@ -210,106 +210,98 @@ def _time_stretch_table():
 
 
 # ----------------------------------------------------------------------------------------
-# Word-length (duration) accuracy: signed word-WIDTH error (width_signed_err = end_offset - start_offset,
-#     ms; 0 = correct word length, negative = words predicted too short) per model, grad-align vs the
-#     model's alternative aligner, on TIMIT-test and Buckeye-segA. grad stays near 0; the CTC/forced-align
-#     posteriors systematically TRUNCATE words (-60..-190 ms). So grad is consistently more accurate on word
-#     duration (the one near-tie is whisper cross-attn on TIMIT).
+# Word-length (duration) accuracy, full breakdown (Buckeye-segA): WBE (mean abs boundary error),
+#     signed start/end offset (pred - ref; + = late), and word-WIDTH signed error (= end - start;
+#     0 = correct duration). The CTC/forced-align posteriors bias start LATE + end EARLY -> the word
+#     shrinks from both ends, so |width| ~ WBE; grad shifts start+end the SAME direction (a positional
+#     lead, not a width change), so width is far below WBE -> grad is more accurate on word duration.
+#     TIMIT-test shows the same pattern, milder (grad's lead is largest on spontaneous Buckeye).
 # ----------------------------------------------------------------------------------------
 def _word_length_table():
-    S, T = "buckeye-segA-5h", "timit-test"
+    S = "buckeye-segA-5h"
 
-    def _w(base):
+    def _m(base, key, fmt):
         v = _RESULTS.get(f"{base}-wbe.txt")
         j = getattr(v, "creator", None) if v is not None else None
-        m = getattr(j, "out_metrics", None) if j is not None else None
-        if m is None and j is not None:
-            m = getattr(j, "out_word_metrics", None)
-        return {"var": m, "key": "width_signed_err", "mul": 1000.0, "fmt": "{:+.0f}"}
+        mm = getattr(j, "out_metrics", None) if j is not None else None
+        if mm is None and j is not None:
+            mm = getattr(j, "out_word_metrics", None)
+        return {"var": mm, "key": key, "mul": 1000.0, "fmt": fmt}
 
     MODELS = [
         (
             "Wav2Vec2-CTC",
             [
-                (
-                    "grad",
-                    f"align/wav2vec2ctc-fproj_out-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                    f"align/wav2vec2ctc-fproj_out-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                ),
-                ("posteriors", f"baseline-mms_fa-{S}", f"baseline-mms_fa-{T}"),
+                ("grad", f"align/wav2vec2ctc-fproj_out-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0"),
+                ("posteriors", f"baseline-mms_fa-{S}"),
             ],
         ),
         (
             "Phoneme-CTC",
             [
-                (
-                    "grad",
-                    f"align/phoneme-vitouphy-prefixfwd-{S}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-sil1.0",
-                    f"align/phoneme-vitouphy-prefixfwd-{T}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-sil1.0",
-                ),
-                ("posteriors", f"baseline-phoneme-fa-{S}-word", "align/w2v-phoneme-timit-test-ctc-forced-align-word"),
+                ("grad", f"align/phoneme-vitouphy-prefixfwd-{S}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-sil1.0"),
+                ("posteriors", f"baseline-phoneme-fa-{S}-word"),
             ],
         ),
         (
             "Nvidia CTC",
             [
-                (
-                    "grad",
-                    f"align/parakeet-ctc-1.1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                    f"align/parakeet-ctc-1.1b-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                ),
-                ("posteriors", f"baseline-parakeet-ctc-1.1b-{S}", f"baseline-parakeet-ctc-1.1b-{T}"),
+                ("grad", f"align/parakeet-ctc-1.1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0"),
+                ("posteriors", f"baseline-parakeet-ctc-1.1b-{S}"),
             ],
         ),
         (
             "OWSM-CTC",
             [
-                (
-                    "grad",
-                    f"align/owsm-ctc-v4-1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                    f"align/owsm-ctc-v4-1b-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                ),
-                ("posteriors", f"baseline-owsm-ctc-v4-1b-{S}", f"baseline-owsm-ctc-v4-1b-{T}"),
+                ("grad", f"align/owsm-ctc-v4-1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0"),
+                ("posteriors", f"baseline-owsm-ctc-v4-1b-{S}"),
             ],
         ),
         (
             "Whisper-base",
             [
-                (
-                    "grad",
-                    f"align/whisper-base-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
-                    f"align/whisper-base-logmel-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
-                ),
-                (
-                    "cross-attn",
-                    f"align/baseline-whisper-base-crossattn-auto-{S}-asotTrue-bs-5-en0.5-sil1.0",
-                    f"align/baseline-whisper-base-crossattn-auto-{T}-asotTrue-bs-5-en0.5-sil1.0",
-                ),
+                ("grad", f"align/whisper-base-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0"),
+                ("cross-attn", f"align/baseline-whisper-base-crossattn-auto-{S}-asotTrue-bs-5-en0.5-sil1.0"),
             ],
         ),
     ]
 
     cols = [
         {"key": "method", "header": "Align method"},
-        {"key": "t_w", "header": "TIMIT", "group": "word-width signed error [ms]"},
-        {"key": "s_w", "header": "Buckeye", "group": "word-width signed error [ms]"},
+        {"key": "wbe", "header": "WBE", "group": "[ms]"},
+        {"key": "start", "header": "start off.", "group": "[ms]"},
+        {"key": "end", "header": "end off.", "group": "[ms]"},
+        {"key": "width", "header": "width err.", "group": "[ms]"},
     ]
     rows = []
     for gi, (model, methods) in enumerate(MODELS):
         if gi > 0:
             rows.append({"label": None, "cells": {}})
-        for mi, (mlabel, sa, ti) in enumerate(methods):
+        for mi, (mlabel, base) in enumerate(methods):
             if mi > 0:
                 rows.append({"cline": True})
-            rows.append({"label": model if mi == 0 else "", "cells": {"method": mlabel, "t_w": _w(ti), "s_w": _w(sa)}})
+            rows.append(
+                {
+                    "label": model if mi == 0 else "",
+                    "cells": {
+                        "method": mlabel,
+                        "wbe": _m(base, "wbe", "{:.0f}"),
+                        "start": _m(base, "start_signed_mean", "{:+.0f}"),
+                        "end": _m(base, "end_signed_mean", "{:+.0f}"),
+                        "width": _m(base, "width_signed_err", "{:+.0f}"),
+                    },
+                }
+            )
 
     caption = (
-        "Word-length (duration) accuracy: signed word-width error (predicted minus reference word width, "
-        "i.e. end-offset minus start-offset; ms, 0 = correct duration, negative = words predicted too short) "
-        "per model, grad-align vs the model's own alternative aligner, on TIMIT-test and Buckeye-segA. "
-        "Grad-align stays close to zero, whereas the CTC / forced-align posteriors systematically truncate "
-        "words (-60 to -190 ms). So grad-align is consistently more accurate on word duration across models; "
-        "the only near-tie is whisper cross-attention on TIMIT."
+        "Word-length (duration) accuracy on Buckeye-segA, per model, grad-align vs the model's alternative "
+        "aligner. WBE = mean absolute word-boundary error; start/end off. = signed mean boundary offset "
+        "(predicted minus reference, positive = late); width err. = signed word-width error (= end minus "
+        "start offset; 0 = correct duration). The CTC / forced-align posteriors bias the start late and the "
+        "end early, so words shrink from both ends and the width error is comparable to the WBE; grad-align "
+        "shifts both boundaries in the same direction (a positional lead, not a width change), so its width "
+        "error is far below its WBE. Grad is thus consistently more accurate on word duration. (TIMIT-test "
+        "shows the same pattern, milder.)"
     )
     job = WriteLatexTableJob(
         columns=cols,
@@ -317,7 +309,7 @@ def _word_length_table():
         caption=caption,
         label="tab:word-length",
         label_header="Model",
-        col_align="|l|l|r|r|",
+        col_align="|l|l|r|r|r|r|",
     )
     tk.register_output("tables/word-length.tex", job.out_tex)
 

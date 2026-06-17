@@ -55,6 +55,10 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.word_ali
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.buckeye_fine_dataset import (
     BuildBuckeyeFineDatasetJob,
 )
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.align_cost_benchmark import (
+    AlignCostBenchmarkJob,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.latex_table import WriteLatexTableJob
 
 # Same align settings as the main recipe's grid[0],
 # so the control WBEs are comparable across variants.
@@ -125,6 +129,7 @@ def py():
     _extract_and_wbe("ctc-wav2vec2-tokbatch-bb1-sb1", _w2v, batched_backward=True)  # vmap over tokens
     _extract_and_wbe("ctc-wav2vec2-seqbatch-bb1-sb16", _w2v, batched_backward=True, seq_batch_size=16)
     _extract_and_wbe("ctc-wav2vec2-split-sb16", _w2v, split_prefix_backward=True, seq_batch_size=16)
+    _extract_and_wbe("ctc-wav2vec2-split-sb1", _w2v, split_prefix_backward=True)  # B=1: compiled-scan + tokbatch
 
     # === AED family -- Whisper-base (encoder-decoder, autoregressive per-token score) ===
     # Compute-bound decoder backward -> token-batching is the win; the adapter is B=1 only.
@@ -157,3 +162,55 @@ def py():
         time=8,
         batched_backward=True,
     )
+
+    # === Cost table: forward vs batched grad-backward (ms per second of audio), one model per family,
+    # run HERE under the same torch 2.12 env as the speed extracts (TIMIT-test, 40 seqs). The main recipe's
+    # 9-model version drops to one representative per family, so the 5 NeMo/espnet models are not needed and
+    # everything stays in the 2.12 overlay. The manager's PYTHONPATH overlay reaches this worker too.
+    dl_timit = DownloadHuggingFaceRepoJobV2(repo_id="nh0znoisung/timit", repo_type="dataset")
+    cost_models = {"CTC (wav2vec2)": _w2v, "AED (whisper)": _whisper, "LLM (phi4)": _phi4}
+    cost = AlignCostBenchmarkJob(
+        model_configs=cost_models,
+        dataset_dir=dl_timit.out_hub_cache_dir,
+        dataset_key="test",
+        num_seqs=40,
+    )
+    cost.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    cost.add_alias("speedcmp-p212/cost-benchmark")
+    tk.register_output("speedcmp-p212/cost-benchmark-metrics.txt", cost.out_metrics)
+
+    def _cost_cell(name, metric):
+        return {"var": cost.out_metrics, "key": f"{name}|{metric}", "fmt": "{:.0f}", "missing": "-"}
+
+    cost_cols = [
+        {"key": "fwd", "header": "forward [ms/s]"},
+        {"key": "bwd", "header": "+grad backward [ms/s]"},
+        {"key": "tot", "header": "grad total [ms/s]"},
+    ]
+    cost_rows = [
+        {
+            "label": n,
+            "cells": {
+                "fwd": _cost_cell(n, "fwd_ms_per_s"),
+                "bwd": _cost_cell(n, "bwd_ms_per_s"),
+                "tot": _cost_cell(n, "total_ms_per_s"),
+            },
+        }
+        for n in cost_models
+    ]
+    cost_caption = (
+        "Cost of gradient alignment, one model per family, on a single GPU (TIMIT-test, 40 seqs), measured "
+        "under torch 2.12: wall-clock for the forward pass vs the batched per-token grad backward, in ms per "
+        "second of audio. The native methods (forced-align / attention-DTW) pay the same forward and skip the "
+        "backward, so the forward column is their cost; gradient alignment adds the backward. The align/DP "
+        "step (shared, near-identical across methods) is excluded."
+    )
+    cost_job = WriteLatexTableJob(
+        columns=cost_cols,
+        rows=cost_rows,
+        caption=cost_caption,
+        label="tab:cost",
+        label_header="Model",
+        col_align="|l|r|r|r|",
+    )
+    tk.register_output("speedcmp-p212/cost.tex", cost_job.out_tex)
