@@ -121,7 +121,7 @@ class Model(torch.nn.Module):
         conformer_out, out_mask = self.conformer(audio_features, mask)
         conformer_out = self.final_dropout(conformer_out)
         logits = self.final_linear(conformer_out)
-        log_probs = torch.nn.functional.logsigmoid(logits)
+        log_probs = torch.nn.functional.logsigmoid(logits).float()
         return log_probs, torch.sum(out_mask, dim=1)
 
 
@@ -133,9 +133,8 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
 
     with torch.enable_grad():
         log_probs, audio_features_len = model(raw_audio=raw_audio, raw_audio_len=raw_audio_len)
-        log_probs_for_ctc = log_probs.float()
         ctc_loss = torch_ctc_fixed_grad(
-            torch.permute(log_probs_for_ctc, (1, 0, 2)),
+            torch.permute(log_probs, (1, 0, 2)),
             labels,
             input_lengths=audio_features_len.cpu(),
             target_lengths=labels_len.cpu(),
@@ -143,10 +142,10 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
             reduction="sum",
             zero_infinity=True,
         )
-        soft_target = -torch.autograd.grad(ctc_loss, log_probs_for_ctc, retain_graph=True)[0].detach()
+        soft_target = -torch.autograd.grad(ctc_loss, log_probs, retain_graph=True)[0].detach()
         loss = generative_nce(
             log_probs,
-            soft_target.to(log_probs.dtype),
+            soft_target,
             sampling_type=model.cfg.sampling_type,
             seq_len=audio_features_len,
             sampling_ratio=model.cfg.sampling_ratio,
