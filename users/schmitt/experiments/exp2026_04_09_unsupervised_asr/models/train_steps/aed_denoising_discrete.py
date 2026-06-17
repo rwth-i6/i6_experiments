@@ -57,10 +57,15 @@ def train_step(
     aux_loss_scales: Optional[Sequence[float]] = None,
     adv_loss_scale: float = 0.0,
     true_adv_target: Optional[int] = None,
+    codebook_diversity_loss_scale: float = 0.0,
     **_kwargs,
 ):
     loss_suffix = "_" + loss_name if loss_name else ""
     ctx = rf.get_run_ctx()
+
+    # anneal the GumbelVectorQuantizer temperature by the global train step (if a codebook is used)
+    if getattr(model, "quantizer", None) is not None:
+        model.quantizer.set_num_updates(int(ctx.step))
     num_eos_symbols = 1
     assert set(extern_data.data.keys()) == {"data", "seq_tag"} or set(extern_data.data.keys()) == {
         "data",
@@ -122,6 +127,19 @@ def train_step(
             adv_loss_name = "disc"
 
     encoder_output, aux_logits, encoder_lens, _ = model.forward(label_indices_masked, label_indices_masked_lens)
+
+    # codebook (GumbelVectorQuantizer) diversity loss, as in wav2vec 2.0 / SpeechT5: push the model
+    # to use the full codebook (maximize perplexity over codebook entries).
+    if codebook_diversity_loss_scale > 0.0 and getattr(model, "quantizer_out", None) is not None:
+        q_out = model.quantizer_out
+        num_vars = q_out["num_vars"]
+        diversity_loss = (num_vars - q_out["prob_perplexity"]) / num_vars
+        ctx.mark_as_loss(
+            diversity_loss, f"codebook_diversity{loss_suffix}", dims=[], scale=codebook_diversity_loss_scale
+        )
+        if ctx.stage == "train_step":
+            ctx.mark_as_loss(q_out["prob_perplexity"], f"codebook_prob_ppl{loss_suffix}", dims=[], as_error=True)
+
     if adv_loss_name != "disc":
         # only compute the reconstruction loss, if we are not training the discriminator
         # since the encoder is frozen in that case

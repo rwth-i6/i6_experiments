@@ -86,6 +86,143 @@ class MlpDiscriminator(nn.Module):
             param.requires_grad = True
 
 
+class GumbelVectorQuantizer(nn.Module):
+    """
+    Vector quantization using gumbel softmax, as used by wav2vec 2.0 / SpeechT5.
+
+    Self-contained reimplementation of ``fairseq.modules.GumbelVectorQuantizer`` (fairseq is not
+    available in the RETURNN runtime env). See
+    https://github.com/microsoft/SpeechT5/blob/main/SpeechT5/speecht5/models/speecht5.py
+
+    Args:
+        dim: input dimension (channels) of the states to quantize.
+        num_vars: number of codebook entries V per group.
+        temp: gumbel-softmax temperature schedule, a tuple ``(start, end, decay)``.
+        groups: number of groups G of latent variables.
+        combine_groups: whether to share the codebook across groups.
+        vq_dim: dimensionality of the resulting quantized vector (must be divisible by ``groups``).
+        time_first: if True, expect/return input as ``[B, T, C]`` (otherwise ``[B, C, T]``).
+        activation: activation between projection layers (only used if ``weight_proj_depth > 1``).
+        weight_proj_depth: number of layers projecting the input before computing the logits.
+        weight_proj_factor: scales the inner dim of the projection (only if depth > 1).
+    """
+
+    def __init__(
+        self,
+        dim: int,
+        num_vars: int,
+        temp: Tuple[float, float, float],
+        groups: int,
+        combine_groups: bool,
+        vq_dim: int,
+        time_first: bool,
+        activation: nn.Module = None,
+        weight_proj_depth: int = 1,
+        weight_proj_factor: int = 1,
+    ):
+        super().__init__()
+
+        if activation is None:
+            activation = nn.GELU()
+
+        self.groups = groups
+        self.combine_groups = combine_groups
+        self.input_dim = dim
+        self.num_vars = num_vars
+        self.time_first = time_first
+
+        assert vq_dim % groups == 0, f"dim {vq_dim} must be divisible by groups {groups} for concatenation"
+
+        var_dim = vq_dim // groups
+        num_groups = groups if not combine_groups else 1
+
+        self.vars = nn.Parameter(torch.FloatTensor(1, num_groups * num_vars, var_dim))
+        nn.init.uniform_(self.vars)
+
+        if weight_proj_depth > 1:
+
+            def block(input_dim, output_dim):
+                return nn.Sequential(nn.Linear(input_dim, output_dim), activation)
+
+            inner_dim = self.input_dim * weight_proj_factor
+            self.weight_proj = nn.Sequential(
+                *[block(self.input_dim if i == 0 else inner_dim, inner_dim) for i in range(weight_proj_depth - 1)],
+                nn.Linear(inner_dim, groups * num_vars),
+            )
+        else:
+            self.weight_proj = nn.Linear(self.input_dim, groups * num_vars)
+            nn.init.normal_(self.weight_proj.weight, mean=0, std=1)
+            nn.init.zeros_(self.weight_proj.bias)
+
+        assert len(temp) == 3, f"{temp}, {len(temp)}"
+        self.max_temp, self.min_temp, self.temp_decay = temp
+        self.curr_temp = self.max_temp
+
+    def set_num_updates(self, num_updates: int):
+        self.curr_temp = max(self.max_temp * self.temp_decay**num_updates, self.min_temp)
+
+    def forward(self, x: Tensor) -> Dict[str, Any]:
+        result = {"num_vars": self.num_vars * self.groups}
+
+        if not self.time_first:
+            x = x.transpose(1, 2)
+
+        bsz, tsz, fsz = x.shape
+        x = x.reshape(-1, fsz)
+        x = self.weight_proj(x)
+        x = x.view(bsz * tsz * self.groups, -1)
+
+        _, k = x.max(-1)
+        hard_x = x.new_zeros(*x.shape).scatter_(-1, k.view(-1, 1), 1.0).view(bsz * tsz, self.groups, -1)
+        hard_probs = torch.mean(hard_x.float(), dim=0)
+        result["code_perplexity"] = torch.exp(
+            -torch.sum(hard_probs * torch.log(hard_probs + 1e-7), dim=-1)
+        ).sum()
+
+        avg_probs = torch.softmax(x.view(bsz * tsz, self.groups, -1).float(), dim=-1).mean(dim=0)
+        result["prob_perplexity"] = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-7), dim=-1)).sum()
+
+        result["temp"] = self.curr_temp
+
+        if self.training:
+            x = nn.functional.gumbel_softmax(x.float(), tau=self.curr_temp, hard=True).type_as(x)
+        else:
+            x = hard_x
+
+        x = x.reshape(bsz * tsz, self.groups, self.num_vars)
+
+        vars = self.vars
+        if self.combine_groups:
+            vars = vars.repeat(1, self.groups, 1)
+        vars = vars.reshape(self.groups, self.num_vars, -1)  # [groups, num_vars, var_dim]
+
+        # combine the (one-hot in eval / gumbel-soft in train) selection with the codebook vectors.
+        # Equivalent to fairseq's `x.unsqueeze(-1) * vars` broadcast + sum over num_vars, but done
+        # as a per-group matmul to avoid materializing the [B*T, groups*num_vars, var_dim]
+        # intermediate -- that intermediate is what OOMs for long, unsubsampled token sequences.
+        x = torch.einsum("bgv,gvd->bgd", x, vars)  # [B*T, groups, var_dim]
+        x = x.reshape(bsz, tsz, -1)  # [B, T, groups*var_dim = vq_dim]
+
+        if not self.time_first:
+            x = x.transpose(1, 2)  # BTC -> BCT
+
+        result["x"] = x
+
+        return result
+
+
+# defaults for `Model(codebook_opts=...)`; a passed dict overrides individual keys.
+_DEFAULT_CODEBOOK_OPTS = {
+    "codebook_prob": 0.5,  # fraction of time steps replaced by their quantized code
+    "latent_vars": 320,  # codebook entries V per group
+    "latent_groups": 2,  # number of groups G
+    "latent_dim": 0,  # quantized dim; 0 -> use the encoder dim
+    "latent_temp": (2.0, 0.5, 0.999995),  # gumbel temperature (start, end, decay)
+    "quantizer_depth": 1,
+    "quantizer_factor": 3,
+}
+
+
 class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
     """
     Conformer encoder + Transformer decoder AED + CTC model
@@ -122,6 +259,11 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
         enc_bottleneck_dim: Optional[int] = None,
         share_decoder: bool = False,
         discriminator_type: Optional[str] = None,
+        # If given, add a GumbelVectorQuantizer codebook on top of the (shared) encoder, à la
+        # SpeechT5, to push the audio and text encoder states into a shared discrete space. The
+        # dict may override any of the keys in `_DEFAULT_CODEBOOK_OPTS` (an empty dict uses all
+        # defaults); None disables the codebook.
+        codebook_opts: Optional[Dict[str, Any]] = None,
         **_kwargs_unused,
     ):
         super().__init__()
@@ -267,6 +409,33 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
         else:
             self.discriminator = None
 
+        # codebook (GumbelVectorQuantizer) on top of the shared encoder output
+        if codebook_opts is not None:
+            codebook_opts = {**_DEFAULT_CODEBOOK_OPTS, **codebook_opts}
+            self.codebook_prob = codebook_opts["codebook_prob"]
+            vq_dim = codebook_opts["latent_dim"] if codebook_opts["latent_dim"] > 0 else encoder_dim
+            assert vq_dim == encoder_dim, (
+                f"quantized dim ({vq_dim}) must match the encoder output dim ({encoder_dim}) so the"
+                " quantized states can replace the encoder output"
+            )
+            self.quantizer = GumbelVectorQuantizer(
+                dim=encoder_dim,
+                num_vars=codebook_opts["latent_vars"],
+                temp=codebook_opts["latent_temp"],
+                groups=codebook_opts["latent_groups"],
+                combine_groups=False,
+                vq_dim=vq_dim,
+                time_first=True,
+                weight_proj_depth=codebook_opts["quantizer_depth"],
+                weight_proj_factor=codebook_opts["quantizer_factor"],
+            )
+        else:
+            self.codebook_prob = None
+            self.quantizer = None
+        # result dict (prob_perplexity, num_vars, ...) of the most recent quantizer call, read by
+        # the train_step to add the codebook diversity loss.
+        self.quantizer_out = None
+
         self.text_aux_loss_layers = text_aux_loss_layers
         self.out_text_aux_logits = nn.ModuleList(
             [nn.Linear(encoder_dim, text_out_dim + 1, bias=aux_logits_bias) for _ in range(len(text_aux_loss_layers))]
@@ -288,6 +457,29 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
     def unfreeze_encoder(self):
         for param in self.encoder.parameters():
             param.requires_grad = True
+
+    def _maybe_quantize(self, encoder_output: Tensor) -> Tensor:
+        """
+        Apply the GumbelVectorQuantizer codebook on top of the encoder output (if enabled).
+
+        Following SpeechT5, a random fraction (``codebook_prob``) of time steps is replaced by its
+        quantized code; the rest keep the original encoder state. The quantizer metrics (used for
+        the diversity loss) are stashed in ``self.quantizer_out`` for the train_step to pick up.
+        """
+        if self.quantizer is None:
+            return encoder_output
+        q = self.quantizer(encoder_output)  # [B, T, F] -> dict, q["x"]: [B, T, F]
+        self.quantizer_out = {k: v for k, v in q.items() if k != "x"}
+        quantized = q["x"]
+        time_size = quantized.shape[1]
+        num_replace = int(time_size * self.codebook_prob)
+        # same time positions are replaced across the whole batch (as in SpeechT5)
+        q_w = quantized.new_zeros(time_size)
+        if num_replace > 0:
+            replace_idx = torch.randperm(time_size, device=quantized.device)[:num_replace]
+            q_w[replace_idx] = 1.0
+        q_w = q_w.view(1, time_size, 1)
+        return q_w * quantized + (1.0 - q_w) * encoder_output
 
     def forward(self, indices: Tensor, seq_lens: Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
         # by default, forward as audio, since this is the final task for the model (ASR)
@@ -311,7 +503,7 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
             aux_linear(aux_out) for aux_linear, aux_out in zip(self.out_audio_aux_logits, encoder_outputs)
         ]
         out_seq_lens = out_mask.sum(dim=-1)
-        return encoder_outputs[-1], out_aux_logits, out_seq_lens, out_mask
+        return self._maybe_quantize(encoder_outputs[-1]), out_aux_logits, out_seq_lens, out_mask
 
     def forward_audio(self, indices: Tensor, seq_lens: Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
         """
@@ -329,7 +521,7 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
         assert len(self.out_audio_aux_logits) <= len(encoder_outputs)
         out_aux_logits = [aux_linear(aux_out) for aux_linear, aux_out in zip(self.out_text_aux_logits, encoder_outputs)]
         out_seq_lens = out_mask.sum(dim=-1)
-        return encoder_outputs[-1], out_aux_logits, out_seq_lens, out_mask
+        return self._maybe_quantize(encoder_outputs[-1]), out_aux_logits, out_seq_lens, out_mask
 
     def decode_text_seq(self, x: Tensor, x_lens: Tensor, encoder_output: Tensor, encoder_output_lens: Tensor) -> Tensor:
         state = self.decoder.transform_encoder_output(

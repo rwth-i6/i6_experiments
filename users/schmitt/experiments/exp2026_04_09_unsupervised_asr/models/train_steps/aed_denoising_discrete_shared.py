@@ -101,6 +101,7 @@ def train_step(
     text_masking_opts: Optional[Dict] = None,
     audio_masking_opts: Optional[Dict] = None,
     aux_loss_scales: Optional[Sequence[float]] = None,
+    codebook_diversity_loss_scale: float = 0.0,
     **_kwargs,
 ):
     assert set(extern_data.data.keys()) == {"data", "phon_indices", "seq_tag"}
@@ -127,6 +128,7 @@ def train_step(
         label_smoothing_start_epoch=label_smoothing_start_epoch,
         masking_opts=text_masking_opts,
         aux_loss_scales=aux_loss_scales,
+        codebook_diversity_loss_scale=codebook_diversity_loss_scale,
         loss_name="text",
     )
 
@@ -148,6 +150,7 @@ def train_step(
         label_smoothing_start_epoch=label_smoothing_start_epoch,
         masking_opts=audio_masking_opts,
         aux_loss_scales=aux_loss_scales,
+        codebook_diversity_loss_scale=codebook_diversity_loss_scale,
         loss_name="audio",
     )
     # else:
