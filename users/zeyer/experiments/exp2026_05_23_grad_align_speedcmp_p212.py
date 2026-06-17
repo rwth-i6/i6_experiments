@@ -199,11 +199,14 @@ def py():
         for n in cost_models
     ]
     cost_caption = (
-        "Cost of gradient alignment, one model per family, on a single GPU (TIMIT-test, 40 seqs), measured "
-        "under torch 2.12: wall-clock for the forward pass vs the batched per-token grad backward, in ms per "
-        "second of audio. The native methods (forced-align / attention-DTW) pay the same forward and skip the "
-        "backward, so the forward column is their cost; gradient alignment adds the backward. The align/DP "
-        "step (shared, near-identical across methods) is excluded."
+        "Cost of gradient alignment, one model per family, "
+        "on a single GPU (TIMIT-test, 40 seqs), measured under torch 2.12: "
+        "wall-clock for the forward pass vs the batched per-token grad backward, "
+        "in ms per second of audio. "
+        "The native methods (forced-align / attention-DTW) pay the same forward and skip the backward, "
+        "so the forward column is their cost; "
+        "gradient alignment adds the backward. "
+        "The align/DP step (shared, near-identical across methods) is excluded."
     )
     cost_job = WriteLatexTableJob(
         columns=cost_cols,

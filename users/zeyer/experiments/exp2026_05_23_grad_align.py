@@ -4815,8 +4815,11 @@ def _build_timit_phi4mm(
                     align.add_alias(align_name)
                     reg(f"{align_name}-wbe.txt", align.out_wbe)
 
-    # --- TODO: prompt sensitivity sweep ------------------------------------
-    # See exp2025_05_05_align lines ~172-203.
+    # --- prompt sensitivity sweep: DONE.
+    # Implemented (and richer) via the _PP_PROMPTS block above:
+    # 4 instructions x subword/char targets on TIMIT-test -> tab:phi4-prompt.
+    # Finding: grad-align is robust to prompt phrasing (WBE varies only ~6 ms).
+    # Supersedes the old 3-prompt sweep (exp2025_05_05_align ~172-203).
 
     # --- TODO: long-form Buckeye (chunked segmentation + grad-align) -------
     # See exp2025_05_05_align lines ~86-170. Use:

@@ -191,12 +191,15 @@ def _time_stretch_table():
             rows.append({"label": model if mi == 0 else "", "cells": cells})
 
     caption = (
-        "Length-perturbation robustness on TIMIT-val: word-boundary error (WBE, ms) of grad-align "
-        "(wav2vec2-CTC) vs the MMS-FA forced-align baseline under audio time-stretch at factors 1.0 to 3.0 "
-        "(columns), with two stretch methods: vocoder (phase vocoder, pitch-preserving) and resample "
-        "(pitch-shifted). Grad-align tolerates mild stretch but degrades sharply at 2-3x (resample, which "
-        "also shifts pitch, is worst), whereas native forced-align re-runs Viterbi on the stretched audio "
-        "and stays robust."
+        "Length-perturbation robustness on TIMIT-val: "
+        "word-boundary error (WBE, ms) of grad-align (wav2vec2-CTC) "
+        "vs the MMS-FA forced-align baseline, "
+        "under audio time-stretch at factors 1.0 to 3.0 (columns), "
+        "with two stretch methods: "
+        "vocoder (phase vocoder, pitch-preserving) and resample (pitch-shifted). "
+        "Grad-align tolerates mild stretch but degrades sharply at 2-3x "
+        "(resample, which also shifts pitch, is worst), "
+        "whereas native forced-align re-runs Viterbi on the stretched audio and stays robust."
     )
     job = WriteLatexTableJob(
         columns=cols,
@@ -294,14 +297,17 @@ def _word_length_table():
             )
 
     caption = (
-        "Word-length (duration) accuracy on Buckeye-segA, per model, grad-align vs the model's alternative "
-        "aligner. WBE = mean absolute word-boundary error; start/end off. = signed mean boundary offset "
-        "(predicted minus reference, positive = late); width err. = signed word-width error (= end minus "
-        "start offset; 0 = correct duration). The CTC / forced-align posteriors bias the start late and the "
-        "end early, so words shrink from both ends and the width error is comparable to the WBE; grad-align "
-        "shifts both boundaries in the same direction (a positional lead, not a width change), so its width "
-        "error is far below its WBE. Grad is thus consistently more accurate on word duration. (TIMIT-test "
-        "shows the same pattern, milder.)"
+        "Word-length (duration) accuracy on Buckeye-segA, per model, "
+        "grad-align vs the model's alternative aligner. "
+        "WBE = mean absolute word-boundary error; "
+        "start/end off. = signed mean boundary offset (predicted minus reference, positive = late); "
+        "width err. = signed word-width error (= end minus start offset; 0 = correct duration). "
+        "The CTC / forced-align posteriors bias the start late and the end early, "
+        "so words shrink from both ends and the width error is comparable to the WBE; "
+        "grad-align shifts both boundaries in the same direction (a positional lead, not a width change), "
+        "so its width error is far below its WBE. "
+        "Grad is thus consistently more accurate on word duration. "
+        "(TIMIT-test shows the same pattern, milder.)"
     )
     job = WriteLatexTableJob(
         columns=cols,
