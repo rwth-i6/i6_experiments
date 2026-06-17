@@ -2980,6 +2980,13 @@ def py():
     _test_specs = [
         (_whc_cfg_test, "whisper-base-logmel-timit-test-L2_grad-pertoken-charlev-spc", "L2", False, [(0.5, 1.0)]),
         (
+            rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir),
+            "whisper-base-logmel-timit-test-L2_grad-pertoken-subword",
+            "L2",
+            False,
+            [(0.5, 1.0)],
+        ),  # fairness-2x2: grad-subword on TIMIT-test (char twin above)
+        (
             rf.build_dict(Whisper, model_dir=dl_whisper_l3.out_hub_cache_dir, char_level=True, char_level_sep=" "),
             "whisper-large-v3-logmel-timit-test-L2_grad-pertoken-charlev-spc",
             "L2",
@@ -3252,6 +3259,18 @@ def py():
         dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
     )
     reg("baseline-whisper-crossattn-timit-test-wbe.txt", whisper_fa_test_metric.out_wbe)
+    # fairness-2x2: cross-attn CHAR on TIMIT-test (char twin of the subword baseline above; segA has it).
+    whisper_fa_test_char = WhisperCrossAttnForcedAlignJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_key="test", overlay=_WHISPER_TS_OVERLAY, char_level=True
+    )
+    whisper_fa_test_char.add_alias("baseline-whisper-crossattn-charlev-timit-test")
+    whisper_fa_test_char_metric = CalcAlignmentMetricsFromWordBoundariesJob(
+        word_boundaries_hdf=whisper_fa_test_char.out_hdf,
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="test",
+        dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+    )
+    reg("baseline-whisper-crossattn-charlev-timit-test-wbe.txt", whisper_fa_test_char_metric.out_wbe)
 
     # --- MFA (Montreal Forced Aligner) baseline infra ---------------------------
     # Pull the MFA Docker image into a tracked .sif, and wrap `mfa` as a plain executable so the

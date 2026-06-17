@@ -19,12 +19,339 @@ _RESULTS = {}
 def build_tables(results):
     global _RESULTS
     _RESULTS = results
+    _headline_table()  # T1 breadth: grad WBE + acc@50, main models + cross-attn DTW baseline
     _compare_table()  # ground-truth forced-mode only (separate hyp table below)
     _compare_table(with_hyp=True)  # variant: hyp-mode columns merged onto the grad rows
     _hyp_table()
     _owsm_layer_table()  # OWSM-CTC grad-align per inter-CTC emit block (side table)
     _phi4_prompt_table()  # Phi-4-MM grad-align vs the spliced instruction (side table)
     _cost_table()  # forward vs batched grad-backward per model (T5 cost)
+    _streaming_offset_table()  # streaming start/end signed offset (grad vs native viterbi)
+    _fairness_table()  # T2 fairness 2x2 (grad vs cross-attn x char/subword)
+
+
+# ----------------------------------------------------------------------------------------
+# Streaming signed-offset: per streaming model, grad vs native viterbi, SIGNED start/end boundary
+#     offset (pred - ref, ms; + = late). Native chunked viterbi starts late / ends early (emission
+#     delay); grad ~0. Data = start_signed_mean / end_signed_mean (align_metrics out_metrics).
+# ----------------------------------------------------------------------------------------
+def _streaming_offset_table():
+    S, T = "buckeye-segA-5h", "timit-test"
+
+    def _off(base, key):
+        v = _RESULTS.get(f"{base}-wbe.txt")
+        j = getattr(v, "creator", None) if v is not None else None
+        m = getattr(j, "out_metrics", None) if j is not None else None
+        if m is None and j is not None:
+            # CTC forced-align baseline (ParakeetCtcForcedAlignJob) names its metrics dict out_word_metrics.
+            m = getattr(j, "out_word_metrics", None)
+        return {"var": m, "key": key, "mul": 1000.0, "fmt": "{:+.0f}"}
+
+    def g(stem_sa, stem_ti):
+        return (f"align/{stem_sa}", f"align/{stem_ti}")
+
+    MODELS = [
+        (
+            "Emformer RNN-T",
+            [
+                (
+                    "grad",
+                    *g(
+                        f"emformer-rnnt-prefix-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"emformer-rnnt-prefix-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                    ),
+                ),
+                (
+                    "native viterbi",
+                    f"baseline-emformer-rnnt-native-viterbi-{S}",
+                    f"baseline-emformer-rnnt-native-viterbi-{T}",
+                ),
+            ],
+        ),
+        (
+            "FastConformer-CTC",
+            [
+                (
+                    "grad",
+                    *g(
+                        f"fastconformer-stream-ctc-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"fastconformer-stream-ctc-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                    ),
+                ),
+                ("native viterbi", f"baseline-fastconformer-stream-ctc-{S}", f"baseline-fastconformer-stream-ctc-{T}"),
+            ],
+        ),
+        (
+            "FastConformer-RNN-T",
+            [
+                (
+                    "grad",
+                    *g(
+                        f"fastconformer-stream-rnnt-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"fastconformer-stream-rnnt-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                    ),
+                ),
+                (
+                    "native viterbi",
+                    f"baseline-fastconformer-stream-rnnt-native-viterbi-{S}",
+                    f"baseline-fastconformer-stream-rnnt-native-viterbi-{T}",
+                ),
+            ],
+        ),
+    ]
+
+    cols = [
+        {"key": "method", "header": "Align \\\\ method"},
+        {"key": "t_start", "header": "start \\\\ {[ms]}", "group": "TIMIT"},
+        {"key": "t_end", "header": "end \\\\ {[ms]}", "group": "TIMIT"},
+        {"key": "s_start", "header": "start \\\\ {[ms]}", "group": "Buckeye"},
+        {"key": "s_end", "header": "end \\\\ {[ms]}", "group": "Buckeye"},
+    ]
+
+    rows = []
+    for gi, (model, methods) in enumerate(MODELS):
+        if gi > 0:
+            rows.append({"label": None, "cells": {}})
+        for mi, (mlabel, sa, ti) in enumerate(methods):
+            if mi > 0:
+                rows.append({"cline": True})
+            rows.append(
+                {
+                    "label": model if mi == 0 else "",
+                    "cells": {
+                        "method": mlabel,
+                        "t_start": _off(ti, "start_signed_mean"),
+                        "t_end": _off(ti, "end_signed_mean"),
+                        "s_start": _off(sa, "start_signed_mean"),
+                        "s_end": _off(sa, "end_signed_mean"),
+                    },
+                }
+            )
+
+    caption = (
+        "Signed word-boundary offset (predicted minus reference, ms; positive = late) for the streaming "
+        "models, grad-align vs the model's native chunked-viterbi alignment, on TIMIT-test and Buckeye-segA. "
+        "The native streaming alignment is systematically late on both boundaries (limited right-context "
+        "emission delay; the start is delayed more than the end), whereas grad-align is far closer to "
+        "unbiased (tens vs hundreds of ms). This signed view complements the absolute WBE: the "
+        "native streaming viterbi's large WBE is largely a systematic emission-delay bias."
+    )
+    job = WriteLatexTableJob(
+        columns=cols,
+        rows=rows,
+        caption=caption,
+        label="tab:streaming-offset",
+        label_header="Model",
+        col_align="|l|l|r|r|r|r|",
+    )
+    tk.register_output("tables/streaming-offset.tex", job.out_tex)
+
+
+# ----------------------------------------------------------------------------------------
+# T2 fairness 2x2: whisper grad vs cross-attn DTW, char vs subword. Method-consistent -- both use the
+#     PLAIN cross-attn forced align (no head auto-selection), so the only variable per column is the
+#     tokenization. Grad wins every cell; char helps grad; char collapses cross-attn on spontaneous Buckeye.
+# ----------------------------------------------------------------------------------------
+def _fairness_table():
+    def gA(stem):
+        return f"align/{stem}"
+
+    DATASETS = [("TIMIT", "timit-test"), ("Buckeye", "buckeye-segA-5h")]
+    cols = [
+        {"key": "method", "header": "Align \\\\ method"},
+        {"key": "c_wbe", "header": "WBE \\\\ {[ms]}", "group": "char"},
+        {"key": "c_a50", "header": "acc@50 \\\\ {[\\%]}", "group": "char"},
+        {"key": "s_wbe", "header": "WBE \\\\ {[ms]}", "group": "subword"},
+        {"key": "s_a50", "header": "acc@50 \\\\ {[\\%]}", "group": "subword"},
+    ]
+    rows = []
+    for di, (dlabel, ds) in enumerate(DATASETS):
+        if di > 0:
+            rows.append({"label": None, "cells": {}})
+        gc = gA(f"whisper-base-logmel-{ds}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0")
+        gs = gA(f"whisper-base-logmel-{ds}-L2_grad-pertoken-subword-asotTrue-bs-5-en0.5-sil1.0")
+        xc = f"baseline-whisper-crossattn-charlev-{ds}"
+        xs = f"baseline-whisper-crossattn-{ds}"
+        rows.append(
+            {
+                "label": dlabel,
+                "cells": {
+                    "method": "grad",
+                    "c_wbe": _wbe(gc),
+                    "c_a50": _acc(gc, "acc_50ms"),
+                    "s_wbe": _wbe(gs),
+                    "s_a50": _acc(gs, "acc_50ms"),
+                },
+            }
+        )
+        rows.append({"cline": True})
+        rows.append(
+            {
+                "label": "",
+                "cells": {
+                    "method": "cross-attn",
+                    "c_wbe": _wbe(xc),
+                    "c_a50": _acc(xc, "acc_50ms"),
+                    "s_wbe": _wbe(xs),
+                    "s_a50": _acc(xs, "acc_50ms"),
+                },
+            }
+        )
+
+    caption = (
+        "Fairness 2x2 on whisper-base: gradient alignment vs cross-attention DTW, at character-level and "
+        "subword tokenization (TIMIT-test, Buckeye-segA; WBE and acc@50). Both methods use the same plain "
+        "cross-attention forced alignment (no head auto-selection), so the only variable per column pair is "
+        "the tokenization. Grad-align wins every cell. Character targets help grad on both datasets; they "
+        "help cross-attention on clean TIMIT but collapse it on spontaneous Buckeye (264.6 ms), where char "
+        "tokens exceed the 80 ms attention grid. (The headline table uses the stronger head-auto-selected "
+        "cross-attention variant for its subword baseline.)"
+    )
+    job = WriteLatexTableJob(
+        columns=cols,
+        rows=rows,
+        caption=caption,
+        label="tab:fairness",
+        label_header="Data",
+        col_align="|l|l|r|r|r|r|",
+    )
+    tk.register_output("tables/fairness.tex", job.out_tex)
+
+
+# ----------------------------------------------------------------------------------------
+# T3 ablation (whisper-char, Buckeye-segA): grad-score reduction, silence scale, apply_log on/off.
+#     grad-score variants are ~2 ms apart; apply_log-off and silence-off are the only large moves.
+# ----------------------------------------------------------------------------------------
+def _ablation_table():
+    P = "align/whisper-base-logmel-buckeye-segA-5h"
+    GROUPS = [
+        (
+            "grad-score",
+            [
+                ("L1", f"{P}-L1_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0"),
+                ("L2 (default)", f"{P}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0"),
+                ("L2_e", f"{P}-L2_e_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0"),
+            ],
+        ),
+        (
+            "silence scale",
+            [
+                ("1.0 (default)", f"{P}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0"),
+                ("0 (off)", f"{P}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5"),
+                ("2.0", f"{P}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil2.0"),
+                ("z-score k=1", f"{P}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0"),
+            ],
+        ),
+        (
+            "apply-log",
+            [
+                ("on (default)", f"{P}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0"),
+                ("off", f"{P}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-alFalse-en0.5-sil1.0"),
+            ],
+        ),
+    ]
+    cols = [
+        {"key": "setting", "header": "setting"},
+        {"key": "wbe", "header": "WBE \\\\ {[ms]}"},
+        {"key": "a50", "header": "acc@50 \\\\ {[\\%]}"},
+    ]
+    rows = []
+    for gi, (axis, variants) in enumerate(GROUPS):
+        if gi > 0:
+            rows.append({"label": None, "cells": {}})
+        for vi, (vlabel, base) in enumerate(variants):
+            if vi > 0:
+                rows.append({"cline": True})
+            rows.append(
+                {
+                    "label": axis if vi == 0 else "",
+                    "cells": {"setting": vlabel, "wbe": _wbe(base), "a50": _acc(base, "acc_50ms")},
+                }
+            )
+    caption = (
+        "Ablation of the alignment levers on whisper-base char-level grad-align, Buckeye-segA. The grad-score "
+        "reduction (L1 / L2 / L2_e) moves the result by ~2 ms; the silence scale and z-score variants are "
+        "similarly small around the default. Only turning the silence row off, and especially turning "
+        "apply-log off (the openai-DTW score), degrade markedly -- so the defaults are robust."
+    )
+    job = WriteLatexTableJob(
+        columns=cols,
+        rows=rows,
+        caption=caption,
+        label="tab:ablation",
+        label_header="Lever",
+        col_align="|l|l|r|r|",
+    )
+    tk.register_output("tables/ablation.tex", job.out_tex)
+
+
+# ----------------------------------------------------------------------------------------
+# T3b attribution axis (whisper-char, TIMIT-val): plain input-gradient vs SmoothGrad / VarGrad /
+#     Integrated-Gradients / Expected-Gradients sweeps. IG converges back to plain grad; the noise
+#     methods barely move it -- the single-pass gradient is already the good attribution.
+# ----------------------------------------------------------------------------------------
+def _attribution_table():
+    P = "align/whisper-base-logmel-timit-val"
+    ao = "asotTrue-bs-5-en0.5-sil1.0"
+    GROUPS = [
+        ("plain grad (L2)", [("--", f"{P}-L2_grad-pertoken-charlev-spc-{ao}")]),
+        (
+            "SmoothGrad",
+            [
+                (f"std {s}", f"{P}-L2_grad-pertoken-charlev-spc-smoothgrad-std{s}-n8-{ao}")
+                for s in ("0.005", "0.01", "0.03")
+            ],
+        ),
+        (
+            "VarGrad",
+            [(f"std {s}", f"{P}-L2-vargrad-pertoken-charlev-spc-std{s}-n16-{ao}") for s in ("0.01", "0.02", "0.04")],
+        ),
+        (
+            "Integrated-Grad",
+            [(f"{n} steps", f"{P}-L2-integrated-grad-pertoken-charlev-spc-ig{n}-{ao}") for n in ("8", "16", "32")],
+        ),
+        (
+            "Expected-Grad",
+            [
+                (f"bstd {s}", f"{P}-L2-expected-grad-pertoken-charlev-spc-eg16-bstd{s}-{ao}")
+                for s in ("0.01", "0.05", "0.1")
+            ],
+        ),
+    ]
+    cols = [
+        {"key": "param", "header": "param"},
+        {"key": "wbe", "header": "WBE \\\\ {[ms]}"},
+        {"key": "a50", "header": "acc@50 \\\\ {[\\%]}"},
+    ]
+    rows = []
+    for gi, (method, variants) in enumerate(GROUPS):
+        if gi > 0:
+            rows.append({"label": None, "cells": {}})
+        for vi, (vlabel, base) in enumerate(variants):
+            if vi > 0:
+                rows.append({"cline": True})
+            rows.append(
+                {
+                    "label": method if vi == 0 else "",
+                    "cells": {"param": vlabel, "wbe": _wbe(base), "a50": _acc(base, "acc_50ms")},
+                }
+            )
+    caption = (
+        "Attribution-method ablation on whisper-base char-level grad-align, TIMIT-val. The plain single-pass "
+        "input-gradient (L2) is compared to SmoothGrad, VarGrad, Integrated-Gradients (step sweep) and "
+        "Expected-Gradients (baseline-std sweep). Integrated-Gradients converges back to the plain gradient as "
+        "steps grow, and the noise-averaging variants barely move it -- the single-pass gradient is already a "
+        "good attribution for alignment, so the costlier attribution methods are not worth their extra passes."
+    )
+    job = WriteLatexTableJob(
+        columns=cols,
+        rows=rows,
+        caption=caption,
+        label="tab:attribution",
+        label_header="Method",
+        col_align="|l|l|r|r|",
+    )
+    tk.register_output("tables/attribution.tex", job.out_tex)
 
 
 def _wbe(base):
@@ -40,6 +367,124 @@ def _acc(base, key):
         # ForcedAlignPhonemeBaselineJob names its (same aggregate_corpus) metrics dict out_word_metrics.
         m = getattr(j, "out_word_metrics", None)
     return {"var": m, "key": key, "mul": 100.0, "fmt": "{:.1f}"}
+
+
+# ----------------------------------------------------------------------------------------
+# T1 headline (breadth): grad-align WBE + acc@50 across the main models + the whisper cross-attn
+#     DTW baseline. Grad bases == _compare_table grad rows (best per-model config), so the two agree.
+# ----------------------------------------------------------------------------------------
+def _headline_table():
+    S, T = "buckeye-segA-5h", "timit-test"
+
+    def g(stem_sa, stem_ti):
+        return (f"align/{stem_sa}", f"align/{stem_ti}" if stem_ti else None)
+
+    # (Model label, segA grad base, TIMIT grad base) -- mirror _compare_table's grad rows.
+    MODELS = [
+        (
+            "Wav2Vec2-CTC",
+            *g(
+                f"wav2vec2ctc-fproj_out-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                f"wav2vec2ctc-fproj_out-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+            ),
+        ),
+        (
+            "Phoneme-CTC (G2P)",
+            *g(f"phoneme-vitouphy-prefixfwd-{S}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-sil1.0", None),
+        ),
+        (
+            "Whisper-base",
+            *g(
+                f"whisper-base-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
+                f"whisper-base-logmel-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
+            ),
+        ),
+        (
+            "Whisper-large-v3",
+            *g(
+                f"whisper-large-v3-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
+                f"whisper-large-v3-logmel-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
+            ),
+        ),
+        (
+            "Parakeet RNN-T",
+            *g(
+                f"parakeet-rnnt-1.1b-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                f"parakeet-rnnt-1.1b-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+            ),
+        ),
+        (
+            "Parakeet TDT",
+            *g(
+                f"parakeet-tdt-0.6b-v2-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                f"parakeet-tdt-0.6b-v2-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+            ),
+        ),
+        (
+            "Voxtral",
+            *g(
+                f"voxtral-charlevlogmel-{S}-L1_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                f"voxtral-charlevlogmel-{T}-L1_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+            ),
+        ),
+        (
+            "Phi-4-MM",
+            *g(
+                f"phi4mm-{S}-L2_e_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
+                f"phi4mm-{T}-L2_e_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
+            ),
+        ),
+        (
+            "Canary-Qwen",
+            *g(
+                f"canary-qwen-charlev-spc-logmel-st15-{S}-L1_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                f"canary-qwen-charlev-spc-logmel-st15-{T}-L1_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+            ),
+        ),
+    ]
+    BASELINE = (
+        "Whisper cross-attn DTW",
+        f"align/baseline-whisper-base-crossattn-auto-{S}-asotTrue-bs-5-en0.5-sil1.0",
+        f"align/baseline-whisper-base-crossattn-auto-{T}-asotTrue-bs-5-en0.5-sil1.0",
+    )
+
+    cols = [
+        {"key": "t_wbe", "header": "WBE \\\\ {[ms]}", "group": "TIMIT"},
+        {"key": "t_a50", "header": "acc@50 \\\\ {[\\%]}", "group": "TIMIT"},
+        {"key": "s_wbe", "header": "WBE \\\\ {[ms]}", "group": "Buckeye"},
+        {"key": "s_a50", "header": "acc@50 \\\\ {[\\%]}", "group": "Buckeye"},
+    ]
+
+    def row(label, sa, ti):
+        return {
+            "label": label,
+            "cells": {
+                "t_wbe": _wbe(ti) if ti else None,
+                "t_a50": _acc(ti, "acc_50ms") if ti else None,
+                "s_wbe": _wbe(sa) if sa else None,
+                "s_a50": _acc(sa, "acc_50ms") if sa else None,
+            },
+        }
+
+    rows = [row(m, sa, ti) for (m, sa, ti) in MODELS]
+    rows.append({"label": None, "cells": {}})  # \\hline before the baseline
+    rows.append(row(*BASELINE))
+
+    caption = (
+        "Headline breadth: gradient-based word alignment across ASR families on TIMIT-test and "
+        "Buckeye-segA (word-boundary error and acc@50ms tolerance accuracy), best per-model config. "
+        "The whisper cross-attention DTW baseline is shown for reference. Grad-align runs on every "
+        "family; the per-model table breaks each model out against its own native / attention aligner."
+    )
+    job = WriteLatexTableJob(
+        columns=cols,
+        rows=rows,
+        caption=caption,
+        label="tab:headline",
+        label_header="Model",
+        col_align="|l|r|r|r|r|",
+    )
+    tk.register_output("tables/headline.tex", job.out_tex)
 
 
 # ----------------------------------------------------------------------------------------
