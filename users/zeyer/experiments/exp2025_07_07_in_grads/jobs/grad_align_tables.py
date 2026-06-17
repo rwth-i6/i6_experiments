@@ -1,17 +1,27 @@
-"""Auto-generated LaTeX result tables, wired into the Sis graph.
+"""Resolve the paper's result tables to ``data.json`` (numbers only), wired into the Sis graph.
 
-``build_tables(results)`` is called at the end of the main recipe. ``results`` is the
-``{registered-output-name: Variable}`` dict captured by the module-level ``reg`` wrapper during
-``py()`` (sis_graph is NOT introspectable mid-py()). For each paper table it looks up the relevant
-metric outputs and emits one :class:`WriteLatexTableJob`, registered under ``output/tables/``.
+``build_tables(results)`` is called at the end of the main recipe.
+``results`` is the ``{registered-output-name: Variable}`` dict captured by the module-level ``reg``
+wrapper during ``py()`` (sis_graph is NOT introspectable mid-py()).
+For each paper table it looks up the relevant metric outputs and emits one
+:class:`WriteTableDataJob`, registered under ``output/tables-data/``.
 
-Lookup is by registered output NAME (this recipe's, never stale on-disk aliases). A "<base>-wbe.txt"
-output IS the scalar out_wbe Variable; its ``.creator`` is the metric job (whose ``out_metrics``
-holds the full dict incl. acc@collar). So WBE works for every aligner; acc needs out_metrics.
+This is the *data* half of the table pipeline:
+only the numbers, which genuinely depend on upstream jobs, live here.
+All presentation -- captions, column headers, units, layout, col-align --
+lives in authored spec files in the paper repo (``tables-spec/<name>.spec.json`` + ``<name>.caption.tex``),
+and is applied by the local ``scripts/render_tables.py``.
+So a caption or header tweak is a one-second local re-render, never a manager restart;
+the manager only runs when an actual number changes.
+
+Lookup is by registered output NAME (this recipe's, never stale on-disk aliases).
+A "<base>-wbe.txt" output IS the scalar out_wbe Variable;
+its ``.creator`` is the metric job (whose ``out_metrics`` holds the full dict incl. acc@collar).
+So WBE works for every aligner; acc needs out_metrics.
 """
 
 from sisyphus import tk
-from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.latex_table import WriteLatexTableJob
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.table_data import WriteTableDataJob
 
 _RESULTS = {}
 
@@ -34,6 +44,36 @@ def build_tables(results):
     _alignopts_table()  # T3b align-opts (grad vs cross-attn, same DP)
 
 
+def _emit(name, columns, rows):
+    job = WriteTableDataJob(columns=columns, rows=rows)
+    tk.register_output(f"tables-data/{name}.data.json", job.out_data)
+
+
+# Cell resolve-specs (var + optional dict key); units/format are applied by the render layer.
+def _wbe(base):
+    # The "<base>-wbe.txt" output is the scalar out_wbe (raw seconds).
+    return {"var": _RESULTS.get(f"{base}-wbe.txt")}
+
+
+def _metrics_var(base):
+    # The metrics dict behind a "<base>-wbe.txt": creator.out_metrics, or out_word_metrics for the
+    # CTC forced-align / phoneme baselines (which name their aggregate dict differently).
+    v = _RESULTS.get(f"{base}-wbe.txt")
+    j = getattr(v, "creator", None) if v is not None else None
+    m = getattr(j, "out_metrics", None) if j is not None else None
+    if m is None and j is not None:
+        m = getattr(j, "out_word_metrics", None)
+    return m
+
+
+def _metric(base, key):
+    return {"var": _metrics_var(base), "key": key}
+
+
+def _hyp(name, key):
+    return {"var": _RESULTS.get(f"hyp-align/{name}-metrics.txt"), "key": key}
+
+
 # ----------------------------------------------------------------------------------------
 # Streaming signed-offset: per streaming model, grad vs native viterbi, SIGNED start/end boundary
 #     offset (pred - ref, ms; + = late). Native chunked viterbi starts late / ends early (emission
@@ -41,15 +81,6 @@ def build_tables(results):
 # ----------------------------------------------------------------------------------------
 def _streaming_offset_table():
     S, T = "buckeye-segA-5h", "timit-test"
-
-    def _off(base, key):
-        v = _RESULTS.get(f"{base}-wbe.txt")
-        j = getattr(v, "creator", None) if v is not None else None
-        m = getattr(j, "out_metrics", None) if j is not None else None
-        if m is None and j is not None:
-            # CTC forced-align baseline (ParakeetCtcForcedAlignJob) names its metrics dict out_word_metrics.
-            m = getattr(j, "out_word_metrics", None)
-        return {"var": m, "key": key, "mul": 1000.0, "fmt": "{:+.0f}"}
 
     def g(stem_sa, stem_ti):
         return (f"align/{stem_sa}", f"align/{stem_ti}")
@@ -104,14 +135,7 @@ def _streaming_offset_table():
         ),
     ]
 
-    cols = [
-        {"key": "method", "header": "Align \\\\ method"},
-        {"key": "t_start", "header": "start \\\\ {[ms]}", "group": "TIMIT"},
-        {"key": "t_end", "header": "end \\\\ {[ms]}", "group": "TIMIT"},
-        {"key": "s_start", "header": "start \\\\ {[ms]}", "group": "Buckeye"},
-        {"key": "s_end", "header": "end \\\\ {[ms]}", "group": "Buckeye"},
-    ]
-
+    columns = ["method", "t_start", "t_end", "s_start", "s_end"]
     rows = []
     for gi, (model, methods) in enumerate(MODELS):
         if gi > 0:
@@ -124,32 +148,14 @@ def _streaming_offset_table():
                     "label": model if mi == 0 else "",
                     "cells": {
                         "method": mlabel,
-                        "t_start": _off(ti, "start_signed_mean"),
-                        "t_end": _off(ti, "end_signed_mean"),
-                        "s_start": _off(sa, "start_signed_mean"),
-                        "s_end": _off(sa, "end_signed_mean"),
+                        "t_start": _metric(ti, "start_signed_mean"),
+                        "t_end": _metric(ti, "end_signed_mean"),
+                        "s_start": _metric(sa, "start_signed_mean"),
+                        "s_end": _metric(sa, "end_signed_mean"),
                     },
                 }
             )
-
-    caption = (
-        "Signed word-boundary offset (predicted minus reference, ms; positive = late) for the streaming "
-        "models, grad-align vs the model's native chunked-viterbi alignment, on TIMIT-test and Buckeye-segA. "
-        "The native streaming alignment is systematically late on both boundaries (limited right-context "
-        "emission delay; the start is delayed more than the end), whereas grad-align is far closer to "
-        "unbiased (tens vs hundreds of ms). This signed view complements the absolute WBE: the "
-        "native streaming viterbi's large WBE is largely a systematic emission-delay bias."
-    )
-    job = WriteLatexTableJob(
-        adjustbox=True,
-        columns=cols,
-        rows=rows,
-        caption=caption,
-        label="tab:streaming-offset",
-        label_header="Model",
-        col_align="|l|l|r|r|r|r|",
-    )
-    tk.register_output("tables/streaming-offset.tex", job.out_tex)
+    _emit("streaming-offset", columns, rows)
 
 
 # ----------------------------------------------------------------------------------------
@@ -176,9 +182,7 @@ def _time_stretch_table():
     TS = ["1.0", "1.5", "2.0", "3.0"]
     KEYS = ["ts10", "ts15", "ts20", "ts30"]
 
-    cols = [{"key": "method", "header": "Stretch method"}]
-    cols += [{"key": k, "header": ts, "group": "WBE [ms]"} for k, ts in zip(KEYS, TS)]
-
+    columns = ["method"] + KEYS
     rows = []
     for gi, (model, basefn) in enumerate(MODELS):
         if gi > 0:
@@ -190,28 +194,7 @@ def _time_stretch_table():
             for k, ts in zip(KEYS, TS):
                 cells[k] = _wbe(basefn(ts, method))
             rows.append({"label": model if mi == 0 else "", "cells": cells})
-
-    caption = (
-        "Length-perturbation robustness on TIMIT-val: "
-        "word-boundary error (WBE, ms) of grad-align (wav2vec2-CTC) "
-        "vs the MMS-FA forced-align baseline, "
-        "under audio time-stretch at factors 1.0 to 3.0 (columns), "
-        "with two stretch methods: "
-        "vocoder (phase vocoder, pitch-preserving) and resample (pitch-shifted). "
-        "Grad-align tolerates mild stretch but degrades sharply at 2-3x "
-        "(resample, which also shifts pitch, is worst), "
-        "whereas native forced-align re-runs Viterbi on the stretched audio and stays robust."
-    )
-    job = WriteLatexTableJob(
-        adjustbox=True,
-        columns=cols,
-        rows=rows,
-        caption=caption,
-        label="tab:time-stretch",
-        label_header="Model",
-        col_align="|l|l|r|r|r|r|",
-    )
-    tk.register_output("tables/time-stretch.tex", job.out_tex)
+    _emit("time-stretch", columns, rows)
 
 
 # ----------------------------------------------------------------------------------------
@@ -224,15 +207,6 @@ def _time_stretch_table():
 # ----------------------------------------------------------------------------------------
 def _word_length_table():
     S = "buckeye-segA-5h"
-
-    def _m(base, key, fmt):
-        v = _RESULTS.get(f"{base}-wbe.txt")
-        j = getattr(v, "creator", None) if v is not None else None
-        mm = getattr(j, "out_metrics", None) if j is not None else None
-        if mm is None and j is not None:
-            mm = getattr(j, "out_word_metrics", None)
-        return {"var": mm, "key": key, "mul": 1000.0, "fmt": fmt}
-
     MODELS = [
         (
             "Wav2Vec2-CTC",
@@ -271,13 +245,7 @@ def _word_length_table():
         ),
     ]
 
-    cols = [
-        {"key": "method", "header": "Align method"},
-        {"key": "wbe", "header": "WBE", "group": "[ms]"},
-        {"key": "start", "header": "start off.", "group": "[ms]"},
-        {"key": "end", "header": "end off.", "group": "[ms]"},
-        {"key": "width", "header": "width err.", "group": "[ms]"},
-    ]
+    columns = ["method", "wbe", "start", "end", "width"]
     rows = []
     for gi, (model, methods) in enumerate(MODELS):
         if gi > 0:
@@ -290,37 +258,14 @@ def _word_length_table():
                     "label": model if mi == 0 else "",
                     "cells": {
                         "method": mlabel,
-                        "wbe": _m(base, "wbe", "{:.0f}"),
-                        "start": _m(base, "start_signed_mean", "{:+.0f}"),
-                        "end": _m(base, "end_signed_mean", "{:+.0f}"),
-                        "width": _m(base, "width_signed_err", "{:+.0f}"),
+                        "wbe": _metric(base, "wbe"),
+                        "start": _metric(base, "start_signed_mean"),
+                        "end": _metric(base, "end_signed_mean"),
+                        "width": _metric(base, "width_signed_err"),
                     },
                 }
             )
-
-    caption = (
-        "Word-length (duration) accuracy on Buckeye-segA, per model, "
-        "grad-align vs the model's alternative aligner. "
-        "WBE = mean absolute word-boundary error; "
-        "start/end off. = signed mean boundary offset (predicted minus reference, positive = late); "
-        "width err. = signed word-width error (= end minus start offset; 0 = correct duration). "
-        "The CTC / forced-align posteriors bias the start late and the end early, "
-        "so words shrink from both ends and the width error is comparable to the WBE; "
-        "grad-align shifts both boundaries in the same direction (a positional lead, not a width change), "
-        "so its width error is far below its WBE. "
-        "Grad is thus consistently more accurate on word duration. "
-        "(TIMIT-test shows the same pattern, milder.)"
-    )
-    job = WriteLatexTableJob(
-        adjustbox=True,
-        columns=cols,
-        rows=rows,
-        caption=caption,
-        label="tab:word-length",
-        label_header="Model",
-        col_align="|l|l|r|r|r|r|",
-    )
-    tk.register_output("tables/word-length.tex", job.out_tex)
+    _emit("word-length", columns, rows)
 
 
 # ----------------------------------------------------------------------------------------
@@ -329,23 +274,14 @@ def _word_length_table():
 #     tokenization. Grad wins every cell; char helps grad; char collapses cross-attn on spontaneous Buckeye.
 # ----------------------------------------------------------------------------------------
 def _fairness_table():
-    def gA(stem):
-        return f"align/{stem}"
-
     DATASETS = [("TIMIT", "timit-test"), ("Buckeye", "buckeye-segA-5h")]
-    cols = [
-        {"key": "method", "header": "Align \\\\ method"},
-        {"key": "c_wbe", "header": "WBE \\\\ {[ms]}", "group": "char"},
-        {"key": "c_a50", "header": "acc@50 \\\\ {[\\%]}", "group": "char"},
-        {"key": "s_wbe", "header": "WBE \\\\ {[ms]}", "group": "subword"},
-        {"key": "s_a50", "header": "acc@50 \\\\ {[\\%]}", "group": "subword"},
-    ]
+    columns = ["method", "c_wbe", "c_a50", "s_wbe", "s_a50"]
     rows = []
     for di, (dlabel, ds) in enumerate(DATASETS):
         if di > 0:
             rows.append({"label": None, "cells": {}})
-        gc = gA(f"whisper-base-logmel-{ds}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0")
-        gs = gA(f"whisper-base-logmel-{ds}-L2_grad-pertoken-subword-asotTrue-bs-5-en0.5-sil1.0")
+        gc = f"align/whisper-base-logmel-{ds}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0"
+        gs = f"align/whisper-base-logmel-{ds}-L2_grad-pertoken-subword-asotTrue-bs-5-en0.5-sil1.0"
         xc = f"baseline-whisper-crossattn-charlev-{ds}"
         xs = f"baseline-whisper-crossattn-{ds}"
         rows.append(
@@ -354,9 +290,9 @@ def _fairness_table():
                 "cells": {
                     "method": "grad",
                     "c_wbe": _wbe(gc),
-                    "c_a50": _acc(gc, "acc_50ms"),
+                    "c_a50": _metric(gc, "acc_50ms"),
                     "s_wbe": _wbe(gs),
-                    "s_a50": _acc(gs, "acc_50ms"),
+                    "s_a50": _metric(gs, "acc_50ms"),
                 },
             }
         )
@@ -367,32 +303,13 @@ def _fairness_table():
                 "cells": {
                     "method": "cross-attn",
                     "c_wbe": _wbe(xc),
-                    "c_a50": _acc(xc, "acc_50ms"),
+                    "c_a50": _metric(xc, "acc_50ms"),
                     "s_wbe": _wbe(xs),
-                    "s_a50": _acc(xs, "acc_50ms"),
+                    "s_a50": _metric(xs, "acc_50ms"),
                 },
             }
         )
-
-    caption = (
-        "Fairness 2x2 on whisper-base: gradient alignment vs cross-attention DTW, at character-level and "
-        "subword tokenization (TIMIT-test, Buckeye-segA; WBE and acc@50). Both methods use the same plain "
-        "cross-attention forced alignment (no head auto-selection), so the only variable per column pair is "
-        "the tokenization. Grad-align wins every cell. Character targets help grad on both datasets; they "
-        "help cross-attention on clean TIMIT but collapse it on spontaneous Buckeye (264.6 ms), where char "
-        "tokens exceed the 80 ms attention grid. (The headline table uses the stronger head-auto-selected "
-        "cross-attention variant for its subword baseline.)"
-    )
-    job = WriteLatexTableJob(
-        adjustbox=True,
-        columns=cols,
-        rows=rows,
-        caption=caption,
-        label="tab:fairness",
-        label_header="Data",
-        col_align="|l|l|r|r|r|r|",
-    )
-    tk.register_output("tables/fairness.tex", job.out_tex)
+    _emit("fairness", columns, rows)
 
 
 # ----------------------------------------------------------------------------------------
@@ -411,32 +328,16 @@ def _ablation_table():
         ("Emformer (stream)", "emformer-rnnt-prefix-logmel"),
         ("Voxtral", "voxtral-charlevlogmel"),
     ]
-    REDS = [("L0.5", "L0.5_grad"), ("L1", "L1_grad"), ("L2", "L2_grad"), ("L2_e", "L2_e_grad")]
-    cols = [{"key": rk, "header": rl} for rl, rk in REDS]
-    rows = []
-    for mlabel, mpre in MODELS:
-        rows.append(
-            {
-                "label": mlabel,
-                "cells": {rk: _wbe(f"align/{mpre}-abl-{S}-{rk}-pertoken-{SFX}") for _, rk in REDS},
-            }
-        )
-    caption = (
-        "Grad-score reduction ablation across families, Buckeye-segA (word-topology fixed; WBE ms). The "
-        "per-token reduction (L0.5 / L1 / L2 / L2_e) moves the word-boundary error by only a few ms on every "
-        "family, so the reduction is not critical -- alignment quality is set by the model's saliency, not "
-        "the norm. (dot/sum reductions are excluded: signed, they break the time-softmax scoring.)"
-    )
-    job = WriteLatexTableJob(
-        adjustbox=True,
-        columns=cols,
-        rows=rows,
-        caption=caption,
-        label="tab:gradscore",
-        label_header="Model",
-        col_align="|l|r|r|r|r|",
-    )
-    tk.register_output("tables/ablation.tex", job.out_tex)
+    REDS = ["L0.5_grad", "L1_grad", "L2_grad", "L2_e_grad"]
+    columns = list(REDS)
+    rows = [
+        {
+            "label": mlabel,
+            "cells": {rk: _wbe(f"align/{mpre}-abl-{S}-{rk}-pertoken-{SFX}") for rk in REDS},
+        }
+        for mlabel, mpre in MODELS
+    ]
+    _emit("ablation", columns, rows)
 
 
 # ----------------------------------------------------------------------------------------
@@ -453,38 +354,21 @@ def _attribution_table():
         ("Whisper-base", "whisper-base-logmel-charlev-spc"),
     ]
     METHODS = [
-        ("grad (L2)", "L2_grad"),
-        ("SmoothGrad", "L2-smoothgrad-std0.01-n8"),
-        ("VarGrad", "L2-vargrad-std0.02-n16"),
-        ("IntGrad", "L2-integrated-grad-ig16"),
-        ("ExpGrad", "L2-expected-grad-eg16-bstd0.05"),
+        "L2_grad",
+        "L2-smoothgrad-std0.01-n8",
+        "L2-vargrad-std0.02-n16",
+        "L2-integrated-grad-ig16",
+        "L2-expected-grad-eg16-bstd0.05",
     ]
-    cols = [{"key": mk, "header": ml} for ml, mk in METHODS]
-    rows = []
-    for mlabel, mpre in MODELS:
-        rows.append(
-            {
-                "label": mlabel,
-                "cells": {mk: _wbe(f"align/{mpre}-abl-{S}-{mk}-pertoken-{SFX}") for _, mk in METHODS},
-            }
-        )
-    caption = (
-        "Attribution-method ablation on the two fast models, Buckeye-segA (word-topology fixed; WBE ms). "
-        "The plain single-pass L2 input-gradient vs SmoothGrad, VarGrad, Integrated-Gradients (16 steps) and "
-        "Expected-Gradients. The multi-pass methods do not improve over the single-pass gradient "
-        "(Integrated-Gradients converges back to it), so they are not worth their extra passes; the slower "
-        "model families are omitted for the same cost reason."
-    )
-    job = WriteLatexTableJob(
-        adjustbox=True,
-        columns=cols,
-        rows=rows,
-        caption=caption,
-        label="tab:attribution",
-        label_header="Model",
-        col_align="|l|r|r|r|r|r|",
-    )
-    tk.register_output("tables/attribution.tex", job.out_tex)
+    columns = list(METHODS)
+    rows = [
+        {
+            "label": mlabel,
+            "cells": {mk: _wbe(f"align/{mpre}-abl-{S}-{mk}-pertoken-{SFX}") for mk in METHODS},
+        }
+        for mlabel, mpre in MODELS
+    ]
+    _emit("attribution", columns, rows)
 
 
 # ----------------------------------------------------------------------------------------
@@ -504,12 +388,7 @@ def _alignopts_table():
         ("DTW (no blank)", "-en0.5-sil1.0-dtw", "-en0.5-sil1.0-dtw"),
         ("whisper-DTW (openai)", "-en0.5-sil1.0-wdtw", "-en0.5-sil1.0-wdtw"),
     ]
-    cols = [
-        {"key": "g_wbe", "header": "WBE \\\\ {[ms]}", "group": "grad"},
-        {"key": "g_a50", "header": "acc@50 \\\\ {[\\%]}", "group": "grad"},
-        {"key": "a_wbe", "header": "WBE \\\\ {[ms]}", "group": "cross-attn"},
-        {"key": "a_a50", "header": "acc@50 \\\\ {[\\%]}", "group": "cross-attn"},
-    ]
+    columns = ["g_wbe", "g_a50", "a_wbe", "a_a50"]
     rows = []
     for lbl, gs, as_ in ROWS:
         gb, ab = GP + gs, AP + as_
@@ -518,46 +397,13 @@ def _alignopts_table():
                 "label": lbl,
                 "cells": {
                     "g_wbe": _wbe(gb),
-                    "g_a50": _acc(gb, "acc_50ms"),
+                    "g_a50": _metric(gb, "acc_50ms"),
                     "a_wbe": _wbe(ab),
-                    "a_a50": _acc(ab, "acc_50ms"),
+                    "a_a50": _metric(ab, "acc_50ms"),
                 },
             }
         )
-    caption = (
-        "Alignment DP options on Buckeye-segA, applied to the same decoder for both signals: whisper grad "
-        "(char-level) and whisper cross-attention (auto-selected heads). The decoding is shared "
-        "infrastructure -- the grad-vs-attention difference lives in the signal, not the decoder -- and the "
-        "options behave mostly consistently. The exception is silence modeling, which helps the grad signal "
-        "but not the attention signal (the attention matrix already carries ~no mass in silence). The openai "
-        "whisper-DTW row is the apply-log-off / no-silence corner, an exact special case of our DP, and the "
-        "weakest setting for both."
-    )
-    job = WriteLatexTableJob(
-        adjustbox=True,
-        columns=cols,
-        rows=rows,
-        caption=caption,
-        label="tab:alignopts",
-        label_header="DP option",
-        col_align="|l|r|r|r|r|",
-    )
-    tk.register_output("tables/alignopts.tex", job.out_tex)
-
-
-def _wbe(base):
-    # The "<base>-wbe.txt" output is the scalar out_wbe (seconds); -> ms.
-    return {"var": _RESULTS.get(f"{base}-wbe.txt"), "mul": 1000.0, "fmt": "{:.1f}"}
-
-
-def _acc(base, key):
-    v = _RESULTS.get(f"{base}-wbe.txt")
-    j = getattr(v, "creator", None) if v is not None else None
-    m = getattr(j, "out_metrics", None) if j is not None else None
-    if m is None and j is not None:
-        # ForcedAlignPhonemeBaselineJob names its (same aggregate_corpus) metrics dict out_word_metrics.
-        m = getattr(j, "out_word_metrics", None)
-    return {"var": m, "key": key, "mul": 100.0, "fmt": "{:.1f}"}
+    _emit("alignopts", columns, rows)
 
 
 # ----------------------------------------------------------------------------------------
@@ -825,25 +671,9 @@ def _compare_table(with_hyp=False):
     # MMS_FA (Wav2Vec2-CTC) + Phoneme-CTC emit no word boundaries; MFA is a forced-aligner, not a recognizer.
     HYP_NA = {"Wav2Vec2-CTC", "Phoneme-CTC", "MFA (GMM-HMM)"}
 
-    def _hm(name, key, mul, fmt):
-        return {"var": _RESULTS.get(f"hyp-align/{name}-metrics.txt"), "key": key, "mul": mul, "fmt": fmt}
-
-    # Two-level header: TIMIT / Buckeye groups, each with WBE + acc@{50,100}.
-    cols = [
-        {"key": "method", "header": "Align \\\\ method"},
-        {"key": "t_wbe", "header": "WBE \\\\ {[ms]}", "group": "TIMIT"},
-        {"key": "t_a50", "header": "acc@50 \\\\ {[\\%]}", "group": "TIMIT"},
-        {"key": "t_a100", "header": "acc@100 \\\\ {[\\%]}", "group": "TIMIT"},
-        {"key": "s_wbe", "header": "WBE \\\\ {[ms]}", "group": "Buckeye"},
-        {"key": "s_a50", "header": "acc@50 \\\\ {[\\%]}", "group": "Buckeye"},
-        {"key": "s_a100", "header": "acc@100 \\\\ {[\\%]}", "group": "Buckeye"},
-    ]
+    columns = ["method", "t_wbe", "t_a50", "t_a100", "s_wbe", "s_a50", "s_a100"]
     if with_hyp:
-        # hyp-mode (own-recognition) columns: matched-WBE + F1@50, on grad rows only.
-        cols += [
-            {"key": "h_mwbe", "header": "m-WBE \\\\ {[ms]}", "group": "Buckeye (hyp)"},
-            {"key": "h_f50", "header": "F1@50", "group": "Buckeye (hyp)"},
-        ]
+        columns += ["h_mwbe", "h_f50"]
 
     def _model_rows(groups, lead_hline):
         rows = []
@@ -856,17 +686,17 @@ def _compare_table(with_hyp=False):
                 cells = {
                     "method": mlabel,
                     "t_wbe": _wbe(ti) if ti else None,
-                    "t_a50": _acc(ti, "acc_50ms") if ti else None,
-                    "t_a100": _acc(ti, "acc_100ms") if ti else None,
+                    "t_a50": _metric(ti, "acc_50ms") if ti else None,
+                    "t_a100": _metric(ti, "acc_100ms") if ti else None,
                     "s_wbe": _wbe(sa) if sa else None,
-                    "s_a50": _acc(sa, "acc_50ms") if sa else None,
-                    "s_a100": _acc(sa, "acc_100ms") if sa else None,
+                    "s_a50": _metric(sa, "acc_50ms") if sa else None,
+                    "s_a100": _metric(sa, "acc_100ms") if sa else None,
                 }
                 if with_hyp:
                     hn = HYP.get(model) if mi == 0 else None  # hyp only on the grad row
                     if hn:
-                        cells["h_mwbe"] = _hm(hn, "matched_wbe", 1000.0, "{:.1f}")
-                        cells["h_f50"] = _hm(hn, "f1_50ms", 1.0, "{:.3f}")
+                        cells["h_mwbe"] = _hyp(hn, "matched_wbe")
+                        cells["h_f50"] = _hyp(hn, "f1_50ms")
                     elif mi == 0 and model in HYP_NA:
                         # structurally no word-level own-recognition -> mark, don't leave empty
                         cells["h_mwbe"] = "n/a"
@@ -878,32 +708,7 @@ def _compare_table(with_hyp=False):
         return rows
 
     rows = _model_rows(MODELS, False) + _model_rows(REFERENCE, True)
-
-    caption = (
-        "Per-model alignment quality: gradient-based alignment vs. the model's own native / "
-        "attention aligner, on TIMIT-test and Buckeye (segment-A 5h subset). "
-        "The attention aligners (cross-/self-attn weights) use each model's native subword "
-        "tokenization -- their best setting per align method, as the coarse attention grid cannot resolve "
-        "char-level targets; grad-align and the CTC / transducer aligners use the same per-token "
-        "units within each model. MFA (GMM-HMM) is a dedicated-aligner reference."
-    )
-    if with_hyp:
-        caption += (
-            " The rightmost group adds hypothesis-mode metrics (each model aligns its OWN "
-            "recognition; matched-WBE and identity-gated F1@50ms), shown on the grad row. "
-            "n/a = no word-level own-recognition (MMS\\_FA / Phoneme-CTC emit no word boundaries; "
-            "MFA is a forced-aligner)."
-        )
-    job = WriteLatexTableJob(
-        adjustbox=True,
-        columns=cols,
-        rows=rows,
-        caption=caption,
-        label="tab:per-model-methods" + ("-hyp" if with_hyp else ""),
-        label_header="Model",
-        col_align="|l|l|r|r|r|r|r|r|" + ("r|r|" if with_hyp else ""),
-    )
-    tk.register_output("tables/per-model-" + ("merged" if with_hyp else "methods") + ".tex", job.out_tex)
+    _emit("per-model-" + ("merged" if with_hyp else "methods"), columns, rows)
 
 
 # ----------------------------------------------------------------------------------------
@@ -912,18 +717,15 @@ def _compare_table(with_hyp=False):
 def _hyp_table():
     S = "buckeye-segA-5h"
 
-    def _m(name, key, mul, fmt="{:.1f}"):
-        return {"var": _RESULTS.get(f"hyp-align/{name}-metrics.txt"), "key": key, "mul": mul, "fmt": fmt}
-
     def _row(label, name):
         return {
             "label": label,
             "cells": {
-                "mwbe": _m(name, "matched_wbe", 1000.0),
-                "f50": _m(name, "f1_50ms", 1.0, "{:.3f}"),
-                "f100": _m(name, "f1_100ms", 1.0, "{:.3f}"),
-                "f200": _m(name, "f1_200ms", 1.0, "{:.3f}"),
-                "rm": _m(name, "match_rate_ref", 100.0),
+                "mwbe": _hyp(name, "matched_wbe"),
+                "f50": _hyp(name, "f1_50ms"),
+                "f100": _hyp(name, "f1_100ms"),
+                "f200": _hyp(name, "f1_200ms"),
+                "rm": _hyp(name, "match_rate_ref"),
             },
         }
 
@@ -940,30 +742,11 @@ def _hyp_table():
         ("Whisper cross-attn DTW", f"whisper-crossattn-{S}"),
         ("CrisperWhisper (official)", f"crisperwhisper-official-{S}"),
     ]
-    cols = [
-        {"key": "mwbe", "header": "matched-WBE [ms]"},
-        {"key": "f50", "header": "F1@50"},
-        {"key": "f100", "header": "F1@100"},
-        {"key": "f200", "header": "F1@200"},
-        {"key": "rm", "header": "ref-match [\\%]"},
-    ]
+    columns = ["mwbe", "f50", "f100", "f200", "rm"]
     rows = [_row(*m) for m in grad]
     rows.append({"label": None, "cells": {}})
     rows += [_row(*b) for b in baselines]
-
-    job = WriteLatexTableJob(
-        adjustbox=True,
-        columns=cols,
-        rows=rows,
-        caption=(
-            "Hypothesis-mode alignment on Buckeye-segA: each model aligns its OWN recognition. "
-            "Identity-gated F1 at collar and Levenshtein-matched WBE against the reference."
-        ),
-        label="tab:hyp",
-        label_header="Model",
-        col_align="|l|r|r|r|r|r|",
-    )
-    tk.register_output("tables/hyp.tex", job.out_tex)
+    _emit("hyp", columns, rows)
 
 
 # ----------------------------------------------------------------------------------------
@@ -982,13 +765,7 @@ def _owsm_layer_table():
     def fbase(layer, ds):  # forced-align (posteriors) baseline base
         return f"baseline-owsm-ctc-v4-1b-{_tag(layer)}{ds}"
 
-    cols = [
-        {"key": "layer", "header": "Emit \\\\ block"},
-        {"key": "t_grad", "header": "grad \\\\ {[ms]}", "group": "TIMIT"},
-        {"key": "t_fa", "header": "posteriors \\\\ {[ms]}", "group": "TIMIT"},
-        {"key": "s_grad", "header": "grad \\\\ {[ms]}", "group": "Buckeye"},
-        {"key": "s_fa", "header": "posteriors \\\\ {[ms]}", "group": "Buckeye"},
-    ]
+    columns = ["layer", "t_grad", "t_fa", "s_grad", "s_fa"]
     rows = []
     for layer in [6, 12, 15, 21, 27]:
         rows.append(
@@ -1002,23 +779,7 @@ def _owsm_layer_table():
                 },
             }
         )
-    caption = (
-        "OWSM-CTC gradient alignment emitted from each inter-CTC self-conditioning block "
-        "(6/12/15/21) vs the final block (27), on TIMIT-test and Buckeye-segA. The CTC emission "
-        "forced-aligns well at every block ($\\sim$142\\,ms), but grad-align is weak at all of them "
-        "-- worse than the 153\\,ms uniform-split trivial baseline, the earliest block 6 the least weak. "
-        "The method still runs; this is simply our least-favourable model (see discussion)."
-    )
-    job = WriteLatexTableJob(
-        adjustbox=True,
-        columns=cols,
-        rows=rows,
-        caption=caption,
-        label="tab:owsm-per-layer",
-        label_header="OWSM-CTC",
-        col_align="|l|l|r|r|r|r|",
-    )
-    tk.register_output("tables/owsm-per-layer.tex", job.out_tex)
+    _emit("owsm-per-layer", columns, rows)
 
 
 # ----------------------------------------------------------------------------------------
@@ -1028,10 +789,7 @@ def _phi4_prompt_table():
     def base(tag, level):
         return f"align/phi4mm-prompt-{tag}-{level}-timit-test-L2_e_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0"
 
-    cols = [
-        {"key": "sub", "header": "subword [ms]"},
-        {"key": "char", "header": "char [ms]"},
-    ]
+    columns = ["sub", "char"]
     prompts = [
         ("default", "into text (neutral)"),
         ("verbatim", "verbatim, exactly as spoken"),
@@ -1049,22 +807,7 @@ def _phi4_prompt_table():
                 },
             }
         )
-    caption = (
-        "Prompt sensitivity of gradient alignment on a speech LLM (Phi-4-MM), TIMIT-test, forced "
-        "ground-truth transcription -- only the text instruction spliced around the audio is varied. "
-        "Word-boundary error for subword and character-level targets. The last row instructs "
-        "character-level output, paired only with character-level targets."
-    )
-    job = WriteLatexTableJob(
-        adjustbox=True,
-        columns=cols,
-        rows=rows,
-        caption=caption,
-        label="tab:phi4-prompt",
-        label_header="Instruction",
-        col_align="|l|r|r|",
-    )
-    tk.register_output("tables/phi4-prompt.tex", job.out_tex)
+    _emit("phi4-prompt", columns, rows)
 
 
 # ----------------------------------------------------------------------------------------
@@ -1074,13 +817,9 @@ def _cost_table():
     m = _RESULTS.get("cost-benchmark-metrics.txt")
 
     def cell(name, metric):
-        return {"var": m, "key": f"{name}|{metric}", "fmt": "{:.0f}", "missing": "(*)"}
+        return {"var": m, "key": f"{name}|{metric}"}
 
-    cols = [
-        {"key": "fwd", "header": "forward [ms/s]"},
-        {"key": "bwd", "header": "+grad backward [ms/s]"},
-        {"key": "tot", "header": "grad total [ms/s]"},
-    ]
+    columns = ["fwd", "bwd", "tot"]
     models = [
         "Wav2Vec2-CTC",
         "Nvidia CTC",
@@ -1103,21 +842,4 @@ def _cost_table():
         }
         for name in models
     ]
-    caption = (
-        "Cost of gradient alignment, per model, on a single GPU (TIMIT-test, 40 seqs): "
-        "wall-clock for the forward pass vs the batched per-token grad backward, in ms per second "
-        "of audio. The native methods (forced-align / attention-DTW) consume the same forward and "
-        "skip the backward, so the forward column is their cost; gradient alignment adds the backward "
-        "(fast batched variant). The align/DP step (shared, ~identical across methods) is excluded. "
-        "(*) = batched backward unavailable for this model (vmap-incompatible attention kernel)."
-    )
-    job = WriteLatexTableJob(
-        adjustbox=True,
-        columns=cols,
-        rows=rows,
-        caption=caption,
-        label="tab:cost",
-        label_header="Model",
-        col_align="|l|r|r|r|",
-    )
-    tk.register_output("tables/cost.tex", job.out_tex)
+    _emit("cost", columns, rows)
