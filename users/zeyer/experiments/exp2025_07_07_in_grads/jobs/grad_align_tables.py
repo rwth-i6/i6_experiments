@@ -1,10 +1,11 @@
 """Resolve the paper's result tables to ``data.json`` (numbers only), wired into the Sis graph.
 
 ``build_tables(results)`` is called at the end of the main recipe.
-``results`` is the ``{registered-output-name: Variable}`` dict captured by the module-level ``reg``
-wrapper during ``py()`` (sis_graph is NOT introspectable mid-py()).
-For each paper table it looks up the relevant metric outputs and emits one
-:class:`WriteTableDataJob`, registered under ``output/tables-data/``.
+``results`` is the ``{registered-output-name: Variable}`` dict
+captured by the module-level ``reg`` wrapper during ``py()``
+(sis_graph is NOT introspectable mid-py()).
+For each paper table it looks up the relevant metric outputs
+and emits one :class:`WriteTableDataJob`, registered under ``output/tables-data/``.
 
 This is the *data* half of the table pipeline:
 only the numbers, which genuinely depend on upstream jobs, live here.
@@ -20,6 +21,7 @@ its ``.creator`` is the metric job (whose ``out_metrics`` holds the full dict in
 So WBE works for every aligner; acc needs out_metrics.
 """
 
+import sys
 from sisyphus import tk
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.table_data import WriteTableDataJob
 
@@ -45,19 +47,27 @@ def build_tables(results):
 
 
 def _emit(name, columns, rows):
-    job = WriteTableDataJob(columns=columns, rows=rows)
+    # `source` records this builder (file :: function) for a provenance comment in the rendered table;
+    # the per-cell `src` (the registered output name) is what actually pins each number's origin.
+    source = f"{__name__.replace('.', '/')}.py :: {sys._getframe(1).f_code.co_name}"
+    job = WriteTableDataJob(columns=columns, rows=rows, source=source)
     tk.register_output(f"tables-data/{name}.data.json", job.out_data)
 
 
-# Cell resolve-specs (var + optional dict key); units/format are applied by the render layer.
+# Cell resolve-specs: var (+ optional dict key),
+# plus `src` = the Sisyphus registered output name the number comes from.
+# units/format are applied by the render layer;
+# `src` becomes the per-row provenance comment.
 def _wbe(base):
     # The "<base>-wbe.txt" output is the scalar out_wbe (raw seconds).
-    return {"var": _RESULTS.get(f"{base}-wbe.txt")}
+    name = f"{base}-wbe.txt"
+    return {"var": _RESULTS.get(name), "src": name}
 
 
 def _metrics_var(base):
-    # The metrics dict behind a "<base>-wbe.txt": creator.out_metrics, or out_word_metrics for the
-    # CTC forced-align / phoneme baselines (which name their aggregate dict differently).
+    # The metrics dict behind a "<base>-wbe.txt": creator.out_metrics,
+    # or out_word_metrics for the CTC forced-align / phoneme baselines
+    # (which name their aggregate dict differently).
     v = _RESULTS.get(f"{base}-wbe.txt")
     j = getattr(v, "creator", None) if v is not None else None
     m = getattr(j, "out_metrics", None) if j is not None else None
@@ -67,11 +77,14 @@ def _metrics_var(base):
 
 
 def _metric(base, key):
-    return {"var": _metrics_var(base), "key": key}
+    # Value comes from the metrics dict,
+    # but the registered output that pins it is the "<base>-wbe.txt".
+    return {"var": _metrics_var(base), "key": key, "src": f"{base}-wbe.txt"}
 
 
 def _hyp(name, key):
-    return {"var": _RESULTS.get(f"hyp-align/{name}-metrics.txt"), "key": key}
+    out = f"hyp-align/{name}-metrics.txt"
+    return {"var": _RESULTS.get(out), "key": key, "src": out}
 
 
 # ----------------------------------------------------------------------------------------
@@ -817,7 +830,7 @@ def _cost_table():
     m = _RESULTS.get("cost-benchmark-metrics.txt")
 
     def cell(name, metric):
-        return {"var": m, "key": f"{name}|{metric}"}
+        return {"var": m, "key": f"{name}|{metric}", "src": "cost-benchmark-metrics.txt"}
 
     columns = ["fwd", "bwd", "tot"]
     models = [
