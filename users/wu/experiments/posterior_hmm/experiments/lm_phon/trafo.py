@@ -38,8 +38,12 @@ def _block_config(input_dim: int, ff_dim: int, num_heads: int, dropout: float, b
     )
 
 
-def phon_trafo_12x512_baseline():
-    prefix_name = "example_setups/librispeech/posterior_hmm/lm_phon/trafo_12x512"
+def phon_trafo_12x512_baseline(
+    *,
+    prefix_name: str = "example_setups/librispeech/posterior_hmm/lm_phon/trafo_12x512",
+    lm_name: str = "phon_trafo12x512_3ep",
+    use_eow_phonemes: bool = True,
+):
 
     train_settings = LMDatasetSettings(
         train_partition_epoch=100,
@@ -49,6 +53,7 @@ def phon_trafo_12x512_baseline():
         prefix=prefix_name,
         librispeech_key="train-other-960",
         settings=train_settings,
+        use_eow_phonemes=use_eow_phonemes,
     )
 
     label_datastream = cast(LabelDatastream, train_data.datastreams["data"])
@@ -95,7 +100,12 @@ def phon_trafo_12x512_baseline():
         "max_seq_length": {"data": 2000},
         "accum_grad_multiple_step": 2,
         "gradient_clip_global_norm": 1.0,
-        "torch_amp": {"dtype": "bfloat16"},
+        # bf16 has fp32's exponent range, so loss scaling is unnecessary. With the
+        # default GradScaler (init_scale=2**16), bf16 grads never overflow, so the
+        # scale ramps x2 every 2000 steps unbounded; log_grad_norm logs the *scaled*
+        # grad (before unscale), which eventually overflows fp32 in the sqrt(sum g^2)
+        # reduction and spuriously trips stop_on_nonfinite_train_score. Disable it.
+        "torch_amp": {"dtype": "bfloat16", "grad_scaler": None},
         "torch_dataloader_opts": {"num_workers": 1},
         "log_grad_norm": True,
     }
@@ -114,7 +124,7 @@ def phon_trafo_12x512_baseline():
     train_job.rqmt["gpu_mem"] = 24
 
     add_lm(
-        "phon_trafo12x512_3ep",
+        lm_name,
         lm_model=NeuralLM(
             checkpoint=train_job.out_checkpoints[num_epochs],
             net_args=train_args["net_args"],
@@ -125,3 +135,11 @@ def phon_trafo_12x512_baseline():
     )
 
     return train_job
+
+
+def phon_noeow_trafo_12x512_baseline():
+    return phon_trafo_12x512_baseline(
+        prefix_name="example_setups/librispeech/posterior_hmm/lm_phon_noeow/trafo_12x512",
+        lm_name="phon_noeow_trafo12x512_3ep",
+        use_eow_phonemes=False,
+    )

@@ -34,7 +34,12 @@ from i6_experiments.common.setups.returnn.datasets import ControlDataset, Datase
 from i6_experiments.common.setups.returnn.datastreams.base import Datastream
 
 from .bpe_lm import TrainingDatasets
-from .phon import get_phmm_eow_lexicon, get_phmm_eow_lm_vocab_datastream
+from .phon import (
+    get_phmm_eow_lexicon,
+    get_phmm_eow_lm_vocab_datastream,
+    get_phmm_phon_lexicon,
+    get_phmm_phon_lm_vocab_datastream,
+)
 
 
 SOURCE_DATASTREAM_KEY = "data"
@@ -256,14 +261,19 @@ def build_phon_lm_training_datasets(
     prefix: str,
     librispeech_key: str,
     settings: LMDatasetSettings,
+    use_eow_phonemes: bool = True,
 ) -> TrainingDatasets:
     """
     Build phoneme-tokenized LM training data using the same text corpora as the
     BPE variant: official LibriSpeech LM normalized text concatenated with
     LS-960 transcripts for training; dev-clean + dev-other for CV.
     """
-    label_datastream = get_phmm_eow_lm_vocab_datastream(prefix=prefix, g2p_librispeech_key=librispeech_key)
-    bliss_lexicon = get_phmm_eow_lexicon(g2p_librispeech_key=librispeech_key)
+    if use_eow_phonemes:
+        label_datastream = get_phmm_eow_lm_vocab_datastream(prefix=prefix, g2p_librispeech_key=librispeech_key)
+        bliss_lexicon = get_phmm_eow_lexicon(g2p_librispeech_key=librispeech_key)
+    else:
+        label_datastream = get_phmm_phon_lm_vocab_datastream(prefix=prefix, g2p_librispeech_key=librispeech_key)
+        bliss_lexicon = get_phmm_phon_lexicon(g2p_librispeech_key=librispeech_key)
 
     # text sources
     bliss_corpus_dict = get_bliss_corpus_dict()

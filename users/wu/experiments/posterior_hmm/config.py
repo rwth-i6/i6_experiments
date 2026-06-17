@@ -156,6 +156,7 @@ def get_forward_config(
     decoder_args: Dict[str, Any],
     unhashed_decoder_args: Optional[Dict[str, Any]] = None,
     unhashed_net_args: Optional[Dict[str, Any]] = None,
+    add_cache_manager: bool = False,
     debug: bool = False,
 ) -> ReturnnConfig:
     """
@@ -168,6 +169,10 @@ def get_forward_config(
     :param config: config arguments for RETURNN
     :param unhashed_decoder_args: unhashed extra arguments for the forward init
     :param unhashed_net_args: unhashed extra arguments for constructing the PyTorch model
+    :param add_cache_manager: emit the cache-manager ``cf`` function into the config prolog. Needed by
+        datasets whose paths are wrapped in ``cf(...)`` (e.g. ``LmDataset.as_returnn_opts``); without it
+        the dataloader worker raises ``NameError: name 'cf' is not defined``. The AM forward uses plain
+        OggZip paths and does not need it, hence the default False.
     :param debug: run training in debug mode (linking from recipe instead of copy)
     """
 
@@ -187,6 +192,9 @@ def get_forward_config(
         "max_seqs": 240,
     }
     config = {**base_config, **copy.deepcopy(config)}
+    for key in ["torch_dataloader_opts"]:
+        if key in config:
+            post_config[key] = config.pop(key)
 
     serializer = serialize_forward(
         network_module=network_module,
@@ -197,5 +205,14 @@ def get_forward_config(
         unhashed_forward_init_args=unhashed_decoder_args,
         debug=debug,
     )
-    returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
+
+    python_prolog = None
+    if add_cache_manager:
+        from i6_experiments.common.setups.serialization import PythonCacheManagerFunctionNonhashedCode
+
+        python_prolog = [TorchCollection([PythonCacheManagerFunctionNonhashedCode])]
+
+    returnn_config = ReturnnConfig(
+        config=config, post_config=post_config, python_prolog=python_prolog, python_epilog=[serializer]
+    )
     return returnn_config

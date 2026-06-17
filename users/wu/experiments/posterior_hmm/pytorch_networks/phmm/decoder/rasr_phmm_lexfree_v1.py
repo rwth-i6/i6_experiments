@@ -12,7 +12,7 @@ Ported to the **real RETURNN** forward API: see `rasr_forward_base` for details.
 """
 
 from dataclasses import dataclass
-from typing import Union
+from typing import Optional, Union
 
 import numpy as np
 from sisyphus import tk
@@ -28,6 +28,11 @@ class DecoderConfig:
     bos_token: str = "<s>"
     eos_token: str = "</s>"
     silence_label: str = "[SILENCE]"
+    # Optional acoustic prior over the AM labels (decode the scaled likelihood instead of the raw
+    # posterior). prior_file is a [am_num_labels] vector in +log space (excludes <s>/</s>); the AM cost
+    # becomes -log p(l|x) + prior_scale * log p(l). Same fix as the lexical path (see rasr_phmm_v1).
+    prior_file: Optional[Union[str, tk.Path]] = None
+    prior_scale: float = 0.0
 
 
 @dataclass
@@ -54,6 +59,21 @@ class ForwardCallback(BaseRasrForwardCallback):
         # indices (= bos/eos) are padded with -inf at scoring time.
         self.am_num_labels = min(self.bos_index, self.eos_index)
 
+        # Optional acoustic prior over the am_num_labels AM labels (getattr so subclasses whose
+        # DecoderConfig lacks the fields -- e.g. the neural one -- still work).
+        self._log_prior = None
+        prior_file = getattr(self.config, "prior_file", None)
+        prior_scale = getattr(self.config, "prior_scale", 0.0)
+        if prior_file is not None and prior_scale:
+            from returnn.util.basic import cf
+
+            log_prior = np.loadtxt(cf(str(prior_file)), dtype="float32").reshape(-1)
+            if log_prior.shape[-1] != self.am_num_labels:
+                raise ValueError(
+                    f"Prior dim {log_prior.shape[-1]} != AM-label count {self.am_num_labels}"
+                )
+            self._log_prior = log_prior
+
     def build_features(self, seq_logprobs: np.ndarray) -> np.ndarray:
         am_dim = seq_logprobs.shape[-1]
         if am_dim != self.am_num_labels:
@@ -61,7 +81,10 @@ class ForwardCallback(BaseRasrForwardCallback):
                 f"AM output dim {am_dim} does not match lexicon AM-label count {self.am_num_labels} "
                 f"(total lexicon labels: {self.num_labels})"
             )
+        # cost = -log p(l|x) + prior_scale * log p(l)  (on the AM labels only; bos/eos padded below).
         am_features = (-seq_logprobs).astype("float32", copy=False)
+        if getattr(self, "_log_prior", None) is not None:
+            am_features = am_features + self.config.prior_scale * self._log_prior
         padded = np.full((am_features.shape[0], self.num_labels), 1e30, dtype="float32")
         padded[:, : self.am_num_labels] = am_features
         return np.ascontiguousarray(padded)

@@ -11,7 +11,7 @@ the `scorer-2.type` name from its factory.
 """
 
 from dataclasses import dataclass
-from typing import Union
+from typing import Optional, Union
 
 from sisyphus import tk
 
@@ -32,6 +32,11 @@ class DecoderConfig:
     bos_token: str = "<s>"
     eos_token: str = "</s>"
     silence_label: str = "[SILENCE]"
+    # Acoustic prior over the AM labels (see rasr_phmm_lexfree_v1.DecoderConfig); applied by the
+    # inherited build_features. The count phoneme-LM lexfree path decodes the SAME CTC posteriors as
+    # the lexical path, so the prior is needed here too.
+    prior_file: Optional[Union[str, tk.Path]] = None
+    prior_scale: float = 0.0
 
 
 class ForwardCallback(_LexfreeForwardCallback):

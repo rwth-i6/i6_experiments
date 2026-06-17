@@ -45,8 +45,15 @@ def get_4gram_lm_rasr_config(lexicon_file: tk.Path, scale: float = 1.0) -> RasrC
     crp.lexicon_config = RasrConfig()
     crp.lexicon_config.file = lexicon_file
     crp.lexicon_config.normalize_pronunciation = False
-    # LibRASR loads the LM in-process and does not expand Sisyphus cached-path markers like `cf ...`.
-    # Use the plain filesystem path to the prebuilt LM image instead.
-    rasr_config.image = tk.uncached_path(CreateLmImageJob(crp, mem=8).out_image)
+    # LibRASR loads the LM in-process and does not expand Sisyphus cached-path markers like `cf ...`,
+    # so the image path must render as a plain filesystem path. `out_image` is a cached Path
+    # (renders as `cf ...`), and `tk.uncached_path()` would give a plain string -- but a bare string
+    # carries no `.creator`, so the CreateLmImageJob dependency is lost and the image is never built
+    # (RASR then fails to open the missing image for writing). Use Sisyphus' Path.copy() (which keeps
+    # the `.creator`, unlike copy.copy() which drops it when INCLUDE_CREATOR_STATE is False) and clear
+    # `cached`: this keeps the dependency (image gets built) while rendering a plain path.
+    lm_image = CreateLmImageJob(crp, mem=8).out_image.copy()
+    lm_image.cached = False
+    rasr_config.image = lm_image
 
     return rasr_config

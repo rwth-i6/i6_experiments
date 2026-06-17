@@ -323,6 +323,21 @@ def get_phmm_eow_lm_vocab_datastream(prefix: str, g2p_librispeech_key: str) -> L
     )
 
 
+def get_phmm_phon_lm_vocab_datastream(prefix: str, g2p_librispeech_key: str) -> LabelDatastream:
+    """
+    Non-EOW phoneme LabelDatastream for LM training: plain pHMM phoneme inventory
+    extended with `<s>` and `</s>` appended at the end.
+    """
+    base = get_phmm_phon_vocab_datastream(prefix=prefix, g2p_librispeech_key=g2p_librispeech_key)
+    extend = ExtendPhmmVocabWithBosEosJob(vocab=base.vocab)
+    extend.add_alias(os.path.join(prefix, f"{g2p_librispeech_key}", "phmm_phon_lm_vocab_job"))
+    return LabelDatastream(
+        available_for_inference=True,
+        vocab=extend.out_vocab,
+        vocab_size=extend.out_vocab_size,
+    )
+
+
 def build_eow_phon_phmm_training_datasets(
     prefix: str,
     librispeech_key: str,

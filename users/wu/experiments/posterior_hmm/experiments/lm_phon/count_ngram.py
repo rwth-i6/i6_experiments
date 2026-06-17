@@ -66,6 +66,7 @@ def build_phon_count_ngram_lm(
     discount_fallback: Optional[List[float]] = (0.5, 1.0, 1.5),
     mem: float = 96.0,
     time: float = 48.0,
+    use_eow_phonemes: bool = True,
 ) -> Dict[str, Any]:
     """
     Train a KenLM n-gram on the neural phoneme LM's phonemized training text.
@@ -98,6 +99,7 @@ def build_phon_count_ngram_lm(
         prefix=prefix,
         librispeech_key=librispeech_key,
         settings=LMDatasetSettings(train_partition_epoch=100, train_seq_ordering="laplace:.100"),
+        use_eow_phonemes=use_eow_phonemes,
     )
     phon_text = train_data.train.corpus_file  # phonemized train text (tk.Path)
     label_datastream = train_data.datastreams["data"]

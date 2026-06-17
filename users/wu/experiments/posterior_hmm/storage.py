@@ -31,7 +31,14 @@ _lm_models: Dict[str, tk.Path] = {}
 
 def add_lm(name: str, lm_model: NeuralLM):
     global _lm_models
-    assert name not in _lm_models.keys()
+    if name in _lm_models:
+        # Multiple config entry points can "ensure" the same shared LM in one graph
+        # (e.g. recognition and PPL). Treat identical registrations as idempotent.
+        assert repr(_lm_models[name]) == repr(lm_model), (
+            f"LM model {name!r} already registered with a different value:\n"
+            f"existing: {_lm_models[name]!r}\nnew: {lm_model!r}"
+        )
+        return
     _lm_models[name] = lm_model
 
 

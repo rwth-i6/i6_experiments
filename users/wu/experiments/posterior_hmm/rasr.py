@@ -47,7 +47,13 @@ DEFAULT_PHMM_BPE_RASR_CONFIG = BpeLexiconRasrConfig(
 DEFAULT_CTC_BPE_RASR_CONFIG = BpeLexiconRasrConfig(
     topology="ctc",
     special_phoneme="[BLANK]",
-    special_orths=("[BLANK]", "[blank]", ""),
+    # NO empty "" orth (and no lowercase "[blank]" variant): an empty <orth/> on the blank lemma makes
+    # RASR's orthographic parser (Bliss/Orthography.cc) insert [BLANK] as the optional word-boundary
+    # filler, which collides with the topology=ctc addBlank pass (blank-on-blank) and makes the fbw2
+    # full-sum over-count alignments (loss < true CTC NLL). This matches the proven BuildEowPhonCtcLexiconJob
+    # blank lemma (orth=[blank] only); see its note and [[ctc-fsa-overcounts-vs-torch]]. The sibling
+    # DEFAULT_PHMM_BPE_RASR_CONFIG keeps "" on purpose -- benign for the [SILENCE]/hmm topology.
+    special_orths=("[BLANK]",),
     special_lemma="blank",
 )
 
@@ -286,7 +292,17 @@ class CreateCorpusBpeFsaLexiconJob(Job):
             raise ValueError(f"BPE output line count mismatch: {len(words)} words vs {len(bpe_tokens)} lines")
 
         for word, bpe in zip(words, bpe_tokens):
-            pron = [token.replace(".", "_") for token in bpe.split()]
+            raw_pron = bpe.split()
+            # The lexicon phoneme names rewrite "." -> "_" (below), but any count/neural LM trained on
+            # the BPE text (data/bpe_lm.ApplyBPEToTextJob) keeps the RAW subword tokens (no rewrite). A
+            # literal "." in a BPE token would make the lexicon symbol ("_"-form) diverge from the LM
+            # token ("."-form) and silently score as <unk> in the lexicon-free n-gram scorer. Normalized
+            # LibriSpeech (A-Z + apostrophe) never produces a "." token, so fail loudly here instead of
+            # corrupting LM scores downstream. (No-op for the existing pHMM-BPE lexicon; run() is not hashed.)
+            assert all("." not in token for token in raw_pron), (
+                f"BPE token contains '.', which breaks lexicon<->LM token matching for word {word!r}: {bpe!r}"
+            )
+            pron = [token.replace(".", "_") for token in raw_pron]
             if any(token not in vocab for token in pron):
                 raise ValueError(f"BPE token outside vocabulary for word {word!r}: {bpe!r}")
             lex.add_lemma(Lemma(orth=[word], phon=[" ".join(pron)]))
@@ -472,6 +488,36 @@ class AddSentenceBoundaryLemmataToPhmmLexiconJob(Job):
         write_xml(self.out_lexicon.get_path(), lex.to_xml())
 
 
+class MakeLexiconContextIndependentJob(Job):
+    """Rewrite a Bliss lexicon so that **all phonemes are context-independent** (``variation="none"``).
+
+    Required for LibRASR CTC lexical search: the ``ctc`` tree builder
+    (:cpp:class:`Search::CtcTreeBuilder`, ``search-algorithm.tree-builder-type=ctc``) asserts that
+    no phoneme is context-dependent, whereas the EOW phoneme lexicon inherits ``variation="context"``
+    from the source pHMM lexicon (see :class:`BuildEowPhonCtcLexiconJob`).
+
+    Because the CTC AM uses single-state monophone state tying, flipping the variation flag does not
+    change any label's emission index -- the phoneme order is preserved, so blank stays at index 0
+    and every EOW phoneme keeps its column in the AM softmax. Only the search-tree construction is
+    affected. Apply this to the **recognition** lexicon only; the training lexicon (which feeds the
+    ``topology="ctc"`` FSA and hence the trained model) must stay untouched to avoid invalidating it.
+    """
+
+    def __init__(self, bliss_lexicon: tk.Path):
+        super().__init__()
+        self.bliss_lexicon = bliss_lexicon
+        self.out_lexicon = self.output_path("lexicon.xml.gz")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        lex = Lexicon()
+        lex.load(tk.uncached_path(self.bliss_lexicon))
+        lex.phonemes = OrderedDict((symbol, "none") for symbol in lex.phonemes)
+        write_xml(self.out_lexicon.get_path(), lex.to_xml())
+
+
 class BuildPhonLexiconfreeLexiconJob(Job):
     """
     Build a Bliss lexicon for lexicon-free pHMM recognition.
@@ -560,6 +606,12 @@ class BuildEowPhonCtcLexiconJob(Job):
     ``label_target_size = #EOW_phonemes + 1`` outputs with blank at index 0.
     """
 
+    # 2026-06-08: dropped the empty "" orth on the blank lemma. The empty orth made RASR's
+    # orthographic parser insert [BLANK] as the optional word-boundary filler, which collided with
+    # the topology=ctc addBlank pass (blank-on-blank) and made the fbw2 full-sum over-count
+    # alignments (loss below true CTC NLL). Bump to invalidate the old lexicon hash and force retrain.
+    __sis_version__ = 1
+
     def __init__(self, bliss_lexicon: tk.Path, blank_phoneme: str = "[BLANK]"):
         super().__init__()
         self.bliss_lexicon = bliss_lexicon
@@ -586,10 +638,15 @@ class BuildEowPhonCtcLexiconJob(Job):
                 continue
             out_lex.add_phoneme(symbol, variation=lex.phonemes[symbol])
 
-        # Blank lemma (empty orth so it can be emitted without consuming a word).
+        # Blank lemma. NOTE: no empty "" orth here (unlike the pHMM silence lemma). An empty orth
+        # makes RASR's orthographic parser (Bliss/Orthography.cc) insert this lemma as the optional
+        # word-boundary filler; for CTC that filler is [BLANK], so the base FSA already carries a
+        # boundary blank that then collides with the topology=ctc addBlank pass (blank-on-blank),
+        # making the fbw2 full-sum over-count alignments (loss < true CTC NLL, negative when
+        # confident). The CTC blank mechanism handles inter-word gaps on its own; no filler wanted.
         out_lex.add_lemma(
             Lemma(
-                orth=[self.blank_phoneme, ""],
+                orth=[self.blank_phoneme],
                 phon=[self.blank_phoneme],
                 synt=[],
                 eval=[[]],
@@ -765,6 +822,8 @@ def build_lexiconfree_phmm_recognition_config(
     score_threshold: float = 14.0,
     loop_updates_history: bool = False,
     blank_updates_history: bool = False,
+    collapse_repeated_labels: bool = False,
+    max_cached_score_vectors: int = 256,
     log_stepwise_statistics: bool = True,
     logfile_suffix: str = "lexfree_recog",
 ) -> tk.Path:
@@ -798,47 +857,97 @@ def build_lexiconfree_phmm_recognition_config(
     config.lib_rasr.lexicon.file = lexicon_path
     config.lib_rasr.lexicon.normalize_pronunciation = False
 
-    # Combined label scorer: scorer-1 = AM (no-op), scorer-2 = NN LM (stateful-onnx).
-    # NOTE: the combined scorer's enabled-transition set is the *intersection* of
-    # its sub-scorers' transition presets (no-op defaults to CTC preset; LM scorer
-    # defaults to LM preset). SENTENCE_END is dropped by that intersection, so the
-    # LM's `</s>` log-prob is NOT added to hypotheses at sentence-end finalization.
-    # The search still appends `</s>` to the traceback unconditionally. To recover
-    # the LM EOS contribution we would need to either (a) pad one extra AM frame
-    # with `0` only at the `</s>` index, or (b) override the no-op preset to "lm".
-    label_scorer = RasrConfig()
-    label_scorer.type = "combine"
-    label_scorer.num_scorers = 2
+    # Two TOP-LEVEL label scorers applied as a CASCADE (NOT a `combine`).
+    #
+    # Why not `combine`: a `combine` scorer's enabled-transition set is the INTERSECTION of its
+    # sub-scorers' presets (CombineLabelScorer.cc:27,32). The AM `no-op` uses the CTC preset (all
+    # label/blank/loop transitions) and the LM uses the LM preset (label-emitting only), so
+    # combine = CTC ∩ LM = {label-to-label, blank-to-label, initial-label} -- this DROPS every
+    # blank/loop transition. The search only ever queries the top-level scorer's transition gate
+    # (LexiconfreeTimesyncBeamSearch.cc:421) and the combined accessor sums sub-scores
+    # unconditionally (ScoreAccessor.cc:66), so the AM's acoustic cost on blank/loop frames is
+    # NEVER added. An all-blank path then accrues zero cost and always wins -> the search returns
+    # an EMPTY hypothesis (observed: 2703/2703 empty, 100% WER).
+    #
+    # A top-level cascade fixes this: ModelCombination reads `[label-scorer-1]`/`[label-scorer-2]`
+    # when `num-label-scorers > 1` (ModelCombination.cc:75-83), and the search applies the scorers
+    # one after another, each with ITS OWN transition gate, accumulating into the hyp score
+    # (LexiconfreeTimesyncBeamSearch.cc:401-428, with an intermediate beam prune between stages).
+    # So the AM (CTC preset) scores all transitions incl. blank, the LM (LM preset) scores only
+    # label-emitting ones, exactly as intended. `put_features` feeds the AM matrix to every scorer
+    # (cc:308-311); the LM scorers' `add_inputs` is a no-op, so this is harmless.
+    config.lib_rasr.num_label_scorers = 2
 
     am_scorer = RasrConfig()
-    am_scorer.type = "no-op"
+    am_scorer.type = "no-op"  # CTC transition preset baked in (NoOpLabelScorer.cc:23) -> scores blank/loop too
     am_scorer.scale = am_scale
-    label_scorer["scorer-1"] = am_scorer
+    config.lib_rasr["label-scorer-1"] = am_scorer
 
     lm_scorer = RasrConfig()
-    lm_scorer.type = "stateful-onnx"
+    lm_scorer.type = "stateful-onnx"  # LM transition preset baked in (StatefulOnnxLabelScorer.cc)
     lm_scorer.scale = lm_scale
     lm_scorer.loop_updates_history = loop_updates_history
     lm_scorer.blank_updates_history = blank_updates_history
+    # Bound the per-segment memoization caches. The scorer keeps two FIFO caches keyed by scoring
+    # context (scoreCache_ + stateCache_); stateCache_ is sized to `max-cached-score-vectors` too
+    # (StatefulOnnxLabelScorer.cc:55-58,132). Each cached hidden state is the FULL KV cache --
+    # num_layers x [1, t_max, hidden] f32 ~= 25 MB at 12x1024x512 -- so the default cap of 1000
+    # lets a single long segment grow toward ~25 GB of HOST RAM and get OOM-killed (observed: CPU
+    # recog killed at the 16 GB cgroup limit, monotonic climb during the longest segment's search).
+    # The caches are pure memoization (a miss just recomputes via the state-updater) and are cleared
+    # per segment (recognizeSegment -> reset()), so a smaller cap trades a little recompute for a
+    # bounded, predictable footprint: 256 -> <=6.4 GB. Note the LM ONNX always runs on the CPU
+    # execution provider, so this host-RAM bound matters even when the AM forward is on GPU.
+    lm_scorer.max_cached_score_vectors = max_cached_score_vectors
+    # Each of the three sub-models is an `Onnx::Model`, which reads its file path from a NESTED
+    # `session` sub-config -- NOT directly from `<model>.file`. `Onnx::Model` does
+    # `session(select("session"))` (Onnx/Model.cc:22) and `Onnx::Session` reads `paramFile("file")`
+    # at the session scope, default "" (Onnx/Session.cc:16,46). Writing the path at
+    # `<model>.file` therefore leaves the session's `file` EMPTY and RASR aborts while building the
+    # SearchAlgorithm with `Load model from  failed:Load model  failed. File doesn't exist` (note
+    # the empty path). The correct key is `<model>.session.file`.
     lm_scorer.scorer_model = RasrConfig()
-    lm_scorer.scorer_model.file = onnx_scorer
+    lm_scorer.scorer_model.session = RasrConfig()
+    lm_scorer.scorer_model.session.file = onnx_scorer
+    # The scorer's `scores` OUTPUT is a NON-optional IOSpec entry (StatefulOnnxLabelScorer.cc:61-68),
+    # so it MUST be present in the model's io-map or `IOValidator` aborts construction with
+    # "required input/output 'scores' is missing from mapping" (Onnx/IOSpecification.cc:52-58, strict
+    # by default). The exported ONNX output is literally named "scores" (export_onnx.py), so this is
+    # an identity mapping -- but it must still be declared explicitly (an absent io-map entry is
+    # treated as "unmapped", not "same name").
+    lm_scorer.scorer_model.io_map = RasrConfig()
+    lm_scorer.scorer_model.io_map["scores"] = "scores"
     lm_scorer.state_initializer_model = RasrConfig()
-    lm_scorer.state_initializer_model.file = onnx_state_initializer
+    lm_scorer.state_initializer_model.session = RasrConfig()
+    lm_scorer.state_initializer_model.session.file = onnx_state_initializer
+    # No io-map for the initializer: its `encoder-states`/`encoder-states-size` IOSpec entries are
+    # OPTIONAL (so IOValidator skips them when unmapped) and unused for a pure LM. Crucially, the
+    # initializer ONNX has ZERO graph inputs -- `do_constant_folding` dropped the dead
+    # `dummy_es_size` input at export -- so RASR runs it input-free (computeInitialHiddenState only
+    # feeds encoder-states/size when those names are mapped, StatefulOnnxLabelScorer.cc:368-377).
+    # Leaving them unmapped also avoids the feature-deferral branch (cc:271) that would otherwise
+    # make the LM wait for all acoustic frames before scoring.
     lm_scorer.state_updater_model = RasrConfig()
-    lm_scorer.state_updater_model.file = onnx_state_updater
-    # io-map: link RASR's IOSpec name "token" to the actual ONNX input name
-    # produced by ExportStatefulOnnxLMJob (see stateful_onnx_v1.StateUpdater).
+    lm_scorer.state_updater_model.session = RasrConfig()
+    lm_scorer.state_updater_model.session.file = onnx_state_updater
+    # io-map: link RASR's IOSpec name "token" to the actual ONNX input name "token" produced by
+    # ExportStatefulOnnxLMJob (see stateful_onnx_v1.StateUpdater). The hidden-state inputs/outputs
+    # (CACHE_i, POS, LAST_LOGITS) are threaded via ONNX custom metadata, not the io-map.
     lm_scorer.state_updater_model.io_map = RasrConfig()
     lm_scorer.state_updater_model.io_map["token"] = "token"
-    label_scorer["scorer-2"] = lm_scorer
-
-    config.lib_rasr.label_scorer = label_scorer
+    config.lib_rasr["label-scorer-2"] = lm_scorer
 
     search_algorithm = RasrConfig()
     search_algorithm.type = "lexiconfree-timesync-beam-search"
-    search_algorithm.max_beam_size = max_beam_size
-    search_algorithm.score_threshold = score_threshold
-    search_algorithm.collapse_repeated_labels = False
+    # `max-beam-size`/`score-threshold` are vector params (space-separated), one entry per cascade
+    # stage; they MUST have >= num-label-scorers entries or the search errors
+    # (LexiconfreeTimesyncBeamSearch.cc:207). Stage 1 prunes on the AM score alone (loose, just an
+    # acoustic pre-prune), stage 2 prunes on the accumulated AM+LM score.
+    search_algorithm.max_beam_size = [max_beam_size, max_beam_size]
+    search_algorithm.score_threshold = [score_threshold, score_threshold]
+    # CTC collapses repeated emissions of the same label into one output (set True for the CTC AM);
+    # the pHMM posterior topology emits every frame, so it stays False.
+    search_algorithm.collapse_repeated_labels = collapse_repeated_labels
     search_algorithm.log_stepwise_statistics = log_stepwise_statistics
     # blank-label-index and sentence-end-label-index are inferred from the
     # `special="blank"` / `special="sentence-end"` lemmata in the lexicon.
@@ -856,6 +965,7 @@ def build_lexiconfree_count_recognition_config(
     am_scale: float = 1.0,
     max_beam_size: int = 32,
     score_threshold: float = 14.0,
+    collapse_repeated_labels: bool = False,
     log_stepwise_statistics: bool = True,
     logfile_suffix: str = "lexfree_count_recog",
 ) -> tk.Path:
@@ -893,35 +1003,83 @@ def build_lexiconfree_count_recognition_config(
     config.lib_rasr.lexicon.file = lexicon_path
     config.lib_rasr.lexicon.normalize_pronunciation = False
 
-    # Combined label scorer: scorer-1 = AM (no-op), scorer-2 = count phoneme n-gram (Python).
-    # See the note in build_lexiconfree_phmm_recognition_config about the transition-set
-    # intersection dropping SENTENCE_END (the search appends </s> to the traceback anyway).
-    label_scorer = RasrConfig()
-    label_scorer.type = "combine"
-    label_scorer.num_scorers = 2
+    # Two TOP-LEVEL label scorers applied as a CASCADE (NOT a `combine`); see the detailed note in
+    # build_lexiconfree_phmm_recognition_config. A `combine` intersects sub-scorer transition sets
+    # (CTC ∩ LM), dropping every blank/loop transition so the AM is never scored on blank frames ->
+    # the all-blank path is free -> the search emits an EMPTY hypothesis. The count path is doubly
+    # affected: the Python n-gram scorer defaults to transition-preset NONE
+    # (Python::PythonLabelScorer passes no preset), so combine would even be CTC ∩ NONE = EMPTY.
+    # The cascade applies each scorer's own gate, so the AM (CTC) scores all transitions incl.
+    # blank and the n-gram LM (LM preset, set explicitly below since the Python default is NONE)
+    # scores only label-emitting transitions.
+    config.lib_rasr.num_label_scorers = 2
 
     am_scorer = RasrConfig()
-    am_scorer.type = "no-op"
+    am_scorer.type = "no-op"  # CTC transition preset baked in (NoOpLabelScorer.cc:23) -> scores blank/loop too
     am_scorer.scale = am_scale
-    label_scorer["scorer-1"] = am_scorer
+    config.lib_rasr["label-scorer-1"] = am_scorer
 
     lm_scorer = RasrConfig()
     lm_scorer.type = scorer_name  # custom Python KenLM label scorer, registered at runtime
     lm_scorer.scale = lm_scale
-    label_scorer["scorer-2"] = lm_scorer
-
-    config.lib_rasr.label_scorer = label_scorer
+    # Python label scorers default to transition-preset "none" (PythonLabelScorer passes no preset
+    # -> Nn::LabelScorer default NONE). Set it to "lm" so this scorer behaves like the C++
+    # StatefulOnnxLabelScorer (which bakes in "lm"): score only label-emitting transitions.
+    lm_scorer.transition_preset = "lm"
+    config.lib_rasr["label-scorer-2"] = lm_scorer
 
     search_algorithm = RasrConfig()
     search_algorithm.type = "lexiconfree-timesync-beam-search"
-    search_algorithm.max_beam_size = max_beam_size
-    search_algorithm.score_threshold = score_threshold
-    search_algorithm.collapse_repeated_labels = False
+    # One (beam, threshold) per cascade stage; >= num-label-scorers entries required
+    # (LexiconfreeTimesyncBeamSearch.cc:207). Stage 1 = AM-only pre-prune, stage 2 = AM+LM prune.
+    search_algorithm.max_beam_size = [max_beam_size, max_beam_size]
+    search_algorithm.score_threshold = [score_threshold, score_threshold]
+    # See build_lexiconfree_phmm_recognition_config: True for the CTC AM, False for the pHMM AM.
+    search_algorithm.collapse_repeated_labels = collapse_repeated_labels
     search_algorithm.log_stepwise_statistics = log_stepwise_statistics
     config.lib_rasr.search_algorithm = search_algorithm
 
     write_job = WriteRasrConfigJob(config, post_config)
     return write_job.out_config
+
+
+def build_lexiconfree_neural_python_recognition_config(
+    lexicon_path: tk.Path,
+    *,
+    scorer_name: str = "neural-phon",
+    lm_scale: float = 0.5,
+    am_scale: float = 1.0,
+    max_beam_size: int = 32,
+    score_threshold: float = 14.0,
+    collapse_repeated_labels: bool = False,
+    log_stepwise_statistics: bool = True,
+    logfile_suffix: str = "lexfree_neural_py_recog",
+) -> tk.Path:
+    """
+    Like :func:`build_lexiconfree_count_recognition_config`, but the ``label-scorer-2``
+    Python scorer is the **neural Transformer** phoneme LM run directly in torch on the
+    GPU (registered at runtime by ``rasr_phmm_lexfree_neural_v1.ForwardCallback._setup_lexicon``
+    -> ``neural_label_scorer.register_neural_label_scorer``), instead of the count KenLM
+    scorer or the CPU-only ``stateful-onnx`` scorer.
+
+    The RASR-side config is byte-identical to the count path (a Python label scorer with
+    ``transition-preset=lm`` as ``scorer-2`` of an AM/LM cascade); only the registered
+    ``scorer_name`` and the runtime Python class differ. The torch LM checkpoint / net_args
+    reach the scorer through the decoder config (closure), so nothing LM-specific is written
+    into the RASR config. See :func:`build_lexiconfree_count_recognition_config` for the full
+    rationale on the cascade (vs. ``combine``) and the explicit ``transition-preset``.
+    """
+    return build_lexiconfree_count_recognition_config(
+        lexicon_path=lexicon_path,
+        scorer_name=scorer_name,
+        lm_scale=lm_scale,
+        am_scale=am_scale,
+        max_beam_size=max_beam_size,
+        score_threshold=score_threshold,
+        collapse_repeated_labels=collapse_repeated_labels,
+        log_stepwise_statistics=log_stepwise_statistics,
+        logfile_suffix=logfile_suffix,
+    )
 
 
 def build_ctc_am_config(
@@ -970,11 +1128,18 @@ def build_librasr_ctc_recognition_config(
     """
     LibRASR recognition config for **CTC** lexical search.
 
-    Same tree-timesync beam search as the pHMM, but with CTC label semantics enabled:
-    ``collapse_repeated_labels`` and ``force_blank_between_repeated_labels`` are turned on, and
-    the blank label index is inferred from the ``special="blank"`` lemma of the CTC lexicon
-    (see :class:`BuildEowPhonCtcLexiconJob`). The AM posteriors (incl. the blank dimension) are
-    fed through the ``no-op`` label scorer exactly as for the pHMM.
+    Same tree-timesync beam search as the pHMM, but with the dedicated CTC tree builder
+    (``tree-builder-type=ctc``) and CTC label semantics enabled: the ``ctc`` builder interleaves
+    blank states (with label/blank self-loops) into the search tree, ``collapse_repeated_labels``
+    and ``force_blank_between_repeated_labels`` are turned on, and the blank label index is inferred
+    from the ``special="blank"`` lemma of the CTC lexicon (see :class:`BuildEowPhonCtcLexiconJob`).
+    The AM posteriors (incl. the blank dimension) are fed through the ``no-op`` label scorer exactly
+    as for the pHMM.
+
+    The lexicon passed here must have **context-independent** phonemes (``variation="none"``); the
+    ``ctc`` tree builder asserts there are no context-dependent phonemes. Use
+    :class:`MakeLexiconContextIndependentJob` on the recognition lexicon (the EOW phoneme lexicon
+    inherits ``variation="context"`` from the pHMM source).
     """
     return build_librasr_phmm_recognition_config(
         lexicon_path=lexicon_path,
@@ -986,7 +1151,7 @@ def build_librasr_ctc_recognition_config(
         intermediate_score_threshold=intermediate_score_threshold,
         sentence_end_fallback=sentence_end_fallback,
         log_stepwise_statistics=log_stepwise_statistics,
-        tree_builder_type="hmm",
+        tree_builder_type="ctc",
         collapse_repeated_labels=True,
         force_blank_between_repeated_labels=True,
         logfile_suffix=logfile_suffix,

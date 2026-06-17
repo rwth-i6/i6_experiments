@@ -1,92 +1,61 @@
 """
-Posterior HMM baseline with EOW phonemes
+Posterior HMM baseline with EOW phonemes (lexicon-constrained recognition).
+
+The Conformer AM, optimizer / OCLR-style /4 schedule, 4-GPU parameter-averaging, SpecAugment, aux
+losses and the lexicon-search driver are all shared via :mod:`...phon_am`. Only the name-implied
+pieces are assembled here: the EOW-phoneme lexicon ([SILENCE] at index 0), the HMM training-FSA
+topology, and the HMM recognition config.
 """
-import copy
-from dataclasses import asdict
-from sisyphus import tk
-import numpy as np
 from typing import cast
 
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
-
-from ...data.common import DatasetSettings, build_test_dataset
 from i6_experiments.common.datasets.librispeech import get_bliss_corpus_dict
 
 from ...data.phon import build_eow_phon_phmm_training_datasets, get_phmm_eow_lexicon
-from ...default_tools import RETURNN_EXE, RETURNN_ROOT, LIBRASR_WHEEL
 from ...lm import get_4gram_lm_rasr_config
-from ...pipeline import training, prepare_asr_model, search, ASRModel
-from ...results import add_result
+from ...phon_am import (
+    build_phon_train_settings,
+    build_dev_test_dataset_tuples,
+    make_librasr_returnn,
+    train_and_lexicon_search,
+    lm_scale_sweep_dev_other,
+    compute_phon_prior,
+    greedy_phon_per_dev_other,
+)
+from ...pytorch_networks.phmm.decoder.rasr_phmm_v1 import DecoderConfig as RasrDecoderConfig
 from ...rasr import (
     AddSentenceBoundaryLemmataToPhmmLexiconJob,
-    CreateLibrasrVenvJob,
     build_fsa_exporter_config,
     build_librasr_phmm_recognition_config,
 )
 
+# Focused recognition: same recipe as the CTC baseline -- ALWAYS apply the acoustic prior
+# (prior_scale=0.3) and tune ONLY the 4-gram word-LM scale, on dev-other at the final checkpoint. pHMM
+# is expected to be insensitive to the prior (smooth posteriors), so this doubles as the control that
+# the prior helps CTC specifically. No no-prior recog is run.
+_RECOG_EPOCH = 125  # the final, best pHMM checkpoint
+_PRIOR_SCALE = 0.3
+_PRIOR_TAG = "0p30"
+# Same extended grid as the CTC path (do-the-same-for-both). pHMM word-WER is near-saturated at lm1.0
+# (7.57->6.74, slope flattening), but the old {0.3..1.0} grid never bracketed the minimum on the HIGH
+# side either -- the extra points certify the optimum / uptick. The first four are cached.
+_LM_SCALES = (0.3, 0.5, 0.7, 1.0, 1.3, 1.6, 2.0, 2.5)
 
-def eow_phon_phmm_ls960_base(
-    num_gpus=4, num_epochs=125, ckpt_list=None, do_search=True, name_suffix="", grad_clip_global_norm=10.0
-):
-    """
-    :param num_gpus: number of GPUs / processes. >1 => torch_distributed param-averaging (the new
-        default); 1 => single-GPU real-RETURNN run (no torch_distributed, hash = non-distributed path).
-    :param num_epochs: number of sub-epochs to train. The learning_rates list is kept fixed (the /4
-        = 125-subepoch schedule) regardless, so per-epoch LR stays comparable across GPU counts.
-    :param ckpt_list: checkpoints to keep + (if do_search) evaluate. Defaults to the full /4 list.
-    :param do_search: if False, only train (skip recognition) -- used by the single-GPU control run.
-    :param name_suffix: appended to the model/alias name to fork a distinct job from the 4-GPU default.
-    :param grad_clip_global_norm: gradient_clip_global_norm value; None => no clipping (matches what
-        Mini-RETURNN effectively did, since it never read this config key).
-    """
+
+def eow_phon_phmm_ls960_base():
     prefix_name = "example_setups/librispeech/phmm_standalone_2024/ls960_phmm_eow_phon"
 
-    train_settings = DatasetSettings(
-        preemphasis=0.97,
-        peak_normalization=True,
-        # training
-        train_partition_epoch=10,
-        train_seq_ordering="laplace:.1000",
-    )
-
+    train_settings = build_phon_train_settings()
     train_data = build_eow_phon_phmm_training_datasets(
         prefix=prefix_name,
         librispeech_key="train-other-960",
         settings=train_settings,
     )
-
     label_datastream = cast(LabelDatastream, train_data.datastreams["labels"])
     vocab_size_without_blank = label_datastream.vocab_size
+    dev_dataset_tuples, test_dataset_tuples = build_dev_test_dataset_tuples(train_settings)
 
-    dev_dataset_tuples = {}
-    for testset in ["dev-clean", "dev-other"]:
-        dev_dataset_tuples[testset] = build_test_dataset(
-            dataset_key=testset,
-            settings=train_settings,
-        )
-
-    test_dataset_tuples = {}
-    for testset in ["test-clean", "test-other"]:
-        test_dataset_tuples[testset] = build_test_dataset(
-            dataset_key=testset,
-            settings=train_settings,
-        )
-
-    phmm_returnn_exe = CreateLibrasrVenvJob(
-        python_exe=RETURNN_EXE,
-        librasr_wheel=LIBRASR_WHEEL,
-        # "ninja" for i6_native_ops JIT; "dm-tree"/"h5py" are real-RETURNN deps that MiniReturnn
-        # did not require (dm-tree provides `tree`, imported by returnn.frontend at startup).
-        extra_pip_packages=["ninja", "dm-tree", "h5py"],
-        python_wrapper_name="python_with_path",
-        track_wheel_contents=True,
-    ).out_python_bin
-
-    default_returnn = {
-        "returnn_exe": phmm_returnn_exe,
-        "returnn_root": RETURNN_ROOT,
-    }
-
+    # EOW-phoneme lexicon ([SILENCE] at index 0); recognition adds the sentence-boundary lemmata.
     phmm_lexicon = get_phmm_eow_lexicon(g2p_librispeech_key="train-other-960")
     phmm_recog_lexicon = AddSentenceBoundaryLemmataToPhmmLexiconJob(phmm_lexicon).out_lexicon
     librispeech_corpus = get_bliss_corpus_dict(audio_format="ogg")["train-other-960"]
@@ -94,236 +63,71 @@ def eow_phon_phmm_ls960_base(
         lexicon_path=phmm_lexicon,
         corpus_path=librispeech_corpus,
     )
-    recog_rasr_config = build_librasr_phmm_recognition_config(
-        lexicon_path=phmm_recog_lexicon,
-        lm_config=get_4gram_lm_rasr_config(lexicon_file=phmm_recog_lexicon, scale=1.0),
-        logfile_suffix="phmm_phon_recog",
+    # Train only (the per-epoch no-prior lexicon search is gone -- recognition is the focused prior +
+    # LM-scale sweep below).
+    artifacts = train_and_lexicon_search(
+        prefix_name=prefix_name,
+        train_subdir="eow_phon",
+        model_name_suffix="",
+        train_data=train_data,
+        vocab_size_without_blank=vocab_size_without_blank,
+        fsa_exporter_config=fsa_exporter_config,
+        returnn=make_librasr_returnn(),
+        dev_dataset_tuples=dev_dataset_tuples,
+        test_dataset_tuples=test_dataset_tuples,
+        run_lexicon_search=False,
     )
+    # Consumed by the lexicon-free recognition entry point (phmm_phon.lexfree_baseline).
+    artifacts["phmm_lexicon"] = phmm_lexicon
 
-    from ...pytorch_networks.phmm.decoder.rasr_phmm_v1 import DecoderConfig as RasrDecoderConfig
+    # --- Focused word-LM recognition (dev-other, ep{_RECOG_EPOCH}; recognition-only). ALWAYS decode the
+    # scaled likelihood (acoustic prior, prior_scale=0.3) and sweep the 4-gram word-LM scale. WER only.
+    # Variant family: "4gram-word-lm prior0p30 lm{scale}".
+    phmm_prior_file = compute_phon_prior(artifacts, epoch=_RECOG_EPOCH)
 
-    def librasr_search_helper(search_prefix: str, asr_model: ASRModel, decoder_config: RasrDecoderConfig):
-        asr_model = copy.deepcopy(asr_model)
-        asr_model.prior_file = None
-
-        search_jobs, wers = search(
-            search_prefix,
-            forward_config={"num_workers_per_gpu": 0},
-            asr_model=asr_model,
-            decoder_module="phmm.decoder.rasr_phmm_v1",
-            decoder_args={"config": asdict(decoder_config)},
-            test_dataset_tuples=dev_dataset_tuples,
-            **default_returnn,
-        )
-        # search() keys wers by the full "<search_prefix>/<dataset>" name -> dataset -> WER var.
-        return {name.split("/")[-1]: wer for name, wer in wers.items()}
-
-    default_rasr_decoder_config = RasrDecoderConfig(
-        rasr_config_file=recog_rasr_config,
-        lexicon=phmm_recog_lexicon,
-    )
-
-    from ...pytorch_networks.phmm.phmm_zhou_cfg import (
-        SpecaugConfig,
-        VGG4LayerActFrontendV1Config_mod,
-        ModelConfig,
-        LogMelFeatureExtractionV1Config,
-        ConformerPosEmbConfig,
-    )
-
-    fe_config = LogMelFeatureExtractionV1Config(
-        sample_rate=16000,
-        win_size=0.025,
-        hop_size=0.01,
-        f_min=60,
-        f_max=7600,
-        min_amp=1e-10,
-        num_filters=80,
-        center=False,
-    )
-    specaug_config = SpecaugConfig(
-        repeat_per_n_frames=25,
-        max_dim_time=20,
-        max_dim_feat=16,  # classic style
-        num_repeat_feat=5,
-    )
-    frontend_config = VGG4LayerActFrontendV1Config_mod(
-        in_features=80,
-        conv1_channels=32,
-        conv2_channels=64,
-        conv3_channels=64,
-        conv4_channels=32,
-        conv_kernel_size=(3, 3),
-        conv_padding=None,
-        pool1_kernel_size=(2, 1),
-        pool1_stride=(2, 1),
-        pool1_padding=None,
-        pool2_kernel_size=(2, 1),
-        pool2_stride=(2, 1),
-        pool2_padding=None,
-        activation_str="ReLU",
-        out_features=512,
-        activation=None,
-    )
-
-    posemb_config = ConformerPosEmbConfig(
-        learnable_pos_emb=False,
-        rel_pos_clip=16,
-        with_linear_pos=True,
-        with_pos_bias=True,
-        separate_pos_emb_per_head=True,
-        pos_emb_dropout=0.0,
-    )
-
-    model_config = ModelConfig(
-        feature_extraction_config=fe_config,
-        frontend_config=frontend_config,
-        pos_emb_config=posemb_config,
-        specaug_config=specaug_config,
-        label_target_size=vocab_size_without_blank,
-        conformer_size=512,
-        num_layers=12,
-        num_heads=8,
-        ff_dim=2048,
-        att_weights_dropout=0.1,
-        conv_dropout=0.1,
-        ff_dropout=0.1,
-        mhsa_dropout=0.1,
-        mhsa_with_bias=True,
-        conv_kernel_size=31,
-        final_dropout=0.05,
-        specauc_start_epoch=3,  # subepoch units: 11/4 (rounded) to track the /4 schedule below
-        dropout_broadcast_axes=None,
-        module_list=["ff", "conv", "mhsa", "ff"],
-        module_scales=[0.5, 1.0, 1.0, 0.5],
-        aux_ctc_loss_layers=[5, 11],
-        aux_ctc_loss_scales=[0.2, 0.8],
-    )
-
-    # --- Multi-GPU data-parallel training (new default) ---------------------------------------
-    # Single-node, `num_gpus` processes, RETURNN `torch_distributed` parameter-averaging (no DDP
-    # wrapping -> the custom RASR-FSA train step runs unchanged). With the default OggZip pipeline
-    # RETURNN uses the `random_seed_offset` data distribution (sharding needs DistributeFilesDataset),
-    # so each worker sees a different draw of the full data. The LR schedule / num_epochs / ckpt_list
-    # below are the single-GPU values divided by `num_gpus`, keeping total data/compute ~constant while
-    # cutting wall-clock ~num_gpus x.
-    #
-    # gpu_mem is a Sisyphus job *requirement* (NOT part of the hash). batch_size is kept at the small
-    # 24GB-tuned value and is hashed -> the GPU memory tier can be switched freely (just change gpu_mem)
-    # without rehashing/restarting the training.
-    gpu_mem = 24
-
-    if ckpt_list is None:
-        ckpt_list = [10, 20, 40, 60, 80, 100, 110, 125]  # checkpoints kept + evaluated (all of them)
-
-    for peak_lr, init_lr in [(3e-4, 1e-5)]:
-        train_config_24gbgpu_amp_radam = {
-            "optimizer": {"class": "radam", "epsilon": 1e-12, "weight_decay": 1e-2, "decoupled_weight_decay": True},
-            # schedule = single-GPU 240/240/20 (=500) divided by num_gpus=4 -> 60/60/5 (=125 subepochs).
-            # peak_lr is NOT scaled: torch_distributed param-averaging is not a true large-batch step.
-            "learning_rates": list(np.linspace(init_lr, peak_lr, 60))
-            + list(np.linspace(peak_lr, init_lr, 60))
-            + list(np.linspace(init_lr, 1e-7, 5)),
-            # Single-node multi-GPU via parameter averaging every 100 steps (i6-recommended mode).
-            "torch_distributed": {"reduce_type": "param", "param_sync_step": 100},
-            #############
-            # extern_data is required by real RETURNN. "labels" maps to the OggZip "orth" stream,
-            # i.e. the raw UTF-8 bytes of the orthography (sparse dim 256, uint8); the train step
-            # decodes these bytes back to text for the RASR FSA builder.
-            "behavior_version": 21,
-            "extern_data": {
-                "raw_audio": {"dim": 1},
-                "labels": {"dim": 256, "sparse": True, "dtype": "uint8"},
+    def _build_word_lm_recog(lm_scale):
+        return {
+            "decoder_module": "phmm.decoder.rasr_phmm_v1",
+            "decoder_config": RasrDecoderConfig(
+                rasr_config_file=build_librasr_phmm_recognition_config(
+                    lexicon_path=phmm_recog_lexicon,
+                    lm_config=get_4gram_lm_rasr_config(lexicon_file=phmm_recog_lexicon, scale=lm_scale),
+                    logfile_suffix="phmm_phon_recog",
+                ),
+                lexicon=phmm_recog_lexicon,
+                prior_file=phmm_prior_file,
+                prior_scale=_PRIOR_SCALE,
+            ),
+            "search_kwargs": {
+                "forward_config": {
+                    "num_workers_per_gpu": 0,
+                    "torch_dataloader_opts": {"num_workers": 0},
+                }
             },
-            "batch_size": 400 * 16000,
-            "max_seq_length": {"raw_audio": 35 * 16000},
-            "accum_grad_multiple_step": 1,
-            "gradient_clip_global_norm": 10.0,
-            "torch_amp": {"dtype": "bfloat16"},
-            "torch_dataloader_opts": {"num_workers": 2},
-            "log_grad_norm": True,
-            "cleanup_old_models": {"keep": ckpt_list},
         }
 
-        # Single-GPU control: drop torch_distributed (and below: num_processes=None) so the only
-        # change vs the 4-GPU run is the distributed path itself -- isolates engine vs param-averaging.
-        # Popping (instead of conditionally adding) keeps the 4-GPU dict byte-identical => same hash.
-        if num_gpus == 1:
-            train_config_24gbgpu_amp_radam.pop("torch_distributed")
+    lm_scale_sweep_dev_other(
+        artifacts=artifacts,
+        make_recog=_build_word_lm_recog,
+        lm_scales=_LM_SCALES,
+        epoch=_RECOG_EPOCH,
+        search_type="lexicon",
+        variant_prefix=f"4gram-word-lm prior{_PRIOR_TAG}",
+        returnn=artifacts["default_returnn"],
+        per_lexicon=phmm_lexicon,
+        hyp_is_phonemes=False,
+        report_wer=True,
+        dataset_keys=("dev-other", "test-other"),
+    )
 
-        # No-clip ablation: Mini-RETURNN never read gradient_clip_global_norm, so it trained without
-        # clipping. Pop the key to reproduce that. Default (10.0) leaves the 4-GPU dict byte-identical.
-        if grad_clip_global_norm is None:
-            train_config_24gbgpu_amp_radam.pop("gradient_clip_global_norm")
-        else:
-            train_config_24gbgpu_amp_radam["gradient_clip_global_norm"] = grad_clip_global_norm
-
-        network_module = "phmm.phmm_zhou"
-        train_args_radam = {
-            "config": train_config_24gbgpu_amp_radam,
-            "network_module": network_module,
-            "net_args": {"model_config_dict": asdict(model_config)},
-            "train_step_args": {
-                "fsa_exporter_config_path": fsa_exporter_config,
-                "label_smoothing_scale": 0.1,
-            },
-            "include_native_ops": True,
-            "use_speed_perturbation": True,
-            "debug": False,
-        }
-
-        model_name = network_module + f".512dim_sub4_50eps_sp_lp_fullspec_gradnorm_radam_lr{peak_lr:.0e}" + name_suffix
-        # Training artifacts (learning_rates etc.) keep living under eow_phon/<model>; the
-        # recognition results move under lexicon-search/<model> (see below).
-        training_name = prefix_name + "/eow_phon/" + model_name
-        lexicon_search_root = prefix_name + "/lexicon-search/" + model_name
-        train_job = training(
-            training_name,
-            train_data,
-            train_args_radam,
-            num_epochs=num_epochs,
-            num_processes=(num_gpus if num_gpus > 1 else None),
-            distributed_launch_cmd="torchrun",
-            **default_returnn,
-        )
-        # gpu_mem is a (non-hashed) requirement -> switch GPU tier here without rehashing.
-        # i6_core already scales cpu (6->24) / gpu (1->4) / mem (24->96 GB) by num_gpus.
-        train_job.rqmt["gpu_mem"] = gpu_mem
-
-        asr_models_by_epoch = {}
-        for epoch in ckpt_list if do_search else []:
-            asr_model = prepare_asr_model(
-                training_name,
-                train_job,
-                train_args_radam,
-                with_prior=False,
-                datasets=train_data,
-                get_specific_checkpoint=epoch,
-            )
-            asr_models_by_epoch[epoch] = asr_model
-            wers = librasr_search_helper(
-                lexicon_search_root + f"/recog_ep{epoch}", asr_model, default_rasr_decoder_config
-            )
-            add_result(
-                prefix_name,
-                search_type="lexicon",
-                model=model_name,
-                variant="4gram-word-lm",
-                epoch=epoch,
-                wers=wers,
-            )
-
-    return {
-        "prefix_name": prefix_name,
-        "model_name": model_name,
-        "training_name": training_name,
-        "train_job": train_job,
-        "train_args": train_args_radam,
-        "train_data": train_data,
-        "phmm_lexicon": phmm_lexicon,
-        "dev_dataset_tuples": dev_dataset_tuples,
-        "test_dataset_tuples": test_dataset_tuples,
-        "asr_models_by_epoch": asr_models_by_epoch,
-        "default_returnn": default_returnn,
-        "vocab_size_without_blank": vocab_size_without_blank,
-    }
+    # Greedy phoneme PER (frame-argmax, NO LM / NO lexicon / NO search) -- the clean AM-quality probe,
+    # the pHMM counterpart to the CTC greedy PER for an apples-to-apples AM comparison.
+    greedy_phon_per_dev_other(
+        artifacts=artifacts,
+        lexicon=phmm_lexicon,
+        silence_label="[SILENCE]",
+        epoch=_RECOG_EPOCH,
+        returnn=artifacts["default_returnn"],
+        per_lexicon=phmm_lexicon,
+    )
+    return artifacts

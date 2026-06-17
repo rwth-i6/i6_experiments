@@ -70,9 +70,27 @@ class ExportStatefulOnnxLMJob(Job):
         onnx.save(model, onnx_path)
 
     def run(self):
+        import sys
+
         import torch
 
-        from i6_experiments.users.wu.experiments.posterior_hmm.pytorch_networks.lm.trafo.kazuki_trafo_zijian_variant_v1 import (
+        # Sisyphus runs the task with the CWD changed into the job's ``work`` dir, but its
+        # ``RecipeFinder`` resolves recipe modules via a CWD-relative ``recipe`` path. Top-level
+        # recipe packages imported lazily here (e.g. ``i6_models``, pulled in transitively by the
+        # model below) are therefore not found. ``i6_experiments`` is already imported (and cached)
+        # at this point, so derive the absolute recipe root from it and put it on ``sys.path``.
+        import i6_experiments
+
+        recipe_root = os.path.dirname(os.path.dirname(os.path.abspath(i6_experiments.__file__)))
+        if recipe_root not in sys.path:
+            sys.path.insert(0, recipe_root)
+
+        # Use the decoding variant of the model: ``stateful_onnx_v1._single_step`` reimplements the
+        # incremental single-step KV-cache decode and relies on the cache-aware positional encoding
+        # (``positional_encoding(..., cache_length=pos)``), which only the *_decoding model exposes.
+        # The base training model adds ``pe[0]`` at every step (correct only for pos==0). The two
+        # variants share identical parameter names/shapes, so the trained checkpoint loads as-is.
+        from i6_experiments.users.wu.experiments.posterior_hmm.pytorch_networks.lm.trafo.kazuki_trafo_zijian_variant_v1_decoding import (
             Model as BaseModel,
         )
         from i6_experiments.users.wu.experiments.posterior_hmm.pytorch_networks.lm.trafo.stateful_onnx_v1 import (
@@ -89,10 +107,21 @@ class ExportStatefulOnnxLMJob(Job):
         assert self.bos_token in vocab, f"BOS token {self.bos_token!r} missing from vocab {list(vocab)[:5]}..."
         bos_index = int(vocab[self.bos_token])
 
-        ckpt = torch.load(self.checkpoint.get_path(), map_location="cpu")
+        # ``checkpoint`` may be a ``tk.Path`` or an i6_core ``PtCheckpoint``; both implement
+        # ``__fspath__``, so normalize via ``os.fspath`` instead of assuming ``get_path``.
+        ckpt = torch.load(os.fspath(self.checkpoint), map_location="cpu")
         state_dict = ckpt["model"] if isinstance(ckpt, dict) and "model" in ckpt else ckpt
 
-        base = BaseModel(model_config_dict=self.net_args["model_config_dict"])
+        # ``net_args`` may embed unresolved Sisyphus delayed values (e.g. ``vocab_dim`` is a
+        # ``Variable``). Sisyphus tracks these as dependencies but does not substitute their
+        # concrete values into the stored dict, so resolve them here. Work on a deep copy to
+        # leave ``self.net_args`` untouched and to avoid ``instanciate_delayed_copy``'s ``tree`` dep.
+        import copy
+
+        import i6_core.util as util
+
+        model_config_dict = util.instanciate_delayed(copy.deepcopy(self.net_args["model_config_dict"]))
+        base = BaseModel(model_config_dict=model_config_dict)
         base.load_state_dict(state_dict)
         base.eval()
         num_layers = base.cfg.num_layers

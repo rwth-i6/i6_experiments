@@ -7,7 +7,7 @@ from dataclasses import dataclass, asdict
 import os.path
 from typing import Any, Dict, List, Optional, Tuple
 
-from sisyphus import tk
+from sisyphus import tk, Job, Task
 
 from i6_core.corpus.convert import CorpusToStmJob
 from i6_core.recognition.scoring import ScliteJob
@@ -114,6 +114,7 @@ def search(
     returnn_root: tk.Path,
     unhashed_decoder_args: Optional[Dict[str, Any]] = None,
     use_gpu: bool = False,
+    mem_rqmt: float = 16,
     debug: bool = False,
 ):
     """
@@ -157,10 +158,305 @@ def search(
             returnn_exe,
             returnn_root,
             use_gpu=use_gpu,
+            mem_rqmt=mem_rqmt,
         )
         search_jobs.append(search_job)
 
     return search_jobs, wers
+
+
+class PhonemizeSearchWordsJob(Job):
+    """
+    Replace each word in a RETURNN search-output dict (``search_out.py``) by its first phoneme
+    pronunciation from a bliss lexicon, producing a phoneme-level search-output dict.
+
+    Used for the auxiliary PER of the lexicon-constrained search: that search emits a WORD
+    hypothesis, which we map to phonemes via the same EOW lexicon used to phonemize the reference,
+    so it can be scored against the phoneme reference with sclite. Tokens absent from the lexicon
+    (should not occur for a lexicon-constrained hypothesis other than bracketed tags, which the
+    CTM job filters anyway) are passed through unchanged.
+    """
+
+    def __init__(self, recog_words_file: tk.Path, bliss_lexicon: tk.Path):
+        self.recog_words_file = recog_words_file
+        self.bliss_lexicon = bliss_lexicon
+        self.out_search_results = self.output_path("search_out.py")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        from i6_core.lib.lexicon import Lexicon
+        from i6_core.util import uopen
+
+        lex = Lexicon()
+        lex.load(self.bliss_lexicon.get_path())
+        # orth -> first pronunciation (mirrors ApplyLexiconToCorpusJob's PICK_FIRST strategy).
+        lookup = {}
+        for lemma in lex.lemmata:
+            if not lemma.phon:
+                continue
+            for orth in lemma.orth:
+                if orth and orth not in lookup:
+                    lookup[orth] = lemma.phon[0]
+
+        with uopen(self.recog_words_file.get_path(), "rt") as f:
+            d = eval(f.read())
+        assert isinstance(d, dict), "search_out.py must be a dict of seq_tag -> hypothesis"
+
+        with uopen(self.out_search_results.get_path(), "wt") as f:
+            f.write("{\n")
+            for seq_tag, hyp in d.items():
+                toks = [lookup.get(w, w) for w in hyp.split()]
+                phon_hyp = " ".join(" ".join(toks).split())
+                f.write("%r: %r,\n" % (seq_tag, phon_hyp))
+            f.write("}\n")
+
+
+class PhonemizeCorpusJob(Job):
+    """
+    Replace every word in a bliss corpus's segment orthography by its first phoneme pronunciation
+    from a bliss lexicon, producing a phoneme-level corpus (used to build the phoneme reference STM).
+
+    Like i6_core's :class:`ApplyLexiconToCorpusJob` (PICK_FIRST) but does NOT raise on
+    out-of-vocabulary words: an OOV word is kept verbatim as a single token. OOVs are rare proper
+    nouns absent from the LibriSpeech lexicon (~0.2-0.4% of dev words, e.g. "MAINHALL"); keeping the
+    word makes it an always-wrong reference token (it can never match a phoneme hypothesis), which
+    is the correct effect for an unscorable word and is identical across the lexicon-free and
+    lexicon-constrained hypotheses (so it does not bias their comparison).
+    """
+
+    def __init__(self, bliss_corpus: tk.Path, bliss_lexicon: tk.Path):
+        self.bliss_corpus = bliss_corpus
+        self.bliss_lexicon = bliss_lexicon
+        self.out_corpus = self.output_path("corpus.xml.gz")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        from i6_core.lib import corpus as _corpus
+        from i6_core.lib.lexicon import Lexicon
+
+        lex = Lexicon()
+        lex.load(self.bliss_lexicon.get_path())
+        lookup = {}
+        for lemma in lex.lemmata:
+            if not lemma.phon:
+                continue
+            for orth in lemma.orth:
+                if orth and orth not in lookup:
+                    lookup[orth] = lemma.phon[0]
+
+        c = _corpus.Corpus()
+        c.load(self.bliss_corpus.get_path())
+        for segment in c.segments():
+            toks = [lookup.get(w, w) for w in segment.orth.split()]
+            segment.orth = " ".join(" ".join(toks).split())
+        c.dump(self.out_corpus.get_path())
+
+
+class PhonemeDurationStatsJob(Job):
+    """
+    Aggregate average phoneme / silence **durations** (ms) from a RASR-produced phoneme CTM.
+
+    Input is the ``durations.ctm`` written by ``ctm_lexfree_ngram_v1`` -- one row
+    ``<seg> 1 <start_s> <dur_s> <label>`` per LibRASR traceback item (phonemes plus the index-0
+    blank / silence lemma), in real seconds. Rows are grouped per segment and ordered by start time;
+    each row is one occurrence of its label (the time-synchronous search already merged self-loops
+    and blank / silence runs into one item).
+
+    Categories (only the applicable ones are emitted as output variables):
+
+    * phonemes -- split on the trailing EOW ``#`` into ``phon_eow`` / ``phon_non_eow`` when
+      ``use_eow`` is set, else a single ``phon``;
+    * silence -- when ``fold_blank_into_phoneme`` is False (pHMM: the index-0 label is real
+      ``[SILENCE]``), each silence occurrence is classified by its position in the segment into
+      ``sil_leading`` (before the first phoneme), ``sil_trailing`` (after the last phoneme) or
+      ``sil_between`` (everything in between);
+    * CTC blank -- when ``fold_blank_into_phoneme`` is True (the index-0 label is ``[BLANK]``,
+      not silence), every blank occurrence's duration is added to the **preceding** phoneme (a
+      leading blank with no preceding phoneme is added to the following one), so the blank tail
+      belongs to its phoneme; no silence categories are emitted.
+
+    Each category's value is the micro-average duration in ms (total duration / occurrence count).
+    ``out_vars[category]`` holds the value (None if the category never occurred); ``out_stats`` is a
+    JSON dump with per-category ``avg_ms`` / ``count`` / ``total_s`` for inspection.
+    """
+
+    def __init__(
+        self,
+        ctm_file: tk.Path,
+        *,
+        silence_label: str,
+        use_eow: bool,
+        fold_blank_into_phoneme: bool,
+    ):
+        self.ctm_file = ctm_file
+        self.silence_label = silence_label
+        self.use_eow = use_eow
+        self.fold_blank_into_phoneme = fold_blank_into_phoneme
+
+        phon_categories = ["phon_eow", "phon_non_eow"] if use_eow else ["phon"]
+        sil_categories = [] if fold_blank_into_phoneme else ["sil_leading", "sil_trailing", "sil_between"]
+        self.categories = phon_categories + sil_categories
+
+        self.out_stats = self.output_path("durations.json")
+        self.out_vars: Dict[str, tk.Variable] = {c: self.output_var(f"{c}_ms") for c in self.categories}
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def _phon_category(self, label: str) -> str:
+        if not self.use_eow:
+            return "phon"
+        return "phon_eow" if label.endswith("#") else "phon_non_eow"
+
+    def _fold_blank(self, occurrences: List[Tuple[float, str]]) -> List[Tuple[float, str]]:
+        """Fold each blank occurrence's duration into the preceding phoneme (leading -> following)."""
+        folded: List[Tuple[float, str]] = []
+        pending = 0.0  # leading-blank duration waiting for the first phoneme
+        for dur, label in occurrences:
+            if label == self.silence_label:  # CTC blank
+                if folded:
+                    folded[-1] = (folded[-1][0] + dur, folded[-1][1])
+                else:
+                    pending += dur
+            else:
+                folded.append((dur + pending, label))
+                pending = 0.0
+        return folded
+
+    def run(self):
+        import json
+        from collections import OrderedDict, defaultdict
+
+        segments: "OrderedDict[str, List[Tuple[float, float, str]]]" = OrderedDict()
+        with open(self.ctm_file.get_path(), "rt") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) < 5:
+                    continue
+                rec, _ch, start, dur, label = parts[0], parts[1], float(parts[2]), float(parts[3]), parts[4]
+                segments.setdefault(rec, []).append((start, dur, label))
+
+        sums: "defaultdict[str, float]" = defaultdict(float)
+        counts: "defaultdict[str, int]" = defaultdict(int)
+        for items in segments.values():
+            items.sort(key=lambda x: x[0])
+            occurrences = [(dur, label) for (_start, dur, label) in items]
+
+            if self.fold_blank_into_phoneme:
+                for dur, label in self._fold_blank(occurrences):
+                    cat = self._phon_category(label)
+                    sums[cat] += dur
+                    counts[cat] += 1
+                continue
+
+            phon_positions = [i for i, (_d, lab) in enumerate(occurrences) if lab != self.silence_label]
+            first_phon = phon_positions[0] if phon_positions else None
+            last_phon = phon_positions[-1] if phon_positions else None
+            for i, (dur, label) in enumerate(occurrences):
+                if label == self.silence_label:
+                    if first_phon is None or i < first_phon:
+                        cat = "sil_leading"
+                    elif i > last_phon:
+                        cat = "sil_trailing"
+                    else:
+                        cat = "sil_between"
+                else:
+                    cat = self._phon_category(label)
+                sums[cat] += dur
+                counts[cat] += 1
+
+        stats = {}
+        for cat in self.categories:
+            avg_ms = (sums[cat] / counts[cat] * 1000.0) if counts[cat] > 0 else None
+            stats[cat] = {"avg_ms": avg_ms, "count": counts[cat], "total_s": sums[cat]}
+            self.out_vars[cat].set(avg_ms)
+        with open(self.out_stats.get_path(), "wt") as f:
+            json.dump(stats, f, indent=2, sort_keys=True)
+
+
+def forward_durations_ctm(
+    prefix_name: str,
+    returnn_config: ReturnnConfig,
+    checkpoint: tk.Path,
+    recognition_dataset: Dataset,
+    returnn_exe: tk.Path,
+    returnn_root: tk.Path,
+    mem_rqmt: float = 16,
+    use_gpu: bool = False,
+) -> Tuple[tk.Path, ReturnnForwardJobV2]:
+    """
+    Run a forward pass that writes ``durations.ctm`` (the CTM-emitting lexfree decoder) for one
+    dataset. Mirrors :func:`search_single` but collects the CTM instead of ``search_out.py`` and runs
+    no sclite. Returns ``(durations.ctm path, forward job)``.
+    """
+    returnn_config = copy.deepcopy(returnn_config)
+    returnn_config.config["forward_data"] = recognition_dataset.as_returnn_opts()
+    forward_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=24,
+        device="gpu" if use_gpu else "cpu",
+        cpu_rqmt=2,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=["durations.ctm"],
+    )
+    forward_job.add_alias(prefix_name + "/forward_durations")
+    return forward_job.out_files["durations.ctm"], forward_job
+
+
+def compute_per(
+    prefix_name: str,
+    search_jobs: List[ReturnnForwardJobV2],
+    test_dataset_tuples: Dict[str, Tuple[Dataset, tk.Path]],
+    phoneme_lexicon: tk.Path,
+    *,
+    hyp_is_phonemes: bool,
+) -> Dict[str, tk.Variable]:
+    """
+    Phoneme Error Rate (PER) for each dataset of a finished :func:`search` call.
+
+    * Reference: phonemize the word reference corpus with ``phoneme_lexicon``
+      (:class:`PhonemizeCorpusJob`, first pronunciation) -> phoneme STM (:class:`CorpusToStmJob`).
+    * Hypothesis: the lexicon-free search already emits a phoneme sequence (``hyp_is_phonemes=True``),
+      turned into a CTM directly; the lexicon-constrained search emits words (``hyp_is_phonemes=False``),
+      which are phonemized with the same lexicon first (:class:`PhonemizeSearchWordsJob`).
+
+    ``sclite`` then scores the two phoneme streams. Both reference and hypothesis use the same
+    EOW-phoneme alphabet as the model's labels (the ``#`` end-of-word markers are kept, so this is
+    the error rate over the model's actual phoneme inventory). The reference STM jobs depend only on
+    (corpus, lexicon) and are shared across all epochs/scales by content hash.
+
+    :param prefix_name: same prefix passed to :func:`search` (per-dataset jobs live at ``prefix/<dataset>``).
+    :param search_jobs: the list returned by :func:`search` (aligned with ``test_dataset_tuples`` order).
+    :param test_dataset_tuples: ``{dataset: (Dataset, reference_bliss_corpus)}``.
+    :param phoneme_lexicon: bliss lexicon mapping words -> EOW-phoneme pronunciations (e.g. the CTC lexicon).
+    :param hyp_is_phonemes: ``True`` for lexicon-free (phoneme) search, ``False`` for word search.
+    :return: ``{"<prefix>/<dataset>": PER tk.Variable}`` (same key shape as :func:`search`'s ``wers``).
+    """
+    pers: Dict[str, tk.Variable] = {}
+    for (key, (_test_dataset, ref_corpus)), search_job in zip(test_dataset_tuples.items(), search_jobs):
+        search_name = prefix_name + "/%s" % key
+
+        recog_words = search_job.out_files["search_out.py"]
+        if not hyp_is_phonemes:
+            recog_words = PhonemizeSearchWordsJob(recog_words, phoneme_lexicon).out_search_results
+        hyp_ctm = SearchWordsToCTMJob(recog_words_file=recog_words, bliss_corpus=ref_corpus).out_ctm_file
+
+        phon_corpus = PhonemizeCorpusJob(ref_corpus, phoneme_lexicon).out_corpus
+        phon_stm = CorpusToStmJob(bliss_corpus=phon_corpus).out_stm_path
+
+        sclite_job = ScliteJob(ref=phon_stm, hyp=hyp_ctm, sctk_binary_path=SCTK_BINARY_PATH, precision_ndigit=2)
+        tk.register_output(search_name + "/sclite_per/per", sclite_job.out_wer)
+        tk.register_output(search_name + "/sclite_per/report", sclite_job.out_report_dir)
+        pers[search_name] = sclite_job.out_wer
+    return pers
 
 
 @tk.block()
@@ -194,6 +490,12 @@ def compute_prior(
         returnn_root=returnn_root,
         output_files=["prior.txt"],
     )
+    # Pin to gpu_24gb. The gpu_11gb pool is the Pascal (GTX 1080 Ti, sm_61) partition and the librasr
+    # venv's torch (2.11+cu130, CUDA 13.0) has NO Pascal kernels -> "no kernel image for device". CUDA
+    # 13.0 also needs a recent driver, so the one stale gpu_24gb node (cn-504, old driver -> "driver
+    # too old") is --exclude'd in settings.py. rqmt (incl. gpu_mem) is not hashed. See memory
+    # gpu-11gb-pool-cuinit-failure.
+    search_job.rqmt["gpu_mem"] = 24
     search_job.add_alias(prefix_name + "/prior_job")
     return search_job.out_files["prior.txt"]
 
