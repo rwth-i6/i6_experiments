@@ -246,8 +246,10 @@ def unmute_servers(
             "1536",
             "--dtype",
             "bfloat16",
+            # gemma-3-12b-it is ~24GB bf16; 0.55*80GB H100 = 44GB leaves room for its
+            # KV cache while STT+TTS (~6GB) still fit on the same GPU. (Qwen-1.5B used 0.4.)
             "--gpu-memory-utilization",
-            "0.4",
+            "0.55",
         ]
         print(f"Starting vLLM: {' '.join(llm_cmd)}")
         llm_proc = subprocess.Popen(
@@ -348,6 +350,8 @@ class UnmuteFileClient:
         self._prompt = _load_prompt_24k(self._inp)
         self._prompt_len = int(len(self._prompt))
         self._reply_done = False
+        # Conversation-timeline alignment (see _save_reply): input samples streamed so far.
+        self._sent_samples = 0
 
         # Default capture window: lead-in greeting + prompt + a generous tail so the
         # whole reply fits even when capture_s isn't given by the caller.
@@ -411,6 +415,7 @@ class UnmuteFileClient:
                     }
                 )
             )
+            self._sent_samples += len(frame)
             # Pace the stream roughly real-time so the server's VAD behaves naturally.
             await asyncio.sleep(FRAME_SAMPLES / SAMPLE_RATE * 0.5)
 
@@ -434,6 +439,7 @@ class UnmuteFileClient:
         got_audio = False
         speech_started = False
         trailing_silence = 0
+        prepended = False
 
         with sf.SoundFile(self._out, "w", samplerate=SAMPLE_RATE, channels=1, subtype="PCM_16") as sink:
             try:
@@ -463,6 +469,15 @@ class UnmuteFileClient:
                             break
                         take = min(pcm.size, remaining)
                         chunk = pcm[:take]
+                        if not prepended:
+                            # Align output to the conversation timeline: the cascade emits
+                            # the first reply audio only after consuming ``_sent_samples`` of
+                            # input, so prepend that much silence. With FDB lead_in=0 this is
+                            # the real reply-onset time, and keeps output len == input len like
+                            # Moshi/PersonaPlex so FDB latency is measured from the right zero.
+                            # (Approximate: client recv/decode lag biases onset slightly late.)
+                            sink.write(np.zeros(int(self._sent_samples), dtype=np.int16))
+                            prepended = True
                         sink.write(_pcm_to_int16(chunk))
                         reply_len += take
                         got_audio = True

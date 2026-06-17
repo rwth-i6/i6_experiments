@@ -269,6 +269,23 @@ class FullDuplexBenchEval_Inference(Job):
                         print(f"Error processing {inp}: {e}")
                         time.sleep(1)
 
+                # Sanity: a served full-duplex reply must span (roughly) the whole conversation
+                # timeline, not just the spoken segment -- else FDB latency is measured from the
+                # wrong zero (the Unmute output-alignment bug). Warn loudly if it is far short.
+                try:
+                    import soundfile as _sf
+
+                    olen = _sf.info(str(out)).frames / _sf.info(str(out)).samplerate
+                    ilen = _sf.info(str(inp)).frames / _sf.info(str(inp)).samplerate
+                    if olen < 0.5 * ilen:
+                        print(
+                            f"[WARN] {task}/{ind}: reply {olen:.2f}s << input {ilen:.2f}s -- output may be "
+                            "truncated to the spoken segment (breaks latency alignment)",
+                            flush=True,
+                        )
+                except Exception as _e:
+                    print(f"[WARN] could not length-check {out}: {_e}", flush=True)
+
                 # Find all other .json files in that folder, and copy them
                 for json_file in inp.parent.glob("*.json"):
                     out_json = out.parent / json_file.name

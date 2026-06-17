@@ -205,6 +205,12 @@ def run_pairs(
             elif pcm.shape[-1] < total:
                 pcm = np.concatenate([pcm, np.zeros(total - pcm.shape[-1], dtype=pcm.dtype)], axis=-1)
         else:
-            pcm = np.zeros(1, dtype=np.float32)
+            # Model stayed silent (e.g. FDB interruption clips): emit input-length silence,
+            # not a 1-sample wav. NeMo's normalize_batch needs >1 sample (std over length 1 = nan).
+            pcm = np.zeros(total, dtype=np.float32)
+        # Hard floor so downstream ASR never receives a sub-hop_length clip.
+        min_len = max(sr // 10, 1)
+        if pcm.shape[-1] < min_len:
+            pcm = np.concatenate([pcm, np.zeros(min_len - pcm.shape[-1], dtype=pcm.dtype)], axis=-1)
         sphn.write_wav(str(out_wav), pcm, sr)
         print(f"[personaplex] {done}/{len(pairs)} clips done", flush=True)
