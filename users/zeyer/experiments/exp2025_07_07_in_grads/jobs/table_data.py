@@ -79,6 +79,9 @@ class WriteTableDataJob(Job):
             if row.get("cline"):
                 out_rows.append({"cline": True})
                 continue
+            if row.get("hline2"):
+                out_rows.append({"hline2": True})
+                continue
             if row.get("hline") or (row.get("label") is None and not row.get("cells")):
                 out_rows.append({"hline": True})
                 continue

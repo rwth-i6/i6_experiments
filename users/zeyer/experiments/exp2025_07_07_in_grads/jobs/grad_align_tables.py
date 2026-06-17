@@ -40,7 +40,7 @@ def build_tables(results):
     _streaming_offset_table()  # streaming start/end signed offset (grad vs native viterbi)
     _time_stretch_table()  # length robustness (grad vs MMS-FA, vocoder vs resample)
     _word_length_table()  # word-duration accuracy (signed word-width error) per model
-    _fairness_table()  # T2 fairness 2x2 (grad vs cross-attn x char/subword)
+    _matched_tok_table()  # matched-tokenization: grad vs cross-attn x char/subword (whisper)
     _ablation_table()  # T3a grad-score reduction (cross-model)
     _attribution_table()  # T3b attribution method (cross-model, fast models)
     _alignopts_table()  # T3b align-opts (grad vs cross-attn, same DP)
@@ -100,47 +100,47 @@ def _streaming_offset_table():
 
     MODELS = [
         (
-            "Emformer RNN-T",
+            "Emformer (streaming)",
             [
                 (
-                    "grad",
+                    "Gradients",
                     *g(
                         f"emformer-rnnt-prefix-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                         f"emformer-rnnt-prefix-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 (
-                    "native viterbi",
+                    "Posteriors",
                     f"baseline-emformer-rnnt-native-viterbi-{S}",
                     f"baseline-emformer-rnnt-native-viterbi-{T}",
                 ),
             ],
         ),
         (
-            "FastConformer-CTC",
+            "FastConformer-CTC (streaming)",
             [
                 (
-                    "grad",
+                    "Gradients",
                     *g(
                         f"fastconformer-stream-ctc-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                         f"fastconformer-stream-ctc-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
-                ("native viterbi", f"baseline-fastconformer-stream-ctc-{S}", f"baseline-fastconformer-stream-ctc-{T}"),
+                ("Posteriors", f"baseline-fastconformer-stream-ctc-{S}", f"baseline-fastconformer-stream-ctc-{T}"),
             ],
         ),
         (
-            "FastConformer-RNN-T",
+            "FastConformer-RNN-T (streaming)",
             [
                 (
-                    "grad",
+                    "Gradients",
                     *g(
                         f"fastconformer-stream-rnnt-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                         f"fastconformer-stream-rnnt-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 (
-                    "native viterbi",
+                    "Posteriors",
                     f"baseline-fastconformer-stream-rnnt-native-viterbi-{S}",
                     f"baseline-fastconformer-stream-rnnt-native-viterbi-{T}",
                 ),
@@ -224,36 +224,39 @@ def _word_length_table():
         (
             "Wav2Vec2-CTC",
             [
-                ("grad", f"align/wav2vec2ctc-fproj_out-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0"),
-                ("posteriors", f"baseline-mms_fa-{S}"),
+                ("Gradients", f"align/wav2vec2ctc-fproj_out-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0"),
+                ("Posteriors", f"baseline-mms_fa-{S}"),
             ],
         ),
         (
             "Phoneme-CTC",
             [
-                ("grad", f"align/phoneme-vitouphy-prefixfwd-{S}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-sil1.0"),
-                ("posteriors", f"baseline-phoneme-fa-{S}-word"),
+                (
+                    "Gradients",
+                    f"align/phoneme-vitouphy-prefixfwd-{S}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-sil1.0",
+                ),
+                ("Posteriors", f"baseline-phoneme-fa-{S}-word"),
             ],
         ),
         (
             "Nvidia CTC",
             [
-                ("grad", f"align/parakeet-ctc-1.1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0"),
-                ("posteriors", f"baseline-parakeet-ctc-1.1b-{S}"),
+                ("Gradients", f"align/parakeet-ctc-1.1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0"),
+                ("Posteriors", f"baseline-parakeet-ctc-1.1b-{S}"),
             ],
         ),
         (
             "OWSM-CTC",
             [
-                ("grad", f"align/owsm-ctc-v4-1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0"),
-                ("posteriors", f"baseline-owsm-ctc-v4-1b-{S}"),
+                ("Gradients", f"align/owsm-ctc-v4-1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0"),
+                ("Posteriors", f"baseline-owsm-ctc-v4-1b-{S}"),
             ],
         ),
         (
             "Whisper-base",
             [
-                ("grad", f"align/whisper-base-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0"),
-                ("cross-attn", f"align/baseline-whisper-base-crossattn-auto-{S}-asotTrue-bs-5-en0.5-sil1.0"),
+                ("Gradients", f"align/whisper-base-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0"),
+                ("Cross-att.", f"align/baseline-whisper-base-crossattn-auto-{S}-asotTrue-bs-5-en0.5-sil1.0"),
             ],
         ),
     ]
@@ -286,7 +289,7 @@ def _word_length_table():
 #     PLAIN cross-attn forced align (no head auto-selection), so the only variable per column is the
 #     tokenization. Grad wins every cell; char helps grad; char collapses cross-attn on spontaneous Buckeye.
 # ----------------------------------------------------------------------------------------
-def _fairness_table():
+def _matched_tok_table():
     DATASETS = [("TIMIT", "timit-test"), ("Buckeye", "buckeye-segA-5h")]
     columns = ["method", "c_wbe", "c_a50", "s_wbe", "s_a50"]
     rows = []
@@ -301,7 +304,7 @@ def _fairness_table():
             {
                 "label": dlabel,
                 "cells": {
-                    "method": "grad",
+                    "method": "Gradients",
                     "c_wbe": _wbe(gc),
                     "c_a50": _metric(gc, "acc_50ms"),
                     "s_wbe": _wbe(gs),
@@ -314,7 +317,7 @@ def _fairness_table():
             {
                 "label": "",
                 "cells": {
-                    "method": "cross-attn",
+                    "method": "Cross-att.",
                     "c_wbe": _wbe(xc),
                     "c_a50": _metric(xc, "acc_50ms"),
                     "s_wbe": _wbe(xs),
@@ -322,7 +325,7 @@ def _fairness_table():
                 },
             }
         )
-    _emit("fairness", columns, rows)
+    _emit("matched-tokenization", columns, rows)
 
 
 # ----------------------------------------------------------------------------------------
@@ -338,7 +341,7 @@ def _ablation_table():
         ("Wav2Vec2-CTC", "wav2vec2ctc-fproj_out-prefixfwd"),
         ("Whisper-base", "whisper-base-logmel-charlev-spc"),
         ("Parakeet RNN-T", "parakeet-rnnt-1.1b-logmel"),
-        ("Emformer (stream)", "emformer-rnnt-prefix-logmel"),
+        ("Emformer (streaming)", "emformer-rnnt-prefix-logmel"),
         ("Voxtral", "voxtral-charlevlogmel"),
     ]
     REDS = ["L0.5_grad", "L1_grad", "L2_grad", "L2_e_grad"]
@@ -437,27 +440,27 @@ def _compare_table(with_hyp=False):
             "Wav2Vec2-CTC",
             [
                 (
-                    "grad",
+                    "Gradients",
                     *g(
                         f"wav2vec2ctc-fproj_out-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                         f"wav2vec2ctc-fproj_out-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
-                ("posteriors", f"baseline-mms_fa-{S}", f"baseline-mms_fa-{T}"),
+                ("Posteriors", f"baseline-mms_fa-{S}", f"baseline-mms_fa-{T}"),
             ],
         ),
         (
             "Phoneme-CTC",
             [
                 (
-                    "grad",
+                    "Gradients",
                     *g(
                         f"phoneme-vitouphy-prefixfwd-{S}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-sil1.0",
                         f"phoneme-vitouphy-prefixfwd-{T}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 (
-                    "posteriors",
+                    "Posteriors",
                     f"baseline-phoneme-fa-{S}-word",
                     "align/w2v-phoneme-timit-test-ctc-forced-align-word",
                 ),
@@ -467,13 +470,13 @@ def _compare_table(with_hyp=False):
             "Nvidia CTC",
             [
                 (
-                    "grad",
+                    "Gradients",
                     *g(
                         f"parakeet-ctc-1.1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                         f"parakeet-ctc-1.1b-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
-                ("posteriors", f"baseline-parakeet-ctc-1.1b-{S}", f"baseline-parakeet-ctc-1.1b-{T}"),
+                ("Posteriors", f"baseline-parakeet-ctc-1.1b-{S}", f"baseline-parakeet-ctc-1.1b-{T}"),
             ],
         ),
         (
@@ -482,28 +485,28 @@ def _compare_table(with_hyp=False):
             "OWSM-CTC",
             [
                 (
-                    "grad",
+                    "Gradients",
                     *g(
                         f"owsm-ctc-v4-1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                         f"owsm-ctc-v4-1b-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 # posteriors = CTC forced-align of the model's emission; best/natural at the final block.
-                ("posteriors", f"baseline-owsm-ctc-v4-1b-{S}", f"baseline-owsm-ctc-v4-1b-{T}"),
+                ("Posteriors", f"baseline-owsm-ctc-v4-1b-{S}", f"baseline-owsm-ctc-v4-1b-{T}"),
             ],
         ),
         (
             "Whisper-base",
             [
                 (
-                    "grad",
+                    "Gradients",
                     *g(
                         f"whisper-base-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
                         f"whisper-base-logmel-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 (
-                    "cross-attn weights",
+                    "Cross-att.",
                     f"align/baseline-whisper-base-crossattn-auto-{S}-asotTrue-bs-5-en0.5-sil1.0",
                     f"align/baseline-whisper-base-crossattn-auto-{T}-asotTrue-bs-5-en0.5-sil1.0",
                 ),
@@ -513,14 +516,14 @@ def _compare_table(with_hyp=False):
             "Whisper-large-v3",
             [
                 (
-                    "grad",
+                    "Gradients",
                     *g(
                         f"whisper-large-v3-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
                         f"whisper-large-v3-logmel-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 (
-                    "cross-attn weights",
+                    "Cross-att.",
                     f"baseline-whisper-large-v3-crossattn-{S}",
                     f"baseline-whisper-large-v3-crossattn-{T}",
                 ),
@@ -530,14 +533,14 @@ def _compare_table(with_hyp=False):
             "Parakeet RNN-T",
             [
                 (
-                    "grad",
+                    "Gradients",
                     *g(
                         f"parakeet-rnnt-1.1b-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                         f"parakeet-rnnt-1.1b-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 (
-                    "posteriors",
+                    "Posteriors",
                     f"baseline-parakeet-rnnt-1.1b-native-viterbi-{S}",
                     f"baseline-parakeet-rnnt-1.1b-native-viterbi-{T}",
                 ),
@@ -547,14 +550,14 @@ def _compare_table(with_hyp=False):
             "Parakeet TDT",
             [
                 (
-                    "grad",
+                    "Gradients",
                     *g(
                         f"parakeet-tdt-0.6b-v2-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                         f"parakeet-tdt-0.6b-v2-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 (
-                    "posteriors",
+                    "Posteriors",
                     f"baseline-parakeet-tdt-0.6b-v2-native-viterbi-{S}",
                     f"baseline-parakeet-tdt-0.6b-v2-native-viterbi-{T}",
                 ),
@@ -566,48 +569,48 @@ def _compare_table(with_hyp=False):
             "Emformer (streaming)",
             [
                 (
-                    "grad",
+                    "Gradients",
                     *g(
                         f"emformer-rnnt-prefix-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                         f"emformer-rnnt-prefix-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 (
-                    "posteriors",
+                    "Posteriors",
                     f"baseline-emformer-rnnt-native-viterbi-{S}",
                     f"baseline-emformer-rnnt-native-viterbi-{T}",
                 ),
             ],
         ),
         (
-            "FastConformer-CTC (stream)",
+            "FastConformer-CTC (streaming)",
             [
                 (
-                    "grad",
+                    "Gradients",
                     *g(
                         f"fastconformer-stream-ctc-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                         f"fastconformer-stream-ctc-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 (
-                    "posteriors",
+                    "Posteriors",
                     f"baseline-fastconformer-stream-ctc-{S}",
                     f"baseline-fastconformer-stream-ctc-{T}",
                 ),
             ],
         ),
         (
-            "FastConformer-RNN-T (stream)",
+            "FastConformer-RNN-T (streaming)",
             [
                 (
-                    "grad",
+                    "Gradients",
                     *g(
                         f"fastconformer-stream-rnnt-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                         f"fastconformer-stream-rnnt-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 (
-                    "posteriors",
+                    "Posteriors",
                     f"baseline-fastconformer-stream-rnnt-native-viterbi-{S}",
                     f"baseline-fastconformer-stream-rnnt-native-viterbi-{T}",
                 ),
@@ -617,14 +620,14 @@ def _compare_table(with_hyp=False):
             "Voxtral",
             [
                 (
-                    "grad",
+                    "Gradients",
                     *g(
                         f"voxtral-charlevlogmel-{S}-L1_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                         f"voxtral-charlevlogmel-{T}-L1_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 (
-                    "self-attn weights",
+                    "Self-att.",
                     f"align/baseline-voxtral-selfattn-{S}-asotTrue-bs-5-en0.5-sil1.0",
                     f"align/baseline-voxtral-selfattn-{T}-asotTrue-bs-5-en0.5-sil1.0",
                 ),
@@ -634,14 +637,14 @@ def _compare_table(with_hyp=False):
             "Phi-4-MM",
             [
                 (
-                    "grad",
+                    "Gradients",
                     *g(
                         f"phi4mm-{S}-L2_e_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
                         f"phi4mm-{T}-L2_e_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 (
-                    "self-attn weights",
+                    "Self-att.",
                     f"align/baseline-phi4mm-selfattn-{S}-asotTrue-bs-5-en0.5-sil1.0",
                     f"align/baseline-phi4mm-selfattn-{T}-asotTrue-bs-5-en0.5-sil1.0",
                 ),
@@ -651,14 +654,14 @@ def _compare_table(with_hyp=False):
             "Canary-Qwen",
             [
                 (
-                    "grad",
+                    "Gradients",
                     *g(
                         f"canary-qwen-charlev-spc-logmel-st15-{S}-L1_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                         f"canary-qwen-charlev-spc-logmel-st15-{T}-L1_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
                     ),
                 ),
                 (
-                    "self-attn weights",
+                    "Self-att.",
                     f"align/baseline-canary-qwen-selfattn-{S}-asotTrue-bs-5-en0.5-sil1.0",
                     f"align/baseline-canary-qwen-selfattn-{T}-asotTrue-bs-5-en0.5-sil1.0",
                 ),
@@ -667,7 +670,7 @@ def _compare_table(with_hyp=False):
     ]
     # Dedicated-aligner ceiling (model-agnostic), shown for reference.
     REFERENCE = [
-        ("MFA (GMM-HMM)", [("posteriors", f"baseline-mfa-{S}", f"baseline-mfa-{T}")]),
+        ("MFA (GMM-HMM)", [("Posteriors", f"baseline-mfa-{S}", f"baseline-mfa-{T}")]),
     ]
 
     # Hyp-mode (each model aligns its OWN recognition, Buckeye only) -> grad rows only, where it exists.
@@ -684,19 +687,47 @@ def _compare_table(with_hyp=False):
     # MMS_FA (Wav2Vec2-CTC) + Phoneme-CTC emit no word boundaries; MFA is a forced-aligner, not a recognizer.
     HYP_NA = {"Wav2Vec2-CTC", "Phoneme-CTC", "MFA (GMM-HMM)"}
 
-    columns = ["method", "t_wbe", "t_a50", "t_a100", "s_wbe", "s_a50", "s_a100"]
+    # Rows grouped by model family; the leftmost (row-label) column is the family Type, shown once
+    # per family; Model is the second column, shown once per model; double rule between families.
+    TYPE = {
+        "Wav2Vec2-CTC": "CTC",
+        "Phoneme-CTC": "CTC",
+        "Nvidia CTC": "CTC",
+        "OWSM-CTC": "CTC",
+        "FastConformer-CTC (streaming)": "CTC",
+        "Whisper-base": "AED",
+        "Whisper-large-v3": "AED",
+        "Parakeet RNN-T": "Transd.",
+        "Parakeet TDT": "Transd.",
+        "Emformer (streaming)": "Transd.",
+        "FastConformer-RNN-T (streaming)": "Transd.",
+        "Voxtral": "Sp. LLM",
+        "Phi-4-MM": "Sp. LLM",
+        "Canary-Qwen": "Sp. LLM",
+    }
+    TYPE_ORDER = ["CTC", "AED", "Transd.", "Sp. LLM"]
+    by_type = {t: [] for t in TYPE_ORDER}
+    for model, methods in MODELS:
+        by_type[TYPE[model]].append((model, methods))
+    blocks = [(t, by_type[t]) for t in TYPE_ORDER]
+    blocks.append(("Ref.", REFERENCE))  # MFA dedicated-aligner reference, its own block
+
+    columns = ["model", "method", "t_wbe", "t_a50", "t_a100", "s_wbe", "s_a50", "s_a100"]
     if with_hyp:
         columns += ["h_mwbe", "h_f50"]
 
-    def _model_rows(groups, lead_hline):
-        rows = []
-        for gi, (model, methods) in enumerate(groups):
-            if gi > 0 or lead_hline:
-                rows.append({"label": None, "cells": {}})  # \hline between models
-            for mi, (mlabel, sa, ti) in enumerate(methods):
-                if mi > 0:
+    rows = []
+    for bi, (typ, fam_models) in enumerate(blocks):
+        if bi > 0:
+            rows.append({"hline2": True})  # double rule between families
+        for mi2, (model, methods) in enumerate(fam_models):
+            if mi2 > 0:
+                rows.append({"label": None, "cells": {}})  # \hline between models in a family
+            for mj, (mlabel, sa, ti) in enumerate(methods):
+                if mj > 0:
                     rows.append({"cline": True})  # \cline between a model's own methods
                 cells = {
+                    "model": model if mj == 0 else "",
                     "method": mlabel,
                     "t_wbe": _wbe(ti) if ti else None,
                     "t_a50": _metric(ti, "acc_50ms") if ti else None,
@@ -706,21 +737,16 @@ def _compare_table(with_hyp=False):
                     "s_a100": _metric(sa, "acc_100ms") if sa else None,
                 }
                 if with_hyp:
-                    hn = HYP.get(model) if mi == 0 else None  # hyp only on the grad row
+                    hn = HYP.get(model) if mj == 0 else None  # hyp only on the grad row
                     if hn:
                         cells["h_mwbe"] = _hyp(hn, "matched_wbe")
                         cells["h_f50"] = _hyp(hn, "f1_50ms")
-                    elif mi == 0 and model in HYP_NA:
+                    elif mj == 0 and model in HYP_NA:
                         # structurally no word-level own-recognition -> mark, don't leave empty
                         cells["h_mwbe"] = "n/a"
                         cells["h_f50"] = "n/a"
-                    else:
-                        cells["h_mwbe"] = None
-                        cells["h_f50"] = None
-                rows.append({"label": model if mi == 0 else "", "cells": cells})
-        return rows
-
-    rows = _model_rows(MODELS, False) + _model_rows(REFERENCE, True)
+                label = typ if (mi2 == 0 and mj == 0) else ""
+                rows.append({"label": label, "cells": cells})
     _emit("per-model-" + ("merged" if with_hyp else "methods"), columns, rows)
 
 
@@ -778,7 +804,7 @@ def _owsm_layer_table():
     def fbase(layer, ds):  # forced-align (posteriors) baseline base
         return f"baseline-owsm-ctc-v4-1b-{_tag(layer)}{ds}"
 
-    columns = ["layer", "t_grad", "t_fa", "s_grad", "s_fa"]
+    columns = ["t_grad", "t_fa", "s_grad", "s_fa"]
     rows = []
     for layer in [6, 12, 15, 21, 27]:
         rows.append(
