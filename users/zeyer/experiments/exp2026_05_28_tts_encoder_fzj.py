@@ -512,10 +512,15 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
-    # noise0 (deterministic acoustics, the best synthesis variant at 4.26) in that same best regime
-    # (muon-lr5e3-wdbl + nep38).
+    # noise0-muon-nep38 (ref-match-logmel + noise 0 + muon + nep38) REMOVED 2026-06-17: NaN'd at ep12 (inf/nan
+    # via debug_inf_nan). Cause = low/zero-variance synthesis x muon -- noise0 was stable under AdamW/nep25
+    # (4.26) and muon+nep38 was stable at noise 0.7; only the combination NaN'd. See the noise01 variant below
+    # (noise 0.1, a close-to-0 hedge).
+    # Same best regime, noise 0.1 (close to 0, NOT exactly 0): tests whether tiny nonzero flow variance dodges
+    # the muon+nep38 NaN that noise0 (exactly 0) hit, while keeping the low-noise benefit (noise0 was the best
+    # synth at nep25, 4.26). If it NaNs too, the trigger is low-noise x muon broadly, not the exact zero.
     _train_tts_encoder(
-        "tts-enc-ref-match-logmel-noise0-muon-nep38",
+        "tts-enc-ref-match-logmel-noise01-muon-nep38",
         prefix=prefix,
         text_train_epoch_split=75,
         batch_size_audio_frames=120_000,
@@ -523,7 +528,26 @@ def py():
         tts_waveform=True,
         asr_logmel=True,
         tts_waveform_peak_norm=True,
-        glow_tts_noise_scale_range=(0.0, 0.0),
+        glow_tts_noise_scale_range=(0.1, 0.1),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+    # ref-match-logmel-muon-nep38 + more text (P20 ~5 passes vs P75's 1.33): grafts v1's text-amount advantage
+    # onto the best log-mel+waveform+muon+nep38 regime (more text helped: v1 P20 4.13 vs ref-match P75 4.48).
+    _train_tts_encoder(
+        "tts-enc-ref-match-logmel-textP20-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=20,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
         glow_tts_length_scale_range=(1.0, 1.0),
         base_lr=1.0,
         peak_lr=5e-3,
