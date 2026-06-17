@@ -141,6 +141,7 @@ def _streaming_offset_table():
         "native streaming viterbi's large WBE is largely a systematic emission-delay bias."
     )
     job = WriteLatexTableJob(
+        adjustbox=True,
         columns=cols,
         rows=rows,
         caption=caption,
@@ -202,6 +203,7 @@ def _time_stretch_table():
         "whereas native forced-align re-runs Viterbi on the stretched audio and stays robust."
     )
     job = WriteLatexTableJob(
+        adjustbox=True,
         columns=cols,
         rows=rows,
         caption=caption,
@@ -310,6 +312,7 @@ def _word_length_table():
         "(TIMIT-test shows the same pattern, milder.)"
     )
     job = WriteLatexTableJob(
+        adjustbox=True,
         columns=cols,
         rows=rows,
         caption=caption,
@@ -381,6 +384,7 @@ def _fairness_table():
         "cross-attention variant for its subword baseline.)"
     )
     job = WriteLatexTableJob(
+        adjustbox=True,
         columns=cols,
         rows=rows,
         caption=caption,
@@ -424,6 +428,7 @@ def _ablation_table():
         "the norm. (dot/sum reductions are excluded: signed, they break the time-softmax scoring.)"
     )
     job = WriteLatexTableJob(
+        adjustbox=True,
         columns=cols,
         rows=rows,
         caption=caption,
@@ -471,6 +476,7 @@ def _attribution_table():
         "model families are omitted for the same cost reason."
     )
     job = WriteLatexTableJob(
+        adjustbox=True,
         columns=cols,
         rows=rows,
         caption=caption,
@@ -528,6 +534,7 @@ def _alignopts_table():
         "weakest setting for both."
     )
     job = WriteLatexTableJob(
+        adjustbox=True,
         columns=cols,
         rows=rows,
         caption=caption,
@@ -888,6 +895,7 @@ def _compare_table(with_hyp=False):
             "MFA is a forced-aligner)."
         )
     job = WriteLatexTableJob(
+        adjustbox=True,
         columns=cols,
         rows=rows,
         caption=caption,
@@ -944,6 +952,7 @@ def _hyp_table():
     rows += [_row(*b) for b in baselines]
 
     job = WriteLatexTableJob(
+        adjustbox=True,
         columns=cols,
         rows=rows,
         caption=(
@@ -1001,6 +1010,7 @@ def _owsm_layer_table():
         "The method still runs; this is simply our least-favourable model (see discussion)."
     )
     job = WriteLatexTableJob(
+        adjustbox=True,
         columns=cols,
         rows=rows,
         caption=caption,
@@ -1046,6 +1056,7 @@ def _phi4_prompt_table():
         "character-level output, paired only with character-level targets."
     )
     job = WriteLatexTableJob(
+        adjustbox=True,
         columns=cols,
         rows=rows,
         caption=caption,
@@ -1101,6 +1112,7 @@ def _cost_table():
         "(*) = batched backward unavailable for this model (vmap-incompatible attention kernel)."
     )
     job = WriteLatexTableJob(
+        adjustbox=True,
         columns=cols,
         rows=rows,
         caption=caption,

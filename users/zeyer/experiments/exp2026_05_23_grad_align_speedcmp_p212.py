@@ -209,6 +209,7 @@ def py():
         "The align/DP step (shared, near-identical across methods) is excluded."
     )
     cost_job = WriteLatexTableJob(
+        adjustbox=True,
         columns=cost_cols,
         rows=cost_rows,
         caption=cost_caption,

@@ -6,7 +6,7 @@ bracketed-unit headers, optional bold-best) that the paper ``\\input``s. Auto-up
 upstream results do. Supports a two-level header: columns with the same ``"group"`` share a
 ``\\multicolumn`` group cell on the top row, ungrouped columns span both header rows
 (``\\multirow{2}``); a header containing ``\\\\`` is wrapped in ``\\makecell`` for multi-line.
-Needs ``\\usepackage{multirow,makecell}`` in the document.
+Needs ``\\usepackage{multirow,makecell}`` (and ``\\usepackage{adjustbox}`` if ``adjustbox=True``) in the document.
 """
 
 from typing import Optional, List, Dict, Any
@@ -51,6 +51,7 @@ class WriteLatexTableJob(Job):
         label: Optional[str] = None,
         label_header: str = "",
         col_align: Optional[str] = None,
+        adjustbox: bool = False,
         float_spec: str = "table",
         position: str = "tb",
     ):
@@ -61,6 +62,7 @@ class WriteLatexTableJob(Job):
         self.label = label
         self.label_header = label_header
         self.col_align = col_align
+        self.adjustbox = adjustbox
         self.float_spec = float_spec
         self.position = position
         self.out_tex = self.output_path("table.tex")
@@ -126,6 +128,8 @@ class WriteLatexTableJob(Job):
             out.append(f"  \\caption{{{self.caption}}}")
         if self.label:
             out.append(f"  \\label{{{self.label}}}")
+        if self.adjustbox:
+            out.append("  \\begin{adjustbox}{max width=\\linewidth}")
         out.append(f"  \\begin{{tabular}}{{{col_align}}}")
         out.append("    \\hline")
 
@@ -183,6 +187,8 @@ class WriteLatexTableJob(Job):
             out.append("    " + " & ".join(parts) + r" \\")
         out.append("    \\hline")
         out.append("  \\end{tabular}")
+        if self.adjustbox:
+            out.append("  \\end{adjustbox}")
         out.append(f"\\end{{{self.float_spec}}}")
         out.append("")
 
