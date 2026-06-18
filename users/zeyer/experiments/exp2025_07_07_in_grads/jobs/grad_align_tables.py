@@ -357,7 +357,7 @@ def _ablation_table():
         }
         for mlabel, mpre in MODELS
     ]
-    _emit("ablation", columns, rows)
+    _emit("grad-score-ablation", columns, rows)
 
 
 # ----------------------------------------------------------------------------------------
@@ -674,7 +674,7 @@ def _compare_table(with_hyp=False):
     ]
     # Dedicated-aligner ceiling (model-agnostic), shown for reference.
     REFERENCE = [
-        ("MFA (GMM-HMM)", [("Posteriors", f"baseline-mfa-{S}", f"baseline-mfa-{T}")]),
+        ("MFA", [("Posteriors", f"baseline-mfa-{S}", f"baseline-mfa-{T}")]),
     ]
 
     # Hyp-mode (each model aligns its OWN recognition, Buckeye only) -> grad rows only, where it exists.
@@ -694,7 +694,7 @@ def _compare_table(with_hyp=False):
     }
     # Models with no word-level own-recognition -> hyp-mode is structurally n/a (not "unrun"):
     # MMS_FA (Wav2Vec2-CTC) + Phoneme-CTC emit no word boundaries; MFA is a forced-aligner, not a recognizer.
-    HYP_NA = {"Wav2Vec2-CTC", "Phoneme-CTC", "MFA (GMM-HMM)"}
+    HYP_NA = {"Wav2Vec2-CTC", "Phoneme-CTC", "MFA"}
 
     # Rows grouped by model family; the leftmost (row-label) column is the family Type, shown once
     # per family; Model is the second column, shown once per model; double rule between families.
@@ -719,7 +719,7 @@ def _compare_table(with_hyp=False):
     for model, methods in MODELS:
         by_type[TYPE[model]].append((model, methods))
     blocks = [(t, by_type[t]) for t in TYPE_ORDER]
-    blocks.append(("Ref.", REFERENCE))  # MFA dedicated-aligner reference, its own block
+    blocks.append(("GMM-HMM", REFERENCE))  # MFA dedicated-aligner reference (GMM-HMM), its own block
 
     columns = ["model", "method", "t_wbe", "t_a50", "t_a100", "s_wbe", "s_a50", "s_a100"]
     if with_hyp:
