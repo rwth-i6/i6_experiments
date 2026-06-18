@@ -4300,6 +4300,41 @@ def py():
                 reg(f"{_aen}.hdf", _aex.out_hdf)
                 _abl_align(_aex, _aen)
 
+    # alignopts-silence extended to 3 model families (AED / CTC / speech-LLM):
+    # re-align each model's L2 grad extract under the silence/blank schemes on a CTC topology,
+    # so the blank-scoring comparison generalizes beyond Whisper.
+    # Cheap -- re-aligns the existing ablation extracts.
+    _sil_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+    _SIL_SCHEMES = [
+        ("en0.5", {"audio_energy_pow": 0.5}),
+        ("en0.5-sil1.0", {"audio_energy_pow": 0.5, "blank_silence_energy_scale": 1.0}),
+        ("en0.5-sil2.0", {"audio_energy_pow": 0.5, "blank_silence_energy_scale": 2.0}),
+        ("en0.5-zsk1.0", {"audio_energy_pow": 0.5, "blank_grad_zscore_kappa": 1.0}),
+    ]
+    for _sc_ac, _sc_pre, _sc_bb in [
+        (whisper_char_cfg, "whisper-base-logmel-charlev-spc", False),
+        (
+            rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out", per_token_score="prefix_fwd"),
+            "wav2vec2ctc-fproj_out-prefixfwd",
+            True,
+        ),
+        (voxtral_charlev_logmel_cfg, "voxtral-charlevlogmel", False),
+    ]:
+        _sc_ex = _xa_extract(_sc_ac, f"{_sc_pre}-abl-{_xa_tag}-L2_grad-pertoken", "L2", False, bb=_sc_bb)
+        for _sc_tag, _sc_kw in _SIL_SCHEMES:
+            _sc_al = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=_sc_ex.out_hdf,
+                grad_score_key="data",
+                dataset_dir=_xa_dir,
+                dataset_key="test",
+                dataset_offset_factors=_xa_off,
+                align_opts=_sil_ao,
+                **_sc_kw,
+            )
+            _sc_nm = f"align/{_sc_pre}-abl-{_xa_tag}-L2_grad-pertoken-{_name_for_dict(_sil_ao)}-{_sc_tag}"
+            _sc_al.add_alias(_sc_nm)
+            reg(f"{_sc_nm}-wbe.txt", _sc_al.out_wbe)
+
     # (6) Complete the char-vs-subword grid for the speech LLMs: grad SUBWORD extracts (the
     # char-level counterparts are already wired in the headline-A block). Each model uses its own
     # best grad attribution (voxtral/canary L1, phi4 L2_e). These are heavy models -> 24h walltime.

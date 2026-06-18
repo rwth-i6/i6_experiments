@@ -159,20 +159,43 @@ def _streaming_offset_table():
                 ),
             ],
         ),
+        (
+            "Parakeet RNN-T\\\\(offline)",
+            [
+                (
+                    "Gradients",
+                    *g(
+                        f"parakeet-rnnt-1.1b-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"parakeet-rnnt-1.1b-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                    ),
+                ),
+                (
+                    "Posteriors",
+                    f"baseline-parakeet-rnnt-1.1b-native-viterbi-{S}",
+                    f"baseline-parakeet-rnnt-1.1b-native-viterbi-{T}",
+                ),
+            ],
+        ),
     ]
+    # Architecture per row (Emformer is an RNN-T transducer, not CTC),
+    # plus a full-context (offline) Parakeet RNN-T as the non-streaming reference:
+    # its native viterbi sees the whole utterance, so it has no emission-delay bias.
+    STYPE = {
+        _M_EMFORMER: "Transd.",
+        _M_FC_CTC: "CTC",
+        _M_FC_RNNT: "Transd.",
+        "Parakeet RNN-T\\\\(offline)": "Transd.",
+    }
 
-    columns = ["method", "t_start", "t_end", "s_start", "s_end"]
+    columns = ["type", "model", "method", "t_start", "t_end", "s_start", "s_end"]
     rows = []
-    for gi, (model, methods) in enumerate(MODELS):
-        if gi > 0:
-            rows.append({"label": None, "cells": {}})
-        for mi, (mlabel, sa, ti) in enumerate(methods):
-            if mi > 0:
-                rows.append({"cline": True})
+    for model, methods in MODELS:
+        for mlabel, sa, ti in methods:
             rows.append(
                 {
-                    "label": model if mi == 0 else "",
                     "cells": {
+                        "type": STYPE[model],
+                        "model": model,
                         "method": mlabel,
                         "t_start": _metric(ti, "start_signed_mean"),
                         "t_end": _metric(ti, "end_signed_mean"),
@@ -430,36 +453,26 @@ def _attribution_table():
 #     grad-only (attention has ~no mass in silence).
 # ----------------------------------------------------------------------------------------
 def _alignopts_silence_table():
-    GP = "align/whisper-base-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc-asotTrue-bs-5"
-    # Blank-scoring scheme (Type + its parameter Opts) x topology;
-    # energy token-weighting (en0.5) held constant.
-    # constant = the fixed blank_score gamma baseline (no energy silence);
-    # energy = energy-aware silence blank; z-score = grad z-score blank.
-    # (type, opts, topology, grad suffix)
-    # (type, opts, topology, grad suffix). Topology is an orthogonal axis, shown as its own column.
-    ROWS = [
-        ("constant", "$\\gamma = -5$", "CTC", "-en0.5"),
-        ("energy", "$s = 1$", "CTC", "-en0.5-sil1.0"),
-        ("energy", "$s = 2$", "CTC", "-en0.5-sil2.0"),
-        ("z-score", "$\\kappa = 1$", "CTC", "-en0.5-zsk1.0"),
-        ("energy", "$s = 1$", "word", "-en0.5-sil1.0-wordtopo"),
+    S = "buckeye-segA-5h"
+    # Blank-scoring schemes (CTC topology, grad char-level), shown across model families. (col key, prefix)
+    MODELS = [
+        ("whisper", "whisper-base-logmel-charlev-spc"),
+        ("wav2vec2", "wav2vec2ctc-fproj_out-prefixfwd"),
+        ("voxtral", "voxtral-charlevlogmel"),
     ]
-    columns = ["type", "opts", "topo", "g_wbe", "g_a50"]
+    SCHEMES = [
+        ("constant", "$\\gamma = -5$", "en0.5"),
+        ("energy", "$s = 1$", "en0.5-sil1.0"),
+        ("energy", "$s = 2$", "en0.5-sil2.0"),
+        ("z-score", "$\\kappa = 1$", "en0.5-zsk1.0"),
+    ]
+    columns = ["type", "opts"] + [mk for mk, _ in MODELS]
     rows = []
-    for typ, opts, topo, gs in ROWS:
-        gb = GP + gs
-        rows.append(
-            {
-                "label": "",
-                "cells": {
-                    "type": typ,
-                    "opts": opts,
-                    "topo": topo,
-                    "g_wbe": _wbe(gb),
-                    "g_a50": _metric(gb, "acc_50ms"),
-                },
-            }
-        )
+    for typ, opts, sfx in SCHEMES:
+        cells = {"type": typ, "opts": opts}
+        for mk, mpre in MODELS:
+            cells[mk] = _wbe(f"align/{mpre}-abl-{S}-L2_grad-pertoken-asotTrue-bs-5-{sfx}")
+        rows.append({"cells": cells})
     _emit("alignopts-silence", columns, rows)
 
 
@@ -970,7 +983,7 @@ def _prompt_splice_table():
     AO = "asotTrue-bs-5-en0.5-sil1.0"
     MODELS = [("phi4mm", "Phi-4-MM"), ("voxtral", "Voxtral"), ("canary-qwen", "Canary-Qwen")]
     # (tag, row label, the actual spliced instruction text).
-    # The "len" column = the word count of the text, computed dynamically below (not hardcoded),
+    # The "len" column = the character count of the text, computed dynamically below (not hardcoded),
     # so it tracks any edit to the instruction.
     PROMPTS = [
         ("default", "neutral (into text)", "Transcribe the audio clip into text."),
@@ -987,7 +1000,7 @@ def _prompt_splice_table():
         columns += [f"{mk}_g", f"{mk}_a"]
     rows = []
     for tag, label, prompt_text in PROMPTS:
-        cells = {"len": len(prompt_text.split())}
+        cells = {"len": len(prompt_text)}
         for mk, _ in MODELS:
             cells[f"{mk}_g"] = _wbe(f"align/{mk}-promptsplice-{tag}-char-{S}-grad-pertoken-{AO}")
             cells[f"{mk}_a"] = _wbe(f"align/baseline-{mk}-promptsplice-{tag}-selfattn-{S}-{AO}")
