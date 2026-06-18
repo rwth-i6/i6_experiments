@@ -137,6 +137,12 @@ def py():
         Whisper,
         model_dir=DownloadHuggingFaceRepoJobV2(repo_id="openai/whisper-base", repo_type="model").out_hub_cache_dir,
     )
+    # The cost table uses whisper-large-v3 (people expect the large model for a cost number);
+    # the correctness-control ladder above stays on whisper-base.
+    _whisper_large = rf.build_dict(
+        Whisper,
+        model_dir=DownloadHuggingFaceRepoJobV2(repo_id="openai/whisper-large-v3", repo_type="model").out_hub_cache_dir,
+    )
     _extract_and_wbe("aed-whisper-seq-bb0-sb1", _whisper, needs_transformers=True, batched_backward=False)
     _extract_and_wbe("aed-whisper-tokbatch-bb1-sb1", _whisper, needs_transformers=True, batched_backward=True)
 
@@ -170,7 +176,7 @@ def py():
     # Emitted via the split data/spec/render pipeline (tables-data/cost.data.json), so this IS the paper
     # cost table (the main recipe no longer builds one). The mgr's PYTHONPATH overlay serves transformers.
     dl_timit = DownloadHuggingFaceRepoJobV2(repo_id="nh0znoisung/timit", repo_type="dataset")
-    cost_models = {"CTC (wav2vec2)": _w2v, "AED (whisper)": _whisper, "Sp. LLM (phi4)": _phi4}
+    cost_models = {"CTC (wav2vec2)": _w2v, "AED (whisper-large)": _whisper_large, "Sp. LLM (phi4)": _phi4}
     cost = AlignCost4WayBenchmarkJob(
         model_configs=cost_models,
         dataset_dir=dl_timit.out_hub_cache_dir,

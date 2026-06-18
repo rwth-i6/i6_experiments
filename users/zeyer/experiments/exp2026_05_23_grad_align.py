@@ -4183,6 +4183,32 @@ def py():
         "blank_score": -6,
     }
 
+    # The opts above degenerate on the CTC/transducer dot scores:
+    # the hard clip floors their mostly-small signed values to a constant,
+    # so every word piles onto one frame (WBE ~3.2 s; identical grad vs grad*input proves a fixed degenerate).
+    # Sweep sign-robust alternatives (log-sigmoid squash / std-normalization, no hard clip) across all models,
+    # to find one uniform dot DP that holds for every family. Cheap: re-aligns the existing dot HDFs, no GPU.
+    _ABL_DOT_SWEEP = {
+        "logsig": {
+            "norm_scores": "absmeanS",
+            "apply_log_sigmoid": True,
+            "apply_softmax_over_time": True,
+            "blank_score": -6,
+        },
+        "stdmeanS": {
+            "norm_scores": "stdmeanS",
+            "clip_scores": (1e-5, None),
+            "apply_softmax_over_time": True,
+            "blank_score": -6,
+        },
+        "std0S-logsig": {
+            "norm_scores": "std0S",
+            "apply_log_sigmoid": True,
+            "apply_softmax_over_time": True,
+            "blank_score": -6,
+        },
+    }
+
     def _abl_align_dot(ex, ename):
         al = WordAlignFromPerTokenGradsJob(
             grad_score_hdf=ex.out_hdf,
@@ -4230,6 +4256,21 @@ def py():
         # gradient-x-input counterpart of dot (signed sum of grad*input), same no-log DP.
         _den_e = f"{_apre}-abl-{_xa_tag}-dot_e_grad-pertoken"
         _abl_align_dot(_xa_extract(_ac, _den_e, "sum", True, bb=_abb), _den_e)
+        # signed dot opts sweep: find a uniform DP that holds on CTC/transducer too (see _ABL_DOT_SWEEP).
+        for _dtag, _dopts in _ABL_DOT_SWEEP.items():
+            for _dsfx, _dmgi in (("dot_grad", False), ("dot_e_grad", True)):
+                _dn = f"{_apre}-abl-{_xa_tag}-{_dsfx}-pertoken"
+                _dal = WordAlignFromPerTokenGradsJob(
+                    grad_score_hdf=_xa_extract(_ac, _dn, "sum", _dmgi, bb=_abb).out_hdf,
+                    grad_score_key="data",
+                    dataset_dir=_xa_dir,
+                    dataset_key="test",
+                    dataset_offset_factors=_xa_off,
+                    align_opts=_dopts,
+                )
+                _dnm = f"align/{_dn}-{_name_for_dict(_dopts)}"
+                _dal.add_alias(_dnm)
+                reg(f"{_dnm}-wbe.txt", _dal.out_wbe)
         # attribution axis (fast models only): SmoothGrad / VarGrad / IG / EG, on L2.
         if _ado_attr:
             for _akw, _asfx in [

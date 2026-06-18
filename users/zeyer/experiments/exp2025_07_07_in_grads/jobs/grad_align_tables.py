@@ -374,13 +374,21 @@ def _ablation_table():
         ("dot_e_grad", DOT_SFX),
     ]
     columns = [c for c, _ in COLS]
-    rows = [
-        {
-            "label": mlabel,
-            "cells": {c: _wbe(f"align/{mpre}-abl-{S}-{c}-pertoken-{sfx}") for c, sfx in COLS},
-        }
-        for mlabel, mpre in MODELS
-    ]
+    # Signed-sum ("dot") saliency is informative only for the AED/LLM families.
+    # On CTC/transducer the per-frame signed sum is near-flat
+    # (the signed gradient components cancel over the feature axis),
+    # so the DP can only produce a degenerate pile (WBE >2 s, opt-independent; verified at the HDF level).
+    # Report n/a there rather than a misleading broken number.
+    _DOT_OK = {"whisper-base-logmel-charlev-spc", "voxtral-charlevlogmel"}
+    rows = []
+    for mlabel, mpre in MODELS:
+        cells = {}
+        for c, sfx in COLS:
+            if c in ("dot_grad", "dot_e_grad") and mpre not in _DOT_OK:
+                cells[c] = "n/a"
+            else:
+                cells[c] = _wbe(f"align/{mpre}-abl-{S}-{c}-pertoken-{sfx}")
+        rows.append({"label": mlabel, "cells": cells})
     _emit("grad-score-ablation", columns, rows)
 
 
@@ -419,30 +427,34 @@ def _attribution_table():
 
 # ----------------------------------------------------------------------------------------
 # T3b-i align-OPTS, silence & topology (Buckeye-segA, whisper grad-char).
-#     Each independent DP option is its OWN column first, then a short note, then the numbers.
-#     Grad-only (attention has ~no mass in silence).
+#     Grouped "Blank scoring" {Type | Opts} x topology;
+#     grad-only (attention has ~no mass in silence).
 # ----------------------------------------------------------------------------------------
 def _alignopts_silence_table():
     GP = "align/whisper-base-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc-asotTrue-bs-5"
-    # (silence-blank setting, topology, note, grad suffix). Option columns first, then the short note.
+    # Blank-scoring scheme (Type + its parameter Opts) x topology;
+    # energy token-weighting (en0.5) held constant.
+    # constant = the fixed blank_score gamma baseline (no energy silence);
+    # energy = energy-aware silence blank; z-score = grad z-score blank.
+    # (type, opts, topology, grad suffix)
     ROWS = [
-        ("$s{=}1$", "CTC", "our std", "-en0.5-sil1.0"),
-        ("off", "CTC", "", "-en0.5"),
-        ("$s{=}2$", "CTC", "", "-en0.5-sil2.0"),
-        ("zero-skip", "CTC", "", "-en0.5-zsk1.0"),
-        ("$s{=}1$", "word", "", "-en0.5-sil1.0-wordtopo"),
+        ("constant", "$\\gamma{=}{-}5$", "CTC", "-en0.5"),
+        ("energy", "$s{=}1$", "CTC", "-en0.5-sil1.0"),
+        ("energy", "$s{=}2$", "CTC", "-en0.5-sil2.0"),
+        ("z-score", "$\\kappa{=}1$", "CTC", "-en0.5-zsk1.0"),
+        ("energy", "$s{=}1$", "word", "-en0.5-sil1.0-wordtopo"),
     ]
-    columns = ["silence", "topo", "note", "g_wbe", "g_a50"]
+    columns = ["type", "opts", "topo", "g_wbe", "g_a50"]
     rows = []
-    for silence, topo, note, gs in ROWS:
+    for typ, opts, topo, gs in ROWS:
         gb = GP + gs
         rows.append(
             {
                 "label": "",
                 "cells": {
-                    "silence": silence,
+                    "type": typ,
+                    "opts": opts,
                     "topo": topo,
-                    "note": note,
                     "g_wbe": _wbe(gb),
                     "g_a50": _metric(gb, "acc_50ms"),
                 },
@@ -456,7 +468,7 @@ def _alignopts_silence_table():
 #     (Buckeye-segA, whisper grad-char vs cross-attn).
 #     Boolean option columns first (checkmark = on), then a short note, then the numbers.
 #     Blank state off = a monotonic DTW;
-#     additionally log off = the exact openai-whisper timestamp DTW (bottom row),
+#     additionally log off = the exact OpenAI Whisper timestamp DTW (bottom row),
 #     where grad and cross-attn converge.
 # ----------------------------------------------------------------------------------------
 def _alignopts_dtw_table():
@@ -465,10 +477,10 @@ def _alignopts_dtw_table():
     ck, cx = "\\checkmark", "$\\times$"  # boolean option cell: on vs off
     # (apply-log, blank state, note, grad suffix, cross-attn suffix). Option columns first, note last.
     ROWS = [
-        (ck, ck, "our std", "-en0.5-sil1.0", "-en0.5-sil1.0"),
+        (ck, ck, "our standard", "-en0.5-sil1.0", "-en0.5-sil1.0"),
         (cx, ck, "", "-alFalse-en0.5-sil1.0", "-alFalse-en0.5-sil1.0"),
         (ck, cx, "", "-en0.5-sil1.0-dtw", "-en0.5-sil1.0-dtw"),
-        (cx, cx, "openai whisper", "-en0.5-sil1.0-wdtw", "-en0.5-sil1.0-wdtw"),
+        (cx, cx, "OpenAI Whisper", "-en0.5-sil1.0-wdtw", "-en0.5-sil1.0-wdtw"),
     ]
     columns = ["applylog", "blank", "note", "g_wbe", "g_a50", "a_wbe", "a_a50"]
     rows = []
