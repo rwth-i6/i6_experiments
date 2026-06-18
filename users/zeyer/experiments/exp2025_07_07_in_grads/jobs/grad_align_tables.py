@@ -411,29 +411,29 @@ def _attribution_table():
 
 # ----------------------------------------------------------------------------------------
 # T3b-i align-OPTS, silence & topology (Buckeye-segA, whisper grad-char). Each independent DP option is
-#     its OWN column (silence-blank scale, topology); the row label is a 1-2 word note (often empty).
-#     Grad-only: the energy/silence blank is a grad-side fix (attention carries ~no mass in silence).
+#     its OWN column first, then a short note, then the numbers. Grad-only (attention has ~no mass in silence).
 # ----------------------------------------------------------------------------------------
 def _alignopts_silence_table():
     GP = "align/whisper-base-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc-asotTrue-bs-5"
-    # (note, silence-blank setting, topology, grad suffix). One option per column; note is short.
+    # (silence-blank setting, topology, note, grad suffix). Option columns first, then the short note.
     ROWS = [
-        ("our std", "x1", "CTC", "-en0.5-sil1.0"),
-        ("", "off", "CTC", "-en0.5"),
-        ("", "x2", "CTC", "-en0.5-sil2.0"),
-        ("", "zero-skip", "CTC", "-en0.5-zsk1.0"),
-        ("", "x1", "word", "-en0.5-sil1.0-wordtopo"),
+        ("x1", "CTC", "our std", "-en0.5-sil1.0"),
+        ("off", "CTC", "", "-en0.5"),
+        ("x2", "CTC", "", "-en0.5-sil2.0"),
+        ("zero-skip", "CTC", "", "-en0.5-zsk1.0"),
+        ("x1", "word", "", "-en0.5-sil1.0-wordtopo"),
     ]
-    columns = ["silence", "topo", "g_wbe", "g_a50"]
+    columns = ["silence", "topo", "note", "g_wbe", "g_a50"]
     rows = []
-    for note, silence, topo, gs in ROWS:
+    for silence, topo, note, gs in ROWS:
         gb = GP + gs
         rows.append(
             {
-                "label": note,
+                "label": "",
                 "cells": {
                     "silence": silence,
                     "topo": topo,
+                    "note": note,
                     "g_wbe": _wbe(gb),
                     "g_a50": _metric(gb, "acc_50ms"),
                 },
@@ -443,30 +443,32 @@ def _alignopts_silence_table():
 
 
 # ----------------------------------------------------------------------------------------
-# T3b-ii align-OPTS, apply-log / DTW equivalence (Buckeye-segA, whisper grad-char vs cross-attn). Each
-#     independent option is a column (apply-log on/off, blank state yes/no); the note tags the corners.
-#     whisper-DTW = log off + no blank = our DP at a fixed config; grad and cross-attn converge there.
+# T3b-ii align-OPTS, apply-log / DTW equivalence (Buckeye-segA, whisper grad-char vs cross-attn). Boolean
+#     option columns first (checkmark = on), then a short note, then the numbers. The bottom row (log off,
+#     no blank) is the openai whisper-DTW config; grad and cross-attn converge there.
 # ----------------------------------------------------------------------------------------
 def _alignopts_dtw_table():
     GP = "align/whisper-base-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc-asotTrue-bs-5"
     AP = "align/baseline-whisper-base-crossattn-auto-buckeye-segA-5h-asotTrue-bs-5"
-    # (note, apply-log, blank state, grad suffix, cross-attn suffix).
+    ck, cx = "\\checkmark", "$\\times$"  # boolean option cell: on vs off
+    # (apply-log, blank state, note, grad suffix, cross-attn suffix). Option columns first, note last.
     ROWS = [
-        ("our std", "on", "yes", "-en0.5-sil1.0", "-en0.5-sil1.0"),
-        ("", "off", "yes", "-alFalse-en0.5-sil1.0", "-alFalse-en0.5-sil1.0"),
-        ("like DTW", "on", "no", "-en0.5-sil1.0-dtw", "-en0.5-sil1.0-dtw"),
-        ("openai DTW", "off", "no", "-en0.5-sil1.0-wdtw", "-en0.5-sil1.0-wdtw"),
+        (ck, ck, "default", "-en0.5-sil1.0", "-en0.5-sil1.0"),
+        (cx, ck, "", "-alFalse-en0.5-sil1.0", "-alFalse-en0.5-sil1.0"),
+        (ck, cx, "DTW", "-en0.5-sil1.0-dtw", "-en0.5-sil1.0-dtw"),
+        (cx, cx, "whisper-DTW", "-en0.5-sil1.0-wdtw", "-en0.5-sil1.0-wdtw"),
     ]
-    columns = ["applylog", "blank", "g_wbe", "g_a50", "a_wbe", "a_a50"]
+    columns = ["applylog", "blank", "note", "g_wbe", "g_a50", "a_wbe", "a_a50"]
     rows = []
-    for note, applylog, blank, gs, as_ in ROWS:
+    for applylog, blank, note, gs, as_ in ROWS:
         gb, ab = GP + gs, AP + as_
         rows.append(
             {
-                "label": note,
+                "label": "",
                 "cells": {
                     "applylog": applylog,
                     "blank": blank,
+                    "note": note,
                     "g_wbe": _wbe(gb),
                     "g_a50": _metric(gb, "acc_50ms"),
                     "a_wbe": _wbe(ab),
