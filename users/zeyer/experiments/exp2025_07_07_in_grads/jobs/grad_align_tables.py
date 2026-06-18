@@ -999,13 +999,17 @@ def _prompt_splice_table():
 
 
 def build_preview_tables(results):
-    """One-shot SNAPSHOT of every table -> output/tables-data-preview/<name>.data.json, resolving each
-    cell from current disk state: finished -> value, not-yet-produced -> "·" (pending). Plain file
-    I/O (NOT a sis output), rewritten on each config evaluation, so it always reflects current progress
-    without blocking on unfinished extracts (which a WriteTableDataJob would, via its input deps)."""
+    """Write per-table preview MANIFESTS to output/tables-data-preview/<name>.manifest.pkl.
+
+    Each gzip-pickles (columns, rows, source); the rows carry the real cell Variables, so the manifest
+    holds everything needed to resolve the numbers later. Written once per config load (this runs in py()).
+    The numbers are NOT resolved here -- jobs/table_data.py --refresh-preview output/tables-data-preview
+    re-resolves them from current disk state any time, with no manager restart
+    (scripts/sync_tables_preview.sh runs that refresher before rendering), so a pending cell never blocks."""
     import os
-    import json
-    from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate_delayed_copy
+    from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.table_data import (
+        write_preview_manifest,
+    )
 
     global _CAPTURE
     _CAPTURE = []
@@ -1015,52 +1019,14 @@ def build_preview_tables(results):
     finally:
         _CAPTURE = None
 
-    pending = "·"
     out_dir = "output/tables-data-preview"
     os.makedirs(out_dir, exist_ok=True)
     # Drop snapshots of renamed/removed tables so the preview dir holds only the current set.
     current = {name for name, *_ in defs}
     for fn in os.listdir(out_dir):
-        if fn.endswith(".data.json") and fn[: -len(".data.json")] not in current:
+        if fn.endswith(".manifest.pkl") and fn[: -len(".manifest.pkl")] not in current:
+            os.remove(os.path.join(out_dir, fn))
+        elif fn.endswith(".data.json") and fn[: -len(".data.json")] not in current:
             os.remove(os.path.join(out_dir, fn))
     for name, columns, rows, source in defs:
-        out_rows = []
-        for row in rows:
-            if row.get("cline"):
-                out_rows.append({"cline": True})
-                continue
-            if row.get("hline2"):
-                out_rows.append({"hline2": True})
-                continue
-            if row.get("hline") or (row.get("label") is None and not row.get("cells")):
-                out_rows.append({"hline": True})
-                continue
-            src_cells = row.get("cells", {})
-            cells = {}
-            srcs = {}
-            for k in columns:
-                c = src_cells.get(k)
-                if c is None:
-                    continue
-                if not isinstance(c, dict):
-                    cells[k] = c
-                    continue
-                if c.get("src"):
-                    srcs[k] = c["src"]
-                var = c.get("var")
-                key = c.get("key")
-                path = var.get_path() if (var is not None and hasattr(var, "get_path")) else None
-                if path and os.path.exists(path):
-                    try:
-                        val = instanciate_delayed_copy(var)
-                        if key is not None and isinstance(val, dict):
-                            val = val.get(key)
-                        cells[k] = None if val is None else (val if isinstance(val, str) else float(val))
-                    except Exception:
-                        cells[k] = pending
-                else:
-                    cells[k] = pending
-            out_rows.append({"label": row.get("label", ""), "cells": cells, "src": srcs})
-        data = {"source": source, "columns": list(columns), "rows": out_rows}
-        with open(os.path.join(out_dir, f"{name}.data.json"), "wt") as f:
-            json.dump(data, f, indent=1)
+        write_preview_manifest(name, columns, rows, source, out_dir)
