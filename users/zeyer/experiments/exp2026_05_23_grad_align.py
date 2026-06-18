@@ -4157,6 +4157,26 @@ def py():
         al.add_alias(nm)
         reg(f"{nm}-wbe.txt", al.out_wbe)
 
+    # Signed "dot" (sum) variant of _abl_align: identical DP, but apply_log off (alFalse),
+    # since a signed score has no meaningful log (plain softmax-over-time still localizes it).
+    _abl_dot_ao = {**_abl_ao, "apply_log": False}
+
+    def _abl_align_dot(ex, ename):
+        al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_xa_dir,
+            dataset_key="test",
+            dataset_offset_factors=_xa_off,
+            align_opts=_abl_dot_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=1.0,
+            word_topology=True,
+        )
+        nm = f"align/{ename}-{_name_for_dict(_abl_dot_ao)}-en0.5-sil1.0-wordtopo"
+        al.add_alias(nm)
+        reg(f"{nm}-wbe.txt", al.out_wbe)
+
     # (model_config, name_prefix, batched_backward, run_attribution)
     _ABL_MODELS = [
         (
@@ -4185,6 +4205,9 @@ def py():
         ]:
             _aen = f"{_apre}-abl-{_xa_tag}-{_arn}-pertoken"
             _abl_align(_xa_extract(_ac, _aen, _ar, _amgi, bb=_abb), _aen)
+        # signed "dot" (sum reduction over the feature axis), aligned with the no-log signed DP.
+        _den = f"{_apre}-abl-{_xa_tag}-dot_grad-pertoken"
+        _abl_align_dot(_xa_extract(_ac, _den, "sum", False, bb=_abb), _den)
         # attribution axis (fast models only): SmoothGrad / VarGrad / IG / EG, on L2.
         if _ado_attr:
             for _akw, _asfx in [

@@ -28,6 +28,14 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.table_da
 _RESULTS = {}
 _CAPTURE = None  # when a list, _emit captures (name, columns, rows, source) -- preview mode
 
+# Streaming model display names carry a forced LaTeX line break
+# before "(streaming)",
+# so the long name wraps onto two lines;
+# render_tables wraps any line-break-bearing label/cell in a makecell.
+_M_EMFORMER = "Emformer\\\\(streaming)"
+_M_FC_CTC = "FastConformer-CTC\\\\(streaming)"
+_M_FC_RNNT = "FastConformer-RNN-T\\\\(streaming)"
+
 
 def build_tables(results):
     global _RESULTS
@@ -103,7 +111,7 @@ def _streaming_offset_table():
 
     MODELS = [
         (
-            "Emformer (streaming)",
+            _M_EMFORMER,
             [
                 (
                     "Gradients",
@@ -120,7 +128,7 @@ def _streaming_offset_table():
             ],
         ),
         (
-            "FastConformer-CTC (streaming)",
+            _M_FC_CTC,
             [
                 (
                     "Gradients",
@@ -133,7 +141,7 @@ def _streaming_offset_table():
             ],
         ),
         (
-            "FastConformer-RNN-T (streaming)",
+            _M_FC_RNNT,
             [
                 (
                     "Gradients",
@@ -335,7 +343,8 @@ def _matched_tok_table():
 # T3a grad-score reduction ablation (cross-model, Buckeye-segA, word-topology fixed): the per-token
 #     reduction L0.5 / L1 / L2 / L2_e across one representative model per family. A few ms apart -> the
 #     reduction choice is not critical; the saliency signal, not the norm, carries the alignment.
-#     ("dot"/sum reductions are excluded: signed, they break the time-softmax scoring.)
+#     The signed "dot" (sum) reduction is included as the last column;
+#     it has no meaningful log, so its align drops apply_log (everything else identical).
 # ----------------------------------------------------------------------------------------
 def _ablation_table():
     S = "buckeye-segA-5h"
@@ -345,18 +354,18 @@ def _ablation_table():
         ("Nvidia CTC", "parakeet-ctc-1.1b-prefixfwd"),
         ("Whisper-base", "whisper-base-logmel-charlev-spc"),
         ("Parakeet RNN-T", "parakeet-rnnt-1.1b-logmel"),
-        ("Emformer (streaming)", "emformer-rnnt-prefix-logmel"),
+        (_M_EMFORMER, "emformer-rnnt-prefix-logmel"),
         ("Voxtral", "voxtral-charlevlogmel"),
     ]
     REDS = ["L0.5_grad", "L1_grad", "L2_grad", "L2_e_grad"]
-    columns = list(REDS)
-    rows = [
-        {
-            "label": mlabel,
-            "cells": {rk: _wbe(f"align/{mpre}-abl-{S}-{rk}-pertoken-{SFX}") for rk in REDS},
-        }
-        for mlabel, mpre in MODELS
-    ]
+    # The signed "dot" (sum) score aligns with apply_log off (alFalse), same word-topology DP otherwise.
+    DOT_SFX = "asotTrue-bs-5-alFalse-en0.5-sil1.0-wordtopo"
+    columns = REDS + ["dot_grad"]
+    rows = []
+    for mlabel, mpre in MODELS:
+        cells = {rk: _wbe(f"align/{mpre}-abl-{S}-{rk}-pertoken-{SFX}") for rk in REDS}
+        cells["dot_grad"] = _wbe(f"align/{mpre}-abl-{S}-dot_grad-pertoken-{DOT_SFX}")
+        rows.append({"label": mlabel, "cells": cells})
     _emit("grad-score-ablation", columns, rows)
 
 
@@ -400,22 +409,51 @@ def _attribution_table():
 def _alignopts_table():
     GP = "align/whisper-base-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc-asotTrue-bs-5"
     AP = "align/baseline-whisper-base-crossattn-auto-buckeye-segA-5h-asotTrue-bs-5"
-    # (row label, grad suffix, cross-attn suffix)
+    # (row label, comment, grad suffix, cross-attn suffix).
+    # Only the STRUCTURAL DP axes belong here -- topology, silence state, the DTW corner;
+    # the scalar hyperparameters (blank score, energy power, percentile) are swept elsewhere
+    # and are not the point of this table.
     ROWS = [
-        ("default (CTC-topo)", "-en0.5-sil1.0", "-en0.5-sil1.0"),
-        ("word-topology", "-en0.5-sil1.0-wordtopo", "-en0.5-sil1.0-wordtopo"),
-        ("silence off", "-en0.5", ""),
-        ("DTW (no blank)", "-en0.5-sil1.0-dtw", "-en0.5-sil1.0-dtw"),
-        ("whisper-DTW (openai)", "-en0.5-sil1.0-wdtw", "-en0.5-sil1.0-wdtw"),
+        (
+            "default",
+            "Blank between every token (standard CTC topology).",
+            "-en0.5-sil1.0",
+            "-en0.5-sil1.0",
+        ),
+        (
+            "word-topology",
+            "Blank only between words, never within a word.",
+            "-en0.5-sil1.0-wordtopo",
+            "-en0.5-sil1.0-wordtopo",
+        ),
+        (
+            "silence off",
+            "No silence state; blanks not boosted in low-energy frames.",
+            "-en0.5",
+            "",
+        ),
+        (
+            "DTW (no blank)",
+            "Monotonic DTW, no blank state (every frame emits a token).",
+            "-en0.5-sil1.0-dtw",
+            "-en0.5-sil1.0-dtw",
+        ),
+        (
+            "whisper-DTW",
+            "openai-whisper's DTW corner: softmax-over-time, log off, no blank.",
+            "-en0.5-sil1.0-wdtw",
+            "-en0.5-sil1.0-wdtw",
+        ),
     ]
-    columns = ["g_wbe", "g_a50", "a_wbe", "a_a50"]
+    columns = ["comment", "g_wbe", "g_a50", "a_wbe", "a_a50"]
     rows = []
-    for lbl, gs, as_ in ROWS:
+    for lbl, comment, gs, as_ in ROWS:
         gb, ab = GP + gs, AP + as_
         rows.append(
             {
                 "label": lbl,
                 "cells": {
+                    "comment": comment,
                     "g_wbe": _wbe(gb),
                     "g_a50": _metric(gb, "acc_50ms"),
                     "a_wbe": _wbe(ab),
@@ -570,7 +608,7 @@ def _compare_table(with_hyp=False):
         (
             # Emformer RNN-T: the streaming transducer (vs offline Parakeet). grad resists the
             # streaming emission delay that the native forced alignment carries.
-            "Emformer (streaming)",
+            _M_EMFORMER,
             [
                 (
                     "Gradients",
@@ -587,7 +625,7 @@ def _compare_table(with_hyp=False):
             ],
         ),
         (
-            "FastConformer-CTC (streaming)",
+            _M_FC_CTC,
             [
                 (
                     "Gradients",
@@ -604,7 +642,7 @@ def _compare_table(with_hyp=False):
             ],
         ),
         (
-            "FastConformer-RNN-T (streaming)",
+            _M_FC_RNNT,
             [
                 (
                     "Gradients",
@@ -674,7 +712,7 @@ def _compare_table(with_hyp=False):
     ]
     # Dedicated-aligner ceiling (model-agnostic), shown for reference.
     REFERENCE = [
-        ("MFA", [("Posteriors", f"baseline-mfa-{S}", f"baseline-mfa-{T}")]),
+        ("MFA", [("Likelihoods", f"baseline-mfa-{S}", f"baseline-mfa-{T}")]),
     ]
 
     # Hyp-mode (each model aligns its OWN recognition, Buckeye only) -> grad rows only, where it exists.
@@ -688,9 +726,9 @@ def _compare_table(with_hyp=False):
         "Whisper-large-v3": f"whisper-large-v3-charlev-{S}-grad",
         "Nvidia CTC": f"parakeet-ctc-1.1b-{S}-grad",
         "OWSM-CTC": f"owsm-ctc-v4-1b-{S}-grad",
-        "FastConformer-CTC (streaming)": f"fastconformer-stream-ctc-{S}-grad",
-        "FastConformer-RNN-T (streaming)": f"fastconformer-stream-rnnt-{S}-grad",
-        "Emformer (streaming)": f"emformer-rnnt-prefix-logmel-{S}-grad",
+        _M_FC_CTC: f"fastconformer-stream-ctc-{S}-grad",
+        _M_FC_RNNT: f"fastconformer-stream-rnnt-{S}-grad",
+        _M_EMFORMER: f"emformer-rnnt-prefix-logmel-{S}-grad",
     }
     # Models with no word-level own-recognition -> hyp-mode is structurally n/a (not "unrun"):
     # MMS_FA (Wav2Vec2-CTC) + Phoneme-CTC emit no word boundaries; MFA is a forced-aligner, not a recognizer.
@@ -703,13 +741,13 @@ def _compare_table(with_hyp=False):
         "Phoneme-CTC": "CTC",
         "Nvidia CTC": "CTC",
         "OWSM-CTC": "CTC",
-        "FastConformer-CTC (streaming)": "CTC",
+        _M_FC_CTC: "CTC",
         "Whisper-base": "AED",
         "Whisper-large-v3": "AED",
         "Parakeet RNN-T": "Transd.",
         "Parakeet TDT": "Transd.",
-        "Emformer (streaming)": "Transd.",
-        "FastConformer-RNN-T (streaming)": "Transd.",
+        _M_EMFORMER: "Transd.",
+        _M_FC_RNNT: "Transd.",
         "Voxtral": "Sp. LLM",
         "Phi-4-MM": "Sp. LLM",
         "Canary-Qwen": "Sp. LLM",
