@@ -459,13 +459,15 @@ def _alignopts_silence_table():
     # Energy token-weighting held at en0.5; only the blank score varies,
     # so this isolates const vs energy-silence vs z-score per signal. (col key, prefix)
     GRAD = [
-        ("whisper", "whisper-base-logmel-charlev-spc"),
         ("wav2vec2", "wav2vec2ctc-fproj_out-prefixfwd"),
+        ("whisper", "whisper-large-v3-logmel-charlev-spc"),
         ("voxtral", "voxtral-charlevlogmel"),
     ]
     ATTN = [
-        ("wh_a", "baseline-whisper-base-crossattn-auto"),
+        ("wh_a", "baseline-whisper-large-v3-crossattn-auto"),
         ("vx_a", "baseline-voxtral-char-selfattn"),
+        ("cn_a", "baseline-canary-qwen-char-selfattn"),
+        ("ph_a", "baseline-phi4mm-char-selfattn"),
     ]
     SCHEMES = [
         ("constant", "$\\gamma = -5$", "en0.5"),

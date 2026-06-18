@@ -3933,7 +3933,11 @@ def py():
     # (4h) Auto-head cross-attn (generic attention method, heads selected on TIMIT val):
     # for whisper-base (contrast with the official hand-picked heads in the crossattn baseline)
     # and CrisperWhisper (their model + generic method; the official pipeline is separate).
-    for _ah_dl, _ah_model in [(dl_whisper, "whisper-base"), (dl_crisper, "crisperwhisper")]:
+    for _ah_dl, _ah_model in [
+        (dl_whisper, "whisper-base"),
+        (dl_crisper, "crisperwhisper"),
+        (dl_whisper_l3, "whisper-large-v3"),
+    ]:
         _ah_cfg = rf.build_dict(Whisper, model_dir=_ah_dl.out_hub_cache_dir, attn_implementation="eager")
         _ah_sel = SelectSelfAttnAlignHeadsJob(
             dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_key="val", model_config=_ah_cfg
@@ -4404,6 +4408,12 @@ def py():
     ]
     for _sc_ac, _sc_pre, _sc_bb, _sc_dtw in [
         (whisper_char_cfg, "whisper-base-logmel-charlev-spc", False, False),
+        (
+            rf.build_dict(Whisper, model_dir=dl_whisper_l3.out_hub_cache_dir, char_level=True, char_level_sep=" "),
+            "whisper-large-v3-logmel-charlev-spc",
+            True,
+            False,
+        ),
         (
             rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out", per_token_score="prefix_fwd"),
             "wav2vec2ctc-fproj_out-prefixfwd",
