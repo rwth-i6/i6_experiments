@@ -83,6 +83,12 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.forced_a
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.whisper_crossattn_align import (
     WhisperCrossAttnForcedAlignJob,
 )
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.whisper_repro_check import (
+    WhisperReproCheckJob,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.whisper_dtw_ablation import (
+    WhisperDtwAblationJob,
+)
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.buckeye_fine_dataset import (
     BuildBuckeyeFineDatasetJob,
 )
@@ -3270,6 +3276,30 @@ def py():
         dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
     )
     reg("baseline-whisper-crossattn-timit-test-wbe.txt", whisper_fa_test_metric.out_wbe)
+    # find_alignment reproduction check: is our DTW DP + boundary read-off faithful to whisper?
+    _repro = WhisperReproCheckJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_key="val", overlay=_WHISPER_TS_OVERLAY, num_seqs=10
+    )
+    _repro.add_alias("whisper-repro-check-timit-val")
+    reg("whisper-repro-check-timit-val.txt", _repro.out_report)
+    # Whisper find_alignment per-difference ablation: faithful reproduction -> our method,
+    # one difference toggled at a time (head set, z-norm, median-filter, log, DP, energy, read-off).
+    _dtw_abl_sel = SelectSelfAttnAlignHeadsJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir, attn_implementation="eager"),
+    )
+    _dtw_abl = WhisperDtwAblationJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="test",
+        overlay=_WHISPER_TS_OVERLAY,
+        heads_ours=_dtw_abl_sel.out_heads,
+        whisper_model="base",
+    )
+    _dtw_abl.add_alias("whisper-dtw-ablation-base-timit-test")
+    reg("whisper-dtw-ablation-base-timit-test.txt", _dtw_abl.out_report)
+    for _dk in _dtw_abl.out_wbes:
+        reg(f"dtw-abl/whisper-base-timit-test-{_dk}-wbe.txt", _dtw_abl.out_wbes[_dk])
     # fairness-2x2: cross-attn CHAR on TIMIT-test (char twin of the subword baseline above; segA has it).
     whisper_fa_test_char = WhisperCrossAttnForcedAlignJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_key="test", overlay=_WHISPER_TS_OVERLAY, char_level=True

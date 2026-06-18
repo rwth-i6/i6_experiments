@@ -47,15 +47,13 @@ def _openai_dtw_path(cost):
     return path
 
 
-def _openai_dtw_align(score_matrix):
-    """Token start/end frames via openai's DTW on the score matrix. Same non-blank score transform
-    (log-softmax over time) as our Aligner, so only the DP differs."""
+def _dtw_spans_from_cost(cost):
+    """Run the whisper dtw_cpu recursion on `cost` [S,T] and collapse the path to per-token
+    [start, end) frame spans (a zero-duration token gets a zero-width span at the running cursor)."""
     import numpy as np
-    from scipy.special import logsumexp
 
-    s, t = score_matrix.shape
-    logp = score_matrix - logsumexp(score_matrix, axis=1, keepdims=True)  # [S,T] log-softmax over time
-    path = _openai_dtw_path(-logp.astype(np.float64))  # cost = -logprob (path maximizes prob)
+    s = cost.shape[0]
+    path = _openai_dtw_path(cost)
     text = np.array([p[0] for p in path])
     time = np.array([p[1] for p in path])
     spans = []
@@ -67,6 +65,31 @@ def _openai_dtw_align(score_matrix):
         else:
             spans.append((int(fr.min()), int(fr.max()) + 1))
     return spans
+
+
+def _openai_dtw_align(score_matrix):
+    """Token start/end frames via openai's DTW on the score matrix. Same non-blank score transform
+    (log-softmax over time) as our Aligner, so only the DP differs."""
+    import numpy as np
+    from scipy.special import logsumexp
+
+    logp = score_matrix - logsumexp(score_matrix, axis=1, keepdims=True)  # [S,T] log-softmax over time
+    return _dtw_spans_from_cost(-logp.astype(np.float64))  # cost = -logprob (path maximizes prob)
+
+
+def _true_dtw_align(score_matrix, apply_log: bool):
+    """True DTW recursion (whisper dtw_cpu) with a configurable cost.
+    apply_log=True -> cost = -log-softmax-over-time (our log-prob variant: every extra path cell
+    costs more, so the DP never takes a vertical step -> equivalent to our monotonic alignment).
+    apply_log=False -> cost = -score_matrix directly (whisper's dtw(-matrix); only non-degenerate
+    when the matrix is signed, e.g. after token z-norm -- otherwise every vertical step improves it)."""
+    import numpy as np
+    from scipy.special import logsumexp
+
+    m = score_matrix.astype(np.float64)
+    if apply_log:
+        m = m - logsumexp(m, axis=1, keepdims=True)
+    return _dtw_spans_from_cost(-m)
 
 
 class WordAlignFromPerTokenGradsJob(Job):
@@ -103,6 +126,9 @@ class WordAlignFromPerTokenGradsJob(Job):
         "word_topology": False,
         "dtw_no_blank": False,
         "whisper_dtw": False,
+        "attn_token_zscore": False,
+        "median_filter_width": 0,
+        "true_dtw": False,
     }
 
     # v2: emit the richer metric set (acc@collar, edge/interior, start/end MAE) via align_metrics.
@@ -129,6 +155,9 @@ class WordAlignFromPerTokenGradsJob(Job):
         word_topology: bool = False,
         dtw_no_blank: bool = False,
         whisper_dtw: bool = False,
+        attn_token_zscore: bool = False,
+        median_filter_width: int = 0,
+        true_dtw: bool = False,
     ):
         """
         :param grad_score_hdf: from :class:`ExtractInGradsPerTokenJob`. Must
@@ -170,6 +199,16 @@ class WordAlignFromPerTokenGradsJob(Job):
         self.dtw_no_blank = bool(dtw_no_blank)
         # Faithful openai-whisper DTW (their actual algorithm on the score matrix).
         self.whisper_dtw = bool(whisper_dtw)
+        # Whisper find_alignment difference-ablation knobs (all default off):
+        # (D) z-norm the matrix over the token axis per frame (whisper standardizes the
+        # softmax-over-time weights over tokens -> signed, ~half negative).
+        self.attn_token_zscore = bool(attn_token_zscore)
+        # (E) median filter over time (whisper uses width 7).
+        self.median_filter_width = int(median_filter_width)
+        # (G) true DTW recursion (diag/up/left, frame-sharing + zero-duration tokens),
+        # whisper's dtw_cpu, vs our Viterbi-with-blank. apply_log (align_opts) selects the
+        # log-prob cost (our variant) vs the raw-matrix cost (whisper's dtw(-matrix)).
+        self.true_dtw = bool(true_dtw)
         assert boundary_source in ("word_detail", "phonetic_detail"), boundary_source
         assert not (self.blank_grad_zscore_kappa and self.blank_silence_energy_scale), (
             "blank_grad_zscore_kappa and blank_silence_energy_scale are mutually exclusive"
@@ -356,6 +395,18 @@ class WordAlignFromPerTokenGradsJob(Job):
                 _w = max(3, int(round(self.local_norm_window_s / secs_per_timeframe)))
                 grad_mat = grad_mat / (uniform_filter1d(grad_mat, _w, axis=1, mode="nearest") + 1e-9)
 
+            # Whisper find_alignment difference-ablation transforms on the score matrix (default off).
+            if getattr(self, "attn_token_zscore", False):
+                # (D) z-norm over tokens per frame, like whisper's std_mean over the token axis.
+                _mu = grad_mat.mean(axis=0, keepdims=True)
+                _sd = grad_mat.std(axis=0, keepdims=True)
+                grad_mat = (grad_mat - _mu) / (_sd + 1e-9)
+            if getattr(self, "median_filter_width", 0) and self.median_filter_width > 1:
+                # (E) median filter over time.
+                from scipy.ndimage import median_filter as _median_filter
+
+                grad_mat = _median_filter(grad_mat, size=(1, self.median_filter_width), mode="nearest")
+
             _conf = {} if getattr(self, "with_confidence", False) else None
             _blank_state_mask = None
             if getattr(self, "dtw_no_blank", False):
@@ -371,7 +422,11 @@ class WordAlignFromPerTokenGradsJob(Job):
                     [(i == 0 or i == chunk_num_tokens or i in _word_starts) for i in range(chunk_num_tokens + 1)],
                     dtype=bool,
                 )
-            if getattr(self, "whisper_dtw", False):
+            if getattr(self, "true_dtw", False):
+                align_token_start_ends = _true_dtw_align(
+                    grad_mat, apply_log=bool(self.align_opts.get("apply_log", True))
+                )
+            elif getattr(self, "whisper_dtw", False):
                 align_token_start_ends = _openai_dtw_align(grad_mat)
             else:
                 align_token_start_ends = aligner.align(

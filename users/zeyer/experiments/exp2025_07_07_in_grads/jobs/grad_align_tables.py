@@ -485,31 +485,42 @@ def _alignopts_silence_table():
 #     where grad and cross-attn converge.
 # ----------------------------------------------------------------------------------------
 def _alignopts_dtw_table():
-    # The apply-log / DP-blank ablation (standard / no-log / DTW / OpenAI-Whisper-DTW) shown across
-    # model families AND signal types: grad and native attention. Cross-attn for the AED (Whisper),
-    # self-attn for the speech-LLM (Voxtral). CTC/transducer are excluded -- they have no attention
-    # map and their per-token grad score does not use the apply-log/DTW path. (col key, align prefix)
-    PREF = {
-        "wh_g": "align/whisper-base-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc-asotTrue-bs-5",
-        "wh_a": "align/baseline-whisper-base-crossattn-auto-buckeye-segA-5h-asotTrue-bs-5",
-        "vx_g": "align/voxtral-charlevlogmel-abl-buckeye-segA-5h-L2_grad-pertoken-asotTrue-bs-5",
-        "vx_a": "align/baseline-voxtral-char-selfattn-buckeye-segA-5h-asotTrue-bs-5",
-    }
-    ck, cx = "\\checkmark", "$\\times$"  # boolean option cell: on vs off
-    # (apply-log, blank state, note, scheme suffix -- identical across all four columns).
+    # Per-difference ablation: openai-whisper find_alignment (faithful) -> our cross-attn method,
+    # toggling ONE difference at a time. Columns = the individual differences; rows = the ladder.
+    # WBE from WhisperDtwAblationJob on the genuine openai-whisper attention -- the faithful config
+    # reproduces find_alignment exactly (verified). whisper-base, TIMIT-test.
+    # (row label, job key, heads, z-norm, median-filter, log, DP, energy, read-off)
+    ck, cx = "\\checkmark", "$\\times$"
+    WH, OU, DTW, VIT = "Whisper", "ours", "DTW", "Viterbi"
     ROWS = [
-        (ck, ck, "our standard", "-en0.5-sil1.0"),
-        (cx, ck, "", "-alFalse-en0.5-sil1.0"),
-        (ck, cx, "", "-en0.5-sil1.0-dtw"),
-        (cx, cx, "OpenAI Whisper", "-en0.5-sil1.0-wdtw"),
+        ("Whisper (faithful)", "faithful", WH, ck, ck, cx, DTW, cx, "jump"),
+        ("\\ $\\hookrightarrow$ span read-off", "span", WH, ck, ck, cx, DTW, cx, "span"),
+        ("\\ $\\hookrightarrow$ no median-filter", "nomedfilt", WH, ck, cx, cx, DTW, cx, "jump"),
+        ("\\ $\\hookrightarrow$ no z-norm", "noznorm", WH, cx, ck, cx, DTW, cx, "jump"),
+        ("\\ $\\hookrightarrow$ no z-norm, $+$log", "noznorm_log", WH, cx, ck, ck, DTW, cx, "jump"),
+        ("\\ $\\hookrightarrow$ our heads", "ourheads", OU, ck, ck, cx, DTW, cx, "jump"),
+        ("\\ $\\hookrightarrow$ our heads, span", "ourheads_span", OU, ck, ck, cx, DTW, cx, "span"),
+        ("\\ $\\hookrightarrow$ our Viterbi DP", "ourdp", OU, cx, cx, ck, VIT, cx, "span"),
+        ("Ours (full)", "full", OU, cx, cx, ck, VIT, ck, "span"),
     ]
-    columns = ["applylog", "blank", "note", "wh_g", "wh_a", "vx_g", "vx_a"]
+    columns = ["row", "heads", "znorm", "medfilt", "log", "dp", "energy", "readoff", "wbe"]
     rows = []
-    for applylog, blank, note, sfx in ROWS:
-        cells = {"applylog": applylog, "blank": blank, "note": note}
-        for ck_, pre in PREF.items():
-            cells[ck_] = _wbe(pre + sfx)
-        rows.append({"cells": cells})
+    for label, key, heads, znorm, mf, log, dp, energy, ro in ROWS:
+        rows.append(
+            {
+                "cells": {
+                    "row": label,
+                    "heads": heads,
+                    "znorm": znorm,
+                    "medfilt": mf,
+                    "log": log,
+                    "dp": dp,
+                    "energy": energy,
+                    "readoff": ro,
+                    "wbe": _wbe(f"dtw-abl/whisper-base-timit-test-{key}"),
+                }
+            }
+        )
     _emit("alignopts-dtw", columns, rows)
 
 
