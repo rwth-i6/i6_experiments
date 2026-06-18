@@ -111,7 +111,9 @@ class OwsmCtcForcedAlignJob(Job):
             assert sr == target_sr, f"OWSM-CTC expects 16 kHz, got {sr}"
             wd = data["word_detail"]
             words = list(wd["utterance"])
-            pred_word_se = model.forced_align_words(audio=audio, sample_rate=sr, words=words)
+            # empty hypothesis (the model recognised nothing) has no words to align and would crash
+            # torchaudio.forced_align (max() over an empty target); emit empty boundaries for that seq.
+            pred_word_se = model.forced_align_words(audio=audio, sample_rate=sr, words=words) if words else []
             if boundaries_writer is not None:
                 # predicted boundaries are already seconds -> CalcHypAlignMetricsJob scales the ref.
                 arr = np.asarray(pred_word_se, dtype="float32").reshape(1, len(pred_word_se), 2)
