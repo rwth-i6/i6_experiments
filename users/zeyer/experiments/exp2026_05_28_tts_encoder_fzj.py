@@ -57,6 +57,8 @@ PHONEMES_DATA_KEY = "phonemes"
 
 def py():
     prefix = get_setup_prefix_for_module(__name__)
+    # WER comments above each experiment below are %, joint AED+CTC first-pass
+    # (aed+ctc-batched/recog-1stpass), as {"dev-clean", "dev-other", "test-clean", "test-other"}.
     # Standard log-mel baseline. Same Job hash as RZ base-ls / the FZJ base setup -> imports, not re-trained.
     base_exp = _train_ls_base("base-ls", prefix=prefix)
     # Test the full-node batched dev-phase scale tuning on the (ready) base-ls checkpoint.
@@ -358,10 +360,12 @@ def py():
         extra_config_deletes=["optimizer.epsilon", "optimizer.weight_decay_modules_blacklist"],
     )
     # tts-enc-v1: pseudo-speech-enc-style text usage (~5 effective text passes, 100 ASR).
+    # {"dev-clean": 1.63, "dev-other": 4.13, "test-clean": 1.90, "test-other": 4.46}
     _train_tts_encoder("tts-enc-v1", prefix=prefix)
     # tts-enc-v2: TTS-baseline-style text usage (~1.33 effective text passes).
     # Slower text fill rate (partition_epoch=75) lets the audio bucket grow large under max_seqs=500,
     # so cap audio batch + phoneme seq length explicitly.
+    # {"dev-clean": 1.81, "dev-other": 4.50, "test-clean": 2.01, "test-other": 4.86}
     _train_tts_encoder(
         "tts-enc-v2-textP75",
         prefix=prefix,
@@ -377,6 +381,7 @@ def py():
     #     glow_tts_length_scale_range=(0.05, 0.15), batch_size_phon=50_000,
     # )
     # tts-enc-v3b: highly compressed synth (length_scale ~0.1), phon cap 75k (max_seqs=500 sometimes binds).
+    # {"dev-clean": 2.08, "dev-other": 5.03, "test-clean": 2.28, "test-other": 5.36}
     _train_tts_encoder(
         "tts-enc-v3b-lenscale-low-biggerphon",
         prefix=prefix,
@@ -387,6 +392,7 @@ def py():
     # text branch goes GlowTTS->GL-net->Griffin-Lim->waveform->ASR DbMel front-end (like the offline TTS
     # baseline), instead of feeding the GlowTTS log-mel directly. Tests whether the Griffin-Lim round-trip's
     # realistic distortion helps. GL-net ckpt (H9EByABag8UN/epoch.050.pt) synced from RZ to FZJ.
+    # {"dev-clean": 1.85, "dev-other": 4.60, "test-clean": 2.08, "test-other": 4.85}
     _train_tts_encoder(
         "tts-enc-v2-textP75-gl-wave",
         prefix=prefix,
@@ -402,6 +408,7 @@ def py():
     # ~+0.13 per base-ls-dbmel).
     # ~3.5 -> reproduced; ~4.1 -> the gap is our 4-GPU/nep regime, not the TTS.
     # See projects/2026-05-28-tts-encoder.md.
+    # {"dev-clean": 1.79, "dev-other": 4.39, "test-clean": 1.97, "test-other": 4.69}
     _train_tts_encoder(
         "tts-enc-ref-match",
         prefix=prefix,
@@ -414,6 +421,7 @@ def py():
     )
     # ref-match but with the reference's standard log-mel 100Hz ASR front-end (waveform path required):
     # closes the ~+0.13 DbMel-80Hz-vs-log-mel-100Hz re-extraction gap -> the actual reference ceiling.
+    # {"dev-clean": 1.89, "dev-other": 4.48, "test-clean": 2.04, "test-other": 4.70}
     _train_tts_encoder(
         "tts-enc-ref-match-logmel",
         prefix=prefix,
@@ -428,6 +436,7 @@ def py():
     )
     # Same, but length sampled (0.5,1.0) -- noise stays fixed at the reference 0.7:
     # tests whether shorter / variable synthetic durations keep the WER (the cheap-able axis).
+    # {"dev-clean": 1.86, "dev-other": 4.54, "test-clean": 2.14, "test-other": 4.84}
     _train_tts_encoder(
         "tts-enc-ref-match-logmel-lensamp",
         prefix=prefix,
@@ -443,6 +452,7 @@ def py():
     # Same as -lensamp, but with the SpecAugment time-mask width scaled per-seq by the sampled length_scale,
     # so compressed synthetic sequences are not over-masked (SpecAugment's absolute 20-frame width erases
     # short low-length_scale seqs). Tests whether length-aware augmentation recovers WER.
+    # {"dev-clean": 1.96, "dev-other": 4.48, "test-clean": 2.09, "test-other": 4.80}
     _train_tts_encoder(
         "tts-enc-ref-match-logmel-lensamp-specaug",
         prefix=prefix,
@@ -459,6 +469,7 @@ def py():
     # Muon (lr5e3 + weight-decay blacklist, the best 4-GPU optimizer setting,
     # see asr-base-mgpu-logmel-muon-lr5e3-wdbl) on the ref-match-logmel TTS config:
     # tests whether the TTS text-utilization gain stacks with the optimizer gain.
+    # {"dev-clean": 1.70, "dev-other": 4.18, "test-clean": 2.00, "test-other": 4.36}
     _train_tts_encoder(
         "tts-enc-ref-match-logmel-muon",
         prefix=prefix,
@@ -578,6 +589,7 @@ def py():
     # Stronger duration compression: length 0.3-0.7 (mean 0.5 -> ~2x cheaper synthetic speech than
     # ref-match length 1.0), with the length-scaled SpecAugment.
     # Cost-vs-WER axis point below lensamp (0.5-1.0).
+    # {"dev-clean": 1.99, "dev-other": 4.61, "test-clean": 2.10, "test-other": 4.94}
     _train_tts_encoder(
         "tts-enc-ref-match-logmel-lensamp-low-specaug",
         prefix=prefix,
@@ -596,6 +608,7 @@ def py():
     # the earlier study's winning setting), no TTS at all. SpecAugment time-mask width scaled to the
     # ~3x-compressed pseudo sequences (20 -> 6).
     # Same text/audio regime as ref-match-logmel (cell D: acoustics=TTS, durations=learned).
+    # {"dev-clean": 1.73, "dev-other": 4.30, "test-clean": 1.98, "test-other": 4.58}
     _train_tts_encoder(
         "pseudo-enc-logmel",
         prefix=prefix,
@@ -625,6 +638,7 @@ def py():
     # Consistency-ladder (b): NO blank insertion -- blanks get duration 0, so the feature sequence is
     # pure label embeddings (labels still 1 frame each). Isolates the contribution of the random blank
     # frames; the phoneme seq itself already carries [space] silence tokens between words.
+    # {"dev-clean": 2.11, "dev-other": 4.97, "test-clean": 2.32, "test-other": 5.32}
     _train_tts_encoder(
         "pseudo-enc-logmel-noblank",
         prefix=prefix,
@@ -641,6 +655,7 @@ def py():
     # trained text-encoder params. [space] keeps its real-silence row; [start]/[end] = global mean.
     from i6_experiments.users.zeyer.datasets.hf_librispeech_mfa_alignments import get_mfa_phone_mean_logmel_table
 
+    # {"dev-clean": 2.19, "dev-other": 4.90, "test-clean": 2.24, "test-other": 5.21}
     _train_tts_encoder(
         "pseudo-enc-logmel-noblank-mfatable",
         prefix=prefix,
@@ -656,6 +671,7 @@ def py():
     # Rung (d) WITH blank: the frozen MFA mean-logmel table, but blanks restored (0-3 frames) like the
     # phoneme winner -- the apples-to-apples mfatable comparison (blank gave -0.67 abs dev-other for the
     # trained embedding). Blank row = [space] silence acoustics (frozen-table loader, by design).
+    # {"dev-clean": 1.70, "dev-other": 4.28, "test-clean": 1.85, "test-other": 4.70}
     _train_tts_encoder(
         "pseudo-enc-logmel-mfatable",
         prefix=prefix,
@@ -717,6 +733,7 @@ def py():
     # Same duration setting (label 1, blank 0-3), now counted in encoder frames like there.
     # layer0 dropped 2026-06-17: its text branch runs all 16 encoder layers at the un-subsampled enc-rate
     # and OOMs (measured 89.7 GB peak on a long text batch; it is also the worst injection point). See notes.
+    # pseudo-enc-layer8: {"dev-clean": 1.68, "dev-other": 3.95, "test-clean": 1.85, "test-other": 4.23}; layer4: {"dev-clean": 1.69, "dev-other": 4.24, "test-clean": 1.92, "test-other": 4.45}
     for _start_layer in (4, 8):
         _train_tts_encoder(
             f"pseudo-enc-layer{_start_layer}",
@@ -802,6 +819,7 @@ def py():
     # instead of phonemes (identity output mapping; no lexicon/phoneme step needed; the earlier study
     # also used the ASR target units). Same duration setting -> ~3.2x shorter sequences than the
     # phoneme variant (cheapness bonus of coarser units).
+    # {"dev-clean": 2.30, "dev-other": 5.11, "test-clean": 2.47, "test-other": 5.51}
     _train_tts_encoder(
         "pseudo-enc-logmel-spm",
         prefix=prefix,
@@ -816,6 +834,7 @@ def py():
     # Speech-likeness 2x2, cell B (acoustics=TTS, durations=random): frozen GlowTTS acoustics, but the
     # per-phoneme durations replaced by i.i.d. uniform samples renormalized to the predictor total
     # (same length/cost as ref-match-logmel; only the learned alignment structure is removed).
+    # {"dev-clean": 1.83, "dev-other": 4.46, "test-clean": 2.06, "test-other": 4.58}
     _train_tts_encoder(
         "tts-enc-ref-match-logmel-rnddur",
         prefix=prefix,
@@ -832,6 +851,7 @@ def py():
     # Multiplicative duration jitter (online analogue of the offline pipeline's variability finding):
     # w = w_pred * U(0.7, 1.3) per phoneme, NOT renormalized -- keeps the learned alignment structure,
     # varies per-phoneme speaking rate and total length (rnddur removes the structure instead).
+    # {"dev-clean": 1.80, "dev-other": 4.40, "test-clean": 1.99, "test-other": 4.69}
     _train_tts_encoder(
         "tts-enc-ref-match-logmel-rnddur-mult",
         prefix=prefix,
@@ -847,6 +867,7 @@ def py():
     )
     # Wide length-scale range 0.1-1.0 (+ per-seq length-scaled SpecAugment): pushes the compression
     # axis below lensamp-low (0.3-0.7) toward the v3b-lenscale-low regime, now with length-aware masking.
+    # {"dev-clean": 1.94, "dev-other": 4.54, "test-clean": 2.19, "test-other": 4.89}
     _train_tts_encoder(
         "tts-enc-ref-match-logmel-lensamp-wide-specaug",
         prefix=prefix,
@@ -863,6 +884,7 @@ def py():
     # Synthetic-variability axes on ref-match-logmel (one knob each):
     # noise0 -> deterministic acoustics (no flow sampling noise; ref uses 0.7);
     # 1spk -> single fixed speaker (no voice diversity; ref samples one of 1172 per seq).
+    # {"dev-clean": 1.76, "dev-other": 4.26, "test-clean": 1.93, "test-other": 4.66}
     _train_tts_encoder(
         "tts-enc-ref-match-logmel-noise0",
         prefix=prefix,
@@ -875,6 +897,7 @@ def py():
         glow_tts_noise_scale_range=(0.0, 0.0),
         glow_tts_length_scale_range=(1.0, 1.0),
     )
+    # {"dev-clean": 1.83, "dev-other": 4.52, "test-clean": 2.10, "test-other": 4.89}
     _train_tts_encoder(
         "tts-enc-ref-match-logmel-1spk",
         prefix=prefix,
@@ -889,6 +912,7 @@ def py():
         glow_tts_fixed_speaker=0,
     )
     # Text-amount axis: text_train_epoch_split 37 / 150 = ~2x / ~0.5x text per audio epoch vs the 75 default.
+    # {"dev-clean": 1.76, "dev-other": 4.33, "test-clean": 1.99, "test-other": 4.56}
     _train_tts_encoder(
         "tts-enc-ref-match-logmel-textP37",
         prefix=prefix,
@@ -901,6 +925,7 @@ def py():
         glow_tts_noise_scale_range=(0.7, 0.7),
         glow_tts_length_scale_range=(1.0, 1.0),
     )
+    # {"dev-clean": 1.86, "dev-other": 4.54, "test-clean": 2.08, "test-other": 4.81}
     _train_tts_encoder(
         "tts-enc-ref-match-logmel-textP150",
         prefix=prefix,
