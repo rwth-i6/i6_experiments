@@ -354,14 +354,15 @@ def _ablation_table():
     S = "buckeye-segA-5h"
     SFX = "asotTrue-bs-5-en0.5-sil1.0-wordtopo"
     MODELS = [
-        ("Wav2Vec2", "wav2vec2ctc-fproj_out-prefixfwd"),
-        ("Nvidia", "parakeet-ctc-1.1b-prefixfwd"),
-        ("Whisper-base", "whisper-base-logmel-charlev-spc"),
-        ("Parakeet", "parakeet-rnnt-1.1b-logmel"),
-        (_M_EMFORMER, "emformer-rnnt-prefix-logmel"),
-        ("Voxtral", "voxtral-charlevlogmel"),
+        ("CTC", "Wav2Vec2", "wav2vec2ctc-fproj_out-prefixfwd"),
+        ("CTC", "Nvidia", "parakeet-ctc-1.1b-prefixfwd"),
+        ("AED", "Whisper-base", "whisper-base-logmel-charlev-spc"),
+        ("Transd.", "Parakeet", "parakeet-rnnt-1.1b-logmel"),
+        ("Transd.", _M_EMFORMER, "emformer-rnnt-prefix-logmel"),
+        ("Sp. LLM", "Voxtral", "voxtral-charlevlogmel"),
     ]
-    # Signed "dot"/"dot_e" scores align with apply_log off (alFalse); same word-topology DP otherwise.
+    # Signed "dot"/"dot_e": abs-mean norm with an eps floor + clip, on a plain CTC topology (NOT the
+    # L-norms' word-topology), since the energy-silence blank is undefined on a signed score.
     DOT_SFX = "nsabsmeanS-nse0.05-cs1e-05_None-asotTrue-bs-6"
     # (column key, align suffix). Plain-gradient group then the gradient-x-input ("_e") group.
     COLS = [
@@ -372,16 +373,18 @@ def _ablation_table():
         ("L2_e_grad", SFX),
         ("dot_e_grad", DOT_SFX),
     ]
-    columns = [c for c, _ in COLS]
-    # The signed-sum ("dot") DP collapses to a degenerate alignment on some families (CTC/transducer):
-    # WBE far above any real result, opt-independent (the no-log signed DP fails; verified at the HDF level).
-    # Don't hardcode which -- point every cell at its WBE; the renderer flags WBE > broken_above as "broken".
+    columns = ["type", "model"] + [c for c, _ in COLS]
+    # Every cell points at its WBE; the renderer flags WBE > broken_above as "broken", so a residual
+    # degenerate (or a not-yet-finished re-align) is never shown as a real number.
     rows = [
         {
-            "label": mlabel,
-            "cells": {c: _wbe(f"align/{mpre}-abl-{S}-{c}-pertoken-{sfx}") for c, sfx in COLS},
+            "cells": {
+                "type": typ,
+                "model": mlabel,
+                **{c: _wbe(f"align/{mpre}-abl-{S}-{c}-pertoken-{sfx}") for c, sfx in COLS},
+            },
         }
-        for mlabel, mpre in MODELS
+        for typ, mlabel, mpre in MODELS
     ]
     _emit("grad-score-ablation", columns, rows)
 
@@ -964,18 +967,24 @@ def _prompt_splice_table():
     S = "buckeye-segA-5h"
     AO = "asotTrue-bs-5-en0.5-sil1.0"
     MODELS = [("phi4mm", "Phi-4-MM"), ("voxtral", "Voxtral"), ("canary-qwen", "Canary-Qwen")]
+    # (tag, row label, the actual spliced instruction text). The "len" column = word count of the text,
+    # computed dynamically below -- not hardcoded, so it tracks any edit to the instruction.
     PROMPTS = [
-        ("default", "neutral (into text)", 6),
-        ("verbatim", "verbatim, as spoken", 8),
-        ("word", "exactly, word for word", 9),
-        ("char", "at the character level", 14),
+        ("default", "neutral (into text)", "Transcribe the audio clip into text."),
+        ("verbatim", "verbatim, as spoken", "Please transcribe the audio verbatim, exactly as spoken."),
+        ("word", "exactly, word for word", "Transcribe the following exactly and accurately, word for word:"),
+        (
+            "char",
+            "at the character level",
+            "Transcribe the audio at the character level, spelling out each word letter by letter.",
+        ),
     ]
     columns = ["len"]
     for mk, _ in MODELS:
         columns += [f"{mk}_g", f"{mk}_a"]
     rows = []
-    for tag, label, plen in PROMPTS:
-        cells = {"len": plen}
+    for tag, label, prompt_text in PROMPTS:
+        cells = {"len": len(prompt_text.split())}
         for mk, _ in MODELS:
             cells[f"{mk}_g"] = _wbe(f"align/{mk}-promptsplice-{tag}-char-{S}-grad-pertoken-{AO}")
             cells[f"{mk}_a"] = _wbe(f"align/baseline-{mk}-promptsplice-{tag}-selfattn-{S}-{AO}")
