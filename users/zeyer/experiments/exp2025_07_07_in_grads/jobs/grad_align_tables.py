@@ -101,9 +101,10 @@ def _hyp(name, key):
 
 
 # ----------------------------------------------------------------------------------------
-# Streaming signed-offset: per streaming model, grad vs native viterbi, SIGNED start/end boundary
-#     offset (pred - ref, ms; + = late). Native chunked viterbi starts late / ends early (emission
-#     delay); grad ~0. Data = start_signed_mean / end_signed_mean (align_metrics out_metrics).
+# Streaming signed-offset: per streaming model, grad vs native viterbi,
+#     SIGNED start/end boundary offset (pred - ref, ms; + = late).
+#     Native chunked viterbi starts late / ends early (emission delay); grad ~0.
+#     Data = start_signed_mean / end_signed_mean (align_metrics out_metrics).
 # ----------------------------------------------------------------------------------------
 def _streaming_offset_table():
     S, T = "buckeye-segA-5h", "timit-test"
@@ -221,11 +222,14 @@ def _time_stretch_table():
 
 
 # ----------------------------------------------------------------------------------------
-# Word-length (duration) accuracy, full breakdown (Buckeye-segA): WBE (mean abs boundary error),
-#     signed start/end offset (pred - ref; + = late), and word-WIDTH signed error (= end - start;
-#     0 = correct duration). The CTC/forced-align posteriors bias start LATE + end EARLY -> the word
-#     shrinks from both ends, so |width| ~ WBE; grad shifts start+end the SAME direction (a positional
-#     lead, not a width change), so width is far below WBE -> grad is more accurate on word duration.
+# Word-length (duration) accuracy, full breakdown (Buckeye-segA):
+#     WBE (mean abs boundary error),
+#     signed start/end offset (pred - ref; + = late),
+#     and word-WIDTH signed error (= end - start; 0 = correct duration).
+#     The CTC/forced-align posteriors bias start LATE + end EARLY
+#     -> the word shrinks from both ends, so |width| ~ WBE;
+#     grad shifts start+end the SAME direction (a positional lead, not a width change),
+#     so width is far below WBE -> grad is more accurate on word duration.
 #     TIMIT-test shows the same pattern, milder (grad's lead is largest on spontaneous Buckeye).
 # ----------------------------------------------------------------------------------------
 def _word_length_table():
@@ -295,9 +299,10 @@ def _word_length_table():
 
 
 # ----------------------------------------------------------------------------------------
-# T2 fairness 2x2: whisper grad vs cross-attn DTW, char vs subword. Method-consistent -- both use the
-#     PLAIN cross-attn forced align (no head auto-selection), so the only variable per column is the
-#     tokenization. Grad wins every cell; char helps grad; char collapses cross-attn on spontaneous Buckeye.
+# T2 fairness 2x2: whisper grad vs cross-attn DTW, char vs subword.
+#     Method-consistent -- both use the PLAIN cross-attn forced align (no head auto-selection),
+#     so the only variable per column is the tokenization.
+#     Grad wins every cell; char helps grad; char collapses cross-attn on spontaneous Buckeye.
 # ----------------------------------------------------------------------------------------
 def _matched_tok_table():
     DATASETS = [("TIMIT", "timit-test"), ("Buckeye", "buckeye-segA-5h")]
@@ -339,7 +344,8 @@ def _matched_tok_table():
 
 
 # ----------------------------------------------------------------------------------------
-# T3a grad-score ablation (cross-model, Buckeye-segA, word-topology fixed). Two orthogonal axes:
+# T3a grad-score ablation (cross-model, Buckeye-segA, word-topology fixed).
+#     Two orthogonal axes:
 #     the feature-axis reduction (L0.5 / L1 / L2 / dot = signed sum)
 #     and mult_grad_by_inputs (plain gradient vs gradient x input, the "x input" group).
 #     A few ms apart -> neither choice is critical; the saliency signal, not the norm, carries it.
@@ -379,9 +385,11 @@ def _ablation_table():
 
 
 # ----------------------------------------------------------------------------------------
-# T3b attribution-method ablation (cross-model, Buckeye-segA, word-topology fixed): plain L2 input-grad
-#     vs SmoothGrad / VarGrad / Integrated-Gradients / Expected-Gradients, on the two fast models. The
-#     single-pass gradient is already a good attribution -> the multi-pass methods are not worth it
+# T3b attribution-method ablation (cross-model, Buckeye-segA, word-topology fixed):
+#     plain L2 input-grad vs SmoothGrad / VarGrad / Integrated-Gradients / Expected-Gradients,
+#     on the two fast models.
+#     The single-pass gradient is already a good attribution
+#     -> the multi-pass methods are not worth it
 #     (the slow families are omitted for the same cost reason).
 # ----------------------------------------------------------------------------------------
 def _attribution_table():
@@ -410,8 +418,9 @@ def _attribution_table():
 
 
 # ----------------------------------------------------------------------------------------
-# T3b-i align-OPTS, silence & topology (Buckeye-segA, whisper grad-char). Each independent DP option is
-#     its OWN column first, then a short note, then the numbers. Grad-only (attention has ~no mass in silence).
+# T3b-i align-OPTS, silence & topology (Buckeye-segA, whisper grad-char).
+#     Each independent DP option is its OWN column first, then a short note, then the numbers.
+#     Grad-only (attention has ~no mass in silence).
 # ----------------------------------------------------------------------------------------
 def _alignopts_silence_table():
     GP = "align/whisper-base-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc-asotTrue-bs-5"
@@ -443,10 +452,12 @@ def _alignopts_silence_table():
 
 
 # ----------------------------------------------------------------------------------------
-# T3b-ii align-OPTS, apply-log / DTW equivalence (Buckeye-segA, whisper grad-char vs cross-attn). Boolean
-#     option columns first (checkmark = on), then a short note, then the numbers. Blank state off = a
-#     monotonic DTW; additionally log off = the exact openai-whisper timestamp DTW (bottom row), where
-#     grad and cross-attn converge.
+# T3b-ii align-OPTS, apply-log / DTW equivalence
+#     (Buckeye-segA, whisper grad-char vs cross-attn).
+#     Boolean option columns first (checkmark = on), then a short note, then the numbers.
+#     Blank state off = a monotonic DTW;
+#     additionally log off = the exact openai-whisper timestamp DTW (bottom row),
+#     where grad and cross-attn converge.
 # ----------------------------------------------------------------------------------------
 def _alignopts_dtw_table():
     GP = "align/whisper-base-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc-asotTrue-bs-5"
@@ -491,8 +502,8 @@ def _compare_table(with_hyp=False):
         return (f"align/{stem_sa}", f"align/{stem_ti}" if stem_ti else None)
 
     # (Model, [(align-method label, segA base, TIMIT base), ...])  -- grad first, then its alternative.
-    # The method label names the alignment SIGNAL: grad / posteriors (CTC, transducer, GMM-HMM) /
-    # cross-attn weights / self-attn weights.
+    # The method label names the alignment SIGNAL:
+    # grad / posteriors (CTC, transducer, GMM-HMM) / cross-attn weights / self-attn weights.
     MODELS = [
         (
             "Wav2Vec2-CTC",
@@ -747,7 +758,8 @@ def _compare_table(with_hyp=False):
         _M_EMFORMER: f"emformer-rnnt-prefix-logmel-{S}-grad",
     }
     # Models with no word-level own-recognition -> hyp-mode is structurally n/a (not "unrun"):
-    # MMS_FA (Wav2Vec2-CTC) + Phoneme-CTC emit no word boundaries; MFA is a forced-aligner, not a recognizer.
+    # MMS_FA (Wav2Vec2-CTC) + Phoneme-CTC emit no word boundaries;
+    # MFA is a forced-aligner, not a recognizer.
     HYP_NA = {"Wav2Vec2-CTC", "Phoneme-CTC", "MFA"}
 
     # Native aligner in hyp-mode (own recognition), shown on the model's ALTERNATIVE row:
@@ -935,8 +947,9 @@ def _phi4_prompt_table():
 
 # ----------------------------------------------------------------------------------------
 # T8b: prompt-splice sensitivity generalized across the speech LLMs, grad AND self-attn.
-#     Rows = the 4 spliced instructions; columns grouped per model into Grad / Self-att. (char-level,
-#     Buckeye-segA). Shows prompt-robustness holds across models and across the grad-vs-attention signal.
+#     Rows = the 4 spliced instructions;
+#     columns grouped per model into Grad / Self-att. (char-level, Buckeye-segA).
+#     Shows prompt-robustness holds across models and across the grad-vs-attention signal.
 # ----------------------------------------------------------------------------------------
 def _prompt_splice_table():
     S = "buckeye-segA-5h"

@@ -21,8 +21,9 @@ from typing import List, Dict, Any
 
 # Make this file runnable directly so the preview refresher (bottom) is a standalone CLI:
 # add the recipe + sisyphus dirs to sys.path so the module's own ``from sisyphus import ...`` resolves.
-# This mirrors the setup the ``sis_tools`` scripts use; a normal import already has ``__package__`` set
-# and skips it, so it only kicks in when the file is started as a script.
+# This mirrors the setup the ``sis_tools`` scripts use;
+# a normal import already has ``__package__`` set and skips it,
+# so it only kicks in when the file is started as a script.
 _my_dir = os.path.dirname(os.path.realpath(__file__))
 _base_recipe_dir = reduce(lambda p, _: os.path.dirname(p), range(6), _my_dir)
 _setup_base_dir = os.path.dirname(_base_recipe_dir)
@@ -98,8 +99,9 @@ _PENDING_SENTINEL = object()  # marks a cell whose .get() was tolerated-as-unava
 
 def _instanciate(rows, *, ignore_exception):
     # Like instanciate_delayed_copy (calls .get() on every DelayedBase / Variable, not in-place),
-    # but with ignore_exception=True a .get() that raises (a not-yet-computed cell) becomes a sentinel
-    # instead of propagating -- that is the only difference between the real job and the preview.
+    # but with ignore_exception=True,
+    # a .get() that raises (a not-yet-computed cell) becomes a sentinel instead of propagating
+    # -- that is the only difference between the real job and the preview.
     import tree
     from sisyphus.delayed_ops import DelayedBase
 
@@ -138,9 +140,10 @@ def _write_table_data(*, columns, rows, source, out_path, ignore_exception: bool
     """Shared core of :meth:`WriteTableDataJob.run` and the preview refresher.
 
     Resolves every cell's Variable (``.get()``) and writes ``data.json`` to ``out_path``.
-    With ``ignore_exception=True`` (the preview) a cell whose ``.get()`` raises -- a not-yet-computed
-    metric -- becomes the pending glyph instead of propagating; the strict default (the real job)
-    lets it raise, since the job only runs once every input is available.
+    With ``ignore_exception=True`` (the preview),
+    a cell whose ``.get()`` raises -- a not-yet-computed metric -- becomes the pending glyph instead of propagating;
+    the strict default (the real job) lets it raise,
+    since the job only runs once every input is available.
     """
     rows_in = _instanciate(rows, ignore_exception=ignore_exception)
     out_rows = []
@@ -177,17 +180,21 @@ def _write_table_data(*, columns, rows, source, out_path, ignore_exception: bool
 # ----------------------------------------------------------------------------------------
 # Live preview, DECOUPLED from the job graph.
 #
-# Sisyphus' ``update()`` hook can't drive a live partial preview: it only fires once a job's WHOLE
-# current input set is available (the ``while self._sis_all_path_available() and ...`` gate in
-# ``Job._sis_runnable``), so it never reacts to "one of N cells just landed". Instead the preview is
-# rebuilt from disk on demand:
+# Sisyphus' ``update()`` hook can't drive a live partial preview:
+# it only fires once a job's WHOLE current input set is available
+# (the ``while self._sis_all_path_available() and ...`` gate in ``Job._sis_runnable``),
+# so it never reacts to "one of N cells just landed".
+# Instead the preview is rebuilt from disk on demand:
 #
-# - ``write_preview_manifest`` gzip-pickles, per table, ``(columns, rows, source)`` -- the rows already
-#   hold the real ``Variable`` objects, so this captures everything with zero custom serialization (it is
-#   the same content sisyphus pickles for the job in ``Job._sis_setup_directory``). Written once per
-#   config load (by the recipe's ``build_preview_tables``), so it exists long before the cells finish.
-# - ``refresh_preview`` unpickles it and runs the SAME ``_write_table_data`` with
-#   ``ignore_exception=True``, so unfinished cells become pending. It needs no manager and no graph --
+# - ``write_preview_manifest`` gzip-pickles, per table, ``(columns, rows, source)``
+#   -- the rows already hold the real ``Variable`` objects,
+#   so this captures everything with zero custom serialization
+#   (it is the same content sisyphus pickles for the job in ``Job._sis_setup_directory``).
+#   Written once per config load (by the recipe's ``build_preview_tables``),
+#   so it exists long before the cells finish.
+# - ``refresh_preview`` unpickles it and runs the SAME ``_write_table_data`` with ``ignore_exception=True``,
+#   so unfinished cells become pending.
+#   It needs no manager and no graph --
 #   run it any time while jobs are still landing:
 #   ``python table_data.py --refresh-preview output/tables-data-preview``.
 # ----------------------------------------------------------------------------------------

@@ -21,8 +21,9 @@ from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate
 class ParakeetCtcForcedAlignJob(Job):
     """torchaudio CTC forced-alignment of reference words on nvidia/parakeet-ctc-1.1b."""
 
-    # model_config (opt-in, hash-excluded when None) generalizes this to any CTC model with a
-    # forced_align_words() method (e.g. streaming FastConformer); None keeps the ParakeetCtc path.
+    # model_config (opt-in, hash-excluded when None) generalizes this to any CTC model
+    # with a forced_align_words() method (e.g. streaming FastConformer);
+    # None keeps the ParakeetCtc path.
     __sis_hash_exclude__ = {"model_config": None, "emit_boundaries_hdf": False}
     __sis_version__ = 2  # center_offset / width_signed_err / center_abs (align_metrics)
 
@@ -108,8 +109,9 @@ class ParakeetCtcForcedAlignJob(Job):
             sr = int(data["audio"]["sampling_rate"])
             wd = data["word_detail"]
             words = list(wd["utterance"])
-            # empty hypothesis (the model recognised nothing) has no words to align and would crash
-            # torchaudio.forced_align (max() over an empty target); emit empty boundaries for that seq.
+            # empty hypothesis (the model recognised nothing) has no words to align
+            # and would crash torchaudio.forced_align (max() over an empty target);
+            # emit empty boundaries for that seq.
             pred_word_se = model.forced_align_words(audio=audio, sample_rate=sr, words=words) if words else []
             if boundaries_writer is not None:
                 # predicted boundaries are already seconds -> CalcHypAlignMetricsJob scales the ref.

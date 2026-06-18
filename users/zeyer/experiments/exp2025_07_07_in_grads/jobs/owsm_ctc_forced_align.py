@@ -23,8 +23,9 @@ class OwsmCtcForcedAlignJob(Job):
 
     @classmethod
     def hash(cls, parsed_args):
-        # layer=None (final block) is the default -> drop it so a per-block table that adds the
-        # final block via layer=None keeps a hash independent of this kwarg's introduction.
+        # layer=None (final block) is the default
+        # -> drop it so a per-block table that adds the final block via layer=None
+        # keeps a hash independent of this kwarg's introduction.
         parsed_args = dict(parsed_args)
         if parsed_args.get("layer") is None:
             parsed_args.pop("layer", None)
@@ -111,8 +112,9 @@ class OwsmCtcForcedAlignJob(Job):
             assert sr == target_sr, f"OWSM-CTC expects 16 kHz, got {sr}"
             wd = data["word_detail"]
             words = list(wd["utterance"])
-            # empty hypothesis (the model recognised nothing) has no words to align and would crash
-            # torchaudio.forced_align (max() over an empty target); emit empty boundaries for that seq.
+            # empty hypothesis (the model recognised nothing) has no words to align
+            # and would crash torchaudio.forced_align (max() over an empty target);
+            # emit empty boundaries for that seq.
             pred_word_se = model.forced_align_words(audio=audio, sample_rate=sr, words=words) if words else []
             if boundaries_writer is not None:
                 # predicted boundaries are already seconds -> CalcHypAlignMetricsJob scales the ref.
