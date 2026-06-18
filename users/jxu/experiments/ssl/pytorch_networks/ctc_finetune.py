@@ -16,7 +16,7 @@ from i6_experiments.common.setups.returnn_pytorch.serialization import Collectio
 from i6_experiments.users.jxu.pytorch.serializers.basic import (
     get_basic_pt_network_serializer,
 )
-from i6_models.assemblies.conformer.conformer_rel_pos_v1 import ConformerRelPosBlockV1Config, ConformerRelPosEncoderV1Config, ConformerRelPosBlockV1,ConformerRelPosEncoderV1
+from i6_models.assemblies.conformer.conformer_rel_pos_v1 import ConformerRelPosBlockV1Config, ConformerRelPosEncoderV1Config, ConformerRelPosEncoderV1
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
 from i6_models.config import ModelConfiguration, ModuleFactoryV1
 from i6_experiments.common.setups.serialization import Import, NonhashedCode
@@ -245,8 +245,6 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
 def get_train_serializer(
     model_config: ConformerCTCConfig,
 ) -> Collection:
-    # pytorch_package = __package__.rpartition(".")[0]
-    pytorch_package = "i6_experiments.users.berger.pytorch"
     return get_basic_pt_network_serializer(
         module_import_path=f"{__name__}.{ConformerCTCModel.__name__}",
         model_config=model_config,
@@ -307,7 +305,6 @@ def export(*, model: torch.nn.Module, model_filename: str):
 def get_recog_serializer(
     model_config: ConformerCTCConfig,
 ) -> Collection:
-    pytorch_package = __package__.rpartition(".")[0]
     return get_basic_pt_network_serializer(
         module_import_path=f"{__name__}.{ConformerCTCModel.__name__}",
         model_config=model_config,

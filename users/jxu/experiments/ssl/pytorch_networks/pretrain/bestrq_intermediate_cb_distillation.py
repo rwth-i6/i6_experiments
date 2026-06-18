@@ -16,7 +16,6 @@ from i6_models.parts.conformer.feedforward import ConformerPositionwiseFeedForwa
 from i6_models_repo.i6_models.parts.conformer.norm import LayerNormNC
 from i6_models.parts.best_rq import RandomMask, RandomProjectionPCAQuantizer
 from i6_models.parts.frontend.common import mask_pool
-from i6_models.util import compat
 
 from i6_experiments.users.berger.pytorch.models.util import lengths_to_padding_mask
 from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
@@ -28,7 +27,6 @@ from i6_models.assemblies.conformer.conformer_rel_pos_v1 import ConformerRelPosB
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
 from i6_models.config import ModelConfiguration, ModuleFactoryV1
 from i6_experiments.common.setups.serialization import Import, NonhashedCode
-from i6_experiments.users.berger.pytorch.helper_functions import map_tensor_to_minus1_plus1_interval
 from i6_experiments.users.jxu.experiments.ssl.pytorch_networks.input_norm import InputNormalization
 
 from returnn.tensor.tensor_dict import TensorDict
@@ -186,7 +184,7 @@ class BestRQConformerModel(torch.nn.Module):
             # compute the weight for each sample
             sequence_mask_2d = sequence_mask.unsqueeze(1) & sequence_mask.unsqueeze(2)
 
-            if "distill_from_unmasked" in self.cb_distill_kwargs and self.cb_distill_kwargs["distill_from_unmasked"] == True:
+            if "distill_from_unmasked" in self.cb_distill_kwargs and self.cb_distill_kwargs["distill_from_unmasked"]:
                 print("distill from unmasked only")
                 unmased_2d = (~downsampled_mask).unsqueeze(1) & (~downsampled_mask).unsqueeze(2)
                 sequence_mask_2d = sequence_mask_2d & unmased_2d
@@ -207,7 +205,7 @@ class BestRQConformerModel(torch.nn.Module):
 
             intermediate_cos_sim = None
             for idx, teacher_layer_index in enumerate(self.teacher_layer_indices):
-                if "normalize_teacher_layer" in self.cb_distill_kwargs and self.cb_distill_kwargs["normalize_teacher_layer"] == True:
+                if "normalize_teacher_layer" in self.cb_distill_kwargs and self.cb_distill_kwargs["normalize_teacher_layer"]:
                     x_norm = F.normalize(teacher_layers[idx], dim=2)  # (B, T, F)
                 else:
                     x_norm = teacher_layers[idx]
@@ -348,7 +346,6 @@ def get_prior_serializer(
 def get_recog_serializer(
         model_config: BestRQConformerConfig,
 ) -> Collection:
-    pytorch_package = __package__.rpartition(".")[0]
     return get_basic_pt_network_serializer(
         module_import_path=f"{__name__}.{BestRQConformerModel.__name__}",
         model_config=model_config,
@@ -505,7 +502,6 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, global_train_
 
     # make sure the layers ordering is right
     for i, logits in enumerate(logits_list):
-        is_final = i == len(logits_list) - 1
         logits = logits_list[i]
         targets = targets_list[i]
         loss = torch.nn.CrossEntropyLoss(reduction="none")(logits, targets.long())
@@ -532,8 +528,6 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, global_train_
 def get_train_serializer(
         model_config: BestRQConformerConfig,
 ) -> Collection:
-    # pytorch_package = __package__.rpartition(".")[0]
-    pytorch_package = "i6_experiments.users.berger.pytorch"
     return get_basic_pt_network_serializer(
         module_import_path=f"{__name__}.{BestRQConformerModel.__name__}",
         model_config=model_config,
@@ -600,7 +594,6 @@ def export(*, model: torch.nn.Module, model_filename: str):
 def get_recog_serializer(
         model_config: BestRQConformerConfig,
 ) -> Collection:
-    pytorch_package = __package__.rpartition(".")[0]
     return get_basic_pt_network_serializer(
         module_import_path=f"{__name__}.{BestRQConformerModel.__name__}",
         model_config=model_config,

@@ -101,9 +101,6 @@ class BestRQConformerModel(torch.nn.Module):
             audio_features_len: Optional[torch.Tensor] = None,
             global_train_steps: Optional[int] = None
     ):
-        raw_audio_features = audio_features
-
-
         with torch.no_grad():
             squeezed_features = torch.squeeze(audio_features)
             if self.export_mode:
@@ -368,19 +365,17 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, global_train_
 
     loss = torch.nn.CrossEntropyLoss(reduction="none")(logits_list[0], targets_list[0].long())
     rf.get_run_ctx().mark_as_loss(
-        name=f"ce_logmel_12", loss=loss, scale=1
+        name="ce_logmel_12", loss=loss, scale=1
     )
 
     frame_error = torch.argmax(logits_list[0].data, dim=-1).not_equal(targets_list[0].data)
-    rf.get_run_ctx().mark_as_loss(name=f"fer_logmel_12", loss=frame_error,
+    rf.get_run_ctx().mark_as_loss(name="fer_logmel_12", loss=frame_error,
                                   as_error=True)
 
 
 def get_train_serializer(
         model_config: BestRQConformerConfig,
 ) -> Collection:
-    # pytorch_package = __package__.rpartition(".")[0]
-    pytorch_package = "i6_experiments.users.berger.pytorch"
     return get_basic_pt_network_serializer(
         module_import_path=f"{__name__}.{BestRQConformerModel.__name__}",
         model_config=model_config,
@@ -449,7 +444,6 @@ def export(*, model: torch.nn.Module, model_filename: str):
 def get_recog_serializer(
         model_config: BestRQConformerConfig,
 ) -> Collection:
-    pytorch_package = __package__.rpartition(".")[0]
     return get_basic_pt_network_serializer(
         module_import_path=f"{__name__}.{BestRQConformerModel.__name__}",
         model_config=model_config,
