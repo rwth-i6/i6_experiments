@@ -4088,6 +4088,21 @@ def py():
                             _sa_tnm = f"align/{_sa_name}-{_name_for_dict(_xa_ao)}{_sa_sfx}{_sa_tsfx}"
                             _sa_t.add_alias(_sa_tnm)
                             reg(f"{_sa_tnm}-wbe.txt", _sa_t.out_wbe)
+                        # apply-log-off self-attn (the alignopts-dtw cross-family table's no-log row).
+                        _sa_lo_ao = {**_xa_ao, "apply_log": False}
+                        _sa_lo = WordAlignFromPerTokenGradsJob(
+                            grad_score_hdf=_sa_ex.out_hdf,
+                            grad_score_key="data",
+                            dataset_dir=_sa_dir,
+                            dataset_key=_sa_key,
+                            dataset_offset_factors=_sa_off,
+                            align_opts=_sa_lo_ao,
+                            audio_energy_pow=_sa_ep,
+                            blank_silence_energy_scale=_sa_sc,
+                        )
+                        _sa_lo_nm = f"align/{_sa_name}-{_name_for_dict(_sa_lo_ao)}-en0.5-sil1.0"
+                        _sa_lo.add_alias(_sa_lo_nm)
+                        reg(f"{_sa_lo_nm}-wbe.txt", _sa_lo.out_wbe)
 
     # (5) grad-score x energy/silence ablation on the headline whisper-char extract (shared; free aligns).
     _xa_whc = _xa_extract(whisper_char_cfg, None, "L2", False)
@@ -4311,14 +4326,15 @@ def py():
         ("en0.5-sil2.0", {"audio_energy_pow": 0.5, "blank_silence_energy_scale": 2.0}),
         ("en0.5-zsk1.0", {"audio_energy_pow": 0.5, "blank_grad_zscore_kappa": 1.0}),
     ]
-    for _sc_ac, _sc_pre, _sc_bb in [
-        (whisper_char_cfg, "whisper-base-logmel-charlev-spc", False),
+    for _sc_ac, _sc_pre, _sc_bb, _sc_dtw in [
+        (whisper_char_cfg, "whisper-base-logmel-charlev-spc", False, False),
         (
             rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out", per_token_score="prefix_fwd"),
             "wav2vec2ctc-fproj_out-prefixfwd",
             True,
+            False,
         ),
-        (voxtral_charlev_logmel_cfg, "voxtral-charlevlogmel", False),
+        (voxtral_charlev_logmel_cfg, "voxtral-charlevlogmel", False, True),
     ]:
         _sc_ex = _xa_extract(_sc_ac, f"{_sc_pre}-abl-{_xa_tag}-L2_grad-pertoken", "L2", False, bb=_sc_bb)
         for _sc_tag, _sc_kw in _SIL_SCHEMES:
@@ -4334,6 +4350,27 @@ def py():
             _sc_nm = f"align/{_sc_pre}-abl-{_xa_tag}-L2_grad-pertoken-{_name_for_dict(_sil_ao)}-{_sc_tag}"
             _sc_al.add_alias(_sc_nm)
             reg(f"{_sc_nm}-wbe.txt", _sc_al.out_wbe)
+        # apply-log / DTW twins of the en0.5-sil1.0 align (for the cross-family alignopts-dtw table);
+        # speech-LLM grad only -- CTC/transducer don't use the apply-log/DTW path.
+        if _sc_dtw:
+            _sc_en_sil = {"audio_energy_pow": 0.5, "blank_silence_energy_scale": 1.0}
+            for _sc_ao2, _sc_kw2, _sc_t2 in [
+                ({**_sil_ao, "apply_log": False}, _sc_en_sil, "en0.5-sil1.0"),
+                (_sil_ao, {**_sc_en_sil, "dtw_no_blank": True}, "en0.5-sil1.0-dtw"),
+                (_sil_ao, {**_sc_en_sil, "whisper_dtw": True}, "en0.5-sil1.0-wdtw"),
+            ]:
+                _sc_t = WordAlignFromPerTokenGradsJob(
+                    grad_score_hdf=_sc_ex.out_hdf,
+                    grad_score_key="data",
+                    dataset_dir=_xa_dir,
+                    dataset_key="test",
+                    dataset_offset_factors=_xa_off,
+                    align_opts=_sc_ao2,
+                    **_sc_kw2,
+                )
+                _sc_tnm = f"align/{_sc_pre}-abl-{_xa_tag}-L2_grad-pertoken-{_name_for_dict(_sc_ao2)}-{_sc_t2}"
+                _sc_t.add_alias(_sc_tnm)
+                reg(f"{_sc_tnm}-wbe.txt", _sc_t.out_wbe)
 
     # (6) Complete the char-vs-subword grid for the speech LLMs: grad SUBWORD extracts (the
     # char-level counterparts are already wired in the headline-A block). Each model uses its own

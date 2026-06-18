@@ -485,34 +485,31 @@ def _alignopts_silence_table():
 #     where grad and cross-attn converge.
 # ----------------------------------------------------------------------------------------
 def _alignopts_dtw_table():
-    GP = "align/whisper-base-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc-asotTrue-bs-5"
-    AP = "align/baseline-whisper-base-crossattn-auto-buckeye-segA-5h-asotTrue-bs-5"
+    # The apply-log / DP-blank ablation (standard / no-log / DTW / OpenAI-Whisper-DTW) shown across
+    # model families AND signal types: grad and native attention. Cross-attn for the AED (Whisper),
+    # self-attn for the speech-LLM (Voxtral). CTC/transducer are excluded -- they have no attention
+    # map and their per-token grad score does not use the apply-log/DTW path. (col key, align prefix)
+    PREF = {
+        "wh_g": "align/whisper-base-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc-asotTrue-bs-5",
+        "wh_a": "align/baseline-whisper-base-crossattn-auto-buckeye-segA-5h-asotTrue-bs-5",
+        "vx_g": "align/voxtral-charlevlogmel-abl-buckeye-segA-5h-L2_grad-pertoken-asotTrue-bs-5",
+        "vx_a": "align/baseline-voxtral-char-selfattn-buckeye-segA-5h-asotTrue-bs-5",
+    }
     ck, cx = "\\checkmark", "$\\times$"  # boolean option cell: on vs off
-    # (apply-log, blank state, note, grad suffix, cross-attn suffix). Option columns first, note last.
+    # (apply-log, blank state, note, scheme suffix -- identical across all four columns).
     ROWS = [
-        (ck, ck, "our standard", "-en0.5-sil1.0", "-en0.5-sil1.0"),
-        (cx, ck, "", "-alFalse-en0.5-sil1.0", "-alFalse-en0.5-sil1.0"),
-        (ck, cx, "", "-en0.5-sil1.0-dtw", "-en0.5-sil1.0-dtw"),
-        (cx, cx, "OpenAI Whisper", "-en0.5-sil1.0-wdtw", "-en0.5-sil1.0-wdtw"),
+        (ck, ck, "our standard", "-en0.5-sil1.0"),
+        (cx, ck, "", "-alFalse-en0.5-sil1.0"),
+        (ck, cx, "", "-en0.5-sil1.0-dtw"),
+        (cx, cx, "OpenAI Whisper", "-en0.5-sil1.0-wdtw"),
     ]
-    columns = ["applylog", "blank", "note", "g_wbe", "g_a50", "a_wbe", "a_a50"]
+    columns = ["applylog", "blank", "note", "wh_g", "wh_a", "vx_g", "vx_a"]
     rows = []
-    for applylog, blank, note, gs, as_ in ROWS:
-        gb, ab = GP + gs, AP + as_
-        rows.append(
-            {
-                "label": "",
-                "cells": {
-                    "applylog": applylog,
-                    "blank": blank,
-                    "note": note,
-                    "g_wbe": _wbe(gb),
-                    "g_a50": _metric(gb, "acc_50ms"),
-                    "a_wbe": _wbe(ab),
-                    "a_a50": _metric(ab, "acc_50ms"),
-                },
-            }
-        )
+    for applylog, blank, note, sfx in ROWS:
+        cells = {"applylog": applylog, "blank": blank, "note": note}
+        for ck_, pre in PREF.items():
+            cells[ck_] = _wbe(pre + sfx)
+        rows.append({"cells": cells})
     _emit("alignopts-dtw", columns, rows)
 
 
