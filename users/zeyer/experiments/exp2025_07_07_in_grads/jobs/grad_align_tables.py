@@ -361,8 +361,9 @@ def _ablation_table():
         ("Transd.", _M_EMFORMER, "emformer-rnnt-prefix-logmel"),
         ("Sp. LLM", "Voxtral", "voxtral-charlevlogmel"),
     ]
-    # Signed "dot"/"dot_e": abs-mean norm with an eps floor + clip, on a plain CTC topology (NOT the
-    # L-norms' word-topology), since the energy-silence blank is undefined on a signed score.
+    # Signed "dot"/"dot_e": abs-mean norm with an eps floor + clip, on a plain CTC topology
+    # (NOT the L-norms' word-topology),
+    # since the energy-silence blank is undefined on a signed score.
     DOT_SFX = "nsabsmeanS-nse0.05-cs1e-05_None-asotTrue-bs-6"
     # (column key, align suffix). Plain-gradient group then the gradient-x-input ("_e") group.
     COLS = [
@@ -374,8 +375,9 @@ def _ablation_table():
         ("dot_e_grad", DOT_SFX),
     ]
     columns = ["type", "model"] + [c for c, _ in COLS]
-    # Every cell points at its WBE; the renderer flags WBE > broken_above as "broken", so a residual
-    # degenerate (or a not-yet-finished re-align) is never shown as a real number.
+    # Every cell points at its WBE;
+    # the renderer flags WBE > broken_above as "broken",
+    # so a residual degenerate (or a not-yet-finished re-align) is never shown as a real number.
     rows = [
         {
             "cells": {
@@ -967,8 +969,9 @@ def _prompt_splice_table():
     S = "buckeye-segA-5h"
     AO = "asotTrue-bs-5-en0.5-sil1.0"
     MODELS = [("phi4mm", "Phi-4-MM"), ("voxtral", "Voxtral"), ("canary-qwen", "Canary-Qwen")]
-    # (tag, row label, the actual spliced instruction text). The "len" column = word count of the text,
-    # computed dynamically below -- not hardcoded, so it tracks any edit to the instruction.
+    # (tag, row label, the actual spliced instruction text).
+    # The "len" column = the word count of the text, computed dynamically below (not hardcoded),
+    # so it tracks any edit to the instruction.
     PROMPTS = [
         ("default", "neutral (into text)", "Transcribe the audio clip into text."),
         ("verbatim", "verbatim, as spoken", "Please transcribe the audio verbatim, exactly as spoken."),
