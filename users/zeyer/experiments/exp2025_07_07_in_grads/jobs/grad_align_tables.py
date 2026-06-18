@@ -965,17 +965,17 @@ def _prompt_splice_table():
     AO = "asotTrue-bs-5-en0.5-sil1.0"
     MODELS = [("phi4mm", "Phi-4-MM"), ("voxtral", "Voxtral"), ("canary-qwen", "Canary-Qwen")]
     PROMPTS = [
-        ("default", "neutral (into text)"),
-        ("verbatim", "verbatim, as spoken"),
-        ("word", "exactly, word for word"),
-        ("char", "at the character level"),
+        ("default", "neutral (into text)", 6),
+        ("verbatim", "verbatim, as spoken", 8),
+        ("word", "exactly, word for word", 9),
+        ("char", "at the character level", 14),
     ]
-    columns = []
+    columns = ["len"]
     for mk, _ in MODELS:
         columns += [f"{mk}_g", f"{mk}_a"]
     rows = []
-    for tag, label in PROMPTS:
-        cells = {}
+    for tag, label, plen in PROMPTS:
+        cells = {"len": plen}
         for mk, _ in MODELS:
             cells[f"{mk}_g"] = _wbe(f"align/{mk}-promptsplice-{tag}-char-{S}-grad-pertoken-{AO}")
             cells[f"{mk}_a"] = _wbe(f"align/baseline-{mk}-promptsplice-{tag}-selfattn-{S}-{AO}")
