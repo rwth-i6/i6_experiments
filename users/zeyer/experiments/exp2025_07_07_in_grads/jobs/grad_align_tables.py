@@ -45,13 +45,15 @@ def build_tables(results):
     _hyp_table()
     _owsm_layer_table()  # OWSM-CTC grad-align per inter-CTC emit block (side table)
     _phi4_prompt_table()  # Phi-4-MM grad-align vs the spliced instruction (side table)
+    _prompt_splice_table()  # generalized prompt-splice: 3 LLMs x grad + self-attn (Buckeye-segA)
     _streaming_offset_table()  # streaming start/end signed offset (grad vs native viterbi)
     _time_stretch_table()  # length robustness (grad vs MMS-FA, vocoder vs resample)
     _word_length_table()  # word-duration accuracy (signed word-width error) per model
     _matched_tok_table()  # matched-tokenization: grad vs cross-attn x char/subword (whisper)
     _ablation_table()  # T3a grad-score reduction (cross-model)
     _attribution_table()  # T3b attribution method (cross-model, fast models)
-    _alignopts_table()  # T3b align-opts (grad vs cross-attn, same DP)
+    _alignopts_silence_table()  # T3b-i align-opts: silence/topology axis (grad-only silence fix)
+    _alignopts_dtw_table()  # T3b-ii align-opts: apply-log/DTW equivalence (grad vs cross-attn)
 
 
 def _emit(name, columns, rows):
@@ -183,41 +185,38 @@ def _streaming_offset_table():
 
 
 # ----------------------------------------------------------------------------------------
-# Length robustness: grad-align (wav2vec2) vs MMS-FA forced-align under audio time-stretch,
-#     vocoder (librosa.effects.time_stretch, pitch-preserving) vs resample (pitch-shifted),
-#     at 1.0/1.5/2.0/3.0x on TIMIT-val. grad-align tolerates mild stretch but degrades sharply
-#     at 2-3x (resample worst); forced-align re-runs viterbi so it stays robust.
+# Length robustness redesigned (Buckeye-segA, vocoder time-stretch, factors 0.5..3.0).
+#     The same mechanism, opposite sign across the model's grad-resolution:
+#     wav2vec2-CTC grad (fine grid) only degrades with stretch (robustness limit),
+#     Voxtral grad (coarse projected-embedding grid) IMPROVES at mild stretch (upsamples the grid),
+#     MMS-FA forced-align re-runs Viterbi on the stretched audio, so it stays flat (reference).
 # ----------------------------------------------------------------------------------------
 def _time_stretch_table():
-    GRAD0 = "align/wav2vec2ctc-fproj_out-timit-val-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0"
-
-    def _grad(ts, method):
-        if ts == "1.0":
-            return GRAD0
-        sfx = f"-ts{ts}" + ("-resample" if method == "resample" else "")
-        return f"align/wav2vec2ctc-fproj_out-timit-val-L2_grad-pertoken{sfx}-asotTrue-bs-5-en0.5-sil1.0"
-
-    def _mms(ts, method):
-        if ts == "1.0":
-            return "baseline-mms_fa-timit-val"
-        return "baseline-mms_fa-timit-val" + f"-ts{ts}" + ("-resample" if method == "resample" else "")
-
-    MODELS = [("grad-align", _grad), ("MMS-FA", _mms)]
-    TS = ["1.0", "1.5", "2.0", "3.0"]
-    KEYS = ["ts10", "ts15", "ts20", "ts30"]
-
-    columns = ["method"] + KEYS
-    rows = []
-    for gi, (model, basefn) in enumerate(MODELS):
-        if gi > 0:
-            rows.append({"label": None, "cells": {}})
-        for mi, method in enumerate(("vocoder", "resample")):
-            if mi > 0:
-                rows.append({"cline": True})
-            cells = {"method": method}
-            for k, ts in zip(KEYS, TS):
-                cells[k] = _wbe(basefn(ts, method))
-            rows.append({"label": model if mi == 0 else "", "cells": cells})
+    S = "buckeye-segA-5h"
+    AO = "asotTrue-bs-5-en0.5-sil1.0"
+    FACTORS = [
+        ("0.5", "f05"),
+        ("0.75", "f075"),
+        ("1.0", "f10"),
+        ("1.2", "f12"),
+        ("1.5", "f15"),
+        ("2.0", "f20"),
+        ("3.0", "f30"),
+    ]
+    # (model label, base-name builder from the factor string).
+    MODELS = [
+        ("Wav2Vec2-CTC (grad, fine)", lambda ts: f"align/wav2vec2ctc-fproj_out-{S}-L2_grad-pertoken-ts{ts}-{AO}"),
+        ("Voxtral (grad, coarse)", lambda ts: f"align/voxtral-transcribe-{S}-L2_e_grad-pertoken-ts{ts}-{AO}"),
+        ("MMS-FA (forced)", lambda ts: f"baseline-mms_fa-{S}-ts{ts}"),
+    ]
+    columns = [k for _, k in FACTORS]
+    rows = [
+        {
+            "label": mlabel,
+            "cells": {k: _wbe(basefn(ts)) for ts, k in FACTORS},
+        }
+        for mlabel, basefn in MODELS
+    ]
     _emit("time-stretch", columns, rows)
 
 
@@ -340,11 +339,11 @@ def _matched_tok_table():
 
 
 # ----------------------------------------------------------------------------------------
-# T3a grad-score reduction ablation (cross-model, Buckeye-segA, word-topology fixed): the per-token
-#     reduction L0.5 / L1 / L2 / L2_e across one representative model per family. A few ms apart -> the
-#     reduction choice is not critical; the saliency signal, not the norm, carries the alignment.
-#     The signed "dot" (sum) reduction is included as the last column;
-#     it has no meaningful log, so its align drops apply_log (everything else identical).
+# T3a grad-score ablation (cross-model, Buckeye-segA, word-topology fixed). Two orthogonal axes:
+#     the feature-axis reduction (L0.5 / L1 / L2 / dot = signed sum)
+#     and mult_grad_by_inputs (plain gradient vs gradient x input, the "x input" group).
+#     A few ms apart -> neither choice is critical; the saliency signal, not the norm, carries it.
+#     The signed "dot" scores align with apply_log off (a signed score has no meaningful log).
 # ----------------------------------------------------------------------------------------
 def _ablation_table():
     S = "buckeye-segA-5h"
@@ -357,15 +356,25 @@ def _ablation_table():
         (_M_EMFORMER, "emformer-rnnt-prefix-logmel"),
         ("Voxtral", "voxtral-charlevlogmel"),
     ]
-    REDS = ["L0.5_grad", "L1_grad", "L2_grad", "L2_e_grad"]
-    # The signed "dot" (sum) score aligns with apply_log off (alFalse), same word-topology DP otherwise.
+    # Signed "dot"/"dot_e" scores align with apply_log off (alFalse); same word-topology DP otherwise.
     DOT_SFX = "asotTrue-bs-5-alFalse-en0.5-sil1.0-wordtopo"
-    columns = REDS + ["dot_grad"]
-    rows = []
-    for mlabel, mpre in MODELS:
-        cells = {rk: _wbe(f"align/{mpre}-abl-{S}-{rk}-pertoken-{SFX}") for rk in REDS}
-        cells["dot_grad"] = _wbe(f"align/{mpre}-abl-{S}-dot_grad-pertoken-{DOT_SFX}")
-        rows.append({"label": mlabel, "cells": cells})
+    # (column key, align suffix). Plain-gradient group then the gradient-x-input ("_e") group.
+    COLS = [
+        ("L0.5_grad", SFX),
+        ("L1_grad", SFX),
+        ("L2_grad", SFX),
+        ("dot_grad", DOT_SFX),
+        ("L2_e_grad", SFX),
+        ("dot_e_grad", DOT_SFX),
+    ]
+    columns = [c for c, _ in COLS]
+    rows = [
+        {
+            "label": mlabel,
+            "cells": {c: _wbe(f"align/{mpre}-abl-{S}-{c}-pertoken-{sfx}") for c, sfx in COLS},
+        }
+        for mlabel, mpre in MODELS
+    ]
     _emit("grad-score-ablation", columns, rows)
 
 
@@ -401,46 +410,90 @@ def _attribution_table():
 
 
 # ----------------------------------------------------------------------------------------
-# T3b align-OPTS (DP decoding) on Buckeye-segA: the SAME DP applied to whisper grad (char) and whisper
-#     cross-attn (auto heads) -- different signal, same decoder. word-topology / silence / DTW corners.
-#     Mostly consistent across signals; silence modeling helps grad but not attention (the attention
-#     matrix already has ~no mass in silence). The openai whisper-DTW is the apply-log-off corner.
+# T3b-i align-OPTS, silence & topology (Buckeye-segA, whisper grad-char). The energy/silence blank is
+#     a grad-side fix -- the attention matrix already has ~no mass in silence, so it does nothing for
+#     cross-attn -- hence this table is grad-only. Sweeps the silence-blank scale (off / x1 / x2 / zero-skip)
+#     plus the word vs CTC topology.
 # ----------------------------------------------------------------------------------------
-def _alignopts_table():
+def _alignopts_silence_table():
     GP = "align/whisper-base-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc-asotTrue-bs-5"
-    AP = "align/baseline-whisper-base-crossattn-auto-buckeye-segA-5h-asotTrue-bs-5"
-    # (row label, comment, grad suffix, cross-attn suffix).
-    # Only the STRUCTURAL DP axes belong here -- topology, silence state, the DTW corner;
-    # the scalar hyperparameters (blank score, energy power, percentile) are swept elsewhere
-    # and are not the point of this table.
+    # (row label, comment, grad suffix). Grad-only; the silence/energy blank is a grad-side fix.
     ROWS = [
         (
-            "default",
-            "Blank between every token (standard CTC topology).",
+            "silence off",
+            "No silence state (raw saliency, blank not boosted).",
+            "-en0.5",
+        ),
+        (
+            "silence x1",
+            "Energy-scaled silence blank, default strength.",
             "-en0.5-sil1.0",
-            "-en0.5-sil1.0",
+        ),
+        (
+            "silence x2",
+            "Stronger silence blank (scale 2).",
+            "-en0.5-sil2.0",
+        ),
+        (
+            "zero-skip",
+            "Zero-energy skip state instead of a scaled blank.",
+            "-en0.5-zsk1.0",
         ),
         (
             "word-topology",
             "Blank only between words, never within a word.",
             "-en0.5-sil1.0-wordtopo",
-            "-en0.5-sil1.0-wordtopo",
+        ),
+    ]
+    columns = ["comment", "g_wbe", "g_a50"]
+    rows = []
+    for lbl, comment, gs in ROWS:
+        gb = GP + gs
+        rows.append(
+            {
+                "label": lbl,
+                "cells": {
+                    "comment": comment,
+                    "g_wbe": _wbe(gb),
+                    "g_a50": _metric(gb, "acc_50ms"),
+                },
+            }
+        )
+    _emit("alignopts-silence", columns, rows)
+
+
+# ----------------------------------------------------------------------------------------
+# T3b-ii align-OPTS, apply-log / DTW equivalence (Buckeye-segA, whisper grad-char vs cross-attn).
+#     A progression from our full DP down to the openai whisper-DTW corner: each step removes one
+#     ingredient (first the log, then the blank state). Shows whisper-DTW is just our DP at a fixed
+#     config, and that grad and cross-attn converge to the same DTW numbers.
+# ----------------------------------------------------------------------------------------
+def _alignopts_dtw_table():
+    GP = "align/whisper-base-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc-asotTrue-bs-5"
+    AP = "align/baseline-whisper-base-crossattn-auto-buckeye-segA-5h-asotTrue-bs-5"
+    # (row label, comment, grad suffix, cross-attn suffix).
+    ROWS = [
+        (
+            "default",
+            "Our full DP: apply-log on, silence blank on.",
+            "-en0.5-sil1.0",
+            "-en0.5-sil1.0",
         ),
         (
-            "silence off",
-            "No silence state; blanks not boosted in low-energy frames.",
-            "-en0.5",
-            "",
+            "apply-log off",
+            "Drop the log-compression of the score.",
+            "-alFalse-en0.5-sil1.0",
+            "-alFalse-en0.5-sil1.0",
         ),
         (
             "DTW (no blank)",
-            "Monotonic DTW, no blank state (every frame emits a token).",
+            "Also drop the blank state: monotonic DTW, every frame emits.",
             "-en0.5-sil1.0-dtw",
             "-en0.5-sil1.0-dtw",
         ),
         (
             "whisper-DTW",
-            "openai-whisper's DTW corner: softmax-over-time, log off, no blank.",
+            "openai-whisper's exact DTW (log off, no blank, softmax-over-time).",
             "-en0.5-sil1.0-wdtw",
             "-en0.5-sil1.0-wdtw",
         ),
@@ -461,7 +514,7 @@ def _alignopts_table():
                 },
             }
         )
-    _emit("alignopts", columns, rows)
+    _emit("alignopts-dtw", columns, rows)
 
 
 # ----------------------------------------------------------------------------------------
@@ -734,6 +787,25 @@ def _compare_table(with_hyp=False):
     # MMS_FA (Wav2Vec2-CTC) + Phoneme-CTC emit no word boundaries; MFA is a forced-aligner, not a recognizer.
     HYP_NA = {"Wav2Vec2-CTC", "Phoneme-CTC", "MFA"}
 
+    # Native aligner in hyp-mode (own recognition), shown on the model's ALTERNATIVE row:
+    # cross-attn (whisper), self-attn (LLMs), native viterbi (transducers), CTC forced-align (CTCs).
+    # whisper-base keeps its original whisper-crossattn alias; the CTC entries fill once their
+    # forced-align job emits a boundary HDF (pending), so they render empty until then.
+    NATIVE_HYP = {
+        "Whisper-base": f"whisper-crossattn-{S}",
+        "Whisper-large-v3": f"whisper-large-v3-charlev-{S}-native",
+        "Voxtral": f"voxtral-charlevlogmel-{S}-native",
+        "Phi-4-MM": f"phi4mm-charlev-spc-{S}-native",
+        "Canary-Qwen": f"canary-qwen-charlev-spc-logmel-st15-{S}-native",
+        "Parakeet RNN-T": f"parakeet-rnnt-1.1b-logmel-{S}-native",
+        "Parakeet TDT": f"parakeet-tdt-0.6b-v2-logmel-{S}-native",
+        _M_EMFORMER: f"emformer-rnnt-prefix-logmel-{S}-native",
+        _M_FC_RNNT: f"fastconformer-stream-rnnt-{S}-native",
+        "Nvidia CTC": f"parakeet-ctc-1.1b-{S}-native",
+        "OWSM-CTC": f"owsm-ctc-v4-1b-{S}-native",
+        _M_FC_CTC: f"fastconformer-stream-ctc-{S}-native",
+    }
+
     # Rows grouped by model family; the leftmost (row-label) column is the family Type, shown once
     # per family; Model is the second column, shown once per model; double rule between families.
     TYPE = {
@@ -784,7 +856,9 @@ def _compare_table(with_hyp=False):
                     "s_a100": _metric(sa, "acc_100ms") if sa else None,
                 }
                 if with_hyp:
-                    hn = HYP.get(model) if mj == 0 else None  # hyp only on the grad row
+                    # grad hyp on the gradients row (mj==0); the model's native-aligner hyp on its
+                    # alternative row (mj>0) -- each method aligns the model's OWN recognition.
+                    hn = HYP.get(model) if mj == 0 else NATIVE_HYP.get(model)
                     if hn:
                         cells["h_mwbe"] = _hyp(hn, "matched_wbe")
                         cells["h_f50"] = _hyp(hn, "f1_50ms")
@@ -896,6 +970,34 @@ def _phi4_prompt_table():
     _emit("phi4-prompt", columns, rows)
 
 
+# ----------------------------------------------------------------------------------------
+# T8b: prompt-splice sensitivity generalized across the speech LLMs, grad AND self-attn.
+#     Rows = the 4 spliced instructions; columns grouped per model into Grad / Self-att. (char-level,
+#     Buckeye-segA). Shows prompt-robustness holds across models and across the grad-vs-attention signal.
+# ----------------------------------------------------------------------------------------
+def _prompt_splice_table():
+    S = "buckeye-segA-5h"
+    AO = "asotTrue-bs-5-en0.5-sil1.0"
+    MODELS = [("phi4mm", "Phi-4-MM"), ("voxtral", "Voxtral"), ("canary-qwen", "Canary-Qwen")]
+    PROMPTS = [
+        ("default", "neutral (into text)"),
+        ("verbatim", "verbatim, as spoken"),
+        ("word", "exactly, word for word"),
+        ("char", "at the character level"),
+    ]
+    columns = []
+    for mk, _ in MODELS:
+        columns += [f"{mk}_g", f"{mk}_a"]
+    rows = []
+    for tag, label in PROMPTS:
+        cells = {}
+        for mk, _ in MODELS:
+            cells[f"{mk}_g"] = _wbe(f"align/{mk}-promptsplice-{tag}-char-{S}-grad-pertoken-{AO}")
+            cells[f"{mk}_a"] = _wbe(f"align/baseline-{mk}-promptsplice-{tag}-selfattn-{S}-{AO}")
+        rows.append({"label": label, "cells": cells})
+    _emit("prompt-splice", columns, rows)
+
+
 def build_preview_tables(results):
     """One-shot SNAPSHOT of every table -> output/tables-data-preview/<name>.data.json, resolving each
     cell from current disk state: finished -> value, not-yet-produced -> "·" (pending). Plain file
@@ -916,6 +1018,11 @@ def build_preview_tables(results):
     pending = "·"
     out_dir = "output/tables-data-preview"
     os.makedirs(out_dir, exist_ok=True)
+    # Drop snapshots of renamed/removed tables so the preview dir holds only the current set.
+    current = {name for name, *_ in defs}
+    for fn in os.listdir(out_dir):
+        if fn.endswith(".data.json") and fn[: -len(".data.json")] not in current:
+            os.remove(os.path.join(out_dir, fn))
     for name, columns, rows, source in defs:
         out_rows = []
         for row in rows:

@@ -3953,6 +3953,21 @@ def py():
                         _ah_tnm = f"align/{_ah_name}-{_name_for_dict(_xa_ao)}{_ah_sfx}{_ah_tsfx}"
                         _ah_t.add_alias(_ah_tnm)
                         reg(f"{_ah_tnm}-wbe.txt", _ah_t.out_wbe)
+                    # apply-log-off cross-attn (the align-opts DTW-equivalence table's apply-log-off row).
+                    _ah_lo_ao = {**_xa_ao, "apply_log": False}
+                    _ah_lo = WordAlignFromPerTokenGradsJob(
+                        grad_score_hdf=_ah_ex.out_hdf,
+                        grad_score_key="data",
+                        dataset_dir=_ah_dir,
+                        dataset_key=_ah_key,
+                        dataset_offset_factors=_ah_off,
+                        align_opts=_ah_lo_ao,
+                        audio_energy_pow=_ah_ep,
+                        blank_silence_energy_scale=_ah_sc,
+                    )
+                    _ah_lo_nm = f"align/{_ah_name}-{_name_for_dict(_ah_lo_ao)}-en0.5-sil1.0"
+                    _ah_lo.add_alias(_ah_lo_nm)
+                    reg(f"{_ah_lo_nm}-wbe.txt", _ah_lo.out_wbe)
 
     # (4f) Speech-LLM SELF-attention DTW (voxtral + canary-qwen): the attention analog
     # of whisper's cross-attn timestamps. No published alignment-head masks exist for
@@ -4208,6 +4223,9 @@ def py():
         # signed "dot" (sum reduction over the feature axis), aligned with the no-log signed DP.
         _den = f"{_apre}-abl-{_xa_tag}-dot_grad-pertoken"
         _abl_align_dot(_xa_extract(_ac, _den, "sum", False, bb=_abb), _den)
+        # gradient-x-input counterpart of dot (signed sum of grad*input), same no-log DP.
+        _den_e = f"{_apre}-abl-{_xa_tag}-dot_e_grad-pertoken"
+        _abl_align_dot(_xa_extract(_ac, _den_e, "sum", True, bb=_abb), _den_e)
         # attribution axis (fast models only): SmoothGrad / VarGrad / IG / EG, on L2.
         if _ado_attr:
             for _akw, _asfx in [
@@ -4683,6 +4701,38 @@ def py():
         reg(f"hyp-align/{name}-metrics.txt", m.out_metrics)
         reg(f"hyp-align/{name}-f1-100ms.txt", m.out_f1_100)
 
+    # Native aligner per transducer, for the alternative-row hyp cells (own-recognition).
+    _HY_NATIVE_TRANSDUCER = {
+        "parakeet-rnnt-1.1b-logmel": pk_cfg,
+        "parakeet-tdt-0.6b-v2-logmel": tdt_cfg,
+        "emformer-rnnt-prefix-logmel": rnnt_cfg,
+        "fastconformer-stream-rnnt": fc_rnnt_cfg,
+    }
+    # Self-attn aligner per speech LLM (char eager; same config as the (4f) forced-mode block,
+    # so the TIMIT-val head-selection reuses its cached result).
+    _HY_NATIVE_SELFATTN = {
+        "voxtral-charlevlogmel": rf.build_dict(
+            Voxtral,
+            model_dir=dl_voxtral,
+            forward_mode="transcription",
+            attn_implementation="eager",
+            char_level=True,
+            char_level_sep=" ",
+            version=7,
+        ),
+        "canary-qwen-charlev-spc-logmel-st15": rf.build_dict(
+            CanaryQwen,
+            model_dir=dl_canary,
+            llm_model_dir=dl_qwen3,
+            attn_implementation="eager",
+            char_level=True,
+            char_level_sep=" ",
+            version=3,
+        ),
+        "phi4mm-charlev-spc": _phi4mm_model_config(
+            dl_phi4mi_dir, attn_implementation="eager", char_level=True, char_level_sep=" "
+        ),
+    }
     for _hy_name, _hy_recog_cfg, _hy_ex_cfg, _hy_attr, _hy_mgi, _hy_sil, _hy_bb in [
         (
             "whisper-base-charlev",
@@ -4770,6 +4820,76 @@ def py():
         )
         _hy_al.add_alias(f"hyp-align/{_hy_name}-{_xa_tag}-align")
         _hy_metrics(f"{_hy_name}-{_xa_tag}-grad", _hy_al.out_word_boundaries_hdf, _hy_dir)
+        # native aligner on the model's OWN recognition -> the alternative-row hyp cell.
+        if _hy_name in _HY_NATIVE_TRANSDUCER:
+            _hy_nt = NativeTransducerAlignJob(
+                dataset_dir=_hy_dir, dataset_key="test", model_config=_HY_NATIVE_TRANSDUCER[_hy_name]
+            )
+            _hy_nt.add_alias(f"hyp-align/{_hy_name}-{_xa_tag}-native-align")
+            _hy_metrics(f"{_hy_name}-{_xa_tag}-native", _hy_nt.out_word_boundaries_hdf, _hy_dir)
+        if _hy_name == "whisper-large-v3-charlev":
+            _hy_ca3 = WhisperCrossAttnForcedAlignJob(
+                dataset_dir=_hy_dir, dataset_key="test", overlay=_WHISPER_TS_OVERLAY, whisper_model="large-v3"
+            )
+            _hy_ca3.add_alias(f"hyp-align/{_hy_name}-{_xa_tag}-native-align")
+            _hy_metrics(f"{_hy_name}-{_xa_tag}-native", _hy_ca3.out_hdf, _hy_dir)
+        if _hy_name in _HY_NATIVE_SELFATTN:
+            _hy_sacfg = _HY_NATIVE_SELFATTN[_hy_name]
+            _hy_sasel = SelectSelfAttnAlignHeadsJob(
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                model_config=_hy_sacfg,
+                time_upsample_when_short=True,
+            )
+            _hy_saex = ExtractSelfAttnPerTokenJob(
+                dataset_dir=_hy_dir, dataset_key="test", model_config=_hy_sacfg, heads=_hy_sasel.out_heads
+            )
+            _hy_saex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            _hy_saal = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=_hy_saex.out_hdf,
+                grad_score_key="data",
+                dataset_dir=_hy_dir,
+                dataset_key="test",
+                dataset_offset_factors=_xa_off,
+                align_opts=_xa_ao,
+                audio_energy_pow=0.5,
+                blank_silence_energy_scale=1.0,
+                with_ref_metrics=False,
+            )
+            _hy_saal.add_alias(f"hyp-align/{_hy_name}-{_xa_tag}-native-align")
+            _hy_metrics(f"{_hy_name}-{_xa_tag}-native", _hy_saal.out_word_boundaries_hdf, _hy_dir)
+        # CTC forced-align (posteriors) on the model's own recognition -> alternative-row hyp.
+        if _hy_name == "parakeet-ctc-1.1b":
+            _hy_cfa = ParakeetCtcForcedAlignJob(
+                dataset_dir=_hy_dir,
+                dataset_key="test",
+                model_dir=dl_parakeet_ctc.out_hub_cache_dir,
+                overlay_path=_NEMO_OVERLAY,
+                dataset_offset_factors=_xa_off,
+                emit_boundaries_hdf=True,
+            )
+            _hy_cfa.add_alias(f"hyp-align/{_hy_name}-{_xa_tag}-native-align")
+            _hy_metrics(f"{_hy_name}-{_xa_tag}-native", _hy_cfa.out_word_boundaries_hdf, _hy_dir)
+        if _hy_name == "owsm-ctc-v4-1b":
+            _hy_ofa = OwsmCtcForcedAlignJob(
+                dataset_dir=_hy_dir,
+                dataset_key="test",
+                model_dir=dl_owsm_ctc.out_hub_cache_dir,
+                dataset_offset_factors=_xa_off,
+                emit_boundaries_hdf=True,
+            )
+            _hy_ofa.add_alias(f"hyp-align/{_hy_name}-{_xa_tag}-native-align")
+            _hy_metrics(f"{_hy_name}-{_xa_tag}-native", _hy_ofa.out_word_boundaries_hdf, _hy_dir)
+        if _hy_name == "fastconformer-stream-ctc":
+            _hy_fcfa = ParakeetCtcForcedAlignJob(
+                dataset_dir=_hy_dir,
+                dataset_key="test",
+                model_config=fc_ctc_cfg,
+                dataset_offset_factors=_xa_off,
+                emit_boundaries_hdf=True,
+            )
+            _hy_fcfa.add_alias(f"hyp-align/{_hy_name}-{_xa_tag}-native-align")
+            _hy_metrics(f"{_hy_name}-{_xa_tag}-native", _hy_fcfa.out_word_boundaries_hdf, _hy_dir)
         if _hy_name == "whisper-base-charlev":
             _hy_wca = WhisperCrossAttnForcedAlignJob(
                 dataset_dir=_hy_dir, dataset_key="test", overlay=_WHISPER_TS_OVERLAY
@@ -4808,7 +4928,221 @@ def py():
     _cw_off_ds = BuildDatasetWithHypTranscriptsJob(
         dataset_dir=_xa_dir, dataset_key="test", hyps_txt=_cw_off.out_hyps_txt
     )
+    # === Speech-LLM prompt-splice sensitivity, generalized (3 LLMs x grad + self-attn) =========
+    # Vary ONLY the spliced instruction (4 prompts), char-level targets, Buckeye-segA, forced GT.
+    # Two methods per model: grad-align and self-attn DTW (heads auto-selected on TIMIT-val gold).
+    # Shows prompt-robustness holds across models AND across the grad-vs-attention signal.
+    # speech_prompt is spliced into the teacher-forced path (verified), so each prompt differs.
+    _PS_PROMPTS = [
+        ("default", "Transcribe the audio clip into text."),
+        ("verbatim", "Please transcribe the audio verbatim, exactly as spoken."),
+        ("word", "Transcribe the following exactly and accurately, word for word:"),
+        ("char", "Transcribe the audio at the character level, spelling out each word letter by letter."),
+    ]
+
+    def _ps_grad_cfg(model, prompt):
+        # char-level grad config per model, with the spliced instruction (matches each headline config).
+        if model == "phi4mm":
+            return _phi4mm_model_config(
+                dl_phi4mi_dir, char_level=True, char_level_sep=" ", speech_prompt=prompt, attn_implementation="eager"
+            )
+        if model == "voxtral":
+            return rf.build_dict(
+                Voxtral,
+                model_dir=dl_voxtral,
+                forward_mode="transcription",
+                grad_wrt="log_mel",
+                char_level=True,
+                char_level_sep=" ",
+                version=7,
+                speech_prompt=prompt,
+            )
+        return rf.build_dict(
+            CanaryQwen,
+            model_dir=dl_canary,
+            llm_model_dir=dl_qwen3,
+            grad_wrt="log_mel",
+            char_level=True,
+            char_level_sep=" ",
+            ensure_audio_long_enough=True,
+            audio_time_stretch=1.5,
+            version=5,
+            speech_prompt=prompt,
+        )
+
+    def _ps_sa_cfg(model, prompt):
+        # self-attn needs eager attention (output_attentions); same char target + spliced instruction.
+        if model == "phi4mm":
+            return _phi4mm_model_config(
+                dl_phi4mi_dir, attn_implementation="eager", char_level=True, char_level_sep=" ", speech_prompt=prompt
+            )
+        if model == "voxtral":
+            return rf.build_dict(
+                Voxtral,
+                model_dir=dl_voxtral,
+                forward_mode="transcription",
+                attn_implementation="eager",
+                char_level=True,
+                char_level_sep=" ",
+                version=7,
+                speech_prompt=prompt,
+            )
+        return rf.build_dict(
+            CanaryQwen,
+            model_dir=dl_canary,
+            llm_model_dir=dl_qwen3,
+            attn_implementation="eager",
+            char_level=True,
+            char_level_sep=" ",
+            version=3,
+            speech_prompt=prompt,
+        )
+
+    # (model key, grad attr_reduction, grad mult_grad_by_inputs, grad batched_backward)
+    _PS_MODELS = [
+        ("phi4mm", "L2", True, True),
+        ("voxtral", "L1", False, False),
+        ("canary-qwen", "L1", False, False),
+    ]
+    for _ps_model, _ps_attr, _ps_mgi, _ps_bb in _PS_MODELS:
+        for _ps_tag, _ps_prompt in _PS_PROMPTS:
+            # --- grad-align ---
+            _ps_gex = ExtractInGradsPerTokenJob(
+                dataset_dir=_xa_dir,
+                dataset_key="test",
+                model_config=_ps_grad_cfg(_ps_model, _ps_prompt),
+                mult_grad_by_inputs=_ps_mgi,
+                attr_reduction=_ps_attr,
+                batched_backward=_ps_bb,
+            )
+            _ps_gex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            _ps_gex.rqmt = {**_ps_gex.rqmt, "time": 24}
+            _ps_gname = f"{_ps_model}-promptsplice-{_ps_tag}-char-{_xa_tag}-grad-pertoken"
+            _ps_gex.add_alias(_ps_gname)
+            reg(f"{_ps_gname}.hdf", _ps_gex.out_hdf)
+            _ps_gal = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=_ps_gex.out_hdf,
+                grad_score_key="data",
+                dataset_dir=_xa_dir,
+                dataset_key="test",
+                dataset_offset_factors=_xa_off,
+                align_opts=_xa_ao,
+                audio_energy_pow=0.5,
+                blank_silence_energy_scale=1.0,
+            )
+            _ps_gnm = f"align/{_ps_gname}-{_name_for_dict(_xa_ao)}-en0.5-sil1.0"
+            _ps_gal.add_alias(_ps_gnm)
+            reg(f"{_ps_gnm}-wbe.txt", _ps_gal.out_wbe)
+            # --- self-attn DTW (heads auto-selected on TIMIT-val gold, per prompt) ---
+            _ps_sacfg = _ps_sa_cfg(_ps_model, _ps_prompt)
+            _ps_sel = SelectSelfAttnAlignHeadsJob(
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                model_config=_ps_sacfg,
+                time_upsample_when_short=True,  # char tokens exceed the ~80ms audio-token grid
+            )
+            _ps_sel.add_alias(f"selfattn/{_ps_model}-promptsplice-{_ps_tag}-head-selection")
+            reg(f"selfattn/{_ps_model}-promptsplice-{_ps_tag}-heads.txt", _ps_sel.out_heads)
+            _ps_sex = ExtractSelfAttnPerTokenJob(
+                dataset_dir=_xa_dir, dataset_key="test", model_config=_ps_sacfg, heads=_ps_sel.out_heads
+            )
+            _ps_sname = f"baseline-{_ps_model}-promptsplice-{_ps_tag}-selfattn-{_xa_tag}"
+            _ps_sex.add_alias(f"{_ps_sname}-extract")
+            reg(f"{_ps_sname}.hdf", _ps_sex.out_hdf)
+            _ps_sal = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=_ps_sex.out_hdf,
+                grad_score_key="data",
+                dataset_dir=_xa_dir,
+                dataset_key="test",
+                dataset_offset_factors=_xa_off,
+                align_opts=_xa_ao,
+                audio_energy_pow=0.5,
+                blank_silence_energy_scale=1.0,
+            )
+            _ps_snm = f"align/{_ps_sname}-{_name_for_dict(_xa_ao)}-en0.5-sil1.0"
+            _ps_sal.add_alias(_ps_snm)
+            reg(f"{_ps_snm}-wbe.txt", _ps_sal.out_wbe)
+
     _hy_metrics(f"crisperwhisper-official-{_xa_tag}", _cw_off.out_word_boundaries_hdf, _cw_off_ds.out_hub_cache_dir)
+
+    # === Time-stretch / length robustness, redesigned (Buckeye-segA, opposite-sign resolution story) ==
+    # Stretch the audio by a fixed factor (vocoder, pitch-preserving), align on the ORIGINAL timeline.
+    # The SAME mechanism, opposite sign across the model's grad-resolution:
+    #   wav2vec2-CTC grad (fine ~50Hz grid) -- stretch only HURTS (a robustness limitation),
+    #   Voxtral grad (coarse projected-embedding grid) -- mild stretch HELPS (upsamples the coarse grid),
+    #   MMS-FA forced-align re-runs Viterbi on the stretched audio, so it stays ~flat (robust reference).
+    # factor 2.0 = twice as long / half speed; factor 0.5 = half as long / double speed.
+    _TS_FACTORS = [0.5, 0.75, 1.0, 1.2, 1.5, 2.0, 3.0]
+    for _tsf in _TS_FACTORS:
+        _tst = f"ts{_tsf}"
+        # wav2vec2-CTC grad (fine grid): robustness rows.
+        _tsw_cfg = rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out", audio_time_stretch=_tsf)
+        _tsw_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=_xa_dir,
+            dataset_key="test",
+            model_config=_tsw_cfg,
+            mult_grad_by_inputs=False,
+            attr_reduction="L2",
+        )
+        _tsw_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _tsw_name = f"wav2vec2ctc-fproj_out-{_xa_tag}-L2_grad-pertoken-{_tst}"
+        _tsw_ex.add_alias(_tsw_name)
+        reg(f"{_tsw_name}.hdf", _tsw_ex.out_hdf)
+        _tsw_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_tsw_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_xa_dir,
+            dataset_key="test",
+            dataset_offset_factors=_xa_off,
+            align_opts=_xa_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=1.0,
+        )
+        _tsw_nm = f"align/{_tsw_name}-{_name_for_dict(_xa_ao)}-en0.5-sil1.0"
+        _tsw_al.add_alias(_tsw_nm)
+        reg(f"{_tsw_nm}-wbe.txt", _tsw_al.out_wbe)
+        # Voxtral grad on the COARSE projected-speech-embedding grid (the upsampling-sensitive surface).
+        _tsv_cfg = rf.build_dict(
+            Voxtral, model_dir=dl_voxtral, forward_mode="transcription", audio_time_stretch=_tsf, version=5
+        )
+        _tsv_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=_xa_dir,
+            dataset_key="test",
+            model_config=_tsv_cfg,
+            mult_grad_by_inputs=True,
+            attr_reduction="L2",
+        )
+        _tsv_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _tsv_ex.rqmt = {**_tsv_ex.rqmt, "time": 24}
+        _tsv_name = f"voxtral-transcribe-{_xa_tag}-L2_e_grad-pertoken-{_tst}"
+        _tsv_ex.add_alias(_tsv_name)
+        reg(f"{_tsv_name}.hdf", _tsv_ex.out_hdf)
+        _tsv_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_tsv_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_xa_dir,
+            dataset_key="test",
+            dataset_offset_factors=_xa_off,
+            align_opts=_xa_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=1.0,
+        )
+        _tsv_nm = f"align/{_tsv_name}-{_name_for_dict(_xa_ao)}-en0.5-sil1.0"
+        _tsv_al.add_alias(_tsv_nm)
+        reg(f"{_tsv_nm}-wbe.txt", _tsv_al.out_wbe)
+        # MMS-FA forced-align (robust reference; re-runs Viterbi on the stretched audio).
+        _tsf_fa = ForcedAlignBaselineJob(
+            dataset_dir=_xa_dir, dataset_key="test", audio_time_stretch=_tsf, time_stretch_method="vocoder"
+        )
+        _tsf_name = f"baseline-mms_fa-{_xa_tag}-{_tst}"
+        _tsf_fa.add_alias(_tsf_name)
+        _tsf_m = CalcAlignmentMetricsFromWordBoundariesJob(
+            word_boundaries_hdf=_tsf_fa.out_hdf,
+            dataset_dir=_xa_dir,
+            dataset_key="test",
+            dataset_offset_factors=_xa_off,
+        )
+        reg(f"{_tsf_name}-wbe.txt", _tsf_m.out_wbe)
 
     # --- Auto-generated LaTeX result tables (in-graph; reference only this recipe's outputs) ---
     from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.grad_align_tables import (
