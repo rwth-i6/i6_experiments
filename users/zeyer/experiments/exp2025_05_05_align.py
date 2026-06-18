@@ -1987,6 +1987,7 @@ class Aligner:
         *,
         cut_off_eos: bool = False,
         norm_scores: Union[bool, str] = False,
+        norm_scores_eps: float = 0.0,
         shift_scores: float = 0.0,
         clip_scores: Optional[Tuple[Optional[float], Optional[float]]] = None,
         apply_log: bool = True,
@@ -2002,6 +2003,7 @@ class Aligner:
     ):
         self.cut_off_eos = cut_off_eos
         self.norm_scores = norm_scores
+        self.norm_scores_eps = float(norm_scores_eps)
         self.shift_scores = shift_scores
         self.clip_scores = clip_scores
         self.apply_log = apply_log
@@ -2052,7 +2054,7 @@ class Aligner:
         # See in GenAya _calc_input_grads.
         elif self.norm_scores == "absmeanS":
             absmean = np.abs(score_matrix).mean(axis=0, keepdims=True)
-            score_matrix /= absmean
+            score_matrix /= absmean + self.norm_scores_eps
         elif self.norm_scores == "stdmeanS":
             std, mean = np.std(score_matrix, axis=0, keepdims=True), np.mean(score_matrix, axis=0, keepdims=True)
             score_matrix = (score_matrix - mean) / std

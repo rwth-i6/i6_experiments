@@ -44,7 +44,6 @@ def build_tables(results):
     _compare_table(with_hyp=True)  # variant: hyp-mode columns merged onto the grad rows
     _hyp_table()
     _owsm_layer_table()  # OWSM grad-align per inter-CTC emit block (side table)
-    _phi4_prompt_table()  # Phi-4-MM grad-align vs the spliced instruction (side table)
     _prompt_splice_table()  # generalized prompt-splice: 3 LLMs x grad + self-attn (Buckeye-segA)
     _streaming_offset_table()  # streaming start/end signed offset (grad vs native viterbi)
     _time_stretch_table()  # length robustness (grad vs MMS-FA, vocoder vs resample)
@@ -422,7 +421,7 @@ def _attribution_table():
 
 # ----------------------------------------------------------------------------------------
 # T3b-i align-OPTS, silence & topology (Buckeye-segA, whisper grad-char).
-#     Grouped "Blank scoring" {Type | Opts}, CTC topology fixed (orthogonal axis);
+#     Grouped "Blank scoring" {Type | Opts} + Topology;
 #     grad-only (attention has ~no mass in silence).
 # ----------------------------------------------------------------------------------------
 def _alignopts_silence_table():
@@ -432,16 +431,17 @@ def _alignopts_silence_table():
     # constant = the fixed blank_score gamma baseline (no energy silence);
     # energy = energy-aware silence blank; z-score = grad z-score blank.
     # (type, opts, topology, grad suffix)
-    # Topology (CTC vs word-level blank) is an orthogonal axis, held fixed at CTC here.
+    # (type, opts, topology, grad suffix). Topology is an orthogonal axis, shown as its own column.
     ROWS = [
-        ("constant", "$\\gamma{=}{-}5$", "-en0.5"),
-        ("energy", "$s{=}1$", "-en0.5-sil1.0"),
-        ("energy", "$s{=}2$", "-en0.5-sil2.0"),
-        ("z-score", "$\\kappa{=}1$", "-en0.5-zsk1.0"),
+        ("constant", "$\\gamma = -5$", "CTC", "-en0.5"),
+        ("energy", "$s = 1$", "CTC", "-en0.5-sil1.0"),
+        ("energy", "$s = 2$", "CTC", "-en0.5-sil2.0"),
+        ("z-score", "$\\kappa = 1$", "CTC", "-en0.5-zsk1.0"),
+        ("energy", "$s = 1$", "word", "-en0.5-sil1.0-wordtopo"),
     ]
-    columns = ["type", "opts", "g_wbe", "g_a50"]
+    columns = ["type", "opts", "topo", "g_wbe", "g_a50"]
     rows = []
-    for typ, opts, gs in ROWS:
+    for typ, opts, topo, gs in ROWS:
         gb = GP + gs
         rows.append(
             {
@@ -449,6 +449,7 @@ def _alignopts_silence_table():
                 "cells": {
                     "type": typ,
                     "opts": opts,
+                    "topo": topo,
                     "g_wbe": _wbe(gb),
                     "g_a50": _metric(gb, "acc_50ms"),
                 },
