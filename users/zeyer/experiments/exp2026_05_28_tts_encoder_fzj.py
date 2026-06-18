@@ -176,6 +176,20 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+    # nep38 base_lr sweep with DEFAULT peak_lr (1e-3) -> default OCLR shape: eff. peak = base_lr*1e-3, floor =
+    # base_lr*1e-5 (floor/peak ratio 1/100, vs the deeper 1/500 of the peak_lr=5e-3 baseline). base_lr in
+    # {1,5,10} -> eff. peak {1e-3, 5e-3, 1e-2}. baselr5 (eff. peak 5e-3, shallow floor) vs lr5e3-wdbl-nep38
+    # (same 5e-3 peak, deep floor 1e-5) isolates whether the deeper floor actually helped.
+    for _base_lr in (1.0, 5.0, 10.0):
+        _train_asr_base_multigpu(
+            f"asr-base-mgpu-logmel-muon-baselr{_base_lr:g}-nep38",
+            prefix=prefix,
+            feature_extraction=None,
+            base_lr=_base_lr,
+            nep=38,
+            extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+            extra_config_deletes=["optimizer.epsilon"],
+        )
     # LR-floor check on the wdbl setting: base_lr 0.5 + peak_lr 1e-2 keeps the same effective peak
     # (base_lr * peak_lr = 5e-3) but halves the decay targets (low 1e-5 -> 5e-6, final 1e-6 -> 5e-7).
     # The Muon LR sweep held base_lr=1.0 throughout, so the floor is its one untested axis;
