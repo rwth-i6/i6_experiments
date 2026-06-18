@@ -1,31 +1,89 @@
-"""Per-difference ablation of openai-whisper find_alignment vs our method.
+"""Per-difference ablation of openai-whisper find_alignment vs our cross-attn aligner, both directions.
 
-Computes word-boundary error (WBE) for a ladder of configs that toggle, one at a time, each
-difference between ``whisper.timing.find_alignment`` and our cross-attn aligner:
-head set (whisper's curated ``alignment_heads`` vs our gold-tuned top-k), token z-norm, median
-filter, log transform, DP (whisper true-DTW vs our Viterbi-with-blank), energy/silence, and the
-boundary read-off (whisper token-index "jumps" vs our first/last-token span). All on the genuine
-openai-whisper attention (so the faithful config reproduces find_alignment exactly). CPU-only.
-
-The DTW path is validated bit-identical to whisper's dtw_cpu; the Viterbi rows use the real
-``Aligner`` (so they match our production cross-attn aligner). Outputs one WBE Variable per config.
+Computes word-boundary error (WBE) for a ladder of configs toggling, one at a time,
+each difference between ``whisper.timing.find_alignment`` and our method:
+alignment-head set (Whisper's curated heads vs our gold-tuned top-k vs the single best head),
+token z-norm, median filter, log transform,
+the DP (Whisper monotonic DTW with the vertical/up transition vs our monotonic DP forbidding it),
+the silence topology, energy weighting, and the boundary read-off.
+Forward rows start from faithful Whisper;
+reverse rows start from our setup and swap settings back.
+All on the genuine openai-whisper attention -- the faithful config reproduces find_alignment exactly.
+The DTW path is bit-identical to whisper's dtw_cpu;
+the monotonic-DP rows use the real ``Aligner``. CPU-only.
 """
 
 from typing import Optional, Union, List
 from sisyphus import Job, Task, tk
 
-# (key, knobs). heads: "wh" = whisper official alignment_heads, "ours" = gold-tuned (passed in).
-# dp: "dtw" (whisper true-DTW) or "viterbi" (our Aligner). readoff applies to dtw only.
+# (key, knobs). heads: wh | ours | best1.  dp: dtw | mono.  silence: none | ctc (mono only).
 CONFIGS = [
-    ("faithful", dict(heads="wh", zscore=True, medfilt=True, log=False, dp="dtw", energy=False, readoff="jump")),
-    ("span", dict(heads="wh", zscore=True, medfilt=True, log=False, dp="dtw", energy=False, readoff="span")),
-    ("nomedfilt", dict(heads="wh", zscore=True, medfilt=False, log=False, dp="dtw", energy=False, readoff="jump")),
-    ("noznorm", dict(heads="wh", zscore=False, medfilt=True, log=False, dp="dtw", energy=False, readoff="jump")),
-    ("noznorm_log", dict(heads="wh", zscore=False, medfilt=True, log=True, dp="dtw", energy=False, readoff="jump")),
-    ("ourheads", dict(heads="ours", zscore=True, medfilt=True, log=False, dp="dtw", energy=False, readoff="jump")),
-    ("ourheads_span", dict(heads="ours", zscore=True, medfilt=True, log=False, dp="dtw", energy=False, readoff="span")),
-    ("ourdp", dict(heads="ours", zscore=False, medfilt=False, log=True, dp="viterbi", energy=False, readoff="span")),
-    ("full", dict(heads="ours", zscore=False, medfilt=False, log=True, dp="viterbi", energy=True, readoff="span")),
+    # forward: Whisper (faithful) -> ours, one toggle at a time
+    (
+        "faithful",
+        dict(heads="wh", zscore=True, medfilt=True, log=False, dp="dtw", energy=False, silence="none", readoff="jump"),
+    ),
+    (
+        "span",
+        dict(heads="wh", zscore=True, medfilt=True, log=False, dp="dtw", energy=False, silence="none", readoff="span"),
+    ),
+    (
+        "nomedfilt",
+        dict(heads="wh", zscore=True, medfilt=False, log=False, dp="dtw", energy=False, silence="none", readoff="jump"),
+    ),
+    (
+        "noznorm",
+        dict(heads="wh", zscore=False, medfilt=True, log=False, dp="dtw", energy=False, silence="none", readoff="jump"),
+    ),
+    (
+        "noznorm_log",
+        dict(heads="wh", zscore=False, medfilt=True, log=True, dp="dtw", energy=False, silence="none", readoff="jump"),
+    ),
+    (
+        "ourheads",
+        dict(
+            heads="ours", zscore=True, medfilt=True, log=False, dp="dtw", energy=False, silence="none", readoff="jump"
+        ),
+    ),
+    (
+        "best1head",
+        dict(
+            heads="best1", zscore=True, medfilt=True, log=False, dp="dtw", energy=False, silence="none", readoff="jump"
+        ),
+    ),
+    # reverse: ours (full, word-topology) -> swap ONE setting at a time back toward Whisper.
+    # mono+silence are a coupled axis: DTW has no blank states, so it forces silence=none;
+    # the mono(none) -> DTW step isolates just the vertical/up transition.
+    (
+        "ours_full",
+        dict(
+            heads="ours", zscore=False, medfilt=False, log=True, dp="mono", energy=True, silence="word", readoff="span"
+        ),
+    ),
+    (
+        "ours_ctc",
+        dict(
+            heads="ours", zscore=False, medfilt=False, log=True, dp="mono", energy=True, silence="ctc", readoff="span"
+        ),
+    ),
+    (
+        "ours_none",
+        dict(
+            heads="ours", zscore=False, medfilt=False, log=True, dp="mono", energy=True, silence="none", readoff="span"
+        ),
+    ),
+    (
+        "ours_dtw",
+        dict(
+            heads="ours", zscore=False, medfilt=False, log=True, dp="dtw", energy=True, silence="none", readoff="span"
+        ),
+    ),
+    (
+        "ours_dtw_noen",
+        dict(
+            heads="ours", zscore=False, medfilt=False, log=True, dp="dtw", energy=False, silence="none", readoff="span"
+        ),
+    ),
 ]
 
 
@@ -132,24 +190,13 @@ class WhisperDtwAblationJob(Job):
         ds = ds.cast_column("audio", datasets.Audio(decode=False))
         n = len(ds) if self.num_seqs is None else min(self.num_seqs, len(ds))
 
-        def jump_collapse(ti, tj, wb):
-            jm = np.pad(np.diff(ti), (1, 0), constant_values=1).astype(bool)
-            jt = tj[jm] / TOKENS_PER_SECOND
-            return list(zip(jt[wb[:-1]].tolist(), jt[wb[1:]].tolist()))
+        def lsm(m):
+            mx = m.max(1, keepdims=True)
+            return m - (np.log(np.sum(np.exp(m - mx), 1, keepdims=True)) + mx)
 
-        def span_dtw(ti, tj, wb, n_tok):
-            se = []
-            for k in range(n_tok):
-                fr = tj[ti == k]
-                if len(fr) == 0:
-                    p = se[-1][1] if se else 0
-                    se.append((p, p))
-                else:
-                    se.append((int(fr.min()), int(fr.max()) + 1))
-            return [(se[a][0] / TOKENS_PER_SECOND, se[b - 1][1] / TOKENS_PER_SECOND) for a, b in zip(wb[:-1], wb[1:])]
-
-        # Capture per-seq attention + grids.
+        # Capture per-seq attention + grids (one forward each).
         seqs = []
+        # rank single heads by mean WBE on this set, faithful transform, to pick best1 (lowest).
         for si in range(n):
             d = ds[si]
             a = d["audio"]
@@ -183,8 +230,7 @@ class WhisperDtwAblationJob(Job):
             hann = np.hanning(win)
             hann = hann / hann.sum()
             env = np.sqrt(np.convolve(aud * aud, hann, mode="same") + 1e-9)
-            centers = ((np.arange(nf2) + 0.5) / nf2 * (len(env) - 1)).astype(int)
-            e = env[centers]
+            e = env[((np.arange(nf2) + 0.5) / nf2 * (len(env) - 1)).astype(int)]
             e = e / (e.max() + 1e-9)
             seqs.append(([q.cpu() for q in QKs], nf2, wb, ref, len(text_tokens), e))
             if si % 50 == 0:
@@ -199,29 +245,63 @@ class WhisperDtwAblationJob(Job):
                 w = median_filter(w, 7)
             return w.mean(axis=0)[n_sot:-1].double().numpy()
 
-        def evaluate(heads, zscore, medfilt, log, dp, energy, readoff):
-            hd = heads_wh if heads == "wh" else heads_ours
+        def jump(ti, tj, wb):
+            jm = np.pad(np.diff(ti), (1, 0), constant_values=1).astype(bool)
+            jt = tj[jm] / TOKENS_PER_SECOND
+            return list(zip(jt[wb[:-1]].tolist(), jt[wb[1:]].tolist()))
+
+        def span_dtw(ti, tj, wb, nt):
+            se = []
+            for k in range(nt):
+                fr = tj[ti == k]
+                se.append((int(fr.min()), int(fr.max()) + 1) if len(fr) else (se[-1][1] if se else 0,) * 2)
+            return [(se[a][0] / TOKENS_PER_SECOND, se[b - 1][1] / TOKENS_PER_SECOND) for a, b in zip(wb[:-1], wb[1:])]
+
+        # pick best single head (lowest WBE, faithful transform, dtw, jump) over a head-rank pass.
+        cand = sorted({tuple(h) for h in heads_wh + heads_ours})
+        best1, best1_wbe = None, 1e9
+        for hh in cand:
             errs = []
-            for QKs, nf2, wb, ref, n_tok, e in seqs:
+            for QKs, nf2, wb, ref, nt, e in seqs:
+                m = matrix(QKs, nf2, [list(hh)], True, True)
+                ti, tj = _dtw_path(-m)
+                b = jump(ti, tj, wb)
+                if len(b) == len(ref):
+                    errs.append(float(np.mean(per_utt_boundary_errors(b, ref)["wbe"])))
+            w = float(np.mean(errs)) if errs else 1e9
+            if w < best1_wbe:
+                best1, best1_wbe = [list(hh)], w
+
+        head_map = {"wh": heads_wh, "ours": heads_ours, "best1": best1}
+
+        def evaluate(heads, zscore, medfilt, log, dp, energy, silence, readoff):
+            hd = head_map[heads]
+            errs = []
+            for QKs, nf2, wb, ref, nt, e in seqs:
                 m = matrix(QKs, nf2, hd, zscore, medfilt)
                 if dp == "dtw":
                     if log:
-                        mx = m.max(1, keepdims=True)
-                        m = m - (np.log(np.sum(np.exp(m - mx), 1, keepdims=True)) + mx)
+                        p = m * (e[None, :] ** 0.5) if energy else m
+                        m = lsm(p)
                     ti, tj = _dtw_path(-m)
-                    b = jump_collapse(ti, tj, wb) if readoff == "jump" else span_dtw(ti, tj, wb, n_tok)
-                else:
+                    b = jump(ti, tj, wb) if readoff == "jump" else span_dtw(ti, tj, wb, nt)
+                else:  # our monotonic DP (Aligner)
                     mm = m.copy()
-                    bo = None
+                    bo, mask = None, None
                     if energy:
-                        _s = np.log(np.maximum(mm, 1e-12))
-                        _s = _s - max(float(_s.max()), 0.0)
-                        _mx = _s.max(1, keepdims=True)
-                        _s = _s - _mx - np.log(np.sum(np.exp(_s - _mx), 1, keepdims=True))
+                        _s = lsm(np.log(np.maximum(mm, 1e-12)))
                         _ze = (e - e.mean()) / (e.std() + 1e-9)
                         bo = _s.mean(0) - 1.0 * _ze * _s.std(0)
                         mm = mm * (e[None, :] ** 0.5)
-                    spans = aligner.align(mm + 1e-8, blank_override=bo)
+                    if silence == "none":
+                        R = mm.shape[0]
+                        mask = np.array([(i == 0 or i == R) for i in range(R + 1)], dtype=bool)
+                        bo = None
+                    elif silence == "word":
+                        R = mm.shape[0]
+                        allowed = {0, R} | {int(x) + 1 for x in wb}
+                        mask = np.array([(i in allowed) for i in range(R + 1)], dtype=bool)
+                    spans = aligner.align(mm + 1e-8, blank_override=bo, blank_state_mask=mask)
                     b = [(spans[a][0] * spf, spans[bb - 1][1] * spf) for a, bb in zip(wb[:-1], wb[1:])]
                 if len(b) == len(ref):
                     errs.append(float(np.mean(per_utt_boundary_errors(b, ref)["wbe"])))
@@ -230,6 +310,7 @@ class WhisperDtwAblationJob(Job):
         lines = [f"model={self.whisper_model} key={self.dataset_key} n={n}"]
         lines.append(f"heads_wh={heads_wh}")
         lines.append(f"heads_ours={heads_ours}")
+        lines.append(f"best1_head={best1} (WBE {best1_wbe * 1000:.1f} ms)")
         for key, cfg in CONFIGS:
             wbe, c = evaluate(**cfg)
             self.out_wbes[key].set(wbe)

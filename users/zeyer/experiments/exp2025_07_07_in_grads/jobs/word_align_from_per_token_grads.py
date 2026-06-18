@@ -48,8 +48,9 @@ def _openai_dtw_path(cost):
 
 
 def _dtw_spans_from_cost(cost):
-    """Run the whisper dtw_cpu recursion on `cost` [S,T] and collapse the path to per-token
-    [start, end) frame spans (a zero-duration token gets a zero-width span at the running cursor)."""
+    """Run the whisper dtw_cpu recursion on `cost` [S,T]
+    and collapse the path to per-token [start, end) frame spans
+    (a zero-duration token gets a zero-width span at the running cursor)."""
     import numpy as np
 
     s = cost.shape[0]
@@ -79,10 +80,12 @@ def _openai_dtw_align(score_matrix):
 
 def _true_dtw_align(score_matrix, apply_log: bool):
     """True DTW recursion (whisper dtw_cpu) with a configurable cost.
-    apply_log=True -> cost = -log-softmax-over-time (our log-prob variant: every extra path cell
-    costs more, so the DP never takes a vertical step -> equivalent to our monotonic alignment).
-    apply_log=False -> cost = -score_matrix directly (whisper's dtw(-matrix); only non-degenerate
-    when the matrix is signed, e.g. after token z-norm -- otherwise every vertical step improves it)."""
+    apply_log=True -> cost = -log-softmax-over-time
+    (our log-prob variant: every extra path cell costs more,
+    so the DP never takes a vertical step -> equivalent to our monotonic alignment).
+    apply_log=False -> cost = -score_matrix directly
+    (whisper's dtw(-matrix); only non-degenerate when the matrix is signed, e.g. after token z-norm
+    -- otherwise every vertical step improves it)."""
     import numpy as np
     from scipy.special import logsumexp
 
@@ -200,14 +203,15 @@ class WordAlignFromPerTokenGradsJob(Job):
         # Faithful openai-whisper DTW (their actual algorithm on the score matrix).
         self.whisper_dtw = bool(whisper_dtw)
         # Whisper find_alignment difference-ablation knobs (all default off):
-        # (D) z-norm the matrix over the token axis per frame (whisper standardizes the
-        # softmax-over-time weights over tokens -> signed, ~half negative).
+        # (D) z-norm the matrix over the token axis per frame
+        # (whisper standardizes the softmax-over-time weights over tokens -> signed, ~half negative).
         self.attn_token_zscore = bool(attn_token_zscore)
         # (E) median filter over time (whisper uses width 7).
         self.median_filter_width = int(median_filter_width)
         # (G) true DTW recursion (diag/up/left, frame-sharing + zero-duration tokens),
-        # whisper's dtw_cpu, vs our Viterbi-with-blank. apply_log (align_opts) selects the
-        # log-prob cost (our variant) vs the raw-matrix cost (whisper's dtw(-matrix)).
+        # whisper's dtw_cpu, vs our Viterbi-with-blank.
+        # apply_log (align_opts) selects the log-prob cost (our variant)
+        # vs the raw-matrix cost (whisper's dtw(-matrix)).
         self.true_dtw = bool(true_dtw)
         assert boundary_source in ("word_detail", "phonetic_detail"), boundary_source
         assert not (self.blank_grad_zscore_kappa and self.blank_silence_energy_scale), (

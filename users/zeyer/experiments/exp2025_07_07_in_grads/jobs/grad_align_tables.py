@@ -454,11 +454,18 @@ def _attribution_table():
 # ----------------------------------------------------------------------------------------
 def _alignopts_silence_table():
     S = "buckeye-segA-5h"
-    # Blank-scoring schemes (CTC topology, grad char-level), shown across model families. (col key, prefix)
-    MODELS = [
+    # Blank-scoring schemes (ctc topology), across SIGNALS:
+    # grad (3 models) + cross-attn (Whisper) + self-attn (Voxtral).
+    # Energy token-weighting held at en0.5; only the blank score varies,
+    # so this isolates const vs energy-silence vs z-score per signal. (col key, prefix)
+    GRAD = [
         ("whisper", "whisper-base-logmel-charlev-spc"),
         ("wav2vec2", "wav2vec2ctc-fproj_out-prefixfwd"),
         ("voxtral", "voxtral-charlevlogmel"),
+    ]
+    ATTN = [
+        ("wh_a", "baseline-whisper-base-crossattn-auto"),
+        ("vx_a", "baseline-voxtral-char-selfattn"),
     ]
     SCHEMES = [
         ("constant", "$\\gamma = -5$", "en0.5"),
@@ -466,12 +473,14 @@ def _alignopts_silence_table():
         ("energy", "$s = 2$", "en0.5-sil2.0"),
         ("z-score", "$\\kappa = 1$", "en0.5-zsk1.0"),
     ]
-    columns = ["type", "opts"] + [mk for mk, _ in MODELS]
+    columns = ["type", "opts"] + [k for k, _ in GRAD] + [k for k, _ in ATTN]
     rows = []
     for typ, opts, sfx in SCHEMES:
         cells = {"type": typ, "opts": opts}
-        for mk, mpre in MODELS:
-            cells[mk] = _wbe(f"align/{mpre}-abl-{S}-L2_grad-pertoken-asotTrue-bs-5-{sfx}")
+        for k, mpre in GRAD:
+            cells[k] = _wbe(f"align/{mpre}-abl-{S}-L2_grad-pertoken-asotTrue-bs-5-{sfx}")
+        for k, mpre in ATTN:
+            cells[k] = _wbe(f"align/{mpre}-{S}-asotTrue-bs-5-{sfx}")
         rows.append({"cells": cells})
     _emit("alignopts-silence", columns, rows)
 
@@ -485,27 +494,37 @@ def _alignopts_silence_table():
 #     where grad and cross-attn converge.
 # ----------------------------------------------------------------------------------------
 def _alignopts_dtw_table():
-    # Per-difference ablation: openai-whisper find_alignment (faithful) -> our cross-attn method,
-    # toggling ONE difference at a time. Columns = the individual differences; rows = the ladder.
-    # WBE from WhisperDtwAblationJob on the genuine openai-whisper attention -- the faithful config
-    # reproduces find_alignment exactly (verified). whisper-base, TIMIT-test.
-    # (row label, job key, heads, z-norm, median-filter, log, DP, energy, read-off)
-    ck, cx = "\\checkmark", "$\\times$"
-    WH, OU, DTW, VIT = "Whisper", "ours", "DTW", "Viterbi"
+    # Per-difference ablation Whisper find_alignment <-> our aligner, BOTH directions, + a grad block.
+    # Cross-attn rows (whisper-base, TIMIT-test) from WhisperDtwAblationJob (genuine openai-whisper attn;
+    # the faithful row reproduces find_alignment exactly, verified). Grad rows (whisper-char, Buckeye-segA)
+    # from the production grad aligner -- does true-DTW help grad as it does cross-attn?
+    # mono: checkmark = our monotonic DP (no vertical step); cross = whisper DTW (vertical allowed).
+    # silence: none / ctc (word topology collapses to ctc when blank is on; to none when off).
+    # (label, src=(kind,key), heads, z-norm, median-filter, log, mono, silence, energy, read-off)
+    ck, cx, na = "\\checkmark", "$\\times$", "--"
+    WH, OU, B1 = "Whisper", "ours", "1-best"
+    R = "\\ $\\hookrightarrow$ "
     ROWS = [
-        ("Whisper (faithful)", "faithful", WH, ck, ck, cx, DTW, cx, "jump"),
-        ("\\ $\\hookrightarrow$ span read-off", "span", WH, ck, ck, cx, DTW, cx, "span"),
-        ("\\ $\\hookrightarrow$ no median-filter", "nomedfilt", WH, ck, cx, cx, DTW, cx, "jump"),
-        ("\\ $\\hookrightarrow$ no z-norm", "noznorm", WH, cx, ck, cx, DTW, cx, "jump"),
-        ("\\ $\\hookrightarrow$ no z-norm, $+$log", "noznorm_log", WH, cx, ck, ck, DTW, cx, "jump"),
-        ("\\ $\\hookrightarrow$ our heads", "ourheads", OU, ck, ck, cx, DTW, cx, "jump"),
-        ("\\ $\\hookrightarrow$ our heads, span", "ourheads_span", OU, ck, ck, cx, DTW, cx, "span"),
-        ("\\ $\\hookrightarrow$ our Viterbi DP", "ourdp", OU, cx, cx, ck, VIT, cx, "span"),
-        ("Ours (full)", "full", OU, cx, cx, ck, VIT, ck, "span"),
+        ("Cross-attn: Whisper (faithful)", ("xa", "faithful"), WH, ck, ck, cx, cx, "none", cx, "jump"),
+        (R + "span read-off", ("xa", "span"), WH, ck, ck, cx, cx, "none", cx, "span"),
+        (R + "no median-filter", ("xa", "nomedfilt"), WH, ck, cx, cx, cx, "none", cx, "jump"),
+        (R + "no z-norm", ("xa", "noznorm"), WH, cx, ck, cx, cx, "none", cx, "jump"),
+        (R + "no z-norm $+$ log", ("xa", "noznorm_log"), WH, cx, ck, ck, cx, "none", cx, "jump"),
+        (R + "our heads", ("xa", "ourheads"), OU, ck, ck, cx, cx, "none", cx, "jump"),
+        (R + "single best head", ("xa", "best1head"), B1, ck, ck, cx, cx, "none", cx, "jump"),
+        ("Cross-attn: ours (full)", ("xa", "ours_full"), OU, cx, cx, ck, ck, "ctc", ck, "span"),
+        (R + "DTW DP", ("xa", "ours_dtw"), OU, cx, cx, ck, cx, "none", ck, "span"),
+        (R + "DTW DP, no energy", ("xa", "ours_dtw_noen"), OU, cx, cx, ck, cx, "none", cx, "span"),
+        (R + "no silence", ("xa", "ours_mono_nosil"), OU, cx, cx, ck, ck, "none", ck, "span"),
+        ("Grad: ours (full)", ("grad", "en0.5-sil1.0"), na, na, na, ck, ck, "ctc", ck, "span"),
+        (R + "DTW DP", ("grad", "en0.5-truedtw"), na, na, na, ck, cx, "none", ck, "span"),
+        (R + "DTW DP, no energy", ("grad", "en0.0-truedtw"), na, na, na, ck, cx, "none", cx, "span"),
     ]
-    columns = ["row", "heads", "znorm", "medfilt", "log", "dp", "energy", "readoff", "wbe"]
+    GP = "align/whisper-base-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc-asotTrue-bs-5"
+    columns = ["row", "heads", "znorm", "medfilt", "log", "mono", "silence", "energy", "readoff", "wbe"]
     rows = []
-    for label, key, heads, znorm, mf, log, dp, energy, ro in ROWS:
+    for label, src, heads, znorm, mf, log, mono, sil, en, ro in ROWS:
+        wbe = _wbe(f"dtw-abl/whisper-base-timit-test-{src[1]}") if src[0] == "xa" else _wbe(f"{GP}-{src[1]}")
         rows.append(
             {
                 "cells": {
@@ -514,10 +533,11 @@ def _alignopts_dtw_table():
                     "znorm": znorm,
                     "medfilt": mf,
                     "log": log,
-                    "dp": dp,
-                    "energy": energy,
+                    "mono": mono,
+                    "silence": sil,
+                    "energy": en,
                     "readoff": ro,
-                    "wbe": _wbe(f"dtw-abl/whisper-base-timit-test-{key}"),
+                    "wbe": wbe,
                 }
             }
         )

@@ -24,6 +24,11 @@ class WhisperCrossAttnForcedAlignJob(Job):
     # The overlay is an env path (not part of the result identity), so passing the
     # current value leaves the finished baseline's hash unchanged.
     __sis_hash_exclude__ = {"overlay": "/home/az668407/work/whisper-ts-overlay"}
+    # v1: end-frame convention fix -- store word end as inclusive-last-frame (end - 1 frame),
+    # matching our Aligner.
+    # find_alignment returns end = next word's start (exclusive);
+    # without this, whisper ends were 1 frame (20 ms @50Hz) later than ours -> unfair WBE comparison.
+    __sis_version__ = 1
 
     @classmethod
     def hash(cls, parsed_args):
@@ -164,7 +169,11 @@ class WhisperCrossAttnForcedAlignJob(Job):
                 bounds = np.linspace(0, dur, len(words) + 1)
                 word_se = np.stack([bounds[:-1], bounds[1:]], axis=-1).astype(np.float32)
             else:
-                word_se = np.array([[wt.start, wt.end] for wt in alignment], dtype=np.float32)
+                # end - 1 frame: find_alignment's word end is the NEXT word's start (exclusive);
+                # subtract one 50 Hz frame so it is the inclusive last frame, like our Aligner.
+                word_se = np.array(
+                    [[wt.start, max(wt.start, wt.end - 1.0 / 50.0)] for wt in alignment], dtype=np.float32
+                )
 
             tag = str(data.get("id", f"seq-{seq_idx}"))
             writer.insert_batch(word_se[None], [len(words)], [tag])

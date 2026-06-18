@@ -2000,6 +2000,7 @@ class Aligner:
         blank_score_est: str = "neg_prob",
         non_blank_score_reduce: str = "mean",
         blank_score_flipped_percentile: int = 0,
+        dtw: bool = False,
     ):
         self.cut_off_eos = cut_off_eos
         self.norm_scores = norm_scores
@@ -2016,6 +2017,60 @@ class Aligner:
         self.blank_score_est = blank_score_est
         self.non_blank_score_reduce = non_blank_score_reduce
         self.blank_score_flipped_percentile = blank_score_flipped_percentile
+        # DTW mode: allow the vertical/up move (label advances without consuming a frame),
+        # i.e. whisper's dtw_cpu, but over our CALIBRATED [T, 2S+1] score matrix and topology
+        # -- so the blank/silence scores are scaled the same as the monotonic Viterbi
+        # (a raw DTW over-segments).
+        self.dtw = bool(dtw)
+
+    def _align_dtw(self, score_matrix_, S, T):
+        # dtw_cpu (diag / up / left) over the ALLOWED states only
+        # (label states + non-forbidden blank states;
+        # topology-forbidden blanks were set to -inf and are dropped, giving the [S+N+1, T] structure).
+        # Returns per-label (start, end) inclusive frames.
+        import numpy as np
+
+        allowed = [i for i in range(2 * S + 1) if (i % 2 == 1) or np.isfinite(score_matrix_[:, i]).any()]
+        cost = -score_matrix_[:, allowed].T.astype(np.float64)  # [N, T]
+        N = len(allowed)
+        d = np.full((N + 1, T + 1), np.inf)
+        tr = np.zeros((N + 1, T + 1), dtype=np.int8)
+        d[0, 0] = 0.0
+        tr[0, :] = 2
+        tr[:, 0] = 1
+        for i in range(1, N + 1):
+            row = cost[i - 1]
+            for j in range(1, T + 1):
+                c0, c1, c2 = d[i - 1, j - 1], d[i - 1, j], d[i, j - 1]
+                if c0 <= c1 and c0 <= c2:
+                    d[i, j], tr[i, j] = row[j - 1] + c0, 0
+                elif c1 <= c2:
+                    d[i, j], tr[i, j] = row[j - 1] + c1, 1
+                else:
+                    d[i, j], tr[i, j] = row[j - 1] + c2, 2
+        i, j = N, T
+        frames = [[] for _ in range(N)]
+        while i > 0 or j > 0:
+            frames[i - 1].append(j - 1)
+            b = tr[i, j]
+            if b == 0:
+                i, j = i - 1, j - 1
+            elif b == 1:
+                i -= 1
+            else:
+                j -= 1
+        labels_start_end = []
+        prev_end = 0
+        for si, st in enumerate(allowed):
+            if st % 2 == 1:  # label state
+                fr = frames[si]
+                if fr:
+                    labels_start_end.append((min(fr), max(fr)))
+                    prev_end = max(fr)
+                else:
+                    labels_start_end.append((prev_end, prev_end))
+        assert len(labels_start_end) == S, f"{len(labels_start_end)=} {S=}"
+        return labels_start_end
 
     def align(
         self,
@@ -2150,6 +2205,9 @@ class Aligner:
             # label->label skip, so repeated chars within a word still align.
             _blank_cols = np.arange(0, 2 * S + 1, 2)
             score_matrix_[:, _blank_cols[~np.asarray(blank_state_mask, dtype=bool)]] = -np.inf
+
+        if self.dtw:
+            return self._align_dtw(score_matrix_, S, T)
 
         # The first two states are valid start states.
         align_scores[0, :2] = score_matrix_[0, :2]

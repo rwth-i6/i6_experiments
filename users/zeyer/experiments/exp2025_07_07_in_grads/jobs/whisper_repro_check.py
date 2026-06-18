@@ -1,17 +1,17 @@
 """Reproduction check: does our DP + boundary read-off match openai-whisper find_alignment?
 
-Runs the real ``whisper.timing.find_alignment`` (authoritative whisper word timings) while
-monkeypatching ``whisper.timing.dtw`` to capture the EXACT internal ``[token x time]`` matrix it
-feeds the DP (softmax-over-time + token z-norm + median-filter-7 + mean over the official
-alignment heads). Then runs OUR copy of the same DTW recursion on the identical matrix, with BOTH
-boundary read-offs:
+Runs the real ``whisper.timing.find_alignment`` (authoritative whisper word timings)
+while monkeypatching ``whisper.timing.dtw`` to capture the EXACT internal ``[token x time]`` matrix
+it feeds the DP (softmax-over-time + token z-norm + median-filter-7 + mean over the official alignment heads).
+Then runs OUR copy of the same DTW recursion on the identical matrix, with BOTH boundary read-offs:
 
-* ``jump``  -- whisper's: word start = time index where the word's first token first appears on the
-  path (``jumps = diff(text_indices)``), word end = the next word's first-token time.
+* ``jump``  -- whisper's: word start = time index where the word's first token first appears on the path
+  (``jumps = diff(text_indices)``), word end = the next word's first-token time.
 * ``span``  -- ours: (first-token min time, last-token max time).
 
-So if ``ours-jump == whisper`` the DP is bit-identical and the only difference is the collapse; the
-``ours-span`` vs ``whisper`` WBE gap then quantifies the read-off choice. CPU-only debug job.
+So if ``ours-jump == whisper`` the DP is bit-identical and the only difference is the collapse;
+the ``ours-span`` vs ``whisper`` WBE gap then quantifies the read-off choice.
+CPU-only debug job.
 """
 
 from typing import Optional

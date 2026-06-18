@@ -3678,6 +3678,7 @@ def py():
         word_topology=False,
         dtw_no_blank=False,
         whisper_dtw=False,
+        true_dtw=False,
         apply_log=True,
         _twin=True,
     ):
@@ -3688,6 +3689,8 @@ def py():
             kw["dtw_no_blank"] = True
         if whisper_dtw:
             kw["whisper_dtw"] = True
+        if true_dtw:
+            kw["true_dtw"] = True
         # apply_log=True reuses _xa_ao exactly (hash-stable); False = the no-log variant.
         _ao = _xa_ao if apply_log else {**_xa_ao, "apply_log": False}
         al = WordAlignFromPerTokenGradsJob(
@@ -3998,6 +4001,26 @@ def py():
                     _ah_lo_nm = f"align/{_ah_name}-{_name_for_dict(_ah_lo_ao)}-en0.5-sil1.0"
                     _ah_lo.add_alias(_ah_lo_nm)
                     reg(f"{_ah_lo_nm}-wbe.txt", _ah_lo.out_wbe)
+                    # blank-scoring schemes (energy token-weighting held at en0.5)
+                    # for the alignopts-silence cross-attn column: constant / energy s2 / z-score.
+                    for _ah_bkw, _ah_bsfx in [
+                        ({"blank_silence_energy_scale": 0.0}, "-en0.5"),
+                        ({"blank_silence_energy_scale": 2.0}, "-en0.5-sil2.0"),
+                        ({"blank_grad_zscore_kappa": 1.0}, "-en0.5-zsk1.0"),
+                    ]:
+                        _ah_b = WordAlignFromPerTokenGradsJob(
+                            grad_score_hdf=_ah_ex.out_hdf,
+                            grad_score_key="data",
+                            dataset_dir=_ah_dir,
+                            dataset_key=_ah_key,
+                            dataset_offset_factors=_ah_off,
+                            align_opts=_xa_ao,
+                            audio_energy_pow=0.5,
+                            **_ah_bkw,
+                        )
+                        _ah_bnm = f"align/{_ah_name}-{_name_for_dict(_xa_ao)}{_ah_bsfx}"
+                        _ah_b.add_alias(_ah_bnm)
+                        reg(f"{_ah_bnm}-wbe.txt", _ah_b.out_wbe)
 
     # (4f) Speech-LLM SELF-attention DTW (voxtral + canary-qwen): the attention analog
     # of whisper's cross-attn timestamps. No published alignment-head masks exist for
@@ -4133,6 +4156,25 @@ def py():
                         _sa_lo_nm = f"align/{_sa_name}-{_name_for_dict(_sa_lo_ao)}-en0.5-sil1.0"
                         _sa_lo.add_alias(_sa_lo_nm)
                         reg(f"{_sa_lo_nm}-wbe.txt", _sa_lo.out_wbe)
+                        # blank-scoring schemes (en0.5 token-weighting) for the alignopts-silence self-attn column.
+                        for _sa_bkw, _sa_bsfx in [
+                            ({"blank_silence_energy_scale": 0.0}, "-en0.5"),
+                            ({"blank_silence_energy_scale": 2.0}, "-en0.5-sil2.0"),
+                            ({"blank_grad_zscore_kappa": 1.0}, "-en0.5-zsk1.0"),
+                        ]:
+                            _sa_b = WordAlignFromPerTokenGradsJob(
+                                grad_score_hdf=_sa_ex.out_hdf,
+                                grad_score_key="data",
+                                dataset_dir=_sa_dir,
+                                dataset_key=_sa_key,
+                                dataset_offset_factors=_sa_off,
+                                align_opts=_xa_ao,
+                                audio_energy_pow=0.5,
+                                **_sa_bkw,
+                            )
+                            _sa_bnm = f"align/{_sa_name}-{_name_for_dict(_xa_ao)}{_sa_bsfx}"
+                            _sa_b.add_alias(_sa_bnm)
+                            reg(f"{_sa_bnm}-wbe.txt", _sa_b.out_wbe)
 
     # (5) grad-score x energy/silence ablation on the headline whisper-char extract (shared; free aligns).
     _xa_whc = _xa_extract(whisper_char_cfg, None, "L2", False)
@@ -4140,6 +4182,10 @@ def py():
     _xa_align(_xa_whc, _xa_whc_name, "en0.5", sil=0.0)
     _xa_align(_xa_whc, _xa_whc_name, "en0.5-sil2.0", sil=2.0)
     _xa_align(_xa_whc, _xa_whc_name, "en0.5-zsk1.0", zsk=1.0)
+    # grad true-DTW (our scores -> whisper's monotonic-DTW DP), energy on/off,
+    # for the alignopts-dtw ablation's grad rows (does true-DTW help grad like it does cross-attn?).
+    _xa_align(_xa_whc, _xa_whc_name, "en0.5-truedtw", energy=0.5, true_dtw=True, _twin=False)
+    _xa_align(_xa_whc, _xa_whc_name, "en0.0-truedtw", energy=0.0, true_dtw=True, _twin=False)
     # space-as-silence (CrisperWhisper-style): align the separator tokens as the silence anchors
     # (no DP blank); word boundaries from char rows only. CrisperWhisper (standalone space IS trained
     # -> should work) vs whisper-base (untrained -> contrast). Buckeye-segA.
