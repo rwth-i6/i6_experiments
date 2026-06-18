@@ -4,10 +4,6 @@ from i6_experiments.users.berger.systems.dataclasses import ConfigVariant
 
 import torch
 from torch import nn
-import torch.nn.functional as F
-# import torchaudio
-
-from scipy.optimize import linear_sum_assignment
 
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1, VGG4LayerActFrontendV1Config
 from i6_models.parts.conformer.convolution import ConformerConvolutionV2Config
@@ -27,22 +23,11 @@ from i6_models.assemblies.conformer.conformer_rel_pos_v1 import ConformerRelPosB
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
 from i6_models.config import ModelConfiguration, ModuleFactoryV1
 from i6_experiments.common.setups.serialization import Import, NonhashedCode
-from i6_experiments.users.jxu.experiments.pretrain.pytorch_networks.input_norm import InputNormalization
+from i6_experiments.users.berger.pytorch.helper_functions import map_tensor_to_minus1_plus1_interval
+from i6_experiments.users.jxu.experiments.ssl.pytorch_networks.input_norm import InputNormalization
 
 from returnn.tensor.tensor_dict import TensorDict
 import returnn.frontend as rf
-
-
-class GradMultiply(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, x, scale):
-        ctx.scale = scale
-        res = x.new(x)
-        return res
-
-    @staticmethod
-    def backward(ctx, grad):
-        return grad * ctx.scale, None
 
 
 @dataclass
@@ -50,50 +35,42 @@ class BestRQConformerConfig(ModelConfiguration):
     feature_extraction_cfg: LogMelFeatureExtractionV1Config
     conformer_cfg: ConformerRelPosEncoderV1Config
     final_dropout: float
+    target_size: int
     aux_losses: dict
     internal_subsampling_rate: int
-    input_codebook_dim: int
-    input_codebook_num_vars: int
+    codebook_dim: int
+    codebook_num_vars: int
     mask_replace_val: str
     mask_prob: float
     mask_length: int
     cb_distance_measure: str
     normalise_after_PCA: bool
     PCA_update_steps: int
-    input_quantizer_update_kwargs: dict
 
 
 class BestRQConformerModel(torch.nn.Module):
     def __init__(self, step: int, cfg: BestRQConformerConfig, **kwargs):
         super().__init__()
         self.logmel_feat_extraction = LogMelFeatureExtractionV1(cfg=cfg.feature_extraction_cfg)
-        self.input_quantizer = RandomProjectionPCAQuantizer(
-            input_dim=cfg.feature_extraction_cfg.num_filters, codebook_dim=cfg.input_codebook_dim,
-            codebook_num_vars=cfg.input_codebook_num_vars, distance_meature=cfg.cb_distance_measure,
+        self.quantizer = RandomProjectionPCAQuantizer(
+            input_dim=cfg.feature_extraction_cfg.num_filters, codebook_dim=cfg.codebook_dim,
+            codebook_num_vars=cfg.codebook_num_vars, distance_meature=cfg.cb_distance_measure
         )
         self.compute_mask = RandomMask(cfg.feature_extraction_cfg.num_filters, cfg.mask_replace_val, cfg.mask_prob,
                                        cfg.mask_length)
         self.conformer = ConformerRelPosEncoderV1(cfg.conformer_cfg)
-        self.final_linear = nn.Linear(cfg.conformer_cfg.block_cfg.ff_cfg.input_dim, cfg.input_codebook_num_vars)
+        self.final_linear_list = torch.nn.ModuleList(
+            [nn.Linear(cfg.conformer_cfg.block_cfg.ff_cfg.input_dim, cfg.target_size) for _ in
+             range(len(cfg.aux_losses))])
         self.aux_losses = cfg.aux_losses
         self.internal_subsampling_rate = cfg.internal_subsampling_rate
         self.input_norm = InputNormalization()
-        self.intermediate_norm = InputNormalization(feat_dim=cfg.conformer_cfg.block_cfg.ff_cfg.input_dim)
-        self.new_cluster_sum = nn.Parameter(F.normalize(self.input_quantizer.CB), requires_grad=False)
-        self.new_cluster_amount = nn.Parameter(torch.ones(cfg.input_codebook_num_vars), requires_grad=False)
-        self.conf_matrix = nn.Parameter(torch.zeros(cfg.input_codebook_num_vars, cfg.input_codebook_num_vars), requires_grad=False)
         self.export_mode = False
         self.forward_step = False
         self.dump_logmel = False
         self.get_predict_label = False
         self.normalise_after_PCA = cfg.normalise_after_PCA
         self.PCA_update_steps = cfg.PCA_update_steps
-        self.input_quantizer_update_kwargs = cfg.input_quantizer_update_kwargs
-        from returnn.config import get_global_config
-        config = get_global_config(return_empty_if_none=True)
-        self.forward_output_layer = config.typed_value("forward_output_layer")
-        self.get_intermediate_repr = False
-
 
     def forward(
             self,
@@ -101,32 +78,8 @@ class BestRQConformerModel(torch.nn.Module):
             audio_features_len: Optional[torch.Tensor] = None,
             global_train_steps: Optional[int] = None
     ):
-        raw_audio_features = audio_features
-
-        # if self.get_intermediate_repr and self.forward_output_layer == 0:
-        #     x = raw_audio_features.type(torch.FloatTensor)
-        #     print("x.size()", x.size())
-        #     batch_dim, _, _ = x.size()
-        #     out = []
-        #     for i in range(batch_dim):
-        #         feat = x[i].view(1, -1)
-        #
-        #         mfccs = torchaudio.compliance.kaldi.mfcc(
-        #             waveform=feat,
-        #             sample_frequency=16000,
-        #             use_energy=False,
-        #         )  # (time, freq)
-        #         mfccs = mfccs.transpose(0, 1)  # (freq, time)
-        #         deltas = torchaudio.functional.compute_deltas(mfccs)
-        #         ddeltas = torchaudio.functional.compute_deltas(deltas)
-        #         concat = torch.cat([mfccs, deltas, ddeltas], dim=0)
-        #         concat = concat.transpose(0, 1).contiguous()  # (time, freq)
-        #         out.append(concat)
-        #
-        #     return torch.stack(out, dim=0)
-
         with torch.no_grad():
-            squeezed_features = torch.squeeze(audio_features)
+            squeezed_features = torch.squeeze(audio_features, dim=-1)
             if self.export_mode:
                 squeezed_features = squeezed_features.type(torch.FloatTensor)
             else:
@@ -135,21 +88,24 @@ class BestRQConformerModel(torch.nn.Module):
             audio_features, audio_features_len = self.logmel_feat_extraction(squeezed_features, audio_features_len)
 
         sequence_mask = lengths_to_padding_mask(audio_features_len)
+        if self.dump_logmel:
+            return audio_features, sequence_mask
 
         # apply masking and get targets
         inp_len = sequence_mask.sum(dim=1)
         normalised_audio_features = self.input_norm(audio_features, inp_len)
-
-        targets = self.input_quantizer(normalised_audio_features, sequence_mask, self.normalise_after_PCA,
-                                       self.PCA_update_steps, global_train_steps)
-        masked_audio_features, mask = self.compute_mask.forward(audio_features, ~sequence_mask)
+        targets = self.quantizer(normalised_audio_features, sequence_mask, self.normalise_after_PCA,
+                                 self.PCA_update_steps, global_train_steps)
+        audio_features, mask = self.compute_mask.forward(audio_features, ~sequence_mask)
 
         if self.forward_step:
             return targets, sequence_mask
 
+        returnn_layers = [int(i) - 1 for i in self.aux_losses.keys()]
+        conformer_out_list, sequence_mask = self.conformer(audio_features, sequence_mask,
+                                                           return_layers=returnn_layers)  # [B, T, F]
+
         out = []
-        # forward Conformer
-        x, sequence_mask = self.conformer.frontend(masked_audio_features, sequence_mask)  # [B, T, F']
 
         # since the input features are downsampled in the frond-end, we need to downsample the masks accordingly
         downsampled_mask = mask_pool(
@@ -169,80 +125,17 @@ class BestRQConformerModel(torch.nn.Module):
         # downsample the targets
         downsampled_targets = targets[:, :: self.internal_subsampling_rate]
         masked_targets = downsampled_targets[downsampled_mask]
-        print("input mask", len(masked_targets) / torch.sum(sequence_mask))
 
-        if self.get_predict_label:
-            return downsampled_targets, sequence_mask
+        for i in range(len(self.aux_losses)):
+            logits = self.final_linear_list[i](conformer_out_list[i])  # [B, T, F]
+            log_probs = torch.log_softmax(logits, dim=2)
+            if self.get_predict_label and i == len(self.aux_losses) - 1:
+                return log_probs.argmax(-1), sequence_mask
+            # take only the logits of the frames that are masked out
+            masked_log_probs = log_probs[downsampled_mask]
+            out.append(masked_log_probs)
 
-        return_layers = [int(i) - 1 for i in self.aux_losses.keys()]
-
-        assert (
-                max(return_layers) < len(self.conformer.module_list) and min(return_layers) >= 0
-        ), f"invalid layer index, should be between 0 and {len(self.module_list) - 1}"
-
-        for i in range(len(self.conformer.module_list)):
-            x = self.conformer.module_list[i](x, sequence_mask)  # [B, T, F']
-            if self.get_intermediate_repr and i+1 == self.forward_output_layer:
-                print("x.size", x.size())
-                return x
-
-        conformer_out = x
-
-        targets_list = [masked_targets]
-
-        logits = self.final_linear(conformer_out)  # [B, T, F]
-        log_probs = torch.log_softmax(logits, dim=2)
-        # if self.get_predict_label and i == 0:
-        #     return torch.argmax(log_probs, -1), sequence_mask
-        masked_log_probs = log_probs[downsampled_mask]
-        out.append(masked_log_probs)
-
-        # update the new cluster statistics
-        input_quantizer_update_steps = torch.tensor(self.input_quantizer_update_kwargs["input_quantizer_update_steps"])
-        compute_statistics_steps =  torch.tensor(self.input_quantizer_update_kwargs["compute_statistics_steps"])
-
-        if self.training and ((global_train_steps >= (input_quantizer_update_steps - compute_statistics_steps)) & (global_train_steps <= input_quantizer_update_steps)).any():
-            print("update cluster")
-
-            if self.input_quantizer_update_kwargs["update_mask"] == "sequence_mask":
-                update_mask = sequence_mask
-            elif self.input_quantizer_update_kwargs["update_mask"] == "unmask":
-                update_mask = sequence_mask & (~downsampled_mask)
-            elif self.input_quantizer_update_kwargs["update_mask"] == "mask":
-                update_mask = sequence_mask & downsampled_mask
-
-            update_from_labels = downsampled_targets
-
-            with torch.no_grad():
-                for a, b in zip(downsampled_targets[update_mask], update_from_labels[update_mask]):
-                    self.conf_matrix[a, b] += 1
-
-                tmp_clsuter_sum = torch.zeros(self.new_cluster_sum.size()).to(x.device)
-                tmp_clsuter_sum = tmp_clsuter_sum.index_add(0, update_from_labels[update_mask],
-                                                            normalised_audio_features[:, :: self.internal_subsampling_rate][update_mask]@ self.input_quantizer.PCA_components.T)
-                tmp_cluster_amount = torch.bincount(update_from_labels[update_mask], minlength=len(self.new_cluster_amount)).to(self.new_cluster_amount.device)
-                # update_decay = 0.9 * tmp_cluster_amount.clamp(max=1)
-                # update_decay = update_decay.masked_fill(update_decay == 0, 1)
-                self.new_cluster_sum += tmp_clsuter_sum
-                self.new_cluster_amount += tmp_cluster_amount
-
-                print("new_cluster_sum", self.new_cluster_sum)
-                print("new_cluster_amount", self.new_cluster_amount)
-
-                if global_train_steps in input_quantizer_update_steps:
-                    cost_matrix = -self.conf_matrix.cpu().numpy()
-                    row_ind, col_ind = linear_sum_assignment(cost_matrix)
-                    print("linear assignment row ind", row_ind)
-                    print("linear assignment col ind", col_ind)
-                    new_cb = self.new_cluster_sum.to("cuda")/self.new_cluster_amount.to("cuda").unsqueeze(1)
-                    self.input_quantizer.CB = new_cb[col_ind]
-
-                    # re-initialize
-                    self.new_cluster_sum.data = F.normalize(self.input_quantizer.CB)
-                    self.new_cluster_amount.data = torch.ones(len(row_ind))
-                    self.conf_matrix.data = torch.zeros(len(row_ind), len(row_ind))
-
-        return out, targets_list
+        return out, masked_targets
 
 
 def get_serializer(model_config: BestRQConformerConfig, variant: ConfigVariant) -> Collection:
@@ -276,6 +169,8 @@ def get_default_config_v1(num_inputs: int, num_outputs: int, network_args) -> Be
     dropout = 0.1 if "dropout" not in network_args else network_args["dropout"]
     d_model = 512 if "d_model" not in network_args else network_args["d_model"]
     vgg_act = "relu"
+    codebook_dim = network_args["codebook_dim"]
+    codebook_num_vars = network_args["codebook_num_vars"]
     mask_replace_val = network_args["mask_replace_val"]
     mask_prob = network_args["mask_prob"]
     mask_length = network_args["mask_length"]
@@ -283,10 +178,6 @@ def get_default_config_v1(num_inputs: int, num_outputs: int, network_args) -> Be
     cb_distance_measure = network_args["cb_distance_measure"]
     normalise_after_PCA = network_args["normalise_after_PCA"]
     PCA_update_steps = network_args["PCA_update_steps"]
-    input_codebook_dim = network_args["input_codebook_dim"]
-    input_codebook_num_vars = network_args["input_codebook_num_vars"]
-    input_quantizer_update_kwargs = network_args["input_quantizer_update_kwargs"]
-    pool2_stride = 4 if "pool2_stride" not in network_args else network_args["pool2_stride"]
 
     frontend_cfg = VGG4LayerActFrontendV1Config(
         in_features=num_inputs,
@@ -300,7 +191,7 @@ def get_default_config_v1(num_inputs: int, num_outputs: int, network_args) -> Be
         pool1_stride=None,
         pool1_padding=None,
         pool2_kernel_size=(1, 2),
-        pool2_stride=(pool2_stride, 1),
+        pool2_stride=(4, 1),
         pool2_padding=None,
         activation=torch.nn.ReLU() if vgg_act == "relu" else torch.nn.SiLU(),
         out_features=d_model,
@@ -356,45 +247,46 @@ def get_default_config_v1(num_inputs: int, num_outputs: int, network_args) -> Be
     return BestRQConformerConfig(
         feature_extraction_cfg=feature_extraction_cfg,
         conformer_cfg=conformer_cfg,
+        target_size=codebook_num_vars,
         final_dropout=final_dropout,
         aux_losses=aux_losses,
-        input_codebook_dim=input_codebook_dim,
-        input_codebook_num_vars=input_codebook_num_vars,
+        codebook_dim=codebook_dim,
+        codebook_num_vars=codebook_num_vars,
         mask_replace_val=mask_replace_val,
         mask_prob=mask_prob,
         mask_length=mask_length,
         internal_subsampling_rate=internal_subsampling_rate,
         cb_distance_measure=cb_distance_measure,
         normalise_after_PCA=normalise_after_PCA,
-        PCA_update_steps=PCA_update_steps,
-        input_quantizer_update_kwargs=input_quantizer_update_kwargs
+        PCA_update_steps=PCA_update_steps
     )
 
 
-def train_step(*, model: torch.nn.Module, extern_data: TensorDict, global_train_step: int, **kwargs):
+def train_step(*, model: torch.nn.Module, extern_data: TensorDict, global_train_step:int, **kwargs):
     audio_features = extern_data["data"].raw_tensor
     audio_features_len = extern_data["data"].dims[1].dyn_size_ext.raw_tensor
 
-    logits_list, targets_list = model(
+    logits_list, targets = model(
         audio_features=audio_features,
         audio_features_len=audio_features_len.to("cuda"),
         global_train_steps=global_train_step
     )
 
+    # make sure the layers ordering is right
+    loss_layers = list(model.aux_losses.keys())
+    loss_scales = list(model.aux_losses.values())
 
-    for i in range(len(targets_list)):
-        print(f"targets {i}", targets_list[i])
-        print(f"targets {i} size", targets_list[i].size())
-        print(f"targets {i} uniq vals", len(torch.unique(targets_list[i])))
+    for i, logits in enumerate(logits_list):
+        is_final = i == len(logits_list) - 1
+        logits = logits_list[i]
+        loss = torch.nn.CrossEntropyLoss(reduction="none")(logits, targets.long())
 
-    loss = torch.nn.CrossEntropyLoss(reduction="none")(logits_list[0], targets_list[0].long())
-    rf.get_run_ctx().mark_as_loss(
-        name=f"ce_logmel_12", loss=loss, scale=1
-    )
-
-    frame_error = torch.argmax(logits_list[0].data, dim=-1).not_equal(targets_list[0].data)
-    rf.get_run_ctx().mark_as_loss(name=f"fer_logmel_12", loss=frame_error,
-                                  as_error=True)
+        rf.get_run_ctx().mark_as_loss(
+            name="ce" if is_final else f"ce_{i}", loss=loss, scale=1.0 if is_final else loss_scales[i]
+        )
+        frame_error = torch.argmax(logits.data, dim=-1).not_equal(targets.data)
+        rf.get_run_ctx().mark_as_loss(name="fer" if is_final else f"fer_{loss_layers[i]}", loss=frame_error,
+                                      as_error=True)
 
 
 def get_train_serializer(
@@ -415,23 +307,21 @@ def forward_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
     audio_features = extern_data["data"].raw_tensor
     audio_features_len = extern_data["data"].dims[1].dyn_size_ext.raw_tensor
 
-    # model.forward_step = True
+    model.forward_step = True
     # model.get_predict_label = True
     # model.dump_logmel = True
-    model.get_intermediate_repr = True
-
-    targets = model(
+    targets, sequence_mask = model(
         audio_features=audio_features,
         audio_features_len=audio_features_len.to("cuda"),
     )
-    print("targets", targets)
     rf.get_run_ctx().mark_as_output(targets, name="targets")
+    rf.get_run_ctx().mark_as_output(sequence_mask, name="sequence_mask")
 
 
 def get_prior_serializer(
         model_config: BestRQConformerConfig,
 ) -> Collection:
-    pytorch_package = "i6_experiments.users.jxu.experiments.pretrain"
+    pytorch_package = "i6_experiments.users.jxu.experiments.ssl"
 
     return get_basic_pt_network_serializer(
         module_import_path=f"{__name__}.{BestRQConformerModel.__name__}",
@@ -439,8 +329,7 @@ def get_prior_serializer(
         additional_serializer_objects=[
             NonhashedCode("import returnn.frontend as rf\n"),
             Import(f"{__name__}.forward_step"),
-            # Import(f"{pytorch_package}.forward.get_intermediate_layer_repr_callback.GetIntermediateLayerReprCallback", import_as="forward_callback"),
-            Import(f"{pytorch_package}.forward.get_cluster_id.GetClusterIDCallback", import_as="forward_callback"),
+            Import(f"{pytorch_package}.forward.prior_callback.ComputePriorCallback", import_as="forward_callback"),
         ],
     )
 
