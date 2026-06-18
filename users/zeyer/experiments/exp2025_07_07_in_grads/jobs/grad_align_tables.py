@@ -43,7 +43,7 @@ def build_tables(results):
     _compare_table()  # ground-truth forced-mode only (separate hyp table below)
     _compare_table(with_hyp=True)  # variant: hyp-mode columns merged onto the grad rows
     _hyp_table()
-    _owsm_layer_table()  # OWSM-CTC grad-align per inter-CTC emit block (side table)
+    _owsm_layer_table()  # OWSM grad-align per inter-CTC emit block (side table)
     _phi4_prompt_table()  # Phi-4-MM grad-align vs the spliced instruction (side table)
     _prompt_splice_table()  # generalized prompt-splice: 3 LLMs x grad + self-attn (Buckeye-segA)
     _streaming_offset_table()  # streaming start/end signed offset (grad vs native viterbi)
@@ -206,7 +206,7 @@ def _time_stretch_table():
     ]
     # (model label, base-name builder from the factor string).
     MODELS = [
-        ("Wav2Vec2-CTC (grad, fine)", lambda ts: f"align/wav2vec2ctc-fproj_out-{S}-L2_grad-pertoken-ts{ts}-{AO}"),
+        ("Wav2Vec2 (grad, fine)", lambda ts: f"align/wav2vec2ctc-fproj_out-{S}-L2_grad-pertoken-ts{ts}-{AO}"),
         ("Voxtral (grad, coarse)", lambda ts: f"align/voxtral-transcribe-{S}-L2_e_grad-pertoken-ts{ts}-{AO}"),
         ("MMS-FA (forced)", lambda ts: f"baseline-mms_fa-{S}-ts{ts}"),
     ]
@@ -236,14 +236,14 @@ def _word_length_table():
     S = "buckeye-segA-5h"
     MODELS = [
         (
-            "Wav2Vec2-CTC",
+            "Wav2Vec2",
             [
                 ("Gradients", f"align/wav2vec2ctc-fproj_out-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0"),
                 ("Posteriors", f"baseline-mms_fa-{S}"),
             ],
         ),
         (
-            "Phoneme-CTC",
+            "Phoneme",
             [
                 (
                     "Gradients",
@@ -253,14 +253,14 @@ def _word_length_table():
             ],
         ),
         (
-            "Nvidia CTC",
+            "Nvidia",
             [
                 ("Gradients", f"align/parakeet-ctc-1.1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0"),
                 ("Posteriors", f"baseline-parakeet-ctc-1.1b-{S}"),
             ],
         ),
         (
-            "OWSM-CTC",
+            "OWSM",
             [
                 ("Gradients", f"align/owsm-ctc-v4-1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0"),
                 ("Posteriors", f"baseline-owsm-ctc-v4-1b-{S}"),
@@ -355,10 +355,10 @@ def _ablation_table():
     S = "buckeye-segA-5h"
     SFX = "asotTrue-bs-5-en0.5-sil1.0-wordtopo"
     MODELS = [
-        ("Wav2Vec2-CTC", "wav2vec2ctc-fproj_out-prefixfwd"),
-        ("Nvidia CTC", "parakeet-ctc-1.1b-prefixfwd"),
+        ("Wav2Vec2", "wav2vec2ctc-fproj_out-prefixfwd"),
+        ("Nvidia", "parakeet-ctc-1.1b-prefixfwd"),
         ("Whisper-base", "whisper-base-logmel-charlev-spc"),
-        ("Parakeet RNN-T", "parakeet-rnnt-1.1b-logmel"),
+        ("Parakeet", "parakeet-rnnt-1.1b-logmel"),
         (_M_EMFORMER, "emformer-rnnt-prefix-logmel"),
         ("Voxtral", "voxtral-charlevlogmel"),
     ]
@@ -374,21 +374,16 @@ def _ablation_table():
         ("dot_e_grad", DOT_SFX),
     ]
     columns = [c for c, _ in COLS]
-    # Signed-sum ("dot") saliency is informative only for the AED/LLM families.
-    # On CTC/transducer the per-frame signed sum is near-flat
-    # (the signed gradient components cancel over the feature axis),
-    # so the DP can only produce a degenerate pile (WBE >2 s, opt-independent; verified at the HDF level).
-    # Report n/a there rather than a misleading broken number.
-    _DOT_OK = {"whisper-base-logmel-charlev-spc", "voxtral-charlevlogmel"}
-    rows = []
-    for mlabel, mpre in MODELS:
-        cells = {}
-        for c, sfx in COLS:
-            if c in ("dot_grad", "dot_e_grad") and mpre not in _DOT_OK:
-                cells[c] = "n/a"
-            else:
-                cells[c] = _wbe(f"align/{mpre}-abl-{S}-{c}-pertoken-{sfx}")
-        rows.append({"label": mlabel, "cells": cells})
+    # The signed-sum ("dot") DP collapses to a degenerate alignment on some families (CTC/transducer):
+    # WBE far above any real result, opt-independent (the no-log signed DP fails; verified at the HDF level).
+    # Don't hardcode which -- point every cell at its WBE; the renderer flags WBE > broken_above as "broken".
+    rows = [
+        {
+            "label": mlabel,
+            "cells": {c: _wbe(f"align/{mpre}-abl-{S}-{c}-pertoken-{sfx}") for c, sfx in COLS},
+        }
+        for mlabel, mpre in MODELS
+    ]
     _emit("grad-score-ablation", columns, rows)
 
 
@@ -404,7 +399,7 @@ def _attribution_table():
     S = "buckeye-segA-5h"
     SFX = "asotTrue-bs-5-en0.5-sil1.0-wordtopo"
     MODELS = [
-        ("Wav2Vec2-CTC", "wav2vec2ctc-fproj_out-prefixfwd"),
+        ("Wav2Vec2", "wav2vec2ctc-fproj_out-prefixfwd"),
         ("Whisper-base", "whisper-base-logmel-charlev-spc"),
     ]
     METHODS = [
@@ -427,7 +422,7 @@ def _attribution_table():
 
 # ----------------------------------------------------------------------------------------
 # T3b-i align-OPTS, silence & topology (Buckeye-segA, whisper grad-char).
-#     Grouped "Blank scoring" {Type | Opts} x topology;
+#     Grouped "Blank scoring" {Type | Opts}, CTC topology fixed (orthogonal axis);
 #     grad-only (attention has ~no mass in silence).
 # ----------------------------------------------------------------------------------------
 def _alignopts_silence_table():
@@ -437,16 +432,16 @@ def _alignopts_silence_table():
     # constant = the fixed blank_score gamma baseline (no energy silence);
     # energy = energy-aware silence blank; z-score = grad z-score blank.
     # (type, opts, topology, grad suffix)
+    # Topology (CTC vs word-level blank) is an orthogonal axis, held fixed at CTC here.
     ROWS = [
-        ("constant", "$\\gamma{=}{-}5$", "CTC", "-en0.5"),
-        ("energy", "$s{=}1$", "CTC", "-en0.5-sil1.0"),
-        ("energy", "$s{=}2$", "CTC", "-en0.5-sil2.0"),
-        ("z-score", "$\\kappa{=}1$", "CTC", "-en0.5-zsk1.0"),
-        ("energy", "$s{=}1$", "word", "-en0.5-sil1.0-wordtopo"),
+        ("constant", "$\\gamma{=}{-}5$", "-en0.5"),
+        ("energy", "$s{=}1$", "-en0.5-sil1.0"),
+        ("energy", "$s{=}2$", "-en0.5-sil2.0"),
+        ("z-score", "$\\kappa{=}1$", "-en0.5-zsk1.0"),
     ]
-    columns = ["type", "opts", "topo", "g_wbe", "g_a50"]
+    columns = ["type", "opts", "g_wbe", "g_a50"]
     rows = []
-    for typ, opts, topo, gs in ROWS:
+    for typ, opts, gs in ROWS:
         gb = GP + gs
         rows.append(
             {
@@ -454,7 +449,6 @@ def _alignopts_silence_table():
                 "cells": {
                     "type": typ,
                     "opts": opts,
-                    "topo": topo,
                     "g_wbe": _wbe(gb),
                     "g_a50": _metric(gb, "acc_50ms"),
                 },
@@ -518,7 +512,7 @@ def _compare_table(with_hyp=False):
     # grad / posteriors (CTC, transducer, GMM-HMM) / cross-attn weights / self-attn weights.
     MODELS = [
         (
-            "Wav2Vec2-CTC",
+            "Wav2Vec2",
             [
                 (
                     "Gradients",
@@ -531,7 +525,7 @@ def _compare_table(with_hyp=False):
             ],
         ),
         (
-            "Phoneme-CTC",
+            "Phoneme",
             [
                 (
                     "Gradients",
@@ -548,7 +542,7 @@ def _compare_table(with_hyp=False):
             ],
         ),
         (
-            "Nvidia CTC",
+            "Nvidia",
             [
                 (
                     "Gradients",
@@ -561,9 +555,9 @@ def _compare_table(with_hyp=False):
             ],
         ),
         (
-            # OWSM-CTC: general graphemic CTC, our least-favourable model for grad-align (still runs,
+            # OWSM: general graphemic CTC, our least-favourable model for grad-align (still runs,
             # just imprecise). Shown with its BEST emit block (6); per-block detail in tab:owsm-per-layer.
-            "OWSM-CTC",
+            "OWSM",
             [
                 (
                     "Gradients",
@@ -611,7 +605,7 @@ def _compare_table(with_hyp=False):
             ],
         ),
         (
-            "Parakeet RNN-T",
+            "Parakeet",
             [
                 (
                     "Gradients",
@@ -760,19 +754,19 @@ def _compare_table(with_hyp=False):
         "Voxtral": f"voxtral-charlevlogmel-{S}-grad",
         "Phi-4-MM": f"phi4mm-charlev-spc-{S}-grad",
         "Canary-Qwen": f"canary-qwen-charlev-spc-logmel-st15-{S}-grad",
-        "Parakeet RNN-T": f"parakeet-rnnt-1.1b-logmel-{S}-grad",
+        "Parakeet": f"parakeet-rnnt-1.1b-logmel-{S}-grad",
         "Parakeet TDT": f"parakeet-tdt-0.6b-v2-logmel-{S}-grad",
         "Whisper-large-v3": f"whisper-large-v3-charlev-{S}-grad",
-        "Nvidia CTC": f"parakeet-ctc-1.1b-{S}-grad",
-        "OWSM-CTC": f"owsm-ctc-v4-1b-{S}-grad",
+        "Nvidia": f"parakeet-ctc-1.1b-{S}-grad",
+        "OWSM": f"owsm-ctc-v4-1b-{S}-grad",
         _M_FC_CTC: f"fastconformer-stream-ctc-{S}-grad",
         _M_FC_RNNT: f"fastconformer-stream-rnnt-{S}-grad",
         _M_EMFORMER: f"emformer-rnnt-prefix-logmel-{S}-grad",
     }
     # Models with no word-level own-recognition -> hyp-mode is structurally n/a (not "unrun"):
-    # MMS_FA (Wav2Vec2-CTC) + Phoneme-CTC emit no word boundaries;
+    # MMS_FA (Wav2Vec2) + Phoneme emit no word boundaries;
     # MFA is a forced-aligner, not a recognizer.
-    HYP_NA = {"Wav2Vec2-CTC", "Phoneme-CTC", "MFA"}
+    HYP_NA = {"Wav2Vec2", "Phoneme", "MFA"}
 
     # Native aligner in hyp-mode (own recognition), shown on the model's ALTERNATIVE row:
     # cross-attn (whisper), self-attn (LLMs), native viterbi (transducers), CTC forced-align (CTCs).
@@ -784,26 +778,26 @@ def _compare_table(with_hyp=False):
         "Voxtral": f"voxtral-charlevlogmel-{S}-native",
         "Phi-4-MM": f"phi4mm-charlev-spc-{S}-native",
         "Canary-Qwen": f"canary-qwen-charlev-spc-logmel-st15-{S}-native",
-        "Parakeet RNN-T": f"parakeet-rnnt-1.1b-logmel-{S}-native",
+        "Parakeet": f"parakeet-rnnt-1.1b-logmel-{S}-native",
         "Parakeet TDT": f"parakeet-tdt-0.6b-v2-logmel-{S}-native",
         _M_EMFORMER: f"emformer-rnnt-prefix-logmel-{S}-native",
         _M_FC_RNNT: f"fastconformer-stream-rnnt-{S}-native",
-        "Nvidia CTC": f"parakeet-ctc-1.1b-{S}-native",
-        "OWSM-CTC": f"owsm-ctc-v4-1b-{S}-native",
+        "Nvidia": f"parakeet-ctc-1.1b-{S}-native",
+        "OWSM": f"owsm-ctc-v4-1b-{S}-native",
         _M_FC_CTC: f"fastconformer-stream-ctc-{S}-native",
     }
 
     # Rows grouped by model family; the leftmost (row-label) column is the family Type, shown once
     # per family; Model is the second column, shown once per model; double rule between families.
     TYPE = {
-        "Wav2Vec2-CTC": "CTC",
-        "Phoneme-CTC": "CTC",
-        "Nvidia CTC": "CTC",
-        "OWSM-CTC": "CTC",
+        "Wav2Vec2": "CTC",
+        "Phoneme": "CTC",
+        "Nvidia": "CTC",
+        "OWSM": "CTC",
         _M_FC_CTC: "CTC",
         "Whisper-base": "AED",
         "Whisper-large-v3": "AED",
-        "Parakeet RNN-T": "Transd.",
+        "Parakeet": "Transd.",
         "Parakeet TDT": "Transd.",
         _M_EMFORMER: "Transd.",
         _M_FC_RNNT: "Transd.",
@@ -822,6 +816,12 @@ def _compare_table(with_hyp=False):
     if with_hyp:
         columns += ["h_mwbe", "h_f50"]
 
+    _FC_DISP = _M_EMFORMER.replace("Emformer", "FastConformer")
+    # Display names drop the redundant family postfix (the Type column already shows CTC/Transd./...),
+    # keeping an architecture suffix only where same-family siblings would otherwise collide
+    # (Parakeet RNN-T vs Parakeet TDT; the two FastConformer heads).
+    # The dict KEY stays the full name (TYPE/HYP/NATIVE_HYP are keyed by it); only the shown label changes.
+    DISPLAY = {"Parakeet": "Parakeet RNN-T", _M_FC_CTC: _FC_DISP, _M_FC_RNNT: _FC_DISP}
     rows = []
     for bi, (typ, fam_models) in enumerate(blocks):
         if bi > 0:
@@ -833,7 +833,7 @@ def _compare_table(with_hyp=False):
                 if mj > 0:
                     rows.append({"cline": True})  # \cline between a model's own methods
                 cells = {
-                    "model": model if mj == 0 else "",
+                    "model": DISPLAY.get(model, model) if mj == 0 else "",
                     "method": mlabel,
                     "t_wbe": _wbe(ti) if ti else None,
                     "t_a50": _metric(ti, "acc_50ms") if ti else None,
@@ -882,7 +882,7 @@ def _hyp_table():
         ("Voxtral", f"voxtral-charlevlogmel-{S}-grad"),
         ("Phi-4-MM", f"phi4mm-charlev-spc-{S}-grad"),
         ("Canary-Qwen", f"canary-qwen-charlev-spc-logmel-st15-{S}-grad"),
-        ("Parakeet RNN-T", f"parakeet-rnnt-1.1b-logmel-{S}-grad"),
+        ("Parakeet", f"parakeet-rnnt-1.1b-logmel-{S}-grad"),
         ("Parakeet TDT", f"parakeet-tdt-0.6b-v2-logmel-{S}-grad"),
     ]
     baselines = [
@@ -897,7 +897,7 @@ def _hyp_table():
 
 
 # ----------------------------------------------------------------------------------------
-# T7: OWSM-CTC grad-align emitted from each inter-CTC self-conditioning block (side table).
+# T7: OWSM grad-align emitted from each inter-CTC self-conditioning block (side table).
 # ----------------------------------------------------------------------------------------
 def _owsm_layer_table():
     S, T = "buckeye-segA-5h", "timit-test"
