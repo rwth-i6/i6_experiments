@@ -96,6 +96,11 @@ class NativeTransducerAlignJob(Job):
             audio = np.asarray(data["audio"]["array"])
             sr = data["audio"]["sampling_rate"]
             words = list(data["word_detail"]["utterance"])
+            if not words:
+                # empty hypothesis (the model recognised nothing) -> emit empty boundaries for this seq,
+                # avoiding the empty-target assert in the transducer forward.
+                writer.insert_batch(np.zeros((1, 0, 2), dtype="float32"), [0], [f"seq-{seq_idx}"])
+                continue
 
             lattice: list = []
             with torch.no_grad():

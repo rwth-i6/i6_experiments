@@ -417,11 +417,11 @@ def _alignopts_silence_table():
     GP = "align/whisper-base-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc-asotTrue-bs-5"
     # (silence-blank setting, topology, note, grad suffix). Option columns first, then the short note.
     ROWS = [
-        ("x1", "CTC", "our std", "-en0.5-sil1.0"),
+        ("$s{=}1$", "CTC", "our std", "-en0.5-sil1.0"),
         ("off", "CTC", "", "-en0.5"),
-        ("x2", "CTC", "", "-en0.5-sil2.0"),
+        ("$s{=}2$", "CTC", "", "-en0.5-sil2.0"),
         ("zero-skip", "CTC", "", "-en0.5-zsk1.0"),
-        ("x1", "word", "", "-en0.5-sil1.0-wordtopo"),
+        ("$s{=}1$", "word", "", "-en0.5-sil1.0-wordtopo"),
     ]
     columns = ["silence", "topo", "note", "g_wbe", "g_a50"]
     rows = []
@@ -444,8 +444,9 @@ def _alignopts_silence_table():
 
 # ----------------------------------------------------------------------------------------
 # T3b-ii align-OPTS, apply-log / DTW equivalence (Buckeye-segA, whisper grad-char vs cross-attn). Boolean
-#     option columns first (checkmark = on), then a short note, then the numbers. The bottom row (log off,
-#     no blank) is the openai whisper-DTW config; grad and cross-attn converge there.
+#     option columns first (checkmark = on), then a short note, then the numbers. Blank state off = a
+#     monotonic DTW; additionally log off = the exact openai-whisper timestamp DTW (bottom row), where
+#     grad and cross-attn converge.
 # ----------------------------------------------------------------------------------------
 def _alignopts_dtw_table():
     GP = "align/whisper-base-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc-asotTrue-bs-5"
@@ -453,10 +454,10 @@ def _alignopts_dtw_table():
     ck, cx = "\\checkmark", "$\\times$"  # boolean option cell: on vs off
     # (apply-log, blank state, note, grad suffix, cross-attn suffix). Option columns first, note last.
     ROWS = [
-        (ck, ck, "default", "-en0.5-sil1.0", "-en0.5-sil1.0"),
+        (ck, ck, "our std", "-en0.5-sil1.0", "-en0.5-sil1.0"),
         (cx, ck, "", "-alFalse-en0.5-sil1.0", "-alFalse-en0.5-sil1.0"),
-        (ck, cx, "DTW", "-en0.5-sil1.0-dtw", "-en0.5-sil1.0-dtw"),
-        (cx, cx, "whisper-DTW", "-en0.5-sil1.0-wdtw", "-en0.5-sil1.0-wdtw"),
+        (ck, cx, "", "-en0.5-sil1.0-dtw", "-en0.5-sil1.0-dtw"),
+        (cx, cx, "openai whisper", "-en0.5-sil1.0-wdtw", "-en0.5-sil1.0-wdtw"),
     ]
     columns = ["applylog", "blank", "note", "g_wbe", "g_a50", "a_wbe", "a_a50"]
     rows = []
