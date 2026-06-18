@@ -813,7 +813,7 @@ def _compare_table(with_hyp=False):
     blocks = [(t, by_type[t]) for t in TYPE_ORDER]
     blocks.append(("GMM-HMM", REFERENCE))  # MFA dedicated-aligner reference (GMM-HMM), its own block
 
-    columns = ["model", "method", "t_wbe", "t_a50", "t_a100", "s_wbe", "s_a50", "s_a100"]
+    columns = ["type", "model", "method", "t_wbe", "t_a50", "t_a100", "s_wbe", "s_a50", "s_a100"]
     if with_hyp:
         columns += ["h_mwbe", "h_f50"]
 
@@ -828,13 +828,10 @@ def _compare_table(with_hyp=False):
         if bi > 0:
             rows.append({"hline2": True})  # double rule between families
         for mi2, (model, methods) in enumerate(fam_models):
-            if mi2 > 0:
-                rows.append({"label": None, "cells": {}})  # \hline between models in a family
             for mj, (mlabel, sa, ti) in enumerate(methods):
-                if mj > 0:
-                    rows.append({"cline": True})  # \cline between a model's own methods
                 cells = {
-                    "model": DISPLAY.get(model, model) if mj == 0 else "",
+                    "type": typ,
+                    "model": DISPLAY.get(model, model),
                     "method": mlabel,
                     "t_wbe": _wbe(ti) if ti else None,
                     "t_a50": _metric(ti, "acc_50ms") if ti else None,
@@ -854,8 +851,7 @@ def _compare_table(with_hyp=False):
                         # structurally no word-level own-recognition -> mark, don't leave empty
                         cells["h_mwbe"] = "n/a"
                         cells["h_f50"] = "n/a"
-                label = typ if (mi2 == 0 and mj == 0) else ""
-                rows.append({"label": label, "cells": cells})
+                rows.append({"cells": cells})
     _emit("per-model-" + ("merged" if with_hyp else "methods"), columns, rows)
 
 
