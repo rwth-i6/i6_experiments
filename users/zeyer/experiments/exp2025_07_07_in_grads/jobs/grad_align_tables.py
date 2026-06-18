@@ -357,7 +357,7 @@ def _ablation_table():
         ("Voxtral", "voxtral-charlevlogmel"),
     ]
     # Signed "dot"/"dot_e" scores align with apply_log off (alFalse); same word-topology DP otherwise.
-    DOT_SFX = "asotTrue-bs-5-alFalse-en0.5-sil1.0-wordtopo"
+    DOT_SFX = "nsabsmeanS-cs1e-05_None-asotTrue-bs-6"
     # (column key, align suffix). Plain-gradient group then the gradient-x-input ("_e") group.
     COLS = [
         ("L0.5_grad", SFX),
@@ -410,50 +410,30 @@ def _attribution_table():
 
 
 # ----------------------------------------------------------------------------------------
-# T3b-i align-OPTS, silence & topology (Buckeye-segA, whisper grad-char). The energy/silence blank is
-#     a grad-side fix -- the attention matrix already has ~no mass in silence, so it does nothing for
-#     cross-attn -- hence this table is grad-only. Sweeps the silence-blank scale (off / x1 / x2 / zero-skip)
-#     plus the word vs CTC topology.
+# T3b-i align-OPTS, silence & topology (Buckeye-segA, whisper grad-char). Each independent DP option is
+#     its OWN column (silence-blank scale, topology); the row label is a 1-2 word note (often empty).
+#     Grad-only: the energy/silence blank is a grad-side fix (attention carries ~no mass in silence).
 # ----------------------------------------------------------------------------------------
 def _alignopts_silence_table():
     GP = "align/whisper-base-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc-asotTrue-bs-5"
-    # (row label, comment, grad suffix). Grad-only; the silence/energy blank is a grad-side fix.
+    # (note, silence-blank setting, topology, grad suffix). One option per column; note is short.
     ROWS = [
-        (
-            "silence off",
-            "No silence state (raw saliency, blank not boosted).",
-            "-en0.5",
-        ),
-        (
-            "silence x1",
-            "Energy-scaled silence blank, default strength.",
-            "-en0.5-sil1.0",
-        ),
-        (
-            "silence x2",
-            "Stronger silence blank (scale 2).",
-            "-en0.5-sil2.0",
-        ),
-        (
-            "zero-skip",
-            "Zero-energy skip state instead of a scaled blank.",
-            "-en0.5-zsk1.0",
-        ),
-        (
-            "word-topology",
-            "Blank only between words, never within a word.",
-            "-en0.5-sil1.0-wordtopo",
-        ),
+        ("our std", "x1", "CTC", "-en0.5-sil1.0"),
+        ("", "off", "CTC", "-en0.5"),
+        ("", "x2", "CTC", "-en0.5-sil2.0"),
+        ("", "zero-skip", "CTC", "-en0.5-zsk1.0"),
+        ("", "x1", "word", "-en0.5-sil1.0-wordtopo"),
     ]
-    columns = ["comment", "g_wbe", "g_a50"]
+    columns = ["silence", "topo", "g_wbe", "g_a50"]
     rows = []
-    for lbl, comment, gs in ROWS:
+    for note, silence, topo, gs in ROWS:
         gb = GP + gs
         rows.append(
             {
-                "label": lbl,
+                "label": note,
                 "cells": {
-                    "comment": comment,
+                    "silence": silence,
+                    "topo": topo,
                     "g_wbe": _wbe(gb),
                     "g_a50": _metric(gb, "acc_50ms"),
                 },
@@ -463,50 +443,30 @@ def _alignopts_silence_table():
 
 
 # ----------------------------------------------------------------------------------------
-# T3b-ii align-OPTS, apply-log / DTW equivalence (Buckeye-segA, whisper grad-char vs cross-attn).
-#     A progression from our full DP down to the openai whisper-DTW corner: each step removes one
-#     ingredient (first the log, then the blank state). Shows whisper-DTW is just our DP at a fixed
-#     config, and that grad and cross-attn converge to the same DTW numbers.
+# T3b-ii align-OPTS, apply-log / DTW equivalence (Buckeye-segA, whisper grad-char vs cross-attn). Each
+#     independent option is a column (apply-log on/off, blank state yes/no); the note tags the corners.
+#     whisper-DTW = log off + no blank = our DP at a fixed config; grad and cross-attn converge there.
 # ----------------------------------------------------------------------------------------
 def _alignopts_dtw_table():
     GP = "align/whisper-base-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc-asotTrue-bs-5"
     AP = "align/baseline-whisper-base-crossattn-auto-buckeye-segA-5h-asotTrue-bs-5"
-    # (row label, comment, grad suffix, cross-attn suffix).
+    # (note, apply-log, blank state, grad suffix, cross-attn suffix).
     ROWS = [
-        (
-            "default",
-            "Our full DP: apply-log on, silence blank on.",
-            "-en0.5-sil1.0",
-            "-en0.5-sil1.0",
-        ),
-        (
-            "apply-log off",
-            "Drop the log-compression of the score.",
-            "-alFalse-en0.5-sil1.0",
-            "-alFalse-en0.5-sil1.0",
-        ),
-        (
-            "DTW (no blank)",
-            "Also drop the blank state: monotonic DTW, every frame emits.",
-            "-en0.5-sil1.0-dtw",
-            "-en0.5-sil1.0-dtw",
-        ),
-        (
-            "whisper-DTW",
-            "openai-whisper's exact DTW (log off, no blank, softmax-over-time).",
-            "-en0.5-sil1.0-wdtw",
-            "-en0.5-sil1.0-wdtw",
-        ),
+        ("our std", "on", "yes", "-en0.5-sil1.0", "-en0.5-sil1.0"),
+        ("", "off", "yes", "-alFalse-en0.5-sil1.0", "-alFalse-en0.5-sil1.0"),
+        ("like DTW", "on", "no", "-en0.5-sil1.0-dtw", "-en0.5-sil1.0-dtw"),
+        ("openai DTW", "off", "no", "-en0.5-sil1.0-wdtw", "-en0.5-sil1.0-wdtw"),
     ]
-    columns = ["comment", "g_wbe", "g_a50", "a_wbe", "a_a50"]
+    columns = ["applylog", "blank", "g_wbe", "g_a50", "a_wbe", "a_a50"]
     rows = []
-    for lbl, comment, gs, as_ in ROWS:
+    for note, applylog, blank, gs, as_ in ROWS:
         gb, ab = GP + gs, AP + as_
         rows.append(
             {
-                "label": lbl,
+                "label": note,
                 "cells": {
-                    "comment": comment,
+                    "applylog": applylog,
+                    "blank": blank,
                     "g_wbe": _wbe(gb),
                     "g_a50": _metric(gb, "acc_50ms"),
                     "a_wbe": _wbe(ab),

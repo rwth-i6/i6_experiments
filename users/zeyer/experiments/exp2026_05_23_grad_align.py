@@ -4172,9 +4172,16 @@ def py():
         al.add_alias(nm)
         reg(f"{nm}-wbe.txt", al.out_wbe)
 
-    # Signed "dot" (sum) variant of _abl_align: identical DP, but apply_log off (alFalse),
-    # since a signed score has no meaningful log (plain softmax-over-time still localizes it).
-    _abl_dot_ao = {**_abl_ao, "apply_log": False}
+    # Signed "dot" (sum) reductions have large +/- outliers that wreck a plain softmax-over-time DP
+    # (it locks onto one outlier frame -> WBE ~3000ms, broken). Use the proven outlier-taming opts
+    # (abs-mean normalization + clip away negatives), verified best for the signed score in the earlier
+    # sweep (voxtral-logmel TIMIT-val: 0.23 vs 1.58 untamed). No energy/silence/log; its own DP.
+    _abl_dot_ao = {
+        "norm_scores": "absmeanS",
+        "clip_scores": (1e-5, None),
+        "apply_softmax_over_time": True,
+        "blank_score": -6,
+    }
 
     def _abl_align_dot(ex, ename):
         al = WordAlignFromPerTokenGradsJob(
@@ -4184,11 +4191,8 @@ def py():
             dataset_key="test",
             dataset_offset_factors=_xa_off,
             align_opts=_abl_dot_ao,
-            audio_energy_pow=0.5,
-            blank_silence_energy_scale=1.0,
-            word_topology=True,
         )
-        nm = f"align/{ename}-{_name_for_dict(_abl_dot_ao)}-en0.5-sil1.0-wordtopo"
+        nm = f"align/{ename}-{_name_for_dict(_abl_dot_ao)}"
         al.add_alias(nm)
         reg(f"{nm}-wbe.txt", al.out_wbe)
 
