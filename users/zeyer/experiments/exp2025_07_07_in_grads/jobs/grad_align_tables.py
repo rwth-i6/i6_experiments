@@ -26,6 +26,7 @@ from sisyphus import tk
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.table_data import WriteTableDataJob
 
 _RESULTS = {}
+_CAPTURE = None  # when a list, _emit captures (name, columns, rows, source) -- preview mode
 
 
 def build_tables(results):
@@ -49,6 +50,9 @@ def _emit(name, columns, rows):
     # `source` records this builder (file :: function) for a provenance comment in the rendered table;
     # the per-cell `src` (the registered output name) is what actually pins each number's origin.
     source = f"{__name__.replace('.', '/')}.py :: {sys._getframe(1).f_code.co_name}"
+    if _CAPTURE is not None:  # preview mode: capture the definition instead of emitting a job
+        _CAPTURE.append((name, columns, rows, source))
+        return
     job = WriteTableDataJob(columns=columns, rows=rows, source=source)
     tk.register_output(f"tables-data/{name}.data.json", job.out_data)
 
@@ -852,3 +856,66 @@ def _phi4_prompt_table():
             }
         )
     _emit("phi4-prompt", columns, rows)
+
+
+def build_preview_tables(results):
+    """One-shot SNAPSHOT of every table -> output/tables-data-preview/<name>.data.json, resolving each
+    cell from current disk state: finished -> value, not-yet-produced -> "·" (pending). Plain file
+    I/O (NOT a sis output), rewritten on each config evaluation, so it always reflects current progress
+    without blocking on unfinished extracts (which a WriteTableDataJob would, via its input deps)."""
+    import os
+    import json
+    from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate_delayed_copy
+
+    global _CAPTURE
+    _CAPTURE = []
+    try:
+        build_tables(results)  # same builders, but _emit captures the defs instead of emitting jobs
+        defs = list(_CAPTURE)
+    finally:
+        _CAPTURE = None
+
+    pending = "·"
+    out_dir = "output/tables-data-preview"
+    os.makedirs(out_dir, exist_ok=True)
+    for name, columns, rows, source in defs:
+        out_rows = []
+        for row in rows:
+            if row.get("cline"):
+                out_rows.append({"cline": True})
+                continue
+            if row.get("hline2"):
+                out_rows.append({"hline2": True})
+                continue
+            if row.get("hline") or (row.get("label") is None and not row.get("cells")):
+                out_rows.append({"hline": True})
+                continue
+            src_cells = row.get("cells", {})
+            cells = {}
+            srcs = {}
+            for k in columns:
+                c = src_cells.get(k)
+                if c is None:
+                    continue
+                if not isinstance(c, dict):
+                    cells[k] = c
+                    continue
+                if c.get("src"):
+                    srcs[k] = c["src"]
+                var = c.get("var")
+                key = c.get("key")
+                path = var.get_path() if (var is not None and hasattr(var, "get_path")) else None
+                if path and os.path.exists(path):
+                    try:
+                        val = instanciate_delayed_copy(var)
+                        if key is not None and isinstance(val, dict):
+                            val = val.get(key)
+                        cells[k] = None if val is None else (val if isinstance(val, str) else float(val))
+                    except Exception:
+                        cells[k] = pending
+                else:
+                    cells[k] = pending
+            out_rows.append({"label": row.get("label", ""), "cells": cells, "src": srcs})
+        data = {"source": source, "columns": list(columns), "rows": out_rows}
+        with open(os.path.join(out_dir, f"{name}.data.json"), "wt") as f:
+            json.dump(data, f, indent=1)

@@ -4788,9 +4788,16 @@ def py():
     _hy_metrics(f"crisperwhisper-official-{_xa_tag}", _cw_off.out_word_boundaries_hdf, _cw_off_ds.out_hub_cache_dir)
 
     # --- Auto-generated LaTeX result tables (in-graph; reference only this recipe's outputs) ---
-    from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.grad_align_tables import build_tables
+    from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.grad_align_tables import (
+        build_tables,
+        build_preview_tables,
+    )
 
     build_tables(_table_results)
+    try:
+        build_preview_tables(_table_results)  # one-shot snapshot of current results (pending cells -> '·')
+    except Exception as _prev_e:  # preview is best-effort -- never break the real graph build
+        print(f"[grad-align] build_preview_tables failed (ignored): {_prev_e}")
 
     # --- Auto-generated grad-score figures (in-graph; same captured-outputs dict) ---
     from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.grad_align_plots import build_plots
