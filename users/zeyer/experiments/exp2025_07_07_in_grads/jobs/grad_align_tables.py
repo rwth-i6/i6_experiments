@@ -362,7 +362,7 @@ def _ablation_table():
         ("Voxtral", "voxtral-charlevlogmel"),
     ]
     # Signed "dot"/"dot_e" scores align with apply_log off (alFalse); same word-topology DP otherwise.
-    DOT_SFX = "nsabsmeanS-cs1e-05_None-asotTrue-bs-6"
+    DOT_SFX = "nsabsmeanS-nse0.05-cs1e-05_None-asotTrue-bs-6"
     # (column key, align suffix). Plain-gradient group then the gradient-x-input ("_e") group.
     COLS = [
         ("L0.5_grad", SFX),

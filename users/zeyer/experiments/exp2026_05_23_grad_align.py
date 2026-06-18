@@ -4172,12 +4172,15 @@ def py():
         al.add_alias(nm)
         reg(f"{nm}-wbe.txt", al.out_wbe)
 
-    # Signed "dot" (sum) reductions have large +/- outliers that wreck a plain softmax-over-time DP
-    # (it locks onto one outlier frame -> WBE ~3000ms, broken). Use the proven outlier-taming opts
-    # (abs-mean normalization + clip away negatives), verified best for the signed score in the earlier
-    # sweep (voxtral-logmel TIMIT-val: 0.23 vs 1.58 untamed). No energy/silence/log; its own DP.
+    # Signed "dot"/"dot_e" (sum) reduction, on the plain CTC-topology DP.
+    # absmeanS divides each frame by mean(|score|) over tokens; on CTC/transducer models some frames have
+    # an ALL-ZERO gradient (silence) -> divisor 0 -> NaN -> degenerate alignment (WBE ~3.6 s). The
+    # norm_scores_eps floor fixes it (verified on parakeet-ctc, 30 seqs: 3623 -> 111 ms median; AED/LLM
+    # never hit all-zero frames, so they were already fine). The word-topology/energy-silence DP is NOT
+    # usable for the signed score (it log()s the signed grad -> NaN), so this keeps CTC topology.
     _abl_dot_ao = {
         "norm_scores": "absmeanS",
+        "norm_scores_eps": 0.05,
         "clip_scores": (1e-5, None),
         "apply_softmax_over_time": True,
         "blank_score": -6,
