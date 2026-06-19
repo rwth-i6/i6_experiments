@@ -253,8 +253,8 @@ def _time_stretch_table():
     ]
     # (model label, base-name builder from the factor string).
     MODELS = [
-        ("Wav2Vec2 (grad, fine)", lambda ts: f"align/wav2vec2ctc-fproj_out-{S}-L2_grad-pertoken-ts{ts}-{AO}"),
-        ("Voxtral (grad, coarse)", lambda ts: f"align/voxtral-transcribe-{S}-L2_e_grad-pertoken-ts{ts}-{AO}"),
+        ("Wav2Vec2 (grad, fine)", lambda ts: f"align/wav2vec2ctc-fproj_out-prefixfwd-{S}-L2_grad-pertoken-ts{ts}-{AO}"),
+        ("Voxtral (grad, coarse)", lambda ts: f"align/voxtral-charlevlogmel-{S}-L2_grad-pertoken-ts{ts}-{AO}"),
         ("MMS-FA (forced)", lambda ts: f"baseline-mms_fa-{S}-ts{ts}"),
     ]
     columns = [k for _, k in FACTORS]
@@ -420,6 +420,8 @@ def _ablation_table():
         ("Transd.", "Parakeet", "parakeet-rnnt-1.1b-logmel"),
         ("Transd.", _M_EMFORMER, "emformer-rnnt-prefix-logmel"),
         ("Sp. LLM", "Voxtral", "voxtral-charlevlogmel"),
+        ("Sp. LLM", "Phi-4-MM", "phi4mm-charlev-spc"),
+        ("Sp. LLM", "Canary-Qwen", "canary-qwen-charlev-spc-logmel-st15"),
     ]
     # Signed "dot"/"dot_e": abs-mean norm with an eps floor + clip, on a plain CTC topology
     # (NOT the L-norms' word-topology),
@@ -496,16 +498,15 @@ def _alignopts_silence_table():
     # Energy token-weighting held at en0.5; only the blank score varies,
     # so this isolates const vs energy-silence vs z-score per signal.
     # (col key, full align-name stem incl. reduction + extract variant).
-    # wav2vec2 + whisper use their L2 -abl- extract; voxtral uses its L1 headline extract
-    # (L1 is the better reduction for the coarse speech-LLM grid -> matches the per-model table,
-    # not the uniform-L2 ablation), so every "voxtral" number agrees across tables.
+    # All models use their L2 headline extract (uniform reduction across every table); each speech-LLM
+    # reuses the same non-abl base extract as the per-model table, so every number agrees across tables.
     GRAD = [
         ("wav2vec2", f"wav2vec2ctc-fproj_out-prefixfwd-abl-{S}-L2_grad-pertoken"),
         ("whisper", f"whisper-large-v3-logmel-charlev-spc-abl-{S}-L2_grad-pertoken"),
         ("owls", f"owls-1B-180K-charlev-logmel-{S}-L2_grad-pertoken"),
-        ("voxtral", f"voxtral-charlevlogmel-{S}-L1_grad-pertoken"),
-        ("canary", f"canary-qwen-charlev-spc-logmel-st15-abl-{S}-L1_grad-pertoken"),
-        ("phi4", f"phi4mm-charlev-spc-abl-{S}-L2_e_grad-pertoken"),
+        ("voxtral", f"voxtral-charlevlogmel-{S}-L2_grad-pertoken"),
+        ("canary", f"canary-qwen-charlev-spc-logmel-st15-{S}-L2_grad-pertoken"),
+        ("phi4", f"phi4mm-{S}-L2_grad-pertoken-charlev-spc"),
     ]
     ATTN = [
         ("wh_a", "baseline-whisper-large-v3-crossattn-auto"),
@@ -833,8 +834,8 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"voxtral-charlevlogmel-{S}-L1_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"voxtral-charlevlogmel-{T}-L1_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"voxtral-charlevlogmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"voxtral-charlevlogmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
                     ),
                 ),
                 (
@@ -850,8 +851,8 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"phi4mm-{S}-L2_e_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"phi4mm-{T}-L2_e_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"phi4mm-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"phi4mm-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
                     ),
                 ),
                 (
@@ -867,8 +868,8 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"canary-qwen-charlev-spc-logmel-st15-{S}-L1_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"canary-qwen-charlev-spc-logmel-st15-{T}-L1_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"canary-qwen-charlev-spc-logmel-st15-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"canary-qwen-charlev-spc-logmel-st15-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
                     ),
                 ),
                 (
@@ -1039,7 +1040,11 @@ def _owsm_layer_table():
         return "" if layer == 27 else f"lyr{layer}-"
 
     def gbase(layer, ds):  # grad-align output base
-        return f"align/owsm-ctc-v4-1b-{_tag(layer)}{ds}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo"
+        # layer 27 (final emission) reuses the per-model headline prefix_fwd extract, so the final-layer
+        # row equals the per-model OWSM number exactly; the inter-CTC blocks use their own prefix_fwd configs.
+        if layer == 27:
+            return f"align/owsm-ctc-v4-1b-prefixfwd-{ds}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo"
+        return f"align/owsm-ctc-v4-1b-lyr{layer}-{ds}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo"
 
     def fbase(layer, ds):  # forced-align (posteriors) baseline base
         return f"baseline-owsm-ctc-v4-1b-{_tag(layer)}{ds}"
@@ -1095,6 +1100,14 @@ def _prompt_splice_table():
             cells[f"{mk}_g"] = _wbe(f"align/{mk}-promptsplice-{tag}-char-{S}-grad-pertoken-{AO_GRAD}")
             cells[f"{mk}_a"] = _wbe(f"align/baseline-{mk}-promptsplice-{tag}-selfattn-{S}-{AO_ATTN}")
         rows.append({"label": label, "cells": cells})
+    # Official ASR prompt per model (Phi-4: its default instruction; Canary: "Transcribe the following:";
+    # Voxtral: native transcription request, which has no free-text prompt slot). The text is
+    # model-specific, so there is no single instruction length for this row.
+    off_cells = {"len": None}
+    for mk, _ in MODELS:
+        off_cells[f"{mk}_g"] = _wbe(f"align/{mk}-promptsplice-official-char-{S}-grad-pertoken-{AO_GRAD}")
+        off_cells[f"{mk}_a"] = _wbe(f"align/baseline-{mk}-promptsplice-official-selfattn-{S}-{AO_ATTN}")
+    rows.append({"label": "official ASR prompt", "cells": off_cells})
     _emit("prompt-splice", columns, rows)
 
 

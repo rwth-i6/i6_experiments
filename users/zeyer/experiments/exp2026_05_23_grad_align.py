@@ -337,7 +337,9 @@ def py():
     # Per-layer OWSM-CTC grad-align (side table): emit from each inter-CTC self-cond block (6/12/15/21).
     # The final block (27) is the default `owsm_ctc_cfg` above (layer=None). See PLAN: OWSM per-layer table.
     owsm_ctc_cfg_by_layer = {
-        _ol: rf.build_dict(OwsmCtc, model_dir=dl_owsm_ctc.out_hub_cache_dir, version=2, layer=_ol)
+        _ol: rf.build_dict(
+            OwsmCtc, model_dir=dl_owsm_ctc.out_hub_cache_dir, version=2, layer=_ol, per_token_score="prefix_fwd"
+        )
         for _ol in [6, 12, 15, 21]
     }
 
@@ -3060,6 +3062,23 @@ def py():
             False,
             [(0.5, 1.0)],
         ),
+        # Uniform-L2 speech-LLM variants on TIMIT-test (per-model overview is all-L2); the L1/L2_e
+        # extracts above stay available. en0.5-sil1.0 base -> generic twin generator fills zsk/wordtopo.
+        (
+            voxtral_charlev_logmel_cfg,
+            "voxtral-charlevlogmel-timit-test-L2_grad-pertoken",
+            "L2",
+            False,
+            [(0.5, 1.0)],
+        ),
+        (pt_csp_cfg, "phi4mm-timit-test-L2_grad-pertoken-charlev-spc", "L2", False, [(0.5, 1.0)]),
+        (
+            canary_charlev_logmel_st15_cfg,
+            "canary-qwen-charlev-spc-logmel-st15-timit-test-L2_grad-pertoken",
+            "L2",
+            False,
+            [(0.5, 1.0)],
+        ),
         (
             pk_cfg,
             "parakeet-rnnt-1.1b-logmel-timit-test-L2_grad-pertoken",
@@ -4468,6 +4487,10 @@ def py():
         (pk_cfg, "parakeet-rnnt-1.1b-logmel", True, False),
         (rnnt_px_cfg, "emformer-rnnt-prefix-logmel", False, False),
         (voxtral_charlev_logmel_cfg, "voxtral-charlevlogmel", False, False),
+        # Phi-4-MM + Canary-Qwen complete the speech-LLM column of the grad-score ablation (user).
+        # Phi-4-MM keeps bb=False (flash-attn backward has no vmap rule); Canary batches (verified).
+        (pt_csp_cfg, "phi4mm-charlev-spc", False, False),
+        (canary_charlev_logmel_st15_cfg, "canary-qwen-charlev-spc-logmel-st15", True, False),
     ]
     for _ac, _apre, _abb, _ado_attr in _ABL_MODELS:
         # grad-score axis: L0.5 / L1 / L2 / L2_e (L2_e = L2 norm on grad*input).
@@ -4771,6 +4794,19 @@ def py():
         _xa_v_name = f"voxtral-charlevlogmel-{_xa_tag}-{_xa_v_ga}-pertoken"
         _xa_v_ex = _xa_extract(voxtral_charlev_logmel_cfg, _xa_v_name, _xa_v_attr, _xa_v_mgi, time=24)
         _xa_align(_xa_v_ex, _xa_v_name, "en0.5-sil1.0")
+
+    # Canary-Qwen + Phi-4-MM L2 headline extracts on segA (uniform L2 across all tables). The en0.5-sil1.0
+    # base align lets the generic twin generator fill zsk/wordtopo + the full silence sweep (stems below).
+    # Canary batches (bb=True, verified equivalent in the bb-equivalence block); Phi-4-MM keeps bb=False
+    # (flash-attn backward has no vmap rule).
+    _xa_cq_name = f"canary-qwen-charlev-spc-logmel-st15-{_xa_tag}-L2_grad-pertoken"
+    _xa_align(
+        _xa_extract(canary_charlev_logmel_st15_cfg, _xa_cq_name, "L2", False, time=24, bb=True),
+        _xa_cq_name,
+        "en0.5-sil1.0",
+    )
+    _xa_p4_name = f"phi4mm-{_xa_tag}-L2_grad-pertoken-charlev-spc"
+    _xa_align(_xa_extract(pt_csp_cfg, _xa_p4_name, "L2", False, time=24), _xa_p4_name, "en0.5-sil1.0")
 
     # === FB-DP confidence: re-align headline extracts with with_confidence=True -> per-word
     # posterior-occupancy confidence + conf-vs-WBE correlation (cheap CPU; extracts shared). ===
@@ -5101,13 +5137,13 @@ def py():
             "voxtral-charlevlogmel",
             rf.build_dict(Voxtral, model_dir=dl_voxtral, recog_mode="transcription", version=3),
             voxtral_charlev_logmel_cfg,
-            "L1",
+            "L2",
             False,
             1.0,
-            False,
+            True,
         ),
-        ("phi4mm-charlev-spc", phi4mm_recog_cfg, pt_csp_cfg, "L2", True, 1.0, False),
-        ("canary-qwen-charlev-spc-logmel-st15", canary_cfg, canary_charlev_logmel_st15_cfg, "L1", False, 1.0, False),
+        ("phi4mm-charlev-spc", phi4mm_recog_cfg, pt_csp_cfg, "L2", False, 1.0, False),
+        ("canary-qwen-charlev-spc-logmel-st15", canary_cfg, canary_charlev_logmel_st15_cfg, "L2", False, 1.0, True),
         # Transducers: best align is sil0.0 (TIMIT + segA); parakeet-rnnt needs the batched backward.
         ("parakeet-rnnt-1.1b-logmel", pk_cfg, pk_cfg, "L2", False, 0.0, True),
         ("parakeet-tdt-0.6b-v2-logmel", tdt_cfg, tdt_grad_cfg, "L2", False, 0.0, False),
@@ -5292,10 +5328,20 @@ def py():
                 dl_phi4mi_dir, char_level=True, char_level_sep=" ", speech_prompt=prompt, attn_implementation="eager"
             )
         if model == "voxtral":
+            if prompt is None:  # official: Voxtral's native transcription request (no free-text prompt slot)
+                return rf.build_dict(
+                    Voxtral,
+                    model_dir=dl_voxtral,
+                    forward_mode="transcription",
+                    grad_wrt="log_mel",
+                    char_level=True,
+                    char_level_sep=" ",
+                    version=7,
+                )
             return rf.build_dict(
                 Voxtral,
                 model_dir=dl_voxtral,
-                forward_mode="transcription",
+                forward_mode="chat",
                 grad_wrt="log_mel",
                 char_level=True,
                 char_level_sep=" ",
@@ -5319,14 +5365,20 @@ def py():
         # self-attn needs eager attention (output_attentions); subword targets (optimal for attn,
         # matching the per-model self-att rows), spliced instruction.
         if model == "phi4mm":
-            return _phi4mm_model_config(
-                dl_phi4mi_dir, attn_implementation="eager", speech_prompt=prompt
-            )
+            return _phi4mm_model_config(dl_phi4mi_dir, attn_implementation="eager", speech_prompt=prompt)
         if model == "voxtral":
+            if prompt is None:  # official: Voxtral's native transcription request (no free-text prompt slot)
+                return rf.build_dict(
+                    Voxtral,
+                    model_dir=dl_voxtral,
+                    forward_mode="transcription",
+                    attn_implementation="eager",
+                    version=7,
+                )
             return rf.build_dict(
                 Voxtral,
                 model_dir=dl_voxtral,
-                forward_mode="transcription",
+                forward_mode="chat",
                 attn_implementation="eager",
                 version=7,
                 speech_prompt=prompt,
@@ -5342,14 +5394,21 @@ def py():
             speech_prompt=prompt,
         )
 
-    # (model key, grad attr_reduction, grad mult_grad_by_inputs, grad batched_backward)
+    # (model key, grad attr_reduction, grad mult_grad_by_inputs, grad batched_backward). Uniform L2.
     _PS_MODELS = [
-        ("phi4mm", "L2", True, True),
-        ("voxtral", "L1", False, False),
-        ("canary-qwen", "L1", False, False),
+        ("phi4mm", "L2", False, True),
+        ("voxtral", "L2", False, True),
+        ("canary-qwen", "L2", False, True),
     ]
+    # Each model's official ASR prompt (in addition to the 4 custom probes). Voxtral's native ASR request
+    # has no free-text slot -> None signals transcription mode (the structurally prompt-free official path).
+    _PS_OFFICIAL = {
+        "phi4mm": "Transcribe the audio clip into text.",
+        "voxtral": None,
+        "canary-qwen": "Transcribe the following:",
+    }
     for _ps_model, _ps_attr, _ps_mgi, _ps_bb in _PS_MODELS:
-        for _ps_tag, _ps_prompt in _PS_PROMPTS:
+        for _ps_tag, _ps_prompt in [*_PS_PROMPTS, ("official", _PS_OFFICIAL[_ps_model])]:
             # --- grad-align ---
             _ps_gex = ExtractInGradsPerTokenJob(
                 dataset_dir=_xa_dir,
@@ -5420,16 +5479,19 @@ def py():
     for _tsf in _TS_FACTORS:
         _tst = f"ts{_tsf}"
         # wav2vec2-CTC grad (fine grid): robustness rows.
-        _tsw_cfg = rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out", audio_time_stretch=_tsf)
+        _tsw_cfg = rf.build_dict(
+            Wav2Vec2Ctc, grad_wrt="feat_proj_out", per_token_score="prefix_fwd", audio_time_stretch=_tsf
+        )
         _tsw_ex = ExtractInGradsPerTokenJob(
             dataset_dir=_xa_dir,
             dataset_key="test",
             model_config=_tsw_cfg,
             mult_grad_by_inputs=False,
             attr_reduction="L2",
+            batched_backward=True,
         )
         _tsw_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-        _tsw_name = f"wav2vec2ctc-fproj_out-{_xa_tag}-L2_grad-pertoken-{_tst}"
+        _tsw_name = f"wav2vec2ctc-fproj_out-prefixfwd-{_xa_tag}-L2_grad-pertoken-{_tst}"
         _tsw_ex.add_alias(_tsw_name)
         reg(f"{_tsw_name}.hdf", _tsw_ex.out_hdf)
         _tsw_al = WordAlignFromPerTokenGradsJob(
@@ -5447,18 +5509,25 @@ def py():
         reg(f"{_tsw_nm}-wbe.txt", _tsw_al.out_wbe)
         # Voxtral grad on the COARSE projected-speech-embedding grid (the upsampling-sensitive surface).
         _tsv_cfg = rf.build_dict(
-            Voxtral, model_dir=dl_voxtral, forward_mode="transcription", audio_time_stretch=_tsf, version=5
+            Voxtral,
+            model_dir=dl_voxtral,
+            forward_mode="transcription",
+            grad_wrt="log_mel",
+            char_level=True,
+            char_level_sep=" ",
+            audio_time_stretch=_tsf,
+            version=7,
         )
         _tsv_ex = ExtractInGradsPerTokenJob(
             dataset_dir=_xa_dir,
             dataset_key="test",
             model_config=_tsv_cfg,
-            mult_grad_by_inputs=True,
+            mult_grad_by_inputs=False,
             attr_reduction="L2",
         )
         _tsv_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         _tsv_ex.rqmt = {**_tsv_ex.rqmt, "time": 24}
-        _tsv_name = f"voxtral-transcribe-{_xa_tag}-L2_e_grad-pertoken-{_tst}"
+        _tsv_name = f"voxtral-charlevlogmel-{_xa_tag}-L2_grad-pertoken-{_tst}"
         _tsv_ex.add_alias(_tsv_name)
         reg(f"{_tsv_name}.hdf", _tsv_ex.out_hdf)
         _tsv_al = WordAlignFromPerTokenGradsJob(
@@ -5499,9 +5568,9 @@ def py():
             "wav2vec2ctc-fproj_out-prefixfwd-abl-buckeye-segA-5h-L2_grad-pertoken",
             "whisper-large-v3-logmel-charlev-spc-abl-buckeye-segA-5h-L2_grad-pertoken",
             "owls-1B-180K-charlev-logmel-buckeye-segA-5h-L2_grad-pertoken",
-            "voxtral-charlevlogmel-buckeye-segA-5h-L1_grad-pertoken",
-            "canary-qwen-charlev-spc-logmel-st15-abl-buckeye-segA-5h-L1_grad-pertoken",
-            "phi4mm-charlev-spc-abl-buckeye-segA-5h-L2_e_grad-pertoken",
+            "voxtral-charlevlogmel-buckeye-segA-5h-L2_grad-pertoken",
+            "canary-qwen-charlev-spc-logmel-st15-buckeye-segA-5h-L2_grad-pertoken",
+            "phi4mm-buckeye-segA-5h-L2_grad-pertoken-charlev-spc",
             "baseline-whisper-large-v3-crossattn-auto-buckeye-segA-5h",
             "baseline-owls-1B-180K-crossattn-auto-buckeye-segA-5h",
             "baseline-voxtral-selfattn-buckeye-segA-5h",

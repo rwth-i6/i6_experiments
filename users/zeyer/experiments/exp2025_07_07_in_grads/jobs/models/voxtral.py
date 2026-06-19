@@ -206,7 +206,9 @@ class Voxtral(BaseModelInterface):
         sf.write(path, audio.cpu().numpy().astype(np.float32), sample_rate)
         return path
 
-    def _build_chat_inputs(self, *, audio_path: str, transcription: Optional[str]):
+    def _build_chat_inputs(
+        self, *, audio_path: str, transcription: Optional[str], transcription_ids: Optional[torch.Tensor] = None
+    ):
         """Build processor inputs for a single utterance.
 
         If ``transcription`` is None: open-recog mode -- the conversation
@@ -240,8 +242,15 @@ class Voxtral(BaseModelInterface):
         # internal tensor list, so a later ``.to(dev)`` would leave the
         # replaced tensors on CPU.
         dst_text_start = int(inputs_user["input_ids"].shape[1])
-        transc_text = transcription if transcription.startswith(" ") else " " + transcription
-        transc_ids = self.processor.tokenizer(transc_text, add_special_tokens=False, return_tensors="pt")["input_ids"]
+        if transcription_ids is not None:
+            # char-level: each char already its own token id (bypasses the BPE merger), mirroring the
+            # transcription-mode path -- so chat mode supports char-level alignment too.
+            transc_ids = transcription_ids
+        else:
+            transc_text = transcription if transcription.startswith(" ") else " " + transcription
+            transc_ids = self.processor.tokenizer(transc_text, add_special_tokens=False, return_tensors="pt")[
+                "input_ids"
+            ]
         eos_col = torch.tensor([[self.assistant_end_token_id]], dtype=transc_ids.dtype)
         transc_ids = torch.cat([transc_ids, eos_col], dim=1)
         new_input_ids = torch.cat([inputs_user["input_ids"], transc_ids], dim=1)
@@ -519,8 +528,9 @@ class Voxtral(BaseModelInterface):
                     transcription_ids=char_token_ids,
                 )
             else:
-                assert not self._char_level, "char_level only supported with forward_mode='transcription' for now"
-                inputs, dst_text_start = self._build_chat_inputs(audio_path=audio_path, transcription=transcription)
+                inputs, dst_text_start = self._build_chat_inputs(
+                    audio_path=audio_path, transcription=transcription, transcription_ids=char_token_ids
+                )
         finally:
             try:
                 os.unlink(audio_path)
