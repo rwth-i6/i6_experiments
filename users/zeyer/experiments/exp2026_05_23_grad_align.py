@@ -3712,6 +3712,11 @@ def py():
             _xa_align(ex, name, sfx + "-wordtopo", energy=energy, sil=sil, zsk=zsk, word_topology=True, _twin=False)
             _xa_align(ex, name, sfx + "-dtw", energy=energy, sil=sil, zsk=zsk, dtw_no_blank=True, _twin=False)
             _xa_align(ex, name, sfx + "-wdtw", energy=energy, sil=sil, zsk=zsk, whisper_dtw=True, _twin=False)
+            # const-blank (energy weighting kept, energy-silence off) + z-score-blank twins, so every
+            # headline grad align also has the en0.5 (const -5) and en0.5-zsk1.0 variants -- lets the
+            # tables use zsk for grad (and const elsewhere) with no new extracts, just cheap re-aligns.
+            _xa_align(ex, name, "en0.5", energy=energy, sil=0.0, _twin=False)
+            _xa_align(ex, name, "en0.5-zsk1.0", energy=energy, zsk=1.0, _twin=False)
         return al
 
     # (1) Fairness: grad SUBWORD whisper (compare to the existing crossattn-subword baseline).
@@ -4051,6 +4056,7 @@ def py():
             model_config=_owl_cfg,
             mult_grad_by_inputs=False,
             attr_reduction="L2",
+            batched_backward=True,  # vmap per-token VJP -- ESPnet decoder uses plain attn, vmaps fine
         )
         _owl_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         _owl_ex.rqmt = {**_owl_ex.rqmt, "time": 24}
@@ -4092,6 +4098,28 @@ def py():
         _owl_anm = f"align/{_owl_aname}-{_name_for_dict(_xa_ao)}-en0.5-sil1.0"
         _owl_aal.add_alias(_owl_anm)
         reg(f"{_owl_anm}-wbe.txt", _owl_aal.out_wbe)
+        # alignopts-silence: re-align the OWLS grad + cross-attn extracts under the other blank
+        # schemes (Buckeye-segA only; en0.5-sil1.0 already above), so OWLS joins the blank-scoring
+        # comparison for both signals.
+        if _owl_tag == _xa_tag:
+            for _owl_sex, _owl_sbase in [(_owl_ex, _owl_gname), (_owl_aex, _owl_aname)]:
+                for _owl_ssfx, _owl_skw in [
+                    ("en0.5", {"audio_energy_pow": 0.5}),
+                    ("en0.5-sil2.0", {"audio_energy_pow": 0.5, "blank_silence_energy_scale": 2.0}),
+                    ("en0.5-zsk1.0", {"audio_energy_pow": 0.5, "blank_grad_zscore_kappa": 1.0}),
+                ]:
+                    _owl_sal = WordAlignFromPerTokenGradsJob(
+                        grad_score_hdf=_owl_sex.out_hdf,
+                        grad_score_key="data",
+                        dataset_dir=_owl_dir,
+                        dataset_key=_owl_key,
+                        dataset_offset_factors=_owl_off,
+                        align_opts=_xa_ao,
+                        **_owl_skw,
+                    )
+                    _owl_snm = f"align/{_owl_sbase}-{_name_for_dict(_xa_ao)}-{_owl_ssfx}"
+                    _owl_sal.add_alias(_owl_snm)
+                    reg(f"{_owl_snm}-wbe.txt", _owl_sal.out_wbe)
 
     # (4f) Speech-LLM SELF-attention DTW (voxtral + canary-qwen): the attention analog
     # of whisper's cross-attn timestamps. No published alignment-head masks exist for
@@ -4473,23 +4501,31 @@ def py():
         ("en0.5-sil2.0", {"audio_energy_pow": 0.5, "blank_silence_energy_scale": 2.0}),
         ("en0.5-zsk1.0", {"audio_energy_pow": 0.5, "blank_grad_zscore_kappa": 1.0}),
     ]
-    for _sc_ac, _sc_pre, _sc_bb, _sc_dtw in [
-        (whisper_char_cfg, "whisper-base-logmel-charlev-spc", False, False),
+    for _sc_ac, _sc_pre, _sc_bb, _sc_dtw, _sc_attr, _sc_mgi, _sc_ga in [
+        (whisper_char_cfg, "whisper-base-logmel-charlev-spc", False, False, "L2", False, "L2_grad"),
         (
             rf.build_dict(Whisper, model_dir=dl_whisper_l3.out_hub_cache_dir, char_level=True, char_level_sep=" "),
             "whisper-large-v3-logmel-charlev-spc",
             True,
             False,
+            "L2",
+            False,
+            "L2_grad",
         ),
         (
             rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out", per_token_score="prefix_fwd"),
             "wav2vec2ctc-fproj_out-prefixfwd",
             True,
             False,
+            "L2",
+            False,
+            "L2_grad",
         ),
-        (voxtral_charlev_logmel_cfg, "voxtral-charlevlogmel", False, True),
+        (voxtral_charlev_logmel_cfg, "voxtral-charlevlogmel", False, True, "L2", False, "L2_grad"),
+        (canary_charlev_logmel_st15_cfg, "canary-qwen-charlev-spc-logmel-st15", False, False, "L1", False, "L1_grad"),
+        (pt_csp_cfg, "phi4mm-charlev-spc", False, False, "L2", True, "L2_e_grad"),
     ]:
-        _sc_ex = _xa_extract(_sc_ac, f"{_sc_pre}-abl-{_xa_tag}-L2_grad-pertoken", "L2", False, bb=_sc_bb)
+        _sc_ex = _xa_extract(_sc_ac, f"{_sc_pre}-abl-{_xa_tag}-{_sc_ga}-pertoken", _sc_attr, _sc_mgi, bb=_sc_bb)
         for _sc_tag, _sc_kw in _SIL_SCHEMES:
             _sc_al = WordAlignFromPerTokenGradsJob(
                 grad_score_hdf=_sc_ex.out_hdf,
@@ -4500,7 +4536,7 @@ def py():
                 align_opts=_sil_ao,
                 **_sc_kw,
             )
-            _sc_nm = f"align/{_sc_pre}-abl-{_xa_tag}-L2_grad-pertoken-{_name_for_dict(_sil_ao)}-{_sc_tag}"
+            _sc_nm = f"align/{_sc_pre}-abl-{_xa_tag}-{_sc_ga}-pertoken-{_name_for_dict(_sil_ao)}-{_sc_tag}"
             _sc_al.add_alias(_sc_nm)
             reg(f"{_sc_nm}-wbe.txt", _sc_al.out_wbe)
         # apply-log / DTW twins of the en0.5-sil1.0 align (for the cross-family alignopts-dtw table);
@@ -4521,7 +4557,7 @@ def py():
                     align_opts=_sc_ao2,
                     **_sc_kw2,
                 )
-                _sc_tnm = f"align/{_sc_pre}-abl-{_xa_tag}-L2_grad-pertoken-{_name_for_dict(_sc_ao2)}-{_sc_t2}"
+                _sc_tnm = f"align/{_sc_pre}-abl-{_xa_tag}-{_sc_ga}-pertoken-{_name_for_dict(_sc_ao2)}-{_sc_t2}"
                 _sc_t.add_alias(_sc_tnm)
                 reg(f"{_sc_tnm}-wbe.txt", _sc_t.out_wbe)
 

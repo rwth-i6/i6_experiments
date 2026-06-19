@@ -490,10 +490,14 @@ def _alignopts_silence_table():
     GRAD = [
         ("wav2vec2", f"wav2vec2ctc-fproj_out-prefixfwd-abl-{S}-L2_grad-pertoken"),
         ("whisper", f"whisper-large-v3-logmel-charlev-spc-abl-{S}-L2_grad-pertoken"),
+        ("owls", f"owls-1B-180K-charlev-logmel-{S}-L2_grad-pertoken"),
         ("voxtral", f"voxtral-charlevlogmel-{S}-L1_grad-pertoken"),
+        ("canary", f"canary-qwen-charlev-spc-logmel-st15-abl-{S}-L1_grad-pertoken"),
+        ("phi4", f"phi4mm-charlev-spc-abl-{S}-L2_e_grad-pertoken"),
     ]
     ATTN = [
         ("wh_a", "baseline-whisper-large-v3-crossattn-auto"),
+        ("owls_a", "baseline-owls-1B-180K-crossattn-auto"),
         ("vx_a", "baseline-voxtral-char-selfattn"),
         ("cn_a", "baseline-canary-qwen-char-selfattn"),
         ("ph_a", "baseline-phi4mm-char-selfattn"),
@@ -531,30 +535,29 @@ def _alignopts_dtw_table():
     # from the production grad aligner -- does true-DTW help grad as it does cross-attn?
     # mono: checkmark = our monotonic DP (no vertical step); cross = whisper DTW (vertical allowed).
     # silence: none / ctc (word topology collapses to ctc when blank is on; to none when off).
-    # (label, src=(kind,key), heads, z-norm, median-filter, log, mono, silence, energy, read-off)
+    # (label, src=(kind,key), heads, z-norm, median-filter, log, mono, silence, energy)
     ck, cx, na = "\\checkmark", "$\\times$", "--"
     WH, OU, B1 = "Whisper", "ours", "1-best"
     R = "\\ $\\hookrightarrow$ "
     ROWS = [
-        ("Cross-attn: Whisper (faithful)", ("xa", "faithful"), WH, ck, ck, cx, cx, "none", cx, "jump"),
-        (R + "span read-off", ("xa", "span"), WH, ck, ck, cx, cx, "none", cx, "span"),
-        (R + "no median-filter", ("xa", "nomedfilt"), WH, ck, cx, cx, cx, "none", cx, "jump"),
-        (R + "no z-norm", ("xa", "noznorm"), WH, cx, ck, cx, cx, "none", cx, "jump"),
-        (R + "no z-norm $+$ log", ("xa", "noznorm_log"), WH, cx, ck, ck, cx, "none", cx, "jump"),
-        (R + "our heads", ("xa", "ourheads"), OU, ck, ck, cx, cx, "none", cx, "jump"),
-        (R + "single best head", ("xa", "best1head"), B1, ck, ck, cx, cx, "none", cx, "jump"),
-        ("Cross-attn: ours (full)", ("xa", "ours_full"), OU, cx, cx, ck, ck, "ctc", ck, "span"),
-        (R + "DTW DP", ("xa", "ours_dtw"), OU, cx, cx, ck, cx, "none", ck, "span"),
-        (R + "DTW DP, no energy", ("xa", "ours_dtw_noen"), OU, cx, cx, ck, cx, "none", cx, "span"),
-        (R + "no silence", ("xa", "ours_none"), OU, cx, cx, ck, ck, "none", ck, "span"),
-        ("Grad: ours (full)", ("grad", "en0.5-sil1.0"), na, na, na, ck, ck, "ctc", ck, "span"),
-        (R + "DTW DP", ("grad", "en0.5-truedtw"), na, na, na, ck, cx, "none", ck, "span"),
-        (R + "DTW DP, no energy", ("grad", "en0.0-truedtw"), na, na, na, ck, cx, "none", cx, "span"),
+        ("Cross-attn: Whisper (faithful)", ("xa", "faithful"), WH, ck, ck, cx, cx, "none", cx),
+        (R + "no median-filter", ("xa", "nomedfilt"), WH, ck, cx, cx, cx, "none", cx),
+        (R + "no z-norm", ("xa", "noznorm"), WH, cx, ck, cx, cx, "none", cx),
+        (R + "no z-norm $+$ log", ("xa", "noznorm_log"), WH, cx, ck, ck, cx, "none", cx),
+        (R + "our heads", ("xa", "ourheads"), OU, ck, ck, cx, cx, "none", cx),
+        (R + "single best head", ("xa", "best1head"), B1, ck, ck, cx, cx, "none", cx),
+        ("Cross-attn: ours (full)", ("xa", "ours_full"), OU, cx, cx, ck, ck, "ctc", ck),
+        (R + "DTW DP", ("xa", "ours_dtw"), OU, cx, cx, ck, cx, "none", ck),
+        (R + "DTW DP, no energy", ("xa", "ours_dtw_noen"), OU, cx, cx, ck, cx, "none", cx),
+        (R + "no silence", ("xa", "ours_none"), OU, cx, cx, ck, ck, "none", ck),
+        ("Grad: ours (full)", ("grad", "en0.5-sil1.0"), na, na, na, ck, ck, "ctc", ck),
+        (R + "DTW DP", ("grad", "en0.5-truedtw"), na, na, na, ck, cx, "none", ck),
+        (R + "DTW DP, no energy", ("grad", "en0.0-truedtw"), na, na, na, ck, cx, "none", cx),
     ]
     GP = "align/whisper-base-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc-asotTrue-bs-5"
-    columns = ["row", "heads", "znorm", "medfilt", "log", "mono", "silence", "energy", "readoff", "wbe"]
+    columns = ["row", "heads", "znorm", "medfilt", "log", "mono", "silence", "energy", "wbe"]
     rows = []
-    for label, src, heads, znorm, mf, log, mono, sil, en, ro in ROWS:
+    for label, src, heads, znorm, mf, log, mono, sil, en in ROWS:
         wbe = _wbe(f"dtw-abl/whisper-base-timit-test-{src[1]}") if src[0] == "xa" else _wbe(f"{GP}-{src[1]}")
         rows.append(
             {
@@ -567,7 +570,6 @@ def _alignopts_dtw_table():
                     "mono": mono,
                     "silence": sil,
                     "energy": en,
-                    "readoff": ro,
                     "wbe": wbe,
                 }
             }
@@ -1035,34 +1037,6 @@ def _owsm_layer_table():
             }
         )
     _emit("owsm-per-layer", columns, rows)
-
-
-# ----------------------------------------------------------------------------------------
-# T8: Speech-LLM prompt-splice sensitivity (Phi-4-MM): grad-align WBE vs the instruction.
-# ----------------------------------------------------------------------------------------
-def _phi4_prompt_table():
-    def base(tag, level):
-        return f"align/phi4mm-prompt-{tag}-{level}-timit-test-L2_e_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0"
-
-    columns = ["sub", "char"]
-    prompts = [
-        ("default", "into text (neutral)"),
-        ("verbatim", "verbatim, exactly as spoken"),
-        ("word", "exactly, word for word"),
-        ("char", "at the character level"),
-    ]
-    rows = []
-    for tag, label in prompts:
-        rows.append(
-            {
-                "label": label,
-                "cells": {
-                    "sub": "n/a" if tag == "char" else _wbe(base(tag, "subword")),
-                    "char": _wbe(base(tag, "char")),
-                },
-            }
-        )
-    _emit("phi4-prompt", columns, rows)
 
 
 # ----------------------------------------------------------------------------------------
