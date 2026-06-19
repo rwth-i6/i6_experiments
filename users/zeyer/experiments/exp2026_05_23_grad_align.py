@@ -5597,6 +5597,7 @@ def py():
                 ("asotTrue-bs-5-en0.5-sil0.5", _bw_ao, {"blank_silence_energy_scale": 0.5}),
                 ("asotTrue-bs-5-en0.5-sil1.0", _bw_ao, {"blank_silence_energy_scale": 1.0}),
                 ("asotTrue-bs-5-en0.5-sil2.0", _bw_ao, {"blank_silence_energy_scale": 2.0}),
+                ("asotTrue-bs-5-en0.5-sil3.0", _bw_ao, {"blank_silence_energy_scale": 3.0}),
                 ("asotTrue-bs-5-en0.5-zsk0.5", _bw_ao, {"blank_grad_zscore_kappa": 0.5}),
                 ("asotTrue-bs-5-en0.5-zsk1.0", _bw_ao, {"blank_grad_zscore_kappa": 1.0}),
                 ("asotTrue-bs-5-en0.5-zsk2.0", _bw_ao, {"blank_grad_zscore_kappa": 2.0}),

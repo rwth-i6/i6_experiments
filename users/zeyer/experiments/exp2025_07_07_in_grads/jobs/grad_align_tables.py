@@ -524,6 +524,7 @@ def _alignopts_silence_table():
         ("energy", "$s = 0.5$", "asotTrue-bs-5-en0.5-sil0.5"),
         ("energy", "$s = 1$", "asotTrue-bs-5-en0.5-sil1.0"),
         ("energy", "$s = 2$", "asotTrue-bs-5-en0.5-sil2.0"),
+        ("energy", "$s = 3$", "asotTrue-bs-5-en0.5-sil3.0"),
         ("z-score", "$\\kappa = 0.5$", "asotTrue-bs-5-en0.5-zsk0.5"),
         ("z-score", "$\\kappa = 1$", "asotTrue-bs-5-en0.5-zsk1.0"),
         ("z-score", "$\\kappa = 2$", "asotTrue-bs-5-en0.5-zsk2.0"),
