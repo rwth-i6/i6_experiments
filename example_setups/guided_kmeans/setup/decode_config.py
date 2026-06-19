@@ -193,7 +193,7 @@ def decode_and_score(
         exp_name,
         corpus_name,
         score_res.wer,
-        score_res.substitutions,
         score_res.deletions,
+        score_res.substitutions,
         score_res.insertions,
     )
