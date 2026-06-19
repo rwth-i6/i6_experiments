@@ -3162,6 +3162,25 @@ def py():
             _t_nm = f"align/{_t_name}-{_name_for_dict(_t_ao)}-en{_t_ep}-sil{_t_sc}"
             _t_al.add_alias(_t_nm)
             reg(f"{_t_nm}-wbe.txt", _t_al.out_wbe)
+            # const (en0.5) + zsk twins of the headline en0.5-sil1.0 align (TIMIT-test), matching the
+            # Buckeye twins, so per-model grad rows can use zsk on both datasets. Cheap re-aligns.
+            if (_t_ep, _t_sc) == (0.5, 1.0):
+                for _t_tsfx, _t_tkw in [
+                    ("en0.5", {"audio_energy_pow": 0.5, "blank_silence_energy_scale": 0.0}),
+                    ("en0.5-zsk1.0", {"audio_energy_pow": 0.5, "blank_grad_zscore_kappa": 1.0}),
+                ]:
+                    _t_tal = WordAlignFromPerTokenGradsJob(
+                        grad_score_hdf=_t_ex.out_hdf,
+                        grad_score_key="data",
+                        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                        dataset_key="test",
+                        dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+                        align_opts=_t_ao,
+                        **_t_tkw,
+                    )
+                    _t_tnm = f"align/{_t_name}-{_name_for_dict(_t_ao)}-{_t_tsfx}"
+                    _t_tal.add_alias(_t_tnm)
+                    reg(f"{_t_tnm}-wbe.txt", _t_tal.out_wbe)
     # Nvidia CTC posteriors baseline: torchaudio CTC forced-align on parakeet-ctc's own emission.
     _pc_fa_test = ParakeetCtcForcedAlignJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir,
@@ -3960,7 +3979,7 @@ def py():
             _ah_name = f"baseline-{_ah_model}-crossattn-auto-{_ah_tag}"
             _ah_ex.add_alias(f"{_ah_name}-extract")
             reg(f"{_ah_name}.hdf", _ah_ex.out_hdf)
-            for _ah_ep, _ah_sc, _ah_sfx in [(0.5, 1.0, "-en0.5-sil1.0"), (0.0, 0.0, "")]:
+            for _ah_ep, _ah_sc, _ah_sfx in [(0.5, 1.0, "-en0.5-sil1.0"), (0.5, 0.0, "-en0.5"), (0.0, 0.0, "")]:
                 _ah_al = WordAlignFromPerTokenGradsJob(
                     grad_score_hdf=_ah_ex.out_hdf,
                     grad_score_key="data",
@@ -4206,7 +4225,7 @@ def py():
                 _sa_name = f"baseline-{_sa_mt}-selfattn-{_sa_tag}"
                 _sa_ex.add_alias(f"{_sa_name}-extract")
                 reg(f"{_sa_name}.hdf", _sa_ex.out_hdf)
-                for _sa_ep, _sa_sc, _sa_sfx in [(0.5, 1.0, "-en0.5-sil1.0"), (0.0, 0.0, "")]:
+                for _sa_ep, _sa_sc, _sa_sfx in [(0.5, 1.0, "-en0.5-sil1.0"), (0.5, 0.0, "-en0.5"), (0.0, 0.0, "")]:
                     _sa_al = WordAlignFromPerTokenGradsJob(
                         grad_score_hdf=_sa_ex.out_hdf,
                         grad_score_key="data",
