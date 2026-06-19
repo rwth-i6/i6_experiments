@@ -4026,6 +4026,73 @@ def py():
                         _ah_b.add_alias(_ah_bnm)
                         reg(f"{_ah_bnm}-wbe.txt", _ah_b.out_wbe)
 
+    # (4e2) OWLS-1B AED headline row (the non-Whisper AED): grad + auto-head cross-attn,
+    # promoted from the TIMIT-val scaling point to the full per-model eval (TIMIT-test +
+    # Buckeye-segA). char-level (the best OWLS variant). Grad uses the generic extractor;
+    # cross-attn reuses the SAME head-selection + extract jobs as the Whisper/LLM rows
+    # (the Owls adapter now fills collect_attentions from the decoder src_attn).
+    _owl_cfg = rf.build_dict(Owls, model_dir=dl_owls_1b_full.out_hub_cache_dir, char_level=True)
+    _owl_sel = SelectSelfAttnAlignHeadsJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=_owl_cfg,
+        time_upsample_when_short=True,
+    )
+    _owl_sel.add_alias("selfattn/owls-1B-180K-head-selection")
+    reg("selfattn/owls-1B-180K-heads.txt", _owl_sel.out_heads)
+    reg("selfattn/owls-1B-180K-heads-report.txt", _owl_sel.out_report)
+    for _owl_dir, _owl_key, _owl_off, _owl_tag in [
+        (_xa_dir, "test", _xa_off, _xa_tag),
+        (dl_ds_timit.out_hub_cache_dir, "test", _DATASET_OFFSET_FACTORS["timit"], "timit-test"),
+    ]:
+        _owl_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=_owl_dir,
+            dataset_key=_owl_key,
+            model_config=_owl_cfg,
+            mult_grad_by_inputs=False,
+            attr_reduction="L2",
+        )
+        _owl_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _owl_ex.rqmt = {**_owl_ex.rqmt, "time": 24}
+        _owl_gname = f"owls-1B-180K-charlev-logmel-{_owl_tag}-L2_grad-pertoken"
+        _owl_ex.add_alias(_owl_gname)
+        reg(f"{_owl_gname}.hdf", _owl_ex.out_hdf)
+        _owl_gal = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_owl_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_owl_dir,
+            dataset_key=_owl_key,
+            dataset_offset_factors=_owl_off,
+            align_opts=_xa_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=1.0,
+        )
+        _owl_gnm = f"align/{_owl_gname}-{_name_for_dict(_xa_ao)}-en0.5-sil1.0"
+        _owl_gal.add_alias(_owl_gnm)
+        reg(f"{_owl_gnm}-wbe.txt", _owl_gal.out_wbe)
+        _owl_aex = ExtractSelfAttnPerTokenJob(
+            dataset_dir=_owl_dir,
+            dataset_key=_owl_key,
+            model_config=_owl_cfg,
+            heads=_owl_sel.out_heads,
+        )
+        _owl_aname = f"baseline-owls-1B-180K-crossattn-auto-{_owl_tag}"
+        _owl_aex.add_alias(f"{_owl_aname}-extract")
+        reg(f"{_owl_aname}.hdf", _owl_aex.out_hdf)
+        _owl_aal = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_owl_aex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_owl_dir,
+            dataset_key=_owl_key,
+            dataset_offset_factors=_owl_off,
+            align_opts=_xa_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=1.0,
+        )
+        _owl_anm = f"align/{_owl_aname}-{_name_for_dict(_xa_ao)}-en0.5-sil1.0"
+        _owl_aal.add_alias(_owl_anm)
+        reg(f"{_owl_anm}-wbe.txt", _owl_aal.out_wbe)
+
     # (4f) Speech-LLM SELF-attention DTW (voxtral + canary-qwen): the attention analog
     # of whisper's cross-attn timestamps. No published alignment-head masks exist for
     # these models, so heads are auto-selected on TIMIT val (gold) and frozen for the

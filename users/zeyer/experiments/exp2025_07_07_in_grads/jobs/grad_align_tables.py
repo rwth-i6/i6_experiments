@@ -700,6 +700,23 @@ def _compare_table(with_hyp=False):
             ],
         ),
         (
+            "OWLS-1B",
+            [
+                (
+                    "Gradients",
+                    *g(
+                        f"owls-1B-180K-charlev-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"owls-1B-180K-charlev-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                    ),
+                ),
+                (
+                    "Cross-att.",
+                    f"align/baseline-owls-1B-180K-crossattn-auto-{S}-asotTrue-bs-5-en0.5-sil1.0",
+                    f"align/baseline-owls-1B-180K-crossattn-auto-{T}-asotTrue-bs-5-en0.5-sil1.0",
+                ),
+            ],
+        ),
+        (
             "Parakeet",
             [
                 (
@@ -893,6 +910,7 @@ def _compare_table(with_hyp=False):
         "Whisper-base": "AED",
         "Whisper-large-v3": "AED",
         "CrisperWhisper": "AED",
+        "OWLS-1B": "AED",
         "Parakeet": "Transd.",
         "Parakeet TDT": "Transd.",
         _M_EMFORMER: "Transd.",
@@ -908,7 +926,7 @@ def _compare_table(with_hyp=False):
     blocks = [(t, by_type[t]) for t in TYPE_ORDER]
     blocks.append(("GMM-HMM", REFERENCE))  # MFA dedicated-aligner reference (GMM-HMM), its own block
 
-    columns = ["type", "model", "method", "t_wbe", "t_a50", "t_a100", "s_wbe", "s_a50", "s_a100"]
+    columns = ["type", "model", "method", "t_wbe", "t_a50", "s_wbe", "s_a50"]
     if with_hyp:
         columns += ["h_mwbe", "h_f50"]
 
@@ -930,10 +948,8 @@ def _compare_table(with_hyp=False):
                     "method": mlabel,
                     "t_wbe": _wbe(ti) if ti else None,
                     "t_a50": _metric(ti, "acc_50ms") if ti else None,
-                    "t_a100": _metric(ti, "acc_100ms") if ti else None,
                     "s_wbe": _wbe(sa) if sa else None,
                     "s_a50": _metric(sa, "acc_50ms") if sa else None,
-                    "s_a100": _metric(sa, "acc_100ms") if sa else None,
                 }
                 if with_hyp:
                     # grad hyp on the gradients row (mj==0); the model's native-aligner hyp on its

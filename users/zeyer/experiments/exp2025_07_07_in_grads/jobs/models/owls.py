@@ -67,8 +67,16 @@ def _stub_mod(name: str):
 
 
 for _m in [
-    "g2p_en", "pyopenjtalk", "pypinyin", "jamo", "phonemizer", "g2pk2", "g2pk", "jaconv",
-    "tacotron_cleaner", "tacotron_cleaner.cleaners",
+    "g2p_en",
+    "pyopenjtalk",
+    "pypinyin",
+    "jamo",
+    "phonemizer",
+    "g2pk2",
+    "g2pk",
+    "jaconv",
+    "tacotron_cleaner",
+    "tacotron_cleaner.cleaners",
 ]:
     _stub_mod(_m)
 
@@ -167,7 +175,9 @@ class Owls(BaseModelInterface):
         leaf = feats.detach().requires_grad_(True)
         leaf.retain_grad()
         with torch.enable_grad():
-            nfeats, nflens = self.model.normalize(leaf, flens) if getattr(self.model, "normalize", None) else (leaf, flens)
+            nfeats, nflens = (
+                self.model.normalize(leaf, flens) if getattr(self.model, "normalize", None) else (leaf, flens)
+            )
             enc = self.model.encoder(nfeats, nflens)
         return leaf, enc[0], enc[1], int(leaf.shape[1])
 
@@ -180,6 +190,7 @@ class Owls(BaseModelInterface):
         raw_targets: List[List[str]],
         raw_target_seq_lens: torch.Tensor,
         omitted_prev_context: Optional[torch.Tensor] = None,
+        collect_attentions: Optional[list] = None,
     ) -> ForwardOutput:
         assert raw_inputs_sample_rate == 16000, "OWLS expects 16 kHz"
         assert len(raw_inputs) == 1 and isinstance(raw_inputs, torch.Tensor) and raw_inputs.ndim == 2
@@ -226,6 +237,19 @@ class Owls(BaseModelInterface):
         with torch.enable_grad():
             dec = self.model.decoder(enc_out, enc_lens, ys_in, ys_lens)
             logits = dec[0]  # [1, L, V] (output_layer applied)
+
+        if collect_attentions is not None:
+            # Decoder->encoder cross-attention, the OWLS analog of Whisper's cross-attn DTW.
+            # Each ESPnet decoder layer's src_attn stored its softmax weights [1, H, T_text, T_audio]
+            # during the call above; keep only the transcript-token rows (drop the prompt prefix),
+            # so row j aligns with words_start_end (0-based on transc_ids), matching the grad HDF schema.
+            # n_audio_real = the encoder frame count (no padding at batch 1); the cross-attn is over those.
+            attns = []
+            for _layer in self.model.decoder.decoders:
+                _a = getattr(_layer.src_attn, "attn", None)
+                assert _a is not None, "OWLS decoder src_attn stored no weights (unexpected attention impl)"
+                attns.append(_a[0, :, dst_text_start : dst_text_start + n_targets, :].detach().cpu())
+            collect_attentions.append({"attns": attns, "n_audio_real": int(enc_out.shape[1])})
 
         targets = torch.tensor([transc_ids + [self.eos_id]], dtype=torch.long, device=dev)
         words_start_end = words_start_end + [[n_targets, n_targets + 1]]  # exit slot
