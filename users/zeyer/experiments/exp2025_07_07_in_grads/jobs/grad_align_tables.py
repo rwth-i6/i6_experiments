@@ -27,6 +27,23 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.table_da
 
 _RESULTS = {}
 _CAPTURE = None  # when a list, _emit captures (name, columns, rows, source) -- preview mode
+_MISSING = set()  # output names a builder referenced that are NOT registered this recipe -- always a bug
+
+
+def _require(name):
+    """Look up a registered-output Variable by name; record a missing one instead of hiding it.
+
+    Every name a builder references MUST have been registered via ``reg`` (so it is in ``_RESULTS``).
+    A registered-but-unfinished output is still present -- its Variable is just unresolved on disk --
+    so a missing key is never a 'pending' cell; it is a typo / rename / unwired job.
+    We collect all such names and raise once at the end of ``build_tables``,
+    rather than silently returning an empty cell (the old ``_RESULTS.get`` behaviour).
+    """
+    if name not in _RESULTS:
+        _MISSING.add(name)
+        return None
+    return _RESULTS[name]
+
 
 # Streaming model display names carry a forced LaTeX line break
 # before "(streaming)",
@@ -40,6 +57,7 @@ _M_FC_RNNT = "FastConformer-RNN-T\\\\(streaming)"
 def build_tables(results):
     global _RESULTS
     _RESULTS = results
+    _MISSING.clear()
     _compare_table()  # ground-truth forced-mode only (separate hyp table below)
     _compare_table(with_hyp=True)  # variant: hyp-mode columns merged onto the grad rows
     _hyp_table()
@@ -53,6 +71,13 @@ def build_tables(results):
     _attribution_table()  # T3b attribution method (cross-model, fast models)
     _alignopts_silence_table()  # T3b-i align-opts: silence/topology axis (grad-only silence fix)
     _alignopts_dtw_table()  # T3b-ii align-opts: apply-log/DTW equivalence (grad vs cross-attn)
+    if _MISSING:
+        # Loud, aggregated failure instead of the old silent _RESULTS.get -> None empty cell.
+        raise AssertionError(
+            "grad_align_tables references output names not registered in this recipe -- a missing key is\n"
+            "always a bug (typo / rename / unwired job), never a pending cell, since a registered-but-\n"
+            "unfinished output is still in _RESULTS. Fix the name or wire the job:\n  " + "\n  ".join(sorted(_MISSING))
+        )
 
 
 def _emit(name, columns, rows):
@@ -73,14 +98,14 @@ def _emit(name, columns, rows):
 def _wbe(base):
     # The "<base>-wbe.txt" output is the scalar out_wbe (raw seconds).
     name = f"{base}-wbe.txt"
-    return {"var": _RESULTS.get(name), "src": name}
+    return {"var": _require(name), "src": name}
 
 
 def _metrics_var(base):
     # The metrics dict behind a "<base>-wbe.txt": creator.out_metrics,
     # or out_word_metrics for the CTC forced-align / phoneme baselines
     # (which name their aggregate dict differently).
-    v = _RESULTS.get(f"{base}-wbe.txt")
+    v = _require(f"{base}-wbe.txt")
     j = getattr(v, "creator", None) if v is not None else None
     m = getattr(j, "out_metrics", None) if j is not None else None
     if m is None and j is not None:
@@ -96,7 +121,7 @@ def _metric(base, key):
 
 def _hyp(name, key):
     out = f"hyp-align/{name}-metrics.txt"
-    return {"var": _RESULTS.get(out), "key": key, "src": out}
+    return {"var": _require(out), "key": key, "src": out}
 
 
 # ----------------------------------------------------------------------------------------
@@ -521,7 +546,7 @@ def _alignopts_dtw_table():
         ("Cross-attn: ours (full)", ("xa", "ours_full"), OU, cx, cx, ck, ck, "ctc", ck, "span"),
         (R + "DTW DP", ("xa", "ours_dtw"), OU, cx, cx, ck, cx, "none", ck, "span"),
         (R + "DTW DP, no energy", ("xa", "ours_dtw_noen"), OU, cx, cx, ck, cx, "none", cx, "span"),
-        (R + "no silence", ("xa", "ours_mono_nosil"), OU, cx, cx, ck, ck, "none", ck, "span"),
+        (R + "no silence", ("xa", "ours_none"), OU, cx, cx, ck, ck, "none", ck, "span"),
         ("Grad: ours (full)", ("grad", "en0.5-sil1.0"), na, na, na, ck, ck, "ctc", ck, "span"),
         (R + "DTW DP", ("grad", "en0.5-truedtw"), na, na, na, ck, cx, "none", ck, "span"),
         (R + "DTW DP, no energy", ("grad", "en0.0-truedtw"), na, na, na, ck, cx, "none", cx, "span"),
