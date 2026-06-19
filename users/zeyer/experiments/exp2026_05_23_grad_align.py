@@ -5472,6 +5472,37 @@ def py():
         )
         reg(f"{_tsf_name}-wbe.txt", _tsf_m.out_wbe)
 
+    # Generic blank-scheme twins: for every plain en0.5-sil1.0 grad/attn align, also produce the
+    # const (en0.5) and z-score (en0.5-zsk1.0) variants, so any table can pick const for attention /
+    # zsk for grad with no per-block wiring. Cheap re-aligns; skips names a block already produced.
+    for _bw_name in list(_table_results):
+        if not _bw_name.endswith("-asotTrue-bs-5-en0.5-sil1.0-wbe.txt"):
+            continue
+        _bw_job = getattr(_table_results[_bw_name], "creator", None)
+        if not isinstance(_bw_job, WordAlignFromPerTokenGradsJob):
+            continue
+        _bw_base = _bw_name[: -len("-en0.5-sil1.0-wbe.txt")]
+        for _bw_sfx, _bw_blank in [
+            ("en0.5", {"blank_silence_energy_scale": 0.0}),
+            ("en0.5-zsk1.0", {"blank_grad_zscore_kappa": 1.0}),
+        ]:
+            _bw_nm = f"{_bw_base}-{_bw_sfx}"
+            if f"{_bw_nm}-wbe.txt" in _table_results:
+                continue
+            _bw_al = WordAlignFromPerTokenGradsJob(
+                returnn_root=_bw_job.returnn_root,
+                grad_score_hdf=_bw_job.grad_score_hdf,
+                grad_score_key=_bw_job.grad_score_key,
+                dataset_dir=_bw_job.dataset_dir,
+                dataset_key=_bw_job.dataset_key,
+                dataset_offset_factors=_bw_job.dataset_offset_factors,
+                align_opts=_bw_job.align_opts,
+                audio_energy_pow=_bw_job.audio_energy_pow,
+                **_bw_blank,
+            )
+            _bw_al.add_alias(_bw_nm)
+            reg(f"{_bw_nm}-wbe.txt", _bw_al.out_wbe)
+
     # --- Auto-generated LaTeX result tables (in-graph; reference only this recipe's outputs) ---
     from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.grad_align_tables import (
         build_tables,

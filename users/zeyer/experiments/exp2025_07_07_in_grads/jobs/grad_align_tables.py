@@ -597,8 +597,8 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"wav2vec2ctc-fproj_out-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                        f"wav2vec2ctc-fproj_out-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"wav2vec2ctc-fproj_out-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0",
+                        f"wav2vec2ctc-fproj_out-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0",
                     ),
                 ),
                 ("Posteriors", f"baseline-mms_fa-{S}", f"baseline-mms_fa-{T}"),
@@ -610,8 +610,8 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"phoneme-vitouphy-prefixfwd-{S}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-sil1.0",
-                        f"phoneme-vitouphy-prefixfwd-{T}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-sil1.0",
+                        f"phoneme-vitouphy-prefixfwd-{S}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-zsk1.0",
+                        f"phoneme-vitouphy-prefixfwd-{T}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-zsk1.0",
                     ),
                 ),
                 (
@@ -627,8 +627,8 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"parakeet-ctc-1.1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                        f"parakeet-ctc-1.1b-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"parakeet-ctc-1.1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0",
+                        f"parakeet-ctc-1.1b-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0",
                     ),
                 ),
                 ("Posteriors", f"baseline-parakeet-ctc-1.1b-{S}", f"baseline-parakeet-ctc-1.1b-{T}"),
@@ -642,8 +642,8 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"owsm-ctc-v4-1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                        f"owsm-ctc-v4-1b-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"owsm-ctc-v4-1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0",
+                        f"owsm-ctc-v4-1b-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0",
                     ),
                 ),
                 # posteriors = CTC forced-align of the model's emission; best/natural at the final block.
@@ -656,14 +656,14 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"whisper-base-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
-                        f"whisper-base-logmel-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
+                        f"whisper-base-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0",
+                        f"whisper-base-logmel-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0",
                     ),
                 ),
                 (
                     "Cross-att.",
-                    f"align/baseline-whisper-base-crossattn-auto-{S}-asotTrue-bs-5-en0.5-sil1.0",
-                    f"align/baseline-whisper-base-crossattn-auto-{T}-asotTrue-bs-5-en0.5-sil1.0",
+                    f"align/baseline-whisper-base-crossattn-auto-{S}-asotTrue-bs-5-en0.5",
+                    f"align/baseline-whisper-base-crossattn-auto-{T}-asotTrue-bs-5-en0.5",
                 ),
             ],
         ),
@@ -673,14 +673,14 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"whisper-large-v3-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
-                        f"whisper-large-v3-logmel-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
+                        f"whisper-large-v3-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0",
+                        f"whisper-large-v3-logmel-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0",
                     ),
                 ),
                 (
                     "Cross-att.",
-                    f"align/baseline-whisper-large-v3-crossattn-auto-{S}-asotTrue-bs-5-en0.5-sil1.0",
-                    f"align/baseline-whisper-large-v3-crossattn-auto-{T}-asotTrue-bs-5-en0.5-sil1.0",
+                    f"align/baseline-whisper-large-v3-crossattn-auto-{S}-asotTrue-bs-5-en0.5",
+                    f"align/baseline-whisper-large-v3-crossattn-auto-{T}-asotTrue-bs-5-en0.5",
                 ),
             ],
         ),
@@ -690,14 +690,14 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"crisperwhisper-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
-                        f"crisperwhisper-logmel-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
+                        f"crisperwhisper-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0",
+                        f"crisperwhisper-logmel-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0",
                     ),
                 ),
                 (
                     "Cross-att.",
-                    f"align/baseline-crisperwhisper-crossattn-auto-{S}-asotTrue-bs-5-en0.5-sil1.0",
-                    f"align/baseline-crisperwhisper-crossattn-auto-{T}-asotTrue-bs-5-en0.5-sil1.0",
+                    f"align/baseline-crisperwhisper-crossattn-auto-{S}-asotTrue-bs-5-en0.5",
+                    f"align/baseline-crisperwhisper-crossattn-auto-{T}-asotTrue-bs-5-en0.5",
                 ),
             ],
         ),
@@ -707,14 +707,14 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"owls-1B-180K-charlev-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                        f"owls-1B-180K-charlev-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"owls-1B-180K-charlev-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0",
+                        f"owls-1B-180K-charlev-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0",
                     ),
                 ),
                 (
                     "Cross-att.",
-                    f"align/baseline-owls-1B-180K-crossattn-auto-{S}-asotTrue-bs-5-en0.5-sil1.0",
-                    f"align/baseline-owls-1B-180K-crossattn-auto-{T}-asotTrue-bs-5-en0.5-sil1.0",
+                    f"align/baseline-owls-1B-180K-crossattn-auto-{S}-asotTrue-bs-5-en0.5",
+                    f"align/baseline-owls-1B-180K-crossattn-auto-{T}-asotTrue-bs-5-en0.5",
                 ),
             ],
         ),
@@ -724,8 +724,8 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"parakeet-rnnt-1.1b-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                        f"parakeet-rnnt-1.1b-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"parakeet-rnnt-1.1b-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0",
+                        f"parakeet-rnnt-1.1b-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0",
                     ),
                 ),
                 (
@@ -741,8 +741,8 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"parakeet-tdt-0.6b-v2-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                        f"parakeet-tdt-0.6b-v2-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"parakeet-tdt-0.6b-v2-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0",
+                        f"parakeet-tdt-0.6b-v2-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0",
                     ),
                 ),
                 (
@@ -760,8 +760,8 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"emformer-rnnt-prefix-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                        f"emformer-rnnt-prefix-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"emformer-rnnt-prefix-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0",
+                        f"emformer-rnnt-prefix-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0",
                     ),
                 ),
                 (
@@ -777,8 +777,8 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"fastconformer-stream-ctc-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                        f"fastconformer-stream-ctc-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"fastconformer-stream-ctc-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0",
+                        f"fastconformer-stream-ctc-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0",
                     ),
                 ),
                 (
@@ -794,8 +794,8 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"fastconformer-stream-rnnt-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                        f"fastconformer-stream-rnnt-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"fastconformer-stream-rnnt-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0",
+                        f"fastconformer-stream-rnnt-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0",
                     ),
                 ),
                 (
@@ -811,14 +811,14 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"voxtral-charlevlogmel-{S}-L1_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                        f"voxtral-charlevlogmel-{T}-L1_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"voxtral-charlevlogmel-{S}-L1_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0",
+                        f"voxtral-charlevlogmel-{T}-L1_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0",
                     ),
                 ),
                 (
                     "Self-att.",
-                    f"align/baseline-voxtral-selfattn-{S}-asotTrue-bs-5-en0.5-sil1.0",
-                    f"align/baseline-voxtral-selfattn-{T}-asotTrue-bs-5-en0.5-sil1.0",
+                    f"align/baseline-voxtral-selfattn-{S}-asotTrue-bs-5-en0.5",
+                    f"align/baseline-voxtral-selfattn-{T}-asotTrue-bs-5-en0.5",
                 ),
             ],
         ),
@@ -828,14 +828,14 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"phi4mm-{S}-L2_e_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
-                        f"phi4mm-{T}-L2_e_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
+                        f"phi4mm-{S}-L2_e_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0",
+                        f"phi4mm-{T}-L2_e_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0",
                     ),
                 ),
                 (
                     "Self-att.",
-                    f"align/baseline-phi4mm-selfattn-{S}-asotTrue-bs-5-en0.5-sil1.0",
-                    f"align/baseline-phi4mm-selfattn-{T}-asotTrue-bs-5-en0.5-sil1.0",
+                    f"align/baseline-phi4mm-selfattn-{S}-asotTrue-bs-5-en0.5",
+                    f"align/baseline-phi4mm-selfattn-{T}-asotTrue-bs-5-en0.5",
                 ),
             ],
         ),
@@ -845,14 +845,14 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"canary-qwen-charlev-spc-logmel-st15-{S}-L1_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
-                        f"canary-qwen-charlev-spc-logmel-st15-{T}-L1_grad-pertoken-asotTrue-bs-5-en0.5-sil1.0",
+                        f"canary-qwen-charlev-spc-logmel-st15-{S}-L1_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0",
+                        f"canary-qwen-charlev-spc-logmel-st15-{T}-L1_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0",
                     ),
                 ),
                 (
                     "Self-att.",
-                    f"align/baseline-canary-qwen-selfattn-{S}-asotTrue-bs-5-en0.5-sil1.0",
-                    f"align/baseline-canary-qwen-selfattn-{T}-asotTrue-bs-5-en0.5-sil1.0",
+                    f"align/baseline-canary-qwen-selfattn-{S}-asotTrue-bs-5-en0.5",
+                    f"align/baseline-canary-qwen-selfattn-{T}-asotTrue-bs-5-en0.5",
                 ),
             ],
         ),
