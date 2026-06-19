@@ -579,6 +579,8 @@ def best_path_ctc(
     """
     :func:`best_path` with :func:`fsa_for_ctc` for the CTC label topology.
 
+    Note, there is also :func:`returnn.frontend.loss.ctc_best_path`.
+
     :param logits: [B...,T,F+1]
     :param logits_normalized: whether the logits are already normalized.
         If False, we apply log_softmax to the logits.
