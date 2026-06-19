@@ -165,6 +165,131 @@ def build_conformer_encoder(cfg: ConformerEncoderConfig) -> ConformerRelPosEncod
     return ConformerRelPosEncoderV1(cfg=conformer_config)
 
 
+@dataclass
+class HighConformerConfig:
+    """Config for the two-level model's HIGH (global) Conformer encoder.
+
+    NEW (two-level/CIF logic): identical conformer BLOCK stack as ``ConformerEncoderConfig`` but with
+    NO frontend -- the input is already a sequence of ``conformer_size``-dim CIF tokens at ~8-12 Hz, so
+    we must NOT run the VGG-4 frontend (it assumes 80-dim log-mel and subsamples 4x). ``build_high_
+    conformer_encoder`` passes ``frontend=None`` -> i6_models uses ``nn.Identity`` (no projection, no
+    subsampling, mask passed through), so the caller must feed exactly ``conformer_size``-dim tokens.
+
+    Kept a SEPARATE dataclass (not ``frontend_config=Optional``) on purpose: making the existing
+    ``ConformerEncoderConfig.frontend_config`` optional would re-hash the running BEST-RQ / CTC configs.
+    """
+
+    pos_emb_config: ConformerPosEmbConfig
+    conformer_size: int
+    num_layers: int
+    num_heads: int
+    ff_dim: int
+    att_weights_dropout: float
+    conv_dropout: float
+    ff_dropout: float
+    mhsa_dropout: float
+    mhsa_with_bias: bool
+    conv_kernel_size: int
+    dropout_broadcast_axes: Optional[Literal["B", "T", "BT"]]
+    module_list: List[str]
+    module_scales: List[float]
+
+    @classmethod
+    def from_dict(cls, d):
+        d = d.copy()
+        d["pos_emb_config"] = ConformerPosEmbConfig(**d["pos_emb_config"])
+        return HighConformerConfig(**d)
+
+
+def build_high_conformer_encoder(cfg: HighConformerConfig) -> ConformerRelPosEncoderV1:
+    """Build the high/global Conformer over CIF tokens: same rel-pos block stack as the lower encoder,
+    but ``frontend=None`` (-> nn.Identity), so no subsampling and no 80-dim assumption."""
+    conformer_config = ConformerRelPosEncoderV1Config(
+        num_layers=cfg.num_layers,
+        frontend=None,  # NEW: identity frontend; input is already [B, K, conformer_size] CIF tokens
+        block_cfg=ConformerRelPosBlockV1Config(
+            ff_cfg=ConformerPositionwiseFeedForwardV2Config(
+                input_dim=cfg.conformer_size,
+                hidden_dim=cfg.ff_dim,
+                dropout=cfg.ff_dropout,
+                activation=nn.functional.silu,
+                dropout_broadcast_axes=cfg.dropout_broadcast_axes,
+            ),
+            mhsa_cfg=ConformerMHSARelPosV1Config(
+                input_dim=cfg.conformer_size,
+                num_att_heads=cfg.num_heads,
+                att_weights_dropout=cfg.att_weights_dropout,
+                with_bias=cfg.mhsa_with_bias,
+                dropout=cfg.mhsa_dropout,
+                dropout_broadcast_axes=cfg.dropout_broadcast_axes,
+                learnable_pos_emb=cfg.pos_emb_config.learnable_pos_emb,
+                rel_pos_clip=cfg.pos_emb_config.rel_pos_clip,
+                with_linear_pos=cfg.pos_emb_config.with_linear_pos,
+                with_pos_bias=cfg.pos_emb_config.with_pos_bias,
+                separate_pos_emb_per_head=cfg.pos_emb_config.separate_pos_emb_per_head,
+                pos_emb_dropout=cfg.pos_emb_config.pos_emb_dropout,
+            ),
+            conv_cfg=ConformerConvolutionV2Config(
+                channels=cfg.conformer_size,
+                kernel_size=cfg.conv_kernel_size,
+                dropout=cfg.conv_dropout,
+                activation=nn.functional.silu,
+                norm=LayerNormNC(cfg.conformer_size),
+                dropout_broadcast_axes=cfg.dropout_broadcast_axes,
+            ),
+            modules=cfg.module_list,
+            scales=cfg.module_scales,
+        ),
+    )
+    return ConformerRelPosEncoderV1(cfg=conformer_config)
+
+
+def high_pos_emb_config(rel_pos_clip: int = 96) -> ConformerPosEmbConfig:
+    """Learnable Shaw rel-pos for the HIGH encoder. ``rel_pos_clip`` is a TOKEN distance, so it must be
+    re-scaled for the ~8-12 Hz token stream: the inherited lower-encoder clip of 16 would cap attention
+    at ~16 tokens (~1.3-2 s) -- too myopic for a 'global' encoder. Default 96 (~8-12 s) gives near
+    full-utterance context at the v1 token rates."""
+    return ConformerPosEmbConfig(
+        learnable_pos_emb=True,
+        rel_pos_clip=rel_pos_clip,
+        with_linear_pos=False,
+        with_pos_bias=False,
+        separate_pos_emb_per_head=False,
+        pos_emb_dropout=0.0,
+    )
+
+
+def default_high_encoder_config(
+    *,
+    conformer_size: int = 512,
+    num_layers: int = 9,
+    num_heads: int = 8,
+    ff_dim: int = 2048,
+    dropout: float = 0.1,
+    conv_kernel_size: int = 31,
+    rel_pos_clip: int = 96,
+) -> HighConformerConfig:
+    """The 9-layer high/global Conformer over CIF tokens (no frontend). Mirrors the lower-encoder block
+    recipe (macaron FF/conv/MHSA, silu) so behaviour is comparable; only the frontend and pos-emb clip
+    differ."""
+    return HighConformerConfig(
+        pos_emb_config=high_pos_emb_config(rel_pos_clip=rel_pos_clip),
+        conformer_size=conformer_size,
+        num_layers=num_layers,
+        num_heads=num_heads,
+        ff_dim=ff_dim,
+        att_weights_dropout=dropout,
+        conv_dropout=dropout,
+        ff_dropout=dropout,
+        mhsa_dropout=dropout,
+        mhsa_with_bias=True,
+        conv_kernel_size=conv_kernel_size,
+        dropout_broadcast_axes=None,
+        module_list=["ff", "conv", "mhsa", "ff"],
+        module_scales=[0.5, 1.0, 1.0, 0.5],
+    )
+
+
 def default_pos_emb_config() -> ConformerPosEmbConfig:
     """Learnable Shaw-style relative positional encoding (repo-proven pure-Shaw recipe)."""
     return ConformerPosEmbConfig(

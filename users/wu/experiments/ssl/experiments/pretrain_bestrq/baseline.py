@@ -19,7 +19,7 @@ import numpy as np
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Config
 
 from ...config import get_training_config
-from ...pipeline import training, register_train_summary
+from ...pipeline import training
 from ...default_tools import RETURNN_EXE, RETURNN_ROOT
 from ...data import datasets as ds
 from ...pytorch_networks.best_rq.best_rq_v1_cfg import BestRQConfig
@@ -156,7 +156,7 @@ def bestrq_smoke():
     )
 
 
-def _bestrq_ls960(prefix: str, *, mask_prob: float, title: str):
+def _bestrq_ls960(prefix: str, *, mask_prob: float):
     """Real BEST-RQ pretraining on LS960 (parameterized by masking `mask_prob`).
 
     Budget = 100 passes over LS960. partition_epoch=1 => one sub-epoch == one full pass (~1976
@@ -203,9 +203,11 @@ def _bestrq_ls960(prefix: str, *, mask_prob: float, title: str):
         mem_rqmt=100,
         cpu_rqmt=16,
     )
-    # BEST-RQ has no labels -> no WER recog; the per-experiment summary reports the pretraining scores
-    # (bestrq_ce / masked_acc / code_ppl per epoch from out_learning_rates). Downstream-only -> no re-run.
-    register_train_summary(prefix, train_job, title=title)
+    # BEST-RQ has no labels -> no WER recog of its own. The per-experiment summary.md is registered
+    # downstream by the LS100 CTC finetune (ctc_ls100_finetune(..., pretrain_prefix=prefix)), so the
+    # pretraining experiment surfaces its DOWNSTREAM finetune WER as the headline result rather than the
+    # SSL losses. (Per-epoch bestrq_ce/masked_acc/code_ppl remain in the training job's out_learning_rates
+    # for ad-hoc inspection; they are no longer rendered into summary.md.)
     return train_job
 
 
@@ -214,7 +216,6 @@ def bestrq_ls960_base():
     return _bestrq_ls960(
         "ssl/pretrain_bestrq/ls960_12x512_n4",
         mask_prob=0.04,
-        title="BEST-RQ pretraining",
     )
 
 
@@ -228,5 +229,4 @@ def bestrq_ls960_mask49():
     return _bestrq_ls960(
         "ssl/pretrain_bestrq/ls960_12x512_n4_mask49",
         mask_prob=0.065,
-        title="BEST-RQ pretraining (mask~49%)",
     )

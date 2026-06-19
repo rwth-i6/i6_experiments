@@ -1,7 +1,7 @@
 """Thin Sisyphus pipeline helpers for SSL training (and later forward/recog)."""
 
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from sisyphus import tk
 
@@ -224,6 +224,21 @@ def _fmt_var(v):
         return None
 
 
+def _md_table(headers: List[str], rows: List[List[str]]) -> List[str]:
+    """Render a GitHub-markdown table with every column right-aligned AND padded to a uniform
+    width per column, so the raw .md *source* lines up vertically (not just the rendered HTML).
+    Returns the list of lines (header, separator, then one line per row)."""
+    ncol = len(headers)
+    widths = [len(h) for h in headers]
+    for r in rows:
+        for i in range(ncol):
+            widths[i] = max(widths[i], len(r[i]))
+    def fmt(cells: List[str]) -> str:
+        return "| " + " | ".join(c.rjust(widths[i]) for i, c in enumerate(cells)) + " |"
+    sep = "| " + " | ".join("-" * (widths[i] - 1) + ":" for i in range(ncol)) + " |"
+    return [fmt(headers), sep] + [fmt(r) for r in rows]
+
+
 def register_wer_summary(prefix: str, wers: Dict[int, Dict[str, Any]], num_epochs: int):
     """Live markdown WER summary (speech_llm style): rows = checkpoint epoch (+ % of training), columns =
     dev/test clean+other, best per column **bold**. Re-rendered by the manager (required=[] -> never blocks,
@@ -234,22 +249,57 @@ def register_wer_summary(prefix: str, wers: Dict[int, Dict[str, Any]], num_epoch
         for s in _RECOG_SPLITS:
             vals = [x for x in (_fmt_var(wers[ep].get(s)) for ep in wers) if x is not None]
             best[s] = min(vals) if vals else None
-        lines = [
-            f"# CTC greedy-WER summary — {prefix}",
-            "",
-            "| epoch | frac | " + " | ".join(f"`{s}`" for s in _RECOG_SPLITS) + " |",
-            "|---:|---:|" + "|".join(["---:"] * len(_RECOG_SPLITS)) + "|",
-        ]
+        headers = ["epoch", "frac"] + [f"`{s}`" for s in _RECOG_SPLITS]
+        rows = []
         for ep in sorted(wers):
-            cells = []
+            cells = [str(ep), f"{round(ep / num_epochs * 100)}%"]
             for s in _RECOG_SPLITS:
                 v = _fmt_var(wers[ep].get(s))
                 if v is None:
                     cells.append("…")
                 else:
                     cells.append(f"**{v:.2f}**" if best[s] is not None and v == best[s] else f"{v:.2f}")
-            cells_s = " | ".join(cells)
-            lines.append(f"| {ep} | {round(ep / num_epochs * 100)}% | {cells_s} |")
+            rows.append(cells)
+        lines = [f"# CTC greedy-WER summary — {prefix}", ""] + _md_table(headers, rows)
+        return "\n".join(lines) + "\n"
+
+    tk.register_report(f"{prefix}/summary.md", render, required=[])
+
+
+def _wer_table_block(wers: Dict[int, Dict[str, Any]], num_epochs: int) -> List[str]:
+    """One WER table (rows = checkpoint epoch + % of training, cols = dev/test clean+other, best **bold**)."""
+    best = {}
+    for s in _RECOG_SPLITS:
+        vals = [x for x in (_fmt_var(wers[ep].get(s)) for ep in wers) if x is not None]
+        best[s] = min(vals) if vals else None
+    headers = ["epoch", "frac"] + [f"`{s}`" for s in _RECOG_SPLITS]
+    rows = []
+    for ep in sorted(wers):
+        cells = [str(ep), f"{round(ep / num_epochs * 100)}%"]
+        for s in _RECOG_SPLITS:
+            v = _fmt_var(wers[ep].get(s))
+            if v is None:
+                cells.append("…")
+            else:
+                cells.append(f"**{v:.2f}**" if best[s] is not None and v == best[s] else f"{v:.2f}")
+        rows.append(cells)
+    return _md_table(headers, rows)
+
+
+def register_multi_wer_summary(prefix: str, named_wers, *, title: str = "WER summary"):
+    """Live markdown summary with SEVERAL named WER tables under one ``<prefix>/summary.md`` (one ``##``
+    section per variant). Used to surface a two-level pretraining experiment's DOWNSTREAM finetune WER
+    (e.g. frozen- vs trainable-segmenter CTC) instead of the SSL losses -- the base BEST-RQ pattern,
+    generalized to >1 finetune variant.
+
+    :param named_wers: ordered ``Dict[label -> (wers, num_epochs)]`` where ``wers`` is
+        ``{epoch: {split: ScliteJob.out_wer}}`` (the return of ``ctc_recog_all_epochs``).
+    """
+
+    def render() -> str:
+        lines = [f"# {title} — {prefix}", ""]
+        for label, (wers, num_epochs) in named_wers.items():
+            lines += [f"## {label}", ""] + _wer_table_block(wers, num_epochs) + [""]
         return "\n".join(lines) + "\n"
 
     tk.register_report(f"{prefix}/summary.md", render, required=[])
@@ -288,24 +338,21 @@ def register_train_summary(prefix: str, train_job: ReturnnTrainingJob, *, title:
                 if not k.startswith(":meta:") and k not in keys:
                     keys.append(k)
         keys = sorted(keys)
-        lines = [
-            f"# {title} — {prefix}",
-            "",
-            "| epoch | lr | " + " | ".join(f"`{k}`" for k in keys) + " |",
-            "|---:|---:|" + "|".join(["---:"] * len(keys)) + "|",
-        ]
+        headers = ["epoch", "lr"] + [f"`{k}`" for k in keys]
+        rows = []
         for ep in sorted(data):
             err = data[ep].get("error") or {}
             lr = data[ep].get("lr")
             lr_s = "—" if lr is None else f"{lr:.2e}"
-            cells = []
+            cells = [str(ep), lr_s]
             for k in keys:
                 v = err.get(k)
                 if isinstance(v, (int, float)):
                     cells.append(f"{v:.4f}")
                 else:
                     cells.append("…" if v is None else str(v))
-            lines.append(f"| {ep} | {lr_s} | " + " | ".join(cells) + " |")
+            rows.append(cells)
+        lines = [f"# {title} — {prefix}", ""] + _md_table(headers, rows)
         return "\n".join(lines) + "\n"
 
     tk.register_report(f"{prefix}/summary.md", render, required=[])

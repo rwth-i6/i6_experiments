@@ -15,10 +15,17 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Optional
 
+from i6_core.returnn.config import CodeWrapper
+
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Config
 
 from ...config import get_training_config
-from ...pipeline import training, ctc_recog_all_epochs, ctc_recog_best_checkpoint, fraction_epochs
+from ...pipeline import (
+    training,
+    ctc_recog_all_epochs,
+    fraction_epochs,
+    register_wer_summary,
+)
 from ...default_tools import RETURNN_EXE, RETURNN_ROOT
 from ...data import datasets as ds
 from ...data.spm import get_ls960_spm, SPM_VOCAB_SIZE
@@ -30,6 +37,27 @@ from ..pretrain_bestrq.baseline import _oclr
 
 NETWORK_MODULE = "ctc.conformer_ctc_v1"
 DECODER_MODULE = "ctc.conformer_ctc_v1"  # SPM_VOCAB_SIZE imported from data.spm
+
+# Two-rate finetune (BEST-RQ-style): the fresh CTC heads (final out_linear + the InterCTC aux heads) train at
+# HEAD_LR_MULT x the scheduled LR; the pretrained backbone (encoder) stays at 1x. The GLOBAL peak_lr is the
+# LOW backbone rate (1e-4) -> the head group runs at HEAD_LR_MULT*1e-4. Wired via RETURNN's param_groups_custom
+# (the helper in common/optim.py, referenced by CodeWrapper) + this prolog import so the name resolves in the
+# config namespace BEFORE the (pprint-serialized) config dict references it. Same head names in both networks.
+HEAD_LR_MULT = 3.0  # ~ BEST-RQ's fresh-decoder/encoder LR ratio (here 3e-4 head vs 1e-4 backbone)
+TWO_RATE_PROLOG = (
+    "from i6_experiments.users.wu.experiments.ssl.pytorch_networks.common.optim import "
+    "optimizer_param_groups_custom_lr_multiplier"
+)
+
+
+def _apply_head_lr_multiplier(config: dict, multiplier: float) -> None:
+    """In-place: give the fresh CTC heads (out_linear + aux_linears) ``multiplier`` x the scheduled LR; the
+    pretrained backbone stays at 1x. Requires TWO_RATE_PROLOG in python_prolog (resolves the CodeWrapper name)."""
+    config["optimizer"]["param_groups_custom"] = CodeWrapper("optimizer_param_groups_custom_lr_multiplier")
+    config["optimizer"]["learning_rate_multipliers_by_patterns"] = {
+        "out_linear.*": multiplier,
+        "aux_linears.*": multiplier,
+    }
 
 
 def build_ctc_config(specaug_start_step: int = 5000, dropout: float = 0.1) -> CTCConfig:
@@ -88,6 +116,7 @@ def _run(
     batch_size_sec: int = 480,
     dropout: float = 0.1,
     specaug_start_step: int = 5000,
+    head_lr_multiplier: Optional[float] = None,
     preload: Optional[dict] = None,
 ):
     _spm_ds, spm_model = get_ls960_spm()  # shared SPM-5120 label space across all CTC runs
@@ -100,6 +129,11 @@ def _run(
     )
     if preload is not None:
         config["preload_from_files"] = preload
+    # two-rate finetune (opt-in): fresh heads at head_lr_multiplier x, backbone at 1x (see _apply_head_lr_multiplier)
+    python_prolog = None
+    if head_lr_multiplier is not None:
+        _apply_head_lr_multiplier(config, head_lr_multiplier)
+        python_prolog = [TWO_RATE_PROLOG]
     # keep the fractional-epoch checkpoints (10/30/.../100%) alive for multi-checkpoint recognition
     keep_epochs = fraction_epochs(num_epochs)
     returnn_config = get_training_config(
@@ -110,6 +144,7 @@ def _run(
         train_step_args={},
         config=config,
         keep_epochs=keep_epochs,
+        python_prolog=python_prolog,
     )
     train_job = training(
         prefix,
@@ -124,7 +159,7 @@ def _run(
         cpu_rqmt=16,
     )
     # greedy decode + sclite WER on dev/test clean+other at 10/30/50/70/90/100% checkpoints + summary report
-    ctc_recog_all_epochs(
+    wers = ctc_recog_all_epochs(
         prefix,
         train_job=train_job,
         num_epochs=num_epochs,
@@ -134,18 +169,9 @@ def _run(
         returnn_exe=RETURNN_EXE,
         returnn_root=RETURNN_ROOT,
     )
-    # also decode the dev-loss-best checkpoint (keep_best_n keeps it) -> recog/epbest; the fixed
-    # fraction checkpoints can miss the dev optimum (LS100 overfits, dev CTC bottoms early).
-    ctc_recog_best_checkpoint(
-        prefix,
-        train_job=train_job,
-        model_config_dict=asdict(model_config),
-        vocab_size=SPM_VOCAB_SIZE,
-        spm_model=spm_model,
-        returnn_exe=RETURNN_EXE,
-        returnn_root=RETURNN_ROOT,
-    )
-    return train_job
+    # NOTE: no automatic best-checkpoint selection. LS100 overfits (dev CTC bottoms ~ep24 while WER keeps
+    # gaining), so the dev optimum is read directly off the per-epoch WER tables in the summary.
+    return train_job, wers
 
 
 def ctc_ls100_scratch():
@@ -156,7 +182,7 @@ def ctc_ls100_scratch():
     0.1->0.2 (i6 LS100 standard; was half), and start SpecAugment at step 2000 instead of 5000 (it
     was off until ~ep13-26, the memorization window). SpecAug mask strength is already strong (time
     ~40%, freq ~35%) so it is NOT increased. weight_decay 0.01 / peak_lr 1e-3 kept per earlier choice."""
-    return _run(
+    train_job, _ = _run(
         "ssl/ctc_ls100/scratch_12x512_spm5k",
         train_splits=ds.TRAIN_CLEAN_100,
         peak_lr=1e-3,
@@ -164,6 +190,7 @@ def ctc_ls100_scratch():
         dropout=0.2,
         specaug_start_step=2000,
     )
+    return train_job
 
 
 def ctc_ls960_scratch():
@@ -173,11 +200,20 @@ def ctc_ls960_scratch():
     Regularization deliberately kept LIGHT (dropout 0.1, specaug start step 5000, 60 passes): 960h is
     ~9.6x the LS100 data, so the LS100 overfit fix does NOT apply here -- over-regularizing would
     underfit the topline. Unchanged from the original config (hash-stable)."""
-    return _run("ssl/ctc_ls960/scratch_12x512_spm5k", train_splits=ds.TRAIN_960H, peak_lr=1e-3, num_epochs=60)
+    train_job, _ = _run("ssl/ctc_ls960/scratch_12x512_spm5k", train_splits=ds.TRAIN_960H, peak_lr=1e-3, num_epochs=60)
+    return train_job
 
 
-def ctc_ls100_finetune(ssl_checkpoint):
-    """CTC finetuning with the encoder initialized from a BEST-RQ checkpoint (PtCheckpoint or path)."""
+def ctc_ls100_finetune(ssl_checkpoint, *, prefix, pretrain_prefix=None, num_epochs=100):
+    """CTC finetuning with the encoder initialized from a BEST-RQ checkpoint (PtCheckpoint or path).
+
+    :param ssl_checkpoint: BEST-RQ checkpoint to preload the encoder from (e.g.
+        ``pretrain_job.out_checkpoints[100]``); becomes a graph dependency, so the finetune auto-starts
+        once pretraining produces that checkpoint.
+    :param prefix: experiment prefix for this finetune (one per pretrained variant, to avoid collisions).
+    :param pretrain_prefix: if given, ALSO register the finetune WER summary as ``<pretrain_prefix>/summary.md``
+        so the pretraining experiment surfaces its downstream WER (not the SSL losses) as the headline result.
+    """
     preload = {
         "ssl_encoder": {
             "filename": ssl_checkpoint,
@@ -187,14 +223,21 @@ def ctc_ls100_finetune(ssl_checkpoint):
     }
     # Finetune on LS100 (same small data as scratch) but from a pretrained encoder -> moderate reg:
     # dropout 0.15 (between scratch 0.2 and SSL 0.1) and 100 passes (200 was too long for 100h), with
-    # the earlier specaug start; peak_lr 5e-4 kept. The pretrained encoder reduces (not removes) the
-    # 100h overfit risk. See [[ctc100-overfit-diagnosis]].
-    return _run(
-        "ssl/ctc_ls100/finetune_bestrq_12x512_spm5k",
+    # the earlier specaug start. peak_lr 1e-4 (was 5e-4): the SSL-paper convention finetunes the encoder
+    # well below its pretrain peak (here 1e-3) -- ratio ~0.1 vs the old 0.5. Two-rate (BEST-RQ-style): the
+    # fresh CTC heads run at HEAD_LR_MULT x that (3e-4) while the pretrained encoder stays at 1e-4. The
+    # pretrained encoder reduces (not removes) the 100h overfit risk. See [[ctc100-overfit-diagnosis]].
+    train_job, wers = _run(
+        prefix,
         train_splits=ds.TRAIN_CLEAN_100,
-        peak_lr=5e-4,
-        num_epochs=100,
+        peak_lr=1e-4,
+        num_epochs=num_epochs,
         dropout=0.15,
         specaug_start_step=2000,
+        head_lr_multiplier=HEAD_LR_MULT,
         preload=preload,
     )
+    if pretrain_prefix is not None:
+        # mirror the finetune WER table under the pretraining prefix -> its summary.md is the downstream WER
+        register_wer_summary(pretrain_prefix, wers, num_epochs)
+    return train_job
