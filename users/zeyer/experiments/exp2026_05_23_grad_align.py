@@ -4304,6 +4304,23 @@ def py():
     # for the alignopts-dtw ablation's grad rows (does true-DTW help grad like it does cross-attn?).
     _xa_align(_xa_whc, _xa_whc_name, "en0.5-truedtw", energy=0.5, true_dtw=True, _twin=False)
     _xa_align(_xa_whc, _xa_whc_name, "en0.0-truedtw", energy=0.0, true_dtw=True, _twin=False)
+    # DTW with word-topology: the Aligner's calibrated DTW (dtw=True; allows the vertical/up step)
+    # over the word-topology augmented sequence (blank only between words) -- contrasts the mono-DP
+    # "ours (full)" (no vertical step) and true-DTW (no blank states at all).
+    _dtwwt_al = WordAlignFromPerTokenGradsJob(
+        grad_score_hdf=_xa_whc.out_hdf,
+        grad_score_key="data",
+        dataset_dir=_xa_dir,
+        dataset_key="test",
+        dataset_offset_factors=_xa_off,
+        align_opts={**_xa_ao, "dtw": True},
+        audio_energy_pow=0.5,
+        blank_silence_energy_scale=1.0,
+        word_topology=True,
+    )
+    _dtwwt_nm = f"align/{_xa_whc_name}-asotTrue-bs-5-en0.5-sil1.0-dtwword"
+    _dtwwt_al.add_alias(_dtwwt_nm)
+    reg(f"{_dtwwt_nm}-wbe.txt", _dtwwt_al.out_wbe)
     # space-as-silence (CrisperWhisper-style): align the separator tokens as the silence anchors
     # (no DP blank); word boundaries from char rows only. CrisperWhisper (standalone space IS trained
     # -> should work) vs whisper-base (untrained -> contrast). Buckeye-segA.
@@ -5518,11 +5535,14 @@ def py():
             ]
             _bw_topos = [(False, ""), (True, "-wordtopo")]
         else:
+            # const / energy / zsk, in BOTH topologies (ctc + word), for every align -- so any table
+            # can use the "good" word-topology + zsk (grad) / const (attn) setting consistently.
             _bw_variants = [
                 ("asotTrue-bs-5-en0.5", _bw_ao, {"blank_silence_energy_scale": 0.0}),
+                ("asotTrue-bs-5-en0.5-sil1.0", _bw_ao, {"blank_silence_energy_scale": 1.0}),
                 ("asotTrue-bs-5-en0.5-zsk1.0", _bw_ao, {"blank_grad_zscore_kappa": 1.0}),
             ]
-            _bw_topos = [(False, "")]
+            _bw_topos = [(False, ""), (True, "-wordtopo")]
         for _bw_tail, _bw_ao2, _bw_blank in _bw_variants:
             for _bw_topo, _bw_tsfx in _bw_topos:
                 _bw_nm = f"{_bw_stem}-{_bw_tail}{_bw_tsfx}"
