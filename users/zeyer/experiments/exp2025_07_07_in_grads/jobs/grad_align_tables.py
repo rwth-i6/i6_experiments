@@ -457,11 +457,15 @@ def _alignopts_silence_table():
     # Blank-scoring schemes (ctc topology), across SIGNALS:
     # grad (3 models) + cross-attn (Whisper) + self-attn (Voxtral).
     # Energy token-weighting held at en0.5; only the blank score varies,
-    # so this isolates const vs energy-silence vs z-score per signal. (col key, prefix)
+    # so this isolates const vs energy-silence vs z-score per signal.
+    # (col key, full align-name stem incl. reduction + extract variant).
+    # wav2vec2 + whisper use their L2 -abl- extract; voxtral uses its L1 headline extract
+    # (L1 is the better reduction for the coarse speech-LLM grid -> matches the per-model table,
+    # not the uniform-L2 ablation), so every "voxtral" number agrees across tables.
     GRAD = [
-        ("wav2vec2", "wav2vec2ctc-fproj_out-prefixfwd"),
-        ("whisper", "whisper-large-v3-logmel-charlev-spc"),
-        ("voxtral", "voxtral-charlevlogmel"),
+        ("wav2vec2", f"wav2vec2ctc-fproj_out-prefixfwd-abl-{S}-L2_grad-pertoken"),
+        ("whisper", f"whisper-large-v3-logmel-charlev-spc-abl-{S}-L2_grad-pertoken"),
+        ("voxtral", f"voxtral-charlevlogmel-{S}-L1_grad-pertoken"),
     ]
     ATTN = [
         ("wh_a", "baseline-whisper-large-v3-crossattn-auto"),
@@ -479,8 +483,8 @@ def _alignopts_silence_table():
     rows = []
     for typ, opts, sfx in SCHEMES:
         cells = {"type": typ, "opts": opts}
-        for k, mpre in GRAD:
-            cells[k] = _wbe(f"align/{mpre}-abl-{S}-L2_grad-pertoken-asotTrue-bs-5-{sfx}")
+        for k, stem in GRAD:
+            cells[k] = _wbe(f"align/{stem}-asotTrue-bs-5-{sfx}")
         for k, mpre in ATTN:
             cells[k] = _wbe(f"align/{mpre}-{S}-asotTrue-bs-5-{sfx}")
         rows.append({"cells": cells})
@@ -648,8 +652,25 @@ def _compare_table(with_hyp=False):
                 ),
                 (
                     "Cross-att.",
-                    f"baseline-whisper-large-v3-crossattn-{S}",
-                    f"baseline-whisper-large-v3-crossattn-{T}",
+                    f"align/baseline-whisper-large-v3-crossattn-auto-{S}-asotTrue-bs-5-en0.5-sil1.0",
+                    f"align/baseline-whisper-large-v3-crossattn-auto-{T}-asotTrue-bs-5-en0.5-sil1.0",
+                ),
+            ],
+        ),
+        (
+            "CrisperWhisper",
+            [
+                (
+                    "Gradients",
+                    *g(
+                        f"crisperwhisper-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
+                        f"crisperwhisper-logmel-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil1.0",
+                    ),
+                ),
+                (
+                    "Cross-att.",
+                    f"align/baseline-crisperwhisper-crossattn-auto-{S}-asotTrue-bs-5-en0.5-sil1.0",
+                    f"align/baseline-crisperwhisper-crossattn-auto-{T}-asotTrue-bs-5-en0.5-sil1.0",
                 ),
             ],
         ),
@@ -846,6 +867,7 @@ def _compare_table(with_hyp=False):
         _M_FC_CTC: "CTC",
         "Whisper-base": "AED",
         "Whisper-large-v3": "AED",
+        "CrisperWhisper": "AED",
         "Parakeet": "Transd.",
         "Parakeet TDT": "Transd.",
         _M_EMFORMER: "Transd.",
