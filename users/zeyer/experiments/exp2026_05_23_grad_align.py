@@ -5472,36 +5472,76 @@ def py():
         )
         reg(f"{_tsf_name}-wbe.txt", _tsf_m.out_wbe)
 
-    # Generic blank-scheme twins: for every plain en0.5-sil1.0 grad/attn align, also produce the
-    # const (en0.5) and z-score (en0.5-zsk1.0) variants, so any table can pick const for attention /
-    # zsk for grad with no per-block wiring. Cheap re-aligns; skips names a block already produced.
+    # Generic blank-scheme twins (+ sensitivity sweep), from each plain en0.5-sil1.0 grad/attn align.
+    # Every align gets const (en0.5) and z-score (en0.5-zsk1.0) twins, so any table can pick const for
+    # attention / zsk for grad without per-block wiring. The alignopts-silence models ADDITIONALLY get a
+    # hyperparameter sweep (gamma / s / kappa around the defaults), so the table shows the metric degrade
+    # away from the chosen values. Cheap re-aligns; skips names a block already produced.
+    _SIL_SWEEP_STEMS = {
+        f"align/{_st}"
+        for _st in [
+            "wav2vec2ctc-fproj_out-prefixfwd-abl-buckeye-segA-5h-L2_grad-pertoken",
+            "whisper-large-v3-logmel-charlev-spc-abl-buckeye-segA-5h-L2_grad-pertoken",
+            "owls-1B-180K-charlev-logmel-buckeye-segA-5h-L2_grad-pertoken",
+            "voxtral-charlevlogmel-buckeye-segA-5h-L1_grad-pertoken",
+            "canary-qwen-charlev-spc-logmel-st15-abl-buckeye-segA-5h-L1_grad-pertoken",
+            "phi4mm-charlev-spc-abl-buckeye-segA-5h-L2_e_grad-pertoken",
+            "baseline-whisper-large-v3-crossattn-auto-buckeye-segA-5h",
+            "baseline-owls-1B-180K-crossattn-auto-buckeye-segA-5h",
+            "baseline-voxtral-char-selfattn-buckeye-segA-5h",
+            "baseline-canary-qwen-char-selfattn-buckeye-segA-5h",
+            "baseline-phi4mm-char-selfattn-buckeye-segA-5h",
+        ]
+    }
+    _BW_TAIL = "-asotTrue-bs-5-en0.5-sil1.0-wbe.txt"
     for _bw_name in list(_table_results):
-        if not _bw_name.endswith("-asotTrue-bs-5-en0.5-sil1.0-wbe.txt"):
+        if not _bw_name.endswith(_BW_TAIL):
             continue
         _bw_job = getattr(_table_results[_bw_name], "creator", None)
         if not isinstance(_bw_job, WordAlignFromPerTokenGradsJob):
             continue
-        _bw_base = _bw_name[: -len("-en0.5-sil1.0-wbe.txt")]
-        for _bw_sfx, _bw_blank in [
-            ("en0.5", {"blank_silence_energy_scale": 0.0}),
-            ("en0.5-zsk1.0", {"blank_grad_zscore_kappa": 1.0}),
-        ]:
-            _bw_nm = f"{_bw_base}-{_bw_sfx}"
-            if f"{_bw_nm}-wbe.txt" in _table_results:
-                continue
-            _bw_al = WordAlignFromPerTokenGradsJob(
-                returnn_root=_bw_job.returnn_root,
-                grad_score_hdf=_bw_job.grad_score_hdf,
-                grad_score_key=_bw_job.grad_score_key,
-                dataset_dir=_bw_job.dataset_dir,
-                dataset_key=_bw_job.dataset_key,
-                dataset_offset_factors=_bw_job.dataset_offset_factors,
-                align_opts=_bw_job.align_opts,
-                audio_energy_pow=_bw_job.audio_energy_pow,
-                **_bw_blank,
-            )
-            _bw_al.add_alias(_bw_nm)
-            reg(f"{_bw_nm}-wbe.txt", _bw_al.out_wbe)
+        _bw_stem = _bw_name[: -len(_BW_TAIL)]  # "align/<model-stem>"
+        _bw_ao = _bw_job.align_opts
+        # (name tail, align_opts, blank kwargs). Non-silence aligns get just the const+zsk twins (ctc);
+        # the alignopts-silence models get the full gamma/s/kappa sweep in BOTH topologies (ctc + word).
+        if _bw_stem in _SIL_SWEEP_STEMS:
+            _bw_variants = [
+                ("asotTrue-bs-3-en0.5", {**_bw_ao, "blank_score": -3}, {"blank_silence_energy_scale": 0.0}),
+                ("asotTrue-bs-5-en0.5", _bw_ao, {"blank_silence_energy_scale": 0.0}),
+                ("asotTrue-bs-8-en0.5", {**_bw_ao, "blank_score": -8}, {"blank_silence_energy_scale": 0.0}),
+                ("asotTrue-bs-5-en0.5-sil0.5", _bw_ao, {"blank_silence_energy_scale": 0.5}),
+                ("asotTrue-bs-5-en0.5-sil1.0", _bw_ao, {"blank_silence_energy_scale": 1.0}),
+                ("asotTrue-bs-5-en0.5-sil2.0", _bw_ao, {"blank_silence_energy_scale": 2.0}),
+                ("asotTrue-bs-5-en0.5-zsk0.5", _bw_ao, {"blank_grad_zscore_kappa": 0.5}),
+                ("asotTrue-bs-5-en0.5-zsk1.0", _bw_ao, {"blank_grad_zscore_kappa": 1.0}),
+                ("asotTrue-bs-5-en0.5-zsk2.0", _bw_ao, {"blank_grad_zscore_kappa": 2.0}),
+            ]
+            _bw_topos = [(False, ""), (True, "-wordtopo")]
+        else:
+            _bw_variants = [
+                ("asotTrue-bs-5-en0.5", _bw_ao, {"blank_silence_energy_scale": 0.0}),
+                ("asotTrue-bs-5-en0.5-zsk1.0", _bw_ao, {"blank_grad_zscore_kappa": 1.0}),
+            ]
+            _bw_topos = [(False, "")]
+        for _bw_tail, _bw_ao2, _bw_blank in _bw_variants:
+            for _bw_topo, _bw_tsfx in _bw_topos:
+                _bw_nm = f"{_bw_stem}-{_bw_tail}{_bw_tsfx}"
+                if f"{_bw_nm}-wbe.txt" in _table_results:
+                    continue
+                _bw_al = WordAlignFromPerTokenGradsJob(
+                    returnn_root=_bw_job.returnn_root,
+                    grad_score_hdf=_bw_job.grad_score_hdf,
+                    grad_score_key=_bw_job.grad_score_key,
+                    dataset_dir=_bw_job.dataset_dir,
+                    dataset_key=_bw_job.dataset_key,
+                    dataset_offset_factors=_bw_job.dataset_offset_factors,
+                    align_opts=_bw_ao2,
+                    audio_energy_pow=_bw_job.audio_energy_pow,
+                    word_topology=_bw_topo,
+                    **_bw_blank,
+                )
+                _bw_al.add_alias(_bw_nm)
+                reg(f"{_bw_nm}-wbe.txt", _bw_al.out_wbe)
 
     # --- Auto-generated LaTeX result tables (in-graph; reference only this recipe's outputs) ---
     from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.grad_align_tables import (

@@ -502,21 +502,30 @@ def _alignopts_silence_table():
         ("cn_a", "baseline-canary-qwen-char-selfattn"),
         ("ph_a", "baseline-phi4mm-char-selfattn"),
     ]
+    # Blank-scoring schemes swept around the defaults (gamma / s / kappa), so the metric is seen to
+    # degrade away from the chosen values; each shown for BOTH the CTC and the word-topology DP.
     SCHEMES = [
-        ("constant", "$\\gamma = -5$", "en0.5"),
-        ("energy", "$s = 1$", "en0.5-sil1.0"),
-        ("energy", "$s = 2$", "en0.5-sil2.0"),
-        ("z-score", "$\\kappa = 1$", "en0.5-zsk1.0"),
+        ("constant", "$\\gamma = -3$", "asotTrue-bs-3-en0.5"),
+        ("constant", "$\\gamma = -5$", "asotTrue-bs-5-en0.5"),
+        ("constant", "$\\gamma = -8$", "asotTrue-bs-8-en0.5"),
+        ("energy", "$s = 0.5$", "asotTrue-bs-5-en0.5-sil0.5"),
+        ("energy", "$s = 1$", "asotTrue-bs-5-en0.5-sil1.0"),
+        ("energy", "$s = 2$", "asotTrue-bs-5-en0.5-sil2.0"),
+        ("z-score", "$\\kappa = 0.5$", "asotTrue-bs-5-en0.5-zsk0.5"),
+        ("z-score", "$\\kappa = 1$", "asotTrue-bs-5-en0.5-zsk1.0"),
+        ("z-score", "$\\kappa = 2$", "asotTrue-bs-5-en0.5-zsk2.0"),
     ]
-    columns = ["type", "opts"] + [k for k, _ in GRAD] + [k for k, _ in ATTN]
+    TOPOS = [("ctc", ""), ("word", "-wordtopo")]
+    columns = ["topo", "type", "opts"] + [k for k, _ in GRAD] + [k for k, _ in ATTN]
     rows = []
-    for typ, opts, sfx in SCHEMES:
-        cells = {"type": typ, "opts": opts}
-        for k, stem in GRAD:
-            cells[k] = _wbe(f"align/{stem}-asotTrue-bs-5-{sfx}")
-        for k, mpre in ATTN:
-            cells[k] = _wbe(f"align/{mpre}-{S}-asotTrue-bs-5-{sfx}")
-        rows.append({"cells": cells})
+    for _topo_lbl, _topo_sfx in TOPOS:
+        for typ, opts, tail in SCHEMES:
+            cells = {"topo": _topo_lbl, "type": typ, "opts": opts}
+            for k, stem in GRAD:
+                cells[k] = _wbe(f"align/{stem}-{tail}{_topo_sfx}")
+            for k, mpre in ATTN:
+                cells[k] = _wbe(f"align/{mpre}-{S}-{tail}{_topo_sfx}")
+            rows.append({"cells": cells})
     _emit("alignopts-silence", columns, rows)
 
 
@@ -534,7 +543,7 @@ def _alignopts_dtw_table():
     # the faithful row reproduces find_alignment exactly, verified). Grad rows (whisper-char, Buckeye-segA)
     # from the production grad aligner -- does true-DTW help grad as it does cross-attn?
     # mono: checkmark = our monotonic DP (no vertical step); cross = whisper DTW (vertical allowed).
-    # silence: none / ctc (word topology collapses to ctc when blank is on; to none when off).
+    # silence: word (ours full: blank only between words) / none (DTW has no blank states).
     # (label, src=(kind,key), heads, z-norm, median-filter, log, mono, silence, energy)
     ck, cx, na = "\\checkmark", "$\\times$", "--"
     WH, OU, B1 = "Whisper", "ours", "1-best"
@@ -546,11 +555,11 @@ def _alignopts_dtw_table():
         (R + "no z-norm $+$ log", ("xa", "noznorm_log"), WH, cx, ck, ck, cx, "none", cx),
         (R + "our heads", ("xa", "ourheads"), OU, ck, ck, cx, cx, "none", cx),
         (R + "single best head", ("xa", "best1head"), B1, ck, ck, cx, cx, "none", cx),
-        ("Cross-attn: ours (full)", ("xa", "ours_full"), OU, cx, cx, ck, ck, "ctc", ck),
+        ("Cross-attn: ours (full)", ("xa", "ours_full"), OU, cx, cx, ck, ck, "word", ck),
         (R + "DTW DP", ("xa", "ours_dtw"), OU, cx, cx, ck, cx, "none", ck),
         (R + "DTW DP, no energy", ("xa", "ours_dtw_noen"), OU, cx, cx, ck, cx, "none", cx),
         (R + "no silence", ("xa", "ours_none"), OU, cx, cx, ck, ck, "none", ck),
-        ("Grad: ours (full)", ("grad", "en0.5-sil1.0"), na, na, na, ck, ck, "ctc", ck),
+        ("Grad: ours (full)", ("grad", "en0.5-sil1.0-wordtopo"), na, na, na, ck, ck, "word", ck),
         (R + "DTW DP", ("grad", "en0.5-truedtw"), na, na, na, ck, cx, "none", ck),
         (R + "DTW DP, no energy", ("grad", "en0.0-truedtw"), na, na, na, ck, cx, "none", cx),
     ]
