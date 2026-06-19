@@ -5316,10 +5316,11 @@ def py():
         )
 
     def _ps_sa_cfg(model, prompt):
-        # self-attn needs eager attention (output_attentions); same char target + spliced instruction.
+        # self-attn needs eager attention (output_attentions); subword targets (optimal for attn,
+        # matching the per-model self-att rows), spliced instruction.
         if model == "phi4mm":
             return _phi4mm_model_config(
-                dl_phi4mi_dir, attn_implementation="eager", char_level=True, char_level_sep=" ", speech_prompt=prompt
+                dl_phi4mi_dir, attn_implementation="eager", speech_prompt=prompt
             )
         if model == "voxtral":
             return rf.build_dict(
@@ -5327,8 +5328,6 @@ def py():
                 model_dir=dl_voxtral,
                 forward_mode="transcription",
                 attn_implementation="eager",
-                char_level=True,
-                char_level_sep=" ",
                 version=7,
                 speech_prompt=prompt,
             )
@@ -5505,9 +5504,9 @@ def py():
             "phi4mm-charlev-spc-abl-buckeye-segA-5h-L2_e_grad-pertoken",
             "baseline-whisper-large-v3-crossattn-auto-buckeye-segA-5h",
             "baseline-owls-1B-180K-crossattn-auto-buckeye-segA-5h",
-            "baseline-voxtral-char-selfattn-buckeye-segA-5h",
-            "baseline-canary-qwen-char-selfattn-buckeye-segA-5h",
-            "baseline-phi4mm-char-selfattn-buckeye-segA-5h",
+            "baseline-voxtral-selfattn-buckeye-segA-5h",
+            "baseline-canary-qwen-selfattn-buckeye-segA-5h",
+            "baseline-phi4mm-selfattn-buckeye-segA-5h",
         ]
     }
     _BW_TAIL = "-asotTrue-bs-5-en0.5-sil1.0-wbe.txt"

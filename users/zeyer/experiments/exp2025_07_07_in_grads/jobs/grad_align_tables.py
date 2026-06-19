@@ -510,9 +510,9 @@ def _alignopts_silence_table():
     ATTN = [
         ("wh_a", "baseline-whisper-large-v3-crossattn-auto"),
         ("owls_a", "baseline-owls-1B-180K-crossattn-auto"),
-        ("vx_a", "baseline-voxtral-char-selfattn"),
-        ("cn_a", "baseline-canary-qwen-char-selfattn"),
-        ("ph_a", "baseline-phi4mm-char-selfattn"),
+        ("vx_a", "baseline-voxtral-selfattn"),
+        ("cn_a", "baseline-canary-qwen-selfattn"),
+        ("ph_a", "baseline-phi4mm-selfattn"),
     ]
     # Blank-scoring schemes swept around the defaults (gamma / s / kappa), so the metric is seen to
     # degrade away from the chosen values; each shown for BOTH the CTC and the word-topology DP.
