@@ -291,6 +291,10 @@ def _time_stretch_table():
                 if model == "Voxtral" and float(ts) >= 2.0:
                     cells[k] = "too long"
                     continue
+                # Wav2Vec2 at >=2x: 2-3x longer audio over the full set exceeds the 24h walltime.
+                if model == "Wav2Vec2" and float(ts) >= 2.0:
+                    cells[k] = "too slow"
+                    continue
                 cells[k] = _wbe(basefn(ts, msfx))
             rows.append({"cells": cells})
     _emit("time-stretch", columns, rows)
@@ -454,9 +458,9 @@ def _ablation_table():
     MODELS = [
         ("CTC", "Wav2Vec2", "wav2vec2ctc-fproj_out-prefixfwd"),
         ("CTC", "Parakeet CTC", "parakeet-ctc-1.1b-prefixfwd"),
-        ("AED", "Whisper-base", "whisper-base-logmel-charlev-spc"),
         ("Transd.", "Parakeet", "parakeet-rnnt-1.1b-logmel"),
         ("Transd.", _M_EMFORMER, "emformer-rnnt-prefix-logmel"),
+        ("AED", "Whisper-base", "whisper-base-logmel-charlev-spc"),
         ("Sp. LLM", "Voxtral", "voxtral-charlevlogmel"),
         ("Sp. LLM", "Phi-4-MM", "phi4mm-charlev-spc"),
         ("Sp. LLM", "Canary-Qwen", "canary-qwen-charlev-spc-logmel-st15"),
@@ -540,13 +544,13 @@ def _abc_table():
     # per-model table: each model shows its gradient align and its own native aligner (CTC forced-align =
     # "Posteriors", Whisper = "Cross-att."); typed by architecture; MFA = GMM-HMM reference ("Likelihoods").
     ROWS = [
+        ("GMM-HMM", "MFA", "Likelihoods", "baseline-mfa-buckeye-{seg}-5h", False),
         ("CTC", "Wav2Vec2", "Gradients", "wav2vec2ctc-fproj_out-prefixfwd-buckeye-{seg}-5h-L2_grad-pertoken", True),
         ("CTC", "Wav2Vec2", "Posteriors", "baseline-mms_fa-buckeye-{seg}-5h", False),
         ("CTC", "Parakeet CTC", "Gradients", "parakeet-ctc-1.1b-prefixfwd-buckeye-{seg}-5h-L2_grad-pertoken", True),
+        ("Transd.", "Parakeet RNN-T", "Gradients", "parakeet-rnnt-1.1b-logmel-buckeye-{seg}-5h-L2_grad-pertoken", True),
         ("AED", "Whisper-base", "Gradients", "whisper-base-logmel-buckeye-{seg}-5h-L2_grad-pertoken-charlev-spc", True),
         ("AED", "Whisper-base", "Cross-att.", "baseline-whisper-crossattn-buckeye-{seg}-5h", False),
-        ("Transd.", "Parakeet RNN-T", "Gradients", "parakeet-rnnt-1.1b-logmel-buckeye-{seg}-5h-L2_grad-pertoken", True),
-        ("GMM-HMM", "MFA", "Likelihoods", "baseline-mfa-buckeye-{seg}-5h", False),
     ]
     columns = ["type", "model", "method"] + SEGS
     rows = []
@@ -1024,12 +1028,12 @@ def _compare_table(with_hyp=False):
         "Phi-4-MM": "Sp. LLM",
         "Canary-Qwen": "Sp. LLM",
     }
-    TYPE_ORDER = ["CTC", "AED", "Transd.", "Sp. LLM"]
+    TYPE_ORDER = ["CTC", "Transd.", "AED", "Sp. LLM"]
     by_type = {t: [] for t in TYPE_ORDER}
     for model, methods in MODELS:
         by_type[TYPE[model]].append((model, methods))
-    blocks = [(t, by_type[t]) for t in TYPE_ORDER]
-    blocks.append(("GMM-HMM", REFERENCE))  # MFA dedicated-aligner reference (GMM-HMM), its own block
+    # Family order: GMM-HMM reference first, then CTC, Transducer, AED, Speech LLM.
+    blocks = [("GMM-HMM", REFERENCE)] + [(t, by_type[t]) for t in TYPE_ORDER]
 
     columns = ["type", "model", "method", "t_wbe", "t_a50", "s_wbe", "s_a50"]
     if with_hyp:
@@ -1090,6 +1094,8 @@ def _hyp_table():
     # aligns its OWN recognition; gradient rows plus the model's native aligner (Whisper cross-attn DTW,
     # CrisperWhisper official timestamps). Grouped by architecture, double rule between families.
     ROWS = [
+        ("Transd.", "Parakeet RNN-T", "Gradients", f"parakeet-rnnt-1.1b-logmel-{S}-grad"),
+        ("Transd.", "Parakeet TDT", "Gradients", f"parakeet-tdt-0.6b-v2-logmel-{S}-grad"),
         ("AED", "Whisper-base", "Gradients", f"whisper-base-charlev-{S}-grad"),
         ("AED", "Whisper-base", "Cross-att.", f"whisper-crossattn-{S}"),
         ("AED", "Whisper-large-v3", "Gradients", f"whisper-large-v3-charlev-{S}-grad"),
@@ -1097,8 +1103,6 @@ def _hyp_table():
         ("Sp. LLM", "Voxtral", "Gradients", f"voxtral-charlevlogmel-{S}-grad"),
         ("Sp. LLM", "Phi-4-MM", "Gradients", f"phi4mm-charlev-spc-{S}-grad"),
         ("Sp. LLM", "Canary-Qwen", "Gradients", f"canary-qwen-charlev-spc-logmel-st15-{S}-grad"),
-        ("Transd.", "Parakeet RNN-T", "Gradients", f"parakeet-rnnt-1.1b-logmel-{S}-grad"),
-        ("Transd.", "Parakeet TDT", "Gradients", f"parakeet-tdt-0.6b-v2-logmel-{S}-grad"),
     ]
     columns = ["type", "model", "method", "mwbe", "f50", "f100", "f200", "rm"]
     rows = []

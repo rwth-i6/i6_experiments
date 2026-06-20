@@ -5543,39 +5543,42 @@ def py():
         _tst = f"ts{_tsf}"
         for _tsm, _tsm_sfx in [("vocoder", ""), ("resample", "-resample")]:
             _ts_mkw = {} if _tsm == "vocoder" else {"time_stretch_method": "resample"}
-            # wav2vec2-CTC grad (fine grid): robustness rows.
-            _tsw_cfg = rf.build_dict(
-                Wav2Vec2Ctc,
-                grad_wrt="feat_proj_out",
-                per_token_score="prefix_fwd",
-                audio_time_stretch=_tsf,
-                **_ts_mkw,
-            )
-            _tsw_ex = ExtractInGradsPerTokenJob(
-                dataset_dir=_xa_dir,
-                dataset_key="test",
-                model_config=_tsw_cfg,
-                mult_grad_by_inputs=False,
-                attr_reduction="L2",
-                batched_backward=True,
-            )
-            _tsw_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-            _tsw_name = f"wav2vec2ctc-fproj_out-prefixfwd-{_xa_tag}-L2_grad-pertoken-{_tst}{_tsm_sfx}"
-            _tsw_ex.add_alias(_tsw_name)
-            reg(f"{_tsw_name}.hdf", _tsw_ex.out_hdf)
-            _tsw_al = WordAlignFromPerTokenGradsJob(
-                grad_score_hdf=_tsw_ex.out_hdf,
-                grad_score_key="data",
-                dataset_dir=_xa_dir,
-                dataset_key="test",
-                dataset_offset_factors=_xa_off,
-                align_opts=_xa_ao,
-                audio_energy_pow=0.5,
-                blank_silence_energy_scale=1.0,
-            )
-            _tsw_nm = f"align/{_tsw_name}-{_name_for_dict(_xa_ao)}-en0.5-sil1.0"
-            _tsw_al.add_alias(_tsw_nm)
-            reg(f"{_tsw_nm}-wbe.txt", _tsw_al.out_wbe)
+            # wav2vec2-CTC grad (fine grid): robustness rows. Capped at <2.0x: at 2.0/3.0 the audio is
+            # 2-3x longer, so the extract over the full 2234-seq segA set exceeds the 24h walltime (table
+            # marks those cells "too slow"). The fine-grid degradation is already clear by 1.5x.
+            if _tsf < 2.0:
+                _tsw_cfg = rf.build_dict(
+                    Wav2Vec2Ctc,
+                    grad_wrt="feat_proj_out",
+                    per_token_score="prefix_fwd",
+                    audio_time_stretch=_tsf,
+                    **_ts_mkw,
+                )
+                _tsw_ex = ExtractInGradsPerTokenJob(
+                    dataset_dir=_xa_dir,
+                    dataset_key="test",
+                    model_config=_tsw_cfg,
+                    mult_grad_by_inputs=False,
+                    attr_reduction="L2",
+                    batched_backward=True,
+                )
+                _tsw_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+                _tsw_name = f"wav2vec2ctc-fproj_out-prefixfwd-{_xa_tag}-L2_grad-pertoken-{_tst}{_tsm_sfx}"
+                _tsw_ex.add_alias(_tsw_name)
+                reg(f"{_tsw_name}.hdf", _tsw_ex.out_hdf)
+                _tsw_al = WordAlignFromPerTokenGradsJob(
+                    grad_score_hdf=_tsw_ex.out_hdf,
+                    grad_score_key="data",
+                    dataset_dir=_xa_dir,
+                    dataset_key="test",
+                    dataset_offset_factors=_xa_off,
+                    align_opts=_xa_ao,
+                    audio_energy_pow=0.5,
+                    blank_silence_energy_scale=1.0,
+                )
+                _tsw_nm = f"align/{_tsw_name}-{_name_for_dict(_xa_ao)}-en0.5-sil1.0"
+                _tsw_al.add_alias(_tsw_nm)
+                reg(f"{_tsw_nm}-wbe.txt", _tsw_al.out_wbe)
             # Voxtral grad on the COARSE projected-speech-embedding grid (the upsampling-sensitive surface).
             # Voxtral's Whisper encoder caps at 30 s: an 18 s segment x >=2 stretch exceeds it,
             # splitting into 2 encoder chunks (the single-chunk grad extract asserts),
