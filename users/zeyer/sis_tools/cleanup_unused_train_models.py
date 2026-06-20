@@ -146,6 +146,13 @@ def main():
     print("Num active train jobs:", len(active_train_job_paths_dict))
 
     print("Now checking all train jobs in work dir to find unused train jobs...")
+    own_work_realpath = os.path.realpath("work") + "/"
+    print("Building alias->job reverse map from the alias/ dir (to find aliases missing from info files)...")
+    alias_reverse_map = _build_alias_reverse_map()  # realpath(train job dir) -> [alias paths]
+    print("  found train aliases for", len(alias_reverse_map), "distinct job dirs.")
+    # 'Unused' jobs whose real storage is in ANOTHER setup (imported symlink, e.g. the shared LM):
+    # listed for transparency but NEVER collected for removal (deleting them corrupts the other setup).
+    imported_unused = []  # list of (alias-or-basename, fn, realpath)
     total_model_size_to_remove = 0
     total_train_job_count = 0
     train_job_with_models_to_remove = []
@@ -187,29 +194,48 @@ def main():
         if not os.path.isdir(model_dir):
             continue  # can happen when there was an early error, e.g. at file creation
 
-        aliases = job_aliases_from_info.get_job_aliases(fn)
-        if aliases:
-            # Some alias could have been used multiple times.
-            # Ignore those.
-            aliases = [a for a in aliases if a not in unused_train_jobs]
-        alias = None
-        if not aliases:
-            print("No aliases found for train job:", fn)
+        # Jobs that errored (error.run.N exists) and have no checkpoint at all
+        # have nothing to clean up -- skip them silently (no alias resolution, no listing).
+        if not any(m.endswith(".pt") for m in os.listdir(model_dir)) and any(
+            b.startswith("error.run.") for b in os.listdir(fn)
+        ):
+            continue
+
+        # Aliases recorded in this job's own info file (assigned when it was created).
+        info_aliases = job_aliases_from_info.get_job_aliases(fn)
+        # Aliases that CURRENTLY resolve to this exact dir; the alias/ dir is authoritative.
+        # An alias is missing from the info file if it was re-assigned later or by another config;
+        # conversely the info alias may now point at a newer hash -- see the stale re-hash case.
+        current_aliases = alias_reverse_map.get(realpath, [])
+        if current_aliases:
+            # This dir is the live target of its alias(es).
+            alias = current_aliases[0]
+        elif info_aliases:
+            # The alias in our info file now points at a different (newer) hash:
+            # this dir is a stale re-hash orphan of that training. Keep the alias for context.
+            # (Several stale re-hashes of one training all carry the same ALIAS line.)
+            alias = info_aliases[0]
+            print("Stale re-hash (alias now points to a newer job hash):", fn, "alias:", alias)
         else:
-            alias = aliases[0]
-            # alias_path = os.path.basename(os.readlink(alias))
-            # if alias_path != basename:
-            # Can happen, e.g. when cleared by Sisyphus due to error (cleared.0001 etc),
-            # or when I changed sth in the config due to some mistake.
-            # print("Warning: Alias path mismatch:", alias_path, "actual:", basename)
-            # But doesn't matter, clean up anyway, maybe even more so.
-            # pass
+            alias = None
+            print("No aliases found for train job:", fn)
+
+        # Jobs whose real storage lives in ANOTHER setup (imported symlink, e.g. the shared LM)
+        # must never be collected for removal -- deleting them corrupts the source setup.
+        # List them for transparency and move on.
+        if not realpath.startswith(own_work_realpath):
+            imported_unused.append((alias or basename, fn, realpath))
+            continue
 
         # First collect all, and then go through them in sorted order below.
         # We do this because here the listdir order is totally arbitrary
         # (due to FS, but sorting by hash also would not help),
         # and to inspect the output, it's much more helpful when this is sorted in some way.
-        unused_train_jobs[alias or basename] = fn
+        # Several stale re-hashes can share one alias, so disambiguate the dict key by basename.
+        key = alias or basename
+        if key in unused_train_jobs:
+            key = f"{key} [{basename}]"
+        unused_train_jobs[key] = fn
 
     print("Collecting model checkpoint files from unused train jobs to remove...")
     # Now go sorted.
@@ -313,6 +339,30 @@ def main():
         print("Dry-run mode, not removing. (use --mode remove to actually remove)")
     else:
         raise ValueError("invalid mode: %r" % args.mode)
+
+
+def _build_alias_reverse_map() -> dict:
+    """
+    Scan the ``alias/`` dir for symlinks pointing at ReturnnTrainingJob dirs,
+    and build a map ``realpath(job dir) -> [alias paths]``.
+
+    The ``info`` file of a job only lists the alias(es) assigned by the config that created it;
+    aliases assigned later, or by a different config, are missing there.
+    The ``alias/`` dir is the authoritative source for which job an alias currently points at.
+    """
+    reverse_map = {}
+    if not os.path.isdir("alias"):
+        return reverse_map
+    for root, dirs, files in os.walk("alias", followlinks=False):
+        for name in dirs + files:
+            path = os.path.join(root, name)
+            if not os.path.islink(path):
+                continue
+            target = os.path.realpath(path)
+            if "/ReturnnTrainingJob." not in target:
+                continue
+            reverse_map.setdefault(target, []).append(path)
+    return reverse_map
 
 
 def _rel_job_path(job_path: str) -> str:
