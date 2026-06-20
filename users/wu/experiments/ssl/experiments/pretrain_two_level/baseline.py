@@ -125,6 +125,24 @@ def frame_kmeans_codebook(*, base_checkpoint, num_clusters: int, split=ds.TRAIN_
     )
 
 
+def two_level_assets(
+    *,
+    target_rate_hz: float = RATE_80MS,
+    num_clusters: int = 128,
+    base_epoch: int = 100,
+    kmeans_split=ds.TRAIN_CLEAN_100,
+):
+    """The deduped ``(model_config, codebook)`` for one two-level arm -- the SINGLE source of truth shared
+    by the pretraining job AND any downstream probe (e.g. ``analysis/seg_diag``), so their hashed net_args
+    match exactly and Sisyphus reuses the same codebook job instead of rebuilding it."""
+    model_config = build_model_config(target_rate_hz=target_rate_hz, num_clusters=num_clusters)
+    base_ckpt = bestrq_ls960_base().out_checkpoints[base_epoch]
+    # frozen FRAME-LEVEL target codebook from the same frozen lower stack -- ONE codebook for both rate
+    # arms (it does not depend on target_rate_hz). Shared by job-hash dedup.
+    codebook = frame_kmeans_codebook(base_checkpoint=base_ckpt, num_clusters=num_clusters, split=kmeans_split)
+    return model_config, codebook
+
+
 def two_level_pretrain(
     prefix: str,
     *,
@@ -142,14 +160,12 @@ def two_level_pretrain(
     2. offline frozen k-means codebook over fixed-window-pooled layer-9 features (the target);
     3. two-level SSL training: encoder preloaded + frozen, train CIF + high encoder + head.
     """
-    model_config = build_model_config(target_rate_hz=target_rate_hz, num_clusters=num_clusters)
-
-    base_job = bestrq_ls960_base()
-    base_ckpt = base_job.out_checkpoints[base_epoch]
-
-    # (2) frozen FRAME-LEVEL target codebook from the same frozen lower stack -- ONE codebook for both
-    # rate arms (it does not depend on target_rate_hz). Shared by job-hash dedup.
-    codebook = frame_kmeans_codebook(base_checkpoint=base_ckpt, num_clusters=num_clusters, split=kmeans_split)
+    # (1)+(2) model config + frozen FRAME-LEVEL target codebook via the shared asset helper, so any
+    # downstream probe (analysis/seg_diag) reconstructs byte-identical hashed args -> same codebook job.
+    model_config, codebook = two_level_assets(
+        target_rate_hz=target_rate_hz, num_clusters=num_clusters, base_epoch=base_epoch, kmeans_split=kmeans_split
+    )
+    base_ckpt = bestrq_ls960_base().out_checkpoints[base_epoch]  # frozen lower-stack preload source
 
     # (3) two-level training. Preload ONLY the shared frozen lower stack (encoder + feature_extraction +
     # global-norm buffers) from the BEST-RQ ckpt; CIF/high-encoder/head/codebook are fresh. ignore_missing
