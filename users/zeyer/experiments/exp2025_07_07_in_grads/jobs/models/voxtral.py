@@ -74,6 +74,7 @@ class Voxtral(BaseModelInterface):
         transcription_model_id: str = "mistralai/Voxtral-Mini-3B-2507",
         grad_wrt: str = "speech_embeddings",
         audio_time_stretch: float = 1.0,
+        time_stretch_method: str = "vocoder",
         ensure_audio_long_enough: bool = False,
         char_level: bool = False,
         char_level_sep: Optional[str] = None,
@@ -110,6 +111,10 @@ class Voxtral(BaseModelInterface):
         self.grad_wrt = grad_wrt
         self.audio_time_stretch = float(audio_time_stretch)
         assert self.audio_time_stretch > 0, audio_time_stretch
+        # "vocoder" = librosa.effects.time_stretch (pitch-preserving phase vocoder, has artifacts);
+        # "resample" = resample to sr*s samples fed as sr (pitch-shifted but a clean interpolation).
+        assert time_stretch_method in ("vocoder", "resample"), time_stretch_method
+        self.time_stretch_method = time_stretch_method
         self.ensure_audio_long_enough = bool(ensure_audio_long_enough)
         self._char_level = bool(char_level)
         self._char_level_sep = char_level_sep
@@ -243,8 +248,8 @@ class Voxtral(BaseModelInterface):
         # replaced tensors on CPU.
         dst_text_start = int(inputs_user["input_ids"].shape[1])
         if transcription_ids is not None:
-            # char-level: each char already its own token id (bypasses the BPE merger), mirroring the
-            # transcription-mode path -- so chat mode supports char-level alignment too.
+            # char-level: each char already its own token id (bypasses the BPE merger),
+            # mirroring the transcription-mode path -- so chat mode supports char-level alignment too.
             transc_ids = transcription_ids
         else:
             transc_text = transcription if transcription.startswith(" ") else " " + transcription
@@ -500,14 +505,22 @@ class Voxtral(BaseModelInterface):
                         flush=True,
                     )
         if effective_stretch != 1.0:
-            import librosa
+            if self.time_stretch_method == "resample":
+                # Resample to sr*s samples and feed them as sr: slows the audio by s (pitch drops),
+                # but is a clean interpolation -- no phase-vocoder smearing.
+                import torchaudio
 
-            audio_np = raw_inputs[0].detach().cpu().numpy().astype(np.float32)
-            stretched = librosa.effects.time_stretch(audio_np, rate=1.0 / effective_stretch)
-            raw_inputs = torch.tensor(stretched, dtype=raw_inputs.dtype).unsqueeze(0)
+                new_sr = int(round(raw_inputs_sample_rate * effective_stretch))
+                raw_inputs = torchaudio.functional.resample(raw_inputs, raw_inputs_sample_rate, new_sr)
+            else:
+                import librosa
+
+                audio_np = raw_inputs[0].detach().cpu().numpy().astype(np.float32)
+                stretched = librosa.effects.time_stretch(audio_np, rate=1.0 / effective_stretch)
+                raw_inputs = torch.tensor(stretched, dtype=raw_inputs.dtype).unsqueeze(0)
             raw_input_seq_lens = torch.tensor([raw_inputs.shape[1]], dtype=raw_input_seq_lens.dtype)
             print(
-                f"[fwd] audio_time_stretch={effective_stretch:.3f}: "
+                f"[fwd] audio_time_stretch={effective_stretch:.3f} ({self.time_stretch_method}): "
                 f"orig_samples={orig_n_samples} stretched_samples={raw_inputs.shape[1]}",
                 flush=True,
             )

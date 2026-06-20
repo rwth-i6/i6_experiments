@@ -213,8 +213,14 @@ def _streaming_offset_table():
     }
 
     columns = ["type", "model", "method", "t_start", "t_end", "s_start", "s_end"]
+    # Group by architecture: all CTC first, then all transducers (double rule between the two families).
+    _TYPE_ORDER = {"CTC": 0, "Transd.": 1}
     rows = []
-    for model, methods in MODELS:
+    prev_type = None
+    for model, methods in sorted(MODELS, key=lambda m: _TYPE_ORDER[STYPE[m[0]]]):
+        if prev_type is not None and STYPE[model] != prev_type:
+            rows.append({"hline2": True})
+        prev_type = STYPE[model]
         for mlabel, sa, ti in methods:
             rows.append(
                 {
@@ -251,20 +257,41 @@ def _time_stretch_table():
         ("2.0", "f20"),
         ("3.0", "f30"),
     ]
-    # (model label, base-name builder from the factor string).
+    # Type | Model | Align method | grid (mirrors the per-model table).
+    # The grid is the effective alignment resolution (encoder/audio-token rate),
+    # NOT the fine log-mel leaf -- the fine-vs-coarse axis behind the opposite-sign behaviour.
+    # Each model x {vocoder, resample} stretch method.
     MODELS = [
-        ("Wav2Vec2 (grad, fine)", lambda ts: f"align/wav2vec2ctc-fproj_out-prefixfwd-{S}-L2_grad-pertoken-ts{ts}-{AO}"),
-        ("Voxtral (grad, coarse)", lambda ts: f"align/voxtral-charlevlogmel-{S}-L2_grad-pertoken-ts{ts}-{AO}"),
-        ("MMS-FA (forced)", lambda ts: f"baseline-mms_fa-{S}-ts{ts}"),
+        (
+            "CTC",
+            "Wav2Vec2",
+            "Grad (fine)",
+            "50",
+            lambda ts, m: f"align/wav2vec2ctc-fproj_out-prefixfwd-{S}-L2_grad-pertoken-ts{ts}{m}-{AO}",
+        ),
+        (
+            "Sp. LLM",
+            "Voxtral",
+            "Grad (coarse)",
+            "12.5",
+            lambda ts, m: f"align/voxtral-charlevlogmel-{S}-L2_grad-pertoken-ts{ts}{m}-{AO}",
+        ),
+        ("CTC", "MMS-FA", "Forced", "50", lambda ts, m: f"baseline-mms_fa-{S}-ts{ts}{m}"),
     ]
-    columns = [k for _, k in FACTORS]
-    rows = [
-        {
-            "label": mlabel,
-            "cells": {k: _wbe(basefn(ts)) for ts, k in FACTORS},
-        }
-        for mlabel, basefn in MODELS
-    ]
+    STRETCH = [("vocoder", ""), ("resample", "-resample")]
+    columns = ["type", "model", "method", "fps", "stretch"] + [k for _, k in FACTORS]
+    rows = []
+    for typ, model, meth, fps, basefn in MODELS:
+        for slabel, msfx in STRETCH:
+            cells = {"type": typ, "model": model, "method": meth, "fps": fps, "stretch": slabel}
+            for ts, k in FACTORS:
+                # Voxtral's 30s encoder window caps usable stretch: >=2x on an 18s segment exceeds it
+                # (would split into 2 encoder chunks) -> mark the cell rather than leaving it blank.
+                if model == "Voxtral" and float(ts) >= 2.0:
+                    cells[k] = "too long"
+                    continue
+                cells[k] = _wbe(basefn(ts, msfx))
+            rows.append({"cells": cells})
     _emit("time-stretch", columns, rows)
 
 
@@ -293,7 +320,7 @@ def _word_length_table():
             ],
         ),
         (
-            "Phoneme",
+            "XLS-R (Phoneme)",
             [
                 (
                     "Gradients",
@@ -303,7 +330,7 @@ def _word_length_table():
             ],
         ),
         (
-            "Nvidia",
+            "Parakeet CTC",
             [
                 (
                     "Gradients",
@@ -334,18 +361,27 @@ def _word_length_table():
         ),
     ]
 
-    columns = ["method", "wbe", "start", "end", "width"]
+    # Type | Model | Align method (mirrors the per-model table); double rule between the CTC and AED families.
+    WTYPE = {
+        "Wav2Vec2": "CTC",
+        "XLS-R (Phoneme)": "CTC",
+        "Parakeet CTC": "CTC",
+        "OWSM": "CTC",
+        "Whisper-base": "AED",
+    }
+    columns = ["type", "model", "method", "wbe", "start", "end", "width"]
     rows = []
-    for gi, (model, methods) in enumerate(MODELS):
-        if gi > 0:
-            rows.append({"label": None, "cells": {}})
-        for mi, (mlabel, base) in enumerate(methods):
-            if mi > 0:
-                rows.append({"cline": True})
+    prev_type = None
+    for model, methods in MODELS:
+        if prev_type is not None and WTYPE[model] != prev_type:
+            rows.append({"hline2": True})
+        prev_type = WTYPE[model]
+        for mlabel, base in methods:
             rows.append(
                 {
-                    "label": model if mi == 0 else "",
                     "cells": {
+                        "type": WTYPE[model],
+                        "model": model,
                         "method": mlabel,
                         "wbe": _metric(base, "wbe"),
                         "start": _metric(base, "start_signed_mean"),
@@ -415,7 +451,7 @@ def _ablation_table():
     SFX = "asotTrue-bs-5-en0.5-sil1.0-wordtopo"
     MODELS = [
         ("CTC", "Wav2Vec2", "wav2vec2ctc-fproj_out-prefixfwd"),
-        ("CTC", "Nvidia", "parakeet-ctc-1.1b-prefixfwd"),
+        ("CTC", "Parakeet CTC", "parakeet-ctc-1.1b-prefixfwd"),
         ("AED", "Whisper-base", "whisper-base-logmel-charlev-spc"),
         ("Transd.", "Parakeet", "parakeet-rnnt-1.1b-logmel"),
         ("Transd.", _M_EMFORMER, "emformer-rnnt-prefix-logmel"),
@@ -498,8 +534,9 @@ def _alignopts_silence_table():
     # Energy token-weighting held at en0.5; only the blank score varies,
     # so this isolates const vs energy-silence vs z-score per signal.
     # (col key, full align-name stem incl. reduction + extract variant).
-    # All models use their L2 headline extract (uniform reduction across every table); each speech-LLM
-    # reuses the same non-abl base extract as the per-model table, so every number agrees across tables.
+    # All models use their L2 headline extract (uniform reduction across every table);
+    # each speech-LLM reuses the same non-abl base extract as the per-model table,
+    # so every number agrees across tables.
     GRAD = [
         ("wav2vec2", f"wav2vec2ctc-fproj_out-prefixfwd-abl-{S}-L2_grad-pertoken"),
         ("whisper", f"whisper-large-v3-logmel-charlev-spc-abl-{S}-L2_grad-pertoken"),
@@ -516,7 +553,7 @@ def _alignopts_silence_table():
         ("ph_a", "baseline-phi4mm-selfattn"),
     ]
     # Blank-scoring schemes swept around the defaults (gamma / s / kappa), so the metric is seen to
-    # degrade away from the chosen values; each shown for BOTH the CTC and the word-topology DP.
+    # degrade away from the chosen values; shown on the word-topology DP (our production setting).
     SCHEMES = [
         ("constant", "$\\gamma = -3$", "asotTrue-bs-3-en0.5"),
         ("constant", "$\\gamma = -5$", "asotTrue-bs-5-en0.5"),
@@ -529,17 +566,16 @@ def _alignopts_silence_table():
         ("z-score", "$\\kappa = 1$", "asotTrue-bs-5-en0.5-zsk1.0"),
         ("z-score", "$\\kappa = 2$", "asotTrue-bs-5-en0.5-zsk2.0"),
     ]
-    TOPOS = [("ctc", ""), ("word", "-wordtopo")]
-    columns = ["topo", "type", "opts"] + [k for k, _ in GRAD] + [k for k, _ in ATTN]
+    # Word-topology only (blank only between words, our production DP); the CTC-topology variant is dropped.
+    columns = ["type", "opts"] + [k for k, _ in GRAD] + [k for k, _ in ATTN]
     rows = []
-    for _topo_lbl, _topo_sfx in TOPOS:
-        for typ, opts, tail in SCHEMES:
-            cells = {"topo": _topo_lbl, "type": typ, "opts": opts}
-            for k, stem in GRAD:
-                cells[k] = _wbe(f"align/{stem}-{tail}{_topo_sfx}")
-            for k, mpre in ATTN:
-                cells[k] = _wbe(f"align/{mpre}-{S}-{tail}{_topo_sfx}")
-            rows.append({"cells": cells})
+    for typ, opts, tail in SCHEMES:
+        cells = {"type": typ, "opts": opts}
+        for k, stem in GRAD:
+            cells[k] = _wbe(f"align/{stem}-{tail}-wordtopo")
+        for k, mpre in ATTN:
+            cells[k] = _wbe(f"align/{mpre}-{S}-{tail}-wordtopo")
+        rows.append({"cells": cells})
     _emit("alignopts-silence", columns, rows)
 
 
@@ -629,7 +665,7 @@ def _compare_table(with_hyp=False):
             ],
         ),
         (
-            "Phoneme",
+            "XLS-R (Phoneme)",
             [
                 (
                     "Gradients",
@@ -646,7 +682,7 @@ def _compare_table(with_hyp=False):
             ],
         ),
         (
-            "Nvidia",
+            "Parakeet CTC",
             [
                 (
                     "Gradients",
@@ -895,7 +931,7 @@ def _compare_table(with_hyp=False):
         "Parakeet": f"parakeet-rnnt-1.1b-logmel-{S}-grad",
         "Parakeet TDT": f"parakeet-tdt-0.6b-v2-logmel-{S}-grad",
         "Whisper-large-v3": f"whisper-large-v3-charlev-{S}-grad",
-        "Nvidia": f"parakeet-ctc-1.1b-{S}-grad",
+        "Parakeet CTC": f"parakeet-ctc-1.1b-{S}-grad",
         "OWSM": f"owsm-ctc-v4-1b-{S}-grad",
         _M_FC_CTC: f"fastconformer-stream-ctc-{S}-grad",
         _M_FC_RNNT: f"fastconformer-stream-rnnt-{S}-grad",
@@ -904,7 +940,7 @@ def _compare_table(with_hyp=False):
     # Models with no word-level own-recognition -> hyp-mode is structurally n/a (not "unrun"):
     # MMS_FA (Wav2Vec2) + Phoneme emit no word boundaries;
     # MFA is a forced-aligner, not a recognizer.
-    HYP_NA = {"Wav2Vec2", "Phoneme", "MFA"}
+    HYP_NA = {"Wav2Vec2", "XLS-R (Phoneme)", "MFA"}
 
     # Native aligner in hyp-mode (own recognition), shown on the model's ALTERNATIVE row:
     # cross-attn (whisper), self-attn (LLMs), native viterbi (transducers), CTC forced-align (CTCs).
@@ -920,7 +956,7 @@ def _compare_table(with_hyp=False):
         "Parakeet TDT": f"parakeet-tdt-0.6b-v2-logmel-{S}-native",
         _M_EMFORMER: f"emformer-rnnt-prefix-logmel-{S}-native",
         _M_FC_RNNT: f"fastconformer-stream-rnnt-{S}-native",
-        "Nvidia": f"parakeet-ctc-1.1b-{S}-native",
+        "Parakeet CTC": f"parakeet-ctc-1.1b-{S}-native",
         "OWSM": f"owsm-ctc-v4-1b-{S}-native",
         _M_FC_CTC: f"fastconformer-stream-ctc-{S}-native",
     }
@@ -929,8 +965,8 @@ def _compare_table(with_hyp=False):
     # per family; Model is the second column, shown once per model; double rule between families.
     TYPE = {
         "Wav2Vec2": "CTC",
-        "Phoneme": "CTC",
-        "Nvidia": "CTC",
+        "XLS-R (Phoneme)": "CTC",
+        "Parakeet CTC": "CTC",
         "OWSM": "CTC",
         _M_FC_CTC: "CTC",
         "Whisper-base": "AED",
@@ -1041,8 +1077,9 @@ def _owsm_layer_table():
         return "" if layer == 27 else f"lyr{layer}-"
 
     def gbase(layer, ds):  # grad-align output base
-        # layer 27 (final emission) reuses the per-model headline prefix_fwd extract, so the final-layer
-        # row equals the per-model OWSM number exactly; the inter-CTC blocks use their own prefix_fwd configs.
+        # layer 27 (final emission) reuses the per-model headline prefix_fwd extract,
+        # so the final-layer row equals the per-model OWSM number exactly;
+        # the inter-CTC blocks use their own prefix_fwd configs.
         if layer == 27:
             return f"align/owsm-ctc-v4-1b-prefixfwd-{ds}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo"
         return f"align/owsm-ctc-v4-1b-lyr{layer}-{ds}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo"
@@ -1102,8 +1139,8 @@ def _prompt_splice_table():
             cells[f"{mk}_a"] = _wbe(f"align/baseline-{mk}-promptsplice-{tag}-selfattn-{S}-{AO_ATTN}")
         rows.append({"label": label, "cells": cells})
     # Official ASR prompt per model (Phi-4: its default instruction; Canary: "Transcribe the following:";
-    # Voxtral: native transcription request, which has no free-text prompt slot). The text is
-    # model-specific, so there is no single instruction length for this row.
+    # Voxtral: native transcription request, which has no free-text prompt slot).
+    # The text is model-specific, so there is no single instruction length for this row.
     off_cells = {"len": None}
     for mk, _ in MODELS:
         off_cells[f"{mk}_g"] = _wbe(f"align/{mk}-promptsplice-official-char-{S}-grad-pertoken-{AO_GRAD}")
