@@ -272,34 +272,47 @@ def py():
 
     downsampling = 6
 
+    # Early geometry sweep (v1 ChunkedConformerEncoder, pre-v2.3); commented out below to free disk.
+    # Results kept here. CTC-only dev/test | CTC+LM dev/test:
+    #   history @ C20-R15: L0 10.81/11.64 | 7.65/8.48; L20 8.14/8.89 | 6.50/7.28; L40 8.10/8.60 | 6.48/7.07;
+    #     L60 7.99/8.58 | 6.38/7.09; L80 7.94/8.56 | 6.35/7.05; L160 7.91/8.49 | 6.46/7.05 (plateaus ~L40-80).
+    #   chunk/lookahead @ L40: C5-R30 8.08/8.71 | 6.52/7.24; C10-R25 8.05/8.77 | 6.55/7.25;
+    #     C10-R30 8.03/8.67 | 6.54/7.26; C20-R20 7.95/8.43 | 6.43/6.99; C40-R0 8.64/9.27 | 6.73/7.44;
+    #     C40-R15 7.77/8.40 | 6.33/7.07.
+    #   C40-R0 history: L40 8.64, L80 8.65, L120 8.62 (history barely helps at C40-R0).
+    #   other: L80-C10-R8 8.68/9.28 | 6.65/7.38; L80-C2-R3 12.59/13.05 | 9.95/10.41 (tiny chunk bad);
+    #     L80-C5-R4 (v1 baseline) 9.56/10.30 | 7.21/7.90.
+    #   KEPT live: L100-C100-R15 7.36/8.08 | 6.15/6.90 (near-offline reference).
+    # Also retired: plain overlap-mse (v2.3-overlap-mse) 9.27/10.08 | 7.06/7.96.
+
     for left_n, center_size, right_size, bs in [
         # fixing left chunk size to 80, trying smaller chunk sizes
-        (4, 20, 15, 50_000),
-        (8, 10, 8, 50_000),
-        (16, 5, 4, 50_000),
-        (40, 2, 3, 25_000),
+        #     (4, 20, 15, 50_000),
+        #     (8, 10, 8, 50_000),
+        #     (16, 5, 4, 50_000),
+        #     (40, 2, 3, 25_000),
         # fixing total chunk size to 35, fixing left ctx to 40, varying center/right
-        (8, 5, 30, 20_000),
-        (4, 10, 25, 25_000),
-        (2, 20, 15, 50_000),
+        #     (8, 5, 30, 20_000),
+        #     (4, 10, 25, 25_000),
+        #     (2, 20, 15, 50_000),
         # fixing total chunk size to 40, fixing left ctx to 40, varying center/right
-        (4, 10, 30, 25_000),
-        (2, 20, 20, 50_000),
-        (1, 40, 0, 75_000),
+        #     (4, 10, 30, 25_000),
+        #     (2, 20, 20, 50_000),
+        #     (1, 40, 0, 75_000),
         # fixing total chunk size to 40, fixing right ctx to 0, varying left
-        (1, 40, 0, 75_000),
-        (2, 40, 0, 75_000),
-        (3, 40, 0, 50_000),
+        #     (1, 40, 0, 75_000),
+        #     (2, 40, 0, 75_000),
+        #     (3, 40, 0, 50_000),
         # fixing total chunk size to 35, fixing right ctx to 15, varying left
-        (0, 20, 15, 50_000),
-        (1, 20, 15, 50_000),
-        (2, 20, 15, 50_000),
-        (3, 20, 15, 50_000),
-        (4, 20, 15, 50_000),
-        (8, 20, 15, 50_000),
+        #     (0, 20, 15, 50_000),
+        #     (1, 20, 15, 50_000),
+        #     (2, 20, 15, 50_000),
+        #     (3, 20, 15, 50_000),
+        #     (4, 20, 15, 50_000),
+        #     (8, 20, 15, 50_000),
         # fixing right chunk size to 15, fixing left N to 1, varying center
-        (1, 20, 15, 50_000),
-        (1, 40, 15, 50_000),
+        #     (1, 20, 15, 50_000),
+        #     (1, 40, 15, 50_000),
         (1, 100, 15, 50_000),
         # (1, 1000, 15, (10_000, 10)),  # ~8h/subepoch... will take a month to train  - broken?
         # (1, 5000, 15, (50_000, 1)),  # ~104h/subepoch..., not reasonable...
@@ -324,107 +337,110 @@ def py():
             },
         )
 
-    # Vocabs:
-    for vocab in ["spm1k", "spm5k", "spm10k"]:
-        # CTC-only:
-        # spm1k: 10.66
-        # spm5k: 9.52
-        # spm10k: 9.56
-        left_n, center_size, right_size, bs = (16, 5, 4, 50_000)
-        max_seqs = 200
-        train(
-            f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-{vocab}",
-            {
-                "vocab": vocab,
-                "model.enc_build_dict": rf.build_dict(
-                    ChunkedConformerEncoder,
-                    encoder_layer=rf.build_dict(ChunkedConformerEncoderLayer),
-                    chunk_stride=center_size * downsampling,
-                    chunk_history=left_n,
-                    input_chunk_size_dim=(center_size + right_size) * downsampling,
-                    end_chunk_size_dim=center_size,
-                ),
-                "train.batch_size": bs * configs._batch_size_factor,
-                "train.max_seqs": max_seqs,
-            },
-        )
-
-    # V2.1 (bugged): ChunkedConformerEncoderV2, more flexible, more optimized chunking
-    # epoch train time (recipe/i6_experiments/users/zeyer/returnn/tools/check_train_times.py) mean:
-    #   3738.79 (v1: 7728.30)
-    # CTC-only: 11.74 (v1: 9.56)
-    left_n, center_size, right_size, bs = (16, 5, 4, 50_000)
-
-    # V2.2 (bugged): using ChunkedConformerEncoderV2, setting version=2:
-    #   reduce chunk sizes, history, if the input is not long enough.
-    # epoch train time mean: 3726.87
-    # CTC-only: 11.67 (v1: 9.56)
-
-    # Note: version=1 and version=2 used a wrong chunking implementation. Fixed for version>=3.
-
-    # V2.3: using ChunkedConformerEncoderV2, setting version=3.
-    # First exp, try to reproduce the orig.
-    # train_time_hours: 168.9 (v1: 215.6)
-    # CTC-only: 9.45 (v1: 9.56)
-    train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-compat",
-        {
-            "model.enc_build_dict": rf.build_dict(
-                ChunkedConformerEncoderV2,
-                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
-                chunk_size=center_size,
-                chunk_history_size=left_n * center_size,
-                chunk_lookahead_size=right_size,
-                version=3,
-                adapt_chunk_history_for_short_seqs=False,  # compat with V1
-            ),
-            "train.batch_size": bs * configs._batch_size_factor,
-            "train.max_seqs": max_seqs,
-        },
-    )
-
-    # V2.3: using ChunkedConformerEncoderV2, setting version=3.
-    #   reduce chunk sizes, history, if the input is not long enough (adapt_chunk_history_for_short_seqs=True default)
-    # train_time_hours: 168.8 (v1: 215.6; adapt_chunk_history_...=False: 168.9; offline: 66.2)
-    # CTC-only: 9.46 (v1: 9.56; adapt_chunk_history_...=False: 9.45; offline: 7.32)
-    # CTC+LM: 7.22 (offline: 6.12)
-    train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3",
-        {
-            "model.enc_build_dict": rf.build_dict(
-                ChunkedConformerEncoderV2,
-                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
-                chunk_size=center_size,
-                chunk_history_size=left_n * center_size,
-                chunk_lookahead_size=right_size,
-                version=3,
-            ),
-            "train.batch_size": bs * configs._batch_size_factor,
-            "train.max_seqs": max_seqs,
-        },
-    )
+    # Retired (disk cleanup): vocab-size sweep; spm10k chosen. Numbers below.
+    # # Vocabs:
+    # for vocab in ["spm1k", "spm5k", "spm10k"]:
+    #     # CTC-only:
+    #     # spm1k: 10.66
+    #     # spm5k: 9.52
+    #     # spm10k: 9.56
+    #     left_n, center_size, right_size, bs = (16, 5, 4, 50_000)
+    #     max_seqs = 200
+    #     train(
+    #         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-{vocab}",
+    #         {
+    #             "vocab": vocab,
+    #             "model.enc_build_dict": rf.build_dict(
+    #                 ChunkedConformerEncoder,
+    #                 encoder_layer=rf.build_dict(ChunkedConformerEncoderLayer),
+    #                 chunk_stride=center_size * downsampling,
+    #                 chunk_history=left_n,
+    #                 input_chunk_size_dim=(center_size + right_size) * downsampling,
+    #                 end_chunk_size_dim=center_size,
+    #             ),
+    #             "train.batch_size": bs * configs._batch_size_factor,
+    #             "train.max_seqs": max_seqs,
+    #         },
+    #     )
+    #
+    # # V2.1 (bugged): ChunkedConformerEncoderV2, more flexible, more optimized chunking
+    # # epoch train time (recipe/i6_experiments/users/zeyer/returnn/tools/check_train_times.py) mean:
+    # #   3738.79 (v1: 7728.30)
+    # # CTC-only: 11.74 (v1: 9.56)
+    # left_n, center_size, right_size, bs = (16, 5, 4, 50_000)
+    #
+    # # V2.2 (bugged): using ChunkedConformerEncoderV2, setting version=2:
+    # #   reduce chunk sizes, history, if the input is not long enough.
+    # # epoch train time mean: 3726.87
+    # # CTC-only: 11.67 (v1: 9.56)
+    #
+    # # Note: version=1 and version=2 used a wrong chunking implementation. Fixed for version>=3.
+    #
+    # # V2.3: using ChunkedConformerEncoderV2, setting version=3.
+    # # First exp, try to reproduce the orig.
+    # # train_time_hours: 168.9 (v1: 215.6)
+    # # CTC-only: 9.45 (v1: 9.56)
+    # # Retired (disk cleanup): V1-compat debug variant; numbers above.
+    # # train(
+    # #     f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-compat",
+    # #     {
+    # #         "model.enc_build_dict": rf.build_dict(
+    # #             ChunkedConformerEncoderV2,
+    # #             encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
+    # #             chunk_size=center_size,
+    # #             chunk_history_size=left_n * center_size,
+    # #             chunk_lookahead_size=right_size,
+    # #             version=3,
+    # #             adapt_chunk_history_for_short_seqs=False,  # compat with V1
+    # #         ),
+    # #         "train.batch_size": bs * configs._batch_size_factor,
+    # #         "train.max_seqs": max_seqs,
+    # #     },
+    # # )
+    #
+    # # V2.3: using ChunkedConformerEncoderV2, setting version=3.
+    # #   reduce chunk sizes, history, if the input is not long enough (adapt_chunk_history_for_short_seqs=True default)
+    # # train_time_hours: 168.8 (v1: 215.6; adapt_chunk_history_...=False: 168.9; offline: 66.2)
+    # # CTC-only: 9.46 (v1: 9.56; adapt_chunk_history_...=False: 9.45; offline: 7.32)
+    # # CTC+LM: 7.22 (offline: 6.12)
+    # train(
+    #     f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3",
+    #     {
+    #         "model.enc_build_dict": rf.build_dict(
+    #             ChunkedConformerEncoderV2,
+    #             encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
+    #             chunk_size=center_size,
+    #             chunk_history_size=left_n * center_size,
+    #             chunk_lookahead_size=right_size,
+    #             version=3,
+    #         ),
+    #         "train.batch_size": bs * configs._batch_size_factor,
+    #         "train.max_seqs": max_seqs,
+    #     },
+    # )
 
     # Try grad checkpointing (mem_chunks_grad_checkpointing=True).
     # (In terms of WER, should really be the same.
     # if in terms of speed this is better, and same for memory consumption, we could maybe just always enable it.)
     # train_time_hours: 201.1 (v1: 215.6; ..._checkpointing=False: 168.8) (but requires less memory)
     # CTC-only: 9.52 (..._checkpointing=False: 9.46)
-    train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-gdckpt",
-        {
-            "model.enc_build_dict": rf.build_dict(
-                ChunkedConformerEncoderV2,
-                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
-                chunk_size=center_size,
-                chunk_history_size=left_n * center_size,
-                chunk_lookahead_size=right_size,
-                version=3,
-                mem_chunks_grad_checkpointing=True,
-            ),
-            "train.batch_size": bs * configs._batch_size_factor,
-            "train.max_seqs": max_seqs,
-        },
-    )
+    # Retired (disk cleanup): grad-ckpt debug variant; numbers above.
+    # train(
+    #     f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-gdckpt",
+    #     {
+    #         "model.enc_build_dict": rf.build_dict(
+    #             ChunkedConformerEncoderV2,
+    #             encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
+    #             chunk_size=center_size,
+    #             chunk_history_size=left_n * center_size,
+    #             chunk_lookahead_size=right_size,
+    #             version=3,
+    #             mem_chunks_grad_checkpointing=True,
+    #         ),
+    #         "train.batch_size": bs * configs._batch_size_factor,
+    #         "train.max_seqs": max_seqs,
+    #     },
+    # )
 
     # Rope instead of relpos selfatt (ChunkedRotaryPosSelfAttentionV2).
     # (We don't expect really improvements in terms of WER. Hopefully mostly the same.
@@ -527,47 +543,49 @@ def py():
     # But also varying the lookahead.
     # train_time_hours: 103.9 (vs 168.8)
     # CTC-only: 9.66 (vs 9.46)
-    train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn",
-        {
-            "model.enc_build_dict": rf.build_dict(
-                ChunkedConformerEncoderV2,
-                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
-                chunk_size=center_size,
-                chunk_history_size=left_n * center_size,
-                chunk_lookahead_size=right_size,
-                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
-                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
-                chunk_lookahead_size_train_pool=[right_size, right_size // 2],
-                version=3,
-            ),
-            "train.batch_size": bs * configs._batch_size_factor,
-            "train.max_seqs": max_seqs,
-        },
-    )
+    # Retired (disk cleanup): dyn-pool ablation; in pool table.
+    # train(
+    #     f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn",
+    #     {
+    #         "model.enc_build_dict": rf.build_dict(
+    #             ChunkedConformerEncoderV2,
+    #             encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
+    #             chunk_size=center_size,
+    #             chunk_history_size=left_n * center_size,
+    #             chunk_lookahead_size=right_size,
+    #             chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+    #             chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+    #             chunk_lookahead_size_train_pool=[right_size, right_size // 2],
+    #             version=3,
+    #         ),
+    #         "train.batch_size": bs * configs._batch_size_factor,
+    #         "train.max_seqs": max_seqs,
+    #     },
+    # )
 
     # Dynamic chunking + rope.
     # train_time_hours: 128.4 (without rope: 103.9; not dynamic, without rope: 168.8) (slow apply_rope, see run2)
     # CTC-only: 9.55 (without rope: 9.66; not dynamic, without rope: 9.46)
-    train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope",
-        {
-            "model.enc_build_dict": rf.build_dict(
-                ChunkedConformerEncoderV2,
-                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
-                chunk_size=center_size,
-                chunk_history_size=left_n * center_size,
-                chunk_lookahead_size=right_size,
-                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
-                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
-                chunk_lookahead_size_train_pool=[right_size, right_size // 2],
-                version=3,
-            ),
-            "train.batch_size": bs * configs._batch_size_factor,
-            "train.max_seqs": max_seqs,
-            "lm_recog_extra.__serialization_version_stats": 2,
-        },
-    )
+    # Retired (disk cleanup): dyn-pool ablation; in pool table.
+    # train(
+    #     f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope",
+    #     {
+    #         "model.enc_build_dict": rf.build_dict(
+    #             ChunkedConformerEncoderV2,
+    #             encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
+    #             chunk_size=center_size,
+    #             chunk_history_size=left_n * center_size,
+    #             chunk_lookahead_size=right_size,
+    #             chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+    #             chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+    #             chunk_lookahead_size_train_pool=[right_size, right_size // 2],
+    #             version=3,
+    #         ),
+    #         "train.batch_size": bs * configs._batch_size_factor,
+    #         "train.max_seqs": max_seqs,
+    #         "lm_recog_extra.__serialization_version_stats": 2,
+    #     },
+    # )
 
     # Chunk-type embed (ctembed) (use_chunk_type_embedding=True)
     # Using with dynamic chunking + rope as base.
@@ -795,27 +813,28 @@ def py():
     # there RoPE is actually not really cheaper.
     # CTC-only: 9.52 (original dyn-rope-ctembed run: 9.41; diff is run-to-run + RETURNN-version variance).
     # train_time_hours: faster with rope: 107.3 (with rope (old): 128.4, without rope: 103.9; not dynamic, without rope: 168.8)
-    train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-run2",
-        {
-            "model.enc_build_dict": rf.build_dict(
-                ChunkedConformerEncoderV2,
-                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
-                chunk_size=center_size,
-                chunk_history_size=left_n * center_size,
-                chunk_lookahead_size=right_size,
-                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
-                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
-                chunk_lookahead_size_train_pool=[right_size, right_size // 2],
-                use_chunk_type_embedding=True,
-                version=3,
-            ),
-            "train.batch_size": bs * configs._batch_size_factor,
-            "train.max_seqs": max_seqs,
-            "train._run_version": 2,  # trigger hash change to run again with new RETURNN
-            "lm_recog_extra.__serialization_version_stats": 2,
-        },
-    )
+    # Retired (disk cleanup): RETURNN-timing dup of dyn-rope-ctembed; numbers above.
+    # train(
+    #     f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-run2",
+    #     {
+    #         "model.enc_build_dict": rf.build_dict(
+    #             ChunkedConformerEncoderV2,
+    #             encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
+    #             chunk_size=center_size,
+    #             chunk_history_size=left_n * center_size,
+    #             chunk_lookahead_size=right_size,
+    #             chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+    #             chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+    #             chunk_lookahead_size_train_pool=[right_size, right_size // 2],
+    #             use_chunk_type_embedding=True,
+    #             version=3,
+    #         ),
+    #         "train.batch_size": bs * configs._batch_size_factor,
+    #         "train.max_seqs": max_seqs,
+    #         "train._run_version": 2,  # trigger hash change to run again with new RETURNN
+    #         "lm_recog_extra.__serialization_version_stats": 2,
+    #     },
+    # )
 
     # Test relpos-self-att again.
     # CTC-only: 9.65 (rope variant dyn-rope-ctembed: 9.41).
@@ -868,78 +887,81 @@ def py():
     # Offline more often. Also sometimes without any overhead, sometimes without any history.
     # train_time_hours: 100.1 (vs 128.3)
     # CTC-only: 11.0 (vs 9.41) (but no overfitting, just bad) (see dynV3)
-    train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dynV2-rope-ctembed",
-        {
-            "model.enc_build_dict": rf.build_dict(
-                ChunkedConformerEncoderV2,
-                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
-                chunk_size=center_size,
-                chunk_history_size=left_n * center_size,
-                chunk_lookahead_size=right_size,
-                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8] + [None] * 4,
-                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2, 0],
-                chunk_lookahead_size_train_pool=[right_size, right_size // 2, 0],
-                use_chunk_type_embedding=True,
-                version=3,
-            ),
-            "train.batch_size": bs * configs._batch_size_factor,
-            "train.max_seqs": max_seqs,
-            "lm_recog_extra.__serialization_version_stats": 2,
-        },
-    )
+    # Retired (disk cleanup): dyn-pool ablation, worse; in pool table.
+    # train(
+    #     f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dynV2-rope-ctembed",
+    #     {
+    #         "model.enc_build_dict": rf.build_dict(
+    #             ChunkedConformerEncoderV2,
+    #             encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
+    #             chunk_size=center_size,
+    #             chunk_history_size=left_n * center_size,
+    #             chunk_lookahead_size=right_size,
+    #             chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8] + [None] * 4,
+    #             chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2, 0],
+    #             chunk_lookahead_size_train_pool=[right_size, right_size // 2, 0],
+    #             use_chunk_type_embedding=True,
+    #             version=3,
+    #         ),
+    #         "train.batch_size": bs * configs._batch_size_factor,
+    #         "train.max_seqs": max_seqs,
+    #         "lm_recog_extra.__serialization_version_stats": 2,
+    #     },
+    # )
     # Oversampling small center_size: see -v2.3-dynCx3-rope-ctembed below.
 
     # DynV3: Less often offline.
     # CTC-only: 10.49 (standard dyn dyn-rope-ctembed: 9.41; dynV2: 11.0).
     # Note: dynV3 without the 0 in history/lookahead train pool == the dyn-rope-ctembed baseline (9.41),
     # which beats dynV3 (10.49) -> the 0 hurt.
-    train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dynV3-rope-ctembed",
-        {
-            "model.enc_build_dict": rf.build_dict(
-                ChunkedConformerEncoderV2,
-                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
-                chunk_size=center_size,
-                chunk_history_size=left_n * center_size,
-                chunk_lookahead_size=right_size,
-                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
-                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2, 0],
-                chunk_lookahead_size_train_pool=[right_size, right_size // 2, 0],
-                use_chunk_type_embedding=True,
-                version=3,
-            ),
-            "train.batch_size": bs * configs._batch_size_factor,
-            "train.max_seqs": max_seqs,
-            "lm_recog_extra.__serialization_version_stats": 2,
-        },
-    )
+    # Retired (disk cleanup): dyn-pool ablation, worse; in pool table.
+    # train(
+    #     f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dynV3-rope-ctembed",
+    #     {
+    #         "model.enc_build_dict": rf.build_dict(
+    #             ChunkedConformerEncoderV2,
+    #             encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
+    #             chunk_size=center_size,
+    #             chunk_history_size=left_n * center_size,
+    #             chunk_lookahead_size=right_size,
+    #             chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+    #             chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2, 0],
+    #             chunk_lookahead_size_train_pool=[right_size, right_size // 2, 0],
+    #             use_chunk_type_embedding=True,
+    #             version=3,
+    #         ),
+    #         "train.batch_size": bs * configs._batch_size_factor,
+    #         "train.max_seqs": max_seqs,
+    #         "lm_recog_extra.__serialization_version_stats": 2,
+    #     },
+    # )
 
     # DynV4: like DynV3 but ALWAYS keep history (no 0 in the history train pool, as the baseline "dyn"),
     # while keeping 0 in the LOOKAHEAD train pool.
     # Motivation: history clearly helps WER (L0 24% vs L80 9.5%),
     # and the DynV3 ablation showed the 0-history option hurt (10.49 vs 9.41).
     # But we still want low latency, which the lookahead drives.
-    train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dynV4-rope-ctembed",
-        {
-            "model.enc_build_dict": rf.build_dict(
-                ChunkedConformerEncoderV2,
-                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
-                chunk_size=center_size,
-                chunk_history_size=left_n * center_size,
-                chunk_lookahead_size=right_size,
-                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
-                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
-                chunk_lookahead_size_train_pool=[right_size, right_size // 2, 0],
-                use_chunk_type_embedding=True,
-                version=3,
-            ),
-            "train.batch_size": bs * configs._batch_size_factor,
-            "train.max_seqs": max_seqs,
-            "lm_recog_extra.__serialization_version_stats": 2,
-        },
-    )
+    # Retired (disk cleanup): dyn-pool ablation, worse; in pool table.
+    # train(
+    #     f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dynV4-rope-ctembed",
+    #     {
+    #         "model.enc_build_dict": rf.build_dict(
+    #             ChunkedConformerEncoderV2,
+    #             encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
+    #             chunk_size=center_size,
+    #             chunk_history_size=left_n * center_size,
+    #             chunk_lookahead_size=right_size,
+    #             chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+    #             chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+    #             chunk_lookahead_size_train_pool=[right_size, right_size // 2, 0],
+    #             use_chunk_type_embedding=True,
+    #             version=3,
+    #         ),
+    #         "train.batch_size": bs * configs._batch_size_factor,
+    #         "train.max_seqs": max_seqs,
+    #         "lm_recog_extra.__serialization_version_stats": 2,
+    #     },
+    # )
 
     # Overlapping chunks (chunk_num_overlaps=2)
     # train_time_hours: 391.4 (vs 168.8) !! (overlaps require twice as much compute, but also smaller batch size)
@@ -947,140 +969,146 @@ def py():
     # CTC-only: 9.26 (vs 9.46)
     # Is overlap's gain just ~2x compute, and is lookahead needed?
     # See follow-ups -v2.3-2xtrain and -C5-R0-v2.3-overlap below.
-    train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-overlap",
-        {
-            "model.enc_build_dict": rf.build_dict(
-                ChunkedConformerEncoderV2,
-                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
-                chunk_size=center_size,
-                chunk_history_size=left_n * center_size,
-                chunk_lookahead_size=right_size,
-                chunk_num_overlaps=2,
-                version=3,
-            ),
-            "train.batch_size": bs * configs._batch_size_factor // 2,
-            "train.max_seqs": max_seqs,
-        },
-    )
+    # Retired (disk cleanup): overlap regresses; numbers above.
+    # train(
+    #     f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-overlap",
+    #     {
+    #         "model.enc_build_dict": rf.build_dict(
+    #             ChunkedConformerEncoderV2,
+    #             encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
+    #             chunk_size=center_size,
+    #             chunk_history_size=left_n * center_size,
+    #             chunk_lookahead_size=right_size,
+    #             chunk_num_overlaps=2,
+    #             version=3,
+    #         ),
+    #         "train.batch_size": bs * configs._batch_size_factor // 2,
+    #         "train.max_seqs": max_seqs,
+    #     },
+    # )
 
     # As v2.3-overlap, plus MSE loss between overlapping encoder views.
-    train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-overlap-mse",
-        {
-            "model.enc_build_dict": rf.build_dict(
-                ChunkedConformerEncoderV2,
-                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
-                chunk_size=center_size,
-                chunk_history_size=left_n * center_size,
-                chunk_lookahead_size=right_size,
-                chunk_num_overlaps=2,
-                overlap_mse_loss_scale=1.0,
-                version=3,
-            ),
-            "train.batch_size": bs * configs._batch_size_factor // 2,
-            "train.max_seqs": max_seqs,
-        },
-    )
+    # Retired (disk cleanup): overlap regresses; numbers above.
+    # train(
+    #     f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-overlap-mse",
+    #     {
+    #         "model.enc_build_dict": rf.build_dict(
+    #             ChunkedConformerEncoderV2,
+    #             encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
+    #             chunk_size=center_size,
+    #             chunk_history_size=left_n * center_size,
+    #             chunk_lookahead_size=right_size,
+    #             chunk_num_overlaps=2,
+    #             overlap_mse_loss_scale=1.0,
+    #             version=3,
+    #         ),
+    #         "train.batch_size": bs * configs._batch_size_factor // 2,
+    #         "train.max_seqs": max_seqs,
+    #     },
+    # )
 
     # Dyn + rope + ctembed + overlap.
     # CTC-only: 10.20 (top CTC head specifically degraded vs non-dyn overlap; see projects notes)
-    train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-overlap",
-        {
-            "model.enc_build_dict": rf.build_dict(
-                ChunkedConformerEncoderV2,
-                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
-                chunk_size=center_size,
-                chunk_history_size=left_n * center_size,
-                chunk_lookahead_size=right_size,
-                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
-                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
-                chunk_lookahead_size_train_pool=[right_size, right_size // 2],
-                chunk_num_overlaps=2,
-                use_chunk_type_embedding=True,
-                version=3,
-            ),
-            "train.batch_size": bs * configs._batch_size_factor // 2,
-            "train.max_seqs": max_seqs,
-            "lm_recog_extra.__serialization_version_stats": 2,
-        },
-    )
+    # Retired (disk cleanup): overlap regresses; numbers above.
+    # train(
+    #     f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-overlap",
+    #     {
+    #         "model.enc_build_dict": rf.build_dict(
+    #             ChunkedConformerEncoderV2,
+    #             encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
+    #             chunk_size=center_size,
+    #             chunk_history_size=left_n * center_size,
+    #             chunk_lookahead_size=right_size,
+    #             chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+    #             chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+    #             chunk_lookahead_size_train_pool=[right_size, right_size // 2],
+    #             chunk_num_overlaps=2,
+    #             use_chunk_type_embedding=True,
+    #             version=3,
+    #         ),
+    #         "train.batch_size": bs * configs._batch_size_factor // 2,
+    #         "train.max_seqs": max_seqs,
+    #         "lm_recog_extra.__serialization_version_stats": 2,
+    #     },
+    # )
 
     # As v2.3-dyn-rope-ctembed-overlap, plus MSE loss between overlapping encoder views.
-    train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-overlap-mse",
-        {
-            "model.enc_build_dict": rf.build_dict(
-                ChunkedConformerEncoderV2,
-                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
-                chunk_size=center_size,
-                chunk_history_size=left_n * center_size,
-                chunk_lookahead_size=right_size,
-                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
-                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
-                chunk_lookahead_size_train_pool=[right_size, right_size // 2],
-                chunk_num_overlaps=2,
-                use_chunk_type_embedding=True,
-                overlap_mse_loss_scale=1.0,
-                version=3,
-            ),
-            "train.batch_size": bs * configs._batch_size_factor // 2,
-            "train.max_seqs": max_seqs,
-            "lm_recog_extra.__serialization_version_stats": 2,
-        },
-    )
+    # Retired (disk cleanup): overlap regresses; numbers above.
+    # train(
+    #     f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-overlap-mse",
+    #     {
+    #         "model.enc_build_dict": rf.build_dict(
+    #             ChunkedConformerEncoderV2,
+    #             encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
+    #             chunk_size=center_size,
+    #             chunk_history_size=left_n * center_size,
+    #             chunk_lookahead_size=right_size,
+    #             chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+    #             chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+    #             chunk_lookahead_size_train_pool=[right_size, right_size // 2],
+    #             chunk_num_overlaps=2,
+    #             use_chunk_type_embedding=True,
+    #             overlap_mse_loss_scale=1.0,
+    #             version=3,
+    #         ),
+    #         "train.batch_size": bs * configs._batch_size_factor // 2,
+    #         "train.max_seqs": max_seqs,
+    #         "lm_recog_extra.__serialization_version_stats": 2,
+    #     },
+    # )
 
     # Dynamic overlaps. (Also newer RETURNN, faster rope.)
     # CTC-only: 9.83 (no overlap dyn-rope-ctembed: 9.41; the fixed-overlap -overlap variant above is worse still).
-    train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-overlapD",
-        {
-            "model.enc_build_dict": rf.build_dict(
-                ChunkedConformerEncoderV2,
-                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
-                chunk_size=center_size,
-                chunk_history_size=left_n * center_size,
-                chunk_lookahead_size=right_size,
-                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
-                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
-                chunk_lookahead_size_train_pool=[right_size, right_size // 2],
-                chunk_num_overlaps=2,
-                chunk_num_overlaps_train_pool=[2, 1],
-                use_chunk_type_embedding=True,
-                version=3,
-            ),
-            "train.batch_size": bs * configs._batch_size_factor // 2,
-            "train.max_seqs": max_seqs,
-            "lm_recog_extra.__serialization_version_stats": 2,
-        },
-    )
+    # Retired (disk cleanup): overlap regresses; numbers above.
+    # train(
+    #     f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-overlapD",
+    #     {
+    #         "model.enc_build_dict": rf.build_dict(
+    #             ChunkedConformerEncoderV2,
+    #             encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
+    #             chunk_size=center_size,
+    #             chunk_history_size=left_n * center_size,
+    #             chunk_lookahead_size=right_size,
+    #             chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+    #             chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+    #             chunk_lookahead_size_train_pool=[right_size, right_size // 2],
+    #             chunk_num_overlaps=2,
+    #             chunk_num_overlaps_train_pool=[2, 1],
+    #             use_chunk_type_embedding=True,
+    #             version=3,
+    #         ),
+    #         "train.batch_size": bs * configs._batch_size_factor // 2,
+    #         "train.max_seqs": max_seqs,
+    #         "lm_recog_extra.__serialization_version_stats": 2,
+    #     },
+    # )
 
     # Isolation: dyn + rope + overlapD WITHOUT ctembed.
     # Decisive test of whether the ctembed/overlap interaction regresses overlap+ctembed,
     # since overlap alone (relpos, no ctembed) helped (9.46 -> 9.26)
     # but overlap+ctembed (9.83) is worse than ctembed-no-overlap (9.41).
-    train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-overlapD",
-        {
-            "model.enc_build_dict": rf.build_dict(
-                ChunkedConformerEncoderV2,
-                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
-                chunk_size=center_size,
-                chunk_history_size=left_n * center_size,
-                chunk_lookahead_size=right_size,
-                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
-                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
-                chunk_lookahead_size_train_pool=[right_size, right_size // 2],
-                chunk_num_overlaps=2,
-                chunk_num_overlaps_train_pool=[2, 1],
-                version=3,
-            ),
-            "train.batch_size": bs * configs._batch_size_factor // 2,
-            "train.max_seqs": max_seqs,
-            "lm_recog_extra.__serialization_version_stats": 2,
-        },
-    )
+    # Retired (disk cleanup): overlap regresses; numbers above.
+    # train(
+    #     f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-overlapD",
+    #     {
+    #         "model.enc_build_dict": rf.build_dict(
+    #             ChunkedConformerEncoderV2,
+    #             encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
+    #             chunk_size=center_size,
+    #             chunk_history_size=left_n * center_size,
+    #             chunk_lookahead_size=right_size,
+    #             chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+    #             chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+    #             chunk_lookahead_size_train_pool=[right_size, right_size // 2],
+    #             chunk_num_overlaps=2,
+    #             chunk_num_overlaps_train_pool=[2, 1],
+    #             version=3,
+    #         ),
+    #         "train.batch_size": bs * configs._batch_size_factor // 2,
+    #         "train.max_seqs": max_seqs,
+    #         "lm_recog_extra.__serialization_version_stats": 2,
+    #     },
+    # )
 
     # overlapD with ctembedfix.
     # As v2.3-dyn-rope-ctembed-overlapD,
@@ -1088,29 +1116,30 @@ def py():
     # instead of raw chunk_size.
     # Fixes the off-by-one for C=5/overlaps=2 (chunk_size_dim=4 < chunk_size=5):
     # the last center-marked frame's output was dropped in _unchunk.
-    train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-overlapD-ctembedfix",
-        {
-            "model.enc_build_dict": rf.build_dict(
-                ChunkedConformerEncoderV2,
-                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
-                chunk_size=center_size,
-                chunk_history_size=left_n * center_size,
-                chunk_lookahead_size=right_size,
-                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
-                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
-                chunk_lookahead_size_train_pool=[right_size, right_size // 2],
-                chunk_num_overlaps=2,
-                chunk_num_overlaps_train_pool=[2, 1],
-                use_chunk_type_embedding=True,
-                chunk_type_embedding_at_output_boundary=True,
-                version=3,
-            ),
-            "train.batch_size": bs * configs._batch_size_factor // 2,
-            "train.max_seqs": max_seqs,
-            "lm_recog_extra.__serialization_version_stats": 2,
-        },
-    )
+    # Retired (disk cleanup): overlap regresses; numbers above.
+    # train(
+    #     f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-overlapD-ctembedfix",
+    #     {
+    #         "model.enc_build_dict": rf.build_dict(
+    #             ChunkedConformerEncoderV2,
+    #             encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
+    #             chunk_size=center_size,
+    #             chunk_history_size=left_n * center_size,
+    #             chunk_lookahead_size=right_size,
+    #             chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+    #             chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+    #             chunk_lookahead_size_train_pool=[right_size, right_size // 2],
+    #             chunk_num_overlaps=2,
+    #             chunk_num_overlaps_train_pool=[2, 1],
+    #             use_chunk_type_embedding=True,
+    #             chunk_type_embedding_at_output_boundary=True,
+    #             version=3,
+    #         ),
+    #         "train.batch_size": bs * configs._batch_size_factor // 2,
+    #         "train.max_seqs": max_seqs,
+    #         "lm_recog_extra.__serialization_version_stats": 2,
+    #     },
+    # )
 
     # Limited history experiments (vary history size L; C5-R4).
     # CTC-only: L0 24.03 (no history); L40 9.41; L80 = the -v2.3 baseline above (9.46).
@@ -1330,26 +1359,27 @@ def py():
     # Oversample the small (streaming) center_size in the train pool,
     # on the best dyn config (dyn-rope-ctembed).
     # Pool: C x3 vs x1 for 2C/4C/8C/offline, so the deployment chunk (C=5) is seen ~3/7 instead of 1/5.
-    train(
-        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dynCx3-rope-ctembed",
-        {
-            "model.enc_build_dict": rf.build_dict(
-                ChunkedConformerEncoderV2,
-                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
-                chunk_size=center_size,
-                chunk_history_size=left_n * center_size,
-                chunk_lookahead_size=right_size,
-                chunk_size_train_pool=[center_size] * 3 + [center_size * 2, center_size * 4, center_size * 8, None],
-                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
-                chunk_lookahead_size_train_pool=[right_size, right_size // 2],
-                use_chunk_type_embedding=True,
-                version=3,
-            ),
-            "train.batch_size": bs * configs._batch_size_factor,
-            "train.max_seqs": max_seqs,
-            "lm_recog_extra.__serialization_version_stats": 2,
-        },
-    )
+    # Retired (disk cleanup): dyn-pool ablation, no gain; in pool table.
+    # train(
+    #     f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dynCx3-rope-ctembed",
+    #     {
+    #         "model.enc_build_dict": rf.build_dict(
+    #             ChunkedConformerEncoderV2,
+    #             encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
+    #             chunk_size=center_size,
+    #             chunk_history_size=left_n * center_size,
+    #             chunk_lookahead_size=right_size,
+    #             chunk_size_train_pool=[center_size] * 3 + [center_size * 2, center_size * 4, center_size * 8, None],
+    #             chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+    #             chunk_lookahead_size_train_pool=[right_size, right_size // 2],
+    #             use_chunk_type_embedding=True,
+    #             version=3,
+    #         ),
+    #         "train.batch_size": bs * configs._batch_size_factor,
+    #         "train.max_seqs": max_seqs,
+    #         "lm_recog_extra.__serialization_version_stats": 2,
+    #     },
+    # )
 
     # --- Offline -> chunked finetune comparison (all at ~2x base compute) ---
     # base-2xtrain / dyn-rope-ctembed-2xtrain: from scratch for 2x epochs (total_k_hours 200).
