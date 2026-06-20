@@ -1986,17 +1986,11 @@ def py():
             suffix="-charlev-spc",
         )
 
-    # (c) pertoken-charlev-spc on test split, L2_e_grad.
-    _wire_pertoken(
-        dl_ds=dl_ds_timit,
-        ds_name="timit",
-        split="test",
-        phi4mm_cfg=pt_csp_cfg,
-        attr="L2",
-        mgi=True,
-        grad_alias="L2_e_grad",
-        suffix="-charlev-spc",
-    )
+    # (c) pertoken-charlev-spc on test split, L2_e_grad:
+    # wired canonically in _test_specs (the systematic timit-test spec list) with batched_backward=True,
+    # so the duplicate wiring was removed here --
+    # it produced the same HDF under the same alias,
+    # but with bb=False (slower).
 
     # (d) Smoothing the pertoken-charlev-spc HDF. Reuses the val L2_e_grad
     # extract (hash-identical to the one in (a)) -- only adds Smooth + Calc.
