@@ -69,6 +69,7 @@ def build_tables(results):
     _matched_tok_table()  # matched-tokenization: grad vs cross-attn x char/subword (whisper)
     _ablation_table()  # T3a grad-score reduction (cross-model)
     _attribution_table()  # T3b attribution method (cross-model, fast models)
+    _abc_table()  # Buckeye segmentation-protocol robustness (A vs B vs C)
     _alignopts_silence_table()  # T3b-i align-opts: silence/topology axis (grad-only silence fix)
     _alignopts_dtw_table()  # T3b-ii align-opts: apply-log/DTW equivalence (grad vs cross-attn)
     if _MISSING:
@@ -498,7 +499,9 @@ def _ablation_table():
 #     (the slow families are omitted for the same cost reason).
 # ----------------------------------------------------------------------------------------
 def _attribution_table():
-    S = "buckeye-segA-5h"
+    # On a 0.25h Buckeye-segA subsample (~112 seqs), NOT the full set: the multi-pass methods x the full
+    # 2234-seq set exceed the 24h walltime and never complete. See the caption note.
+    S = "buckeye-segA-sub025"
     SFX = "asotTrue-bs-5-en0.5-sil1.0-wordtopo"
     MODELS = [
         ("Wav2Vec2", "wav2vec2ctc-fproj_out-prefixfwd"),
@@ -520,6 +523,43 @@ def _attribution_table():
         for mlabel, mpre in MODELS
     ]
     _emit("attribution", columns, rows)
+
+
+# ----------------------------------------------------------------------------------------
+# Buckeye segmentation-protocol robustness (A vs B vs C, 5h each):
+#     does the resegmentation protocol shift grad-align / forced-align WBE?
+#     A = resegment-gap 1s + split @18s (the headline Buckeye); B = split only; C = resegment + drop @18s.
+#     Representative AED / CTC / Transducer grad rows + the forced-align references.
+#     The speech-LLMs are segA-only (each takes ~hours/segment), so they are not in this robustness table.
+# ----------------------------------------------------------------------------------------
+def _abc_table():
+    AO = "asotTrue-bs-5-en0.5-zsk1.0-wordtopo"
+    SEGS = ["segA", "segB", "segC"]
+    # (type, model, method, name template over {seg}, is_grad). Same taxonomy AND method labels as the
+    # per-model table: each model shows its gradient align and its own native aligner (CTC forced-align =
+    # "Posteriors", Whisper = "Cross-att."); typed by architecture; MFA = GMM-HMM reference ("Likelihoods").
+    ROWS = [
+        ("CTC", "Wav2Vec2", "Gradients", "wav2vec2ctc-fproj_out-prefixfwd-buckeye-{seg}-5h-L2_grad-pertoken", True),
+        ("CTC", "Wav2Vec2", "Posteriors", "baseline-mms_fa-buckeye-{seg}-5h", False),
+        ("CTC", "Parakeet CTC", "Gradients", "parakeet-ctc-1.1b-prefixfwd-buckeye-{seg}-5h-L2_grad-pertoken", True),
+        ("AED", "Whisper-base", "Gradients", "whisper-base-logmel-buckeye-{seg}-5h-L2_grad-pertoken-charlev-spc", True),
+        ("AED", "Whisper-base", "Cross-att.", "baseline-whisper-crossattn-buckeye-{seg}-5h", False),
+        ("Transd.", "Parakeet RNN-T", "Gradients", "parakeet-rnnt-1.1b-logmel-buckeye-{seg}-5h-L2_grad-pertoken", True),
+        ("GMM-HMM", "MFA", "Likelihoods", "baseline-mfa-buckeye-{seg}-5h", False),
+    ]
+    columns = ["type", "model", "method"] + SEGS
+    rows = []
+    prev = None
+    for typ, model, meth, tmpl, is_grad in ROWS:
+        if prev is not None and typ != prev:
+            rows.append({"hline2": True})
+        prev = typ
+        cells = {"type": typ, "model": model, "method": meth}
+        for seg in SEGS:
+            base = tmpl.format(seg=seg)
+            cells[seg] = _wbe(f"align/{base}-{AO}" if is_grad else base)
+        rows.append({"cells": cells})
+    _emit("buckeye-abc", columns, rows)
 
 
 # ----------------------------------------------------------------------------------------
@@ -1034,35 +1074,37 @@ def _compare_table(with_hyp=False):
 def _hyp_table():
     S = "buckeye-segA-5h"
 
-    def _row(label, name):
+    def _cells(name):
         return {
-            "label": label,
-            "cells": {
-                "mwbe": _hyp(name, "matched_wbe"),
-                "f50": _hyp(name, "f1_50ms"),
-                "f100": _hyp(name, "f1_100ms"),
-                "f200": _hyp(name, "f1_200ms"),
-                "rm": _hyp(name, "match_rate_ref"),
-            },
+            "mwbe": _hyp(name, "matched_wbe"),
+            "f50": _hyp(name, "f1_50ms"),
+            "f100": _hyp(name, "f1_100ms"),
+            "f200": _hyp(name, "f1_200ms"),
+            "rm": _hyp(name, "match_rate_ref"),
         }
 
-    grad = [
-        ("Whisper-base", f"whisper-base-charlev-{S}-grad"),
-        ("Whisper-large-v3", f"whisper-large-v3-charlev-{S}-grad"),
-        ("Voxtral", f"voxtral-charlevlogmel-{S}-grad"),
-        ("Phi-4-MM", f"phi4mm-charlev-spc-{S}-grad"),
-        ("Canary-Qwen", f"canary-qwen-charlev-spc-logmel-st15-{S}-grad"),
-        ("Parakeet", f"parakeet-rnnt-1.1b-logmel-{S}-grad"),
-        ("Parakeet TDT", f"parakeet-tdt-0.6b-v2-logmel-{S}-grad"),
+    # (type, model, method, hyp-metrics name). Same taxonomy/labels as the per-model table: each model
+    # aligns its OWN recognition; gradient rows plus the model's native aligner (Whisper cross-attn DTW,
+    # CrisperWhisper official timestamps). Grouped by architecture, double rule between families.
+    ROWS = [
+        ("AED", "Whisper-base", "Gradients", f"whisper-base-charlev-{S}-grad"),
+        ("AED", "Whisper-base", "Cross-att.", f"whisper-crossattn-{S}"),
+        ("AED", "Whisper-large-v3", "Gradients", f"whisper-large-v3-charlev-{S}-grad"),
+        ("AED", "CrisperWhisper", "Official", f"crisperwhisper-official-{S}"),
+        ("Sp. LLM", "Voxtral", "Gradients", f"voxtral-charlevlogmel-{S}-grad"),
+        ("Sp. LLM", "Phi-4-MM", "Gradients", f"phi4mm-charlev-spc-{S}-grad"),
+        ("Sp. LLM", "Canary-Qwen", "Gradients", f"canary-qwen-charlev-spc-logmel-st15-{S}-grad"),
+        ("Transd.", "Parakeet RNN-T", "Gradients", f"parakeet-rnnt-1.1b-logmel-{S}-grad"),
+        ("Transd.", "Parakeet TDT", "Gradients", f"parakeet-tdt-0.6b-v2-logmel-{S}-grad"),
     ]
-    baselines = [
-        ("Whisper cross-attn DTW", f"whisper-crossattn-{S}"),
-        ("CrisperWhisper (official)", f"crisperwhisper-official-{S}"),
-    ]
-    columns = ["mwbe", "f50", "f100", "f200", "rm"]
-    rows = [_row(*m) for m in grad]
-    rows.append({"label": None, "cells": {}})
-    rows += [_row(*b) for b in baselines]
+    columns = ["type", "model", "method", "mwbe", "f50", "f100", "f200", "rm"]
+    rows = []
+    prev = None
+    for typ, model, meth, name in ROWS:
+        if prev is not None and typ != prev:
+            rows.append({"hline2": True})
+        prev = typ
+        rows.append({"cells": {"type": typ, "model": model, "method": meth, **_cells(name)}})
     _emit("hyp", columns, rows)
 
 

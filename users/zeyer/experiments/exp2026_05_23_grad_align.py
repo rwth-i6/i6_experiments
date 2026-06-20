@@ -1962,7 +1962,9 @@ def py():
         )
 
     # (b) pertoken-charlev-spc with other grad reductions, val.
-    pt_csp_cfg = _phi4mm_model_config(dl_phi4mi_dir, char_level=True, char_level_sep=" ")
+    # eager attention (NOT flash-attn-2): flash has no vmap backward rule, so it would block the fast
+    # batched_backward; eager unblocks it (verified equal to the FA2 reference by the eager-bb0 probe).
+    pt_csp_cfg = _phi4mm_model_config(dl_phi4mi_dir, char_level=True, char_level_sep=" ", attn_implementation="eager")
     for mgi, attr, grad_alias in [
         (True, "L1", "L1_e_grad"),
         (True, "L0.5", "L05_e_grad"),
@@ -3161,7 +3163,11 @@ def py():
             attr_reduction=_t_attr,
             # batched_backward (vmap per-token VJP) for the prefix_fwd CTC extracts: ~tokens-per-word
             # faster, mathematically identical. Opt-in (hash-stable) so finished bb=False jobs untouched.
-            **({"batched_backward": True} if "prefixfwd" in _t_name else {}),
+            **(
+                {"batched_backward": True}
+                if ("prefixfwd" in _t_name or "phi4mm" in _t_name or "voxtral" in _t_name or "canary" in _t_name)
+                else {}
+            ),
         )
         _t_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         _t_ex.rqmt = {**_t_ex.rqmt, "time": 24}
@@ -3518,14 +3524,21 @@ def py():
     # headline Buckeye segmentation later -- do NOT yet run on all models.
     _seg_ao = {"apply_softmax_over_time": True, "blank_score": -5}
     _seg_whc_cfg = rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir, char_level=True, char_level_sep=" ")
+    # (cfg, name template, attr_reduction, mult_grad_by_inputs, batched_backward). Same configs as the
+    # headline segA tables (prefix_fwd CTC, L2, fast bb) so the A/B/C columns are directly comparable.
+    # Run on all three segmentations: AED (Whisper), CTC (Wav2Vec2, Parakeet-CTC), Transducer (Parakeet RNN-T).
+    # The speech-LLMs stay segA-only (the _hA block below) -- they take ~hours/segment, not worth A/B/C.
     _seg_grad_methods = [
-        (_seg_whc_cfg, "whisper-base-logmel-{tag}-L2_grad-pertoken-charlev-spc", "L2", False),
+        (_seg_whc_cfg, "whisper-base-logmel-{tag}-L2_grad-pertoken-charlev-spc", "L2", False, False),
         (
-            rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out"),
-            "wav2vec2ctc-fproj_out-{tag}-L2_grad-pertoken",
+            rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out", per_token_score="prefix_fwd"),
+            "wav2vec2ctc-fproj_out-prefixfwd-{tag}-L2_grad-pertoken",
             "L2",
             False,
+            True,
         ),
+        (parakeet_ctc_prefixfwd_cfg, "parakeet-ctc-1.1b-prefixfwd-{tag}-L2_grad-pertoken", "L2", False, True),
+        (pk_cfg, "parakeet-rnnt-1.1b-logmel-{tag}-L2_grad-pertoken", "L2", False, True),
     ]
     for _sv, _sv_kw in [
         ("A", dict(resegment_gap_s=1.0, split_up_to_max_seq_len_s=18.0)),
@@ -3572,7 +3585,7 @@ def py():
         reg(f"baseline-mfa-{_sv_tag}-wbe.txt", _sv_mfa.out_wbe)
 
         # grad-align surfaces (en0.5-sil1.0): AED-Whisper char + CTC-Wav2Vec2
-        for _cfg, _nmt, _attr, _mgi in _seg_grad_methods:
+        for _cfg, _nmt, _attr, _mgi, _bb in _seg_grad_methods:
             _nm = _nmt.format(tag=_sv_tag)
             _ex = ExtractInGradsPerTokenJob(
                 dataset_dir=_sv_dir,
@@ -3580,6 +3593,7 @@ def py():
                 model_config=_cfg,
                 mult_grad_by_inputs=_mgi,
                 attr_reduction=_attr,
+                batched_backward=_bb,
             )
             _ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
             _ex.rqmt = {**_ex.rqmt, "time": 24}
@@ -4418,6 +4432,37 @@ def py():
         al.add_alias(nm)
         reg(f"{nm}-wbe.txt", al.out_wbe)
 
+    # Attribution table only: a 0.25h subsample (~112 seqs, same dataset as the bb-equivalence probes).
+    # The full 2234-seq set x 8-16 multi-pass passes exceeds the 24h walltime and never completes;
+    # WBE is stable at >=100 seqs and the attribution claim is qualitative (multi-pass ~ single-pass).
+    _attr_sub_ds = BuildBuckeyeFineDatasetJob(
+        raw_dir=dl_ds_buckeye_fine.out_hub_cache_dir,
+        resegment_gap_s=1.0,
+        split_up_to_max_seq_len_s=18.0,
+        min_words=2,
+        skip_misaligned_wavs=True,
+        subsample_target_h=0.25,
+        subsample_seed=42,
+    )
+    _attr_sub_dir = _attr_sub_ds.out_hub_cache_dir
+    _attr_sub_tag = "buckeye-segA-sub025"
+
+    def _attr_sub_align(ex, ename):
+        al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_attr_sub_dir,
+            dataset_key="test",
+            dataset_offset_factors=_xa_off,
+            align_opts=_abl_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=1.0,
+            word_topology=True,
+        )
+        nm = f"align/{ename}-{_name_for_dict(_abl_ao)}-en0.5-sil1.0-wordtopo"
+        al.add_alias(nm)
+        reg(f"{nm}-wbe.txt", al.out_wbe)
+
     # Signed "dot"/"dot_e" (sum) reduction, on the plain CTC-topology DP.
     # absmeanS divides each frame by mean(|score|) over tokens; on CTC/transducer models some frames have
     # an ALL-ZERO gradient (silence) -> divisor 0 -> NaN -> degenerate alignment (WBE ~3.6 s). The
@@ -4487,12 +4532,11 @@ def py():
         (whisper_char_cfg, "whisper-base-logmel-charlev-spc", False, True),
         (pk_cfg, "parakeet-rnnt-1.1b-logmel", True, False),
         (rnnt_px_cfg, "emformer-rnnt-prefix-logmel", False, False),
-        (voxtral_charlev_logmel_cfg, "voxtral-charlevlogmel", False, False),
+        (voxtral_charlev_logmel_cfg, "voxtral-charlevlogmel", True, False),
         # Phi-4-MM + Canary-Qwen complete the speech-LLM column of the grad-score ablation (user).
-        # Phi-4-MM keeps bb=False (flash-attn backward has no vmap rule); Canary batches (verified).
-        (pt_csp_cfg, "phi4mm-charlev-spc", False, False),
-        # bb=False so the L1 -abl- extract dedups with the silence-sweep canary (same job, no alias clash).
-        (canary_charlev_logmel_st15_cfg, "canary-qwen-charlev-spc-logmel-st15", False, False),
+        # All on the fast batched_backward: Phi-4-MM via eager attention (pt_csp_cfg), Canary natively.
+        (pt_csp_cfg, "phi4mm-charlev-spc", True, False),
+        (canary_charlev_logmel_st15_cfg, "canary-qwen-charlev-spc-logmel-st15", True, False),
     ]
     for _ac, _apre, _abb, _ado_attr in _ABL_MODELS:
         # grad-score axis: L0.5 / L1 / L2 / L2_e (L2_e = L2 norm on grad*input).
@@ -4525,31 +4569,45 @@ def py():
                 _dnm = f"align/{_dn}-{_name_for_dict(_dopts)}"
                 _dal.add_alias(_dnm)
                 reg(f"{_dnm}-wbe.txt", _dal.out_wbe)
-        # attribution axis (fast models only): SmoothGrad / VarGrad / IG / EG, on L2.
+        # attribution axis (fast models only): single-pass L2 vs SmoothGrad / VarGrad / IG / EG,
+        # on the 0.25h subsample (the full set x 8-16 passes never finishes within the 24h walltime).
         if _ado_attr:
+            _abb = _apre != "whisper-base-logmel-charlev-spc"  # wav2vec2 batches; whisper stays sequential
+            # single-pass L2 baseline on the SAME subset, so the multi-pass comparison is fair.
+            _asub_l2 = ExtractInGradsPerTokenJob(
+                dataset_dir=_attr_sub_dir,
+                dataset_key="test",
+                model_config=_ac,
+                mult_grad_by_inputs=False,
+                attr_reduction="L2",
+                batched_backward=_abb,
+            )
+            _asub_l2.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            _asub_l2_name = f"{_apre}-abl-{_attr_sub_tag}-L2_grad-pertoken"
+            _asub_l2.add_alias(_asub_l2_name)
+            reg(f"{_asub_l2_name}.hdf", _asub_l2.out_hdf)
+            _attr_sub_align(_asub_l2, _asub_l2_name)
             for _akw, _asfx in [
                 ({"noise_std": 0.01, "noise_n_samples": 8}, "smoothgrad-std0.01-n8"),
                 ({"noise_std": 0.02, "noise_n_samples": 16, "vargrad": True}, "vargrad-std0.02-n16"),
                 ({"ig_steps": 16}, "integrated-grad-ig16"),
                 ({"eg_steps": 16, "eg_baseline_std": 0.05}, "expected-grad-eg16-bstd0.05"),
             ]:
-                _aen = f"{_apre}-abl-{_xa_tag}-L2-{_asfx}-pertoken"
+                _aen = f"{_apre}-abl-{_attr_sub_tag}-L2-{_asfx}-pertoken"
                 _aex = ExtractInGradsPerTokenJob(
-                    dataset_dir=_xa_dir,
+                    dataset_dir=_attr_sub_dir,
                     dataset_key="test",
-                    model_config=(voxtral_charlev_logmel_eager_cfg if _apre == "voxtral-charlevlogmel" else _ac),
+                    model_config=_ac,
                     mult_grad_by_inputs=False,
                     attr_reduction="L2",
-                    # fast token-batched VJP (composes with the multi-pass methods); whisper's
-                    # attribution already finished at bb=False, so keep it there to avoid a no-gain re-run.
-                    batched_backward=(_apre != "whisper-base-logmel-charlev-spc"),
+                    batched_backward=_abb,
                     **_akw,
                 )
                 _aex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
                 _aex.rqmt = {**_aex.rqmt, "time": 24}
                 _aex.add_alias(_aen)
                 reg(f"{_aen}.hdf", _aex.out_hdf)
-                _abl_align(_aex, _aen)
+                _attr_sub_align(_aex, _aen)
 
     # alignopts-silence extended to 3 model families (AED / CTC / speech-LLM):
     # re-align each model's L2 grad extract under the silence/blank schemes on a CTC topology,
@@ -4582,9 +4640,9 @@ def py():
             False,
             "L2_grad",
         ),
-        (voxtral_charlev_logmel_cfg, "voxtral-charlevlogmel", False, True, "L2", False, "L2_grad"),
-        (canary_charlev_logmel_st15_cfg, "canary-qwen-charlev-spc-logmel-st15", False, False, "L1", False, "L1_grad"),
-        (pt_csp_cfg, "phi4mm-charlev-spc", False, False, "L2", True, "L2_e_grad"),
+        (voxtral_charlev_logmel_cfg, "voxtral-charlevlogmel", True, True, "L2", False, "L2_grad"),
+        (canary_charlev_logmel_st15_cfg, "canary-qwen-charlev-spc-logmel-st15", True, False, "L1", False, "L1_grad"),
+        (pt_csp_cfg, "phi4mm-charlev-spc", True, False, "L2", True, "L2_e_grad"),
     ]:
         _sc_ex = _xa_extract(_sc_ac, f"{_sc_pre}-abl-{_xa_tag}-{_sc_ga}-pertoken", _sc_attr, _sc_mgi, bb=_sc_bb)
         for _sc_tag, _sc_kw in _SIL_SCHEMES:
@@ -4794,13 +4852,13 @@ def py():
         reg(f"{_xa_v_alnm}-wbe.txt", _xa_v_al.out_wbe)
     for _xa_v_mgi, _xa_v_attr, _xa_v_ga in [(True, "L2", "L2_e_grad"), (False, "L2", "L2_grad")]:
         _xa_v_name = f"voxtral-charlevlogmel-{_xa_tag}-{_xa_v_ga}-pertoken"
-        _xa_v_ex = _xa_extract(voxtral_charlev_logmel_cfg, _xa_v_name, _xa_v_attr, _xa_v_mgi, time=24)
+        _xa_v_ex = _xa_extract(voxtral_charlev_logmel_cfg, _xa_v_name, _xa_v_attr, _xa_v_mgi, time=24, bb=True)
         _xa_align(_xa_v_ex, _xa_v_name, "en0.5-sil1.0")
 
     # Canary-Qwen + Phi-4-MM L2 headline extracts on segA (uniform L2 across all tables).
     # The en0.5-sil1.0 base align lets the twin generator fill zsk/wordtopo + the full silence sweep (stems below).
-    # Canary batches (bb=True, verified equivalent in the bb-equivalence block);
-    # Phi-4-MM keeps bb=False (flash-attn backward has no vmap rule).
+    # Both on the fast batched_backward: Canary natively,
+    # Phi-4-MM via eager attention (pt_csp_cfg), verified equal to the FA2 reference.
     _xa_cq_name = f"canary-qwen-charlev-spc-logmel-st15-{_xa_tag}-L2_grad-pertoken"
     _xa_align(
         _xa_extract(canary_charlev_logmel_st15_cfg, _xa_cq_name, "L2", False, time=24, bb=True),
@@ -4808,7 +4866,7 @@ def py():
         "en0.5-sil1.0",
     )
     _xa_p4_name = f"phi4mm-{_xa_tag}-L2_grad-pertoken-charlev-spc"
-    _xa_align(_xa_extract(pt_csp_cfg, _xa_p4_name, "L2", False, time=24), _xa_p4_name, "en0.5-sil1.0")
+    _xa_align(_xa_extract(pt_csp_cfg, _xa_p4_name, "L2", False, time=24, bb=True), _xa_p4_name, "en0.5-sil1.0")
 
     # === FB-DP confidence: re-align headline extracts with with_confidence=True -> per-word
     # posterior-occupancy confidence + conf-vs-WBE correlation (cheap CPU; extracts shared). ===
@@ -5144,7 +5202,7 @@ def py():
             1.0,
             True,
         ),
-        ("phi4mm-charlev-spc", phi4mm_recog_cfg, pt_csp_cfg, "L2", False, 1.0, False),
+        ("phi4mm-charlev-spc", phi4mm_recog_cfg, pt_csp_cfg, "L2", False, 1.0, True),
         ("canary-qwen-charlev-spc-logmel-st15", canary_cfg, canary_charlev_logmel_st15_cfg, "L2", False, 1.0, True),
         # Transducers: best align is sil0.0 (TIMIT + segA); parakeet-rnnt needs the batched backward.
         ("parakeet-rnnt-1.1b-logmel", pk_cfg, pk_cfg, "L2", False, 0.0, True),
