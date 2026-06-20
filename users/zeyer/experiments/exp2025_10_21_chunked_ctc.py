@@ -362,49 +362,27 @@ def py():
     #             "train.max_seqs": max_seqs,
     #         },
     #     )
-    #
-    # # V2.1 (bugged): ChunkedConformerEncoderV2, more flexible, more optimized chunking
-    # # epoch train time (recipe/i6_experiments/users/zeyer/returnn/tools/check_train_times.py) mean:
-    # #   3738.79 (v1: 7728.30)
-    # # CTC-only: 11.74 (v1: 9.56)
-    # left_n, center_size, right_size, bs = (16, 5, 4, 50_000)
-    #
-    # # V2.2 (bugged): using ChunkedConformerEncoderV2, setting version=2:
-    # #   reduce chunk sizes, history, if the input is not long enough.
-    # # epoch train time mean: 3726.87
-    # # CTC-only: 11.67 (v1: 9.56)
-    #
-    # # Note: version=1 and version=2 used a wrong chunking implementation. Fixed for version>=3.
-    #
-    # # V2.3: using ChunkedConformerEncoderV2, setting version=3.
-    # # First exp, try to reproduce the orig.
-    # # train_time_hours: 168.9 (v1: 215.6)
-    # # CTC-only: 9.45 (v1: 9.56)
-    # # Retired (disk cleanup): V1-compat debug variant; numbers above.
-    # # train(
-    # #     f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-compat",
-    # #     {
-    # #         "model.enc_build_dict": rf.build_dict(
-    # #             ChunkedConformerEncoderV2,
-    # #             encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
-    # #             chunk_size=center_size,
-    # #             chunk_history_size=left_n * center_size,
-    # #             chunk_lookahead_size=right_size,
-    # #             version=3,
-    # #             adapt_chunk_history_for_short_seqs=False,  # compat with V1
-    # #         ),
-    # #         "train.batch_size": bs * configs._batch_size_factor,
-    # #         "train.max_seqs": max_seqs,
-    # #     },
-    # # )
-    #
-    # # V2.3: using ChunkedConformerEncoderV2, setting version=3.
-    # #   reduce chunk sizes, history, if the input is not long enough (adapt_chunk_history_for_short_seqs=True default)
-    # # train_time_hours: 168.8 (v1: 215.6; adapt_chunk_history_...=False: 168.9; offline: 66.2)
-    # # CTC-only: 9.46 (v1: 9.56; adapt_chunk_history_...=False: 9.45; offline: 7.32)
-    # # CTC+LM: 7.22 (offline: 6.12)
+
+    # V2.1 (bugged): ChunkedConformerEncoderV2, more flexible, more optimized chunking
+    # epoch train time (recipe/i6_experiments/users/zeyer/returnn/tools/check_train_times.py) mean:
+    #   3738.79 (v1: 7728.30)
+    # CTC-only: 11.74 (v1: 9.56)
+    left_n, center_size, right_size, bs = (16, 5, 4, 50_000)
+
+    # V2.2 (bugged): using ChunkedConformerEncoderV2, setting version=2:
+    #   reduce chunk sizes, history, if the input is not long enough.
+    # epoch train time mean: 3726.87
+    # CTC-only: 11.67 (v1: 9.56)
+
+    # Note: version=1 and version=2 used a wrong chunking implementation. Fixed for version>=3.
+
+    # V2.3: using ChunkedConformerEncoderV2, setting version=3.
+    # First exp, try to reproduce the orig.
+    # train_time_hours: 168.9 (v1: 215.6)
+    # CTC-only: 9.45 (v1: 9.56)
+    # Retired (disk cleanup): V1-compat debug variant; numbers above.
     # train(
-    #     f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3",
+    #     f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-compat",
     #     {
     #         "model.enc_build_dict": rf.build_dict(
     #             ChunkedConformerEncoderV2,
@@ -413,11 +391,33 @@ def py():
     #             chunk_history_size=left_n * center_size,
     #             chunk_lookahead_size=right_size,
     #             version=3,
+    #             adapt_chunk_history_for_short_seqs=False,  # compat with V1
     #         ),
     #         "train.batch_size": bs * configs._batch_size_factor,
     #         "train.max_seqs": max_seqs,
     #     },
     # )
+
+    # V2.3: using ChunkedConformerEncoderV2, setting version=3.
+    #   reduce chunk sizes, history, if the input is not long enough (adapt_chunk_history_for_short_seqs=True default)
+    # train_time_hours: 168.8 (v1: 215.6; adapt_chunk_history_...=False: 168.9; offline: 66.2)
+    # CTC-only: 9.46 (v1: 9.56; adapt_chunk_history_...=False: 9.45; offline: 7.32)
+    # CTC+LM: 7.22 (offline: 6.12)
+    train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3",
+        {
+            "model.enc_build_dict": rf.build_dict(
+                ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2),
+                chunk_size=center_size,
+                chunk_history_size=left_n * center_size,
+                chunk_lookahead_size=right_size,
+                version=3,
+            ),
+            "train.batch_size": bs * configs._batch_size_factor,
+            "train.max_seqs": max_seqs,
+        },
+    )
 
     # Try grad checkpointing (mem_chunks_grad_checkpointing=True).
     # (In terms of WER, should really be the same.
