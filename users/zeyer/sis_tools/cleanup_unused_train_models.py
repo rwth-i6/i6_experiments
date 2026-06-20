@@ -209,33 +209,33 @@ def main():
         current_aliases = alias_reverse_map.get(realpath, [])
         if current_aliases:
             # This dir is the live target of its alias(es).
-            alias = current_aliases[0]
+            name = current_aliases[0]
         elif info_aliases:
-            # The alias in our info file now points at a different (newer) hash:
-            # this dir is a stale re-hash orphan of that training. Keep the alias for context.
+            # The alias in our info file now points at a newer hash:
+            # this dir is a stale re-hash orphan of that training (its checkpoints are outdated).
+            # Display it by its actual hash so it is never confused with the current training,
+            # and name the alias it is a stale copy of.
             # (Several stale re-hashes of one training all carry the same ALIAS line.)
-            alias = info_aliases[0]
-            print("Stale re-hash (alias now points to a newer job hash):", fn, "alias:", alias)
+            name = f"{basename} (stale re-hash; alias now points to a newer job hash: {info_aliases[0]})"
+            print("Stale re-hash:", name)
         else:
-            alias = None
+            name = basename
             print("No aliases found for train job:", fn)
 
         # Jobs whose real storage lives in ANOTHER setup (imported symlink, e.g. the shared LM)
         # must never be collected for removal -- deleting them corrupts the source setup.
         # List them for transparency and move on.
         if not realpath.startswith(own_work_realpath):
-            imported_unused.append((alias or basename, fn, realpath))
+            imported_unused.append((name, fn, realpath))
             continue
 
         # First collect all, and then go through them in sorted order below.
         # We do this because here the listdir order is totally arbitrary
         # (due to FS, but sorting by hash also would not help),
         # and to inspect the output, it's much more helpful when this is sorted in some way.
-        # Several stale re-hashes can share one alias, so disambiguate the dict key by basename.
-        key = alias or basename
-        if key in unused_train_jobs:
-            key = f"{key} [{basename}]"
-        unused_train_jobs[key] = fn
+        if name in unused_train_jobs:
+            name = f"{name} [{basename}]"
+        unused_train_jobs[name] = fn
 
     print("Collecting model checkpoint files from unused train jobs to remove...")
     # Now go sorted.
