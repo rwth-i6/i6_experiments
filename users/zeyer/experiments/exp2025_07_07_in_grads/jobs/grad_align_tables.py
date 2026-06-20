@@ -344,10 +344,11 @@ def _word_length_table():
             "OWSM",
             [
                 (
+                    # block 6 (best emit block), matching the per-model + owsm-per-layer tables.
                     "Gradients",
-                    f"align/owsm-ctc-v4-1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                    f"align/owsm-ctc-v4-1b-lyr6-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
                 ),
-                ("Posteriors", f"baseline-owsm-ctc-v4-1b-{S}"),
+                ("Posteriors", f"baseline-owsm-ctc-v4-1b-lyr6-{S}"),
             ],
         ),
         (
@@ -736,18 +737,20 @@ def _compare_table(with_hyp=False):
         ),
         (
             # OWSM: general graphemic CTC, our least-favourable model for grad-align (still runs,
-            # just imprecise). Shown with its BEST emit block (6); per-block detail in tab:owsm-per-layer.
+            # just imprecise). Shown at its BEST emit block (6 = lowest WBE of all blocks; the final block
+            # 27 is worse -- see tab:owsm-per-layer). Grad AND posteriors both from block 6, so the row is
+            # internally consistent and equals the block-6 row of tab:owsm-per-layer.
             "OWSM",
             [
                 (
                     "Gradients",
                     *g(
-                        f"owsm-ctc-v4-1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"owsm-ctc-v4-1b-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"owsm-ctc-v4-1b-lyr6-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"owsm-ctc-v4-1b-lyr6-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
                     ),
                 ),
-                # posteriors = CTC forced-align of the model's emission; best/natural at the final block.
-                ("Posteriors", f"baseline-owsm-ctc-v4-1b-{S}", f"baseline-owsm-ctc-v4-1b-{T}"),
+                # posteriors = CTC forced-align of the model's emission, at the same block-6 emission.
+                ("Posteriors", f"baseline-owsm-ctc-v4-1b-lyr6-{S}", f"baseline-owsm-ctc-v4-1b-lyr6-{T}"),
             ],
         ),
         (
@@ -1119,9 +1122,9 @@ def _owsm_layer_table():
         return "" if layer == 27 else f"lyr{layer}-"
 
     def gbase(layer, ds):  # grad-align output base
-        # layer 27 (final emission) reuses the per-model headline prefix_fwd extract,
-        # so the final-layer row equals the per-model OWSM number exactly;
+        # layer 27 (final emission) is the headline prefix_fwd extract (layer=None);
         # the inter-CTC blocks use their own prefix_fwd configs.
+        # The per-model table shows OWSM at its BEST block, which is the lyr6 row here.
         if layer == 27:
             return f"align/owsm-ctc-v4-1b-prefixfwd-{ds}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo"
         return f"align/owsm-ctc-v4-1b-lyr{layer}-{ds}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo"
