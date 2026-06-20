@@ -60,7 +60,17 @@ def _apply_head_lr_multiplier(config: dict, multiplier: float) -> None:
     }
 
 
-def build_ctc_config(specaug_start_step: int = 5000, dropout: float = 0.1) -> CTCConfig:
+def build_ctc_config(
+    specaug_start_step: int = 5000,
+    dropout: float = 0.1,
+    num_layers: int = 12,
+    aux_ctc_layers=(4, 8),
+    aux_ctc_scale: float = 0.3,
+) -> CTCConfig:
+    """Build the CTC model config. ``num_layers``/``aux_ctc_layers`` default to the 12x512 baseline
+    (aux at 4 & 8, final head at 12) -> byte-identical to the original config, hash-stable. The
+    18-layer BEST-RQ control finetune passes num_layers=18 with aux at (6, 12) (proportional depth)."""
+    aux_layers = list(aux_ctc_layers)
     return CTCConfig(
         feature_extraction_config=LogMelFeatureExtractionV1Config(
             sample_rate=16000,
@@ -72,17 +82,17 @@ def build_ctc_config(specaug_start_step: int = 5000, dropout: float = 0.1) -> CT
             num_filters=80,
             center=False,
         ),
-        encoder_config=default_encoder_config(dropout=dropout),
+        encoder_config=default_encoder_config(num_layers=num_layers, dropout=dropout),
         global_mean=list(LOGMEL_MEAN),
         global_std=list(LOGMEL_STD),
         specaug_config=SpecaugConfig(repeat_per_n_frames=25, max_dim_time=20, num_repeat_feat=5, max_dim_feat=16),
         # step-based gate (partition_epoch=1 => 1 epoch == 1 pass, so an epoch gate means wildly different real
         # schedules across ls100/ls960; speech_llm gates on global step ~5000). See CTC-revisit study.
         specaug_start_step=specaug_start_step,
-        # InterCTC: aux heads at layers 4 & 8 (scale 0.3) + the final layer-12 head (out_linear, scale 1.0)
+        # InterCTC: aux heads at the given layers (scale 0.3) + the final layer-N head (out_linear, scale 1.0)
         # == the canonical i6 12x512 config [3,7,11]@[0.3,0.3,1.0] (0-based). Prevents from-scratch blank collapse.
-        aux_ctc_layers=[4, 8],
-        aux_ctc_scales=[0.3, 0.3],
+        aux_ctc_layers=aux_layers,
+        aux_ctc_scales=[aux_ctc_scale] * len(aux_layers),
     )
 
 
@@ -116,11 +126,15 @@ def _run(
     batch_size_sec: int = 480,
     dropout: float = 0.1,
     specaug_start_step: int = 5000,
+    num_layers: int = 12,
+    aux_ctc_layers=(4, 8),
     head_lr_multiplier: Optional[float] = None,
     preload: Optional[dict] = None,
 ):
     _spm_ds, spm_model = get_ls960_spm()  # shared SPM-5120 label space across all CTC runs
-    model_config = build_ctc_config(specaug_start_step=specaug_start_step, dropout=dropout)
+    model_config = build_ctc_config(
+        specaug_start_step=specaug_start_step, dropout=dropout, num_layers=num_layers, aux_ctc_layers=aux_ctc_layers
+    )
     # per-rank SEQUENCE-level DDP sharding (1 epoch == 1 disjoint pass); dev stays unsharded.
     train_set = ds.labeled_hf_dataset(train_splits, spm_model=spm_model, seq_ordering="random", ddp_seq_shard=True)
     dev_set = ds.labeled_hf_dataset(ds.DEV_ALL, spm_model=spm_model, seq_ordering="default")
@@ -204,7 +218,9 @@ def ctc_ls960_scratch():
     return train_job
 
 
-def ctc_ls100_finetune(ssl_checkpoint, *, prefix, pretrain_prefix=None, num_epochs=100):
+def ctc_ls100_finetune(
+    ssl_checkpoint, *, prefix, pretrain_prefix=None, num_epochs=100, num_layers=12, aux_ctc_layers=(4, 8)
+):
     """CTC finetuning with the encoder initialized from a BEST-RQ checkpoint (PtCheckpoint or path).
 
     :param ssl_checkpoint: BEST-RQ checkpoint to preload the encoder from (e.g.
@@ -213,6 +229,8 @@ def ctc_ls100_finetune(ssl_checkpoint, *, prefix, pretrain_prefix=None, num_epoc
     :param prefix: experiment prefix for this finetune (one per pretrained variant, to avoid collisions).
     :param pretrain_prefix: if given, ALSO register the finetune WER summary as ``<pretrain_prefix>/summary.md``
         so the pretraining experiment surfaces its downstream WER (not the SSL losses) as the headline result.
+    :param num_layers: encoder depth -- MUST match the pretrained BEST-RQ being preloaded (12 default; 18
+        for the deeper-encoder control ``bestrq_ls960_18x512_base``). ``aux_ctc_layers`` scales with it.
     """
     preload = {
         "ssl_encoder": {
@@ -234,6 +252,8 @@ def ctc_ls100_finetune(ssl_checkpoint, *, prefix, pretrain_prefix=None, num_epoc
         num_epochs=num_epochs,
         dropout=0.15,
         specaug_start_step=2000,
+        num_layers=num_layers,
+        aux_ctc_layers=aux_ctc_layers,
         head_lr_multiplier=HEAD_LR_MULT,
         preload=preload,
     )

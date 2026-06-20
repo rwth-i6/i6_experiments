@@ -95,23 +95,23 @@ def cif_pool(
     alpha = alpha * frame_valid.to(alpha.dtype)
 
     csum = torch.cumsum(alpha, dim=1)  # [B, T] cumulative mass AFTER frame t
-    prev = csum - alpha                # [B, T] cumulative mass BEFORE frame t
+    prev = csum - alpha  # [B, T] cumulative mass BEFORE frame t
 
     # 0-based index of the token that frame t begins contributing to, and whether t crosses an integer.
-    j = torch.floor(prev + eps)                                  # [B, T] float
-    fired = torch.floor(csum + eps) > j                          # [B, T] bool (crosses boundary j+1)
-    boundary = j + 1.0                                           # the integer crossed when fired
+    j = torch.floor(prev + eps)  # [B, T] float
+    fired = torch.floor(csum + eps) > j  # [B, T] bool (crosses boundary j+1)
+    boundary = j + 1.0  # the integer crossed when fired
     # Split frame t's mass: w_over -> next token (j+1) only if it fired; w_stay -> current token (j).
     w_over = torch.where(fired, csum - boundary, torch.zeros_like(csum))  # [B, T] in [0, alpha)
-    w_stay = alpha - w_over                                                # [B, T]  (= alpha if not fired)
+    w_stay = alpha - w_over  # [B, T]  (= alpha if not fired)
     j = j.long()
 
     # Per-utterance completed-token count K = floor(total mass), floored to >=1 (min-1: keep the single
     # partial token for utts whose mass never reaches 1, so the high encoder always sees a token).
     last = (lengths.to(device) - 1).clamp(min=0)[:, None]
-    total = csum.gather(1, last).squeeze(1)            # [B] total accumulated mass
-    K = torch.floor(total + eps).long().clamp(min=1)   # [B] valid token count
-    k_max = int(K.max().item())                        # one host sync to size the padded token axis
+    total = csum.gather(1, last).squeeze(1)  # [B] total accumulated mass
+    K = torch.floor(total + eps).long().clamp(min=1)  # [B] valid token count
+    k_max = int(K.max().item())  # one host sync to size the padded token axis
 
     # Scatter-add weighted frame features into the token axis. Allocate one slop column [k_max] to
     # receive the dropped partial/overflow token, then trim it. Each frame writes to <=2 token slots.
@@ -151,3 +151,106 @@ def quantity_loss(
     q_star = lengths.to(sum_alpha.dtype) * (target_rate_hz / frame_rate_hz)  # [B]
     rel = (sum_alpha - q_star) / (q_star + eps)
     return (rel * rel).mean()
+
+
+def mean_pool(
+    features: torch.Tensor,
+    lengths: torch.Tensor,
+    *,
+    factor: int = 2,
+) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, torch.Tensor]]:
+    """Fixed uniform sub-sampling: mean-pool every ``factor`` consecutive frames into one token.
+
+    The trivial, NON-learned alternative to the CIF segmenter -- the mean-pool CONTROL arm. There is no
+    ``alpha`` and no quantity loss: the rate is exactly ``frame_rate / factor`` (factor=2 @ 25 Hz =>
+    12.5 Hz, matching the 80 ms CIF arm). Drop-in for ``cif_pool`` (same ``(z, z_mask, diag)`` contract),
+    so the high encoder + heads see the identical interface. Only valid (non-padding) frames contribute
+    to each window's mean, so the final (possibly partial) window is a clean average of its 1..factor
+    valid frames; ``K_b = ceil(T_b / factor)`` tokens per utterance.
+
+    :param features: [B, T, D] lower-encoder frame features (FROZEN, detached -- no grad flows here).
+    :param lengths: [B] valid frame counts.
+    :param factor: pooling window (number of frames averaged per token).
+    :return: (z [B, K_max, D], z_mask [B, K_max] bool, diag) with diag['frame_valid'] [B, T],
+        diag['fires'] [B] (== K) and diag['sum_alpha'] [B] (== K, deterministic) for interface parity.
+    """
+    features = features.float()
+    b, t, d = features.shape
+    device = features.device
+    frame_valid = torch.arange(t, device=device)[None, :] < lengths.to(device)[:, None]  # [B, T]
+
+    pad = (factor - t % factor) % factor
+    if pad:
+        features_p = torch.nn.functional.pad(features, (0, 0, 0, pad))
+        fv = torch.nn.functional.pad(frame_valid, (0, pad))
+    else:
+        features_p, fv = features, frame_valid
+    k = (t + pad) // factor
+    fr = features_p.view(b, k, factor, d)
+    m = fv.view(b, k, factor).to(features.dtype)  # [B, K, factor] valid-frame mask per window
+    cnt = m.sum(dim=2).clamp(min=1.0)  # [B, K] number of valid frames per window
+    z = (fr * m.unsqueeze(-1)).sum(dim=2) / cnt.unsqueeze(-1)  # [B, K, D] mean over the valid frames
+
+    K = ((lengths.to(device) + factor - 1) // factor).long().clamp(min=1)  # [B] ceil(T/factor)
+    z_mask = torch.arange(k, device=device)[None, :] < K[:, None]  # [B, K] True = valid token
+    z = z * z_mask.unsqueeze(-1).to(z.dtype)
+    diag = {"fires": K, "sum_alpha": K.to(features.dtype), "frame_valid": frame_valid}
+    return z, z_mask, diag
+
+
+def cif_pool_scaled(
+    features: torch.Tensor,
+    alpha: torch.Tensor,
+    lengths: torch.Tensor,
+    target_lengths: torch.Tensor,
+    *,
+    eps: float = 1e-4,
+) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, torch.Tensor]]:
+    """Paraformer-style SCALED integrate-and-fire: rescale ``alpha`` per utterance so it integrates to
+    EXACTLY ``target_lengths[b]`` and fires exactly that many tokens -- a 1:1 acoustic-embedding-per-label
+    alignment for per-token CE finetuning (FT-2). TRAIN time only (targets known); at inference use raw
+    ``cif_pool`` and rely on the retargeted quantity loss (target Q* = N labels) to make the natural fire
+    count land at the label count. See [[cif-length-control-and-finetune]].
+
+    :param features: [B, T, D] frozen layer-9 frames (detached; no grad flows here).
+    :param alpha: [B, T] per-frame fire weights in (0,1) (trainable; grad flows here).
+    :param lengths: [B] valid frame counts.
+    :param target_lengths: [B] label counts N_b (>=1); the utterance is FORCED to exactly N_b tokens.
+    :return: (z [B, N_max, D], z_mask [B, N_max] bool, diag). diag['sum_alpha'] is the RAW (UNSCALED)
+        accumulated mass -- what the quantity loss pulls toward N (so inference fires ~N without scaling).
+    """
+    features = features.float()
+    alpha = alpha.float()
+    b, t, d = features.shape
+    device = features.device
+    frame_valid = torch.arange(t, device=device)[None, :] < lengths.to(device)[:, None]  # [B, T]
+    alpha = alpha * frame_valid.to(alpha.dtype)
+
+    sum_alpha = alpha.sum(dim=1)  # [B] RAW mass (for the retargeted quantity loss)
+    n = target_lengths.to(device=device, dtype=torch.long).clamp(min=1)  # [B] forced token count
+    # scale each utterance's alpha so it integrates to exactly N (Paraformer training-time scaling).
+    a = alpha * (n.to(alpha.dtype) / sum_alpha.clamp(min=eps))[:, None]
+
+    csum = torch.cumsum(a, dim=1)  # [B, T]
+    prev = csum - a
+    j = torch.floor(prev + eps)
+    fired = torch.floor(csum + eps) > j
+    boundary = j + 1.0
+    w_over = torch.where(fired, csum - boundary, torch.zeros_like(csum))
+    w_stay = a - w_over
+    j = j.long()
+
+    k_max = int(n.max().item())
+    z = features.new_zeros(b, k_max + 1, d)  # +1 slop column for the final boundary's overflow
+    j_stay = j.clamp(min=0, max=k_max)
+    j_over = (j + 1).clamp(min=0, max=k_max)
+    z.scatter_add_(1, j_stay.unsqueeze(-1).expand(-1, -1, d), w_stay.unsqueeze(-1) * features)
+    z.scatter_add_(1, j_over.unsqueeze(-1).expand(-1, -1, d), w_over.unsqueeze(-1) * features)
+    z = z[:, :k_max, :]
+
+    # FORCE exactly N tokens per utterance (robust to float drift in the scaling) so the token axis
+    # aligns 1:1 with the N targets for per-position CE.
+    z_mask = torch.arange(k_max, device=device)[None, :] < n[:, None]  # [B, N_max]
+    z = z * z_mask.unsqueeze(-1).to(z.dtype)
+    diag = {"fires": n, "sum_alpha": sum_alpha, "alpha": alpha, "frame_valid": frame_valid}
+    return z, z_mask, diag

@@ -39,7 +39,7 @@ from .kmeans import build_kmeans_codebook
 NETWORK_MODULE = "two_level.two_level_v1"
 
 # Derived rate constants (25 Hz lower encoder): token rate by token length.
-RATE_80MS = 12.5   # 80 ms tokens  -> 2 frames/token
+RATE_80MS = 12.5  # 80 ms tokens  -> 2 frames/token
 RATE_120MS = 25.0 / 3.0  # 120 ms tokens -> 3 frames/token (~8.333 Hz)
 FRAME_RATE_HZ = 25.0  # codebook fit at the frame rate => window = round(25/25) = 1 => frame-level
 
@@ -48,7 +48,7 @@ def build_model_config(
     *,
     target_rate_hz: float = RATE_80MS,
     num_clusters: int = 128,
-    mask_prob: float = 0.08,   # span-START prob; with mask_length=3 -> ~1-(1-.08)^3 ~= 22% coverage
+    mask_prob: float = 0.08,  # span-START prob; with mask_length=3 -> ~1-(1-.08)^3 ~= 22% coverage
     mask_length: int = 3,
     lambda_qty: float = 1.0,
     cif_kernel: int = 5,
@@ -58,8 +58,14 @@ def build_model_config(
     high_dropout: float = 0.1,
 ) -> TwoLevelConfig:
     feature_extraction_config = LogMelFeatureExtractionV1Config(
-        sample_rate=16000, win_size=0.025, hop_size=0.01,
-        f_min=60, f_max=7600, min_amp=1e-10, num_filters=80, center=False,
+        sample_rate=16000,
+        win_size=0.025,
+        hop_size=0.01,
+        f_min=60,
+        f_max=7600,
+        min_amp=1e-10,
+        num_filters=80,
+        center=False,
     )
     # Lower encoder: 9 layers so its state_dict keys (encoder.module_list.0..8) are a subset of the
     # 12-layer BEST-RQ ckpt -> preload 1:1; frozen + eval at runtime so its dropout value is irrelevant.
@@ -153,12 +159,16 @@ def two_level_pretrain(
     num_epochs: int = 50,
     peak_lr: float = 5e-4,
     batch_size_sec: int = 600,
+    network_module: str = NETWORK_MODULE,
 ):
     """Wire one two-level pretraining run on top of the frozen BEST-RQ base.
 
     1. base BEST-RQ pretraining (reused; we depend on its ``base_epoch`` checkpoint -- default the final);
     2. offline frozen k-means codebook over fixed-window-pooled layer-9 features (the target);
     3. two-level SSL training: encoder preloaded + frozen, train CIF + high encoder + head.
+
+    ``network_module`` defaults to the learned-CIF model (hash-stable for the existing arms); the mean-pool
+    CONTROL passes ``two_level.two_level_meanpool_v1`` (same config + codebook, fixed 2x pool, no CIF/qty).
     """
     # (1)+(2) model config + frozen FRAME-LEVEL target codebook via the shared asset helper, so any
     # downstream probe (analysis/seg_diag) reconstructs byte-identical hashed args -> same codebook job.
@@ -177,15 +187,22 @@ def two_level_pretrain(
     returnn_config = get_training_config(
         train_dataset=ds.audio_hf_dataset(ds.TRAIN_960H, seq_ordering="random", ddp_seq_shard=True),
         dev_dataset=ds.audio_hf_dataset(ds.DEV_ALL, seq_ordering="default"),
-        network_module=NETWORK_MODULE,
+        network_module=network_module,
         net_args={"model_config_dict": asdict(model_config), "codebook": codebook},
         train_step_args={},
         config=config,
     )
     train_job = training(
-        prefix, returnn_config, num_epochs=num_epochs,
-        returnn_exe=RETURNN_EXE, returnn_root=RETURNN_ROOT,
-        num_processes=4, gpu_mem=96, time_rqmt=24, mem_rqmt=100, cpu_rqmt=16,
+        prefix,
+        returnn_config,
+        num_epochs=num_epochs,
+        returnn_exe=RETURNN_EXE,
+        returnn_root=RETURNN_ROOT,
+        num_processes=4,
+        gpu_mem=96,
+        time_rqmt=24,
+        mem_rqmt=100,
+        cpu_rqmt=16,
     )
     # No summary.md registered here: like the BEST-RQ base, the per-experiment summary.md is filled
     # DOWNSTREAM by the CTC finetune (finetune_two_level -> register_multi_wer_summary on this prefix),
@@ -200,7 +217,8 @@ def two_level_80ms_c128():
     80 ms = 2 frames/token: a thin pooling between phoneme and sub-phoneme (the conservative point)."""
     return two_level_pretrain(
         "ssl/pretrain_two_level/ls960_cif80ms_k128",
-        target_rate_hz=RATE_80MS, num_clusters=128,
+        target_rate_hz=RATE_80MS,
+        num_clusters=128,
     )
 
 
@@ -210,5 +228,20 @@ def two_level_120ms_c128():
     and own training job (distinct prefix => distinct hashes); runs alongside the 80 ms arm."""
     return two_level_pretrain(
         "ssl/pretrain_two_level/ls960_cif120ms_k128",
-        target_rate_hz=RATE_120MS, num_clusters=128,
+        target_rate_hz=RATE_120MS,
+        num_clusters=128,
+    )
+
+
+def meanpool_80ms_c128():
+    """CONTROL for the learned CIF segmenter: a FIXED mean-pool of every 2 frames (80 ms / 12.5 Hz),
+    everything else identical to ``two_level_80ms_c128`` (same frozen base, same shared frame-level
+    k-means codebook, same high encoder + masked prediction). Isolates 'does the learned, adaptive CIF
+    segmentation buy anything over a dumb uniform 2x pool at the same token rate?'. Distinct prefix =>
+    distinct job hash; reuses the shared frame codebook job. Compared against the 80 ms CIF arm."""
+    return two_level_pretrain(
+        "ssl/pretrain_two_level/ls960_meanpool80ms_k128",
+        target_rate_hz=RATE_80MS,
+        num_clusters=128,
+        network_module="two_level.two_level_meanpool_v1",
     )

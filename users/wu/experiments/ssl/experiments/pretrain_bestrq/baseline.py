@@ -156,8 +156,8 @@ def bestrq_smoke():
     )
 
 
-def _bestrq_ls960(prefix: str, *, mask_prob: float):
-    """Real BEST-RQ pretraining on LS960 (parameterized by masking `mask_prob`).
+def _bestrq_ls960(prefix: str, *, mask_prob: float, num_layers: int = 12, batch_size_sec: int = 1200):
+    """Real BEST-RQ pretraining on LS960 (parameterized by masking `mask_prob` and encoder depth).
 
     Budget = 100 passes over LS960. partition_epoch=1 => one sub-epoch == one full pass (~1976
     steps/pass at the padding-limited batch, ~12 min), giving frequent checkpoints for the 11.5h
@@ -172,9 +172,14 @@ def _bestrq_ls960(prefix: str, *, mask_prob: float):
     `mask_prob` is the per-frame span-START probability; with mask_length=10 the expected masked
     fraction is 1-(1-p)^10 (spans overlap). 0.04 -> ~33.5% coverage; 0.065 -> ~49% (the validated
     wav2vec2/HuBERT operating point). Only this knob varies across the A/B; everything else identical.
+
+    `num_layers` is the conformer depth (12 = the baseline; 18 = the deeper-encoder control). The
+    defaults (12 layers, batch 1200 s/GPU) reproduce the original config byte-for-byte (hash-stable);
+    the 18-layer control passes num_layers=18 (1.5x params/activations -> watch peak GPU mem, drop
+    batch_size_sec if it OOMs on the 96 GB GH200).
     """
     num_epochs = 100  # per-rank seq sharding => 1 epoch == 1 disjoint pass over LS960 (see note)
-    model_config = build_model_config(mask_prob=mask_prob)
+    model_config = build_model_config(mask_prob=mask_prob, num_layers=num_layers)
     # Per-rank SEQUENCE-level DDP sharding (ddp_seq_shard): the 4 GPUs iterate disjoint quarters of the
     # shuffled order, so one RETURNN epoch is ONE 960h pass (not 4, as an unsharded HF dataset gives).
     # 100 epochs == 100 passes; at batch 1200 s/GPU the effective batch is padding-limited to ~440 s
@@ -189,7 +194,7 @@ def _bestrq_ls960(prefix: str, *, mask_prob: float):
         network_module=NETWORK_MODULE,
         net_args={"model_config_dict": asdict(model_config)},
         train_step_args={},
-        config=_train_config(peak_lr=1e-3, num_epochs=num_epochs, batch_size_sec=1200, num_processes=4),
+        config=_train_config(peak_lr=1e-3, num_epochs=num_epochs, batch_size_sec=batch_size_sec, num_processes=4),
     )
     train_job = training(
         prefix,
@@ -229,4 +234,20 @@ def bestrq_ls960_mask49():
     return _bestrq_ls960(
         "ssl/pretrain_bestrq/ls960_12x512_n4_mask49",
         mask_prob=0.065,
+    )
+
+
+def bestrq_ls960_18x512_base():
+    """DEPTH control for the two-level experiment: a FLAT 18-layer BEST-RQ, normal mask (0.04).
+
+    The two-level model is 9 frozen lower + 9 trainable high = 18 conformer layers total, so this
+    flat 18x512 BEST-RQ is the matched-depth single-level baseline: it isolates 'is the two-level /
+    CIF hierarchy worth anything beyond just making the encoder deeper?'. Same masking, data, budget
+    (100 passes) and LR as ``bestrq_ls960_base`` -- only the depth changes. Distinct prefix => distinct
+    job hash; its downstream LS100 CTC-WER (via ctc_ls100_finetune with num_layers=18) is the headline.
+    """
+    return _bestrq_ls960(
+        "ssl/pretrain_bestrq/ls960_18x512_n4",
+        mask_prob=0.04,
+        num_layers=18,
     )

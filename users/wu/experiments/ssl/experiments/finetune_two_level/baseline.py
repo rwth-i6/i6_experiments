@@ -40,12 +40,17 @@ from ..pretrain_two_level.baseline import (
     build_model_config,
     two_level_80ms_c128,
     two_level_120ms_c128,
+    meanpool_80ms_c128,
     RATE_80MS,
     RATE_120MS,
 )
 
 NETWORK_MODULE = "two_level.two_level_ctc_v1"
 DECODER_MODULE = "two_level.two_level_ctc_v1"
+# FT-2: Paraformer-style scaled-CIF + NAR per-token CE (model == decoder; argmax-per-token, no collapse).
+CE_NETWORK_MODULE = "two_level.two_level_ce_v1"
+# mean-pool CONTROL CTC finetune (fixed 2x pool, no learned segmenter -> single regime).
+MEANPOOL_NETWORK_MODULE = "two_level.two_level_meanpool_ctc_v1"
 
 # two_level_pretrain default num_epochs == 50, so the final pretrained checkpoint is epoch 50.
 PRETRAIN_BASE_EPOCH = 50
@@ -61,10 +66,18 @@ def _ft_run(
     num_epochs: int = 100,
     peak_lr: float = 1e-4,  # FT peak LR (was 5e-4); lowered to match the base BEST-RQ FT and the SSL-paper
     batch_size_sec: int = 480,  # FT/pretrain-LR convention (backbone finetuned well below its pretrain peak).
-    head_lr_multiplier: float = HEAD_LR_MULT,  # fresh CTC heads at Nx the backbone LR (BEST-RQ-style two-rate)
+    head_lr_multiplier: float = HEAD_LR_MULT,  # fresh heads at Nx the backbone LR (BEST-RQ-style two-rate)
     base_epoch: int = PRETRAIN_BASE_EPOCH,
+    network_module: str = NETWORK_MODULE,  # default = CIF CTC FT; mean-pool / CE FT pass their own module
+    decoder_module: str = DECODER_MODULE,
 ):
-    """One FT-1 CTC finetune run on top of a two-level pretrained checkpoint. Returns (train_job, wers)."""
+    """One finetune run on top of a two-level pretrained checkpoint. Returns (train_job, wers).
+
+    The default modules are the FT-1 CIF CTC head; ``network_module``/``decoder_module`` select the
+    mean-pool CTC FT (``two_level.two_level_meanpool_ctc_v1``) or the FT-2 NAR CE head
+    (``two_level.two_level_ce_v1``) instead. ``out_linear``/``aux_linears`` are the fresh heads in all
+    three, so the two-rate head LR multiplier applies uniformly; the NAR-CE recog (argmax per token) is
+    driven by the CE module's own ForwardCallback, reusing the same greedy-recog harness."""
     # Preload the FROZEN lower stack + CIF + high encoder from the two-level pretrained ckpt; the CTC head
     # (out_linear) is fresh, and the pretrained head/mask_emb/codebook buffer are extra -> ignore_missing.
     preload = {
@@ -81,13 +94,15 @@ def _ft_run(
     # two-rate finetune (BEST-RQ-style): fresh CTC heads (out_linear + aux_linears) at head_lr_multiplier x the
     # scheduled LR, pretrained backbone (high encoder + CIF segmenter) at 1x. Same mechanism as the base BEST-RQ FT.
     _apply_head_lr_multiplier(config, head_lr_multiplier)
-    train_set = ds.labeled_hf_dataset(ds.TRAIN_CLEAN_100, spm_model=spm_model, seq_ordering="random", ddp_seq_shard=True)
+    train_set = ds.labeled_hf_dataset(
+        ds.TRAIN_CLEAN_100, spm_model=spm_model, seq_ordering="random", ddp_seq_shard=True
+    )
     dev_set = ds.labeled_hf_dataset(ds.DEV_ALL, spm_model=spm_model, seq_ordering="default")
     keep_epochs = fraction_epochs(num_epochs)
     returnn_config = get_training_config(
         train_dataset=train_set,
         dev_dataset=dev_set,
-        network_module=NETWORK_MODULE,
+        network_module=network_module,
         net_args={
             "model_config_dict": asdict(model_config),
             "vocab_size": SPM_VOCAB_SIZE,
@@ -120,7 +135,7 @@ def _ft_run(
         spm_model=spm_model,
         returnn_exe=RETURNN_EXE,
         returnn_root=RETURNN_ROOT,
-        decoder_module=DECODER_MODULE,
+        decoder_module=decoder_module,
     )
     # NOTE: no automatic best-checkpoint selection -- the dev optimum is read directly off the per-epoch WER
     # tables in the summary (register_multi_wer_summary); dev CTC loss bottoms early on LS100 while WER gains.
@@ -128,7 +143,11 @@ def _ft_run(
 
 
 def _ft_arm(arm: str, pretrain_job, model_config, *, num_epochs: int = 100):
-    """Wire BOTH FT-1 regimes for one pretrained arm and mirror their WER into the pretrain summary.md.
+    """Wire all finetune heads for one CIF pretrained arm and mirror their WER into the pretrain summary.md.
+
+    Three downstream variants, one summary table each: FT-1 CTC (frozen segmenter), FT-1 CTC (trainable
+    segmenter), and FT-2 CE (Paraformer-style scaled-CIF + NAR per-token CE). All preload the same frozen
+    lower stack + CIF + high encoder from the pretrained ckpt.
 
     :param arm: the pretraining arm name, e.g. ``ls960_cif80ms_k128`` (also the pretrain prefix tail).
     """
@@ -147,15 +166,29 @@ def _ft_arm(arm: str, pretrain_job, model_config, *, num_epochs: int = 100):
             num_epochs=num_epochs,
         )
         named[label] = (wers, num_epochs)
-    # surface BOTH variants' downstream WER as the pretraining experiment's headline (not the SSL losses)
+    # FT-2 CE: scaled-CIF + per-token CE (Paraformer-style NAR). TRAINABLE segmenter only -- the CIF must
+    # retune from the pretrained ~12.5/8.33 Hz rate down to the SPM label rate, so a frozen segmenter would
+    # fire ~12.5 Hz >> N at inference (NAR garbage). The CE module is its own NAR decoder (argmax/token).
+    _job, wers = _ft_run(
+        f"ssl/finetune_two_level/{arm}/ft2_ce_trainseg",
+        pretrain_job=pretrain_job,
+        model_config=model_config,
+        spm_model=spm_model,
+        freeze_segmenter=False,
+        num_epochs=num_epochs,
+        network_module=CE_NETWORK_MODULE,
+        decoder_module=CE_NETWORK_MODULE,
+    )
+    named["FT-2 CE · scaled-CIF (Paraformer)"] = (wers, num_epochs)
+    # surface ALL downstream variants' WER as the pretraining experiment's headline (not the SSL losses)
     register_multi_wer_summary(
-        f"ssl/pretrain_two_level/{arm}", named, title="two-level downstream CTC-WER"
+        f"ssl/pretrain_two_level/{arm}", named, title="two-level downstream WER (FT-1 CTC + FT-2 CE)"
     )
     return named
 
 
 def two_level_ft_80ms():
-    """FT-1 CTC finetune (frozen + trainable segmenter) on the 80 ms / 128-cluster pretrained arm."""
+    """FT-1 CTC (frozen + trainable seg) + FT-2 CE on the 80 ms / 128-cluster pretrained arm."""
     pretrain_job = two_level_80ms_c128()
     # high_dropout 0.15 for FT (the pretrain default is 0.1) -> matches the base BEST-RQ CTC FT; dropout is a
     # runtime config (not a weight), so it does not affect the preload of the pretrained high-encoder weights.
@@ -164,8 +197,35 @@ def two_level_ft_80ms():
 
 
 def two_level_ft_120ms():
-    """FT-1 CTC finetune (frozen + trainable segmenter) on the 120 ms / 128-cluster pretrained arm."""
+    """FT-1 CTC (frozen + trainable seg) + FT-2 CE on the 120 ms / 128-cluster pretrained arm."""
     pretrain_job = two_level_120ms_c128()
     # high_dropout 0.15 for FT (see two_level_ft_80ms): matches the base BEST-RQ CTC FT; preload unaffected.
     model_config = build_model_config(target_rate_hz=RATE_120MS, num_clusters=128, high_dropout=0.15)
     return _ft_arm("ls960_cif120ms_k128", pretrain_job, model_config)
+
+
+def meanpool_ft_80ms():
+    """CTC finetune of the mean-pool CONTROL arm (single regime: no learned segmenter to freeze).
+
+    Mirrors the FT-1 CTC recipe detail-for-detail (peak 1e-4, two-rate head 3x, dropout 0.15, SpecAug,
+    InterCTC aux [4,8]@0.3) on the mean-pool pretrained ckpt, so the only difference vs the 80 ms CIF
+    arm's ``ft1_ctc_*`` WER is the segmenter (fixed 2x pool vs learned CIF). One WER table in summary.md."""
+    pretrain_job = meanpool_80ms_c128()
+    model_config = build_model_config(target_rate_hz=RATE_80MS, num_clusters=128, high_dropout=0.15)
+    _spm_ds, spm_model = get_ls960_spm()
+    _job, wers = _ft_run(
+        "ssl/finetune_two_level/ls960_meanpool80ms_k128/ft1_ctc",
+        pretrain_job=pretrain_job,
+        model_config=model_config,
+        spm_model=spm_model,
+        freeze_segmenter=False,  # inert for the mean-pool model (swallowed); kept for the uniform _ft_run API
+        num_epochs=100,
+        network_module=MEANPOOL_NETWORK_MODULE,
+        decoder_module=MEANPOOL_NETWORK_MODULE,
+    )
+    register_multi_wer_summary(
+        "ssl/pretrain_two_level/ls960_meanpool80ms_k128",
+        {"FT-1 CTC · fixed mean-pool 2x": (wers, 100)},
+        title="mean-pool control downstream CTC-WER",
+    )
+    return wers

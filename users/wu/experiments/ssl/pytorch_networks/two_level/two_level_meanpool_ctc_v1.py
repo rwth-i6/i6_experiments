@@ -1,32 +1,14 @@
 """
-Two-level BEST-RQ + CIF model with a CTC FINETUNE head (FT-1), RETURNN/torch.
+Two-level BEST-RQ + fixed MEAN-POOL with a CTC FINETUNE head (FT-1) -- the CONTROL finetune for the
+mean-pool pretrain (``two_level_meanpool_v1``).
 
-Reuses the pretrained two-level stack -- FROZEN lower 9-layer rel-pos Conformer (layer-9 @ 25 Hz) +
-CIF segmenter + 9-layer high Conformer -- and swaps the masked-prediction head for a single CTC head
-over the variable-length CIF token sequence. SPM-5120 labels, torch ``nn.functional.ctc_loss``, with
-blank = last index = ``vocab_size`` (labels keep ``0..vocab_size-1``). See [[cif-length-control-and-finetune]].
+Identical to ``two_level_ctc_v1`` EXCEPT the CIF segmenter is replaced by the fixed mean-pool of every
+``factor`` frames (``factor = round(frame_rate / target_rate)``). There is therefore only ONE regime
+(no ``freeze_segmenter``: there is nothing learned to freeze). Same frozen lower stack, same 9-layer high
+Conformer, same single CTC head + InterCTC aux heads, same SpecAugment, same greedy decoder. SPM-5120
+labels, torch ``ctc_loss``, blank = last index = ``vocab_size``.
 
-Two finetune regimes, selected by the ``freeze_segmenter`` net-arg:
-  * ``freeze_segmenter=True``  -> CIF alpha predictor FROZEN: the pretrained segmentation is held fixed,
-    so the pooled tokens ``z`` are a constant function of the audio and only the high encoder + CTC head
-    adapt. This is the clean probe of *pretrained segmentation* quality.
-  * ``freeze_segmenter=False`` -> CIF alpha predictor TRAINABLE: the segmenter co-adapts to the CTC
-    objective (the best-WER arm / ablation).
-RAW integrate-and-fire either way (NO alpha scaling), matching pretraining -- so the realized token rate
-stays ~2-3x the SPM label rate and CTC's ``K >= N`` holds. The lower stack (log-mel + 9-layer encoder +
-global-norm) is ALWAYS frozen and forced ``eval`` (the model's premise; dropout off -> deterministic h).
-
-The frozen lower forward + the CIF integrate-and-fire run with autocast DISABLED (fp32): under RETURNN's
-bf16 autocast the cumsum saturates and silently corrupts the tokens (see [[cif-bf16-fp32]]).
-
-Greedy decoding (``forward_step`` / ``ForwardCallback``) is identical to the base CTC decoder -- per-
-position argmax over the K token slots -> collapse repeats -> drop blank -> SPM-decode to words, writing
-the standard ``search_out.py`` -> sclite WER downstream.
-
-Logged each step (kept small, see [[readable-loss-logging]]): optimized ``ctc`` (final head) + InterCTC
-aux ``ctc_aux4``/``ctc_aux8`` (scale 0.3 each, imitating the base CTC finetune); diagnostics (scale=0)
-``tok_per_lab`` (CIF tokens / labels; the CTC ``K>=N`` headroom), ``fps_tok`` (realized frames/token ==
-the rate dial), ``infeasible`` (fraction of seqs with K < N -> CTC drops them via zero_infinity).
+fp32 / autocast OFF around the frozen lower forward + pooling, matching the CIF FT (see [[cif-bf16-fp32]]).
 """
 
 from __future__ import annotations
@@ -41,31 +23,29 @@ from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
 from i6_models.primitives.specaugment import specaugment_v1_by_length
 
 from .two_level_v1_cfg import TwoLevelConfig
-from .parts.cif import CIFAlphaPredictor, cif_pool
+from .parts.cif import mean_pool
 from ..best_rq.parts.input_norm import apply_global_norm
 from ..common.conformer import build_conformer_encoder, build_high_conformer_encoder, sequence_mask
 
 
 class Model(nn.Module):
-    def __init__(self, model_config_dict, vocab_size, freeze_segmenter=False, specaug_start_step=None, **kwargs):
+    def __init__(self, model_config_dict, vocab_size, specaug_start_step=None, **kwargs):
         """
-        :param model_config_dict: asdict(TwoLevelConfig) -- the SAME architecture config as the pretrained
-            two-level model (only the head differs), so its lower/CIF/high keys load 1:1 from the ckpt.
+        :param model_config_dict: asdict(TwoLevelConfig) -- SAME architecture config as the mean-pool
+            pretrain, so its lower/high keys preload 1:1 from the pretrained ckpt.
         :param vocab_size: SPM vocab size; CTC labels are ``0..vocab_size-1`` and blank == ``vocab_size``.
-        :param freeze_segmenter: if True, freeze the CIF alpha predictor (probe pretrained segmentation).
-        :param specaug_start_step: if set, apply SpecAugment on the log-mel input once the global train step
-            reaches this value (train-only, off at recog). Strength matches the base CTC finetune
-            (conformer_ctc_v1: time ~40%, freq ~35%). None => off. The base BEST-RQ FT uses 2000; we imitate.
+        :param specaug_start_step: if set, SpecAugment on the log-mel input once the global step reaches it
+            (train-only). Matches the base CTC finetune strength. ``**kwargs`` swallows any inert net-args
+            (e.g. freeze_segmenter, which is meaningless without a learned segmenter).
         """
         super().__init__()
         self.cfg = cfg = TwoLevelConfig.from_dict(model_config_dict)
         conf = cfg.encoder_config.conformer_size
         self.vocab_size = int(vocab_size)
-        self.blank_idx = self.vocab_size  # blank = last index
-        self.freeze_segmenter = bool(freeze_segmenter)
+        self.blank_idx = self.vocab_size
         self.specaug_start_step = None if specaug_start_step is None else int(specaug_start_step)
 
-        # ---- frozen lower stack (names match the pretrained two-level / BEST-RQ ckpt keys) ----
+        # ---- frozen lower stack (names match the pretrained ckpt keys) ----
         self.feature_extraction = LogMelFeatureExtractionV1(cfg=cfg.feature_extraction_config)
         self.encoder = build_conformer_encoder(cfg.encoder_config)  # 9 layers
         for p in self.feature_extraction.parameters():
@@ -75,43 +55,36 @@ class Model(nn.Module):
         self.register_buffer("global_mean", torch.tensor(cfg.global_mean, dtype=torch.float32))
         self.register_buffer("global_std", torch.tensor(cfg.global_std, dtype=torch.float32))
 
-        # ---- CIF segmenter (trainable unless frozen) + high encoder + CTC head ----
-        self.cif_alpha = CIFAlphaPredictor(conf, kernel_size=cfg.cif_alpha_kernel_size)
-        if self.freeze_segmenter:
-            for p in self.cif_alpha.parameters():
-                p.requires_grad = False
+        # ---- high encoder + CTC heads (NO segmenter params: pooling is fixed) ----
         self.high_encoder = build_high_conformer_encoder(cfg.high_encoder_config)
         self.out_linear = nn.Linear(conf, self.vocab_size + 1)  # final-layer CTC head (scale 1.0), blank = last
-        # InterCTC aux heads on intermediate HIGH-encoder layers -- imitates the base CTC finetune
-        # (conformer_ctc_v1: aux at layers 4 & 8, scale 0.3 each). 9-layer high encoder -> 0-indexed [3, 7].
-        self.aux_layer_idx = [3, 7]
+        self.aux_layer_idx = [3, 7]  # InterCTC at high-encoder layers 4 & 8 (0-indexed), == the CIF FT
         self.aux_scales = [0.3, 0.3]
         assert max(self.aux_layer_idx) < cfg.high_encoder_config.num_layers - 1, "aux layers must be below the final"
         self.aux_linears = nn.ModuleList([nn.Linear(conf, self.vocab_size + 1) for _ in self.aux_layer_idx])
 
-        # DERIVED frame rate guard (== two_level_v1): 16 kHz / hop(160) / VGG 4x = 25 Hz.
-        derived = cfg.feature_extraction_config.sample_rate / (
-            cfg.feature_extraction_config.hop_size * cfg.feature_extraction_config.sample_rate
-        ) / 4.0
+        derived = (
+            cfg.feature_extraction_config.sample_rate
+            / (cfg.feature_extraction_config.hop_size * cfg.feature_extraction_config.sample_rate)
+            / 4.0
+        )
         assert abs(derived - cfg.frame_rate_hz) < 1e-6, f"frame_rate {cfg.frame_rate_hz} != derived {derived}"
+        factor = round(cfg.frame_rate_hz / cfg.target_rate_hz)
+        assert factor >= 1 and abs(factor - cfg.frame_rate_hz / cfg.target_rate_hz) < 1e-6
+        self.pool_factor = factor
         self.num_high_layers = cfg.high_encoder_config.num_layers
 
     def forward(self, raw_audio: torch.Tensor, raw_audio_len: torch.Tensor):
-        """:return: (log_probs [B, K, vocab+1], token_lengths [B], diag)."""
+        """:return: (log_probs [B, K, vocab+1], token_lengths [B], aux_log_probs, diag)."""
         if raw_audio.dim() == 3:
             raw_audio = raw_audio.squeeze(-1)
 
-        # fp32 / autocast OFF: frozen lower encoder + CIF integrate-and-fire (bf16 cumsum saturates ->
-        # silent token corruption; see [[cif-bf16-fp32]]). High encoder + head stay bf16 (outside).
         with torch.autocast(device_type=raw_audio.device.type, enabled=False):
             self.feature_extraction.eval()
             self.encoder.eval()
             with torch.no_grad():
                 features, feat_len = self.feature_extraction(raw_audio, raw_audio_len)  # [B, Tf, 80]
                 normed = apply_global_norm(features, feat_len, self.global_mean, self.global_std)
-                # SpecAugment on the log-mel input (train-only, step-gated) -- imitates the base CTC
-                # finetune (conformer_ctc_v1): SAME mask strength, applied before the FROZEN lower encoder
-                # so it augments the features the CIF segmenter + high encoder + head all see. Off at recog.
                 if (
                     self.training
                     and self.specaug_start_step is not None
@@ -130,23 +103,17 @@ class Model(nn.Module):
                 enc_layers, out_mask = self.encoder(normed, seq_mask, return_layers=[self.cfg.lower_layer_index])
                 h = enc_layers[-1]  # [B, T, 512] layer-9 features @ 25 Hz
             h = h.detach().float()
-            frame_len = out_mask.sum(dim=1).long()  # [B] valid 25 Hz frame counts
+            frame_len = out_mask.sum(dim=1).long()
 
-            # CIF: RAW integrate-and-fire (same as pretraining). When the segmenter is frozen, alpha has
-            # no trainable params upstream -> z is a fixed function of the audio and grad reaches only the
-            # high encoder + head; when trainable, grad flows CTC -> z -> alpha -> cif_alpha.
-            alpha = self.cif_alpha(h)                        # [B, T] in (0,1)
-            z, z_mask, diag = cif_pool(h, alpha, frame_len)  # z [B, K, 512] fp32
+            z, z_mask, diag = mean_pool(h, frame_len, factor=self.pool_factor)  # z [B, K, 512] fp32
 
-        # ---- high encoder (no frontend) over the CIF tokens -> CTC heads (input SpecAugment above) ----
+        # ---- high encoder (no frontend) over the pooled tokens -> CTC heads ----
         final_idx = self.num_high_layers - 1
         want = sorted(set(self.aux_layer_idx + [final_idx]))
         hi_layers, _ = self.high_encoder(z, z_mask, return_layers=want)
         by_idx = {li: hi_layers[i] for i, li in enumerate(want)}
         log_probs = torch.log_softmax(self.out_linear(by_idx[final_idx]), dim=-1)  # [B, K, vocab+1]
-        token_lengths = z_mask.sum(dim=1)  # [B] valid CIF token counts (== K_b)
-        # aux InterCTC heads, computed in BOTH train AND eval (RETURNN runs train_step on dev too, in eval
-        # mode; gating on self.training would empty this and crash train_step). Recog (forward_step) ignores.
+        token_lengths = z_mask.sum(dim=1)
         aux_log_probs = {}
         for head, li in zip(self.aux_linears, self.aux_layer_idx):
             aux_log_probs[li + 1] = torch.log_softmax(head(by_idx[li]), dim=-1)
@@ -166,24 +133,29 @@ def train_step(*, model: Model, extern_data, **kwargs):
 
     log_probs, input_lengths, aux_log_probs, diag = model(raw_audio=raw_audio, raw_audio_len=raw_audio_len)
 
-    # torch CTC: log_probs (T, B, C) float32; lengths on CPU int32 (cuDNN requirement). The "time" axis
-    # here is the CIF token axis K (per-seq input_lengths), label-normalized (i6 canonical: sum / #labels).
     il_cpu = input_lengths.to(torch.int32).cpu()
     tl_cpu = target_lengths.cpu()
     n_labels = target_lengths.sum().clamp(min=1)
 
     def _ctc(lp):
-        return torch.nn.functional.ctc_loss(
-            lp.transpose(0, 1).float(), targets, il_cpu, tl_cpu,
-            blank=model.blank_idx, reduction="sum", zero_infinity=True,
-        ) / n_labels
+        return (
+            torch.nn.functional.ctc_loss(
+                lp.transpose(0, 1).float(),
+                targets,
+                il_cpu,
+                tl_cpu,
+                blank=model.blank_idx,
+                reduction="sum",
+                zero_infinity=True,
+            )
+            / n_labels
+        )
 
-    run_ctx.mark_as_loss(loss=_ctc(log_probs), name="ctc", dims=[])  # final head, scale 1.0
-    for li, scale in zip(model.aux_layer_idx, model.aux_scales):  # intermediate-layer aux InterCTC heads
-        if (li + 1) in aux_log_probs:  # defensive: aux present in train+eval; recog ignores
+    run_ctx.mark_as_loss(loss=_ctc(log_probs), name="ctc", dims=[])
+    for li, scale in zip(model.aux_layer_idx, model.aux_scales):
+        if (li + 1) in aux_log_probs:
             run_ctx.mark_as_loss(loss=_ctc(aux_log_probs[li + 1]), name=f"ctc_aux{li + 1}", scale=scale, dims=[])
 
-    # --- small diagnostics (scale=0): K>=N headroom, the rate dial, and CTC-infeasible fraction ---
     with torch.no_grad():
         tok = input_lengths.float().sum().clamp(min=1)
         tok_per_lab = tok / target_lengths.float().sum().clamp(min=1)
@@ -242,7 +214,7 @@ class ForwardCallback(ForwardCallbackIface):
         else:
             collapsed = frames
         ids = [int(i) for i in collapsed if int(i) != self._blank_idx]
-        hyp = self.sp.decode(ids)  # piece-merge + '▁' -> space -> word string
+        hyp = self.sp.decode(ids)
         self.recognition_file.write("%s: %s,\n" % (repr(seq_tag), repr(hyp)))
 
     def finish(self):
