@@ -15,7 +15,7 @@ import argparse
 import logging
 import time
 from functools import reduce
-from typing import TypeVar
+from typing import TypeVar, Optional
 
 _my_dir = os.path.dirname(__file__)
 _base_recipe_dir = reduce(lambda p, _: os.path.dirname(p), range(4), _my_dir)
@@ -150,6 +150,8 @@ def main():
     print("Building alias->job reverse map from the alias/ dir (to find aliases missing from info files)...")
     alias_reverse_map = _build_alias_reverse_map()  # realpath(train job dir) -> [alias paths]
     print("  found train aliases for", len(alias_reverse_map), "distinct job dirs.")
+    # Realpaths of the configs we were given; used to skip jobs created by a different config.
+    config_file_realpaths = {os.path.realpath(c) for c in args.config}
     # 'Unused' jobs whose real storage is in ANOTHER setup (imported symlink, e.g. the shared LM):
     # listed for transparency but NEVER collected for removal (deleting them corrupts the other setup).
     imported_unused = []  # list of (alias-or-basename, fn, realpath)
@@ -199,6 +201,14 @@ def main():
         if not any(m.endswith(".pt") for m in os.listdir(model_dir)) and any(
             b.startswith("error.run.") for b in os.listdir(fn)
         ):
+            continue
+
+        # Detect the recipe/config that created this job: the first non-Sisyphus stack frame
+        # in the info file. If it is not among the configs we were given, this job belongs to a
+        # different setup/config (e.g. exp2026_05_27_chunked_ctc_ls.py); skip it -- not ours to clean.
+        recipe_file = _recipe_file_from_info(fn)
+        if recipe_file is not None and recipe_file not in config_file_realpaths:
+            print("Skipping (created by a different config):", os.path.basename(recipe_file), "->", basename)
             continue
 
         # Aliases recorded in this job's own info file (assigned when it was created).
@@ -339,6 +349,39 @@ def main():
         print("Dry-run mode, not removing. (use --mode remove to actually remove)")
     else:
         raise ValueError("invalid mode: %r" % args.mode)
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _recipe_file_from_info(job_dir: str) -> Optional[str]:
+    """
+    Parse the job's info file STACKTRACE and return the first non-Sisyphus source file --
+    the recipe/config entry point that created the job -- as an absolute realpath,
+    or None if it cannot be determined.
+    """
+    try:
+        with open(job_dir + "/info") as f:
+            lines = f.readlines()
+    except OSError:
+        return None
+    in_trace = False
+    for line in lines:
+        if line.startswith("STACKTRACE:"):
+            in_trace = True
+            continue
+        if not in_trace:
+            continue
+        clean = _ANSI_RE.sub("", line)
+        m = re.search(r'File "([^"]+)", line ', clean)
+        if not m:
+            continue
+        path = m.group(1)
+        # Skip Sisyphus framework frames: the 'sis' launcher and everything under tools/sisyphus/.
+        if "/sisyphus/" in path or os.path.basename(path) == "sis":
+            continue
+        return os.path.realpath(path)
+    return None
 
 
 def _build_alias_reverse_map() -> dict:
