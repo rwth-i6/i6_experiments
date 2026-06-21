@@ -122,9 +122,6 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.parakeet
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.owsm_ctc_forced_align import (
     OwsmCtcForcedAlignJob,
 )
-from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.align_cost_benchmark import (
-    AlignCostBenchmarkJob,
-)
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.batch_equiv_probe import (
     BatchForwardEquivalenceProbeJob,
 )
@@ -3277,33 +3274,8 @@ def py():
             _pp_al.add_alias(_pp_nm)
             reg(f"{_pp_nm}-wbe.txt", _pp_al.out_wbe)
 
-    # === Cost benchmark: forward vs batched grad-backward, per model, same GPU =========
-    # Speech LLMs need eager attention for the batched backward (FlashAttention's backward has no vmap
-    # rule); the CTC/transducer/Whisper models batch on their default attention.
-    _cost_models = {
-        "Wav2Vec2-CTC": rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out", per_token_score="prefix_fwd"),
-        "Nvidia CTC": parakeet_ctc_prefixfwd_cfg,
-        "OWSM-CTC": owsm_ctc_prefixfwd_cfg,
-        "Whisper-base": rf.build_dict(
-            Whisper, model_dir=dl_whisper.out_hub_cache_dir, char_level=True, char_level_sep=" "
-        ),
-        "Parakeet RNN-T": pk_cfg,
-        "Parakeet TDT": tdt_grad_cfg,
-        "Voxtral": voxtral_charlev_logmel_cfg,
-        "Phi-4-MM": _phi4mm_model_config(
-            dl_phi4mi_dir, char_level=True, char_level_sep=" ", attn_implementation="eager"
-        ),
-        "Canary-Qwen": canary_charlev_logmel_st15_cfg,
-    }
-    _cost_bench = AlignCostBenchmarkJob(
-        model_configs=_cost_models,
-        dataset_dir=dl_ds_timit.out_hub_cache_dir,
-        dataset_key="test",
-        num_seqs=40,
-    )
-    _cost_bench.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-    _cost_bench.add_alias("cost-benchmark")
-    reg("cost-benchmark-metrics.txt", _cost_bench.out_metrics)
+    # (cost benchmark removed: the paper cost table is the 4-way AlignCost4WayBenchmarkJob in
+    # exp2026_05_23_grad_align_p212; AlignCostBenchmarkJob's cost-benchmark-metrics.txt fed no table.)
     whisper_fa_test = WhisperCrossAttnForcedAlignJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_key="test", overlay=_WHISPER_TS_OVERLAY
     )
@@ -5523,120 +5495,9 @@ def py():
 
     _hy_metrics(f"crisperwhisper-official-{_xa_tag}", _cw_off.out_word_boundaries_hdf, _cw_off_ds.out_hub_cache_dir)
 
-    # === Time-stretch / length robustness, redesigned (Buckeye-segA, opposite-sign resolution story) ==
-    # Stretch the audio by a fixed factor (vocoder, pitch-preserving), align on the ORIGINAL timeline.
-    # The SAME mechanism, opposite sign across the model's grad-resolution:
-    #   wav2vec2-CTC grad (fine ~50Hz grid) -- stretch only HURTS (a robustness limitation),
-    #   Voxtral grad (coarse projected-embedding grid) -- mild stretch HELPS (upsamples the coarse grid),
-    #   MMS-FA forced-align re-runs Viterbi on the stretched audio, so it stays ~flat (robust reference).
-    # factor 2.0 = twice as long / half speed; factor 0.5 = half as long / double speed.
-    _TS_FACTORS = [0.5, 0.75, 1.0, 1.2, 1.5, 2.0, 3.0]
-    # Two stretch methods: vocoder (pitch-preserving phase vocoder) and resample (clean interpolation,
-    # pitch-shifted). vocoder keeps the original (unsuffixed) job names+hashes; resample is opt-in.
-    for _tsf in _TS_FACTORS:
-        _tst = f"ts{_tsf}"
-        for _tsm, _tsm_sfx in [("vocoder", ""), ("resample", "-resample")]:
-            # factor 1.0 == no stretch:
-            # omit audio_time_stretch (and the method) entirely,
-            # so the config hashes identically to the base (no-stretch) extract and REUSES it,
-            # instead of recomputing the same result via the (slow) vocoder path under a new hash.
-            # build_dict / the job only hash the kwargs actually passed,
-            # so dropping them collapses both the vocoder and resample 1.0 columns onto the base.
-            if _tsf == 1.0:
-                _ts_mkw = {}  # grad-extract model_config kwargs
-                _ts_fakw = {}  # MMS-FA forced-align kwargs
-            else:
-                _ts_mkw = {
-                    "audio_time_stretch": _tsf,
-                    **({} if _tsm == "vocoder" else {"time_stretch_method": "resample"}),
-                }
-                _ts_fakw = {"audio_time_stretch": _tsf, "time_stretch_method": _tsm}
-            # wav2vec2-CTC grad (fine grid): robustness rows. Capped at <2.0x: at 2.0/3.0 the audio is
-            # 2-3x longer, so the extract over the full 2234-seq segA set exceeds the 24h walltime (table
-            # marks those cells "too slow"). The fine-grid degradation is already clear by 1.5x.
-            if _tsf < 2.0:
-                _tsw_cfg = rf.build_dict(
-                    Wav2Vec2Ctc,
-                    grad_wrt="feat_proj_out",
-                    per_token_score="prefix_fwd",
-                    **_ts_mkw,
-                )
-                _tsw_ex = ExtractInGradsPerTokenJob(
-                    dataset_dir=_xa_dir,
-                    dataset_key="test",
-                    model_config=_tsw_cfg,
-                    mult_grad_by_inputs=False,
-                    attr_reduction="L2",
-                    batched_backward=True,
-                )
-                _tsw_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-                _tsw_name = f"wav2vec2ctc-fproj_out-prefixfwd-{_xa_tag}-L2_grad-pertoken-{_tst}{_tsm_sfx}"
-                _tsw_ex.add_alias(_tsw_name)
-                reg(f"{_tsw_name}.hdf", _tsw_ex.out_hdf)
-                _tsw_al = WordAlignFromPerTokenGradsJob(
-                    grad_score_hdf=_tsw_ex.out_hdf,
-                    grad_score_key="data",
-                    dataset_dir=_xa_dir,
-                    dataset_key="test",
-                    dataset_offset_factors=_xa_off,
-                    align_opts=_xa_ao,
-                    audio_energy_pow=0.5,
-                    blank_silence_energy_scale=1.0,
-                )
-                _tsw_nm = f"align/{_tsw_name}-{_name_for_dict(_xa_ao)}-en0.5-sil1.0"
-                _tsw_al.add_alias(_tsw_nm)
-                reg(f"{_tsw_nm}-wbe.txt", _tsw_al.out_wbe)
-            # Voxtral grad on the COARSE projected-speech-embedding grid (the upsampling-sensitive surface).
-            # Voxtral's Whisper encoder caps at 30 s: an 18 s segment x >=2 stretch exceeds it,
-            # splitting into 2 encoder chunks (the single-chunk grad extract asserts),
-            # so cap usable stretch at <2x.
-            if _tsf < 2.0:
-                _tsv_cfg = rf.build_dict(
-                    Voxtral,
-                    model_dir=dl_voxtral,
-                    forward_mode="transcription",
-                    grad_wrt="log_mel",
-                    char_level=True,
-                    char_level_sep=" ",
-                    version=7,
-                    **_ts_mkw,
-                )
-                _tsv_ex = ExtractInGradsPerTokenJob(
-                    dataset_dir=_xa_dir,
-                    dataset_key="test",
-                    model_config=_tsv_cfg,
-                    mult_grad_by_inputs=False,
-                    attr_reduction="L2",
-                )
-                _tsv_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-                _tsv_ex.rqmt = {**_tsv_ex.rqmt, "time": 24}
-                _tsv_name = f"voxtral-charlevlogmel-{_xa_tag}-L2_grad-pertoken-{_tst}{_tsm_sfx}"
-                _tsv_ex.add_alias(_tsv_name)
-                reg(f"{_tsv_name}.hdf", _tsv_ex.out_hdf)
-                _tsv_al = WordAlignFromPerTokenGradsJob(
-                    grad_score_hdf=_tsv_ex.out_hdf,
-                    grad_score_key="data",
-                    dataset_dir=_xa_dir,
-                    dataset_key="test",
-                    dataset_offset_factors=_xa_off,
-                    align_opts=_xa_ao,
-                    audio_energy_pow=0.5,
-                    blank_silence_energy_scale=1.0,
-                )
-                _tsv_nm = f"align/{_tsv_name}-{_name_for_dict(_xa_ao)}-en0.5-sil1.0"
-                _tsv_al.add_alias(_tsv_nm)
-                reg(f"{_tsv_nm}-wbe.txt", _tsv_al.out_wbe)
-            # MMS-FA forced-align (robust reference; re-runs Viterbi on the stretched audio).
-            _tsf_fa = ForcedAlignBaselineJob(dataset_dir=_xa_dir, dataset_key="test", **_ts_fakw)
-            _tsf_name = f"baseline-mms_fa-{_xa_tag}-{_tst}{_tsm_sfx}"
-            _tsf_fa.add_alias(_tsf_name)
-            _tsf_m = CalcAlignmentMetricsFromWordBoundariesJob(
-                word_boundaries_hdf=_tsf_fa.out_hdf,
-                dataset_dir=_xa_dir,
-                dataset_key="test",
-                dataset_offset_factors=_xa_off,
-            )
-            reg(f"{_tsf_name}-wbe.txt", _tsf_m.out_wbe)
+    # Time-stretch / length-robustness wiring MOVED to the torch-2.12 companion recipe
+    # exp2026_05_23_grad_align_p212 (its wav2vec2-CTC ts cells need the compiled-scan split, torch-2.12
+    # only; finished 2.7 ts cells are reused there by hash). The generic twin generator below stays.
 
     # Generic blank-scheme twins (+ sensitivity sweep), from each plain en0.5-sil1.0 grad/attn align.
     # Every align gets const (en0.5) and z-score (en0.5-zsk1.0) twins, so any table can pick const for

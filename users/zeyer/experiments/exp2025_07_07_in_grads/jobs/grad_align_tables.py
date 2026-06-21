@@ -64,7 +64,8 @@ def build_tables(results):
     _owsm_layer_table()  # OWSM grad-align per inter-CTC emit block (side table)
     _prompt_splice_table()  # generalized prompt-splice: 3 LLMs x grad + self-attn (Buckeye-segA)
     _streaming_offset_table()  # streaming start/end signed offset (grad vs native viterbi)
-    _time_stretch_table()  # length robustness (grad vs MMS-FA, vocoder vs resample)
+    # _time_stretch_table() is built by the torch-2.12 companion recipe exp2026_05_23_grad_align_p212
+    # (its wav2vec2-CTC ts cells need the compiled-scan split, torch-2.12 only); see build_time_stretch_table.
     _word_length_table()  # word-duration accuracy (signed word-width error) per model
     _matched_tok_table()  # matched-tokenization: grad vs cross-attn x char/subword (whisper)
     _ablation_table()  # T3a grad-score reduction (cross-model)
@@ -79,6 +80,20 @@ def build_tables(results):
             "always a bug (typo / rename / unwired job), never a pending cell, since a registered-but-\n"
             "unfinished output is still in _RESULTS. Fix the name or wire the job:\n  " + "\n  ".join(sorted(_MISSING))
         )
+
+
+def build_time_stretch_table(results):
+    """Build ONLY the time-stretch table, from a results dict the caller owns.
+    The torch-2.12 companion recipe (exp2026_05_23_grad_align_p212) owns this table's data:
+    the slow wav2vec2-CTC ts cells run there with split_prefix_backward (compiled scan),
+    and the finished torch-2.7 cells (other ts factors, voxtral, MMS-FA) are reused by hash.
+    Built there, NOT in build_tables(), so the main 2.7 recipe never references the 2.12-only split jobs."""
+    global _RESULTS
+    _RESULTS = results
+    _MISSING.clear()
+    _time_stretch_table()
+    if _MISSING:
+        raise AssertionError("time-stretch table references unregistered outputs:\n  " + "\n  ".join(sorted(_MISSING)))
 
 
 def _emit(name, columns, rows):
@@ -291,10 +306,8 @@ def _time_stretch_table():
                 if model == "Voxtral" and float(ts) >= 2.0:
                     cells[k] = "too long"
                     continue
-                # Wav2Vec2 at >=2x: 2-3x longer audio over the full set exceeds the 24h walltime.
-                if model == "Wav2Vec2" and float(ts) >= 2.0:
-                    cells[k] = "too slow"
-                    continue
+                # Wav2Vec2 ts>=2.0 used to be "too slow" (>24h on torch-2.7 eager); now computed via the
+                # compiled-scan split under the torch-2.12 companion recipe (exp..._p212), so read the cell.
                 cells[k] = _wbe(basefn(ts, msfx))
             rows.append({"cells": cells})
     _emit("time-stretch", columns, rows)

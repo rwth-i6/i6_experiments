@@ -59,6 +59,15 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.align_co
     AlignCost4WayBenchmarkJob,
 )
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.table_data import WriteTableDataJob
+from i6_experiments.users.zeyer.external_models.voxtral import download_voxtral_mini_3b_model
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.voxtral import Voxtral
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.forced_align_baseline import (
+    ForcedAlignBaselineJob,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_05_05_align import CalcAlignmentMetricsFromWordBoundariesJob
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.grad_align_tables import (
+    build_time_stretch_table,
+)
 
 # Same align settings as the main recipe's grid[0],
 # so the control WBEs are comparable across variants.
@@ -203,6 +212,122 @@ def py():
         }
         for n in cost_models
     ]
-    _cost_src = "i6_experiments/users/zeyer/experiments/exp2026_05_23_grad_align_speedcmp_p212.py :: py"
+    _cost_src = "i6_experiments/users/zeyer/experiments/exp2026_05_23_grad_align_p212.py :: py"
     cost_data = WriteTableDataJob(columns=cost_columns, rows=cost_rows, source=_cost_src)
     tk.register_output("tables-data/cost.data.json", cost_data.out_data)
+
+    # === Time-stretch table (moved from the main torch-2.7 recipe). The slow wav2vec2-CTC ts cells need
+    # the compiled-scan split (torch-2.12 only), so the WHOLE table is built here. Finished 2.7 cells
+    # (ts0.5/0.75/1.0 wav2vec2, all voxtral, all MMS-FA) are reconstructed with IDENTICAL hashes -> reused,
+    # not rerun (sis job state is per-work-dir). Only wav2vec2 ts{1.2,1.5,2.0,3.0} are new split jobs that
+    # run under this 2.12 mgr (~5x; ts2.0/3.0 now fit, were "too slow" on 2.7). ===
+    _xa_ds = BuildBuckeyeFineDatasetJob(
+        raw_dir=dl.out_hub_cache_dir,
+        resegment_gap_s=1.0,
+        split_up_to_max_seq_len_s=18.0,
+        min_words=2,
+        skip_misaligned_wavs=True,
+        subsample_target_h=5.0,
+        subsample_seed=42,
+    )
+    _xa_dir = _xa_ds.out_hub_cache_dir
+    _xa_tag = "buckeye-segA-5h"
+    _xa_off = 1
+    _xa_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+    _ts_results = {}
+    dl_voxtral = download_voxtral_mini_3b_model()
+
+    def _ts_zsk_align(ex, name):
+        # the zsk1.0-wordtopo align the time-stretch table reads (produce the exact table name directly,
+        # skipping the en0.5-sil1.0 base + the generic twin generator).
+        al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_xa_dir,
+            dataset_key="test",
+            dataset_offset_factors=_xa_off,
+            align_opts=_xa_ao,
+            audio_energy_pow=0.5,
+            word_topology=True,
+            blank_grad_zscore_kappa=1.0,
+        )
+        nm = f"align/{name}-asotTrue-bs-5-en0.5-zsk1.0-wordtopo"
+        al.add_alias(nm)
+        _ts_results[f"{nm}-wbe.txt"] = al.out_wbe
+
+    for _tsf in [0.5, 0.75, 1.0, 1.2, 1.5, 2.0, 3.0]:
+        _tst = f"ts{_tsf}"
+        for _tsm, _tsm_sfx in [("vocoder", ""), ("resample", "-resample")]:
+            # factor 1.0 == no stretch: omit the kwargs (reuse the base extract), matching the main recipe.
+            if _tsf == 1.0:
+                _ts_mkw = {}
+                _ts_fakw = {}
+            else:
+                _ts_mkw = {
+                    "audio_time_stretch": _tsf,
+                    **({} if _tsm == "vocoder" else {"time_stretch_method": "resample"}),
+                }
+                _ts_fakw = {"audio_time_stretch": _tsf, "time_stretch_method": _tsm}
+            # wav2vec2-CTC: new split cells (ts1.2/1.5/2.0/3.0) get split_prefix_backward + seq_batch_size=16
+            # and run here on 2.12; ts0.5/0.75/1.0 stay IDENTICAL to the main recipe (non-split) -> reused.
+            _w_split = _tsf in (1.2, 1.5, 2.0, 3.0)
+            _tsw_cfg = rf.build_dict(
+                Wav2Vec2Ctc,
+                grad_wrt="feat_proj_out",
+                per_token_score="prefix_fwd",
+                **_ts_mkw,
+            )
+            _tsw_ex = ExtractInGradsPerTokenJob(
+                dataset_dir=_xa_dir,
+                dataset_key="test",
+                model_config=_tsw_cfg,
+                mult_grad_by_inputs=False,
+                attr_reduction="L2",
+                batched_backward=True,
+                # seq_batch_size>1 (the batched forward) asserts audio_time_stretch==1.0, so the
+                # time-stretched cells stay B=1 (compiled-scan split only) -- still faster, ts2.0/3.0 fit 24h.
+                **({"split_prefix_backward": True} if _w_split else {}),
+            )
+            _tsw_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            _tsw_name = f"wav2vec2ctc-fproj_out-prefixfwd-{_xa_tag}-L2_grad-pertoken-{_tst}{_tsm_sfx}"
+            _tsw_ex.add_alias(_tsw_name)
+            tk.register_output(f"{_tsw_name}.hdf", _tsw_ex.out_hdf)
+            _ts_zsk_align(_tsw_ex, _tsw_name)
+            # Voxtral (no prefix lattice -> no split; reuse finished 2.7); capped <2.0 (30s encoder window).
+            if _tsf < 2.0:
+                _tsv_cfg = rf.build_dict(
+                    Voxtral,
+                    model_dir=dl_voxtral,
+                    forward_mode="transcription",
+                    grad_wrt="log_mel",
+                    char_level=True,
+                    char_level_sep=" ",
+                    version=7,
+                    **_ts_mkw,
+                )
+                _tsv_ex = ExtractInGradsPerTokenJob(
+                    dataset_dir=_xa_dir,
+                    dataset_key="test",
+                    model_config=_tsv_cfg,
+                    mult_grad_by_inputs=False,
+                    attr_reduction="L2",
+                )
+                _tsv_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+                _tsv_ex.rqmt = {**_tsv_ex.rqmt, "time": 24}
+                _tsv_name = f"voxtral-charlevlogmel-{_xa_tag}-L2_grad-pertoken-{_tst}{_tsm_sfx}"
+                _tsv_ex.add_alias(_tsv_name)
+                tk.register_output(f"{_tsv_name}.hdf", _tsv_ex.out_hdf)
+                _ts_zsk_align(_tsv_ex, _tsv_name)
+            # MMS-FA forced-align reference (reuse finished 2.7).
+            _tsf_fa = ForcedAlignBaselineJob(dataset_dir=_xa_dir, dataset_key="test", **_ts_fakw)
+            _tsf_name = f"baseline-mms_fa-{_xa_tag}-{_tst}{_tsm_sfx}"
+            _tsf_fa.add_alias(_tsf_name)
+            _tsf_m = CalcAlignmentMetricsFromWordBoundariesJob(
+                word_boundaries_hdf=_tsf_fa.out_hdf,
+                dataset_dir=_xa_dir,
+                dataset_key="test",
+                dataset_offset_factors=_xa_off,
+            )
+            _ts_results[f"{_tsf_name}-wbe.txt"] = _tsf_m.out_wbe
+
+    build_time_stretch_table(_ts_results)
