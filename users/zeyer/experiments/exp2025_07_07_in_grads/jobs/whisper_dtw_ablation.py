@@ -84,6 +84,22 @@ CONFIGS = [
             heads="ours", zscore=False, medfilt=False, log=True, dp="dtw", energy=False, silence="none", readoff="span"
         ),
     ),
+    # faithful-origin single-axis toggles (whisper transform fixed; add ONE of energy / our-DP
+    # transitions / silence-states). faithful+silence keeps DTW-style transitions (our Aligner
+    # dtw=True) and adds word-silence states -- silence is a label-topology axis, independent of
+    # the DTW vertical step.
+    (
+        "faithful_energy",
+        dict(heads="wh", zscore=True, medfilt=True, log=False, dp="dtw", energy=True, silence="none", readoff="jump"),
+    ),
+    (
+        "faithful_mono",
+        dict(heads="wh", zscore=True, medfilt=True, log=False, dp="mono", energy=False, silence="none", readoff="span"),
+    ),
+    (
+        "faithful_silence",
+        dict(heads="wh", zscore=True, medfilt=True, log=False, dp="adtw", energy=False, silence="word", readoff="span"),
+    ),
 ]
 
 
@@ -186,6 +202,9 @@ class WhisperDtwAblationJob(Job):
         )
         n_sot = len(tok.sot_sequence)
         aligner = Aligner(apply_softmax_over_time=True, blank_score=-5)
+        # DTW-transition variant (vertical/up step allowed) for the faithful+silence row:
+        # word-silence states with DTW transitions (label topology is independent of the transition set).
+        aligner_dtw = Aligner(apply_softmax_over_time=True, blank_score=-5, dtw=True)
         ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))[self.dataset_key]
         ds = ds.cast_column("audio", datasets.Audio(decode=False))
         n = len(ds) if self.num_seqs is None else min(self.num_seqs, len(ds))
@@ -280,12 +299,14 @@ class WhisperDtwAblationJob(Job):
             for QKs, nf2, wb, ref, nt, e in seqs:
                 m = matrix(QKs, nf2, hd, zscore, medfilt)
                 if dp == "dtw":
+                    # energy-weight the matrix before DTW (with or without the log transform),
+                    # so faithful+energy (log off) is meaningful rather than a no-op.
+                    p = m * (e[None, :] ** 0.5) if energy else m
                     if log:
-                        p = m * (e[None, :] ** 0.5) if energy else m
-                        m = lsm(p)
-                    ti, tj = _dtw_path(-m)
+                        p = lsm(p)
+                    ti, tj = _dtw_path(-p)
                     b = jump(ti, tj, wb) if readoff == "jump" else span_dtw(ti, tj, wb, nt)
-                else:  # our monotonic DP (Aligner)
+                else:  # our DP: monotonic (dp=mono) or DTW-transition (dp=adtw); both carry silence states
                     mm = m.copy()
                     bo, mask = None, None
                     if energy:
@@ -301,7 +322,8 @@ class WhisperDtwAblationJob(Job):
                         R = mm.shape[0]
                         allowed = {0, R} | {int(x) + 1 for x in wb}
                         mask = np.array([(i in allowed) for i in range(R + 1)], dtype=bool)
-                    spans = aligner.align(mm + 1e-8, blank_override=bo, blank_state_mask=mask)
+                    _al = aligner_dtw if dp == "adtw" else aligner
+                    spans = _al.align(mm + 1e-8, blank_override=bo, blank_state_mask=mask)
                     b = [(spans[a][0] * spf, spans[bb - 1][1] * spf) for a, bb in zip(wb[:-1], wb[1:])]
                 if len(b) == len(ref):
                     errs.append(float(np.mean(per_utt_boundary_errors(b, ref)["wbe"])))

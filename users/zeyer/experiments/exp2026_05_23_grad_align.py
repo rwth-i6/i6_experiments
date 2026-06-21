@@ -3300,17 +3300,29 @@ def py():
         dataset_key="val",
         model_config=rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir, attn_implementation="eager"),
     )
+    # Eval on Buckeye-segA-5h (consistent with every other single-dataset side table; the Buckeye
+    # fine dataset stores start/stop in samples, factor 1, like TIMIT -> no offset change needed).
+    # Heads still selected on TIMIT-val (a model property; cross-dataset selection avoids eval overfit).
+    _dtw_abl_ds = BuildBuckeyeFineDatasetJob(
+        raw_dir=dl_ds_buckeye_fine.out_hub_cache_dir,
+        resegment_gap_s=1.0,
+        split_up_to_max_seq_len_s=18.0,
+        min_words=2,
+        skip_misaligned_wavs=True,
+        subsample_target_h=5.0,
+        subsample_seed=42,
+    )
     _dtw_abl = WhisperDtwAblationJob(
-        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_dir=_dtw_abl_ds.out_hub_cache_dir,
         dataset_key="test",
         overlay=_WHISPER_TS_OVERLAY,
         heads_ours=_dtw_abl_sel.out_heads,
         whisper_model="base",
     )
-    _dtw_abl.add_alias("whisper-dtw-ablation-base-timit-test")
-    reg("whisper-dtw-ablation-base-timit-test.txt", _dtw_abl.out_report)
+    _dtw_abl.add_alias("whisper-dtw-ablation-base-buckeye-segA-5h")
+    reg("whisper-dtw-ablation-base-buckeye-segA-5h.txt", _dtw_abl.out_report)
     for _dk in _dtw_abl.out_wbes:
-        reg(f"dtw-abl/whisper-base-timit-test-{_dk}-wbe.txt", _dtw_abl.out_wbes[_dk])
+        reg(f"dtw-abl/whisper-base-buckeye-segA-5h-{_dk}-wbe.txt", _dtw_abl.out_wbes[_dk])
     # fairness-2x2: cross-attn CHAR on TIMIT-test (char twin of the subword baseline above; segA has it).
     whisper_fa_test_char = WhisperCrossAttnForcedAlignJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_key="test", overlay=_WHISPER_TS_OVERLAY, char_level=True

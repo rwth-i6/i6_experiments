@@ -695,6 +695,9 @@ def _alignopts_dtw_table():
     R = "\\ $\\hookrightarrow$ "
     ROWS = [
         ("Cross-attn: Whisper (faithful)", ("xa", "faithful"), WH, ck, ck, cx, cx, "none", cx),
+        (R + "$+$ energy", ("xa", "faithful_energy"), WH, ck, ck, cx, cx, "none", ck),
+        (R + "$+$ mono DP", ("xa", "faithful_mono"), WH, ck, ck, cx, ck, "none", cx),
+        (R + "$+$ silence", ("xa", "faithful_silence"), WH, ck, ck, cx, cx, "word", cx),
         (R + "no median-filter", ("xa", "nomedfilt"), WH, ck, cx, cx, cx, "none", cx),
         (R + "no z-norm", ("xa", "noznorm"), WH, cx, ck, cx, cx, "none", cx),
         (R + "no z-norm $+$ log", ("xa", "noznorm_log"), WH, cx, ck, ck, cx, "none", cx),
@@ -713,7 +716,7 @@ def _alignopts_dtw_table():
     columns = ["row", "heads", "znorm", "medfilt", "log", "mono", "silence", "energy", "wbe"]
     rows = []
     for label, src, heads, znorm, mf, log, mono, sil, en in ROWS:
-        wbe = _wbe(f"dtw-abl/whisper-base-timit-test-{src[1]}") if src[0] == "xa" else _wbe(f"{GP}-{src[1]}")
+        wbe = _wbe(f"dtw-abl/whisper-base-buckeye-segA-5h-{src[1]}") if src[0] == "xa" else _wbe(f"{GP}-{src[1]}")
         rows.append(
             {
                 "cells": {
