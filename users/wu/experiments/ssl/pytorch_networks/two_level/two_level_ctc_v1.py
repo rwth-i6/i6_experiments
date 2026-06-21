@@ -41,13 +41,21 @@ from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
 from i6_models.primitives.specaugment import specaugment_v1_by_length
 
 from .two_level_v1_cfg import TwoLevelConfig
-from .parts.cif import CIFAlphaPredictor, cif_pool
+from .parts.cif import CIFAlphaPredictor, cif_pool, quantity_loss
 from ..best_rq.parts.input_norm import apply_global_norm
 from ..common.conformer import build_conformer_encoder, build_high_conformer_encoder, sequence_mask
 
 
 class Model(nn.Module):
-    def __init__(self, model_config_dict, vocab_size, freeze_segmenter=False, specaug_start_step=None, **kwargs):
+    def __init__(
+        self,
+        model_config_dict,
+        vocab_size,
+        freeze_segmenter=False,
+        specaug_start_step=None,
+        quantity_loss_scale=None,
+        **kwargs,
+    ):
         """
         :param model_config_dict: asdict(TwoLevelConfig) -- the SAME architecture config as the pretrained
             two-level model (only the head differs), so its lower/CIF/high keys load 1:1 from the ckpt.
@@ -56,6 +64,10 @@ class Model(nn.Module):
         :param specaug_start_step: if set, apply SpecAugment on the log-mel input once the global train step
             reaches this value (train-only, off at recog). Strength matches the base CTC finetune
             (conformer_ctc_v1: time ~40%, freq ~35%). None => off. The base BEST-RQ FT uses 2000; we imitate.
+        :param quantity_loss_scale: if set (TRAINABLE-segmenter FT only), add the CIF quantity loss at this
+            scale to ANCHOR the firing rate to the pretrained acoustic rate Q* = T*(target/frame). Without it
+            a trainable CIF + zero_infinity CTC collapses the rate to K<N (a zero-loss attractor; diagnosed
+            2026-06-20, see [[ft-collapse-diagnosis]]). None => off (frozen-seg arm needs no anchor).
         """
         super().__init__()
         self.cfg = cfg = TwoLevelConfig.from_dict(model_config_dict)
@@ -64,6 +76,7 @@ class Model(nn.Module):
         self.blank_idx = self.vocab_size  # blank = last index
         self.freeze_segmenter = bool(freeze_segmenter)
         self.specaug_start_step = None if specaug_start_step is None else int(specaug_start_step)
+        self.quantity_loss_scale = None if quantity_loss_scale is None else float(quantity_loss_scale)
 
         # ---- frozen lower stack (names match the pretrained two-level / BEST-RQ ckpt keys) ----
         self.feature_extraction = LogMelFeatureExtractionV1(cfg=cfg.feature_extraction_config)
@@ -90,9 +103,11 @@ class Model(nn.Module):
         self.aux_linears = nn.ModuleList([nn.Linear(conf, self.vocab_size + 1) for _ in self.aux_layer_idx])
 
         # DERIVED frame rate guard (== two_level_v1): 16 kHz / hop(160) / VGG 4x = 25 Hz.
-        derived = cfg.feature_extraction_config.sample_rate / (
-            cfg.feature_extraction_config.hop_size * cfg.feature_extraction_config.sample_rate
-        ) / 4.0
+        derived = (
+            cfg.feature_extraction_config.sample_rate
+            / (cfg.feature_extraction_config.hop_size * cfg.feature_extraction_config.sample_rate)
+            / 4.0
+        )
         assert abs(derived - cfg.frame_rate_hz) < 1e-6, f"frame_rate {cfg.frame_rate_hz} != derived {derived}"
         self.num_high_layers = cfg.high_encoder_config.num_layers
 
@@ -135,7 +150,7 @@ class Model(nn.Module):
             # CIF: RAW integrate-and-fire (same as pretraining). When the segmenter is frozen, alpha has
             # no trainable params upstream -> z is a fixed function of the audio and grad reaches only the
             # high encoder + head; when trainable, grad flows CTC -> z -> alpha -> cif_alpha.
-            alpha = self.cif_alpha(h)                        # [B, T] in (0,1)
+            alpha = self.cif_alpha(h)  # [B, T] in (0,1)
             z, z_mask, diag = cif_pool(h, alpha, frame_len)  # z [B, K, 512] fp32
 
         # ---- high encoder (no frontend) over the CIF tokens -> CTC heads (input SpecAugment above) ----
@@ -173,15 +188,41 @@ def train_step(*, model: Model, extern_data, **kwargs):
     n_labels = target_lengths.sum().clamp(min=1)
 
     def _ctc(lp):
-        return torch.nn.functional.ctc_loss(
-            lp.transpose(0, 1).float(), targets, il_cpu, tl_cpu,
-            blank=model.blank_idx, reduction="sum", zero_infinity=True,
-        ) / n_labels
+        return (
+            torch.nn.functional.ctc_loss(
+                lp.transpose(0, 1).float(),
+                targets,
+                il_cpu,
+                tl_cpu,
+                blank=model.blank_idx,
+                reduction="sum",
+                zero_infinity=True,
+            )
+            / n_labels
+        )
 
     run_ctx.mark_as_loss(loss=_ctc(log_probs), name="ctc", dims=[])  # final head, scale 1.0
     for li, scale in zip(model.aux_layer_idx, model.aux_scales):  # intermediate-layer aux InterCTC heads
         if (li + 1) in aux_log_probs:  # defensive: aux present in train+eval; recog ignores
             run_ctx.mark_as_loss(loss=_ctc(aux_log_probs[li + 1]), name=f"ctc_aux{li + 1}", scale=scale, dims=[])
+
+    # CIF RATE ANCHOR (trainable-segmenter FT-1 ONLY -- model.quantity_loss_scale set only for trainseg).
+    # A trainable CIF under CTC has NO force pinning its firing rate, and zero_infinity=True turns every
+    # K<N (fewer tokens than labels) utterance into 0 loss AND 0 grad -> under-firing is a zero-loss
+    # GLOBAL minimum, so the segmenter collapses tok_per_lab->0 / infeasible->1 / CTC->0.000 (diagnosed
+    # 2026-06-20; the frozen-seg control proves the segmenter is the cause -- see [[ft-collapse-diagnosis]]).
+    # The quantity loss (== the one used in pretraining) anchors sum(alpha) to the pretrained ACOUSTIC
+    # rate Q* = T*(target_rate/frame_rate), NOT to N -> the raw ~2-3x-N margin (and thus K>=N) is preserved
+    # and inference is unchanged (raw cif_pool). q* depends only on T, so it is the same anchor as pretrain.
+    if model.quantity_loss_scale is not None:
+        frame_len = diag["frame_valid"].sum(dim=1)  # [B] valid 25 Hz frame counts (== cif_pool's lengths)
+        qty = quantity_loss(
+            diag["sum_alpha"],
+            frame_len,
+            target_rate_hz=model.cfg.target_rate_hz,
+            frame_rate_hz=model.cfg.frame_rate_hz,
+        )
+        run_ctx.mark_as_loss(loss=qty, name="qty", dims=[], scale=model.quantity_loss_scale)
 
     # --- small diagnostics (scale=0): K>=N headroom, the rate dial, and CTC-infeasible fraction ---
     with torch.no_grad():

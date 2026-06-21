@@ -70,6 +70,7 @@ def _ft_run(
     base_epoch: int = PRETRAIN_BASE_EPOCH,
     network_module: str = NETWORK_MODULE,  # default = CIF CTC FT; mean-pool / CE FT pass their own module
     decoder_module: str = DECODER_MODULE,
+    quantity_loss_scale=None,  # CIF rate anchor; set ONLY for the trainable-segmenter FT-1 (see _ft_arm)
 ):
     """One finetune run on top of a two-level pretrained checkpoint. Returns (train_job, wers).
 
@@ -99,16 +100,22 @@ def _ft_run(
     )
     dev_set = ds.labeled_hf_dataset(ds.DEV_ALL, spm_model=spm_model, seq_ordering="default")
     keep_epochs = fraction_epochs(num_epochs)
+    # net_args built as a dict so the rate-anchor key is added ONLY when set: omitting it for the
+    # frozen-seg / mean-pool / FT-2 arms keeps their job hash (import-path + net_args) byte-identical so
+    # they are NOT re-run; the trainseg arm gets the extra key -> a fresh hash -> a clean re-run.
+    net_args = {
+        "model_config_dict": asdict(model_config),
+        "vocab_size": SPM_VOCAB_SIZE,
+        "freeze_segmenter": freeze_segmenter,
+        "specaug_start_step": 2000,  # activate SpecAugment (same strength/step as the base CTC FT)
+    }
+    if quantity_loss_scale is not None:
+        net_args["quantity_loss_scale"] = quantity_loss_scale
     returnn_config = get_training_config(
         train_dataset=train_set,
         dev_dataset=dev_set,
         network_module=network_module,
-        net_args={
-            "model_config_dict": asdict(model_config),
-            "vocab_size": SPM_VOCAB_SIZE,
-            "freeze_segmenter": freeze_segmenter,
-            "specaug_start_step": 2000,  # activate SpecAugment (same strength/step as the base CTC FT)
-        },
+        net_args=net_args,
         train_step_args={},
         config=config,
         keep_epochs=keep_epochs,
@@ -157,6 +164,9 @@ def _ft_arm(arm: str, pretrain_job, model_config, *, num_epochs: int = 100):
         (True, "ft1_ctc_frozenseg", "FT-1 CTC · frozen segmenter"),
         (False, "ft1_ctc_trainseg", "FT-1 CTC · trainable segmenter"),
     ]:
+        # TRAINABLE segmenter needs the CIF rate anchor (quantity loss at the pretrained lambda_qty) or it
+        # collapses K<N under zero_infinity CTC (see [[ft-collapse-diagnosis]]); the FROZEN arm has no
+        # learnable alpha so it needs none (and stays hash-stable / not re-run).
         _job, wers = _ft_run(
             f"ssl/finetune_two_level/{arm}/{tag}",
             pretrain_job=pretrain_job,
@@ -164,6 +174,7 @@ def _ft_arm(arm: str, pretrain_job, model_config, *, num_epochs: int = 100):
             spm_model=spm_model,
             freeze_segmenter=freeze,
             num_epochs=num_epochs,
+            quantity_loss_scale=None if freeze else model_config.lambda_qty,
         )
         named[label] = (wers, num_epochs)
     # FT-2 CE: scaled-CIF + per-token CE (Paraformer-style NAR). TRAINABLE segmenter only -- the CIF must
