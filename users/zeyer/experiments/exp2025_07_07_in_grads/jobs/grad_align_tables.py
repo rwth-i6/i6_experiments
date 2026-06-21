@@ -28,6 +28,11 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.table_da
 _RESULTS = {}
 _CAPTURE = None  # when a list, _emit captures (name, columns, rows, source) -- preview mode
 _MISSING = set()  # output names a builder referenced that are NOT registered this recipe -- always a bug
+# Tables whose cells are wired ONLY in the torch-2.12 companion recipe (exp2026_05_23_grad_align_p212).
+# Their preview manifests are written by THAT recipe (build_preview_external_tables),
+# so the main recipe's build_preview_tables must NOT prune them
+# (it never sees their Variables -> would always drop them).
+_EXTERNAL_PREVIEW_TABLES = {"time-stretch", "cost"}
 
 
 def _require(name):
@@ -82,18 +87,49 @@ def build_tables(results):
         )
 
 
-def build_time_stretch_table(results):
-    """Build ONLY the time-stretch table, from a results dict the caller owns.
-    The torch-2.12 companion recipe (exp2026_05_23_grad_align_p212) owns this table's data:
-    the slow wav2vec2-CTC ts cells run there with split_prefix_backward (compiled scan),
-    and the finished torch-2.7 cells (other ts factors, voxtral, MMS-FA) are reused by hash.
-    Built there, NOT in build_tables(), so the main 2.7 recipe never references the 2.12-only split jobs."""
+def _cost_cell(name, metric):
+    # A cell of the 4-way cost table: index the single benchmark metrics dict by "<model>|<metric>".
+    src = "speedcmp-p212/cost-4way-metrics.txt"
+    return {"var": _require(src), "key": f"{name}|{metric}", "src": src}
+
+
+def _cost_table():
+    # 4-way per-second cost breakdown (Forward / Prefix-fwd / Prefix-bwd / Backward),
+    # one model per family, measured under torch 2.12 (TIMIT-test).
+    # The benchmark job runs in the p212 companion recipe;
+    # the table is emitted here so it rides the SAME data + preview pipeline as every other table
+    # (no special-casing).
+    # CTC (wav2vec2) drives split_prefix_backward -> all 4 stages;
+    # AED/Sp.LLM have no lattice (prefix cols n/a).
+    models = ["CTC (wav2vec2)", "AED (whisper-large)", "Sp. LLM (phi4)"]
+    metric_of = {
+        "forward": "forward_ms_per_s",
+        "prefix_fwd": "prefix_fwd_ms_per_s",
+        "prefix_bwd": "prefix_bwd_ms_per_s",
+        "backward": "backward_ms_per_s",
+    }
+    columns = ["forward", "prefix_fwd", "prefix_bwd", "backward"]
+    rows = [{"label": n, "cells": {c: _cost_cell(n, metric_of[c]) for c in columns}} for n in models]
+    _emit("cost", columns, rows)
+
+
+def build_external_tables(results):
+    """Emit the p212-owned tables (time-stretch, cost) as real WriteTableDataJobs,
+    from a results dict the caller owns.
+    The torch-2.12 companion recipe (exp2026_05_23_grad_align_p212) wires these tables' cells
+    -- the slow wav2vec2-CTC time-stretch extracts (split_prefix_backward, compiled scan),
+    and the cost benchmark --
+    so they are built there, NOT in build_tables();
+    the main 2.7 recipe never references them.
+    Preview manifests for the same set come from build_preview_external_tables
+    (see _EXTERNAL_PREVIEW_TABLES)."""
     global _RESULTS
     _RESULTS = results
     _MISSING.clear()
     _time_stretch_table()
+    _cost_table()
     if _MISSING:
-        raise AssertionError("time-stretch table references unregistered outputs:\n  " + "\n  ".join(sorted(_MISSING)))
+        raise AssertionError("external tables reference unregistered outputs:\n  " + "\n  ".join(sorted(_MISSING)))
 
 
 def _emit(name, columns, rows):
@@ -1238,8 +1274,46 @@ def build_preview_tables(results):
     current = {name for name, *_ in defs}
     for fn in os.listdir(out_dir):
         if fn.endswith(".manifest.pkl") and fn[: -len(".manifest.pkl")] not in current:
+            if fn[: -len(".manifest.pkl")] in _EXTERNAL_PREVIEW_TABLES:
+                continue  # owned by the p212 recipe -- leave its manifest alone
             os.remove(os.path.join(out_dir, fn))
         elif fn.endswith(".data.json") and fn[: -len(".data.json")] not in current:
+            if fn[: -len(".data.json")] in _EXTERNAL_PREVIEW_TABLES:
+                continue
             os.remove(os.path.join(out_dir, fn))
+    for name, columns, rows, source in defs:
+        write_preview_manifest(name, columns, rows, source, out_dir)
+
+
+def build_preview_external_tables(results):
+    """Write preview manifests for the p212-owned tables (_EXTERNAL_PREVIEW_TABLES),
+    from a results dict the caller owns.
+    Called from the torch-2.12 companion recipe's py() (exp2026_05_23_grad_align_p212),
+    where those tables' cells (the split-backward wav2vec2 extracts) are wired.
+    The manifests land in the SAME output/tables-data-preview dir as the main recipe's,
+    so scripts/sync_tables.sh's --refresh-preview resolves partial progress for them too
+    -- a pending split cell shows the dot glyph, never blocks the render,
+    and the main recipe leaves these names alone (see _EXTERNAL_PREVIEW_TABLES)."""
+    import os
+    from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.table_data import (
+        write_preview_manifest,
+    )
+
+    global _RESULTS, _CAPTURE
+    _RESULTS = results
+    _MISSING.clear()
+    _CAPTURE = []
+    try:
+        _time_stretch_table()
+        _cost_table()
+        defs = list(_CAPTURE)
+    finally:
+        _CAPTURE = None
+    if _MISSING:
+        raise AssertionError(
+            "external preview tables reference unregistered outputs:\n  " + "\n  ".join(sorted(_MISSING))
+        )
+    out_dir = "output/tables-data-preview"
+    os.makedirs(out_dir, exist_ok=True)
     for name, columns, rows, source in defs:
         write_preview_manifest(name, columns, rows, source, out_dir)

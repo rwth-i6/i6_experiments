@@ -58,7 +58,6 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.buckeye_
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.align_cost_4way_benchmark import (
     AlignCost4WayBenchmarkJob,
 )
-from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.table_data import WriteTableDataJob
 from i6_experiments.users.zeyer.external_models.voxtral import download_voxtral_mini_3b_model
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.voxtral import Voxtral
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.forced_align_baseline import (
@@ -66,7 +65,8 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.forced_a
 )
 from i6_experiments.users.zeyer.experiments.exp2025_05_05_align import CalcAlignmentMetricsFromWordBoundariesJob
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.grad_align_tables import (
-    build_time_stretch_table,
+    build_external_tables,
+    build_preview_external_tables,
 )
 
 # Same align settings as the main recipe's grid[0],
@@ -182,8 +182,11 @@ def py():
     # family, under torch 2.12 (TIMIT-test, 40 seqs). CTC (wav2vec2) drives the split_prefix_backward
     # interface so it gets all 4 stages; AED (whisper) / Sp.LLM (phi4) have no lattice -> Forward +
     # Backward only (prefix cols n/a). Transducer deferred (needs NeMo in the 2.12 env). DP excluded.
-    # Emitted via the split data/spec/render pipeline (tables-data/cost.data.json), so this IS the paper
-    # cost table (the main recipe no longer builds one). The mgr's PYTHONPATH overlay serves transformers.
+    # Emitted as the `cost` table by grad_align_tables
+    # (build_external_tables + build_preview_external_tables),
+    # the SAME data + preview pipeline as every other table;
+    # the main 2.7 recipe builds no cost table.
+    # The mgr's PYTHONPATH overlay serves transformers.
     dl_timit = DownloadHuggingFaceRepoJobV2(repo_id="nh0znoisung/timit", repo_type="dataset")
     cost_models = {"CTC (wav2vec2)": _w2v, "AED (whisper-large)": _whisper_large, "Sp. LLM (phi4)": _phi4}
     cost = AlignCost4WayBenchmarkJob(
@@ -195,26 +198,6 @@ def py():
     cost.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     cost.add_alias("speedcmp-p212/cost-4way-benchmark")
     tk.register_output("speedcmp-p212/cost-4way-metrics.txt", cost.out_metrics)
-
-    def _cost_cell(name, metric):
-        return {"var": cost.out_metrics, "key": f"{name}|{metric}", "src": "speedcmp-p212/cost-4way-metrics.txt"}
-
-    cost_columns = ["forward", "prefix_fwd", "prefix_bwd", "backward"]
-    cost_rows = [
-        {
-            "label": n,
-            "cells": {
-                "forward": _cost_cell(n, "forward_ms_per_s"),
-                "prefix_fwd": _cost_cell(n, "prefix_fwd_ms_per_s"),
-                "prefix_bwd": _cost_cell(n, "prefix_bwd_ms_per_s"),
-                "backward": _cost_cell(n, "backward_ms_per_s"),
-            },
-        }
-        for n in cost_models
-    ]
-    _cost_src = "i6_experiments/users/zeyer/experiments/exp2026_05_23_grad_align_p212.py :: py"
-    cost_data = WriteTableDataJob(columns=cost_columns, rows=cost_rows, source=_cost_src)
-    tk.register_output("tables-data/cost.data.json", cost_data.out_data)
 
     # === Time-stretch table (moved from the main torch-2.7 recipe). The slow wav2vec2-CTC ts cells need
     # the compiled-scan split (torch-2.12 only), so the WHOLE table is built here. Finished 2.7 cells
@@ -234,7 +217,7 @@ def py():
     _xa_tag = "buckeye-segA-5h"
     _xa_off = 1
     _xa_ao = {"apply_softmax_over_time": True, "blank_score": -5}
-    _ts_results = {}
+    _table_results = {"speedcmp-p212/cost-4way-metrics.txt": cost.out_metrics}
     dl_voxtral = download_voxtral_mini_3b_model()
 
     def _ts_zsk_align(ex, name):
@@ -253,7 +236,7 @@ def py():
         )
         nm = f"align/{name}-asotTrue-bs-5-en0.5-zsk1.0-wordtopo"
         al.add_alias(nm)
-        _ts_results[f"{nm}-wbe.txt"] = al.out_wbe
+        _table_results[f"{nm}-wbe.txt"] = al.out_wbe
 
     for _tsf in [0.5, 0.75, 1.0, 1.2, 1.5, 2.0, 3.0]:
         _tst = f"ts{_tsf}"
@@ -328,6 +311,10 @@ def py():
                 dataset_key="test",
                 dataset_offset_factors=_xa_off,
             )
-            _ts_results[f"{_tsf_name}-wbe.txt"] = _tsf_m.out_wbe
+            _table_results[f"{_tsf_name}-wbe.txt"] = _tsf_m.out_wbe
 
-    build_time_stretch_table(_ts_results)
+    build_external_tables(_table_results)
+    # Partial-progress preview manifests (same mechanism as the main recipe's tables):
+    # the time-stretch and cost tables render with dots for any still-running cell,
+    # instead of only appearing once their WriteTableDataJob's full input set has finished.
+    build_preview_external_tables(_table_results)
