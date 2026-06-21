@@ -97,7 +97,7 @@ _PENDING = "·"  # pending glyph for a not-yet-computed cell (preview only)
 _PENDING_SENTINEL = object()  # marks a cell whose .get() was tolerated-as-unavailable
 
 
-def _instanciate(rows, *, ignore_exception):
+def _instanciate(rows, *, ignore_exception: bool):
     # Like instanciate_delayed_copy (calls .get() on every DelayedBase / Variable, not in-place),
     # but with ignore_exception=True,
     # a .get() that raises (a not-yet-computed cell) becomes a sentinel instead of propagating
@@ -281,7 +281,9 @@ def refresh_preview(manifest_dir):
         n += 1
         # Only finished tables can be cross-checked; a pending cell means the final job has not run yet.
         if _has_pending(data):
+            print(f"{name}: pending ❌")
             continue
+        print(f"{name}: finished")
         final_path = _final_table_path(manifest_dir, name)
         if not final_path:
             continue
@@ -307,6 +309,8 @@ def _main():
     import argparse
     import sisyphus.toolkit
     from sisyphus import gs
+
+    sys.stdout.reconfigure(line_buffering=True)
 
     # We are not a real worker, but we want to read finished Variable values directly:
     # satisfy Variable.get()'s check_is_worker assert, and make an unfinished Variable RAISE
