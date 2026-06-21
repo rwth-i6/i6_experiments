@@ -504,7 +504,7 @@ def _matched_tok_table():
 # ----------------------------------------------------------------------------------------
 def _ablation_table():
     S = "buckeye-segA-5h"
-    SFX = "asotTrue-bs-5-en0.5-sil1.0-wordtopo"
+    SFX = "asotTrue-bs-5-en0.5-zsk1.0-wordtopo"
     MODELS = [
         ("CTC", "Wav2Vec2", "wav2vec2ctc-fproj_out-prefixfwd"),
         ("CTC", "Parakeet CTC", "parakeet-ctc-1.1b-prefixfwd"),
@@ -557,7 +557,7 @@ def _attribution_table():
     # On a 0.25h Buckeye-segA subsample (~112 seqs), NOT the full set: the multi-pass methods x the full
     # 2234-seq set exceed the 24h walltime and never complete. See the caption note.
     S = "buckeye-segA-sub025"
-    SFX = "asotTrue-bs-5-en0.5-sil1.0-wordtopo"
+    SFX = "asotTrue-bs-5-en0.5-zsk1.0-wordtopo"
     MODELS = [
         ("Wav2Vec2", "wav2vec2ctc-fproj_out-prefixfwd"),
         ("Whisper-base", "whisper-base-logmel-charlev-spc"),

@@ -206,7 +206,10 @@ class WhisperDtwAblationJob(Job):
         # word-silence states with DTW transitions (label topology is independent of the transition set).
         aligner_dtw = Aligner(apply_softmax_over_time=True, blank_score=-5, dtw=True)
         ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))[self.dataset_key]
-        ds = ds.cast_column("audio", datasets.Audio(decode=False))
+        # TIMIT stores audio as encoded files (cast to non-decoding -> bytes/path);
+        # Buckeye-fine stores it as a decoded float-array struct -> no cast, read the array directly.
+        if isinstance(ds.features.get("audio"), datasets.Audio):
+            ds = ds.cast_column("audio", datasets.Audio(decode=False))
         n = len(ds) if self.num_seqs is None else min(self.num_seqs, len(ds))
 
         def lsm(m):
@@ -219,9 +222,13 @@ class WhisperDtwAblationJob(Job):
         for si in range(n):
             d = ds[si]
             a = d["audio"]
-            audio, sr = sf.read(io.BytesIO(a["bytes"]) if a.get("bytes") else a["path"], dtype="float32")
-            sr = int(sr)
-            audio = np.asarray(audio, dtype=np.float32)
+            if a.get("array") is not None:
+                audio = np.asarray(a["array"], dtype=np.float32)
+                sr = int(a["sampling_rate"])
+            else:
+                audio, sr = sf.read(io.BytesIO(a["bytes"]) if a.get("bytes") else a["path"], dtype="float32")
+                sr = int(sr)
+                audio = np.asarray(audio, dtype=np.float32)
             words = list(d["word_detail"]["utterance"])
             wav = torch.tensor(audio)
             if sr != 16000:
