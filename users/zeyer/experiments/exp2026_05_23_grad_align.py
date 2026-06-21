@@ -5536,7 +5536,21 @@ def py():
     for _tsf in _TS_FACTORS:
         _tst = f"ts{_tsf}"
         for _tsm, _tsm_sfx in [("vocoder", ""), ("resample", "-resample")]:
-            _ts_mkw = {} if _tsm == "vocoder" else {"time_stretch_method": "resample"}
+            # factor 1.0 == no stretch:
+            # omit audio_time_stretch (and the method) entirely,
+            # so the config hashes identically to the base (no-stretch) extract and REUSES it,
+            # instead of recomputing the same result via the (slow) vocoder path under a new hash.
+            # build_dict / the job only hash the kwargs actually passed,
+            # so dropping them collapses both the vocoder and resample 1.0 columns onto the base.
+            if _tsf == 1.0:
+                _ts_mkw = {}  # grad-extract model_config kwargs
+                _ts_fakw = {}  # MMS-FA forced-align kwargs
+            else:
+                _ts_mkw = {
+                    "audio_time_stretch": _tsf,
+                    **({} if _tsm == "vocoder" else {"time_stretch_method": "resample"}),
+                }
+                _ts_fakw = {"audio_time_stretch": _tsf, "time_stretch_method": _tsm}
             # wav2vec2-CTC grad (fine grid): robustness rows. Capped at <2.0x: at 2.0/3.0 the audio is
             # 2-3x longer, so the extract over the full 2234-seq segA set exceeds the 24h walltime (table
             # marks those cells "too slow"). The fine-grid degradation is already clear by 1.5x.
@@ -5545,7 +5559,6 @@ def py():
                     Wav2Vec2Ctc,
                     grad_wrt="feat_proj_out",
                     per_token_score="prefix_fwd",
-                    audio_time_stretch=_tsf,
                     **_ts_mkw,
                 )
                 _tsw_ex = ExtractInGradsPerTokenJob(
@@ -5585,7 +5598,6 @@ def py():
                     grad_wrt="log_mel",
                     char_level=True,
                     char_level_sep=" ",
-                    audio_time_stretch=_tsf,
                     version=7,
                     **_ts_mkw,
                 )
@@ -5615,9 +5627,7 @@ def py():
                 _tsv_al.add_alias(_tsv_nm)
                 reg(f"{_tsv_nm}-wbe.txt", _tsv_al.out_wbe)
             # MMS-FA forced-align (robust reference; re-runs Viterbi on the stretched audio).
-            _tsf_fa = ForcedAlignBaselineJob(
-                dataset_dir=_xa_dir, dataset_key="test", audio_time_stretch=_tsf, time_stretch_method=_tsm
-            )
+            _tsf_fa = ForcedAlignBaselineJob(dataset_dir=_xa_dir, dataset_key="test", **_ts_fakw)
             _tsf_name = f"baseline-mms_fa-{_xa_tag}-{_tst}{_tsm_sfx}"
             _tsf_fa.add_alias(_tsf_name)
             _tsf_m = CalcAlignmentMetricsFromWordBoundariesJob(
