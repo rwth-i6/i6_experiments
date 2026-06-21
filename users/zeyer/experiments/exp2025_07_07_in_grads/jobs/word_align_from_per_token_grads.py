@@ -168,6 +168,20 @@ class WordAlignFromPerTokenGradsJob(Job):
             ``num_tokens_per_word`` (single chunk per seq).
         :param grad_score_key: usually ``"data"``.
         :param align_opts: see :class:`exp2025_05_05_align.Aligner`.
+        :param audio_energy_pow: weight each token's score by (audio-energy envelope)^pow
+            -- a silence-suppressing filter on the LABEL/token scores (0.0 = off).
+            Does NOT touch the blank/silence row.
+        :param blank_grad_zscore_kappa: if >0, set the per-frame blank/silence score to
+            mean_t + kappa*std_t of the (pre-energy) per-frame token-score distribution
+            -- audio-free, self-calibrating.
+            OVERRIDES align_opts["blank_score"], which is then UNUSED (see Aligner.align: blank_override).
+        :param blank_silence_energy_scale: if >0, set the per-frame blank/silence score from the
+            audio-energy z-score (a VAD-style silence emission).
+            OVERRIDES align_opts["blank_score"], which is then UNUSED.
+            Mutually exclusive with blank_grad_zscore_kappa.
+        Note: with either blank knob >0 the constant align_opts["blank_score"] is IGNORED
+        (the whole blank row is replaced); it only takes effect in the plain constant-blank scheme.
+        Our production setting (en0.5 + zsk1.0) is in this overridden case, so its bs-5 is inert.
         :param with_ref_metrics: compare to the dataset's reference boundaries
             (the default). Set False when the dataset carries hypothesis
             transcripts without meaningful start/stop times;

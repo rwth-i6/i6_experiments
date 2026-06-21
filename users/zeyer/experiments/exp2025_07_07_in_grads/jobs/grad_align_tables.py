@@ -77,6 +77,7 @@ def build_tables(results):
     _attribution_table()  # T3b attribution method (cross-model, fast models)
     _abc_table()  # Buckeye segmentation-protocol robustness (A vs B vs C)
     _alignopts_silence_table()  # T3b-i align-opts: silence/topology axis (grad-only silence fix)
+    _alignopts_energy_table()  # T3b-i' audio_energy_pow sweep x blank scheme (complements silence)
     _alignopts_dtw_table()  # T3b-ii align-opts: apply-log/DTW equivalence (grad vs cross-attn)
     if _MISSING:
         # Loud, aggregated failure instead of the old silent _RESULTS.get -> None empty cell.
@@ -729,6 +730,52 @@ def _alignopts_dtw_table():
             }
         )
     _emit("alignopts-dtw", columns, rows)
+
+
+def _alignopts_energy_table():
+    # audio_energy_pow (token-weighting exponent) swept at three blank schemes, word-topology DP,
+    # Buckeye-segA. Complements alignopts-silence (which sweeps the blank at fixed en0.5):
+    # here the blank scheme is fixed per row-group and the energy exponent varies down the rows,
+    # so en0.5 can be judged and its interplay with the blank scheme is visible.
+    S = "buckeye-segA-5h"
+    GRAD = [
+        ("wav2vec2", f"wav2vec2ctc-fproj_out-prefixfwd-abl-{S}-L2_grad-pertoken"),
+        ("whisper", f"whisper-large-v3-logmel-charlev-spc-abl-{S}-L2_grad-pertoken"),
+        ("owls", f"owls-1B-180K-charlev-logmel-{S}-L2_grad-pertoken"),
+        ("voxtral", f"voxtral-charlevlogmel-{S}-L2_grad-pertoken"),
+        ("canary", f"canary-qwen-charlev-spc-logmel-st15-{S}-L2_grad-pertoken"),
+        ("phi4", f"phi4mm-{S}-L2_grad-pertoken-charlev-spc"),
+    ]
+    ATTN = [
+        ("wh_a", "baseline-whisper-large-v3-crossattn-auto"),
+        ("owls_a", "baseline-owls-1B-180K-crossattn-auto"),
+        ("vx_a", "baseline-voxtral-selfattn"),
+        ("cn_a", "baseline-canary-qwen-selfattn"),
+        ("ph_a", "baseline-phi4mm-selfattn"),
+    ]
+    # (blank-scheme label, name infix); the energy exponent varies down each group.
+    SCHEMES = [
+        ("constant", ""),
+        ("energy $s = 1$", "-sil1.0"),
+        ("z-score $\\kappa = 1$", "-zsk1.0"),
+    ]
+    ENS = ["0.0", "0.25", "0.5", "0.75", "1.0"]
+    columns = ["type", "en"] + [k for k, _ in GRAD] + [k for k, _ in ATTN]
+    rows = []
+    prev = None
+    for typ, infix in SCHEMES:
+        if prev is not None:
+            rows.append({"hline2": True})
+        prev = typ
+        for en in ENS:
+            tail = f"asotTrue-bs-5-en{en}{infix}-wordtopo"
+            cells = {"type": typ, "en": en}
+            for k, stem in GRAD:
+                cells[k] = _wbe(f"align/{stem}-{tail}")
+            for k, mpre in ATTN:
+                cells[k] = _wbe(f"align/{mpre}-{S}-{tail}")
+            rows.append({"cells": cells})
+    _emit("alignopts-energy", columns, rows)
 
 
 # ----------------------------------------------------------------------------------------

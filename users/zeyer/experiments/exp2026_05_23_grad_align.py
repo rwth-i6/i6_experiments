@@ -5573,6 +5573,34 @@ def py():
                 )
                 _bw_al.add_alias(_bw_nm)
                 reg(f"{_bw_nm}-wbe.txt", _bw_al.out_wbe)
+        # audio_energy_pow sweep (the alignopts-energy table): vary the token-weighting exponent
+        # at three blank schemes (constant / energy-silence s=1 / grad-zscore kappa=1), word-topology,
+        # so we see whether en0.5 is well-chosen and whether its optimum depends on the blank scheme.
+        # en0.5 reuses the rows generated above. Cheap re-aligns of the same grad/attn extract.
+        if _bw_stem in _SIL_SWEEP_STEMS:
+            for _en_p in (0.0, 0.25, 0.75, 1.0):
+                for _en_bt, _en_blank in [
+                    ("", {"blank_silence_energy_scale": 0.0}),
+                    ("-sil1.0", {"blank_silence_energy_scale": 1.0}),
+                    ("-zsk1.0", {"blank_grad_zscore_kappa": 1.0}),
+                ]:
+                    _en_nm = f"{_bw_stem}-asotTrue-bs-5-en{_en_p}{_en_bt}-wordtopo"
+                    if f"{_en_nm}-wbe.txt" in _table_results:
+                        continue
+                    _en_al = WordAlignFromPerTokenGradsJob(
+                        returnn_root=_bw_job.returnn_root,
+                        grad_score_hdf=_bw_job.grad_score_hdf,
+                        grad_score_key=_bw_job.grad_score_key,
+                        dataset_dir=_bw_job.dataset_dir,
+                        dataset_key=_bw_job.dataset_key,
+                        dataset_offset_factors=_bw_job.dataset_offset_factors,
+                        align_opts=_bw_ao,
+                        audio_energy_pow=_en_p,
+                        word_topology=True,
+                        **_en_blank,
+                    )
+                    _en_al.add_alias(_en_nm)
+                    reg(f"{_en_nm}-wbe.txt", _en_al.out_wbe)
 
     # --- Auto-generated LaTeX result tables (in-graph; reference only this recipe's outputs) ---
     from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.grad_align_tables import (
