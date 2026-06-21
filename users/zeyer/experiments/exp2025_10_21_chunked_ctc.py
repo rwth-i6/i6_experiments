@@ -1388,8 +1388,10 @@ def py():
     # Finetune LR: keep warmup but short (step_peak_fraction=0.01, ~1 epoch), sweep peak via base_lr.
     # Partial preload (ignore_missing): conformer blocks + decoder transfer; rope/ctembed init fresh.
     train("base-2xtrain", {"total_k_hours": 200})
+    # 4x scaling point for the offline base curve (1x base 7.32 / 2x base-2xtrain 6.58).
+    train("base-4xtrain", {"total_k_hours": 400})
     # CTC-only: 8.52 (1x dyn-rope-ctembed 9.41; clear gain). AED+CTC first-pass dev 7.25.
-    train(
+    _exp2x, _task2x, _aux2x = train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-2xtrain",
         {
             "total_k_hours": 200,
@@ -1410,6 +1412,52 @@ def py():
             "lm_recog_extra.__serialization_version_stats": 2,
         },
     )
+    # Offline recog (chunk_size=None) on the dyn 2x ckpt: 2x point of the offline scaling curve.
+    recog_model_with_config_overwrite(
+        model=_exp2x.get_last_fixed_epoch(),
+        task=_task2x,
+        recog_def=ctc_model_recog,
+        config_overwrites={"enc_build_dict.chunk_size": None, "enc_build_dict.chunk_lookahead_size": 0},
+        extra_config={"aux_loss_layers": [_aux2x]},
+        name=f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-2xtrain",
+        tag="offline",
+    )
+
+    # 4x scaling point for the dyn-rope-ctembed offline curve.
+    # Research Q: does the streaming dyn model's OFFLINE recog (chunk_size=None is in its train
+    # pool) close the gap to the dedicated offline base as training scales?
+    # Plot offline WER vs scale (1x/2x/4x) for base and dyn-rope-ctembed; extrapolate the gap.
+    _exp4x, _task4x, _aux4x = train(
+        f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-4xtrain",
+        {
+            "total_k_hours": 400,
+            "model.enc_build_dict": rf.build_dict(
+                ChunkedConformerEncoderV2,
+                encoder_layer=rf.build_dict(ChunkedConformerEncoderLayerV2, self_att=ChunkedRotaryPosSelfAttentionV2),
+                chunk_size=center_size,
+                chunk_history_size=left_n * center_size,
+                chunk_lookahead_size=right_size,
+                chunk_size_train_pool=[center_size, center_size * 2, center_size * 4, center_size * 8, None],
+                chunk_history_size_train_pool=[left_n * center_size, left_n * center_size // 2],
+                chunk_lookahead_size_train_pool=[right_size, right_size // 2],
+                use_chunk_type_embedding=True,
+                version=3,
+            ),
+            "train.batch_size": bs * configs._batch_size_factor,
+            "train.max_seqs": max_seqs,
+            "lm_recog_extra.__serialization_version_stats": 2,
+        },
+    )
+    recog_model_with_config_overwrite(
+        model=_exp4x.get_last_fixed_epoch(),
+        task=_task4x,
+        recog_def=ctc_model_recog,
+        config_overwrites={"enc_build_dict.chunk_size": None, "enc_build_dict.chunk_lookahead_size": 0},
+        extra_config={"aux_loss_layers": [_aux4x]},
+        name=f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-4xtrain",
+        tag="offline",
+    )
+
     _impbase_prefix = f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-impBase"
     for _ft_base_lr in [0.5, 0.25, 0.1]:
         train(
