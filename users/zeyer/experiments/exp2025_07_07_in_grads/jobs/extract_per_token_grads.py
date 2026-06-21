@@ -126,6 +126,21 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
             Mathematically identical to the default per-seq loop; amortizes both passes.
             Requires a model adapter with B>1 forward support (e.g. Wav2Vec2Ctc).
             Composes with ``batched_backward`` (vmap over tokens on the batched graph).
+        :param split_prefix_backward: prefix_fwd CTC/transducer only
+            (models that expose ``outputs["prefix_from_lp"]``).
+            Split the per-token backward at the encoder log-probs:
+            loop the prefix Jacobian d(score)/d(lp) per token via the COMPILED-SCAN prefix
+            (``ctc_partial.compiled_prefix_forward_scores_scan``),
+            then ONE ``is_grads_batched`` encoder backward d(lp)/d(input).
+            The default (False) path vmaps the EAGER prefix through the whole backward.
+            The compiled scan is the faster prefix backward (the lattice backward is launch-bound),
+            ~5x end-to-end on wav2vec2 with seq_batch_size>=16.
+            CAUTION: the compiled scan needs **torch 2.12** -- on torch 2.7 it raises inside the scan HOP,
+            so this is OFF by default (the main extracts run on 2.7);
+            it is exercised under the torch-2.12 companion recipe
+            ``exp2026_05_23_grad_align_speedcmp_p212.py``.
+            Validated == the eager path (per-token cosine 1.0, rel max 1e-4).
+            See projects/2026-05-23-grad-align.md for the full variant map.
         """
         super().__init__(**kwargs)
         self.noise_n_samples = int(noise_n_samples)
