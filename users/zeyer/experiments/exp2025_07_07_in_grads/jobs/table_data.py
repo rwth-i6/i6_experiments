@@ -207,26 +207,99 @@ def write_preview_manifest(name, columns, rows, source, out_dir):
         pickle.dump({"columns": columns, "rows": rows, "source": source}, f)
 
 
+def _has_pending(data):
+    """True if any resolved cell is still the pending glyph,
+    i.e. the table is not yet fully finished."""
+    for row in data["rows"]:
+        for v in row.get("cells", {}).values():
+            if v == _PENDING:
+                return True
+    return False
+
+
+def _final_table_path(manifest_dir, name):
+    """The real WriteTableDataJob output for ``name`` (``tables-data/<name>.data.json``),
+    derived from the preview dir by dropping the ``-preview`` suffix
+    (``tables-data-preview`` -> ``tables-data``).
+    Returns None when the preview dir is not the standard ``*-preview`` sibling,
+    or when the real file does not exist yet (the job has not run)."""
+    md = manifest_dir.rstrip("/")
+    if not md.endswith("-preview"):
+        return None
+    real = os.path.join(md[: -len("-preview")], f"{name}.data.json")
+    return real if os.path.exists(real) else None
+
+
+def _diff_table_data(preview, final):
+    """Short, human-readable list of where a fully-finished preview disagrees with the real job output."""
+    diffs = []
+    if preview.get("source") != final.get("source"):
+        diffs.append(f"source: preview={preview.get('source')!r} final={final.get('source')!r}")
+    if preview.get("columns") != final.get("columns"):
+        diffs.append(f"columns: preview={preview.get('columns')} final={final.get('columns')}")
+    p_rows, f_rows = preview.get("rows", []), final.get("rows", [])
+    if len(p_rows) != len(f_rows):
+        diffs.append(f"row count: preview={len(p_rows)} final={len(f_rows)}")
+    for i, (pr, fr) in enumerate(zip(p_rows, f_rows)):
+        if pr == fr:
+            continue
+        label = pr.get("label", fr.get("label", ""))
+        pc, fc = pr.get("cells", {}), fr.get("cells", {})
+        for k in sorted(set(pc) | set(fc)):
+            if pc.get(k) != fc.get(k):
+                diffs.append(f"row {i} ({label!r}) col {k!r}: preview={pc.get(k)!r} final={fc.get(k)!r}")
+    return diffs
+
+
 def refresh_preview(manifest_dir):
-    """Re-resolve every ``<name>.manifest.pkl`` in ``manifest_dir`` from current disk -> ``<name>.data.json``."""
+    """Re-resolve every ``<name>.manifest.pkl`` in ``manifest_dir`` from current disk -> ``<name>.data.json``.
+
+    Sanity check: once a table is fully finished (no pending cell),
+    its refreshed preview MUST equal the real ``WriteTableDataJob`` output (``tables-data/<name>.data.json``).
+    Both render paths share ``_write_table_data``,
+    so a divergence is a bug (a stale final output, or the two paths drifting apart),
+    never an expected state -- raise loudly rather than render a wrong table.
+    """
     import glob
     import gzip
     import pickle
 
     n = 0
+    mismatches = []
     for mpath in sorted(glob.glob(os.path.join(manifest_dir, "*.manifest.pkl"))):
         with gzip.open(mpath, "rb") as f:
             manifest = pickle.load(f)
         name = os.path.basename(mpath)[: -len(".manifest.pkl")]
-        _write_table_data(
+        preview_path = os.path.join(manifest_dir, f"{name}.data.json")
+        data = _write_table_data(
             columns=manifest["columns"],
             rows=manifest["rows"],
             source=manifest.get("source"),
-            out_path=os.path.join(manifest_dir, f"{name}.data.json"),
+            out_path=preview_path,
             ignore_exception=True,
         )
         n += 1
+        # Only finished tables can be cross-checked; a pending cell means the final job has not run yet.
+        if _has_pending(data):
+            continue
+        final_path = _final_table_path(manifest_dir, name)
+        if not final_path:
+            continue
+        with open(preview_path) as f:
+            preview_data = json.load(f)
+        with open(final_path) as f:
+            final_data = json.load(f)
+        if preview_data != final_data:
+            mismatches.append((name, _diff_table_data(preview_data, final_data)))
     print(f"refreshed {n} preview table(s) in {manifest_dir}")
+    if mismatches:
+        msg = ["preview vs final table-data mismatch (the two render paths diverged -- a bug):"]
+        for name, diffs in mismatches:
+            msg.append(f"  {name}.data.json:")
+            msg.extend(f"    {d}" for d in diffs[:20])
+            if len(diffs) > 20:
+                msg.append(f"    ... ({len(diffs) - 20} more)")
+        raise AssertionError("\n".join(msg))
     return n
 
 
