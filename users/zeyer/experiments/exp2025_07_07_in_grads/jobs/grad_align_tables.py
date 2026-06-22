@@ -347,7 +347,7 @@ def _time_stretch_table():
                 # (3x-stretched audio, B=1) -> mark it (distinct from Voxtral's encoder-window "too long").
                 # ts1.2/1.5/2.0 ARE computed via the split under the torch-2.12 companion recipe (exp..._p212).
                 if model == "Wav2Vec2" and float(ts) >= 3.0:
-                    cells[k] = "$>$24h"
+                    cells[k] = "too costly"
                     continue
                 cells[k] = _wbe(basefn(ts, msfx))
             rows.append({"cells": cells})
