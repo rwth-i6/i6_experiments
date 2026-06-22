@@ -528,6 +528,7 @@ def py():
     # Clean front-end x path comparison vs ref-match-logmel-muon-nep38: DbMel front-end + DIRECT injection
     # (no waveform/Griffin-Lim), everything else identical. The pair isolates DbMel+direct vs log-mel+waveform
     # at the best regime (log-mel is +0.13 better front-end but needs the ~0.10 GL waveform round-trip).
+    # {"dev-clean": 1.62, "dev-other": 3.98, "test-clean": 1.91, "test-other": 4.37}  (== logmel 3.98)
     _train_tts_encoder(
         "tts-enc-ref-match-dbmel-muon-nep38",
         prefix=prefix,
@@ -549,6 +550,7 @@ def py():
     # Same best regime, noise 0.1 (close to 0, NOT exactly 0): tests whether tiny nonzero flow variance dodges
     # the muon+nep38 NaN that noise0 (exactly 0) hit, while keeping the low-noise benefit (noise0 was the best
     # synth at nep25, 4.26). If it NaNs too, the trigger is low-noise x muon broadly, not the exact zero.
+    # {"dev-clean": 1.62, "dev-other": 3.98, "test-clean": 1.80, "test-other": 4.10}  (stable; best TTS variant)
     _train_tts_encoder(
         "tts-enc-ref-match-logmel-noise01-muon-nep38",
         prefix=prefix,
@@ -776,6 +778,11 @@ def py():
     # encoder layer N (= share the top 16-N encoder layers). layer8 won at nep25 (3.95, first text-util
     # variant below the no-text baseline). 0-indexed layers "0".."15", so N=16 = share ZERO encoder layers
     # (degenerate endpoint; the collected_outputs guard skips all aux losses there).
+    # (layer0 in-flight)
+    # layer4: {"dev-clean": 1.58, "dev-other": 3.79, "test-clean": 1.83, "test-other": 4.10}  (best overall)
+    # layer8: {"dev-clean": 1.68, "dev-other": 4.11, "test-clean": 1.85, "test-other": 4.23}
+    # layer12: {"dev-clean": 1.85, "dev-other": 4.38, "test-clean": 2.03, "test-other": 4.63}
+    # layer16: {"dev-clean": 1.95, "dev-other": 4.30, "test-clean": 2.16, "test-other": 4.52}
     for _start_layer in (0, 4, 8, 12, 16):
         _train_tts_encoder(
             f"pseudo-enc-layer{_start_layer}-muon-nep38",
@@ -797,6 +804,8 @@ def py():
     # Reduced-blank layer-split: max 1 blank (uniform 0-1, avg 0.5 -> ~1.5 enc-frames/phoneme vs 2.5 at
     # blank 0-3), so the un-subsampled text sequence is ~40% shorter -> fixes the layer0 OOM and is closer to
     # real speech length. layer0 (OOM-prone) + layer8 (the winner), best regime (muon-lr5e3-wdbl + nep38).
+    # (layer0 in-flight)
+    # layer8: {"dev-clean": 1.63, "dev-other": 3.93, "test-clean": 1.77, "test-other": 4.13}
     for _start_layer in (0, 8):
         _train_tts_encoder(
             f"pseudo-enc-layer{_start_layer}-blank1-muon-nep38",
@@ -819,6 +828,7 @@ def py():
     # layer8 with NO blanks (the phoneme seq already carries [space] silence): label 1 frame at the enc-rate
     # = ~1 enc-frame/phon (still feasible, unlike the front-end noblank which collapsed to ~0.17 enc-frame).
     # Tests whether blanks help layer8 or just bloat it, and whether the noblank regression transfers here.
+    # {"dev-clean": 1.62, "dev-other": 3.95, "test-clean": 1.78, "test-other": 4.09}  (best test-other)
     _train_tts_encoder(
         "pseudo-enc-layer8-noblank-muon-nep38",
         prefix=prefix,
