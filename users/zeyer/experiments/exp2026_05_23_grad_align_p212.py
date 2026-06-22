@@ -251,8 +251,9 @@ def py():
                     **({} if _tsm == "vocoder" else {"time_stretch_method": "resample"}),
                 }
                 _ts_fakw = {"audio_time_stretch": _tsf, "time_stretch_method": _tsm}
-            # wav2vec2-CTC: new split cells (ts1.2/1.5/2.0/3.0) get split_prefix_backward + seq_batch_size=16
-            # and run here on 2.12; ts0.5/0.75/1.0 stay IDENTICAL to the main recipe (non-split) -> reused.
+            # wav2vec2-CTC: the split cells (ts1.2/1.5/2.0) get split_prefix_backward (B=1; seq-batch
+            # forbids time-stretch) and run here on 2.12; ts0.5/0.75/1.0 stay IDENTICAL to the main
+            # recipe (non-split) -> reused. ts3.0 is dropped below (does not fit the 24h wall even split).
             _w_split = _tsf in (1.2, 1.5, 2.0, 3.0)
             _tsw_cfg = rf.build_dict(
                 Wav2Vec2Ctc,
@@ -274,8 +275,12 @@ def py():
             _tsw_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
             _tsw_name = f"wav2vec2ctc-fproj_out-prefixfwd-{_xa_tag}-L2_grad-pertoken-{_tst}{_tsm_sfx}"
             _tsw_ex.add_alias(_tsw_name)
-            tk.register_output(f"{_tsw_name}.hdf", _tsw_ex.out_hdf)
-            _ts_zsk_align(_tsw_ex, _tsw_name)
+            # ts3.0 wav2vec2 grad does not fit the 24h GPU wall even with the compiled-scan split
+            # (3x-stretched audio, B=1) -> dropped; the table cell shows ">24h". Skip its extract/align
+            # (MMS-FA ts3.0 still runs).
+            if _tsf < 3.0:
+                tk.register_output(f"{_tsw_name}.hdf", _tsw_ex.out_hdf)
+                _ts_zsk_align(_tsw_ex, _tsw_name)
             # Voxtral (no prefix lattice -> no split; reuse finished 2.7); capped <2.0 (30s encoder window).
             if _tsf < 2.0:
                 _tsv_cfg = rf.build_dict(

@@ -343,8 +343,12 @@ def _time_stretch_table():
                 if model == "Voxtral" and float(ts) >= 2.0:
                     cells[k] = "too long"
                     continue
-                # Wav2Vec2 ts>=2.0 used to be "too slow" (>24h on torch-2.7 eager); now computed via the
-                # compiled-scan split under the torch-2.12 companion recipe (exp..._p212), so read the cell.
+                # Wav2Vec2 grad at ts3.0 does not fit the 24h GPU wall even with the compiled-scan split
+                # (3x-stretched audio, B=1) -> mark it (distinct from Voxtral's encoder-window "too long").
+                # ts1.2/1.5/2.0 ARE computed via the split under the torch-2.12 companion recipe (exp..._p212).
+                if model == "Wav2Vec2" and float(ts) >= 3.0:
+                    cells[k] = "$>$24h"
+                    continue
                 cells[k] = _wbe(basefn(ts, msfx))
             rows.append({"cells": cells})
     _emit("time-stretch", columns, rows)
