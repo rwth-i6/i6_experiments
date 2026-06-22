@@ -4403,10 +4403,10 @@ def py():
             dataset_offset_factors=_xa_off,
             align_opts=_abl_ao,
             audio_energy_pow=0.5,
-            blank_grad_zscore_kappa=1.0,
+            blank_silence_energy_scale=2.0,
             word_topology=True,
         )
-        nm = f"align/{ename}-{_name_for_dict(_abl_ao)}-en0.5-zsk1.0-wordtopo"
+        nm = f"align/{ename}-{_name_for_dict(_abl_ao)}-en0.5-sil2.0-wordtopo"
         al.add_alias(nm)
         reg(f"{nm}-wbe.txt", al.out_wbe)
 
@@ -4434,10 +4434,10 @@ def py():
             dataset_offset_factors=_xa_off,
             align_opts=_abl_ao,
             audio_energy_pow=0.5,
-            blank_grad_zscore_kappa=1.0,
+            blank_silence_energy_scale=2.0,
             word_topology=True,
         )
-        nm = f"align/{ename}-{_name_for_dict(_abl_ao)}-en0.5-zsk1.0-wordtopo"
+        nm = f"align/{ename}-{_name_for_dict(_abl_ao)}-en0.5-sil2.0-wordtopo"
         al.add_alias(nm)
         reg(f"{nm}-wbe.txt", al.out_wbe)
 
@@ -5564,6 +5564,7 @@ def py():
             _bw_variants = [
                 ("asotTrue-bs-5-en0.5", _bw_ao, {"blank_silence_energy_scale": 0.0}),
                 ("asotTrue-bs-5-en0.5-sil1.0", _bw_ao, {"blank_silence_energy_scale": 1.0}),
+                ("asotTrue-bs-5-en0.5-sil2.0", _bw_ao, {"blank_silence_energy_scale": 2.0}),
                 ("asotTrue-bs-5-en0.5-zsk1.0", _bw_ao, {"blank_grad_zscore_kappa": 1.0}),
             ]
             _bw_topos = [(False, ""), (True, "-wordtopo")]

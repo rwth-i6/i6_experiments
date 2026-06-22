@@ -196,8 +196,8 @@ def _streaming_offset_table():
                 (
                     "Gradients",
                     *g(
-                        f"emformer-rnnt-prefix-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"emformer-rnnt-prefix-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"emformer-rnnt-prefix-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                        f"emformer-rnnt-prefix-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
                 (
@@ -213,8 +213,8 @@ def _streaming_offset_table():
                 (
                     "Gradients",
                     *g(
-                        f"fastconformer-stream-ctc-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"fastconformer-stream-ctc-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"fastconformer-stream-ctc-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                        f"fastconformer-stream-ctc-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
                 ("Posteriors", f"baseline-fastconformer-stream-ctc-{S}", f"baseline-fastconformer-stream-ctc-{T}"),
@@ -226,8 +226,8 @@ def _streaming_offset_table():
                 (
                     "Gradients",
                     *g(
-                        f"fastconformer-stream-rnnt-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"fastconformer-stream-rnnt-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"fastconformer-stream-rnnt-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                        f"fastconformer-stream-rnnt-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
                 (
@@ -243,8 +243,8 @@ def _streaming_offset_table():
                 (
                     "Gradients",
                     *g(
-                        f"parakeet-rnnt-1.1b-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"parakeet-rnnt-1.1b-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"parakeet-rnnt-1.1b-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                        f"parakeet-rnnt-1.1b-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
                 (
@@ -300,7 +300,7 @@ def _streaming_offset_table():
 # ----------------------------------------------------------------------------------------
 def _time_stretch_table():
     S = "buckeye-segA-5h"
-    AO = "asotTrue-bs-5-en0.5-zsk1.0-wordtopo"
+    AO = "asotTrue-bs-5-en0.5-sil2.0-wordtopo"
     FACTORS = [
         ("0.5", "f05"),
         ("0.75", "f075"),
@@ -373,7 +373,7 @@ def _word_length_table():
             [
                 (
                     "Gradients",
-                    f"align/wav2vec2ctc-fproj_out-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                    f"align/wav2vec2ctc-fproj_out-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                 ),
                 ("Posteriors", f"baseline-mms_fa-{S}"),
             ],
@@ -383,7 +383,7 @@ def _word_length_table():
             [
                 (
                     "Gradients",
-                    f"align/phoneme-vitouphy-prefixfwd-{S}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                    f"align/phoneme-vitouphy-prefixfwd-{S}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                 ),
                 ("Posteriors", f"baseline-phoneme-fa-{S}-word"),
             ],
@@ -393,7 +393,7 @@ def _word_length_table():
             [
                 (
                     "Gradients",
-                    f"align/parakeet-ctc-1.1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                    f"align/parakeet-ctc-1.1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                 ),
                 ("Posteriors", f"baseline-parakeet-ctc-1.1b-{S}"),
             ],
@@ -404,7 +404,7 @@ def _word_length_table():
                 (
                     # block 6 (best emit block), matching the per-model + owsm-per-layer tables.
                     "Gradients",
-                    f"align/owsm-ctc-v4-1b-lyr6-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                    f"align/owsm-ctc-v4-1b-lyr6-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                 ),
                 ("Posteriors", f"baseline-owsm-ctc-v4-1b-lyr6-{S}"),
             ],
@@ -414,9 +414,9 @@ def _word_length_table():
             [
                 (
                     "Gradients",
-                    f"align/whisper-base-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                    f"align/whisper-base-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                 ),
-                ("Cross-att.", f"align/baseline-whisper-base-crossattn-auto-{S}-asotTrue-bs-5-en0.5-wordtopo"),
+                ("Cross-att.", f"align/baseline-whisper-base-crossattn-auto-{S}-asotTrue-bs-5-en0.5-sil2.0-wordtopo"),
             ],
         ),
     ]
@@ -466,8 +466,8 @@ def _matched_tok_table():
     for di, (dlabel, ds) in enumerate(DATASETS):
         if di > 0:
             rows.append({"label": None, "cells": {}})
-        gc = f"align/whisper-base-logmel-{ds}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0-wordtopo"
-        gs = f"align/whisper-base-logmel-{ds}-L2_grad-pertoken-subword-asotTrue-bs-5-en0.5-zsk1.0-wordtopo"
+        gc = f"align/whisper-base-logmel-{ds}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil2.0-wordtopo"
+        gs = f"align/whisper-base-logmel-{ds}-L2_grad-pertoken-subword-asotTrue-bs-5-en0.5-sil2.0-wordtopo"
         xc = f"baseline-whisper-crossattn-charlev-{ds}"
         xs = f"baseline-whisper-crossattn-{ds}"
         rows.append(
@@ -508,7 +508,7 @@ def _matched_tok_table():
 # ----------------------------------------------------------------------------------------
 def _ablation_table():
     S = "buckeye-segA-5h"
-    SFX = "asotTrue-bs-5-en0.5-zsk1.0-wordtopo"
+    SFX = "asotTrue-bs-5-en0.5-sil2.0-wordtopo"
     MODELS = [
         ("CTC", "Wav2Vec2", "wav2vec2ctc-fproj_out-prefixfwd"),
         ("CTC", "Parakeet CTC", "parakeet-ctc-1.1b-prefixfwd"),
@@ -561,7 +561,7 @@ def _attribution_table():
     # On a 0.25h Buckeye-segA subsample (~112 seqs), NOT the full set: the multi-pass methods x the full
     # 2234-seq set exceed the 24h walltime and never complete. See the caption note.
     S = "buckeye-segA-sub025"
-    SFX = "asotTrue-bs-5-en0.5-zsk1.0-wordtopo"
+    SFX = "asotTrue-bs-5-en0.5-sil2.0-wordtopo"
     MODELS = [
         ("Wav2Vec2", "wav2vec2ctc-fproj_out-prefixfwd"),
         ("Whisper-base", "whisper-base-logmel-charlev-spc"),
@@ -592,7 +592,7 @@ def _attribution_table():
 #     The speech-LLMs are segA-only (each takes ~hours/segment), so they are not in this robustness table.
 # ----------------------------------------------------------------------------------------
 def _abc_table():
-    AO = "asotTrue-bs-5-en0.5-zsk1.0-wordtopo"
+    AO = "asotTrue-bs-5-en0.5-sil2.0-wordtopo"
     SEGS = ["segA", "segB", "segC"]
     # (type, model, method, name template over {seg}, is_grad). Same taxonomy AND method labels as the
     # per-model table: each model shows its gradient align and its own native aligner (CTC forced-align =
@@ -806,8 +806,8 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"wav2vec2ctc-fproj_out-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"wav2vec2ctc-fproj_out-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"wav2vec2ctc-fproj_out-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                        f"wav2vec2ctc-fproj_out-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
                 ("Posteriors", f"baseline-mms_fa-{S}", f"baseline-mms_fa-{T}"),
@@ -819,8 +819,8 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"phoneme-vitouphy-prefixfwd-{S}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"phoneme-vitouphy-prefixfwd-{T}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"phoneme-vitouphy-prefixfwd-{S}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                        f"phoneme-vitouphy-prefixfwd-{T}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
                 (
@@ -836,8 +836,8 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"parakeet-ctc-1.1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"parakeet-ctc-1.1b-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"parakeet-ctc-1.1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                        f"parakeet-ctc-1.1b-prefixfwd-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
                 ("Posteriors", f"baseline-parakeet-ctc-1.1b-{S}", f"baseline-parakeet-ctc-1.1b-{T}"),
@@ -853,8 +853,8 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"owsm-ctc-v4-1b-lyr6-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"owsm-ctc-v4-1b-lyr6-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"owsm-ctc-v4-1b-lyr6-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                        f"owsm-ctc-v4-1b-lyr6-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
                 # posteriors = CTC forced-align of the model's emission, at the same block-6 emission.
@@ -867,14 +867,14 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"whisper-base-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"whisper-base-logmel-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"whisper-base-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                        f"whisper-base-logmel-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
                 (
                     "Cross-att.",
-                    f"align/baseline-whisper-base-crossattn-auto-{S}-asotTrue-bs-5-en0.5-wordtopo",
-                    f"align/baseline-whisper-base-crossattn-auto-{T}-asotTrue-bs-5-en0.5-wordtopo",
+                    f"align/baseline-whisper-base-crossattn-auto-{S}-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                    f"align/baseline-whisper-base-crossattn-auto-{T}-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                 ),
             ],
         ),
@@ -884,14 +884,14 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"whisper-large-v3-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"whisper-large-v3-logmel-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"whisper-large-v3-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                        f"whisper-large-v3-logmel-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
                 (
                     "Cross-att.",
-                    f"align/baseline-whisper-large-v3-crossattn-auto-{S}-asotTrue-bs-5-en0.5-wordtopo",
-                    f"align/baseline-whisper-large-v3-crossattn-auto-{T}-asotTrue-bs-5-en0.5-wordtopo",
+                    f"align/baseline-whisper-large-v3-crossattn-auto-{S}-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                    f"align/baseline-whisper-large-v3-crossattn-auto-{T}-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                 ),
             ],
         ),
@@ -901,14 +901,14 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"crisperwhisper-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"crisperwhisper-logmel-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"crisperwhisper-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                        f"crisperwhisper-logmel-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
                 (
                     "Cross-att.",
-                    f"align/baseline-crisperwhisper-crossattn-auto-{S}-asotTrue-bs-5-en0.5-wordtopo",
-                    f"align/baseline-crisperwhisper-crossattn-auto-{T}-asotTrue-bs-5-en0.5-wordtopo",
+                    f"align/baseline-crisperwhisper-crossattn-auto-{S}-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                    f"align/baseline-crisperwhisper-crossattn-auto-{T}-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                 ),
             ],
         ),
@@ -918,14 +918,14 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"owls-1B-180K-charlev-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"owls-1B-180K-charlev-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"owls-1B-180K-charlev-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                        f"owls-1B-180K-charlev-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
                 (
                     "Cross-att.",
-                    f"align/baseline-owls-1B-180K-crossattn-auto-{S}-asotTrue-bs-5-en0.5-wordtopo",
-                    f"align/baseline-owls-1B-180K-crossattn-auto-{T}-asotTrue-bs-5-en0.5-wordtopo",
+                    f"align/baseline-owls-1B-180K-crossattn-auto-{S}-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                    f"align/baseline-owls-1B-180K-crossattn-auto-{T}-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                 ),
             ],
         ),
@@ -935,8 +935,8 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"parakeet-rnnt-1.1b-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"parakeet-rnnt-1.1b-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"parakeet-rnnt-1.1b-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                        f"parakeet-rnnt-1.1b-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
                 (
@@ -952,8 +952,8 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"parakeet-tdt-0.6b-v2-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"parakeet-tdt-0.6b-v2-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"parakeet-tdt-0.6b-v2-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                        f"parakeet-tdt-0.6b-v2-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
                 (
@@ -971,8 +971,8 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"emformer-rnnt-prefix-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"emformer-rnnt-prefix-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"emformer-rnnt-prefix-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                        f"emformer-rnnt-prefix-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
                 (
@@ -988,8 +988,8 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"fastconformer-stream-ctc-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"fastconformer-stream-ctc-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"fastconformer-stream-ctc-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                        f"fastconformer-stream-ctc-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
                 (
@@ -1005,8 +1005,8 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"fastconformer-stream-rnnt-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"fastconformer-stream-rnnt-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"fastconformer-stream-rnnt-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                        f"fastconformer-stream-rnnt-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
                 (
@@ -1022,14 +1022,14 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"voxtral-charlevlogmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"voxtral-charlevlogmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"voxtral-charlevlogmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                        f"voxtral-charlevlogmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
                 (
                     "Self-att.",
-                    f"align/baseline-voxtral-selfattn-{S}-asotTrue-bs-5-en0.5-wordtopo",
-                    f"align/baseline-voxtral-selfattn-{T}-asotTrue-bs-5-en0.5-wordtopo",
+                    f"align/baseline-voxtral-selfattn-{S}-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                    f"align/baseline-voxtral-selfattn-{T}-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                 ),
             ],
         ),
@@ -1039,14 +1039,14 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"phi4mm-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"phi4mm-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"phi4mm-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                        f"phi4mm-{T}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
                 (
                     "Self-att.",
-                    f"align/baseline-phi4mm-selfattn-{S}-asotTrue-bs-5-en0.5-wordtopo",
-                    f"align/baseline-phi4mm-selfattn-{T}-asotTrue-bs-5-en0.5-wordtopo",
+                    f"align/baseline-phi4mm-selfattn-{S}-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                    f"align/baseline-phi4mm-selfattn-{T}-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                 ),
             ],
         ),
@@ -1056,14 +1056,14 @@ def _compare_table(with_hyp=False):
                 (
                     "Gradients",
                     *g(
-                        f"canary-qwen-charlev-spc-logmel-st15-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
-                        f"canary-qwen-charlev-spc-logmel-st15-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo",
+                        f"canary-qwen-charlev-spc-logmel-st15-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                        f"canary-qwen-charlev-spc-logmel-st15-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
                 (
                     "Self-att.",
-                    f"align/baseline-canary-qwen-selfattn-{S}-asotTrue-bs-5-en0.5-wordtopo",
-                    f"align/baseline-canary-qwen-selfattn-{T}-asotTrue-bs-5-en0.5-wordtopo",
+                    f"align/baseline-canary-qwen-selfattn-{S}-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                    f"align/baseline-canary-qwen-selfattn-{T}-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                 ),
             ],
         ),
@@ -1234,8 +1234,8 @@ def _owsm_layer_table():
         # the inter-CTC blocks use their own prefix_fwd configs.
         # The per-model table shows OWSM at its BEST block, which is the lyr6 row here.
         if layer == 27:
-            return f"align/owsm-ctc-v4-1b-prefixfwd-{ds}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo"
-        return f"align/owsm-ctc-v4-1b-lyr{layer}-{ds}-L2_grad-pertoken-asotTrue-bs-5-en0.5-zsk1.0-wordtopo"
+            return f"align/owsm-ctc-v4-1b-prefixfwd-{ds}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo"
+        return f"align/owsm-ctc-v4-1b-lyr{layer}-{ds}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo"
 
     def fbase(layer, ds):  # forced-align (posteriors) baseline base
         return f"baseline-owsm-ctc-v4-1b-{_tag(layer)}{ds}"
@@ -1265,8 +1265,8 @@ def _owsm_layer_table():
 # ----------------------------------------------------------------------------------------
 def _prompt_splice_table():
     S = "buckeye-segA-5h"
-    AO_GRAD = "asotTrue-bs-5-en0.5-zsk1.0-wordtopo"
-    AO_ATTN = "asotTrue-bs-5-en0.5-wordtopo"
+    AO_GRAD = "asotTrue-bs-5-en0.5-sil2.0-wordtopo"
+    AO_ATTN = "asotTrue-bs-5-en0.5-sil2.0-wordtopo"
     MODELS = [("phi4mm", "Phi-4-MM"), ("voxtral", "Voxtral"), ("canary-qwen", "Canary-Qwen")]
     # (tag, row label, the actual spliced instruction text).
     # The "len" column = the character count of the text, computed dynamically below (not hardcoded),

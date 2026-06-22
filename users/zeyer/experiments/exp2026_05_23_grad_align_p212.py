@@ -220,9 +220,9 @@ def py():
     _table_results = {"speedcmp-p212/cost-4way-metrics.txt": cost.out_metrics}
     dl_voxtral = download_voxtral_mini_3b_model()
 
-    def _ts_zsk_align(ex, name):
-        # the zsk1.0-wordtopo align the time-stretch table reads (produce the exact table name directly,
-        # skipping the en0.5-sil1.0 base + the generic twin generator).
+    def _ts_align(ex, name):
+        # the sil2.0-wordtopo align the time-stretch table reads (production default: energy-scaled
+        # silence s=2; produce the exact table name directly, skipping the generic twin generator).
         al = WordAlignFromPerTokenGradsJob(
             grad_score_hdf=ex.out_hdf,
             grad_score_key="data",
@@ -232,9 +232,9 @@ def py():
             align_opts=_xa_ao,
             audio_energy_pow=0.5,
             word_topology=True,
-            blank_grad_zscore_kappa=1.0,
+            blank_silence_energy_scale=2.0,
         )
-        nm = f"align/{name}-asotTrue-bs-5-en0.5-zsk1.0-wordtopo"
+        nm = f"align/{name}-asotTrue-bs-5-en0.5-sil2.0-wordtopo"
         al.add_alias(nm)
         _table_results[f"{nm}-wbe.txt"] = al.out_wbe
 
@@ -280,7 +280,7 @@ def py():
             # (MMS-FA ts3.0 still runs).
             if _tsf < 3.0:
                 tk.register_output(f"{_tsw_name}.hdf", _tsw_ex.out_hdf)
-                _ts_zsk_align(_tsw_ex, _tsw_name)
+                _ts_align(_tsw_ex, _tsw_name)
             # Voxtral (no prefix lattice -> no split; reuse finished 2.7); capped <2.0 (30s encoder window).
             if _tsf < 2.0:
                 _tsv_cfg = rf.build_dict(
@@ -305,7 +305,7 @@ def py():
                 _tsv_name = f"voxtral-charlevlogmel-{_xa_tag}-L2_grad-pertoken-{_tst}{_tsm_sfx}"
                 _tsv_ex.add_alias(_tsv_name)
                 tk.register_output(f"{_tsv_name}.hdf", _tsv_ex.out_hdf)
-                _ts_zsk_align(_tsv_ex, _tsv_name)
+                _ts_align(_tsv_ex, _tsv_name)
             # MMS-FA forced-align reference (reuse finished 2.7).
             _tsf_fa = ForcedAlignBaselineJob(dataset_dir=_xa_dir, dataset_key="test", **_ts_fakw)
             _tsf_name = f"baseline-mms_fa-{_xa_tag}-{_tst}{_tsm_sfx}"
