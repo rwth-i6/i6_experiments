@@ -139,6 +139,17 @@ def managed_subprocess_server(
         _terminate_process_group(proc, log_prefix)
 
 
+# Per-model vLLM serving overrides (context length etc.); models not listed use vLLM defaults.
+# gemma keeps its exact prior args so existing dialogue-gen jobs are unaffected. GPT-OSS-120B is an
+# MoE shipping MXFP4 weights (~63 GB) -> fits one H100; if it OOMs on an 80 GB card, raise the
+# dialogue shard's gpu rqmt and add "--tensor-parallel-size 2" here.
+_VLLM_MODEL_ARGS: dict[str, list[str]] = {
+    "google/gemma-4-31B-it": ["--max-model-len", "65536"],
+    "Qwen/Qwen3-32B": ["--max-model-len", "32768"],
+    "openai/gpt-oss-120b": ["--max-model-len", "32768"],
+}
+
+
 @contextmanager
 def vllm_server(hf_model: str):
     port = pick_free_port(18998)
@@ -158,8 +169,7 @@ def vllm_server(hf_model: str):
         "--enable-prefix-caching",
         "true",
     ]
-    if hf_model == "google/gemma-4-31B-it":
-        cmd += ["--max-model-len", "65536"]
+    cmd += _VLLM_MODEL_ARGS.get(hf_model, [])
 
     with managed_subprocess_server(
         cmd,

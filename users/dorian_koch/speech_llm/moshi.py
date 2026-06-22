@@ -60,9 +60,23 @@ class MoshiAnnotate(Job):
         return HfMergeShards(shard_paths=[s.out_hf for s in shards]).out_hf
 
     def run(self):
-        # Import the moshi_finetune fork lazily (on the compute node, where its venv has
-        # it) so the manager env need not have it; the annotate worker imports it too, so
-        # put it on PYTHONPATH. Mirrors finetune.launch_training's lazy fork import.
+        # Import the moshi_finetune fork (source lives in recipe/moshi_finetune). Sisyphus exposes
+        # i6_experiments.* via a custom finder, NOT as a plain sys.path entry, so a bare top-level
+        # ``import moshi_finetune`` does NOT resolve in the worker even though ``import i6_experiments``
+        # does (the RecipeFinder gotcha). Pin the recipe root on sys.path first so the fork resolves;
+        # its parent dir then goes on the annotate worker's PYTHONPATH below so the worker subprocess
+        # (``from moshi_finetune.annotate import ...``) finds it too. No venv install needed.
+        import sys
+
+        # Find the recipe root by walking up from THIS file to the dir holding the moshi_finetune
+        # symlink. Use the UNRESOLVED __file__: recipe/ is a symlink tree (recipe/moshi_finetune ->
+        # projects/moshi-finetune, recipe/i6_experiments -> projects/i6_experiments). ``.resolve()``
+        # jumps into projects/, which has NO top-level moshi_finetune, so the import still fails --
+        # that exact bug shipped once; the assert below guards against it recurring.
+        recipe_root = next((str(p) for p in Path(__file__).parents if (p / "moshi_finetune").exists()), None)
+        assert recipe_root, f"could not locate recipe root (dir holding moshi_finetune) from {__file__}"
+        if recipe_root not in sys.path:
+            sys.path.insert(0, recipe_root)
         import moshi_finetune
 
         moshi_annotate_path = Path(__file__).resolve().parent / "moshi_annotate_inference.py"

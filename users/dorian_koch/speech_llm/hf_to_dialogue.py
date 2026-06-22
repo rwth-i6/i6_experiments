@@ -220,6 +220,8 @@ def make_dialogue_gen(
     llm_url: str, model_name: str, adapter_name: str, work_dir: str | None = None, total: int | None = None
 ):
     """Return a datasets.map-compatible function that generates one dialogue."""
+    if adapter_name == "service":
+        from . import personaplex_service_data  # noqa: F401  (registers the "service" adapter)
     adapter = DATASET_ADAPTER_REGISTRY[adapter_name]
     _local_done = [0]
 
@@ -229,8 +231,16 @@ def make_dialogue_gen(
             base_url=llm_url,
         )
         spec = adapter(example)
-        template, template_name = _pick_template(str(spec["uid"]))
-        user_msg = _build_user_message(spec, template)
+        if adapter_name == "service":
+            # Service scenarios use their own role-grounded templates + message builder
+            # (personaplex_service_data); the QA path below is unchanged -> hash-safe.
+            from .personaplex_service_data import build_service_user_message, pick_service_template
+
+            template, template_name = pick_service_template(str(spec["uid"]))
+            user_msg = build_service_user_message(spec, template)
+        else:
+            template, template_name = _pick_template(str(spec["uid"]))
+            user_msg = _build_user_message(spec, template)
 
         # Deterministic but varied seed: combine uid hash with a per-run offset
         # so re-generating with a different offset gives different outputs.

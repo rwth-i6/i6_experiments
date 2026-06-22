@@ -33,9 +33,7 @@ DEFAULT_TEXT_PROMPT = "The quick brown fox jumps over the lazy dog. Who could ha
 
 def main():
     parser = argparse.ArgumentParser(description="Run parlertts TTS Inference")
-    parser.add_argument(
-        "--out_dir", type=str, required=True, help="Directory to save output audio."
-    )
+    parser.add_argument("--out_dir", type=str, required=True, help="Directory to save output audio.")
     parser.add_argument(
         "--text",
         type=str,
@@ -66,9 +64,7 @@ def main():
     model = ParlerTTSForConditionalGeneration.from_pretrained(
         "parler-tts/parler-tts-large-v1", revision="refs/pr/9"
     ).to(device)
-    tokenizer = AutoTokenizer.from_pretrained(
-        "parler-tts/parler-tts-large-v1", revision="refs/pr/9"
-    )
+    tokenizer = AutoTokenizer.from_pretrained("parler-tts/parler-tts-large-v1", revision="refs/pr/9")
     print("Model loaded successfully.", flush=True)
 
     # TODO random description

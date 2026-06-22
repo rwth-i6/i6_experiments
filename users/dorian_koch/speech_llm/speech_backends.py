@@ -187,5 +187,5 @@ def moshirag_backend_spec(retrieval_llm: str = "google/gemma-4-31B-it") -> Backe
         offline_script="moshirag_offline_inference.py",
         inference_venv=_venv,
         retrieval_llm=retrieval_llm,
-        rqmt_override={"gpu": 2, "cpu": 6, "mem": 48, "time": 12},
+        rqmt_override={"gpu": 2, "cpu": 6, "mem": 48, "time": 3},
     )

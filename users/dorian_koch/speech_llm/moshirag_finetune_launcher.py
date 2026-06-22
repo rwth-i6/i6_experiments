@@ -1,9 +1,13 @@
 """moshirag_finetune_launcher.py -- SCAFFOLD entry point for MoshiRAG finetuning.
 
-Mirrors ``moshi_finetune_launcher.py``: it would import the MoshiRAG training fork's
-``train`` module, swap in our arrow-capable data loader (``moshi_arrow_dataset``), install
-the ``ArrowDataConfig`` sidecar, and additionally wire the RAG-specific seams the *released*
-(inference-only) moshi-rag fork does not provide:
+NOTE (2026-06-18 investigation): the released moshi-rag fork ships NO training loop, and
+``moshi_finetune`` is not installed in the moshirag venv (and models plain Moshi -- no ARC
+conditioner), so this does NOT mirror ``moshi_finetune_launcher.py``. The decided path is to
+build a minimal LoRA training loop directly on the fork's own model:
+``moshi.models.loaders.get_moshi_lm`` (load kyutai/moshika-rag-pytorch-bf16) +
+``moshi.modules.lora.replace_all_linear_with_lora`` (freeze base, train LoRA), loss on
+``LMModel.forward(codes, condition_tensors).logits``. The conditioner + LoRA already exist in
+the fork; only the training plumbing + the RAG-specific seams below are missing:
 
   * the **ARC-Encoder reference conditioner** forward/collate (encode the reference doc,
     project through the trainable linear layer, add into the temporal-transformer input
@@ -16,9 +20,10 @@ estimate -- ~1.5-3 weeks for checkpoint-init LoRA, dominated by the conditioner 
 seam), this raises so a misconfigured ``SpeechFinetune(adapter=MOSHIRAG_ADAPTER)`` run fails
 loudly instead of silently training a non-RAG model.
 
-To finalize: point the import at the real training loop, init from
+To finalize: build the LoRA loop on the fork's ``LMModel`` (above), init from
 ``kyutai/moshika-rag-pytorch-bf16`` (conditioner + <ret> already trained), implement the two
-seams above, then delete the NotImplementedError.
+seams above plus a collator that encodes references into ``condition_tensors``, then delete the
+NotImplementedError. See projects/2026-01-speech-llm/moshirag.md ("Training base -- decided").
 """
 
 import sys

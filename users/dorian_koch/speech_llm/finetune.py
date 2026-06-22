@@ -146,6 +146,17 @@ def launch_training(job: "SpeechFinetune", adapter: FinetuneAdapter) -> None:
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     env["HF_HOME"] = HF_CACHE_DIR.get()
+    # The base model + tokenizer are pre-staged into HF_HOME by the eval graph, so force offline
+    # loading: this skips any HF download / Xet re-verification, which (a) avoids re-fetching a 16 GB
+    # checkpoint every run and (b) does not depend on writable HF cache space (the shared hpcwork
+    # cache can be full -- a Xet "Background writer channel closed" download error is that symptom).
+    env["HF_HUB_OFFLINE"] = "1"
+    env["TRANSFORMERS_OFFLINE"] = "1"
+    # HF_CACHE_DIR already points AT the hub cache dir (".../common_hf_home/hub", which holds the
+    # models--* trees), so it is HF_HUB_CACHE -- NOT HF_HOME. HF appends "/hub" to HF_HOME, so setting
+    # HF_HOME to it makes HF look in ".../hub/hub/models--*" and miss the pre-staged model. Point
+    # HF_HUB_CACHE straight at the real dir so offline resolve (refs/main -> snapshot -> blob) works.
+    env["HF_HUB_CACHE"] = HF_CACHE_DIR.get()
     env["MASTER_ADDR"] = "localhost"
     env["MASTER_PORT"] = str(29600 + port_offset)  # avoid conflicts if multiple run on one machine
     print(f"Set MASTER_PORT to {env['MASTER_PORT']} based on hash of CUDA_VISIBLE_DEVICES")
@@ -162,16 +173,55 @@ def launch_training(job: "SpeechFinetune", adapter: FinetuneAdapter) -> None:
         job.out_config.get(),
     ]
 
-    # Import the fork lazily (on the compute node, where its venv has it) to get its
-    # path for PYTHONPATH; both the package dir and its parent are added, matching the
-    # original MoshiFinetune behaviour.
-    fork = importlib.import_module(adapter.fork_module)
-    top_level_file = fork.__file__
-    assert top_level_file is not None, f"Could not find {adapter.fork_module} module file"
-    package_base_dir = f"{str(Path(top_level_file).parent.parent)}{os.pathsep}{str(Path(top_level_file).parent)}"
-    env["PYTHONPATH"] = (
-        f"{package_base_dir}{os.pathsep}{env['PYTHONPATH']}" if "PYTHONPATH" in env else package_base_dir
-    )
+    # Locate the fork's install dir to prepend to the torchrun subprocess's PYTHONPATH (both the
+    # package dir and its parent, matching the original MoshiFinetune behaviour). The fork lives in
+    # the JOB's venv (job.venv_python_path), NOT necessarily this worker's .venv -- so query the job
+    # venv for the module file rather than importing it here (the setup .venv has no moshi/
+    # moshi_finetune; importing here crashed personaplex). If the fork is a normal site-packages
+    # install (e.g. the personaplex `moshi`), the launcher imports it directly anyway, so a failed
+    # lookup is non-fatal: skip the prepend with a warning.
+    top_level_file = None
+    try:
+        fork = importlib.import_module(adapter.fork_module)  # fast path: worker venv has it
+        top_level_file = fork.__file__
+    except ModuleNotFoundError:
+        probe = subprocess.run(
+            [job.venv_python_path.get(), "-c", f"import {adapter.fork_module} as m; print(m.__file__)"],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        top_level_file = probe.stdout.strip() or None
+
+    # Build the torchrun subprocess's PYTHONPATH. It is a fresh job-venv python, so neither the recipe
+    # tree nor (for non-site-packages forks) the fork dir is on its path:
+    #  * The launcher (adapter.launcher_module) is an i6_experiments module. Sisyphus puts the recipe
+    #    root on the WORKER's sys.path programmatically -- not via PYTHONPATH -- so the subprocess
+    #    can't import i6_experiments unless we add the recipe root explicitly. Resolve it from the
+    #    already-imported i6_experiments package (recipe/i6_experiments/__init__.py -> recipe root).
+    #  * The fork's package dir + parent are prepended too (matching the original MoshiFinetune
+    #    behaviour). The launcher's own sys.path guard still wins for `import moshi` (site-packages
+    #    fork beats recipe/moshi), so the recipe root on the path does not reintroduce shadowing.
+    extra_paths: list[str] = []
+    if top_level_file:
+        extra_paths += [str(Path(top_level_file).parent.parent), str(Path(top_level_file).parent)]
+    else:
+        print(
+            f"[launch_training] fork {adapter.fork_module!r} not locatable for PYTHONPATH; "
+            f"relying on the job venv site-packages + launcher sys.path guard",
+            flush=True,
+        )
+    # recipe root = the dir holding the i6_experiments (+ fork) symlinks. Walk up UNRESOLVED from this
+    # file (recipe/i6_experiments/.../finetune.py): recipe/ is a symlink tree, so
+    # ``i6_experiments.__file__.resolve()`` would land in projects/ -- which lacks the recipe/<fork>
+    # symlinks (e.g. recipe/moshi_finetune -> projects/moshi-finetune; there is no projects/
+    # moshi_finetune), breaking the launcher's ``import <fork>``. Keep it unresolved.
+    recipe_root = next((str(p) for p in Path(__file__).parents if (p / "i6_experiments").exists()), None)
+    if recipe_root:
+        extra_paths.append(recipe_root)
+    if env.get("PYTHONPATH"):
+        extra_paths.append(env["PYTHONPATH"])
+    env["PYTHONPATH"] = os.pathsep.join(extra_paths)
     print(f"Running {adapter.name} training with command: {' '.join(command)}", flush=True)
     print(f"Using HF cache directory: {HF_CACHE_DIR}")
     subprocess.run(command, env=env, check=True)
@@ -230,6 +280,35 @@ run_dir: "{run_dir}"  # Fill
 """
 
 
+def _render_personaplex_config(job: "SpeechFinetune", batch_size: int, max_steps: int, *, hf_repo_id: str) -> str:
+    """Render the PersonaPlex training config (consumed by personaplex_finetune_launcher, NOT the
+    moshi_finetune schema). Paper values (arXiv 2602.06053): Adam+cosine, depformer LR 4e-6 /
+    temporal 2e-6, batch 32, 24,576 steps, 163.84 s seq, full finetune; loss down-weights + system
+    -prompt masking live in the launcher's personaplex_loss. ``system_prompt_key`` lets service rows
+    carry a per-row role prompt (column "context"); QA rows fall back to the default persona."""
+    return f"""# PersonaPlex finetune config (personaplex_finetune_launcher schema)
+hf_repo_id: "{hf_repo_id}"
+train_data: "{job.train_data.get()}"
+out_dir: "{job.out_rundir.get()}"
+max_steps: {max_steps}
+duration_sec: {job.duration_sec}
+# Single-GPU (this cluster, for now): freeze the backbone, full-FT the depformer + heads; small
+# per-GPU batch + grad-accum (effective batch 8). For the paper recipe use train_scope=full +
+# multi-GPU torchrun + grad_accum to effective batch 32.
+train_scope: "heads"
+per_gpu_batch: 1
+grad_accum: 8
+lr_temporal: 2e-6
+lr_depformer: 4e-6
+warmup_steps: 200
+grad_clip: 1.0
+save_every: 500
+log_every: 5
+seed: {getattr(job, "seed", 0)}
+system_prompt_key: "context"
+"""
+
+
 MOSHI_ADAPTER = FinetuneAdapter(
     name="moshi",
     batch_size=16,
@@ -240,22 +319,25 @@ MOSHI_ADAPTER = FinetuneAdapter(
 
 
 # --------------------------------------------------------------------------- #
-# PersonaPlex adapter (SCAFFOLD -- see projects/2026-01-speech-llm/personaplex.md).
-# PersonaPlex ships an *inference* fork; there is (likely) no released finetuning code,
-# so the launcher + fork below are placeholders to finalize once a PersonaPlex-aware
-# training loop exists. The harness + data pipeline are already reusable; only this
-# adapter (and the launcher it names) need filling in. Wire via
-# ``SpeechFinetune(adapter=PERSONAPLEX_ADAPTER, ...)``.
+# PersonaPlex adapter (IMPLEMENTED, single-GPU -- see projects/2026-01-speech-llm/personaplex.md).
+# Training base DECIDED (2026-06-19 investigation): moshi_finetune is NOT installed in the
+# personaplex venv, so the launcher must drive the PersonaPlex fork's OWN model. Good news --
+# unlike the moshi-rag fork, the personaplex fork ships a built-in training path:
+# ``moshi.models.lm.LMModel.forward_train(codes) -> LMOutput`` (delays handled, logits+masks) +
+# ``create_loss_report``, loaded via ``loaders.get_moshi_lm(model.safetensors)``. So fork_module
+# is "moshi" and the launcher builds a loop on forward_train (port moshi_finetune's loop onto this
+# model); the config is a personaplex-specific YAML, NOT the moshi_finetune schema. The launcher
+# is IMPLEMENTED and training (single-GPU: train_scope=heads, backbone frozen, full-FT depformer +
+# heads); voice-prompt conditioning (the hybrid role/voice collator) is still TODO -- we condition
+# on role text only. Wire via ``SpeechFinetune(adapter=PERSONAPLEX_ADAPTER, venv_python_path=personaplex_venv(), ...)``.
 # --------------------------------------------------------------------------- #
 PERSONAPLEX_ADAPTER = FinetuneAdapter(
     name="personaplex",
-    batch_size=16,
-    # VERIFY(personaplex): config schema for the PersonaPlex trainer (assumed
-    # moshi-finetune-compatible here; 7B may need multi-GPU + schema tweaks).
-    render_config=partial(_render_moshi_finetune_config, hf_repo_id="nvidia/personaplex-7b-v1"),
-    # VERIFY(personaplex): training entry point + fork package (no released code yet).
+    batch_size=32,  # paper
+    render_config=partial(_render_personaplex_config, hf_repo_id="nvidia/personaplex-7b-v1"),
     launcher_module="i6_experiments.users.dorian_koch.speech_llm.personaplex_finetune_launcher",
-    fork_module="moshi_finetune",
+    fork_module="moshi",  # the moshi-personaplex fork (import name `moshi`); installed by personaplex_venv()
+    # progress defaults to ("metrics.train.jsonl", "percent_done") -- exactly what the launcher writes.
 )
 
 

@@ -59,25 +59,17 @@ dialogue_features = Features(
 def available_speakers(speaker_dir: str) -> list[str]:
     """List available speakers based on the files in the speaker directory.
     Returns sorted list so random.choice gives the same result regardless of filesystem order."""
-    return sorted(
-        os.path.splitext(filename)[0]
-        for filename in os.listdir(speaker_dir)
-        if filename.endswith(".wav")
-    )
+    return sorted(os.path.splitext(filename)[0] for filename in os.listdir(speaker_dir) if filename.endswith(".wav"))
 
 
 def speaker_name_to_path(speaker_name: str, speaker_dir: str) -> str:
     speaker_name = SPEAKER_ALIAS.get(speaker_name, speaker_name)
     based = os.path.basename(speaker_name)
     if based.startswith("rng_"):
-        al = available_speakers(
-            os.path.join(speaker_dir, os.path.dirname(speaker_name))
-        )
+        al = available_speakers(os.path.join(speaker_dir, os.path.dirname(speaker_name)))
         # special token for random
         if len(al) == 0:
-            raise ValueError(
-                f"No available speakers in directory {os.path.dirname(speaker_name)} for random selection"
-            )
+            raise ValueError(f"No available speakers in directory {os.path.dirname(speaker_name)} for random selection")
         chosen = random.choice(al)
         print(f"Randomly chose speaker {chosen} from {al} for {speaker_name}")
         return os.path.join(speaker_dir, os.path.dirname(speaker_name), chosen + ".wav")
@@ -95,9 +87,7 @@ def gen_conversation(
     paths_used = set()
 
     # TODO get all speakers
-    speakers = set(
-        (turn["speaker"], turn.get("exaggeration", 0.5)) for turn in dialogue
-    )
+    speakers = set((turn["speaker"], turn.get("exaggeration", 0.5)) for turn in dialogue)
     speak_map = {}
     for s in speakers:
         if s[0] not in speaker_to_path:
@@ -108,9 +98,7 @@ def gen_conversation(
             speaker_to_path[s[0]] = p
             paths_used.add(p)
 
-        model.prepare_conditionals(
-            speaker_to_path[s[0]], exaggeration=s[1], norm_loudness=True
-        )
+        model.prepare_conditionals(speaker_to_path[s[0]], exaggeration=s[1], norm_loudness=True)
         speak_map[s] = model.conds
 
     # We synthesize per-speaker streams, then align them based on the sampled
@@ -132,9 +120,7 @@ def gen_conversation(
 
         if "pre_silence" in turn:
             assert turn["pre_silence"] >= 0, "Pre-silence must be non-negative"
-            print(
-                f"Adding pre-silence of {turn['pre_silence']} seconds for {turn['speaker']}"
-            )
+            print(f"Adding pre-silence of {turn['pre_silence']} seconds for {turn['speaker']}")
             t_samples += int(model.sr * turn["pre_silence"])
 
         model.conds = speak_map[(turn["speaker"], turn.get("exaggeration", 0.5))]
@@ -178,9 +164,7 @@ def gen_conversation(
     rendered = {}
     for s, exagg in speakers:
         # single channel tensor
-        rendered[s] = torch.zeros(
-            1, end_samples, device=device, dtype=utterances[0]["wav"].dtype
-        )
+        rendered[s] = torch.zeros(1, end_samples, device=device, dtype=utterances[0]["wav"].dtype)
 
     for u in utterances:
         s = u["speaker"]
@@ -191,13 +175,9 @@ def gen_conversation(
     return rendered, utterances, speaker_to_path
 
 
-def process_dialogue(
-    model, dialogue, device, speaker_dir, silence_length_sampler, out_dir, diag_id
-):
+def process_dialogue(model, dialogue, device, speaker_dir, silence_length_sampler, out_dir, diag_id):
 
-    assert isinstance(dialogue, list), (
-        "Each line in the input text file should be a json array that contains dialogues"
-    )
+    assert isinstance(dialogue, list), "Each line in the input text file should be a json array that contains dialogues"
     assert len(dialogue) > 0, "Each dialogue should contain at least one turn"
     assert all("speaker" in turn and "text" in turn for turn in dialogue), (
         "Each turn in the dialogue should contain 'speaker', 'text' fields"
@@ -249,9 +229,7 @@ def main():
     try:
         import torchcodec
     except:
-        print(
-            "torchcodec could not be imported. If on slurm cluster, run ml load FFmpeg"
-        )
+        print("torchcodec could not be imported. If on slurm cluster, run ml load FFmpeg")
     import torchcodec
     # fail early. If this fails, its likely that the user doesn't have ffmpeg installed, or its broken somehow. use InstallFFmpeg job here
 
@@ -334,9 +312,7 @@ def main():
         dynamic=True,  # fullgraph=True, backend="cudagraphs"
     )
 
-    assert args.in_jsonl is not None or args.in_hf is not None, (
-        "Either --in_jsonl or --in_hf must be provided"
-    )
+    assert args.in_jsonl is not None or args.in_hf is not None, "Either --in_jsonl or --in_hf must be provided"
     assert not (args.in_jsonl is not None and args.in_hf is not None), (
         "Cannot provide both --in_jsonl and --in_hf. Please choose one."
     )
@@ -350,9 +326,7 @@ def main():
         dataset = load_from_disk(args.in_hf)
         print("Dataset loaded successfully!")
         if args.in_hf_shard is not None and args.in_hf_num_shards is not None:
-            dataset = dataset.shard(
-                num_shards=args.in_hf_num_shards, index=args.in_hf_shard
-            )
+            dataset = dataset.shard(num_shards=args.in_hf_num_shards, index=args.in_hf_shard)
             print(f"Using shard {args.in_hf_shard} of {args.in_hf_num_shards}")
         total_dialogues = len(dataset)
         _write_progress(0, total_dialogues)
@@ -415,9 +389,7 @@ def main():
                         continue
                     audio_path = os.path.join(dialogue_dir, f"{speaker}.wav")
                     if not os.path.exists(audio_path):
-                        raise FileNotFoundError(
-                            f"Audio file for speaker {speaker} not found in dialogue {i}"
-                        )
+                        raise FileNotFoundError(f"Audio file for speaker {speaker} not found in dialogue {i}")
                     speaker_audio[speaker] = audio_path
                 yield {
                     "id": f"dialogue_{i}",
