@@ -51,6 +51,18 @@ def main():
         nargs="*",
         help="if set, only consider jobs where the realpath of the work dir is a prefix of the realpath of this",
     )
+    arg_parser.add_argument(
+        "--keep-last-n",
+        type=int,
+        default=11,
+        help="for active finished trainings, keep the best epochs plus the last N epochs (default 11)",
+    )
+    arg_parser.add_argument(
+        "--drop-optimizer",
+        action="store_true",
+        help="also remove optimizer state (*.opt.pt) of active finished trainings"
+        " (resume-only state, safe to drop once a training is done)",
+    )
     args = arg_parser.parse_args()
 
     args.filter_work_dir_fs = (
@@ -299,6 +311,11 @@ def main():
         cov_count["unused_own_config"] += 1
         train_job_with_models_to_remove.append(name)
 
+    print(
+        "Active-finished keep policy:",
+        f"best epochs + last {args.keep_last_n} epochs,",
+        "dropping optimizer states" if args.drop_optimizer else "keeping optimizer states",
+    )
     print("Collecting model checkpoint files from active finished train jobs to remove...")
     for job in active_train_job_finished_list:
         job: ReturnnTrainingJob
@@ -315,9 +332,9 @@ def main():
             continue
         # Relevant epochs so far only contains the best from the learning rate scores.
         # Those are not necessarily e.g. the final epochs, or other fixed kept epochs.
-        # Always keep the 10 last epochs.
+        # Also keep the last N epochs (default 11; --keep-last-n).
         last_epoch = max(job.out_checkpoints.keys())
-        relevant_epochs.extend(range(last_epoch - 10, last_epoch + 1))
+        relevant_epochs.extend(range(last_epoch - (args.keep_last_n - 1), last_epoch + 1))
         model_dir = job.out_model_dir.get_path()
         model_fns_to_remove_ = []
         model_size = 0
@@ -330,7 +347,10 @@ def main():
                     print("Unexpected model file:", model_base_fn.name)
                     continue
                 if model_base_fn.name.endswith(".opt.pt"):
-                    continue  # ignore optimizer state. this is the last epoch. keep it
+                    if args.drop_optimizer:
+                        model_fns_to_remove_.append(model_base_fn.path)
+                        model_size += model_base_fn.stat().st_size
+                    continue  # else keep optimizer state (resume-only; this is the last epoch)
                 epoch = int(re.match("epoch\\.([0-9]+)\\.pt", model_base_fn.name).group(1))
                 if epoch in relevant_epochs:
                     epochs_to_keep.add(epoch)
