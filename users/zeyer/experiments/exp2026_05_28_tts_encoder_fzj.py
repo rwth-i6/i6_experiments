@@ -503,6 +503,7 @@ def py():
     # Same as ref-match-logmel-muon (= ref-match-logmel + muon-lr5e3-wdbl), but nep 25 -> 38 (+50% updates):
     # the training-matched point removing the 4-GPU step-count penalty (audio-only nep38 bought 4.22 -> 4.01).
     # Isolates whether the ~0 TTS text-util gain is the regime, not the TTS.
+    # {"dev-clean": 1.74, "dev-other": 3.98, "test-clean": 1.92, "test-other": 4.22}  (1st TTS variant < 4.0)
     _train_tts_encoder(
         "tts-enc-ref-match-logmel-muon-nep38",
         prefix=prefix,
@@ -582,6 +583,7 @@ def py():
     )
     # ref-match-logmel-muon-nep38 + random durations (rnddur: i.i.d.-uniform durations renormalized to the
     # predictor total -- structure removed, length kept), to see if random durations hold up in the best regime.
+    # {"dev-clean": 1.72, "dev-other": 3.95, "test-clean": 1.92, "test-other": 4.35}  (ties layer8 dev-other)
     _train_tts_encoder(
         "tts-enc-ref-match-logmel-rnddur-muon-nep38",
         prefix=prefix,
@@ -634,6 +636,7 @@ def py():
         pseudo_enc_specaug_max_width=6,
     )
     # pseudo-enc-logmel (best pseudo-enc at 4.30) in the best 4-GPU regime: muon-lr5e3-wdbl + nep38.
+    # {"dev-clean": 1.64, "dev-other": 4.05, "test-clean": 1.81, "test-other": 4.27}
     _train_tts_encoder(
         "pseudo-enc-logmel-muon-nep38",
         prefix=prefix,
@@ -698,6 +701,7 @@ def py():
         pseudo_enc_specaug_max_width=6,
     )
     # pseudo-enc-logmel-mfatable (frozen MFA table + blank) in the best 4-GPU regime: muon-lr5e3-wdbl + nep38.
+    # {"dev-clean": 1.59, "dev-other": 3.95, "test-clean": 1.78, "test-other": 4.44}
     _train_tts_encoder(
         "pseudo-enc-logmel-mfatable-muon-nep38",
         prefix=prefix,
