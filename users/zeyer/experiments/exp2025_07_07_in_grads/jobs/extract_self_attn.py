@@ -404,6 +404,8 @@ class ExtractSelfAttnWhisperJob(Job):
     a no-transform run should match it (sanity check).
     """
 
+    __sis_version__ = 1  # word grouping by dataset words (not split_to_word_tokens); drop the no_timestamps row
+
     def __init__(
         self,
         *,
@@ -487,7 +489,13 @@ class ExtractSelfAttnWhisperJob(Job):
                 wav = torchaudio.functional.resample(wav[None], sr, 16000)[0]
             mel = whisper.log_mel_spectrogram(whisper.pad_or_trim(wav), n_mels=model.dims.n_mels).to(dev)
             nf2 = (int(wav.shape[0]) // 160) // 2
-            text_tokens = tok.encode(" " + " ".join(w.lower() for w in words))
+            # Group tokens by the DATASET words, not whisper's split_to_word_tokens:
+            # the latter re-splits hyphens/contractions and can yield a different word count
+            # than word_detail (the monolith silently skips those seqs; len(b) == len(ref)),
+            # but WordAlign needs an exact per-word grouping for EVERY seq.
+            per_word = [tok.encode(" " + w.lower()) for w in words]
+            text_tokens = [t for wt in per_word for t in wt]
+            tok_per_word = [len(wt) for wt in per_word]
             tokens = torch.tensor([*tok.sot_sequence, tok.no_timestamps, *text_tokens, tok.eot]).to(dev)
             QKs = [None] * model.dims.n_text_layer
             hooks = [
@@ -498,22 +506,18 @@ class ExtractSelfAttnWhisperJob(Job):
                 model(mel.unsqueeze(0), tokens.unsqueeze(0))
             for h in hooks:
                 h.remove()
-            _w, wt_ = tok.split_to_word_tokens(text_tokens + [tok.eot])
-            wb = np.pad(np.cumsum([len(t) for t in wt_[:-1]]), (1, 0))
-            # openai find_alignment per-head transform, then mean over heads (== monolith matrix())
+            # openai find_alignment per-head transform, then mean over heads (== monolith matrix()).
             w_ = torch.stack([QKs[li][hi] for li, hi in heads])[:, :, :nf2].softmax(dim=-1)
             if self.zscore:
                 std, mean = torch.std_mean(w_, dim=-2, keepdim=True, unbiased=False)
                 w_ = (w_ - mean) / std
             if self.median_filter:
                 w_ = _medfilt(w_, 7)
-            m = w_.mean(axis=0)[n_sot:-1].double().numpy()  # [n_sot:-1] rows, like the monolith DP
-            # WordAlign needs sum(tok_per_word) == n_tokens:
-            # keep the wb word spans,
-            # drop the trailing extra row(s) beyond the last word boundary so the per-word grouping is exact.
-            n_tok_words = int(wb[-1])
-            grad_mat = m[:n_tok_words]
-            tok_per_word = [int(wb[k + 1] - wb[k]) for k in range(len(wb) - 1)]
+            # Rows = the text tokens only: drop the SOT prefix + no_timestamps (front) and eot (back),
+            # so grad_mat has exactly sum(tok_per_word) rows.
+            # The monolith keeps the no_timestamps row, but it belongs to no word --
+            # dropping it gives a clean per-word grouping for the span DP.
+            grad_mat = w_.mean(axis=0)[n_sot + 1 : -1].double().numpy()
             frames_se = _attn_frames_se(int(wav.shape[0]), nf2)
             _write_attn_hdf_seq(writer, si, grad_mat, nf2, len(words), tok_per_word, frames_se)
             if si % 50 == 0:
