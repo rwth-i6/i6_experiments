@@ -86,17 +86,15 @@ CONFIGS = [
     ),
     # faithful-origin toggle: add energy to the faithful DTW
     # (stays on the DTW branch, so the matrix is compatible).
-    # NOTE: switching the faithful transform onto our monotonic/blank DP is NOT a clean single toggle --
-    # whisper's z-norm-over-tokens transform is a DTW cost, not softmax-able emission scores,
-    # so our Aligner degenerates on it.
-    # The mono/silence axes are isolated from the OURS end instead
-    # (ours_full vs ours_dtw = DP step; ours_full vs ours_none = silence).
+    # The faithful z-norm-over-tokens matrix is a DTW cost, not softmax-able emission scores,
+    # so faithful_mono / faithful_silence below run the mono DP with apply_log=False and softmax=False
+    # (raw max-based DP), which mirrors the DTW branch's -m -- a clean DP/silence toggle on the same matrix.
     (
         "faithful_energy",
         dict(heads="wh", zscore=True, medfilt=True, log=False, dp="dtw", energy=True, silence="none", readoff="jump"),
     ),
     # From no-z-norm + log (a softmax-compatible matrix) switch to our DP, then add word silence.
-    # (z-norm makes the matrix incompatible with our Aligner's softmax-over-time, so we branch from here.)
+    # (this keeps the log/softmax emission path; faithful_mono below takes the raw z-norm path instead.)
     (
         "noznorm_log_mono",
         dict(heads="wh", zscore=False, medfilt=True, log=True, dp="mono", energy=False, silence="none", readoff="span"),
@@ -169,7 +167,7 @@ def _dtw_path(cost):
 
 
 class WhisperDtwAblationJob(Job):
-    __sis_version__ = 3  # Aligner mono rows: word end now exclusive (max+1)
+    __sis_version__ = 4  # faithful mono rows: pass apply_log=log (raw z-norm DP, no NaN degenerate)
 
     def __init__(
         self,
@@ -333,7 +331,10 @@ class WhisperDtwAblationJob(Job):
 
         def evaluate(heads, zscore, medfilt, log, dp, energy, silence, readoff, softmax=True):
             hd = head_map[heads]
-            al = Aligner(apply_softmax_over_time=softmax, blank_score=-5)
+            # apply_log mirrors the DTW branch: faithful rows (log=False) run the mono DP on the
+            # raw z-norm matrix (max-based, no log), exactly like the DTW branch's -m.
+            # log=True rows keep the log-space emission path unchanged.
+            al = Aligner(apply_softmax_over_time=softmax, blank_score=-5, apply_log=log)
             errs = []
             for QKs, nf2, wb, ref, nt, e in seqs:
                 m = matrix(QKs, nf2, hd, zscore, medfilt)
