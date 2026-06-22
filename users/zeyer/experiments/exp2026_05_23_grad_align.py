@@ -5525,6 +5525,7 @@ def py():
             "voxtral-charlevlogmel-buckeye-segA-5h-L2_grad-pertoken",
             "canary-qwen-charlev-spc-logmel-st15-buckeye-segA-5h-L2_grad-pertoken",
             "phi4mm-buckeye-segA-5h-L2_grad-pertoken-charlev-spc",
+            "emformer-rnnt-prefix-logmel-buckeye-segA-5h-L2_grad-pertoken",
             "baseline-whisper-large-v3-crossattn-auto-buckeye-segA-5h",
             "baseline-owls-1B-180K-crossattn-auto-buckeye-segA-5h",
             "baseline-voxtral-selfattn-buckeye-segA-5h",

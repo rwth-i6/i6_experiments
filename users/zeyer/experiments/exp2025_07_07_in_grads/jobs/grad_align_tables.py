@@ -643,6 +643,7 @@ def _alignopts_silence_table():
         ("voxtral", f"voxtral-charlevlogmel-{S}-L2_grad-pertoken"),
         ("canary", f"canary-qwen-charlev-spc-logmel-st15-{S}-L2_grad-pertoken"),
         ("phi4", f"phi4mm-{S}-L2_grad-pertoken-charlev-spc"),
+        ("emformer", f"emformer-rnnt-prefix-logmel-{S}-L2_grad-pertoken"),
     ]
     ATTN = [
         ("wh_a", "baseline-whisper-large-v3-crossattn-auto"),
