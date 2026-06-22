@@ -150,7 +150,7 @@ class CalcHypAlignMetricsJob(Job):
         self.out_matched_wbe = self.output_var("matched_wbe.txt")
 
     def tasks(self):
-        yield Task("run", rqmt={"cpu": 2, "mem": 10, "time": 5})
+        yield Task("run", rqmt={"cpu": 2, "mem": 10, "time": 5, "engine": "short"})
 
     @staticmethod
     def _norm_word(w: str) -> str:
