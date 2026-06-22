@@ -3325,7 +3325,9 @@ def py():
     for _dk in _dtw_abl.out_wbes:
         reg(f"dtw-abl/whisper-base-buckeye-segA-5h-{_dk}-wbe.txt", _dtw_abl.out_wbes[_dk])
     # --- ExtractSelfAttnWhisperJob refactor verification ---
-    # openai-whisper extract (faithful transform) -> WordAlign(whisper_dtw).
+    # openai-whisper extract (faithful transform) -> WordAlign(true_dtw, apply_log=False).
+    # true_dtw = dtw(-matrix) on the raw z-norm matrix (NOT whisper_dtw, which forces
+    # log-softmax-over-time and degenerates the signed faithful matrix to ~214ms).
     # Should reproduce the monolith span=94.31 (WordAlign's read-off is span, not jump=99.11).
     # Full Buckeye-segA-5h, same set as the monolith.
     _ver_heads_wh = [[3, 1], [4, 2], [4, 3], [4, 7], [5, 1], [5, 2], [5, 4], [5, 6]]
@@ -3347,7 +3349,7 @@ def py():
         dataset_key="test",
         dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
         align_opts={"apply_softmax_over_time": False, "apply_log": False, "blank_score": -5},
-        whisper_dtw=True,
+        true_dtw=True,
     )
     _ver_wal.add_alias("verify/whisper-extract-faithful-wdtw")
     reg("verify/whisper-extract-faithful-wdtw-wbe.txt", _ver_wal.out_wbe)
@@ -3381,7 +3383,7 @@ def py():
         dataset_key="test",
         dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
         align_opts={"apply_softmax_over_time": False, "apply_log": False, "blank_score": -5},
-        whisper_dtw=True,
+        true_dtw=True,
     )
     _ver_sub_wal.add_alias("verify/whisper-extract-sub025-wdtw")
     reg("verify/whisper-extract-sub025-wdtw-wbe.txt", _ver_sub_wal.out_wbe)

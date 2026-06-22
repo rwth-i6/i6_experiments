@@ -404,7 +404,7 @@ class ExtractSelfAttnWhisperJob(Job):
     a no-transform run should match it (sanity check).
     """
 
-    __sis_version__ = 1  # word grouping by dataset words (not split_to_word_tokens); drop the no_timestamps row
+    __sis_version__ = 2  # slice [n_sot:-2]: keep no_timestamps as first align row (openai/monolith convention)
 
     def __init__(
         self,
@@ -513,11 +513,13 @@ class ExtractSelfAttnWhisperJob(Job):
                 w_ = (w_ - mean) / std
             if self.median_filter:
                 w_ = _medfilt(w_, 7)
-            # Rows = the text tokens only: drop the SOT prefix + no_timestamps (front) and eot (back),
-            # so grad_mat has exactly sum(tok_per_word) rows.
-            # The monolith keeps the no_timestamps row, but it belongs to no word --
-            # dropping it gives a clean per-word grouping for the span DP.
-            grad_mat = w_.mean(axis=0)[n_sot + 1 : -1].double().numpy()
+            # Rows follow openai find_alignment / the monolith: [n_sot:-1] keeps the no_timestamps
+            # position as the FIRST alignment row (whisper's predict-next offset means the attention
+            # at the no_timestamps position aligns the first text token). The monolith's span read-off
+            # effectively uses rows [no_ts, text[0..nt-2]] (the last text-token row is never read), so
+            # we slice [n_sot:-2] -> exactly nt = sum(tok_per_word) rows, grouped by the per-word counts.
+            # (The earlier [n_sot+1:-1] dropped no_timestamps and shifted every token by one -> ~215ms.)
+            grad_mat = w_.mean(axis=0)[n_sot:-2].double().numpy()
             frames_se = _attn_frames_se(int(wav.shape[0]), nf2)
             _write_attn_hdf_seq(writer, si, grad_mat, nf2, len(words), tok_per_word, frames_se)
             if si % 50 == 0:
