@@ -217,6 +217,53 @@ class SelectSelfAttnAlignHeadsJob(Job):
         self.out_report.set(report)
 
 
+# ---- shared HDF helpers (grad-extract schema consumed by WordAlignFromPerTokenGradsJob) ----
+_ATTN_HDF_EXTRA_TYPE = {
+    "audio_frames_start_end": (2, 2, "int32"),
+    "num_input_frames": (1, 2, "int32"),
+    "num_words": (1, 2, "int32"),
+    "num_tokens": (1, 2, "int32"),
+    "num_tokens_per_word": (1, 2, "int32"),
+    "log_probs_per_token": (1, 2, "float32"),
+    "exit_log_probs": (1, 2, "float32"),
+}
+
+
+def _make_attn_hdf_writer(out_path):
+    from returnn.datasets.hdf import SimpleHDFWriter
+
+    return SimpleHDFWriter(out_path, dim=1, ndim=2, extra_type=dict(_ATTN_HDF_EXTRA_TYPE))
+
+
+def _attn_frames_se(audio_len, n_real):
+    import numpy as np
+
+    edges = np.arange(n_real + 1, dtype=np.float64) * (audio_len / max(n_real, 1))
+    return np.stack([np.round(edges[:-1]), np.round(edges[1:])], axis=-1).astype("int32")
+
+
+def _write_attn_hdf_seq(writer, seq_idx, grad_mat, n_real, n_words, tok_per_word, frames_se):
+    """grad_mat: [n_tokens, n_real]; tok_per_word must sum to n_tokens (WordAlign requirement)."""
+    import numpy as np
+
+    n_tokens = grad_mat.shape[0]
+    assert sum(tok_per_word) == n_tokens, f"{sum(tok_per_word)=} != {n_tokens=}"
+    writer.insert_batch(
+        grad_mat.reshape(1, -1, 1).astype("float32"),
+        seq_len=[n_tokens * n_real],
+        seq_tag=[f"seq-{seq_idx}"],
+        extra={
+            "audio_frames_start_end": frames_se[None],
+            "num_input_frames": np.array([[[n_real]]], dtype="int32"),
+            "num_words": np.array([[[n_words]]], dtype="int32"),
+            "num_tokens": np.array([[[n_tokens]]], dtype="int32"),
+            "num_tokens_per_word": np.array(tok_per_word, dtype="int32")[None, :, None],
+            "log_probs_per_token": np.zeros((1, n_tokens, 1), dtype="float32"),
+            "exit_log_probs": np.zeros((1, 1, 1), dtype="float32"),
+        },
+    )
+
+
 class ExtractSelfAttnPerTokenJob(Job):
     """Mean attention matrix of the selected heads, in the grad-extract HDF schema."""
 
@@ -283,20 +330,7 @@ class ExtractSelfAttnPerTokenJob(Job):
         for p in model.parameters():
             p.requires_grad = False
 
-        hdf_writer = SimpleHDFWriter(
-            self.out_hdf.get_path(),
-            dim=1,
-            ndim=2,
-            extra_type={
-                "audio_frames_start_end": (2, 2, "int32"),
-                "num_input_frames": (1, 2, "int32"),
-                "num_words": (1, 2, "int32"),
-                "num_tokens": (1, 2, "int32"),
-                "num_tokens_per_word": (1, 2, "int32"),
-                "log_probs_per_token": (1, 2, "float32"),
-                "exit_log_probs": (1, 2, "float32"),
-            },
-        )
+        hdf_writer = _make_attn_hdf_writer(self.out_hdf.get_path())
 
         from datasets import load_dataset
 
@@ -355,3 +389,133 @@ class ExtractSelfAttnPerTokenJob(Job):
                 print(f"seq {seq_idx}: {n_tokens} tokens x {n_real} frames ({time.time() - t0_time:.2f}s)", flush=True)
 
         hdf_writer.close()
+
+
+class ExtractSelfAttnWhisperJob(Job):
+    """openai-whisper cross-attention -> grad-extract HDF (so WordAlignFromPerTokenGradsJob can align it).
+
+    Mirrors openai ``find_alignment``'s matrix exactly
+    (this is why it uses ``import whisper`` rather than the HF/rf model):
+    per head, softmax over frames -> optional z-norm over tokens -> optional median filter,
+    then mean over the selected heads.
+    The DP / energy / silence / softmax / boundary read-off are left to WordAlign,
+    so each align config is a cheap job on the cached HDF (no re-capture).
+    Shares the HDF schema helpers with :class:`ExtractSelfAttnPerTokenJob`;
+    a no-transform run should match it (sanity check).
+    """
+
+    def __init__(
+        self,
+        *,
+        dataset_dir,
+        dataset_key,
+        overlay,
+        heads,
+        whisper_model="base",
+        zscore=True,
+        median_filter=True,
+        num_seqs=None,
+    ):
+        super().__init__()
+        self.dataset_dir = dataset_dir
+        self.dataset_key = dataset_key
+        self.overlay = overlay
+        self.heads = heads
+        self.whisper_model = whisper_model
+        self.zscore = bool(zscore)
+        self.median_filter = bool(median_filter)
+        self.num_seqs = num_seqs
+        self.rqmt = {"time": 6, "cpu": 2, "gpu": 0, "mem": 64}
+        self.out_hdf = self.output_path("out.hdf")
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import io
+        import os
+        import sys
+
+        sys.path.insert(0, self.overlay)
+        from i6_experiments.users.zeyer.external_models.huggingface import (
+            set_hf_offline_mode,
+            get_content_dir_from_hub_cache_dir,
+        )
+
+        set_hf_offline_mode()
+        import i6_experiments
+
+        sys.path.insert(0, os.path.dirname(os.path.dirname(i6_experiments.__file__)))
+        import numpy as np
+        import soundfile as sf
+        import torch
+        import whisper
+        from whisper.timing import median_filter as _medfilt
+        from whisper.model import disable_sdpa
+        import datasets
+        from datasets import load_dataset
+
+        heads = self.heads.get() if isinstance(self.heads, tk.Variable) else self.heads
+        heads = [(int(li), int(hi)) for li, hi in heads]
+        dev = torch.device("cpu")
+        model = whisper.load_model(self.whisper_model).to(dev).eval()
+        tok = whisper.tokenizer.get_tokenizer(
+            model.is_multilingual, num_languages=getattr(model, "num_languages", 99), language="en", task="transcribe"
+        )
+        n_sot = len(tok.sot_sequence)
+        ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))[self.dataset_key]
+        if isinstance(ds.features.get("audio"), datasets.Audio):
+            ds = ds.cast_column("audio", datasets.Audio(decode=False))
+        n = len(ds) if self.num_seqs is None else min(self.num_seqs, len(ds))
+
+        writer = _make_attn_hdf_writer(self.out_hdf.get_path())
+        for si in range(n):
+            d = ds[si]
+            a = d["audio"]
+            if a.get("array") is not None:
+                audio = np.asarray(a["array"], dtype=np.float32)
+                sr = int(a["sampling_rate"])
+            else:
+                audio, sr = sf.read(io.BytesIO(a["bytes"]) if a.get("bytes") else a["path"], dtype="float32")
+                sr = int(sr)
+                audio = np.asarray(audio, dtype=np.float32)
+            words = list(d["word_detail"]["utterance"])
+            wav = torch.tensor(audio)
+            if sr != 16000:
+                import torchaudio
+
+                wav = torchaudio.functional.resample(wav[None], sr, 16000)[0]
+            mel = whisper.log_mel_spectrogram(whisper.pad_or_trim(wav), n_mels=model.dims.n_mels).to(dev)
+            nf2 = (int(wav.shape[0]) // 160) // 2
+            text_tokens = tok.encode(" " + " ".join(w.lower() for w in words))
+            tokens = torch.tensor([*tok.sot_sequence, tok.no_timestamps, *text_tokens, tok.eot]).to(dev)
+            QKs = [None] * model.dims.n_text_layer
+            hooks = [
+                b.cross_attn.register_forward_hook(lambda _, i_, o_, idx=i: QKs.__setitem__(idx, o_[-1][0]))
+                for i, b in enumerate(model.decoder.blocks)
+            ]
+            with torch.no_grad(), disable_sdpa():
+                model(mel.unsqueeze(0), tokens.unsqueeze(0))
+            for h in hooks:
+                h.remove()
+            _w, wt_ = tok.split_to_word_tokens(text_tokens + [tok.eot])
+            wb = np.pad(np.cumsum([len(t) for t in wt_[:-1]]), (1, 0))
+            # openai find_alignment per-head transform, then mean over heads (== monolith matrix())
+            w_ = torch.stack([QKs[li][hi] for li, hi in heads])[:, :, :nf2].softmax(dim=-1)
+            if self.zscore:
+                std, mean = torch.std_mean(w_, dim=-2, keepdim=True, unbiased=False)
+                w_ = (w_ - mean) / std
+            if self.median_filter:
+                w_ = _medfilt(w_, 7)
+            m = w_.mean(axis=0)[n_sot:-1].double().numpy()  # [n_sot:-1] rows, like the monolith DP
+            # WordAlign needs sum(tok_per_word) == n_tokens:
+            # keep the wb word spans,
+            # drop the trailing extra row(s) beyond the last word boundary so the per-word grouping is exact.
+            n_tok_words = int(wb[-1])
+            grad_mat = m[:n_tok_words]
+            tok_per_word = [int(wb[k + 1] - wb[k]) for k in range(len(wb) - 1)]
+            frames_se = _attn_frames_se(int(wav.shape[0]), nf2)
+            _write_attn_hdf_seq(writer, si, grad_mat, nf2, len(words), tok_per_word, frames_se)
+            if si % 50 == 0:
+                print(f"captured {si}/{n}", flush=True)
+        writer.close()

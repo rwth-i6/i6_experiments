@@ -689,38 +689,47 @@ def _alignopts_silence_table():
 # ----------------------------------------------------------------------------------------
 def _alignopts_dtw_table():
     # Per-difference ablation Whisper find_alignment <-> our aligner, BOTH directions, + a grad block.
-    # Cross-attn rows (whisper-base, TIMIT-test) from WhisperDtwAblationJob (genuine openai-whisper attn;
-    # the faithful row reproduces find_alignment exactly, verified). Grad rows (whisper-char, Buckeye-segA)
-    # from the production grad aligner -- does true-DTW help grad as it does cross-attn?
+    # Cross-attn rows (whisper-base, Buckeye-segA-5h) from WhisperDtwAblationJob (genuine openai-whisper attn;
+    # the faithful row reproduces find_alignment exactly, verified).
+    # Grad rows (whisper-char, Buckeye-segA) from the production grad aligner
+    # -- does true-DTW help grad as it does cross-attn?
     # mono: checkmark = our monotonic DP (no vertical step); cross = whisper DTW (vertical allowed).
     # silence: word (ours full: blank only between words) / none (DTW has no blank states).
     # (label, src=(kind,key), heads, z-norm, median-filter, log, mono, silence, energy)
     ck, cx, na = "\\checkmark", "$\\times$", "--"
     WH, OU, B1 = "Whisper", "ours", "1-best"
     R = "\\ $\\hookrightarrow$ "
+    # softmax = apply_softmax_over_time (the Aligner's softmax-over-time score transform).
+    # x = off, NOT na: it is a real setting that would change the result.
+    # The whisper-DTW rows have it OFF (x) -- with log on they use log-softmax instead (the log column).
+    # It is OFF for faithful+mono/sil too (z-norm yields a DTW cost, not a softmax-able distribution),
+    # and ON for the other our-DP rows + grad.
+    # (label, src=(kind,key), heads, z-norm, median-filter, log, mono, silence, energy, softmax)
     ROWS = [
-        ("Cross-attn: Whisper (faithful)", ("xa", "faithful"), WH, ck, ck, cx, cx, "none", cx),
-        (R + "$+$ energy", ("xa", "faithful_energy"), WH, ck, ck, cx, cx, "none", ck),
-        (R + "$+$ mono DP", ("xa", "faithful_mono"), WH, ck, ck, cx, ck, "none", cx),
-        (R + "$+$ silence", ("xa", "faithful_silence"), WH, ck, ck, cx, cx, "word", cx),
-        (R + "no median-filter", ("xa", "nomedfilt"), WH, ck, cx, cx, cx, "none", cx),
-        (R + "no z-norm", ("xa", "noznorm"), WH, cx, ck, cx, cx, "none", cx),
-        (R + "no z-norm $+$ log", ("xa", "noznorm_log"), WH, cx, ck, ck, cx, "none", cx),
-        (R + "our heads", ("xa", "ourheads"), OU, ck, ck, cx, cx, "none", cx),
-        (R + "single best head", ("xa", "best1head"), B1, ck, ck, cx, cx, "none", cx),
-        ("Cross-attn: ours (full)", ("xa", "ours_full"), OU, cx, cx, ck, ck, "word", ck),
-        (R + "DTW DP", ("xa", "ours_dtw"), OU, cx, cx, ck, cx, "none", ck),
-        (R + "DTW DP, no energy", ("xa", "ours_dtw_noen"), OU, cx, cx, ck, cx, "none", cx),
-        (R + "no silence", ("xa", "ours_none"), OU, cx, cx, ck, ck, "none", ck),
-        ("Grad: ours (full)", ("grad", "en0.5-sil1.0-wordtopo"), na, na, na, ck, ck, "word", ck),
-        (R + "DTW DP, word-topo", ("grad", "en0.5-sil1.0-dtwword"), na, na, na, ck, cx, "word", ck),
-        (R + "DTW DP", ("grad", "en0.5-truedtw"), na, na, na, ck, cx, "none", ck),
-        (R + "DTW DP, no energy", ("grad", "en0.0-truedtw"), na, na, na, ck, cx, "none", cx),
+        ("Cross-attn: Whisper (faithful)", ("xa", "faithful"), WH, ck, ck, cx, cx, "none", cx, cx),
+        (R + "$+$ energy", ("xa", "faithful_energy"), WH, ck, ck, cx, cx, "none", ck, cx),
+        (R + "$+$ mono DP", ("xa", "faithful_mono"), WH, ck, ck, cx, ck, "none", cx, cx),
+        (R + "\\quad $+$ silence", ("xa", "faithful_silence"), WH, ck, ck, cx, ck, "word", cx, cx),
+        (R + "no median-filter", ("xa", "nomedfilt"), WH, ck, cx, cx, cx, "none", cx, cx),
+        (R + "no z-norm", ("xa", "noznorm"), WH, cx, ck, cx, cx, "none", cx, cx),
+        (R + "no z-norm $+$ log", ("xa", "noznorm_log"), WH, cx, ck, ck, cx, "none", cx, cx),
+        (R + "\\quad $+$ mono DP", ("xa", "noznorm_log_mono"), WH, cx, ck, ck, ck, "none", cx, ck),
+        (R + "\\qquad $+$ silence", ("xa", "noznorm_log_mono_sil"), WH, cx, ck, ck, ck, "word", cx, ck),
+        (R + "our heads", ("xa", "ourheads"), OU, ck, ck, cx, cx, "none", cx, cx),
+        (R + "single best head", ("xa", "best1head"), B1, ck, ck, cx, cx, "none", cx, cx),
+        ("Cross-attn: ours (full)", ("xa", "ours_full"), OU, cx, cx, ck, ck, "word", ck, ck),
+        (R + "DTW DP", ("xa", "ours_dtw"), OU, cx, cx, ck, cx, "none", ck, cx),
+        (R + "DTW DP, no energy", ("xa", "ours_dtw_noen"), OU, cx, cx, ck, cx, "none", cx, cx),
+        (R + "no silence", ("xa", "ours_none"), OU, cx, cx, ck, ck, "none", ck, ck),
+        ("Grad: ours (full)", ("grad", "en0.5-sil1.0-wordtopo"), na, na, na, ck, ck, "word", ck, ck),
+        (R + "DTW DP, word-topo", ("grad", "en0.5-sil1.0-dtwword"), na, na, na, ck, cx, "word", ck, ck),
+        (R + "DTW DP", ("grad", "en0.5-truedtw"), na, na, na, ck, cx, "none", ck, ck),
+        (R + "DTW DP, no energy", ("grad", "en0.0-truedtw"), na, na, na, ck, cx, "none", cx, ck),
     ]
     GP = "align/whisper-base-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc-asotTrue-bs-5"
-    columns = ["row", "heads", "znorm", "medfilt", "log", "mono", "silence", "energy", "wbe"]
+    columns = ["row", "heads", "znorm", "medfilt", "log", "softmax", "mono", "silence", "energy", "wbe"]
     rows = []
-    for label, src, heads, znorm, mf, log, mono, sil, en in ROWS:
+    for label, src, heads, znorm, mf, log, mono, sil, en, sm in ROWS:
         wbe = _wbe(f"dtw-abl/whisper-base-buckeye-segA-5h-{src[1]}") if src[0] == "xa" else _wbe(f"{GP}-{src[1]}")
         rows.append(
             {
@@ -730,6 +739,7 @@ def _alignopts_dtw_table():
                     "znorm": znorm,
                     "medfilt": mf,
                     "log": log,
+                    "softmax": sm,
                     "mono": mono,
                     "silence": sil,
                     "energy": en,
@@ -741,8 +751,8 @@ def _alignopts_dtw_table():
 
 
 def _alignopts_energy_table():
-    # audio_energy_pow (token-weighting exponent) swept at three blank schemes, word-topology DP,
-    # Buckeye-segA. Complements alignopts-silence (which sweeps the blank at fixed en0.5):
+    # audio_energy_pow (token-weighting exponent) swept at three blank schemes, word-topology DP, Buckeye-segA.
+    # Complements alignopts-silence (which sweeps the blank at fixed en0.5):
     # here the blank scheme is fixed per row-group and the energy exponent varies down the rows,
     # so en0.5 can be judged and its interplay with the blank scheme is visible.
     S = "buckeye-segA-5h"

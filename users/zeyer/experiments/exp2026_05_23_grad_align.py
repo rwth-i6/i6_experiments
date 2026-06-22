@@ -102,6 +102,7 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.native_t
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.extract_self_attn import (
     SelectSelfAttnAlignHeadsJob,
     ExtractSelfAttnPerTokenJob,
+    ExtractSelfAttnWhisperJob,
 )
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.crisper_whisper_align import (
     CrisperWhisperOfficialAlignJob,
@@ -3323,6 +3324,76 @@ def py():
     reg("whisper-dtw-ablation-base-buckeye-segA-5h.txt", _dtw_abl.out_report)
     for _dk in _dtw_abl.out_wbes:
         reg(f"dtw-abl/whisper-base-buckeye-segA-5h-{_dk}-wbe.txt", _dtw_abl.out_wbes[_dk])
+    # --- ExtractSelfAttnWhisperJob refactor verification ---
+    # openai-whisper extract (faithful transform) -> WordAlign(whisper_dtw).
+    # Should reproduce the monolith span=94.31 (WordAlign's read-off is span, not jump=99.11).
+    # Full Buckeye-segA-5h, same set as the monolith.
+    _ver_heads_wh = [[3, 1], [4, 2], [4, 3], [4, 7], [5, 1], [5, 2], [5, 4], [5, 6]]
+    _ver_wex = ExtractSelfAttnWhisperJob(
+        dataset_dir=_dtw_abl_ds.out_hub_cache_dir,
+        dataset_key="test",
+        overlay=_WHISPER_TS_OVERLAY,
+        heads=_ver_heads_wh,
+        whisper_model="base",
+        zscore=True,
+        median_filter=True,
+    )
+    _ver_wex.add_alias("verify/whisper-extract-faithful")
+    reg("verify/whisper-extract-faithful.hdf", _ver_wex.out_hdf)
+    _ver_wal = WordAlignFromPerTokenGradsJob(
+        grad_score_hdf=_ver_wex.out_hdf,
+        grad_score_key="data",
+        dataset_dir=_dtw_abl_ds.out_hub_cache_dir,
+        dataset_key="test",
+        dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+        align_opts={"apply_softmax_over_time": False, "apply_log": False, "blank_score": -5},
+        whisper_dtw=True,
+    )
+    _ver_wal.add_alias("verify/whisper-extract-faithful-wdtw")
+    reg("verify/whisper-extract-faithful-wdtw-wbe.txt", _ver_wal.out_wbe)
+    # Fast verification on the ~112-seq buckeye-segA-sub025.
+    # WordAlign needs an HDF entry per dataset seq, so we use a small DATASET, not num_seqs.
+    # whisper-extract + WordAlign vs the monolith, same set.
+    _ver_sub_ds = BuildBuckeyeFineDatasetJob(
+        raw_dir=dl_ds_buckeye_fine.out_hub_cache_dir,
+        resegment_gap_s=1.0,
+        split_up_to_max_seq_len_s=18.0,
+        min_words=2,
+        skip_misaligned_wavs=True,
+        subsample_target_h=0.25,
+        subsample_seed=42,
+    )
+    _ver_sub_dir = _ver_sub_ds.out_hub_cache_dir
+    _ver_sub_wex = ExtractSelfAttnWhisperJob(
+        dataset_dir=_ver_sub_dir,
+        dataset_key="test",
+        overlay=_WHISPER_TS_OVERLAY,
+        heads=_ver_heads_wh,
+        whisper_model="base",
+        zscore=True,
+        median_filter=True,
+    )
+    _ver_sub_wex.add_alias("verify/whisper-extract-sub025")
+    _ver_sub_wal = WordAlignFromPerTokenGradsJob(
+        grad_score_hdf=_ver_sub_wex.out_hdf,
+        grad_score_key="data",
+        dataset_dir=_ver_sub_dir,
+        dataset_key="test",
+        dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+        align_opts={"apply_softmax_over_time": False, "apply_log": False, "blank_score": -5},
+        whisper_dtw=True,
+    )
+    _ver_sub_wal.add_alias("verify/whisper-extract-sub025-wdtw")
+    reg("verify/whisper-extract-sub025-wdtw-wbe.txt", _ver_sub_wal.out_wbe)
+    _ver_sub_mono = WhisperDtwAblationJob(
+        dataset_dir=_ver_sub_dir,
+        dataset_key="test",
+        overlay=_WHISPER_TS_OVERLAY,
+        heads_ours=_dtw_abl_sel.out_heads,
+        whisper_model="base",
+    )
+    _ver_sub_mono.add_alias("verify/mono-sub025")
+    reg("verify/mono-sub025.txt", _ver_sub_mono.out_report)
     # fairness-2x2: cross-attn CHAR on TIMIT-test (char twin of the subword baseline above; segA has it).
     whisper_fa_test_char = WhisperCrossAttnForcedAlignJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_key="test", overlay=_WHISPER_TS_OVERLAY, char_level=True

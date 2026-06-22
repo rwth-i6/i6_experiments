@@ -84,21 +84,54 @@ CONFIGS = [
             heads="ours", zscore=False, medfilt=False, log=True, dp="dtw", energy=False, silence="none", readoff="span"
         ),
     ),
-    # faithful-origin single-axis toggles (whisper transform fixed; add ONE of energy / our-DP
-    # transitions / silence-states). faithful+silence keeps DTW-style transitions (our Aligner
-    # dtw=True) and adds word-silence states -- silence is a label-topology axis, independent of
-    # the DTW vertical step.
+    # faithful-origin toggle: add energy to the faithful DTW
+    # (stays on the DTW branch, so the matrix is compatible).
+    # NOTE: switching the faithful transform onto our monotonic/blank DP is NOT a clean single toggle --
+    # whisper's z-norm-over-tokens transform is a DTW cost, not softmax-able emission scores,
+    # so our Aligner degenerates on it.
+    # The mono/silence axes are isolated from the OURS end instead
+    # (ours_full vs ours_dtw = DP step; ours_full vs ours_none = silence).
     (
         "faithful_energy",
         dict(heads="wh", zscore=True, medfilt=True, log=False, dp="dtw", energy=True, silence="none", readoff="jump"),
     ),
+    # From no-z-norm + log (a softmax-compatible matrix) switch to our DP, then add word silence.
+    # (z-norm makes the matrix incompatible with our Aligner's softmax-over-time, so we branch from here.)
+    (
+        "noznorm_log_mono",
+        dict(heads="wh", zscore=False, medfilt=True, log=True, dp="mono", energy=False, silence="none", readoff="span"),
+    ),
+    (
+        "noznorm_log_mono_sil",
+        dict(heads="wh", zscore=False, medfilt=True, log=True, dp="mono", energy=False, silence="word", readoff="span"),
+    ),
     (
         "faithful_mono",
-        dict(heads="wh", zscore=True, medfilt=True, log=False, dp="mono", energy=False, silence="none", readoff="span"),
+        dict(
+            heads="wh",
+            zscore=True,
+            medfilt=True,
+            log=False,
+            dp="mono",
+            energy=False,
+            silence="none",
+            readoff="span",
+            softmax=False,
+        ),
     ),
     (
         "faithful_silence",
-        dict(heads="wh", zscore=True, medfilt=True, log=False, dp="adtw", energy=False, silence="word", readoff="span"),
+        dict(
+            heads="wh",
+            zscore=True,
+            medfilt=True,
+            log=False,
+            dp="mono",
+            energy=False,
+            silence="word",
+            readoff="span",
+            softmax=False,
+        ),
     ),
 ]
 
@@ -136,6 +169,8 @@ def _dtw_path(cost):
 
 
 class WhisperDtwAblationJob(Job):
+    __sis_version__ = 2
+
     def __init__(
         self,
         *,
@@ -201,10 +236,6 @@ class WhisperDtwAblationJob(Job):
             model.is_multilingual, num_languages=getattr(model, "num_languages", 99), language="en", task="transcribe"
         )
         n_sot = len(tok.sot_sequence)
-        aligner = Aligner(apply_softmax_over_time=True, blank_score=-5)
-        # DTW-transition variant (vertical/up step allowed) for the faithful+silence row:
-        # word-silence states with DTW transitions (label topology is independent of the transition set).
-        aligner_dtw = Aligner(apply_softmax_over_time=True, blank_score=-5, dtw=True)
         ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))[self.dataset_key]
         # TIMIT stores audio as encoded files (cast to non-decoding -> bytes/path);
         # Buckeye-fine stores it as a decoded float-array struct -> no cast, read the array directly.
@@ -300,8 +331,9 @@ class WhisperDtwAblationJob(Job):
 
         head_map = {"wh": heads_wh, "ours": heads_ours, "best1": best1}
 
-        def evaluate(heads, zscore, medfilt, log, dp, energy, silence, readoff):
+        def evaluate(heads, zscore, medfilt, log, dp, energy, silence, readoff, softmax=True):
             hd = head_map[heads]
+            al = Aligner(apply_softmax_over_time=softmax, blank_score=-5)
             errs = []
             for QKs, nf2, wb, ref, nt, e in seqs:
                 m = matrix(QKs, nf2, hd, zscore, medfilt)
@@ -329,8 +361,7 @@ class WhisperDtwAblationJob(Job):
                         R = mm.shape[0]
                         allowed = {0, R} | {int(x) + 1 for x in wb}
                         mask = np.array([(i in allowed) for i in range(R + 1)], dtype=bool)
-                    _al = aligner_dtw if dp == "adtw" else aligner
-                    spans = _al.align(mm + 1e-8, blank_override=bo, blank_state_mask=mask)
+                    spans = al.align(mm + 1e-8, blank_override=bo, blank_state_mask=mask)
                     b = [(spans[a][0] * spf, spans[bb - 1][1] * spf) for a, bb in zip(wb[:-1], wb[1:])]
                 if len(b) == len(ref):
                     errs.append(float(np.mean(per_utt_boundary_errors(b, ref)["wbe"])))

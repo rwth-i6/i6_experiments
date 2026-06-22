@@ -199,11 +199,13 @@ def py():
     cost.add_alias("speedcmp-p212/cost-4way-benchmark")
     tk.register_output("speedcmp-p212/cost-4way-metrics.txt", cost.out_metrics)
 
-    # === Time-stretch table (moved from the main torch-2.7 recipe). The slow wav2vec2-CTC ts cells need
-    # the compiled-scan split (torch-2.12 only), so the WHOLE table is built here. Finished 2.7 cells
-    # (ts0.5/0.75/1.0 wav2vec2, all voxtral, all MMS-FA) are reconstructed with IDENTICAL hashes -> reused,
-    # not rerun (sis job state is per-work-dir). Only wav2vec2 ts{1.2,1.5,2.0,3.0} are new split jobs that
-    # run under this 2.12 mgr (~5x; ts2.0/3.0 now fit, were "too slow" on 2.7). ===
+    # === Time-stretch table (moved from the main torch-2.7 recipe). ===
+    # The slow wav2vec2-CTC ts cells need the compiled-scan split (torch-2.12 only),
+    # so the WHOLE table is built here.
+    # Finished 2.7 cells (ts0.5/0.75/1.0 wav2vec2, all voxtral, all MMS-FA)
+    # are reconstructed with IDENTICAL hashes -> reused, not rerun (sis job state is per-work-dir).
+    # Only wav2vec2 ts{1.2,1.5,2.0,3.0} are new split jobs that run under this 2.12 mgr
+    # (~5x; ts2.0/3.0 now fit, were "too slow" on 2.7).
     _xa_ds = BuildBuckeyeFineDatasetJob(
         raw_dir=dl.out_hub_cache_dir,
         resegment_gap_s=1.0,
