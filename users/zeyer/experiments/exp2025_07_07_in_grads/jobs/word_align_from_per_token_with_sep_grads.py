@@ -25,7 +25,7 @@ class WordAlignFromPerTokenWithSepGradsJob(Job):
     Single-chunk only for now.
     """
 
-    __sis_version__ = 1  # Aligner boundary off-by-one fix (end frame t, was t-1)
+    __sis_version__ = 2  # word end now exclusive (Aligner max+1); was inclusive (1 frame early)
 
     def __init__(
         self,

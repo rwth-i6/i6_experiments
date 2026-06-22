@@ -25,7 +25,7 @@ from i6_experiments.users.zeyer.external_models.huggingface import (
 class PhonemeAlignWordWbeJob(Job):
     """Collapse the phoneme grad-align to per-word boundaries -> word WBE."""
 
-    __sis_version__ = 1  # Aligner boundary off-by-one fix (end frame t, was t-1)
+    __sis_version__ = 2  # word end now exclusive (Aligner max+1); was inclusive (1 frame early)
     __sis_hash_exclude__ = {"audio_energy_pow": 0.0, "blank_silence_energy_scale": 0.0}
 
     def __init__(

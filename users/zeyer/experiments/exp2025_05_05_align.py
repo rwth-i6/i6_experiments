@@ -1534,7 +1534,7 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
 
 
 class CalcAlignmentMetricsJob(Job):
-    __sis_version__ = 1  # Aligner boundary off-by-one fix (end frame t, was t-1)
+    __sis_version__ = 2  # word end now exclusive (Aligner max+1, right edge); was inclusive (1 frame early)
 
     def __init__(
         self,
@@ -1574,7 +1574,7 @@ class CalcAlignmentMetricsJob(Job):
         self.out_wbe = self.output_var("wbe.txt")
 
     def tasks(self):
-        yield Task("run", rqmt={"cpu": 2, "mem": 10, "time": 5})
+        yield Task("run", rqmt={"cpu": 2, "mem": 10, "time": 5, "engine": "short"})
 
     def run(self):
         import os
@@ -1663,7 +1663,7 @@ class CalcAlignmentMetricsJob(Job):
 
 
 class CalcChunkedAlignmentMetricsJob(Job):
-    __sis_version__ = 1  # Aligner boundary off-by-one fix (end frame t, was t-1)
+    __sis_version__ = 2  # word end now exclusive (Aligner max+1, right edge); was inclusive (1 frame early)
 
     def __init__(
         self,
@@ -1703,7 +1703,7 @@ class CalcChunkedAlignmentMetricsJob(Job):
         self.out_wbe = self.output_var("wbe.txt")
 
     def tasks(self):
-        yield Task("run", rqmt={"cpu": 2, "mem": 10, "time": 5})
+        yield Task("run", rqmt={"cpu": 2, "mem": 10, "time": 5, "engine": "short"})
 
     def run(self):
         import os
@@ -1865,7 +1865,7 @@ class CalcAlignmentMetricsFromWordBoundariesJob(Job):
         self.out_edge_wbe = self.output_var("edge_wbe.txt")
 
     def tasks(self):
-        yield Task("run", rqmt={"cpu": 2, "mem": 10, "time": 5})
+        yield Task("run", rqmt={"cpu": 2, "mem": 10, "time": 5, "engine": "short"})
 
     def run(self):
         import os
@@ -2027,7 +2027,8 @@ class Aligner:
         # dtw_cpu (diag / up / left) over the ALLOWED states only
         # (label states + non-forbidden blank states;
         # topology-forbidden blanks were set to -inf and are dropped, giving the [S+N+1, T] structure).
-        # Returns per-label (start, end) inclusive frames.
+        # Returns per-label (start, end) frames, half-open [start, end): start inclusive (left edge),
+        # end EXCLUSIVE (max+1, right edge), so *spf gives the true boundary. Matches _dtw_spans.
         import numpy as np
 
         allowed = [i for i in range(2 * S + 1) if (i % 2 == 1) or np.isfinite(score_matrix_[:, i]).any()]
@@ -2065,8 +2066,9 @@ class Aligner:
             if st % 2 == 1:  # label state
                 fr = frames[si]
                 if fr:
-                    labels_start_end.append((min(fr), max(fr)))
-                    prev_end = max(fr)
+                    # end EXCLUSIVE (max+1 = right edge), matching _dtw_spans; *spf -> true boundary.
+                    labels_start_end.append((min(fr), max(fr) + 1))
+                    prev_end = max(fr) + 1
                 else:
                     labels_start_end.append((prev_end, prev_end))
         assert len(labels_start_end) == S, f"{len(labels_start_end)=} {S=}"
@@ -2089,7 +2091,10 @@ class Aligner:
             and fills in per-label posterior occupancies at the Viterbi spans:
             ``mean_occ``/``start_occ``/``end_occ``, each a list of len S of probs --
             an alignment-confidence signal.
-        :return: list of start/end offsets, both are including. len is S
+        :return: list of per-label (start, end) frame offsets, half-open [start, end):
+            start inclusive (left edge of the first frame),
+            end EXCLUSIVE (= last_frame+1, the right edge of the last frame),
+            so converting via ``*spf`` yields the true word-end boundary. len is S
         """
         import numpy as np
         import os
@@ -2356,7 +2361,11 @@ class Aligner:
             plt.tight_layout()
             plt.savefig(plot_filename)
 
-        return labels_start_end
+        # Internal occupancy slicing above uses labels_start_end as INCLUSIVE frames (occ[t0:t1+1]).
+        # The RETURN emits the half-open convention:
+        # end = last_frame+1 (exclusive right edge), so a caller's end*spf is the true boundary;
+        # start stays the inclusive left edge.
+        return [(s, e + 1) for s, e in labels_start_end]
 
 
 def _y_to_mat(y, y_num_pixels=100):  # only for visualization

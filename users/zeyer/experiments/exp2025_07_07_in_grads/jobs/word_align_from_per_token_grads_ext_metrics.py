@@ -29,7 +29,7 @@ from i6_experiments.users.zeyer.external_models.huggingface import (
 class WordAlignFromPerTokenGradsExtMetricsJob(Job):
     """See module docstring."""
 
-    __sis_version__ = 1  # Aligner boundary off-by-one fix (end frame t, was t-1)
+    __sis_version__ = 2  # word end now exclusive (Aligner max+1); was inclusive (1 frame early)
     __sis_hash_exclude__ = {"hyps_text_dict": None}
 
     def __init__(

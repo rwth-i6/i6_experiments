@@ -135,7 +135,7 @@ class WordAlignFromPerTokenGradsJob(Job):
     }
 
     # v2: emit the richer metric set (acc@collar, edge/interior, start/end MAE) via align_metrics.
-    __sis_version__ = 5  # boundary off-by-one fix (end frame t, was t-1 -> inverted 1-frame tokens)
+    __sis_version__ = 6  # word end now exclusive (Aligner max+1, right edge); was inclusive (1 frame early)
 
     def __init__(
         self,

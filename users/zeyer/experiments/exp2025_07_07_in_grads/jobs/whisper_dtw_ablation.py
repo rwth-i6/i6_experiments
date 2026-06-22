@@ -169,7 +169,7 @@ def _dtw_path(cost):
 
 
 class WhisperDtwAblationJob(Job):
-    __sis_version__ = 2
+    __sis_version__ = 3  # Aligner mono rows: word end now exclusive (max+1)
 
     def __init__(
         self,
