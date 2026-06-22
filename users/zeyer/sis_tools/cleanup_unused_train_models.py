@@ -162,6 +162,18 @@ def main():
     model_fns_to_remove = []
     found_active_fns = set()  #  as a sanity check.
     covered_real_job_paths = set()
+    # Coverage accounting: total checkpoint (*.pt) bytes per bucket,
+    # to show how much of the train data this run reasons about vs leaves untouched (and why).
+    cov_size = {
+        "active_finished": 0,
+        "active_running": 0,
+        "unused_own_config": 0,
+        "skipped_diff_recipe": 0,
+        "skipped_imported": 0,
+        "skipped_no_ckpt": 0,
+    }
+    cov_count = {k: 0 for k in cov_size}
+    diff_recipe_size = {}  # recipe basename -> checkpoint bytes (for the breakdown)
     for basename in os.listdir("work/i6_core/returnn/training"):
         if not basename.startswith("ReturnnTrainingJob."):
             continue
@@ -190,10 +202,19 @@ def main():
 
         if fn in active_train_job_paths_dict:
             found_active_fns.add(fn)
+            job_obj = active_train_job_paths_dict[fn]
+            bucket = (
+                "active_finished"
+                if isinstance(job_obj, ReturnnTrainingJob) and job_obj._sis_finished()
+                else "active_running"
+            )
+            cov_size[bucket] += _model_ckpt_size(fn)
+            cov_count[bucket] += 1
             continue
 
         model_dir = fn + "/output/models"
         if not os.path.isdir(model_dir):
+            cov_count["skipped_no_ckpt"] += 1  # early error at file creation; no models dir
             continue  # can happen when there was an early error, e.g. at file creation
 
         # Jobs that errored (error.run.N exists) and have no checkpoint at all
@@ -201,6 +222,7 @@ def main():
         if not any(m.endswith(".pt") for m in os.listdir(model_dir)) and any(
             b.startswith("error.run.") for b in os.listdir(fn)
         ):
+            cov_count["skipped_no_ckpt"] += 1
             continue
 
         # Detect the recipe/config that created this job: the first non-Sisyphus stack frame
@@ -208,7 +230,12 @@ def main():
         # different setup/config (e.g. exp2026_05_27_chunked_ctc_ls.py); skip it -- not ours to clean.
         recipe_file = _recipe_file_from_info(fn)
         if recipe_file is not None and recipe_file not in config_file_realpaths:
-            print("Skipping (created by a different config):", os.path.basename(recipe_file), "->", basename)
+            sz = _model_ckpt_size(fn)
+            cov_size["skipped_diff_recipe"] += sz
+            cov_count["skipped_diff_recipe"] += 1
+            rec_name = os.path.basename(recipe_file)
+            diff_recipe_size[rec_name] = diff_recipe_size.get(rec_name, 0) + sz
+            print("Skipping (created by a different config):", rec_name, "->", basename)
             continue
 
         # Aliases recorded in this job's own info file (assigned when it was created).
@@ -236,6 +263,8 @@ def main():
         # must never be collected for removal -- deleting them corrupts the source setup.
         # List them for transparency and move on.
         if not realpath.startswith(own_work_realpath):
+            cov_size["skipped_imported"] += _model_ckpt_size(fn)
+            cov_count["skipped_imported"] += 1
             imported_unused.append((name, fn, realpath))
             continue
 
@@ -266,6 +295,8 @@ def main():
             continue
         print("Unused train job:", name, "model size:", human_bytes_size(model_size))
         total_model_size_to_remove += model_size
+        cov_size["unused_own_config"] += model_size
+        cov_count["unused_own_config"] += 1
         train_job_with_models_to_remove.append(name)
 
     print("Collecting model checkpoint files from active finished train jobs to remove...")
@@ -334,6 +365,34 @@ def main():
     if not train_job_with_models_to_remove:
         print(" (none)")
     print("Can remove total model size:", human_bytes_size(total_model_size_to_remove))
+
+    # Coverage report: of all train-job checkpoint (*.pt) data in the work dir,
+    # how much this run reasons about ("covered") vs leaves untouched, and why.
+    covered = cov_size["active_finished"] + cov_size["active_running"] + cov_size["unused_own_config"]
+    not_covered = cov_size["skipped_diff_recipe"] + cov_size["skipped_imported"] + cov_size["skipped_no_ckpt"]
+    _hb = human_bytes_size
+    print("")
+    print("=== Checkpoint (*.pt) coverage report ===")
+    print("Total checkpoint data scanned:", _hb(covered + not_covered))
+    print("Covered (this run reasons about these):", _hb(covered))
+    print("  active, finished: ", _hb(cov_size["active_finished"]), f"({cov_count['active_finished']} jobs)")
+    print("  active, running:  ", _hb(cov_size["active_running"]), f"({cov_count['active_running']} jobs)")
+    print(
+        "  unused (our cfg): ",
+        _hb(cov_size["unused_own_config"]),
+        f"({cov_count['unused_own_config']} jobs) -> fully removable",
+    )
+    print("Not covered (left untouched):", _hb(not_covered))
+    print("  different recipe: ", _hb(cov_size["skipped_diff_recipe"]), f"({cov_count['skipped_diff_recipe']} jobs)")
+    print("  imported elsewhere:", _hb(cov_size["skipped_imported"]), f"({cov_count['skipped_imported']} jobs)")
+    print("  no checkpoint:    ", _hb(cov_size["skipped_no_ckpt"]), f"({cov_count['skipped_no_ckpt']} jobs)")
+    if diff_recipe_size:
+        print("  different-recipe breakdown (by recipe):")
+        for rec_name, sz in sorted(diff_recipe_size.items(), key=lambda kv: -kv[1]):
+            print("    ", rec_name, _hb(sz))
+    print("Of covered, removable now:", _hb(total_model_size_to_remove))
+    print("")
+
     if len(found_active_fns) != len(active_train_job_paths_dict):
         print("ERROR: Did not find some active jobs:")
         for fn in active_train_job_paths_dict:
@@ -352,6 +411,24 @@ def main():
 
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _model_ckpt_size(job_dir: str) -> int:
+    """
+    Sum the size of all model checkpoint files (``*.pt``, incl. ``*.opt.pt``)
+    under ``<job_dir>/output/models``.
+    Returns 0 if the models dir does not exist yet.
+    """
+    model_dir = job_dir + "/output/models"
+    total = 0
+    try:
+        with os.scandir(model_dir) as it:
+            for e in it:
+                if e.name.endswith(".pt"):
+                    total += e.stat().st_size
+    except FileNotFoundError:
+        pass
+    return total
 
 
 def _recipe_file_from_info(job_dir: str) -> Optional[str]:
