@@ -155,7 +155,7 @@ class WhisperDtwAblationJob(Job):
         self.whisper_model = whisper_model
         self.num_seqs = num_seqs
         self.returnn_root = returnn_root
-        self.rqmt = {"time": 4, "cpu": 2, "gpu": 0, "mem": 16}
+        self.rqmt = {"time": 6, "cpu": 2, "gpu": 0, "mem": 64}
         self.out_wbes = {key: self.output_var(f"wbe-{key}.txt") for key, _ in CONFIGS}
         self.out_report = self.output_path("report.txt")
 
