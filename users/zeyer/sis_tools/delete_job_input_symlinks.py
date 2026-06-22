@@ -46,6 +46,7 @@ def main():
     prev_report_time = time.monotonic()
     count_all_jobs = 0
     count_cleaned_jobs = 0
+    total_counts = defaultdict(int)  # file-type -> count, summed over all cleaned input dirs
 
     for root, dirs, files in os.walk(work_dir):
         if time.monotonic() - prev_report_time > 10:
@@ -62,24 +63,26 @@ def main():
 
                 job_input_dir = job_dir + "/input"
                 if os.path.isdir(job_input_dir):
-                    if args.mode == "dryrun":
-                        counts_per_type = defaultdict(int)
-                        with os.scandir(job_input_dir) as it:
-                            for entry in it:
-                                file_type = stat.S_IFMT(entry.stat(follow_symlinks=False).st_mode)
-                                file_type_str = {
-                                    stat.S_IFLNK: "links",
-                                    stat.S_IFREG: "files",
-                                    stat.S_IFDIR: "dirs",
-                                }.get(file_type, f"other({file_type})")
-                                counts_per_type[file_type_str] += 1
-                        counts_str = ", ".join(f"{k}={v}" for k, v in counts_per_type.items())
-                        print(f"[dryrun] would remove input dir in job {job_dir!r} contents: {counts_str}")
+                    # Count contents in both modes so the grand total at the end is accurate.
+                    counts_per_type = defaultdict(int)
+                    with os.scandir(job_input_dir) as it:
+                        for entry in it:
+                            file_type = stat.S_IFMT(entry.stat(follow_symlinks=False).st_mode)
+                            file_type_str = {
+                                stat.S_IFLNK: "links",
+                                stat.S_IFREG: "files",
+                                stat.S_IFDIR: "dirs",
+                            }.get(file_type, f"other({file_type})")
+                            counts_per_type[file_type_str] += 1
+                    for k, v in counts_per_type.items():
+                        total_counts[k] += v
+                    counts_str = ", ".join(f"{k}={v}" for k, v in counts_per_type.items())
 
+                    if args.mode == "dryrun":
+                        print(f"[dryrun] would remove input dir in job {job_dir!r} contents: {counts_str}")
                     elif args.mode == "remove":
                         shutil.rmtree(job_input_dir)
-                        print(f"Removed input dir in job {job_dir!r}")
-
+                        print(f"Removed input dir in job {job_dir!r} contents: {counts_str}")
                     else:
                         raise ValueError(f"Unknown mode: {args.mode!r}")
 
@@ -93,7 +96,14 @@ def main():
             # don't visit those directories
             dirs[:] = [d for d in dirs if d not in exclude_recurse_dirs]
 
-    print(f"Total jobs found: {count_all_jobs}, cleaned: {count_cleaned_jobs}")
+    # Each cleaned job frees its input/ contents plus the input/ dir itself.
+    total_entries = sum(total_counts.values())
+    total_inodes = total_entries + count_cleaned_jobs
+    counts_str = ", ".join(f"{k}={v}" for k, v in sorted(total_counts.items())) or "(none)"
+    print(f"Total jobs found: {count_all_jobs}, input dirs cleaned: {count_cleaned_jobs}")
+    print(f"Total input contents: {counts_str}")
+    verb = "freed" if args.mode == "remove" else "that would be freed"
+    print(f"Total inodes {verb}: {total_inodes} (contents {total_entries} + {count_cleaned_jobs} input dirs)")
 
 
 def _is_job_dir(job_dir: str) -> bool:
