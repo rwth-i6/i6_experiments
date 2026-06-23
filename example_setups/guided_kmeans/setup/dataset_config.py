@@ -20,13 +20,17 @@ class RandomFraction:
 class RandomNumber:
     num: int
 
-SamplingMethod = All | RandomFraction | RandomNumber
+@dataclass(frozen=True)
+class SegmentFile:
+    path: tk.Path
+
+SamplingMethod = All | RandomFraction | RandomNumber | SegmentFile
 
 
 @dataclass
 class DatasetConfig:
     audio_hdf_path: tk.Path
-    sampling_method: SamplingMethod = All
+    sampling_method: SamplingMethod = All()
 
 
 def get_dataset_config(
@@ -65,15 +69,19 @@ def sample_segments_by_number(all_segments: tk.Path, num_segments: int = 20) -> 
     pipe = PipelineJob(all_segments, [f"shuf -n {num_segments}"], zip_output=False)
     return pipe.out
 
-def select_segments(method: SamplingMethod, segments: tk.Path) -> tk.Path | None:
+def select_segments(method: SamplingMethod, segments: tk.Path | None) -> tk.Path | None:
     sampled_segments = tk.Path("")
     match method:
         case All():
             sampled_segments = None
         case RandomFraction(f):
+            assert segments
             sampled_segments = sample_segments_by_fraction(segments, fraction=f)
         case RandomNumber(n):
+            assert segments
             sampled_segments = sample_segments_by_number(segments, num_segments=n)
+        case SegmentFile(path):
+            sampled_segments = path
     
     return sampled_segments
 

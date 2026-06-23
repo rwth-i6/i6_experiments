@@ -49,7 +49,7 @@ def get_callback_config(
     pooling_function: str = "maxpool_time_np",
     verbosity: int = 1,
     exclude_lemmata=["[SILENCE]"],
-    rasr_path: str | None = None,
+    rasr_path: tk.Path | str | None = None,
 ) -> ReturnnConfig:
     serializer_objs = []
 
@@ -79,7 +79,7 @@ def get_callback_config(
     serializer_objs.append(clustering_callback)
     return ReturnnConfig(
         config={},
-        python_epilog=Collection(serializer_objs),
+        python_epilog=Collection(serializer_objs), # type: ignore
     )
 
 
@@ -156,26 +156,29 @@ def decode_and_score(
     returnn_root: tk.Path | None = None,
 ) -> DecodeRecogResult:
     # setup corpus
-    setup_result = setup_corpus(key="dev-clean")
+    # setup_result = setup_corpus(key="dev-clean")
+    setup_result = setup_corpus()
 
-    filtered_corpus = FilterCorpusRemoveUnknownWordSegmentsJob(setup_result.corpus, setup_result.lexicon, all_unknown=False, delete_empty_recordings=True).out_corpus
-    phoneme_corpus = ApplyLexiconToCorpusJob(filtered_corpus, setup_result.lexicon).out_corpus
+    # filtered_corpus = FilterCorpusRemoveUnknownWordSegmentsJob(setup_result.corpus, setup_result.lexicon, all_unknown=False, delete_empty_recordings=True).out_corpus
+    # phoneme_corpus = ApplyLexiconToCorpusJob(filtered_corpus, setup_result.lexicon).out_corpus
 
     sampled_segments = select_segments(dataset_config.sampling_method, setup_result.segments)
+    phoneme_corpus = ApplyLexiconToCorpusJob(setup_result.corpus, setup_result.lexicon).out_corpus
     if sampled_segments is not None:
         phoneme_corpus = FilterCorpusBySegmentsJob(phoneme_corpus, sampled_segments).out_corpus
 
     ref_file = CorpusToTxtJob(phoneme_corpus).out_txt
 
     # dataset config
-    whitelist_job = CreateSequenceWhitelistJob(filtered_corpus)
-    whitelist_job.add_alias(f"datasets/LibriSpeech/dev-clean_whitelist")
-    whitelist = whitelist_job.out_whitelist
+    # whitelist_job = CreateSequenceWhitelistJob(filtered_corpus)
+    # whitelist_job.add_alias(f"datasets/LibriSpeech/dev-clean_whitelist")
+    # whitelist = whitelist_job.out_whitelist
 
-    if sampled_segments is not None:
-        dataset_rconfig = get_dataset_config(dataset_config.audio_hdf_path, sampled_segments)
-    else:
-        dataset_rconfig = get_dataset_config(dataset_config.audio_hdf_path, whitelist)
+    dataset_rconfig = get_dataset_config(dataset_config.audio_hdf_path, sampled_segments)
+    # if sampled_segments is not None:
+    #     dataset_rconfig = get_dataset_config(dataset_config.audio_hdf_path, sampled_segments)
+    # else:
+    #     dataset_rconfig = get_dataset_config(dataset_config.audio_hdf_path, whitelist)
 
     decode_res = _decode(
         config,

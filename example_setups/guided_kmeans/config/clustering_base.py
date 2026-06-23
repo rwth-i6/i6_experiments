@@ -12,7 +12,7 @@ from i6_experiments.example_setups.guided_kmeans.setup.librasr_recognition impor
 from i6_experiments.example_setups.guided_kmeans.setup.phoneme_frequency import get_sampled_segments_file
 from i6_experiments.example_setups.guided_kmeans.setup.decode_config import decode_and_score, DecodeConfig
 from i6_experiments.example_setups.guided_kmeans.setup.report import create_report
-from i6_experiments.example_setups.guided_kmeans.setup.dataset_config import DatasetConfig, RandomNumber, All
+from i6_experiments.example_setups.guided_kmeans.setup.dataset_config import DatasetConfig, RandomNumber, All, SegmentFile
 from i6_experiments.example_setups.guided_kmeans.setup.librasr_recognition import RecogConfig
 
 verbosity = 1
@@ -33,12 +33,14 @@ initializer_configs = {
 }
 
 parameters = [
-           # (0.5, 0.5, 0.7), (0.5, 0.5, 0.4), (0.5, 0.5, 0.1),
-           # (0.5, 0.2, 0.7), (0.5, 0.2, 0.4), (0.5, 0.2, 0.1),
-           # (1.0, 0.2, 0.1), (1.5, 0.2, 0.1), (2.0, 0.2, 0.1), (1.0, 0.2, 0.05), (1.5, 0.2, 0.05),
-           # (2.0, 0.2, 0.05),
-            (2.0, 0.3, 0.3)
-             ]
+    # lm_scale, label_loop_prob, sil_loop_prob
+    # (0.5, 0.5, 0.7), (0.5, 0.5, 0.4), (0.5, 0.5, 0.1),
+    # (0.5, 0.2, 0.7), (0.5, 0.2, 0.4), (0.5, 0.2, 0.1),
+    # (1.0, 0.2, 0.1), (1.5, 0.2, 0.1), (2.0, 0.2, 0.1), (1.0, 0.2, 0.05), (1.5, 0.2, 0.05),
+    # (2.0, 0.2, 0.05),
+    (lm_scale, 0.1, 0.1)
+    for lm_scale in [1.0, 5.0, 10.0, 15.0]
+]
 
 def py():
     recog_results = []
@@ -65,9 +67,11 @@ def py():
             )
             clustering_callback_config.initializer_config = initializer_config
 
+            segments = get_sampled_segments_file(min_phoneme_count=5)
+
             exp_result = clustering(
                 num_epochs=num_epochs,
-                sampled_segments=get_sampled_segments_file(min_phoneme_count=5),#sys.maxsize),
+                sampled_segments=segments, #sys.maxsize),
                 cluster_callback_config=clustering_callback_config,
             )
 
@@ -95,7 +99,7 @@ def py():
                 #audio_hdf_path=tk.Path("/work/asr4/jxu/setups/pretraining/2025-02-28--best-rq-pretraining/work/i6_core/returnn/hdf/BlissToPcmHDFJob.vExsEVfudAcd/output/audio.hdf"),
                 #sampling_method=RandomNumber(20)
                 audio_hdf_path=tk.Path("/work/asr4/jxu/setups/pretraining/2025-02-28--best-rq-pretraining/work/i6_core/returnn/hdf/BlissToPcmHDFJob.Yl7xJWHh0bgs/output/audio.hdf"), # dev-clean
-                sampling_method=All()
+                sampling_method=SegmentFile(segments),
             )
 
             decode_config = DecodeConfig(

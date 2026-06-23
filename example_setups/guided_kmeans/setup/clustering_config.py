@@ -29,8 +29,8 @@ _INITIALIZER_CLASS_DICT = {
     "PickleCheatingCentroidInitializerConfig": PickleCheatingCentroidInitializer,
 }
 
-#RETURNN_PYTHON_EXE = tk.Path("/work/asr3/michel/mann/virtualenv/2025-04-23_tensorflow-2.17_onnx-1.20_v1/bin/python3.11")
-RETURNN_PYTHON_EXE = tk.Path("/usr/bin/python3")
+RETURNN_PYTHON_EXE = tk.Path("/work/asr3/michel/mann/virtualenv/2025-04-23_tensorflow-2.17_onnx-1.20_v1/bin/python3.11")
+# RETURNN_PYTHON_EXE = tk.Path("/usr/bin/python3")
 RETURNN_ROOT = tk.Path("/u/mann/src/returnn")
 
 class _Config:

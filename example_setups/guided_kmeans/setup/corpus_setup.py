@@ -47,3 +47,5 @@ def setup_corpus(key="train-clean-100") -> CorpusSetupResult:
 
 
     return CorpusSetupResult(corpus, lex, all_segments)
+
+# class CorpusPipeline:
