@@ -404,7 +404,7 @@ class ExtractSelfAttnWhisperJob(Job):
     a no-transform run should match it (sanity check).
     """
 
-    __sis_version__ = 2  # slice [n_sot:-2]: keep no_timestamps as first align row (openai/monolith convention)
+    __sis_version__ = 2  # slice [n_sot:-2]: predict-next offset (token k's attn at decoder pos n_sot+k); v1 [n_sot+1:-1] was off by one -> 214ms
 
     def __init__(
         self,
@@ -513,12 +513,16 @@ class ExtractSelfAttnWhisperJob(Job):
                 w_ = (w_ - mean) / std
             if self.median_filter:
                 w_ = _medfilt(w_, 7)
-            # Rows follow openai find_alignment / the monolith: [n_sot:-1] keeps the no_timestamps
-            # position as the FIRST alignment row (whisper's predict-next offset means the attention
-            # at the no_timestamps position aligns the first text token). The monolith's span read-off
-            # effectively uses rows [no_ts, text[0..nt-2]] (the last text-token row is never read), so
-            # we slice [n_sot:-2] -> exactly nt = sum(tok_per_word) rows, grouped by the per-word counts.
-            # (The earlier [n_sot+1:-1] dropped no_timestamps and shifted every token by one -> ~215ms.)
+            # Exactly nt text-token rows, one per text token, grouped per word (no non-word row).
+            # Whisper decoder predict-next offset: the cross-attention at input position p is what the
+            # model attends to while producing token p+1, so text token k's localizing attention is
+            # emitted at the PREVIOUS position n_sot+k. The nt rows for text[0..nt-1] are therefore
+            # input positions [n_sot : n_sot+nt] = [n_sot:-2] = [no_ts, text[0..nt-2]], whose attentions
+            # localize text[0..nt-1]. The first row sits at the no_timestamps INPUT position but carries
+            # text[0]'s attention -- it is text token 0's row, not a no-word row.
+            # Matches openai find_alignment ([len(sot_sequence):-1]) and the monolith.
+            # (v1 sliced [n_sot+1:-1] = each token's OWN position = the next token's attention -> every
+            # token shifted by one -> 214ms vs the correct ~94ms.)
             grad_mat = w_.mean(axis=0)[n_sot:-2].double().numpy()
             frames_se = _attn_frames_se(int(wav.shape[0]), nf2)
             _write_attn_hdf_seq(writer, si, grad_mat, nf2, len(words), tok_per_word, frames_se)
