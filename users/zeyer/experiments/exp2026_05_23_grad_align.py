@@ -3811,6 +3811,24 @@ def py():
             _xa_align(ex, name, "en0.5-zsk1.0", energy=energy, zsk=1.0, _twin=False)
         return al
 
+    # grad_wrt resolution sweep on Buckeye-segA (twin of the TIMIT-val sweep above):
+    # which wav2vec2 internal level localizes word boundaries best --
+    # conv0-5 = the 7-conv feature encoder (downsampling ~0.3 ms -> 10 ms per frame),
+    # feat-proj LayerNorm/Linear (20 ms), and raw-waveform at several pool rates.
+    # All plain L2 grad, standard segA align -- an internally consistent resolution comparison.
+    _xa_w2v_res_sweep = [(f"conv{_i}", rf.build_dict(Wav2Vec2Ctc, grad_wrt=f"conv{_i}")) for _i in range(6)] + [
+        ("fproj_ln", rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_layernorm")),
+        ("fproj_out", rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out")),
+        ("rawwav", rf.build_dict(Wav2Vec2Ctc, grad_wrt="raw_waveform")),
+        ("rawwav-pool80", rf.build_dict(Wav2Vec2Ctc, grad_wrt="raw_waveform", raw_pool=80)),
+        ("rawwav-pool16", rf.build_dict(Wav2Vec2Ctc, grad_wrt="raw_waveform", raw_pool=16)),
+        ("rawwav-pool1", rf.build_dict(Wav2Vec2Ctc, grad_wrt="raw_waveform", raw_pool=1)),
+    ]
+    for _rtag, _rcfg in _xa_w2v_res_sweep:
+        _rname = f"wav2vec2ctc-{_rtag}-{_xa_tag}-L2_grad-pertoken"
+        _rex = _xa_extract(_rcfg, _rname, "L2", False)
+        _xa_align(_rex, _rname, "en0.5-sil1.0")
+
     # (1) Fairness: grad SUBWORD whisper (compare to the existing crossattn-subword baseline).
     _xa_sub_ex = _xa_extract(
         rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir),
