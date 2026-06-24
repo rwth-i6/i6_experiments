@@ -342,6 +342,9 @@ def py():
     dl_whisper_l3 = DownloadHuggingFaceRepoJobV2(repo_id="openai/whisper-large-v3", repo_type="model")
     dl_crisper = DownloadHuggingFaceRepoJobV2(repo_id="nyrahealth/CrisperWhisper", repo_type="model")
     dl_parakeet_rnnt = DownloadHuggingFaceRepoJobV2(repo_id="nvidia/parakeet-rnnt-1.1b", repo_type="model")
+    # Qwen2.5-Omni-3B: unified ASR + TTS speech LLM, for the ASR-vs-TTS grad-align probe (voxtral-overlay, transformers>=4.52).
+    dl_qwen_omni_3b = DownloadHuggingFaceRepoJobV2(repo_id="Qwen/Qwen2.5-Omni-3B", repo_type="model")
+    reg("qwen2.5-omni-3b-model", dl_qwen_omni_3b.out_hub_cache_dir)
     dl_parakeet_tdt = DownloadHuggingFaceRepoJobV2(repo_id="nvidia/parakeet-tdt-0.6b-v2", repo_type="model")
     dl_parakeet_ctc = DownloadHuggingFaceRepoJobV2(repo_id="nvidia/parakeet-ctc-1.1b", repo_type="model")
     # NeMo cache-aware streaming FastConformer (hybrid CTC + RNN-T on ONE streaming encoder): the
