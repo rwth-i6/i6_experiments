@@ -406,6 +406,9 @@ class ExtractSelfAttnWhisperJob(Job):
 
     __sis_version__ = 2  # slice [n_sot:-2]: predict-next offset (token k's attn at decoder pos n_sot+k); v1 [n_sot+1:-1] was off by one -> 214ms
 
+    # num_heads=None (use all selected heads) keeps the original hash; a value slices to the top-N.
+    __sis_hash_exclude__ = {"num_heads": None}
+
     def __init__(
         self,
         *,
@@ -417,6 +420,7 @@ class ExtractSelfAttnWhisperJob(Job):
         zscore=True,
         median_filter=True,
         num_seqs=None,
+        num_heads=None,
     ):
         super().__init__()
         self.dataset_dir = dataset_dir
@@ -427,6 +431,8 @@ class ExtractSelfAttnWhisperJob(Job):
         self.zscore = bool(zscore)
         self.median_filter = bool(median_filter)
         self.num_seqs = num_seqs
+        # Use only the top-N ranked heads (e.g. 1 = single best head); None = all.
+        self.num_heads = num_heads
         self.rqmt = {"time": 6, "cpu": 2, "gpu": 0, "mem": 64}
         self.out_hdf = self.output_path("out.hdf")
 
@@ -459,6 +465,8 @@ class ExtractSelfAttnWhisperJob(Job):
 
         heads = self.heads.get() if isinstance(self.heads, tk.Variable) else self.heads
         heads = [(int(li), int(hi)) for li, hi in heads]
+        if self.num_heads is not None:
+            heads = heads[: self.num_heads]
         dev = torch.device("cpu")
         model = whisper.load_model(self.whisper_model).to(dev).eval()
         tok = whisper.tokenizer.get_tokenizer(

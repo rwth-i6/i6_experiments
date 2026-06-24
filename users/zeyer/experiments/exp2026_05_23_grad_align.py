@@ -86,9 +86,6 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.whisper_
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.whisper_repro_check import (
     WhisperReproCheckJob,
 )
-from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.whisper_dtw_ablation import (
-    WhisperDtwAblationJob,
-)
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.buckeye_fine_dataset import (
     BuildBuckeyeFineDatasetJob,
 )
@@ -3301,101 +3298,12 @@ def py():
         dataset_key="val",
         model_config=rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir, attn_implementation="eager"),
     )
-    # Eval on Buckeye-segA-5h (consistent with every other single-dataset side table; the Buckeye
-    # fine dataset stores start/stop in samples, factor 1, like TIMIT -> no offset change needed).
-    # Heads still selected on TIMIT-val (a model property; cross-dataset selection avoids eval overfit).
-    _dtw_abl_ds = BuildBuckeyeFineDatasetJob(
-        raw_dir=dl_ds_buckeye_fine.out_hub_cache_dir,
-        resegment_gap_s=1.0,
-        split_up_to_max_seq_len_s=18.0,
-        min_words=2,
-        skip_misaligned_wavs=True,
-        subsample_target_h=5.0,
-        subsample_seed=42,
-    )
-    _dtw_abl = WhisperDtwAblationJob(
-        dataset_dir=_dtw_abl_ds.out_hub_cache_dir,
-        dataset_key="test",
-        overlay=_WHISPER_TS_OVERLAY,
-        heads_ours=_dtw_abl_sel.out_heads,
-        whisper_model="base",
-    )
-    _dtw_abl.add_alias("whisper-dtw-ablation-base-buckeye-segA-5h")
-    reg("whisper-dtw-ablation-base-buckeye-segA-5h.txt", _dtw_abl.out_report)
-    for _dk in _dtw_abl.out_wbes:
-        reg(f"dtw-abl/whisper-base-buckeye-segA-5h-{_dk}-wbe.txt", _dtw_abl.out_wbes[_dk])
-    # --- ExtractSelfAttnWhisperJob refactor verification ---
-    # openai-whisper extract (faithful transform) -> WordAlign(true_dtw, apply_log=False).
-    # true_dtw = dtw(-matrix) on the raw z-norm matrix (NOT whisper_dtw, which forces
-    # log-softmax-over-time and degenerates the signed faithful matrix to ~214ms).
-    # Should reproduce the monolith span=94.31 (WordAlign's read-off is span, not jump=99.11).
-    # Full Buckeye-segA-5h, same set as the monolith.
-    _ver_heads_wh = [[3, 1], [4, 2], [4, 3], [4, 7], [5, 1], [5, 2], [5, 4], [5, 6]]
-    _ver_wex = ExtractSelfAttnWhisperJob(
-        dataset_dir=_dtw_abl_ds.out_hub_cache_dir,
-        dataset_key="test",
-        overlay=_WHISPER_TS_OVERLAY,
-        heads=_ver_heads_wh,
-        whisper_model="base",
-        zscore=True,
-        median_filter=True,
-    )
-    _ver_wex.add_alias("verify/whisper-extract-faithful")
-    reg("verify/whisper-extract-faithful.hdf", _ver_wex.out_hdf)
-    _ver_wal = WordAlignFromPerTokenGradsJob(
-        grad_score_hdf=_ver_wex.out_hdf,
-        grad_score_key="data",
-        dataset_dir=_dtw_abl_ds.out_hub_cache_dir,
-        dataset_key="test",
-        dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
-        align_opts={"apply_softmax_over_time": False, "apply_log": False, "blank_score": -5},
-        true_dtw=True,
-    )
-    _ver_wal.add_alias("verify/whisper-extract-faithful-wdtw")
-    reg("verify/whisper-extract-faithful-wdtw-wbe.txt", _ver_wal.out_wbe)
-    # Fast verification on the ~112-seq buckeye-segA-sub025.
-    # WordAlign needs an HDF entry per dataset seq, so we use a small DATASET, not num_seqs.
-    # whisper-extract + WordAlign vs the monolith, same set.
-    _ver_sub_ds = BuildBuckeyeFineDatasetJob(
-        raw_dir=dl_ds_buckeye_fine.out_hub_cache_dir,
-        resegment_gap_s=1.0,
-        split_up_to_max_seq_len_s=18.0,
-        min_words=2,
-        skip_misaligned_wavs=True,
-        subsample_target_h=0.25,
-        subsample_seed=42,
-    )
-    _ver_sub_dir = _ver_sub_ds.out_hub_cache_dir
-    _ver_sub_wex = ExtractSelfAttnWhisperJob(
-        dataset_dir=_ver_sub_dir,
-        dataset_key="test",
-        overlay=_WHISPER_TS_OVERLAY,
-        heads=_ver_heads_wh,
-        whisper_model="base",
-        zscore=True,
-        median_filter=True,
-    )
-    _ver_sub_wex.add_alias("verify/whisper-extract-sub025")
-    _ver_sub_wal = WordAlignFromPerTokenGradsJob(
-        grad_score_hdf=_ver_sub_wex.out_hdf,
-        grad_score_key="data",
-        dataset_dir=_ver_sub_dir,
-        dataset_key="test",
-        dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
-        align_opts={"apply_softmax_over_time": False, "apply_log": False, "blank_score": -5},
-        true_dtw=True,
-    )
-    _ver_sub_wal.add_alias("verify/whisper-extract-sub025-wdtw")
-    reg("verify/whisper-extract-sub025-wdtw-wbe.txt", _ver_sub_wal.out_wbe)
-    _ver_sub_mono = WhisperDtwAblationJob(
-        dataset_dir=_ver_sub_dir,
-        dataset_key="test",
-        overlay=_WHISPER_TS_OVERLAY,
-        heads_ours=_dtw_abl_sel.out_heads,
-        whisper_model="base",
-    )
-    _ver_sub_mono.add_alias("verify/mono-sub025")
-    reg("verify/mono-sub025.txt", _ver_sub_mono.out_report)
+    # Heads selected on TIMIT-val (a model property; cross-dataset selection avoids eval overfit);
+    # the ablation itself runs on Buckeye-segA-5h (_xa_ds) below.
+    # The whisper find_alignment cross-attn ablation (the alignopts-dtw table) is built from
+    # ExtractSelfAttnWhisperJob + WordAlign further below (see "alignopts-dtw cross-attn ablation"),
+    # replacing the monolithic WhisperDtwAblationJob; _dtw_abl_sel / _xa_ds feed it.
+    _ver_heads_wh = [[3, 1], [4, 2], [4, 3], [4, 7], [5, 1], [5, 2], [5, 4], [5, 6]]  # openai base alignment heads
     # fairness-2x2: cross-attn CHAR on TIMIT-test (char twin of the subword baseline above; segA has it).
     whisper_fa_test_char = WhisperCrossAttnForcedAlignJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_key="test", overlay=_WHISPER_TS_OVERLAY, char_level=True
@@ -3634,6 +3542,54 @@ def py():
         )
         _sv_mfa.add_alias(f"baseline-mfa-{_sv_tag}")
         reg(f"baseline-mfa-{_sv_tag}-wbe.txt", _sv_mfa.out_wbe)
+
+        # Native aligners for the buckeye-abc A/B/C table (segA wired elsewhere; B/C here):
+        # CTC posteriors (Parakeet-CTC forced-align), transducer native-viterbi (Parakeet RNN-T),
+        # and whisper cross-attn-auto (heads selected on TIMIT-val; the generic twin generator below
+        # turns its en0.5-sil1.0 align into the -en0.5-sil2.0-wordtopo variant the table reads).
+        if _sv != "A":
+            _sv_pc_fa = ParakeetCtcForcedAlignJob(
+                dataset_dir=_sv_dir,
+                dataset_key="test",
+                model_dir=dl_parakeet_ctc.out_hub_cache_dir,
+                overlay_path=_NEMO_OVERLAY,
+                dataset_offset_factors=_bk_off,
+            )
+            _sv_pc_fa.add_alias(f"baseline-parakeet-ctc-1.1b-{_sv_tag}")
+            reg(f"baseline-parakeet-ctc-1.1b-{_sv_tag}-wbe.txt", _sv_pc_fa.out_word_wbe)
+
+            _sv_pr_nt = NativeTransducerAlignJob(dataset_dir=_sv_dir, dataset_key="test", model_config=pk_cfg)
+            _sv_pr_nt.add_alias(f"baseline-parakeet-rnnt-1.1b-native-viterbi-{_sv_tag}")
+            _sv_pr_nt_m = CalcAlignmentMetricsFromWordBoundariesJob(
+                word_boundaries_hdf=_sv_pr_nt.out_word_boundaries_hdf,
+                dataset_dir=_sv_dir,
+                dataset_key="test",
+                dataset_offset_factors=_bk_off,
+            )
+            reg(f"baseline-parakeet-rnnt-1.1b-native-viterbi-{_sv_tag}-wbe.txt", _sv_pr_nt_m.out_wbe)
+
+            _sv_ah_cfg = rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir, attn_implementation="eager")
+            _sv_ah_sel = SelectSelfAttnAlignHeadsJob(
+                dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_key="val", model_config=_sv_ah_cfg
+            )
+            _sv_ah_ex = ExtractSelfAttnPerTokenJob(
+                dataset_dir=_sv_dir, dataset_key="test", model_config=_sv_ah_cfg, heads=_sv_ah_sel.out_heads
+            )
+            _sv_ah_name = f"baseline-whisper-base-crossattn-auto-{_sv_tag}"
+            _sv_ah_ex.add_alias(f"{_sv_ah_name}-extract")
+            reg(f"{_sv_ah_name}.hdf", _sv_ah_ex.out_hdf)
+            _sv_ah_al = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=_sv_ah_ex.out_hdf,
+                grad_score_key="data",
+                dataset_dir=_sv_dir,
+                dataset_key="test",
+                dataset_offset_factors=_bk_off,
+                align_opts=_seg_ao,
+                audio_energy_pow=0.5,
+                blank_silence_energy_scale=1.0,
+            )
+            _sv_ah_al.add_alias(f"align/{_sv_ah_name}-{_name_for_dict(_seg_ao)}-en0.5-sil1.0")
+            reg(f"align/{_sv_ah_name}-{_name_for_dict(_seg_ao)}-en0.5-sil1.0-wbe.txt", _sv_ah_al.out_wbe)
 
         # grad-align surfaces (en0.5-sil1.0): AED-Whisper char + CTC-Wav2Vec2
         for _cfg, _nmt, _attr, _mgi, _bb in _seg_grad_methods:
@@ -4406,6 +4362,78 @@ def py():
     _dtwwt_nm = f"align/{_xa_whc_name}-asotTrue-bs-5-en0.5-sil1.0-dtwword"
     _dtwwt_al.add_alias(_dtwwt_nm)
     reg(f"{_dtwwt_nm}-wbe.txt", _dtwwt_al.out_wbe)
+
+    # === alignopts-dtw cross-attn ablation: openai find_alignment -> ours, one toggle at a time. ===
+    # Built from ExtractSelfAttnWhisperJob (openai matrix) + WordAlign (DP / silence / energy / log),
+    # replacing the monolithic WhisperDtwAblationJob. Every row reads boundaries off with span (the
+    # word's own last-token max frame); whisper's "jump" read-off (next word's onset) is a bug and is
+    # not used. _dtw_abl_sel.out_heads = our selected heads; _ver_heads_wh = openai's alignment heads.
+    _da_dir = _xa_ds.out_hub_cache_dir
+    _da_off = _DATASET_OFFSET_FACTORS["timit"]
+
+    def _da_extract(heads, zscore, medfilt, num_heads=None):
+        return ExtractSelfAttnWhisperJob(
+            dataset_dir=_da_dir,
+            dataset_key="test",
+            overlay=_WHISPER_TS_OVERLAY,
+            heads=heads,
+            whisper_model="base",
+            zscore=zscore,
+            median_filter=medfilt,
+            **({"num_heads": num_heads} if num_heads else {}),
+        )
+
+    def _da_align(
+        ex, key, *, asot, apply_log, energy=0.0, true_dtw=False, dtw_no_blank=False, word_topology=False, sil=None
+    ):
+        kw = {}
+        if true_dtw:
+            kw["true_dtw"] = True
+        if dtw_no_blank:
+            kw["dtw_no_blank"] = True
+        if word_topology:
+            kw["word_topology"] = True
+        if sil is not None:
+            kw["blank_silence_energy_scale"] = sil
+        al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_da_dir,
+            dataset_key="test",
+            dataset_offset_factors=_da_off,
+            align_opts={"apply_softmax_over_time": asot, "apply_log": apply_log, "blank_score": -5},
+            audio_energy_pow=energy,
+            **kw,
+        )
+        _nm = f"dtw-abl/whisper-base-{_xa_tag}-{key}"
+        al.add_alias(f"align/{_nm}")
+        reg(f"{_nm}-wbe.txt", al.out_wbe)
+        return al
+
+    _da_wh_zm = _da_extract(_ver_heads_wh, True, True)
+    _da_wh_z = _da_extract(_ver_heads_wh, True, False)
+    _da_wh_m = _da_extract(_ver_heads_wh, False, True)
+    _da_ours_zm = _da_extract(_dtw_abl_sel.out_heads, True, True)
+    _da_best1_zm = _da_extract(_dtw_abl_sel.out_heads, True, True, num_heads=1)
+    _da_ours_raw = _da_extract(_dtw_abl_sel.out_heads, False, False)
+    # faithful (openai heads, z-norm, median-filter) -> ours DP, one toggle at a time:
+    _da_align(_da_wh_zm, "faithful", asot=False, apply_log=False, true_dtw=True)
+    _da_align(_da_wh_zm, "faithful_energy", asot=False, apply_log=False, true_dtw=True, energy=0.5)
+    _da_align(_da_wh_zm, "faithful_mono", asot=False, apply_log=False, dtw_no_blank=True)
+    _da_align(_da_wh_zm, "faithful_silence", asot=False, apply_log=False, word_topology=True)
+    _da_align(_da_wh_z, "nomedfilt", asot=False, apply_log=False, true_dtw=True)
+    _da_align(_da_wh_m, "noznorm", asot=False, apply_log=False, true_dtw=True)
+    _da_align(_da_wh_m, "noznorm_log", asot=False, apply_log=True, true_dtw=True)
+    _da_align(_da_wh_m, "noznorm_log_mono", asot=True, apply_log=True, dtw_no_blank=True)
+    _da_align(_da_wh_m, "noznorm_log_mono_sil", asot=True, apply_log=True, word_topology=True)
+    _da_align(_da_ours_zm, "ourheads", asot=False, apply_log=False, true_dtw=True)
+    _da_align(_da_best1_zm, "best1head", asot=False, apply_log=False, true_dtw=True)
+    # ours (full) -> back toward whisper, one toggle at a time:
+    _da_align(_da_ours_raw, "ours_full", asot=True, apply_log=True, word_topology=True, energy=0.5, sil=1.0)
+    _da_align(_da_ours_raw, "ours_dtw", asot=True, apply_log=True, true_dtw=True, energy=0.5)
+    _da_align(_da_ours_raw, "ours_dtw_noen", asot=True, apply_log=True, true_dtw=True)
+    # silence=none nulls the energy blank (constant blank_score, like the monolith): no sil arg.
+    _da_align(_da_ours_raw, "ours_none", asot=True, apply_log=True, dtw_no_blank=True, energy=0.5)
     # space-as-silence (CrisperWhisper-style): align the separator tokens as the silence anchors
     # (no DP blank); word boundaries from char rows only. CrisperWhisper (standalone space IS trained
     # -> should work) vs whisper-base (untrained -> contrast). Buckeye-segA.

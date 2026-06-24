@@ -602,9 +602,17 @@ def _abc_table():
         ("CTC", "Wav2Vec2", "Gradients", "wav2vec2ctc-fproj_out-prefixfwd-buckeye-{seg}-5h-L2_grad-pertoken", True),
         ("CTC", "Wav2Vec2", "Posteriors", "baseline-mms_fa-buckeye-{seg}-5h", False),
         ("CTC", "Parakeet CTC", "Gradients", "parakeet-ctc-1.1b-prefixfwd-buckeye-{seg}-5h-L2_grad-pertoken", True),
+        ("CTC", "Parakeet CTC", "Posteriors", "baseline-parakeet-ctc-1.1b-buckeye-{seg}-5h", False),
         ("Transd.", "Parakeet RNN-T", "Gradients", "parakeet-rnnt-1.1b-logmel-buckeye-{seg}-5h-L2_grad-pertoken", True),
+        (
+            "Transd.",
+            "Parakeet RNN-T",
+            "Posteriors",
+            "baseline-parakeet-rnnt-1.1b-native-viterbi-buckeye-{seg}-5h",
+            False,
+        ),
         ("AED", "Whisper-base", "Gradients", "whisper-base-logmel-buckeye-{seg}-5h-L2_grad-pertoken-charlev-spc", True),
-        ("AED", "Whisper-base", "Cross-att.", "baseline-whisper-crossattn-buckeye-{seg}-5h", False),
+        ("AED", "Whisper-base", "Cross-att.", "baseline-whisper-base-crossattn-auto-buckeye-{seg}-5h", True),
     ]
     columns = ["type", "model", "method"] + SEGS
     rows = []
@@ -704,35 +712,35 @@ def _alignopts_dtw_table():
     # The whisper-DTW rows have it OFF (x) -- with log on they use log-softmax instead (the log column).
     # It is OFF for faithful+mono/sil too (z-norm yields a DTW cost, not a softmax-able distribution),
     # and ON for the other our-DP rows + grad.
-    # read-off = how word boundaries are read off the path: jump (whisper-native: word end = the next
-    # word's onset frame) vs span (ours: first-token start .. last-token end). It is itself one of the
-    # whisper<->ours differences (~6ms), so it is an EXPLICIT column -- never silently flipped between rows.
-    # (label, src=(kind,key), heads, z-norm, median-filter, log, mono, silence, energy, softmax, read-off)
+    # All rows read boundaries off the same way (span: each word = its own first-token start .. last-token
+    # end, max+1). Whisper's native jump read-off (word end = next word's onset) is a boundary-definition
+    # bug -- not used here; every row uses the WordAlign span read-off.
+    # (label, src=(kind,key), heads, z-norm, median-filter, log, mono, silence, energy, softmax)
     ROWS = [
-        ("Cross-attn: Whisper (faithful)", ("xa", "faithful"), WH, ck, ck, cx, cx, "none", cx, cx, "jump"),
-        (R + "$+$ energy", ("xa", "faithful_energy"), WH, ck, ck, cx, cx, "none", ck, cx, "jump"),
-        (R + "$+$ mono DP", ("xa", "faithful_mono"), WH, ck, ck, cx, ck, "none", cx, cx, "span"),
-        (R + "\\quad $+$ silence", ("xa", "faithful_silence"), WH, ck, ck, cx, ck, "word", cx, cx, "span"),
-        (R + "no median-filter", ("xa", "nomedfilt"), WH, ck, cx, cx, cx, "none", cx, cx, "jump"),
-        (R + "no z-norm", ("xa", "noznorm"), WH, cx, ck, cx, cx, "none", cx, cx, "jump"),
-        (R + "no z-norm $+$ log", ("xa", "noznorm_log"), WH, cx, ck, ck, cx, "none", cx, cx, "jump"),
-        (R + "\\quad $+$ mono DP", ("xa", "noznorm_log_mono"), WH, cx, ck, ck, ck, "none", cx, ck, "span"),
-        (R + "\\qquad $+$ silence", ("xa", "noznorm_log_mono_sil"), WH, cx, ck, ck, ck, "word", cx, ck, "span"),
-        (R + "our heads", ("xa", "ourheads"), OU, ck, ck, cx, cx, "none", cx, cx, "jump"),
-        (R + "single best head", ("xa", "best1head"), B1, ck, ck, cx, cx, "none", cx, cx, "jump"),
-        ("Cross-attn: ours (full)", ("xa", "ours_full"), OU, cx, cx, ck, ck, "word", ck, ck, "span"),
-        (R + "DTW DP", ("xa", "ours_dtw"), OU, cx, cx, ck, cx, "none", ck, cx, "span"),
-        (R + "DTW DP, no energy", ("xa", "ours_dtw_noen"), OU, cx, cx, ck, cx, "none", cx, cx, "span"),
-        (R + "no silence", ("xa", "ours_none"), OU, cx, cx, ck, ck, "none", ck, ck, "span"),
-        ("Grad: ours (full)", ("grad", "en0.5-sil1.0-wordtopo"), na, na, na, ck, ck, "word", ck, ck, "span"),
-        (R + "DTW DP, word-topo", ("grad", "en0.5-sil1.0-dtwword"), na, na, na, ck, cx, "word", ck, ck, "span"),
-        (R + "DTW DP", ("grad", "en0.5-truedtw"), na, na, na, ck, cx, "none", ck, ck, "span"),
-        (R + "DTW DP, no energy", ("grad", "en0.0-truedtw"), na, na, na, ck, cx, "none", cx, ck, "span"),
+        ("Cross-attn: Whisper (faithful)", ("xa", "faithful"), WH, ck, ck, cx, cx, "none", cx, cx),
+        (R + "$+$ energy", ("xa", "faithful_energy"), WH, ck, ck, cx, cx, "none", ck, cx),
+        (R + "$+$ mono DP", ("xa", "faithful_mono"), WH, ck, ck, cx, ck, "none", cx, cx),
+        (R + "\\quad $+$ silence", ("xa", "faithful_silence"), WH, ck, ck, cx, ck, "word", cx, cx),
+        (R + "no median-filter", ("xa", "nomedfilt"), WH, ck, cx, cx, cx, "none", cx, cx),
+        (R + "no z-norm", ("xa", "noznorm"), WH, cx, ck, cx, cx, "none", cx, cx),
+        (R + "no z-norm $+$ log", ("xa", "noznorm_log"), WH, cx, ck, ck, cx, "none", cx, cx),
+        (R + "\\quad $+$ mono DP", ("xa", "noznorm_log_mono"), WH, cx, ck, ck, ck, "none", cx, ck),
+        (R + "\\qquad $+$ silence", ("xa", "noznorm_log_mono_sil"), WH, cx, ck, ck, ck, "word", cx, ck),
+        (R + "our heads", ("xa", "ourheads"), OU, ck, ck, cx, cx, "none", cx, cx),
+        (R + "single best head", ("xa", "best1head"), B1, ck, ck, cx, cx, "none", cx, cx),
+        ("Cross-attn: ours (full)", ("xa", "ours_full"), OU, cx, cx, ck, ck, "word", ck, ck),
+        (R + "DTW DP", ("xa", "ours_dtw"), OU, cx, cx, ck, cx, "none", ck, cx),
+        (R + "DTW DP, no energy", ("xa", "ours_dtw_noen"), OU, cx, cx, ck, cx, "none", cx, cx),
+        (R + "no silence", ("xa", "ours_none"), OU, cx, cx, ck, ck, "none", ck, ck),
+        ("Grad: ours (full)", ("grad", "en0.5-sil1.0-wordtopo"), na, na, na, ck, ck, "word", ck, ck),
+        (R + "DTW DP, word-topo", ("grad", "en0.5-sil1.0-dtwword"), na, na, na, ck, cx, "word", ck, ck),
+        (R + "DTW DP", ("grad", "en0.5-truedtw"), na, na, na, ck, cx, "none", ck, ck),
+        (R + "DTW DP, no energy", ("grad", "en0.0-truedtw"), na, na, na, ck, cx, "none", cx, ck),
     ]
     GP = "align/whisper-base-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc-asotTrue-bs-5"
-    columns = ["row", "heads", "znorm", "medfilt", "log", "softmax", "mono", "silence", "energy", "readoff", "wbe"]
+    columns = ["row", "heads", "znorm", "medfilt", "log", "softmax", "mono", "silence", "energy", "wbe"]
     rows = []
-    for label, src, heads, znorm, mf, log, mono, sil, en, sm, ro in ROWS:
+    for label, src, heads, znorm, mf, log, mono, sil, en, sm in ROWS:
         wbe = _wbe(f"dtw-abl/whisper-base-buckeye-segA-5h-{src[1]}") if src[0] == "xa" else _wbe(f"{GP}-{src[1]}")
         rows.append(
             {
@@ -746,7 +754,6 @@ def _alignopts_dtw_table():
                     "mono": mono,
                     "silence": sil,
                     "energy": en,
-                    "readoff": ro,
                     "wbe": wbe,
                 }
             }
