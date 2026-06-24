@@ -52,6 +52,7 @@ from i6_experiments.users.zeyer.external_models.voxtral import (
     download_voxtral_mini_3b_model,
 )
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.voxtral import Voxtral
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.qwen_omni import QwenOmni
 from i6_experiments.users.zeyer.external_models.canary_qwen import (
     download_canary_qwen_2_5b_model,
     download_qwen3_1_7b_model,
@@ -345,6 +346,34 @@ def py():
     # Qwen2.5-Omni-3B: unified ASR + TTS speech LLM, for the ASR-vs-TTS grad-align probe (voxtral-overlay, transformers>=4.52).
     dl_qwen_omni_3b = DownloadHuggingFaceRepoJobV2(repo_id="Qwen/Qwen2.5-Omni-3B", repo_type="model")
     reg("qwen2.5-omni-3b-model", dl_qwen_omni_3b.out_hub_cache_dir)
+
+    # --- Qwen2.5-Omni-3B ASR grad-align probe (Thinker, audio->text) ------
+    # ASR direction of the ASR-vs-TTS probe on ONE unified speech LLM. Mirrors the
+    # Voxtral wiring: speech-embedding grad target (~25 Hz / 40 ms audio tokens), word-level.
+    qwen_omni_asr_cfg = rf.build_dict(QwenOmni, model_dir=dl_qwen_omni_3b.out_hub_cache_dir)
+    qwo_asr_extract = ExtractInGradsPerTokenJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=qwen_omni_asr_cfg,
+        mult_grad_by_inputs=True,
+        attr_reduction="L2",
+    )
+    qwo_asr_extract.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    qwo_asr_extract_name = "qwen-omni-asr-timit-val-L2_e_grad-pertoken"
+    qwo_asr_extract.add_alias(qwo_asr_extract_name)
+    reg(f"{qwo_asr_extract_name}.hdf", qwo_asr_extract.out_hdf)
+    for align_opts in _ALIGN_OPTS_GRID:
+        align_name = f"align/{qwo_asr_extract_name}-{_name_for_dict(align_opts)}"
+        align = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=qwo_asr_extract.out_hdf,
+            grad_score_key="data",
+            dataset_dir=dl_ds_timit.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+            align_opts=align_opts,
+        )
+        align.add_alias(align_name)
+        reg(f"{align_name}-wbe.txt", align.out_wbe)
     dl_parakeet_tdt = DownloadHuggingFaceRepoJobV2(repo_id="nvidia/parakeet-tdt-0.6b-v2", repo_type="model")
     dl_parakeet_ctc = DownloadHuggingFaceRepoJobV2(repo_id="nvidia/parakeet-ctc-1.1b", repo_type="model")
     # NeMo cache-aware streaming FastConformer (hybrid CTC + RNN-T on ONE streaming encoder): the
