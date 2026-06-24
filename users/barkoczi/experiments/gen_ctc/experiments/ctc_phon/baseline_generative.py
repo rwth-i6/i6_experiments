@@ -137,6 +137,8 @@ def eow_phon_ls960_1023_generative_nce():
     train_job = training(training_name, train_data, train_args, num_epochs=1000, **default_returnn)
     train_job.rqmt["gpu_mem"] = 24
 
+    normalize_log_probs_for_decoding = True
+
     def tune_and_evaluate_helper(
         *,
         tuning_name,
@@ -161,6 +163,7 @@ def eow_phon_ls960_1023_generative_nce():
                     lm_scale=lm_scale,
                     prior_scale=prior_scale,
                     prior_file=None,
+                    normalize_log_probs=normalize_log_probs_for_decoding,
                 )
                 search_name = tuning_name + "/search_lm%.1f_prior%.1f" % (lm_scale, prior_scale)
                 _search_jobs, wers = search(
@@ -193,6 +196,7 @@ def eow_phon_ls960_1023_generative_nce():
                 lm_scale=pick_optimal_params_job.out_optimal_parameters[0],
                 prior_scale=pick_optimal_params_job.out_optimal_parameters[1],
                 prior_file=None,
+                normalize_log_probs=normalize_log_probs_for_decoding,
             )
             test_search_name = tuning_name + f"/best_{key}"
             _search_jobs, wers = search(
