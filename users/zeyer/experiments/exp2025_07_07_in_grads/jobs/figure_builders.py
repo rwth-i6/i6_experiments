@@ -2,18 +2,19 @@
 
 ``build_figures(results)`` is called at ``py()`` end with the same captured-outputs dict the table
 and plot builders use. It emits one :class:`WriteFigureDataJob` per (model/tokenization, seq):
-the four cells of the Whisper-large grad/cross-att x char/subword grid, on a curated subset of
+the Whisper-large gradient (char) and cross-attention (subword) variants, on a curated subset of
 internal-silence Buckeye-segA examples (a real pause between words shows the alignment placing the
 silence). Each dumps ``figures-data/<name>/`` (``fig.json`` + ``blobs/*.npy``); a local renderer
-turns these into the paper PDFs.
+(``scripts/render_figures.py``, pulled by ``scripts/sync_figures_data.sh``) turns these into the
+paper PDFs.
 """
 
 from sisyphus import tk
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.write_figure_data import WriteFigureDataJob
 
 _ALIGN_OPTS = {"apply_softmax_over_time": True, "blank_score": -5}
-# Internal-silence example seqs only (a real pause between words). 10 and 17 have no such pause.
-_PICK = [8, 12, 18, 24]
+# Curated internal-silence example seqs for the paper figures.
+_PICK = [4, 5, 13]
 
 
 def _emit(results, ds, name, hdf_reg, model, *, seqs, tokenizer_reg=None):
@@ -45,8 +46,7 @@ def build_figures(results):
     ds = results.get("buckeye-segA-5h-dataset")
     if ds is None:
         return
-    # Whisper-large grad/cross-att x char/subword grid (internal-silence examples).
-    # gradient-saliency variants
+    # Whisper-large gradient (char) + cross-attention (subword), on curated internal-silence examples.
     _emit(
         results,
         ds,
@@ -58,27 +58,9 @@ def build_figures(results):
     _emit(
         results,
         ds,
-        "whisper-large-subword-buckeye-segA",
-        "whisper-large-v3-logmel-buckeye-segA-5h-L2_grad-pertoken-subword",
-        "Whisper-large",
-        seqs=_PICK,
-        tokenizer_reg="whisper-large-v3-model",
-    )
-    # cross-attention variants (the same DP, on the attention signal instead of the gradient)
-    _emit(
-        results,
-        ds,
         "whisper-large-crossattn-buckeye-segA",
         "baseline-whisper-large-v3-crossattn-auto-buckeye-segA-5h",
         "Whisper-large cross-att",
         seqs=_PICK,
         tokenizer_reg="whisper-large-v3-model",
-    )
-    _emit(
-        results,
-        ds,
-        "whisper-large-crossattn-char-buckeye-segA",
-        "baseline-whisper-large-v3-crossattn-charlev-buckeye-segA-5h",
-        "Whisper-large cross-att",
-        seqs=_PICK,
     )
