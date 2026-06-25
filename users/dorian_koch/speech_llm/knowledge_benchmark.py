@@ -23,6 +23,7 @@ from .common import run_worker_script
 from .inference_harness import BackendInferenceMixin
 from .moshi_client import moshi_server, _ws_url, MoshiFileClient
 from .speech_backends import MOSHI_BACKEND
+from .speech_inference import SpeechInference, ResolveOverlayCheckpoint
 
 
 # ---------------------------------------------------------------------------
@@ -239,51 +240,25 @@ class ChatterboxSingleSpeakerInference(Job):
 # ---------------------------------------------------------------------------
 
 
-class ResolveLoraCheckpoint(Job):
-    """Resolve a moshi-finetune ``run_dir`` to a single checkpoint's config + LoRA weights.
-
-    ``MoshiFinetune`` writes adapters to ``run_dir/checkpoints/checkpoint_<step>/consolidated/``
-    (``config.json`` + ``lora.safetensors``). This job picks one checkpoint (latest by default,
-    or a specific ``step``) and exposes its two files as stable outputs so the inference job can
-    depend on them directly.
-    """
-
-    def __init__(self, *, run_dir: tk.Path, step: int | None = None):
-        self.run_dir = run_dir
-        self.step = step  # None -> latest checkpoint
-        self.out_config = self.output_path("config.json")
-        self.out_lora = self.output_path("lora.safetensors")
-
-    def tasks(self):
-        yield Task("run", mini_task=True)
-
-    def run(self):
-        ckpt_root = Path(self.run_dir.get()) / "checkpoints"
-        ckpts = sorted(ckpt_root.glob("checkpoint_*"), key=lambda p: int(p.name.split("_")[-1]))
-        assert ckpts, f"No checkpoints found in {ckpt_root}"
-        if self.step is not None:
-            chosen = ckpt_root / f"checkpoint_{self.step:06d}"
-            assert chosen.exists(), f"{chosen} not found; have {[c.name for c in ckpts]}"
-        else:
-            chosen = ckpts[-1]
-        consolidated = chosen / "consolidated"
-        print(f"Resolved LoRA checkpoint: {chosen.name}", flush=True)
-        os.symlink(consolidated / "config.json", self.out_config.get())
-        os.symlink(consolidated / "lora.safetensors", self.out_lora.get())
-
-
 def resolve_lora(moshi_checkpoint, checkpoint_step=None):
-    """Map a MoshiFinetune run_dir (+ optional step) to (lora_weights, lora_config)
-    output handles, or (None, None) for the base model. Shared by both benchmark
-    builders (knowledge + FDB) so the LoRA-resolve wiring lives in one place."""
+    """Map a MoshiFinetune run_dir (+ optional step) to (lora_weights, lora_config) output
+    handles, or (None, None) for the base model. Shared by both benchmark builders. Backed by
+    the unified ResolveOverlayCheckpoint (overlay_kind="lora")."""
     if moshi_checkpoint is None:
         return None, None
-    ckpt = ResolveLoraCheckpoint(run_dir=moshi_checkpoint, step=checkpoint_step)
-    return ckpt.out_lora, ckpt.out_config
+    ckpt = ResolveOverlayCheckpoint(run_dir=moshi_checkpoint, overlay_kind="lora", step=checkpoint_step)
+    return ckpt.out_weights, ckpt.out_config
+
+
+def resolve_personaplex_weights(run_dir, step=None):
+    """Map a PersonaPlex SpeechFinetune run_dir (+ optional step) to a single trained-weights
+    output handle for the offline driver's --trained_weights overlay (no separate config). Backed
+    by the unified ResolveOverlayCheckpoint (overlay_kind="personaplex_heads")."""
+    return ResolveOverlayCheckpoint(run_dir=run_dir, overlay_kind="personaplex_heads", step=step).out_weights
 
 
 class MergeMoshiOutputsViaSymlinks(Job):
-    """Merge sharded MoshiInference outputs into a single dir via symlinks."""
+    """Merge sharded SpeechInference (knowledge-mode) outputs into a single dir via symlinks."""
 
     def __init__(self, *, in_dirs: list[tk.Path]):
         self.in_dirs = in_dirs
@@ -305,157 +280,16 @@ class MergeMoshiOutputsViaSymlinks(Job):
                     os.symlink(os.path.join(src_dir, name), link)
 
 
-class MoshiInference(BackendInferenceMixin, Job):
-    """Run Moshi speech LLM inference on audio questions.
+def sharded_knowledge_inference(*, num_shards: int, **kwargs) -> tk.Path:
+    """Build the knowledge-mode SpeechInference, sharded across GPUs for throughput.
 
-    Default (fast) backend runs offline batched inference; an optional LoRA adapter
-    (``lora_weights`` + ``lora_config``) is applied on top of the base model so the same
-    job can benchmark either the base or a fine-tuned Moshi.
-    """
-
-    __sis_hash_exclude__ = {
-        # Pluggable speech-LLM backend (see speech_backends.py): server ctx-mgr,
-        # streaming file client, handle->url adapter, and the cascaded-backend LLM.
-        # Defaults are Moshi and excluded at those defaults, so existing Moshi inference
-        # jobs keep their exact hash; a non-Moshi backend's callables differ and so
-        # already yield a distinct hash.
-        "server": moshi_server,
-        "file_client": MoshiFileClient,
-        "ws_url": _ws_url,
-        "unmute_llm": None,
-        # Offline driver defaults (Moshi); excluded so Moshi jobs keep their hash. A
-        # non-Moshi offline backend sets a different script -> distinct hash.
-        "offline_script": "moshi_offline_inference.py",
-        "offline_extra_args": (),
-        # Cloud realtime API (Gemini/OpenAI): run inference as a login-node mini_task
-        # (remote model, no GPU). Excluded at False so existing jobs keep their hash.
-        "cloud_api": False,
-        # RAG retrieval LLM + GPU-count override (MoshiRAG). None defaults => no retrieval
-        # server and the default rqmt, so existing offline jobs keep their hash.
-        "retrieval_llm": None,
-        "rqmt_override": None,
-    }
-
-    def __init__(
-        self,
-        *,
-        venv_python_path: tk.AbstractPath,
-        in_dir: tk.Path,
-        shard: int | None = None,
-        num_shards: int | None = None,
-        lead_in_s: float = 2.0,
-        capture_s: float = 24.0,
-        backend: str = "offline",
-        batch_size: int = 32,
-        lora_weights: tk.Path | None = None,
-        lora_config: tk.Path | None = None,
-        server=moshi_server,
-        file_client=MoshiFileClient,
-        ws_url=_ws_url,
-        unmute_llm: str | None = None,
-        offline_script: str = "moshi_offline_inference.py",
-        offline_extra_args: tuple = (),
-        cloud_api: bool = False,
-        retrieval_llm: str | None = None,
-        rqmt_override: dict | None = None,
-    ):
-        self.venv_python_path = venv_python_path
-        self.in_dir = in_dir
-        self.shard = shard
-        self.num_shards = num_shards
-        # Feed `lead_in_s` of silence (Moshi greets), the question, then `capture_s` of trailing
-        # silence, and capture Moshi's ENTIRE reply -- greeting included, nothing skipped/trimmed.
-        self.lead_in_s = lead_in_s
-        self.capture_s = capture_s
-        # backend "offline" = fast batched, as-fast-as-GPU via moshi_offline_inference.py;
-        # "server" = legacy realtime websocket (moshi.server + MoshiFileClient, batch_size 1, ~1x realtime).
-        self.backend = backend
-        self.batch_size = batch_size
-        # Pluggable speech-LLM backend (Moshi by default). ``backend`` above selects the
-        # inference *mode* ("offline" = fast batched, Moshi-only; "server" = streaming,
-        # used by any cascaded/server backend incl. Unmute); these select *which* model.
-        self.server = server
-        self.file_client = file_client
-        self.ws_url = ws_url
-        self.unmute_llm = unmute_llm
-        # Offline driver script (under dorian_koch/) + extra CLI args; selects WHICH
-        # offline model runs (Moshi by default; PersonaPlex sets its own).
-        self.offline_script = offline_script
-        self.offline_extra_args = tuple(offline_extra_args)
-        # Cloud realtime backend => remote model, no GPU: run as a login-node mini_task.
-        self.cloud_api = cloud_api
-        # RAG retrieval LLM served (via vllm_server) as the offline driver's retrieval
-        # backend (MoshiRAG). None -> plain offline run, no retrieval server.
-        self.retrieval_llm = retrieval_llm
-        # Optional fine-tuned LoRA adapter. None -> base moshiko.
-        self.lora_weights = lora_weights
-        self.lora_config = lora_config
-        self.out_dir = self.output_path("moshi_output", directory=True)
-        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 8}
-        if rqmt_override is not None:
-            self.rqmt = {**self.rqmt, **rqmt_override}
-
-    def tasks(self):
-        if self.cloud_api:
-            # Remote model: no GPU, but needs the login node's internet.
-            yield Task("run", mini_task=True)
-        else:
-            yield Task("run", rqmt=self.rqmt)
-
-    @staticmethod
-    def sharded(*, num_shards: int, **kwargs) -> tk.Path:
-        if num_shards == 1:
-            return MoshiInference(**kwargs).out_dir
-        assert num_shards > 1
-        shards = [MoshiInference(shard=i, num_shards=num_shards, **kwargs) for i in range(num_shards)]
-        return MergeMoshiOutputsViaSymlinks(in_dirs=[s.out_dir for s in shards]).out_merged
-
-    def run(self):
-        if self.backend == "offline":
-            return self._run_offline()
-        return self._run_server()
-
-    # BackendInferenceMixin hooks (knowledge attribute names).
-    def _server_callable(self):
-        return self.server
-
-    def _python_exe(self):
-        return self.venv_python_path.get()
-
-    def _run_offline(self):
-        # Dir-mode offline driver via the shared mixin (optionally behind a RAG
-        # retrieval server); see inference_harness.BackendInferenceMixin.
-        self._offline(
-            python_exe=self.venv_python_path.get(),
-            in_dir=str(self.in_dir.get()),
-            out_dir=str(self.out_dir.get()),
-            lead_in_s=self.lead_in_s,
-            capture_s=self.capture_s,
-            batch_size=self.batch_size,
-            shard=self.shard,
-            num_shards=self.num_shards,
-        )
-
-    def _run_server(self):
-        # Streaming path via the shared mixin: stream each question wav through the
-        # backend's realtime server/file client.
-        from .inference_harness import StreamOptions
-
-        out_dir = Path(self.out_dir.get())
-        out_dir.mkdir(parents=True, exist_ok=True)
-        wav_files = sorted(Path(self.in_dir.get()).glob("*.wav"))
-        if self.shard is not None and self.num_shards is not None:
-            wav_files = wav_files[self.shard :: self.num_shards]
-        items = [(wav, out_dir / wav.name) for wav in wav_files]
-        self._stream(
-            items,
-            opts=StreamOptions(lead_in_s=self.lead_in_s, capture_s=self.capture_s, progress_every=50),
-        )
-
-
-# ---------------------------------------------------------------------------
-# ASR -- Whisper transcription
-# ---------------------------------------------------------------------------
+    num_shards==1 -> a single job's out_dir; >1 -> one SpeechInference per shard
+    (wavs[shard::num_shards]) merged back via MergeMoshiOutputsViaSymlinks."""
+    if num_shards == 1:
+        return SpeechInference(mode="knowledge", **kwargs).out_dir
+    assert num_shards > 1
+    shards = [SpeechInference(mode="knowledge", shard=i, num_shards=num_shards, **kwargs) for i in range(num_shards)]
+    return MergeMoshiOutputsViaSymlinks(in_dirs=[s.out_dir for s in shards]).out_merged
 
 
 class WhisperTranscription(Job):
@@ -627,9 +461,12 @@ def knowledge_benchmark_py(
     max_examples: int | None = None,
     moshi_checkpoint: tk.Path | None = None,
     checkpoint_step: int | None = None,
+    pplex_checkpoint: tk.Path | None = None,
+    pplex_step: int | None = None,
     tag: str = "moshi_base",
     speech_backend=MOSHI_BACKEND,
     unmute_llm: str | None = None,
+    code_version: int = 1,
 ):
     """Build the knowledge benchmark pipeline.
 
@@ -681,8 +518,12 @@ def knowledge_benchmark_py(
 
     # --- model-dependent stages (namespaced by tag) -------------------------
 
-    # Optional LoRA adapter for a fine-tuned Moshi (shared resolver).
-    lora_weights, lora_config = resolve_lora(moshi_checkpoint, checkpoint_step)
+    # Optional trained-weights overlay for a fine-tuned model (shared resolvers). PersonaPlex
+    # uses a partial state_dict (trained_heads.safetensors, no config); Moshi uses a LoRA adapter.
+    if pplex_checkpoint is not None:
+        lora_weights, lora_config = resolve_personaplex_weights(pplex_checkpoint, pplex_step), None
+    else:
+        lora_weights, lora_config = resolve_lora(moshi_checkpoint, checkpoint_step)
 
     # 5. Moshi inference (sharded across GPUs for throughput; a cloud realtime backend
     # runs as a single login-node mini_task, so it is not sharded).
@@ -690,14 +531,19 @@ def knowledge_benchmark_py(
     # Single shard for a cloud API (one login-node mini_task) or a RAG backend (one shared
     # vLLM retrieval server); otherwise shard across GPUs for throughput.
     single = speech_backend.cloud_api or speech_backend.retrieval_llm is not None
-    moshi_out = MoshiInference.sharded(
+    moshi_out = sharded_knowledge_inference(
         num_shards=1 if single else 2,
         venv_python_path=inference_venv,
         in_dir=tts.out_dir,
         lora_weights=lora_weights,
         lora_config=lora_config,
-        backend="offline" if speech_backend.offline_script else "server",
-        offline_script=speech_backend.offline_script or "moshi_offline_inference.py",
+        # SpeechInference infers offline-vs-server from offline_script/module presence (no
+        # explicit `backend`): an offline backend keeps Moshi's default script (or rides its
+        # offline_module); a pure server backend passes neither so it streams.
+        offline_script=(speech_backend.offline_script or "moshi_offline_inference.py")
+        if (speech_backend.offline_script or speech_backend.offline_module)
+        else None,
+        offline_module=speech_backend.offline_module,
         offline_extra_args=speech_backend.offline_extra_args,
         server=speech_backend.server,
         file_client=speech_backend.file_client,
@@ -706,6 +552,7 @@ def knowledge_benchmark_py(
         cloud_api=speech_backend.cloud_api,
         retrieval_llm=speech_backend.retrieval_llm,
         rqmt_override=speech_backend.rqmt_override,
+        code_version=code_version,
     )
     tk.register_output(f"benchmark/{tag}/moshi_output", moshi_out)
 

@@ -28,6 +28,10 @@ def load_audio(path: str) -> np.ndarray:
     audio, sr = sf.read(path, dtype="float32")
     if audio.ndim > 1:
         audio = audio.mean(axis=1)
+    if audio.size == 0:
+        # An empty reply wav (0 samples) is a legitimate model outcome (e.g. a cascaded
+        # backend that stayed silent). Resample chokes on a 0-element tensor, so short-circuit.
+        return np.zeros(0, dtype=np.float32)
     if sr != TARGET_SR:
         audio = torchaudio.functional.resample(torch.from_numpy(audio), sr, TARGET_SR).numpy()
     return audio
@@ -59,19 +63,25 @@ def main():
         for i, example in valid:
             audio = load_audio(os.path.join(args.in_dir, f"{i}.wav"))
 
-            segments, _ = batched.transcribe(
-                audio,
-                batch_size=args.batch_size,
-                # Silero VAD: skip non-speech regions (incl. trailing silence)
-                vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=500),
-                # Standard Whisper anti-hallucination thresholds
-                no_speech_threshold=0.6,
-                log_prob_threshold=-1.0,
-                compression_ratio_threshold=2.4,
-                condition_on_previous_text=False,
-            )
-            text = "".join(s.text for s in segments).strip()
+            # Sub-10ms / empty audio: a silent (empty) model reply. Score it as an empty
+            # hypothesis (a benchmark miss) rather than feeding whisper a degenerate buffer.
+            if audio.size < TARGET_SR // 100:
+                print(f"clip {i}: empty/near-silent reply ({audio.size} samples) -> empty transcription", flush=True)
+                text = ""
+            else:
+                segments, _ = batched.transcribe(
+                    audio,
+                    batch_size=args.batch_size,
+                    # Silero VAD: skip non-speech regions (incl. trailing silence)
+                    vad_filter=True,
+                    vad_parameters=dict(min_silence_duration_ms=500),
+                    # Standard Whisper anti-hallucination thresholds
+                    no_speech_threshold=0.6,
+                    log_prob_threshold=-1.0,
+                    compression_ratio_threshold=2.4,
+                    condition_on_previous_text=False,
+                )
+                text = "".join(s.text for s in segments).strip()
 
             f.write(
                 json.dumps(

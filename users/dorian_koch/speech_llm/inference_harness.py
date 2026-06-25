@@ -29,7 +29,47 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Sequence
+from glob import glob
+from typing import Callable, List, Sequence, Tuple
+
+
+# FDB task helpers (light; defined here in the dependency-free harness so the unified
+# SpeechInference can use them WITHOUT importing fdb.py, whose top-level imports pull in
+# i6_core -- absent in the inference worker venv).
+FDB_TASK_MAP = {
+    "candor_pause_handling": "pause_handling",
+    "candor_turn_taking": "smooth_turn_taking",
+    "icc_backchannel": "backchannel",
+    "synthetic_pause_handling": "pause_handling",
+    "synthetic_user_interruption": "user_interruption",
+}
+
+
+def fdb_files_for_tasks(ds_path: Path, tasks: Sequence[str]) -> List[Tuple[str, Path]]:
+    files: List[Tuple[str, Path]] = []
+    for t in tasks:
+        pattern = ds_path / f"{t}/*/input.wav"
+        files += [(t, Path(p)) for p in sorted(glob(str(pattern)))]
+    return files
+
+
+def _moshi_family_pythonpath() -> str:
+    """Dir to put on PYTHONPATH so ``python -m moshi_family.<driver>`` resolves the local
+    library (its drivers import the top-level package name ``moshi_family``, which lives at
+    ``recipe/speech_llm/full_duplex/moshi_family``). Derived from THIS file's location, not by
+    importing ``speech_llm`` -- the recipe top-level is not importable by that name in a Sisyphus
+    *worker* (jobs are imported as ``i6_experiments.users.dorian_koch.speech_llm...``, so only
+    ``i6_experiments`` is on the worker's sys.path; ``import speech_llm`` raises ModuleNotFound)."""
+    # Walk UP from this file's (unresolved) absolute path to the recipe root that holds
+    # ``speech_llm/full_duplex/moshi_family``. Do NOT ``.resolve()``: ``i6_experiments`` is a
+    # symlink into a shared checkout, so resolving leaves the recipe tree; the ``recipe/`` dir
+    # (which also carries ``speech_llm/``) is only on the *unresolved* path.
+    here = Path(os.path.abspath(__file__))
+    for parent in here.parents:
+        cand = parent / "speech_llm" / "full_duplex"
+        if (cand / "moshi_family").is_dir():
+            return str(cand)
+    raise RuntimeError(f"could not locate speech_llm/full_duplex/moshi_family above {here}")
 
 
 @dataclass
@@ -135,7 +175,9 @@ def write_pair_manifest(items: Sequence[tuple[Path, Path]], *, copy_sidecars: bo
 def run_offline_driver(
     *,
     python_exe: str,
-    script_path: str,
+    script_path: str | None = None,
+    module: str | None = None,
+    pythonpath: str | None = None,
     in_dir: str | None = None,
     out_dir: str | None = None,
     manifest: str | None = None,
@@ -155,7 +197,11 @@ def run_offline_driver(
     argparse is order-independent, so the two callers share one builder. ``extra_env``
     is merged into the subprocess env (e.g. ``CUDA_VISIBLE_DEVICES`` to pin a
     retrieval-LLM-backed driver to a different GPU than the co-running vLLM server)."""
-    cmd = [python_exe, str(script_path)]
+    if module is not None:
+        cmd = [python_exe, "-m", module]
+    else:
+        assert script_path is not None, "run_offline_driver needs script_path or module"
+        cmd = [python_exe, str(script_path)]
     if manifest is not None:
         cmd += ["--manifest", manifest]
     if in_dir is not None:
@@ -169,14 +215,24 @@ def run_offline_driver(
     if batch_size is not None:
         cmd += ["--batch_size", str(batch_size)]
     if lora_weights is not None:
-        cmd += ["--lora_weights", str(lora_weights)]
-        if lora_config is not None:
-            cmd += ["--lora_config", str(lora_config)]
+        if module is not None:
+            # Lib (moshi_family) drivers expose ONE uniform --overlay (a partial or full state-dict),
+            # covering both a LoRA adapter and the PersonaPlex trained_heads. The fork drivers instead
+            # take the --lora_weights/--lora_config pair. A LoRA adapter's config.json sits beside its
+            # lora.safetensors in the resolved overlay dir, so the lib driver finds it as a sibling.
+            cmd += ["--overlay", str(lora_weights)]
+        else:
+            cmd += ["--lora_weights", str(lora_weights)]
+            if lora_config is not None:
+                cmd += ["--lora_config", str(lora_config)]
     if shard is not None and num_shards is not None:
         cmd += ["--shard", str(shard), "--num_shards", str(num_shards)]
     cmd += list(extra_args)
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    if pythonpath:
+        existing = env.get("PYTHONPATH")
+        env["PYTHONPATH"] = pythonpath + ((os.pathsep + existing) if existing else "")
     if extra_env:
         env.update({k: str(v) for k, v in extra_env.items()})
     print("[offline]", " ".join(cmd), flush=True)
@@ -269,7 +325,9 @@ class BackendInferenceMixin:
         ``driver_kwargs`` are forwarded to ``run_offline_driver`` (dir-mode for the
         knowledge benchmark, manifest-mode for FDB); LoRA paths and the backend's
         extra args are spliced in here so both callers stay one line."""
-        script_path = Path(__file__).resolve().parent.parent / self.offline_script
+        module = getattr(self, "offline_module", None)
+        script_path = None if module else Path(__file__).resolve().parent.parent / self.offline_script
+        pythonpath = _moshi_family_pythonpath() if module else None
         lora_weights = self.lora_weights.get() if self.lora_weights is not None else None
         lora_config = self.lora_config.get() if self.lora_config is not None else None
 
@@ -277,6 +335,8 @@ class BackendInferenceMixin:
             run_offline_driver(
                 python_exe=python_exe,
                 script_path=script_path,
+                module=module,
+                pythonpath=pythonpath,
                 lora_weights=lora_weights,
                 lora_config=lora_config,
                 extra_args=tuple(self.offline_extra_args) + tuple(extra_args),

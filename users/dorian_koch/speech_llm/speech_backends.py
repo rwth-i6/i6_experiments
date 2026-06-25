@@ -52,6 +52,10 @@ class BackendSpec:
     # Driver script filename under ``dorian_koch/`` (e.g. ``moshi_offline_inference.py``);
     # ``None`` => this backend has no offline path and uses the streaming server above.
     offline_script: str | None = None
+    # Alternative to ``offline_script``: run the driver as ``python -m <module>`` (the
+    # ``moshi_family`` library drivers import the top-level ``moshi_family`` package and are
+    # run with PYTHONPATH set by the harness). Mutually exclusive with ``offline_script``.
+    offline_module: str | None = None
     # Extra CLI args appended to the offline driver (e.g. ``("--voice", "NATM1")``).
     offline_extra_args: tuple[str, ...] = ()
     # Lazy ``() -> tk.Path`` for the interpreter the offline driver runs under; ``None``
@@ -159,32 +163,77 @@ def openai_backend_spec() -> BackendSpec:
     )
 
 
-def moshirag_backend_spec(retrieval_llm: str = "google/gemma-4-31B-it") -> BackendSpec:
-    """MoshiRAG (kyutai-labs/moshi-rag, arXiv 2604.12928) as an offline backend.
+def moshi_family_backend_spec() -> BackendSpec:
+    """Base Moshi via the local ``moshi_family`` library (latest torch, owned code).
 
-    A full-duplex Moshi variant that emits a ``<ret>`` token to asynchronously retrieve a
-    reference document and fold it into its reply (ARC-Encoder conditioner). It runs through
-    the **offline** driver (``moshirag_offline_inference.py``) like Moshi/PersonaPlex, but the
-    driver co-launches a reference-encoder GPU server and the job brings up our existing vLLM
-    ``retrieval_llm`` as the text-in/text-out retrieval backend (the paper's own setup). That
-    second model wants its own GPU, so ``rqmt_override`` bumps the job to 2 GPUs.
-
-    GATED: stage ``kyutai/moshika-rag-pytorch-bf16`` into the HF cache first (CC-BY; see
-    ``moshirag.md``). ``inference_venv`` is resolved lazily to avoid an import cycle with the
-    recipe that defines ``moshirag_venv``.
+    Runs the offline driver ``python -m moshi_family.offline_inference`` (no external moshi
+    fork). Used to validate base-Moshi fidelity through the unified library before retiring
+    ``moshi_venv`` (see ``moshi_family.md``). ``inference_venv`` is the one-venv
+    ``moshi_family_venv`` (torch 2.12.1+cu126), resolved lazily to dodge an import cycle.
     """
 
     def _venv():
         from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import (
-            moshirag_venv,
+            moshi_family_venv,
         )
 
-        return moshirag_venv()
+        return moshi_family_venv()
 
     return BackendSpec(
-        name="moshirag",
+        name="moshi_family",
         server=None,  # end-to-end + causal: offline driver, no websocket server
-        offline_script="moshirag_offline_inference.py",
+        offline_module="moshi_family.offline_inference",
+        inference_venv=_venv,
+    )
+
+
+def personaplex_family_backend_spec() -> BackendSpec:
+    """PersonaPlex via the local ``moshi_family.personaplex`` sub-package (latest torch, owned code).
+
+    Runs ``python -m moshi_family.personaplex.offline_inference`` through the same ``offline_module``
+    seam as base-Moshi (no external personaplex fork). Used to validate PersonaPlex fidelity
+    (21.2%/1.66 + FDB 4.42) through the unified library before retiring ``personaplex_venv`` (see
+    ``moshi_family.md``). ``inference_venv`` is the one-venv ``moshi_family_venv`` (torch 2.12.1+cu126),
+    resolved lazily to dodge an import cycle.
+    """
+
+    def _venv():
+        from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import (
+            moshi_family_venv,
+        )
+
+        return moshi_family_venv()
+
+    return BackendSpec(
+        name="personaplex_family",
+        server=None,  # end-to-end + causal: offline driver, no websocket server
+        offline_module="moshi_family.personaplex.offline_inference",
+        inference_venv=_venv,
+    )
+
+
+def moshirag_family_backend_spec(retrieval_llm: str = "google/gemma-4-31B-it") -> BackendSpec:
+    """MoshiRAG via the local ``moshi_family.moshirag`` sub-package (latest torch, owned code).
+
+    Runs ``python -m moshi_family.moshirag.offline_inference`` through the ``offline_module`` seam
+    (no external moshi-rag fork). The driver co-launches the ARC reference-encoder server; the job
+    brings up our vLLM ``retrieval_llm`` (2 GPUs). Fidelity confirmed (50.5%/2.715 vs fork
+    48.0%/2.645) and the moshirag fork venv is retired (see ``moshi_family.md``). ``inference_venv``
+    is the one-venv ``moshi_family_venv`` (torch 2.12.1+cu126 + xformers), resolved lazily to dodge
+    an import cycle.
+    """
+
+    def _venv():
+        from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import (
+            moshi_family_venv,
+        )
+
+        return moshi_family_venv()
+
+    return BackendSpec(
+        name="moshirag_family",
+        server=None,  # end-to-end + causal: offline driver + co-launched retrieval, no websocket
+        offline_module="moshi_family.moshirag.offline_inference",
         inference_venv=_venv,
         retrieval_llm=retrieval_llm,
         rqmt_override={"gpu": 2, "cpu": 6, "mem": 48, "time": 3},

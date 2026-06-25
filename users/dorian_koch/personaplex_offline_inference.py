@@ -50,13 +50,20 @@ def main():
     p.add_argument("--system_prompt", type=str, default=ppx.DEFAULT_SYSTEM_PROMPT)
     p.add_argument("--device", type=str, default="cuda")
     p.add_argument("--cpu_offload", action="store_true")
-    # PersonaPlex offline has no LoRA path yet (no released finetune); fail loudly if asked.
-    p.add_argument("--lora_weights", type=str, default=None)
+    # Finetuned-weights overlay: our SpeechFinetune/PERSONAPLEX_ADAPTER output
+    # (consolidated/trained_heads.safetensors) loaded on top of the base model. PersonaPlex
+    # has no LoRA path, so the benchmark harness's generic per-run weights seam (--lora_weights)
+    # carries this partial state_dict; --trained_weights is the explicit alias. --lora_config is
+    # unused (a full state_dict needs no adapter config); reject it if passed.
+    p.add_argument(
+        "--trained_weights", type=str, default=None, help="finetuned-heads safetensors to overlay on the base"
+    )
+    p.add_argument("--lora_weights", type=str, default=None, help="alias for --trained_weights (harness seam)")
     p.add_argument("--lora_config", type=str, default=None)
     args = p.parse_args()
 
-    if args.lora_weights is not None:
-        raise NotImplementedError("PersonaPlex LoRA inference is not wired (no released finetune); see personaplex.md.")
+    trained_weights = args.trained_weights or args.lora_weights
+    assert args.lora_config is None, "PersonaPlex overlay takes no --lora_config (full state_dict, not LoRA)"
 
     if args.manifest:
         pairs = [tuple(x) for x in json.loads(Path(args.manifest).read_text())]
@@ -71,8 +78,14 @@ def main():
         pairs = [(str(w), str(out_dir / w.name)) for w in wavs]
         lead_in_s, capture_s = args.lead_in_s, args.capture_s
 
-    print(f"[personaplex] loading {args.hf_repo} ({len(pairs)} clips)", flush=True)
-    model = ppx.PersonaPlexModel(args.hf_repo, device=args.device, cpu_offload=args.cpu_offload)
+    print(
+        f"[personaplex] loading {args.hf_repo} ({len(pairs)} clips)"
+        + (f" + trained_weights={trained_weights}" if trained_weights else ""),
+        flush=True,
+    )
+    model = ppx.PersonaPlexModel(
+        args.hf_repo, device=args.device, cpu_offload=args.cpu_offload, trained_weights=trained_weights
+    )
     ppx.run_pairs(
         model,
         pairs,

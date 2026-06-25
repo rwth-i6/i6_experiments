@@ -82,6 +82,7 @@ class PersonaPlexModel:
         topk_audio: int = 250,
         topk_text: int = 25,
         greedy: bool = False,
+        trained_weights: str | None = None,
     ):
         import sentencepiece
         from huggingface_hub import hf_hub_download
@@ -98,6 +99,29 @@ class PersonaPlexModel:
 
         moshi_weight = hf_hub_download(hf_repo, loaders.MOSHI_NAME)
         lm = loaders.get_moshi_lm(moshi_weight, device=device, cpu_offload=cpu_offload)
+        if trained_weights:
+            # Overlay a finetuned-weights checkpoint onto the base LM. Our SpeechFinetune /
+            # PERSONAPLEX_ADAPTER writes consolidated/trained_heads.safetensors -- the
+            # requires_grad params only (depformer + per-codebook audio heads + text head +
+            # out_norm; backbone frozen). It is therefore a PARTIAL state_dict, NOT a LoRA, so
+            # load strict=False (the frozen backbone keys are legitimately 'missing' from it)
+            # and assert every checkpoint key maps onto a real model param -- a stray
+            # 'unexpected' key means the checkpoint does not fit this base, so fail loud
+            # instead of silently no-op'ing the finetune.
+            import safetensors.torch as st
+
+            sd = st.load_file(trained_weights, device=device)
+            assert sd, f"trained_weights {trained_weights} is empty"
+            missing, unexpected = lm.load_state_dict(sd, strict=False)
+            assert not unexpected, (
+                f"trained_weights has {len(unexpected)} key(s) absent from the base LM "
+                f"(checkpoint does not fit this model): {list(unexpected)[:5]}"
+            )
+            print(
+                f"[personaplex] overlaid {len(sd)} finetuned tensor(s) onto the base model "
+                f"({len(missing)} base params kept frozen)",
+                flush=True,
+            )
         lm.eval()
 
         self.device = device

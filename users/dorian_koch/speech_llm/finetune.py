@@ -219,6 +219,12 @@ def launch_training(job: "SpeechFinetune", adapter: FinetuneAdapter) -> None:
     recipe_root = next((str(p) for p in Path(__file__).parents if (p / "i6_experiments").exists()), None)
     if recipe_root:
         extra_paths.append(recipe_root)
+        # Lib launchers (``-m moshi_family.<...>``) live under recipe/speech_llm/full_duplex, which is
+        # NOT recipe_root; add it so the owned moshi_family package imports (harmless for fork
+        # launchers -- it is just one more importable dir on the path).
+        lib_parent = os.path.join(recipe_root, "speech_llm", "full_duplex")
+        if os.path.isdir(lib_parent):
+            extra_paths.append(lib_parent)
     if env.get("PYTHONPATH"):
         extra_paths.append(env["PYTHONPATH"])
     env["PYTHONPATH"] = os.pathsep.join(extra_paths)
@@ -341,6 +347,19 @@ PERSONAPLEX_ADAPTER = FinetuneAdapter(
 )
 
 
+# PersonaPlex on the OWNED moshi_family lib (Phase 5): same paper recipe + config schema, but the
+# launcher builds on moshi_family.personaplex (no fork) via the SHARED moshi_family.train_loop, and
+# runs in moshi_family_venv. New ``name`` -> fresh hash (intended; this is the fork->lib migration).
+# fork_module="moshi_family" is located via the lib path launch_training now adds to PYTHONPATH.
+PERSONAPLEX_LIB_ADAPTER = FinetuneAdapter(
+    name="personaplex_lib",
+    batch_size=32,
+    render_config=partial(_render_personaplex_config, hf_repo_id="nvidia/personaplex-7b-v1"),
+    launcher_module="moshi_family.personaplex.finetune_launcher",
+    fork_module="moshi_family",
+)
+
+
 # --------------------------------------------------------------------------- #
 # MoshiRAG adapter (SCAFFOLD -- see projects/2026-01-speech-llm/moshirag.md).
 # MoshiRAG (kyutai-labs/moshi-rag, arXiv 2604.12928) adds an ARC-Encoder reference
@@ -353,7 +372,7 @@ PERSONAPLEX_ADAPTER = FinetuneAdapter(
 #   * init_from = None / base moshiko  (train the conditioner from scratch -- the biggest
 #     run we'd ever do, base-moshi -> moshirag) -- SEAM ONLY, multi-month; see D3 in
 #     moshirag.md.  To enable, swap hf_repo_id below + extend the launcher.
-# Wire via ``SpeechFinetune(adapter=MOSHIRAG_ADAPTER, venv_python_path=moshirag_venv(), ...)``.
+# Wire via ``SpeechFinetune(adapter=MOSHIRAG_ADAPTER, ...)``. NOTE: the moshi-rag fork venv is retired; Phase 5 rebuilds MoshiRAG training on the moshi_family lib.
 # --------------------------------------------------------------------------- #
 MOSHIRAG_ADAPTER = FinetuneAdapter(
     name="moshirag",
@@ -364,7 +383,7 @@ MOSHIRAG_ADAPTER = FinetuneAdapter(
     # schema does not express -- the launcher must inject those; see moshirag.md.
     render_config=partial(_render_moshi_finetune_config, hf_repo_id="kyutai/moshika-rag-pytorch-bf16"),
     launcher_module="i6_experiments.users.dorian_koch.speech_llm.moshirag_finetune_launcher",
-    fork_module="moshi",  # the moshi-rag fork (import name `moshi`); installed by moshirag_venv()
+    fork_module="moshi",  # legacy moshi-rag fork tag; the fork venv is retired (Phase 5 rebuilds it on the lib)
 )
 
 

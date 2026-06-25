@@ -7,7 +7,8 @@ import os
 import sys
 import subprocess
 from .common import vllm_server
-from .inference_harness import BackendInferenceMixin
+from .speech_inference import SpeechInference
+from .inference_harness import FDB_TASK_MAP
 from i6_experiments.users.dorian_koch.jobs.venv import CreateVenv
 from functools import lru_cache
 
@@ -76,14 +77,6 @@ def fdb_eval_venv():
     return venv.out_python_path
 
 
-def fdb_files_for_tasks(ds_path: Path, tasks: Sequence[str]) -> List[Tuple[str, Path]]:
-    files: List[Tuple[str, Path]] = []
-    for t in tasks:
-        pattern = ds_path / f"{t}/*/input.wav"
-        files += [(t, Path(p)) for p in sorted(glob(str(pattern)))]
-    return files
-
-
 class Tee:
     def __init__(self, *files):
         self.files = files
@@ -96,184 +89,6 @@ class Tee:
     def flush(self):
         for file in self.files:
             file.flush()
-
-
-FDB_TASK_MAP = {
-    "candor_pause_handling": "pause_handling",
-    "candor_turn_taking": "smooth_turn_taking",
-    "icc_backchannel": "backchannel",
-    "synthetic_pause_handling": "pause_handling",
-    "synthetic_user_interruption": "user_interruption",
-}
-
-
-class FullDuplexBenchEval_Inference(BackendInferenceMixin, Job):
-    # Optional LoRA adapter; excluded from the hash when absent so existing
-    # base-model FDB runs keep their hash and are not re-run.
-    __sis_hash_exclude__ = {
-        "lora_weights": None,
-        "lora_config": None,
-        # Pluggable-backend args (see speech_backends.py). Default to Moshi and are
-        # excluded at the Moshi defaults, so existing Moshi FDB jobs keep their exact
-        # hash. A non-Moshi backend's server (``model``) is itself a different callable
-        # and so already produces a distinct hash; ``file_client``/``ws_url`` ride along.
-        "file_client": MoshiFileClient,
-        "ws_url": _ws_url,
-        "unmute_llm": None,
-        # Offline-driver args; None/() default => streaming server path, so Moshi/Unmute
-        # FDB jobs keep their hash. A backend with an offline_script gets a distinct hash.
-        "offline_script": None,
-        "offline_extra_args": (),
-        # Cloud realtime API (Gemini/OpenAI): inference runs as a login-node mini_task
-        # (remote model, no GPU). Excluded at False so existing FDB jobs keep their hash.
-        "cloud_api": False,
-        # RAG retrieval LLM + GPU-count override (MoshiRAG); None defaults so existing
-        # offline/streaming FDB jobs keep their hash.
-        "retrieval_llm": None,
-        "rqmt_override": None,
-    }
-
-    def __init__(
-        self,
-        *,
-        fdb_task: str,
-        model=moshi_server,
-        file_client=MoshiFileClient,
-        ws_url=_ws_url,
-        lora_weights: tk.Path | None = None,
-        lora_config: tk.Path | None = None,
-        asr_venv_python: tk.AbstractPath | None = None,
-        server_venv_python: tk.AbstractPath | None = None,
-        unmute_llm: str | None = None,
-        offline_script: str | None = None,
-        offline_extra_args: tuple = (),
-        cloud_api: bool = False,
-        retrieval_llm: str | None = None,
-        rqmt_override: dict | None = None,
-    ):
-        self.fdb_data = tk.Path(
-            "/home/tt201262/setups/2026-01-speech-llm/projects/Full-Duplex-Bench/v1_v1.5/dataset/v1.0",
-            hash_overwrite="FullDuplexBench-datasets",
-        )  # TODO... the dataset is available as a google drive link, so no good way to write a download job?
-
-        self.fdb_task = fdb_task
-        # Pluggable speech-LLM backend: ``model`` is the server ctx-mgr, ``file_client``
-        # the streaming client, ``ws_url`` the handle->url adapter (Moshi by default).
-        self.model = model
-        self.file_client = file_client
-        self.ws_url = ws_url
-        # LLM served behind a cascaded backend (Unmute); ignored by Moshi.
-        self.unmute_llm = unmute_llm
-        # Offline driver (under dorian_koch/) + extra CLI args. None => streaming server
-        # path; set => this backend runs the offline driver over a manifest (PersonaPlex).
-        self.offline_script = offline_script
-        self.offline_extra_args = tuple(offline_extra_args)
-        # Cloud realtime backend => remote model, no GPU: run as a login-node mini_task
-        # (the streaming inference + the ASR subprocess then run on the login node).
-        self.cloud_api = cloud_api
-        # None -> base moshiko; set -> serve a LoRA finetune (passed to moshi_server).
-        self.lora_weights = lora_weights
-        self.lora_config = lora_config
-        # Interpreter from a dedicated CreateVenv with NeMo >=2.2 for ASR scoring.
-        self.asr_venv_python = asr_venv_python
-        # Interpreter for serving Moshi; should match the finetune's training env
-        # (moshi_venv). None -> the worker's own setup .venv (sys.executable).
-        self.server_venv_python = server_venv_python
-
-        # RAG retrieval LLM served (via vllm_server) as the offline driver's retrieval
-        # backend (MoshiRAG). None -> plain offline/streaming run, no retrieval server.
-        self.retrieval_llm = retrieval_llm
-        self.out_audios = self.output_path("audios", directory=True)
-
-        self.rqmt = {
-            "gpu": 1,
-            "cpu": 2,
-            "mem": 16,
-            "time": 4,
-        }
-        if rqmt_override is not None:
-            self.rqmt = {**self.rqmt, **rqmt_override}
-
-    def tasks(self):
-        if self.cloud_api:
-            yield Task("run", mini_task=True)
-        else:
-            yield Task("run", rqmt=self.rqmt)
-
-    def run(self):
-        # check if dataset is valid
-        assert os.path.exists(os.path.join(self.fdb_data, "candor_pause_handling/1/pause.json")), (
-            f"Dataset not found at {self.fdb_data}"
-        )
-
-        files = fdb_files_for_tasks(Path(self.fdb_data.get_path()), [self.fdb_task])
-        assert len(files) > 0, f"No files found for task {self.fdb_task} in dataset {self.fdb_data.get_path()}"
-
-        # Produce one reply wav per clip (output/audios/<ind>/output.wav). End-to-end
-        # causal backends (PersonaPlex) run an offline driver over a manifest; cascaded /
-        # served backends (Moshi, Unmute) stream each clip through the realtime server.
-        if self.offline_script is not None:
-            self._run_offline(files)
-        else:
-            self._run_server(files)
-
-        # Score the generated audio with the benchmark's NeMo ASR (asr.py writes an
-        # output.json next to each output.wav). This runs in a dedicated CreateVenv
-        # (NeMo >=2.2 for transcribe(timestamps=True)), since the manager .venv pins
-        # NeMo 2.0.0. We invoke asr.py's CLI as a subprocess with the venv interpreter.
-        assert self.asr_venv_python is not None, "asr_venv_python is required for scoring"
-
-        import moshified_fdb_v1_v15
-
-        asr_script = os.path.join(os.path.dirname(moshified_fdb_v1_v15.__file__), "get_transcript", "asr.py")
-        # asr.py only special-cases "user_interruption" (crops the lead-in); every
-        # other task is scored as "default".
-        asr_task = (
-            "user_interruption" if FDB_TASK_MAP.get(self.fdb_task, self.fdb_task) == "user_interruption" else "default"
-        )
-        cmd = [
-            self.asr_venv_python.get(),
-            asr_script,
-            "--root_dir",
-            self.out_audios.get_path(),
-            "--task",
-            asr_task,
-        ]
-        print("[asr]", " ".join(cmd), flush=True)
-        env = os.environ.copy()
-        env["PYTHONUNBUFFERED"] = "1"
-        subprocess.run(cmd, env=env, check=True)
-
-    # BackendInferenceMixin hooks (FDB names the server `model` and the interpreter
-    # `server_venv_python`).
-    def _server_callable(self):
-        return self.model
-
-    def _python_exe(self):
-        return self.server_venv_python.get() if self.server_venv_python is not None else None
-
-    def _run_server(self, files):
-        """Streaming path via the shared mixin. resume + sidecar-copy + length-check are
-        FDB-specific opts; the access loop is shared with the knowledge benchmark."""
-        from .inference_harness import StreamOptions
-
-        items = [(inp, Path(self.out_audios.get_path()) / str(inp.parent.name) / "output.wav") for _task, inp in files]
-        # FDB uses the client's legacy capture mode (lead_in_s=0, capture_s=None).
-        self._stream(
-            items,
-            opts=StreamOptions(resume=True, copy_sidecars=True, length_check=True, retry_sleep_s=1.0),
-        )
-
-    def _run_offline(self, files):
-        """Offline path via the shared mixin: write a manifest of (input -> output) pairs
-        (+ copy sidecars), then run the backend's offline driver once over it. A causal
-        pass yields the same full-duplex output as the realtime server (PersonaPlex)."""
-        from .inference_harness import write_pair_manifest
-
-        assert self.server_venv_python is not None, "offline FDB needs server_venv_python (the model venv)"
-        items = [(inp, Path(self.out_audios.get_path()) / str(inp.parent.name) / "output.wav") for _task, inp in files]
-        manifest = write_pair_manifest(items, copy_sidecars=True)
-        self._offline(python_exe=self.server_venv_python.get(), manifest=manifest)
 
 
 class FullDuplexBenchEval_Evaluation(Job):
@@ -387,17 +202,22 @@ def moshified_fdb_eval(
     asr_venv_python=None,
     server_venv_python=None,
     unmute_llm=None,
+    code_version=1,
 ):
     # Cloud realtime backends (Gemini/OpenAI) run as a login-node mini_task.
-    infer = FullDuplexBenchEval_Inference(
+    infer = SpeechInference(
+        mode="fdb",
         fdb_task=fdb_task,
-        model=backend.server,
+        code_version=code_version,
+        server=backend.server,
         file_client=backend.file_client,
         ws_url=backend.ws_url,
-        # FDB uses the offline driver only for server-less (end-to-end) backends; Moshi
-        # & Unmute (both have a server) stay on the realtime streaming path, so their
-        # offline_script stays None and their FDB hashes are unchanged.
+        # FDB uses the offline driver only for server-less (end-to-end) backends; Moshi &
+        # Unmute (both have a server) stay on the realtime streaming path. SpeechInference
+        # infers offline-vs-server from offline_script/module presence, so leave them None
+        # for served backends.
         offline_script=backend.offline_script if backend.server is None else None,
+        offline_module=backend.offline_module if backend.server is None else None,
         offline_extra_args=backend.offline_extra_args if backend.server is None else (),
         # RAG retrieval (MoshiRAG) only applies to the offline/server-less path.
         retrieval_llm=backend.retrieval_llm if backend.server is None else None,
@@ -405,7 +225,7 @@ def moshified_fdb_eval(
         lora_weights=lora_weights,
         lora_config=lora_config,
         asr_venv_python=asr_venv_python,
-        server_venv_python=server_venv_python,
+        venv_python_path=server_venv_python,
         unmute_llm=unmute_llm,
         cloud_api=backend.cloud_api,
     )
@@ -416,7 +236,7 @@ def moshified_fdb_eval(
     ]
     _eval = FullDuplexBenchEval_Evaluation(
         fdb_task=fdb_task,
-        in_audios=infer.out_audios,
+        in_audios=infer.out_dir,
         eval_venv_python=None if needs_llm else fdb_eval_venv(),
     )
     return _eval.out_eval
@@ -435,9 +255,12 @@ def fdb_benchmark_py(
     tag: str = "moshi_base",
     moshi_checkpoint: tk.Path | None = None,
     checkpoint_step: int | None = None,
+    pplex_checkpoint: tk.Path | None = None,
+    pplex_step: int | None = None,
     server_venv_python: tk.AbstractPath | None = None,
     backend=MOSHI_BACKEND,
     unmute_llm: str | None = None,
+    code_version: int = 1,
 ):
     """Full Duplex Bench eval over all tasks for one model, namespaced by ``tag``.
 
@@ -446,14 +269,23 @@ def fdb_benchmark_py(
     under ``fdb/<tag>/<task>/...`` so base and finetuned runs coexist.
     """
     # Local import avoids a module-load cycle (knowledge_benchmark imports fdb-side helpers).
-    from i6_experiments.users.dorian_koch.speech_llm.knowledge_benchmark import resolve_lora
+    from i6_experiments.users.dorian_koch.speech_llm.knowledge_benchmark import (
+        resolve_lora,
+        resolve_personaplex_weights,
+    )
 
-    lora_weights, lora_config = resolve_lora(moshi_checkpoint, checkpoint_step)
+    # PersonaPlex finetune = a partial state_dict overlay (trained_heads.safetensors, no config);
+    # Moshi finetune = a LoRA adapter. Both ride the same per-run lora_weights/lora_config seam.
+    if pplex_checkpoint is not None:
+        lora_weights, lora_config = resolve_personaplex_weights(pplex_checkpoint, pplex_step), None
+    else:
+        lora_weights, lora_config = resolve_lora(moshi_checkpoint, checkpoint_step)
 
     asr_venv_python = fdb_asr_venv()
     for t in FDB_TASKS:
         bench = moshified_fdb_eval(
             fdb_task=t,
+            code_version=code_version,
             backend=backend,
             lora_weights=lora_weights,
             lora_config=lora_config,
