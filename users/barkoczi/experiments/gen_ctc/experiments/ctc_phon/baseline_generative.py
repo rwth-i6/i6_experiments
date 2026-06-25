@@ -137,7 +137,12 @@ def eow_phon_ls960_1023_generative_nce():
     train_job = training(training_name, train_data, train_args, num_epochs=1000, **default_returnn)
     train_job.rqmt["gpu_mem"] = 24
 
-    normalize_log_probs_for_decoding = True
+    run_raw_no_prior_decode = True
+    run_normalized_decode_diagnostic = False
+
+    def _format_scale_for_name(value):
+        sign = "m" if value < 0 else "p"
+        return sign + ("%.1f" % abs(value)).replace(".", "p")
 
     def tune_and_evaluate_helper(
         *,
@@ -145,6 +150,8 @@ def eow_phon_ls960_1023_generative_nce():
         asr_model,
         lm_scales,
         prior_scales,
+        blank_log_penalties,
+        normalize_log_probs,
         tuning_names,
     ):
         tune_parameters = []
@@ -153,31 +160,37 @@ def eow_phon_ls960_1023_generative_nce():
         report_values = {}
         for lm_scale in lm_scales:
             for prior_scale in prior_scales:
-                decoder_config = DecoderConfig(
-                    lexicon=get_text_lexicon(),
-                    returnn_vocab=label_datastream.vocab,
-                    beam_size=1024,
-                    beam_size_token=12,
-                    arpa_lm=arpa_4gram_lm,
-                    beam_threshold=14,
-                    lm_scale=lm_scale,
-                    prior_scale=prior_scale,
-                    prior_file=None,
-                    normalize_log_probs=normalize_log_probs_for_decoding,
-                )
-                search_name = tuning_name + "/search_lm%.1f_prior%.1f" % (lm_scale, prior_scale)
-                _search_jobs, wers = search(
-                    search_name,
-                    forward_config={},
-                    asr_model=copy.deepcopy(asr_model),
-                    decoder_module="ctc.decoder.flashlight_ctc_v2",
-                    decoder_args={"config": asdict(decoder_config)},
-                    test_dataset_tuples=dev_dataset_tuples,
-                    **default_returnn,
-                )
-                tune_parameters.append((lm_scale, prior_scale))
-                tune_values_clean.append(wers[search_name + "/dev-clean"])
-                tune_values_other.append(wers[search_name + "/dev-other"])
+                for blank_log_penalty in blank_log_penalties:
+                    decoder_config = DecoderConfig(
+                        lexicon=get_text_lexicon(),
+                        returnn_vocab=label_datastream.vocab,
+                        beam_size=1024,
+                        beam_size_token=12,
+                        arpa_lm=arpa_4gram_lm,
+                        beam_threshold=14,
+                        lm_scale=lm_scale,
+                        prior_scale=prior_scale,
+                        prior_file=None,
+                        blank_log_penalty=blank_log_penalty,
+                        normalize_log_probs=normalize_log_probs,
+                    )
+                    search_name = (
+                        tuning_name
+                        + "/search_lm%.1f_prior%.1f_blank%s"
+                        % (lm_scale, prior_scale, _format_scale_for_name(blank_log_penalty))
+                    )
+                    _search_jobs, wers = search(
+                        search_name,
+                        forward_config={},
+                        asr_model=copy.deepcopy(asr_model),
+                        decoder_module="ctc.decoder.flashlight_ctc_v2",
+                        decoder_args={"config": asdict(decoder_config)},
+                        test_dataset_tuples=dev_dataset_tuples,
+                        **default_returnn,
+                    )
+                    tune_parameters.append((lm_scale, prior_scale, blank_log_penalty))
+                    tune_values_clean.append(wers[search_name + "/dev-clean"])
+                    tune_values_other.append(wers[search_name + "/dev-other"])
 
         for key, tune_values in [("test-clean", tune_values_clean), ("test-other", tune_values_other)]:
             pick_optimal_params_job = GetOptimalParametersAsVariableJob(
@@ -196,7 +209,8 @@ def eow_phon_ls960_1023_generative_nce():
                 lm_scale=pick_optimal_params_job.out_optimal_parameters[0],
                 prior_scale=pick_optimal_params_job.out_optimal_parameters[1],
                 prior_file=None,
-                normalize_log_probs=normalize_log_probs_for_decoding,
+                blank_log_penalty=pick_optimal_params_job.out_optimal_parameters[2],
+                normalize_log_probs=normalize_log_probs,
             )
             test_search_name = tuning_name + f"/best_{key}"
             _search_jobs, wers = search(
@@ -219,21 +233,24 @@ def eow_phon_ls960_1023_generative_nce():
             report_values=report_values,
         )
 
-    asr_model_with_prior = prepare_asr_model(
-        training_name,
-        train_job,
-        train_args,
-        with_prior=True,
-        datasets=train_data,
-        get_specific_checkpoint=1000,
-    )
-    tune_and_evaluate_helper(
-        tuning_name=training_name + "/decode_with_prior",
-        asr_model=asr_model_with_prior,
-        lm_scales=[1.6, 1.8, 2.0],
-        prior_scales=[0.2, 0.3, 0.4],
-        tuning_names=["LM", "Prior"],
-    )
+    if run_normalized_decode_diagnostic:
+        asr_model_with_prior = prepare_asr_model(
+            training_name,
+            train_job,
+            train_args,
+            with_prior=True,
+            datasets=train_data,
+            get_specific_checkpoint=1000,
+        )
+        tune_and_evaluate_helper(
+            tuning_name=training_name + "/decode_norm_with_prior",
+            asr_model=asr_model_with_prior,
+            lm_scales=[1.6, 1.8, 2.0],
+            prior_scales=[0.2, 0.3, 0.4],
+            blank_log_penalties=[0.0],
+            normalize_log_probs=True,
+            tuning_names=["LM", "Prior", "Blank"],
+        )
 
     asr_model_no_prior = prepare_asr_model(
         training_name,
@@ -243,13 +260,26 @@ def eow_phon_ls960_1023_generative_nce():
         datasets=None,
         get_specific_checkpoint=1000,
     )
-    tune_and_evaluate_helper(
-        tuning_name=training_name + "/decode_no_prior",
-        asr_model=asr_model_no_prior,
-        lm_scales=[1.6, 1.8, 2.0],
-        prior_scales=[0.0],
-        tuning_names=["LM", "Prior"],
-    )
+    if run_raw_no_prior_decode:
+        tune_and_evaluate_helper(
+            tuning_name=training_name + "/decode_raw_no_prior",
+            asr_model=asr_model_no_prior,
+            lm_scales=[0.4, 0.6, 0.8, 1.0, 1.2],
+            prior_scales=[0.0],
+            blank_log_penalties=[-4.0, -2.0, 0.0, 2.0, 4.0],
+            normalize_log_probs=False,
+            tuning_names=["LM", "Prior", "Blank"],
+        )
+    if run_normalized_decode_diagnostic:
+        tune_and_evaluate_helper(
+            tuning_name=training_name + "/decode_norm_no_prior",
+            asr_model=asr_model_no_prior,
+            lm_scales=[1.6, 1.8, 2.0],
+            prior_scales=[0.0],
+            blank_log_penalties=[0.0],
+            normalize_log_probs=True,
+            tuning_names=["LM", "Prior", "Blank"],
+        )
 
 
 py = eow_phon_ls960_1023_generative_nce
