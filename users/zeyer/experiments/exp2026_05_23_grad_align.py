@@ -386,6 +386,7 @@ def py():
     )
     reg("fastconformer-streaming-model", dl_fc_stream.out_hub_cache_dir)
     reg("whisper-base-model", dl_whisper.out_hub_cache_dir)
+    reg("whisper-large-v3-model", dl_whisper_l3.out_hub_cache_dir)
 
     # --- External baseline: MMS_FA neural-CTC forced alignment (WhisperX-style) ---
     # Forced-align the reference transcript -> per-word boundaries -> WBE via the
@@ -3742,6 +3743,7 @@ def py():
     _xa_dir = _xa_ds.out_hub_cache_dir
     _xa_tag = "buckeye-segA-5h"
     _xa_off = _DATASET_OFFSET_FACTORS["timit"]
+    reg("buckeye-segA-5h-dataset", _xa_ds.out_hub_cache_dir)
     _xa_ao = {"apply_softmax_over_time": True, "blank_score": -5}
 
     def _xa_extract(cfg, name, attr, mgi, time=24, bb=False):
@@ -3826,7 +3828,7 @@ def py():
     ]
     for _rtag, _rcfg in _xa_w2v_res_sweep:
         _rname = f"wav2vec2ctc-{_rtag}-{_xa_tag}-L2_grad-pertoken"
-        _rex = _xa_extract(_rcfg, _rname, "L2", False)
+        _rex = _xa_extract(_rcfg, _rname, "L2", False, bb=True)
         _xa_align(_rex, _rname, "en0.5-sil1.0")
 
     # (1) Fairness: grad SUBWORD whisper (compare to the existing crossattn-subword baseline).
@@ -3907,6 +3909,52 @@ def py():
         bb=True,
     )
     _xa_align(_xa_wl3_ex, _xa_wl3_name, "en0.5-sil1.0")
+
+    # (4c2) Whisper-large-v3 SUBWORD grad (the subword twin of the char row above): same model,
+    # native subword tokenization -- the grad-x-subword cell of the large-v3 figure grid.
+    _xa_wl3_sub_name = f"whisper-large-v3-logmel-{_xa_tag}-L2_grad-pertoken-subword"
+    _xa_wl3_sub_ex = _xa_extract(
+        rf.build_dict(Whisper, model_dir=dl_whisper_l3.out_hub_cache_dir),
+        _xa_wl3_sub_name,
+        "L2",
+        False,
+        bb=True,
+    )
+    _xa_align(_xa_wl3_sub_ex, _xa_wl3_sub_name, "en0.5-sil1.0")
+
+    # (4c3) Whisper-large-v3 CHAR auto-head cross-attn (the char twin of the subword crossattn-auto
+    # row): the same SelectSelfAttnAlignHeads + ExtractSelfAttnPerToken auto path, but char-level.
+    # Char targets exceed the ~80 ms audio-token grid (S>T) -> head selection needs the time upsample.
+    _xa_wl3_cac_cfg = rf.build_dict(
+        Whisper, model_dir=dl_whisper_l3.out_hub_cache_dir, attn_implementation="eager", char_level=True
+    )
+    _xa_wl3_cac_sel = SelectSelfAttnAlignHeadsJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=_xa_wl3_cac_cfg,
+        time_upsample_when_short=True,
+    )
+    _xa_wl3_cac_sel.add_alias("selfattn/whisper-large-v3-charlev-head-selection")
+    reg("selfattn/whisper-large-v3-charlev-heads.txt", _xa_wl3_cac_sel.out_heads)
+    reg("selfattn/whisper-large-v3-charlev-heads-report.txt", _xa_wl3_cac_sel.out_report)
+    _xa_wl3_cac_ex = ExtractSelfAttnPerTokenJob(
+        dataset_dir=_xa_dir, dataset_key="test", model_config=_xa_wl3_cac_cfg, heads=_xa_wl3_cac_sel.out_heads
+    )
+    _xa_wl3_cac_name = f"baseline-whisper-large-v3-crossattn-charlev-{_xa_tag}"
+    _xa_wl3_cac_ex.add_alias(f"{_xa_wl3_cac_name}-extract")
+    reg(f"{_xa_wl3_cac_name}.hdf", _xa_wl3_cac_ex.out_hdf)
+    _xa_wl3_cac_al = WordAlignFromPerTokenGradsJob(
+        grad_score_hdf=_xa_wl3_cac_ex.out_hdf,
+        grad_score_key="data",
+        dataset_dir=_xa_dir,
+        dataset_key="test",
+        dataset_offset_factors=_xa_off,
+        align_opts=_xa_ao,
+        audio_energy_pow=0.5,
+        blank_silence_energy_scale=1.0,
+    )
+    _xa_wl3_cac_al.add_alias(f"align/{_xa_wl3_cac_name}-{_name_for_dict(_xa_ao)}-en0.5-sil1.0")
+    reg(f"align/{_xa_wl3_cac_name}-{_name_for_dict(_xa_ao)}-en0.5-sil1.0-wbe.txt", _xa_wl3_cac_al.out_wbe)
 
     # (4e) Native transducer Viterbi alignment (the transducer's OWN alignment path,
     # quantized to its 80 ms encoder grid): the same-model counterpart of the parakeet grad rows.
@@ -5783,6 +5831,11 @@ def py():
     from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.grad_align_plots import build_plots
 
     build_plots(_table_results)
+
+    # --- Auto-generated grad-align figure DATA dumps (manifest + blobs; local renderer -> PDF) ---
+    from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.figure_builders import build_figures
+
+    build_figures(_table_results)
 
 
 def _build_timit_phi4mm(
