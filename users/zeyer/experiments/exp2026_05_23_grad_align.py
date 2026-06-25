@@ -5833,9 +5833,16 @@ def py():
     build_plots(_table_results)
 
     # --- Auto-generated grad-align figure DATA dumps (manifest + blobs; local renderer -> PDF) ---
-    from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.figure_builders import build_figures
+    from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.figure_builders import (
+        build_figures,
+        build_figures_preview,
+    )
 
     build_figures(_table_results)
+    try:
+        build_figures_preview(_table_results)  # clean output/figures-data-preview snapshot for sync_figures.sh
+    except Exception as _figprev_e:  # preview is best-effort -- never break the real graph build
+        print(f"[grad-align] build_figures_preview failed (ignored): {_figprev_e}")
 
 
 def _build_timit_phi4mm(
