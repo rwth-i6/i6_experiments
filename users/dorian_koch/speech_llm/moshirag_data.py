@@ -30,6 +30,8 @@ from __future__ import annotations
 import json
 import re
 
+from sisyphus import Job, Task, tk
+
 # The retrieval-trigger token. VERIFY(moshirag): confirm the exact surface form / special-token
 # id the released moshika-rag tokenizer uses; the training collator must map this to that id.
 RET_TOKEN = "<ret>"
@@ -149,6 +151,66 @@ def make_rag_dialogues_sample(n: int = 12) -> list[list[dict]]:
         ]
         rows.append(ragify_dialogue(base))
     return rows
+
+
+class RagifyReferences(Job):
+    """Attach a per-row ``reference_text`` to a dialogue dataset for MoshiRAG grounded training.
+
+    MoshiRAG conditions generation on a *retrieved reference* (the ARC-Encoder encodes it; the model
+    emits ``<ret>`` to trigger retrieval). Training needs, per dialogue, the grounding fact the
+    assistant answer rests on. For QA datasets that fact is already in the source row (the gold
+    answer carried through dialogue-gen), so we build the reference deterministically from
+    ``question`` + ``answer`` -- no extra LLM call.
+
+    The spoken text is left UNCHANGED: ``<ret>`` is a TEXT-stream token injected at *tokenization*
+    (``moshi_family.moshirag_train_data.MoshiRagTokenizer``), never spoken, so it must NOT enter the
+    TTS text. (The ``insert_ret``/``ragify_dialogue`` helpers above are a paper illustration of where
+    ``<ret>`` lands in the token stream; the real pipeline does that injection at tokenization, not
+    here.)
+
+    Output = input dataset + a ``reference_text`` string column. Carry it through TTS + annotate via
+    their opt-in ``keep_columns=["reference_text"]`` so it reaches the training tokenizer.
+    """
+
+    def __init__(
+        self,
+        *,
+        dialogues: tk.Path,
+        question_col: str = "question",
+        answer_col: str = "answer",
+        max_chars: int = 400,
+    ):
+        self.dialogues = dialogues
+        self.question_col = question_col
+        self.answer_col = answer_col
+        self.max_chars = max_chars
+        self.out_hf = self.output_path("out_hf", directory=True)
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        from datasets import load_from_disk
+
+        ds = load_from_disk(self.dialogues.get())
+        assert self.question_col in ds.column_names, (self.question_col, ds.column_names)
+        assert self.answer_col in ds.column_names, (self.answer_col, ds.column_names)
+
+        def add_ref(example):
+            q = str(example.get(self.question_col) or "").strip()
+            a = example.get(self.answer_col)
+            # TriviaQA-style nested answer {value, aliases}; else a plain string/value.
+            if isinstance(a, dict):
+                a = a.get("value") or ""
+            ref = f"{q} {str(a).strip()}".strip()[: self.max_chars]
+            example["reference_text"] = ref
+            return example
+
+        ds = ds.map(add_ref)
+        n_empty = sum(1 for r in ds["reference_text"] if not r)
+        assert n_empty < max(1, len(ds) * 0.01), f"too many empty references: {n_empty}/{len(ds)}"
+        print(f"[ragify] attached reference_text to {len(ds)} rows ({n_empty} empty)", flush=True)
+        ds.save_to_disk(self.out_hf.get())
 
 
 def demo() -> None:

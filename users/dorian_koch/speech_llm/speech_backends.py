@@ -163,13 +163,18 @@ def openai_backend_spec() -> BackendSpec:
     )
 
 
-def moshi_family_backend_spec() -> BackendSpec:
+def moshi_family_backend_spec(lora_rank: int | None = None, lora_scaling: float = 2.0) -> BackendSpec:
     """Base Moshi via the local ``moshi_family`` library (latest torch, owned code).
 
     Runs the offline driver ``python -m moshi_family.offline_inference`` (no external moshi
     fork). Used to validate base-Moshi fidelity through the unified library before retiring
     ``moshi_venv`` (see ``moshi_family.md``). ``inference_venv`` is the one-venv
     ``moshi_family_venv`` (torch 2.12.1+cu126), resolved lazily to dodge an import cycle.
+
+    ``lora_rank``: when evaluating a Moshi LoRA finetune (``MOSHI_LIB_ADAPTER``), pass the trained
+    rank so the driver wraps the linears with ``LoraConfig(rank, scaling)`` BEFORE loading the
+    ``--overlay`` adapter (else the adapter keys land on non-existent LoRALinears). Must match the
+    rank the launcher trained with. ``None`` (base / partial-state overlay) wraps nothing.
     """
 
     def _venv():
@@ -179,10 +184,15 @@ def moshi_family_backend_spec() -> BackendSpec:
 
         return moshi_family_venv()
 
+    extra: tuple[str, ...] = ()
+    if lora_rank is not None:
+        extra = ("--lora_rank", str(lora_rank), "--lora_scaling", str(lora_scaling))
+
     return BackendSpec(
-        name="moshi_family",
+        name="moshi_family" if lora_rank is None else f"moshi_family_lora{lora_rank}",
         server=None,  # end-to-end + causal: offline driver, no websocket server
         offline_module="moshi_family.offline_inference",
+        offline_extra_args=extra,
         inference_venv=_venv,
     )
 
@@ -212,7 +222,9 @@ def personaplex_family_backend_spec() -> BackendSpec:
     )
 
 
-def moshirag_family_backend_spec(retrieval_llm: str = "google/gemma-4-31B-it") -> BackendSpec:
+def moshirag_family_backend_spec(
+    retrieval_llm: str = "google/gemma-4-31B-it", lora_rank: int | None = None, lora_scaling: float = 2.0
+) -> BackendSpec:
     """MoshiRAG via the local ``moshi_family.moshirag`` sub-package (latest torch, owned code).
 
     Runs ``python -m moshi_family.moshirag.offline_inference`` through the ``offline_module`` seam
@@ -230,10 +242,15 @@ def moshirag_family_backend_spec(retrieval_llm: str = "google/gemma-4-31B-it") -
 
         return moshi_family_venv()
 
+    # When evaluating a MoshiRAG LoRA finetune (MOSHIRAG_LIB_ADAPTER), pass the trained rank so the
+    # driver wraps the trunk with a matching LoRA before loading the --overlay adapter (else the keys
+    # land on non-existent LoRALinears). None = base released model.
+    extra = ("--lora_rank", str(lora_rank), "--lora_scaling", str(lora_scaling)) if lora_rank is not None else ()
     return BackendSpec(
-        name="moshirag_family",
+        name="moshirag_family" if lora_rank is None else f"moshirag_family_lora{lora_rank}",
         server=None,  # end-to-end + causal: offline driver + co-launched retrieval, no websocket
         offline_module="moshi_family.moshirag.offline_inference",
+        offline_extra_args=extra,
         inference_venv=_venv,
         retrieval_llm=retrieval_llm,
         rqmt_override={"gpu": 2, "cpu": 6, "mem": 48, "time": 3},

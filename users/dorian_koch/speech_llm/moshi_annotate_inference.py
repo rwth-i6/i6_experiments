@@ -210,6 +210,7 @@ def annotate_hf_to_hf(
     whisper_model: str = "medium",
     language: str = "en",
     keep_silence_in_segments: float = 1.0,
+    keep_columns: list[str] | None = None,
 ):
     """Read a Chatterbox TTS out_hf dataset and write an annotated HF dataset.
 
@@ -353,6 +354,11 @@ def annotate_hf_to_hf(
     _ds_lib.disable_caching()
     # Store per-speaker audio as HF Audio() (torchcodec-encoded) rather than raw
     # nested float lists: far cheaper in memory/on disk and the canonical format.
+    # Passthrough columns (e.g. RAG ``reference_text``): kept verbatim with their original
+    # feature type, NOT removed and NOT produced by process_row -- datasets.map preserves any
+    # input column absent from remove_columns. Their schema must be declared in out_features.
+    passthrough = [c for c in (keep_columns or []) if c in dataset.column_names]
+    kept = ("id", *passthrough)
     out_features = Features(
         {
             "id": Value("string"),
@@ -360,11 +366,12 @@ def annotate_hf_to_hf(
             "audio_user": Audio(),
             "alignments": ALIGNMENT_FEATURE,
             "duration": Value("float32"),
+            **{c: dataset.features[c] for c in passthrough},
         }
     )
     annotated = dataset.map(
         process_row,
-        remove_columns=[c for c in dataset.column_names if c not in ("id",)],
+        remove_columns=[c for c in dataset.column_names if c not in kept],
         features=out_features,
         desc="annotating",
         writer_batch_size=4,
@@ -495,6 +502,12 @@ def main():
         help="'arrow' emits an HF dataset (new default); 'legacy' writes wav+json files.",
     )
     parser.add_argument("--whisper_model", default="medium")
+    parser.add_argument(
+        "--keep_columns",
+        nargs="*",
+        default=None,
+        help="Input columns to pass through to the output unchanged (e.g. RAG reference_text).",
+    )
     args = parser.parse_args()
 
     init_logging(False)
@@ -506,6 +519,7 @@ def main():
             shard_idx=args.in_hf_shard,
             num_shards=args.in_hf_num_shards,
             whisper_model=args.whisper_model,
+            keep_columns=args.keep_columns,
         )
     else:
         # Legacy path

@@ -20,11 +20,16 @@ class MoshiAnnotate(Job):
         in_hf: tk.Path,
         shard: int | None = None,
         num_shards: int | None = None,
+        keep_columns: list[str] | None = None,
     ):
         self.venv_python_path = venv_python_path
         self.in_hf = in_hf
         self.shard = shard
         self.num_shards = num_shards
+        # Input columns to pass through to the annotated output (e.g. RAG ``reference_text``).
+        # Hash-excluded at the default (None) so existing ann_* datasets keep their hash; only a
+        # caller that opts in (a non-empty list) changes the hash and re-runs.
+        self.keep_columns = keep_columns
         self.out_hf = self.output_path("out_hf", directory=True)
         # Keep out_annotations as alias for backward compat with callers that haven't updated
         self.out_annotations = self.out_hf
@@ -46,6 +51,8 @@ class MoshiAnnotate(Job):
     def hash(cls, parsed_args):
         d = dict(**parsed_args)
         d["__version"] = 2  # bumped: arrow-native output format
+        if not d.get("keep_columns"):
+            d.pop("keep_columns", None)  # exclude at default so pre-existing hashes are unchanged
         return super().hash(d)
 
     @staticmethod
@@ -91,6 +98,8 @@ class MoshiAnnotate(Job):
         ]
         if self.shard is not None and self.num_shards is not None:
             args += ["--in_hf_shard", self.shard, "--in_hf_num_shards", self.num_shards]
+        if self.keep_columns:
+            args += ["--keep_columns", *self.keep_columns]
 
         top_level_file = moshi_finetune.__file__
         assert top_level_file is not None, "Could not find moshi_finetune module file"

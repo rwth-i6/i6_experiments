@@ -334,6 +334,57 @@ class WhisperTranscription(Job):
         )
 
 
+class ReferenceStringTranscription(Job):
+    """Emit a transcriptions.jsonl whose ``transcription`` is the MoshiRAG RETRIEVED reference string
+    (read from each clip's ``<i>.json`` trace written by the rag engine), NOT the ASR of the spoken
+    reply. Feeds the existing ``LLMGrading`` so we can score the *reference* directly -- the oracle
+    ceiling of retrieval vs. how well the model verbalizes it. Mirrors ``WhisperTranscription``'s I/O
+    contract + clip indexing exactly (clip i = ``reference_data`` row i = ``<i>.json``), so it drops
+    into the same grading path. Light CPU mini_task (no GPU / no ASR)."""
+
+    def __init__(self, *, in_dir: tk.Path, reference_data: tk.Path):
+        self.in_dir = in_dir
+        self.reference_data = reference_data
+        self.out_json = self.output_path("transcriptions.jsonl")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import json
+        import os
+        from datasets import load_from_disk
+
+        ref_ds = load_from_disk(self.reference_data.get())
+        in_dir = self.in_dir.get()
+        n = 0
+        empty = 0
+        with open(self.out_json.get(), "w") as f:
+            for i, example in enumerate(ref_ds):
+                trace_path = os.path.join(in_dir, f"{i}.json")
+                if not os.path.exists(trace_path):
+                    continue  # no reply for this clip (same filter semantics as the wav check)
+                with open(trace_path, encoding="utf-8") as tf:
+                    trace = json.load(tf)
+                reference = (trace.get("reference_text") or "").strip()
+                if not reference:
+                    empty += 1
+                f.write(
+                    json.dumps(
+                        {
+                            "question": example["question"],
+                            "answer": example["answer"],
+                            "aliases": example["aliases"],
+                            "category": example.get("category", "unknown"),
+                            "transcription": reference,
+                        }
+                    )
+                    + "\n"
+                )
+                n += 1
+        print(f"[reference-strings] wrote {n} rows ({empty} empty references) to {self.out_json.get()}", flush=True)
+
+
 # ---------------------------------------------------------------------------
 # LLM grading
 # ---------------------------------------------------------------------------
@@ -467,6 +518,8 @@ def knowledge_benchmark_py(
     speech_backend=MOSHI_BACKEND,
     unmute_llm: str | None = None,
     code_version: int = 1,
+    grade_references: bool = False,
+    batch_size: int | None = None,
 ):
     """Build the knowledge benchmark pipeline.
 
@@ -531,9 +584,11 @@ def knowledge_benchmark_py(
     # Single shard for a cloud API (one login-node mini_task) or a RAG backend (one shared
     # vLLM retrieval server); otherwise shard across GPUs for throughput.
     single = speech_backend.cloud_api or speech_backend.retrieval_llm is not None
+    _bs_kw = {} if batch_size is None else {"batch_size": batch_size}
     moshi_out = sharded_knowledge_inference(
         num_shards=1 if single else 2,
         venv_python_path=inference_venv,
+        **_bs_kw,
         in_dir=tts.out_dir,
         lora_weights=lora_weights,
         lora_config=lora_config,
@@ -569,3 +624,13 @@ def knowledge_benchmark_py(
     grading = LLMGrading(in_json=transcription.out_json, llm_name=llm_name)
     tk.register_output(f"benchmark/{tag}/eval_results", grading.out_eval)
     tk.register_output(f"benchmark/{tag}/summary", grading.out_summary)
+
+    # Optional: also score the RETRIEVED REFERENCE strings directly (the oracle ceiling of retrieval
+    # vs. how well the model verbalizes them). Only meaningful for a RAG backend -- its engine writes a
+    # per-clip `<i>.json` trace carrying `reference_text`; other backends have no such trace.
+    if grade_references:
+        ref_transcription = ReferenceStringTranscription(in_dir=moshi_out, reference_data=data)
+        tk.register_output(f"benchmark/{tag}_references/transcription", ref_transcription.out_json)
+        ref_grading = LLMGrading(in_json=ref_transcription.out_json, llm_name=llm_name)
+        tk.register_output(f"benchmark/{tag}_references/eval_results", ref_grading.out_eval)
+        tk.register_output(f"benchmark/{tag}_references/summary", ref_grading.out_summary)

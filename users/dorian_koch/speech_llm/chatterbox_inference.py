@@ -175,7 +175,7 @@ def gen_conversation(
     return rendered, utterances, speaker_to_path
 
 
-def process_dialogue(model, dialogue, device, speaker_dir, silence_length_sampler, out_dir, diag_id):
+def process_dialogue(model, dialogue, device, speaker_dir, silence_length_sampler, out_dir, diag_id, passthrough=None):
 
     assert isinstance(dialogue, list), "Each line in the input text file should be a json array that contains dialogues"
     assert len(dialogue) > 0, "Each dialogue should contain at least one turn"
@@ -219,6 +219,13 @@ def process_dialogue(model, dialogue, device, speaker_dir, silence_length_sample
         )
     with open(f"{output_dir}/metadata.json", "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=4)
+
+    # Opt-in passthrough columns (e.g. RAG reference_text): TTS rebuilds the dataset from scratch
+    # below (positional id, fixed schema), dropping all input columns -- so anything that must
+    # survive TTS rides through this sidecar, re-attached per dialogue at HF export.
+    if passthrough:
+        with open(f"{output_dir}/passthrough.json", "w", encoding="utf-8") as f:
+            json.dump(passthrough, f, ensure_ascii=False)
 
 
 # chatterbox inference gets its own venv, so we let the job execute this file directly
@@ -283,9 +290,16 @@ def main():
         help="Directory that contains reference audio for each speaker.",
     )
     parser.add_argument("--speaker_alias", type=str, default="{}", help="")
+    parser.add_argument(
+        "--keep_columns",
+        nargs="*",
+        default=None,
+        help="Input columns to pass through to the output unchanged (e.g. RAG reference_text).",
+    )
     args = parser.parse_args()
 
     SPEAKER_ALIAS = json.loads(args.speaker_alias)
+    keep_cols = args.keep_columns or []
 
     random.seed(42)  # For reproducibility
 
@@ -338,6 +352,7 @@ def main():
                     if isinstance(_v, list):
                         dialogue = _v
                         break
+            passthrough = {c: example[c] for c in keep_cols if c in example}
             process_dialogue(
                 model,
                 dialogue,
@@ -346,6 +361,7 @@ def main():
                 silence_length_sampler,
                 args.out_dir,
                 i,
+                passthrough=passthrough,
             )
             last_diag_id = i
             _write_progress(i + 1, total_dialogues)
@@ -391,7 +407,7 @@ def main():
                     if not os.path.exists(audio_path):
                         raise FileNotFoundError(f"Audio file for speaker {speaker} not found in dialogue {i}")
                     speaker_audio[speaker] = audio_path
-                yield {
+                row = {
                     "id": f"dialogue_{i}",
                     "speaker_audio": {
                         "speaker": list(speaker_audio.keys()),
@@ -404,10 +420,20 @@ def main():
                         "text": [turn["text"] for turn in metadata],
                     },
                 }
+                if keep_cols:
+                    pj = os.path.join(dialogue_dir, "passthrough.json")
+                    pt = json.load(open(pj, encoding="utf-8")) if os.path.exists(pj) else {}
+                    for c in keep_cols:
+                        v = pt.get(c)
+                        row[c] = None if v is None else str(v)
+                yield row
 
+        export_features = dialogue_features
+        if keep_cols:
+            export_features = Features({**dialogue_features, **{c: Value("string") for c in keep_cols}})
         dataset = Dataset.from_generator(
             gen,
-            features=dialogue_features,
+            features=export_features,
         )
         dataset.save_to_disk(args.out_hf)
         print(f"Dataset saved successfully to {args.out_hf}!")

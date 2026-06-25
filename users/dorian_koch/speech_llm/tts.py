@@ -93,6 +93,7 @@ class ChatterboxInference(Job):
         ffmpeg_path: tk.Path | None = None,
         shard: int | None = None,
         num_shards: int | None = None,
+        keep_columns: list[str] | None = None,
         rqmt: dict[str, int] | None = None,
     ):
         self.in_json = in_json
@@ -104,6 +105,9 @@ class ChatterboxInference(Job):
         self.ffmpeg_path = ffmpeg_path
         self.shard = shard
         self.num_shards = num_shards
+        # Input columns to carry through TTS to the output (e.g. RAG ``reference_text``). Hash-excluded
+        # at the default (None) so existing TTS hashes are unchanged; only an opt-in caller re-runs.
+        self.keep_columns = keep_columns
         if with_audio_output:
             self.out_dir = self.output_path("chatterbox_output", directory=True)
         else:
@@ -124,6 +128,8 @@ class ChatterboxInference(Job):
     def hash(cls, parsed_args):
         d = dict(**parsed_args)
         d["__version"] = 3
+        if not d.get("keep_columns"):
+            d.pop("keep_columns", None)  # exclude at default so pre-existing hashes are unchanged
         return super().hash(d)
 
     @staticmethod
@@ -165,6 +171,8 @@ class ChatterboxInference(Job):
         args += ["--out_dir", self.out_dir.get() if self.out_dir is not None else work_dir]
         if self.shard is not None and self.num_shards is not None:
             args += ["--in_hf_shard", self.shard, "--in_hf_num_shards", self.num_shards]
+        if self.keep_columns:
+            args += ["--keep_columns", *self.keep_columns]
 
         env_hook = None
         if self.ffmpeg_path is not None:

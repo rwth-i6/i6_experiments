@@ -360,6 +360,87 @@ PERSONAPLEX_LIB_ADAPTER = FinetuneAdapter(
 )
 
 
+def _render_moshi_lib_config(job: "SpeechFinetune", batch_size: int, max_steps: int, *, hf_repo_id: str) -> str:
+    """Render the base-Moshi LoRA config (consumed by ``moshi_family.moshi_finetune_launcher``, NOT
+    the moshi-finetune fork schema). LoRA over the whole trunk via the shared ``train_loop``; the
+    fork's loss weighting is replicated in ``moshi_train_data.moshi_loss``. SINGLE-GPU: per-gpu batch
+    1 x grad_accum 16 = effective batch 16 (matching the fork's ``batch_size=16``); gradient
+    checkpointing on so LoRA-over-backbone fits one 24 GB GPU. lr 2e-6 = the fork's ``optim.lr``."""
+    return f"""# base-Moshi LoRA finetune config (moshi_finetune_launcher schema)
+hf_repo_id: "{hf_repo_id}"
+train_data: "{job.train_data.get()}"
+out_dir: "{job.out_rundir.get()}"
+max_steps: {max_steps}
+duration_sec: {job.duration_sec}
+lora_rank: {job.lora_rank}
+lora_scaling: 2.0
+per_gpu_batch: 1
+grad_accum: 16
+lr: 2e-6
+warmup_steps: 200
+grad_clip: 1.0
+gradient_checkpointing: true
+save_every: 500
+log_every: 10
+seed: {getattr(job, "seed", 0)}
+"""
+
+
+# Base Moshi on the OWNED moshi_family lib (Phase 5): fork-free LoRA finetune of moshiko via
+# ``moshi_family.moshi_finetune_launcher`` on the SHARED ``train_loop`` + uniform ``modules.lora``,
+# in moshi_family_venv. New ``name`` -> fresh hash (intended fork->lib migration). Eval routes the
+# saved adapter through ``moshi_family_backend_spec(lora_rank=...)`` (--overlay + --lora_rank/scaling).
+MOSHI_LIB_ADAPTER = FinetuneAdapter(
+    name="moshi_lib",
+    batch_size=16,
+    render_config=partial(_render_moshi_lib_config, hf_repo_id="kyutai/moshiko-pytorch-bf16"),
+    launcher_module="moshi_family.moshi_finetune_launcher",
+    fork_module="moshi_family",
+)
+
+
+def _render_moshirag_lib_config(job: "SpeechFinetune", batch_size: int, max_steps: int, *, hf_repo_id: str) -> str:
+    """Render the MoshiRAG LoRA config (consumed by ``moshi_family.moshirag_finetune_launcher``). Same
+    single-GPU LoRA recipe as base Moshi (eff batch 16, grad-ckpt on, lr 2e-6), plus the RAG-only knobs
+    the reference path needs: ``ref_dropout`` 0.2 (paper) and ``reference_key`` (the arrow column with
+    the retrieved passage; ``ragify_dialogue`` writes ``reference_text``). The launcher builds the
+    released moshika-rag (LoRA fused) + a fresh trainable LoRA over the trunk and injects the reference
+    as a per-frame ``ref_schedule`` (the training mirror of inference streaming-sum conditioning)."""
+    return f"""# MoshiRAG LoRA finetune config (moshirag_finetune_launcher schema)
+hf_repo_id: "{hf_repo_id}"
+train_data: "{job.train_data.get()}"
+out_dir: "{job.out_rundir.get()}"
+max_steps: {max_steps}
+duration_sec: {job.duration_sec}
+lora_rank: {job.lora_rank}
+lora_scaling: 2.0
+ref_dropout: 0.2
+reference_key: "reference_text"
+per_gpu_batch: 1
+grad_accum: 16
+lr: 2e-6
+warmup_steps: 200
+grad_clip: 1.0
+gradient_checkpointing: true
+save_every: 500
+log_every: 10
+seed: {getattr(job, "seed", 0)}
+"""
+
+
+# MoshiRAG on the OWNED moshi_family lib (Phase 5): fork-free LoRA finetune of the released moshika-rag
+# via ``moshi_family.moshirag_finetune_launcher`` on the SHARED ``train_loop``. The reference is injected
+# as a per-frame ``ref_schedule`` (see moshirag_train_data.py). New ``name`` -> fresh hash. Needs RAG
+# training data (a ``reference_text`` column); smokes on plain QA data run ungrounded (mechanism only).
+MOSHIRAG_LIB_ADAPTER = FinetuneAdapter(
+    name="moshirag_lib",
+    batch_size=16,
+    render_config=partial(_render_moshirag_lib_config, hf_repo_id="kyutai/moshika-rag-pytorch-bf16"),
+    launcher_module="moshi_family.moshirag_finetune_launcher",
+    fork_module="moshi_family",
+)
+
+
 # --------------------------------------------------------------------------- #
 # MoshiRAG adapter (SCAFFOLD -- see projects/2026-01-speech-llm/moshirag.md).
 # MoshiRAG (kyutai-labs/moshi-rag, arXiv 2604.12928) adds an ARC-Encoder reference
