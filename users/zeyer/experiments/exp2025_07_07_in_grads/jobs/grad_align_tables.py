@@ -73,6 +73,7 @@ def build_tables(results):
     # (its wav2vec2-CTC ts cells need the compiled-scan split, torch-2.12 only); see build_time_stretch_table.
     _word_length_table()  # word-duration accuracy (signed word-width error) per model
     _matched_tok_table()  # matched-tokenization: grad vs cross-attn x char/subword (whisper)
+    _char_subword_family_table()  # char vs subword grad-align, one representative model per family
     _ablation_table()  # T3a grad-score reduction (cross-model)
     _attribution_table()  # T3b attribution method (cross-model, fast models)
     _abc_table()  # Buckeye segmentation-protocol robustness (A vs B vs C)
@@ -496,6 +497,87 @@ def _matched_tok_table():
             }
         )
     _emit("matched-tokenization", columns, rows)
+
+
+# ----------------------------------------------------------------------------------------
+# Char vs subword grad-align, ONE representative model per family (CTC / transducer / AED / Sp. LLM).
+#     Fixed DP (Buckeye-segA, en0.5-sil2.0, word-topology); only the target tokenization varies per
+#     column, so it isolates the granularity effect across families. The CTC/transducer char rows use
+#     the new forced char-level Parakeet wrappers (same model + per-token score as their subword rows).
+# ----------------------------------------------------------------------------------------
+def _char_subword_family_table():
+    S = "buckeye-segA-5h"
+    SFX = "asotTrue-bs-5-en0.5-sil2.0-wordtopo"
+
+    def grad(stem):  # gradient-align cell pair (wbe, acc@50ms) for an "align/<stem>"
+        return _wbe(f"align/{stem}"), _metric(f"align/{stem}", "acc_50ms")
+
+    def base(name):  # model-native baseline cell pair, registered as "baseline-...-wbe.txt"
+        return _wbe(name), _metric(name, "acc_50ms")
+
+    # (type, model, method, char (wbe, a50), subword (wbe, a50)). The CTC/transducer reps get BOTH the
+    # gradient row and the model-native alternative align (CTC posteriors / RNN-T native-viterbi), each
+    # char vs subword; AED/LLM show the gradient row (whisper's cross-att char/subword is in T2).
+    ROWS = [
+        (
+            "CTC",
+            "Parakeet CTC",
+            "Gradients",
+            grad(f"parakeet-ctc-1.1b-prefixfwd-char-abl-{S}-L2_grad-pertoken-{SFX}"),
+            grad(f"parakeet-ctc-1.1b-prefixfwd-abl-{S}-L2_grad-pertoken-{SFX}"),
+        ),
+        (
+            "",
+            "",
+            "Posteriors",
+            base(f"baseline-parakeet-ctc-1.1b-char-{S}"),
+            base(f"baseline-parakeet-ctc-1.1b-{S}"),
+        ),
+        (
+            "Transd.",
+            "Parakeet RNN-T",
+            "Gradients",
+            grad(f"parakeet-rnnt-1.1b-logmel-char-abl-{S}-L2_grad-pertoken-{SFX}"),
+            grad(f"parakeet-rnnt-1.1b-logmel-abl-{S}-L2_grad-pertoken-{SFX}"),
+        ),
+        (
+            "",
+            "",
+            "Native-Viterbi",
+            base(f"baseline-parakeet-rnnt-1.1b-char-native-viterbi-{S}"),
+            base(f"baseline-parakeet-rnnt-1.1b-native-viterbi-{S}"),
+        ),
+        (
+            "AED",
+            "Whisper-base",
+            "Gradients",
+            grad(f"whisper-base-logmel-{S}-L2_grad-pertoken-charlev-spc-{SFX}"),
+            grad(f"whisper-base-logmel-{S}-L2_grad-pertoken-subword-{SFX}"),
+        ),
+        (
+            "Sp. LLM",
+            "Voxtral",
+            "Gradients",
+            grad(f"voxtral-charlevlogmel-{S}-L1_grad-pertoken-{SFX}"),
+            grad(f"voxtral-logmel-{S}-L1_grad-pertoken-subword-{SFX}"),
+        ),
+    ]
+    columns = ["type", "model", "method", "c_wbe", "c_a50", "s_wbe", "s_a50"]
+    rows = [
+        {
+            "cells": {
+                "type": typ,
+                "model": mlabel,
+                "method": method,
+                "c_wbe": cw,
+                "c_a50": ca,
+                "s_wbe": sw,
+                "s_a50": sa,
+            },
+        }
+        for typ, mlabel, method, (cw, ca), (sw, sa) in ROWS
+    ]
+    _emit("char-vs-subword-family", columns, rows)
 
 
 # ----------------------------------------------------------------------------------------

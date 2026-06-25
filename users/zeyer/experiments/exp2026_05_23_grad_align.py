@@ -926,6 +926,32 @@ def py():
         overlay_path=_NEMO_OVERLAY,
         per_token_score="prefix_fwd",
     )
+    # Char-level twins of the CTC + transducer representatives: same model + best per-token score,
+    # only the target tokenization changes (BPE subword -> per-character). These answer the
+    # char-vs-subword question within-model for the CTC/transducer families (the AED/LLM side
+    # already has both granularities).
+    parakeet_ctc_prefixfwd_charlev_cfg = rf.build_dict(
+        ParakeetCtc,
+        model_dir=dl_parakeet_ctc.out_hub_cache_dir,
+        overlay_path=_NEMO_OVERLAY,
+        per_token_score="prefix_fwd",
+        char_level=True,
+    )
+    pk_charlev_cfg = rf.build_dict(
+        ParakeetRnnt,
+        model_dir=dl_parakeet_rnnt.out_hub_cache_dir,
+        per_token_score="prefix",
+        overlay_path=_NEMO_OVERLAY,
+        char_level=True,
+    )
+    # Char-level forced-align config (CTC posteriors baseline); per_token_score is unused by the
+    # forced aligner, so only char_level is flipped.
+    parakeet_ctc_charlev_cfg = rf.build_dict(
+        ParakeetCtc,
+        model_dir=dl_parakeet_ctc.out_hub_cache_dir,
+        overlay_path=_NEMO_OVERLAY,
+        char_level=True,
+    )
     owsm_ctc_prefixfwd_cfg = rf.build_dict(
         OwsmCtc, model_dir=dl_owsm_ctc.out_hub_cache_dir, version=2, per_token_score="prefix_fwd"
     )
@@ -4786,6 +4812,16 @@ def py():
                 reg(f"{_aen}.hdf", _aex.out_hdf)
                 _attr_sub_align(_aex, _aen)
 
+    # Char-level grad extracts for the CTC + transducer representatives (parakeet-ctc / parakeet-rnnt):
+    # the char twin of their subword `-abl-` L2_grad rows above, same canonical en0.5-sil2.0-wordtopo
+    # align, so the char-vs-subword table compares only tokenization within each model.
+    for _cl_cfg, _cl_pre in [
+        (parakeet_ctc_prefixfwd_charlev_cfg, "parakeet-ctc-1.1b-prefixfwd-char"),
+        (pk_charlev_cfg, "parakeet-rnnt-1.1b-logmel-char"),
+    ]:
+        _cl_name = f"{_cl_pre}-abl-{_xa_tag}-L2_grad-pertoken"
+        _abl_align(_xa_extract(_cl_cfg, _cl_name, "L2", False, bb=True), _cl_name)
+
     # alignopts-silence extended to 3 model families (AED / CTC / speech-LLM):
     # re-align each model's L2 grad extract under the silence/blank schemes on a CTC topology,
     # so the blank-scoring comparison generalizes beyond Whisper.
@@ -4991,6 +5027,26 @@ def py():
     )
     _xa_pc_fa.add_alias(f"baseline-parakeet-ctc-1.1b-{_xa_tag}")
     reg(f"baseline-parakeet-ctc-1.1b-{_xa_tag}-wbe.txt", _xa_pc_fa.out_word_wbe)
+    # Char-level posterior/native baselines for the CTC + transducer reps: the char twin of the
+    # subword posteriors (CTC forced-align) and native-viterbi (RNN-T), completing the char-vs-subword
+    # comparison on the alternative (model-native) align, not just the gradient.
+    _xa_pc_fa_char = ParakeetCtcForcedAlignJob(
+        dataset_dir=_xa_dir,
+        dataset_key="test",
+        model_config=parakeet_ctc_charlev_cfg,
+        dataset_offset_factors=_xa_off,
+    )
+    _xa_pc_fa_char.add_alias(f"baseline-parakeet-ctc-1.1b-char-{_xa_tag}")
+    reg(f"baseline-parakeet-ctc-1.1b-char-{_xa_tag}-wbe.txt", _xa_pc_fa_char.out_word_wbe)
+    _xa_pr_nt_char = NativeTransducerAlignJob(dataset_dir=_xa_dir, dataset_key="test", model_config=pk_charlev_cfg)
+    _xa_pr_nt_char.add_alias(f"baseline-parakeet-rnnt-1.1b-char-native-viterbi-{_xa_tag}")
+    _xa_pr_nt_char_m = CalcAlignmentMetricsFromWordBoundariesJob(
+        word_boundaries_hdf=_xa_pr_nt_char.out_word_boundaries_hdf,
+        dataset_dir=_xa_dir,
+        dataset_key="test",
+        dataset_offset_factors=_xa_off,
+    )
+    reg(f"baseline-parakeet-rnnt-1.1b-char-native-viterbi-{_xa_tag}-wbe.txt", _xa_pr_nt_char_m.out_wbe)
     # OWSM-CTC posteriors baseline per inter-CTC emit block on segA.
     for _ol in [None, 6, 12, 15, 21]:
         _otag = "" if _ol is None else f"lyr{_ol}-"

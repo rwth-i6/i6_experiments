@@ -44,6 +44,7 @@ class ParakeetRnnt(BaseModelInterface):
         overlay_path: str,
         per_token_score: str = "prefix",
         version: int = 1,
+        char_level: bool = False,
     ):
         """:param overlay_path: NeMo env overlay to activate on sys.path (passed from the recipe)."""
         super().__init__()
@@ -54,6 +55,7 @@ class ParakeetRnnt(BaseModelInterface):
         self.overlay_path = overlay_path
         self.per_token_score = per_token_score
         self.version = version
+        self.char_level = bool(char_level)
 
         if overlay_path not in sys.path:
             sys.path.insert(0, overlay_path)
@@ -252,6 +254,8 @@ class ParakeetRnnt(BaseModelInterface):
         Returns ``(subword_ids, word_ranges)`` where
         word_ranges[w] = (start, end) subword indices for word w (end exclusive).
         """
+        if self.char_level:
+            return self._tokenize_words_charlevel(words)
         text = " ".join(w.lower() for w in words)
         ids = list(self.tokenizer.text_to_ids(text))
         pieces = self.tokenizer.ids_to_tokens(ids)
@@ -272,6 +276,39 @@ class ParakeetRnnt(BaseModelInterface):
             assert wp, f"word {w!r} encoded to empty"
             word_ranges.append((len(ids), len(ids) + len(wp)))
             ids.extend(wp)
+        return ids, word_ranges
+
+    def _tokenize_words_charlevel(self, words: List[str]):
+        """Char-level retokenization, IDENTICAL in form to the AED / speech-LLM char-level path:
+        each character is its own BARE target token and word boundaries are a separate ``▁``
+        (SentencePiece word-boundary) token BETWEEN words, so detokenizing the sequence reconstructs
+        the original transcript. The AED path emits bare chars + a standalone separator token
+        (e.g. Voxtral: ``s h e <space> d o g``); the SentencePiece equivalent is ``s h e ▁ d o g``
+        -- NOT the per-char ``▁s ▁h ▁e`` (which would decode to spurious inter-char spaces and is
+        not a valid segmentation). The per-token grad is per character; the separator token belongs
+        to no word (as in AED), so ``word_ranges`` cover only each word's characters.
+        A rare char with no bare single-char piece falls back to SentencePiece byte encoding
+        (still reconstructs).
+        Returns ``(char_ids, word_ranges)`` with the same contract as :meth:`_tokenize_words`."""
+        sp = getattr(self.tokenizer, "tokenizer", None)  # raw SentencePieceProcessor inside NeMo's tokenizer
+        assert sp is not None and hasattr(sp, "piece_to_id"), "expected a SentencePiece-backed NeMo tokenizer"
+        unk = sp.unk_id()
+        sep_id = sp.piece_to_id("\u2581")  # the standalone word-boundary piece (AED's space-separator analog)
+        assert sep_id != unk, "no standalone word-boundary piece in the SentencePiece vocab"
+        ids: List[int] = []
+        word_ranges = []
+        for wi, w in enumerate(words):
+            if wi > 0:
+                ids.append(sep_id)  # inter-word separator, excluded from any word range (as in AED)
+            start = len(ids)
+            for ch in w.lower():
+                pid = sp.piece_to_id(ch)
+                if pid == unk:  # no bare single-char piece -> byte-fallback (still reconstructs)
+                    ids.extend(int(i) for i in sp.encode(ch, out_type=int))
+                else:
+                    ids.append(int(pid))
+            assert len(ids) > start, f"word {w!r} produced no char tokens"
+            word_ranges.append((start, len(ids)))
         return ids, word_ranges
 
     # ---- Forward (forced alignment) -------------------------------------

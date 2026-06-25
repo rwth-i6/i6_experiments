@@ -36,6 +36,7 @@ class ParakeetCtc(BaseModelInterface):
         overlay_path: str,
         version: int = 1,
         per_token_score: str = "raw_partial",
+        char_level: bool = False,
     ):
         """:param overlay_path: NeMo env overlay to activate on sys.path (passed from the recipe).
         :param per_token_score: CTC per-token score mode (see jobs.models.ctc_partial). Default
@@ -49,6 +50,7 @@ class ParakeetCtc(BaseModelInterface):
         self.overlay_path = overlay_path
         self.version = version
         self.per_token_score = per_token_score
+        self.char_level = bool(char_level)
 
         if overlay_path not in sys.path:
             sys.path.insert(0, overlay_path)
@@ -85,6 +87,8 @@ class ParakeetCtc(BaseModelInterface):
     def _tokenize_words(self, words: List[str]):
         """Encode to subwords and group into words via the '▁' (word-start) marker.
         Returns (subword_ids, word_ranges) with word_ranges[w] = (start, end) subword indices."""
+        if self.char_level:
+            return self._tokenize_words_charlevel(words)
         text = " ".join(w.lower() for w in words)
         ids = list(self.tokenizer.text_to_ids(text))
         pieces = self.tokenizer.ids_to_tokens(ids)
@@ -103,6 +107,39 @@ class ParakeetCtc(BaseModelInterface):
             assert wp, f"word {w!r} encoded to empty"
             word_ranges.append((len(ids), len(ids) + len(wp)))
             ids.extend(wp)
+        return ids, word_ranges
+
+    def _tokenize_words_charlevel(self, words: List[str]):
+        """Char-level retokenization, IDENTICAL in form to the AED / speech-LLM char-level path:
+        each character is its own BARE target token and word boundaries are a separate ``▁``
+        (SentencePiece word-boundary) token BETWEEN words, so detokenizing the sequence reconstructs
+        the original transcript. The AED path emits bare chars + a standalone separator token
+        (e.g. Voxtral: ``s h e <space> d o g``); the SentencePiece equivalent is ``s h e ▁ d o g``
+        -- NOT the per-char ``▁s ▁h ▁e`` (which would decode to spurious inter-char spaces and is
+        not a valid segmentation). The per-token grad is per character; the separator token belongs
+        to no word (as in AED), so ``word_ranges`` cover only each word's characters.
+        A rare char with no bare single-char piece falls back to SentencePiece byte encoding
+        (still reconstructs).
+        Returns ``(char_ids, word_ranges)`` with the same contract as :meth:`_tokenize_words`."""
+        sp = getattr(self.tokenizer, "tokenizer", None)  # raw SentencePieceProcessor inside NeMo's tokenizer
+        assert sp is not None and hasattr(sp, "piece_to_id"), "expected a SentencePiece-backed NeMo tokenizer"
+        unk = sp.unk_id()
+        sep_id = sp.piece_to_id("\u2581")  # the standalone word-boundary piece (AED's space-separator analog)
+        assert sep_id != unk, "no standalone word-boundary piece in the SentencePiece vocab"
+        ids: List[int] = []
+        word_ranges = []
+        for wi, w in enumerate(words):
+            if wi > 0:
+                ids.append(sep_id)  # inter-word separator, excluded from any word range (as in AED)
+            start = len(ids)
+            for ch in w.lower():
+                pid = sp.piece_to_id(ch)
+                if pid == unk:  # no bare single-char piece -> byte-fallback (still reconstructs)
+                    ids.extend(int(i) for i in sp.encode(ch, out_type=int))
+                else:
+                    ids.append(int(pid))
+            assert len(ids) > start, f"word {w!r} produced no char tokens"
+            word_ranges.append((start, len(ids)))
         return ids, word_ranges
 
     def forward(
@@ -225,6 +262,17 @@ class ParakeetCtc(BaseModelInterface):
             enc, enc_len = self.model.encoder(audio_signal=proc, length=proc_len)  # [1, H, T_enc]
             log_probs = self.model.decoder(encoder_output=enc).float()  # [1, T_enc, V] (already log_softmax)
         n_frames = int(log_probs.shape[1])
+        # Char-level targets can exceed the CTC emission length (this FastConformer emits at ~12.5 Hz,
+        # ~80 ms/frame -- far coarser than one frame per character), which torchaudio.forced_align rejects
+        # ("targets length is too long for CTC"). Frame-repeat the emission to a fine-enough grid -- the
+        # same frame-upsampling the grad DP applies to its score grid -- so the posteriors aligner can
+        # place char-level targets. Subword targets always fit, so this never triggers for them.
+        n_repeats = sum(1 for a, b in zip(sub_ids, sub_ids[1:]) if a == b)
+        need = len(sub_ids) + n_repeats
+        if n_frames < need:
+            up = -(-need // n_frames)  # ceil division
+            log_probs = log_probs.repeat_interleave(up, dim=1)
+            n_frames *= up
         spf = dur / max(n_frames, 1)
         targets = torch.tensor([sub_ids], dtype=torch.int32, device=dev)
         aligned, scores = torchaudio.functional.forced_align(log_probs, targets, blank=self.blank_idx)
