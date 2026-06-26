@@ -74,6 +74,7 @@ def build_tables(results):
     _word_length_table()  # word-duration accuracy (signed word-width error) per model
     _matched_tok_table()  # matched-tokenization: grad vs cross-attn x char/subword (whisper)
     _char_subword_family_table()  # char vs subword grad-align, one representative model per family
+    _wav2vec_resolution_table()  # wav2vec2-CTC grad-align vs internal time-resolution level
     _ablation_table()  # T3a grad-score reduction (cross-model)
     _attribution_table()  # T3b attribution method (cross-model, fast models)
     _abc_table()  # Buckeye segmentation-protocol robustness (A vs B vs C)
@@ -578,6 +579,46 @@ def _char_subword_family_table():
         for typ, mlabel, method, (cw, ca), (sw, sa) in ROWS
     ]
     _emit("char-vs-subword-family", columns, rows)
+
+
+# ----------------------------------------------------------------------------------------
+# wav2vec2-CTC time-resolution sweep: which internal level the gradient is taken at (Buckeye-segA).
+#     The 7-conv feature encoder (conv0-5), the feature-projection LayerNorm/Linear, and the raw
+#     waveform at several pooling rates -- an internally consistent within-model resolution comparison
+#     (all plain L2 grad, same en0.5-sil1.0 word-topology DP), with ms/frame at 16 kHz for context.
+# ----------------------------------------------------------------------------------------
+def _wav2vec_resolution_table():
+    S = "buckeye-segA-5h"
+    SFX = "asotTrue-bs-5-en0.5-sil1.0-wordtopo"
+    # (tag, label, ms/frame at 16 kHz): conv strides 5/10/20/40/80/160 -> 0.31..10 ms; feat-proj and
+    # the default raw pool (320) = 20 ms; raw pools 80/16/1 = 5/1/0.0625 ms (sample-level).
+    LEVELS = [
+        ("conv0", "Conv 0", "0.31"),
+        ("conv1", "Conv 1", "0.62"),
+        ("conv2", "Conv 2", "1.25"),
+        ("conv3", "Conv 3", "2.5"),
+        ("conv4", "Conv 4", "5"),
+        ("conv5", "Conv 5", "10"),
+        ("fproj_ln", "Feat-proj LayerNorm", "20"),
+        ("fproj_out", "Feat-proj Linear", "20"),
+        ("rawwav", "Raw waveform, pool 320", "20"),
+        ("rawwav-pool80", "Raw waveform, pool 80", "5"),
+        ("rawwav-pool16", "Raw waveform, pool 16", "1"),
+        ("rawwav-pool1", "Raw waveform, pool 1", "0.0625"),
+    ]
+    columns = ["level", "ms_frame", "wbe", "a50"]
+    rows = [
+        {
+            "cells": {
+                "level": label,
+                "ms_frame": ms,
+                "wbe": _wbe(f"align/wav2vec2ctc-{tag}-{S}-L2_grad-pertoken-{SFX}"),
+                "a50": _metric(f"align/wav2vec2ctc-{tag}-{S}-L2_grad-pertoken-{SFX}", "acc_50ms"),
+            },
+        }
+        for tag, label, ms in LEVELS
+    ]
+    _emit("wav2vec-resolution", columns, rows)
 
 
 # ----------------------------------------------------------------------------------------

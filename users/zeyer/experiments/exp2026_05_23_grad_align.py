@@ -3855,7 +3855,14 @@ def py():
     for _rtag, _rcfg in _xa_w2v_res_sweep:
         _rname = f"wav2vec2ctc-{_rtag}-{_xa_tag}-L2_grad-pertoken"
         _rex = _xa_extract(_rcfg, _rname, "L2", False, bb=True)
-        _xa_align(_rex, _rname, "en0.5-sil1.0")
+        if _rtag == "rawwav-pool1":
+            # Sample-level grid (~16 kHz, ~145k frames/seq): the DP is ~100x costlier and the DTW twins
+            # overrun the align walltime. Only the word-topology align (the table cell) is needed, so skip
+            # the dtw/wdtw/const twins for this one level (pool1 is worse than feat-proj anyway, see
+            # tab:wav2vec-resolution -- the extra variants add nothing).
+            _xa_align(_rex, _rname, "en0.5-sil1.0-wordtopo", word_topology=True, _twin=False)
+        else:
+            _xa_align(_rex, _rname, "en0.5-sil1.0")
 
     # (1) Fairness: grad SUBWORD whisper (compare to the existing crossattn-subword baseline).
     _xa_sub_ex = _xa_extract(
