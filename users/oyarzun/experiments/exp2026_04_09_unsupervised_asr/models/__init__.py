@@ -1,0 +1,1 @@
+PACKAGE = __package__
