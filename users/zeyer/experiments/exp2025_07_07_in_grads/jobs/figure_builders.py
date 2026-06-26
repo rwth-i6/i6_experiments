@@ -103,6 +103,20 @@ _KINDS = [
         "FastConformer-CTC posteriors",
         None,
     ),
+    (
+        "Gradient",
+        "parakeet-ctc-buckeye-segA",
+        "parakeet-ctc-1.1b-prefixfwd-buckeye-segA-5h-L2_grad-pertoken",
+        "Parakeet-CTC",
+        None,
+    ),
+    (
+        "Posteriors",
+        "parakeet-posteriors-buckeye-segA",
+        "parakeet-ctc-1.1b-buckeye-segA-5h-posteriors-pertoken",
+        "Parakeet-CTC posteriors",
+        None,
+    ),
 ]
 _MANIFEST_SUFFIX = ".fig-manifest.json"
 _FIG_SUFFIX = ".fig.json"
@@ -147,19 +161,19 @@ def _figures(results, ds):
     # Combined paper figure (seq 13): four model panels stacked, in this order. Reuses the same part
     # data jobs as the single-part figures above (deduped); a not-yet-ready part renders as a placeholder.
     _by_prefix = {pre: (label, pre, hdf, model, tok) for (label, pre, hdf, model, tok) in _KINDS}
-    _combined_order = [
-        "fastconformer-posteriors-buckeye-segA",
-        "fastconformer-ctc-buckeye-segA",
-        "voxtral-selfattn-buckeye-segA",
-        "voxtral-buckeye-segA",
+    _combined = [
+        ("fastconformer-posteriors-buckeye-segA", "CTC posteriors"),
+        ("fastconformer-ctc-buckeye-segA", "CTC grad"),
+        ("voxtral-selfattn-buckeye-segA", "Voxtral self-att"),
+        ("voxtral-buckeye-segA", "Voxtral grad"),
     ]
     _cseq = 13
     _cparts = []
-    for _pre in _combined_order:
+    for _pre, _plabel in _combined:
         _label, _, _hdf, _model, _tok = _by_prefix[_pre]
         _job = _part_job(results, ds, _hdf, _model, _cseq, _tok)
         if _job is not None:
-            _cparts.append((_model, f"{_pre}-seq{_cseq}", _job))
+            _cparts.append((_plabel, f"{_pre}-seq{_cseq}", _job))  # custom panel label; job deduped via _model
     if _cparts:
         yield f"combined-seq{_cseq}", _cparts
 

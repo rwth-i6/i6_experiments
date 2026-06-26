@@ -4092,6 +4092,15 @@ def py():
     reg(f"{_fc_post_name}.hdf", _fc_post.out_hdf)
     _xa_align(_fc_post, _fc_post_name, "en0.5-sil1.0")  # our DP on the CTC posteriors (+ wordtopo twin)
 
+    # Parakeet-CTC per-ref-token posteriors (Buckeye-segA): same as the FastConformer posteriors above,
+    # for the Parakeet figure AND our DP on the Parakeet CTC posteriors.
+    _pk_post = ExtractCtcPosteriorsPerTokenJob(dataset_dir=_xa_dir, dataset_key="test", model_config=parakeet_ctc_cfg)
+    _pk_post.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    _pk_post_name = f"parakeet-ctc-1.1b-{_xa_tag}-posteriors-pertoken"
+    _pk_post.add_alias(_pk_post_name)
+    reg(f"{_pk_post_name}.hdf", _pk_post.out_hdf)
+    _xa_align(_pk_post, _pk_post_name, "en0.5-sil1.0")  # our DP on the Parakeet CTC posteriors (+ wordtopo twin)
+
     # (4d) Whisper-large-v3 cross-attn DTW (whisper-timestamped heads for large-v3):
     # the same-model attention counterpart of the large-v3 grad row, on segA and TIMIT-test.
     for _ca3_dir, _ca3_key, _ca3_off, _ca3_tag in [
