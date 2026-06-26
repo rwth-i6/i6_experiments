@@ -2217,6 +2217,7 @@ def py():
     # log_probs path). No char_level yet -- per-token here means per-Mistral
     # subword, K=1 for most words.
     dl_voxtral = download_voxtral_mini_3b_model()
+    reg("voxtral-mini-3b-model", dl_voxtral)  # tokenizer dir for the self-att figure's subword labels
     voxtral_cfg = rf.build_dict(Voxtral, model_dir=dl_voxtral)
 
     # Verbatim-prompt variant. Voxtral default prompt produced ~6.9%

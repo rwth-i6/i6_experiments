@@ -75,6 +75,27 @@ _KINDS = [
         "Whisper-large cross-att",
         "whisper-large-v3-model",
     ),
+    (
+        "Gradient",
+        "fastconformer-ctc-buckeye-segA",
+        "fastconformer-stream-ctc-buckeye-segA-5h-L2_grad-pertoken",
+        "FastConformer-CTC",
+        None,
+    ),
+    (
+        "Gradient",
+        "voxtral-buckeye-segA",
+        "voxtral-charlevlogmel-buckeye-segA-5h-L1_grad-pertoken",
+        "Voxtral",
+        None,
+    ),
+    (
+        "Self-attention",
+        "voxtral-selfattn-buckeye-segA",
+        "baseline-voxtral-selfattn-buckeye-segA-5h",
+        "Voxtral self-att",
+        None,  # voxtral tekken tokenizer needs the overlay (not in the render env); labels blank
+    ),
 ]
 _MANIFEST_SUFFIX = ".fig-manifest.json"
 _FIG_SUFFIX = ".fig.json"
