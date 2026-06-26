@@ -180,6 +180,7 @@ def py():
     # Isolates the rope effect in the offline/full-context setting,
     # parallel to the chunked -v2.3 vs -v2.3-rope ablation.
     # (No ctembed: chunk-type embedding is meaningless without chunks.)
+    # Result: 7.35 / 8.21 (~= base 7.32 / 8.10) -> RoPE ~neutral in the offline/full-context setting.
     train(
         "base-rope",
         {
@@ -491,6 +492,7 @@ def py():
     # Non-dyn (fixed chunk) + rope + ctembed: the fixed-chunk control for the dyn-pool ablation,
     # holding rope and ctembed constant so only dyn-vs-fixed differs.
     # In the no-rope/no-ctembed comparison, fixed beat dyn (9.46 vs 9.66); this checks if that still holds.
+    # Result: 9.38 / 10.05 (vs dyn-rope-ctembed 9.41 / 10.29) -> fixed vs dyn ~tied here (with rope+ctembed).
     name = f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-rope-ctembed"
     exp, task, aux_ctc_layer = train(
         name,
@@ -1319,6 +1321,9 @@ def py():
     # Is overlap's gain (9.46 -> 9.26) just ~2x compute, and is lookahead even needed?
     # Train the plain v2.3 baseline for 2x as long (total_k_hours 100 -> 200, i.e. 8 full epochs),
     # then compare its CTC-only to overlap's 9.26.
+    # Result: 8.89 / 9.5 (best ep190; beats 1x baseline 9.46, ~= overlap 9.26).
+    # NOTE: the last epoch (200) CTC head diverged (dev_loss_ctc_16 ep190 0.333 -> ep200 0.489),
+    # so this model's aed+ctc / ctc+lm numbers (pinned to the last epoch) are unreliable -- use ep190.
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-2xtrain",
         {
@@ -1338,6 +1343,7 @@ def py():
 
     # Does overlap remove the need for lookahead?
     # v2.3-overlap but with chunk_lookahead_size=0 (R0).
+    # Result: 12.82 / 13.38 -> no: R0 (no lookahead) hurts badly even with overlap (vs R4 overlap 9.26).
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R0-v2.3-overlap",
         {
@@ -1514,7 +1520,7 @@ def py():
     # To report for next time:
     # - Train-pool comparison (rope+ctembed fixed; pools = chunk_size / history / lookahead), dev / test.
     #   Recipe dirs: chunked-L80-C5-R4-v2.3-{dyn,dynCx3,dynV4,dynV3,dynV2}-rope-ctembed.
-    #   [5,10,20,40,None] / [80,40] / [4,2]: 9.41 / 10.29 (=dyn; 107.3h, run1 was 128.3h on slower impl),
+    #   [5,10,20,40,None] / [80,40] / [4,2]: 9.41 / 10.29 (=dyn-rope-ctembed, 128.3h; faster-rope rerun run2 = 9.52 / 10.21 at 107.3h),
     #   [5,5,5,10,20,40,None] / [80,40] / [4,2]: 9.47 / 10.28 (=dynCx3, oversample small C; no gain, 120.8h),
     #   [5,10,20,40,None] / [80,40] / [4,2,0]: 9.65 / 10.42 (=dynV4, 0 in lookahead only; 103.7h),
     #   [5,10,20,40,None] / [80,40,0] / [4,2,0]: 10.33 / 10.99 (=dynV3, 0 in history+lookahead; 97.1h),
@@ -1555,12 +1561,12 @@ def py():
     #   offline base +inf (whole seq needed).
 
     # For next time:
-    # - non-dyn rope-ctembed still running. (TODO put result here once ready; dynV4 now in the table above.)
-    #   TODO complete dyn comparison, maybe make dedicated table, extracting what we already listed above.
-    #     Not sure if we get new insights here.
-    # - R0-v2.3-overlap run. (TODO put result here once ready)
-    # - chunked-L80-C5-R4-v2.3-(nondyn)-2xtrain (TODO put result here once ready)
-    #   TODO complete the other 2xtrain results maybe in dedicated table? Or maybe not. Not sure if we learn sth here.
+    # - non-dyn rope-ctembed: 9.38 / 10.05 (vs dyn-rope-ctembed 9.41 / 10.29) -> dyn vs fixed ~tied.
+    # - R0-v2.3-overlap: 12.82 / 13.38 -> dropping lookahead (R0) hurts badly even with overlap
+    #   (vs R4 overlap 9.26) -> overlap does NOT remove the need for lookahead.
+    # - chunked-L80-C5-R4-v2.3-(nondyn)-2xtrain: 8.89 / 9.5 (best ep190; beats 1x baseline 9.46).
+    #   The last epoch (200) CTC head diverged, so its aed+ctc / ctc+lm numbers (last-epoch-pinned)
+    #   are unreliable -- use ep190. 2xtrain set complete: base 6.58, dyn-rope-ctembed 8.49, non-dyn 8.89.
     # - longform (TEDLium; so far ONLY chunked-L80-C5-R4-v2.3-dyn-rope-ctembed, streaming-KV seg10):
     #   seg.test 5.12, seg-filtered.test 4.88, long.test 4.97.
     #   seg = HF Open-ASR-Leaderboard "tedlium" (1155 utts, 27500 words),
@@ -1578,8 +1584,10 @@ def py():
     #   mamba2 best of the linear-attn set.
     #   mamba2-bidir-ssdchunk256 10.74 / 11.52 (291.5h): bidir HURTS mamba2 too (vs uni 10.47);
     #   plain mamba2-bidir (bs/4) was dropped, superseded by ssdchunk256.
-    # - TODO 4xtrain... base also with rope? plot to extrapolate. run all models also in consistent recog (offline)
-    #     maybe more train scale tuning?
+    # - 4xtrain (in progress, 2026-06): base-4xtrain + dyn-rope-ctembed-4xtrain running, offline recog wired.
+    #   base-rope (offline + rope, 1x) done: 7.35 / 8.21 (~= base 7.32 / 8.10 -> RoPE neutral offline).
+    #   TODO once 4x done: plot offline WER vs scale (1x/2x/4x), base vs dyn-rope-ctembed, extrapolate the gap.
+    #   base-rope at scale (4x) not run. maybe more train scale tuning?
     # - TODO overlap on posteriors?
     # - TODO summarize findings for all these streaming/chunking experiments
 
