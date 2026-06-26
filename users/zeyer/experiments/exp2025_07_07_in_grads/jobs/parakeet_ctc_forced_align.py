@@ -24,8 +24,10 @@ class ParakeetCtcForcedAlignJob(Job):
     # model_config (opt-in, hash-excluded when None) generalizes this to any CTC model
     # with a forced_align_words() method (e.g. streaming FastConformer);
     # None keeps the ParakeetCtc path.
-    __sis_hash_exclude__ = {"model_config": None, "emit_boundaries_hdf": False}
-    __sis_version__ = 2  # center_offset / width_signed_err / center_abs (align_metrics)
+    __sis_hash_exclude__ = {"model_config": None}
+    __sis_version__ = (
+        3  # always dump the word-boundary HDF; WBE/stats now via CalcAlignmentMetricsFromWordBoundariesJob
+    )
 
     def __init__(
         self,
@@ -37,7 +39,6 @@ class ParakeetCtcForcedAlignJob(Job):
         dataset_offset_factors: int,
         returnn_root: Optional[tk.Path] = None,
         model_config: Optional[dict] = None,
-        emit_boundaries_hdf: bool = False,
     ):
         super().__init__()
         self.dataset_dir = dataset_dir
@@ -47,15 +48,10 @@ class ParakeetCtcForcedAlignJob(Job):
         self.dataset_offset_factors = dataset_offset_factors
         self.returnn_root = returnn_root
         self.model_config = model_config
-        self.emit_boundaries_hdf = emit_boundaries_hdf
         self.rqmt = {"time": 4, "cpu": 2, "gpu": 1, "mem": 16}
-        # hyp-mode: emit only the predicted word-boundary HDF (the hyp dataset has no gold times);
-        # forced-mode (default): the in-job WBE against the dataset's gold word_detail.
-        if emit_boundaries_hdf:
-            self.out_word_boundaries_hdf = self.output_path("word_boundaries.hdf")
-        else:
-            self.out_word_wbe = self.output_var("word_wbe.txt")
-            self.out_word_metrics = self.output_var("word_metrics.txt")
+        # Always dump the predicted per-word boundaries (seconds); metrics (WBE etc.) are computed
+        # uniformly downstream by CalcAlignmentMetricsFromWordBoundariesJob, same as every other aligner.
+        self.out_word_boundaries_hdf = self.output_path("word_boundaries.hdf")
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -80,10 +76,6 @@ class ParakeetCtcForcedAlignJob(Job):
         import torch
         from datasets import load_dataset
         from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.parakeet_ctc import ParakeetCtc
-        from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.align_metrics import (
-            per_utt_boundary_errors,
-            aggregate_corpus,
-        )
 
         dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if self.model_config is not None:
@@ -92,41 +84,22 @@ class ParakeetCtcForcedAlignJob(Job):
             model = make_model(**instanciate_delayed_copy(self.model_config), device=dev)
         else:
             model = ParakeetCtc(device=dev, model_dir=self.model_dir.get_path(), overlay_path=self.overlay_path)
-        scale = self.dataset_offset_factors / model.target_sr
-
         ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))
         print("Using key:", self.dataset_key, "num seqs:", len(ds[self.dataset_key]), flush=True)
 
-        boundaries_writer = None
-        if self.emit_boundaries_hdf:
-            from returnn.datasets.hdf import SimpleHDFWriter
+        from returnn.datasets.hdf import SimpleHDFWriter
 
-            boundaries_writer = SimpleHDFWriter(self.out_word_boundaries_hdf.get_path(), dim=2, ndim=2)
-
-        word_errs = []
+        boundaries_writer = SimpleHDFWriter(self.out_word_boundaries_hdf.get_path(), dim=2, ndim=2)
         for seq_idx, data in enumerate(ds[self.dataset_key]):
             audio = torch.tensor(np.asarray(data["audio"]["array"], dtype=np.float32))
             sr = int(data["audio"]["sampling_rate"])
-            wd = data["word_detail"]
-            words = list(wd["utterance"])
-            # empty hypothesis (the model recognised nothing) has no words to align
-            # and would crash torchaudio.forced_align (max() over an empty target);
-            # emit empty boundaries for that seq.
+            words = list(data["word_detail"]["utterance"])
+            # empty hypothesis (model recognised nothing) has no words to align and would crash
+            # torchaudio.forced_align (max() over an empty target); emit empty boundaries for that seq.
             pred_word_se = model.forced_align_words(audio=audio, sample_rate=sr, words=words) if words else []
-            if boundaries_writer is not None:
-                # predicted boundaries are already seconds -> CalcHypAlignMetricsJob scales the ref.
-                arr = np.asarray(pred_word_se, dtype="float32").reshape(1, len(pred_word_se), 2)
-                boundaries_writer.insert_batch(arr, [len(pred_word_se)], [f"seq-{seq_idx}"])
-            else:
-                ref_word_se = [(s * scale, e * scale) for s, e in zip(wd["start"], wd["stop"])]
-                word_errs.append(per_utt_boundary_errors(pred_word_se, ref_word_se))
+            # predicted boundaries are already seconds; CalcAlignmentMetricsFromWordBoundariesJob scales the ref.
+            arr = np.asarray(pred_word_se, dtype="float32").reshape(1, len(pred_word_se), 2)
+            boundaries_writer.insert_batch(arr, [len(pred_word_se)], [f"seq-{seq_idx}"])
             if seq_idx % 200 == 0:
                 print(f"seq {seq_idx}: {len(words)} words", flush=True)
-
-        if boundaries_writer is not None:
-            boundaries_writer.close()
-            return
-        word_metrics = aggregate_corpus(word_errs)
-        print("WORD METRICS:", word_metrics)
-        self.out_word_wbe.set(word_metrics["wbe"])
-        self.out_word_metrics.set(word_metrics)
+        boundaries_writer.close()
