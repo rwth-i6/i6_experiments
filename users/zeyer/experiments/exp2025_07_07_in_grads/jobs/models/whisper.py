@@ -40,6 +40,7 @@ class Whisper(BaseModelInterface):
         act_dropout: float = 0.0,
         perturb_seed: int = 0,
         attn_implementation: Optional[str] = None,
+        grad_wrt: str = "log_mel",
         version: int = 1,
     ):
         super().__init__()
@@ -51,6 +52,7 @@ class Whisper(BaseModelInterface):
         self._char_level_sep = char_level_sep
         assert char_level_case in (None, "lower", "upper", "title"), char_level_case
         self._char_level_case = char_level_case
+        self.grad_wrt = grad_wrt
         self.version = version
 
         print("Import / load Whisper...")
@@ -125,13 +127,22 @@ class Whisper(BaseModelInterface):
             wav = apply_input_noise(wav, self._input_noise_std, self._perturb_seed)
 
         # Log-mel features [1, 80, 3000] (30 s padded).
-        # Grad leaf is the transposed [1, 3000, 80] (time x mel) so the extract reduces over mel.
         feats = self.feature_extractor(
             wav, sampling_rate=raw_inputs_sample_rate, return_tensors="pt"
         ).input_features.to(dev)  # [1, 80, 3000]
-        leaf = feats.transpose(1, 2).contiguous().detach().requires_grad_(True)  # [1, 3000, 80]
-        leaf.retain_grad()
-        feats_for_model = leaf.transpose(1, 2)  # [1, 80, 3000]
+        _enc_captured: List[torch.Tensor] = []
+        _enc_hook = None
+        if self.grad_wrt == "log_mel":
+            # Grad leaf is the log-mel, transposed [1, 3000, 80] so the extract reduces over mel (10 ms grid).
+            leaf = feats.transpose(1, 2).contiguous().detach().requires_grad_(True)  # [1, 3000, 80]
+            leaf.retain_grad()
+            feats_for_model = leaf.transpose(1, 2)  # [1, 80, 3000]
+        else:
+            # Grad leaf is an ENCODER-depth activation (20 ms grid): a forward hook leafifies it during the
+            # model call (see _register_enc_grad_hook), so the per-token grad measures saliency at that
+            # depth. The log-mel passes through ungradded.
+            feats_for_model = feats
+            _enc_hook = self._register_enc_grad_hook(_enc_captured)
 
         # Teacher-forced decoder input: prefix + transcription tokens.
         tok = self.processor.tokenizer
@@ -180,14 +191,21 @@ class Whisper(BaseModelInterface):
         dec_in = torch.tensor([self.prefix_ids + transc_ids], dtype=torch.long, device=dev)
         dst_text_start = len(self.prefix_ids)
 
-        with torch.enable_grad():
-            out = self.model(
-                input_features=feats_for_model,
-                decoder_input_ids=dec_in,
-                output_hidden_states=True,
-                output_attentions=collect_attentions is not None,
-            )
-            dec_hidden = out.decoder_hidden_states[-1]  # [1, P+U, H]
+        try:
+            with torch.enable_grad():
+                out = self.model(
+                    input_features=feats_for_model,
+                    decoder_input_ids=dec_in,
+                    output_hidden_states=True,
+                    output_attentions=collect_attentions is not None,
+                )
+                dec_hidden = out.decoder_hidden_states[-1]  # [1, P+U, H]
+        finally:
+            if _enc_hook is not None:
+                _enc_hook.remove()
+        if self.grad_wrt != "log_mel":
+            assert len(_enc_captured) == 1, f"expected 1 encoder hook call, got {len(_enc_captured)}"
+            leaf = _enc_captured[0]  # [1, T_enc, D] (20 ms grid)
         if collect_attentions is not None:
             # Rows = the query positions that PREDICT each transcript token; cols = encoder frames.
             n_enc = int(out.cross_attentions[0].shape[-1])
@@ -224,8 +242,10 @@ class Whisper(BaseModelInterface):
         )  # [1, U+1], EOS appended for chunk-exit lookups
         words_start_end = words_start_end + [[n_targets, n_targets + 1]]  # exit slot
 
-        # Slice the log-mel grad leaf to the real audio span (drop 30 s padding).
-        n_real = min(int(leaf.shape[1]), orig_n_samples // self.hop + 1)
+        # Slice the grad leaf to the real audio span (drop 30 s padding). The log-mel grid is 10 ms
+        # (hop 160); the encoder grid is 20 ms (the two conv layers downsample by 2).
+        _frame_hop = self.hop if self.grad_wrt == "log_mel" else 2 * self.hop
+        n_real = min(int(leaf.shape[1]), orig_n_samples // _frame_hop + 1)
         input_slice = (
             torch.tensor([0], dtype=torch.int64),
             torch.tensor([n_real], dtype=torch.int64),
@@ -249,6 +269,44 @@ class Whisper(BaseModelInterface):
             target_start_end=torch.tensor(words_start_end, dtype=torch.int64, device=dev).unsqueeze(0),
             outputs=dict(dec_hidden=dec_hidden, dst_text_start=dst_text_start),
         )
+
+    def _register_enc_grad_hook(self, captured: List[torch.Tensor]):
+        """Register a forward hook that leafifies the chosen encoder-depth activation (``self.grad_wrt``),
+        so the per-token gradient is taken w.r.t. that depth instead of the log-mel input.
+        ``enc_in`` = input to encoder layer 0 (after the conv subsampling, 20 ms grid);
+        ``enc_L<N>`` = output of encoder layer N (1-indexed);
+        ``enc_out`` = the final encoder output (after the encoder output layer-norm, what the decoder
+        cross-attends). The leaf is appended to ``captured``."""
+        enc = self.model.model.encoder
+        n_layers = len(enc.layers)
+
+        def _leafify(x: torch.Tensor) -> torch.Tensor:
+            leaf = x.detach().requires_grad_(True)
+            leaf.retain_grad()
+            captured.append(leaf)
+            return leaf
+
+        gw = self.grad_wrt
+        if gw == "enc_in":
+
+            def _pre(_m, args, kwargs):
+                return (_leafify(args[0]), *args[1:]), kwargs
+
+            return enc.layers[0].register_forward_pre_hook(_pre, with_kwargs=True)
+        if gw == "enc_out":
+
+            def _ln(_m, _inp, out):
+                return _leafify(out)
+
+            return enc.layer_norm.register_forward_hook(_ln)
+        assert gw.startswith("enc_L"), f"unknown grad_wrt {gw!r}"
+        idx = int(gw[len("enc_L") :])
+        assert 1 <= idx <= n_layers, f"{gw}: encoder layer {idx} out of range 1..{n_layers}"
+
+        def _layer_out(_m, _inp, out):
+            return (_leafify(out[0]), *out[1:])
+
+        return enc.layers[idx - 1].register_forward_hook(_layer_out)
 
     def log_probs(
         self,
