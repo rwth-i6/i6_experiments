@@ -1597,6 +1597,8 @@ def py():
     #   base-rope at scale (4x) not run. maybe more train scale tuning?
     # - TODO overlap on posteriors?
     # - TODO summarize findings for all these streaming/chunking experiments
+    # - TODO framewise models (non-chunked), FastEmit or so?
+    #     unidir Mamba is already almost like that (except maybe non-causal convolution?)
 
 
 _base_config = {
