@@ -4101,6 +4101,29 @@ def py():
     reg(f"{_pk_post_name}.hdf", _pk_post.out_hdf)
     _xa_align(_pk_post, _pk_post_name, "en0.5-sil1.0")  # our DP on the Parakeet CTC posteriors (+ wordtopo twin)
 
+    # Forced-align word boundaries (torchaudio Viterbi on each model's own CTC emission) on segA, dumped to
+    # an HDF. These are the boundaries the posteriors FIGURE panels show -- the model's native alignment of
+    # the posteriors, not our DP (the WBE baselines above keep using the wbe-mode jobs).
+    _fc_fa_bnd = ParakeetCtcForcedAlignJob(
+        dataset_dir=_xa_dir,
+        dataset_key="test",
+        model_config=fc_ctc_cfg,
+        dataset_offset_factors=_xa_off,
+        emit_boundaries_hdf=True,
+    )
+    _fc_fa_bnd.add_alias(f"baseline-fastconformer-stream-ctc-{_xa_tag}-boundaries")
+    reg(f"fastconformer-stream-ctc-{_xa_tag}-forced-boundaries.hdf", _fc_fa_bnd.out_word_boundaries_hdf)
+    _pk_fa_bnd = ParakeetCtcForcedAlignJob(
+        dataset_dir=_xa_dir,
+        dataset_key="test",
+        model_dir=dl_parakeet_ctc.out_hub_cache_dir,
+        overlay_path=_NEMO_OVERLAY,
+        dataset_offset_factors=_xa_off,
+        emit_boundaries_hdf=True,
+    )
+    _pk_fa_bnd.add_alias(f"baseline-parakeet-ctc-1.1b-{_xa_tag}-boundaries")
+    reg(f"parakeet-ctc-1.1b-{_xa_tag}-forced-boundaries.hdf", _pk_fa_bnd.out_word_boundaries_hdf)
+
     # (4d) Whisper-large-v3 cross-attn DTW (whisper-timestamped heads for large-v3):
     # the same-model attention counterpart of the large-v3 grad row, on segA and TIMIT-test.
     for _ca3_dir, _ca3_key, _ca3_off, _ca3_tag in [

@@ -121,8 +121,16 @@ _KINDS = [
 _MANIFEST_SUFFIX = ".fig-manifest.json"
 _FIG_SUFFIX = ".fig.json"
 
+# Posteriors panels show the model's OWN forced-align (Viterbi) boundaries, not our DP -- the alignment
+# that panel actually represents. Map a posteriors part's prefix to the forced-align word-boundaries HDF
+# reg the driver dumps; all other panels keep our DP boundaries (no entry -> None).
+_FORCED_BND = {
+    "fastconformer-posteriors-buckeye-segA": "fastconformer-stream-ctc-buckeye-segA-5h-forced-boundaries",
+    "parakeet-posteriors-buckeye-segA": "parakeet-ctc-1.1b-buckeye-segA-5h-forced-boundaries",
+}
 
-def _part_job(results, ds, hdf_reg, model, seq, tokenizer_reg):
+
+def _part_job(results, ds, hdf_reg, model, seq, tokenizer_reg, forced_bnd_reg=None):
     hdf = results.get(f"{hdf_reg}.hdf")
     if hdf is None:
         return None
@@ -141,6 +149,7 @@ def _part_job(results, ds, hdf_reg, model, seq, tokenizer_reg):
         family="AED",
         dataset="buckeye-segA",
         tokenizer_dir=results.get(tokenizer_reg) if tokenizer_reg else None,
+        pred_word_boundaries_hdf=results.get(f"{forced_bnd_reg}.hdf") if forced_bnd_reg else None,
     )
 
 
@@ -154,7 +163,7 @@ def _figures(results, ds):
     """
     for seq in _PICK:
         for label, prefix, hdf_reg, model, tok_reg in _KINDS:
-            job = _part_job(results, ds, hdf_reg, model, seq, tok_reg)
+            job = _part_job(results, ds, hdf_reg, model, seq, tok_reg, _FORCED_BND.get(prefix))
             if job is not None:
                 name = f"{prefix}-seq{seq}"
                 yield name, [(None, name, job)]  # single-part: label None -> the part's model name
@@ -162,9 +171,9 @@ def _figures(results, ds):
     # data jobs as the single-part figures above (deduped); a not-yet-ready part renders as a placeholder.
     _by_prefix = {pre: (label, pre, hdf, model, tok) for (label, pre, hdf, model, tok) in _KINDS}
     _combined = [
-        ("fastconformer-posteriors-buckeye-segA", "CTC posteriors"),
-        ("fastconformer-ctc-buckeye-segA", "CTC grad"),
-        ("parakeet-ctc-buckeye-segA", "Parakeet grad"),
+        ("fastconformer-posteriors-buckeye-segA", "Streaming CTC posteriors"),
+        ("fastconformer-ctc-buckeye-segA", "Streaming CTC grad"),
+        ("parakeet-ctc-buckeye-segA", "CTC grad"),
         ("voxtral-selfattn-buckeye-segA", "Voxtral self-att"),
         ("voxtral-buckeye-segA", "Voxtral grad"),
     ]
@@ -172,7 +181,7 @@ def _figures(results, ds):
     _cparts = []
     for _pre, _plabel in _combined:
         _label, _, _hdf, _model, _tok = _by_prefix[_pre]
-        _job = _part_job(results, ds, _hdf, _model, _cseq, _tok)
+        _job = _part_job(results, ds, _hdf, _model, _cseq, _tok, _FORCED_BND.get(_pre))
         if _job is not None:
             _cparts.append((_plabel, f"{_pre}-seq{_cseq}", _job))  # custom panel label; job deduped via _model
     if _cparts:

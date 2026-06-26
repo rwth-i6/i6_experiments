@@ -32,6 +32,10 @@ class WriteFigureDataJob(Job):
     """
 
     __sis_version__ = 1
+    # pred_word_boundaries_hdf overrides the displayed boundaries with externally-computed ones
+    # (the model's own forced-align, for a posteriors panel); excluded at its None default so the
+    # grad/attention figure jobs (which pass None) keep their current hash.
+    __sis_hash_exclude__ = {"pred_word_boundaries_hdf": None}
 
     def __init__(
         self,
@@ -51,6 +55,7 @@ class WriteFigureDataJob(Job):
         dataset: str = "",
         tokenizer_dir: Optional[tk.Path] = None,
         returnn_root: Optional[tk.Path] = None,
+        pred_word_boundaries_hdf: Optional[tk.Path] = None,
     ):
         super().__init__()
         self.grad_score_hdf = grad_score_hdf
@@ -68,6 +73,7 @@ class WriteFigureDataJob(Job):
         self.dataset = dataset
         self.tokenizer_dir = tokenizer_dir
         self.returnn_root = returnn_root
+        self.pred_word_boundaries_hdf = pred_word_boundaries_hdf
         self.out_dir = self.output_path("figdata", directory=True)
         self.out_manifest = self.output_path("figdata/fig.json")
 
@@ -195,15 +201,29 @@ class WriteFigureDataJob(Job):
         emis = _emission(self.audio_energy_pow)  # [n_tok, n_tf], rows ~sum to 1
         emis_noen = _emission(0.0)
 
-        # The boundaries the production DP produces (faithful: same Aligner, same blank_override).
-        grad_for_align = grad_mat * (e[None, :] ** self.audio_energy_pow) if self.audio_energy_pow else grad_mat
-        aligner = Aligner(**self.align_opts)
-        tok_se = aligner.align(grad_for_align, blank_override=(blank_row if self.blank_silence_energy_scale else None))
-        assert len(tok_se) == n_tok
-        pred, cur = [], 0
-        for k in tokens_per_word:
-            pred.append([tok_se[cur][0] * secs_per_tf, tok_se[cur + k - 1][1] * secs_per_tf])
-            cur += k
+        # The displayed boundaries. Default: our production DP (faithful: same Aligner, same
+        # blank_override). For a posteriors panel we instead show the model's OWN forced-align (Viterbi)
+        # boundaries -- the method that panel actually represents -- read from the HDF the forced-align
+        # baseline job dumps (per-word [start, stop] in seconds, in dataset order).
+        if self.pred_word_boundaries_hdf is not None:
+            bnd = HDFDataset([self.pred_word_boundaries_hdf.get_path()])
+            bnd.initialize()
+            bnd.init_seq_order(epoch=1)
+            bnd.load_seqs(0, si + 1)
+            bnd_se = bnd.get_data(si, "data").reshape(-1, 2).astype(np.float64)
+            assert bnd_se.shape[0] == len(tokens_per_word), (bnd_se.shape, len(tokens_per_word))
+            pred = [[float(a), float(b)] for a, b in bnd_se]
+        else:
+            grad_for_align = grad_mat * (e[None, :] ** self.audio_energy_pow) if self.audio_energy_pow else grad_mat
+            aligner = Aligner(**self.align_opts)
+            tok_se = aligner.align(
+                grad_for_align, blank_override=(blank_row if self.blank_silence_energy_scale else None)
+            )
+            assert len(tok_se) == n_tok
+            pred, cur = [], 0
+            for k in tokens_per_word:
+                pred.append([tok_se[cur][0] * secs_per_tf, tok_se[cur + k - 1][1] * secs_per_tf])
+                cur += k
 
         words: List[str] = list(data[self.boundary_source]["utterance"])
         scale = self.dataset_offset_factors / samplerate
