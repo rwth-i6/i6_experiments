@@ -312,3 +312,28 @@ class FastConformerStreaming(BaseModelInterface):
         assert len(spans) == len(sub_ids), f"{len(spans)} vs {len(sub_ids)}"
         pred_sub_se = [(s.start * spf, s.end * spf) for s in spans]
         return [(pred_sub_se[a][0], pred_sub_se[b - 1][1]) for a, b in word_ranges]
+
+    def ctc_posteriors_per_token(self, *, audio: torch.Tensor, sample_rate: int, words: List[str]):
+        """Per-ref-token CTC posterior over time (head='ctc'): for each reference subword token i and
+        encoder frame t, ``P(class(token_i) | t)`` from the model's own CTC emission. Same axes as the
+        per-token grad / attention scores, so it feeds the same figure + alignment pipeline.
+        Returns ``(data [n_tok, T_enc], tokens_per_word [n_words], T_enc)``."""
+        assert self.head == "ctc", "ctc_posteriors_per_token is the CTC-head emission"
+        dev = self.device
+        wav = audio.to(dev).float()
+        if sample_rate != self.target_sr:
+            import torchaudio
+
+            wav = torchaudio.functional.resample(wav[None], sample_rate, self.target_sr)[0]
+        sub_ids, word_ranges = self._tokenize_words(words)
+        assert len(word_ranges) == len(words)
+        with torch.no_grad():
+            wav_len = torch.tensor([wav.shape[0]], device=dev, dtype=torch.long)
+            proc, proc_len = self.model.preprocessor(input_signal=wav[None], length=wav_len)
+            enc, enc_len = self.model.encoder(audio_signal=proc, length=proc_len)  # [1, H, T_enc]
+            log_probs = self.model.ctc_decoder(encoder_output=enc)[0].float()  # [T_enc, V] (log_softmax)
+        probs = log_probs.exp()  # [T_enc, V]
+        idx = torch.tensor(sub_ids, dtype=torch.long, device=dev)
+        data = probs.index_select(1, idx).transpose(0, 1).contiguous().cpu().numpy()  # [n_tok, T_enc]
+        tokens_per_word = [b - a for (a, b) in word_ranges]
+        return data, tokens_per_word, int(probs.shape[0])

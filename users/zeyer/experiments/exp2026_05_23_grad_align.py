@@ -118,6 +118,9 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.phoneme_
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.parakeet_ctc_forced_align import (
     ParakeetCtcForcedAlignJob,
 )
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.extract_ctc_posteriors_per_token import (
+    ExtractCtcPosteriorsPerTokenJob,
+)
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.owsm_ctc_forced_align import (
     OwsmCtcForcedAlignJob,
 )
@@ -4078,6 +4081,16 @@ def py():
             dataset_offset_factors=_fc_off,
         )
         reg(f"baseline-fastconformer-stream-rnnt-native-viterbi-{_fc_tag}-wbe.txt", _fc_nt_m.out_wbe)
+
+    # FastConformer-CTC per-ref-token posteriors (Buckeye-segA): dump the CTC emission posterior of each
+    # ref token over frames (same axes as the grad/att score), for the figure AND for aligning the
+    # posteriors with OUR decoder -- a direct comparison to the standard CTC forced-align baseline.
+    _fc_post = ExtractCtcPosteriorsPerTokenJob(dataset_dir=_xa_dir, dataset_key="test", model_config=fc_ctc_cfg)
+    _fc_post.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    _fc_post_name = f"fastconformer-stream-ctc-{_xa_tag}-posteriors-pertoken"
+    _fc_post.add_alias(_fc_post_name)
+    reg(f"{_fc_post_name}.hdf", _fc_post.out_hdf)
+    _xa_align(_fc_post, _fc_post_name, "en0.5-sil1.0")  # our DP on the CTC posteriors (+ wordtopo twin)
 
     # (4d) Whisper-large-v3 cross-attn DTW (whisper-timestamped heads for large-v3):
     # the same-model attention counterpart of the large-v3 grad row, on segA and TIMIT-test.

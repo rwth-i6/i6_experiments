@@ -96,6 +96,13 @@ _KINDS = [
         "Voxtral self-att",
         None,  # voxtral tekken tokenizer needs the overlay (not in the render env); labels blank
     ),
+    (
+        "Posteriors",
+        "fastconformer-posteriors-buckeye-segA",
+        "fastconformer-stream-ctc-buckeye-segA-5h-posteriors-pertoken",
+        "FastConformer-CTC posteriors",
+        None,
+    ),
 ]
 _MANIFEST_SUFFIX = ".fig-manifest.json"
 _FIG_SUFFIX = ".fig.json"
@@ -137,6 +144,24 @@ def _figures(results, ds):
             if job is not None:
                 name = f"{prefix}-seq{seq}"
                 yield name, [(None, name, job)]  # single-part: label None -> the part's model name
+    # Combined paper figure (seq 13): four model panels stacked, in this order. Reuses the same part
+    # data jobs as the single-part figures above (deduped); a not-yet-ready part renders as a placeholder.
+    _by_prefix = {pre: (label, pre, hdf, model, tok) for (label, pre, hdf, model, tok) in _KINDS}
+    _combined_order = [
+        "fastconformer-posteriors-buckeye-segA",
+        "fastconformer-ctc-buckeye-segA",
+        "voxtral-selfattn-buckeye-segA",
+        "voxtral-buckeye-segA",
+    ]
+    _cseq = 13
+    _cparts = []
+    for _pre in _combined_order:
+        _label, _, _hdf, _model, _tok = _by_prefix[_pre]
+        _job = _part_job(results, ds, _hdf, _model, _cseq, _tok)
+        if _job is not None:
+            _cparts.append((_model, f"{_pre}-seq{_cseq}", _job))
+    if _cparts:
+        yield f"combined-seq{_cseq}", _cparts
 
 
 def build_figures(results):
