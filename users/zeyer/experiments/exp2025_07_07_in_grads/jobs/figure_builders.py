@@ -164,6 +164,7 @@ def _figures(results, ds):
     _combined = [
         ("fastconformer-posteriors-buckeye-segA", "CTC posteriors"),
         ("fastconformer-ctc-buckeye-segA", "CTC grad"),
+        ("parakeet-ctc-buckeye-segA", "Parakeet grad"),
         ("voxtral-selfattn-buckeye-segA", "Voxtral self-att"),
         ("voxtral-buckeye-segA", "Voxtral grad"),
     ]
