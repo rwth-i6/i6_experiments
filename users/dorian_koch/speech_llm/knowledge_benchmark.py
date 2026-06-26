@@ -583,12 +583,20 @@ def knowledge_benchmark_py(
     inference_venv = speech_backend.inference_venv() if speech_backend.inference_venv else moshi_venv()
     # Single shard for a cloud API (one login-node mini_task) or a RAG backend (one shared
     # vLLM retrieval server); otherwise shard across GPUs for throughput.
-    single = speech_backend.cloud_api or speech_backend.retrieval_llm is not None
+    single = speech_backend.cloud_api or speech_backend.retrieval_llm is not None or speech_backend.needs_oracle_dataset
+    # Single-shard backends (cloud realtime API; MoshiRAG's serial retrieval pump) have no batched
+    # path -- force B=1 there regardless of the caller / the SpeechInference default, so a batched
+    # default can't leak into the RAG eval (the worker asserts batch_size==1; see
+    # moshirag/offline_inference.py, and the graph-build guard in speech_inference.py).
+    if single:
+        batch_size = 1
     _bs_kw = {} if batch_size is None else {"batch_size": batch_size}
+    _oracle_kw = {"oracle_dataset": data} if speech_backend.needs_oracle_dataset else {}
     moshi_out = sharded_knowledge_inference(
         num_shards=1 if single else 2,
         venv_python_path=inference_venv,
         **_bs_kw,
+        **_oracle_kw,
         in_dir=tts.out_dir,
         lora_weights=lora_weights,
         lora_config=lora_config,

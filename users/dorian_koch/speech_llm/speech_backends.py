@@ -76,6 +76,11 @@ class BackendSpec:
     # cloud_realtime.py. API key is read from the env at run time (gated, not hashed).
     cloud_api: bool = False
 
+    # --- KAME oracle modality -------------------------------------------------
+    # True => the offline driver needs the sampled dataset for the per-clip oracle answer/question;
+    # the knowledge pipeline threads ``data`` in as ``--oracle_dataset`` (KAME).
+    needs_oracle_dataset: bool = False
+
 
 # The default backend. Its callables double as the jobs' default arguments, so existing
 # Moshi runs keep their exact Sisyphus hash (these defaults are hash-excluded; only a
@@ -254,4 +259,30 @@ def moshirag_family_backend_spec(
         inference_venv=_venv,
         retrieval_llm=retrieval_llm,
         rqmt_override={"gpu": 2, "cpu": 6, "mem": 48, "time": 3},
+    )
+
+
+def kame_family_backend_spec(hf_repo: str = "SakanaAI/kame", inject_at_s: float | None = None) -> BackendSpec:
+    """KAME via the local moshi_family lib (oracle text stream; see kame_engine.py + projects/kame.md).
+
+    Runs ``python -m moshi_family.kame_offline_inference``; single-shard B=1 (oracle is per-clip). The
+    driver reads the sampled dataset (``--oracle_dataset``, threaded by the knowledge pipeline) for the
+    gt answer injected into the oracle stream -- the KAME oracle ceiling, no backend LLM."""
+
+    def _venv():
+        from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import moshi_family_venv
+
+        return moshi_family_venv()
+
+    extra: tuple[str, ...] = ("--hf_repo", hf_repo)
+    if inject_at_s is not None:
+        extra += ("--inject_at_s", str(inject_at_s))
+    return BackendSpec(
+        name="kame_family",
+        server=None,
+        offline_module="moshi_family.kame_offline_inference",
+        offline_extra_args=extra,
+        inference_venv=_venv,
+        needs_oracle_dataset=True,
+        rqmt_override={"gpu": 1, "cpu": 6, "mem": 48, "time": 3},
     )

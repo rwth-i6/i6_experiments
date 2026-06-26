@@ -113,6 +113,7 @@ class SpeechInference(BackendInferenceMixin, Job):
         # FDB-only attrs are absent (None) for knowledge jobs and vice-versa, so excluding their
         # "absent" default keeps each mode's hash clean.
         "asr_venv_python": None,
+        "oracle_dataset": None,
         # Hashed code-version knob: bump to force a fresh hash (and cascade re-runs to downstream
         # transcription/grading/eval) after a lib-code fix that is NOT part of the hash. Excluded
         # at the default (1) so it is a no-op until bumped.
@@ -144,6 +145,7 @@ class SpeechInference(BackendInferenceMixin, Job):
         lead_in_s: float = 2.0,
         capture_s: float = 24.0,
         batch_size: int = 32,
+        oracle_dataset: tk.Path | None = None,
         # --- fdb mode ---
         fdb_task: str | None = None,
         asr_venv_python: tk.AbstractPath | None = None,
@@ -180,6 +182,14 @@ class SpeechInference(BackendInferenceMixin, Job):
         self.lead_in_s = lead_in_s
         self.capture_s = capture_s
         self.batch_size = batch_size
+        # KAME oracle source (sampled dataset; None for all other backends).
+        self.oracle_dataset = oracle_dataset
+        # MoshiRAG (retrieval_llm backend) is a serial per-clip retrieval pump with no batched path
+        # (batching would re-introduce the fork's batched-server deadlock). Refuse B>1 at graph-build
+        # time so it fails here, not after a wasted GPU allocation. See moshirag/offline_inference.py.
+        assert not (self.retrieval_llm is not None and batch_size != 1), (
+            f"MoshiRAG (retrieval backend) only supports batch_size=1; got {batch_size}"
+        )
 
         # fdb-mode inputs
         self.fdb_task = fdb_task
@@ -272,6 +282,7 @@ class SpeechInference(BackendInferenceMixin, Job):
                 batch_size=self.batch_size,
                 shard=self.shard,
                 num_shards=self.num_shards,
+                oracle_dataset=(self.oracle_dataset.get() if self.oracle_dataset is not None else None),
             )
             return
         wav_files = sorted(Path(self.in_dir.get()).glob("*.wav"))

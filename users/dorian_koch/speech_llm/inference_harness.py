@@ -186,6 +186,7 @@ def run_offline_driver(
     batch_size: int | None = None,
     shard: int | None = None,
     num_shards: int | None = None,
+    oracle_dataset: str | None = None,
     lora_weights: str | None = None,
     lora_config: str | None = None,
     extra_args: Sequence[str] = (),
@@ -227,6 +228,8 @@ def run_offline_driver(
                 cmd += ["--lora_config", str(lora_config)]
     if shard is not None and num_shards is not None:
         cmd += ["--shard", str(shard), "--num_shards", str(num_shards)]
+    if oracle_dataset is not None:
+        cmd += ["--oracle_dataset", str(oracle_dataset)]
     cmd += list(extra_args)
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
