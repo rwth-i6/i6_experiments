@@ -86,7 +86,7 @@ def py():
 
     # LibriSpeech chunked-CTC context-length experiments (RQ4 encoder-context axis),
     # merged in from the former exp2026_05_27_chunked_ctc_ls recipe.
-    _train_ls_chunked()
+    baseline_exp = _train_ls_chunked()
 
     prefix = get_setup_prefix_for_module(__name__)
     task = get_librispeech_task_raw_v2(vocab="spm10k")
@@ -140,6 +140,54 @@ def py():
             ).out_plot_pdf,
         )
 
+    # LM softmax-temperature sweep on the offline baseline (new compute).
+    _lm_softmax_temperature_sweep(baseline_exp)
+
+
+def _lm_softmax_temperature_sweep(baseline_exp) -> None:
+    """
+    LM softmax-temperature sweep on the offline LS baseline CTC + LS Transformer-LM.
+
+    Varies the external-LM softmax temperature T (LM score = ``log_softmax(lm_logits / T)``),
+    which simultaneously changes the LM word-level perplexity
+    and the CTC+LM rescoring WER,
+    tracing a temperature-parametrized PPL-WER curve for one fixed AM + LM pair.
+
+    For each T the LM/prior scales are re-tuned on the N-best list,
+    and we use the *rescore* WER (``rescore-res.txt``),
+    which goes through the tempered ``lm_rescore_def`` and is thus consistent with the tempered PPL.
+    The first-pass decode does not see T, so its ``recog-1stpass-res.txt`` is not used here.
+    T == 1.0 omits the temperature key,
+    so its recog/PPL hashes match the untempered baseline and reuse the finished result.
+    """
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import (
+        ctc_recog_recomb_labelwise_prior_auto_scale,
+        _get_lm_model,
+        _lms,
+    )
+
+    prefix = get_setup_prefix_for_module(__name__)
+    task = get_librispeech_task_raw_v2(vocab="spm10k")
+    lm_name = "n32-d1024-claix2023"
+    lm = _get_lm_model(_lms[lm_name])
+    ctc_model = baseline_exp.get_last_fixed_epoch()
+
+    temperatures = [0.5, 0.7, 0.85, 1.0, 1.2, 1.5, 2.0]
+    for temp in temperatures:
+        lm_rescore_config = None if temp == 1.0 else {"lm_softmax_temperature": temp}
+        t_tag = f"T{temp:g}"
+        ctc_recog_recomb_labelwise_prior_auto_scale(
+            prefix=f"{prefix}/lm_temp_sweep/{t_tag}/ctc+lm",
+            task=task,
+            ctc_model=ctc_model,
+            extra_config={"aux_loss_layers": [16]},
+            lm=lm,
+            lm_rescore_config=lm_rescore_config,
+        )
+        _task_ppl, word_ppl = get_lm_perplexities_for_task_evals_v2(task, lm=lm, config=lm_rescore_config)
+        for eval_name, ppl_var in word_ppl.items():
+            tk.register_output(f"{prefix}/lm_temp_sweep/{t_tag}/{eval_name}/ppl.txt", ppl_var)
+
 
 def _train_ls_chunked():
     """
@@ -165,7 +213,7 @@ def _train_ls_chunked():
     # at ``~/setups/2025-08-aed-large/work/.../ReturnnTrainingJob.IVB5xAuHZZA3``.
     # The bulk-import script (``import_work_directory.py``) then symlinks
     # that finished training in here -- no re-training.
-    _train_ls_offline_baseline()
+    baseline_exp = _train_ls_offline_baseline()
 
     # ``(left_ctx, center, right_lookahead)`` in encoder frames (~60 ms each).
     # Causal variants (R=0) explore the encoder-only-latency budget;
@@ -196,6 +244,8 @@ def _train_ls_chunked():
             chunk_lookahead_size=right,
             batch_size=bs,
         )
+
+    return baseline_exp
 
 
 def _train_ls_offline_baseline():

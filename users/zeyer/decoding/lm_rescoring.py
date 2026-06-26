@@ -464,6 +464,19 @@ def lm_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, 
 
     chunk_size = returnn_config.typed_value("chunk_size_for_lm_rescoring", None)
 
+    # Optional LM softmax temperature T: score with log_softmax(logits / T).
+    # Default 1.0 is a no-op reproducing the untempered LM exactly
+    # (hash-stable for existing jobs: they don't set the key,
+    # and this function is hashed by reference, not by source body).
+    # T > 1 flattens the LM distribution (higher PPL, weaker LM);
+    # T < 1 sharpens it (lower PPL, stronger LM).
+    lm_softmax_temperature = returnn_config.typed_value("lm_softmax_temperature", 1.0)
+
+    def _lm_log_softmax(logits_: Tensor) -> Tensor:
+        if lm_softmax_temperature != 1.0:
+            logits_ = logits_ / lm_softmax_temperature
+        return rf.log_softmax(logits_, axis=model.vocab_dim)
+
     state = model.default_initial_state(batch_dims=batch_dims)
     if chunk_size:
         log_prob_targets_collected = []
@@ -476,7 +489,7 @@ def lm_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, 
                 targets_w_eos, axis=targets_w_eos_spatial_dim, start=chunk_start, end=end, out_dim=chunk_spatial_dim
             )
             logits_chunk, state = model(input_labels_chunk, spatial_dim=chunk_spatial_dim, encoder=None, state=state)
-            log_prob_chunk = rf.log_softmax(logits_chunk, axis=model.vocab_dim)
+            log_prob_chunk = _lm_log_softmax(logits_chunk)
             log_prob_targets_chunk = rf.gather(
                 log_prob_chunk, indices=targets_w_eos_chunk, axis=model.vocab_dim
             )  # [batch,beam,chunk_spatial_dim]
@@ -484,7 +497,7 @@ def lm_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, 
         log_prob_targets, _ = rf.concat(*log_prob_targets_collected, out_dim=targets_w_eos_spatial_dim)
     else:
         logits, _ = model(input_labels, spatial_dim=targets_w_eos_spatial_dim, encoder=None, state=state)
-        log_prob = rf.log_softmax(logits, axis=model.vocab_dim)
+        log_prob = _lm_log_softmax(logits)
         log_prob_targets = rf.gather(
             log_prob, indices=targets_w_eos, axis=model.vocab_dim
         )  # [batch,beam,targets_spatial_w_eos]
