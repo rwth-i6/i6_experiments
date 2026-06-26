@@ -492,7 +492,10 @@ def py():
     # Non-dyn (fixed chunk) + rope + ctembed: the fixed-chunk control for the dyn-pool ablation,
     # holding rope and ctembed constant so only dyn-vs-fixed differs.
     # In the no-rope/no-ctembed comparison, fixed beat dyn (9.46 vs 9.66); this checks if that still holds.
-    # Result: 9.38 / 10.05 (vs dyn-rope-ctembed 9.41 / 10.29) -> fixed vs dyn ~tied here (with rope+ctembed).
+    # Result: 9.38 / 10.05. Ablation in the fixed (non-dyn) setting:
+    # vs no rope + no ctembed (plain v2.3 9.46) and vs +rope only (9.31):
+    # rope helps (9.46 -> 9.31), adding ctembed on top slightly hurts here (9.31 -> 9.38);
+    # ctembed helps only with dyn (cf. dyn-rope 9.55 -> dyn-rope-ctembed 9.41).
     name = f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-rope-ctembed"
     exp, task, aux_ctc_layer = train(
         name,
@@ -1010,7 +1013,7 @@ def py():
     # )
 
     # Dyn + rope + ctembed + overlap.
-    # CTC-only: 10.20 (top CTC head specifically degraded vs non-dyn overlap; see projects notes)
+    # CTC-only: 10.42 (top CTC head specifically degraded vs non-dyn overlap; see projects notes)
     # Retired (disk cleanup): overlap regresses; numbers above.
     # train(
     #     f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed-overlap",
@@ -1321,9 +1324,10 @@ def py():
     # Is overlap's gain (9.46 -> 9.26) just ~2x compute, and is lookahead even needed?
     # Train the plain v2.3 baseline for 2x as long (total_k_hours 100 -> 200, i.e. 8 full epochs),
     # then compare its CTC-only to overlap's 9.26.
-    # Result: 8.89 / 9.5 (best ep190; beats 1x baseline 9.46, ~= overlap 9.26).
-    # NOTE: the last epoch (200) CTC head diverged (dev_loss_ctc_16 ep190 0.333 -> ep200 0.489),
-    # so this model's aed+ctc / ctc+lm numbers (pinned to the last epoch) are unreliable -- use ep190.
+    # Result: 8.89 / 9.5 (BEST ep190, not last -- exception to the last-epoch convention here).
+    # The last epoch (200) CTC head diverged (dev_loss_ctc_16 0.333@ep190 -> 0.489@ep200), so the last
+    # ckpt is bad and NOT directly comparable; its aed+ctc / ctc+lm (last-epoch-pinned) are unreliable.
+    # Beats 1x baseline 9.46, ~= overlap 9.26.
     train(
         f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-2xtrain",
         {
@@ -1517,32 +1521,32 @@ def py():
     # - Running Mamba-2 SSD and DeltaNet, and bidir variants.
     # - WBE/TSE. Goal is to also compute actual latency.
 
-    # To report for next time:
+    # Reported 12.6.2026:
     # - Train-pool comparison (rope+ctembed fixed; pools = chunk_size / history / lookahead), dev / test.
     #   Recipe dirs: chunked-L80-C5-R4-v2.3-{dyn,dynCx3,dynV4,dynV3,dynV2}-rope-ctembed.
     #   [5,10,20,40,None] / [80,40] / [4,2]: 9.41 / 10.29 (=dyn-rope-ctembed, 128.3h; faster-rope rerun run2 = 9.52 / 10.21 at 107.3h),
     #   [5,5,5,10,20,40,None] / [80,40] / [4,2]: 9.47 / 10.28 (=dynCx3, oversample small C; no gain, 120.8h),
     #   [5,10,20,40,None] / [80,40] / [4,2,0]: 9.65 / 10.42 (=dynV4, 0 in lookahead only; 103.7h),
-    #   [5,10,20,40,None] / [80,40,0] / [4,2,0]: 10.33 / 10.99 (=dynV3, 0 in history+lookahead; 97.1h),
-    #   [5,10,20,40,None,None,None,None] / [80,40,0] / [4,2,0]: 10.85 / 11.71 (=dynV2, +offline x4; 100.1h slower impl).
-    #   A 0 in the lookahead pool alone costs ~0.24 (-> dynV4 9.65); adding a 0 in history too -> dynV3 10.33;
-    #   the extra offline x4 -> dynV2 10.85. Plain dyn (no 0, single None) is best.
+    #   [5,10,20,40,None] / [80,40,0] / [4,2,0]: 10.49 / 11.15 (=dynV3, 0 in history+lookahead; 97.1h),
+    #   [5,10,20,40,None,None,None,None] / [80,40,0] / [4,2,0]: 11.0 / 11.85 (=dynV2, +offline x4; 100.1h slower impl).
+    #   A 0 in the lookahead pool alone costs ~0.24 (-> dynV4 9.65); adding a 0 in history too -> dynV3 10.49;
+    #   the extra offline x4 -> dynV2 11.0. Plain dyn (no 0, single None) is best.
     #   earlier non-dyn vs dyn (matched features, recog at C5; dev / test, train h):
     #   plain non-dyn 9.46 / 10.29 (168.8h) vs dyn 9.66 / 10.39 (103.9h);
     #   +rope non-dyn 9.31 / 10.16 (237.1h) vs dyn 9.55 / 10.30 (128.4h).
     #   non-dyn wins WER by ~0.2 at matched features, but trains slower (fixed small C5 = many chunks);
     #   dyn trains faster and one model generalizes across recog chunk sizes.
     # - Overlap at recog only (-ov2): hurts; C5-R4-ov2 10.65 (vs 9.41), C5-R2-ov2 18.10 (vs 10.14).
-    # - dyn-rope-ctembed-overlap-mse: MSE helps the overlap variant (dev 10.20 -> 9.99),
+    # - dyn-rope-ctembed-overlap-mse: MSE helps the overlap variant (dev 10.42 -> 10.10),
     #   but overlap still regresses vs no-overlap dyn-rope-ctembed (9.41).
-    #   Reference: overlap 10.20 / 11.03, overlap-mse 9.99 / 10.85, overlapD 9.75 / 10.56;
+    #   Reference: overlap 10.42 / 11.22, overlap-mse 10.10 / 10.92, overlapD 9.83 / 10.63;
     #   overlapD-ctembedfix 9.76 / 10.63 (~= overlapD, ctembedfix no help);
-    #   dyn-rope-overlapD (no ctembed) 10.41 / 11.44.
+    #   dyn-rope-overlapD (no ctembed) 10.55 / 11.47.
     # - dyn-rope-ctembed-impBase (finetune from offline base): clear gain.
-    #   baseLr0.25 best (dev 8.83 / test 9.68), baseLr0.5 ~tied (8.84 / 9.71),
-    #   baseLr0.1 weaker (8.97 / 9.85); vs from-scratch dyn-rope-ctembed 9.41 / 10.29.
-    # - base-2xtrain: dev 6.58 / test 7.41 (vs base 1x 7.32 / 8.10).
-    # - dyn-rope-ctembed-2xtrain: dev 8.49 / test 9.19 (213.7h),
+    #   baseLr0.25 best (dev 8.83 / test 9.69), baseLr0.5 ~tied (8.84 / 9.71),
+    #   baseLr0.1 weaker (9.03 / 9.90); vs from-scratch dyn-rope-ctembed 9.41 / 10.29.
+    # - base-2xtrain: dev 6.58 / test 7.39 (vs base 1x 7.32 / 8.10).
+    # - dyn-rope-ctembed-2xtrain: dev 8.52 / test 9.25 (213.7h),
     #   clear gain over 1x (9.41 / 10.29),
     #   also better than dyn-rope-ctembed-impBase.
     #   (Best from-scratch chunked streaming result so far.)
@@ -1561,12 +1565,15 @@ def py():
     #   offline base +inf (whole seq needed).
 
     # For next time:
-    # - non-dyn rope-ctembed: 9.38 / 10.05 (vs dyn-rope-ctembed 9.41 / 10.29) -> dyn vs fixed ~tied.
+    # - non-dyn rope-ctembed: 9.38 / 10.05. Fixed-setting ablation vs no-rope/no-ctembed (9.46) and +rope (9.31):
+    #   rope helps (9.46 -> 9.31), +ctembed slightly hurts here (9.31 -> 9.38);
+    #   ctembed helps only with dyn (dyn-rope 9.55 -> dyn-rope-ctembed 9.41).
     # - R0-v2.3-overlap: 12.82 / 13.38 -> dropping lookahead (R0) hurts badly even with overlap
     #   (vs R4 overlap 9.26) -> overlap does NOT remove the need for lookahead.
-    # - chunked-L80-C5-R4-v2.3-(nondyn)-2xtrain: 8.89 / 9.5 (best ep190; beats 1x baseline 9.46).
-    #   The last epoch (200) CTC head diverged, so its aed+ctc / ctc+lm numbers (last-epoch-pinned)
-    #   are unreliable -- use ep190. 2xtrain set complete: base 6.58, dyn-rope-ctembed 8.49, non-dyn 8.89.
+    # - chunked-L80-C5-R4-v2.3-(nondyn)-2xtrain: 8.89 / 9.5 (BEST ep190, not last -- exception to the
+    #   last-epoch convention: last epoch (200) CTC head diverged, last ckpt bad, NOT directly comparable;
+    #   its aed+ctc / ctc+lm are unreliable). Beats 1x baseline 9.46.
+    #   2xtrain set: base 6.58, dyn-rope-ctembed 8.52, non-dyn 8.89 (best).
     # - longform (TEDLium; so far ONLY chunked-L80-C5-R4-v2.3-dyn-rope-ctembed, streaming-KV seg10):
     #   seg.test 5.12, seg-filtered.test 4.88, long.test 4.97.
     #   seg = HF Open-ASR-Leaderboard "tedlium" (1155 utts, 27500 words),
@@ -1578,8 +1585,8 @@ def py():
     #   the raw seg 5.12 vs long 4.97 gap was just the extra TomWujec talk).
     #   TODO: run long-form for more models (other chunk sizes, offline base) for a real cross-model comparison.
     # - Linear-attention encoders, all worse than conformer dyn-rope-ctembed 9.41 / 10.29:
-    #   mamba2 dev 10.47 / test 11.35 (174.0h),
-    #   deltanet 11.09 / 11.93 (164.3h),
+    #   mamba2 dev 10.52 / test 11.49 (174.0h),
+    #   deltanet 11.09 / 11.95 (164.3h),
     #   deltanet-bidir 11.41 / 12.28 (197.9h, bidir HURTS vs uni).
     #   mamba2 best of the linear-attn set.
     #   mamba2-bidir-ssdchunk256 10.74 / 11.52 (291.5h): bidir HURTS mamba2 too (vs uni 10.47);
