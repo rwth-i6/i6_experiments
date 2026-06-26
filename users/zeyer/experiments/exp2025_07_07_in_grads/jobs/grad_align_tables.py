@@ -72,8 +72,7 @@ def build_tables(results):
     # _time_stretch_table() is built by the torch-2.12 companion recipe exp2026_05_23_grad_align_p212
     # (its wav2vec2-CTC ts cells need the compiled-scan split, torch-2.12 only); see build_time_stretch_table.
     _word_length_table()  # word-duration accuracy (signed word-width error) per model
-    _matched_tok_table()  # matched-tokenization: grad vs cross-attn x char/subword (whisper)
-    _char_subword_family_table()  # char vs subword grad-align, one representative model per family
+    _char_subword_family_table()  # char vs subword, one rep model per family (grad + native), replaces matched-tok
     _wav2vec_resolution_table()  # wav2vec2-CTC grad-align vs internal time-resolution level
     _encoder_depth_table()  # grad-align vs encoder depth (Whisper-large + FastConformer side by side)
     _ablation_table()  # T3a grad-score reduction (cross-model)
@@ -457,128 +456,99 @@ def _word_length_table():
 
 
 # ----------------------------------------------------------------------------------------
-# T2 fairness 2x2: whisper grad vs cross-attn DTW, char vs subword.
-#     Method-consistent -- both use the PLAIN cross-attn forced align (no head auto-selection),
-#     so the only variable per column is the tokenization.
-#     Grad wins every cell; char helps grad; char collapses cross-attn on spontaneous Buckeye.
-# ----------------------------------------------------------------------------------------
-def _matched_tok_table():
-    DATASETS = [("TIMIT", "timit-test"), ("Buckeye", "buckeye-segA-5h")]
-    columns = ["method", "c_wbe", "c_a50", "s_wbe", "s_a50"]
-    rows = []
-    for di, (dlabel, ds) in enumerate(DATASETS):
-        if di > 0:
-            rows.append({"label": None, "cells": {}})
-        gc = f"align/whisper-base-logmel-{ds}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil2.0-wordtopo"
-        gs = f"align/whisper-base-logmel-{ds}-L2_grad-pertoken-subword-asotTrue-bs-5-en0.5-sil2.0-wordtopo"
-        xc = f"baseline-whisper-crossattn-charlev-{ds}"
-        xs = f"baseline-whisper-crossattn-{ds}"
-        rows.append(
-            {
-                "label": dlabel,
-                "cells": {
-                    "method": "Gradients",
-                    "c_wbe": _wbe(gc),
-                    "c_a50": _metric(gc, "acc_50ms"),
-                    "s_wbe": _wbe(gs),
-                    "s_a50": _metric(gs, "acc_50ms"),
-                },
-            }
-        )
-        rows.append({"cline": True})
-        rows.append(
-            {
-                "label": "",
-                "cells": {
-                    "method": "Cross-att.",
-                    "c_wbe": _wbe(xc),
-                    "c_a50": _metric(xc, "acc_50ms"),
-                    "s_wbe": _wbe(xs),
-                    "s_a50": _metric(xs, "acc_50ms"),
-                },
-            }
-        )
-    _emit("matched-tokenization", columns, rows)
-
-
-# ----------------------------------------------------------------------------------------
-# Char vs subword grad-align, ONE representative model per family (CTC / transducer / AED / Sp. LLM).
-#     Fixed DP (Buckeye-segA, en0.5-sil2.0, word-topology); only the target tokenization varies per
-#     column, so it isolates the granularity effect across families. The CTC/transducer char rows use
-#     the new forced char-level Parakeet wrappers (same model + per-token score as their subword rows).
+# Char vs subword, ONE representative model per family (CTC / transducer / AED / Sp. LLM), each shown
+#     with its gradient alignment AND its model-native alternative (CTC posteriors, transducer
+#     native-Viterbi, cross-attention, self-attention). Fixed DP (Buckeye-segA, en0.5-sil2.0,
+#     word-topology); only the tokenization differs between the Char and Subword column groups.
+#     Same conventions as the per-model-methods table (multirow Type/Name, "Gradients"/"Posteriors").
 # ----------------------------------------------------------------------------------------
 def _char_subword_family_table():
     S = "buckeye-segA-5h"
     SFX = "asotTrue-bs-5-en0.5-sil2.0-wordtopo"
 
-    def grad(stem):  # gradient-align cell pair (wbe, acc@50ms) for an "align/<stem>"
-        return _wbe(f"align/{stem}"), _metric(f"align/{stem}", "acc_50ms")
+    def gr(stem):  # gradient / attention align (WordAlign-based): "align/<stem>-<SFX>"
+        return f"align/{stem}-{SFX}"
 
-    def base(name):  # model-native baseline cell pair, registered as "baseline-...-wbe.txt"
-        return _wbe(name), _metric(name, "acc_50ms")
-
-    # (type, model, method, char (wbe, a50), subword (wbe, a50)). The CTC/transducer reps get BOTH the
-    # gradient row and the model-native alternative align (CTC posteriors / RNN-T native-viterbi), each
-    # char vs subword; AED/LLM show the gradient row (whisper's cross-att char/subword is in T2).
+    # (type, model, method, char base, subword base). Grad / cross-attn / self-attn rows are WordAlign
+    # outputs (gr(...)); the CTC/transducer posteriors rows are the model's forced-align baseline.
     ROWS = [
         (
             "CTC",
             "Parakeet CTC",
             "Gradients",
-            grad(f"parakeet-ctc-1.1b-prefixfwd-char-abl-{S}-L2_grad-pertoken-{SFX}"),
-            grad(f"parakeet-ctc-1.1b-prefixfwd-abl-{S}-L2_grad-pertoken-{SFX}"),
+            gr(f"parakeet-ctc-1.1b-prefixfwd-char-abl-{S}-L2_grad-pertoken"),
+            gr(f"parakeet-ctc-1.1b-prefixfwd-abl-{S}-L2_grad-pertoken"),
         ),
         (
-            "",
-            "",
+            "CTC",
+            "Parakeet CTC",
             "Posteriors",
-            base(f"baseline-parakeet-ctc-1.1b-char-{S}"),
-            base(f"baseline-parakeet-ctc-1.1b-{S}"),
+            f"baseline-parakeet-ctc-1.1b-char-{S}",
+            f"baseline-parakeet-ctc-1.1b-{S}",
         ),
         (
             "Transd.",
             "Parakeet RNN-T",
             "Gradients",
-            grad(f"parakeet-rnnt-1.1b-logmel-char-abl-{S}-L2_grad-pertoken-{SFX}"),
-            grad(f"parakeet-rnnt-1.1b-logmel-abl-{S}-L2_grad-pertoken-{SFX}"),
+            gr(f"parakeet-rnnt-1.1b-logmel-char-abl-{S}-L2_grad-pertoken"),
+            gr(f"parakeet-rnnt-1.1b-logmel-abl-{S}-L2_grad-pertoken"),
         ),
         (
-            "",
-            "",
-            "Native-Viterbi",
-            base(f"baseline-parakeet-rnnt-1.1b-char-native-viterbi-{S}"),
-            base(f"baseline-parakeet-rnnt-1.1b-native-viterbi-{S}"),
+            "Transd.",
+            "Parakeet RNN-T",
+            "Posteriors",
+            f"baseline-parakeet-rnnt-1.1b-char-native-viterbi-{S}",
+            f"baseline-parakeet-rnnt-1.1b-native-viterbi-{S}",
         ),
         (
             "AED",
-            "Whisper-base",
+            "Whisper-large-v3",
             "Gradients",
-            grad(f"whisper-base-logmel-{S}-L2_grad-pertoken-charlev-spc-{SFX}"),
-            grad(f"whisper-base-logmel-{S}-L2_grad-pertoken-subword-{SFX}"),
+            gr(f"whisper-large-v3-logmel-{S}-L2_grad-pertoken-charlev-spc"),
+            gr(f"whisper-large-v3-logmel-{S}-L2_grad-pertoken-subword"),
+        ),
+        (
+            "AED",
+            "Whisper-large-v3",
+            "Cross-att.",
+            gr(f"baseline-whisper-large-v3-crossattn-charlev-{S}"),
+            gr(f"baseline-whisper-large-v3-crossattn-auto-{S}"),
         ),
         (
             "Sp. LLM",
             "Voxtral",
             "Gradients",
-            grad(f"voxtral-charlevlogmel-{S}-L1_grad-pertoken-{SFX}"),
-            grad(f"voxtral-logmel-{S}-L1_grad-pertoken-subword-{SFX}"),
+            gr(f"voxtral-charlevlogmel-{S}-L1_grad-pertoken"),
+            gr(f"voxtral-logmel-{S}-L1_grad-pertoken-subword"),
+        ),
+        (
+            "Sp. LLM",
+            "Voxtral",
+            "Self-att.",
+            gr(f"baseline-voxtral-char-selfattn-{S}"),
+            gr(f"baseline-voxtral-selfattn-{S}"),
         ),
     ]
     columns = ["type", "model", "method", "c_wbe", "c_a50", "s_wbe", "s_a50"]
-    rows = [
-        {
-            "cells": {
-                "type": typ,
-                "model": mlabel,
-                "method": method,
-                "c_wbe": cw,
-                "c_a50": ca,
-                "s_wbe": sw,
-                "s_a50": sa,
-            },
-        }
-        for typ, mlabel, method, (cw, ca), (sw, sa) in ROWS
-    ]
+    rows = []
+    prev = None
+    for typ, model, method, cbase, sbase in ROWS:
+        if prev is not None and typ != prev:
+            rows.append({"hline2": True})  # double rule between families
+        prev = typ
+        rows.append(
+            {
+                "cells": {
+                    "type": typ,
+                    "model": model,
+                    "method": method,
+                    "c_wbe": _wbe(cbase),
+                    "c_a50": _metric(cbase, "acc_50ms"),
+                    "s_wbe": _wbe(sbase),
+                    "s_a50": _metric(sbase, "acc_50ms"),
+                },
+            }
+        )
     _emit("char-vs-subword-family", columns, rows)
 
 
