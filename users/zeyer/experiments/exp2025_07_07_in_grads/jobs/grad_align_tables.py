@@ -75,6 +75,7 @@ def build_tables(results):
     _matched_tok_table()  # matched-tokenization: grad vs cross-attn x char/subword (whisper)
     _char_subword_family_table()  # char vs subword grad-align, one representative model per family
     _wav2vec_resolution_table()  # wav2vec2-CTC grad-align vs internal time-resolution level
+    _encoder_depth_table()  # grad-align vs encoder depth (Whisper-large + FastConformer side by side)
     _ablation_table()  # T3a grad-score reduction (cross-model)
     _attribution_table()  # T3b attribution method (cross-model, fast models)
     _abc_table()  # Buckeye segmentation-protocol robustness (A vs B vs C)
@@ -619,6 +620,40 @@ def _wav2vec_resolution_table():
         for tag, label, ms in LEVELS
     ]
     _emit("wav2vec-resolution", columns, rows)
+
+
+# ----------------------------------------------------------------------------------------
+# Encoder-depth grad sweep (Buckeye-segA): grad-align WBE as a function of WHERE in the network the
+#     gradient is taken -- log-mel input, encoder input, encoder layers (1/4, 1/2, 3/4), and the final
+#     encoder output (just before the decoder / CTC linear). Whisper-large (char) and FastConformer-CTC
+#     (subword) side by side. The CTC encoder output should approach the CTC-posteriors forced-align.
+# ----------------------------------------------------------------------------------------
+def _encoder_depth_table():
+    S = "buckeye-segA-5h"
+    SFX = "asotTrue-bs-5-en0.5-sil1.0-wordtopo"
+
+    def cell(pre, tag):
+        stem = f"align/{pre}-{tag}-encdepth-{S}-L2_grad-pertoken-{SFX}"
+        return _wbe(stem), _metric(stem, "acc_50ms")
+
+    wp = "whisper-large-v3-charlev-spc"
+    fc = "fastconformer-stream-ctc"
+    # (level label, whisper depth tag, fastconformer depth tag)
+    ROWS = [
+        ("Log-mel input", "logmel", "logmel"),
+        ("Encoder input", "encin", "encin"),
+        ("Encoder 1/4", "encL8", "encL4"),
+        ("Encoder 1/2", "encL16", "encL9"),
+        ("Encoder 3/4", "encL24", "encL13"),
+        ("Encoder output", "encout", "encout"),
+    ]
+    columns = ["level", "w_wbe", "w_a50", "fc_wbe", "fc_a50"]
+    rows = []
+    for label, w_tag, fc_tag in ROWS:
+        w_wbe, w_a50 = cell(wp, w_tag)
+        fc_wbe, fc_a50 = cell(fc, fc_tag)
+        rows.append({"cells": {"level": label, "w_wbe": w_wbe, "w_a50": w_a50, "fc_wbe": fc_wbe, "fc_a50": fc_a50}})
+    _emit("encoder-depth", columns, rows)
 
 
 # ----------------------------------------------------------------------------------------

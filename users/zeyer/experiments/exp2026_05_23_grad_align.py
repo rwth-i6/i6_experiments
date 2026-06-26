@@ -5878,6 +5878,74 @@ def py():
                     _en_al.add_alias(_en_nm)
                     reg(f"{_en_nm}-wbe.txt", _en_al.out_wbe)
 
+    # === Encoder-depth grad sweep (where the gradient is taken), Buckeye-segA, fixed en0.5-sil1.0
+    # word-topology DP. For Whisper-large-v3 (char) and FastConformer-CTC (subword) we take the L2
+    # per-token grad w.r.t. the log-mel input (reused, no recompute), the encoder input (after the
+    # conv / 8x-subsampling front-end), and several encoder layers (1/4, 1/2, 3/4, and the final encoder
+    # output -- the activation just before the decoder / CTC linear). Only the encoder-depth extracts are
+    # new. bb=False matches the existing log-mel extracts so they reuse the cache.
+    def _encdepth_align(_ed_hdf, _ed_name):
+        _ed_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_ed_hdf,
+            grad_score_key="data",
+            dataset_dir=_xa_dir,
+            dataset_key="test",
+            dataset_offset_factors=_xa_off,
+            align_opts=_xa_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=1.0,
+            word_topology=True,
+        )
+        _ed_nm = f"align/{_ed_name}-{_name_for_dict(_xa_ao)}-en0.5-sil1.0-wordtopo"
+        _ed_al.add_alias(_ed_nm)
+        reg(f"{_ed_nm}-wbe.txt", _ed_al.out_wbe)
+
+    # (model, base cfg, name prefix, existing log-mel HDF reg, [(depth tag, grad_wrt)]). grad_wrt None
+    # = reuse the existing log-mel extract's HDF straight from the registered output -- no recompute.
+    for _ed_model, _ed_cfg_base, _ed_pre, _ed_logmel_hdf, _ed_levels in [
+        (
+            Whisper,
+            dict(model_dir=dl_whisper_l3.out_hub_cache_dir, char_level=True, char_level_sep=" "),
+            "whisper-large-v3-charlev-spc",
+            "whisper-large-v3-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc.hdf",
+            [
+                ("logmel", None),
+                ("encin", "enc_in"),
+                ("encL8", "enc_L8"),
+                ("encL16", "enc_L16"),
+                ("encL24", "enc_L24"),
+                ("encout", "enc_out"),
+            ],
+        ),
+        (
+            FastConformerStreaming,
+            dict(
+                model_dir=dl_fc_stream.out_hub_cache_dir,
+                overlay_path=_NEMO_OVERLAY,
+                head="ctc",
+                att_context_size=_fc_att,
+            ),
+            "fastconformer-stream-ctc",
+            "fastconformer-stream-ctc-buckeye-segA-5h-L2_grad-pertoken.hdf",
+            [
+                ("logmel", None),
+                ("encin", "enc_in"),
+                ("encL4", "enc_L4"),
+                ("encL9", "enc_L9"),
+                ("encL13", "enc_L13"),
+                ("encout", "enc_out"),
+            ],
+        ),
+    ]:
+        for _ed_tag, _ed_gw in _ed_levels:
+            _ed_name = f"{_ed_pre}-{_ed_tag}-encdepth-{_xa_tag}-L2_grad-pertoken"
+            if _ed_gw is None:
+                _ed_hdf = _table_results[_ed_logmel_hdf]  # reuse the existing log-mel extract -- no recompute
+            else:
+                _ed_cfg = rf.build_dict(_ed_model, **_ed_cfg_base, grad_wrt=_ed_gw)
+                _ed_hdf = _xa_extract(_ed_cfg, _ed_name, "L2", False, time=24, bb=False).out_hdf
+            _encdepth_align(_ed_hdf, _ed_name)
+
     # --- Auto-generated LaTeX result tables (in-graph; reference only this recipe's outputs) ---
     from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.grad_align_tables import (
         build_tables,

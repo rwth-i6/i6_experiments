@@ -41,6 +41,7 @@ class FastConformerStreaming(BaseModelInterface):
         head: str = "rnnt",
         att_context_size: Optional[List[int]] = None,
         per_token_score: Optional[str] = None,
+        grad_wrt: str = "log_mel",
         version: int = 1,
     ):
         """:param head: ``"rnnt"`` (transducer prefix score) or ``"ctc"`` (CTC partial score).
@@ -59,6 +60,7 @@ class FastConformerStreaming(BaseModelInterface):
         if per_token_score is None:
             per_token_score = "prefix" if head == "rnnt" else "prefix_fwd"
         self.per_token_score = per_token_score
+        self.grad_wrt = grad_wrt
         self.version = version
 
         if overlay_path not in sys.path:
@@ -146,10 +148,29 @@ class FastConformerStreaming(BaseModelInterface):
         with torch.enable_grad():
             wav_len = torch.tensor([wav.shape[0]], device=dev, dtype=torch.long)
             proc, proc_len = self.model.preprocessor(input_signal=wav[None], length=wav_len)  # [1, F, T_mel]
-            leaf = proc.detach().transpose(1, 2).contiguous().requires_grad_(True)  # [1, T_mel, F]
-            leaf.retain_grad()
+            if self.grad_wrt == "log_mel":
+                leaf = proc.detach().transpose(1, 2).contiguous().requires_grad_(True)  # [1, T_mel, F]
+                leaf.retain_grad()
+                enc, enc_len = self.model.encoder(audio_signal=leaf.transpose(1, 2), length=proc_len)  # [1, H, T_enc]
+            else:
+                # Grad leaf is an ENCODER-depth activation (~80 ms / 12.5 Hz grid). enc_out leafifies the
+                # encoder output directly; enc_in / enc_L<N> leafify that depth via a forward hook during
+                # the encoder call, so the per-token grad measures saliency at that depth.
+                _enc_captured: List[torch.Tensor] = []
+                _enc_hook = None if self.grad_wrt == "enc_out" else self._register_enc_grad_hook(_enc_captured)
+                try:
+                    enc, enc_len = self.model.encoder(audio_signal=proc, length=proc_len)  # [1, H, T_enc]
+                finally:
+                    if _enc_hook is not None:
+                        _enc_hook.remove()
+                if self.grad_wrt == "enc_out":
+                    leaf = enc.detach().transpose(1, 2).contiguous().requires_grad_(True)  # [1, T_enc, H]
+                    leaf.retain_grad()
+                    enc = leaf.transpose(1, 2)  # continue with the leaf so the CTC/RNN-T grad flows to it
+                else:
+                    assert len(_enc_captured) == 1, f"expected 1 encoder hook call, got {len(_enc_captured)}"
+                    leaf = _enc_captured[0]  # [1, T_enc, H]
             t_feat = int(leaf.shape[1])
-            enc, enc_len = self.model.encoder(audio_signal=leaf.transpose(1, 2), length=proc_len)  # [1, H, T_enc]
             t_enc = int(enc.shape[2])
 
             if self.head == "ctc":
@@ -197,6 +218,38 @@ class FastConformerStreaming(BaseModelInterface):
             target_start_end=torch.tensor(word_start_end, dtype=torch.int64, device=dev).unsqueeze(0),
             outputs=dict(partial_padded=partial_padded, vocab_size=self.vocab_size),
         )
+
+    def _register_enc_grad_hook(self, captured: List[torch.Tensor]):
+        """Register a forward hook that leafifies the chosen encoder-depth activation (``self.grad_wrt``),
+        so the per-token gradient is taken w.r.t. that depth instead of the log-mel input.
+        ``enc_in`` = input to conformer layer 0 (after the 8x conv subsampling, ~80 ms grid);
+        ``enc_L<N>`` = output of conformer layer N (1-indexed). (``enc_out`` is leafified directly in
+        forward.) The conformer layers run offline (no cache) so each returns a plain tensor, and the
+        encoder calls them with ``x`` as a keyword arg. The leaf is appended to ``captured``."""
+        enc = self.model.encoder
+        n_layers = len(enc.layers)
+
+        def _leafify(x: torch.Tensor) -> torch.Tensor:
+            leaf = x.detach().requires_grad_(True)
+            leaf.retain_grad()
+            captured.append(leaf)
+            return leaf
+
+        gw = self.grad_wrt
+        if gw == "enc_in":
+
+            def _pre(_m, args, kwargs):
+                return args, {**kwargs, "x": _leafify(kwargs["x"])}
+
+            return enc.layers[0].register_forward_pre_hook(_pre, with_kwargs=True)
+        assert gw.startswith("enc_L"), f"unknown grad_wrt {gw!r}"
+        idx = int(gw[len("enc_L") :])
+        assert 1 <= idx <= n_layers, f"{gw}: conformer layer {idx} out of range 1..{n_layers}"
+
+        def _out(_m, _inp, out):
+            return _leafify(out)
+
+        return enc.layers[idx - 1].register_forward_hook(_out)
 
     def log_probs(
         self, *, forward_output: ForwardOutput, start: Union[int, torch.Tensor], end: Union[int, torch.Tensor]
