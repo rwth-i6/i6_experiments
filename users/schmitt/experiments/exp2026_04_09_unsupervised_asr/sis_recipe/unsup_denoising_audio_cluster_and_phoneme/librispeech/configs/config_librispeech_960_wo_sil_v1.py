@@ -90,7 +90,7 @@ def py():
         train_data=train_data,
         test_data_dict=test_data_dict,
         keep_epochs=get_keep_epochs(base_num_epochs),
-        skip_eval=True,
+        # skip_eval=True,
         additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
         analysis_opts={
             "checkpoints": get_keep_epochs(base_num_epochs),
@@ -116,11 +116,12 @@ def py():
         train_data=train_data,
         test_data_dict=test_data_dict,
         keep_epochs=get_keep_epochs(base_num_epochs),
-        skip_eval=True,
+        # skip_eval=True,
         additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
         analysis_opts={
             "checkpoints": get_keep_epochs(base_num_epochs),
             "max_plotted_seqs": 20,
+            "cosine_similarity_summary": True,
         },
     )
 
@@ -160,8 +161,9 @@ def py():
             skip_eval=True,
             additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
             analysis_opts={
-                "checkpoints": get_keep_epochs(num_epochs),
+                "checkpoints": get_keep_epochs(base_num_epochs),
                 "max_plotted_seqs": 20,
+                "cosine_similarity_summary": True,
             },
         )
 
@@ -196,6 +198,11 @@ def py():
             keep_epochs=get_keep_epochs(num_epochs),
             skip_eval=True,
             additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
+            analysis_opts={
+                "checkpoints": get_keep_epochs(base_num_epochs),
+                "max_plotted_seqs": 20,
+                "cosine_similarity_summary": True,
+            },
         )
 
     for exp_idx, (config, train_name) in enumerate(
@@ -229,6 +236,11 @@ def py():
             keep_epochs=get_keep_epochs(num_epochs),
             skip_eval=True,
             additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
+            analysis_opts={
+                "checkpoints": get_keep_epochs(base_num_epochs),
+                "max_plotted_seqs": 20,
+                "cosine_similarity_summary": True,
+            },
         )
 
     for exp_idx, (config, train_name) in enumerate(
@@ -271,4 +283,9 @@ def py():
             keep_epochs=get_keep_epochs(num_epochs),
             skip_eval=True,
             additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
+            analysis_opts={
+                "checkpoints": get_keep_epochs(base_num_epochs),
+                "max_plotted_seqs": 20,
+                "cosine_similarity_summary": True,
+            },
         )
