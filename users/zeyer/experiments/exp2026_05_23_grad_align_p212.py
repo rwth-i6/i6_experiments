@@ -52,6 +52,10 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.extract_
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.word_align_from_per_token_grads import (
     WordAlignFromPerTokenGradsJob,
 )
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.extract_self_attn import (
+    SelectSelfAttnAlignHeadsJob,
+    ExtractSelfAttnPerTokenJob,
+)
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.buckeye_fine_dataset import (
     BuildBuckeyeFineDatasetJob,
 )
@@ -240,6 +244,18 @@ def py():
         al.add_alias(nm)
         _table_results[f"{nm}-wbe.txt"] = al.out_wbe
 
+    dl_ds_timit = DownloadHuggingFaceRepoJobV2(repo_id="nh0znoisung/timit", repo_type="dataset")
+    # Voxtral self-att head-selection (TIMIT val, subword) -- identical args to the forced baseline
+    # in the main recipe, so the finished head-selection is reused (no re-run).
+    _vx_sa_cfg = rf.build_dict(
+        Voxtral, model_dir=dl_voxtral, forward_mode="transcription", attn_implementation="eager", version=3
+    )
+    _vx_sa_sel = SelectSelfAttnAlignHeadsJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=_vx_sa_cfg,
+        time_upsample_when_short=False,
+    )
     for _tsf in [0.5, 0.75, 1.0, 1.2, 1.5, 2.0, 3.0]:
         _tst = f"ts{_tsf}"
         for _tsm, _tsm_sfx in [("vocoder", ""), ("resample", "-resample")]:
@@ -308,6 +324,22 @@ def py():
                 _tsv_ex.add_alias(_tsv_name)
                 tk.register_output(f"{_tsv_name}.hdf", _tsv_ex.out_hdf)
                 _ts_align(_tsv_ex, _tsv_name)
+                # Voxtral self-att (alternative aligner) on the stretched audio; heads reused from the
+                # unstretched forced baseline (ts1.0 reuses the finished baseline extract).
+                _tsvsa_cfg = rf.build_dict(
+                    Voxtral,
+                    model_dir=dl_voxtral,
+                    forward_mode="transcription",
+                    attn_implementation="eager",
+                    version=3,
+                    **_ts_mkw,
+                )
+                _tsvsa_ex = ExtractSelfAttnPerTokenJob(
+                    dataset_dir=_xa_dir, dataset_key="test", model_config=_tsvsa_cfg, heads=_vx_sa_sel.out_heads
+                )
+                _tsvsa_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+                _tsvsa_ex.add_alias(f"baseline-voxtral-selfattn-{_xa_tag}-{_tst}{_tsm_sfx}-extract")
+                _ts_align(_tsvsa_ex, f"baseline-voxtral-selfattn-{_xa_tag}-{_tst}{_tsm_sfx}")
             # MMS-FA forced-align reference (reuse finished 2.7).
             _tsf_fa = ForcedAlignBaselineJob(dataset_dir=_xa_dir, dataset_key="test", **_ts_fakw)
             _tsf_name = f"baseline-mms_fa-{_xa_tag}-{_tst}{_tsm_sfx}"

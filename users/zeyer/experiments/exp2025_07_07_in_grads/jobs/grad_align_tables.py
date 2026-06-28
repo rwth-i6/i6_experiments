@@ -104,7 +104,7 @@ def _cost_table():
     # (no special-casing).
     # CTC (wav2vec2) drives split_prefix_backward -> all 4 stages;
     # AED/Sp.LLM have no lattice (prefix cols n/a).
-    models = ["CTC (wav2vec2)", "AED (whisper-large)", "Sp. LLM (phi4)"]
+    models = ["CTC (MMS-FA)", "AED (whisper-large)", "Sp. LLM (phi4)"]
     metric_of = {
         "forward": "forward_ms_per_s",
         "prefix_fwd": "prefix_fwd_ms_per_s",
@@ -319,19 +319,26 @@ def _time_stretch_table():
     MODELS = [
         (
             "CTC",
-            "Wav2Vec2",
-            "Grad (fine)",
+            "MMS-FA",
+            "Gradients",
             "50",
             lambda ts, m: f"align/wav2vec2ctc-fproj_out-prefixfwd-{S}-L2_grad-pertoken-ts{ts}{m}-{AO}",
+        ),
+        ("CTC", "MMS-FA", "Posteriors", "50", lambda ts, m: f"baseline-mms_fa-{S}-ts{ts}{m}"),
+        (
+            "Sp. LLM",
+            "Voxtral",
+            "Gradients",
+            "12.5",
+            lambda ts, m: f"align/voxtral-charlevlogmel-{S}-L2_grad-pertoken-ts{ts}{m}-{AO}",
         ),
         (
             "Sp. LLM",
             "Voxtral",
-            "Grad (coarse)",
+            "Self-att.",
             "12.5",
-            lambda ts, m: f"align/voxtral-charlevlogmel-{S}-L2_grad-pertoken-ts{ts}{m}-{AO}",
+            lambda ts, m: f"align/baseline-voxtral-selfattn-{S}-ts{ts}{m}-{AO}",
         ),
-        ("CTC", "MMS-FA", "Forced", "50", lambda ts, m: f"baseline-mms_fa-{S}-ts{ts}{m}"),
     ]
     STRETCH = [("vocoder", ""), ("resample", "-resample")]
     columns = ["type", "model", "method", "fps", "stretch"] + [k for _, k in FACTORS]
@@ -345,10 +352,10 @@ def _time_stretch_table():
                 if model == "Voxtral" and float(ts) >= 2.0:
                     cells[k] = "too long"
                     continue
-                # Wav2Vec2 grad at ts3.0 does not fit the 24h GPU wall even with the compiled-scan split
+                # MMS-FA grad at ts3.0 does not fit the 24h GPU wall even with the compiled-scan split
                 # (3x-stretched audio, B=1) -> mark it (distinct from Voxtral's encoder-window "too long").
                 # ts1.2/1.5/2.0 ARE computed via the split under the torch-2.12 companion recipe (exp..._p212).
-                if model == "Wav2Vec2" and float(ts) >= 3.0:
+                if model == "MMS-FA" and float(ts) >= 3.0:
                     cells[k] = "too costly"
                     continue
                 cells[k] = _wbe(basefn(ts, msfx))
@@ -371,7 +378,7 @@ def _word_length_table():
     S = "buckeye-segA-5h"
     MODELS = [
         (
-            "Wav2Vec2",
+            "MMS-FA",
             [
                 (
                     "Gradients",
@@ -425,7 +432,7 @@ def _word_length_table():
 
     # Type | Model | Align method (mirrors the per-model table); double rule between the CTC and AED families.
     WTYPE = {
-        "Wav2Vec2": "CTC",
+        "MMS-FA": "CTC",
         "XLS-R (Phoneme)": "CTC",
         "Parakeet CTC": "CTC",
         "OWSM": "CTC",
@@ -638,7 +645,7 @@ def _ablation_table():
     S = "buckeye-segA-5h"
     SFX = "asotTrue-bs-5-en0.5-sil2.0-wordtopo"
     MODELS = [
-        ("CTC", "Wav2Vec2", "wav2vec2ctc-fproj_out-prefixfwd"),
+        ("CTC", "MMS-FA", "wav2vec2ctc-fproj_out-prefixfwd"),
         ("CTC", "Parakeet CTC", "parakeet-ctc-1.1b-prefixfwd"),
         ("Transd.", "Parakeet", "parakeet-rnnt-1.1b-logmel"),
         ("Transd.", _M_EMFORMER, "emformer-rnnt-prefix-logmel"),
@@ -691,7 +698,7 @@ def _attribution_table():
     S = "buckeye-segA-sub025"
     SFX = "asotTrue-bs-5-en0.5-sil2.0-wordtopo"
     MODELS = [
-        ("Wav2Vec2", "wav2vec2ctc-fproj_out-prefixfwd"),
+        ("MMS-FA", "wav2vec2ctc-fproj_out-prefixfwd"),
         ("Whisper-base", "whisper-base-logmel-charlev-spc"),
     ]
     METHODS = [
@@ -727,8 +734,8 @@ def _abc_table():
     # "Posteriors", Whisper = "Cross-att."); typed by architecture; MFA = GMM-HMM reference ("Likelihoods").
     ROWS = [
         ("GMM-HMM", "MFA", "Likelihoods", "baseline-mfa-buckeye-{seg}-5h", False),
-        ("CTC", "Wav2Vec2", "Gradients", "wav2vec2ctc-fproj_out-prefixfwd-buckeye-{seg}-5h-L2_grad-pertoken", True),
-        ("CTC", "Wav2Vec2", "Posteriors", "baseline-mms_fa-buckeye-{seg}-5h", False),
+        ("CTC", "MMS-FA", "Gradients", "wav2vec2ctc-fproj_out-prefixfwd-buckeye-{seg}-5h-L2_grad-pertoken", True),
+        ("CTC", "MMS-FA", "Posteriors", "baseline-mms_fa-buckeye-{seg}-5h", False),
         ("CTC", "Parakeet CTC", "Gradients", "parakeet-ctc-1.1b-prefixfwd-buckeye-{seg}-5h-L2_grad-pertoken", True),
         ("CTC", "Parakeet CTC", "Posteriors", "baseline-parakeet-ctc-1.1b-buckeye-{seg}-5h", False),
         ("Transd.", "Parakeet RNN-T", "Gradients", "parakeet-rnnt-1.1b-logmel-buckeye-{seg}-5h-L2_grad-pertoken", True),
@@ -773,7 +780,7 @@ def _alignopts_silence_table():
     # each speech-LLM reuses the same non-abl base extract as the per-model table,
     # so every number agrees across tables.
     GRAD = [
-        ("wav2vec2", f"wav2vec2ctc-fproj_out-prefixfwd-abl-{S}-L2_grad-pertoken"),
+        ("mms-fa", f"wav2vec2ctc-fproj_out-prefixfwd-abl-{S}-L2_grad-pertoken"),
         ("whisper", f"whisper-large-v3-logmel-charlev-spc-abl-{S}-L2_grad-pertoken"),
         ("owls", f"owls-1B-180K-charlev-logmel-{S}-L2_grad-pertoken"),
         ("voxtral", f"voxtral-charlevlogmel-{S}-L2_grad-pertoken"),
@@ -896,7 +903,7 @@ def _alignopts_energy_table():
     # so en0.5 can be judged and its interplay with the blank scheme is visible.
     S = "buckeye-segA-5h"
     GRAD = [
-        ("wav2vec2", f"wav2vec2ctc-fproj_out-prefixfwd-abl-{S}-L2_grad-pertoken"),
+        ("mms-fa", f"wav2vec2ctc-fproj_out-prefixfwd-abl-{S}-L2_grad-pertoken"),
         ("whisper", f"whisper-large-v3-logmel-charlev-spc-abl-{S}-L2_grad-pertoken"),
         ("owls", f"owls-1B-180K-charlev-logmel-{S}-L2_grad-pertoken"),
         ("voxtral", f"voxtral-charlevlogmel-{S}-L2_grad-pertoken"),
@@ -950,7 +957,7 @@ def _compare_table(with_hyp=False):
     # grad / posteriors (CTC, transducer, GMM-HMM) / cross-attn weights / self-attn weights.
     MODELS = [
         (
-            "Wav2Vec2",
+            "MMS-FA",
             [
                 (
                     "Gradients",
@@ -1240,9 +1247,9 @@ def _compare_table(with_hyp=False):
         "OWLS-1B": f"owls-1B-180K-charlev-{S}-grad",
     }
     # Models with no word-level own-recognition -> hyp-mode is structurally n/a (not "unrun"):
-    # MMS_FA (Wav2Vec2) + Phoneme emit no word boundaries;
+    # MMS-FA + Phoneme emit no word boundaries;
     # MFA is a forced-aligner, not a recognizer.
-    HYP_NA = {"Wav2Vec2", "XLS-R (Phoneme)", "MFA"}
+    HYP_NA = {"MMS-FA", "XLS-R (Phoneme)", "MFA"}
 
     # Native aligner in hyp-mode (own recognition), shown on the model's ALTERNATIVE row:
     # cross-attn (whisper), self-attn (LLMs), native viterbi (transducers), CTC forced-align (CTCs).
@@ -1268,7 +1275,7 @@ def _compare_table(with_hyp=False):
     # Rows grouped by model family; the leftmost (row-label) column is the family Type, shown once
     # per family; Model is the second column, shown once per model; double rule between families.
     TYPE = {
-        "Wav2Vec2": "CTC",
+        "MMS-FA": "CTC",
         "XLS-R (Phoneme)": "CTC",
         "Parakeet CTC": "CTC",
         "OWSM": "CTC",
