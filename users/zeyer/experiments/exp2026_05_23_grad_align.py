@@ -5499,6 +5499,24 @@ def py():
             True,
         ),
         (
+            "crisperwhisper-charlev",
+            rf.build_dict(Whisper, model_dir=dl_crisper.out_hub_cache_dir),
+            rf.build_dict(Whisper, model_dir=dl_crisper.out_hub_cache_dir, char_level=True, char_level_sep=" "),
+            "L2",
+            False,
+            1.0,
+            True,
+        ),
+        (
+            "owls-1B-180K-charlev",
+            rf.build_dict(Owls, model_dir=dl_owls_1b_full.out_hub_cache_dir),
+            rf.build_dict(Owls, model_dir=dl_owls_1b_full.out_hub_cache_dir, char_level=True),
+            "L2",
+            False,
+            1.0,
+            True,
+        ),
+        (
             "voxtral-charlevlogmel",
             rf.build_dict(Voxtral, model_dir=dl_voxtral, recog_mode="transcription", version=3),
             voxtral_charlev_logmel_cfg,
@@ -5516,7 +5534,15 @@ def py():
         # they recognise words, so hyp-mode is real (not structurally n/a).
         # Emformer is omitted -- its model class has no recog() yet.
         ("parakeet-ctc-1.1b", parakeet_ctc_cfg, parakeet_ctc_prefixfwd_cfg, "L2", False, 1.0, True),
-        ("owsm-ctc-v4-1b", owsm_ctc_cfg, owsm_ctc_prefixfwd_cfg, "L2", False, 1.0, True),
+        (
+            "owsm-ctc-v4-1b",
+            owsm_ctc_cfg,
+            owsm_ctc_cfg_by_layer[6],
+            "L2",
+            False,
+            1.0,
+            True,
+        ),  # block 6 (best), matches forced
         ("fastconformer-stream-ctc", fc_ctc_cfg, fc_ctc_cfg, "L2", False, 1.0, True),
         ("fastconformer-stream-rnnt", fc_rnnt_cfg, fc_rnnt_cfg, "L2", False, 1.0, True),
         ("emformer-rnnt-prefix-logmel", rnnt_cfg, rnnt_px_cfg, "L2", False, 1.0, True),
@@ -5531,7 +5557,7 @@ def py():
             # Opt-in per model (hash-excluded at None) so only enabled models re-run.
             # Enabled on whisper (the one that looped); ~12 subword-tokens/s of audio
             # never truncates real speech (~7 words/s).
-            max_tokens_per_sec=12.0 if _hy_name.startswith("whisper") else None,
+            max_tokens_per_sec=12.0 if _hy_name.startswith(("whisper", "crisper", "owls")) else None,
         )
         _hy_recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         _hy_recog.add_alias(f"hyp-align/{_hy_name}-{_xa_tag}-recog")
@@ -5561,7 +5587,8 @@ def py():
             dataset_offset_factors=_xa_off,
             align_opts=_xa_ao,
             audio_energy_pow=0.5,
-            blank_silence_energy_scale=_hy_sil,
+            blank_silence_energy_scale=2.0,  # hyp uses the forced DP (sil2.0 + word-topology) for consistency
+            word_topology=True,
             with_ref_metrics=False,
         )
         _hy_al.add_alias(f"hyp-align/{_hy_name}-{_xa_tag}-align")
@@ -5573,12 +5600,69 @@ def py():
             )
             _hy_nt.add_alias(f"hyp-align/{_hy_name}-{_xa_tag}-native-align")
             _hy_metrics(f"{_hy_name}-{_xa_tag}-native", _hy_nt.out_word_boundaries_hdf, _hy_dir)
-        if _hy_name == "whisper-large-v3-charlev":
-            _hy_ca3 = WhisperCrossAttnForcedAlignJob(
-                dataset_dir=_hy_dir, dataset_key="test", overlay=_WHISPER_TS_OVERLAY, whisper_model="large-v3"
+        if _hy_name in ("whisper-base-charlev", "whisper-large-v3-charlev", "crisperwhisper-charlev"):
+            # Whisper hyp cross-att via the SAME auto-head Aligner as forced mode (crossattn-auto),
+            # not openai find_alignment: this measures hyp vs forced cross-att the same way, and
+            # avoids large-v3's find_alignment timestamp drift (~150 ms late shift, F1@50 collapse).
+            _hy_cadl = {
+                "whisper-base-charlev": dl_whisper,
+                "whisper-large-v3-charlev": dl_whisper_l3,
+                "crisperwhisper-charlev": dl_crisper,
+            }[_hy_name]
+            _hy_caname = (
+                f"whisper-crossattn-{_xa_tag}" if _hy_name == "whisper-base-charlev" else f"{_hy_name}-{_xa_tag}-native"
             )
-            _hy_ca3.add_alias(f"hyp-align/{_hy_name}-{_xa_tag}-native-align")
-            _hy_metrics(f"{_hy_name}-{_xa_tag}-native", _hy_ca3.out_hdf, _hy_dir)
+            _hy_cacfg = rf.build_dict(Whisper, model_dir=_hy_cadl.out_hub_cache_dir, attn_implementation="eager")
+            # head-selection on TIMIT val; identical args to the forced crossattn-auto -> reuses that job.
+            _hy_casel = SelectSelfAttnAlignHeadsJob(
+                dataset_dir=dl_ds_timit.out_hub_cache_dir, dataset_key="val", model_config=_hy_cacfg
+            )
+            _hy_caex = ExtractSelfAttnPerTokenJob(
+                dataset_dir=_hy_dir, dataset_key="test", model_config=_hy_cacfg, heads=_hy_casel.out_heads
+            )
+            _hy_caex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            _hy_caal = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=_hy_caex.out_hdf,
+                grad_score_key="data",
+                dataset_dir=_hy_dir,
+                dataset_key="test",
+                dataset_offset_factors=_xa_off,
+                align_opts=_xa_ao,
+                audio_energy_pow=0.5,
+                blank_silence_energy_scale=2.0,  # forced DP (sil2.0 + word-topology) for forced/hyp consistency
+                word_topology=True,
+                with_ref_metrics=False,
+            )
+            _hy_caal.add_alias(f"hyp-align/{_hy_name}-{_xa_tag}-native-align")
+            _hy_metrics(_hy_caname, _hy_caal.out_word_boundaries_hdf, _hy_dir)
+        if _hy_name == "owls-1B-180K-charlev":
+            # OWLS hyp cross-att via the auto-head Aligner (crossattn-auto), same as forced OWLS:
+            # char-level config, time-upsampled head-selection reused from the forced job.
+            _hy_owcfg = rf.build_dict(Owls, model_dir=dl_owls_1b_full.out_hub_cache_dir, char_level=True)
+            _hy_owsel = SelectSelfAttnAlignHeadsJob(
+                dataset_dir=dl_ds_timit.out_hub_cache_dir,
+                dataset_key="val",
+                model_config=_hy_owcfg,
+                time_upsample_when_short=True,
+            )
+            _hy_owex = ExtractSelfAttnPerTokenJob(
+                dataset_dir=_hy_dir, dataset_key="test", model_config=_hy_owcfg, heads=_hy_owsel.out_heads
+            )
+            _hy_owex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            _hy_owal = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=_hy_owex.out_hdf,
+                grad_score_key="data",
+                dataset_dir=_hy_dir,
+                dataset_key="test",
+                dataset_offset_factors=_xa_off,
+                align_opts=_xa_ao,
+                audio_energy_pow=0.5,
+                blank_silence_energy_scale=2.0,
+                word_topology=True,
+                with_ref_metrics=False,
+            )
+            _hy_owal.add_alias(f"hyp-align/{_hy_name}-{_xa_tag}-native-align")
+            _hy_metrics(f"{_hy_name}-{_xa_tag}-native", _hy_owal.out_word_boundaries_hdf, _hy_dir)
         if _hy_name in _HY_NATIVE_SELFATTN:
             _hy_sacfg = _HY_NATIVE_SELFATTN[_hy_name]
             _hy_sasel = SelectSelfAttnAlignHeadsJob(
@@ -5599,7 +5683,8 @@ def py():
                 dataset_offset_factors=_xa_off,
                 align_opts=_xa_ao,
                 audio_energy_pow=0.5,
-                blank_silence_energy_scale=1.0,
+                blank_silence_energy_scale=2.0,  # forced DP (sil2.0 + word-topology) for forced/hyp consistency
+                word_topology=True,
                 with_ref_metrics=False,
             )
             _hy_saal.add_alias(f"hyp-align/{_hy_name}-{_xa_tag}-native-align")
@@ -5621,6 +5706,7 @@ def py():
                 dataset_key="test",
                 model_dir=dl_owsm_ctc.out_hub_cache_dir,
                 dataset_offset_factors=_xa_off,
+                layer=6,  # block 6, matching the forced OWSM posteriors/grad (its best inter-CTC block)
             )
             _hy_ofa.add_alias(f"hyp-align/{_hy_name}-{_xa_tag}-native-align")
             _hy_metrics(f"{_hy_name}-{_xa_tag}-native", _hy_ofa.out_word_boundaries_hdf, _hy_dir)
@@ -5633,16 +5719,10 @@ def py():
             )
             _hy_fcfa.add_alias(f"hyp-align/{_hy_name}-{_xa_tag}-native-align")
             _hy_metrics(f"{_hy_name}-{_xa_tag}-native", _hy_fcfa.out_word_boundaries_hdf, _hy_dir)
-        if _hy_name == "whisper-base-charlev":
-            _hy_wca = WhisperCrossAttnForcedAlignJob(
-                dataset_dir=_hy_dir, dataset_key="test", overlay=_WHISPER_TS_OVERLAY
-            )
-            _hy_wca.add_alias(f"hyp-align/whisper-crossattn-{_xa_tag}-align")
-            _hy_metrics(f"whisper-crossattn-{_xa_tag}", _hy_wca.out_hdf, _hy_dir)
-            # NOTE: MMS_FA (= wav2vec2 + CTC forced-align) and MFA used to force-align WHISPER's hyp
-            # here. That was inconsistent: every method should align its OWN model's recognition.
-            # MMS_FA now aligns wav2vec2's own CTC hyp (wired below); MFA stays the forced-mode
-            # ceiling only (its tool exposes no recognizer).
+        # NOTE: MMS_FA (= wav2vec2 + CTC forced-align) and MFA used to force-align WHISPER's hyp
+        # here. That was inconsistent: every method should align its OWN model's recognition.
+        # MMS_FA now aligns wav2vec2's own CTC hyp (wired below); MFA stays the forced-mode
+        # ceiling only (its tool exposes no recognizer).
 
     # CrisperWhisper OFFICIAL pipeline row (hyp-mode): their decode-time word timestamps
     # (verbatim retokenized vocab + heads finetuned with attention loss + cross-attn DTW
@@ -5750,8 +5830,6 @@ def py():
             model_dir=dl_canary,
             llm_model_dir=dl_qwen3,
             attn_implementation="eager",
-            char_level=True,
-            char_level_sep=" ",
             version=3,
             speech_prompt=prompt,
         )

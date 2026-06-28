@@ -1236,6 +1236,8 @@ def _compare_table(with_hyp=False):
         _M_FC_CTC: f"fastconformer-stream-ctc-{S}-grad",
         _M_FC_RNNT: f"fastconformer-stream-rnnt-{S}-grad",
         _M_EMFORMER: f"emformer-rnnt-prefix-logmel-{S}-grad",
+        "CrisperWhisper": f"crisperwhisper-charlev-{S}-grad",
+        "OWLS-1B": f"owls-1B-180K-charlev-{S}-grad",
     }
     # Models with no word-level own-recognition -> hyp-mode is structurally n/a (not "unrun"):
     # MMS_FA (Wav2Vec2) + Phoneme emit no word boundaries;
@@ -1259,6 +1261,8 @@ def _compare_table(with_hyp=False):
         "Parakeet CTC": f"parakeet-ctc-1.1b-{S}-native",
         "OWSM": f"owsm-ctc-v4-1b-{S}-native",
         _M_FC_CTC: f"fastconformer-stream-ctc-{S}-native",
+        "CrisperWhisper": f"crisperwhisper-charlev-{S}-native",
+        "OWLS-1B": f"owls-1B-180K-charlev-{S}-native",
     }
 
     # Rows grouped by model family; the leftmost (row-label) column is the family Type, shown once
@@ -1292,12 +1296,11 @@ def _compare_table(with_hyp=False):
     if with_hyp:
         columns += ["h_mwbe", "h_f50"]
 
-    _FC_DISP = _M_EMFORMER.replace("Emformer", "FastConformer")
-    # Display names drop the redundant family postfix (the Type column already shows CTC/Transd./...),
-    # keeping an architecture suffix only where same-family siblings would otherwise collide
-    # (Parakeet RNN-T vs Parakeet TDT; the two FastConformer heads).
+    # Display names: the Type column already shows the family, but we keep the explicit head for
+    # same-family siblings (Parakeet RNN-T vs TDT, FastConformer CTC vs RNN-T) and a clearer model name,
+    # and use the SAME names as the hyp / streaming tables for consistency.
     # The dict KEY stays the full name (TYPE/HYP/NATIVE_HYP are keyed by it); only the shown label changes.
-    DISPLAY = {"Parakeet": "Parakeet RNN-T", _M_FC_CTC: _FC_DISP, _M_FC_RNNT: _FC_DISP}
+    DISPLAY = {"Parakeet": "Parakeet RNN-T", "OWSM": "OWSM-CTC"}
     rows = []
     for bi, (typ, fam_models) in enumerate(blocks):
         if bi > 0:
@@ -1320,7 +1323,7 @@ def _compare_table(with_hyp=False):
                     if hn:
                         cells["h_mwbe"] = _hyp(hn, "matched_wbe")
                         cells["h_f50"] = _hyp(hn, "f1_50ms")
-                    elif mj == 0 and model in HYP_NA:
+                    elif model in HYP_NA:
                         # structurally no word-level own-recognition -> mark, don't leave empty
                         cells["h_mwbe"] = "n/a"
                         cells["h_f50"] = "n/a"
@@ -1350,8 +1353,8 @@ def _hyp_table():
     ROWS = [
         ("CTC", "Parakeet CTC", "Gradients", f"parakeet-ctc-1.1b-{S}-grad"),
         ("CTC", "Parakeet CTC", "Posteriors", f"parakeet-ctc-1.1b-{S}-native"),
-        ("CTC", "OWSM", "Gradients", f"owsm-ctc-v4-1b-{S}-grad"),
-        ("CTC", "OWSM", "Posteriors", f"owsm-ctc-v4-1b-{S}-native"),
+        ("CTC", "OWSM-CTC", "Gradients", f"owsm-ctc-v4-1b-{S}-grad"),
+        ("CTC", "OWSM-CTC", "Posteriors", f"owsm-ctc-v4-1b-{S}-native"),
         ("CTC", _M_FC_CTC, "Gradients", f"fastconformer-stream-ctc-{S}-grad"),
         ("CTC", _M_FC_CTC, "Posteriors", f"fastconformer-stream-ctc-{S}-native"),
         ("Transd.", "Parakeet RNN-T", "Gradients", f"parakeet-rnnt-1.1b-logmel-{S}-grad"),
@@ -1366,7 +1369,11 @@ def _hyp_table():
         ("AED", "Whisper-base", "Cross-att.", f"whisper-crossattn-{S}"),
         ("AED", "Whisper-large-v3", "Gradients", f"whisper-large-v3-charlev-{S}-grad"),
         ("AED", "Whisper-large-v3", "Cross-att.", f"whisper-large-v3-charlev-{S}-native"),
+        ("AED", "CrisperWhisper", "Gradients", f"crisperwhisper-charlev-{S}-grad"),
+        ("AED", "CrisperWhisper", "Cross-att.", f"crisperwhisper-charlev-{S}-native"),
         ("AED", "CrisperWhisper", "Official", f"crisperwhisper-official-{S}"),
+        ("AED", "OWLS-1B", "Gradients", f"owls-1B-180K-charlev-{S}-grad"),
+        ("AED", "OWLS-1B", "Cross-att.", f"owls-1B-180K-charlev-{S}-native"),
         ("Sp. LLM", "Voxtral", "Gradients", f"voxtral-charlevlogmel-{S}-grad"),
         ("Sp. LLM", "Voxtral", "Self-att.", f"voxtral-charlevlogmel-{S}-native"),
         ("Sp. LLM", "Phi-4-MM", "Gradients", f"phi4mm-charlev-spc-{S}-grad"),

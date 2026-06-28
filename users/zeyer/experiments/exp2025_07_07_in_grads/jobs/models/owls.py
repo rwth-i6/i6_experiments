@@ -148,6 +148,7 @@ class Owls(BaseModelInterface):
 
         token_list = list(train_args.token_list)
         self._tok2id = {t: i for i, t in enumerate(token_list)}
+        self._id2tok = token_list
         # BPE tokenizer (ESPnet) -> word-start marker '▁'.
         from espnet2.text.build_tokenizer import build_tokenizer
 
@@ -284,3 +285,42 @@ class Owls(BaseModelInterface):
         # Decoder position P+i-1 predicts target token i; slice [start-1, end-1] (offset by the prompt).
         sl = batch_slice(logits, (dst_text_start + start - 1, dst_text_start + end - 1))
         return sl.float().log_softmax(-1)
+
+    def recog(
+        self,
+        *,
+        raw_inputs: torch.Tensor,
+        raw_inputs_sample_rate: Optional[int] = None,
+        raw_input_seq_lens: torch.Tensor,
+        max_new_tokens: int = 100,
+    ) -> List[List[str]]:
+        """Greedy autoregressive transcription via the ESPnet S2T decoder, batch 1.
+        Encodes the audio, decodes greedily from the ASR prompt prefix until <eos>, then
+        detokenizes the BPE pieces to words. Used for hypothesis-mode alignment; the words
+        are whitespace-split, normalization for WER/matching is left to the caller."""
+        assert raw_inputs_sample_rate == 16000, "OWLS expects 16 kHz"
+        assert len(raw_inputs) == 1
+        dev = self.device
+        wav = raw_inputs[0].float().to(dev)[None]  # [1, T_samples]
+        slens = torch.tensor([int(raw_input_seq_lens[0])], device=dev)
+        with torch.no_grad():
+            feats, flens = self.model._extract_feats(wav, slens)
+            nfeats, nflens = (
+                self.model.normalize(feats, flens) if getattr(self.model, "normalize", None) else (feats, flens)
+            )
+            enc = self.model.encoder(nfeats, nflens)
+            enc_out, enc_lens = enc[0], enc[1]
+            ys = torch.tensor([self.prefix_ids], dtype=torch.long, device=dev)
+            for _ in range(max_new_tokens):
+                dec = self.model.decoder(enc_out, enc_lens, ys, torch.tensor([ys.shape[1]], device=dev))
+                next_id = int(dec[0][0, -1].argmax())
+                if next_id == self.eos_id:
+                    break
+                ys = torch.cat([ys, torch.tensor([[next_id]], dtype=torch.long, device=dev)], dim=1)
+        gen_ids = ys[0, len(self.prefix_ids) :].tolist()
+        # drop any special <...> tokens the decoder may emit; keep only BPE text pieces.
+        tokens = [
+            self._id2tok[i] for i in gen_ids if not (self._id2tok[i].startswith("<") and self._id2tok[i].endswith(">"))
+        ]
+        text = self._tokenizer.tokens2text(tokens)
+        return [text.split()]
