@@ -5466,30 +5466,18 @@ def py():
         "emformer-rnnt-prefix-logmel": rnnt_cfg,
         "fastconformer-stream-rnnt": fc_rnnt_cfg,
     }
-    # Self-attn aligner per speech LLM (char eager; same config as the (4f) forced-mode block,
-    # so the TIMIT-val head-selection reuses its cached result).
+    # Self-attn aligner per speech LLM, at SUBWORD (model-native) tokenization to match the per-model
+    # table (NOT char: char is the self-att's worst config and made the hyp comparison inconsistent).
+    # Byte-identical to the (4f) forced-mode subword self-attn configs, so the TIMIT-val head-selection
+    # reuses its cached result.
     _HY_NATIVE_SELFATTN = {
         "voxtral-charlevlogmel": rf.build_dict(
-            Voxtral,
-            model_dir=dl_voxtral,
-            forward_mode="transcription",
-            attn_implementation="eager",
-            char_level=True,
-            char_level_sep=" ",
-            version=7,
+            Voxtral, model_dir=dl_voxtral, forward_mode="transcription", attn_implementation="eager", version=3
         ),
         "canary-qwen-charlev-spc-logmel-st15": rf.build_dict(
-            CanaryQwen,
-            model_dir=dl_canary,
-            llm_model_dir=dl_qwen3,
-            attn_implementation="eager",
-            char_level=True,
-            char_level_sep=" ",
-            version=3,
+            CanaryQwen, model_dir=dl_canary, llm_model_dir=dl_qwen3, attn_implementation="eager", version=3
         ),
-        "phi4mm-charlev-spc": _phi4mm_model_config(
-            dl_phi4mi_dir, attn_implementation="eager", char_level=True, char_level_sep=" "
-        ),
+        "phi4mm-charlev-spc": _phi4mm_model_config(dl_phi4mi_dir, attn_implementation="eager"),
     }
     for _hy_name, _hy_recog_cfg, _hy_ex_cfg, _hy_attr, _hy_mgi, _hy_sil, _hy_bb in [
         (
@@ -5597,7 +5585,7 @@ def py():
                 dataset_dir=dl_ds_timit.out_hub_cache_dir,
                 dataset_key="val",
                 model_config=_hy_sacfg,
-                time_upsample_when_short=True,
+                time_upsample_when_short=False,  # subword fits the grid; matches + reuses the forced subword head-selection
             )
             _hy_saex = ExtractSelfAttnPerTokenJob(
                 dataset_dir=_hy_dir, dataset_key="test", model_config=_hy_sacfg, heads=_hy_sasel.out_heads
