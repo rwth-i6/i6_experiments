@@ -1344,18 +1344,35 @@ def _hyp_table():
         }
 
     # (type, model, method, hyp-metrics name). Same taxonomy/labels as the per-model table: each model
-    # aligns its OWN recognition; gradient rows plus the model's native aligner (Whisper cross-attn DTW,
-    # CrisperWhisper official timestamps). Grouped by architecture, double rule between families.
+    # aligns its OWN recognition. Every recognizing model gets its gradient row plus its alternative
+    # aligner (CTC/transducer posteriors, AED cross-attention, speech-LLM self-attention), so the
+    # table is consistent with the per-model table. Grouped by architecture, double rule between families.
     ROWS = [
+        ("CTC", "Parakeet CTC", "Gradients", f"parakeet-ctc-1.1b-{S}-grad"),
+        ("CTC", "Parakeet CTC", "Posteriors", f"parakeet-ctc-1.1b-{S}-native"),
+        ("CTC", "OWSM", "Gradients", f"owsm-ctc-v4-1b-{S}-grad"),
+        ("CTC", "OWSM", "Posteriors", f"owsm-ctc-v4-1b-{S}-native"),
+        ("CTC", _M_FC_CTC, "Gradients", f"fastconformer-stream-ctc-{S}-grad"),
+        ("CTC", _M_FC_CTC, "Posteriors", f"fastconformer-stream-ctc-{S}-native"),
         ("Transd.", "Parakeet RNN-T", "Gradients", f"parakeet-rnnt-1.1b-logmel-{S}-grad"),
+        ("Transd.", "Parakeet RNN-T", "Posteriors", f"parakeet-rnnt-1.1b-logmel-{S}-native"),
         ("Transd.", "Parakeet TDT", "Gradients", f"parakeet-tdt-0.6b-v2-logmel-{S}-grad"),
+        ("Transd.", "Parakeet TDT", "Posteriors", f"parakeet-tdt-0.6b-v2-logmel-{S}-native"),
+        ("Transd.", _M_EMFORMER, "Gradients", f"emformer-rnnt-prefix-logmel-{S}-grad"),
+        ("Transd.", _M_EMFORMER, "Posteriors", f"emformer-rnnt-prefix-logmel-{S}-native"),
+        ("Transd.", _M_FC_RNNT, "Gradients", f"fastconformer-stream-rnnt-{S}-grad"),
+        ("Transd.", _M_FC_RNNT, "Posteriors", f"fastconformer-stream-rnnt-{S}-native"),
         ("AED", "Whisper-base", "Gradients", f"whisper-base-charlev-{S}-grad"),
         ("AED", "Whisper-base", "Cross-att.", f"whisper-crossattn-{S}"),
         ("AED", "Whisper-large-v3", "Gradients", f"whisper-large-v3-charlev-{S}-grad"),
+        ("AED", "Whisper-large-v3", "Cross-att.", f"whisper-large-v3-charlev-{S}-native"),
         ("AED", "CrisperWhisper", "Official", f"crisperwhisper-official-{S}"),
         ("Sp. LLM", "Voxtral", "Gradients", f"voxtral-charlevlogmel-{S}-grad"),
+        ("Sp. LLM", "Voxtral", "Self-att.", f"voxtral-charlevlogmel-{S}-native"),
         ("Sp. LLM", "Phi-4-MM", "Gradients", f"phi4mm-charlev-spc-{S}-grad"),
+        ("Sp. LLM", "Phi-4-MM", "Self-att.", f"phi4mm-charlev-spc-{S}-native"),
         ("Sp. LLM", "Canary-Qwen", "Gradients", f"canary-qwen-charlev-spc-logmel-st15-{S}-grad"),
+        ("Sp. LLM", "Canary-Qwen", "Self-att.", f"canary-qwen-charlev-spc-logmel-st15-{S}-native"),
     ]
     columns = ["type", "model", "method", "mwbe", "f50", "f100", "f200", "rm"]
     rows = []
