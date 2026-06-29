@@ -631,16 +631,23 @@ class Voxtral(BaseModelInterface):
             )
             words_start_end = [[int(a), int(b)] for a, b in word_char_ranges]
         else:
+            # Per-word grouping via the SentencePiece-like leading-space word-start marker.
+            # Build the check string byte-accurately: accumulate each word's token ids and
+            # decode the whole group, so a multi-byte char split across byte-fallback tokens
+            # (e.g. the cent sign -> two byte-tokens) reconstructs instead of per-token U+FFFD
+            # garbling.
             words_start_end = []
-            words_: List[str] = []
+            words_token_ids: List[List[int]] = []
             for t in range(n_targets):
-                s = tokenizer.decode(targets[0, t : t + 1].tolist(), skip_special_tokens=True)
+                tid = int(targets[0, t])
+                s = tokenizer.decode([tid], skip_special_tokens=True)
                 if t == 0 or s.startswith(" "):
                     words_start_end.append([t, t + 1])
-                    words_.append(s.lstrip(" "))
+                    words_token_ids.append([tid])
                 else:
-                    words_[-1] += s
+                    words_token_ids[-1].append(tid)
                     words_start_end[-1][1] = t + 1
+            words_ = [tokenizer.decode(ids, skip_special_tokens=True).strip() for ids in words_token_ids]
             assert len(words_start_end) == len(words_) == len(words), (
                 f"word-grouping mismatch: target_decoded={words_!r} ref={words!r}"
             )

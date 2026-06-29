@@ -216,7 +216,12 @@ class Owls(BaseModelInterface):
                     transc_ids.append(self._tok2id[self._char_level_sep])
                 cstart = len(transc_ids)
                 for ch in word:
-                    assert ch in self._tok2id, f"char {ch!r} (word {word!r}) not an OWLS vocab piece"
+                    if ch not in self._tok2id:
+                        # OWLS has a fixed char vocab with no byte fallback (unlike the BPE models),
+                        # so it cannot represent some chars (e.g. the cent sign). Drop the
+                        # unrepresentable char rather than failing the whole sequence; the word keeps
+                        # its remaining in-vocab chars and its boundary.
+                        continue
                     transc_ids.append(self._tok2id[ch])
                 words_start_end.append([cstart, len(transc_ids)])
         else:

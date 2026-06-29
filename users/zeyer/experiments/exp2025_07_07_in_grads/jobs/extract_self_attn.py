@@ -342,6 +342,26 @@ class ExtractSelfAttnPerTokenJob(Job):
             audio = np.asarray(data["audio"]["array"])
             sr = data["audio"]["sampling_rate"]
             words = list(data["word_detail"]["utterance"])
+            if not words:
+                # Empty reference (silence-only segment): nothing to align. Never skip a seq --
+                # write a valid 0-token entry so the HDF stays index-aligned (CalcHypAlignMetricsJob
+                # requires every seq present, an empty one as a 0-row entry; a missing seq is a bug).
+                # WordAlignFromPerTokenGradsJob detects num_tokens.size==0 and emits a 0-row boundary.
+                hdf_writer.insert_batch(
+                    np.zeros((1, 0, 1), dtype="float32"),
+                    seq_len=[0],
+                    seq_tag=[f"seq-{seq_idx}"],
+                    extra={
+                        "audio_frames_start_end": np.zeros((1, 0, 2), dtype="int32"),
+                        "num_input_frames": np.zeros((1, 0, 1), dtype="int32"),
+                        "num_words": np.zeros((1, 0, 1), dtype="int32"),
+                        "num_tokens": np.zeros((1, 0, 1), dtype="int32"),
+                        "num_tokens_per_word": np.zeros((1, 0, 1), dtype="int32"),
+                        "log_probs_per_token": np.zeros((1, 0, 1), dtype="float32"),
+                        "exit_log_probs": np.zeros((1, 0, 1), dtype="float32"),
+                    },
+                )
+                continue
             collect: list = []
             with torch.no_grad():
                 fwd = model(

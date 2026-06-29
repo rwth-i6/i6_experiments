@@ -5569,7 +5569,7 @@ def py():
         _hy_ds = BuildDatasetWithHypTranscriptsJob(
             dataset_dir=_xa_dir,
             dataset_key="test",
-            hyps_txt=text_dict_normalize_file(_hy_recog.out_hyps_txt),
+            hyps_txt=_hy_recog.out_hyps_txt,  # RAW recog output: align the model's actual hypothesis, NOT the OpenASR/WER-normalized form (ITN would merge e.g. 'fifty cents'->'cent50', distorting word segmentation; the metric's per-word _norm_word handles casing/punctuation for matching).
         )
         _hy_dir = _hy_ds.out_hub_cache_dir
         _hy_ex = ExtractInGradsPerTokenJob(
