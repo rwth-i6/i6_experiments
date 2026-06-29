@@ -280,15 +280,25 @@ class MergeMoshiOutputsViaSymlinks(Job):
                     os.symlink(os.path.join(src_dir, name), link)
 
 
-def sharded_knowledge_inference(*, num_shards: int, **kwargs) -> tk.Path:
+def sharded_knowledge_inference(*, num_shards: int, rqmt_override: dict | None = None, **kwargs) -> tk.Path:
     """Build the knowledge-mode SpeechInference, sharded across GPUs for throughput.
 
     num_shards==1 -> a single job's out_dir; >1 -> one SpeechInference per shard
-    (wavs[shard::num_shards]) merged back via MergeMoshiOutputsViaSymlinks."""
+    (wavs[shard::num_shards]) merged back via MergeMoshiOutputsViaSymlinks.
+
+    rqmt_override is applied by mutating each job's .rqmt AFTER construction (rqmt is not
+    part of the Sisyphus hash), so tuning a backend's walltime/GPUs never re-hashes it."""
+
+    def _make(**kw):
+        job = SpeechInference(mode="knowledge", **kw)
+        if rqmt_override is not None:
+            job.rqmt = {**job.rqmt, **rqmt_override}
+        return job
+
     if num_shards == 1:
-        return SpeechInference(mode="knowledge", **kwargs).out_dir
+        return _make(**kwargs).out_dir
     assert num_shards > 1
-    shards = [SpeechInference(mode="knowledge", shard=i, num_shards=num_shards, **kwargs) for i in range(num_shards)]
+    shards = [_make(shard=i, num_shards=num_shards, **kwargs) for i in range(num_shards)]
     return MergeMoshiOutputsViaSymlinks(in_dirs=[s.out_dir for s in shards]).out_merged
 
 

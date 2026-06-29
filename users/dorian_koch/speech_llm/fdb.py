@@ -221,7 +221,6 @@ def moshified_fdb_eval(
         offline_extra_args=backend.offline_extra_args if backend.server is None else (),
         # RAG retrieval (MoshiRAG) only applies to the offline/server-less path.
         retrieval_llm=backend.retrieval_llm if backend.server is None else None,
-        rqmt_override=backend.rqmt_override if backend.server is None else None,
         lora_weights=lora_weights,
         lora_config=lora_config,
         asr_venv_python=asr_venv_python,
@@ -229,6 +228,10 @@ def moshified_fdb_eval(
         unmute_llm=unmute_llm,
         cloud_api=backend.cloud_api,
     )
+    # rqmt is not hashed: apply the backend resource override by mutating the built job
+    # (server-less/offline backends only; served backends keep the default rqmt).
+    if backend.server is None and backend.rqmt_override is not None:
+        infer.rqmt = {**infer.rqmt, **backend.rqmt_override}
     needs_llm = FDB_TASK_MAP.get(fdb_task, fdb_task) in [
         "user_interruption",
         "behavior",

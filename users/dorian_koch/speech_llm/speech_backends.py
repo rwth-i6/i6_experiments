@@ -258,7 +258,9 @@ def moshirag_family_backend_spec(
         offline_extra_args=extra,
         inference_venv=_venv,
         retrieval_llm=retrieval_llm,
-        rqmt_override={"gpu": 2, "cpu": 6, "mem": 48, "time": 3},
+        # ~14s/clip * 1000 clips ~= 4h; serial retrieval pump cannot resume, so a 3h cap (the old
+        # deadlock-era guard, task #2) timed out + looped forever. The deadlock is fixed (task #3).
+        rqmt_override={"gpu": 2, "cpu": 6, "mem": 48, "time": 8},
     )
 
 
@@ -284,5 +286,33 @@ def kame_family_backend_spec(hf_repo: str = "SakanaAI/kame", inject_at_s: float 
         offline_extra_args=extra,
         inference_venv=_venv,
         needs_oracle_dataset=True,
-        rqmt_override={"gpu": 1, "cpu": 6, "mem": 48, "time": 3},
+        rqmt_override={"gpu": 1, "cpu": 6, "mem": 48, "time": 8},
+    )
+
+
+def flm_audio_backend_spec(hf_repo: str = "CofeAI/FLM-Audio") -> BackendSpec:
+    """FLM-Audio (arXiv 2509.02521): a native full-duplex ~7B speech chatbot with its own FLM
+    backbone over the Mimi codec, vendored at ``speech_llm.full_duplex.flmaudio`` for *inference
+    only* (see ``flm_audio.md``).
+
+    Runs ``python -m flmaudio.offline_inference`` through the ``offline_module`` seam -- a B=1
+    synchronous step loop (Mimi.encode -> LMGen.step -> Mimi.decode), like base Moshi. It is a
+    FOREIGN backbone (NOT a moshi_family member): its modeling pins ``transformers==4.51.3``, so
+    it runs in its own isolated ``flm_audio_venv`` instead of the moshi_family venv. End-to-end +
+    causal -> offline driver, no websocket server. ``inference_venv`` is resolved lazily to dodge
+    an import cycle with the recipe that defines ``flm_audio_venv``.
+    """
+
+    def _venv():
+        from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import flm_audio_venv
+
+        return flm_audio_venv()
+
+    return BackendSpec(
+        name="flm_audio",
+        server=None,  # end-to-end + causal: offline driver, no websocket server
+        offline_module="flmaudio.offline_inference",
+        offline_extra_args=("--hf_repo", hf_repo),
+        inference_venv=_venv,
+        rqmt_override={"gpu": 1, "cpu": 6, "mem": 48, "time": 8},
     )

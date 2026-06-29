@@ -107,7 +107,6 @@ class SpeechInference(BackendInferenceMixin, Job):
         "offline_extra_args": (),
         "cloud_api": False,
         "retrieval_llm": None,
-        "rqmt_override": None,
         "lora_weights": None,
         "lora_config": None,
         # FDB-only attrs are absent (None) for knowledge jobs and vice-versa, so excluding their
@@ -134,7 +133,6 @@ class SpeechInference(BackendInferenceMixin, Job):
         offline_extra_args: tuple = (),
         cloud_api: bool = False,
         retrieval_llm: str | None = None,
-        rqmt_override: dict | None = None,
         lora_weights: tk.Path | None = None,
         lora_config: tk.Path | None = None,
         code_version: int = 1,
@@ -202,12 +200,14 @@ class SpeechInference(BackendInferenceMixin, Job):
 
         self.out_dir = self.output_path("speech_output", directory=True)
 
+        # rqmt is NOT part of the Sisyphus hash (it is an instance attribute, not a
+        # constructor arg). Callers tune walltime/GPUs per-backend by mutating job.rqmt
+        # AFTER construction (see sharded_knowledge_inference / fdb.py), so a resource
+        # change never re-hashes the job.
         if mode == "knowledge":
             self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 8}
         else:
             self.rqmt = {"gpu": 1, "cpu": 2, "mem": 16, "time": 4}
-        if rqmt_override is not None:
-            self.rqmt = {**self.rqmt, **rqmt_override}
 
     def tasks(self):
         if self.cloud_api:
