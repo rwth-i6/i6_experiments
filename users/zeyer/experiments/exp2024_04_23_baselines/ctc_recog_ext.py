@@ -1844,6 +1844,14 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
             "batch_size": int(
                 20_000 * ctc_model.definition.batch_size_factor * min(32 / first_pass_recog_beam_size, 1)
             ),
+            # Pass the LM softmax temperature into the first-pass search too,
+            # so its WER is consistent with the tempered rescore and PPL.
+            # Only added when set, to keep existing (untempered) first-pass hashes unchanged.
+            **(
+                {"lm_softmax_temperature": lm_rescore_config["lm_softmax_temperature"]}
+                if lm_rescore_config and "lm_softmax_temperature" in lm_rescore_config
+                else {}
+            ),
         },
         search_rqmt=first_pass_search_rqmt,
         name=f"{prefix}/recog-opt-1stpass",
