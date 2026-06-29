@@ -164,6 +164,7 @@ def search_single(
     vocab_opts: Optional[Dict] = None,
     recog_post_proc_funcs: Optional[List[Callable[[tk.Path], tk.Path]]] = None,
     score_function: Optional[Callable] = None,
+    score_target_key: Optional[str] = None,
 ):
     """
     Run search for a specific test dataset
@@ -217,13 +218,20 @@ def search_single(
         else:
             score_result, search_ctm = score_result
     else:
-        default_target_key = returnn_config.config.get("default_target_key", "text")
+        # data key of the reference to measure edit distance against. Defaults to the config's
+        # default_target_key (standard ASR -> text); for same-modality reconstruction pass the
+        # output modality's data key (e.g. "data" for audio->audio) so the hypotheses are scored
+        # against the matching reference.
+        if score_target_key is not None:
+            target_key = score_target_key
+        else:
+            target_key = returnn_config.config.get("default_target_key", "text")
         score_result = generic_sclite_score_recog_out(
             dataset=dataset_dict,
             recog_output=search_out,
             corpus_name=dataset_name,
             vocab_opts=vocab_opts,
-            target_key=default_target_key,
+            target_key=target_key,
         )
         search_ctm = None
 

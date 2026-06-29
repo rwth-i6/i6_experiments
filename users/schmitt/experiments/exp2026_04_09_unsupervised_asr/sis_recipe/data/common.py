@@ -50,6 +50,20 @@ class LabelDatastreamWoVocab(Datastream):
         d.update(kwargs)
         return d
 
+    def as_returnn_targets_opts(self, **kwargs) -> Dict[str, Any]:
+        """
+        There is no vocab file for these labels (e.g. audio cluster ids), so build an identity
+        vocab mapping index ``i`` to the label ``str(i)``. This is needed to decode hypotheses /
+        references when scoring this modality (e.g. audio->audio reconstruction), see
+        ``tune_eval.eval_model``.
+        """
+        return {
+            "vocab_file": None,
+            "labels": [str(i) for i in range(int(self.vocab_size))],
+            "unknown_label": None,
+            **kwargs,
+        }
+
 
 @dataclass()
 class DatasetSettings:

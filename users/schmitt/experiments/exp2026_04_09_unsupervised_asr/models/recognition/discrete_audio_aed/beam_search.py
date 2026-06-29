@@ -2,7 +2,7 @@ __all__ = ["State", "beam_search_v1"]
 
 from abc import abstractmethod
 from functools import partial
-from typing import Generic, List, Protocol, Sequence, Tuple, TypeVar
+from typing import Callable, Generic, List, Optional, Protocol, Sequence, Tuple, TypeVar
 from dataclasses import dataclass
 
 import torch
@@ -136,6 +136,7 @@ def beam_search_v1(
     device: torch.device,
     length_norm_exponent: float = 1.0,
     max_seq_len: Tensor,
+    step_func: Optional[Callable] = None,
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
     """
     Eager-mode implementation of beam search.
@@ -148,7 +149,13 @@ def beam_search_v1(
     :param length_norm_exponent: scaling exponent for the length normalization factor
     :param max_seq_len: how long the decoded seqs can be at max, use e.g. encoder time dim.
         Shape: [B,]
+    :param step_func: single-step decoder function ``(labels, state) -> (logits, state)``. Defaults
+        to :meth:`Model.step_text_decoder` (text output); pass :meth:`Model.step_audio_decoder` to
+        decode audio. Must be consistent with ``bos_idx``/``eos_idx``/``out_dim``.
     """
+
+    if step_func is None:
+        step_func = model.step_text_decoder
 
     with torch.no_grad():
         assert beam_size > 0
@@ -172,7 +179,7 @@ def beam_search_v1(
         step = torch.tensor(0, device=device, dtype=torch.int32)
 
         while True:
-            logits, decoder_state = model.step_text_decoder(target.unsqueeze(-1), decoder_state)
+            logits, decoder_state = step_func(target.unsqueeze(-1), decoder_state)
             label_log_prob = F.log_softmax(logits, dim=-1)  # Batch, Beam, Vocab
             assert label_log_prob.shape[-2] == 1, f"time dim mismatch, is {label_log_prob.shape[-2]} but should be 1"
             label_log_prob = label_log_prob.squeeze(-2)

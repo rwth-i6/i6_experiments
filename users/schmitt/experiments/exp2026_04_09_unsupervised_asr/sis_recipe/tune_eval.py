@@ -165,8 +165,46 @@ def eval_model(
     main_eval_measure_key: str = "dev",
     rqmt: Optional[Dict[str, int]] = None,
     recog_post_proc_funcs: Optional[List[Callable[[tk.Path], tk.Path]]] = None,
+    input_modality: str = "audio",
+    output_modality: str = "text",
+    mask_input: bool = False,
+    masking_opts: Optional[Dict[str, Any]] = None,
 ):
+    """
+    :param input_modality: "audio" or "text" -- which modality is fed to the (shared) encoder.
+    :param output_modality: "audio" or "text" -- which decoder/vocab is used to produce + score
+        hypotheses. The default (input "audio", output "text") is standard ASR; setting both to the
+        same modality is a same-modality reconstruction probing the denoising model.
+    :param mask_input: if True, mask the encoder input like in training (requires ``masking_opts``).
+    :param masking_opts: masking config (``mask_prob``/``min_span``/``max_span``), as in training.
+    """
+    assert input_modality in ("audio", "text"), input_modality
+    assert output_modality in ("audio", "text"), output_modality
+
+    default_data_key = config.get("default_data_key", "data")
     default_target_key = config.get("default_target_key", "text")
+    # map modality -> datastream / extern_data key
+    modality_to_key = {"audio": default_data_key, "text": default_target_key}
+    input_data_key = modality_to_key[input_modality]
+    output_data_key = modality_to_key[output_modality]
+
+    # forward_step init args (hashed). Only add the reconstruction args when they differ from the
+    # forward_step defaults (audio->text, no masking), so the hash of standard ASR recog jobs that
+    # ran before these args existed stays unchanged.
+    forward_step_args = asdict(base_decoder_config)
+    if input_modality != "audio":
+        forward_step_args["input_modality"] = input_modality
+        forward_step_args["input_data_key"] = input_data_key
+    if output_modality != "text":
+        forward_step_args["output_modality"] = output_modality
+    if mask_input:
+        assert masking_opts is not None, "mask_input=True requires masking_opts"
+        forward_step_args["masking_opts"] = masking_opts
+
+    # the encoder input key must be present in extern_data. The default extern_data only declares
+    # the audio key ("data"); declare the text key as well when the input is text.
+    add_text_to_extern_data = input_data_key != default_data_key
+
     out_search_files = {}
     result_collections = {}
     for checkpoint_name in checkpoints:
@@ -189,13 +227,15 @@ def eval_model(
             network_module=train_args["network_module"],
             extra_config=extra_forward_config if extra_forward_config else ReturnnConfig({}),
             net_args=train_args["net_args"],
-            decoder_args=asdict(base_decoder_config),
+            decoder_args=forward_step_args,
             decoder=decoder_module,
             callback_module=callback_module,
             datastreams=train_data.datastreams,
             callback_opts={
                 "include_beam": True,
             },
+            vocab_key=output_data_key,
+            add_text_to_extern_data=add_text_to_extern_data,
         )
 
         outputs = {}
@@ -212,8 +252,9 @@ def eval_model(
                 dataset_name=key,
                 **default_returnn,
                 rqmt=rqmt,
-                vocab_opts=train_data.datastreams[default_target_key].as_returnn_targets_opts(),
+                vocab_opts=train_data.datastreams[output_data_key].as_returnn_targets_opts(),
                 recog_post_proc_funcs=recog_post_proc_funcs,
+                score_target_key=output_data_key,
             )
             search_ctms[key] = search_ctm
             outputs[key] = score_result

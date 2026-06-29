@@ -123,14 +123,22 @@ def run_eval(
     recog_model_args: Optional[Dict] = None,
     main_eval_measure_key: str = "dev",
     recog_post_proc_funcs: Optional[List[Callable[[tk.Path], tk.Path]]] = None,
+    input_modality: str = "audio",
+    output_modality: str = "text",
+    mask_input: bool = False,
+    masking_opts: Optional[Dict[str, Any]] = None,
 ):
     forward_step_module = config.pop("__forward_step_module")
     callback_module = config.pop("__callback_module")
 
-    if network_module is not None:
-        train_args["network_module"] = network_module
-    if recog_model_args is not None:
-        train_args["net_args"] = recog_model_args
+    # don't mutate the caller's train_args (run_eval may be called multiple times, e.g. for several
+    # recog variants), only override on a local copy when needed.
+    if network_module is not None or recog_model_args is not None:
+        train_args = copy.deepcopy(train_args)
+        if network_module is not None:
+            train_args["network_module"] = network_module
+        if recog_model_args is not None:
+            train_args["net_args"] = recog_model_args
     eval_model(
         config={**config["general"], **config.get("recog", {})},
         recog_name=recog_name,
@@ -147,6 +155,10 @@ def run_eval(
         main_eval_measure_key=main_eval_measure_key,
         rqmt=config.get("recog_rqmt", None),
         recog_post_proc_funcs=recog_post_proc_funcs,
+        input_modality=input_modality,
+        output_modality=output_modality,
+        mask_input=mask_input,
+        masking_opts=masking_opts,
     )
 
 
@@ -195,7 +207,17 @@ def run_experiment(
     skip_eval: bool = False,
     recog_post_proc_funcs: Optional[List[Callable[[tk.Path], tk.Path]]] = None,
     analysis_opts: Optional[Dict[str, Any]] = None,
+    recog_variants: Optional[List[Dict[str, Any]]] = None,
 ):
+    """
+    :param skip_eval: skip the standard (audio->text ASR) recognition + scoring.
+    :param recog_variants: extra recognition variants run in addition to the standard one. Each is a
+        kwargs dict for :func:`run_eval`, e.g. ``{"recog_name": "recon_audio", "input_modality":
+        "audio", "output_modality": "audio", "mask_input": True, "masking_opts": {...}}`` to score
+        same-modality reconstruction. Use a distinct ``recog_name`` per variant. A variant may also
+        set ``keep_epochs`` to recognize only specific checkpoints (else the experiment's
+        ``keep_epochs`` are used).
+    """
     train_job, train_args = run_train(
         training_name=training_name,
         config=copy.deepcopy(config),
@@ -216,24 +238,46 @@ def run_experiment(
             **analysis_opts,
         )
 
-    if skip_eval:
-        return train_job
+    if not skip_eval:
+        run_eval(
+            training_name=training_name,
+            train_job=train_job,
+            train_args=train_args,
+            config=copy.deepcopy(config),
+            train_data=train_data,
+            test_data_dict=test_data_dict,
+            keep_epochs=keep_epochs,
+            recog_name=recog_name,
+            network_module=network_module_recog,
+            extra_forward_config=extra_forward_config,
+            decoder_config=decoder_config,
+            recog_model_args=recog_model_args,
+            main_eval_measure_key=main_eval_measure_key,
+            recog_post_proc_funcs=recog_post_proc_funcs,
+        )
 
-    run_eval(
-        training_name=training_name,
-        train_job=train_job,
-        train_args=train_args,
-        config=copy.deepcopy(config),
-        train_data=train_data,
-        test_data_dict=test_data_dict,
-        keep_epochs=keep_epochs,
-        recog_name=recog_name,
-        network_module=network_module_recog,
-        extra_forward_config=extra_forward_config,
-        decoder_config=decoder_config,
-        recog_model_args=recog_model_args,
-        main_eval_measure_key=main_eval_measure_key,
-        recog_post_proc_funcs=recog_post_proc_funcs,
-    )
+    # additional recognition variants (e.g. same-modality reconstruction), each with its own
+    # recog_name and modality/masking options. These run regardless of skip_eval. A variant may
+    # override `keep_epochs` to recognize only specific checkpoints (else the experiment's
+    # keep_epochs are used).
+    for variant in recog_variants or []:
+        variant = dict(variant)
+        variant_keep_epochs = variant.pop("keep_epochs", keep_epochs)
+        run_eval(
+            training_name=training_name,
+            train_job=train_job,
+            train_args=train_args,
+            config=copy.deepcopy(config),
+            train_data=train_data,
+            test_data_dict=test_data_dict,
+            keep_epochs=variant_keep_epochs,
+            network_module=network_module_recog,
+            extra_forward_config=extra_forward_config,
+            decoder_config=decoder_config,
+            recog_model_args=recog_model_args,
+            main_eval_measure_key=main_eval_measure_key,
+            recog_post_proc_funcs=recog_post_proc_funcs,
+            **variant,
+        )
 
     return train_job
