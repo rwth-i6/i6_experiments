@@ -3870,25 +3870,29 @@ def py():
     # conv0-5 = the 7-conv feature encoder (downsampling ~0.3 ms -> 10 ms per frame),
     # feat-proj LayerNorm/Linear (20 ms), and raw-waveform at several pool rates.
     # All plain L2 grad, standard segA align -- an internally consistent resolution comparison.
-    _xa_w2v_res_sweep = [(f"conv{_i}", rf.build_dict(Wav2Vec2Ctc, grad_wrt=f"conv{_i}")) for _i in range(6)] + [
-        ("fproj_ln", rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_layernorm")),
-        ("fproj_out", rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out")),
-        ("rawwav", rf.build_dict(Wav2Vec2Ctc, grad_wrt="raw_waveform")),
-        ("rawwav-pool80", rf.build_dict(Wav2Vec2Ctc, grad_wrt="raw_waveform", raw_pool=80)),
-        ("rawwav-pool16", rf.build_dict(Wav2Vec2Ctc, grad_wrt="raw_waveform", raw_pool=16)),
-        ("rawwav-pool1", rf.build_dict(Wav2Vec2Ctc, grad_wrt="raw_waveform", raw_pool=1)),
+    # All levels use the HEADLINE decoder (prefix_fwd CTC score + en0.5-sil2.0 word-topology), so the
+    # feat-proj-out row equals the per-model MMS-FA gradient EXACTLY (same extract+align job, reused);
+    # only the internal gradient level varies. No twins (only the word-topology cell is tabulated).
+    _xa_w2v_res_sweep = [
+        (f"conv{_i}", rf.build_dict(Wav2Vec2Ctc, grad_wrt=f"conv{_i}", per_token_score="prefix_fwd")) for _i in range(6)
+    ] + [
+        ("fproj_ln", rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_layernorm", per_token_score="prefix_fwd")),
+        ("fproj_out", rf.build_dict(Wav2Vec2Ctc, grad_wrt="feat_proj_out", per_token_score="prefix_fwd")),
+        ("rawwav", rf.build_dict(Wav2Vec2Ctc, grad_wrt="raw_waveform", per_token_score="prefix_fwd")),
+        (
+            "rawwav-pool80",
+            rf.build_dict(Wav2Vec2Ctc, grad_wrt="raw_waveform", raw_pool=80, per_token_score="prefix_fwd"),
+        ),
+        (
+            "rawwav-pool16",
+            rf.build_dict(Wav2Vec2Ctc, grad_wrt="raw_waveform", raw_pool=16, per_token_score="prefix_fwd"),
+        ),
+        ("rawwav-pool1", rf.build_dict(Wav2Vec2Ctc, grad_wrt="raw_waveform", raw_pool=1, per_token_score="prefix_fwd")),
     ]
     for _rtag, _rcfg in _xa_w2v_res_sweep:
         _rname = f"wav2vec2ctc-{_rtag}-{_xa_tag}-L2_grad-pertoken"
         _rex = _xa_extract(_rcfg, _rname, "L2", False, bb=True)
-        if _rtag == "rawwav-pool1":
-            # Sample-level grid (~16 kHz, ~145k frames/seq): the DP is ~100x costlier and the DTW twins
-            # overrun the align walltime. Only the word-topology align (the table cell) is needed, so skip
-            # the dtw/wdtw/const twins for this one level (pool1 is worse than feat-proj anyway, see
-            # tab:wav2vec-resolution -- the extra variants add nothing).
-            _xa_align(_rex, _rname, "en0.5-sil1.0-wordtopo", word_topology=True, _twin=False)
-        else:
-            _xa_align(_rex, _rname, "en0.5-sil1.0")
+        _xa_align(_rex, _rname, "en0.5-sil2.0-wordtopo", sil=2.0, word_topology=True, _twin=False)
 
     # (1) Fairness: grad SUBWORD whisper (compare to the existing crossattn-subword baseline).
     _xa_sub_ex = _xa_extract(
@@ -4964,8 +4968,8 @@ def py():
     for _xa_s_cfg, _xa_s_name, _xa_s_attr, _xa_s_mgi in [
         (
             rf.build_dict(Voxtral, model_dir=dl_voxtral, forward_mode="transcription", grad_wrt="log_mel", version=7),
-            f"voxtral-logmel-{_xa_tag}-L1_grad-pertoken-subword",
-            "L1",
+            f"voxtral-logmel-{_xa_tag}-L2_grad-pertoken-subword",  # L2 to match the headline (char-vs-subword)
+            "L2",
             False,
         ),
         (
@@ -6033,10 +6037,10 @@ def py():
             dataset_offset_factors=_xa_off,
             align_opts=_xa_ao,
             audio_energy_pow=0.5,
-            blank_silence_energy_scale=1.0,
+            blank_silence_energy_scale=2.0,  # headline decoder (sil2.0): log-mel-input row == per-model grad
             word_topology=True,
         )
-        _ed_nm = f"align/{_ed_name}-{_name_for_dict(_xa_ao)}-en0.5-sil1.0-wordtopo"
+        _ed_nm = f"align/{_ed_name}-{_name_for_dict(_xa_ao)}-en0.5-sil2.0-wordtopo"
         _ed_al.add_alias(_ed_nm)
         reg(f"{_ed_nm}-wbe.txt", _ed_al.out_wbe)
 

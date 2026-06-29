@@ -525,8 +525,8 @@ def _char_subword_family_table():
             "Sp. LLM",
             "Voxtral",
             "Gradients",
-            gr(f"voxtral-charlevlogmel-{S}-L1_grad-pertoken"),
-            gr(f"voxtral-logmel-{S}-L1_grad-pertoken-subword"),
+            gr(f"voxtral-charlevlogmel-{S}-L2_grad-pertoken"),
+            gr(f"voxtral-logmel-{S}-L2_grad-pertoken-subword"),
         ),
         (
             "Sp. LLM",
@@ -567,7 +567,8 @@ def _char_subword_family_table():
 # ----------------------------------------------------------------------------------------
 def _wav2vec_resolution_table():
     S = "buckeye-segA-5h"
-    SFX = "asotTrue-bs-5-en0.5-sil1.0-wordtopo"
+    # headline decoder (prefix_fwd score + sil2.0 word-topology): feat-proj-out row == per-model MMS-FA grad.
+    SFX = "asotTrue-bs-5-en0.5-sil2.0-wordtopo"
     # (tag, label, ms/frame at 16 kHz): conv strides 5/10/20/40/80/160 -> 0.31..10 ms; feat-proj and
     # the default raw pool (320) = 20 ms; raw pools 80/16/1 = 5/1/0.0625 ms (sample-level).
     LEVELS = [
@@ -607,7 +608,8 @@ def _wav2vec_resolution_table():
 # ----------------------------------------------------------------------------------------
 def _encoder_depth_table():
     S = "buckeye-segA-5h"
-    SFX = "asotTrue-bs-5-en0.5-sil1.0-wordtopo"
+    # headline decoder (sil2.0 word-topology): the log-mel-input row equals the per-model grad.
+    SFX = "asotTrue-bs-5-en0.5-sil2.0-wordtopo"
 
     def cell(pre, tag):
         stem = f"align/{pre}-{tag}-encdepth-{S}-L2_grad-pertoken-{SFX}"
