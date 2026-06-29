@@ -331,7 +331,7 @@ def py():
                     model_dir=dl_voxtral,
                     forward_mode="transcription",
                     attn_implementation="eager",
-                    version=3,
+                    version=5 if _tsf != 1.0 else 3,  # >=5 for time-stretch; v3 at ts1.0 reuses the baseline
                     **_ts_mkw,
                 )
                 _tsvsa_ex = ExtractSelfAttnPerTokenJob(
