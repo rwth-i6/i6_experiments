@@ -8,7 +8,7 @@ from i6_core.returnn.config import CodeWrapper, ReturnnConfig
 from i6_core.serialization import Collection
 
 from ....train_exp import run_experiment
-from ..data.common import build_training_datasets, build_test_datasets
+from ..data.common import build_training_datasets, build_text_only_training_datasets, build_test_datasets
 from ....data.common import DatasetSettings
 from .... import optimizer_configs
 from ... import __setup_base_name__
@@ -81,6 +81,19 @@ alternate_batching = PartialImport(
 )
 
 
+def _text_recon_variant(config, num_epochs):
+    """text->text reconstruction recog on the last epoch, masking the input with the experiment's
+    own training text masking settings (scored against the unmasked phoneme reference)."""
+    return {
+        "recog_name": "recon_text",
+        "input_modality": "text",
+        "output_modality": "text",
+        "mask_input": True,
+        "masking_opts": copy.deepcopy(config["train_args"]["text_masking_opts"]),
+        "keep_epochs": [num_epochs],
+    }
+
+
 def py():
     prefix_name = f"{__setup_base_name__}/librispeech/{__name__.split('.')[-1]}"
 
@@ -97,6 +110,27 @@ def py():
             "max_plotted_seqs": 20,
             "cosine_similarity_summary": True,
         },
+        # same-modality reconstruction on the last checkpoint, masking the input with the same
+        # settings as in training, to probe how well the shared denoising model reconstructs each
+        # modality (scored against the unmasked input).
+        recog_variants=[
+            {
+                "recog_name": "recon_audio",
+                "input_modality": "audio",
+                "output_modality": "audio",
+                "mask_input": True,
+                "masking_opts": copy.deepcopy(base_config["train_args"]["audio_masking_opts"]),
+                "keep_epochs": [base_num_epochs],
+            },
+            {
+                "recog_name": "recon_text",
+                "input_modality": "text",
+                "output_modality": "text",
+                "mask_input": True,
+                "masking_opts": copy.deepcopy(base_config["train_args"]["text_masking_opts"]),
+                "keep_epochs": [base_num_epochs],
+            },
+        ],
     )
 
     # baseline settings (3 enc / 3 dec layers) + a GumbelVectorQuantizer codebook on top of the
@@ -123,6 +157,38 @@ def py():
             "max_plotted_seqs": 20,
             "cosine_similarity_summary": True,
         },
+        recog_variants=[_text_recon_variant(codebook_config, base_num_epochs)],
+    )
+
+    # single-task reference: text denoising only (no audio task, no alternate batching). Same shared
+    # model and same text data/masking as the multi-task baseline, so comparing its recon_text WER
+    # against the multi-task experiments shows how much the joint text+audio setup hurts text
+    # reconstruction.
+    text_only_train_data = build_text_only_training_datasets(sil_prob=0.0, surround_w_sil=False, settings=settings)
+    text_only_config = dict_update_deep(
+        copy.deepcopy(base_config),
+        {
+            "__train_step_module": "train_steps.aed_denoising_discrete_text_only.train_step",
+            "general.default_data_key": "phon_indices",
+            "general.default_target_key": "phon_indices",
+            "training.accum_grad_multiple_step": 1,  # no alternate batching -> no grad accumulation
+        },
+        [
+            # drop alternate batching and all audio-task settings
+            "training.torch_batching",
+            "train_args.audio_ce_loss_scale",
+            "train_args.audio_masked_ce_loss_scale",
+            "train_args.audio_masking_opts",
+        ],
+    )
+    run_experiment(
+        training_name=f"{prefix_name}/baseline_text-only",
+        config=copy.deepcopy(text_only_config),
+        train_data=text_only_train_data,
+        test_data_dict=test_data_dict,
+        keep_epochs=get_keep_epochs(base_num_epochs),
+        skip_eval=True,  # audio->text ASR is not meaningful for a text-only model
+        recog_variants=[_text_recon_variant(text_only_config, base_num_epochs)],
     )
 
     for exp_idx, (config, train_name) in enumerate(
@@ -165,6 +231,7 @@ def py():
                 "max_plotted_seqs": 20,
                 "cosine_similarity_summary": True,
             },
+            recog_variants=[_text_recon_variant(config, num_epochs)],
         )
 
     for exp_idx, (config, train_name) in enumerate(
@@ -203,6 +270,7 @@ def py():
                 "max_plotted_seqs": 20,
                 "cosine_similarity_summary": True,
             },
+            recog_variants=[_text_recon_variant(config, num_epochs)],
         )
 
     for exp_idx, (config, train_name) in enumerate(
@@ -241,6 +309,7 @@ def py():
                 "max_plotted_seqs": 20,
                 "cosine_similarity_summary": True,
             },
+            recog_variants=[_text_recon_variant(config, num_epochs)],
         )
 
     for exp_idx, (config, train_name) in enumerate(
@@ -288,4 +357,5 @@ def py():
                 "max_plotted_seqs": 20,
                 "cosine_similarity_summary": True,
             },
+            recog_variants=[_text_recon_variant(config, num_epochs)],
         )
