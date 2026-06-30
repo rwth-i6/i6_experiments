@@ -82,6 +82,51 @@ _ALIGN_OPTS = {"apply_softmax_over_time": True, "blank_score": -6}
 _TF_OVERLAY = "/home/az668407/work/transformers-4x-overlay"
 
 
+# Route p212's word_detail grad/attention time-stretch aligns through the shared
+# CalcAlignmentMetricsFromWordBoundariesJob (fed by the dumped word boundaries), exactly like the
+# main recipe (mirrors exp2026_05_23_grad_align._apply_shared_wbe_metric). Self-contained copy so
+# p212 (torch-2.12 env) does not import the large main recipe module. Applied as one pass over
+# _table_results right before build_external_tables.
+_USE_SHARED_WBE_METRIC = True
+_WB_METRIC_OUTPUTS = {
+    "wbe.txt": "out_wbe",
+    "metrics.txt": "out_metrics",
+    "acc50.txt": "out_acc50",
+    "interior_wbe.txt": "out_interior_wbe",
+    "edge_wbe.txt": "out_edge_wbe",
+}
+_wb_metric_job_by_align = {}
+
+
+def _metric_job_for_align(align):
+    j = _wb_metric_job_by_align.get(id(align))
+    if j is None:
+        j = CalcAlignmentMetricsFromWordBoundariesJob(
+            word_boundaries_hdf=align.out_word_boundaries_hdf,
+            dataset_dir=align.dataset_dir,
+            dataset_key=align.dataset_key,
+            dataset_offset_factors=align.dataset_offset_factors,
+            returnn_root=align.returnn_root,
+        )
+        _wb_metric_job_by_align[id(align)] = j
+    return j
+
+
+def _apply_shared_wbe_metric(results):
+    if not _USE_SHARED_WBE_METRIC:
+        return
+    for _nm, _v in list(results.items()):
+        _c = getattr(_v, "creator", None)
+        if (
+            isinstance(_c, WordAlignFromPerTokenGradsJob)
+            and getattr(_c, "boundary_source", None) == "word_detail"
+            and getattr(_c, "with_ref_metrics", True)
+            and hasattr(_c, "out_word_boundaries_hdf")
+            and getattr(_v, "path", None) in _WB_METRIC_OUTPUTS
+        ):
+            results[_nm] = getattr(_metric_job_for_align(_c), _WB_METRIC_OUTPUTS[_v.path])
+
+
 def py():
     """Sisyphus entry."""
     dl = DownloadHuggingFaceRepoJobV2(repo_id="alexwengg/buckeye", repo_type="dataset")
@@ -352,6 +397,7 @@ def py():
             )
             _table_results[f"{_tsf_name}-wbe.txt"] = _tsf_m.out_wbe
 
+    _apply_shared_wbe_metric(_table_results)
     build_external_tables(_table_results)
     # Partial-progress preview manifests (same mechanism as the main recipe's tables):
     # the time-stretch and cost tables render with dots for any still-running cell,

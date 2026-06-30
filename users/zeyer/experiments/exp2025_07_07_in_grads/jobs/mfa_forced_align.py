@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import os
 import sys
-import glob
 import json
 import subprocess
 from typing import List, Optional, Tuple, Union
@@ -56,6 +55,48 @@ class MfaDownloadModelJob(Job):
             subprocess.check_call([_exe(self.mfa_exe), "model", "download", kind, name], env=env)
 
 
+def _recombine_to_ref_words(mfa_entries, ref_words):
+    """Recombine MFA's word-tier intervals back to the reference words.
+
+    MFA re-tokenizes the gold transcript (it splits hyphenated words, e.g. ``um-hum`` -> ``um``,
+    ``hum``, and strips leading/trailing apostrophes, e.g. ``'em`` -> ``em``), so its word tier can
+    differ token-by-token from the reference even when the alignment itself is correct. We walk the
+    reference words in order and, for each, consume consecutive MFA intervals until their
+    de-hyphen/de-apostrophe'd concatenation equals the (de-hyphen/de-apostrophe'd) reference word;
+    that word's boundary is ``(first.start, last.end)`` -- MFA's own boundaries, just re-joined.
+
+    :return: per-reference-word ``(start, end)`` list, or ``None`` if MFA's tokens cannot be re-joined
+        to the reference 1:1 (a genuine mismatch, surfaced by the caller).
+    """
+
+    def _norm(w):
+        return str(w).lower().replace("-", "").replace("'", "").strip()
+
+    toks = [(float(s), float(e), _norm(lab)) for s, e, lab in mfa_entries if _norm(lab)]
+    out = []
+    j = 0
+    for rw in ref_words:
+        target = _norm(rw)
+        if not target:
+            return None
+        acc, start, end = "", None, None
+        while j < len(toks) and acc != target:
+            s, e, lab = toks[j]
+            if start is None:
+                start = s
+            end = e
+            acc += lab
+            j += 1
+            if not target.startswith(acc):
+                return None  # diverged -> cannot recombine
+        if acc != target:
+            return None  # ran out of MFA tokens before matching this reference word
+        out.append((start, end))
+    if j != len(toks):
+        return None  # leftover MFA tokens not consumed by any reference word
+    return out
+
+
 class MfaForcedAlignJob(Job):
     """``mfa align`` a dataset's reference transcripts -> per-word boundaries HDF (seconds).
 
@@ -66,7 +107,7 @@ class MfaForcedAlignJob(Job):
 
     # v2: job-local MFA_ROOT_DIR (concurrency-safe model unpack) + default textgrid cleanup (1:1 word
     # counts). Forces a re-run of the v1 attempts (timit errored, buckeye 0-coverage).
-    __sis_version__ = 3  # rerun: old finished job lacks word_boundaries.hdf + offset metric keys
+    __sis_version__ = 4  # strict per-word count+identity sanity check (no silent skip); see what fails
 
     def __init__(
         self,
@@ -80,6 +121,8 @@ class MfaForcedAlignJob(Job):
         g2p_model: Optional[str] = "english_us_arpa",
         num_jobs: int = 4,
         dataset_offset_factors: int = 1,
+        beam: int = 10,
+        retry_beam: int = 400,
         returnn_root: Optional[tk.Path] = None,
     ):
         super().__init__()
@@ -92,6 +135,9 @@ class MfaForcedAlignJob(Job):
         self.g2p_model = g2p_model
         self.num_jobs = num_jobs
         self.dataset_offset_factors = dataset_offset_factors
+        # Kaldi alignment beams. Hashed (not excluded) so sweeping them is a deliberate new run.
+        self.beam = beam
+        self.retry_beam = retry_beam
         self.returnn_root = returnn_root
         # WBE computed in-job (robust to partial MFA coverage); same align_metrics as the grad-align jobs.
         self.out_wbe = self.output_var("wbe.txt")
@@ -129,10 +175,16 @@ class MfaForcedAlignJob(Job):
         from returnn.datasets.hdf import SimpleHDFWriter
         from datasets import load_dataset
 
-        # realpath: see MfaDownloadModelJob -- the container can't follow the work symlink chain, so
-        # operate on the resolved real path (which IS bind-mounted) for all MFA-accessed dirs.
-        cwd = os.path.realpath(os.getcwd())
-        corpus, out_dir, tmp = (os.path.join(cwd, d) for d in ("corpus", "out", "mfa_tmp"))
+        # Corpus + MFA temp/out are intermediate scratch (thousands of small wav/lab files): keep them
+        # on local /tmp (fast NVMe, immediately consistent), NOT on hpcwork/Lustre. Writing many small
+        # files to Lustre is slow, burns the shared quota, and races the apptainer container stat'ing
+        # freshly-written metadata ("Corpus directory does not exist"). Only the final
+        # word_boundaries.hdf (a declared output) lives on hpcwork. Apptainer mounts host /tmp.
+        import tempfile
+        import shutil
+
+        scratch = tempfile.mkdtemp(prefix="mfa_", dir="/tmp")
+        corpus, out_dir, tmp = (os.path.join(scratch, d) for d in ("corpus", "out", "mfa_tmp"))
         for d in (corpus, out_dir, tmp):
             os.makedirs(d, exist_ok=True)
 
@@ -147,10 +199,12 @@ class MfaForcedAlignJob(Job):
         )
 
         ref = {}  # uid -> list of (start, end) seconds
+        ref_words = {}  # uid -> reference words (for the strict per-word identity sanity check)
         for i in range(len(ds)):
             uid = f"u{i:06d}"
             sr = int(ds[i]["audio"]["sampling_rate"])
             words = [w.lower() for w in ds[i]["word_detail"]["utterance"]]
+            ref_words[uid] = words
             sf.write(os.path.join(corpus, f"{uid}.wav"), np.asarray(ds[i]["audio"]["array"], dtype=np.float32), sr)
             with open(os.path.join(corpus, f"{uid}.lab"), "w") as f:
                 f.write(" ".join(words))
@@ -164,13 +218,13 @@ class MfaForcedAlignJob(Job):
         # Symlink the read-only pretrained models into a job-local root; extracted/ stays job-local.
         # APPTAINERENV_* injects MFA_ROOT_DIR into the container; realpath so the container sees the
         # bind-mounted real path, not the unfollowable work symlink.
-        mfa_root = os.path.join(cwd, "mfa_root")
+        mfa_root = os.path.join(scratch, "mfa_root")
         os.makedirs(mfa_root, exist_ok=True)
         _src_pre = os.path.join(os.path.realpath(self.model_root.get_path()), "pretrained_models")
         _dst_pre = os.path.join(mfa_root, "pretrained_models")
         if not os.path.exists(_dst_pre):
             os.symlink(_src_pre, _dst_pre)
-        env = dict(os.environ, MFA_ROOT_DIR=mfa_root, APPTAINERENV_MFA_ROOT_DIR=mfa_root)
+        env = dict(os.environ, MFA_ROOT_DIR=mfa_root, APPTAINERENV_MFA_ROOT_DIR=mfa_root, APPTAINER_BIND="/tmp")
         # NOTE: default textgrid cleanup (recombine clitics) keeps MFA's word count 1:1 with the
         # reference; --no_textgrid_cleanup splits clitics and breaks the count match.
         cmd = [
@@ -185,6 +239,16 @@ class MfaForcedAlignJob(Job):
             "-j",
             str(self.num_jobs),
             "--quiet",
+            # Two-stage beam: --beam is the initial (narrow, fast) pass for the easy majority;
+            # --retry_beam is a wider beam applied ONLY to utterances that failed the first pass.
+            # The MFA defaults (beam 10 / retry_beam 40) prune the correct path on hard/dense
+            # utterances, leaving them "unaligned" (no TextGrid). The Viterbi path always exists -- a
+            # wide-enough retry_beam finds it, so every seq aligns (no missing_json), at the cost of the
+            # wide search only on the few hard ones.
+            "--beam",
+            str(self.beam),
+            "--retry_beam",
+            str(self.retry_beam),
         ]
         if self.g2p_model:
             # auto-generate pronunciations for OOV words (spontaneous Buckeye has many).
@@ -194,29 +258,45 @@ class MfaForcedAlignJob(Job):
         subprocess.check_call(cmd, env=env)
 
         boundaries_writer = SimpleHDFWriter(self.out_word_boundaries_hdf.get_path(), dim=2, ndim=2)
-        n_total, n_covered, n_missing, n_mismatch = len(ref), 0, 0, 0
+        n_total = len(ref)
         utt_errs = []
+        # Strict: a forced aligner fed the GOLD transcript must reproduce it 1:1. MFA re-tokenizes
+        # (hyphen splits, apostrophe stripping), so we recombine its word tier back to the reference
+        # words (boundaries are MFA's own, just re-joined). Anything that still does not reproduce the
+        # transcript 1:1 (e.g. an utterance MFA failed to align at all) is collected with detail and
+        # raised at the end -- never silently dropped.
+        problems = []  # (uid, kind, detail)
         for uid, ref_se in ref.items():
+            ref_w = ref_words[uid]
             jf = os.path.join(out_dir, f"{uid}.json")
             if not os.path.exists(jf):
-                n_missing += 1
+                problems.append((uid, "missing_json", f"MFA exported no alignment ({len(ref_w)} ref words)"))
                 continue
             entries = json.load(open(jf))["tiers"]["words"]["entries"]
-            if len(entries) != len(ref_se):
-                n_mismatch += 1
+            rec = _recombine_to_ref_words(entries, ref_w)
+            if rec is None:
+                mfa_words = [str(e[2]) for e in entries]
+                problems.append(
+                    (uid, "no_recombine", f"mfa={len(mfa_words)} ref={len(ref_w)} MFA={mfa_words} REF={ref_w}")
+                )
                 continue
-            hyp_se = [(float(e[0]), float(e[1])) for e in entries]
-            boundaries_writer.insert_batch(np.array([hyp_se], dtype="float32"), [len(hyp_se)], [f"seq-{int(uid[1:])}"])
-            utt_errs.append(per_utt_boundary_errors(hyp_se, ref_se))
-            n_covered += 1
+            boundaries_writer.insert_batch(np.array([rec], dtype="float32"), [len(rec)], [f"seq-{int(uid[1:])}"])
+            utt_errs.append(per_utt_boundary_errors(rec, ref_se))
         boundaries_writer.close()
+        shutil.rmtree(scratch, ignore_errors=True)
+
+        if problems:
+            print(f"=== MFA SANITY FAILURES: {len(problems)}/{n_total} seqs ===", flush=True)
+            for uid, kind, detail in problems[:300]:
+                print(f"  [{kind}] {uid}: {detail}", flush=True)
+            raise AssertionError(
+                f"MFA word boundaries failed the strict sanity check on {len(problems)}/{n_total} seqs."
+                " A forced aligner fed the gold transcript must reproduce it 1:1; see the per-seq detail above."
+            )
         metrics = aggregate_corpus(utt_errs)
-        cov = n_covered / max(n_total, 1)
-        print(f"coverage {n_covered}/{n_total} = {cov:.3f} (missing {n_missing}, mismatch {n_mismatch})")
         print("CORPUS METRICS:", metrics)
         self.out_wbe.set(metrics["wbe"])
         self.out_metrics.set(metrics)
         self.out_acc50.set(metrics["acc_50ms"])
-        self.out_coverage.set(
-            {"covered": n_covered, "total": n_total, "fraction": cov, "missing": n_missing, "mismatch": n_mismatch}
-        )
+        # Strict mode reaches here only if ALL seqs passed -> full coverage.
+        self.out_coverage.set({"covered": len(utt_errs), "total": n_total, "fraction": 1.0})

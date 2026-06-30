@@ -25,16 +25,22 @@ from i6_experiments.users.zeyer.external_models.huggingface import (
 class ForcedAlignPhonemeBaselineJob(Job):
     """CTC forced-alignment (torchaudio) of TIMIT phones on the vitouphy model."""
 
-    __sis_version__ = (
-        3  # + word_boundaries.hdf dump (route WBE through shared CalcAlignmentMetricsFromWordBoundariesJob)
-    )
+    __sis_version__ = 2  # center_offset / width_signed_err / center_abs (align_metrics)
 
     @classmethod
     def hash(cls, parsed_args):
-        # keep finished param-noise/baseline jobs' hashes: the perturb kwargs are
-        # hash-invisible when at their no-op default (only non-default values hash).
+        # keep finished param-noise/baseline jobs' hashes: these kwargs are hash-invisible
+        # at their no-op default (only non-default values hash). dump_word_boundaries is opt-in
+        # so adding the HDF dump does NOT re-hash the finished noise-sweep instances.
         parsed_args = dict(parsed_args)
-        for _k in ("input_noise_std", "act_noise_std", "act_dropout", "perturb_seed", "g2p_word_targets"):
+        for _k in (
+            "input_noise_std",
+            "act_noise_std",
+            "act_dropout",
+            "perturb_seed",
+            "g2p_word_targets",
+            "dump_word_boundaries",
+        ):
             if not parsed_args.get(_k):
                 parsed_args.pop(_k, None)
         return super().hash(parsed_args)
@@ -53,6 +59,7 @@ class ForcedAlignPhonemeBaselineJob(Job):
         act_dropout: float = 0.0,
         perturb_seed: int = 0,
         g2p_word_targets: bool = False,
+        dump_word_boundaries: bool = False,
         returnn_root: Optional[tk.Path] = None,
     ):
         """
@@ -62,6 +69,7 @@ class ForcedAlignPhonemeBaselineJob(Job):
         """
         super().__init__()
         self.g2p_word_targets = g2p_word_targets
+        self.dump_word_boundaries = dump_word_boundaries
         self.dataset_dir = dataset_dir
         self.dataset_key = dataset_key
         self.model_dir = model_dir
@@ -80,7 +88,9 @@ class ForcedAlignPhonemeBaselineJob(Job):
         self.out_word_metrics = self.output_var("word_metrics.txt")
         # Aligned per-word (start, end) in SECONDS (float), [n_words, 2] per seq, tags "seq-{idx}" --
         # same format as the other forced-align baselines; feeds CalcAlignmentMetricsFromWordBoundariesJob.
-        self.out_word_boundaries_hdf = self.output_path("word_boundaries.hdf")
+        # Opt-in (only the paper baselines we route through the shared job set it), so the finished
+        # noise-sweep instances do not re-run just to add an unused HDF.
+        self.out_word_boundaries_hdf = self.output_path("word_boundaries.hdf") if dump_word_boundaries else None
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -144,7 +154,11 @@ class ForcedAlignPhonemeBaselineJob(Job):
 
             g2p = G2pEnIpa39(vocab)
 
-        boundaries_writer = SimpleHDFWriter(self.out_word_boundaries_hdf.get_path(), dim=2, ndim=2)
+        boundaries_writer = (
+            SimpleHDFWriter(self.out_word_boundaries_hdf.get_path(), dim=2, ndim=2)
+            if self.dump_word_boundaries
+            else None
+        )
         phone_errs, word_errs = [], []
         for seq_idx, data in enumerate(ds[self.dataset_key]):
             audio = np.asarray(data["audio"]["array"], dtype=np.float32)
@@ -202,9 +216,10 @@ class ForcedAlignPhonemeBaselineJob(Job):
                 pred_word_se, ref_word_se = collapse_phones_to_words(
                     pred_phone_se, ph["start"], ph["stop"], wd["start"], wd["stop"], scale
                 )
-            boundaries_writer.insert_batch(
-                np.array([pred_word_se], dtype="float32"), [len(pred_word_se)], [f"seq-{seq_idx}"]
-            )
+            if boundaries_writer is not None:
+                boundaries_writer.insert_batch(
+                    np.array([pred_word_se], dtype="float32"), [len(pred_word_se)], [f"seq-{seq_idx}"]
+                )
             word_errs.append(per_utt_boundary_errors(pred_word_se, ref_word_se))
             if seq_idx % 200 == 0:
                 print(
@@ -212,7 +227,8 @@ class ForcedAlignPhonemeBaselineJob(Job):
                     flush=True,
                 )
 
-        boundaries_writer.close()
+        if boundaries_writer is not None:
+            boundaries_writer.close()
         word_metrics = aggregate_corpus(word_errs)
         print("WORD METRICS:", word_metrics)
         self.out_word_wbe.set(word_metrics["wbe"])

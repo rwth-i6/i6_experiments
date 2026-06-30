@@ -1392,6 +1392,7 @@ def py():
         dataset_key="val",
         model_dir=dl_w2v_phoneme.out_hub_cache_dir,
         dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+        dump_word_boundaries=True,
     )
     _ph_fa.add_alias("align/w2v-phoneme-timit-val-ctc-forced-align")
     reg("align/w2v-phoneme-timit-val-ctc-forced-align-phone-wbe.txt", _ph_fa.out_phone_wbe)
@@ -1429,6 +1430,7 @@ def py():
         dataset_key="test",
         model_dir=dl_w2v_phoneme.out_hub_cache_dir,
         dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+        dump_word_boundaries=True,
     )
     _ph_fa_te.add_alias("align/w2v-phoneme-timit-test-ctc-forced-align")
     reg("align/w2v-phoneme-timit-test-ctc-forced-align-phone-wbe.txt", _ph_fa_te.out_phone_wbe)
@@ -1468,7 +1470,7 @@ def py():
             audio_energy_pow=0.5,
             blank_silence_energy_scale=1.0,
         )
-        reg(f"paramnoise/whisper-char-grad-std{_pn_std}-wbe.txt", _pn_wg_al.out_wbe)
+        # (noise sweep disabled, unused) reg(f"paramnoise/whisper-char-grad-std{_pn_std}-wbe.txt", _pn_wg_al.out_wbe)
 
         # (1b) Whisper cross-attention DTW (the whisper-timestamped-style native method)
         _pn_wca = WhisperCrossAttnForcedAlignJob(
@@ -1484,7 +1486,7 @@ def py():
             dataset_key="val",
             dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
         )
-        reg(f"paramnoise/whisper-crossattn-std{_pn_std}-wbe.txt", _pn_wca_m.out_wbe)
+        # (noise sweep disabled, unused) reg(f"paramnoise/whisper-crossattn-std{_pn_std}-wbe.txt", _pn_wca_m.out_wbe)
 
         # (2a) phoneme-CTC grad-align (en0/sil0 = the phone headline)
         _pn_pg_ex = ExtractInGradsPerTokenJob(
@@ -1513,7 +1515,7 @@ def py():
             blank_silence_energy_scale=0.0,
             boundary_source="phonetic_detail",
         )
-        reg(f"paramnoise/phoneme-grad-std{_pn_std}-wbe.txt", _pn_pg_al.out_wbe)
+        # (noise sweep disabled, unused) reg(f"paramnoise/phoneme-grad-std{_pn_std}-wbe.txt", _pn_pg_al.out_wbe)
 
         # (2b) phoneme-CTC forced-align (torchaudio Viterbi) -- SAME perturbed model as (2a)
         _pn_pf = ForcedAlignPhonemeBaselineJob(
@@ -1524,7 +1526,7 @@ def py():
             param_noise_std=_pn_std,
             param_noise_seed=_pn_seed,
         )
-        reg(f"paramnoise/phoneme-forced-std{_pn_std}-phone-wbe.txt", _pn_pf.out_phone_wbe)
+        # (noise sweep disabled, unused) reg(f"paramnoise/phoneme-forced-std{_pn_std}-phone-wbe.txt", _pn_pf.out_phone_wbe)
 
     # WER/PER vs the SAME param-noise, to overlay on the robustness plot (does recognition collapse where
     # alignment does?). Whisper: WER on a 200-utt subset (autoregressive decode is slow). CTC: PER, full val.
@@ -1538,7 +1540,7 @@ def py():
         max_seqs=200,
     )
     _wer_wh.add_alias("paramnoise/wer-whisper")
-    reg("paramnoise/wer-whisper.txt", _wer_wh.out_wer)
+    # (noise sweep disabled, unused) reg("paramnoise/wer-whisper.txt", _wer_wh.out_wer)
     _wer_ph = WerNoiseSweepJob(
         dataset_dir=dl_ds_timit.out_hub_cache_dir,
         dataset_key="val",
@@ -1547,7 +1549,7 @@ def py():
         sigmas=_wer_sigmas,
     )
     _wer_ph.add_alias("paramnoise/per-phoneme")
-    reg("paramnoise/per-phoneme.txt", _wer_ph.out_wer)
+    # (noise sweep disabled, unused) reg("paramnoise/per-phoneme.txt", _wer_ph.out_wer)
 
     # --- CONTROLLED NON-PARAM degradation (user idea): input noise / activation dropout, expected to
     # give a SMOOTH ramp vs the param-noise cliff. Same 4 methods + recognition; opt-in perturb kwargs so
@@ -1586,7 +1588,7 @@ def py():
                 audio_energy_pow=0.5,
                 blank_silence_energy_scale=1.0,
             )
-            reg(f"noise/whisper-char-grad-{_ntag}-wbe.txt", _nz_wg_al.out_wbe)
+            # (noise sweep disabled, unused) reg(f"noise/whisper-char-grad-{_ntag}-wbe.txt", _nz_wg_al.out_wbe)
 
             # (1b) Whisper cross-attention DTW
             _nz_wca = WhisperCrossAttnForcedAlignJob(
@@ -1601,7 +1603,7 @@ def py():
                 dataset_key="val",
                 dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
             )
-            reg(f"noise/whisper-crossattn-{_ntag}-wbe.txt", _nz_wca_m.out_wbe)
+            # (noise sweep disabled, unused) reg(f"noise/whisper-crossattn-{_ntag}-wbe.txt", _nz_wca_m.out_wbe)
 
             # (2a) phoneme-CTC grad-align
             _nz_pg_ex = ExtractInGradsPerTokenJob(
@@ -1629,7 +1631,7 @@ def py():
                 blank_silence_energy_scale=0.0,
                 boundary_source="phonetic_detail",
             )
-            reg(f"noise/phoneme-grad-{_ntag}-wbe.txt", _nz_pg_al.out_wbe)
+            # (noise sweep disabled, unused) reg(f"noise/phoneme-grad-{_ntag}-wbe.txt", _nz_pg_al.out_wbe)
 
             # (2b) phoneme-CTC forced-align -- SAME perturbed model as (2a)
             _nz_pf = ForcedAlignPhonemeBaselineJob(
@@ -1639,7 +1641,7 @@ def py():
                 dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
                 **_pk,
             )
-            reg(f"noise/phoneme-forced-{_ntag}-phone-wbe.txt", _nz_pf.out_phone_wbe)
+            # (noise sweep disabled, unused) reg(f"noise/phoneme-forced-{_ntag}-phone-wbe.txt", _nz_pf.out_phone_wbe)
 
         # recognition (WER/PER) under the SAME degradation axis (one job, all levels)
         _nz_wer_wh = WerNoiseSweepJob(
@@ -1652,7 +1654,7 @@ def py():
             perturb_kind=_nz_rkind,
         )
         _nz_wer_wh.add_alias(f"noise/wer-whisper-{_nz_key}")
-        reg(f"noise/wer-whisper-{_nz_key}.txt", _nz_wer_wh.out_wer)
+        # (noise sweep disabled, unused) reg(f"noise/wer-whisper-{_nz_key}.txt", _nz_wer_wh.out_wer)
         _nz_wer_ph = WerNoiseSweepJob(
             dataset_dir=dl_ds_timit.out_hub_cache_dir,
             dataset_key="val",
@@ -1662,7 +1664,7 @@ def py():
             perturb_kind=_nz_rkind,
         )
         _nz_wer_ph.add_alias(f"noise/per-phoneme-{_nz_key}")
-        reg(f"noise/per-phoneme-{_nz_key}.txt", _nz_wer_ph.out_wer)
+        # (noise sweep disabled, unused) reg(f"noise/per-phoneme-{_nz_key}.txt", _nz_wer_ph.out_wer)
 
     # SmoothGrad ablation (attribution axis A) on the headline char-level Whisper surface: average the
     # per-token gradient over noise_n_samples noisy forward+backward passes (Gaussian noise on the raw
@@ -3465,7 +3467,7 @@ def py():
     _mfa_exe = ApptainerExeWrapperJob(
         _mfa_image.out_image,
         command="mfa",
-        bind=["/rwthfs/rz/cluster/home", "/rwthfs/rz/cluster/hpcwork/p0023999"],
+        bind=["/rwthfs/rz/cluster/home", "/rwthfs/rz/cluster/hpcwork/p0023999", "/tmp"],
     )
     reg("mfa/mfa-run.sh", _mfa_exe.out_exe)
     _mfa_models = MfaDownloadModelJob(
@@ -3989,6 +3991,7 @@ def py():
         model_dir=dl_w2v_phoneme.out_hub_cache_dir,
         dataset_offset_factors=_xa_off,
         g2p_word_targets=True,
+        dump_word_boundaries=True,
     )
     _xa_phfa.add_alias(f"baseline-phoneme-fa-{_xa_tag}")
     reg(f"baseline-phoneme-fa-{_xa_tag}-word-wbe.txt", _xa_phfa.out_word_wbe)
