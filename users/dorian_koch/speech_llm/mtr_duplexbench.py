@@ -112,6 +112,9 @@ class MTRDuplexInference(Job):
         scenario: str = "smooth",
         shard: int = 0,
         num_shards: int = 1,
+        overlay: tk.Path | None = None,
+        lora_rank: int | None = None,
+        lora_scaling: float = 2.0,
         rqmt: dict | None = None,
     ):
         self.mtr_data = mtr_data
@@ -122,6 +125,11 @@ class MTRDuplexInference(Job):
         self.scenario = scenario
         self.shard = shard
         self.num_shards = num_shards
+        # Uniform finetune-weights overlay (our Moshi finetunes run through the base engine + an
+        # adapter/state-dict; None excluded so base-Moshi hashes are unchanged).
+        self.overlay = overlay
+        self.lora_rank = lora_rank
+        self.lora_scaling = lora_scaling
         self.rqmt = rqmt or {"gpu": 1, "cpu": 4, "mem": 48, "time": 8}
         self.out_dir = self.output_path("submission", directory=True)
 
@@ -150,6 +158,10 @@ class MTRDuplexInference(Job):
             "--hf_repo",
             self.hf_repo,
         ]
+        if self.overlay is not None:
+            cmd += ["--overlay", self.overlay.get_path()]
+        if self.lora_rank is not None:
+            cmd += ["--lora_rank", str(self.lora_rank), "--lora_scaling", str(self.lora_scaling)]
         print("[mtr-inference]", " ".join(cmd), flush=True)
         subprocess.run(cmd, env=_pythonpath_env(), check=True)
 
@@ -426,6 +438,9 @@ def mtr_benchmark_py(
     dimension: str = "conv_features",
     scenario: str = "smooth",
     num_shards: int = 1,
+    overlay: tk.Path | None = None,
+    lora_rank: int | None = None,
+    lora_scaling: float = 2.0,
     judge: str = "vllm",
     judge_model: str = "openai/gpt-oss-120b",
 ):
@@ -450,6 +465,9 @@ def mtr_benchmark_py(
         hf_repo=hf_repo,
         scenario=scenario,
         num_shards=num_shards,
+        overlay=overlay,
+        lora_rank=lora_rank,
+        lora_scaling=lora_scaling,
     )
     ev = MTRDuplexEval(
         submission_dir=inf.out_dir,
