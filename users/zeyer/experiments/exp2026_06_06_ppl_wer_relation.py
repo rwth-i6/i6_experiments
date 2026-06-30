@@ -21,7 +21,7 @@ See :func:`_train_ls_chunked`.
 from __future__ import annotations
 from typing import Dict, List, Tuple
 
-from sisyphus import tk
+from sisyphus import tk, Job, Task
 
 from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
 from i6_experiments.users.zeyer.plots.scaling_laws import ScalingLawPlotJob
@@ -71,6 +71,46 @@ _CTC_MODEL_NAME = "L16-D1024-spm10k-auxAED-b100k"
 _LS_CHUNKED_PREFIX = "exp2026_05_27_chunked_ctc_ls"
 
 
+class WritePplWerTableJob(Job):
+    """
+    Collect all (lm_name, eval set, word PPL, WER) points into a TSV and a JSON table.
+
+    ``rows`` is a list of dicts, each with ``lm_name`` (str), ``eval_set`` (str),
+    and ``ppl`` and ``wer`` as Sisyphus paths/variables to a plain-text float.
+    The float values are read at run time
+    and written sorted by eval set and then perplexity.
+    """
+
+    def __init__(self, rows):
+        self.rows = rows
+        self.out_tsv = self.output_path("ppl_wer.tsv")
+        self.out_json = self.output_path("ppl_wer.json")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import json
+
+        out = []
+        for r in self.rows:
+            with open(r["ppl"].get_path()) as f:
+                ppl = float(f.read().strip())
+            with open(r["wer"].get_path()) as f:
+                wer = float(f.read().strip())
+            out.append({"lm_name": r["lm_name"], "eval_set": r["eval_set"], "ppl": ppl, "wer": wer})
+        out.sort(key=lambda d: (d["eval_set"], d["ppl"]))
+
+        with open(self.out_json.get_path(), "w") as f:
+            json.dump(out, f, indent=2)
+            f.write("\n")
+
+        with open(self.out_tsv.get_path(), "w") as f:
+            f.write("lm_name\teval_set\tppl\twer\n")
+            for d in out:
+                f.write(f"{d['lm_name']}\t{d['eval_set']}\t{d['ppl']:.6g}\t{d['wer']:.6g}\n")
+
+
 def py():
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_claix2023 import recog_ext_with_lm
     from i6_experiments.users.zeyer.train_v4 import train_models_by_prefix as train_v4_models
@@ -93,6 +133,8 @@ def py():
 
     # eval set name -> list of (ppl_var, wer_var) across all LMs.
     points_per_eval: Dict[str, List[Tuple[tk.Variable, tk.Variable]]] = {}
+    # Flat list of all (lm_name, eval_set, ppl, wer) points for the raw-number table.
+    table_rows: List[dict] = []
 
     for lm_name, exp in train_v4_models.items():
         if not lm_name.startswith("lm/"):
@@ -117,6 +159,9 @@ def py():
                 continue
             wer_var = tk.Variable(path=score_res.main_measure_value.path, creator=score_res.main_measure_value.creator)
             ppl_var = word_ppl[eval_name]
+            table_rows.append(
+                {"lm_name": lm_name, "eval_set": eval_name, "ppl": ppl_var, "wer": score_res.main_measure_value}
+            )
             # Gate on WER only (imported, so already available). PPL is new compute,
             # so ppl_var.available() is False until the PPL job runs -- don't gate on it.
             if not wer_var.available():
@@ -139,6 +184,11 @@ def py():
                 filter_outliers=False,
             ).out_plot_pdf,
         )
+
+    # Raw PPL-WER numbers (all LMs, all eval sets) as a TSV + JSON table.
+    table_job = WritePplWerTableJob(rows=table_rows)
+    tk.register_output(f"{prefix}/ppl_wer_table.tsv", table_job.out_tsv)
+    tk.register_output(f"{prefix}/ppl_wer_table.json", table_job.out_json)
 
     # LM softmax-temperature sweep on the offline baseline (new compute).
     _lm_softmax_temperature_sweep(baseline_exp)
