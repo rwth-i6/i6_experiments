@@ -21,9 +21,10 @@ See :func:`_train_ls_chunked`.
 from __future__ import annotations
 from typing import Dict, List, Tuple
 
-from sisyphus import tk, Job, Task
+from sisyphus import tk
 
 from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
+from i6_experiments.users.zeyer.utils.table_data import WriteTableDataJob
 from i6_experiments.users.zeyer.plots.scaling_laws import ScalingLawPlotJob
 from i6_experiments.users.zeyer.decoding.perplexity import get_lm_perplexities_for_task_evals_v2
 
@@ -69,46 +70,6 @@ _CTC_MODEL_NAME = "L16-D1024-spm10k-auxAED-b100k"
 # Kept at the original recipe name so result/alias paths don't move;
 # Sis hashes don't depend on it, so nothing re-runs.
 _LS_CHUNKED_PREFIX = "exp2026_05_27_chunked_ctc_ls"
-
-
-class WritePplWerTableJob(Job):
-    """
-    Collect all (lm_name, eval set, word PPL, WER) points into a TSV and a JSON table.
-
-    ``rows`` is a list of dicts, each with ``lm_name`` (str), ``eval_set`` (str),
-    and ``ppl`` and ``wer`` as Sisyphus paths/variables to a plain-text float.
-    The float values are read at run time
-    and written sorted by eval set and then perplexity.
-    """
-
-    def __init__(self, rows):
-        self.rows = rows
-        self.out_tsv = self.output_path("ppl_wer.tsv")
-        self.out_json = self.output_path("ppl_wer.json")
-
-    def tasks(self):
-        yield Task("run", mini_task=True)
-
-    def run(self):
-        import json
-
-        out = []
-        for r in self.rows:
-            with open(r["ppl"].get_path()) as f:
-                ppl = float(f.read().strip())
-            with open(r["wer"].get_path()) as f:
-                wer = float(f.read().strip())
-            out.append({"lm_name": r["lm_name"], "eval_set": r["eval_set"], "ppl": ppl, "wer": wer})
-        out.sort(key=lambda d: (d["eval_set"], d["ppl"]))
-
-        with open(self.out_json.get_path(), "w") as f:
-            json.dump(out, f, indent=2)
-            f.write("\n")
-
-        with open(self.out_tsv.get_path(), "w") as f:
-            f.write("lm_name\teval_set\tppl\twer\n")
-            for d in out:
-                f.write(f"{d['lm_name']}\t{d['eval_set']}\t{d['ppl']:.6g}\t{d['wer']:.6g}\n")
 
 
 def py():
@@ -186,7 +147,11 @@ def py():
         )
 
     # Raw PPL-WER numbers (all LMs, all eval sets) as a TSV + JSON table.
-    table_job = WritePplWerTableJob(rows=table_rows)
+    table_job = WriteTableDataJob(
+        columns=["lm_name", "eval_set", "ppl", "wer"],
+        rows=table_rows,
+        sort_by=["eval_set", "ppl"],
+    )
     tk.register_output(f"{prefix}/ppl_wer_table.tsv", table_job.out_tsv)
     tk.register_output(f"{prefix}/ppl_wer_table.json", table_job.out_json)
 
