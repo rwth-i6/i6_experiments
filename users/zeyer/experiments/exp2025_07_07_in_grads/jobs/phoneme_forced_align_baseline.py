@@ -25,7 +25,9 @@ from i6_experiments.users.zeyer.external_models.huggingface import (
 class ForcedAlignPhonemeBaselineJob(Job):
     """CTC forced-alignment (torchaudio) of TIMIT phones on the vitouphy model."""
 
-    __sis_version__ = 2  # center_offset / width_signed_err / center_abs (align_metrics)
+    __sis_version__ = (
+        3  # + word_boundaries.hdf dump (route WBE through shared CalcAlignmentMetricsFromWordBoundariesJob)
+    )
 
     @classmethod
     def hash(cls, parsed_args):
@@ -76,6 +78,9 @@ class ForcedAlignPhonemeBaselineJob(Job):
         self.out_word_wbe = self.output_var("word_wbe.txt")
         self.out_phone_metrics = self.output_var("phone_metrics.txt")
         self.out_word_metrics = self.output_var("word_metrics.txt")
+        # Aligned per-word (start, end) in SECONDS (float), [n_words, 2] per seq, tags "seq-{idx}" --
+        # same format as the other forced-align baselines; feeds CalcAlignmentMetricsFromWordBoundariesJob.
+        self.out_word_boundaries_hdf = self.output_path("word_boundaries.hdf")
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -109,6 +114,7 @@ class ForcedAlignPhonemeBaselineJob(Job):
             aggregate_corpus,
             collapse_phones_to_words,
         )
+        from returnn.datasets.hdf import SimpleHDFWriter
 
         dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         d = get_content_dir_from_hub_cache_dir(self.model_dir)
@@ -138,6 +144,7 @@ class ForcedAlignPhonemeBaselineJob(Job):
 
             g2p = G2pEnIpa39(vocab)
 
+        boundaries_writer = SimpleHDFWriter(self.out_word_boundaries_hdf.get_path(), dim=2, ndim=2)
         phone_errs, word_errs = [], []
         for seq_idx, data in enumerate(ds[self.dataset_key]):
             audio = np.asarray(data["audio"]["array"], dtype=np.float32)
@@ -195,6 +202,9 @@ class ForcedAlignPhonemeBaselineJob(Job):
                 pred_word_se, ref_word_se = collapse_phones_to_words(
                     pred_phone_se, ph["start"], ph["stop"], wd["start"], wd["stop"], scale
                 )
+            boundaries_writer.insert_batch(
+                np.array([pred_word_se], dtype="float32"), [len(pred_word_se)], [f"seq-{seq_idx}"]
+            )
             word_errs.append(per_utt_boundary_errors(pred_word_se, ref_word_se))
             if seq_idx % 200 == 0:
                 print(
@@ -202,6 +212,7 @@ class ForcedAlignPhonemeBaselineJob(Job):
                     flush=True,
                 )
 
+        boundaries_writer.close()
         word_metrics = aggregate_corpus(word_errs)
         print("WORD METRICS:", word_metrics)
         self.out_word_wbe.set(word_metrics["wbe"])
