@@ -4549,10 +4549,10 @@ def py():
         dataset_offset_factors=_xa_off,
         align_opts={**_xa_ao, "dtw": True},
         audio_energy_pow=0.5,
-        blank_silence_energy_scale=1.0,
+        blank_silence_energy_scale=2.0,
         word_topology=True,
     )
-    _dtwwt_nm = f"align/{_xa_whc_name}-asotTrue-bs-5-en0.5-sil1.0-dtwword"
+    _dtwwt_nm = f"align/{_xa_whc_name}-asotTrue-bs-5-en0.5-sil2.0-dtwword"
     _dtwwt_al.add_alias(_dtwwt_nm)
     reg(f"{_dtwwt_nm}-wbe.txt", _dtwwt_al.out_wbe)
 
@@ -4739,8 +4739,10 @@ def py():
     # absmeanS divides each frame by mean(|score|) over tokens; on CTC/transducer models some frames have
     # an ALL-ZERO gradient (silence) -> divisor 0 -> NaN -> degenerate alignment (WBE ~3.6 s). The
     # norm_scores_eps floor fixes it (verified on parakeet-ctc, 30 seqs: 3623 -> 111 ms median; AED/LLM
-    # never hit all-zero frames, so they were already fine). The word-topology/energy-silence DP is NOT
-    # usable for the signed score (it log()s the signed grad -> NaN), so this keeps CTC topology.
+    # never hit all-zero frames, so they were already fine). The ENERGY-SILENCE blank is not usable for
+    # the signed score (it log()s the grad -> NaN), so a constant blank replaces it. Word-topology DOES
+    # work on the signed score (no log; it only restricts blank positions) but aligns it WORSE
+    # (e.g. whisper 110->183 ms), so the signed columns keep the plain CTC topology.
     _abl_dot_ao = {
         "norm_scores": "absmeanS",
         "norm_scores_eps": 0.05,
@@ -5557,10 +5559,11 @@ def py():
             model_config=_hy_recog_cfg,
             max_new_tokens=256,
             # Cap generation length vs audio duration to kill hallucination loops
-            # (e.g. whisper's "i am sorry" x64) that overflow char-level downstream.
-            # Opt-in per model (hash-excluded at None) so only enabled models re-run.
-            # Enabled on whisper (the one that looped); ~12 subword-tokens/s of audio
-            # never truncates real speech (~7 words/s).
+            # (e.g. whisper's "i am sorry" x64): the runaway repetition produces hyps so long they
+            # BREAK the downstream char-level alignment (it fails, not just runs slow), so an uncapped
+            # recog would not align at all on those seqs. Opt-in per model (hash-excluded at None) so
+            # only enabled models re-run. Enabled on the AED family (whisper/crisper/owls), which
+            # exhibited the looping; ~12 subword-tokens/s of audio never truncates real speech (~7 words/s).
             max_tokens_per_sec=12.0 if _hy_name.startswith(("whisper", "crisper", "owls")) else None,
         )
         _hy_recog.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
@@ -5876,9 +5879,10 @@ def py():
                 dataset_offset_factors=_xa_off,
                 align_opts=_xa_ao,
                 audio_energy_pow=0.5,
-                blank_silence_energy_scale=1.0,
+                blank_silence_energy_scale=2.0,
+                word_topology=True,
             )
-            _ps_gnm = f"align/{_ps_gname}-{_name_for_dict(_xa_ao)}-en0.5-sil1.0"
+            _ps_gnm = f"align/{_ps_gname}-{_name_for_dict(_xa_ao)}-en0.5-sil2.0-wordtopo"
             _ps_gal.add_alias(_ps_gnm)
             reg(f"{_ps_gnm}-wbe.txt", _ps_gal.out_wbe)
             # --- self-attn DTW (heads auto-selected on TIMIT-val gold, per prompt) ---
@@ -5905,9 +5909,10 @@ def py():
                 dataset_offset_factors=_xa_off,
                 align_opts=_xa_ao,
                 audio_energy_pow=0.5,
-                blank_silence_energy_scale=1.0,
+                blank_silence_energy_scale=2.0,
+                word_topology=True,
             )
-            _ps_snm = f"align/{_ps_sname}-{_name_for_dict(_xa_ao)}-en0.5-sil1.0"
+            _ps_snm = f"align/{_ps_sname}-{_name_for_dict(_xa_ao)}-en0.5-sil2.0-wordtopo"
             _ps_sal.add_alias(_ps_snm)
             reg(f"{_ps_snm}-wbe.txt", _ps_sal.out_wbe)
 

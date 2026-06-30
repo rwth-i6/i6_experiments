@@ -104,7 +104,13 @@ def _cost_table():
     # (no special-casing).
     # CTC (wav2vec2) drives split_prefix_backward -> all 4 stages;
     # AED/Sp.LLM have no lattice (prefix cols n/a).
-    models = ["CTC (MMS-FA)", "AED (whisper-large)", "Sp. LLM (phi4)"]
+    # (metrics-file key, display label). The p212 benchmark job emits the CTC row under the internal
+    # key "CTC (wav2vec2)"; the table displays it as MMS-FA (the wav2vec2 forced-alignment model).
+    models = [
+        ("CTC (wav2vec2)", "CTC (MMS-FA)"),
+        ("AED (whisper-large)", "AED (whisper-large)"),
+        ("Sp. LLM (phi4)", "Sp. LLM (phi4)"),
+    ]
     metric_of = {
         "forward": "forward_ms_per_s",
         "prefix_fwd": "prefix_fwd_ms_per_s",
@@ -112,7 +118,7 @@ def _cost_table():
         "backward": "backward_ms_per_s",
     }
     columns = ["forward", "prefix_fwd", "prefix_bwd", "backward"]
-    rows = [{"label": n, "cells": {c: _cost_cell(n, metric_of[c]) for c in columns}} for n in models]
+    rows = [{"label": disp, "cells": {c: _cost_cell(key, metric_of[c]) for c in columns}} for key, disp in models]
     _emit("cost", columns, rows)
 
 
@@ -408,7 +414,7 @@ def _word_length_table():
             ],
         ),
         (
-            "OWSM",
+            "OWSM-CTC",
             [
                 (
                     # block 6 (best emit block), matching the per-model + owsm-per-layer tables.
@@ -435,7 +441,7 @@ def _word_length_table():
         "MMS-FA": "CTC",
         "XLS-R (Phoneme)": "CTC",
         "Parakeet CTC": "CTC",
-        "OWSM": "CTC",
+        "OWSM-CTC": "CTC",
         "Whisper-base": "AED",
     }
     columns = ["type", "model", "method", "wbe", "start", "end", "width"]
@@ -649,16 +655,16 @@ def _ablation_table():
     MODELS = [
         ("CTC", "MMS-FA", "wav2vec2ctc-fproj_out-prefixfwd"),
         ("CTC", "Parakeet CTC", "parakeet-ctc-1.1b-prefixfwd"),
-        ("Transd.", "Parakeet", "parakeet-rnnt-1.1b-logmel"),
+        ("Transd.", "Parakeet RNN-T", "parakeet-rnnt-1.1b-logmel"),
         ("Transd.", _M_EMFORMER, "emformer-rnnt-prefix-logmel"),
         ("AED", "Whisper-base", "whisper-base-logmel-charlev-spc"),
         ("Sp. LLM", "Voxtral", "voxtral-charlevlogmel"),
         ("Sp. LLM", "Phi-4-MM", "phi4mm-charlev-spc"),
         ("Sp. LLM", "Canary-Qwen", "canary-qwen-charlev-spc-logmel-st15"),
     ]
-    # Signed "dot"/"dot_e": abs-mean norm with an eps floor + clip, on a plain CTC topology
-    # (NOT the L-norms' word-topology),
-    # since the energy-silence blank is undefined on a signed score.
+    # Signed "dot"/"dot_e": abs-mean norm with an eps floor + clip, with a constant blank in place of
+    # the energy-silence blank (that blank log()s the score -> undefined when signed), on a plain CTC
+    # topology (word-topology works on the signed score but aligns it worse, so the signed columns keep CTC).
     DOT_SFX = "nsabsmeanS-nse0.05-cs1e-05_None-asotTrue-bs-6"
     # (column key, align suffix). Plain-gradient group then the gradient-x-input ("_e") group.
     COLS = [
@@ -869,8 +875,8 @@ def _alignopts_dtw_table():
         (R + "DTW DP", ("xa", "ours_dtw"), OU, cx, cx, ck, cx, "none", ck, cx),
         (R + "DTW DP, no energy", ("xa", "ours_dtw_noen"), OU, cx, cx, ck, cx, "none", cx, cx),
         (R + "no silence", ("xa", "ours_none"), OU, cx, cx, ck, ck, "none", ck, ck),
-        ("Grad: ours (full)", ("grad", "en0.5-sil1.0-wordtopo"), na, na, na, ck, ck, "word", ck, ck),
-        (R + "DTW DP, word-topo", ("grad", "en0.5-sil1.0-dtwword"), na, na, na, ck, cx, "word", ck, ck),
+        ("Grad: ours (full)", ("grad", "en0.5-sil2.0-wordtopo"), na, na, na, ck, ck, "word", ck, ck),
+        (R + "DTW DP, word-topo", ("grad", "en0.5-sil2.0-dtwword"), na, na, na, ck, cx, "word", ck, ck),
         (R + "DTW DP", ("grad", "en0.5-truedtw"), na, na, na, ck, cx, "none", ck, ck),
         (R + "DTW DP, no energy", ("grad", "en0.0-truedtw"), na, na, na, ck, cx, "none", cx, ck),
     ]

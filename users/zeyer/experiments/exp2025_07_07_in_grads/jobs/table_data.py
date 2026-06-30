@@ -130,7 +130,18 @@ def _resolve_cell(cell):
     if val is _PENDING_SENTINEL:
         return _PENDING
     if cell.get("key") is not None and isinstance(val, dict):
-        val = val.get(cell["key"])
+        key = cell["key"]
+        # A "<group>|<metric>" key whose GROUP prefix has zero matches in the dict means the whole row
+        # is unwired (typo / rename), NOT a legitimately-absent metric -> raise loudly. A present group
+        # that is just missing one metric (e.g. AED/LLM have no prefix-score columns) stays null.
+        if key not in val and "|" in key:
+            _prefix = key.split("|", 1)[0] + "|"
+            assert any(str(k).startswith(_prefix) for k in val), (
+                f"table-data cell key {key!r} is absent AND no key with prefix {_prefix!r} exists in the"
+                f" resolved dict -- the row/model name is unregistered (typo or rename), not a missing cell."
+                f" Available keys: {sorted(val)}"
+            )
+        val = val.get(key)
     if val is None:
         return None
     return val if isinstance(val, str) else float(val)
