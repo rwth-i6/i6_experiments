@@ -73,18 +73,6 @@ _LS_CHUNKED_PREFIX = "exp2026_05_27_chunked_ctc_ls"
 
 
 def py():
-    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_claix2023 import recog_ext_with_lm
-    from i6_experiments.users.zeyer.train_v4 import train_models_by_prefix as train_v4_models
-    from i6_experiments.users.zeyer.experiments.exp2025_11_19_lm_scaling_laws import (
-        train_base_asr_models,
-        train_lms,
-    )
-
-    # Populates train_v4_models with the LS LM scaling-law family + the CTC baseline.
-    # Hashes match the imported work dirs (2025-08-22-dlm/work).
-    train_base_asr_models()
-    train_lms()
-
     # LibriSpeech chunked-CTC context-length experiments (RQ4 encoder-context axis),
     # merged in from the former exp2026_05_27_chunked_ctc_ls recipe.
     _train_ls_chunked()
@@ -99,6 +87,30 @@ def py():
 
     # LM softmax-temperature sweep on the offline baseline (new compute).
     _lm_softmax_temperature_sweep(baseline_exp)
+
+    # PPL-WER relation across the external-LM scaling-law family.
+    _lm_family_ppl_wer()
+
+
+def _lm_family_ppl_wer() -> None:
+    """
+    PPL-WER relation across the LM scaling-law family on LibriSpeech.
+
+    Gathers (word-level PPL, WER) per eval set for every external LM,
+    registers one log-log scatter per eval set,
+    and writes the raw numbers as a TSV + JSON table.
+    """
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_claix2023 import recog_ext_with_lm
+    from i6_experiments.users.zeyer.train_v4 import train_models_by_prefix as train_v4_models
+    from i6_experiments.users.zeyer.experiments.exp2025_11_19_lm_scaling_laws import (
+        train_base_asr_models,
+        train_lms,
+    )
+
+    # Populates train_v4_models with the LS LM scaling-law family + the CTC baseline.
+    # Hashes match the imported work dirs (2025-08-22-dlm/work).
+    train_base_asr_models()
+    train_lms()
 
     prefix = get_setup_prefix_for_module(__name__)
     task = get_librispeech_task_raw_v2(vocab="spm10k")
@@ -172,16 +184,16 @@ def _lm_softmax_temperature_sweep(baseline_exp) -> None:
     LM softmax-temperature sweep on the offline LS baseline CTC + LS Transformer-LM.
 
     Varies the external-LM softmax temperature T (LM score = ``log_softmax(lm_logits / T)``),
-    which simultaneously changes the LM word-level perplexity
-    and the CTC+LM rescoring WER,
+    which simultaneously changes the LM word-level perplexity and the CTC+LM WER,
     tracing a temperature-parametrized PPL-WER curve for one fixed AM + LM pair.
 
-    For each T the LM/prior scales are re-tuned on the N-best list,
-    and we use the *rescore* WER (``rescore-res.txt``),
-    which goes through the tempered ``lm_rescore_def`` and is thus consistent with the tempered PPL.
-    The first-pass decode does not see T, so its ``recog-1stpass-res.txt`` is not used here.
+    For each T the LM/prior scales are re-tuned on the N-best list.
+    T is applied wherever the LM is scored (scale tuning, rescore, and the first-pass search),
+    so the reported first-pass WER is consistent with the tempered PPL.
     T == 1.0 omits the temperature key,
     so its recog/PPL hashes match the untempered baseline and reuse the finished result.
+
+    Writes the raw (T, eval set, PPL, first-pass WER) numbers as a TSV + JSON table.
     """
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import (
         ctc_recog_recomb_labelwise_prior_auto_scale,
@@ -196,10 +208,11 @@ def _lm_softmax_temperature_sweep(baseline_exp) -> None:
     ctc_model = baseline_exp.get_last_fixed_epoch()
 
     temperatures = [0.5, 0.7, 0.85, 1.0, 1.2, 1.5, 2.0]
+    sweep_rows: List[dict] = []
     for temp in temperatures:
         lm_rescore_config = None if temp == 1.0 else {"lm_softmax_temperature": temp}
         t_tag = f"T{temp:g}"
-        ctc_recog_recomb_labelwise_prior_auto_scale(
+        res = ctc_recog_recomb_labelwise_prior_auto_scale(
             prefix=f"{prefix}/lm_temp_sweep/{t_tag}/ctc+lm",
             task=task,
             ctc_model=ctc_model,
@@ -208,8 +221,26 @@ def _lm_softmax_temperature_sweep(baseline_exp) -> None:
             lm_rescore_config=lm_rescore_config,
         )
         _task_ppl, word_ppl = get_lm_perplexities_for_task_evals_v2(task, lm=lm, config=lm_rescore_config)
+        wer_per_eval = res.individual_results or {}
         for eval_name, ppl_var in word_ppl.items():
             tk.register_output(f"{prefix}/lm_temp_sweep/{t_tag}/{eval_name}/ppl.txt", ppl_var)
+            score_res = wer_per_eval.get(eval_name)
+            sweep_rows.append(
+                {
+                    "temperature": temp,
+                    "eval_set": eval_name,
+                    "ppl": ppl_var,
+                    "wer": score_res.main_measure_value if score_res is not None else None,
+                }
+            )
+
+    table_job = WriteTableDataJob(
+        columns=["temperature", "eval_set", "ppl", "wer"],
+        rows=sweep_rows,
+        sort_by=["eval_set", "temperature"],
+    )
+    tk.register_output(f"{prefix}/lm_temp_sweep/ppl_wer_table.tsv", table_job.out_tsv)
+    tk.register_output(f"{prefix}/lm_temp_sweep/ppl_wer_table.json", table_job.out_json)
 
 
 def _train_ls_chunked():
