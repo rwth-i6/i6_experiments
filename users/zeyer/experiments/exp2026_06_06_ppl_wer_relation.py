@@ -216,7 +216,6 @@ def _lm_softmax_temperature_sweep() -> None:
             prefix=f"{prefix}/lm_temp_sweep/{t_tag}/ctc+lm",
             task=task,
             ctc_model=ctc_model,
-            extra_config={"aux_loss_layers": [16]},
             lm=lm,
             lm_rescore_config=lm_rescore_config,
         )
@@ -478,7 +477,6 @@ def _ctc_llm_recog() -> None:
             prefix=f"{prefix}/ctc+lm-v2/{lm_tag}",
             task=task,
             ctc_model=ctc_model,
-            extra_config={"aux_loss_layers": [16]},
             lm=lm,
         )
 
@@ -499,7 +497,6 @@ def _ctc_llm_recog() -> None:
             prefix=f"{prefix}/ctc+lm-delayed-v2-always-beamSize8/{lm_tag}",
             task=task,
             ctc_model=ctc_model,
-            extra_config={"aux_loss_layers": [16]},
             lm=lm,
             lm_rescore_config={
                 "default_data_convert_labels_func": convert_labels_func_spm,
