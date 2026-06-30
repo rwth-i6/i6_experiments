@@ -92,9 +92,9 @@ def _lm_family_ppl_wer() -> None:
     """
     PPL-WER relation across the LM scaling-law family on LibriSpeech.
 
-    Gathers (word-level PPL, WER) per eval set for every external LM,
-    registers one log-log scatter per eval set,
-    and writes the raw numbers as a TSV + JSON table.
+    Gathers spm10k-label-level and word-level PPL plus WER per eval set for every external LM,
+    registers one log-log scatter (word PPL vs WER) per eval set,
+    and writes the raw numbers as TSV + JSON tables, one per PPL level.
     """
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_claix2023 import recog_ext_with_lm
     from i6_experiments.users.zeyer.train_v4 import train_models_by_prefix as train_v4_models
@@ -131,24 +131,33 @@ def _lm_family_ppl_wer() -> None:
         if res.individual_results is None:
             continue
 
-        # New compute: word-level PPL per eval set.
-        _task_ppl, word_ppl = get_lm_perplexities_for_task_evals_v2(task, lm=lm)
+        # New compute: spm10k-label-level and word-level PPL per eval set.
+        spm10k_ppl, word_ppl = get_lm_perplexities_for_task_evals_v2(task, lm=lm)
 
         for eval_name, score_res in res.individual_results.items():
             if eval_name not in word_ppl:
                 continue
             wer_var = tk.Variable(path=score_res.main_measure_value.path, creator=score_res.main_measure_value.creator)
-            ppl_var = word_ppl[eval_name]
+            word_ppl_var = word_ppl[eval_name]
+            spm10k_ppl_var = spm10k_ppl[eval_name]
             table_rows.append(
-                {"lm_name": lm_name, "eval_set": eval_name, "ppl": ppl_var, "wer": score_res.main_measure_value}
+                {
+                    "lm_name": lm_name,
+                    "eval_set": eval_name,
+                    "spm10k_ppl": spm10k_ppl_var,
+                    "word_ppl": word_ppl_var,
+                    "wer": score_res.main_measure_value,
+                }
             )
             # Gate on WER only (imported, so already available). PPL is new compute,
-            # so ppl_var.available() is False until the PPL job runs -- don't gate on it.
+            # so the PPL vars' .available() is False until the PPL job runs -- don't gate on them.
             if not wer_var.available():
                 continue
-            points_per_eval.setdefault(eval_name, []).append((ppl_var, wer_var))
+            # Scatter uses word PPL vs WER.
+            points_per_eval.setdefault(eval_name, []).append((word_ppl_var, wer_var))
 
-            tk.register_output(f"{prefix}/per_lm/{lm_name}/{eval_name}/ppl.txt", ppl_var)
+            tk.register_output(f"{prefix}/per_lm/{lm_name}/{eval_name}/word_ppl.txt", word_ppl_var)
+            tk.register_output(f"{prefix}/per_lm/{lm_name}/{eval_name}/spm10k_ppl.txt", spm10k_ppl_var)
 
     for eval_name, pts in points_per_eval.items():
         if not pts:
@@ -165,14 +174,16 @@ def _lm_family_ppl_wer() -> None:
             ).out_plot_pdf,
         )
 
-    # Raw PPL-WER numbers (all LMs, all eval sets) as a TSV + JSON table.
-    table_job = WriteTableDataJob(
-        columns=["lm_name", "eval_set", "ppl", "wer"],
-        rows=table_rows,
-        sort_by=["eval_set", "ppl"],
-    )
-    tk.register_output(f"{prefix}/ppl_wer_table.tsv", table_job.out_tsv)
-    tk.register_output(f"{prefix}/ppl_wer_table.json", table_job.out_json)
+    # Raw PPL-WER numbers (all LMs, all eval sets) as TSV + JSON tables,
+    # one table per PPL level (spm10k-label PPL and word PPL).
+    for ppl_col, tag in [("spm10k_ppl", "spm10k"), ("word_ppl", "word")]:
+        table_job = WriteTableDataJob(
+            columns=["lm_name", "eval_set", ppl_col, "wer"],
+            rows=table_rows,
+            sort_by=["eval_set", ppl_col],
+        )
+        tk.register_output(f"{prefix}/ppl_wer_table_{tag}.tsv", table_job.out_tsv)
+        tk.register_output(f"{prefix}/ppl_wer_table_{tag}.json", table_job.out_json)
 
 
 def _lm_softmax_temperature_sweep() -> None:
@@ -189,7 +200,7 @@ def _lm_softmax_temperature_sweep() -> None:
     T == 1.0 omits the temperature key,
     so its recog/PPL hashes match the untempered baseline and reuse the finished result.
 
-    Writes the raw (T, eval set, PPL, first-pass WER) numbers as a TSV + JSON table.
+    Writes the raw (T, eval set, spm10k/word PPL, first-pass WER) numbers as TSV + JSON tables, one per PPL level.
     """
     from i6_experiments.users.zeyer.experiments.exp2025_11_19_lm_scaling_laws import train_base_asr_models
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc import _train_experiments
@@ -219,27 +230,31 @@ def _lm_softmax_temperature_sweep() -> None:
             lm=lm,
             lm_rescore_config=lm_rescore_config,
         )
-        _task_ppl, word_ppl = get_lm_perplexities_for_task_evals_v2(task, lm=lm, config=lm_rescore_config)
+        spm10k_ppl, word_ppl = get_lm_perplexities_for_task_evals_v2(task, lm=lm, config=lm_rescore_config)
         wer_per_eval = res.individual_results or {}
-        for eval_name, ppl_var in word_ppl.items():
-            tk.register_output(f"{prefix}/lm_temp_sweep/{t_tag}/{eval_name}/ppl.txt", ppl_var)
+        for eval_name, word_ppl_var in word_ppl.items():
+            tk.register_output(f"{prefix}/lm_temp_sweep/{t_tag}/{eval_name}/word_ppl.txt", word_ppl_var)
+            tk.register_output(f"{prefix}/lm_temp_sweep/{t_tag}/{eval_name}/spm10k_ppl.txt", spm10k_ppl[eval_name])
             score_res = wer_per_eval.get(eval_name)
             sweep_rows.append(
                 {
                     "temperature": temp,
                     "eval_set": eval_name,
-                    "ppl": ppl_var,
+                    "spm10k_ppl": spm10k_ppl[eval_name],
+                    "word_ppl": word_ppl_var,
                     "wer": score_res.main_measure_value if score_res is not None else None,
                 }
             )
 
-    table_job = WriteTableDataJob(
-        columns=["temperature", "eval_set", "ppl", "wer"],
-        rows=sweep_rows,
-        sort_by=["eval_set", "temperature"],
-    )
-    tk.register_output(f"{prefix}/lm_temp_sweep/ppl_wer_table.tsv", table_job.out_tsv)
-    tk.register_output(f"{prefix}/lm_temp_sweep/ppl_wer_table.json", table_job.out_json)
+    # One table per PPL level (spm10k-label PPL and word PPL).
+    for ppl_col, tag in [("spm10k_ppl", "spm10k"), ("word_ppl", "word")]:
+        table_job = WriteTableDataJob(
+            columns=["temperature", "eval_set", ppl_col, "wer"],
+            rows=sweep_rows,
+            sort_by=["eval_set", "temperature"],
+        )
+        tk.register_output(f"{prefix}/lm_temp_sweep/ppl_wer_table_{tag}.tsv", table_job.out_tsv)
+        tk.register_output(f"{prefix}/lm_temp_sweep/ppl_wer_table_{tag}.json", table_job.out_json)
 
 
 def _train_ls_chunked():
