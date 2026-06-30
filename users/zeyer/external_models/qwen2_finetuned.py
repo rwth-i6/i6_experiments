@@ -462,10 +462,14 @@ def get_qwen2_0_5b_lm_finetuned_librispeech_spm10k_vocab() -> ModelWithCheckpoin
     Qwen2 0.5B fine-tuned on LibriSpeech 960h with spm10k vocab (full FT).
 
     /rwthfs/.../GetBestPtCheckpointJob.bNX1okWMTgmk/output/checkpoint.pt
-    """
-    from i6_experiments.users.zeyer.datasets.loquacious import get_spm_vocab
 
-    vocab = get_spm_vocab(dim="10k")
+    The LLM's spm10k is the same vocab as the LibriSpeech AM spm10k, only lowercased
+    (verified: all 10240 pieces match position-wise up to case),
+    so we pass the LS spm10k here (the AM/task vocab) and the AM token IDs map 1:1 to the LLM.
+    """
+    from i6_experiments.users.zeyer.datasets.librispeech import get_vocab_by_str
+
+    vocab = get_vocab_by_str("spm10k")
 
     # noinspection PyTypeChecker
     get_model = functools.partial(
@@ -525,10 +529,14 @@ def get_qwen2_1_5b_lm_finetuned_librispeech_spm10k_vocab() -> ModelWithCheckpoin
     Qwen2 1.5B fine-tuned on LibriSpeech 960h with spm10k vocab (full FT).
 
     /rwthfs/.../GetBestPtCheckpointJob.eY2aKSETXAyc/output/checkpoint.pt
-    """
-    from i6_experiments.users.zeyer.datasets.loquacious import get_spm_vocab
 
-    vocab = get_spm_vocab(dim="10k")
+    The LLM's spm10k is the same vocab as the LibriSpeech AM spm10k, only lowercased
+    (verified: all 10240 pieces match position-wise up to case),
+    so we pass the LS spm10k here (the AM/task vocab) and the AM token IDs map 1:1 to the LLM.
+    """
+    from i6_experiments.users.zeyer.datasets.librispeech import get_vocab_by_str
+
+    vocab = get_vocab_by_str("spm10k")
 
     # noinspection PyTypeChecker
     get_model = functools.partial(
