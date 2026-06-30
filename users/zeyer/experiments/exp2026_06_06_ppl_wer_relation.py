@@ -191,20 +191,21 @@ def _lm_softmax_temperature_sweep() -> None:
 
     Writes the raw (T, eval set, PPL, first-pass WER) numbers as a TSV + JSON table.
     """
-    from i6_experiments.users.zeyer.train_v4 import train_models_by_prefix as train_v4_models
     from i6_experiments.users.zeyer.experiments.exp2025_11_19_lm_scaling_laws import train_base_asr_models
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc import _train_experiments
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import (
         ctc_recog_recomb_labelwise_prior_auto_scale,
         _get_lm_model,
         _lms,
     )
 
+    # Populates _train_experiments with the CTC baseline (same one _lm_family_ppl_wer recogs).
     train_base_asr_models()
     prefix = get_setup_prefix_for_module(__name__)
     task = get_librispeech_task_raw_v2(vocab="spm10k")
     lm_name = "n32-d1024-claix2023"
     lm = _get_lm_model(_lms[lm_name])
-    ctc_model = train_v4_models[_CTC_MODEL_NAME].get_last_fixed_epoch()
+    ctc_model = _train_experiments[_CTC_MODEL_NAME].get_last_fixed_epoch()
 
     temperatures = [0.5, 0.7, 0.85, 1.0, 1.2, 1.5, 2.0]
     sweep_rows: List[dict] = []
@@ -438,8 +439,8 @@ def _ctc_llm_recog() -> None:
     """
     import functools
 
-    from i6_experiments.users.zeyer.train_v4 import train_models_by_prefix as train_v4_models
     from i6_experiments.users.zeyer.experiments.exp2025_11_19_lm_scaling_laws import train_base_asr_models
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc import _train_experiments
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import (
         ctc_recog_recomb_labelwise_prior_auto_scale,
     )
@@ -462,10 +463,11 @@ def _ctc_llm_recog() -> None:
         get_qwen2_7b_lm_finetuned_librispeech,
     )
 
+    # Populates _train_experiments with the CTC baseline (same one _lm_family_ppl_wer recogs).
     train_base_asr_models()
     prefix = get_setup_prefix_for_module(__name__)
     task = get_librispeech_task_raw_v2(vocab="spm10k")
-    ctc_model = train_v4_models[_CTC_MODEL_NAME].get_last_fixed_epoch()
+    ctc_model = _train_experiments[_CTC_MODEL_NAME].get_last_fixed_epoch()
 
     # Standard time-sync CTC+LM for spm10k-vocab LLMs.
     for lm_tag, lm in [
