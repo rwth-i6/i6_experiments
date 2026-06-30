@@ -298,6 +298,65 @@ def _phi4mm_model_config(
 _table_results: Dict[str, Any] = {}
 
 
+# Route grad/attention word_detail alignments through the shared
+# CalcAlignmentMetricsFromWordBoundariesJob (fed by the dumped word boundaries), so that every
+# alignment -- grad, attention and the forced-align baselines -- computes its WBE/metrics via the
+# same job. The baselines already do this explicitly; this reroutes the grad/attn aligns too,
+# without touching each reg(...-wbe.txt, align.out_wbe) site. Flip the switch to revert all of them
+# to their inline WBE in one place.
+_USE_SHARED_WBE_METRIC = True
+_WB_METRIC_OUTPUTS = {
+    "wbe.txt": "out_wbe",
+    "metrics.txt": "out_metrics",
+    "acc50.txt": "out_acc50",
+    "interior_wbe.txt": "out_interior_wbe",
+    "edge_wbe.txt": "out_edge_wbe",
+}
+_wb_metric_job_by_align: Dict[int, CalcAlignmentMetricsFromWordBoundariesJob] = {}
+
+
+def _metric_job_for_align(align: WordAlignFromPerTokenGradsJob) -> CalcAlignmentMetricsFromWordBoundariesJob:
+    """Shared metrics job for one align job's dumped word boundaries, memoized per align object.
+
+    All inputs are read off the align job, so this works for any model/dataset (the same job and
+    datasets the forced-align baselines already feed it).
+    """
+    j = _wb_metric_job_by_align.get(id(align))
+    if j is None:
+        j = CalcAlignmentMetricsFromWordBoundariesJob(
+            word_boundaries_hdf=align.out_word_boundaries_hdf,
+            dataset_dir=align.dataset_dir,
+            dataset_key=align.dataset_key,
+            dataset_offset_factors=align.dataset_offset_factors,
+            returnn_root=align.returnn_root,
+        )
+        _wb_metric_job_by_align[id(align)] = j
+    return j
+
+
+def _apply_shared_wbe_metric(results):
+    """Reroute each word_detail WordAlignFromPerTokenGradsJob output in ``results`` to the shared
+    metrics job. Call ONCE at the end of py(), AFTER every reg() -- in particular after the
+    twin/energy sweep that introspects each align's ``.creator`` (rerouting inside reg() would hide
+    the align jobs from that sweep, dropping its generated variants). Kept on their inline metric:
+    WordAlignFromPerTokenWithSepGradsJob (no boundaries HDF), phonetic_detail aligns (the metric job
+    reads word_detail refs), and hyp-mode aligns (with_ref_metrics=False; those feed _hy_metrics on
+    the HDF directly, never reg() here).
+    """
+    if not _USE_SHARED_WBE_METRIC:
+        return
+    for _nm, _v in list(results.items()):
+        _c = getattr(_v, "creator", None)
+        if (
+            isinstance(_c, WordAlignFromPerTokenGradsJob)
+            and getattr(_c, "boundary_source", None) == "word_detail"
+            and getattr(_c, "with_ref_metrics", True)
+            and hasattr(_c, "out_word_boundaries_hdf")
+            and getattr(_v, "path", None) in _WB_METRIC_OUTPUTS
+        ):
+            results[_nm] = getattr(_metric_job_for_align(_c), _WB_METRIC_OUTPUTS[_v.path])
+
+
 def reg(name, value, **kwargs):
     tk.register_output(name, value, **kwargs)
     _table_results[name] = value
@@ -6101,6 +6160,7 @@ def py():
         build_preview_tables,
     )
 
+    _apply_shared_wbe_metric(_table_results)
     build_tables(_table_results)
     try:
         build_preview_tables(_table_results)  # one-shot snapshot of current results (pending cells -> '·')
