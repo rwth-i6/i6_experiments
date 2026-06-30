@@ -87,7 +87,18 @@ def py():
 
     # LibriSpeech chunked-CTC context-length experiments (RQ4 encoder-context axis),
     # merged in from the former exp2026_05_27_chunked_ctc_ls recipe.
-    baseline_exp = _train_ls_chunked()
+    _train_ls_chunked()
+
+    # Register the offline LS AED baseline under the pinned prefix
+    # with a byte-identical ``aed_train_exp(...)`` call,
+    # so its ``ReturnnTrainingJob`` hash matches the existing trained model
+    # at ``~/setups/2025-08-aed-large/work/.../ReturnnTrainingJob.IVB5xAuHZZA3``.
+    # The bulk-import script (``import_work_directory.py``) then symlinks
+    # that finished training in here -- no re-training.
+    baseline_exp = _train_ls_offline_baseline()
+
+    # LM softmax-temperature sweep on the offline baseline (new compute).
+    _lm_softmax_temperature_sweep(baseline_exp)
 
     prefix = get_setup_prefix_for_module(__name__)
     task = get_librispeech_task_raw_v2(vocab="spm10k")
@@ -155,9 +166,6 @@ def py():
     tk.register_output(f"{prefix}/ppl_wer_table.tsv", table_job.out_tsv)
     tk.register_output(f"{prefix}/ppl_wer_table.json", table_job.out_json)
 
-    # LM softmax-temperature sweep on the offline baseline (new compute).
-    _lm_softmax_temperature_sweep(baseline_exp)
-
 
 def _lm_softmax_temperature_sweep(baseline_exp) -> None:
     """
@@ -222,14 +230,6 @@ def _train_ls_chunked():
     Merged here from the former ``exp2026_05_27_chunked_ctc_ls`` recipe;
     registers under the pinned :data:`_LS_CHUNKED_PREFIX`.
     """
-    # Register the offline LS AED baseline under the pinned prefix
-    # with a byte-identical ``aed_train_exp(...)`` call,
-    # so its ``ReturnnTrainingJob`` hash matches the existing trained model
-    # at ``~/setups/2025-08-aed-large/work/.../ReturnnTrainingJob.IVB5xAuHZZA3``.
-    # The bulk-import script (``import_work_directory.py``) then symlinks
-    # that finished training in here -- no re-training.
-    baseline_exp = _train_ls_offline_baseline()
-
     # ``(left_ctx, center, right_lookahead)`` in encoder frames (~60 ms each).
     # Causal variants (R=0) explore the encoder-only-latency budget;
     # (80, 5, 4) is the reference-streaming config matching the Loquacious sweep.
@@ -259,8 +259,6 @@ def _train_ls_chunked():
             chunk_lookahead_size=right,
             batch_size=bs,
         )
-
-    return baseline_exp
 
 
 def _train_ls_offline_baseline():
