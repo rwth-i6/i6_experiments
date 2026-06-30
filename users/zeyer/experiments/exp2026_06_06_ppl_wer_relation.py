@@ -75,21 +75,17 @@ _LS_CHUNKED_PREFIX = "exp2026_05_27_chunked_ctc_ls"
 def py():
     # LibriSpeech chunked-CTC context-length experiments (RQ4 encoder-context axis),
     # merged in from the former exp2026_05_27_chunked_ctc_ls recipe.
+    # Passes the offline-baseline CTC+LM result for the context-length table.
     _train_ls_chunked()
 
-    # Register the offline LS AED baseline under the pinned prefix
-    # with a byte-identical ``aed_train_exp(...)`` call,
-    # so its ``ReturnnTrainingJob`` hash matches the existing trained model
-    # at ``~/setups/2025-08-aed-large/work/.../ReturnnTrainingJob.IVB5xAuHZZA3``.
-    # The bulk-import script (``import_work_directory.py``) then symlinks
-    # that finished training in here -- no re-training.
-    baseline_exp = _train_ls_offline_baseline()
-
     # LM softmax-temperature sweep on the offline baseline (new compute).
-    _lm_softmax_temperature_sweep(baseline_exp)
+    _lm_softmax_temperature_sweep()
 
     # PPL-WER relation across the external-LM scaling-law family.
     _lm_family_ppl_wer()
+
+    # CTC + LibriSpeech-finetuned LLM recognition.
+    _ctc_llm_recog()
 
 
 def _lm_family_ppl_wer() -> None:
@@ -179,7 +175,7 @@ def _lm_family_ppl_wer() -> None:
     tk.register_output(f"{prefix}/ppl_wer_table.json", table_job.out_json)
 
 
-def _lm_softmax_temperature_sweep(baseline_exp) -> None:
+def _lm_softmax_temperature_sweep() -> None:
     """
     LM softmax-temperature sweep on the offline LS baseline CTC + LS Transformer-LM.
 
@@ -195,17 +191,20 @@ def _lm_softmax_temperature_sweep(baseline_exp) -> None:
 
     Writes the raw (T, eval set, PPL, first-pass WER) numbers as a TSV + JSON table.
     """
+    from i6_experiments.users.zeyer.train_v4 import train_models_by_prefix as train_v4_models
+    from i6_experiments.users.zeyer.experiments.exp2025_11_19_lm_scaling_laws import train_base_asr_models
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import (
         ctc_recog_recomb_labelwise_prior_auto_scale,
         _get_lm_model,
         _lms,
     )
 
+    train_base_asr_models()
     prefix = get_setup_prefix_for_module(__name__)
     task = get_librispeech_task_raw_v2(vocab="spm10k")
     lm_name = "n32-d1024-claix2023"
     lm = _get_lm_model(_lms[lm_name])
-    ctc_model = baseline_exp.get_last_fixed_epoch()
+    ctc_model = train_v4_models[_CTC_MODEL_NAME].get_last_fixed_epoch()
 
     temperatures = [0.5, 0.7, 0.85, 1.0, 1.2, 1.5, 2.0]
     sweep_rows: List[dict] = []
@@ -261,12 +260,19 @@ def _train_ls_chunked():
     Merged here from the former ``exp2026_05_27_chunked_ctc_ls`` recipe;
     registers under the pinned :data:`_LS_CHUNKED_PREFIX`.
     """
+    # Register the offline LS AED baseline under the pinned prefix.
+    # Also returns the CTC+LM result used for the context-length table.
+    _, baseline_ctc_lm_result = _train_ls_offline_baseline()
+
     # ``(left_ctx, center, right_lookahead)`` in encoder frames (~60 ms each).
     # Causal variants (R=0) explore the encoder-only-latency budget;
     # (80, 5, 4) is the reference-streaming config matching the Loquacious sweep.
     # Batch size shrinks for the larger-center variants
     # because their effective per-step compute grows;
     # the values mirror the limited-history block of :mod:`exp2025_10_21_chunked_ctc`.
+    # (context_frames, ctc_lm_result): 9999 = offline / full context (sorts last).
+    context_ctc_lm: List[Tuple[int, object]] = [(9999, baseline_ctc_lm_result)]
+
     for left, center, right, bs in [
         (0, 5, 0, 75_000),
         (0, 10, 0, 75_000),
@@ -283,13 +289,18 @@ def _train_ls_chunked():
         _name_post = ""
         if bs != 75_000:
             _name_post += f"-bs{bs // 1000}k"
-        _train_ls(
+        ctc_lm_result = _train_ls(
             f"chunked-L{left}-C{center}-R{right}-v2.3{_name_post}",
             chunk_size=center,
             chunk_history_size=left,
             chunk_lookahead_size=right,
             batch_size=bs,
         )
+        # Only the causal (R=0, L=0) configs contribute to the context-length table.
+        if left == 0 and right == 0 and bs == 75_000:
+            context_ctc_lm.append((center, ctc_lm_result))
+
+    _ls_context_length_table(context_ctc_lm)
 
 
 def _train_ls_offline_baseline():
@@ -377,9 +388,134 @@ def _train_ls_offline_baseline():
         aed_ctc_model=exp.get_last_fixed_epoch(),
         aux_ctc_layer=16,
     )
-    _run_ls_ctc_lm(name, exp, task_spm10k)
+    _offline_ctc_lm = _run_ls_ctc_lm(name, exp, task_spm10k)
     _run_ls_align_stats("base-librispeech", exp, 16)
-    return exp
+    return exp, _offline_ctc_lm
+
+
+def _ls_context_length_table(context_ctc_lm: "List[Tuple[int, object]]") -> None:
+    """
+    Context-length vs CTC+LM first-pass WER table for the LibriSpeech chunked-CTC sweep.
+
+    ``context_ctc_lm`` is a list of ``(context_frames, ctc_lm_result)`` pairs.
+    ``context_frames == 9999`` marks the offline / full-context baseline (sorts last).
+    Writes a TSV + JSON under :data:`_LS_CHUNKED_PREFIX`.
+    """
+    table_rows: List[dict] = []
+    for context_frames, ctc_lm_result in context_ctc_lm:
+        if ctc_lm_result is None or ctc_lm_result.individual_results is None:
+            continue
+        for eval_name, score_res in ctc_lm_result.individual_results.items():
+            table_rows.append(
+                {
+                    "context_frames": context_frames,
+                    "eval_set": eval_name,
+                    "ctc_lm_wer": score_res.main_measure_value,
+                }
+            )
+
+    table_job = WriteTableDataJob(
+        columns=["context_frames", "eval_set", "ctc_lm_wer"],
+        rows=table_rows,
+        sort_by=["eval_set", "context_frames"],
+    )
+    tk.register_output(f"{_LS_CHUNKED_PREFIX}/context_length_table.tsv", table_job.out_tsv)
+    tk.register_output(f"{_LS_CHUNKED_PREFIX}/context_length_table.json", table_job.out_json)
+
+
+def _ctc_llm_recog() -> None:
+    """
+    CTC + LibriSpeech-finetuned LLM recognition on LibriSpeech.
+
+    Five LLMs from Mohammad (Qwen2 0.5B/1.5B/7B, with LLM-native and spm10k vocabs):
+
+    - spm10k-vocab variants (0.5B, 1.5B): standard time-sync CTC+LM,
+      same pipeline as the scaling-law LM family.
+    - LLM-vocab variants (0.5B, 1.5B, 7B): delayed-fusion CTC+LM
+      (every-20-frame fusion schedule, beam size 8).
+
+    CTC model: :data:`_CTC_MODEL_NAME` (same as the LM scaling-law experiments).
+    """
+    import functools
+
+    from i6_experiments.users.zeyer.train_v4 import train_models_by_prefix as train_v4_models
+    from i6_experiments.users.zeyer.experiments.exp2025_11_19_lm_scaling_laws import train_base_asr_models
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import (
+        ctc_recog_recomb_labelwise_prior_auto_scale,
+    )
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc import (
+        model_recog_with_recomb,
+    )
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_delayed_fusion_v2 import (
+        model_recog_with_recomb_delayed_fusion_v2,
+        enable_by_interval,
+        convert_labels_func,
+        spm_space_first_is_word_start,
+        spm_label_merge_v2,
+        seq_str_postprocess_lower_case,
+    )
+    from i6_experiments.users.zeyer.external_models.qwen2_finetuned import (
+        get_qwen2_0_5b_lm_finetuned_librispeech,
+        get_qwen2_0_5b_lm_finetuned_librispeech_spm10k_vocab,
+        get_qwen2_1_5b_lm_finetuned_librispeech,
+        get_qwen2_1_5b_lm_finetuned_librispeech_spm10k_vocab,
+        get_qwen2_7b_lm_finetuned_librispeech,
+    )
+
+    train_base_asr_models()
+    prefix = get_setup_prefix_for_module(__name__)
+    task = get_librispeech_task_raw_v2(vocab="spm10k")
+    ctc_model = train_v4_models[_CTC_MODEL_NAME].get_last_fixed_epoch()
+
+    # Standard time-sync CTC+LM for spm10k-vocab LLMs.
+    for lm_tag, lm in [
+        ("qwen2-0.5b-ls-spm10k", get_qwen2_0_5b_lm_finetuned_librispeech_spm10k_vocab()),
+        ("qwen2-1.5b-ls-spm10k", get_qwen2_1_5b_lm_finetuned_librispeech_spm10k_vocab()),
+    ]:
+        ctc_recog_recomb_labelwise_prior_auto_scale(
+            prefix=f"{prefix}/ctc+lm-v2/{lm_tag}",
+            task=task,
+            ctc_model=ctc_model,
+            extra_config={"aux_loss_layers": [16]},
+            lm=lm,
+        )
+
+    # Delayed-fusion CTC+LM for LLM-vocab models (every-20-frame fusion, beam 8).
+    enable_every20 = functools.partial(enable_by_interval, interval=20)
+    convert_labels_func_spm = functools.partial(
+        convert_labels_func,
+        is_am_label_word_start=spm_space_first_is_word_start,
+        custom_am_label_merge=spm_label_merge_v2,
+        seq_str_postprocess_func=seq_str_postprocess_lower_case,
+    )
+    for lm_tag, lm in [
+        ("qwen2-0.5b-ls", get_qwen2_0_5b_lm_finetuned_librispeech()),
+        ("qwen2-1.5b-ls", get_qwen2_1_5b_lm_finetuned_librispeech()),
+        ("qwen2-7b-ls", get_qwen2_7b_lm_finetuned_librispeech()),
+    ]:
+        ctc_recog_recomb_labelwise_prior_auto_scale(
+            prefix=f"{prefix}/ctc+lm-delayed-v2-always-beamSize8/{lm_tag}",
+            task=task,
+            ctc_model=ctc_model,
+            extra_config={"aux_loss_layers": [16]},
+            lm=lm,
+            lm_rescore_config={
+                "default_data_convert_labels_func": convert_labels_func_spm,
+                "chunk_size_for_lm_rescoring": 16,
+                "max_seqs": 32,
+            },
+            ctc_only_recog_version=10,
+            ctc_only_recog_def=model_recog_with_recomb,
+            recog_version=12,
+            recog_def=model_recog_with_recomb_delayed_fusion_v2,
+            first_pass_extra_config={
+                "should_convert_labels_now_func": enable_every20,
+                "should_fuse_now_func": enable_every20,
+                "convert_labels_func": convert_labels_func_spm,
+                "max_seqs": 32,
+            },
+            first_pass_recog_beam_size=8,
+        )
 
 
 def _run_ls_align_stats(name: str, exp, aux_ctc_layer: int) -> None:
@@ -523,11 +659,11 @@ def _train_ls(name: str, *, chunk_size: int, chunk_history_size: int, chunk_look
         aed_ctc_model=exp.get_last_fixed_epoch(),
         aux_ctc_layer=16,
     )
-    _run_ls_ctc_lm(name, exp, task)
-    return exp
+    _ctc_lm = _run_ls_ctc_lm(name, exp, task)
+    return _ctc_lm
 
 
-def _run_ls_ctc_lm(name: str, exp, task, aux_ctc_layer: int = 16) -> None:
+def _run_ls_ctc_lm(name: str, exp, task, aux_ctc_layer: int = 16):
     """
     CTC + LibriSpeech-LM recog (``ctc+lm-v2``) for an LS chunked-CTC model.
 
@@ -549,7 +685,7 @@ def _run_ls_ctc_lm(name: str, exp, task, aux_ctc_layer: int = 16) -> None:
     prefix = _LS_CHUNKED_PREFIX
     lm_name = "n32-d1024-claix2023"
     lm = _get_lm_model(_lms[lm_name])
-    ctc_recog_recomb_labelwise_prior_auto_scale(
+    return ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{name}/ctc+lm-v2/{lm_name}",
         task=task,
         ctc_model=exp.get_last_fixed_epoch(),
