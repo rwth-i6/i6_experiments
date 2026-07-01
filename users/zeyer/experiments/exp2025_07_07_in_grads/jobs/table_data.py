@@ -71,7 +71,8 @@ class WriteTableDataJob(Job):
 
     # v1 collapsed absent cells and missing values both to null;
     # v2 omits absent cells instead.
-    __sis_version__ = 2
+    # v3 passes through section subheading rows (were dropped as hlines).
+    __sis_version__ = 3
 
     def __init__(self, *, columns: List[str], rows: List[Dict[str, Any]], source: str = None):
         super().__init__()
@@ -164,6 +165,9 @@ def _write_table_data(*, columns, rows, source, out_path, ignore_exception: bool
             continue
         if row.get("hline2"):
             out_rows.append({"hline2": True})
+            continue
+        if row.get("section"):
+            out_rows.append({"section": row["section"]})
             continue
         if row.get("hline") or (row.get("label") is None and not row.get("cells")):
             out_rows.append({"hline": True})
