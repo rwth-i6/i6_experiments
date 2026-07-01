@@ -620,6 +620,9 @@ def _ctc_llm_recog() -> None:
             task=task,
             ctc_model=ctc_model,
             lm=lm,
+            # The Qwen LM is a raw partial model def; select recog serialization v2 so the
+            # partial serializes as a proper import (not repr()) in the first-pass config.
+            first_pass_extra_config={"__serialization_version": 2},
         )
 
     # Delayed-fusion CTC+LM for LLM-vocab models (every-20-frame fusion, beam 8).
@@ -650,6 +653,10 @@ def _ctc_llm_recog() -> None:
             recog_version=12,
             recog_def=model_recog_with_recomb_delayed_fusion_v2,
             first_pass_extra_config={
+                # v2 serialization so the Qwen LM partial + these partial funcs serialize as
+                # proper imports (not repr()) in the first-pass config. Set here in the recipe
+                # (not the shared builder) to avoid moving any other recipe's recog hashes.
+                "__serialization_version": 2,
                 "should_convert_labels_now_func": enable_every20,
                 "should_fuse_now_func": enable_every20,
                 "convert_labels_func": convert_labels_func_spm,
