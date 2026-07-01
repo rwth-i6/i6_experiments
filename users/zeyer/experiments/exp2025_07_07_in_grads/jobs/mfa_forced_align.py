@@ -179,11 +179,14 @@ class MfaForcedAlignJob(Job):
         # on local /tmp (fast NVMe, immediately consistent), NOT on hpcwork/Lustre. Writing many small
         # files to Lustre is slow, burns the shared quota, and races the apptainer container stat'ing
         # freshly-written metadata ("Corpus directory does not exist"). Only the final
-        # word_boundaries.hdf (a declared output) lives on hpcwork. Apptainer mounts host /tmp.
+        # word_boundaries.hdf (a declared output) lives on hpcwork.
         import tempfile
         import shutil
 
         scratch = tempfile.mkdtemp(prefix="mfa_", dir="/tmp")
+        # apptainer auto-mounts the host /tmp into the container (verified on the compute node: the
+        # container sees this corpus at the same /tmp path), so `mfa align` reads it directly -- no
+        # host->container path translation, no /mnt, no cwd. The scratch stays on /tmp.
         corpus, out_dir, tmp = (os.path.join(scratch, d) for d in ("corpus", "out", "mfa_tmp"))
         for d in (corpus, out_dir, tmp):
             os.makedirs(d, exist_ok=True)
@@ -213,6 +216,11 @@ class MfaForcedAlignJob(Job):
                 for s, e in zip(ds[i]["word_detail"]["start"], ds[i]["word_detail"]["stop"])
             ]
 
+        # Fail loudly at the source if the corpus build was truncated (e.g. disk full): the container
+        # would otherwise report a cryptic downstream "Corpus directory does not exist".
+        n_wav = len([f for f in os.listdir(corpus) if f.endswith(".wav")])
+        assert n_wav == len(ds), f"corpus build incomplete: {n_wav} wav files != {len(ds)} seqs (disk full?)"
+
         # Each concurrent align job needs its OWN MFA_ROOT_DIR: MFA unpacks the acoustic archive into
         # MFA_ROOT_DIR/extracted_models, so jobs sharing the download store race on it ("File exists").
         # Symlink the read-only pretrained models into a job-local root; extracted/ stays job-local.
@@ -224,7 +232,18 @@ class MfaForcedAlignJob(Job):
         _dst_pre = os.path.join(mfa_root, "pretrained_models")
         if not os.path.exists(_dst_pre):
             os.symlink(_src_pre, _dst_pre)
-        env = dict(os.environ, MFA_ROOT_DIR=mfa_root, APPTAINERENV_MFA_ROOT_DIR=mfa_root, APPTAINER_BIND="/tmp")
+        env = dict(os.environ, MFA_ROOT_DIR=mfa_root, APPTAINERENV_MFA_ROOT_DIR=mfa_root)
+        # MFA's `align` CLI does NOT expose --beam/--retry_beam as flags: it sets
+        # ignore_unknown_options=True, so passing them makes click swallow the flags as POSITIONAL args,
+        # shifting corpus/dictionary/model over by two -> the misleading "Corpus directory does not
+        # exist" (corpus_directory ends up being the literal string "--beam"). The supported way to widen
+        # the Kaldi beams is a per-run config file (-c). Two-stage: `beam` is the initial (narrow, fast)
+        # pass for the easy majority; `retry_beam` is a wider beam applied ONLY to utterances that failed
+        # the first pass, so every seq aligns (no missing_json) at the cost of the wide search on the few
+        # hard ones.
+        align_config = os.path.join(scratch, "align_config.yaml")
+        with open(align_config, "w") as f:
+            f.write(f"beam: {self.beam}\nretry_beam: {self.retry_beam}\n")
         # NOTE: default textgrid cleanup (recombine clitics) keeps MFA's word count 1:1 with the
         # reference; --no_textgrid_cleanup splits clitics and breaks the count match.
         cmd = [
@@ -239,16 +258,9 @@ class MfaForcedAlignJob(Job):
             "-j",
             str(self.num_jobs),
             "--quiet",
-            # Two-stage beam: --beam is the initial (narrow, fast) pass for the easy majority;
-            # --retry_beam is a wider beam applied ONLY to utterances that failed the first pass.
-            # The MFA defaults (beam 10 / retry_beam 40) prune the correct path on hard/dense
-            # utterances, leaving them "unaligned" (no TextGrid). The Viterbi path always exists -- a
-            # wide-enough retry_beam finds it, so every seq aligns (no missing_json), at the cost of the
-            # wide search only on the few hard ones.
-            "--beam",
-            str(self.beam),
-            "--retry_beam",
-            str(self.retry_beam),
+            # Kaldi beams come from align_config (written above): the align CLI has no --beam flag.
+            "-c",
+            align_config,
         ]
         if self.g2p_model:
             # auto-generate pronunciations for OOV words (spontaneous Buckeye has many).

@@ -3467,7 +3467,7 @@ def py():
     _mfa_exe = ApptainerExeWrapperJob(
         _mfa_image.out_image,
         command="mfa",
-        bind=["/rwthfs/rz/cluster/home", "/rwthfs/rz/cluster/hpcwork/p0023999", "/tmp"],
+        bind=["/rwthfs/rz/cluster/home", "/rwthfs/rz/cluster/hpcwork/p0023999"],
     )
     reg("mfa/mfa-run.sh", _mfa_exe.out_exe)
     _mfa_models = MfaDownloadModelJob(
