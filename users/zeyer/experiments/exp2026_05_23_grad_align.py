@@ -315,11 +315,13 @@ _WB_METRIC_OUTPUTS = {
 _wb_metric_job_by_align: Dict[int, CalcAlignmentMetricsFromWordBoundariesJob] = {}
 
 
-def _metric_job_for_align(align: WordAlignFromPerTokenGradsJob) -> CalcAlignmentMetricsFromWordBoundariesJob:
-    """Shared metrics job for one align job's dumped word boundaries, memoized per align object.
+def _metric_job_for_align(align) -> CalcAlignmentMetricsFromWordBoundariesJob:
+    """Shared metrics job for one align/baseline job's dumped word boundaries, memoized per object.
 
-    All inputs are read off the align job, so this works for any model/dataset (the same job and
-    datasets the forced-align baselines already feed it).
+    Reads only generic attributes (out_word_boundaries_hdf, dataset_dir/key, dataset_offset_factors,
+    returnn_root), so it works for ANY job that dumps word boundaries -- grad/attention aligns, MFA,
+    and the phoneme CTC forced-align baseline all feed the same job, giving every alignment a single
+    WBE/metrics authority.
     """
     j = _wb_metric_job_by_align.get(id(align))
     if j is None:
@@ -1396,7 +1398,7 @@ def py():
     )
     _ph_fa.add_alias("align/w2v-phoneme-timit-val-ctc-forced-align")
     reg("align/w2v-phoneme-timit-val-ctc-forced-align-phone-wbe.txt", _ph_fa.out_phone_wbe)
-    reg("align/w2v-phoneme-timit-val-ctc-forced-align-word-wbe.txt", _ph_fa.out_word_wbe)
+    reg("align/w2v-phoneme-timit-val-ctc-forced-align-word-wbe.txt", _metric_job_for_align(_ph_fa).out_wbe)
 
     # Same phoneme-CTC model on TIMIT TEST (generalization column for the per-model table;
     # only the headline en0.5-sil1.0 grad word-collapse + the forced-align baseline, both word-WBE).
@@ -1434,7 +1436,7 @@ def py():
     )
     _ph_fa_te.add_alias("align/w2v-phoneme-timit-test-ctc-forced-align")
     reg("align/w2v-phoneme-timit-test-ctc-forced-align-phone-wbe.txt", _ph_fa_te.out_phone_wbe)
-    reg("align/w2v-phoneme-timit-test-ctc-forced-align-word-wbe.txt", _ph_fa_te.out_word_wbe)
+    reg("align/w2v-phoneme-timit-test-ctc-forced-align-word-wbe.txt", _metric_job_for_align(_ph_fa_te).out_wbe)
 
     # --- CONTROLLED PARAM-NOISE robustness (user idea): degrade the model with Gaussian param noise,
     # compare how grad-align vs the model's NATIVE align (Whisper cross-attn-DTW / CTC forced-align) decay.
@@ -3491,9 +3493,11 @@ def py():
             dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
         )
         _mfa_al.add_alias(f"baseline-mfa-{_mfa_tag}")
-        # WBE computed in-job (robust to partial MFA coverage); no separate metric job needed.
-        reg(f"baseline-mfa-{_mfa_tag}-wbe.txt", _mfa_al.out_wbe)
-        reg(f"baseline-mfa-{_mfa_tag}-metrics.txt", _mfa_al.out_metrics)
+        # WBE/metrics via the shared metric job on MFA's dumped word boundaries (one metric authority
+        # for every aligner); coverage stays MFA-specific (the shared job has no coverage concept).
+        _mfa_m = _metric_job_for_align(_mfa_al)
+        reg(f"baseline-mfa-{_mfa_tag}-wbe.txt", _mfa_m.out_wbe)
+        reg(f"baseline-mfa-{_mfa_tag}-metrics.txt", _mfa_m.out_metrics)
         reg(f"baseline-mfa-{_mfa_tag}-coverage.txt", _mfa_al.out_coverage)
 
     # --- Buckeye long-form (fine-resolution, literature-comparable) ------------
@@ -3678,7 +3682,7 @@ def py():
             dataset_offset_factors=_bk_off,
         )
         _sv_mfa.add_alias(f"baseline-mfa-{_sv_tag}")
-        reg(f"baseline-mfa-{_sv_tag}-wbe.txt", _sv_mfa.out_wbe)
+        reg(f"baseline-mfa-{_sv_tag}-wbe.txt", _metric_job_for_align(_sv_mfa).out_wbe)
 
         # Native aligners for the buckeye-abc A/B/C table (segA wired elsewhere; B/C here):
         # CTC posteriors (Parakeet-CTC forced-align), transducer native-viterbi (Parakeet RNN-T),
@@ -3994,7 +3998,7 @@ def py():
         dump_word_boundaries=True,
     )
     _xa_phfa.add_alias(f"baseline-phoneme-fa-{_xa_tag}")
-    reg(f"baseline-phoneme-fa-{_xa_tag}-word-wbe.txt", _xa_phfa.out_word_wbe)
+    reg(f"baseline-phoneme-fa-{_xa_tag}-word-wbe.txt", _metric_job_for_align(_xa_phfa).out_wbe)
 
     # (4) Transducer no-sil (TIMIT showed transducers prefer sil0.0): re-align the shared extracts
     # (parakeet-rnnt: batched_backward, matching the headline-A job).
