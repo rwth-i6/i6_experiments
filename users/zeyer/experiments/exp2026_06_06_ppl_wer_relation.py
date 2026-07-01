@@ -274,6 +274,9 @@ def _train_lm(opts: dict) -> None:
                 "max_seqs": 400,
                 "optimizer.weight_decay": 1e-2,
                 "calculate_exp_loss": True,
+                # These LMs run <=~4.5h; request 5h (not the 80h default capped to 24h) so they backfill.
+                # __time_rqmt is popped in train_v4.train before hashing, so this does not move any job hash.
+                "__time_rqmt": 5,
             },
         ),
         train_dataset=get_librispeech_lm_dataset(vocab="spm10k", train_epoch_split=20),
