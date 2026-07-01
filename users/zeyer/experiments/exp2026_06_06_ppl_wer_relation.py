@@ -81,6 +81,10 @@ def py():
     # LM softmax-temperature sweep on the offline baseline (new compute).
     _lm_softmax_temperature_sweep()
 
+    # Extra small/short LMs to fill the sparse high-PPL end of the ppl-vs-WER curve.
+    # Registered before _lm_family_ppl_wer so they are picked up for recog + PPL.
+    _extra_high_ppl_lms()
+
     # PPL-WER relation across the external-LM scaling-law family.
     _lm_family_ppl_wer()
 
@@ -184,6 +188,126 @@ def _lm_family_ppl_wer() -> None:
         )
         tk.register_output(f"{prefix}/ppl_wer_table_{tag}.tsv", table_job.out_tsv)
         tk.register_output(f"{prefix}/ppl_wer_table_{tag}.json", table_job.out_json)
+
+
+def _extra_high_ppl_lms() -> None:
+    """
+    Extra small / short-schedule LM trainings to fill the sparse high-PPL region
+    (word PPL >~ 90) of the PPL-vs-WER curve.
+
+    The scaling-law family (:func:`exp2025_11_19_lm_scaling_laws.train_lms`) has only a
+    handful of LMs above ~90 word PPL, so that end of the curve is thinly sampled.
+    These are all tiny (few-layer, small-dim) and/or short-schedule Transformer LMs,
+    which train fast, and are aimed at high perplexity to extend the curve.
+
+    They use the exact scaling-law LM shape and the same ``lm/trafo-v2-...-spm10k`` naming,
+    and register into the shared ``train_v4`` registry,
+    so :func:`_lm_family_ppl_wer` picks them up automatically for CTC+LM recog + PPL --
+    no extra per-LM wiring is needed here.
+    """
+    # Knobs: n=num_layers, d=model_dim, nEp=sub-epochs (default 100), lr (default 1.0), a=num_heads.
+    # None of these overlap the existing family opts (would otherwise re-register the same job).
+    for opts in [
+        {"n": 1, "d": 128},
+        {"n": 1, "d": 256},
+        {"n": 1, "d": 512},
+        {"n": 2, "d": 64},
+        {"n": 2, "d": 128, "nEp": 20},
+        {"n": 2, "d": 128, "nEp": 50},
+        {"n": 2, "d": 256},
+        {"n": 2, "d": 256, "nEp": 50},
+        {"n": 2, "d": 512},
+        {"n": 3, "d": 128},
+        {"n": 4, "d": 128},
+        {"n": 6, "d": 256},
+    ]:
+        _train_lm(opts)
+
+    # Low-epoch sweep on a small base (n4-d256): undertraining pushes word PPL up (~110-150),
+    # and few sub-epochs make these the fastest of the set.
+    for n_ep in [10, 20, 30, 40, 50]:
+        _train_lm({"n": 4, "d": 256, "nEp": n_ep})
+
+    # Second low-epoch sweep on a larger base (n6-d512) for a better-PPL band (~85-112).
+    for n_ep in [10, 20, 30, 40, 50]:
+        _train_lm({"n": 6, "d": 512, "nEp": n_ep})
+
+
+def _train_lm(opts: dict) -> None:
+    """
+    Train one LM in the scaling-law family shape
+    (mirrors the ``train(...)`` call in :func:`exp2025_11_19_lm_scaling_laws.train_lms`),
+    registered into the shared ``train_v4`` registry as ``lm/trafo-v2-{opts}-spm10k``.
+
+    Kept local here (not added to the shared scaling-law module) on purpose.
+    """
+    from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
+    from i6_experiments.users.zeyer.train_v4 import train
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset
+    from i6_experiments.users.zeyer.model_interfaces import ModelDefWithCfg
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs import (
+        config_96gb_bf16_accgrad1,
+        _get_cfg_lrlin_oclr_by_bs_nep_v3,
+    )
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm_claix2023 import (
+        lm_model_def,
+        lm_train_def,
+    )
+
+    # Reorder + defaults, exactly as in the scaling-law loop, so names/hashes stay consistent.
+    opts = {"n": opts.pop("n", 32), "d": opts.pop("d", 1024), **opts}
+    name = f"lm/trafo-v2-{_name_for_lm_opts(opts)}-spm10k"
+    n_l = opts.pop("n")
+    dim = opts.pop("d")
+    n_ep = opts.pop("nEp", 100)
+    lr = opts.pop("lr", 1.0)
+    num_heads = opts.pop("a", None)
+    drop = opts.pop("drop", 0.0)
+    att_drop = opts.pop("adrop", drop)
+    assert not opts, f"unexpected LM opts left: {opts}"
+    train(
+        name,
+        config=dict_update_deep(
+            config_96gb_bf16_accgrad1,
+            {
+                **_get_cfg_lrlin_oclr_by_bs_nep_v3(20_000, n_ep, base_lr=lr, batch_size_factor=1),
+                "max_seqs": 400,
+                "optimizer.weight_decay": 1e-2,
+                "calculate_exp_loss": True,
+            },
+        ),
+        train_dataset=get_librispeech_lm_dataset(vocab="spm10k", train_epoch_split=20),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=n_l,
+                    model_dim=dim,
+                    pos_enc=None,
+                    norm=rf.build_dict(rf.RMSNorm),
+                    ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+                    decoder_layer_opts=dict(
+                        self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False),
+                        **({"num_heads": num_heads} if num_heads is not None else {}),
+                    ),
+                    dropout=drop,
+                    att_dropout=att_drop,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+    )
+
+
+def _name_for_lm_opts(cfg: dict) -> str:
+    """Name suffix for an LM opts dict; matches exp2025_11_19_lm_scaling_laws._name_for_dict."""
+    parts = []
+    for k, v in cfg.items():
+        v = str(v).replace(".", "_").replace("-", "_")
+        parts.append(f"{k}{v}")
+    return "-".join(parts)
 
 
 def _lm_softmax_temperature_sweep() -> None:
