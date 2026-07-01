@@ -6161,6 +6161,40 @@ def py():
                 _ed_hdf = _xa_extract(_ed_cfg, _ed_name, "L2", False, time=24, bb=False).out_hdf
             _encdepth_align(_ed_hdf, _ed_name)
 
+    # TIMIT-test L24 encoder-depth extract, so the per-model "Gradients*" (opt encoder depth) row can
+    # also fill its TIMIT column (the sweep above is Buckeye-segA only). Same recipe as the segA encL24
+    # cell: whisper-large-v3 char, L2 per-token grad w.r.t. encoder layer 24, en0.5-sil2.0 word-topo DP.
+    _t_ed_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+    _t_ed_ex = ExtractInGradsPerTokenJob(
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="test",
+        model_config=rf.build_dict(
+            Whisper, model_dir=dl_whisper_l3.out_hub_cache_dir, char_level=True, char_level_sep=" ", grad_wrt="enc_L24"
+        ),
+        mult_grad_by_inputs=False,
+        attr_reduction="L2",
+        batched_backward=False,
+    )
+    _t_ed_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    _t_ed_ex.rqmt = {**_t_ed_ex.rqmt, "time": 24}
+    _t_ed_name = "whisper-large-v3-charlev-spc-encL24-encdepth-timit-test-L2_grad-pertoken"
+    _t_ed_ex.add_alias(_t_ed_name)
+    reg(f"{_t_ed_name}.hdf", _t_ed_ex.out_hdf)
+    _t_ed_al = WordAlignFromPerTokenGradsJob(
+        grad_score_hdf=_t_ed_ex.out_hdf,
+        grad_score_key="data",
+        dataset_dir=dl_ds_timit.out_hub_cache_dir,
+        dataset_key="test",
+        dataset_offset_factors=_DATASET_OFFSET_FACTORS["timit"],
+        align_opts=_t_ed_ao,
+        audio_energy_pow=0.5,
+        blank_silence_energy_scale=2.0,
+        word_topology=True,
+    )
+    _t_ed_nm = f"align/{_t_ed_name}-{_name_for_dict(_t_ed_ao)}-en0.5-sil2.0-wordtopo"
+    _t_ed_al.add_alias(_t_ed_nm)
+    reg(f"{_t_ed_nm}-wbe.txt", _t_ed_al.out_wbe)
+
     # --- Auto-generated LaTeX result tables (in-graph; reference only this recipe's outputs) ---
     from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.grad_align_tables import (
         build_tables,

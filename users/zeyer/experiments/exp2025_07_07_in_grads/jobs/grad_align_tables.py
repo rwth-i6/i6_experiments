@@ -55,8 +55,8 @@ def _require(name):
 # so the long name wraps onto two lines;
 # render_tables wraps any line-break-bearing label/cell in a makecell.
 _M_EMFORMER = "Emformer\\\\(streaming)"
-_M_FC_CTC = "FastConformer-CTC\\\\(streaming)"
-_M_FC_RNNT = "FastConformer-RNN-T\\\\(streaming)"
+_M_FC_CTC = "FastConf.-CTC\\\\(streaming)"
+_M_FC_RNNT = "FastConf.-RNN-T\\\\(streaming)"
 
 
 def build_tables(results):
@@ -577,31 +577,35 @@ def _wav2vec_resolution_table():
     SFX = "asotTrue-bs-5-en0.5-sil2.0-wordtopo"
     # (tag, label, ms/frame at 16 kHz): conv strides 5/10/20/40/80/160 -> 0.31..10 ms; feat-proj and
     # the default raw pool (320) = 20 ms; raw pools 80/16/1 = 5/1/0.0625 ms (sample-level).
+    # (tag, label, ms/frame at 16 kHz, grid Hz = 16000/stride): the two are reciprocals, shown side by
+    # side. conv strides 5/10/20/40/80/160; feat-proj + default raw pool 320 = 20 ms / 50 Hz; raw pools
+    # 80/16/1 = 5/1/0.0625 ms.
     LEVELS = [
-        ("conv0", "Conv 0", "0.31"),
-        ("conv1", "Conv 1", "0.62"),
-        ("conv2", "Conv 2", "1.25"),
-        ("conv3", "Conv 3", "2.5"),
-        ("conv4", "Conv 4", "5"),
-        ("conv5", "Conv 5", "10"),
-        ("fproj_ln", "Feat-proj LayerNorm", "20"),
-        ("fproj_out", "Feat-proj Linear", "20"),
-        ("rawwav", "Raw waveform, pool 320", "20"),
-        ("rawwav-pool80", "Raw waveform, pool 80", "5"),
-        ("rawwav-pool16", "Raw waveform, pool 16", "1"),
-        ("rawwav-pool1", "Raw waveform, pool 1", "0.0625"),
+        ("conv0", "Conv 0", "0.31", "3200"),
+        ("conv1", "Conv 1", "0.62", "1600"),
+        ("conv2", "Conv 2", "1.25", "800"),
+        ("conv3", "Conv 3", "2.5", "400"),
+        ("conv4", "Conv 4", "5", "200"),
+        ("conv5", "Conv 5", "10", "100"),
+        ("fproj_ln", "Feat-proj LayerNorm", "20", "50"),
+        ("fproj_out", "Feat-proj Linear", "20", "50"),
+        ("rawwav", "Raw waveform, pool 320", "20", "50"),
+        ("rawwav-pool80", "Raw waveform, pool 80", "5", "200"),
+        ("rawwav-pool16", "Raw waveform, pool 16", "1", "1000"),
+        ("rawwav-pool1", "Raw waveform, pool 1", "0.0625", "16000"),
     ]
-    columns = ["level", "ms_frame", "wbe", "a50"]
+    columns = ["level", "ms_frame", "grid", "wbe", "a50"]
     rows = [
         {
             "cells": {
                 "level": label,
                 "ms_frame": ms,
+                "grid": hz,
                 "wbe": _wbe(f"align/wav2vec2ctc-{tag}-{S}-L2_grad-pertoken-{SFX}"),
                 "a50": _metric(f"align/wav2vec2ctc-{tag}-{S}-L2_grad-pertoken-{SFX}", "acc_50ms"),
             },
         }
-        for tag, label, ms in LEVELS
+        for tag, label, ms, hz in LEVELS
     ]
     _emit("wav2vec-resolution", columns, rows)
 
@@ -624,20 +628,37 @@ def _encoder_depth_table():
     wp = "whisper-large-v3-charlev-spc"
     fc = "fastconformer-stream-ctc"
     # (level label, whisper depth tag, fastconformer depth tag)
+    # Frame-grid rate (Hz) of the representation the gradient is taken w.r.t.: log-mel input is 100 Hz
+    # (10 ms) for both; Whisper's encoder is 50 Hz (20 ms), FastConformer's is 12.5 Hz (80 ms, 8x
+    # subsampling). Shows the grid coarsens with depth yet WBE can still improve -- it is the
+    # representation, not the grid resolution, that carries the alignment.
     ROWS = [
-        ("Log-mel input", "logmel", "logmel"),
-        ("Encoder input", "encin", "encin"),
-        ("Encoder 1/4", "encL8", "encL4"),
-        ("Encoder 1/2", "encL16", "encL9"),
-        ("Encoder 3/4", "encL24", "encL13"),
-        ("Encoder output", "encout", "encout"),
+        # (level label, whisper depth tag, fastconformer depth tag, whisper grid Hz, fastconformer grid Hz)
+        ("Log-mel input", "logmel", "logmel", 100, 100),
+        ("Encoder input", "encin", "encin", 50, 12.5),
+        ("Encoder 1/4", "encL8", "encL4", 50, 12.5),
+        ("Encoder 1/2", "encL16", "encL9", 50, 12.5),
+        ("Encoder 3/4", "encL24", "encL13", 50, 12.5),
+        ("Encoder output", "encout", "encout", 50, 12.5),
     ]
-    columns = ["level", "w_wbe", "w_a50", "fc_wbe", "fc_a50"]
+    columns = ["level", "w_grid", "w_wbe", "w_a50", "fc_grid", "fc_wbe", "fc_a50"]
     rows = []
-    for label, w_tag, fc_tag in ROWS:
+    for label, w_tag, fc_tag, w_hz, fc_hz in ROWS:
         w_wbe, w_a50 = cell(wp, w_tag)
         fc_wbe, fc_a50 = cell(fc, fc_tag)
-        rows.append({"cells": {"level": label, "w_wbe": w_wbe, "w_a50": w_a50, "fc_wbe": fc_wbe, "fc_a50": fc_a50}})
+        rows.append(
+            {
+                "cells": {
+                    "level": label,
+                    "w_grid": w_hz,
+                    "w_wbe": w_wbe,
+                    "w_a50": w_a50,
+                    "fc_grid": fc_hz,
+                    "fc_wbe": fc_wbe,
+                    "fc_a50": fc_a50,
+                }
+            }
+        )
     _emit("encoder-depth", columns, rows)
 
 
@@ -1053,6 +1074,14 @@ def _compare_table(with_hyp=False):
                     ),
                 ),
                 (
+                    # Gradients at the OPTIMAL encoder depth (encoder 3/4 = layer 24; the best of the
+                    # encoder-depth sweep, tab:encoder-depth), which beats the cross-attention DTW.
+                    # Buckeye-segA only for now -- no TIMIT encoder-depth extract yet (TIMIT cols empty).
+                    "Gradients*",
+                    f"align/whisper-large-v3-charlev-spc-encL24-encdepth-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                    None,
+                ),
+                (
                     "Cross-att.",
                     f"align/baseline-whisper-large-v3-crossattn-auto-{S}-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     f"align/baseline-whisper-large-v3-crossattn-auto-{T}-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
@@ -1332,13 +1361,20 @@ def _compare_table(with_hyp=False):
                     "s_a50": _metric(sa, "acc_50ms") if sa else None,
                 }
                 if with_hyp:
-                    # grad hyp on the gradients row (mj==0); the model's native-aligner hyp on its
-                    # alternative row (mj>0) -- each method aligns the model's OWN recognition.
-                    hn = HYP.get(model) if mj == 0 else NATIVE_HYP.get(model)
+                    # grad hyp on the plain gradients row; the model's native-aligner hyp on its
+                    # alternative row (cross-att / self-att / posteriors / native) -- each aligns the
+                    # model's OWN recognition. Matched by LABEL (not row index) so the opt-depth
+                    # "Gradients*" variant, which has no hyp-mode extract, stays empty.
+                    if mlabel == "Gradients":
+                        hn = HYP.get(model)
+                    elif mlabel.endswith("*"):
+                        hn = None
+                    else:
+                        hn = NATIVE_HYP.get(model)
                     if hn:
                         cells["h_mwbe"] = _hyp(hn, "matched_wbe")
                         cells["h_f50"] = _hyp(hn, "f1_50ms")
-                    elif model in HYP_NA:
+                    elif model in HYP_NA and not mlabel.endswith("*"):
                         # structurally no word-level own-recognition -> mark, don't leave empty
                         cells["h_mwbe"] = "n/a"
                         cells["h_f50"] = "n/a"
@@ -1473,20 +1509,21 @@ def _prompt_splice_table():
     for mk, _ in MODELS:
         columns += [f"{mk}_g", f"{mk}_a"]
     rows = []
+    # Official ASR prompt per model FIRST, as the reference row (Phi-4: its default instruction;
+    # Canary: "Transcribe the following:"; Voxtral: native transcription request, no free-text prompt
+    # slot). The instruction text is model-specific, so its length varies -> "(var)".
+    off_cells = {"len": "(var)"}
+    for mk, _ in MODELS:
+        off_cells[f"{mk}_g"] = _wbe(f"align/{mk}-promptsplice-official-char-{S}-grad-pertoken-{AO_GRAD}")
+        off_cells[f"{mk}_a"] = _wbe(f"align/baseline-{mk}-promptsplice-official-selfattn-{S}-{AO_ATTN}")
+    rows.append({"label": "official ASR prompt", "cells": off_cells})
+    rows.append({"hline2": True})
     for tag, label, prompt_text in PROMPTS:
         cells = {"len": len(prompt_text)}
         for mk, _ in MODELS:
             cells[f"{mk}_g"] = _wbe(f"align/{mk}-promptsplice-{tag}-char-{S}-grad-pertoken-{AO_GRAD}")
             cells[f"{mk}_a"] = _wbe(f"align/baseline-{mk}-promptsplice-{tag}-selfattn-{S}-{AO_ATTN}")
         rows.append({"label": label, "cells": cells})
-    # Official ASR prompt per model (Phi-4: its default instruction; Canary: "Transcribe the following:";
-    # Voxtral: native transcription request, which has no free-text prompt slot).
-    # The text is model-specific, so there is no single instruction length for this row.
-    off_cells = {"len": None}
-    for mk, _ in MODELS:
-        off_cells[f"{mk}_g"] = _wbe(f"align/{mk}-promptsplice-official-char-{S}-grad-pertoken-{AO_GRAD}")
-        off_cells[f"{mk}_a"] = _wbe(f"align/baseline-{mk}-promptsplice-official-selfattn-{S}-{AO_ATTN}")
-    rows.append({"label": "official ASR prompt", "cells": off_cells})
     _emit("prompt-splice", columns, rows)
 
 
