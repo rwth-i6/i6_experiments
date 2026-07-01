@@ -10,7 +10,6 @@ from i6_core.serialization.base import Collection, CallImport
 from i6_core.corpus import (
     ApplyLexiconToCorpusJob,
     FilterCorpusBySegmentsJob,
-    CorpusToTxtJob,
     FilterCorpusRemoveUnknownWordSegmentsJob
 )
 
@@ -26,7 +25,7 @@ from .clustering_config import (
     get_base_config
 )
 from .librasr_recognition import RecogConfig, create_rasr_config
-from .score import JiwerScoringJob, ScoreResult
+from .score import JiwerScoringJob, TaggedCorpusToTxtJob, ScoreResult
 from .corpus_setup import setup_corpus
 from ..lib.serialization import HashedCode
 
@@ -156,7 +155,7 @@ def decode_and_score(
     returnn_root: tk.Path | None = None,
 ) -> DecodeRecogResult:
     # setup corpus
-    setup_result = setup_corpus(key="dev-clean")
+    setup_result = setup_corpus(key=corpus_name)
 
     filtered_corpus = FilterCorpusRemoveUnknownWordSegmentsJob(setup_result.corpus, setup_result.lexicon, all_unknown=False, delete_empty_recordings=True).out_corpus
     phoneme_corpus = ApplyLexiconToCorpusJob(filtered_corpus, setup_result.lexicon).out_corpus
@@ -165,11 +164,11 @@ def decode_and_score(
     if sampled_segments is not None:
         phoneme_corpus = FilterCorpusBySegmentsJob(phoneme_corpus, sampled_segments).out_corpus
 
-    ref_file = CorpusToTxtJob(phoneme_corpus).out_txt
+    ref_file = TaggedCorpusToTxtJob(phoneme_corpus).out_txt
 
     # dataset config
     whitelist_job = CreateSequenceWhitelistJob(filtered_corpus)
-    whitelist_job.add_alias(f"datasets/LibriSpeech/dev-clean_whitelist")
+    whitelist_job.add_alias(f"datasets/LibriSpeech/{corpus_name}_whitelist")
     whitelist = whitelist_job.out_whitelist
 
     if sampled_segments is not None:

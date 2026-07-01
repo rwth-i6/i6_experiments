@@ -119,10 +119,10 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
             (item.lemma for item in traceback)
         ))
 
-        self.hyp_buffer.append(hyp) 
+        self.hyp_buffer.append((seq_tag, hyp))
 
     def finish(self):
         """Close file buffer."""
        # print(self.hyp_buffer)
         with open("hyp.txt", "w+") as fp:
-            fp.write("\n".join(self.hyp_buffer))
+            fp.write("\n".join(f"{tag}\t{hyp}" for tag, hyp in self.hyp_buffer))
