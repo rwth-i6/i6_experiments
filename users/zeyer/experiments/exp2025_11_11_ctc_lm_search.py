@@ -182,6 +182,10 @@ def py():
         ),
         aed_ctc_model=am_20ep,
         aux_ctc_layer=aux_ctc_layer_20ep,
+        # These are plain recog forward jobs (no external LM): the largest set
+        # (gigaspeech.test) runs in ~1-3h, the rest well under 1h.
+        # 5h instead of the 24h default so they backfill sooner.
+        first_pass_search_rqmt={"time": 5},
     )
 
     # # Also on OpenASRLeaderboard test sets.
