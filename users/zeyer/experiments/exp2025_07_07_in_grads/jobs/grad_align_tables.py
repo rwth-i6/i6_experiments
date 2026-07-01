@@ -59,6 +59,12 @@ _M_FC_CTC = "FastConf.-CTC\\\\(streaming)"
 _M_FC_RNNT = "FastConf.-RNN-T\\\\(streaming)"
 
 
+# FastConformer-CTC and -RNN-T are one model shown under two Types; both DISPLAY as "FastConformer",
+# while keeping DISTINCT internal keys (above) so the label-keyed type/hyp maps never collide.
+_M_FC = "FastConformer" + _M_EMFORMER[8:]  # reuse the two-line "(streaming)" suffix
+_MODEL_DISPLAY = {_M_FC_CTC: _M_FC, _M_FC_RNNT: _M_FC}
+
+
 def build_tables(results):
     global _RESULTS
     _RESULTS = results
@@ -291,7 +297,7 @@ def _streaming_offset_table():
                 {
                     "cells": {
                         "type": STYPE[model],
-                        "model": model,
+                        "model": _MODEL_DISPLAY.get(model, model),
                         "method": mlabel,
                         "t_start": _metric(ti, "start_signed_mean"),
                         "t_end": _metric(ti, "end_signed_mean"),
@@ -764,9 +770,9 @@ def _abc_table():
     SEGS = ["segA", "segB", "segC"]
     # (type, model, method, name template over {seg}, is_grad). Same taxonomy AND method labels as the
     # per-model table: each model shows its gradient align and its own native aligner (CTC forced-align =
-    # "Posteriors", Whisper = "Cross-att."); typed by architecture; MFA = GMM-HMM reference ("Likelihoods").
+    # "Posteriors", Whisper = "Cross-att."); typed by architecture; MFA = GM-HMM reference ("Likelihoods").
     ROWS = [
-        ("GMM-HMM", "MFA", "Likelihoods", "baseline-mfa-buckeye-{seg}-5h", False),
+        ("GM-HMM", "MFA", "Likelihoods", "baseline-mfa-buckeye-{seg}-5h", False),
         ("CTC", "MMS-FA", "Gradients", "wav2vec2ctc-fproj_out-prefixfwd-buckeye-{seg}-5h-L2_grad-pertoken", True),
         ("CTC", "MMS-FA", "Posteriors", "baseline-mms_fa-buckeye-{seg}-5h", False),
         ("CTC", "Parakeet CTC", "Gradients", "parakeet-ctc-1.1b-prefixfwd-buckeye-{seg}-5h-L2_grad-pertoken", True),
@@ -987,7 +993,7 @@ def _compare_table(with_hyp=False):
 
     # (Model, [(align-method label, segA base, TIMIT base), ...])  -- grad first, then its alternative.
     # The method label names the alignment SIGNAL:
-    # grad / posteriors (CTC, transducer, GMM-HMM) / cross-attn weights / self-attn weights.
+    # grad / posteriors (CTC, transducer, GM-HMM) / cross-attn weights / self-attn weights.
     MODELS = [
         (
             "MMS-FA",
@@ -1337,8 +1343,8 @@ def _compare_table(with_hyp=False):
     by_type = {t: [] for t in TYPE_ORDER}
     for model, methods in MODELS:
         by_type[TYPE[model]].append((model, methods))
-    # Family order: GMM-HMM reference first, then CTC, Transducer, AED, Speech LLM.
-    blocks = [("GMM-HMM", REFERENCE)] + [(t, by_type[t]) for t in TYPE_ORDER]
+    # Family order: GM-HMM reference first, then CTC, Transducer, AED, Speech LLM.
+    blocks = [("GM-HMM", REFERENCE)] + [(t, by_type[t]) for t in TYPE_ORDER]
 
     columns = ["type", "model", "method", "t_wbe", "t_a50", "s_wbe", "s_a50"]
     if with_hyp:
@@ -1348,7 +1354,7 @@ def _compare_table(with_hyp=False):
     # same-family siblings (Parakeet RNN-T vs TDT, FastConformer CTC vs RNN-T) and a clearer model name,
     # and use the SAME names as the hyp / streaming tables for consistency.
     # The dict KEY stays the full name (TYPE/HYP/NATIVE_HYP are keyed by it); only the shown label changes.
-    DISPLAY = {"Parakeet": "Parakeet RNN-T", "OWSM": "OWSM-CTC"}
+    DISPLAY = {**_MODEL_DISPLAY, "Parakeet": "Parakeet RNN-T", "OWSM": "OWSM-CTC"}
     rows = []
     for bi, (typ, fam_models) in enumerate(blocks):
         if bi > 0:
@@ -1442,7 +1448,7 @@ def _hyp_table():
         if prev is not None and typ != prev:
             rows.append({"hline2": True})
         prev = typ
-        rows.append({"cells": {"type": typ, "model": model, "method": meth, **_cells(name)}})
+        rows.append({"cells": {"type": typ, "model": _MODEL_DISPLAY.get(model, model), "method": meth, **_cells(name)}})
     _emit("hyp", columns, rows)
 
 
