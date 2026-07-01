@@ -23,6 +23,9 @@ class DecoderConfig:
 
     arpa_lm: Optional[str] = None
     normalize_log_probs: bool = False
+    generative_score_conversion: bool = False
+    blank_log_bias: float = 0.0
+    posterior_temperature: float = 1.0
 
 
 @dataclass
@@ -40,6 +43,10 @@ def forward_init_hook(run_ctx, **kwargs):
 
     config = DecoderConfig(**kwargs["config"])
     extra_config = ExtraConfig(**kwargs.get("extra_config", {}))
+    if config.posterior_temperature <= 0.0:
+        raise ValueError(f"posterior_temperature must be positive, got {config.posterior_temperature}")
+    if config.generative_score_conversion and config.normalize_log_probs:
+        raise ValueError("generative_score_conversion already normalizes scores; normalize_log_probs must be False")
 
     run_ctx.recognition_file = open("search_out.py", "wt")
     run_ctx.recognition_file.write("{\n")
@@ -66,10 +73,13 @@ def forward_init_hook(run_ctx, **kwargs):
     run_ctx.labels = labels
     run_ctx.blank_log_penalty = config.blank_log_penalty
     run_ctx.normalize_log_probs = config.normalize_log_probs
+    run_ctx.generative_score_conversion = config.generative_score_conversion
+    run_ctx.blank_log_bias = config.blank_log_bias
+    run_ctx.posterior_temperature = config.posterior_temperature
+    run_ctx.prior_scale = config.prior_scale
 
     if config.prior_file:
         run_ctx.prior = np.loadtxt(config.prior_file, dtype="float32")
-        run_ctx.prior_scale = config.prior_scale
     else:
         run_ctx.prior = None
 
@@ -113,15 +123,25 @@ def forward_step(*, model, data, run_ctx, **kwargs):
     logprobs, audio_features_len = model(raw_audio=raw_audio, raw_audio_len=raw_audio_len)
     if isinstance(logprobs, list):
         logprobs = logprobs[-1]
-    if run_ctx.normalize_log_probs:
+
+    if run_ctx.generative_score_conversion:
+        scores = logprobs
+        if run_ctx.prior is not None:
+            prior = torch.as_tensor(run_ctx.prior, device=scores.device, dtype=scores.dtype)
+            scores = scores - run_ctx.prior_scale * prior
+        if run_ctx.blank_log_bias != 0.0:
+            scores = scores.clone()
+            scores[:, :, -1] += run_ctx.blank_log_bias
+        logprobs = torch.log_softmax(scores / run_ctx.posterior_temperature, dim=-1)
+    elif run_ctx.normalize_log_probs:
         logprobs = torch.log_softmax(logprobs, dim=-1)
 
     tags = data["seq_tag"]
 
     logprobs_cpu = logprobs.cpu()
-    if run_ctx.blank_log_penalty is not None:
+    if not run_ctx.generative_score_conversion and run_ctx.blank_log_penalty is not None:
         logprobs_cpu[:, :, -1] -= run_ctx.blank_log_penalty
-    if run_ctx.prior is not None:
+    if not run_ctx.generative_score_conversion and run_ctx.prior is not None:
         logprobs_cpu -= run_ctx.prior_scale * run_ctx.prior
 
     am_time = time.time() - am_start
