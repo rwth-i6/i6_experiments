@@ -468,9 +468,11 @@ def model_recog_with_recomb_delayed_fusion_v2(
         prev_target = target
         prev_target_wb = target_wb
 
-        seq_log_prob = (ctc_seq_log_prob + lm_seq_log_prob - prior_log_prob) + label_log_prob_ta[
-            t
-        ]  # Batch, InBeam, VocabWB
+        # Explicit broadcast: combined per-beam score is [Batch, Beam], label_log_prob_ta[t] is
+        # [Batch, VocabWB] (each source misses a dim the other has).
+        seq_log_prob = rf.combine_bc(
+            ctc_seq_log_prob + lm_seq_log_prob - prior_log_prob, "+", label_log_prob_ta[t]
+        )  # Batch, InBeam, VocabWB
 
         _, (backrefs, target_wb), beam_dim = rf.top_k(
             seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{t}-beam"), axis=[beam_dim, model.wb_target_dim]

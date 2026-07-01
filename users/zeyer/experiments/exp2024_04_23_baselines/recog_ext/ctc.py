@@ -115,12 +115,14 @@ def model_recog(
         prev_target = target
         prev_target_wb = target_wb
 
-        seq_log_prob = seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
+        # Explicit broadcast (each source misses a dim the other has: beam vs VocabWB)
+        seq_log_prob = rf.combine_bc(seq_log_prob, "+", label_log_prob_ta[t])  # Batch, InBeam, VocabWB
 
         if lm is not None:
             # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.
             seq_log_prob += rf.where(
-                (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
+                (prev_target_wb == model.blank_idx)
+                | rf.compare_bc(prev_target_wb, "!=", rf.range_over_dim(model.wb_target_dim)),
                 _target_dense_extend_blank(
                     lm_log_probs,
                     target_dim=model.target_dim,
@@ -332,12 +334,14 @@ def model_recog_with_recomb(
         prev_target = target
         prev_target_wb = target_wb
 
-        seq_log_prob = seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
+        # Explicit broadcast (each source misses a dim the other has: beam vs VocabWB)
+        seq_log_prob = rf.combine_bc(seq_log_prob, "+", label_log_prob_ta[t])  # Batch, InBeam, VocabWB
 
         if lm is not None:
             # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.
             seq_log_prob += rf.where(
-                (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
+                (prev_target_wb == model.blank_idx)
+                | rf.compare_bc(prev_target_wb, "!=", rf.range_over_dim(model.wb_target_dim)),
                 _target_dense_extend_blank(
                     lm_log_probs,
                     target_dim=model.target_dim,
