@@ -71,6 +71,7 @@ _MODEL_DISPLAY = {
     "Whisper-base": "Whisper-\\\\base",
     "Whisper-large-v3": "Whisper-\\\\large-v3",
     "CrisperWhisper": "Crisper-\\\\Whisper",
+    "OWSM-CTC": "OWSM-\\\\CTC",
 }
 
 
@@ -221,14 +222,14 @@ def _streaming_offset_table():
             _M_EMFORMER,
             [
                 (
-                    "Grad.",
+                    "Gradients",
                     *g(
                         f"emformer-rnnt-prefix-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                         f"emformer-rnnt-prefix-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
                 (
-                    "Post.",
+                    "Posteriors",
                     f"baseline-emformer-rnnt-native-viterbi-{S}",
                     f"baseline-emformer-rnnt-native-viterbi-{T}",
                 ),
@@ -238,27 +239,27 @@ def _streaming_offset_table():
             _M_FC_CTC,
             [
                 (
-                    "Grad.",
+                    "Gradients",
                     *g(
                         f"fastconformer-stream-ctc-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                         f"fastconformer-stream-ctc-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
-                ("Post.", f"baseline-fastconformer-stream-ctc-{S}", f"baseline-fastconformer-stream-ctc-{T}"),
+                ("Posteriors", f"baseline-fastconformer-stream-ctc-{S}", f"baseline-fastconformer-stream-ctc-{T}"),
             ],
         ),
         (
             _M_FC_RNNT,
             [
                 (
-                    "Grad.",
+                    "Gradients",
                     *g(
                         f"fastconformer-stream-rnnt-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                         f"fastconformer-stream-rnnt-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
                 (
-                    "Post.",
+                    "Posteriors",
                     f"baseline-fastconformer-stream-rnnt-native-viterbi-{S}",
                     f"baseline-fastconformer-stream-rnnt-native-viterbi-{T}",
                 ),
@@ -268,14 +269,14 @@ def _streaming_offset_table():
             "Parakeet RNN-T\\\\(offline)",
             [
                 (
-                    "Grad.",
+                    "Gradients",
                     *g(
                         f"parakeet-rnnt-1.1b-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                         f"parakeet-rnnt-1.1b-logmel-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                     ),
                 ),
                 (
-                    "Post.",
+                    "Posteriors",
                     f"baseline-parakeet-rnnt-1.1b-native-viterbi-{S}",
                     f"baseline-parakeet-rnnt-1.1b-native-viterbi-{T}",
                 ),
@@ -344,12 +345,12 @@ def _time_stretch_table():
     MODELS = [
         (
             "CTC",
-            "MMS-FA",
+            "MMS-\\\\FA",
             "Grad.",
             "50",
             lambda ts, m: f"align/wav2vec2ctc-fproj_out-prefixfwd-{S}-L2_grad-pertoken-ts{ts}{m}-{AO}",
         ),
-        ("CTC", "MMS-FA", "Post.", "50", lambda ts, m: f"baseline-mms_fa-{S}-ts{ts}{m}"),
+        ("CTC", "MMS-\\\\FA", "Post.", "50", lambda ts, m: f"baseline-mms_fa-{S}-ts{ts}{m}"),
         (
             "Speech \\\\ LLM",
             "Voxtral",
@@ -365,7 +366,7 @@ def _time_stretch_table():
             lambda ts, m: f"align/baseline-voxtral-selfattn-{S}-ts{ts}{m}-{AO}",
         ),
     ]
-    STRETCH = [("vocoder", ""), ("resample", "-resample")]
+    STRETCH = [("voc.", ""), ("res.", "-resample")]
     columns = ["type", "model", "method", "fps", "stretch"] + [k for _, k in FACTORS]
     rows = []
     for typ, model, meth, fps, basefn in MODELS:
@@ -375,13 +376,13 @@ def _time_stretch_table():
                 # Voxtral's 30s encoder window caps usable stretch: >=2x on an 18s segment exceeds it
                 # (would split into 2 encoder chunks) -> mark the cell rather than leaving it blank.
                 if model == "Voxtral" and float(ts) >= 2.0:
-                    cells[k] = "too long"
+                    cells[k] = "too \\\\ long"
                     continue
-                # MMS-FA grad at ts3.0 does not fit the 24h GPU wall even with the compiled-scan split
-                # (3x-stretched audio, B=1) -> mark it (distinct from Voxtral's encoder-window "too long").
+                # MMS-\\\\FA grad at ts3.0 does not fit the 24h GPU wall even with the compiled-scan split
+                # (3x-stretched audio, B=1) -> mark it (distinct from Voxtral's encoder-window "too \\\\ long").
                 # ts1.2/1.5/2.0 ARE computed via the split under the torch-2.12 companion recipe (exp..._p212).
-                if model == "MMS-FA" and float(ts) >= 3.0:
-                    cells[k] = "too costly"
+                if model == "MMS-\\\\FA" and float(ts) >= 3.0:
+                    cells[k] = "too \\\\ costly"
                     continue
                 cells[k] = _wbe(basefn(ts, msfx))
             rows.append({"cells": cells})
@@ -406,30 +407,30 @@ def _word_length_table():
             "MMS-FA",
             [
                 (
-                    "Grad.",
+                    "Gradients",
                     f"align/wav2vec2ctc-fproj_out-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                 ),
-                ("Post.", f"baseline-mms_fa-{S}"),
+                ("Posteriors", f"baseline-mms_fa-{S}"),
             ],
         ),
         (
             "XLS-R \\\\ (Phoneme)",
             [
                 (
-                    "Grad.",
+                    "Gradients",
                     f"align/phoneme-vitouphy-prefixfwd-{S}-L2_grad-pertoken-g2pword-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                 ),
-                ("Post.", f"baseline-phoneme-fa-{S}-word"),
+                ("Posteriors", f"baseline-phoneme-fa-{S}-word"),
             ],
         ),
         (
             "Parakeet CTC",
             [
                 (
-                    "Grad.",
+                    "Gradients",
                     f"align/parakeet-ctc-1.1b-prefixfwd-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                 ),
-                ("Post.", f"baseline-parakeet-ctc-1.1b-{S}"),
+                ("Posteriors", f"baseline-parakeet-ctc-1.1b-{S}"),
             ],
         ),
         (
@@ -437,17 +438,17 @@ def _word_length_table():
             [
                 (
                     # block 6 (best emit block), matching the per-model + owsm-per-layer tables.
-                    "Grad.",
+                    "Gradients",
                     f"align/owsm-ctc-v4-1b-lyr6-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                 ),
-                ("Post.", f"baseline-owsm-ctc-v4-1b-lyr6-{S}"),
+                ("Posteriors", f"baseline-owsm-ctc-v4-1b-lyr6-{S}"),
             ],
         ),
         (
             "Whisper-base",
             [
                 (
-                    "Grad.",
+                    "Gradients",
                     f"align/whisper-base-logmel-{S}-L2_grad-pertoken-charlev-spc-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                 ),
                 ("Cross-att.", f"align/baseline-whisper-base-crossattn-auto-{S}-asotTrue-bs-5-en0.5-sil2.0-wordtopo"),
@@ -475,7 +476,7 @@ def _word_length_table():
                 {
                     "cells": {
                         "type": WTYPE[model],
-                        "model": model,
+                        "model": _MODEL_DISPLAY.get(model, model),
                         "method": mlabel,
                         "wbe": _metric(base, "wbe"),
                         "start": _metric(base, "start_signed_mean"),
@@ -492,7 +493,7 @@ def _word_length_table():
 #     with its gradient alignment AND its model-native alternative (CTC posteriors, transducer
 #     native-Viterbi, cross-attention, self-attention). Fixed DP (Buckeye-segA, en0.5-sil2.0,
 #     word-topology); only the tokenization differs between the Char and Subword column groups.
-#     Same conventions as the per-model-methods table (multirow Type/Name, "Grad."/"Post.").
+#     Same conventions as the per-model-methods table (multirow Type/Name, "Gradients"/"Posteriors").
 # ----------------------------------------------------------------------------------------
 def _char_subword_family_table():
     S = "buckeye-segA-5h"
@@ -507,35 +508,35 @@ def _char_subword_family_table():
         (
             "CTC",
             "Parakeet CTC",
-            "Grad.",
+            "Gradients",
             gr(f"parakeet-ctc-1.1b-prefixfwd-char-abl-{S}-L2_grad-pertoken"),
             gr(f"parakeet-ctc-1.1b-prefixfwd-abl-{S}-L2_grad-pertoken"),
         ),
         (
             "CTC",
             "Parakeet CTC",
-            "Post.",
+            "Posteriors",
             f"baseline-parakeet-ctc-1.1b-char-{S}",
             f"baseline-parakeet-ctc-1.1b-{S}",
         ),
         (
             "Transd.",
             "Parakeet RNN-T",
-            "Grad.",
+            "Gradients",
             gr(f"parakeet-rnnt-1.1b-logmel-char-abl-{S}-L2_grad-pertoken"),
             gr(f"parakeet-rnnt-1.1b-logmel-abl-{S}-L2_grad-pertoken"),
         ),
         (
             "Transd.",
             "Parakeet RNN-T",
-            "Post.",
+            "Posteriors",
             f"baseline-parakeet-rnnt-1.1b-char-native-viterbi-{S}",
             f"baseline-parakeet-rnnt-1.1b-native-viterbi-{S}",
         ),
         (
             "AED",
             "Whisper-large-v3",
-            "Grad.",
+            "Gradients",
             gr(f"whisper-large-v3-logmel-{S}-L2_grad-pertoken-charlev-spc"),
             gr(f"whisper-large-v3-logmel-{S}-L2_grad-pertoken-subword"),
         ),
@@ -549,7 +550,7 @@ def _char_subword_family_table():
         (
             "Speech \\\\ LLM",
             "Voxtral",
-            "Grad.",
+            "Gradients",
             gr(f"voxtral-charlevlogmel-{S}-L2_grad-pertoken"),
             gr(f"voxtral-logmel-{S}-L2_grad-pertoken-subword"),
         ),
@@ -779,22 +780,22 @@ def _abc_table():
     SEGS = ["segA", "segB", "segC"]
     # (type, model, method, name template over {seg}, is_grad). Same taxonomy AND method labels as the
     # per-model table: each model shows its gradient align and its own native aligner (CTC forced-align =
-    # "Post.", Whisper = "Cross-att."); typed by architecture; MFA = GM-HMM reference ("Likel.").
+    # "Posteriors", Whisper = "Cross-att."); typed by architecture; MFA = GM-HMM reference ("Likelihood").
     ROWS = [
-        ("GM-HMM", "MFA", "Likel.", "baseline-mfa-buckeye-{seg}-5h", False),
-        ("CTC", "MMS-FA", "Grad.", "wav2vec2ctc-fproj_out-prefixfwd-buckeye-{seg}-5h-L2_grad-pertoken", True),
-        ("CTC", "MMS-FA", "Post.", "baseline-mms_fa-buckeye-{seg}-5h", False),
-        ("CTC", "Parakeet CTC", "Grad.", "parakeet-ctc-1.1b-prefixfwd-buckeye-{seg}-5h-L2_grad-pertoken", True),
-        ("CTC", "Parakeet CTC", "Post.", "baseline-parakeet-ctc-1.1b-buckeye-{seg}-5h", False),
-        ("Transd.", "Parakeet RNN-T", "Grad.", "parakeet-rnnt-1.1b-logmel-buckeye-{seg}-5h-L2_grad-pertoken", True),
+        ("GM-HMM", "MFA", "Likelihood", "baseline-mfa-buckeye-{seg}-5h", False),
+        ("CTC", "MMS-FA", "Gradients", "wav2vec2ctc-fproj_out-prefixfwd-buckeye-{seg}-5h-L2_grad-pertoken", True),
+        ("CTC", "MMS-FA", "Posteriors", "baseline-mms_fa-buckeye-{seg}-5h", False),
+        ("CTC", "Parakeet CTC", "Gradients", "parakeet-ctc-1.1b-prefixfwd-buckeye-{seg}-5h-L2_grad-pertoken", True),
+        ("CTC", "Parakeet CTC", "Posteriors", "baseline-parakeet-ctc-1.1b-buckeye-{seg}-5h", False),
+        ("Transd.", "Parakeet RNN-T", "Gradients", "parakeet-rnnt-1.1b-logmel-buckeye-{seg}-5h-L2_grad-pertoken", True),
         (
             "Transd.",
             "Parakeet RNN-T",
-            "Post.",
+            "Posteriors",
             "baseline-parakeet-rnnt-1.1b-native-viterbi-buckeye-{seg}-5h",
             False,
         ),
-        ("AED", "Whisper-base", "Grad.", "whisper-base-logmel-buckeye-{seg}-5h-L2_grad-pertoken-charlev-spc", True),
+        ("AED", "Whisper-base", "Gradients", "whisper-base-logmel-buckeye-{seg}-5h-L2_grad-pertoken-charlev-spc", True),
         ("AED", "Whisper-base", "Cross-att.", "baseline-whisper-base-crossattn-auto-buckeye-{seg}-5h", True),
     ]
     columns = ["type", "model", "method"] + SEGS
@@ -1358,7 +1359,7 @@ def _compare_table(with_hyp=False):
     # same-family siblings (Parakeet RNN-T vs TDT, FastConformer CTC vs RNN-T) and a clearer model name,
     # and use the SAME names as the hyp / streaming tables for consistency.
     # The dict KEY stays the full name (TYPE/HYP/NATIVE_HYP are keyed by it); only the shown label changes.
-    DISPLAY = {**_MODEL_DISPLAY, "Parakeet": "Parakeet\\\\RNN-T", "OWSM": "OWSM-CTC"}
+    DISPLAY = {**_MODEL_DISPLAY, "Parakeet": "Parakeet\\\\RNN-T", "OWSM": "OWSM-\\\\CTC"}
     rows = []
     for bi, (typ, fam_models) in enumerate(blocks):
         if bi > 0:
