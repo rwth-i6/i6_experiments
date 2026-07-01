@@ -123,6 +123,7 @@ class CalcHypAlignMetricsJob(Job):
         dataset_key: str,
         dataset_offset_factors: int,
         returnn_root: Optional[tk.Path] = None,
+        aggregation: str = "micro",
     ):
         """
         :param word_boundaries_hdf: aligned hyp-word (start, end) in seconds,
@@ -144,6 +145,9 @@ class CalcHypAlignMetricsJob(Job):
         self.dataset_key = dataset_key
         self.dataset_offset_factors = dataset_offset_factors
         self.returnn_root = returnn_root
+        # matched_wbe aggregation: "micro" = mean over all matched words (default); "macro" = per-utt
+        # then over utts. Hashed (new kwarg) so switching re-runs; F1/precision/recall stay micro.
+        self.aggregation = aggregation
 
         self.out_metrics = self.output_var("metrics.txt")
         self.out_f1_100 = self.output_var("f1_100ms.txt")
@@ -230,7 +234,7 @@ class CalcHypAlignMetricsJob(Job):
             if seq_idx < 5:
                 print(f"seq {seq_idx}: n_hyp={len(hyp_words)} n_ref={len(ref_words)} n_match={len(match_errs)}")
 
-        metrics = hyp_aggregate_corpus(utt_stats)
+        metrics = hyp_aggregate_corpus(utt_stats, aggregation=self.aggregation)
         metrics["n_uncovered_seqs"] = float(n_uncovered)
         print("CORPUS METRICS:", metrics)
         self.out_metrics.set(metrics)

@@ -1837,6 +1837,7 @@ class CalcAlignmentMetricsFromWordBoundariesJob(Job):
         dataset_key: str,
         returnn_root: Optional[tk.Path] = None,
         dataset_offset_factors: int,
+        aggregation: str = "micro",
     ):
         """
         :param word_boundaries_hdf: e.g. from ExtractInGradsFromPhi4MultimodalInstructLongFormJob.
@@ -1856,6 +1857,10 @@ class CalcAlignmentMetricsFromWordBoundariesJob(Job):
         self.dataset_key = dataset_key
         self.returnn_root = returnn_root
         self.dataset_offset_factors = dataset_offset_factors
+        # WBE/MAE/edge/interior/signed aggregation: "micro" = mean over all words (default, the
+        # standard "average over words"); "macro" = per-utterance mean then over utterances. Hashed (a
+        # new kwarg), so switching it deliberately re-runs this job; collar accuracies stay micro.
+        self.aggregation = aggregation
 
         self.out_wbe = self.output_var("wbe.txt")
         # Richer metrics (see align_metrics): collar accuracy, edge/interior WBE, start/end MAE.
@@ -1935,7 +1940,7 @@ class CalcAlignmentMetricsFromWordBoundariesJob(Job):
             print("  WBE:", float(np.mean(utt_err["wbe"])))
             wbe_utts.append(utt_err)
 
-        metrics = aggregate_corpus(wbe_utts)
+        metrics = aggregate_corpus(wbe_utts, aggregation=self.aggregation)
         print("CORPUS METRICS:", metrics)
         self.out_wbe.set(metrics["wbe"])
         self.out_metrics.set(metrics)
