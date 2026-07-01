@@ -5666,6 +5666,40 @@ def py():
         )
         _hy_al.add_alias(f"hyp-align/{_hy_name}-{_xa_tag}-align")
         _hy_metrics(f"{_hy_name}-{_xa_tag}-grad", _hy_al.out_word_boundaries_hdf, _hy_dir)
+        if _hy_name == "whisper-large-v3-charlev":
+            # Optimal-encoder-depth (enc_L24) grad in hyp mode, mirroring the per-model "Gradients*" row:
+            # same hyp recognition + DP, only the grad is taken at encoder 3/4 instead of the input.
+            _hy_ex_l24 = ExtractInGradsPerTokenJob(
+                dataset_dir=_hy_dir,
+                dataset_key="test",
+                model_config=rf.build_dict(
+                    Whisper,
+                    model_dir=dl_whisper_l3.out_hub_cache_dir,
+                    char_level=True,
+                    char_level_sep=" ",
+                    grad_wrt="enc_L24",
+                ),
+                mult_grad_by_inputs=False,
+                attr_reduction="L2",
+                batched_backward=False,
+            )
+            _hy_ex_l24.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            _hy_ex_l24.rqmt = {**_hy_ex_l24.rqmt, "time": 24}
+            _hy_ex_l24.add_alias(f"hyp-align/{_hy_name}-encL24-{_xa_tag}-extract")
+            _hy_al_l24 = WordAlignFromPerTokenGradsJob(
+                grad_score_hdf=_hy_ex_l24.out_hdf,
+                grad_score_key="data",
+                dataset_dir=_hy_dir,
+                dataset_key="test",
+                dataset_offset_factors=_xa_off,
+                align_opts=_xa_ao,
+                audio_energy_pow=0.5,
+                blank_silence_energy_scale=2.0,
+                word_topology=True,
+                with_ref_metrics=False,
+            )
+            _hy_al_l24.add_alias(f"hyp-align/{_hy_name}-encL24-{_xa_tag}-align")
+            _hy_metrics(f"{_hy_name}-encL24-{_xa_tag}-grad", _hy_al_l24.out_word_boundaries_hdf, _hy_dir)
         # native aligner on the model's OWN recognition -> the alternative-row hyp cell.
         if _hy_name in _HY_NATIVE_TRANSDUCER:
             _hy_nt = NativeTransducerAlignJob(

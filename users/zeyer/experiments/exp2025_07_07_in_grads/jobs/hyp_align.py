@@ -114,6 +114,8 @@ class CalcHypAlignMetricsJob(Job):
     (see :func:`..align_metrics.hyp_aggregate_corpus`).
     """
 
+    __sis_version__ = 2
+
     def __init__(
         self,
         *,
@@ -181,6 +183,7 @@ class CalcHypAlignMetricsJob(Job):
         from datasets import load_dataset
         from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.align_metrics import (
             levenshtein_word_matches,
+            word_edit_distance,
             hyp_aggregate_corpus,
         )
 
@@ -230,7 +233,10 @@ class CalcHypAlignMetricsJob(Job):
             match_errs: List[Tuple[float, float]] = []
             for hi, ri in levenshtein_word_matches(hyp_words, ref_words):
                 match_errs.append((abs(hyp_times[hi][0] - ref_times[ri][0]), abs(hyp_times[hi][1] - ref_times[ri][1])))
-            utt_stats.append({"n_hyp": len(hyp_words), "n_ref": len(ref_words), "match_errs": match_errs})
+            n_edits = word_edit_distance(hyp_words, ref_words)
+            utt_stats.append(
+                {"n_hyp": len(hyp_words), "n_ref": len(ref_words), "match_errs": match_errs, "n_edits": n_edits}
+            )
             if seq_idx < 5:
                 print(f"seq {seq_idx}: n_hyp={len(hyp_words)} n_ref={len(ref_words)} n_match={len(match_errs)}")
 

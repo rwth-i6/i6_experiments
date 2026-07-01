@@ -189,6 +189,26 @@ def levenshtein_word_matches(hyp_words: Sequence[str], ref_words: Sequence[str])
     return matches
 
 
+def word_edit_distance(hyp_words: Sequence[str], ref_words: Sequence[str]) -> int:
+    """Word-level Levenshtein edit distance (substitutions + deletions + insertions, each cost 1).
+
+    Used for the corpus WER (total edits over total reference words).
+    """
+    n, m = len(hyp_words), len(ref_words)
+    prev = list(range(m + 1))
+    for i in range(1, n + 1):
+        cur = [i] + [0] * m
+        hw = hyp_words[i - 1]
+        for j in range(1, m + 1):
+            cur[j] = min(
+                prev[j - 1] + (0 if hw == ref_words[j - 1] else 1),
+                prev[j] + 1,
+                cur[j - 1] + 1,
+            )
+        prev = cur
+    return prev[m]
+
+
 def hyp_aggregate_corpus(
     utt_stats: Sequence[Dict[str, object]],
     collars_sec: Sequence[float] = (0.02, 0.05, 0.1, 0.2),
@@ -204,7 +224,8 @@ def hyp_aggregate_corpus(
     ``aggregate_corpus``) and match/coverage rates.
 
     :param utt_stats: per utt: ``n_hyp``, ``n_ref``,
-        ``match_errs`` (per matched word: (start_abs, end_abs) seconds).
+        ``match_errs`` (per matched word: (start_abs, end_abs) seconds),
+        and ``n_edits`` (word-level Levenshtein edits vs the reference, for the corpus WER).
     """
     n_utt = len(utt_stats)
     assert n_utt > 0
@@ -231,6 +252,7 @@ def hyp_aggregate_corpus(
         "match_rate_ref": float(n_match / n_ref) if n_ref else float("nan"),
         "match_rate_hyp": float(n_match / n_hyp) if n_hyp else float("nan"),
         "matched_wbe": matched_wbe,
+        "wer": float(sum(u["n_edits"] for u in utt_stats) / n_ref) if n_ref else float("nan"),
     }
     for c in collars_sec:
         tp = sum(1 for s, e in all_match_errs if s <= c and e <= c)

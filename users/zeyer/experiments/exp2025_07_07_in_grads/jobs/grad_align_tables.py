@@ -107,9 +107,9 @@ def _cost_table():
     # (metrics-file key, display label). The p212 benchmark job emits the CTC row under the internal
     # key "CTC (wav2vec2)"; the table displays it as MMS-FA (the wav2vec2 forced-alignment model).
     models = [
-        ("CTC (wav2vec2)", "CTC (MMS-FA)"),
-        ("AED (whisper-large)", "AED (whisper-large)"),
-        ("Sp. LLM (phi4)", "Sp. LLM (phi4)"),
+        ("CTC (wav2vec2)", "CTC", "MMS-FA"),
+        ("AED (whisper-large)", "AED", "Whisper-large-v3"),
+        ("Sp. LLM (phi4)", "Sp. LLM", "Phi-4-MM"),
     ]
     metric_of = {
         "forward": "forward_ms_per_s",
@@ -117,8 +117,12 @@ def _cost_table():
         "prefix_bwd": "prefix_bwd_ms_per_s",
         "backward": "backward_ms_per_s",
     }
-    columns = ["forward", "prefix_fwd", "prefix_bwd", "backward"]
-    rows = [{"label": disp, "cells": {c: _cost_cell(key, metric_of[c]) for c in columns}} for key, disp in models]
+    metric_cols = ["forward", "backward", "prefix_fwd", "prefix_bwd"]
+    columns = ["type", "model", *metric_cols]
+    rows = [
+        {"cells": {"type": typ, "model": name, **{c: _cost_cell(key, metric_of[c]) for c in metric_cols}}}
+        for key, typ, name in models
+    ]
     _emit("cost", columns, rows)
 
 
@@ -814,7 +818,6 @@ def _alignopts_silence_table():
         ("owls", f"owls-1B-180K-charlev-logmel-{S}-L2_grad-pertoken"),
         ("voxtral", f"voxtral-charlevlogmel-{S}-L2_grad-pertoken"),
         ("canary", f"canary-qwen-charlev-spc-logmel-st15-{S}-L2_grad-pertoken"),
-        ("phi4", f"phi4mm-{S}-L2_grad-pertoken-charlev-spc"),
         ("emformer", f"emformer-rnnt-prefix-logmel-{S}-L2_grad-pertoken"),
     ]
     ATTN = [
@@ -822,7 +825,6 @@ def _alignopts_silence_table():
         ("owls_a", "baseline-owls-1B-180K-crossattn-auto"),
         ("vx_a", "baseline-voxtral-selfattn"),
         ("cn_a", "baseline-canary-qwen-selfattn"),
-        ("ph_a", "baseline-phi4mm-selfattn"),
     ]
     # Blank-scoring schemes swept around the defaults (gamma / s / kappa), so the metric is seen to
     # degrade away from the chosen values; shown on the word-topology DP (our production setting).
@@ -904,7 +906,11 @@ def _alignopts_dtw_table():
     GP = "align/whisper-base-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc-asotTrue-bs-5"
     columns = ["row", "heads", "znorm", "medfilt", "log", "softmax", "mono", "silence", "energy", "wbe"]
     rows = []
+    prev_kind = None
     for label, src, heads, znorm, mf, log, mono, sil, en, sm in ROWS:
+        if prev_kind == "xa" and src[0] == "grad":  # clear double-rule break before the grad block
+            rows.append({"hline2": True})
+        prev_kind = src[0]
         wbe = _wbe(f"dtw-abl/whisper-base-buckeye-segA-5h-{src[1]}") if src[0] == "xa" else _wbe(f"{GP}-{src[1]}")
         rows.append(
             {
@@ -937,14 +943,12 @@ def _alignopts_energy_table():
         ("owls", f"owls-1B-180K-charlev-logmel-{S}-L2_grad-pertoken"),
         ("voxtral", f"voxtral-charlevlogmel-{S}-L2_grad-pertoken"),
         ("canary", f"canary-qwen-charlev-spc-logmel-st15-{S}-L2_grad-pertoken"),
-        ("phi4", f"phi4mm-{S}-L2_grad-pertoken-charlev-spc"),
     ]
     ATTN = [
         ("wh_a", "baseline-whisper-large-v3-crossattn-auto"),
         ("owls_a", "baseline-owls-1B-180K-crossattn-auto"),
         ("vx_a", "baseline-voxtral-selfattn"),
         ("cn_a", "baseline-canary-qwen-selfattn"),
-        ("ph_a", "baseline-phi4mm-selfattn"),
     ]
     # (blank-scheme label, name infix); the energy exponent varies down each group.
     SCHEMES = [
@@ -1392,9 +1396,8 @@ def _hyp_table():
         return {
             "mwbe": _hyp(name, "matched_wbe"),
             "f50": _hyp(name, "f1_50ms"),
-            "f100": _hyp(name, "f1_100ms"),
-            "f200": _hyp(name, "f1_200ms"),
             "rm": _hyp(name, "match_rate_ref"),
+            "wer": _hyp(name, "wer"),
         }
 
     # (type, model, method, hyp-metrics name). Same taxonomy/labels as the per-model table: each model
@@ -1432,7 +1435,7 @@ def _hyp_table():
         ("Sp. LLM", "Canary-Qwen", "Gradients", f"canary-qwen-charlev-spc-logmel-st15-{S}-grad"),
         ("Sp. LLM", "Canary-Qwen", "Self-att.", f"canary-qwen-charlev-spc-logmel-st15-{S}-native"),
     ]
-    columns = ["type", "model", "method", "mwbe", "f50", "f100", "f200", "rm"]
+    columns = ["type", "model", "rm", "wer", "method", "mwbe", "f50"]
     rows = []
     prev = None
     for typ, model, meth, name in ROWS:
