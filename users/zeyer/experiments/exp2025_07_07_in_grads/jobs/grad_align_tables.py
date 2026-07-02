@@ -885,12 +885,13 @@ def _alignopts_dtw_table():
     # (label, src=(kind,key), heads, z-norm, median-filter, log, mono, silence, energy)
     ck, cx, na = "\\checkmark", "$\\times$", "--"
     WH, OU, B1 = "Whi-\\\\sper", "ours", "1-best"
-    R = "\\ $\\hookrightarrow$ "
-    # softmax = apply_softmax_over_time (the Aligner's softmax-over-time score transform).
-    # x = off, NOT na: it is a real setting that would change the result.
-    # The whisper-DTW rows have it OFF (x) -- with log on they use log-softmax instead (the log column).
-    # It is OFF for faithful+mono/sil too (z-norm yields a DTW cost, not a softmax-able distribution),
-    # and ON for the other our-DP rows + grad.
+    R = "\\ "
+    # log = pre-log (apply_log): an extra log applied to the raw matrix before the softmax; only the
+    #   mono-DP rows take it (the DTW branch never pre-logs its input).
+    # softmax = log-softmax over time (apply_softmax_over_time / the DTW branch's lsm): produces the
+    #   summable log-scores that the DP path sums (GradScore is a sum of log-softmax scores). So the
+    #   DTW-with-log rows are log-softmax only (no pre-log); the mono/grad rows do softmax(log(x)) = both.
+    #   x = off, NOT na: it is a real setting that would change the result.
     # All rows read boundaries off the same way (span: each word = its own first-token start .. last-token
     # end, max+1). Whisper's native jump read-off (word end = next word's onset) is a boundary-definition
     # bug -- not used here; every row uses the WordAlign span read-off.
@@ -900,21 +901,21 @@ def _alignopts_dtw_table():
         (R + "$+$ energy", ("xa", "faithful_energy"), WH, ck, ck, cx, cx, "none", ck, cx),
         (R + "$+$ mono DP", ("xa", "faithful_mono"), WH, ck, ck, cx, ck, "none", cx, cx),
         (R + "\\quad $+$ silence", ("xa", "faithful_silence"), WH, ck, ck, cx, ck, "word", cx, cx),
-        (R + "no median-filter", ("xa", "nomedfilt"), WH, ck, cx, cx, cx, "none", cx, cx),
-        (R + "no z-norm", ("xa", "noznorm"), WH, cx, ck, cx, cx, "none", cx, cx),
-        (R + "no z-norm $+$ log", ("xa", "noznorm_log"), WH, cx, ck, ck, cx, "none", cx, cx),
-        (R + "\\quad $+$ mono DP", ("xa", "noznorm_log_mono"), WH, cx, ck, ck, ck, "none", cx, ck),
-        (R + "\\qquad $+$ silence", ("xa", "noznorm_log_mono_sil"), WH, cx, ck, ck, ck, "word", cx, ck),
-        (R + "our heads", ("xa", "ourheads"), OU, ck, ck, cx, cx, "none", cx, cx),
-        (R + "single best head", ("xa", "best1head"), B1, ck, ck, cx, cx, "none", cx, cx),
+        (R + "$+$ no median-filter", ("xa", "nomedfilt"), WH, ck, cx, cx, cx, "none", cx, cx),
+        (R + "$+$ no z-norm", ("xa", "noznorm"), WH, cx, ck, cx, cx, "none", cx, cx),
+        (R + "\\quad $+$ log softmax", ("xa", "noznorm_log"), WH, cx, ck, cx, cx, "none", cx, ck),
+        (R + "\\qquad $+$ mono DP", ("xa", "noznorm_log_mono"), WH, cx, ck, ck, ck, "none", cx, ck),
+        (R + "\\qquad\\quad $+$ silence", ("xa", "noznorm_log_mono_sil"), WH, cx, ck, ck, ck, "word", cx, ck),
+        (R + "$+$ our heads", ("xa", "ourheads"), OU, ck, ck, cx, cx, "none", cx, cx),
+        (R + "$+$ single best head", ("xa", "best1head"), B1, ck, ck, cx, cx, "none", cx, cx),
         ("ours (full)", ("xa", "ours_full"), OU, cx, cx, ck, ck, "word", ck, ck),
-        (R + "DTW", ("xa", "ours_dtw"), OU, cx, cx, ck, cx, "none", ck, cx),
-        (R + "DTW, no energy", ("xa", "ours_dtw_noen"), OU, cx, cx, ck, cx, "none", cx, cx),
-        (R + "no silence", ("xa", "ours_none"), OU, cx, cx, ck, ck, "none", ck, ck),
+        (R + "$+$ DTW", ("xa", "ours_dtw"), OU, cx, cx, cx, cx, "none", ck, ck),
+        (R + "\\quad $+$ no energy", ("xa", "ours_dtw_noen"), OU, cx, cx, cx, cx, "none", cx, ck),
+        (R + "$+$ no silence", ("xa", "ours_none"), OU, cx, cx, ck, ck, "none", ck, ck),
         ("ours (full)", ("grad", "en0.5-sil2.0-wordtopo"), na, na, na, ck, ck, "word", ck, ck),
-        (R + "DTW, word-topo", ("grad", "en0.5-sil2.0-dtwword"), na, na, na, ck, cx, "word", ck, ck),
-        (R + "DTW", ("grad", "en0.5-truedtw"), na, na, na, ck, cx, "none", ck, ck),
-        (R + "DTW, no energy", ("grad", "en0.0-truedtw"), na, na, na, ck, cx, "none", cx, ck),
+        (R + "$+$ DTW, word-topo", ("grad", "en0.5-sil2.0-dtwword"), na, na, na, ck, cx, "word", ck, ck),
+        (R + "\\quad $+$ no word-topo", ("grad", "en0.5-truedtw"), na, na, na, ck, cx, "none", ck, ck),
+        (R + "\\qquad $+$ no energy", ("grad", "en0.0-truedtw"), na, na, na, ck, cx, "none", cx, ck),
     ]
     GP = "align/whisper-base-logmel-buckeye-segA-5h-L2_grad-pertoken-charlev-spc-asotTrue-bs-5"
     columns = ["row", "heads", "znorm", "medfilt", "log", "softmax", "mono", "silence", "energy", "wbe"]
@@ -963,7 +964,7 @@ def _alignopts_energy_table():
     ]
     # (blank-scheme label, name infix); the energy exponent varies down each group.
     SCHEMES = [
-        ("constant", ""),
+        ("constant \\\\ $\\gamma = -5$", ""),
         ("energy \\\\ $s = 1$", "-sil1.0"),
         ("z-score \\\\ $\\kappa = 1$", "-zsk1.0"),
     ]
@@ -1091,10 +1092,9 @@ def _compare_table(with_hyp=False):
                 (
                     # Gradients at the OPTIMAL encoder depth (encoder 3/4 = layer 24; the best of the
                     # encoder-depth sweep, tab:encoder-depth), which beats the cross-attention DTW.
-                    # Buckeye-segA only for now -- no TIMIT encoder-depth extract yet (TIMIT cols empty).
                     "Gradients*",
                     f"align/whisper-large-v3-charlev-spc-encL24-encdepth-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
-                    None,
+                    f"align/whisper-large-v3-charlev-spc-encL24-encdepth-{T}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
                 ),
                 (
                     "Cross-att.",
