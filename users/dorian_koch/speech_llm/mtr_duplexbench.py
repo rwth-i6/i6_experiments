@@ -101,6 +101,10 @@ class MTRDuplexInference(Job):
     ``hf_repo``.
     """
 
+    # ``retrieval_llm`` is excluded at its default so adding it leaves every existing (non-RAG) MTR
+    # job's hash unchanged; a MoshiRAG run sets it and gets a distinct hash + the 2-GPU retrieval seam.
+    __sis_hash_exclude__ = {"retrieval_llm": None}
+
     def __init__(
         self,
         *,
@@ -115,6 +119,7 @@ class MTRDuplexInference(Job):
         overlay: tk.Path | None = None,
         lora_rank: int | None = None,
         lora_scaling: float = 2.0,
+        retrieval_llm: str | None = None,
         rqmt: dict | None = None,
     ):
         self.mtr_data = mtr_data
@@ -130,7 +135,16 @@ class MTRDuplexInference(Job):
         self.overlay = overlay
         self.lora_rank = lora_rank
         self.lora_scaling = lora_scaling
-        self.rqmt = rqmt or {"gpu": 1, "cpu": 4, "mem": 48, "time": 8}
+        # MoshiRAG retrieval LLM (OpenAI-compatible). When set, run() wraps the driver in the shared
+        # vLLM + GPU-split retrieval seam (run_with_optional_retrieval) -> 2 GPUs + a longer wall clock
+        # (the per-clip retrieval handshake is serial and slow).
+        self.retrieval_llm = retrieval_llm
+        if rqmt is not None:
+            self.rqmt = rqmt
+        elif retrieval_llm is not None:
+            self.rqmt = {"gpu": 2, "cpu": 8, "mem": 64, "time": 24}
+        else:
+            self.rqmt = {"gpu": 1, "cpu": 4, "mem": 48, "time": 8}
         self.out_dir = self.output_path("submission", directory=True)
 
     def tasks(self):
@@ -162,8 +176,21 @@ class MTRDuplexInference(Job):
             cmd += ["--overlay", self.overlay.get_path()]
         if self.lora_rank is not None:
             cmd += ["--lora_rank", str(self.lora_rank), "--lora_scaling", str(self.lora_scaling)]
-        print("[mtr-inference]", " ".join(cmd), flush=True)
-        subprocess.run(cmd, env=_pythonpath_env(), check=True)
+
+        from .inference_harness import run_with_optional_retrieval
+
+        def _drive(extra_args, extra_env=None):
+            env = _pythonpath_env()
+            if extra_env:
+                env.update(extra_env)
+            full = cmd + list(extra_args)
+            print("[mtr-inference]", " ".join(full), flush=True)
+            subprocess.run(full, env=env, check=True)
+
+        # retrieval_llm unset -> _drive((), None) runs the driver once (unchanged). MoshiRAG brings up
+        # the vLLM retrieval server on GPU0 and pins the driver (+ its reference encoder) to GPU1,
+        # passing --llm_base_url/--llm_model_name through to mtr.driver.
+        run_with_optional_retrieval(self, _drive)
 
 
 class MTRDuplexEval(Job):
@@ -441,6 +468,7 @@ def mtr_benchmark_py(
     overlay: tk.Path | None = None,
     lora_rank: int | None = None,
     lora_scaling: float = 2.0,
+    retrieval_llm: str | None = None,
     judge: str = "vllm",
     judge_model: str = "openai/gpt-oss-120b",
 ):
@@ -468,6 +496,7 @@ def mtr_benchmark_py(
         overlay=overlay,
         lora_rank=lora_rank,
         lora_scaling=lora_scaling,
+        retrieval_llm=retrieval_llm,
     )
     ev = MTRDuplexEval(
         submission_dir=inf.out_dir,

@@ -34,6 +34,8 @@ out_dir: "{job.out_rundir.get()}"
 segment_source: "{job.segment_source}"
 train_data: "{train_data}"
 vad_backend: "{job.vad_backend}"
+quality_asr: "{job.quality_asr}"
+quality_asr_model: "{job.quality_asr_model or ""}"
 max_steps: {job.max_steps}
 grad_accum: {job.grad_accum}
 num_samples: {job.num_samples}
@@ -83,6 +85,9 @@ class RLFinetune(Job):
         "kl_beta": 0.01,
         "lora_rank": 128,
         "train_data": None,
+        "quality_judge": None,
+        "quality_asr": "parakeet",
+        "quality_asr_model": None,
         "rqmt": None,
     }
 
@@ -94,6 +99,9 @@ class RLFinetune(Job):
         segment_source: str = "synthetic",
         train_data=None,
         vad_backend: str = "silero",
+        quality_judge: str | None = None,
+        quality_asr: str = "parakeet",
+        quality_asr_model: str | None = None,
         max_steps: int = 3200,
         grad_accum: int = 1,
         num_samples: int = 16,
@@ -113,6 +121,11 @@ class RLFinetune(Job):
         self.segment_source = segment_source
         self.train_data = train_data
         self.vad_backend = vad_backend
+        # Content-quality reward: when ``quality_judge`` is set, run() co-launches that vLLM judge on a
+        # 2nd GPU and the trainer scores turn/interruption replies with ASR->LLM relevance (paper sec. 3).
+        self.quality_judge = quality_judge
+        self.quality_asr = quality_asr
+        self.quality_asr_model = quality_asr_model
         self.max_steps = max_steps
         self.grad_accum = grad_accum
         self.num_samples = num_samples
@@ -126,8 +139,14 @@ class RLFinetune(Job):
         self.seed = seed
         self.out_config = self.output_path("config.yaml")
         self.out_rundir = self.output_path("run_dir", directory=True)
-        # GRPO is heavier per step than SFT (G rollouts + 3 forwards); give it more memory/time.
-        self.rqmt = rqmt or {"gpu": 1, "cpu": 6, "mem": 48, "time": 23}
+        # GRPO is heavier per step than SFT (G rollouts + 3 forwards); give it more memory/time. The
+        # quality reward adds a co-launched vLLM judge -> a 2nd GPU + more CPU/mem for ASR + the client.
+        if rqmt is not None:
+            self.rqmt = rqmt
+        elif quality_judge is not None:
+            self.rqmt = {"gpu": 2, "cpu": 8, "mem": 80, "time": 23}
+        else:
+            self.rqmt = {"gpu": 1, "cpu": 6, "mem": 48, "time": 23}
 
     def tasks(self):
         yield Task("write_config", mini_task=True)
@@ -142,4 +161,25 @@ class RLFinetune(Job):
             f.write(_render_rl_config(self))
 
     def run(self):
-        launch_training(self, self.adapter)
+        if not self.quality_judge:
+            launch_training(self, self.adapter)
+            return
+        # Quality reward ON: reuse the shared retrieval seam to co-launch the vLLM judge on GPU0 and pin
+        # the trainer to GPU1; the judge url/model reach the launcher via RL_JUDGE_BASE_URL/RL_JUDGE_MODEL
+        # (launch_training inherits os.environ for its torchrun subprocess).
+        import os
+
+        from .inference_harness import run_with_optional_retrieval
+
+        self.retrieval_llm = self.quality_judge  # keys the GPU split in run_with_optional_retrieval
+
+        def _drive(extra_args, extra_env):
+            if extra_env:
+                os.environ.update(extra_env)
+            a = list(extra_args)
+            if "--llm_base_url" in a:
+                os.environ["RL_JUDGE_BASE_URL"] = a[a.index("--llm_base_url") + 1]
+                os.environ["RL_JUDGE_MODEL"] = a[a.index("--llm_model_name") + 1]
+            launch_training(self, self.adapter)
+
+        run_with_optional_retrieval(self, _drive)
