@@ -85,7 +85,7 @@ def get_callback_config(
 @dataclass
 class DecodeConfig:
     centroids: tk.Path
-    recog_config: RecogConfig
+    recog_rasr_config: tk.Path
     distance_scale: float
     subsampling: int | None = None
     pooling_function: str = "maxpool_time_np"
@@ -107,13 +107,11 @@ def _decode(
         returnn_python_exe = RETURNN_PYTHON_EXE
     if returnn_root is None:
         returnn_root = RETURNN_ROOT
-    
-    recog_rasr_config = create_rasr_config(config.recog_config)
 
     base_config = get_base_config()
     callback_config = get_callback_config(
         centroids=config.centroids,
-        recognition_config=recog_rasr_config,
+        recognition_config=config.recog_rasr_config,
         distance_scale=config.distance_scale,
         subsampling=config.subsampling,
         pooling_function=config.pooling_function,
@@ -193,6 +191,6 @@ def decode_and_score(
         corpus_name,
         score_res.wer,
         score_res.deletions,
-        score_res.substitutions,
         score_res.insertions,
+        score_res.substitutions,
     )

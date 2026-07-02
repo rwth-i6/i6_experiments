@@ -195,6 +195,7 @@ def clustering(
     returnn_python_exe: tk.Path | None = None,
     returnn_root: tk.Path | None = None,
     hdf_path: str | tk.Path | None = None,
+    log_verbosity: int = 5,
 ) -> ClusteringExpResult:
     internal_num_epochs = num_epochs * 2 + 1
     # set defaults
@@ -221,7 +222,7 @@ def clustering(
     config.black_formatting = False
 
     centroid_files = {
-        epoch: f"centroids.{epoch}.npy" for epoch in range(num_epochs)
+        epoch: f"centroids.{epoch}.npy" for epoch in range(num_epochs + 1)
     }
     statistics_file = "epoch_statistics.json"
 
@@ -233,8 +234,12 @@ def clustering(
         output_files=[
             *centroid_files.values(),
             statistics_file
-        ]
+        ],
+        log_verbosity=log_verbosity,
+        time_rqmt=168,
     )
+
+    #fwd_job.rqmt["gpu_mem"] = 24
 
     out_centroids = {
         epoch: fwd_job.out_files[filename] for epoch, filename in centroid_files.items()

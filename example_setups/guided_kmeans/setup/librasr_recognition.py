@@ -21,6 +21,30 @@ phonetic_vocabulary_path = tk.Path("/work/smt4/zeineldeen/enrique.leon.lozano/se
 
 phonetic_lm_path = tk.Path("/work/smt4/zeineldeen/enrique.leon.lozano/setups-data/ubuntu_22_setups/fairseq_2025_06_02/work/data/2gram/output/phones/lm.phones.filtered.02.arpa")
 
+# order -> path
+phonetic_lm_dict = {
+    2: tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/phon_lm/phon_count_2gram.arpa.gz"),
+    3: tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/phon_lm/phon_count_3gram.arpa.gz"),
+    4: tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/phon_lm/phon_count_4gram.arpa.gz"),
+    5: tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/phon_lm/phon_count_5gram.arpa.gz"),
+    6: tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/phon_lm/phon_count_6gram.arpa.gz"),
+    7: tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/phon_lm/phon_count_7gram.arpa.gz"),
+    8: tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/phon_lm/phon_count_8gram.arpa.gz"),
+    9: tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/phon_lm/phon_count_9gram.arpa.gz"),
+}
+
+# LMs including EOW phonemes
+phonetic_eow_lm_dict = {
+    2: tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/phon_lm_eow/phon_count_2gram_eow.arpa.gz"),
+    3: tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/phon_lm_eow/phon_count_3gram_eow.arpa.gz"),
+    4: tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/phon_lm_eow/phon_count_4gram_eow.arpa.gz"),
+    5: tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/phon_lm_eow/phon_count_5gram_eow.arpa.gz"),
+    6: tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/phon_lm_eow/phon_count_6gram_eow.arpa.gz"),
+    7: tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/phon_lm_eow/phon_count_7gram_eow.arpa.gz"),
+    8: tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/phon_lm_eow/phon_count_8gram_eow.arpa.gz"),
+    9: tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/phon_lm_eow/phon_count_9gram_eow.arpa.gz"),
+}
+
 def neg_log(x):
     return -math.log(x) if x > 0.0 else float("inf")
 
@@ -38,8 +62,17 @@ class PhoneticLexiconFromPhonemeListJob(Job):
         yield Task("run", mini_task=True)
 
     def run(self):
+        #with uopen(tk.uncached_path(self.phoneme_list_file), "rt") as f:
+        #    phonemes = [str(lem.strip()) for lem in f]
+
+        # First write normal phonemes in alphabetical order, then EOW-phonemes
         with uopen(tk.uncached_path(self.phoneme_list_file), "rt") as f:
-            phonemes = [str(lem.strip()) for lem in f]
+            phonemes = [str(lem.strip()) for lem in f if lem.strip()]
+
+        phonemes_ordered = sorted(
+            phonemes,
+            key=lambda p: (p.endswith("#"), p[:-1] if p.endswith("#") else p),
+        )
 
         # phonemes = set()
         # for w in phonemes:
@@ -48,7 +81,7 @@ class PhoneticLexiconFromPhonemeListJob(Job):
 
         lex = lexicon.Lexicon()
         lex.add_phoneme("[SILENCE]", variation="none")
-        for p in sorted(phonemes):
+        for p in phonemes_ordered: #sorted(phonemes):
             lex.add_phoneme(p, "none")
         if self.add_unknown:
             lex.add_phoneme("[UNKNOWN]", "none")
@@ -94,11 +127,33 @@ class PhoneticLexiconFromPhonemeListJob(Job):
                 )
             )
 
-        for phoneme in phonemes:
+        for phoneme in phonemes_ordered: #phonemes:
             phonetic_lemma = lexicon.Lemma([phoneme], [phoneme])
             lex.add_lemma(phonetic_lemma)
         
         write_xml(self.out_bliss_lexicon.get_path(), lex.to_xml())
+
+# Take list of phonemes and append EOW-augmented phonemes
+class AddEOWPhonemesToVocabListJob(Job):
+    def __init__(self, phoneme_list_file):
+        self.phoneme_list_file = phoneme_list_file
+        self.out_phoneme_list = self.output_path("phonemes.txt")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        with open(self.phoneme_list_file, "r") as infile:
+            lines = [line.rstrip("\n") for line in infile]
+
+        with open(self.out_phoneme_list, "w") as outfile:
+            # Write original lines
+            for line in lines:
+                outfile.write(line + "\n")
+
+            # Write copied lines with # appended
+            for line in lines:
+                outfile.write(line + "#\n")
 
 
 def get_acoustic_model_config() -> RasrConfig:
@@ -106,17 +161,23 @@ def get_acoustic_model_config() -> RasrConfig:
         states_per_phone=1,
     )
 
-def create_lexicon() -> tk.Path:
-    get_first_column = PipelineJob(phonetic_vocabulary_path, ["cut -f1 -d ' '", "grep -vE \"'|<SIL>\""], mini_task=True)
-    lexicon_job = PhoneticLexiconFromPhonemeListJob(get_first_column.out)
-    tk.register_output("lexicon/phoneme.lex.xml.gz", lexicon_job.out_bliss_lexicon)
+def create_lexicon(use_eow_phonemes = False) -> tk.Path:
+    phoneme_list = PipelineJob(phonetic_vocabulary_path, ["cut -f1 -d ' '", "grep -vE \"'|<SIL>\""], mini_task=True).out
+    if use_eow_phonemes:
+        phoneme_list = AddEOWPhonemesToVocabListJob(phoneme_list).out_phoneme_list
+    lexicon_job = PhoneticLexiconFromPhonemeListJob(phoneme_list)
+    output_name = "lexicon/phoneme.lex.xml.gz"
+    if use_eow_phonemes:
+        output_name = "lexicon/eow_phoneme.lex.xml.gz"
+    tk.register_output(output_name, lexicon_job.out_bliss_lexicon)
     return lexicon_job.out_bliss_lexicon
 
 def get_lm_config(lm_path, scale=3.0) -> RasrConfig:
     config = RasrConfig()
-    config.type = "ARPA"
-    config.file = lm_path
     config.scale = scale
+    if scale > 0.0:
+        config.type = "ARPA"
+        config.file = lm_path
 
     return config
 
@@ -164,14 +225,22 @@ def create_recog_rasr_config(
     loop_probability=0.1,
     silence_loop_probability=0.1,
     max_beam_size=100_000,
-    lm_path=phonetic_lm_path,
+    score_threshold=None,
+    lm_order=2,
+    use_eow_phonemes=False,
     use_tree_search=False
 ):
     if transition_scale is None:
         transition_scale = lm_scale
+
+    if use_eow_phonemes:
+        lm_path = phonetic_eow_lm_dict[lm_order]
+    else:
+        lm_path = phonetic_lm_dict[lm_order]
+
     if use_tree_search:
         recog_config = get_tree_timesync_recog_config(
-            lexicon_file=create_lexicon(),
+            lexicon_file=create_lexicon(use_eow_phonemes),
             collapse_repeated_labels=True,
             label_scorer_config=get_label_scorer_config(
                 emission_scale=emission_scale,
@@ -191,7 +260,7 @@ def create_recog_rasr_config(
         )
     else:
         recog_config = get_linear_search_recog_config(
-            lexicon_file=create_lexicon(),
+            lexicon_file=create_lexicon(use_eow_phonemes),
             collapse_repeated_labels=True,
             label_scorer_config=get_label_scorer_config(
                 emission_scale=emission_scale,
@@ -202,7 +271,7 @@ def create_recog_rasr_config(
             lm_config=get_lm_config(lm_path, lm_scale),
             blank_index=0,
             max_beam_size=max_beam_size,
-            score_threshold=None,
+            score_threshold=score_threshold,
             log_statistics=False,
             log_stepwise_statistics=False,
         )

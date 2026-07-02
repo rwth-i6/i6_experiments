@@ -948,7 +948,7 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         # do the actual loading
         self.centroids = np.load(last_epoch_centroids_file)
 
-        self.current_epoch = last_epoch + 1
+        self.current_epoch = last_epoch * 2 + 1
 
         return True
     
@@ -961,7 +961,7 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         # do the actual loading
         self.centroids = np.load(last_epoch_centroids_file)
 
-        self.current_epoch = last_epoch + 1
+        self.current_epoch = last_epoch * 2 + 1
 
     def __getstate__(self) -> dict:
         d = dict(self.__dict__)
@@ -971,8 +971,8 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
 
     def __setstate__(self, d) -> None:
         self.__dict__ = d
-        self.search_algorithm = self.init_search_algorithm()
-    
+        self.search_algo = self.init_search_algorithm()
+
     def _on_phase_transition(self, new_phase: GuidedClusteringPhase, old_phase: Optional[GuidedClusteringPhase] = None):
         # transition out of initialization
         if old_phase is GuidedClusteringPhase.INITIALIZATION:
@@ -1003,7 +1003,12 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
             self.centroid_updater = RunningAverageUpdater((self.num_clusters, 1024))
 
         if old_phase is GuidedClusteringPhase.CLUSTERING:
-            self.centroids = self.centroid_updater.value
+            new_centroids = self.centroid_updater.value
+            # Phonemes never assigned this pass would become zero vectors; keep their old centroid
+            # so they remain viable candidates in the next recognition pass rather than dying out.
+            dead_mask = self.centroid_updater.counts == 0
+            new_centroids[dead_mask] = self.centroids[dead_mask]
+            self.centroids = new_centroids
             centroids_file = f"centroids.{self.current_epoch // 2}.npy"
             print(f"Saving centroids to {centroids_file}")
             np.save(centroids_file, self.centroids)
@@ -1152,6 +1157,7 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         #     self.maybe_transition_phase(last_seq=True)        
 
 
+''' Not used at the moment, might need some fixes when enabled again
 class HierarchicalGuidedKMeansClusteringCallback(NnOutputClusteringCallback):
     CENTROIDS_FPATTERN_RAW = "centroids.{}.npy"
     CENTROIDS_REGEX = re.compile(CENTROIDS_FPATTERN_RAW.format("(\\d+)"))
@@ -1302,7 +1308,7 @@ class HierarchicalGuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         # do the actual loading
         self.centroids = np.load(last_epoch_centroids_file)
 
-        self.current_epoch = last_epoch + 1
+        self.current_epoch = last_epoch * 2 + 1
 
         return True
     
@@ -1315,7 +1321,7 @@ class HierarchicalGuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         # do the actual loading
         self.centroids = np.load(last_epoch_centroids_file)
 
-        self.current_epoch = last_epoch + 1
+        self.current_epoch = last_epoch * 2 + 1
 
     def __getstate__(self) -> dict:
         d = dict(self.__dict__)
@@ -1325,8 +1331,8 @@ class HierarchicalGuidedKMeansClusteringCallback(NnOutputClusteringCallback):
 
     def __setstate__(self, d) -> None:
         self.__dict__ = d
-        self.search_algorithm = self.init_search_algorithm()
-    
+        self.search_algo = self.init_search_algorithm()
+
     def _on_phase_transition(self, new_phase: GuidedClusteringPhase, old_phase: Optional[GuidedClusteringPhase] = None):
         print("=" * 10)
         print(f"Starting phase {new_phase}")
@@ -1513,3 +1519,4 @@ class HierarchicalGuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         self.increase_epoch_and_seq(last_seq)
 
         # input()
+'''

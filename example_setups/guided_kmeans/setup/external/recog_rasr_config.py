@@ -141,9 +141,8 @@ def get_linear_search_recog_config(
     am_config: Optional[RasrConfig] = None,
     lm_config: Optional[RasrConfig] = None,
     blank_index: Optional[int] = None,
-    max_beam_size: int = 1024,
-    max_word_end_beam_size: Optional[int] = None,
-    score_threshold: Optional[float] = 18.0,
+    max_beam_size: int = 100_000,
+    score_threshold: Optional[float] = None,
     log_statistics: bool = True,
     log_stepwise_statistics: bool = True,
     logfile_suffix: str = "recog",
@@ -197,13 +196,13 @@ def get_linear_search_recog_config(
         )
     rasr_config.lib_rasr.acoustic_model = am_config
 
-    rasr_config.lib_rasr.search_algorithm.max_beam_size = max_beam_size
-    if max_word_end_beam_size is not None:
-        rasr_config.lib_rasr.search_algorithm.max_word_end_beam_size = max_word_end_beam_size
+    if max_beam_size is not None:
+        rasr_config.lib_rasr.search_algorithm.max_beam_size = max_beam_size
     if score_threshold is not None:
         rasr_config.lib_rasr.search_algorithm.score_threshold = score_threshold
     if blank_index is not None:
         rasr_config.lib_rasr.search_algorithm.blank_label_index = blank_index
+
     rasr_config.lib_rasr.search_algorithm.collapse_repeated_labels = collapse_repeated_labels
     rasr_config.lib_rasr.search_algorithm.log_statistics = log_statistics
     rasr_config.lib_rasr.search_algorithm.log_stepwise_statistics = log_stepwise_statistics

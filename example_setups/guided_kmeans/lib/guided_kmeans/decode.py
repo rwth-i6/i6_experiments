@@ -76,7 +76,7 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
 
     def __setstate__(self, d) -> None:
         self.__dict__ = d
-        self.search_algorithm = self.init_search_algorithm()
+        self.search_algo = self.init_search_algorithm()
     
     def compute_squared_distances(
         self,

@@ -93,7 +93,7 @@ class JiwerScoringJob(Job):
 
                 if m2 is not None:
                     s, d, i, h = [int(m2.group(k)) for k in range(1, 5)]
-                    total = s + d + i + h
+                    total = s + d + h  # reference length: substitutions + deletions + hits
                     self.out_substitutions.set(s / total)
                     self.out_deletions.set(d / total)
                     self.out_insertions.set(i / total)
