@@ -156,8 +156,15 @@ def get_forward_config(
     # modality, so its datastream (e.g. "data") must be used instead.
     vocab_key = vocab_key or default_target_key
     if extern_data is None:
+        # The encoder input must be available at forward/inference time. Force
+        # available_for_inference=True: RETURNN drops non-inference-available data from extern_data
+        # during forward, so e.g. a text input datastream (available_for_inference=False) would be
+        # missing -> KeyError in the forward_step. For the usual audio input this is already True,
+        # so the serialized config (and job hash) is unchanged.
         extern_data = {
-            default_data_key: datastreams[default_data_key].as_returnn_extern_data_opts(),
+            default_data_key: datastreams[default_data_key].as_returnn_extern_data_opts(
+                available_for_inference=True
+            ),
         }
 
     if add_text_to_extern_data:
