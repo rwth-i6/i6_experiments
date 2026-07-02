@@ -350,7 +350,7 @@ def py():
             train_data=train_data,
             test_data_dict=test_data_dict,
             keep_epochs=get_keep_epochs(num_epochs),
-            skip_eval=True,
+            # skip_eval=True,
             additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
             analysis_opts={
                 "checkpoints": get_keep_epochs(base_num_epochs),
