@@ -134,6 +134,7 @@ def _part_job(results, ds, hdf_reg, model, seq, tokenizer_reg, forced_bnd_reg=No
     hdf = results.get(f"{hdf_reg}.hdf")
     if hdf is None:
         return None
+    is_posterior = forced_bnd_reg is not None
     return WriteFigureDataJob(
         grad_score_hdf=hdf,
         grad_score_key="data",
@@ -142,7 +143,7 @@ def _part_job(results, ds, hdf_reg, model, seq, tokenizer_reg, forced_bnd_reg=No
         dataset_offset_factors=1,  # segA gold start/stop in samples
         align_opts=_ALIGN_OPTS,
         seq_idx=seq,
-        audio_energy_pow=0.5,
+        audio_energy_pow=0.0 if is_posterior else 0.5,
         blank_silence_energy_scale=1.0,
         boundary_source="word_detail",
         model=model,
@@ -150,6 +151,7 @@ def _part_job(results, ds, hdf_reg, model, seq, tokenizer_reg, forced_bnd_reg=No
         dataset="buckeye-segA",
         tokenizer_dir=results.get(tokenizer_reg) if tokenizer_reg else None,
         pred_word_boundaries_hdf=results.get(f"{forced_bnd_reg}.hdf") if forced_bnd_reg else None,
+        emission_logprob=is_posterior,
     )
 
 

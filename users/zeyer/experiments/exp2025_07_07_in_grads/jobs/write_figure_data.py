@@ -35,7 +35,7 @@ class WriteFigureDataJob(Job):
     # pred_word_boundaries_hdf overrides the displayed boundaries with externally-computed ones
     # (the model's own forced-align, for a posteriors panel); excluded at its None default so the
     # grad/attention figure jobs (which pass None) keep their current hash.
-    __sis_hash_exclude__ = {"pred_word_boundaries_hdf": None}
+    __sis_hash_exclude__ = {"pred_word_boundaries_hdf": None, "emission_logprob": False}
 
     def __init__(
         self,
@@ -56,6 +56,7 @@ class WriteFigureDataJob(Job):
         tokenizer_dir: Optional[tk.Path] = None,
         returnn_root: Optional[tk.Path] = None,
         pred_word_boundaries_hdf: Optional[tk.Path] = None,
+        emission_logprob: bool = False,
     ):
         super().__init__()
         self.grad_score_hdf = grad_score_hdf
@@ -74,6 +75,7 @@ class WriteFigureDataJob(Job):
         self.tokenizer_dir = tokenizer_dir
         self.returnn_root = returnn_root
         self.pred_word_boundaries_hdf = pred_word_boundaries_hdf
+        self.emission_logprob = bool(emission_logprob)
         self.out_dir = self.output_path("figdata", directory=True)
         self.out_manifest = self.output_path("figdata/fig.json")
 
@@ -198,8 +200,14 @@ class WriteFigureDataJob(Job):
             _e = _e - _e.max(axis=1, keepdims=True)
             return np.exp(_e - np.log(np.sum(np.exp(_e), axis=1, keepdims=True) + 1e-12))
 
-        emis = _emission(self.audio_energy_pow)  # [n_tok, n_tf], rows ~sum to 1
-        emis_noen = _emission(0.0)
+        if self.emission_logprob:
+            # Posteriors panel: the CTC forced-align consumes log p directly -- no over-time softmax
+            # and no energy weighting. Show the raw posterior p (the figure script renders it as log p).
+            emis = grad_mat.copy()
+            emis_noen = grad_mat.copy()
+        else:
+            emis = _emission(self.audio_energy_pow)  # [n_tok, n_tf], rows ~sum to 1
+            emis_noen = _emission(0.0)
 
         # The displayed boundaries. Default: our production DP (faithful: same Aligner, same
         # blank_override). For a posteriors panel we instead show the model's OWN forced-align (Viterbi)

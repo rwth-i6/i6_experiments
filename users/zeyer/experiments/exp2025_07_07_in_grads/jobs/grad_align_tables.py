@@ -84,10 +84,9 @@ def build_tables(results):
     _hyp_table()
     _owsm_layer_table()  # OWSM grad-align per inter-CTC emit block (side table)
     _prompt_splice_table()  # generalized prompt-splice: 3 LLMs x grad + self-attn (Buckeye-segA)
-    _streaming_offset_table()  # streaming start/end signed offset (grad vs native viterbi)
     # _time_stretch_table() is built by the torch-2.12 companion recipe exp2026_05_23_grad_align_p212
     # (its wav2vec2-CTC ts cells need the compiled-scan split, torch-2.12 only); see build_time_stretch_table.
-    _word_length_table()  # word-duration accuracy (signed word-width error) per model
+    _boundary_offset_table()  # signed start/end/width offsets per model (merged word-length + streaming-offset)
     _char_subword_family_table()  # char vs subword, one rep model per family (grad + native), replaces matched-tok
     _wav2vec_resolution_table()  # wav2vec2-CTC grad-align vs internal time-resolution level
     _encoder_depth_table()  # grad-align vs encoder depth (Whisper-large + FastConformer side by side)
@@ -390,7 +389,7 @@ def _time_stretch_table():
 
 
 # ----------------------------------------------------------------------------------------
-# Word-length (duration) accuracy, full breakdown (Buckeye-segA):
+# Signed boundary offsets, full breakdown (Buckeye-segA); merged word-length + streaming-offset table:
 #     WBE (mean abs boundary error),
 #     signed start/end offset (pred - ref; + = late),
 #     and word-WIDTH signed error (= end - start; 0 = correct duration).
@@ -398,9 +397,12 @@ def _time_stretch_table():
 #     -> the word shrinks from both ends, so |width| ~ WBE;
 #     grad shifts start+end the SAME direction (a positional lead, not a width change),
 #     so width is far below WBE -> grad is more accurate on word duration.
-#     TIMIT-test shows the same pattern, milder (grad's lead is largest on spontaneous Buckeye).
+#     For the streaming models the posteriors' emission delay shifts BOTH boundaries late and is
+#     nearly the whole WBE (bias, not scatter); the offline Parakeet RNN-T native viterbi sees the
+#     whole utterance, so it has no such delay (the non-streaming contrast).
+#     TIMIT-test shows the same pattern, milder (dropped; Buckeye carries the story).
 # ----------------------------------------------------------------------------------------
-def _word_length_table():
+def _boundary_offset_table():
     S = "buckeye-segA-5h"
     MODELS = [
         (
@@ -445,6 +447,46 @@ def _word_length_table():
             ],
         ),
         (
+            _M_FC_CTC,
+            [
+                (
+                    "Gradients",
+                    f"align/fastconformer-stream-ctc-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                ),
+                ("Posteriors", f"baseline-fastconformer-stream-ctc-{S}"),
+            ],
+        ),
+        (
+            "Parakeet RNN-T",
+            [
+                (
+                    "Gradients",
+                    f"align/parakeet-rnnt-1.1b-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                ),
+                ("Posteriors", f"baseline-parakeet-rnnt-1.1b-native-viterbi-{S}"),
+            ],
+        ),
+        (
+            _M_EMFORMER,
+            [
+                (
+                    "Gradients",
+                    f"align/emformer-rnnt-prefix-logmel-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                ),
+                ("Posteriors", f"baseline-emformer-rnnt-native-viterbi-{S}"),
+            ],
+        ),
+        (
+            _M_FC_RNNT,
+            [
+                (
+                    "Gradients",
+                    f"align/fastconformer-stream-rnnt-{S}-L2_grad-pertoken-asotTrue-bs-5-en0.5-sil2.0-wordtopo",
+                ),
+                ("Posteriors", f"baseline-fastconformer-stream-rnnt-native-viterbi-{S}"),
+            ],
+        ),
+        (
             "Whisper-base",
             [
                 (
@@ -462,6 +504,10 @@ def _word_length_table():
         "XLS-R \\\\ (Phoneme)": "CTC",
         "Parakeet CTC": "CTC",
         "OWSM-CTC": "CTC",
+        _M_FC_CTC: "CTC",
+        "Parakeet RNN-T": "Transd.",
+        _M_EMFORMER: "Transd.",
+        _M_FC_RNNT: "Transd.",
         "Whisper-base": "AED",
     }
     columns = ["type", "model", "method", "wbe", "start", "end", "width"]
@@ -485,7 +531,7 @@ def _word_length_table():
                     },
                 }
             )
-    _emit("word-length", columns, rows)
+    _emit("boundary-offsets", columns, rows)
 
 
 # ----------------------------------------------------------------------------------------
@@ -643,7 +689,9 @@ def _encoder_depth_table():
 
     def cell(pre, tag):
         stem = f"align/{pre}-{tag}-encdepth-{S}-L2_grad-pertoken-{SFX}"
-        return _wbe(stem), _metric(stem, "acc_50ms")
+        # off = mean signed boundary offset (micro over all start+end; + = late): the delay evidence
+        # for the streaming FastConformer, whose encoder time shift accumulates with depth.
+        return _wbe(stem), _metric(stem, "acc_50ms"), _metric(stem, "signed_mean")
 
     wp = "whisper-large-v3-charlev-spc"
     fc = "fastconformer-stream-ctc"
@@ -654,18 +702,18 @@ def _encoder_depth_table():
     # representation, not the grid resolution, that carries the alignment.
     ROWS = [
         # (level label, whisper depth tag, fastconformer depth tag, whisper grid Hz, fastconformer grid Hz)
-        ("Log-mel input", "logmel", "logmel", 100, 100),
-        ("Encoder input", "encin", "encin", 50, 12.5),
+        ("Log-mel in", "logmel", "logmel", 100, 100),
+        ("Encoder in", "encin", "encin", 50, 12.5),
         ("Encoder 1/4", "encL8", "encL4", 50, 12.5),
         ("Encoder 1/2", "encL16", "encL9", 50, 12.5),
         ("Encoder 3/4", "encL24", "encL13", 50, 12.5),
-        ("Encoder output", "encout", "encout", 50, 12.5),
+        ("Encoder out", "encout", "encout", 50, 12.5),
     ]
-    columns = ["level", "w_grid", "w_wbe", "w_a50", "fc_grid", "fc_wbe", "fc_a50"]
+    columns = ["level", "w_grid", "w_wbe", "w_a50", "w_off", "fc_grid", "fc_wbe", "fc_a50", "fc_off"]
     rows = []
     for label, w_tag, fc_tag, w_hz, fc_hz in ROWS:
-        w_wbe, w_a50 = cell(wp, w_tag)
-        fc_wbe, fc_a50 = cell(fc, fc_tag)
+        w_wbe, w_a50, w_off = cell(wp, w_tag)
+        fc_wbe, fc_a50, fc_off = cell(fc, fc_tag)
         rows.append(
             {
                 "cells": {
@@ -673,9 +721,11 @@ def _encoder_depth_table():
                     "w_grid": w_hz,
                     "w_wbe": w_wbe,
                     "w_a50": w_a50,
+                    "w_off": w_off,
                     "fc_grid": fc_hz,
                     "fc_wbe": fc_wbe,
                     "fc_a50": fc_a50,
+                    "fc_off": fc_off,
                 }
             }
         )
@@ -845,10 +895,10 @@ def _alignopts_silence_table():
         ("constant", "$\\gamma = -3$", "asotTrue-bs-3-en0.5"),
         ("constant", "$\\gamma = -5$", "asotTrue-bs-5-en0.5"),
         ("constant", "$\\gamma = -8$", "asotTrue-bs-8-en0.5"),
-        ("energy", "$s = 0.5$", "asotTrue-bs-5-en0.5-sil0.5"),
-        ("energy", "$s = 1$", "asotTrue-bs-5-en0.5-sil1.0"),
-        ("energy", "$s = 2$", "asotTrue-bs-5-en0.5-sil2.0"),
-        ("energy", "$s = 3$", "asotTrue-bs-5-en0.5-sil3.0"),
+        ("energy", "$\\lambda = 0.5$", "asotTrue-bs-5-en0.5-sil0.5"),
+        ("energy", "$\\lambda = 1$", "asotTrue-bs-5-en0.5-sil1.0"),
+        ("energy", "$\\lambda = 2$", "asotTrue-bs-5-en0.5-sil2.0"),
+        ("energy", "$\\lambda = 3$", "asotTrue-bs-5-en0.5-sil3.0"),
         ("z-score", "$\\kappa = 0.5$", "asotTrue-bs-5-en0.5-zsk0.5"),
         ("z-score", "$\\kappa = 1$", "asotTrue-bs-5-en0.5-zsk1.0"),
         ("z-score", "$\\kappa = 2$", "asotTrue-bs-5-en0.5-zsk2.0"),
@@ -965,7 +1015,7 @@ def _alignopts_energy_table():
     # (blank-scheme label, name infix); the energy exponent varies down each group.
     SCHEMES = [
         ("constant \\\\ $\\gamma = -5$", ""),
-        ("energy \\\\ $s = 1$", "-sil1.0"),
+        ("energy \\\\ $\\lambda = 1$", "-sil1.0"),
         ("z-score \\\\ $\\kappa = 1$", "-zsk1.0"),
     ]
     ENS = ["0.0", "0.25", "0.5", "0.75", "1.0"]
