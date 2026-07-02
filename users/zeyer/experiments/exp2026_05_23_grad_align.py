@@ -6229,6 +6229,230 @@ def py():
     _t_ed_al.add_alias(_t_ed_nm)
     reg(f"{_t_ed_nm}-wbe.txt", _t_ed_al.out_wbe)
 
+    # Log-mel gradient recovery probe (encoder-depth follow-up): log-mel vs enc-in WBE is 53 vs 44 ms
+    # at the SAME signed offset (-10 vs -9, tab:encoder-depth) -> the gap is scatter, not a shift.
+    # Hypothesis: backprop through the conv stem (receptive field ~7 log-mel frames) smears/noises the
+    # saliency; temporal smoothing of the log-mel saliency should then recover the enc-in quality.
+    # CPU-only sweep on the finished headline whisper-large-v3 log-mel char extract (Buckeye-segA).
+    _lmr_ao = {"apply_softmax_over_time": True, "blank_score": -5}
+    for _lmr_kind, _lmr_size in [
+        ("gaussian", 1.0),
+        ("gaussian", 2.0),
+        ("gaussian", 4.0),
+        ("median", 3),
+        ("median", 5),
+        ("median", 9),
+    ]:
+        _lmr_sm = SmoothGradScoreHdfJob(grad_score_hdf=_xa_wl3_ex.out_hdf, smooth_kind=_lmr_kind, smooth_size=_lmr_size)
+        _lmr_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_lmr_sm.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_xa_dir,
+            dataset_key="test",
+            dataset_offset_factors=_xa_off,
+            align_opts=_lmr_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=2.0,
+            word_topology=True,
+        )
+        _lmr_nm = (
+            f"align/whisper-large-v3-logmel-smooth-{_lmr_kind}{_lmr_size}-{_xa_tag}"
+            f"-L2_grad-pertoken-charlev-spc-{_name_for_dict(_lmr_ao)}-en0.5-sil2.0-wordtopo"
+        )
+        _lmr_al.add_alias(_lmr_nm)
+        reg(f"{_lmr_nm}-wbe.txt", _lmr_al.out_wbe)
+
+    # Best-depth gradient for CrisperWhisper (Gradients* candidate): same recipe as the whisper-large-v3
+    # starred row -- char targets, L2 per-token grad w.r.t. encoder layer 24 (3/4 of 32), headline DP.
+    # Does the intermediate-depth gain generalize beyond whisper-large-v3? (Voxtral/OWLS first need
+    # model-code support for internal grad_wrt.)
+    for _cwe_dir, _cwe_key, _cwe_off, _cwe_tag in [
+        (_xa_dir, "test", _xa_off, _xa_tag),
+        (dl_ds_timit.out_hub_cache_dir, "test", _DATASET_OFFSET_FACTORS["timit"], "timit-test"),
+    ]:
+        _cwe_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=_cwe_dir,
+            dataset_key=_cwe_key,
+            model_config=rf.build_dict(
+                Whisper,
+                model_dir=dl_crisper.out_hub_cache_dir,
+                char_level=True,
+                char_level_sep=" ",
+                grad_wrt="enc_L24",
+            ),
+            mult_grad_by_inputs=False,
+            attr_reduction="L2",
+            batched_backward=False,
+        )
+        _cwe_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _cwe_ex.rqmt = {**_cwe_ex.rqmt, "time": 24}
+        _cwe_name = f"crisperwhisper-charlev-spc-encL24-encdepth-{_cwe_tag}-L2_grad-pertoken"
+        _cwe_ex.add_alias(_cwe_name)
+        reg(f"{_cwe_name}.hdf", _cwe_ex.out_hdf)
+        _cwe_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_cwe_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_cwe_dir,
+            dataset_key=_cwe_key,
+            dataset_offset_factors=_cwe_off,
+            align_opts=_t_ed_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=2.0,
+            word_topology=True,
+        )
+        _cwe_nm = f"align/{_cwe_name}-{_name_for_dict(_t_ed_ao)}-en0.5-sil2.0-wordtopo"
+        _cwe_al.add_alias(_cwe_nm)
+        reg(f"{_cwe_nm}-wbe.txt", _cwe_al.out_wbe)
+
+    # grad-x-input probe at log-mel vs enc-in (whisper-large-v3, Buckeye): does multiplying by the input
+    # (first-order Taylor score, cancels diagonal Jacobian gain) recover the log-mel deficit vs enc-in?
+    # Completes the 2x2 with the existing plain-grad encdepth cells; smoothing already ruled out additive
+    # temporal noise (all variants ~59 ms vs 52.5 unsmoothed).
+    for _egi_tag, _egi_gw in [("logmel", "log_mel"), ("encin", "enc_in")]:
+        _egi_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=_xa_dir,
+            dataset_key="test",
+            model_config=rf.build_dict(
+                Whisper,
+                model_dir=dl_whisper_l3.out_hub_cache_dir,
+                char_level=True,
+                char_level_sep=" ",
+                **({} if _egi_gw == "log_mel" else {"grad_wrt": _egi_gw}),
+            ),
+            mult_grad_by_inputs=True,
+            attr_reduction="L2",
+            batched_backward=False,
+        )
+        _egi_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _egi_ex.rqmt = {**_egi_ex.rqmt, "time": 24}
+        _egi_name = f"whisper-large-v3-charlev-spc-{_egi_tag}-egrad-encdepth-{_xa_tag}-L2_egrad-pertoken"
+        _egi_ex.add_alias(_egi_name)
+        reg(f"{_egi_name}.hdf", _egi_ex.out_hdf)
+        _egi_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_egi_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_xa_dir,
+            dataset_key="test",
+            dataset_offset_factors=_xa_off,
+            align_opts=_t_ed_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=2.0,
+            word_topology=True,
+        )
+        _egi_nm = f"align/{_egi_name}-{_name_for_dict(_t_ed_ao)}-en0.5-sil2.0-wordtopo"
+        _egi_al.add_alias(_egi_nm)
+        reg(f"{_egi_nm}-wbe.txt", _egi_al.out_wbe)
+
+    # Per-frame (column) normalization probe at log-mel (whisper-large-v3, Buckeye, CPU-only):
+    # a parity ripple / GELU gate / loudness gain is a per-frame gain IDENTICAL for all tokens, which
+    # the over-time softmax does NOT cancel. Column normalization cancels it exactly:
+    # absmeanS = divide each frame by its abs-mean over tokens (pre-log), asol = log-softmax over
+    # labels per frame (post time-softmax). If either pulls 52.5 ms toward enc-in's 44 ms, the
+    # gain-corruption explanation of the log-mel deficit is confirmed.
+    for _cn_tag, _cn_ao in [
+        ("asol", {"apply_softmax_over_time": True, "apply_softmax_over_labels": True, "blank_score": -5}),
+        ("nrmS", {"apply_softmax_over_time": True, "norm_scores": "absmeanS", "blank_score": -5}),
+    ]:
+        _cn_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_xa_wl3_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_xa_dir,
+            dataset_key="test",
+            dataset_offset_factors=_xa_off,
+            align_opts=_cn_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=2.0,
+            word_topology=True,
+        )
+        _cn_nm = (
+            f"align/whisper-large-v3-logmel-colnorm-{_cn_tag}-{_xa_tag}"
+            f"-L2_grad-pertoken-charlev-spc-{_name_for_dict(_cn_ao)}-en0.5-sil2.0-wordtopo"
+        )
+        _cn_al.add_alias(_cn_nm)
+        reg(f"{_cn_nm}-wbe.txt", _cn_al.out_wbe)
+
+    # conv1-out probe (whisper-large-v3, Buckeye): the point BETWEEN log-mel and enc-in -- 100 Hz grid
+    # like log-mel, but already in the 1280-dim learned channel space. Dissects the log-mel->enc-in jump:
+    # ~44 ms here => the learned channel space carries the gain (norm-over-channels hypothesis);
+    # ~52 ms => the conv2 downsampling / 50 Hz grid carries it.
+    _c1o_ex = ExtractInGradsPerTokenJob(
+        dataset_dir=_xa_dir,
+        dataset_key="test",
+        model_config=rf.build_dict(
+            Whisper,
+            model_dir=dl_whisper_l3.out_hub_cache_dir,
+            char_level=True,
+            char_level_sep=" ",
+            grad_wrt="conv1_out",
+        ),
+        mult_grad_by_inputs=False,
+        attr_reduction="L2",
+        batched_backward=False,
+    )
+    _c1o_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    _c1o_ex.rqmt = {**_c1o_ex.rqmt, "time": 24}
+    _c1o_name = f"whisper-large-v3-charlev-spc-conv1out-encdepth-{_xa_tag}-L2_grad-pertoken"
+    _c1o_ex.add_alias(_c1o_name)
+    reg(f"{_c1o_name}.hdf", _c1o_ex.out_hdf)
+    _c1o_al = WordAlignFromPerTokenGradsJob(
+        grad_score_hdf=_c1o_ex.out_hdf,
+        grad_score_key="data",
+        dataset_dir=_xa_dir,
+        dataset_key="test",
+        dataset_offset_factors=_xa_off,
+        align_opts=_t_ed_ao,
+        audio_energy_pow=0.5,
+        blank_silence_energy_scale=2.0,
+        word_topology=True,
+    )
+    _c1o_nm = f"align/{_c1o_name}-{_name_for_dict(_t_ed_ao)}-en0.5-sil2.0-wordtopo"
+    _c1o_al.add_alias(_c1o_nm)
+    reg(f"{_c1o_nm}-wbe.txt", _c1o_al.out_wbe)
+
+    # Best-depth gradient for Voxtral (Gradients* candidate): its audio tower IS the Whisper-large-v3
+    # encoder (32 layers), so layer 24 = 3/4 depth, mirroring the whisper-large-v3 starred row.
+    # Uses the enc_L<N> support added to the Voxtral wrapper (50 Hz leaf, same headline DP).
+    voxtral_charlev_encL24_cfg = rf.build_dict(
+        Voxtral,
+        model_dir=dl_voxtral,
+        forward_mode="transcription",
+        grad_wrt="enc_L24",
+        char_level=True,
+        char_level_sep=" ",
+        version=7,
+    )
+    for _vxe_dir, _vxe_key, _vxe_off, _vxe_tag in [
+        (_xa_dir, "test", _xa_off, _xa_tag),
+        (dl_ds_timit.out_hub_cache_dir, "test", _DATASET_OFFSET_FACTORS["timit"], "timit-test"),
+    ]:
+        _vxe_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=_vxe_dir,
+            dataset_key=_vxe_key,
+            model_config=voxtral_charlev_encL24_cfg,
+            mult_grad_by_inputs=False,
+            attr_reduction="L2",
+            batched_backward=False,
+        )
+        _vxe_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _vxe_ex.rqmt = {**_vxe_ex.rqmt, "time": 24}
+        _vxe_name = f"voxtral-charlev-encL24-encdepth-{_vxe_tag}-L2_grad-pertoken"
+        _vxe_ex.add_alias(_vxe_name)
+        reg(f"{_vxe_name}.hdf", _vxe_ex.out_hdf)
+        _vxe_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_vxe_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_vxe_dir,
+            dataset_key=_vxe_key,
+            dataset_offset_factors=_vxe_off,
+            align_opts=_t_ed_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=2.0,
+            word_topology=True,
+        )
+        _vxe_nm = f"align/{_vxe_name}-{_name_for_dict(_t_ed_ao)}-en0.5-sil2.0-wordtopo"
+        _vxe_al.add_alias(_vxe_nm)
+        reg(f"{_vxe_nm}-wbe.txt", _vxe_al.out_wbe)
+
     # --- Auto-generated LaTeX result tables (in-graph; reference only this recipe's outputs) ---
     from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.grad_align_tables import (
         build_tables,

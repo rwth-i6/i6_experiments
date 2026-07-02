@@ -35,11 +35,14 @@ class SmoothGradScoreHdfJob(Job):
 
         with h5py.File(out_path, "r+") as f:
             num_in = f["targets/data/num_input_frames"][:]  # [n_seqs, 1]
-            num_words = f["targets/data/num_words"][:]
+            # Row count per seq of the data stream: per-token HDFs (ExtractInGradsPerTokenJob) store
+            # the scores per TOKEN (num_tokens; they may carry num_words alongside), per-word HDFs
+            # (WithSepGrads) only num_words. Prefer num_tokens; smoothing is along frames either way.
+            _tgt = f["targets/data"]
+            num_words = _tgt["num_tokens" if "num_tokens" in _tgt else "num_words"][:]
             n_seqs = num_in.shape[0]
             assert num_in.shape == num_words.shape == (n_seqs, 1), (
-                f"SmoothGradScoreHdfJob: assumes one chunk per seq; got "
-                f"num_in.shape={num_in.shape}, n_seqs={n_seqs}"
+                f"SmoothGradScoreHdfJob: assumes one chunk per seq; got num_in.shape={num_in.shape}, n_seqs={n_seqs}"
             )
             data = f["inputs"][:].squeeze(-1)  # [total_frames]
             offset = 0
@@ -47,12 +50,12 @@ class SmoothGradScoreHdfJob(Job):
                 T = int(num_in[seq_idx, 0])
                 W = int(num_words[seq_idx, 0])
                 n = W * T
-                chunk = data[offset:offset + n].reshape(W, T).astype(np.float32, copy=False)
+                chunk = data[offset : offset + n].reshape(W, T).astype(np.float32, copy=False)
                 if self.smooth_kind == "gaussian":
                     chunk = gaussian_filter1d(chunk, sigma=float(self.smooth_size), axis=1)
                 else:
                     chunk = median_filter(chunk, size=(1, int(self.smooth_size)))
-                data[offset:offset + n] = chunk.reshape(-1)
+                data[offset : offset + n] = chunk.reshape(-1)
                 offset += n
             assert offset == len(data), f"length mismatch: offset={offset} vs len={len(data)}"
             f["inputs"][:] = data[:, None]

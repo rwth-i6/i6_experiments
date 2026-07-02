@@ -243,8 +243,9 @@ class Whisper(BaseModelInterface):
         words_start_end = words_start_end + [[n_targets, n_targets + 1]]  # exit slot
 
         # Slice the grad leaf to the real audio span (drop 30 s padding). The log-mel grid is 10 ms
-        # (hop 160); the encoder grid is 20 ms (the two conv layers downsample by 2).
-        _frame_hop = self.hop if self.grad_wrt == "log_mel" else 2 * self.hop
+        # (hop 160); conv1 is stride 1, so conv1_out is also 10 ms; the encoder grid is 20 ms (conv2
+        # downsamples by 2).
+        _frame_hop = self.hop if self.grad_wrt in ("log_mel", "conv1_out") else 2 * self.hop
         n_real = min(int(leaf.shape[1]), orig_n_samples // _frame_hop + 1)
         input_slice = (
             torch.tensor([0], dtype=torch.int64),
@@ -273,6 +274,7 @@ class Whisper(BaseModelInterface):
     def _register_enc_grad_hook(self, captured: List[torch.Tensor]):
         """Register a forward hook that leafifies the chosen encoder-depth activation (``self.grad_wrt``),
         so the per-token gradient is taken w.r.t. that depth instead of the log-mel input.
+        ``conv1_out`` = output of the first conv (pre-GELU, stride 1, 10 ms grid, d_model channels);
         ``enc_in`` = input to encoder layer 0 (after the conv subsampling, 20 ms grid);
         ``enc_L<N>`` = output of encoder layer N (1-indexed);
         ``enc_out`` = the final encoder output (after the encoder output layer-norm, what the decoder
@@ -287,6 +289,16 @@ class Whisper(BaseModelInterface):
             return leaf
 
         gw = self.grad_wrt
+        if gw == "conv1_out":
+            # Conv1d output is [B, D, T]; leafify the [1, T, D] view (extract reduces over D) and feed
+            # the [B, D, T] view back downstream -- same trick as the Voxtral encoder_conv1_out hook.
+            def _conv1(_m, _inp, out):
+                leaf = out.detach().transpose(1, 2).contiguous().requires_grad_(True)
+                leaf.retain_grad()
+                captured.append(leaf)
+                return leaf.transpose(1, 2)
+
+            return enc.conv1.register_forward_hook(_conv1)
         if gw == "enc_in":
 
             def _pre(_m, args, kwargs):

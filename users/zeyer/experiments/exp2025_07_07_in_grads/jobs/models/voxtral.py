@@ -138,14 +138,16 @@ class Voxtral(BaseModelInterface):
             "version >= 3: correct n_audio_real = (n_samples + 1279) // 1280. "
             "(version=1/2 defaults exist only for hash stability of old finished jobs.)"
         )
-        assert grad_wrt in ("speech_embeddings", "log_mel", "encoder_conv1_out"), grad_wrt
+        assert grad_wrt in ("speech_embeddings", "log_mel", "encoder_conv1_out") or grad_wrt.startswith("enc_L"), (
+            grad_wrt
+        )
         if grad_wrt != "speech_embeddings":
             assert version >= 4, (
                 "version >= 4 required when grad_wrt != 'speech_embeddings' (log_mel grad path enabled)."
             )
-        if grad_wrt == "encoder_conv1_out":
+        if grad_wrt == "encoder_conv1_out" or grad_wrt.startswith("enc_L"):
             assert version >= 7, (
-                "version >= 7 required when grad_wrt == 'encoder_conv1_out' "
+                "version >= 7 required when grad_wrt == 'encoder_conv1_out' / 'enc_L<N>' "
                 "(v6: retain_grad bug fixed with requires_grad_ first)."
             )
         if self._char_level:
@@ -389,6 +391,36 @@ class Voxtral(BaseModelInterface):
                 audio_2d = audio_out.reshape(-1, audio_out.shape[-1])
             audio_embeds = audio_2d.unsqueeze(0)  # grad flows through encoder to the conv1 leaf.
             grad_leaf = captured[0]  # [1, T_mel, d_model], differentiation target
+        elif self.grad_wrt.startswith("enc_L"):
+            # Grad leaf is the output of Whisper-encoder layer N (1-indexed) inside the audio tower
+            # (50 Hz / 20 ms grid, after the stride-2 conv2). Same detach-leafify-feed-back trick as
+            # encoder_conv1_out, hooked on the transformer layer instead of conv1; the layer already
+            # outputs [1, T_enc, d_model], so no transpose is needed.
+            _lidx = int(self.grad_wrt[len("enc_L") :])
+            _layers = self.model.audio_tower.layers
+            assert 1 <= _lidx <= len(_layers), f"{self.grad_wrt}: layer {_lidx} out of range 1..{len(_layers)}"
+            captured: List[torch.Tensor] = []
+
+            def _layer_hook(_module, _inp, out):
+                _is_tuple = isinstance(out, tuple)
+                _hidden = out[0] if _is_tuple else out
+                leaf = _hidden.detach().contiguous().requires_grad_(True)
+                leaf.retain_grad()
+                captured.append(leaf)
+                return (leaf, *out[1:]) if _is_tuple else leaf
+
+            handle = _layers[_lidx - 1].register_forward_hook(_layer_hook)
+            try:
+                audio_out = self.model.get_audio_features(input_features)
+            finally:
+                handle.remove()
+            assert len(captured) == 1, f"expected 1 layer call, got {len(captured)}"
+            if not isinstance(audio_out, torch.Tensor):
+                audio_2d = audio_out.pooler_output
+            else:
+                audio_2d = audio_out.reshape(-1, audio_out.shape[-1])
+            audio_embeds = audio_2d.unsqueeze(0)  # grad flows through the remaining layers to the leaf.
+            grad_leaf = captured[0]  # [1, T_enc, d_model], differentiation target
         else:  # speech_embeddings (default)
             audio_out = self.model.get_audio_features(input_features)
             if not isinstance(audio_out, torch.Tensor):
@@ -493,7 +525,12 @@ class Voxtral(BaseModelInterface):
         effective_stretch = self.audio_time_stretch
         if self.ensure_audio_long_enough and self._char_level:
             n_target = int(char_token_ids.shape[1])  # number of target TOKENS (a char may be >1)
-            samples_per_frame = 160 if self.grad_wrt in ("log_mel", "encoder_conv1_out") else 1280
+            if self.grad_wrt in ("log_mel", "encoder_conv1_out"):
+                samples_per_frame = 160
+            elif self.grad_wrt.startswith("enc_L"):
+                samples_per_frame = 320  # 50 Hz Whisper-encoder grid (stride-2 conv2)
+            else:
+                samples_per_frame = 1280
             T_default = (orig_n_samples + samples_per_frame - 1) // samples_per_frame
             if n_target > T_default:
                 required_factor = (n_target * 1.05) / T_default  # 5% margin
@@ -664,6 +701,9 @@ class Voxtral(BaseModelInterface):
         if self.grad_wrt in ("log_mel", "encoder_conv1_out"):
             # conv1 is stride=1, so its output is also at 100 Hz (160 samples/frame).
             samples_per_frame = 160
+        elif self.grad_wrt.startswith("enc_L"):
+            # Whisper-encoder layer outputs: 50 Hz after the stride-2 conv2 (320 samples/frame).
+            samples_per_frame = 320
         else:
             samples_per_frame = 1280
         n_audio_real = min(n_audio_total, (n_samples + samples_per_frame - 1) // samples_per_frame)
