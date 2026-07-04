@@ -86,7 +86,7 @@ class RLFinetune(Job):
         "lora_rank": 128,
         "train_data": None,
         "quality_judge": None,
-        "quality_asr": "parakeet",
+        "quality_asr": "whisper",
         "quality_asr_model": None,
         "rqmt": None,
     }
@@ -100,7 +100,7 @@ class RLFinetune(Job):
         train_data=None,
         vad_backend: str = "silero",
         quality_judge: str | None = None,
-        quality_asr: str = "parakeet",
+        quality_asr: str = "whisper",
         quality_asr_model: str | None = None,
         max_steps: int = 3200,
         grad_accum: int = 1,
@@ -161,6 +161,10 @@ class RLFinetune(Job):
             f.write(_render_rl_config(self))
 
     def run(self):
+        # Reduce CUDA fragmentation OOMs (LoRA forward hit 93/93GB); the torchrun subprocess inherits this.
+        import os
+
+        os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         if not self.quality_judge:
             launch_training(self, self.adapter)
             return

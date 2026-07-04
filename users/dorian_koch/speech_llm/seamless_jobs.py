@@ -240,6 +240,31 @@ class SeamlessSegmentEncodeJob(Job):
         )
 
 
+def seamless_audio_dir(
+    *,
+    venv_python_path,
+    label: str = "improvised",
+    split: str = "dev",
+    num_shards: int = 4,
+    max_interactions: int | None = None,
+) -> tk.Path:
+    """Build index -> sharded download -> merge and return the durable per-speaker audio ``data_dir``
+    (``audio/<fid>.flac`` 24 kHz mono + ``transcripts/<fid>.json`` + ``manifest.jsonl``). Shared by the RL
+    codes pipeline (``seamless_codes_data_dir``) and the separation benchmark -- same job hashes, so pointing
+    a second consumer at it recomputes nothing."""
+    index = SeamlessInteractionIndexJob(
+        label=label, split=split, num_shards=num_shards, max_interactions=max_interactions
+    )
+    tk.register_output(f"seamless/{label}_{split}/shards", index.out_dir)
+    dls = [
+        SeamlessAudioDownloadJob(venv_python_path=venv_python_path, shards_dir=index.out_dir, shard_index=k)
+        for k in range(num_shards)
+    ]
+    merged = MergeSeamlessAudio(in_dirs=[d.out_dir for d in dls])
+    tk.register_output(f"seamless/{label}_{split}/audio", merged.out_dir)
+    return merged.out_dir
+
+
 def seamless_codes_data_dir(
     *,
     venv_python_path,
@@ -254,19 +279,16 @@ def seamless_codes_data_dir(
 ) -> tk.Path:
     """Build index -> sharded download -> merge -> encode and return the per-axis codes ``data_dir``
     (consumed by ``rl.segments.CodesSegmentSource`` via ``RLFinetune(segment_source="codes")``)."""
-    index = SeamlessInteractionIndexJob(
-        label=label, split=split, num_shards=num_shards, max_interactions=max_interactions
+    audio_dir = seamless_audio_dir(
+        venv_python_path=venv_python_path,
+        label=label,
+        split=split,
+        num_shards=num_shards,
+        max_interactions=max_interactions,
     )
-    tk.register_output(f"seamless/{label}_{split}/shards", index.out_dir)
-    dls = [
-        SeamlessAudioDownloadJob(venv_python_path=venv_python_path, shards_dir=index.out_dir, shard_index=k)
-        for k in range(num_shards)
-    ]
-    merged = MergeSeamlessAudio(in_dirs=[d.out_dir for d in dls])
-    tk.register_output(f"seamless/{label}_{split}/audio", merged.out_dir)
     encode = SeamlessSegmentEncodeJob(
         venv_python_path=venv_python_path,
-        audio_dir=merged.out_dir,
+        audio_dir=audio_dir,
         hf_repo=hf_repo,
         per_axis_cap=per_axis_cap,
         both_directions=both_directions,
