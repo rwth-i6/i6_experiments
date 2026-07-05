@@ -665,6 +665,76 @@ def _ctc_llm_recog() -> None:
             first_pass_recog_beam_size=8,
         )
 
+    # Larger-beam (32) delayed-fusion retry for the small LLMs, to test whether the
+    # first-pass < rescore gap is a beam/pruning artifact (delayed fusion applies the LM
+    # only at boundaries, so a narrow beam prunes good hyps before the LM score lands).
+    # Keep the batch narrow (first-pass max_seqs 32 -> 8) so LLM memory stays ~constant vs
+    # beam 8 (8 seqs x 32 beam == 32 seqs x 8 beam), and request gpu_mem=80 for headroom.
+    # lm_rescore_config is left identical to the beam-8 variant above, so the CTC-only search,
+    # scale-tuning and rescore jobs are reused by hash; only the first-pass search job is new.
+    for lm_tag, lm in [
+        ("qwen2-0.5b-ls", get_qwen2_0_5b_lm_finetuned_librispeech()),
+        ("qwen2-1.5b-ls", get_qwen2_1_5b_lm_finetuned_librispeech()),
+    ]:
+        ctc_recog_recomb_labelwise_prior_auto_scale(
+            prefix=f"{prefix}/ctc+lm-delayed-v2-always-beamSize32/{lm_tag}",
+            task=task,
+            ctc_model=ctc_model,
+            lm=lm,
+            lm_rescore_config={
+                "default_data_convert_labels_func": convert_labels_func_spm,
+                "chunk_size_for_lm_rescoring": 16,
+                "max_seqs": 32,
+            },
+            ctc_only_recog_version=10,
+            ctc_only_recog_def=model_recog_with_recomb,
+            recog_version=12,
+            recog_def=model_recog_with_recomb_delayed_fusion_v2,
+            first_pass_extra_config={
+                "__serialization_version": 2,
+                "should_convert_labels_now_func": enable_every20,
+                "should_fuse_now_func": enable_every20,
+                "convert_labels_func": convert_labels_func_spm,
+                "max_seqs": 8,
+            },
+            first_pass_recog_beam_size=32,
+            first_pass_search_rqmt={"gpu_mem": 80},
+        )
+
+    # Finer fusion interval (every 10 frames instead of 20) at beam 32: flush a completed word's
+    # LM score into the beam sooner (less pruning lag), to test whether it beats the interval-20
+    # point. Same memory trade (first-pass max_seqs=8, gpu_mem=80); lm_rescore_config identical so
+    # scale-tuning/rescore/ctc-only reuse by hash; only the first-pass search is new.
+    enable_every10 = functools.partial(enable_by_interval, interval=10)
+    for lm_tag, lm in [
+        ("qwen2-0.5b-ls", get_qwen2_0_5b_lm_finetuned_librispeech()),
+        ("qwen2-1.5b-ls", get_qwen2_1_5b_lm_finetuned_librispeech()),
+    ]:
+        ctc_recog_recomb_labelwise_prior_auto_scale(
+            prefix=f"{prefix}/ctc+lm-delayed-v2-always-int10-beamSize32/{lm_tag}",
+            task=task,
+            ctc_model=ctc_model,
+            lm=lm,
+            lm_rescore_config={
+                "default_data_convert_labels_func": convert_labels_func_spm,
+                "chunk_size_for_lm_rescoring": 16,
+                "max_seqs": 32,
+            },
+            ctc_only_recog_version=10,
+            ctc_only_recog_def=model_recog_with_recomb,
+            recog_version=12,
+            recog_def=model_recog_with_recomb_delayed_fusion_v2,
+            first_pass_extra_config={
+                "__serialization_version": 2,
+                "should_convert_labels_now_func": enable_every10,
+                "should_fuse_now_func": enable_every10,
+                "convert_labels_func": convert_labels_func_spm,
+                "max_seqs": 8,
+            },
+            first_pass_recog_beam_size=32,
+            first_pass_search_rqmt={"gpu_mem": 80},
+        )
+
 
 def _run_ls_align_stats(name: str, exp, aux_ctc_layer: int) -> None:
     """TIMIT WBE/TSE quality check for the LS-trained offline AED+CTC baseline
