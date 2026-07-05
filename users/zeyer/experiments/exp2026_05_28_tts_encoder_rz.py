@@ -39,3 +39,22 @@ def py():
         gpu_mem=96,
         nep=100,
     )
+    # Faithful reference match: same as ref-match-1gpu but the LOG-MEL ASR front-end (asr_logmel=True) --
+    # Nick's reference re-extracts at log-mel, so ref-match-1gpu (DbMel default) had a front-end mismatch.
+    # tts_waveform_peak_norm=True is required on the log-mel+waveform path (raw log-mel + feature_batch_norm
+    # NaNs without peak-normalizing the injected waveform; the DbMel path is fixed-norm and immune).
+    _train_tts_encoder(
+        "tts-enc-ref-match-logmel-1gpu",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        num_processes=1,
+        gpu_mem=96,
+        nep=100,
+    )

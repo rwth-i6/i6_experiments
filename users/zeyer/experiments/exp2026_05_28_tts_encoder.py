@@ -6,7 +6,7 @@ See :file:`exp2026_05_28_tts_encoder_fzj.py` for follow-up.
 
 from __future__ import annotations
 
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, Sequence
 
 from returnn.tensor import Tensor, Dim, batch_dim
 import returnn.frontend as rf
@@ -51,6 +51,18 @@ def py():
     #     Identical config (bhv 24, log-mel, nep 100); _meta_hash_trigger forces the rerun
     #     because the RETURNN version is not part of the job hash.
     _train_ls_base("base-ls-newrtrn", config_updates_extra={"_meta_hash_trigger": "new-returnn-2026-06"})
+    # (d) muon on the single-GPU log-mel baseline (muon-lr5e3-wdbl: base_lr 1.0 x peak_lr 5e-3 = eff. peak
+    #     5e-3, keep the wd-blacklist, drop only optimizer.epsilon) -- the best FZJ 4-GPU optimizer setting
+    #     applied at RZ, to test whether muon also helps single-GPU. Plain muon first; AMUSE to follow.
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.optim_ext.muon import Muon
+
+    _train_ls_base(
+        "base-ls-muon",
+        base_lr=1.0,
+        peak_lr=5e-3,
+        config_updates_extra={"optimizer.class": rf.build_dict(Muon)["class"]},
+        config_deletes_extra=["optimizer.epsilon"],
+    )
 
 
 def _train_ls_base(
@@ -58,7 +70,10 @@ def _train_ls_base(
     *,
     feature_extraction: Optional[Dict[str, Any]] = None,
     behavior_version: int = 24,
+    base_lr: float = 0.5,
+    peak_lr: Optional[float] = None,
     config_updates_extra: Optional[Dict[str, Any]] = None,
+    config_deletes_extra: Optional[Sequence[str]] = None,
     prefix: Optional[str] = None,
 ):
     """Standard LibriSpeech CTC+AED (EncL16-DecL6-D1024-spm10k), mirroring
@@ -108,7 +123,9 @@ def _train_ls_base(
         prefix=prefix + "/aed/",
         model_config=model_config,
         config_updates={
-            **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
+            **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(
+                100, base_lr=base_lr, **({"peak_lr": peak_lr} if peak_lr is not None else {})
+            ),
             "batch_size": 100_000 * configs._batch_size_factor,
             "optimizer.weight_decay": 1e-2,
             "accum_grad_multiple_step": 1,
@@ -120,6 +137,7 @@ def _train_ls_base(
             "max_seq_length_default_input": 19.5 * _raw_sample_rate,
             **(config_updates_extra or {}),
         },
+        config_deletes=config_deletes_extra,
         post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
         vocab="spm10k",
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
