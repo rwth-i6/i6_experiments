@@ -93,15 +93,18 @@ class Owls(BaseModelInterface):
         language: str = "eng",
         char_level: bool = False,
         char_level_sep: Optional[str] = "▁",
+        grad_wrt: str = "log_mel",
         version: int = 1,
     ):
         super().__init__()
         assert version >= 1
+        assert grad_wrt == "log_mel" or grad_wrt.startswith("enc_L"), grad_wrt
         self.device = device
         self.model_dir = model_dir
         self.language = language
         self._char_level = char_level
         self._char_level_sep = char_level_sep
+        self.grad_wrt = grad_wrt
         self.version = version
 
         print("Import / load OWLS (ESPnet S2T)...")
@@ -167,19 +170,55 @@ class Owls(BaseModelInterface):
         print(f"  ({time.time() - start_time:.1f}s) prefix={self.prefix_ids} eos={self.eos_id} vocab={self.vocab_size}")
 
     def _encode_leaf(self, wav: torch.Tensor, n_samples: int):
-        """Run the frontend, leaf-ify the log-mel, then normalize+encode. Returns
-        (leaf [1,T,80], enc_out [1,T_enc,D], enc_lens [1], T)."""
+        """Run the frontend and encode, leaf-ifying at ``self.grad_wrt``:
+        ``log_mel`` = the frontend output [1,T,80] @100 Hz (the default);
+        ``enc_L<N>`` = the output of encoder block N (1-indexed; 25 Hz after the conv2d input layer),
+        via the same detach-leafify-feed-back forward hook as the Whisper/Voxtral wrappers.
+        Returns (leaf, enc_out [1,T_enc,D], enc_lens [1], T_leaf)."""
         speech = wav.to(self.device)[None]  # [1, T_samples]
         slens = torch.tensor([n_samples], device=self.device)
         with torch.no_grad():
             feats, flens = self.model._extract_feats(speech, slens)  # [1, T, 80] log-mel @100Hz
-        leaf = feats.detach().requires_grad_(True)
-        leaf.retain_grad()
-        with torch.enable_grad():
-            nfeats, nflens = (
-                self.model.normalize(leaf, flens) if getattr(self.model, "normalize", None) else (leaf, flens)
-            )
-            enc = self.model.encoder(nfeats, nflens)
+        if self.grad_wrt == "log_mel":
+            leaf = feats.detach().requires_grad_(True)
+            leaf.retain_grad()
+            with torch.enable_grad():
+                nfeats, nflens = (
+                    self.model.normalize(leaf, flens) if getattr(self.model, "normalize", None) else (leaf, flens)
+                )
+                enc = self.model.encoder(nfeats, nflens)
+            return leaf, enc[0], enc[1], int(leaf.shape[1])
+        # enc_L<N>: leafify the output of encoder block N via a forward hook.
+        idx = int(self.grad_wrt[len("enc_L") :])
+        blocks = self.model.encoder.encoders
+        assert 1 <= idx <= len(blocks), f"{self.grad_wrt}: block {idx} out of range 1..{len(blocks)}"
+        captured: list = []
+
+        def _leafify(x: torch.Tensor) -> torch.Tensor:
+            _leaf = x.detach().requires_grad_(True)
+            _leaf.retain_grad()
+            captured.append(_leaf)
+            return _leaf
+
+        def _hook(_m, _inp, out):
+            # ESPnet block outputs: (x, mask[, ...]); with rel-pos attention x is itself (x, pos_emb).
+            if isinstance(out, tuple) and isinstance(out[0], tuple):
+                return ((_leafify(out[0][0]), out[0][1]), *out[1:])
+            if isinstance(out, tuple):
+                return (_leafify(out[0]), *out[1:])
+            return _leafify(out)
+
+        handle = blocks[idx - 1].register_forward_hook(_hook)
+        try:
+            with torch.enable_grad():
+                nfeats, nflens = (
+                    self.model.normalize(feats, flens) if getattr(self.model, "normalize", None) else (feats, flens)
+                )
+                enc = self.model.encoder(nfeats, nflens)
+        finally:
+            handle.remove()
+        assert len(captured) == 1, f"expected 1 block call, got {len(captured)}"
+        leaf = captured[0]  # [1, T_enc, D]
         return leaf, enc[0], enc[1], int(leaf.shape[1])
 
     def forward(

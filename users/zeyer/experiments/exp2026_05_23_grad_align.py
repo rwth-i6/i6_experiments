@@ -6453,6 +6453,67 @@ def py():
         _vxe_al.add_alias(_vxe_nm)
         reg(f"{_vxe_nm}-wbe.txt", _vxe_al.out_wbe)
 
+    # conv1_out + column normalization (CPU): the decomposition measured parity ripple 1.468 at
+    # conv1_out (matching the conv2-kernel prediction 1.454) vs ~0.9 at log-mel/enc-in. If the ripple
+    # causes conv1_out's 59 ms (worse than BOTH neighbors), per-frame normalization should recover it.
+    _c1cn_al = WordAlignFromPerTokenGradsJob(
+        grad_score_hdf=_c1o_ex.out_hdf,
+        grad_score_key="data",
+        dataset_dir=_xa_dir,
+        dataset_key="test",
+        dataset_offset_factors=_xa_off,
+        align_opts={"apply_softmax_over_time": True, "apply_softmax_over_labels": True, "blank_score": -5},
+        audio_energy_pow=0.5,
+        blank_silence_energy_scale=2.0,
+        word_topology=True,
+    )
+    _c1cn_nm = (
+        f"align/whisper-large-v3-charlev-spc-conv1out-colnorm-asol-encdepth-{_xa_tag}"
+        f"-L2_grad-pertoken-asotTrue-asolTrue-bs-5-en0.5-sil2.0-wordtopo"
+    )
+    _c1cn_al.add_alias(_c1cn_nm)
+    reg(f"{_c1cn_nm}-wbe.txt", _c1cn_al.out_wbe)
+
+    # Best-depth gradient for OWLS-1B (Gradients* candidate; the biggest headline-grad outlier,
+    # 153/180 ms vs cross-att 35/51): grad w.r.t. encoder block 24 of 32 (3/4 depth, 25 Hz grid),
+    # via the enc_L<N> hook added to the Owls wrapper. batched_backward=True (the fast VJP -- checked).
+    for _owe_dir, _owe_key, _owe_off, _owe_tag in [
+        (_xa_dir, "test", _xa_off, _xa_tag),
+        (dl_ds_timit.out_hub_cache_dir, "test", _DATASET_OFFSET_FACTORS["timit"], "timit-test"),
+    ]:
+        _owe_ex = ExtractInGradsPerTokenJob(
+            dataset_dir=_owe_dir,
+            dataset_key=_owe_key,
+            model_config=rf.build_dict(
+                Owls,
+                model_dir=dl_owls_1b_full.out_hub_cache_dir,
+                char_level=True,
+                grad_wrt="enc_L24",
+            ),
+            mult_grad_by_inputs=False,
+            attr_reduction="L2",
+            batched_backward=True,
+        )
+        _owe_ex.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        _owe_ex.rqmt = {**_owe_ex.rqmt, "time": 24}
+        _owe_name = f"owls-1B-180K-charlev-encL24-encdepth-{_owe_tag}-L2_grad-pertoken"
+        _owe_ex.add_alias(_owe_name)
+        reg(f"{_owe_name}.hdf", _owe_ex.out_hdf)
+        _owe_al = WordAlignFromPerTokenGradsJob(
+            grad_score_hdf=_owe_ex.out_hdf,
+            grad_score_key="data",
+            dataset_dir=_owe_dir,
+            dataset_key=_owe_key,
+            dataset_offset_factors=_owe_off,
+            align_opts=_t_ed_ao,
+            audio_energy_pow=0.5,
+            blank_silence_energy_scale=2.0,
+            word_topology=True,
+        )
+        _owe_nm = f"align/{_owe_name}-{_name_for_dict(_t_ed_ao)}-en0.5-sil2.0-wordtopo"
+        _owe_al.add_alias(_owe_nm)
+        reg(f"{_owe_nm}-wbe.txt", _owe_al.out_wbe)
+
     # --- Auto-generated LaTeX result tables (in-graph; reference only this recipe's outputs) ---
     from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.grad_align_tables import (
         build_tables,

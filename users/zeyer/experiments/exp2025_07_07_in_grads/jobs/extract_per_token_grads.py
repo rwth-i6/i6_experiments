@@ -327,6 +327,12 @@ class ExtractInGradsPerTokenJob(ExtractInGradsFromModelJob):
         print("Dataset keys:", ds.keys())
         print("Using key:", self.dataset_key)
         print("Num seqs:", len(ds[self.dataset_key]))
+        if not self.batched_backward:
+            print(
+                "WARNING: batched_backward=False -- sequential per-token VJPs, ~10x slower than the\n"
+                "WARNING: vmapped batched backward. Any NEW extract should use batched_backward=True\n"
+                "WARNING: (identical results); bb=False is only kept on old finished jobs for hash stability."
+            )
 
         from returnn.datasets.hdf import HDFDataset
 
