@@ -11,16 +11,18 @@ builders unchanged, so the Job hashes match the artifacts rsync'd from FZJ
 Only the training + recog assembly differs from FZJ: single 96 GB GPU (no ``torch_distributed`` /
 ``num_processes`` / per-node rqmt / ``file_cache_opts``), and single-GPU recog (``recog_training_exp``,
 not the FZJ multi-GPU ``recog_training_exp_batched``). Everything else -- the dyn-rope-ctembed chunked
-encoder, the EOC-extended vocab, the ChunkAlignDataset, the decoder + train def -- is shared.
+encoder, the EOC-extended vocab, the ChunkAlignDataset, the decoders + train defs -- is shared.
 
-First (decisive) run: the **standard-AED control** on single GPU. On FZJ/4-GPU it scored CTC-only 11.11
-vs the base 9.41; single-GPU restores the base regime (batch 8M, ~660k optimizer steps, warmup = 3%),
-so it should reproduce ~9.4 if the reimplementation is faithful. See the project notes.
+Variants (all single-GPU, same dyn-rope-ctembed encoder + regime, differing only in the decoder):
+- ``standard-aed`` control (CTC-only scored; reproduces base 9.41);
+- ``chunkwise`` (chunk-sync AED); ``framewise`` (fast-only RNA); ``ext-transducer`` (slow+fast state
+  injection); ``two-tower`` (text+speech cross-att). All use the **dynamic** encoder (the frame-rate
+  variants re-align their per-frame target onto the encoder length via ``rna_targets_on_enc_spatial``).
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import returnn.frontend as rf
 
@@ -33,9 +35,28 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines import confi
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import _raw_sample_rate
 from i6_experiments.users.zeyer.datasets.loquacious import get_loquacious_task_raw_v2
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.base import streaming_model_def, model_recog_ctc
-from i6_experiments.users.zeyer.nn_rf.decoder.streaming.chunkwise import ChunkwiseDecoder
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.dataset import ChunkAlignDataset, ExtendVocabWithEocJob
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.standard_aed import standard_aed_training
+from i6_experiments.users.zeyer.nn_rf.decoder.streaming.chunkwise import (
+    ChunkwiseDecoder,
+    chunkwise_training,
+    model_recog as chunkwise_model_recog,
+)
+from i6_experiments.users.zeyer.nn_rf.decoder.streaming.framewise import (
+    FramewiseDecoder,
+    framewise_training,
+    model_recog as framewise_model_recog,
+)
+from i6_experiments.users.zeyer.nn_rf.decoder.streaming.ext_transducer import (
+    ExtTransducerDecoder,
+    ext_transducer_training,
+    model_recog as ext_transducer_model_recog,
+)
+from i6_experiments.users.zeyer.nn_rf.decoder.streaming.two_tower import (
+    TwoTowerDecoder,
+    two_tower_training,
+    model_recog as two_tower_model_recog,
+)
 
 # Reused verbatim from the FZJ module -> identical Job hashes -> the rsync'd base + alignment are found.
 from i6_experiments.users.zeyer.experiments.exp2026_05_26_base_fzj import _train_loquacious_base
@@ -53,15 +74,21 @@ __setup_root_prefix__ = "exp2026_05_26_slow_fast_rna_rz"
 
 
 def py():
+    # The standard-AED control (CTC-only = base 9.41 metric) + the four streaming decoder variants.
     _train_standard_aed_rz()
+    _train_chunkwise_rz()
+    _train_framewise_rz()
+    _train_ext_transducer_rz()
+    _train_two_tower_rz()
 
 
 def _loq_chunk_align_dataset(base_model, *, base_aux_ctc_layer: int, target_mode: str):
     """The full ~25k h Loquacious ChunkAlignDataset, byte-identical to the FZJ full-train wiring.
 
     The train alignment is co-sharded with the audio arrow shards (``train_coshard``, -> ``eD69``) and dev
-    uses the normal sharded align (``kXa``); both reference ``base_model`` (= ``WQbKY``). Returns the
-    dataset plus the EOC-extended aug-vocab (needed again for recog).
+    uses the normal sharded align (``kXa``); both reference ``base_model`` (= ``WQbKY``). ``target_mode``
+    selects the per-frame/per-chunk target derivation; the alignment refs are the same regardless. Returns
+    the dataset plus the EOC-extended aug-vocab (needed again for recog).
     """
     vocab = _loq_vocab()
     vocab_size = vocab.get_num_classes()  # spm10k -> 10240
@@ -96,28 +123,36 @@ def _loq_chunk_align_dataset(base_model, *, base_aux_ctc_layer: int, target_mode
     return dataset, aug_vocab, vocab_size
 
 
-def _train_standard_aed_rz():
-    """Standard (full-attention) AED control on a single 96 GB RZ GPU.
+def _train_variant_rz(
+    name: str,
+    *,
+    dec_build_dict: Dict[str, Any],
+    train_def,
+    target_mode: str,
+    recog_def=None,
+    recog_extra: Optional[Dict[str, Any]] = None,
+):
+    """Train one streaming-decoder variant on a single 96 GB RZ GPU + recog.
 
-    Same dyn-rope-ctembed chunked encoder + ChunkAlignDataset + reimplemented AED decoder as the FZJ
-    ``standard-aed-loq`` run, but single-GPU (restores the base 8M-batch / ~660k-step regime) and with
-    ``dec_aux_loss_layers=[3]`` + ``label_smoothing=0.1`` to match the base recipe exactly. Scored
-    CTC-only on the encoder aux head = the base 9.41 metric.
+    Same dyn-rope-ctembed chunked encoder + ChunkAlignDataset + regime for every variant (batch 8M,
+    OCLR nep100 base_lr0.5, aux [4,10,16], dec_aux [3], label_smoothing 0.1 -- the base 9.41 regime),
+    single-GPU. The decoder (``dec_build_dict``), its train def, ``target_mode``, and recog are the
+    per-variant knobs. Always runs the CTC-only recog (encoder aux head = base 9.41 metric); also runs
+    the decoder recog when ``recog_def`` is given.
     """
     prefix = get_setup_prefix_for_module(__name__)
-    name = "standard-aed-loq-1gpu"
 
     with disable_register_output():
         exp_base, base_aux_ctc_layer = _train_loquacious_base()
     base_model = exp_base.get_last_fixed_epoch()  # WQbKY, checkpoint copied from FZJ
 
     dataset, aug_vocab, vocab_size = _loq_chunk_align_dataset(
-        base_model, base_aux_ctc_layer=base_aux_ctc_layer, target_mode="labels"
+        base_model, base_aux_ctc_layer=base_aux_ctc_layer, target_mode=target_mode
     )
 
     model_config = {
         "enc_build_dict": _enc_build_dict(num_layers=16, out_dim=1024, num_heads=8, dynamic=True),
-        "dec_build_dict": rf.build_dict(ChunkwiseDecoder, model_dim=1024, num_layers=6, num_heads=8, version=2),
+        "dec_build_dict": dec_build_dict,
         "chunk_size": _CHUNK_SIZE,
         "aux_loss_layers": [4, 10, 16],
         "feature_batch_norm": True,
@@ -125,7 +160,7 @@ def _train_standard_aed_rz():
     }
 
     # Single-GPU regime = the base 9.41 config (config_96gb_bf16_accgrad1, batch 50k=8M, max_seqs 200,
-    # OCLR nep100 base_lr0.5, warmup 20k, wd 1e-2), plus the base's dec-aux + label smoothing.
+    # OCLR nep100 base_lr0.5, wd 1e-2), plus the base's dec-aux + label smoothing.
     config = dict_update_deep(
         configs.config_96gb_bf16_accgrad1,
         {
@@ -151,24 +186,85 @@ def _train_standard_aed_rz():
             "stop_for_resubmission_when_low_time_left": True,
         },
         model_def=ModelDefWithCfg(streaming_model_def, model_config),
-        train_def=standard_aed_training,
+        train_def=train_def,
         gpu_mem=96,
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
 
-    # CTC-only recog on the encoder aux CTC head (single-GPU) = the base 9.41 metric.
     task = get_loquacious_task_raw_v2(vocab="spm10k")
+    recog_cfg: Dict[str, Any] = {
+        "target_dim_ext_int": vocab_size + 1,
+        "aug_vocab": aug_vocab,
+        "batch_size": 10_000 * configs._batch_size_factor,
+        "max_seqs": 100,
+        "aux_loss_layers": model_config["aux_loss_layers"],
+    }
+    if recog_extra:
+        recog_cfg = {**recog_cfg, **recog_extra}
+
+    # Decoder recog (skipped for the CTC-only control).
+    if recog_def is not None:
+        recog_training_exp(
+            prefix + "/" + name + "/recog", task=task, model=exp, recog_def=recog_def, search_config=recog_cfg
+        )
+    # CTC-only recog on the encoder aux CTC head = the base 9.41 metric (all variants).
     recog_training_exp(
-        prefix + "/" + name + "/recog-ctc",
-        task=task,
-        model=exp,
-        recog_def=model_recog_ctc,
-        search_config={
-            "target_dim_ext_int": vocab_size + 1,
-            "aug_vocab": aug_vocab,
-            "batch_size": 10_000 * configs._batch_size_factor,
-            "max_seqs": 100,
-            "aux_loss_layers": model_config["aux_loss_layers"],
-        },
+        prefix + "/" + name + "/recog-ctc", task=task, model=exp, recog_def=model_recog_ctc, search_config=recog_cfg
     )
     return exp
+
+
+def _train_standard_aed_rz():
+    """Standard (full-attention) AED control -- reproduces base 9.41 (CTC-only scored)."""
+    return _train_variant_rz(
+        "standard-aed-loq-1gpu",
+        dec_build_dict=rf.build_dict(ChunkwiseDecoder, model_dim=1024, num_layers=6, num_heads=8, version=2),
+        train_def=standard_aed_training,
+        target_mode="labels",
+        recog_def=None,  # CTC-only recog (= base 9.41 metric); AED decoder search deferred
+    )
+
+
+def _train_chunkwise_rz():
+    """Chunk-synchronous decoder (EOC-augmented per-chunk targets, chunk-masked cross-att)."""
+    return _train_variant_rz(
+        "chunkwise-1gpu",
+        dec_build_dict=rf.build_dict(ChunkwiseDecoder, model_dim=1024, num_layers=6, num_heads=8, version=2),
+        train_def=chunkwise_training,
+        recog_def=chunkwise_model_recog,
+        target_mode="chunk_eoc",
+        recog_extra={"max_labels_per_chunk": 20},
+    )
+
+
+def _train_framewise_rz():
+    """Frame-synchronous RNA fast-only decoder (one label/blank per encoder frame, no cross-att)."""
+    return _train_variant_rz(
+        "framewise-1gpu",
+        dec_build_dict=rf.build_dict(FramewiseDecoder, model_dim=1024, num_layers=6, num_heads=8, version=2),
+        train_def=framewise_training,
+        recog_def=framewise_model_recog,
+        target_mode="rna_frame",
+    )
+
+
+def _train_ext_transducer_rz():
+    """Extended-transducer slow+fast decoder (slow label-rate stack injected into the fast frame stack)."""
+    return _train_variant_rz(
+        "ext-transducer-1gpu",
+        dec_build_dict=rf.build_dict(ExtTransducerDecoder, model_dim=1024, num_layers=6, num_heads=8, version=2),
+        train_def=ext_transducer_training,
+        recog_def=ext_transducer_model_recog,
+        target_mode="rna_frame",
+    )
+
+
+def _train_two_tower_rz():
+    """Two-tower fast-slow decoder (text + speech stacks coupled by cross-attention)."""
+    return _train_variant_rz(
+        "two-tower-1gpu",
+        dec_build_dict=rf.build_dict(TwoTowerDecoder, model_dim=1024, num_layers=6, num_heads=8, version=2),
+        train_def=two_tower_training,
+        recog_def=two_tower_model_recog,
+        target_mode="rna_frame",
+    )
