@@ -37,7 +37,7 @@ from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_libr
 __all__ = ["DbMelFeatureExtractor"]
 
 
-def _train_ls_base(
+def train_ls_base(
     name: str,
     *,
     feature_extraction: Optional[Dict[str, Any]] = None,

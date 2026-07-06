@@ -13,7 +13,7 @@ from __future__ import annotations
 import returnn.frontend as rf
 
 from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
-from i6_experiments.users.zeyer.experiments.exp2026_05_28_tts_encoder import _train_ls_base, DbMelFeatureExtractor
+from i6_experiments.users.zeyer.experiments.exp2026_05_28_tts_encoder import train_ls_base, DbMelFeatureExtractor
 from i6_experiments.users.zeyer.experiments.exp2026_05_28_tts_encoder_fzj import _train_tts_encoder
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.optim_ext.muon import Muon
 
@@ -25,15 +25,15 @@ def py():
     prefix = get_setup_prefix_for_module(__name__)
     # --- Audio-only single-GPU baselines (moved here from the exp2026_05_28_tts_encoder library). ---
     # base-ls: standard log-mel, bhv 24 -> same hash as the imported base-librispeech baseline (not re-run).
-    _train_ls_base("base-ls", prefix=prefix)
+    train_ls_base("base-ls", prefix=prefix)
     # base-ls-dbmel: DbMel front-end (== frozen GlowTTS space); bhv 25 is behavior-neutral here.
-    _train_ls_base(
+    train_ls_base(
         "base-ls-dbmel", prefix=prefix, feature_extraction=rf.build_dict(DbMelFeatureExtractor), behavior_version=25
     )
     # base-ls-newrtrn: base-ls re-run under the current RZ RETURNN (isolates the RETURNN-version effect).
-    _train_ls_base("base-ls-newrtrn", prefix=prefix, config_updates_extra={"_meta_hash_trigger": "new-returnn-2026-06"})
+    train_ls_base("base-ls-newrtrn", prefix=prefix, config_updates_extra={"_meta_hash_trigger": "new-returnn-2026-06"})
     # base-ls-muon: muon-lr5e3-wdbl on the single-GPU log-mel baseline (best FZJ optimizer setting, at RZ).
-    _train_ls_base(
+    train_ls_base(
         "base-ls-muon",
         prefix=prefix,
         base_lr=1.0,

@@ -51,7 +51,7 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDef
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines import aed as _aed
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import Model
 from i6_experiments.users.zeyer.external_models.glow_tts import GlowTtsLogMel, get_glow_tts_phoneme_vocab_size
-from i6_experiments.users.zeyer.experiments.exp2026_05_28_tts_encoder import _train_ls_base, DbMelFeatureExtractor
+from i6_experiments.users.zeyer.experiments.exp2026_05_28_tts_encoder import train_ls_base, DbMelFeatureExtractor
 
 __all__ = ["py"]
 __setup_root_prefix__ = "exp2026_05_28_tts_encoder_fzj"
@@ -64,7 +64,7 @@ def py():
     # WER comments above each experiment below are %, joint AED+CTC first-pass
     # (aed+ctc-batched/recog-1stpass), as {"dev-clean", "dev-other", "test-clean", "test-other"}.
     # Standard log-mel baseline. Same Job hash as RZ base-ls / the FZJ base setup -> imports, not re-trained.
-    base_exp = _train_ls_base("base-ls", prefix=prefix)
+    base_exp = train_ls_base("base-ls", prefix=prefix)
     # Test the full-node batched dev-phase scale tuning on the (ready) base-ls checkpoint.
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2 as _get_ls_task_v2
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc_batched import (
