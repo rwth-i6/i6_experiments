@@ -1,6 +1,9 @@
 """
 TTS-encoder project, FZJ (Juelich) variant -- larger-scale runs.
 
+Role in the split: the FZJ 4-GPU recipe; also owns the shared ``_train_tts_encoder`` builder (imported by
+the ``_rz`` recipe). Imports ``_train_ls_base`` + ``DbMelFeatureExtractor`` from ``exp2026_05_28_tts_encoder``.
+
 - ``base-ls``: standard log-mel CTC+AED baseline. Same Job hash as RZ / the FZJ base setup -> imports.
 - ``tts-enc-v1``: the TTS-encoder text-util training. Standard ``exp2024_04_23_baselines.aed.Model`` on the DbMel
   front-end + a frozen GlowTTS attached as ``model.tts`` (reusable wrapper in ``external_models/glow_tts.py``).

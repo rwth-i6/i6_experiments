@@ -1,7 +1,11 @@
 """
-TTS-encoder project.
+TTS-encoder project -- shared library module (no ``py()``; not run by a Sis manager).
 
-See :file:`exp2026_05_28_tts_encoder_fzj.py` for follow-up.
+Holds ``_train_ls_base`` + ``DbMelFeatureExtractor``,
+imported by the recipe files ``_rz`` / ``_fzj`` / ``_rz_torch212``.
+Kept as its own module because ``DbMelFeatureExtractor``'s import path is serialized into job hashes
+by ``rf.build_dict``,
+so moving it would re-hash base-ls-dbmel and the FZJ DbMel jobs.
 """
 
 from __future__ import annotations
@@ -32,37 +36,7 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ae
 from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
 
-__all__ = ["py", "DbMelFeatureExtractor"]
-
-# Prefix for alias/ and output/ paths. Doesn't enter any Job hash.
-__setup_root_prefix__ = "exp2026_05_28_tts_encoder"
-
-
-def py():
-    # (a) standard log-mel front-end -- reference for the ablation.
-    #     bhv 24 keeps the hash matching the established `base-librispeech` baseline (imported, not re-run).
-    _train_ls_base("base-ls")
-    # (b) DbMel front-end (== frozen GlowTTS feature space) -- the new training.
-    #     Latest bhv (25). 24->25 only changes rf.scatter in padded areas (issue #1815), which this model
-    #     does not use, so it is behavior-neutral vs the bhv-24 base-ls -- the front-end ablation stays clean.
-    _train_ls_base("base-ls-dbmel", feature_extraction=rf.build_dict(DbMelFeatureExtractor), behavior_version=25)
-    # (c) base-ls re-run under the CURRENT RZ RETURNN (single-GPU), isolating the RETURNN-version effect
-    #     vs the original base-ls (4.06, trained Aug-2025 with RETURNN f81cb9a2 + torch 2.5).
-    #     Identical config (bhv 24, log-mel, nep 100); _meta_hash_trigger forces the rerun
-    #     because the RETURNN version is not part of the job hash.
-    _train_ls_base("base-ls-newrtrn", config_updates_extra={"_meta_hash_trigger": "new-returnn-2026-06"})
-    # (d) muon on the single-GPU log-mel baseline (muon-lr5e3-wdbl: base_lr 1.0 x peak_lr 5e-3 = eff. peak
-    #     5e-3, keep the wd-blacklist, drop only optimizer.epsilon) -- the best FZJ 4-GPU optimizer setting
-    #     applied at RZ, to test whether muon also helps single-GPU. Plain muon first; AMUSE to follow.
-    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.optim_ext.muon import Muon
-
-    _train_ls_base(
-        "base-ls-muon",
-        base_lr=1.0,
-        peak_lr=5e-3,
-        config_updates_extra={"optimizer.class": rf.build_dict(Muon)["class"]},
-        config_deletes_extra=["optimizer.epsilon"],
-    )
+__all__ = ["DbMelFeatureExtractor"]
 
 
 def _train_ls_base(
