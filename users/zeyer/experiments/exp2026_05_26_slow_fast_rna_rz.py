@@ -57,6 +57,11 @@ from i6_experiments.users.zeyer.nn_rf.decoder.streaming.two_tower import (
     two_tower_training,
     model_recog as two_tower_model_recog,
 )
+from i6_experiments.users.zeyer.nn_rf.decoder.streaming.rnnt import (
+    RnntDecoder,
+    rnnt_training,
+    model_recog as rnnt_model_recog,
+)
 
 # Reused verbatim from the FZJ module -> identical Job hashes -> the rsync'd base + alignment are found.
 from i6_experiments.users.zeyer.experiments.exp2026_05_26_base_fzj import _train_loquacious_base
@@ -80,6 +85,8 @@ def py():
     _train_framewise_rz()
     _train_ext_transducer_rz()
     _train_two_tower_rz()
+    _train_rnnt_rz()
+    _train_framewise_enc8dec12_rz()
 
 
 def _loq_chunk_align_dataset(base_model, *, base_aux_ctc_layer: int, target_mode: str):
@@ -132,6 +139,8 @@ def _train_variant_rz(
     recog_def=None,
     recog_extra: Optional[Dict[str, Any]] = None,
     dec_aux_loss_layers: Sequence[int] = (),
+    enc_num_layers: int = 16,
+    aux_loss_layers: Sequence[int] = (4, 10, 16),
 ):
     """Train one streaming-decoder variant on a single 96 GB RZ GPU + recog.
 
@@ -152,10 +161,10 @@ def _train_variant_rz(
     )
 
     model_config = {
-        "enc_build_dict": _enc_build_dict(num_layers=16, out_dim=1024, num_heads=8, dynamic=True),
+        "enc_build_dict": _enc_build_dict(num_layers=enc_num_layers, out_dim=1024, num_heads=8, dynamic=True),
         "dec_build_dict": dec_build_dict,
         "chunk_size": _CHUNK_SIZE,
-        "aux_loss_layers": [4, 10, 16],
+        "aux_loss_layers": list(aux_loss_layers),
         "feature_batch_norm": True,
         "__serialization_version": 2,
     }
@@ -271,4 +280,28 @@ def _train_two_tower_rz():
         train_def=two_tower_training,
         recog_def=two_tower_model_recog,
         target_mode="rna_frame",
+    )
+
+
+def _train_rnnt_rz():
+    """Vanilla RNN-T (monotonic RNA topology, framewise-CE): reused prediction net + additive-ReLU joiner."""
+    return _train_variant_rz(
+        "rnnt-1gpu",
+        dec_build_dict=rf.build_dict(RnntDecoder, model_dim=1024, num_layers=6, num_heads=8, version=2),
+        train_def=rnnt_training,
+        recog_def=rnnt_model_recog,
+        target_mode="rna_frame",
+    )
+
+
+def _train_framewise_enc8dec12_rz():
+    """enc:dec ratio control -- framewise with a smaller encoder (8L) + larger decoder (12L)."""
+    return _train_variant_rz(
+        "framewise-enc8-dec12-1gpu",
+        dec_build_dict=rf.build_dict(FramewiseDecoder, model_dim=1024, num_layers=12, num_heads=8, version=2),
+        train_def=framewise_training,
+        recog_def=framewise_model_recog,
+        target_mode="rna_frame",
+        enc_num_layers=8,
+        aux_loss_layers=[2, 5, 8],  # aux CTC within the 8-layer encoder (top=8 = the CTC recog head)
     )
