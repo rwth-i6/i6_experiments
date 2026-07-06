@@ -60,6 +60,7 @@ def standard_aed_train_forward(
 
     encoder_kv = model.decoder.transform_encoder(enc, axis=enc_spatial_dim)
     state = model.decoder.default_initial_state(batch_dims=batch_dims)
+    dec_collected_outputs = {} if model.dec_aux_logits else None
     logits, _ = model.decoder(
         input_labels,
         spatial_dim=dec_spatial_dim,
@@ -68,6 +69,7 @@ def standard_aed_train_forward(
         enc_spatial_dim=enc_spatial_dim,
         query_chunk_idx=query_chunk_idx,
         key_chunk_idx=key_chunk_idx,
+        collected_outputs=dec_collected_outputs,
     )
     log_probs = rf.log_softmax(logits, axis=model.target_dim_ext)
     log_probs = label_smoothed_log_probs(log_probs, axis=model.target_dim_ext)  # config-gated, default off
@@ -75,6 +77,16 @@ def standard_aed_train_forward(
         target=targets_eos, estimated=log_probs, estimated_type="log-probs", axis=model.target_dim_ext
     )
     losses: Dict[str, Tuple[Tensor, Dim]] = {"ce": (ce, dec_spatial_dim)}
+
+    if model.dec_aux_logits:
+        losses.update(
+            model.dec_aux_losses(
+                collected_outputs=dec_collected_outputs,
+                targets=targets_eos,
+                spatial_dim=dec_spatial_dim,
+                axis=model.target_dim_ext,
+            )
+        )
 
     if model.enc_aux_logits:
         # aux CTC over the plain transcript.

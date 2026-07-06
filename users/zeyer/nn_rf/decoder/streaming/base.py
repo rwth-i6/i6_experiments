@@ -17,6 +17,7 @@ module and is plugged into :class:`StreamingModel` via ``dec_build_dict``.
 from __future__ import annotations
 
 from typing import Optional, Any, Dict, Sequence, Tuple
+import copy
 import functools
 
 import returnn.frontend as rf
@@ -49,6 +50,7 @@ class StreamingModel(rf.Module):
         enc_build_dict: Dict[str, Any],
         dec_build_dict: Dict[str, Any],
         enc_aux_logits: Sequence[int] = (),
+        dec_aux_logits: Sequence[int] = (),
         bos_idx: int = 0,
         feature_extraction: Optional[Dict[str, Any]] = None,
     ):
@@ -106,6 +108,14 @@ class StreamingModel(rf.Module):
             setattr(self, f"enc_aux_logits_{layer_idx}", rf.Linear(self.encoder.out_dim, self.wb_target_dim))
         self.enc_aux_logits = tuple(enc_aux_logits)
 
+        # Aux decoder-CE heads (mirrors the AED baseline's dec_aux_loss_layers): tap an intermediate
+        # decoder layer, apply an independent copy of the decoder's final norm + readout, and add a CE
+        # against the same target. Needs a decoder exposing ``final_ln`` + ``logits`` (e.g. ChunkwiseDecoder).
+        for layer_idx in dec_aux_logits:
+            setattr(self, f"dec_aux_final_layer_norm_{layer_idx}", copy.deepcopy(self.decoder.final_ln))
+            setattr(self, f"dec_aux_logits_{layer_idx}", copy.deepcopy(self.decoder.logits))
+        self.dec_aux_logits = tuple(dec_aux_logits)
+
     def encode(
         self, source: Tensor, *, in_spatial_dim: Dim, collected_outputs: Optional[Dict[str, Tensor]] = None
     ) -> Tuple[Tensor, Dim]:
@@ -147,6 +157,23 @@ class StreamingModel(rf.Module):
             losses[f"ctc_{layer_idx}"] = (ctc, raw_spatial_dim)
         return losses
 
+    def dec_aux_losses(
+        self, *, collected_outputs: Dict[str, Tensor], targets: Tensor, spatial_dim: Dim, axis: Dim
+    ) -> Dict[str, Tuple[Tensor, Dim]]:
+        """Aux decoder-CE loss for every configured ``dec_aux_logits`` layer, each tapping its own decoder
+        layer output (via ``collected_outputs``), its own final norm + readout, against ``targets``.
+        """
+        losses: Dict[str, Tuple[Tensor, Dim]] = {}
+        for layer_idx in self.dec_aux_logits:
+            norm = getattr(self, f"dec_aux_final_layer_norm_{layer_idx}")
+            linear = getattr(self, f"dec_aux_logits_{layer_idx}")
+            logits = linear(norm(collected_outputs[str(layer_idx - 1)]))
+            log_probs = rf.log_softmax(logits, axis=axis)
+            log_probs = label_smoothed_log_probs(log_probs, axis=axis)
+            ce = rf.cross_entropy(target=targets, estimated=log_probs, estimated_type="log-probs", axis=axis)
+            losses[f"ce_dec_{layer_idx}"] = (ce, spatial_dim)
+        return losses
+
 
 def streaming_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> StreamingModel:
     """ModelDef: build a :class:`StreamingModel` from the global config.
@@ -179,6 +206,7 @@ def streaming_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Streamin
         enc_build_dict=config.typed_value("enc_build_dict"),
         dec_build_dict=config.typed_value("dec_build_dict"),
         enc_aux_logits=config.typed_value("aux_loss_layers") or (),
+        dec_aux_logits=config.typed_value("dec_aux_loss_layers") or (),
         bos_idx=config.int("bos_idx", 0),
     )
 

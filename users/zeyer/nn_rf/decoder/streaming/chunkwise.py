@@ -160,6 +160,7 @@ class ChunkwiseDecoder(rf.Module):
         enc_spatial_dim: Dim,
         query_chunk_idx: Tensor,
         key_chunk_idx: Tensor,
+        collected_outputs: Optional[Dict[str, Tensor]] = None,
     ) -> Tuple[Tensor, rf.State]:
         new_state = rf.State()
         x = self.input_embedding(source) * self.input_embedding_scale
@@ -177,6 +178,8 @@ class ChunkwiseDecoder(rf.Module):
                 query_chunk_idx=query_chunk_idx,
                 key_chunk_idx=key_chunk_idx,
             )
+            if collected_outputs is not None:
+                collected_outputs[name] = x
         x = self.final_ln(x)
         return self.logits(x), new_state
 
