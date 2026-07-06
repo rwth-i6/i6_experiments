@@ -23,7 +23,7 @@ from returnn.tensor import Tensor, Dim, single_step_dim
 from returnn.frontend.decoder.transformer import FeedForwardGated
 
 from .cross_attn import ChunkMaskedCrossAttention
-from .base import encoder_frame_chunk_idx, label_smoothed_log_probs
+from .base import encoder_frame_chunk_idx, label_smoothed_log_probs, mark_frame_error
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import RecogDef
@@ -230,6 +230,7 @@ def chunkwise_train_forward(
     ce = rf.cross_entropy(
         target=aug_targets, estimated=log_probs, estimated_type="log-probs", axis=model.target_dim_ext
     )
+    mark_frame_error(log_probs, targets=aug_targets, axis=model.target_dim_ext)
     losses: Dict[str, Tuple[Tensor, Dim]] = {"ce": (ce, aug_targets_spatial_dim)}
 
     # Aux CTC on the raw spm labels (aug_targets with EOC removed), over the final encoder output.

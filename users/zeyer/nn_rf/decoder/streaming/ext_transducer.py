@@ -24,7 +24,7 @@ import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, single_step_dim
 
 from .framewise import FramewiseDecoderLayer
-from .base import label_smoothed_log_probs, rna_targets_on_enc_spatial
+from .base import label_smoothed_log_probs, mark_frame_error, rna_targets_on_enc_spatial
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import RecogDef
@@ -181,6 +181,7 @@ def ext_transducer_train_forward(
     log_probs = rf.log_softmax(logits, axis=model.target_dim_ext)
     log_probs = label_smoothed_log_probs(log_probs, axis=model.target_dim_ext)  # config-gated, default off
     ce = rf.cross_entropy(target=rna, estimated=log_probs, estimated_type="log-probs", axis=model.target_dim_ext)
+    mark_frame_error(log_probs, targets=rna, axis=model.target_dim_ext)
     losses: Dict[str, Tuple[Tensor, Dim]] = {"ce": (ce, enc_spatial_dim)}
 
     if model.enc_aux_logits:

@@ -261,6 +261,15 @@ def label_smoothed_log_probs(log_probs: Tensor, *, axis: Dim) -> Tensor:
     return log_probs
 
 
+def mark_frame_error(log_probs: Tensor, *, targets: Tensor, axis: Dim, name: str = "fer") -> None:
+    """Report the (label/frame) error rate ``argmax(log_probs) != targets`` as an eval-only error
+    (``as_error=True``, not backpropagated), mirroring the AED baseline's ``fer``. Call once per
+    output stream in a train-forward, alongside its CE.
+    """
+    best = rf.reduce_argmax(log_probs, axis=axis)
+    (best != targets).mark_as_loss(name=name, as_error=True)
+
+
 def rna_targets_on_enc_spatial(
     rna_targets: Tensor, *, in_spatial_dim: Dim, enc_spatial_dim: Dim, blank_idx: int
 ) -> Tensor:

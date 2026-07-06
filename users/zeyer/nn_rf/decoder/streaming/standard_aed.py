@@ -25,7 +25,7 @@ from typing import Dict, Tuple
 import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim
 
-from .base import label_smoothed_log_probs
+from .base import label_smoothed_log_probs, mark_frame_error
 
 # ChunkwiseDecoder is the decoder class used via dec_build_dict in the recipe (re-exported for convenience).
 from .chunkwise import ChunkwiseDecoder  # noqa: F401
@@ -76,6 +76,7 @@ def standard_aed_train_forward(
     ce = rf.cross_entropy(
         target=targets_eos, estimated=log_probs, estimated_type="log-probs", axis=model.target_dim_ext
     )
+    mark_frame_error(log_probs, targets=targets_eos, axis=model.target_dim_ext)
     losses: Dict[str, Tuple[Tensor, Dim]] = {"ce": (ce, dec_spatial_dim)}
 
     if model.dec_aux_logits:
