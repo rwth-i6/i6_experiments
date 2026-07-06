@@ -8,7 +8,7 @@ from i6_core.returnn.config import CodeWrapper, ReturnnConfig
 from i6_core.serialization import Collection
 
 from ....train_exp import run_experiment
-from ..data.common import build_training_datasets, build_text_only_training_datasets, build_test_datasets
+from ..data.common import build_training_datasets, build_test_datasets
 from ....data.common import DatasetSettings
 from .... import optimizer_configs
 from ... import __setup_base_name__
@@ -94,6 +94,40 @@ def _text_recon_variant(config, num_epochs):
     }
 
 
+def _recon_variant(num_epochs, *, input_modality, output_modality, recog_name, mask_prob=0.0, min_span=2, max_span=10):
+    """Generic same-modality reconstruction recog on the last epoch. mask_prob=0.0 -> no masking
+    (pure copy through the shared enc+dec, i.e. the autoencoder ceiling)."""
+    v = {
+        "recog_name": recog_name,
+        "input_modality": input_modality,
+        "output_modality": output_modality,
+        "keep_epochs": [num_epochs],
+    }
+    if mask_prob > 0.0:
+        v["mask_input"] = True
+        v["masking_opts"] = {"mask_prob": mask_prob, "min_span": min_span, "max_span": max_span}
+    return v
+
+
+# fixed-masking text-recon sweep (span 2-10) at a common set of mask probs, so the text denoiser can
+# be characterized (copy ceiling at 0.0 + degradation curve) and compared fairly across experiments.
+# 0.3 is already covered by _text_recon_variant (the base training masking), so it is not repeated.
+_TEXT_RECON_SWEEP_MASK_PROBS = (0.0, 0.1, 0.5)
+
+
+def _text_recon_sweep(num_epochs):
+    return [
+        _recon_variant(
+            num_epochs,
+            input_modality="text",
+            output_modality="text",
+            recog_name=f"recon_text_mask-{p}",
+            mask_prob=p,
+        )
+        for p in _TEXT_RECON_SWEEP_MASK_PROBS
+    ]
+
+
 def py():
     prefix_name = f"{__setup_base_name__}/librispeech/{__name__.split('.')[-1]}"
 
@@ -130,6 +164,55 @@ def py():
                 "masking_opts": copy.deepcopy(base_config["train_args"]["text_masking_opts"]),
                 "keep_epochs": [base_num_epochs],
             },
+            # fixed-masking text-recon sweep (copy ceiling + degradation curve), for a fair
+            # single-task (text-only) vs multi-task comparison of the text denoiser.
+            *_text_recon_sweep(base_num_epochs),
+        ],
+    )
+
+    run_experiment(
+        training_name=f"{prefix_name}/baseline_gan-adv-0.1_mask-p-0.1-span-1-1",
+        config=dict_update_deep(
+            copy.deepcopy(base_config),
+            {
+                "model_args.discriminator_type": "mlp",
+                "train_args": {
+                    "adv_loss_scale": 0.1,
+                    "text_masking_opts": {
+                        "mask_prob": 0.1,
+                        "min_span": 1,
+                        "max_span": 1,
+                    },
+                    "audio_masking_opts": {
+                        "mask_prob": 0.1,
+                        "min_span": 1,
+                        "max_span": 1,
+                    },
+                },
+            },
+        ),
+        train_data=train_data,
+        test_data_dict=test_data_dict,
+        keep_epochs=get_keep_epochs(base_num_epochs),
+        # skip_eval=True,
+        additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
+        analysis_opts={
+            "checkpoints": get_keep_epochs(base_num_epochs),
+            "max_plotted_seqs": 20,
+            "cosine_similarity_summary": True,
+        },
+        recog_variants=[
+            {
+                "recog_name": "recon_text",
+                "input_modality": "text",
+                "output_modality": "text",
+                "mask_input": True,
+                "masking_opts": copy.deepcopy(base_config["train_args"]["text_masking_opts"]),
+                "keep_epochs": [base_num_epochs],
+            },
+            # fixed-masking text-recon sweep (copy ceiling + degradation curve), for a fair
+            # single-task (text-only) vs multi-task comparison of the text denoiser.
+            *_text_recon_sweep(base_num_epochs),
         ],
     )
 
@@ -160,36 +243,7 @@ def py():
         recog_variants=[_text_recon_variant(codebook_config, base_num_epochs)],
     )
 
-    # single-task reference: text denoising only (no audio task, no alternate batching). Same shared
-    # model and same text data/masking as the multi-task baseline, so comparing its recon_text WER
-    # against the multi-task experiments shows how much the joint text+audio setup hurts text
-    # reconstruction.
-    text_only_train_data = build_text_only_training_datasets(sil_prob=0.0, surround_w_sil=False, settings=settings)
-    text_only_config = dict_update_deep(
-        copy.deepcopy(base_config),
-        {
-            "__train_step_module": "train_steps.aed_denoising_discrete_text_only.train_step",
-            "general.default_data_key": "phon_indices",
-            "general.default_target_key": "phon_indices",
-            "training.accum_grad_multiple_step": 1,  # no alternate batching -> no grad accumulation
-        },
-        [
-            # drop alternate batching and all audio-task settings
-            "training.torch_batching",
-            "train_args.audio_ce_loss_scale",
-            "train_args.audio_masked_ce_loss_scale",
-            "train_args.audio_masking_opts",
-        ],
-    )
-    run_experiment(
-        training_name=f"{prefix_name}/baseline_text-only",
-        config=copy.deepcopy(text_only_config),
-        train_data=text_only_train_data,
-        test_data_dict=test_data_dict,
-        keep_epochs=get_keep_epochs(base_num_epochs),
-        skip_eval=True,  # audio->text ASR is not meaningful for a text-only model
-        recog_variants=[_text_recon_variant(text_only_config, base_num_epochs)],
-    )
+    # NOTE: the single-task text-only reference moved to config_librispeech_960_text_only_v1.py
 
     for exp_idx, (config, train_name) in enumerate(
         [
@@ -358,4 +412,52 @@ def py():
                 "cosine_similarity_summary": True,
             },
             recog_variants=[_text_recon_variant(config, num_epochs)],
+        )
+
+    for exp_idx, (config, train_name) in enumerate(
+        [
+            *[
+                (
+                    dict_update_deep(
+                        copy.deepcopy(codebook_config),
+                        {
+                            "train_args": {
+                                "audio_masking_opts": {
+                                    "mask_prob": mask_prob,
+                                    "min_span": min_span,
+                                    "max_span": max_span,
+                                },
+                                "text_masking_opts": {
+                                    "mask_prob": mask_prob,
+                                    "min_span": min_span,
+                                    "max_span": max_span,
+                                },
+                            },
+                        },
+                    ),
+                    f"baseline_codebook_audio-and-text-mask-p-{mask_prob}-span-{min_span}-{max_span}",
+                )
+                for mask_prob, min_span, max_span in (
+                    (0.1, 1, 1),
+                    # (0.2, 1, 1),
+                    # (0.3, 1, 1),
+                )
+            ]
+        ]
+    ):
+        num_epochs = config["training"]["__num_epochs"]
+        run_experiment(
+            training_name=f"{prefix_name}/{train_name}",
+            config=copy.deepcopy(config),
+            train_data=train_data,
+            test_data_dict=test_data_dict,
+            keep_epochs=get_keep_epochs(num_epochs),
+            # skip_eval=True,
+            additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
+            analysis_opts={
+                "checkpoints": get_keep_epochs(num_epochs),
+                "max_plotted_seqs": 20,
+                "cosine_similarity_summary": True,
+            },
+            recog_variants=[_text_recon_variant(codebook_config, num_epochs)],
         )
