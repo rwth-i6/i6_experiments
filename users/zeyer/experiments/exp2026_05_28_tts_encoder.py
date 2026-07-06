@@ -22,8 +22,6 @@ from returnn.frontend.encoder.conformer import (
     ConformerPositionwiseFeedForward,
 )
 
-from returnn.util.basic import BehaviorVersion
-
 from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import (
     train_exp as aed_train_exp,
