@@ -1,8 +1,9 @@
 """
 TTS-encoder project, RZ single-GPU variant on the NEW PyTorch (torch 2.12 + cu130).
 
-Role in the split: a separate RZ recipe (own Sis manager, torch-2.12 python) for the base-ls-newtorch
-baseline only; imports ``_train_ls_base`` from the ``exp2026_05_28_tts_encoder`` library.
+Role in the split: a separate RZ recipe (own Sis manager, torch-2.12 python),
+for the base-ls-newtorch baseline only;
+imports ``_train_ls_base`` from the ``exp2026_05_28_tts_encoder`` library.
 
 One experiment: the log-mel base re-run single-GPU under torch 2.12 (and the current RETURNN),
 to isolate the torch-version effect on top of Run A (which moved RETURNN Aug-2025 -> Jun-2026 and torch 2.5 -> 2.7).
