@@ -13,6 +13,7 @@ __all__ = [
 
 from typing import TYPE_CHECKING, Protocol, Tuple, TypeVar, Union
 import torch
+from torch import nn
 
 if TYPE_CHECKING:
     from returnn.tensor import TensorDict, Tensor, Dim
@@ -91,3 +92,22 @@ def forward_step(*, model, extern_data: TensorDict, **_kwargs_unused):
     assert run_ctx.expected_outputs is not None
     run_ctx.expected_outputs["output"]._dims = output.dims
     run_ctx.mark_as_default_output(output)
+
+
+def get_dummy_model(*, epoch: int, **_kwargs):
+  """Return empty torch module"""
+  return nn.Module()
+
+def forward_step_passthrough(*, model, extern_data, **_kwargs_unused):
+  from returnn.config import get_global_config
+  import returnn.frontend as rf
+
+  config = get_global_config()
+  assert config is not None
+  default_input_key = config.typed_value("default_input")
+  data = extern_data[default_input_key]
+
+  run_ctx = rf.get_run_ctx()
+  assert run_ctx.expected_outputs is not None
+  run_ctx.expected_outputs["output"]._dims = data.dims
+  run_ctx.mark_as_default_output(data)

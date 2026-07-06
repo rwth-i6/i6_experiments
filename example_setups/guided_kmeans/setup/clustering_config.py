@@ -29,8 +29,8 @@ _INITIALIZER_CLASS_DICT = {
     "PickleCheatingCentroidInitializerConfig": PickleCheatingCentroidInitializer,
 }
 
-#RETURNN_PYTHON_EXE = tk.Path("/work/asr3/michel/mann/virtualenv/2025-04-23_tensorflow-2.17_onnx-1.20_v1/bin/python3.11")
-RETURNN_PYTHON_EXE = tk.Path("/usr/bin/python3")
+RETURNN_PYTHON_EXE = tk.Path("/work/asr3/michel/mann/virtualenv/2025-04-23_tensorflow-2.17_onnx-1.20_v1/bin/python3.11")
+# RETURNN_PYTHON_EXE = tk.Path("/usr/bin/python3")
 RETURNN_ROOT = tk.Path("/u/mann/src/returnn")
 
 class _Config:
@@ -92,11 +92,12 @@ class PickleCheatingCentroidInitializerConfig(_Config, _NeedsLexicon):
 #         python_prolog=Collection([import_recipes, import_obj])
 #     )
 
-def get_base_config():
+def get_base_config(precomputed: bool = False):
     recipe_root = str(Path(i6_experiments.__file__).parent.parent)
     import_recipes = NonhashedCode(f'import sys\nsys.path.insert(0, "{recipe_root}")\n')
+    config_module = "precomputed" if precomputed else "base_config"
     import_obj = Import(
-        "i6_experiments.example_setups.guided_kmeans.setup.returnn.base_config.*"
+        f"i6_experiments.example_setups.guided_kmeans.setup.returnn.{config_module}.*"
     )
     return ReturnnConfig(
         config={},
@@ -106,13 +107,14 @@ def get_base_config():
 def get_dataset_config(
     num_epochs: int,
     sampled_segments: tk.Path,
-    hdf_path: str | tk.Path | None = None,
+    hdf_path: str | tk.Path | list[str | tk.Path] | None = None,
 ):
+    files = hdf_path or "/work/asr4/jxu/setups/pretraining/2025-02-28--best-rq-pretraining/work/i6_core/returnn/hdf/BlissToPcmHDFJob.vExsEVfudAcd/output/audio.hdf"
+    if not isinstance(files, list):
+        files = [files]
     core_dataset = {
         "class": "HDFDataset",
-        "files": [
-            hdf_path or "/work/asr4/jxu/setups/pretraining/2025-02-28--best-rq-pretraining/work/i6_core/returnn/hdf/BlissToPcmHDFJob.vExsEVfudAcd/output/audio.hdf"
-        ],
+        "files": files,
         "partition_epoch": 1,
         "seq_list_filter_file": sampled_segments,
         "use_cache_manager": True,
@@ -194,8 +196,8 @@ def clustering(
     cluster_callback_config: ClusteringCallbackConfig,
     returnn_python_exe: tk.Path | None = None,
     returnn_root: tk.Path | None = None,
-    hdf_path: str | tk.Path | None = None,
     log_verbosity: int = 5,
+    hdf_path: str | tk.Path | list[str | tk.Path] | None = None,
 ) -> ClusteringExpResult:
     internal_num_epochs = num_epochs * 2 + 1
     # set defaults

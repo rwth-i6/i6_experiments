@@ -1,6 +1,7 @@
 __all__ = ["DatasetConfig", "SamplingMethod"]
 
 from dataclasses import dataclass
+from typing import Sequence
 
 from sisyphus import tk, Job, Task
 from i6_core.returnn import ReturnnConfig
@@ -9,8 +10,10 @@ from i6_core.text import PipelineJob
 from i6_core.lib.corpus import Corpus
 
 @dataclass(frozen=True)
-class All:
+class _All:
     pass
+
+All = _All()
 
 @dataclass(frozen=True)
 class RandomFraction:
@@ -20,22 +23,26 @@ class RandomFraction:
 class RandomNumber:
     num: int
 
-SamplingMethod = All | RandomFraction | RandomNumber
+SamplingMethod = _All | RandomFraction | RandomNumber
 
 
 @dataclass
 class DatasetConfig:
-    audio_hdf_path: tk.Path
+    audio_hdf_path: tk.Path | list[tk.Path]
     sampling_method: SamplingMethod = All
+    precomputed: bool = False
 
 
 def get_dataset_config(
-    hdf_path: str | tk.Path,
+    hdf_path: str | tk.Path | Sequence[str | tk.Path],
     sampled_segments: tk.Path | None = None,
 ) -> ReturnnConfig:
+    files = hdf_path
+    if not isinstance(files, list):
+        files = [files]
     dataset_config = {
         "class": "HDFDataset",
-        "files": [ hdf_path ],
+        "files": files,
         "partition_epoch": 1,
         "use_cache_manager": True,
     }
@@ -68,12 +75,12 @@ def sample_segments_by_number(all_segments: tk.Path, num_segments: int = 20) -> 
 def select_segments(method: SamplingMethod, segments: tk.Path) -> tk.Path | None:
     sampled_segments = tk.Path("")
     match method:
-        case All():
-            sampled_segments = None
         case RandomFraction(f):
             sampled_segments = sample_segments_by_fraction(segments, fraction=f)
         case RandomNumber(n):
             sampled_segments = sample_segments_by_number(segments, num_segments=n)
+        case All:
+            sampled_segments = None
     
     return sampled_segments
 

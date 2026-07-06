@@ -43,7 +43,7 @@ def setup_corpus(key="train-clean-100") -> CorpusSetupResult:
         tk.register_output("datasets/LibriSpeech/segments/small_debug.txt", debug_segments.out)
 
     lexica = get_g2p_augmented_bliss_lexicon_dict()
-    lex = lexica["train-clean-100"]
+    lex = lexica[key]
 
 
     return CorpusSetupResult(corpus, lex, all_segments)

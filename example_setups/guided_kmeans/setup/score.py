@@ -1,6 +1,7 @@
 __all__ = ["JiwerScoringJob", "TaggedCorpusToTxtJob"]
 import re
 from dataclasses import dataclass
+from i6_core.lib.corpus import Corpus
 
 import jiwer
 
@@ -21,7 +22,6 @@ class TaggedCorpusToTxtJob(Job):
         yield Task("run", mini_task=True)
 
     def run(self):
-        from i6_core.lib.corpus import Corpus
         corpus = Corpus()
         corpus.load(self.corpus.get_path())
         with open(self.out_txt.get_path(), "w") as f:

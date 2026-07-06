@@ -102,13 +102,14 @@ def _decode(
     rasr_path: tk.Path | None = None,
     returnn_python_exe: tk.Path | None = None,
     returnn_root: tk.Path | None = None,
+    precomputed: bool = False,
 ):
     if returnn_python_exe is None:
         returnn_python_exe = RETURNN_PYTHON_EXE
     if returnn_root is None:
         returnn_root = RETURNN_ROOT
 
-    base_config = get_base_config()
+    base_config = get_base_config(precomputed)
     callback_config = get_callback_config(
         centroids=config.centroids,
         recognition_config=config.recog_rasr_config,
@@ -180,6 +181,7 @@ def decode_and_score(
         rasr_path,
         returnn_python_exe,
         returnn_root,
+        precomputed=dataset_config.precomputed
     )
 
     score_job = JiwerScoringJob(ref_file, decode_res.hyp)

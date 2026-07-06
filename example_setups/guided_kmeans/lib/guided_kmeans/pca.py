@@ -26,7 +26,13 @@ class SequenceBuffer:
         return result
     
     def flush(self) -> np.ndarray:
-        return np.concatenate(self.buffer)
+        result = np.concatenate(self.buffer)
+
+        # reset buffer and count
+        self.buffer = []
+        self.seq_count = 0
+
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,13 +68,13 @@ class StreamingPCA(SequenceBuffer):
         - n_samples: int
     """
 
-    def __init__(self, n_components=None, dtype=np.float64, ddof=1, store_covariance=False):
+    def __init__(self, n_components=None, dtype=np.float64, ddof=1, store_covariance=False, buffer_size=128):
         """
         n_components: int or None. If None, keep all.
         dtype: numeric dtype used internally.
         ddof: 1 for sample covariance (default), 0 for population covariance.
         """
-        super().__init__(buffer_size=128)
+        super().__init__(buffer_size=buffer_size)
         self.n_components = n_components
         self.dtype = dtype
         if ddof not in (0, 1):
@@ -81,6 +87,10 @@ class StreamingPCA(SequenceBuffer):
         self.M2_ = None            # (d, d) sum of squares matrix for covariance
 
         self._finalized = False
+    
+    @property
+    def has_data(self):
+        return self.buffer or self.n_samples > 0
 
     def add_sample(self, x):
         """
@@ -166,6 +176,10 @@ class StreamingPCA(SequenceBuffer):
         if self._finalized:
             raise RuntimeError("finalize() already called")
 
+        # process last sequences in buffer
+        if self.buffer:
+            self.add_batch(self.flush())
+
         if self.n_samples == 0:
             raise RuntimeError("No samples were added")
 
@@ -174,10 +188,6 @@ class StreamingPCA(SequenceBuffer):
                 f"Not enough samples to compute covariance with ddof={self.ddof}. "
                 f"Need n_samples > {self.ddof}."
             )
-        
-        # process last sequences in buffer
-        if self.buffer:
-            self.add_batch(self.flush())
 
         assert self.mean_ is not None and self.M2_ is not None
 
