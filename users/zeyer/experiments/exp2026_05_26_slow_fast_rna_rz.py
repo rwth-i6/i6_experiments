@@ -256,7 +256,7 @@ def _train_ext_transducer_rz():
     """Extended-transducer slow+fast decoder (slow label-rate stack injected into the fast frame stack)."""
     return _train_variant_rz(
         "ext-transducer-1gpu",
-        dec_build_dict=rf.build_dict(ExtTransducerDecoder, model_dim=1024, num_layers=6, num_heads=8, version=2),
+        dec_build_dict=rf.build_dict(ExtTransducerDecoder, model_dim=1024, num_layers=3, num_heads=8, version=2),  # 3 slow + 3 fast = 6 dec layers
         train_def=ext_transducer_training,
         recog_def=ext_transducer_model_recog,
         target_mode="rna_frame",
@@ -267,7 +267,7 @@ def _train_two_tower_rz():
     """Two-tower fast-slow decoder (text + speech stacks coupled by cross-attention)."""
     return _train_variant_rz(
         "two-tower-1gpu",
-        dec_build_dict=rf.build_dict(TwoTowerDecoder, model_dim=1024, num_layers=6, num_heads=8, version=2),
+        dec_build_dict=rf.build_dict(TwoTowerDecoder, model_dim=1024, num_layers=3, num_heads=8, version=2),  # 3 text + 3 speech = 6 dec layers
         train_def=two_tower_training,
         recog_def=two_tower_model_recog,
         target_mode="rna_frame",
