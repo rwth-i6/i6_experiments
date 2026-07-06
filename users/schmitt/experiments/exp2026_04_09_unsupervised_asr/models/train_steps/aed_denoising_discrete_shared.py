@@ -102,8 +102,15 @@ def train_step(
     audio_masking_opts: Optional[Dict] = None,
     aux_loss_scales: Optional[Sequence[float]] = None,
     codebook_diversity_loss_scale: float = 0.0,
+    adv_loss_scale: float = 0.0,
     **_kwargs,
 ):
+    """
+    :param adv_loss_scale: if > 0, add the domain-adversarial GAN loss that pushes the shared
+        encoder to produce modality-invariant states (a discriminator tries to tell audio from text
+        encoder states, the encoder tries to fool it). Requires the model to have a discriminator
+        (``discriminator_type="mlp"``). text is domain 0, audio is domain 1.
+    """
     assert set(extern_data.data.keys()) == {"data", "phon_indices", "seq_tag"}
     audio_indices_: ReturnnTensor = extern_data["data"]
     audio_indices_lens: Tensor = audio_indices_.dims[1].dyn_size_ext.raw_tensor
@@ -129,6 +136,8 @@ def train_step(
         masking_opts=text_masking_opts,
         aux_loss_scales=aux_loss_scales,
         codebook_diversity_loss_scale=codebook_diversity_loss_scale,
+        adv_loss_scale=adv_loss_scale,
+        true_adv_target=0,  # text = domain 0
         loss_name="text",
     )
 
@@ -151,6 +160,8 @@ def train_step(
         masking_opts=audio_masking_opts,
         aux_loss_scales=aux_loss_scales,
         codebook_diversity_loss_scale=codebook_diversity_loss_scale,
+        adv_loss_scale=adv_loss_scale,
+        true_adv_target=1,  # audio = domain 1
         loss_name="audio",
     )
     # else:
