@@ -22,7 +22,7 @@ Variants (all single-GPU, same dyn-rope-ctembed encoder + regime, differing only
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 import returnn.frontend as rf
 
@@ -131,6 +131,7 @@ def _train_variant_rz(
     target_mode: str,
     recog_def=None,
     recog_extra: Optional[Dict[str, Any]] = None,
+    dec_aux_loss_layers: Sequence[int] = (),
 ):
     """Train one streaming-decoder variant on a single 96 GB RZ GPU + recog.
 
@@ -169,7 +170,9 @@ def _train_variant_rz(
             "max_seqs": 200,
             "optimizer.weight_decay": 1e-2,
             "label_smoothing": 0.1,  # decoder-CE label smoothing, as in the AED baseline
-            "dec_aux_loss_layers": [3],  # decoder-layer-3 aux CE, as in the AED baseline
+            # dec_aux only for the std-AED control (to match base);
+            # the slow+fast decoders (ext-transducer / two-tower) have no top-level final_ln/logits to tap.
+            **({"dec_aux_loss_layers": list(dec_aux_loss_layers)} if dec_aux_loss_layers else {}),
             "max_seq_length_default_target": None,
             "max_seq_length_default_input": 19.5 * _raw_sample_rate,
         },
@@ -222,6 +225,7 @@ def _train_standard_aed_rz():
         train_def=standard_aed_training,
         target_mode="labels",
         recog_def=None,  # CTC-only recog (= base 9.41 metric); AED decoder search deferred
+        dec_aux_loss_layers=[3],  # match the base AED (dec-layer-3 aux CE); only the std-AED decoder taps it
     )
 
 
