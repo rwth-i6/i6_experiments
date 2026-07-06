@@ -4,7 +4,7 @@ Owns all RZ experiments:
 the audio-only baselines (base-ls*),
 and the single-GPU / nep=100 TTS-encoder runs (ref-match + pseudo-enc),
 the clean A/B vs Nick's single-GPU 3.53 reference.
-Imports ``_train_ls_base`` + ``DbMelFeatureExtractor`` from the ``exp2026_05_28_tts_encoder`` library,
+Imports ``train_ls_base`` + ``DbMelFeatureExtractor`` from the ``exp2026_05_28_tts_encoder`` library,
 and ``_train_tts_encoder`` from the ``_fzj`` recipe.
 """
 
@@ -23,14 +23,19 @@ __setup_root_prefix__ = "exp2026_05_28_tts_encoder_rz"
 
 def py():
     prefix = get_setup_prefix_for_module(__name__)
+    # WER comments above each call are %, joint AED+CTC first-pass (aed+ctc/recog-1stpass-res.txt),
+    # as {"dev-clean", "dev-other", "test-clean", "test-other"}.
     # --- Audio-only single-GPU baselines (moved here from the exp2026_05_28_tts_encoder library). ---
     # base-ls: standard log-mel, bhv 24 -> same hash as the imported base-librispeech baseline (not re-run).
+    # {"dev-clean": 1.87, "dev-other": 4.06, "test-clean": 2.06, "test-other": 4.38}
     train_ls_base("base-ls", prefix=prefix)
     # base-ls-dbmel: DbMel front-end (== frozen GlowTTS space); bhv 25 is behavior-neutral here.
+    # {"dev-clean": 1.82, "dev-other": 4.19, "test-clean": 2.06, "test-other": 4.49}
     train_ls_base(
         "base-ls-dbmel", prefix=prefix, feature_extraction=rf.build_dict(DbMelFeatureExtractor), behavior_version=25
     )
     # base-ls-newrtrn: base-ls re-run under the current RZ RETURNN (isolates the RETURNN-version effect).
+    # {"dev-clean": 1.86, "dev-other": 4.14, "test-clean": 2.03, "test-other": 4.28}
     train_ls_base("base-ls-newrtrn", prefix=prefix, config_updates_extra={"_meta_hash_trigger": "new-returnn-2026-06"})
     # base-ls-muon: muon-lr5e3-wdbl on the single-GPU log-mel baseline (best FZJ optimizer setting, at RZ).
     train_ls_base(
@@ -44,6 +49,7 @@ def py():
     # --- TTS-encoder single-GPU runs ---
     # Reference-match TTS-encoder, SINGLE-GPU / nep=100 (the regime of Nick's 3.53 reference).
     # Identical synth / data to the FZJ tts-enc-ref-match; only num_processes=1 / nep=100 differ.
+    # {"dev-clean": 1.71, "dev-other": 4.17, "test-clean": 1.88, "test-other": 4.40}  (base-ls-dbmel 4.19 -> ~0 text gain)
     _train_tts_encoder(
         "tts-enc-ref-match-1gpu",
         prefix=prefix,

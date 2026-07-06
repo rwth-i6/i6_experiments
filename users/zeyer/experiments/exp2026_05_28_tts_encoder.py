@@ -1,7 +1,7 @@
 """
 TTS-encoder project -- shared library module (no ``py()``; not run by a Sis manager).
 
-Holds ``_train_ls_base`` + ``DbMelFeatureExtractor``,
+Holds ``train_ls_base`` + ``DbMelFeatureExtractor``,
 imported by the recipe files ``_rz`` / ``_fzj`` / ``_rz_torch212``.
 Kept as its own module because ``DbMelFeatureExtractor``'s import path is serialized into job hashes
 by ``rf.build_dict``,
