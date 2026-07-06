@@ -208,6 +208,8 @@ def _extra_high_ppl_lms() -> None:
     # Knobs: n=num_layers, d=model_dim, nEp=sub-epochs (default 100), lr (default 1.0), a=num_heads.
     # None of these overlap the existing family opts (would otherwise re-register the same job).
     for opts in [
+        {"n": 1, "d": 32},
+        {"n": 1, "d": 64},
         {"n": 1, "d": 128},
         {"n": 1, "d": 256},
         {"n": 1, "d": 512},
@@ -223,13 +225,15 @@ def _extra_high_ppl_lms() -> None:
     ]:
         _train_lm(opts)
 
-    # Low-epoch sweep on a small base (n4-d256): undertraining pushes word PPL up (~110-150),
-    # and few sub-epochs make these the fastest of the set.
-    for n_ep in [10, 20, 30, 40, 50]:
+    # Low-epoch sweep on a small base (n4-d256): undertraining pushes word PPL up.
+    # Extended down to nEp1 (=1/20 data pass) to reach the far high-PPL end (~word 200-450),
+    # needed to approach the No-LM WER bar; nEp10-50 land ~110-150.
+    for n_ep in [1, 2, 3, 5, 10, 20, 30, 40, 50]:
         _train_lm({"n": 4, "d": 256, "nEp": n_ep})
 
-    # Second low-epoch sweep on a larger base (n6-d512) for a better-PPL band (~85-112).
-    for n_ep in [10, 20, 30, 40, 50]:
+    # Second low-epoch sweep on a larger base (n6-d512), better GPU util than n4-d256.
+    # Extended down to nEp1 for the high-PPL end; nEp10-50 land ~85-112.
+    for n_ep in [1, 2, 3, 5, 10, 20, 30, 40, 50]:
         _train_lm({"n": 6, "d": 512, "nEp": n_ep})
 
 
