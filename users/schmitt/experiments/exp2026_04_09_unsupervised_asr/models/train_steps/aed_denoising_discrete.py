@@ -114,15 +114,21 @@ def train_step(
     adv_loss_name = None
     if adv_loss_scale > 0:
         if ctx.step % 4 in (0, 1):
-            # train generator
+            # train generator (the whole representation path: embedding + encoder) to fool the disc
             model.discriminator.freeze()
             model.unfreeze_encoder()
+            for p in model.embedding.parameters():
+                p.requires_grad = True
             adv_target = 1 - true_adv_target
             adv_loss_name = "gen"
         else:
-            # train discriminator
+            # train the discriminator only -> freeze the whole representation path (encoder AND the
+            # input embedding). freeze_encoder() alone leaves the embedding trainable, which would
+            # otherwise get an anti-alignment gradient from the discriminator loss.
             model.discriminator.unfreeze()
             model.freeze_encoder()
+            for p in model.embedding.parameters():
+                p.requires_grad = False
             adv_target = true_adv_target
             adv_loss_name = "disc"
 
@@ -220,12 +226,13 @@ def train_step(
             torch.full_like(disc_out, fill_value=adv_target),
             reduction="none",
         )
+        # per-frame mean so the magnitude does not scale with sequence length (otherwise long audio
+        # sequences dominate the short phoneme sequences in the shared setup).
         ctx.mark_as_loss(
-            adv_loss,
+            adv_loss.mean(),
             name=f"adv{loss_suffix}_{adv_loss_name}",
             scale=adv_loss_scale,
-            custom_inv_norm_factor=label_indices_.dims[0].get_size_tensor(),
-            use_normalized_loss=True,
+            dims=[],
         )
 
     if aux_loss_scales is None or len(aux_loss_scales) == 0 or all(scale == 0 for scale in aux_loss_scales):
