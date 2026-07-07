@@ -208,6 +208,12 @@ def _extra_high_ppl_lms() -> None:
     # Knobs: n=num_layers, d=model_dim, nEp=sub-epochs (default 100), lr (default 1.0), a=num_heads.
     # None of these overlap the existing family opts (would otherwise re-register the same job).
     for opts in [
+        # Ultra-tiny dims for the extreme capacity-limited (highest-PPL) end. a=1 => head_dim=model_dim.
+        # d=4/8/16 only: rotary can't handle head_dim<4, so d=1 AND d=2 crash and are excluded (d=4
+        # already reaches very high PPL ~500; running d<=2 would need abs pos enc instead of rotary).
+        {"n": 1, "d": 4, "a": 1},
+        {"n": 1, "d": 8, "a": 1},
+        {"n": 1, "d": 16, "a": 1},
         {"n": 1, "d": 32},
         {"n": 1, "d": 64},
         {"n": 1, "d": 128},
@@ -235,6 +241,14 @@ def _extra_high_ppl_lms() -> None:
     # Extended down to nEp1 for the high-PPL end; nEp10-50 land ~85-112.
     for n_ep in [1, 2, 3, 5, 10, 20, 30, 40, 50]:
         _train_lm({"n": 6, "d": 512, "nEp": n_ep})
+
+    # Sub-1% training (train_epoch_split=100, nEp1-3) on tiny models: stack capacity-limit x
+    # data-limit for the far high-PPL end (target subword PPL ~200-300, approaching the No-LM bar).
+    # Undertraining alone (nEp1-5 @ split=20) topped out ~PPL90; fully-trained tiny reached ~157
+    # (n1-d32); this combines both regimes. esplit=100 => nEp1 sees ~1% of the LM data.
+    for base in [{"n": 1, "d": 32}, {"n": 2, "d": 64}]:
+        for n_ep in [1, 2, 3]:
+            _train_lm({**base, "nEp": n_ep, "esplit": 100})
 
 
 def _train_lm(opts: dict) -> None:
@@ -268,6 +282,9 @@ def _train_lm(opts: dict) -> None:
     num_heads = opts.pop("a", None)
     drop = opts.pop("drop", 0.0)
     att_drop = opts.pop("adrop", drop)
+    # train_epoch_split: default 20 (existing LMs, byte-identical). esplit=100 => 5x less data per
+    # sub-epoch, so nEp1 = 1% of the data (sub-1% training) for the far high-PPL end.
+    esplit = opts.pop("esplit", 20)
     assert not opts, f"unexpected LM opts left: {opts}"
     train(
         name,
@@ -283,7 +300,7 @@ def _train_lm(opts: dict) -> None:
                 "__time_rqmt": 5,
             },
         ),
-        train_dataset=get_librispeech_lm_dataset(vocab="spm10k", train_epoch_split=20),
+        train_dataset=get_librispeech_lm_dataset(vocab="spm10k", train_epoch_split=esplit),
         model_def=ModelDefWithCfg(
             lm_model_def,
             {
