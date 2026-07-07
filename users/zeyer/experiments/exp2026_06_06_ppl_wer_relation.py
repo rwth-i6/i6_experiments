@@ -153,11 +153,10 @@ def _lm_family_ppl_wer() -> None:
                     "wer": score_res.main_measure_value,
                 }
             )
-            # Gate on WER only (imported, so already available). PPL is new compute,
-            # so the PPL vars' .available() is False until the PPL job runs -- don't gate on them.
-            if not wer_var.available():
-                continue
-            # Scatter uses word PPL vs WER.
+            # Scatter uses word PPL vs WER. Include ALL points (do NOT gate on WER availability),
+            # so the plot job depends on the full family and runs once when everything is ready
+            # (like WriteTableDataJob below). For intermediate views, read the TSV table and plot
+            # locally rather than emitting partial-data plots that re-hash on every manager reload.
             points_per_eval.setdefault(eval_name, []).append((word_ppl_var, wer_var))
 
             tk.register_output(f"{prefix}/per_lm/{lm_name}/{eval_name}/word_ppl.txt", word_ppl_var)
