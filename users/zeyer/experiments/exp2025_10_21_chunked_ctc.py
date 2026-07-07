@@ -50,6 +50,10 @@ from returnn.frontend.encoder.conformer import (
 )
 
 from i6_experiments.users.zeyer.nn_rf.encoder import ff
+from i6_experiments.users.zeyer.nn_rf.encoder.causal_conformer import (
+    CausalConformerEncoderLayer,
+    CausalRelPosSelfAttention,
+)
 from i6_experiments.users.zeyer.nn_rf.encoder import chunked_conformer_v1
 from i6_experiments.users.zeyer.nn_rf.encoder.chunked_conformer_v2 import (
     ChunkedConformerEncoderV2,
@@ -202,6 +206,40 @@ def py():
                     ),
                     num_heads=8,
                     self_att=rf.build_dict(rf.RotaryPosSelfAttention),
+                ),
+            ),
+        },
+    )
+
+    # base-causal: fully-causal streaming baseline.
+    # Causal relpos self-att + causal depthwise conv.
+    # Unlimited left context, zero lookahead,
+    # except ~50ms fixed from the frontend subsampling.
+    # Uses relpos self-att (RelPosCausalSelfAttention), matching base (7.32),
+    # which beat base-rope (7.35).
+    # (The default conformer conv, padding=same k=32, would leak ~900ms of future;
+    #  causal conv removes that.)
+    train(
+        "base-causal",
+        {
+            "model.enc_build_dict": rf.build_dict(
+                ConformerEncoder,
+                input_layer=rf.build_dict(
+                    ConformerConvSubsample,
+                    out_dims=[32, 64, 64],
+                    filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                    pool_sizes=[(1, 2)],
+                    strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
+                ),
+                num_layers=16,
+                out_dim=1024,
+                encoder_layer=rf.build_dict(
+                    CausalConformerEncoderLayer,
+                    ff=rf.build_dict(
+                        ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                    ),
+                    num_heads=8,
+                    self_att=rf.build_dict(CausalRelPosSelfAttention),
                 ),
             ),
         },
