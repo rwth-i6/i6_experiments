@@ -27,13 +27,14 @@ test_data_dict = build_test_datasets()
 
 base_config = {
     "__network_module": "definitions.conformer_aed_discrete_shared_v1.Model",
-    "__train_step_module": "train_steps.aed_denoising_discrete.train_step",
+    "__train_step_module": "train_steps.aed_denoising_discrete_shared_backtranslation.train_step",
     "__baseline_alias": "v1",
     "__forward_step_module": "recognition.discrete_audio_aed.forward_step.forward_step",
     "__callback_module": "recognition.discrete_audio_aed.callback.RecognitionToTextDictCallback",
-    #the ones above are in the models folder
     "train_rqmt": {
         "cpu_rqmt": 6,
+        "gpu_mem": 11,
+        #"gpu_mem": 24,
     },
     "general": {
         "torch_dataloader_opts": {"num_workers": 1},  # for multi proc dataset
@@ -49,9 +50,10 @@ base_config = {
             "piecewise_epochs": [0, 0.45 * base_num_epochs, 0.9 * base_num_epochs, base_num_epochs],
             "piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
         },
-        "grad_scaler": None,
-        # "torch_amp": "bfloat16",
-        "batch_size": 15_000,
+        "grad_scaler": {},
+        #"torch_amp": "bfloat16",
+        #"torch_amp": "float16",
+        "batch_size": 7500,
         **optimizer_configs.v1,
         # "max_seq_length": {"audio": 19.5 * sampling_rate},  # 19.5 seconds
         "max_seqs": 200,
@@ -59,7 +61,7 @@ base_config = {
         "gradient_clip_global_norm": 5.0,
     },
     "recog": {
-        "batch_size": 15_000,
+        "batch_size": 7500,
     },
     "model_args": {
         "text_aux_loss_layers": (),
@@ -75,13 +77,23 @@ base_config = {
     },
     "train_args": {
         "aux_loss_scales": (),
-        "ce_loss_scale": 1.0,
-        "masked_ce_loss_scale": 0.0,
-        "masking_opts": {
-            "mask_prob": 0.0,
-            "min_span": 0,  # 1
-            "max_span": 0,  # 3
+        "text_ce_loss_scale": 0.2,
+        "text_masked_ce_loss_scale": 1.0,
+        "audio_ce_loss_scale": 0.2,
+        "audio_masked_ce_loss_scale": 1.0,
+        "pseudo_audio_text_ce_loss_scale": 1.0,
+        "pseudo_text_audio_ce_loss_scale": 1.0,
+        "text_masking_opts": {
+            "mask_prob": 0.3,
+            "min_span": 2,
+            "max_span": 10,
         },
+        "audio_masking_opts": {
+            "mask_prob": 0.3,
+            "min_span": 4,
+            "max_span": 20,
+        },
+        "codebook_diversity_loss_scale": 0.0,
     },
 }
 
@@ -89,11 +101,84 @@ base_config = {
 def py():
     prefix_name = f"{__setup_base_name__}/librispeech/{__name__.split('.')[-1]}"
 
-    run_experiment(
-        training_name=f"{prefix_name}/baseline",
-        config=copy.deepcopy(base_config),
-        train_data=train_data,
-        test_data_dict=test_data_dict,
-        keep_epochs=get_keep_epochs(base_num_epochs),
-        skip_eval=False,
-    )
+    ablations = [
+        (
+            "baseline_enc-3_dec-3",
+            {
+                "num_enc_layers": 3,
+                "num_text_dec_layers": 3,
+                "num_audio_dec_layers": 3,
+            },
+            {},
+        ),
+        (
+            "baseline_codebook_enc-3_dec-3",
+            {
+                "num_enc_layers": 3,
+                "num_text_dec_layers": 3,
+                "num_audio_dec_layers": 3,
+                "codebook_opts": {},
+            },
+            {
+                "codebook_diversity_loss_scale": 0.1,
+            },
+        ),
+        (
+            "baseline_enc-6_dec-6",
+            {
+                "num_enc_layers": 6,
+                "num_text_dec_layers": 6,
+                "num_audio_dec_layers": 6,
+            },
+            {},
+        ),
+        (
+            "baseline_codebook_enc-6_dec-6",
+            {
+                "num_enc_layers": 6,
+                "num_text_dec_layers": 6,
+                "num_audio_dec_layers": 6,
+                "codebook_opts": {},
+            },
+            {
+                "codebook_diversity_loss_scale": 0.1,
+            },
+        ),
+        (
+            "masking_text-p-0.4",
+            {},
+            {
+                "text_masking_opts": {
+                    "mask_prob": 0.4,
+                    "min_span": 2,
+                    "max_span": 10,
+                },
+            },
+        ),
+        (
+            "masking_audio-p-0.4",
+            {},
+            {
+                "audio_masking_opts": {
+                    "mask_prob": 0.4,
+                    "min_span": 4,
+                    "max_span": 20,
+                },
+            },
+        ),
+    ]
+
+    for train_name, model_args, train_args in ablations:
+        config = copy.deepcopy(base_config)
+        config["model_args"].update(model_args)
+        config["train_args"].update(train_args)
+
+        run_experiment(
+            training_name=f"{prefix_name}/{train_name}",
+            config=config,
+            train_data=train_data,
+            test_data_dict=test_data_dict,
+            keep_epochs=get_keep_epochs(base_num_epochs),
+            skip_eval=False,
+        )
+

@@ -254,6 +254,9 @@ def train_step(
     pseudo_text_audio_ce_loss_scale: float = 0.0,
     adv_loss_scale: float = 0.0,
     codebook_diversity_loss_scale: float = 0.0,  
+    mlm_pretrain_steps: int = 0,
+    pretrain_codebook_prob: Optional[float] = None,
+    pretrain_codebook_diversity_loss_scale: Optional[float] = None,
     **_kwargs,
 ):
     assert set(extern_data.data.keys()) == {"data", "target", "seq_tag"}
@@ -265,6 +268,22 @@ def train_step(
         phon_indices_: ReturnnTensor = extern_data["target"]
     else:
         phon_indices_ = None
+
+    ctx = rf.get_run_ctx()
+    # Check if we are in the MLM pretraining phase where backtranslation is skipped
+    is_pretraining = ctx.step < mlm_pretrain_steps
+
+    if is_pretraining and pretrain_codebook_prob is not None:
+        if hasattr(model, "codebook_prob"):
+            if getattr(model, "_orig_codebook_prob", None) is None:
+                model._orig_codebook_prob = model.codebook_prob
+            model.codebook_prob = pretrain_codebook_prob
+    elif getattr(model, "_orig_codebook_prob", None) is not None:
+        model.codebook_prob = model._orig_codebook_prob
+        model._orig_codebook_prob = None
+
+    if is_pretraining and pretrain_codebook_diversity_loss_scale is not None:
+        codebook_diversity_loss_scale = pretrain_codebook_diversity_loss_scale
 
     if text_ce_loss_scale > 0.0 or text_masked_ce_loss_scale > 0.0:
         model.decode_seq = model.decode_text_seq
@@ -310,56 +329,57 @@ def train_step(
             true_adv_target=0,  # real audio
         )
 
-    if pseudo_audio_text_ce_loss_scale > 0.0:
-        model.step_decoder = model.step_audio_decoder
-        backtranslation_step(
-            model=model,
-            extern_data=extern_data,
-            ce_loss_scale=pseudo_audio_text_ce_loss_scale,
-            label_smoothing=label_smoothing,
-            label_smoothing_start_epoch=label_smoothing_start_epoch,
-            aux_loss_scales=text_aux_loss_scales,
-            codebook_diversity_loss_scale=codebook_diversity_loss_scale,  
-            src_indices_=phon_indices_,
-            forward_target=model.forward_audio,
-            target_decoder=model.audio_decoder,
-            target_bos_idx=model.audio_bos_idx,
-            target_eos_idx=model.audio_eos_idx,
-            target_out_dim=model.audio_out_dim,
-            forward_src=model.forward_text,
-            src_decoder=model.text_decoder,
-            decode_src_seq=model.decode_text_seq,
-            step_decoder_func=model.step_audio_decoder,
-            src_bos_idx=model.text_bos_idx,
-            src_eos_idx=model.text_eos_idx,
-            src_blank_idx=model.text_blank_idx,
-            src_out_dim=model.text_out_dim,
-            loss_name="pseudo",
-        )
+    if not is_pretraining:
+        if pseudo_audio_text_ce_loss_scale > 0.0:
+            model.step_decoder = model.step_audio_decoder
+            backtranslation_step(
+                model=model,
+                extern_data=extern_data,
+                ce_loss_scale=pseudo_audio_text_ce_loss_scale,
+                label_smoothing=label_smoothing,
+                label_smoothing_start_epoch=label_smoothing_start_epoch,
+                aux_loss_scales=text_aux_loss_scales,
+                codebook_diversity_loss_scale=codebook_diversity_loss_scale,  
+                src_indices_=phon_indices_,
+                forward_target=model.forward_audio,
+                target_decoder=model.audio_decoder,
+                target_bos_idx=model.audio_bos_idx,
+                target_eos_idx=model.audio_eos_idx,
+                target_out_dim=model.audio_out_dim,
+                forward_src=model.forward_text,
+                src_decoder=model.text_decoder,
+                decode_src_seq=model.decode_text_seq,
+                step_decoder_func=model.step_audio_decoder,
+                src_bos_idx=model.text_bos_idx,
+                src_eos_idx=model.text_eos_idx,
+                src_blank_idx=model.text_blank_idx,
+                src_out_dim=model.text_out_dim,
+                loss_name="pseudo",
+            )
 
-    if pseudo_text_audio_ce_loss_scale > 0.0:
-        model.step_decoder = model.step_text_decoder
-        backtranslation_step(
-            model=model,
-            extern_data=extern_data,
-            ce_loss_scale=pseudo_text_audio_ce_loss_scale,
-            label_smoothing=label_smoothing,
-            label_smoothing_start_epoch=label_smoothing_start_epoch,
-            aux_loss_scales=audio_aux_loss_scales,
-            codebook_diversity_loss_scale=codebook_diversity_loss_scale, 
-            src_indices_=audio_indices_,
-            forward_target=model.forward_text,
-            target_decoder=model.text_decoder,
-            target_bos_idx=model.text_bos_idx,
-            target_eos_idx=model.text_eos_idx,
-            target_out_dim=model.text_out_dim,
-            forward_src=model.forward_audio,
-            src_decoder=model.audio_decoder,
-            decode_src_seq=model.decode_audio_seq,
-            step_decoder_func=model.step_text_decoder,
-            src_bos_idx=model.audio_bos_idx,
-            src_eos_idx=model.audio_eos_idx,
-            src_blank_idx=model.audio_blank_idx,
-            src_out_dim=model.audio_out_dim,
-            loss_name="pseudo_text-audio",
-        )
+        if pseudo_text_audio_ce_loss_scale > 0.0:
+            model.step_decoder = model.step_text_decoder
+            backtranslation_step(
+                model=model,
+                extern_data=extern_data,
+                ce_loss_scale=pseudo_text_audio_ce_loss_scale,
+                label_smoothing=label_smoothing,
+                label_smoothing_start_epoch=label_smoothing_start_epoch,
+                aux_loss_scales=audio_aux_loss_scales,
+                codebook_diversity_loss_scale=codebook_diversity_loss_scale, 
+                src_indices_=audio_indices_,
+                forward_target=model.forward_text,
+                target_decoder=model.text_decoder,
+                target_bos_idx=model.text_bos_idx,
+                target_eos_idx=model.text_eos_idx,
+                target_out_dim=model.text_out_dim,
+                forward_src=model.forward_audio,
+                src_decoder=model.audio_decoder,
+                decode_src_seq=model.decode_audio_seq,
+                step_decoder_func=model.step_text_decoder,
+                src_bos_idx=model.audio_bos_idx,
+                src_eos_idx=model.audio_eos_idx,
+                src_blank_idx=model.audio_blank_idx,
+                src_out_dim=model.audio_out_dim,
+                loss_name="pseudo_reverse",
+            )

@@ -27,54 +27,55 @@ train_data = build_training_datasets(sil_prob=0.0, surround_w_sil=False, setting
 def py():
     prefix_name = f"{__setup_base_name__}/librispeech/{__name__.split('.')[-1]}"
 
-    run_experiment(
-        training_name=f"{prefix_name}/baseline", #use ablation study data
-        config=copy.deepcopy(base_config),
-        train_data=train_data,
-        test_data_dict=test_data_dict,
-        keep_epochs=get_keep_epochs(base_num_epochs),
-        skip_eval=False,
-    )
-
-
-    ablations = (
-        (3, 3, 10_000, [1e-5, 1e-2, 1e-5, 1e-6],"peak-lr1e-2" ), 
-        (3, 3, 10_000, [1e-4, 1e-2, 1e-5, 1e-6],"agressive1-peak-lr1e-2"), 
-        (3, 3, 10_000, [1e-4, 1e-3, 1e-4, 1e-5],"agressive2-peak-lr1e-3" ), 
-        (3, 3, 10_000, [1e-4, 1e-2, 1e-4, 1e-5],"agressive3-peak-lr1e-2" )
-    )
 
 
 
-    for exp_idx, (config, train_name) in enumerate(
-        [
-            *[
-                (
-                    dict_update_deep(
-                        copy.deepcopy(base_config),
-                        {
-                            "model_args": {
-                                "num_enc_layers": num_enc_layers,
-                                "num_text_dec_layers": num_dec_layers,
-                                "num_audio_dec_layers": num_dec_layers,
-                            },
-                            "training.batch_size": batch_size,
-                            "training.__lr_opts.piecewise_values": piecewise_values,
-                        },
-                    ),
-                    f"baseline_enc-{num_enc_layers}_dec-{num_dec_layers}_bs-{batch_size}_lrconfig-{lr_name}",
-                )
-                for num_enc_layers, num_dec_layers, batch_size, piecewise_values, lr_name in ablations  # each tuple is a different test config ; basically an ablation
-            ]
-        ]
-    ):
-        print("new")
-        num_epochs = config["training"]["__num_epochs"]
+    '''
+    (
+        "baseline_codebook_enc-3_dec-3_v1",
+        {
+            "num_enc_layers": 3,
+            "num_text_dec_layers": 3,
+            "num_audio_dec_layers": 3,
+            "codebook_opts": {},
+        },
+        {
+            "codebook_diversity_loss_scale": 0.11,
+        },
+        {},
+    ),
+    '''
+
+    ablations = [
+        (
+            "baseline_codebook_enc-6_dec-6_v1",
+            {
+                "num_enc_layers": 6,
+                "num_text_dec_layers": 6,
+                "num_audio_dec_layers": 6,
+                "codebook_opts": {},
+            },
+            {
+                "codebook_diversity_loss_scale": 0.11,
+            },
+            {
+                "batch_size": 4000,
+            },
+        )
+    ]
+
+    for train_name, model_args, train_args, training_args in ablations:
+        config = copy.deepcopy(base_config)
+        config["model_args"].update(model_args)
+        config["train_args"].update(train_args)
+        config["training"].update(training_args)
+
         run_experiment(
             training_name=f"{prefix_name}/{train_name}",
-            config=copy.deepcopy(config),
+            config=config,
             train_data=train_data,
             test_data_dict=test_data_dict,
-            keep_epochs=get_keep_epochs(num_epochs),
+            keep_epochs=get_keep_epochs(base_num_epochs),
             skip_eval=False,
         )
+

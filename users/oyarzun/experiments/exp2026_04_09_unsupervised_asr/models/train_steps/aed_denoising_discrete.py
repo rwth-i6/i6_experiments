@@ -90,7 +90,7 @@ def train_step(
         target_indices_lens = label_indices_lens
 
     # mask is True, if original value should be kept
-    if masking_opts["mask_prob"] == 0.0:
+    if not masking_opts or masking_opts.get("mask_prob", 0.0) == 0.0:
         label_indices_masked = label_indices
         label_indices_masked_lens = label_indices_lens.to(label_indices.device)
         B = label_indices_masked_lens.size(0)  # noqa
