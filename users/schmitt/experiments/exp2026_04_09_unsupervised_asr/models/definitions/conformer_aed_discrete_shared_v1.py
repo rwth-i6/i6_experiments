@@ -578,7 +578,7 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
             state,
         )
         if self.share_decoder:
-            dec_out = dec_out[:, :, :, self.text_out_dim :]  # take only audio part (B, beam, T, audio_out_dim)
+            dec_out = dec_out[..., self.text_out_dim :]  # take only audio part (B, beam, T, audio_out_dim)
         return dec_out, dec_state
 
     def step_text_decoder(
@@ -590,5 +590,5 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
             state,
         )
         if self.share_decoder:
-            dec_out = dec_out[:, :, :, : self.text_out_dim]  # take only text part (B, beam, T, text_out_dim)
+            dec_out = dec_out[..., : self.text_out_dim]  # take only text part (B, beam, T, text_out_dim)
         return dec_out, dec_state
