@@ -1,5 +1,5 @@
 import os
-from typing import Optional
+from typing import Optional, List
 
 from sisyphus import tk
 from sisyphus.delayed_ops import DelayedFormat
@@ -46,6 +46,19 @@ def remove_silences_from_audio(
     return delete_silences_job.out_preprocessed_manifest
 
 
+def _reformat_tsv_seq_tags(tsv_paths: List[DelayedFormat], librispeech_key: str):
+    tsv_tails = []
+    for tsv_path in tsv_paths:
+        # remove header line from tsv (this also converts the DelayedFormat to a Path as a nice side effect)
+        tsv_tails.append(TailJob(tsv_path, num_lines="+2").out)
+
+    tsv_path = ConcatenateJob(tsv_tails).out
+    # reformat line "146197/1061-146197-0004.flac    237120" -> "train-other-960/1061-146197-0004/1061-146197-0004"
+    reformat_seq_tags = PipelineJob(tsv_path, [rf"sed -E 's|^[^/]*/([^.]+)\.flac.*|{librispeech_key}/\1/\1|'"]).out
+    
+    return reformat_seq_tags
+
+
 def featurize_audio(
     librispeech_key: str,
     input_audio_manifests: tk.Path,
@@ -83,14 +96,18 @@ def featurize_audio(
         DelayedFormat(f"{{}}/{file_name}", featurize_job.out_features_precompute_pca512_cls128_mean_pooled)
         for file_name in ("train.npy", "train.lengths", "train.tsv")
     ]
-
+    reformat_feature_seq_tags = _reformat_tsv_seq_tags(
+        tsv_paths=[tsv_file],
+        librispeech_key=librispeech_key
+    )
     dump_features_to_hdf_job = DumpNumpyFeaturesToHdfJobV2(
         npy_file=npy_file,
         seq_lengths_file=seq_lengths_file,
-        tsv_file=tsv_file,
+        tsv_file=None,  # use the reformatted seq_tag_file instead
         concurrent=dump_hdf_concurrent,
         fixed_random_subset=fixed_random_subset,
         max_abs_value=max_abs_value,
+        seq_tag_file=reformat_feature_seq_tags,
     )
 
     cluster_id_file_train, cluster_id_file_valid = [
@@ -103,19 +120,17 @@ def featurize_audio(
         DelayedFormat(f"{{}}/CLUS128/{file_name}", featurize_job.out_features)
         for file_name in ("train.tsv", "valid.tsv")
     ]
-    # remove header line from tsv (this also converts the DelayedFormat to a Path as a nice side effect)
-    tsv_path_train = TailJob(tsv_file_clusters_train, num_lines="+2").out
-    tsv_path_valid = TailJob(tsv_file_clusters_valid, num_lines="+2").out
-    tsv_path = ConcatenateJob([tsv_path_train, tsv_path_valid]).out
-    # reformat line "146197/1061-146197-0004.flac    237120" -> "train-other-960/1061-146197-0004/1061-146197-0004"
-    reformat_seq_tags = PipelineJob(tsv_path, [rf"sed -E 's|^[^/]*/([^.]+)\.flac.*|{librispeech_key}/\1/\1|'"]).out
+    reformat_cluster_seq_tags = _reformat_tsv_seq_tags(
+        tsv_paths=[tsv_file_clusters_train, tsv_file_clusters_valid],
+        librispeech_key=librispeech_key
+    )
     dump_cluster_ids_to_hdf_job = DumpClusterIndicesToHdfJob(
         text_file=cluster_id_file,
         num_clusters=128,
         concurrent=dump_hdf_concurrent,
         fixed_random_subset=fixed_random_subset,
-        tsv_file=None,
-        seq_tag_file=reformat_seq_tags,
+        tsv_file=None,  # use the reformatted seq_tag_file instead
+        seq_tag_file=reformat_cluster_seq_tags,
         remove_cluster_repetitions=remove_cluster_repetitions,
     )
     tk.register_output(

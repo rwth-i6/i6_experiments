@@ -293,13 +293,14 @@ class DumpNumpyFeaturesToHdfJobV2(Job):
     truncated) shuffled sequences.
     """
     def __init__(
-            self,
-            npy_file: DelayedBase,
-            seq_lengths_file: DelayedBase,
-            tsv_file: DelayedBase,
-            concurrent: int = 10,
-            fixed_random_subset: Optional[int] = None,
-            max_abs_value: Optional[float] = None,
+        self,
+        npy_file: DelayedBase,
+        seq_lengths_file: DelayedBase,
+        tsv_file: Optional[DelayedBase],
+        concurrent: int = 10,
+        fixed_random_subset: Optional[int] = None,
+        max_abs_value: Optional[float] = None,
+        seq_tag_file: Optional[tk.Path] = None,
     ):
         self.npy_file = npy_file
         self.seq_lengths_file = seq_lengths_file
@@ -307,6 +308,7 @@ class DumpNumpyFeaturesToHdfJobV2(Job):
         self.concurrent = concurrent
         self.fixed_random_subset = fixed_random_subset
         self.max_abs_value = max_abs_value
+        self.seq_tag_file = seq_tag_file
 
         self.out_hdfs = {
             i: self.output_path(f"data_{i}.hdf") for i in range(self.concurrent)
@@ -319,8 +321,12 @@ class DumpNumpyFeaturesToHdfJobV2(Job):
         with uopen(self.seq_lengths_file.get(), "r") as f:
             seq_lengths = [int(line.strip()) for line in f.readlines()]
         seq_starts = np.cumsum([0] + seq_lengths[:-1]).tolist()
-        with uopen(self.tsv_file.get(), "r") as f:
-            seq_tags = [line.strip().split("\t")[0].split(".flac")[0] for line in f.readlines()[1:]]  # skip header line
+        if self.tsv_file is not None:
+            with uopen(self.tsv_file.get(), "r") as f:
+                seq_tags = [line.strip().split("\t")[0].split(".flac")[0] for line in f.readlines()[1:]]  # skip header line
+        else:
+            with uopen(self.seq_tag_file.get(), "r") as f:
+                seq_tags = [line.strip() for line in f.readlines()]
         assert len(seq_lengths) == len(seq_tags), (
             f"mismatch between seq lengths and seq tags: {len(seq_lengths)} vs {len(seq_tags)}"
         )
