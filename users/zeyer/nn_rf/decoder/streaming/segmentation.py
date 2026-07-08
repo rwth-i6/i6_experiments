@@ -77,8 +77,10 @@ def segment(frames: np.ndarray, *, blank_idx: int, chunk_size: int):
     labels, emit_frames = ctc_collapse(frames, blank_idx)
     num_chunks = num_chunks_for(T, chunk_size)
     chunk_idx = assign_chunks(emit_frames, chunk_size)
-    chunk_counts = np.bincount(chunk_idx, minlength=num_chunks).astype(np.int64) if labels.size else np.zeros(
-        num_chunks, dtype=np.int64
+    chunk_counts = (
+        np.bincount(chunk_idx, minlength=num_chunks).astype(np.int64)
+        if labels.size
+        else np.zeros(num_chunks, dtype=np.int64)
     )
     return {
         "labels": labels,
@@ -166,3 +168,41 @@ def rna_frame_targets(
     rna = np.full((T_out,), blank_idx, dtype=np.int64)
     rna[emit_frames] = labels
     return rna
+
+
+def word_chunk_frame_targets(
+    frames: np.ndarray,
+    *,
+    blank_idx: int,
+    word_start_ids: frozenset,
+    pad_to_multiple: int = 1,
+) -> np.ndarray:
+    """
+    Per-frame WORD-CHUNKED target (DSM word-chunk layout): like :func:`rna_frame_targets`, but each
+    word's sub-word tokens are packed CONSECUTIVELY starting at the word's onset frame (the emission
+    frame of its first sub-word), ``blank_idx`` elsewhere -- instead of each token at its own frame.
+
+    Word starts come from the SPM word-start marker: a token id in ``word_start_ids`` (its piece begins
+    with the SPM space marker) starts a new word. If a word's packed run would overrun the next word's
+    onset, the following run cascades right (greedy pack; ``write`` is monotonic). Total non-blank frames
+    == #tokens <= T, so it always fits.
+
+    :param frames: [T] int per-frame CTC best path (with blank).
+    :param blank_idx:
+    :param word_start_ids: set of token ids that begin a word (SPM marker-prefixed).
+    :param pad_to_multiple: pad output length up to a multiple of this (use chunk_size).
+    :return: wc [T_out] int64.
+    """
+    frames = np.asarray(frames).reshape(-1)
+    T = int(frames.shape[0])
+    labels, emit_frames = ctc_collapse(frames, blank_idx)
+    T_out = num_chunks_for(T, pad_to_multiple) * pad_to_multiple if pad_to_multiple > 1 else T
+    wc = np.full((T_out,), blank_idx, dtype=np.int64)
+    write = 0  # next free output frame; monotonic -> enforces the cascade / no overlap
+    for i in range(int(labels.size)):
+        if i == 0 or int(labels[i]) in word_start_ids:
+            write = max(write, int(emit_frames[i]))  # new word: jump to its onset (never backwards)
+        pos = min(write, T_out - 1)
+        wc[pos] = labels[i]
+        write = pos + 1
+    return wc

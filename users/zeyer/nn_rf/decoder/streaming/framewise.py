@@ -72,6 +72,7 @@ class FramewiseDecoder(rf.Module):
         num_heads: int = 8,
         dropout: float = 0.1,
         att_dropout: float = 0.1,
+        delay_frames: int = 0,  # DSM audio->text delay in encoder frames (0 = label sits at its acoustic frame)
         version: int = 1,
     ):
         super().__init__()
@@ -89,6 +90,7 @@ class FramewiseDecoder(rf.Module):
         self.encoder_dim = encoder_dim
         self.chunk_size = chunk_size
         self.blank_idx = eoc_idx  # the extra (last) vocab symbol is the RNA blank here
+        self.delay_frames = delay_frames
 
         self.input_embedding = rf.Embedding(vocab_dim, model_dim)
         self.enc_proj = rf.Linear(encoder_dim, model_dim, with_bias=False)
@@ -157,17 +159,32 @@ def framewise_train_forward(
         rna_targets, in_spatial_dim=rna_targets_spatial_dim, enc_spatial_dim=enc_spatial_dim, blank_idx=model.blank_idx
     )
 
-    # Teacher forcing: decoder input at frame t is the previous frame's symbol (BOS at t=0).
-    input_labels = rf.shift_right(rna, axis=enc_spatial_dim, pad_value=model.bos_idx)
-
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim)
+
+    # DSM delay: the text stream lags the audio by ``delay_frames`` encoder frames. Extend the encoder
+    # by that many silence (zero) frames on the right and shift the RNA target right by the same amount
+    # (prepend blanks) onto the extended axis, so every label must be emitted ``delay_frames`` frames
+    # after its acoustic evidence (and the tail flushes into the trailing silence). delay == 0 -> plain
+    # framewise (the else branch is numerically identical to the pre-delay code).
+    delay = getattr(model.decoder, "delay_frames", 0)
+    if delay > 0:
+        enc_dec, (dec_spatial_dim,) = rf.pad(enc, axes=[enc_spatial_dim], padding=[(0, delay)], value=0.0)
+        rna_dec, _ = rf.pad(
+            rna, axes=[enc_spatial_dim], padding=[(delay, 0)], value=model.blank_idx, out_dims=[dec_spatial_dim]
+        )
+    else:
+        enc_dec, dec_spatial_dim, rna_dec = enc, enc_spatial_dim, rna
+
+    # Teacher forcing: decoder input at frame t is the previous frame's symbol (BOS at t=0).
+    input_labels = rf.shift_right(rna_dec, axis=dec_spatial_dim, pad_value=model.bos_idx)
+
     state = model.decoder.default_initial_state(batch_dims=batch_dims)
-    logits, _ = model.decoder(input_labels, enc, spatial_dim=enc_spatial_dim, state=state)
+    logits, _ = model.decoder(input_labels, enc_dec, spatial_dim=dec_spatial_dim, state=state)
     log_probs = rf.log_softmax(logits, axis=model.target_dim_ext)
     log_probs = label_smoothed_log_probs(log_probs, axis=model.target_dim_ext)  # config-gated, default off
-    ce = rf.cross_entropy(target=rna, estimated=log_probs, estimated_type="log-probs", axis=model.target_dim_ext)
-    mark_frame_error(log_probs, targets=rna, axis=model.target_dim_ext)
-    losses: Dict[str, Tuple[Tensor, Dim]] = {"ce": (ce, enc_spatial_dim)}
+    ce = rf.cross_entropy(target=rna_dec, estimated=log_probs, estimated_type="log-probs", axis=model.target_dim_ext)
+    mark_frame_error(log_probs, targets=rna_dec, axis=model.target_dim_ext)
+    losses: Dict[str, Tuple[Tensor, Dim]] = {"ce": (ce, dec_spatial_dim)}
 
     # Aux CTC on the blank-removed labels (== transcription), over the final encoder output.
     if model.enc_aux_logits:
@@ -224,6 +241,9 @@ def model_recog(
     enc_lens = rf.copy_to_device(enc_spatial_dim.get_size_tensor())  # [batch]
     T_max = int(rf.reduce_max(enc_lens, axis=enc_lens.dims).raw_tensor)
 
+    delay = getattr(model.decoder, "delay_frames", 0)
+    T_total = T_max + delay  # `delay` extra flush steps for the delayed-tail labels
+
     beam_dim = Dim(1, name="beam")
     batch_dims_ = [beam_dim] + batch_dims
     state = model.decoder.default_initial_state(batch_dims=batch_dims_)
@@ -232,22 +252,24 @@ def model_recog(
     seq_log_prob = rf.constant(0.0, dims=batch_dims_)
 
     seq = TensorArray(prev)
-    for t in range(T_max):
+    for t in range(T_total):
         t_t = rf.constant(t, dims=batch_dims, dtype="int32")  # [batch]
-        valid = t_t < enc_lens  # [batch]: frame t is a real encoder frame for this seq
-        idx = rf.where(valid, t_t, enc_lens - 1)  # clip out-of-range (batch padding) frames
+        audio_valid = t_t < enc_lens  # a real encoder frame is available for this seq
+        emit_valid = t_t < enc_lens + delay  # emit window incl. the `delay`-frame flush tail
+        idx = rf.where(audio_valid, t_t, enc_lens - 1)  # clip out-of-range frames
         enc_t = rf.gather(enc, indices=idx, axis=enc_spatial_dim)  # [batch, enc_dim]
+        enc_t = rf.where(audio_valid, enc_t, 0.0)  # silence (zero) frames during flush + padding
         logits, state = model.decoder(prev, enc_t, spatial_dim=single_step_dim, state=state)
         log_probs = rf.log_softmax(logits, axis=model.target_dim_ext)
         sym = rf.cast(rf.reduce_argmax(log_probs, axis=model.target_dim_ext), "int32")
         sym.sparse_dim = model.target_dim_ext
-        sym = rf.where(valid, sym, blank)  # batch-padding frames emit blank (dropped later)
+        sym = rf.where(emit_valid, sym, blank)  # outside the emit window -> blank (dropped later)
         lp_sym = rf.gather(log_probs, indices=sym, axis=model.target_dim_ext)
-        seq_log_prob = seq_log_prob + rf.where(valid, lp_sym, 0.0)
+        seq_log_prob = seq_log_prob + rf.where(emit_valid, lp_sym, 0.0)
         prev = sym
         seq = seq.push_back(sym)
 
-    out_spatial_dim = Dim(T_max, name="out-spatial")
+    out_spatial_dim = Dim(T_total, name="out-spatial")
     aligned = seq.stack(axis=out_spatial_dim)  # [beam, batch, T_max] over target_dim_ext
 
     # Strip blanks -> plain spm label sequence (variable length per seq).

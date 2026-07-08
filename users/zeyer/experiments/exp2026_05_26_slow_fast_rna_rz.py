@@ -87,6 +87,9 @@ def py():
     _train_two_tower_rz()
     _train_rnnt_rz()
     _train_framewise_enc8dec12_rz()
+    _train_framewise_enc4dec24_rz()
+    _train_framewise_delay_rz()
+    _train_framewise_wordchunk_rz()
 
 
 def _loq_chunk_align_dataset(base_model, *, base_aux_ctc_layer: int, target_mode: str):
@@ -265,7 +268,9 @@ def _train_ext_transducer_rz():
     """Extended-transducer slow+fast decoder (slow label-rate stack injected into the fast frame stack)."""
     return _train_variant_rz(
         "ext-transducer-1gpu",
-        dec_build_dict=rf.build_dict(ExtTransducerDecoder, model_dim=1024, num_layers=3, num_heads=8, version=2),  # 3 slow + 3 fast = 6 dec layers
+        dec_build_dict=rf.build_dict(
+            ExtTransducerDecoder, model_dim=1024, num_layers=3, num_heads=8, version=2
+        ),  # 3 slow + 3 fast = 6 dec layers
         train_def=ext_transducer_training,
         recog_def=ext_transducer_model_recog,
         target_mode="rna_frame",
@@ -276,7 +281,9 @@ def _train_two_tower_rz():
     """Two-tower fast-slow decoder (text + speech stacks coupled by cross-attention)."""
     return _train_variant_rz(
         "two-tower-1gpu",
-        dec_build_dict=rf.build_dict(TwoTowerDecoder, model_dim=1024, num_layers=3, num_heads=8, version=2),  # 3 text + 3 speech = 6 dec layers
+        dec_build_dict=rf.build_dict(
+            TwoTowerDecoder, model_dim=1024, num_layers=3, num_heads=8, version=2
+        ),  # 3 text + 3 speech = 6 dec layers
         train_def=two_tower_training,
         recog_def=two_tower_model_recog,
         target_mode="rna_frame",
@@ -295,7 +302,10 @@ def _train_rnnt_rz():
 
 
 def _train_framewise_enc8dec12_rz():
-    """enc:dec ratio control -- framewise with a smaller encoder (8L) + larger decoder (12L)."""
+    """enc:dec ratio control -- framewise, smaller encoder (8L) + larger decoder (12L).
+
+    Not param-matched (404M vs framewise 520M) -- kept for its training progress.
+    """
     return _train_variant_rz(
         "framewise-enc8-dec12-1gpu",
         dec_build_dict=rf.build_dict(FramewiseDecoder, model_dim=1024, num_layers=12, num_heads=8, version=2),
@@ -304,4 +314,41 @@ def _train_framewise_enc8dec12_rz():
         target_mode="rna_frame",
         enc_num_layers=8,
         aux_loss_layers=[2, 5, 8],  # aux CTC within the 8-layer encoder (top=8 = the CTC recog head)
+    )
+
+
+def _train_framewise_delay_rz():
+    """DSM ablation: framewise + a fixed ~2.5 s audio->text delay (42 enc frames @ ~16.67 Hz); sole change vs framewise."""
+    return _train_variant_rz(
+        "framewise-delay2p5-1gpu",
+        dec_build_dict=rf.build_dict(
+            FramewiseDecoder, model_dim=1024, num_layers=6, num_heads=8, delay_frames=42, version=2
+        ),
+        train_def=framewise_training,
+        recog_def=framewise_model_recog,
+        target_mode="rna_frame",
+    )
+
+
+def _train_framewise_enc4dec24_rz():
+    """enc:dec ratio (decoder-heavy) -- framewise, 4L enc + 24L dec; follows enc8-dec12 (halve enc, double dec), not param-matched."""
+    return _train_variant_rz(
+        "framewise-enc4-dec24-1gpu",
+        dec_build_dict=rf.build_dict(FramewiseDecoder, model_dim=1024, num_layers=24, num_heads=8, version=2),
+        train_def=framewise_training,
+        recog_def=framewise_model_recog,
+        target_mode="rna_frame",
+        enc_num_layers=4,
+        aux_loss_layers=[1, 2, 4],  # aux CTC within the 4-layer encoder (top=4 = the CTC recog head)
+    )
+
+
+def _train_framewise_wordchunk_rz():
+    """DSM ablation: framewise + word-chunked target layout (sub-words packed at word onset); sole change vs framewise."""
+    return _train_variant_rz(
+        "framewise-wordchunk-1gpu",
+        dec_build_dict=rf.build_dict(FramewiseDecoder, model_dim=1024, num_layers=6, num_heads=8, version=2),
+        train_def=framewise_training,
+        recog_def=framewise_model_recog,
+        target_mode="rna_frame_wordchunk",
     )
