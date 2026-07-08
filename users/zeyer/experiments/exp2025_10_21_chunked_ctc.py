@@ -2028,8 +2028,9 @@ def _aed_ctc_forced_align(
 
 def _chunk_geometry_from_enc_build_dict(enc_build_dict) -> Tuple[Optional[int], int]:
     """
-    Chunk (center, lookahead) in encoder-output frames for the streaming-latency metric,
-    or (None, 0) for offline / non-chunked encoders.
+    Chunk (center, lookahead) in encoder-output frames for the streaming-latency metric.
+    (None, 0) for offline / full-context encoders;
+    (1, 0) for the fully-causal, frame-synchronous conformer (base-causal).
 
     Two encoder schemas carry the geometry differently:
       - ChunkedConformerEncoderV2 (the ``-v2.3`` family):
@@ -2053,6 +2054,13 @@ def _chunk_geometry_from_enc_build_dict(enc_build_dict) -> Tuple[Optional[int], 
         center = int(end_dim)
         downsampling = int(stride) // center
         return center, int(input_dim) // downsampling - center
+    # Fully-causal (non-chunked) conformer (base-causal): frame-synchronous emission,
+    # so center = 1 encoder frame and no chunk lookahead.
+    # (The ~50 ms frontend-subsampling lookahead is a constant present in every model here --
+    #  chunked and causal alike -- so it is excluded, for a consistent comparison.)
+    enc_layer = enc_build_dict.get("encoder_layer")
+    if isinstance(enc_layer, dict) and "CausalConformerEncoderLayer" in str(enc_layer.get("class")):
+        return 1, 0
     return None, 0
 
 
