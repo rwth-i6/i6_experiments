@@ -208,7 +208,7 @@ def py():
                 "output_modality": "text",
                 "mask_input": True,
                 "masking_opts": copy.deepcopy(base_config["train_args"]["text_masking_opts"]),
-                "keep_epochs": [base_num_epochs],
+                "keep_epochs": get_keep_epochs(base_num_epochs),
             },
             # fixed-masking text-recon sweep (copy ceiling + degradation curve), for a fair
             # single-task (text-only) vs multi-task comparison of the text denoiser.
@@ -459,5 +459,18 @@ def py():
                 "max_plotted_seqs": 20,
                 "cosine_similarity_summary": True,
             },
-            recog_variants=[_text_recon_variant(codebook_config, num_epochs)],
+            recog_variants=[
+                {
+                    "recog_name": "recon_text",
+                    "input_modality": "text",
+                    "output_modality": "text",
+                    "mask_input": True,
+                    "masking_opts": copy.deepcopy(config["train_args"]["text_masking_opts"]),
+                    "keep_epochs": get_keep_epochs(base_num_epochs),
+                },
+                # fixed-masking text-recon sweep (copy ceiling + degradation curve), for a fair
+                # single-task (text-only) vs multi-task comparison of the text denoiser.
+                *_text_recon_sweep(base_num_epochs),
+            ],
+            # recog_variants=[_text_recon_variant(config, get_keep_epochs(num_epochs))],
         )
