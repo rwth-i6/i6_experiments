@@ -3,7 +3,7 @@ from sisyphus import tk, Job, Task
 from i6_experiments.example_setups.guided_kmeans.setup.librasr_recognition import create_recog_rasr_config, create_lexicon
 from i6_experiments.example_setups.guided_kmeans.setup.phoneme_frequency import get_sampled_segments_file
 from i6_experiments.example_setups.guided_kmeans.setup.decode_config import decode_and_score, DecodeConfig
-from i6_experiments.example_setups.guided_kmeans.setup.dataset_config import DatasetConfig, RandomNumber, All
+from i6_experiments.example_setups.guided_kmeans.setup.dataset_config import DatasetConfig, RandomNumber, All,  SegmentFile
 from i6_experiments.example_setups.guided_kmeans.setup.librasr_recognition import RecogConfig
 
 verbosity = 1
@@ -46,24 +46,23 @@ def py():
     for subsampling, lm_scale, loop_probability, silence_loop_probability in parameters:
         exp_name = f"sub-{subsampling}-lm-{lm_scale}_loop-{loop_probability}-sil-loop-{silence_loop_probability}"
 
-        # segments = get_sampled_segments_file(min_phoneme_count=5)
-
-        recog_config = RecogConfig(
+        recognition_config = create_recog_rasr_config(
             lm_scale=lm_scale,
             loop_probability=loop_probability,
-            silence_loop_probability=silence_loop_probability
+            silence_loop_probability=silence_loop_probability,
+            use_tree_search=False,
         )
 
         dataset_config = DatasetConfig(
             audio_hdf_path=features_path,
             sampling_method=RandomNumber(100),
+            #sampling_method=SegmentFile(get_sampled_segments_file(min_phoneme_count=5)),
             precomputed=True,
-            # sampling_method=SegmentFile(segments),
         )
 
         decode_config = DecodeConfig(
             centroids=centroids_path,
-            recog_config=recog_config,
+            recog_rasr_config=recognition_config,
             distance_scale=1.0,
             subsampling=subsampling,
         )

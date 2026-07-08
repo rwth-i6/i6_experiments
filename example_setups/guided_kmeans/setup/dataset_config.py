@@ -23,7 +23,11 @@ class RandomFraction:
 class RandomNumber:
     num: int
 
-SamplingMethod = _All | RandomFraction | RandomNumber
+@dataclass(frozen=True)
+class SegmentFile:
+    path: tk.Path
+
+SamplingMethod = _All | RandomFraction | RandomNumber | SegmentFile
 
 
 @dataclass
@@ -79,8 +83,10 @@ def select_segments(method: SamplingMethod, segments: tk.Path) -> tk.Path | None
             sampled_segments = sample_segments_by_fraction(segments, fraction=f)
         case RandomNumber(n):
             sampled_segments = sample_segments_by_number(segments, num_segments=n)
-        case All:
+        case _All():
             sampled_segments = None
+        case SegmentFile(path):
+            sampled_segments = path
     
     return sampled_segments
 

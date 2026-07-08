@@ -154,6 +154,8 @@ def decode_and_score(
     returnn_root: tk.Path | None = None,
 ) -> DecodeRecogResult:
     # setup corpus
+    if corpus_name == "train-clean-100-dbg":
+        corpus_name = "train-clean-100"
     setup_result = setup_corpus(key=corpus_name)
 
     filtered_corpus = FilterCorpusRemoveUnknownWordSegmentsJob(setup_result.corpus, setup_result.lexicon, all_unknown=False, delete_empty_recordings=True).out_corpus
