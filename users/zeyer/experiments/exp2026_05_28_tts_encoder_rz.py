@@ -148,3 +148,24 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+    # Same as pseudo-enc-layer4-noblank-1gpu but batch_size_phon 8k -> 25k (ref-match's default):
+    # noblank is ~1.0 enc frame/phoneme (< ref-match's ~1.33),
+    # so the 8k throttle (a blanket OOM workaround for the blank-heavy variants) is unnecessary here.
+    # 25k halves the steps (~7k, like ref-match) and matches ref-match's text batch,
+    # for a clean + fast layer-split-vs-front-end comparison.
+    _train_tts_encoder(
+        "pseudo-enc-layer4-noblank-25kphon-1gpu",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        batch_size_phon=25_000,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_start_layer=4,
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_specaug_max_width=6,
+        num_processes=1,
+        gpu_mem=96,
+        nep=100,
+    )
