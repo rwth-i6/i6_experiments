@@ -1,4 +1,9 @@
-__all__ = ["BaseRecogVariant", "run_single_bpe_variant", "run_single_byte_variant", "run_single_phoneme_variant"]
+__all__ = [
+    "BaseRecogVariant",
+    "run_single_bpe_variant",
+    "run_single_byte_variant",
+    "run_single_phoneme_variant",
+]
 
 from dataclasses import dataclass, field, replace
 from typing import Any, List, Optional, Union
@@ -53,6 +58,7 @@ def run_single_bpe_variant(
     sentence_end_index: Optional[int],
     variant: BaseRecogVariant,
     corpora: List[librispeech_datasets.EvalSet],
+    rasr_init_hook: Optional[Any] = None,
 ) -> List[RecogResult]:
     use_blank = blank_index is not None
     use_sentence_end = sentence_end_index is not None
@@ -70,6 +76,7 @@ def run_single_bpe_variant(
         sentence_end_index=sentence_end_index,
         variant=variant,
         corpora=corpora,
+        rasr_init_hook=rasr_init_hook,
     )
 
 
@@ -147,6 +154,7 @@ def _run_single_variant(
     variant: BaseRecogVariant,
     corpora: List[librispeech_datasets.EvalSet],
     traceback_formatter_serializers: Optional[List[Any]] = None,
+    rasr_init_hook: Optional[Any] = None,
 ) -> List[RecogResult]:
     if isinstance(variant.search_algorithm_params, LexiconfreeLabelsyncRecogParams):
         assert vocab_file is not None
@@ -225,6 +233,7 @@ def _run_single_variant(
                 sample_rate=16000,
                 params=variant.search_mode_params,
                 traceback_formatter_serializers=traceback_formatter_serializers,
+                rasr_init_hook=rasr_init_hook,
             )
         elif isinstance(variant.search_mode_params, StreamingRecogParameters):
             recog_result = recog_rasr_streaming(
@@ -237,6 +246,7 @@ def _run_single_variant(
                 sample_rate=16000,
                 params=variant.search_mode_params,
                 traceback_formatter_serializers=traceback_formatter_serializers,
+                rasr_init_hook=rasr_init_hook,
             )
 
         results.append(recog_result)

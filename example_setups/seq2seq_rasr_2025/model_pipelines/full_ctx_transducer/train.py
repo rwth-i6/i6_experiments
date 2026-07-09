@@ -128,7 +128,7 @@ def _train_step(
         pred_logits = pred_logits[:, :-1, :].transpose(1, 2)  # [B, V, S]
         ce_loss = torch.nn.functional.cross_entropy(
             pred_logits,
-            targets,
+            targets.long(),
             reduction="none",
         )
         seq_mask = lengths_to_padding_mask(targets_size)
@@ -157,9 +157,9 @@ def _do_rnnt_pruning(am: torch.Tensor, lm: torch.Tensor, ranges: torch.Tensor) -
     assert ranges.shape[0] == am.shape[0], (ranges.shape[0], am.shape[0])  # B
     assert ranges.shape[0] == lm.shape[0], (ranges.shape[0], lm.shape[0])  # B
     assert am.shape[1] == ranges.shape[1], (am.shape[1], ranges.shape[1])  # T
-    (B, T, s_range) = ranges.shape
-    (_, _, E) = am.shape
-    (_, _, P) = lm.shape
+    B, T, s_range = ranges.shape
+    _, _, E = am.shape
+    _, _, P = lm.shape
 
     # (B, T, s_range, E)
     am_pruning = am.unsqueeze(2).expand((B, T, s_range, E))

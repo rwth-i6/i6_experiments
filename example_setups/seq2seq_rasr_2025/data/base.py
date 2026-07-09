@@ -12,7 +12,7 @@ except ImportError:
 import numpy as np
 from i6_core.corpus.segments import SegmentCorpusJob
 from i6_core.lib.corpus import Corpus
-from i6_core.lib.lexicon import Lexicon
+from i6_core.lib.lexicon import Lemma, Lexicon
 from i6_core.returnn.config import CodeWrapper, ReturnnConfig
 from i6_core.returnn.hdf import get_returnn_simple_hdf_writer
 from i6_core.returnn.oggzip import BlissToOggZipJob
@@ -331,6 +331,99 @@ def get_default_byte_target_config(seq_postfix: Optional[List[int]] = None) -> d
     if seq_postfix is not None:
         config["seq_postfix"] = seq_postfix
     return config
+
+
+class HuggingFaceTokenByteBlissLexiconJob(Job):
+    """
+    Build a Bliss lexicon whose acoustic units are UTF-8 byte labels and whose lemmas are HF tokenizer tokens.
+    Lemmas are written in tokenizer-id order, so tree-search lemma labels stay aligned with the LLM vocabulary.
+    """
+
+    def __init__(self, huggingface_repo_dir: tk.Path, add_blank: bool = True) -> None:
+        self.huggingface_repo_dir = huggingface_repo_dir
+        self.add_blank = add_blank
+        self.out_lexicon = self.output_path("lexicon.xml.gz")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    @staticmethod
+    def _bytes_to_unicode() -> Dict[int, str]:
+        bs = list(range(ord("!"), ord("~") + 1)) + list(range(0xA1, 0xAC + 1)) + list(range(0xAE, 0xFF + 1))
+        cs = bs[:]
+        n = 0
+        for b in range(BYTE_VOCAB_SIZE):
+            if b not in bs:
+                bs.append(b)
+                cs.append(BYTE_VOCAB_SIZE + n)
+                n += 1
+        return dict(zip(bs, map(chr, cs)))
+
+    @classmethod
+    def _token_to_bytes(cls, tokenizer, token: str) -> bytes:
+        byte_decoder = {v: k for k, v in cls._bytes_to_unicode().items()}
+        if all(char in byte_decoder for char in token):
+            return bytes(byte_decoder[char] for char in token)
+        text = tokenizer.convert_tokens_to_string([token])
+        return text.encode("utf-8")
+
+    @staticmethod
+    def _special_lemma_type(token_id: int, tokenizer) -> Optional[str]:
+        if token_id == tokenizer.bos_token_id:
+            return "sentence-begin"
+        if token_id == tokenizer.eos_token_id:
+            return "sentence-end"
+        if token_id == tokenizer.unk_token_id:
+            return "unknown"
+        return None
+
+    def run(self) -> None:
+        from transformers import AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(self.huggingface_repo_dir.get())
+        vocab = tokenizer.get_vocab()
+        max_token_id = max(vocab.values())
+        tokens_by_id: List[Optional[str]] = [None] * (max_token_id + 1)
+        for token, token_id in vocab.items():
+            tokens_by_id[token_id] = token
+
+        lexicon = Lexicon()
+        for byte in range(BYTE_VOCAB_SIZE):
+            lexicon.add_phoneme(f"<byte-{byte:02x}>", variation="none")
+        if self.add_blank:
+            lexicon.add_phoneme("<blank>", variation="none")
+
+        for token_id, token in enumerate(tokens_by_id):
+            if token is None:
+                token = f"<unused-{token_id}>"
+
+            special = self._special_lemma_type(token_id, tokenizer)
+            if special in {"sentence-begin", "sentence-end"}:
+                phon = ""
+            else:
+                token_bytes = self._token_to_bytes(tokenizer, token)
+                phon = " ".join(f"<byte-{byte:02x}>" for byte in token_bytes)
+
+            lexicon.add_lemma(
+                Lemma(
+                    orth=[token],
+                    phon=[phon],
+                    synt=[token],
+                    special=special,
+                )
+            )
+
+        if self.add_blank:
+            lexicon.add_lemma(Lemma(orth=["[BLANK]"], phon=["<blank>"], synt=[], special="blank"))
+
+        write_xml(self.out_lexicon.get_path(), lexicon.to_xml())
+
+
+def get_hf_token_byte_bliss_lexicon(huggingface_repo_dir: tk.Path, add_blank: bool = True) -> tk.Path:
+    return HuggingFaceTokenByteBlissLexiconJob(
+        huggingface_repo_dir=huggingface_repo_dir,
+        add_blank=add_blank,
+    ).out_lexicon
 
 
 class RemoveWordsFromTranscriptionsJob(Job):

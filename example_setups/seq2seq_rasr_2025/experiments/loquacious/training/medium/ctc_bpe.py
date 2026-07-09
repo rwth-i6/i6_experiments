@@ -13,20 +13,19 @@ from i6_models.parts.frontend.generic_frontend import FrontendLayerType, Generic
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Config
 
 from .....data.loquacious import datasets as loquacious_datasets
-from .....data.base import BYTE_VOCAB_SIZE
+from .....data.loquacious.bpe import bpe_to_vocab_size
 from .....model_pipelines.common.learning_rates import OCLRConfig
-from .....model_pipelines.common.optimizer import RAdamConfig
-from .....model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
-from .....model_pipelines.common.train import TrainedModel, train
-from .....model_pipelines.ffnn_transducer.pytorch_modules import FFNNTransducerConfig, FFNNTransducerModel
-from .....model_pipelines.ffnn_transducer.train import FFNNTransducerTrainOptions, get_train_step_import
+from .....model_pipelines.common.optimizer import AdamWConfig
+from .....model_pipelines.common.train import TrainedModel, TrainOptions, train
+from .....model_pipelines.ctc.pytorch_modules import ConformerCTCConfig, ConformerCTCModel, SpecaugmentByLengthConfig
+from .....model_pipelines.ctc.train import get_train_step_import
 
 
 def run(
     descriptor: str,
-    model_config: Optional[FFNNTransducerConfig] = None,
-    train_options: Optional[FFNNTransducerTrainOptions] = None,
-) -> TrainedModel[FFNNTransducerConfig]:
+    model_config: Optional[ConformerCTCConfig] = None,
+    train_options: Optional[TrainOptions] = None,
+) -> TrainedModel[ConformerCTCConfig]:
     if model_config is None:
         model_config = get_model_config()
     if train_options is None:
@@ -34,18 +33,18 @@ def run(
 
     return train(
         descriptor=descriptor,
-        model_class=FFNNTransducerModel,
+        model_class=ConformerCTCModel,
         model_config=model_config,
         options=train_options,
-        train_step_import=get_train_step_import(train_options),
+        train_step_import=get_train_step_import(),
     )
 
 
 def get_model_config(
-    layer_size: int = 512,
-    dropout: float = 0.1,
-) -> FFNNTransducerConfig:
-    return FFNNTransducerConfig(
+    bpe_size: int = 128,
+    layer_size: int = 384,
+) -> ConformerCTCConfig:
+    return ConformerCTCConfig(
         logmel_cfg=LogMelFeatureExtractionV1Config(
             sample_rate=16000,
             win_size=0.025,
@@ -58,12 +57,12 @@ def get_model_config(
             n_fft=400,
         ),
         specaug_cfg=SpecaugmentByLengthConfig(
-            start_epoch=51,
+            start_epoch=6,
             time_min_num_masks=2,
             time_max_mask_per_n_frames=25,
             time_mask_max_size=20,
             freq_min_num_masks=2,
-            freq_max_num_masks=3,
+            freq_max_num_masks=5,
             freq_mask_max_size=16,
         ),
         conformer_cfg=ConformerRelPosEncoderV1Config(
@@ -97,15 +96,15 @@ def get_model_config(
                 ff_cfg=ConformerPositionwiseFeedForwardV2Config(
                     input_dim=layer_size,
                     hidden_dim=4 * layer_size,
-                    dropout=dropout,
+                    dropout=0.1,
                     activation=torch.nn.SiLU(),
                     dropout_broadcast_axes=None,
                 ),
                 mhsa_cfg=ConformerMHSARelPosV1Config(
                     input_dim=layer_size,
-                    num_att_heads=8,
-                    att_weights_dropout=dropout,
-                    dropout=dropout,
+                    num_att_heads=6,
+                    att_weights_dropout=0.1,
+                    dropout=0.1,
                     with_bias=True,
                     learnable_pos_emb=False,
                     rel_pos_clip=16,
@@ -118,7 +117,7 @@ def get_model_config(
                 conv_cfg=ConformerConvolutionV2Config(
                     channels=layer_size,
                     kernel_size=31,
-                    dropout=dropout,
+                    dropout=0.1,
                     activation=torch.nn.SiLU(),
                     norm=LayerNormNC(layer_size),
                     dropout_broadcast_axes=None,
@@ -127,39 +126,29 @@ def get_model_config(
                 scales=[0.5, 1.0, 1.0, 0.5],
             ),
         ),
-        dropout=dropout,
-        enc_dim=layer_size,
-        pred_num_layers=2,
-        pred_dim=640,
-        pred_activation=torch.nn.Tanh(),
-        context_history_size=1,
-        context_embedding_dim=256,
-        joiner_dim=1024,
-        joiner_activation=torch.nn.Tanh(),
-        target_size=BYTE_VOCAB_SIZE + 1,
+        dim=layer_size,
+        target_size=bpe_to_vocab_size(bpe_size=bpe_size) + 1,
+        dropout=0.1,
     )
 
 
-def get_train_options() -> FFNNTransducerTrainOptions:
-    train_data_config = loquacious_datasets.get_medium_byte_train_data()
-    cv_data_config = loquacious_datasets.get_medium_byte_cv_data()
+def get_train_options(bpe_size: int = 128, num_epochs: int = 40) -> TrainOptions:
+    train_data_config = loquacious_datasets.get_medium_bpe_train_data(bpe_size=bpe_size)
+    cv_data_config = loquacious_datasets.get_medium_bpe_cv_data(bpe_size=bpe_size)
 
     partition_epoch = train_data_config.partition_epoch
 
-    num_epochs = 40
     save_epochs = list(range(num_epochs * 3 // 4, num_epochs - 5, 5)) + list(range(num_epochs - 5, num_epochs + 1))
     save_subepochs = [epoch * partition_epoch for epoch in save_epochs]
 
-    return FFNNTransducerTrainOptions(
+    return TrainOptions(
         train_data_config=train_data_config,
         cv_data_config=cv_data_config,
         save_epochs=save_subepochs,
-        batch_size=6_000 * 160,
-        accum_grad_multiple_step=4,
-        optimizer_config=RAdamConfig(
-            epsilon=1e-12,
+        batch_size=24_000 * 160,
+        optimizer_config=AdamWConfig(
+            epsilon=1e-16,
             weight_decay=0.01,
-            decoupled_weight_decay=True,
         ),
         lr_config=OCLRConfig(
             init_lr=7e-06,
@@ -170,7 +159,4 @@ def get_train_options() -> FFNNTransducerTrainOptions:
             dec_epochs=(num_epochs - 4) // 2 * partition_epoch,
             final_epochs=4 * partition_epoch,
         ),
-        enc_loss_scale=0.5,
-        pred_loss_scale=0.0,
-        gpu_mem_rqmt=24,
     )

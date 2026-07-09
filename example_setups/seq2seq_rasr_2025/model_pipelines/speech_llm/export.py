@@ -1,4 +1,4 @@
-__all__ = ["export_initializer_model", "export_step_model"]
+__all__ = ["export_initializer_model", "export_step_model", "export_ctc_scorer"]
 
 from i6_core.returnn import CodeWrapper, PtCheckpoint
 from returnn.tensor.tensor_dict import TensorDict

@@ -78,7 +78,7 @@ def default_offline_lexfree_lstm_recog_variant() -> CTCRecogVariant:
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
             collapse_repeated_labels=True,
             score_thresholds=[14.0, 12.0],
-            max_beam_sizes=[2048, 256],
+            max_beam_sizes=[1024, 128],
         ),
         prior_scale=0.2,
         bpe_lstm_lm_scale=0.8,
@@ -90,7 +90,7 @@ def default_offline_lexfree_trafo_recog_variant() -> CTCRecogVariant:
         descriptor="lexfree_bpe-TrafoLM",
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
             collapse_repeated_labels=True,
-            score_thresholds=[10.0, 8.0],
+            score_thresholds=[8.0, 8.0],
             max_beam_sizes=[64, 32],
         ),
         prior_scale=0.2,
@@ -104,7 +104,7 @@ def default_offline_tree_recog_variant() -> CTCRecogVariant:
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=True,
             score_thresholds=[6.0],
-            max_beam_sizes=[8],
+            max_beam_sizes=[6],
             word_end_score_threshold=0.0,
             max_word_end_beam_size=1,
         ),
@@ -132,7 +132,7 @@ def default_offline_tree_lstm_recog_variant() -> CTCRecogVariant:
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=True,
             score_thresholds=[12.0, 10.0],
-            max_beam_sizes=[128, 64],
+            max_beam_sizes=[64, 32],
             word_end_score_threshold=0.6,
             max_word_end_beam_size=16,
         ),
@@ -147,7 +147,7 @@ def default_offline_tree_lstm_4gram_recog_variant() -> CTCRecogVariant:
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=True,
             score_thresholds=[10.0, 10.0],
-            max_beam_sizes=[128, 64],
+            max_beam_sizes=[64, 64],
             word_end_score_threshold=0.5,
             max_word_end_beam_size=32,
             word_lm_params=librispeech_lm.ArpaLmParams(scale=0.2),

@@ -60,7 +60,7 @@ def default_lexfree_recog_variant() -> AEDRecogVariant:
     return AEDRecogVariant(
         descriptor="recog_lexfree_labelsync",
         search_algorithm_params=LexiconfreeLabelsyncRecogParams(
-            max_beam_sizes=[8],
+            max_beam_sizes=[4],
             length_norm_scale=1.2,
         ),
     )
@@ -73,7 +73,7 @@ def default_lexfree_aed_ctc_recog_variant() -> AEDRecogVariant:
             max_beam_sizes=[16, 8],
             length_norm_scale=1.2,
         ),
-        ctc_score_scale=0.3,
+        ctc_score_scale=0.1,
     )
 
 

@@ -9,6 +9,7 @@ def get_speech_lm_label_scorer_config(
     checkpoint: PtCheckpoint,
     scale: float = 1.0,
     use_gpu: bool = False,
+    only_score_exits: bool = False,
 ) -> RasrConfig:
     initializer_model = export_initializer_model(model_kwargs=model_kwargs, checkpoint=checkpoint)
     step_model = export_step_model(model_kwargs=model_kwargs, checkpoint=checkpoint)
@@ -66,6 +67,10 @@ def get_speech_lm_label_scorer_config(
     if use_gpu:
         rasr_config.initializer_model.session.execution_provider_type = "cuda"
         rasr_config.step_model.session.execution_provider_type = "cuda"
+
+    if only_score_exits:
+        rasr_config.transition_preset = "none"
+        rasr_config.extra_transition_types = "word-exit"
 
     return rasr_config
 

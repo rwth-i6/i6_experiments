@@ -91,8 +91,8 @@ def default_offline_tree_recog_variant() -> CTCRecogVariant:
         descriptor="recog_tree",
         search_algorithm_params=LoquaciousTreeTimesyncRecogParams(
             collapse_repeated_labels=True,
-            max_beam_sizes=[1024],
-            score_thresholds=[14.0],
+            max_beam_sizes=[16],
+            score_thresholds=[4.0],
         ),
     )
 
@@ -102,10 +102,11 @@ def default_offline_tree_4gram_recog_variant() -> CTCRecogVariant:
         descriptor="recog_tree_4gram",
         search_algorithm_params=LoquaciousTreeTimesyncRecogParams(
             collapse_repeated_labels=True,
-            max_beam_sizes=[1024],
-            score_thresholds=[14.0],
-            word_lm_params=loquacious_lm.ArpaLmParams(scale=0.6),
+            max_beam_sizes=[64],
+            score_thresholds=[6.0],
+            word_lm_params=loquacious_lm.ArpaLmParams(scale=0.3),
             word_end_score_threshold=0.5,
+            max_word_end_beam_size=16,
         ),
         prior_scale=0.2,
     )
@@ -131,7 +132,7 @@ def default_streaming_tree_4gram_recog_variant() -> CTCRecogVariant:
             max_beam_sizes=[1024],
             score_thresholds=[14.0],
             word_end_score_threshold=0.5,
-            word_lm_params=loquacious_lm.ArpaLmParams(scale=0.6),
+            word_lm_params=loquacious_lm.ArpaLmParams(scale=0.3),
         ),
         search_mode_params=StreamingRecogParameters(encoder_frame_shift_seconds=0.04),
     )

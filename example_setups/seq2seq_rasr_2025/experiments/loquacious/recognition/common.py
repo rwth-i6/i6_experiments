@@ -2,6 +2,7 @@ __all__ = [
     "BaseRecogVariant",
     "run_single_bpe_variant",
     "run_single_byte_variant",
+    "run_single_hf_tokenized_byte_tree_variant",
     "run_single_phoneme_variant",
     "run_single_hf_token_variant",
 ]
@@ -11,6 +12,7 @@ from typing import Any, Callable, List, Optional, Union
 
 from ....data.base import DataConfig, VocabFromHuggingFaceTokenizerJob
 from ....data.base import get_byte_vocab_file
+from ....data.base import get_hf_token_byte_bliss_lexicon
 from i6_core.rasr import RasrConfig
 from i6_core.returnn import PtCheckpoint
 from i6_core.util import DelayedFormat
@@ -20,8 +22,12 @@ from sisyphus import tk
 from ....data.loquacious import datasets as loquacious_datasets
 from ....data.loquacious import lm as loquacious_lm
 from ....data.loquacious.bpe import get_bpe_vocab_file
-from ....data.loquacious.lexicon import get_bliss_phoneme_lexicon, get_bpe_bliss_lexicon
+from ....data.loquacious.lexicon import (
+    get_bliss_phoneme_lexicon,
+    get_bpe_bliss_lexicon,
+)
 from ....data.loquacious.recog import LoquaciousTreeTimesyncRecogParams
+from ....model_pipelines.common.pytorch_modules import NoConfig, RawAudioModel
 from ....model_pipelines.common.recog import (
     HuggingFaceTracebackFormatter,
     OfflineRecogParameters,
@@ -38,6 +44,7 @@ from ....model_pipelines.common.recog_rasr_config import (
     get_lexiconfree_timesync_recog_config,
     get_tree_timesync_recog_config,
 )
+from ....model_pipelines.common.serializers import get_model_serializers
 
 
 @dataclass
@@ -115,6 +122,49 @@ def run_single_byte_variant(
         variant=variant,
         corpora=corpora,
         traceback_formatter_serializers=traceback_formatter_serializers,
+    )
+
+
+def run_single_hf_tokenized_byte_tree_variant(
+    model_descriptor: str,
+    huggingface_repo_dir: tk.Path,
+    label_scorer_configs: List[RasrConfig],
+    blank_index: Optional[int],
+    variant: BaseRecogVariant,
+    corpora: List[loquacious_datasets.EvalSet],
+    encoder_serializers: Optional[Collection] = None,
+    rasr_init_hook: Optional[Any] = None,
+    recog_data_config_fn: Optional[Callable[[loquacious_datasets.EvalSet], DataConfig]] = None,
+) -> List[RecogResult]:
+    assert isinstance(variant.search_algorithm_params, LoquaciousTreeTimesyncRecogParams)
+
+    traceback_formatter_kwargs = [("huggingface_repo_dir", DelayedFormat('tk.Path("{}")', huggingface_repo_dir))]
+    traceback_formatter_serializers = [
+        Import(f"{HuggingFaceTracebackFormatter.__module__}.{HuggingFaceTracebackFormatter.__name__}"),
+        Call(
+            HuggingFaceTracebackFormatter.__name__,
+            kwargs=traceback_formatter_kwargs,
+            return_assign_variables="traceback_formatter",
+        ),
+    ]
+
+    return _run_single_variant(
+        model_descriptor=model_descriptor,
+        checkpoint=None,
+        encoder_serializers=encoder_serializers or get_model_serializers(RawAudioModel, NoConfig()),
+        label_scorer_configs=label_scorer_configs,
+        vocab_file=None,
+        lexicon_file=get_hf_token_byte_bliss_lexicon(
+            huggingface_repo_dir=huggingface_repo_dir,
+            add_blank=blank_index is not None,
+        ),
+        blank_index=blank_index,
+        sentence_end_index=None,
+        variant=variant,
+        corpora=corpora,
+        traceback_formatter_serializers=traceback_formatter_serializers,
+        rasr_init_hook=rasr_init_hook,
+        recog_data_config_fn=recog_data_config_fn,
     )
 
 
@@ -208,6 +258,7 @@ def _run_single_variant(
     variant: BaseRecogVariant,
     corpora: List[loquacious_datasets.EvalSet],
     traceback_formatter_serializers: Optional[List[Any]] = None,
+    rasr_init_hook: Optional[Any] = None,
     recog_data_config_fn: Optional[Callable[[loquacious_datasets.EvalSet], DataConfig]] = None,
 ) -> List[RecogResult]:
     if isinstance(variant.search_algorithm_params, LexiconfreeLabelsyncRecogParams):
@@ -253,8 +304,8 @@ def _run_single_variant(
         if variant.compute_search_errors:
             align_params = replace(
                 variant.search_algorithm_params,
-                max_beam_sizes=[2048] * len(variant.search_algorithm_params.max_beam_sizes),
-                score_thresholds=[22.0] * len(variant.search_algorithm_params.max_beam_sizes),
+                max_beam_sizes=[1024] * len(variant.search_algorithm_params.max_beam_sizes),
+                score_thresholds=[16.0] * len(variant.search_algorithm_params.max_beam_sizes),
                 max_word_end_beam_size=None,
                 word_end_score_threshold=None,
                 maximum_stable_delay=None,
@@ -290,6 +341,7 @@ def _run_single_variant(
                 sample_rate=16000,
                 params=variant.search_mode_params,
                 traceback_formatter_serializers=traceback_formatter_serializers,
+                rasr_init_hook=rasr_init_hook,
             )
         elif isinstance(variant.search_mode_params, StreamingRecogParameters):
             recog_result = recog_rasr_streaming(
@@ -302,6 +354,7 @@ def _run_single_variant(
                 sample_rate=16000,
                 params=variant.search_mode_params,
                 traceback_formatter_serializers=traceback_formatter_serializers,
+                rasr_init_hook=rasr_init_hook,
             )
 
         results.append(recog_result)

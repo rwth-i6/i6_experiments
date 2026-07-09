@@ -4,6 +4,39 @@ from speech_llm.prefix_lm.model.definitions.speech_lm import SpeechLmV2
 from transformers.cache_utils import DynamicCache
 
 
+def _is_whisper_encoder(encoder: torch.nn.Module) -> bool:
+    return (
+        hasattr(encoder, "whisper_processor")
+        and hasattr(encoder, "torch_extract_fbank_features")
+        and hasattr(encoder, "model")
+    )
+
+
+def _whisper_encoder_forward(encoder, raw_audio: torch.Tensor, raw_audio_lens: torch.Tensor):
+    max_num_allowed_samples = encoder.sampling_rate * encoder.required_input_length
+    raw_audio = raw_audio[:, :max_num_allowed_samples]
+    raw_audio_lens = torch.clamp(raw_audio_lens, max=max_num_allowed_samples)
+
+    audio_features = encoder.torch_extract_fbank_features(raw_audio)
+    encoder_outputs = encoder.model(audio_features, output_hidden_states=False)
+    encoder_output = encoder_outputs.last_hidden_state
+
+    hop_length = encoder.whisper_processor.feature_extractor.hop_length
+    encoder_output_lens = torch.div(raw_audio_lens, hop_length, rounding_mode="floor")
+    encoder_output_lens = torch.div(encoder_output_lens - 1, 2, rounding_mode="floor") + 1
+    if encoder.output_pad_frames:
+        encoder_output_lens = encoder_output_lens.max().expand_as(encoder_output_lens)
+
+    return encoder_output, encoder_output_lens
+
+
+def _encoder_forward(model: SpeechLmV2, raw_audio: torch.Tensor, raw_audio_lens: torch.Tensor):
+    if _is_whisper_encoder(model.encoder):
+        encoder_output, encoder_output_lens = _whisper_encoder_forward(model.encoder, raw_audio, raw_audio_lens)
+        return encoder_output, encoder_output_lens, [], None
+    return model.encoder.forward(raw_audio, raw_audio_lens)
+
+
 def _dynamic_cache_to_legacy_cache(dynamic_cache: DynamicCache) -> tuple:
     if hasattr(dynamic_cache, "to_legacy_cache"):
         return dynamic_cache.to_legacy_cache()
@@ -38,7 +71,7 @@ def _pad_time_to_multiple(x: torch.Tensor, multiple: int) -> torch.Tensor:
 class SpeechLmEncoder(SpeechLmV2):
     def forward(self, raw_audio: torch.Tensor, raw_audio_lens: torch.Tensor):
         raw_audio = raw_audio.squeeze(dim=2)
-        encoder_output, _, _, _ = self.encoder.forward(raw_audio, raw_audio_lens)
+        encoder_output, _, _, _ = _encoder_forward(self, raw_audio, raw_audio_lens)
         return encoder_output.float()
 
 

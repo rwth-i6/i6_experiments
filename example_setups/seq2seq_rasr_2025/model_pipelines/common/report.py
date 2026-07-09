@@ -1,7 +1,6 @@
 __all__ = ["register_recog_report"]
 
 from typing import List, Optional
-import numpy as np
 
 from i6_core.summary.wer import TableReport
 from sisyphus import gs, tk
@@ -30,6 +29,7 @@ def _recog_result_to_dict(recog_result: RecogResult) -> dict[str, float]:
         ("Sub", recog_result.substitution),
         ("Search Err", recog_result.search_error_rate),
         ("Model Err", recog_result.model_error_rate),
+        ("Skip Rate", recog_result.skipped_rate),
         ("Enc RTF", recog_result.enc_rtf),
         ("Search RTF", recog_result.search_rtf),
         ("Total RTF", recog_result.total_rtf),

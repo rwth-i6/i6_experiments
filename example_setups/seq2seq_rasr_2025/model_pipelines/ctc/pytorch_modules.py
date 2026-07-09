@@ -1,4 +1,9 @@
-__all__ = ["ConformerCTCConfig", "ConformerCTCRecogConfig", "ConformerCTCModel", "ConformerCTCRecogModel"]
+__all__ = [
+    "ConformerCTCConfig",
+    "ConformerCTCRecogConfig",
+    "ConformerCTCModel",
+    "ConformerCTCRecogModel",
+]
 
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -15,7 +20,6 @@ from i6_models.primitives.specaugment import specaugment_v1_by_length
 from sisyphus import tk
 
 from ..common.pytorch_modules import SpecaugmentByLengthConfig, lengths_to_padding_mask
-
 
 @dataclass
 class ConformerCTCConfig(ModelConfiguration):
@@ -105,36 +109,3 @@ class ConformerCTCRecogModel(ConformerCTCModel):
         scores = -log_probs  # [B, T, V]
         scores[:, :, -1] += self.blank_penalty  # [B, T, V]
         return scores + self.scaled_priors.to(device=log_probs.device)  # [B, T, V]
-
-
-class ConformerCTCRecogExportModel(ConformerCTCModel):
-    def __init__(self, cfg: ConformerCTCRecogConfig, epoch: int, **_):
-        super().__init__(
-            cfg=cfg,
-            epoch=epoch,
-        )
-        if cfg.prior_scale != 0:
-            assert cfg.prior_file is not None
-            self.scaled_priors = cfg.prior_scale * torch.tensor(np.loadtxt(cfg.prior_file), dtype=torch.float32)
-        else:
-            self.scaled_priors = torch.zeros((cfg.target_size,), dtype=torch.float32)
-        self.blank_penalty = cfg.blank_penalty
-
-    def forward(
-        self,
-        features: torch.Tensor,  # [B, T, F]
-        features_size: torch.Tensor,  # [B]
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        sequence_mask = lengths_to_padding_mask(features_size)  # [B, T]
-
-        encoder_states, sequence_mask = self.conformer(features, sequence_mask)  # [B, T, F], [B, T]
-        encoder_states = encoder_states[-1]
-
-        encoder_states = self.dropout(encoder_states)  # [B, T, F]
-        logits = self.final_linear(encoder_states)  # [B, T, V]
-        scores = -torch.log_softmax(logits, dim=2)  # [B, T, V]
-
-        scores[:, :, -1] += self.blank_penalty  # [B, T, V]
-        return scores + self.scaled_priors.to(device=scores.device), torch.sum(sequence_mask, dim=1).type(
-            torch.int32
-        )  # [B, T, V], [B]

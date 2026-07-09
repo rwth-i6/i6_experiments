@@ -14,7 +14,7 @@ import pprint
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from time import perf_counter
-from typing import Any, Iterator, List, Literal, Optional, Protocol
+from typing import Any, Callable, Iterator, List, Literal, Optional, Protocol
 
 import numpy as np
 import torch
@@ -286,6 +286,7 @@ def recog_rasr_offline(
     checkpoint: Optional[PtCheckpoint] = None,
     align_rasr_config_file: Optional[tk.Path] = None,
     traceback_formatter_serializers: Optional[List[Any]] = None,
+    rasr_init_hook: Optional[Any] = None,
 ) -> RecogResult:
     compute_search_errors = align_rasr_config_file is not None
     model_outputs = {
@@ -349,6 +350,8 @@ def recog_rasr_offline(
     if traceback_formatter_serializers is not None:
         python_epilog += traceback_formatter_serializers
         forward_step_kwargs.append(("traceback_formatter", CodeWrapper("traceback_formatter")))
+    if rasr_init_hook is not None:
+        forward_step_kwargs.append(("rasr_init_hook", rasr_init_hook))
 
     recog_returnn_config = ReturnnConfig(
         config={
@@ -482,6 +485,7 @@ def recog_rasr_streaming(
     params: StreamingRecogParameters,
     checkpoint: Optional[PtCheckpoint] = None,
     traceback_formatter_serializers: Optional[List[Any]] = None,
+    rasr_init_hook: Optional[Any] = None,
 ) -> RecogResult:
     forward_step_kwargs = [
         ("recog_rasr_config_file", DelayedFormat('tk.Path("{}")', recog_rasr_config_file)),
@@ -505,6 +509,8 @@ def recog_rasr_streaming(
     if traceback_formatter_serializers is not None:
         python_epilog += traceback_formatter_serializers
         forward_step_kwargs.append(("traceback_formatter", CodeWrapper("traceback_formatter")))
+    if rasr_init_hook is not None:
+        forward_step_kwargs.append(("rasr_init_hook", rasr_init_hook))
 
     recog_returnn_config = ReturnnConfig(
         config={
@@ -719,7 +725,10 @@ class ExtractRasrStatisticsJob(Job):
         with open(self.rasr_log_file.get(), "r") as f:
             for line in f:
                 for log_str, counter in [
+                    ("<num-hyps-after-pruning-1>", step_hyps_counts),
                     ("<num-hyps-after-beam-pruning-1>", step_hyps_counts),
+                    ("<num-hyps-after-pruning2>", step_hyps_counts),
+                    ("<num-active-hyps-after-beam-pruning>", step_hyps_counts),
                     ("<num-word-end-hyps-after-beam-pruning>", step_word_end_hyps_counts),
                     ("<num-active-trees>", step_trees_counts),
                 ]:
@@ -998,10 +1007,12 @@ class RasrRecogForwardStep(ABC):
         align_rasr_config_file: Optional[tk.Path] = None,
         sample_rate: int = 16000,
         traceback_formatter: Optional[TracebackFormatter] = None,
+        rasr_init_hook: Optional[Callable[[], None]] = None,
     ) -> None:
         self.recog_rasr_config_file = recog_rasr_config_file
         self.sample_rate = sample_rate
         self.traceback_formatter = traceback_formatter or BpeTracebackFormatter()
+        self.rasr_init_hook = rasr_init_hook
         self.search_algorithm = self.init_search_algorithm()
 
         self.align_rasr_config_file = align_rasr_config_file
@@ -1010,6 +1021,9 @@ class RasrRecogForwardStep(ABC):
     def init_search_algorithm(self):
         if self.recog_rasr_config_file is None:
             return None
+
+        if self.rasr_init_hook is not None:
+            self.rasr_init_hook()
 
         from librasr import Configuration, SearchAlgorithm
 
@@ -1021,6 +1035,9 @@ class RasrRecogForwardStep(ABC):
     def init_aligner(self):
         if self.align_rasr_config_file is None:
             return None
+
+        if self.rasr_init_hook is not None:
+            self.rasr_init_hook()
 
         from librasr import Aligner, Configuration
 
@@ -1093,32 +1110,27 @@ class OfflineRasrRecogForwardStep(RasrRecogForwardStep):
 
             seq_time = _samples_to_seconds(seq_samples_size[0], self.sample_rate)
 
-            print(f'    Recognized: "{self.traceback_formatter.traceback_to_transcription(traceback)}"')
-            print("    Traceback:")
-            for item in traceback:
-                # if item.lemma.startswith("<") or item.lemma.startswith("["):
-                #     continue
-                print(f"        {repr(item)}")
-            print(
-                f"    Encoder time: {encoder_time:.3f} seconds, RTF {encoder_time / seq_time:.3f}, XRTF {seq_time / encoder_time:.3f}"
-            )
-            print(
-                f"    Search time: {search_time:.3f} seconds, RTF {search_time / seq_time:.3f}, XRTF {seq_time / search_time:.3f}"
-            )
-            print()
+            recog_transcription = self.traceback_formatter.traceback_to_transcription(traceback)
+            print(f'    Recognized: "{recog_transcription}"')
 
             ctm_strs.append(self.traceback_formatter.traceback_to_ctm_str(traceback, ms_per_enc_frame))
 
+            align_time = None
+            align_traceback = None
             if self.aligner is not None:
+                align_start = perf_counter()
                 align_traceback = self.aligner.align_segment(features=encoder_states, orth=orths[b] + " ")
-                recog_transcription = self.traceback_formatter.traceback_to_transcription(traceback)
+                align_time = perf_counter() - align_start
+
                 align_transcription = self.traceback_formatter.traceback_to_transcription(align_traceback)
+                print(f'    Aligned: "{align_transcription}"')
 
                 recog_score = _traceback_to_score(traceback)
                 align_score = _traceback_to_score(align_traceback)
 
                 if align_transcription != orths[b]:
                     print("    Could not successfully compute forced alignment. Transcription may contain OOV words.")
+                    print("    Align traceback:")
                     skipped.append(1)
                     search_errors.append(0)
                     model_errors.append(0)
@@ -1145,6 +1157,29 @@ class OfflineRasrRecogForwardStep(RasrRecogForwardStep):
                     search_errors.append(0)
                     model_errors.append(1)
                     correct.append(0)
+            print("    Search traceback:")
+            for item in traceback:
+                # if item.lemma.startswith("<") or item.lemma.startswith("["):
+                #     continue
+                print(f"        {repr(item)}")
+            print("")
+            if align_traceback is not None:
+                print("    Alignment traceback:")
+                for item in align_traceback:
+                    print(f"        {repr(item)}")
+                print("")
+
+            print(
+                f"    Encoder time: {encoder_time:.3f} seconds, RTF {encoder_time / seq_time:.3f}, XRTF {seq_time / encoder_time:.3f}"
+            )
+            print(
+                f"    Search time: {search_time:.3f} seconds, RTF {search_time / seq_time:.3f}, XRTF {seq_time / search_time:.3f}"
+            )
+            if align_time is not None:
+                print(
+                    f"    Align time: {align_time:.3f} seconds, RTF {align_time / seq_time:.3f}, XRTF {seq_time / align_time:.3f}"
+                )
+            print()
 
         import returnn.frontend as rf
 

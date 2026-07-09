@@ -1,5 +1,6 @@
 __all__ = [
     "NoConfig",
+    "RawAudioModel",
     "PassSamplesModel",
     "LogMelFeatureExtractionV1Model",
     "SpecaugmentByLengthConfig",
@@ -17,6 +18,18 @@ from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, L
 @dataclass
 class NoConfig(ModelConfiguration):
     pass
+
+
+class RawAudioModel(torch.nn.Module):
+    def __init__(self, cfg: NoConfig, **_):
+        super().__init__()
+
+    def forward(
+        self,
+        audio_samples: torch.Tensor,  # [B, T, 1]
+        audio_samples_size: torch.Tensor,  # [B]
+    ) -> torch.Tensor:
+        return audio_samples
 
 
 class PassSamplesModel(torch.nn.Module):

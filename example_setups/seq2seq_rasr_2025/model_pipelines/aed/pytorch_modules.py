@@ -340,25 +340,6 @@ class AEDEncoder(AEDModel):
         return torch.cat([conformer_out, enc_ctx, enc_inv_fertility], dim=2)  # [B, T, E+A+1]
 
 
-class AEDExportEncoder(AEDModel):
-    def forward(
-        self,
-        features: torch.Tensor,  # [B, T', F]
-        features_size: torch.Tensor,  # [B]
-    ) -> Tuple[torch.Tensor, torch.Tensor]:  # [B, T, E+A+1], [B]
-        # create the mask for the conformer input
-        mask = lengths_to_padding_mask(features_size)
-
-        conformer_out, out_mask = self.conformer(features, mask)
-        conformer_out = conformer_out[-1]
-        enc_ctx = self.decoder.enc_ctx(conformer_out)  # [B, T, A]
-        enc_inv_fertility = torch.nn.functional.sigmoid(self.decoder.inv_fertility(conformer_out))  # [B,T,1]
-
-        encoder_seq_len = torch.sum(out_mask, dim=1, dtype=torch.int32)
-
-        return torch.cat([conformer_out, enc_ctx, enc_inv_fertility], dim=2), encoder_seq_len  # [B, T, E+A+1], [B]
-
-
 class AEDScorer(AEDModel):
     def forward(
         self,

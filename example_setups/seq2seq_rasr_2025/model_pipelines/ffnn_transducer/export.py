@@ -11,7 +11,6 @@ from ..common.onnx_export import export_model as _export_model
 from ..common.serializers import get_model_serializers
 from .pytorch_modules import FFNNTransducerRecogConfig, FFNNTransducerScorer
 
-
 # -----------------------
 # --- Export routines ---
 # -----------------------

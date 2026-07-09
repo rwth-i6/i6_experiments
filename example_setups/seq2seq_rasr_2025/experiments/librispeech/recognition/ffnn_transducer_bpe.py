@@ -75,7 +75,7 @@ def default_offline_lexfree_lstm_recog_variant() -> TransducerRecogVariant:
         descriptor="lexfree_bpe-LSTM",
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
             collapse_repeated_labels=False,
-            max_beam_sizes=[512, 256],
+            max_beam_sizes=[256, 128],
             score_thresholds=[12.0, 8.0],
         ),
         ilm_scale=0.2,
@@ -88,7 +88,7 @@ def default_offline_lexfree_bpe_trafo_recog_variant() -> TransducerRecogVariant:
         descriptor="lexfree_bpe-trafoLM",
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
             collapse_repeated_labels=False,
-            score_thresholds=[10.0, 8.0],
+            score_thresholds=[8.0, 8.0],
             max_beam_sizes=[64, 32],
         ),
         search_mode_params=OfflineRecogParameters(),
@@ -102,7 +102,7 @@ def default_offline_tree_recog_variant() -> TransducerRecogVariant:
         descriptor="tree",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
-            max_beam_sizes=[8],
+            max_beam_sizes=[6],
             score_thresholds=[6.0],
         ),
     )
@@ -128,7 +128,7 @@ def default_offline_tree_lstm_recog_variant() -> TransducerRecogVariant:
         descriptor="tree_bpe-LSTM",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
-            max_beam_sizes=[40, 20],
+            max_beam_sizes=[20, 10],
             score_thresholds=[8.0, 8.0],
         ),
         ilm_scale=0.2,
@@ -141,7 +141,7 @@ def default_offline_tree_lstm_4gram_recog_variant() -> TransducerRecogVariant:
         descriptor="tree_4gram_bpe-LSTM",
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=False,
-            max_beam_sizes=[16, 16],
+            max_beam_sizes=[16, 12],
             score_thresholds=[8.0, 8.0],
             word_end_score_threshold=0.7,
             max_word_end_beam_size=8,

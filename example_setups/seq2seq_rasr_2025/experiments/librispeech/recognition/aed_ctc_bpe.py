@@ -2,26 +2,32 @@ from dataclasses import dataclass, fields
 from typing import List, Optional
 
 from i6_core.rasr import RasrConfig
+from i6_core.returnn import CodeWrapper, PtCheckpoint
 from i6_experiments.common.setups.serialization import Collection
 
 from ....data.librispeech import datasets as librispeech_datasets
 from ....data.librispeech import lm as librispeech_lm
 from ....data.librispeech.bpe import vocab_to_bpe_size
 from ....data.librispeech.recog import LibrispeechTreeTimesyncRecogParams
-from ....model_pipelines.aed.export import export_encoder as export_aed_encoder
 from ....model_pipelines.aed.label_scorer_config import get_aed_label_scorer_config
-from ....model_pipelines.aed.pytorch_modules import AEDConfig
+from ....model_pipelines.aed.pytorch_modules import AEDConfig, AEDEncoder
 from ....model_pipelines.common.label_scorer_config import get_encoder_decoder_label_scorer_config
-from ....model_pipelines.common.pytorch_modules import LogMelFeatureExtractionV1Model
+from ....model_pipelines.common.python_encoder import (
+    get_pytorch_encoder_serializers,
+    get_rasr_python_encoder_init_hook_serializer,
+)
+from ....model_pipelines.common.pytorch_modules import NoConfig, RawAudioModel
 from ....model_pipelines.common.recog import RecogResult
 from ....model_pipelines.common.recog_rasr_config import LexiconfreeLabelsyncRecogParams, LexiconfreeTimesyncRecogParams
 from ....model_pipelines.common.serializers import get_model_serializers
 from ....model_pipelines.common.train import TrainedModel
-from ....model_pipelines.ctc.export import export_model as export_ctc_model
 from ....model_pipelines.ctc.label_scorer_config import get_ctc_prefix_label_scorer_config
 from ....model_pipelines.ctc.prior import compute_priors
-from ....model_pipelines.ctc.pytorch_modules import ConformerCTCConfig, ConformerCTCRecogConfig
+from ....model_pipelines.ctc.pytorch_modules import ConformerCTCConfig, ConformerCTCRecogConfig, ConformerCTCRecogModel
 from .common import BaseRecogVariant, run_single_bpe_variant
+
+AED_PYTHON_ENCODER_TYPE = "aed-python-encoder"
+CTC_PYTHON_ENCODER_TYPE = "ctc-python-encoder"
 
 
 @dataclass
@@ -111,42 +117,27 @@ def default_tree_4gram_recog_variant() -> AEDCTCRecogVariant:
 
 
 def _get_label_scorer_configs(
-    aed_model: TrainedModel[AEDConfig], ctc_model: TrainedModel[ConformerCTCConfig], variant: AEDCTCRecogVariant
+    aed_model: TrainedModel[AEDConfig],
+    ctc_model: TrainedModel[ConformerCTCConfig],
+    aed_checkpoint: PtCheckpoint,
+    variant: AEDCTCRecogVariant,
 ) -> List[RasrConfig]:
     assert variant.ctc_score_scale != 0 and variant.ctc_prior_scale != 1
 
     use_gpu = variant.search_mode_params.gpu_mem_rqmt > 0
 
-    aed_checkpoint = aed_model.get_checkpoint(variant.aed_epoch)
-    aed_onnx_encoder = export_aed_encoder(model_config=aed_model.model_config, checkpoint=aed_checkpoint)
+    aed_encoder = RasrConfig()
+    aed_encoder.type = AED_PYTHON_ENCODER_TYPE
+    aed_encoder.device = "cuda" if use_gpu else "cpu"
     aed_decoder_label_scorer_config = get_aed_label_scorer_config(
         model_config=aed_model.model_config,
         checkpoint=aed_checkpoint,
         use_gpu=use_gpu,
     )
     aed_label_scorer_config = get_encoder_decoder_label_scorer_config(
-        encoder_onnx_model=aed_onnx_encoder,
+        encoder_config=aed_encoder,
         decoder_label_scorer_config=aed_decoder_label_scorer_config,
         scale=1.0 - variant.ctc_score_scale,
-    )
-
-    ctc_checkpoint = ctc_model.get_checkpoint(variant.ctc_epoch)
-    if variant.ctc_prior_scale != 0.0:
-        prior_file = compute_priors(
-            prior_data_config=librispeech_datasets.get_default_prior_data(),
-            model_config=ctc_model.model_config,
-            checkpoint=ctc_checkpoint,
-        )
-    else:
-        prior_file = None
-    ctc_onnx_model = export_ctc_model(
-        model_config=ConformerCTCRecogConfig(
-            **{f.name: getattr(ctc_model.model_config, f.name) for f in fields(ctc_model.model_config)},
-            prior_file=prior_file,
-            prior_scale=variant.ctc_prior_scale,
-            blank_penalty=variant.ctc_blank_penalty,
-        ),
-        checkpoint=ctc_checkpoint,
     )
 
     if isinstance(variant.search_algorithm_params, LexiconfreeLabelsyncRecogParams):
@@ -154,8 +145,11 @@ def _get_label_scorer_configs(
     else:
         ctc_decoder_label_scorer_config = None
 
+    ctc_encoder = RasrConfig()
+    ctc_encoder.type = CTC_PYTHON_ENCODER_TYPE
+    ctc_encoder.device = "cuda" if use_gpu else "cpu"
     ctc_label_scorer_config = get_encoder_decoder_label_scorer_config(
-        encoder_onnx_model=ctc_onnx_model,
+        encoder_config=ctc_encoder,
         decoder_label_scorer_config=ctc_decoder_label_scorer_config,
         scale=variant.ctc_score_scale,
         use_gpu=use_gpu,
@@ -179,11 +173,60 @@ def _get_label_scorer_configs(
         return list(filter(None, [ctc_label_scorer_config, aed_label_scorer_config, lstm_lm_label_scorer_config]))
 
 
-def _get_feature_extraction_serializers(
-    aed_model: TrainedModel[AEDConfig], ctc_model: TrainedModel[ConformerCTCConfig]
+def _get_ctc_recog_config(
+    ctc_model: TrainedModel[ConformerCTCConfig],
+    ctc_checkpoint: PtCheckpoint,
+    variant: AEDCTCRecogVariant,
+) -> ConformerCTCRecogConfig:
+    if variant.ctc_prior_scale != 0.0:
+        prior_file = compute_priors(
+            prior_data_config=librispeech_datasets.get_default_prior_data(),
+            model_config=ctc_model.model_config,
+            checkpoint=ctc_checkpoint,
+        )
+    else:
+        prior_file = None
+
+    return ConformerCTCRecogConfig(
+        **{f.name: getattr(ctc_model.model_config, f.name) for f in fields(ctc_model.model_config)},
+        prior_file=prior_file,
+        prior_scale=variant.ctc_prior_scale,
+        blank_penalty=variant.ctc_blank_penalty,
+    )
+
+
+def _get_encoder_serializers(
+    aed_model_config: AEDConfig,
+    aed_checkpoint: PtCheckpoint,
+    ctc_recog_config: ConformerCTCRecogConfig,
+    ctc_checkpoint: PtCheckpoint,
 ) -> Collection:
-    assert aed_model.model_config.logmel_cfg == ctc_model.model_config.logmel_cfg
-    return get_model_serializers(LogMelFeatureExtractionV1Model, aed_model.model_config.logmel_cfg)
+    raw_audio_serializers = get_model_serializers(RawAudioModel, NoConfig()).serializer_objects
+    aed_encoder_serializers = get_pytorch_encoder_serializers(
+        encoder_type_name=AED_PYTHON_ENCODER_TYPE,
+        model_class=AEDEncoder,
+        model_config=aed_model_config,
+        checkpoint=aed_checkpoint,
+    ).serializer_objects
+    ctc_encoder_serializers = get_pytorch_encoder_serializers(
+        encoder_type_name=CTC_PYTHON_ENCODER_TYPE,
+        model_class=ConformerCTCRecogModel,
+        model_config=ctc_recog_config,
+        checkpoint=ctc_checkpoint,
+    ).serializer_objects
+    return Collection(
+        raw_audio_serializers
+        + aed_encoder_serializers
+        + ctc_encoder_serializers
+        + [
+            get_rasr_python_encoder_init_hook_serializer(
+                [
+                    f"register_{AED_PYTHON_ENCODER_TYPE.replace('-', '_')}",
+                    f"register_{CTC_PYTHON_ENCODER_TYPE.replace('-', '_')}",
+                ]
+            ),
+        ]
+    )
 
 
 def _run_single_variant(
@@ -199,14 +242,33 @@ def _run_single_variant(
     else:
         blank_index = None
 
+    aed_checkpoint = aed_model.get_checkpoint(variant.aed_epoch)
+    ctc_checkpoint = ctc_model.get_checkpoint(variant.ctc_epoch)
+    ctc_recog_config = _get_ctc_recog_config(
+        ctc_model=ctc_model,
+        ctc_checkpoint=ctc_checkpoint,
+        variant=variant,
+    )
+
     return run_single_bpe_variant(
         model_descriptor=f"{aed_model.descriptor}__{ctc_model.descriptor}",
-        encoder_serializers=_get_feature_extraction_serializers(aed_model=aed_model, ctc_model=ctc_model),
-        label_scorer_configs=_get_label_scorer_configs(aed_model=aed_model, ctc_model=ctc_model, variant=variant),
+        encoder_serializers=_get_encoder_serializers(
+            aed_model_config=aed_model.model_config,
+            aed_checkpoint=aed_checkpoint,
+            ctc_recog_config=ctc_recog_config,
+            ctc_checkpoint=ctc_checkpoint,
+        ),
+        rasr_init_hook=CodeWrapper("register_rasr_python_encoders"),
+        label_scorer_configs=_get_label_scorer_configs(
+            aed_model=aed_model,
+            ctc_model=ctc_model,
+            aed_checkpoint=aed_checkpoint,
+            variant=variant,
+        ),
         bpe_size=vocab_to_bpe_size(ctc_model.model_config.target_size - 1),
         blank_index=blank_index,
         sentence_end_index=0,
         variant=variant,
         corpora=corpora,
-        checkpoint=None,  # Checkpoints are contained in ONNX models and loaded by RASR
+        checkpoint=None,
     )

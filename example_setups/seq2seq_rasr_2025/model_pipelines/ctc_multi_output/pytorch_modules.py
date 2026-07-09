@@ -129,28 +129,6 @@ class ConformerCTCMultiOutputPriorModel(ConformerCTCMultiOutputModel):
         return torch.log_softmax(logits, dim=-1), torch.sum(sequence_mask, dim=1).type(torch.int32)
 
 
-class ConformerCTCMultiOutputEncoderModel(ConformerCTCMultiOutputModel):
-    def __init__(self, cfg: ConformerCTCMultiOutputConfig, epoch: int, **_):
-        super().__init__(cfg=cfg, epoch=epoch)
-
-    def forward(
-        self,
-        features: torch.Tensor,  # [B, T, F]
-        features_size: torch.Tensor,  # [B]
-    ) -> Tuple[torch.Tensor, torch.Tensor]:  # [B, T, O*E], [B]
-        sequence_mask = lengths_to_padding_mask(features_size)  # [B, T]
-
-        encoder_states, sequence_mask = self.conformer(
-            features,
-            sequence_mask,
-            return_layers=self.output_layer_indices,
-        )  # [B, T, F], [B, T]
-
-        return torch.concat([encoder_states[idx] for idx in self.matching_encoder_states_index], dim=-1), torch.sum(
-            sequence_mask, dim=1
-        ).type(torch.int32)
-
-
 class ConformerCTCMultiOutputScorerModel(ConformerCTCMultiOutputModel):
     def __init__(self, cfg: ConformerCTCMultiOutputScorerConfig, epoch: int, **_):
         super().__init__(cfg=cfg, epoch=epoch)
