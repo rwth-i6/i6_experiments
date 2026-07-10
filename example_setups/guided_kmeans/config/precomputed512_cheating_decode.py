@@ -9,8 +9,6 @@ from i6_experiments.example_setups.guided_kmeans.setup.librasr_recognition impor
 verbosity = 1
 rasr_path = tk.Path("/work/asr3/michel/mann/tools/rasr/librasr_recog2/arch/linux-x86_64-standard")
 
-lexicon = create_lexicon()
-
 centroids_path = tk.Path("/u/mann/experiments/2026-06-09--guided-k-means/test/cheating_centroids/centroids.npy")
 
 features_path = [

@@ -22,8 +22,6 @@ num_epochs = 10
 #rasr_path = tk.Path("/work/asr3/michel/mann/tools/rasr/librasr_recog/arch/linux-x86_64-standard")
 rasr_path = tk.Path("/work/asr4/lkleppel/rasr_dev/ngram_linear_search/rasr2/arch/linux-x86_64-standard")    # for linear search
 
-lexicon = create_lexicon()
-
 initializer_configs = {
     "random": StreamingStandardInitializerConfig(seed=42),
     "cheating": PickleCheatingCentroidInitializerConfig(
@@ -65,7 +63,7 @@ def run():
                 num_clusters=41,
                 initializer_config=LateInitConfig(),
                 recognition_config=recognition_config,
-                lexicon_path=create_lexicon(),
+                lexicon_path=create_lexicon(add_unknown_phoneme=False),
                 subsampling=3,
                 rasr_path=rasr_path,
             )
@@ -143,7 +141,7 @@ def test():
         num_clusters=41 if not use_eow_phonemes else 80,
         initializer_config=LateInitConfig(),
         recognition_config=recognition_config,
-        lexicon_path=create_lexicon(use_eow_phonemes=use_eow_phonemes),
+        lexicon_path=create_lexicon(use_eow_phonemes=use_eow_phonemes, add_unknown_phoneme=False),
         subsampling=3,
         rasr_path=rasr_path,
     )

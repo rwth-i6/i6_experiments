@@ -49,8 +49,9 @@ def neg_log(x):
     return -math.log(x) if x > 0.0 else float("inf")
 
 class PhoneticLexiconFromPhonemeListJob(Job):
-    def __init__(self, phoneme_list_file, add_unknown=True, add_noise=False, silence_orth="[SILENCE]", add_empty_silence=False):
+    def __init__(self, phoneme_list_file, add_unknown=True, add_unknown_phoneme=True, add_noise=False, silence_orth="[SILENCE]", add_empty_silence=False):
         self.add_unknown = add_unknown
+        self.add_unknown_phoneme = add_unknown_phoneme
         self.add_noise = add_noise
         self.phoneme_list_file = phoneme_list_file
         self.silence_orth = silence_orth
@@ -83,7 +84,7 @@ class PhoneticLexiconFromPhonemeListJob(Job):
         lex.add_phoneme("[SILENCE]", variation="none")
         for p in phonemes_ordered: #sorted(phonemes):
             lex.add_phoneme(p, "none")
-        if self.add_unknown:
+        if self.add_unknown and self.add_unknown_phoneme:
             lex.add_phoneme("[UNKNOWN]", "none")
         if self.add_noise:
             lex.add_phoneme("noise", "none")
@@ -114,7 +115,10 @@ class PhoneticLexiconFromPhonemeListJob(Job):
         lex.add_lemma(lexicon.Lemma(orth=["[SENTENCE_END]"], synt=["</s>"], special="sentence-end"))
         # unknown lemma, needs no synt/eval element
         if self.add_unknown:
-            lex.add_lemma(lexicon.Lemma(orth=["[UNKNOWN]"], phon=["[UNKNOWN]"], synt=["<unk>"], special="unknown"))
+            if self.add_unknown_phoneme:
+                lex.add_lemma(lexicon.Lemma(orth=["[UNKNOWN]"], phon=["[UNKNOWN]"], synt=["<unk>"], special="unknown"))
+            else:
+                lex.add_lemma(lexicon.Lemma(orth=["[UNKNOWN]"], synt=["<unk>"], special="unknown"))
             # TODO: synt = ["<UNK>"] ???
         # noise lemma, needs empty synt token sequence but no eval element?
         if self.add_noise:
@@ -161,11 +165,11 @@ def get_acoustic_model_config() -> RasrConfig:
         states_per_phone=1,
     )
 
-def create_lexicon(use_eow_phonemes = False) -> tk.Path:
+def create_lexicon(use_eow_phonemes: bool = False, add_unknown_phoneme: bool = True) -> tk.Path:
     phoneme_list = PipelineJob(phonetic_vocabulary_path, ["cut -f1 -d ' '", "grep -vE \"'|<SIL>\""], mini_task=True).out
     if use_eow_phonemes:
         phoneme_list = AddEOWPhonemesToVocabListJob(phoneme_list).out_phoneme_list
-    lexicon_job = PhoneticLexiconFromPhonemeListJob(phoneme_list)
+    lexicon_job = PhoneticLexiconFromPhonemeListJob(phoneme_list, add_unknown_phoneme=add_unknown_phoneme)
     output_name = "lexicon/phoneme.lex.xml.gz"
     if use_eow_phonemes:
         output_name = "lexicon/eow_phoneme.lex.xml.gz"
@@ -240,7 +244,7 @@ def create_recog_rasr_config(
 
     if use_tree_search:
         recog_config = get_tree_timesync_recog_config(
-            lexicon_file=create_lexicon(use_eow_phonemes),
+            lexicon_file=create_lexicon(use_eow_phonemes, add_unknown_phoneme=False),
             collapse_repeated_labels=True,
             label_scorer_config=get_label_scorer_config(
                 emission_scale=emission_scale,
@@ -260,7 +264,7 @@ def create_recog_rasr_config(
         )
     else:
         recog_config = get_linear_search_recog_config(
-            lexicon_file=create_lexicon(use_eow_phonemes),
+            lexicon_file=create_lexicon(use_eow_phonemes, add_unknown_phoneme=False),
             collapse_repeated_labels=True,
             label_scorer_config=get_label_scorer_config(
                 emission_scale=emission_scale,
