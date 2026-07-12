@@ -38,6 +38,8 @@ def py():
     # {"dev-clean": 1.86, "dev-other": 4.14, "test-clean": 2.03, "test-other": 4.28}
     train_ls_base("base-ls-newrtrn", prefix=prefix, config_updates_extra={"_meta_hash_trigger": "new-returnn-2026-06"})
     # base-ls-muon: muon-lr5e3-wdbl on the single-GPU log-mel baseline (best FZJ optimizer setting, at RZ).
+    # {"dev-clean": 1.91, "dev-other": 4.28, "test-clean": 2.09, "test-other": 4.46}
+    # muon ~= AdamW single-GPU (newrtrn 4.14 / newtorch 4.26): no single-GPU gain (a 4-GPU-regime fix).
     train_ls_base(
         "base-ls-muon",
         prefix=prefix,
