@@ -142,6 +142,12 @@ def py():
     for _gs in [0.1, 0.01]:
         variants.append((f"blankGradScale-gs{_gs}", _train_blankgradscale(_gs)))
         variants.append((f"blankGradScaleLogits-gs{_gs}", _train_blankgradscale(_gs, point="logits")))
+    # Mild-regime probe:
+    # the aggressive gs 0.1/0.01 runs collapse the alignment,
+    # while the synthetic gs-sweep finds the lever helps around gs~0.5,
+    # so this tests whether a real sweet spot sits between gs1.0 and gs0.1.
+    # Logits point only, since that was the clean winner on the synthetic side.
+    variants.append(("blankGradScaleLogits-gs0.5", _train_blankgradscale(0.5, point="logits")))
 
     # ---- Forced-align + TSE / WER metrics on a 960h training subset ----
     vocab = "spm10k"
