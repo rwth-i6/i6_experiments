@@ -51,6 +51,9 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.chunk_se
     ChunkSegmentationFromModelJob,
     CalcChunkAssignmentMetricsJob,
 )
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.buckeye_fine_dataset import (
+    MapBuckeyeFineTimestampsToLongFormJob,
+)
 
 # Same convention as exp2025_05_05_align.py / exp2026_05_23_grad_align.py.
 _DATASET_OFFSET_FACTORS = {"timit": 1, "buckeye": 1000}
@@ -74,6 +77,23 @@ def py():
     reg("timit-dataset", dl_ds_timit.out_hub_cache_dir)
     dl_ds_buckeye = DownloadHuggingFaceRepoJobV2(repo_id="nh0znoisung/buckeye", repo_type="dataset")
     reg("buckeye-dataset", dl_ds_buckeye.out_hub_cache_dir)
+
+    dl_ds_buckeye_fine = DownloadHuggingFaceRepoJobV2(repo_id="alexwengg/buckeye", repo_type="dataset")
+    dl_ds_buckeye_fine.set_env("HF_HUB_DISABLE_XET", "1")
+    reg("buckeye-fine-raw", dl_ds_buckeye_fine.out_hub_cache_dir)
+
+    # Same tracks/order/audio/transcript as nh0znoisung val,
+    # word timestamps upgraded from the ~62.5 ms grid to the fine float-ms annotation
+    # where the alexwengg segments cover them (word_fine marks which).
+    # Chunk-seg HDFs computed on the nh0znoisung dataset stay valid here;
+    # metric jobs read this dataset with dataset_offset_factors=1 (sample indices).
+    buckeye_val_fine_ts = MapBuckeyeFineTimestampsToLongFormJob(
+        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+        dataset_key="val",
+        fine_raw_dir=dl_ds_buckeye_fine.out_hub_cache_dir,
+    )
+    buckeye_val_fine_ts.add_alias("buckeye-val-fine-ts-dataset")
+    reg("buckeye-val-fine-ts-dataset", buckeye_val_fine_ts.out_hub_cache_dir)
 
     phi4mm_cfg = rf.build_dict(Phi4MM, model_dir=dl_phi4mm_dir)
 
@@ -108,3 +128,17 @@ def py():
                 metric.add_alias(f"{seg_name}-metric")
                 reg(f"{seg_name}-accuracy.txt", metric.out_accuracy)
                 reg(f"{seg_name}-chunk_idx_mae.txt", metric.out_chunk_idx_mae)
+
+                # Twin metric on the fine-timestamps dataset
+                # (same tracks/order/audio/transcript, so the seg HDF applies unchanged;
+                # start/stop there are sample indices -> offset factor 1).
+                if ds_name == "buckeye" and ds_key == "val":
+                    metric_fine = CalcChunkAssignmentMetricsJob(
+                        chunk_seg_hdf=seg.out_hdf,
+                        dataset_dir=buckeye_val_fine_ts.out_hub_cache_dir,
+                        dataset_key=ds_key,
+                        dataset_offset_factors=1,
+                    )
+                    metric_fine.add_alias(f"{seg_name}-metric-finets")
+                    reg(f"{seg_name}-finets-accuracy.txt", metric_fine.out_accuracy)
+                    reg(f"{seg_name}-finets-chunk_idx_mae.txt", metric_fine.out_chunk_idx_mae)

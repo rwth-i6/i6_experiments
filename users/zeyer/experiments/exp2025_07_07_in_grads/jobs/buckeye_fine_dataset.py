@@ -302,3 +302,224 @@ class BuildBuckeyeFineDatasetJob(Job):
             print(f"shard {shard}: {len(chunk)} segs -> {os.path.basename(out_pq)}", flush=True)
 
         print(f"done: {n} segs, {n_words} words", flush=True)
+
+
+class MapBuckeyeFineTimestampsToLongFormJob(Job):
+    """Long-form Buckeye (nh0znoisung, unsegmented tracks, ~62.5 ms-quantized word timestamps)
+    with word timestamps replaced by the fine float-ms ones from alexwengg/buckeye where possible.
+
+    Both datasets derive from the same Buckeye hand-corrected ``.words`` annotation,
+    and the alexwengg segment audio is sample-identical (up to a float gain ~1e-5)
+    to slices of the nh0znoisung tracks
+    (verified: cross-correlation peak 1.0000, residual ~1e-6 after gain fit;
+    nh-vs-alexwengg word-start deltas are bounded by half the 62.5 ms grid).
+    So each segment is located in its parent track by cross-correlation
+    (track from the segment id prefix, e.g. "s0101a_003" -> track "s0101a"),
+    the word sequences are aligned (difflib, lowercased; handles boundary words),
+    and matched words get ``offset + fine_ms`` timestamps in samples.
+    Unmatched words (segment gaps, rare edge diffs) keep the quantized nh timestamps.
+
+    Audio and transcript are copied 1:1 from the nh0znoisung track (same seq order),
+    so chunk-segmentation HDFs computed on the nh0znoisung dataset stay valid for this one;
+    only timestamp-consuming metric jobs need to read this dataset instead
+    (with ``dataset_offset_factors=1``: start/stop are sample indices here, not the 62.5 ms grid).
+
+    Output adds a top-level ``word_fine`` int sequence (1 = fine timestamp, 0 = kept coarse),
+    so metrics can optionally restrict to fine words.
+    """
+
+    __sis_version__ = 1
+
+    def __init__(
+        self,
+        *,
+        dataset_dir: tk.Path,
+        dataset_key: str,
+        fine_raw_dir: tk.Path,
+        min_corr_peak: float = 0.999,
+        min_word_match_fraction: float = 0.8,
+        num_shards: int = 8,
+        returnn_root: Optional[tk.Path] = None,
+    ):
+        """
+        :param dataset_dir: hub cache dir of the unsegmented dataset (nh0znoisung/buckeye).
+        :param dataset_key: e.g. "val", "test".
+        :param fine_raw_dir: hub cache dir of the raw alexwengg/buckeye download
+            (manifest.json + audio/*.wav).
+        :param min_corr_peak: assert each segment's normalized cross-correlation peak >= this.
+        :param min_word_match_fraction: assert >= this fraction of each track's in-segment words
+            get a fine timestamp.
+        :param num_shards:
+        :param returnn_root:
+        """
+        super().__init__()
+        self.dataset_dir = dataset_dir
+        self.dataset_key = dataset_key
+        self.fine_raw_dir = fine_raw_dir
+        self.min_corr_peak = min_corr_peak
+        self.min_word_match_fraction = min_word_match_fraction
+        self.num_shards = num_shards
+        self.returnn_root = returnn_root
+
+        self.rqmt = {"cpu": 4, "mem": 32, "time": 4}
+        self.out_hub_cache_dir = self.output_path("hub_cache", directory=True)
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import os
+        import sys
+        import json
+        import difflib
+
+        from i6_experiments.users.zeyer.external_models.huggingface import (
+            set_hf_offline_mode,
+            get_content_dir_from_hub_cache_dir,
+        )
+
+        set_hf_offline_mode()
+
+        import i6_experiments
+
+        recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
+        sys.path.insert(0, recipe_dir)
+
+        import i6_core.util as util
+
+        returnn_root = util.get_returnn_root(self.returnn_root)
+        sys.path.insert(0, returnn_root.get_path())
+
+        import numpy as np
+        from scipy import signal
+        import soundfile as sf
+        import datasets
+        from datasets import load_dataset
+
+        fine_content = get_content_dir_from_hub_cache_dir(self.fine_raw_dir)
+        with open(os.path.join(fine_content, "manifest.json")) as f:
+            manifest = json.load(f)["samples"]
+        segs_by_track = {}
+        for s in manifest:
+            segs_by_track.setdefault(s["id"].rsplit("_", 1)[0], []).append(s)
+
+        ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))
+        ds_split = ds[self.dataset_key]
+        print(f"Input: {len(ds_split)} tracks")
+
+        feats = datasets.Features(
+            {
+                "id": datasets.Value("string"),
+                "speaker": datasets.Value("string"),
+                "audio": {
+                    "array": datasets.Sequence(datasets.Value("float32")),
+                    "sampling_rate": datasets.Value("int64"),
+                },
+                "word_detail": {
+                    "utterance": datasets.Sequence(datasets.Value("string")),
+                    "start": datasets.Sequence(datasets.Value("int64")),
+                    "stop": datasets.Sequence(datasets.Value("int64")),
+                },
+                "word_fine": datasets.Sequence(datasets.Value("int8")),
+            }
+        )
+
+        def is_marker(word: str) -> bool:
+            return word.startswith("<") or word.startswith("{")
+
+        records = []
+        for track in ds_split:
+            track_id = track["track_id"]
+            sr = track["audio"]["sampling_rate"]
+            audio = np.asarray(track["audio"]["array"], dtype=np.float32)
+            nh_words = track["word_detail"]["utterance"]
+            # nh raw unit * 1000 = samples (dataset_offset_factors=1000 convention).
+            nh_starts = [int(t) * 1000 for t in track["word_detail"]["start"]]
+            nh_stops = [int(t) * 1000 for t in track["word_detail"]["stop"]]
+
+            # Absolute fine word list for this track, across all its segments.
+            fine_words = []  # (word, start_samples, stop_samples)
+            prev_offset = -1
+            for s in segs_by_track.get(track_id, []):
+                wav, sr2 = sf.read(os.path.join(fine_content, s["audio"]))
+                wav = np.asarray(wav, dtype=np.float32)
+                if wav.ndim > 1:
+                    wav = wav[:, 0]
+                assert sr2 == sr, f"{s['id']}: sr {sr2} != track sr {sr}"
+                probe = wav[: int(3.0 * sr)]
+                corr = signal.fftconvolve(audio, probe[::-1], mode="valid")
+                local_energy = np.sqrt(signal.fftconvolve(audio**2, np.ones(len(probe)), mode="valid"))
+                scores = corr / (np.sqrt(np.sum(probe**2)) * np.maximum(local_energy, 1e-6))
+                offset = int(np.argmax(scores))
+                peak = float(scores[offset])
+                assert peak >= self.min_corr_peak, f"{s['id']}: corr peak {peak} < {self.min_corr_peak}"
+                assert offset > prev_offset, f"{s['id']}: offset {offset} not increasing (prev {prev_offset})"
+                prev_offset = offset
+                for w in s["words"]:
+                    if is_marker(w["word"]):
+                        continue
+                    fine_words.append(
+                        (
+                            w["word"],
+                            offset + int(round(w["start_ms"] * sr / 1000.0)),
+                            offset + int(round(w["end_ms"] * sr / 1000.0)),
+                        )
+                    )
+
+            # Align fine words to the nh transcript; matched words take the fine timestamps.
+            starts, stops = list(nh_starts), list(nh_stops)
+            fine_mask = [0] * len(nh_words)
+            sm = difflib.SequenceMatcher(
+                a=[w.lower() for w, _, _ in fine_words],
+                b=[w.lower() for w in nh_words],
+                autojunk=False,
+            )
+            n_matched = 0
+            for op, a0, a1, b0, b1 in sm.get_opcodes():
+                if op != "equal":
+                    continue
+                for k in range(a1 - a0):
+                    _, w_start, w_stop = fine_words[a0 + k]
+                    starts[b0 + k] = w_start
+                    stops[b0 + k] = w_stop
+                    fine_mask[b0 + k] = 1
+                    n_matched += 1
+            if fine_words:
+                frac = n_matched / len(fine_words)
+                assert frac >= self.min_word_match_fraction, f"{track_id}: only {frac:.2f} of fine words matched"
+            print(
+                f"track {track_id}: {len(segs_by_track.get(track_id, []))} segments,"
+                f" {n_matched}/{len(nh_words)} words fine ({len(fine_words)} fine candidates)"
+            )
+
+            records.append(
+                {
+                    "id": track_id,
+                    "speaker": track["speaker_id"],
+                    "audio": {"array": audio, "sampling_rate": int(sr)},
+                    "word_detail": {"utterance": nh_words, "start": starts, "stop": stops},
+                    "word_fine": fine_mask,
+                }
+            )
+
+        # hub-cache snapshot layout, same convention as BuildBuckeyeFineDatasetJob.
+        ref = "buckeyelongfine0"
+        root = os.path.join(self.out_hub_cache_dir.get_path(), "datasets--local--buckeye_longform_fine")
+        data_dir = os.path.join(root, "snapshots", ref, "data")
+        os.makedirs(data_dir, exist_ok=True)
+        os.makedirs(os.path.join(root, "refs"), exist_ok=True)
+        with open(os.path.join(root, "refs", "main"), "w") as f:
+            f.write(ref)
+
+        n = len(records)
+        shard_size = max(1, (n + self.num_shards - 1) // self.num_shards)
+        for shard in range(self.num_shards):
+            chunk = records[shard * shard_size : (shard + 1) * shard_size]
+            if not chunk:
+                continue
+            ds_out = datasets.Dataset.from_list(chunk, features=feats)
+            out_pq = os.path.join(data_dir, f"{self.dataset_key}-{shard:05d}-of-{self.num_shards:05d}.parquet")
+            ds_out.to_parquet(out_pq)
+            print(f"shard {shard}: {len(chunk)} tracks -> {os.path.basename(out_pq)}")
+
+        print("done")
