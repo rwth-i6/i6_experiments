@@ -340,3 +340,161 @@ class ChunkSegmentationFromModelJob(Job):
         hdf_writer.close()
 
         # better_exchook.debug_shell(user_ns=locals(), user_global_ns=locals())
+
+
+class CalcChunkAssignmentMetricsJob(Job):
+    """
+    Word-to-chunk assignment quality
+    for the DP chunk assignment produced by :class:`ChunkSegmentationFromModelJob`.
+
+    The DP only decides which chunk each word belongs to
+    (not a frame-level position within it),
+    so the natural metric is whether that decision was right,
+    not a word-boundary-error (WBE)
+    derived from some invented within-chunk placement (e.g. uniform split) --
+    such a WBE would conflate the DP's actual decision
+    with an arbitrary placement heuristic the algorithm never made.
+    Instead:
+
+    - ``accuracy``: fraction of words assigned to a chunk
+      whose audio span actually contains the word's reference center time
+      (with overlapping chunks, any covering chunk counts as correct).
+    - ``chunk_idx_mae``: mean absolute error
+      between the assigned chunk index and the nearest covering chunk index --
+      a softer signal than accuracy,
+      distinguishing near-misses (off by one chunk, near a boundary) from far misses.
+
+    A real per-frame word boundary (and thus WBE, comparable to WhisperX etc.)
+    belongs in a separate downstream step
+    once there's an actual within-chunk decode or forced alignment.
+    """
+
+    __sis_version__ = 1
+
+    def __init__(
+        self,
+        *,
+        chunk_seg_hdf: tk.Path,
+        dataset_dir: tk.Path,
+        dataset_key: str,
+        returnn_root: Optional[tk.Path] = None,
+        dataset_offset_factors: int,
+        aggregation: str = "micro",
+    ):
+        """
+        :param chunk_seg_hdf: from :class:`ChunkSegmentationFromModelJob`.
+        :param dataset_dir:
+        :param dataset_key:
+        :param returnn_root:
+        :param dataset_offset_factors:
+            see :class:`ChunkSegmentationFromModelJob`'s dataset conventions
+            (also used by the grad-align metric jobs in exp2025_05_05_align.py).
+        :param aggregation: "micro" (mean over all words) or "macro" (per-utt mean then over utts).
+        """
+        super().__init__()
+        self.chunk_seg_hdf = chunk_seg_hdf
+        self.dataset_dir = dataset_dir
+        self.dataset_key = dataset_key
+        self.returnn_root = returnn_root
+        self.dataset_offset_factors = dataset_offset_factors
+        self.aggregation = aggregation
+
+        self.out_accuracy = self.output_var("accuracy.txt")
+        self.out_chunk_idx_mae = self.output_var("chunk_idx_mae.txt")
+        self.out_metrics = self.output_var("metrics.txt")
+
+    def tasks(self):
+        yield Task("run", rqmt={"cpu": 2, "mem": 10, "time": 5, "engine": "short"})
+
+    def run(self):
+        import os
+        import sys
+        import numpy as np
+
+        set_hf_offline_mode()
+
+        import i6_experiments
+
+        recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
+        sys.path.insert(0, recipe_dir)
+
+        import i6_core.util as util
+
+        returnn_root = util.get_returnn_root(self.returnn_root)
+        sys.path.insert(0, returnn_root.get_path())
+
+        from returnn.datasets.hdf import HDFDataset
+
+        chunk_seg_hdf_ds = HDFDataset([self.chunk_seg_hdf.get_path()])
+        chunk_seg_hdf_ds.initialize()
+        chunk_seg_hdf_ds.init_seq_order(epoch=1)
+
+        from datasets import load_dataset
+
+        ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))
+        print(f"Dataset: {ds}")
+        print("Using key:", self.dataset_key)
+        print("Num seqs:", len(ds[self.dataset_key]))
+
+        utt_accs: List[List[float]] = []  # per utt, per word: 1.0 correct / 0.0 wrong
+        utt_idx_errs: List[List[int]] = []  # per utt, per word: chunk-index error
+
+        for seq_idx, data in enumerate(ds[self.dataset_key]):
+            chunk_seg_hdf_ds.load_seqs(seq_idx, seq_idx + 1)
+
+            words = data["word_detail"]["utterance"]
+            ref_word_starts = data["word_detail"]["start"]
+            ref_word_ends = data["word_detail"]["stop"]
+            assert len(words) == len(ref_word_starts) == len(ref_word_ends)
+            # In samples, same units as chunk_start_end (dataset_offset_factors converts the raw
+            # annotation unit to samples; see ChunkSegmentationFromModelJob's dataset conventions).
+            ref_word_center_samples = [
+                0.5 * (s + e) * self.dataset_offset_factors for s, e in zip(ref_word_starts, ref_word_ends)
+            ]
+
+            words_indices_start_end = chunk_seg_hdf_ds.get_data(seq_idx, "data")
+            chunk_start_end = chunk_seg_hdf_ds.get_data(seq_idx, "audio_chunk_start_end")
+            assert len(words_indices_start_end) == len(chunk_start_end)
+
+            pred_chunk_idx = [None] * len(words)
+            for chunk_idx, (word_start, word_end) in enumerate(words_indices_start_end):
+                for w in range(int(word_start), int(word_end)):
+                    pred_chunk_idx[w] = chunk_idx
+            assert all(p is not None for p in pred_chunk_idx), "not all words got assigned to a chunk"
+
+            accs, idx_errs = [], []
+            for w in range(len(words)):
+                center = ref_word_center_samples[w]
+                covering = [ci for ci, (a0, a1) in enumerate(chunk_start_end) if a0 <= center < a1]
+                if not covering:
+                    # Center falls outside all chunk spans (e.g. trailing silence beyond the last
+                    # chunk edge due to rounding) -- fall back to the nearest chunk by edge distance.
+                    covering = [
+                        min(
+                            range(len(chunk_start_end)),
+                            key=lambda ci: min(
+                                abs(center - chunk_start_end[ci][0]), abs(center - chunk_start_end[ci][1])
+                            ),
+                        )
+                    ]
+                accs.append(1.0 if pred_chunk_idx[w] in covering else 0.0)
+                idx_errs.append(min(abs(pred_chunk_idx[w] - ci) for ci in covering))
+
+            print(f"** seq {seq_idx}, {len(words)=}, acc={float(np.mean(accs)):.3f}")
+            utt_accs.append(accs)
+            utt_idx_errs.append(idx_errs)
+
+        if self.aggregation == "micro":
+            accuracy = float(np.mean([a for accs in utt_accs for a in accs]))
+            chunk_idx_mae = float(np.mean([e for errs in utt_idx_errs for e in errs]))
+        elif self.aggregation == "macro":
+            accuracy = float(np.mean([np.mean(accs) for accs in utt_accs]))
+            chunk_idx_mae = float(np.mean([np.mean(errs) for errs in utt_idx_errs]))
+        else:
+            raise ValueError(f"invalid aggregation {self.aggregation!r}")
+
+        metrics = {"accuracy": accuracy, "chunk_idx_mae": chunk_idx_mae, "aggregation": self.aggregation}
+        print("CORPUS METRICS:", metrics)
+        self.out_accuracy.set(accuracy)
+        self.out_chunk_idx_mae.set(chunk_idx_mae)
+        self.out_metrics.set(metrics)
