@@ -198,15 +198,17 @@ def clustering(
     returnn_root: tk.Path | None = None,
     log_verbosity: int = 5,
     hdf_path: str | tk.Path | list[str | tk.Path] | None = None,
+    precomputed: bool = False,
 ) -> ClusteringExpResult:
-    internal_num_epochs = num_epochs * 2 + 1
+    internal_num_epochs = num_epochs * 2 + 2
     # set defaults
     if returnn_python_exe is None:
         returnn_python_exe = RETURNN_PYTHON_EXE
     if returnn_root is None:
         returnn_root = RETURNN_ROOT
 
-    base_config = get_base_config()
+    base_config = get_base_config(precomputed)
+
     dataset_config = get_dataset_config(
         num_epochs=internal_num_epochs,
         sampled_segments=sampled_segments,
