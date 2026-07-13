@@ -306,11 +306,12 @@ class GlowTtsLogMel(rf.Module):
             f"phoneme vocab size mismatch: {phonemes.sparse_dim} vs {self.phoneme_vocab_dim}"
         )
         batch_dims = phonemes.remaining_dims(spatial_dim)
-        assert batch_dims == [batch_dim], f"only single batch dim supported, got {batch_dims}"
+        assert len(batch_dims) == 1, f"only single batch dim supported, got {batch_dims}"
+        (bdim,) = batch_dims
 
-        phonemes_pt = phonemes.copy_compatible_to_dims_raw([batch_dim, spatial_dim])  # [B, T_phon] sparse
+        phonemes_pt = phonemes.copy_compatible_to_dims_raw([bdim, spatial_dim])  # [B, T_phon] sparse
         phon_lens_pt = spatial_dim.get_size_tensor(device=phonemes.device).copy_compatible_to_dims_raw(
-            [batch_dim]
+            [bdim]
         )  # [B]
         bs = phonemes_pt.size(0)
         dev = phonemes_pt.device
@@ -325,7 +326,7 @@ class GlowTtsLogMel(rf.Module):
         length_scale = llo + torch.rand((bs, 1, 1), device=dev) * (lhi - llo)  # [B, 1, 1]
         if out_sampled_scales is not None:
             # expose the per-seq sampled length_scale (rf [B]) for length-aware downstream augmentation.
-            out_sampled_scales["length_scale"] = rf.convert_to_tensor(length_scale.reshape(bs), dims=[batch_dim])
+            out_sampled_scales["length_scale"] = rf.convert_to_tensor(length_scale.reshape(bs), dims=[bdim])
 
         # GlowTTS gen uses a flow inverse; force float32 (bf16 autocast can be unstable / unsupported here).
         with torch.autocast(device_type=dev.type, enabled=False):
@@ -369,15 +370,15 @@ class GlowTtsLogMel(rf.Module):
                 if wave.size(1) < min_wave_samples:
                     wave = torch.nn.functional.pad(wave, (0, min_wave_samples - wave.size(1)))
                 wave_lens = wave_lens.clamp_min(min_wave_samples)
-            wave_lens_rf = rf.convert_to_tensor(wave_lens.cpu(), dims=[batch_dim])
+            wave_lens_rf = rf.convert_to_tensor(wave_lens.cpu(), dims=[bdim])
             wave_spatial_dim = Dim(wave_lens_rf, name="glowtts_wave")
-            wave_rf = rf.convert_to_tensor(wave, dims=[batch_dim, wave_spatial_dim])
+            wave_rf = rf.convert_to_tensor(wave, dims=[bdim, wave_spatial_dim])
             return wave_rf, wave_spatial_dim
 
         log_mels = log_mels.transpose(1, 2).contiguous()  # [B, T_freq, F_logmel]
         feat_lens = y_lengths.to(torch.int32)  # [B]
-        feat_lens_rf = rf.convert_to_tensor(feat_lens.cpu(), dims=[batch_dim])
+        feat_lens_rf = rf.convert_to_tensor(feat_lens.cpu(), dims=[bdim])
         out_spatial_dim = Dim(feat_lens_rf, name="glowtts_time")
-        log_mels_rf = rf.convert_to_tensor(log_mels, dims=[batch_dim, out_spatial_dim, self.out_dim])
+        log_mels_rf = rf.convert_to_tensor(log_mels, dims=[bdim, out_spatial_dim, self.out_dim])
         log_mels_rf.feature_dim = self.out_dim
         return log_mels_rf, out_spatial_dim
