@@ -445,6 +445,11 @@ class MapBuckeyeFineTimestampsToLongFormJob(Job):
                 wav = np.asarray(wav, dtype=np.float32)
                 if wav.ndim > 1:
                     wav = wav[:, 0]
+                # A few alexwengg WAVs are empty/corrupt (e.g. s1901b_020 = 0 samples) -- skip them;
+                # an empty probe makes the cross-correlation output empty (argmax crash).
+                if len(wav) < 1600:
+                    print(f"skip {s['id']}: {len(wav)} samples", flush=True)
+                    continue
                 assert sr2 == sr, f"{s['id']}: sr {sr2} != track sr {sr}"
                 probe = wav[: int(3.0 * sr)]
                 corr = signal.fftconvolve(audio, probe[::-1], mode="valid")

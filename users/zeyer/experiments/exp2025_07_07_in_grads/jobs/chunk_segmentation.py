@@ -236,13 +236,17 @@ class ChunkSegmentationFromModelJob(Job):
                         word_log_prob = batches_gather(log_probs, indices=targets, num_batch_dims=2)  # [B,t1-t0]
                         word_log_prob.masked_fill_(
                             torch.arange(word_log_prob.shape[1], device=word_log_prob.device)[None, :]
-                            >= (t1 - t0)[:, None],
+                            # target_start_end (and thus t0/t1) can be on CPU (e.g. Phi4MM),
+                            # word_log_prob is on the model device.
+                            >= (t1 - t0).to(word_log_prob.device)[:, None],
                             0.0,
                         )
                         word_log_prob = word_log_prob.sum()  # []. assume single batch
                     else:
                         word_log_prob = None
-                    exit_log_prob = log_probs[0, t0[0], model.assistant_end_token_idx]  # []. assume single batch
+                    # log_probs is relative to start=t0 (shape [B,t1-t0,V]),
+                    # so position 0 is the distribution predicting the token at t0.
+                    exit_log_prob = log_probs[0, 0, model.assistant_end_token_id]  # []. assume single batch
                     if w == 0:
                         # Add some penalty. For empty chunks, the prob is often overestimated.
                         exit_log_prob += self.empty_exit_penalty
