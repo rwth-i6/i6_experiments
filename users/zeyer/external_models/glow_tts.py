@@ -310,9 +310,7 @@ class GlowTtsLogMel(rf.Module):
         (bdim,) = batch_dims
 
         phonemes_pt = phonemes.copy_compatible_to_dims_raw([bdim, spatial_dim])  # [B, T_phon] sparse
-        phon_lens_pt = spatial_dim.get_size_tensor(device=phonemes.device).copy_compatible_to_dims_raw(
-            [bdim]
-        )  # [B]
+        phon_lens_pt = spatial_dim.get_size_tensor(device=phonemes.device).copy_compatible_to_dims_raw([bdim])  # [B]
         bs = phonemes_pt.size(0)
         dev = phonemes_pt.device
 
