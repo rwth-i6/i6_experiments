@@ -95,8 +95,15 @@ def _build_gmm_alignment_training_datasets(
     )
 
 
-def eow_phon_ls960_1023_gmm_warmup_generative_nce():
-    prefix_name = "users/barkoczi/experiments/gen_ctc/ls960_ctc_eow_phon_gmm_warmup_generative_nce"
+def _run_gmm_warmup_experiment(
+    *,
+    prefix_name: str = "users/barkoczi/experiments/gen_ctc/ls960_ctc_eow_phon_gmm_warmup_generative_nce",
+    gmm_network_module: str = (
+        "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6_generative_gmm"
+    ),
+    warmup_name: str = "gmm-hard-targets-gennce",
+    handoff_name: str = "gmm",
+):
 
     train_settings = DatasetSettings(
         preemphasis=0.97,
@@ -204,9 +211,6 @@ def eow_phon_ls960_1023_gmm_warmup_generative_nce():
     total_num_epochs = 300
     gmm_num_epochs = 50
     ctc_num_epochs = total_num_epochs - gmm_num_epochs
-    gmm_network_module = (
-        "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6_generative_gmm"
-    )
     gmm_train_args = {
         "config": {
             **common_train_config,
@@ -227,7 +231,7 @@ def eow_phon_ls960_1023_gmm_warmup_generative_nce():
         prefix_name
         + "/"
         + gmm_network_module
-        + ".512dim_sub4_24gbgpu_5full-epochs_gmm-hard-targets_gennce"
+        + f".512dim_sub4_24gbgpu_5full-epochs_{warmup_name}"
     )
     gmm_train_job = training(
         gmm_training_name,
@@ -256,7 +260,7 @@ def eow_phon_ls960_1023_gmm_warmup_generative_nce():
         prefix_name
         + "/"
         + ctc_network_module
-        + ".512dim_sub4_24gbgpu_25eps_sp_ctc-soft-targets_after_5eps-gmm_gennce"
+        + f".512dim_sub4_24gbgpu_25eps_sp_ctc-soft-targets_after_5eps-{handoff_name}_gennce"
     )
     ctc_train_job = training(
         ctc_training_name,
@@ -392,6 +396,10 @@ def eow_phon_ls960_1023_gmm_warmup_generative_nce():
         blank_log_biases=[-2.0, 0.0, 2.0],
         posterior_temperatures=[0.8, 1.0, 1.2],
     )
+
+
+def eow_phon_ls960_1023_gmm_warmup_generative_nce():
+    return _run_gmm_warmup_experiment()
 
 
 py = eow_phon_ls960_1023_gmm_warmup_generative_nce
