@@ -1869,6 +1869,152 @@ def aed_glowtts_train_step(*, model: Model, extern_data, **_kwargs_unused):
         frame_error.mark_as_loss(name=f"{loss_prefix}fer{postfix}", as_error=True)
 
 
+def aed_glowtts_single_stream_train_step(*, model: Model, extern_data, **_kwargs_unused):
+    """Custom RETURNN train_step: single-stream AED+CTC (real audio + TTS-synth mixed in one batch).
+
+    Unlike aed_glowtts_train_step (alternate_batching -- each batch pure audio OR pure text, separate "txt_" losses),
+    here real-audio and text seqs arrive mixed in one batch, like the offline-TTS reference.
+    We split the batch by a per-seq audio/text mask,
+    run the frozen GlowTTS only on the text sub-batch (peak-normalized synthetic waveforms),
+    scatter those back into their batch positions next to the real waveforms
+    (rf.nested handles the ragged batch-dependent time dims),
+    then a single model.encode + one loss set (no "txt_" prefix, no global_loss_scale).
+    Requires tts_waveform=True.
+    """
+    from returnn.config import get_global_config
+    from returnn.util.collect_outputs_dict import CollectOutputsDict
+
+    config = get_global_config()  # noqa
+    assert config.bool("tts_waveform", False), "single_stream requires tts_waveform=True"
+    data = extern_data[config.typed_value("default_input")]
+    data_spatial_dim = data.get_time_dim_tag()
+    targets = extern_data[config.typed_value("target")]
+    targets_spatial_dim = targets.get_time_dim_tag()
+    phonemes = extern_data[PHONEMES_DATA_KEY]
+    phonemes_spatial_dim = phonemes.get_time_dim_tag()
+
+    aux_loss_layers = config.typed_value("aux_loss_layers") or ()
+    aux_loss_scales = config.typed_value("aux_loss_scales", [1.0] * len(aux_loss_layers))
+    aed_loss_scale = config.float("aed_loss_scale", 1.0)
+    dec_aux_loss_layers = config.typed_value("dec_aux_loss_layers") or ()
+    dec_aux_loss_scales = config.typed_value("dec_aux_loss_scales", [1.0] * len(dec_aux_loss_layers))
+    use_normalized_loss = config.typed_value("use_normalized_loss", True)
+    if isinstance(use_normalized_loss, bool):
+        use_normalized_loss = "frames" if use_normalized_loss else "none"
+    assert use_normalized_loss in ("none", "frames"), f"single_stream: unsupported {use_normalized_loss!r}"
+    normed = {"none": False, "frames": True}[use_normalized_loss]
+    label_smoothing = config.float("label_smoothing", 0.1)
+
+    if data.feature_dim and data.feature_dim.dimension == 1:
+        data = rf.squeeze(data, axis=data.feature_dim)
+
+    (batch_dim,) = data.remaining_dims(data_spatial_dim)
+    # per-seq split: text seqs carry empty audio (size 0); real-audio seqs carry empty phonemes.
+    text_mask_cpu = data_spatial_dim.get_size_tensor() <= 0
+    text_mask = rf.copy_to_device(text_mask_cpu, data.device)
+
+    # split off the text sub-batch and run the frozen (peak-normalizing) TTS only there.
+    (phon_t, phon_t_spatial_dim), text_bdim, sel_dim_map = rf.nested.masked_select_nested(
+        (phonemes, phonemes_spatial_dim), mask=text_mask, mask_cpu=text_mask_cpu, dims=[batch_dim]
+    )
+    wave_t, wave_t_spatial_dim = model.tts(phon_t, spatial_dim=phon_t_spatial_dim)
+    wave_t = rf.stop_gradient(wave_t)  # TTS is frozen
+
+    # scatter synth waveforms into the text positions; real waveforms (data) are the backup.
+    # masked_scatter_nested merges wave_t_spatial_dim (text rows) and data_spatial_dim (audio rows).
+    wave, wave_spatial_dim = rf.nested.masked_scatter_nested(
+        (wave_t, wave_t_spatial_dim),
+        (data, data_spatial_dim),
+        mask=text_mask,
+        mask_cpu=text_mask_cpu,
+        dims=[batch_dim],
+        in_dim=text_bdim,
+        masked_select_dim_map=sel_dim_map,
+    )
+
+    if config.bool("use_eos_postfix", False):
+        ctc_targets, (ctc_targets_spatial_dim,) = rf.pad(
+            targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx
+        )
+    else:
+        ctc_targets, ctc_targets_spatial_dim = targets, targets_spatial_dim
+
+    # one encode over the combined batch (uniform feature-extraction + feature-BN + SpecAugment).
+    collected_outputs = CollectOutputsDict(allowed_key_patterns=[str(i - 1) for i in aux_loss_layers])
+    enc, enc_spatial_dim = model.encode(wave, in_spatial_dim=wave_spatial_dim, collected_outputs=collected_outputs)
+
+    # aux CTC losses (single stream)
+    for i, layer_idx in enumerate(aux_loss_layers):
+        if layer_idx > len(model.encoder.layers):
+            continue
+        aux_logits = getattr(model, f"enc_aux_logits_{layer_idx}")(collected_outputs[str(layer_idx - 1)])
+        aux_ctc_log_probs = rf.log_softmax(aux_logits, axis=model.wb_target_dim)
+        aux_loss = rf.ctc_loss(
+            logits=aux_ctc_log_probs,
+            logits_normalized=True,
+            targets=ctc_targets,
+            input_spatial_dim=enc_spatial_dim,
+            targets_spatial_dim=ctc_targets_spatial_dim,
+            blank_index=model.blank_idx,
+        )
+        aux_loss.mark_as_loss(
+            f"ctc_{layer_idx}",
+            scale=aux_loss_scales[i],
+            custom_inv_norm_factor=ctc_targets_spatial_dim.get_size_tensor(),
+            use_normalized_loss=normed,
+        )
+
+    # AED CE + FER (single stream)
+    batch_dims = targets.remaining_dims(targets_spatial_dim)
+    input_labels, (targets_w_eos_spatial_dim,) = rf.pad(
+        targets, axes=[targets_spatial_dim], padding=[(1, 0)], value=model.bos_idx
+    )
+    targets_w_eos, _ = rf.pad(
+        targets,
+        axes=[targets_spatial_dim],
+        padding=[(0, 1)],
+        value=model.eos_idx,
+        out_dims=[targets_w_eos_spatial_dim],
+    )
+    dec_collected = CollectOutputsDict(allowed_key_patterns=[str(i - 1) for i in dec_aux_loss_layers])
+    logits, _ = model.decoder(
+        input_labels,
+        spatial_dim=targets_w_eos_spatial_dim,
+        encoder=enc,
+        state=model.decoder.default_initial_state(batch_dims=batch_dims),
+        collected_outputs=dec_collected,
+    )
+    dec_aux_logits = {}
+    for layer_idx in dec_aux_loss_layers:
+        norm = getattr(model, f"dec_aux_final_layer_norm_{layer_idx}")
+        linear = getattr(model, f"dec_aux_logits_{layer_idx}")
+        dec_aux_logits[layer_idx] = linear(norm(dec_collected[str(layer_idx - 1)]))
+
+    targets_packed, pack_dim = rf.pack_padded(
+        targets_w_eos, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False
+    )
+    for postfix, scale, logits_ in [("", aed_loss_scale, logits)] + [
+        (f"_{k}", dec_aux_loss_scales[i], dec_aux_logits[k]) for i, k in enumerate(dec_aux_loss_layers)
+    ]:
+        logits_packed, _ = rf.pack_padded(
+            logits_, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False, out_dim=pack_dim
+        )
+        if not model.out_eos_separated:
+            log_prob = rf.log_softmax(logits_packed, axis=model.target_dim)
+        else:
+            log_prob = _aed.log_probs_with_eos_separated(
+                logits_packed, target_dim=model.target_dim, eos_idx=model.eos_idx
+            )
+        log_prob = rf.label_smoothed_log_prob_gradient(log_prob, label_smoothing, axis=model.target_dim)
+        loss = rf.cross_entropy(
+            target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
+        )
+        loss.mark_as_loss(f"ce{postfix}", scale=scale, use_normalized_loss=normed)
+        best = rf.reduce_argmax(log_prob, axis=model.target_dim)
+        frame_error = best != targets_packed
+        frame_error.mark_as_loss(name=f"fer{postfix}", as_error=True)
+
+
 _glowtts_text_tok_cache = None
 
 
