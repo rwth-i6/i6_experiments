@@ -15,8 +15,13 @@ def serialize_training(
     debug: bool = False,
 ) -> Collection:
     package = PACKAGE + ".pytorch_networks"
+    loss_package = PACKAGE + ".loss"
     serializer_objects = [
         ExternalImport(import_path=I6_MODELS_REPO_PATH),
+        Import(
+            code_object_path=loss_package + ".generative_loss.generative_nce",
+            unhashed_package_root=PACKAGE,
+        ),
         PartialImport(
             code_object_path=package + ".%s.Model" % network_module,
             unhashed_package_root=PACKAGE,
@@ -28,7 +33,11 @@ def serialize_training(
     ]
     if include_native_ops:
         serializer_objects.insert(0, ExternalImport(import_path=I6_NATIVE_OPS_REPO_PATH))
-    return Collection(serializer_objects=serializer_objects, make_local_package_copy=not debug, packages={package})
+    return Collection(
+        serializer_objects=serializer_objects,
+        make_local_package_copy=not debug,
+        packages={package, loss_package},
+    )
 
 
 def serialize_forward(
@@ -43,8 +52,13 @@ def serialize_forward(
     debug: bool = False,
 ):
     package = PACKAGE + ".pytorch_networks"
+    loss_package = PACKAGE + ".loss"
     serializer_objects = [
         ExternalImport(import_path=I6_MODELS_REPO_PATH),
+        Import(
+            code_object_path=loss_package + ".generative_loss.generative_nce",
+            unhashed_package_root=PACKAGE,
+        ),
         PartialImport(
             code_object_path=package + ".%s.Model" % network_module,
             unhashed_package_root=PACKAGE,
@@ -78,4 +92,8 @@ def serialize_forward(
             ),
         ]
     )
-    return Collection(serializer_objects=serializer_objects, make_local_package_copy=not debug, packages={package})
+    return Collection(
+        serializer_objects=serializer_objects,
+        make_local_package_copy=not debug,
+        packages={package, loss_package},
+    )
