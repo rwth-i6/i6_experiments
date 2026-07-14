@@ -415,6 +415,99 @@ def hmm_decipher(unit_seqs: List[List[int]], phones: List[str], lm: ArpaLM, n_it
     return amap, ll, E
 
 
+# -------------------------------------------- method (iii): Gromov-Wasserstein OT cluster init
+
+def _sinkhorn(K, p, q, n_it=60):
+    a = np.ones(len(p)); b = np.ones(len(q))
+    for _ in range(n_it):
+        a = p / (K @ b + 1e-300); b = q / (K.T @ a + 1e-300)
+    return a[:, None] * K * b[None, :]
+
+
+def _entropic_gw(Cu, Cp, p, q, eps, M, alpha, outer=100, sink_it=40):
+    """Entropic (fused) Gromov-Wasserstein: match structure matrices Cu,Cp with a linear anchor M."""
+    constC = ((Cu ** 2) @ p)[:, None] + (q @ (Cp ** 2).T)[None, :]
+    G = _sinkhorn(np.exp(-M / max(eps, 1e-6)), p, q, 60)
+    for _ in range(outer):
+        gw = constC - Cu @ G @ (2.0 * Cp).T
+        g = gw - gw.min(); g /= max(g.max(), 1e-12)
+        G = _sinkhorn(np.exp(-(alpha * g + (1 - alpha) * M) / eps), p, q, sink_it)
+    return G
+
+
+def gw_ot_init(unit_seqs, phones, unit_freq, phone_freq, phone_targets,
+               cluster_deltas=(0, -2, 2), epss=(0.01, 0.005), alphas=(0.5, 0.7)) -> Dict[int, str]:
+    """SAE §1a method (iii). Cluster units by co-occurrence profile, match the cluster graph to the
+    phone skip-k bigram graph via entropic Gromov-Wasserstein (+ frequency-CDF anchor to break GW's
+    symmetry) -> Hungarian -> unit->phone map. Grids hyperparameters and selects the best map by the
+    UNSUPERVISED induced-vs-target bigram L1 cost (never uses gold). Strong warm start for hmm_decipher."""
+    from scipy.optimize import linear_sum_assignment
+    from scipy.cluster.hierarchy import linkage, fcluster
+    from scipy.spatial.distance import squareform
+
+    phones = list(phones); nP = len(phones); pid = {p: i for i, p in enumerate(phones)}
+    units = sorted(unit_freq); nU = len(units); uidx = {u: i for i, u in enumerate(units)}
+    uf = np.array([unit_freq[u] for u in units], float)
+    pf = np.array([phone_freq.get(p, 0) for p in phones], float)
+    unit_bis = [skipk_bigrams(unit_seqs, k) for k in (1, 2, 3)]
+
+    Pu = np.zeros((nU, nU))
+    for C in unit_bis:
+        for (u, v), c in C.items():
+            if u in uidx and v in uidx:
+                Pu[uidx[u], uidx[v]] += c
+    Pu += Pu.T
+    prof = Pu / (Pu.sum(1, keepdims=True) + 1e-12)
+    nrm = prof / (np.linalg.norm(prof, axis=1, keepdims=True) + 1e-12)
+    dist = 1.0 - np.clip(nrm @ nrm.T, -1, 1); np.fill_diagonal(dist, 0.0)
+    Z = linkage(squareform(dist, checks=False), method="average")
+    Bp = sum(phone_targets); Bp = Bp + Bp.T
+    pmass_n = pf / pf.sum()
+    std = lambda M: (M - M.mean()) / (M.std() + 1e-12)
+
+    def cdfpos(f):
+        o = np.argsort(-f); pos = np.zeros(len(f)); acc = 0.0
+        for k in o:
+            pos[k] = acc + f[k] / 2; acc += f[k]
+        return pos
+    cp = cdfpos(pmass_n)
+
+    def bigram_cost(a):
+        tot = 0.0
+        for C, Tt in zip(unit_bis, phone_targets):
+            M = np.zeros((nP, nP))
+            for (u, v), c in C.items():
+                if u in a and v in a:
+                    M[pid[a[u]], pid[a[v]]] += c
+            M /= max(M.sum(), 1); tot += float(np.abs(M - Tt).sum())
+        return tot
+
+    best = None
+    for dc in cluster_deltas:
+        nC = nP + dc
+        if nC < 5 or nC > nU:
+            continue
+        labels = fcluster(Z, t=nC, criterion="maxclust") - 1
+        ncl = labels.max() + 1
+        Bc = np.zeros((ncl, ncl))
+        for i in range(nU):
+            Bc[labels[i], labels] += Pu[i]
+        cmass = np.array([uf[labels == c].sum() for c in range(ncl)]); cmass_n = cmass / cmass.sum()
+        Manch = (cdfpos(cmass_n)[:, None] - cp[None, :]) ** 2; Manch /= max(Manch.max(), 1e-12)
+        for eps in epss:
+            for alpha in alphas:
+                G = _entropic_gw(std(Bc), std(Bp), cmass_n, pmass_n, eps, Manch, alpha)
+                r, cidx = linear_sum_assignment(-G)
+                c2p = {int(a): int(b) for a, b in zip(r, cidx)}
+                for c in range(ncl):
+                    c2p.setdefault(c, int(np.argmax(G[c])))
+                a = {units[i]: phones[c2p[labels[i]]] for i in range(nU)}
+                cst = bigram_cost(a)
+                if best is None or cst < best[0]:
+                    best = (cst, a)
+    return best[1] if best else {}
+
+
 # ----------------------------------------------------------------------------------------- metrics
 
 def recovery(a: Dict[int, str], a_true: Dict[int, str], unit_freq: Dict[int, int]) -> Dict[str, float]:
@@ -456,8 +549,9 @@ def unsup_metric(unit_seqs: List[List[int]], a: Dict[int, str], lm: ArpaLM, n_ph
 # ------------------------------------------------------------------------------------------- driver
 
 def run_once(tphi: str, arpa: str, n_units: int, n_lines: int, fertility: Dict[int, float],
-             noise: float, seed: int, do_bigram: bool = True, do_icm: bool = True,
-             do_hmm: bool = True, hmm_restarts: int = 4, icm_corpus_lines: int = 20000) -> Dict:
+             noise: float, seed: int, do_bigram: bool = True, do_icm: bool = False,
+             do_ot: bool = True, do_hmm: bool = True, hmm_restarts: int = 4,
+             icm_corpus_lines: int = 20000) -> Dict:
     from i6_experiments.users.wu.experiments.ssl.analysis.repr_audit import ARPABET_39
 
     rng = np.random.default_rng(seed)
@@ -496,8 +590,14 @@ def run_once(tphi: str, arpa: str, n_units: int, n_lines: int, fertility: Dict[i
         a = icm_polish(dict(stages.get("bigram", stages["cdf"])), grams, lm, phones)
         stages["icm"] = dict(a)
 
+    if do_ot:
+        a_ot = gw_ot_init(unit_seqs, phones, unit_freq, phone_freq,
+                          [phone_target(k) for k in (1, 2, 3)])
+        if a_ot:
+            stages["ot"] = dict(a_ot)
+
     if do_hmm:
-        warm = stages.get("bigram", stages["cdf"])
+        warm = stages.get("ot") or stages.get("bigram") or stages["cdf"]
         best_ll, best_a = None, None
         for r in range(hmm_restarts):
             init = warm if r == 0 else None  # r0 warm-start, rest random restarts
@@ -520,7 +620,7 @@ def run_once(tphi: str, arpa: str, n_units: int, n_lines: int, fertility: Dict[i
 def _fmt(r: Dict) -> str:
     lines = [f"units={r['n_units']} phones={r['n_phones']} noise={r['noise']} "
              f"fert={r['fertility']} dedupρ={r['dedup_ratio']:.2f} seed={r['seed']}"]
-    for st in ("cdf", "bigram", "icm", "hmm"):
+    for st in ("cdf", "bigram", "ot", "icm", "hmm"):
         if st in r:
             s = r[st]
             lines.append(f"  {st:7s} recov(w)={s['recovery_weighted']:.3f} "
@@ -539,12 +639,13 @@ if __name__ == "__main__":
     ap.add_argument("--fertility", default="1:1.0")  # e.g. "1:0.7,2:0.25,3:0.05"
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--no-bigram", action="store_true")
-    ap.add_argument("--no-icm", action="store_true")
+    ap.add_argument("--icm", action="store_true", help="run the (degenerate) pure-LM ICM baseline")
+    ap.add_argument("--no-ot", action="store_true")
     ap.add_argument("--no-hmm", action="store_true")
     ap.add_argument("--hmm-restarts", type=int, default=4)
     args = ap.parse_args()
     fert = {int(kv.split(":")[0]): float(kv.split(":")[1]) for kv in args.fertility.split(",")}
     r = run_once(args.tphi, args.arpa, args.n_units, args.n_lines, fert, args.noise, args.seed,
-                 do_bigram=not args.no_bigram, do_icm=not args.no_icm, do_hmm=not args.no_hmm,
-                 hmm_restarts=args.hmm_restarts)
+                 do_bigram=not args.no_bigram, do_icm=args.icm, do_ot=not args.no_ot,
+                 do_hmm=not args.no_hmm, hmm_restarts=args.hmm_restarts)
     print(_fmt(r))
