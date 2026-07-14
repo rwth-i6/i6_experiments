@@ -103,6 +103,8 @@ def _run_gmm_warmup_experiment(
     ),
     warmup_name: str = "gmm-hard-targets-gennce",
     handoff_name: str = "gmm",
+    decode_stage: str = "handoff",
+    decode_network_module: str | None = None,
     decode_checkpoint: int | None = None,
     decode_name: str = "decode_generative_posterior_v2",
 ):
@@ -273,11 +275,31 @@ def _run_gmm_warmup_experiment(
     )
     ctc_train_job.rqmt["gpu_mem"] = 24
 
+    if decode_stage == "warmup":
+        decode_training_name = gmm_training_name
+        decode_train_job = gmm_train_job
+        decode_train_args = gmm_train_args
+        decode_num_epochs = gmm_num_epochs
+    elif decode_stage == "handoff":
+        decode_training_name = ctc_training_name
+        decode_train_job = ctc_train_job
+        decode_train_args = ctc_train_args
+        decode_num_epochs = ctc_num_epochs
+    else:
+        raise ValueError(f"decode_stage must be 'warmup' or 'handoff', got {decode_stage!r}")
+
+    if decode_network_module is not None:
+        decode_train_args = copy.deepcopy(decode_train_args)
+        decode_train_args["network_module"] = decode_network_module
+        decode_train_args["net_args"] = {"model_config_dict": asdict(model_config)}
+        decode_training_name += "/decode_as_" + decode_network_module.rsplit(".", 1)[-1]
+
     if decode_checkpoint is None:
-        decode_checkpoint = ctc_num_epochs
-    if not 1 <= decode_checkpoint <= ctc_num_epochs:
+        decode_checkpoint = decode_num_epochs
+    if not 1 <= decode_checkpoint <= decode_num_epochs:
         raise ValueError(
-            f"decode_checkpoint must be between 1 and {ctc_num_epochs}, got {decode_checkpoint}"
+            f"decode_checkpoint must be between 1 and {decode_num_epochs} for the "
+            f"{decode_stage} stage, got {decode_checkpoint}"
         )
 
     def _format_scale_for_name(value):
@@ -390,15 +412,15 @@ def _run_gmm_warmup_experiment(
         )
 
     asr_model_with_prior = prepare_asr_model(
-        ctc_training_name,
-        ctc_train_job,
-        ctc_train_args,
+        decode_training_name,
+        decode_train_job,
+        decode_train_args,
         with_prior=True,
         datasets=ctc_train_data,
         get_specific_checkpoint=decode_checkpoint,
     )
     tune_and_evaluate_helper(
-        tuning_name=ctc_training_name + f"/{decode_name}",
+        tuning_name=decode_training_name + f"/{decode_name}",
         asr_model=asr_model_with_prior,
         lm_scales=[1.6, 2.0, 2.4],
         prior_scales=[0.8, 1.0, 1.2],
