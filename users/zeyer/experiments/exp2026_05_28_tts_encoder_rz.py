@@ -61,7 +61,9 @@ def py():
         batch_size_audio_frames=90_000,  # 100k peaked ~78GB in the long laplace buckets -> OOM at 80GB
         # 15k still OOMs on 80GB for this variant: the audio-step pool (~53GB at audio 100k)
         # plus the text-step pool must fit together; 10k keeps the text step small enough.
-        batch_size_phon=8_000,
+        batch_size_phon=4_000,  # synth is ~167ms audio/phoneme (incl silence), so 8k phon -> ~21M samples,
+        # 1.47x the 90k-frame audio cap -> OOM at 80GB in the long-phon buckets;
+        # 4k keeps text-step encoder load <= audio-step load
         max_phon_len=300,
         tts_waveform=True,
         glow_tts_noise_scale_range=(0.7, 0.7),
@@ -85,7 +87,9 @@ def py():
         batch_size_audio_frames=90_000,  # 100k peaked ~78GB in the long laplace buckets -> OOM at 80GB
         # 15k still OOMs on 80GB for this variant: the audio-step pool (~53GB at audio 100k)
         # plus the text-step pool must fit together; 10k keeps the text step small enough.
-        batch_size_phon=8_000,
+        batch_size_phon=4_000,  # synth is ~167ms audio/phoneme (incl silence), so 8k phon -> ~21M samples,
+        # 1.47x the 90k-frame audio cap -> OOM at 80GB in the long-phon buckets;
+        # 4k keeps text-step encoder load <= audio-step load
         max_phon_len=300,
         tts_waveform=True,
         asr_logmel=True,
@@ -111,7 +115,9 @@ def py():
         batch_size_audio_frames=90_000,  # 100k peaked ~78GB in the long laplace buckets -> OOM at 80GB
         # 15k still OOMs on 80GB for this variant: the audio-step pool (~53GB at audio 100k)
         # plus the text-step pool must fit together; 10k keeps the text step small enough.
-        batch_size_phon=8_000,
+        batch_size_phon=4_000,  # synth is ~167ms audio/phoneme (incl silence), so 8k phon -> ~21M samples,
+        # 1.47x the 90k-frame audio cap -> OOM at 80GB in the long-phon buckets;
+        # 4k keeps text-step encoder load <= audio-step load
         max_phon_len=300,
         tts_waveform=True,
         asr_logmel=True,
@@ -139,7 +145,9 @@ def py():
         batch_size_audio_frames=90_000,  # 100k peaked ~78GB in the long laplace buckets -> OOM at 80GB
         # 15k still OOMs on 80GB for this variant: the audio-step pool (~53GB at audio 100k)
         # plus the text-step pool must fit together; 10k keeps the text step small enough.
-        batch_size_phon=8_000,
+        batch_size_phon=4_000,  # synth is ~167ms audio/phoneme (incl silence), so 8k phon -> ~21M samples,
+        # 1.47x the 90k-frame audio cap -> OOM at 80GB in the long-phon buckets;
+        # 4k keeps text-step encoder load <= audio-step load
         max_phon_len=300,
         tts_waveform=True,
         asr_logmel=True,
@@ -170,7 +178,9 @@ def py():
         batch_size_audio_frames=90_000,  # 100k peaked ~78GB in the long laplace buckets -> OOM at 80GB
         # 15k OOMs at 80GB once batches truly mix audio+text (the earlier 64.9GB reading
         # was from the audio-only sampling-bug phase); 10k like the single-stream sibling.
-        batch_size_phon=8_000,
+        batch_size_phon=4_000,  # synth is ~167ms audio/phoneme (incl silence), so 8k phon -> ~21M samples,
+        # 1.47x the 90k-frame audio cap -> OOM at 80GB in the long-phon buckets;
+        # 4k keeps text-step encoder load <= audio-step load
         max_phon_len=300,
         tts_waveform=True,
         asr_logmel=True,
@@ -198,7 +208,9 @@ def py():
         batch_size_audio_frames=90_000,  # 100k peaked ~78GB in the long laplace buckets -> OOM at 80GB
         # 15k still OOMs on 80GB for this variant: the audio-step pool (~53GB at audio 100k)
         # plus the text-step pool must fit together; 10k keeps the text step small enough.
-        batch_size_phon=8_000,
+        batch_size_phon=4_000,  # synth is ~167ms audio/phoneme (incl silence), so 8k phon -> ~21M samples,
+        # 1.47x the 90k-frame audio cap -> OOM at 80GB in the long-phon buckets;
+        # 4k keeps text-step encoder load <= audio-step load
         max_phon_len=300,
         glow_tts_noise_scale_range=(0.7, 0.7),
         glow_tts_length_scale_range=(1.0, 1.0),
