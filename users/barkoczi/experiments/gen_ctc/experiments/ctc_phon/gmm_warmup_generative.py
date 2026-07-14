@@ -103,6 +103,8 @@ def _run_gmm_warmup_experiment(
     ),
     warmup_name: str = "gmm-hard-targets-gennce",
     handoff_name: str = "gmm",
+    decode_checkpoint: int | None = None,
+    decode_name: str = "decode_generative_posterior_v2",
 ):
 
     train_settings = DatasetSettings(
@@ -271,6 +273,13 @@ def _run_gmm_warmup_experiment(
     )
     ctc_train_job.rqmt["gpu_mem"] = 24
 
+    if decode_checkpoint is None:
+        decode_checkpoint = ctc_num_epochs
+    if not 1 <= decode_checkpoint <= ctc_num_epochs:
+        raise ValueError(
+            f"decode_checkpoint must be between 1 and {ctc_num_epochs}, got {decode_checkpoint}"
+        )
+
     def _format_scale_for_name(value):
         sign = "m" if value < 0 else "p"
         return sign + ("%.1f" % abs(value)).replace(".", "p")
@@ -386,10 +395,10 @@ def _run_gmm_warmup_experiment(
         ctc_train_args,
         with_prior=True,
         datasets=ctc_train_data,
-        get_specific_checkpoint=ctc_num_epochs,
+        get_specific_checkpoint=decode_checkpoint,
     )
     tune_and_evaluate_helper(
-        tuning_name=ctc_training_name + "/decode_generative_posterior_v2",
+        tuning_name=ctc_training_name + f"/{decode_name}",
         asr_model=asr_model_with_prior,
         lm_scales=[1.6, 2.0, 2.4],
         prior_scales=[0.8, 1.0, 1.2],
