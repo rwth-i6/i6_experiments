@@ -1511,6 +1511,9 @@ def _train_tts_encoder(
             task=task,
             aed_ctc_model=exp.get_last_fixed_epoch(),
             aux_ctc_layer=16,
+            # construction-relevant flags (pseudo-enc etc.), like the batched branch above;
+            # without this, pseudo-enc recogs rebuild the default TTS model and fail to load.
+            extra_config=recog_model_cfg,
         )
     return exp
 
@@ -1673,6 +1676,7 @@ def aed_glowtts_train_step(*, model: Model, extern_data, **_kwargs_unused):
     """
     from returnn.config import get_global_config
     from returnn.util.collect_outputs_dict import CollectOutputsDict
+    import torch
 
     config = get_global_config()  # noqa
     data = extern_data[config.typed_value("default_input")]
@@ -1762,9 +1766,12 @@ def aed_glowtts_train_step(*, model: Model, extern_data, **_kwargs_unused):
         # waveform mode: model.tts returns a synthetic WAVEFORM (GlowTTS->GL-net->Griffin-Lim) that
         # re-enters the ASR through its own feature front-end -- identical path to real audio (line above).
         sampled_scales = {}
-        wave, wave_spatial_dim = model.tts(
-            phonemes, spatial_dim=phonemes_spatial_dim, out_sampled_scales=sampled_scales
-        )
+        # no_grad: the TTS is frozen;
+        # without it, all TTS activations are kept for a backward that never happens (GPU OOM).
+        with torch.no_grad():
+            wave, wave_spatial_dim = model.tts(
+                phonemes, spatial_dim=phonemes_spatial_dim, out_sampled_scales=sampled_scales
+            )
         wave = rf.stop_gradient(wave)  # TTS is frozen
         enc, enc_spatial_dim = model.encode(
             wave,
@@ -1774,9 +1781,11 @@ def aed_glowtts_train_step(*, model: Model, extern_data, **_kwargs_unused):
         )
     else:
         sampled_scales = {}
-        log_mel, log_mel_spatial_dim = model.tts(
-            phonemes, spatial_dim=phonemes_spatial_dim, out_sampled_scales=sampled_scales
-        )
+        # no_grad: see the waveform branch above.
+        with torch.no_grad():
+            log_mel, log_mel_spatial_dim = model.tts(
+                phonemes, spatial_dim=phonemes_spatial_dim, out_sampled_scales=sampled_scales
+            )
         log_mel = rf.stop_gradient(log_mel)  # TTS is frozen
         enc_raw, enc_spatial_dim = model.encode_from_features(
             log_mel,
@@ -1913,6 +1922,7 @@ def aed_glowtts_single_stream_train_step(*, model: Model, extern_data, **_kwargs
     """
     from returnn.config import get_global_config
     from returnn.util.collect_outputs_dict import CollectOutputsDict
+    import torch
 
     config = get_global_config()  # noqa
     assert config.bool("tts_waveform", False), "single_stream requires tts_waveform=True"
@@ -1943,13 +1953,28 @@ def aed_glowtts_single_stream_train_step(*, model: Model, extern_data, **_kwargs
     text_mask_cpu = data_spatial_dim.get_size_tensor() <= 0
     text_mask = rf.copy_to_device(text_mask_cpu, data.device)
 
+    num_text = int(text_mask_cpu.raw_tensor.sum())
+    num_total = int(batch_dim.get_dim_value())
     # split off the text sub-batch and run the frozen (peak-normalizing) TTS only there.
-    (phon_t, phon_t_spatial_dim), text_bdim, sel_dim_map = rf.nested.masked_select_nested(
-        (phonemes, phonemes_spatial_dim), mask=text_mask, mask_cpu=text_mask_cpu, dims=[batch_dim]
-    )
-    wave_t, wave_t_spatial_dim = model.tts(phon_t, spatial_dim=phon_t_spatial_dim)
-    wave_t = rf.stop_gradient(wave_t)  # TTS is frozen
-    if config.bool("debug_single_stream_stats", False):
+    # Guard the pure batches (possible with the gumbel-random interleave):
+    # masked_select/TTS on an empty sub-batch crashes.
+    if num_text == 0:
+        phon_t = phon_t_spatial_dim = text_bdim = sel_dim_map = None
+        wave_t = wave_t_spatial_dim = None
+    elif num_text == num_total:
+        phon_t, phon_t_spatial_dim = phonemes, phonemes_spatial_dim
+        text_bdim = sel_dim_map = None
+    else:
+        (phon_t, phon_t_spatial_dim), text_bdim, sel_dim_map = rf.nested.masked_select_nested(
+            (phonemes, phonemes_spatial_dim), mask=text_mask, mask_cpu=text_mask_cpu, dims=[batch_dim]
+        )
+    if phon_t is not None:
+        # no_grad: the TTS is frozen;
+        # without it, all TTS activations are kept for a backward that never happens (GPU OOM).
+        with torch.no_grad():
+            wave_t, wave_t_spatial_dim = model.tts(phon_t, spatial_dim=phon_t_spatial_dim)
+        wave_t = rf.stop_gradient(wave_t)  # TTS is frozen
+    if config.bool("debug_single_stream_stats", False) and wave_t is not None:
         _lens = wave_t_spatial_dim.dyn_size_ext.raw_tensor
         _n_text = int(_lens.numel())
         _n_tot = int(batch_dim.get_dim_value())
@@ -1966,15 +1991,20 @@ def aed_glowtts_single_stream_train_step(*, model: Model, extern_data, **_kwargs
 
     # scatter synth waveforms into the text positions; real waveforms (data) are the backup.
     # masked_scatter_nested merges wave_t_spatial_dim (text rows) and data_spatial_dim (audio rows).
-    wave, wave_spatial_dim = rf.nested.masked_scatter_nested(
-        (wave_t, wave_t_spatial_dim),
-        (data, data_spatial_dim),
-        mask=text_mask,
-        mask_cpu=text_mask_cpu,
-        dims=[batch_dim],
-        in_dim=text_bdim,
-        masked_select_dim_map=sel_dim_map,
-    )
+    if num_text == 0:
+        wave, wave_spatial_dim = data, data_spatial_dim
+    elif num_text == num_total:
+        wave, wave_spatial_dim = wave_t, wave_t_spatial_dim
+    else:
+        wave, wave_spatial_dim = rf.nested.masked_scatter_nested(
+            (wave_t, wave_t_spatial_dim),
+            (data, data_spatial_dim),
+            mask=text_mask,
+            mask_cpu=text_mask_cpu,
+            dims=[batch_dim],
+            in_dim=text_bdim,
+            masked_select_dim_map=sel_dim_map,
+        )
 
     if config.bool("use_eos_postfix", False):
         ctc_targets, (ctc_targets_spatial_dim,) = rf.pad(
