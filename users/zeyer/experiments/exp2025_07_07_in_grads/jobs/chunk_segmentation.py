@@ -213,7 +213,17 @@ class ChunkSegmentationFromModelJob(Job):
                     f" {cur_audio_start / samplerate}:{cur_audio_end / samplerate} secs,"
                     f" words {cur_word_start}:{cur_word_end} (out of {len(words)})"
                 )
-                assert cur_word_end > cur_word_start  # need to fix heuristic if this fails...
+                if cur_word_start >= cur_word_end:
+                    # word_start_heuristic advanced to the last word already:
+                    # a previous chunk's best exit consumed all words,
+                    # so this and any later chunks are trailing (silence, no words to assign).
+                    # Stop extending the grid and drop the trailing chunks --
+                    # they carry no word assignments anyway,
+                    # and forwarding an empty target range crashes the model.
+                    # Reached by small chunk sizes (e.g. 10s) on recordings with trailing silence.
+                    assert self.word_start_heuristic  # only reachable via the heuristic branch
+                    chunk_start_end = chunk_start_end[:cur_chunk_idx]
+                    break
                 if cur_audio_end >= len(audio):
                     assert cur_word_end == len(words)  # need to overthink approx if this fails...
 
