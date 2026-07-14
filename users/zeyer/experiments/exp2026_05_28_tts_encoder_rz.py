@@ -137,8 +137,10 @@ def py():
     )
     # Mixing experiment 2 (+gumbel): single-stream + Gumbel-max softened interleave
     # (RETURNN CombinedDataset interleave_gumbel_scale: samples the next dataset
-    # from softmax(log(expected_remaining_seqs) / scale); "remaining" anneals scale = 1 - max(complete_frac),
-    # i.e. random union-shuffle-like audio/text mixing early in the epoch, deterministic balanced at the end).
+    # from softmax(log(expected_remaining_seqs) / scale)).
+    # Constant scale 1.0 = pick proportional to the remaining seqs = sampling-without-replacement,
+    # i.e. EXACTLY a uniform random shuffle of the audio+text union -- the offline reference's ordering
+    # (balance + joint finish are automatic; the annealed "remaining" schedule stays an unused option).
     _train_tts_encoder(
         "tts-enc-ref-match-full-single-gumbel-1gpu",
         prefix=prefix,
@@ -155,7 +157,7 @@ def py():
         enc_aux_logits_with_bias=False,
         pad_audio_rnd=100,
         single_stream=True,
-        interleave_gumbel_scale="remaining",
+        interleave_gumbel_scale=1.0,
         num_processes=1,
         gpu_mem=96,
         nep=100,
