@@ -1950,10 +1950,15 @@ def aed_glowtts_single_stream_train_step(*, model: Model, extern_data, **_kwargs
         _lens = wave_t_spatial_dim.dyn_size_ext.raw_tensor
         _n_text = int(_lens.numel())
         _n_tot = int(batch_dim.get_dim_value())
+        _phon_lens = phon_t_spatial_dim.dyn_size_ext.raw_tensor
+        _tgt_lens = targets_spatial_dim.dyn_size_ext.raw_tensor
         print(
             f"single_stream: {_n_text}/{_n_tot} text seqs,"
             f" synth {float(_lens.sum()) / 16000.0:.1f} s"
-            f" (mean {float(_lens.float().mean()) / 16000.0 if _n_text else 0.0:.2f} s/seq)"
+            f" (mean {float(_lens.float().mean()) / 16000.0 if _n_text else 0.0:.2f} s/seq),"
+            f" phon/seq mean {float(_phon_lens.float().mean()) if _n_text else 0.0:.1f}"
+            f" max {int(_phon_lens.max()) if _n_text else 0},"
+            f" tgt/seq(all) mean {float(_tgt_lens.float().mean()):.1f}"
         )
 
     # scatter synth waveforms into the text positions; real waveforms (data) are the backup.
