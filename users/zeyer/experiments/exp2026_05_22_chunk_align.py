@@ -108,13 +108,19 @@ def py():
 
     for model_name, model_cfg in _backbones.items():
         for ds_name, (ds_dir, ds_key, ds_offset) in _datasets.items():
-            for chunk_size_secs in [10.0, 20.0, 30.0]:
+            # overlap = chunk_size / 2 (constant 50% relative overlap) across all sizes,
+            # so chunk size is the only variable in the sweep.
+            for chunk_size_secs in [30.0, 20.0, 10.0, 5.0, 3.0, 2.0, 1.0]:
+                chunk_overlap_secs = chunk_size_secs / 2
                 seg_name = f"chunk-align/{model_name}-{ds_name}-{ds_key}-cs{chunk_size_secs:.0f}"
                 seg = ChunkSegmentationFromModelJob(
                     dataset_dir=ds_dir,
                     dataset_key=ds_key,
                     model_config=model_cfg,
                     chunk_size_secs=chunk_size_secs,
+                    # cs10's half-overlap (5s) equals the job default, so omit the arg to keep that
+                    # already-finished job's hash; pass it explicitly for every other size.
+                    **({} if chunk_overlap_secs == 5.0 else {"chunk_overlap_secs": chunk_overlap_secs}),
                 )
                 seg.add_alias(seg_name)
                 reg(f"{seg_name}.hdf", seg.out_hdf)
