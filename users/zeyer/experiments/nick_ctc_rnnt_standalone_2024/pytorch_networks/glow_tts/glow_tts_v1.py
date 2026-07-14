@@ -175,6 +175,7 @@ class Model(BaseTTSModelV1):
         length_scale=1.0,
         gen_duration_jitter=None,
         gen_duration_jitter_mult=None,
+        gen_fixed_duration=None,
     ):
         """
         :param gen_duration_jitter: optional (low, high) tuple. If given (generation only),
@@ -220,7 +221,10 @@ class Model(BaseTTSModelV1):
                 # Multiplicative jitter (see docstring above): structure kept, rate/total varies.
                 lo, hi = gen_duration_jitter_mult
                 w = w * (lo + (hi - lo) * torch.rand_like(w))
-            w_ceil = torch.ceil(w)  # durations ceiled
+            if gen_fixed_duration is not None:
+                # Fixed duration per phoneme (in frames, e.g. 1), ignoring the duration predictor.
+                w = h_mask * float(gen_fixed_duration)
+            w_ceil = torch.ceil(w)  # durations ceiled; ceil of positive -> always >= 1 frame per phoneme
             y_lengths = torch.clamp_min(torch.sum(w_ceil, [1, 2]), 1).long()
             y_max_length = None
         else:

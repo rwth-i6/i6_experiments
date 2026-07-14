@@ -162,6 +162,69 @@ def py():
         gpu_mem=96,
         nep=100,
     )
+    # Full base, DbMel DIRECT: TTS log-mel fed straight into the DbMel ASR front-end space
+    # (no GL-net, no Griffin-Lim, no waveform round-trip; the cheapest TTS path).
+    _train_tts_encoder(
+        "tts-enc-ref-match-full-dbmel-direct-1gpu",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        enc_aux_logits_share_weights=True,
+        enc_aux_logits_with_bias=False,
+        pad_audio_rnd=100,
+        num_processes=1,
+        gpu_mem=96,
+        nep=100,
+    )
+    # Full base + SHORT random durations: w = w_pred * U(0.2, 0.5) per phoneme
+    # (ceil keeps >= 1 frame; ~2-3 frames/phoneme, close to what the preload bug accidentally ran,
+    # but with REAL acoustics -- tests whether compressed synth speech suffices for text-util).
+    _train_tts_encoder(
+        "tts-enc-ref-match-full-rnddur-short-1gpu",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        glow_tts_random_durations_jitter_mult=(0.2, 0.5),
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        enc_aux_logits_share_weights=True,
+        enc_aux_logits_with_bias=False,
+        pad_audio_rnd=100,
+        num_processes=1,
+        gpu_mem=96,
+        nep=100,
+    )
+    # Full base + FIXED 1 frame per phoneme (no duration predictor):
+    # the extreme duration ablation, bridging to the pseudo-enc label-dur-1 regime with REAL acoustics.
+    _train_tts_encoder(
+        "tts-enc-ref-match-full-dur1-1gpu",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        glow_tts_fixed_duration=1,
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        enc_aux_logits_share_weights=True,
+        enc_aux_logits_with_bias=False,
+        pad_audio_rnd=100,
+        num_processes=1,
+        gpu_mem=96,
+        nep=100,
+    )
     # Best FZJ mechanism (layer-split pseudo-enc at enc-layer 4 = 3.79 dev-other with muon-nep38 4-GPU),
     # run in the reference's OWN regime: single-GPU / nep=100 / AdamW (NO muon),
     # so it is directly comparable to Nick's 3.53 offline-TTS baseline (same optimizer + regime).

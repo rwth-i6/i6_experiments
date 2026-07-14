@@ -1157,6 +1157,7 @@ def _train_tts_encoder(
     pseudo_enc_specaug_max_width: Optional[int] = None,
     glow_tts_random_durations_jitter: Optional[Tuple[float, float]] = None,
     glow_tts_random_durations_jitter_mult: Optional[Tuple[float, float]] = None,
+    glow_tts_fixed_duration: Optional[float] = None,
     glow_tts_fixed_speaker: Optional[int] = None,
     num_processes: int = 4,
     gpu_mem: int = 96,
@@ -1449,6 +1450,7 @@ def _train_tts_encoder(
                 if glow_tts_random_durations_jitter_mult is not None
                 else {}
             ),
+            **({"glow_tts_fixed_duration": glow_tts_fixed_duration} if glow_tts_fixed_duration is not None else {}),
             **({"glow_tts_fixed_speaker": glow_tts_fixed_speaker} if glow_tts_fixed_speaker is not None else {}),
             # dual-stream only: the single-stream step has ONE loss set (no txt_ prefix, no extra scale)
             **({} if single_stream else {"txt_only_loss_scale": txt_only_loss_scale, "separate_txt_only_losses": True}),
@@ -1570,6 +1572,7 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         peak_normalize_waveform=config.bool("tts_waveform_peak_norm", False),
         random_durations_jitter=tuple(rnd_dur_jitter) if rnd_dur_jitter is not None else None,
         random_durations_jitter_mult=tuple(rnd_dur_jitter_mult) if rnd_dur_jitter_mult is not None else None,
+        fixed_duration=config.typed_value("glow_tts_fixed_duration", None),
         fixed_speaker=config.typed_value("glow_tts_fixed_speaker", None),
     )
     # GlowTTS is frozen: imported params, never updated.

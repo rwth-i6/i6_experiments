@@ -245,6 +245,7 @@ class GlowTtsLogMel(rf.Module):
         peak_normalize_waveform: bool = False,
         random_durations_jitter: Optional[Tuple[float, float]] = None,
         random_durations_jitter_mult: Optional[Tuple[float, float]] = None,
+        fixed_duration: Optional[float] = None,
         fixed_speaker: Optional[int] = None,
         gl_net_config: Optional[Dict[str, Any]] = None,
         gl_iter: int = 32,
@@ -277,6 +278,8 @@ class GlowTtsLogMel(rf.Module):
         # If set, multiply the learned per-phoneme durations by i.i.d. uniform samples (total varies);
         # see glow_tts_v1.Model.forward gen_duration_jitter_mult.
         self.random_durations_jitter_mult = random_durations_jitter_mult
+        # If set, ALL per-phoneme durations are this fixed number of frames (e.g. 1); no duration predictor.
+        self.fixed_duration = fixed_duration
         # If set, always use this speaker id instead of sampling a random speaker per sequence
         # (no voice diversity).
         self.fixed_speaker = fixed_speaker
@@ -341,6 +344,7 @@ class GlowTtsLogMel(rf.Module):
                 length_scale=length_scale,
                 gen_duration_jitter=self.random_durations_jitter,
                 gen_duration_jitter_mult=self.random_durations_jitter_mult,
+                gen_fixed_duration=self.fixed_duration,
             )
         # log_mels: [B, F_logmel, T_freq] (flow-decoder output, DbMel space)
         if self.return_waveform:
