@@ -123,6 +123,12 @@ class ChunkSegmentationFromModelJob(Job):
         for p in model.parameters():
             p.requires_grad = False
 
+        # Pure inference: the DP only reads log-prob values, never grads.
+        # Without this, the _Node accum tensors keep each chunk's autograd graph alive
+        # (the model wrappers create grad-enabled input leaves for the grad-extract jobs),
+        # leaking ~5 GB GPU memory per chunk -> OOM after ~12 chunks.
+        torch.set_grad_enabled(False)
+
         report_dev_memory_stats(dev)
 
         # Write word start/end ranges per chunk, and the chunk audio sample start/end ranges.
