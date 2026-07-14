@@ -86,6 +86,80 @@ def py():
         gpu_mem=96,
         nep=100,
     )
+    # FULL reference match: ref-match-logmel-1gpu + the remaining config diffs vs the offline-TTS
+    # reference (full config diff 2026-07-13): SamplingBPE(0.01) train targets (bpeSample001, both streams),
+    # shared no-bias aux CTC heads (auxShared/auxNoBias), random train audio padding (AudioPadRnd100).
+    # Remaining known diffs vs the reference: online-vs-offline TTS mixing (that is the research question)
+    # and behavior_version/torch (judged irrelevant).
+    # Base for the mixing experiments (single-stream, gumbel-interleave).
+    _train_tts_encoder(
+        "tts-enc-ref-match-full-1gpu",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        enc_aux_logits_share_weights=True,
+        enc_aux_logits_with_bias=False,
+        pad_audio_rnd=100,
+        num_processes=1,
+        gpu_mem=96,
+        nep=100,
+    )
+    # Mixing experiment 1 (single-stream): the full reference match, but real-audio + TTS-synth MIXED
+    # in ONE batch (no alternate_batching, one loss set) via aed_glowtts_single_stream_train_step --
+    # the offline-TTS reference's batch structure with our online TTS.
+    # Smoke-tested 2026-07-14 (mixed batches, losses sane, ~75GB peak, ~2.3 s/step incl per-step TTS+GL).
+    _train_tts_encoder(
+        "tts-enc-ref-match-full-single-1gpu",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        enc_aux_logits_share_weights=True,
+        enc_aux_logits_with_bias=False,
+        pad_audio_rnd=100,
+        single_stream=True,
+        num_processes=1,
+        gpu_mem=96,
+        nep=100,
+    )
+    # Mixing experiment 2 (+gumbel): single-stream + Gumbel-max softened interleave
+    # (RETURNN CombinedDataset interleave_gumbel_scale: samples the next dataset
+    # from softmax(log(expected_remaining_seqs) / scale); "remaining" anneals scale = 1 - max(complete_frac),
+    # i.e. random union-shuffle-like audio/text mixing early in the epoch, deterministic balanced at the end).
+    _train_tts_encoder(
+        "tts-enc-ref-match-full-single-gumbel-1gpu",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        enc_aux_logits_share_weights=True,
+        enc_aux_logits_with_bias=False,
+        pad_audio_rnd=100,
+        single_stream=True,
+        interleave_gumbel_scale="remaining",
+        num_processes=1,
+        gpu_mem=96,
+        nep=100,
+    )
     # Best FZJ mechanism (layer-split pseudo-enc at enc-layer 4 = 3.79 dev-other with muon-nep38 4-GPU),
     # run in the reference's OWN regime: single-GPU / nep=100 / AdamW (NO muon),
     # so it is directly comparable to Nick's 3.53 offline-TTS baseline (same optimizer + regime).

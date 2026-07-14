@@ -39,7 +39,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import functools
-from typing import Optional, Dict, Any, Sequence, Tuple
+from typing import Optional, Union, Dict, Any, Sequence, Tuple
 
 from sisyphus import tk
 
@@ -1140,6 +1140,12 @@ def _train_tts_encoder(
     max_phon_len: Optional[int] = None,
     tts_waveform: bool = False,
     asr_logmel: bool = False,
+    train_vocab_opts: Optional[Dict[str, Any]] = None,
+    enc_aux_logits_share_weights: bool = False,
+    enc_aux_logits_with_bias: bool = True,
+    pad_audio_rnd: Optional[int] = None,
+    single_stream: bool = False,
+    interleave_gumbel_scale: Union[None, float, str] = None,
     specaugment_length_scaled: bool = False,
     tts_waveform_peak_norm: bool = False,
     pseudo_speech_enc: bool = False,
@@ -1199,8 +1205,13 @@ def _train_tts_encoder(
     else:
         from i6_experiments.users.zeyer.recog import recog_training_exp as recog_training_func
 
+    if single_stream:
+        assert tts_waveform and not pseudo_speech_enc, "single_stream: waveform TTS path only"
+
     vocab = "spm10k"
-    task = get_librispeech_task_raw_v2(vocab=vocab, train_epoch_split=1, train_epoch_wise_filter=None)
+    task = get_librispeech_task_raw_v2(
+        vocab=vocab, train_vocab_opts=train_vocab_opts, train_epoch_split=1, train_epoch_wise_filter=None
+    )
     task = dataclasses.replace(task)
     base_train = task.train_dataset
     in_key = base_train.get_default_input()  # "data"
@@ -1257,6 +1268,8 @@ def _train_tts_encoder(
             ("text", PHONEMES_DATA_KEY): PHONEMES_DATA_KEY,
         },
         "seq_ordering": "interleave",
+        # Gumbel-max softened interleave (see RETURNN CombinedDataset); only emitted when set (hash-safe)
+        **({"interleave_gumbel_scale": interleave_gumbel_scale} if interleave_gumbel_scale is not None else {}),
     }
 
     extern_data = {**base_extern, PHONEMES_DATA_KEY: phon_extern}
@@ -1308,6 +1321,14 @@ def _train_tts_encoder(
         "feature_batch_norm": True,
         "feature_extraction": rf.build_dict(DbMelFeatureExtractor),
     }
+    # Reference-match knobs (offline reference: auxShared / auxNoBias / AudioPadRnd100).
+    # Opt-in only, so existing hashes stay; in model_config so recog rebuilds the same params.
+    if enc_aux_logits_share_weights:
+        model_config["enc_aux_logits_share_weights"] = True
+    if not enc_aux_logits_with_bias:
+        model_config["enc_aux_logits_with_bias"] = False
+    if pad_audio_rnd:
+        model_config["pad_audio"] = {"train": ((0, pad_audio_rnd), (0, pad_audio_rnd))}
     if asr_logmel:
         # Standard log-mel (100Hz) ASR front-end instead of DbMel (80Hz), matching the reference.
         # Requires the waveform path: the frozen-TTS DbMel log-mel can be injected directly only when
@@ -1372,8 +1393,11 @@ def _train_tts_encoder(
                 else {}
             ),
             "optimizer.weight_decay": 1e-2,
-            "torch_batching": functools.partial(alternate_batching, asr_key=in_key),
-            "train_step": aed_glowtts_train_step,  # custom step; no TrainDef needed
+            # single_stream: default torch batching mixes audio + text seqs in ONE batch
+            # (offline-reference style); otherwise alternate_batching (pure audio / pure text batches).
+            **({} if single_stream else {"torch_batching": functools.partial(alternate_batching, asr_key=in_key)}),
+            # custom step; no TrainDef needed
+            "train_step": aed_glowtts_single_stream_train_step if single_stream else aed_glowtts_train_step,
             "learning_rate_control_error_measure": "ce",  # set explicitly since there is no TrainDef
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
             "aux_loss_layers": [4, 10, 16],
@@ -1426,11 +1450,14 @@ def _train_tts_encoder(
                 else {}
             ),
             **({"glow_tts_fixed_speaker": glow_tts_fixed_speaker} if glow_tts_fixed_speaker is not None else {}),
-            "txt_only_loss_scale": txt_only_loss_scale,
-            "separate_txt_only_losses": True,
+            # dual-stream only: the single-stream step has ONE loss set (no txt_ prefix, no extra scale)
+            **({} if single_stream else {"txt_only_loss_scale": txt_only_loss_scale, "separate_txt_only_losses": True}),
             # text-only data pipeline: the PostprocessingDataset map_seq reads these to tokenize raw text into
             # spm targets + GlowTTS phonemes (nested tk.Paths are resolved as config values).
-            "glow_tts_text_spm_opts": get_vocab_by_str(vocab).get_opts(),
+            # train-targets vocab; with train_vocab_opts (e.g. SamplingBPE) the text stream samples too
+            "glow_tts_text_spm_opts": (
+                get_vocab_by_str(vocab).copy(**train_vocab_opts) if train_vocab_opts else get_vocab_by_str(vocab)
+            ).get_opts(),
             "glow_tts_phone_info": get_glow_tts_phone_info(train=True),
             # DDP across 4 GH200: each runs a model replica + its data shard, gradients all-reduced via NCCL.
             # ~400 M trainable params (Enc L16 D1024 + Dec L6 D1024 + spm10k) fits one GH200 (95 GB) easily,
@@ -1919,6 +1946,15 @@ def aed_glowtts_single_stream_train_step(*, model: Model, extern_data, **_kwargs
     )
     wave_t, wave_t_spatial_dim = model.tts(phon_t, spatial_dim=phon_t_spatial_dim)
     wave_t = rf.stop_gradient(wave_t)  # TTS is frozen
+    if config.bool("debug_single_stream_stats", False):
+        _lens = wave_t_spatial_dim.dyn_size_ext.raw_tensor
+        _n_text = int(_lens.numel())
+        _n_tot = int(batch_dim.get_dim_value())
+        print(
+            f"single_stream: {_n_text}/{_n_tot} text seqs,"
+            f" synth {float(_lens.sum()) / 16000.0:.1f} s"
+            f" (mean {float(_lens.float().mean()) / 16000.0 if _n_text else 0.0:.2f} s/seq)"
+        )
 
     # scatter synth waveforms into the text positions; real waveforms (data) are the backup.
     # masked_scatter_nested merges wave_t_spatial_dim (text rows) and data_spatial_dim (audio rows).
