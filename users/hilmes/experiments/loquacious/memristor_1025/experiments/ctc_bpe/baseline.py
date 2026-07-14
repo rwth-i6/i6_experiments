@@ -1604,6 +1604,61 @@ def bpe_loq_small_1225_nopos():
                                 generate_report(results=results_lm, exp_name=recog_name)
                                 memristor_results[recog_name] = copy.deepcopy(results_lm)
 
+                        if (weight_bit, seed) in [(8, 0), (4, 2)]:
+                            for prec, ran in [(4, 4), (4, 8), (8, 8)]:
+                                results_adc = {}
+                                recog_dac_settings_mod = DacAdcHardwareSettings(
+                                    input_bits=8,
+                                    output_precision_bits=prec,
+                                    output_range_bits=ran,
+                                    hardware_input_vmax=0.6,
+                                    hardware_output_current_scaling=8020.0,
+                                )
+                                for num_cycles in range(1, 6):
+                                    model_config_recog = copy.deepcopy(model_config)
+                                    model_config_recog.converter_hardware_settings = recog_dac_settings_mod
+                                    model_config_recog.num_cycles = num_cycles
+
+                                    prior_args = copy.deepcopy(train_args)
+                                    train_args_recog = copy.deepcopy(train_args)
+                                    train_args_recog["net_args"] = {"model_config_dict": asdict(model_config_recog)}
+
+                                    train_args_recog_test = copy.deepcopy(train_args_recog)
+                                    train_args_recog_test["network_module"] = network_module_mem_v7
+                                    train_args_recog_test["debug"] = False
+                                    recog_name = prefix_name + "/" + network_module_mem_v7 + f"_adc_p{prec}_r{ran}_{epochs // 5}eps_{weight_bit}_{activation_bit}_seed_{seed}/cycle_{num_cycles // 11}"
+                                    results_adc = eval_model(
+                                        training_name=recog_name + f"_{num_cycles}",
+                                        train_job=train_job,
+                                        train_args=train_args_recog_test,
+                                        train_data=train_data_bpe,
+                                        decoder_config=rasr_config_memristor,
+                                        dev_dataset_tuples=short_dev_dataset_tuples,
+                                        result_dict=results_adc,
+                                        decoder_module="ctc.decoder.rasr_ctc_v1_batched",
+                                        prior_scales=[best_params_job.out_optimal_parameters[1]],
+                                        lm_scales=[(best_params_job.out_optimal_parameters[0], "best")],
+                                        use_gpu=True,
+                                        import_memristor=True,
+                                        extra_forward_config={
+                                            "batch_size": 3500000 if not weight_bit in [8] else 2500000,
+                                        },
+                                        run_best_4=False,
+                                        run_best=False,
+                                        prior_args=prior_args,
+                                        run_search_on_hpc=False,
+                                        run_rasr=True,
+                                        # test_dataset_tuples={**dev_dataset_tuples, **test_dataset_tuples},
+                                        test_dataset_tuples={**dev_dataset_tuples},
+                                        run_test=False,
+                                        split_mem_init=True,
+                                        search_gpu=48
+                                    )
+                                recog_name = prefix_name + "/" + network_module_mem_v7 + f"_adc_p{prec}_r{ran}_{epochs // 5}eps_{weight_bit}_{activation_bit}_seed_{seed}_cycle"
+                                generate_report(results=results_adc, exp_name=recog_name)
+                                memristor_results[recog_name] = copy.deepcopy(results_adc)
+
+
                         recog_name = prefix_name + "/" + network_module_mem_v7 + f"_{epochs // 5}eps_{weight_bit}_{activation_bit}_seed_{seed}_cycle"
                         res_else = {}
                         res_yodas = {}

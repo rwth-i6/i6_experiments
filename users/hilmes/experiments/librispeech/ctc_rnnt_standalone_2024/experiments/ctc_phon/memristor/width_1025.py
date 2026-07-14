@@ -308,6 +308,8 @@ def eow_phon_ls960_1025_memristor_width():
                             hardware_output_current_scaling=8020.0,
                         )
                         memristor_runs = 3
+                        if dim == 2048 and activation_bit == 8:
+                            continue
                         for num_cycles in range(1, memristor_runs+1):
                             model_config_recog = copy.deepcopy(model_config)
                             model_config_recog.converter_hardware_settings = recog_dac_settings

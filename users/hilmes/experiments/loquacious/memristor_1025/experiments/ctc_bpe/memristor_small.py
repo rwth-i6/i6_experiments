@@ -337,7 +337,7 @@ def bpe_loq_small_memristor_width_1125():
     for epochs in [500, 1000, 1500]:
         for activation_bit in [8]:
             for weight_bit in [4]:
-                for dim in [384, 512, 768, 1024, 1536, 2048]:
+                for dim in [384, 512, 768, 1024]: #, 1536, 2048]:
                     res_seeds_total = {}
                     for seed in range(3):
                         if seed > 0 and not epochs == 500:

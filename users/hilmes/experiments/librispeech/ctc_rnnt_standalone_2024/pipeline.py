@@ -20,7 +20,7 @@ from i6_core.returnn.forward import ReturnnForwardJobV2
 
 from i6_experiments.common.setups.returnn.datasets import Dataset
 
-from .config import get_forward_config, get_training_config, get_prior_config, TrainingDatasets, serialize_forward, get_mem_init_config
+from .config import get_forward_config, get_training_config, get_prior_config, TrainingDatasets, serialize_forward, get_mem_init_config, get_prune_config
 from .default_tools import SCTK_BINARY_PATH, RETURNN_EXE, MINI_RETURNN_ROOT
 
 
@@ -118,6 +118,8 @@ def search(
     if asr_model.prior_file is not None:
         decoder_args["config"]["prior_file"] = asr_model.prior_file
 
+    if "_newsynap_" in prefix_name and import_memristor:
+        import_memristor = "new"
 
     returnn_search_config = get_forward_config(
         network_module=asr_model.network_module,
@@ -159,6 +161,175 @@ def search(
         )
         if import_memristor is True:
             search_job.rqmt["time"] += 24 * 4  # 4 additional days
+        search_jobs.append(search_job)
+
+    return search_jobs, wers
+
+
+def search_single_multi(
+    prefix_name: str,
+    returnn_config: ReturnnConfig,
+    checkpoint: tk.Path,
+    recognition_dataset: Dataset,
+    recognition_bliss_corpus: tk.Path,
+    returnn_exe: tk.Path,
+    returnn_root: tk.Path,
+    lm_scales: List[float],
+    prior_scales: List[float],
+    num_search_workers: int,
+    mem_rqmt: float = 14,
+    time_rqmt: float = 24,
+    cpu_rqmt: Optional[int] = None,
+    use_gpu: bool = False,
+):
+    """
+    Run one forward job that computes posteriors once and applies a whole grid of
+    (lm_scale, prior_scale) combinations, then score every combination separately.
+
+    :param prefix_name: prefix folder path for alias and output files (already dataset-specific)
+    :param returnn_config: the RETURNN config to be used for forwarding (multi decoder)
+    :param checkpoint: path to RETURNN PyTorch model checkpoint
+    :param recognition_dataset: Dataset to perform recognition on
+    :param recognition_bliss_corpus: path to bliss file used as Sclite evaluation reference
+    :param returnn_exe: python executable
+    :param returnn_root: RETURNN repository
+    :param lm_scales: lm scales of the grid (one SearchAlgorithm each)
+    :param prior_scales: prior scales of the grid
+    :param num_search_workers: number of parallel search worker processes (one LM each)
+    :param mem_rqmt: job memory requirement
+    :param time_rqmt: job time requirement in hours
+    :param cpu_rqmt: job cpu requirement (defaults to max(8, num_search_workers))
+    :param use_gpu: if to do GPU decoding (forward)
+    :return: (dict combo_name -> ScliteJob.out_wer, search_job)
+    """
+    from .pytorch_networks.ctc.decoder.rasr_ctc_v1_batched_multi import get_search_out_filename
+
+    returnn_config = copy.deepcopy(returnn_config)
+    returnn_config.config["forward"] = recognition_dataset.as_returnn_opts()
+
+    combos = [(lm, prior) for lm in lm_scales for prior in prior_scales]
+    output_files = [get_search_out_filename(lm, prior) for (lm, prior) in combos]
+
+    if cpu_rqmt is None:
+        cpu_rqmt = max(8, num_search_workers)
+
+    search_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=time_rqmt,
+        device="gpu" if use_gpu else "cpu",
+        cpu_rqmt=cpu_rqmt,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=output_files,
+    )
+    search_job.add_alias(prefix_name + "/search_job")
+
+    stm_file = CorpusToStmJob(bliss_corpus=recognition_bliss_corpus).out_stm_path
+
+    wers = {}
+    for (lm, prior) in combos:
+        fname = get_search_out_filename(lm, prior)
+        search_ctm = SearchWordsToCTMJob(
+            recog_words_file=search_job.out_files[fname],
+            bliss_corpus=recognition_bliss_corpus,
+        ).out_ctm_file
+        sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH, precision_ndigit=2)
+        combo_name = "search_lm%s_prior%s" % (lm, prior)
+        tk.register_output(prefix_name + "/%s/sclite/wer" % combo_name, sclite_job.out_wer)
+        tk.register_output(prefix_name + "/%s/sclite/report" % combo_name, sclite_job.out_report_dir)
+        wers[combo_name] = sclite_job.out_wer
+
+    return wers, search_job
+
+
+def search_multi(
+    prefix_name: str,
+    forward_config: Dict[str, Any],
+    asr_model: "ASRModel",
+    decoder_module: str,
+    decoder_args: Dict[str, Any],
+    test_dataset_tuples: Dict[str, Tuple[Dataset, tk.Path]],
+    returnn_exe: tk.Path,
+    returnn_root: tk.Path,
+    lm_scales: List[float],
+    prior_scales: List[float],
+    num_search_workers: int,
+    use_gpu: bool = False,
+    import_memristor: bool = False,
+    debug: bool = False,
+):
+    """
+    Multi-scale counterpart of :func:`search`. One forward job per dataset computes the
+    posteriors once and sweeps the whole (lm_scale, prior_scale) grid; each combination is
+    scored independently.
+
+    :param prefix_name: prefix folder path for alias and output files (training name)
+    :param forward_config: returnn config parameter for the forward job
+    :param asr_model: the ASRModel from the training
+    :param decoder_module: dotted module name of the multi decoder
+    :param decoder_args: arguments for the decoding forward_init_hook (must carry the scale grid)
+    :param test_dataset_tuples: tuple of (Dataset, bliss) per dataset key
+    :param lm_scales: lm scales of the grid
+    :param prior_scales: prior scales of the grid
+    :param num_search_workers: number of parallel search worker processes (one LM each)
+    :return: (search_jobs, wers) with wers keyed prefix/search_lm{X}_prior{Y}/{dataset}
+    """
+    import math
+
+    if asr_model.prior_file is not None:
+        decoder_args["config"]["prior_file"] = asr_model.prior_file
+
+    if "_newsynap_" in prefix_name and import_memristor:
+        import_memristor = "new"
+
+    returnn_search_config = get_forward_config(
+        network_module=asr_model.network_module,
+        config=forward_config,
+        net_args=asr_model.net_args,
+        decoder_args=decoder_args,
+        decoder=decoder_module,
+        debug=debug,
+        import_memristor=import_memristor,
+        run_rasr=True,
+    )
+
+    n_lm = len(lm_scales)
+    n_prior = len(prior_scales)
+    workers = max(1, min(num_search_workers, n_lm))
+    # forward dominates; add a conservative per-combination search budget on top of a base.
+    per_search_h = 1.0  # measured ~0.56 h per (lm,prior) over one dev set, rounded up
+    time_rqmt = 24 + math.ceil(n_lm / workers) * n_prior * per_search_h
+    # same as the old single-scale jobs for now; bump manually to fit W resident LMs.
+    # heuristic once calibrated (W workers hold ~W LMs at once): mem_rqmt = 16 + workers * 6
+    mem_rqmt = 16
+
+    wers = {}
+    search_jobs = []
+    for key, (test_dataset, test_dataset_reference) in test_dataset_tuples.items():
+        combo_wers, search_job = search_single_multi(
+            prefix_name + "/%s" % key,
+            returnn_search_config,
+            asr_model.checkpoint,
+            test_dataset,
+            test_dataset_reference,
+            returnn_exe,
+            returnn_root,
+            lm_scales=lm_scales,
+            prior_scales=prior_scales,
+            num_search_workers=workers,
+            mem_rqmt=mem_rqmt,
+            time_rqmt=time_rqmt,
+            cpu_rqmt=max(8, workers),
+            use_gpu=use_gpu,
+        )
+        if import_memristor is True:
+            search_job.rqmt["time"] += 24 * 4  # additional headroom for the memristor forward
+        for combo_name, wer in combo_wers.items():
+            # keep the key structure identical to the single-scale path so the report regex matches
+            wers[prefix_name + "/%s/%s" % (combo_name, key)] = wer
         search_jobs.append(search_job)
 
     return search_jobs, wers
@@ -238,11 +409,38 @@ def prepare_memristor(
     if any(str(x) in prefix_name for x in [1536]):
         search_job.rqmt["mem"] += 24
     if any(str(x) in prefix_name for x in [2048]):
-        search_job.rqmt["mem"] += 12
+        search_job.rqmt["mem"] += 36
+
     search_job.add_alias(prefix_name + "/prepare_mem_job")
     search_job.set_keep_value(10)
     # search_job.set_vis_name(prefix_name + "/prior_job")
     return search_job.out_files["converted_model.pt"]
+
+@tk.block()
+def apply_weight_pruning(
+    prefix_name: str,
+    returnn_config: ReturnnConfig,
+    checkpoint: tk.Path,
+    returnn_exe: tk.Path,
+    returnn_root: tk.Path,
+    mem_rqmt: int = 8,
+):
+    prune_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=2,
+        device="cpu",
+        cpu_rqmt=4,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=["pruned_model.pt"],
+    )
+    prune_job.add_alias(prefix_name + "/prune_weights_job")
+    prune_job.set_keep_value(10)
+    return prune_job.out_files["pruned_model.pt"]
+
 
 @tk.block()
 def compute_statistics(
@@ -323,6 +521,7 @@ def prepare_asr_model(
     get_best_averaged_checkpoint: Optional[Tuple[int, str]] = None,
     get_last_averaged_checkpoint: Optional[int] = None,
     prior_config: Optional[Dict[str, Any]] = None,
+    prune_weights: bool = False,
     split_preparation: bool = False,
     split_args: Optional[Dict[str, Any]] = None,
 ):
@@ -404,6 +603,25 @@ def prepare_asr_model(
     # else:
     #     if prior_config is not None:
     #         raise ValueError("prior_config can only be set if with_prior is True")
+
+    if prune_weights:
+        assert datasets is not None
+        prune_config = get_prune_config(
+            training_datasets=datasets,
+            network_module=train_args["network_module"],
+            config={},
+            net_args=train_args["net_args"],
+            unhashed_net_args=train_args.get("unhashed_net_args", None),
+            debug=train_args.get("debug", False),
+            import_memristor=import_memristor,
+        )
+        checkpoint = apply_weight_pruning(
+            training_name,
+            prune_config,
+            checkpoint=checkpoint,
+            returnn_exe=RETURNN_EXE,
+            returnn_root=MINI_RETURNN_ROOT,
+        )
 
     if split_preparation:
         assert split_args is not None

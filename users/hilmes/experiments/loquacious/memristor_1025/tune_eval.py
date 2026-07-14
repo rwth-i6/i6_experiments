@@ -2001,8 +2001,13 @@ def build_qat_report_v2(report: Dict) -> str:
     def shorten(exp: str) -> str:
         return " ".join(exp.split("/")[5:])
 
+    def _parse_scales(key: str) -> str:
+        m = re.search(r"search_lm([\d.]+)_prior([\d.]+)", key)
+        return f"lm{m.group(1)}/p{m.group(2)}" if m else "—"
+
     summary: Dict[str, tuple] = {}
     cycle_raw: Dict[str, Dict] = {}
+    scales_info: Dict[str, str] = {}
 
     for exp, dic in report.items():
         short = shorten(exp)
@@ -2058,6 +2063,9 @@ def build_qat_report_v2(report: Dict) -> str:
             else:
                 last_val = _ckpt_min(dic, "last")
                 summary[short] = (last_val, "")
+            last_group = {k: v for k, v in dic.items() if "/best" not in k and v is not None}
+            if last_group and all(last_group.values()):
+                scales_info[short] = _parse_scales(min(last_group, key=last_group.get))
 
     # ── classification helpers (identical to v2) ──────────────────────────────
 
@@ -2089,9 +2097,10 @@ def build_qat_report_v2(report: Dict) -> str:
         return groups
 
     top = {k: v for k, v in summary.items() if not is_sub_entry(k)}
-    baseline_exps = {k: v for k, v in top.items() if "baseline" in k}
+    baseline_exps = {k: v for k, v in top.items() if "baseline" in k and "greedy" not in k}
     cycle_exps = {k: v for k, v in top.items() if "cycle" in k}
-    qat_exps = {k: v for k, v in top.items() if k not in baseline_exps and k not in cycle_exps}
+    qat_exps = {k: v for k, v in top.items()
+                if k not in baseline_exps and k not in cycle_exps and "greedy" not in k}
 
     # ── dump helpers (identical to v2) ────────────────────────────────────────
 
@@ -2147,16 +2156,16 @@ def build_qat_report_v2(report: Dict) -> str:
             seed_groups.setdefault(base, []).append(e)
 
         MAX_SEEDS = 3
-        seed_labels = [f"s{i}" for i in range(MAX_SEEDS)]
+        COLS_PER_SEED = 3
         splits = [("Short-dev", "", False), ("Full dev", "_full_dev", True), ("Full test", "_full_test", True)]
         n_splits = len(splits)
 
         def cell_val(e: str, st: str, has_best: bool) -> str:
             last = summary.get(e + st, ("—", ""))[0]
             if has_best:
-                best = summary.get(e + st + "_best", ("—", ""))[0]
-                if best != "—":
-                    return f"{last}/{best}"
+                best_val = summary.get(e + st + "_best", ("—", ""))[0]
+                if best_val != "—":
+                    return f"{last}/{best_val}"
             return last
 
         data_rows = []
@@ -2171,22 +2180,47 @@ def build_qat_report_v2(report: Dict) -> str:
                 for i in range(MAX_SEEDS):
                     e = seed_map.get(i)
                     row.append(cell_val(e, st, hb) if e else "—")
+                    row.append(scales_info.get(e, "—") if e else "—")
+                    greedy_e = (e + "_greedy") if e else None
+                    row.append(cell_val(greedy_e, st, hb) if greedy_e else "—")
             data_rows.append(row)
 
-        header2 = ["Experiment"] + seed_labels * n_splits
+        header2 = ["Experiment"] + [c for _ in splits for i in range(MAX_SEEDS) for c in (f"s{i}", "scales", "greedy")]
         all_rows = [header2] + data_rows
         widths = [max(len(str(r[i])) for r in all_rows) for i in range(len(header2))]
 
+        double_after = {
+            s * MAX_SEEDS * COLS_PER_SEED + (k + 1) * COLS_PER_SEED
+            for s in range(n_splits)
+            for k in range(MAX_SEEDS - 1)
+        }
+
+        def col_sep(i: int) -> str:
+            return " || " if i in double_after else " | "
+
+        def dash_sep(i: int) -> str:
+            return "-++-" if i in double_after else "-+-"
+
+        sep_parts = ["-" * widths[0]]
+        for i in range(len(widths) - 1):
+            sep_parts.append(dash_sep(i))
+            sep_parts.append("-" * widths[i + 1])
+        sep = "".join(sep_parts)
+
         header1_parts = [" " * widths[0]]
-        for i, (split_name, _, _hb) in enumerate(splits):
-            span = sum(widths[1 + i * MAX_SEEDS + j] for j in range(MAX_SEEDS)) + 3 * (MAX_SEEDS - 1)
+        for s, (split_name, _, _hb) in enumerate(splits):
+            start = 1 + s * MAX_SEEDS * COLS_PER_SEED
+            n_cols = MAX_SEEDS * COLS_PER_SEED
+            span = sum(widths[start + j] for j in range(n_cols))
+            span += sum(len(col_sep(start + j)) for j in range(n_cols - 1))
             header1_parts.append(split_name.center(span))
         header1 = " | ".join(header1_parts)
 
-        sep = "-+-".join("-" * w for w in widths)
-
         def fmt(row: List[str]) -> str:
-            return " | ".join(str(c).ljust(w) for c, w in zip(row, widths))
+            result = str(row[0]).ljust(widths[0])
+            for i in range(len(row) - 1):
+                result += col_sep(i) + str(row[i + 1]).ljust(widths[i + 1])
+            return result
 
         return [header1, fmt(header2), sep] + [fmt(r) for r in data_rows]
 

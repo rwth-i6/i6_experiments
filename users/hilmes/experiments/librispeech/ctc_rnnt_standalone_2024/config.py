@@ -182,6 +182,37 @@ def get_mem_init_config(
     return returnn_config
 
 
+def get_prune_config(
+    training_datasets: TrainingDatasets,
+    network_module: str,
+    config: Dict[str, Any],
+    net_args: Dict[str, Any],
+    unhashed_net_args: Optional[Dict[str, Any]] = None,
+    debug: bool = False,
+    import_memristor: bool = False,
+):
+    post_config = {"num_workers_per_gpu": 2}
+    base_config = {
+        "batch_size": 500 * 16000,
+        "max_seqs": 240,
+        "forward": copy.deepcopy(training_datasets.cv.as_returnn_opts()),
+    }
+    config = {**base_config, **copy.deepcopy(config)}
+    post_config["backend"] = "torch"
+    serializer = serialize_forward(
+        network_module=network_module,
+        net_args=net_args,
+        unhashed_net_args=unhashed_net_args,
+        forward_module=None,
+        forward_step_name="prune",
+        forward_init_args=None,
+        unhashed_forward_init_args=None,
+        debug=debug,
+        import_memristor=import_memristor,
+    )
+    return ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
+
+
 def get_stats_config(
     dataset: Dataset,
     network_module: str,

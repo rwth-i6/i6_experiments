@@ -537,7 +537,7 @@ class ConformerMHSAQuant(torch.nn.Module):
 
         super().__init__()
 
-        self.layernorm = torch.nn.LayerNorm(cfg.input_dim)
+        # self.layernorm = torch.nn.LayerNorm(cfg.input_dim)
         self.mhsa = QuantizedMultiheadAttention(cfg=cfg)
         self.dropout = cfg.dropout
 

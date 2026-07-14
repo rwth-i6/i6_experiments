@@ -12,10 +12,10 @@ from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1Config
 from i6_models.config import ModuleFactoryV1, ModelConfiguration
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Config
 try:
-    from torch_memristor.memristor_modules import DacAdcHardwareSettings, CycleCorrectionSettings
-except ModuleNotFoundError:
     from synaptogen_ml.memristor_modules.memristor import DacAdcHardwareSettings
-    CycleCorrectionSettings = None # TODO: merge into Main
+    from synaptogen_ml.memristor_modules.config import CycleCorrectionSettings
+except ModuleNotFoundError:
+    from torch_memristor.memristor_modules import DacAdcHardwareSettings, CycleCorrectionSettings
 
 
 @dataclass(kw_only=True)

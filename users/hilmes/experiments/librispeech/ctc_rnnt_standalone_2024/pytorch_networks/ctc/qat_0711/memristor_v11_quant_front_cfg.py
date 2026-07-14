@@ -15,7 +15,7 @@ try:
     from torch_memristor.memristor_modules import DacAdcHardwareSettings, CycleCorrectionSettings
 except ModuleNotFoundError:
     from synaptogen_ml.memristor_modules.memristor import DacAdcHardwareSettings
-    from synaptogen_ml.memristor_modules.util import CycleCorrectionSettings
+    from synaptogen_ml.memristor_modules.config import CycleCorrectionSettings
 
 
 @dataclass

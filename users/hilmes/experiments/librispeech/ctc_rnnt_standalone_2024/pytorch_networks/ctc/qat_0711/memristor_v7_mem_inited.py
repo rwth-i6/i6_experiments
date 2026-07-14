@@ -48,7 +48,10 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
 
         self.model_cfg = cfg
         self.layer_norm = nn.LayerNorm(cfg.input_dim)
-        from torch_memristor.memristor_modules import TiledMemristorLinear
+        try:
+            from synaptogen_ml.memristor_modules.linear import TiledMemristorLinear
+        except ModuleNotFoundError:
+            from torch_memristor.memristor_modules import TiledMemristorLinear
         self.linear_ff = TiledMemristorLinear(
             in_features=cfg.input_dim,
             out_features=cfg.hidden_dim,
@@ -160,7 +163,11 @@ class ConformerConvolutionQuant(nn.Module):
         """
         super().__init__()
         model_cfg.check_valid()
-        from torch_memristor.memristor_modules import TiledMemristorLinear, MemristorConv1d
+        try:
+            from synaptogen_ml.memristor_modules.linear import TiledMemristorLinear
+            from synaptogen_ml.memristor_modules.conv import MemristorConv1d
+        except ModuleNotFoundError:
+            from torch_memristor.memristor_modules import TiledMemristorLinear, MemristorConv1d
         self.model_cfg = model_cfg
         self.pointwise_conv1 = TiledMemristorLinear(
             in_features=model_cfg.channels,
@@ -444,7 +451,11 @@ class Model(torch.nn.Module):
         self.conformer = ConformerEncoderQuant(cfg=conformer_config)
 
         if self.train_config.quantize_output is True:
-            from torch_memristor.memristor_modules import TiledMemristorLinear
+            try:
+                from synaptogen_ml.memristor_modules.linear import TiledMemristorLinear
+            except ModuleNotFoundError:
+                from torch_memristor.memristor_modules import TiledMemristorLinear
+
             self.lin_out = TiledMemristorLinear(
                 in_features=self.train_config.conformer_size,
                 out_features=self.train_config.label_target_size + 1,

@@ -482,7 +482,10 @@ class QuantizedMultiheadAttention(nn.Module):
         return att_out, alpha
 
     def prep_quant(self):
-        from torch_memristor.memristor_modules import TiledMemristorLinear
+        try:
+            from synaptogen_ml.memristor_modules.linear import TiledMemristorLinear
+        except ModuleNotFoundError:
+            from torch_memristor.memristor_modules import TiledMemristorLinear
 
         self.out_proj.weight_quantizer.set_scale_and_zp()
         self.out_proj_in_quant.set_scale_and_zp()

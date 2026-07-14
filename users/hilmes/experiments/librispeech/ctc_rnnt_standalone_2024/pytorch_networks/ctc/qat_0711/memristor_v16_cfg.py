@@ -1,5 +1,5 @@
 """
-Config for the base CTC models v4, including specaug start time
+v14 adds weight sparsity / pruning
 """
 
 from dataclasses import dataclass, field
@@ -18,10 +18,111 @@ except ModuleNotFoundError:
     from torch_memristor.memristor_modules import DacAdcHardwareSettings, CycleCorrectionSettings
 
 
+@dataclass
+class ThresholdPruningConfig:
+    """Prune weights whose absolute value is below a fixed threshold.
+
+    :param prune_before_quant: if True the prune mask is computed and applied on the raw
+        (continuous) weight *before* the weight quantizer; if False pruning is applied to the
+        already fake-quantized weight, so the zeros live on the quantization grid.
+    """
+    start_epoch: int
+    threshold: float
+    prune_before_quant: bool
+
+    def apply(self, weight: torch.Tensor, training: bool) -> torch.Tensor:
+        from returnn.torch.context import get_run_ctx
+        if training and get_run_ctx().epoch < self.start_epoch:
+            return weight
+        return weight * (weight.abs() >= self.threshold).to(weight.dtype)
+
+
+@dataclass
+class PercentilePruningConfig:
+    """Prune the bottom `percentile` fraction of weights by absolute value (value in [0, 1]).
+
+    :param prune_before_quant: if True the prune mask is computed and applied on the raw
+        (continuous) weight *before* the weight quantizer; if False pruning is applied to the
+        already fake-quantized weight, so the zeros live on the quantization grid. Computing the
+        percentile on the continuous weights gives the requested sparsity more reliably, since the
+        fake-quantized weights are tied to a discrete grid.
+    """
+    start_epoch: int
+    percentile: float
+    prune_before_quant: bool
+
+    def apply(self, weight: torch.Tensor, training: bool) -> torch.Tensor:
+        from returnn.torch.context import get_run_ctx
+        if training and get_run_ctx().epoch < self.start_epoch:
+            return weight
+        cutoff = torch.quantile(weight.abs(), self.percentile)
+        return weight * (weight.abs() >= cutoff).to(weight.dtype)
+
+
+WeightPruningConfig = Union[ThresholdPruningConfig, PercentilePruningConfig]
+
+
+@dataclass
+class GaussianWeightNoiseConfig:
+    """Per-bit Gaussian noise simulating memristor read uncertainty."""
+    dev: float
+    start_epoch: int
+
+    def apply(self, weight: torch.Tensor, weight_quantizer, weight_bit_prec: int, training: bool) -> torch.Tensor:
+        from returnn.torch.context import get_run_ctx
+        if training and get_run_ctx().epoch < self.start_epoch:
+            return weight
+        for i in range(weight_bit_prec - 1):
+            mean = 2 * (-weight_quantizer.zero_point).expand(weight.shape).to(weight.device).to(torch.float32)
+            std = (torch.tensor(self.dev) * (2 ** i)).expand(weight.shape).to(weight.device).to(torch.float32)
+            std = 2**0.5 * std
+            noise = torch.normal(mean=mean, std=std).to(weight.device) * weight_quantizer.scale
+            weight = weight + noise
+        return weight
+
+
+@dataclass
+class BitFlipWeightNoiseConfig:
+    """Per-bit random bit-flip noise simulating memristor programming errors.
+
+    Each bit of the quantized weight is independently flipped (0→1 or 1→0)
+    with probability `p`, modelling a device being programmed into the wrong state.
+    """
+    p: float
+    start_epoch: int
+
+    def apply(self, weight: torch.Tensor, weight_quantizer, weight_bit_prec: int, training: bool) -> torch.Tensor:
+        from returnn.torch.context import get_run_ctx
+        if training and get_run_ctx().epoch < self.start_epoch:
+            return weight
+        scale = weight_quantizer.scale.to(weight.device).to(torch.float32)
+        zero_point = weight_quantizer.zero_point.to(weight.device).to(torch.int32)
+        n = weight_bit_prec
+        bit_mask = (1 << n) - 1
+        # Re-quantize to signed integer, then extract the n-bit pattern
+        q_int = (weight.to(torch.float32) / scale).round().to(torch.int32) + zero_point
+        q_bits = q_int & bit_mask
+        # Flip each bit independently with probability p
+        for i in range(n):
+            flip_mask = torch.bernoulli(
+                torch.full(weight.shape, self.p, dtype=torch.float32, device=weight.device)
+            ).to(torch.int32)
+            q_bits = q_bits ^ (flip_mask * (1 << i))
+        q_bits = q_bits & bit_mask
+        # Convert n-bit unsigned back to signed (two's complement)
+        sign_bit_val = 1 << (n - 1)
+        q_signed = (q_bits ^ sign_bit_val) - sign_bit_val
+        # Dequantize
+        return (q_signed - zero_point).to(weight.dtype) * scale
+
+
+WeightNoiseConfig = Union[GaussianWeightNoiseConfig, BitFlipWeightNoiseConfig]
+
+
 @dataclass(kw_only=True)
 class VGG4LayerActFrontendV1Config_mod(VGG4LayerActFrontendV1Config):
+    activation: Optional[Union[nn.Module, Callable[[torch.Tensor], torch.Tensor]]]
     activation_str: str = ""
-    activation: Optional[Union[nn.Module, Callable[[torch.Tensor], torch.Tensor]]] = None
 
     @classmethod
     def from_dict(cls, d):
@@ -59,10 +160,10 @@ class ConformerPositionwiseFeedForwardQuantV4Config(ModelConfiguration):
     moving_average: Optional[float]  # Moving average for input quantization
     converter_hardware_settings: Optional[DacAdcHardwareSettings]
     num_cycles: int
-    weight_noise_func: Optional[Union[Callable, str]]
-    weight_noise_values: Optional[Dict[str, float]]
-    weight_noise_start_epoch: Optional[int]
+    weight_noise: Optional[WeightNoiseConfig]
     correction_settings: Optional[CycleCorrectionSettings]
+    weight_dropout: float
+    weight_pruning: Optional[WeightPruningConfig]
     activation: Callable[[torch.Tensor], torch.Tensor] = nn.functional.silu
 
 @dataclass
@@ -90,7 +191,6 @@ class QuantizedConformerMHSARelPosV1Config(ModelConfiguration):
     Av_quant_dtype: torch.dtype
     Av_quant_method: str
     bit_prec_W_i: Union[int, float]
-    bit_prec_dot: Union[int, float]
     bit_prec_W_o: Union[int, float]
     bit_prec_learn_emb: Union[int, float]
     activation_bit_prec: Union[int, float]
@@ -101,9 +201,7 @@ class QuantizedConformerMHSARelPosV1Config(ModelConfiguration):
     pos_enc_converter_hardware_settings: Optional[DacAdcHardwareSettings]
     num_cycles: int
     correction_settings: Optional[CycleCorrectionSettings]
-    weight_noise_func: Optional[Union[Callable, str]]
-    weight_noise_values: Optional[Dict[str, float]]
-    weight_noise_start_epoch: Optional[int]
+    weight_noise: Optional[WeightNoiseConfig]
     learnable_pos_emb: bool
     rel_pos_clip: Optional[int]
     with_linear_pos: bool
@@ -111,6 +209,8 @@ class QuantizedConformerMHSARelPosV1Config(ModelConfiguration):
     separate_pos_emb_per_head: bool
     pos_emb_dropout: float
     dropout_broadcast_axes: Optional[Literal["B", "T", "BT"]]
+    weight_dropout: float
+    weight_pruning: Optional[WeightPruningConfig]
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -149,9 +249,9 @@ class ConformerConvolutionQuantV4Config(ModelConfiguration):
     converter_hardware_settings: Optional[DacAdcHardwareSettings]
     num_cycles: int
     correction_settings: Optional[CycleCorrectionSettings]
-    weight_noise_func: Optional[Union[Callable, str]]
-    weight_noise_values: Optional[Dict[str, float]]
-    weight_noise_start_epoch: Optional[int]
+    weight_noise: Optional[WeightNoiseConfig]
+    weight_dropout: float
+    weight_pruning: Optional[WeightPruningConfig]
 
     def check_valid(self):
         assert self.kernel_size % 2 == 1, "ConformerConvolutionV1 only supports odd kernel sizes"
@@ -165,7 +265,8 @@ class ConformerConvolutionQuantV4Config(ModelConfiguration):
 class ConformerBlockQuantV1Config(ModelConfiguration):
     """
     Attributes:
-        ff_cfg: Configuration for ConformerPositionwiseFeedForwardV1
+        ff_cfg: Configuration for ConformerPositionwiseFeedForwardV1 (first ff, or both if ff2_cfg is None)
+        ff2_cfg: Optional separate config for the second ff module; if None, ff_cfg is reused
         mhsa_cfg: Configuration for ConformerMHSAV1
         conv_cfg: Configuration for ConformerConvolutionV1
     """
@@ -174,6 +275,7 @@ class ConformerBlockQuantV1Config(ModelConfiguration):
     ff_cfg: ConformerPositionwiseFeedForwardQuantV4Config
     mhsa_cfg: QuantizedConformerMHSARelPosV1Config
     conv_cfg: ConformerConvolutionQuantV4Config
+    ff2_cfg: Optional[ConformerPositionwiseFeedForwardQuantV4Config] = None
     modules: List[str] = field(default_factory=lambda: ["ff", "mhsa", "conv", "ff"])
     scales: List[float] = field(default_factory=lambda: [0.5, 1.0, 1.0, 0.5])
 
@@ -191,7 +293,7 @@ class ConformerEncoderQuantV1Config(ModelConfiguration):
 
     # nested configurations
     frontend: ModuleFactoryV1
-    block_cfg: ConformerBlockQuantV1Config
+    block_cfg: Union[ConformerBlockQuantV1Config, List[ConformerBlockQuantV1Config]]
 
 
 @dataclass
@@ -208,7 +310,7 @@ class SpecaugConfig(ModelConfiguration):
 
 
 @dataclass
-class QuantModelTrainConfigV11:
+class QuantModelTrainConfigV16:
     feature_extraction_config: LogMelFeatureExtractionV1Config
     frontend_config: VGG4LayerActFrontendV1Config
     specaug_config: SpecaugConfig
@@ -235,7 +337,7 @@ class QuantModelTrainConfigV11:
     Av_quant_dtype: Union[torch.dtype, str]
     Av_quant_method: str
     moving_average: Optional[float]  # default if enabled should be 0.01, if set enables moving average
-    weight_bit_prec: Union[int, float]
+    weight_bit_prec: Union[int, float, List[Union[int, float, Dict[str, Union[int, float]]]]]
     activation_bit_prec: Union[int, float]
     quantize_output: bool
     quant_in_linear: bool
@@ -243,13 +345,13 @@ class QuantModelTrainConfigV11:
     pos_enc_converter_hardware_settings: Optional[DacAdcHardwareSettings]
     num_cycles: int
     correction_settings: Optional[CycleCorrectionSettings]
-    weight_noise_func: Optional[Union[Callable, str]]
-    weight_noise_values: Optional[Dict[str, float]]
-    weight_noise_start_epoch: Optional[int]
+    weight_noise: Optional[WeightNoiseConfig]
     module_list: List[str]
     module_scales: List[float]
     aux_ctc_loss_layers: Optional[List[int]]
     aux_ctc_loss_scales: Optional[List[float]]
+    weight_dropout: float
+    weight_pruning: Optional[WeightPruningConfig]
 
     @classmethod
     def from_dict(cls, d):
@@ -261,6 +363,24 @@ class QuantModelTrainConfigV11:
         d["pos_enc_converter_hardware_settings"] = DacAdcHardwareSettings(**d["pos_enc_converter_hardware_settings"]) if d["pos_enc_converter_hardware_settings"] is not None else None
         d["correction_settings"] = CycleCorrectionSettings(**d["correction_settings"]) if d["correction_settings"] is not None else None
         d["pos_emb_config"] = ConformerPosEmbConfig(**d["pos_emb_config"])
+        if d.get("weight_pruning") is not None:
+            pruning_d = d["weight_pruning"]
+            if "threshold" in pruning_d:
+                d["weight_pruning"] = ThresholdPruningConfig(
+                    start_epoch=pruning_d["start_epoch"],
+                    threshold=pruning_d["threshold"],
+                    prune_before_quant=pruning_d["prune_before_quant"],
+                )
+            elif "percentile" in pruning_d:
+                d["weight_pruning"] = PercentilePruningConfig(
+                    start_epoch=pruning_d["start_epoch"],
+                    percentile=pruning_d["percentile"],
+                    prune_before_quant=pruning_d["prune_before_quant"],
+                )
+            else:
+                raise NotImplementedError(f"Cannot determine pruning type from keys: {list(pruning_d.keys())}")
+        else:
+            d["weight_pruning"] = None
 
         for name in ["weight_quant_dtype", "activation_quant_dtype", "dot_quant_dtype", "Av_quant_dtype"]:
             if d[name] == "qint8":
@@ -270,15 +390,34 @@ class QuantModelTrainConfigV11:
             else:
                 raise NotImplementedError
             d[name] = weight_dtype
-        if d["weight_noise_func"] == "gauss":
-            d["weight_noise_func"] = torch.normal
-        elif d["weight_noise_func"] is None:
-            d["weight_noise_func"] = None
+        if d.get("weight_noise") is not None:
+            noise_d = d["weight_noise"]
+            if "dev" in noise_d:
+                d["weight_noise"] = GaussianWeightNoiseConfig(dev=noise_d["dev"], start_epoch=noise_d["start_epoch"])
+            elif "p" in noise_d:
+                d["weight_noise"] = BitFlipWeightNoiseConfig(p=noise_d["p"], start_epoch=noise_d["start_epoch"])
+            else:
+                raise NotImplementedError(f"Cannot determine noise type from keys: {list(noise_d.keys())}")
         else:
-            raise NotImplementedError
-        return QuantModelTrainConfigV11(**d)
+            d["weight_noise"] = None
+        return QuantModelTrainConfigV16(**d)
 
     def __post_init__(self):
+        if isinstance(self.weight_bit_prec, list):
+            assert len(self.weight_bit_prec) == self.num_layers, (
+                f"weight_bit_prec list length {len(self.weight_bit_prec)} must match num_layers {self.num_layers}"
+            )
+            _valid_keys = {"ff", "ff1", "ff2", "mhsa", "conv"}
+            for entry in self.weight_bit_prec:
+                if isinstance(entry, dict):
+                    assert set(entry.keys()) <= _valid_keys, (
+                        f"weight_bit_prec dict keys must be a subset of {_valid_keys}, got {set(entry.keys())}"
+                    )
+                    assert "ff" in entry or ("ff1" in entry and "ff2" in entry), (
+                        "weight_bit_prec dict must contain 'ff' or both 'ff1' and 'ff2'"
+                    )
+                    assert "mhsa" in entry, "weight_bit_prec dict must contain 'mhsa'"
+                    assert "conv" in entry, "weight_bit_prec dict must contain 'conv'"
         for param in [self.weight_quant_dtype, self.activation_quant_dtype, self.dot_quant_dtype, self.Av_quant_dtype]:
             if param == "qint8":
                 param = torch.qint8

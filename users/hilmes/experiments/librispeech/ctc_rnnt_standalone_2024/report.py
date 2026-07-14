@@ -236,6 +236,63 @@ def generate_report(results, exp_name, report_template=baseline_report_format):
     tk.register_output("mail/" + exp_name, mail.out_status)
 
 
+def multi_scale_cycle_report_format(report: _Report_Type) -> str:
+    """
+    Report template for the multi-scale RASR sweep. Aggregates dev-other WER per
+    (lm_scale, prior_scale) combination across the memristor cycles and lists
+    mean / std / min / max / n, sorted ascending by mean WER (best first).
+
+    Runs inside GenerateReportStringJob (a running job), so it may resolve sisyphus values.
+    """
+    import re
+    from collections import defaultdict
+
+    report = copy.deepcopy(report)
+    instanciate_delayed(report)
+
+    pattern = re.compile(r"search_lm([\d.]+)_prior([\d.]+)")
+    groups = defaultdict(list)
+    for key, value in report.items():
+        if "other" not in key:  # dev-other only
+            continue
+        if value is None:
+            continue
+        match = pattern.search(key)
+        if match is None:
+            continue
+        lm, prior = match.group(1), match.group(2)
+        try:
+            groups[(lm, prior)].append(float(value))
+        except (TypeError, ValueError):
+            continue
+
+    rows = []
+    for (lm, prior), vals in groups.items():
+        arr = np.array(vals, dtype="float64")
+        rows.append(
+            {
+                "lm": lm,
+                "prior": prior,
+                "mean": float(np.mean(arr)),
+                "std": float(np.std(arr)),
+                "min": float(np.min(arr)),
+                "max": float(np.max(arr)),
+                "n": len(vals),
+            }
+        )
+    rows.sort(key=lambda r: r["mean"])
+
+    lines = ["Multi-scale sweep (dev-other), sorted by mean WER (best first):", ""]
+    for r in rows:
+        lines.append(
+            "lm%s/prior%s:  mean %.2f  std %.2f  min %.2f  max %.2f  n %d"
+            % (r["lm"], r["prior"], r["mean"], r["std"], r["min"], r["max"], r["n"])
+        )
+    if not rows:
+        lines.append("(no dev-other results found)")
+    return "\n".join(lines)
+
+
 # def build_memristor_base_report(report: Dict):
     # from math import ceil
     #
@@ -442,7 +499,7 @@ def build_qat_report_v2(report: Dict) -> str:
     report = copy.deepcopy(report)
 
     TYPE_KEYWORDS = [
-        "greedy", "posadc", "keep_encs", "nolinpos", "learnpos", "quantout",
+        "greedy", "gauss", "bitflip", "finetune", "posadc", "keep_encs", "nolinpos", "learnpos", "quantout",
         "pertensor", "batched", "combined", "fixed", "bal",
         "ideal_correct", "ideal", "adc", "correction", "noise", "frontend",
     ]

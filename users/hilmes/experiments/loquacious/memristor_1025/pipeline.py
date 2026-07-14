@@ -272,6 +272,10 @@ def prepare_memristor(
         returnn_root=returnn_root,
         output_files=["converted_model.pt"],
     )
+    if any(str(x) in prefix_name for x in [1536]):
+        search_job.rqmt["mem"] += 24
+    if any(str(x) in prefix_name for x in [2048]):
+        search_job.rqmt["mem"] += 12
     search_job.add_alias(prefix_name + "/prepare_mem_job")
     search_job.set_keep_value(10)
     # search_job.set_vis_name(prefix_name + "/prior_job")

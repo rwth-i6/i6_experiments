@@ -1,6 +1,10 @@
 """
 Fixes mhsa norm
 v10 fixes memristor init
+v11 adds option for separate dac for pos encs
+v12 adds option for layerwise
+v13 adds weight dropout
+v14 adds weight sparsity / pruning
 """
 
 import torch
@@ -8,12 +12,17 @@ from torch import nn
 from torch.nn import init
 import torch.ao.quantization as torch_quant
 import torch.nn.functional as F
-from typing import Optional, Union, Dict, Callable
-from .memristor_v8_cfg import QuantizedConformerMHSARelPosV1Config
+from typing import Optional, Union, Tuple
+from .memristor_v16_dynmic_prec_cfg import (
+    QuantizedConformerMHSARelPosV1Config,
+    WeightPruningConfig,
+    WeightNoiseConfig,
+    WeightPrecSpec,
+    SubMatrixPrecision,
+)
 import math
 from torch.ao.quantization.utils import check_min_max_valid
-from returnn.torch.context import get_run_ctx
-import numpy
+
 from i6_models.util import compat
 from i6_models.parts.dropout import BroadcastDropout
 
@@ -51,6 +60,7 @@ class WeightQuantizer(nn.Module):
     ):
         super().__init__()
 
+        self.bit_precision = bit_precision
         self.quant_min, self.quant_max = get_quantization_range_from_bit_precision(bit_precision, dtype)
         self.dtype = dtype
         self.reduce_range = reduce_range
@@ -95,6 +105,47 @@ class WeightQuantizer(nn.Module):
         scale, zero_point = self.observer.calculate_qparams()
         self.scale = scale.to(dtype=torch.float32)
         self.zero_point = zero_point.to(dtype=torch.int32)
+
+
+class TiledWeightQuantizer(nn.Module):
+    """Per-tile weight fake-quantization for mixed-precision matrices.
+
+    Each 128x128 tile of the weight matrix W [out_features, in_features] gets its own
+    WeightQuantizer (own observer, scale, zero point) with the bit precision given by the
+    SubMatrixPrecision grid. The forward pass fake-quantizes every tile separately and
+    reassembles the full weight with torch.cat, so gradients flow per tile via the usual STE.
+    """
+
+    is_tiled = True
+
+    def __init__(self, sub_matrix_precision: SubMatrixPrecision, dtype: torch.dtype, method: str):
+        super().__init__()
+        self.sub_matrix_precision = sub_matrix_precision
+        self.dtype = dtype
+        self.method = method
+        self.quantizers = nn.ModuleList(
+            nn.ModuleList(WeightQuantizer(bit_precision=prec, dtype=dtype, method=method) for prec in row)
+            for row in sub_matrix_precision.grid
+        )
+
+    def get_tile_quantizer(self, r: int, c: int) -> WeightQuantizer:
+        return self.quantizers[r][c]
+
+    def forward(self, tensor: torch.Tensor):
+        smp = self.sub_matrix_precision
+        assert tensor.shape == (smp.out_features, smp.in_features), (
+            f"weight shape {tuple(tensor.shape)} does not match the precision grid for a "
+            f"{smp.out_features}x{smp.in_features} matrix ({smp.name})"
+        )
+        tile_rows = [[None] * smp.num_col_tiles for _ in range(smp.num_row_tiles)]
+        for r, c, row_sl, col_sl, _ in smp.iter_tiles():
+            tile_rows[r][c] = self.quantizers[r][c](tensor[row_sl, col_sl])
+        return torch.cat([torch.cat(row, dim=1) for row in tile_rows], dim=0)
+
+    def set_scale_and_zp(self):
+        for row in self.quantizers:
+            for quantizer in row:
+                quantizer.set_scale_and_zp()
 
 
 class ActivationQuantizer(nn.Module):
@@ -201,18 +252,19 @@ class ActivationQuantizer(nn.Module):
         self.zero_point = zero_point.to(dtype=torch.int32)
 
 
+
 class LinearQuant(nn.Module):
     def __init__(
         self,
         in_features: int,
         out_features: int,
-        weight_bit_prec: int,
+        weight_bit_prec: WeightPrecSpec,
         weight_quant_dtype: torch.dtype,
         weight_quant_method: str,
         bias: bool,
-        weight_noise_func: Optional[Union[Callable, str]],
-        weight_noise_values: Optional[Dict[str, float]],
-        weight_noise_start_epoch: Optional[int],
+        noise_config: Optional[WeightNoiseConfig] = None,
+        weight_dropout: float = 0.0,
+        pruning_config: Optional[WeightPruningConfig] = None,
     ):
         super().__init__()
         self.in_features = in_features
@@ -231,24 +283,63 @@ class LinearQuant(nn.Module):
         self.weight_bit_prec = weight_bit_prec
         self.weight_quant_dtype = weight_quant_dtype
         self.weight_quant_method = weight_quant_method
-        self.weight_quantizer = WeightQuantizer(
-            bit_precision=self.weight_bit_prec,
-            dtype=self.weight_quant_dtype,
-            method=self.weight_quant_method,
+        sub_matrix_precision = SubMatrixPrecision.from_spec(
+            weight_bit_prec, out_features, in_features, name=f"LinearQuant({out_features}x{in_features})"
         )
-        self.weight_noise_func = weight_noise_func
-        self.weight_noise_start_epoch = weight_noise_start_epoch
-        self.weight_noise_values = weight_noise_values
+        if sub_matrix_precision is None:
+            self.weight_quantizer = WeightQuantizer(
+                bit_precision=self.weight_bit_prec,
+                dtype=self.weight_quant_dtype,
+                method=self.weight_quant_method,
+            )
+        else:
+            self.weight_quantizer = TiledWeightQuantizer(
+                sub_matrix_precision,
+                dtype=self.weight_quant_dtype,
+                method=self.weight_quant_method,
+            )
+        self.noise_config = noise_config
+        self.weight_dropout = weight_dropout
+        self.pruning_config = pruning_config
+
+    def quantize_and_prune(self, weight: torch.Tensor, training: bool) -> torch.Tensor:
+        """Fake-quantize and prune the weight, ordered by ``pruning_config.prune_before_quant``.
+
+        With ``prune_before_quant=True`` the prune mask is computed on the raw (continuous) weight
+        and the result is then quantized; otherwise the weight is quantized first and pruning is
+        applied to the fake-quantized weight, so the zeros land on the quantization grid. If no
+        pruning is configured this is just the weight quantizer.
+        """
+        if self.pruning_config is not None and self.pruning_config.prune_before_quant:
+            weight = self.pruning_config.apply(weight, training)
+            weight = self.weight_quantizer(weight)
+        else:
+            weight = self.weight_quantizer(weight)
+            if self.pruning_config is not None:
+                weight = self.pruning_config.apply(weight, training)
+        return weight
+
+    def prune_for_memristor_init(self, weight: torch.Tensor, training: bool) -> torch.Tensor:
+        """Prune the weight that is handed to ``init_from_linear_quant`` (which quantizes it itself).
+
+        With ``prune_before_quant=True`` the raw weight is pruned and the memristor init performs
+        the quantization (identical to the un-pruned path). With ``prune_before_quant=False`` the
+        weight is fake-quantized first and then pruned, so the zeros lie on the grid; the
+        quantization that ``init_from_linear_quant`` re-applies with the same (frozen) scale is
+        idempotent and preserves them. If no pruning is configured the weight is returned unchanged.
+        """
+        if self.pruning_config is None:
+            return weight
+        if self.pruning_config.prune_before_quant:
+            return self.pruning_config.apply(weight, training)
+        return self.pruning_config.apply(self.weight_quantizer(weight), training)
 
     def forward(self, tensor: torch.Tensor):
-        weight = self.weight_quantizer(self.weight)
-        if self.weight_noise_func is not None and (self.weight_noise_start_epoch is None or not self.training or self.weight_noise_start_epoch >= get_run_ctx().epoch):
-            for i in range(self.weight_bit_prec-1):
-                mean = 2 * (-self.weight_quantizer.zero_point).expand(self.weight.size()).to(weight.device).to(torch.float32)
-                std = (torch.tensor(self.weight_noise_values["dev"]) * (2 ** i)).expand(self.weight.size()).to(weight.device).to(torch.float32)
-                std = numpy.sqrt(2) * std  # this is sqrt(std ^ 2 + std ^ 2)
-                noise = self.weight_noise_func(mean=mean, std=std).to(weight.device) * self.weight_quantizer.scale
-                weight = weight + noise
+        weight = self.quantize_and_prune(self.weight, self.training)
+        if self.weight_dropout > 0.0 and self.training:
+            weight = F.dropout(weight, p=self.weight_dropout, training=True)
+        if self.noise_config is not None:
+            weight = self.noise_config.apply(weight, self.weight_quantizer, self.weight_bit_prec, self.training)
         lin = F.linear(tensor, weight, self.bias)
         return lin
 
@@ -267,10 +358,9 @@ class Conv1dQuant(nn.Module):
         padding: Union[str, int],
         dilation: int,
         groups: int,
-        weight_noise_func: Optional[Union[Callable, str]],
-        weight_noise_values: Optional[Dict[str, float]],
-        weight_noise_start_epoch: Optional[int],
+        noise_config: Optional[WeightNoiseConfig] = None,
         padding_mode: str = "zeros",
+        weight_dropout: float = 0.0,
     ):
         super().__init__()
         self.in_channels = in_channels
@@ -292,6 +382,9 @@ class Conv1dQuant(nn.Module):
                 bound = 1 / math.sqrt(fan_in)
                 init.uniform_(self.bias, -bound, bound)
 
+        assert isinstance(weight_bit_prec, (int, float)), (
+            f"per-tile precision specs are not supported for conv weights, got {weight_bit_prec!r}"
+        )
         self.weight_bit_prec = weight_bit_prec
         self.weight_quant_dtype = weight_quant_dtype
         self.weight_quant_method = weight_quant_method
@@ -300,23 +393,288 @@ class Conv1dQuant(nn.Module):
             dtype=self.weight_quant_dtype,
             method=self.weight_quant_method,
         )
-        self.weight_noise_func = weight_noise_func
-        self.weight_noise_start_epoch = weight_noise_start_epoch
-        self.weight_noise_values = weight_noise_values
+        self.noise_config = noise_config
+        self.weight_dropout = weight_dropout
 
     def forward(self, tensor: torch.Tensor):
         weight = self.weight_quantizer(self.weight)
-        if self.weight_noise_func is not None and (self.weight_noise_start_epoch is None or not self.training or self.weight_noise_start_epoch >= get_run_ctx().epoch):
-            for i in range(self.weight_bit_prec-1):
-                mean = 2 * (-self.weight_quantizer.zero_point).expand(self.weight.size()).to(weight.device).to(torch.float32)
-                std = (torch.tensor(self.weight_noise_values["dev"]) * (2 ** i)).expand(self.weight.size()).to(weight.device).to(torch.float32)
-                std = numpy.sqrt(2) * std  # this is sqrt(std ^ 2 + std ^ 2)
-                noise = self.weight_noise_func(mean=mean, std=std).to(weight.device) * self.weight_quantizer.scale
-                weight = weight + noise
+        if self.weight_dropout > 0.0 and self.training:
+            weight = F.dropout(weight, p=self.weight_dropout, training=True)
+        if self.noise_config is not None:
+            weight = self.noise_config.apply(weight, self.weight_quantizer, self.weight_bit_prec, self.training)
         result = F.conv1d(
             tensor, weight, self.bias, self.stride, self.padding, self.dilation, self.groups
         )
         return result
+
+
+class Conv2dQuant(nn.Module):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: Union[int, Tuple[int, int]],
+        weight_bit_prec: int,
+        weight_quant_dtype: torch.dtype,
+        weight_quant_method: str,
+        bias: bool,
+        stride: Union[int, Tuple[int, int]],
+        padding: Union[str, int, Tuple[int, int]],
+        dilation: int,
+        groups: int,
+        padding_mode: str = "zeros",
+    ):
+        super().__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        if isinstance(kernel_size, int):
+            kernel_size = (kernel_size, kernel_size)
+        self.kernel_size = kernel_size
+        if isinstance(stride, int):
+            stride = (stride, stride)
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        self.groups = groups
+        self.padding_mode = padding_mode
+
+        self.weight = nn.Parameter(
+            torch.empty(out_channels, in_channels // groups, *kernel_size),
+            requires_grad=True,
+        )
+        if bias:
+            self.bias = nn.Parameter(torch.empty(out_channels))
+        else:
+            self.bias = None
+        init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        if self.bias is not None:
+            fan_in, _ = init._calculate_fan_in_and_fan_out(self.weight)
+            if fan_in != 0:
+                bound = 1 / math.sqrt(fan_in)
+                init.uniform_(self.bias, -bound, bound)
+
+        assert isinstance(weight_bit_prec, (int, float)), (
+            f"per-tile precision specs are not supported for conv weights, got {weight_bit_prec!r}"
+        )
+        self.weight_bit_prec = weight_bit_prec
+        self.weight_quant_dtype = weight_quant_dtype
+        self.weight_quant_method = weight_quant_method
+        self.weight_quantizer = WeightQuantizer(
+            bit_precision=self.weight_bit_prec,
+            dtype=self.weight_quant_dtype,
+            method=self.weight_quant_method,
+        )
+
+    def forward(self, tensor: torch.Tensor):
+        result = F.conv2d(
+            tensor,
+            self.weight_quantizer(self.weight),
+            self.bias,
+            self.stride,
+            self.padding,
+            self.dilation,
+            self.groups,
+        )
+        return result
+
+class _LinearQuantTileShim:
+    """Duck-typed stand-in for a LinearQuant covering a single weight tile.
+
+    Exposes exactly the attributes TiledMemristorLinear.init_from_linear_quant reads
+    (.weight, .weight_quantizer incl. .scale, .bias).
+    """
+
+    def __init__(self, weight: torch.Tensor, weight_quantizer: WeightQuantizer):
+        self.weight = weight
+        self.weight_quantizer = weight_quantizer
+        self.bias = None
+
+
+class MixedPrecisionTiledMemristorLinear(nn.Module):
+    """Memristor linear with per-tile weight precision, built from one TiledMemristorLinear per
+    128x128 tile of the weight matrix.
+
+    Numerically consistent with the uniform TiledMemristorLinear: that module also converts
+    every tile separately through the ADC before summing, so applying each tile's own
+    output_factor (which contains its own weight scale) before the sum is exact.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        sub_matrix_precision: SubMatrixPrecision,
+        converter_hardware_settings,
+        bias: bool = True,
+    ):
+        super().__init__()
+        from synaptogen_ml.memristor_modules.linear import TiledMemristorLinear
+
+        smp = sub_matrix_precision
+        assert smp.out_features == out_features and smp.in_features == in_features, (
+            f"precision grid is for a {smp.out_features}x{smp.in_features} matrix, "
+            f"module has {out_features}x{in_features} ({smp.name})"
+        )
+        self.in_features = in_features
+        self.out_features = out_features
+        self.sub_matrix_precision = smp
+        tile_rows = [[None] * smp.num_col_tiles for _ in range(smp.num_row_tiles)]
+        for r, c, row_sl, col_sl, prec in smp.iter_tiles():
+            assert float(prec).is_integer() or prec == 1.5, (
+                f"memristor conversion supports integer tile precisions and 1.5 only, "
+                f"got {prec} for tile ({r}, {c}) ({smp.name})"
+            )
+            tile_rows[r][c] = TiledMemristorLinear(
+                in_features=col_sl.stop - col_sl.start,
+                out_features=row_sl.stop - row_sl.start,
+                weight_precision=int(prec) if not prec == 1.5 else 2,
+                converter_hardware_settings=converter_hardware_settings,
+                memristor_inputs=smp.tile_size,
+                memristor_outputs=smp.tile_size,
+                bias=False,  # the bias lives on the wrapper, tiles must stay bias-free
+            )
+        self.tiles = nn.ModuleList(nn.ModuleList(row) for row in tile_rows)
+        if bias:
+            self.bias = nn.Parameter(torch.empty((out_features,)), requires_grad=True)
+        else:
+            self.bias = None
+
+    @property
+    def initialized(self) -> bool:
+        return all(tile.initialized for row in self.tiles for tile in row)
+
+    @initialized.setter
+    def initialized(self, value: bool):
+        for row in self.tiles:
+            for tile in row:
+                tile.initialized = value
+
+    def init_from_linear_quant(
+        self,
+        activation_quant: ActivationQuantizer,
+        linear_quant: LinearQuant,
+        num_cycles_init: int,
+        correction_settings,
+    ):
+        assert isinstance(linear_quant.weight_quantizer, TiledWeightQuantizer), (
+            "MixedPrecisionTiledMemristorLinear must be initialized from a LinearQuant with a "
+            "TiledWeightQuantizer (per-tile scales)"
+        )
+        assert linear_quant.weight_quantizer.sub_matrix_precision.grid == self.sub_matrix_precision.grid, (
+            "precision grid of the LinearQuant does not match this module's grid"
+        )
+        for r, c, row_sl, col_sl, _prec in self.sub_matrix_precision.iter_tiles():
+            tile_quantizer = linear_quant.weight_quantizer.get_tile_quantizer(r, c)
+            shim = _LinearQuantTileShim(linear_quant.weight.data[row_sl, col_sl], tile_quantizer)
+            self.tiles[r][c].init_from_linear_quant(
+                activation_quant=activation_quant,
+                linear_quant=shim,
+                num_cycles_init=num_cycles_init,
+                correction_settings=correction_settings,
+            )
+        self.bias = linear_quant.bias
+
+    def forward(self, inputs: torch.Tensor):
+        smp = self.sub_matrix_precision
+        row_outputs = []
+        for r in range(smp.num_row_tiles):
+            acc = None
+            for c in range(smp.num_col_tiles):
+                col_sl = slice(c * smp.tile_size, min((c + 1) * smp.tile_size, smp.in_features))
+                out = self.tiles[r][c](inputs[..., col_sl])
+                acc = out if acc is None else acc + out
+            row_outputs.append(acc)
+        out = torch.cat(row_outputs, dim=-1)
+        if self.bias is not None:
+            out = out + self.bias
+        return out
+
+
+def convert_linear_to_memristor(
+    linear_quant: LinearQuant,
+    activation_quant: ActivationQuantizer,
+    converter_hardware_settings,
+    num_cycles: int,
+    correction_settings,
+    out_features: Optional[int] = None,
+) -> nn.Module:
+    """Convert a trained LinearQuant into a memristor linear, shared by all prep_quant sites.
+
+    Uniform precisions produce a plain TiledMemristorLinear (identical to the previous per-site
+    code); per-tile specs produce a MixedPrecisionTiledMemristorLinear.
+
+    :param out_features: optional override of the memristor out_features (only the output linear
+        uses this to reserve twice its rows); unsupported for mixed precision layers.
+    """
+    from synaptogen_ml.memristor_modules.linear import TiledMemristorLinear
+
+    linear_quant.weight_quantizer.set_scale_and_zp()
+    activation_quant.set_scale_and_zp()
+    if linear_quant.pruning_config is not None:
+        with torch.no_grad():
+            linear_quant.weight.data = linear_quant.prune_for_memristor_init(
+                linear_quant.weight.data, training=False
+            )
+    if isinstance(linear_quant.weight_quantizer, TiledWeightQuantizer):
+        assert out_features is None, "out_features override is not supported for mixed precision layers"
+        mem_lin = MixedPrecisionTiledMemristorLinear(
+            in_features=linear_quant.in_features,
+            out_features=linear_quant.out_features,
+            sub_matrix_precision=linear_quant.weight_quantizer.sub_matrix_precision,
+            converter_hardware_settings=converter_hardware_settings,
+            bias=linear_quant.bias is not None,
+        )
+    else:
+        mem_lin = TiledMemristorLinear(
+            in_features=linear_quant.in_features,
+            out_features=out_features if out_features is not None else linear_quant.out_features,
+            weight_precision=linear_quant.weight_bit_prec if not linear_quant.weight_bit_prec == 1.5 else 2,
+            converter_hardware_settings=converter_hardware_settings,
+            memristor_inputs=128,
+            memristor_outputs=128,
+        )
+    mem_lin.init_from_linear_quant(
+        activation_quant=activation_quant,
+        linear_quant=linear_quant,
+        num_cycles_init=num_cycles,
+        correction_settings=correction_settings,
+    )
+    return mem_lin
+
+
+def make_inference_memristor_linear(
+    in_features: int,
+    out_features: int,
+    weight_bit_prec: WeightPrecSpec,
+    converter_hardware_settings,
+    bias: bool = True,
+    name: str = "",
+) -> nn.Module:
+    """Construct an (uninitialized) inference memristor linear for the mem_inited variants.
+
+    The weights are loaded afterwards from a checkpoint produced by convert_linear_to_memristor,
+    so the module tree built here must match the converted one exactly.
+    """
+    from synaptogen_ml.memristor_modules.linear import TiledMemristorLinear
+
+    sub_matrix_precision = SubMatrixPrecision.from_spec(weight_bit_prec, out_features, in_features, name=name)
+    if sub_matrix_precision is None:
+        return TiledMemristorLinear(
+            in_features=in_features,
+            out_features=out_features,
+            weight_precision=weight_bit_prec if not weight_bit_prec == 1.5 else 2,
+            converter_hardware_settings=converter_hardware_settings,
+            memristor_inputs=128,
+            memristor_outputs=128,
+            bias=bias,
+        )
+    return MixedPrecisionTiledMemristorLinear(
+        in_features=in_features,
+        out_features=out_features,
+        sub_matrix_precision=sub_matrix_precision,
+        converter_hardware_settings=converter_hardware_settings,
+        bias=bias,
+    )
 
 
 class QuantizedMultiheadAttention(nn.Module):
@@ -355,10 +713,7 @@ class QuantizedMultiheadAttention(nn.Module):
         self.pos_emb_dropout = nn.Dropout(cfg.pos_emb_dropout)
         self.weight_quant_dtype = cfg.weight_quant_dtype
         self.weight_quant_method = cfg.weight_quant_method
-        self.weight_noise_start_epoch = cfg.weight_noise_start_epoch
-        self.weight_noise_values = cfg.weight_noise_values
-        self.weight_noise_func = cfg.weight_noise_func
-        self.bit_prec_dot = cfg.bit_prec_dot
+        self.noise_config = cfg.weight_noise
         self.activation_quant_dtype = cfg.activation_quant_dtype
         self.activation_quant_method = cfg.activation_quant_method
         self.dot_quant_dtype = cfg.dot_quant_dtype
@@ -366,8 +721,7 @@ class QuantizedMultiheadAttention(nn.Module):
         self.Av_quant_dtype = cfg.Av_quant_dtype
         self.Av_quant_method = cfg.Av_quant_method
         self.converter_hardware_settings = cfg.converter_hardware_settings
-        self.track_stats = False
-        self.stats = []
+        self.pos_enc_converter_hardware_settings = cfg.pos_enc_converter_hardware_settings
 
 
         assert not self.learnable_pos_emb or self.rel_pos_clip
@@ -384,9 +738,9 @@ class QuantizedMultiheadAttention(nn.Module):
             weight_quant_dtype=self.weight_quant_dtype,
             weight_quant_method=self.weight_quant_method,
             bias=cfg.with_bias,
-            weight_noise_func=self.weight_noise_func,
-            weight_noise_start_epoch=self.weight_noise_start_epoch,
-            weight_noise_values=self.weight_noise_values,
+            noise_config=self.noise_config,
+            weight_dropout=cfg.weight_dropout,
+            pruning_config=cfg.weight_pruning,
         )
         self.in_proj_in_quant = ActivationQuantizer(
             bit_precision=cfg.activation_bit_prec,
@@ -404,14 +758,14 @@ class QuantizedMultiheadAttention(nn.Module):
             moving_avrg=cfg.moving_average,
         )
         self.q_quantizer = ActivationQuantizer(
-            self.bit_prec_dot,
+            cfg.activation_bit_prec,
             self.dot_quant_dtype,
             self.dot_quant_method,
             channel_axis=None if self.dot_quant_method == "per_tensor" else 3,
             moving_avrg=cfg.moving_average,
         )
         self.k_quantizer = ActivationQuantizer(
-            self.bit_prec_dot,
+            cfg.activation_bit_prec,
             self.dot_quant_dtype,
             self.dot_quant_method,
             channel_axis=None if self.dot_quant_method == "per_tensor" else 2,
@@ -425,9 +779,9 @@ class QuantizedMultiheadAttention(nn.Module):
             weight_quant_dtype=self.weight_quant_dtype,
             weight_quant_method=self.weight_quant_method,
             bias=cfg.with_bias,
-            weight_noise_func=self.weight_noise_func,
-            weight_noise_start_epoch=self.weight_noise_start_epoch,
-            weight_noise_values=self.weight_noise_values,
+            noise_config=self.noise_config,
+            weight_dropout=cfg.weight_dropout,
+            pruning_config=cfg.weight_pruning,
         )
         self.out_proj_in_quant = ActivationQuantizer(
             bit_precision=cfg.activation_bit_prec,
@@ -455,7 +809,6 @@ class QuantizedMultiheadAttention(nn.Module):
         if self.learnable_pos_emb:
             self.rel_pos_embeddings = nn.parameter.Parameter(torch.empty(self.rel_pos_clip * 2 + 1, self.pos_emb_dim))
         if cfg.with_linear_pos:
-            # TODO: this might be problematic to learn, test this
 
             self.linear_pos = LinearQuant(
                 in_features=self.pos_emb_dim,
@@ -464,9 +817,9 @@ class QuantizedMultiheadAttention(nn.Module):
                 weight_quant_dtype=self.weight_quant_dtype,
                 weight_quant_method=self.weight_quant_method,
                 bias=False,
-                weight_noise_func=self.weight_noise_func,
-                weight_noise_start_epoch=self.weight_noise_start_epoch,
-                weight_noise_values=self.weight_noise_values,
+                noise_config=self.noise_config,
+                weight_dropout=cfg.weight_dropout,
+                pruning_config=cfg.weight_pruning,
             )
             self.learn_emb_in_quant = ActivationQuantizer(
                 bit_precision=cfg.activation_bit_prec,
@@ -527,22 +880,13 @@ class QuantizedMultiheadAttention(nn.Module):
         output_tensor = self.in_proj_in_quant(output_tensor)
         query_seq, key_seq, value_seq = self.qkv_proj(output_tensor).chunk(3, dim=-1)  # [B, T, #heads * F']
 
-        q = query_seq.view(batch_dim_size, -1, self.num_heads, self.embed_dim_per_head)  # [B, T, #heads, F']
+        q = query_seq.view(batch_dim_size, -1, self.num_heads, self.embed_dim_per_head)  # [B, T, #heads, F']§
         k = key_seq.view(batch_dim_size, -1, self.num_heads, self.embed_dim_per_head)  # [B, T', #heads, F']
         q = self.q_quantizer(q)
         k = self.k_quantizer(k)
 
 
         if self.learnable_pos_emb:
-            # pos_seq_q = torch.arange(time_dim_size, device=input_tensor.device)
-            # pos_seq_k = torch.arange(time_dim_size, device=input_tensor.device)
-            #
-            # distance_mat = pos_seq_k[None, :] - pos_seq_q[:, None]
-            # distance_mat_clipped = torch.clamp(distance_mat, -self.rel_pos_clip, self.rel_pos_clip)
-            #
-            # final_mat = distance_mat_clipped + self.rel_pos_clip
-            #
-            # rel_pos_embeddings = self.rel_pos_embeddings[final_mat]  # [T, T', pos_emb_dim]
             kv_pos_vec = torch.arange(time_dim_size, device=input_tensor.device)  # [kv_len]
 
             query_spatial_dim_m1 = time_dim_size - 1
@@ -579,9 +923,6 @@ class QuantizedMultiheadAttention(nn.Module):
 
         if self.cfg.with_linear_pos:
             rel_pos_embeddings = self.learn_emb_out_quant(rel_pos_embeddings)
-
-        if self.track_stats:
-            self.stats.append(torch.squeeze(rel_pos_embeddings, dim=0).cpu())
 
         if self.separate_pos_emb_per_head:
             rel_pos_embeddings = rel_pos_embeddings.squeeze(2).reshape(
@@ -655,67 +996,34 @@ class QuantizedMultiheadAttention(nn.Module):
         return pos_emb
 
     def prep_quant(self):
-        try:
-            from torch_memristor.memristor_modules import TiledMemristorLinear
-        except ModuleNotFoundError:
-            from synaptogen_ml.memristor_modules.linear import TiledMemristorLinear
-
-        self.out_proj.weight_quantizer.set_scale_and_zp()
-        self.out_proj_in_quant.set_scale_and_zp()
-        mem_lin = TiledMemristorLinear(
-            in_features=self.out_proj.in_features,
-            out_features=self.out_proj.out_features,
-            weight_precision=self.out_proj.weight_bit_prec if not self.out_proj.weight_bit_prec == 1.5 else 2,
-            converter_hardware_settings=self.converter_hardware_settings,
-            memristor_inputs=128,
-            memristor_outputs=128,
-        )
-        mem_lin.init_from_linear_quant(
-            activation_quant=self.out_proj_in_quant,
+        self.out_proj = convert_linear_to_memristor(
             linear_quant=self.out_proj,
+            activation_quant=self.out_proj_in_quant,
+            converter_hardware_settings=self.converter_hardware_settings,
+            num_cycles=self.cfg.num_cycles,
             correction_settings=self.cfg.correction_settings,
-            num_cycles_init=self.cfg.num_cycles,
         )
-        self.out_proj = mem_lin
-
         self.out_proj_in_quant = nn.Identity()
 
-        self.qkv_proj.weight_quantizer.set_scale_and_zp()
-        self.in_proj_in_quant.set_scale_and_zp()
-        mem_lin = TiledMemristorLinear(
-            in_features=self.qkv_proj.in_features,
-            out_features=self.qkv_proj.out_features,
-            weight_precision=self.qkv_proj.weight_bit_prec if not self.qkv_proj.weight_bit_prec == 1.5 else 2,
+        self.qkv_proj = convert_linear_to_memristor(
+            linear_quant=self.qkv_proj,
+            activation_quant=self.in_proj_in_quant,
             converter_hardware_settings=self.converter_hardware_settings,
-            memristor_inputs=128,
-            memristor_outputs=128,
-        )
-        mem_lin.init_from_linear_quant(
-            activation_quant=self.in_proj_in_quant, linear_quant=self.qkv_proj,
+            num_cycles=self.cfg.num_cycles,
             correction_settings=self.cfg.correction_settings,
-            num_cycles_init=self.cfg.num_cycles,
         )
-        self.qkv_proj = mem_lin
         self.in_proj_in_quant = nn.Identity()
 
         if self.cfg.with_linear_pos:
-            self.learn_emb_in_quant.set_scale_and_zp()
-            self.linear_pos.weight_quantizer.set_scale_and_zp()
-            mem_lin = TiledMemristorLinear(
-                in_features=self.linear_pos.in_features,
-                out_features=self.linear_pos.out_features,
-                weight_precision=self.linear_pos.weight_bit_prec if not self.linear_pos.weight_bit_prec == 1.5 else 2,
-                converter_hardware_settings=self.converter_hardware_settings,
-                memristor_inputs=128,
-                memristor_outputs=128,
-            )
-            mem_lin.init_from_linear_quant(
-                activation_quant=self.learn_emb_in_quant,
+            self.linear_pos = convert_linear_to_memristor(
                 linear_quant=self.linear_pos,
+                activation_quant=self.learn_emb_in_quant,
+                converter_hardware_settings=self.pos_enc_converter_hardware_settings
+                if self.pos_enc_converter_hardware_settings is not None
+                else self.converter_hardware_settings,
+                num_cycles=self.cfg.num_cycles,
                 correction_settings=self.cfg.correction_settings,
-                num_cycles_init=self.cfg.num_cycles,
             )
-            self.linear_pos = mem_lin
             self.learn_emb_in_quant = nn.Identity()
 
         print("Finished MHSA")

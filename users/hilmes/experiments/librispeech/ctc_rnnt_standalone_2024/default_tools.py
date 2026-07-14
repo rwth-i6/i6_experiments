@@ -63,6 +63,13 @@ TORCH_MEMRISTOR_PATH = CloneGitRepositoryJob(
 # TORCH_MEMRISTOR_PATH = TORCH_MEMRISTOR_PATH + "/.."
 TORCH_MEMRISTOR_PATH.hash_overwrite = "LIBRISPEECH_STANDALONE_DEFAULT_TORCH_MEMRISTOR"
 
+TORCH_MEMRISTOR_PATH_v2 = CloneGitRepositoryJob(
+    url="https://github.com/rwth-i6/SynaptogenML",
+    commit="bebab63f4232d50bbd3b7097212266be3d25e742",
+    checkout_folder_name="SynaptogenML",
+).out_repository.copy()
+# TORCH_MEMRISTOR_PATH = TORCH_MEMRISTOR_PATH + "/.."
+
 rasr_path = "/work/asr4/hilmes/dev/rasr_librasr_19_09_25/"
 rasr_root = tk.Path(rasr_path, hash_overwrite="LIBRISPEECH_STANDALONE_DEFAULT_RASR_ROOT").copy()
 rasr_binary_path = tk.Path(

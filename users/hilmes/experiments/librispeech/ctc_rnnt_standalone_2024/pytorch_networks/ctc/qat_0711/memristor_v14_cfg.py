@@ -1,5 +1,5 @@
 """
-Config for the base CTC models v4, including specaug start time
+v14 adds weight sparsity / pruning
 """
 
 from dataclasses import dataclass, field
@@ -18,10 +18,40 @@ except ModuleNotFoundError:
     from torch_memristor.memristor_modules import DacAdcHardwareSettings, CycleCorrectionSettings
 
 
+@dataclass
+class ThresholdPruningConfig:
+    """Prune weights whose absolute value is below a fixed threshold."""
+    start_epoch: int
+    threshold: float
+
+    def apply(self, weight: torch.Tensor, training: bool) -> torch.Tensor:
+        from returnn.torch.context import get_run_ctx
+        if training and get_run_ctx().epoch < self.start_epoch:
+            return weight
+        return weight * (weight.abs() >= self.threshold).to(weight.dtype)
+
+
+@dataclass
+class PercentilePruningConfig:
+    """Prune the bottom `percentile` fraction of weights by absolute value (value in [0, 1])."""
+    start_epoch: int
+    percentile: float
+
+    def apply(self, weight: torch.Tensor, training: bool) -> torch.Tensor:
+        from returnn.torch.context import get_run_ctx
+        if training and get_run_ctx().epoch < self.start_epoch:
+            return weight
+        cutoff = torch.quantile(weight.abs(), self.percentile)
+        return weight * (weight.abs() >= cutoff).to(weight.dtype)
+
+
+WeightPruningConfig = Union[ThresholdPruningConfig, PercentilePruningConfig]
+
+
 @dataclass(kw_only=True)
 class VGG4LayerActFrontendV1Config_mod(VGG4LayerActFrontendV1Config):
+    activation: Optional[Union[nn.Module, Callable[[torch.Tensor], torch.Tensor]]]
     activation_str: str = ""
-    activation: Optional[Union[nn.Module, Callable[[torch.Tensor], torch.Tensor]]] = None
 
     @classmethod
     def from_dict(cls, d):
@@ -63,6 +93,8 @@ class ConformerPositionwiseFeedForwardQuantV4Config(ModelConfiguration):
     weight_noise_values: Optional[Dict[str, float]]
     weight_noise_start_epoch: Optional[int]
     correction_settings: Optional[CycleCorrectionSettings]
+    weight_dropout: float
+    weight_pruning: Optional[WeightPruningConfig]
     activation: Callable[[torch.Tensor], torch.Tensor] = nn.functional.silu
 
 @dataclass
@@ -90,7 +122,6 @@ class QuantizedConformerMHSARelPosV1Config(ModelConfiguration):
     Av_quant_dtype: torch.dtype
     Av_quant_method: str
     bit_prec_W_i: Union[int, float]
-    bit_prec_dot: Union[int, float]
     bit_prec_W_o: Union[int, float]
     bit_prec_learn_emb: Union[int, float]
     activation_bit_prec: Union[int, float]
@@ -111,6 +142,8 @@ class QuantizedConformerMHSARelPosV1Config(ModelConfiguration):
     separate_pos_emb_per_head: bool
     pos_emb_dropout: float
     dropout_broadcast_axes: Optional[Literal["B", "T", "BT"]]
+    weight_dropout: float
+    weight_pruning: Optional[WeightPruningConfig]
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -152,6 +185,8 @@ class ConformerConvolutionQuantV4Config(ModelConfiguration):
     weight_noise_func: Optional[Union[Callable, str]]
     weight_noise_values: Optional[Dict[str, float]]
     weight_noise_start_epoch: Optional[int]
+    weight_dropout: float
+    weight_pruning: Optional[WeightPruningConfig]
 
     def check_valid(self):
         assert self.kernel_size % 2 == 1, "ConformerConvolutionV1 only supports odd kernel sizes"
@@ -165,7 +200,8 @@ class ConformerConvolutionQuantV4Config(ModelConfiguration):
 class ConformerBlockQuantV1Config(ModelConfiguration):
     """
     Attributes:
-        ff_cfg: Configuration for ConformerPositionwiseFeedForwardV1
+        ff_cfg: Configuration for ConformerPositionwiseFeedForwardV1 (first ff, or both if ff2_cfg is None)
+        ff2_cfg: Optional separate config for the second ff module; if None, ff_cfg is reused
         mhsa_cfg: Configuration for ConformerMHSAV1
         conv_cfg: Configuration for ConformerConvolutionV1
     """
@@ -174,6 +210,7 @@ class ConformerBlockQuantV1Config(ModelConfiguration):
     ff_cfg: ConformerPositionwiseFeedForwardQuantV4Config
     mhsa_cfg: QuantizedConformerMHSARelPosV1Config
     conv_cfg: ConformerConvolutionQuantV4Config
+    ff2_cfg: Optional[ConformerPositionwiseFeedForwardQuantV4Config] = None
     modules: List[str] = field(default_factory=lambda: ["ff", "mhsa", "conv", "ff"])
     scales: List[float] = field(default_factory=lambda: [0.5, 1.0, 1.0, 0.5])
 
@@ -191,7 +228,7 @@ class ConformerEncoderQuantV1Config(ModelConfiguration):
 
     # nested configurations
     frontend: ModuleFactoryV1
-    block_cfg: ConformerBlockQuantV1Config
+    block_cfg: Union[ConformerBlockQuantV1Config, List[ConformerBlockQuantV1Config]]
 
 
 @dataclass
@@ -208,7 +245,7 @@ class SpecaugConfig(ModelConfiguration):
 
 
 @dataclass
-class QuantModelTrainConfigV11:
+class QuantModelTrainConfigV14:
     feature_extraction_config: LogMelFeatureExtractionV1Config
     frontend_config: VGG4LayerActFrontendV1Config
     specaug_config: SpecaugConfig
@@ -235,7 +272,7 @@ class QuantModelTrainConfigV11:
     Av_quant_dtype: Union[torch.dtype, str]
     Av_quant_method: str
     moving_average: Optional[float]  # default if enabled should be 0.01, if set enables moving average
-    weight_bit_prec: Union[int, float]
+    weight_bit_prec: Union[int, float, List[Union[int, float, Dict[str, Union[int, float]]]]]
     activation_bit_prec: Union[int, float]
     quantize_output: bool
     quant_in_linear: bool
@@ -250,6 +287,8 @@ class QuantModelTrainConfigV11:
     module_scales: List[float]
     aux_ctc_loss_layers: Optional[List[int]]
     aux_ctc_loss_scales: Optional[List[float]]
+    weight_dropout: float
+    weight_pruning: Optional[WeightPruningConfig]
 
     @classmethod
     def from_dict(cls, d):
@@ -261,6 +300,22 @@ class QuantModelTrainConfigV11:
         d["pos_enc_converter_hardware_settings"] = DacAdcHardwareSettings(**d["pos_enc_converter_hardware_settings"]) if d["pos_enc_converter_hardware_settings"] is not None else None
         d["correction_settings"] = CycleCorrectionSettings(**d["correction_settings"]) if d["correction_settings"] is not None else None
         d["pos_emb_config"] = ConformerPosEmbConfig(**d["pos_emb_config"])
+        if d.get("weight_pruning") is not None:
+            pruning_d = d["weight_pruning"]
+            if "threshold" in pruning_d:
+                d["weight_pruning"] = ThresholdPruningConfig(
+                    start_epoch=pruning_d["start_epoch"],
+                    threshold=pruning_d["threshold"],
+                )
+            elif "percentile" in pruning_d:
+                d["weight_pruning"] = PercentilePruningConfig(
+                    start_epoch=pruning_d["start_epoch"],
+                    percentile=pruning_d["percentile"],
+                )
+            else:
+                raise NotImplementedError(f"Cannot determine pruning type from keys: {list(pruning_d.keys())}")
+        else:
+            d["weight_pruning"] = None
 
         for name in ["weight_quant_dtype", "activation_quant_dtype", "dot_quant_dtype", "Av_quant_dtype"]:
             if d[name] == "qint8":
@@ -276,9 +331,24 @@ class QuantModelTrainConfigV11:
             d["weight_noise_func"] = None
         else:
             raise NotImplementedError
-        return QuantModelTrainConfigV11(**d)
+        return QuantModelTrainConfigV14(**d)
 
     def __post_init__(self):
+        if isinstance(self.weight_bit_prec, list):
+            assert len(self.weight_bit_prec) == self.num_layers, (
+                f"weight_bit_prec list length {len(self.weight_bit_prec)} must match num_layers {self.num_layers}"
+            )
+            _valid_keys = {"ff", "ff1", "ff2", "mhsa", "conv"}
+            for entry in self.weight_bit_prec:
+                if isinstance(entry, dict):
+                    assert set(entry.keys()) <= _valid_keys, (
+                        f"weight_bit_prec dict keys must be a subset of {_valid_keys}, got {set(entry.keys())}"
+                    )
+                    assert "ff" in entry or ("ff1" in entry and "ff2" in entry), (
+                        "weight_bit_prec dict must contain 'ff' or both 'ff1' and 'ff2'"
+                    )
+                    assert "mhsa" in entry, "weight_bit_prec dict must contain 'mhsa'"
+                    assert "conv" in entry, "weight_bit_prec dict must contain 'conv'"
         for param in [self.weight_quant_dtype, self.activation_quant_dtype, self.dot_quant_dtype, self.Av_quant_dtype]:
             if param == "qint8":
                 param = torch.qint8

@@ -100,9 +100,20 @@ def bpe_ls960_0426_noise():
 
     network_module_mem_v10 = "ctc.qat_0711.memristor_v10"
     network_module_mem_v11 = "ctc.qat_0711.memristor_v11"
+    network_module_mem_v15 = "ctc.qat_0711.memristor_v15"
 
     from ...pytorch_networks.ctc.qat_0711.memristor_v8_cfg import QuantModelTrainConfigV8 as MemristorModelTrainConfigV8
     from ...pytorch_networks.ctc.qat_0711.memristor_v11_cfg import QuantModelTrainConfigV11 as MemristorModelTrainConfigV11
+    from ...pytorch_networks.ctc.qat_0711.memristor_v15_cfg import (
+        QuantModelTrainConfigV15 as MemristorModelTrainConfigV15,
+        GaussianWeightNoiseConfig,
+        BitFlipWeightNoiseConfig,
+        GaussianWeightLevelNoiseConfig,
+        UniformBitNoiseConfig,
+        UniformWeightLevelNoiseConfig,
+        RelativeGaussianWeightNoiseConfig,
+        BitMixingWeightNoiseConfig,
+    )
     from torch_memristor.memristor_modules import DacAdcHardwareSettings
 
     from ...pytorch_networks.ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6_cfg import (
@@ -173,8 +184,8 @@ def bpe_ls960_0426_noise():
             activation=None,
         )
 
-    def _make_model_config_kwargs(dim, weight_noise_func=None, weight_noise_values=None, weight_noise_start_epoch=None):
-        return dict(
+    def _make_model_config_kwargs(dim, weight_noise=None):
+        d = dict(
             feature_extraction_config=fe_config,
             frontend_config=_make_frontend_config(dim),
             specaug_config=specaug_config_full,
@@ -204,9 +215,6 @@ def bpe_ls960_0426_noise():
             quant_in_linear=True,
             num_cycles=0,
             correction_settings=None,
-            weight_noise_func=weight_noise_func,
-            weight_noise_values=weight_noise_values,
-            weight_noise_start_epoch=weight_noise_start_epoch,
             pos_emb_config=pos_emb_cfg,
             module_list=["ff", "conv", "mhsa", "ff"],
             module_scales=[0.5, 1.0, 1.0, 0.5],
@@ -214,17 +222,26 @@ def bpe_ls960_0426_noise():
             aux_ctc_loss_scales=None,
             dropout_broadcast_axes=None,
         )
+        if weight_noise is not None:
+            d["weight_noise"] = weight_noise
+        return d
 
     # --- Baseline runs (no noise) ---
-    for epochs in [1000]:
+    FINETUNE_MODELS = {}
+    for epochs in [1000, 1250, 1500, 2000]:
         for activation_bit in activation_bits:
             for dim in dims:
                 for weight_bit in weight_bits:
+                    if epochs > 1000 and dim not in [512]:
+                        continue
                     seeds = 2
                     model_config = MemristorModelTrainConfigV8(
                         **_make_model_config_kwargs(dim),
                         weight_bit_prec=weight_bit,
                         activation_bit_prec=activation_bit,
+                        weight_noise_func=None,
+                        weight_noise_values=None,
+                        weight_noise_start_epoch=None,
                     )
                     for seed in range(seeds):
                         train_config_24gbgpu = {
@@ -254,6 +271,7 @@ def bpe_ls960_0426_noise():
                         }
                         training_name = prefix_name + "/" + network_module_mem_v10 + f"_{epochs // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_seed_{seed}"
                         train_job = training(training_name, train_data_bpe128, train_args, num_epochs=epochs, **default_returnn)
+                        FINETUNE_MODELS[training_name] = train_job.out_checkpoints[epochs]
                         if not os.path.exists(f"{train_job._sis_path()}/finished.run.1"):
                             train_job.rqmt['cpu'] = 12
                             train_job.hold()
@@ -284,35 +302,161 @@ def bpe_ls960_0426_noise():
                             prior_scales=[best_params_job.out_optimal_parameters[1]],
                             lm_scales=[(best_params_job.out_optimal_parameters[0], "best")],
                             batch_size=3500000 if weight_bit not in [8] else 2500000,
-                            max_runs=memristor_runs,
+                            max_runs=memristor_runs if dim <= 512 else 3,
                             report_dict=memristor_report,
                             prior_network_module=network_module_mem_v10,
                             recog_network_module=network_module_mem_v11,
                             recog_model_config_class=MemristorModelTrainConfigV11,
-                            final_name=prefix_name + "/" + network_module_mem_v11 + f"_{epochs // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_seed_{seed}_cycle",
+                            final_name=prefix_name + "/" + network_module_mem_v11 + f"_{epochs // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_seed_{seed}_best_cycle",
+                            search_gpu=11 if dim <= 512 else 48,
                         )
 
+                        run_memristor_cycle_eval(
+                            train_job=train_job,
+                            train_data=train_data_bpe128,
+                            train_config=train_config_24gbgpu,
+                            model_config=model_config,
+                            recog_name_prefix=prefix_name + "/" + network_module_mem_v11 + f"_{epochs // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_seed_{seed}",
+                            rasr_config=rasr_config_memristor,
+                            greedy_config=greedy_decoder_memristor,
+                            dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
+                            prior_scales=[0.5],
+                            lm_scales=[0.8],
+                            batch_size=3500000 if weight_bit not in [8] else 2500000,
+                            max_runs=memristor_runs if dim <= 512 else 3,
+                            report_dict=memristor_report,
+                            prior_network_module=network_module_mem_v10,
+                            recog_network_module=network_module_mem_v11,
+                            recog_model_config_class=MemristorModelTrainConfigV11,
+                            final_name=prefix_name + "/" + network_module_mem_v11 + f"_{epochs // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_seed_{seed}_fixed_cycle",
+                            search_gpu=11 if dim <= 512 else 48,
+                        )
+
+    from ...pytorch_networks.ctc.qat_0711.memristor_v13_cfg import \
+        QuantModelTrainConfigV13 as MemristorModelTrainConfigV13
+    # TODO: finetune
+    network_module_mem_v13 = "ctc.qat_0711.memristor_v13"
+    for weight_bit in [4, 8]:
+        for activation_bit in [8]:
+            for epochs in [1000]:
+                for dim in [512]:
+                    for weight_dropout in [0.0, 0.1, 0.2]:
+                        frontend_config_dim = _make_frontend_config(dim)
+                        prior_train_dac_settings = DacAdcHardwareSettings(
+                            input_bits=0,
+                            output_precision_bits=0,
+                            output_range_bits=0,
+                            hardware_input_vmax=0.6,
+                            hardware_output_current_scaling=8020.0,
+                        )
+
+                        model_config = MemristorModelTrainConfigV13(
+                            **_make_model_config_kwargs(dim),
+                            weight_bit_prec=weight_bit,
+                            pos_enc_converter_hardware_settings=prior_train_dac_settings,
+                            weight_dropout=weight_dropout,
+                            activation_bit_prec=activation_bit,
+                            weight_noise_func=None,
+                            weight_noise_values=None,
+                            weight_noise_start_epoch=None,
+                        )
+
+                        for seed in range(2):
+                            train_config_24gbgpu = {
+                                "optimizer": {
+                                    "class": "radam",
+                                    "epsilon": 1e-12,
+                                    "weight_decay": 1e-2,
+                                    "decoupled_weight_decay": True,
+                                },
+                                "learning_rates": list(np.linspace(7e-6, 5e-4, (epochs // 2 - 20)))
+                                                  + list(np.linspace(5e-4, 5e-5, (epochs // 2 - 20)))
+                                                  + list(np.linspace(5e-5, 1e-7, 40)),
+                                #############
+                                "batch_size": 360 * 16000,
+                                "max_seq_length": {"audio_features": 35 * 16000},
+                                "accum_grad_multiple_step": 1,
+                                "gradient_clip_norm": 1.0,
+                                "seed": seed,
+                                "torch_amp_options": {"dtype": "bfloat16"},
+                            }
+                            train_args = {
+                                "config": train_config_24gbgpu,
+                                "network_module": network_module_mem_v13,
+                                "net_args": {"model_config_dict": asdict(model_config)},
+                                "debug": False,
+                                "post_config": {"num_workers_per_gpu": 8},
+                                "use_speed_perturbation": True,
+                            }
+                            training_name = prefix_name + "/" + network_module_mem_v13 + f"_{epochs // 10}eps_wdrop{weight_dropout}_{dim}dim_w{weight_bit}_a{activation_bit}_seed_{seed}"
+                            train_job = training(training_name, train_data_bpe128, train_args, num_epochs=epochs,
+                                                 **default_returnn)
+
+                            if not os.path.exists(
+                                f"{train_job._sis_path()}/finished.run.1"):  # sync back was successful
+                                train_job.rqmt['cpu'] = 8
+                                train_job.hold()
+                                train_job.move_to_hpc = True
+
+                            _ = run_non_memristor_eval(
+                                training_name=training_name,
+                                train_job=train_job,
+                                train_args=train_args,
+                                train_data=train_data_bpe128,
+                                rasr_config=as_training_rasr_config,
+                                greedy_config=as_training_greedy_decoder_config,
+                                dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
+                                rasr_prior_scales=rasr_prior_scales,
+                                rasr_lm_scales=rasr_lm_scales,
+                                report_dict=memristor_report,
+                            )
+
+                            max_runs = 5
+                            run_memristor_cycle_eval(
+                                train_job=train_job,
+                                train_data=train_data_bpe128,
+                                train_config=train_config_24gbgpu,
+                                model_config=model_config,
+                                recog_name_prefix=prefix_name + "/" + network_module_mem_v13 + f"_{epochs // 10}eps_wdrop{weight_dropout}_{dim}dim_{weight_bit}_{activation_bit}_seed_{seed}",
+                                rasr_config=rasr_config_memristor,
+                                greedy_config=greedy_decoder_memristor,
+                                dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
+                                prior_scales=[0.5],
+                                lm_scales=[0.8],
+                                batch_size=3500000 if weight_bit not in [8] else 2500000,
+                                max_runs=max_runs,
+                                report_dict=memristor_report,
+                                prior_network_module=network_module_mem_v13,
+                                recog_network_module=network_module_mem_v13,
+                            )
+
     # --- Noise runs ---
+    noise_configs = [
+        (GaussianWeightNoiseConfig(dev=0.05, start_epoch=1), "gauss0.05_ep1"),
+        (BitFlipWeightNoiseConfig(p=0.01, start_epoch=1), "bitflip0.01_ep1"),
+    ]
+    dims = [512]
     for epochs in [1000]:
         for activation_bit in activation_bits:
             for dim in dims:
                 for weight_bit in weight_bits:
                     for dropout in [0.1]:
                         seeds = 1
-                        for start_epoch in [1]:
-                            for dev in [0.05]:
-                                model_config = MemristorModelTrainConfigV8(
-                                    **_make_model_config_kwargs(
-                                        dim,
-                                        weight_noise_func="gauss",
-                                        weight_noise_values={"dev": dev},
-                                        weight_noise_start_epoch=start_epoch,
-                                    ),
-                                    weight_bit_prec=weight_bit,
-                                    activation_bit_prec=activation_bit,
-                                )
-                                for seed in range(seeds):
-                                    train_config_24gbgpu = {
+                        for noise_cfg, noise_name in noise_configs:
+                            memristor_runs = 5 if dim <= 512 else 3
+                            model_config = MemristorModelTrainConfigV15(
+                                **_make_model_config_kwargs(
+                                    dim,
+                                    weight_noise=noise_cfg,
+                                ),
+                                weight_bit_prec=weight_bit,
+                                activation_bit_prec=activation_bit,
+                                weight_dropout=0.0,
+                                weight_pruning=None,
+                                pos_enc_converter_hardware_settings=prior_train_dac_settings
+                            )
+                            for seed in range(seeds):
+                                train_config_24gbgpu = {
                                         "optimizer": {
                                             "class": "radam",
                                             "epsilon": 1e-12,
@@ -329,30 +473,279 @@ def bpe_ls960_0426_noise():
                                         "seed": seed,
                                         "torch_amp_options": {"dtype": "bfloat16"},
                                     }
+                                train_args = {
+                                    "config": train_config_24gbgpu,
+                                    "network_module": network_module_mem_v15,
+                                    "net_args": {"model_config_dict": asdict(model_config)},
+                                    "debug": False,
+                                    "post_config": {"num_workers_per_gpu": 8},
+                                    "use_speed_perturbation": True,
+                                }
+                                training_name = prefix_name + "/" + network_module_mem_v15 + f"_{epochs // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise_{noise_name}_drop{dropout}_seed_{seed}"
+                                train_job = training(training_name, train_data_bpe128, train_args, num_epochs=epochs, **default_returnn)
+                                if not os.path.exists(f"{train_job._sis_path()}/finished.run.1"):
+                                    train_job.rqmt['cpu'] = 12
+                                    train_job.hold()
+                                    train_job.move_to_hpc = True
+
+                                prior_config = copy.deepcopy(model_config)
+                                prior_config.weight_noise = None
+                                prior_args = copy.deepcopy(train_args)
+                                prior_args["net_args"] = {"model_config_dict": asdict(prior_config)}
+
+                                results = {}
+                                results, best_params_job_noise = eval_model(
+                                    training_name=training_name + "_with_noise",
+                                    train_job=train_job,
+                                    train_args=train_args,
+                                    train_data=train_data_bpe128,
+                                    decoder_config=as_training_rasr_config,
+                                    dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
+                                    result_dict=results,
+                                    decoder_module="ctc.decoder.rasr_ctc_v1",
+                                    prior_scales=rasr_noise_prior_scales,
+                                    lm_scales=rasr_noise_lm_scales,
+                                    prior_args=prior_args,
+                                    import_memristor=True,
+                                    get_best_params=True,
+                                    run_rasr=True,
+                                    run_best_4=False,
+                                    run_best=False,
+                                )
+                                generate_report(results=results, exp_name=training_name + "/with_noise")
+                                memristor_report[training_name + "/with_noise"] = results
+
+                                results = {}
+                                results, best_params_job = eval_model(
+                                    training_name=training_name + "_without_noise",
+                                    train_job=train_job,
+                                    train_args=prior_args,
+                                    train_data=train_data_bpe128,
+                                    decoder_config=as_training_rasr_config,
+                                    dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
+                                    result_dict=results,
+                                    decoder_module="ctc.decoder.rasr_ctc_v1",
+                                    prior_scales=rasr_prior_scales,
+                                    lm_scales=rasr_lm_scales,
+                                    prior_args=prior_args,
+                                    import_memristor=True,
+                                    get_best_params=True,
+                                    run_rasr=True,
+                                    run_best_4=False,
+                                    run_best=False,
+                                )
+                                generate_report(results=results, exp_name=training_name + "/without_noise")
+                                memristor_report[training_name + "/without_noise"] = results
+
+                                run_memristor_cycle_eval(
+                                    train_job=train_job,
+                                    train_data=train_data_bpe128,
+                                    train_config=train_config_24gbgpu,
+                                    model_config=prior_config,
+                                    recog_name_prefix=prefix_name + "/" + network_module_mem_v15 + f"_{epochs // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise_{noise_name}_drop{dropout}_seed_{seed}",
+                                    rasr_config=rasr_config_memristor,
+                                    greedy_config=None,
+                                    dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
+                                    prior_scales=[best_params_job.out_optimal_parameters[1]],
+                                    lm_scales=[(best_params_job.out_optimal_parameters[0], "best_nonoise")],
+                                    batch_size=3500000 if weight_bit not in [8] else 2500000,
+                                    max_runs=memristor_runs,
+                                    report_dict=memristor_report,
+                                    prior_network_module=network_module_mem_v15,
+                                    recog_network_module=network_module_mem_v15,
+                                    recog_model_config_class=MemristorModelTrainConfigV15,
+                                    final_name=prefix_name + "/" + network_module_mem_v15 + f"_{epochs // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise_{noise_name}_drop{dropout}_seed_{seed}_best_nonoise_cycle",
+                                    search_gpu=11 if dim <= 512 else 24,
+                                )
+                                run_memristor_cycle_eval(
+                                    train_job=train_job,
+                                    train_data=train_data_bpe128,
+                                    train_config=train_config_24gbgpu,
+                                    model_config=prior_config,
+                                    recog_name_prefix=prefix_name + "/" + network_module_mem_v15 + f"_{epochs // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise_{noise_name}_drop{dropout}_seed_{seed}",
+                                    rasr_config=rasr_config_memristor,
+                                    greedy_config=None,
+                                    dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
+                                    prior_scales=[best_params_job_noise.out_optimal_parameters[1]],
+                                    lm_scales=[(best_params_job_noise.out_optimal_parameters[0], "best_noise")],
+                                    batch_size=3500000 if weight_bit not in [8] else 2500000,
+                                    max_runs=memristor_runs,
+                                    report_dict=memristor_report,
+                                    prior_network_module=network_module_mem_v15,
+                                    recog_network_module=network_module_mem_v15,
+                                    recog_model_config_class=MemristorModelTrainConfigV15,
+                                    final_name=prefix_name + "/" + network_module_mem_v15 + f"_{epochs // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise_{noise_name}_drop{dropout}_seed_{seed}_best_noise_cycle",
+                                    search_gpu=11 if dim <= 512 else 24,
+                                )
+                                run_memristor_cycle_eval(
+                                    train_job=train_job,
+                                    train_data=train_data_bpe128,
+                                    train_config=train_config_24gbgpu,
+                                    model_config=prior_config,
+                                    recog_name_prefix=prefix_name + "/" + network_module_mem_v15 + f"_{epochs // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise_{noise_name}_drop{dropout}_seed_{seed}",
+                                    rasr_config=rasr_config_memristor,
+                                    greedy_config=greedy_decoder_memristor,
+                                    dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
+                                    prior_scales=[0.5],
+                                    lm_scales=[0.8],
+                                    batch_size=3500000 if weight_bit not in [8] else 2500000,
+                                    max_runs=memristor_runs,
+                                    report_dict=memristor_report,
+                                    prior_network_module=network_module_mem_v15,
+                                    recog_network_module=network_module_mem_v15,
+                                    recog_model_config_class=MemristorModelTrainConfigV15,
+                                    final_name=prefix_name + "/" + network_module_mem_v15 + f"_{epochs // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise_{noise_name}_drop{dropout}_seed_{seed}_cycle",
+                                    search_gpu=11 if dim <= 512 else 24,
+                                )
+
+                                model_config_ideal = copy.deepcopy(prior_config)
+                                train_dac_settings_ideal = DacAdcHardwareSettings(
+                                    input_bits=8,
+                                    output_precision_bits=4,
+                                    output_range_bits=4,
+                                    hardware_input_vmax=0.6,
+                                    hardware_output_current_scaling=5476.0,
+                                )
+
+                                posenc_dac_settings_ideal = DacAdcHardwareSettings(
+                                    input_bits=8,
+                                    output_precision_bits=1,
+                                    output_range_bits=7,
+                                    hardware_input_vmax=0.6,
+                                    hardware_output_current_scaling=5476.0,
+                                )
+                                from synaptogen_ml.memristor_modules.config import CycleCorrectionSettings
+                                ideal = CycleCorrectionSettings(
+                                    num_cycles=None,
+                                    test_input_value=None,
+                                    relative_deviation=None,
+                                    ideal_programming=True
+                                )
+                                model_config_ideal.correction_settings = ideal
+                                run_memristor_cycle_eval(
+                                    train_job=train_job,
+                                    train_data=train_data_bpe128,
+                                    train_config=train_config_24gbgpu,
+                                    model_config=model_config_ideal,
+                                    recog_name_prefix=prefix_name + "/" + network_module_mem_v15 + f"_{epochs // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise_{noise_name}_drop{dropout}_ideal_seed_{seed}",
+                                    rasr_config=rasr_config_memristor,
+                                    greedy_config=greedy_decoder_memristor,
+                                    dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
+                                    prior_scales=[0.5],
+                                    lm_scales=[0.8],
+                                    batch_size=3500000 if weight_bit not in [8] else 2500000,
+                                    max_runs=memristor_runs,
+                                    report_dict=memristor_report,
+                                    prior_network_module=network_module_mem_v15,
+                                    recog_network_module=network_module_mem_v15,
+                                    recog_model_config_class=MemristorModelTrainConfigV15,
+                                    final_name=prefix_name + "/" + network_module_mem_v15 + f"_{epochs // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise_{noise_name}_drop{dropout}_seed_{seed}_ideal_fixed_cycle",
+                                    recog_dac_settings=train_dac_settings_ideal,
+                                    posenc_dac_settings=posenc_dac_settings_ideal,
+                                    search_gpu=11 if dim <= 512 else 24,
+                                )
+
+        # --- Noise finetune runs ---
+        noise_configs_finetune = [
+        (GaussianWeightNoiseConfig(dev=0.05, start_epoch=1), "gauss0.05_ep1"),
+        (BitFlipWeightNoiseConfig(p=0.01, start_epoch=1), "bitflip0.01_ep1"),
+        (GaussianWeightNoiseConfig(dev=0.1, start_epoch=1), "gauss0.1_ep1"),
+        (GaussianWeightNoiseConfig(dev=0.01, start_epoch=1), "gauss0.01_ep1"),
+        ]
+        # New analog weight-noise variants; only run in the 25-epoch finetune (finetune_epochs == 250)
+        noise_configs_finetune_new = [
+            (GaussianWeightLevelNoiseConfig(weight_dev=0.05, start_epoch=1), "gaussw0.05_ep1"),
+            (UniformBitNoiseConfig(bit_amplitude=0.05, start_epoch=1), "unifbit0.05_ep1"),
+            (UniformWeightLevelNoiseConfig(weight_amplitude=0.05, start_epoch=1), "unifw0.05_ep1"),
+            (RelativeGaussianWeightNoiseConfig(rel_dev=0.05, start_epoch=1), "relgauss0.05_ep1"),
+            (BitMixingWeightNoiseConfig(mix=0.12, start_epoch=1), "bitmix0.12_ep1"),
+        ]
+        # Format: finetune_epochs, dim, weight_bit, dropout, seed, noise_name
+        diverged_list = [
+        ]
+        for finetune_epochs in [10, 50, 100, 200, 250, 500, 750, 1000]:
+            for activation_bit in activation_bits:
+                for dim in [512]:
+                    for weight_bit in [8, 4]:
+                        for dropout in [0.1]:
+                            seeds = 1
+                            active_noise_configs_finetune = noise_configs_finetune + (
+                                noise_configs_finetune_new if finetune_epochs == 250 else []
+                            )
+                            for noise_cfg, noise_name in active_noise_configs_finetune:
+                                if finetune_epochs not in [250]:
+                                    if "gauss" in noise_name and not "gauss0.05_ep1" in noise_name:
+                                        continue
+                                memristor_runs = 5 if dim <= 512 else 3
+                                model_config = MemristorModelTrainConfigV15(
+                                    **_make_model_config_kwargs(
+                                        dim,
+                                        weight_noise=noise_cfg,
+                                    ),
+                                    weight_bit_prec=weight_bit,
+                                    activation_bit_prec=activation_bit,
+                                    pos_enc_converter_hardware_settings=prior_train_dac_settings,
+                                    weight_pruning=None,
+                                    weight_dropout=0.0
+                                )
+                                model_config.module_list =["ff", "mhsa","conv", "ff"]
+                                for seed in range(seeds):
+                                    if (finetune_epochs, dim, weight_bit, dropout, seed, noise_name) in diverged_list or finetune_epochs < 200:
+                                        memristor_report[
+                                            prefix_name + "/" + network_module_mem_v15 + f"_{finetune_epochs // 10}eps_from{1000 // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise_{noise_name}_drop{dropout}_seed_{seed}"] = "Diverged"
+                                        continue
+                                    if "bitflip" in noise_name:
+                                        memristor_report[
+                                            prefix_name + "/" + network_module_mem_v15 + f"_{finetune_epochs // 10}eps_from{1000 // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise_{noise_name}_drop{dropout}_seed_{seed}"] = "Diverged"
+                                        continue
+                                    baseline_prefix = "experiments/librispeech/ctc_rnnt_standalone_2024/bpe_ls960_memristor/noise"
+                                    base_checkpoint_name = baseline_prefix + "/" + network_module_mem_v10 + f"_{1000 // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_seed_{seed}"
+                                    train_config_24gbgpu = {
+                                        "optimizer": {
+                                            "class": "radam",
+                                            "epsilon": 1e-12,
+                                            "weight_decay": 1e-2,
+                                            "decoupled_weight_decay": True,
+                                        },
+                                        "learning_rates": list(np.linspace(7e-6, 1e-4, finetune_epochs // 2)) + list(np.linspace(1e-4, 1e-7, finetune_epochs // 2)),
+                                        "batch_size": 360 * 16000,
+                                        "max_seq_length": {"audio_features": 35 * 16000},
+                                        "accum_grad_multiple_step": 1,
+                                        "gradient_clip_norm": 1.0,
+                                        "seed": seed,
+                                        "torch_amp_options": {"dtype": "bfloat16"},
+                                        "preload_from_files": {
+                                            "model": {
+                                                "filename": FINETUNE_MODELS[base_checkpoint_name],
+                                                "init_for_train": True,
+                                                "ignore_missing": False,
+                                            }
+                                        },
+                                    }
                                     train_args = {
                                         "config": train_config_24gbgpu,
-                                        "network_module": network_module_mem_v10,
+                                        "network_module": network_module_mem_v15,
                                         "net_args": {"model_config_dict": asdict(model_config)},
                                         "debug": False,
                                         "post_config": {"num_workers_per_gpu": 8},
                                         "use_speed_perturbation": True,
                                     }
-                                    training_name = prefix_name + "/" + network_module_mem_v10 + f"_{epochs // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise{start_epoch}_{dev}_drop{dropout}_seed_{seed}"
-                                    train_job = training(training_name, train_data_bpe128, train_args, num_epochs=epochs, **default_returnn)
+                                    training_name = prefix_name + "/" + network_module_mem_v15 + f"_{finetune_epochs // 10}eps_from{1000 // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise_{noise_name}_drop{dropout}_seed_{seed}"
+                                    train_job = training(training_name, train_data_bpe128, train_args,
+                                                         num_epochs=finetune_epochs, **default_returnn)
                                     if not os.path.exists(f"{train_job._sis_path()}/finished.run.1"):
                                         train_job.rqmt['cpu'] = 12
                                         train_job.hold()
+                                        train_job.rqmt['time'] = 24
                                         train_job.move_to_hpc = True
 
                                     prior_config = copy.deepcopy(model_config)
-                                    prior_config.weight_noise_func = None
-                                    prior_config.weight_noise_values = None
-                                    prior_config.weight_noise_start_epoch = None
+                                    prior_config.weight_noise = None
                                     prior_args = copy.deepcopy(train_args)
                                     prior_args["net_args"] = {"model_config_dict": asdict(prior_config)}
 
                                     results = {}
-                                    results, _ = eval_model(
+                                    results, best_params_job_noise = eval_model(
                                         training_name=training_name + "_with_noise",
                                         train_job=train_job,
                                         train_args=train_args,
@@ -400,26 +793,45 @@ def bpe_ls960_0426_noise():
                                         train_data=train_data_bpe128,
                                         train_config=train_config_24gbgpu,
                                         model_config=prior_config,
-                                        recog_name_prefix=prefix_name + "/" + network_module_mem_v11 + f"_{epochs // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise{start_epoch}_{dev}_drop{dropout}_seed_{seed}",
+                                        recog_name_prefix=prefix_name + "/" + network_module_mem_v15 + f"_{finetune_epochs // 10}eps_from{1000 // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise_{noise_name}_drop{dropout}_seed_{seed}",
                                         rasr_config=rasr_config_memristor,
-                                        greedy_config=greedy_decoder_memristor,
+                                        greedy_config=None,
                                         dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
                                         prior_scales=[best_params_job.out_optimal_parameters[1]],
-                                        lm_scales=[(best_params_job.out_optimal_parameters[0], "best")],
+                                        lm_scales=[(best_params_job.out_optimal_parameters[0], "best_nonoise")],
                                         batch_size=3500000 if weight_bit not in [8] else 2500000,
                                         max_runs=memristor_runs,
                                         report_dict=memristor_report,
-                                        prior_network_module=network_module_mem_v10,
-                                        recog_network_module=network_module_mem_v11,
-                                        recog_model_config_class=MemristorModelTrainConfigV11,
-                                        final_name=prefix_name + "/" + network_module_mem_v11 + f"_{epochs // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise{start_epoch}_{dev}_drop{dropout}_seed_{seed}_cycle",
+                                        prior_network_module=network_module_mem_v15,
+                                        recog_network_module=network_module_mem_v15,
+                                        recog_model_config_class=MemristorModelTrainConfigV15,
+                                        final_name=prefix_name + "/" + network_module_mem_v15 + f"_{finetune_epochs // 10}eps_from{1000 // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise_{noise_name}_drop{dropout}_seed_{seed}_best_nonoise_cycle",
                                     )
                                     run_memristor_cycle_eval(
                                         train_job=train_job,
                                         train_data=train_data_bpe128,
                                         train_config=train_config_24gbgpu,
                                         model_config=prior_config,
-                                        recog_name_prefix=prefix_name + "/" + network_module_mem_v11 + f"_{epochs // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise{start_epoch}_{dev}_drop{dropout}_seed_{seed}",
+                                        recog_name_prefix=prefix_name + "/" + network_module_mem_v15 + f"_{finetune_epochs // 10}eps_from{1000 // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise_{noise_name}_drop{dropout}_seed_{seed}",
+                                        rasr_config=rasr_config_memristor,
+                                        greedy_config=None,
+                                        dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
+                                        prior_scales=[best_params_job_noise.out_optimal_parameters[1]],
+                                        lm_scales=[(best_params_job_noise.out_optimal_parameters[0], "best_noise")],
+                                        batch_size=3500000 if weight_bit not in [8] else 2500000,
+                                        max_runs=memristor_runs,
+                                        report_dict=memristor_report,
+                                        prior_network_module=network_module_mem_v15,
+                                        recog_network_module=network_module_mem_v15,
+                                        recog_model_config_class=MemristorModelTrainConfigV15,
+                                        final_name=prefix_name + "/" + network_module_mem_v15 + f"_{finetune_epochs // 10}eps_from{1000 // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise_{noise_name}_drop{dropout}_seed_{seed}_best_noise_cycle",
+                                    )
+                                    run_memristor_cycle_eval(
+                                        train_job=train_job,
+                                        train_data=train_data_bpe128,
+                                        train_config=train_config_24gbgpu,
+                                        model_config=prior_config,
+                                        recog_name_prefix=prefix_name + "/" + network_module_mem_v15 + f"_{finetune_epochs // 10}eps_from{1000 // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise_{noise_name}_drop{dropout}_seed_{seed}",
                                         rasr_config=rasr_config_memristor,
                                         greedy_config=greedy_decoder_memristor,
                                         dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
@@ -428,10 +840,56 @@ def bpe_ls960_0426_noise():
                                         batch_size=3500000 if weight_bit not in [8] else 2500000,
                                         max_runs=memristor_runs,
                                         report_dict=memristor_report,
-                                        prior_network_module=network_module_mem_v10,
-                                        recog_network_module=network_module_mem_v11,
-                                        recog_model_config_class=MemristorModelTrainConfigV11,
-                                        final_name=prefix_name + "/" + network_module_mem_v11 + f"_{epochs // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise{start_epoch}_{dev}_drop{dropout}_seed_{seed}_cycle",
+                                        prior_network_module=network_module_mem_v15,
+                                        recog_network_module=network_module_mem_v15,
+                                        recog_model_config_class=MemristorModelTrainConfigV15,
+                                        final_name=prefix_name + "/" + network_module_mem_v15 + f"_{finetune_epochs // 10}eps_from{1000 // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise_{noise_name}_drop{dropout}_seed_{seed}_cycle",
+                                    )
+
+                                    model_config_ideal = copy.deepcopy(prior_config)
+                                    train_dac_settings_ideal = DacAdcHardwareSettings(
+                                        input_bits=8,
+                                        output_precision_bits=4,
+                                        output_range_bits=4,
+                                        hardware_input_vmax=0.6,
+                                        hardware_output_current_scaling=5476.0,
+                                    )
+
+                                    posenc_dac_settings_ideal = DacAdcHardwareSettings(
+                                        input_bits=8,
+                                        output_precision_bits=1,
+                                        output_range_bits=7,
+                                        hardware_input_vmax=0.6,
+                                        hardware_output_current_scaling=5476.0,
+                                    )
+                                    from synaptogen_ml.memristor_modules.config import CycleCorrectionSettings
+                                    ideal = CycleCorrectionSettings(
+                                        num_cycles=None,
+                                        test_input_value=None,
+                                        relative_deviation=None,
+                                        ideal_programming=True
+                                    )
+                                    model_config_ideal.correction_settings = ideal
+                                    run_memristor_cycle_eval(
+                                        train_job=train_job,
+                                        train_data=train_data_bpe128,
+                                        train_config=train_config_24gbgpu,
+                                        model_config=model_config_ideal,
+                                        recog_name_prefix=prefix_name + "/" + network_module_mem_v15 + f"_{finetune_epochs // 10}eps_from{1000 // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise_{noise_name}_drop{dropout}_ideal_seed_{seed}",
+                                        rasr_config=rasr_config_memristor,
+                                        greedy_config=greedy_decoder_memristor,
+                                        dev_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
+                                        prior_scales=[0.5],
+                                        lm_scales=[0.8],
+                                        batch_size=3500000 if weight_bit not in [8] else 2500000,
+                                        max_runs=2,
+                                        report_dict=memristor_report,
+                                        prior_network_module=network_module_mem_v15,
+                                        recog_network_module=network_module_mem_v15,
+                                        recog_model_config_class=MemristorModelTrainConfigV15,
+                                        final_name=prefix_name + "/" + network_module_mem_v15 + f"_{finetune_epochs // 10}eps_from{1000 // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise_{noise_name}_drop{dropout}_seed_{seed}_ideal_fixed_cycle",
+                                        recog_dac_settings=train_dac_settings_ideal,
+                                        posenc_dac_settings=posenc_dac_settings_ideal,
                                     )
 
     tk.register_report("reports/lbs/v2/memristor_noise_bpe", partial(build_qat_report_v2, memristor_report),

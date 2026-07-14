@@ -1,5 +1,5 @@
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
-from ...pipeline import search, ASRModel, prepare_asr_model
+from ...pipeline import search, search_multi, ASRModel, prepare_asr_model
 from ...pytorch_networks.ctc.decoder.flashlight_ctc_v1 import DecoderConfig
 from ...pytorch_networks.ctc.decoder.rasr_ctc_v1 import DecoderConfig as RasrDecoderConfig
 from typing import List, Optional, Dict, Any, List, Union, Tuple
@@ -46,6 +46,9 @@ def eval_model(
     search_gpu: Optional[int] = None,
     split_args: Optional = None,
     with_prior: bool = True,
+    prune_weights: bool = False,
+    run_rasr_multi: bool = False,
+    num_search_workers: int = 8,
 ):
     if specific_epoch is None:
         specific_epoch = train_job.returnn_config.post_config["num_epochs"]
@@ -67,6 +70,7 @@ def eval_model(
             datasets=train_data,
             get_specific_checkpoint=epoch,
             prior_config={"import_memristor": import_memristor} if import_memristor is True else None,
+            prune_weights=prune_weights,
             split_preparation=split_mem_init,
             split_args=(split_args or train_args) if split_mem_init else None, # TODO: this means that the converter settings are actually part of the init
         )
@@ -93,6 +97,8 @@ def eval_model(
             get_best_params=get_best_params,
             run_rasr=run_rasr,
             search_gpu=search_gpu,
+            run_rasr_multi=run_rasr_multi,
+            num_search_workers=num_search_workers,
         )
         result_dict.update(res)
     if run_best_4 is True:
@@ -104,6 +110,7 @@ def eval_model(
             datasets=train_data,
             get_best_averaged_checkpoint=(4, loss_name),
             prior_config={"import_memristor": import_memristor} if import_memristor is True else None,
+            prune_weights=prune_weights,
         )
         if prior_args is not None:
             asr_model_best4.net_args = train_args["net_args"]
@@ -135,6 +142,7 @@ def eval_model(
             datasets=train_data,
             get_best_averaged_checkpoint=(1, loss_name),
             prior_config={"import_memristor": import_memristor} if import_memristor is True else None,
+            prune_weights=prune_weights,
         )
         if prior_args is not None:
             asr_model_best.net_args = train_args["net_args"]
@@ -181,6 +189,8 @@ def tune_and_evaluate_helper(
     get_best_params: bool = False,
     run_rasr: bool = False,
     search_gpu: Optional[int] = None,
+    run_rasr_multi: bool = False,
+    num_search_workers: int = 8,
 ):
     """
     Example helper to execute tuning over lm_scales and prior scales.
@@ -194,10 +204,64 @@ def tune_and_evaluate_helper(
     :param lm_scales: lm scales for tuning
     :param prior_scales: prior scales for tuning, same length as lm scales
     """
+    results = {}
+    if run_rasr_multi:
+        # Multi-scale path: one forward job computes posteriors once and sweeps the whole grid.
+        # Build one written RASR config per lm scale (lm scale baked into the file), then run a
+        # single multi decoder job per dataset that applies all (lm, prior) combinations.
+        from ...pytorch_networks.ctc.decoder.rasr_ctc_v1_batched_multi import (
+            DecoderConfig as MultiRasrDecoderConfig,
+        )
+
+        lm_values = [lw[0] if isinstance(lw, tuple) else lw for lw in lm_scales]
+        rasr_config_files = []
+        for lm_weight in lm_values:
+            per_lm_config = copy.deepcopy(base_decoder_config)
+            per_lm_config.rasr_config_file.lib_rasr.lm.scale = lm_weight
+            rasr_config_files.append(
+                WriteRasrConfigJob(per_lm_config.rasr_config_file, per_lm_config.rasr_post_config).out_config
+            )
+
+        multi_decoder_config = MultiRasrDecoderConfig(
+            rasr_config_files=rasr_config_files,
+            lm_scales=list(lm_values),
+            prior_scales=list(prior_scales),
+            num_search_workers=num_search_workers,
+            rasr_post_config=None,
+            blank_log_penalty=base_decoder_config.blank_log_penalty,
+            prior_file=None,  # injected in search_multi from the trained model
+            turn_off_quant=base_decoder_config.turn_off_quant,
+        )
+
+        search_jobs, wers = search_multi(
+            training_name,
+            forward_config=extra_forward_config or {},
+            asr_model=asr_model,
+            decoder_module=decoder_module,
+            decoder_args={"config": asdict(multi_decoder_config)},
+            test_dataset_tuples=dev_dataset_tuples,
+            lm_scales=list(lm_values),
+            prior_scales=list(prior_scales),
+            num_search_workers=num_search_workers,
+            use_gpu=use_gpu,
+            import_memristor=import_memristor,
+            debug=debug,
+            **default_returnn,
+        )
+        if run_search_on_hpc is True:
+            for job in search_jobs:
+                if not os.path.exists(f"{job._sis_path()}/finished.run.1"):
+                    job.hold()
+                    job.move_to_hpc = True
+        if search_gpu is not None:
+            for job in search_jobs:
+                job.rqmt["gpu_mem"] = search_gpu
+        results.update(wers)
+        return results, None
+
     tune_parameters = []
     tune_values_clean = []
     tune_values_other = []
-    results = {}
     for lm_weight in lm_scales:
         for prior_scale in prior_scales:
             decoder_config = copy.deepcopy(base_decoder_config)

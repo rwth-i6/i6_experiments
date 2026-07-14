@@ -1,6 +1,7 @@
 """
 Fixes mhsa norm
-v10 fixes memristor init
+v11 adds option for separate dac for pos encs
+v12 adds option for layerwise
 """
 
 import torch
@@ -9,7 +10,7 @@ from torch.nn import init
 import torch.ao.quantization as torch_quant
 import torch.nn.functional as F
 from typing import Optional, Union, Dict, Callable
-from .memristor_v8_cfg import QuantizedConformerMHSARelPosV1Config
+from .memristor_v12_cfg import QuantizedConformerMHSARelPosV1Config
 import math
 from torch.ao.quantization.utils import check_min_max_valid
 from returnn.torch.context import get_run_ctx
@@ -358,7 +359,6 @@ class QuantizedMultiheadAttention(nn.Module):
         self.weight_noise_start_epoch = cfg.weight_noise_start_epoch
         self.weight_noise_values = cfg.weight_noise_values
         self.weight_noise_func = cfg.weight_noise_func
-        self.bit_prec_dot = cfg.bit_prec_dot
         self.activation_quant_dtype = cfg.activation_quant_dtype
         self.activation_quant_method = cfg.activation_quant_method
         self.dot_quant_dtype = cfg.dot_quant_dtype
@@ -366,35 +366,30 @@ class QuantizedMultiheadAttention(nn.Module):
         self.Av_quant_dtype = cfg.Av_quant_dtype
         self.Av_quant_method = cfg.Av_quant_method
         self.converter_hardware_settings = cfg.converter_hardware_settings
+        self.pos_enc_converter_hardware_settings = cfg.pos_enc_converter_hardware_settings
         self.track_stats = False
         self.stats = []
-
 
         assert not self.learnable_pos_emb or self.rel_pos_clip
 
         self.att_weights_dropout = nn.Dropout(cfg.att_weights_dropout)
 
         assert self.embed_dim % self.num_heads == 0, "embed_dim must be divisible by num_heads"
+        try:
+            from torch_memristor.memristor_modules import TiledMemristorLinear
+        except ModuleNotFoundError:
+            from synaptogen_ml.memristor_modules.linear import TiledMemristorLinear
 
         # projection matrices
-        self.qkv_proj = LinearQuant(
+        self.qkv_proj = TiledMemristorLinear(
             in_features=self.embed_dim,
             out_features=3 * self.embed_dim,
-            weight_bit_prec=cfg.bit_prec_W_i,
-            weight_quant_dtype=self.weight_quant_dtype,
-            weight_quant_method=self.weight_quant_method,
-            bias=cfg.with_bias,
-            weight_noise_func=self.weight_noise_func,
-            weight_noise_start_epoch=self.weight_noise_start_epoch,
-            weight_noise_values=self.weight_noise_values,
+            weight_precision=cfg.bit_prec_W_i if not cfg.bit_prec_W_i == 1.5 else 2,
+            converter_hardware_settings=cfg.converter_hardware_settings,
+            memristor_inputs=128,
+            memristor_outputs=128,
         )
-        self.in_proj_in_quant = ActivationQuantizer(
-            bit_precision=cfg.activation_bit_prec,
-            dtype=cfg.activation_quant_dtype,
-            method=cfg.activation_quant_method,
-            channel_axis=1,
-            moving_avrg=cfg.moving_average,
-        )
+        self.in_proj_in_quant = nn.Identity()
 
         self.in_proj_out_quant = ActivationQuantizer(
             bit_precision=cfg.activation_bit_prec,
@@ -404,38 +399,29 @@ class QuantizedMultiheadAttention(nn.Module):
             moving_avrg=cfg.moving_average,
         )
         self.q_quantizer = ActivationQuantizer(
-            self.bit_prec_dot,
+            cfg.activation_bit_prec,
             self.dot_quant_dtype,
             self.dot_quant_method,
             channel_axis=None if self.dot_quant_method == "per_tensor" else 3,
             moving_avrg=cfg.moving_average,
         )
         self.k_quantizer = ActivationQuantizer(
-            self.bit_prec_dot,
+            cfg.activation_bit_prec,
             self.dot_quant_dtype,
             self.dot_quant_method,
             channel_axis=None if self.dot_quant_method == "per_tensor" else 2,
             moving_avrg=cfg.moving_average,
         )
 
-        self.out_proj = LinearQuant(
+        self.out_proj = TiledMemristorLinear(
             in_features=self.embed_dim,
             out_features=self.embed_dim,
-            weight_bit_prec=cfg.bit_prec_W_o,
-            weight_quant_dtype=self.weight_quant_dtype,
-            weight_quant_method=self.weight_quant_method,
-            bias=cfg.with_bias,
-            weight_noise_func=self.weight_noise_func,
-            weight_noise_start_epoch=self.weight_noise_start_epoch,
-            weight_noise_values=self.weight_noise_values,
+            weight_precision=cfg.bit_prec_W_o if not cfg.bit_prec_W_o == 1.5 else 2,
+            converter_hardware_settings=cfg.converter_hardware_settings,
+            memristor_inputs=128,
+            memristor_outputs=128,
         )
-        self.out_proj_in_quant = ActivationQuantizer(
-            bit_precision=cfg.activation_bit_prec,
-            dtype=cfg.activation_quant_dtype,
-            method=cfg.activation_quant_method,
-            channel_axis=1,
-            moving_avrg=cfg.moving_average,
-        )
+        self.out_proj_in_quant = nn.Identity()
 
         self.out_proj_out_quant = ActivationQuantizer(
             bit_precision=cfg.activation_bit_prec,
@@ -457,24 +443,16 @@ class QuantizedMultiheadAttention(nn.Module):
         if cfg.with_linear_pos:
             # TODO: this might be problematic to learn, test this
 
-            self.linear_pos = LinearQuant(
+            self.linear_pos = TiledMemristorLinear(
                 in_features=self.pos_emb_dim,
                 out_features=self.embed_dim if cfg.separate_pos_emb_per_head else self.embed_dim_per_head,
-                weight_bit_prec=cfg.bit_prec_learn_emb,
-                weight_quant_dtype=self.weight_quant_dtype,
-                weight_quant_method=self.weight_quant_method,
+                weight_precision=cfg.bit_prec_learn_emb if not cfg.bit_prec_learn_emb == 1.5 else 2,
+                converter_hardware_settings=self.pos_enc_converter_hardware_settings if self.pos_enc_converter_hardware_settings is not None else self.converter_hardware_settings,
+                memristor_inputs=128,
+                memristor_outputs=128,
                 bias=False,
-                weight_noise_func=self.weight_noise_func,
-                weight_noise_start_epoch=self.weight_noise_start_epoch,
-                weight_noise_values=self.weight_noise_values,
             )
-            self.learn_emb_in_quant = ActivationQuantizer(
-                bit_precision=cfg.activation_bit_prec,
-                dtype=cfg.activation_quant_dtype,
-                method=cfg.activation_quant_method,
-                channel_axis=1,
-                moving_avrg=cfg.moving_average,
-            )
+            self.learn_emb_in_quant = nn.Identity()
 
             self.learn_emb_out_quant = ActivationQuantizer(
                 bit_precision=cfg.activation_bit_prec,
@@ -655,67 +633,7 @@ class QuantizedMultiheadAttention(nn.Module):
         return pos_emb
 
     def prep_quant(self):
-        try:
-            from torch_memristor.memristor_modules import TiledMemristorLinear
-        except ModuleNotFoundError:
-            from synaptogen_ml.memristor_modules.linear import TiledMemristorLinear
-
-        self.out_proj.weight_quantizer.set_scale_and_zp()
-        self.out_proj_in_quant.set_scale_and_zp()
-        mem_lin = TiledMemristorLinear(
-            in_features=self.out_proj.in_features,
-            out_features=self.out_proj.out_features,
-            weight_precision=self.out_proj.weight_bit_prec if not self.out_proj.weight_bit_prec == 1.5 else 2,
-            converter_hardware_settings=self.converter_hardware_settings,
-            memristor_inputs=128,
-            memristor_outputs=128,
-        )
-        mem_lin.init_from_linear_quant(
-            activation_quant=self.out_proj_in_quant,
-            linear_quant=self.out_proj,
-            correction_settings=self.cfg.correction_settings,
-            num_cycles_init=self.cfg.num_cycles,
-        )
-        self.out_proj = mem_lin
-
-        self.out_proj_in_quant = nn.Identity()
-
-        self.qkv_proj.weight_quantizer.set_scale_and_zp()
-        self.in_proj_in_quant.set_scale_and_zp()
-        mem_lin = TiledMemristorLinear(
-            in_features=self.qkv_proj.in_features,
-            out_features=self.qkv_proj.out_features,
-            weight_precision=self.qkv_proj.weight_bit_prec if not self.qkv_proj.weight_bit_prec == 1.5 else 2,
-            converter_hardware_settings=self.converter_hardware_settings,
-            memristor_inputs=128,
-            memristor_outputs=128,
-        )
-        mem_lin.init_from_linear_quant(
-            activation_quant=self.in_proj_in_quant, linear_quant=self.qkv_proj,
-            correction_settings=self.cfg.correction_settings,
-            num_cycles_init=self.cfg.num_cycles,
-        )
-        self.qkv_proj = mem_lin
-        self.in_proj_in_quant = nn.Identity()
-
+        self.qkv_proj.initialized = True
+        self.out_proj.initialized = True
         if self.cfg.with_linear_pos:
-            self.learn_emb_in_quant.set_scale_and_zp()
-            self.linear_pos.weight_quantizer.set_scale_and_zp()
-            mem_lin = TiledMemristorLinear(
-                in_features=self.linear_pos.in_features,
-                out_features=self.linear_pos.out_features,
-                weight_precision=self.linear_pos.weight_bit_prec if not self.linear_pos.weight_bit_prec == 1.5 else 2,
-                converter_hardware_settings=self.converter_hardware_settings,
-                memristor_inputs=128,
-                memristor_outputs=128,
-            )
-            mem_lin.init_from_linear_quant(
-                activation_quant=self.learn_emb_in_quant,
-                linear_quant=self.linear_pos,
-                correction_settings=self.cfg.correction_settings,
-                num_cycles_init=self.cfg.num_cycles,
-            )
-            self.linear_pos = mem_lin
-            self.learn_emb_in_quant = nn.Identity()
-
-        print("Finished MHSA")
+            self.linear_pos.initialized = True

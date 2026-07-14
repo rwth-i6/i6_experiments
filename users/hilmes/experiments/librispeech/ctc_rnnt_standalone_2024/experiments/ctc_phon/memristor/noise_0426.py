@@ -92,7 +92,9 @@ def eow_phon_ls960_0426_memristor_noise():
 
     network_module_mem_v9 = "ctc.qat_0711.memristor_v9"
     network_module_mem_v10 = "ctc.qat_0711.memristor_v10"
+    network_module_mem_v15 = "ctc.qat_0711.memristor_v15"
     from ....pytorch_networks.ctc.qat_0711.memristor_v8_cfg import QuantModelTrainConfigV8 as MemristorModelTrainConfigV8
+    from ....pytorch_networks.ctc.qat_0711.memristor_v15_cfg import QuantModelTrainConfigV15 as MemristorModelTrainConfigV15, GaussianWeightNoiseConfig
     from torch_memristor.memristor_modules import DacAdcHardwareSettings
     from ....pytorch_networks.ctc.conformer_distill_1007.i6modelsRelPosEncV1_VGG4LayerActFrontendV1_v1_cfg import (
         LogMelFeatureExtractionV1Config,
@@ -269,7 +271,7 @@ def eow_phon_ls960_0426_memristor_noise():
                         hardware_input_vmax=0.6,
                         hardware_output_current_scaling=8020.0,
                     )
-                    for num_cycles in range(1, memristor_runs+1):
+                    for num_cycles in range(1, memristor_runs+1 if dim <= 512 else 4):
                         model_config_recog = copy.deepcopy(model_config)
                         model_config_recog.converter_hardware_settings = recog_dac_settings
                         model_config_recog.num_cycles = num_cycles
@@ -350,9 +352,10 @@ def eow_phon_ls960_0426_memristor_noise():
                         hardware_input_vmax=0.6,
                         hardware_output_current_scaling=8020.0,
                     )
+                    # TODO: this will need to be rerun for v14, so no surprise if sis wants to rerun this
                     for start_epoch in [1]:
                         for dev in [0.05]:
-                            model_config = MemristorModelTrainConfigV8(
+                            model_config = MemristorModelTrainConfigV15(
                                 feature_extraction_config=fe_config,
                                 frontend_config=frontend_config_dim,
                                 specaug_config=specaug_config_full,
@@ -384,15 +387,16 @@ def eow_phon_ls960_0426_memristor_noise():
                                 quant_in_linear=True,
                                 num_cycles=0,
                                 correction_settings=None,
-                                weight_noise_func="gauss",
-                                weight_noise_values={"dev": dev},
-                                weight_noise_start_epoch=start_epoch,
+                                weight_noise=GaussianWeightNoiseConfig(dev=dev, start_epoch=start_epoch),
                                 pos_emb_config=pos_emb_cfg,
                                 module_list=["ff", "conv", "mhsa", "ff"],
                                 module_scales=[0.5, 1.0, 1.0, 0.5],
                                 aux_ctc_loss_layers=None,
                                 aux_ctc_loss_scales=None,
                                 dropout_broadcast_axes=None,
+                                pos_enc_converter_hardware_settings=prior_train_dac_settings,
+                                weight_dropout=0.0,
+                                weight_pruning=None,
                             )
                             for seed in range(seeds):
                                 train_config_24gbgpu = {
@@ -415,13 +419,13 @@ def eow_phon_ls960_0426_memristor_noise():
                                 }
                                 train_args = {
                                     "config": train_config_24gbgpu,
-                                    "network_module": network_module_mem_v9,
+                                    "network_module": network_module_mem_v15,
                                     "net_args": {"model_config_dict": asdict(model_config)},
                                     "debug": False,
                                     "post_config": {"num_workers_per_gpu": 8},
                                     "use_speed_perturbation": True,
                                 }
-                                training_name = prefix_name + "/" + network_module_mem_v9 + f"_{1000 // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise{start_epoch}_{dev}_drop{dropout}_seed_{seed}"
+                                training_name = prefix_name + "/" + network_module_mem_v15 + f"_{1000 // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise{start_epoch}_{dev}_drop{dropout}_seed_{seed}"
                                 train_job = training(training_name, train_data, train_args, num_epochs=1000, **default_returnn)
                                 if not os.path.exists(f"{train_job._sis_path()}/finished.run.1"):  # sync back was successful
                                     train_job.rqmt['cpu'] = 12
@@ -429,9 +433,7 @@ def eow_phon_ls960_0426_memristor_noise():
                                     train_job.move_to_hpc = True
 
                                 prior_config = copy.deepcopy(model_config)
-                                prior_config.weight_noise_func = None
-                                prior_config.weight_noise_values = None
-                                prior_config.weight_noise_start_epoch = None
+                                prior_config.weight_noise = None
                                 prior_args = copy.deepcopy(train_args)
                                 prior_args["net_args"] = {"model_config_dict": asdict(prior_config)}
 
@@ -491,19 +493,17 @@ def eow_phon_ls960_0426_memristor_noise():
                                     model_config_recog = copy.deepcopy(model_config)
                                     model_config_recog.converter_hardware_settings = recog_dac_settings
                                     model_config_recog.num_cycles = num_cycles
-                                    model_config_recog.weight_noise_func = None
-                                    model_config_recog.weight_noise_values = None
-                                    model_config_recog.weight_noise_start_epoch = None
+                                    model_config_recog.weight_noise = None
                                     train_args_recog = {
                                         "config": train_config_24gbgpu,
-                                        "network_module": network_module_mem_v10,
+                                        "network_module": network_module_mem_v15,
                                         "net_args": {"model_config_dict": asdict(model_config_recog)},
                                         "debug": False,
                                         "post_config": {"num_workers_per_gpu": 8},
                                         "use_speed_perturbation": True,
                                     }
 
-                                    recog_name = prefix_name + "/" + network_module_mem_v10 + f"_{1000 // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise{start_epoch}_{dev}_drop{dropout}_seed_{seed}/cycle_{num_cycles // 11}"
+                                    recog_name = prefix_name + "/" + network_module_mem_v15 + f"_{1000 // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise{start_epoch}_{dev}_drop{dropout}_seed_{seed}/cycle_{num_cycles // 11}"
                                     res_conv = eval_model(
                                         training_name=recog_name + f"_{num_cycles}",
                                         train_job=train_job,
@@ -528,10 +528,10 @@ def eow_phon_ls960_0426_memristor_noise():
                                         split_mem_init=True,
                                         search_gpu=24 if dim > 512 else 11,
                                     )
-                                recog_name = prefix_name + "/" + network_module_mem_v10 + f"_{1000 // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise{start_epoch}_{dev}_drop{dropout}_seed_{seed}_cycle"
+                                recog_name = prefix_name + "/" + network_module_mem_v15 + f"_{1000 // 10}eps_{dim}dim_w{weight_bit}_a{activation_bit}_noise{start_epoch}_{dev}_drop{dropout}_seed_{seed}_cycle"
                                 generate_report(results=res_conv, exp_name=recog_name)
                                 memristor_report[recog_name] = copy.deepcopy(res_conv)
     tk.register_report("reports/lbs/memristor_noise_report", partial(build_qat_report, memristor_report),
                        required=memristor_report, update_frequency=400)
-    tk.register_report("reports/lbs/v2/memristor_noise", partial(build_qat_report_v2, memristor_report),
+    tk.register_report("reports/lbs/v2/memristor_noise_phon", partial(build_qat_report_v2, memristor_report),
                        required=memristor_report, update_frequency=400)
