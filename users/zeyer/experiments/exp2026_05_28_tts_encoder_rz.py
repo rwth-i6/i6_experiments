@@ -56,7 +56,12 @@ def py():
         "tts-enc-ref-match-1gpu",
         prefix=prefix,
         text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
+        # reduced from 120k/25k: 80GB c25g GPUs OOM with real TTS durations
+        # (audio batches set the memory high-water mark); 100k = the offline reference batch.
+        batch_size_audio_frames=90_000,  # 100k peaked ~78GB in the long laplace buckets -> OOM at 80GB
+        # 15k still OOMs on 80GB for this variant: the audio-step pool (~53GB at audio 100k)
+        # plus the text-step pool must fit together; 10k keeps the text step small enough.
+        batch_size_phon=8_000,
         max_phon_len=300,
         tts_waveform=True,
         glow_tts_noise_scale_range=(0.7, 0.7),
@@ -75,7 +80,12 @@ def py():
         "tts-enc-ref-match-logmel-1gpu",
         prefix=prefix,
         text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
+        # reduced from 120k/25k: 80GB c25g GPUs OOM with real TTS durations
+        # (audio batches set the memory high-water mark); 100k = the offline reference batch.
+        batch_size_audio_frames=90_000,  # 100k peaked ~78GB in the long laplace buckets -> OOM at 80GB
+        # 15k still OOMs on 80GB for this variant: the audio-step pool (~53GB at audio 100k)
+        # plus the text-step pool must fit together; 10k keeps the text step small enough.
+        batch_size_phon=8_000,
         max_phon_len=300,
         tts_waveform=True,
         asr_logmel=True,
@@ -96,7 +106,12 @@ def py():
         "tts-enc-ref-match-full-1gpu",
         prefix=prefix,
         text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
+        # reduced from 120k/25k: 80GB c25g GPUs OOM with real TTS durations
+        # (audio batches set the memory high-water mark); 100k = the offline reference batch.
+        batch_size_audio_frames=90_000,  # 100k peaked ~78GB in the long laplace buckets -> OOM at 80GB
+        # 15k still OOMs on 80GB for this variant: the audio-step pool (~53GB at audio 100k)
+        # plus the text-step pool must fit together; 10k keeps the text step small enough.
+        batch_size_phon=8_000,
         max_phon_len=300,
         tts_waveform=True,
         asr_logmel=True,
@@ -119,7 +134,12 @@ def py():
         "tts-enc-ref-match-full-single-1gpu",
         prefix=prefix,
         text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
+        # reduced from 120k/25k: 80GB c25g GPUs OOM with real TTS durations
+        # (audio batches set the memory high-water mark); 100k = the offline reference batch.
+        batch_size_audio_frames=90_000,  # 100k peaked ~78GB in the long laplace buckets -> OOM at 80GB
+        # 15k still OOMs on 80GB for this variant: the audio-step pool (~53GB at audio 100k)
+        # plus the text-step pool must fit together; 10k keeps the text step small enough.
+        batch_size_phon=8_000,
         max_phon_len=300,
         tts_waveform=True,
         asr_logmel=True,
@@ -145,7 +165,12 @@ def py():
         "tts-enc-ref-match-full-single-gumbel-1gpu",
         prefix=prefix,
         text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
+        # reduced from 120k/25k: 80GB c25g GPUs OOM with real TTS durations
+        # (audio batches set the memory high-water mark); 100k = the offline reference batch.
+        batch_size_audio_frames=90_000,  # 100k peaked ~78GB in the long laplace buckets -> OOM at 80GB
+        # 15k OOMs at 80GB once batches truly mix audio+text (the earlier 64.9GB reading
+        # was from the audio-only sampling-bug phase); 10k like the single-stream sibling.
+        batch_size_phon=8_000,
         max_phon_len=300,
         tts_waveform=True,
         asr_logmel=True,
@@ -168,7 +193,12 @@ def py():
         "tts-enc-ref-match-full-dbmel-direct-1gpu",
         prefix=prefix,
         text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
+        # reduced from 120k/25k: 80GB c25g GPUs OOM with real TTS durations
+        # (audio batches set the memory high-water mark); 100k = the offline reference batch.
+        batch_size_audio_frames=90_000,  # 100k peaked ~78GB in the long laplace buckets -> OOM at 80GB
+        # 15k still OOMs on 80GB for this variant: the audio-step pool (~53GB at audio 100k)
+        # plus the text-step pool must fit together; 10k keeps the text step small enough.
+        batch_size_phon=8_000,
         max_phon_len=300,
         glow_tts_noise_scale_range=(0.7, 0.7),
         glow_tts_length_scale_range=(1.0, 1.0),
@@ -187,7 +217,10 @@ def py():
         "tts-enc-ref-match-full-rnddur-short-1gpu",
         prefix=prefix,
         text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
+        # reduced from 120k/25k: 80GB c25g GPUs OOM with real TTS durations
+        # (audio batches set the memory high-water mark); 100k = the offline reference batch.
+        batch_size_audio_frames=100_000,
+        batch_size_phon=15_000,
         max_phon_len=300,
         tts_waveform=True,
         asr_logmel=True,
@@ -209,7 +242,10 @@ def py():
         "tts-enc-ref-match-full-dur1-1gpu",
         prefix=prefix,
         text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
+        # reduced from 120k/25k: 80GB c25g GPUs OOM with real TTS durations
+        # (audio batches set the memory high-water mark); 100k = the offline reference batch.
+        batch_size_audio_frames=100_000,
+        batch_size_phon=15_000,
         max_phon_len=300,
         tts_waveform=True,
         asr_logmel=True,
