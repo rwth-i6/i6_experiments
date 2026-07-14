@@ -136,7 +136,10 @@ def get_glow_tts_preload_from_files(prefix: str = "tts.glow_tts_model.") -> Dict
     :param prefix: param-name prefix of the GlowTTS submodule in the combined model.
         Default matches attaching ``model.tts = GlowTtsLogMel(...)`` (whose submodule is ``glow_tts_model``).
     """
-    return {"glow_tts": {"prefix": prefix, "filename": get_glow_tts_checkpoint()}}
+    # init_for_train: the preload_from_files default is init-for-RECOG-only;
+    # without this flag, the torch engine silently SKIPS the preload in training
+    # (the frozen TTS then stays at its random init).
+    return {"glow_tts": {"prefix": prefix, "filename": get_glow_tts_checkpoint(), "init_for_train": True}}
 
 
 @cache
@@ -165,7 +168,8 @@ def get_glow_tts_gl_net_config() -> Dict[str, Any]:
 
 def get_glow_tts_gl_preload_from_files(prefix: str = "tts.gl_model.") -> Dict[str, Dict[str, Any]]:
     """``preload_from_files`` entry for the (frozen) GL-net params, for the waveform path."""
-    return {"glow_tts_gl": {"prefix": prefix, "filename": get_glow_tts_gl_checkpoint()}}
+    # init_for_train: see get_glow_tts_preload_from_files (without it, training skips the preload).
+    return {"glow_tts_gl": {"prefix": prefix, "filename": get_glow_tts_gl_checkpoint(), "init_for_train": True}}
 
 
 def get_glow_tts_phoneme_dataset_dict(
