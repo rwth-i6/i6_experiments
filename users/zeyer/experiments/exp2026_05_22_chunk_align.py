@@ -108,18 +108,36 @@ def py():
 
     for model_name, model_cfg in _backbones.items():
         for ds_name, (ds_dir, ds_key, ds_offset) in _datasets.items():
-            # overlap = chunk_size / 2 (constant 50% relative overlap) across all sizes,
-            # so chunk size is the only variable in the sweep.
-            for chunk_size_secs in [30.0, 20.0, 10.0, 5.0, 3.0, 2.0, 1.0]:
-                chunk_overlap_secs = chunk_size_secs / 2
-                seg_name = f"chunk-align/{model_name}-{ds_name}-{ds_key}-cs{chunk_size_secs:.0f}"
+            # (chunk_size_secs, chunk_overlap_secs) variants. The name encodes the overlap so the
+            # three schemes coexist: original fixed 5s (10/20/30), non-overlapping 0s (5/3/2), and
+            # half-chunk 50% overlap across all sizes (incl. cs1).
+            for chunk_size_secs, chunk_overlap_secs in [
+                # fixed 5s overlap -- the original 10/20/30 (already finished; reused)
+                (30.0, 5.0),
+                (20.0, 5.0),
+                (10.0, 5.0),
+                # non-overlapping -- the 5/3/2 already running (reused)
+                (5.0, 0.0),
+                (3.0, 0.0),
+                (2.0, 0.0),
+                # half-chunk overlap (50%); (10.0, 5.0) is already listed above
+                (30.0, 15.0),
+                (20.0, 10.0),
+                (5.0, 2.5),
+                (3.0, 1.5),
+                (2.0, 1.0),
+                (1.0, 0.5),
+            ]:
+                seg_name = (
+                    f"chunk-align/{model_name}-{ds_name}-{ds_key}-cs{chunk_size_secs:.0f}-ov{chunk_overlap_secs:g}"
+                )
                 seg = ChunkSegmentationFromModelJob(
                     dataset_dir=ds_dir,
                     dataset_key=ds_key,
                     model_config=model_cfg,
                     chunk_size_secs=chunk_size_secs,
-                    # cs10's half-overlap (5s) equals the job default, so omit the arg to keep that
-                    # already-finished job's hash; pass it explicitly for every other size.
+                    # 5s is the job default (the finished 10/20/30 runs), so omit the arg for those
+                    # to keep their hash; pass it explicitly otherwise.
                     **({} if chunk_overlap_secs == 5.0 else {"chunk_overlap_secs": chunk_overlap_secs}),
                 )
                 seg.add_alias(seg_name)
