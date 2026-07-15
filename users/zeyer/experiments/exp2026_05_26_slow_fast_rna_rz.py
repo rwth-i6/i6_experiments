@@ -94,6 +94,9 @@ def py():
     _train_framewise_enc4dec24_rz()
     _train_framewise_delay_rz()
     _train_framewise_wordchunk_rz()
+    _train_framewise_wordchunk_end_rz()
+    _train_framewise_delay0p3_rz()
+    _train_framewise_wordchunk_end_delay0p3_rz()
 
 
 def _loq_chunk_align_dataset(base_model, *, base_aux_ctc_layer: int, target_mode: str):
@@ -408,4 +411,47 @@ def _train_framewise_wordchunk_rz():
         train_def=framewise_training,
         recog_def=framewise_model_recog,
         target_mode="rna_frame_wordchunk",
+    )
+
+
+def _train_framewise_wordchunk_end_rz():
+    """DSM ablation: framewise + END-anchored word-chunk target.
+
+    Each word's sub-words are emitted at the word OFFSET (packed ending at the last sub-word's frame),
+    so the whole word is only emitted once its acoustics are in -- a delay to the word boundary.
+    Contrast ``framewise-wordchunk`` (onset-anchored), which emits later sub-words BEFORE their
+    acoustics (anticipation). Sole change vs that variant is the target layout.
+    """
+    return _train_variant_rz(
+        "framewise-wordchunk-end-1gpu",
+        dec_build_dict=rf.build_dict(FramewiseDecoder, model_dim=1024, num_layers=6, num_heads=8, version=2),
+        train_def=framewise_training,
+        recog_def=framewise_model_recog,
+        target_mode="rna_frame_wordchunk_end",
+    )
+
+
+def _train_framewise_delay0p3_rz():
+    """DSM latency point: framewise + a fixed ~0.3 s audio->text delay (5 enc frames @ ~16.67 Hz); vs delay2p5 (42 frames)."""
+    return _train_variant_rz(
+        "framewise-delay0p3-1gpu",
+        dec_build_dict=rf.build_dict(
+            FramewiseDecoder, model_dim=1024, num_layers=6, num_heads=8, delay_frames=5, version=2
+        ),
+        train_def=framewise_training,
+        recog_def=framewise_model_recog,
+        target_mode="rna_frame",
+    )
+
+
+def _train_framewise_wordchunk_end_delay0p3_rz():
+    """DSM combo: END-anchored word-chunk target + a fixed ~0.3 s delay (5 frames) on top of the word-boundary delay."""
+    return _train_variant_rz(
+        "framewise-wordchunk-end-delay0p3-1gpu",
+        dec_build_dict=rf.build_dict(
+            FramewiseDecoder, model_dim=1024, num_layers=6, num_heads=8, delay_frames=5, version=2
+        ),
+        train_def=framewise_training,
+        recog_def=framewise_model_recog,
+        target_mode="rna_frame_wordchunk_end",
     )

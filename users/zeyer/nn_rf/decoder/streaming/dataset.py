@@ -26,6 +26,7 @@ from returnn.tensor import Dim
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 
 from .segmentation import chunk_augmented_targets, ctc_collapse, rna_frame_targets, word_chunk_frame_targets
+from .segmentation_wordchunk_end import word_chunk_frame_targets_end
 
 
 class ExtendVocabWithEocJob(Job):
@@ -176,7 +177,7 @@ class ChunkAlignDataset(DatasetConfig):
         :param target_mode: ``chunk_eoc`` or ``rna_frame``.
         """
         super().__init__()
-        assert target_mode in ("chunk_eoc", "rna_frame", "rna_frame_wordchunk", "labels"), target_mode
+        assert target_mode in ("chunk_eoc", "rna_frame", "rna_frame_wordchunk", "rna_frame_wordchunk_end", "labels"), target_mode
         self.oggzip = oggzip
         self.alignment_hdfs = alignment_hdfs
         self.vocab_ext_dim_int = vocab_ext_dim_int
@@ -210,7 +211,7 @@ class ChunkAlignDataset(DatasetConfig):
         if target_mode == "chunk_eoc":
             self._target_name = "aug_targets"
             self._target_spatial_dim = Dim(None, name="aug_spatial", kind=Dim.Types.Spatial)
-        elif target_mode in ("rna_frame", "rna_frame_wordchunk"):
+        elif target_mode in ("rna_frame", "rna_frame_wordchunk", "rna_frame_wordchunk_end"):
             self._target_name = "rna_targets"
             self._target_spatial_dim = Dim(None, name="rna_spatial", kind=Dim.Types.Spatial)
         else:  # labels
@@ -220,6 +221,10 @@ class ChunkAlignDataset(DatasetConfig):
     def _build_map_seq(self) -> Callable:
         if self.target_mode == "rna_frame_wordchunk":
             return rna_frame_wordchunk_map_seq(
+                self._vocab_ext_dim, blank_idx=self.blank_idx, chunk_size=self.chunk_size, aug_vocab=self.aug_vocab
+            )
+        if self.target_mode == "rna_frame_wordchunk_end":
+            return rna_frame_wordchunk_end_map_seq(
                 self._vocab_ext_dim, blank_idx=self.blank_idx, chunk_size=self.chunk_size, aug_vocab=self.aug_vocab
             )
         builder = {"chunk_eoc": chunk_augment_map_seq, "rna_frame": rna_frame_map_seq, "labels": labels_map_seq}[
@@ -530,6 +535,53 @@ def _word_start_ids(aug_vocab: Dict[str, Any]) -> frozenset:
         ids = frozenset(i for i, lab in enumerate(vocab.labels) if lab.startswith("\u2581"))
         _WORD_START_IDS_CACHE[key] = ids
     return ids
+
+
+def rna_frame_wordchunk_end_map_seq(
+    vocab_ext_dim: Dim,
+    *,
+    blank_idx: int,
+    chunk_size: int,
+    aug_vocab: Dict[str, Any],
+    alignment_key: str = "alignment",
+) -> Callable:
+    """Build the ``map_seq`` for the END-anchored word-chunk RNA target (each word emitted at its offset)."""
+    return functools.partial(
+        _rna_frame_wordchunk_end_map_seq,
+        vocab_ext_dim=vocab_ext_dim,
+        blank_idx=blank_idx,
+        chunk_size=chunk_size,
+        aug_vocab=aug_vocab,
+        alignment_key=alignment_key,
+    )
+
+
+def _rna_frame_wordchunk_end_map_seq(
+    seq,
+    *,
+    rng=None,
+    vocab_ext_dim: Dim,
+    blank_idx: int,
+    chunk_size: int,
+    aug_vocab: Dict[str, Any],
+    alignment_key: str,
+    **kwargs,
+):
+    from returnn.tensor import Tensor, TensorDict
+
+    align = seq[alignment_key]
+    frames = np.asarray(align.raw_tensor).reshape(-1)
+    wc = word_chunk_frame_targets_end(
+        frames, blank_idx=blank_idx, word_start_ids=_word_start_ids(aug_vocab), pad_to_multiple=chunk_size
+    ).astype("int32")
+
+    out = TensorDict()
+    out.data["data"] = seq["data"]
+    spatial = Dim(None, name="rna_spatial")
+    out.data["rna_targets"] = Tensor(
+        "rna_targets", dims=[spatial], dtype="int32", sparse_dim=vocab_ext_dim, raw_tensor=wc
+    )
+    return out
 
 
 def _rna_frame_wordchunk_map_seq(
