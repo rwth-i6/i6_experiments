@@ -1,8 +1,9 @@
 """
 End-anchored (delayed) word-chunk RNA target -- companion to :mod:`segmentation`.
 
-Split out so the ~30-line function lives in its own file (cleaner than editing the shared segmentation
-module in place). See :func:`word_chunk_frame_targets_end`.
+Split out so the function lives in its own file,
+rather than editing the shared segmentation module in place.
+See :func:`word_chunk_frame_targets_end`.
 """
 
 from __future__ import annotations
@@ -22,16 +23,20 @@ def word_chunk_frame_targets_end(
     """
     Per-frame WORD-CHUNKED target, END-anchored (delayed DSM word-chunk layout).
 
-    Like ``segmentation.word_chunk_frame_targets`` (onset-anchored), but each word's sub-word tokens
-    are packed CONSECUTIVELY so the LAST sub-word lands on its own emission frame (the word offset),
-    with the earlier sub-words on the immediately preceding frames. So the whole word is emitted only
-    once its final sub-word's acoustics are in (a delay to the word boundary), never anticipated --
-    the opposite of the onset-anchored variant (which emits the later sub-words before their acoustics).
+    Like ``segmentation.word_chunk_frame_targets`` (onset-anchored),
+    but each word's sub-word tokens are packed CONSECUTIVELY
+    so the LAST sub-word lands on its own emission frame (the word offset),
+    with the earlier sub-words on the immediately preceding frames.
+    So the whole word is emitted only once its final sub-word's acoustics are in
+    (a delay to the word boundary), never anticipated
+    -- the opposite of the onset-anchored variant,
+    which emits the later sub-words before their acoustics.
 
-    Left-anchored at ``emit_frames[last] - cnt + 1``, but never before the previous word's run
-    (``prev_end`` keeps the writes monotonic); if two words collide the later one cascades right (its
-    run may then end a few frames past its own offset). Total non-blank frames == #tokens <= T, so it
-    always fits.
+    Left-anchored at ``emit_frames[last] - cnt + 1``,
+    but never before the previous word's run (``prev_end`` keeps the writes monotonic);
+    if two words collide the later one cascades right,
+    so its run may then end a few frames past its own offset.
+    Total non-blank frames == #tokens <= T, so it always fits.
 
     :param frames: [T] int per-frame CTC best path (with blank).
     :param blank_idx:

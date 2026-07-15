@@ -1,19 +1,22 @@
 """
 Full-sum (marginalized) monotonic RNN-T training for the standard-monotonic ``RnntDecoder`` (version >= 3).
 
-Companion to :mod:`rnnt` (which holds the model + the framewise-CE train def).
+Companion to :mod:`rnnt`, which holds the model + the framewise-CE train def.
 The SAME v3 model trains with either framewise-CE (``rnnt.rnnt_training``, our fixed RNA alignment)
-or the marginalized loss here, switching only the objective.
+or the marginalized loss here,
+switching only the objective.
 
 Loss = ``i6_native_ops.monotonic_rnnt.monotonic_rnnt_loss`` (monotonic / RNA topology, softmax internal).
 It also accepts an optional ``alignment`` + ``max_shift_from_alignment``:
-shift 0 = Viterbi (== framewise on that alignment), larger = marginalization restricted to a band,
+shift 0 = Viterbi (== framewise on that alignment),
+larger = marginalization restricted to a band,
 ``alignment=None`` = full marginalization.
 
 Efficiency: the additive joiner pre-activation ``enc_proj[t] + pred[u]`` is packed to the valid
-(t, u) cells (``rf.masked_select`` over ``[enc_spatial, s1]``) BEFORE ``relu`` + the vocab projection,
-so the expensive ``V``-projection runs only on ``sum_b T_b*(S_b+1)`` cells -- the packed layout the
-kernel expects (b-major, t outer, u inner, no padding).
+(t, u) cells before ``relu`` + the vocab projection,
+via ``rf.masked_select`` over ``[batch, enc_spatial, s1]``,
+so the expensive ``V``-projection runs only on ``sum_b T_b*(S_b+1)`` cells
+-- the packed layout the kernel expects (b-major, t outer, u inner, no padding).
 """
 
 from __future__ import annotations
@@ -37,8 +40,10 @@ def rnnt_fullsum_train_forward(
 ) -> Dict[str, Tuple[Tensor, Dim]]:
     """Marginalized monotonic RNN-T forward.
 
-    ``labels`` is the plain transcription (``target_mode="labels"``), NOT a per-frame alignment.
-    Returns ``{loss_name: (loss, norm_dim)}`` (the monotonic-RNNT cost + the aux CTC losses).
+    ``labels`` is the plain transcription (``target_mode="labels"``),
+    NOT a per-frame alignment.
+    Returns ``{loss_name: (loss, norm_dim)}``:
+    the monotonic-RNNT cost + the aux CTC losses.
     """
     import os
     import sys

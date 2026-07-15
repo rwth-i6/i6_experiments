@@ -417,10 +417,13 @@ def _train_framewise_wordchunk_rz():
 def _train_framewise_wordchunk_end_rz():
     """DSM ablation: framewise + END-anchored word-chunk target.
 
-    Each word's sub-words are emitted at the word OFFSET (packed ending at the last sub-word's frame),
-    so the whole word is only emitted once its acoustics are in -- a delay to the word boundary.
-    Contrast ``framewise-wordchunk`` (onset-anchored), which emits later sub-words BEFORE their
-    acoustics (anticipation). Sole change vs that variant is the target layout.
+    Each word's sub-words are emitted at the word OFFSET,
+    packed ending at the last sub-word's frame,
+    so the whole word is only emitted once its acoustics are in
+    -- a delay to the word boundary.
+    Contrast ``framewise-wordchunk`` (onset-anchored),
+    which emits later sub-words BEFORE their acoustics (anticipation).
+    Sole change vs that variant is the target layout.
     """
     return _train_variant_rz(
         "framewise-wordchunk-end-1gpu",

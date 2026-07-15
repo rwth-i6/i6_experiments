@@ -13,9 +13,10 @@ Unlike ``framewise`` (which mixes the previous label into the frame stack) and `
 through the prediction network + joiner -- no frame-rate self-attention, no previous-symbol feedback.
 So this isolates "what the fast stack adds over a plain joiner".
 
-The prediction net depends on the label history only (standard monotonic RNN-T), so the SAME model
-trains with either framewise-CE on our fixed RNA alignment (``rnnt_training`` here) or the marginalized
-full-sum loss (``rnnt_fullsum.rnnt_fullsum_training``), switching only the objective.
+The prediction net depends on the label history only (standard monotonic RNN-T),
+so the SAME model trains with either framewise-CE on our fixed RNA alignment (``rnnt_training`` here)
+or the marginalized full-sum loss (``rnnt_fullsum.rnnt_fullsum_training``),
+switching only the objective.
 """
 
 from __future__ import annotations
