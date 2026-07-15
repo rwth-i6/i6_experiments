@@ -222,6 +222,31 @@ def py():
         gpu_mem=96,
         nep=100,
     )
+    # DbMel-direct + FIXED 1 frame per phoneme:
+    # the cheapest possible online-TTS variant (no GL/Griffin-Lim/waveform AND no durations).
+    # vs dbmel-direct, this isolates durations on the direct path;
+    # vs dur1, this isolates the waveform round-trip in the degenerate regime.
+    _train_tts_encoder(
+        "tts-enc-dbmel-direct-refcfg-dur1-1gpu",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        # dur1 caps (100k/15k), not the dbmel-direct 90k/4k cuts:
+        # those guard against long synth audio (~167ms/phoneme),
+        # which fixed_duration=1 cannot produce.
+        batch_size_audio_frames=100_000,
+        batch_size_phon=15_000,
+        max_phon_len=300,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        glow_tts_fixed_duration=1,
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        enc_aux_logits_share_weights=True,
+        enc_aux_logits_with_bias=False,
+        pad_audio_rnd=100,
+        num_processes=1,
+        gpu_mem=96,
+        nep=100,
+    )
     # Full base + SHORT random durations: w = w_pred * U(0.2, 0.5) per phoneme
     # (ceil keeps >= 1 frame; ~2-3 frames/phoneme, close to what the preload bug accidentally ran,
     # but with REAL acoustics -- tests whether compressed synth speech suffices for text-util).
