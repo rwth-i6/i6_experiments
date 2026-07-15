@@ -137,9 +137,7 @@ def py():
                     dataset_key=ds_key,
                     model_config=model_cfg,
                     chunk_size_secs=chunk_size_secs,
-                    # 5s is the job default (the finished 10/20/30 runs), so omit the arg for those
-                    # to keep their hash; pass it explicitly otherwise.
-                    **({} if chunk_overlap_secs == 5.0 else {"chunk_overlap_secs": chunk_overlap_secs}),
+                    chunk_overlap_secs=chunk_overlap_secs,
                 )
                 seg.add_alias(seg_name)
                 reg(f"{seg_name}.hdf", seg.out_hdf)
@@ -183,21 +181,19 @@ def py():
                 seg_b.add_alias(f"{seg_name}-batched")
                 reg(f"{seg_name}-batched.hdf", seg_b.out_hdf)
 
-    # Cross-sequence batched forward, cs30 (overlap 5 = same chunking as cs30-ov5), for verification:
-    # fp32 should reproduce the single-seq assignments exactly;
-    # bf16 tests whether the numerical noise changes any chunk assignment.
-    # Compare the HDFs against chunk-align/phi4mm-buckeye-val-cs30-ov5.hdf.
-    for _dt in ["float32", "bfloat16"]:
-        _cfg = rf.build_dict(Phi4MM, model_dir=dl_phi4mm_dir, grad_wrt=None, model_dtype=_dt)
-        _segb = ChunkSegmentationFromModelBatchedJob(
-            dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
-            dataset_key="val",
-            model_config=_cfg,
-            chunk_size_secs=30.0,
-            max_batch_size=4,
-        )
-        _segb.add_alias(f"chunk-align/phi4mm-buckeye-val-cs30-ov5-batched-{_dt}")
-        reg(f"chunk-align/phi4mm-buckeye-val-cs30-ov5-batched-{_dt}.hdf", _segb.out_hdf)
+    # fp32 batched (default fast path) at cs30, to check the fast path (esp. batched_logprobs) is
+    # bit-exact vs the fp32 single-seq reference below. The bf16 sweep diverges more for small
+    # chunks, so this isolates real logic differences from bf16 numerical noise.
+    _cfg_fp32b = rf.build_dict(Phi4MM, model_dir=dl_phi4mm_dir, grad_wrt=None, model_dtype="float32")
+    _segb = ChunkSegmentationFromModelBatchedJob(
+        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=_cfg_fp32b,
+        chunk_size_secs=30.0,
+        max_batch_size=4,
+    )
+    _segb.add_alias("chunk-align/phi4mm-buckeye-val-cs30-ov5-batched-float32")
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov5-batched-float32.hdf", _segb.out_hdf)
 
     # fp32 single-seq reference: the proper same-precision baseline for the fp32 batched job
     # (the default single cs30-ov5 is bf16). fp32 batched vs fp32 single should be 0% word diff.
