@@ -143,16 +143,24 @@ def py():
                 seg_name = (
                     f"chunk-align/{model_name}-{ds_name}-{ds_key}-cs{chunk_size_secs:.0f}-ov{chunk_overlap_secs:g}"
                 )
-                seg = ChunkSegmentationFromModelJob(
+                # Segmentation via the batched fast-path DP only (verified quality-neutral vs the
+                # single-seq DP, ~3x faster): grad_wrt=None (no grads needed), bf16.
+                batched_cfg = {**model_cfg, "grad_wrt": None, "model_dtype": "bfloat16"}
+                seg = ChunkSegmentationFromModelBatchedJob(
                     dataset_dir=ds_dir,
                     dataset_key=ds_key,
-                    model_config=model_cfg,
+                    model_config=batched_cfg,
                     chunk_size_secs=chunk_size_secs,
                     chunk_overlap_secs=chunk_overlap_secs,
+                    max_batch_size=8,
                 )
                 seg.add_alias(seg_name)
                 reg(f"{seg_name}.hdf", seg.out_hdf)
 
+                # Metric vs the nh0znoisung word timestamps (~62.5 ms grid; fine enough at
+                # second-scale chunking). We do NOT use buckeye_val_fine_ts: the alexwengg fine
+                # annotation covers only ~half the val speakers (23/46 tracks have zero fine words),
+                # so it would be a coarse/fine mix, not a clean gold.
                 metric = CalcChunkAssignmentMetricsJob(
                     chunk_seg_hdf=seg.out_hdf,
                     dataset_dir=ds_dir,
@@ -162,35 +170,6 @@ def py():
                 metric.add_alias(f"{seg_name}-metric")
                 reg(f"{seg_name}-accuracy.txt", metric.out_accuracy)
                 reg(f"{seg_name}-chunk_idx_mae.txt", metric.out_chunk_idx_mae)
-
-                # Twin metric on the fine-timestamps dataset
-                # (same tracks/order/audio/transcript, so the seg HDF applies unchanged;
-                # start/stop there are sample indices -> offset factor 1).
-                if ds_name == "buckeye" and ds_key == "val":
-                    metric_fine = CalcChunkAssignmentMetricsJob(
-                        chunk_seg_hdf=seg.out_hdf,
-                        dataset_dir=buckeye_val_fine_ts.out_hub_cache_dir,
-                        dataset_key=ds_key,
-                        dataset_offset_factors=1,
-                    )
-                    metric_fine.add_alias(f"{seg_name}-metric-finets")
-                    reg(f"{seg_name}-finets-accuracy.txt", metric_fine.out_accuracy)
-                    reg(f"{seg_name}-finets-chunk_idx_mae.txt", metric_fine.out_chunk_idx_mae)
-
-                # Batched fast-path DP over the same chunking. Verifies the cross-sequence batched
-                # implementation reproduces the single-seq assignment (fp32 bit-exact; bf16 only
-                # marginal boundary flips) and is ~3x cheaper, so it becomes the sweep's workhorse.
-                batched_cfg = {**model_cfg, "grad_wrt": None, "model_dtype": "bfloat16"}
-                seg_b = ChunkSegmentationFromModelBatchedJob(
-                    dataset_dir=ds_dir,
-                    dataset_key=ds_key,
-                    model_config=batched_cfg,
-                    chunk_size_secs=chunk_size_secs,
-                    chunk_overlap_secs=chunk_overlap_secs,
-                    max_batch_size=8,
-                )
-                seg_b.add_alias(f"{seg_name}-batched")
-                reg(f"{seg_name}-batched.hdf", seg_b.out_hdf)
 
     # fp32 batched (default fast path) at cs30, to check the fast path (esp. batched_logprobs) is
     # bit-exact vs the fp32 single-seq reference below. The bf16 sweep diverges more for small
