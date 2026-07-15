@@ -215,6 +215,9 @@ class EncoderStatePcaCallback(ForwardCallbackIface):
                     plt.plot(audio_coords[:, 0], audio_coords[:, 1], alpha=0.35, c="#1f77b4")
                 if len(text_coords) > 1:
                     plt.plot(text_coords[:, 0], text_coords[:, 1], alpha=0.35, c="#d62728")
+                # highlight seq start/end so the temporal direction is visible in the scatter.
+                self._mark_start_end(plt, audio_coords, label_prefix="audio")
+                self._mark_start_end(plt, text_coords, label_prefix="text")
                 title = f"Shared encoder PCA for {seq_tag}"
                 if self.cosine_similarity_summary:
                     cos = cosine_similarities[seq_tag]
@@ -236,6 +239,22 @@ class EncoderStatePcaCallback(ForwardCallbackIface):
 
         if self.cosine_similarity_summary:
             self._write_cosine_summary(cosine_similarities)
+
+    @staticmethod
+    def _mark_start_end(plt, coords: np.ndarray, *, label_prefix: str) -> None:
+        """Overlay distinct markers on the first (start) and last (end) frame of a modality."""
+        if len(coords) == 0:
+            return
+        # green = start, black = end; consistent across both modalities.
+        plt.scatter(
+            coords[0, 0], coords[0, 1], s=120, marker="*", c="#2ca02c",
+            edgecolors="black", linewidths=0.8, zorder=5, label=f"{label_prefix} start",
+        )
+        if len(coords) > 1:
+            plt.scatter(
+                coords[-1, 0], coords[-1, 1], s=120, marker="X", c="black",
+                edgecolors="white", linewidths=0.8, zorder=5, label=f"{label_prefix} end",
+            )
 
     def _write_cosine_summary(self, cosine_similarities: Dict[str, Dict[str, float]]) -> None:
         """Write a human-readable table of avg pairwise cosine similarities + overall means."""
