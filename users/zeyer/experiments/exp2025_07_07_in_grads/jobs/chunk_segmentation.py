@@ -362,6 +362,324 @@ class ChunkSegmentationFromModelJob(Job):
         # better_exchook.debug_shell(user_ns=locals(), user_global_ns=locals())
 
 
+class ChunkSegmentationFromModelBatchedJob(Job):
+    """Cross-sequence batched version of :class:`ChunkSegmentationFromModelJob`.
+
+    Identical DP and output HDF,
+    but processes up to ``max_batch_size`` sequences in lockstep,
+    batching the model forward across their current chunks via ``model.forward_batched``
+    (one HF forward per step instead of one per (seq, chunk)).
+    Requires a model wrapper providing ``forward_batched`` and configured with ``grad_wrt=None``
+    (currently Phi4MM).
+    In fp32 the batched forward reproduces the single-sequence job's log-probs (~1e-3),
+    hence identical assignments;
+    in bf16 it may differ by matmul non-determinism (set ``model_dtype`` in the model config).
+    """
+
+    __sis_version__ = 1
+    # The fast path (length-sort + vectorized per-word lm_head) is verified equivalent to the naive
+    # path (fp32: bit-exact; bf16: only marginal boundary flips from matmul non-determinism), so it
+    # is the default. Exclude the flags from the hash at their default, so a job built with the
+    # defaults hashes the same as a pre-flag job; a non-default value still changes it.
+    __sis_hash_exclude__ = {"sort_by_length": True, "batched_logprobs": True}
+
+    def __init__(
+        self,
+        *,
+        dataset_dir: tk.Path,
+        dataset_key: str,
+        returnn_root: Optional[tk.Path] = None,
+        model_config: Dict[str, Any],
+        chunk_size_secs: float = 30.0,
+        chunk_overlap_secs: float = 5.0,
+        empty_exit_penalty: float = -5.0,
+        word_start_heuristic: bool = True,
+        max_batch_size: int = 8,
+        sort_by_length: bool = True,
+        batched_logprobs: bool = True,
+    ):
+        super().__init__()
+        self.dataset_dir = dataset_dir
+        self.dataset_key = dataset_key
+        self.returnn_root = returnn_root
+        self.model_config = model_config
+        self.chunk_size_secs = chunk_size_secs
+        self.chunk_overlap_secs = chunk_overlap_secs
+        self.empty_exit_penalty = empty_exit_penalty
+        self.word_start_heuristic = word_start_heuristic
+        self.max_batch_size = max_batch_size
+        # sort_by_length: order seqs by word count so a batch groups similar-length prompts,
+        # cutting padding waste. batched_logprobs: one lm_head over the whole chunk transcript
+        # instead of one per word (the DP's real bottleneck). Both default on (verified equivalent).
+        self.sort_by_length = sort_by_length
+        self.batched_logprobs = batched_logprobs
+
+        self.rqmt = {"time": 40, "cpu": 2, "gpu": 1, "mem": 125}
+        self.out_hdf = self.output_path("out.hdf")
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import os
+        import sys
+        import math
+        from dataclasses import dataclass
+
+        set_hf_offline_mode()
+
+        import i6_experiments
+
+        recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
+        sys.path.insert(0, recipe_dir)
+
+        import i6_core.util as util
+
+        returnn_root = util.get_returnn_root(self.returnn_root)
+        sys.path.insert(0, returnn_root.get_path())
+
+        import numpy as np
+        import torch
+
+        from returnn.util import better_exchook
+        from returnn.datasets.hdf import SimpleHDFWriter
+        from i6_experiments.users.zeyer.torch.report_dev_memory_stats import report_dev_memory_stats
+        from i6_experiments.users.zeyer.torch.batch_slice import batch_slice
+        from i6_experiments.users.zeyer.torch.batch_gather import batches_gather
+
+        better_exchook.install()
+
+        from .models import make_model, ForwardOutput
+
+        dev = torch.device("cuda")
+        model_config = instanciate_delayed_copy(self.model_config)
+        model = make_model(**model_config, device=dev)
+        for p in model.parameters():
+            p.requires_grad = False
+        torch.set_grad_enabled(False)
+        report_dev_memory_stats(dev)
+
+        hdf_writer = SimpleHDFWriter(
+            self.out_hdf.get_path(), dim=2, ndim=2, extra_type={"audio_chunk_start_end": (2, 2, "int32")}
+        )
+
+        from datasets import load_dataset
+
+        ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))
+        print("Using key:", self.dataset_key, "num seqs:", len(ds[self.dataset_key]))
+        split = ds[self.dataset_key]
+
+        @dataclass
+        class _Node:
+            chunk_idx: int
+            word_idx: int
+            accum_in_log_prob: torch.Tensor
+            accum_exit_log_prob: torch.Tensor
+            accum_word_log_prob: Optional[torch.Tensor]
+            backpointer: Optional["_Node"]
+
+        def _chunk_bounds(audio, samplerate):
+            chunk_size_samples = math.ceil(self.chunk_size_secs * samplerate)
+            cse: List[Tuple[int, int]] = []
+            cur = 0
+            while True:
+                end = cur + chunk_size_samples
+                if end > len(audio):
+                    end = len(audio)
+                if len(audio) - end <= 128 and self.chunk_overlap_secs == 0:
+                    end = len(audio)
+                assert end > cur and end - cur > 1
+                cse.append((cur, end))
+                if end >= len(audio):
+                    break
+                cur = end - math.ceil(self.chunk_overlap_secs * samplerate)
+                assert cur >= 0
+            return cse
+
+        num_seqs = len(split)
+        rows = [split[i] for i in range(num_seqs)]  # preload once (needed for length sort)
+        order = list(range(num_seqs))
+        if self.sort_by_length:
+            # descending word count -> each batch groups similar-length prompts, less padding waste
+            order = sorted(order, key=lambda i: -len(rows[i]["word_detail"]["utterance"]))
+        results: Dict[int, Any] = {}  # orig seq_idx -> (words_indices_start_end, chunk_start_end)
+        for group_start in range(0, num_seqs, self.max_batch_size):
+            group = order[group_start : group_start + self.max_batch_size]
+            # per-seq state
+            st = {}
+            for i in group:
+                data = rows[i]
+                audio = data["audio"]["array"]
+                if not isinstance(audio, np.ndarray):
+                    audio = np.array(audio, dtype=np.float32)
+                else:
+                    audio = audio.astype(np.float32)
+                sr = data["audio"]["sampling_rate"]
+                words = data["word_detail"]["utterance"]
+                st[i] = dict(
+                    audio=audio,
+                    sr=sr,
+                    words=words,
+                    cse=_chunk_bounds(audio, sr),
+                    array=[],  # [chunk_idx][rel word_idx] of _Node
+                    cci=0,  # current chunk index
+                    done=False,
+                )
+            print(f"* group {group}: chunks per seq = {[len(st[i]['cse']) for i in group]}")
+
+            while True:
+                # gather active sequences' current-chunk forward inputs
+                active, fwd_audio, fwd_words, fwd_omitted, ws_start = [], [], [], [], {}
+                for i in group:
+                    s = st[i]
+                    if s["done"] or s["cci"] >= len(s["cse"]):
+                        s["done"] = True
+                        continue
+                    cci = s["cci"]
+                    if cci == 0 or not self.word_start_heuristic:
+                        prev_idx, cws = 0, 0
+                    else:
+                        prev_idx = int(
+                            torch.stack([n.accum_exit_log_prob for n in s["array"][cci - 1]]).argmax().item()
+                        )
+                        cws = s["array"][cci - 1][prev_idx].word_idx
+                    cwe = len(s["words"])
+                    if cws >= cwe:
+                        # trailing silence: drop remaining chunks (see single-seq job for rationale)
+                        assert self.word_start_heuristic
+                        s["cse"] = s["cse"][:cci]
+                        s["done"] = True
+                        continue
+                    a0, a1 = s["cse"][cci]
+                    active.append(i)
+                    ws_start[i] = (prev_idx, cws, cwe)
+                    fwd_audio.append(torch.tensor(s["audio"][a0:a1]))
+                    fwd_words.append(s["words"][cws:cwe])
+                    fwd_omitted.append(cws)
+                if not active:
+                    break
+
+                fwd_outputs = model.forward_batched(
+                    raw_inputs_list=fwd_audio,
+                    raw_inputs_sample_rate=st[active[0]]["sr"],
+                    raw_targets_list=fwd_words,
+                    omitted_prev_context_list=fwd_omitted,
+                )
+
+                for j, i in enumerate(active):
+                    s = st[i]
+                    cci = s["cci"]
+                    prev_idx, cws, cwe = ws_start[i]
+                    fo: ForwardOutput = fwd_outputs[j]
+                    s["array"].append([])
+                    assert len(s["array"]) == cci + 1
+                    all_lp = None
+                    if self.batched_logprobs:
+                        # one lm_head over the whole transcript, then slice per word (vs one lm_head
+                        # per word). Same values (up to fp noise); the lm_head is the DP bottleneck.
+                        max_end = int(fo.target_start_end[0, -1, 1])
+                        all_lp = model.log_probs(
+                            forward_output=fo, start=torch.tensor([0]), end=torch.tensor([max_end])
+                        )  # [1, max_end, V]
+                    for w in range(cwe - cws + 1):
+                        t0, t1 = fo.target_start_end[:, w].unbind(1)
+                        if all_lp is not None:
+                            log_probs = all_lp[:, int(t0) : int(t1)]
+                        else:
+                            log_probs = model.log_probs(forward_output=fo, start=t0, end=t1)
+                        word_idx = cws + w
+                        if word_idx < cwe:
+                            targets = batch_slice(fo.targets, (t0, t1))
+                            wlp = batches_gather(log_probs, indices=targets, num_batch_dims=2)
+                            wlp.masked_fill_(
+                                torch.arange(wlp.shape[1], device=wlp.device)[None, :]
+                                >= (t1 - t0).to(wlp.device)[:, None],
+                                0.0,
+                            )
+                            wlp = wlp.sum()
+                        else:
+                            wlp = None
+                        exit_lp = log_probs[0, 0, model.assistant_end_token_id]
+                        if w == 0:
+                            exit_lp = exit_lp + self.empty_exit_penalty
+                        prev_left, prev_below = None, None
+                        if w > 0:
+                            prev_below = s["array"][cci][-1]
+                            assert prev_below.word_idx == word_idx - 1
+                        if cci > 0 and prev_idx + w < len(s["array"][cci - 1]):
+                            prev_left = s["array"][cci - 1][prev_idx + w]
+                            assert prev_left.word_idx == word_idx
+                        if prev_below and not prev_left:
+                            prev_node, accum_in = prev_below, prev_below.accum_word_log_prob
+                        elif not prev_below and prev_left:
+                            prev_node, accum_in = prev_left, prev_left.accum_exit_log_prob
+                        elif prev_below and prev_left:
+                            if prev_below.accum_word_log_prob >= prev_left.accum_exit_log_prob:
+                                prev_node, accum_in = prev_below, prev_below.accum_word_log_prob
+                            else:
+                                prev_node, accum_in = prev_left, prev_left.accum_exit_log_prob
+                        else:
+                            assert cci == word_idx == 0
+                            prev_node, accum_in = None, torch.zeros(())
+                        s["array"][cci].append(
+                            _Node(
+                                chunk_idx=cci,
+                                word_idx=word_idx,
+                                accum_in_log_prob=accum_in,
+                                backpointer=prev_node,
+                                accum_word_log_prob=(accum_in + wlp) if word_idx < cwe else None,
+                                accum_exit_log_prob=accum_in + exit_lp,
+                            )
+                        )
+                    assert (
+                        len(s["array"][cci]) == cwe - cws + 1
+                        and s["array"][cci][0].word_idx == cws
+                        and s["array"][cci][-1].word_idx == cwe
+                    )
+                    s["cci"] += 1
+                del fwd_outputs
+
+            # backtrack + write per seq
+            for i in group:
+                s = st[i]
+                words, cse = s["words"], s["cse"]
+                nodes_alignment: List[_Node] = []
+                node = s["array"][-1][-1]
+                assert node.word_idx == len(words)
+                while node:
+                    nodes_alignment.append(node)
+                    node = node.backpointer
+                nodes_alignment.reverse()
+                words_per_chunks: List[List[int]] = [[] for _ in range(len(cse))]
+                covered = 0
+                for node in nodes_alignment[1:]:
+                    if node.backpointer.chunk_idx == node.chunk_idx:
+                        assert node.word_idx == node.backpointer.word_idx + 1
+                        words_per_chunks[node.chunk_idx].append(node.word_idx - 1)
+                        assert covered == node.word_idx - 1
+                        covered += 1
+                    else:
+                        assert node.chunk_idx == node.backpointer.chunk_idx + 1
+                        assert node.word_idx == node.backpointer.word_idx
+                assert covered == len(words)
+                wise = [(ws[0], ws[-1] + 1) if ws else (-1, -1) for ws in words_per_chunks]
+                assert len(wise) == len(cse)
+                results[i] = (wise, cse)
+                print(f"  seq {i}: words per chunks = {wise}")
+
+        # Write in original dataset order (the metric job reads seqs positionally); groups may have
+        # been reordered by sort_by_length.
+        for i in range(num_seqs):
+            wise, cse = results[i]
+            hdf_writer.insert_batch(
+                np.array(wise)[None],
+                seq_len=[len(cse)],
+                seq_tag=[f"seq-{i}"],
+                extra={"audio_chunk_start_end": np.array(cse)[None]},
+            )
+        hdf_writer.close()
+
+
 class CalcChunkAssignmentMetricsJob(Job):
     """
     Word-to-chunk assignment quality

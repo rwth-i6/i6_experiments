@@ -90,6 +90,7 @@ class Phi4MM(BaseModelInterface):
         unwrap_checkpoint_wrappers: bool = False,
         target_start_end_to_device: bool = False,
         attn_implementation: Optional[str] = None,
+        model_dtype: Optional[str] = None,
     ):
         """
         :param model_dir: hub cache dir of model e.g. via DownloadHuggingFaceRepoJob.out_hub_cache_dir
@@ -132,8 +133,28 @@ class Phi4MM(BaseModelInterface):
         start_time = time.time()
         model_dir = get_content_dir_from_hub_cache_dir(self.model_dir)
         processor = AutoProcessor.from_pretrained(model_dir, trust_remote_code=True)
+        # model_dtype resolution:
+        # None / "bfloat16" -> bf16 weights (default; flash-attn ok).
+        # "float32" -> fp32 weights (needs eager, since flash-attn rejects fp32).
+        # "amp-bfloat16" -> fp32 weights + autocast(bf16) at forward (needs eager).
+        # fp32 and amp force eager unless attn_implementation was set explicitly.
+        self._autocast_dtype = None
+        _torch_dtype = "auto"
+        _effective_attn = attn_implementation
+        if model_dtype in (None, "auto", "bfloat16", "bf16"):
+            pass
+        elif model_dtype in ("float32", "fp32"):
+            _torch_dtype = torch.float32
+            _effective_attn = attn_implementation or "eager"
+        elif model_dtype in ("amp-bfloat16", "amp-bf16"):
+            _torch_dtype = torch.float32
+            self._autocast_dtype = torch.bfloat16
+            _effective_attn = attn_implementation or "eager"
+        else:
+            raise ValueError(f"unknown model_dtype {model_dtype!r}")
+
         _from_pretrained_kw = {}
-        if attn_implementation:
+        if _effective_attn:
             # The checkpoint config ships _attn_implementation_autoset=True + flash_attention_2, which
             # makes from_pretrained IGNORE the attn_implementation= kwarg -> the flash-attn-2 path
             # force-disables output_attentions (self-attn alignment then gets all-None attns). Force the
@@ -143,13 +164,13 @@ class Phi4MM(BaseModelInterface):
             from transformers import AutoConfig
 
             _cfg = AutoConfig.from_pretrained(model_dir, trust_remote_code=True)
-            _cfg._attn_implementation = attn_implementation
+            _cfg._attn_implementation = _effective_attn
             _cfg._attn_implementation_autoset = False
             _from_pretrained_kw["config"] = _cfg
         model = AutoModelForCausalLM.from_pretrained(
             model_dir,
             local_files_only=True,
-            torch_dtype="auto",
+            torch_dtype=_torch_dtype,
             trust_remote_code=True,
             device_map=str(device),
             **_from_pretrained_kw,
@@ -255,6 +276,120 @@ class Phi4MM(BaseModelInterface):
             tse = out.target_start_end  # [B, num_words+1, 2]
             out.target_start_end = torch.stack([tse[..., 0], tse[..., 0] + 1], dim=-1)
         return out
+
+    def forward_batched(
+        self,
+        *,
+        raw_inputs_list: List[torch.Tensor],
+        raw_inputs_sample_rate: int,
+        raw_targets_list: List[List[str]],
+        omitted_prev_context_list: List[int],
+    ) -> List["ForwardOutput"]:
+        """Batched (B>1) teacher-forcing forward for the chunk segmentation DP.
+
+        One batched HF forward over B (audio, transcript) pairs
+        -> one ForwardOutput per sequence,
+        each shaped like the B=1 :meth:`forward` output,
+        so the existing :meth:`log_probs` and the DP node-building work per sequence unchanged.
+        Scoped to the no-grad, plain path only.
+        """
+        import contextlib
+
+        assert self.grad_wrt is None, "forward_batched: grad not supported, use grad_wrt=None"
+        assert not (
+            self._char_level
+            or self._fake_loss_grad
+            or self._margin_grad
+            or self._eos_margin
+            or self._first_subword_only
+        ), "forward_batched supports only the plain path (no char_level / margin / eos / first_subword)"
+        b = len(raw_inputs_list)
+        assert b == len(raw_targets_list) == len(omitted_prev_context_list)
+        dev = self.device
+        tokenizer = self.processor.tokenizer
+
+        prompts = []
+        added_prefix_flags = []
+        for words, omitted in zip(raw_targets_list, omitted_prev_context_list):
+            transcription = " ".join(words)
+            added_prefix = omitted is not None and int(omitted) > 0
+            if added_prefix:
+                transcription = "... " + transcription
+            added_prefix_flags.append(added_prefix)
+            prompts.append(f"<|user|><|audio_1|>{self.speech_prompt}<|end|><|assistant|>{transcription}<|end|>")
+
+        audios = [(a, raw_inputs_sample_rate) for a in raw_inputs_list]
+        inputs = self.processor(text=prompts, audios=audios, return_tensors="pt", padding=True).to(dev)
+        input_ids = inputs["input_ids"]  # [B, Tmax], left-padded
+        attn_mask = inputs["attention_mask"]  # [B, Tmax]
+
+        ctx = (
+            torch.autocast("cuda", dtype=self._autocast_dtype)
+            if self._autocast_dtype is not None
+            else contextlib.nullcontext()
+        )
+        with ctx:
+            res = self.model(**inputs, output_hidden_states=True, num_logits_to_keep=1)
+        last_out = res.hidden_states[-1]  # [B, Tmax, D]
+        del res
+
+        outs: List[ForwardOutput] = []
+        for i in range(b):
+            real = int(attn_mask[i].sum())
+            # Left-padded: this sequence's real tokens are the last `real` positions.
+            row_ids = input_ids[i, -real:]  # [real]
+            row_last_out = last_out[i, -real:]  # [real, D]
+            words = raw_targets_list[i]
+            added_prefix = added_prefix_flags[i]
+
+            (dst_text_start,) = torch.nonzero(row_ids == self.assistant_token_id).squeeze(dim=1)
+            dst_text_start = int(dst_text_start) + 1  # one past the assistant token
+            dst_text_end = real - 1  # right before the final <end>, excluding
+            targets = row_ids[dst_text_start:dst_text_end].unsqueeze(0)  # [1, T']
+            n_targets = targets.shape[1]
+            targets = torch.cat(
+                [targets, torch.tensor([[self.assistant_end_token_id]], device=dev, dtype=targets.dtype)],
+                dim=1,
+            )  # [1, T'+1]
+
+            # Same per-token word-span recovery as _forward_core.
+            words_start_end = [[0, 1]]
+            tokens = [tokenizer.decode(targets[0, :1])]
+            words_ = [tokens[-1]]
+            for t in range(1, n_targets):
+                s = tokenizer.decode(targets[0, t : t + 1])
+                tokens.append(s)
+                if s.startswith(" "):
+                    words_.append(s[1:])
+                    words_start_end[-1][1] = t
+                    words_start_end.append([t, t + 1])
+                else:
+                    words_[-1] += s
+                    words_start_end[-1][1] = t + 1
+            if added_prefix:
+                assert words_[0] == "...", f"seq {i}: expected '...' prefix, got {words_[0]!r}"
+                words_start_end = words_start_end[1:]
+                words_ = words_[1:]
+            assert len(words_start_end) == len(words), f"seq {i}: {len(words_start_end)=} != {len(words)=}, {tokens=}"
+            words_decoded = [tokenizer.decode(targets[0, a:b_]) for a, b_ in words_start_end]
+            words_decoded = [w[1:] if w.startswith(" ") else w for w in words_decoded]
+            assert words_decoded == words, f"seq {i}: {words_decoded=} {words=}"
+            words_start_end = words_start_end + [[n_targets, n_targets + 1]]
+
+            outs.append(
+                ForwardOutput(
+                    # inputs/input_* are the grad leaf, unused by the chunk DP -> minimal placeholders.
+                    inputs=row_last_out.new_zeros((1, 1, 1)),
+                    input_seq_lens=torch.tensor([1]),
+                    input_slice_start_end=None,
+                    input_raw_start_end=torch.zeros((1, 1, 2), dtype=torch.int64),
+                    targets=targets,
+                    target_seq_lens=torch.tensor([targets.shape[1]]),
+                    target_start_end=torch.tensor(words_start_end, dtype=torch.int64).unsqueeze(0),
+                    outputs=dict(dst_text_start=dst_text_start, last_out=row_last_out.unsqueeze(0)),
+                )
+            )
+        return outs
 
     def recog(
         self,

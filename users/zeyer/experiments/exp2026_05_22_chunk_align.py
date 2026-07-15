@@ -49,6 +49,7 @@ from i6_experiments.users.zeyer.external_models.phi4multimodal import download_p
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.phi4mm import Phi4MM
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.chunk_segmentation import (
     ChunkSegmentationFromModelJob,
+    ChunkSegmentationFromModelBatchedJob,
     CalcChunkAssignmentMetricsJob,
 )
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.buckeye_fine_dataset import (
@@ -166,3 +167,46 @@ def py():
                     metric_fine.add_alias(f"{seg_name}-metric-finets")
                     reg(f"{seg_name}-finets-accuracy.txt", metric_fine.out_accuracy)
                     reg(f"{seg_name}-finets-chunk_idx_mae.txt", metric_fine.out_chunk_idx_mae)
+
+    # Cross-sequence batched forward, cs30 (overlap 5 = same chunking as cs30-ov5), for verification:
+    # fp32 should reproduce the single-seq assignments exactly;
+    # bf16 tests whether the numerical noise changes any chunk assignment.
+    # Compare the HDFs against chunk-align/phi4mm-buckeye-val-cs30-ov5.hdf.
+    for _dt in ["float32", "bfloat16"]:
+        _cfg = rf.build_dict(Phi4MM, model_dir=dl_phi4mm_dir, grad_wrt=None, model_dtype=_dt)
+        _segb = ChunkSegmentationFromModelBatchedJob(
+            dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=_cfg,
+            chunk_size_secs=30.0,
+            max_batch_size=4,
+        )
+        _segb.add_alias(f"chunk-align/phi4mm-buckeye-val-cs30-ov5-batched-{_dt}")
+        reg(f"chunk-align/phi4mm-buckeye-val-cs30-ov5-batched-{_dt}.hdf", _segb.out_hdf)
+
+    # Fast path: bf16 + length-sort + vectorized per-word lm_head, larger batch. Measures the real
+    # speedup and checks the assignments still match single (expect ~= plain bf16 batched: bf16 noise).
+    _cfg_fast = rf.build_dict(Phi4MM, model_dir=dl_phi4mm_dir, grad_wrt=None, model_dtype="bfloat16")
+    _segf = ChunkSegmentationFromModelBatchedJob(
+        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=_cfg_fast,
+        chunk_size_secs=30.0,
+        max_batch_size=8,
+        sort_by_length=True,
+        batched_logprobs=True,
+    )
+    _segf.add_alias("chunk-align/phi4mm-buckeye-val-cs30-ov5-batched-fast-bf16")
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov5-batched-fast-bf16.hdf", _segf.out_hdf)
+
+    # fp32 single-seq reference: the proper same-precision baseline for the fp32 batched job
+    # (the default single cs30-ov5 is bf16). fp32 batched vs fp32 single should be 0% word diff.
+    _cfg_fp32s = rf.build_dict(Phi4MM, model_dir=dl_phi4mm_dir, model_dtype="float32")
+    _seg_fp32s = ChunkSegmentationFromModelJob(
+        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=_cfg_fp32s,
+        chunk_size_secs=30.0,
+    )
+    _seg_fp32s.add_alias("chunk-align/phi4mm-buckeye-val-cs30-ov5-single-float32")
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov5-single-float32.hdf", _seg_fp32s.out_hdf)
