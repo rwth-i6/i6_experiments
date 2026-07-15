@@ -1,6 +1,6 @@
-"""Recognition post-processing jobs: n-best LM rescoring."""
+"""Recognition post-processing jobs: n-best LM and CTC rescoring."""
 
-__all__ = ["NbestKenLmRescoreJob"]
+__all__ = ["NbestKenLmRescoreJob", "NbestCtcRescoreJob"]
 
 import ast
 import math
@@ -70,6 +70,69 @@ class NbestKenLmRescoreJob(Job):
 
             # emit the returnn search-output dict format (seq_tag to hyp) so downstream scoring reads it
             with open(self.out_search_results[lm_scale].get_path(), "wt") as f:
+                f.write("{\n")
+                for seq_tag, text in results.items():
+                    f.write(f"{repr(str(seq_tag))}: {repr(text)},\n")
+                f.write("}\n")
+
+
+class NbestCtcRescoreJob(Job):
+    """Fuse n-best AM scores with per-hypothesis CTC sequence scores, best hyp per sequence, once per ``ctc_scale``."""
+
+    def __init__(
+        self,
+        *,
+        nbest_file,
+        ctc_scores_file,
+        ctc_scales,
+        am_scale: float = 1.0,
+    ):
+        # both files are {seq_tag: [(score, text), ...]} with matching seq_tags and per-seq hyp order
+        self.nbest_file = nbest_file
+        self.ctc_scores_file = ctc_scores_file
+        self.ctc_scales = tuple(float(s) for s in ctc_scales)
+        self.am_scale = float(am_scale)
+
+        self.out_search_results = {
+            cs: self.output_path(f"search_out.ctc{cs}.py") for cs in self.ctc_scales
+        }
+
+        self.rqmt = {"cpu": 1, "mem": 4, "time": 1}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt, mini_task=True)
+
+    def run(self):
+        with open(self.nbest_file.get_path(), "rt") as f:
+            nbest = ast.literal_eval(f.read())
+        with open(self.ctc_scores_file.get_path(), "rt") as f:
+            ctc = ast.literal_eval(f.read())
+
+        assert set(nbest) == set(ctc), (
+            f"seq_tag mismatch: {len(set(nbest) ^ set(ctc))} tags differ between nbest and ctc scores"
+        )
+
+        joined = {}
+        for seq_tag, am_entries in nbest.items():
+            ctc_entries = ctc[seq_tag]
+            assert len(am_entries) == len(ctc_entries), seq_tag
+            lst = []
+            for (am_score, am_text), (ctc_score, ctc_text) in zip(am_entries, ctc_entries):
+                assert am_text == ctc_text, f"{seq_tag}: hyp text mismatch between nbest and ctc scores"
+                lst.append((float(am_score), float(ctc_score), am_text))
+            joined[seq_tag] = lst
+
+        for ctc_scale in self.ctc_scales:
+            results = {}
+            for seq_tag, lst in joined.items():
+                best_text, best_score = "", None
+                for am_score, ctc_score, text in lst:
+                    score = self.am_scale * am_score + ctc_scale * ctc_score
+                    if best_score is None or score > best_score:
+                        best_score, best_text = score, text
+                results[seq_tag] = best_text
+
+            with open(self.out_search_results[ctc_scale].get_path(), "wt") as f:
                 f.write("{\n")
                 for seq_tag, text in results.items():
                     f.write(f"{repr(str(seq_tag))}: {repr(text)},\n")
