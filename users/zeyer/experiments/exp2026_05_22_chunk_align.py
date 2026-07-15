@@ -177,8 +177,8 @@ def py():
                     dataset_key=ds_key,
                     model_config=batched_cfg,
                     chunk_size_secs=chunk_size_secs,
+                    chunk_overlap_secs=chunk_overlap_secs,
                     max_batch_size=8,
-                    **({} if chunk_overlap_secs == 5.0 else {"chunk_overlap_secs": chunk_overlap_secs}),
                 )
                 seg_b.add_alias(f"{seg_name}-batched")
                 reg(f"{seg_name}-batched.hdf", seg_b.out_hdf)

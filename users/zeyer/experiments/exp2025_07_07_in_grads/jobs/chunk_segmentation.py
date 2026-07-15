@@ -376,12 +376,9 @@ class ChunkSegmentationFromModelBatchedJob(Job):
     in bf16 it may differ by matmul non-determinism (set ``model_dtype`` in the model config).
     """
 
-    __sis_version__ = 1
-    # The fast path (length-sort + vectorized per-word lm_head) is verified equivalent to the naive
-    # path (fp32: bit-exact; bf16: only marginal boundary flips from matmul non-determinism), so it
-    # is the default. Exclude the flags from the hash at their default, so a job built with the
-    # defaults hashes the same as a pre-flag job; a non-default value still changes it.
-    __sis_hash_exclude__ = {"sort_by_length": True, "batched_logprobs": True}
+    # Bumped to 2 when sort_by_length / batched_logprobs were added: the flags are part of the hash
+    # (no __sis_hash_exclude__), so every value combination gets its own hash.
+    __sis_version__ = 2
 
     def __init__(
         self,
