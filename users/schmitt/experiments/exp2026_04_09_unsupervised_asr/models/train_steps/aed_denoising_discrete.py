@@ -215,12 +215,9 @@ def train_step(
 
     if adv_loss_scale > 0.0:
         assert true_adv_target is not None
-        single_enc_seqs = unpad_sequence(encoder_output, encoder_lens, batch_first=True)
-        enc_out_packed = pack_sequence(
-            single_enc_seqs,
-            enforce_sorted=False,
-        ).data
-        disc_out = model.discriminator(enc_out_packed)
+        # the discriminator consumes the padded encoder output [B, T, F] + lengths and returns a
+        # flat vector of per-frame (MLP/LSTM) or per-window (n-gram MLP) logits over valid positions.
+        disc_out = model.discriminator(encoder_output, encoder_lens)
         adv_loss = F.binary_cross_entropy_with_logits(
             disc_out,
             torch.full_like(disc_out, fill_value=adv_target),

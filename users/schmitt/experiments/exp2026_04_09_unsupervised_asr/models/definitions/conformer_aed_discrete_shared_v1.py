@@ -5,6 +5,7 @@ from typing import Callable, Dict, List, Literal, Optional, Sequence, Tuple, Typ
 
 import torch
 from torch import Tensor, nn
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 from i6_models.assemblies.conformer.conformer_rel_pos_v1 import (
     ConformerConvolutionV2Config,
@@ -63,19 +64,60 @@ class ConformerEncoderWithBottleneck(nn.Module):
         return encoder_outputs, out_mask
 
 
-class MlpDiscriminator(nn.Module):
-    def __init__(self, in_dim: int, num_layers: int = 3, hidden_dim: int = 512):
-        super().__init__()
-        self.layers = nn.ModuleList(
-            nn.Linear(in_dim if i == 0 else hidden_dim, hidden_dim if i < num_layers - 1 else 1)
-            for i in range(num_layers)
-        )
+def _valid_frame_mask(seq_lens: Tensor, max_len: int) -> Tensor:
+    """[B, max_len] bool mask, True for non-padding frames."""
+    return torch.arange(max_len, device=seq_lens.device)[None, :] < seq_lens[:, None]
 
-    def forward(self, x: Tensor) -> Tensor:
-        for layer in self.layers[:-1]:
-            x = nn.functional.relu(layer(x))
-        x = self.layers[-1](x)
-        return x
+
+def _ngram_windows(encoder_output: Tensor, encoder_lens: Tensor, num_frames: int, right_pad: bool = False) -> Tensor:
+    """Concatenate ``num_frames`` consecutive frames in the feature dim (sliding window / n-gram).
+
+    Returns a flat ``[M, F * num_frames]`` tensor over the windows in the batch. For
+    ``num_frames == 1`` this is just the flat set of valid frames ``[sum(lens), F]``.
+
+    ``right_pad`` controls the boundary handling for ``num_frames > 1``:
+
+    - ``False`` (default): only windows that fit fully inside a sequence are kept, so a sequence of
+      valid length ``L`` yields ``max(L - num_frames + 1, 0)`` windows. Windows never span into
+      padding, but the last ``num_frames - 1`` frames start no window (they are under-represented)
+      and sequences shorter than ``num_frames`` yield no windows at all.
+    - ``True``: every sequence is right-padded by ``num_frames - 1`` zero frames so each real frame
+      starts its own window -> exactly ``L`` windows per sequence (every frame equally represented;
+      short sequences still yield windows). The trailing frames' windows see zeros for the padded
+      tail (a zero-padding analog; the encoder has no mask-token state at its output).
+    """
+    B, T, F = encoder_output.shape
+    encoder_lens = encoder_lens.to(encoder_output.device)
+    if num_frames == 1:
+        return encoder_output[_valid_frame_mask(encoder_lens, T)]  # [sum(lens), F]
+    if right_pad:
+        # zero the padded (non-valid) positions first so windows extending past a sequence's real
+        # length see zeros rather than the encoder's states for batch-padding frames, then append
+        # num_frames-1 zero frames so each real frame can start a window.
+        encoder_output = encoder_output * _valid_frame_mask(encoder_lens, T).unsqueeze(-1)
+        encoder_output = torch.cat([encoder_output, encoder_output.new_zeros((B, num_frames - 1, F))], dim=1)
+    elif T < num_frames:
+        return encoder_output.new_zeros((0, F * num_frames))
+    # unfold over time -> [B, W, F, num_frames]; permute+reshape so the num_frames consecutive frames
+    # are concatenated along the feature dim (f_0, f_1, ..., f_{n-1}).
+    windows = encoder_output.unfold(dimension=1, size=num_frames, step=1)
+    W = windows.shape[1]
+    windows = windows.permute(0, 1, 3, 2).reshape(B, W, num_frames * F)  # [B, W, num_frames * F]
+    win_pos = torch.arange(W, device=encoder_output.device)[None, :]
+    if right_pad:
+        valid = win_pos < encoder_lens[:, None]  # each real frame starts a window
+    else:
+        # a window starting at position w is valid iff w + num_frames <= len (w <= len - num_frames)
+        valid = win_pos <= (encoder_lens[:, None] - num_frames)
+    return windows[valid]  # [M, num_frames * F]
+
+
+class _Discriminator(nn.Module):
+    """Base class for the domain-adversarial discriminators, providing freeze/unfreeze helpers.
+
+    Subclasses implement ``forward(encoder_output [B, T, F], encoder_lens [B]) -> [M]``, returning a
+    flat vector of per-frame (or per-window) logits over the valid positions in the batch.
+    """
 
     def freeze(self):
         for param in self.parameters():
@@ -84,6 +126,70 @@ class MlpDiscriminator(nn.Module):
     def unfreeze(self):
         for param in self.parameters():
             param.requires_grad = True
+
+
+class MlpDiscriminator(_Discriminator):
+    """Frame-wise / n-gram MLP discriminator over the (shared) encoder states.
+
+    With ``num_frames == 1`` each encoder frame is classified independently. With ``num_frames > 1``,
+    ``num_frames`` consecutive frames are concatenated in the feature dim (a sliding window, i.e. a
+    bigram/3-gram/4-gram) before the MLP, giving the discriminator local temporal context.
+
+    ``pad_windows`` chooses the boundary handling (see ``_ngram_windows``): ``False`` (default) keeps
+    only windows fully inside a sequence; ``True`` right-pads so every real frame starts a window.
+    """
+
+    def __init__(
+        self, in_dim: int, num_frames: int = 1, num_layers: int = 3, hidden_dim: int = 512, pad_windows: bool = False
+    ):
+        super().__init__()
+        self.num_frames = num_frames
+        self.pad_windows = pad_windows
+        self.layers = nn.ModuleList(
+            nn.Linear((in_dim * num_frames) if i == 0 else hidden_dim, hidden_dim if i < num_layers - 1 else 1)
+            for i in range(num_layers)
+        )
+
+    def forward(self, encoder_output: Tensor, encoder_lens: Tensor) -> Tensor:
+        x = _ngram_windows(
+            encoder_output, encoder_lens, self.num_frames, right_pad=self.pad_windows
+        )  # [M, in_dim * num_frames]
+        for layer in self.layers[:-1]:
+            x = nn.functional.relu(layer(x))
+        x = self.layers[-1](x)  # [M, 1]
+        return x.squeeze(-1)  # [M]
+
+
+class LstmDiscriminator(_Discriminator):
+    """LSTM discriminator that consumes the whole encoder output sequence.
+
+    A (by default bidirectional) LSTM runs over the entire sequence, so every frame's decision is
+    informed by the full temporal context; a per-frame linear head then produces one logit per valid
+    frame. Unlike the (n-gram) MLP this is not limited to a fixed local window.
+    """
+
+    def __init__(self, in_dim: int, hidden_dim: int = 512, num_layers: int = 2, bidirectional: bool = True):
+        super().__init__()
+        self.lstm = nn.LSTM(
+            input_size=in_dim,
+            hidden_size=hidden_dim,
+            num_layers=num_layers,
+            batch_first=True,
+            bidirectional=bidirectional,
+        )
+        self.out = nn.Linear(hidden_dim * (2 if bidirectional else 1), 1)
+
+    def forward(self, encoder_output: Tensor, encoder_lens: Tensor) -> Tensor:
+        packed = pack_padded_sequence(encoder_output, encoder_lens.cpu(), batch_first=True, enforce_sorted=False)
+        out, _ = self.lstm(packed)
+        out_padded, _ = pad_packed_sequence(out, batch_first=True)  # [B, T', hidden_dim * num_directions]
+        logits = self.out(out_padded).squeeze(-1)  # [B, T']
+        mask = _valid_frame_mask(encoder_lens.to(logits.device), out_padded.shape[1])
+        return logits[mask]  # [M]
+
+
+# maps the model's ``discriminator_type`` string to the n-gram window size of the MLP discriminator.
+_MLP_DISCRIMINATOR_NGRAM = {"mlp": 1, "mlp_2gram": 2, "mlp_3gram": 3, "mlp_4gram": 4}
 
 
 class GumbelVectorQuantizer(nn.Module):
@@ -175,9 +281,7 @@ class GumbelVectorQuantizer(nn.Module):
         _, k = x.max(-1)
         hard_x = x.new_zeros(*x.shape).scatter_(-1, k.view(-1, 1), 1.0).view(bsz * tsz, self.groups, -1)
         hard_probs = torch.mean(hard_x.float(), dim=0)
-        result["code_perplexity"] = torch.exp(
-            -torch.sum(hard_probs * torch.log(hard_probs + 1e-7), dim=-1)
-        ).sum()
+        result["code_perplexity"] = torch.exp(-torch.sum(hard_probs * torch.log(hard_probs + 1e-7), dim=-1)).sum()
 
         avg_probs = torch.softmax(x.view(bsz * tsz, self.groups, -1).float(), dim=-1).mean(dim=0)
         result["prob_perplexity"] = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-7), dim=-1)).sum()
@@ -237,9 +341,6 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
 
     def __init__(
         self,
-        # RETURNN get_model parameters
-        epoch: int,
-        step: int,
         *,
         # Model Size/Structure
         model_dim: int,
@@ -259,6 +360,10 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
         enc_bottleneck_dim: Optional[int] = None,
         share_decoder: bool = False,
         discriminator_type: Optional[str] = None,
+        # for the n-gram MLP discriminators ("mlp_2gram"/etc.): if True, right-pad each sequence so
+        # every real frame starts a window (equal per-frame coverage) instead of dropping the windows
+        # that would overlap padding. Off by default; ignored for the "mlp" (1-gram) and "lstm" types.
+        discriminator_pad_ngram_windows: bool = False,
         # If given, add a GumbelVectorQuantizer codebook on top of the (shared) encoder, à la
         # SpeechT5, to push the audio and text encoder states into a shared discrete space. The
         # dict may override any of the keys in `_DEFAULT_CODEBOOK_OPTS` (an empty dict uses all
@@ -403,11 +508,22 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
             self.text_decoder = TransformerDecoderV1(dec_cfgs["text"])
             self.audio_decoder = TransformerDecoderV1(dec_cfgs["audio"])
 
-        assert discriminator_type == "mlp" or discriminator_type is None
-        if discriminator_type == "mlp":
-            self.discriminator = MlpDiscriminator(in_dim=encoder_dim)
-        else:
+        # domain-adversarial discriminator on the shared encoder output. Options:
+        #   None                  -> no discriminator
+        #   "mlp"                 -> frame-wise MLP (1-gram)
+        #   "mlp_2gram/3gram/4gram" -> MLP over 2/3/4 concatenated consecutive frames
+        #   "lstm"                -> LSTM over the whole encoder output sequence
+        if discriminator_type is None:
             self.discriminator = None
+        elif discriminator_type == "lstm":
+            self.discriminator = LstmDiscriminator(in_dim=encoder_dim)
+        else:
+            assert discriminator_type in _MLP_DISCRIMINATOR_NGRAM, f"unknown discriminator_type {discriminator_type!r}"
+            self.discriminator = MlpDiscriminator(
+                in_dim=encoder_dim,
+                num_frames=_MLP_DISCRIMINATOR_NGRAM[discriminator_type],
+                pad_windows=discriminator_pad_ngram_windows,
+            )
 
         # codebook (GumbelVectorQuantizer) on top of the shared encoder output
         if codebook_opts is not None:
