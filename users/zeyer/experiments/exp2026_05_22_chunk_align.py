@@ -171,6 +171,115 @@ def py():
                 reg(f"{seg_name}-accuracy.txt", metric.out_accuracy)
                 reg(f"{seg_name}-chunk_idx_mae.txt", metric.out_chunk_idx_mae)
 
+    # Hyper-param sweep at the best 10s setting (cs10/ov2.5): empty_exit_penalty x word_start_heuristic.
+    # empty_exit_penalty only applies to exiting a chunk with zero words assigned; overlap makes such
+    # empty chunks more likely, so this is where it should matter. word_start_heuristic=False turns the
+    # pruning off (every chunk forwards the transcript from word 0 instead of from the prev chunk's best
+    # exit) -- the exact reference for what the heuristic costs, at ~2x the compute.
+    # (eep=-5, wsh=True) are the defaults, i.e. the same job as the plain cs10-ov2.5 above (reused).
+    _cfg_hp = rf.build_dict(Phi4MM, model_dir=dl_phi4mm_dir, grad_wrt=None, model_dtype="bfloat16")
+    for _wsh in [True, False]:
+        for _eep in [0.0, -2.0, -5.0, -10.0, -20.0]:
+            _seg_hp = ChunkSegmentationFromModelBatchedJob(
+                dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+                dataset_key="val",
+                model_config=_cfg_hp,
+                chunk_size_secs=10.0,
+                chunk_overlap_secs=2.5,
+                empty_exit_penalty=_eep,
+                word_start_heuristic=_wsh,
+                max_batch_size=8,
+            )
+            _hp_name = f"chunk-align/phi4mm-buckeye-val-cs10-ov2.5-eep{_eep:g}-wsh{int(_wsh)}"
+            _seg_hp.add_alias(_hp_name)
+            reg(f"{_hp_name}.hdf", _seg_hp.out_hdf)
+
+            _metric_hp = CalcChunkAssignmentMetricsJob(
+                chunk_seg_hdf=_seg_hp.out_hdf,
+                dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["buckeye"],
+            )
+            _metric_hp.add_alias(f"{_hp_name}-metric")
+            reg(f"{_hp_name}-accuracy.txt", _metric_hp.out_accuracy)
+            reg(f"{_hp_name}-chunk_idx_mae.txt", _metric_hp.out_chunk_idx_mae)
+
+    # empty_exit_penalty across chunk configs (word_start_heuristic=True throughout: the cs10/ov2.5
+    # ablation showed the heuristic is ~2x cheaper and no worse). Not a full cs x ov grid on purpose:
+    # eep only fires on a chunk that would exit with ZERO words, so what decides whether it acts at
+    # all is the empty-chunk pressure -- chunks (~duration/(cs-ov)) vs words (~3/s). cs and ov act
+    # through that same step, so we sweep along the pressure axis and isolate overlap once at fixed cs.
+    # eep=-5 is the default -> those cells reuse the plain cs*-ov* jobs above (free).
+    for _cs, _ov, _eeps in [
+        # low pressure control (step 25s, ~75 words/chunk): expect eep to do nothing
+        (30.0, 5.0, [0.0, -5.0, -20.0]),
+        # isolate OVERLAP at fixed cs=10 (cs10/ov2.5 is already swept above): step 5s vs 7.5s
+        (10.0, 5.0, [0.0, -2.0, -5.0, -10.0, -20.0]),
+        # isolate CHUNK SIZE at zero overlap (step 2s)
+        (2.0, 0.0, [0.0, -2.0, -5.0, -10.0, -20.0]),
+        # collapse probe (step 0.5s -> ~2 chunks/s vs ~3 words/s, so most chunks MUST be empty and
+        # the -5 default fights that): does removing the penalty recover acc 0.07 / 0.02?
+        (1.0, 0.5, [0.0, -5.0]),
+        (0.5, 0.0, [0.0, -5.0]),
+    ]:
+        for _eep in _eeps:
+            _seg_e = ChunkSegmentationFromModelBatchedJob(
+                dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+                dataset_key="val",
+                model_config=_cfg_hp,
+                chunk_size_secs=_cs,
+                chunk_overlap_secs=_ov,
+                empty_exit_penalty=_eep,
+                max_batch_size=8,
+            )
+            _e_name = f"chunk-align/phi4mm-buckeye-val-cs{_cs:.0f}-ov{_ov:g}-eep{_eep:g}"
+            _seg_e.add_alias(_e_name)
+            reg(f"{_e_name}.hdf", _seg_e.out_hdf)
+
+            _metric_e = CalcChunkAssignmentMetricsJob(
+                chunk_seg_hdf=_seg_e.out_hdf,
+                dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["buckeye"],
+            )
+            _metric_e.add_alias(f"{_e_name}-metric")
+            reg(f"{_e_name}-accuracy.txt", _metric_e.out_accuracy)
+            reg(f"{_e_name}-chunk_idx_mae.txt", _metric_e.out_chunk_idx_mae)
+
+    # word_start_heuristic=False (exact, unpruned) at smaller chunk sizes. At cs10/ov2.5 the exact DP
+    # was FLAT across eep (0.9847-0.9849) while the heuristic swung (0.976-0.986), i.e. eep acts only
+    # through the heuristic's argmax, not through the DP itself. If that generalizes, the small-chunk
+    # degradation is a heuristic failure and eep merely modulates it. Not run at the step-0.5s configs:
+    # unpruned there means ~1200 chunks x full-transcript forwards per seq, which would blow the 12h cap.
+    for _cs, _ov, _eeps in [
+        (2.0, 0.0, [0.0, -5.0, -20.0]),
+        (1.0, 0.0, [0.0, -5.0]),
+    ]:
+        for _eep in _eeps:
+            _seg_x = ChunkSegmentationFromModelBatchedJob(
+                dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+                dataset_key="val",
+                model_config=_cfg_hp,
+                chunk_size_secs=_cs,
+                chunk_overlap_secs=_ov,
+                empty_exit_penalty=_eep,
+                word_start_heuristic=False,
+                max_batch_size=8,
+            )
+            _x_name = f"chunk-align/phi4mm-buckeye-val-cs{_cs:.0f}-ov{_ov:g}-eep{_eep:g}-wsh0"
+            _seg_x.add_alias(_x_name)
+            reg(f"{_x_name}.hdf", _seg_x.out_hdf)
+
+            _metric_x = CalcChunkAssignmentMetricsJob(
+                chunk_seg_hdf=_seg_x.out_hdf,
+                dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["buckeye"],
+            )
+            _metric_x.add_alias(f"{_x_name}-metric")
+            reg(f"{_x_name}-accuracy.txt", _metric_x.out_accuracy)
+            reg(f"{_x_name}-chunk_idx_mae.txt", _metric_x.out_chunk_idx_mae)
+
     # fp32 batched (default fast path) at cs30, to check the fast path (esp. batched_logprobs) is
     # bit-exact vs the fp32 single-seq reference below. The bf16 sweep diverges more for small
     # chunks, so this isolates real logic differences from bf16 numerical noise.
