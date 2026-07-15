@@ -334,6 +334,11 @@ def _train_rnnt_mono_fullsum_rz():
         train_def=rnnt_fullsum_training,
         recog_def=rnnt_model_recog,
         target_mode="labels",
+        # The full-size model OOMs at the standard 8M batch:
+        # the packed joiner grid comes on top of the fixed model/optimizer memory.
+        # 4.8M fits with margin; the -small pair keeps the standard batch,
+        # so the controlled framewise-vs-fullsum comparison lives there.
+        extra_config={"batch_size": 30_000 * configs._batch_size_factor},
     )
 
 
