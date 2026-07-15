@@ -56,6 +56,44 @@ def get_random_mask(seq_lens: Tensor, mask_prob: float, min_span: int, max_span:
     return mask
 
 
+def expand_sequence(x: Tensor, lens: Tensor, min_dup: int, max_dup: int) -> Tuple[Tensor, Tensor]:
+    """
+    Upsample each token by a random consecutive-repeat count in [min_dup, max_dup], making the
+    sequence longer (mimicking the audio>text length ratio). Padding positions are left untouched.
+
+    Args:
+        x: (B, T) sparse index sequence
+        lens: (B,) valid lengths
+        min_dup: minimum per-token duplication count (>= 1)
+        max_dup: maximum per-token duplication count (>= min_dup)
+
+    Returns:
+        (expanded [B, T'] sequence, new lengths [B])
+    """
+    import os
+
+    assert min_dup >= 1 and max_dup >= min_dup
+    B, T = x.size(0), x.size(1)  # noqa
+    device = x.device
+
+    seed = int.from_bytes(os.urandom(4), "little")
+    torch.manual_seed(seed)
+    dur = torch.randint(low=min_dup, high=max_dup + 1, size=(B, T), device=device)
+    valid = torch.arange(T, device=device).unsqueeze(0) < lens.unsqueeze(1)
+    dur = dur * valid.to(dur.dtype)
+
+    new_lens = dur.sum(dim=1)
+    out = torch.zeros(B, int(new_lens.max().item()), dtype=x.dtype, device=device)
+    for b in range(B):
+        n = int(lens[b].item())
+        if n == 0:
+            continue
+        rep = torch.repeat_interleave(x[b, :n], dur[b, :n])
+        out[b, : rep.numel()] = rep
+
+    return out, new_lens
+
+
 def mask_sequence(x: Tensor, lens: Tensor, mask: Tensor, mask_value: Union[int, Tensor]) -> Tuple[Tensor, Tensor]:
     """
     Given x of shape (B, T, ...) and a boolean mask of shape (B, T), return a new tensor where spans of False

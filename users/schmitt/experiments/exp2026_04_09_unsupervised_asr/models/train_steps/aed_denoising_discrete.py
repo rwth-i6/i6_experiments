@@ -12,7 +12,7 @@ import returnn.frontend as rf
 from returnn.tensor import Tensor as ReturnnTensor
 from returnn.tensor import TensorDict
 
-from .util import get_random_mask, mask_sequence
+from .util import get_random_mask, mask_sequence, expand_sequence
 
 
 class DenoisingAedModel(Protocol):
@@ -58,6 +58,7 @@ def train_step(
     adv_loss_scale: float = 0.0,
     true_adv_target: Optional[int] = None,
     codebook_diversity_loss_scale: float = 0.0,
+    input_expansion_opts: Optional[Dict] = None,
     **_kwargs,
 ):
     loss_suffix = "_" + loss_name if loss_name else ""
@@ -108,6 +109,15 @@ def train_step(
             phon_mask = get_random_mask(label_indices_lens.to(label_indices.device), **masking_opts)
         label_indices_masked, label_indices_masked_lens = mask_sequence(
             label_indices, label_indices_lens.to(label_indices.device), phon_mask, mask_value=model.mask_idx
+        )
+
+    # optionally upsample the (masked) encoder input by duplicating tokens, so the encoder sees a
+    # sequence longer than the reconstruction target (mimicking the audio>text length ratio at
+    # inference). Only the encoder input grows; the target and phon_mask stay at the original
+    # length, so the reconstruction/masked losses are unaffected.
+    if input_expansion_opts is not None:
+        label_indices_masked, label_indices_masked_lens = expand_sequence(
+            label_indices_masked, label_indices_masked_lens.to(label_indices.device), **input_expansion_opts
         )
 
     adv_target = None

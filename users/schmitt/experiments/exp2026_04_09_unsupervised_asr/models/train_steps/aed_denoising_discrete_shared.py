@@ -100,16 +100,21 @@ def train_step(
     label_smoothing_start_epoch: int = 0,
     text_masking_opts: Optional[Dict] = None,
     audio_masking_opts: Optional[Dict] = None,
+    text_expansion_opts: Optional[Dict] = None,
     aux_loss_scales: Optional[Sequence[float]] = None,
     codebook_diversity_loss_scale: float = 0.0,
     adv_loss_scale: float = 0.0,
     **_kwargs,
 ):
     """
+    :param text_expansion_opts: if given ({"min_dup", "max_dup"}), upsample the text encoder input by
+        duplicating tokens so it becomes longer than the (unchanged) text reconstruction target,
+        simulating the audio>text length ratio. Only applied to the text modality.
     :param adv_loss_scale: if > 0, add the domain-adversarial GAN loss that pushes the shared
         encoder to produce modality-invariant states (a discriminator tries to tell audio from text
         encoder states, the encoder tries to fool it). Requires the model to have a discriminator
-        (``discriminator_type="mlp"``). text is domain 0, audio is domain 1.
+        (``discriminator_type`` one of "mlp" / "mlp_2gram" / "mlp_3gram" / "mlp_4gram" / "lstm").
+        text is domain 0, audio is domain 1.
     """
     assert set(extern_data.data.keys()) == {"data", "phon_indices", "seq_tag"}
     audio_indices_: ReturnnTensor = extern_data["data"]
@@ -134,6 +139,7 @@ def train_step(
         label_smoothing=label_smoothing,
         label_smoothing_start_epoch=label_smoothing_start_epoch,
         masking_opts=text_masking_opts,
+        input_expansion_opts=text_expansion_opts,
         aux_loss_scales=aux_loss_scales,
         codebook_diversity_loss_scale=codebook_diversity_loss_scale,
         adv_loss_scale=adv_loss_scale,
