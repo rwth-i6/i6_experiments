@@ -53,7 +53,7 @@ def py():
     # Identical synth / data to the FZJ tts-enc-ref-match; only num_processes=1 / nep=100 differ.
     # {"dev-clean": 1.71, "dev-other": 4.17, "test-clean": 1.88, "test-other": 4.40}  (base-ls-dbmel 4.19 -> ~0 text gain)
     _train_tts_encoder(
-        "tts-enc-ref-match-1gpu",
+        "tts-enc-dbmel-plain-1gpu",
         prefix=prefix,
         text_train_epoch_split=75,
         # reduced from 120k/25k: 80GB c25g GPUs OOM with real TTS durations
@@ -79,7 +79,7 @@ def py():
     # (raw log-mel + feature_batch_norm NaNs without peak-normalizing the injected waveform;
     # the DbMel path is fixed-norm and immune).
     _train_tts_encoder(
-        "tts-enc-ref-match-logmel-1gpu",
+        "tts-enc-logmel-plain-1gpu",
         prefix=prefix,
         text_train_epoch_split=75,
         # reduced from 120k/25k: 80GB c25g GPUs OOM with real TTS durations
@@ -107,7 +107,7 @@ def py():
     # and behavior_version/torch (judged irrelevant).
     # Base for the mixing experiments (single-stream, gumbel-interleave).
     _train_tts_encoder(
-        "tts-enc-ref-match-full-1gpu",
+        "tts-enc-logmel-refcfg-1gpu",
         prefix=prefix,
         text_train_epoch_split=75,
         # reduced from 120k/25k: 80GB c25g GPUs OOM with real TTS durations
@@ -137,7 +137,7 @@ def py():
     # the offline-TTS reference's batch structure with our online TTS.
     # Smoke-tested 2026-07-14 (mixed batches, losses sane, ~75GB peak, ~2.3 s/step incl per-step TTS+GL).
     _train_tts_encoder(
-        "tts-enc-ref-match-full-single-1gpu",
+        "tts-enc-logmel-refcfg-single-1gpu",
         prefix=prefix,
         text_train_epoch_split=75,
         # reduced from 120k/25k: 80GB c25g GPUs OOM with real TTS durations
@@ -170,7 +170,7 @@ def py():
     # i.e. EXACTLY a uniform random shuffle of the audio+text union -- the offline reference's ordering
     # (balance + joint finish are automatic; the annealed "remaining" schedule stays an unused option).
     _train_tts_encoder(
-        "tts-enc-ref-match-full-single-gumbel-1gpu",
+        "tts-enc-logmel-refcfg-single-gumbel-1gpu",
         prefix=prefix,
         text_train_epoch_split=75,
         # reduced from 120k/25k: 80GB c25g GPUs OOM with real TTS durations
@@ -200,7 +200,7 @@ def py():
     # Full base, DbMel DIRECT: TTS log-mel fed straight into the DbMel ASR front-end space
     # (no GL-net, no Griffin-Lim, no waveform round-trip; the cheapest TTS path).
     _train_tts_encoder(
-        "tts-enc-ref-match-full-dbmel-direct-1gpu",
+        "tts-enc-dbmel-direct-refcfg-1gpu",
         prefix=prefix,
         text_train_epoch_split=75,
         # reduced from 120k/25k: 80GB c25g GPUs OOM with real TTS durations
@@ -226,7 +226,7 @@ def py():
     # (ceil keeps >= 1 frame; ~2-3 frames/phoneme, close to what the preload bug accidentally ran,
     # but with REAL acoustics -- tests whether compressed synth speech suffices for text-util).
     _train_tts_encoder(
-        "tts-enc-ref-match-full-rnddur-short-1gpu",
+        "tts-enc-logmel-refcfg-rnddur-short-1gpu",
         prefix=prefix,
         text_train_epoch_split=75,
         # reduced from 120k/25k: 80GB c25g GPUs OOM with real TTS durations
@@ -251,7 +251,7 @@ def py():
     # Full base + FIXED 1 frame per phoneme (no duration predictor):
     # the extreme duration ablation, bridging to the pseudo-enc label-dur-1 regime with REAL acoustics.
     _train_tts_encoder(
-        "tts-enc-ref-match-full-dur1-1gpu",
+        "tts-enc-logmel-refcfg-dur1-1gpu",
         prefix=prefix,
         text_train_epoch_split=75,
         # reduced from 120k/25k: 80GB c25g GPUs OOM with real TTS durations
