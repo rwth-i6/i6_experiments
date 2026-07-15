@@ -155,7 +155,7 @@ class PhonemizeCorpusJob(Job):
 def phonemize_lm_corpus(insert_wb: bool = False, g2p_concurrent: int = 16):
     """Wire the full 𝒯_φ pipeline. Returns the phonemized-corpus tk.Path."""
     from i6_experiments.common.datasets.librispeech.language_model import get_librispeech_normalized_lm_data
-    from i6_experiments.users.wu.experiments.ssl.experiments.sae.text import folded_lexicon, librispeech_g2p_model
+    from i6_experiments.users.wu.unsupervised_asr.text import folded_lexicon, librispeech_g2p_model
 
     text = get_librispeech_normalized_lm_data()
     lex = folded_lexicon()

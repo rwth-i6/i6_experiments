@@ -15,9 +15,11 @@ Run (from workspace root, conda `speech_llm` python):
     python recipe/i6_experiments/users/wu/experiments/ssl/analysis/real_repr_probe.py --stage both
 Flags: --layer (0-indexed encoder layer) --n_utts --split --K 500,1000,2000,4000 --vad --pool W.
 
-Metric primitives come from repr_audit.py (same dir); it and vad_port.py are loaded by file path
-because at run time the frozen model must come from the *sibling* workspace whose recipe shadows
-this i6_experiments package on sys.path (see SIB below)."""
+Metric primitives come from repr_audit.py (same dir). The vad_port silence-removal preprocessor moved
+to the unsupervised_asr recipe (it is wav2vec-U-style preprocessing, not representation-quality
+measurement) and is loaded lazily by file path only when (re)building the feature cache. Both are
+loaded by file path because at run time the frozen model must come from the *sibling* workspace whose
+recipe shadows this i6_experiments package on sys.path (see SIB below)."""
 import argparse
 import os
 import pickle
@@ -32,8 +34,8 @@ import torch
 SIB = "/e/project1/spell/wu24/2026-06-17_ssl"
 J = f"{SIB}/work/i6_core/returnn/training/ReturnnTrainingJob.iDPxBJeb35l8/output"
 _HERE = os.path.dirname(os.path.abspath(__file__))
+_UASR = os.path.abspath(os.path.join(_HERE, "..", "..", "..", "unsupervised_asr"))  # vad_port lives here now
 RA = SourceFileLoader("ra_mod", os.path.join(_HERE, "repr_audit.py")).load_module()
-VP = SourceFileLoader("vp_mod", os.path.join(_HERE, "vad_port.py")).load_module()
 SIL = RA.SIL_ID
 CACHE_DIR = os.environ.get("SAE_CACHE", "/tmp/sae_repr_cache")
 
@@ -64,6 +66,7 @@ def extract_features(layer, n_utts, split, do_vad, pool_w):
     )
     from rVADfast import rVADfast
 
+    VP = SourceFileLoader("vp_mod", os.path.join(_UASR, "vad_port.py")).load_module()
     vad = rVADfast(vad_threshold=0.4)
     recs = VP._load_gilkeyio(split, limit=n_utts)
     utts, t1 = [], time.time()

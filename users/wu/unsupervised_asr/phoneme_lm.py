@@ -17,7 +17,7 @@ from typing import Sequence, Tuple
 from sisyphus import tk
 
 from i6_core.lm.kenlm import KenLMplzJob, CreateBinaryLMJob
-from i6_experiments.users.wu.experiments.ssl.experiments.sae.phonemize import phonemize_lm_corpus
+from i6_experiments.users.wu.unsupervised_asr.phonemize import phonemize_lm_corpus
 
 LM_PREFIX = "sae/1a"
 
