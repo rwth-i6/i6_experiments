@@ -216,6 +216,175 @@ def py():
         ],
     )
 
+    # discriminator-architecture sweep for the domain-adversarial loss. Same adv scale + masking as
+    # baseline_gan-adv-0.1_mask-p-0.1-span-1-1 (which uses the frame-wise "mlp" discriminator), but
+    # with discriminators that see more temporal context:
+    #   mlp_2gram/3gram/4gram -> MLP over 2/3/4 consecutive frames concatenated in the feature dim
+    #   lstm                  -> LSTM over the whole encoder output sequence
+    for discriminator_type in ("mlp_2gram", "mlp_3gram", "mlp_4gram", "lstm"):
+        run_experiment(
+            training_name=f"{prefix_name}/baseline_gan-adv-0.1_disc-{discriminator_type}_mask-p-0.1-span-1-1",
+            config=dict_update_deep(
+                copy.deepcopy(base_config),
+                {
+                    "model_args.discriminator_type": discriminator_type,
+                    "train_args": {
+                        "adv_loss_scale": 0.1,
+                        "text_masking_opts": {
+                            "mask_prob": 0.1,
+                            "min_span": 1,
+                            "max_span": 1,
+                        },
+                        "audio_masking_opts": {
+                            "mask_prob": 0.1,
+                            "min_span": 1,
+                            "max_span": 1,
+                        },
+                    },
+                },
+            ),
+            train_data=train_data,
+            test_data_dict=test_data_dict,
+            keep_epochs=get_keep_epochs(base_num_epochs),
+            # skip_eval=True,
+            additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
+            analysis_opts={
+                "checkpoints": get_keep_epochs(base_num_epochs),
+                "max_plotted_seqs": 20,
+                "cosine_similarity_summary": True,
+            },
+            recog_variants=[
+                {
+                    "recog_name": "recon_text",
+                    "input_modality": "text",
+                    "output_modality": "text",
+                    "mask_input": True,
+                    "masking_opts": copy.deepcopy(base_config["train_args"]["text_masking_opts"]),
+                    "keep_epochs": get_keep_epochs(base_num_epochs),
+                },
+                # fixed-masking text-recon sweep (copy ceiling + degradation curve), for a fair
+                # single-task (text-only) vs multi-task comparison of the text denoiser.
+                *_text_recon_sweep(base_num_epochs),
+            ],
+        )
+
+    # text upsampling: duplicate each text (phoneme) token [min_dup, max_dup]x so the text ENCODER
+    # input becomes longer than the (unchanged) text reconstruction target, simulating the audio>text
+    # length ratio the model faces at audio->text decoding. The target + masking stay at the original
+    # length, so only the encoder/cross-attention sees the longer sequence (see
+    # train_steps.util.expand_sequence). Applied on the plain baseline and on the LSTM-discriminator
+    # GAN (where the longer text sequences also remove length as a trivial modality cue for the
+    # domain-adversarial loss). Both use mask_prob 0.1 / span 1 for both modalities. The loop varies
+    # (base variant) x (expansion range), so further ablations are one line in either tuple below.
+    _upsample_mask_opts = {"mask_prob": 0.1, "min_span": 1, "max_span": 1}
+    for exp_idx, (config, train_name) in enumerate(
+        [
+            (
+                dict_update_deep(
+                    copy.deepcopy(base_config),
+                    {
+                        **disc_model_args,
+                        "train_args": {
+                            **disc_train_args,
+                            "text_expansion_opts": {
+                                "min_dup": min_dup,
+                                "max_dup": max_dup,
+                            },
+                            "text_masking_opts": copy.deepcopy(_upsample_mask_opts),
+                            "audio_masking_opts": copy.deepcopy(_upsample_mask_opts),
+                        },
+                        "training.batch_size": batch_size,
+                    },
+                ),
+                f"{base_name}_text-upsample-{min_dup}-{max_dup}_mask-p-0.1-span-1-1_bs-{batch_size}",
+            )
+            for base_name, disc_model_args, disc_train_args in (("baseline", {}, {}),)
+            for min_dup, max_dup, batch_size in ((1, 2, 12_000), (1, 3, 10_000))
+        ]
+    ):
+        run_experiment(
+            training_name=f"{prefix_name}/{train_name}",
+            config=copy.deepcopy(config),
+            train_data=train_data,
+            test_data_dict=test_data_dict,
+            keep_epochs=get_keep_epochs(base_num_epochs),
+            # skip_eval=True,
+            additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
+            analysis_opts={
+                "checkpoints": get_keep_epochs(base_num_epochs),
+                "max_plotted_seqs": 20,
+                "cosine_similarity_summary": True,
+            },
+            recog_variants=[
+                {
+                    "recog_name": "recon_text",
+                    "input_modality": "text",
+                    "output_modality": "text",
+                    "mask_input": True,
+                    "masking_opts": copy.deepcopy(base_config["train_args"]["text_masking_opts"]),
+                    "keep_epochs": get_keep_epochs(base_num_epochs),
+                },
+                *_text_recon_sweep(base_num_epochs),
+            ],
+        )
+
+    for exp_idx, (config, train_name) in enumerate(
+        [
+            (
+                dict_update_deep(
+                    copy.deepcopy(base_config),
+                    {
+                        **disc_model_args,
+                        "train_args": {
+                            **disc_train_args,
+                            "text_expansion_opts": {
+                                "min_dup": min_dup,
+                                "max_dup": max_dup,
+                            },
+                            "text_masking_opts": copy.deepcopy(_upsample_mask_opts),
+                            "audio_masking_opts": copy.deepcopy(_upsample_mask_opts),
+                        },
+                        "training.batch_size": batch_size,
+                    },
+                ),
+                f"{base_name}_text-upsample-{min_dup}-{max_dup}_mask-p-0.1-span-1-1_bs-{batch_size}",
+            )
+            for base_name, disc_model_args, disc_train_args in (
+                (
+                    "baseline_gan-adv-0.1_disc-lstm",
+                    {"model_args.discriminator_type": "lstm"},
+                    {"adv_loss_scale": 0.1},
+                ),
+            )
+            for min_dup, max_dup, batch_size in ((1, 2, 12_000), (1, 3, 10_000))
+        ]
+    ):
+        run_experiment(
+            training_name=f"{prefix_name}/{train_name}",
+            config=copy.deepcopy(config),
+            train_data=train_data,
+            test_data_dict=test_data_dict,
+            keep_epochs=get_keep_epochs(base_num_epochs),
+            # skip_eval=True,
+            additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
+            analysis_opts={
+                "checkpoints": get_keep_epochs(base_num_epochs),
+                "max_plotted_seqs": 20,
+                "cosine_similarity_summary": True,
+            },
+            recog_variants=[
+                {
+                    "recog_name": "recon_text",
+                    "input_modality": "text",
+                    "output_modality": "text",
+                    "mask_input": True,
+                    "masking_opts": copy.deepcopy(base_config["train_args"]["text_masking_opts"]),
+                    "keep_epochs": get_keep_epochs(base_num_epochs),
+                },
+                *_text_recon_sweep(base_num_epochs),
+            ],
+        )
+
     # baseline settings (3 enc / 3 dec layers) + a GumbelVectorQuantizer codebook on top of the
     # shared encoder (à la SpeechT5), to push the audio and text encoder states into a shared
     # discrete space. The codebook diversity loss encourages using the full codebook.

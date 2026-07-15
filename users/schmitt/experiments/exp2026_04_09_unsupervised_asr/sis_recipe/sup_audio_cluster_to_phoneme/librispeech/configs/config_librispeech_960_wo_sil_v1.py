@@ -2,6 +2,9 @@ import copy
 from typing import List
 
 from i6_experiments.users.schmitt.util.dict_update import dict_update_deep
+from i6_experiments.users.schmitt.experiments.exp2026_04_09_unsupervised_asr.models.recognition.discrete_audio_aed.rasr.forward_step import (
+    DecoderConfigV1 as RasrDecoderConfigV1,
+)
 
 from ....train_exp import run_experiment
 from ..data.common import build_training_datasets, build_test_datasets
@@ -31,6 +34,16 @@ def py():
         keep_epochs=get_keep_epochs(base_num_epochs),
         skip_eval=False,
     )
+
+    # run_experiment(
+    #     training_name=f"{prefix_name}/baseline",
+    #     config=copy.deepcopy(base_config),
+    #     train_data=train_data,
+    #     test_data_dict=test_data_dict,
+    #     keep_epochs=[base_num_epochs],
+    #     skip_eval=False,
+    #     rasr_recog_opts={},
+    # )
 
     for exp_idx, (config, train_name) in enumerate(
         [

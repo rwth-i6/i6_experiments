@@ -31,6 +31,8 @@ base_config = {
     "__baseline_alias": "v1",
     "__forward_step_module": "recognition.discrete_audio_aed.forward_step.forward_step",
     "__callback_module": "recognition.discrete_audio_aed.callback.RecognitionToTextDictCallback",
+    "__rasr_forward_step_module": "recognition.discrete_audio_aed.rasr.forward_step.forward_step_v1",
+    "__rasr_callback_module": "recognition.discrete_audio_aed.rasr.callback.RecognitionToTextDictCallback",
     "train_rqmt": {
         "cpu_rqmt": 6,
     },
@@ -45,7 +47,12 @@ base_config = {
         "__num_epochs": base_num_epochs,
         "__lr_opts": {
             "type": "dyn_lr_piecewise_linear",
-            "piecewise_epochs": [0, 0.45 * base_num_epochs, 0.9 * base_num_epochs, base_num_epochs],
+            "piecewise_epochs": [
+                0,
+                0.45 * base_num_epochs,
+                0.9 * base_num_epochs,
+                base_num_epochs,
+            ],
             "piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
         },
         "grad_scaler": None,
