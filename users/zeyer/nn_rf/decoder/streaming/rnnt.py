@@ -1,10 +1,9 @@
 """
-Vanilla RNN-T streaming decoder (slow-fast-rna project) -- monotonic (RNA topology), framewise-CE.
+Standard monotonic RNN-T streaming decoder (slow-fast-rna project) -- RNA topology, label-only prediction net.
 
 The classic RNN-T decomposition on the chunked streaming encoder:
 - **prediction network** (label-rate): a causal Transformer over the *emitted labels*
-  (same structure as the ext-transducer *slow* stack: prev label + encoder frame at emission
-  -> prediction state ``p[u]``);
+  (prev label -> prediction state ``p[u]``; label history only, no encoder conditioning);
 - **joiner** (per frame): additive combination of the current encoder frame ``h_t`` and the
   current prediction state ``p[n_t]`` (``n_t`` = #labels emitted before frame ``t``),
   ReLU, then the output linear.
@@ -14,8 +13,9 @@ Unlike ``framewise`` (which mixes the previous label into the frame stack) and `
 through the prediction network + joiner -- no frame-rate self-attention, no previous-symbol feedback.
 So this isolates "what the fast stack adds over a plain joiner".
 
-Loss = framewise CE on the per-frame RNA alignment (the same hard-aligned objective as the other
-variants -- NOT the marginalized full-sum RNN-T loss; that is a separate later control).
+The prediction net depends on the label history only (standard monotonic RNN-T), so the SAME model
+trains with either framewise-CE on our fixed RNA alignment (``rnnt_training`` here) or the marginalized
+full-sum loss (``rnnt_fullsum.rnnt_fullsum_training``), switching only the objective.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 
 class RnntDecoder(rf.Module):
-    """Prediction network (label-rate) + additive joiner; monotonic RNA topology."""
+    """Prediction network (label-rate, label-history only) + additive joiner; monotonic RNA topology."""
 
     def __init__(
         self,
@@ -51,7 +51,8 @@ class RnntDecoder(rf.Module):
         version: int = 1,
     ):
         super().__init__()
-        assert version >= 2, "RnntDecoder: build with version=2 (Transformer++ prediction net)"
+        assert version == 3, "RnntDecoder: standard monotonic RNN-T (label-only pred net); build with version==3"
+        self.version = version
         chunk_size  # noqa  (frame-rate joiner -- no chunk masking; accepted for the StreamingModel interface)
         if isinstance(model_dim, int):
             model_dim = Dim(model_dim, name="dec_model")
@@ -64,9 +65,8 @@ class RnntDecoder(rf.Module):
         self.input_embedding_scale = model_dim.dimension**0.5
         self.dropout = dropout
 
-        # Prediction network (label-rate) -- same structure as the ext-transducer slow stack.
+        # Prediction network (label-rate) -- causal Transformer over the emitted labels (label history only).
         self.pred_embedding = rf.Embedding(vocab_dim, model_dim)
-        self.pred_enc_proj = rf.Linear(encoder_dim, model_dim, with_bias=False)  # h at emission frame
         self.pred_layers = rf.Sequential(
             FramewiseDecoderLayer(model_dim, ff_dim, num_heads=num_heads, dropout=dropout, att_dropout=att_dropout)
             for _ in range(num_layers)
@@ -82,13 +82,10 @@ class RnntDecoder(rf.Module):
             {k: v.self_att.default_initial_state(batch_dims=batch_dims) for k, v in self.pred_layers.items()}
         )
 
-    def pred_forward(
-        self, prev_label: Tensor, h_emit: Tensor, *, spatial_dim: Dim, state: rf.State
-    ) -> Tuple[Tensor, rf.State]:
-        """label-rate step(s): prev label + encoder frame at emission -> prediction state."""
+    def pred_forward(self, prev_label: Tensor, *, spatial_dim: Dim, state: rf.State) -> Tuple[Tensor, rf.State]:
+        """label-rate step(s): prev label -> prediction state (label history only)."""
         new_state = rf.State()
         x = self.pred_embedding(prev_label) * self.input_embedding_scale
-        x = x + self.pred_enc_proj(h_emit)
         x = rf.dropout(x, self.dropout, axis=x.feature_dim)
         for name, layer in self.pred_layers.items():
             x, new_state[name] = layer(x, spatial_dim=spatial_dim, self_att_state=state[name])
@@ -110,9 +107,9 @@ def rnnt_train_forward(
 ) -> Dict[str, Tuple[Tensor, Dim]]:
     """Teacher-forced training over the per-frame RNA target (framewise CE).
 
-    Mirrors the ext-transducer forward: n_t = #labels before frame t; emitted labels y + their
-    encoder frames h_emit; the prediction net runs over y; gathering by n_t gives each frame its
-    current prediction state, which the joiner combines with the current encoder frame h_t.
+    ``n_t`` = #labels before frame t; the prediction net runs over the emitted labels y; gathering by
+    ``n_t`` gives each frame its current prediction state, which the joiner combines with the current
+    encoder frame h_t.
     """
     collected_outputs = {} if model.enc_aux_logits else None
     enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
@@ -130,12 +127,11 @@ def rnnt_train_forward(
 
     y, label_spatial_dim = rf.masked_select(rna, mask=is_label, dims=[enc_spatial_dim])
     y.sparse_dim = model.target_dim_ext
-    h_emit, _ = rf.masked_select(enc, mask=is_label, dims=[enc_spatial_dim], out_dim=label_spatial_dim)
 
-    # Prediction net over the emitted labels.
+    # Prediction net over the emitted labels (label history only).
     pred_prev = rf.shift_right(y, axis=label_spatial_dim, pad_value=model.bos_idx)
     pred, _ = dec.pred_forward(
-        pred_prev, h_emit, spatial_dim=label_spatial_dim, state=dec.pred_initial_state(batch_dims=batch_dims)
+        pred_prev, spatial_dim=label_spatial_dim, state=dec.pred_initial_state(batch_dims=batch_dims)
     )
     # Prepend a (zero) BOS prediction state so gather index n_t in [0,U] maps 0->bos, k->pred[k-1].
     pred_ext, (label_ext_dim,) = rf.pad(pred, axes=[label_spatial_dim], padding=[(1, 0)], value=0.0)
@@ -188,8 +184,7 @@ def model_recog(
 
     Per frame: joiner(current encoder frame, current prediction state) -> argmax. On a non-blank
     emission, append to the label buffer + re-run the prediction net over the buffer to refresh the
-    current prediction state (gathered at n_emitted-1). Same structure as ext-transducer's recog,
-    minus the fast stack (the frame step is just the stateless joiner). Blanks stripped from output.
+    current prediction state (gathered at n_emitted-1). Blanks stripped from output.
     """
     from returnn.config import get_global_config
     from returnn.frontend.tensor_array import TensorArray
@@ -203,7 +198,7 @@ def model_recog(
     t_max = int(rf.reduce_max(enc_lens, axis=enc_lens.dims).raw_tensor)
     dec = model.decoder
     blank, bos = model.blank_idx, model.bos_idx
-    model_dim, encoder_dim = dec.model_dim, dec.encoder_dim
+    model_dim = dec.model_dim
 
     beam_dim = Dim(1, name="beam")
     bd = [beam_dim] + batch_dims
@@ -215,8 +210,6 @@ def model_recog(
     current_pred = rf.constant(0.0, dims=bd + [model_dim])  # BOS prediction state
     current_pred.feature_dim = model_dim
     emitted_labels = rf.constant(blank, dims=bd + [label_dim], sparse_dim=model.target_dim_ext, dtype="int32")
-    emitted_h = rf.constant(0.0, dims=bd + [label_dim, encoder_dim])
-    emitted_h.feature_dim = encoder_dim
     seq_log_prob = rf.constant(0.0, dims=bd)
 
     seq = TensorArray(rf.constant(bos, dims=bd, sparse_dim=model.target_dim_ext, dtype="int32"))
@@ -234,19 +227,16 @@ def model_recog(
         seq_log_prob = seq_log_prob + rf.where(valid, rf.gather(log_probs, indices=sym, axis=model.target_dim_ext), 0.0)
         seq = seq.push_back(sym)
 
-        # Append the emitted label + its encoder frame at position n_emitted (masked write).
+        # Append the emitted label at position n_emitted (masked write).
         write = rf.logical_and(is_label, label_range == n_emitted)
         emitted_labels = rf.where(write, sym, emitted_labels)
-        emitted_h = rf.where(write, enc_t, emitted_h)
         n_emitted = n_emitted + rf.cast(is_label, "int32")
 
         # If anything emitted, re-run the prediction net over the buffer and refresh current_pred.
         if bool(rf.reduce_all(rf.logical_not(is_label), axis=is_label.dims).raw_tensor):
             continue
         pred_prev = rf.shift_right(emitted_labels, axis=label_dim, pad_value=bos)
-        pred, _ = dec.pred_forward(
-            pred_prev, emitted_h, spatial_dim=label_dim, state=dec.pred_initial_state(batch_dims=bd)
-        )
+        pred, _ = dec.pred_forward(pred_prev, spatial_dim=label_dim, state=dec.pred_initial_state(batch_dims=bd))
         last = rf.where(n_emitted > 0, n_emitted - 1, rf.zeros(bd, dtype="int32"))
         gathered = rf.gather(pred, indices=last, axis=label_dim)  # [.., model_dim]
         current_pred = rf.where(n_emitted > 0, gathered, current_pred)

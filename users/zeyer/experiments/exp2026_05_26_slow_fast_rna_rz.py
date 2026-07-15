@@ -62,6 +62,7 @@ from i6_experiments.users.zeyer.nn_rf.decoder.streaming.rnnt import (
     rnnt_training,
     model_recog as rnnt_model_recog,
 )
+from i6_experiments.users.zeyer.nn_rf.decoder.streaming.rnnt_fullsum import rnnt_fullsum_training
 
 # Reused verbatim from the FZJ module -> identical Job hashes -> the rsync'd base + alignment are found.
 from i6_experiments.users.zeyer.experiments.exp2026_05_26_base_fzj import _train_loquacious_base
@@ -85,7 +86,10 @@ def py():
     _train_framewise_rz()
     _train_ext_transducer_rz()
     _train_two_tower_rz()
-    _train_rnnt_rz()
+    _train_rnnt_mono_framewise_rz()
+    _train_rnnt_mono_fullsum_rz()
+    _train_rnnt_mono_framewise_small_rz()
+    _train_rnnt_mono_fullsum_small_rz()
     _train_framewise_enc8dec12_rz()
     _train_framewise_enc4dec24_rz()
     _train_framewise_delay_rz()
@@ -144,6 +148,8 @@ def _train_variant_rz(
     dec_aux_loss_layers: Sequence[int] = (),
     enc_num_layers: int = 16,
     aux_loss_layers: Sequence[int] = (4, 10, 16),
+    nep: int = 100,
+    extra_config: Optional[Dict[str, Any]] = None,
 ):
     """Train one streaming-decoder variant on a single 96 GB RZ GPU + recog.
 
@@ -177,7 +183,7 @@ def _train_variant_rz(
     config = dict_update_deep(
         configs.config_96gb_bf16_accgrad1,
         {
-            **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(100, base_lr=0.5),
+            **configs._get_cfg_lrlin_oclr_by_bs_nep_v4(nep, base_lr=0.5),
             "batch_size": 50_000 * configs._batch_size_factor,
             "max_seqs": 200,
             "optimizer.weight_decay": 1e-2,
@@ -189,6 +195,8 @@ def _train_variant_rz(
             "max_seq_length_default_input": 19.5 * _raw_sample_rate,
         },
     )
+    if extra_config:
+        config = dict_update_deep(config, extra_config)
 
     exp = train_v4.train(
         prefix + "/" + name,
@@ -290,14 +298,63 @@ def _train_two_tower_rz():
     )
 
 
-def _train_rnnt_rz():
-    """Vanilla RNN-T (monotonic RNA topology, framewise-CE): reused prediction net + additive-ReLU joiner."""
+def _train_rnnt_mono_framewise_rz():
+    """Standard monotonic RNN-T (v3, label-only pred net), framewise-CE on our RNA alignment.
+
+    Corrects the earlier rnnt-1gpu (v2 pred net was conditioned on the emission frame -> alignment-dependent);
+    directly comparable to the full-sum variant (same model, only the objective differs).
+    """
     return _train_variant_rz(
-        "rnnt-1gpu",
-        dec_build_dict=rf.build_dict(RnntDecoder, model_dim=1024, num_layers=6, num_heads=8, version=2),
+        "rnnt-mono-framewise-1gpu",
+        dec_build_dict=rf.build_dict(RnntDecoder, model_dim=1024, num_layers=6, num_heads=8, version=3),
         train_def=rnnt_training,
         recog_def=rnnt_model_recog,
         target_mode="rna_frame",
+    )
+
+
+def _train_rnnt_mono_fullsum_rz():
+    """Standard monotonic RNN-T (v3), marginalized full-sum loss (i6_native_ops.monotonic_rnnt).
+
+    Same model as the framewise variant; the target is the plain transcription (target_mode="labels")
+    and the loss marginalizes over all monotonic alignments. Reduced batch (the packed joiner grid
+    Sum_b T_b*(S_b+1) x V is memory-heavy); the batch is tuned on the first-run memory check.
+    """
+    return _train_variant_rz(
+        "rnnt-mono-fullsum-1gpu",
+        dec_build_dict=rf.build_dict(RnntDecoder, model_dim=1024, num_layers=6, num_heads=8, version=3),
+        train_def=rnnt_fullsum_training,
+        recog_def=rnnt_model_recog,
+        target_mode="labels",
+        extra_config={"batch_size": 5_000 * configs._batch_size_factor, "max_seqs": 40},
+    )
+
+
+def _train_rnnt_mono_small(name: str, *, train_def, target_mode: str, extra_config=None):
+    """Scaled-down monotonic RNN-T (6L enc, 3L dec, nep20) -- fast same-day framewise-vs-full-sum comparison."""
+    return _train_variant_rz(
+        name,
+        dec_build_dict=rf.build_dict(RnntDecoder, model_dim=1024, num_layers=3, num_heads=8, version=3),
+        train_def=train_def,
+        recog_def=rnnt_model_recog,
+        target_mode=target_mode,
+        enc_num_layers=6,
+        aux_loss_layers=(2, 4, 6),
+        nep=20,
+        extra_config=extra_config,
+    )
+
+
+def _train_rnnt_mono_framewise_small_rz():
+    return _train_rnnt_mono_small("rnnt-mono-framewise-small-1gpu", train_def=rnnt_training, target_mode="rna_frame")
+
+
+def _train_rnnt_mono_fullsum_small_rz():
+    return _train_rnnt_mono_small(
+        "rnnt-mono-fullsum-small-1gpu",
+        train_def=rnnt_fullsum_training,
+        target_mode="labels",
+        extra_config={"batch_size": 5_000 * configs._batch_size_factor, "max_seqs": 40},
     )
 
 
