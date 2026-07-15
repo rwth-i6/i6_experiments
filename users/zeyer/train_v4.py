@@ -186,6 +186,7 @@ def train(
             watch_memory=True,
             use_lovely_tensors=True,
             use_train_proc_manager=True,
+            stop_for_resubmission_when_low_time_left=True,
         ),
     )
     if post_config:
