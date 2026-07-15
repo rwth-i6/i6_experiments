@@ -211,7 +211,8 @@ class ChunkSegmentationFromModelJob(Job):
                 print(
                     f"** Forwarding chunk {cur_chunk_idx} (out of {len(chunk_start_end)}),"
                     f" {cur_audio_start / samplerate}:{cur_audio_end / samplerate} secs,"
-                    f" words {cur_word_start}:{cur_word_end} (out of {len(words)})"
+                    f" words {cur_word_start}:{cur_word_end} (out of {len(words)})",
+                    flush=True,
                 )
                 if cur_word_start >= cur_word_end:
                     # word_start_heuristic advanced to the last word already:
@@ -522,7 +523,7 @@ class ChunkSegmentationFromModelBatchedJob(Job):
                     cci=0,  # current chunk index
                     done=False,
                 )
-            print(f"* group {group}: chunks per seq = {[len(st[i]['cse']) for i in group]}")
+            print(f"* group {group}: chunks per seq = {[len(st[i]['cse']) for i in group]}", flush=True)
 
             while True:
                 # gather active sequences' current-chunk forward inputs
@@ -555,6 +556,17 @@ class ChunkSegmentationFromModelBatchedJob(Job):
                     fwd_omitted.append(cws)
                 if not active:
                     break
+
+                # One flushed line per chunk step, so the log keeps updating and a slow run is
+                # distinguishable from a real hang: small chunk sizes mean ~1000+ chunks per seq, and
+                # the DP is otherwise silent for a whole group (only group start / seq end print).
+                print(
+                    f"** chunk step: {len(active)} active seqs,"
+                    f" chunk {[st[i]['cci'] for i in active]} of {[len(st[i]['cse']) for i in active]},"
+                    f" word start {[ws_start[i][1] for i in active]}"
+                    f" of {[len(st[i]['words']) for i in active]}",
+                    flush=True,
+                )
 
                 fwd_outputs = model.forward_batched(
                     raw_inputs_list=fwd_audio,
@@ -662,7 +674,7 @@ class ChunkSegmentationFromModelBatchedJob(Job):
                 wise = [(ws[0], ws[-1] + 1) if ws else (-1, -1) for ws in words_per_chunks]
                 assert len(wise) == len(cse)
                 results[i] = (wise, cse)
-                print(f"  seq {i}: words per chunks = {wise}")
+                print(f"  seq {i}: words per chunks = {wise}", flush=True)
 
         # Write in original dataset order (the metric job reads seqs positionally); groups may have
         # been reordered by sort_by_length.
