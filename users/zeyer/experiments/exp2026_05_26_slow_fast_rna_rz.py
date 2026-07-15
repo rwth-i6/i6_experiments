@@ -319,9 +319,14 @@ def _train_rnnt_mono_framewise_rz():
 def _train_rnnt_mono_fullsum_rz():
     """Standard monotonic RNN-T (v3), marginalized full-sum loss (i6_native_ops.monotonic_rnnt).
 
-    Same model as the framewise variant; the target is the plain transcription (target_mode="labels")
-    and the loss marginalizes over all monotonic alignments. Reduced batch (the packed joiner grid
-    Sum_b T_b*(S_b+1) x V is memory-heavy); the batch is tuned on the first-run memory check.
+    Same model as the framewise variant;
+    the target is the plain transcription (target_mode="labels"),
+    and the loss marginalizes over all monotonic alignments.
+    Same batch/regime as the framewise variant,
+    so the two differ ONLY in the loss.
+    The packed joiner grid Sum_b T_b*(S_b+1) x V is the extra memory,
+    on top of the fixed model/optimizer;
+    reduce the batch only if it actually OOMs.
     """
     return _train_variant_rz(
         "rnnt-mono-fullsum-1gpu",
@@ -329,7 +334,6 @@ def _train_rnnt_mono_fullsum_rz():
         train_def=rnnt_fullsum_training,
         recog_def=rnnt_model_recog,
         target_mode="labels",
-        extra_config={"batch_size": 5_000 * configs._batch_size_factor, "max_seqs": 40},
     )
 
 
@@ -357,7 +361,6 @@ def _train_rnnt_mono_fullsum_small_rz():
         "rnnt-mono-fullsum-small-1gpu",
         train_def=rnnt_fullsum_training,
         target_mode="labels",
-        extra_config={"batch_size": 5_000 * configs._batch_size_factor, "max_seqs": 40},
     )
 
 
