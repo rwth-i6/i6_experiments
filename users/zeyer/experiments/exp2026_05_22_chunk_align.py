@@ -168,6 +168,21 @@ def py():
                     reg(f"{seg_name}-finets-accuracy.txt", metric_fine.out_accuracy)
                     reg(f"{seg_name}-finets-chunk_idx_mae.txt", metric_fine.out_chunk_idx_mae)
 
+                # Batched fast-path DP over the same chunking. Verifies the cross-sequence batched
+                # implementation reproduces the single-seq assignment (fp32 bit-exact; bf16 only
+                # marginal boundary flips) and is ~3x cheaper, so it becomes the sweep's workhorse.
+                batched_cfg = {**model_cfg, "grad_wrt": None, "model_dtype": "bfloat16"}
+                seg_b = ChunkSegmentationFromModelBatchedJob(
+                    dataset_dir=ds_dir,
+                    dataset_key=ds_key,
+                    model_config=batched_cfg,
+                    chunk_size_secs=chunk_size_secs,
+                    max_batch_size=8,
+                    **({} if chunk_overlap_secs == 5.0 else {"chunk_overlap_secs": chunk_overlap_secs}),
+                )
+                seg_b.add_alias(f"{seg_name}-batched")
+                reg(f"{seg_name}-batched.hdf", seg_b.out_hdf)
+
     # Cross-sequence batched forward, cs30 (overlap 5 = same chunking as cs30-ov5), for verification:
     # fp32 should reproduce the single-seq assignments exactly;
     # bf16 tests whether the numerical noise changes any chunk assignment.
@@ -183,21 +198,6 @@ def py():
         )
         _segb.add_alias(f"chunk-align/phi4mm-buckeye-val-cs30-ov5-batched-{_dt}")
         reg(f"chunk-align/phi4mm-buckeye-val-cs30-ov5-batched-{_dt}.hdf", _segb.out_hdf)
-
-    # Fast path: bf16 + length-sort + vectorized per-word lm_head, larger batch. Measures the real
-    # speedup and checks the assignments still match single (expect ~= plain bf16 batched: bf16 noise).
-    _cfg_fast = rf.build_dict(Phi4MM, model_dir=dl_phi4mm_dir, grad_wrt=None, model_dtype="bfloat16")
-    _segf = ChunkSegmentationFromModelBatchedJob(
-        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
-        dataset_key="val",
-        model_config=_cfg_fast,
-        chunk_size_secs=30.0,
-        max_batch_size=8,
-        sort_by_length=True,
-        batched_logprobs=True,
-    )
-    _segf.add_alias("chunk-align/phi4mm-buckeye-val-cs30-ov5-batched-fast-bf16")
-    reg("chunk-align/phi4mm-buckeye-val-cs30-ov5-batched-fast-bf16.hdf", _segf.out_hdf)
 
     # fp32 single-seq reference: the proper same-precision baseline for the fp32 batched job
     # (the default single cs30-ov5 is bf16). fp32 batched vs fp32 single should be 0% word diff.
