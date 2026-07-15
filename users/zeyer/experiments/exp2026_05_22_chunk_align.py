@@ -118,16 +118,27 @@ def py():
                 (20.0, 5.0),
                 (10.0, 5.0),
                 # non-overlapping -- the 5/3/2 already running (reused)
+                (30.0, 0.0),
+                (20.0, 0.0),
+                (10.0, 0.0),
                 (5.0, 0.0),
                 (3.0, 0.0),
                 (2.0, 0.0),
+                (1.0, 0.0),
+                (0.5, 0.0),
                 # half-chunk overlap (50%); (10.0, 5.0) is already listed above
                 (30.0, 15.0),
                 (20.0, 10.0),
+                (10.0, 5.0),
                 (5.0, 2.5),
                 (3.0, 1.5),
                 (2.0, 1.0),
                 (1.0, 0.5),
+                # overlap sweep
+                (10.0, 5.0),
+                (10.0, 2.5),
+                (10.0, 1.0),
+                (10.0, 0.0),
             ]:
                 seg_name = (
                     f"chunk-align/{model_name}-{ds_name}-{ds_key}-cs{chunk_size_secs:.0f}-ov{chunk_overlap_secs:g}"
