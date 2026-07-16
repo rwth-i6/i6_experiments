@@ -522,6 +522,9 @@ def py():
         prefix=prefix,
         text_train_epoch_split=75,
         batch_size_audio_frames=120_000,
+        # post preload-fix: real durations are ~167ms audio/phoneme,
+        # the old 25k phon default OOMs at step 0 even on 96GB (~66M samples/text batch).
+        batch_size_phon=5_000,
         max_phon_len=300,
         tts_waveform=True,
         asr_logmel=True,
@@ -543,6 +546,9 @@ def py():
         prefix=prefix,
         text_train_epoch_split=75,
         batch_size_audio_frames=120_000,
+        # post preload-fix: real durations are ~167ms audio/phoneme,
+        # the old 25k phon default OOMs at step 0 even on 96GB (~66M samples/text batch).
+        batch_size_phon=5_000,
         max_phon_len=300,
         glow_tts_noise_scale_range=(0.7, 0.7),
         glow_tts_length_scale_range=(1.0, 1.0),
@@ -565,6 +571,9 @@ def py():
         prefix=prefix,
         text_train_epoch_split=75,
         batch_size_audio_frames=120_000,
+        # post preload-fix: real durations are ~167ms audio/phoneme,
+        # the old 25k phon default OOMs at step 0 even on 96GB (~66M samples/text batch).
+        batch_size_phon=5_000,
         max_phon_len=300,
         tts_waveform=True,
         asr_logmel=True,
@@ -584,6 +593,9 @@ def py():
         prefix=prefix,
         text_train_epoch_split=20,
         batch_size_audio_frames=120_000,
+        # post preload-fix: real durations are ~167ms audio/phoneme,
+        # the old 25k phon default OOMs at step 0 even on 96GB (~66M samples/text batch).
+        batch_size_phon=5_000,
         max_phon_len=300,
         tts_waveform=True,
         asr_logmel=True,
@@ -604,6 +616,9 @@ def py():
         prefix=prefix,
         text_train_epoch_split=75,
         batch_size_audio_frames=120_000,
+        # post preload-fix: real durations are ~167ms audio/phoneme,
+        # the old 25k phon default OOMs at step 0 even on 96GB (~66M samples/text batch).
+        batch_size_phon=5_000,
         max_phon_len=300,
         tts_waveform=True,
         asr_logmel=True,
