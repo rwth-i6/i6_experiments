@@ -14,7 +14,8 @@ larger = marginalization restricted to a band,
 
 Efficiency: the additive joiner pre-activation ``enc_proj[t] + pred[u]`` is packed to the valid
 (t, u) cells before ``relu`` + the vocab projection,
-via ``rf.masked_select`` over ``[batch, enc_spatial, s1]``,
+by gathering the enc and pred rows separately into the packed layout and adding
+(the full ``[batch, enc_spatial, s1, model_dim]`` broadcast is never materialized),
 so the expensive ``V``-projection runs only on ``sum_b T_b*(S_b+1)`` cells
 -- the packed layout the kernel expects (b-major, t outer, u inner, no padding).
 """
@@ -68,8 +69,11 @@ def rnnt_fullsum_train_forward(
     pred_in.sparse_dim = model.target_dim_ext
     pred, _ = dec.pred_forward(pred_in, spatial_dim=s1_dim, state=dec.pred_initial_state(batch_dims=[batch_dim]))
 
-    # Additive joiner PRE-activation over the (t, u) grid: enc_proj[t] + pred[u]  (dim = model_dim, not V).
-    joint_pre = dec.joiner_enc_proj(enc) + pred
+    # Additive joiner pre-activation over the (t, u) grid, packed WITHOUT the dense broadcast.
+    # Gather the enc and pred rows separately (over the merged batch+time / batch+label axes) and add,
+    # so the full {batch, enc_spatial, s1, model_dim} tensor is never materialized.
+    # Peak model_dim tensor is only [sum_b T_b*(S_b+1), model_dim], so the batch can grow.
+    enc_proj = dec.joiner_enc_proj(enc)  # {batch, enc_spatial, model_dim}
 
     # Valid-cell mask: t < T_b  and  u < S_b + 1.
     t_len = rf.copy_to_device(enc_spatial_dim.get_size_tensor())
@@ -78,9 +82,22 @@ def rnnt_fullsum_train_forward(
     u_valid = rf.range_over_dim(s1_dim) < (s_len + 1)
     mask = rf.logical_and(t_valid, u_valid)
 
-    # Pack to [sum_b T_b*(S_b+1), model_dim] (b-major, t outer, u inner), THEN relu + vocab projection.
-    # batch_dim is included in dims so the batch axis is flattened into the packed dim (no batch axis, no padding).
-    packed_pre, packed_dim = rf.masked_select(joint_pre, mask=mask, dims=[batch_dim, enc_spatial_dim, s1_dim])
+    # Flat row indices into the merged (batch, enc_spatial) / (batch, s1) axes (padded stride).
+    t_max = int(enc_spatial_dim.get_dim_value())
+    u_max = int(s1_dim.get_dim_value())
+    flat_t = rf.range_over_dim(batch_dim) * t_max + rf.range_over_dim(enc_spatial_dim)
+    flat_u = rf.range_over_dim(batch_dim) * u_max + rf.range_over_dim(s1_dim)
+
+    # Pack the flat indices onto one shared packed_dim (b-major, t outer, u inner).
+    packed_t, packed_dim = rf.masked_select(flat_t, mask=mask, dims=[batch_dim, enc_spatial_dim, s1_dim])
+    packed_u, _ = rf.masked_select(flat_u, mask=mask, dims=[batch_dim, enc_spatial_dim, s1_dim], out_dim=packed_dim)
+
+    # Gather the packed rows and add, THEN relu + vocab projection.
+    enc_merged, bt_dim = rf.merge_dims(enc_proj, dims=[batch_dim, enc_spatial_dim])
+    pred_merged, bu_dim = rf.merge_dims(pred, dims=[batch_dim, s1_dim])
+    packed_pre = rf.gather(enc_merged, indices=packed_t, axis=bt_dim) + rf.gather(
+        pred_merged, indices=packed_u, axis=bu_dim
+    )
     acts = dec.logits(rf.relu(packed_pre))  # [packed, V]
 
     acts_raw = acts.copy_compatible_to_dims_raw([packed_dim, model.target_dim_ext]).float()

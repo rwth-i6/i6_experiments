@@ -135,7 +135,7 @@ def rnnt_train_forward(
     pred, _ = dec.pred_forward(
         pred_in, spatial_dim=label_ext_dim, state=dec.pred_initial_state(batch_dims=batch_dims)
     )
-    # Frame t has n_t emitted labels, so it uses g_{n_t}, conditioned on all n_t labels incl. the most recent.
+    # Frame t has n_t emitted labels, so it uses g_{n_t}, conditioned on all n_t labels including the most recent.
     pred_per_frame = rf.gather(pred, indices=n_t, axis=label_ext_dim)  # [B, enc_spatial, model_dim]
 
     logits = dec.joiner(enc, pred_per_frame)
