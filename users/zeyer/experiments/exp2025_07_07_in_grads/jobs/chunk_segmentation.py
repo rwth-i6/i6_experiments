@@ -741,17 +741,25 @@ class CalcChunkAssignmentMetricsJob(Job):
     - ``accuracy``: fraction of words assigned to a chunk
       whose audio span actually contains the word's reference center time
       (with overlapping chunks, any covering chunk counts as correct).
-    - ``chunk_idx_mae``: mean absolute error
-      between the assigned chunk index and the nearest covering chunk index --
-      a softer signal than accuracy,
-      distinguishing near-misses (off by one chunk, near a boundary) from far misses.
+    - placement error in SECONDS: time distance from the word's reference center
+      to the assigned chunk's audio span (0 if the center is inside it),
+      summarized as median / p95 / mean / max and the fraction beyond 0.5s and 1s.
+      This is unit-consistent across chunk sizes (unlike a chunk-index error),
+      and its tail is the robustness signal that matters:
+      the median is ~0 while a small fraction of words drift many seconds.
+    - ``chunk_idx_mae``: kept as a legacy softer signal
+      (mean absolute error to the nearest covering chunk index).
 
+    The seconds error has resolution = chunk size,
+    so it measures coarse localization, NOT a word boundary:
+    the method assigns words to chunks, it never decides a within-chunk position.
     A real per-frame word boundary (and thus WBE, comparable to WhisperX etc.)
     belongs in a separate downstream step
     once there's an actual within-chunk decode or forced alignment.
     """
 
-    __sis_version__ = 1
+    # Bumped to 2 when the seconds-based placement-error stats were added.
+    __sis_version__ = 2
 
     def __init__(
         self,
@@ -762,6 +770,7 @@ class CalcChunkAssignmentMetricsJob(Job):
         returnn_root: Optional[tk.Path] = None,
         dataset_offset_factors: int,
         aggregation: str = "micro",
+        samplerate: Optional[int] = None,
     ):
         """
         :param chunk_seg_hdf: from :class:`ChunkSegmentationFromModelJob`.
@@ -772,6 +781,7 @@ class CalcChunkAssignmentMetricsJob(Job):
             see :class:`ChunkSegmentationFromModelJob`'s dataset conventions
             (also used by the grad-align metric jobs in exp2025_05_05_align.py).
         :param aggregation: "micro" (mean over all words) or "macro" (per-utt mean then over utts).
+        :param samplerate: audio sampling rate for the seconds error; None reads it from the dataset.
         """
         super().__init__()
         self.chunk_seg_hdf = chunk_seg_hdf
@@ -780,9 +790,16 @@ class CalcChunkAssignmentMetricsJob(Job):
         self.returnn_root = returnn_root
         self.dataset_offset_factors = dataset_offset_factors
         self.aggregation = aggregation
+        # None -> read the audio sampling rate from the dataset feature (no audio decode);
+        # pass an int to override.
+        self.samplerate = samplerate
 
         self.out_accuracy = self.output_var("accuracy.txt")
         self.out_chunk_idx_mae = self.output_var("chunk_idx_mae.txt")
+        # placement error in seconds (see class docstring): the robustness headline.
+        self.out_error_median_sec = self.output_var("error_median_sec.txt")
+        self.out_error_p95_sec = self.output_var("error_p95_sec.txt")
+        self.out_frac_gt_1s = self.output_var("frac_gt_1s.txt")
         self.out_metrics = self.output_var("metrics.txt")
 
     def tasks(self):
@@ -818,8 +835,19 @@ class CalcChunkAssignmentMetricsJob(Job):
         print("Using key:", self.dataset_key)
         print("Num seqs:", len(ds[self.dataset_key]))
 
+        # audio sampling rate, to report the placement error in seconds.
+        # prefer the dataset feature (no audio decode); fall back to decoding one seq.
+        samplerate = self.samplerate
+        if not samplerate:
+            samplerate = getattr(ds[self.dataset_key].features["audio"], "sampling_rate", None)
+        if not samplerate:
+            samplerate = ds[self.dataset_key][0]["audio"]["sampling_rate"]
+        assert samplerate, "could not determine samplerate; pass samplerate=..."
+        print("Samplerate:", samplerate)
+
         utt_accs: List[List[float]] = []  # per utt, per word: 1.0 correct / 0.0 wrong
         utt_idx_errs: List[List[int]] = []  # per utt, per word: chunk-index error
+        utt_errs_sec: List[List[float]] = []  # per utt, per word: seconds from center to assigned chunk span
 
         for seq_idx, data in enumerate(ds[self.dataset_key]):
             chunk_seg_hdf_ds.load_seqs(seq_idx, seq_idx + 1)
@@ -844,7 +872,7 @@ class CalcChunkAssignmentMetricsJob(Job):
                     pred_chunk_idx[w] = chunk_idx
             assert all(p is not None for p in pred_chunk_idx), "not all words got assigned to a chunk"
 
-            accs, idx_errs = [], []
+            accs, idx_errs, errs_sec = [], [], []
             for w in range(len(words)):
                 center = ref_word_center_samples[w]
                 covering = [ci for ci, (a0, a1) in enumerate(chunk_start_end) if a0 <= center < a1]
@@ -861,10 +889,16 @@ class CalcChunkAssignmentMetricsJob(Job):
                     ]
                 accs.append(1.0 if pred_chunk_idx[w] in covering else 0.0)
                 idx_errs.append(min(abs(pred_chunk_idx[w] - ci) for ci in covering))
+                # seconds error: time distance from the center to the ASSIGNED chunk's span,
+                # 0 if the center is inside it. no covering fallback needed -- the assigned chunk always exists.
+                a0p, a1p = chunk_start_end[pred_chunk_idx[w]]
+                d_samp = 0.0 if a0p <= center < a1p else min(abs(center - a0p), abs(center - a1p))
+                errs_sec.append(float(d_samp) / samplerate)
 
             print(f"** seq {seq_idx}, {len(words)=}, acc={float(np.mean(accs)):.3f}")
             utt_accs.append(accs)
             utt_idx_errs.append(idx_errs)
+            utt_errs_sec.append(errs_sec)
 
         if self.aggregation == "micro":
             accuracy = float(np.mean([a for accs in utt_accs for a in accs]))
@@ -875,8 +909,30 @@ class CalcChunkAssignmentMetricsJob(Job):
         else:
             raise ValueError(f"invalid aggregation {self.aggregation!r}")
 
-        metrics = {"accuracy": accuracy, "chunk_idx_mae": chunk_idx_mae, "aggregation": self.aggregation}
+        # Placement-error stats are pooled over all words (percentiles-of-percentiles is not meaningful),
+        # so they are the same regardless of `aggregation`.
+        flat_errs_sec = np.array([e for errs in utt_errs_sec for e in errs])
+        error_stats = {
+            "error_mean_sec": float(flat_errs_sec.mean()),
+            "error_median_sec": float(np.percentile(flat_errs_sec, 50)),
+            "error_p90_sec": float(np.percentile(flat_errs_sec, 90)),
+            "error_p95_sec": float(np.percentile(flat_errs_sec, 95)),
+            "error_p99_sec": float(np.percentile(flat_errs_sec, 99)),
+            "error_max_sec": float(flat_errs_sec.max()),
+            "frac_gt_0.5s": float((flat_errs_sec > 0.5).mean()),
+            "frac_gt_1s": float((flat_errs_sec > 1.0).mean()),
+        }
+        metrics = {
+            "accuracy": accuracy,
+            "chunk_idx_mae": chunk_idx_mae,
+            "samplerate": int(samplerate),
+            "aggregation": self.aggregation,
+            **error_stats,
+        }
         print("CORPUS METRICS:", metrics)
         self.out_accuracy.set(accuracy)
         self.out_chunk_idx_mae.set(chunk_idx_mae)
+        self.out_error_median_sec.set(error_stats["error_median_sec"])
+        self.out_error_p95_sec.set(error_stats["error_p95_sec"])
+        self.out_frac_gt_1s.set(error_stats["frac_gt_1s"])
         self.out_metrics.set(metrics)

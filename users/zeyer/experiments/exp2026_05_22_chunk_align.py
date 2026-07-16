@@ -170,6 +170,9 @@ def py():
                 metric.add_alias(f"{seg_name}-metric")
                 reg(f"{seg_name}-accuracy.txt", metric.out_accuracy)
                 reg(f"{seg_name}-chunk_idx_mae.txt", metric.out_chunk_idx_mae)
+                reg(f"{seg_name}-error-median-sec.txt", metric.out_error_median_sec)
+                reg(f"{seg_name}-error-p95-sec.txt", metric.out_error_p95_sec)
+                reg(f"{seg_name}-frac-gt-1s.txt", metric.out_frac_gt_1s)
 
     # Hyper-param sweep at the best 10s setting (cs10/ov2.5): empty_exit_penalty x word_start_heuristic.
     # empty_exit_penalty only applies to exiting a chunk with zero words assigned; overlap makes such
