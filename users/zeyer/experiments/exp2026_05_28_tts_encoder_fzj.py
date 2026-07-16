@@ -379,18 +379,20 @@ def py():
     )
     # tts-enc-v1: pseudo-speech-enc-style text usage (~5 effective text passes, 100 ASR).
     # {"dev-clean": 1.63, "dev-other": 4.13, "test-clean": 1.90, "test-other": 4.46}
-    _train_tts_encoder("tts-enc-v1", prefix=prefix)
+    # DISABLED 2026-07-16: pre-fix-era cell, not rerun after the preload fix (see notes).
+    # _train_tts_encoder("tts-enc-v1", prefix=prefix)
     # tts-enc-v2: TTS-baseline-style text usage (~1.33 effective text passes).
     # Slower text fill rate (partition_epoch=75) lets the audio bucket grow large under max_seqs=500,
     # so cap audio batch + phoneme seq length explicitly.
     # {"dev-clean": 1.81, "dev-other": 4.50, "test-clean": 2.01, "test-other": 4.86}
-    _train_tts_encoder(
-        "tts-enc-v2-textP75",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        max_phon_len=300,  # ~baseline 75 SPM equivalent (1 SPM token ~3-4 phonemes on LS, measured from v1 logs)
-    )
+    # DISABLED 2026-07-16: pre-fix-era cell, not rerun after the preload fix (see notes).
+    # _train_tts_encoder(
+    #     "tts-enc-v2-textP75",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     max_phon_len=300,  # ~baseline 75 SPM equivalent (1 SPM token ~3-4 phonemes on LS, measured from v1 logs)
+    # )
     # v3 (phon cap 25k) and v3a (phon cap 50k) superseded by v3b (phon cap 75k): same scientific config
     # (lenscale ~0.1, 5 effective text passes), v3b is ~28% faster wall-time than v3 at same memory peak.
     # _train_tts_encoder("tts-enc-v3-lenscale-low", prefix=prefix, glow_tts_length_scale_range=(0.05, 0.15))
@@ -400,25 +402,27 @@ def py():
     # )
     # tts-enc-v3b: highly compressed synth (length_scale ~0.1), phon cap 75k (max_seqs=500 sometimes binds).
     # {"dev-clean": 2.08, "dev-other": 5.03, "test-clean": 2.28, "test-other": 5.36}
-    _train_tts_encoder(
-        "tts-enc-v3b-lenscale-low-biggerphon",
-        prefix=prefix,
-        glow_tts_length_scale_range=(0.05, 0.15),
-        batch_size_phon=75_000,
-    )
+    # DISABLED 2026-07-16: pre-fix-era cell, not rerun after the preload fix (see notes).
+    # _train_tts_encoder(
+    #     "tts-enc-v3b-lenscale-low-biggerphon",
+    #     prefix=prefix,
+    #     glow_tts_length_scale_range=(0.05, 0.15),
+    #     batch_size_phon=75_000,
+    # )
     # GL-net / Griffin-Lim waveform variant of v2 (same data: textP75, ~1.33 text passes): the synthetic
     # text branch goes GlowTTS->GL-net->Griffin-Lim->waveform->ASR DbMel front-end (like the offline TTS
     # baseline), instead of feeding the GlowTTS log-mel directly. Tests whether the Griffin-Lim round-trip's
     # realistic distortion helps. GL-net ckpt (H9EByABag8UN/epoch.050.pt) synced from RZ to FZJ.
     # {"dev-clean": 1.85, "dev-other": 4.60, "test-clean": 2.08, "test-other": 4.85}
-    _train_tts_encoder(
-        "tts-enc-v2-textP75-gl-wave",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        max_phon_len=300,
-        tts_waveform=True,
-    )
+    # DISABLED 2026-07-16: pre-fix-era cell, not rerun after the preload fix (see notes).
+    # _train_tts_encoder(
+    #     "tts-enc-v2-textP75-gl-wave",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     max_phon_len=300,
+    #     tts_waveform=True,
+    # )
     # Reference-match: replicate Nick's offline ls_lm_data synth EXACTLY --
     # noise_scale 0.7 fixed, length_scale 1.0 fixed, waveform path (GL-net + Griffin-Lim), on the textP75 data.
     # Closest possible replication of the 3.53 reference within our setup
@@ -427,83 +431,88 @@ def py():
     # ~3.5 -> reproduced; ~4.1 -> the gap is our 4-GPU/nep regime, not the TTS.
     # See projects/2026-05-28-tts-encoder.md.
     # {"dev-clean": 1.79, "dev-other": 4.39, "test-clean": 1.97, "test-other": 4.69}
-    _train_tts_encoder(
-        "tts-enc-ref-match",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        max_phon_len=300,
-        tts_waveform=True,
-        glow_tts_noise_scale_range=(0.7, 0.7),
-        glow_tts_length_scale_range=(1.0, 1.0),
-    )
+    # DISABLED 2026-07-16: pre-fix-era cell, not rerun after the preload fix (see notes).
+    # _train_tts_encoder(
+    #     "tts-enc-ref-match",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     max_phon_len=300,
+    #     tts_waveform=True,
+    #     glow_tts_noise_scale_range=(0.7, 0.7),
+    #     glow_tts_length_scale_range=(1.0, 1.0),
+    # )
     # ref-match but with the reference's standard log-mel 100Hz ASR front-end (waveform path required):
     # closes the ~+0.13 DbMel-80Hz-vs-log-mel-100Hz re-extraction gap -> the actual reference ceiling.
     # {"dev-clean": 1.89, "dev-other": 4.48, "test-clean": 2.04, "test-other": 4.70}
-    _train_tts_encoder(
-        "tts-enc-ref-match-logmel",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        max_phon_len=300,
-        tts_waveform=True,
-        asr_logmel=True,
-        tts_waveform_peak_norm=True,
-        glow_tts_noise_scale_range=(0.7, 0.7),
-        glow_tts_length_scale_range=(1.0, 1.0),
-    )
+    # DISABLED 2026-07-16: pre-fix-era cell, not rerun after the preload fix (see notes).
+    # _train_tts_encoder(
+    #     "tts-enc-ref-match-logmel",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     max_phon_len=300,
+    #     tts_waveform=True,
+    #     asr_logmel=True,
+    #     tts_waveform_peak_norm=True,
+    #     glow_tts_noise_scale_range=(0.7, 0.7),
+    #     glow_tts_length_scale_range=(1.0, 1.0),
+    # )
     # Same, but length sampled (0.5,1.0) -- noise stays fixed at the reference 0.7:
     # tests whether shorter / variable synthetic durations keep the WER (the cheap-able axis).
     # {"dev-clean": 1.86, "dev-other": 4.54, "test-clean": 2.14, "test-other": 4.84}
-    _train_tts_encoder(
-        "tts-enc-ref-match-logmel-lensamp",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        max_phon_len=300,
-        tts_waveform=True,
-        asr_logmel=True,
-        tts_waveform_peak_norm=True,
-        glow_tts_noise_scale_range=(0.7, 0.7),
-        glow_tts_length_scale_range=(0.5, 1.0),
-    )
+    # DISABLED 2026-07-16: pre-fix-era cell, not rerun after the preload fix (see notes).
+    # _train_tts_encoder(
+    #     "tts-enc-ref-match-logmel-lensamp",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     max_phon_len=300,
+    #     tts_waveform=True,
+    #     asr_logmel=True,
+    #     tts_waveform_peak_norm=True,
+    #     glow_tts_noise_scale_range=(0.7, 0.7),
+    #     glow_tts_length_scale_range=(0.5, 1.0),
+    # )
     # Same as -lensamp, but with the SpecAugment time-mask width scaled per-seq by the sampled length_scale,
     # so compressed synthetic sequences are not over-masked (SpecAugment's absolute 20-frame width erases
     # short low-length_scale seqs). Tests whether length-aware augmentation recovers WER.
     # {"dev-clean": 1.96, "dev-other": 4.48, "test-clean": 2.09, "test-other": 4.80}
-    _train_tts_encoder(
-        "tts-enc-ref-match-logmel-lensamp-specaug",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        max_phon_len=300,
-        tts_waveform=True,
-        asr_logmel=True,
-        tts_waveform_peak_norm=True,
-        specaugment_length_scaled=True,
-        glow_tts_noise_scale_range=(0.7, 0.7),
-        glow_tts_length_scale_range=(0.5, 1.0),
-    )
+    # DISABLED 2026-07-16: pre-fix-era cell, not rerun after the preload fix (see notes).
+    # _train_tts_encoder(
+    #     "tts-enc-ref-match-logmel-lensamp-specaug",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     max_phon_len=300,
+    #     tts_waveform=True,
+    #     asr_logmel=True,
+    #     tts_waveform_peak_norm=True,
+    #     specaugment_length_scaled=True,
+    #     glow_tts_noise_scale_range=(0.7, 0.7),
+    #     glow_tts_length_scale_range=(0.5, 1.0),
+    # )
     # Muon (lr5e3 + weight-decay blacklist, the best 4-GPU optimizer setting,
     # see asr-base-mgpu-logmel-muon-lr5e3-wdbl) on the ref-match-logmel TTS config:
     # tests whether the TTS text-utilization gain stacks with the optimizer gain.
     # {"dev-clean": 1.70, "dev-other": 4.18, "test-clean": 2.00, "test-other": 4.36}
-    _train_tts_encoder(
-        "tts-enc-ref-match-logmel-muon",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        max_phon_len=300,
-        tts_waveform=True,
-        asr_logmel=True,
-        tts_waveform_peak_norm=True,
-        glow_tts_noise_scale_range=(0.7, 0.7),
-        glow_tts_length_scale_range=(1.0, 1.0),
-        base_lr=1.0,
-        peak_lr=5e-3,
-        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
-        extra_config_deletes=["optimizer.epsilon"],
-    )
+    # DISABLED 2026-07-16: pre-fix-era cell, not rerun after the preload fix (see notes).
+    # _train_tts_encoder(
+    #     "tts-enc-ref-match-logmel-muon",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     max_phon_len=300,
+    #     tts_waveform=True,
+    #     asr_logmel=True,
+    #     tts_waveform_peak_norm=True,
+    #     glow_tts_noise_scale_range=(0.7, 0.7),
+    #     glow_tts_length_scale_range=(1.0, 1.0),
+    #     base_lr=1.0,
+    #     peak_lr=5e-3,
+    #     extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+    #     extra_config_deletes=["optimizer.epsilon"],
+    # )
     # Same as ref-match-logmel-muon (= ref-match-logmel + muon-lr5e3-wdbl), but nep 25 -> 38 (+50% updates):
     # the training-matched point removing the 4-GPU step-count penalty (audio-only nep38 bought 4.22 -> 4.01).
     # Isolates whether the ~0 TTS text-util gain is the regime, not the TTS.
@@ -612,19 +621,20 @@ def py():
     # ref-match length 1.0), with the length-scaled SpecAugment.
     # Cost-vs-WER axis point below lensamp (0.5-1.0).
     # {"dev-clean": 1.99, "dev-other": 4.61, "test-clean": 2.10, "test-other": 4.94}
-    _train_tts_encoder(
-        "tts-enc-ref-match-logmel-lensamp-low-specaug",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        max_phon_len=300,
-        tts_waveform=True,
-        asr_logmel=True,
-        tts_waveform_peak_norm=True,
-        specaugment_length_scaled=True,
-        glow_tts_noise_scale_range=(0.7, 0.7),
-        glow_tts_length_scale_range=(0.3, 0.7),
-    )
+    # DISABLED 2026-07-16: pre-fix-era cell, not rerun after the preload fix (see notes).
+    # _train_tts_encoder(
+    #     "tts-enc-ref-match-logmel-lensamp-low-specaug",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     max_phon_len=300,
+    #     tts_waveform=True,
+    #     asr_logmel=True,
+    #     tts_waveform_peak_norm=True,
+    #     specaugment_length_scaled=True,
+    #     glow_tts_noise_scale_range=(0.7, 0.7),
+    #     glow_tts_length_scale_range=(0.3, 0.7),
+    # )
     # Speech-likeness 2x2, cell A (acoustics=embedding, durations=random): pseudo-speech-encoder --
     # TRAINABLE phoneme embedding, blank-interleaved, random durations (labels 1 frame, blanks 0-3;
     # the earlier study's winning setting), no TTS at all. SpecAugment time-mask width scaled to the
@@ -749,6 +759,273 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+
+    # ============ Fixed-era wave (2026-07-16, post preload-fix), muon-nep38 regime ============
+    # Counterparts of the running RZ fixed experiments (see exp2026_05_28_tts_encoder_rz.py),
+    # naming per the new scheme: "refcfg" = the 4 reference knobs (SamplingBPE/auxShared/auxNoBias/padRnd100).
+    # batch_size_phon is EXPLICIT everywhere: with the preload fixed, real durations are ~167ms
+    # audio/phoneme, so the old 25k default text batches would OOM (the RZ lesson).
+    # The full-match dual-stream base (waveform + log-mel + the 4 knobs).
+    _train_tts_encoder(
+        "tts-enc-logmel-refcfg-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        batch_size_phon=5_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        enc_aux_logits_share_weights=True,
+        enc_aux_logits_with_bias=False,
+        pad_audio_rnd=100,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+    # refcfg + single-stream: audio + text mixed in ONE batch, one loss set.
+    # 90k/4k, not 120k/5k: merged batches stack audio AND text in one step.
+    _train_tts_encoder(
+        "tts-enc-logmel-refcfg-single-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=90_000,
+        batch_size_phon=4_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        enc_aux_logits_share_weights=True,
+        enc_aux_logits_with_bias=False,
+        pad_audio_rnd=100,
+        single_stream=True,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+    # + gumbel interleave: random union ordering (sampling-without-replacement), the offline ordering.
+    _train_tts_encoder(
+        "tts-enc-logmel-refcfg-single-gumbel-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=90_000,
+        batch_size_phon=4_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        enc_aux_logits_share_weights=True,
+        enc_aux_logits_with_bias=False,
+        pad_audio_rnd=100,
+        single_stream=True,
+        interleave_gumbel_scale=1.0,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+    # DbMel DIRECT injection (no GL/Griffin-Lim/waveform) on the refcfg base.
+    _train_tts_encoder(
+        "tts-enc-dbmel-direct-refcfg-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        batch_size_phon=5_000,
+        max_phon_len=300,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        enc_aux_logits_share_weights=True,
+        enc_aux_logits_with_bias=False,
+        pad_audio_rnd=100,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+    # Degenerate durations: fixed 1 mel frame per phoneme (waveform path).
+    _train_tts_encoder(
+        "tts-enc-logmel-refcfg-dur1-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        batch_size_phon=15_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        glow_tts_fixed_duration=1,
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        enc_aux_logits_share_weights=True,
+        enc_aux_logits_with_bias=False,
+        pad_audio_rnd=100,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+    # Short random durations: w = w_pred * U(0.2, 0.5) per phoneme (waveform path).
+    _train_tts_encoder(
+        "tts-enc-logmel-refcfg-rnddur-short-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        batch_size_phon=15_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        glow_tts_random_durations_jitter_mult=(0.2, 0.5),
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        enc_aux_logits_share_weights=True,
+        enc_aux_logits_with_bias=False,
+        pad_audio_rnd=100,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+    # DbMel-direct + dur1: the cheapest online-TTS variant (RZ shows a duration x path interaction).
+    _train_tts_encoder(
+        "tts-enc-dbmel-direct-refcfg-dur1-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        batch_size_phon=15_000,
+        max_phon_len=300,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        glow_tts_fixed_duration=1,
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        enc_aux_logits_share_weights=True,
+        enc_aux_logits_with_bias=False,
+        pad_audio_rnd=100,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+    # The pseudo-enc winner (RZ 1-GPU nep100: 3.74 joint) in the muon-nep38 regime:
+    # layer-4 injection, NO blanks (the June fleet only had layer4 WITH blanks / layer8 noblank).
+    _train_tts_encoder(
+        "pseudo-enc-layer4-noblank-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        batch_size_phon=8_000,
+        max_phon_len=300,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_start_layer=4,
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_specaug_max_width=6,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+    # Single-stream version of the pseudo-enc winner (merged at the layer-4 boundary, one loss set).
+    # 90k/7k: merged batches stack audio + text (RZ: 100k/8k OOM'd at 80GB; here 96GB).
+    _train_tts_encoder(
+        "pseudo-enc-layer4-noblank-single-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=90_000,
+        batch_size_phon=7_000,
+        max_phon_len=300,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_start_layer=4,
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_specaug_max_width=6,
+        single_stream=True,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+    # Front-end injection with RATE-MATCHED durations on the LEARNED embedding
+    # (label dur 4-8 at 100Hz ~ 1 enc-frame/phon; completes the mfatable-realdur cell with
+    # trainable embeddings -- separates injection depth from effective frames-per-phoneme).
+    _train_tts_encoder(
+        "pseudo-enc-logmel-noblank-realdur-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        batch_size_phon=8_000,
+        max_phon_len=300,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_duration_range=(4, 8),
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_specaug_max_width=6,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+    # SpecAugment width sweep on the pseudo output (6 = the scaled default; 3 / 12 bracket it).
+    _train_tts_encoder(
+        "pseudo-enc-layer4-noblank-specaug3-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        batch_size_phon=8_000,
+        max_phon_len=300,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_start_layer=4,
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_specaug_max_width=3,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+    _train_tts_encoder(
+        "pseudo-enc-layer4-noblank-specaug12-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=120_000,
+        batch_size_phon=8_000,
+        max_phon_len=300,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_start_layer=4,
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_specaug_max_width=12,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
     # Encoder-share / layer-split injection (earlier study's insight #1), at the ENC frame rate:
     # the pseudo features live in the encoder model space and enter the Conformer at layer N directly
     # (no conv front-end on the text branch -- this matches the earlier study's injection point;
@@ -867,109 +1144,116 @@ def py():
     # per-phoneme durations replaced by i.i.d. uniform samples renormalized to the predictor total
     # (same length/cost as ref-match-logmel; only the learned alignment structure is removed).
     # {"dev-clean": 1.83, "dev-other": 4.46, "test-clean": 2.06, "test-other": 4.58}
-    _train_tts_encoder(
-        "tts-enc-ref-match-logmel-rnddur",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        max_phon_len=300,
-        tts_waveform=True,
-        asr_logmel=True,
-        tts_waveform_peak_norm=True,
-        glow_tts_noise_scale_range=(0.7, 0.7),
-        glow_tts_length_scale_range=(1.0, 1.0),
-        glow_tts_random_durations_jitter=(0.2, 1.8),
-    )
+    # DISABLED 2026-07-16: pre-fix-era cell, not rerun after the preload fix (see notes).
+    # _train_tts_encoder(
+    #     "tts-enc-ref-match-logmel-rnddur",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     max_phon_len=300,
+    #     tts_waveform=True,
+    #     asr_logmel=True,
+    #     tts_waveform_peak_norm=True,
+    #     glow_tts_noise_scale_range=(0.7, 0.7),
+    #     glow_tts_length_scale_range=(1.0, 1.0),
+    #     glow_tts_random_durations_jitter=(0.2, 1.8),
+    # )
     # Multiplicative duration jitter (online analogue of the offline pipeline's variability finding):
     # w = w_pred * U(0.7, 1.3) per phoneme, NOT renormalized -- keeps the learned alignment structure,
     # varies per-phoneme speaking rate and total length (rnddur removes the structure instead).
     # {"dev-clean": 1.80, "dev-other": 4.40, "test-clean": 1.99, "test-other": 4.69}
-    _train_tts_encoder(
-        "tts-enc-ref-match-logmel-rnddur-mult",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        max_phon_len=300,
-        tts_waveform=True,
-        asr_logmel=True,
-        tts_waveform_peak_norm=True,
-        glow_tts_noise_scale_range=(0.7, 0.7),
-        glow_tts_length_scale_range=(1.0, 1.0),
-        glow_tts_random_durations_jitter_mult=(0.7, 1.3),
-    )
+    # DISABLED 2026-07-16: pre-fix-era cell, not rerun after the preload fix (see notes).
+    # _train_tts_encoder(
+    #     "tts-enc-ref-match-logmel-rnddur-mult",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     max_phon_len=300,
+    #     tts_waveform=True,
+    #     asr_logmel=True,
+    #     tts_waveform_peak_norm=True,
+    #     glow_tts_noise_scale_range=(0.7, 0.7),
+    #     glow_tts_length_scale_range=(1.0, 1.0),
+    #     glow_tts_random_durations_jitter_mult=(0.7, 1.3),
+    # )
     # Wide length-scale range 0.1-1.0 (+ per-seq length-scaled SpecAugment): pushes the compression
     # axis below lensamp-low (0.3-0.7) toward the v3b-lenscale-low regime, now with length-aware masking.
     # {"dev-clean": 1.94, "dev-other": 4.54, "test-clean": 2.19, "test-other": 4.89}
-    _train_tts_encoder(
-        "tts-enc-ref-match-logmel-lensamp-wide-specaug",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        max_phon_len=300,
-        tts_waveform=True,
-        asr_logmel=True,
-        tts_waveform_peak_norm=True,
-        specaugment_length_scaled=True,
-        glow_tts_noise_scale_range=(0.7, 0.7),
-        glow_tts_length_scale_range=(0.1, 1.0),
-    )
+    # DISABLED 2026-07-16: pre-fix-era cell, not rerun after the preload fix (see notes).
+    # _train_tts_encoder(
+    #     "tts-enc-ref-match-logmel-lensamp-wide-specaug",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     max_phon_len=300,
+    #     tts_waveform=True,
+    #     asr_logmel=True,
+    #     tts_waveform_peak_norm=True,
+    #     specaugment_length_scaled=True,
+    #     glow_tts_noise_scale_range=(0.7, 0.7),
+    #     glow_tts_length_scale_range=(0.1, 1.0),
+    # )
     # Synthetic-variability axes on ref-match-logmel (one knob each):
     # noise0 -> deterministic acoustics (no flow sampling noise; ref uses 0.7);
     # 1spk -> single fixed speaker (no voice diversity; ref samples one of 1172 per seq).
     # {"dev-clean": 1.76, "dev-other": 4.26, "test-clean": 1.93, "test-other": 4.66}
-    _train_tts_encoder(
-        "tts-enc-ref-match-logmel-noise0",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        max_phon_len=300,
-        tts_waveform=True,
-        asr_logmel=True,
-        tts_waveform_peak_norm=True,
-        glow_tts_noise_scale_range=(0.0, 0.0),
-        glow_tts_length_scale_range=(1.0, 1.0),
-    )
+    # DISABLED 2026-07-16: pre-fix-era cell, not rerun after the preload fix (see notes).
+    # _train_tts_encoder(
+    #     "tts-enc-ref-match-logmel-noise0",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     max_phon_len=300,
+    #     tts_waveform=True,
+    #     asr_logmel=True,
+    #     tts_waveform_peak_norm=True,
+    #     glow_tts_noise_scale_range=(0.0, 0.0),
+    #     glow_tts_length_scale_range=(1.0, 1.0),
+    # )
     # {"dev-clean": 1.83, "dev-other": 4.52, "test-clean": 2.10, "test-other": 4.89}
-    _train_tts_encoder(
-        "tts-enc-ref-match-logmel-1spk",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        max_phon_len=300,
-        tts_waveform=True,
-        asr_logmel=True,
-        tts_waveform_peak_norm=True,
-        glow_tts_noise_scale_range=(0.7, 0.7),
-        glow_tts_length_scale_range=(1.0, 1.0),
-        glow_tts_fixed_speaker=0,
-    )
+    # DISABLED 2026-07-16: pre-fix-era cell, not rerun after the preload fix (see notes).
+    # _train_tts_encoder(
+    #     "tts-enc-ref-match-logmel-1spk",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     max_phon_len=300,
+    #     tts_waveform=True,
+    #     asr_logmel=True,
+    #     tts_waveform_peak_norm=True,
+    #     glow_tts_noise_scale_range=(0.7, 0.7),
+    #     glow_tts_length_scale_range=(1.0, 1.0),
+    #     glow_tts_fixed_speaker=0,
+    # )
     # Text-amount axis: text_train_epoch_split 37 / 150 = ~2x / ~0.5x text per audio epoch vs the 75 default.
     # {"dev-clean": 1.76, "dev-other": 4.33, "test-clean": 1.99, "test-other": 4.56}
-    _train_tts_encoder(
-        "tts-enc-ref-match-logmel-textP37",
-        prefix=prefix,
-        text_train_epoch_split=37,
-        batch_size_audio_frames=120_000,
-        max_phon_len=300,
-        tts_waveform=True,
-        asr_logmel=True,
-        tts_waveform_peak_norm=True,
-        glow_tts_noise_scale_range=(0.7, 0.7),
-        glow_tts_length_scale_range=(1.0, 1.0),
-    )
+    # DISABLED 2026-07-16: pre-fix-era cell, not rerun after the preload fix (see notes).
+    # _train_tts_encoder(
+    #     "tts-enc-ref-match-logmel-textP37",
+    #     prefix=prefix,
+    #     text_train_epoch_split=37,
+    #     batch_size_audio_frames=120_000,
+    #     max_phon_len=300,
+    #     tts_waveform=True,
+    #     asr_logmel=True,
+    #     tts_waveform_peak_norm=True,
+    #     glow_tts_noise_scale_range=(0.7, 0.7),
+    #     glow_tts_length_scale_range=(1.0, 1.0),
+    # )
     # {"dev-clean": 1.86, "dev-other": 4.54, "test-clean": 2.08, "test-other": 4.81}
-    _train_tts_encoder(
-        "tts-enc-ref-match-logmel-textP150",
-        prefix=prefix,
-        text_train_epoch_split=150,
-        batch_size_audio_frames=120_000,
-        max_phon_len=300,
-        tts_waveform=True,
-        asr_logmel=True,
-        tts_waveform_peak_norm=True,
-        glow_tts_noise_scale_range=(0.7, 0.7),
-        glow_tts_length_scale_range=(1.0, 1.0),
-    )
+    # DISABLED 2026-07-16: pre-fix-era cell, not rerun after the preload fix (see notes).
+    # _train_tts_encoder(
+    #     "tts-enc-ref-match-logmel-textP150",
+    #     prefix=prefix,
+    #     text_train_epoch_split=150,
+    #     batch_size_audio_frames=120_000,
+    #     max_phon_len=300,
+    #     tts_waveform=True,
+    #     asr_logmel=True,
+    #     tts_waveform_peak_norm=True,
+    #     glow_tts_noise_scale_range=(0.7, 0.7),
+    #     glow_tts_length_scale_range=(1.0, 1.0),
+    # )
 
     # MFA per-phone mean log-mel table ("table-lookup TTS"), for the upcoming frozen pseudo-enc variant
     # (consistency ladder (d), see projects notes). CPU-only jobs: HF dataset download + mean computation.
