@@ -221,6 +221,11 @@ def py():
         # the -5 default fights that): does removing the penalty recover acc 0.07 / 0.02?
         (1.0, 0.5, [0.0, -5.0]),
         (0.5, 0.0, [0.0, -5.0]),
+        # optimal overlap at cs1 once eep is set right (eep=0): ov0.5 gave 0.5530, so map the rest.
+        # eep=-5 for cs1-ov0 is the plain cs1-ov0 job above (0.6318).
+        (1.0, 0.0, [0.0]),
+        (1.0, 0.25, [0.0]),
+        (1.0, 0.75, [0.0]),
     ]:
         for _eep in _eeps:
             _seg_e = ChunkSegmentationFromModelBatchedJob(
@@ -279,6 +284,91 @@ def py():
             _metric_x.add_alias(f"{_x_name}-metric")
             reg(f"{_x_name}-accuracy.txt", _metric_x.out_accuracy)
             reg(f"{_x_name}-chunk_idx_mae.txt", _metric_x.out_chunk_idx_mae)
+
+    # --- algorithm variants (batched job only) ---
+
+    # 1) word_start_beam: one knob interpolating the argmax heuristic (beam=None, the old default)
+    # and the exact DP (word_start_heuristic=False).
+    # cs1-ov0 is where the two endpoints differ most (0.6318 argmax vs 0.2473 exact), so map the curve there:
+    # wider beam = less pruning = closer to exact, which we expect to get WORSE
+    # (search-error effect, cf. the NMT beam-search curse).
+    for _beam in [0.0, 1.0, 2.0, 5.0, 10.0, 20.0]:
+        _seg_bm = ChunkSegmentationFromModelBatchedJob(
+            dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=_cfg_hp,
+            chunk_size_secs=1.0,
+            chunk_overlap_secs=0.0,
+            max_batch_size=8,
+            word_start_beam=_beam,
+        )
+        _bm_name = f"chunk-align/phi4mm-buckeye-val-cs1-ov0-beam{_beam:g}"
+        _seg_bm.add_alias(_bm_name)
+        reg(f"{_bm_name}.hdf", _seg_bm.out_hdf)
+        _m_bm = CalcChunkAssignmentMetricsJob(
+            chunk_seg_hdf=_seg_bm.out_hdf,
+            dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["buckeye"],
+        )
+        _m_bm.add_alias(f"{_bm_name}-metric")
+        reg(f"{_bm_name}-accuracy.txt", _m_bm.out_accuracy)
+        reg(f"{_bm_name}-chunk_idx_mae.txt", _m_bm.out_chunk_idx_mae)
+
+    # 2) exit_bias: a global words-per-chunk knob (added to EVERY exit),
+    # vs empty_exit_penalty which only hits chunks exiting with zero words,
+    # and which we showed is a pure heuristic artifact.
+    # Swept with eep=0 so the bias is the only exit knob.
+    # bias=0 is the existing cs2-ov0-eep0 (0.8535).
+    for _bias in [-2.0, -1.0, 1.0, 2.0]:
+        _seg_eb = ChunkSegmentationFromModelBatchedJob(
+            dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=_cfg_hp,
+            chunk_size_secs=2.0,
+            chunk_overlap_secs=0.0,
+            empty_exit_penalty=0.0,
+            max_batch_size=8,
+            exit_bias=_bias,
+        )
+        _eb_name = f"chunk-align/phi4mm-buckeye-val-cs2-ov0-eep0-bias{_bias:g}"
+        _seg_eb.add_alias(_eb_name)
+        reg(f"{_eb_name}.hdf", _seg_eb.out_hdf)
+        _m_eb = CalcChunkAssignmentMetricsJob(
+            chunk_seg_hdf=_seg_eb.out_hdf,
+            dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["buckeye"],
+        )
+        _m_eb.add_alias(f"{_eb_name}-metric")
+        reg(f"{_eb_name}-accuracy.txt", _m_eb.out_accuracy)
+        reg(f"{_eb_name}-chunk_idx_mae.txt", _m_eb.out_chunk_idx_mae)
+
+    # 3) length_norm: score a word by its per-token MEAN log-prob instead of the sum,
+    # so a multi-token word is not systematically dearer to emit than the single exit token.
+    # Compare against the plain cs*-ov* jobs (cs2-ov0 0.8747, cs10-ov2.5 0.9856, cs1-ov0 0.6318).
+    for _cs, _ov in [(2.0, 0.0), (10.0, 2.5), (1.0, 0.0)]:
+        _seg_ln = ChunkSegmentationFromModelBatchedJob(
+            dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=_cfg_hp,
+            chunk_size_secs=_cs,
+            chunk_overlap_secs=_ov,
+            max_batch_size=8,
+            length_norm=True,
+        )
+        _ln_name = f"chunk-align/phi4mm-buckeye-val-cs{_cs:.0f}-ov{_ov:g}-lnorm"
+        _seg_ln.add_alias(_ln_name)
+        reg(f"{_ln_name}.hdf", _seg_ln.out_hdf)
+        _m_ln = CalcChunkAssignmentMetricsJob(
+            chunk_seg_hdf=_seg_ln.out_hdf,
+            dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["buckeye"],
+        )
+        _m_ln.add_alias(f"{_ln_name}-metric")
+        reg(f"{_ln_name}-accuracy.txt", _m_ln.out_accuracy)
+        reg(f"{_ln_name}-chunk_idx_mae.txt", _m_ln.out_chunk_idx_mae)
 
     # fp32 batched (default fast path) at cs30, to check the fast path (esp. batched_logprobs) is
     # bit-exact vs the fp32 single-seq reference below. The bf16 sweep diverges more for small

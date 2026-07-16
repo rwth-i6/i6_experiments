@@ -377,9 +377,17 @@ class ChunkSegmentationFromModelBatchedJob(Job):
     in bf16 it may differ by matmul non-determinism (set ``model_dtype`` in the model config).
     """
 
-    # Bumped to 2 when sort_by_length / batched_logprobs were added: the flags are part of the hash
-    # (no __sis_hash_exclude__), so every value combination gets its own hash.
+    # Bumped to 2 when sort_by_length / batched_logprobs were added:
+    # those flags are part of the hash, so every value combination gets its own hash.
     __sis_version__ = 2
+    # Algorithm variants added later.
+    # The excluded value for each is the one that REPRODUCES the behavior from before the param existed
+    # (no beam / no bias / summed word scores),
+    # so a job left at the defaults hashes like a pre-variant job and the finished sweeps stay reused;
+    # a non-default value still changes the hash.
+    # Polarity matters:
+    # excluding the *new* value instead would make a variant job collide with the old hash and not rerun.
+    __sis_hash_exclude__ = {"word_start_beam": None, "exit_bias": 0.0, "length_norm": False}
 
     def __init__(
         self,
@@ -395,6 +403,9 @@ class ChunkSegmentationFromModelBatchedJob(Job):
         max_batch_size: int = 8,
         sort_by_length: bool = True,
         batched_logprobs: bool = True,
+        word_start_beam: Optional[float] = None,
+        exit_bias: float = 0.0,
+        length_norm: bool = False,
     ):
         super().__init__()
         self.dataset_dir = dataset_dir
@@ -411,6 +422,19 @@ class ChunkSegmentationFromModelBatchedJob(Job):
         # instead of one per word (the DP's real bottleneck). Both default on (verified equivalent).
         self.sort_by_length = sort_by_length
         self.batched_logprobs = batched_logprobs
+        # word_start_beam: keep every previous-chunk exit within this log-prob margin of the best,
+        # and start from the earliest survivor.
+        # None = plain argmax (the original heuristic);
+        # a wider beam prunes less and approaches word_start_heuristic=False (exact).
+        # One knob interpolating the two, since the argmax end measurably beats the exact end.
+        # exit_bias: added to EVERY exit log-prob,
+        # unlike empty_exit_penalty which only applies to a chunk exiting with zero words --
+        # a global words-per-chunk knob (cf. word insertion penalty).
+        # length_norm: score a word by its per-token MEAN log-prob instead of the sum,
+        # so emitting a multi-token word is not systematically dearer than the single exit token.
+        self.word_start_beam = word_start_beam
+        self.exit_bias = exit_bias
+        self.length_norm = length_norm
 
         self.rqmt = {"time": 40, "cpu": 2, "gpu": 1, "mem": 125}
         self.out_hdf = self.output_path("out.hdf")
@@ -537,9 +561,15 @@ class ChunkSegmentationFromModelBatchedJob(Job):
                     if cci == 0 or not self.word_start_heuristic:
                         prev_idx, cws = 0, 0
                     else:
-                        prev_idx = int(
-                            torch.stack([n.accum_exit_log_prob for n in s["array"][cci - 1]]).argmax().item()
-                        )
+                        exits = torch.stack([n.accum_exit_log_prob for n in s["array"][cci - 1]])
+                        if self.word_start_beam is None:
+                            prev_idx = int(exits.argmax().item())
+                        else:
+                            # Beam prune:
+                            # keep every exit within the margin of the best, start from the earliest survivor.
+                            # Wider beam -> prunes less -> approaches the exact DP.
+                            keep = (exits >= exits.max() - self.word_start_beam).nonzero()
+                            prev_idx = int(keep.min().item())
                         cws = s["array"][cci - 1][prev_idx].word_idx
                     cwe = len(s["words"])
                     if cws >= cwe:
@@ -557,9 +587,10 @@ class ChunkSegmentationFromModelBatchedJob(Job):
                 if not active:
                     break
 
-                # One flushed line per chunk step, so the log keeps updating and a slow run is
-                # distinguishable from a real hang: small chunk sizes mean ~1000+ chunks per seq, and
-                # the DP is otherwise silent for a whole group (only group start / seq end print).
+                # One flushed line per chunk step, so the log keeps updating
+                # and a slow run is distinguishable from a real hang:
+                # small chunk sizes mean ~1000+ chunks per seq,
+                # and the DP is otherwise silent for a whole group (only group start / seq end print).
                 print(
                     f"** chunk step: {len(active)} active seqs,"
                     f" chunk {[st[i]['cci'] for i in active]} of {[len(st[i]['cse']) for i in active]},"
@@ -606,9 +637,13 @@ class ChunkSegmentationFromModelBatchedJob(Job):
                                 0.0,
                             )
                             wlp = wlp.sum()
+                            if self.length_norm:
+                                wlp = wlp / max(1, int(t1 - t0))
                         else:
                             wlp = None
                         exit_lp = log_probs[0, 0, model.assistant_end_token_id]
+                        if self.exit_bias:
+                            exit_lp = exit_lp + self.exit_bias
                         if w == 0:
                             exit_lp = exit_lp + self.empty_exit_penalty
                         prev_left, prev_below = None, None
