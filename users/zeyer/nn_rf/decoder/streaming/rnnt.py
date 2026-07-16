@@ -52,7 +52,7 @@ class RnntDecoder(rf.Module):
         version: int = 1,
     ):
         super().__init__()
-        assert version == 3, "RnntDecoder: standard monotonic RNN-T (label-only pred net); build with version==3"
+        assert version == 4, "RnntDecoder: standard monotonic RNN-T (label-only pred net); build with version==4"
         self.version = version
         chunk_size  # noqa  (frame-rate joiner -- no chunk masking; accepted for the StreamingModel interface)
         if isinstance(model_dim, int):
@@ -129,14 +129,14 @@ def rnnt_train_forward(
     y, label_spatial_dim = rf.masked_select(rna, mask=is_label, dims=[enc_spatial_dim])
     y.sparse_dim = model.target_dim_ext
 
-    # Prediction net over the emitted labels (label history only).
-    pred_prev = rf.shift_right(y, axis=label_spatial_dim, pad_value=model.bos_idx)
+    # Prediction net over the emitted labels: g_u = f(BOS, y_1..y_u), the state after u emitted labels.
+    pred_in, (label_ext_dim,) = rf.pad(y, axes=[label_spatial_dim], padding=[(1, 0)], value=model.bos_idx)
+    pred_in.sparse_dim = model.target_dim_ext
     pred, _ = dec.pred_forward(
-        pred_prev, spatial_dim=label_spatial_dim, state=dec.pred_initial_state(batch_dims=batch_dims)
+        pred_in, spatial_dim=label_ext_dim, state=dec.pred_initial_state(batch_dims=batch_dims)
     )
-    # Prepend a (zero) BOS prediction state so gather index n_t in [0,U] maps 0->bos, k->pred[k-1].
-    pred_ext, (label_ext_dim,) = rf.pad(pred, axes=[label_spatial_dim], padding=[(1, 0)], value=0.0)
-    pred_per_frame = rf.gather(pred_ext, indices=n_t, axis=label_ext_dim)  # [B, enc_spatial, model_dim]
+    # Frame t has n_t emitted labels, so it uses g_{n_t}, conditioned on all n_t labels incl. the most recent.
+    pred_per_frame = rf.gather(pred, indices=n_t, axis=label_ext_dim)  # [B, enc_spatial, model_dim]
 
     logits = dec.joiner(enc, pred_per_frame)
     log_probs = rf.log_softmax(logits, axis=model.target_dim_ext)
@@ -208,7 +208,11 @@ def model_recog(
 
     blank_t = rf.constant(blank, dims=bd, sparse_dim=model.target_dim_ext, dtype="int32")
     n_emitted = rf.constant(0, dims=bd, dtype="int32")
-    current_pred = rf.constant(0.0, dims=bd + [model_dim])  # BOS prediction state
+    # g_0 = f(BOS): the prediction state after zero emitted labels.
+    bos1_dim = Dim(1, name="bos1")
+    bos1 = rf.constant(bos, dims=bd + [bos1_dim], sparse_dim=model.target_dim_ext, dtype="int32")
+    pred0, _ = dec.pred_forward(bos1, spatial_dim=bos1_dim, state=dec.pred_initial_state(batch_dims=bd))
+    current_pred = rf.gather(pred0, indices=rf.constant(0, dims=bd, dtype="int32"), axis=bos1_dim)
     current_pred.feature_dim = model_dim
     emitted_labels = rf.constant(blank, dims=bd + [label_dim], sparse_dim=model.target_dim_ext, dtype="int32")
     seq_log_prob = rf.constant(0.0, dims=bd)
@@ -236,11 +240,11 @@ def model_recog(
         # If anything emitted, re-run the prediction net over the buffer and refresh current_pred.
         if bool(rf.reduce_all(rf.logical_not(is_label), axis=is_label.dims).raw_tensor):
             continue
-        pred_prev = rf.shift_right(emitted_labels, axis=label_dim, pad_value=bos)
-        pred, _ = dec.pred_forward(pred_prev, spatial_dim=label_dim, state=dec.pred_initial_state(batch_dims=bd))
-        last = rf.where(n_emitted > 0, n_emitted - 1, rf.zeros(bd, dtype="int32"))
-        gathered = rf.gather(pred, indices=last, axis=label_dim)  # [.., model_dim]
-        current_pred = rf.where(n_emitted > 0, gathered, current_pred)
+        # g_{n_emitted} = f(BOS, y_1..y_{n_emitted}): predict over [BOS, emitted...], gather at n_emitted.
+        pred_in, (ext_dim,) = rf.pad(emitted_labels, axes=[label_dim], padding=[(1, 0)], value=bos)
+        pred_in.sparse_dim = model.target_dim_ext
+        pred, _ = dec.pred_forward(pred_in, spatial_dim=ext_dim, state=dec.pred_initial_state(batch_dims=bd))
+        current_pred = rf.gather(pred, indices=n_emitted, axis=ext_dim)  # [.., model_dim]
 
     out_spatial_dim = Dim(t_max, name="out-spatial")
     aligned = seq.stack(axis=out_spatial_dim)

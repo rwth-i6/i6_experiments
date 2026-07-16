@@ -309,7 +309,7 @@ def _train_rnnt_mono_framewise_rz():
     """
     return _train_variant_rz(
         "rnnt-mono-framewise-1gpu",
-        dec_build_dict=rf.build_dict(RnntDecoder, model_dim=1024, num_layers=6, num_heads=8, version=3),
+        dec_build_dict=rf.build_dict(RnntDecoder, model_dim=1024, num_layers=6, num_heads=8, version=4),
         train_def=rnnt_training,
         recog_def=rnnt_model_recog,
         target_mode="rna_frame",
@@ -330,7 +330,7 @@ def _train_rnnt_mono_fullsum_rz():
     """
     return _train_variant_rz(
         "rnnt-mono-fullsum-1gpu",
-        dec_build_dict=rf.build_dict(RnntDecoder, model_dim=1024, num_layers=6, num_heads=8, version=3),
+        dec_build_dict=rf.build_dict(RnntDecoder, model_dim=1024, num_layers=6, num_heads=8, version=4),
         train_def=rnnt_fullsum_training,
         recog_def=rnnt_model_recog,
         target_mode="labels",
@@ -346,7 +346,7 @@ def _train_rnnt_mono_small(name: str, *, train_def, target_mode: str, extra_conf
     """Scaled-down monotonic RNN-T (6L enc, 3L dec, nep20) -- fast same-day framewise-vs-full-sum comparison."""
     return _train_variant_rz(
         name,
-        dec_build_dict=rf.build_dict(RnntDecoder, model_dim=1024, num_layers=3, num_heads=8, version=3),
+        dec_build_dict=rf.build_dict(RnntDecoder, model_dim=1024, num_layers=3, num_heads=8, version=4),
         train_def=train_def,
         recog_def=rnnt_model_recog,
         target_mode=target_mode,
