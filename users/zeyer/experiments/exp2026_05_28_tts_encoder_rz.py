@@ -340,6 +340,30 @@ def py():
         gpu_mem=96,
         nep=100,
     )
+    # Single-stream version of pseudo-enc-layer4-noblank-1gpu:
+    # audio + text mixed in ONE batch (no alternate batching), merged at the layer-4 boundary,
+    # one loss set -- the pseudo-enc analogue of tts-enc-logmel-refcfg-single
+    # (same mixing-structure question, on the cheapest injection mechanism).
+    _train_tts_encoder(
+        "pseudo-enc-layer4-noblank-single-1gpu",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        # 70k/6k, not the family's 120k/8k: everything runs on c25g (80GB) now,
+        # and merged batches stack audio AND text in one step
+        # (100k/8k OOM'd at step 0: 69GB + 13.7GB backward).
+        batch_size_audio_frames=70_000,
+        max_phon_len=300,
+        batch_size_phon=6_000,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_start_layer=4,
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_specaug_max_width=6,
+        single_stream=True,
+        num_processes=1,
+        gpu_mem=96,
+        nep=100,
+    )
     # Muon version of pseudo-enc-layer4-1gpu (muon-lr5e3-wdbl):
     # best FZJ mechanism + best optimizer in the single-GPU nep100 regime,
     # the best-number chase, vs the AdamW #1 which is the fair 3.53 comparison.

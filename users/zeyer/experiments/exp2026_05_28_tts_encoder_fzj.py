@@ -1207,7 +1207,9 @@ def _train_tts_encoder(
         from i6_experiments.users.zeyer.recog import recog_training_exp as recog_training_func
 
     if single_stream:
-        assert tts_waveform and not pseudo_speech_enc, "single_stream: waveform TTS path only"
+        assert tts_waveform or (pseudo_speech_enc and pseudo_enc_start_layer >= 0), (
+            "single_stream: waveform TTS, or layer-split pseudo-enc"
+        )
 
     vocab = "spm10k"
     task = get_librispeech_task_raw_v2(
@@ -1398,7 +1400,11 @@ def _train_tts_encoder(
             # (offline-reference style); otherwise alternate_batching (pure audio / pure text batches).
             **({} if single_stream else {"torch_batching": functools.partial(alternate_batching, asr_key=in_key)}),
             # custom step; no TrainDef needed
-            "train_step": aed_glowtts_single_stream_train_step if single_stream else aed_glowtts_train_step,
+            "train_step": (
+                (aed_pseudo_enc_single_stream_train_step if pseudo_speech_enc else aed_glowtts_single_stream_train_step)
+                if single_stream
+                else aed_glowtts_train_step
+            ),
             "learning_rate_control_error_measure": "ce",  # set explicitly since there is no TrainDef
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
             "aux_loss_layers": [4, 10, 16],
@@ -2039,6 +2045,213 @@ def aed_glowtts_single_stream_train_step(*, model: Model, extern_data, **_kwargs
         )
 
     # AED CE + FER (single stream)
+    batch_dims = targets.remaining_dims(targets_spatial_dim)
+    input_labels, (targets_w_eos_spatial_dim,) = rf.pad(
+        targets, axes=[targets_spatial_dim], padding=[(1, 0)], value=model.bos_idx
+    )
+    targets_w_eos, _ = rf.pad(
+        targets,
+        axes=[targets_spatial_dim],
+        padding=[(0, 1)],
+        value=model.eos_idx,
+        out_dims=[targets_w_eos_spatial_dim],
+    )
+    dec_collected = CollectOutputsDict(allowed_key_patterns=[str(i - 1) for i in dec_aux_loss_layers])
+    logits, _ = model.decoder(
+        input_labels,
+        spatial_dim=targets_w_eos_spatial_dim,
+        encoder=enc,
+        state=model.decoder.default_initial_state(batch_dims=batch_dims),
+        collected_outputs=dec_collected,
+    )
+    dec_aux_logits = {}
+    for layer_idx in dec_aux_loss_layers:
+        norm = getattr(model, f"dec_aux_final_layer_norm_{layer_idx}")
+        linear = getattr(model, f"dec_aux_logits_{layer_idx}")
+        dec_aux_logits[layer_idx] = linear(norm(dec_collected[str(layer_idx - 1)]))
+
+    targets_packed, pack_dim = rf.pack_padded(
+        targets_w_eos, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False
+    )
+    for postfix, scale, logits_ in [("", aed_loss_scale, logits)] + [
+        (f"_{k}", dec_aux_loss_scales[i], dec_aux_logits[k]) for i, k in enumerate(dec_aux_loss_layers)
+    ]:
+        logits_packed, _ = rf.pack_padded(
+            logits_, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False, out_dim=pack_dim
+        )
+        if not model.out_eos_separated:
+            log_prob = rf.log_softmax(logits_packed, axis=model.target_dim)
+        else:
+            log_prob = _aed.log_probs_with_eos_separated(
+                logits_packed, target_dim=model.target_dim, eos_idx=model.eos_idx
+            )
+        log_prob = rf.label_smoothed_log_prob_gradient(log_prob, label_smoothing, axis=model.target_dim)
+        loss = rf.cross_entropy(
+            target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
+        )
+        loss.mark_as_loss(f"ce{postfix}", scale=scale, use_normalized_loss=normed)
+        best = rf.reduce_argmax(log_prob, axis=model.target_dim)
+        frame_error = best != targets_packed
+        frame_error.mark_as_loss(name=f"fer{postfix}", as_error=True)
+
+
+def aed_pseudo_enc_single_stream_train_step(*, model: Model, extern_data, **_kwargs_unused):
+    """Custom RETURNN train_step: single-stream AED+CTC with the pseudo-speech-encoder
+    (real audio + pseudo-enc text seqs mixed in one batch).
+
+    Like aed_glowtts_single_stream_train_step, but the text branch enters the encoder
+    at layer pseudo_enc_start_layer (encoder model space, enc frame rate) instead of at the waveform:
+    the pseudo features are computed on the FULL batch
+    (audio rows have empty phoneme seqs -> empty rows; a plain embedding lookup, so this is free)
+    and get the text-side SpecAugment + input dropout;
+    the audio rows run the front-end + Conformer layers [0, start_layer)
+    and are scattered in at the layer boundary (rf.nested handles the ragged frame dims);
+    Conformer layers [start_layer, ...) + decoder + ONE loss set run once on the merged batch.
+    Aux CTC tapped below start_layer (ctc_4 at start_layer=4) is computed on the audio rows only
+    (same coverage as dual-stream, where the text branch skips those aux losses).
+    """
+    from returnn.config import get_global_config
+    from returnn.util.collect_outputs_dict import CollectOutputsDict
+
+    config = get_global_config()  # noqa
+    assert config.bool("pseudo_speech_enc", False)
+    start_layer = config.int("pseudo_enc_start_layer", -1)
+    assert start_layer >= 0, "pseudo-enc single-stream: layer-split injection only"
+    assert config.typed_value("pseudo_enc_units", "phonemes") == "phonemes", "pseudo-enc single-stream: phonemes only"
+    data = extern_data[config.typed_value("default_input")]
+    data_spatial_dim = data.get_time_dim_tag()
+    targets = extern_data[config.typed_value("target")]
+    targets_spatial_dim = targets.get_time_dim_tag()
+    phonemes = extern_data[PHONEMES_DATA_KEY]
+    phonemes_spatial_dim = phonemes.get_time_dim_tag()
+
+    aux_loss_layers = config.typed_value("aux_loss_layers") or ()
+    aux_loss_scales = config.typed_value("aux_loss_scales", [1.0] * len(aux_loss_layers))
+    aed_loss_scale = config.float("aed_loss_scale", 1.0)
+    dec_aux_loss_layers = config.typed_value("dec_aux_loss_layers") or ()
+    dec_aux_loss_scales = config.typed_value("dec_aux_loss_scales", [1.0] * len(dec_aux_loss_layers))
+    use_normalized_loss = config.typed_value("use_normalized_loss", True)
+    if isinstance(use_normalized_loss, bool):
+        use_normalized_loss = "frames" if use_normalized_loss else "none"
+    assert use_normalized_loss in ("none", "frames"), f"single_stream: unsupported {use_normalized_loss!r}"
+    normed = {"none": False, "frames": True}[use_normalized_loss]
+    label_smoothing = config.float("label_smoothing", 0.1)
+    pseudo_specaug_width = config.typed_value("pseudo_enc_specaug_max_width", None)
+
+    if data.feature_dim and data.feature_dim.dimension == 1:
+        data = rf.squeeze(data, axis=data.feature_dim)
+    (batch_dim,) = data.remaining_dims(data_spatial_dim)
+    # per-seq split: text seqs carry empty audio (size 0); real-audio seqs carry empty phonemes.
+    text_mask_cpu = data_spatial_dim.get_size_tensor() <= 0
+    audio_mask_cpu = rf.logical_not(text_mask_cpu)
+    audio_mask = rf.copy_to_device(audio_mask_cpu, data.device)
+    num_text = int(text_mask_cpu.raw_tensor.sum())
+    num_total = int(batch_dim.get_dim_value())
+
+    if config.bool("use_eos_postfix", False):
+        ctc_targets, (ctc_targets_spatial_dim,) = rf.pad(
+            targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx
+        )
+    else:
+        ctc_targets, ctc_targets_spatial_dim = targets, targets_spatial_dim
+
+    n_layers = len(model.encoder.layers)
+    # aux heads tapped below the merge boundary (collected key < start_layer): audio rows only.
+    aux_below = [i for i in aux_loss_layers if i - 1 < start_layer]
+    collected = CollectOutputsDict(allowed_key_patterns=[str(i - 1) for i in aux_loss_layers])
+    aux_below_out = {}
+    audio_ct = audio_ct_sp = aux_below_sp = None
+    if num_text == 0:
+        # pure real-audio batch: the standard full encode (all aux keys collected).
+        enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected)
+    elif num_text == num_total:
+        # pure text batch: the plain layer-split path (aux below start_layer skipped, as in dual-stream).
+        feats, feats_spatial_dim = model.pseudo_enc(phonemes, spatial_dim=phonemes_spatial_dim)
+        enc_raw, enc_spatial_dim = model.encode_from_enc_space(
+            feats,
+            spatial_dim=feats_spatial_dim,
+            start_layer=start_layer,
+            collected_outputs=collected,
+            specaugment_max_spatial_dims=pseudo_specaug_width,
+        )
+        enc = model.decoder.transform_encoder(enc_raw, axis=enc_spatial_dim)
+    else:
+        # text side: pseudo features on the FULL batch (audio rows are empty), then the text-side
+        # SpecAugment (scaled width) + input dropout; start_layer=n_layers runs no Conformer layer.
+        feats_t, feats_t_spatial_dim = model.pseudo_enc(phonemes, spatial_dim=phonemes_spatial_dim)
+        feats_t, _ = model.encode_from_enc_space(
+            feats_t,
+            spatial_dim=feats_t_spatial_dim,
+            start_layer=n_layers,
+            specaugment_max_spatial_dims=pseudo_specaug_width,
+        )
+        # audio side: select the real-audio rows, front-end + Conformer layers [0, start_layer).
+        (wave_a, wave_a_spatial_dim), audio_bdim, sel_map_a = rf.nested.masked_select_nested(
+            (data, data_spatial_dim), mask=audio_mask, mask_cpu=audio_mask_cpu, dims=[batch_dim]
+        )
+        coll_a = CollectOutputsDict(allowed_key_patterns=[str(i - 1) for i in aux_below])
+        feats_a, feats_a_spatial_dim = model.encode_no_transform(
+            wave_a, in_spatial_dim=wave_a_spatial_dim, collected_outputs=coll_a, end_layer=start_layer
+        )
+        if aux_below:
+            (audio_ct, audio_ct_sp), _, _ = rf.nested.masked_select_nested(
+                (ctc_targets, ctc_targets_spatial_dim), mask=audio_mask, mask_cpu=audio_mask_cpu, dims=[batch_dim]
+            )
+            aux_below_out = {i: coll_a[str(i - 1)] for i in aux_below}
+            aux_below_sp = feats_a_spatial_dim
+        # merge at the layer boundary: scatter the audio rows into the full-batch pseudo features.
+        if feats_t.dtype != feats_a.dtype:
+            feats_t = rf.cast(feats_t, feats_a.dtype)
+        x, x_spatial_dim = rf.nested.masked_scatter_nested(
+            (feats_a, feats_a_spatial_dim),
+            (feats_t, feats_t_spatial_dim),
+            mask=audio_mask,
+            mask_cpu=audio_mask_cpu,
+            dims=[batch_dim],
+            in_dim=audio_bdim,
+            masked_select_dim_map=sel_map_a,
+        )
+        enc_raw, enc_spatial_dim = model.encode_from_enc_space(
+            x,
+            spatial_dim=x_spatial_dim,
+            start_layer=start_layer,
+            collected_outputs=collected,
+            apply_specaugment=False,
+            apply_input_dropout=False,
+        )
+        enc = model.decoder.transform_encoder(enc_raw, axis=enc_spatial_dim)
+
+    for i, layer_idx in enumerate(aux_loss_layers):
+        if layer_idx > n_layers:
+            continue
+        key = str(layer_idx - 1)
+        if key in collected:
+            aux_out, aux_sp = collected[key], enc_spatial_dim
+            aux_tgt, aux_tgt_sp = ctc_targets, ctc_targets_spatial_dim
+        elif layer_idx in aux_below_out:
+            # tapped below the merge: audio rows only (dual-stream text skips these too).
+            aux_out, aux_sp = aux_below_out[layer_idx], aux_below_sp
+            aux_tgt, aux_tgt_sp = audio_ct, audio_ct_sp
+        else:
+            continue  # pure-text batch: no signal below the injection layer
+        aux_logits = getattr(model, f"enc_aux_logits_{layer_idx}")(aux_out)
+        aux_ctc_log_probs = rf.log_softmax(aux_logits, axis=model.wb_target_dim)
+        aux_loss = rf.ctc_loss(
+            logits=aux_ctc_log_probs,
+            logits_normalized=True,
+            targets=aux_tgt,
+            input_spatial_dim=aux_sp,
+            targets_spatial_dim=aux_tgt_sp,
+            blank_index=model.blank_idx,
+        )
+        aux_loss.mark_as_loss(
+            f"ctc_{layer_idx}",
+            scale=aux_loss_scales[i],
+            custom_inv_norm_factor=aux_tgt_sp.get_size_tensor(),
+            use_normalized_loss=normed,
+        )
+
+    # AED CE + FER (single stream), identical to aed_glowtts_single_stream_train_step.
     batch_dims = targets.remaining_dims(targets_spatial_dim)
     input_labels, (targets_w_eos_spatial_dim,) = rf.pad(
         targets, axes=[targets_spatial_dim], padding=[(1, 0)], value=model.bos_idx
