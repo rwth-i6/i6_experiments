@@ -99,7 +99,7 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
        # if self.verbosity >= 2:
        #     print(f"Processing sequence {seq_tag}.")
 
-        if self.subsampling:
+        if self.subsampling and self.subsampling > 1:
             hidden_state_tensor = self.pool(
                 hidden_state_tensor,
             )

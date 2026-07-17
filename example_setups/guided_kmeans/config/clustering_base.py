@@ -7,157 +7,118 @@ from i6_experiments.example_setups.guided_kmeans.setup.clustering_config import 
     ClusteringCallbackConfig,
     LateInitConfig,
     StreamingStandardInitializerConfig,
-    PickleCheatingCentroidInitializerConfig
+    PickleCheatingCentroidInitializerConfig,
+    PreloadCentroidsInitializerConfig,
 )
 
 from i6_experiments.example_setups.guided_kmeans.setup.librasr_recognition import create_recog_rasr_config, create_lexicon
 from i6_experiments.example_setups.guided_kmeans.setup.phoneme_frequency import get_sampled_segments_file
 from i6_experiments.example_setups.guided_kmeans.setup.decode_config import decode_and_score, DecodeConfig
 from i6_experiments.example_setups.guided_kmeans.setup.report import create_report
-from i6_experiments.example_setups.guided_kmeans.setup.dataset_config import DatasetConfig, RandomNumber, All
-from i6_experiments.users.zeyer.returnn.test_model_config import log_verbosity
+from i6_experiments.example_setups.guided_kmeans.setup.dataset_config import DatasetConfig, RandomNumber, All, SegmentFile
 
-num_epochs = 10
+from i6_experiments.example_setups.guided_kmeans import tools
 
-#rasr_path = tk.Path("/work/asr3/michel/mann/tools/rasr/librasr_recog/arch/linux-x86_64-standard")
-rasr_path = tk.Path("/work/asr4/lkleppel/rasr_dev/ngram_linear_search/rasr2/arch/linux-x86_64-standard")    # for linear search
+# TODO maybe use DistributedFileDataset
 
-initializer_configs = {
-    "random": StreamingStandardInitializerConfig(seed=42),
-    "cheating": PickleCheatingCentroidInitializerConfig(
-       # centroids_path=tk.Path("/u/jxu/setups/unsupervised/2025-05-30--marten-unsupervised/output/cheating_centroids.pkl"),
-        centroids_path=tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/cheating_centroids_ls_100.pkl"),   # LS 100h
-        lexicon_path=lexicon,
-    )
+input_data = {
+    "train-clean-100-dbg": {
+        "features": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/features/filtered_features_train-clean-100-dbg.hdf"),
+        "cheating_centroids": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/cheating_centroids/train-clean-100-dbg/centroids.npy"),
+        "segment_file": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/segments_list/train-clean-100-dbg-segments.txt"),
+    },
+    "ls-100": {
+        "features": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/features/wav2vec2_ls100h.hdf"),
+        "cheating_centroids": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/cheating_centroids/centroids.npy"), # computed on the full 960h
+        "segment_file": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/segments_list/ls100h-segments.txt"),
+    }
 }
 
 def run():
-    lm_order = 3
+
+    use_eow_phonemes = False
+    num_epochs = 2
+    use_pruning = False
+
+    input_data_key = "train-clean-100-dbg"
+    initialization = "random"
 
     parameters = [
-        #  (10.0, 0.3, 0.2), (15.0, 0.3, 0.2), (20.0, 0.3, 0.2),
-        # (10.0, 0.2, 0.1), (15.0, 0.2, 0.1), (20.0, 0.2, 0.1),
-        # (10.0, 0.1, 0.05), (15.0, 0.1, 0.05), (20.0, 0.1, 0.05),
-        # (12.12, 0.1, 0.1)
-        (15.0, 0.2, 0.1), (15.0, 0.1, 0.05)
+        (None, 2, 10000.0, 0.7, 0.7)
     ]
 
-    for name, initializer_config in initializer_configs.items():
-        recog_results = []
-        for lm_scale, loop_probability, silence_loop_probability in parameters:
-            exp_name = f"lm-{lm_scale}_loop-{loop_probability}-sil-loop-{silence_loop_probability}_pruning"
+    recog_results = []
 
-            recognition_config = create_recog_rasr_config(
-                lm_scale=lm_scale,
-                emission_scale=1.0,
-                transition_scale=None,
-                loop_probability=loop_probability,
-                silence_loop_probability=silence_loop_probability,
-                use_tree_search=False,
-                max_beam_size=20000,
-                score_threshold=50.0 if lm_order > 2 else None,
-                lm_order=lm_order,
-            )
+    for subsampling, lm_order, lm_scale, loop_probability, silence_loop_probability in parameters:
 
-            clustering_callback_config = ClusteringCallbackConfig(
-                num_clusters=41,
-                initializer_config=LateInitConfig(),
-                recognition_config=recognition_config,
-                lexicon_path=create_lexicon(add_unknown_phoneme=False),
-                subsampling=3,
-                rasr_path=rasr_path,
-            )
-            clustering_callback_config.initializer_config = initializer_config
+        exp_name = f"sub-{subsampling}_lm-{lm_order}gram-{lm_scale}_loop-{loop_probability}-sil-loop-{silence_loop_probability}_{input_data_key}"
+        if use_pruning:
+            exp_name = exp_name + "_pruning"
 
-            exp_result = clustering(
-                num_epochs=num_epochs,
-                sampled_segments=get_sampled_segments_file(min_phoneme_count=sys.maxsize),
-                cluster_callback_config=clustering_callback_config,
-                log_verbosity=2,
-            )
+        initializer_config = LateInitConfig()
+        if initialization == "cheating":
+            initializer_config = PreloadCentroidsInitializerConfig(centroids_path=input_data[input_data_key]["cheating_centroids"])
+            exp_name = exp_name + "_cheating"
+        if initialization == "random":
+            initializer_config = StreamingStandardInitializerConfig(seed=42)
+            exp_name = exp_name + "_random"
 
-            fwd_job = exp_result.fwd_job
 
-            fwd_job.add_alias(f"guided_kmeans/ls-100/{lm_order}gram/{name}/{exp_name}")
+        recognition_config = create_recog_rasr_config(
+            lm_scale=lm_scale,
+            emission_scale=1.0,
+            transition_scale=None,
+            loop_probability=loop_probability,
+            silence_loop_probability=silence_loop_probability,
+            use_tree_search=False,
+            max_beam_size=20000 if use_pruning else None,
+            score_threshold=10000.0 if use_pruning else None,
+            lm_order=lm_order,
+            use_eow_phonemes=use_eow_phonemes
+        )
 
-            tk.register_output(
-                f"guided_kmeans/statistics/ls-100/{lm_order}gram/{name}/{exp_name}.json",
-                exp_result.out_statistics
-            )
+        clustering_callback_config = ClusteringCallbackConfig(
+            num_clusters=40 if not use_eow_phonemes else 79,
+            initializer_config=initializer_config,
+            recognition_config=recognition_config,
+            lexicon_path=create_lexicon(use_eow_phonemes=use_eow_phonemes, add_unknown_phoneme=False),
+            subsampling=subsampling,
+            rasr_path=tools.RASR_PATH,
+        )
 
-           # tk.register_output(
-           #     f"guided_kmeans/clustering_fwd_job_returnn_config_{name}",
-           #     fwd_job.out_returnn_config_file
-           # )
+        exp_result = clustering(
+            num_epochs=num_epochs,
+            sampled_segments=All,
+            cluster_callback_config=clustering_callback_config,
+            hdf_path=input_data[input_data_key]["features"],
+            precomputed=True,
+            log_verbosity=5,
+        )
+
+        tk.register_output(f"guided_kmeans/testing_experimental/statistics/{exp_name}.json", exp_result.out_statistics)
+
+
+        for recog_epoch in range(num_epochs+1):     # run recognition after each epoch to see how PER develops
 
             dataset_config = DatasetConfig(
-                #audio_hdf_path=tk.Path("/work/asr4/jxu/setups/pretraining/2025-02-28--best-rq-pretraining/work/i6_core/returnn/hdf/BlissToPcmHDFJob.vExsEVfudAcd/output/audio.hdf"),
-                #sampling_method=RandomNumber(20)
-                audio_hdf_path=tk.Path("/work/asr4/jxu/setups/pretraining/2025-02-28--best-rq-pretraining/work/i6_core/returnn/hdf/BlissToPcmHDFJob.Yl7xJWHh0bgs/output/audio.hdf"), # dev-clean
-                sampling_method=All()
+                audio_hdf_path=input_data["train-clean-100-dbg"]["features"],
+                sampling_method=SegmentFile(get_sampled_segments_file(min_phoneme_count=5)),
+                precomputed=True,
             )
 
             decode_config = DecodeConfig(
-                centroids=exp_result.out_centroids[num_epochs],
+                centroids=exp_result.out_centroids[recog_epoch],
                 recog_rasr_config=recognition_config,
                 distance_scale=1.0,
-                subsampling=3,
+                subsampling=subsampling,
             )
 
-            res = decode_and_score(exp_name, "dev-clean", decode_config, dataset_config, rasr_path=rasr_path)
-            tk.register_output(f"guided_kmeans/recognition/ls-100/{lm_order}gram/{name}/{exp_name}_per", res.per)
+            res = decode_and_score(exp_name + f"_epoch-{recog_epoch}", "train-clean-100-dbg", decode_config, dataset_config, rasr_path=tools.RASR_PATH)
+            tk.register_output(f"guided_kmeans/testing_experimental/recognition/{exp_name}_epoch-{recog_epoch}_per", res.per)
             recog_results.append(res)
 
-        tk.register_report(f"guided_kmeans/recognition/ls-100/{lm_order}gram/{name}/report.txt", values=create_report(recog_results), required=True)
-
-    return recog_results
-
-
-
-
-def test():
-    lm_order = 3
-    lm_scale = 12.13
-    loop_probability = 0.1
-    silence_loop_probability = 0.1
-    use_eow_phonemes = False
-
-    exp_name = f"lm-{lm_scale}_loop-{loop_probability}-sil-loop-{silence_loop_probability}"
-
-    recognition_config = create_recog_rasr_config(
-        lm_scale=lm_scale,
-        emission_scale=1.0,
-        transition_scale=None,
-        loop_probability=loop_probability,
-        silence_loop_probability=silence_loop_probability,
-        use_tree_search=False,
-        max_beam_size=20000,
-        score_threshold=50.0,
-        lm_order=lm_order,
-        use_eow_phonemes=use_eow_phonemes
-    )
-
-    clustering_callback_config = ClusteringCallbackConfig(
-        num_clusters=41 if not use_eow_phonemes else 80,
-        initializer_config=LateInitConfig(),
-        recognition_config=recognition_config,
-        lexicon_path=create_lexicon(use_eow_phonemes=use_eow_phonemes, add_unknown_phoneme=False),
-        subsampling=3,
-        rasr_path=rasr_path,
-    )
-    clustering_callback_config.initializer_config = StreamingStandardInitializerConfig(seed=42)
-
-    exp_result = clustering(
-        num_epochs=num_epochs,
-        sampled_segments=get_sampled_segments_file(min_phoneme_count=5), #sys.maxsize),
-        cluster_callback_config=clustering_callback_config,
-    )
-
-    tk.register_output(
-        f"guided_kmeans/statistics/testing/{exp_name}.json",
-        exp_result.out_statistics
-    )
+    tk.register_report(f"guided_kmeans/testing_experimental/recognition/report_{input_data_key}.txt", values=create_report(recog_results), required=True)
 
 
 def py():
-    test()
+    run()

@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from i6_core.returnn.forward import ReturnnForwardJobV2
-from sisyphus import tk
+from sisyphus import tk, Job, Task
 from sisyphus.delayed_ops import DelayedBase, DelayedFormat
 
 from i6_core.text.info import CountLinesJob
@@ -10,6 +10,7 @@ from i6_core.returnn.config import ReturnnConfig, CodeWrapper
 from i6_core.serialization.base import Import, Collection, CallImport, NonhashedCode
 
 import i6_experiments
+from i6_experiments.example_setups.guided_kmeans.setup.dataset_config import _All
 from i6_experiments.example_setups.guided_kmeans.lib.guided_kmeans.clustering import (
     GuidedKMeansClusteringCallback,
     StreamingStandardInitializer,
@@ -19,6 +20,7 @@ from i6_experiments.example_setups.guided_kmeans.lib.guided_kmeans.clustering im
     PickleCheatingCentroidInitializer
 )
 from ..lib.serialization import HashedCode
+from .. import tools
 
 _INITIALIZER_ASSIGN_NAME = "cluster_initializer"
 _INITIALIZER_CLASS_DICT = {
@@ -29,9 +31,21 @@ _INITIALIZER_CLASS_DICT = {
     "PickleCheatingCentroidInitializerConfig": PickleCheatingCentroidInitializer,
 }
 
-RETURNN_PYTHON_EXE = tk.Path("/work/asr3/michel/mann/virtualenv/2025-04-23_tensorflow-2.17_onnx-1.20_v1/bin/python3.11")
-# RETURNN_PYTHON_EXE = tk.Path("/usr/bin/python3")
-RETURNN_ROOT = tk.Path("/u/mann/src/returnn")
+
+class CountHDFSequencesJob(Job):
+    # Count the total number of sequences across a list of HDF files
+
+    def __init__(self, hdf_files: list):
+        self.hdf_files = hdf_files
+        self.out_num_seqs = self.output_var("num_seqs")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import h5py
+        total = sum(h5py.File(str(f), "r")["seqTags"].shape[0] for f in self.hdf_files)
+        self.out_num_seqs.set(total)
 
 class _Config:
     pass
@@ -48,7 +62,7 @@ class ClusteringCallbackConfig:
     initializer_config: _Config
     recognition_config: str | tk.Path
     lexicon_path: str | tk.Path
-    subsampling: int = 3
+    subsampling: int | None = 3
     callback_opts: dict = field(default_factory=dict)
     num_seqs: int | DelayedBase | None = field(init=False, default=None)
     rasr_path: tk.Path | None = None
@@ -106,7 +120,7 @@ def get_base_config(precomputed: bool = False):
 
 def get_dataset_config(
     num_epochs: int,
-    sampled_segments: tk.Path,
+    sampled_segments: tk.Path | _All,
     hdf_path: str | tk.Path | list[str | tk.Path] | None = None,
 ):
     files = hdf_path or "/work/asr4/jxu/setups/pretraining/2025-02-28--best-rq-pretraining/work/i6_core/returnn/hdf/BlissToPcmHDFJob.vExsEVfudAcd/output/audio.hdf"
@@ -116,9 +130,10 @@ def get_dataset_config(
         "class": "HDFDataset",
         "files": files,
         "partition_epoch": 1,
-        "seq_list_filter_file": sampled_segments,
         "use_cache_manager": True,
     }
+    if not isinstance(sampled_segments, _All):
+        core_dataset["seq_list_filter_file"] = sampled_segments
 
     config = dict(
         forward_data = {
@@ -192,7 +207,7 @@ class ClusteringExpResult:
 
 def clustering(
     num_epochs: int,
-    sampled_segments: tk.Path,
+    sampled_segments: tk.Path | _All,
     cluster_callback_config: ClusteringCallbackConfig,
     returnn_python_exe: tk.Path | None = None,
     returnn_root: tk.Path | None = None,
@@ -200,12 +215,12 @@ def clustering(
     hdf_path: str | tk.Path | list[str | tk.Path] | None = None,
     precomputed: bool = False,
 ) -> ClusteringExpResult:
-    internal_num_epochs = num_epochs * 2 + 2
+    internal_num_epochs = num_epochs * 2 + 1
     # set defaults
     if returnn_python_exe is None:
-        returnn_python_exe = RETURNN_PYTHON_EXE
+        returnn_python_exe = tools.RETURNN_PYTHON_EXE
     if returnn_root is None:
-        returnn_root = RETURNN_ROOT
+        returnn_root = tools.RETURNN_ROOT
 
     base_config = get_base_config(precomputed)
 
@@ -215,7 +230,13 @@ def clustering(
         hdf_path=hdf_path,
     )
 
-    num_seqs = CountLinesJob(sampled_segments).out_num_lines
+    files = hdf_path or "/work/asr4/jxu/setups/pretraining/2025-02-28--best-rq-pretraining/work/i6_core/returnn/hdf/BlissToPcmHDFJob.vExsEVfudAcd/output/audio.hdf"
+    if not isinstance(files, list):
+        files = [files]
+    if isinstance(sampled_segments, _All):
+        num_seqs = CountHDFSequencesJob(files).out_num_seqs
+    else:
+        num_seqs = CountLinesJob(sampled_segments).out_num_lines
     cluster_callback_config.num_seqs = num_seqs
     clustering_call_config = get_clustering_call_config(callback_config=cluster_callback_config)
     
@@ -243,7 +264,7 @@ def clustering(
         time_rqmt=168,
     )
 
-    #fwd_job.rqmt["gpu_mem"] = 24
+    fwd_job.rqmt["gpu_mem"] = 24
 
     out_centroids = {
         epoch: fwd_job.out_files[filename] for epoch, filename in centroid_files.items()

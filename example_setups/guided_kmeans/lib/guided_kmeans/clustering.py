@@ -1083,7 +1083,7 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         if self.verbosity >= 2:
             print(f"Processing sequence {seq_tag} in epoch {self.current_epoch}, phase {self.phase}.")
         hidden_state_tensor_pre_subsample = hidden_state_tensor.copy()
-        if self.subsampling:
+        if self.subsampling and self.subsampling > 1:
             hidden_state_tensor = self.pool(
                 hidden_state_tensor,
                 # stride=self.subsampling,

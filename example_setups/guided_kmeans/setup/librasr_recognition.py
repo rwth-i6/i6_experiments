@@ -15,12 +15,6 @@ phonetic_vocabulary_path = tk.Path("/work/smt4/zeineldeen/enrique.leon.lozano/se
                                    "/fairseq_2025_06_02/work/i6_experiments/users/enrique/jobs/fairseq/wav2vec"
                                    "/wav2vec_data_utils/PrepareWav2VecTextDataJob.RZfllsI3R2Pd/output/text/phones/dict.txt")
 
-# phonetic_lm_path = tk.Path("/work/smt4/zeineldeen/enrique.leon.lozano/setups-data/ubuntu_22_setups"
-#                            "/fairseq_2025_06_02/work/i6_experiments/users/enrique/jobs/fairseq/wav2vec"
-#                            "/wav2vec_data_utils/PrepareWav2VecTextDataJob.RZfllsI3R2Pd/output/text/phones/lm.phones.filtered.04.arpa")
-
-phonetic_lm_path = tk.Path("/work/smt4/zeineldeen/enrique.leon.lozano/setups-data/ubuntu_22_setups/fairseq_2025_06_02/work/data/2gram/output/phones/lm.phones.filtered.02.arpa")
-
 # order -> path
 phonetic_lm_dict = {
     2: tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/phon_lm/phon_count_2gram.arpa.gz"),
@@ -220,7 +214,7 @@ class RecogConfig:
     loop_probability: float = 0.1
     silence_loop_probability: float = 0.1
     max_beam_size: int = 100_000
-    lm_path: str | tk.Path = phonetic_lm_path
+    lm_path: str | tk.Path = None
 
 def create_recog_rasr_config(
     lm_scale=3.0,
