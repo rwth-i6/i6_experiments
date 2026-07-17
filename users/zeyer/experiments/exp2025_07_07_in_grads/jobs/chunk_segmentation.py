@@ -995,7 +995,7 @@ class ChunkBoundaryReverifyJob(Job):
 
     __sis_version__ = 1
     # excluded values = pre-gate behavior (no confidence gate)
-    __sis_hash_exclude__ = {"word_scores_hdf": None, "min_window_conf": -2.0}
+    __sis_hash_exclude__ = {"word_scores_hdf": None, "min_window_conf": -2.0, "min_move_margin": 0.0}
 
     def __init__(
         self,
@@ -1009,6 +1009,7 @@ class ChunkBoundaryReverifyJob(Job):
         max_batch_size: int = 8,
         word_scores_hdf: Optional[tk.Path] = None,
         min_window_conf: float = -2.0,
+        min_move_margin: float = 0.0,
     ):
         """
         :param dataset_dir: hub cache dir, like :class:`ChunkSegmentationFromModelBatchedJob`.
@@ -1034,6 +1035,8 @@ class ChunkBoundaryReverifyJob(Job):
         # so the local left-vs-right comparison can push words deeper (seen: max 45s -> 77s).
         self.word_scores_hdf = word_scores_hdf
         self.min_window_conf = min_window_conf
+        # required log-prob advantage PER MOVED WORD to accept a boundary shift (0 = plain argmax)
+        self.min_move_margin = min_move_margin
 
         self.rqmt = {"time": 40, "cpu": 2, "gpu": 1, "mem": 125}
         self.out_hdf = self.output_path("out.hdf")
@@ -1170,14 +1173,28 @@ class ChunkBoundaryReverifyJob(Job):
 
             n_moved = 0
             for bi, (cl, cr, lo, s, hi) in enumerate(bounds):
+                if wise[cl][0] < 0 or wise[cr][0] < 0:
+                    # a previous boundary emptied one side; skip to avoid conflicting updates
+                    continue
                 cws_l, sc_l = scores[(bi, "L")]
                 cws_r, sc_r = scores[(bi, "R")]
-                # candidate boundary s' in [lo, hi]: words < s' in left chunk, >= s' in right chunk
-                best_s, best_v = s, None
-                for s2 in range(lo, hi + 1):
+                # candidate boundary s' in [lo2, hi]: words < s' in left chunk, >= s' in right chunk.
+                # lo2 respects updates from the PREVIOUS boundary (windows can overlap when a chunk
+                # holds < 2*K words): without it, conflicting sequential updates can orphan words
+                # (seen: a word ended up outside every chunk range, reported as chunk 0, err 77s).
+                lo2 = max(lo, int(wise[cl][0]))
+                best_s, best_v, v_orig = s, None, None
+                for s2 in range(lo2, hi + 1):
                     v = sum(sc_l[w - cws_l] for w in range(lo, s2)) + sum(sc_r[w - cws_r] for w in range(s2, hi))
+                    if s2 == s:
+                        v_orig = v
                     if best_v is None or v > best_v:
                         best_s, best_v = s2, v
+                # min_move_margin: only accept a move when it is decisive
+                # (per moved word), since near-ties are noise and moving a correct
+                # but poorly-scored (mumbled) word breaks it.
+                if best_s != s and v_orig is not None and best_v < v_orig + self.min_move_margin * abs(best_s - s):
+                    best_s = s
                 if best_s != s:
                     n_moved += abs(best_s - s)
                     wise[cl][1] = best_s

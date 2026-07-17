@@ -435,6 +435,29 @@ def py():
     reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-gated-error-p95-sec.txt", _m_rvg.out_error_p95_sec)
     reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-gated-frac-gt-1s.txt", _m_rvg.out_frac_gt_1s)
 
+    # Margin variant (with the orphan-bugfix): moves must be decisive
+    # (>= 2 log-prob units per moved word), protecting correct but poorly-scored words.
+    _rvm = ChunkBoundaryReverifyJob(
+        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=_cfg_hp,
+        chunk_seg_hdf=_seg_sc.out_hdf,
+        word_scores_hdf=_seg_sc.out_word_scores_hdf,
+        min_move_margin=2.0,
+    )
+    _rvm.add_alias("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-m2")
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-m2.hdf", _rvm.out_hdf)
+    _m_rvm = CalcChunkAssignmentMetricsJob(
+        chunk_seg_hdf=_rvm.out_hdf,
+        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+        dataset_key="val",
+        dataset_offset_factors=_DATASET_OFFSET_FACTORS["buckeye"],
+    )
+    _m_rvm.add_alias("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-m2-metric")
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-m2-accuracy.txt", _m_rvm.out_accuracy)
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-m2-error-p95-sec.txt", _m_rvm.out_error_p95_sec)
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-m2-frac-gt-1s.txt", _m_rvm.out_frac_gt_1s)
+
     # fp32 batched (default fast path) at cs30, to check the fast path (esp. batched_logprobs) is
     # bit-exact vs the fp32 single-seq reference below. The bf16 sweep diverges more for small
     # chunks, so this isolates real logic differences from bf16 numerical noise.
