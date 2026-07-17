@@ -3,7 +3,7 @@ __all__ = ["forward_step"]
 from typing import Dict, Optional
 
 from ....models.definitions.conformer_aed_discrete_shared_v1 import Model
-from ....models.train_steps.util import get_random_mask, mask_sequence
+from ....models.train_steps.util import get_random_mask, mask_sequence, expand_sequence
 from .beam_search import State, beam_search_v1
 import returnn.frontend as rf
 from returnn.tensor import Dim, TensorDict, batch_dim
@@ -18,6 +18,7 @@ def forward_step(
     input_modality: str = "audio",
     output_modality: str = "text",
     masking_opts: Optional[Dict] = None,
+    expansion_opts: Optional[Dict] = None,
     **kwargs,
 ):
     """Runs full recognition / reconstruction on the given data.
@@ -37,6 +38,12 @@ def forward_step(
     fed to the encoder, while the scoring reference stays the unmasked sequence -- so this measures
     the denoising reconstruction quality. The decoder may still emit up to the *original* (unmasked)
     input length.
+
+    If ``expansion_opts`` is given (``{"min_dup", "max_dup"}``), the (masked) encoder input is
+    additionally upsampled by duplicating tokens exactly as in training (see
+    ``train_steps.util.expand_sequence``), applied *after* masking. This matches the train-time text
+    upsampling so the encoder sees the same longer sequence at recognition; the scoring reference /
+    decode length stay at the original (un-expanded, unmasked) length.
     """
 
     assert beam_size > 0
@@ -76,6 +83,11 @@ def forward_step(
     if masking_opts is not None and masking_opts.get("mask_prob", 0.0) > 0.0:
         mask = get_random_mask(seq_len, **masking_opts)
         enc_indices, enc_lens = mask_sequence(data, seq_len, mask, mask_value=mask_idx)
+
+    # optionally upsample the (masked) encoder input like in training (after masking), so the encoder
+    # sees the same longer sequence; the decode/score length stays at the original (max_seq_len).
+    if expansion_opts is not None:
+        enc_indices, enc_lens = expand_sequence(enc_indices, enc_lens, **expansion_opts)
 
     decoder_state = model.forward_encoder(enc_indices, enc_lens, decoder=out_decoder, forward_func=forward_func)
     seq_targets, seq_log_prob, _label_log_probs, out_seq_len = beam_search_v1(

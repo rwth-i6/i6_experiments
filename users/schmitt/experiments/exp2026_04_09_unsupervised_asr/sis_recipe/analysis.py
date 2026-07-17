@@ -50,6 +50,9 @@ def analyze_encoder_states(
     plot_seq_tags: Optional[List[str]] = None,
     max_plotted_seqs: int = 20,
     cosine_similarity_summary: bool = False,
+    audio_masking_opts: Optional[Dict[str, Any]] = None,
+    text_masking_opts: Optional[Dict[str, Any]] = None,
+    text_expansion_opts: Optional[Dict[str, Any]] = None,
     out_dir_name: str = "encoder_pca",
     loss_name: str = "dev_loss_ce",
     extra_forward_config: Optional[ReturnnConfig] = None,
@@ -68,6 +71,12 @@ def analyze_encoder_states(
     :param cosine_similarity_summary: if True, also summarize, for each plotted seq, the avg pairwise
         cosine similarity within audio, within text, and between modalities in the original (pre-PCA)
         feature space (written to ``cosine_similarities.txt`` + each ``*.npz``).
+    :param audio_masking_opts: if given, mask the audio encoder input like in training
+        (``mask_prob``/``min_span``/``max_span``).
+    :param text_masking_opts: if given, mask the text encoder input like in training.
+    :param text_expansion_opts: if given (``{"min_dup", "max_dup"}``), upsample the (masked) text
+        encoder input like the train-time text upsampling (applied after masking). Passing these
+        makes the PCA reflect what the encoder sees during training.
     """
     if base_analysis_config is None:
         base_analysis_config = EncoderPcaConfig(
@@ -88,13 +97,23 @@ def analyze_encoder_states(
     if cosine_similarity_summary:
         callback_opts["cosine_similarity_summary"] = cosine_similarity_summary
 
+    # forward_step init args. As with callback_opts, only add the masking/upsampling opts when set,
+    # so the hash of analysis jobs that ran before these opts existed stays unchanged.
+    forward_step_args = asdict(base_analysis_config)
+    if audio_masking_opts is not None:
+        forward_step_args["audio_masking_opts"] = audio_masking_opts
+    if text_masking_opts is not None:
+        forward_step_args["text_masking_opts"] = text_masking_opts
+    if text_expansion_opts is not None:
+        forward_step_args["text_expansion_opts"] = text_expansion_opts
+
     # both modalities must be available to the forward_step, so declare the text key in extern_data
     returnn_forward_config = get_forward_config(
         config=config,
         network_module=train_args["network_module"],
         extra_config=extra_forward_config if extra_forward_config else ReturnnConfig({}),
         net_args=train_args["net_args"],
-        decoder_args=asdict(base_analysis_config),
+        decoder_args=forward_step_args,
         decoder=forward_step_module,
         callback_module=callback_module,
         datastreams=train_data.datastreams,
