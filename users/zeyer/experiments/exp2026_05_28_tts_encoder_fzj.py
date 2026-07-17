@@ -2532,7 +2532,25 @@ def aed_pseudo_enc_single_stream_train_step(*, model: Model, extern_data, **_kwa
         )
 
         def _merge(t_a, dim_a, t_t, dim_t):
-            """Merge the two selected sub-batches into the full batch (zero-width stub + 2 scatters)."""
+            """Merge the two selected sub-batches into the full batch (zero-width stub + 2 scatters).
+
+            The branch time dims can be DERIVED from selected dims
+            (e.g. identity durations: the pseudo output time dim == the selected phoneme dim,
+            which is in the select map);
+            masked_scatter's dim resolution then mismatches
+            (tensor_copy_compatible_to_dims_raw: not all dims are matched)
+            -> decouple the dim identities first (fresh dims, no derivation links).
+            """
+            dim_a2 = dim_a.copy(same_as_self=False, description="merge_seq_a")
+            t_a = rf.replace_dim(t_a, in_dim=dim_a, out_dim=dim_a2)
+            if isinstance(t_a, tuple):
+                t_a = t_a[0]
+            dim_a = dim_a2
+            dim_t2 = dim_t.copy(same_as_self=False, description="merge_seq_t")
+            t_t = rf.replace_dim(t_t, in_dim=dim_t, out_dim=dim_t2)
+            if isinstance(t_t, tuple):
+                t_t = t_t[0]
+            dim_t = dim_t2
             stub_sizes = rf.zeros([batch_dim], dtype="int32")
             stub_dim = Dim(stub_sizes, name="merge_stub")
             stub = rf.zeros([batch_dim, stub_dim, model.encoder.out_dim], dtype=t_a.dtype)
