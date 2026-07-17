@@ -124,8 +124,37 @@ def _tag(cfg: Dict[str, Any]) -> str:
     return "_".join(f"{short.get(k, k)}{v}" for k, v in sorted(cfg.items()))
 
 
+def pilot_grid() -> List[Dict[str, Any]]:
+    """6 runs (x2 p_sil arms outside) -- what `default_grid` would cost is not available to us.
+
+    SAE_PLAN §1c asks for the 2.0 sweep x 4-5 seeds *and* batch-norm {20,30,40} *and* stride {1,2};
+    multiplied out that is 384 runs (~4400 GPU-h) and the project is rate-limited, so this pilot
+    spends the budget only where the evidence says the outcome is actually uncertain:
+
+      generator_batch_norm {20,30,40}  the one knob the paper calls "critical for convergence", and
+                                       it tracks the feature distribution (30 for 1024-d wav2vec2-Large,
+                                       35 for XLSR-53) -- so it cannot be inherited for 512-d BEST-RQ.
+      p_sil {0.10, 0.5}                swept in build_sae_1c_gan: 0.10 matches our measured residual
+                                       silence (0.044-0.054), 0.5 is the plan's inherited value
+                                       (0.136, ~2.6x too much). See SAE_1c.md.
+
+    Held fixed, with reasons:
+      generator_stride = 2   25 Hz / 2 = 12.5 Hz vs our measured ~11.9 Hz phone rate. The plan's other
+                             arm, stride 1, *is* 25 Hz -- the rate Table 1 reports diverging at >100
+                             PER. Buying that arm costs half the pilot to confirm a published negative.
+      loss weights           at the w2vu2.yaml defaults (lambda 1.0, gamma 1.5, eta 3.0, delta 0.5),
+                             each of which is already one of the two values the plan's grid sweeps.
+      seed = 0               convergence *rate* over seeds is only meaningful once a configuration
+                             converges at all; seeds are stage 2.
+    """
+    return [{"generator_batch_norm": bn} for bn in (20, 30, 40)]
+
+
 def default_grid() -> List[Dict[str, Any]]:
-    """The 2.0 sweep (paper p.6): lambda/gamma/eta/delta in {1.0,1.5}/{1.5,2.5}/{0,3}/{0.3,0.5} x 4 seeds."""
+    """The 2.0 sweep (paper p.6): lambda/gamma/eta/delta in {1.0,1.5}/{1.5,2.5}/{0,3}/{0.3,0.5} x 4 seeds.
+
+    64 runs x ~11.5 h. Kept for reference; not reachable from any config -- see `pilot_grid`.
+    """
     out = []
     for gp in (1.0, 1.5):
         for sm in (1.5, 2.5):
