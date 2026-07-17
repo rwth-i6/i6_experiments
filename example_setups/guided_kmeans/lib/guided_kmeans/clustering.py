@@ -36,6 +36,9 @@ from .statistics import (
     get_default_logger
 )
 
+from .model import GaussianModelNumpy
+from .parallel_recognizer import ParallelSegmentRecognizer, PlainTracebackItem
+
 class EvalReservoir:
     def __init__(self, cap=50000, l2_normalize=True, seed=0, dtype=np.float32):
         self.cap = cap
@@ -844,7 +847,10 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         subsampling: Optional[int] = None,
         pooling_function: str = "maxpool_time_np",
         pool_for_init: bool = True,
+        gaussian_model: GaussianModelNumpy | None = None,
         verbosity: int = 1,
+        num_workers: int | None = 7,
+        task_timeout: float | None = 1800.0,
     ):
         super().__init__(
             num_clusters=num_clusters,
@@ -872,7 +878,10 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         self.distance_scale = distance_scale
 
         self.config = None
-        self.search_algo = None
+        self.recognizer = ParallelSegmentRecognizer(
+            recognition_config, num_workers=num_workers, task_timeout=task_timeout
+        )
+        self.gaussian_model = gaussian_model
 
         self.centroid_updater = RunningAverageUpdater((num_clusters, 1024))
         self.score_updater = RunningAverageUpdater(())
@@ -892,7 +901,7 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
     
     def init(self, *, model: Optional[torch.nn.Module] = None):
         super().init(model=model)
-        self.search_algo = self.init_search_algorithm()
+        self.recognizer.start()
 
         self.traceback_repository = PlyvelTracebackRepository(self.traceback_write_chunk_size)
         # self.traceback_repository = SimpleDictRepository()
@@ -902,8 +911,8 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
             self.phase = GuidedClusteringPhase.RECOGNITION
             self._on_phase_transition(self.phase)
             return
-    
-        has_loaded = self.maybe_load_centroids()        
+
+        has_loaded = self.maybe_load_centroids()
 
         if not has_loaded:
             self.phase = GuidedClusteringPhase.INITIALIZATION
@@ -911,14 +920,6 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
             self.phase = GuidedClusteringPhase.RECOGNITION
         self._on_phase_transition(self.phase)
 
-    def init_search_algorithm(self):
-        from librasr import Configuration, SearchAlgorithm
-
-        config = Configuration()
-        config.set_from_file(self.recognition_config)
-
-        return SearchAlgorithm(config=config)
-    
     def maybe_load_centroids(self) -> bool:
         """
         Tries to load previously saved centroids.
@@ -962,16 +963,6 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         self.centroids = np.load(last_epoch_centroids_file)
 
         self.current_epoch = last_epoch * 2 + 1
-
-    def __getstate__(self) -> dict:
-        d = dict(self.__dict__)
-        d["search_algo"] = None
-
-        return d
-
-    def __setstate__(self, d) -> None:
-        self.__dict__ = d
-        self.search_algo = self.init_search_algorithm()
 
     def _on_phase_transition(self, new_phase: GuidedClusteringPhase, old_phase: Optional[GuidedClusteringPhase] = None):
         # transition out of initialization
@@ -1028,16 +1019,24 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         Phase 2: Using pseudo-labels as targets for clustering.
         """
         if self.current_seq == self.initialization_offset or last_seq:
+            if self.phase == GuidedClusteringPhase.RECOGNITION:
+                # _on_phase_transition's "old_phase is RECOGNITION" branch
+                # reads self.score_updater.value and calls
+                # traceback_repository.end_write() - every recognition
+                # submitted this phase must be applied (repository stored,
+                # score/statistics updated) before that runs, and before the
+                # following CLUSTERING phase starts reading the repository.
+                self._drain_recognition()
             self.phase = self.phase.transition(self._on_phase_transition)
             print(f"Starting Phase {self.phase} in epoch {self.current_epoch}")
-    
+
     def increase_epoch_and_seq(self, last_seq: bool = False):
         if last_seq:
             self.current_epoch += 1
             self.current_seq = 0
             return
         self.current_seq += 1
-    
+
     def compute_squared_distances(
         self,
         *,
@@ -1059,7 +1058,38 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         idx_counts = idx_matrix.sum(0) # [C]
         feature_sums = idx_matrix.T @ hidden_states # [C, T] x [T, F] = [C, F]
         self.centroid_updater.update(feature_sums, idx_counts)
-    
+
+    def _apply_recognition_result(self, seq_tag: str, traceback: List[PlainTracebackItem]):
+        """
+        Everything that used to run inline in process_seq() right after
+        self.search_algo.recognize_segment() returned, now applied once the
+        (asynchronously submitted) result is available - see _drain_recognition().
+        """
+        self.statistics_logger.read_traceback(traceback)
+
+        if self.verbosity >= 2:
+            print(f"{traceback=}")
+
+        segments = np.asarray([
+            (self.phoneme_map[item.lemma], item.start_time, item.end_time)
+            for item in traceback
+        ])
+        idx_list = segments_to_array(segments).tolist()
+        self.traceback_repository.store(seq_tag, idx_list)
+        self.tracebacks[seq_tag] = idx_list
+        score = _traceback_to_score(traceback)
+        self.score_updater.update_single(score)
+
+    def _drain_recognition(self):
+        """
+        Block until every recognition submitted since the last drain is
+        done, and apply results in submission order (some downstream state,
+        e.g. SampledTracebackPrinter's reservoir sample, is keyed on call
+        order, not completion order).
+        """
+        for seq_tag, traceback in self.recognizer.drain():
+            self._apply_recognition_result(seq_tag, traceback)
+
     def process_seq(self, *, seq_tag: str, outputs: TensorDict, last_seq: bool = False):
         # processing happens in three phases:
         # 0. initialization of centroids via k-means++
@@ -1076,7 +1106,6 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
 
         hidden_state_tensor = outputs["output"].raw_tensor
         assert isinstance(hidden_state_tensor, np.ndarray)
-        assert self.search_algo is not None
         assert self.traceback_repository is not None
 
         if self.verbosity >= 2:
@@ -1108,25 +1137,12 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
                 hidden_states=hidden_state_tensor,
             )
             scaled_distances = distances * self.distance_scale
-            traceback = self.search_algo.recognize_segment(scaled_distances)
-        
-            self.statistics_logger.read_traceback(traceback)
+            # Non-blocking: the result (and everything that used to happen
+            # here immediately - statistics, repository store, score update)
+            # is applied later in _drain_recognition(), called from
+            # maybe_transition_phase() before this phase ends.
+            self.recognizer.submit(seq_tag, scaled_distances)
 
-            if self.verbosity >= 2:
-                print(f"{traceback=}")
-
-            idx_list = self.phoneme_map.apply(item.lemma for item in traceback)
-
-            segments = np.asarray([
-                (self.phoneme_map[item.lemma], item.start_time, item.end_time)
-                for item in traceback
-            ])
-            idx_list = segments_to_array(segments).tolist()
-            self.traceback_repository.store(seq_tag, idx_list)
-            self.tracebacks[seq_tag] = idx_list
-            score = _traceback_to_score(traceback)
-            self.score_updater.update_single(score)
-        
         if self.phase == GuidedClusteringPhase.CLUSTERING:
             try:
                 idx_list = self.traceback_repository.get(seq_tag)
@@ -1150,11 +1166,11 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         self.increase_epoch_and_seq(last_seq)
 
     def finish(self):
-        pass
+        self.recognizer.shutdown()
         # flush any remaining data points in the centroid updater
         # last_seq = self.current_seq == self.num_seqs
         # if not last_seq:
-        #     self.maybe_transition_phase(last_seq=True)        
+        #     self.maybe_transition_phase(last_seq=True)
 
 
 ''' Not used at the moment, might need some fixes when enabled again

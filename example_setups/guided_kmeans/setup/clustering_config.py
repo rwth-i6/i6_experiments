@@ -52,6 +52,7 @@ class ClusteringCallbackConfig:
     callback_opts: dict = field(default_factory=dict)
     num_seqs: int | DelayedBase | None = field(init=False, default=None)
     rasr_path: tk.Path | None = None
+    num_workers: int = 7
 
     def is_fully_specified(self) -> bool:
         return (
@@ -169,6 +170,7 @@ def get_clustering_call_config(
         "num_seqs": callback_config.num_seqs,
         "recognition_config": callback_config.recognition_config,
         "subsampling": callback_config.subsampling,
+        "num_workers": callback_config.num_workers,
         **callback_config.callback_opts
     }
     clustering_callback = CallImport(
@@ -239,6 +241,7 @@ def clustering(
         ],
         log_verbosity=log_verbosity,
         time_rqmt=168,
+        cpu_rqmt=cluster_callback_config.num_workers + 1,
     )
 
     #fwd_job.rqmt["gpu_mem"] = 24

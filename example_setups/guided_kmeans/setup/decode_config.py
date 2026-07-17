@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from sisyphus import tk
 from sisyphus.delayed_ops import DelayedFormat
 
-from i6_core.returnn import ReturnnConfig, ReturnnForwardJobV2
+from i6_core.returnn import ReturnnConfig, ReturnnForwardJobV2, CodeWrapper
 from i6_core.serialization.base import Collection, CallImport
 from i6_core.corpus import (
     ApplyLexiconToCorpusJob,
@@ -30,6 +30,7 @@ from .corpus_setup import setup_corpus
 from ..lib.serialization import HashedCode
 
 from i6_experiments.example_setups.guided_kmeans.lib.guided_kmeans.decode import ClusteringDecodeCallback
+from i6_experiments.example_setups.guided_kmeans.lib.guided_kmeans.model import load_gaussian_model
 
 @dataclass
 class DecodeRecogResult:
@@ -40,6 +41,20 @@ class DecodeRecogResult:
     insertion: tk.Variable
     substitution: tk.Variable
 
+def build_gaussian_model_object(centroids: tk.Path, cov: tk.Path) -> CallImport:
+    args = {
+        "centroids_path": centroids,
+        "covs_path": cov
+    }
+    load_call = CallImport(
+        code_object_path=load_gaussian_model,
+        unhashed_package_root=None,
+        hashed_arguments=args,
+        unhashed_arguments={},
+        import_as="gaussian_model"
+    )
+    return load_call
+
 def get_callback_config(
     centroids: tk.Path,
     recognition_config: tk.Path,
@@ -49,6 +64,8 @@ def get_callback_config(
     verbosity: int = 1,
     exclude_lemmata=["[SILENCE]"],
     rasr_path: str | None = None,
+    cov_path: tk.Path | None = None,
+    num_workers: int = 7,
 ) -> ReturnnConfig:
     serializer_objs = []
 
@@ -67,7 +84,16 @@ def get_callback_config(
         "pooling_function": pooling_function,
         "verbosity": verbosity,
         "exclude_lemmata": exclude_lemmata,
+        "num_workers": num_workers,
     }
+
+    if cov_path is not None:
+        serializer_objs.append(build_gaussian_model_object(centroids, cov_path))
+        arguments.update(
+            gaussian_model=CodeWrapper("gaussian_model"),
+            centroids_file=None
+        )
+
     clustering_callback = CallImport(
         code_object_path=ClusteringDecodeCallback,
         unhashed_package_root=None,
@@ -89,7 +115,9 @@ class DecodeConfig:
     distance_scale: float
     subsampling: int | None = None
     pooling_function: str = "maxpool_time_np"
+    covs: tk.Path | None = None
     verbosity: int = 1
+    num_workers: int = 7
 
 @dataclass
 class DecodeResult:
@@ -119,6 +147,8 @@ def _decode(
         verbosity=config.verbosity,
         exclude_lemmata=["[SILENCE]"],
         rasr_path=rasr_path,
+        cov_path=config.covs,
+        num_workers=config.num_workers,
     )
 
     returnn_config = ReturnnConfig({})
@@ -133,7 +163,8 @@ def _decode(
         returnn_config=returnn_config,
         returnn_python_exe=returnn_python_exe,
         returnn_root=returnn_root,
-        output_files=[hyp_file]
+        output_files=[hyp_file],
+        cpu_rqmt=config.num_workers + 1,
     )
     #fwd_job.rqmt["gpu_mem"] = 24
 
