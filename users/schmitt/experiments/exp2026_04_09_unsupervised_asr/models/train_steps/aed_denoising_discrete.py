@@ -64,6 +64,9 @@ def train_step(
     loss_suffix = "_" + loss_name if loss_name else ""
     ctx = rf.get_run_ctx()
 
+    if masking_opts is None:
+        masking_opts = {"mask_prob": 0.0}
+
     # anneal the GumbelVectorQuantizer temperature by the global train step (if a codebook is used)
     if getattr(model, "quantizer", None) is not None:
         model.quantizer.set_num_updates(int(ctx.step))
@@ -195,9 +198,9 @@ def train_step(
 
         error = torch.argmax(logits_packed.data, dim=-1).not_equal(targets_w_eos_packed)
 
-        # loss is only calculated on masked positions
-        if (~phon_mask_packed).sum().item() > 0:
-            if masked_ce_loss_scale > 0:
+        if masked_ce_loss_scale > 0:
+            # loss is only calculated on masked positions
+            if (~phon_mask_packed).sum().item() > 0:
                 ctx.mark_as_loss(
                     # mask=False corresponds to masked positions in the original sequence
                     ce_loss[~phon_mask_packed],
