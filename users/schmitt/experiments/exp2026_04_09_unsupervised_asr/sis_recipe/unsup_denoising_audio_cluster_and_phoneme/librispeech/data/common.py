@@ -166,6 +166,8 @@ def build_training_datasets_w_silence_in_input(
     settings: DatasetSettings,
     sil_prob: float = 0.25,
     surround_w_sil: bool = True,
+    min_num_sil: int = 1,
+    max_num_sil: int = 3,
 ):
     _, clusters_960, pca_960, clusters_960_hdfs = audio.get_featurized_audio(
         librispeech_key="train-other-960",
@@ -246,8 +248,8 @@ def build_training_datasets_w_silence_in_input(
             "target_key": "data",
             "new_target_key": "data_w_sil",
             "vocab_opts": phoneme_datastream.as_returnn_targets_opts(),
-            "min_num_sil": 1,
-            "max_num_sil": 3,
+            "min_num_sil": min_num_sil,
+            "max_num_sil": max_num_sil,
         },
         unhashed_package_root=None,
         unhashed_arguments={},
