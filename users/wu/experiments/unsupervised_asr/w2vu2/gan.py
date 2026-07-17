@@ -29,6 +29,7 @@ import os
 import subprocess as sp
 from typing import Any, Dict
 
+import yaml
 from sisyphus import Job, Task, tk
 
 from i6_experiments.users.wu.experiments.unsupervised_asr.w2vu2.text import W2VU_PYTHON, assert_w2vu_env
@@ -111,24 +112,69 @@ class FairseqW2vu2TrainJob(Job):
         )
         return out.strip()
 
+    def _write_config(self, fs: str) -> str:
+        """Materialize fairseq's w2vu2.yaml with our settings merged in, and return its dir.
+
+        Two things are done to the reference yaml, both necessary:
+
+        1. The `hydra:` block is dropped. It is FAIR-cluster infrastructure -- a submitit launcher,
+           `/checkpoint/$USER` sweep dirs, `partition: devlab,learnlab,learnfair`,
+           `constraint: volta32gb`. Hydra rejects `hydra.launcher.submitit_folder` outright without
+           the submitit plugin ("Key 'submitit_folder' not in 'BasicLauncherConf'"), and *installing*
+           that plugin would be worse: hydra would submit a second Slurm job from inside the one
+           sisyphus already allocated. Sisyphus owns scheduling; hydra only builds the model.
+        2. Every setting is written into the yaml rather than passed as a `k=v` CLI override, because
+           hydra's append rules here are subtle enough to get wrong: fairseq registers `common`,
+           `dataset`, `optimization` ... as typed dataclasses, so `common.seed` exists even though the
+           yaml omits it (a `+` there fails with "item is already at"), while `model` stays an
+           untyped dict until `_name: wav2vec_u` resolves, so the real field
+           `model.target_downsample_rate` needs `+` (without it: "not in struct"). Writing the
+           merged config sidesteps the distinction and leaves the exact config in the job dir.
+
+        Derived from the installed yaml at runtime rather than vendored, so model/task/optimization
+        stay pinned to the reference we claim to reproduce.
+        """
+        src = os.path.join(fs, "examples", "wav2vec", "unsupervised", "config", "gan", "w2vu2.yaml")
+        with open(src) as f:
+            cfg = yaml.safe_load(f)
+        cfg.pop("hydra", None)
+
+        settings = dict(self.overrides)
+        settings.update({
+            "task.data": self.data_dir.get_path(),
+            "task.text_data": self.text_data.get_path(),
+            "task.kenlm_path": self.kenlm_path.get_path(),
+            "task.aux_target_postfix": self.aux_target_postfix,
+            "common.user_dir": os.path.join(fs, "examples", "wav2vec", "unsupervised"),
+            "checkpoint.save_dir": self.out_dir.get_path(),
+            "distributed_training.distributed_world_size": 1,
+        })
+        for k, v in sorted(settings.items()):
+            node = cfg
+            *parents, leaf = k.split(".")
+            for part in parents:
+                node = node.setdefault(part, {})
+            node[leaf] = v
+
+        assert "???" not in yaml.safe_dump(cfg), "unfilled MISSING (???) left in the config"
+
+        out = os.path.abspath("config_gan")
+        os.makedirs(out, exist_ok=True)
+        with open(os.path.join(out, "w2vu2.yaml"), "w") as f:
+            yaml.safe_dump(cfg, f, sort_keys=False)
+        return out
+
     def run(self):
         assert_w2vu_env(self.python_exe)
         fs = self._fairseq_dir()
-        cfg_dir = os.path.join(fs, "examples", "wav2vec", "unsupervised", "config", "gan")
-        user_dir = os.path.join(fs, "examples", "wav2vec", "unsupervised")
+        cfg_dir = self._write_config(fs)
 
+        # No `-m`: hydra multirun exists to fan out a sweep, which is sisyphus' job here. In multirun
+        # hydra also instantiates a launcher, which is what drags the stripped block back in.
         args = [
             os.fspath(self.python_exe), "-m", "fairseq_cli.hydra_train",
-            "-m", f"--config-dir={cfg_dir}", "--config-name=w2vu2",
-            f"task.data={self.data_dir.get_path()}",
-            f"task.text_data={self.text_data.get_path()}",
-            f"task.kenlm_path={self.kenlm_path.get_path()}",
-            f"task.aux_target_postfix={self.aux_target_postfix}",
-            f"common.user_dir={user_dir}",
-            f"checkpoint.save_dir={self.out_dir.get_path()}",
-            "distributed_training.distributed_world_size=1",
+            f"--config-dir={cfg_dir}", "--config-name=w2vu2",
         ]
-        args += [f"{k}={v}" for k, v in sorted(self.overrides.items())]
         print("RUN:", " ".join(args), flush=True)
         with open(self.out_log.get_path(), "w") as log:
             sp.check_call(args, stdout=log, stderr=sp.STDOUT)

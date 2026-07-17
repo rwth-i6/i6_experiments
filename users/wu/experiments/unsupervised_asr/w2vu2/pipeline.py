@@ -87,29 +87,35 @@ def build_sae_1c_gan(
     *,
     smoke: bool = False,
     encoder_layer: int = 5,
-    sil_prob: float = 0.5,
+    sil_probs: Tuple[float, ...] = (0.5,),
     grid: Optional[List[Dict[str, Any]]] = None,
+    max_update: Optional[int] = None,
 ) -> None:
-    """Wire the §1c graph. `smoke=True` = a tiny end-to-end shakedown (few utts, 200 updates)."""
+    """Wire the §1c graph. `smoke=True` = a tiny end-to-end shakedown (few utts, 200 updates).
+
+    `sil_probs` is swept outside `grid` because each value needs its own binarized text corpus.
+    """
     limit = 200 if smoke else None
     max_lines = 200_000 if smoke else None
-    max_update = 200 if smoke else 150_000
+    if max_update is None:
+        max_update = 200 if smoke else 150_000
 
     data = _audio_data(limit=limit, encoder_layer=encoder_layer)
-    text = _text_data(sil_prob=sil_prob, max_lines=max_lines, threshold=1000)
 
     if grid is None:
-        grid = [{}] if smoke else default_grid()
+        grid = [{}] if smoke else pilot_grid()
 
-    for cfg in grid:
-        ov = w2vu2_overrides(max_update=max_update, **cfg)
-        job = FairseqW2vu2TrainJob(
-            data_dir=data, text_data=text, kenlm_path=PHONEME_LM_BIN, overrides=ov,
-            time_rqmt=1 if smoke else 11.5,
-        )
-        tag = "smoke" if smoke else _tag(cfg)
-        job.add_alias(f"{PREFIX}/gan_l{encoder_layer}_sil{sil_prob}/{tag}")
-        tk.register_output(f"{PREFIX}/gan_l{encoder_layer}_sil{sil_prob}/{tag}/train.log", job.out_log)
+    for sil_prob in sil_probs:
+        text = _text_data(sil_prob=sil_prob, max_lines=max_lines, threshold=1000)
+        for cfg in grid:
+            ov = w2vu2_overrides(max_update=max_update, **cfg)
+            job = FairseqW2vu2TrainJob(
+                data_dir=data, text_data=text, kenlm_path=PHONEME_LM_BIN, overrides=ov,
+                time_rqmt=1 if smoke else 11.5,
+            )
+            tag = "smoke" if smoke else _tag(cfg)
+            job.add_alias(f"{PREFIX}/gan_l{encoder_layer}_sil{sil_prob}/{tag}")
+            tk.register_output(f"{PREFIX}/gan_l{encoder_layer}_sil{sil_prob}/{tag}/train.log", job.out_log)
 
 
 def _tag(cfg: Dict[str, Any]) -> str:
