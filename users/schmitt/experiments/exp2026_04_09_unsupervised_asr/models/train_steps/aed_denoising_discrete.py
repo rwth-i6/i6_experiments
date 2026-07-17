@@ -93,6 +93,8 @@ def train_step(
         target_indices_: ReturnnTensor = extern_data["target"]
         target_indices: Tensor = target_indices_.raw_tensor
         target_indices_lens: Tensor = target_indices_.dims[1].dyn_size_ext.raw_tensor
+        target_indices = target_indices[target_indices_lens > 0]
+        target_indices_lens = target_indices_lens[target_indices_lens > 0]
     else:
         target_indices_ = label_indices_
         target_indices = label_indices
