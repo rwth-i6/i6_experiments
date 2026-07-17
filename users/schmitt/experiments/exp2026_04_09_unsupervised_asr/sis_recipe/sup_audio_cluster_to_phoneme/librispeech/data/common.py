@@ -137,6 +137,7 @@ def build_training_datasets(
                 vocab_size=41,
             ),
         },
+        add_opts={"line_based_lexicon_file": lexicon_file},
     )
 
 
