@@ -140,7 +140,10 @@ def build_training_datasets(
     )
 
 
-def build_test_datasets():
+def build_test_datasets(
+    sil_prob: float = 0.25,
+    surround_w_sil: bool = True,
+):
     _, clusters_960, pca_960, _ = audio.get_featurized_audio(
         librispeech_key="train-other-960",
         dump_hdf_concurrent=10,
@@ -162,6 +165,8 @@ def build_test_datasets():
         lexicon_file=lexicon_file,
         dump_hdf_concurrent=1,
         vocab_file=phoneme_vocab,
+        sil_prob=sil_prob,
+        surround_w_sil=surround_w_sil,
     )
 
     return {
