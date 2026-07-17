@@ -116,14 +116,20 @@ def train_step(
         (``discriminator_type`` one of "mlp" / "mlp_2gram" / "mlp_3gram" / "mlp_4gram" / "lstm").
         text is domain 0, audio is domain 1.
     """
-    assert set(extern_data.data.keys()) == {"data", "phon_indices", "seq_tag"}
+    assert set(extern_data.data.keys()) == {"data", "phon_indices", "seq_tag"} or set(extern_data.data.keys()) == {
+        "data",
+        "phon_indices",
+        "phon_indices_w_sil",
+        "seq_tag",
+    }
     audio_indices_: ReturnnTensor = extern_data["data"]
-    audio_indices_lens: Tensor = audio_indices_.dims[1].dyn_size_ext.raw_tensor
     phon_indices_: ReturnnTensor = extern_data["phon_indices"]
-    phon_indices_lens: Tensor = phon_indices_.dims[1].dyn_size_ext.raw_tensor
+    if "phon_indices_w_sil" in extern_data:
+        phon_indices_targets = extern_data["phon_indices"]
+        phon_indices_ = extern_data["phon_indices_w_sil"]
+    else:
+        phon_indices_targets = None
 
-    # if torch.all(phon_indices_lens > 0).item():
-    #     assert torch.all(audio_indices_lens == 0).item()
     model.decode_seq = model.decode_text_seq
     model.forward = model.forward_text
     model.mask_idx = model.text_mask_idx
@@ -133,7 +139,13 @@ def train_step(
     model.decoder = model.text_decoder
     aed_denoising_discrete.train_step(
         model=model,
-        extern_data=TensorDict({"data": phon_indices_, "seq_tag": extern_data["seq_tag"]}),
+        extern_data=TensorDict(
+            {
+                "data": phon_indices_,
+                "seq_tag": extern_data["seq_tag"],
+                **({"target": phon_indices_targets} if phon_indices_targets is not None else {}),
+            }
+        ),
         ce_loss_scale=text_ce_loss_scale,
         masked_ce_loss_scale=text_masked_ce_loss_scale,
         label_smoothing=label_smoothing,
@@ -147,8 +159,6 @@ def train_step(
         loss_name="text",
     )
 
-    # elif torch.all(audio_indices_lens > 0).item():
-    #     assert torch.all(phon_indices_lens == 0).item()
     model.decode_seq = model.decode_audio_seq
     model.forward = model.forward_audio
     model.mask_idx = model.audio_mask_idx
@@ -170,8 +180,6 @@ def train_step(
         true_adv_target=1,  # audio = domain 1
         loss_name="audio",
     )
-    # else:
-    #     raise ValueError("In each batch, either audio or phoneme indices must be present exclusively.")
 
 
 def train_step_v2(
