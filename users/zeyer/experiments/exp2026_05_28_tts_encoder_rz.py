@@ -360,6 +360,7 @@ def py():
         pseudo_enc_blank_duration_range=(0, 0),
         pseudo_enc_specaug_max_width=6,
         single_stream=True,
+        pseudo_enc_single_stream_version=2,  # v1 was broken (see notes)
         num_processes=1,
         gpu_mem=96,
         nep=100,
