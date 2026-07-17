@@ -1963,11 +1963,13 @@ class PseudoSpeechEncoder(rf.Module):
 
     def __call__(self, labels: Tensor, *, spatial_dim: Dim) -> Tuple[Tensor, Dim]:
         import torch
-        from returnn.tensor import batch_dim
 
         assert labels.sparse_dim.dimension == self.vocab_dim.dimension, (
             f"vocab size mismatch: {labels.sparse_dim} vs {self.vocab_dim}"
         )
+        # batch dim DERIVED from the input: single-stream calls this on a SELECTED sub-batch,
+        # so the global batch_dim would mismatch (tensor_copy_compatible_to_dims_raw crash).
+        (batch_dim,) = labels.remaining_dims(spatial_dim)
         ids_raw = labels.copy_compatible_to_dims_raw([batch_dim, spatial_dim])  # [B, T] int
         lens = spatial_dim.get_size_tensor(device=labels.device).copy_compatible_to_dims_raw([batch_dim])
         bs, t = ids_raw.shape
