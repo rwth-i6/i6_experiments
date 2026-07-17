@@ -27,11 +27,11 @@ from __future__ import annotations
 
 import os
 import subprocess as sp
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from sisyphus import Job, Task, tk
 
-from i6_experiments.users.wu.experiments.unsupervised_asr.w2vu2.text import W2VU_PYTHON
+from i6_experiments.users.wu.experiments.unsupervised_asr.w2vu2.text import W2VU_PYTHON, assert_w2vu_env
 
 _alias_prefix = "sae/1c"
 
@@ -67,11 +67,13 @@ def w2vu2_overrides(
 
 
 class FairseqW2vu2TrainJob(Job):
-    """One GAN run = fairseq-hydra-train under the `w2vu` env python.
+    """One GAN run = fairseq-hydra-train, spawned under the `w2vu` env python (py3.9 + torch 2.6+cu126).
 
-    settings.py's worker_wrapper rewrites argv[0] to the *speech_llm* conda python for every worker,
-    so fairseq (py3.9 + torch 2.6.0+cu126, a different env) must be invoked as an explicit subprocess.
+    worker_wrapper always runs the worker itself under the speech_llm python, so fairseq is an explicit
+    subprocess; `requires_env` is what stops it inheriting speech_llm's LD_LIBRARY_PATH.
     """
+
+    requires_env = "w2vu"  # class attr -> not an __init__ arg -> not hashed (settings.py::worker_wrapper)
 
     def __init__(
         self,
@@ -110,13 +112,10 @@ class FairseqW2vu2TrainJob(Job):
         return out.strip()
 
     def run(self):
+        assert_w2vu_env(self.python_exe)
         fs = self._fairseq_dir()
         cfg_dir = os.path.join(fs, "examples", "wav2vec", "unsupervised", "config", "gan")
         user_dir = os.path.join(fs, "examples", "wav2vec", "unsupervised")
-
-        env = dict(os.environ)
-        # fairseq's unsupervised task does repo-root-relative `from examples...` imports.
-        env["PYTHONPATH"] = os.pathsep.join([fs, env.get("PYTHONPATH", "")]).strip(os.pathsep)
 
         args = [
             os.fspath(self.python_exe), "-m", "fairseq_cli.hydra_train",
@@ -132,4 +131,4 @@ class FairseqW2vu2TrainJob(Job):
         args += [f"{k}={v}" for k, v in sorted(self.overrides.items())]
         print("RUN:", " ".join(args), flush=True)
         with open(self.out_log.get_path(), "w") as log:
-            sp.check_call(args, env=env, stdout=log, stderr=sp.STDOUT)
+            sp.check_call(args, stdout=log, stderr=sp.STDOUT)

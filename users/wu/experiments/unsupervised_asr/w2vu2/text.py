@@ -13,8 +13,8 @@ so silence patterns are not resampled per epoch.
 p_sil is a *distribution-matching* knob, not an alignment: rVAD removes bulk silence from the audio
 but leaves the short inter-word gaps (measured recall 0.13 for 1-2 frame gaps, 0.81 for >=520 ms),
 so the residue must be modelled on the text side or the discriminator wins on length alone.
-The published values (1.0: 0.25, 2.0: 0.5) are tuned to *their* VAD; ours is swept and checked
-against the measured residual-silence rate (see `residual_sil_rate` in features.py).
+The published values (1.0: 0.25, 2.0: 0.5) are tuned to *their* VAD; ours is measured
+(`silence_stats.ResidualSilenceStatsJob`) and the sweep is anchored to it.
 """
 
 from __future__ import annotations
@@ -60,6 +60,22 @@ W2VU_PYTHON = tk.Path(
     getattr(gs, "W2VU_PYTHON_EXE", "/e/project1/spell/wu24/env/conda/envs/w2vu/bin/python"),
     hash_overwrite="W2VU_ENV_PYTHON",
 )
+
+
+def assert_w2vu_env(python_exe) -> None:
+    """Fail loudly if the worker was not wired against the w2vu env.
+
+    settings.py grants this via `requires_env = "w2vu"` (see `_w2vu_env_overrides`). Without it the
+    py3.9 interpreter dlopens speech_llm's py3.11 libtorch_python.so and dies on
+    `undefined symbol: PyObject_CallOneArg` -- a stack trace that says nothing about the real cause.
+    """
+    prefix = os.path.dirname(os.path.dirname(os.fspath(python_exe)))
+    ld = os.environ.get("LD_LIBRARY_PATH", "")
+    if prefix not in ld:
+        raise RuntimeError(
+            f"{python_exe} is about to run with LD_LIBRARY_PATH={ld!r}, which does not point at "
+            f"{prefix}. Set `requires_env = \"w2vu\"` on this Job class (settings.py::_needs_w2vu_env)."
+        )
 
 
 class PhonemizeWithSilJob(Job):
@@ -123,12 +139,14 @@ class PhonemizeWithSilJob(Job):
 
 
 class FairseqPreprocessTextJob(Job):
-    """Binarize the phoneme corpus into fairseq's `text_data` layout (dict.phn.txt + {split}.bin/idx).
+    """Binarize the phoneme corpus into fairseq's `text_data` layout (dict.txt + train.bin/idx).
 
     `--thresholdsrc` prunes rare phones (README uses 1000). `--padding-factor 1` suppresses fairseq's
     `madeup` dictionary padding, which would otherwise inflate the generator's output vocabulary with
     dead symbols that the phone-diversity loss then tries to use.
     """
+
+    requires_env = "w2vu"  # class attr -> not an __init__ arg -> not hashed (settings.py::worker_wrapper)
 
     def __init__(self, *, text_file: tk.Path, threshold: int = 1000, workers: int = 4,
                  python_exe: tk.Path = W2VU_PYTHON):
@@ -161,6 +179,7 @@ class FairseqPreprocessTextJob(Job):
             "--padding-factor", "1", "--workers", str(self.workers),
         ]
         print("RUN:", " ".join(cmd), flush=True)
+        assert_w2vu_env(self.python_exe)
         sp.check_call(cmd)
 
         d = self.out_dir.get_path()
