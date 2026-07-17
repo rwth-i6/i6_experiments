@@ -991,7 +991,8 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
 
         # transition into and out of clustering
         if new_phase is GuidedClusteringPhase.CLUSTERING:
-            self.centroid_updater = RunningAverageUpdater((self.num_clusters, 1024))
+            feature_dim = self.centroids.shape[1]
+            self.centroid_updater = RunningAverageUpdater((self.num_clusters, feature_dim))
 
         if old_phase is GuidedClusteringPhase.CLUSTERING:
             new_centroids = self.centroid_updater.value
@@ -1111,7 +1112,7 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         if self.verbosity >= 2:
             print(f"Processing sequence {seq_tag} in epoch {self.current_epoch}, phase {self.phase}.")
         hidden_state_tensor_pre_subsample = hidden_state_tensor.copy()
-        if self.subsampling:
+        if self.subsampling and self.subsampling > 1:
             hidden_state_tensor = self.pool(
                 hidden_state_tensor,
                 # stride=self.subsampling,
@@ -1167,13 +1168,24 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
 
     def finish(self):
         self.recognizer.shutdown()
+
+        if self.phase is GuidedClusteringPhase.CLUSTERING and self.centroid_updater.counts.any():
+            # if RETURNN ran out of data mid-clustering (e.g. HDF has fewer seqs than num_seqs)
+            new_centroids = self.centroid_updater.value
+            dead_mask = self.centroid_updater.counts == 0
+            new_centroids[dead_mask] = self.centroids[dead_mask]
+            self.centroids = new_centroids
+            centroids_file = f"centroids.{self.current_epoch // 2}.npy"
+            print(f"Saving partial centroids (finish) to {centroids_file}")
+            np.save(centroids_file, self.centroids)
         # flush any remaining data points in the centroid updater
         # last_seq = self.current_seq == self.num_seqs
         # if not last_seq:
         #     self.maybe_transition_phase(last_seq=True)
 
 
-''' Not used at the moment, might need some fixes when enabled again
+''' 
+Not used at the moment, might need some fixes when enabled again
 class HierarchicalGuidedKMeansClusteringCallback(NnOutputClusteringCallback):
     CENTROIDS_FPATTERN_RAW = "centroids.{}.npy"
     CENTROIDS_REGEX = re.compile(CENTROIDS_FPATTERN_RAW.format("(\\d+)"))
@@ -1392,7 +1404,8 @@ class HierarchicalGuidedKMeansClusteringCallback(NnOutputClusteringCallback):
 
         # transition into and out of clustering
         if new_phase is GuidedClusteringPhase.CLUSTERING:
-            self.centroid_updater = RunningAverageUpdater((self.num_clusters, 1024))
+            feature_dim = self.centroids.shape[1]
+            self.centroid_updater = RunningAverageUpdater((self.num_clusters, feature_dim))
 
         if old_phase is GuidedClusteringPhase.CLUSTERING:
             self.centroids = self.centroid_updater.value

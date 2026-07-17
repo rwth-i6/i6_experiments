@@ -19,15 +19,12 @@ from .dataset_config import (
     get_dataset_config,
     CreateSequenceWhitelistJob
 )
-from .clustering_config import (
-    RETURNN_PYTHON_EXE,
-    RETURNN_ROOT,
-    get_base_config
-)
+from .clustering_config import get_base_config
 from .librasr_recognition import RecogConfig, create_rasr_config
 from .score import JiwerScoringJob, TaggedCorpusToTxtJob, ScoreResult
 from .corpus_setup import setup_corpus
 from ..lib.serialization import HashedCode
+from .. import tools
 
 from i6_experiments.example_setups.guided_kmeans.lib.guided_kmeans.decode import ClusteringDecodeCallback
 from i6_experiments.example_setups.guided_kmeans.lib.guided_kmeans.model import load_gaussian_model
@@ -133,9 +130,9 @@ def _decode(
     precomputed: bool = False,
 ):
     if returnn_python_exe is None:
-        returnn_python_exe = RETURNN_PYTHON_EXE
+        returnn_python_exe = tools.RETURNN_PYTHON_EXE
     if returnn_root is None:
-        returnn_root = RETURNN_ROOT
+        returnn_root = tools.RETURNN_ROOT
 
     base_config = get_base_config(precomputed)
     callback_config = get_callback_config(
@@ -166,7 +163,7 @@ def _decode(
         output_files=[hyp_file],
         cpu_rqmt=config.num_workers + 1,
     )
-    #fwd_job.rqmt["gpu_mem"] = 24
+    fwd_job.rqmt["gpu_mem"] = 24
 
     out_hyp = fwd_job.out_files[hyp_file]
 
@@ -185,9 +182,10 @@ def decode_and_score(
     returnn_root: tk.Path | None = None,
 ) -> DecodeRecogResult:
     # setup corpus
+    corpus_name_key = corpus_name
     if corpus_name == "train-clean-100-dbg":
-        corpus_name = "train-clean-100"
-    setup_result = setup_corpus(key=corpus_name)
+        corpus_name_key = "train-clean-100"
+    setup_result = setup_corpus(key=corpus_name_key)
 
     filtered_corpus = FilterCorpusRemoveUnknownWordSegmentsJob(setup_result.corpus, setup_result.lexicon, all_unknown=False, delete_empty_recordings=True).out_corpus
     phoneme_corpus = ApplyLexiconToCorpusJob(filtered_corpus, setup_result.lexicon).out_corpus
@@ -200,7 +198,7 @@ def decode_and_score(
 
     # dataset config
     whitelist_job = CreateSequenceWhitelistJob(filtered_corpus)
-    whitelist_job.add_alias(f"datasets/LibriSpeech/{corpus_name}_whitelist")
+    whitelist_job.add_alias(f"datasets/LibriSpeech/{corpus_name_key}_whitelist")
     whitelist = whitelist_job.out_whitelist
 
     if sampled_segments is not None:

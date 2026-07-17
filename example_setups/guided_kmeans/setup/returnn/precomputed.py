@@ -66,4 +66,43 @@ def cf(filename):
         return filename
     assert os.path.exists(cached_fn)
     _cf_cache[filename] = cached_fn
+    _cf_cache[cached_fn] = cached_fn  # prevent re-caching if called again with the cached path
     return cached_fn
+
+
+# Patch RETURNN's own cf() (used by HDFDataset.use_cache_manager) with the same
+# identity-entry trick, so re-initialization of HDFDataset across MultiEpochDataset
+# sub-epochs doesn't trigger redundant system cf calls on already-cached paths.
+import returnn.util.basic as _returnn_util
+
+_orig_returnn_cf = _returnn_util.cf
+
+
+def _cf_dedup(filename):
+    result = _orig_returnn_cf(filename)
+    _returnn_util._cf_cache[result] = result
+    return result
+
+
+_returnn_util.cf = _cf_dedup
+
+
+# Patch HDFDataset.__reduce__ to suppress use_cache_manager when pickling.
+# Dataset.__reduce__ reconstructs via __init__ using the current self.files, which by then
+# hold the already-cached paths. Without this patch, unpickling in a worker
+# process calls cf() on those cached paths again, producing doubled destinations.
+# Setting use_cache_manager=False in the pickle kwargs lets the worker open
+# the already-local files directly.
+from returnn.datasets.hdf import HDFDataset as _HDFDataset
+
+_orig_hdf_reduce = _HDFDataset.__reduce__
+
+
+def _patched_hdf_reduce(self):
+    creator_func, (dataset_cls, kwargs, state) = _orig_hdf_reduce(self)
+    kwargs = dict(kwargs)
+    kwargs["use_cache_manager"] = False
+    return creator_func, (dataset_cls, kwargs, state)
+
+
+_HDFDataset.__reduce__ = _patched_hdf_reduce

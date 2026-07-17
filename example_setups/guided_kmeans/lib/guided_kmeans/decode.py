@@ -96,7 +96,7 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
         hidden_state_tensor = outputs["output"].raw_tensor
         assert isinstance(hidden_state_tensor, np.ndarray)
 
-        if self.subsampling:
+        if self.subsampling and self.subsampling > 1:
             hidden_state_tensor = self.pool(
                 hidden_state_tensor,
             )
