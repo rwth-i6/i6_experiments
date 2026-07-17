@@ -139,6 +139,18 @@ class FairseqW2vu2TrainJob(Job):
             cfg = yaml.safe_load(f)
         cfg.pop("hydra", None)
 
+        # fairseq 0.12.2 ships a w2vu2.yaml its own release cannot load: both optimizer groups set
+        # `amsgrad: false`, but the released FairseqAdamConfig has no such field (the configs come
+        # from a branch whose dataclass did) -> "Key 'amsgrad' not in 'FairseqAdamConfig'". Dropping
+        # it is a no-op, not a deviation: fairseq's Adam already defaults amsgrad=False
+        # (optim/adam.py:144, and `group.get("amsgrad", False)`). Asserted, so that a future config
+        # actually asking for amsgrad fails loudly instead of being silently ignored.
+        for group in cfg.get("optimizer", {}).get("groups", {}).values():
+            opt = group.get("optimizer", {})
+            if "amsgrad" in opt:
+                assert opt["amsgrad"] is False, f"amsgrad={opt['amsgrad']} cannot be honoured"
+                opt.pop("amsgrad")
+
         settings = dict(self.overrides)
         settings.update({
             "task.data": self.data_dir.get_path(),
