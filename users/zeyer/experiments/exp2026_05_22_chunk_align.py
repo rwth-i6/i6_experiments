@@ -413,6 +413,28 @@ def py():
     reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-error-p95-sec.txt", _m_rv.out_error_p95_sec)
     reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-frac-gt-1s.txt", _m_rv.out_frac_gt_1s)
 
+    # Gated variant: skip boundaries in low-windowed-confidence (drifted) regions,
+    # where the ungated pass made the worst case WORSE (max 45s -> 77s).
+    _rvg = ChunkBoundaryReverifyJob(
+        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=_cfg_hp,
+        chunk_seg_hdf=_seg_sc.out_hdf,
+        word_scores_hdf=_seg_sc.out_word_scores_hdf,
+    )
+    _rvg.add_alias("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-gated")
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-gated.hdf", _rvg.out_hdf)
+    _m_rvg = CalcChunkAssignmentMetricsJob(
+        chunk_seg_hdf=_rvg.out_hdf,
+        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+        dataset_key="val",
+        dataset_offset_factors=_DATASET_OFFSET_FACTORS["buckeye"],
+    )
+    _m_rvg.add_alias("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-gated-metric")
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-gated-accuracy.txt", _m_rvg.out_accuracy)
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-gated-error-p95-sec.txt", _m_rvg.out_error_p95_sec)
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-gated-frac-gt-1s.txt", _m_rvg.out_frac_gt_1s)
+
     # fp32 batched (default fast path) at cs30, to check the fast path (esp. batched_logprobs) is
     # bit-exact vs the fp32 single-seq reference below. The bf16 sweep diverges more for small
     # chunks, so this isolates real logic differences from bf16 numerical noise.

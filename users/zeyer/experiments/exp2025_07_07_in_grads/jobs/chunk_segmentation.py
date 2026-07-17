@@ -994,6 +994,8 @@ class ChunkBoundaryReverifyJob(Job):
     """
 
     __sis_version__ = 1
+    # excluded values = pre-gate behavior (no confidence gate)
+    __sis_hash_exclude__ = {"word_scores_hdf": None, "min_window_conf": -2.0}
 
     def __init__(
         self,
@@ -1005,6 +1007,8 @@ class ChunkBoundaryReverifyJob(Job):
         chunk_seg_hdf: tk.Path,
         boundary_window: int = 10,
         max_batch_size: int = 8,
+        word_scores_hdf: Optional[tk.Path] = None,
+        min_window_conf: float = -2.0,
     ):
         """
         :param dataset_dir: hub cache dir, like :class:`ChunkSegmentationFromModelBatchedJob`.
@@ -1023,6 +1027,13 @@ class ChunkBoundaryReverifyJob(Job):
         self.chunk_seg_hdf = chunk_seg_hdf
         self.boundary_window = boundary_window
         self.max_batch_size = max_batch_size
+        # Confidence gate: with a word-scores HDF (dump_word_scores of the segmentation job),
+        # a boundary is SKIPPED when the windowed (+-boundary_window words) mean per-token
+        # log-prob at the boundary is below min_window_conf --
+        # inside such drifted regions both adjacent chunks are wrong,
+        # so the local left-vs-right comparison can push words deeper (seen: max 45s -> 77s).
+        self.word_scores_hdf = word_scores_hdf
+        self.min_window_conf = min_window_conf
 
         self.rqmt = {"time": 40, "cpu": 2, "gpu": 1, "mem": 125}
         self.out_hdf = self.output_path("out.hdf")
@@ -1068,6 +1079,11 @@ class ChunkBoundaryReverifyJob(Job):
         seg_ds = HDFDataset([self.chunk_seg_hdf.get_path()])
         seg_ds.initialize()
         seg_ds.init_seq_order(epoch=1)
+        sc_ds = None
+        if self.word_scores_hdf is not None:
+            sc_ds = HDFDataset([self.word_scores_hdf.get_path()])
+            sc_ds.initialize()
+            sc_ds.init_seq_order(epoch=1)
 
         from datasets import load_dataset
 
@@ -1109,15 +1125,29 @@ class ChunkBoundaryReverifyJob(Job):
 
             # boundaries between adjacent non-empty chunks, using the ORIGINAL assignment
             # (windows may not overlap chunk cores for the usual chunk sizes)
+            wconf = None
+            if sc_ds is not None:
+                sc_ds.load_seqs(seq_idx, seq_idx + 1)
+                sc = np.asarray(sc_ds.get_data(seq_idx, "data"))
+                conf = sc[:, 0] / np.maximum(sc[:, 1], 1)
+                kern = np.ones(2 * K + 1)
+                wconf = np.convolve(conf, kern, mode="same") / np.convolve(np.ones(len(conf)), kern, mode="same")
+
+            n_gated = 0
             bounds = []  # (c_left, c_right, lo, s, hi): candidate range [lo, hi], orig boundary s
             for c in range(len(wise) - 1):
                 if wise[c][0] < 0 or wise[c + 1][0] < 0:
                     continue
                 s = int(wise[c][1])
+                if wconf is not None and wconf[min(s, len(wconf) - 1)] < self.min_window_conf:
+                    n_gated += 1
+                    continue
                 lo = max(s - K, int(wise[c][0]))
                 hi = min(s + K, int(wise[c + 1][1]))
                 if lo < hi:
                     bounds.append((c, c + 1, lo, s, hi))
+            if n_gated:
+                print(f"seq {seq_idx}: {n_gated} boundaries gated (low windowed confidence)", flush=True)
 
             # batched forwards: per boundary two requests
             # (left chunk with words up to hi, right chunk with words from lo)
