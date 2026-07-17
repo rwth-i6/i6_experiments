@@ -9,6 +9,8 @@ stream per line (𝒯_φ) for the §1a KenLM and the §1.0 metric. One determini
 (decipher / unsup_metric) keep only ``ARPABET_39`` tokens, so the drop-vs-tag choice is invisible.
 """
 
+from typing import Tuple
+
 from sisyphus import tk
 
 from i6_core.g2p.apply import ApplyG2PModelJob
@@ -18,11 +20,15 @@ from i6_experiments.users.wu.experiments.posterior_hmm.data.phon_lm import (
     TextToPhonemeJob,
     _train_g2p_model,
 )
-from i6_experiments.users.wu.unsupervised_asr.text import PREFIX, phon_lexicon
+from i6_experiments.users.wu.experiments.unsupervised_asr.text import PREFIX, phon_lexicon
 
 
-def phonemize_lm_corpus(g2p_concurrent: int = 16) -> tk.Path:
-    """Wire 𝒯_φ over the LibriSpeech LM corpus. Returns the phonemized-text tk.Path."""
+def lm_corpus_lexicon_and_g2p(g2p_concurrent: int = 16) -> Tuple[tk.Path, tk.Path, tk.Path]:
+    """(LM text, bliss lexicon, G2P lexicon covering its OOVs) — the inputs any phonemization needs.
+
+    Factored out of ``phonemize_lm_corpus`` so §1c's SIL-augmented variant reuses the *same* jobs
+    (identical params -> identical hashes -> the already-computed G2P is reused, not recomputed).
+    """
     text = get_librispeech_normalized_lm_data()
     lex = phon_lexicon()
     g2p_model = _train_g2p_model(prefix=PREFIX, bliss_lexicon=lex)
@@ -33,6 +39,12 @@ def phonemize_lm_corpus(g2p_concurrent: int = 16) -> tk.Path:
         g2p_model=g2p_model, word_list_file=oov.out_word_list,
         filter_empty_words=True, concurrent=g2p_concurrent,
     ).out_g2p_lexicon
+    return text, lex, g2p_oov
+
+
+def phonemize_lm_corpus(g2p_concurrent: int = 16) -> tk.Path:
+    """Wire 𝒯_φ over the LibriSpeech LM corpus. Returns the phonemized-text tk.Path."""
+    text, lex, g2p_oov = lm_corpus_lexicon_and_g2p(g2p_concurrent=g2p_concurrent)
 
     phon = TextToPhonemeJob(text_file=text, bliss_lexicon=lex, g2p_lexicon=g2p_oov, gzip_output=True)
     phon.add_alias(f"{PREFIX}/phonemize_lm_corpus")
