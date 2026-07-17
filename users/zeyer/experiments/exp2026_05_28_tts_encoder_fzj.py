@@ -521,10 +521,10 @@ def py():
         "tts-enc-ref-match-logmel-muon-nep38",
         prefix=prefix,
         text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
+        batch_size_audio_frames=100_000,  # 120k/5k OOM'd at the long-phon bucket (92.4GB GL spike)
         # post preload-fix: real durations are ~167ms audio/phoneme,
         # the old 25k phon default OOMs at step 0 even on 96GB (~66M samples/text batch).
-        batch_size_phon=5_000,
+        batch_size_phon=4_000,
         max_phon_len=300,
         tts_waveform=True,
         asr_logmel=True,
@@ -570,10 +570,10 @@ def py():
         "tts-enc-ref-match-logmel-noise01-muon-nep38",
         prefix=prefix,
         text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
+        batch_size_audio_frames=100_000,  # 120k/5k OOM'd at the long-phon bucket (92.4GB GL spike)
         # post preload-fix: real durations are ~167ms audio/phoneme,
         # the old 25k phon default OOMs at step 0 even on 96GB (~66M samples/text batch).
-        batch_size_phon=5_000,
+        batch_size_phon=4_000,
         max_phon_len=300,
         tts_waveform=True,
         asr_logmel=True,
@@ -592,10 +592,10 @@ def py():
         "tts-enc-ref-match-logmel-textP20-muon-nep38",
         prefix=prefix,
         text_train_epoch_split=20,
-        batch_size_audio_frames=120_000,
+        batch_size_audio_frames=100_000,  # 120k/5k OOM'd at the long-phon bucket (92.4GB GL spike)
         # post preload-fix: real durations are ~167ms audio/phoneme,
         # the old 25k phon default OOMs at step 0 even on 96GB (~66M samples/text batch).
-        batch_size_phon=5_000,
+        batch_size_phon=4_000,
         max_phon_len=300,
         tts_waveform=True,
         asr_logmel=True,
@@ -615,10 +615,10 @@ def py():
         "tts-enc-ref-match-logmel-rnddur-muon-nep38",
         prefix=prefix,
         text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
+        batch_size_audio_frames=100_000,  # 120k/5k OOM'd at the long-phon bucket (92.4GB GL spike)
         # post preload-fix: real durations are ~167ms audio/phoneme,
         # the old 25k phon default OOMs at step 0 even on 96GB (~66M samples/text batch).
-        batch_size_phon=5_000,
+        batch_size_phon=4_000,
         max_phon_len=300,
         tts_waveform=True,
         asr_logmel=True,
@@ -785,8 +785,8 @@ def py():
         "tts-enc-logmel-refcfg-muon-nep38",
         prefix=prefix,
         text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        batch_size_phon=5_000,
+        batch_size_audio_frames=100_000,  # 120k/5k OOM'd at the long-phon bucket (92.4GB GL spike)
+        batch_size_phon=4_000,
         max_phon_len=300,
         tts_waveform=True,
         asr_logmel=True,
@@ -968,8 +968,9 @@ def py():
         "pseudo-enc-layer4-noblank-single-muon-nep38",
         prefix=prefix,
         text_train_epoch_split=75,
-        batch_size_audio_frames=90_000,
-        batch_size_phon=7_000,
+        # 90k/7k OOM'd mid-ep1 (16.5GB spike at 77GB); 70k/6k = the proven RZ caps.
+        batch_size_audio_frames=70_000,
+        batch_size_phon=6_000,
         max_phon_len=300,
         asr_logmel=True,
         pseudo_speech_enc=True,
