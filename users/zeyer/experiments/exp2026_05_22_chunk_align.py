@@ -50,6 +50,7 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.p
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.chunk_segmentation import (
     ChunkSegmentationFromModelJob,
     ChunkSegmentationFromModelBatchedJob,
+    ChunkBoundaryReverifyJob,
     CalcChunkAssignmentMetricsJob,
 )
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.buckeye_fine_dataset import (
@@ -372,6 +373,45 @@ def py():
         _m_ln.add_alias(f"{_ln_name}-metric")
         reg(f"{_ln_name}-accuracy.txt", _m_ln.out_accuracy)
         reg(f"{_ln_name}-chunk_idx_mae.txt", _m_ln.out_chunk_idx_mae)
+
+    # cs30-ov0 with per-word score dump:
+    # the raw material for confidence flagging / drift detection
+    # (does a low word score predict the >5s-misplaced words?).
+    _seg_sc = ChunkSegmentationFromModelBatchedJob(
+        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=_cfg_hp,
+        chunk_size_secs=30.0,
+        chunk_overlap_secs=0.0,
+        max_batch_size=8,
+        dump_word_scores=True,
+    )
+    _seg_sc.add_alias("chunk-align/phi4mm-buckeye-val-cs30-ov0-scores")
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-scores.hdf", _seg_sc.out_hdf)
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-word-scores.hdf", _seg_sc.out_word_scores_hdf)
+
+    # Boundary re-verification (local repair) on that cs30-ov0 assignment:
+    # per-word acoustic comparison in the two adjacent chunks, +-10 words per boundary.
+    # Metric on the refined assignment tells whether the local 1-5-word runs get fixed
+    # (compare vs the plain cs30-ov0 metric).
+    _rv = ChunkBoundaryReverifyJob(
+        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=_cfg_hp,
+        chunk_seg_hdf=_seg_sc.out_hdf,
+    )
+    _rv.add_alias("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify")
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify.hdf", _rv.out_hdf)
+    _m_rv = CalcChunkAssignmentMetricsJob(
+        chunk_seg_hdf=_rv.out_hdf,
+        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+        dataset_key="val",
+        dataset_offset_factors=_DATASET_OFFSET_FACTORS["buckeye"],
+    )
+    _m_rv.add_alias("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-metric")
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-accuracy.txt", _m_rv.out_accuracy)
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-error-p95-sec.txt", _m_rv.out_error_p95_sec)
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-frac-gt-1s.txt", _m_rv.out_frac_gt_1s)
 
     # fp32 batched (default fast path) at cs30, to check the fast path (esp. batched_logprobs) is
     # bit-exact vs the fp32 single-seq reference below. The bf16 sweep diverges more for small

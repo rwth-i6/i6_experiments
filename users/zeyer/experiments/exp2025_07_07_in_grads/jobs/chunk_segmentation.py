@@ -387,7 +387,12 @@ class ChunkSegmentationFromModelBatchedJob(Job):
     # a non-default value still changes the hash.
     # Polarity matters:
     # excluding the *new* value instead would make a variant job collide with the old hash and not rerun.
-    __sis_hash_exclude__ = {"word_start_beam": None, "exit_bias": 0.0, "length_norm": False}
+    __sis_hash_exclude__ = {
+        "word_start_beam": None,
+        "exit_bias": 0.0,
+        "length_norm": False,
+        "dump_word_scores": False,
+    }
 
     def __init__(
         self,
@@ -406,6 +411,7 @@ class ChunkSegmentationFromModelBatchedJob(Job):
         word_start_beam: Optional[float] = None,
         exit_bias: float = 0.0,
         length_norm: bool = False,
+        dump_word_scores: bool = False,
     ):
         super().__init__()
         self.dataset_dir = dataset_dir
@@ -435,9 +441,15 @@ class ChunkSegmentationFromModelBatchedJob(Job):
         self.word_start_beam = word_start_beam
         self.exit_bias = exit_bias
         self.length_norm = length_norm
+        # dump_word_scores: additionally write per-word (score, num_tokens) of the winning path
+        # to a second HDF -- the word's log-prob in its assigned chunk,
+        # the raw material for confidence flagging / drift detection.
+        self.dump_word_scores = dump_word_scores
 
         self.rqmt = {"time": 40, "cpu": 2, "gpu": 1, "mem": 125}
         self.out_hdf = self.output_path("out.hdf")
+        if dump_word_scores:
+            self.out_word_scores_hdf = self.output_path("word_scores.hdf")
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -484,6 +496,10 @@ class ChunkSegmentationFromModelBatchedJob(Job):
         hdf_writer = SimpleHDFWriter(
             self.out_hdf.get_path(), dim=2, ndim=2, extra_type={"audio_chunk_start_end": (2, 2, "int32")}
         )
+        scores_writer = None
+        if self.dump_word_scores:
+            # per word: (log-prob score, num subword tokens)
+            scores_writer = SimpleHDFWriter(self.out_word_scores_hdf.get_path(), dim=2, ndim=2)
 
         from datasets import load_dataset
 
@@ -499,6 +515,9 @@ class ChunkSegmentationFromModelBatchedJob(Job):
             accum_exit_log_prob: torch.Tensor
             accum_word_log_prob: Optional[torch.Tensor]
             backpointer: Optional["_Node"]
+            # (word log-prob score, num subword tokens) of the word this node would emit,
+            # as plain floats (not tensors) for the optional dump; None at the last word index.
+            word_score: Optional[Tuple[float, int]] = None
 
         def _chunk_bounds(audio, samplerate):
             chunk_size_samples = math.ceil(self.chunk_size_secs * samplerate)
@@ -673,6 +692,7 @@ class ChunkSegmentationFromModelBatchedJob(Job):
                                 backpointer=prev_node,
                                 accum_word_log_prob=(accum_in + wlp) if word_idx < cwe else None,
                                 accum_exit_log_prob=accum_in + exit_lp,
+                                word_score=(float(wlp), int(t1 - t0)) if word_idx < cwe else None,
                             )
                         )
                     assert (
@@ -695,33 +715,46 @@ class ChunkSegmentationFromModelBatchedJob(Job):
                     node = node.backpointer
                 nodes_alignment.reverse()
                 words_per_chunks: List[List[int]] = [[] for _ in range(len(cse))]
+                # per word (in word order, since the path is monotone): (score, num_tokens)
+                wscores: List[Tuple[float, int]] = []
                 covered = 0
                 for node in nodes_alignment[1:]:
                     if node.backpointer.chunk_idx == node.chunk_idx:
                         assert node.word_idx == node.backpointer.word_idx + 1
                         words_per_chunks[node.chunk_idx].append(node.word_idx - 1)
+                        # the emitting (vertical) transition starts at the backpointer node,
+                        # which carries the emitted word's score.
+                        wscores.append(node.backpointer.word_score)
                         assert covered == node.word_idx - 1
                         covered += 1
                     else:
                         assert node.chunk_idx == node.backpointer.chunk_idx + 1
                         assert node.word_idx == node.backpointer.word_idx
-                assert covered == len(words)
+                assert covered == len(words) == len(wscores)
                 wise = [(ws[0], ws[-1] + 1) if ws else (-1, -1) for ws in words_per_chunks]
                 assert len(wise) == len(cse)
-                results[i] = (wise, cse)
+                results[i] = (wise, cse, wscores)
                 print(f"  seq {i}: words per chunks = {wise}", flush=True)
 
         # Write in original dataset order (the metric job reads seqs positionally); groups may have
         # been reordered by sort_by_length.
         for i in range(num_seqs):
-            wise, cse = results[i]
+            wise, cse, wscores = results[i]
             hdf_writer.insert_batch(
                 np.array(wise)[None],
                 seq_len=[len(cse)],
                 seq_tag=[f"seq-{i}"],
                 extra={"audio_chunk_start_end": np.array(cse)[None]},
             )
+            if scores_writer is not None:
+                scores_writer.insert_batch(
+                    np.array(wscores, dtype="float32")[None],
+                    seq_len=[len(wscores)],
+                    seq_tag=[f"seq-{i}"],
+                )
         hdf_writer.close()
+        if scores_writer is not None:
+            scores_writer.close()
 
 
 class CalcChunkAssignmentMetricsJob(Job):
@@ -936,3 +969,201 @@ class CalcChunkAssignmentMetricsJob(Job):
         self.out_error_p95_sec.set(error_stats["error_p95_sec"])
         self.out_frac_gt_1s.set(error_stats["frac_gt_1s"])
         self.out_metrics.set(metrics)
+
+
+class ChunkBoundaryReverifyJob(Job):
+    """
+    Local repair pass for a chunk assignment
+    (from :class:`ChunkSegmentationFromModelBatchedJob`):
+    re-places the words near every chunk boundary
+    by comparing each word's acoustic score in the two adjacent chunks directly.
+
+    Motivation (measured at cs30):
+    almost all misplaced words sit in a NEIGHBORING chunk,
+    nearly always too early,
+    because the LLM can emit a word from text context alone
+    before its audio arrives,
+    and the DP path objective (word scores plus exit scores) accepts that.
+    Re-running the same DP objective would reproduce the same boundary,
+    so this pass uses a different, purely acoustic criterion:
+    for the words within ``boundary_window`` of a boundary,
+    score each word both in the left chunk and in the right chunk
+    (same forced-decoding scores as the DP, but no exit scores),
+    and pick the boundary position maximizing
+    the summed left-scores before it plus the summed right-scores after it.
+    """
+
+    __sis_version__ = 1
+
+    def __init__(
+        self,
+        *,
+        dataset_dir: tk.Path,
+        dataset_key: str,
+        returnn_root: Optional[tk.Path] = None,
+        model_config: Dict[str, Any],
+        chunk_seg_hdf: tk.Path,
+        boundary_window: int = 10,
+        max_batch_size: int = 8,
+    ):
+        """
+        :param dataset_dir: hub cache dir, like :class:`ChunkSegmentationFromModelBatchedJob`.
+        :param dataset_key:
+        :param returnn_root:
+        :param model_config: same convention as the segmentation jobs.
+        :param chunk_seg_hdf: assignment to refine (out_hdf of a segmentation job).
+        :param boundary_window: words considered on each side of a boundary.
+        :param max_batch_size: chunk forwards batched together.
+        """
+        super().__init__()
+        self.dataset_dir = dataset_dir
+        self.dataset_key = dataset_key
+        self.returnn_root = returnn_root
+        self.model_config = model_config
+        self.chunk_seg_hdf = chunk_seg_hdf
+        self.boundary_window = boundary_window
+        self.max_batch_size = max_batch_size
+
+        self.rqmt = {"time": 40, "cpu": 2, "gpu": 1, "mem": 125}
+        self.out_hdf = self.output_path("out.hdf")
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import os
+        import sys
+
+        set_hf_offline_mode()
+
+        import i6_experiments
+
+        recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
+        sys.path.insert(0, recipe_dir)
+
+        import i6_core.util as util
+
+        returnn_root = util.get_returnn_root(self.returnn_root)
+        sys.path.insert(0, returnn_root.get_path())
+
+        import numpy as np
+        import torch
+
+        from returnn.util import better_exchook
+        from returnn.datasets.hdf import HDFDataset, SimpleHDFWriter
+        from i6_experiments.users.zeyer.torch.batch_slice import batch_slice
+        from i6_experiments.users.zeyer.torch.batch_gather import batches_gather
+
+        better_exchook.install()
+
+        from .models import make_model, ForwardOutput
+
+        dev = torch.device("cuda")
+        model_config = instanciate_delayed_copy(self.model_config)
+        model = make_model(**model_config, device=dev)
+        for p in model.parameters():
+            p.requires_grad = False
+        torch.set_grad_enabled(False)
+
+        seg_ds = HDFDataset([self.chunk_seg_hdf.get_path()])
+        seg_ds.initialize()
+        seg_ds.init_seq_order(epoch=1)
+
+        from datasets import load_dataset
+
+        ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))
+        split = ds[self.dataset_key]
+        print("Using key:", self.dataset_key, "num seqs:", len(split), flush=True)
+
+        hdf_writer = SimpleHDFWriter(
+            self.out_hdf.get_path(), dim=2, ndim=2, extra_type={"audio_chunk_start_end": (2, 2, "int32")}
+        )
+
+        def word_scores(fo: ForwardOutput, num_words: int) -> List[float]:
+            """Per-word summed log-prob, like the DP's word score (no exit scores)."""
+            max_end = int(fo.target_start_end[0, -1, 1])
+            all_lp = model.log_probs(forward_output=fo, start=torch.tensor([0]), end=torch.tensor([max_end]))
+            out = []
+            for w in range(num_words):
+                t0, t1 = fo.target_start_end[:, w].unbind(1)
+                lp = all_lp[:, int(t0) : int(t1)]
+                targets = batch_slice(fo.targets, (t0, t1))
+                wlp = batches_gather(lp, indices=targets, num_batch_dims=2)
+                wlp.masked_fill_(
+                    torch.arange(wlp.shape[1], device=wlp.device)[None, :] >= (t1 - t0).to(wlp.device)[:, None],
+                    0.0,
+                )
+                out.append(float(wlp.sum()))
+            return out
+
+        K = self.boundary_window
+        n_moved_total = 0
+        for seq_idx in range(seg_ds.num_seqs):
+            seg_ds.load_seqs(seq_idx, seq_idx + 1)
+            wise = [list(x) for x in np.asarray(seg_ds.get_data(seq_idx, "data"))]
+            cse = np.asarray(seg_ds.get_data(seq_idx, "audio_chunk_start_end"))
+            data = split[seq_idx]
+            audio = np.asarray(data["audio"]["array"], dtype=np.float32)
+            sr = data["audio"]["sampling_rate"]
+            words = data["word_detail"]["utterance"]
+
+            # boundaries between adjacent non-empty chunks, using the ORIGINAL assignment
+            # (windows may not overlap chunk cores for the usual chunk sizes)
+            bounds = []  # (c_left, c_right, lo, s, hi): candidate range [lo, hi], orig boundary s
+            for c in range(len(wise) - 1):
+                if wise[c][0] < 0 or wise[c + 1][0] < 0:
+                    continue
+                s = int(wise[c][1])
+                lo = max(s - K, int(wise[c][0]))
+                hi = min(s + K, int(wise[c + 1][1]))
+                if lo < hi:
+                    bounds.append((c, c + 1, lo, s, hi))
+
+            # batched forwards: per boundary two requests
+            # (left chunk with words up to hi, right chunk with words from lo)
+            reqs = []  # (bound_idx, side, cws, cwe, chunk_idx)
+            for bi, (cl, cr, lo, s, hi) in enumerate(bounds):
+                reqs.append((bi, "L", int(wise[cl][0]), hi, cl))
+                reqs.append((bi, "R", lo, int(wise[cr][1]), cr))
+            scores = {}
+            for g0 in range(0, len(reqs), self.max_batch_size):
+                group = reqs[g0 : g0 + self.max_batch_size]
+                fwd_outputs = model.forward_batched(
+                    raw_inputs_list=[torch.tensor(audio[cse[c][0] : cse[c][1]]) for (_, _, _, _, c) in group],
+                    raw_inputs_sample_rate=sr,
+                    raw_targets_list=[words[cws:cwe] for (_, _, cws, cwe, _) in group],
+                    omitted_prev_context_list=[cws for (_, _, cws, _, _) in group],
+                )
+                for (bi, side, cws, cwe, _), fo in zip(group, fwd_outputs):
+                    sc = word_scores(fo, cwe - cws)
+                    scores[(bi, side)] = (cws, sc)
+
+            n_moved = 0
+            for bi, (cl, cr, lo, s, hi) in enumerate(bounds):
+                cws_l, sc_l = scores[(bi, "L")]
+                cws_r, sc_r = scores[(bi, "R")]
+                # candidate boundary s' in [lo, hi]: words < s' in left chunk, >= s' in right chunk
+                best_s, best_v = s, None
+                for s2 in range(lo, hi + 1):
+                    v = sum(sc_l[w - cws_l] for w in range(lo, s2)) + sum(sc_r[w - cws_r] for w in range(s2, hi))
+                    if best_v is None or v > best_v:
+                        best_s, best_v = s2, v
+                if best_s != s:
+                    n_moved += abs(best_s - s)
+                    wise[cl][1] = best_s
+                    wise[cr][0] = best_s
+                    if wise[cl][1] <= wise[cl][0]:
+                        wise[cl] = [-1, -1]
+                    if wise[cr][1] <= wise[cr][0]:
+                        wise[cr] = [-1, -1]
+            n_moved_total += n_moved
+            print(f"seq {seq_idx}: {len(bounds)} boundaries, {n_moved} words moved", flush=True)
+
+            hdf_writer.insert_batch(
+                np.array(wise)[None],
+                seq_len=[len(cse)],
+                seq_tag=[f"seq-{seq_idx}"],
+                extra={"audio_chunk_start_end": np.array(cse)[None]},
+            )
+        print(f"total words moved: {n_moved_total}", flush=True)
+        hdf_writer.close()
