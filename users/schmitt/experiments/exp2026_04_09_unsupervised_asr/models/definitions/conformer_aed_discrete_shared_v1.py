@@ -369,6 +369,7 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
         # dict may override any of the keys in `_DEFAULT_CODEBOOK_OPTS` (an empty dict uses all
         # defaults); None disables the codebook.
         codebook_opts: Optional[Dict[str, Any]] = None,
+        fix_decode_text_seq_for_shared_dec: bool = False,
         **_kwargs_unused,
     ):
         super().__init__()
@@ -566,6 +567,8 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
         self._out_fetch_layers_audio = sorted(v - 1 for v in {*audio_aux_loss_layers, enc_cfg.num_layers})
         self.audio_blank_idx = audio_out_dim
 
+        self.fix_decode_text_seq_for_shared_dec = fix_decode_text_seq_for_shared_dec
+
     def freeze_encoder(self):
         for param in self.encoder.parameters():
             param.requires_grad = False
@@ -644,6 +647,9 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
             encoder_output, encoder_output_lens, self.text_decoder.get_initial_state()
         )
         dec_out, _ = self.text_decoder.forward(x, x_lens, state)
+
+        if self.share_decoder and self.fix_decode_text_seq_for_shared_dec:
+            dec_out = dec_out[..., : self.text_out_dim]  # take only text part
 
         return dec_out
 
