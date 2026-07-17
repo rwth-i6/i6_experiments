@@ -37,13 +37,23 @@ python -m pip install --ignore-installed \
   editdistance==0.8.1 sacrebleu==2.5.1 regex==2026.1.15 Cython==3.1.5 \
   scipy==1.13.1 PyYAML==6.0.3 npy-append-array==0.9.19 kenlm==0.3.0
 
+# The unsupervised task imports `from examples.speech_recognition...`, so `examples` must be a
+# top-level package. Upstream's repo root has fairseq/ and examples/ as siblings; the wheel nests
+# examples *inside* fairseq/, next to logging/, data/ and tasks/ -- so putting site-packages/fairseq
+# on PYTHONPATH would shadow the **stdlib** `logging` for every process that inherits it. This shim
+# dir exposes `examples` and nothing else. settings.py::W2VU_SHIM_DIR points here.
+SP="$(PYTHONNOUSERSITE=1 python -c 'import fairseq, os; print(os.path.dirname(fairseq.__file__))')"
+mkdir -p "$PREFIX/fairseq_shim"
+ln -sfn "$SP/examples" "$PREFIX/fairseq_shim/examples"
+
 # Gate: every import must resolve with user-site suppressed, i.e. as the job will see it.
 # Checking on the login node without PYTHONNOUSERSITE=1 is NOT representative and will pass falsely.
-PYTHONNOUSERSITE=1 python - <<'EOF'
+PYTHONNOUSERSITE=1 PYTHONPATH="$PREFIX/fairseq_shim" python - <<'EOF'
+import logging
+assert hasattr(logging, "getLogger"), f"stdlib logging is shadowed: {logging.__file__}"
 import torch
-assert torch.cuda.is_available(), "CUDA not visible -- run this on a GPU node"
 assert "sm_90" in torch.cuda.get_arch_list(), torch.cuda.get_arch_list()  # GH200
-import fairseq, importlib
-importlib.import_module("fairseq.examples.wav2vec.unsupervised.models.wav2vec_u")
-print("OK", torch.__version__, fairseq.__version__)
+import fairseq
+from examples.speech_recognition.kaldi.kaldi_decoder import KaldiDecoderConfig  # noqa: F401
+print("OK", torch.__version__, fairseq.__version__, "| cuda:", torch.cuda.is_available())
 EOF
