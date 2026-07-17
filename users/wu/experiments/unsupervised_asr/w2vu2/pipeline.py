@@ -21,6 +21,10 @@ from i6_experiments.users.wu.experiments.unsupervised_asr.w2vu2.features import 
     MfccKmeansJob,
     W2vu2FeatureDumpJob,
 )
+from i6_experiments.users.wu.experiments.unsupervised_asr.w2vu2.eval import (
+    GoldPhonesJob,
+    W2vu2PerEvalJob,
+)
 from i6_experiments.users.wu.experiments.unsupervised_asr.w2vu2.gan import (
     FairseqW2vu2TrainJob,
     w2vu2_overrides,
@@ -105,6 +109,10 @@ def build_sae_1c_gan(
     if grid is None:
         grid = [{}] if smoke else pilot_grid()
 
+    # Gold dev phones for greedy PER -- checkpoint-independent, computed once, shared by every eval.
+    # Skipped in smoke: the dump is dev-clean-only (limit=200) so the split assignment is degenerate.
+    gold = None if smoke else GoldPhonesJob().out_gold
+
     for sil_prob in sil_probs:
         text = _text_data(sil_prob=sil_prob, max_lines=max_lines, threshold=1000)
         for cfg in grid:
@@ -114,8 +122,17 @@ def build_sae_1c_gan(
                 time_rqmt=1 if smoke else 11.5,
             )
             tag = "smoke" if smoke else _tag(cfg)
-            job.add_alias(f"{PREFIX}/gan_l{encoder_layer}_sil{sil_prob}/{tag}")
-            tk.register_output(f"{PREFIX}/gan_l{encoder_layer}_sil{sil_prob}/{tag}/train.log", job.out_log)
+            arm = f"{PREFIX}/gan_l{encoder_layer}_sil{sil_prob}/{tag}"
+            job.add_alias(arm)
+            tk.register_output(f"{arm}/train.log", job.out_log)
+
+            if gold is not None:
+                per = W2vu2PerEvalJob(
+                    checkpoint=job.out_best, data_dir=data, text_data=text,
+                    feats_dir=data, gold=gold,
+                )
+                per.add_alias(f"{arm}/per")
+                tk.register_output(f"{arm}/per.json", per.out_per)
 
 
 def _tag(cfg: Dict[str, Any]) -> str:
