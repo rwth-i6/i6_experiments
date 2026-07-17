@@ -24,6 +24,7 @@ settings = DatasetSettings(
     train_seq_ordering="laplace:.1000",
 )
 train_data = build_training_datasets(sil_prob=0.0, surround_w_sil=False, settings=settings)
+test_data_dict_wo_sil = build_test_datasets(sil_prob=0.0, surround_w_sil=False)
 test_data_dict = build_test_datasets()
 
 
@@ -144,6 +145,14 @@ def py():
             "max_plotted_seqs": 20,
             "cosine_similarity_summary": True,
         },
+        # conditional (audio->phoneme) perplexity of the shared AED model on the last checkpoint,
+        # scored on the wo-silence reference (matching the wo-sil model) via a separate PPL dataset;
+        # recognition / analysis keep the with-silence test_data_dict.
+        ppl_opts={
+            "checkpoints": [base_num_epochs],
+            "input_modality": "audio",
+            "test_data_dict": test_data_dict_wo_sil,
+        },
         # same-modality reconstruction on the last checkpoint, masking the input with the same
         # settings as in training, to probe how well the shared denoising model reconstructs each
         # modality (scored against the unmasked input).
@@ -221,13 +230,20 @@ def py():
     # with discriminators that see more temporal context:
     #   mlp_2gram/3gram/4gram -> MLP over 2/3/4 consecutive frames concatenated in the feature dim
     #   lstm                  -> LSTM over the whole encoder output sequence
-    for discriminator_type in ("mlp_2gram", "mlp_3gram", "mlp_4gram", "lstm"):
+    for discriminator_type, fix_decode_text_seq in (
+        ("mlp_2gram", False),
+        ("mlp_3gram", False),
+        ("mlp_4gram", False),
+        ("lstm", False),
+        ("lstm", True),
+    ):
         run_experiment(
-            training_name=f"{prefix_name}/baseline_gan-adv-0.1_disc-{discriminator_type}_mask-p-0.1-span-1-1",
+            training_name=f"{prefix_name}/baseline_gan-adv-0.1_disc-{discriminator_type}_mask-p-0.1-span-1-1{'_fix-dec-text-seq' if fix_decode_text_seq else ''}",
             config=dict_update_deep(
                 copy.deepcopy(base_config),
                 {
                     "model_args.discriminator_type": discriminator_type,
+                    **({"model_args.fix_decode_text_seq_for_shared_dec": True} if fix_decode_text_seq else {}),
                     "train_args": {
                         "adv_loss_scale": 0.1,
                         "text_masking_opts": {
@@ -253,6 +269,16 @@ def py():
                 "max_plotted_seqs": 20,
                 "cosine_similarity_summary": True,
             },
+            # conditional (audio->phoneme) perplexity of the AED model on the last checkpoint (LSTM
+            # discriminator only, per request), scored on the wo-silence reference via a separate PPL
+            # dataset; recognition / analysis keep the with-silence test_data_dict.
+            ppl_opts={
+                "checkpoints": [base_num_epochs],
+                "input_modality": "audio",
+                "test_data_dict": test_data_dict_wo_sil,
+            }
+            if discriminator_type == "lstm"
+            else None,
             recog_variants=[
                 {
                     "recog_name": "recon_text",
