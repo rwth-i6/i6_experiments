@@ -390,6 +390,34 @@ def py():
     reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-scores.hdf", _seg_sc.out_hdf)
     reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-word-scores.hdf", _seg_sc.out_word_scores_hdf)
 
+    # Second, staggered chunking (grid offset by L/2 = 15s): every grid-A boundary falls
+    # mid-chunk of grid B, so B is robust exactly where A is fragile.
+    # Combination ideas: A-vs-B disagreement as a detector, and the A/B intersection cell
+    # as a double-resolution localization with full 30s context per score.
+    _seg_off = ChunkSegmentationFromModelBatchedJob(
+        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=_cfg_hp,
+        chunk_size_secs=30.0,
+        chunk_overlap_secs=0.0,
+        max_batch_size=8,
+        dump_word_scores=True,
+        chunk_offset_secs=15.0,
+    )
+    _seg_off.add_alias("chunk-align/phi4mm-buckeye-val-cs30-ov0-offset15")
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-offset15.hdf", _seg_off.out_hdf)
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-offset15-word-scores.hdf", _seg_off.out_word_scores_hdf)
+    _m_off = CalcChunkAssignmentMetricsJob(
+        chunk_seg_hdf=_seg_off.out_hdf,
+        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+        dataset_key="val",
+        dataset_offset_factors=_DATASET_OFFSET_FACTORS["buckeye"],
+    )
+    _m_off.add_alias("chunk-align/phi4mm-buckeye-val-cs30-ov0-offset15-metric")
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-offset15-accuracy.txt", _m_off.out_accuracy)
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-offset15-error-p95-sec.txt", _m_off.out_error_p95_sec)
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-offset15-frac-gt-1s.txt", _m_off.out_frac_gt_1s)
+
     # Boundary re-verification (local repair) on that cs30-ov0 assignment:
     # per-word acoustic comparison in the two adjacent chunks, +-10 words per boundary.
     # Metric on the refined assignment tells whether the local 1-5-word runs get fixed

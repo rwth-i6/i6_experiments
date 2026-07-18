@@ -392,6 +392,7 @@ class ChunkSegmentationFromModelBatchedJob(Job):
         "exit_bias": 0.0,
         "length_norm": False,
         "dump_word_scores": False,
+        "chunk_offset_secs": 0.0,
     }
 
     def __init__(
@@ -412,6 +413,7 @@ class ChunkSegmentationFromModelBatchedJob(Job):
         exit_bias: float = 0.0,
         length_norm: bool = False,
         dump_word_scores: bool = False,
+        chunk_offset_secs: float = 0.0,
     ):
         super().__init__()
         self.dataset_dir = dataset_dir
@@ -445,6 +447,8 @@ class ChunkSegmentationFromModelBatchedJob(Job):
         # to a second HDF -- the word's log-prob in its assigned chunk,
         # the raw material for confidence flagging / drift detection.
         self.dump_word_scores = dump_word_scores
+        # stagger the grid: the first chunk is shortened to this (0 = regular grid)
+        self.chunk_offset_secs = chunk_offset_secs
 
         self.rqmt = {"time": 40, "cpu": 2, "gpu": 1, "mem": 125}
         self.out_hdf = self.output_path("out.hdf")
@@ -523,8 +527,16 @@ class ChunkSegmentationFromModelBatchedJob(Job):
             chunk_size_samples = math.ceil(self.chunk_size_secs * samplerate)
             cse: List[Tuple[int, int]] = []
             cur = 0
+            first = True
             while True:
-                end = cur + chunk_size_samples
+                # chunk_offset_secs staggers the whole grid by shortening only the FIRST chunk
+                # (e.g. offset L/2 -> chunks [0,L/2), [L/2,3L/2), ...): a second, offset chunking
+                # whose boundaries fall mid-chunk of the default grid, for agreement/combination.
+                if first and self.chunk_offset_secs:
+                    end = cur + math.ceil(self.chunk_offset_secs * samplerate)
+                else:
+                    end = cur + chunk_size_samples
+                first = False
                 if end > len(audio):
                     end = len(audio)
                 if len(audio) - end <= 128 and self.chunk_overlap_secs == 0:
