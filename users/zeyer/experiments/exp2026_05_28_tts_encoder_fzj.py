@@ -978,7 +978,7 @@ def py():
         pseudo_enc_blank_duration_range=(0, 0),
         pseudo_enc_specaug_max_width=6,
         single_stream=True,
-        pseudo_enc_single_stream_version=2,  # v1 was broken (see notes)
+        pseudo_enc_single_stream_version=3,  # v1/v2 were broken (see notes)
         base_lr=1.0,
         peak_lr=5e-3,
         nep=38,
@@ -2458,8 +2458,11 @@ def aed_pseudo_enc_single_stream_train_step(*, model: Model, extern_data, **_kwa
 
     config = get_global_config()  # noqa
     assert config.bool("pseudo_speech_enc", False)
-    assert config.int("pseudo_enc_single_stream_version", 1) == 2, (
-        "v1 (merge at the layer input) is broken, see notes; only version=2 is supported"
+    assert config.int("pseudo_enc_single_stream_version", 1) == 3, (
+        "v1/v2 are broken, see notes"
+        " (v1: merge at the layer input;"
+        " v2: ctc_4 targets selected separately -> own batch dim -> audio x targets cross-product CTC);"
+        " only version=3 is supported"
     )
     start_layer = config.int("pseudo_enc_start_layer", -1)
     assert start_layer >= 0, "pseudo-enc single-stream: layer-split injection only"
@@ -2528,8 +2531,15 @@ def aed_pseudo_enc_single_stream_train_step(*, model: Model, extern_data, **_kwa
                 aux_src[i] = (collected[str(i - 1)], enc_spatial_dim, ctc_targets, ctc_targets_spatial_dim)
     else:
         # mixed batch: each branch runs its PROVEN dual-stream path on its selected rows.
-        (wave_a, wave_a_spatial_dim), audio_bdim, sel_map_a = rf.nested.masked_select_nested(
-            (data, data_spatial_dim), mask=audio_mask, mask_cpu=audio_mask_cpu, dims=[batch_dim]
+        # ONE joint select for the audio and its ctc targets:
+        # separate selects create separate selected batch dims,
+        # and rf.ctc_loss then broadcasts them into an audio x targets cross-product
+        # (the v2 bug -- ctc_4 was ~20 * num_audio_rows, gradient noise into layers 1..start_layer).
+        ((wave_a, wave_a_spatial_dim), (audio_ct, audio_ct_sp)), audio_bdim, sel_map_a = rf.nested.masked_select_nested(
+            ((data, data_spatial_dim), (ctc_targets, ctc_targets_spatial_dim)),
+            mask=audio_mask,
+            mask_cpu=audio_mask_cpu,
+            dims=[batch_dim],
         )
         coll_a = CollectOutputsDict(allowed_key_patterns=[str(i - 1) for i in aux_loss_layers])
         enc_a_raw, enc_a_spatial_dim = model.encode_no_transform(
@@ -2578,12 +2588,8 @@ def aed_pseudo_enc_single_stream_train_step(*, model: Model, extern_data, **_kwa
 
         # aux tapped below the injection layer: audio rows only.
         aux_below = [i for i in aux_loss_layers if i - 1 < start_layer and i <= n_layers]
-        if aux_below:
-            (audio_ct, audio_ct_sp), _, _ = rf.nested.masked_select_nested(
-                (ctc_targets, ctc_targets_spatial_dim), mask=audio_mask, mask_cpu=audio_mask_cpu, dims=[batch_dim]
-            )
-            for i in aux_below:
-                aux_src[i] = (coll_a[str(i - 1)], enc_a_spatial_dim, audio_ct, audio_ct_sp)
+        for i in aux_below:
+            aux_src[i] = (coll_a[str(i - 1)], enc_a_spatial_dim, audio_ct, audio_ct_sp)
         # shared aux taps: merged over the full batch, against the full-batch targets.
         for i in aux_loss_layers:
             if i - 1 >= start_layer and i <= n_layers:
