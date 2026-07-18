@@ -105,3 +105,45 @@ class W2vu2PerEvalJob(Job):
 
         with open(self.out_per.get_path()) as f:
             print(json.dumps(json.load(f), indent=2), flush=True)
+
+
+class W2v2ReprAuditJob(Job):
+    """§0a-style target-quality audit (k-means oracle-map PER + linear probe) on wav2vec2 L15 features.
+
+    Runs the model forward on GPU under the speech_llm env, then the §0a metric primitives (imported
+    from real_repr_probe so the methodology matches BEST-RQ). One report comparing the wav2vec2
+    clusterability/decodability numbers to BEST-RQ's 0.63 / 0.145.
+    """
+
+    def __init__(
+        self,
+        *,
+        hf_model_dir: tk.Path,
+        layer: int = 15,
+        fps: float = 50.0,
+        n_utts: int = 500,
+        split: str = "validation.clean",
+    ):
+        super().__init__()
+        self.hf_model_dir = hf_model_dir
+        self.layer = layer
+        self.fps = fps
+        self.n_utts = n_utts
+        self.split = split
+
+        self.out_report = self.output_path("repr_audit.txt")
+        self.rqmt = {"gpu": 1, "gpu_mem": 40, "mem": 24, "time": 2, "cpu": 8}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        # In-process: this job runs under the speech_llm python, so the torch/transformers audit runs
+        # here directly. The heavy import stays inside run() so the graph-building manager never hits it.
+        from i6_experiments.users.wu.experiments.unsupervised_asr.w2vu2.repr_audit_w2v2 import run_audit
+
+        report = run_audit(self.hf_model_dir.get_path(), layer=self.layer, fps=self.fps,
+                           n_utts=self.n_utts, split=self.split)
+        with open(self.out_report.get_path(), "w") as f:
+            f.write(report)
+        print(report, flush=True)
