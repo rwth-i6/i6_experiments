@@ -99,39 +99,25 @@ def compute_gold(split, recipe_dir):
     return gold
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--ckpt", required=True)
-    ap.add_argument("--data", required=True)          # fairseq task.data (for dict build)
-    ap.add_argument("--text-data", required=True)     # fairseq task.text_data (dict.txt)
-    ap.add_argument("--feats", required=True)         # {split}.npy  (dumped dev features, all utts)
-    ap.add_argument("--gold", required=True)          # json {split: {id: [phones]}}, from compute_gold
-    ap.add_argument("--out", required=True)
-    ap.add_argument("--limit", type=int, default=0)   # cap utts scored per split (0 = all); testing
-    args = ap.parse_args()
-
-    import editdistance
+def _load_feats(feats_path):
+    """Read the dumped dev features once: (mmap'd [N,D], per-utt offsets, ids)."""
     import numpy as np
-    import torch
 
-    with open(args.gold) as f:
-        gold_all = {s: {k: tuple(v) for k, v in d.items()} for s, d in json.load(f).items()}
-    # utt id -> its split, so scoring is robust to any dropped-short utts shifting the .ids order
-    id2split = {utt: s for s, d in gold_all.items() for utt in d}
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model, dictionary = _load_model(args.ckpt, args.data, args.text_data, device)
-    sil_idx = dictionary.index("<SIL>")
-    assert sil_idx != dictionary.unk(), "<SIL> not in generator dictionary"
-
-    base = args.feats[:-4] if args.feats.endswith(".npy") else args.feats
+    base = feats_path[:-4] if feats_path.endswith(".npy") else feats_path
     feats = np.load(base + ".npy", mmap_mode="r")
     lengths = [int(x) for x in open(base + ".lengths")]
     ids = [x.strip() for x in open(base + ".ids")]
     assert len(lengths) == len(ids), (len(lengths), len(ids))
     assert sum(lengths) == feats.shape[0], (sum(lengths), feats.shape[0])
-
     offsets = np.concatenate([[0], np.cumsum(lengths)])
+    return feats, offsets, ids
+
+
+def _score_model(model, dictionary, sil_idx, feats, offsets, ids, id2split, gold_all, device, limit=0):
+    """Greedy PER of one loaded generator over the dumped features, per split. -> {split: {...}}."""
+    import editdistance
+    import numpy as np
+
     acc = {s: {"errs": 0, "ref": 0, "scored": 0} for s in gold_all}
     seen = {s: 0 for s in gold_all}
     missing = 0
@@ -140,7 +126,7 @@ def main():
         if s is None:
             missing += 1
             continue
-        if args.limit and seen[s] >= args.limit:
+        if limit and seen[s] >= limit:
             continue
         seen[s] += 1
         f = np.asarray(feats[offsets[u]:offsets[u + 1]], dtype=np.float32)
@@ -148,20 +134,121 @@ def main():
         acc[s]["errs"] += editdistance.eval(hyp, gold_all[s][tag])
         acc[s]["ref"] += len(gold_all[s][tag])
         acc[s]["scored"] += 1
-
     out = {}
     for s, a in acc.items():
-        out[s] = {
-            "PER": a["errs"] / max(a["ref"], 1),
-            "errors": a["errs"],
-            "ref_phones": a["ref"],
-            "utts": a["scored"],
-        }
-        print(s, json.dumps(out[s]), flush=True)
+        out[s] = {"PER": a["errs"] / max(a["ref"], 1), "errors": a["errs"],
+                  "ref_phones": a["ref"], "utts": a["scored"]}
     out["missing_gold"] = missing
-    if missing:
-        print(f"WARNING: {missing} utts had no gold and were skipped", flush=True)
+    return out
 
+
+def _load_gold(gold_path):
+    with open(gold_path) as f:
+        gold_all = {s: {k: tuple(v) for k, v in d.items()} for s, d in json.load(f).items()}
+    id2split = {utt: s for s, d in gold_all.items() for utt in d}
+    return gold_all, id2split
+
+
+def _best_num_updates(train_dir):
+    """num_updates of the weighted_lm_ppl-selected checkpoint_best.pt (None if absent)."""
+    from fairseq import checkpoint_utils
+    p = os.path.join(train_dir, "checkpoint_best.pt")
+    if not os.path.exists(p):
+        return None
+    st = checkpoint_utils.load_checkpoint_to_cpu(p)
+    oh = st.get("optimizer_history")
+    return oh[-1].get("num_updates") if oh else None
+
+
+def run_curve(train_dir, data, text_data, feats_path, gold_path, out_path, stride, device, limit=0):
+    """PER trajectory over every save_interval checkpoint, so the PER-min can be compared to the
+    unsupervised (weighted_lm_ppl) checkpoint_best -- the objective-alignment check."""
+    import glob
+    import re
+
+    gold_all, id2split = _load_gold(gold_path)
+    feats, offsets, ids = _load_feats(feats_path)
+
+    parsed = []
+    for c in glob.glob(os.path.join(train_dir, "checkpoint_*_*.pt")):
+        m = re.search(r"checkpoint_(\d+)_(\d+)\.pt$", os.path.basename(c))
+        if m:
+            parsed.append((int(m.group(2)), int(m.group(1)), c))  # (num_updates, epoch, path)
+    parsed.sort()
+    assert parsed, f"no interval checkpoints under {train_dir}"
+    sub = parsed[::max(stride, 1)]
+    best_upd = _best_num_updates(train_dir)
+    if best_upd is not None and best_upd not in {u for u, _, _ in sub}:
+        sub += [(u, e, c) for u, e, c in parsed if u == best_upd]  # never let stride drop the best
+        sub.sort()
+
+    print(f"curve: {len(sub)}/{len(parsed)} checkpoints (stride={stride}), best={best_upd}", flush=True)
+    curve = []
+    for upd, ep, path in sub:
+        model, dictionary = _load_model(path, data, text_data, device)
+        sil_idx = dictionary.index("<SIL>")
+        assert sil_idx != dictionary.unk(), "<SIL> not in generator dictionary"
+        res = _score_model(model, dictionary, sil_idx, feats, offsets, ids, id2split, gold_all,
+                           device, limit=limit)
+        row = {"updates": upd, "epoch": ep, "is_best": (upd == best_upd),
+               **{s: res[s]["PER"] for s in gold_all}}
+        curve.append(row)
+        pers = " ".join(f"{s}={res[s]['PER']:.3f}" for s in gold_all)
+        print(f"  upd={upd:>7} ep={ep:>4}{' *BEST' if row['is_best'] else '     '}  {pers}", flush=True)
+        del model
+
+    do = "dev-other" if "dev-other" in gold_all else sorted(gold_all)[0]
+    best_row = next((r for r in curve if r["is_best"]), None)
+    argmin = min(curve, key=lambda r: r[do])
+    summary = {
+        "best_updates": best_upd,
+        "ppl_best": best_row,                  # what the unsupervised metric selected
+        "per_min": argmin,                     # the actual PER-min checkpoint on the trajectory
+        "selection_gap": (None if best_row is None else round(best_row[do] - argmin[do], 4)),
+        "curve": curve,
+    }
+    with open(out_path, "w") as f:
+        json.dump(summary, f, indent=2)
+    if best_row is not None:
+        print(f"SELECTION GAP ({do}): ppl-best {best_row[do]:.3f} @{best_upd}  vs  "
+              f"PER-min {argmin[do]:.3f} @{argmin['updates']}  =>  {summary['selection_gap']:+.3f}",
+              flush=True)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--ckpt")                         # single-checkpoint mode
+    ap.add_argument("--train-dir")                    # curve mode: eval every interval checkpoint here
+    ap.add_argument("--stride", type=int, default=1)  # curve mode: eval every stride-th checkpoint
+    ap.add_argument("--data", required=True)          # fairseq task.data (for dict build)
+    ap.add_argument("--text-data", required=True)     # fairseq task.text_data (dict.txt)
+    ap.add_argument("--feats", required=True)         # {split}.npy  (dumped dev features, all utts)
+    ap.add_argument("--gold", required=True)          # json {split: {id: [phones]}}, from compute_gold
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--limit", type=int, default=0)   # cap utts scored per split (0 = all); testing
+    args = ap.parse_args()
+
+    import torch
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    if args.train_dir:
+        run_curve(args.train_dir, args.data, args.text_data, args.feats, args.gold, args.out,
+                  args.stride, device, limit=args.limit)
+        return
+
+    assert args.ckpt, "single mode needs --ckpt (or pass --train-dir for the curve)"
+    gold_all, id2split = _load_gold(args.gold)
+    model, dictionary = _load_model(args.ckpt, args.data, args.text_data, device)
+    sil_idx = dictionary.index("<SIL>")
+    assert sil_idx != dictionary.unk(), "<SIL> not in generator dictionary"
+    feats, offsets, ids = _load_feats(args.feats)
+    out = _score_model(model, dictionary, sil_idx, feats, offsets, ids, id2split, gold_all,
+                       device, limit=args.limit)
+    for s in gold_all:
+        print(s, json.dumps(out[s]), flush=True)
+    if out["missing_gold"]:
+        print(f"WARNING: {out['missing_gold']} utts had no gold and were skipped", flush=True)
     with open(args.out, "w") as f:
         json.dump(out, f, indent=2)
 

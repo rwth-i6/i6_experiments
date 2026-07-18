@@ -24,6 +24,7 @@ from i6_experiments.users.wu.experiments.unsupervised_asr.w2vu2.features import 
 )
 from i6_experiments.users.wu.experiments.unsupervised_asr.w2vu2.eval import (
     GoldPhonesJob,
+    W2vu2PerCurveJob,
     W2vu2PerEvalJob,
 )
 from i6_experiments.users.wu.experiments.unsupervised_asr.w2vu2.gan import (
@@ -201,6 +202,15 @@ def build_sae_1c_gan(
                 )
                 per.add_alias(f"{arm}/per")
                 tk.register_output(f"{arm}/per.json", per.out_per)
+
+                # PER at a coarse sample of checkpoints (~every 10th save) -> a small table showing
+                # whether the ppl-selected best is the PER-min, without a full 134-point curve.
+                curve = W2vu2PerCurveJob(
+                    train_dir=job.out_dir, data_dir=data, text_data=text,
+                    feats_dir=data, gold=gold, stride=10,
+                )
+                curve.add_alias(f"{arm}/per_curve")
+                tk.register_output(f"{arm}/per_curve.json", curve.out_curve)
 
 
 def _tag(cfg: Dict[str, Any]) -> str:

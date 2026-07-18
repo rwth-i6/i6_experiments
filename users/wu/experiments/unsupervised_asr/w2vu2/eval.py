@@ -107,6 +107,67 @@ class W2vu2PerEvalJob(Job):
             print(json.dumps(json.load(f), indent=2), flush=True)
 
 
+class W2vu2PerCurveJob(Job):
+    """Greedy PER of *every* save_interval checkpoint of one GAN, so the PER trajectory can be
+    compared to the weighted_lm_ppl-selected checkpoint_best (the objective-alignment check).
+
+    Same env split as W2vu2PerEvalJob (worker under speech_llm, GPU forward under the w2vu python),
+    but loads the dev features once and loops all checkpoints in a single GPU job (~30 s each).
+    Output per_curve.json carries the full curve plus {ppl_best, per_min, selection_gap}.
+    """
+
+    requires_env = "w2vu"
+
+    def __init__(
+        self,
+        *,
+        train_dir: tk.Path,     # FairseqW2vu2TrainJob.out_dir (holds checkpoint_*.pt)
+        data_dir: tk.Path,
+        text_data: tk.Path,
+        feats_dir: tk.Path,     # MergeW2vu2DataJob-style dir holding valid.npy/.lengths/.ids
+        gold: tk.Path,
+        stride: int = 1,        # eval every stride-th checkpoint (1 = all)
+        python_exe: tk.Path = W2VU_PYTHON,
+    ):
+        super().__init__()
+        self.train_dir = train_dir
+        self.data_dir = data_dir
+        self.text_data = text_data
+        self.feats_dir = feats_dir
+        self.gold = gold
+        self.stride = stride
+        self.python_exe = python_exe
+
+        self.out_curve = self.output_path("per_curve.json")
+        self.rqmt = {"gpu": 1, "gpu_mem": 40, "mem": 24, "time": 4, "cpu": 4}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        assert_w2vu_env(self.python_exe)
+        recipe = os.path.abspath(os.path.join(os.path.dirname(__file__), *[".."] * 6))
+        args = [
+            os.fspath(self.python_exe), _WORKER,
+            "--train-dir", self.train_dir.get_path(),
+            "--stride", str(self.stride),
+            "--data", self.data_dir.get_path(),
+            "--text-data", self.text_data.get_path(),
+            "--feats", os.path.join(self.feats_dir.get_path(), "valid.npy"),
+            "--gold", self.gold.get_path(),
+            "--out", self.out_curve.get_path(),
+        ]
+        print("RUN:", " ".join(args), flush=True)
+        env = dict(os.environ)
+        env["PYTHONPATH"] = os.pathsep.join([recipe, env.get("PYTHONPATH", "")]).strip(os.pathsep)
+        sp.check_call(args, env=env)
+
+        with open(self.out_curve.get_path()) as f:
+            d = json.load(f)
+        print(json.dumps({k: d[k] for k in ("best_updates", "ppl_best", "per_min", "selection_gap")},
+                         indent=2), flush=True)
+
+
 class W2v2ReprAuditJob(Job):
     """§0a-style target-quality audit (k-means oracle-map PER + linear probe) on wav2vec2 L15 features.
 
