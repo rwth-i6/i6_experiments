@@ -1327,6 +1327,9 @@ def _train_asr_base_multigpu(
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc_batched import (
         aed_ctc_timesync_recog_recomb_auto_scale_batched,
     )
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc import (
+        model_recog_with_recomb,
+    )
 
     vocab = "spm10k"
     task = get_librispeech_task_raw_v2(vocab=vocab, train_epoch_split=1, train_epoch_wise_filter=None)
@@ -1426,6 +1429,8 @@ def _train_asr_base_multigpu(
         num_processes=4,
         gpu_mem=96,
         recog_training_func=recog_training_exp_batched,
+        recog_def=model_recog_with_recomb,  # joint AED+CTC per-epoch recog, fixed scales 1/1
+        search_config={"aux_loss_layers": [16]},  # the recog model needs the layer-16 CTC head built
     )
     # Headline AED+CTC first-pass recog (sharded, tuned scales), same as base-ls.
     aed_ctc_timesync_recog_recomb_auto_scale_batched(
@@ -1500,6 +1505,9 @@ def _train_tts_encoder(
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines import configs
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc_batched import (
         aed_ctc_timesync_recog_recomb_auto_scale_batched,
+    )
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc import (
+        model_recog_with_recomb,
     )
     from i6_experiments.users.zeyer.recog_batched import recog_training_exp_batched
     from i6_experiments.users.zeyer.returnn.alternate_batching import alternate_batching
@@ -1659,22 +1667,28 @@ def _train_tts_encoder(
     # recog rebuilds the default TTS model (model.tts) and fails to load the pseudo-enc checkpoint
     # (missing tts.* keys). Pass the construction-relevant flags through search_config (per-epoch recog)
     # + extra_config (headline recog) -- recog-only, so the training hash is unchanged.
-    recog_model_cfg = (
-        {
-            "pseudo_speech_enc": True,
-            "pseudo_enc_duration_range": pseudo_enc_duration_range,
-            **(
-                {"pseudo_enc_single_stream_version": pseudo_enc_single_stream_version}
-                if pseudo_enc_single_stream_version != 1
-                else {}
-            ),
-            "pseudo_enc_blank_duration_range": pseudo_enc_blank_duration_range,
-            **({"pseudo_enc_units": pseudo_enc_units} if pseudo_enc_units != "phonemes" else {}),
-            **({"pseudo_enc_start_layer": pseudo_enc_start_layer} if pseudo_enc_start_layer is not None else {}),
-        }
-        if pseudo_speech_enc
-        else None
-    )
+    # aux_loss_layers: the per-epoch recog is joint AED+CTC (model_recog_with_recomb, fixed scales 1/1),
+    # since AED-only per-epoch WERs are unreliable;
+    # the recog model needs the layer-16 CTC head built (config_updates is training-only).
+    recog_model_cfg = {
+        "aux_loss_layers": [16],
+        **(
+            {
+                "pseudo_speech_enc": True,
+                "pseudo_enc_duration_range": pseudo_enc_duration_range,
+                **(
+                    {"pseudo_enc_single_stream_version": pseudo_enc_single_stream_version}
+                    if pseudo_enc_single_stream_version != 1
+                    else {}
+                ),
+                "pseudo_enc_blank_duration_range": pseudo_enc_blank_duration_range,
+                **({"pseudo_enc_units": pseudo_enc_units} if pseudo_enc_units != "phonemes" else {}),
+                **({"pseudo_enc_start_layer": pseudo_enc_start_layer} if pseudo_enc_start_layer is not None else {}),
+            }
+            if pseudo_speech_enc
+            else {}
+        ),
+    }
     exp = aed_train_exp(
         name,
         configs.config_96gb_bf16_accgrad1,
@@ -1682,6 +1696,7 @@ def _train_tts_encoder(
         task=task,
         model_def=aed_glowtts_model_def,
         model_config=model_config,
+        recog_def=model_recog_with_recomb,  # joint AED+CTC per-epoch recog, fixed scales 1/1
         search_config=recog_model_cfg,
         config_updates={
             # DDP per-rank random_seed_offset iterates the data N=4x per epoch, so divide nep by N

@@ -809,8 +809,8 @@ def model_recog_with_recomb(
 
     seq_label = _seq_label_history_init_state(vocab_dim=model.target_dim, batch_dims=batch_dims_)
 
-    # noinspection PyUnresolvedReferences
-    labelwise_prior: Optional[rf.Parameter] = model.labelwise_prior
+    # Models built by the plain AED model def (not aed_model_ext_def) have no labelwise_prior attribute.
+    labelwise_prior: Optional[rf.Parameter] = getattr(model, "labelwise_prior", None)
 
     if aed_scale or labelwise_prior is not None:
         # We usually have TransformerDecoder, but any other type would also be ok when it has the same API.
