@@ -27,19 +27,26 @@ SUBFRAMES = 4  # rVADfast 10 ms frames per 40 ms (25 Hz) frame
 _SIL_LABELS = {"sil", "sp", "", "<eps>", "<unk>", "noise"}
 
 
-def rvad_silence_25hz(wav: np.ndarray, sr: int = 16000, vad_threshold: float = 0.4,
-                      vad=None) -> np.ndarray:
-    """Waveform -> 25 Hz bool mask (True = silence). Aggregates rVADfast 10 ms speech labels
-    (1=speech) to 40 ms frames; a frame is silence iff > 50 % of its subframes are non-speech."""
+def rvad_silence(wav: np.ndarray, sr: int = 16000, vad_threshold: float = 0.4,
+                 vad=None, subframes: int = SUBFRAMES) -> np.ndarray:
+    """Waveform -> encoder-rate bool mask (True = silence). Aggregates rVADfast 10 ms speech labels
+    (1=speech) to `subframes`-long frames; a frame is silence iff > 50 % of its subframes are
+    non-speech. subframes = 100 Hz / encoder_fps (4 -> 25 Hz, 2 -> 50 Hz)."""
     from rVADfast import rVADfast
 
     if vad is None:
         vad = rVADfast(vad_threshold=vad_threshold)
     labels, _ = vad(np.asarray(wav, dtype=np.float32), sr)
-    n = len(labels) // SUBFRAMES
+    n = len(labels) // subframes
     if n == 0:
         return np.zeros(0, dtype=bool)
-    return labels[: n * SUBFRAMES].reshape(n, SUBFRAMES).mean(1) < 0.5
+    return labels[: n * subframes].reshape(n, subframes).mean(1) < 0.5
+
+
+def rvad_silence_25hz(wav: np.ndarray, sr: int = 16000, vad_threshold: float = 0.4,
+                      vad=None) -> np.ndarray:
+    """25 Hz (40 ms frame) silence mask -- the BEST-RQ / §1.0 validation rate."""
+    return rvad_silence(wav, sr=sr, vad_threshold=vad_threshold, vad=vad, subframes=SUBFRAMES)
 
 
 def mask_to_speech_segments(silence_mask: np.ndarray, fps: float = FPS) -> List[Tuple[float, float]]:

@@ -79,6 +79,10 @@ class MfccKmeansJob(Job):
     `learn_kmeans.py`, which fairseq's `prepare_audio_v2.sh` invokes.
     """
 
+    # vad_subframes=4 is the 25 Hz (BEST-RQ) default; excluding it keeps those jobs' hashes when the
+    # wav2vec2 arm (50 Hz -> 2) is added.
+    __sis_hash_exclude__ = {"vad_subframes": 4}
+
     def __init__(
         self,
         *,
@@ -86,6 +90,7 @@ class MfccKmeansJob(Job):
         split: str = "train",
         num_clusters: int = 64,
         mfcc_downsample: int = 4,
+        vad_subframes: int = 4,
         trim_silence: bool = True,
         max_fit_vectors: int = 2_000_000,
         seed: int = 0,
@@ -97,6 +102,7 @@ class MfccKmeansJob(Job):
         self.split = split
         self.num_clusters = num_clusters
         self.mfcc_downsample = mfcc_downsample
+        self.vad_subframes = vad_subframes
         self.trim_silence = trim_silence
         self.max_fit_vectors = max_fit_vectors
         self.seed = seed
@@ -118,6 +124,7 @@ class MfccKmeansJob(Job):
             "--split", self.split,
             "--num-clusters", str(self.num_clusters),
             "--mfcc-downsample", str(self.mfcc_downsample),
+            "--vad-subframes", str(self.vad_subframes),
             "--max-fit-vectors", str(self.max_fit_vectors),
             "--seed", str(self.seed),
             "--out-centroids", self.out_centroids.get_path(),
@@ -132,11 +139,16 @@ class MfccKmeansJob(Job):
 
 
 class W2vu2FeatureDumpJob(Job):
-    """Frozen BEST-RQ layer-l features -> {name}.npy (fp16) / .lengths / .km, VAD-trimmed.
+    """Frozen encoder layer-l features -> {name}.npy (fp16) / .lengths / .km, VAD-trimmed.
 
-    `out_dir` is the directory fairseq's `task.data` points at; `name` is the fairseq split name
-    (train / valid), which need not equal the HF split.
+    `encoder_type` selects BEST-RQ (512-d @ 25 Hz) or an HF wav2vec2 model (`hf_model_dir`, 1024-d @
+    50 Hz). `out_dir` is the directory fairseq's `task.data` points at; `name` is the fairseq split
+    name (train / valid), which need not equal the HF split.
     """
+
+    # BEST-RQ defaults are excluded so those (completed) dumps keep their hashes; the wav2vec2 arm
+    # (encoder_type/hf_model_dir/vad_subframes all non-default) hashes fresh.
+    __sis_hash_exclude__ = {"encoder_type": "bestrq", "hf_model_dir": None, "vad_subframes": 4}
 
     def __init__(
         self,
@@ -145,9 +157,12 @@ class W2vu2FeatureDumpJob(Job):
         split: str,
         name: str,
         mfcc_centroids: tk.Path,
+        encoder_type: str = "bestrq",
         encoder_layer: int = 5,
+        hf_model_dir: Optional[tk.Path] = None,
         trim_silence: bool = True,
         mfcc_downsample: int = 4,
+        vad_subframes: int = 4,
         min_length: int = 3,
         limit: Optional[int] = None,
         python_exe: tk.Path = DEFAULT_PYTHON_EXE,
@@ -158,9 +173,12 @@ class W2vu2FeatureDumpJob(Job):
         self.split = split
         self.name = name
         self.mfcc_centroids = mfcc_centroids
+        self.encoder_type = encoder_type
         self.encoder_layer = encoder_layer
+        self.hf_model_dir = hf_model_dir
         self.trim_silence = trim_silence
         self.mfcc_downsample = mfcc_downsample
+        self.vad_subframes = vad_subframes
         self.min_length = min_length
         self.limit = limit
         self.python_exe = python_exe
@@ -182,8 +200,10 @@ class W2vu2FeatureDumpJob(Job):
             "--mode", "dump",
             "--hf-data-dir", self.hf_data_dir.get_path(),
             "--split", self.split,
+            "--encoder-type", self.encoder_type,
             "--encoder-layer", str(self.encoder_layer),
             "--mfcc-downsample", str(self.mfcc_downsample),
+            "--vad-subframes", str(self.vad_subframes),
             "--min-length", str(self.min_length),
             "--mfcc-centroids", self.mfcc_centroids.get_path(),
             "--out-npy", self.out_npy.get_path(),
@@ -192,6 +212,8 @@ class W2vu2FeatureDumpJob(Job):
             "--out-ids", self.out_ids.get_path(),
             "--out-stats", self.out_stats.get_path(),
         ]
+        if self.hf_model_dir is not None:
+            cmd += ["--hf-model-dir", self.hf_model_dir.get_path()]
         if self.trim_silence:
             cmd.append("--trim-silence")
         if self.limit is not None:

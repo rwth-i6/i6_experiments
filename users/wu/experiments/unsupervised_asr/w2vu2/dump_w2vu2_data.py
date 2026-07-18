@@ -1,23 +1,28 @@
-"""Worker: emit fairseq wav2vec-U 2.0 input data from frozen BEST-RQ features (conda `speech_llm`).
+"""Worker: emit fairseq wav2vec-U 2.0 input data from a frozen speech encoder (conda `speech_llm`).
+
+Two encoders, selected by `--encoder-type`:
+  bestrq    : the SAE frozen BEST-RQ wrapper, 512-d @ 25 Hz (default; SAE_1c BEST-RQ arm).
+  wav2vec2  : an HF `Wav2Vec2Model` (the paper's wav2vec2-Large LV-60, SSL-only), 1024-d @ 50 Hz.
 
 Two modes, both streaming per utterance (never materialising a split in RAM -- `build_units.py`
 peaked at 41 GB on 100 h and would die on 960 h):
 
   fit-mfcc : MFCC(39-d) -> MiniBatchKMeans(64) -> centroids.npy      [CPU only]
-  dump     : per split -> {split}.npy [N,512] fp16 + {split}.lengths + {split}.km   [GPU]
+  dump     : per split -> {split}.npy [N,D] fp16 + {split}.lengths + {split}.km   [GPU]
 
 Layout matches fairseq's `ExtractedFeaturesDataset`: one .npy holding every frame of every utterance
 concatenated, mmap'd at train time, plus a .lengths file with one frame count per line. fp16 is safe
-because __getitem__ does `.float()`; it halves the mmap (~8 GB for VAD-trimmed train-clean-100).
+because __getitem__ does `.float()`; it halves the mmap.
 
 Aux target (L_ss, the paper's largest single win: PER 15.9 -> 13.6): 64-cluster k-means over Kaldi
-MFCC+delta+delta-delta, encoder-independent by design. **We emit `.km` already at the 25 Hz encoder
+MFCC+delta+delta-delta, encoder-independent by design. **We emit `.km` already at the encoder frame
 rate and VAD-trimmed, aligned 1:1 with the features, so the GAN must run `target_downsample_rate: 1`
-(not fairseq's 2).** fairseq computes MFCC on silence-*removed* waveforms at 100 Hz and subsamples
-by 2 to reach its 50 Hz feature rate, reconciling any residue by truncating to min(len) -- a hack
-that can misalign by a frame. Doing the subsample+trim here instead is exact, and computing the
-deltas on the *continuous* waveform avoids the artificial discontinuities that trimming first
-would introduce at every excised pause.
+(not fairseq's 2).** fairseq computes MFCC on silence-*removed* waveforms at 100 Hz and subsamples to
+its 50 Hz feature rate, reconciling any residue by truncating to min(len) -- a hack that can misalign
+by a frame. Doing the subsample+trim here instead is exact, and computing the deltas on the
+*continuous* waveform avoids the artificial discontinuities that trimming first would introduce at
+every excised pause. `--mfcc-downsample` and `--vad-subframes` both follow from the encoder frame
+rate (100 Hz MFCC / 100 Hz rVAD -> 4 for 25 Hz BEST-RQ, 2 for 50 Hz wav2vec2).
 """
 
 import argparse
@@ -28,16 +33,50 @@ import numpy as np
 import torch
 
 
-def _encoder(layer, device):
-    # Cross-recipe import: the frozen BEST-RQ wrapper lives in the speech-llm recipe even though it is
-    # LLM-independent. Reused rather than copied so this dump and the SAE 2S units share one operator;
-    # moving it would rehash live SAE 2S jobs. `.eval()` is what turns SpecAugment off (it follows the
-    # wrapper's train/eval flag), matching what SAE_0a measured.
-    from speech_llm.prefix_lm.model.definitions.encoders.bestrq import BestRqEncoderV1
+def _load_encoder(args, device):
+    """Return (kind, obj): the frozen encoder plus what `_encode` needs to run it."""
+    if args.encoder_type == "bestrq":
+        # Cross-recipe import: the frozen BEST-RQ wrapper lives in the speech-llm recipe even though it
+        # is LLM-independent. Reused rather than copied so this dump and the SAE 2S units share one
+        # operator. `.eval()` is what turns SpecAugment off, matching what SAE_0a measured.
+        from speech_llm.prefix_lm.model.definitions.encoders.bestrq import BestRqEncoderV1
 
-    enc = BestRqEncoderV1(encoder_layer=layer).to(device)
-    enc.eval()
-    return enc
+        return "bestrq", BestRqEncoderV1(encoder_layer=args.encoder_layer).to(device).eval()
+
+    if args.encoder_type == "wav2vec2":
+        # HF port of the paper's wav2vec2-Large LV-60 (SSL, no finetuning -> no phone-label leakage).
+        # `hidden_states[layer]` is the residual-stream output of transformer block (layer-1): with the
+        # stable-layer-norm encoder, hidden_states[0] is the pre-transformer state, so layer=15 is the
+        # output of block 14 = fairseq `layer=14` = the paper's "15th layer", without the final norm.
+        # do_normalize=True applies the per-utterance waveform standardisation fairseq does via layer_norm.
+        from transformers import Wav2Vec2FeatureExtractor, Wav2Vec2Model
+
+        model = Wav2Vec2Model.from_pretrained(args.hf_model_dir).to(device).eval()
+        fe = Wav2Vec2FeatureExtractor.from_pretrained(args.hf_model_dir)
+        return "wav2vec2", (model, fe, args.encoder_layer)
+
+    raise ValueError(f"unknown encoder-type {args.encoder_type!r}")
+
+
+def _encode(bundle, wav, device):
+    """wav [T_samples] float32 -> feats [T_frames, D] float32 at the encoder frame rate."""
+    kind, obj = bundle
+    if kind == "bestrq":
+        audio = torch.from_numpy(wav)[None, :].to(device)
+        lens = torch.tensor([wav.shape[0]], dtype=torch.long, device=device)
+        with torch.no_grad():
+            out = obj.forward(audio, lens)
+        t_enc = int(out[-2][0])
+        return out[0][0, :t_enc].float().cpu().numpy()
+
+    model, fe, layer = obj
+    inp = fe(wav, sampling_rate=16000, return_tensors="pt")  # do_normalize per utterance
+    iv = inp.input_values.to(device)
+    am = inp.get("attention_mask")
+    with torch.no_grad():
+        out = model(iv, attention_mask=am.to(device) if am is not None else None,
+                    output_hidden_states=True)
+    return out.hidden_states[layer][0].float().cpu().numpy()
 
 
 def _vad():
@@ -48,7 +87,7 @@ def _vad():
     return vad_port, rVADfast(vad_threshold=0.4)
 
 
-def _mfcc_25hz(wav, downsample):
+def _mfcc(wav, downsample):
     """Kaldi MFCC 13 + delta + delta-delta = 39-d @100 Hz, subsampled to the encoder rate.
 
     Kaldi defaults (num_ceps=13, num_mel_bins=23, 25 ms/10 ms, use_energy=False) exactly as
@@ -61,12 +100,12 @@ def _mfcc_25hz(wav, downsample):
     m = kaldi.mfcc(waveform=x, sample_frequency=16000, use_energy=False)  # [T100, 13]
     d1 = torchaudio.functional.compute_deltas(m.T[None])[0].T
     d2 = torchaudio.functional.compute_deltas(d1.T[None])[0].T
-    return torch.cat([m, d1, d2], dim=1).numpy()[::downsample]  # [~T25, 39]
+    return torch.cat([m, d1, d2], dim=1).numpy()[::downsample]  # [~T_enc, 39]
 
 
-def _sil_mask(vp, vad, wav, n):
-    """25 Hz rVAD silence mask reconciled to n encoder frames (truncate, or pad tail as silence)."""
-    sil = vp.rvad_silence_25hz(wav, vad=vad)
+def _sil_mask(vp, vad, wav, n, subframes):
+    """Encoder-rate rVAD silence mask reconciled to n frames (truncate, or pad tail as silence)."""
+    sil = vp.rvad_silence(wav, vad=vad, subframes=subframes)
     if len(sil) >= n:
         return sil[:n]
     return np.concatenate([sil, np.ones(n - len(sil), dtype=bool)])
@@ -89,9 +128,9 @@ def fit_mfcc(args):
     rng = np.random.RandomState(args.seed)
     pool, n_seen = [], 0
     for _, wav in _iter_audio(args.hf_data_dir, args.split, args.limit):
-        m = _mfcc_25hz(wav, args.mfcc_downsample)
+        m = _mfcc(wav, args.mfcc_downsample)
         if vad is not None:
-            m = m[~_sil_mask(vp, vad, wav, len(m))]
+            m = m[~_sil_mask(vp, vad, wav, len(m), args.vad_subframes)]
         if len(m) == 0:
             continue
         n_seen += len(m)
@@ -123,7 +162,7 @@ def dump(args):
     from npy_append_array import NpyAppendArray
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    enc = _encoder(args.encoder_layer, device)
+    bundle = _load_encoder(args, device)
     vp, vad = _vad() if args.trim_silence else (None, None)
     cent = np.load(args.mfcc_centroids).astype(np.float32)  # [64, 39]
     cent_sq = (cent ** 2).sum(1)
@@ -132,22 +171,19 @@ def dump(args):
         if os.path.exists(p):
             os.remove(p)
     lengths, ids, n_raw_tot, n_kept_tot, n_short = [], [], 0, 0, 0
+    feat_dim = None
 
     with NpyAppendArray(args.out_npy) as npy, open(args.out_km, "w") as kmf:
         for n_utt, (tag, wav) in enumerate(_iter_audio(args.hf_data_dir, args.split, args.limit)):
-            audio = torch.from_numpy(wav)[None, :].to(device)
-            lens = torch.tensor([wav.shape[0]], dtype=torch.long, device=device)
-            with torch.no_grad():
-                out = enc.forward(audio, lens)
-            t_enc = int(out[-2][0])
-            feats = out[0][0, :t_enc].float().cpu().numpy()
+            feats = _encode(bundle, wav, device)
+            feat_dim = feats.shape[1]
 
-            mf = _mfcc_25hz(wav, args.mfcc_downsample)
+            mf = _mfcc(wav, args.mfcc_downsample)
             t = min(len(feats), len(mf))
             feats, mf = feats[:t], mf[:t]
 
             if vad is not None:
-                keep = ~_sil_mask(vp, vad, wav, t)
+                keep = ~_sil_mask(vp, vad, wav, t, args.vad_subframes)
                 feats, mf = feats[keep], mf[keep]
             n_raw_tot += t
             if len(feats) < args.min_length:  # fairseq's ExtractedFeaturesDataset drops these anyway
@@ -174,9 +210,10 @@ def dump(args):
     with open(args.out_stats, "w") as f:
         f.write(f"split={args.split}\nutts={len(lengths)}\nutts_dropped_short={n_short}\n"
                 f"frames_kept={n_kept_tot}\nframes_raw={n_raw_tot}\nvad_dropped_frac={drop:.4f}\n"
-                f"dim={512}\ndtype=float16\nencoder_layer={args.encoder_layer}\n"
-                f"trim_silence={args.trim_silence}\nmfcc_downsample={args.mfcc_downsample}\n"
-                f"km_rate=encoder_frame_rate_25hz_aligned_1to1 (=> fairseq target_downsample_rate must be 1)\n")
+                f"dim={feat_dim}\ndtype=float16\nencoder_type={args.encoder_type}\n"
+                f"encoder_layer={args.encoder_layer}\ntrim_silence={args.trim_silence}\n"
+                f"mfcc_downsample={args.mfcc_downsample}\nvad_subframes={args.vad_subframes}\n"
+                f"km_rate=encoder_frame_rate_aligned_1to1 (=> fairseq target_downsample_rate must be 1)\n")
     print(f"[dump] {args.split}: {len(lengths)} utts, {n_kept_tot} frames, vad dropped {drop:.1%}", flush=True)
 
 
@@ -185,9 +222,12 @@ def main():
     ap.add_argument("--mode", choices=["fit-mfcc", "dump"], required=True)
     ap.add_argument("--hf-data-dir", required=True)
     ap.add_argument("--split", required=True)
-    ap.add_argument("--encoder-layer", type=int, default=5)
+    ap.add_argument("--encoder-type", choices=["bestrq", "wav2vec2"], default="bestrq")
+    ap.add_argument("--encoder-layer", type=int, default=5, help="bestrq: 0-idx layer; wav2vec2: hidden_states idx")
+    ap.add_argument("--hf-model-dir", default=None, help="local dir for --encoder-type wav2vec2 (from_pretrained)")
     ap.add_argument("--trim-silence", action="store_true")
-    ap.add_argument("--mfcc-downsample", type=int, default=4, help="100 Hz MFCC -> 25 Hz encoder rate")
+    ap.add_argument("--mfcc-downsample", type=int, default=4, help="100 Hz MFCC -> encoder rate (25 Hz:4, 50 Hz:2)")
+    ap.add_argument("--vad-subframes", type=int, default=4, help="100 Hz rVAD -> encoder rate (25 Hz:4, 50 Hz:2)")
     ap.add_argument("--min-length", type=int, default=3)
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--seed", type=int, default=0)
@@ -203,6 +243,8 @@ def main():
     ap.add_argument("--out-ids")
     ap.add_argument("--out-stats", required=True)
     args = ap.parse_args()
+    if args.encoder_type == "wav2vec2" and args.mode == "dump" and not args.hf_model_dir:
+        ap.error("--encoder-type wav2vec2 requires --hf-model-dir")
     (fit_mfcc if args.mode == "fit-mfcc" else dump)(args)
 
 

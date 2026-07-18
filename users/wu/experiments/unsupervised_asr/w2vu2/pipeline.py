@@ -11,6 +11,7 @@ check in SAE_1c.md) because the generator's BatchNorm running stats are fit on t
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from sisyphus import tk
@@ -36,6 +37,52 @@ from i6_experiments.users.wu.experiments.unsupervised_asr.w2vu2.text import (
 
 PREFIX = "sae/1c"
 
+
+@dataclass(frozen=True)
+class Encoder:
+    """A frozen feature encoder + the generator geometry its frame rate / dim implies.
+
+    generator_stride/kernel are the paper's values per feature rate (BEST-RQ 25 Hz -> stride 2,
+    kernel 5 time-matched; wav2vec2 50 Hz -> the paper's stride 3, kernel 9). mfcc_downsample and
+    vad_subframes both follow from fps (= 100 Hz / fps).
+    """
+
+    name: str
+    encoder_type: str          # "bestrq" | "wav2vec2"
+    layer: int
+    fps: int
+    input_dim: int
+    generator_stride: int
+    generator_kernel: int
+    hf_model_id: str = ""      # wav2vec2 only
+
+    @property
+    def mfcc_downsample(self) -> int:
+        return 100 // self.fps
+
+    @property
+    def vad_subframes(self) -> int:
+        return 100 // self.fps
+
+
+# BEST-RQ layer 5 @25 Hz -- the SAE §1c arm (name kept so its aliases/hashes are unchanged).
+BESTRQ_L5 = Encoder("bestrq_l5", "bestrq", layer=5, fps=25, input_dim=512,
+                    generator_stride=2, generator_kernel=5)
+# wav2vec2-Large LV-60 (SSL, no finetune), HF port of the paper's model; hidden_states[15] = paper L15.
+W2V2_LV60_L15 = Encoder("w2v2_lv60_l15", "wav2vec2", layer=15, fps=50, input_dim=1024,
+                        generator_stride=3, generator_kernel=9,
+                        hf_model_id="facebook/wav2vec2-large-lv60")
+
+
+def _prefix(encoder: Encoder) -> str:
+    """BEST-RQ keeps the bare `sae/1c` prefix (unchanged aliases); other encoders nest under it."""
+    return PREFIX if encoder.encoder_type == "bestrq" else f"{PREFIX}/{encoder.name}"
+
+
+def seed_grid(n: int = 5) -> List[Dict[str, Any]]:
+    """Sweep only the seed -- the paper's protocol for a fixed config (README: common.seed=range(0,5))."""
+    return [{"seed": s} for s in range(n)]
+
 # The §1.0 selection LM (§1a, KenLM 4-gram, ppl 8.45, Spearman 0.89 vs gold PER). It is trained on
 # SIL-*free* 𝒯_φ, which is the right LM here: fairseq strips <SIL> from hypotheses before scoring.
 # (fairseq's own prepare_text.sh trains this LM on SIL-*augmented* text and strips SIL anyway -- a
@@ -46,29 +93,44 @@ PHONEME_LM_BIN = tk.Path(
 )
 
 
-def _audio_data(*, limit: Optional[int], encoder_layer: int) -> tk.Path:
+def _audio_data(*, encoder: Encoder, limit: Optional[int]) -> tk.Path:
     from speech_llm.prefix_lm.sis_recipe.exp2025_11_06_speech_llms.librispeech.data.huggingface import (
         get_librispeech_train_clean_100_hf_ogg,
     )
 
     hf = get_librispeech_train_clean_100_hf_ogg()
+    prefix = _prefix(encoder)
+    mfcc_ds, vad_sf = encoder.mfcc_downsample, encoder.vad_subframes
 
-    mfcc = MfccKmeansJob(hf_data_dir=hf, split="train", num_clusters=64, limit=limit)
-    mfcc.add_alias(f"{PREFIX}/mfcc_kmeans_k64")
-    tk.register_output(f"{PREFIX}/mfcc_kmeans.stats.txt", mfcc.out_stats)
+    # wav2vec2 needs its HF checkpoint on disk for the offline GPU dump; the download job's name
+    # matches settings._HF_ONLINE_JOB_NAMES -> it runs on the online login engine, and out_content_dir
+    # is a from_pretrained-ready dir.
+    hf_model_dir: Optional[tk.Path] = None
+    if encoder.encoder_type == "wav2vec2":
+        from i6_experiments.users.schmitt.external_models.huggingface import DownloadHuggingFaceRepoJobV2
+
+        dl = DownloadHuggingFaceRepoJobV2(model_id=encoder.hf_model_id)
+        dl.add_alias(f"{prefix}/dl_hf_model")
+        hf_model_dir = dl.out_content_dir
+
+    mfcc = MfccKmeansJob(hf_data_dir=hf, split="train", num_clusters=64,
+                         mfcc_downsample=mfcc_ds, vad_subframes=vad_sf, limit=limit)
+    mfcc.add_alias(f"{prefix}/mfcc_kmeans_k64")
+    tk.register_output(f"{prefix}/mfcc_kmeans.stats.txt", mfcc.out_stats)
 
     dumps: Dict[str, tk.Path] = {}
     for fs_name, hf_split, t in (("train", "train", 8), ("valid", "dev", 4)):
         d = W2vu2FeatureDumpJob(
             hf_data_dir=hf, split=hf_split, name=fs_name, mfcc_centroids=mfcc.out_centroids,
-            encoder_layer=encoder_layer, trim_silence=True, limit=limit, time_rqmt=t,
+            encoder_type=encoder.encoder_type, encoder_layer=encoder.layer, hf_model_dir=hf_model_dir,
+            mfcc_downsample=mfcc_ds, vad_subframes=vad_sf, trim_silence=True, limit=limit, time_rqmt=t,
         )
-        d.add_alias(f"{PREFIX}/feats_l{encoder_layer}_{fs_name}")
-        tk.register_output(f"{PREFIX}/feats_l{encoder_layer}_{fs_name}.stats.txt", d.out_stats)
+        d.add_alias(f"{prefix}/feats_l{encoder.layer}_{fs_name}")
+        tk.register_output(f"{prefix}/feats_l{encoder.layer}_{fs_name}.stats.txt", d.out_stats)
         dumps[fs_name] = d.out_dir
 
     merged = MergeW2vu2DataJob(splits=dumps)
-    merged.add_alias(f"{PREFIX}/data_l{encoder_layer}")
+    merged.add_alias(f"{prefix}/data_l{encoder.layer}")
     return merged.out_dir
 
 
@@ -90,21 +152,23 @@ def _text_data(*, sil_prob: float, max_lines: Optional[int], threshold: int) -> 
 def build_sae_1c_gan(
     *,
     smoke: bool = False,
-    encoder_layer: int = 5,
+    encoder: Encoder = BESTRQ_L5,
     sil_probs: Tuple[float, ...] = (0.5,),
     grid: Optional[List[Dict[str, Any]]] = None,
     max_update: Optional[int] = None,
 ) -> None:
-    """Wire the §1c graph. `smoke=True` = a tiny end-to-end shakedown (few utts, 200 updates).
+    """Wire the §1c graph for one `encoder`. `smoke=True` = a tiny end-to-end shakedown.
 
-    `sil_probs` is swept outside `grid` because each value needs its own binarized text corpus.
+    `sil_probs` is swept outside `grid` because each value needs its own binarized text corpus. The
+    text side is encoder-independent, so its jobs are shared across encoders (same `PREFIX`).
     """
     limit = 200 if smoke else None
     max_lines = 200_000 if smoke else None
     if max_update is None:
         max_update = 200 if smoke else 150_000
+    prefix = _prefix(encoder)
 
-    data = _audio_data(limit=limit, encoder_layer=encoder_layer)
+    data = _audio_data(encoder=encoder, limit=limit)
 
     if grid is None:
         grid = [{}] if smoke else pilot_grid()
@@ -116,13 +180,17 @@ def build_sae_1c_gan(
     for sil_prob in sil_probs:
         text = _text_data(sil_prob=sil_prob, max_lines=max_lines, threshold=1000)
         for cfg in grid:
-            ov = w2vu2_overrides(max_update=max_update, **cfg)
+            ov = w2vu2_overrides(
+                max_update=max_update, input_dim=encoder.input_dim,
+                generator_stride=encoder.generator_stride, generator_kernel=encoder.generator_kernel,
+                **cfg,
+            )
             job = FairseqW2vu2TrainJob(
                 data_dir=data, text_data=text, kenlm_path=PHONEME_LM_BIN, overrides=ov,
                 time_rqmt=1 if smoke else 11.5,
             )
             tag = "smoke" if smoke else _tag(cfg)
-            arm = f"{PREFIX}/gan_l{encoder_layer}_sil{sil_prob}/{tag}"
+            arm = f"{prefix}/gan_l{encoder.layer}_sil{sil_prob}/{tag}"
             job.add_alias(arm)
             tk.register_output(f"{arm}/train.log", job.out_log)
 
