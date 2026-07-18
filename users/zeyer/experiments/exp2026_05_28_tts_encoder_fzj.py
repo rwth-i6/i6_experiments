@@ -2648,6 +2648,20 @@ def aed_pseudo_enc_single_stream_train_step(*, model: Model, extern_data, **_kwa
         best = rf.reduce_argmax(log_prob, axis=model.target_dim)
         frame_error = best != targets_packed
         frame_error.mark_as_loss(name=f"fer{postfix}", as_error=True)
+        if postfix == "" and 0 < num_text < num_total:
+            # diagnostics: the same CE split by stream (audio rows vs text rows), reported only.
+            loss_padded = rf.pad_packed(loss, dims=batch_dims + [targets_w_eos_spatial_dim], in_dim=pack_dim)
+            for diag_name, diag_mask in [("ce_audio_rows", audio_mask), ("ce_text_rows", text_mask)]:
+                masked = rf.where(diag_mask, loss_padded, rf.zeros_like(loss_padded))
+                denom = rf.where(
+                    diag_mask,
+                    rf.cast(targets_w_eos_spatial_dim.get_size_tensor(), "float32"),
+                    rf.zeros([batch_dim], dtype="float32", device="cpu"),
+                )
+                diag = rf.reduce_sum(masked, axis=masked.dims) / rf.maximum(
+                    rf.copy_to_device(rf.reduce_sum(denom, axis=denom.dims), masked.device), 1.0
+                )
+                diag.mark_as_loss(name=diag_name, as_error=True)
 
 
 _glowtts_text_tok_cache = None
