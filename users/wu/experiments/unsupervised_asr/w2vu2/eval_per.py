@@ -150,14 +150,22 @@ def _load_gold(gold_path):
 
 
 def _best_num_updates(train_dir):
-    """num_updates of the weighted_lm_ppl-selected checkpoint_best.pt (None if absent)."""
+    """num_updates of the weighted_lm_ppl-selected checkpoint_best.pt (None if absent/unreadable).
+
+    Tolerates a half-written checkpoint_best.pt so the curve can be run against a *live* training dir
+    (early read while the GAN is still training) -- a failed read just leaves the best row unmarked.
+    """
     from fairseq import checkpoint_utils
     p = os.path.join(train_dir, "checkpoint_best.pt")
     if not os.path.exists(p):
         return None
-    st = checkpoint_utils.load_checkpoint_to_cpu(p)
-    oh = st.get("optimizer_history")
-    return oh[-1].get("num_updates") if oh else None
+    try:
+        st = checkpoint_utils.load_checkpoint_to_cpu(p)
+        oh = st.get("optimizer_history")
+        return oh[-1].get("num_updates") if oh else None
+    except Exception as e:
+        print(f"WARNING: could not read checkpoint_best.pt ({e}); leaving best unmarked", flush=True)
+        return None
 
 
 def run_curve(train_dir, data, text_data, feats_path, gold_path, out_path, stride, device, limit=0):
