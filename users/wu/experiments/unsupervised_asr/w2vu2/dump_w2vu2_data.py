@@ -161,7 +161,16 @@ def fit_mfcc(args):
 def dump(args):
     from npy_append_array import NpyAppendArray
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # Fail fast if the node's CUDA is dead (the transient "CUDA unknown error"): the job requested a
+    # GPU, so silently falling back to CPU only means the encoder runs ~100x slower and the job dies on
+    # the wall-clock limit hours later. Raising instead lets sisyphus resubmit on a healthy node.
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            "CUDA unavailable in the dump worker although a GPU was requested -- likely a transient "
+            "node CUDA-init failure. Failing fast so this resubmits elsewhere instead of running the "
+            "encoder on CPU and timing out."
+        )
+    device = "cuda"
     bundle = _load_encoder(args, device)
     vp, vad = _vad() if args.trim_silence else (None, None)
     cent = np.load(args.mfcc_centroids).astype(np.float32)  # [64, 39]
