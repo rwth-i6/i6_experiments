@@ -223,15 +223,43 @@ def run_curve(train_dir, data, text_data, feats_path, gold_path, out_path, strid
               flush=True)
 
 
+def dump_labels(ckpt, data, text_data, feats_path, out_path, device, limit=0):
+    """§1d stage-1 pseudo-labels: the GAN teacher's greedy phone transcript for every utt in a feats
+    dump, written as json {id: "p1 p2 ..."} so a CTC student can be trained on them.
+
+    Identical decode to the PER hypothesis (collapsed, sil-free) -- the pseudo-label a student sees is
+    exactly the sequence §1c scored -- keyed by utt id so the audio manifest can be joined to it later.
+    """
+    import numpy as np
+
+    model, dictionary = _load_model(ckpt, data, text_data, device)
+    sil_idx = dictionary.index("<SIL>")
+    assert sil_idx != dictionary.unk(), "<SIL> not in generator dictionary"
+    feats, offsets, ids = _load_feats(feats_path)
+
+    labels, empty = {}, 0
+    for u, tag in enumerate(ids):
+        if limit and u >= limit:
+            break
+        f = np.asarray(feats[offsets[u]:offsets[u + 1]], dtype=np.float32)
+        syms = [dictionary[i] for i in _decode_utt(model, f, sil_idx, device)]
+        empty += not syms
+        labels[tag] = " ".join(syms)
+    with open(out_path, "w") as fo:
+        json.dump({"labels": labels, "utts": len(labels), "empty": empty}, fo)
+    print(f"dump_labels: {len(labels)} utts, {empty} empty (sil-free collapsed)", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ckpt")                         # single-checkpoint mode
+    ap.add_argument("--ckpt")                         # single-checkpoint mode / dump-labels mode
     ap.add_argument("--train-dir")                    # curve mode: eval every interval checkpoint here
     ap.add_argument("--stride", type=int, default=1)  # curve mode: eval every stride-th checkpoint
+    ap.add_argument("--dump-labels", action="store_true")  # write teacher pseudo-labels, no scoring
     ap.add_argument("--data", required=True)          # fairseq task.data (for dict build)
     ap.add_argument("--text-data", required=True)     # fairseq task.text_data (dict.txt)
-    ap.add_argument("--feats", required=True)         # {split}.npy  (dumped dev features, all utts)
-    ap.add_argument("--gold", required=True)          # json {split: {id: [phones]}}, from compute_gold
+    ap.add_argument("--feats", required=True)         # {split}.npy  (dumped features, all utts)
+    ap.add_argument("--gold")                         # json {split: {id: [phones]}}; not needed to dump
     ap.add_argument("--out", required=True)
     ap.add_argument("--limit", type=int, default=0)   # cap utts scored per split (0 = all); testing
     args = ap.parse_args()
@@ -240,6 +268,13 @@ def main():
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
+    if args.dump_labels:
+        assert args.ckpt, "dump-labels needs --ckpt (the teacher GAN checkpoint)"
+        dump_labels(args.ckpt, args.data, args.text_data, args.feats, args.out, device,
+                    limit=args.limit)
+        return
+
+    assert args.gold, "scoring modes need --gold"
     if args.train_dir:
         run_curve(args.train_dir, args.data, args.text_data, args.feats, args.gold, args.out,
                   args.stride, device, limit=args.limit)
