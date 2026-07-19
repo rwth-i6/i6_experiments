@@ -45,3 +45,15 @@ Vocab size (chunked L80-C5-R4, v1; CTC-only dev):
 | spm10k | 9.56 |
 
 Default: spm10k.
+
+## Training scale
+
+CTC-only WER, dev / test, last epoch.
+base: offline recog.
+dyn-rope-ctembed: streaming recog at the deployment chunk (C5, R4).
+
+| scale | base (offline) | dyn-rope-ctembed (streaming) |
+| --- | --- | --- |
+| 1x | 7.32 / 8.10 | 9.41 / 10.29 |
+| 2x | 6.58 / 7.39 | 8.52 / 9.25 |
+| 4x | 6.08 / 6.72 | 7.82 / 8.59 |
