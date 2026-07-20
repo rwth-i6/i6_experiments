@@ -1,4 +1,4 @@
-__all__ = ["ParallelSegmentRecognizer", "PlainTracebackItem"]
+__all__ = ["ParallelSegmentRecognizer", "PlainTracebackItem", "collapse_traceback", "expand_traceback"]
 
 import os
 
@@ -47,6 +47,54 @@ class PlainTracebackItem:
     end_time: float
     lm_score: float
     am_score: float
+
+
+def expand_traceback(items: list[PlainTracebackItem]) -> list[PlainTracebackItem]:
+    """
+    Expand per-phoneme traceback items to one item per input frame.
+
+    Each item spanning [start_time, end_time) is replicated as (end_time - start_time)
+    single-frame items (start_time=t, end_time=t+1) (inverse of collapse_traceback)
+    """
+    result: list[PlainTracebackItem] = []
+    for item in items:
+        for t in range(int(item.start_time), int(item.end_time)):
+            result.append(PlainTracebackItem(
+                lemma=item.lemma,
+                start_time=t,
+                end_time=t + 1,
+                am_score=item.am_score,
+                lm_score=item.lm_score,
+            ))
+    return result
+
+
+def collapse_traceback(items: list[PlainTracebackItem]) -> list[PlainTracebackItem]:
+    """
+    Collapse consecutive same-label frames into phoneme segments.
+
+    Input is the per-frame output of recognize_segment_framewise() (one item per
+    frame, start_time=t, end_time=t+1). Output matches the per-phoneme format of
+    recognize_segment() so that downstream code can treat both uniformly.
+    """
+    if not items:
+        return []
+    result: list[PlainTracebackItem] = []
+    cur = items[0]
+    for item in items[1:]:
+        if item.lemma == cur.lemma:
+            cur = PlainTracebackItem(
+                lemma=cur.lemma,
+                start_time=cur.start_time,
+                end_time=item.end_time,
+                am_score=item.am_score,
+                lm_score=item.lm_score,
+            )
+        else:
+            result.append(cur)
+            cur = item
+    result.append(cur)
+    return result
 
 
 _worker_search_algo = None

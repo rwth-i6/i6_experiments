@@ -39,14 +39,14 @@ input_data = {
 def run():
 
     use_eow_phonemes = False
-    num_epochs = 4
+    num_epochs = 5
     use_pruning = False
 
     input_data_key = "train-clean-100-dbg"
     initialization = "random"
 
     parameters = [
-        (None, 4, 10000.0, 0.3, 0.3, [8000.0, 8000.0, 9000.0, 9000.0, 10000.0]),
+        (None, 4, 10000.0, 0.3, 0.3, None)
     ]
 
     recog_results = []
@@ -136,10 +136,13 @@ def run():
                 recog_rasr_config=decode_recognition_config,
                 distance_scale=1.0,
                 subsampling=subsampling,
+                write_frame_labels=True,
             )
 
             res = decode_and_score(exp_name + f"_epoch-{recog_epoch}", "train-clean-100-dbg", decode_config, dataset_config, rasr_path=tools.RASR_PATH)
             tk.register_output(f"guided_kmeans/testing_experimental/recognition/{exp_name}_epoch-{recog_epoch}_per", res.per)
+            if res.frame_labels is not None:
+                tk.register_output(f"guided_kmeans/testing_experimental/recognition/{exp_name}_epoch-{recog_epoch}_frame_labels", res.frame_labels)
 
             res.mean_cos_sim = CentroidCosineSimilarityJob(exp_result.out_centroids[recog_epoch]).out_mean_cos_sim
             tk.register_output(f"guided_kmeans/testing_experimental/recognition/{exp_name}_epoch-{recog_epoch}_cos_sim", res.mean_cos_sim)
@@ -151,8 +154,7 @@ def run():
 
             recog_results.append(res)
 
-    tk.register_report(f"guided_kmeans/testing_experimental/recognition/{initialization}/report_{input_data_key}_lm-scale-schedule.txt", values=create_report(recog_results), required=True)
-
+    tk.register_report(f"guided_kmeans/testing_experimental/recognition/{initialization}/report_{input_data_key}_analysis.txt", values=create_report(recog_results), required=True)
 
 def py():
-    run()
+    test()

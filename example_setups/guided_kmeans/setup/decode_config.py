@@ -40,6 +40,7 @@ class DecodeRecogResult:
     mean_cos_sim: tk.Variable | None = None
     l1_dist: tk.Variable | None = None
     avg_total_score: tk.Variable | None = None
+    frame_labels: tk.Path | None = None
 
 def build_gaussian_model_object(centroids: tk.Path, cov: tk.Path) -> CallImport:
     args = {
@@ -66,6 +67,7 @@ def get_callback_config(
     rasr_path: str | None = None,
     cov_path: tk.Path | None = None,
     num_workers: int = 7,
+    write_frame_labels: bool = False,
 ) -> ReturnnConfig:
     serializer_objs = []
 
@@ -85,6 +87,7 @@ def get_callback_config(
         "verbosity": verbosity,
         "exclude_lemmata": exclude_lemmata,
         "num_workers": num_workers,
+        "write_frame_labels": write_frame_labels,
     }
 
     if cov_path is not None:
@@ -118,11 +121,13 @@ class DecodeConfig:
     covs: tk.Path | None = None
     verbosity: int = 1
     num_workers: int = 7
+    write_frame_labels: bool = False
 
 @dataclass
 class DecodeResult:
     fwd_job: ReturnnForwardJobV2
     hyp: tk.Path
+    frame_labels: tk.Path | None = None
 
 def _decode(
     config: DecodeConfig,
@@ -149,6 +154,7 @@ def _decode(
         rasr_path=rasr_path,
         cov_path=config.covs,
         num_workers=config.num_workers,
+        write_frame_labels=config.write_frame_labels,
     )
 
     returnn_config = ReturnnConfig({})
@@ -157,22 +163,27 @@ def _decode(
 
     returnn_config.black_formatting = False
 
-    hyp_file = "hyp.txt"
+    output_files = ["hyp.txt"]
+    if config.write_frame_labels:
+        output_files.append("frame_labels.jsonl")
+
     fwd_job = ReturnnForwardJobV2(
         model_checkpoint=None,
         returnn_config=returnn_config,
         returnn_python_exe=returnn_python_exe,
         returnn_root=returnn_root,
-        output_files=[hyp_file],
+        output_files=output_files,
         cpu_rqmt=config.num_workers + 1,
     )
     fwd_job.rqmt["gpu_mem"] = 24
 
-    out_hyp = fwd_job.out_files[hyp_file]
+    out_hyp = fwd_job.out_files["hyp.txt"]
+    out_frame_labels = fwd_job.out_files.get("frame_labels.jsonl")
 
     return DecodeResult(
         fwd_job=fwd_job,
         hyp=out_hyp,
+        frame_labels=out_frame_labels,
     )
 
 def decode_and_score(
@@ -229,4 +240,5 @@ def decode_and_score(
         score_res.deletions,
         score_res.insertions,
         score_res.substitutions,
+        frame_labels=decode_res.frame_labels,
     )
