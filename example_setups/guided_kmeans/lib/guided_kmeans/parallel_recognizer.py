@@ -49,8 +49,12 @@ class PlainTracebackItem:
     am_score: float
 
 
+_worker_search_algo = None
+_worker_lm_scale: float | None = None
+
+
 def _init_worker(recognition_config: str):
-    global _worker_search_algo
+    global _worker_search_algo, _worker_lm_scale
     # Re-assert thread pinning: this runs first in each freshly forked/spawned
     # worker, before librasr's search engine (and any BLAS library it links
     # against) gets a chance to size its thread pool from the environment.
@@ -67,11 +71,17 @@ def _init_worker(recognition_config: str):
     config = Configuration()
     config.set_from_file(recognition_config)
     _worker_search_algo = SearchAlgorithm(config=config)
+    _worker_lm_scale = None
     print(f"[TIMING] _init_worker pid={os.getpid()} took {time.perf_counter() - t0:.3f}s", flush=True)
 
 
-def _worker_recognize(seq_tag: str, scaled_distances: np.ndarray):
-    global _worker_search_algo
+def _worker_recognize(seq_tag: str, scaled_distances: np.ndarray, lm_scale: float | None = None):
+    global _worker_search_algo, _worker_lm_scale
+    if lm_scale is not None and lm_scale != _worker_lm_scale:
+        mc = _worker_search_algo.model_combination()
+        mc.language_model().set_scale(lm_scale)
+        mc.label_scorer().get_sub_scorer(1).set_scale(lm_scale)
+        _worker_lm_scale = lm_scale
     t_start = time.time()
     traceback = _worker_search_algo.recognize_segment(scaled_distances)
     t_end = time.time()
@@ -124,9 +134,14 @@ class ParallelSegmentRecognizer:
         self.task_timeout = task_timeout
         self.executor: ProcessPoolExecutor | None = None
         self.futures: list[tuple[str, Future]] = []
+        self._pending_lm_scale: float | None = None
 
         self._t_first_submit: float | None = None
         self._t_last_submit: float | None = None
+
+    def set_lm_scale(self, scale: float) -> None:
+        # Queue an LM/transition scale update to be applied on next submit()
+        self._pending_lm_scale = scale
 
     def start(self) -> None:
         assert self.executor is None, "already started"
@@ -181,7 +196,7 @@ class ParallelSegmentRecognizer:
         self._t_last_submit = t_submit
 
         try:
-            future = self.executor.submit(_worker_recognize, seq_tag, scaled_distances)
+            future = self.executor.submit(_worker_recognize, seq_tag, scaled_distances, self._pending_lm_scale)
         except Exception as e:
             self._hard_abort(f"submit() for seq_tag={seq_tag!r} failed: {e!r} (worker pool likely already broken)")
         self.futures.append((seq_tag, future))

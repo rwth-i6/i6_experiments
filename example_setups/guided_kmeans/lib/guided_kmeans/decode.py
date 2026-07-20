@@ -123,12 +123,11 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
             if self.verbosity >= 2:
                 print(f"Finished sequence {seq_tag}.")
             hyp = " ".join(filter(lambda lem: lem not in self.exclude_lemmata, (item.lemma for item in items)))
-            self.hyp_buffer.append(hyp)
+            self.hyp_buffer.append((seq_tag, hyp))
 
         self.recognizer.shutdown()
 
         print(f"[TIMING] total (init->finish): {time.time() - self._t_init:.3f}s", flush=True)
 
-        # print(self.hyp_buffer)
         with open("hyp.txt", "w+") as fp:
-            fp.write("\n".join(self.hyp_buffer))
+            fp.write("\n".join(f"{tag}\t{hyp}" for tag, hyp in self.hyp_buffer))

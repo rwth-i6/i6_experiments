@@ -7,6 +7,7 @@ from i6_experiments.example_setups.guided_kmeans.setup.clustering_config import 
     ClusteringCallbackConfig,
     LateInitConfig,
     StreamingStandardInitializerConfig,
+    KMeansPlusPlusReservoirInitializerConfig,
     PickleCheatingCentroidInitializerConfig,
     PreloadCentroidsInitializerConfig,
 )
@@ -16,6 +17,7 @@ from i6_experiments.example_setups.guided_kmeans.setup.phoneme_frequency import 
 from i6_experiments.example_setups.guided_kmeans.setup.decode_config import decode_and_score, DecodeConfig
 from i6_experiments.example_setups.guided_kmeans.setup.report import create_report
 from i6_experiments.example_setups.guided_kmeans.setup.dataset_config import DatasetConfig, RandomNumber, All, SegmentFile
+from i6_experiments.example_setups.guided_kmeans.setup.centroid_metrics import CentroidCosineSimilarityJob, PhonemeL1DistanceJob, AverageTotalScoreJob
 
 from i6_experiments.example_setups.guided_kmeans import tools
 
@@ -37,21 +39,23 @@ input_data = {
 def run():
 
     use_eow_phonemes = False
-    num_epochs = 2
+    num_epochs = 4
     use_pruning = False
 
     input_data_key = "train-clean-100-dbg"
     initialization = "random"
 
     parameters = [
-        (None, 2, 10000.0, 0.7, 0.7)
+        (None, 4, 10000.0, 0.3, 0.3, [8000.0, 8000.0, 9000.0, 9000.0, 10000.0]),
     ]
 
     recog_results = []
 
-    for subsampling, lm_order, lm_scale, loop_probability, silence_loop_probability in parameters:
+    for subsampling, lm_order, lm_scale, loop_probability, silence_loop_probability, lm_scale_schedule in parameters:
 
-        exp_name = f"sub-{subsampling}_lm-{lm_order}gram-{lm_scale}_loop-{loop_probability}-sil-loop-{silence_loop_probability}_{input_data_key}"
+        decode_lm_scale_schedule = lm_scale_schedule
+
+        exp_name = f"sub-{subsampling}_lm-{lm_order}gram-{lm_scale}_loop-{loop_probability}-sil-loop-{silence_loop_probability}_{input_data_key}_{lm_scale_schedule}"
         if use_pruning:
             exp_name = exp_name + "_pruning"
 
@@ -62,6 +66,9 @@ def run():
         if initialization == "random":
             initializer_config = StreamingStandardInitializerConfig(seed=42)
             exp_name = exp_name + "_random"
+        if initialization == "kmeansapp":
+            initializer_config = KMeansPlusPlusReservoirInitializerConfig(seed=42)
+            exp_name = exp_name + "_kmeanspp"
 
 
         recognition_config = create_recog_rasr_config(
@@ -83,6 +90,7 @@ def run():
             recognition_config=recognition_config,
             lexicon_path=create_lexicon(use_eow_phonemes=use_eow_phonemes, add_unknown_phoneme=False),
             subsampling=subsampling,
+            lm_scale_schedule=lm_scale_schedule,
             rasr_path=tools.RASR_PATH,
         )
 
@@ -106,18 +114,44 @@ def run():
                 precomputed=True,
             )
 
+            if decode_lm_scale_schedule is not None:
+                decode_scale = decode_lm_scale_schedule[min(recog_epoch, len(decode_lm_scale_schedule) - 1)]
+                decode_recognition_config = create_recog_rasr_config(
+                    lm_scale=decode_scale,
+                    emission_scale=1.0,
+                    transition_scale=None,
+                    loop_probability=loop_probability,
+                    silence_loop_probability=silence_loop_probability,
+                    use_tree_search=False,
+                    max_beam_size=20000 if use_pruning else None,
+                    score_threshold=10000.0 if use_pruning else None,
+                    lm_order=lm_order,
+                    use_eow_phonemes=use_eow_phonemes
+                )
+            else:
+                decode_recognition_config = recognition_config
+
             decode_config = DecodeConfig(
                 centroids=exp_result.out_centroids[recog_epoch],
-                recog_rasr_config=recognition_config,
+                recog_rasr_config=decode_recognition_config,
                 distance_scale=1.0,
                 subsampling=subsampling,
             )
 
             res = decode_and_score(exp_name + f"_epoch-{recog_epoch}", "train-clean-100-dbg", decode_config, dataset_config, rasr_path=tools.RASR_PATH)
             tk.register_output(f"guided_kmeans/testing_experimental/recognition/{exp_name}_epoch-{recog_epoch}_per", res.per)
+
+            res.mean_cos_sim = CentroidCosineSimilarityJob(exp_result.out_centroids[recog_epoch]).out_mean_cos_sim
+            tk.register_output(f"guided_kmeans/testing_experimental/recognition/{exp_name}_epoch-{recog_epoch}_cos_sim", res.mean_cos_sim)
+            if recog_epoch < num_epochs:
+                res.l1_dist = PhonemeL1DistanceJob(exp_result.out_statistics, recog_epoch, tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/phoneme_frequencies/phoneme_frequencies_ls_100.txt")).out_l1_dist
+                res.avg_total_score = AverageTotalScoreJob(exp_result.out_statistics, recog_epoch).out_avg_total_score
+                tk.register_output(f"guided_kmeans/testing_experimental/recognition/{exp_name}_epoch-{recog_epoch}_l1", res.l1_dist)
+                tk.register_output(f"guided_kmeans/testing_experimental/recognition/{exp_name}_epoch-{recog_epoch}_score", res.avg_total_score)
+
             recog_results.append(res)
 
-    tk.register_report(f"guided_kmeans/testing_experimental/recognition/report_{input_data_key}.txt", values=create_report(recog_results), required=True)
+    tk.register_report(f"guided_kmeans/testing_experimental/recognition/{initialization}/report_{input_data_key}_lm-scale-schedule.txt", values=create_report(recog_results), required=True)
 
 
 def py():

@@ -14,7 +14,8 @@ from i6_experiments.example_setups.guided_kmeans.setup.dataset_config import _Al
 from i6_experiments.example_setups.guided_kmeans.lib.guided_kmeans.clustering import (
     GuidedKMeansClusteringCallback,
     StreamingStandardInitializer,
-        PreloadCentroidsInitializer,
+    PreloadCentroidsInitializer,
+    KMeansPlusPlusReservoirInitializer,
     PickleCentroidRandomMapInitializer,
     PickleCentroidFrequencyOrderMapInitializer,
     PickleCheatingCentroidInitializer
@@ -26,6 +27,7 @@ _INITIALIZER_ASSIGN_NAME = "cluster_initializer"
 _INITIALIZER_CLASS_DICT = {
     "PreloadCentroidsInitializerConfig": PreloadCentroidsInitializer,
     "StreamingStandardInitializerConfig": StreamingStandardInitializer,
+    "KMeansPlusPlusReservoirInitializerConfig": KMeansPlusPlusReservoirInitializer,
     "PickleCentroidFrequencyOrderMapInitializerConfig": PickleCentroidFrequencyOrderMapInitializer,
     "PickleCentroidRandomMapInitializerConfig": PickleCentroidRandomMapInitializer,
     "PickleCheatingCentroidInitializerConfig": PickleCheatingCentroidInitializer,
@@ -63,6 +65,7 @@ class ClusteringCallbackConfig:
     recognition_config: str | tk.Path
     lexicon_path: str | tk.Path
     subsampling: int | None = 3
+    lm_scale_schedule: list[float] | None = None
     callback_opts: dict = field(default_factory=dict)
     num_seqs: int | DelayedBase | None = field(init=False, default=None)
     rasr_path: tk.Path | None = None
@@ -81,6 +84,11 @@ class PreloadCentroidsInitializerConfig(_Config):
 @dataclass
 class StreamingStandardInitializerConfig(_Config):
     seed: int
+
+@dataclass
+class KMeansPlusPlusReservoirInitializerConfig(_Config):
+    seed: int = 42
+    reservoir_size: int = 10000
 
 @dataclass
 class PickleCentroidFrequencyOrderMapInitializerConfig(_Config):
@@ -185,6 +193,7 @@ def get_clustering_call_config(
         "num_seqs": callback_config.num_seqs,
         "recognition_config": callback_config.recognition_config,
         "subsampling": callback_config.subsampling,
+        **({"lm_scale_schedule": callback_config.lm_scale_schedule} if callback_config.lm_scale_schedule is not None else {}),
         "num_workers": callback_config.num_workers,
         **callback_config.callback_opts
     }

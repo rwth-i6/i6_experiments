@@ -37,6 +37,9 @@ class DecodeRecogResult:
     deletion: tk.Variable
     insertion: tk.Variable
     substitution: tk.Variable
+    mean_cos_sim: tk.Variable | None = None
+    l1_dist: tk.Variable | None = None
+    avg_total_score: tk.Variable | None = None
 
 def build_gaussian_model_object(centroids: tk.Path, cov: tk.Path) -> CallImport:
     args = {

@@ -1,6 +1,7 @@
 __all__ = [
     "BatchwiseUpdater",
     "KMeansPlusPlusInitializer",
+    "KMeansPlusPlusReservoirInitializer",
     "BatchwiseKMeansUpdater",
     "NnOutputClusteringCallback",
 ]
@@ -263,6 +264,39 @@ class StreamingStandardInitializer(BaseInitializer):
     def finalize(self) -> np.ndarray:
         assert len(self.samples) == self.num_clusters
         return np.array(self.samples)
+
+class KMeansPlusPlusReservoirInitializer(BaseInitializer):
+    """
+    Collects frames via reservoir sampling, then runs proper k-means++ on the reservoir.
+    """
+    def __init__(self, num_clusters: int, reservoir_size: int = 10000, seed: int = 42):
+        super().__init__()
+        self.num_clusters = num_clusters
+        self.reservoir_size = reservoir_size
+        self.rng = np.random.RandomState(seed)
+        self._reservoir = []
+        self._counter = 0
+
+    def process_seq(self, data: np.ndarray, last_seq: bool = False):
+        for x in data:
+            self._counter += 1
+            if len(self._reservoir) < self.reservoir_size:
+                self._reservoir.append(x)
+            else:
+                j = self.rng.randint(0, self._counter - 1)
+                if j < self.reservoir_size:
+                    self._reservoir[j] = x
+
+        if last_seq:
+            pool = np.array(self._reservoir)
+            first = self.rng.randint(len(pool))
+            centroids = [pool[first]]
+            for _ in range(self.num_clusters - 1):
+                D = cdist(pool, np.array(centroids)).min(axis=1) ** 2
+                probs = D / D.sum()
+                idx = self.rng.choice(len(pool), p=probs)
+                centroids.append(pool[idx])
+            self.centroids = np.stack(centroids, axis=0)
 
 class PreloadCentroidsInitializer(BaseInitializer):
     def __init__(
@@ -849,6 +883,7 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         pool_for_init: bool = True,
         gaussian_model: GaussianModelNumpy | None = None,
         verbosity: int = 1,
+        lm_scale_schedule: Optional[list] = None,
         num_workers: int | None = 7,
         task_timeout: float | None = 1800.0,
     ):
@@ -898,7 +933,19 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
 
         self.tracebacks = {}
         self.verbosity = verbosity
-    
+        self.lm_scale_schedule = lm_scale_schedule
+
+    def _apply_lm_scale_schedule(self):
+        if self.lm_scale_schedule is None:
+            return
+        epoch_idx = self.current_epoch // 2
+        if epoch_idx >= len(self.lm_scale_schedule):
+            print(f"LM scale schedule exhausted at recognition pass {epoch_idx}, keeping last scale.")
+            epoch_idx = len(self.lm_scale_schedule) - 1
+        scale = self.lm_scale_schedule[epoch_idx]
+        self.recognizer.set_lm_scale(scale)
+        print(f"Recognition pass {self.current_epoch // 2}: set LM scale and transition scale to {scale}")
+
     def init(self, *, model: Optional[torch.nn.Module] = None):
         super().init(model=model)
         self.recognizer.start()
@@ -973,6 +1020,7 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         
         # transition in and out of recognition
         if new_phase is GuidedClusteringPhase.RECOGNITION:
+            self._apply_lm_scale_schedule()
             self.traceback_repository.start_write()
             self.score_updater = RunningAverageUpdater(())
             self.unigram_counter = RelativeFrequencyUpdater((len(self.phoneme_map),))
