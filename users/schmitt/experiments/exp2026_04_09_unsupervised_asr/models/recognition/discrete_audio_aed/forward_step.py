@@ -2,6 +2,8 @@ __all__ = ["forward_step"]
 
 from typing import Dict, Optional
 
+import torch
+
 from ....models.definitions.conformer_aed_discrete_shared_v1 import Model
 from ....models.train_steps.util import get_random_mask, mask_sequence, expand_sequence
 from .beam_search import State, beam_search_v1
@@ -19,6 +21,7 @@ def forward_step(
     output_modality: str = "text",
     masking_opts: Optional[Dict] = None,
     expansion_opts: Optional[Dict] = None,
+    max_seq_len: Optional[int] = None,
     **kwargs,
 ):
     """Runs full recognition / reconstruction on the given data.
@@ -53,8 +56,11 @@ def forward_step(
     data = extern_data[input_data_key].raw_tensor
     seq_len = extern_data[input_data_key].dims[1].dyn_size_ext.raw_tensor.to(device=data.device)
 
-    # the decoder may produce up to the original (unmasked) input length
-    max_seq_len = seq_len
+    if not max_seq_len:
+        # the decoder may produce up to the original (unmasked) input length
+        max_seq_len = seq_len
+    else:
+        max_seq_len = torch.tensor([max_seq_len] * seq_len.shape[0], dtype=torch.int32).to(device=data.device)
 
     # input modality -> which encoder path / mask token
     if input_modality == "audio":
