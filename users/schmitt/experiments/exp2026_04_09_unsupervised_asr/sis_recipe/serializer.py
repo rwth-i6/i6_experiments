@@ -5,6 +5,8 @@ including serializing their parameters.
 
 from typing import Any, Dict, Optional
 
+from returnn_common.nn.naming import ReturnnConfigSerializer
+
 from i6_core.util import instanciate_delayed
 
 from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
@@ -13,10 +15,14 @@ from i6_experiments.common.setups.serialization import ExternalImport, Import, P
 from ..models import PACKAGE
 
 
-def serialize_extern_data(extern_data: Dict[str, Any]):
+def serialize_extern_data(extern_data: Dict[str, Any], version: int = 1):
     from returnn.util.pprint import pformat
 
-    extern_data_str = f"extern_data = {pformat(extern_data)}\n"
+    if version == 1:
+        extern_data_str = f"extern_data = {pformat(extern_data)}\n"
+    else:
+        assert version == 2, "Unsupported version"
+        extern_data_str = ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data)
 
     return NonhashedCode(extern_data_str)
 
@@ -76,13 +82,13 @@ def serialize_forward(
     network_module: str,
     net_args: Dict[str, Any],
     extern_data: Dict[str, Any],
-    vocab_opts: Dict[str, Any],
+    vocab_opts: Optional[Dict[str, Any]] = None,
     unhashed_net_args: Optional[Dict[str, Any]] = None,
     forward_module: Optional[str] = None,
     callback_module: Optional[str] = None,
     callback_opts: Optional[Dict[str, Any]] = None,
     forward_init_args: Optional[Dict[str, Any]] = None,
-    include_native_ops=False,
+    serialize_extern_data_version: int = 1,
 ):
     """
     Serialize for a forward job. Can be used e.g. for search or prior computation.
@@ -109,7 +115,7 @@ def serialize_forward(
     )
 
     serializer_objects = [
-        serialize_extern_data(instanciate_delayed(extern_data)),
+        serialize_extern_data(instanciate_delayed(extern_data), version=serialize_extern_data_version),
         pytorch_model_import,
     ]
 
@@ -120,18 +126,21 @@ def serialize_forward(
         hashed_arguments=forward_init_args,
         unhashed_arguments={},
     )
+    serializer_objects.extend([forward_step])
 
-    if callback_opts is None:
-        callback_opts = {}
-    callback_opts["vocab"] = vocab_opts
-    callback = PartialImport(
-        code_object_path=f"{PACKAGE}.{callback_module}",
-        import_as="forward_callback",
-        hashed_arguments=callback_opts,
-        unhashed_arguments={},
-        unhashed_package_root=None,
-    )
-    serializer_objects.extend([forward_step, callback])
+    if callback_module is not None:
+        assert vocab_opts is not None, "vocab_opts needs to be provided if callback_module is provided"
+        if callback_opts is None:
+            callback_opts = {}
+        callback_opts["vocab"] = vocab_opts
+        callback = PartialImport(
+            code_object_path=f"{PACKAGE}.{callback_module}",
+            import_as="forward_callback",
+            hashed_arguments=callback_opts,
+            unhashed_arguments={},
+            unhashed_package_root=None,
+        )
+        serializer_objects.extend([callback])
 
     serializer = Collection(
         serializer_objects=serializer_objects,

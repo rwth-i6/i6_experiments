@@ -119,6 +119,7 @@ def get_forward_config(
     extern_data: Optional[Dict[str, Any]] = None,
     base_config: Optional[Dict[str, Any]] = None,
     vocab_key: Optional[str] = None,
+    python_prolog: Optional[List] = None,
 ) -> ReturnnConfig:
     """
     Get a generic config for forwarding
@@ -162,9 +163,7 @@ def get_forward_config(
         # missing -> KeyError in the forward_step. For the usual audio input this is already True,
         # so the serialized config (and job hash) is unchanged.
         extern_data = {
-            default_data_key: datastreams[default_data_key].as_returnn_extern_data_opts(
-                available_for_inference=True
-            ),
+            default_data_key: datastreams[default_data_key].as_returnn_extern_data_opts(available_for_inference=True),
         }
 
     if add_text_to_extern_data:
@@ -192,6 +191,65 @@ def get_forward_config(
         extern_data=extern_data,
         vocab_opts=datastreams[vocab_key].as_returnn_targets_opts(),
         callback_opts=callback_opts,
+    )
+    if python_prolog is None:
+        python_prolog = []
+    returnn_config = ReturnnConfig(config=config, post_config=post_config, python_prolog=python_prolog + [serializer])
+    returnn_config.update(extra_config)
+
+    returnn_config = ReturnnConfigWithNewSerialization.from_cfg(returnn_config)
+
+    return returnn_config
+
+
+def get_export_onnx_config(
+    config: Dict[str, Any],
+    network_module: str,
+    extra_config: ReturnnConfig,
+    net_args: Dict[str, Any],
+    decoder: str,
+    extern_data: Dict[str, Any],
+    decoder_args: Optional[Dict[str, Any]] = None,
+    unhashed_net_args: Optional[Dict[str, Any]] = None,
+    base_config: Optional[Dict[str, Any]] = None,
+) -> ReturnnConfig:
+    """
+    Get a generic config for forwarding
+
+    :param network_module: path to the pytorch config file containing Model
+    :param net_args: extra arguments for constructing the PyTorch model
+    :param decoder: which (python) file to load which defines the forward, forward_init and forward_finish functions
+    :param decoder_args: extra arguments to pass to forward_init
+    :param config: config arguments for RETURNN
+    :param unhashed_decoder_args: unhashed extra arguments for the forward init
+    :param unhashed_net_args: unhashed extra arguments for constructing the PyTorch model
+    :param debug: run training in debug mode (linking from recipe instead of copy)
+    """
+
+    # changing these does not change the hash
+    post_config = {
+        "torch_log_memory_usage": True,
+        "watch_memory": True,
+    }
+
+    if base_config is None:
+        base_config = {}
+    # changeing these does change the hash
+    base_config = {
+        "max_seqs": 200,
+        **base_config,
+    }
+    config = {**base_config, **config}
+    post_config["backend"] = "torch"
+
+    serializer = serialize_forward(
+        network_module=network_module,
+        net_args=net_args,
+        unhashed_net_args=unhashed_net_args,
+        forward_module=decoder,
+        forward_init_args=decoder_args,
+        extern_data=extern_data,
+        serialize_extern_data_version=2,
     )
     returnn_config = ReturnnConfig(config=config, post_config=post_config, python_prolog=[serializer])
     returnn_config.update(extra_config)

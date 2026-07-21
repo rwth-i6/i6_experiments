@@ -29,6 +29,11 @@ def get_returnn_exe() -> tk.Path:
     return tk.Path(path, hash_overwrite="GENERIC_RETURNN_LAUNCHER")
 
 
+def get_returnn_onnx_export_exe() -> tk.Path:
+    path = getattr(gs, "RETURNN_ONNX_EXPORT_EXE", "/usr/bin/python3")
+    return tk.Path(path, hash_overwrite="GENERIC_RETURNN_ONNX_EXPORT_LAUNCHER")
+
+
 def get_fasttext_python_exe() -> tk.Path:
     path = getattr(gs, "FASTTEXT_PYTHON_EXE", "/usr/bin/python3")
     return tk.Path(path, hash_overwrite="FASTTEXT_PYTHON_EXE")
@@ -37,6 +42,16 @@ def get_fasttext_python_exe() -> tk.Path:
 def get_returnn_root() -> tk.Path:
     path = getattr(gs, "RETURNN_ROOT", "returnn")
     return tk.Path(path, hash_overwrite="DEFAULT_RETURNN_ROOT")
+
+
+def get_returnn_onnx_export_root() -> tk.Path:
+    returnn_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn",
+        branch="robin-support-onnx-export",
+        checkout_folder_name="returnn",
+    ).out_repository
+    returnn_root.hash_overwrite = "DEFAULT_RETURNN_ONNX_EXPORT_ROOT"
+    return returnn_root
 
 
 def get_fairseq_root(
@@ -81,8 +96,10 @@ def get_wav2letter_root():
 
 
 RETURNN_EXE = get_returnn_exe()
+RETURNN_ONNX_EXE = get_returnn_onnx_export_exe()
 
 RETURNN_ROOT = get_returnn_root()
+RETURNN_ONNX_ROOT = get_returnn_onnx_export_root()
 
 SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12").copy()  # use last published version
 SCTK_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_SCTK_BINARY_PATH"
