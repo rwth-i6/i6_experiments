@@ -14,6 +14,8 @@ def get_keep_epochs(num_epochs: int) -> List[int]:
     if num_epochs == 1_000:
         return [250, 500, 750, 1_000]
 
+    raise ValueError("Unsupported num_epochs")
+
 
 base_num_epochs = 1_000
 num_gpus = 2
