@@ -45,15 +45,15 @@ def py():
         },
     )
 
-    # run_experiment(
-    #     training_name=f"{prefix_name}/baseline",
-    #     config=copy.deepcopy(base_config),
-    #     train_data=train_data,
-    #     test_data_dict=test_data_dict,
-    #     keep_epochs=[base_num_epochs],
-    #     skip_eval=False,
-    #     rasr_recog_opts={},
-    # )
+    run_experiment(
+        training_name=f"{prefix_name}/baseline",
+        config=copy.deepcopy(base_config),
+        train_data=train_data,
+        test_data_dict=test_data_dict,
+        keep_epochs=[base_num_epochs],
+        skip_eval=False,
+        rasr_recog_opts={"line_based_lexicon_file": train_data.add_opts["line_based_lexicon_file"]},
+    )
 
     for exp_idx, (config, train_name) in enumerate(
         [

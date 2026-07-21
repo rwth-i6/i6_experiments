@@ -82,17 +82,37 @@ alternate_batching = PartialImport(
 )
 
 
-def _text_recon_variant(config, num_epochs):
-    """text->text reconstruction recog on the last epoch, masking the input with the experiment's
-    own training text masking settings (scored against the unmasked phoneme reference)."""
-    return {
+def _text_recon_variant(config, num_epochs, keep_epochs=None):
+    """text->text reconstruction recog, masking the input with the experiment's own training text
+    masking settings (scored against the unmasked phoneme reference). If the experiment also sets
+    ``train_args.text_expansion_opts`` (text upsampling), the same upsampling is applied to the recon
+    input so recognition matches training. ``keep_epochs`` (list) overrides the default last-epoch."""
+    v = {
         "recog_name": "recon_text",
         "input_modality": "text",
         "output_modality": "text",
         "mask_input": True,
         "masking_opts": copy.deepcopy(config["train_args"]["text_masking_opts"]),
-        "keep_epochs": [num_epochs],
+        "keep_epochs": keep_epochs if keep_epochs is not None else [num_epochs],
     }
+    text_expansion_opts = config["train_args"].get("text_expansion_opts")
+    if text_expansion_opts is not None:
+        v["expansion_opts"] = copy.deepcopy(text_expansion_opts)
+    return v
+
+
+def _train_reflecting_analysis_masking(config):
+    """Masking/upsampling opts for the encoder-PCA analysis that reflect the experiment's training
+    settings (audio + text masking, and text upsampling if set), so the PCA shows what the shared
+    encoder sees during training rather than the raw (unmasked, un-upsampled) input."""
+    opts = {
+        "audio_masking_opts": copy.deepcopy(config["train_args"]["audio_masking_opts"]),
+        "text_masking_opts": copy.deepcopy(config["train_args"]["text_masking_opts"]),
+    }
+    text_expansion_opts = config["train_args"].get("text_expansion_opts")
+    if text_expansion_opts is not None:
+        opts["text_expansion_opts"] = copy.deepcopy(text_expansion_opts)
+    return opts
 
 
 def _recon_variant(num_epochs, *, input_modality, output_modality, recog_name, mask_prob=0.0, min_span=2, max_span=10):
@@ -336,20 +356,20 @@ def py():
             keep_epochs=get_keep_epochs(base_num_epochs),
             # skip_eval=True,
             additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
+            # PCA reflects training: mask + upsample the encoder input as in training, so the
+            # visualization shows the states the shared encoder actually sees (see
+            # _train_reflecting_analysis_masking).
             analysis_opts={
                 "checkpoints": get_keep_epochs(base_num_epochs),
                 "max_plotted_seqs": 20,
                 "cosine_similarity_summary": True,
+                **_train_reflecting_analysis_masking(config),
             },
             recog_variants=[
-                {
-                    "recog_name": "recon_text",
-                    "input_modality": "text",
-                    "output_modality": "text",
-                    "mask_input": True,
-                    "masking_opts": copy.deepcopy(base_config["train_args"]["text_masking_opts"]),
-                    "keep_epochs": get_keep_epochs(base_num_epochs),
-                },
+                # main text->text recon reflects training: masking + text upsampling as in training
+                # (both come from this variant's train_args via _text_recon_variant).
+                _text_recon_variant(config, base_num_epochs, keep_epochs=get_keep_epochs(base_num_epochs)),
+                # the fixed-masking sweep intentionally stays as-is (no upsampling) for comparison.
                 *_text_recon_sweep(base_num_epochs),
             ],
         )
@@ -382,7 +402,7 @@ def py():
                     {"adv_loss_scale": 0.1},
                 ),
             )
-            for min_dup, max_dup, batch_size in ((1, 2, 12_000), (1, 3, 10_000))
+            for min_dup, max_dup, batch_size in ((1, 2, 12_000), (1, 3, 8_000))
         ]
     ):
         run_experiment(
@@ -393,20 +413,20 @@ def py():
             keep_epochs=get_keep_epochs(base_num_epochs),
             # skip_eval=True,
             additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
+            # PCA reflects training: mask + upsample the encoder input as in training, so the
+            # visualization shows the states the shared encoder actually sees (see
+            # _train_reflecting_analysis_masking).
             analysis_opts={
                 "checkpoints": get_keep_epochs(base_num_epochs),
                 "max_plotted_seqs": 20,
                 "cosine_similarity_summary": True,
+                **_train_reflecting_analysis_masking(config),
             },
             recog_variants=[
-                {
-                    "recog_name": "recon_text",
-                    "input_modality": "text",
-                    "output_modality": "text",
-                    "mask_input": True,
-                    "masking_opts": copy.deepcopy(base_config["train_args"]["text_masking_opts"]),
-                    "keep_epochs": get_keep_epochs(base_num_epochs),
-                },
+                # main text->text recon reflects training: masking + text upsampling as in training
+                # (both come from this variant's train_args via _text_recon_variant).
+                _text_recon_variant(config, base_num_epochs, keep_epochs=get_keep_epochs(base_num_epochs)),
+                # the fixed-masking sweep intentionally stays as-is (no upsampling) for comparison.
                 *_text_recon_sweep(base_num_epochs),
             ],
         )

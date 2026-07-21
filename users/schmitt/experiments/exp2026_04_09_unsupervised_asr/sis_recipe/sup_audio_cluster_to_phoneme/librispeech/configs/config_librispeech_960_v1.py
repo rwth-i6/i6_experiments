@@ -31,6 +31,7 @@ base_config = {
     "__baseline_alias": "v1",
     "__forward_step_module": "recognition.discrete_audio_aed.forward_step.forward_step",
     "__callback_module": "recognition.discrete_audio_aed.callback.RecognitionToTextDictCallback",
+    "__onnx_export_forward_step_module": "onnx_export.discrete_audio_aed.forward_step.forward_step_v1",
     "__rasr_forward_step_module": "recognition.discrete_audio_aed.rasr.forward_step.forward_step_v1",
     "__rasr_callback_module": "recognition.discrete_audio_aed.rasr.callback.RecognitionToTextDictCallback",
     "train_rqmt": {
@@ -66,6 +67,13 @@ base_config = {
     },
     "recog": {
         "batch_size": 15_000,
+    },
+    "rasr_recog": {
+        "batch_size": 15_000,
+        "torch_dataloader_opts": {
+            # otherwise issue because rasr_search_function cannot be pickled?
+            "num_workers": 0,
+        },
     },
     "model_args": {
         "text_aux_loss_layers": (),
