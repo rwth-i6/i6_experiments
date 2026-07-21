@@ -591,7 +591,13 @@ def py():
     _train_tts_encoder(
         "tts-enc-ref-match-logmel-textP20-muon-nep38",
         prefix=prefix,
-        text_train_epoch_split=20,
+        # x4 partition on BOTH streams + x4 subepochs (nep 38 -> 152) keeps the experiment identical
+        # -- text stays 1.9 passes (152/80), audio stays 38 (152/4) -- but quarters each subepoch to ~5.5h
+        # so it checkpoints within the 12h chunk. Original (20/1/38) never finished a subepoch in 12h
+        # (54.8% at the time limit) -> no checkpoint -> retry_error. phon batch is pinned at 4000 (peaks
+        # 78.7GB already; cannot grow without OOM), so repartitioning is the only lever.
+        text_train_epoch_split=80,
+        ls_train_epoch_split=4,
         batch_size_audio_frames=100_000,  # 120k/5k OOM'd at the long-phon bucket (92.4GB GL spike)
         # post preload-fix: real durations are ~167ms audio/phoneme,
         # the old 25k phon default OOMs at step 0 even on 96GB (~66M samples/text batch).
@@ -604,7 +610,7 @@ def py():
         glow_tts_length_scale_range=(1.0, 1.0),
         base_lr=1.0,
         peak_lr=5e-3,
-        nep=38,
+        nep=152,
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
@@ -1448,6 +1454,7 @@ def _train_tts_encoder(
     *,
     prefix: str,
     text_train_epoch_split: int = 20,
+    ls_train_epoch_split: int = 1,
     txt_only_loss_scale: float = 1.0,
     glow_tts_length_scale_range=(0.7, 1.1),
     glow_tts_noise_scale_range=(0.3, 0.9),
@@ -1533,7 +1540,10 @@ def _train_tts_encoder(
 
     vocab = "spm10k"
     task = get_librispeech_task_raw_v2(
-        vocab=vocab, train_vocab_opts=train_vocab_opts, train_epoch_split=1, train_epoch_wise_filter=None
+        vocab=vocab,
+        train_vocab_opts=train_vocab_opts,
+        train_epoch_split=ls_train_epoch_split,
+        train_epoch_wise_filter=None,
     )
     task = dataclasses.replace(task)
     base_train = task.train_dataset
