@@ -25,7 +25,7 @@ train_data = build_training_datasets(sil_prob=0.0, surround_w_sil=False, setting
 
 # Extend the base config to use the new MLM training step module
 base_config = copy.deepcopy(base_config)
-base_config["__train_step_module"] = "train_steps.aed_denoising_discrete_shared_backtranslation_mlm.train_step"
+base_config["__train_step_module"] = "train_steps.aed_denoising_discrete_shared_sup_asr_mlm.train_step"
 
 
 def py():
@@ -34,33 +34,10 @@ def py():
 
 
 
-    ablations = [
-        # With codebook (encoder quantization)
-        (
-            f"baseline_codebook_enc-{layers}_dec-{layers}_mlm_iter-{iter}_v1",
-            {
-                "num_enc_layers": layers,
-                "num_text_dec_layers": layers,
-                "num_audio_dec_layers": layers,
-                "codebook_opts": {},
-            },
-            {
-                "codebook_diversity_loss_scale": 0.11,
-                "mlm_pretrain_steps": iter,
-            },
-            {
-                "batch_size": 4000,
-            }
-        ) for layers, iter in [
-            (3, 10000),
-            (3, 100000),
-            (6, 10000), 
-            (6, 100000), 
-        ]
-    ] + [
+    ablations =  [
         # Without codebook
         (
-            f"baseline_enc-{layers}_dec-{layers}_mlm_iter-{iter}_v1",
+            f"baseline_enc-{layers}_dec-{layers}_mlm_iter-{iter}_v2",
             {
                 "num_enc_layers": layers,
                 "num_text_dec_layers": layers,
@@ -80,9 +57,9 @@ def py():
             (6, 100000), 
         ]
     ] + [
-        # With codebook in pretraining, Without codebook in backtranslation
+        # With codebook in pretraining, Without codebook in supervised ASR
         (
-            f"baseline_codebook_enc-{layers}_dec-{layers}_mlm_iter-{iter}_nocbbacktrans_v1",
+            f"baseline_codebook_enc-{layers}_dec-{layers}_mlm_iter-{iter}_nocbasr_v1",
             {
                 "num_enc_layers": layers,
                 "num_text_dec_layers": layers,
@@ -111,8 +88,17 @@ def py():
     for train_name, model_args, train_args, training_args in ablations:
         config = copy.deepcopy(base_config)
         config["model_args"].update(model_args)
+        config["train_args"].update({
+            "pseudo_audio_text_ce_loss_scale": 0.0,
+            "pseudo_text_audio_ce_loss_scale": 0.0,
+            "supervised_asr_ce_loss_scale": 1.0,
+            "cross_attention_warmup_steps": 2000,
+            "asr_loss_warmup_steps": 2000,
+        })
         config["train_args"].update(train_args)
         config["training"].update(training_args)
+        config["training"]["grad_scaler"] = None
+
 
         run_experiment(
             training_name=f"{prefix_name}/{train_name}",

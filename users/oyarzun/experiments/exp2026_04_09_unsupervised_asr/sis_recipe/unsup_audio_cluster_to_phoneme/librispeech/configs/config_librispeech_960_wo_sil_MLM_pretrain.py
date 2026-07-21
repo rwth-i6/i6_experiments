@@ -2,6 +2,9 @@ import copy
 from typing import List
 
 from i6_experiments.users.schmitt.util.dict_update import dict_update_deep
+from i6_experiments.common.setups.serialization import PartialImport
+from i6_core.returnn.config import CodeWrapper, ReturnnConfig
+from i6_core.serialization import Collection
 
 from ....train_exp import run_experiment
 from ..data.common import build_training_datasets, build_test_datasets
@@ -9,14 +12,13 @@ from ....data.common import DatasetSettings
 from .... import optimizer_configs
 from ... import __setup_base_name__
 
-from .config_librispeech_960_v1 import base_config, get_keep_epochs, test_data_dict, base_num_epochs
-# import the baseline
+from .config_librispeech_960_v1 import base_config, get_keep_epochs, test_data_dict, base_num_epochs, alternate_batching
 
 from sisyphus import tk
 
 settings = DatasetSettings(
     train_partition_epoch=20,
-    train_seq_ordering=None,
+    train_seq_ordering="laplace:.1000",
 )
 
 #: ablation study, sil prob = 0 (remember meta gan paper, silence insertion part) 
@@ -30,9 +32,6 @@ base_config["__train_step_module"] = "train_steps.aed_denoising_discrete_shared_
 
 def py():
     prefix_name = f"{__setup_base_name__}/librispeech/{__name__.split('.')[-1]}"
-
-
-
 
     ablations = [
         # With codebook (encoder quantization)
@@ -52,10 +51,10 @@ def py():
                 "batch_size": 4000,
             }
         ) for layers, iter in [
+            (3, 1000),
             (3, 10000),
-            (3, 100000),
+            (6, 1000), 
             (6, 10000), 
-            (6, 100000), 
         ]
     ] + [
         # Without codebook
@@ -74,39 +73,37 @@ def py():
                 "batch_size": 4000,
             }
         ) for layers, iter in [
+            (3, 1000),
             (3, 10000),
-            (3, 100000),
-            (6, 100000), 
-            (6, 100000), 
+            (6, 1000), 
+            (6, 10000), 
         ]
     ] + [
-        # With codebook in pretraining, Without codebook in backtranslation
+        # Without codebook in pretraining, With codebook in backtranslation
         (
-            f"baseline_codebook_enc-{layers}_dec-{layers}_mlm_iter-{iter}_nocbbacktrans_v1",
+            f"baseline_codebook_enc-{layers}_dec-{layers}_mlm_iter-{iter}_nocbpretrain_v1",
             {
                 "num_enc_layers": layers,
                 "num_text_dec_layers": layers,
                 "num_audio_dec_layers": layers,
-                "codebook_opts": {"codebook_prob": 0.0},
+                "codebook_opts": {},
             },
             {
-                "codebook_diversity_loss_scale": 0.0,
+                "codebook_diversity_loss_scale": 0.11,
                 "mlm_pretrain_steps": iter,
-                "pretrain_codebook_prob": 1.0,
-                "pretrain_codebook_diversity_loss_scale": 0.11,
+                "pretrain_codebook_prob": 0.0,
+                "pretrain_codebook_diversity_loss_scale": 0.0,
             },
             {
                 "batch_size": 4000,
             }
         ) for layers, iter in [
+            (3, 1000),
             (3, 10000),
-            (3, 100000),
+            (6, 1000), 
             (6, 10000), 
-            (6, 100000), 
         ]
     ]
-
-
 
     for train_name, model_args, train_args, training_args in ablations:
         config = copy.deepcopy(base_config)
@@ -121,4 +118,5 @@ def py():
             test_data_dict=test_data_dict,
             keep_epochs=get_keep_epochs(base_num_epochs),
             skip_eval=False,
+            additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
         )

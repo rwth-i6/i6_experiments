@@ -122,6 +122,7 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
         enc_bottleneck_dim: Optional[int] = None,
         share_decoder: bool = False,
         discriminator_type: Optional[str] = None,
+        add_mlm_head: bool = False,
         **_kwargs_unused,
     ):
         super().__init__()
@@ -266,6 +267,15 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
             self.discriminator = MlpDiscriminator(in_dim=encoder_dim)
         else:
             self.discriminator = None
+
+        if add_mlm_head:
+            self.shared_mlm_head = nn.Sequential(
+                nn.Linear(encoder_dim, encoder_dim),
+                nn.GELU(),
+                nn.LayerNorm(encoder_dim)
+            )
+        else:
+            self.shared_mlm_head = None
 
         self.text_aux_loss_layers = text_aux_loss_layers
         self.out_text_aux_logits = nn.ModuleList(

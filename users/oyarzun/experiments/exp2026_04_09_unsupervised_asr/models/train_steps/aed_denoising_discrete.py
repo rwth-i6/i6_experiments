@@ -157,7 +157,7 @@ def train_step(
         )
 
         num_masked_rf = label_indices_.dims[1].get_size_tensor().copy()
-        num_masked_rf.raw_tensor = (~phon_mask).sum(dim=1).to(num_masked_rf.raw_tensor.dtype)
+        num_masked_rf.raw_tensor = torch.clamp((~phon_mask).sum(dim=1), min=1).to(num_masked_rf.raw_tensor.dtype)
 
         error = torch.argmax(logits_packed.data, dim=-1).not_equal(targets_w_eos_packed)
 

@@ -152,7 +152,7 @@ def train_step(
         )
 
         num_masked_rf = phon_indices_.dims[1].get_size_tensor().copy()
-        num_masked_rf.raw_tensor = (~phon_mask).sum(dim=1).to(num_masked_rf.raw_tensor.dtype)
+        num_masked_rf.raw_tensor = torch.clamp((~phon_mask).sum(dim=1), min=1).to(num_masked_rf.raw_tensor.dtype)
 
         # loss is only calculated on masked positions
         ctx.mark_as_loss(
@@ -248,7 +248,7 @@ def train_step(
             )
 
         num_masked_rf = audio_features_.dims[1].get_size_tensor().copy()
-        num_masked_rf.raw_tensor = (~audio_mask).sum(dim=1).to(num_masked_rf.raw_tensor.dtype)
+        num_masked_rf.raw_tensor = torch.clamp((~audio_mask).sum(dim=1), min=1).to(num_masked_rf.raw_tensor.dtype)
 
         ctx.mark_as_loss(
             # mask=False corresponds to masked positions in the original sequence
