@@ -63,6 +63,10 @@ from i6_experiments.users.zeyer.nn_rf.decoder.streaming.rnnt import (
     model_recog as rnnt_model_recog,
 )
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.rnnt_fullsum import rnnt_fullsum_training
+from i6_experiments.users.zeyer.nn_rf.decoder.streaming.align_probe import (
+    aux_framewise_ce_training,
+    aux_ctc_only_training,
+)
 
 # Reused verbatim from the FZJ module -> identical Job hashes -> the rsync'd base + alignment are found.
 from i6_experiments.users.zeyer.experiments.exp2026_05_26_base_fzj import _train_loquacious_base
@@ -90,6 +94,8 @@ def py():
     _train_rnnt_mono_fullsum_rz()
     _train_rnnt_mono_framewise_small_rz()
     _train_rnnt_mono_fullsum_small_rz()
+    _train_align_probe_framewise_rz()
+    _train_align_probe_ctc_rz()
     _train_framewise_enc8dec12_rz()
     _train_framewise_enc4dec24_rz()
     _train_framewise_delay_rz()
@@ -365,6 +371,43 @@ def _train_rnnt_mono_fullsum_small_rz():
     return _train_rnnt_mono_small(
         "rnnt-mono-fullsum-small-1gpu",
         train_def=rnnt_fullsum_training,
+        target_mode="labels",
+    )
+
+
+def _train_align_probe_small(name: str, *, train_def, target_mode: str):
+    """Encoder-only alignment-quality probe (6L enc, aux [2,4,6], nep20) -- CTC-head WER only.
+
+    Same encoder + sizes as the RNN-T-small pair;
+    the 3L decoder is built for architectural parity but never trained (no decoder loss).
+    ``model_recog_ctc`` scores the top aux head; no decoder recog.
+    """
+    return _train_variant_rz(
+        name,
+        dec_build_dict=rf.build_dict(RnntDecoder, model_dim=1024, num_layers=3, num_heads=8, version=4),
+        train_def=train_def,
+        recog_def=None,
+        target_mode=target_mode,
+        enc_num_layers=6,
+        aux_loss_layers=(2, 4, 6),
+        nep=20,
+    )
+
+
+def _train_align_probe_framewise_rz():
+    """Alignment-quality probe A: framewise CE on the aux heads against the raw CTC alignment."""
+    return _train_align_probe_small(
+        "align-probe-framewise-ctcalign-small-1gpu",
+        train_def=aux_framewise_ce_training,
+        target_mode="ctc_frame",
+    )
+
+
+def _train_align_probe_ctc_rz():
+    """Alignment-quality probe B: standard CTC on the aux heads against the transcript."""
+    return _train_align_probe_small(
+        "align-probe-ctc-small-1gpu",
+        train_def=aux_ctc_only_training,
         target_mode="labels",
     )
 

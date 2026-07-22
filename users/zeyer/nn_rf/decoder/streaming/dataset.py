@@ -133,6 +133,35 @@ def labels_map_seq(
     return functools.partial(_labels_map_seq, vocab_dim=vocab_dim, blank_idx=blank_idx, alignment_key=alignment_key)
 
 
+def ctc_frame_map_seq(
+    vocab_ext_dim: Dim,
+    *,
+    blank_idx: int,
+    chunk_size: int,
+    alignment_key: str = "alignment",
+) -> Callable:
+    """
+    Build the ``map_seq`` for :class:`PostprocessingDataset` (raw per-frame CTC alignment ``ctc_frame_targets``).
+
+    Unlike ``rna_frame`` (which collapses then re-expands the CTC path into the RNA convention),
+    this passes the CTC forced-alignment frames through unchanged (blanks kept),
+    padded to ``ceil(T_align/chunk_size)*chunk_size`` so it lines up with the chunked encoder output.
+    For the encoder-only alignment-quality probe (framewise CE on the fixed CTC alignment).
+
+    :param vocab_ext_dim: target vocab incl. the CTC blank at the last index.
+    :param blank_idx: blank index in the alignment frames (== the last vocab index).
+    :param chunk_size: chunk length in encoder frames (pad-to-multiple).
+    :param alignment_key: stream name of the per-frame alignment in the inner dataset.
+    """
+    return functools.partial(
+        _ctc_frame_map_seq,
+        vocab_ext_dim=vocab_ext_dim,
+        blank_idx=blank_idx,
+        chunk_size=chunk_size,
+        alignment_key=alignment_key,
+    )
+
+
 class ChunkAlignDataset(DatasetConfig):
     """
     Audio (OggZip) + CTC forced-align HDF, post-processed on the fly into the per-seq
@@ -177,7 +206,14 @@ class ChunkAlignDataset(DatasetConfig):
         :param target_mode: ``chunk_eoc`` or ``rna_frame``.
         """
         super().__init__()
-        assert target_mode in ("chunk_eoc", "rna_frame", "rna_frame_wordchunk", "rna_frame_wordchunk_end", "labels"), target_mode
+        assert target_mode in (
+            "chunk_eoc",
+            "rna_frame",
+            "rna_frame_wordchunk",
+            "rna_frame_wordchunk_end",
+            "labels",
+            "ctc_frame",
+        ), target_mode
         self.oggzip = oggzip
         self.alignment_hdfs = alignment_hdfs
         self.vocab_ext_dim_int = vocab_ext_dim_int
@@ -214,6 +250,9 @@ class ChunkAlignDataset(DatasetConfig):
         elif target_mode in ("rna_frame", "rna_frame_wordchunk", "rna_frame_wordchunk_end"):
             self._target_name = "rna_targets"
             self._target_spatial_dim = Dim(None, name="rna_spatial", kind=Dim.Types.Spatial)
+        elif target_mode == "ctc_frame":
+            self._target_name = "ctc_frame_targets"
+            self._target_spatial_dim = Dim(None, name="ctc_frame_spatial", kind=Dim.Types.Spatial)
         else:  # labels
             self._target_name = "labels"
             self._target_spatial_dim = Dim(None, name="labels_spatial", kind=Dim.Types.Spatial)
@@ -227,9 +266,12 @@ class ChunkAlignDataset(DatasetConfig):
             return rna_frame_wordchunk_end_map_seq(
                 self._vocab_ext_dim, blank_idx=self.blank_idx, chunk_size=self.chunk_size, aug_vocab=self.aug_vocab
             )
-        builder = {"chunk_eoc": chunk_augment_map_seq, "rna_frame": rna_frame_map_seq, "labels": labels_map_seq}[
-            self.target_mode
-        ]
+        builder = {
+            "chunk_eoc": chunk_augment_map_seq,
+            "rna_frame": rna_frame_map_seq,
+            "labels": labels_map_seq,
+            "ctc_frame": ctc_frame_map_seq,
+        }[self.target_mode]
         return builder(self._vocab_ext_dim, blank_idx=self.blank_idx, chunk_size=self.chunk_size)
 
     def get_default_input(self) -> str:
@@ -494,6 +536,27 @@ def _rna_frame_map_seq(
     spatial = Dim(None, name="rna_spatial")
     out.data["rna_targets"] = Tensor(
         "rna_targets", dims=[spatial], dtype="int32", sparse_dim=vocab_ext_dim, raw_tensor=rna
+    )
+    return out
+
+
+def _ctc_frame_map_seq(
+    seq, *, rng=None, vocab_ext_dim: Dim, blank_idx: int, chunk_size: int, alignment_key: str, **kwargs
+):
+    from returnn.tensor import Tensor, TensorDict
+
+    align = seq[alignment_key]
+    frames = np.asarray(align.raw_tensor).reshape(-1).astype("int32")
+    if chunk_size:
+        pad = (-len(frames)) % chunk_size
+        if pad:
+            frames = np.concatenate([frames, np.full((pad,), blank_idx, dtype="int32")])
+
+    out = TensorDict()
+    out.data["data"] = seq["data"]
+    spatial = Dim(None, name="ctc_frame_spatial")
+    out.data["ctc_frame_targets"] = Tensor(
+        "ctc_frame_targets", dims=[spatial], dtype="int32", sparse_dim=vocab_ext_dim, raw_tensor=frames
     )
     return out
 
