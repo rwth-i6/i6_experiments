@@ -62,7 +62,10 @@ from i6_experiments.users.zeyer.nn_rf.decoder.streaming.rnnt import (
     rnnt_training,
     model_recog as rnnt_model_recog,
 )
-from i6_experiments.users.zeyer.nn_rf.decoder.streaming.rnnt_fullsum import rnnt_fullsum_training
+from i6_experiments.users.zeyer.nn_rf.decoder.streaming.rnnt_fullsum import (
+    rnnt_fullsum_training,
+    rnnt_fullsum_scaled_training,
+)
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.align_probe import (
     aux_framewise_ce_training,
     aux_ctc_only_training,
@@ -96,6 +99,8 @@ def py():
     _train_rnnt_mono_fullsum_small_rz()
     _train_align_probe_framewise_rz()
     _train_align_probe_ctc_rz()
+    _train_rnnt_mono_fullsum_small_scaled(0.5, "0p5")
+    _train_rnnt_mono_fullsum_small_scaled(0.15, "0p15")
     _train_framewise_enc8dec12_rz()
     _train_framewise_enc4dec24_rz()
     _train_framewise_delay_rz()
@@ -409,6 +414,24 @@ def _train_align_probe_ctc_rz():
         "align-probe-ctc-small-1gpu",
         train_def=aux_ctc_only_training,
         target_mode="labels",
+    )
+
+
+def _train_rnnt_mono_fullsum_small_scaled(scale: float, label: str):
+    """Full-sum-small with the marginalized main loss scaled by ``scale`` (aux CTC unscaled).
+
+    Encoder gradient-balance sweep:
+    full-sum's main loss reaches the shared encoder ~T/S stronger than framewise-CE (normalization mismatch),
+    which is the leading explanation for full-sum's better decoder but worse CTC head;
+    lowering ``scale`` toward S/T ~= 0.15 should recover the CTC head and let the decoder regress,
+    tracing the CTC-vs-decoder trade-off.
+    The unscaled ``rnnt-mono-fullsum-small-1gpu`` (scale 1.0) is the anchor.
+    """
+    return _train_rnnt_mono_small(
+        f"rnnt-mono-fullsum-small-scale{label}-1gpu",
+        train_def=rnnt_fullsum_scaled_training,
+        target_mode="labels",
+        extra_config={"fullsum_main_loss_scale": scale},
     )
 
 

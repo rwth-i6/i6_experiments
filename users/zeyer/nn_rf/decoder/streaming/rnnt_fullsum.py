@@ -142,3 +142,30 @@ def rnnt_fullsum_training(*, model, data: Tensor, data_spatial_dim: Dim, targets
 
 
 rnnt_fullsum_training.learning_rate_control_error_measure = "mono_rnnt"
+
+
+def rnnt_fullsum_scaled_training(*, model, data: Tensor, data_spatial_dim: Dim, targets: Tensor, targets_spatial_dim: Dim):
+    """TrainDef: full-sum, but scale ONLY the marginalized main loss by config ``fullsum_main_loss_scale``.
+
+    The aux CTC losses keep scale 1.
+    Full-sum normalizes the main loss by the label count S while framewise-CE normalizes by the frame count T,
+    so per the encoder-gradient measurement the marginalized loss reaches the shared encoder ~T/S stronger;
+    this knob dials that back (scale ~= S/T reproduces the framewise per-frame normalization).
+    ``targets`` is the plain transcription (``target_mode="labels"``).
+    """
+    from returnn.config import get_global_config
+
+    main_scale = get_global_config().float("fullsum_main_loss_scale", 1.0)
+    losses = rnnt_fullsum_train_forward(
+        model, data=data, data_spatial_dim=data_spatial_dim, labels=targets, labels_spatial_dim=targets_spatial_dim
+    )
+    for name, (loss, norm_dim) in losses.items():
+        loss.mark_as_loss(
+            name,
+            scale=main_scale if name == "mono_rnnt" else 1.0,
+            custom_inv_norm_factor=norm_dim.get_size_tensor(),
+            use_normalized_loss=True,
+        )
+
+
+rnnt_fullsum_scaled_training.learning_rate_control_error_measure = "mono_rnnt"
