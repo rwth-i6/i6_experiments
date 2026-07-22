@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Type
 
 from i6_core.rasr import RasrConfig
 
@@ -31,6 +31,7 @@ def run(
     model: TrainedModel[AEDConfig],
     variants: Optional[List[AEDRecogVariant]] = None,
     corpora: Optional[List[librispeech_datasets.EvalSet]] = None,
+    encoder_class: Type = AEDEncoder,
 ) -> List[RecogResult]:
     if variants is None:
         variants = default_recog_variants()
@@ -41,7 +42,7 @@ def run(
     results = []
 
     for variant in variants:
-        results.extend(_run_single_variant(model=model, variant=variant, corpora=corpora))
+        results.extend(_run_single_variant(model=model, variant=variant, corpora=corpora, encoder_class=encoder_class))
     return results
 
 
@@ -178,7 +179,10 @@ def _get_label_scorer_configs(model: TrainedModel[AEDConfig], variant: AEDRecogV
 
 
 def _run_single_variant(
-    model: TrainedModel[AEDConfig], variant: AEDRecogVariant, corpora: List[librispeech_datasets.EvalSet]
+    model: TrainedModel[AEDConfig],
+    variant: AEDRecogVariant,
+    corpora: List[librispeech_datasets.EvalSet],
+    encoder_class: Type = AEDEncoder,
 ) -> List[RecogResult]:
     if isinstance(
         variant.search_algorithm_params, (LexiconfreeTimesyncRecogParams, LibrispeechTreeTimesyncRecogParams)
@@ -190,7 +194,7 @@ def _run_single_variant(
     return run_single_bpe_variant(
         model_descriptor=model.descriptor,
         checkpoint=model.get_checkpoint(variant.epoch),
-        encoder_serializers=get_model_serializers(AEDEncoder, model.model_config),
+        encoder_serializers=get_model_serializers(encoder_class, model.model_config),
         label_scorer_configs=_get_label_scorer_configs(model=model, variant=variant),
         bpe_size=vocab_to_bpe_size(model.model_config.label_target_size),
         blank_index=blank_index,

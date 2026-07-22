@@ -10,6 +10,13 @@ __all__ = [
     "AEDScorer",
     "AEDStateInitializer",
     "AEDStateUpdater",
+    "AEDI6DecoderConfig",
+    "AEDI6DecoderModel",
+    "AEDI6DecoderEncoder",
+    "AEDI6DecoderScorer",
+    "AEDI6DecoderStateInitializer",
+    "AEDI6DecoderStateUpdater",
+    "AEDI6DecoderCTCScorer",
 ]
 
 from dataclasses import dataclass
@@ -18,6 +25,10 @@ from typing import Tuple
 import torch
 from i6_models.assemblies.conformer.conformer_rel_pos_v1 import ConformerRelPosEncoderV1, ConformerRelPosEncoderV1Config
 from i6_models.config import ModelConfiguration
+from i6_models.decoder.attention import (
+    AttentionLSTMDecoderV1 as I6AttentionLSTMDecoderV1,
+    AttentionLSTMDecoderV1Config as I6AttentionLSTMDecoderV1Config,
+)
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
 from i6_models.primitives.specaugment import specaugment_v1_by_length
 
@@ -53,6 +64,11 @@ class AEDConfig(ModelConfiguration):
     enc_dim: int
     final_dropout: float
     label_target_size: int
+
+
+@dataclass
+class AEDI6DecoderConfig(AEDConfig):
+    decoder_config: I6AttentionLSTMDecoderV1Config
 
 
 class AdditiveAttention(torch.nn.Module):
@@ -450,6 +466,203 @@ class AEDStateUpdater(AEDModel):
 
 
 class AEDCTCScorer(AEDModel):
+    def forward(
+        self,
+        encoder_state: torch.Tensor,  # [1, E + A + 1]
+    ) -> torch.Tensor:
+        encoder_out, _ = torch.split(
+            encoder_state,
+            [
+                self.enc_dim,
+                self.decoder.attention_dim + 1,
+            ],
+            dim=1,
+        )  # [1, E], [1, A + 1]
+
+        logits = self.final_linear(encoder_out)
+
+        return -torch.log_softmax(logits, dim=1)
+
+
+class AEDI6DecoderModel(AEDModel):
+    def __init__(self, cfg: AEDI6DecoderConfig, **_):
+        torch.nn.Module.__init__(self)
+        self.feature_extraction = LogMelFeatureExtractionV1(cfg.logmel_cfg)
+        self.specaug_config = cfg.specaug_cfg
+        self.conformer = ConformerRelPosEncoderV1(cfg.conformer_cfg)
+        self.enc_dim = cfg.enc_dim
+        self.label_target_size = cfg.label_target_size
+        self.final_linear = torch.nn.Linear(cfg.enc_dim, cfg.label_target_size + 1)  # + CTC blank
+        self.final_dropout = torch.nn.Dropout(p=cfg.final_dropout)
+        self.decoder = I6AttentionLSTMDecoderV1(cfg=cfg.decoder_config)
+
+    def forward(
+        self,
+        audio_samples: torch.Tensor,
+        audio_samples_size: torch.Tensor,
+        bpe_labels: torch.Tensor,
+    ):
+        squeezed_features = torch.squeeze(audio_samples, dim=-1)
+
+        with torch.no_grad():
+            audio_features, audio_features_size = self.feature_extraction(
+                squeezed_features, audio_samples_size
+            )  # [B, T, F], [B]
+
+            from returnn.torch.context import get_run_ctx  # type: ignore
+
+            if self.training and get_run_ctx().epoch >= self.specaug_config.start_epoch:
+                audio_features_masked_2 = specaugment_v1_by_length(
+                    audio_features=audio_features,
+                    time_min_num_masks=self.specaug_config.time_min_num_masks,
+                    time_max_mask_per_n_frames=self.specaug_config.time_max_mask_per_n_frames,
+                    time_mask_max_size=self.specaug_config.time_mask_max_size,
+                    freq_min_num_masks=self.specaug_config.freq_min_num_masks,
+                    freq_max_num_masks=self.specaug_config.freq_max_num_masks,
+                    freq_mask_max_size=self.specaug_config.freq_mask_max_size,
+                )  # [B, T, F]
+            else:
+                audio_features_masked_2 = audio_features
+
+        conformer_in = audio_features_masked_2
+        mask = lengths_to_padding_mask(audio_features_size)
+
+        conformer_out, out_mask = self.conformer(conformer_in, mask)
+        conformer_out = conformer_out[-1]
+
+        conformer_out = self.final_dropout(conformer_out)
+        logits = self.final_linear(conformer_out)
+
+        ctc_log_probs = torch.log_softmax(logits, dim=2)
+
+        history_labels = torch.nn.functional.pad(bpe_labels, (1, 0), value=0)[:, :-1]
+        decoder_logits, _ = self.decoder(
+            conformer_out,
+            history_labels,
+            audio_features_size.to(device=conformer_out.device),
+        )
+        encoder_seq_len = torch.sum(out_mask, dim=1)
+
+        return decoder_logits, encoder_seq_len, ctc_log_probs
+
+
+class AEDI6DecoderEncoder(AEDI6DecoderModel):
+    def forward(
+        self,
+        audio_samples: torch.Tensor,  # [B, T', F]
+        audio_samples_size: torch.Tensor,  # [B]
+    ) -> torch.Tensor:  # [B, T, E+A+1]
+        squeezed_features = torch.squeeze(audio_samples, dim=-1)
+
+        with torch.no_grad():
+            audio_features, audio_features_size = self.feature_extraction(
+                squeezed_features, audio_samples_size
+            )  # [B, T, F], [B]
+
+            audio_features_masked_2 = audio_features
+
+        conformer_in = audio_features_masked_2
+        mask = lengths_to_padding_mask(audio_features_size)
+
+        conformer_out, _ = self.conformer(conformer_in, mask)
+        conformer_out = conformer_out[-1]
+        enc_ctx = self.decoder.enc_ctx(conformer_out)  # [B, T, A]
+        enc_inv_fertility = self.decoder.inv_fertility(conformer_out).sigmoid()  # [B,T,1]
+        return torch.cat([conformer_out, enc_ctx, enc_inv_fertility], dim=2)  # [B, T, E+A+1]
+
+
+class AEDI6DecoderScorer(AEDI6DecoderModel):
+    def forward(
+        self,
+        token_embedding: torch.Tensor,  # [B, M]
+        lstm_state_h: torch.Tensor,  # [B, H]
+        att_context: torch.Tensor,  # [B, E]
+    ) -> torch.Tensor:
+        readout_in = self.decoder.readout_in(torch.cat([lstm_state_h, token_embedding, att_context], dim=1))  # [B, D]
+
+        readout_in = readout_in.view(readout_in.size(0), -1, 2)  # [B, D/2, 2]
+        readout, _ = torch.max(readout_in, dim=2)  # [B, D/2]
+
+        decoder_logits = self.decoder.output(readout)  # [B, V]
+        scores = -torch.log_softmax(decoder_logits, dim=1)  # [B, V]
+
+        return scores
+
+
+class AEDI6DecoderStateInitializer(AEDI6DecoderModel):
+    def forward(
+        self,
+        encoder_states: torch.Tensor,  # [1, T, E + A + 1]
+        encoder_states_size: torch.Tensor,  # [1]
+    ) -> Tuple[torch.Tensor, ...]:
+        encoder_out, enc_ctx, enc_inv_fertility = torch.split(
+            encoder_states,
+            [
+                self.decoder.encoder_dim,
+                self.decoder.attention_dim,
+                1,
+            ],
+            dim=2,
+        )  # [1, T, E], [1, T, A], [1, T, 1]
+
+        lstm_state, att_context, accum_att_weights = self.decoder.get_initial_state(encoder_out)
+        token_embedding = encoder_out.new_zeros(encoder_out.size(0), self.decoder.target_embed_dim)  # [1, M]
+
+        lstm_state, att_context, accum_att_weights, _ = self.decoder._decode_step(
+            history_embedding=token_embedding,
+            lstm_state=lstm_state,
+            att_context=att_context,
+            accum_att_weights=accum_att_weights,
+            encoder_outputs=encoder_out,
+            enc_ctx=enc_ctx,
+            enc_inv_fertility=enc_inv_fertility,
+            enc_seq_len=encoder_states_size,
+        )
+
+        return token_embedding, lstm_state[0], lstm_state[1], att_context, accum_att_weights
+
+
+class AEDI6DecoderStateUpdater(AEDI6DecoderModel):
+    def forward(
+        self,
+        encoder_states: torch.Tensor,  # [1, T, E + A + 1]
+        encoder_states_size: torch.Tensor,  # [1]
+        token: torch.Tensor,  # [B]
+        lstm_state_h: torch.Tensor,  # [B, H]
+        lstm_state_c: torch.Tensor,  # [B, H]
+        att_context: torch.Tensor,  # [B, E]
+        accum_att_weights: torch.Tensor,  # [B, T, 1]
+    ) -> Tuple[torch.Tensor, ...]:
+        batch_size = token.size(0)
+        encoder_states = encoder_states.expand(batch_size, -1, -1)  # [B, T, E + A + 1]
+        encoder_states_size = encoder_states_size.expand(batch_size)
+        encoder_out, enc_ctx, enc_inv_fertility = torch.split(
+            encoder_states,
+            [
+                self.decoder.encoder_dim,
+                self.decoder.attention_dim,
+                1,
+            ],
+            dim=2,
+        )  # [B, T, E], [B, T, A], [B, T, 1]
+
+        token_embedding = self.decoder.target_embed(token)  # [B, M]
+
+        lstm_state, att_context, accum_att_weights, _ = self.decoder._decode_step(
+            history_embedding=token_embedding,
+            lstm_state=(lstm_state_h, lstm_state_c),
+            att_context=att_context,
+            accum_att_weights=accum_att_weights,
+            encoder_outputs=encoder_out,
+            enc_ctx=enc_ctx,
+            enc_inv_fertility=enc_inv_fertility,
+            enc_seq_len=encoder_states_size,
+        )
+
+        return token_embedding, lstm_state[0], lstm_state[1], att_context, accum_att_weights
+
+
+class AEDI6DecoderCTCScorer(AEDI6DecoderModel):
     def forward(
         self,
         encoder_state: torch.Tensor,  # [1, E + A + 1]

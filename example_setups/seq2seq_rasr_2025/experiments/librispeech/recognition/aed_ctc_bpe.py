@@ -1,4 +1,4 @@
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from typing import List, Optional
 
 from i6_core.rasr import RasrConfig
@@ -17,7 +17,7 @@ from ....model_pipelines.common.python_encoder import (
     get_rasr_python_encoder_init_hook_serializer,
 )
 from ....model_pipelines.common.pytorch_modules import NoConfig, RawAudioModel
-from ....model_pipelines.common.recog import RecogResult
+from ....model_pipelines.common.recog import OfflineRecogParameters, RecogResult
 from ....model_pipelines.common.recog_rasr_config import LexiconfreeLabelsyncRecogParams, LexiconfreeTimesyncRecogParams
 from ....model_pipelines.common.serializers import get_model_serializers
 from ....model_pipelines.common.train import TrainedModel
@@ -235,6 +235,15 @@ def _run_single_variant(
     variant: AEDCTCRecogVariant,
     corpora: List[librispeech_datasets.EvalSet],
 ) -> List[RecogResult]:
+    if (
+        isinstance(variant.search_mode_params, OfflineRecogParameters)
+        and variant.search_mode_params.encoder_frame_shift_seconds is None
+    ):
+        variant = replace(
+            variant,
+            search_mode_params=replace(variant.search_mode_params, encoder_frame_shift_seconds=0.06),
+        )
+
     if isinstance(
         variant.search_algorithm_params, (LexiconfreeTimesyncRecogParams, LibrispeechTreeTimesyncRecogParams)
     ):

@@ -63,6 +63,7 @@ class RecogResult:
 class OfflineRecogParameters:
     mem_rqmt: int = 16
     gpu_mem_rqmt: int = 0
+    encoder_frame_shift_seconds: Optional[float] = None
 
 
 @dataclass
@@ -87,14 +88,14 @@ class TracebackItem(Protocol):
 class TracebackFormatter(Protocol):
     def traceback_to_transcription(self, traceback: List[TracebackItem]) -> str: ...
 
-    def traceback_to_ctm_str(self, traceback: List[TracebackItem], ms_per_frame: int) -> str: ...
+    def traceback_to_ctm_str(self, traceback: List[TracebackItem], ms_per_frame: float) -> str: ...
 
 
 class BpeTracebackFormatter:
     def traceback_to_transcription(self, traceback: List[TracebackItem]) -> str:
         return _traceback_to_transcription(traceback)
 
-    def traceback_to_ctm_str(self, traceback: List[TracebackItem], ms_per_frame: int) -> str:
+    def traceback_to_ctm_str(self, traceback: List[TracebackItem], ms_per_frame: float) -> str:
         return _traceback_to_ctm_str(traceback, ms_per_frame)
 
 
@@ -130,7 +131,7 @@ class Utf8ByteTracebackFormatter:
     def traceback_to_transcription(self, traceback: List[TracebackItem]) -> str:
         return self._decode_bytes([byte for _, byte in self._traceback_byte_items(traceback)])
 
-    def traceback_to_ctm_str(self, traceback: List[TracebackItem], ms_per_frame: int) -> str:
+    def traceback_to_ctm_str(self, traceback: List[TracebackItem], ms_per_frame: float) -> str:
         byte_items = self._traceback_byte_items(traceback)
         transcription = self._decode_bytes([byte for _, byte in byte_items])
         words = transcription.split()
@@ -234,7 +235,7 @@ class HuggingFaceTracebackFormatter:
         token_items = self._traceback_token_items(traceback)
         return self._decode_tokens([item.lemma for item in token_items])
 
-    def traceback_to_ctm_str(self, traceback: List[TracebackItem], ms_per_frame: int) -> str:
+    def traceback_to_ctm_str(self, traceback: List[TracebackItem], ms_per_frame: float) -> str:
         token_items = self._traceback_token_items(traceback)
         transcription = self._decode_tokens([item.lemma for item in token_items])
         words = transcription.split()
@@ -315,6 +316,8 @@ def recog_rasr_offline(
         ("recog_rasr_config_file", DelayedFormat('tk.Path("{}")', recog_rasr_config_file)),
         ("sample_rate", sample_rate),
     ]
+    if params.encoder_frame_shift_seconds is not None:
+        forward_step_kwargs.append(("encoder_frame_shift_seconds", params.encoder_frame_shift_seconds))
 
     if compute_search_errors:
         model_outputs.update(
@@ -749,6 +752,12 @@ def _frames_to_seconds(n_frames: int, frame_shift_seconds: float) -> float:
     return float(n_frames) * frame_shift_seconds
 
 
+def _samples_to_ms_per_frame(n_samples: int, n_frames: int, sample_rate: int) -> float:
+    if n_frames <= 0:
+        raise ValueError(f"Cannot compute frame shift for {n_frames} encoder frames.")
+    return float(n_samples) / float(n_frames) / float(sample_rate) * 1000.0
+
+
 def _seconds_to_samples(n_seconds: float, sample_rate: int) -> int:
     return int(n_seconds * sample_rate)
 
@@ -776,7 +785,7 @@ def _traceback_to_transcription(traceback: List[TracebackItem]) -> str:
     return traceback_str.replace("@@ ", "")
 
 
-def _traceback_to_ctm_str(traceback: List[TracebackItem], ms_per_frame: int) -> str:
+def _traceback_to_ctm_str(traceback: List[TracebackItem], ms_per_frame: float) -> str:
     lines = []
     start_frame: Optional[int] = None
     current_word = ""
@@ -1065,6 +1074,10 @@ class RasrRecogForwardStep(ABC):
 
 
 class OfflineRasrRecogForwardStep(RasrRecogForwardStep):
+    def __init__(self, encoder_frame_shift_seconds: Optional[float] = None, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.encoder_frame_shift_seconds = encoder_frame_shift_seconds
+
     def __call__(self, *, model: EncoderModel, extern_data: TensorDict, **_) -> None:
         assert self.search_algorithm is not None
 
@@ -1095,12 +1108,18 @@ class OfflineRasrRecogForwardStep(RasrRecogForwardStep):
 
             encoder_start = perf_counter()
             encoder_states = model.forward(seq_samples, seq_samples_size)
-            encoder_time = perf_counter() - encoder_start
-            encoder_times.append(encoder_time)
-
-            ms_per_enc_frame = round((seq_samples_size.item() / encoder_states.size(1)) / self.sample_rate * 1000)
+            if self.encoder_frame_shift_seconds is not None:
+                ms_per_enc_frame = self.encoder_frame_shift_seconds * 1000.0
+            else:
+                ms_per_enc_frame = _samples_to_ms_per_frame(
+                    n_samples=seq_samples_size.item(),
+                    n_frames=encoder_states.size(1),
+                    sample_rate=self.sample_rate,
+                )
 
             encoder_states = encoder_states.to(device="cpu")
+            encoder_time = perf_counter() - encoder_start
+            encoder_times.append(encoder_time)
 
             search_start = perf_counter()
 
@@ -1169,6 +1188,7 @@ class OfflineRasrRecogForwardStep(RasrRecogForwardStep):
                     print(f"        {repr(item)}")
                 print("")
 
+            print(f"    Traceback frame shift: {ms_per_enc_frame:.6f} ms")
             print(
                 f"    Encoder time: {encoder_time:.3f} seconds, RTF {encoder_time / seq_time:.3f}, XRTF {seq_time / encoder_time:.3f}"
             )
@@ -1329,13 +1349,16 @@ class StreamingRasrRecogForwardStep(RasrRecogForwardStep):
 
                 encoder_start = perf_counter()
 
+                chunk_samples = chunk_end_sample - chunk_start_sample
                 encoder_states = model.forward(
                     seq_samples[:, chunk_start_sample:chunk_end_sample],
-                    torch.tensor([chunk_end_sample - chunk_start_sample], device=audio_samples_size.device),
+                    torch.tensor([chunk_samples], device=audio_samples_size.device),
                 )
 
-                ms_per_enc_frame = round(
-                    ((chunk_end_sample - chunk_start_sample) / encoder_states.size(1)) / self.sample_rate * 1000
+                ms_per_enc_frame = _samples_to_ms_per_frame(
+                    n_samples=chunk_samples,
+                    n_frames=encoder_states.size(1),
+                    sample_rate=self.sample_rate,
                 )
 
                 encoder_elapsed = perf_counter() - encoder_start

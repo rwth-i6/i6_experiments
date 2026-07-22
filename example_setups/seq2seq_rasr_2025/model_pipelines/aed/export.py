@@ -9,15 +9,38 @@ from i6_experiments.common.setups.serialization import Import
 
 from ..common.onnx_export import export_model as _export_model
 from ..common.serializers import get_model_serializers
-from .pytorch_modules import AEDCTCScorer, AEDConfig, AEDScorer, AEDStateInitializer, AEDStateUpdater
+from .pytorch_modules import (
+    AEDCTCScorer,
+    AEDConfig,
+    AEDI6DecoderCTCScorer,
+    AEDI6DecoderConfig,
+    AEDI6DecoderScorer,
+    AEDI6DecoderStateInitializer,
+    AEDI6DecoderStateUpdater,
+    AEDScorer,
+    AEDStateInitializer,
+    AEDStateUpdater,
+)
 
 # -----------------------
 # --- Export routines ---
 # -----------------------
 
 
+def _get_export_model_classes(model_config: AEDConfig):
+    if isinstance(model_config, AEDI6DecoderConfig):
+        return (
+            AEDI6DecoderScorer,
+            AEDI6DecoderStateInitializer,
+            AEDI6DecoderStateUpdater,
+            AEDI6DecoderCTCScorer,
+        )
+    return AEDScorer, AEDStateInitializer, AEDStateUpdater, AEDCTCScorer
+
+
 def export_scorer(model_config: AEDConfig, checkpoint: PtCheckpoint) -> tk.Path:
-    model_serializers = get_model_serializers(model_class=AEDScorer, model_config=model_config)
+    scorer_class, _, _, _ = _get_export_model_classes(model_config)
+    model_serializers = get_model_serializers(model_class=scorer_class, model_config=model_config)
 
     return _export_model(
         model_serializers=model_serializers,
@@ -62,7 +85,8 @@ def export_scorer(model_config: AEDConfig, checkpoint: PtCheckpoint) -> tk.Path:
 
 
 def export_state_initializer(model_config: AEDConfig, checkpoint: PtCheckpoint) -> tk.Path:
-    model_serializers = get_model_serializers(model_class=AEDStateInitializer, model_config=model_config)
+    _, state_initializer_class, _, _ = _get_export_model_classes(model_config)
+    model_serializers = get_model_serializers(model_class=state_initializer_class, model_config=model_config)
 
     return _export_model(
         model_serializers=model_serializers,
@@ -132,7 +156,8 @@ def export_state_initializer(model_config: AEDConfig, checkpoint: PtCheckpoint) 
 
 
 def export_state_updater(model_config: AEDConfig, checkpoint: PtCheckpoint) -> tk.Path:
-    model_serializers = get_model_serializers(model_class=AEDStateUpdater, model_config=model_config)
+    _, _, state_updater_class, _ = _get_export_model_classes(model_config)
+    model_serializers = get_model_serializers(model_class=state_updater_class, model_config=model_config)
 
     return _export_model(
         model_serializers=model_serializers,
@@ -235,7 +260,8 @@ def export_state_updater(model_config: AEDConfig, checkpoint: PtCheckpoint) -> t
 
 
 def export_ctc_scorer(model_config: AEDConfig, checkpoint: PtCheckpoint) -> tk.Path:
-    model_serializers = get_model_serializers(model_class=AEDCTCScorer, model_config=model_config)
+    _, _, _, ctc_scorer_class = _get_export_model_classes(model_config)
+    model_serializers = get_model_serializers(model_class=ctc_scorer_class, model_config=model_config)
 
     return _export_model(
         model_serializers=model_serializers,

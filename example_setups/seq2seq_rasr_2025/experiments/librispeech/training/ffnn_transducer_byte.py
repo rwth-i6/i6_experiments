@@ -147,8 +147,8 @@ def get_train_options() -> FFNNTransducerTrainOptions:
         train_data_config=librispeech_datasets.get_default_byte_train_data(),
         cv_data_config=librispeech_datasets.get_default_byte_cv_data(),
         save_epochs=list(range(1500, 1900, 100)) + list(range(1900, 2001, 20)),
-        batch_size=12_000 * 160,
-        accum_grad_multiple_step=2,
+        batch_size=8_000 * 160,
+        accum_grad_multiple_step=3,
         optimizer_config=RAdamConfig(
             epsilon=1e-12,
             weight_decay=0.01,

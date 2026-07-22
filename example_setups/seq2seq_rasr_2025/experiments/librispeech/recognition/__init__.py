@@ -1,5 +1,6 @@
 from . import (
     aed_bpe,
+    aed_bpe_i6_decoder,
     aed_byte,
     aed_ctc_bpe,
     ctc_bpe,
@@ -12,6 +13,7 @@ from . import (
 
 __all__ = [
     "aed_bpe",
+    "aed_bpe_i6_decoder",
     "aed_byte",
     "aed_ctc_bpe",
     "ctc_bpe",
