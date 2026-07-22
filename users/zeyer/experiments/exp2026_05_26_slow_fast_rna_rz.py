@@ -70,6 +70,7 @@ from i6_experiments.users.zeyer.nn_rf.decoder.streaming.align_probe import (
     aux_framewise_ce_training,
     aux_ctc_only_training,
 )
+from i6_experiments.users.zeyer.nn_rf.decoder.streaming.rnnt_scaled import rnnt_scaled_training
 
 # Reused verbatim from the FZJ module -> identical Job hashes -> the rsync'd base + alignment are found.
 from i6_experiments.users.zeyer.experiments.exp2026_05_26_base_fzj import _train_loquacious_base
@@ -101,6 +102,15 @@ def py():
     _train_align_probe_ctc_rz()
     _train_rnnt_mono_fullsum_small_scaled(0.5, "0p5")
     _train_rnnt_mono_fullsum_small_scaled(0.15, "0p15")
+    # framewise-small delay sweep (delay0 = existing rnnt-mono-framewise-small, not re-run):
+    _train_framewise_small_scaled("rnnt-mono-framewise-small-delay1-1gpu", delay=1)
+    _train_framewise_small_scaled("rnnt-mono-framewise-small-delay5-1gpu", delay=5)
+    _train_framewise_small_scaled("rnnt-mono-framewise-small-delay42-1gpu", delay=42)
+    # loss-scale sweep at shift 5 (scale1 = the delay5 job above):
+    _train_framewise_small_scaled("rnnt-mono-framewise-small-delay5-scale2-1gpu", delay=5, scale=2.0)
+    _train_framewise_small_scaled("rnnt-mono-framewise-small-delay5-scale4-1gpu", delay=5, scale=4.0)
+    # 1/T vs 1/S at shift 5 (1/T = the delay5 job above):
+    _train_framewise_small_scaled("rnnt-mono-framewise-small-delay5-normS-1gpu", delay=5, norm="labels")
     _train_framewise_enc8dec12_rz()
     _train_framewise_enc4dec24_rz()
     _train_framewise_delay_rz()
@@ -432,6 +442,26 @@ def _train_rnnt_mono_fullsum_small_scaled(scale: float, label: str):
         train_def=rnnt_fullsum_scaled_training,
         target_mode="labels",
         extra_config={"fullsum_main_loss_scale": scale},
+    )
+
+
+def _train_framewise_small_scaled(name: str, *, delay: int = 0, scale: float = 1.0, norm: str = "frames"):
+    """Framewise-CE small (RnntDecoder) with a target delay + main-loss scale/norm knob.
+
+    Disentangles full-sum's decoder advantage: does framewise recover it via a shifted alignment
+    (delay), a stronger main-loss gradient (scale), or the label-normalization (norm="labels" ~= 1/S,
+    matching full-sum, ~T/S stronger)? delay0/scale1/frames == plain rnnt-mono-framewise-small
+    (which is reused as the delay-0 point, NOT re-run here).
+    """
+    extra = {}
+    if delay:
+        extra["framewise_delay_frames"] = delay
+    if scale != 1.0:
+        extra["framewise_main_loss_scale"] = scale
+    if norm != "frames":
+        extra["framewise_main_loss_norm"] = norm
+    return _train_rnnt_mono_small(
+        name, train_def=rnnt_scaled_training, target_mode="rna_frame", extra_config=extra or None
     )
 
 
