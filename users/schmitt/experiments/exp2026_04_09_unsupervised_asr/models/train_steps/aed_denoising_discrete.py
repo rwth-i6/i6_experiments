@@ -212,10 +212,10 @@ def train_step(
                     use_normalized_loss=True,
                     # as_error=True
                 )
-            if ctx.stage == "train_step":
-                ctx.mark_as_loss(error[~phon_mask_packed], f"masked_fer{loss_suffix}", as_error=True)
-        else:
-            print(f"WARNING: no masked positions in this batch! Loss name: {loss_name}")
+                if ctx.stage == "train_step":
+                    ctx.mark_as_loss(error[~phon_mask_packed], f"masked_fer{loss_suffix}", as_error=True)
+            else:
+                print(f"WARNING: no masked positions in this batch! Loss name: {loss_name}")
 
         if ctx.stage == "train_step" and ce_loss_scale > 0.0:
             ctx.mark_as_loss(
