@@ -56,6 +56,9 @@ def train_step(
     loss_name: Optional[str] = None,
     aux_loss_scales: Optional[Sequence[float]] = None,
     adv_loss_scale: float = 0.0,
+    adv_loss_type: str = "bce",
+    grad_penalty_scale: float = 0.0,
+    adv_stash: Optional[Dict] = None,
     true_adv_target: Optional[int] = None,
     codebook_diversity_loss_scale: float = 0.0,
     input_expansion_opts: Optional[Dict] = None,
@@ -228,24 +231,58 @@ def train_step(
             )
             ctx.mark_as_loss(error, f"fer{loss_suffix}", as_error=True)
 
-    if adv_loss_scale > 0.0:
+    if adv_loss_scale > 0.0 and adv_loss_type == "wasserstein_interp":
+        # faithful WGAN-GP: the critic loss and the interpolated gradient penalty compare BOTH
+        # modalities' encoder states and are therefore computed by the shared step once both are
+        # available (mixed batches). Here we only stash this modality's states (keyed by loss_name,
+        # i.e. "text"/"audio"). The freeze/unfreeze above still applies (encoder frozen on the disc
+        # step, discriminator frozen on the gen step), so the shared step's loss trains the right part.
+        if adv_stash is not None:
+            adv_stash[loss_name] = (encoder_output, encoder_lens)
+    elif adv_loss_scale > 0.0:
         assert true_adv_target is not None
         # the discriminator consumes the padded encoder output [B, T, F] + lengths and returns a
         # flat vector of per-frame (MLP/LSTM) or per-window (n-gram MLP) logits over valid positions.
         disc_out = model.discriminator(encoder_output, encoder_lens)
-        adv_loss = F.binary_cross_entropy_with_logits(
-            disc_out,
-            torch.full_like(disc_out, fill_value=adv_target),
-            reduction="none",
-        )
-        # per-frame mean so the magnitude does not scale with sequence length (otherwise long audio
-        # sequences dominate the short phoneme sequences in the shared setup).
-        ctx.mark_as_loss(
-            adv_loss.mean(),
-            name=f"adv{loss_suffix}_{adv_loss_name}",
-            scale=adv_loss_scale,
-            dims=[],
-        )
+        if adv_loss_type == "bce":
+            adv_loss = F.binary_cross_entropy_with_logits(
+                disc_out,
+                torch.full_like(disc_out, fill_value=adv_target),
+                reduction="none",
+            )
+            # per-frame mean so the magnitude does not scale with sequence length (otherwise long
+            # audio sequences dominate the short phoneme sequences in the shared setup).
+            ctx.mark_as_loss(
+                adv_loss.mean(),
+                name=f"adv{loss_suffix}_{adv_loss_name}",
+                scale=adv_loss_scale,
+                dims=[],
+            )
+        elif adv_loss_type == "wasserstein":
+            # WGAN critic: the discriminator emits raw scores (no sigmoid). text = domain 0 = "real",
+            # audio = domain 1 = "fake"; sign = -1 for real (text), +1 for fake (audio).
+            #   disc step: minimize  E[D(fake)] - E[D(real)]  ==  sign * E[D(x)]  (accumulated over
+            #              the alternating text/audio sub-batches within one optimizer step).
+            #   gen step:  minimize the negative, pushing the shared encoder to confuse the critic.
+            # (per-frame mean, same length-invariance rationale as the BCE branch.)
+            sign = 2.0 * true_adv_target - 1.0
+            score = disc_out.mean()
+            if adv_loss_name == "disc":
+                ctx.mark_as_loss(sign * score, name=f"adv{loss_suffix}_disc", scale=adv_loss_scale, dims=[])
+                if grad_penalty_scale > 0.0:
+                    grad_pen = model.discriminator.gradient_penalty(encoder_output, encoder_lens)
+                    ctx.mark_as_loss(
+                        grad_pen,
+                        name=f"adv_grad_pen{loss_suffix}",
+                        scale=adv_loss_scale * grad_penalty_scale,
+                        dims=[],
+                    )
+            else:
+                ctx.mark_as_loss(-sign * score, name=f"adv{loss_suffix}_gen", scale=adv_loss_scale, dims=[])
+        else:
+            raise ValueError(
+                f"unknown adv_loss_type {adv_loss_type!r} (expected 'bce' / 'wasserstein' / 'wasserstein_interp')"
+            )
 
     if aux_loss_scales is None or len(aux_loss_scales) == 0 or all(scale == 0 for scale in aux_loss_scales):
         # it is allowed to ignore the aux loss outputs of the model

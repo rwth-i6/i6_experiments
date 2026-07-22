@@ -127,6 +127,76 @@ class _Discriminator(nn.Module):
         for param in self.parameters():
             param.requires_grad = True
 
+    def gradient_penalty(self, encoder_output: Tensor, encoder_lens: Tensor) -> Tensor:
+        """1-centered gradient penalty (WGAN-GP) on the critic input; returns a scalar.
+
+        Textbook WGAN-GP penalizes the critic's input-gradient norm at points interpolated between
+        real and fake samples. Under ``alternate_batching`` a batch is single-modality, so real
+        (text) and fake (audio) encoder states never co-occur in one step and cannot be
+        interpolated. We instead penalize the gradient norm at the *real* encoder states of the
+        current modality (a "real-sample" gradient penalty); accumulated over the alternating
+        text/audio sub-batches this constrains the critic to be ~1-Lipschitz on both domains'
+        state manifolds.
+
+        The input is detached (the encoder is frozen on the discriminator step anyway) so only the
+        discriminator parameters receive the penalty gradient. ``create_graph=True`` makes the
+        penalty differentiable w.r.t. those parameters.
+        """
+        x = encoder_output.detach().requires_grad_(True)
+        grads = self._critic_input_grad(x, encoder_lens)  # [B, T, F]
+        grad_norm = grads.norm(2, dim=-1)  # per-frame gradient norm over the feature dim -> [B, T]
+        valid = _valid_frame_mask(encoder_lens.to(grad_norm.device), grad_norm.shape[1])
+        return ((grad_norm[valid] - 1.0) ** 2).mean()
+
+    def interpolated_gradient_penalty(
+        self, real_states: Tensor, real_lens: Tensor, fake_states: Tensor, fake_lens: Tensor
+    ) -> Tensor:
+        """Textbook WGAN-GP gradient penalty at points interpolated between real and fake; scalar.
+
+        This is the faithful WGAN-GP (Gulrajani et al.): sample ``x_hat = alpha*real + (1-alpha)*fake``
+        per sequence and penalize ``(||d D(x_hat)/d x_hat||_2 - 1)^2``. It needs both modalities'
+        encoder states in the same forward, which only happens with **mixed batches** (i.e. with
+        ``alternate_batching`` turned off). ``real`` = text states, ``fake`` = audio states.
+
+        Real/fake generally differ in batch size and length, so (following fairseq's wav2vec-U) both
+        are truncated to the common ``min`` shape before interpolating; the interpolated frames are
+        all treated as valid (no padding). ``create_graph=True`` keeps the penalty differentiable
+        w.r.t. the discriminator parameters (the inputs are detached, so the encoder gets no grad).
+        """
+        b = min(real_states.size(0), fake_states.size(0))
+        t = min(real_states.size(1), fake_states.size(1))
+        real = real_states[:b, :t].detach()
+        fake = fake_states[:b, :t].detach()
+        alpha = torch.rand(b, 1, 1, device=real.device, dtype=real.dtype)
+        interpolates = (alpha * real + (1.0 - alpha) * fake).requires_grad_(True)
+        lens = torch.full((b,), t, device=real.device, dtype=torch.long)
+        grads = self._critic_input_grad(interpolates, lens)  # [b, t, F]
+        grad_norm = grads.norm(2, dim=-1)  # per-frame gradient norm over the feature dim -> [b, t]
+        return ((grad_norm - 1.0) ** 2).mean()
+
+    def _critic_input_grad(self, inp: Tensor, lens: Tensor) -> Tensor:
+        """``d(sum_i D(inp)_i) / d inp`` with ``create_graph=True`` (for the WGAN-GP double backward).
+
+        cuDNN's fused RNN has no double-backward implementation, so an LSTM critic crashes when
+        RETURNN later backpropagates the penalty (``NotImplementedError: ... _cudnn_rnn_backward``).
+        Running the discriminator forward with the cuDNN backend disabled makes autograd record the
+        native (double-backward-capable) RNN backward instead. This is scoped to the *penalty* forward
+        only -- once per discriminator step, over the small discriminator -- while the main critic
+        forwards for the Wasserstein loss keep cuDNN. It is a no-op for the MLP discriminators (they
+        have no cuDNN RNN/conv), so it is safe to apply unconditionally.
+        """
+        with torch.backends.cudnn.flags(enabled=False):
+            disc_out = self.forward(inp, lens)  # [M]
+            (grads,) = torch.autograd.grad(
+                outputs=disc_out,
+                inputs=inp,
+                grad_outputs=torch.ones_like(disc_out),
+                create_graph=True,
+                retain_graph=True,
+                only_inputs=True,
+            )
+        return grads
+
 
 class MlpDiscriminator(_Discriminator):
     """Frame-wise / n-gram MLP discriminator over the (shared) encoder states.
