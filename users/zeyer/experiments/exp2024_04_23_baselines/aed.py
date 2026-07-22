@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import copy
 import functools
-from typing import TYPE_CHECKING, Optional, Union, Any, Tuple, Sequence, Dict
+import inspect
+from typing import TYPE_CHECKING, Optional, Union, Any, Callable, Tuple, Sequence, Dict
 import numpy
 import tree
 from dataclasses import dataclass
@@ -443,6 +444,9 @@ def train_exp(
     dataset_train_opts: Optional[Dict[str, Any]] = None,
     train_def: Optional[TrainDef[Model]] = None,
     recog_def: Optional[RecogDef[Model]] = None,
+    # default: recog_training_exp; pass recog_training_exp_batched for multi-GPU batched recog
+    recog_training_func: Optional[Callable] = None,
+    search_config: Optional[Dict[str, Any]] = None,
     model_config: Optional[Dict[str, Any]] = None,
     config_updates: Optional[Dict[str, Any]] = None,
     config_deletes: Optional[Sequence[str]] = None,
@@ -459,6 +463,9 @@ def train_exp(
     from i6_experiments.users.zeyer.train_v3 import train as train_v3
     from i6_experiments.users.zeyer.train_v4 import train as train_v4
     from i6_experiments.users.zeyer.recog import recog_training_exp
+
+    if recog_training_func is None:
+        recog_training_func = recog_training_exp
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2
 
     if prefix is not None:
@@ -484,7 +491,9 @@ def train_exp(
         model_def = aed_model_def
     if model_config:
         model_def = ModelDefWithCfg(model_def, model_config)
-    if not train_def:
+    if not train_def and "train_step" not in config:
+        # A custom config["train_step"] does its own data extraction + loss; no TrainDef needed (train_v4
+        # only adds the default _returnn_train_step partial when a train_def is given).
         train_def = aed_training
     serialization_version = get_from_config((config, model_def), "__serialization_version", None)
     train = {None: train_v3, 1: train_v3, 2: train_v4}[serialization_version]
@@ -501,12 +510,13 @@ def train_exp(
         time_rqmt=time_rqmt,
         env_updates=env_updates,
     )
-    recog_training_exp(
+    recog_training_func(
         prefix,
         task,
         model_with_checkpoint,
         recog_def=recog_def or model_recog,
-        search_mem_rqmt=config.get("__mem_rqmt") or 6,
+        search_config=search_config,
+        search_mem_rqmt=config.get("__mem_rqmt") or 8,
     )
 
     _train_experiments[name] = model_with_checkpoint
@@ -1053,8 +1063,19 @@ class Model(rf.Module):
         self.pad_audio = config.typed_value("pad_audio", None)
 
         self.feature_batch_norm = None
-        if config.bool("feature_batch_norm", False):
+        feature_norm_module = config.typed_value("feature_norm_module", None)
+        if feature_norm_module is not None:
+            # Configurable front-end normalization (e.g. GroupNorm) in place of the feature BatchNorm.
+            # Kept on the same attribute name for checkpoint compatibility with the BatchNorm variant.
+            # NB: distinct from the existing boolean ``feature_norm`` option further below.
+            self.feature_batch_norm = rf.build_from_dict(feature_norm_module, self.in_dim)
+        elif config.bool("feature_batch_norm", False):
             self.feature_batch_norm = rf.BatchNorm(self.in_dim, affine=False, use_mask=True)
+        # Some feature norms (e.g. GroupNormSpatial) need the spatial dim to pool the statistics over time;
+        # detect it once here and pass it through where the feature norm is applied.
+        self.feature_norm_wants_spatial_dim = self.feature_batch_norm is not None and (
+            "spatial_dim" in inspect.signature(self.feature_batch_norm).parameters
+        )
         self.feature_norm = config.bool("feature_norm", False)
         self.feature_stats = None
         feature_stats = config.typed_value("feature_stats")
@@ -1118,19 +1139,43 @@ class Model(rf.Module):
         *,
         in_spatial_dim: Dim,
         collected_outputs: Optional[Dict[str, Tensor]] = None,
+        specaugment_max_spatial_dims: Optional[Tensor] = None,
+        end_layer: Optional[int] = None,
     ) -> Tuple[Tensor, Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
         if self.pad_audio:
             source, in_spatial_dim = pad_ext(source, in_spatial_dim=in_spatial_dim, opts=self.pad_audio)
-        # log mel filterbank features
-        source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
+        # feature extraction (default: log mel filterbank; override via the "feature_extraction" config opt)
+        source, in_spatial_dim = self.feature_extraction(source, in_spatial_dim=in_spatial_dim)
+        return self.encode_from_features(
             source,
             in_spatial_dim=in_spatial_dim,
-            out_dim=self.in_dim,
-            sampling_rate=16_000,
+            collected_outputs=collected_outputs,
+            specaugment_max_spatial_dims=specaugment_max_spatial_dims,
+            end_layer=end_layer,
         )
+
+    def encode_from_features(
+        self,
+        source: Tensor,
+        *,
+        in_spatial_dim: Dim,
+        collected_outputs: Optional[Dict[str, Tensor]] = None,
+        specaugment_max_spatial_dims: Optional[Tensor] = None,
+        end_layer: Optional[int] = None,
+    ) -> Tuple[Tensor, Dim]:
+        """Encode from already-extracted features (e.g. log-mel produced online by a TTS model),
+        skipping pad_audio + feature_extraction. source feature dim must be self.in_dim.
+        specaugment_max_spatial_dims (per-seq) overrides the SpecAugment time-mask width,
+        e.g. scaled down for short synthetic sequences.
+        end_layer: if set, stop after Conformer layers [0, end_layer)
+        (the audio-side counterpart of :func:`encode_from_enc_space`;
+        output is in the encoder model space at the encoder frame rate, NOT decoder-transformed)."""
         if self.feature_batch_norm:
-            source = self.feature_batch_norm(source)
+            if self.feature_norm_wants_spatial_dim:
+                source = self.feature_batch_norm(source, spatial_dim=in_spatial_dim)
+            else:
+                source = self.feature_batch_norm(source)
         if self.feature_norm:
             source = rf.normalize(source, axis=in_spatial_dim)
         if self.feature_stats:
@@ -1138,21 +1183,94 @@ class Model(rf.Module):
         if self._mixup:
             source = self._mixup(source, spatial_dim=in_spatial_dim)
         # SpecAugment
+        specaugment_opts = self._specaugment_opts
+        if specaugment_max_spatial_dims is not None:
+            specaugment_opts = {**specaugment_opts, "max_consecutive_spatial_dims": specaugment_max_spatial_dims}
         source = rf.audio.specaugment(
             source,
             spatial_dim=in_spatial_dim,
             feature_dim=self.in_dim,
-            **self._specaugment_opts,
+            **specaugment_opts,
         )
-        # Encoder including convolutional frontend
-        enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
-        return enc, enc_spatial_dim
+        if end_layer is None:  # standard case
+            # Encoder including convolutional frontend
+            enc, enc_spatial_dim = self.encoder(
+                source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs
+            )
+            return enc, enc_spatial_dim
+        # Partial encoder: conv frontend + Conformer layers [0, end_layer)
+        # (mirrors ConformerEncoder.__call__; same assumptions as encode_from_enc_space).
+        x, enc_spatial_dim = self.encoder.input_layer(source, in_spatial_dim=in_spatial_dim)
+        if self.encoder.input_projection and self.encoder.input_projection.in_dim in x.dims:
+            x = self.encoder.input_projection(x)
+        assert self.encoder.out_dim in x.dims
+        assert self.encoder.pos_enc is None and self.encoder.input_embedding_scale == 1.0
+        x = rf.dropout(x, self.encoder.input_dropout, axis=self.encoder.dropout_broadcast and self.encoder.out_dim)
+        for name, layer in self.encoder.layers.items():
+            if int(name) >= end_layer:
+                break
+            x = layer(x, spatial_dim=enc_spatial_dim)
+            if collected_outputs is not None:
+                collected_outputs[name] = x
+        return x, enc_spatial_dim
+
+    def encode_from_enc_space(
+        self,
+        source: Tensor,
+        *,
+        spatial_dim: Dim,
+        start_layer: int = 0,
+        collected_outputs: Optional[Dict[str, Tensor]] = None,
+        specaugment_max_spatial_dims: Optional[Tensor] = None,
+        apply_specaugment: bool = True,
+        apply_input_dropout: bool = True,
+    ) -> Tuple[Tensor, Dim]:
+        """Encode from features already in the encoder model space
+        (feature dim = encoder out_dim, at the subsampled encoder frame rate),
+        skipping the feature front-end and the conv subsampling,
+        entering the Conformer at layer ``start_layer`` (0 = all Conformer layers).
+        ``collected_outputs`` gets the per-layer outputs only for layers >= start_layer
+        (same keys as rf.Sequential), so the caller must skip aux losses attached below.
+        ``specaugment_max_spatial_dims``: as in :func:`encode_from_features`,
+        but the time-mask width counts encoder frames here."""
+        assert self.encoder.out_dim in source.dims
+        if apply_specaugment:
+            specaugment_opts = self._specaugment_opts
+            if specaugment_max_spatial_dims is not None:
+                specaugment_opts = {**specaugment_opts, "max_consecutive_spatial_dims": specaugment_max_spatial_dims}
+            source = rf.audio.specaugment(
+                source,
+                spatial_dim=spatial_dim,
+                feature_dim=self.encoder.out_dim,
+                **specaugment_opts,
+            )
+        # Absolute pos enc / input scaling would belong before the first layer; not handled here
+        # (this baseline uses rel pos enc inside the layers).
+        assert self.encoder.pos_enc is None and self.encoder.input_embedding_scale == 1.0
+        x = source
+        if apply_input_dropout:
+            x = rf.dropout(x, self.encoder.input_dropout, axis=self.encoder.dropout_broadcast and self.encoder.out_dim)
+        for name, layer in self.encoder.layers.items():
+            if int(name) < start_layer:
+                continue
+            x = layer(x, spatial_dim=spatial_dim)
+            if collected_outputs is not None:
+                collected_outputs[name] = x
+        return x, spatial_dim
 
     def encode(
-        self, source: Tensor, *, in_spatial_dim: Dim, collected_outputs: Optional[Dict[str, Tensor]] = None
+        self,
+        source: Tensor,
+        *,
+        in_spatial_dim: Dim,
+        collected_outputs: Optional[Dict[str, Tensor]] = None,
+        specaugment_max_spatial_dims: Optional[Tensor] = None,
     ) -> Tuple[rf.State, Dim]:
         enc, enc_spatial_dim = self.encode_no_transform(
-            source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs
+            source,
+            in_spatial_dim=in_spatial_dim,
+            collected_outputs=collected_outputs,
+            specaugment_max_spatial_dims=specaugment_max_spatial_dims,
         )
         return self.decoder.transform_encoder(enc, axis=enc_spatial_dim), enc_spatial_dim
 

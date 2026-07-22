@@ -55,7 +55,7 @@ def recog_training_exp(
     search_config: Dict[str, Any] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
-    search_mem_rqmt: Union[int, float] = 6,
+    search_mem_rqmt: Union[int, float] = 8,
     exclude_epochs: Collection[int] = (),
     model_avg: bool = False,
 ):
@@ -97,7 +97,7 @@ class _RecogAndScoreFunc:
         search_config: Optional[Dict[str, Any]] = None,
         search_post_config: Optional[Dict[str, Any]] = None,
         recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
-        search_mem_rqmt: Union[int, float] = 6,
+        search_mem_rqmt: Union[int, float] = 8,
     ):
         # Note: When something is added here, remember to handle it in _sis_hash.
         self.prefix_name = prefix_name

@@ -1,4 +1,8 @@
 """
+IMPORTANT NOTE:
+An updated copy of this code lives in :mod:`i6_core.serialization.serialization_v2`.
+Probably you better want to use that.
+
 New simplified config serialization, usually for RETURNN configs.
 See :doc:`serialization.rst` for some overview.
 

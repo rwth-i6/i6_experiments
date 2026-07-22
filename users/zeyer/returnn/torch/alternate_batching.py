@@ -12,6 +12,11 @@ class AlternateBatchingIterDataPipe(BatchingIterDataPipe):
     Alternates between both types of batches (consisting no ASR data, and always containing ASR data).
     """
 
+    def __init__(self, *args, asr_key: str = "asr", **kwargs):
+        super().__init__(*args, **kwargs)
+        # Data key that is non-empty for asr/paired batches and empty for text-only batches.
+        self._asr_key = asr_key
+
     # noinspection PyShadowingNames
     def __iter__(self):
         """
@@ -40,7 +45,7 @@ class AlternateBatchingIterDataPipe(BatchingIterDataPipe):
                 current_batch_text = []
                 current_batch_text_max_sequence_lengths = NumbersDict(0)
 
-            is_asr = data_dict["asr"].shape[0] > 0
+            is_asr = data_dict[self._asr_key].shape[0] > 0
             if is_asr:
                 current_batch = current_batch_asr
                 current_max_sequence_lengths = current_batch_asr_max_sequence_lengths

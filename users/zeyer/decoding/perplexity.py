@@ -63,6 +63,7 @@ def get_lm_perplexities_for_task_evals_v2(
     task: DatasetsTask,
     *,
     lm: ModelWithCheckpoint,
+    config: Optional[Dict[str, Any]] = None,
     rescore_rqmt: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Variable], Dict[str, Variable]]:
     """
@@ -70,6 +71,8 @@ def get_lm_perplexities_for_task_evals_v2(
 
     :param task: defines the eval sets. those likely have the orig vocab (BPE or so) applied already.
     :param lm: language model. assume same vocab as in the task (BPE or so)
+    :param config: extra LM-scoring config, e.g. ``{"lm_softmax_temperature": T}``.
+        Must match the config used for the corresponding CTC+LM recog so PPL and WER stay consistent.
     :param rescore_rqmt: rqmt for LM rescoring
     :return: tuple of dicts of perplexities (PPL) per eval set. first is on task label level, second is on word level
     """
@@ -78,7 +81,9 @@ def get_lm_perplexities_for_task_evals_v2(
 
     refs = get_refs_from_task_eval_datasets(task)
     scored = {
-        name: lm_score_single(ref, lm=lm, vocab=vocab_file, vocab_opts_file=vocab_opts_file, rescore_rqmt=rescore_rqmt)
+        name: lm_score_single(
+            ref, lm=lm, vocab=vocab_file, vocab_opts_file=vocab_opts_file, config=config, rescore_rqmt=rescore_rqmt
+        )
         for name, ref in refs.items()
     }
 
@@ -170,6 +175,7 @@ def lm_score_single(
     lm: ModelWithCheckpoint,
     vocab: Path,
     vocab_opts_file: Path,
+    config: Optional[Dict[str, Any]] = None,
     rescore_rqmt: Optional[Dict[str, Any]] = None,
 ) -> RecogOutput:
     """
@@ -179,10 +185,13 @@ def lm_score_single(
     :param lm: language model
     :param vocab: labels (line-based, maybe gzipped)
     :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
+    :param config: extra LM-scoring config (e.g. ``{"lm_softmax_temperature": T}``), passed to ``lm_score``
     :param rescore_rqmt:
     """
     ref_as_hyps = RecogOutput(ExtendSingleRefToHypsJob(ref.output).out_hyps)
-    return lm_score(ref_as_hyps, lm=lm, vocab=vocab, vocab_opts_file=vocab_opts_file, rescore_rqmt=rescore_rqmt)
+    return lm_score(
+        ref_as_hyps, lm=lm, vocab=vocab, vocab_opts_file=vocab_opts_file, config=config, rescore_rqmt=rescore_rqmt
+    )
 
 
 def ngram_score_single(

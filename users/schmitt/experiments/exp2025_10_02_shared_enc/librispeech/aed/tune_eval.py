@@ -73,7 +73,7 @@ def eval_model(
             extra_forward_config=extra_forward_config,
             run_test=run_test,
             test_dataset_tuples=test_dataset_tuples,
-            vocab_opts=train_data.train.dataset.target_options
+            vocab_opts=train_data.train.dataset.target_options,
         )
         result_dict.update(res)
     if run_best_4 is True:
@@ -101,7 +101,7 @@ def eval_model(
             extra_forward_config=extra_forward_config,
             run_test=run_test,
             test_dataset_tuples=test_dataset_tuples,
-            vocab_opts=train_data.train.dataset.target_options
+            vocab_opts=train_data.train.dataset.target_options,
         )
         result_dict.update(res)
     if run_best is True:
@@ -349,7 +349,7 @@ def build_hubert_distill_report(report: Dict):
             if "/".join(value[1].split("/")[:-2]) + "/test-other" in best_dc:
                 value_test = best_dc["/".join(value[1].split("/")[:-2]) + "/test-other"]
                 line.append(
-                    f"{' '.join(value[1].split('.')[2:-2])+ '/test-other'}: {value_test[0]}   {' '.join(value_test[1].split('/')[6:])}"
+                    f"{' '.join(value[1].split('.')[2:-2]) + '/test-other'}: {value_test[0]}   {' '.join(value_test[1].split('/')[6:])}"
                 )
     best_dc = {
         exp: value

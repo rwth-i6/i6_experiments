@@ -160,7 +160,7 @@ def collect_statistics(
     config: Optional[Dict[str, Any]] = None,
     forward_post_config: Optional[Dict[str, Any]] = None,
     forward_device: str = "gpu",
-    forward_mem_rqmt: Union[int, float] = 6,
+    forward_mem_rqmt: Union[int, float] = 8,
     forward_rqmt: Optional[Dict[str, Any]] = None,
     forward_alias_name: Optional[str] = None,
     # Note: the default is not None but 1, which overwrites if there is sth else in the config or model config.
@@ -186,6 +186,10 @@ def collect_statistics(
         "max": _prior_max_out_filename,
         "info": _prior_info_out_filename,
     }
+    # __serialization_version_stats can overwrite it
+    serialization_version_ex = get_from_config((config, model), "__serialization_version_stats", None)
+    if serialization_version_ex is not None:
+        serialization_version = serialization_version_ex
     if serialization_version is None:
         serialization_version = get_from_config((config, model), "__serialization_version", None)
     if serialization_version is None:
@@ -226,7 +230,7 @@ def collect_statistics_sparse(
     config: Optional[Dict[str, Any]] = None,
     forward_post_config: Optional[Dict[str, Any]] = None,
     forward_device: str = "gpu",
-    forward_mem_rqmt: Union[int, float] = 6,
+    forward_mem_rqmt: Union[int, float] = 8,
     forward_rqmt: Optional[Dict[str, Any]] = None,
     forward_alias_name: Optional[str] = None,
     serialization_version: Optional[int] = None,

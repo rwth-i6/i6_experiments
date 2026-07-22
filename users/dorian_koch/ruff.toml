@@ -1,0 +1,22 @@
+# Dedicated ruff config for everything under users/dorian_koch/.
+#
+# Why this file exists: the parent recipe/i6_experiments/pyproject.toml sets
+#   [tool.ruff] extend-exclude = ["users"]
+# so any ruff invocation that honours excludes (pre-commit --force-exclude, editor
+# integrations, `ruff format .` over a directory) silently SKIPS this whole tree.
+# Those files then never get the parent's line-length = 120, and anything that falls
+# back to ruff's built-in default (line-length 88) reformats them -> the formatting
+# churn we kept seeing. Passing an explicit file path bypassed the exclude, which is
+# why manual `ruff format <file>` looked fine while other paths drifted.
+#
+# Because this config sits CLOSER to our code than that pyproject, ruff resolves it
+# for every file here regardless of cwd / how the path is spelled (symlinked recipe/
+# or real projects/), and it is not subject to the parent's `users` exclude. Result:
+# one deterministic style everywhere.
+line-length = 120
+target-version = "py312"
+
+[lint]
+# Match the parent: never auto-delete unused imports. Several modules here import for
+# side effects or lazily (e.g. moshi_finetune), so an F401 autofix would break them.
+unfixable = ["F401"]

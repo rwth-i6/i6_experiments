@@ -1534,6 +1534,8 @@ class ExtractInGradsFromPhi4MultimodalInstructLongFormJob(Job):
 
 
 class CalcAlignmentMetricsJob(Job):
+    __sis_version__ = 2  # word end now exclusive (Aligner max+1, right edge); was inclusive (1 frame early)
+
     def __init__(
         self,
         *,
@@ -1572,7 +1574,7 @@ class CalcAlignmentMetricsJob(Job):
         self.out_wbe = self.output_var("wbe.txt")
 
     def tasks(self):
-        yield Task("run", rqmt={"cpu": 2, "mem": 10, "time": 5})
+        yield Task("run", rqmt={"cpu": 2, "mem": 10, "time": 5, "engine": "short"})
 
     def run(self):
         import os
@@ -1661,6 +1663,8 @@ class CalcAlignmentMetricsJob(Job):
 
 
 class CalcChunkedAlignmentMetricsJob(Job):
+    __sis_version__ = 2  # word end now exclusive (Aligner max+1, right edge); was inclusive (1 frame early)
+
     def __init__(
         self,
         *,
@@ -1699,7 +1703,7 @@ class CalcChunkedAlignmentMetricsJob(Job):
         self.out_wbe = self.output_var("wbe.txt")
 
     def tasks(self):
-        yield Task("run", rqmt={"cpu": 2, "mem": 10, "time": 5})
+        yield Task("run", rqmt={"cpu": 2, "mem": 10, "time": 5, "engine": "short"})
 
     def run(self):
         import os
@@ -1821,6 +1825,10 @@ class CalcAlignmentMetricsFromWordBoundariesJob(Job):
     (I.e. no alignment is happening here; that is already given via word boundaries.)
     """
 
+    # v2: emit the richer metric set (acc@collar, edge/interior, start/end MAE) via align_metrics.
+    # v3: + center_offset / width_signed_err / center_abs.
+    __sis_version__ = 3
+
     def __init__(
         self,
         *,
@@ -1829,6 +1837,7 @@ class CalcAlignmentMetricsFromWordBoundariesJob(Job):
         dataset_key: str,
         returnn_root: Optional[tk.Path] = None,
         dataset_offset_factors: int,
+        aggregation: str = "micro",
     ):
         """
         :param word_boundaries_hdf: e.g. from ExtractInGradsFromPhi4MultimodalInstructLongFormJob.
@@ -1848,11 +1857,20 @@ class CalcAlignmentMetricsFromWordBoundariesJob(Job):
         self.dataset_key = dataset_key
         self.returnn_root = returnn_root
         self.dataset_offset_factors = dataset_offset_factors
+        # WBE/MAE/edge/interior/signed aggregation: "micro" = mean over all words (default, the
+        # standard "average over words"); "macro" = per-utterance mean then over utterances. Hashed (a
+        # new kwarg), so switching it deliberately re-runs this job; collar accuracies stay micro.
+        self.aggregation = aggregation
 
         self.out_wbe = self.output_var("wbe.txt")
+        # Richer metrics (see align_metrics): collar accuracy, edge/interior WBE, start/end MAE.
+        self.out_metrics = self.output_var("metrics.txt")
+        self.out_acc50 = self.output_var("acc50.txt")
+        self.out_interior_wbe = self.output_var("interior_wbe.txt")
+        self.out_edge_wbe = self.output_var("edge_wbe.txt")
 
     def tasks(self):
-        yield Task("run", rqmt={"cpu": 2, "mem": 10, "time": 5})
+        yield Task("run", rqmt={"cpu": 2, "mem": 10, "time": 5, "engine": "short"})
 
     def run(self):
         import os
@@ -1911,21 +1929,24 @@ class CalcAlignmentMetricsFromWordBoundariesJob(Job):
             ]
             assert len(words) == len(ref_word_start_ends) == len(align_word_start_ends)
 
-            wbe_utt = np.mean(
-                [
-                    0.5
-                    * (
-                        abs(ref_word_start_ends[w][0] - align_word_start_ends[w][0])
-                        + abs(ref_word_start_ends[w][1] - align_word_start_ends[w][1])
-                    )
-                    for w in range(len(words))
-                ]
+            from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.align_metrics import (
+                per_utt_boundary_errors,
+                aggregate_corpus,
             )
-            print("  WBE:", float(wbe_utt))
-            wbe_utts.append(wbe_utt)
 
-        wbe = float(np.mean(wbe_utts))
-        self.out_wbe.set(wbe)
+            utt_err = per_utt_boundary_errors(
+                [tuple(map(float, se)) for se in align_word_start_ends], ref_word_start_ends
+            )
+            print("  WBE:", float(np.mean(utt_err["wbe"])))
+            wbe_utts.append(utt_err)
+
+        metrics = aggregate_corpus(wbe_utts, aggregation=self.aggregation)
+        print("CORPUS METRICS:", metrics)
+        self.out_wbe.set(metrics["wbe"])
+        self.out_metrics.set(metrics)
+        self.out_acc50.set(metrics["acc_50ms"])
+        self.out_interior_wbe.set(metrics["interior_wbe"])
+        self.out_edge_wbe.set(metrics["edge_wbe"])
 
 
 class Aligner:
@@ -1971,6 +1992,7 @@ class Aligner:
         *,
         cut_off_eos: bool = False,
         norm_scores: Union[bool, str] = False,
+        norm_scores_eps: float = 0.0,
         shift_scores: float = 0.0,
         clip_scores: Optional[Tuple[Optional[float], Optional[float]]] = None,
         apply_log: bool = True,
@@ -1983,9 +2005,11 @@ class Aligner:
         blank_score_est: str = "neg_prob",
         non_blank_score_reduce: str = "mean",
         blank_score_flipped_percentile: int = 0,
+        dtw: bool = False,
     ):
         self.cut_off_eos = cut_off_eos
         self.norm_scores = norm_scores
+        self.norm_scores_eps = float(norm_scores_eps)
         self.shift_scores = shift_scores
         self.clip_scores = clip_scores
         self.apply_log = apply_log
@@ -1998,12 +2022,84 @@ class Aligner:
         self.blank_score_est = blank_score_est
         self.non_blank_score_reduce = non_blank_score_reduce
         self.blank_score_flipped_percentile = blank_score_flipped_percentile
+        # DTW mode: allow the vertical/up move (label advances without consuming a frame),
+        # i.e. whisper's dtw_cpu, but over our CALIBRATED [T, 2S+1] score matrix and topology
+        # -- so the blank/silence scores are scaled the same as the monotonic Viterbi
+        # (a raw DTW over-segments).
+        self.dtw = bool(dtw)
 
-    def align(self, score_matrix: np.ndarray, *, plot_filename: Optional[str] = None) -> List[Tuple[int, int]]:
+    def _align_dtw(self, score_matrix_, S, T):
+        # dtw_cpu (diag / up / left) over the ALLOWED states only
+        # (label states + non-forbidden blank states;
+        # topology-forbidden blanks were set to -inf and are dropped, giving the [S+N+1, T] structure).
+        # Returns per-label (start, end) frames, half-open [start, end): start inclusive (left edge),
+        # end EXCLUSIVE (max+1, right edge), so *spf gives the true boundary. Matches _dtw_spans.
+        import numpy as np
+
+        allowed = [i for i in range(2 * S + 1) if (i % 2 == 1) or np.isfinite(score_matrix_[:, i]).any()]
+        cost = -score_matrix_[:, allowed].T.astype(np.float64)  # [N, T]
+        N = len(allowed)
+        d = np.full((N + 1, T + 1), np.inf)
+        tr = np.zeros((N + 1, T + 1), dtype=np.int8)
+        d[0, 0] = 0.0
+        tr[0, :] = 2
+        tr[:, 0] = 1
+        for i in range(1, N + 1):
+            row = cost[i - 1]
+            for j in range(1, T + 1):
+                c0, c1, c2 = d[i - 1, j - 1], d[i - 1, j], d[i, j - 1]
+                if c0 <= c1 and c0 <= c2:
+                    d[i, j], tr[i, j] = row[j - 1] + c0, 0
+                elif c1 <= c2:
+                    d[i, j], tr[i, j] = row[j - 1] + c1, 1
+                else:
+                    d[i, j], tr[i, j] = row[j - 1] + c2, 2
+        i, j = N, T
+        frames = [[] for _ in range(N)]
+        while i > 0 or j > 0:
+            frames[i - 1].append(j - 1)
+            b = tr[i, j]
+            if b == 0:
+                i, j = i - 1, j - 1
+            elif b == 1:
+                i -= 1
+            else:
+                j -= 1
+        labels_start_end = []
+        prev_end = 0
+        for si, st in enumerate(allowed):
+            if st % 2 == 1:  # label state
+                fr = frames[si]
+                if fr:
+                    # end EXCLUSIVE (max+1 = right edge), matching _dtw_spans; *spf -> true boundary.
+                    labels_start_end.append((min(fr), max(fr) + 1))
+                    prev_end = max(fr) + 1
+                else:
+                    labels_start_end.append((prev_end, prev_end))
+        assert len(labels_start_end) == S, f"{len(labels_start_end)=} {S=}"
+        return labels_start_end
+
+    def align(
+        self,
+        score_matrix: np.ndarray,
+        *,
+        plot_filename: Optional[str] = None,
+        blank_override: Optional[np.ndarray] = None,
+        blank_state_mask: Optional[np.ndarray] = None,
+        collect_posteriors: Optional[dict] = None,
+    ) -> List[Tuple[int, int]]:
         """
         :param score_matrix: [S,T]
         :param plot_filename: if given, plots the scores and alignment as PDF into this file
-        :return: list of start/end offsets, both are including. len is S
+        :param collect_posteriors: if given, additionally runs the forward-backward DP
+            (log-sum-exp over the same lattice the Viterbi path searches)
+            and fills in per-label posterior occupancies at the Viterbi spans:
+            ``mean_occ``/``start_occ``/``end_occ``, each a list of len S of probs --
+            an alignment-confidence signal.
+        :return: list of per-label (start, end) frame offsets, half-open [start, end):
+            start inclusive (left edge of the first frame),
+            end EXCLUSIVE (= last_frame+1, the right edge of the last frame),
+            so converting via ``*spf`` yields the true word-end boundary. len is S
         """
         import numpy as np
         import os
@@ -2023,7 +2119,7 @@ class Aligner:
         # See in GenAya _calc_input_grads.
         elif self.norm_scores == "absmeanS":
             absmean = np.abs(score_matrix).mean(axis=0, keepdims=True)
-            score_matrix /= absmean
+            score_matrix /= absmean + self.norm_scores_eps
         elif self.norm_scores == "stdmeanS":
             std, mean = np.std(score_matrix, axis=0, keepdims=True), np.mean(score_matrix, axis=0, keepdims=True)
             score_matrix = (score_matrix - mean) / std
@@ -2101,12 +2197,27 @@ class Aligner:
 
         score_matrix_ = np.zeros((T, S * 2 + 1), dtype=np.float32)  # [T, S*2+1]
         score_matrix_[:, 1::2] = score_matrix.T
-        if isinstance(self.blank_score, (int, float)):
+        if blank_override is not None:
+            # Externally supplied per-frame blank row (e.g. a self-calibrating
+            # std-margin blank computed from the original, non-energy-weighted
+            # tokens by the caller). Used as-is.
+            score_matrix_[:, 0::2] = np.asarray(blank_override, dtype=np.float32)[:, None]
+        elif isinstance(self.blank_score, (int, float)):
             score_matrix_[:, 0::2] = self.blank_score  # blank score
         elif self.blank_score == "calc":
             score_matrix_[:, 0::2] = blank_score[:, None]
         else:
             raise ValueError(f"invalid blank_score {self.blank_score!r} setting")
+
+        if blank_state_mask is not None:
+            # Word-aware topology: forbid blank/silence on the intra-word blank states (keep blank
+            # only at word boundaries + start/end). Safe because the topology allows a direct
+            # label->label skip, so repeated chars within a word still align.
+            _blank_cols = np.arange(0, 2 * S + 1, 2)
+            score_matrix_[:, _blank_cols[~np.asarray(blank_state_mask, dtype=bool)]] = -np.inf
+
+        if self.dtw:
+            return self._align_dtw(score_matrix_, S, T)
 
         # The first two states are valid start states.
         align_scores[0, :2] = score_matrix_[0, :2]
@@ -2166,9 +2277,50 @@ class Aligner:
                 if s % 2 != 0:  # non-sil new label
                     labels_start_end.append((t, t))
             if s % 2 != 0:  # in non-sil label
-                labels_start_end[-1] = (labels_start_end[-1][0], t - 1)  # update end
+                labels_start_end[-1] = (labels_start_end[-1][0], t)  # update end (incl. current frame)
             prev_s = s
         assert S == len(labels_start_end), f"{labels_start_end=}, {len(labels_start_end)=}, {alignment=}, {S=}, {T=}"
+
+        if collect_posteriors is not None:
+            # Forward-backward over the same lattice (log-sum-exp instead of max),
+            # same transitions: horizontal, diagonal, diagonal-skip (skip only into label states).
+            alpha = np.full((T, S * 2 + 1), -inf, dtype=np.float64)
+            alpha[0, :2] = score_matrix_[0, :2]
+            for t in range(1, T):
+                stay = alpha[t - 1, :]
+                diag = np.concatenate([[-inf], alpha[t - 1, :-1]])
+                skip = np.concatenate([[-inf, -inf], alpha[t - 1, :-2]])
+                skip[::2] = -inf
+                alpha[t] = np.logaddexp(np.logaddexp(stay, diag), skip) + score_matrix_[t, :]
+            beta = np.full((T, S * 2 + 1), -inf, dtype=np.float64)
+            beta[-1, S * 2 - 1 :] = 0.0
+            for t in range(T - 2, -1, -1):
+                nxt = beta[t + 1, :] + score_matrix_[t + 1, :]
+                stay = nxt
+                diag = np.concatenate([nxt[1:], [-inf]])
+                skip_in = np.full(S * 2 + 1, -inf)
+                skip_in[:-2] = nxt[2:]
+                skip_in[1::2] = -inf  # diagonal-skip only lands in label (odd) states
+                beta[t] = np.logaddexp(np.logaddexp(stay, diag), skip_in)
+            log_z = np.logaddexp(alpha[-1, S * 2 - 1], alpha[-1, S * 2])
+            if not np.isfinite(log_z):
+                print(f"WARNING: forward-backward not normalizable (log_z={log_z}, {S=}, {T=})")
+            with np.errstate(invalid="ignore"):
+                gamma = alpha + beta - log_z  # [T, 2S+1] log posterior occupancy
+                occ = np.exp(np.clip(gamma[:, 1::2], -100.0, 0.0))  # [T, S]
+            mean_occ, start_occ, end_occ, leak = [], [], [], []
+            total_mass = occ.sum(axis=0)  # [S] expected frames per label
+            for i, (t0, t1) in enumerate(labels_start_end):
+                mean_occ.append(float(np.mean(occ[t0 : t1 + 1, i])))
+                start_occ.append(float(occ[t0, i]))
+                end_occ.append(float(occ[t1, i]))
+                # Posterior mass of this label OUTSIDE its Viterbi span (frames):
+                # boundary-localized uncertainty, unlike mean_occ which saturates.
+                leak.append(float(total_mass[i] - np.sum(occ[t0 : t1 + 1, i])))
+            collect_posteriors["mean_occ"] = mean_occ
+            collect_posteriors["start_occ"] = start_occ
+            collect_posteriors["end_occ"] = end_occ
+            collect_posteriors["leak"] = leak
 
         if plot_filename is not None:
             assert plot_filename.endswith(".pdf")
@@ -2214,7 +2366,11 @@ class Aligner:
             plt.tight_layout()
             plt.savefig(plot_filename)
 
-        return labels_start_end
+        # Internal occupancy slicing above uses labels_start_end as INCLUSIVE frames (occ[t0:t1+1]).
+        # The RETURN emits the half-open convention:
+        # end = last_frame+1 (exclusive right edge), so a caller's end*spf is the true boundary;
+        # start stays the inclusive left edge.
+        return [(s, e + 1) for s, e in labels_start_end]
 
 
 def _y_to_mat(y, y_num_pixels=100):  # only for visualization

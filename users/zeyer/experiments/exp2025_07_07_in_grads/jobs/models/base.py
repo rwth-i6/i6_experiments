@@ -12,10 +12,14 @@ from dataclasses import dataclass
 
 def make_model(**opts) -> BaseModelInterface:
     """
-    Make model wrapper
+    Make model wrapper. Accepts either ``class`` (preferred, matches
+    :func:`rf.build_dict` convention) or legacy ``type`` as the class-name key.
     """
     opts = opts.copy()
-    cls_name = opts.pop("type")
+    if "class" in opts:
+        cls_name = opts.pop("class")
+    else:
+        cls_name = opts.pop("type")
     cls = _get_cls(cls_name)
     return cls(**opts)
 
@@ -25,7 +29,7 @@ class BaseModelInterface(torch.nn.Module):
     Base interface for all models.
     """
 
-    assistant_end_token_idx: Optional[int] = None
+    assistant_end_token_id: Optional[int] = None
 
     def forward(
         self,

@@ -252,7 +252,7 @@ def forward_step(*, model, data, run_ctx, **kwargs):
     encoder_times = []
     search_times = []
 
-    for b in range(raw_audio.shape[0]):
+    for b in range(raw_audio.shape[0]): # TODO: might need change for GPU
         seq_samples_size = raw_audio_len[b: b + 1]
         seq_samples = raw_audio[b: b + 1, : seq_samples_size[0]]  # [1, T, 1]
 

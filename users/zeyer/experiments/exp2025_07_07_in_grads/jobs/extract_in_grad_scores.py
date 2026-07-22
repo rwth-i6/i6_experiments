@@ -298,7 +298,7 @@ class ExtractInGradsFromModelJob(Job):
                     # [1,num_chunks * ~chunk_num_input_frames,2]
                     "audio_frames_start_end": audio_frames_start_end_.cpu().numpy()[None],
                     "num_input_frames": num_input_frames_.cpu().numpy()[None, :, None],  # [1,num_chunks,1]
-                    "num_words": num_words__[None, :, None],  # [1,num_chunks,1]
+                    "num_words": num_words__.cpu().numpy()[None, :, None],  # [1,num_chunks,1]
                     # Some extra info, e.g. for debugging/verification.
                     # [1,num_chunks * ~chunk_num_words,1]
                     "log_probs_per_word": log_probs_.cpu().numpy()[None, :, None],

@@ -23,6 +23,8 @@ from i6_models.util import compat
 from i6_models.primitives.specaugment import specaugment_v1_by_length
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
 
+from functools import partial
+
 from returnn.torch.context import get_run_ctx
 
 from .memristor_v8_cfg import (
@@ -33,10 +35,24 @@ from .memristor_v8_cfg import (
     ConformerBlockQuantV1Config,
     ConformerEncoderQuantV1Config,
 )
-from .memristor_v8_modules import LinearQuant, ActivationQuantizer, QuantizedMultiheadAttention, Conv1dQuant
+from .memristor_v8_modules import LinearQuant, ActivationQuantizer, QuantizedMultiheadAttention, Conv1dQuant, get_quantization_range_from_bit_precision
 from torch.nn.quantized._reference.modules import Linear, Conv1d
+from torch.nn.quantized import Linear as QuantLinear
+from torch.nn.quantized import Conv1d as QuantConv
 
 # from lovely_tensors import monkey_patch
+
+class Lambda(nn.Module):
+    """
+    Input: A Function
+    Returns : A Module that can be used
+        inside nn.Sequential
+    """
+    def __init__(self, func):
+        super().__init__()
+        self.func = func
+
+    def forward(self, x): return self.func(x)
 
 
 class ConformerPositionwiseFeedForwardQuant(nn.Module):
@@ -107,6 +123,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         )
         self.dropout = cfg.dropout
         self.converter_hardware_settings = cfg.converter_hardware_settings
+        self.quantized = False
 
 
     def forward(self, tensor: torch.Tensor) -> torch.Tensor:
@@ -115,14 +132,26 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         :return: shape [B,T,F], F=input_dim
         """
         tensor = self.layer_norm(tensor)
-        tensor = self.lin_1_in_quant(tensor)
+        if self.quantized:
+            tensor = self.lin_1_quantize(tensor)
+        else:
+            tensor = self.lin_1_in_quant(tensor)
         tensor = self.linear_ff(tensor)  # [B,T,F]
-        tensor = self.lin_1_out_quant(tensor)
+        if self.quantized:
+            tensor = torch.dequantize(tensor)
+        else:
+            tensor = self.lin_1_out_quant(tensor)
         tensor = self.activation(tensor)  # [B,T,F]
         tensor = nn.functional.dropout(tensor, p=self.dropout, training=self.training)  # [B,T,F]
-        tensor = self.lin_2_in_quant(tensor)
+        if self.quantized:
+            tensor = self.lin_2_quantize(tensor)
+        else:
+            tensor = self.lin_2_in_quant(tensor)
         tensor = self.linear_out(tensor)  # [B,T,F]
-        tensor = self.lin_2_out_quant(tensor)
+        if self.quantized:
+            tensor = torch.dequantize(tensor)
+        else:
+            tensor = self.lin_2_out_quant(tensor)
         tensor = nn.functional.dropout(tensor, p=self.dropout, training=self.training)  # [B,T,F]
         return tensor
 
@@ -193,8 +222,78 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
                 "quant_max": self.linear_out.weight_quantizer.quant_max,
             },
         )
+
+        self.lin_2_out_quant.set_scale_and_zp()
+
+    def remove_quant(self):
         self.lin_1_in_quant = nn.Identity()
         self.lin_2_in_quant = nn.Identity()
+        self.lin_1_out_quant = nn.Identity()
+        self.lin_2_out_quant = nn.Identity()
+
+        lin1 = nn.Linear(self.linear_ff.in_features, self.linear_ff.out_features)
+        lin1.weight.copy_(self.linear_ff.weight)
+        lin1.bias.copy_(self.linear_ff.bias)
+        self.linear_ff = lin1
+
+        lin2 = nn.Linear(self.linear_out.in_features, self.linear_out.out_features)
+        lin2.weight.copy_(self.linear_out.weight)
+        lin2.bias.copy_(self.linear_out.bias)
+        self.linear_out = lin2
+
+    def real_torch_quant(self, conv=False):
+        self.linear_ff.weight_quantizer.set_scale_and_zp()
+        self.linear_ff = Linear.from_float(
+            self.linear_ff,
+            weight_qparams={
+                "qscheme": self.linear_ff.weight_quantizer.method,
+                "dtype": self.linear_ff.weight_quant_dtype,
+                "zero_point": self.linear_ff.weight_quantizer.zero_point,
+                "scale": self.linear_ff.weight_quantizer.scale,
+                "quant_min": self.linear_ff.weight_quantizer.quant_min,
+                "quant_max": self.linear_ff.weight_quantizer.quant_max,
+            },
+        )
+        self.lin_1_out_quant.set_scale_and_zp()
+
+        self.linear_ff = QuantLinear.from_reference(
+            self.linear_ff,
+            output_scale=self.lin_1_out_quant.scale,
+            output_zero_point=self.lin_1_out_quant.zero_point
+        )
+        self.lin_1_in_quant.set_scale_and_zp()
+        self.lin_1_in_quant = Lambda(partial(
+            torch.quantize_per_tensor,
+            scale=self.lin_1_in_quant.scale,
+            zero_point=self.lin_1_in_quant.zero_point,
+            dtype=torch.quint8))
+        self.lin_1_out_quant = Lambda(partial(torch.dequantize))
+        self.linear_out.weight_quantizer.set_scale_and_zp()
+        self.linear_out = Linear.from_float(
+            self.linear_out,
+            weight_qparams={
+                "qscheme": self.linear_out.weight_quantizer.method,
+                "dtype": self.linear_out.weight_quant_dtype,
+                "zero_point": self.linear_out.weight_quantizer.zero_point,
+                "scale": self.linear_out.weight_quantizer.scale,
+                "quant_min": self.linear_out.weight_quantizer.quant_min,
+                "quant_max": self.linear_out.weight_quantizer.quant_max,
+            },
+        )
+        self.lin_2_out_quant.set_scale_and_zp()
+        self.linear_out = QuantLinear.from_reference(
+            self.linear_out,
+            output_scale=self.lin_2_out_quant.scale,
+            output_zero_point=self.lin_2_out_quant.zero_point
+        )
+        self.lin_2_in_quant.set_scale_and_zp()
+        self.lin_2_in_quant = Lambda(partial(
+            torch.quantize_per_tensor,
+            scale=self.lin_2_in_quant.scale,
+            zero_point=self.lin_2_in_quant.zero_point,
+            dtype=torch.quint8))
+        self.lin_2_out_quant = Lambda(partial(torch.dequantize))
+
 
 
 class ConformerMHSAQuant(torch.nn.Module):
@@ -231,6 +330,12 @@ class ConformerMHSAQuant(torch.nn.Module):
 
     def prep_torch_quant(self):
         self.mhsa.prep_torch_quant()
+
+    def remove_quant(self):
+        self.mhsa.remove_quant()
+
+    def real_torch_quant(self, conv=False):
+        self.mhsa.real_torch_quant()
 
 
 class ConformerConvolutionQuant(nn.Module):
@@ -471,12 +576,146 @@ class ConformerConvolutionQuant(nn.Module):
                 "quant_max": self.pointwise_conv2.weight_quantizer.quant_max,
             },
         )
+
+    def remove_quant(self):
         self.pconv_1_in_quant = nn.Identity()
         self.pconv_1_out_quant = nn.Identity()
         self.dconv_1_in_quant = nn.Identity()
         self.dconv_1_out_quant = nn.Identity()
         self.pconv_2_in_quant = nn.Identity()
         self.pconv_2_out_quant = nn.Identity()
+
+        pconv1 = nn.Linear(self.pointwise_conv1.in_features, self.pointwise_conv1.out_features)
+        pconv1.weight.copy_(self.pointwise_conv1.weight)
+        pconv1.bias.copy_(self.pointwise_conv1.bias)
+        self.pointwise_conv1 = pconv1
+
+        pconv2 = nn.Linear(self.pointwise_conv2.in_features, self.pointwise_conv2.out_features)
+        pconv2.weight.copy_(self.pointwise_conv2.weight)
+        pconv2.bias.copy_(self.pointwise_conv2.bias)
+        self.pointwise_conv2 = pconv2
+
+        dconv1 = nn.Conv1d(in_channels=self.depthwise_conv.in_channels,
+            out_channels=self.depthwise_conv.out_channels,
+            kernel_size=self.depthwise_conv.kernel_size,
+            padding=(self.depthwise_conv.kernel_size - 1) // 2,
+            groups=self.depthwise_conv.groups,
+            bias=True,
+            stride=1,
+            dilation=1,
+        )
+        dconv1.weight.copy_(self.depthwise_conv.weight)
+        dconv1.bias.copy_(self.depthwise_conv.bias)
+        self.depthwise_conv = dconv1
+
+    def real_torch_quant(self, conv=False):
+        self.pconv_1_in_quant.set_scale_and_zp()
+        self.pconv_1_out_quant.set_scale_and_zp()
+        self.pconv_2_in_quant.set_scale_and_zp()
+        self.pconv_2_out_quant.set_scale_and_zp()
+        self.pointwise_conv1.weight_quantizer.set_scale_and_zp()
+        self.pointwise_conv2.weight_quantizer.set_scale_and_zp()
+        self.depthwise_conv.weight_quantizer.set_scale_and_zp()
+
+        pconv_1 = Linear.from_float(
+            self.pointwise_conv1,
+            weight_qparams={
+                "qscheme": self.pointwise_conv1.weight_quantizer.method,
+                "dtype": self.pointwise_conv1.weight_quant_dtype,
+                "zero_point": self.pointwise_conv1.weight_quantizer.zero_point,
+                "scale": self.pointwise_conv1.weight_quantizer.scale,
+                "quant_min": self.pointwise_conv1.weight_quantizer.quant_min,
+                "quant_max": self.pointwise_conv1.weight_quantizer.quant_max,
+            },
+        )
+        linear_1 = QuantLinear.from_reference(
+            pconv_1,
+            output_scale=self.pconv_1_out_quant.scale,
+            output_zero_point=self.pconv_1_out_quant.zero_point
+        )
+        self.pointwise_conv1 = linear_1
+        self.pconv_1_in_quant = Lambda(partial(
+                torch.quantize_per_tensor,
+                scale=self.pconv_1_in_quant.scale,
+                zero_point=self.pconv_1_in_quant.zero_point,
+                dtype=torch.quint8))
+        self.pconv_1_out_quant = Lambda(torch.dequantize)
+        if conv == True:
+            self.dconv_1_in_quant.set_scale_and_zp()
+            self.dconv_1_out_quant.set_scale_and_zp()
+            conv_1 = Conv1d.from_float(
+                self.depthwise_conv,
+                weight_qparams={
+                    "qscheme": self.depthwise_conv.weight_quantizer.method,
+                    "dtype": self.depthwise_conv.weight_quant_dtype,
+                    "zero_point": self.depthwise_conv.weight_quantizer.zero_point,
+                    "scale": self.depthwise_conv.weight_quantizer.scale,
+                    "quant_min": self.depthwise_conv.weight_quantizer.quant_min,
+                    "quant_max": self.depthwise_conv.weight_quantizer.quant_max,
+                },
+            )
+            self.depthwise_conv = QuantConv.from_reference(
+                conv_1,
+                output_scale=self.dconv_1_out_quant.scale,
+                output_zero_point=self.dconv_1_out_quant.zero_point
+            )
+            self.dconv_1_in_quant = Lambda(partial(
+                torch.quantize_per_tensor,
+                scale=self.dconv_1_in_quant.scale,
+                zero_point=self.dconv_1_in_quant.zero_point,
+                dtype=torch.quint8))
+            self.dconv_1_out_quant = Lambda(torch.dequantize)
+        elif conv == "ident":
+            dconv1 = nn.Conv1d(in_channels=self.depthwise_conv.in_channels,
+                out_channels=self.depthwise_conv.out_channels,
+                kernel_size=self.depthwise_conv.kernel_size,
+                padding=(self.depthwise_conv.kernel_size - 1) // 2,
+                groups=self.depthwise_conv.groups,
+                bias=True,
+                stride=1,
+                dilation=1,
+            )
+            dconv1.weight.copy_(self.depthwise_conv.weight)
+            dconv1.bias.copy_(self.depthwise_conv.bias)
+        else:
+            self.dconv_1_in_quant = nn.Identity()
+            dconv1 = nn.Conv1d(in_channels=self.depthwise_conv.in_channels,
+                out_channels=self.depthwise_conv.out_channels,
+                kernel_size=self.depthwise_conv.kernel_size,
+                padding=(self.depthwise_conv.kernel_size - 1) // 2,
+                groups=self.depthwise_conv.groups,
+                bias=True,
+                stride=1,
+                dilation=1,
+            )
+            dconv1.weight.copy_(self.depthwise_conv.weight)
+            dconv1.bias.copy_(self.depthwise_conv.bias)
+            self.depthwise_conv1 = dconv1
+            self.dconv_1_out_quant = nn.Identity()
+
+        pconv_2 = Linear.from_float(
+            self.pointwise_conv2,
+            weight_qparams={
+                "qscheme": self.pointwise_conv2.weight_quantizer.method,
+                "dtype": self.pointwise_conv2.weight_quant_dtype,
+                "zero_point": self.pointwise_conv2.weight_quantizer.zero_point,
+                "scale": self.pointwise_conv2.weight_quantizer.scale,
+                "quant_min": self.pointwise_conv2.weight_quantizer.quant_min,
+                "quant_max": self.pointwise_conv2.weight_quantizer.quant_max,
+            },
+        )
+        linear_2 = QuantLinear.from_reference(
+            pconv_2,
+            output_scale=self.pconv_2_out_quant.scale,
+            output_zero_point=self.pconv_2_out_quant.zero_point
+        )
+        self.pointwise_conv2 = linear_2
+        self.pconv_2_in_quant = Lambda(partial(
+                torch.quantize_per_tensor,
+                scale=self.pconv_2_in_quant.scale,
+                zero_point=self.pconv_2_in_quant.zero_point,
+                dtype=torch.quint8))
+        self.pconv_2_out_quant = Lambda(torch.dequantize)
 
 class ConformerBlockQuant(nn.Module):
     """
@@ -526,6 +765,13 @@ class ConformerBlockQuant(nn.Module):
         for module in self.module_list:
             module.prep_torch_quant()
 
+    def remove_quant(self):
+        for module in self.module_list:
+            module.remove_quant()
+
+    def real_torch_quant(self, conv=False):
+        for module in self.module_list:
+            module.real_torch_quant(conv)
 
 class ConformerEncoderQuant(nn.Module):
     """
@@ -578,6 +824,14 @@ class ConformerEncoderQuant(nn.Module):
     def prep_torch_quant(self):
         for module in self.module_list:
             module.prep_torch_quant()
+
+    def remove_quant(self):
+        for module in self.module_list:
+            module.remove_quant()
+
+    def real_torch_quant(self, conv=False):
+        for module in self.module_list:
+            module.real_torch_quant(conv)
 
 
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
@@ -752,8 +1006,8 @@ class Model(torch.nn.Module):
         :param raw_audio_len: length of T as [B]
         :return: logprobs [B, T, #labels + blank]
         """
-        from lovely_tensors import monkey_patch
-        monkey_patch()
+        # from lovely_tensors import monkey_patch
+        # monkey_patch()
         squeezed_features = torch.squeeze(raw_audio, dim=-1)
         with torch.no_grad():
 
@@ -816,9 +1070,6 @@ class Model(torch.nn.Module):
     def prep_torch_quant(self):
         print("Converting Model for efficient inference")
         if self.train_config.quantize_output is True:
-            print(self.lin_out)
-            print(self.lin_out[0])
-            print(self.lin_out[-1])
             self.lin_out[-1].weight_quantizer.set_scale_and_zp()
             lin_out = self.lin_out[-1]
             final_lin = Linear.from_float(
@@ -832,8 +1083,60 @@ class Model(torch.nn.Module):
                     "quant_max": lin_out.weight_quantizer.quant_max,
                 },
             )
-            self.final_linear = torch.nn.Sequential(self.lin_out_in_quant[-1], final_lin, self.lin_out_out_quant[-1])
+            self.final_linear = torch.nn.ModuleList([torch.nn.Sequential(self.lin_out_in_quant[-1], final_lin, self.lin_out_out_quant[-1])])
         self.conformer.prep_torch_quant()
+
+    def remove_quant(self):
+
+        with torch.no_grad():
+            if self.train_config.quantize_output is True:
+                final_lin = nn.Linear(self.lin_out[-1].in_features, self.lin_out[-1].out_features)
+                final_lin.weight.copy_(self.lin_out[-1].weight)
+                final_lin.bias.copy_(self.lin_out[-1].bias)
+                self.final_linear = torch.nn.ModuleList([torch.nn.Sequential(final_lin)])
+            self.conformer.remove_quant()
+
+    def real_torch_quant(self, conv=False):
+        with torch.no_grad():
+            if self.train_config.quantize_output is True:
+                self.lin_out[-1].weight_quantizer.set_scale_and_zp()
+                self.lin_out_in_quant[-1].set_scale_and_zp()
+                # TODO remove:
+                self.lin_out_out_quant[-1].dtype = torch.quint8
+                self.lin_out_out_quant[-1].quant_min, self.lin_out_out_quant[-1].quant_max = get_quantization_range_from_bit_precision(
+                    self.lin_out_out_quant[-1].bit_precision, torch.quint8)
+                self.lin_out_out_quant[-1].set_scale_and_zp()
+                lin_out = self.lin_out[-1]
+                final_lin = Linear.from_float(
+                    lin_out,
+                    weight_qparams={
+                        "qscheme": lin_out.weight_quantizer.method,
+                        "dtype": lin_out.weight_quant_dtype,
+                        "zero_point": lin_out.weight_quantizer.zero_point,
+                        "scale": lin_out.weight_quantizer.scale,
+                        "quant_min": lin_out.weight_quantizer.quant_min,
+                        "quant_max": lin_out.weight_quantizer.quant_max,
+                    },
+                )
+                linear_1 = QuantLinear.from_reference(
+                    final_lin,
+                    output_scale=self.lin_out_out_quant[-1].scale,
+                    output_zero_point=self.lin_out_out_quant[-1].zero_point
+                )
+                # from functools import partial
+                in_q_func = Lambda(partial(
+                    torch.quantize_per_tensor,
+                    scale=self.lin_out_in_quant[-1].scale,
+                    zero_point=self.lin_out_in_quant[-1].zero_point,
+                    dtype=torch.quint8))
+                self.final_linear = torch.nn.ModuleList(
+                    [torch.nn.Sequential(
+                        # in_q_func,
+                        in_q_func,
+                        linear_1,
+                        Lambda(torch.dequantize),
+                    )])
+            self.conformer.real_torch_quant(conv)
 
 
 

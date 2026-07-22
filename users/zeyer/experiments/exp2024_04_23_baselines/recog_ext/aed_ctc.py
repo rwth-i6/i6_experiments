@@ -99,7 +99,13 @@ def aed_ctc_timesync_recog_recomb_auto_scale(
         keep_beam=True,
     )
     aed_scores = aed_score(
-        ctc_scores, dataset=dataset, aed_model=aed_ctc_model, vocab=vocab_file, vocab_opts_file=vocab_opts_file
+        ctc_scores,
+        dataset=dataset,
+        aed_model=aed_ctc_model,
+        vocab=vocab_file,
+        vocab_opts_file=vocab_opts_file,
+        # construction-relevant model flags (e.g. pseudo-enc); None keeps existing hashes
+        config=extra_config,
     )
 
     # Also register the CTC-only results. (Will not do search again, should be same hash.)
@@ -154,6 +160,8 @@ def aed_ctc_timesync_recog_recomb_auto_scale(
                 aed_rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 48},
                 vocab=vocab_file,
                 vocab_opts_file=vocab_opts_file,
+                # only when set (hash-safe): construction-relevant model flags (e.g. pseudo-enc)
+                **({"aed_rescore_config": extra_config} if extra_config else {}),
             )
         ],
     )
@@ -268,7 +276,13 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
     )
     prior_scores = prior_score(ctc_scores, prior=labelwise_prior)
     aed_scores = aed_score(
-        ctc_scores, dataset=dataset, aed_model=aed_ctc_model, vocab=vocab_file, vocab_opts_file=vocab_opts_file
+        ctc_scores,
+        dataset=dataset,
+        aed_model=aed_ctc_model,
+        vocab=vocab_file,
+        vocab_opts_file=vocab_opts_file,
+        # construction-relevant model flags (e.g. pseudo-enc); None keeps existing hashes
+        config=extra_config,
     )
 
     # Also register the CTC-only results. (Will not do search again, should be same hash.)
@@ -331,6 +345,8 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
                 aed_rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 48},
                 vocab=vocab_file,
                 vocab_opts_file=vocab_opts_file,
+                # only when set (hash-safe): construction-relevant model flags (e.g. pseudo-enc)
+                **({"aed_rescore_config": extra_config} if extra_config else {}),
             )
         ],
     )
@@ -384,6 +400,7 @@ def aed_score(
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
     rescore_rqmt: Optional[Dict[str, Any]] = None,
+    config: Optional[Dict[str, Any]] = None,
 ) -> RecogOutput:
     """
     Scores the hyps with the LM.
@@ -405,6 +422,7 @@ def aed_score(
         vocab=vocab,
         vocab_opts_file=vocab_opts_file,
         rescore_def=aed_rescore_def,
+        config=config,
         forward_rqmt=rescore_rqmt,
     )
 
@@ -555,6 +573,7 @@ def aed_labelwise_prior_rescore(
     aed_model: ModelWithCheckpoint,
     aed_scale: Union[float, tk.Variable, DelayedBase],
     aed_rescore_rqmt: Optional[Dict[str, Any]] = None,
+    aed_rescore_config: Optional[Dict[str, Any]] = None,
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
     prior: Optional[Prior] = None,
@@ -590,6 +609,7 @@ def aed_labelwise_prior_rescore(
         vocab=vocab,
         vocab_opts_file=vocab_opts_file,
         rescore_rqmt=aed_rescore_rqmt,
+        config=aed_rescore_config,
     )
     scores = [(orig_scale, res), (aed_scale, res_labels_aed_scores)]
     if prior and prior_scale:
@@ -789,8 +809,8 @@ def model_recog_with_recomb(
 
     seq_label = _seq_label_history_init_state(vocab_dim=model.target_dim, batch_dims=batch_dims_)
 
-    # noinspection PyUnresolvedReferences
-    labelwise_prior: Optional[rf.Parameter] = model.labelwise_prior
+    # Models built by the plain AED model def (not aed_model_ext_def) have no labelwise_prior attribute.
+    labelwise_prior: Optional[rf.Parameter] = getattr(model, "labelwise_prior", None)
 
     if aed_scale or labelwise_prior is not None:
         # We usually have TransformerDecoder, but any other type would also be ok when it has the same API.

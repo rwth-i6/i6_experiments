@@ -103,7 +103,7 @@ def serialize_forward(
         i6_models,
         pytorch_model_import,
     ]
-    if import_memristor is True:
+    if import_memristor is True and not debug:
         memristor_modules = ExternalImport(import_path=TORCH_MEMRISTOR_PATH)
         serializer_objects.insert(1, memristor_modules)
 

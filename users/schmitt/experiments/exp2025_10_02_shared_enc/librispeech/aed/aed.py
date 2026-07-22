@@ -81,23 +81,17 @@ def text_only_baseline():
 
     train_data = TrainingDatasets(
         train=DistributedFilesDataset(
-            files=phoneme_train_hdfs,
-            partition_epoch=40,
-            get_subepoch_dataset=get_subepoch_dataset
+            files=phoneme_train_hdfs, partition_epoch=40, get_subepoch_dataset=get_subepoch_dataset
         ),
-        cv=HdfDataset(
-            files=phoneme_dev_hdfs
-        ),
-        devtrain=HdfDataset(
-            files=phoneme_devtrain_hdfs
-        ),
+        cv=HdfDataset(files=phoneme_dev_hdfs),
+        devtrain=HdfDataset(files=phoneme_devtrain_hdfs),
         datastreams={
             "labels": LabelDatastream(
                 available_for_inference=False,
                 vocab=phoneme_vocab,
                 vocab_size=41,
             ),
-        }
+        },
     )
 
     default_returnn = {
@@ -113,12 +107,12 @@ def text_only_baseline():
     ]:
         model_config["text_out_dim"] = train_data.datastreams["labels"].vocab_size
 
-        network_module = (
-            "pytorch_networks.conformer_aed_v1"
-        )
+        network_module = "pytorch_networks.conformer_aed_v1"
         train_config = {
             **optimizer_configs.v1,
-            **learning_rate_configs.get_cfg_lrlin_oclr_by_bs_nep_v4(n_ep=epochs,),
+            **learning_rate_configs.get_cfg_lrlin_oclr_by_bs_nep_v4(
+                n_ep=epochs,
+            ),
             #############
             "batch_size": batch_size,
             "max_seq_length": {"data": 700},
@@ -130,9 +124,7 @@ def text_only_baseline():
         # batch size, adamw, speed pert, gradient clip,
         train_args = {
             "config": train_config,
-            "post_config": {
-                "torch_log_memory_usage": True
-            },
+            "post_config": {"torch_log_memory_usage": True},
             "network_module": network_module,
             "train_step_module": "training.aed_ctc_train_step",
             "net_args": model_config,
@@ -143,7 +135,7 @@ def text_only_baseline():
                     "mask_prob": mask_prob,
                     "min_span": min_span,
                     "max_span": max_span,
-                }
+                },
             },
             "debug": True,
         }
@@ -155,9 +147,7 @@ def text_only_baseline():
             + f"/{model_alias}/"
             + f"bs{batch_size}_ep{epochs}_mask{mask_prob}-spans{min_span}-{max_span}"
         )
-        train_job = training(
-            training_name, train_data, train_args, num_epochs=epochs, **default_returnn
-        )
+        train_job = training(training_name, train_data, train_args, num_epochs=epochs, **default_returnn)
 
         if itc:
             train_job.hold()
@@ -195,22 +185,16 @@ def audio_only_baseline_v1():
 
     train_data = TrainingDatasets(
         train=DistributedFilesDataset(
-            files=wav2vec_segmented_features_train_hdf,
-            partition_epoch=10,
-            get_subepoch_dataset=get_subepoch_dataset
+            files=wav2vec_segmented_features_train_hdf, partition_epoch=10, get_subepoch_dataset=get_subepoch_dataset
         ),
-        cv=HdfDataset(
-            files=wav2vec_segmented_features_dev_other_hdf
-        ),
-        devtrain=HdfDataset(
-            files=wav2vec_segmented_features_devtrain_hdf
-        ),
+        cv=HdfDataset(files=wav2vec_segmented_features_dev_other_hdf),
+        devtrain=HdfDataset(files=wav2vec_segmented_features_devtrain_hdf),
         datastreams={
             "features": FeatureDatastream(
                 available_for_inference=True,
                 feature_size=512,
             ),
-        }
+        },
     )
 
     default_returnn = {
@@ -232,12 +216,12 @@ def audio_only_baseline_v1():
     ]:
         model_config["text_out_dim"] = None
 
-        network_module = (
-            "pytorch_networks.conformer_aed_v1"
-        )
+        network_module = "pytorch_networks.conformer_aed_v1"
         train_config = {
             **optimizer_configs.v1,
-            **learning_rate_configs.get_cfg_lrlin_oclr_by_bs_nep_v4(n_ep=epochs,),
+            **learning_rate_configs.get_cfg_lrlin_oclr_by_bs_nep_v4(
+                n_ep=epochs,
+            ),
             #############
             "batch_size": batch_size,
             "max_seq_length": {"data": 700},
@@ -249,9 +233,7 @@ def audio_only_baseline_v1():
         # batch size, adamw, speed pert, gradient clip,
         train_args = {
             "config": train_config,
-            "post_config": {
-                "torch_log_memory_usage": True
-            },
+            "post_config": {"torch_log_memory_usage": True},
             "network_module": network_module,
             "train_step_module": "training.aed_ctc_train_step",
             "net_args": model_config,
@@ -278,9 +260,7 @@ def audio_only_baseline_v1():
             + f"/{model_alias}/"
             + f"bs{batch_size}_ep{epochs}_mask{mask_prob}-spans{min_span}-{max_span}_{audio_loss}-loss"
         )
-        train_job = training(
-            training_name, train_data, train_args, num_epochs=epochs, **default_returnn
-        )
+        train_job = training(training_name, train_data, train_args, num_epochs=epochs, **default_returnn)
 
     for model_alias, model_config, epochs, peak_lr, accum_grad in [
         # v2
@@ -292,9 +272,7 @@ def audio_only_baseline_v1():
     ]:
         model_config["text_out_dim"] = None
 
-        network_module = (
-            "pytorch_networks.conformer_aed_v1"
-        )
+        network_module = "pytorch_networks.conformer_aed_v1"
         train_config = {
             **optimizer_configs.v1,
             **learning_rate_configs.get_cfg_lrlin_oclr_by_bs_nep_v4(n_ep=epochs, peak_lr=peak_lr),
@@ -309,9 +287,7 @@ def audio_only_baseline_v1():
         # batch size, adamw, speed pert, gradient clip,
         train_args = {
             "config": train_config,
-            "post_config": {
-                "torch_log_memory_usage": True
-            },
+            "post_config": {"torch_log_memory_usage": True},
             "network_module": network_module,
             "train_step_module": "training.aed_ctc_train_step",
             "net_args": model_config,
@@ -338,9 +314,7 @@ def audio_only_baseline_v1():
             + f"/{model_alias}/"
             + f"bs{batch_size}_ep{epochs}_peak-lr-{peak_lr}_accum-{accum_grad}"
         )
-        train_job = training(
-            training_name, train_data, train_args, num_epochs=epochs, **default_returnn
-        )
+        train_job = training(training_name, train_data, train_args, num_epochs=epochs, **default_returnn)
 
 
 def text_audio_baseline():
@@ -412,9 +386,7 @@ def text_audio_baseline():
         train=CombinedDataset(
             datasets={
                 "phonemes": DistributedFilesDataset(
-                    files=phoneme_train_hdfs,
-                    partition_epoch=40,
-                    get_subepoch_dataset=get_subepoch_dataset
+                    files=phoneme_train_hdfs, partition_epoch=40, get_subepoch_dataset=get_subepoch_dataset
                 ),
                 "audio_features": DistributedFilesDataset(
                     # upsample audio data to match phoneme data size
@@ -422,7 +394,7 @@ def text_audio_baseline():
                     # set partition_epoch 8x smaller and use 7x replication -> 56x
                     files=wav2vec_segmented_features_train_hdf * 7,
                     partition_epoch=5,
-                    get_subepoch_dataset=get_subepoch_dataset
+                    get_subepoch_dataset=get_subepoch_dataset,
                 ),
             },
             data_map={
@@ -434,12 +406,8 @@ def text_audio_baseline():
         ),
         cv=CombinedDataset(
             datasets={
-                "phonemes": HdfDataset(
-                    files=phoneme_dev_hdfs
-                ),
-                "audio_features": HdfDataset(
-                    files=wav2vec_segmented_features_dev_other_hdf
-                ),
+                "phonemes": HdfDataset(files=phoneme_dev_hdfs),
+                "audio_features": HdfDataset(files=wav2vec_segmented_features_dev_other_hdf),
             },
             data_map={
                 ("phonemes", "data"): "phon_indices",
@@ -450,12 +418,8 @@ def text_audio_baseline():
         ),
         devtrain=CombinedDataset(
             datasets={
-                "phonemes": HdfDataset(
-                    files=phoneme_devtrain_hdfs
-                ),
-                "audio_features": HdfDataset(
-                    files=wav2vec_segmented_features_devtrain_hdf
-                ),
+                "phonemes": HdfDataset(files=phoneme_devtrain_hdfs),
+                "audio_features": HdfDataset(files=wav2vec_segmented_features_devtrain_hdf),
             },
             data_map={
                 ("phonemes", "data"): "phon_indices",
@@ -474,7 +438,7 @@ def text_audio_baseline():
                 vocab=phoneme_vocab,
                 vocab_size=41,
             ),
-        }
+        },
     )
 
     # dev_dataset_tuples = {}
@@ -508,12 +472,12 @@ def text_audio_baseline():
     ]:
         model_config["text_out_dim"] = train_data.datastreams["labels"].vocab_size
 
-        network_module = (
-            "pytorch_networks.conformer_aed_v1"
-        )
+        network_module = "pytorch_networks.conformer_aed_v1"
         train_config = {
             **optimizer_configs.v1,
-            **learning_rate_configs.get_cfg_lrlin_oclr_by_bs_nep_v4(n_ep=epochs,),
+            **learning_rate_configs.get_cfg_lrlin_oclr_by_bs_nep_v4(
+                n_ep=epochs,
+            ),
             #############
             "batch_size": {"data": batch_size, "phon_indices": batch_size},
             "torch_batching": CodeWrapper("alternate_batching"),
@@ -532,11 +496,9 @@ def text_audio_baseline():
                 "tensorboard_opts": {
                     # uneven so that both text and audio losses get logged (alternated batching)
                     "log_every_n_train_steps": 101,
-                }
+                },
             },
-            "python_prolog": [
-                "from i6_experiments.users.zeyer.returnn.alternate_batching import alternate_batching"
-            ],
+            "python_prolog": ["from i6_experiments.users.zeyer.returnn.alternate_batching import alternate_batching"],
             "network_module": network_module,
             "train_step_module": "training.aed_ctc_train_step",
             "net_args": model_config,
@@ -567,9 +529,7 @@ def text_audio_baseline():
             + f"/{model_alias}/"
             + f"bs{batch_size}_ep{epochs}_mask{mask_prob}-spans{min_span}-{max_span}"
         )
-        train_job = training(
-            training_name, train_data, train_args, num_epochs=epochs, **default_returnn
-        )
+        train_job = training(training_name, train_data, train_args, num_epochs=epochs, **default_returnn)
 
         if itc:
             train_job.hold()

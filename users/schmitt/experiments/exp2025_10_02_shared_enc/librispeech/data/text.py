@@ -1,7 +1,7 @@
 from sisyphus import tk, Job, Task
 from sisyphus.delayed_ops import DelayedFormat, DelayedBase
 
-from typing import Tuple
+from typing import Tuple, Union
 import os
 import shutil
 import subprocess as sp
@@ -47,38 +47,33 @@ def get_dev_text() -> Tuple[tk.Path, tk.Path]:
     text_dev_other, seq_tags_dev_other = get_corpus_text("dev-other")
     text_dev_clean, seq_tags_dev_clean = get_corpus_text("dev-clean")
     concat_text = ConcatenateJob([text_dev_clean, text_dev_other], zip_out=False).out
-    lowercase_text = PipelineJob(
-        concat_text,
-        pipeline=["tr A-Z a-z"]
-    ).out
+    lowercase_text = PipelineJob(concat_text, pipeline=["tr A-Z a-z"]).out
 
     concat_seq_tags = ConcatenateJob([seq_tags_dev_clean, seq_tags_dev_other], zip_out=False).out
     return lowercase_text, concat_seq_tags
 
+
 def get_960_text() -> Tuple[tk.Path, tk.Path]:
     text_960h, seq_tags_960h = get_corpus_text("train-other-960")
-    lowercase_text = PipelineJob(
-        text_960h,
-        pipeline=["tr A-Z a-z"]
-    ).out
+    lowercase_text = PipelineJob(text_960h, pipeline=["tr A-Z a-z"]).out
 
     return lowercase_text, seq_tags_960h
 
 
 def get_phonemized_lm_data(
-        text_file: tk.Path,
-        dump_hdf_concurrent: int = 1,
-        fixed_random_subset: Optional[int] = None,
-        vocab_size: int = 1000,  # TODO: THIS IS NOT THE VOCAB SIZE, IT IS THE MIN NUMBER OF TIMES A PHONEME NEEDS TO APPEAR FOR IT TO NOT BE DISCARTED
-        alias: Optional[str] = None,
-        lexicon_file: Optional[tk.Path] = None,
-        phoneme_file: Optional[tk.Path] = None,
-        seq_tag_file: Optional[tk.Path] = None,
+    text_file: tk.Path,
+    dump_hdf_concurrent: int = 1,
+    fixed_random_subset: Optional[int] = None,
+    vocab_size: int = 1000,  # TODO: THIS IS NOT THE VOCAB SIZE, IT IS THE MIN NUMBER OF TIMES A PHONEME NEEDS TO APPEAR FOR IT TO NOT BE DISCARTED
+    alias: Optional[str] = None,
+    lexicon_file: Optional[tk.Path] = None,
+    phoneme_file: Optional[tk.Path] = None,
+    seq_tag_file: Optional[tk.Path] = None,
 ):
     # Text configuration
     language = "en"  # Language of the text data
     tts_engine = "G2P"  # Text-to-speech engine to use for text normalization
-    #text_file_path = "/work/smt4/zeineldeen/enrique.leon.lozano/setups-data/ubuntu_22_setups/fairseq_2025_03_11/work/Fairseq/data/text_raw/BNCCorpus.txt"
+    # text_file_path = "/work/smt4/zeineldeen/enrique.leon.lozano/setups-data/ubuntu_22_setups/fairseq_2025_03_11/work/Fairseq/data/text_raw/BNCCorpus.txt"
     text_file_path = text_file
     sil_prob = 0.25
     fasttext_model = DownloadJob(
@@ -120,14 +115,11 @@ def get_phonemized_lm_data(
             vocab_size=vocab_size,
             lm_pruning=training_lm_pruning,
         )
-        text_file, phoneme_file = [DelayedFormat(
-            f"{{}}/{file_name}",
-            prepare_text_job_training.processed_phn_data_and_LM
-        ) for file_name in ("lm.phones.filtered.txt", "dict.txt")]
-        lexicon_file = DelayedFormat(
-            f"{{}}/{'lexicon_filtered.lst'}",
-            prepare_text_job_training.out_text_dir
-        )
+        text_file, phoneme_file = [
+            DelayedFormat(f"{{}}/{file_name}", prepare_text_job_training.processed_phn_data_and_LM)
+            for file_name in ("lm.phones.filtered.txt", "dict.txt")
+        ]
+        lexicon_file = DelayedFormat(f"{{}}/{'lexicon_filtered.lst'}", prepare_text_job_training.out_text_dir)
     # if alias:
     #     tk.register_output(f"data/librispeech/lm_phon_text/{alias}", prepare_text_job_training.processed_phn_data_and_LM)
 
@@ -142,10 +134,21 @@ def get_phonemized_lm_data(
         tk.register_output(f"data/librispeech/lm_phon_text_hdf/{alias}", dump_phoneme_indices_job.out_hdfs[0])
 
     if lexicon_file and phoneme_file and seq_tag_file:
-        return list(
-            dump_phoneme_indices_job.out_hdfs.values()), dump_phoneme_indices_job.out_vocab, lexicon_file, phoneme_file, prepare_text_job_training.out_seq_tags
+        return (
+            list(dump_phoneme_indices_job.out_hdfs.values()),
+            dump_phoneme_indices_job.out_vocab,
+            lexicon_file,
+            phoneme_file,
+            prepare_text_job_training.out_seq_tags,
+        )
 
-    return list(dump_phoneme_indices_job.out_hdfs.values()), dump_phoneme_indices_job.out_vocab, lexicon_file, phoneme_file, None
+    return (
+        list(dump_phoneme_indices_job.out_hdfs.values()),
+        dump_phoneme_indices_job.out_vocab,
+        lexicon_file,
+        phoneme_file,
+        None,
+    )
 
 
 class PhonemizeTextDataJob(Job):
@@ -191,7 +194,9 @@ class PhonemizeTextDataJob(Job):
         )
         sp.check_call(normalize_cmd, shell=True, env=env)
         # written by normalize_and_filter_text.py
-        seq_tag_file = os.path.join(os.getcwd(), "seq-tags-after-norm-and-filter.txt") if self.seq_tag_file is not None else None
+        seq_tag_file = (
+            os.path.join(os.getcwd(), "seq-tags-after-norm-and-filter.txt") if self.seq_tag_file is not None else None
+        )
 
         preprocess_cmd = (
             f"python {self.fairseq_root.get_path()}/fairseq_cli/preprocess.py "
@@ -205,9 +210,7 @@ class PhonemizeTextDataJob(Job):
         )
         sp.check_call(preprocess_cmd, shell=True, env=env)
 
-        cut_cmd = (
-            f"cut -f1 -d' ' dict.txt | grep -v -x '[[:punct:]]*' | grep -Pv '\d\d\d\d\d+' > words.txt"
-        )
+        cut_cmd = f"cut -f1 -d' ' dict.txt | grep -v -x '[[:punct:]]*' | grep -Pv '\d\d\d\d\d+' > words.txt"
         sp.check_call(cut_cmd, shell=True, env=env)
 
         phonemize_cmd = (
@@ -234,12 +237,12 @@ class PhonemizeTextDataJob(Job):
 
 class DumpPhonemeIndicesToHdfJob(Job):
     def __init__(
-            self,
-            text_file: DelayedBase,
-            phoneme_file: DelayedBase,
-            concurrent: int = 10,
-            fixed_random_subset: Optional[int] = None,
-            seq_tag_file: Optional[tk.Path] = None,
+        self,
+        text_file: Union[DelayedBase, tk.Path],
+        phoneme_file: Union[DelayedBase, tk.Path],
+        concurrent: int = 10,
+        fixed_random_subset: Optional[int] = None,
+        seq_tag_file: Optional[tk.Path] = None,
     ):
         """
 
@@ -255,9 +258,7 @@ class DumpPhonemeIndicesToHdfJob(Job):
         self.fixed_random_subset = fixed_random_subset
         self.seq_tag_file = seq_tag_file
 
-        self.out_hdfs = {
-            i: self.output_path(f"data_{i}.hdf") for i in range(self.concurrent)
-        }
+        self.out_hdfs = {i: self.output_path(f"data_{i}.hdf") for i in range(self.concurrent)}
         self.out_vocab = self.output_path("phonemes.vocab")
 
     def tasks(self):
@@ -267,6 +268,9 @@ class DumpPhonemeIndicesToHdfJob(Job):
         import gc
         import tempfile
         import random
+
+        with open(self.text_file.get(), "r") as f:
+            lines = f.readlines()
 
         with open(self.phoneme_file.get(), "r") as f:
             vocab = {line.strip().split()[0]: i for i, line in enumerate(f.readlines())}
@@ -286,8 +290,6 @@ class DumpPhonemeIndicesToHdfJob(Job):
             tmp_hdf = os.path.join(tmp_dir, f"data_{task_id}.hdf")
             hdf_writer = SimpleHDFWriter(filename=tmp_hdf, dim=len(vocab), ndim=1)
 
-            with open(self.text_file.get(), "r") as f:
-                lines = f.readlines()
             random.Random(42).shuffle(lines)
             if seq_tags is not None:
                 random.Random(42).shuffle(seq_tags)
@@ -297,9 +299,9 @@ class DumpPhonemeIndicesToHdfJob(Job):
             if seq_tags is not None:
                 seq_tags = [seq_tags[i] for i in range(num_lines) if (i % self.concurrent) == (task_id - 1)]
             if self.fixed_random_subset is not None:
-                lines = lines[:self.fixed_random_subset]
+                lines = lines[: self.fixed_random_subset]
                 if seq_tags is not None:
-                    seq_tags = seq_tags[:self.fixed_random_subset]
+                    seq_tags = seq_tags[: self.fixed_random_subset]
             num_lines = len(lines)
             gc.collect()
 
@@ -316,7 +318,7 @@ class DumpPhonemeIndicesToHdfJob(Job):
                     data,
                     seq_len=seq_lens,
                     seq_tag=[f"lm-data-{i}" if seq_tags is None else seq_tags[i]],
-                    extra={"seq_sizes": batch_seq_sizes}
+                    extra={"seq_sizes": batch_seq_sizes},
                 )
 
                 if i % 10_000 == 0:
@@ -337,5 +339,3 @@ class DumpPhonemeIndicesToHdfJob(Job):
             d.pop("seq_tag_file")
 
         return super().hash(d)
-
-

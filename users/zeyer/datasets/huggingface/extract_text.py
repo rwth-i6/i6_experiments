@@ -61,3 +61,39 @@ class ExtractTextFromHuggingFaceDatasetJob(Job):
                 assert isinstance(ref, str)
                 out.write(f"{seq_tag!r}: {ref!r},\n")
             out.write("}\n")
+
+
+class ExtractWordDetailFromHuggingFaceDatasetJob(Job):
+    """Like :class:`ExtractTextFromHuggingFaceDatasetJob` but reads the
+    ``word_detail.utterance`` column (used by TIMIT, Buckeye, ...) and joins
+    the words with single spaces. Seq tag = ``seq-{idx}``, matching the
+    convention used in :class:`...RecogFromModelJob`.
+    """
+
+    def __init__(self, *, dataset_dir: tk.Path, dataset_split: str):
+        super().__init__()
+        self.dataset_dir = dataset_dir
+        self.dataset_split = dataset_split
+        self.rqmt = {"time": 1, "cpu": 1, "mem": 4}
+        self.out_text = self.output_path("ref.txt.py.gz")
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        set_hf_offline_mode()
+
+        from datasets import load_dataset, Audio
+
+        dataset = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))
+        dataset = dataset.cast_column("audio", Audio(decode=False))
+        dataset = dataset[self.dataset_split]
+        print(f"Dataset: {dataset}")
+
+        with uopen(self.out_text.get_path(), "wt") as out:
+            out.write("{\n")
+            for seq_idx, result in enumerate(dataset):
+                seq_tag = f"seq-{seq_idx}"
+                ref = " ".join(result["word_detail"]["utterance"])
+                out.write(f"{seq_tag!r}: {ref!r},\n")
+            out.write("}\n")

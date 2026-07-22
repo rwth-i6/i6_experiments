@@ -164,8 +164,32 @@ class Model(BaseTTSModelV1):
         self.decoder = FlowDecoder(cfg=config.flow_decoder_config, speaker_embedding_size=config.speaker_embedding_size)
 
     def forward(
-        self, x, x_lengths, raw_audio=None, raw_audio_lengths=None, g=None, gen=False, noise_scale=1.0, length_scale=1.0
+        self,
+        x,
+        x_lengths,
+        raw_audio=None,
+        raw_audio_lengths=None,
+        g=None,
+        gen=False,
+        noise_scale=1.0,
+        length_scale=1.0,
+        gen_duration_jitter=None,
+        gen_duration_jitter_mult=None,
+        gen_fixed_duration=None,
     ):
+        """
+        :param gen_duration_jitter: optional (low, high) tuple. If given (generation only),
+            the per-phoneme durations are replaced by i.i.d. uniform samples from [low, high),
+            renormalized per sequence to the duration-predictor total (* length_scale),
+            so the total length (and thus cost) is unchanged --
+            only the learned per-phoneme alignment structure is removed.
+            Default None: unchanged behavior (durations from the duration predictor).
+        :param gen_duration_jitter_mult: optional (low, high) tuple. If given (generation only),
+            each predicted per-phoneme duration is multiplied by an i.i.d. uniform sample from
+            [low, high), NOT renormalized -- the learned alignment structure is kept,
+            but the per-phoneme speaking rate (and the total length) varies.
+            Default None: unchanged behavior.
+        """
         if not gen:
             y, y_lengths = self.extract_features(raw_audio=raw_audio, raw_audio_lengths=raw_audio_lengths)
             feature_lengths = y_lengths
@@ -186,7 +210,21 @@ class Model(BaseTTSModelV1):
 
         if gen:  # durations from dp only used during generation
             w = torch.exp(log_durations) * h_mask * length_scale  # durations
-            w_ceil = torch.ceil(w)  # durations ceiled
+            if gen_duration_jitter is not None:
+                # Random durations: i.i.d. uniform per phoneme, renormalized per seq to the predictor total
+                # (see docstring above).
+                lo, hi = gen_duration_jitter
+                w_rand = (lo + (hi - lo) * torch.rand_like(w)) * h_mask
+                w_rand_sum = torch.clamp_min(w_rand.sum(dim=[1, 2], keepdim=True), 1e-8)
+                w = w_rand * (w.sum(dim=[1, 2], keepdim=True) / w_rand_sum)
+            if gen_duration_jitter_mult is not None:
+                # Multiplicative jitter (see docstring above): structure kept, rate/total varies.
+                lo, hi = gen_duration_jitter_mult
+                w = w * (lo + (hi - lo) * torch.rand_like(w))
+            if gen_fixed_duration is not None:
+                # Fixed duration per phoneme (in frames, e.g. 1), ignoring the duration predictor.
+                w = h_mask * float(gen_fixed_duration)
+            w_ceil = torch.ceil(w)  # durations ceiled; ceil of positive -> always >= 1 frame per phoneme
             y_lengths = torch.clamp_min(torch.sum(w_ceil, [1, 2]), 1).long()
             y_max_length = None
         else:

@@ -1721,6 +1721,8 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
     }
     if extra_config:
         base_config = dict_update_deep(base_config, extra_config)
+        if "__serialization_version_stats" in base_config:
+            base_config.pop("__serialization_version_stats")  # this is for prior above, should not be needed below
     if ctc_soft_collapse_threshold is not None:
         base_config.update(
             {
@@ -1841,6 +1843,14 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
             # (Linear is a bit wrong, because the encoder mem consumption is independent, but anyway...)
             "batch_size": int(
                 20_000 * ctc_model.definition.batch_size_factor * min(32 / first_pass_recog_beam_size, 1)
+            ),
+            # Pass the LM softmax temperature into the first-pass search too,
+            # so its WER is consistent with the tempered rescore and PPL.
+            # Only added when set, to keep existing (untempered) first-pass hashes unchanged.
+            **(
+                {"lm_softmax_temperature": lm_rescore_config["lm_softmax_temperature"]}
+                if lm_rescore_config and "lm_softmax_temperature" in lm_rescore_config
+                else {}
             ),
         },
         search_rqmt=first_pass_search_rqmt,

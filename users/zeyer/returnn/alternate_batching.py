@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 
 
 def alternate_batching(
-    dataset: torch.utils.data.IterableDataset, *, train: bool, **_kwargs
+    dataset: torch.utils.data.IterableDataset, *, train: bool, asr_key: str = "asr", **_kwargs
 ) -> torch.utils.data.IterableDataset:
     """
     Alternate batching, alternating between two kinds, ASR (speech+text) and LM (text-only).
@@ -38,4 +38,4 @@ def alternate_batching(
     if not train:
         return BatchingIterDataPipe(dataset, batch_size=batch_size, max_seqs=max_seqs)
 
-    return AlternateBatchingIterDataPipe(dataset, batch_size=batch_size, max_seqs=max_seqs)
+    return AlternateBatchingIterDataPipe(dataset, batch_size=batch_size, max_seqs=max_seqs, asr_key=asr_key)

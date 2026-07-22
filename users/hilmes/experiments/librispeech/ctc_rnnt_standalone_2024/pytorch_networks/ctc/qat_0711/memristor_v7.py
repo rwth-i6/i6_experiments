@@ -337,7 +337,11 @@ class ConformerConvolutionQuant(nn.Module):
     def prep_quant(self, decompose: bool):
         self.pointwise_conv1.weight_quantizer.set_scale_and_zp()
         self.pconv_1_in_quant.set_scale_and_zp()
-        from torch_memristor.memristor_modules import TiledMemristorLinear, MemristorConv1d
+        try:
+            from synaptogen_ml.memristor_modules.linear import TiledMemristorLinear
+            from synaptogen_ml.memristor_modules.conv import MemristorConv1d
+        except ModuleNotFoundError:
+            from torch_memristor.memristor_modules import TiledMemristorLinear, MemristorConv1d
 
         mem_lin = TiledMemristorLinear(
             in_features=self.pointwise_conv1.in_features,
@@ -374,7 +378,7 @@ class ConformerConvolutionQuant(nn.Module):
         mem_conv.init_from_conv_quant(
             activation_quant=self.dconv_1_in_quant,
             conv_quant=self.depthwise_conv,
-            num_cycles=self.model_cfg.num_cycles,
+            num_cycles_init=self.model_cfg.num_cycles,
             correction_settings=self.model_cfg.correction_settings,
         )
         # self.depth_tmp = self.depthwise_conv

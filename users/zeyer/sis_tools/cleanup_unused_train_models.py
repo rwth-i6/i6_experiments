@@ -15,7 +15,7 @@ import argparse
 import logging
 import time
 from functools import reduce
-from typing import TypeVar
+from typing import TypeVar, Optional
 
 _my_dir = os.path.dirname(__file__)
 _base_recipe_dir = reduce(lambda p, _: os.path.dirname(p), range(4), _my_dir)
@@ -50,6 +50,18 @@ def main():
         "--filter-work-dir-fs",
         nargs="*",
         help="if set, only consider jobs where the realpath of the work dir is a prefix of the realpath of this",
+    )
+    arg_parser.add_argument(
+        "--keep-last-n",
+        type=int,
+        default=11,
+        help="for active finished trainings, keep the best epochs plus the last N epochs (default 11)",
+    )
+    arg_parser.add_argument(
+        "--drop-optimizer",
+        action="store_true",
+        help="also remove optimizer state (*.opt.pt) of active finished trainings"
+        " (resume-only state, safe to drop once a training is done)",
     )
     args = arg_parser.parse_args()
 
@@ -146,6 +158,15 @@ def main():
     print("Num active train jobs:", len(active_train_job_paths_dict))
 
     print("Now checking all train jobs in work dir to find unused train jobs...")
+    own_work_realpath = os.path.realpath("work") + "/"
+    print("Building alias->job reverse map from the alias/ dir (to find aliases missing from info files)...")
+    alias_reverse_map = _build_alias_reverse_map()  # realpath(train job dir) -> [alias paths]
+    print("  found train aliases for", len(alias_reverse_map), "distinct job dirs.")
+    # Realpaths of the configs we were given; used to skip jobs created by a different config.
+    config_file_realpaths = {os.path.realpath(c) for c in args.config}
+    # 'Unused' jobs whose real storage is in ANOTHER setup (imported symlink, e.g. the shared LM):
+    # listed for transparency but NEVER collected for removal (deleting them corrupts the other setup).
+    imported_unused = []  # list of (alias-or-basename, fn, realpath)
     total_model_size_to_remove = 0
     total_train_job_count = 0
     train_job_with_models_to_remove = []
@@ -153,6 +174,18 @@ def main():
     model_fns_to_remove = []
     found_active_fns = set()  #  as a sanity check.
     covered_real_job_paths = set()
+    # Coverage accounting: total checkpoint (*.pt) bytes per bucket,
+    # to show how much of the train data this run reasons about vs leaves untouched (and why).
+    cov_size = {
+        "active_finished": 0,
+        "active_running": 0,
+        "unused_own_config": 0,
+        "skipped_diff_recipe": 0,
+        "skipped_imported": 0,
+        "skipped_no_ckpt": 0,
+    }
+    cov_count = {k: 0 for k in cov_size}
+    diff_recipe_size = {}  # recipe basename -> checkpoint bytes (for the breakdown)
     for basename in os.listdir("work/i6_core/returnn/training"):
         if not basename.startswith("ReturnnTrainingJob."):
             continue
@@ -181,35 +214,79 @@ def main():
 
         if fn in active_train_job_paths_dict:
             found_active_fns.add(fn)
+            job_obj = active_train_job_paths_dict[fn]
+            bucket = (
+                "active_finished"
+                if isinstance(job_obj, ReturnnTrainingJob) and job_obj._sis_finished()
+                else "active_running"
+            )
+            cov_size[bucket] += _model_ckpt_size(fn)
+            cov_count[bucket] += 1
             continue
 
         model_dir = fn + "/output/models"
         if not os.path.isdir(model_dir):
+            cov_count["skipped_no_ckpt"] += 1  # early error at file creation; no models dir
             continue  # can happen when there was an early error, e.g. at file creation
 
-        aliases = job_aliases_from_info.get_job_aliases(fn)
-        if aliases:
-            # Some alias could have been used multiple times.
-            # Ignore those.
-            aliases = [a for a in aliases if a not in unused_train_jobs]
-        alias = None
-        if not aliases:
-            print("No aliases found for train job:", fn)
+        # Jobs that errored (error.run.N exists) and have no checkpoint at all
+        # have nothing to clean up -- skip them silently (no alias resolution, no listing).
+        if not any(m.endswith(".pt") for m in os.listdir(model_dir)) and any(
+            b.startswith("error.run.") for b in os.listdir(fn)
+        ):
+            cov_count["skipped_no_ckpt"] += 1
+            continue
+
+        # Detect the recipe/config that created this job: the first non-Sisyphus stack frame
+        # in the info file. If it is not among the configs we were given, this job belongs to a
+        # different setup/config (e.g. exp2026_05_27_chunked_ctc_ls.py); skip it -- not ours to clean.
+        recipe_file = _recipe_file_from_info(fn)
+        if recipe_file is not None and recipe_file not in config_file_realpaths:
+            sz = _model_ckpt_size(fn)
+            cov_size["skipped_diff_recipe"] += sz
+            cov_count["skipped_diff_recipe"] += 1
+            rec_name = os.path.basename(recipe_file)
+            diff_recipe_size[rec_name] = diff_recipe_size.get(rec_name, 0) + sz
+            print("Skipping (created by a different config):", rec_name, "->", basename)
+            continue
+
+        # Aliases recorded in this job's own info file (assigned when it was created).
+        info_aliases = job_aliases_from_info.get_job_aliases(fn)
+        # Aliases that CURRENTLY resolve to this exact dir; the alias/ dir is authoritative.
+        # An alias is missing from the info file if it was re-assigned later or by another config;
+        # conversely the info alias may now point at a newer hash -- see the stale re-hash case.
+        current_aliases = alias_reverse_map.get(realpath, [])
+        if current_aliases:
+            # This dir is the live target of its alias(es).
+            name = current_aliases[0]
+        elif info_aliases:
+            # The alias in our info file now points at a newer hash:
+            # this dir is a stale re-hash orphan of that training (its checkpoints are outdated).
+            # Display it by its actual hash so it is never confused with the current training,
+            # and name the alias it is a stale copy of.
+            # (Several stale re-hashes of one training all carry the same ALIAS line.)
+            name = f"{basename} (stale re-hash; alias now points to a newer job hash: {info_aliases[0]})"
+            print("Stale re-hash:", name)
         else:
-            alias = aliases[0]
-            # alias_path = os.path.basename(os.readlink(alias))
-            # if alias_path != basename:
-            # Can happen, e.g. when cleared by Sisyphus due to error (cleared.0001 etc),
-            # or when I changed sth in the config due to some mistake.
-            # print("Warning: Alias path mismatch:", alias_path, "actual:", basename)
-            # But doesn't matter, clean up anyway, maybe even more so.
-            # pass
+            name = basename
+            print("No aliases found for train job:", fn)
+
+        # Jobs whose real storage lives in ANOTHER setup (imported symlink, e.g. the shared LM)
+        # must never be collected for removal -- deleting them corrupts the source setup.
+        # List them for transparency and move on.
+        if not realpath.startswith(own_work_realpath):
+            cov_size["skipped_imported"] += _model_ckpt_size(fn)
+            cov_count["skipped_imported"] += 1
+            imported_unused.append((name, fn, realpath))
+            continue
 
         # First collect all, and then go through them in sorted order below.
         # We do this because here the listdir order is totally arbitrary
         # (due to FS, but sorting by hash also would not help),
         # and to inspect the output, it's much more helpful when this is sorted in some way.
-        unused_train_jobs[alias or basename] = fn
+        if name in unused_train_jobs:
+            name = f"{name} [{basename}]"
+        unused_train_jobs[name] = fn
 
     print("Collecting model checkpoint files from unused train jobs to remove...")
     # Now go sorted.
@@ -230,8 +307,15 @@ def main():
             continue
         print("Unused train job:", name, "model size:", human_bytes_size(model_size))
         total_model_size_to_remove += model_size
+        cov_size["unused_own_config"] += model_size
+        cov_count["unused_own_config"] += 1
         train_job_with_models_to_remove.append(name)
 
+    print(
+        "Active-finished keep policy:",
+        f"best epochs + last {args.keep_last_n} epochs,",
+        "dropping optimizer states" if args.drop_optimizer else "keeping optimizer states",
+    )
     print("Collecting model checkpoint files from active finished train jobs to remove...")
     for job in active_train_job_finished_list:
         job: ReturnnTrainingJob
@@ -248,9 +332,9 @@ def main():
             continue
         # Relevant epochs so far only contains the best from the learning rate scores.
         # Those are not necessarily e.g. the final epochs, or other fixed kept epochs.
-        # Always keep the 10 last epochs.
+        # Also keep the last N epochs (default 11; --keep-last-n).
         last_epoch = max(job.out_checkpoints.keys())
-        relevant_epochs.extend(range(last_epoch - 10, last_epoch + 1))
+        relevant_epochs.extend(range(last_epoch - (args.keep_last_n - 1), last_epoch + 1))
         model_dir = job.out_model_dir.get_path()
         model_fns_to_remove_ = []
         model_size = 0
@@ -263,7 +347,10 @@ def main():
                     print("Unexpected model file:", model_base_fn.name)
                     continue
                 if model_base_fn.name.endswith(".opt.pt"):
-                    continue  # ignore optimizer state. this is the last epoch. keep it
+                    if args.drop_optimizer:
+                        model_fns_to_remove_.append(model_base_fn.path)
+                        model_size += model_base_fn.stat().st_size
+                    continue  # else keep optimizer state (resume-only; this is the last epoch)
                 epoch = int(re.match("epoch\\.([0-9]+)\\.pt", model_base_fn.name).group(1))
                 if epoch in relevant_epochs:
                     epochs_to_keep.add(epoch)
@@ -298,6 +385,34 @@ def main():
     if not train_job_with_models_to_remove:
         print(" (none)")
     print("Can remove total model size:", human_bytes_size(total_model_size_to_remove))
+
+    # Coverage report: of all train-job checkpoint (*.pt) data in the work dir,
+    # how much this run reasons about ("covered") vs leaves untouched, and why.
+    covered = cov_size["active_finished"] + cov_size["active_running"] + cov_size["unused_own_config"]
+    not_covered = cov_size["skipped_diff_recipe"] + cov_size["skipped_imported"] + cov_size["skipped_no_ckpt"]
+    _hb = human_bytes_size
+    print("")
+    print("=== Checkpoint (*.pt) coverage report ===")
+    print("Total checkpoint data scanned:", _hb(covered + not_covered))
+    print("Covered (this run reasons about these):", _hb(covered))
+    print("  active, finished: ", _hb(cov_size["active_finished"]), f"({cov_count['active_finished']} jobs)")
+    print("  active, running:  ", _hb(cov_size["active_running"]), f"({cov_count['active_running']} jobs)")
+    print(
+        "  unused (our cfg): ",
+        _hb(cov_size["unused_own_config"]),
+        f"({cov_count['unused_own_config']} jobs) -> fully removable",
+    )
+    print("Not covered (left untouched):", _hb(not_covered))
+    print("  different recipe: ", _hb(cov_size["skipped_diff_recipe"]), f"({cov_count['skipped_diff_recipe']} jobs)")
+    print("  imported elsewhere:", _hb(cov_size["skipped_imported"]), f"({cov_count['skipped_imported']} jobs)")
+    print("  no checkpoint:    ", _hb(cov_size["skipped_no_ckpt"]), f"({cov_count['skipped_no_ckpt']} jobs)")
+    if diff_recipe_size:
+        print("  different-recipe breakdown (by recipe):")
+        for rec_name, sz in sorted(diff_recipe_size.items(), key=lambda kv: -kv[1]):
+            print("    ", rec_name, _hb(sz))
+    print("Of covered, removable now:", _hb(total_model_size_to_remove))
+    print("")
+
     if len(found_active_fns) != len(active_train_job_paths_dict):
         print("ERROR: Did not find some active jobs:")
         for fn in active_train_job_paths_dict:
@@ -313,6 +428,81 @@ def main():
         print("Dry-run mode, not removing. (use --mode remove to actually remove)")
     else:
         raise ValueError("invalid mode: %r" % args.mode)
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _model_ckpt_size(job_dir: str) -> int:
+    """
+    Sum the size of all model checkpoint files (``*.pt``, incl. ``*.opt.pt``)
+    under ``<job_dir>/output/models``.
+    Returns 0 if the models dir does not exist yet.
+    """
+    model_dir = job_dir + "/output/models"
+    total = 0
+    try:
+        with os.scandir(model_dir) as it:
+            for e in it:
+                if e.name.endswith(".pt"):
+                    total += e.stat().st_size
+    except FileNotFoundError:
+        pass
+    return total
+
+
+def _recipe_file_from_info(job_dir: str) -> Optional[str]:
+    """
+    Parse the job's info file STACKTRACE and return the first non-Sisyphus source file --
+    the recipe/config entry point that created the job -- as an absolute realpath,
+    or None if it cannot be determined.
+    """
+    try:
+        with open(job_dir + "/info") as f:
+            lines = f.readlines()
+    except OSError:
+        return None
+    in_trace = False
+    for line in lines:
+        if line.startswith("STACKTRACE:"):
+            in_trace = True
+            continue
+        if not in_trace:
+            continue
+        clean = _ANSI_RE.sub("", line)
+        m = re.search(r'File "([^"]+)", line ', clean)
+        if not m:
+            continue
+        path = m.group(1)
+        # Skip Sisyphus framework frames: the 'sis' launcher and everything under tools/sisyphus/.
+        if "/sisyphus/" in path or os.path.basename(path) == "sis":
+            continue
+        return os.path.realpath(path)
+    return None
+
+
+def _build_alias_reverse_map() -> dict:
+    """
+    Scan the ``alias/`` dir for symlinks pointing at ReturnnTrainingJob dirs,
+    and build a map ``realpath(job dir) -> [alias paths]``.
+
+    The ``info`` file of a job only lists the alias(es) assigned by the config that created it;
+    aliases assigned later, or by a different config, are missing there.
+    The ``alias/`` dir is the authoritative source for which job an alias currently points at.
+    """
+    reverse_map = {}
+    if not os.path.isdir("alias"):
+        return reverse_map
+    for root, dirs, files in os.walk("alias", followlinks=False):
+        for name in dirs + files:
+            path = os.path.join(root, name)
+            if not os.path.islink(path):
+                continue
+            target = os.path.realpath(path)
+            if "/ReturnnTrainingJob." not in target:
+                continue
+            reverse_map.setdefault(target, []).append(path)
+    return reverse_map
 
 
 def _rel_job_path(job_path: str) -> str:

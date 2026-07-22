@@ -17,7 +17,7 @@ from ...report import generate_report
 from ...rasr_recog_config import get_tree_timesync_recog_config, get_no_op_label_scorer_config
 import os
 
-from ...tune_eval import eval_model, build_base_report
+from ...tune_eval import eval_model, build_qat_report, build_qat_report_v2
 
 def bpe_loq_medium_1025():
     BPE_SIZE = 128
@@ -195,7 +195,7 @@ def bpe_loq_medium_1025():
         train_args["net_args"] = {"model_config_dict": asdict(model_config)}
         train_args["config"] = train_config_24gbgpu_amp
 
-        training_name = prefix_name + "/" + network_module_pos_enc_v1 + f".512dim_sub{4}_48gbgpu_{epochs//PARTITION_EPOCH}eps_sp_lp_fullspec_gradnorm_smallbatch"
+        training_name = prefix_name + "/" + network_module_pos_enc_v1 + f".512dim_sub{4}_48gbgpu_{epochs//PARTITION_EPOCH}eps_sp_lp_fullspec_gradnorm_smallbatch_baseline"
         train_job = training(training_name, train_data_bpe, train_args, num_epochs=epochs, **default_returnn)
         train_job.rqmt["gpu_mem"] = 48
         if not os.path.exists(f"{train_job._sis_path()}/finished.run.1"):  # sync back was successful
@@ -222,13 +222,21 @@ def bpe_loq_medium_1025():
             run_test=True,
             loss_name="dev_loss_ctc_loss_layer12"
         )
-        full_results[training_name + "_full_dev"] = {"dev_all": results.pop(training_name + f"/{epochs}" + "_dev_all", None)}
-        full_results[training_name + "_full_test"] = {"test_all": results.pop(training_name + f"/{epochs}" + "_test_all", None)}
-        generate_report(results=results, exp_name=training_name)
-        full_results[training_name] = copy.deepcopy(results)
+        dev_results = {"dev_all": results.pop(training_name + f"/{epochs}" + "_dev_all", None)}
+        full_results[training_name + "_full_dev"] = dev_results
+        test_results = {"test_all": results.pop(training_name + f"/{epochs}" + "_test_all", None)}
+        for set_name in ['yodas', 'librispeech', 'voxpopuli', 'commonvoice']:
+            dev = {set_name: results.pop(training_name + f"/{epochs}" + f"/dev.{set_name}", None)}
+            test = {set_name: results.pop(training_name + f"/{epochs}" + f"/test.{set_name}", None)}
+            full_results[training_name + f"_dev_{set_name}"] = dev
+            full_results[training_name + f"_test_{set_name}"] = test
+        full_results[training_name + "_full_test"] = test_results
+        generate_report(results=results, exp_name=training_name + "/non_memristor")
+        full_results[training_name] = results
 
     network_module_mem_v9 = "ctc.memristor_1025.memristor_v9"
     network_module_mem_v10 = "ctc.memristor_1025.memristor_v10"
+    network_module_mem_v11 = "ctc.memristor_1025.memristor_v11"
 
     from torch_memristor.memristor_modules import DacAdcHardwareSettings, CycleCorrectionSettings
     train_dac_settings = DacAdcHardwareSettings(
@@ -338,8 +346,15 @@ def bpe_loq_medium_1025():
                         test_dataset_tuples={**dev_dataset_tuples, **test_dataset_tuples},
                         run_test=True,
                     )
-                    full_results[training_name + "_full_dev"] = {"dev_all": results.pop(training_name + f"/{epochs}" + "_dev_all", None)}
-                    full_results[training_name + "_full_test"] = {"test_all": results.pop(training_name + f"/{epochs}" + "_test_all", None)}
+                    dev_results = {"dev_all": results.pop(training_name + f"/{epochs}" + "_dev_all", None)}
+                    full_results[training_name + "_full_dev"] = dev_results
+                    test_results = {"test_all": results.pop(training_name + f"/{epochs}" + "_test_all", None)}
+                    for set_name in ['yodas', 'librispeech', 'voxpopuli', 'commonvoice']:
+                        dev = {set_name: results.pop(training_name + f"/{epochs}" + f"/dev.{set_name}", None)}
+                        test = {set_name: results.pop(training_name + f"/{epochs}" + f"/test.{set_name}", None)}
+                        full_results[training_name + f"_dev_{set_name}"] = dev
+                        full_results[training_name + f"_test_{set_name}"] = test
+                    full_results[training_name + "_full_test"] = test_results
                     generate_report(results=results, exp_name=training_name + "/non_memristor")
                     full_results[training_name] = results
 
@@ -351,17 +366,31 @@ def bpe_loq_medium_1025():
                         hardware_input_vmax=0.6,
                         hardware_output_current_scaling=8020.0,
                     )
-                    for num_cycles in range(1, 3):
-                        model_config_recog = copy.deepcopy(model_config)
+                    from ...pytorch_networks.ctc.memristor_1025.memristor_v11_cfg import \
+                        QuantModelTrainConfigV11 as MemristorModelTrainConfigV11
+                    posenc_dac_settings = DacAdcHardwareSettings(
+                        input_bits=8,
+                        output_precision_bits=1,
+                        output_range_bits=7,
+                        hardware_input_vmax=0.6,
+                        hardware_output_current_scaling=8020.0,
+                    )
+                    res_ideal = {}
+                    for num_cycles in range(1, 4):
+                        model_config_recog = MemristorModelTrainConfigV11(
+                            **model_config.__dict__,
+                            pos_enc_converter_hardware_settings=None,
+                        )
                         model_config_recog.converter_hardware_settings = recog_dac_settings
                         model_config_recog.num_cycles = num_cycles
+                        model_config_recog.pos_enc_converter_hardware_settings = posenc_dac_settings
 
                         prior_args = copy.deepcopy(train_args)
                         train_args_recog = copy.deepcopy(train_args)
                         train_args_recog["net_args"] = {"model_config_dict": asdict(model_config_recog)}
-                        train_args_recog["network_module"] = network_module_mem_v10
+                        train_args_recog["network_module"] = network_module_mem_v11
 
-                        recog_name = prefix_name + "/" + network_module_mem_v10 + f"_{weight_bit}_{activation_bit}_seed_{seed}/cycle_{num_cycles // 11}"
+                        recog_name = prefix_name + "/" + network_module_mem_v11 + f"_{weight_bit}_{activation_bit}_seed_{seed}/cycle_{num_cycles // 11}"
                         res_conv = eval_model(
                             training_name=recog_name + f"_{num_cycles}",
                             train_job=train_job,
@@ -370,13 +399,13 @@ def bpe_loq_medium_1025():
                             decoder_config=rasr_config_memristor,
                             dev_dataset_tuples=short_dev_dataset_tuples,
                             result_dict=res_conv,
-                            decoder_module="ctc.decoder.rasr_ctc_v1",
-                            prior_scales=[best_params_job.out_optimal_parameters[1]],
+                            decoder_module="ctc.decoder.rasr_ctc_v1_batched",
+                            prior_scales=[0.5],
                             lm_scales=[(best_params_job.out_optimal_parameters[0], "best")],
                             use_gpu=True,
                             import_memristor=True,
                             extra_forward_config={
-                                "batch_size": 7000000 * 2,
+                                "batch_size": 3500000 if not weight_bit in [8] else 2500000,
                             },
                             run_best_4=False,
                             run_best=False,
@@ -385,16 +414,70 @@ def bpe_loq_medium_1025():
                             run_rasr=True,
                             split_mem_init=True,
                         )
-                    res_seeds_total.update(res_conv)
-                    recog_name = prefix_name + "/" + network_module_mem_v9 + f"_{weight_bit}_{activation_bit}_seed_{seed}_cycle"
+                        model_config_ideal = copy.deepcopy(model_config_recog)
+                        train_dac_settings_ideal = DacAdcHardwareSettings(
+                            input_bits=8,
+                            output_precision_bits=4,
+                            output_range_bits=4,
+                            hardware_input_vmax=0.6,
+                            hardware_output_current_scaling=5476.0,
+                        )
+
+                        posenc_dac_settings_ideal = DacAdcHardwareSettings(
+                            input_bits=8,
+                            output_precision_bits=1,
+                            output_range_bits=7,
+                            hardware_input_vmax=0.6,
+                            hardware_output_current_scaling=5476.0,
+                        )
+                        from synaptogen_ml.memristor_modules.config import CycleCorrectionSettings
+                        ideal = CycleCorrectionSettings(
+                            num_cycles=None,
+                            test_input_value=None,
+                            relative_deviation=None,
+                            ideal_programming=True
+                        )
+                        model_config_ideal.correction_settings = ideal
+                        model_config_ideal.converter_hardware_settings = train_dac_settings_ideal
+                        model_config_ideal.pos_enc_converter_hardware_settings = posenc_dac_settings_ideal
+                        train_args_recog = copy.deepcopy(train_args)
+                        train_args_recog['debug'] = True
+                        train_args_recog["net_args"] = {"model_config_dict": asdict(model_config_ideal)}
+                        train_args_recog["network_module"] = network_module_mem_v11
+                        recog_name_ideal = prefix_name + "/" + network_module_mem_v11 + f"_{weight_bit}_{activation_bit}_ideal_seed_{seed}/cycle_{num_cycles // 11}"
+                        res_ideal = eval_model(
+                            training_name=recog_name_ideal + f"_{num_cycles}",
+                            train_job=train_job,
+                            train_args=train_args_recog,
+                            train_data=train_data_bpe,
+                            decoder_config=rasr_config_memristor,
+                            dev_dataset_tuples=short_dev_dataset_tuples,
+                            result_dict=res_ideal,
+                            decoder_module="ctc.decoder.rasr_ctc_v1_batched",
+                            prior_scales=[0.5],
+                            lm_scales=[(best_params_job.out_optimal_parameters[0], "best")],
+                            use_gpu=True,
+                            import_memristor=True,
+                            extra_forward_config={
+                                "batch_size": 3500000 if not weight_bit in [8] else 2500000,
+                            },
+                            run_best_4=False,
+                            run_best=False,
+                            prior_args=prior_args,
+                            run_search_on_hpc=False,
+                            run_rasr=True,
+                            split_mem_init=True,
+                        )
+
+                    recog_name = prefix_name + "/" + network_module_mem_v11 + f"_{weight_bit}_{activation_bit}_seed_{seed}_cycle"
                     generate_report(results=res_conv, exp_name=recog_name)
                     full_results[recog_name] = copy.deepcopy(res_conv)
+                    if len(res_ideal) > 0:
+                        recog_name = prefix_name + "/" + network_module_mem_v11 + f"_{weight_bit}_{activation_bit}_ideal_seed_{seed}_cycle"
+                        generate_report(results=res_ideal, exp_name=recog_name)
+                        full_results[recog_name] = copy.deepcopy(res_ideal)
 
-                continue  # TODO: remove once pipeline is working
-                recog_name = prefix_name + "/" + network_module_mem_v9 + f"_{weight_bit}_{activation_bit}_seeds_combined_cycle"
-                generate_report(results=res_seeds_total, exp_name=recog_name)
-                full_results[recog_name] = copy.deepcopy(res_seeds_total)
-
-
-    tk.register_report("reports/loquacious/medium_baseline_report", partial(build_base_report, full_results, False), required=full_results, update_frequency=600)
+    # tk.register_report("reports/loquacious/medium_baseline_report", partial(build_qat_report, full_results, False), required=full_results, update_frequency=600)
+    tk.register_report("reports/loquacious/v2/medium_baseline", partial(build_qat_report_v2, full_results),
+                       required=full_results, update_frequency=600)
 

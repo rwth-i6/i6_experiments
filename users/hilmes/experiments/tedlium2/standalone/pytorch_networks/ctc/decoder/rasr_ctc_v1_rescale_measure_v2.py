@@ -42,8 +42,8 @@ class I6EnergyCapture:
         self.client = paho.Client()
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
-        assert os.environ.get("MQTT_USERNAME") and os.environ.get("MQTT_PASSWORD")
-        self.client.username_pw_set(os.environ.get("MQTT_USERNAME"), password=os.environ.get("MQTT_PASSWORD"))
+        # assert os.environ.get("MQTT_USERNAME") and os.environ.get("MQTT_PASSWORD")
+        self.client.username_pw_set(os.environ.get("MQTT_USERNAME", "i6"), password=os.environ.get("MQTT_PASSWORD", "1801"))
         self.connected = False
         self.device = device
         # self.last_power = None
@@ -182,6 +182,18 @@ def forward_init_hook(run_ctx, **kwargs):
         print("Use decomposed version, should match training")
     elif config.turn_off_quant == "leave_as_is":
         print("Use same version as in training")
+    elif config.turn_off_quant == True:
+        print("Turn off quantizers")
+        run_ctx.engine._model.remove_quant()
+    elif config.turn_off_quant == "real_torch":
+        print("Use the explicit torch quantization")
+        run_ctx.engine._model.real_torch_quant()
+    elif config.turn_off_quant == "real_torch_conv":
+        print("Use the explicit torch quantization with CONV")
+        run_ctx.engine._model.real_torch_quant(conv=True)
+    elif config.turn_off_quant == "real_torch_ident":
+        print("Use the explicit torch quantization with Pseudo quantized Conv")
+        run_ctx.engine._model.real_torch_quant(conv="ident")
     else:
         raise NotImplementedError
         run_ctx.engine._model.prep_dequant()  # TODO: needs fix

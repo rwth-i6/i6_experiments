@@ -272,6 +272,10 @@ def prepare_memristor(
         returnn_root=returnn_root,
         output_files=["converted_model.pt"],
     )
+    if any(str(x) in prefix_name for x in [1536]):
+        search_job.rqmt["mem"] += 24
+    if any(str(x) in prefix_name for x in [2048]):
+        search_job.rqmt["mem"] += 12
     search_job.add_alias(prefix_name + "/prepare_mem_job")
     search_job.set_keep_value(10)
     # search_job.set_vis_name(prefix_name + "/prior_job")
@@ -434,9 +438,9 @@ def prepare_asr_model(
             returnn_root=MINI_RETURNN_ROOT,
         )
         tk.register_output(training_name + "/prior.txt", prior_file)
-    else:
-        if prior_config is not None:
-            raise ValueError("prior_config can only be set if with_prior is True")
+    # else:
+    #     if prior_config is not None:
+    #         raise ValueError("prior_config can only be set if with_prior is True")
 
     if split_preparation:
         assert split_args is not None

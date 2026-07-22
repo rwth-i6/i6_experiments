@@ -36,6 +36,12 @@ from .memristor_v8_cfg import (
 )
 from .memristor_v10_modules_mem_inited import ActivationQuantizer, QuantizedMultiheadAttention
 
+try:
+    from torch_memristor.memristor_modules import TiledMemristorLinear, MemristorConv1d
+except ModuleNotFoundError:
+    from synaptogen_ml.memristor_modules.linear import TiledMemristorLinear
+    from synaptogen_ml.memristor_modules.conv import MemristorConv1d
+
 # from lovely_tensors import monkey_patch
 
 
@@ -50,7 +56,6 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
 
         self.model_cfg = cfg
         self.layer_norm = nn.LayerNorm(cfg.input_dim)
-        from torch_memristor.memristor_modules import TiledMemristorLinear
         self.linear_ff = TiledMemristorLinear(
             in_features=cfg.input_dim,
             out_features=cfg.hidden_dim,
@@ -169,7 +174,6 @@ class ConformerConvolutionQuant(nn.Module):
         """
         super().__init__()
         model_cfg.check_valid()
-        from torch_memristor.memristor_modules import TiledMemristorLinear, MemristorConv1d
 
         self.model_cfg = model_cfg
 
@@ -488,7 +492,6 @@ class Model(torch.nn.Module):
 
         self.num_output_linears = 1 if self.train_config.aux_ctc_loss_layers is None else len(self.train_config.aux_ctc_loss_layers)
         if self.train_config.quantize_output is True:
-            from torch_memristor.memristor_modules import TiledMemristorLinear
             self.lin_out = TiledMemristorLinear(
                 in_features=self.train_config.conformer_size,
                 out_features=self.train_config.label_target_size + 1,
@@ -658,3 +661,38 @@ def mem_finish_hook(run_ctx, **kwargs):
 
 def mem_step(*, model: Model, data, run_ctx, **kwargs):
     pass
+
+
+def compute_stats_init_hook(run_ctx, **kwargs):
+    run_ctx.engine._model.prep_quant()
+    for block in run_ctx.engine._model.conformer.module_list:
+        for layer in block.module_list:
+            if isinstance(layer, ConformerMHSAQuant):
+                layer.mhsa.track_stats = True
+    run_ctx.runs = 0
+
+def compute_stats_finish_hook(run_ctx, **kwargs):
+    dc = {}
+    from lovely_tensors import monkey_patch
+    monkey_patch()
+    for i in range(len(run_ctx.engine._model.conformer.module_list)):
+        for layer in run_ctx.engine._model.conformer.module_list[i].module_list:
+            if isinstance(layer, ConformerMHSAQuant):
+                stack = torch.concatenate(layer.mhsa.stats, dim=0)
+                dc[i] = stack
+                print(f"Layer {i}: Mean:", torch.mean(stack), "Std:", torch.std(stack), "Min:", torch.min(stack), f"Max:", torch.max(stack))
+                # print(f"Quantile 0.25, 0.75, 0.9, 0.99", torch.quantile(stack, torch.tensor([0.25, 0.75, 0.9, 0.99])))
+    import pickle as pkl
+    with open("stats.pkl", "wb") as f:
+        pkl.dump(dc, f)
+
+def compute_stats_step(*, model: Model, data, run_ctx, **kwargs):
+    if run_ctx.runs < 120:
+        raw_audio = data["raw_audio"]  # [B, T', F]
+        raw_audio_len = data["raw_audio:size1"]  # [B]
+
+        _, _ = model(
+            raw_audio=raw_audio,
+            raw_audio_len=raw_audio_len,
+        )
+        run_ctx.runs += 1

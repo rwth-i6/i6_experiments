@@ -47,192 +47,6 @@ from returnn.frontend.encoder.conformer import (
 )
 
 
-class ChunkedConformerConvBlock(rf.Module):
-    """
-    Conformer convolution block
-        FF -> GLU -> depthwise conv -> BN -> Swish -> FF
-    """
-
-    def __init__(
-        self,
-        out_dim: Dim,
-        *,
-        kernel_size: int,
-        norm: Union[rf.BatchNorm, Any],
-        chunk_history: int,
-        end_chunk_size_dim: Dim,
-    ):
-        """
-        :param out_dim: output feature dimension
-        :param kernel_size: kernel size of depthwise convolution
-        :param norm: Batch norm originally
-        :param chunk_history:
-        :param end_chunk_size_dim:
-        """
-        super().__init__()
-        self.out_dim = out_dim
-
-        self.positionwise_conv1 = rf.Linear(out_dim, 2 * out_dim)
-        self.depthwise_conv = rf.Conv1d(
-            out_dim, out_dim, filter_size=kernel_size, groups=out_dim.dimension, padding="same"
-        )
-        self.positionwise_conv2 = rf.Linear(out_dim, out_dim)
-        self.norm = norm
-
-        self.chunk_history = chunk_history
-        self.end_chunk_size_dim = end_chunk_size_dim
-
-    def __call__(self, inp: Tensor, *, spatial_dim: Dim, chunked_time_dim: Dim) -> Tensor:
-        """forward"""
-        x_conv1 = self.positionwise_conv1(inp)
-        x_act, _ = rf.gating(x_conv1)
-        x_act, ext_spatial_dim = _mem_chunks(
-            x_act,
-            spatial_dim=spatial_dim,
-            chunked_time_dim=chunked_time_dim,
-            mem_size=self.chunk_history,
-            end_chunk_size_dim=self.end_chunk_size_dim,
-        )
-        x_depthwise_conv, _ = self.depthwise_conv(x_act, in_spatial_dim=ext_spatial_dim)
-        x_depthwise_conv, _ = rf.slice(
-            x_depthwise_conv,
-            axis=ext_spatial_dim,
-            start=self.chunk_history * self.end_chunk_size_dim.get_dim_value_tensor(),
-            out_dim=spatial_dim,
-        )
-        x_normed = self.norm(x_depthwise_conv)
-        x_swish = rf.swish(x_normed)
-        x_conv2 = self.positionwise_conv2(x_swish)
-        return x_conv2
-
-
-class ChunkedConformerEncoderLayer(rf.Module):
-    """
-    Represents a conformer block
-    """
-
-    def __init__(
-        self,
-        out_dim: Dim = Dim(512, name="conformer-enc-default-out-dim"),
-        *,
-        chunk_history: int,
-        end_chunk_size_dim: Dim,
-        ff: Union[type, Dict[str, Any], rf.Module] = NotSpecified,
-        ff_dim: Dim = NotSpecified,
-        ff_activation: Union[Callable[[Tensor], Tensor], Dict[str, Any], rf.Module] = NotSpecified,
-        dropout: float = 0.1,
-        conv_kernel_size: int = 32,
-        conv_norm: Union[rf.BatchNorm, type, Any] = NotSpecified,
-        conv_norm_opts: Optional[Dict[str, Any]] = None,
-        num_heads: int = 4,
-        self_att: Optional[Union[rf.RelPosSelfAttention, rf.Module, type, Any]] = None,
-        self_att_opts: Optional[Dict[str, Any]] = None,
-        att_dropout: float = 0.1,
-        norm: Union[type, Dict[str, Any], rf.Module, Callable] = rf.LayerNorm,
-    ):
-        """
-        :param out_dim: the output feature dimension
-        :param chunk_history:
-        :param end_chunk_size_dim:
-        :param ff_dim: the dimension of feed-forward layers. 2048 originally, or 4 times out_dim
-        :param ff_activation: activation function for feed-forward network
-        :param dropout: the dropout value for the FF block
-        :param conv_kernel_size: the kernel size of depthwise convolution in the conv block
-        :param conv_norm: used for the conv block. Batch norm originally
-        :param conv_norm_opts: for nn.BatchNorm or other conv_norm type.
-          In case of nn.BatchNorm, uses use_mask=False by default.
-            use_mask means whether to properly mask the spatial dim in batch norm.
-            Most existing implementations don't do this. Except of RETURNN.
-            It's faster when you don't do this.
-        :param num_heads: the number of attention heads
-        :param self_att: the self-attention layer. RelPosSelfAttention originally and default
-        :param self_att_opts: options for the self-attention layer, for :class:`nn.RelPosSelfAttention`
-        :param att_dropout: attention dropout value
-        """
-        super().__init__()
-
-        self.dropout = dropout
-        self.dropout_broadcast = rf.dropout_broadcast_default()
-        self.out_dim = out_dim
-        self.chunk_history = chunk_history
-        self.end_chunk_size_dim = end_chunk_size_dim
-
-        self.ffn1 = make_ff(ff=ff, out_dim=out_dim, ff_dim=ff_dim, dropout=dropout, ff_activation=ff_activation)
-        self.ffn1_layer_norm = make_norm(norm, out_dim)
-
-        self.ffn2 = make_ff(ff=ff, out_dim=out_dim, ff_dim=ff_dim, dropout=dropout, ff_activation=ff_activation)
-        self.ffn2_layer_norm = make_norm(norm, out_dim)
-
-        if conv_norm is NotSpecified or conv_norm is rf.BatchNorm:
-            conv_norm_opts = conv_norm_opts.copy() if conv_norm_opts else {}
-            conv_norm_opts.setdefault("use_mask", False)
-            conv_norm = rf.BatchNorm(out_dim, **conv_norm_opts)
-        elif isinstance(conv_norm, type):
-            conv_norm = conv_norm(out_dim, **(conv_norm_opts or {}))
-        elif isinstance(conv_norm, dict):
-            conv_norm = rf.build_from_dict(conv_norm, out_dim, **(conv_norm_opts or {}))
-        self.conv_block = ChunkedConformerConvBlock(
-            out_dim=out_dim,
-            kernel_size=conv_kernel_size,
-            norm=conv_norm,
-            chunk_history=chunk_history,
-            end_chunk_size_dim=end_chunk_size_dim,
-        )
-        self.conv_layer_norm = rf.LayerNorm(out_dim)
-
-        if self_att is None or isinstance(self_att, (dict, type)):
-            self_att_opts_ = dict(
-                in_dim=out_dim,
-                proj_dim=out_dim,
-                key_dim_total=out_dim,
-                value_dim_total=out_dim,
-                num_heads=num_heads,
-                att_dropout=att_dropout,
-            )
-            if self_att_opts:
-                self_att_opts_.update(self_att_opts)
-            if self_att is None:
-                self.self_att = ChunkedRelPosSelfAttention(
-                    chunk_history=chunk_history, end_chunk_size_dim=end_chunk_size_dim, **self_att_opts_
-                )
-            elif isinstance(self_att, dict):
-                self_att_opts_ = {k: v for (k, v) in self_att_opts_.items() if k not in self_att}
-                self.self_att = rf.build_from_dict(self_att, **self_att_opts_)
-            else:
-                self.self_att = self_att(**self_att_opts_)
-        else:
-            self.self_att = self_att
-        self.self_att_layer_norm = rf.LayerNorm(out_dim)
-
-        self.final_layer_norm = rf.LayerNorm(out_dim)
-
-    def __call__(self, inp: Tensor, *, spatial_dim: Dim, chunked_time_dim: Dim) -> Tensor:
-        """forward"""
-        # FFN
-        x_ffn1_ln = self.ffn1_layer_norm(inp)
-        x_ffn1 = self.ffn1(x_ffn1_ln)
-        x_ffn1_out = 0.5 * rf.dropout(x_ffn1, self.dropout, axis=self.dropout_broadcast and self.out_dim) + inp
-
-        # MHSA
-        x_mhsa_ln = self.self_att_layer_norm(x_ffn1_out)
-        x_mhsa = self.self_att(x_mhsa_ln, axis=spatial_dim, chunked_time_dim=chunked_time_dim)
-        x_mhsa = rf.dropout(x_mhsa, self.dropout, axis=self.dropout_broadcast and self.out_dim)
-        x_mhsa_out = x_mhsa + x_ffn1_out
-
-        # Conv
-        x_conv_ln = self.conv_layer_norm(x_mhsa_out)
-        x_conv = self.conv_block(x_conv_ln, spatial_dim=spatial_dim, chunked_time_dim=chunked_time_dim)
-        x_conv_out = rf.dropout(x_conv, self.dropout, axis=self.dropout_broadcast and self.out_dim) + x_mhsa_out
-
-        # FFN
-        x_ffn2_ln = self.ffn2_layer_norm(x_conv_out)
-        x_ffn2 = self.ffn2(x_ffn2_ln)
-        x_ffn2_out = 0.5 * rf.dropout(x_ffn2, self.dropout, axis=self.dropout_broadcast and self.out_dim) + x_conv_out
-
-        # last LN layer
-        return self.final_layer_norm(x_ffn2_out)
-
-
 class ChunkedConformerEncoder(rf.Module):
     """
     Represents Conformer encoder architecture
@@ -390,6 +204,192 @@ class ChunkedConformerEncoder(rf.Module):
                 collected_outputs[k] = v
 
         return x, out_spatial_dim_
+
+
+class ChunkedConformerEncoderLayer(rf.Module):
+    """
+    Represents a conformer block
+    """
+
+    def __init__(
+        self,
+        out_dim: Dim = Dim(512, name="conformer-enc-default-out-dim"),
+        *,
+        chunk_history: int,
+        end_chunk_size_dim: Dim,
+        ff: Union[type, Dict[str, Any], rf.Module] = NotSpecified,
+        ff_dim: Dim = NotSpecified,
+        ff_activation: Union[Callable[[Tensor], Tensor], Dict[str, Any], rf.Module] = NotSpecified,
+        dropout: float = 0.1,
+        conv_kernel_size: int = 32,
+        conv_norm: Union[rf.BatchNorm, type, Any] = NotSpecified,
+        conv_norm_opts: Optional[Dict[str, Any]] = None,
+        num_heads: int = 4,
+        self_att: Optional[Union[rf.RelPosSelfAttention, rf.Module, type, Any]] = None,
+        self_att_opts: Optional[Dict[str, Any]] = None,
+        att_dropout: float = 0.1,
+        norm: Union[type, Dict[str, Any], rf.Module, Callable] = rf.LayerNorm,
+    ):
+        """
+        :param out_dim: the output feature dimension
+        :param chunk_history:
+        :param end_chunk_size_dim:
+        :param ff_dim: the dimension of feed-forward layers. 2048 originally, or 4 times out_dim
+        :param ff_activation: activation function for feed-forward network
+        :param dropout: the dropout value for the FF block
+        :param conv_kernel_size: the kernel size of depthwise convolution in the conv block
+        :param conv_norm: used for the conv block. Batch norm originally
+        :param conv_norm_opts: for nn.BatchNorm or other conv_norm type.
+          In case of nn.BatchNorm, uses use_mask=False by default.
+            use_mask means whether to properly mask the spatial dim in batch norm.
+            Most existing implementations don't do this. Except of RETURNN.
+            It's faster when you don't do this.
+        :param num_heads: the number of attention heads
+        :param self_att: the self-attention layer. RelPosSelfAttention originally and default
+        :param self_att_opts: options for the self-attention layer, for :class:`nn.RelPosSelfAttention`
+        :param att_dropout: attention dropout value
+        """
+        super().__init__()
+
+        self.dropout = dropout
+        self.dropout_broadcast = rf.dropout_broadcast_default()
+        self.out_dim = out_dim
+        self.chunk_history = chunk_history
+        self.end_chunk_size_dim = end_chunk_size_dim
+
+        self.ffn1 = make_ff(ff=ff, out_dim=out_dim, ff_dim=ff_dim, dropout=dropout, ff_activation=ff_activation)
+        self.ffn1_layer_norm = make_norm(norm, out_dim)
+
+        self.ffn2 = make_ff(ff=ff, out_dim=out_dim, ff_dim=ff_dim, dropout=dropout, ff_activation=ff_activation)
+        self.ffn2_layer_norm = make_norm(norm, out_dim)
+
+        if conv_norm is NotSpecified or conv_norm is rf.BatchNorm:
+            conv_norm_opts = conv_norm_opts.copy() if conv_norm_opts else {}
+            conv_norm_opts.setdefault("use_mask", False)
+            conv_norm = rf.BatchNorm(out_dim, **conv_norm_opts)
+        elif isinstance(conv_norm, type):
+            conv_norm = conv_norm(out_dim, **(conv_norm_opts or {}))
+        elif isinstance(conv_norm, dict):
+            conv_norm = rf.build_from_dict(conv_norm, out_dim, **(conv_norm_opts or {}))
+        self.conv_block = ChunkedConformerConvBlock(
+            out_dim=out_dim,
+            kernel_size=conv_kernel_size,
+            norm=conv_norm,
+            chunk_history=chunk_history,
+            end_chunk_size_dim=end_chunk_size_dim,
+        )
+        self.conv_layer_norm = rf.LayerNorm(out_dim)
+
+        if self_att is None or isinstance(self_att, (dict, type)):
+            self_att_opts_ = dict(
+                in_dim=out_dim,
+                proj_dim=out_dim,
+                key_dim_total=out_dim,
+                value_dim_total=out_dim,
+                num_heads=num_heads,
+                att_dropout=att_dropout,
+            )
+            if self_att_opts:
+                self_att_opts_.update(self_att_opts)
+            if self_att is None:
+                self.self_att = ChunkedRelPosSelfAttention(
+                    chunk_history=chunk_history, end_chunk_size_dim=end_chunk_size_dim, **self_att_opts_
+                )
+            elif isinstance(self_att, dict):
+                self_att_opts_ = {k: v for (k, v) in self_att_opts_.items() if k not in self_att}
+                self.self_att = rf.build_from_dict(self_att, **self_att_opts_)
+            else:
+                self.self_att = self_att(**self_att_opts_)
+        else:
+            self.self_att = self_att
+        self.self_att_layer_norm = rf.LayerNorm(out_dim)
+
+        self.final_layer_norm = rf.LayerNorm(out_dim)
+
+    def __call__(self, inp: Tensor, *, spatial_dim: Dim, chunked_time_dim: Dim) -> Tensor:
+        """forward"""
+        # FFN
+        x_ffn1_ln = self.ffn1_layer_norm(inp)
+        x_ffn1 = self.ffn1(x_ffn1_ln)
+        x_ffn1_out = 0.5 * rf.dropout(x_ffn1, self.dropout, axis=self.dropout_broadcast and self.out_dim) + inp
+
+        # MHSA
+        x_mhsa_ln = self.self_att_layer_norm(x_ffn1_out)
+        x_mhsa = self.self_att(x_mhsa_ln, axis=spatial_dim, chunked_time_dim=chunked_time_dim)
+        x_mhsa = rf.dropout(x_mhsa, self.dropout, axis=self.dropout_broadcast and self.out_dim)
+        x_mhsa_out = x_mhsa + x_ffn1_out
+
+        # Conv
+        x_conv_ln = self.conv_layer_norm(x_mhsa_out)
+        x_conv = self.conv_block(x_conv_ln, spatial_dim=spatial_dim, chunked_time_dim=chunked_time_dim)
+        x_conv_out = rf.dropout(x_conv, self.dropout, axis=self.dropout_broadcast and self.out_dim) + x_mhsa_out
+
+        # FFN
+        x_ffn2_ln = self.ffn2_layer_norm(x_conv_out)
+        x_ffn2 = self.ffn2(x_ffn2_ln)
+        x_ffn2_out = 0.5 * rf.dropout(x_ffn2, self.dropout, axis=self.dropout_broadcast and self.out_dim) + x_conv_out
+
+        # last LN layer
+        return self.final_layer_norm(x_ffn2_out)
+
+
+class ChunkedConformerConvBlock(rf.Module):
+    """
+    Conformer convolution block
+        FF -> GLU -> depthwise conv -> BN -> Swish -> FF
+    """
+
+    def __init__(
+        self,
+        out_dim: Dim,
+        *,
+        kernel_size: int,
+        norm: Union[rf.BatchNorm, Any],
+        chunk_history: int,
+        end_chunk_size_dim: Dim,
+    ):
+        """
+        :param out_dim: output feature dimension
+        :param kernel_size: kernel size of depthwise convolution
+        :param norm: Batch norm originally
+        :param chunk_history:
+        :param end_chunk_size_dim:
+        """
+        super().__init__()
+        self.out_dim = out_dim
+
+        self.positionwise_conv1 = rf.Linear(out_dim, 2 * out_dim)
+        self.depthwise_conv = rf.Conv1d(
+            out_dim, out_dim, filter_size=kernel_size, groups=out_dim.dimension, padding="same"
+        )
+        self.positionwise_conv2 = rf.Linear(out_dim, out_dim)
+        self.norm = norm
+
+        self.chunk_history = chunk_history
+        self.end_chunk_size_dim = end_chunk_size_dim
+
+    def __call__(self, inp: Tensor, *, spatial_dim: Dim, chunked_time_dim: Dim) -> Tensor:
+        """forward"""
+        x_conv1 = self.positionwise_conv1(inp)
+        x_act, _ = rf.gating(x_conv1)
+        x_act, ext_spatial_dim = _mem_chunks(
+            x_act,
+            spatial_dim=spatial_dim,
+            chunked_time_dim=chunked_time_dim,
+            mem_size=self.chunk_history,
+            end_chunk_size_dim=self.end_chunk_size_dim,
+        )
+        x_depthwise_conv, _ = self.depthwise_conv(x_act, in_spatial_dim=ext_spatial_dim)
+        x_depthwise_conv, _ = rf.slice(
+            x_depthwise_conv,
+            axis=ext_spatial_dim,
+            start=self.chunk_history * self.end_chunk_size_dim.get_dim_value_tensor(),
+            out_dim=spatial_dim,
+        )
+        x_normed = self.norm(x_depthwise_conv)
+        x_swish = rf.swish(x_normed)
+        x_conv2 = self.positionwise_conv2(x_swish)
+        return x_conv2
 
 
 class ChunkedRelPosSelfAttention(rf.RelPosSelfAttention):

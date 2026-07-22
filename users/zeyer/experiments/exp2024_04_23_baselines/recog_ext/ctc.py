@@ -43,6 +43,16 @@ def model_recog(
     version = config.int("recog_version", 1)
     assert version == 9
 
+    # Optional LM softmax temperature T: score the external LM as log_softmax(lm_logits / T).
+    # Default 1.0 is a no-op reproducing the untempered LM exactly
+    # (hash-stable for existing recogs that don't set the key).
+    lm_softmax_temperature = config.typed_value("lm_softmax_temperature", 1.0)
+
+    def _lm_log_softmax(logits: Tensor) -> Tensor:
+        if lm_softmax_temperature != 1.0:
+            logits = logits / lm_softmax_temperature
+        return rf.log_softmax(logits, axis=model.target_dim)
+
     # RETURNN version is like "1.20250115.110555"
     # There was an important fix in 2025-01-17 affecting masked_scatter.
     # And another important fix in 2025-01-24 affecting masked_scatter for old PyTorch versions.
@@ -93,7 +103,7 @@ def model_recog(
             spatial_dim=single_step_dim,
             state=lm_state,
         )  # Batch, InBeam, Vocab / ...
-        lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
+        lm_log_probs = _lm_log_softmax(lm_logits)  # Batch, InBeam, Vocab
         lm_log_probs *= lm_scale
         if labelwise_prior is not None:
             lm_log_probs -= labelwise_prior  # prior scale already applied
@@ -105,12 +115,14 @@ def model_recog(
         prev_target = target
         prev_target_wb = target_wb
 
-        seq_log_prob = seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
+        # Explicit broadcast (each source misses a dim the other has: beam vs VocabWB)
+        seq_log_prob = rf.combine_bc(seq_log_prob, "+", label_log_prob_ta[t])  # Batch, InBeam, VocabWB
 
         if lm is not None:
             # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.
             seq_log_prob += rf.where(
-                (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
+                (prev_target_wb == model.blank_idx)
+                | rf.compare_bc(prev_target_wb, "!=", rf.range_over_dim(model.wb_target_dim)),
                 _target_dense_extend_blank(
                     lm_log_probs,
                     target_dim=model.target_dim,
@@ -161,7 +173,7 @@ def model_recog(
                     spatial_dim=single_step_dim,
                     state=lm_state_,
                 )  # Flat_Batch_Beam, Vocab / ...
-                lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
+                lm_log_probs_ = _lm_log_softmax(lm_logits_)  # Flat_Batch_Beam, Vocab
                 lm_log_probs_ *= lm_scale
                 if labelwise_prior is not None:
                     lm_log_probs_ -= labelwise_prior  # prior scale already applied
@@ -237,6 +249,17 @@ def model_recog_with_recomb(
     ctc_soft_collapse_threshold = config.typed_value("ctc_soft_collapse_threshold", None)
     ctc_soft_collapse_reduce_type = config.typed_value("ctc_soft_collapse_reduce_type", "logmeanexp")
 
+    # Optional LM softmax temperature T: score the external LM as log_softmax(lm_logits / T).
+    # Default 1.0 is a no-op reproducing the untempered LM exactly
+    # (hash-stable for existing first-pass recogs: they don't set the key,
+    # and this recog def is hashed by reference, not by source body).
+    lm_softmax_temperature = config.typed_value("lm_softmax_temperature", 1.0)
+
+    def _lm_log_softmax(logits: Tensor) -> Tensor:
+        if lm_softmax_temperature != 1.0:
+            logits = logits / lm_softmax_temperature
+        return rf.log_softmax(logits, axis=model.target_dim)
+
     # RETURNN version is like "1.20250115.110555"
     # There was an important fix in 2025-01-17 affecting masked_scatter.
     # And another important fix in 2025-01-24 affecting masked_scatter for old PyTorch versions.
@@ -299,7 +322,7 @@ def model_recog_with_recomb(
             spatial_dim=single_step_dim,
             state=lm_state,
         )  # Batch, InBeam, Vocab / ...
-        lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
+        lm_log_probs = _lm_log_softmax(lm_logits)  # Batch, InBeam, Vocab
         lm_log_probs *= lm_scale
         if labelwise_prior is not None:
             lm_log_probs -= labelwise_prior  # prior scale already applied
@@ -311,12 +334,14 @@ def model_recog_with_recomb(
         prev_target = target
         prev_target_wb = target_wb
 
-        seq_log_prob = seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
+        # Explicit broadcast (each source misses a dim the other has: beam vs VocabWB)
+        seq_log_prob = rf.combine_bc(seq_log_prob, "+", label_log_prob_ta[t])  # Batch, InBeam, VocabWB
 
         if lm is not None:
             # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.
             seq_log_prob += rf.where(
-                (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
+                (prev_target_wb == model.blank_idx)
+                | rf.compare_bc(prev_target_wb, "!=", rf.range_over_dim(model.wb_target_dim)),
                 _target_dense_extend_blank(
                     lm_log_probs,
                     target_dim=model.target_dim,
@@ -398,7 +423,7 @@ def model_recog_with_recomb(
                     spatial_dim=single_step_dim,
                     state=lm_state_,
                 )  # Flat_Batch_Beam, Vocab / ...
-                lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
+                lm_log_probs_ = _lm_log_softmax(lm_logits_)  # Flat_Batch_Beam, Vocab
                 lm_log_probs_ *= lm_scale
                 if labelwise_prior is not None:
                     lm_log_probs_ -= labelwise_prior  # prior scale already applied

@@ -13,7 +13,11 @@ import math
 from torch.ao.quantization.utils import check_min_max_valid
 from returnn.torch.context import get_run_ctx
 import numpy
-from torch_memristor.memristor_modules import TiledMemristorLinear
+
+try:
+    from synaptogen_ml.memristor_modules.linear import TiledMemristorLinear
+except ModuleNotFoundError:
+    from torch_memristor.memristor_modules import TiledMemristorLinear
 
 def get_quantization_range_from_bit_precision(bits, dtype):
 

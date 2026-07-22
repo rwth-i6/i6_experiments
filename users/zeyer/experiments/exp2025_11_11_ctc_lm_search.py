@@ -172,6 +172,22 @@ def py():
 
     task_hack_openasrleadboard = dataclasses.replace(task, score_recog_output_func=hacked_sclite_score_recog_out)
 
+    # CTC + AED (the from-scratch Loquacious 20ep AED, base-20ep) on the OpenASRLeaderboard,
+    # consistent with the CTC+LLM leaderboard recogs:
+    # joint AED+CTC first-pass, scales tuned on Loquacious-dev.
+    aed_ctc_timesync_recog_recomb_auto_scale(
+        prefix=f"{prefix}/aed/{am_name_20ep}/aed+ctc/openasrleaderboard",
+        task=dataclasses.replace(
+            task_hack_openasrleadboard, eval_datasets=get_asr_leaderboard_test_datasets(vocab=vocab_obj)
+        ),
+        aed_ctc_model=am_20ep,
+        aux_ctc_layer=aux_ctc_layer_20ep,
+        # These are plain recog forward jobs (no external LM): the largest set
+        # (gigaspeech.test) runs in ~1-3h, the rest well under 1h.
+        # 5h instead of the 24h default so they backfill sooner.
+        first_pass_search_rqmt={"time": 5},
+    )
+
     # # Also on OpenASRLeaderboard test sets.
     ctc_recog_recomb_labelwise_prior_auto_scale(
         prefix=f"{prefix}/aed/{am_name_4ep}/ctc+lm-v3/{lm_name}/openasrleaderboard",

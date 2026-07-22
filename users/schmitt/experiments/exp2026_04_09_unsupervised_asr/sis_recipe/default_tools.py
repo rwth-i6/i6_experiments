@@ -29,6 +29,11 @@ def get_returnn_exe() -> tk.Path:
     return tk.Path(path, hash_overwrite="GENERIC_RETURNN_LAUNCHER")
 
 
+def get_returnn_onnx_export_exe() -> tk.Path:
+    path = getattr(gs, "RETURNN_ONNX_EXPORT_EXE", "/usr/bin/python3")
+    return tk.Path(path, hash_overwrite="GENERIC_RETURNN_ONNX_EXPORT_LAUNCHER")
+
+
 def get_fasttext_python_exe() -> tk.Path:
     path = getattr(gs, "FASTTEXT_PYTHON_EXE", "/usr/bin/python3")
     return tk.Path(path, hash_overwrite="FASTTEXT_PYTHON_EXE")
@@ -37,6 +42,16 @@ def get_fasttext_python_exe() -> tk.Path:
 def get_returnn_root() -> tk.Path:
     path = getattr(gs, "RETURNN_ROOT", "returnn")
     return tk.Path(path, hash_overwrite="DEFAULT_RETURNN_ROOT")
+
+
+def get_returnn_onnx_export_root() -> tk.Path:
+    returnn_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn",
+        branch="robin-support-onnx-export",
+        checkout_folder_name="returnn",
+    ).out_repository
+    returnn_root.hash_overwrite = "DEFAULT_RETURNN_ONNX_EXPORT_ROOT"
+    return returnn_root
 
 
 def get_fairseq_root(
@@ -59,9 +74,32 @@ def get_lid_model():
     ).out_file
 
 
+def get_rvad_root():
+    """
+    Clone the rVADfast repository and return its path.
+    """
+    out_repository = CloneGitRepositoryJob(
+        url="https://github.com/zhenghuatan/rVADfast.git",
+        checkout_folder_name="rVADfast",
+        commit="0ed4c1246ad5fdb1cead801153f455b9cf6d569b",
+    ).out_repository.copy()
+    tk.register_output("rVADfast", out_repository)
+    return out_repository
+
+
+def get_wav2letter_root():
+    return CloneGitRepositoryJob(
+        "https://github.com/flashlight/wav2letter",
+        commit="e5a4b62d87f15fde6a963d9ac174c8db8eb67fbc",
+        checkout_folder_name="wav2letter",
+    ).out_repository
+
+
 RETURNN_EXE = get_returnn_exe()
+RETURNN_ONNX_EXE = get_returnn_onnx_export_exe()
 
 RETURNN_ROOT = get_returnn_root()
+RETURNN_ONNX_ROOT = get_returnn_onnx_export_root()
 
 SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12").copy()  # use last published version
 SCTK_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_SCTK_BINARY_PATH"

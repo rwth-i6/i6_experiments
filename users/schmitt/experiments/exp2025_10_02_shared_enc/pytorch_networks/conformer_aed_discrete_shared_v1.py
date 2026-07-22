@@ -23,14 +23,18 @@ from i6_models.assemblies.transformer.transformer_decoder_v1 import (
     TransformerDecoderV1Config,
     TransformerDecoderV1State,
 )
+
 # from i6_models.config import ModuleFactoryV1
 # from i6_models.parts.decoder import CrossAttentionV1
 # from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1, VGG4LayerActFrontendV1Config
 from i6_models.parts.masked_norm import MaskedBatchNorm1dV1
 
-from i6_experiments.users.schmitt.experiments.exp2025_10_02_shared_enc.recognition.aed import EncoderDecoderModel
-from i6_experiments.users.schmitt.experiments.exp2025_10_02_shared_enc.training.aed_denoising_discrete_shared import \
-    SharedDenoisingAedModel
+from i6_experiments.users.schmitt.experiments.exp2025_10_02_shared_enc.recognition.aed import (
+    EncoderDecoderModel,
+)
+from i6_experiments.users.schmitt.experiments.exp2025_10_02_shared_enc.training.aed_denoising_discrete_shared import (
+    SharedDenoisingAedModel,
+)
 
 
 def _relu_sq(x):
@@ -95,30 +99,30 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
     """
 
     def __init__(
-            self,
-            # RETURNN get_model parameters
-            epoch: int,
-            step: int,
-            *,
-            # Model Size/Structure
-            model_dim: int,
-            text_out_dim: Optional[int],
-            audio_out_dim: Optional[int],
-            num_heads: int,
-            num_enc_layers: int,
-            num_text_dec_layers: int,
-            num_audio_dec_layers: int,
-            text_aux_loss_layers: Sequence[int] = (),
-            audio_aux_loss_layers: Sequence[int] = (),
-            # RF Defaults
-            dropout: float = 0.1,
-            dropout_broadcast_axes: Optional[Literal["B", "BT", "T"]] = "BT",
-            logits_bias: bool = False,
-            aux_logits_bias: bool = False,
-            enc_bottleneck_dim: Optional[int] = None,
-            share_decoder: bool = False,
-            discriminator_type: Optional[str] = None,
-            **_kwargs_unused,
+        self,
+        # RETURNN get_model parameters
+        epoch: int,
+        step: int,
+        *,
+        # Model Size/Structure
+        model_dim: int,
+        text_out_dim: Optional[int],
+        audio_out_dim: Optional[int],
+        num_heads: int,
+        num_enc_layers: int,
+        num_text_dec_layers: int,
+        num_audio_dec_layers: int,
+        text_aux_loss_layers: Sequence[int] = (),
+        audio_aux_loss_layers: Sequence[int] = (),
+        # RF Defaults
+        dropout: float = 0.1,
+        dropout_broadcast_axes: Optional[Literal["B", "BT", "T"]] = "BT",
+        logits_bias: bool = False,
+        aux_logits_bias: bool = False,
+        enc_bottleneck_dim: Optional[int] = None,
+        share_decoder: bool = False,
+        discriminator_type: Optional[str] = None,
+        **_kwargs_unused,
     ):
         super().__init__()
 
@@ -127,8 +131,9 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
         assert list(text_aux_loss_layers) == sorted(text_aux_loss_layers)
         assert len(audio_aux_loss_layers) == len(set(audio_aux_loss_layers))
         assert list(audio_aux_loss_layers) == sorted(audio_aux_loss_layers)
-        assert not share_decoder or (num_text_dec_layers == num_audio_dec_layers), \
+        assert not share_decoder or (num_text_dec_layers == num_audio_dec_layers), (
             "when sharing decoder, number of text and audio decoder layers must be equal"
+        )
 
         # positional embedding like RF
         rel_pos_clip = 16
@@ -237,11 +242,16 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
                 ),
                 input_dropout=dropout,
                 input_embedding_scale=None,
-                num_blocks=num_text_dec_layers if share_decoder else (num_text_dec_layers if name == "text" else num_audio_dec_layers),
-                num_output=(self.text_out_dim + self.audio_out_dim) if share_decoder else (self.text_out_dim if name == "text" else self.audio_out_dim),
+                num_blocks=num_text_dec_layers
+                if share_decoder
+                else (num_text_dec_layers if name == "text" else num_audio_dec_layers),
+                num_output=(self.text_out_dim + self.audio_out_dim)
+                if share_decoder
+                else (self.text_out_dim if name == "text" else self.audio_out_dim),
                 logits_bias=logits_bias,
                 share_embedding=False,
-            ) for name in (["shared"] if share_decoder else ["text", "audio"])
+            )
+            for name in (["shared"] if share_decoder else ["text", "audio"])
         }
         if share_decoder:
             self.decoder = TransformerDecoderV1(dec_cfgs["shared"])
@@ -297,7 +307,9 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
         data_mask = torch.less(torch.arange(data.shape[-2], device=data.device)[None, :], seq_lens[:, None])
         encoder_outputs, out_mask = self.encoder.forward(data, data_mask, return_layers=self._out_fetch_layers_text)
         assert len(self.out_text_aux_logits) <= len(encoder_outputs)
-        out_aux_logits = [aux_linear(aux_out) for aux_linear, aux_out in zip(self.out_audio_aux_logits, encoder_outputs)]
+        out_aux_logits = [
+            aux_linear(aux_out) for aux_linear, aux_out in zip(self.out_audio_aux_logits, encoder_outputs)
+        ]
         out_seq_lens = out_mask.sum(dim=-1)
         return encoder_outputs[-1], out_aux_logits, out_seq_lens, out_mask
 
@@ -327,7 +339,9 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
 
         return dec_out
 
-    def decode_audio_seq(self, x: Tensor, x_lens: Tensor, encoder_output: Tensor, encoder_output_lens: Tensor) -> Tensor:
+    def decode_audio_seq(
+        self, x: Tensor, x_lens: Tensor, encoder_output: Tensor, encoder_output_lens: Tensor
+    ) -> Tensor:
         state = self.decoder.transform_encoder_output(
             encoder_output, encoder_output_lens, self.audio_decoder.get_initial_state()
         )
@@ -335,7 +349,7 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
             x += self.text_out_dim  # shift to audio output indices
         dec_out, _ = self.audio_decoder.forward(x, x_lens, state)
         if self.share_decoder:
-            dec_out = dec_out[:, :, self.text_out_dim:]  # take only audio part
+            dec_out = dec_out[:, :, self.text_out_dim :]  # take only audio part
 
         return dec_out
 
@@ -344,7 +358,7 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
         return self.decode_text_seq(x, x_lens, encoder_output, encoder_output_lens)
 
     def forward_encoder(
-            self, indices: Tensor, indices_lens: Tensor, decoder: TransformerDecoderV1, forward_func: Callable
+        self, indices: Tensor, indices_lens: Tensor, decoder: TransformerDecoderV1, forward_func: Callable
     ) -> TransformerDecoderV1State:
         encoder_output, aux_logits, encoder_lens, _ = forward_func(indices, indices_lens)
         state = decoder.get_initial_state()
@@ -352,7 +366,7 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
         return state
 
     def step_decoder(
-            self, labels: Tensor, state: TransformerDecoderV1State, decoder: TransformerDecoderV1
+        self, labels: Tensor, state: TransformerDecoderV1State, decoder: TransformerDecoderV1
     ) -> Tuple[Tensor, TransformerDecoderV1State]:
         raise NotImplementedError
         # return decoder.forward(
@@ -362,7 +376,7 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
         # )
 
     def step_audio_decoder(
-            self, labels: Tensor, state: TransformerDecoderV1State
+        self, labels: Tensor, state: TransformerDecoderV1State
     ) -> Tuple[Tensor, TransformerDecoderV1State]:
         if self.share_decoder:
             labels = labels + self.text_out_dim  # shift to audio output indices
@@ -372,11 +386,11 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
             state,
         )
         if self.share_decoder:
-            dec_out = dec_out[:, :, :, self.text_out_dim:]  # take only audio part (B, beam, T, audio_out_dim)
+            dec_out = dec_out[:, :, :, self.text_out_dim :]  # take only audio part (B, beam, T, audio_out_dim)
         return dec_out, dec_state
 
     def step_text_decoder(
-            self, labels: Tensor, state: TransformerDecoderV1State
+        self, labels: Tensor, state: TransformerDecoderV1State
     ) -> Tuple[Tensor, TransformerDecoderV1State]:
         dec_out, dec_state = self.text_decoder.forward(
             labels,
@@ -384,5 +398,5 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
             state,
         )
         if self.share_decoder:
-            dec_out = dec_out[:, :, :, :self.text_out_dim]  # take only text part (B, beam, T, text_out_dim)
+            dec_out = dec_out[:, :, :, : self.text_out_dim]  # take only text part (B, beam, T, text_out_dim)
         return dec_out, dec_state

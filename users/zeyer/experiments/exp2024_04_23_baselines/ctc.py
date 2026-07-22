@@ -1803,7 +1803,7 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     blank_idx = _ctc_model_def_blank_idx
     if blank_idx < 0:
         blank_idx = target_dim.dimension + 1 + blank_idx
-    return cls(
+    model_kwargs = dict(
         in_dim=in_dim,
         enc_build_dict=config.typed_value("enc_build_dict", None),  # alternative more generic/flexible way
         num_enc_layers=config.int("num_enc_layers", 12),
@@ -1819,6 +1819,10 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         enc_logits_with_bias=config.bool("enc_logits_with_bias", True),
         enc_aux_logits_share_weights=config.bool("enc_aux_logits_share_weights", False),
     )
+    # Alternative ctc_model_cls values (e.g. ModelSepNet) may not declare every
+    # Model-specific kwarg above. Drop the ones the target __init__ doesn't accept,
+    # so this shared model_def works for any model class. No-op for the standard Model.
+    return cls(**_filter_kwargs_for_cls(cls, model_kwargs))
 
 
 ctc_model_def: ModelDef[Model]
@@ -1827,6 +1831,22 @@ ctc_model_def.backend = "torch"
 ctc_model_def.batch_size_factor = _batch_size_factor
 
 _ctc_model_def_blank_idx: int = -1
+
+
+def _filter_kwargs_for_cls(cls, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """Drop kwargs that ``cls.__init__`` does not declare (no-op if it accepts ``**kwargs``).
+
+    Pattern mirrors :func:`...nn_rf.encoder.chunked_conformer_v2._filter_opts_for_target`.
+    """
+    import inspect
+
+    try:
+        params = inspect.signature(cls).parameters
+    except (TypeError, ValueError):
+        return kwargs
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return kwargs
+    return {k: v for k, v in kwargs.items() if k in params}
 
 
 def _get_bos_idx(target_dim: Dim) -> int:
@@ -2164,6 +2184,10 @@ class Model(rf.Module):
             )
         self.out_blank_separated = config.bool("out_blank_separated", False)
         self.blank_logit_shift = config.float("blank_logit_shift", 0.0)
+        self.blank_grad_scale = config.typed_value("blank_grad_scale", None)
+        # Where blank_grad_scale acts: "log_probs" (post-softmax, couples all classes via the
+        # softmax normalization) or "logits" (pre-softmax, rescales only the blank logit's grad).
+        self.blank_grad_scale_point = config.value("blank_grad_scale_point", "log_probs")
 
         self.ctc_am_scale = config.float("ctc_am_scale", 1.0)
         self.ctc_prior_scale = config.float("ctc_prior_scale", 0.0)
@@ -2388,6 +2412,18 @@ class Model(rf.Module):
             If out_blank_separated, we use a separate sigmoid for the blank.
             Also, potentially adds label smoothing on the gradients.
         """
+        if self.blank_grad_scale is not None and self.blank_grad_scale_point == "logits":
+            # Scale the blank logit's gradient pre-softmax. Scaling on log_probs instead leaks
+            # into every class through the softmax normalization term; here only the blank
+            # logit's own update is rescaled.
+            assert not self.out_blank_separated  # blank has no dedicated logit dim when separated
+            blank_logit_grad_scale = rf.where(
+                rf.range_over_dim(self.wb_target_dim) == self.blank_idx,
+                self.blank_grad_scale,
+                1.0,
+            )
+            logits = rf.scaled_gradient_ext(logits, scale=blank_logit_grad_scale)
+
         if not self.out_blank_separated:  # standard case, joint distrib incl blank
             if self.blank_logit_shift:
                 logits += rf.sparse_to_dense(
@@ -2488,6 +2524,19 @@ class Model(rf.Module):
             assert log_probs.feature_dim == self.wb_target_dim
 
         log_probs = self._maybe_apply_log_probs_normed_grad(log_probs, aux_layer=aux_layer)
+
+        if (
+            self.blank_grad_scale is not None
+            and self.blank_grad_scale_point == "log_probs"
+            and log_probs.feature_dim == self.wb_target_dim
+        ):
+            # Scale only the blank dim's gradient on the single-softmax posterior, labels stay at 1.
+            blank_grad_scale = rf.where(
+                rf.range_over_dim(self.wb_target_dim) == self.blank_idx,
+                self.blank_grad_scale,
+                1.0,
+            )
+            log_probs = rf.scaled_gradient_ext(log_probs, scale=blank_grad_scale)
 
         ctc_label_smoothing = self.ctc_label_smoothing if aux_layer is None else self.aux_ctc_label_smoothing
         if ctc_label_smoothing:
