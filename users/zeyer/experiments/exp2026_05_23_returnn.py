@@ -392,7 +392,9 @@ class PackedVsPaddedBenchmarkJob(Job):
         params = list(model.parameters())
 
         audio_time = Dim(
-            Tensor("audio_time", dims=[batch_dim], dtype="int32", raw_tensor=torch.tensor(audio_lens, dtype=torch.int32))
+            Tensor(
+                "audio_time", dims=[batch_dim], dtype="int32", raw_tensor=torch.tensor(audio_lens, dtype=torch.int32)
+            )
         )
         audio = Tensor("audio", dims=[batch_dim, audio_time], dtype="float32")
         audio.raw_tensor = (
