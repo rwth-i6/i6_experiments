@@ -1,4 +1,4 @@
-from typing import Optional, Union, Any, Sequence, List, Dict
+from typing import Optional, Union, Any, Sequence, List, Tuple, Dict
 import time
 import numpy as np
 import torch
@@ -218,26 +218,7 @@ class Phi4MM(BaseModelInterface):
         if self._char_level and raw_targets is not None:
             assert len(raw_targets) == 1, "char_level supports batch size 1 only"
             orig_words = raw_targets[0]
-            sep = self._char_level_sep
-            brk = self._char_level_brackets
-            bow_tok = "[BOW]" if brk == "word" else ("[" if brk == "char" else None)
-            eow_tok = "[EOW]" if brk == "word" else ("]" if brk == "char" else None)
-            chars: list = []
-            word_char_ranges: list = []
-            for i, word in enumerate(orig_words):
-                if i > 0 and sep is not None:
-                    chars.append(sep)
-                cstart = len(chars)
-                if bow_tok is not None:
-                    chars.append(bow_tok)
-                word_chars = list(word)
-                if self._char_level_skip_chars is not None:
-                    word_chars = [c for c in word_chars if c not in self._char_level_skip_chars]
-                assert word_chars, f"char_level_skip_chars filtered word {word!r} to empty"
-                chars.extend(word_chars)
-                if eow_tok is not None:
-                    chars.append(eow_tok)
-                word_char_ranges.append((cstart, len(chars)))
+            chars, word_char_ranges = self._explode_char_words(orig_words)
             core_raw_targets = [chars]
             core_raw_target_seq_lens = torch.tensor([len(chars)])
         else:
@@ -291,26 +272,33 @@ class Phi4MM(BaseModelInterface):
         -> one ForwardOutput per sequence,
         each shaped like the B=1 :meth:`forward` output,
         so the existing :meth:`log_probs` and the DP node-building work per sequence unchanged.
-        Scoped to the no-grad, plain path only.
+        Scoped to the no-grad path only.
+        Supports ``char_level`` (explode words to chars for scoring, spans re-grouped per word).
         """
         import contextlib
 
         assert self.grad_wrt is None, "forward_batched: grad not supported, use grad_wrt=None"
-        assert not (
-            self._char_level
-            or self._fake_loss_grad
-            or self._margin_grad
-            or self._eos_margin
-            or self._first_subword_only
-        ), "forward_batched supports only the plain path (no char_level / margin / eos / first_subword)"
+        assert not (self._fake_loss_grad or self._margin_grad or self._eos_margin or self._first_subword_only), (
+            "forward_batched supports only the plain path (no margin / eos / first_subword)"
+        )
         b = len(raw_inputs_list)
         assert b == len(raw_targets_list) == len(omitted_prev_context_list)
         dev = self.device
         tokenizer = self.processor.tokenizer
 
+        if self._char_level:
+            # Score at char level,
+            # then re-group the recovered spans back to one entry per original word below.
+            exploded = [self._explode_char_words(words) for words in raw_targets_list]
+            core_targets_list = [chars for chars, _ in exploded]
+            word_char_ranges_list = [ranges for _, ranges in exploded]
+        else:
+            core_targets_list = raw_targets_list
+            word_char_ranges_list = None
+
         prompts = []
         added_prefix_flags = []
-        for words, omitted in zip(raw_targets_list, omitted_prev_context_list):
+        for words, omitted in zip(core_targets_list, omitted_prev_context_list):
             transcription = " ".join(words)
             added_prefix = omitted is not None and int(omitted) > 0
             if added_prefix:
@@ -339,7 +327,7 @@ class Phi4MM(BaseModelInterface):
             # Left-padded: this sequence's real tokens are the last `real` positions.
             row_ids = input_ids[i, -real:]  # [real]
             row_last_out = last_out[i, -real:]  # [real, D]
-            words = raw_targets_list[i]
+            words = core_targets_list[i]
             added_prefix = added_prefix_flags[i]
 
             (dst_text_start,) = torch.nonzero(row_ids == self.assistant_token_id).squeeze(dim=1)
@@ -374,6 +362,9 @@ class Phi4MM(BaseModelInterface):
             words_decoded = [tokenizer.decode(targets[0, a:b_]) for a, b_ in words_start_end]
             words_decoded = [w[1:] if w.startswith(" ") else w for w in words_decoded]
             assert words_decoded == words, f"seq {i}: {words_decoded=} {words=}"
+            if word_char_ranges_list is not None:
+                ranges = word_char_ranges_list[i]
+                words_start_end = [[words_start_end[cs][0], words_start_end[ce - 1][1]] for cs, ce in ranges]
             words_start_end = words_start_end + [[n_targets, n_targets + 1]]
 
             outs.append(
@@ -390,6 +381,31 @@ class Phi4MM(BaseModelInterface):
                 )
             )
         return outs
+
+    def _explode_char_words(self, words: List[str]) -> Tuple[List[str], List[Tuple[int, int]]]:
+        """char_level: explode words into per-char "words".
+        Returns (chars incl. any separator/bracket entries, per-word (start, end) char ranges)."""
+        sep = self._char_level_sep
+        brk = self._char_level_brackets
+        bow_tok = "[BOW]" if brk == "word" else ("[" if brk == "char" else None)
+        eow_tok = "[EOW]" if brk == "word" else ("]" if brk == "char" else None)
+        chars: List[str] = []
+        word_char_ranges: List[Tuple[int, int]] = []
+        for i, word in enumerate(words):
+            if i > 0 and sep is not None:
+                chars.append(sep)
+            cstart = len(chars)
+            if bow_tok is not None:
+                chars.append(bow_tok)
+            word_chars = list(word)
+            if self._char_level_skip_chars is not None:
+                word_chars = [c for c in word_chars if c not in self._char_level_skip_chars]
+            assert word_chars, f"char_level_skip_chars filtered word {word!r} to empty"
+            chars.extend(word_chars)
+            if eow_tok is not None:
+                chars.append(eow_tok)
+            word_char_ranges.append((cstart, len(chars)))
+        return chars, word_char_ranges
 
     def recog(
         self,

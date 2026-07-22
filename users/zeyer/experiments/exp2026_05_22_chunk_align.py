@@ -418,6 +418,32 @@ def py():
     reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-offset15-error-p95-sec.txt", _m_off.out_error_p95_sec)
     reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-offset15-frac-gt-1s.txt", _m_off.out_frac_gt_1s)
 
+    # Char-level scoring probe: score the transcript exploded to chars instead of canonical BPE.
+    # Hypothesis: char-by-char spelling weakens the pure-LM shortcut behind too-early emission,
+    # so the systematic tail (drift runs) should shrink if that shortcut is the cause.
+    _seg_char = ChunkSegmentationFromModelBatchedJob(
+        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+        dataset_key="val",
+        model_config={**_cfg_hp, "char_level": True},
+        chunk_size_secs=30.0,
+        chunk_overlap_secs=0.0,
+        max_batch_size=8,
+        dump_word_scores=True,
+    )
+    _seg_char.add_alias("chunk-align/phi4mm-buckeye-val-cs30-ov0-charlevel")
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-charlevel.hdf", _seg_char.out_hdf)
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-charlevel-word-scores.hdf", _seg_char.out_word_scores_hdf)
+    _m_char = CalcChunkAssignmentMetricsJob(
+        chunk_seg_hdf=_seg_char.out_hdf,
+        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+        dataset_key="val",
+        dataset_offset_factors=_DATASET_OFFSET_FACTORS["buckeye"],
+    )
+    _m_char.add_alias("chunk-align/phi4mm-buckeye-val-cs30-ov0-charlevel-metric")
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-charlevel-accuracy.txt", _m_char.out_accuracy)
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-charlevel-error-p95-sec.txt", _m_char.out_error_p95_sec)
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-charlevel-frac-gt-1s.txt", _m_char.out_frac_gt_1s)
+
     # Boundary re-verification (local repair) on that cs30-ov0 assignment:
     # per-word acoustic comparison in the two adjacent chunks, +-10 words per boundary.
     # Metric on the refined assignment tells whether the local 1-5-word runs get fixed
