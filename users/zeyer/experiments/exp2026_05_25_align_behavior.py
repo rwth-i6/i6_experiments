@@ -62,6 +62,10 @@ from .exp2024_09_16_grad_align import (
     get_ctc_prior,
 )
 
+# Consistency-Regularized CTC (arxiv 2410.05101), locally-corrected train step
+# (expands targets to the branch dim so the auxAED decoder works; returnn#1636).
+from .exp2026_05_25_align_behavior_crctc import cr_ctc_training_fixed as _cr_ctc_training
+
 
 # LibriSpeech GMM reference alignment (Tina's setup) + Schmitt's seq_list.
 # The data originally lived on i6 (``/work/common/...``) and ``/u/schmitt/...``.
@@ -148,6 +152,18 @@ def py():
     # so this tests whether a real sweet spot sits between gs1.0 and gs0.1.
     # Logits point only, since that was the clean winner on the synthetic side.
     variants.append(("blankGradScaleLogits-gs0.5", _train_blankgradscale(0.5, point="logits")))
+    # Consistency-Regularized CTC on the SAME std base (arxiv 2410.05101),
+    # so it is directly comparable to base / blankSep / normed-grad in the
+    # forced-align table.
+    # The pre-existing CR-CTC checkpoints are all n12 / D512 / mostly spm512,
+    # so none of them slot into this L16-D1024-spm10k table.
+    variants.append(("crLoss0.2", _train_crctc()))
+    # Downsampling / framerate bracket around the ds6 base:
+    # does the prior become necessary at higher downsampling on real data,
+    # as it does in the synthetic setup?
+    # ref_alignment_len_factor is threaded per variant below (= ds).
+    variants.append(("base-ds4", _train_base_ds(4)))
+    variants.append(("base-ds10", _train_base_ds(10)))
 
     # ---- Forced-align + TSE / WER metrics on a 960h training subset ----
     vocab = "spm10k"
@@ -166,6 +182,10 @@ def py():
         prior_stats = get_ctc_prior(ctc_model, task.train_dataset.copy_train_as_static(), {"fix_log_probs": True})
         prior_stats.mean.creator.add_alias(f"{prefix}ctc_prior/{shortname}/prior_stats_full")
         tk.register_output(f"{prefix}ctc_prior/{shortname}/prior_stats_full.mean.txt", prior_stats.mean)
+
+        # Reference alignment is at 10 ms/frame; our output frame is ds*10 ms,
+        # so the reference has `ds` times more frames -> len_factor = ds.
+        _len_factor = {"base-ds4": 4, "base-ds10": 10}.get(shortname, 6)
 
         opts_variants = [{}]
         for shift in [0, -5, -10, -15, -18, -20, -25]:
@@ -218,7 +238,7 @@ def py():
                 features_sprint_cache=_FEATURES_SPRINT_CACHE,
                 ref_alignment_sprint_cache=_GMM_ALIGNMENT_SPRINT_CACHE,
                 ref_alignment_allophones=_GMM_ALIGNMENT_ALLOPHONES,
-                ref_alignment_len_factor=6,
+                ref_alignment_len_factor=_len_factor,
             )
             job.add_alias(f"{prefix_}align-metrics")
             tk.register_output(f"{prefix_}align-metrics.json", job.out_scores)
@@ -242,8 +262,16 @@ def py():
     _loq_tse(prefix=prefix, seq_list=seq_list, train_dataset_loq=loq_train_dataset, vocab_meta_loq=loq_vocab_meta)
 
 
-def _enc_build_dict_l16_d1024():
-    """Encoder spec for the L16-D1024 baseline. Mirrors ``ctc_claix2023.py``."""
+def _enc_build_dict_l16_d1024(ds: int = 6):
+    """Encoder spec for the L16-D1024 baseline. Mirrors ``ctc_claix2023.py``.
+
+    ``ds`` is the conv-subsample time downsampling factor (default 6, the
+    baseline), realised as the middle conv time stride ``ds // 2`` while the
+    outer strides stay 1 and 2, so ``ds`` must be even.
+    ``ds=6`` reproduces the original ``[(1, 1), (3, 1), (2, 1)]`` byte-for-byte,
+    so the base hash is unchanged.
+    """
+    assert ds % 2 == 0
     return rf.build_dict(
         ConformerEncoder,
         input_layer=rf.build_dict(
@@ -251,7 +279,7 @@ def _enc_build_dict_l16_d1024():
             out_dims=[32, 64, 64],
             filter_sizes=[(3, 3), (3, 3), (3, 3)],
             pool_sizes=[(1, 2)],
-            strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
+            strides=[(1, 1), (ds // 2, 1), (2, 1)],  # time downsampling = ds
         ),
         num_layers=16,
         out_dim=1024,
@@ -262,6 +290,41 @@ def _enc_build_dict_l16_d1024():
             ),
             num_heads=8,
         ),
+    )
+
+
+def _train_base_ds(ds: int):
+    """``L16-D1024-spm10k-auxAED-b100k-ds{ds}`` -- base at a different time downsampling.
+
+    Byte-identical to ``_train_base`` except the conv-subsample time strides
+    (via ``_enc_build_dict_l16_d1024(ds)``). Lower ``ds`` means more output
+    frames -> more memory / step time; raise ``accum_grad_multiple_step`` if it
+    OOMs at launch.
+    """
+    # Activation memory ~ batch_size / ds; keep it near the base (100k at ds6)
+    # so a finer ds (more frames) does not OOM the 80 GB GPU.
+    # ds6/ds10 stay at 100k (ds10 fits, unchanged hash); ds4 (1.5x frames) drops to 66k.
+    batch_size = {4: 66_000}.get(ds, 100_000)
+    return ctc_train_exp(
+        f"L16-D1024-spm10k-auxAED-b100k-ds{ds}",
+        config_96gb_bf16_accgrad1,
+        model_config={
+            "enc_build_dict": _enc_build_dict_l16_d1024(ds),
+            "feature_batch_norm": True,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(batch_size, 100, batch_size_factor=_batch_size_factor),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),
+            "max_seq_length_default_target": None,
+            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+        },
+        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
     )
 
 
@@ -282,6 +345,47 @@ def _train_base():
             "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),
             "max_seq_length_default_target": None,
             "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+        },
+        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+    )
+
+
+def _train_crctc():
+    """``L16-D1024-spm10k-auxAED-b100k-crLoss0.2`` -- Consistency-Regularized CTC.
+
+    Encoder / vocab / schedule / epochs are byte-identical to ``_train_base``,
+    so this lands in the same forced-align table as the other levers.
+    The only change is the training criterion: ``cr_ctc_training`` adds the CR
+    consistency loss (scale 0.2) between two specaug-augmented views per
+    sequence (``branch_dim=2``).
+    The two-view forward roughly doubles activation memory and step time;
+    if it OOMs at launch, raise ``accum_grad_multiple_step`` to keep the
+    effective batch (and thus the schedule) identical to the base.
+    """
+    return ctc_train_exp(
+        "L16-D1024-spm10k-auxAED-b100k-crLoss0.2",
+        config_96gb_bf16_accgrad1,
+        train_def=_cr_ctc_training,
+        model_config={
+            "enc_build_dict": _enc_build_dict_l16_d1024(),
+            "feature_batch_norm": True,
+        },
+        config_updates={
+            # Half the base batch: the CR step forwards two augmented views per
+            # sequence (branch_dim=2), so batch 50k processes ~100k per forward,
+            # matching the base (which fits); batch 100k OOMs the 80 GB GPU.
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(50_000, 100, batch_size_factor=_batch_size_factor),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),
+            "max_seq_length_default_target": None,
+            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+            "cr_loss_scale": 0.2,
+            "aed_loss_bug_fix": True,
         },
         post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
         vocab="spm10k",
