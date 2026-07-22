@@ -158,6 +158,11 @@ def py():
     # The pre-existing CR-CTC checkpoints are all n12 / D512 / mostly spm512,
     # so none of them slot into this L16-D1024-spm10k table.
     variants.append(("crLoss0.2", _train_crctc()))
+    # Compute-matched pair (CR-CTC paper, arxiv 2410.05101 sec 4.1):
+    # CR forwards twice per step, so crLoss0.2-ep50 matches the base-100ep
+    # forward compute, and base-ep200 matches crLoss0.2 (100ep) forward compute.
+    variants.append(("crLoss0.2-ep50", _train_crctc(50)))
+    variants.append(("base-ep200", _train_base_ep200()))
     # Downsampling / framerate bracket around the ds6 base:
     # does the prior become necessary at higher downsampling on real data,
     # as it does in the synthetic setup?
