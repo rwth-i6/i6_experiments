@@ -83,7 +83,6 @@ def get_rvad_root():
         checkout_folder_name="rVADfast",
         commit="0ed4c1246ad5fdb1cead801153f455b9cf6d569b",
     ).out_repository.copy()
-    tk.register_output("rVADfast", out_repository)
     return out_repository
 
 

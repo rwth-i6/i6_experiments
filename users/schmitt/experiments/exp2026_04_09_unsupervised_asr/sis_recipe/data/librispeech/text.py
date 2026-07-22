@@ -19,7 +19,6 @@ def get_lm_minus_librivox() -> Tuple[tk.Path, Optional[tk.Path]]:
         url="https://dl.fbaipublicfiles.com/wav2letter/sota/2019/lm_corpus/librispeech_lm_corpus.minus_librivox.metadata_and_manual_and_missing.corpus.txt",
         target_filename="lm_corpus_minus_librivox",
     ).out_file
-    tk.register_output("data/librispeech/lm/lbs_lm_minus_librivox.raw", lm_minus_librivox)
 
     return NormalizeLBSLMDataJob(
         wav2letter_root=get_wav2letter_root(),
