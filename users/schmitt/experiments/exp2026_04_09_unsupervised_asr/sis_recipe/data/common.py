@@ -107,6 +107,6 @@ def _wrap_in_post_proc(dataset, map_seq, map_outputs, settings: DatasetSettings)
         dataset=dataset,
         map_seq=map_seq,
         num_workers=settings.num_workers,
-        buf_size=settings.buffer_size,
+        buf_size=settings.buffer_size if settings.buffer_size > 0 else None,
         map_outputs=map_outputs,
     )

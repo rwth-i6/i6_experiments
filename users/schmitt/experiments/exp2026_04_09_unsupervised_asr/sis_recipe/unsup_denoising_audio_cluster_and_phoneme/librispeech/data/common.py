@@ -1,7 +1,7 @@
 from i6_core.text.processing import TakeNRandomLinesJob, ConcatenateJob
 from i6_core.serialization import CallImport
 
-from i6_experiments.common.datasets.librispeech.corpus import get_ogg_zip_dict, get_bliss_corpus_dict
+from i6_experiments.common.datasets.librispeech.corpus import get_bliss_corpus_dict
 from i6_experiments.common.setups.returnn.datasets.base import MetaDataset
 from i6_experiments.common.setups.returnn.datasets import OggZipDataset
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
@@ -15,6 +15,31 @@ from ....data.librispeech import audio, text
 from ....data.common import TrainingDatasets, LabelDatastreamWoVocab, DatasetSettings, _wrap_in_post_proc
 
 from sisyphus import tk
+
+
+def _get_phonemize_post_proc_func(
+    sil_prob: float,
+    surround_w_sil: bool,
+    min_num_sil: int,
+    max_num_sil: int,
+    lexicon_file: tk.Path,
+    phoneme_datastream,
+):
+    return CallImport(
+        code_object_path="i6_experiments.users.schmitt.experiments.exp2026_04_09_unsupervised_asr.models.post_proc.phonemize.PhonemizeAndInsertSilence",
+        hashed_arguments={
+            "sil_prob": sil_prob,
+            "surround_w_sil": surround_w_sil,
+            "lexicon_file": lexicon_file,
+            "target_key": "data",
+            "new_target_key": "data_w_sil",
+            "vocab_opts": phoneme_datastream.as_returnn_targets_opts(),
+            "min_num_sil": min_num_sil,
+            "max_num_sil": max_num_sil,
+        },
+        unhashed_package_root=None,
+        unhashed_arguments={},
+    )
 
 
 def build_training_datasets(
@@ -221,7 +246,6 @@ def build_training_datasets_w_silence_in_input(
         vocab=phoneme_vocab,
         vocab_size=41,
     )
-    ogg_zip_dict = get_ogg_zip_dict()
     bliss_corpus_dict = get_bliss_corpus_dict("ogg")
 
     train_bytes_hdfs = DumpCorpusTextAsUtf8ToHdfJob(
@@ -230,20 +254,13 @@ def build_training_datasets_w_silence_in_input(
     dev_other_hdf = DumpCorpusTextAsUtf8ToHdfJob(bliss_corpus=bliss_corpus_dict["dev-other"], concurrent=1).out_hdfs[0]
     dev_clean_hdf = DumpCorpusTextAsUtf8ToHdfJob(bliss_corpus=bliss_corpus_dict["dev-clean"], concurrent=1).out_hdfs[0]
 
-    phonemize_func = CallImport(
-        code_object_path="i6_experiments.users.schmitt.experiments.exp2026_04_09_unsupervised_asr.models.post_proc.phonemize.PhonemizeAndInsertSilence",
-        hashed_arguments={
-            "sil_prob": sil_prob,
-            "surround_w_sil": surround_w_sil,
-            "lexicon_file": lexicon_file,
-            "target_key": "data",
-            "new_target_key": "data_w_sil",
-            "vocab_opts": phoneme_datastream.as_returnn_targets_opts(),
-            "min_num_sil": min_num_sil,
-            "max_num_sil": max_num_sil,
-        },
-        unhashed_package_root=None,
-        unhashed_arguments={},
+    phonemize_func = _get_phonemize_post_proc_func(
+        sil_prob=sil_prob,
+        surround_w_sil=surround_w_sil,
+        lexicon_file=lexicon_file,
+        min_num_sil=min_num_sil,
+        max_num_sil=max_num_sil,
+        phoneme_datastream=phoneme_datastream,
     )
 
     data_map = {
@@ -272,27 +289,9 @@ def build_training_datasets_w_silence_in_input(
                         partition_epoch=settings.train_partition_epoch,
                         seq_ordering=settings.train_seq_ordering,
                     ),
-                    # dataset=OggZipDataset(
-                    #     files=[
-                    #         # ogg_zip_dict["train-clean-100"],
-                    #         # ogg_zip_dict["train-clean-360"],
-                    #         # ogg_zip_dict["train-other-500"],
-                    #         ogg_zip_dict["train-other-960"],
-                    #     ],
-                    #     partition_epoch=settings.train_partition_epoch,
-                    #     seq_ordering=settings.train_seq_ordering,
-                    #     target_options={"class": "Utf8ByteTargets"},
-                    #     segment_file=train_seq_tags,
-                    # ),
-                    # dataset=LmDataset(
-                    #     corpus_file=bliss_corpus_dict["train-other-960"],
-                    #     seq_list_file=train_seq_tags,
-                    #     orth_vocab={"class": "Utf8ByteTargets"},
-                    #     partition_epoch=settings.train_partition_epoch,
-                    #     seq_ordering=settings.train_seq_ordering,
-                    # ),
                     map_seq=phonemize_func,
                     map_outputs=map_outputs,
+                    settings=settings,
                 ),
             },
             data_map=data_map,
@@ -314,6 +313,7 @@ def build_training_datasets_w_silence_in_input(
                         ),
                         map_seq=phonemize_func,
                         map_outputs=map_outputs,
+                        settings=settings,
                     ),
                 },
                 data_map=data_map,
@@ -335,6 +335,7 @@ def build_training_datasets_w_silence_in_input(
                         ),
                         map_seq=phonemize_func,
                         map_outputs=map_outputs,
+                        settings=settings,
                     ),
                 },
                 data_map=data_map,
@@ -475,6 +476,90 @@ def build_test_datasets(
             data_map={
                 "data": ("feature_clusters", "data"),
                 "phon_indices": ("phon_indices", "data"),
+            },
+            seq_order_control_dataset="phon_indices",
+        ),
+    }
+
+
+def build_test_datasets_w_silence_in_input(
+    settings: DatasetSettings,
+    sil_prob: float = 0.25,
+    surround_w_sil: bool = True,
+    min_num_sil: int = 1,
+    max_num_sil: int = 3,
+):
+    _, clusters_960, pca_960, _ = audio.get_featurized_audio(
+        librispeech_key="train-other-960",
+        dump_hdf_concurrent=10,
+        featurize_concurrent=10,
+        remove_cluster_repetitions=True,
+    )
+    _, _, _, clusters_dev_other_hdfs = audio.get_featurized_audio(
+        librispeech_key="dev-other",
+        existing_clusters=clusters_960,
+        existing_pca=pca_960,
+        dump_hdf_concurrent=1,
+        featurize_concurrent=1,
+        remove_cluster_repetitions=True,
+    )
+
+    _, phoneme_vocab, lexicon_file, _ = text.get_phonemized_text("lm_minus_librivox", dump_hdf_concurrent=100)
+    _, _, _, dev_other_seq_tags = text.get_phonemized_text(
+        "dev-other",
+        lexicon_file=lexicon_file,
+        dump_hdf_concurrent=1,
+        vocab_file=phoneme_vocab,
+        sil_prob=sil_prob,
+        surround_w_sil=surround_w_sil,
+    )
+
+    phoneme_datastream = LabelDatastream(
+        available_for_inference=False,
+        vocab=phoneme_vocab,
+        vocab_size=41,
+    )
+    bliss_corpus_dict = get_bliss_corpus_dict("ogg")
+
+    dev_other_bytes_hdf = DumpCorpusTextAsUtf8ToHdfJob(
+        bliss_corpus=bliss_corpus_dict["dev-other"], concurrent=1
+    ).out_hdfs[0]
+
+    phonemize_func = _get_phonemize_post_proc_func(
+        sil_prob=sil_prob,
+        surround_w_sil=surround_w_sil,
+        lexicon_file=lexicon_file,
+        min_num_sil=min_num_sil,
+        max_num_sil=max_num_sil,
+        phoneme_datastream=phoneme_datastream,
+    )
+
+    map_outputs = {
+        "data": phoneme_datastream.as_returnn_extern_data_opts(),
+        "data_w_sil": phoneme_datastream.as_returnn_extern_data_opts(),
+    }
+
+    return {
+        "dev-other": MetaDataset(
+            datasets={
+                "feature_clusters": HdfDataset(
+                    files=clusters_dev_other_hdfs,
+                    segment_file=dev_other_seq_tags,
+                ),
+                "phon_indices": _wrap_in_post_proc(
+                    dataset=HdfDataset(
+                        files=[dev_other_bytes_hdf],
+                        segment_file=dev_other_seq_tags,
+                        partition_epoch=1,
+                    ),
+                    map_seq=phonemize_func,
+                    map_outputs=map_outputs,
+                    settings=settings,
+                ),
+            },
+            data_map={
+                "data": ("feature_clusters", "data"),
+                "phon_indices": ("phon_indices", "data_w_sil"),
             },
             seq_order_control_dataset="phon_indices",
         ),
