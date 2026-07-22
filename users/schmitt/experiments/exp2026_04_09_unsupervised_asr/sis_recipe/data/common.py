@@ -3,6 +3,8 @@ from dataclasses import dataclass
 
 from i6_experiments.common.setups.returnn.datasets import Dataset
 from i6_experiments.common.setups.returnn.datastreams.base import Datastream
+from i6_experiments.users.schmitt.datasets.multi_proc import MultiProcDataset
+from i6_experiments.users.schmitt.datasets.postprocessing import PostprocessingDataset
 
 from sisyphus import tk
 
@@ -87,3 +89,24 @@ class DatasetSettings:
 
     # multiproc settings
     num_workers: int = 2
+    buffer_size: int = 10
+
+
+def _wrap_in_multiproc(dataset, settings: DatasetSettings):
+    if settings.num_workers is not None and settings.num_workers > 0:
+        return MultiProcDataset(
+            dataset=dataset,
+            num_workers=settings.num_workers,
+            buffer_size=settings.buffer_size,
+        )
+    return dataset
+
+
+def _wrap_in_post_proc(dataset, map_seq, map_outputs, settings: DatasetSettings):
+    return PostprocessingDataset(
+        dataset=dataset,
+        map_seq=map_seq,
+        num_workers=settings.num_workers,
+        buf_size=settings.buffer_size,
+        map_outputs=map_outputs,
+    )

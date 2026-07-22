@@ -5,7 +5,7 @@ from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDat
 from i6_experiments.users.schmitt.datasets.hdf import HdfDataset
 
 from ....data.librispeech import audio, text
-from ....data.common import TrainingDatasets, LabelDatastreamWoVocab, DatasetSettings
+from ....data.common import TrainingDatasets, LabelDatastreamWoVocab, DatasetSettings, _wrap_in_multiproc
 
 
 def build_training_datasets(
@@ -141,6 +141,24 @@ def build_training_datasets(
     )
 
 
+def build_training_datasets_v2(
+    settings: DatasetSettings,
+    sil_prob: float = 0.25,
+    surround_w_sil: bool = True,
+):
+    """
+    Like v1 but uses MultiProcDataset.
+    """
+    training_dataset = build_training_datasets(sil_prob=sil_prob, surround_w_sil=surround_w_sil, settings=settings)
+    return TrainingDatasets(
+        train=_wrap_in_multiproc(training_dataset.train, settings),
+        eval_datasets={
+            name: _wrap_in_multiproc(dataset, settings) for name, dataset in training_dataset.eval_datasets.items()
+        },
+        datastreams=training_dataset.datastreams,
+    )
+
+
 def build_test_datasets(
     sil_prob: float = 0.25,
     surround_w_sil: bool = True,
@@ -189,3 +207,15 @@ def build_test_datasets(
             seq_order_control_dataset="phon_indices",
         ),
     }
+
+
+def build_test_datasets_v2(
+    settings: DatasetSettings,
+    sil_prob: float = 0.25,
+    surround_w_sil: bool = True,
+):
+    """
+    Like v1 but uses MultiProcDataset.
+    """
+    datasets = build_test_datasets(sil_prob=sil_prob, surround_w_sil=surround_w_sil)
+    return {name: _wrap_in_multiproc(dataset, settings) for name, dataset in datasets.items()}

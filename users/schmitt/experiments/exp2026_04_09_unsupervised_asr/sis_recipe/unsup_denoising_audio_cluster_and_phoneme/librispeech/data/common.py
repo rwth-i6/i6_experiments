@@ -12,18 +12,9 @@ from i6_experiments.users.schmitt.datasets.combine import CombinedDataset
 from i6_experiments.users.schmitt.datasets.utils.hdf import DumpCorpusTextAsUtf8ToHdfJob
 
 from ....data.librispeech import audio, text
-from ....data.common import TrainingDatasets, LabelDatastreamWoVocab, DatasetSettings
+from ....data.common import TrainingDatasets, LabelDatastreamWoVocab, DatasetSettings, _wrap_in_post_proc
 
 from sisyphus import tk
-
-
-def _wrap_in_post_proc(dataset, map_seq, map_outputs, num_workers: int = 0):
-    return PostprocessingDataset(
-        dataset=dataset,
-        map_seq=map_seq,
-        num_workers=num_workers,
-        map_outputs=map_outputs,
-    )
 
 
 def build_training_datasets(
