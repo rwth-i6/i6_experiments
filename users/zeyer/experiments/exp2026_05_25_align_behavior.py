@@ -353,8 +353,42 @@ def _train_base():
     )
 
 
-def _train_crctc():
+def _train_base_ep200():
+    """``L16-D1024-spm10k-auxAED-b100k-ep200`` -- base with doubled epochs.
+
+    Forward-compute-matched counterpart to the 100-epoch CR-CTC run
+    (CR forwards two augmented views per step).
+    Byte-identical to ``_train_base`` except ``nep`` 100 -> 200.
+    """
+    return ctc_train_exp(
+        "L16-D1024-spm10k-auxAED-b100k-ep200",
+        config_96gb_bf16_accgrad1,
+        model_config={
+            "enc_build_dict": _enc_build_dict_l16_d1024(),
+            "feature_batch_norm": True,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(100_000, 200, batch_size_factor=_batch_size_factor),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),
+            "max_seq_length_default_target": None,
+            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+        },
+        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+    )
+
+
+def _train_crctc(nep: int = 100):
     """``L16-D1024-spm10k-auxAED-b100k-crLoss0.2`` -- Consistency-Regularized CTC.
+
+    ``nep=50`` is the CR-CTC-paper-faithful compute-matched setting:
+    each step forwards two augmented views, so half the epochs give the same
+    total forward compute as the 100-epoch base.
 
     Encoder / vocab / schedule / epochs are byte-identical to ``_train_base``,
     so this lands in the same forced-align table as the other levers.
@@ -366,7 +400,7 @@ def _train_crctc():
     effective batch (and thus the schedule) identical to the base.
     """
     return ctc_train_exp(
-        "L16-D1024-spm10k-auxAED-b100k-crLoss0.2",
+        f"L16-D1024-spm10k-auxAED-b100k-crLoss0.2{'' if nep == 100 else f'-ep{nep}'}",
         config_96gb_bf16_accgrad1,
         train_def=_cr_ctc_training,
         model_config={
@@ -377,7 +411,7 @@ def _train_crctc():
             # Half the base batch: the CR step forwards two augmented views per
             # sequence (branch_dim=2), so batch 50k processes ~100k per forward,
             # matching the base (which fits); batch 100k OOMs the 80 GB GPU.
-            **_get_cfg_lrlin_oclr_by_bs_nep_v3(50_000, 100, batch_size_factor=_batch_size_factor),
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(50_000, nep, batch_size_factor=_batch_size_factor),
             "optimizer.weight_decay": 1e-2,
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
