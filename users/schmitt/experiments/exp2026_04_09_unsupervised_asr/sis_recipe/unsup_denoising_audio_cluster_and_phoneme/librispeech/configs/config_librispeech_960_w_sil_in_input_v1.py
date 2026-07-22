@@ -8,7 +8,11 @@ from i6_core.returnn.config import CodeWrapper, ReturnnConfig
 from i6_core.serialization import Collection
 
 from ....train_exp import run_experiment
-from ..data.common import build_test_datasets, build_training_datasets_w_silence_in_input
+from ..data.common import (
+    build_test_datasets,
+    build_training_datasets_w_silence_in_input,
+    build_test_datasets_w_silence_in_input,
+)
 from ....data.common import DatasetSettings
 from .... import optimizer_configs
 from ... import __setup_base_name__
@@ -22,9 +26,11 @@ from ....sup_audio_cluster_to_phoneme.librispeech.configs.config_librispeech_960
 settings = DatasetSettings(
     train_partition_epoch=20,
     train_seq_ordering="laplace:.1000",
+    num_workers=0,
+    buffer_size=0,
 )
 train_data = build_training_datasets_w_silence_in_input(sil_prob=0.25, surround_w_sil=True, settings=settings)
-test_data_dict_wo_sil = build_test_datasets(sil_prob=0.0, surround_w_sil=False)
+test_data_dict_w_sil = build_test_datasets_w_silence_in_input(settings=settings, sil_prob=0.25, surround_w_sil=True)
 
 
 base_config = dict_update_deep(
@@ -141,8 +147,8 @@ def py():
         training_name=f"{prefix_name}/baseline",
         config=copy.deepcopy(base_config),
         train_data=train_data,
-        test_data_dict=test_data_dict_wo_sil,
-        keep_epochs=get_keep_epochs(base_num_epochs),
+        test_data_dict=test_data_dict_w_sil,
+        keep_epochs=[base_num_epochs],  # get_keep_epochs(base_num_epochs),
         # skip_eval=True,
         additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
         analysis_opts={
@@ -150,14 +156,13 @@ def py():
             "max_plotted_seqs": 20,
             "cosine_similarity_summary": True,
         },
-        skip_eval=True,
         # conditional (audio->phoneme) perplexity of the shared AED model on the last checkpoint,
         # scored on the wo-silence reference (matching the wo-sil model) via a separate PPL dataset;
         # recognition / analysis keep the with-silence test_data_dict.
         ppl_opts={
             "checkpoints": [base_num_epochs],
             "input_modality": "audio",
-            "test_data_dict": test_data_dict_wo_sil,
+            "test_data_dict": test_data_dict_w_sil,
         },
         # same-modality reconstruction on the last checkpoint, masking the input with the same
         # settings as in training, to probe how well the shared denoising model reconstructs each
@@ -217,7 +222,7 @@ def py():
                     },
                 ),
                 train_data=train_data_var_sil,
-                test_data_dict=test_data_dict_wo_sil,
+                test_data_dict=test_data_dict_w_sil,
                 keep_epochs=get_keep_epochs(base_num_epochs),
                 # skip_eval=True,
                 additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
@@ -232,7 +237,7 @@ def py():
                 ppl_opts={
                     "checkpoints": [base_num_epochs],
                     "input_modality": "audio",
-                    "test_data_dict": test_data_dict_wo_sil,
+                    "test_data_dict": test_data_dict_w_sil,
                 }
                 if discriminator_type == "lstm"
                 else None,
