@@ -151,7 +151,11 @@ _VLLM_MODEL_ARGS: dict[str, list[str]] = {
 
 
 @contextmanager
-def vllm_server(hf_model: str):
+def vllm_server(hf_model: str, max_model_len: int | None = None):
+    # `max_model_len` override: a short-context caller (e.g. LLMGrading, whose prompts are <1k tokens)
+    # can pass a small value so the judge's KV cache fits c25g's 80 GB H100 at TP=1 -- otherwise the
+    # dict's large context (gemma 65536 -> ~12 GiB KV) only fits c23g's 94 GB cards, forcing the job onto
+    # the scarce c23g queue. None keeps the per-model dict default (dialogue-gen needs the long context).
     port = pick_free_port(18998)
     print(f"Selected port {port} for vLLM server")
     cmd = [
@@ -169,7 +173,13 @@ def vllm_server(hf_model: str):
         "--enable-prefix-caching",
         "true",
     ]
-    cmd += _VLLM_MODEL_ARGS.get(hf_model, [])
+    model_args = list(_VLLM_MODEL_ARGS.get(hf_model, []))
+    if max_model_len is not None:
+        if "--max-model-len" in model_args:
+            model_args[model_args.index("--max-model-len") + 1] = str(max_model_len)
+        else:
+            model_args += ["--max-model-len", str(max_model_len)]
+    cmd += model_args
 
     with managed_subprocess_server(
         cmd,

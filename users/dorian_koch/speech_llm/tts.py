@@ -8,15 +8,71 @@ from i6_experiments.users.dorian_koch.jobs.hf import HfMergeShards
 
 
 # cluster lmod is behaving wierd, just install ffmpeg ourselves...
+#: Build flags that make our FFmpeg **portable across nodes**.
+#:
+#: FFmpeg's configure AUTODETECTS optional system libraries on whatever node the build lands on and
+#: links against them. Building on c23g therefore produced a binary needing libva/libva-drm (VA-API),
+#: X11/XCB, ALSA and libbz2 -- none of which we use, and several of which are absent on c25g's
+#: Rocky9/epyc nodes and on the login node. That is the real reason "c25g has no FFmpeg": the system
+#: was never the problem, our own build was non-hermetic. (Symptom: `torchcodec` import dies with
+#: `OSError: libva-drm.so.2: cannot open shared object file`.)
+#:
+#: `--disable-autodetect` turns that off: nothing links unless explicitly enabled. We only ever
+#: decode/encode audio, and the codecs we need (PCM, WAV, FLAC, MP3, Opus/Vorbis) are all NATIVE to
+#: FFmpeg -- so the portable build needs no external libraries at all beyond libc/libm/zlib.
+PORTABLE_FFMPEG_OPTIONS = [
+    "--disable-autodetect",  # the fix: never link a library just because the build node has it
+    "--disable-doc",
+    # We are an audio pipeline; dropping the display/device layers removes the X11/ALSA/VA-API
+    # dependency surface entirely rather than relying on autodetect to have missed it.
+    "--disable-vaapi",
+    "--disable-vdpau",
+    "--disable-xlib",
+    "--disable-libxcb",
+    "--disable-alsa",
+    "--disable-sdl2",
+]
+
+
 class InstallFFmpeg(Job):
-    def __init__(self, additional_options: list[str] | None = None):
+    """Build FFmpeg from source into a job output, so no cluster/system FFmpeg is needed.
+
+    Consumers put it on PATH/LD_LIBRARY_PATH via :meth:`add_to_env`; that is also what lets
+    `torchcodec` find libavcodec/libavutil, so jobs using it are node-independent and do NOT need a
+    partition pinned for them.
+
+    ``hash_overwrite`` exists so the build flags can be changed WITHOUT changing this job's Sisyphus
+    hash -- the whole TTS/annotate chain (hundreds of GB) consumes this job's output, and a hash
+    change would re-run all of it for what is only a link-time fix. To apply new flags:
+    ``hpc-rerun.py <this job dir> --finished`` then restart the manager.
+    """
+
+    #: FFmpeg release built by default. NOTE 8.x has bitten us twice: its nistsphere demuxer rejects
+    #: Fisher's `ulaw,embedded-shorten-v2.00` (hence InstallSph2pipe), and `torchcodec` supports only
+    #: FFmpeg 4-7 -- it dlopen's `libtorchcodec_core{4..7}.so` against libavcodec 58-61, whereas 8.1
+    #: ships libavcodec.so.62, so torchcodec cannot load against it. Build `version="7.1"` for any
+    #: consumer that needs torchcodec.
+    DEFAULT_VERSION = "8.1"
+
+    def __init__(self, additional_options: list[str] | None = None, version: str = DEFAULT_VERSION):
         self.out_path = self.output_path("out", directory=True)
         self.additional_options = additional_options if additional_options is not None else []
+        self.version = version
         self.rqmt = {
             "cpu": 8,
             "mem": 8,
             "time": 1,
         }
+
+    @classmethod
+    def hash(cls, parsed_args):
+        # `version` is excluded from the hash while it equals the default, so adding the parameter
+        # does not change the existing job's hash (which the whole TTS/annotate chain depends on).
+        # Passing a non-default version yields a distinct job, as it should.
+        args = dict(parsed_args)
+        if args.get("version") == cls.DEFAULT_VERSION:
+            args.pop("version")
+        return super().hash(args)
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -29,10 +85,11 @@ class InstallFFmpeg(Job):
 
     def run(self):
         # wget https://ffmpeg.org/releases/ffmpeg-8.1.tar.xz
+        tarball = f"ffmpeg-{self.version}.tar.xz"
         subprocess.run(
             [
                 "wget",
-                "https://ffmpeg.org/releases/ffmpeg-8.1.tar.xz",
+                f"https://ffmpeg.org/releases/{tarball}",
             ],
             check=True,
         )
@@ -41,12 +98,11 @@ class InstallFFmpeg(Job):
             [
                 "tar",
                 "-xf",
-                "ffmpeg-8.1.tar.xz",
+                tarball,
             ],
             check=True,
         )
-        # cd ffmpeg-8.1
-        os.chdir("ffmpeg-8.1")
+        os.chdir(f"ffmpeg-{self.version}")
         # ./configure --prefix=/path/to/output --enable-shared --disable-static --enable-pic --disable-x86asm
         subprocess.run(
             [
@@ -56,6 +112,11 @@ class InstallFFmpeg(Job):
                 "--disable-static",
                 "--enable-pic",
                 "--disable-x86asm",
+                # Deliberately NOT a constructor argument: these are a build detail, not a semantic
+                # input, so keeping them out of the Sisyphus hash means the flags can be changed and
+                # the binary rebuilt (`hpc-rerun.py <job dir> --finished`) without re-running the
+                # hundreds of GB of TTS/annotate jobs downstream that consume this output.
+                *PORTABLE_FFMPEG_OPTIONS,
                 *self.additional_options,
             ],
             check=True,
@@ -77,7 +138,26 @@ class InstallFFmpeg(Job):
             ],
             check=True,
         )
-        print(f"FFmpeg installed to {self.out_path.get()}")
+        # Fail loud if the build is not actually portable -- the whole point of
+        # PORTABLE_FFMPEG_OPTIONS. `ldd` must show nothing beyond libc/libm/libz and our own libav*,
+        # otherwise this binary will die on some other node exactly as the pre-2026-07-23 build did.
+        ldd = subprocess.run(
+            ["ldd", f"{self.out_path.get()}/bin/ffmpeg"],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "LD_LIBRARY_PATH": f"{self.out_path.get()}/lib"},
+        ).stdout
+        allowed = ("linux-vdso", "ld-linux", "libc.so", "libm.so", "libz.so", "libdl", "librt", "libpthread")
+        stray = [
+            line.strip()
+            for line in ldd.splitlines()
+            if line.strip() and self.out_path.get() not in line and not any(a in line for a in allowed)
+        ]
+        assert not stray, (
+            f"FFmpeg build is not portable -- unexpected external deps: {stray}. "
+            f"Something slipped past --disable-autodetect; add an explicit --disable-* for it."
+        )
+        print(f"FFmpeg {self.version} installed to {self.out_path.get()} (portable: {len(stray)} stray deps)")
 
 
 class ChatterboxInference(Job):
@@ -121,6 +201,10 @@ class ChatterboxInference(Job):
                 "cpu": 4,
                 "mem": 16,
                 "time": 4,
+                # Decodes audio through torchcodec, which needs system FFmpeg/VA libraries
+                # (libva-drm.so.2). Declared as a capability, not a partition name, so the recipe
+                # stays cluster-agnostic -- settings.py owns the mapping.
+                "requires": ["system_ffmpeg"],
             }
         )
 

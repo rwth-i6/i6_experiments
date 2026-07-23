@@ -47,6 +47,9 @@ class BackendSpec:
     file_client: type = MoshiFileClient
     # handle (``host:port``) -> client connection url.
     ws_url: Callable[[str], str] = _ws_url
+    # Override the HF repo the streaming Moshi server loads (e.g. a released RL checkpoint like
+    # kyutai/moshika-rl-seamless); None -> the server default (base Moshi). Threaded to SpeechInference.
+    server_hf_repo: str | None = None
 
     # --- offline-batched modality (Moshi, PersonaPlex, ...) -------------------
     # Driver script filename under ``dorian_koch/`` (e.g. ``moshi_offline_inference.py``);
@@ -92,6 +95,18 @@ MOSHI_BACKEND = BackendSpec(
     ws_url=_ws_url,
     offline_script="moshi_offline_inference.py",
 )
+
+
+def moshi_hf_repo_backend_spec(hf_repo: str) -> BackendSpec:
+    """MOSHI_BACKEND (streaming server) but loading a specific HF repo instead of base Moshi.
+
+    Use to benchmark a released full checkpoint -- e.g. the paper's RL-tuned
+    ``kyutai/moshika-rl-seamless`` -- alongside our own trained adapters. The moshi server pulls
+    the repo via its ``--hf-repo`` flag (needs HF_TOKEN for gated repos; the job env has it).
+    """
+    import dataclasses
+
+    return dataclasses.replace(MOSHI_BACKEND, name=f"moshi:{hf_repo}", server_hf_repo=hf_repo)
 
 
 def unmute_backend_spec() -> BackendSpec:
@@ -198,6 +213,30 @@ def moshi_family_backend_spec(lora_rank: int | None = None, lora_scaling: float 
         server=None,  # end-to-end + causal: offline driver, no websocket server
         offline_module="moshi_family.offline_inference",
         offline_extra_args=extra,
+        inference_venv=_venv,
+    )
+
+
+def audex_duplex_backend_spec() -> BackendSpec:
+    """AudexDuplex: Moshi full-duplex machinery grafted onto the Audex-2B knowledge backbone
+    (``moshi_family.audex``). Runs the offline driver ``python -m moshi_family.audex.offline_inference``
+    through the same ``offline_module`` seam as base Moshi. The ``--overlay`` is a Stage-0/finetune
+    checkpoint (partial state_dict of the trained Mimi audio emb + depformer) -- there is NO LoRA. Mimi +
+    sampling config come from moshiko (``--hf_repo``); the Audex-2B trunk downloads lazily. ``inference_venv``
+    is the shared ``moshi_family_venv`` (Audex loads via trust_remote_code; no dedicated venv). See
+    ``projects/2026-01-speech-llm/audexduplex.md``."""
+
+    def _venv():
+        from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import (
+            moshi_family_venv,
+        )
+
+        return moshi_family_venv()
+
+    return BackendSpec(
+        name="audex_duplex",
+        server=None,  # end-to-end + causal: offline driver, no websocket server
+        offline_module="moshi_family.audex.offline_inference",
         inference_venv=_venv,
     )
 

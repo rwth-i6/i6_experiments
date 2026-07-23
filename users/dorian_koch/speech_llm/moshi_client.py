@@ -49,6 +49,8 @@ def moshi_server(
     lora_config: str | None = None,
     python_exe: str | None = None,
     unmute_llm: str | None = None,
+    hf_repo: str | None = None,
+    seed: int | None = None,
     **_,
 ):
     # Uniform backend signature (see speech_backends.py): ``unmute_llm`` and any
@@ -61,10 +63,15 @@ def moshi_server(
     # (self-contained). The setup .venv runs moshi from source at projects/moshi,
     # where the module is "moshi.moshi.server" and needs that cwd (below).
     server_module = "moshi.server" if python_exe is not None else "moshi.moshi.server"
-    cmd = [
-        python_exe or sys.executable,
-        "-m",
-        server_module,
+    if seed is not None and python_exe is not None:
+        # Run our seed wrapper as a script (not -m) so it can monkeypatch moshi.server.seed_all
+        # before main(); the pip venv resolves ``import moshi.server`` from its site-packages.
+        os.environ["MOSHI_SERVER_SEED"] = str(int(seed))
+        wrapper = os.path.join(os.path.dirname(__file__), "moshi_seeded_server.py")
+        cmd = [python_exe, wrapper]
+    else:
+        cmd = [python_exe or sys.executable, "-m", server_module]
+    cmd += [
         "--host",
         "127.0.0.1",
         "--port",
@@ -74,6 +81,10 @@ def moshi_server(
         cmd += ["--lora-weight", str(lora_weights)]
     if lora_config is not None:
         cmd += ["--config-path", str(lora_config)]
+    # Override the model repo the server loads (e.g. a released RL checkpoint); default is the
+    # moshi loaders.DEFAULT_REPO (base Moshi).
+    if hf_repo is not None:
+        cmd += ["--hf-repo", str(hf_repo)]
 
     # From-source moshi needs to run with projects/moshi as cwd; the pip-installed
     # package (python_exe set) is self-contained and runs from anywhere.

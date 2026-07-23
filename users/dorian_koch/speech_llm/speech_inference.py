@@ -46,20 +46,23 @@ class ResolveOverlayCheckpoint(Job):
     """
 
     def __init__(self, *, run_dir: tk.Path, overlay_kind: str = "lora", step: int | None = None):
-        assert overlay_kind in ("lora", "personaplex_heads"), overlay_kind
+        assert overlay_kind in ("lora", "personaplex_heads", "audex_stage0"), overlay_kind
         self.run_dir = run_dir
         self.overlay_kind = overlay_kind
         self.step = step  # None -> latest (lora) / final consolidated (personaplex)
-        self.out_weights = self.output_path(
-            "lora.safetensors" if overlay_kind == "lora" else "trained_heads.safetensors"
-        )
+        _weights_name = {
+            "lora": "lora.safetensors",
+            "personaplex_heads": "trained_heads.safetensors",
+            "audex_stage0": "stage0.safetensors",
+        }[overlay_kind]
+        self.out_weights = self.output_path(_weights_name)
         self.out_config = self.output_path("config.json") if overlay_kind == "lora" else None
 
     def tasks(self):
         yield Task("run", mini_task=True)
 
     def run(self):
-        if self.overlay_kind == "lora":
+        if self.overlay_kind in ("lora", "audex_stage0"):
             ckpt_root = Path(self.run_dir.get()) / "checkpoints"
             ckpts = sorted(ckpt_root.glob("checkpoint_*"), key=lambda p: int(p.name.split("_")[-1]))
             assert ckpts, f"No checkpoints found in {ckpt_root}"
@@ -69,9 +72,16 @@ class ResolveOverlayCheckpoint(Job):
             else:
                 chosen = ckpts[-1]
             consolidated = chosen / "consolidated"
-            print(f"Resolved LoRA checkpoint: {chosen.name}", flush=True)
-            os.symlink(consolidated / "config.json", self.out_config.get())
-            os.symlink(consolidated / "lora.safetensors", self.out_weights.get())
+            print(f"Resolved {self.overlay_kind} checkpoint: {chosen.name}", flush=True)
+            if self.overlay_kind == "lora":
+                os.symlink(consolidated / "config.json", self.out_config.get())
+                os.symlink(consolidated / "lora.safetensors", self.out_weights.get())
+            else:  # audex_stage0/stage1: partial state-dict overlay, no config
+                import glob as _glob
+
+                cands = sorted(_glob.glob(str(consolidated / "stage*.safetensors")))
+                assert len(cands) == 1, f"expected one stage*.safetensors in {consolidated}, got {cands}"
+                os.symlink(cands[0], self.out_weights.get())
         else:  # personaplex_heads
             consolidated = Path(self.run_dir.get()) / "consolidated"
             name = (
@@ -109,6 +119,8 @@ class SpeechInference(BackendInferenceMixin, Job):
         "retrieval_llm": None,
         "lora_weights": None,
         "lora_config": None,
+        "hf_repo": None,
+        "seed": None,
         # FDB-only attrs are absent (None) for knowledge jobs and vice-versa, so excluding their
         # "absent" default keeps each mode's hash clean.
         "asr_venv_python": None,
@@ -135,6 +147,8 @@ class SpeechInference(BackendInferenceMixin, Job):
         retrieval_llm: str | None = None,
         lora_weights: tk.Path | None = None,
         lora_config: tk.Path | None = None,
+        hf_repo: str | None = None,
+        seed: int | None = None,
         code_version: int = 1,
         # --- knowledge mode ---
         in_dir: tk.Path | None = None,
@@ -168,6 +182,14 @@ class SpeechInference(BackendInferenceMixin, Job):
         # Optional fine-tuned overlay (LoRA or PersonaPlex heads); None -> base model.
         self.lora_weights = lora_weights
         self.lora_config = lora_config
+        # Override the model HF repo the moshi server loads (e.g. a released RL checkpoint like
+        # kyutai/moshika-rl-seamless); None -> the server DEFAULT_REPO (base Moshi). Hashed (excluded
+        # at None in __sis_hash_exclude__) so a different repo yields a distinct job.
+        self.hf_repo = hf_repo
+        # RNG seed forwarded to the moshi server (via the seeded-server wrapper); None -> the
+        # server's hardcoded default (42424242). Hashed (excluded at None) so each seed is a
+        # distinct replicate job -- used to measure generation seed-sensitivity of the metrics.
+        self.seed = seed
         # Hashed code-version knob (see __sis_hash_exclude__); default 1 == current behaviour.
         self.code_version = code_version
 

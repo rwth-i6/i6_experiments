@@ -138,10 +138,13 @@ def launch_training(job: "SpeechFinetune", adapter: FinetuneAdapter) -> None:
     import hashlib
     import subprocess
 
-    # Deterministic per-GPU MASTER_PORT (PYTHONHASHSEED-independent) so concurrent
-    # single-node trainings on one machine don't collide.
-    cuda_devices = os.environ.get("CUDA_VISIBLE_DEVICES", "-1")
-    port_offset = int(hashlib.md5(cuda_devices.encode()).hexdigest()[:4], 16) % 100
+    # Deterministic MASTER_PORT (PYTHONHASHSEED-independent) so concurrent single-node trainings on one
+    # machine don't collide. Key off SLURM_JOB_ID (unique per job, identical across a job's ranks): under
+    # SLURM each single-GPU job's cgroup renumbers its visible GPU to "0", so hashing CUDA_VISIBLE_DEVICES
+    # gave two co-located jobs the SAME port -> EADDRINUSE. Fall back to CUDA_VISIBLE_DEVICES off-SLURM.
+    cuda_devices = os.environ.get("CUDA_VISIBLE_DEVICES", "-1")  # also used below for nproc
+    port_key = os.environ.get("SLURM_JOB_ID") or cuda_devices
+    port_offset = int(hashlib.md5(port_key.encode()).hexdigest()[:4], 16) % 4000
 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
@@ -158,15 +161,24 @@ def launch_training(job: "SpeechFinetune", adapter: FinetuneAdapter) -> None:
     # HF_HUB_CACHE straight at the real dir so offline resolve (refs/main -> snapshot -> blob) works.
     env["HF_HUB_CACHE"] = HF_CACHE_DIR.get()
     env["MASTER_ADDR"] = "localhost"
-    env["MASTER_PORT"] = str(29600 + port_offset)  # avoid conflicts if multiple run on one machine
-    print(f"Set MASTER_PORT to {env['MASTER_PORT']} based on hash of CUDA_VISIBLE_DEVICES")
+    env["MASTER_PORT"] = str(20000 + port_offset)  # unique per SLURM job -> no EADDRINUSE across co-located jobs
+    print(f"Set MASTER_PORT to {env['MASTER_PORT']} based on hash of SLURM_JOB_ID/CUDA_VISIBLE_DEVICES")
+
+    # nproc-per-node = the GPUs actually handed to *training*, NOT job.rqmt["gpu"] (which counts the
+    # whole allocation). When a vLLM judge is co-launched, the retrieval seam pins the trainer to a
+    # single GPU via CUDA_VISIBLE_DEVICES (the judge takes the other), so rqmt["gpu"]==2 while only one
+    # GPU is visible here. This launcher runs one single-GPU rank per proc and never maps rank->device,
+    # so a larger nproc piles every rank onto the one visible GPU and OOMs (observed: 2x46GiB on a 93GiB
+    # card). Count the visible devices; fall back to rqmt["gpu"] only when CUDA_VISIBLE_DEVICES is unset.
+    _visible_gpus = [d for d in cuda_devices.split(",") if d.strip() not in ("", "-1")]
+    n_train_gpus = len(_visible_gpus) if _visible_gpus else int(job.rqmt["gpu"])
 
     command = [
         job.venv_python_path.get(),
         "-m",
         "torch.distributed.run",
         "--nproc-per-node",
-        str(job.rqmt["gpu"]),
+        str(n_train_gpus),
         f"--rdzv_endpoint={env['MASTER_ADDR']}:{env['MASTER_PORT']}",
         "-m",
         adapter.launcher_module,
@@ -238,7 +250,13 @@ def launch_training(job: "SpeechFinetune", adapter: FinetuneAdapter) -> None:
 # --------------------------------------------------------------------------- #
 def _render_moshi_finetune_config(job: "SpeechFinetune", batch_size: int, max_steps: int, *, hf_repo_id: str) -> str:
     """Render a moshi-finetune ``config.yaml``. Architecture-agnostic except the base
-    model repo, so Moshi and (scaffolded) PersonaPlex share it."""
+    model repo, so Moshi and (scaffolded) PersonaPlex share it.
+
+    Extra knobs come from ``job.hparams`` (a plain dict) so the job signature never grows: ``lr``
+    (default 2e-6) and ``full_finetuning`` (default False -> LoRA; True -> full-FT: LoRA off +
+    save the full model). Text-replay is NOT supported by the fork (owned-launcher feature)."""
+    hp = getattr(job, "hparams", None) or {}
+    full_ft = bool(hp.get("full_finetuning", False))
     run_dir = job.out_rundir.get()
     return f"""
 # data
@@ -251,9 +269,9 @@ data:
 moshi_paths:
   hf_repo_id: "{hf_repo_id}"
 
-full_finetuning: false # Activate lora.enable if partial finetuning
+full_finetuning: {str(full_ft).lower()}
 lora:
-  enable: true # Set to False if full_finetuning is True
+  enable: {str(not full_ft).lower()} # False when full_finetuning
   rank: {job.lora_rank}
   scaling: 2.
   ft_embed: false # Optional, set to True if you want to finetune the embedding layer
@@ -267,7 +285,7 @@ batch_size: {batch_size}
 max_steps: {max_steps}
 gradient_checkpointing: true
 optim:
-  lr: 2e-6
+  lr: {hp.get("lr", 2e-6)}
   weight_decay: 0.1
   pct_start: 0.05
 
@@ -280,7 +298,7 @@ do_ckpt: true
 ckpt_freq: 100
 overwrite_run_dir: true
 
-save_adapters: true # Must be False if full_finetuning is True
+save_adapters: {str(not full_ft).lower()} # False when full_finetuning
 
 run_dir: "{run_dir}"  # Fill
 """
@@ -365,24 +383,36 @@ def _render_moshi_lib_config(job: "SpeechFinetune", batch_size: int, max_steps: 
     the moshi-finetune fork schema). LoRA over the whole trunk via the shared ``train_loop``; the
     fork's loss weighting is replicated in ``moshi_train_data.moshi_loss``. SINGLE-GPU: per-gpu batch
     1 x grad_accum 16 = effective batch 16 (matching the fork's ``batch_size=16``); gradient
-    checkpointing on so LoRA-over-backbone fits one 24 GB GPU. lr 2e-6 = the fork's ``optim.lr``."""
+    checkpointing on so LoRA-over-backbone fits one 24 GB GPU. lr 2e-6 = the fork's ``optim.lr``.
+
+    Extra knobs (lr, sample_every, eval_batches, general_eval_data) come from ``job.hparams``."""
+    hp = getattr(job, "hparams", None) or {}
+    _gen = hp.get("general_eval_data")
+    _gen = _gen.get() if hasattr(_gen, "get") else (_gen or "")
     return f"""# base-Moshi LoRA finetune config (moshi_finetune_launcher schema)
 hf_repo_id: "{hf_repo_id}"
 train_data: "{job.train_data.get()}"
 out_dir: "{job.out_rundir.get()}"
 max_steps: {max_steps}
 duration_sec: {job.duration_sec}
+audio_jitter_sec: {getattr(job, "audio_jitter_sec", 0.0)}
 lora_rank: {job.lora_rank}
 lora_scaling: 2.0
 per_gpu_batch: 1
 grad_accum: 16
-lr: 2e-6
+lr: {hp.get("lr", 2e-6)}
 warmup_steps: 200
 grad_clip: 1.0
 gradient_checkpointing: true
 save_every: 500
 log_every: 10
 seed: {getattr(job, "seed", 0)}
+sample_every: {hp.get("sample_every", 100)}
+eval_batches: {hp.get("eval_batches", 8)}
+general_eval_data: "{_gen}"
+do_eval: {str(getattr(job, "eval_data", None) is not None).lower()}
+eval_data: "{job.eval_data.get() if getattr(job, "eval_data", None) is not None else ""}"
+eval_freq: {hp.get("eval_freq", 100)}
 """
 
 
@@ -486,6 +516,10 @@ class SpeechFinetune(Job):
         "max_steps": 2000,
         "eval_data": None,
         "lora_rank": 128,
+        # Free-form extra hyper-params (lr, full_finetuning, text_replay_frac, sample_every, ...).
+        # A single bag so new knobs never touch this signature; excluded at None -> existing runs
+        # keep their hash, a caller that passes a dict gets a fresh hash from the dict contents.
+        "hparams": None,
     }
 
     def __init__(
@@ -501,6 +535,7 @@ class SpeechFinetune(Job):
         max_steps: int = 2000,
         eval_data=None,
         lora_rank: int = 128,
+        hparams: dict | None = None,
     ):
         self.adapter = adapter
         self.train_data = train_data
@@ -512,9 +547,12 @@ class SpeechFinetune(Job):
         self.num_epochs = num_epochs
         self.max_steps = max_steps
         self.lora_rank = lora_rank
+        self.hparams = hparams or {}
         self.out_config = self.output_path("config.yaml")
         self.out_rundir = self.output_path("run_dir", directory=True)
-        self.rqmt = {"gpu": 1, "cpu": 6, "mem": 24, "time": 23}
+        # time from hparams["rqmt_time_h"] (default 23h -> c23g). <=12 routes to the fast c25g queue;
+        # safe for owned-launcher runs because resume() continues across the 12h cap. rqmt isn't hashed.
+        self.rqmt = {"gpu": 1, "cpu": 6, "mem": 24, "time": int(self.hparams.get("rqmt_time_h", 23))}
 
     @classmethod
     def hash(cls, parsed_args):
@@ -526,7 +564,9 @@ class SpeechFinetune(Job):
 
     def tasks(self):
         yield Task("write_config", mini_task=True)
-        yield Task("run", rqmt=self.rqmt)
+        # resume="run": an interrupted run (preemption / 12h-cap timeout) is rescheduled and re-runs
+        # run(), which continues from the latest checkpoint (owned launcher _resume_step). Preemption-safe.
+        yield Task("run", resume="run", rqmt=self.rqmt)
 
     def completed_fraction(self):
         return finetune_completed_fraction(self, self.adapter)

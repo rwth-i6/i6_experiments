@@ -39,6 +39,7 @@ quality_asr_model: "{job.quality_asr_model or ""}"
 max_steps: {job.max_steps}
 grad_accum: {job.grad_accum}
 num_samples: {job.num_samples}
+group_micro_batch: {job.group_micro_batch}
 capture_s: {job.capture_s}
 lora_rank: {job.lora_rank}
 lora_scaling: 2.0
@@ -79,7 +80,8 @@ class RLFinetune(Job):
 
     __sis_hash_exclude__ = {
         "warmup_steps": 100,
-        "grad_accum": 1,
+        "grad_accum": 2,
+        "group_micro_batch": 4,
         "capture_s": 12.0,
         "context_max_s": 30.0,
         "kl_beta": 0.01,
@@ -103,8 +105,9 @@ class RLFinetune(Job):
         quality_asr: str = "whisper",
         quality_asr_model: str | None = None,
         max_steps: int = 3200,
-        grad_accum: int = 1,
+        grad_accum: int = 2,
         num_samples: int = 16,
+        group_micro_batch: int = 4,
         capture_s: float = 12.0,
         lora_rank: int = 128,
         lr: float = 2e-7,
@@ -129,6 +132,7 @@ class RLFinetune(Job):
         self.max_steps = max_steps
         self.grad_accum = grad_accum
         self.num_samples = num_samples
+        self.group_micro_batch = group_micro_batch
         self.capture_s = capture_s
         self.lora_rank = lora_rank
         self.lr = lr

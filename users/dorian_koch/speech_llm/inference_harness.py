@@ -310,6 +310,8 @@ class BackendInferenceMixin:
             lora_config=self.lora_config.get_path() if self.lora_config is not None else None,
             python_exe=self._python_exe(),
             unmute_llm=self.unmute_llm,
+            hf_repo=getattr(self, "hf_repo", None),
+            seed=getattr(self, "seed", None),
         )
 
     def _stream(self, items, *, opts: "StreamOptions") -> None:

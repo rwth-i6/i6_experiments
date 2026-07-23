@@ -148,6 +148,59 @@ DIALOGUE_INSTRUCTION_TEMPLATES = [
         "correct information.  The user MUST speak first.  Keep to 4 turns.  "
         "Tone: friendly and collegiate, not condescending.\n" + _COMMON_SUFFIX
     ),
+    # Template 6 — engaging teacher (PersonaPlex's QA persona: their fixed role prompt is
+    # "You are a wise and friendly teacher. Answer questions or provide advice in a clear and
+    # engaging way."). Deliberately asks for elaboration, since our corpus was too terse.
+    (
+        "You are a wise and friendly teacher.  Write a spoken dialogue where the user asks the "
+        "question and you answer in a clear and engaging way: give the correct answer directly, "
+        "then add one or two sentences of genuinely interesting context or a memorable detail.  "
+        "Warm and vivid, never a lecture and never padded.  The user MUST speak first.  "
+        "Total turns: 2-4, and the assistant's answers should be substantial (roughly 40-80 "
+        "spoken words in total).\n" + _COMMON_SUFFIX
+    ),
+    # Template 7 — follow-up / topic change. PersonaPlex explicitly synthesises "two-turn
+    # question-answering dialogs ... and second-question scenarios (topic change, follow up etc.)",
+    # which our single-question corpus had none of.
+    (
+        "Write a spoken dialogue with TWO questions.  First the user asks the question and the "
+        "assistant answers it clearly.  Then the user asks a SECOND question — either a natural "
+        "follow-up about the same topic, or an unrelated change of subject — and the assistant "
+        "answers that too, without being thrown by the switch.  The user MUST speak first.  "
+        "Total turns: 4-6.\n" + _COMMON_SUFFIX
+    ),
+    # --- Templates 8-10: MANY SHORT TURNS ----------------------------------------------------
+    # These raise total assistant words WITHOUT making individual turns long-winded. The terse
+    # templates (qa_direct / casual_brief) were the problem not because short turns are wrong --
+    # real speech is full of them, and a duplex model must handle rapid exchange -- but because a
+    # 2-turn dialogue gives the model almost no assistant speech to learn from. Keeping turns short
+    # while adding more of them preserves the natural conversational register and still gets the
+    # per-example word count up.
+    #
+    # Template 8 — quickfire: several short related questions, brief answers to each.
+    (
+        "Write a spoken dialogue in which the user asks several short, quick questions about the "
+        "topic, one at a time, and the assistant answers each one briefly — one or two sentences "
+        "at most per turn, never a lecture.  The exchange should feel fast and easy, like two "
+        "people talking quickly.  Make sure the correct answer to the main question is clearly "
+        "stated in one of the assistant's turns.  The user MUST speak first.  Total turns: 6-8.\n" + _COMMON_SUFFIX
+    ),
+    # Template 9 — clarify then answer: a short clarification round before the answer.
+    (
+        "Write a spoken dialogue where the user asks the question a little vaguely, the assistant "
+        "asks one short clarifying question back, the user clarifies, and the assistant then gives "
+        "the correct answer and one brief remark about it.  Keep every turn short and natural — "
+        "this is a quick back-and-forth, not an interview.  The user MUST speak first.  "
+        "Total turns: 5-7.\n" + _COMMON_SUFFIX
+    ),
+    # Template 10 — reactive chat: the user reacts/backchannels, the assistant adds a bit each time.
+    (
+        "Write a casual spoken exchange where the assistant gives the answer in small pieces across "
+        "several short turns, and the user reacts in between with brief responses like 'oh really', "
+        "'huh', 'right', or a one-line follow-up.  Every assistant turn is short — one or two "
+        "sentences — but together they cover the answer and an interesting detail or two.  "
+        "The user MUST speak first.  Total turns: 6-8.\n" + _COMMON_SUFFIX
+    ),
 ]
 
 
@@ -160,16 +213,78 @@ DIALOGUE_INSTRUCTION_TEMPLATE_NAMES = [
     "multi_turn_explanation",
     "skeptical_user",
     "socratic",
+    "engaging_teacher",
+    "followup_topic_change",
+    "quickfire",
+    "clarify_then_answer",
+    "reactive_chat",
 ]
 assert len(DIALOGUE_INSTRUCTION_TEMPLATE_NAMES) == len(DIALOGUE_INSTRUCTION_TEMPLATES)
 
 
+def dialogue_template_distribution(n: int = 100000) -> dict[str, float]:
+    """Realised sampling probability per template name, for sanity-checking the weights.
+
+    Uses the same uid->template path as generation, so it reflects what a corpus would actually get
+    rather than the nominal weights.
+    """
+    import collections
+
+    counts = collections.Counter(_pick_template(str(i))[1] for i in range(n))
+    return {k: v / n for k, v in sorted(counts.items())}
+
+
+#: Sampling weight per template (same order as DIALOGUE_INSTRUCTION_TEMPLATES). Relative, not
+#: normalised. This is what makes the dialogue *shape* probabilistic: every example draws a template,
+#: so the corpus mixes 2-turn one-liners with 4-6 turn exchanges.
+#:
+#: Weights exist because uniform sampling gave a **bimodal, too-terse corpus** (measured 2026-07-23
+#: over 3,000 dialogues): `qa_direct` and `casual_brief` collapsed to exactly 2 turns and ~5
+#: assistant words, and together they were a third of the data. Overall the corpus averaged 20.8
+#: assistant words / 16.0 s per example, versus PersonaPlex's ~37.5 s two-turn QA. Since a finetune
+#: learns response *length* as readily as content, a corpus that is one-third one-liners plausibly
+#: teaches terseness -- which is the passivity / collapsed take_turn we already observe.
+#:
+#: So: keep short exchanges present (real conversation has them) but stop them dominating, and give
+#: the richer templates more mass.
+#: Three ways to get the assistant-word count up, deliberately balanced rather than picking one:
+#:   long turns   — engaging_teacher, multi_turn_explanation, skeptical_user
+#:   many turns   — quickfire, reactive_chat, clarify_then_answer  (short turns, more of them)
+#:   more topics  — followup_topic_change
+#: The "many short turns" group matters most for a DUPLEX model: it is the only group that trains
+#: rapid exchange and frequent turn-taking, which is exactly the behaviour our finetunes lost
+#: (collapsed take_turn). Long-turn templates alone would raise word count while making the model
+#: MORE monologue-ish -- the opposite of what we want.
+DIALOGUE_TEMPLATE_WEIGHTS = [
+    1,  # qa_direct              — 2 turns, ~5 words; kept for variety only
+    2,  # qa_user_guesses        — mid
+    1,  # casual_brief           — 2 turns, ~5 words; kept for variety only
+    3,  # multi_turn_explanation — long turns
+    2,  # skeptical_user         — long turns
+    2,  # socratic               — mid
+    3,  # engaging_teacher       — long turns (PersonaPlex QA persona)
+    2,  # followup_topic_change  — two questions
+    3,  # quickfire              — many short turns
+    2,  # clarify_then_answer    — several short turns
+    3,  # reactive_chat          — many short turns w/ backchannels
+]
+
+
 def _pick_template(uid: str) -> tuple[str, str]:
-    """Deterministically pick a template and its name from uid.
-    Returns (template_text, template_name)."""
+    """Deterministically pick a template (and its name) for ``uid``, weighted by
+    :data:`DIALOGUE_TEMPLATE_WEIGHTS`.
+
+    Deterministic on purpose: the same example always gets the same template, so regenerating a
+    shard reproduces the same corpus. Weighted rather than uniform -- see the note on the weights.
+    """
     h = int(hashlib.md5(uid.encode()).hexdigest(), 16)
-    idx = h % len(DIALOGUE_INSTRUCTION_TEMPLATES)
-    return DIALOGUE_INSTRUCTION_TEMPLATES[idx], DIALOGUE_INSTRUCTION_TEMPLATE_NAMES[idx]
+    total = sum(DIALOGUE_TEMPLATE_WEIGHTS)
+    r = h % total
+    for idx, w in enumerate(DIALOGUE_TEMPLATE_WEIGHTS):
+        r -= w
+        if r < 0:
+            return DIALOGUE_INSTRUCTION_TEMPLATES[idx], DIALOGUE_INSTRUCTION_TEMPLATE_NAMES[idx]
+    raise AssertionError("unreachable: weights must sum > 0")
 
 
 # ---------------------------------------------------------------------------
@@ -217,9 +332,20 @@ _DIALOGUE_JSON_SCHEMA = {
 
 
 def make_dialogue_gen(
-    llm_url: str, model_name: str, adapter_name: str, work_dir: str | None = None, total: int | None = None
+    llm_url: str,
+    model_name: str,
+    adapter_name: str,
+    work_dir: str | None = None,
+    total: int | None = None,
+    template_name: str | None = None,
 ):
-    """Return a datasets.map-compatible function that generates one dialogue."""
+    """Return a datasets.map-compatible function that generates one dialogue.
+
+    ``template_name``: if given, EVERY example uses that one template instead of drawing from the
+    weighted mix. This is what lets each template be generated as its own job (see
+    ``make_per_template_dialogues`` in the recipe): a per-template corpus can then be added, resized
+    or regenerated on its own, and adding template N+1 does not touch the N that already exist.
+    """
     if adapter_name == "service":
         from . import personaplex_service_data  # noqa: F401  (registers the "service" adapter)
     adapter = DATASET_ADAPTER_REGISTRY[adapter_name]
@@ -236,10 +362,21 @@ def make_dialogue_gen(
             # (personaplex_service_data); the QA path below is unchanged -> hash-safe.
             from .personaplex_service_data import build_service_user_message, pick_service_template
 
-            template, template_name = pick_service_template(str(spec["uid"]))
+            # `resolved_template_name` (not `template_name`) is what gets recorded, because
+            # `template_name` is the enclosing *parameter* -- assigning to it here would make it a
+            # local and break the single-template branch below with UnboundLocalError.
+            template, resolved_template_name = pick_service_template(str(spec["uid"]))
             user_msg = build_service_user_message(spec, template)
         else:
-            template, template_name = _pick_template(str(spec["uid"]))
+            if template_name is not None:
+                # Single-template mode: pinned by the job, not drawn per example.
+                idx = DIALOGUE_INSTRUCTION_TEMPLATE_NAMES.index(template_name)
+                template, resolved_template_name = (
+                    DIALOGUE_INSTRUCTION_TEMPLATES[idx],
+                    template_name,
+                )
+            else:
+                template, resolved_template_name = _pick_template(str(spec["uid"]))
             user_msg = _build_user_message(spec, template)
 
         # Deterministic but varied seed: combine uid hash with a per-run offset
@@ -279,7 +416,7 @@ def make_dialogue_gen(
                 result = {
                     "dialogue": json.dumps(parsed),
                     "llm_name": model_name,
-                    "template_name": template_name,
+                    "template_name": resolved_template_name,
                     "truncated": finish_reason == "length",
                 }
                 break
@@ -291,7 +428,12 @@ def make_dialogue_gen(
         else:
             # All attempts failed — mark row as None so HfToDialogue.run() can filter and count
             print(f"All {max_attempts} attempts failed for uid={spec['uid']!r}. Marking as failed.")
-            result = {"dialogue": None, "llm_name": model_name, "template_name": template_name, "truncated": False}
+            result = {
+                "dialogue": None,
+                "llm_name": model_name,
+                "template_name": resolved_template_name,
+                "truncated": False,
+            }
         _local_done[0] += 1
         if work_dir and total and _local_done[0] % 10 == 0:
             try:
@@ -319,6 +461,8 @@ class HfToDialogue(Job):
         shard: int | None = None,
         num_shards: int | None = None,
         seed_offset: int = 0,
+        templates_version: int = 1,
+        template_name: str | None = None,
     ):
         self.dataset_split_path = dataset_split_path
         self.llm_name = llm_name
@@ -328,6 +472,16 @@ class HfToDialogue(Job):
         self.shard = shard
         self.num_shards = num_shards
         self.seed_offset = seed_offset
+        # DIALOGUE_INSTRUCTION_TEMPLATES / DIALOGUE_TEMPLATE_WEIGHTS are module constants, so editing
+        # them does NOT change this job's hash and a finished corpus would silently NOT regenerate.
+        # Bump `templates_version` to force a fresh corpus (and the TTS/annotate cascade below it)
+        # after changing the prompt set. Hash-excluded at its default, so it is a no-op until bumped.
+        self.templates_version = templates_version
+        # None = draw from the weighted template mix (legacy behaviour, one job for the whole
+        # corpus). A name = this job generates ONLY that template, which is what makes templates
+        # independently addable: each becomes its own job with its own hash, so adding template N+1
+        # leaves the N existing corpora finished and untouched. Merge them afterwards.
+        self.template_name = template_name
 
         self.out_hf = self.output_path("dialogue_dataset", directory=True)
         self.out_json = self.output_path("json_files")
@@ -350,6 +504,10 @@ class HfToDialogue(Job):
             d["__version"] = 2
         else:
             d["__version"] = 5
+        if d.get("templates_version", 1) == 1:
+            d.pop("templates_version", None)  # no-op at the default: existing corpora keep their hash
+        if d.get("template_name") is None:
+            d.pop("template_name", None)  # no-op unless single-template mode is used
         return super().hash(d)
 
     @staticmethod
@@ -419,7 +577,14 @@ class HfToDialogue(Job):
             )
 
             work_dir = os.getcwd()
-            gen_fn = make_dialogue_gen(llm_url, self.llm_name, self.adapter_name, work_dir=work_dir, total=len(dataset))
+            gen_fn = make_dialogue_gen(
+                llm_url,
+                self.llm_name,
+                self.adapter_name,
+                work_dir=work_dir,
+                total=len(dataset),
+                template_name=self.template_name,
+            )
             dataset = dataset.map(gen_fn, num_proc=32)
 
             # Count and remove failed rows; abort if failure rate > 1%

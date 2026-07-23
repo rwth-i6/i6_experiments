@@ -257,6 +257,14 @@ def resolve_personaplex_weights(run_dir, step=None):
     return ResolveOverlayCheckpoint(run_dir=run_dir, overlay_kind="personaplex_heads", step=step).out_weights
 
 
+def resolve_audex_weights(run_dir, step=None):
+    """Map an AudexDuplexFinetune run_dir (+ optional step) to the trained Stage-0 overlay handle
+    (a single partial state_dict ``stage0.safetensors``, no config -- the trained Mimi audio emb +
+    depformer over the frozen Audex trunk). Backed by ResolveOverlayCheckpoint (overlay_kind=
+    "audex_stage0")."""
+    return ResolveOverlayCheckpoint(run_dir=run_dir, overlay_kind="audex_stage0", step=step).out_weights
+
+
 class MergeMoshiOutputsViaSymlinks(Job):
     """Merge sharded SpeechInference (knowledge-mode) outputs into a single dir via symlinks."""
 
@@ -273,7 +281,10 @@ class MergeMoshiOutputsViaSymlinks(Job):
         for in_dir in self.in_dirs:
             src_dir = in_dir.get()
             for name in os.listdir(src_dir):
-                if not name.endswith(".wav"):
+                # .wav = reply audio; .txt = inner-monologue dump (run_pairs); .json = RAG ref trace.
+                # Merge ALL of them so the monologue/reference paths see them (was .wav-only -> the
+                # monologue <i>.txt got dropped -> empty responses -> MCQ parse-fail 100%).
+                if not name.endswith((".wav", ".txt", ".json")):
                     continue
                 link = os.path.join(out, name)
                 if not os.path.exists(link):
@@ -399,6 +410,54 @@ class ReferenceStringTranscription(Job):
 # LLM grading
 # ---------------------------------------------------------------------------
 
+
+class MonologueTranscription(Job):
+    """Emit transcriptions.jsonl whose `transcription` is the model's INNER-MONOLOGUE TEXT stream -- the
+    `<i>.txt` dumped next to each reply wav by moshi_engine.run_pairs -- NOT ASR-of-speech. Matches
+    VoiceBench's paper protocol ("assess the quality of text responses instead of ... speech transcription")
+    and the official src/models/moshi.py. Feeds LLMGrading unchanged. clip i = reference_data row i =
+    `<i>.txt`. Light CPU mini_task (no GPU / no ASR)."""
+
+    def __init__(self, *, in_dir: tk.Path, reference_data: tk.Path):
+        self.in_dir = in_dir
+        self.reference_data = reference_data
+        self.out_json = self.output_path("transcriptions.jsonl")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import json
+        import os
+        from datasets import load_from_disk
+
+        ref_ds = load_from_disk(self.reference_data.get())
+        in_dir = self.in_dir.get()
+        n = empty = 0
+        with open(self.out_json.get(), "w") as f:
+            for i, example in enumerate(ref_ds):
+                txt = os.path.join(in_dir, f"{i}.txt")
+                if not os.path.exists(txt):
+                    continue
+                mono = open(txt, encoding="utf-8").read().strip()
+                if not mono:
+                    empty += 1
+                f.write(
+                    json.dumps(
+                        {
+                            "question": example["question"],
+                            "answer": example["answer"],
+                            "aliases": example["aliases"],
+                            "category": example.get("category", "unknown"),
+                            "transcription": mono,
+                        }
+                    )
+                    + "\n"
+                )
+                n += 1
+        print(f"[monologue] wrote {n} rows ({empty} empty) to {self.out_json.get()}", flush=True)
+
+
 GRADING_PROMPT_TEMPLATE = """You are evaluating a speech AI assistant's response to a factual question.
 
 Question: {question}
@@ -422,6 +481,9 @@ class LLMGrading(Job):
         self.llm_name = llm_name
         self.out_eval = self.output_path("eval_results.jsonl")
         self.out_summary = self.output_path("summary.json")
+        # Grading prompts are <1k tokens, so we serve the judge with a small max_model_len (8192, see
+        # run()) -> its KV cache fits c25g's 80 GiB H100 at TP=1, so we keep the default (fast) c25g GPU
+        # routing instead of pinning the judge to the scarce c23g big-GPU queue.
         self.rqmt = {"gpu": 1, "cpu": 6, "mem": 16, "time": 2}
 
     def tasks(self):
@@ -438,7 +500,7 @@ class LLMGrading(Job):
             for line in f:
                 results.append(json.loads(line))
 
-        with vllm_server(self.llm_name) as llm_url:
+        with vllm_server(self.llm_name, max_model_len=8192) as llm_url:
             _client = OpenAI(api_key="EMPTY", base_url=llm_url)
             _client.models.list()  # block until the server is ready to serve
 
@@ -524,12 +586,17 @@ def knowledge_benchmark_py(
     checkpoint_step: int | None = None,
     pplex_checkpoint: tk.Path | None = None,
     pplex_step: int | None = None,
+    audex_checkpoint: tk.Path | None = None,
+    audex_step: int | None = None,
     tag: str = "moshi_base",
     speech_backend=MOSHI_BACKEND,
     unmute_llm: str | None = None,
     code_version: int = 1,
     grade_references: bool = False,
     batch_size: int | None = None,
+    audex_base_speech: bool = False,
+    audex_base_s2s: bool = False,
+    monologue: bool = False,
 ):
     """Build the knowledge benchmark pipeline.
 
@@ -579,11 +646,47 @@ def knowledge_benchmark_py(
     )
     tk.register_output("benchmark/tts_output", tts.out_dir)
 
+    # --- base Audex-2B native SPEECH-in reference (speech-in question audio -> Audex audio-QA -> text) ---
+    # Answers the SAME tts_output question wavs through Audex's own NV-Whisper->audio-model->text path,
+    # then grades the text answer directly (no Whisper -- it already answers in text). The base-model
+    # speech-knowledge ceiling to compare the AudexDuplex graft's ASR-of-reply score against.
+    if audex_base_speech:
+        from .audex_speech_qa import AudexSpeechQA
+
+        qa = AudexSpeechQA(in_dir=tts.out_dir, reference_data=data)
+        tk.register_output(f"benchmark/{tag}/transcription", qa.out_json)
+        grading = LLMGrading(in_json=qa.out_json, llm_name=llm_name)
+        tk.register_output(f"benchmark/{tag}/eval_results", grading.out_eval)
+        tk.register_output(f"benchmark/{tag}/summary", grading.out_summary)
+        return
+
+    # --- base Audex-2B native SPEECH-to-SPEECH cascade (true apples-to-apples: pays the speech round-trip
+    # + ASR loss like the FD models). Question audio -> Audex audioqa->audiogen->decoder -> reply wav ->
+    # existing Whisper -> grade.
+    if audex_base_s2s:
+        from .audex_speech_s2s import AudexSpeechS2S
+
+        s2s = AudexSpeechS2S(in_dir=tts.out_dir)
+        tk.register_output(f"benchmark/{tag}/s2s_wavs", s2s.out_dir)
+        transcription = WhisperTranscription(
+            venv_python_path=whisper_venv(),
+            in_dir=s2s.out_dir,
+            reference_data=data,
+            model_size=whisper_model,
+        )
+        tk.register_output(f"benchmark/{tag}/transcription", transcription.out_json)
+        grading = LLMGrading(in_json=transcription.out_json, llm_name=llm_name)
+        tk.register_output(f"benchmark/{tag}/eval_results", grading.out_eval)
+        tk.register_output(f"benchmark/{tag}/summary", grading.out_summary)
+        return
+
     # --- model-dependent stages (namespaced by tag) -------------------------
 
     # Optional trained-weights overlay for a fine-tuned model (shared resolvers). PersonaPlex
     # uses a partial state_dict (trained_heads.safetensors, no config); Moshi uses a LoRA adapter.
-    if pplex_checkpoint is not None:
+    if audex_checkpoint is not None:
+        lora_weights, lora_config = resolve_audex_weights(audex_checkpoint, audex_step), None
+    elif pplex_checkpoint is not None:
         lora_weights, lora_config = resolve_personaplex_weights(pplex_checkpoint, pplex_step), None
     else:
         lora_weights, lora_config = resolve_lora(moshi_checkpoint, checkpoint_step)
@@ -642,6 +745,15 @@ def knowledge_benchmark_py(
     grading = LLMGrading(in_json=transcription.out_json, llm_name=llm_name)
     tk.register_output(f"benchmark/{tag}/eval_results", grading.out_eval)
     tk.register_output(f"benchmark/{tag}/summary", grading.out_summary)
+
+    # Optional: ALSO score the INNER-MONOLOGUE TEXT (VoiceBench-paper protocol) alongside ASR-of-reply,
+    # under a *_monologue tag, so both are reported (moshi-family only -- needs the run_pairs text dump).
+    if monologue:
+        mono_t = MonologueTranscription(in_dir=moshi_out, reference_data=data)
+        tk.register_output(f"benchmark/{tag}_monologue/transcription", mono_t.out_json)
+        mono_g = LLMGrading(in_json=mono_t.out_json, llm_name=llm_name)
+        tk.register_output(f"benchmark/{tag}_monologue/eval_results", mono_g.out_eval)
+        tk.register_output(f"benchmark/{tag}_monologue/summary", mono_g.out_summary)
 
     # Optional: also score the RETRIEVED REFERENCE strings directly (the oracle ceiling of retrieval
     # vs. how well the model verbalizes them). Only meaningful for a RAG backend -- its engine writes a

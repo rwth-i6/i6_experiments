@@ -38,6 +38,10 @@ class MoshiAnnotate(Job):
             "cpu": 6,
             "mem": 16,
             "time": 4,
+            # Decodes audio through torchcodec, which needs system FFmpeg/VA libraries. Declared as
+            # a capability rather than a partition name so the recipe stays cluster-agnostic --
+            # settings.py maps the tag onto whatever partition provides it here.
+            "requires": ["system_ffmpeg"],
         }
 
     def tasks(self):
