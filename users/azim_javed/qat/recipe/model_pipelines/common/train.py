@@ -55,6 +55,7 @@ def train(
     model_config: ModelConfigType,
     options: TrainOptions,
     train_step_import: Import,
+    best_n_epochs: int = 0,
 ) -> TrainedModel[ModelConfigType]:
     model_serializers = get_model_serializers(model_class=model_class, model_config=model_config)
 
@@ -66,7 +67,7 @@ def train(
         "accum_grad_multiple_step": options.accum_grad_multiple_step,
         "cleanup_old_models": {  # TODO: This should be moved to post-config and `keep_epochs` in ReturnnTrainingJob should be utilized
             "keep_last_n": 1,
-            "keep_best_n": 0,
+            "keep_best_n": best_n_epochs,
             "keep": options.save_epochs,
         },
         "gradient_clip_norm": options.gradient_clip,

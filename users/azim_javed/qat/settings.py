@@ -4,6 +4,9 @@ import sys
 
 sys.path.append("/u/beck/dev/cachemanager/")
 
+if "/u/azim.javed/experiments/training/qat" not in sys.path:
+    sys.path.append("/u/azim.javed/experiments/training/qat")
+
 
 def file_caching(path, is_output=False):
     if is_output:
@@ -24,12 +27,12 @@ def check_engine_limits(current_rqmt, task):
     i6 support for gpu_mem
     """
     current_rqmt["time"] = min(168, current_rqmt.get("time", 2))
-    bad_nodes = ["cn-508"]
+    bad_nodes = ["cn-290"]
     if current_rqmt.get("gpu", 0) > 0 and "-p" not in current_rqmt.get(
         "sbatch_args", []
     ):
         if current_rqmt.get("gpu_mem", 0) > 24:
-            current_rqmt["sbatch_args"] = ["-p", "gpu_48gb,gpu_24gb"]
+            current_rqmt["sbatch_args"] = ["-p", "gpu_48gb"]
         elif current_rqmt.get("gpu_mem", 0) > 11:
             current_rqmt["sbatch_args"] = ["-p", "gpu_24gb"]
         else:
@@ -50,6 +53,10 @@ def engine():
         SimpleLinuxUtilityForResourceManagementEngine,
     )
 
+    def job_name_mapping(name):
+        name = name.split("/")[-1]
+        return name.replace("/", ".")
+
     default_rqmt = {
         "cpu": 1,
         "mem": 4,
@@ -61,7 +68,8 @@ def engine():
         engines={
             "short": LocalEngine(cpus=4, mem=16),
             "long": SimpleLinuxUtilityForResourceManagementEngine(
-                default_rqmt=default_rqmt
+                default_rqmt=default_rqmt,
+                job_name_mapping=job_name_mapping,
             ),
         },
         default_engine="long",
@@ -69,8 +77,8 @@ def engine():
 
 
 def worker_wrapper(job, task_name, call):
-    # image = "/work/asr4/berger/apptainer/images/torch-2.8_onnx-1.22.sif"
-    image = "/work/asr4/hilmes/apptainer/torch-2.8_onnx-1.22_v3.sif"
+    image = "/work/asr4/berger/apptainer/images/torch-2.8_onnx-1.22.sif"
+    # image = "/work/asr4/hilmes/apptainer/torch-2.8_onnx-1.22_v3.sif"
 
     binds = [
         "/u",
@@ -121,7 +129,6 @@ MAIL_ADDRESS = None
 
 WORK_DIR = "/work/smt4/azim.javed/sisyphus_work"
 
-
 DEFAULT_ENVIRONMENT_SET["LD_LIBRARY_PATH"] = ":".join(
     [
         # "/usr/local/lib/tensorflow/",
@@ -144,7 +151,7 @@ DEFAULT_ENVIRONMENT_SET.update(
     {
         "TMPDIR": TMP_PREFIX,
         "TMP": TMP_PREFIX,
-        "PYTHONPATH": os.environ.get("PWD", os.getcwd()) + ":/work/smt4/azim.javed/repositories/" + (":" + os.environ["PYTHONPATH"] if "PYTHONPATH" in os.environ else ""),
+        "PYTHONPATH": os.environ.get("PWD", os.getcwd()) + ":/u/azim.javed/experiments/training/qat" + (":" + os.environ["PYTHONPATH"] if "PYTHONPATH" in os.environ else ""),
         "NUMBA_CACHE_DIR": f"{TMP_PREFIX}/numba_cache_{getpass.getuser()}",  # used for librosa
         "PYTORCH_KERNEL_CACHE_PATH": f"{TMP_PREFIX}/pt_kernel_cache_{getpass.getuser()}", 
         "OMP_NUM_THREADS": 2,

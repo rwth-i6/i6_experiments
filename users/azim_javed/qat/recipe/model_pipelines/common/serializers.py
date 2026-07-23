@@ -8,7 +8,7 @@ from i6_experiments.common.setups.returnn_pytorch.serialization import (
     PyTorchModel,
     build_config_constructor_serializers_v2,
 )
-from i6_experiments.common.setups.serialization import Collection, ExternalImport, Import, SerializerObject
+from i6_experiments.common.setups.serialization import Collection, ExternalImport, Import, SerializerObject, Call
 from i6_models.config import ModelConfiguration, ModuleType
 from sisyphus import tk
 

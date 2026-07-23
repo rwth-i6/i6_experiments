@@ -27,6 +27,8 @@ from ...data.base import DataConfig
 from ...tools import rasr_binary_path, returnn_python_exe, returnn_root
 from .corpus import ScorableCorpus
 from .serializers import recipe_imports
+from .pyscorers import register_pyscorers
+from .memrecog import MemristorModelConversionJob
 
 # =============================
 # ======== Dataclasses ========
@@ -147,7 +149,7 @@ def recog_rasr_offline(
             "backend": "torch",
             "batch_size": 360 * sample_rate,
         },
-        python_prolog=recipe_imports + [ExternalImport(rasr_binary_path)],
+        python_prolog=recipe_imports + ["import torch"] + [ExternalImport(rasr_binary_path)],
         python_epilog=[
             encoder_serializers,
             Import("sisyphus.tk"),
@@ -516,7 +518,6 @@ class TracebackItem(Protocol):
     start_time: int
     end_time: int
 
-
 def _samples_to_frames(n_samples: int, sample_rate: int, frame_shift_seconds: float) -> int:
     return int(np.round(n_samples / (sample_rate * frame_shift_seconds)))
 
@@ -792,6 +793,8 @@ class RasrRecogForwardStep(ABC):
     def init_search_algorithm(self):
         if self.recog_rasr_config_file is None:
             return None
+
+        register_pyscorers()
 
         from librasr import Configuration, SearchAlgorithm
 

@@ -1,50 +1,40 @@
 __all__ = ["get_ffnn_transducer_label_scorer_config"]
 
-from dataclasses import fields
-
 from i6_core.rasr.config import RasrConfig
 from i6_core.returnn.training import PtCheckpoint
 
-from .export import export_scorer
-from .pytorch_modules import FFNNTransducerConfig, FFNNTransducerRecogConfig
+
+from .pytorch_modules import QATFFNNTransducerConfig
 
 
 def get_ffnn_transducer_label_scorer_config(
-    model_config: FFNNTransducerConfig,
+    model_config: QATFFNNTransducerConfig,
     checkpoint: PtCheckpoint,
     ilm_scale: float = 0.0,
     blank_penalty: float = 0.0,
     scale: float = 1.0,
     use_gpu: bool = False,
 ) -> RasrConfig:
-    recog_model_config = FFNNTransducerRecogConfig(
-        **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
-        ilm_scale=ilm_scale,
-        blank_penalty=blank_penalty,
-    )
 
-    scorer_onnx_model = export_scorer(model_config=recog_model_config, checkpoint=checkpoint)
+    label_scorer_type = "fixed-context-py"
 
     rasr_config = RasrConfig()
-    rasr_config.type = "fixed-context-onnx"
+    rasr_config.type = label_scorer_type
     rasr_config.history_length = model_config.context_history_size
     rasr_config.start_label_index = model_config.target_size - 1
 
-    rasr_config.onnx_model = RasrConfig()
-    rasr_config.onnx_model.session = RasrConfig()
-    rasr_config.onnx_model.session.file = scorer_onnx_model
-    rasr_config.onnx_model.session.inter_op_num_threads = 2
-    rasr_config.onnx_model.session.intra_op_num_threads = 2
+    rasr_config.recognition = RasrConfig()
+    rasr_config.recognition.ilm_scale = ilm_scale
+    rasr_config.recognition.blank_penalty = blank_penalty
+    rasr_config.recognition.scale = scale # Unusued; TODO: ask
+    rasr_config.recognition.model_path = checkpoint
+    rasr_config.recognition.experiment = "qat_ffnn_transducer"
 
-    rasr_config.onnx_model.io_map = RasrConfig()
-    rasr_config.onnx_model.io_map.input_feature = "encoder_state"
-    rasr_config.onnx_model.io_map.history = "history"
-    rasr_config.onnx_model.io_map.scores = "scores"
-
-    if scale != 1:
-        rasr_config.scale = scale
-
-    if use_gpu:
-        rasr_config.onnx_model.session.execution_provider_type = "cuda"
+    # TODO: these should flow from the `run` method
+    rasr_config.qat = RasrConfig()
+    rasr_config.qat.weight_bit_prec = 8
+    rasr_config.qat.activation_bit_prec = 8
+    rasr_config.qat.weight_dropout = 0.0
+    rasr_config.qat.weight_pruning_config = None
 
     return rasr_config

@@ -1,4 +1,4 @@
-__all__ = ["ConformerCTCConfig", "ConformerCTCRecogConfig", "ConformerCTCModel", "ConformerCTCRecogModel"]
+__all__ = ["QATConformerCTCConfig", "QATConformerCTCRecogConfig", "QATConformerCTCModel", "QATConformerCTCRecogModel", "QATConformerCTCRecogExportModel"]
 
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -24,6 +24,65 @@ class QATConformerCTCConfig(ModelConfiguration):
     dropout: float
     specaug_cfg: SpecaugmentByLengthConfig
 
+    def __sis_state__(self):
+        import dataclasses, torch
+        from sisyphus import tk
+
+        def _sanitize(v):
+            if isinstance(v, torch.dtype):
+                return str(v)
+            if isinstance(v, tk.Path):
+                return v                 # keep for path extraction
+            if dataclasses.is_dataclass(v):
+                return {f.name: _sanitize(getattr(v, f.name)) for f in dataclasses.fields(v)}
+            if isinstance(v, dict):
+                return {k: _sanitize(x) for k, x in v.items()}
+            if isinstance(v, (list, tuple)):
+                return type(v)(_sanitize(x) for x in v)
+            return v
+
+        return {f.name: _sanitize(getattr(self, f.name)) for f in dataclasses.fields(self)}
+
+    def __sis_hash__(self):
+        return str(type(self))
+
+    def with_replaced(self, **kwargs):
+        import dataclasses
+
+        consumed = set()
+
+        def _recurse(obj):
+            # 1. Handle lists and tuples
+            if isinstance(obj, (list, tuple)):
+                new_seq = type(obj)(_recurse(v) for v in obj)
+                if any(old is not new for old, new in zip(obj, new_seq)):
+                    return new_seq
+                return obj
+
+            # 2. Base case: not a dataclass
+            if not dataclasses.is_dataclass(obj):
+                return obj
+
+            # 3. Handle dataclasses
+            changes = {}
+            for f in dataclasses.fields(obj):
+                val = getattr(obj, f.name)
+                if f.name in kwargs:
+                    changes[f.name] = kwargs[f.name]
+                    consumed.add(f.name)
+                else:
+                    new_val = _recurse(val)
+                    if new_val is not val:
+                        changes[f.name] = new_val
+            if changes:
+                return dataclasses.replace(obj, **changes)
+            return obj
+
+        result = _recurse(self)
+        unconsumed = set(kwargs) - consumed
+        assert not unconsumed, f"with_replaced: keys not found in config tree: {unconsumed}"
+        return result
+
 
 @dataclass
 class QATConformerCTCRecogConfig(QATConformerCTCConfig):
@@ -45,6 +104,15 @@ class QATConformerCTCModel(torch.nn.Module):
         self.target_size = cfg.target_size
         self.final_linear = torch.nn.Linear(cfg.dim, self.target_size)
         self.specaug_config = cfg.specaug_cfg
+
+    def __sis_state__(self):
+        return str(type(self))
+    
+    def __sis_hash__(self):
+        return str(type(self))
+
+    def prep_quant(self):
+        self.conformer.prep_quant()
 
     def forward(
         self,

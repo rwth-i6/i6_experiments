@@ -28,6 +28,16 @@ def get_default_bpe_train_data(bpe_size: int) -> MetaOggZipDataConfig:
         target_config=get_default_bpe_target_config(bpe_size),
     )
 
+def get_part10_bpe_train_data(bpe_size: int) -> MetaOggZipDataConfig:
+    return MetaOggZipDataConfig.from_bliss(
+        bliss_corpus_files=[get_bliss_corpus_dict("wav")["train-other-960"]],
+        speed_perturbation=True,
+        ogg_segments=200,
+        partition_epoch=10,
+        seq_ordering="laplace:.1000",
+        target_config=get_default_bpe_target_config(bpe_size),
+    )
+
 
 def get_default_phoneme_train_data() -> MetaOggZipHdfTargetDataConfig:
     return MetaOggZipHdfTargetDataConfig(

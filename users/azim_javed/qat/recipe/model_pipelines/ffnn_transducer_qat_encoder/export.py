@@ -9,7 +9,7 @@ from i6_experiments.common.setups.serialization import Import
 
 from ..common.onnx_export import export_model as _export_model
 from ..common.serializers import get_model_serializers
-from .pytorch_modules import FFNNTransducerRecogConfig, FFNNTransducerScorer
+from .pytorch_modules import FFNNTransducerQATEncoderRecogConfig, FFNNTransducerQATEncoderScorer
 
 
 # -----------------------
@@ -17,8 +17,8 @@ from .pytorch_modules import FFNNTransducerRecogConfig, FFNNTransducerScorer
 # -----------------------
 
 
-def export_scorer(model_config: FFNNTransducerRecogConfig, checkpoint: PtCheckpoint) -> tk.Path:
-    model_serializers = get_model_serializers(model_class=FFNNTransducerScorer, model_config=model_config)
+def export_scorer(model_config: FFNNTransducerQATEncoderRecogConfig, checkpoint: PtCheckpoint) -> tk.Path:
+    model_serializers = get_model_serializers(model_class=FFNNTransducerQATEncoderScorer, model_config=model_config)
 
     return _export_model(
         model_serializers=model_serializers,
@@ -52,6 +52,7 @@ def export_scorer(model_config: FFNNTransducerRecogConfig, checkpoint: PtCheckpo
         },
         input_names=["encoder_state", "history"],
         output_names=["scores"],
+        extra_imports=["import torch"]
     )
 
 
@@ -60,7 +61,7 @@ def export_scorer(model_config: FFNNTransducerRecogConfig, checkpoint: PtCheckpo
 # -----------------------
 
 
-def _scorer_forward_step(*, model: FFNNTransducerScorer, extern_data: TensorDict, **_):
+def _scorer_forward_step(*, model: FFNNTransducerQATEncoderScorer, extern_data: TensorDict, **_):
     import returnn.frontend as rf
 
     run_ctx = rf.get_run_ctx()

@@ -1,4 +1,4 @@
-__all__ = ["run", "get_model_config", "get_train_options"]
+__all__ = ["run", "get_model_config", "get_train_options", "init_scorer"]
 
 from typing import Optional, Union
 
@@ -20,10 +20,22 @@ from ....model_pipelines.common.train import TrainedModel, train
 from ....model_pipelines.ffnn_transducer_qat_encoder.pytorch_modules import (
     FFNNTransducerQATEncoderConfig,
     FFNNTransducerQATEncoderModel,
+    FFNNTransducerQATEncoderScorer,
+    FFNNTransducerQATEncoderRecogConfig,
 )
-from ....model_pipelines.ffnn_transducer_qat_encoder.train import FFNNTransducerQATEncoderTrainOptions, get_train_step_import
+from ....model_pipelines.ffnn_transducer_qat_encoder.train import (
+    FFNNTransducerQATEncoderTrainOptions,
+    get_train_step_import,
+)
 
-from ....model_pipelines.common.assemblies.conformer import ConformerEncoderQuantV1Config, ConformerBlockQuantV1Config, ConformerPositionwiseFeedForwardQuantV4Config, QuantizedConformerMHSARelPosV1Config, ConformerConvolutionQuantV4Config, WeightPruningConfig
+from ....model_pipelines.common.assemblies.conformer import (
+    ConformerEncoderQuantV1Config,
+    ConformerBlockQuantV1Config,
+    ConformerPositionwiseFeedForwardQuantV4Config,
+    QuantizedConformerMHSARelPosV1Config,
+    ConformerConvolutionQuantV4Config,
+    WeightPruningConfig,
+)
 
 def run(
     descriptor: str,
@@ -47,15 +59,21 @@ def run(
     )
 
 
-def get_model_config(weight_bit_prec: Union[int, dict], activation_bit_prec: int, weight_dropout: float, weight_pruning_config: WeightPruningConfig, bpe_size: int = 128) -> FFNNTransducerQATEncoderConfig:
-    
+def get_model_config(
+    weight_bit_prec: Union[int, dict],
+    activation_bit_prec: int,
+    weight_dropout: float,
+    weight_pruning_config: WeightPruningConfig,
+    bpe_size: int = 128,
+) -> FFNNTransducerQATEncoderConfig:
+
     if isinstance(weight_bit_prec, dict):
         ff_prec = weight_bit_prec["ff"]
         mhsa_prec = weight_bit_prec["mhsa"]
         conv_prec = weight_bit_prec["conv"]
     else:
         ff_prec = mhsa_prec = conv_prec = weight_bit_prec
-    
+
     prior_train_dac_settings = DacAdcHardwareSettings(
         input_bits=0,
         output_precision_bits=0,
@@ -89,9 +107,9 @@ def get_model_config(weight_bit_prec: Union[int, dict], activation_bit_prec: int
         weight_noise=None,
         weight_noise_func=None,
         weight_noise_values=None,
-        weight_noise_start_epoch=None
+        weight_noise_start_epoch=None,
     )
-    
+
     return FFNNTransducerQATEncoderConfig(
         logmel_cfg=LogMelFeatureExtractionV1Config(
             sample_rate=16000,
@@ -183,7 +201,7 @@ def get_model_config(weight_bit_prec: Union[int, dict], activation_bit_prec: int
                     activation_quant_dtype=qat_args["activation_quant_dtype"],
                     activation_quant_method=qat_args["activation_quant_method"],
                     dot_quant_dtype=qat_args["dot_quant_dtype"],
-                    dot_quant_method=qat_args["dot_quant_method"], 
+                    dot_quant_method=qat_args["dot_quant_method"],
                     Av_quant_dtype=qat_args["Av_quant_dtype"],
                     Av_quant_method=qat_args["Av_quant_method"],
                     moving_average=qat_args["moving_average"],
@@ -193,7 +211,7 @@ def get_model_config(weight_bit_prec: Union[int, dict], activation_bit_prec: int
                     correction_settings=qat_args["correction_settings"],
                     weight_noise=qat_args["weight_noise"],
                     weight_dropout=weight_dropout,
-                    weight_pruning=weight_pruning_config
+                    weight_pruning=weight_pruning_config,
                 ),
                 conv_cfg=ConformerConvolutionQuantV4Config(
                     channels=512,
@@ -213,7 +231,7 @@ def get_model_config(weight_bit_prec: Union[int, dict], activation_bit_prec: int
                     correction_settings=qat_args["correction_settings"],
                     weight_noise=qat_args["weight_noise"],
                     weight_dropout=weight_dropout,
-                    weight_pruning=weight_pruning_config
+                    weight_pruning=weight_pruning_config,
                 ),
                 modules=["ff", "conv", "mhsa", "ff"],
                 scales=[0.5, 1.0, 1.0, 0.5],
@@ -260,5 +278,6 @@ def get_train_options(bpe_size: int = 128) -> FFNNTransducerQATEncoderTrainOptio
         enc_loss_scale=0.5,
         pred_loss_scale=0.0,
         max_seqs=None,
-        max_seq_length=None,
+        max_seq_length={"audio_features": 35 * 16000},
     )
+

@@ -27,17 +27,27 @@ rasr_root = CloneGitRepositoryJob(
     "https://github.com/rwth-i6/rasr.git",
     branch="berger_dev",
     checkout_folder_name="rasr",
+    # commit="65320624abf373921ec6d4f12d866cfad8a44985"
 ).out_repository.copy()
-rasr_root.hash_overwrite = "RASR_ROOT_TRANSDUCER_FIX"
+rasr_root.hash_overwrite = "RASR_ROOT"
 
 rasr_make_job = CMakeJob(
     source_folder=rasr_root,
     cmake_opts=[
         "-DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc",
-    ],  
+        "-DMODULE_TENSORFLOW=Off",
+        "-DMODULE_LM_TFRNN=Off",
+        "-DMARCH=x86-64-v3"
+    ],
     num_processes=8,
     mem_rqmt=4,
 )
+
+synaptogen_ml_root = CloneGitRepositoryJob(
+    "https://github.com/rwth-i6/SynaptogenML",
+    checkout_folder_name="synaptogen_ml",
+).out_repository.copy()
+synaptogen_ml_root.hash_overwrite = "SYNAPTOGEN_ML_ROOT"
 
 # rasr_make_job = MakeJob(
 #     folder=rasr_root,
@@ -48,8 +58,8 @@ rasr_make_job = CMakeJob(
 #     num_processes=8,
 #     link_outputs={"binaries": "arch/linux-x86_64-standard/"},
 # )
-rasr_make_job.rqmt["gpu"] = 1
-rasr_make_job.rqmt["gpu_mem"] = 24
+# rasr_make_job.rqmt["gpu"] = 1
+# rasr_make_job.rqmt["gpu_mem"] = 24
 
 # rasr_binary_path: tk.Path = rasr_make_job.out_links["binaries"]
 rasr_binary_path = rasr_make_job.out_install_dir

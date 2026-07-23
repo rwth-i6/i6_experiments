@@ -4,10 +4,10 @@ __all__ = ["get_ctc_prefix_label_scorer_config"]
 from i6_core.rasr.config import RasrConfig
 
 from ..common.label_scorer_config import get_no_op_label_scorer_config
-from .pytorch_modules import ConformerCTCConfig
+from .pytorch_modules import QATConformerCTCConfig
 
 
-def get_ctc_prefix_label_scorer_config(model_config: ConformerCTCConfig, scale: float = 1.0) -> RasrConfig:
+def get_ctc_prefix_label_scorer_config(model_config: QATConformerCTCConfig, scale: float = 1.0) -> RasrConfig:
     rasr_config = RasrConfig()
     rasr_config.type = "ctc-prefix"
     rasr_config.blank_label_index = model_config.target_size - 1

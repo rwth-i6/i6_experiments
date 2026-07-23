@@ -129,6 +129,11 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         tensor = nn.functional.dropout(tensor, p=self.dropout, training=self.training)  # [B,T,F]
         return tensor
 
+    def flag_quant(self):
+        self.linear_ff.initialized = True
+        self.linear_out.initialized = True
+
+
     def prep_quant(self):
 
         self.linear_ff.weight_quantizer.set_scale_and_zp()
@@ -244,6 +249,9 @@ class ConformerMHSAQuant(torch.nn.Module):
 
         return output_tensor
 
+    def flag_quant(self):
+        self.mhsa.flag_quant()
+        
     def prep_quant(self):
         self.mhsa.prep_quant()
 

@@ -9,11 +9,11 @@ from i6_experiments.common.setups.serialization import Import
 
 from ..common.onnx_export import export_model as _export_model
 from ..common.serializers import get_model_serializers
-from .pytorch_modules import ConformerCTCRecogConfig, ConformerCTCRecogExportModel
+from .pytorch_modules import QATConformerCTCRecogConfig, QATConformerCTCRecogExportModel
 
 
-def export_model(model_config: ConformerCTCRecogConfig, checkpoint: PtCheckpoint) -> tk.Path:
-    model_serializers = get_model_serializers(model_class=ConformerCTCRecogExportModel, model_config=model_config)
+def export_model(model_config: QATConformerCTCRecogConfig, checkpoint: PtCheckpoint) -> tk.Path:
+    model_serializers = get_model_serializers(model_class=QATConformerCTCRecogExportModel, model_config=model_config)
 
     return _export_model(
         model_serializers=model_serializers,
@@ -46,7 +46,7 @@ def export_model(model_config: ConformerCTCRecogConfig, checkpoint: PtCheckpoint
     )
 
 
-def _model_forward_step(*, model: ConformerCTCRecogExportModel, extern_data: TensorDict, **_):
+def _model_forward_step(*, model: QATConformerCTCRecogExportModel, extern_data: TensorDict, **_):
     import returnn.frontend as rf
 
     run_ctx = rf.get_run_ctx()

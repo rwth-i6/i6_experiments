@@ -1,0 +1,3 @@
+                                     Experiments |  2 corpus | 3 WER | 4 Del | 5 Ins | 6 Sub | 7 Enc RTF | 8 Search RTF | 9 Total RTF | 10 Step Hyps | 11 Step Word End Hyps | 12 Step Trees
+-------------------------------------------------+-----------+-------+-------+-------+-------+-----------+--------------+-------------+--------------+-----------------------+--------------
+1__memristor_qat_ctc_bpe_debug__recog_tree_4gram | dev-other |       |       |       |       |           |              |             |      Not set |               Not set |       Not set

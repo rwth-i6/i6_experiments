@@ -15,10 +15,10 @@ from ....data.librispeech.bpe import bpe_to_vocab_size
 from ....model_pipelines.common.learning_rates import OCLRConfig
 from ....model_pipelines.common.optimizer import AdamWConfig
 from ....model_pipelines.common.train import TrainOptions, TrainedModel, train
+from ....model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig 
 from ....model_pipelines.qat_ctc.pytorch_modules import (
     QATConformerCTCConfig,
     QATConformerCTCModel,
-    SpecaugmentByLengthConfig,
 )
 
 from ....model_pipelines.common.assemblies.conformer import ConformerEncoderQuantV1Config, ConformerBlockQuantV1Config, ConformerPositionwiseFeedForwardQuantV4Config, QuantizedConformerMHSARelPosV1Config, ConformerConvolutionQuantV4Config, WeightPruningConfig

@@ -837,4 +837,4 @@ class QuantizedMultiheadAttention(nn.Module):
             self.linear_pos = mem_lin
             self.learn_emb_in_quant = nn.Identity()
 
-        print("Finished MHSA")
+        print("Finished MHSA", flush=True)

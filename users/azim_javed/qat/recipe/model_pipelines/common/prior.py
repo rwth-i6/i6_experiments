@@ -30,7 +30,7 @@ def compute_priors(
             "backend": "torch",
             "batch_size": 20_000 * 160,
         },
-        python_prolog=recipe_imports,
+        python_prolog=recipe_imports + ["import torch"],
         python_epilog=[
             model_serializers,
             Import(
