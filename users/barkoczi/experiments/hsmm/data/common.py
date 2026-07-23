@@ -152,7 +152,6 @@ def build_oggzip_dataset_with_optional_hdf(
             partition_epoch=partition_epoch,
             segment_file=segment_file,
             seq_ordering=seq_ordering,
-            random_subset=random_subset,
         )
 
     dataset = MetaDataset(
@@ -330,7 +329,6 @@ def build_training_datasets_with_hdf(
     devtrain_hdf_dataset = HDFDataset(
         files=devtrain_hdf,
         seq_ordering="sorted_reverse",
-        random_subset=3000,
     )
     devtrain_dataset = make_meta(devtrain_zip_dataset, devtrain_hdf_dataset)
 
