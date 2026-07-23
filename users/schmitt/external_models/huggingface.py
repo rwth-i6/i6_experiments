@@ -7,6 +7,8 @@ import os
 import shutil
 import copy
 
+import huggingface_hub
+
 from sisyphus import tk, Job, Task
 
 from i6_experiments.users.zeyer.external_models.huggingface import get_content_dir_from_hub_cache_dir
@@ -53,23 +55,52 @@ class DownloadHuggingFaceRepoJob(Job):
 
         print("Import huggingface_hub CLI...")
 
-        from huggingface_hub.commands.download import DownloadCommand
         if self.require_login:
             from huggingface_hub import login
+
             login()
 
-        parser = ArgumentParser("huggingface-cli", usage="huggingface-cli <command> [<args>]")
-        commands_parser = parser.add_subparsers(help="huggingface-cli command helpers")
-        DownloadCommand.register_subcommand(commands_parser)
-        args = ["download", self.model_id]
-        if self.file_list:
-            assert isinstance(self.file_list, list)
-            args += self.file_list
+        import huggingface_hub
 
-        args = parser.parse_args(args)
-        service = args.func(args)
-        print(service)
-        service.run()
+        if hasattr(huggingface_hub, "commands"):
+            from huggingface_hub.commands.download import DownloadCommand
+
+            parser = ArgumentParser("huggingface-cli", usage="huggingface-cli <command> [<args>]")
+            commands_parser = parser.add_subparsers(help="huggingface-cli command helpers")
+            DownloadCommand.register_subcommand(commands_parser)
+            args = ["download", self.model_id]
+            if self.file_list:
+                assert isinstance(self.file_list, list)
+                args += self.file_list
+
+            args = parser.parse_args(args)
+            service = args.func(args)
+            print(service)
+            service.run()
+        else:
+            assert hasattr(huggingface_hub, "snapshot_download")
+            from huggingface_hub import snapshot_download
+
+            kwargs = dict(
+                repo_id=self.model_id,
+                # repo_type=repo_type,
+                # revision=revision,
+                # local_dir=output_dir,
+                token=True if self.require_login else None,
+            )
+
+            # Newer huggingface_hub versions removed this arg.
+            # Older ones used it to avoid symlinks in local_dir.
+            import inspect
+
+            if "local_dir_use_symlinks" in inspect.signature(snapshot_download).parameters:
+                kwargs["local_dir_use_symlinks"] = False
+
+            if self.file_list:
+                assert isinstance(self.file_list, list)
+                kwargs["allow_patterns"] = self.file_list
+
+            path = snapshot_download(**kwargs)
 
     @classmethod
     def hash(cls, kwargs):
