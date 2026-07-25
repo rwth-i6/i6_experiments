@@ -51,6 +51,7 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.chunk_se
     ChunkSegmentationFromModelJob,
     ChunkSegmentationFromModelBatchedJob,
     ChunkBoundaryReverifyJob,
+    DriftSpanRepairJob,
     CalcChunkAssignmentMetricsJob,
 )
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.buckeye_fine_dataset import (
@@ -511,6 +512,29 @@ def py():
     reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-m2-accuracy.txt", _m_rvm.out_accuracy)
     reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-m2-error-p95-sec.txt", _m_rvm.out_error_p95_sec)
     reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-m2-frac-gt-1s.txt", _m_rvm.out_frac_gt_1s)
+
+    # Drift-span repair: the reverify layer fixes local 1-5-word runs but is gated OFF in
+    # drifted regions; this targets exactly those (windowed-conf flagged spans, e.g. the
+    # 97-word run of seq 16) with an anchored acoustic re-assignment DP over whole spans.
+    _dr = DriftSpanRepairJob(
+        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+        dataset_key="val",
+        model_config=_cfg_hp,
+        chunk_seg_hdf=_seg_sc.out_hdf,
+        word_scores_hdf=_seg_sc.out_word_scores_hdf,
+    )
+    _dr.add_alias("chunk-align/phi4mm-buckeye-val-cs30-ov0-driftrepair")
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-driftrepair.hdf", _dr.out_hdf)
+    _m_dr = CalcChunkAssignmentMetricsJob(
+        chunk_seg_hdf=_dr.out_hdf,
+        dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+        dataset_key="val",
+        dataset_offset_factors=_DATASET_OFFSET_FACTORS["buckeye"],
+    )
+    _m_dr.add_alias("chunk-align/phi4mm-buckeye-val-cs30-ov0-driftrepair-metric")
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-driftrepair-accuracy.txt", _m_dr.out_accuracy)
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-driftrepair-error-p95-sec.txt", _m_dr.out_error_p95_sec)
+    reg("chunk-align/phi4mm-buckeye-val-cs30-ov0-driftrepair-frac-gt-1s.txt", _m_dr.out_frac_gt_1s)
 
     # fp32 batched (default fast path) at cs30, to check the fast path (esp. batched_logprobs) is
     # bit-exact vs the fp32 single-seq reference below. The bf16 sweep diverges more for small

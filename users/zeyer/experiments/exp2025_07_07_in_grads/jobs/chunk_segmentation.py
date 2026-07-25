@@ -1226,3 +1226,286 @@ class ChunkBoundaryReverifyJob(Job):
             )
         print(f"total words moved: {n_moved_total}", flush=True)
         hdf_writer.close()
+
+
+class DriftSpanRepairJob(Job):
+    """
+    Repair pass for DRIFTED spans in a chunk assignment
+    (from :class:`ChunkSegmentationFromModelBatchedJob`).
+
+    Detection: a span of words whose windowed mean per-token log-prob
+    (from the segmentation job's ``dump_word_scores`` HDF)
+    falls below a threshold --
+    the signature of a DP path that dragged a whole run of words
+    into too-early chunks
+    (measured at cs30: one seq with a 97-word drifted run,
+    detector recall 0.55 at 1% flagged).
+
+    Repair: per flagged span,
+    a small anchored DP re-distributes the span's words
+    over the span's chunk range (plus ``pad_chunks`` on each side):
+    words outside the range keep their chunks (anchors),
+    each chunk in the range gets a contiguous (possibly empty) word run,
+    maximizing purely acoustic word scores
+    (each chunk forwarded once with the whole span transcript,
+    same forced-decoding scores as the DP but no exit scores,
+    like :class:`ChunkBoundaryReverifyJob`).
+    The repaired assignment is only accepted when it beats
+    the original assignment's score under the SAME score matrix
+    by ``min_move_margin`` per moved word.
+
+    Differs from :class:`ChunkBoundaryReverifyJob`:
+    that one shifts single boundaries within +-K words
+    and is gated OFF inside drifted regions
+    (where both adjacent chunks are wrong);
+    this one targets exactly those regions
+    and can move a whole run across several chunks at once.
+    """
+
+    __sis_version__ = 1
+
+    def __init__(
+        self,
+        *,
+        dataset_dir: tk.Path,
+        dataset_key: str,
+        returnn_root: Optional[tk.Path] = None,
+        model_config: Dict[str, Any],
+        chunk_seg_hdf: tk.Path,
+        word_scores_hdf: tk.Path,
+        detect_window: int = 10,
+        flag_window_conf: float = -2.0,
+        pad_chunks: int = 1,
+        max_batch_size: int = 8,
+        min_move_margin: float = 2.0,
+    ):
+        """
+        :param dataset_dir: hub cache dir, like :class:`ChunkSegmentationFromModelBatchedJob`.
+        :param dataset_key:
+        :param returnn_root:
+        :param model_config: same convention as the segmentation jobs.
+        :param chunk_seg_hdf: assignment to repair (out_hdf of a segmentation job).
+        :param word_scores_hdf: dump_word_scores HDF of the same segmentation job.
+        :param detect_window: half-width (in words) of the confidence window;
+            also the max gap (in words) when merging flagged words into spans.
+        :param flag_window_conf: flag a word when its windowed conf is below this.
+        :param pad_chunks: chunks added on each side of a flagged span's chunk range.
+        :param max_batch_size: chunk forwards batched together.
+        :param min_move_margin: required log-prob advantage PER MOVED WORD
+            to accept a repaired span (near-ties are noise, see the reverify job).
+        """
+        super().__init__()
+        self.dataset_dir = dataset_dir
+        self.dataset_key = dataset_key
+        self.returnn_root = returnn_root
+        self.model_config = model_config
+        self.chunk_seg_hdf = chunk_seg_hdf
+        self.word_scores_hdf = word_scores_hdf
+        self.detect_window = detect_window
+        self.flag_window_conf = flag_window_conf
+        self.pad_chunks = pad_chunks
+        self.max_batch_size = max_batch_size
+        self.min_move_margin = min_move_margin
+
+        self.rqmt = {"time": 40, "cpu": 2, "gpu": 1, "mem": 125}
+        self.out_hdf = self.output_path("out.hdf")
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import os
+        import sys
+
+        set_hf_offline_mode()
+
+        import i6_experiments
+
+        recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
+        sys.path.insert(0, recipe_dir)
+
+        import i6_core.util as util
+
+        returnn_root = util.get_returnn_root(self.returnn_root)
+        sys.path.insert(0, returnn_root.get_path())
+
+        import numpy as np
+        import torch
+
+        from returnn.util import better_exchook
+        from returnn.datasets.hdf import HDFDataset, SimpleHDFWriter
+        from i6_experiments.users.zeyer.torch.batch_slice import batch_slice
+        from i6_experiments.users.zeyer.torch.batch_gather import batches_gather
+
+        better_exchook.install()
+
+        from .models import make_model, ForwardOutput
+
+        dev = torch.device("cuda")
+        model_config = instanciate_delayed_copy(self.model_config)
+        model = make_model(**model_config, device=dev)
+        for p in model.parameters():
+            p.requires_grad = False
+        torch.set_grad_enabled(False)
+
+        seg_ds = HDFDataset([self.chunk_seg_hdf.get_path()])
+        seg_ds.initialize()
+        seg_ds.init_seq_order(epoch=1)
+        sc_ds = HDFDataset([self.word_scores_hdf.get_path()])
+        sc_ds.initialize()
+        sc_ds.init_seq_order(epoch=1)
+
+        from datasets import load_dataset
+
+        ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))
+        split = ds[self.dataset_key]
+        print("Using key:", self.dataset_key, "num seqs:", len(split), flush=True)
+
+        hdf_writer = SimpleHDFWriter(
+            self.out_hdf.get_path(), dim=2, ndim=2, extra_type={"audio_chunk_start_end": (2, 2, "int32")}
+        )
+
+        def word_scores(fo: ForwardOutput, num_words: int) -> List[float]:
+            """Per-word summed log-prob, like the DP's word score (no exit scores)."""
+            max_end = int(fo.target_start_end[0, -1, 1])
+            all_lp = model.log_probs(forward_output=fo, start=torch.tensor([0]), end=torch.tensor([max_end]))
+            out = []
+            for w in range(num_words):
+                t0, t1 = fo.target_start_end[:, w].unbind(1)
+                lp = all_lp[:, int(t0) : int(t1)]
+                targets = batch_slice(fo.targets, (t0, t1))
+                wlp = batches_gather(lp, indices=targets, num_batch_dims=2)
+                wlp.masked_fill_(
+                    torch.arange(wlp.shape[1], device=wlp.device)[None, :] >= (t1 - t0).to(wlp.device)[:, None],
+                    0.0,
+                )
+                out.append(float(wlp.sum()))
+            return out
+
+        K = self.detect_window
+        n_moved_total = 0
+        for seq_idx in range(seg_ds.num_seqs):
+            seg_ds.load_seqs(seq_idx, seq_idx + 1)
+            wise = [list(x) for x in np.asarray(seg_ds.get_data(seq_idx, "data"))]
+            cse = np.asarray(seg_ds.get_data(seq_idx, "audio_chunk_start_end"))
+            sc_ds.load_seqs(seq_idx, seq_idx + 1)
+            sc = np.asarray(sc_ds.get_data(seq_idx, "data"))
+            data = split[seq_idx]
+            audio = np.asarray(data["audio"]["array"], dtype=np.float32)
+            sr = data["audio"]["sampling_rate"]
+            words = data["word_detail"]["utterance"]
+            num_words = len(words)
+
+            conf = sc[:, 0] / np.maximum(sc[:, 1], 1)
+            kern = np.ones(2 * K + 1)
+            wconf = np.convolve(conf, kern, mode="same") / np.convolve(np.ones(len(conf)), kern, mode="same")
+            flagged = np.nonzero(wconf < self.flag_window_conf)[0]
+
+            # word -> chunk of the original assignment
+            w2c = np.full(num_words, -1, dtype=int)
+            for c, (a, b) in enumerate(wise):
+                if a >= 0:
+                    w2c[int(a) : int(b)] = c
+
+            # flagged words -> spans (merge gaps <= K) -> repair ranges (chunk + word range)
+            spans = []
+            for i in flagged:
+                if spans and i - spans[-1][1] <= K:
+                    spans[-1][1] = i
+                else:
+                    spans.append([i, i])
+            repairs = []  # [c_lo, c_hi, w_lo, w_hi): anchored DP range
+            for f0, f1 in spans:
+                cs = [c for c in w2c[f0 : f1 + 1] if c >= 0]
+                if not cs:
+                    continue
+                c_lo = max(0, min(cs) - self.pad_chunks)
+                c_hi = min(len(wise) - 1, max(cs) + self.pad_chunks)
+                # monotone assignment -> the words of a chunk range are contiguous
+                starts = [int(wise[c][0]) for c in range(c_lo, c_hi + 1) if wise[c][0] >= 0]
+                ends = [int(wise[c][1]) for c in range(c_lo, c_hi + 1) if wise[c][0] >= 0]
+                if not starts:
+                    continue
+                repairs.append([c_lo, c_hi, min(starts), max(ends)])
+            # merge overlapping repair ranges
+            repairs.sort()
+            merged = []
+            for r in repairs:
+                if merged and r[0] <= merged[-1][1]:
+                    merged[-1][1] = max(merged[-1][1], r[1])
+                    merged[-1][3] = max(merged[-1][3], r[3])
+                else:
+                    merged.append(r)
+            repairs = merged
+
+            # batched forwards: per repair one request per chunk in its range
+            # (chunk audio + the whole span transcript)
+            reqs = [(ri, c) for ri, (c_lo, c_hi, w_lo, w_hi) in enumerate(repairs) for c in range(c_lo, c_hi + 1)]
+            scores = {}  # (ri, c) -> per-word scores of words[w_lo:w_hi] in chunk c
+            for g0 in range(0, len(reqs), self.max_batch_size):
+                group = reqs[g0 : g0 + self.max_batch_size]
+                fwd_outputs = model.forward_batched(
+                    raw_inputs_list=[torch.tensor(audio[cse[c][0] : cse[c][1]]) for (_, c) in group],
+                    raw_inputs_sample_rate=sr,
+                    raw_targets_list=[words[repairs[ri][2] : repairs[ri][3]] for (ri, _) in group],
+                    omitted_prev_context_list=[repairs[ri][2] for (ri, _) in group],
+                )
+                for (ri, c), fo in zip(group, fwd_outputs):
+                    scores[(ri, c)] = word_scores(fo, repairs[ri][3] - repairs[ri][2])
+
+            n_moved = 0
+            for ri, (c_lo, c_hi, w_lo, w_hi) in enumerate(repairs):
+                n_c = c_hi - c_lo + 1
+                n_s = w_hi - w_lo
+                m = np.array([scores[(ri, c)] for c in range(c_lo, c_hi + 1)])  # [n_c, n_s]
+                # anchored monotone DP: chunk ci gets span words [t_{ci-1}, t_ci)
+                neg = -1e30
+                dp = np.full((n_c, n_s + 1), neg)
+                dp[0, 0] = 0.0
+                for s in range(1, n_s + 1):
+                    dp[0, s] = dp[0, s - 1] + m[0, s - 1]
+                for ci in range(1, n_c):
+                    dp[ci, 0] = dp[ci - 1, 0]
+                    for s in range(1, n_s + 1):
+                        dp[ci, s] = max(dp[ci - 1, s], dp[ci, s - 1] + m[ci, s - 1])
+                best_v = dp[n_c - 1, n_s]
+                # backtrack -> new chunk per span word
+                new_c = np.empty(n_s, dtype=int)
+                ci, s = n_c - 1, n_s
+                while s > 0:
+                    if ci > 0 and dp[ci, s] == dp[ci - 1, s]:
+                        ci -= 1
+                    else:
+                        s -= 1
+                        new_c[s] = c_lo + ci
+                # score of the ORIGINAL assignment under the same matrix + margin acceptance
+                v_orig = sum(m[w2c[w] - c_lo, w - w_lo] for w in range(w_lo, w_hi))
+                moved = int(np.sum(new_c != w2c[w_lo:w_hi]))
+                if moved == 0 or best_v < v_orig + self.min_move_margin * moved:
+                    print(
+                        f"seq {seq_idx}: span words [{w_lo},{w_hi}) chunks [{c_lo},{c_hi}]:"
+                        f" keep (moved {moved}, gain {best_v - v_orig:.2f})",
+                        flush=True,
+                    )
+                    continue
+                n_moved += moved
+                for c in range(c_lo, c_hi + 1):
+                    idx = np.nonzero(new_c == c)[0]
+                    wise[c] = [w_lo + int(idx[0]), w_lo + int(idx[-1]) + 1] if len(idx) else [-1, -1]
+                w2c[w_lo:w_hi] = new_c
+                print(
+                    f"seq {seq_idx}: span words [{w_lo},{w_hi}) chunks [{c_lo},{c_hi}]:"
+                    f" moved {moved}, gain {best_v - v_orig:.2f}",
+                    flush=True,
+                )
+            n_moved_total += n_moved
+            print(f"seq {seq_idx}: {len(flagged)} flagged words, {len(repairs)} spans, {n_moved} moved", flush=True)
+
+            hdf_writer.insert_batch(
+                np.array(wise)[None],
+                seq_len=[len(cse)],
+                seq_tag=[f"seq-{seq_idx}"],
+                extra={"audio_chunk_start_end": np.array(cse)[None]},
+            )
+        print(f"total words moved: {n_moved_total}", flush=True)
+        hdf_writer.close()
