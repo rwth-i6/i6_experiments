@@ -111,6 +111,15 @@ def py():
     _train_framewise_small_scaled("rnnt-mono-framewise-small-delay5-scale4-1gpu", delay=5, scale=4.0)
     # 1/T vs 1/S at shift 5 (1/T = the delay5 job above):
     _train_framewise_small_scaled("rnnt-mono-framewise-small-delay5-normS-1gpu", delay=5, norm="labels")
+    # finer delay ablation (map the small-model optimum ~5 -> collapse by 42):
+    _train_framewise_small_scaled("rnnt-mono-framewise-small-delay3-1gpu", delay=3)
+    _train_framewise_small_scaled("rnnt-mono-framewise-small-delay8-1gpu", delay=8)
+    _train_framewise_small_scaled("rnnt-mono-framewise-small-delay15-1gpu", delay=15)
+    _train_framewise_small_scaled("rnnt-mono-framewise-small-delay20-1gpu", delay=20)
+    _train_framewise_small_scaled("rnnt-mono-framewise-small-delay30-1gpu", delay=30)
+    # blank-frame CE down-weight (0.1): with and without the delay, does rebalancing substitute for timing?
+    _train_framewise_small_scaled("rnnt-mono-framewise-small-blank0p1-1gpu", blank_loss_factor=0.1)
+    _train_framewise_small_scaled("rnnt-mono-framewise-small-delay5-blank0p1-1gpu", delay=5, blank_loss_factor=0.1)
     _train_framewise_enc8dec12_rz()
     _train_framewise_enc4dec24_rz()
     _train_framewise_delay_rz()
@@ -445,7 +454,9 @@ def _train_rnnt_mono_fullsum_small_scaled(scale: float, label: str):
     )
 
 
-def _train_framewise_small_scaled(name: str, *, delay: int = 0, scale: float = 1.0, norm: str = "frames"):
+def _train_framewise_small_scaled(
+    name: str, *, delay: int = 0, scale: float = 1.0, norm: str = "frames", blank_loss_factor: float = 1.0
+):
     """Framewise-CE small (RnntDecoder) with a target delay + main-loss scale/norm knob.
 
     Disentangles full-sum's decoder advantage: does framewise recover it via a shifted alignment
@@ -460,6 +471,8 @@ def _train_framewise_small_scaled(name: str, *, delay: int = 0, scale: float = 1
         extra["framewise_main_loss_scale"] = scale
     if norm != "frames":
         extra["framewise_main_loss_norm"] = norm
+    if blank_loss_factor != 1.0:
+        extra["framewise_blank_loss_factor"] = blank_loss_factor
     return _train_rnnt_mono_small(
         name, train_def=rnnt_scaled_training, target_mode="rna_frame", extra_config=extra or None
     )

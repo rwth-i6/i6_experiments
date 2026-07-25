@@ -8,6 +8,8 @@ Sweeps for the slow-fast-rna project, disentangling why full-sum beats framewise
 - ``framewise_main_loss_norm``: normalize the CE by frames T (``"frames"``, the default / same as
   ``rnnt_training``) or by labels S (``"labels"``, matching CTC + the full-sum normalization) -- tests
   whether the ~T/S stronger encoder gradient of the full-sum objective is what helps its decoder.
+- ``framewise_blank_loss_factor``: per-frame weight on blank-frame CE (default 1.0; e.g. 0.1 down-weights
+  the dominant blank frames to rebalance the loss toward the sparse label frames).
 
 Same ``RnntDecoder`` model as ``rnnt`` / ``rnnt_fullsum`` (comparable); only the objective's timing/scale/norm
 change, all via opt-in config keys (default = ``rnnt_training``), so existing jobs do not rehash.
@@ -31,6 +33,7 @@ def rnnt_scaled_train_forward(
     rna_targets: Tensor,
     rna_targets_spatial_dim: Dim,
     delay_frames: int = 0,
+    blank_loss_factor: float = 1.0,
 ) -> Tuple[Dict[str, Tuple[Tensor, Dim]], Dim]:
     """Framewise-CE forward (as ``rnnt.rnnt_train_forward``) with an optional target delay.
 
@@ -79,6 +82,9 @@ def rnnt_scaled_train_forward(
     log_probs = rf.log_softmax(logits, axis=model.target_dim_ext)
     log_probs = label_smoothed_log_probs(log_probs, axis=model.target_dim_ext)  # config-gated, default off
     ce = rf.cross_entropy(target=rna_dec, estimated=log_probs, estimated_type="log-probs", axis=model.target_dim_ext)
+    if blank_loss_factor != 1.0:
+        # down-weight blank-frame CE (the large majority of frames) to rebalance toward label frames
+        ce = ce * rf.where(rna_dec == blank, blank_loss_factor, 1.0)
     mark_frame_error(log_probs, targets=rna_dec, axis=model.target_dim_ext)
     losses: Dict[str, Tuple[Tensor, Dim]] = {"ce": (ce, dec_spatial_dim)}
 
@@ -106,6 +112,7 @@ def rnnt_scaled_training(*, model, data: Tensor, data_spatial_dim: Dim, targets:
     scale = cfg.float("framewise_main_loss_scale", 1.0)
     norm = cfg.value("framewise_main_loss_norm", "frames")
     assert norm in ("frames", "labels"), norm
+    blank_loss_factor = cfg.float("framewise_blank_loss_factor", 1.0)
 
     losses, label_spatial_dim = rnnt_scaled_train_forward(
         model,
@@ -114,6 +121,7 @@ def rnnt_scaled_training(*, model, data: Tensor, data_spatial_dim: Dim, targets:
         rna_targets=targets,
         rna_targets_spatial_dim=targets_spatial_dim,
         delay_frames=delay,
+        blank_loss_factor=blank_loss_factor,
     )
     for name, (loss, norm_dim) in losses.items():
         if name == "ce":
