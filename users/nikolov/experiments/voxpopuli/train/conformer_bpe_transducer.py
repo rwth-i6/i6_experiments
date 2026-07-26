@@ -883,10 +883,10 @@ def engram_v2_ctc_noreturnn(
 
     def run_exp(ft_name, datasets, train_args, search_args=None, recog_args=None, num_epochs=600,
                 decoder="ctc.decoder.flashlight_ctc_v1_onnx_v2", with_prior=False, evaluate_epoch=None, recog_mem: int = 10,
-                vocab_name: str = None, test_set_name: str = "voxpopuli"):
+                vocab_name: str = None, test_set_name: str = "voxpopuli", keep_epochs=None):
         search_args = search_args if search_args is not None else {}
 
-        returnn_config = get_training_config(training_datasets=datasets, **train_args)
+        returnn_config = get_training_config(training_datasets=datasets, keep_epochs=keep_epochs, **train_args)
         train_job = training(ft_name, returnn_config, RETURNN_EXE, MINI_RETURNN_ROOT, num_epochs=num_epochs)
 
         if not evaluate_epoch:
@@ -1550,10 +1550,10 @@ def engram_acoustic_ctc_noreturnn(
 
     def run_exp(ft_name, datasets, train_args, search_args=None, recog_args=None, num_epochs=600,
                 decoder="ctc.decoder.flashlight_ctc_v1_onnx_v2", with_prior=False, evaluate_epoch=None, recog_mem: int = 10,
-                vocab_name: str = None, test_set_name: str = "voxpopuli"):
+                vocab_name: str = None, test_set_name: str = "voxpopuli", keep_epochs=None):
         search_args = search_args if search_args is not None else {}
 
-        returnn_config = get_training_config(training_datasets=datasets, **train_args)
+        returnn_config = get_training_config(training_datasets=datasets, keep_epochs=keep_epochs, **train_args)
         train_job = training(ft_name, returnn_config, RETURNN_EXE, MINI_RETURNN_ROOT, num_epochs=num_epochs)
 
         if not evaluate_epoch:
