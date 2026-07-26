@@ -17,6 +17,7 @@ from torch import nn
 from typing import Tuple, List
 from dataclasses import dataclass, field
 
+from i6_models.config import ModuleFactoryV1
 from i6_models.parts.conformer.norm import LayerNormNC
 from i6_models.assemblies.conformer.conformer_v2 import (
     ConformerEncoderV2Config,
@@ -102,6 +103,7 @@ class RawWaveformEmbedder(nn.Module):
     def forward(self, raw_audio: torch.Tensor, length: torch.Tensor):
         if raw_audio.dim() == 3:
             raw_audio = raw_audio.squeeze(-1)
+        raw_audio = raw_audio.float()
 
         B, T_raw = raw_audio.shape
         fs = self.frame_samples
@@ -142,6 +144,7 @@ class AmplitudeQuantizer(nn.Module):
     def forward(self, raw_audio: torch.Tensor, raw_audio_len: torch.Tensor):
         if raw_audio.dim() == 3:
             raw_audio = raw_audio.squeeze(-1)
+        raw_audio = raw_audio.float()
 
         B, T_raw = raw_audio.shape
         fs = self.frame_samples
@@ -202,7 +205,7 @@ class Model(torch.nn.Module):
         # --- Conformer encoder (identity frontend) ---
         conformer_config = ConformerEncoderV2Config(
             num_layers=cfg.num_layers,
-            frontend=None,
+            frontend=ModuleFactoryV1(module_class=nn.Identity, cfg={}),
             block_cfg=ConformerBlockV2Config(
                 ff_cfg=ConformerPositionwiseFeedForwardV1Config(
                     input_dim=conformer_size,

@@ -57,6 +57,7 @@ from i6_models.parts.conformer.convolution import ConformerConvolutionV1Config
 from i6_models.parts.conformer.feedforward import ConformerPositionwiseFeedForwardV1Config
 from i6_models.parts.conformer.mhsa import ConformerMHSAV2Config
 
+from i6_models.config import ModuleFactoryV1
 from i6_models.parts.engram import EngramConfig, EngramModule
 
 
@@ -303,7 +304,7 @@ class Model(nn.Module):
         # --- Conformer encoder (no frontend, direct input) ---
         conformer_config = ConformerEncoderV2Config(
             num_layers=cfg.num_layers,
-            frontend=None,  # Encoder-free: no frontend, identity passthrough
+            frontend=ModuleFactoryV1(module_class=nn.Identity, cfg={}),  # Encoder-free: identity passthrough
             block_cfg=ConformerBlockV2Config(
                 ff_cfg=ConformerPositionwiseFeedForwardV1Config(
                     input_dim=conformer_size,

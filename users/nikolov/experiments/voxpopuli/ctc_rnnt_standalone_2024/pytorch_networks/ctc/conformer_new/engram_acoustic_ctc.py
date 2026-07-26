@@ -412,7 +412,7 @@ def train_step(*, model, data, run_ctx, **kwargs):
         run_ctx.mark_as_loss(
             name="quantizer_commitment",
             loss=commitment_loss,
-            inv_norm_factor=raw_audio.shape[0],
+            inv_norm_factor=torch.tensor(float(raw_audio.shape[0])),
             scale=float(model.cfg.quantizer_commitment_weight),
         )
 

@@ -278,7 +278,7 @@ class Model(torch.nn.Module):
         B = raw_audio.shape[0]
         T = raw_audio.shape[1]
 
-        squeezed = raw_audio.squeeze(-1)
+        squeezed = raw_audio.squeeze(-1).float()
         frame_size = self.frame_size
         T_frame = T // frame_size
         if T_frame == 0:
