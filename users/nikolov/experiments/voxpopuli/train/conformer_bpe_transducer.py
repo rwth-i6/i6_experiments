@@ -824,6 +824,7 @@ def engram_v2_ctc_noreturnn(
 
     Uses the same data pipeline as v1 (requires language ID data).
     """
+    from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pytorch_networks.ctc.conformer_new.engram_v2_ctc import get_model_config
     from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pytorch_networks.ctc.conformer_new.engram_v2_ctc_onnx import get_model_config as get_recog_config
     from i6_experiments.users.rossenbach.experiments.rescale.tedlium2_standalone_2023.pipeline import training
     from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pipeline_flashlight import search, prepare_asr_model

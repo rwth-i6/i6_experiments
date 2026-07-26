@@ -882,6 +882,10 @@ def engram_v2_ctc_finetune(
         acoustic_*: Acoustic quantizer hyperparameters
     """
     from i6_experiments.common.setups.returnn.datasets.base import MetaDataset
+    from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.configs.config_noreturnn import get_training_config, get_search_config, get_prior_config
+    from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pytorch_networks.ctc.conformer_new.engram_v2_ctc import get_model_config
+    from i6_experiments.users.rossenbach.experiments.rescale.tedlium2_standalone_2023.pipeline import training
+    from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pipeline_flashlight import search, prepare_asr_model
 
     base_bpe_size = bpe_size["base"] if isinstance(bpe_size, dict) else bpe_size
     if lexicon_path is None:
@@ -1016,6 +1020,8 @@ def engram_v2_ctc_finetune(
             evaluate_epoch = num_epochs
 
         returnn_search_config = get_search_config(**recog_args, decoder_args=search_args, decoder=decoder)
+
+        from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pytorch_networks.ctc.decoder.flashlight_ctc_v2 import DecoderConfig
 
         default_decoder_config = DecoderConfig(
             lexicon=get_text_lexicon(ft_name + "/text_lex", bpe_size, add_prefix, lexicon_path),
@@ -1602,6 +1608,9 @@ def engram_acoustic_ctc_finetune(
         acoustic_*: Acoustic quantizer hyperparameters
     """
     from i6_experiments.common.setups.returnn.datasets.base import MetaDataset
+    from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.configs.config_noreturnn import get_training_config, get_search_config, get_prior_config
+    from i6_experiments.users.rossenbach.experiments.rescale.tedlium2_standalone_2023.pipeline import training
+    from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pipeline_flashlight import search, prepare_asr_model
 
     base_bpe_size = bpe_size["base"] if isinstance(bpe_size, dict) else bpe_size
     if lexicon_path is None:
@@ -1736,6 +1745,8 @@ def engram_acoustic_ctc_finetune(
             evaluate_epoch = num_epochs
 
         returnn_search_config = get_search_config(**recog_args, decoder_args=search_args, decoder=decoder)
+
+        from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pytorch_networks.ctc.decoder.flashlight_ctc_v2 import DecoderConfig
 
         default_decoder_config = DecoderConfig(
             lexicon=get_text_lexicon(ft_name + "/text_lex", bpe_size, add_prefix, lexicon_path),
