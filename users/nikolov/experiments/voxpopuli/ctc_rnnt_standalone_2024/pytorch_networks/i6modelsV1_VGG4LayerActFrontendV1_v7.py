@@ -405,12 +405,18 @@ def train_step(*, model: ModelConfig, **kwargs):
     print("target_lengths", labels_len)
     print("tensor shape", raw_audio.size())
 
-    rnnt_loss = model.loss(
-        logits=logits,
-        logit_lengths=audio_features_len.type(torch.cuda.IntTensor),
-        targets=labels,
-        target_lengths=labels_len.type(torch.cuda.IntTensor)
-    )
+    logits = logits.to(dtype=torch.float32)
+    logit_lengths = audio_features_len.to(dtype=torch.int32, device=logits.device)
+    targets = labels.to(dtype=torch.int32, device=logits.device)
+    target_lengths = labels_len.to(dtype=torch.int32, device=logits.device)
+
+    with torch.cuda.amp.autocast(enabled=False):
+        rnnt_loss = model.loss(
+            logits=logits,
+            logit_lengths=logit_lengths,
+            targets=targets,
+            target_lengths=target_lengths
+        )
 
     print("rnnt_loss", rnnt_loss)
 
