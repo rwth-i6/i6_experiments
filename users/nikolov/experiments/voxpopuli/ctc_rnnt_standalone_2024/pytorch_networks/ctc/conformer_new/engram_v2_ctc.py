@@ -198,6 +198,19 @@ class AmplitudeQuantizer(nn.Module):
         return codes
 
 
+class IdentityFrontend(nn.Identity):
+    """Minimal frontend satisfying ModuleFactoryV1.__post_init__ validation.
+
+    nn.Identity.__init__ has (*args, **kwargs) which trips the ``assert
+    parameter.default`` check in ModuleFactoryV1. This subclass exposes a
+    conventional ``__init__(self, cfg)`` signature so it can be wrapped
+    in ModuleFactoryV1 for encoders that skip the front-end entirely.
+    """
+
+    def __init__(self, cfg=None):
+        super().__init__()
+
+
 # ---------------------------------------------------------------------------
 # ModelConfig
 # ---------------------------------------------------------------------------
@@ -304,7 +317,7 @@ class Model(nn.Module):
         # --- Conformer encoder (no frontend, direct input) ---
         conformer_config = ConformerEncoderV2Config(
             num_layers=cfg.num_layers,
-            frontend=ModuleFactoryV1(module_class=nn.Identity, cfg={}),  # Encoder-free: identity passthrough
+            frontend=ModuleFactoryV1(module_class=IdentityFrontend, cfg={}),  # Encoder-free: identity passthrough
             block_cfg=ConformerBlockV2Config(
                 ff_cfg=ConformerPositionwiseFeedForwardV1Config(
                     input_dim=conformer_size,
