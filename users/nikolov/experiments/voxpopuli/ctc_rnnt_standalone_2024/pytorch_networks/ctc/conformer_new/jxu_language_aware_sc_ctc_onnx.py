@@ -1,20 +1,3 @@
-"""
-ONNX-exportable recognition wrapper for jxu's language_aware_sc_ctc model.
-
-Architecture is identical to language_aware_sc_ctc.Model so that
-checkpoints load correctly (same state_dict keys).
-
-forward() returns (log_probs, audio_features_len) — exactly 2 outputs —
-for compatibility with the flashlight_ctc_v1_onnx_v2 decoder.
-
-Both LID conditioning (at lid_sc_layer) and the self-conditioning BPE heads
-(at each sc_layer) are preserved during inference, matching training-time
-computation.
-
-Reference training model:
-  i6_experiments.users.jxu.experiments.multilingual.voxpopuli.pytorch_networks.language_aware_sc_ctc
-"""
-
 import numpy as np
 from librosa import filters
 import torch
@@ -34,16 +17,12 @@ from i6_models.parts.conformer.convolution import ConformerConvolutionV1Config
 from i6_models.parts.conformer.feedforward import ConformerPositionwiseFeedForwardV1Config
 from i6_models.parts.conformer.mhsa import ConformerMHSAV2Config
 
-from i6_experiments.users.jxu.experiments.multilingual.voxpopuli.pytorch_networks.i6modelsV1_VGG4LayerActFrontendV1_v6_cfg import (
-    SpecaugConfig,
-    VGG4LayerActFrontendV1Config_mod,
-    LogMelFeatureExtractionV1Config,
-)
-
-
-# ---------------------------------------------------------------------------
-# ModelConfig — identical to language_aware_sc_ctc.ModelConfig
-# ---------------------------------------------------------------------------
+from .i6modelsV1_VGG4LayerActFrontendV1_v6_cfg import (
+        SpecaugConfig,
+        VGG4LayerActFrontendV1Config_mod,
+        ModelConfig,
+        LogMelFeatureExtractionV1Config,
+    )
 
 @dataclass
 class ModelConfig:
@@ -75,10 +54,6 @@ class ModelConfig:
         d["specaug_config"] = SpecaugConfig(**d["specaug_config"])
         return ModelConfig(**d)
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
     seq_len = seq_len.to(device=tensor.device)
@@ -135,10 +110,6 @@ class LogMelFeatureExtractionV1OnnxExportable(nn.Module):
             length = ((length - self.n_fft) // self.hop_length) + 1
         return feature_data, length.int()
 
-
-# ---------------------------------------------------------------------------
-# Model
-# ---------------------------------------------------------------------------
 
 class Model(torch.nn.Module):
     """
@@ -244,11 +215,6 @@ class Model(torch.nn.Module):
 
         return log_probs, torch.sum(out_mask, dim=1)
 
-
-# ---------------------------------------------------------------------------
-# RETURNN hooks
-# ---------------------------------------------------------------------------
-
 def train_step(**kwargs):
     raise NotImplementedError("jxu_language_aware_sc_ctc_onnx is for recognition only.")
 
@@ -285,10 +251,6 @@ def prior_step(*, model: Model, data, run_ctx, **kwargs):
     else:
         run_ctx.sum_probs += torch.sum(probs, dim=(0, 1))
 
-
-# ---------------------------------------------------------------------------
-# Config helper (mirrors language_aware_sc_ctc.get_model_config)
-# ---------------------------------------------------------------------------
 
 def get_model_config(vocab_size_without_blank: int, network_args: dict) -> ModelConfig:
     specauc_start_epoch = network_args.get("specauc_start_epoch", 1)

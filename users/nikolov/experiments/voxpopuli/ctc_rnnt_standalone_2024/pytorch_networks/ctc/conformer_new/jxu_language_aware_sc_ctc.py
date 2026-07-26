@@ -1,6 +1,4 @@
-"""Local serializer entrypoint for the JXU LID-aware self-conditioned CTC model."""
-
-from i6_experiments.users.jxu.experiments.multilingual.voxpopuli.pytorch_networks.language_aware_sc_ctc import (
+from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pytorch_networks.ctc.conformer_new.jxu_language_aware_sc_ctc_onnx import (
     Model,
     get_model_config,
     prior_finish_hook,
