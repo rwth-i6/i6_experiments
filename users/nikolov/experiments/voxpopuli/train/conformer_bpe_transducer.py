@@ -17,8 +17,12 @@ from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024
 
 
 
-from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.configs.config import get_training_config, get_search_config, get_prior_config
-#from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.config import get_training_config, get_search_config, get_prior_config
+# NOTE: Switched to config_noreturnn because Engram functions pass keep_epochs=,
+# which is supported by config_noreturnn.get_training_config but not config.get_training_config.
+# Pre-existing functions (conformer_rnnt_baseline, conformer_noreturnn) have local
+# imports that override this module-level binding.
+from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.configs.config_noreturnn import get_training_config, get_search_config, get_prior_config
+#from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.configs.config import get_training_config, get_search_config, get_prior_config
 from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pytorch_networks.ctc.conformer_new.engram_acoustic_ctc import get_model_config
 from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pytorch_networks.ctc.conformer_new.gpt2_ngram_ctc import (
     get_model_config as get_gpt2_model_config,
