@@ -1923,7 +1923,7 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
             aux_loss.mark_as_loss(
                 f"ctc_{layer_idx}",
                 scale=aux_loss_scales[i],
-                custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
+                custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(device=targets.device),
                 use_normalized_loss=use_normalized_loss,
             )
             # decoded, decoded_spatial_dim = rf.ctc_greedy_decode(aux_logits, in_spatial_dim=enc_spatial_dim)
@@ -1943,7 +1943,7 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
     )
     loss.mark_as_loss(
         "ctc",
-        custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
+        custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(device=targets.device),
         use_normalized_loss=use_normalized_loss,
     )
 
