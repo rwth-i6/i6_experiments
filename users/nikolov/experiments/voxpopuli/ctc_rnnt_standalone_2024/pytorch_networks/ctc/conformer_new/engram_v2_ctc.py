@@ -112,6 +112,7 @@ class RawWaveformEmbedder(nn.Module):
         # Ensure shape is [B, T_raw]
         if raw_audio.dim() == 3:
             raw_audio = raw_audio.squeeze(-1)
+        raw_audio = raw_audio.float()
 
         B, T_raw = raw_audio.shape
         fs = self.frame_samples
@@ -173,6 +174,7 @@ class AmplitudeQuantizer(nn.Module):
         """
         if raw_audio.dim() == 3:
             raw_audio = raw_audio.squeeze(-1)
+        raw_audio = raw_audio.float()
 
         B, T_raw = raw_audio.shape
         fs = self.frame_samples  # Dynamic, not hardcoded

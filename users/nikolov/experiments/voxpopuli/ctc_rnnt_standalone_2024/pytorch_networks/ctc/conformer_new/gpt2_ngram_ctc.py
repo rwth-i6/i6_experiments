@@ -324,7 +324,7 @@ class Model(nn.Module):
         T = raw_audio.shape[1]
 
         # --- Audio framing: 40 ms non-overlapping frames ---
-        squeezed = raw_audio.squeeze(-1)  # [B, T]
+        squeezed = raw_audio.squeeze(-1).float()  # [B, T]
         frame_size = self.frame_size
         T_frame = T // frame_size
         if T_frame == 0:

@@ -278,7 +278,7 @@ class Model(nn.Module):
         :param raw_audio_len: [B]
         :return: (log_probs [B, T, V+1], audio_features_len [B])
         """
-        squeezed_features = torch.squeeze(raw_audio, dim=-1)
+        squeezed_features = torch.squeeze(raw_audio, dim=-1).float()
         with torch.no_grad():
             audio_features, audio_features_len = self.feature_extraction(squeezed_features, raw_audio_len)
 
@@ -413,7 +413,7 @@ def train_step(*, model, data, run_ctx, **kwargs):
             name="quantizer_commitment",
             loss=commitment_loss,
             inv_norm_factor=raw_audio.shape[0],
-            weight=model.cfg.quantizer_commitment_weight,
+            scale=float(model.cfg.quantizer_commitment_weight),
         )
 
 
