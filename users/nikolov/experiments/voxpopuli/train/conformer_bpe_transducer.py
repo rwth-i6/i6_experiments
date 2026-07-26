@@ -825,6 +825,8 @@ def engram_v2_ctc_noreturnn(
     Uses the same data pipeline as v1 (requires language ID data).
     """
     from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pytorch_networks.ctc.conformer_new.engram_v2_ctc_onnx import get_model_config as get_recog_config
+    from i6_experiments.users.rossenbach.experiments.rescale.tedlium2_standalone_2023.pipeline import training
+    from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pipeline_flashlight import search, prepare_asr_model
 
     base_bpe_size = bpe_size["base"] if isinstance(bpe_size, dict) else bpe_size
     if lexicon_path is None:
@@ -897,6 +899,7 @@ def engram_v2_ctc_noreturnn(
             evaluate_epoch = num_epochs
 
         returnn_search_config = get_search_config(**recog_args, decoder_args=search_args, decoder=decoder)
+        from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pytorch_networks.ctc.decoder.flashlight_ctc_v2 import DecoderConfig
 
         default_decoder_config = DecoderConfig(
             lexicon=get_text_lexicon(ft_name + "/text_lex", bpe_size, add_prefix, lexicon_path),
@@ -1177,6 +1180,8 @@ def gpt2_ngram_ctc_noreturnn(
     from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pytorch_networks.ctc.conformer_new.gpt2_ngram_ctc_onnx import (
         get_model_config as get_recog_config,
     )
+    from i6_experiments.users.rossenbach.experiments.rescale.tedlium2_standalone_2023.pipeline import training
+    from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pipeline_flashlight import search, prepare_asr_model
 
     base_bpe_size = bpe_size["base"] if isinstance(bpe_size, dict) else bpe_size
     if lexicon_path is None:
@@ -1250,6 +1255,7 @@ def gpt2_ngram_ctc_noreturnn(
             evaluate_epoch = num_epochs
 
         returnn_search_config = get_search_config(**recog_args, decoder_args=search_args, decoder=decoder)
+        from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pytorch_networks.ctc.decoder.flashlight_ctc_v2 import DecoderConfig
 
         default_decoder_config = DecoderConfig(
             lexicon=get_text_lexicon(ft_name + "/text_lex", bpe_size, add_prefix, lexicon_path),
@@ -1492,6 +1498,8 @@ def engram_acoustic_ctc_noreturnn(
     jxu_language_aware_sc_ctc), so the data pipeline is identical.
     """
     from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pytorch_networks.ctc.conformer_new.engram_acoustic_ctc_onnx import get_model_config as get_recog_config
+    from i6_experiments.users.rossenbach.experiments.rescale.tedlium2_standalone_2023.pipeline import training
+    from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pipeline_flashlight import search, prepare_asr_model
 
     base_bpe_size = bpe_size["base"] if isinstance(bpe_size, dict) else bpe_size
     if lexicon_path is None:
@@ -1564,6 +1572,7 @@ def engram_acoustic_ctc_noreturnn(
             evaluate_epoch = num_epochs
 
         returnn_search_config = get_search_config(**recog_args, decoder_args=search_args, decoder=decoder)
+        from i6_experiments.users.nikolov.experiments.voxpopuli.ctc_rnnt_standalone_2024.pytorch_networks.ctc.decoder.flashlight_ctc_v2 import DecoderConfig
 
         default_decoder_config = DecoderConfig(
             lexicon=get_text_lexicon(ft_name + "/text_lex", bpe_size, add_prefix, lexicon_path),
