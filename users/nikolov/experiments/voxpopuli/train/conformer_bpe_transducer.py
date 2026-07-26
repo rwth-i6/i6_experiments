@@ -1,8 +1,7 @@
 import copy
 from dataclasses import dataclass
 from sisyphus import tk
-from typing import Optional
-from typing import cast
+from typing import List, Optional, cast
 
 
 from dataclasses import asdict
@@ -1061,16 +1060,18 @@ def engram_v2_ctc_noreturnn(
             )
         else:
             train_data = CTCTrainingDatasets(
-                train=get_voxpopuli_data(
+                train=get_voxpopuli_data_per_lang(
                     "/u/kaloyan.nikolov/experiments/multilang_0325/output/voxpopuli_asr",
                     lexicon_path,
                     split="train",
+                    lang_list=lang_list,
                     partition_epoch=20,
                 ),
-                cv=get_voxpopuli_data(
+                cv=get_voxpopuli_data_per_lang(
                     "/u/kaloyan.nikolov/experiments/multilang_0325/output/voxpopuli_asr",
                     lexicon_path,
                     split="dev",
+                    lang_list=lang_list,
                     partition_epoch=1,
                 ),
                 prior=get_voxpopuli_data_per_lang(
@@ -1716,16 +1717,18 @@ def engram_acoustic_ctc_noreturnn(
             )
         else:
             train_data = CTCTrainingDatasets(
-                train=get_voxpopuli_data(
+                train=get_voxpopuli_data_per_lang(
                     "/u/kaloyan.nikolov/experiments/multilang_0325/output/voxpopuli_asr",
                     lexicon_path,
                     split="train",
+                    lang_list=lang_list,
                     partition_epoch=20,
                 ),
-                cv=get_voxpopuli_data(
+                cv=get_voxpopuli_data_per_lang(
                     "/u/kaloyan.nikolov/experiments/multilang_0325/output/voxpopuli_asr",
                     lexicon_path,
                     split="dev",
+                    lang_list=lang_list,
                     partition_epoch=1,
                 ),
                 prior=get_voxpopuli_data_per_lang(
