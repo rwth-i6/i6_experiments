@@ -12,7 +12,7 @@ from typing import Tuple, Union, Optional, Literal, Dict, List, Callable
 import torch
 
 from ..common.assemblies.conformer import ConformerEncoderQuant, ConformerEncoderQuantV1Config
-from ..common.memristor_layers import LinearQuant, EmbeddingQuant
+from ..common.memristor_layers import LinearQuant, EmbeddingQuant, ActivationQuantizer
 
 from i6_models.config import ModelConfiguration
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
@@ -22,7 +22,6 @@ from ..common.pytorch_modules import SpecaugmentByLengthConfig, lengths_to_paddi
 
 from synaptogen_ml.memristor_modules import DacAdcHardwareSettings
 from synaptogen_ml.memristor_modules.config import CycleCorrectionSettings
-
 
 
 @dataclass
@@ -43,6 +42,15 @@ class QATFFNNTransducerConfig(ModelConfiguration):
     weight_bit_prec: int
     weight_quant_dtype: Union[str, torch.dtype]
     weight_quant_method: str
+    # v2
+    activation_bit_prec: int
+    activation_quant_dtype: Union[str, torch.dtype]
+    activation_quant_method: str
+    moving_average: Union[float, None]
+    converter_hardware_settings: DacAdcHardwareSettings
+    pos_enc_converter_hardware_settings: DacAdcHardwareSettings
+    correction_settings: Union[CycleCorrectionSettings, None]
+    num_cycles: int
 
 
 @dataclass
@@ -60,34 +68,123 @@ class QATFFNNTransducerModel(torch.nn.Module):
         self.specaug_config = cfg.specaug_cfg
         self.conformer = ConformerEncoderQuant(cfg.conformer_cfg)
 
+        self.enc_output_q = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=2,
+            moving_avrg=cfg.moving_average,
+        )
+
         self.encoder_output = torch.nn.Sequential(
             torch.nn.Dropout(cfg.dropout),
-            LinearQuant(cfg.enc_dim, self.target_size, weight_bit_prec=cfg.weight_bit_prec, weight_quant_dtype=cfg.weight_quant_dtype, weight_quant_method=cfg.weight_quant_method, bias=True),
+            self.enc_output_q,
+            LinearQuant(
+                cfg.enc_dim,
+                self.target_size,
+                weight_bit_prec=cfg.weight_bit_prec,
+                weight_quant_dtype=cfg.weight_quant_dtype,
+                weight_quant_method=cfg.weight_quant_method,
+                bias=True,
+            ),
         )
 
         self.context_history_size = cfg.context_history_size
         self.token_embedding = EmbeddingQuant(
-            num_embeddings=self.target_size, embedding_dim=cfg.context_embedding_dim, padding_idx=cfg.target_size - 1, weight_bit_prec=cfg.weight_bit_prec, weight_quant_dtype=cfg.weight_quant_dtype, weight_quant_method=cfg.weight_quant_method)
+            num_embeddings=self.target_size,
+            embedding_dim=cfg.context_embedding_dim,
+            padding_idx=cfg.target_size - 1,
+            weight_bit_prec=cfg.weight_bit_prec,
+            weight_quant_dtype=cfg.weight_quant_dtype,
+            weight_quant_method=cfg.weight_quant_method,
+        )
 
         prediction_layers = []
         prev_size = self.context_history_size * cfg.context_embedding_dim
         for _ in range(cfg.pred_num_layers):
             prediction_layers.append(torch.nn.Dropout(cfg.dropout))
             prediction_layers.append(cfg.pred_activation)
-            prediction_layers.append(LinearQuant(prev_size, cfg.pred_dim, weight_bit_prec=cfg.weight_bit_prec, weight_quant_dtype=cfg.weight_quant_dtype, weight_quant_method=cfg.weight_quant_method, bias=True))
+            prediction_layers.append(
+                ActivationQuantizer(
+                    bit_precision=cfg.activation_bit_prec,
+                    dtype=cfg.activation_quant_dtype,
+                    method=cfg.activation_quant_method,
+                    channel_axis=1,
+                    moving_avrg=cfg.moving_average,
+                )
+            )
+            prediction_layers.append(
+                LinearQuant(
+                    prev_size,
+                    cfg.pred_dim,
+                    weight_bit_prec=cfg.weight_bit_prec,
+                    weight_quant_dtype=cfg.weight_quant_dtype,
+                    weight_quant_method=cfg.weight_quant_method,
+                    bias=True,
+                )
+            )
             prev_size = cfg.pred_dim
         self.prediction_net = torch.nn.Sequential(*prediction_layers)
 
+        self.prediction_output_q = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
+        )
+
         self.prediction_output = torch.nn.Sequential(
-            torch.nn.Dropout(cfg.dropout), LinearQuant(cfg.pred_dim, self.target_size, weight_bit_prec=cfg.weight_bit_prec, weight_quant_dtype=cfg.weight_quant_dtype, weight_quant_method=cfg.weight_quant_method, bias=True)
+            torch.nn.Dropout(cfg.dropout),
+            self.prediction_output_q,
+            LinearQuant(
+                cfg.pred_dim,
+                self.target_size,
+                weight_bit_prec=cfg.weight_bit_prec,
+                weight_quant_dtype=cfg.weight_quant_dtype,
+                weight_quant_method=cfg.weight_quant_method,
+                bias=True,
+            ),
+        )
+
+        self.joint_net_q1 = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
+        )
+
+        self.joint_net_q2 = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
         )
 
         self.joint_net = torch.nn.Sequential(
             torch.nn.Dropout(cfg.dropout),
-            LinearQuant(cfg.enc_dim + cfg.pred_dim, cfg.joiner_dim, weight_bit_prec=cfg.weight_bit_prec, weight_quant_dtype=cfg.weight_quant_dtype, weight_quant_method=cfg.weight_quant_method, bias=True),
+            self.joint_net_q1,
+            LinearQuant(
+                cfg.enc_dim + cfg.pred_dim,
+                cfg.joiner_dim,
+                weight_bit_prec=cfg.weight_bit_prec,
+                weight_quant_dtype=cfg.weight_quant_dtype,
+                weight_quant_method=cfg.weight_quant_method,
+                bias=True,
+            ),
             cfg.joiner_activation,
             torch.nn.Dropout(cfg.dropout),
-            LinearQuant(cfg.joiner_dim, self.target_size, weight_bit_prec=cfg.weight_bit_prec, weight_quant_dtype=cfg.weight_quant_dtype, weight_quant_method=cfg.weight_quant_method, bias=True),
+            self.joint_net_q2,
+            LinearQuant(
+                cfg.joiner_dim,
+                self.target_size,
+                weight_bit_prec=cfg.weight_bit_prec,
+                weight_quant_dtype=cfg.weight_quant_dtype,
+                weight_quant_method=cfg.weight_quant_method,
+                bias=True,
+            ),
         )
 
     def forward_encoder(

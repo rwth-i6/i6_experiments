@@ -3,13 +3,14 @@ __all__ = ["run", "get_model_config", "get_train_options"]
 from typing import Optional, Union
 
 import torch
+
 from i6_models.config import ModuleFactoryV1
+
+from synaptogen_ml.memristor_modules import DacAdcHardwareSettings
 
 from i6_models.parts.conformer.norm import LayerNormNC
 from i6_models.parts.frontend.generic_frontend import FrontendLayerType, GenericFrontendV1, GenericFrontendV1Config
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Config
-
-from synaptogen_ml.memristor_modules import DacAdcHardwareSettings
 
 from ....data.librispeech import datasets as librispeech_datasets
 from ....data.librispeech.bpe import bpe_to_vocab_size
@@ -17,11 +18,15 @@ from ....model_pipelines.common.learning_rates import OCLRConfig
 from ....model_pipelines.common.optimizer import RAdamConfig
 from ....model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
 from ....model_pipelines.common.train import TrainedModel, train
-from ....model_pipelines.qat_ffnn_transducer.pytorch_modules import (
-    QATFFNNTransducerConfig,
-    QATFFNNTransducerModel,
+from ....model_pipelines.qat_full_ctx_transducer.pytorch_modules import (
+    QATLstmTransducerConfig,
+    QATLstmTransducerModel,
 )
-from ....model_pipelines.qat_ffnn_transducer.train import QATFFNNTransducerTrainOptions, get_train_step_import
+from ....model_pipelines.qat_full_ctx_transducer.train import (
+    QATLstmTransducerTrainOptions,
+    get_train_step_import,
+)
+
 
 from ....model_pipelines.common.assemblies.conformer import (
     ConformerEncoderQuantV1Config,
@@ -32,13 +37,12 @@ from ....model_pipelines.common.assemblies.conformer import (
     WeightPruningConfig,
 )
 
-
 def run(
     descriptor: str,
     qat_args: Optional[dict] = None,
-    model_config: Optional[QATFFNNTransducerConfig] = None,
-    train_options: Optional[QATFFNNTransducerTrainOptions] = None,
-) -> TrainedModel[QATFFNNTransducerConfig]:
+    model_config: Optional[QATLstmTransducerConfig] = None,
+    train_options: Optional[QATLstmTransducerTrainOptions] = None,
+) -> TrainedModel[QATLstmTransducerConfig]:
     if model_config is None:
         if qat_args is None:
             raise ValueError("Either model_config or qat_args must be provided")
@@ -48,7 +52,7 @@ def run(
 
     return train(
         descriptor=descriptor,
-        model_class=QATFFNNTransducerModel,
+        model_class=QATLstmTransducerModel,
         model_config=model_config,
         options=train_options,
         train_step_import=get_train_step_import(train_options),
@@ -61,7 +65,8 @@ def get_model_config(
     weight_dropout: float,
     weight_pruning_config: WeightPruningConfig,
     bpe_size: int = 128,
-) -> QATFFNNTransducerConfig:
+) -> QATLstmTransducerConfig:
+    vocab_size = bpe_to_vocab_size(bpe_size)
 
     if isinstance(weight_bit_prec, dict):
         ff_prec = weight_bit_prec["ff"]
@@ -105,8 +110,8 @@ def get_model_config(
         weight_noise_values=None,
         weight_noise_start_epoch=None,
     )
-
-    return QATFFNNTransducerConfig(
+    
+    return QATLstmTransducerConfig(
         logmel_cfg=LogMelFeatureExtractionV1Config(
             sample_rate=16000,
             win_size=0.025,
@@ -235,14 +240,13 @@ def get_model_config(
         ),
         dropout=0.1,
         enc_dim=512,
-        pred_num_layers=2,
+        pred_num_layers=1,
         pred_dim=640,
         pred_activation=torch.nn.Tanh(),
-        context_history_size=1,
         context_embedding_dim=256,
         joiner_dim=1024,
         joiner_activation=torch.nn.Tanh(),
-        target_size=bpe_to_vocab_size(bpe_size=bpe_size) + 1,
+        target_size=vocab_size + 1,
         weight_bit_prec=weight_bit_prec,
         weight_quant_dtype=qat_args["weight_quant_dtype"],
         weight_quant_method=qat_args["weight_quant_method"],
@@ -257,12 +261,12 @@ def get_model_config(
     )
 
 
-def get_train_options(bpe_size: int = 128) -> QATFFNNTransducerTrainOptions:
-    return QATFFNNTransducerTrainOptions(
+def get_train_options(bpe_size: int = 128) -> QATLstmTransducerTrainOptions:
+    return QATLstmTransducerTrainOptions(
         train_data_config=librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size),
         cv_data_config=librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size),
         save_epochs=list(range(1500, 1900, 100)) + list(range(1900, 2001, 20)),
-        batch_size=12_000 * 160,
+        batch_size=36_000 * 160,
         accum_grad_multiple_step=2,
         optimizer_config=RAdamConfig(
             epsilon=1e-12,
@@ -285,5 +289,5 @@ def get_train_options(bpe_size: int = 128) -> QATFFNNTransducerTrainOptions:
         enc_loss_scale=0.5,
         pred_loss_scale=0.0,
         max_seqs=None,
-        max_seq_length=None,
+        max_seq_length={"audio_features": 35 * 16000},
     )

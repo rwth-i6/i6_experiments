@@ -1,6 +1,6 @@
 __all__ = [
-    "LstmTransducerTrainOptions",
-    "LstmTransducerPrunedTrainOptions",
+    "LstmTransducerQATEncoderTrainOptions",
+    "LstmTransducerQATEncoderPrunedTrainOptions",
     "get_train_step_import",
     "get_pruned_train_step_import",
 ]

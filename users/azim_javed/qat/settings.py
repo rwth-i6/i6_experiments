@@ -156,6 +156,7 @@ DEFAULT_ENVIRONMENT_SET.update(
         "PYTORCH_KERNEL_CACHE_PATH": f"{TMP_PREFIX}/pt_kernel_cache_{getpass.getuser()}", 
         "OMP_NUM_THREADS": 2,
         "MKL_NUM_THREADS": 2,
-        "CXXFLAGS": "-include cstdint"
+        "CXXFLAGS": "-include cstdint",
+        "PYTORCH_CUDA_ALLOC_CONF":"expandable_segments:True"
     }
 )

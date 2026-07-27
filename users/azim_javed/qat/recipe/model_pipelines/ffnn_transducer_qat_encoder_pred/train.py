@@ -1,6 +1,6 @@
 __all__ = [
-    "QATLstmTransducerTrainOptions",
-    "QATLstmTransducerPrunedTrainOptions",
+    "FFNNTransducerQATEncoderPredictionTrainOptions",
+    "FFNNTransducerQATEncoderPredictionPrunedTrainOptions",
     "get_train_step_import",
     "get_pruned_train_step_import",
 ]
@@ -15,17 +15,17 @@ from i6_experiments.common.setups.serialization import PartialImport
 
 from ..common.pytorch_modules import lengths_to_padding_mask
 from ..common.train import TrainOptions
-from .pytorch_modules import QATLstmTransducerModel
+from .pytorch_modules import FFNNTransducerQATEncoderPredictionModel
 
 
 @dataclass
-class QATLstmTransducerTrainOptions(TrainOptions):
+class FFNNTransducerQATEncoderPredictionTrainOptions(TrainOptions):
     enc_loss_scale: float
     pred_loss_scale: float
 
 
 @dataclass
-class QATLstmTransducerPrunedTrainOptions(QATLstmTransducerTrainOptions):
+class FFNNTransducerQATEncoderPredictionPrunedTrainOptions(FFNNTransducerQATEncoderPredictionTrainOptions):
     delay_penalty: float
     skip_epochs_before_pruned_loss: int
     prune_range: int
@@ -33,7 +33,7 @@ class QATLstmTransducerPrunedTrainOptions(QATLstmTransducerTrainOptions):
 
 
 def get_train_step_import(
-    options: QATLstmTransducerTrainOptions,
+    options: FFNNTransducerQATEncoderPredictionTrainOptions,
 ) -> PartialImport:
     return PartialImport(
         code_object_path=f"{_train_step.__module__}.{_train_step.__name__}",
@@ -48,7 +48,7 @@ def get_train_step_import(
 
 
 def get_pruned_train_step_import(
-    options: QATLstmTransducerPrunedTrainOptions,
+    options: FFNNTransducerQATEncoderPredictionPrunedTrainOptions,
 ) -> PartialImport:
     return PartialImport(
         code_object_path=f"{_train_step_pruned.__module__}.{_train_step_pruned.__name__}",
@@ -66,76 +66,7 @@ def get_pruned_train_step_import(
     )
 
 
-def _train_step(
-    *,
-    model: QATLstmTransducerModel,
-    data: dict,
-    run_ctx: RunCtx,
-    enc_loss_scale: float = 0.0,
-    pred_loss_scale: float = 0.0,
-    **_,
-):
-    from i6_native_ops.monotonic_rnnt import monotonic_rnnt_loss
-
-    audio_samples = data["data"]  # [B, T, 1]
-    audio_samples_size = data["data:size1"].to(device=audio_samples.device)  # [B]
-
-    targets = data["classes"]  # [B, S]
-    targets_size = data["classes:size1"]  # [B]
-    targets_size = targets_size.to(device=audio_samples.device)
-
-    encoder_states, ctc_log_probs, encoder_states_size = model.forward_encoder(
-        audio_samples=audio_samples,
-        audio_samples_size=audio_samples_size,
-    )
-    pred_states = model.forward_prediction_network(targets=targets)
-    pred_logits = model.pred_output.forward(pred_states)
-    logits = model.forward_joint_network(encoder_states, encoder_states_size, pred_states, targets_size)
-
-    rnnt_loss = monotonic_rnnt_loss(
-        acts=logits.to(dtype=torch.float32),
-        labels=targets,
-        input_lengths=encoder_states_size,
-        label_lengths=targets_size,
-        blank_label=model.target_size - 1,
-    ).sum()
-
-    loss_norm_factor = torch.sum(targets_size)
-
-    run_ctx.mark_as_loss(name="mono_rnnt", loss=rnnt_loss, inv_norm_factor=loss_norm_factor)
-
-    if enc_loss_scale != 0:
-        ctc_log_probs = torch.transpose(ctc_log_probs, 0, 1)  # [T, B, C]
-
-        loss = torch.nn.functional.ctc_loss(
-            log_probs=ctc_log_probs,
-            targets=targets,
-            input_lengths=encoder_states_size,
-            target_lengths=targets_size,
-            blank=model.target_size - 1,
-            reduction="sum",
-            zero_infinity=True,
-        )
-
-        run_ctx.mark_as_loss(
-            name="ctc",
-            loss=loss,
-            scale=enc_loss_scale,
-            inv_norm_factor=loss_norm_factor,
-        )
-
-    if pred_loss_scale != 0:
-        pred_logits = pred_logits[:, :-1, :].transpose(1, 2)  # [B, V, S]
-        ce_loss = torch.nn.functional.cross_entropy(
-            pred_logits,
-            targets,
-            reduction="none",
-        )
-        seq_mask = lengths_to_padding_mask(targets_size)
-        ce_loss = (ce_loss * seq_mask).sum()
-        run_ctx.mark_as_loss(name="pred_ce", loss=ce_loss, inv_norm_factor=loss_norm_factor, scale=pred_loss_scale)
-
-
+# Adapted from fast_rnnt but doesn't require same dimension of am and lm
 def _do_rnnt_pruning(am: torch.Tensor, lm: torch.Tensor, ranges: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Prune the output of encoder(am) and prediction network(lm) with ranges
@@ -173,9 +104,90 @@ def _do_rnnt_pruning(am: torch.Tensor, lm: torch.Tensor, ranges: torch.Tensor) -
     return am_pruning, lm_pruning
 
 
+def _train_step(
+    *,
+    model: FFNNTransducerQATEncoderPredictionModel,
+    data: dict,
+    run_ctx: RunCtx,
+    enc_loss_scale: float,
+    pred_loss_scale: float,
+    **_,
+):
+    from i6_native_ops.monotonic_rnnt import monotonic_rnnt_loss
+
+    audio_samples = data["data"]  # [B, T, 1]
+    audio_samples_size = data["data:size1"].to(device=audio_samples.device)  # [B]
+
+    targets = data["classes"].long()  # [B, S]
+    targets_size = data["classes:size1"]  # [B]
+    targets_size = targets_size.to(device=audio_samples.device)
+
+    loss_norm_factor = torch.sum(targets_size)
+
+    encoder_states, encoder_states_size = model.forward_encoder(
+        audio_samples=audio_samples, audio_samples_size=audio_samples_size
+    )  # [B, T, E], [B]
+    encoder_logits = model.encoder_output.forward(encoder_states)  # [B, T, V]
+
+    pred_states = model.forward_prediction_network(targets=targets)  # [B, S+1, P]
+    pred_logits = model.prediction_output.forward(pred_states)
+
+    logits = model.forward_joint_network(
+        encoder_states=encoder_states,
+        encoder_states_size=encoder_states_size,
+        pred_states=pred_states,
+        targets_size=targets_size,
+    )
+
+    has_mismatch = False
+    for b in range(encoder_states_size.size(0)):
+        if targets_size[b] > encoder_states_size[b]:
+            print(
+                data["seq_tag"][b], "has", targets_size[b], "targets but only", encoder_states_size[b], "encoder states"
+            )
+            has_mismatch = True
+
+    if not has_mismatch:
+        rnnt_loss = monotonic_rnnt_loss(
+            acts=logits.to(dtype=torch.float32),
+            labels=targets,
+            input_lengths=encoder_states_size,
+            label_lengths=targets_size,
+            blank_label=model.target_size - 1,
+        ).sum()
+    else:
+        rnnt_loss = torch.zeros([], dtype=torch.float32, device=logits.device)
+
+    run_ctx.mark_as_loss(name="mono_rnnt", loss=rnnt_loss, inv_norm_factor=loss_norm_factor)
+
+    if enc_loss_scale != 0:
+        ctc_log_probs = torch.nn.functional.log_softmax(encoder_logits, dim=-1).transpose(0, 1)  # [T, B, V]
+        ctc_loss = torch.nn.functional.ctc_loss(
+            log_probs=ctc_log_probs,
+            targets=targets,
+            input_lengths=encoder_states_size,
+            target_lengths=targets_size,
+            blank=model.target_size - 1,
+            reduction="sum",
+            zero_infinity=True,
+        )
+        run_ctx.mark_as_loss(name="enc_ctc", loss=ctc_loss, inv_norm_factor=loss_norm_factor, scale=enc_loss_scale)
+
+    if pred_loss_scale != 0:
+        pred_logits = pred_logits[:, :-1, :].transpose(1, 2)  # [B, V, S]
+        ce_loss = torch.nn.functional.cross_entropy(
+            pred_logits,
+            targets,
+            reduction="none",
+        )
+        seq_mask = lengths_to_padding_mask(targets_size)
+        ce_loss = (ce_loss * seq_mask).sum()
+        run_ctx.mark_as_loss(name="pred_ce", loss=ce_loss, inv_norm_factor=loss_norm_factor, scale=pred_loss_scale)
+
+
 def _train_step_pruned(
     *,
-    model: QATLstmTransducerModel,
+    model: FFNNTransducerQATEncoderPredictionModel,
     data: dict,
     run_ctx: RunCtx,
     enc_loss_scale: float,
@@ -195,12 +207,13 @@ def _train_step_pruned(
     targets_size = data["classes:size1"]  # [B]
     targets_size = targets_size.to(device=audio_samples.device, dtype=torch.long)
 
-    encoder_states, ctc_log_probs, encoder_states_size = model.forward_encoder(
-        audio_samples=audio_samples,
-        audio_samples_size=audio_samples_size,
-    )  # [B, T, E], [B, T, V], [B]
+    encoder_states, encoder_states_size = model.forward_encoder(
+        audio_samples=audio_samples, audio_samples_size=audio_samples_size
+    )  # [B, T, E], [B]
+    encoder_logits = model.encoder_output.forward(encoder_states)  # [B, T, V]
+
     pred_states = model.forward_prediction_network(targets=targets)  # [B, S+1, P]
-    pred_logits = model.pred_output.forward(pred_states)  # [B, S+1, V]
+    pred_logits = model.prediction_output.forward(pred_states)
 
     has_mismatch = False
     for b in range(encoder_states_size.size(0)):
@@ -216,7 +229,7 @@ def _train_step_pruned(
 
         smoothed_loss, (px_grad, py_grad) = fast_rnnt.rnnt_loss_smoothed(
             lm=pred_logits.to(dtype=torch.float32),
-            am=ctc_log_probs.to(dtype=torch.float32),
+            am=encoder_logits.to(dtype=torch.float32),
             symbols=targets,
             termination_symbol=model.target_size - 1,
             lm_only_scale=pred_loss_scale,
@@ -237,13 +250,11 @@ def _train_step_pruned(
             )  # [B, T, prune_range]
 
             am_pruned, lm_pruned = _do_rnnt_pruning(
-                am=encoder_states,
-                lm=pred_states,
-                ranges=ranges,
+                am=encoder_states, lm=pred_states, ranges=ranges
             )  # [B, T, prune_range, E], [B, T, prune_range, P]
 
             joint_input = torch.concat([am_pruned, lm_pruned], dim=-1)  # [B, T, prune_range, E+P]
-            logits = model.joiner.forward(joint_input)  # [B, T, prune_range, V]
+            logits = model.joint_net.forward(joint_input)  # [B, T, prune_range, V]
 
             pruned_loss = fast_rnnt.rnnt_loss_pruned(
                 logits=logits.to(dtype=torch.float32),
@@ -257,10 +268,10 @@ def _train_step_pruned(
                 return_grad=False,
             )
         else:
-            pruned_loss = torch.zeros([], dtype=torch.float32, device=ctc_log_probs.device)
+            pruned_loss = torch.zeros([], dtype=torch.float32, device=encoder_logits.device)
     else:
-        smoothed_loss = torch.zeros([], dtype=torch.float32, device=ctc_log_probs.device)
-        pruned_loss = torch.zeros([], dtype=torch.float32, device=ctc_log_probs.device)
+        smoothed_loss = torch.zeros([], dtype=torch.float32, device=encoder_logits.device)
+        pruned_loss = torch.zeros([], dtype=torch.float32, device=encoder_logits.device)
 
     loss_norm_factor = torch.sum(targets_size)
 

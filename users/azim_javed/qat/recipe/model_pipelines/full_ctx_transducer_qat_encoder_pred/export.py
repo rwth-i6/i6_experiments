@@ -10,12 +10,12 @@ from i6_experiments.common.setups.serialization import Import
 from ..common.onnx_export import export_model as _export_model
 from ..common.serializers import get_model_serializers
 from .pytorch_modules import (
-    QATLstmTransducerConfig,
-    QATLstmTransducerEncoder,
-    QATLstmTransducerRecogConfig,
-    QATLstmTransducerScorer,
-    QATLstmTransducerStateInitializer,
-    QATLstmTransducerStateUpdater,
+    LstmTransducerQATEncoderPredictionConfig,
+    LstmTransducerQATEncoderPredictionEncoder,
+    LstmTransducerQATEncoderPredictionRecogConfig,
+    LstmTransducerQATEncoderPredictionScorer,
+    LstmTransducerQATEncoderPredictionStateInitializer,
+    LstmTransducerQATEncoderPredictionStateUpdater,
 )
 
 # -----------------------
@@ -23,8 +23,8 @@ from .pytorch_modules import (
 # -----------------------
 
 
-def export_scorer(model_config: QATLstmTransducerRecogConfig, checkpoint: PtCheckpoint) -> tk.Path:
-    model_serializers = get_model_serializers(model_class=QATLstmTransducerScorer, model_config=model_config)
+def export_scorer(model_config: LstmTransducerQATEncoderPredictionRecogConfig, checkpoint: PtCheckpoint) -> tk.Path:
+    model_serializers = get_model_serializers(model_class=LstmTransducerQATEncoderPredictionScorer, model_config=model_config)
 
     return _export_model(
         model_serializers=model_serializers,
@@ -62,8 +62,8 @@ def export_scorer(model_config: QATLstmTransducerRecogConfig, checkpoint: PtChec
     )
 
 
-def export_state_initializer(model_config: QATLstmTransducerConfig, checkpoint: PtCheckpoint) -> tk.Path:
-    model_serializers = get_model_serializers(model_class=QATLstmTransducerStateInitializer, model_config=model_config)
+def export_state_initializer(model_config: LstmTransducerQATEncoderPredictionConfig, checkpoint: PtCheckpoint) -> tk.Path:
+    model_serializers = get_model_serializers(model_class=LstmTransducerQATEncoderPredictionStateInitializer, model_config=model_config)
 
     return _export_model(
         model_serializers=model_serializers,
@@ -102,8 +102,8 @@ def export_state_initializer(model_config: QATLstmTransducerConfig, checkpoint: 
     )
 
 
-def export_state_updater(model_config: QATLstmTransducerConfig, checkpoint: PtCheckpoint) -> tk.Path:
-    model_serializers = get_model_serializers(model_class=QATLstmTransducerStateUpdater, model_config=model_config)
+def export_state_updater(model_config: LstmTransducerQATEncoderPredictionConfig, checkpoint: PtCheckpoint) -> tk.Path:
+    model_serializers = get_model_serializers(model_class=LstmTransducerQATEncoderPredictionStateUpdater, model_config=model_config)
 
     return _export_model(
         model_serializers=model_serializers,
@@ -163,7 +163,7 @@ def export_state_updater(model_config: QATLstmTransducerConfig, checkpoint: PtCh
 # -----------------------
 
 
-def _scorer_forward_step(*, model: QATLstmTransducerScorer, extern_data: TensorDict, **_):
+def _scorer_forward_step(*, model: LstmTransducerQATEncoderPredictionScorer, extern_data: TensorDict, **_):
     import returnn.frontend as rf
 
     run_ctx = rf.get_run_ctx()
@@ -182,7 +182,7 @@ def _scorer_forward_step(*, model: QATLstmTransducerScorer, extern_data: TensorD
     run_ctx.mark_as_output(name="scores", tensor=scores)
 
 
-def _state_initializer_forward_step(*, model: QATLstmTransducerStateInitializer, **_):
+def _state_initializer_forward_step(*, model: LstmTransducerQATEncoderPredictionStateInitializer, **_):
     import returnn.frontend as rf
 
     run_ctx = rf.get_run_ctx()
@@ -194,7 +194,7 @@ def _state_initializer_forward_step(*, model: QATLstmTransducerStateInitializer,
     run_ctx.mark_as_output(name="lstm_out", tensor=lstm_out)
 
 
-def _state_updater_forward_step(*, model: QATLstmTransducerStateUpdater, extern_data: TensorDict, **_):
+def _state_updater_forward_step(*, model: LstmTransducerQATEncoderPredictionStateUpdater, extern_data: TensorDict, **_):
     import returnn.frontend as rf
 
     run_ctx = rf.get_run_ctx()

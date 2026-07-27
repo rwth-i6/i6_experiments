@@ -2,7 +2,7 @@ from typing import Dict, List, Optional, Tuple
 
 from sisyphus import tk
 from ...model_pipelines.common.report import register_recog_report
-from . import recognition, training
+from . import training, recognition
 
 
 def run_all(filename):
@@ -25,26 +25,32 @@ def run_all(filename):
         "ffnn_transducer_qat_encoder": training.ffnn_transducer_qat_encoder_bpe.run(
             descriptor="ffnn_transducer_qat_encoder", qat_args=w8_a8_qat_config
         ),
-        "qat_ctc_bpe_param_sync": training.qat_ctc_bpe_param_sync.run(
-            descriptor="qat_ctc_bpe_param_sync", qat_args=w8_a8_qat_config
-        ),
-        "qat_ctc_bpe_w4_a8": training.qat_ctc_bpe_param_sync.run(
-            descriptor="qat_ctc_bpe_w4_a8", qat_args=w4_a8_qat_config
-        ),
+        # "qat_ctc_bpe_param_sync": training.qat_ctc_bpe_param_sync.run(
+        #     descriptor="qat_ctc_bpe_param_sync", qat_args=w8_a8_qat_config
+        # ),
+        # "qat_ctc_bpe_w4_a8": training.qat_ctc_bpe_param_sync.run(
+        #     descriptor="qat_ctc_bpe_w4_a8", qat_args=w4_a8_qat_config
+        # ),
         "ffnn_transducer_qat_encoder_bpe_param_sync": training.ffnn_transducer_qat_encoder_bpe_param_sync.run(
             descriptor="ffnn_transducer_qat_encoder_bpe_param_sync", qat_args=w8_a8_qat_config
         ),
         "full_ctx_transducer_qat_encoder_bpe": training.full_ctx_transducer_qat_encoder_bpe.run(
             descriptor="full_ctx_transducer_qat_encoder_bpe", qat_args=w8_a8_qat_config
-        )
+        ),
     }
     recog_results = []
-    recog_results.extend(recognition.ffnn_transducer_qat_encoder_bpe.run(model=models["ffnn_transducer_qat_encoder"]))
-    recog_results.extend(recognition.qat_ffnn_transducer_bpe.run(model=models["qat_ffnn_transducer_full_quant"]))
-    recog_results.extend(recognition.qat_ctc_bpe_param_sync.run(model=models["qat_ctc_bpe_param_sync"], corpora=["dev-other"]))
-    recog_results.extend(recognition.qat_ctc_bpe_param_sync.run(model=models["qat_ctc_bpe_w4_a8"], corpora=["dev-other"]))
+    recog_results.extend(
+        recognition.ffnn_transducer_qat_encoder_bpe.run(
+            model=models["ffnn_transducer_qat_encoder"], corpora=["dev-other"]
+        )
+    )
+    recog_results.extend(
+        recognition.qat_ffnn_transducer_bpe.run(model=models["qat_ffnn_transducer_full_quant"], corpora=["dev-other"])
+    )
+    # recog_results.extend(recognition.qat_ctc_bpe_param_sync.run(model=models["qat_ctc_bpe_param_sync"], corpora=["dev-other"]))
+    # recog_results.extend(recognition.qat_ctc_bpe_param_sync.run(model=models["qat_ctc_bpe_w4_a8"], corpora=["dev-other"]))
     # recog_results.extend(recognition.qat_ffnn_transducer_bpe_param_sync.run(model=models["qat_ffnn_transducer_bpe_param_sync"]))
-    
+
     register_recog_report(recog_results, filename=filename)
     return models, recog_results
 
@@ -74,8 +80,6 @@ def run_test(filename):
 
 
 def run_debug(filename):
-    from ...model_pipelines.common.train import TrainedModel
-    from synaptogen_ml.memristor_modules import DacAdcHardwareSettings
 
     baseline_qat_config = dict(
         weight_bit_prec=8,
@@ -83,64 +87,97 @@ def run_debug(filename):
         weight_dropout=0.0,
         weight_pruning_config=None,
     )
-    from sisyphus import tk
-
-    # ffnnt_qat_encoder_trained_model = TrainedModel(
-    #     descriptor="ffnn_transducer_qat_encoder",
-    #     model_config=training.ffnn_transducer_qat_encoder_bpe.get_model_config(**baseline_qat_config),
-    #     checkpoints={
-    #         196: tk.Path("/u/azim.javed/experiments/training/qat/schkpt/ffnn_transducer_qat_encoder_chkpt.pt")
-    #     },
-    # )
-    qat_ctc_trained_model = TrainedModel(
-        descriptor="qat_ctc_bpe_debug",
-        model_config=training.qat_ctc_bpe.get_model_config(**baseline_qat_config),
-        checkpoints={
-            2000: tk.Path("/u/azim.javed/experiments/training/qat/output/training/qat_ctc_bpe/final_checkpoint")
-        },
-    )
-    # qat_ffnn_transducer_trained_model = TrainedModel(
-    #     descriptor="qat_ffnn_transducer_full_quant",
-    #     model_config=training.qat_ffnn_transducer_bpe.get_model_config(**baseline_qat_config),
-    #     checkpoints={115: tk.Path("/u/azim.javed/experiments/training/qat/schkpt/qat_ffnn_transducer_chkpt.pt")},
-    # )
     models = {
-        # "ffnn_transducer_qat_encoder": ffnnt_qat_encoder_trained_model,
-        # "qat_ctc_bpe": qat_ctc_trained_model,
-        # "qat_ffnn_transducer_full_quant": qat_ffnn_transducer_trained_model,
-        # "full_ctx_transducer_qat_encoder_bpe": training.full_ctx_transducer_qat_encoder_bpe.run(
-        #     descriptor="full_ctx_transducer_qat_encoder_bpe", qat_args=baseline_qat_config
-        # )
+        "qat_ffnn_transducer_v2": training.qat_ffnn_transducer_bpe.run(
+            descriptor="qat_ffnn_transducer_v2", qat_args=baseline_qat_config
+        ),
+        "ffnn_transducer_qat_encoder_prediction_bpe": training.ffnn_transducer_qat_encoder_prediction_bpe.run(
+            descriptor="ffnn_transducer_qat_encoder_prediction_bpe", qat_args=baseline_qat_config
+        ),
+        "qat_full_ctx_transducer_bpe": training.qat_full_ctx_transducer_bpe.run(
+            descriptor="qat_full_ctx_transducer_bpe", qat_args=baseline_qat_config
+        ),
+        "full_ctx_transducer_qat_encoder_prediction_bpe": training.full_ctx_transducer_qat_encoder_prediction_bpe.run(
+            descriptor="full_ctx_transducer_qat_encoder_prediction_bpe", qat_args=baseline_qat_config
+        ),
     }
-    from .training import qat_ctc_bpe_param_sync as training_qat_ctc_bpe_param_sync
-    from .recognition.memristor import qat_ctc_bpe_param_sync as recognition_qat_ctc_bpe_param_sync
-    # qat_ctc_real_model = training_qat_ctc_bpe_param_sync.run(
-    #         descriptor="qat_ctc_bpe_param_sync", qat_args=baseline_qat_config
-    #     )
-    
-    converter_hardware_settings = DacAdcHardwareSettings(
-            input_bits=8,
-            output_precision_bits=4,
-            output_range_bits=4,
-            hardware_input_vmax=0.6,
-            hardware_output_current_scaling=8020.0,
-        )
-    pos_enc_converter_hardware_settings = DacAdcHardwareSettings(
-            input_bits=8,
-            output_precision_bits=1,
-            output_range_bits=7,
-            hardware_input_vmax=0.6,
-            hardware_output_current_scaling=8020.0,
-    )
-    correction_settings = None
-    num_cycles = 0
     recog_results = []
-    recog_results.extend(recognition_qat_ctc_bpe_param_sync.run(model=qat_ctc_trained_model, corpora=["dev-other"], converter_hardware_settings=converter_hardware_settings, pos_enc_converter_hardware_settings=pos_enc_converter_hardware_settings, correction_settings=correction_settings, num_cycles=num_cycles))
+    # recog_results.extend(recognition_qat_ctc_bpe_param_sync.run(model=qat_ctc_trained_model, corpora=["dev-other"], converter_hardware_settings=converter_hardware_settings, pos_enc_converter_hardware_settings=pos_enc_converter_hardware_settings, correction_settings=correction_settings, num_cycles=num_cycles))
     # recog_results.extend(recognition.ffnn_transducer_qat_encoder_bpe.run(model=models["ffnn_transducer_qat_encoder"]))
     # recog_results.extend(recognition.qat_ctc_bpe.run(model=models["qat_ctc_bpe"]))
     # recog_results.extend(recognition.qat_ffnn_transducer_bpe.run(model=models["qat_ffnn_transducer_full_quant"]))
     register_recog_report(recog_results, filename=filename)
     return models, recog_results
+
+
+# def run_debug(filename):
+#     from ...model_pipelines.common.train import TrainedModel
+#     from synaptogen_ml.memristor_modules import DacAdcHardwareSettings
+
+#     baseline_qat_config = dict(
+#         weight_bit_prec=8,
+#         activation_bit_prec=8,
+#         weight_dropout=0.0,
+#         weight_pruning_config=None,
+#     )
+#     from sisyphus import tk
+
+#     # ffnnt_qat_encoder_trained_model = TrainedModel(
+#     #     descriptor="ffnn_transducer_qat_encoder",
+#     #     model_config=training.ffnn_transducer_qat_encoder_bpe.get_model_config(**baseline_qat_config),
+#     #     checkpoints={
+#     #         196: tk.Path("/u/azim.javed/experiments/training/qat/schkpt/ffnn_transducer_qat_encoder_chkpt.pt")
+#     #     },
+#     # )
+#     qat_ctc_trained_model = TrainedModel(
+#         descriptor="qat_ctc_bpe_debug",
+#         model_config=training.qat_ctc_bpe.get_model_config(**baseline_qat_config),
+#         checkpoints={
+#             2000: tk.Path("/u/azim.javed/experiments/training/qat/output/training/qat_ctc_bpe/final_checkpoint")
+#         },
+#     )
+#     # qat_ffnn_transducer_trained_model = TrainedModel(
+#     #     descriptor="qat_ffnn_transducer_full_quant",
+#     #     model_config=training.qat_ffnn_transducer_bpe.get_model_config(**baseline_qat_config),
+#     #     checkpoints={115: tk.Path("/u/azim.javed/experiments/training/qat/schkpt/qat_ffnn_transducer_chkpt.pt")},
+#     # )
+#     models = {
+#         # "ffnn_transducer_qat_encoder": ffnnt_qat_encoder_trained_model,
+#         # "qat_ctc_bpe": qat_ctc_trained_model,
+#         # "qat_ffnn_transducer_full_quant": qat_ffnn_transducer_trained_model,
+#         # "full_ctx_transducer_qat_encoder_bpe": training.full_ctx_transducer_qat_encoder_bpe.run(
+#         #     descriptor="full_ctx_transducer_qat_encoder_bpe", qat_args=baseline_qat_config
+#         # )
+#     }
+#     from .training import qat_ctc_bpe_param_sync as training_qat_ctc_bpe_param_sync
+#     from .recognition.memristor import qat_ctc_bpe_param_sync as recognition_qat_ctc_bpe_param_sync
+#     # qat_ctc_real_model = training_qat_ctc_bpe_param_sync.run(
+#     #         descriptor="qat_ctc_bpe_param_sync", qat_args=baseline_qat_config
+#     #     )
+
+#     converter_hardware_settings = DacAdcHardwareSettings(
+#             input_bits=8,
+#             output_precision_bits=4,
+#             output_range_bits=4,
+#             hardware_input_vmax=0.6,
+#             hardware_output_current_scaling=8020.0,
+#         )
+#     pos_enc_converter_hardware_settings = DacAdcHardwareSettings(
+#             input_bits=8,
+#             output_precision_bits=1,
+#             output_range_bits=7,
+#             hardware_input_vmax=0.6,
+#             hardware_output_current_scaling=8020.0,
+#     )
+#     correction_settings = None
+#     num_cycles = 0
+#     recog_results = []
+#     recog_results.extend(recognition_qat_ctc_bpe_param_sync.run(model=qat_ctc_trained_model, corpora=["dev-other"], converter_hardware_settings=converter_hardware_settings, pos_enc_converter_hardware_settings=pos_enc_converter_hardware_settings, correction_settings=correction_settings, num_cycles=num_cycles))
+#     # recog_results.extend(recognition.ffnn_transducer_qat_encoder_bpe.run(model=models["ffnn_transducer_qat_encoder"]))
+#     # recog_results.extend(recognition.qat_ctc_bpe.run(model=models["qat_ctc_bpe"]))
+#     # recog_results.extend(recognition.qat_ffnn_transducer_bpe.run(model=models["qat_ffnn_transducer_full_quant"]))
+#     register_recog_report(recog_results, filename=filename)
+#     return models, recog_results
 
 
 def run_hilmes(filename):

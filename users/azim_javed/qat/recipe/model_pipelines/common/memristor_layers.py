@@ -9,18 +9,26 @@ v13 adds weight dropout
 v14 adds weight sparsity / pruning
 """
 
+from __future__ import annotations
+
 import torch
 from torch import nn
 from torch.nn import init
 import torch.ao.quantization as torch_quant
 import torch.nn.functional as F
-from typing import Optional, Union, Tuple
-from .assemblies.conformer import QuantizedConformerMHSARelPosV1Config, WeightPruningConfig, WeightNoiseConfig
+from typing import Optional, Union, Tuple, TYPE_CHECKING
 import math
+
+if TYPE_CHECKING:
+    from .assemblies.conformer import QuantizedConformerMHSARelPosV1Config, WeightPruningConfig, WeightNoiseConfig
 from torch.ao.quantization.utils import check_min_max_valid
 
 from i6_models.util import compat
 from i6_models.parts.dropout import BroadcastDropout
+
+from synaptogen_ml.memristor_modules import TiledMemristorLinear, DacAdcHardwareSettings
+
+from synaptogen_ml.memristor_modules.config import CycleCorrectionSettings
 
 
 def get_quantization_range_from_bit_precision(bits, dtype):
@@ -87,9 +95,10 @@ class WeightQuantizer(nn.Module):
         return quant_fn, observer
 
     def forward(self, tensor: torch.Tensor):
-        if self.training:
+        if self.training or self.scale is None:
             tensor = self.observer(tensor)
-        self.set_scale_and_zp()
+        if self.scale is None or self.training:
+            self.set_scale_and_zp()
         assert self.scale is not None and self.zero_point is not None
         tensor = self.quant_fn(tensor, self.scale, self.zero_point, self.quant_min, self.quant_max)
         return tensor
@@ -122,6 +131,9 @@ class ActivationQuantizer(nn.Module):
         self.quant_fn, self.observer, self.base_observer_args = self.__get_quant_fn_and_observer_for_method(method)
         self.zero_point = None
         self.scale = None
+        if self.moving_avrg is not None:
+            # warn about the compounding bug
+            print("WARNING: moving_avrg is enabled. The LSTM observer fires T time per forward, compounding the decay.")
 
     def __get_quant_fn_and_observer_for_method(self, method):
         if all(x is not None for x in [self.quant_fn, self.base_observer_args, self.observer]):
@@ -188,9 +200,10 @@ class ActivationQuantizer(nn.Module):
         return quant_fn, observer, base_observer_args
 
     def forward(self, tensor: torch.Tensor):
-        if self.training:
+        if self.training or self.scale is None:
             tensor = self.observer(tensor)
-        self.set_scale_and_zp()
+        if self.scale is None or self.training:
+            self.set_scale_and_zp()
         assert (
             self.scale is not None and self.zero_point is not None
         ), "Need to calibrate before applying quant, disable apply_calibration"
@@ -200,7 +213,6 @@ class ActivationQuantizer(nn.Module):
 
     def set_scale_and_zp(self):
         assert self.observer is not None
-        assert check_min_max_valid(self.observer.min_val, self.observer.max_val), "Need to init observer first"
         scale, zero_point = self.observer.calculate_qparams()
         self.scale = scale.to(dtype=torch.float32)
         self.zero_point = zero_point.to(dtype=torch.int32)
@@ -759,10 +771,6 @@ class QuantizedMultiheadAttention(nn.Module):
         return pos_emb
 
     def prep_quant(self):
-        try:
-            from synaptogen_ml.memristor_modules.linear import TiledMemristorLinear
-        except ModuleNotFoundError:
-            from torch_memristor.memristor_modules import TiledMemristorLinear
 
         self.out_proj.weight_quantizer.set_scale_and_zp()
         self.out_proj_in_quant.set_scale_and_zp()
@@ -838,3 +846,177 @@ class QuantizedMultiheadAttention(nn.Module):
             self.learn_emb_in_quant = nn.Identity()
 
         print("Finished MHSA", flush=True)
+
+
+class LSTMQuant(nn.Module):
+    def __init__(
+        self,
+        input_size: int,
+        hidden_size: int,
+        num_layers: int,
+        weight_bit_prec: Union[int, float],
+        weight_quant_dtype: torch.dtype,
+        weight_quant_method: str,
+        activation_bit_prec: Union[int, float],
+        activation_quant_dtype: torch.dtype,
+        activation_quant_method: str,
+        bias: bool = True,
+        batch_first: bool = True,
+        dropout: float = 0.0,
+        moving_average: Optional[float] = None,
+        weight_noise: Optional[WeightNoiseConfig] = None,
+        weight_dropout: float = 0.0,
+        weight_pruning: Optional[WeightPruningConfig] = None,
+        converter_hardware_settings: Optional[DacAdcHardwareSettings] = None,
+        correction_settings: Optional["CycleCorrectionSettings"] = None,
+        num_cycles: int = 0,
+        quant_cell_state: bool = True,
+    ):
+        super().__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.batch_first = batch_first
+        self.dropout = dropout
+        self.quant_cell_state = quant_cell_state
+        self.converter_hardware_settings = converter_hardware_settings
+        self.correction_settings = correction_settings
+        self.num_cycles = num_cycles
+
+        _aq = lambda: ActivationQuantizer(
+            bit_precision=activation_bit_prec,
+            dtype=activation_quant_dtype,
+            method=activation_quant_method,
+            channel_axis=None,
+            moving_avrg=moving_average,
+        )
+
+        _lq = lambda in_f, out_f: LinearQuant(
+            in_features=in_f, out_features=out_f,
+            weight_bit_prec=weight_bit_prec,
+            weight_quant_dtype=weight_quant_dtype,
+            weight_quant_method=weight_quant_method,
+            bias=bias,
+            noise_config=weight_noise,
+            weight_dropout=weight_dropout,
+            pruning_config=weight_pruning,
+        )
+
+        self.w_ih = nn.ModuleList()
+        self.w_hh = nn.ModuleList()
+        self.x_in_q = nn.ModuleList()
+        self.h_in_q = nn.ModuleList()
+        self.ih_out_q = nn.ModuleList()
+        self.hh_out_q = nn.ModuleList()
+        self.gi_q = nn.ModuleList()
+        self.gf_q = nn.ModuleList()
+        self.gg_q = nn.ModuleList()
+        self.go_q = nn.ModuleList()
+        self.c_out_q = nn.ModuleList()
+        self.h_out_q = nn.ModuleList()
+
+        for l in range(num_layers):
+            in_size = input_size if l == 0 else hidden_size
+            self.w_ih.append(_lq(in_size, 4 * hidden_size))
+            self.w_hh.append(_lq(hidden_size, 4 * hidden_size))
+            self.x_in_q.append(_aq())
+            self.h_in_q.append(_aq())
+            self.ih_out_q.append(_aq())
+            self.hh_out_q.append(_aq())
+            self.gi_q.append(_aq())
+            self.gf_q.append(_aq())
+            self.gg_q.append(_aq())
+            self.go_q.append(_aq())
+            self.c_out_q.append(_aq() if quant_cell_state else nn.Identity())
+            self.h_out_q.append(_aq())
+
+    def forward(self, input: torch.Tensor, state=None):
+        if not self.batch_first:
+            input = input.transpose(0, 1)
+        B, T, *_ = input.shape
+        dtype, device = input.dtype, input.device
+
+        if state is None:
+            h_0 = torch.zeros(self.num_layers, B, self.hidden_size, device=device, dtype=dtype)
+            c_0 = torch.zeros(self.num_layers, B, self.hidden_size, device=device, dtype=dtype)
+        else:
+            h_0, c_0 = state
+
+        h_lst = [h_0[l] for l in range(self.num_layers)]
+        c_lst = [c_0[l] for l in range(self.num_layers)]
+        outputs = []
+
+        for t in range(T):
+            x = input[:, t, :]
+            for l in range(self.num_layers):
+                ih = self.ih_out_q[l](self.w_ih[l](self.x_in_q[l](x)))
+                hh = self.hh_out_q[l](self.w_hh[l](self.h_in_q[l](h_lst[l])))
+                gates = ih + hh
+                i, f, g, o = gates.chunk(4, dim=-1)
+
+                i = self.gi_q[l](torch.sigmoid(i))
+                f = self.gf_q[l](torch.sigmoid(f))
+                g = self.gg_q[l](torch.tanh(g))
+                o = self.go_q[l](torch.sigmoid(o))
+
+                c = f * c_lst[l] + i * g
+                if self.quant_cell_state:
+                    c = self.c_out_q[l](c)
+                h = o * torch.tanh(c)
+                h = self.h_out_q[l](h)
+
+                h_lst[l], c_lst[l] = h, c
+
+                x = h
+                if self.training and self.dropout > 0 and l < self.num_layers - 1:
+                    x = F.dropout(x, p=self.dropout, training=True)
+
+            outputs.append(h_lst[-1])
+
+        output = torch.stack(outputs, dim=1)
+        h_n = torch.stack(h_lst, dim=0)
+        c_n = torch.stack(c_lst, dim=0)
+        return output, (h_n, c_n)
+
+    def prep_quant(self):
+
+        for l in range(self.num_layers):
+            for gate_name, lin_attr, in_act_attr, out_act_attr in [
+                ("w_ih", "w_ih", "x_in_q", "ih_out_q"),
+                ("w_hh", "w_hh", "h_in_q", "hh_out_q"),
+            ]:
+                lin: LinearQuant = getattr(self, lin_attr)[l]
+                in_act: ActivationQuantizer = getattr(self, in_act_attr)[l]
+
+                lin.weight_quantizer.set_scale_and_zp()
+                in_act.set_scale_and_zp()
+
+                if lin.pruning_config is not None:
+                    with torch.no_grad():
+                        lin.weight.data = lin.pruning_config.apply(
+                            lin.weight.data, training=False,
+                        )
+
+                weight_prec = lin.weight_bit_prec
+                if weight_prec == 1.5:
+                    weight_prec = 2
+
+                mem = TiledMemristorLinear(
+                    in_features=lin.in_features,
+                    out_features=lin.out_features,
+                    weight_precision=weight_prec,
+                    converter_hardware_settings=self.converter_hardware_settings,
+                    memristor_inputs=128,
+                    memristor_outputs=128,
+                )
+                mem.init_from_linear_quant(
+                    activation_quant=in_act,
+                    linear_quant=lin,
+                    num_cycles_init=self.num_cycles,
+                    correction_settings=self.correction_settings,
+                )
+                getattr(self, lin_attr)[l] = mem
+                getattr(self, in_act_attr)[l] = nn.Identity()
+                getattr(self, out_act_attr)[l] = nn.Identity()
+
+        print("Finished LSTM prep_quant", flush=True)

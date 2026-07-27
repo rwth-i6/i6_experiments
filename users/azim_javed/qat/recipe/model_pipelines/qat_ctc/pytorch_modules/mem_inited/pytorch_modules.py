@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from ....common.assemblies.conformer import ConformerEncoderQuantV1Config
 
-from ....common.assemblies.conformer.mem_inited import ConformerEncoderQuant
+# from ....common.assemblies.conformer.mem_inited import ConformerEncoderQuant
 
 from i6_models.config import ModelConfiguration
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config

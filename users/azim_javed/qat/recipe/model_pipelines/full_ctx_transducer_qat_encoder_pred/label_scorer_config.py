@@ -6,16 +6,16 @@ from i6_core.rasr.config import RasrConfig
 from i6_core.returnn.training import PtCheckpoint
 
 from .export import export_scorer, export_state_initializer, export_state_updater
-from .pytorch_modules import QATLstmTransducerConfig, QATLstmTransducerRecogConfig
+from .pytorch_modules import LstmTransducerQATEncoderPredictionConfig, LstmTransducerQATEncoderPredictionRecogConfig
 
 
 def get_lstm_transducer_label_scorer_config(
-    model_config: QATLstmTransducerConfig,
+    model_config: LstmTransducerQATEncoderPredictionConfig,
     checkpoint: PtCheckpoint,
     ilm_scale: float = 0.0,
     blank_penalty: float = 0.0,
 ) -> RasrConfig:
-    recog_model_config = QATLstmTransducerRecogConfig(
+    recog_model_config = LstmTransducerQATEncoderPredictionRecogConfig(
         **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
         ilm_scale=ilm_scale,
         blank_penalty=blank_penalty,

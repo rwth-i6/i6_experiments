@@ -1,6 +1,6 @@
 __all__ = [
-    "QATLstmTransducerTrainOptions",
-    "QATLstmTransducerPrunedTrainOptions",
+    "LstmTransducerQATEncoderPredictionTrainOptions",
+    "LstmTransducerQATEncoderPredictionPrunedTrainOptions",
     "get_train_step_import",
     "get_pruned_train_step_import",
 ]
@@ -15,17 +15,17 @@ from i6_experiments.common.setups.serialization import PartialImport
 
 from ..common.pytorch_modules import lengths_to_padding_mask
 from ..common.train import TrainOptions
-from .pytorch_modules import QATLstmTransducerModel
+from .pytorch_modules import LstmTransducerQATEncoderPredictionModel
 
 
 @dataclass
-class QATLstmTransducerTrainOptions(TrainOptions):
+class LstmTransducerQATEncoderPredictionTrainOptions(TrainOptions):
     enc_loss_scale: float
     pred_loss_scale: float
 
 
 @dataclass
-class QATLstmTransducerPrunedTrainOptions(QATLstmTransducerTrainOptions):
+class LstmTransducerQATEncoderPredictionPrunedTrainOptions(LstmTransducerQATEncoderPredictionTrainOptions):
     delay_penalty: float
     skip_epochs_before_pruned_loss: int
     prune_range: int
@@ -33,7 +33,7 @@ class QATLstmTransducerPrunedTrainOptions(QATLstmTransducerTrainOptions):
 
 
 def get_train_step_import(
-    options: QATLstmTransducerTrainOptions,
+    options: LstmTransducerQATEncoderPredictionTrainOptions,
 ) -> PartialImport:
     return PartialImport(
         code_object_path=f"{_train_step.__module__}.{_train_step.__name__}",
@@ -48,7 +48,7 @@ def get_train_step_import(
 
 
 def get_pruned_train_step_import(
-    options: QATLstmTransducerPrunedTrainOptions,
+    options: LstmTransducerQATEncoderPredictionPrunedTrainOptions,
 ) -> PartialImport:
     return PartialImport(
         code_object_path=f"{_train_step_pruned.__module__}.{_train_step_pruned.__name__}",
@@ -68,7 +68,7 @@ def get_pruned_train_step_import(
 
 def _train_step(
     *,
-    model: QATLstmTransducerModel,
+    model: LstmTransducerQATEncoderPredictionModel,
     data: dict,
     run_ctx: RunCtx,
     enc_loss_scale: float = 0.0,
@@ -175,7 +175,7 @@ def _do_rnnt_pruning(am: torch.Tensor, lm: torch.Tensor, ranges: torch.Tensor) -
 
 def _train_step_pruned(
     *,
-    model: QATLstmTransducerModel,
+    model: LstmTransducerQATEncoderPredictionModel,
     data: dict,
     run_ctx: RunCtx,
     enc_loss_scale: float,

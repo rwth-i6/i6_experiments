@@ -1,7 +1,7 @@
 import sys
 import os
 
-from recipe.experiments.librispeech import run_debug, run_test, run_all, run_hilmes
+from recipe.experiments.librispeech import run_debug, run_test, run_all
 from sisyphus import tk
 from i6_core.tools.compile import MakeJob, CMakeJob
 from i6_core.tools.git import CloneGitRepositoryJob

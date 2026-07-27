@@ -25,7 +25,7 @@ from synaptogen_ml.memristor_modules.config import CycleCorrectionSettings
 
 
 @dataclass
-class QATLstmTransducerConfig(ModelConfiguration):
+class LstmTransducerQATEncoderPredictionConfig(ModelConfiguration):
     logmel_cfg: LogMelFeatureExtractionV1Config
     specaug_cfg: SpecaugmentByLengthConfig
     conformer_cfg: ConformerEncoderQuantV1Config
@@ -52,13 +52,13 @@ class QATLstmTransducerConfig(ModelConfiguration):
 
 
 @dataclass
-class QATLstmTransducerRecogConfig(QATLstmTransducerConfig):
+class LstmTransducerQATEncoderPredictionRecogConfig(LstmTransducerQATEncoderPredictionConfig):
     ilm_scale: float
     blank_penalty: float
 
 
-class QATLstmTransducerModel(torch.nn.Module):
-    def __init__(self, cfg: QATLstmTransducerConfig, **_):
+class LstmTransducerQATEncoderPredictionModel(torch.nn.Module):
+    def __init__(self, cfg: LstmTransducerQATEncoderPredictionConfig, **_):
         super().__init__()
         self.target_size = cfg.target_size
 
@@ -132,44 +132,12 @@ class QATLstmTransducerModel(torch.nn.Module):
             ),
         )
 
-        self.joiner_q_1 = ActivationQuantizer(
-            bit_precision=cfg.activation_bit_prec,
-            dtype=cfg.activation_quant_dtype,
-            method=cfg.activation_quant_method,
-            channel_axis=1,
-            moving_avrg=cfg.moving_average,
-        )
-
-        self.joiner_q_2 = ActivationQuantizer(
-            bit_precision=cfg.activation_bit_prec,
-            dtype=cfg.activation_quant_dtype,
-            method=cfg.activation_quant_method,
-            channel_axis=1,
-            moving_avrg=cfg.moving_average,
-        )
-
         self.joiner = torch.nn.Sequential(
             torch.nn.Dropout(cfg.dropout),
-            self.joiner_q_1,
-            LinearQuant(
-                cfg.enc_dim + cfg.pred_dim,
-                cfg.joiner_dim,
-                weight_bit_prec=cfg.weight_bit_prec,
-                weight_quant_dtype=cfg.weight_quant_dtype,
-                weight_quant_method=cfg.weight_quant_method,
-                bias=True,
-            ),
+            torch.nn.Linear(cfg.enc_dim + cfg.pred_dim, cfg.joiner_dim),
             cfg.joiner_activation,
             torch.nn.Dropout(cfg.dropout),
-            self.joiner_q_2,
-            LinearQuant(
-                cfg.joiner_dim,
-                self.target_size,
-                weight_bit_prec=cfg.weight_bit_prec,
-                weight_quant_dtype=cfg.weight_quant_dtype,
-                weight_quant_method=cfg.weight_quant_method,
-                bias=True,
-            ),
+            torch.nn.Linear(cfg.joiner_dim, self.target_size),
         )
 
     def forward_encoder(
@@ -253,8 +221,8 @@ class QATLstmTransducerModel(torch.nn.Module):
         return joint_output
 
 
-class QATLstmTransducerEncoder(QATLstmTransducerModel):
-    def __init__(self, cfg: QATLstmTransducerConfig, **_):
+class LstmTransducerQATEncoderPredictionEncoder(LstmTransducerQATEncoderPredictionModel):
+    def __init__(self, cfg: LstmTransducerQATEncoderPredictionConfig, **_):
         super().__init__(cfg=cfg)
         self.enc_output_indices = []
 
@@ -268,8 +236,8 @@ class QATLstmTransducerEncoder(QATLstmTransducerModel):
         return encoder_states  # [B, T, E]
 
 
-class QATLstmTransducerScorer(QATLstmTransducerModel):
-    def __init__(self, cfg: QATLstmTransducerRecogConfig, **_):
+class LstmTransducerQATEncoderPredictionScorer(LstmTransducerQATEncoderPredictionModel):
+    def __init__(self, cfg: LstmTransducerQATEncoderPredictionRecogConfig, **_):
         super().__init__(cfg=cfg)
         self.ilm_scale = cfg.ilm_scale
         self.blank_penalty = cfg.blank_penalty
@@ -310,7 +278,7 @@ class QATLstmTransducerScorer(QATLstmTransducerModel):
         return scores
 
 
-class QATLstmTransducerStateInitializer(QATLstmTransducerModel):
+class LstmTransducerQATEncoderPredictionStateInitializer(LstmTransducerQATEncoderPredictionModel):
     def forward(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         token = torch.tensor([[self.target_size - 1]], dtype=torch.int32)  # [1, 1]
         embed = self.token_embedding(token)  # [1, 1, E]
@@ -327,7 +295,7 @@ class QATLstmTransducerStateInitializer(QATLstmTransducerModel):
         return lstm_out, h_0, c_0  # [1, P], [1, L, P], [1, L, P]
 
 
-class QATLstmTransducerStateUpdater(QATLstmTransducerModel):
+class LstmTransducerQATEncoderPredictionStateUpdater(LstmTransducerQATEncoderPredictionModel):
     def forward(
         self,
         token: torch.Tensor,  # [B]
