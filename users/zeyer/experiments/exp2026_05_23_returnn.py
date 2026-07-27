@@ -61,6 +61,7 @@ def py():
     for lens_name, lens in _AUDIO_LENS_PRESETS.items():
         job = PackedVsPaddedBenchmarkJob(model="real", seq_lens=lens)
         tk.register_output(f"returnn/packed-bench-real-{lens_name}.json", job.out_results)
+    py_aed_graphc()
 
 
 class PackedVsPaddedBenchmarkJob(Job):
@@ -95,7 +96,7 @@ class PackedVsPaddedBenchmarkJob(Job):
             (see returnn.frontend._packed_backend.attention_path_counts).
             A silent fall-through (e.g. to eager NJT) is functionally correct
             but 10-20x slower per call and invisible in the fallback warnings --
-            this catches it. Default per model: "flash" (aed) / "rel_pos_flex" (conformer).
+            this catches it. Default per model: "flash" (aed) / "rel_pos_triton" (conformer).
         """
         self.model = model
         self.seq_lens = list(seq_lens)
@@ -106,7 +107,7 @@ class PackedVsPaddedBenchmarkJob(Job):
             # the real model runs both the encoder rel-pos (triton) and the decoder flash paths
             expected_attention_path = {
                 "aed": ["flash"],
-                "conformer": ["rel_pos_flex"],
+                "conformer": ["rel_pos_triton"],
                 "real": ["rel_pos_triton", "flash"],
             }[model]
         if isinstance(expected_attention_path, str):
@@ -341,6 +342,18 @@ class PackedVsPaddedBenchmarkJob(Job):
             ConformerPositionwiseFeedForward,
         )
         from returnn.frontend.decoder.transformer import TransformerDecoder
+
+        # the sis worker resolves i6_experiments (the job's own package) but not sibling
+        # recipe packages at runtime; the aed import below needs i6_core
+        import os
+        import sys
+
+        recipe_root = os.path.abspath(__file__)
+        for _ in range(5):
+            recipe_root = os.path.dirname(recipe_root)
+        if recipe_root not in sys.path:
+            sys.path.insert(0, recipe_root)
+
         from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import Model
 
         # log-mel front-end: 16 kHz, step 10 ms -> frame_step 160 samples.
@@ -457,3 +470,103 @@ class PackedVsPaddedBenchmarkJob(Job):
             _run(pack_audio(), packed.pack(targets))
 
         return step_padded, step_packed
+
+
+# --- Graph-replay (packed + compile + capture) CTC+AED training ---------------------------------
+# Reproduces the AED baseline 96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-speedpertV2-spm10k-spmSample07
+# with the whole train step Inductor-compiled and CUDA-graph captured (packed bound-shape regime).
+# Verified end-to-end by the smoke run 2026-07-27 (real aed_model_def + aed_training, bs15k synthetic).
+
+# packing layout for the bound-shape regime (as in the benchmark):
+# gap covers the within-batch length spread after length-sorted batching,
+# align matches the 960-samples-per-frame downsampling of the encoder frontend
+_aed_graphc_packed_gap = 18_240
+_aed_graphc_packed_align = 960
+_aed_graphc_classes_capacity = 75  # real spm10k max target len (reached)
+
+
+def aed_training_packed(*, model, extern_data, **_kwargs):
+    """
+    Custom train step (see train_v4 / config train_step):
+    pack the audio (batch, time) into the bound buffer, then the unmodified aed_training.
+    Under eager execution (e.g. warmup steps run eagerly too, but with the static-traceable ctx;
+    this check is about non-graph runs) pack without a bound.
+    """
+    import returnn.frontend as rf
+    from returnn.frontend import _packed_backend as packed
+    from returnn.tensor import batch_dim
+    from returnn.config import get_global_config
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import aed_training
+
+    config = get_global_config()
+    data = extern_data["data"]
+    targets = extern_data["classes"]
+    data_spatial_dim = data.get_time_dim_tag()
+    targets_spatial_dim = targets.get_time_dim_tag()
+    total_bound = None
+    if rf.is_static_traceable():
+        gc_opts = config.typed_value("torch_cuda_graph")
+        time_cap = gc_opts["dim_capacity"]["data"]
+        batch_bound = gc_opts["batch_size_bound"]
+        total_bound = min(
+            # per-seq footprints can never exceed (time capacity + gap), aligned
+            batch_bound * (time_cap + _aed_graphc_packed_gap + _aed_graphc_packed_align),
+            # the batch size bounds the total content; add the per-seq gap/align slack
+            config.int("batch_size", 0) + batch_bound * (_aed_graphc_packed_gap + _aed_graphc_packed_align),
+        )
+    data = packed.pack(
+        data,
+        dims=[batch_dim, data_spatial_dim],
+        gap=_aed_graphc_packed_gap,
+        align=_aed_graphc_packed_align,
+        total_bound=total_bound,
+    )
+    aed_training(
+        model=model,
+        data=data,
+        data_spatial_dim=data_spatial_dim,
+        targets=targets,
+        targets_spatial_dim=targets_spatial_dim,
+    )
+
+
+def py_aed_graphc():
+    """
+    The graphc AED training.
+    """
+    from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs import (
+        config_96gb_bf16_accgrad1,
+        _get_cfg_lrlin_oclr_by_bs_nep_v3,
+        _batch_size_factor,
+    )
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import train_exp as aed_train_exp
+
+    # time capacity: max audio len in samples after speed perturbation (x1.1), aligned;
+    # same value as the benchmark (>= real max, multiple of align)
+    time_cap = 312_960
+    aed_train_exp(
+        "96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-speedpertV2-spm10k-spmSample07-graphc",
+        config_96gb_bf16_accgrad1,
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100, batch_size_factor=_batch_size_factor),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "__serialization_version": 2,
+            "train_step": aed_training_packed,
+            "learning_rate_control_error_measure": "train_loss_ce",
+            "optimizer.capturable": True,
+            "torch_cuda_graph": {
+                "batch_size_bound": 200,  # == max_seqs
+                "dim_capacity": {"data": time_cap, "classes": _aed_graphc_classes_capacity},
+                "warmup_steps": 2,
+                "capture_optimizer": True,
+                "compile": True,
+            },
+        },
+        post_config_updates={"__multi_proc_dataset_opts": {"num_workers": 25}},
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
+        dataset_train_opts={"train_epoch_split": 1},
+    )
