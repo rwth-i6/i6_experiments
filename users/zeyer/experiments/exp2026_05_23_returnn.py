@@ -485,51 +485,6 @@ _aed_graphc_packed_align = 960
 _aed_graphc_classes_capacity = 75  # real spm10k max target len (reached)
 
 
-def aed_training_packed(*, model, extern_data, **_kwargs):
-    """
-    Custom train step (see train_v4 / config train_step):
-    pack the audio (batch, time) into the bound buffer, then the unmodified aed_training.
-    Under eager execution (e.g. warmup steps run eagerly too, but with the static-traceable ctx;
-    this check is about non-graph runs) pack without a bound.
-    """
-    import returnn.frontend as rf
-    from returnn.frontend import _packed_backend as packed
-    from returnn.tensor import batch_dim
-    from returnn.config import get_global_config
-    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import aed_training
-
-    config = get_global_config()
-    data = extern_data["data"]
-    targets = extern_data["classes"]
-    data_spatial_dim = data.get_time_dim_tag()
-    targets_spatial_dim = targets.get_time_dim_tag()
-    total_bound = None
-    if rf.is_static_traceable():
-        gc_opts = config.typed_value("torch_cuda_graph")
-        time_cap = gc_opts["dim_capacity"]["data"]
-        batch_bound = gc_opts["batch_size_bound"]
-        total_bound = min(
-            # per-seq footprints can never exceed (time capacity + gap), aligned
-            batch_bound * (time_cap + _aed_graphc_packed_gap + _aed_graphc_packed_align),
-            # the batch size bounds the total content; add the per-seq gap/align slack
-            config.int("batch_size", 0) + batch_bound * (_aed_graphc_packed_gap + _aed_graphc_packed_align),
-        )
-    data = packed.pack(
-        data,
-        dims=[batch_dim, data_spatial_dim],
-        gap=_aed_graphc_packed_gap,
-        align=_aed_graphc_packed_align,
-        total_bound=total_bound,
-    )
-    aed_training(
-        model=model,
-        data=data,
-        data_spatial_dim=data_spatial_dim,
-        targets=targets,
-        targets_spatial_dim=targets_spatial_dim,
-    )
-
-
 def py_aed_graphc():
     """
     The graphc AED training.
@@ -545,6 +500,11 @@ def py_aed_graphc():
     # time capacity: max audio len in samples after speed perturbation (x1.1), aligned;
     # same value as the benchmark (>= real max, multiple of align)
     time_cap = 312_960
+    # the batch size bounds the packed content; add the per-seq gap/align slack, aligned.
+    # (the default regap bound -- every seq at full audio capacity -- would nearly double
+    # the packed frame count, and the encoder activations scale with it -> OOM on the 80GB c25g GPUs)
+    packed_total = 200_000 * _batch_size_factor + 200 * (_aed_graphc_packed_gap + _aed_graphc_packed_align)
+    packed_total = -(-packed_total // _aed_graphc_packed_align) * _aed_graphc_packed_align
     aed_train_exp(
         "96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-speedpertV2-spm10k-spmSample07-graphc",
         config_96gb_bf16_accgrad1,
@@ -553,13 +513,19 @@ def py_aed_graphc():
             "optimizer.weight_decay": 1e-2,
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "__serialization_version": 2,
-            "train_step": aed_training_packed,
-            "learning_rate_control_error_measure": "train_loss_ce",
             "optimizer.capturable": True,
+            # audio packed in the collate (imported + regapped on device by the graph capture),
+            # targets stay padded (aed_training consumes them padded)
+            "packed_tensors": {
+                "per_key": {
+                    "data": {"gap": _aed_graphc_packed_gap, "align": _aed_graphc_packed_align},
+                    "classes": {"packed": False},
+                }
+            },
             "torch_cuda_graph": {
                 "batch_size_bound": 200,  # == max_seqs
                 "dim_capacity": {"data": time_cap, "classes": _aed_graphc_classes_capacity},
+                "packed_total_bound": {"data": packed_total},
                 "warmup_steps": 2,
                 "capture_optimizer": True,
                 "compile": True,
