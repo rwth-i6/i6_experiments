@@ -683,12 +683,12 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
             aux_loss.mark_as_loss(
                 f"ctc_{layer_idx}",
                 scale=aux_loss_scales[i],
-                custom_inv_norm_factor=ctc_targets_spatial_dim.get_size_tensor(),
+                custom_inv_norm_factor=ctc_targets_spatial_dim.get_size_tensor(device=targets.device),
                 use_normalized_loss={"none": False, "frames": True}[use_normalized_loss],
             )
         elif use_normalized_loss == "seqs":
             aux_loss.mark_as_loss(
-                f"ctc_{layer_idx}", scale=0, custom_inv_norm_factor=ctc_targets_spatial_dim.get_size_tensor()
+                f"ctc_{layer_idx}", scale=0, custom_inv_norm_factor=ctc_targets_spatial_dim.get_size_tensor(device=targets.device)
             )
             aux_loss.mark_as_loss(f"seq_ctc_{layer_idx}", scale=aux_loss_scales[i], use_normalized_loss=True)
         else:
@@ -698,7 +698,7 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
         # error = rf.edit_distance(
         #     a=decoded, a_spatial_dim=decoded_spatial_dim, b=ctc_targets, b_spatial_dim=ctc_targets_spatial_dim
         # )
-        # error.mark_as_loss("label", as_error=True, custom_inv_norm_factor=ctc_targets_spatial_dim.get_size_tensor())
+        # error.mark_as_loss("label", as_error=True, custom_inv_norm_factor=ctc_targets_spatial_dim.get_size_tensor(device=targets.device))
 
     batch_dims = data.remaining_dims(data_spatial_dim)
     input_labels, (targets_w_eos_spatial_dim,) = rf.pad(
