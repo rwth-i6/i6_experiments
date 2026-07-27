@@ -65,3 +65,23 @@ class Task:
             # we would have the bound method bound to the wrong Task instance.
             # This is very likely unintended, so we rebind it to self.
             self.collect_score_results_func = types.MethodType(self.collect_score_results_func.__func__, self)
+
+    def __sis_state__(self):
+        """
+        Sisyphus hash state.
+        __post_init__ sets collect_score_results_func to the bound method self.default_collect_score_results,
+        whose __self__ is this Task,
+        so hashing it recurses infinitely (sis_hash_helper has no cycle guard for bound methods).
+        It carries no config info beyond the default,
+        so we normalize it back to None (its value before __post_init__).
+        This both breaks the cycle and preserves the historical hash.
+        """
+        d = dict(self.__dict__)
+        f = d.get("collect_score_results_func")
+        if (
+            isinstance(f, types.MethodType)
+            and f.__self__ is self
+            and f.__func__ is type(self).default_collect_score_results
+        ):
+            d["collect_score_results_func"] = None
+        return d
