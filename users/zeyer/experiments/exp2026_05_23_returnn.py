@@ -558,6 +558,57 @@ def _py_aed_graphc_exp(name_suffix, time_cap, packed_total, extra_cfg):
     )
 
 
+# DRAFT, not yet called from py() (launch pending user confirmation):
+# the real ~500M Loquacious baseline (exp2026_05_26_base_fzj "base") trained with graphc.
+def py_aed_graphc_loquacious():
+    """
+    Loquacious ~500M CTC+AED base (16L Conformer 1024d + 6L Transformer dec 1024d, spm10k),
+    trained with graphc (packed collate + Inductor compile + whole-step CUDA graph),
+    cloned from :func:`i6_experiments.users.zeyer.experiments.exp2026_05_26_base_fzj.train` ("base").
+
+    Capacity notes (vs the LS 160M runs):
+    - data: max_seq_length_default_input = 19.5s = 312_000 samples, NO speed perturbation
+      -> dim_capacity 312_960 (multiple of 960) is provably sufficient.
+    - classes: no target-len filter in this config; capacity MUST be taken from the
+      measured spm10k target-len max of the Loquacious large subset before launching
+      (a too-small value now raises in _copy_in, but then the training crashes).
+    """
+    from i6_experiments.users.zeyer.experiments.exp2026_05_26_base_fzj import train as loq_train
+
+    gap, align = _aed_graphc_packed_gap, _aed_graphc_packed_align
+    classes_cap = 150  # PLACEHOLDER -- replace by the measured max before launch
+    packed_total = 100_000 * _loq_batch_size_factor() + 200 * (gap + align)
+    packed_total = -(-packed_total // align) * align
+    loq_train(
+        "base-graphc",
+        {},
+        config_overrides={
+            "train.optimizer.capturable": True,
+            "train.packed_tensors": {
+                "per_key": {
+                    "data": {"gap": gap, "align": align},
+                    "classes": {"packed": False},
+                }
+            },
+            "train.torch_cuda_graph": {
+                "batch_size_bound": 200,
+                "dim_capacity": {"data": 312_960, "classes": classes_cap},
+                "packed_total_bound": {"data": packed_total},
+                "warmup_steps": 2,
+                "capture_optimizer": True,
+                "compile": True,
+            },
+        },
+    )
+
+
+def _loq_batch_size_factor():
+    """the raw-sample batch-size factor of the baseline configs"""
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs import _batch_size_factor
+
+    return _batch_size_factor
+
+
 def py_aed_graphc_bench():
     """
     Realistic per-mode train-step benchmark + numerical parity check
