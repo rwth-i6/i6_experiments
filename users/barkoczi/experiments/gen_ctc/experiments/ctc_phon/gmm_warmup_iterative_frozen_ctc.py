@@ -281,6 +281,7 @@ def eow_phon_ls960_1023_gmm_warmup_iterative_frozen_ctc_nce():
             cv_hdf=cv_hdf,
             devtrain_hdf=train_hdf,
             prior_hdf=train_hdf,
+            devtrain_hdf_use_cache_manager=False,
             hdf_datastream=soft_target_datastream,
             hdf_stream_name="ctc_soft_targets",
         )

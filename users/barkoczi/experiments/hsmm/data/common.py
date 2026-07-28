@@ -256,6 +256,7 @@ def build_training_datasets_with_hdf(
     cv_hdf: Optional[Union[tk.Path, List[tk.Path]]] = None,
     devtrain_hdf: Optional[Union[tk.Path, List[tk.Path]]] = None,
     prior_hdf: Optional[Union[tk.Path, List[tk.Path]]] = None,
+    devtrain_hdf_use_cache_manager: bool = True,
 ) -> TrainingDatasets:
     """
     Dataset construction helper that combines raw audio + text labels from OggZip with an extra HDF stream.
@@ -284,7 +285,12 @@ def build_training_datasets_with_hdf(
 
     training_audio_opts = audio_datastream.as_returnn_audio_opts()
 
-    def make_meta(zip_dataset: OggZipDataset, hdf_dataset: HDFDataset, *, control_dataset: str = "zip_dataset"):
+    def make_meta(
+        zip_dataset: OggZipDataset,
+        hdf_dataset: Union[HDFDataset, Dict[str, Any]],
+        *,
+        control_dataset: str = "zip_dataset",
+    ):
         return MetaDataset(
             data_map=data_map,
             datasets={"zip_dataset": zip_dataset, "hdf_dataset": hdf_dataset},
@@ -329,7 +335,8 @@ def build_training_datasets_with_hdf(
     devtrain_hdf_dataset = HDFDataset(
         files=devtrain_hdf,
         seq_ordering="sorted_reverse",
-    )
+    ).as_returnn_opts()
+    devtrain_hdf_dataset["use_cache_manager"] = devtrain_hdf_use_cache_manager
     devtrain_dataset = make_meta(devtrain_zip_dataset, devtrain_hdf_dataset)
 
     prior_zip_dataset = OggZipDataset(
