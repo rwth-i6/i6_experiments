@@ -63,6 +63,14 @@ def main():
         help="also remove optimizer state (*.opt.pt) of active finished trainings"
         " (resume-only state, safe to drop once a training is done)",
     )
+    arg_parser.add_argument(
+        "--allow-uncreated-active-train-jobs",
+        action="store_true",
+        help="by default, error out if any active train job referenced by the graph is not created on disk."
+        " That usually means a hash shifted (e.g. a code/config bug moved the job hash),"
+        " so the real on-disk model is no longer associated with any active job"
+        " and would be wrongly treated as unused and removed. Pass this to continue anyway.",
+    )
     args = arg_parser.parse_args()
 
     args.filter_work_dir_fs = (
@@ -117,6 +125,7 @@ def main():
     print("Checking active train jobs of the Sisyphus graph...")
     active_train_job_paths_dict = {}  # job path -> job object
     active_train_job_finished_list = []  # list of job objects
+    uncreated_active_jobs = []  # active train jobs referenced by the graph but not created on disk
     for job in graph.graph.jobs(update_graph=False):
         job: ReturnnTrainingJob
         # noinspection PyProtectedMember
@@ -150,7 +159,7 @@ def main():
                 print("  symlink ->", job_path_, "resolved to", job_path__)
                 job_path = job_path__
             if job_external:
-                print("  (real storage in external/shared work root; skipping)")
+                print("  (real storage in external/shared work root; skipping):", os.path.realpath(job._sis_path()))
                 continue
             if job_path in active_train_job_paths_dict:
                 if isinstance(job, ReturnnTrainingJob):  # real job, not fake job
@@ -170,7 +179,19 @@ def main():
                 active_train_job_finished_list.append(job)
         else:
             print("Active train job not created yet:", job)
+            uncreated_active_jobs.append(job)
     print("Num active train jobs:", len(active_train_job_paths_dict))
+    if uncreated_active_jobs and not args.allow_uncreated_active_train_jobs:
+        print(f"ERROR: {len(uncreated_active_jobs)} active train job(s) referenced by the graph are NOT on disk.")
+        print(
+            "This usually means a hash shifted (e.g. a code/config change moved the job hash),"
+            " so the real on-disk model is no longer associated with any active graph job"
+            " and would be wrongly treated as unused and removed."
+        )
+        print("Investigate the hash change first. Use --allow-uncreated-active-train-jobs to override.")
+        for _j in uncreated_active_jobs:
+            print("  not created:", _j)
+        raise SystemExit("Refusing to continue: uncreated active train jobs (possible hash mismatch).")
 
     print("Now checking all train jobs in work dir to find unused train jobs...")
     own_work_realpath = os.path.realpath("work") + "/"
@@ -262,7 +283,13 @@ def main():
             sz = _model_ckpt_size(fn)
             cov_size["skipped_diff_recipe"] += sz
             cov_count["skipped_diff_recipe"] += 1
-            rec_name = os.path.basename(recipe_file) if recipe_file else "(unknown recipe)"
+            if recipe_file is None:
+                rec_name = "(unknown recipe)"
+            elif "/recipe/" in recipe_file:
+                # show the path within the recipe/ root, e.g. i6_experiments/users/dorian_koch/misc/timing.py
+                rec_name = recipe_file.split("/recipe/", 1)[1]
+            else:
+                rec_name = recipe_file
             diff_recipe_size[rec_name] = diff_recipe_size.get(rec_name, 0) + sz
             print("Skipping (created by a different config):", rec_name, "->", basename)
             continue
