@@ -1,3 +1,5 @@
+import os
+import tempfile
 from dataclasses import asdict
 from typing import cast
 
@@ -30,6 +32,21 @@ TOTAL_NUM_EPOCHS = 300
 GMM_WARMUP_EPOCHS = 50
 CTC_TARGET_REFRESH_EPOCHS = 10
 CTC_TARGET_FILENAME = "ctc_soft_targets.hdf"
+
+
+class _RunForwardInJobDir:
+    """Keep large forward outputs off node-local temporary storage."""
+
+    def __init__(self, job: ReturnnForwardJobV2):
+        self.job = job
+
+    def __call__(self):
+        previous_tempdir = tempfile.tempdir
+        try:
+            tempfile.tempdir = os.path.abspath(".")
+            ReturnnForwardJobV2.run(self.job)
+        finally:
+            tempfile.tempdir = previous_tempdir
 
 
 def _dump_ctc_soft_targets(
@@ -76,7 +93,7 @@ def _dump_ctc_soft_targets(
         output_files=[CTC_TARGET_FILENAME],
     )
     forward_job.rqmt["gpu_mem"] = 24
-    forward_job.set_env("TMPDIR", ".")
+    forward_job.run = _RunForwardInJobDir(forward_job)
     forward_job.add_alias(name + "/forward")
     tk.register_output(name + "/" + CTC_TARGET_FILENAME, forward_job.out_files[CTC_TARGET_FILENAME])
     return forward_job.out_files[CTC_TARGET_FILENAME]
