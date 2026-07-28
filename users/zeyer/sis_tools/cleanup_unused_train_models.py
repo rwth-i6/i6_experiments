@@ -256,11 +256,13 @@ def main():
         # in the info file. If it is not among the configs we were given, this job belongs to a
         # different setup/config (e.g. exp2026_05_27_chunked_ctc_ls.py); skip it -- not ours to clean.
         recipe_file = _recipe_file_from_info(fn)
-        if recipe_file is not None and recipe_file not in config_file_realpaths:
+        if recipe_file is None or recipe_file not in config_file_realpaths:
+            # Not one of the configs we were given, or the creating recipe could not be determined:
+            # not ours to judge -> skip (never remove something we cannot associate).
             sz = _model_ckpt_size(fn)
             cov_size["skipped_diff_recipe"] += sz
             cov_count["skipped_diff_recipe"] += 1
-            rec_name = os.path.basename(recipe_file)
+            rec_name = os.path.basename(recipe_file) if recipe_file else "(unknown recipe)"
             diff_recipe_size[rec_name] = diff_recipe_size.get(rec_name, 0) + sz
             print("Skipping (created by a different config):", rec_name, "->", basename)
             continue
