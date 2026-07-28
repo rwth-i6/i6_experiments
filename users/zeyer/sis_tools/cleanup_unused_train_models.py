@@ -106,6 +106,9 @@ def main():
     sisyphus.logging_format.add_coloring_to_logging()
     logging.basicConfig(format="[%(asctime)s] %(levelname)s: %(message)s", level=args.log_level)
 
+    # Read-only tool: don't let configs create share symlinks / empty target dirs as a side effect
+    # (e.g. exp2024_04_23_baselines._claix2023_utils.setup_job_symlinks). Only the manager should.
+    os.environ.setdefault("SIS_SKIP_JOB_SYMLINKS", "1")
     print("Loading Sisyphus configs...")
     start = time.time()
     config_manager.load_configs(args.config)

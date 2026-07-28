@@ -36,6 +36,11 @@ def _is_matching_job(job: tk.Job, *, depth: int = 5) -> bool:
 
 def should_symlink_jobs() -> bool:
     """currently only for my specific user"""
+    if os.environ.get("SIS_SKIP_JOB_SYMLINKS"):
+        # Read-only tools (e.g. cleanup_unused_train_models) load the configs only to inspect
+        # the graph and must not create share symlinks / empty target dirs as a side effect.
+        # Only the manager (which actually runs jobs) should set these up.
+        return False
     if "az668407" in os.environ.get("USER", ""):
         return True
     if "az668407" in os.environ.get("WORK", ""):
