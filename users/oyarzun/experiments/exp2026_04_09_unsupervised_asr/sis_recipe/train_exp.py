@@ -86,6 +86,8 @@ def run_train(
         },
         "python_prolog": [
             "import os",
+            "import sys",
+            'os.environ["PYTHONPATH"] = ":".join(sys.path)',  # Export to child spawn workers
             'os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"',  # to tackle OOM
         ],
         "network_module": network_module,
@@ -126,6 +128,17 @@ def run_eval(
 ):
     forward_step_module = config.pop("__forward_step_module")
     callback_module = config.pop("__callback_module")
+
+    python_prolog_env_patch = [
+        "import os",
+        "import sys",
+        'os.environ["PYTHONPATH"] = ":".join(sys.path)',
+        'os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"',
+    ]
+    if extra_forward_config is None:
+        extra_forward_config = ReturnnConfig(config={}, python_prolog=python_prolog_env_patch)
+    else:
+        extra_forward_config.python_prolog = python_prolog_env_patch + (extra_forward_config.python_prolog or [])
 
     if network_module is not None:
         train_args["network_module"] = network_module

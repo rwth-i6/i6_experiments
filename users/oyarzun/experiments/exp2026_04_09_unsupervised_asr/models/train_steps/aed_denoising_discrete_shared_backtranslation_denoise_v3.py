@@ -248,103 +248,6 @@ def compute_bt_loss_for_batch(
     )
 
 
-def encoder_mlm_train_step(
-    *,
-    model: SharedDenoisingAedModel,
-    extern_data: TensorDict,
-    ce_loss_scale: float,
-    masked_ce_loss_scale: float,
-    label_smoothing: float = 0.0,
-    label_smoothing_start_epoch: int = 0,
-    masking_opts: Optional[Dict] = None,
-    loss_name: Optional[str] = None,
-    is_text: bool,
-):
-    loss_suffix = "_" + loss_name if loss_name else ""
-    ctx = rf.get_run_ctx()
-    label_indices_: ReturnnTensor = extern_data["data"]
-    label_indices: Tensor = label_indices_.raw_tensor
-    label_indices_lens: Tensor = label_indices_.dims[1].dyn_size_ext.raw_tensor
-
-    if torch.all(label_indices_lens == 0).item():
-        return
-
-    label_indices = label_indices[label_indices_lens > 0]
-    label_indices_lens = label_indices_lens[label_indices_lens > 0]
-
-    if not masking_opts or masking_opts.get("mask_prob", 0.0) == 0.0:
-        label_indices_masked = label_indices
-        label_indices_masked_lens = label_indices_lens.to(label_indices.device)
-        B = label_indices_masked_lens.size(0)
-        T = label_indices_masked_lens.max().item()
-        phon_mask = torch.ones(B, T, device=label_indices.device).bool()
-    else:
-        if masking_opts.get("mask", None) is not None:
-            phon_mask = masking_opts["mask"]
-        else:
-            phon_mask = get_random_mask(label_indices_lens.to(label_indices.device), **masking_opts)
-        mask_idx = model.text_mask_idx if is_text else model.audio_mask_idx
-        #: the following uses spans of length 1 to not shrink the sequence. 
-        label_indices_masked = label_indices.clone()
-        label_indices_masked[~phon_mask] = mask_idx
-        label_indices_masked_lens = label_indices_lens.to(label_indices.device)
-
-    forward_func = model.forward_text if is_text else model.forward_audio
-    encoder_output, _, encoder_lens, _ = forward_func(label_indices_masked, label_indices_masked_lens)
-
-    embedding = model.text_embedding if is_text else model.audio_embedding
-    mlm_head = getattr(model, "shared_mlm_head", None)
-    
-    if mlm_head is not None:
-        hidden = mlm_head(encoder_output)
-    else:
-        hidden = encoder_output
-
-    logits = F.linear(hidden, embedding.weight)
-
-    logits_packed = pack_padded_sequence(logits, label_indices_lens, batch_first=True, enforce_sorted=False)
-    targets_packed = pack_padded_sequence(label_indices, label_indices_lens, batch_first=True, enforce_sorted=False).data
-    phon_mask_packed = pack_padded_sequence(phon_mask, label_indices_lens, batch_first=True, enforce_sorted=False).data
-
-    ce_loss = F.cross_entropy(
-        logits_packed.data,
-        targets_packed.long(),
-        label_smoothing=label_smoothing if ctx.epoch >= label_smoothing_start_epoch else 0.0,
-        reduction="none",
-    )
-
-    error = torch.argmax(logits_packed.data, dim=-1).not_equal(targets_packed)
-
-    num_masked_rf = label_indices_.dims[1].get_size_tensor().copy()
-    if label_indices.size(0) < num_masked_rf.raw_tensor.size(0):
-        original_lens = label_indices_.dims[1].dyn_size_ext.raw_tensor
-        num_masked_rf_raw = torch.zeros_like(num_masked_rf.raw_tensor)
-        num_masked_rf_raw[original_lens > 0] = torch.clamp((~phon_mask).sum(dim=1), min=1).to(device=num_masked_rf.raw_tensor.device, dtype=num_masked_rf.raw_tensor.dtype)
-        num_masked_rf.raw_tensor = num_masked_rf_raw
-    else:
-        num_masked_rf.raw_tensor = torch.clamp((~phon_mask).sum(dim=1), min=1).to(device=num_masked_rf.raw_tensor.device, dtype=num_masked_rf.raw_tensor.dtype)
-    if (~phon_mask_packed).sum().item() > 0:
-        if masked_ce_loss_scale > 0:
-            ctx.mark_as_loss(
-                ce_loss[~phon_mask_packed],
-                f"masked_ce{loss_suffix}",
-                scale=masked_ce_loss_scale,
-                custom_inv_norm_factor=num_masked_rf,
-                use_normalized_loss=True,
-            )
-        if ctx.stage == "train_step":
-            ctx.mark_as_loss(error[~phon_mask_packed], f"masked_fer{loss_suffix}", as_error=True)
-
-    if ctx.stage == "train_step":
-        ctx.mark_as_loss(
-            ce_loss,
-            f"ce{loss_suffix}",
-            scale=ce_loss_scale,
-            custom_inv_norm_factor=label_indices_.dims[1].get_size_tensor(),
-            use_normalized_loss=True,
-        )
-        ctx.mark_as_loss(error, f"fer{loss_suffix}", as_error=True)
-
 
 def train_step(
     *,
@@ -364,7 +267,7 @@ def train_step(
     pseudo_text_audio_ce_loss_scale: float = 0.0,
     adv_loss_scale: float = 0.0,
     codebook_diversity_loss_scale: float = 0.0,  
-    mlm_pretrain_steps: int = 0,
+    denoise_pretrain_steps: int = 0,
     pretrain_codebook_prob: Optional[float] = None,
     pretrain_codebook_diversity_loss_scale: Optional[float] = None,
     pretrain_adv_loss_scale: Optional[float] = None,
@@ -388,8 +291,8 @@ def train_step(
 
     ctx = rf.get_run_ctx()
     # Check if we are in the MLM pretraining phase where backtranslation is skipped
-    is_pretraining = ctx.step < mlm_pretrain_steps
-    if not is_pretraining and (ctx.step - mlm_pretrain_steps) == 0:
+    is_pretraining = ctx.step < denoise_pretrain_steps
+    if not is_pretraining and (ctx.step - denoise_pretrain_steps) == 0:
         print(f"========== PRETRAINING OVER, TRANSLATION STARTED at global step {ctx.step} ==========", flush=True)
     
     if not hasattr(model, "_bt_phon_sparse_dim") and phon_indices_ is not None:
@@ -398,7 +301,7 @@ def train_step(
         model._bt_audio_sparse_dim = audio_indices_.sparse_dim
 
     if gradual_unfreeze and not is_pretraining:
-        bt_step = ctx.step - mlm_pretrain_steps
+        bt_step = ctx.step - denoise_pretrain_steps
         encoder_obj = getattr(model.encoder, "encoder", model.encoder)
         if hasattr(encoder_obj, "module_list"):
             num_layers = len(encoder_obj.module_list)
@@ -435,32 +338,49 @@ def train_step(
     if is_pretraining and pretrain_adv_loss_scale is not None:
         adv_loss_scale = pretrain_adv_loss_scale
 
-    if is_pretraining:
-        if text_ce_loss_scale > 0.0 or text_masked_ce_loss_scale > 0.0:
-            encoder_mlm_train_step(
-                model=model,
-                extern_data=TensorDict({"data": phon_indices_, "seq_tag": extern_data["seq_tag"]}),
-                ce_loss_scale=text_ce_loss_scale,
-                masked_ce_loss_scale=text_masked_ce_loss_scale,
-                label_smoothing=label_smoothing,
-                label_smoothing_start_epoch=label_smoothing_start_epoch,
-                masking_opts=text_masking_opts,
-                loss_name="text",
-                is_text=True,
-            )
+    if is_pretraining and (text_ce_loss_scale > 0.0 or text_masked_ce_loss_scale > 0.0):
+        model.decode_seq = model.decode_text_seq
+        model.forward = model.forward_text
+        model.mask_idx = model.text_mask_idx
+        model.bos_idx = model.text_bos_idx
+        model.eos_idx = model.text_eos_idx
+        model.decoder = model.text_decoder
+        aed_denoising_discrete.train_step(
+            model=model,
+            extern_data=TensorDict({"data": phon_indices_, "seq_tag": extern_data["seq_tag"]}),
+            ce_loss_scale=text_ce_loss_scale,
+            masked_ce_loss_scale=text_masked_ce_loss_scale,
+            label_smoothing=label_smoothing,
+            label_smoothing_start_epoch=label_smoothing_start_epoch,
+            masking_opts=text_masking_opts,
+            aux_loss_scales=None,
+            codebook_diversity_loss_scale=codebook_diversity_loss_scale,  
+            loss_name="text",
+            adv_loss_scale=adv_loss_scale,
+            true_adv_target=1,  # real text
+        )
 
-        if audio_ce_loss_scale > 0.0 or audio_masked_ce_loss_scale > 0.0:
-            encoder_mlm_train_step(
-                model=model,
-                extern_data=TensorDict({"data": audio_indices_, "seq_tag": extern_data["seq_tag"]}),
-                ce_loss_scale=audio_ce_loss_scale,
-                masked_ce_loss_scale=audio_masked_ce_loss_scale,
-                label_smoothing=label_smoothing,
-                label_smoothing_start_epoch=label_smoothing_start_epoch,
-                masking_opts=audio_masking_opts,
-                loss_name="audio",
-                is_text=False,
-            )
+    if is_pretraining and (audio_ce_loss_scale > 0.0 or audio_masked_ce_loss_scale > 0.0):
+        model.decode_seq = model.decode_audio_seq
+        model.forward = model.forward_audio
+        model.mask_idx = model.audio_mask_idx
+        model.bos_idx = model.audio_bos_idx
+        model.eos_idx = model.audio_eos_idx
+        model.decoder = model.audio_decoder
+        aed_denoising_discrete.train_step(
+            model=model,
+            extern_data=TensorDict({"data": audio_indices_, "seq_tag": extern_data["seq_tag"]}),
+            ce_loss_scale=audio_ce_loss_scale,
+            masked_ce_loss_scale=audio_masked_ce_loss_scale,
+            label_smoothing=label_smoothing,
+            label_smoothing_start_epoch=label_smoothing_start_epoch,
+            masking_opts=audio_masking_opts,
+            aux_loss_scales=None,
+            codebook_diversity_loss_scale=codebook_diversity_loss_scale,  
+            loss_name="audio",
+            adv_loss_scale=adv_loss_scale,
+            true_adv_target=0,  # real audio
+        )
     else:
         import random
         if not hasattr(model, "_bt_v2_state"):

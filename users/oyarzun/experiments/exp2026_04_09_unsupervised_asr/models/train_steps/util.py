@@ -39,7 +39,7 @@ def get_random_mask(seq_lens: Tensor, mask_prob: float, min_span: int, max_span:
         max_start = seq_lens[b].item() - mask_lens_b.max().item()
         seed = int.from_bytes(os.urandom(4), "little")
         torch.manual_seed(seed)
-        mask_starts_b = torch.randint(low=0, high=max_start + 1, size=(num_masks,))
+        mask_starts_b = torch.randint(low=0, high=max_start + 1, size=(num_masks,), device=seq_lens.device)
         mask_starts_b[mask_lens_b == 0] = 0
         for n in range(num_masks):
             start = mask_starts_b[n]

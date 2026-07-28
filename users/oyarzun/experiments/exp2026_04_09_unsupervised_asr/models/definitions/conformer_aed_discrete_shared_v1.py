@@ -5,6 +5,7 @@ from typing import Callable, Dict, List, Literal, Optional, Sequence, Tuple, Typ
 
 import torch
 from torch import Tensor, nn
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 from i6_models.assemblies.conformer.conformer_rel_pos_v1 import (
     ConformerConvolutionV2Config,
@@ -61,6 +62,38 @@ class ConformerEncoderWithBottleneck(nn.Module):
         encoder_outputs, out_mask = self.encoder.forward(*args, **kwargs)
         encoder_outputs = [self.bottleneck(enc_out) for enc_out in encoder_outputs]
         return encoder_outputs, out_mask
+def _valid_frame_mask(seq_lens: Tensor, max_len: int) -> Tensor:
+    """[B, max_len] bool mask, True for non-padding frames."""
+    return torch.arange(max_len, device=seq_lens.device)[None, :] < seq_lens[:, None]
+
+class LstmDiscriminator(nn.Module):
+    """LSTM discriminator that consumes the whole encoder output sequence."""
+    def __init__(self, in_dim: int, hidden_dim: int = 512, num_layers: int = 2, bidirectional: bool = True):
+        super().__init__()
+        self.lstm = nn.LSTM(
+            input_size=in_dim,
+            hidden_size=hidden_dim,
+            num_layers=num_layers,
+            batch_first=True,
+            bidirectional=bidirectional,
+        )
+        self.out = nn.Linear(hidden_dim * (2 if bidirectional else 1), 1)
+
+    def forward(self, encoder_output: Tensor, encoder_lens: Tensor) -> Tensor:
+        packed = pack_padded_sequence(encoder_output, encoder_lens.cpu(), batch_first=True, enforce_sorted=False)
+        out, _ = self.lstm(packed)
+        out_padded, _ = pad_packed_sequence(out, batch_first=True)
+        logits = self.out(out_padded).squeeze(-1)
+        mask = _valid_frame_mask(encoder_lens.to(logits.device), out_padded.shape[1])
+        return logits[mask]
+
+    def freeze(self):
+        for param in self.parameters():
+            param.requires_grad = False
+
+    def unfreeze(self):
+        for param in self.parameters():
+            param.requires_grad = True
 
 
 class MlpDiscriminator(nn.Module):
@@ -262,9 +295,11 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
             self.text_decoder = TransformerDecoderV1(dec_cfgs["text"])
             self.audio_decoder = TransformerDecoderV1(dec_cfgs["audio"])
 
-        assert discriminator_type == "mlp" or discriminator_type is None
+        assert discriminator_type in ("mlp", "lstm", None)
         if discriminator_type == "mlp":
             self.discriminator = MlpDiscriminator(in_dim=encoder_dim)
+        elif discriminator_type == "lstm":
+            self.discriminator = LstmDiscriminator(in_dim=encoder_dim)
         else:
             self.discriminator = None
 

@@ -23,11 +23,11 @@ settings = DatasetSettings(
 
 #: ablation study, sil prob = 0 (remember meta gan paper, silence insertion part) 
 # surrounding silence definition as in the paper
-train_data = build_training_datasets(sil_prob=0.0, surround_w_sil=False, settings=settings)
+train_data = build_training_datasets(sil_prob=0.25, surround_w_sil=True, settings=settings)
 
 # Extend the base config to use the new MLM training step module
 base_config = copy.deepcopy(base_config)
-base_config["__train_step_module"] = "train_steps.aed_denoising_discrete_shared_backtranslation_mlm_v2.train_step"
+base_config["__train_step_module"] = "train_steps.aed_denoising_discrete_shared_backtranslation_mlm_v3.train_step"
 
 
 def py():
@@ -39,18 +39,21 @@ def py():
 
     ablations = [
         (
-            f"unfreeze_p-{int(prop*100)}_start-{int(start*100)}_end-{int(end*100)}_pre_cb-{pre_cb}_bt_cb-{bt_cb}_v1",
+            f"unfreeze_p-{int(prop*100)}_start-{int(start*100)}_end-{int(end*100)}_predisc-{pre_disc}_btdisc-{bt_disc}_iter-{iter}_v4",
             {
                 "num_enc_layers": 6,
                 "num_text_dec_layers": 6,
                 "num_audio_dec_layers": 6,
-                **({"codebook_opts": {"codebook_prob": 1.0 if bt_cb else 0.0}} if pre_cb or bt_cb else {})
+                "discriminator_type": "lstm", #: included LSTM discriminator
+                "codebook_opts": {"codebook_prob": 0.0}
             },
             {
-                "codebook_diversity_loss_scale": 0.11 if bt_cb else 0.0,
-                "mlm_pretrain_steps": 10_000,
-                "pretrain_codebook_prob": 1.0 if pre_cb else 0.0,
-                "pretrain_codebook_diversity_loss_scale": 0.11 if pre_cb else 0.0,
+                "codebook_diversity_loss_scale": 0.0,
+                "mlm_pretrain_steps": iter,
+                "pretrain_codebook_prob": 0.0,
+                "pretrain_codebook_diversity_loss_scale": 0.0,
+                "adv_loss_scale": 0.1 if bt_disc else 0.0,
+                "pretrain_adv_loss_scale": 0.1 if pre_disc else 0.0,
                 "gradual_unfreeze": True,
                 "gradual_unfreeze_proportion": prop,
                 "gradual_unfreeze_start_iter": int(bt_total_steps * start),
@@ -63,19 +66,29 @@ def py():
                 "accum_grad_multiple_step": 8,
             }
         )
+        for iter in [100_000, 10_000]
         for prop in [0.8, 0.6]
-        #for prop in [0.8, 0.6]
-        #for start, end in [(0.5, 0.9), (0.4, 0.8)]
         for start, end in [(0.5, 0.9)]
-        for pre_cb in [True] #: codebook usage during pretraining 
-        #for pre_cb in [True, False] #: codebook usage during pretraining 
-        for bt_cb in [True, False] #: coodebook usage during backtranslation training. 
+        for pre_disc in [True] 
+        for bt_disc in [True, False]  #test use of discriminator also during translation training 
     ]
 
     for train_name, model_args, train_args, training_args in ablations:
         config = copy.deepcopy(base_config)
         config["model_args"].update(model_args)
         config["train_args"].update(train_args)
+        config["train_args"].update({
+            "text_masking_opts": {
+                "mask_prob": 0.1,
+                "min_span": 1,
+                "max_span": 1,
+            },
+            "audio_masking_opts": {
+                "mask_prob": 0.1,
+                "min_span": 1,
+                "max_span": 1,
+            },
+        })
         config["training"].update(training_args)
         config["training"]["grad_scaler"] = None
 

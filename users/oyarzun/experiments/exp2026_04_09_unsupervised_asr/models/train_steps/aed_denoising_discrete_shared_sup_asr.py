@@ -118,6 +118,7 @@ def train_step(
     denoise_pretrain_steps: int = 0,
     pretrain_codebook_prob: Optional[float] = None,
     pretrain_codebook_diversity_loss_scale: Optional[float] = None,
+    pretrain_adv_loss_scale: Optional[float] = None,
     gradual_unfreeze: bool = False,
     gradual_unfreeze_proportion: float = 0.8,
     gradual_unfreeze_start_iter: int = 0,
@@ -173,6 +174,9 @@ def train_step(
 
     if is_pretraining and pretrain_codebook_diversity_loss_scale is not None:
         codebook_diversity_loss_scale = pretrain_codebook_diversity_loss_scale
+
+    if is_pretraining and pretrain_adv_loss_scale is not None:
+        adv_loss_scale = pretrain_adv_loss_scale
 
     if is_pretraining and (text_ce_loss_scale > 0.0 or text_masked_ce_loss_scale > 0.0):
         model.decode_seq = model.decode_text_seq

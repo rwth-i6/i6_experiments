@@ -73,17 +73,23 @@ def train_step(
     label_indices_lens: Tensor = label_indices_.dims[1].dyn_size_ext.raw_tensor
 
     # when using Combine dataset, we can have zero-length sequences
-    if torch.all(label_indices_lens == 0).item():
+    valid_mask = label_indices_lens > 0
+    if not torch.any(valid_mask).item():
         # print("All sequences have zero length, skipping this batch.")
         return
-    label_indices = label_indices[label_indices_lens > 0]
-    label_indices_lens = label_indices_lens[label_indices_lens > 0]
+    # Evaluate properties exactly once to avoid any dynamic device swapping bugs
+    _label_indices = label_indices_.raw_tensor
+    _label_lens = label_indices_.dims[1].dyn_size_ext.raw_tensor
+    label_indices = _label_indices[valid_mask.to(_label_indices.device)]
+    label_indices_lens = _label_lens[valid_mask.to(_label_lens.device)]
 
     if "target" in extern_data.data:
         assert extern_data["target"].sparse_dim is not None
         target_indices_: ReturnnTensor = extern_data["target"]
-        target_indices: Tensor = target_indices_.raw_tensor
-        target_indices_lens: Tensor = target_indices_.dims[1].dyn_size_ext.raw_tensor
+        _target_indices = target_indices_.raw_tensor
+        _target_lens = target_indices_.dims[1].dyn_size_ext.raw_tensor
+        target_indices: Tensor = _target_indices[valid_mask.to(_target_indices.device)]
+        target_indices_lens: Tensor = _target_lens[valid_mask.to(_target_lens.device)]
     else:
         target_indices_ = label_indices_
         target_indices = label_indices
@@ -157,7 +163,14 @@ def train_step(
         )
 
         num_masked_rf = label_indices_.dims[1].get_size_tensor().copy()
-        num_masked_rf.raw_tensor = torch.clamp((~phon_mask).sum(dim=1), min=1).to(num_masked_rf.raw_tensor.dtype)
+        
+        if label_indices.size(0) < num_masked_rf.raw_tensor.size(0):
+            original_lens = label_indices_.dims[1].dyn_size_ext.raw_tensor
+            num_masked_rf_raw = torch.zeros_like(num_masked_rf.raw_tensor)
+            num_masked_rf_raw[original_lens > 0] = torch.clamp((~phon_mask).sum(dim=1), min=1).to(device=num_masked_rf.raw_tensor.device, dtype=num_masked_rf.raw_tensor.dtype)
+            num_masked_rf.raw_tensor = num_masked_rf_raw
+        else:
+            num_masked_rf.raw_tensor = torch.clamp((~phon_mask).sum(dim=1), min=1).to(device=num_masked_rf.raw_tensor.device, dtype=num_masked_rf.raw_tensor.dtype)
 
         error = torch.argmax(logits_packed.data, dim=-1).not_equal(targets_w_eos_packed)
 
@@ -189,12 +202,15 @@ def train_step(
 
     if adv_loss_scale > 0.0:
         assert true_adv_target is not None
-        single_enc_seqs = unpad_sequence(encoder_output, encoder_lens, batch_first=True)
-        enc_out_packed = pack_sequence(
-            single_enc_seqs,
-            enforce_sorted=False,
-        ).data
-        disc_out = model.discriminator(enc_out_packed)
+        if type(model.discriminator).__name__ == "LstmDiscriminator":
+            disc_out = model.discriminator(encoder_output, encoder_lens)
+        else:
+            single_enc_seqs = unpad_sequence(encoder_output, encoder_lens, batch_first=True)
+            enc_out_packed = pack_sequence(
+                single_enc_seqs,
+                enforce_sorted=False,
+            ).data
+            disc_out = model.discriminator(enc_out_packed)
         adv_loss = F.binary_cross_entropy_with_logits(
             disc_out,
             torch.full_like(disc_out, fill_value=adv_target),

@@ -152,7 +152,13 @@ def train_step(
         )
 
         num_masked_rf = phon_indices_.dims[1].get_size_tensor().copy()
-        num_masked_rf.raw_tensor = torch.clamp((~phon_mask).sum(dim=1), min=1).to(num_masked_rf.raw_tensor.dtype)
+        if phon_indices.size(0) < num_masked_rf.raw_tensor.size(0):
+            original_lens = phon_indices_.dims[1].dyn_size_ext.raw_tensor
+            num_masked_rf_raw = torch.zeros_like(num_masked_rf.raw_tensor)
+            num_masked_rf_raw[original_lens > 0] = torch.clamp((~phon_mask).sum(dim=1), min=1).to(device=num_masked_rf.raw_tensor.device, dtype=num_masked_rf.raw_tensor.dtype)
+            num_masked_rf.raw_tensor = num_masked_rf_raw
+        else:
+            num_masked_rf.raw_tensor = torch.clamp((~phon_mask).sum(dim=1), min=1).to(device=num_masked_rf.raw_tensor.device, dtype=num_masked_rf.raw_tensor.dtype)
 
         # loss is only calculated on masked positions
         ctx.mark_as_loss(
@@ -248,7 +254,13 @@ def train_step(
             )
 
         num_masked_rf = audio_features_.dims[1].get_size_tensor().copy()
-        num_masked_rf.raw_tensor = torch.clamp((~audio_mask).sum(dim=1), min=1).to(num_masked_rf.raw_tensor.dtype)
+        if audio_features.size(0) < num_masked_rf.raw_tensor.size(0):
+            original_lens = audio_features_.dims[1].dyn_size_ext.raw_tensor
+            num_masked_rf_raw = torch.zeros_like(num_masked_rf.raw_tensor)
+            num_masked_rf_raw[original_lens > 0] = torch.clamp((~audio_mask).sum(dim=1), min=1).to(device=num_masked_rf.raw_tensor.device, dtype=num_masked_rf.raw_tensor.dtype)
+            num_masked_rf.raw_tensor = num_masked_rf_raw
+        else:
+            num_masked_rf.raw_tensor = torch.clamp((~audio_mask).sum(dim=1), min=1).to(device=num_masked_rf.raw_tensor.device, dtype=num_masked_rf.raw_tensor.dtype)
 
         ctx.mark_as_loss(
             # mask=False corresponds to masked positions in the original sequence

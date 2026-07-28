@@ -56,7 +56,8 @@ def py():
                 "gradual_unfreeze_end_iter": int(bt_total_steps * end),
             },
             {
-                "batch_size": 4000,
+                "batch_size": 1000,
+                "accum_grad_multiple_step": 8,
             }
         )
         for prop in [0.8, 0.6]

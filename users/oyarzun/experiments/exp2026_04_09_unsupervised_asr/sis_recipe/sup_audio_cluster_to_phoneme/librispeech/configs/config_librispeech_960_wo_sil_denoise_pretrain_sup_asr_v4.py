@@ -32,20 +32,24 @@ def py():
     prefix_name = f"{__setup_base_name__}/librispeech/{__name__.split('.')[-1]}"
 
 
-
-
     ablations =  [
-        # Without codebook
+        # With discriminator in both pretraining and ASR
         (
-            f"baseline_enc-{layers}_dec-{layers}_denoise_iter-{iter}_v3",
+            f"baseline_disc_enc-{layers}_dec-{layers}_denoise_iter-{iter}_v4",
             {
                 "num_enc_layers": layers,
                 "num_text_dec_layers": layers,
                 "num_audio_dec_layers": layers,
+                "discriminator_type": "lstm",
+                "codebook_opts": {"codebook_prob": 0.0},
             },
             {
                 "codebook_diversity_loss_scale": 0.0,
                 "denoise_pretrain_steps": iter,
+                "pretrain_codebook_prob": 0.0,
+                "pretrain_codebook_diversity_loss_scale": 0.0,
+                "adv_loss_scale": 0.1,
+                "pretrain_adv_loss_scale": 0.1,
             },
             {
                 "batch_size": 4000,
@@ -54,23 +58,25 @@ def py():
             (3, 10000),
             (3, 100000),
             (6, 100000), 
-            (6, 100000), 
         ]
     ] + [
-        # With codebook in pretraining, Without codebook in supervised ASR
+        # With discriminator in pretraining only, not in ASR
         (
-            f"baseline_codebook_enc-{layers}_dec-{layers}_denoise_iter-{iter}_nocbasr_v3",
+            f"baseline_disc_enc-{layers}_dec-{layers}_denoise_iter-{iter}_nodiscasr_v4",
             {
                 "num_enc_layers": layers,
                 "num_text_dec_layers": layers,
                 "num_audio_dec_layers": layers,
+                "discriminator_type": "lstm",
                 "codebook_opts": {"codebook_prob": 0.0},
             },
             {
                 "codebook_diversity_loss_scale": 0.0,
                 "denoise_pretrain_steps": iter,
-                "pretrain_codebook_prob": 1.0,
-                "pretrain_codebook_diversity_loss_scale": 0.11,
+                "pretrain_codebook_prob": 0.0,
+                "pretrain_codebook_diversity_loss_scale": 0.0,
+                "adv_loss_scale": 0.0,
+                "pretrain_adv_loss_scale": 0.1,
             },
             {
                 "batch_size": 4000,

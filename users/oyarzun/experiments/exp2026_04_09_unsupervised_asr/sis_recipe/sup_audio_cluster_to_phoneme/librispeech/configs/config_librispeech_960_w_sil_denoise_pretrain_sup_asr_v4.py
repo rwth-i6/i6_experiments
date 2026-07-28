@@ -21,7 +21,7 @@ settings = DatasetSettings(
 
 #: ablation study, sil prob = 0 (remember meta gan paper, silence insertion part) 
 # surrounding silence definition as in the paper
-train_data = build_training_datasets(sil_prob=0.0, surround_w_sil=False, settings=settings)
+train_data = build_training_datasets(sil_prob=0.25, surround_w_sil=True, settings=settings)
 
 # Extend the base config to use the new denoising training step module
 base_config = copy.deepcopy(base_config)
@@ -32,20 +32,24 @@ def py():
     prefix_name = f"{__setup_base_name__}/librispeech/{__name__.split('.')[-1]}"
 
 
-
-
     ablations =  [
-        # Without codebook
+        # With discriminator in both pretraining and ASR
         (
-            f"baseline_enc-{layers}_dec-{layers}_denoise_iter-{iter}_v3",
+            f"baseline_disc_enc-{layers}_dec-{layers}_denoise_iter-{iter}_v4",
             {
                 "num_enc_layers": layers,
                 "num_text_dec_layers": layers,
                 "num_audio_dec_layers": layers,
+                "discriminator_type": "lstm",
+                "codebook_opts": {"codebook_prob": 0.0},
             },
             {
                 "codebook_diversity_loss_scale": 0.0,
                 "denoise_pretrain_steps": iter,
+                "pretrain_codebook_prob": 0.0,
+                "pretrain_codebook_diversity_loss_scale": 0.0,
+                "adv_loss_scale": 0.1,
+                "pretrain_adv_loss_scale": 0.1,
             },
             {
                 "batch_size": 4000,
@@ -54,23 +58,25 @@ def py():
             (3, 10000),
             (3, 100000),
             (6, 100000), 
-            (6, 100000), 
         ]
     ] + [
-        # With codebook in pretraining, Without codebook in supervised ASR
+        # With discriminator in pretraining only, not in ASR
         (
-            f"baseline_codebook_enc-{layers}_dec-{layers}_denoise_iter-{iter}_nocbasr_v3",
+            f"baseline_disc_enc-{layers}_dec-{layers}_denoise_iter-{iter}_nodiscasr_v4",
             {
                 "num_enc_layers": layers,
                 "num_text_dec_layers": layers,
                 "num_audio_dec_layers": layers,
+                "discriminator_type": "lstm",
                 "codebook_opts": {"codebook_prob": 0.0},
             },
             {
                 "codebook_diversity_loss_scale": 0.0,
                 "denoise_pretrain_steps": iter,
-                "pretrain_codebook_prob": 1.0,
-                "pretrain_codebook_diversity_loss_scale": 0.11,
+                "pretrain_codebook_prob": 0.0,
+                "pretrain_codebook_diversity_loss_scale": 0.0,
+                "adv_loss_scale": 0.0,
+                "pretrain_adv_loss_scale": 0.1,
             },
             {
                 "batch_size": 4000,
@@ -83,8 +89,6 @@ def py():
         ]
     ]
 
-
-
     for train_name, model_args, train_args, training_args in ablations:
         config = copy.deepcopy(base_config)
         config["model_args"].update(model_args)
@@ -95,12 +99,61 @@ def py():
             "asr_loss_warmup_steps": 2000,
         })
         config["train_args"].update(train_args)
+        config["train_args"].update({
+            "text_masking_opts": {
+                "mask_prob": 0.1,
+                "min_span": 1,
+                "max_span": 1,
+            },
+            "audio_masking_opts": {
+                "mask_prob": 0.1,
+                "min_span": 1,
+                "max_span": 1,
+            },
+        })
         config["training"].update(training_args)
         config["training"]["grad_scaler"] = None
 
         #config["training"]["__num_gpus"] = 1 #: use for debugging
         run_experiment(
             training_name=f"{prefix_name}/{train_name}",
+            config=config,
+            train_data=train_data,
+            test_data_dict=test_data_dict,
+            keep_epochs=get_keep_epochs(base_num_epochs),
+            skip_eval=False,
+        )
+
+    # --- New Ablations with longer masking spans ---
+    for train_name, model_args, train_args, training_args in ablations:
+        new_train_name = train_name + "_longer_spans"
+        config = copy.deepcopy(base_config)
+        config["model_args"].update(model_args)
+        config["train_args"].update({
+            "pseudo_audio_text_ce_loss_scale": 0.0,
+            "pseudo_text_audio_ce_loss_scale": 0.0,
+            "supervised_asr_ce_loss_scale": 1.0,
+            "asr_loss_warmup_steps": 2000,
+        })
+        config["train_args"].update(train_args)
+        config["train_args"].update({
+            "text_masking_opts": {
+                "mask_prob": 0.3,
+                "min_span": 2,
+                "max_span": 10,
+            },
+            "audio_masking_opts": {
+                "mask_prob": 0.3,
+                "min_span": 4,
+                "max_span": 20,
+            },
+        })
+        config["training"].update(training_args)
+        config["training"]["grad_scaler"] = None
+
+        #config["training"]["__num_gpus"] = 1 #: use for debugging
+        run_experiment(
+            training_name=f"{prefix_name}/{new_train_name}",
             config=config,
             train_data=train_data,
             test_data_dict=test_data_dict,

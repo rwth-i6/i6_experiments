@@ -23,12 +23,11 @@ settings = DatasetSettings(
 
 #: ablation study, sil prob = 0 (remember meta gan paper, silence insertion part) 
 # surrounding silence definition as in the paper
-train_data = build_training_datasets(sil_prob=0.0, surround_w_sil=False, settings=settings)
+train_data = build_training_datasets(sil_prob=0.25, surround_w_sil=True, settings=settings)
 
 # Extend the base config to use the new MLM training step module
 base_config = copy.deepcopy(base_config)
-base_config["__train_step_module"] = "train_steps.aed_denoising_discrete_shared_backtranslation_mlm_v2.train_step"
-
+base_config["__train_step_module"] = "train_steps.aed_denoising_discrete_shared_backtranslation_mlm_v3.train_step"
 
 def py():
     prefix_name = f"{__setup_base_name__}/librispeech/{__name__.split('.')[-1]}"
@@ -36,14 +35,14 @@ def py():
     # Assuming 400k iterations in total for backtranslation, adjust if necessary
     bt_total_steps = 400_000
 
-
     ablations = [
         (
-            f"unfreeze_p-{int(prop*100)}_start-{int(start*100)}_end-{int(end*100)}_pre_cb-{pre_cb}_bt_cb-{bt_cb}_v1",
+            f"unfreeze_p-{int(prop*100)}_start-{int(start*100)}_end-{int(end*100)}_pre_cb-{pre_cb}_bt_cb-{bt_cb}_v2",
             {
                 "num_enc_layers": 6,
                 "num_text_dec_layers": 6,
                 "num_audio_dec_layers": 6,
+                "add_mlm_head": True,
                 **({"codebook_opts": {"codebook_prob": 1.0 if bt_cb else 0.0}} if pre_cb or bt_cb else {})
             },
             {
@@ -76,11 +75,20 @@ def py():
         config = copy.deepcopy(base_config)
         config["model_args"].update(model_args)
         config["train_args"].update(train_args)
+        config["train_args"].update({
+            "text_masking_opts": {
+                "mask_prob": 0.1,
+                "min_span": 1,
+                "max_span": 1,
+            },
+            "audio_masking_opts": {
+                "mask_prob": 0.1,
+                "min_span": 1,
+                "max_span": 1,
+            },
+        })
         config["training"].update(training_args)
         config["training"]["grad_scaler"] = None
-
-        #config["training"]["__num_gpus"] = 1  # CHANGE TO 1 GPU for debugging.
-
 
         run_experiment(
             training_name=f"{prefix_name}/{train_name}",
