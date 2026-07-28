@@ -71,6 +71,14 @@ def main():
         " so the real on-disk model is no longer associated with any active job"
         " and would be wrongly treated as unused and removed. Pass this to continue anyway.",
     )
+    arg_parser.add_argument(
+        "--extra-work-dir",
+        nargs="*",
+        help="fallback: additional work dir(s) (each a .../work),"
+        " used only to verify that an 'uncreated' active train job actually exists elsewhere;"
+        " never scanned or cleaned."
+        " Other setups' work roots are normally auto-detected from existing train-job symlinks anyway.",
+    )
     args = arg_parser.parse_args()
 
     args.filter_work_dir_fs = (
@@ -179,19 +187,42 @@ def main():
                 active_train_job_finished_list.append(job)
         else:
             print("Active train job not created yet:", job)
-            uncreated_active_jobs.append(job)
-    print("Num active train jobs:", len(active_train_job_paths_dict))
-    if uncreated_active_jobs and not args.allow_uncreated_active_train_jobs:
-        print(f"ERROR: {len(uncreated_active_jobs)} active train job(s) referenced by the graph are NOT on disk.")
+            uncreated_active_jobs.append((job, job_path))
+    # Some "uncreated" jobs are actually stored in another setup's work dir (cross-setup shared work).
+    # They are reachable via an existing symlink root (auto-detected), or via an explicit --extra-work-dir.
+    # Those are not hash mismatches: their storage is just external, so skip them (don't clean).
+    other_work_roots = _collect_other_work_roots(args.extra_work_dir)
+    found_elsewhere = []  # (job, external realpath)
+    still_uncreated = []  # (job, job_path)
+    for job, job_path in uncreated_active_jobs:
+        suffix = job_path[len("work") :]  # "/i6_core/returnn/training/ReturnnTrainingJob.X"
+        hit = next((root + suffix for root in other_work_roots if os.path.isdir(root + suffix)), None)
+        if hit:
+            found_elsewhere.append((job, hit))
+        else:
+            still_uncreated.append((job, job_path))
+    for job, hit in found_elsewhere:
+        print("Active train job stored in another work dir (external; skipping):", job, "->", hit)
+    print(
+        "Num active train jobs:",
+        len(active_train_job_paths_dict),
+        "(+%d external in other work dirs)" % len(found_elsewhere),
+    )
+    if still_uncreated and not args.allow_uncreated_active_train_jobs:
+        print(f"ERROR: {len(still_uncreated)} active train job(s) referenced by the graph are NOT on disk anywhere.")
         print(
-            "This usually means a hash shifted (e.g. a code/config change moved the job hash),"
+            "This usually means either the job's hash shifted (e.g. a code/config change moved the job hash),"
             " so the real on-disk model is no longer associated with any active graph job"
-            " and would be wrongly treated as unused and removed."
+            " and would be wrongly treated as unused and removed,"
+            " or the job is stored in yet another work dir not known here"
+            " (pass that work dir via --extra-work-dir so it can be verified)."
         )
-        print("Investigate the hash change first. Use --allow-uncreated-active-train-jobs to override.")
-        for _j in uncreated_active_jobs:
+        print("Investigate first. Use --allow-uncreated-active-train-jobs to override.")
+        for _j, _p in still_uncreated:
             print("  not created:", _j)
-        raise SystemExit("Refusing to continue: uncreated active train jobs (possible hash mismatch).")
+        raise SystemExit(
+            "Refusing to continue: uncreated active train jobs (possible hash mismatch or unknown work dir)."
+        )
 
     print("Now checking all train jobs in work dir to find unused train jobs...")
     own_work_realpath = os.path.realpath("work") + "/"
@@ -493,6 +524,39 @@ def _model_ckpt_size(job_dir: str) -> int:
     except FileNotFoundError:
         pass
     return total
+
+
+def _collect_other_work_roots(extra_work_dirs) -> list:
+    """
+    Collect realpaths of work roots (each a ``.../work``) other than the local one.
+    Used only to verify that an "uncreated" active train job actually exists elsewhere
+    (cross-setup shared work).
+
+    Auto-detected from existing symlinks under the local ``work/i6_core/returnn/training/`` dir:
+    each such symlink points at ``<root>/i6_core/returnn/training/ReturnnTrainingJob.X``,
+    so ``<root>`` is another setup's work root.
+    Any ``--extra-work-dir`` values are added as a fallback for roots not yet symlinked.
+    """
+    roots = []
+    seen = set()
+
+    def _add(root: str):
+        root = os.path.realpath(root)
+        if root not in seen and os.path.isdir(root):
+            seen.add(root)
+            roots.append(root)
+
+    for d in extra_work_dirs or []:
+        _add(d)
+    train_dir = "work/i6_core/returnn/training"
+    for name in os.listdir(train_dir):
+        p = os.path.join(train_dir, name)
+        if not os.path.islink(p):
+            continue
+        idx = os.path.realpath(p).find("/i6_core/")
+        if idx > 0:
+            _add(os.path.realpath(p)[:idx])
+    return roots
 
 
 def _recipe_file_from_info(job_dir: str) -> Optional[str]:
