@@ -510,6 +510,10 @@ def py_aed_graphc():
     # (removal keeps the manager from resubmitting the cancelled job).
     for name_suffix, time_cap, extra_cfg in [
         ("", 312_960, {}),
+        # v3 = v2 config (cap 720_000, fixed truncation) rerun after the SpecAugment fix
+        # (num masks followed the declared capacity under static tracing -> v2 over-masked ~3.7x);
+        # THE convergence validation: per-epoch scores must match the padded baseline up to noise
+        ("-v3", 720_000, {"__hash_version": 3}),
     ]:
         _py_aed_graphc_exp(name_suffix, time_cap, packed_total, extra_cfg)
 
@@ -576,7 +580,10 @@ def py_aed_graphc_loquacious():
     from i6_experiments.users.zeyer.experiments.exp2026_05_26_base_fzj import train as loq_train
 
     gap, align = _aed_graphc_packed_gap, _aed_graphc_packed_align
-    classes_cap = 150  # PLACEHOLDER -- replace by the measured max before launch
+    # measured on the extracted large-subset transcripts (9.49M seqs, spm10k SZcvHsG1gYNM):
+    # max 366, p99.99 = 128; no target-len filter in the baseline config, so the capacity
+    # must cover the max (a longer seq raises loudly in graph-capture _copy_in). 384 = max + headroom.
+    classes_cap = 384
     packed_total = 100_000 * _loq_batch_size_factor() + 200 * (gap + align)
     packed_total = -(-packed_total // align) * align
     loq_train(
