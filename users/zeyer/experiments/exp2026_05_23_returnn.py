@@ -508,10 +508,14 @@ def py_aed_graphc():
     # cancelled 2026-07-28 with a convergence regression (devtrain ce +18% rel at ep 26),
     # to be redone after the root-cause fix
     # (removal keeps the manager from resubmitting the cancelled job).
+    # Earlier variants, removed from the graph (job dirs + banked scores stay on disk):
+    # - "" (cap 312_960, job lb68VaQEkEeC): reference; capacity too small (silent truncation),
+    #   ended at ep 50 (deterministic NaN at ep 51); errored state would spam the manager
+    #   and clearing it would resubmit.
+    # - "-v2" (cap 720_000, __hash_version 2, job erqk3HOebeeL): cancelled,
+    #   SpecAugment num-masks scaled with the capacity under static tracing -> over-masked ~3.7x.
     for name_suffix, time_cap, extra_cfg in [
-        ("", 312_960, {}),
-        # v3 = v2 config (cap 720_000, fixed truncation) rerun after the SpecAugment fix
-        # (num masks followed the declared capacity under static tracing -> v2 over-masked ~3.7x);
+        # v3 = v2 config rerun after the SpecAugment fix;
         # THE convergence validation: per-epoch scores must match the padded baseline up to noise
         ("-v3", 720_000, {"__hash_version": 3}),
     ]:
