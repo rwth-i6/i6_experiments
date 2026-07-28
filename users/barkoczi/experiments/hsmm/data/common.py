@@ -256,7 +256,7 @@ def build_training_datasets_with_hdf(
     cv_hdf: Optional[Union[tk.Path, List[tk.Path]]] = None,
     devtrain_hdf: Optional[Union[tk.Path, List[tk.Path]]] = None,
     prior_hdf: Optional[Union[tk.Path, List[tk.Path]]] = None,
-    devtrain_hdf_use_cache_manager: bool = True,
+    hdf_use_cache_manager: bool = True,
 ) -> TrainingDatasets:
     """
     Dataset construction helper that combines raw audio + text labels from OggZip with an extra HDF stream.
@@ -285,6 +285,11 @@ def build_training_datasets_with_hdf(
 
     training_audio_opts = audio_datastream.as_returnn_audio_opts()
 
+    def make_hdf_dataset(*, files, **kwargs) -> Dict[str, Any]:
+        opts = HDFDataset(files=files, **kwargs).as_returnn_opts()
+        opts["use_cache_manager"] = hdf_use_cache_manager
+        return opts
+
     def make_meta(
         zip_dataset: OggZipDataset,
         hdf_dataset: Union[HDFDataset, Dict[str, Any]],
@@ -305,7 +310,7 @@ def build_training_datasets_with_hdf(
         seq_ordering=settings.train_seq_ordering,
         additional_options=settings.train_additional_options,
     )
-    train_hdf_dataset = HDFDataset(
+    train_hdf_dataset = make_hdf_dataset(
         files=train_hdf,
         partition_epoch=settings.train_partition_epoch,
         seq_ordering=settings.train_seq_ordering,
@@ -319,7 +324,7 @@ def build_training_datasets_with_hdf(
         segment_file=get_mixed_cv_segments(),
         seq_ordering="sorted_reverse",
     )
-    cv_hdf_dataset = HDFDataset(
+    cv_hdf_dataset = make_hdf_dataset(
         files=cv_hdf,
         seq_ordering="sorted_reverse",
     )
@@ -332,11 +337,10 @@ def build_training_datasets_with_hdf(
         seq_ordering="sorted_reverse",
         random_subset=3000,
     )
-    devtrain_hdf_dataset = HDFDataset(
+    devtrain_hdf_dataset = make_hdf_dataset(
         files=devtrain_hdf,
         seq_ordering="sorted_reverse",
-    ).as_returnn_opts()
-    devtrain_hdf_dataset["use_cache_manager"] = devtrain_hdf_use_cache_manager
+    )
     devtrain_dataset = make_meta(devtrain_zip_dataset, devtrain_hdf_dataset)
 
     prior_zip_dataset = OggZipDataset(
@@ -347,7 +351,7 @@ def build_training_datasets_with_hdf(
         seq_ordering="sorted_reverse",
         additional_options=None,
     )
-    prior_hdf_dataset = HDFDataset(
+    prior_hdf_dataset = make_hdf_dataset(
         files=prior_hdf,
         partition_epoch=1,
         seq_ordering="sorted_reverse",

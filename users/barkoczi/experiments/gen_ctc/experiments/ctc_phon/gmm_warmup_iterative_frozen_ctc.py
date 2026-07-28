@@ -76,6 +76,7 @@ def _dump_ctc_soft_targets(
         output_files=[CTC_TARGET_FILENAME],
     )
     forward_job.rqmt["gpu_mem"] = 24
+    forward_job.set_env("TMPDIR", ".")
     forward_job.add_alias(name + "/forward")
     tk.register_output(name + "/" + CTC_TARGET_FILENAME, forward_job.out_files[CTC_TARGET_FILENAME])
     return forward_job.out_files[CTC_TARGET_FILENAME]
@@ -281,7 +282,7 @@ def eow_phon_ls960_1023_gmm_warmup_iterative_frozen_ctc_nce():
             cv_hdf=cv_hdf,
             devtrain_hdf=train_hdf,
             prior_hdf=train_hdf,
-            devtrain_hdf_use_cache_manager=False,
+            hdf_use_cache_manager=False,
             hdf_datastream=soft_target_datastream,
             hdf_stream_name="ctc_soft_targets",
         )
