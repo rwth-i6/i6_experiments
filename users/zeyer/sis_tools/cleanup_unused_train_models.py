@@ -133,13 +133,25 @@ def main():
             # Resolve symlinks, to only store the path which is actually used for storage
             # (even if that might be some outdated incorrect hash),
             # because that makes the matching easier when we scan the work dir.
+            job_external = False
             while os.path.islink(job_path):
                 job_path_ = os.readlink(job_path)
-                job_path__ = _rel_job_path(job_path_)
+                try:
+                    job_path__ = _rel_job_path(job_path_)
+                except FileNotFoundError:
+                    # Symlink target is in a different / shared work root
+                    # (e.g. a shared sis_work/work, or another setup),
+                    # so there is no local work/... path for it.
+                    # This job's real storage is external -> not ours to clean here; skip it.
+                    job_external = True
+                    break
                 if job_path == job_path__:  # same name, just on different disk; stop
                     break
                 print("  symlink ->", job_path_, "resolved to", job_path__)
                 job_path = job_path__
+            if job_external:
+                print("  (real storage in external/shared work root; skipping)")
+                continue
             if job_path in active_train_job_paths_dict:
                 if isinstance(job, ReturnnTrainingJob):  # real job, not fake job
                     # Expect that the prev job is a fake job.
