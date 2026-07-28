@@ -220,6 +220,16 @@ def main():
         print("Investigate first. Use --allow-uncreated-active-train-jobs to override.")
         for _j, _p in still_uncreated:
             print("  not created:", _j)
+            # A hash shift leaves the trained job at its OLD hash, still reachable via the alias.
+            # Surface that (and which config created it), so it is clear the data is not actually lost.
+            for _adir in _job_alias_dirs(_j):
+                if not os.path.islink(_adir):
+                    continue
+                _rp = os.path.realpath(_adir)
+                if os.path.isdir(_rp) and os.path.basename(_rp) != os.path.basename(_p):
+                    print("      exists on disk under a DIFFERENT hash (hash shifted):", _rp)
+                    print("      reachable via alias:", _adir)
+                    print("      created by config:", _rel_recipe_name(_recipe_file_from_info(_rp)))
         raise SystemExit(
             "Refusing to continue: uncreated active train jobs (possible hash mismatch or unknown work dir)."
         )
@@ -314,13 +324,7 @@ def main():
             sz = _model_ckpt_size(fn)
             cov_size["skipped_diff_recipe"] += sz
             cov_count["skipped_diff_recipe"] += 1
-            if recipe_file is None:
-                rec_name = "(unknown recipe)"
-            elif "/recipe/" in recipe_file:
-                # show the path within the recipe/ root, e.g. i6_experiments/users/dorian_koch/misc/timing.py
-                rec_name = recipe_file.split("/recipe/", 1)[1]
-            else:
-                rec_name = recipe_file
+            rec_name = _rel_recipe_name(recipe_file)
             diff_recipe_size[rec_name] = diff_recipe_size.get(rec_name, 0) + sz
             print("Skipping (created by a different config):", rec_name, "->", basename)
             continue
@@ -557,6 +561,34 @@ def _collect_other_work_roots(extra_work_dirs) -> list:
         if idx > 0:
             _add(os.path.realpath(p)[:idx])
     return roots
+
+
+def _rel_recipe_name(recipe_file: Optional[str]) -> str:
+    """
+    Recipe entry-point file as a path within the ``recipe/`` root,
+    e.g. ``i6_experiments/users/dorian_koch/misc/timing.py``,
+    or ``(unknown recipe)`` if it could not be determined.
+    """
+    if not recipe_file:
+        return "(unknown recipe)"
+    if "/recipe/" in recipe_file:
+        return recipe_file.split("/recipe/", 1)[1]
+    return recipe_file
+
+
+def _job_alias_dirs(job) -> list:
+    """
+    On-disk alias dir path(s) for a job, e.g. ``alias/2024-denoising-lm/error_correction_model/.../train``.
+    A hash shift leaves the alias pointing at the OLD-hash job dir,
+    so the alias is how we find a shifted job's real storage.
+    """
+    from sisyphus import gs
+
+    aliases = job.get_aliases()
+    if not aliases:
+        return []
+    prefixes = getattr(job, "_sis_alias_prefixes", None) or {""}
+    return [os.path.join(gs.ALIAS_DIR, prefix, a) for a in aliases for prefix in prefixes]
 
 
 def _recipe_file_from_info(job_dir: str) -> Optional[str]:
