@@ -62,6 +62,7 @@ def py():
         job = PackedVsPaddedBenchmarkJob(model="real", seq_lens=lens)
         tk.register_output(f"returnn/packed-bench-real-{lens_name}.json", job.out_results)
     py_aed_graphc()
+    py_aed_graphc_bench()
 
 
 class PackedVsPaddedBenchmarkJob(Job):
@@ -503,9 +504,12 @@ def py_aed_graphc():
     #   masks silently ignored -> convergence gap vs the padded baseline.
     # - v2: fixed capacity + all packed fallbacks eliminated (cross-att q-packing etc);
     #   __hash_version forces the new job while the reference keeps running.
+    # The v2 variant (cap 720_000, __hash_version 2, job erqk3HOebeeL) is removed from the graph:
+    # cancelled 2026-07-28 with a convergence regression (devtrain ce +18% rel at ep 26),
+    # to be redone after the root-cause fix
+    # (removal keeps the manager from resubmitting the cancelled job).
     for name_suffix, time_cap, extra_cfg in [
         ("", 312_960, {}),
-        ("-v2", 720_000, {"__hash_version": 2}),
     ]:
         _py_aed_graphc_exp(name_suffix, time_cap, packed_total, extra_cfg)
 
@@ -552,3 +556,186 @@ def _py_aed_graphc_exp(name_suffix, time_cap, packed_total, extra_cfg):
         train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
         dataset_train_opts={"train_epoch_split": 1},
     )
+
+
+def py_aed_graphc_bench():
+    """
+    Realistic per-mode train-step benchmark + numerical parity check
+    on the graphc-v2 training config.
+    """
+    # The config file is referenced by absolute path, not via the training job output:
+    # the check must run against the exact config of the already-running v2 job,
+    # without pulling that job into the dependency graph.
+    v2_config = tk.Path(
+        "/home/az668407/setups/combined/2021-05-31/work/i6_core/returnn/training"
+        "/ReturnnTrainingJob.erqk3HOebeeL/output/returnn.config"
+    )
+    for mode in ["padded_eager", "packed_eager", "packed_compiled", "packed_graphc"]:
+        job = TrainStepBenchmarkJob(returnn_config_file=v2_config, mode=mode)
+        tk.register_output(f"returnn/aed-graphc-train-bench-{mode}.json", job.out_results)
+        # specaugment forced on from step 0:
+        # the static-traceable specaugment num-masks path was the convergence-regression cause
+        # (capacity-scaled masking);
+        # the normal schedule keeps specaugment off within the 300 bench steps,
+        # so these variants are the ones that verify the fix (all modes must match)
+        job = TrainStepBenchmarkJob(
+            returnn_config_file=v2_config, mode=mode, config_overrides={"specaugment_steps": (0, 0, 0)}
+        )
+        tk.register_output(f"returnn/aed-graphc-train-bench-{mode}-specaugOn.json", job.out_results)
+
+
+class TrainStepBenchmarkJob(Job):
+    """
+    Run a real training config for a bounded number of train steps in one mode
+    (``padded_eager`` / ``packed_eager`` / ``packed_compiled`` / ``packed_graphc``),
+    on the real train dataset,
+    and parse the per-step train losses and sec/step from the log.
+
+    Fixed random seed and identical data order across modes:
+    the per-step losses of two modes must match up to bf16 noise,
+    so diffing these outputs is a numerical parity check
+    of the packed / compiled / graph-captured train step.
+    The sec/step stats give the realistic speed comparison.
+
+    The curriculum (``epoch_wise_filter``) is stripped:
+    it would keep long seqs out of the first epoch,
+    and the interesting behavior (capacity bounds, packing) needs them.
+    """
+
+    __sis_hash_exclude__ = {"config_overrides": None}
+
+    def __init__(
+        self,
+        *,
+        returnn_config_file: tk.Path,
+        mode: str,
+        num_steps: int = 300,
+        random_seed: int = 42,
+        config_overrides: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        :param returnn_config_file: serialized RETURNN config of a training job
+        :param mode: "padded_eager", "packed_eager", "packed_compiled" or "packed_graphc"
+        :param num_steps: stop (kill) the training once this many train steps are logged
+        :param random_seed: fixed seed, same across modes
+        :param config_overrides: appended (repr) after the mode overrides,
+            e.g. ``{"specaugment_steps": (0, 0, 0)}`` to force the specaugment schedule on from step 0
+        """
+        assert mode in ("padded_eager", "packed_eager", "packed_compiled", "packed_graphc")
+        self.returnn_config_file = returnn_config_file
+        self.mode = mode
+        self.num_steps = num_steps
+        self.random_seed = random_seed
+        self.config_overrides = config_overrides
+        self.rqmt = {"gpu": 1, "cpu": 24, "mem": 100, "time": 2}
+        self.out_results = self.output_path("results.json")
+        self.out_log = self.output_path("returnn.log")
+
+    def tasks(self):
+        """tasks"""
+        yield Task("run", rqmt=self.rqmt)
+
+    _mode_overrides = {
+        "padded_eager": "packed_tensors = None\ntorch_cuda_graph = None\n",
+        "packed_eager": "torch_cuda_graph = None\n",
+        "packed_compiled": "torch_cuda_graph = dict(torch_cuda_graph, capture=False, compile=True)\n",
+        "packed_graphc": "",
+    }
+
+    def run(self):
+        """run"""
+        import json
+        import os
+        import re
+        import subprocess
+        import sys
+        import time
+
+        import returnn
+        import i6_experiments
+
+        returnn_root = os.path.dirname(os.path.dirname(os.path.abspath(returnn.__file__)))
+        recipe_root = os.path.dirname(os.path.dirname(os.path.abspath(i6_experiments.__file__)))
+        with open(self.returnn_config_file.get_path(), "rt", encoding="utf-8") as f:
+            cfg = f.read()
+        work = os.path.abspath("train-work")
+        os.makedirs(work + "/models", exist_ok=True)
+        cfg += (
+            "\n\n# ---- TrainStepBenchmarkJob overrides ----\n"
+            f"model = {work + '/models/epoch'!r}\n"
+            f"learning_rate_file = {work + '/learning_rates'!r}\n"
+            "use_train_proc_manager = False\n"
+            f"random_seed = {self.random_seed}\n"
+            + self._mode_overrides[self.mode]
+            + "".join(f"{k} = {v!r}\n" for k, v in (self.config_overrides or {}).items())
+            + "def _strip_epoch_wise_filter(d):\n"
+            "    if isinstance(d, dict):\n"
+            "        d.pop('epoch_wise_filter', None)\n"
+            "        for v in d.values():\n"
+            "            _strip_epoch_wise_filter(v)\n"
+            "    elif isinstance(d, (list, tuple)):\n"
+            "        for v in d:\n"
+            "            _strip_epoch_wise_filter(v)\n"
+            "\n"
+            "_strip_epoch_wise_filter(train)\n"
+        )
+        cfg_path = work + "/returnn.config"
+        with open(cfg_path, "wt", encoding="utf-8") as f:
+            f.write(cfg)
+        log_path = self.out_log.get_path()
+        env = dict(os.environ)
+        env["PYTHONPATH"] = ":".join(p for p in [recipe_root, env.get("PYTHONPATH")] if p)
+
+        with open(log_path, "wt", encoding="utf-8") as logf:
+            proc = subprocess.Popen(
+                [sys.executable, returnn_root + "/rnn.py", cfg_path],
+                stdout=logf,
+                stderr=subprocess.STDOUT,
+                cwd=work,
+                env=env,
+            )
+            # leave slack before the slurm time limit so parsing + output still happen
+            deadline = time.monotonic() + self.rqmt["time"] * 3600 - 900
+            while proc.poll() is None:
+                time.sleep(10)
+                with open(log_path, "rt", encoding="utf-8", errors="replace") as f:
+                    n_steps_logged = sum(1 for line in f if re.search(r"ep \d+ train, step \d+,", line))
+                if n_steps_logged >= self.num_steps or time.monotonic() > deadline:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=60)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                    break
+
+        step_re = re.compile(r"ep \d+ train, step (\d+), (.*?), mem_usage:cuda [0-9.]+GB(?:, ([0-9.]+) sec/step)?")
+        steps = []
+        with open(log_path, "rt", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                m = step_re.search(line)
+                if not m:
+                    continue
+                losses = {}
+                for part in m.group(2).split(", "):
+                    name, _, value = part.rpartition(" ")
+                    try:
+                        losses[name] = float(value)
+                    except ValueError:
+                        pass
+                steps.append(
+                    {
+                        "step": int(m.group(1)),
+                        "losses": losses,
+                        "sec_per_step": float(m.group(3)) if m.group(3) else None,
+                    }
+                )
+        assert steps, f"no train steps parsed from {log_path}"
+        times = sorted(s["sec_per_step"] for s in steps if s["sec_per_step"] is not None and s["step"] >= 5)
+        res = {
+            "mode": self.mode,
+            "num_steps_parsed": len(steps),
+            "median_sec_per_step": times[len(times) // 2] if times else None,
+            "steps": steps,
+        }
+        with open(self.out_results.get_path(), "wt", encoding="utf-8") as f:
+            json.dump(res, f, indent=1)
