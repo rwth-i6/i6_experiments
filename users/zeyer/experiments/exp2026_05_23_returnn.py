@@ -489,6 +489,29 @@ def py_aed_graphc():
     """
     The graphc AED training.
     """
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs import _batch_size_factor
+
+    # the batch size bounds the packed content; add the per-seq gap/align slack, aligned.
+    # (the default regap bound -- every seq at full audio capacity -- would nearly double
+    # the packed frame count, and the encoder activations scale with it -> OOM on the 80GB c25g GPUs)
+    packed_total = 200_000 * _batch_size_factor + 200 * (_aed_graphc_packed_gap + _aed_graphc_packed_align)
+    packed_total = -(-packed_total // _aed_graphc_packed_align) * _aed_graphc_packed_align
+    # data time capacity (samples, multiple of 960):
+    # - first run (kept as reference): 312960, from the benchmark's synthetic distribution.
+    #   TOO SMALL: LS train max ~475k samples, speed pert rate 0.7 stretches by 1/0.7 -> ~680k;
+    #   from epoch 6 the curriculum admits full-length seqs, whose tails the capacity-sized
+    #   masks silently ignored -> convergence gap vs the padded baseline.
+    # - v2: fixed capacity + all packed fallbacks eliminated (cross-att q-packing etc);
+    #   __hash_version forces the new job while the reference keeps running.
+    for name_suffix, time_cap, extra_cfg in [
+        ("", 312_960, {}),
+        ("-v2", 720_000, {"__hash_version": 2}),
+    ]:
+        _py_aed_graphc_exp(name_suffix, time_cap, packed_total, extra_cfg)
+
+
+def _py_aed_graphc_exp(name_suffix, time_cap, packed_total, extra_cfg):
+    """one graphc AED training variant, see :func:`py_aed_graphc`"""
     from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs import (
         config_96gb_bf16_accgrad1,
@@ -497,22 +520,15 @@ def py_aed_graphc():
     )
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import train_exp as aed_train_exp
 
-    # time capacity: max audio len in samples after speed perturbation (x1.1), aligned;
-    # same value as the benchmark (>= real max, multiple of align)
-    time_cap = 312_960
-    # the batch size bounds the packed content; add the per-seq gap/align slack, aligned.
-    # (the default regap bound -- every seq at full audio capacity -- would nearly double
-    # the packed frame count, and the encoder activations scale with it -> OOM on the 80GB c25g GPUs)
-    packed_total = 200_000 * _batch_size_factor + 200 * (_aed_graphc_packed_gap + _aed_graphc_packed_align)
-    packed_total = -(-packed_total // _aed_graphc_packed_align) * _aed_graphc_packed_align
     aed_train_exp(
-        "96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-speedpertV2-spm10k-spmSample07-graphc",
+        f"96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-speedpertV2-spm10k-spmSample07-graphc{name_suffix}",
         config_96gb_bf16_accgrad1,
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100, batch_size_factor=_batch_size_factor),
             "optimizer.weight_decay": 1e-2,
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            **extra_cfg,
             "optimizer.capturable": True,
             # audio packed in the collate (imported + regapped on device by the graph capture),
             # targets stay padded (aed_training consumes them padded)
