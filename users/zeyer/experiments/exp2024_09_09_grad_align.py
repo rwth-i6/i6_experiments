@@ -1221,7 +1221,12 @@ class CalcAlignmentMetrics(Job):
             # assert (
             #     abs(align_dur - duration_sec) < 0.0301
             # ), f"align duration {align_dur} vs duration {duration_sec}, diff {abs(align_dur - duration_sec)}"
-            assert last_frame_start <= duration_sec <= align_dur + 0.0301
+            # Tolerance scales with the downsampling factor:
+            # at factor f each alignment frame spans f*10ms,
+            # so the framed alignment can undershoot the true audio duration
+            # by up to ~one downsampled frame (ceil-div rounding).
+            # The old fixed 0.0301 (~3*10ms) was too tight for f>6 (e.g. ds10).
+            assert last_frame_start <= duration_sec <= align_dur + step_len * self.ref_alignment_len_factor + 0.0301
 
             cur_word_start_frame = None
             word_boundaries: List[Tuple[float, float]] = []
