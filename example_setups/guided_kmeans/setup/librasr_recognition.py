@@ -204,6 +204,14 @@ def get_lm_config(lm_path, scale=3.0) -> RasrConfig:
 
     return config
 
+
+def get_cheating_lm_config() -> RasrConfig:
+    config = RasrConfig()
+    # config.scale = scale
+    config.type = "cheating-segment"
+
+    return config
+
 def get_label_scorer_config(emission_scale = 1.0, transition_scale = 0.5, loop_probability = 0.5, silence_loop_probability = 0.75) -> RasrConfig:
     config = RasrConfig()
     config.type = "combine"
@@ -239,7 +247,7 @@ class RecogConfig:
     loop_probability: float = 0.1
     silence_loop_probability: float = 0.1
     max_beam_size: int = 100_000
-    lm_path: str | tk.Path = None
+    lm_path: str | tk.Path | None = None
 
 def create_recog_rasr_config(
     lm_scale=3.0,
@@ -254,6 +262,8 @@ def create_recog_rasr_config(
     use_tree_search=False,
     use_forward_backward_search=False,
     rasr_binary_path=None,
+    corpus=None,
+    cheating=False,
 ):
     if transition_scale is None:
         transition_scale = lm_scale
@@ -262,6 +272,17 @@ def create_recog_rasr_config(
         lm_path = phonetic_eow_lm_dict[lm_order]
     else:
         lm_path = phonetic_lm_dict[lm_order]
+
+    lm_config=get_lm_config(lm_path, lm_scale)
+    if cheating:
+        assert corpus is not None
+        lm_config = RasrConfig()
+        lm_config.type = "cheating-segment"
+
+    corpus_config = None
+    if corpus is not None:
+        corpus_config = RasrConfig()
+        corpus_config.file = corpus
 
     if use_tree_search:
         recog_config = get_tree_timesync_recog_config(
@@ -273,7 +294,7 @@ def create_recog_rasr_config(
                 loop_probability=loop_probability,
                 silence_loop_probability=silence_loop_probability
             ),
-            lm_config=get_lm_config(lm_path, lm_scale),
+            lm_config=lm_config,
             blank_index=0,
             max_beam_size=max_beam_size,
             intermediate_max_beam_size=None,
@@ -312,13 +333,14 @@ def create_recog_rasr_config(
                 loop_probability=loop_probability,
                 silence_loop_probability=silence_loop_probability
             ),
-            lm_config=get_lm_config(lm_path, lm_scale),
+            lm_config=lm_config,
             blank_index=0,
             max_beam_size=max_beam_size,
             score_threshold=score_threshold,
             log_statistics=False,
             log_stepwise_statistics=False,
             rasr_binary_path=rasr_binary_path,
+            corpus_config=corpus_config,
         )
     return recog_config
 

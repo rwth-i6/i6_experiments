@@ -8,7 +8,7 @@ from scipy.spatial.distance import cdist
 
 from .util import PoolingRegistry
 from .model import GaussianModelNumpy
-from .parallel_recognizer import ParallelSegmentRecognizer, expand_traceback
+from .parallel_recognizer import ParallelSegmentRecognizer, PlainTracebackItem, expand_traceback
 
 from returnn.forward_iface import ForwardCallbackIface
 from returnn.tensor.tensor_dict import TensorDict
@@ -49,7 +49,8 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
 
         self.exclude_lemmata = exclude_lemmata
 
-        self.hyp_buffer = []
+        self.hyp_buffer: list[str] = []
+        self.frame_label_entries: list[dict] | None = [] if write_frame_labels else None
 
         # When True, finish() expands the per-phoneme traceback to per-frame labels
         # (using expand_traceback) and writes them to frame_labels.jsonl. The hypothesis
@@ -69,7 +70,18 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
         if not self.gaussian_model:
             self.centroids = self.load_centroids()
 
-        self.recognizer.start()
+        self.recognizer.start(on_result=self._on_recognition_result)
+
+    def _on_recognition_result(self, seq_tag: str, items: list[PlainTracebackItem]) -> None:
+        if self.verbosity >= 2:
+            print(f"Finished sequence {seq_tag}.")
+        if self.frame_label_entries is not None:
+            self.frame_label_entries.append({
+                "seq_tag": seq_tag,
+                "frames": [item.lemma for item in expand_traceback(items)],
+            })
+        hyp = " ".join(filter(lambda lem: lem not in self.exclude_lemmata, (item.lemma for item in items)))
+        self.hyp_buffer.append(f"{seq_tag}\t{hyp}")
 
     def load_centroids(self) -> bool:
         """
@@ -122,34 +134,18 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
         self.recognizer.submit(seq_tag, scaled_distances)
 
     def finish(self):
-        """Collect all pending recognitions and write the hypothesis file."""
+        """Wait for all pending recognitions to be applied, then write the hypothesis file."""
         import json
 
-        results = self.recognizer.drain()
-
-        frame_label_entries = [] if self.write_frame_labels else None
-
-        for seq_tag, items in results:
-            if self.verbosity >= 2:
-                print(f"Finished sequence {seq_tag}.")
-
-            if self.write_frame_labels:
-                frame_label_entries.append({
-                    "seq_tag": seq_tag,
-                    "frames": [item.lemma for item in expand_traceback(items)],
-                })
-
-            hyp = " ".join(filter(lambda lem: lem not in self.exclude_lemmata, (item.lemma for item in items)))
-            self.hyp_buffer.append((seq_tag, hyp))
-
+        self.recognizer.drain()
         self.recognizer.shutdown()
 
         print(f"[TIMING] total (init->finish): {time.time() - self._t_init:.3f}s", flush=True)
 
         with open("hyp.txt", "w+") as fp:
-            fp.write("\n".join(f"{tag}\t{hyp}" for tag, hyp in self.hyp_buffer))
+            fp.write("\n".join(self.hyp_buffer))
 
-        if frame_label_entries is not None:
+        if self.frame_label_entries is not None:
             with open("frame_labels.jsonl", "w+") as fp:
-                for entry in frame_label_entries:
+                for entry in self.frame_label_entries:
                     fp.write(json.dumps(entry) + "\n")
