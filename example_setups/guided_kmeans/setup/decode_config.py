@@ -63,6 +63,7 @@ def get_callback_config(
     rasr_path: str | None = None,
     cov_path: tk.Path | None = None,
     num_workers: int = 7,
+    legacy_hash_num_workers: bool = False,
 ) -> ReturnnConfig:
     serializer_objs = []
 
@@ -81,8 +82,12 @@ def get_callback_config(
         "pooling_function": pooling_function,
         "verbosity": verbosity,
         "exclude_lemmata": exclude_lemmata,
-        "num_workers": num_workers,
     }
+    unhashed_args = {}
+    if legacy_hash_num_workers:
+        arguments["num_workers"] = num_workers
+    else:
+        unhashed_args["num_workers"] = num_workers
 
     if cov_path is not None:
         serializer_objs.append(build_gaussian_model_object(centroids, cov_path))
@@ -95,7 +100,7 @@ def get_callback_config(
         code_object_path=ClusteringDecodeCallback,
         unhashed_package_root=None,
         hashed_arguments=arguments,
-        unhashed_arguments={},
+        unhashed_arguments=unhashed_args,
         import_as="forward_callback"
     )
     serializer_objs.append(clustering_callback)
@@ -115,6 +120,10 @@ class DecodeConfig:
     covs: tk.Path | None = None
     verbosity: int = 1
     num_workers: int = 7
+    # Set this for pre-existing experiments to keep num_workers part of the job hash,
+    # reproducing the hash they had before num_workers became unhashed. Do not set it
+    # in new configs.
+    legacy_hash_num_workers: bool = False
 
 @dataclass
 class DecodeResult:
@@ -128,6 +137,7 @@ def _decode(
     returnn_python_exe: tk.Path | None = None,
     returnn_root: tk.Path | None = None,
     precomputed: bool = False,
+    device: str = "gpu",
 ):
     if returnn_python_exe is None:
         returnn_python_exe = tools.RETURNN_PYTHON_EXE
@@ -146,6 +156,7 @@ def _decode(
         rasr_path=rasr_path,
         cov_path=config.covs,
         num_workers=config.num_workers,
+        legacy_hash_num_workers=config.legacy_hash_num_workers,
     )
 
     returnn_config = ReturnnConfig({})
@@ -162,8 +173,10 @@ def _decode(
         returnn_root=returnn_root,
         output_files=[hyp_file],
         cpu_rqmt=config.num_workers + 1,
+        device=device
     )
-    fwd_job.rqmt["gpu_mem"] = 24
+    if device == "gpu":
+        fwd_job.rqmt["gpu_mem"] = 24
 
     out_hyp = fwd_job.out_files[hyp_file]
 
@@ -180,6 +193,7 @@ def decode_and_score(
     rasr_path: tk.Path | None = None,
     returnn_python_exe: tk.Path | None = None,
     returnn_root: tk.Path | None = None,
+    device: str = "gpu",
 ) -> DecodeRecogResult:
     # setup corpus
     corpus_name_key = corpus_name
@@ -212,7 +226,8 @@ def decode_and_score(
         rasr_path,
         returnn_python_exe,
         returnn_root,
-        precomputed=dataset_config.precomputed
+        precomputed=dataset_config.precomputed,
+        device=device,
     )
 
     score_job = JiwerScoringJob(ref_file, decode_res.hyp)

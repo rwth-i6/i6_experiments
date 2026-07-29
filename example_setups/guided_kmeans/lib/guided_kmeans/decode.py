@@ -8,7 +8,7 @@ from scipy.spatial.distance import cdist
 
 from .util import PoolingRegistry
 from .model import GaussianModelNumpy
-from .parallel_recognizer import ParallelSegmentRecognizer
+from .parallel_recognizer import ParallelSegmentRecognizer, PlainTracebackItem
 
 from returnn.forward_iface import ForwardCallbackIface
 from returnn.tensor.tensor_dict import TensorDict
@@ -63,7 +63,13 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
         if not self.gaussian_model:
             self.centroids = self.load_centroids()
 
-        self.recognizer.start()
+        self.recognizer.start(on_result=self._on_recognition_result)
+
+    def _on_recognition_result(self, seq_tag: str, items: list[PlainTracebackItem]) -> None:
+        if self.verbosity >= 2:
+            print(f"Finished sequence {seq_tag}.")
+        hyp = " ".join(filter(lambda lem: lem not in self.exclude_lemmata, (item.lemma for item in items)))
+        self.hyp_buffer.append(f"{seq_tag}\t{hyp}")
 
     def load_centroids(self) -> bool:
         """
@@ -116,15 +122,8 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
         self.recognizer.submit(seq_tag, scaled_distances)
 
     def finish(self):
-        """Collect all pending recognitions and write the hypothesis file."""
-        results = self.recognizer.drain()
-
-        for seq_tag, items in results:
-            if self.verbosity >= 2:
-                print(f"Finished sequence {seq_tag}.")
-            hyp = " ".join(filter(lambda lem: lem not in self.exclude_lemmata, (item.lemma for item in items)))
-            self.hyp_buffer.append(hyp)
-
+        """Wait for all pending recognitions to be applied, then write the hypothesis file."""
+        self.recognizer.drain()
         self.recognizer.shutdown()
 
         print(f"[TIMING] total (init->finish): {time.time() - self._t_init:.3f}s", flush=True)

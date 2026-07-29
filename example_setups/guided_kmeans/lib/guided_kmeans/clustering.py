@@ -901,7 +901,7 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
     
     def init(self, *, model: Optional[torch.nn.Module] = None):
         super().init(model=model)
-        self.recognizer.start()
+        self.recognizer.start(on_result=self._apply_recognition_result)
 
         self.traceback_repository = PlyvelTracebackRepository(self.traceback_write_chunk_size)
         # self.traceback_repository = SimpleDictRepository()
@@ -1063,8 +1063,12 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
     def _apply_recognition_result(self, seq_tag: str, traceback: List[PlainTracebackItem]):
         """
         Everything that used to run inline in process_seq() right after
-        self.search_algo.recognize_segment() returned, now applied once the
-        (asynchronously submitted) result is available - see _drain_recognition().
+        self.search_algo.recognize_segment() returned. Registered as the
+        recognizer's on_result callback (see init()), so this now runs
+        whenever a result becomes available - either as submit() drains the
+        oldest outstanding task to stay under its memory bound, or as
+        _drain_recognition() flushes whatever's left at a phase boundary -
+        rather than being buffered for an entire RECOGNITION phase.
         """
         self.statistics_logger.read_traceback(traceback)
 
@@ -1084,12 +1088,11 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
     def _drain_recognition(self):
         """
         Block until every recognition submitted since the last drain is
-        done, and apply results in submission order (some downstream state,
-        e.g. SampledTracebackPrinter's reservoir sample, is keyed on call
-        order, not completion order).
+        done and applied via _apply_recognition_result, in submission order
+        (some downstream state, e.g. SampledTracebackPrinter's reservoir
+        sample, is keyed on call order, not completion order).
         """
-        for seq_tag, traceback in self.recognizer.drain():
-            self._apply_recognition_result(seq_tag, traceback)
+        self.recognizer.drain()
 
     def process_seq(self, *, seq_tag: str, outputs: TensorDict, last_seq: bool = False):
         # processing happens in three phases:

@@ -33,26 +33,16 @@ def get_combine_label_scorer_config(sub_scorers: List[Tuple[RasrConfig, float]])
 
     return rasr_config
 
-def get_tree_timesync_recog_config(
+def _get_base_lib_rasr_config(
     lexicon_file: tk.Path,
-    collapse_repeated_labels: bool,
-    force_black_between_repeated_labels: bool = False,
-    label_scorer_config: Optional[RasrConfig] = None,
-    am_config: Optional[RasrConfig] = None,
-    lm_config: Optional[RasrConfig] = None,
-    blank_index: Optional[int] = None,
-    max_beam_size: int = 1024,
-    max_word_end_beam_size: Optional[int] = None,
-    intermediate_max_beam_size: Optional[int] = 1024,
-    score_threshold: Optional[float] = 18.0,
-    word_end_score_threshold: Optional[float] = None,
-    intermediate_score_threshold: Optional[float] = 18.0,
-    sentence_end_fallback: bool = True,
-    maximum_stable_delay: Optional[int] = None,
-    log_stepwise_statistics: bool = True,
-    logfile_suffix: str = "recog",
-    rasr_binary_path: tk.Path | None = None,
-) -> tk.Path:
+    search_algorithm_type: str,
+    label_scorer_config: Optional[RasrConfig],
+    am_config: Optional[RasrConfig],
+    lm_config: Optional[RasrConfig],
+    logfile_suffix: str,
+    rasr_binary_path: tk.Path | None,
+    corpus_config: Optional[RasrConfig] = None,
+) -> Tuple[RasrConfig, RasrConfig]:
     crp = CommonRasrParameters()
 
     # LibRASR does not have a channel manager so the settings from `crp_add_default_output` don't work
@@ -81,7 +71,7 @@ def get_tree_timesync_recog_config(
     rasr_config.lib_rasr.lexicon = RasrConfig()
 
     rasr_config.lib_rasr.search_algorithm = RasrConfig()
-    rasr_config.lib_rasr.search_algorithm.type = "tree-timesync-beam-search"
+    rasr_config.lib_rasr.search_algorithm.type = search_algorithm_type
 
     rasr_config.lib_rasr.lexicon.file = lexicon_file
 
@@ -100,6 +90,49 @@ def get_tree_timesync_recog_config(
             phon_future_length=0,
         )
     rasr_config.lib_rasr.acoustic_model = am_config
+
+    if corpus_config is not None:
+        rasr_config.lib_rasr.corpus = corpus_config
+
+    if label_scorer_config is not None:
+        rasr_config.lib_rasr.label_scorer = label_scorer_config
+    else:
+        rasr_config.lib_rasr.label_scorer = get_no_op_label_scorer_config()
+
+    return rasr_config, rasr_post_config
+
+
+def get_tree_timesync_recog_config(
+    lexicon_file: tk.Path,
+    collapse_repeated_labels: bool,
+    force_black_between_repeated_labels: bool = False,
+    label_scorer_config: Optional[RasrConfig] = None,
+    am_config: Optional[RasrConfig] = None,
+    lm_config: Optional[RasrConfig] = None,
+    corpus_config: Optional[RasrConfig] = None,
+    blank_index: Optional[int] = None,
+    max_beam_size: int = 1024,
+    max_word_end_beam_size: Optional[int] = None,
+    intermediate_max_beam_size: Optional[int] = 1024,
+    score_threshold: Optional[float] = 18.0,
+    word_end_score_threshold: Optional[float] = None,
+    intermediate_score_threshold: Optional[float] = 18.0,
+    sentence_end_fallback: bool = True,
+    maximum_stable_delay: Optional[int] = None,
+    log_stepwise_statistics: bool = True,
+    logfile_suffix: str = "recog",
+    rasr_binary_path: tk.Path | None = None,
+) -> tk.Path:
+    rasr_config, rasr_post_config = _get_base_lib_rasr_config(
+        lexicon_file=lexicon_file,
+        search_algorithm_type="tree-timesync-beam-search",
+        label_scorer_config=label_scorer_config,
+        am_config=am_config,
+        lm_config=lm_config,
+        logfile_suffix=logfile_suffix,
+        rasr_binary_path=rasr_binary_path,
+        corpus_config=corpus_config
+    )
 
     if collapse_repeated_labels:
         rasr_config.lib_rasr.search_algorithm.tree_builder_type = "ctc"
@@ -126,13 +159,9 @@ def get_tree_timesync_recog_config(
     if maximum_stable_delay is not None:
         rasr_config.lib_rasr.search_algorithm.maximum_stable_delay = maximum_stable_delay
 
-    if label_scorer_config is not None:
-        rasr_config.lib_rasr.label_scorer = label_scorer_config
-    else:
-        rasr_config.lib_rasr.label_scorer = get_no_op_label_scorer_config()
-
     recog_rasr_config_path = WriteRasrConfigJob(rasr_config, rasr_post_config).out_config
     return recog_rasr_config_path
+
 
 def get_linear_search_recog_config(
     lexicon_file: tk.Path,
@@ -147,54 +176,18 @@ def get_linear_search_recog_config(
     log_stepwise_statistics: bool = True,
     logfile_suffix: str = "recog",
     rasr_binary_path: tk.Path | None = None,
+    corpus_config: Optional[RasrConfig] = None,
 ) -> tk.Path:
-    crp = CommonRasrParameters()
-
-    # LibRASR does not have a channel manager so the settings from `crp_add_default_output` don't work
-    logfile_name = f"rasr.{logfile_suffix}.log"
-
-    log_config = RasrConfig()
-    log_config["*.log.channel"] = logfile_name
-    log_config["*.warning.channel"] = logfile_name
-    log_config["*.error.channel"] = logfile_name
-    log_config["*.statistics.channel"] = logfile_name
-    log_config["*.unbuffered"] = False
-
-    log_post_config = RasrConfig()
-    log_post_config["*.encoding"] = "UTF-8"
-    crp.log_config = log_config  # type: ignore
-    crp.log_post_config = log_post_config  # type: ignore
-    crp.default_log_channel = logfile_name
-
-    if rasr_binary_path:
-        crp.set_executables(rasr_binary_path=rasr_binary_path)
-
-    rasr_config, rasr_post_config = build_config_from_mapping(crp=crp, mapping={}, include_log_config=True)
-
-    rasr_config.lib_rasr = RasrConfig()
-
-    rasr_config.lib_rasr.lexicon = RasrConfig()
-
-    rasr_config.lib_rasr.search_algorithm = RasrConfig()
-    rasr_config.lib_rasr.search_algorithm.type = "ngram-linear-search"
-
-    rasr_config.lib_rasr.lexicon.file = lexicon_file
-
-    if lm_config is not None:
-        rasr_config.lib_rasr.lm = lm_config
-    else:
-        rasr_config.lib_rasr.lm = RasrConfig()
-        rasr_config.lib_rasr.lm.scale = 0.0
-
-    if am_config is None:
-        am_config = acoustic_model_config(
-            states_per_phone=1,
-            tdp_transition=TdpValues(loop=0.0, forward=0.0, skip="infinity", exit=0.0),
-            tdp_silence=TdpValues(loop=0.0, forward=0.0, skip="infinity", exit=0.0),
-            phon_history_length=0,
-            phon_future_length=0,
-        )
-    rasr_config.lib_rasr.acoustic_model = am_config
+    rasr_config, rasr_post_config = _get_base_lib_rasr_config(
+        lexicon_file=lexicon_file,
+        search_algorithm_type="ngram-linear-search",
+        label_scorer_config=label_scorer_config,
+        am_config=am_config,
+        lm_config=lm_config,
+        logfile_suffix=logfile_suffix,
+        rasr_binary_path=rasr_binary_path,
+        corpus_config=corpus_config
+    )
 
     if max_beam_size is not None:
         rasr_config.lib_rasr.search_algorithm.max_beam_size = max_beam_size
@@ -206,11 +199,6 @@ def get_linear_search_recog_config(
     rasr_config.lib_rasr.search_algorithm.collapse_repeated_labels = collapse_repeated_labels
     rasr_config.lib_rasr.search_algorithm.log_statistics = log_statistics
     rasr_config.lib_rasr.search_algorithm.log_stepwise_statistics = log_stepwise_statistics
-
-    if label_scorer_config is not None:
-        rasr_config.lib_rasr.label_scorer = label_scorer_config
-    else:
-        rasr_config.lib_rasr.label_scorer = get_no_op_label_scorer_config()
 
     recog_rasr_config_path = WriteRasrConfigJob(rasr_config, rasr_post_config).out_config
     return recog_rasr_config_path

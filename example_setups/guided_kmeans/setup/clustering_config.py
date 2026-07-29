@@ -67,6 +67,10 @@ class ClusteringCallbackConfig:
     num_seqs: int | DelayedBase | None = field(init=False, default=None)
     rasr_path: tk.Path | None = None
     num_workers: int = 7
+    # Set this for pre-existing experiments to keep num_workers part of the job hash,
+    # reproducing the hash they had before num_workers became unhashed. Do not set it
+    # in new configs.
+    legacy_hash_num_workers: bool = False
 
     def is_fully_specified(self) -> bool:
         return (
@@ -185,14 +189,18 @@ def get_clustering_call_config(
         "num_seqs": callback_config.num_seqs,
         "recognition_config": callback_config.recognition_config,
         "subsampling": callback_config.subsampling,
-        "num_workers": callback_config.num_workers,
         **callback_config.callback_opts
     }
+    unhashed_args = {}
+    if callback_config.legacy_hash_num_workers:
+        arguments["num_workers"] = callback_config.num_workers
+    else:
+        unhashed_args["num_workers"] = callback_config.num_workers
     clustering_callback = CallImport(
         code_object_path=GuidedKMeansClusteringCallback,
         unhashed_package_root=None,
         hashed_arguments=arguments,
-        unhashed_arguments={},
+        unhashed_arguments=unhashed_args,
         import_as="forward_callback"
     )
     serializer_objs.append(clustering_callback)
@@ -216,6 +224,7 @@ def clustering(
     log_verbosity: int = 5,
     hdf_path: str | tk.Path | list[str | tk.Path] | None = None,
     precomputed: bool = False,
+    device: str = "gpu",
 ) -> ClusteringExpResult:
     internal_num_epochs = num_epochs * 2 + 1
     # set defaults
@@ -253,6 +262,8 @@ def clustering(
     }
     statistics_file = "epoch_statistics.json"
 
+    num_cpus = cluster_callback_config.num_workers + 1
+
     fwd_job = ReturnnForwardJobV2(
         model_checkpoint=None,
         returnn_config=config,
@@ -264,10 +275,12 @@ def clustering(
         ],
         log_verbosity=log_verbosity,
         time_rqmt=168,
-        cpu_rqmt=cluster_callback_config.num_workers + 1,
+        device=device,
+        cpu_rqmt=num_cpus
     )
 
     fwd_job.rqmt["gpu_mem"] = 24
+    fwd_job.rqmt["mem"] = num_cpus * 4
 
     out_centroids = {
         epoch: fwd_job.out_files[filename] for epoch, filename in centroid_files.items()
