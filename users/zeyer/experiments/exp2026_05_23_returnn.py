@@ -522,7 +522,41 @@ def py_aed_graphc():
     ]:
         _py_aed_graphc_exp(name_suffix, time_cap, packed_total, extra_cfg)
     # same as v3 but with the decoder targets also packed, as a comparison
-    _py_aed_graphc_exp("-v3-pdec", 720_000, packed_total, {"__hash_version": 3}, packed_decoder=True)
+    pdec_exp = _py_aed_graphc_exp("-v3-pdec", 720_000, packed_total, {"__hash_version": 3}, packed_decoder=True)
+    # ep-2 NaN bisect (graphc replay NaN'd at ep 2 step 171, ctc exactly 0 + ce nan):
+    # rerun ep 2 from the ep-1 checkpoint in packed EAGER mode --
+    # NaN there too = data/model numerics, clean = captured-graph state bug
+    pdec_train_job = pdec_exp.get_training_job()
+    job = TrainStepBenchmarkJob(
+        returnn_config=pdec_train_job.returnn_config,
+        mode="packed_eager",
+        num_steps=2200,
+        load_checkpoint=pdec_train_job.out_checkpoints[1].path,
+        config_overrides={"num_epochs": 2},
+    )
+    tk.register_output("returnn/aed-graphc-v3-pdec-ep2-eager-bisect.json", job.out_results)
+    # eager: CLEAN through all 2015 ep-2 steps (2026-07-29) => replay-path bug.
+    # Stage 2: compiled WITHOUT capture -- splits traced-program vs capture/replay
+    job = TrainStepBenchmarkJob(
+        returnn_config=pdec_train_job.returnn_config,
+        mode="packed_compiled",
+        num_steps=2200,
+        load_checkpoint=pdec_train_job.out_checkpoints[1].path,
+        config_overrides={"num_epochs": 2},
+    )
+    tk.register_output("returnn/aed-graphc-v3-pdec-ep2-compiled-bisect.json", job.out_results)
+    # compiled-no-capture: SAME nan fingerprint at ep 2 step 4 (2026-07-29)
+    # => the bug is in the traced program, capture exonerated.
+    # Stage 3: rerun with the batch dump -- hands over the exact failing batch
+    # for offline eager-vs-compiled diffing
+    job = TrainStepBenchmarkJob(
+        returnn_config=pdec_train_job.returnn_config,
+        mode="packed_compiled_nandump",
+        num_steps=2200,
+        load_checkpoint=pdec_train_job.out_checkpoints[1].path,
+        config_overrides={"num_epochs": 2},
+    )
+    tk.register_output("returnn/aed-graphc-v3-pdec-ep2-compiled-nandump.json", job.out_results)
 
 
 def _py_aed_graphc_exp(name_suffix, time_cap, packed_total, extra_cfg, *, packed_decoder=False):
@@ -555,7 +589,7 @@ def _py_aed_graphc_exp(name_suffix, time_cap, packed_total, extra_cfg, *, packed
         classes_packed_opts = {"packed": False}
         packed_total_bound = {"data": packed_total}
 
-    aed_train_exp(
+    return aed_train_exp(
         f"96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-speedpertV2-spm10k-spmSample07-graphc{name_suffix}",
         config_96gb_bf16_accgrad1,
         config_updates={
@@ -672,6 +706,10 @@ def py_aed_graphc_loquacious():
                 # so bound-sized activations do NOT dominate the ~78GB compile-run peak;
                 # the snapshot (dumped on OOM) names every allocation at the peak
                 "dump_memory_snapshot": True,
+                # the aten-level FX dump names the producer of the surviving
+                # [text_bound, vocab] scatter (scatter_add_53/54 in the wrapper);
+                # the generated-code node names alone were ambiguous
+                "dump_fx_dir": "fx-dump",
             },
         },
     )
@@ -735,7 +773,12 @@ class TrainStepBenchmarkJob(Job):
     and the interesting behavior (capacity bounds, packing) needs them.
     """
 
-    __sis_hash_exclude__ = {"config_overrides": None, "returnn_config": None, "returnn_config_file": None}
+    __sis_hash_exclude__ = {
+        "config_overrides": None,
+        "returnn_config": None,
+        "returnn_config_file": None,
+        "load_checkpoint": None,
+    }
 
     def __init__(
         self,
@@ -746,6 +789,7 @@ class TrainStepBenchmarkJob(Job):
         num_steps: int = 300,
         random_seed: int = 42,
         config_overrides: Optional[Dict[str, Any]] = None,
+        load_checkpoint: Optional[tk.Path] = None,
     ):
         """
         :param returnn_config_file: serialized RETURNN config file of a training job (older jobs)
@@ -755,11 +799,13 @@ class TrainStepBenchmarkJob(Job):
         :param random_seed: fixed seed, same across modes
         :param config_overrides: appended (repr) after the mode overrides,
             e.g. ``{"specaugment_steps": (0, 0, 0)}`` to force the specaugment schedule on from step 0
+        :param load_checkpoint: init the params from this checkpoint (e.g. for ep-2 repro benches)
         """
-        assert mode in ("padded_eager", "packed_eager", "packed_compiled", "packed_graphc")
+        assert mode in ("padded_eager", "packed_eager", "packed_compiled", "packed_compiled_nandump", "packed_graphc")
         assert (returnn_config is None) != (returnn_config_file is None), "specify exactly one config source"
         self.returnn_config_file = returnn_config_file
         self.returnn_config = returnn_config
+        self.load_checkpoint = load_checkpoint
         self.mode = mode
         self.num_steps = num_steps
         self.random_seed = random_seed
@@ -776,6 +822,10 @@ class TrainStepBenchmarkJob(Job):
         "padded_eager": "packed_tensors = None\ntorch_cuda_graph = None\n",
         "packed_eager": "torch_cuda_graph = None\n",
         "packed_compiled": "torch_cuda_graph = dict(torch_cuda_graph, capture=False, compile=True)\n",
+        # like packed_compiled, but dumps the first non-finite step's batch (debug, see graph_capture)
+        "packed_compiled_nandump": (
+            "torch_cuda_graph = dict(torch_cuda_graph, capture=False, compile=True, debug_nan_dump_inputs=True)\n"
+        ),
         "packed_graphc": "",
     }
 
@@ -784,6 +834,7 @@ class TrainStepBenchmarkJob(Job):
         import json
         import os
         import re
+        import shutil
         import subprocess
         import sys
         import time
@@ -807,6 +858,27 @@ class TrainStepBenchmarkJob(Job):
                 cfg = f.read()
         work = os.path.abspath("train-work")
         os.makedirs(work + "/models", exist_ok=True)
+        if self.load_checkpoint is not None:
+            # continue-training repro: place the checkpoint (+ optimizer state) as epoch 1
+            # of the local model dir, so the engine natively resumes at epoch 2
+            # (a bare `load` makes the engine look for the optimizer state in the local dir)
+            src = self.load_checkpoint.get_path()
+            for src_path, link_name in [(src, "epoch.001.pt"), (src[: -len(".pt")] + ".opt.pt", "epoch.001.opt.pt")]:
+                link_path = work + "/models/" + link_name
+                if os.path.exists(src_path) and not os.path.exists(link_path):
+                    os.symlink(src_path, link_path)
+            # the resume also needs the epoch-1 entry of the learning_rates file
+            # (the engine refuses to resume with the last epoch's scores missing).
+            # COPY it (RETURNN rewrites the file every epoch -- a symlink would
+            # write into the source training job).
+            # A finished training has it in output/, a running one still in work/
+            job_dir = os.path.join(os.path.dirname(src), "..", "..")
+            dst_lr = work + "/learning_rates"
+            for sub in ["output", "work"]:
+                src_lr = os.path.join(job_dir, sub, "learning_rates")
+                if os.path.exists(src_lr) and not os.path.exists(dst_lr):
+                    shutil.copyfile(src_lr, dst_lr)
+                    break
         cfg += (
             "\n\n# ---- TrainStepBenchmarkJob overrides ----\n"
             f"model = {work + '/models/epoch'!r}\n"
