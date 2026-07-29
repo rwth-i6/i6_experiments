@@ -641,6 +641,34 @@ def py_aed_graphc_loquacious():
     for mode in ["packed_graphc", "padded_eager"]:
         job = TrainStepBenchmarkJob(returnn_config=cfg, mode=mode, num_steps=31)
         tk.register_output(f"returnn/loq-base-graphc-bench-{mode}.json", job.out_results)
+    # tighter-audio-gap variant, probing the fix for the 808MiB OOM
+    # (FastBaumWelchPackedOp CTC buffer at the bound [20667, 10241] f32):
+    # gap 18240 is LS-sized (within-batch length spread there),
+    # gap 960 shrinks the audio bound 19.84M -> 16.38M samples,
+    # i.e. -17% on every bound-sized encoder activation;
+    # the bench also shows whether a 1-frame gap breaks anything (losses / asserts)
+    job = TrainStepBenchmarkJob(
+        returnn_config=cfg,
+        mode="packed_graphc",
+        num_steps=31,
+        config_overrides={
+            "packed_tensors": {
+                "per_key": {
+                    "audio": {"gap": 960, "align": 960},
+                    "text": {"gap": 2, "align": 1},
+                }
+            },
+            "torch_cuda_graph": {
+                "batch_size_bound": 200,
+                "dim_capacity": {"audio": 312_960, "text": classes_cap},
+                "packed_total_bound": {"audio": 16_384_000, "text": 200 * (classes_cap + 2)},
+                "warmup_steps": 2,
+                "capture_optimizer": True,
+                "compile": True,
+            },
+        },
+    )
+    tk.register_output("returnn/loq-base-graphc-bench-packed_graphc-gap960.json", job.out_results)
 
 
 def _loq_batch_size_factor():
