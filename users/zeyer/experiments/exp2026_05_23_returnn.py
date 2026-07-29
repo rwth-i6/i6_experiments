@@ -604,9 +604,12 @@ def py_aed_graphc_loquacious():
     from i6_experiments.users.zeyer.experiments.exp2026_05_26_base_fzj import train as loq_train
 
     gap, align = _aed_graphc_packed_gap, _aed_graphc_packed_align
-    # measured on the extracted large-subset transcripts (9.49M seqs, spm10k SZcvHsG1gYNM):
-    # max 366, p99.99 = 128; 384 = max + headroom.
-    classes_cap = 384
+    # measured on the train shards (spm10k SZcvHsG1gYNM),
+    # CONDITIONED on the 19.5s audio filter (8.96M of 9.49M seqs pass):
+    # max 246, p99.99 = 86, p99 = 66
+    # (the unconditional max 366 has long audio and gets filtered out);
+    # 256 = conditional max + headroom.
+    classes_cap = 256
     packed_total = 100_000 * _loq_batch_size_factor() + 200 * (gap + align)
     packed_total = -(-packed_total // align) * align
     exp, _, _ = loq_train(
