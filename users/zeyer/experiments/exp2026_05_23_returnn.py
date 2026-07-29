@@ -665,6 +665,10 @@ def py_aed_graphc_loquacious():
                 "warmup_steps": 2,
                 "capture_optimizer": True,
                 "compile": True,
+                # the -17% audio bound moved the OOM margin only ~0.4GB,
+                # so bound-sized activations do NOT dominate the ~78GB compile-run peak;
+                # the snapshot (dumped on OOM) names every allocation at the peak
+                "dump_memory_snapshot": True,
             },
         },
     )
