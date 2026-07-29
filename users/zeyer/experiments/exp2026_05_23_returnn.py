@@ -34,6 +34,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional, Sequence, Union
 
 from sisyphus import Job, Task, tk
+from i6_core.returnn.config import ReturnnConfig
 
 
 _SEQ_LENS_PRESETS = {
@@ -63,6 +64,7 @@ def py():
         tk.register_output(f"returnn/packed-bench-real-{lens_name}.json", job.out_results)
     py_aed_graphc()
     py_aed_graphc_bench()
+    py_aed_graphc_loquacious()
 
 
 class PackedVsPaddedBenchmarkJob(Job):
@@ -498,21 +500,20 @@ def py_aed_graphc():
     packed_total = 200_000 * _batch_size_factor + 200 * (_aed_graphc_packed_gap + _aed_graphc_packed_align)
     packed_total = -(-packed_total // _aed_graphc_packed_align) * _aed_graphc_packed_align
     # data time capacity (samples, multiple of 960):
-    # - first run (kept as reference): 312960, from the benchmark's synthetic distribution.
+    # - first run: 312960, from the benchmark's synthetic distribution.
     #   TOO SMALL: LS train max ~475k samples, speed pert rate 0.7 stretches by 1/0.7 -> ~680k;
-    #   from epoch 6 the curriculum admits full-length seqs, whose tails the capacity-sized
-    #   masks silently ignored -> convergence gap vs the padded baseline.
+    #   from epoch 6 the curriculum admits full-length seqs,
+    #   whose tails the capacity-sized masks silently ignored
+    #   -> convergence gap vs the padded baseline.
     # - v2: fixed capacity + all packed fallbacks eliminated (cross-att q-packing etc);
     #   __hash_version forces the new job while the reference keeps running.
-    # The v2 variant (cap 720_000, __hash_version 2, job erqk3HOebeeL) is removed from the graph:
-    # cancelled 2026-07-28 with a convergence regression (devtrain ce +18% rel at ep 26),
-    # to be redone after the root-cause fix
-    # (removal keeps the manager from resubmitting the cancelled job).
-    # Earlier variants, removed from the graph (job dirs + banked scores stay on disk):
+    # Earlier variants, removed from the graph
+    # (job dirs + banked scores stay on disk; removal keeps the manager from resubmitting them):
     # - "" (cap 312_960, job lb68VaQEkEeC): reference; capacity too small (silent truncation),
     #   ended at ep 50 (deterministic NaN at ep 51); errored state would spam the manager
     #   and clearing it would resubmit.
-    # - "-v2" (cap 720_000, __hash_version 2, job erqk3HOebeeL): cancelled,
+    # - "-v2" (cap 720_000, __hash_version 2, job erqk3HOebeeL): cancelled 2026-07-28
+    #   (devtrain ce +18% rel at ep 26);
     #   SpecAugment num-masks scaled with the capacity under static tracing -> over-masked ~3.7x.
     for name_suffix, time_cap, extra_cfg in [
         # v3 = v2 config rerun after the SpecAugment fix;
@@ -520,10 +521,21 @@ def py_aed_graphc():
         ("-v3", 720_000, {"__hash_version": 3}),
     ]:
         _py_aed_graphc_exp(name_suffix, time_cap, packed_total, extra_cfg)
+    # same as v3 but with the decoder targets also packed, as a comparison
+    _py_aed_graphc_exp("-v3-pdec", 720_000, packed_total, {"__hash_version": 3}, packed_decoder=True)
 
 
-def _py_aed_graphc_exp(name_suffix, time_cap, packed_total, extra_cfg):
-    """one graphc AED training variant, see :func:`py_aed_graphc`"""
+def _py_aed_graphc_exp(name_suffix, time_cap, packed_total, extra_cfg, *, packed_decoder=False):
+    """
+    one graphc AED training variant, see :func:`py_aed_graphc`
+
+    :param name_suffix: appended to the experiment name
+    :param time_cap: dim capacity of the audio (data) time dim, in samples
+    :param packed_total: packed_total_bound of the audio
+    :param extra_cfg: extra config_updates
+    :param packed_decoder: pack the targets (classes) too,
+        with per-seq gap 2 for the BOS/EOS shifts
+    """
     from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs import (
         config_96gb_bf16_accgrad1,
@@ -531,6 +543,17 @@ def _py_aed_graphc_exp(name_suffix, time_cap, packed_total, extra_cfg):
         _batch_size_factor,
     )
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import train_exp as aed_train_exp
+
+    if packed_decoder:
+        # gap 2 = per-seq slack for the BOS/EOS shifts (packed left/right pad)
+        classes_packed_opts = {"gap": 2, "align": 1}
+        packed_total_bound = {"data": packed_total, "classes": 200 * (_aed_graphc_classes_capacity + 2)}
+    else:
+        # targets stay padded:
+        # v3 was launched before the packed decoder existed;
+        # any change here would rehash and restart the running convergence validation
+        classes_packed_opts = {"packed": False}
+        packed_total_bound = {"data": packed_total}
 
     aed_train_exp(
         f"96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-speedpertV2-spm10k-spmSample07-graphc{name_suffix}",
@@ -542,18 +565,17 @@ def _py_aed_graphc_exp(name_suffix, time_cap, packed_total, extra_cfg):
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
             **extra_cfg,
             "optimizer.capturable": True,
-            # audio packed in the collate (imported + regapped on device by the graph capture),
-            # targets stay padded (aed_training consumes them padded)
+            # audio packed in the collate (imported + regapped on device by the graph capture)
             "packed_tensors": {
                 "per_key": {
                     "data": {"gap": _aed_graphc_packed_gap, "align": _aed_graphc_packed_align},
-                    "classes": {"packed": False},
+                    "classes": classes_packed_opts,
                 }
             },
             "torch_cuda_graph": {
                 "batch_size_bound": 200,  # == max_seqs
                 "dim_capacity": {"data": time_cap, "classes": _aed_graphc_classes_capacity},
-                "packed_total_bound": {"data": packed_total},
+                "packed_total_bound": packed_total_bound,
                 "warmup_steps": 2,
                 "capture_optimizer": True,
                 "compile": True,
@@ -566,8 +588,6 @@ def _py_aed_graphc_exp(name_suffix, time_cap, packed_total, extra_cfg):
     )
 
 
-# DRAFT, not yet called from py() (launch pending user confirmation):
-# the real ~500M Loquacious baseline (exp2026_05_26_base_fzj "base") trained with graphc.
 def py_aed_graphc_loquacious():
     """
     Loquacious ~500M CTC+AED base (16L Conformer 1024d + 6L Transformer dec 1024d, spm10k),
@@ -577,40 +597,50 @@ def py_aed_graphc_loquacious():
     Capacity notes (vs the LS 160M runs):
     - data: max_seq_length_default_input = 19.5s = 312_000 samples, NO speed perturbation
       -> dim_capacity 312_960 (multiple of 960) is provably sufficient.
-    - classes: no target-len filter in this config; capacity MUST be taken from the
-      measured spm10k target-len max of the Loquacious large subset before launching
-      (a too-small value now raises in _copy_in, but then the training crashes).
+    - text: no target-len filter in this config,
+      so the capacity must cover the measured spm10k target-len max of the large subset
+      (a too-small value raises loudly in graph-capture _copy_in).
     """
     from i6_experiments.users.zeyer.experiments.exp2026_05_26_base_fzj import train as loq_train
 
     gap, align = _aed_graphc_packed_gap, _aed_graphc_packed_align
     # measured on the extracted large-subset transcripts (9.49M seqs, spm10k SZcvHsG1gYNM):
-    # max 366, p99.99 = 128; no target-len filter in the baseline config, so the capacity
-    # must cover the max (a longer seq raises loudly in graph-capture _copy_in). 384 = max + headroom.
+    # max 366, p99.99 = 128; 384 = max + headroom.
     classes_cap = 384
     packed_total = 100_000 * _loq_batch_size_factor() + 200 * (gap + align)
     packed_total = -(-packed_total // align) * align
-    loq_train(
+    exp, _, _ = loq_train(
         "base-graphc",
         {},
         config_overrides={
             "train.optimizer.capturable": True,
+            # NOTE: the Loquacious task uses extern-data keys "audio"/"text"
+            # (not "data"/"classes" like the LS baselines).
+            # Fully packed, INCLUDING the decoder targets;
+            # text gap 2 = per-seq slack for the BOS/EOS shifts (packed left/right pad)
             "train.packed_tensors": {
                 "per_key": {
-                    "data": {"gap": gap, "align": align},
-                    "classes": {"packed": False},
+                    "audio": {"gap": gap, "align": align},
+                    "text": {"gap": 2, "align": 1},
                 }
             },
             "train.torch_cuda_graph": {
                 "batch_size_bound": 200,
-                "dim_capacity": {"data": 312_960, "classes": classes_cap},
-                "packed_total_bound": {"data": packed_total},
+                "dim_capacity": {"audio": 312_960, "text": classes_cap},
+                "packed_total_bound": {"audio": packed_total, "text": 200 * (classes_cap + 2)},
                 "warmup_steps": 2,
                 "capture_optimizer": True,
                 "compile": True,
             },
         },
     )
+    # smoke/benchmark on the REAL experiment config (the ReturnnConfig object, proper hashing):
+    # 31 graphc steps = memory fit + NaN-fix verification before/alongside the training,
+    # padded_eager = the equal-hardware comparison cell
+    cfg = exp.get_training_job().returnn_config
+    for mode in ["packed_graphc", "padded_eager"]:
+        job = TrainStepBenchmarkJob(returnn_config=cfg, mode=mode, num_steps=31)
+        tk.register_output(f"returnn/loq-base-graphc-bench-{mode}.json", job.out_results)
 
 
 def _loq_batch_size_factor():
@@ -626,7 +656,7 @@ def py_aed_graphc_bench():
     on the graphc-v2 training config.
     """
     # The config file is referenced by absolute path, not via the training job output:
-    # the check must run against the exact config of the already-running v2 job,
+    # the checks (finished jobs) ran against the exact config of the then-running v2 job,
     # without pulling that job into the dependency graph.
     v2_config = tk.Path(
         "/home/az668407/setups/combined/2021-05-31/work/i6_core/returnn/training"
@@ -644,6 +674,12 @@ def py_aed_graphc_bench():
             returnn_config_file=v2_config, mode=mode, config_overrides={"specaugment_steps": (0, 0, 0)}
         )
         tk.register_output(f"returnn/aed-graphc-train-bench-{mode}-specaugOn.json", job.out_results)
+    # The Loquacious memory/NaN diagnostic jobs that used to be registered here
+    # (referencing a generated config file via a raw tk.Path -- wrong, never do that)
+    # are removed; their result evidence stays in the work dir and the project notes.
+    # The proper benchmark set for the Loquacious experiment
+    # gets wired via the ReturnnConfig object of the registered experiment
+    # (see py_aed_graphc_loquacious).
 
 
 class TrainStepBenchmarkJob(Job):
@@ -664,19 +700,21 @@ class TrainStepBenchmarkJob(Job):
     and the interesting behavior (capacity bounds, packing) needs them.
     """
 
-    __sis_hash_exclude__ = {"config_overrides": None}
+    __sis_hash_exclude__ = {"config_overrides": None, "returnn_config": None, "returnn_config_file": None}
 
     def __init__(
         self,
         *,
-        returnn_config_file: tk.Path,
+        returnn_config_file: Optional[tk.Path] = None,
+        returnn_config: Optional[ReturnnConfig] = None,
         mode: str,
         num_steps: int = 300,
         random_seed: int = 42,
         config_overrides: Optional[Dict[str, Any]] = None,
     ):
         """
-        :param returnn_config_file: serialized RETURNN config of a training job
+        :param returnn_config_file: serialized RETURNN config file of a training job (older jobs)
+        :param returnn_config: the config object (preferred; e.g. from the training job of an experiment)
         :param mode: "padded_eager", "packed_eager", "packed_compiled" or "packed_graphc"
         :param num_steps: stop (kill) the training once this many train steps are logged
         :param random_seed: fixed seed, same across modes
@@ -684,7 +722,9 @@ class TrainStepBenchmarkJob(Job):
             e.g. ``{"specaugment_steps": (0, 0, 0)}`` to force the specaugment schedule on from step 0
         """
         assert mode in ("padded_eager", "packed_eager", "packed_compiled", "packed_graphc")
+        assert (returnn_config is None) != (returnn_config_file is None), "specify exactly one config source"
         self.returnn_config_file = returnn_config_file
+        self.returnn_config = returnn_config
         self.mode = mode
         self.num_steps = num_steps
         self.random_seed = random_seed
@@ -718,8 +758,18 @@ class TrainStepBenchmarkJob(Job):
 
         returnn_root = os.path.dirname(os.path.dirname(os.path.abspath(returnn.__file__)))
         recipe_root = os.path.dirname(os.path.dirname(os.path.abspath(i6_experiments.__file__)))
-        with open(self.returnn_config_file.get_path(), "rt", encoding="utf-8") as f:
-            cfg = f.read()
+        if self.returnn_config is not None:
+            base_cfg_path = "returnn.base.config"
+            # no black formatting (cosmetic only):
+            # this runs on the GPU node, where the pickled black path is unavailable
+            # (c25g does not mount /work)
+            self.returnn_config.black_formatting = False
+            self.returnn_config.write(base_cfg_path)
+            with open(base_cfg_path, "rt", encoding="utf-8") as f:
+                cfg = f.read()
+        else:
+            with open(self.returnn_config_file.get_path(), "rt", encoding="utf-8") as f:
+                cfg = f.read()
         work = os.path.abspath("train-work")
         os.makedirs(work + "/models", exist_ok=True)
         cfg += (
@@ -747,6 +797,14 @@ class TrainStepBenchmarkJob(Job):
         log_path = self.out_log.get_path()
         env = dict(os.environ)
         env["PYTHONPATH"] = ":".join(p for p in [recipe_root, env.get("PYTHONPATH")] if p)
+        # like the real trainings (env_updates in the base configs);
+        # the phase transitions of graph capture (warmup / compile / capture)
+        # fragment badly without it
+        env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        # persistent Inductor cache:
+        # the generated kernels survive the job (node-local tmp does not),
+        # needed to map buffers in nan-assert failures to ops
+        env.setdefault("TORCHINDUCTOR_CACHE_DIR", work + "/inductor-cache")
 
         with open(log_path, "wt", encoding="utf-8") as logf:
             proc = subprocess.Popen(
@@ -791,7 +849,9 @@ class TrainStepBenchmarkJob(Job):
                         "sec_per_step": float(m.group(3)) if m.group(3) else None,
                     }
                 )
-        assert steps, f"no train steps parsed from {log_path}"
+        # a crashed run can still leave a few parsed steps (e.g. OOM after warmup);
+        # a deadline-killed healthy run has close to num_steps
+        assert len(steps) >= min(self.num_steps, 10), f"only {len(steps)} train steps parsed from {log_path}"
         times = sorted(s["sec_per_step"] for s in steps if s["sec_per_step"] is not None and s["step"] >= 5)
         res = {
             "mode": self.mode,
