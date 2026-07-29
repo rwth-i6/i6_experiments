@@ -555,8 +555,23 @@ def py_aed_graphc():
         num_steps=2200,
         load_checkpoint=pdec_train_job.out_checkpoints[1].path,
         config_overrides={"num_epochs": 2},
+        # v2: the first run finished without preserving the dump (train cwd cleaned) -- rerun
+        version=2,
     )
     tk.register_output("returnn/aed-graphc-v3-pdec-ep2-compiled-nandump.json", job.out_results)
+    # nandump verdict (2026-07-29): trap fired at compiled call 19, batch preserved;
+    # single-batch repro from the ep-1 ckpt is FINITE eager AND compiled (4 calls)
+    # => the batch alone does not trigger it; state/RNG-dependent
+    # (also the failing step varies across identical runs: step 4 vs 19).
+    # Stage 4: Inductor nan-asserts -- the first failing buffer assert names the op
+    job = TrainStepBenchmarkJob(
+        returnn_config=pdec_train_job.returnn_config,
+        mode="packed_compiled_nanassert",
+        num_steps=2200,
+        load_checkpoint=pdec_train_job.out_checkpoints[1].path,
+        config_overrides={"num_epochs": 2},
+    )
+    tk.register_output("returnn/aed-graphc-v3-pdec-ep2-compiled-nanassert.json", job.out_results)
 
 
 def _py_aed_graphc_exp(name_suffix, time_cap, packed_total, extra_cfg, *, packed_decoder=False):
@@ -778,6 +793,7 @@ class TrainStepBenchmarkJob(Job):
         "returnn_config": None,
         "returnn_config_file": None,
         "load_checkpoint": None,
+        "version": 1,
     }
 
     def __init__(
@@ -790,6 +806,7 @@ class TrainStepBenchmarkJob(Job):
         random_seed: int = 42,
         config_overrides: Optional[Dict[str, Any]] = None,
         load_checkpoint: Optional[tk.Path] = None,
+        version: int = 1,
     ):
         """
         :param returnn_config_file: serialized RETURNN config file of a training job (older jobs)
@@ -800,8 +817,16 @@ class TrainStepBenchmarkJob(Job):
         :param config_overrides: appended (repr) after the mode overrides,
             e.g. ``{"specaugment_steps": (0, 0, 0)}`` to force the specaugment schedule on from step 0
         :param load_checkpoint: init the params from this checkpoint (e.g. for ep-2 repro benches)
+        :param version: behavior version, bump to force a re-run (hash-neutral at the default)
         """
-        assert mode in ("padded_eager", "packed_eager", "packed_compiled", "packed_compiled_nandump", "packed_graphc")
+        assert mode in (
+            "padded_eager",
+            "packed_eager",
+            "packed_compiled",
+            "packed_compiled_nandump",
+            "packed_compiled_nanassert",
+            "packed_graphc",
+        )
         assert (returnn_config is None) != (returnn_config_file is None), "specify exactly one config source"
         self.returnn_config_file = returnn_config_file
         self.returnn_config = returnn_config
@@ -810,6 +835,7 @@ class TrainStepBenchmarkJob(Job):
         self.num_steps = num_steps
         self.random_seed = random_seed
         self.config_overrides = config_overrides
+        self.version = version
         self.rqmt = {"gpu": 1, "cpu": 24, "mem": 100, "time": 2}
         self.out_results = self.output_path("results.json")
         self.out_log = self.output_path("returnn.log")
@@ -826,11 +852,18 @@ class TrainStepBenchmarkJob(Job):
         "packed_compiled_nandump": (
             "torch_cuda_graph = dict(torch_cuda_graph, capture=False, compile=True, debug_nan_dump_inputs=True)\n"
         ),
+        # plus Inductor nan-asserts: the generated code checks every buffer,
+        # the first failing assert names the producing op
+        "packed_compiled_nanassert": (
+            "torch_cuda_graph = dict(torch_cuda_graph, capture=False, compile=True,"
+            " inductor_nan_asserts=True, debug_nan_dump_inputs=True)\n"
+        ),
         "packed_graphc": "",
     }
 
     def run(self):
         """run"""
+        import glob
         import json
         import os
         import re
@@ -934,6 +967,11 @@ class TrainStepBenchmarkJob(Job):
                     except subprocess.TimeoutExpired:
                         proc.kill()
                     break
+
+        # keep any nan-batch dumps (debug_nan_dump_inputs writes them into the train cwd,
+        # which sisyphus deletes once the job finishes)
+        for fn in glob.glob(os.path.join(work, "nan-step-inputs-*.pt")):
+            shutil.copy(fn, os.path.join(os.path.dirname(self.out_results.get_path()), os.path.basename(fn)))
 
         step_re = re.compile(r"ep \d+ train, step (\d+), (.*?), mem_usage:cuda [0-9.]+GB(?:, ([0-9.]+) sec/step)?")
         steps = []
