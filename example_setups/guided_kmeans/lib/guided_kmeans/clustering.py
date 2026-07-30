@@ -940,7 +940,6 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         )
         self.pool_for_init = pool_for_init
 
-        self.tracebacks = {}
         self.verbosity = verbosity
         self.lm_scale_schedule = lm_scale_schedule
         self.transition_scale_schedule = transition_scale_schedule
@@ -1248,7 +1247,6 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         ])
         idx_list = segments_to_array(segments).tolist()
         self.traceback_repository.store(seq_tag, idx_list)
-        self.tracebacks[seq_tag] = idx_list
         score = _traceback_to_score(traceback)
         self.score_updater.update_single(score)
 
@@ -1369,8 +1367,6 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
                 idx_list = self.traceback_repository.get(seq_tag)
             except KeyError:
                 print(f"{seq_tag=}")
-                print(f"{len(self.tracebacks)=}")
-                print(f"{self.tracebacks=}")
                 raise
             idx_array = np.array(idx_list)
             try:
