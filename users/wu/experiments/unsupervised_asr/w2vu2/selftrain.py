@@ -224,6 +224,64 @@ def _read_lines(path: str) -> List[str]:
         return [l.strip() for l in f if l.strip()]
 
 
+_HYPO_LINE_RE = re.compile(r"^(.*)\(None-(\d+)\)\s*$")
+
+
+def _parse_hypo_file(path: str, uids: List[str]) -> Dict[str, str]:
+    """infer's hypo file -> {uid: hyp string}, joined by the (None-<idx>) manifest row index.
+
+    `speech_recognition.new.infer` writes one line per utt, `"<tokens> (None-<sid>)"` where sid is
+    the 0-based row into the split .tsv -- the same order as the `.uid` file. The indices must be a
+    permutation of range(len(uids)): anything else means utts were dropped or duplicated and the
+    line-for-line join would silently mis-key hypotheses.
+    """
+    entries: Dict[int, str] = {}
+    with open(path) as f:
+        for line in f:
+            line = line.rstrip("\n")
+            m = _HYPO_LINE_RE.match(line)
+            assert m, f"unparseable hypo line in {path}: {line!r}"
+            idx = int(m.group(2))
+            assert idx not in entries, f"duplicate hypo index {idx} in {path}"
+            entries[idx] = m.group(1).strip()
+    missing = set(range(len(uids))) - set(entries)
+    extra = set(entries) - set(range(len(uids)))
+    assert not missing and not extra, (
+        f"{path}: {len(entries)} hyps vs {len(uids)} uids; "
+        f"missing idxs (first 5): {sorted(missing)[:5]}, out-of-range (first 5): {sorted(extra)[:5]}"
+    )
+    return {uids[i]: entries[i] for i in range(len(uids))}
+
+
+def _build_decode_data_dir(
+    *, audio_dir: str, dict_phn: str, gold_path: str, splits: Sequence[str], dest: str
+) -> Tuple[str, set]:
+    """Assemble a fairseq decode data dir; returns (data_dir, set of splits that have gold).
+
+    Per split: symlink the manifest and write `{split}.phn`. Splits present in the gold json get the
+    gold phones as references; gold-less splits (e.g. `train`) get a placeholder line (one arbitrary
+    in-dict phone per utt) -- the task needs *a* label file to load, but any "WER" computed against
+    the placeholder is meaningless and must not be recorded by the caller.
+    """
+    import json
+    import shutil
+
+    gold = json.load(open(gold_path))
+    os.makedirs(dest, exist_ok=True)
+    shutil.copyfile(dict_phn, os.path.join(dest, "dict.phn.txt"))
+    placeholder = _read_lines(dict_phn)[0].split()[0]  # first dict symbol, always in-vocab
+    for s in splits:
+        src_tsv = os.path.join(audio_dir, f"{s}.tsv")
+        link = os.path.join(dest, f"{s}.tsv")
+        if not os.path.lexists(link):
+            os.symlink(src_tsv, link)
+        uids = _read_lines(os.path.join(audio_dir, f"{s}.uid"))
+        with open(os.path.join(dest, f"{s}.phn"), "w") as p:
+            for uid in uids:
+                p.write((" ".join(gold[s][uid]) if s in gold else placeholder) + "\n")
+    return dest, set(gold) & set(splits)
+
+
 def _torch_unsafe_load_env() -> Dict[str, str]:
     """Env that lets torch 2.6 load a fairseq checkpoint again.
 
@@ -405,6 +463,10 @@ class Wav2Vec2CtcDecodeJob(Job):
     `common_eval.post_process=none` keeps phones space-separated so the reported "WER" is a phone
     error rate. References are the MFA gold phones; the dict is the fine-tune's own dict.phn.txt so the
     model's output indices line up.
+
+    Gold-less splits (e.g. `train`) are decoded against a placeholder label file: no PER is recorded
+    for them, they only contribute per-utt hypotheses. `hyps.json` = {split: {uid: "P1 P2 ..."}},
+    joined line-for-line via the `.uid` files with a permutation assert on the (None-<idx>) indices.
     """
 
     requires_env = "w2vu"
@@ -430,37 +492,26 @@ class Wav2Vec2CtcDecodeJob(Job):
         self.python_exe = python_exe
 
         self.out_per = self.output_path("per.json")
-        self.rqmt = {"gpu": 1, "gpu_mem": 40, "mem": 24, "time": 2, "cpu": 4}
+        self.out_hyps = self.output_path("hyps.json")
+        self.rqmt = {"gpu": 1, "gpu_mem": 40, "mem": 24, "time": 3, "cpu": 4}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
 
-    def _build_data_dir(self) -> str:
-        import json
-        import shutil
-
-        gold = json.load(open(self.gold.get_path()))
-        data = os.path.abspath("data")
-        os.makedirs(data, exist_ok=True)
-        shutil.copyfile(self.dict_phn.get_path(), os.path.join(data, "dict.phn.txt"))
-        for s in self.splits:
-            src_tsv = os.path.join(self.audio_dir.get_path(), f"{s}.tsv")
-            uids = _read_lines(os.path.join(self.audio_dir.get_path(), f"{s}.uid"))
-            os.symlink(src_tsv, os.path.join(data, f"{s}.tsv"))
-            with open(os.path.join(data, f"{s}.phn"), "w") as p:
-                for uid in uids:
-                    p.write(" ".join(gold[s][uid]) + "\n")
-        return data
+    def _build_data_dir(self) -> Tuple[str, set]:
+        return _build_decode_data_dir(
+            audio_dir=self.audio_dir.get_path(), dict_phn=self.dict_phn.get_path(),
+            gold_path=self.gold.get_path(), splits=self.splits, dest=os.path.abspath("data"))
 
     def run(self):
         assert_w2vu_env(self.python_exe)
         import json
 
         fs = _fairseq_dir(self.python_exe)
-        data = self._build_data_dir()
+        data, gold_splits = self._build_data_dir()
         conf = os.path.join(fs, "examples", "speech_recognition", "new", "conf")
 
-        pers = {}
+        pers, hyps = {}, {}
         for s in self.splits:
             resdir = os.path.abspath(f"decode_{s}")
             os.makedirs(resdir, exist_ok=True)
@@ -471,6 +522,7 @@ class Wav2Vec2CtcDecodeJob(Job):
                 "decoding.type=viterbi", "common_eval.post_process=none",
                 f"common_eval.path={self.checkpoint.get_path()}",
                 f"dataset.gen_subset={s}", f"dataset.max_tokens={self.max_tokens}",
+                "dataset.skip_invalid_size_inputs_valid_test=false",  # dropped utts would break the uid join
                 "distributed_training.distributed_world_size=1",
                 f"common_eval.results_path={resdir}", f"decoding.results_path={resdir}",
                 f"hydra.run.dir={resdir}",
@@ -478,10 +530,18 @@ class Wav2Vec2CtcDecodeJob(Job):
             print("RUN:", " ".join(args), flush=True)
             out = sp.check_output(args, stderr=sp.STDOUT, text=True, env=_torch_unsafe_load_env())
             print(out, flush=True)
-            m = re.findall(r"Word error rate:\s*([0-9.]+)", out)
-            assert m, f"no 'Word error rate:' in infer output for {s}"
-            pers[s] = float(m[-1]) / 100.0
+            if s in gold_splits:  # gold-less splits decode against a placeholder -> "WER" meaningless
+                m = re.findall(r"Word error rate:\s*([0-9.]+)", out)
+                assert m, f"no 'Word error rate:' in infer output for {s}"
+                pers[s] = float(m[-1]) / 100.0
+
+            uids = _read_lines(os.path.join(self.audio_dir.get_path(), f"{s}.uid"))
+            hyps[s] = _parse_hypo_file(os.path.join(resdir, "hypo.units"), uids)
+            n_empty = sum(1 for v in hyps[s].values() if not v)
+            print(f"{s}: {len(hyps[s])} hyps, {n_empty} empty", flush=True)
 
         with open(self.out_per.get_path(), "w") as f:
             json.dump(pers, f, indent=2)
+        with open(self.out_hyps.get_path(), "w") as f:
+            json.dump(hyps, f, indent=2)
         print("PER:", json.dumps(pers, indent=2), flush=True)
