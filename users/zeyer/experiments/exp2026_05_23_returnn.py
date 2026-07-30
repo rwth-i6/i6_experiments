@@ -712,7 +712,12 @@ def py_aed_graphc():
         # Fix: cu_q tail clamp + out-row zeroing + Q INPUT PRE-MASK (the where's backward
         # zeroes the uncovered dq rows whatever flash leaves in its internal buffer).
         # This run must go clean through the full ep 2.
-        version=6,
+        # v7: v6 STILL fired (same abs signature) -> the CAUSAL self-att slack:
+        # cu_seqlens padded its last entry to the BOUND (get_dim_value = capacity under
+        # static tracing), so the last segment attends the garbage slack rows.
+        # Root fix: cu total = real device lens sum; unified q/k/v slack pre-mask for
+        # causal AND cross att.
+        version=7,
     )
     tk.register_output("returnn/aed-graphc-v3-pdec-ep2-eager-bound-nantrace.json", job.out_results)
 
