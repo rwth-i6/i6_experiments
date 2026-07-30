@@ -717,9 +717,20 @@ def py_aed_graphc():
         # static tracing), so the last segment attends the garbage slack rows.
         # Root fix: cu total = real device lens sum; unified q/k/v slack pre-mask for
         # causal AND cross att.
+        # v7 VERDICT: CLEAN, all 2015 ep-2 steps (was: NaN within <300 every prior run).
         version=7,
     )
     tk.register_output("returnn/aed-graphc-v3-pdec-ep2-eager-bound-nantrace.json", job.out_results)
+    # Stage 22: the same fix validated in the PRODUCTION path (Inductor-compiled)
+    job = TrainStepBenchmarkJob(
+        returnn_config=pdec_train_job.returnn_config,
+        mode="packed_compiled_nandump",
+        num_steps=2200,
+        load_checkpoint=pdec_train_job.out_checkpoints[1].path,
+        config_overrides={"num_epochs": 2},
+        version=8,
+    )
+    tk.register_output("returnn/aed-graphc-v3-pdec-ep2-compiled-slackfix.json", job.out_results)
 
 
 def _py_aed_graphc_exp(name_suffix, time_cap, packed_total, extra_cfg, *, packed_decoder=False):
