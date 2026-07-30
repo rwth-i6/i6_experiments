@@ -570,8 +570,151 @@ def py_aed_graphc():
         num_steps=2200,
         load_checkpoint=pdec_train_job.out_checkpoints[1].path,
         config_overrides={"num_epochs": 2},
+        # v2: with the flash empty-row guard + zero-init in place,
+        # the next nan-assert names the first REMAINING non-finite buffer
+        # (iterate: guard benign masked-lane sources until the real call-19 producer is named)
+        version=2,
     )
     tk.register_output("returnn/aed-graphc-v3-pdec-ep2-compiled-nanassert.json", job.out_results)
+    # nanassert verdict (2026-07-30): fires on buf2058 = flash-varlen decoder self-att output,
+    # NaN rows for empty segments (fillers/gaps) = EXPECTED masked-lane NaN, false positive;
+    # zero-init did not change it (computed, not garbage).
+    # Stage 5: full nandump run WITH zero-init, WITHOUT asserts --
+    # ep-2 NaN gone = uninitialized reads; still there = a masked-lane NaN escapes a fusion
+    job = TrainStepBenchmarkJob(
+        returnn_config=pdec_train_job.returnn_config,
+        mode="packed_compiled_nandump_zeroinit",
+        num_steps=2200,
+        load_checkpoint=pdec_train_job.out_checkpoints[1].path,
+        config_overrides={"num_epochs": 2},
+    )
+    tk.register_output("returnn/aed-graphc-v3-pdec-ep2-compiled-nandump-zeroinit.json", job.out_results)
+    # zeroinit verdict (2026-07-30): NaN STILL at exactly call 19 -> deterministic, computed,
+    # not uninitialized reads. => masked-lane NaN escape (flash empty-row NaN x fusion).
+    # Stage 6: validate the source guard (nan_to_num on the flash varlen output under
+    # static traceable, see _sdpa_varlen_attention): full run must now be clean
+    job = TrainStepBenchmarkJob(
+        returnn_config=pdec_train_job.returnn_config,
+        mode="packed_compiled_nandump",
+        num_steps=2200,
+        load_checkpoint=pdec_train_job.out_checkpoints[1].path,
+        config_overrides={"num_epochs": 2},
+        version=3,
+    )
+    tk.register_output("returnn/aed-graphc-v3-pdec-ep2-compiled-nanguard.json", job.out_results)
+    # nanguard verdict (2026-07-30): STILL non-finite at call 19 -> flash tail exonerated.
+    # _copy_in audit found a pinned-staging reuse RACE (next host write vs in-flight async H2D)
+    # + stale buffer regions when batch extents shrink (sorted_reverse!).
+    # Stage 8: validate the event-guard + stale-zeroing fixes -- full run must be clean
+    job = TrainStepBenchmarkJob(
+        returnn_config=pdec_train_job.returnn_config,
+        mode="packed_compiled_nandump",
+        num_steps=2200,
+        load_checkpoint=pdec_train_job.out_checkpoints[1].path,
+        config_overrides={"num_epochs": 2},
+        version=4,
+    )
+    tk.register_output("returnn/aed-graphc-v3-pdec-ep2-compiled-copyfix.json", job.out_results)
+    # copyfix verdict: STILL call 19 (fixes kept as hardening); nanassert-v2 blocked:
+    # the assert checks the raw flash output BEFORE the nan_to_num guard node runs.
+    # Stage 9: NaN-count report per buffer per call, run through call 19,
+    # diff the reports call-18-vs-19 -> the changing buffer is the culprit
+    job = TrainStepBenchmarkJob(
+        returnn_config=pdec_train_job.returnn_config,
+        mode="packed_compiled_nanreport",
+        num_steps=25,
+        load_checkpoint=pdec_train_job.out_checkpoints[1].path,
+        config_overrides={"num_epochs": 2},
+        # v2: with the failing flash-backward operand dumps (see the mode string)
+        version=2,
+    )
+    tk.register_output("returnn/aed-graphc-v3-pdec-ep2-compiled-nanreport.json", job.out_results)
+    # ROOT CAUSE (from the operand dumps): 92 filler segments with q>=1 (BOS/EOS row)
+    # but k=0 in cross-att -> flash lse=-inf -> backward exp(qk - -inf) = NaN,
+    # sporadically poisoning the layer's grads. Fix: clamp the trailing cu_q to the
+    # real total so filler segments are zero-length (see _sdpa_varlen_attention).
+    # Stage 10: full ep-2 validation with the fix -- must run all ~2015 steps clean
+    job = TrainStepBenchmarkJob(
+        returnn_config=pdec_train_job.returnn_config,
+        mode="packed_compiled_nandump",
+        num_steps=2200,
+        load_checkpoint=pdec_train_job.out_checkpoints[1].path,
+        config_overrides={"num_epochs": 2},
+        # v6: v5 exposed that the ORIGINAL cu_q assigned the whole buffer slack to the
+        # last segment (flash wrote those rows); with the clamp they stay unwritten
+        # garbage (finite, nan_to_num-immune) -> zero all rows beyond the covered region
+        version=6,
+    )
+    tk.register_output("returnn/aed-graphc-v3-pdec-ep2-compiled-emptykvfix.json", job.out_results)
+    # v6 verdict: NaN at call 4 -- the failing call MOVES with every codegen layout
+    # (19 / 1 / 4) = miscompiled-fusion signature, not a semantics issue.
+    # Stage 12: conservative codegen (no epilogue fusion / pattern matcher):
+    # clean full run = miscompiled fusion confirmed (and a usable mitigation)
+    job = TrainStepBenchmarkJob(
+        returnn_config=pdec_train_job.returnn_config,
+        mode="packed_compiled_nofuse",
+        num_steps=2200,
+        load_checkpoint=pdec_train_job.out_checkpoints[1].path,
+        config_overrides={"num_epochs": 2},
+    )
+    tk.register_output("returnn/aed-graphc-v3-pdec-ep2-compiled-nofuse.json", job.out_results)
+    # nofuse verdict: STILL NaN (call 2) -- deeper than epilogue fusion / pattern matcher.
+    # Stage 13: aot-eager (traced graph, eager kernels): splits decomposition-vs-codegen
+    job = TrainStepBenchmarkJob(
+        returnn_config=pdec_train_job.returnn_config,
+        mode="packed_aot_eager",
+        num_steps=2200,
+        load_checkpoint=pdec_train_job.out_checkpoints[1].path,
+        config_overrides={"num_epochs": 2},
+    )
+    tk.register_output("returnn/aed-graphc-v3-pdec-ep2-aot-eager.json", job.out_results)
+    # aot-eager verdict: NaN at call 40 WITHOUT Inductor -> codegen exonerated;
+    # the defect is in the bound regime and/or the AOT trace semantics.
+    # Stage 14: untraced eager on bound buffers -- the final split
+    job = TrainStepBenchmarkJob(
+        returnn_config=pdec_train_job.returnn_config,
+        mode="packed_eager_bound",
+        num_steps=2200,
+        load_checkpoint=pdec_train_job.out_checkpoints[1].path,
+        config_overrides={"num_epochs": 2},
+    )
+    tk.register_output("returnn/aed-graphc-v3-pdec-ep2-eager-bound.json", job.out_results)
+    # eager-bound verdict: NaN at call 133 UNTRACED PLAIN EAGER on the bound buffers
+    # -> RF bound-regime semantics bug, all torch.compile machinery exonerated.
+    # Stage 15: same + per-module non-finite forward hooks -> names the RF module
+    job = TrainStepBenchmarkJob(
+        returnn_config=pdec_train_job.returnn_config,
+        mode="packed_eager_bound",
+        num_steps=2200,
+        load_checkpoint=pdec_train_job.out_checkpoints[1].path,
+        config_overrides={"num_epochs": 2, "debug_module_nan_hooks": True},
+    )
+    tk.register_output("returnn/aed-graphc-v3-pdec-ep2-eager-bound-hooks.json", job.out_results)
+    # hooks verdict: PT-module forward hooks are INERT for RF models (call path bypasses
+    # the wrappers, 0 hits); failing call also NON-deterministic across identical runs
+    # (133 vs 273: cuDNN autotune / atomic-scatter ordering chaos picks the step).
+    # Stage 16: on a non-finite loss, restore params+RNG and REPLAY the step under a
+    # TorchDispatchMode NaN tracer -> raises at the exact producing aten op
+    job = TrainStepBenchmarkJob(
+        returnn_config=pdec_train_job.returnn_config,
+        mode="packed_eager_bound",
+        num_steps=2200,
+        load_checkpoint=pdec_train_job.out_checkpoints[1].path,
+        config_overrides={"num_epochs": 2},
+        # v3: the tracer tripped on aten.empty (uninitialized by design) -- allowlisted
+        # v4: v3 revealed the poisoning happens ONE STEP EARLIER (NaN grads -> in-step
+        # optimizer writes NaN params; loss check fires a step late; replay traced a
+        # poisoned conv-1 bias cast) -- now ALL outs (incl grads) are checked
+        # v5: v4's replay tripped on detach of the benign filler-NaN flash rows AND the
+        # flash fallback swallowed the tracer -> alias/copy ops allowlisted, tracer re-raised
+        # v6: v5 TRACED IT: NaN grads out of the flash cross-att BACKWARD (dq [15200,8,64],
+        # first checked op aten.abs inside autograd.grad) = the empty-KV/lse mechanism.
+        # Fix: cu_q tail clamp + out-row zeroing + Q INPUT PRE-MASK (the where's backward
+        # zeroes the uncovered dq rows whatever flash leaves in its internal buffer).
+        # This run must go clean through the full ep 2.
+        version=6,
+    )
+    tk.register_output("returnn/aed-graphc-v3-pdec-ep2-eager-bound-nantrace.json", job.out_results)
 
 
 def _py_aed_graphc_exp(name_suffix, time_cap, packed_total, extra_cfg, *, packed_decoder=False):
@@ -631,6 +774,11 @@ def _py_aed_graphc_exp(name_suffix, time_cap, packed_total, extra_cfg, *, packed
             },
         },
         post_config_updates={"__multi_proc_dataset_opts": {"num_workers": 25}},
+        # bhv 21 recog leaves conv/pool unmasked + length-dependent same-padding:
+        # padded batches corrupt the frontend features of padded seqs (EOS runaway),
+        # catastrophic for packed-trained models (they never saw padding artifacts in training).
+        # Validated: v3 ep-100 dev-other batched 20.08 -> 5.39 with bhv 28 (== bs1 quality).
+        search_config={"behavior_version": 28},
         vocab="spm10k",
         train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
         dataset_train_opts={"train_epoch_split": 1},
@@ -824,7 +972,12 @@ class TrainStepBenchmarkJob(Job):
             "packed_eager",
             "packed_compiled",
             "packed_compiled_nandump",
+            "packed_compiled_nandump_zeroinit",
+            "packed_compiled_nanreport",
             "packed_compiled_nanassert",
+            "packed_compiled_nofuse",
+            "packed_aot_eager",
+            "packed_eager_bound",
             "packed_graphc",
         )
         assert (returnn_config is None) != (returnn_config_file is None), "specify exactly one config source"
@@ -852,11 +1005,51 @@ class TrainStepBenchmarkJob(Job):
         "packed_compiled_nandump": (
             "torch_cuda_graph = dict(torch_cuda_graph, capture=False, compile=True, debug_nan_dump_inputs=True)\n"
         ),
+        # nandump with zero-filled generated buffers (no asserts):
+        # if the ep-2 NaN vanishes, it came from uninitialized reads; if it stays, it is computed
+        "packed_compiled_nandump_zeroinit": (
+            "torch_cuda_graph = dict(torch_cuda_graph, capture=False, compile=True,"
+            " debug_nan_dump_inputs=True, debug_zero_init_buffers=True)\n"
+        ),
+        # NaN-count REPORT per buffer per call (no abort): the culprit is the buffer whose
+        # NaN pattern changes at the failing call (pre-guard/masked-lane NaNs stay constant)
+        "packed_compiled_nanreport": (
+            "torch_cuda_graph = dict(torch_cuda_graph, capture=False, compile=True,"
+            " inductor_nan_asserts=True, debug_nan_report=True,"
+            " debug_nan_dump_inputs=True, debug_zero_init_buffers=True,"
+            # operands of the failing cross-att flash backward (nanassert-v2 module L24992;
+            # buffer numbering is stable per graph): grad_out, q, k, v, out, lse,
+            # cu_q, cu_k, philox offset/seed, grad_k -- dumped per call, last = failing call
+            " debug_dump_buffer_names=('buf1977', 'buf1882', 'buf1890', 'buf1898',"
+            " 'buf1900', 'buf1901', 'buf1281', 'buf1355', 'buf1902', 'buf1903', 'buf1980'))\n"
+        ),
         # plus Inductor nan-asserts: the generated code checks every buffer,
         # the first failing assert names the producing op
         "packed_compiled_nanassert": (
             "torch_cuda_graph = dict(torch_cuda_graph, capture=False, compile=True,"
-            " inductor_nan_asserts=True, debug_nan_dump_inputs=True)\n"
+            " inductor_nan_asserts=True, debug_nan_dump_inputs=True,"
+            # zero-fill: kills the benign garbage tails of bound-sized buffers,
+            # so any remaining nan-assert names a REAL compute defect;
+            # a fully clean run instead = the program reads unwritten regions
+            " debug_zero_init_buffers=True)\n"
+        ),
+        # step_core UNTRACED, plain eager, on the same bound buffers:
+        # NaN = pure bound-regime RF semantics bug (pdb-able); clean = the AOT trace differs
+        "packed_eager_bound": (
+            "torch_cuda_graph = dict(torch_cuda_graph, capture=False, compile=True,"
+            " debug_eager_bound=True, debug_nan_dump_inputs=True)\n"
+        ),
+        # the traced AOT graph run with EAGER kernels (no Inductor):
+        # NaN persisting = decomposition-semantics issue; clean = Inductor codegen at fault
+        "packed_aot_eager": (
+            "torch_cuda_graph = dict(torch_cuda_graph, capture=False, compile=True,"
+            " debug_aot_eager=True, debug_nan_dump_inputs=True)\n"
+        ),
+        # conservative Inductor codegen: no epilogue fusion / pattern matcher --
+        # discriminator for miscompiled-fusion NaNs (failing call moves with codegen layout)
+        "packed_compiled_nofuse": (
+            "torch_cuda_graph = dict(torch_cuda_graph, capture=False, compile=True,"
+            " inductor_conservative=True, debug_nan_dump_inputs=True)\n"
         ),
         "packed_graphc": "",
     }
@@ -970,7 +1163,7 @@ class TrainStepBenchmarkJob(Job):
 
         # keep any nan-batch dumps (debug_nan_dump_inputs writes them into the train cwd,
         # which sisyphus deletes once the job finishes)
-        for fn in glob.glob(os.path.join(work, "nan-step-inputs-*.pt")):
+        for fn in glob.glob(os.path.join(work, "nan-*.pt")):
             shutil.copy(fn, os.path.join(os.path.dirname(self.out_results.get_path()), os.path.basename(fn)))
 
         step_re = re.compile(r"ep \d+ train, step (\d+), (.*?), mem_usage:cuda [0-9.]+GB(?:, ([0-9.]+) sec/step)?")
