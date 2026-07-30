@@ -160,8 +160,10 @@ print("[ok] _yaml_float produces a YAML float where the bare literal produces a 
 # --------------------------------------------------------------------------------------------
 # 4. train_data_specs rejects the dependency-losing dict form.
 # --------------------------------------------------------------------------------------------
-assert train_data_specs(SINGLE) == [(SINGLE, 1.0)]
-assert [w for _, w in train_data_specs(MIX)] == [0.5, 0.5]
+assert train_data_specs(SINGLE) == [(SINGLE, 1.0, None)]
+assert [w for _, w, _ in train_data_specs(MIX)] == [0.5, 0.5]
+# window_sec carries through: (path, weight, window_sec) 3-tuples for in-loader windowing.
+assert train_data_specs([(SINGLE, 0.5, 160), (MIX[1][0], 0.5)]) == [(SINGLE, 0.5, 160.0), (MIX[1][0], 0.5, None)]
 for bad, why in [
     ({SINGLE: 0.5}, "dict keyed by Path loses the Sisyphus dependency edge"),
     ([], "empty mix"),

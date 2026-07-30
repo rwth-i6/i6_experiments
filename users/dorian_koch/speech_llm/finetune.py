@@ -81,11 +81,13 @@ def train_data_specs(train_data) -> list[tuple[object, float]]:
         "Path silently loses the Sisyphus dependency edge (see docstring)"
     )
     if isinstance(train_data, (list, tuple)):
-        specs = [(p, float(w)) for p, w in train_data]
+        # each entry is (path, weight) or (path, weight, window_sec); a set window_sec marks a
+        # full-conversation corpus the loader slices to a random window_sec window per draw.
+        specs = [(t[0], float(t[1]), (float(t[2]) if len(t) > 2 and t[2] else None)) for t in train_data]
         assert specs, "train_data mix is empty"
-        assert all(w > 0 for _, w in specs), f"train_data weights must be positive, got {[w for _, w in specs]}"
+        assert all(w > 0 for _, w, _ in specs), f"train_data weights must be positive, got {[w for _, w, _ in specs]}"
         return specs
-    return [(train_data, 1.0)]
+    return [(train_data, 1.0, None)]
 
 
 def resolve_max_steps(*, train_data, duration_sec: int, num_epochs, max_steps: int, batch_size: int) -> int:
@@ -103,8 +105,14 @@ def resolve_max_steps(*, train_data, duration_sec: int, num_epochs, max_steps: i
     # build_codes, so this guard is the only thing standing between a too-small window and quietly
     # training on cut-off dialogues.
     all_durations = []
-    for path, _weight in train_data_specs(train_data):
+    for path, _weight, window_sec in train_data_specs(train_data):
         durations = np.asarray(load_from_disk(path.get())["duration"], dtype=float)
+        if window_sec:
+            # full-conversation corpus: rows are longer than the window BY DESIGN (the loader cuts a
+            # random window_sec window per draw), so the truncation guard does not apply; count each
+            # row as one window's worth for the epoch-size estimate.
+            all_durations.append(np.minimum(durations, window_sec))
+            continue
         over_frac = float((durations > duration_sec).mean())
         if over_frac > 0.01:
             raise ValueError(
@@ -450,13 +458,19 @@ def _train_data_yaml(job: "SpeechFinetune", *, supports_mix: bool) -> str:
     """
     specs = train_data_specs(job.train_data)
     if len(specs) == 1:
-        return f'train_data: "{specs[0][0].get()}"'
+        p, w, window_sec = specs[0]
+        line = f'train_data: "{p.get()}"'
+        if window_sec:  # single full-conversation corpus -> loader windows it (top-level key)
+            line += f"\nwindow_sec: {window_sec}"
+        return line
     assert supports_mix, (
         f"train_data is a {len(specs)}-corpus mix, but this architecture's launcher only reads a "
         f"single `train_data` key -- it would fail at runtime. Use MOSHI_LIB_ADAPTER for mixed "
         f"corpora, or teach this launcher to read `train_data_mix` (see moshi_finetune_launcher)."
     )
-    rows = "\n".join(f'  - {{path: "{p.get()}", weight: {w}}}' for p, w in specs)
+    rows = "\n".join(
+        f'  - {{path: "{p.get()}", weight: {w}' + (f", window_sec: {ws}" if ws else "") + "}" for p, w, ws in specs
+    )
     return f"train_data_mix:\n{rows}"
 
 
