@@ -24,10 +24,7 @@ CUTSET_PATH = (
     "work/speech_llm/full_duplex/sis_recipe/datasets/cutset_jobs/"
     "PrepareFisherDatasetJob.B3nfAjGOSR4d/output/fisher_original_manifest.jsonl"
 )
-WAV_DIR_PATH = (
-    "work/i6_experiments/users/dorian_koch/speech_llm/fisher_prep/"
-    "FisherSphToWav.bb5Gjm6qeOg8/output/audio"
-)
+WAV_DIR_PATH = "work/i6_experiments/users/dorian_koch/speech_llm/fisher_prep/FisherSphToWav.bb5Gjm6qeOg8/output/audio"
 
 
 class FakeTkPath:

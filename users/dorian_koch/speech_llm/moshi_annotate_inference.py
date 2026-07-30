@@ -83,6 +83,10 @@ def _watchdog(seconds, label):
     return done.set
 
 
+# NOTE: deliberately duplicated, do not "consolidate" into common.py. This file is a standalone
+# worker script: the Job ships it to a compute node and runs it with the *job's own* venv, which has
+# neither sisyphus nor i6_experiments importable (common.py's first line is `from sisyphus import
+# tk`). A shared import here would break the job at startup. Keep the copy small and identical.
 def _write_progress(done, total, path="progress.json"):
     """Write a tiny {done,total} marker so Sisyphus Job.completed_fraction can
     report progress. Lands in cwd, which is the job work dir."""

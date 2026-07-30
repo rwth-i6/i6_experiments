@@ -45,9 +45,10 @@ class FinetuneAdapter:
         render_config: ``(job, batch_size, max_steps) -> str`` returning the full
             ``config.yaml`` text for this architecture's trainer.
         launcher_module: dotted module run as ``python -m <module> <config.yaml>``.
-        fork_module: importable package whose parent dir is prepended to
-            ``PYTHONPATH`` at launch (e.g. ``"moshi_finetune"``); imported lazily on
-            the compute node so the manager env need not have it.
+        pythonpath_package: importable package whose dir + parent are prepended to the
+            training subprocess's ``PYTHONPATH`` (e.g. ``"moshi_family"``, or a fork's
+            ``"moshi_finetune"``); located lazily on the compute node -- in the JOB's venv,
+            not the manager's -- so the manager env need not have it installed.
         progress: ``(metrics_file_relpath, json_field)`` tail-read for
             ``completed_fraction`` (defaults to moshi-finetune's metrics file).
     """
@@ -56,13 +57,37 @@ class FinetuneAdapter:
     batch_size: int
     render_config: Callable[["SpeechFinetune", int, int], str]
     launcher_module: str
-    fork_module: str
+    pythonpath_package: str
     progress: tuple[str, str] = ("metrics.train.jsonl", "percent_done")
 
 
 # --------------------------------------------------------------------------- #
 # Shared harness helpers (used by both SpeechFinetune and the MoshiFinetune shim).
 # --------------------------------------------------------------------------- #
+def train_data_specs(train_data) -> list[tuple[object, float]]:
+    """Normalise ``SpeechFinetune.train_data`` to ``[(path, weight), ...]``.
+
+    Accepts either a single ``tk.Path`` (weight 1.0) or a **list of ``(path, weight)`` tuples** for
+    an on-the-fly weighted mix. Weights are relative; the loader normalises them.
+
+    ⚠ Must be a list of tuples, NOT a ``{path: weight}`` dict. Sisyphus discovers a job's inputs by
+    traversing its constructor arguments and does **not** walk dict *keys*, so a Path in key position
+    creates no dependency edge: the job looks runnable immediately and starts before its training
+    data exists (observed as `write_config` failing with "neither a `Dataset` directory nor a
+    `DatasetDict` directory" while the corpus was still being written).
+    """
+    assert not hasattr(train_data, "items"), (
+        "train_data must be a single Path or a list of (path, weight) tuples -- a dict keyed by "
+        "Path silently loses the Sisyphus dependency edge (see docstring)"
+    )
+    if isinstance(train_data, (list, tuple)):
+        specs = [(p, float(w)) for p, w in train_data]
+        assert specs, "train_data mix is empty"
+        assert all(w > 0 for _, w in specs), f"train_data weights must be positive, got {[w for _, w in specs]}"
+        return specs
+    return [(train_data, 1.0)]
+
+
 def resolve_max_steps(*, train_data, duration_sec: int, num_epochs, max_steps: int, batch_size: int) -> int:
     """Sanity-check durations and, if ``num_epochs`` is set, size ``max_steps`` to
     cover that many epochs over the whole dataset.
@@ -74,17 +99,26 @@ def resolve_max_steps(*, train_data, duration_sec: int, num_epochs, max_steps: i
     import numpy as np
     from datasets import load_from_disk
 
-    durations = np.asarray(load_from_disk(train_data.get())["duration"], dtype=float)
-    over_frac = float((durations > duration_sec).mean())
-    if over_frac > 0.01:
-        raise ValueError(
-            f"{over_frac:.2%} of audios exceed duration_sec={duration_sec} "
-            f"(>1% not allowed; p99={np.percentile(durations, 99):.1f}s). "
-            f"Increase duration_sec."
-        )
+    # Validate EVERY corpus in the mix: a row longer than duration_sec is silently truncated by
+    # build_codes, so this guard is the only thing standing between a too-small window and quietly
+    # training on cut-off dialogues.
+    all_durations = []
+    for path, _weight in train_data_specs(train_data):
+        durations = np.asarray(load_from_disk(path.get())["duration"], dtype=float)
+        over_frac = float((durations > duration_sec).mean())
+        if over_frac > 0.01:
+            raise ValueError(
+                f"{over_frac:.2%} of audios in {path.get()} exceed duration_sec={duration_sec} "
+                f"(>1% not allowed; p99={np.percentile(durations, 99):.1f}s). "
+                f"Increase duration_sec."
+            )
+        all_durations.append(durations)
     if num_epochs is None:
         return max_steps
     # windows per row = ceil(duration / duration_sec); matches the loader.
+    # For a mix, "an epoch" is one pass over the pooled rows -- approximate, since the loader samples
+    # by weight rather than sweeping each corpus once. Prefer an explicit max_steps for mixed runs.
+    durations = np.concatenate(all_durations)
     windows = int(np.ceil(durations / duration_sec).sum())
     steps_per_epoch = int(np.ceil(windows / batch_size))
     return steps_per_epoch * num_epochs
@@ -148,6 +182,16 @@ def launch_training(job: "SpeechFinetune", adapter: FinetuneAdapter) -> None:
 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    # The in-loop knowledge probe generates on the SAME model training uses. moshi's generation and
+    # training forward share torch.compile'd fns (``torch_compile_lazy``, e.g. ``apply_rope``) + CUDA
+    # graphs; letting the probe's generation shapes into the compile cache poisons the guards
+    # training's forward recompiles against -> ``torch._dynamo`` fake-tensor crash at the step AFTER a
+    # probe (``s0`` vs ``s0*s98`` in apply_rope). ``apply_rope`` is a pure fn, so nothing is really
+    # wrong -- it is purely a compile artifact. Disable compile + CUDA graphs for the whole run when a
+    # probe is attached (eager is correct, slightly slower); run()-side env, not hashed.
+    if getattr(job, "knowledge_probe_data", None) is not None:
+        env["NO_TORCH_COMPILE"] = "1"
+        env["NO_CUDA_GRAPH"] = "1"
     env["HF_HOME"] = HF_CACHE_DIR.get()
     # The base model + tokenizer are pre-staged into HF_HOME by the eval graph, so force offline
     # loading: this skips any HF download / Xet re-verification, which (a) avoids re-fetching a 16 GB
@@ -194,11 +238,11 @@ def launch_training(job: "SpeechFinetune", adapter: FinetuneAdapter) -> None:
     # lookup is non-fatal: skip the prepend with a warning.
     top_level_file = None
     try:
-        fork = importlib.import_module(adapter.fork_module)  # fast path: worker venv has it
-        top_level_file = fork.__file__
+        package = importlib.import_module(adapter.pythonpath_package)  # fast path: worker venv has it
+        top_level_file = package.__file__
     except ModuleNotFoundError:
         probe = subprocess.run(
-            [job.venv_python_path.get(), "-c", f"import {adapter.fork_module} as m; print(m.__file__)"],
+            [job.venv_python_path.get(), "-c", f"import {adapter.pythonpath_package} as m; print(m.__file__)"],
             capture_output=True,
             text=True,
             env=env,
@@ -219,7 +263,7 @@ def launch_training(job: "SpeechFinetune", adapter: FinetuneAdapter) -> None:
         extra_paths += [str(Path(top_level_file).parent.parent), str(Path(top_level_file).parent)]
     else:
         print(
-            f"[launch_training] fork {adapter.fork_module!r} not locatable for PYTHONPATH; "
+            f"[launch_training] package {adapter.pythonpath_package!r} not locatable for PYTHONPATH; "
             f"relying on the job venv site-packages + launcher sys.path guard",
             flush=True,
         )
@@ -263,7 +307,7 @@ def _render_moshi_finetune_config(job: "SpeechFinetune", batch_size: int, max_st
 data:
   eval_data: '{job.eval_data.get() if job.eval_data is not None else ""}' # Fill
   shuffle: true
-  train_data: '{job.train_data.get()}' # Fill
+  train_data: '{_single_train_data_path(job)}' # single corpus only (fork schema has no mix key)
 
 # model
 moshi_paths:
@@ -312,7 +356,7 @@ def _render_personaplex_config(job: "SpeechFinetune", batch_size: int, max_steps
     carry a per-row role prompt (column "context"); QA rows fall back to the default persona."""
     return f"""# PersonaPlex finetune config (personaplex_finetune_launcher schema)
 hf_repo_id: "{hf_repo_id}"
-train_data: "{job.train_data.get()}"
+{_train_data_yaml(job, supports_mix=False)}
 out_dir: "{job.out_rundir.get()}"
 max_steps: {max_steps}
 duration_sec: {job.duration_sec}
@@ -338,7 +382,7 @@ MOSHI_ADAPTER = FinetuneAdapter(
     batch_size=16,
     render_config=partial(_render_moshi_finetune_config, hf_repo_id="kyutai/moshiko-pytorch-bf16"),
     launcher_module="i6_experiments.users.dorian_koch.speech_llm.moshi_finetune_launcher",
-    fork_module="moshi_finetune",
+    pythonpath_package="moshi_finetune",
 )
 
 
@@ -348,7 +392,7 @@ MOSHI_ADAPTER = FinetuneAdapter(
 # personaplex venv, so the launcher must drive the PersonaPlex fork's OWN model. Good news --
 # unlike the moshi-rag fork, the personaplex fork ships a built-in training path:
 # ``moshi.models.lm.LMModel.forward_train(codes) -> LMOutput`` (delays handled, logits+masks) +
-# ``create_loss_report``, loaded via ``loaders.get_moshi_lm(model.safetensors)``. So fork_module
+# ``create_loss_report``, loaded via ``loaders.get_moshi_lm(model.safetensors)``. So pythonpath_package
 # is "moshi" and the launcher builds a loop on forward_train (port moshi_finetune's loop onto this
 # model); the config is a personaplex-specific YAML, NOT the moshi_finetune schema. The launcher
 # is IMPLEMENTED and training (single-GPU: train_scope=heads, backbone frozen, full-FT depformer +
@@ -360,7 +404,7 @@ PERSONAPLEX_ADAPTER = FinetuneAdapter(
     batch_size=32,  # paper
     render_config=partial(_render_personaplex_config, hf_repo_id="nvidia/personaplex-7b-v1"),
     launcher_module="i6_experiments.users.dorian_koch.speech_llm.personaplex_finetune_launcher",
-    fork_module="moshi",  # the moshi-personaplex fork (import name `moshi`); installed by personaplex_venv()
+    pythonpath_package="moshi",  # the moshi-personaplex fork (import name `moshi`); installed by personaplex_venv()
     # progress defaults to ("metrics.train.jsonl", "percent_done") -- exactly what the launcher writes.
 )
 
@@ -368,14 +412,63 @@ PERSONAPLEX_ADAPTER = FinetuneAdapter(
 # PersonaPlex on the OWNED moshi_family lib (Phase 5): same paper recipe + config schema, but the
 # launcher builds on moshi_family.personaplex (no fork) via the SHARED moshi_family.train_loop, and
 # runs in moshi_family_venv. New ``name`` -> fresh hash (intended; this is the fork->lib migration).
-# fork_module="moshi_family" is located via the lib path launch_training now adds to PYTHONPATH.
+# pythonpath_package="moshi_family" is located via the lib path launch_training now adds to PYTHONPATH.
 PERSONAPLEX_LIB_ADAPTER = FinetuneAdapter(
     name="personaplex_lib",
     batch_size=32,
     render_config=partial(_render_personaplex_config, hf_repo_id="nvidia/personaplex-7b-v1"),
     launcher_module="moshi_family.personaplex.finetune_launcher",
-    fork_module="moshi_family",
+    pythonpath_package="moshi_family",
 )
+
+
+def _single_train_data_path(job: "SpeechFinetune") -> str:
+    """The one training corpus path, asserting there is exactly one.
+
+    For the moshi-finetune fork's YAML schema, which has no mixed-corpus key at all. Taking
+    ``specs[0]`` silently would train on half the intended data.
+    """
+    specs = train_data_specs(job.train_data)
+    assert len(specs) == 1, (
+        f"the moshi-finetune fork schema has no mixed-corpus key, but train_data is a "
+        f"{len(specs)}-corpus mix -- use MOSHI_LIB_ADAPTER for mixed corpora"
+    )
+    return specs[0][0].get()
+
+
+def _train_data_yaml(job: "SpeechFinetune", *, supports_mix: bool) -> str:
+    """Render the training-corpus YAML for a launcher config -- the ONE place that does this.
+
+    Emits the plain ``train_data:`` scalar for a single corpus (so single-corpus configs stay
+    byte-identical to those written before mixing existed) and a ``train_data_mix:`` list of
+    ``{path, weight}`` rows otherwise.
+
+    ``supports_mix`` says whether this adapter's *launcher* actually reads ``train_data_mix``.
+    Only the base-Moshi lib launcher does; the others do ``cfg["train_data"]`` and would die with a
+    KeyError once the GPU job is already running. Rendering happens in a login-node mini_task, so
+    refusing here turns a wasted allocation into an instant, explanatory failure.
+    """
+    specs = train_data_specs(job.train_data)
+    if len(specs) == 1:
+        return f'train_data: "{specs[0][0].get()}"'
+    assert supports_mix, (
+        f"train_data is a {len(specs)}-corpus mix, but this architecture's launcher only reads a "
+        f"single `train_data` key -- it would fail at runtime. Use MOSHI_LIB_ADAPTER for mixed "
+        f"corpora, or teach this launcher to read `train_data_mix` (see moshi_finetune_launcher)."
+    )
+    rows = "\n".join(f'  - {{path: "{p.get()}", weight: {w}}}' for p, w in specs)
+    return f"train_data_mix:\n{rows}"
+
+
+def _yaml_float(x) -> str:
+    """Format a number so YAML parses it as a float, not a string.
+
+    YAML 1.1 only recognises a float in exponent form when it has both a decimal point and a signed
+    exponent, so ``1e-06`` loads as the *string* ``"1e-06"`` while ``1.0e-06`` loads as a float. Our
+    launcher wraps these in ``float()`` so the difference has been harmless, but anything reading the
+    config without that coercion would silently get a string.
+    """
+    return f"{float(x):.10e}"
 
 
 def _render_moshi_lib_config(job: "SpeechFinetune", batch_size: int, max_steps: int, *, hf_repo_id: str) -> str:
@@ -385,13 +478,16 @@ def _render_moshi_lib_config(job: "SpeechFinetune", batch_size: int, max_steps: 
     1 x grad_accum 16 = effective batch 16 (matching the fork's ``batch_size=16``); gradient
     checkpointing on so LoRA-over-backbone fits one 24 GB GPU. lr 2e-6 = the fork's ``optim.lr``.
 
-    Extra knobs (lr, sample_every, eval_batches, general_eval_data) come from ``job.hparams``."""
+    Extra knobs (lr, sample_every, eval_batches, general_eval_data, knowledge_probe_*) come from
+    ``job.hparams``; ``knowledge_probe_data`` (the held-out probe set) is a first-class job arg."""
     hp = getattr(job, "hparams", None) or {}
     _gen = hp.get("general_eval_data")
     _gen = _gen.get() if hasattr(_gen, "get") else (_gen or "")
+    _data = _train_data_yaml(job, supports_mix=True)  # moshi_finetune_launcher reads train_data_mix
+    _lr = hp.get("lr", 2e-6)
     return f"""# base-Moshi LoRA finetune config (moshi_finetune_launcher schema)
 hf_repo_id: "{hf_repo_id}"
-train_data: "{job.train_data.get()}"
+{_data}
 out_dir: "{job.out_rundir.get()}"
 max_steps: {max_steps}
 duration_sec: {job.duration_sec}
@@ -399,8 +495,12 @@ audio_jitter_sec: {getattr(job, "audio_jitter_sec", 0.0)}
 lora_rank: {job.lora_rank}
 lora_scaling: 2.0
 per_gpu_batch: 1
-grad_accum: 16
-lr: {hp.get("lr", 2e-6)}
+grad_accum: {hp.get("grad_accum", 16)}
+lr: {_yaml_float(_lr)}
+depth_lr: {_yaml_float(hp.get("depth_lr", _lr))}
+temporal_lr: {_yaml_float(hp.get("temporal_lr", _lr))}
+audio_other_weight: {_yaml_float(hp.get("audio_other_weight", 0.01))}
+text_pad_weight: {_yaml_float(hp.get("text_pad_weight", 0.5))}
 warmup_steps: 200
 grad_clip: 1.0
 gradient_checkpointing: true
@@ -413,6 +513,11 @@ general_eval_data: "{_gen}"
 do_eval: {str(getattr(job, "eval_data", None) is not None).lower()}
 eval_data: "{job.eval_data.get() if getattr(job, "eval_data", None) is not None else ""}"
 eval_freq: {hp.get("eval_freq", 100)}
+knowledge_probe_data: "{job.knowledge_probe_data.get() if getattr(job, "knowledge_probe_data", None) is not None else ""}"
+knowledge_probe_every: {hp.get("knowledge_probe_every", 100)}
+knowledge_probe_batch_size: {hp.get("knowledge_probe_batch_size", 4)}
+knowledge_probe_capture_s: {_yaml_float(hp.get("knowledge_probe_capture_s", 20.0))}
+knowledge_probe_n: {hp.get("knowledge_probe_n", 0)}
 """
 
 
@@ -425,7 +530,7 @@ MOSHI_LIB_ADAPTER = FinetuneAdapter(
     batch_size=16,
     render_config=partial(_render_moshi_lib_config, hf_repo_id="kyutai/moshiko-pytorch-bf16"),
     launcher_module="moshi_family.moshi_finetune_launcher",
-    fork_module="moshi_family",
+    pythonpath_package="moshi_family",
 )
 
 
@@ -438,7 +543,7 @@ def _render_moshirag_lib_config(job: "SpeechFinetune", batch_size: int, max_step
     as a per-frame ``ref_schedule`` (the training mirror of inference streaming-sum conditioning)."""
     return f"""# MoshiRAG LoRA finetune config (moshirag_finetune_launcher schema)
 hf_repo_id: "{hf_repo_id}"
-train_data: "{job.train_data.get()}"
+{_train_data_yaml(job, supports_mix=False)}
 out_dir: "{job.out_rundir.get()}"
 max_steps: {max_steps}
 duration_sec: {job.duration_sec}
@@ -467,7 +572,7 @@ MOSHIRAG_LIB_ADAPTER = FinetuneAdapter(
     batch_size=16,
     render_config=partial(_render_moshirag_lib_config, hf_repo_id="kyutai/moshika-rag-pytorch-bf16"),
     launcher_module="moshi_family.moshirag_finetune_launcher",
-    fork_module="moshi_family",
+    pythonpath_package="moshi_family",
 )
 
 
@@ -494,7 +599,7 @@ MOSHIRAG_ADAPTER = FinetuneAdapter(
     # schema does not express -- the launcher must inject those; see moshirag.md.
     render_config=partial(_render_moshi_finetune_config, hf_repo_id="kyutai/moshika-rag-pytorch-bf16"),
     launcher_module="i6_experiments.users.dorian_koch.speech_llm.moshirag_finetune_launcher",
-    fork_module="moshi",  # legacy moshi-rag fork tag; the fork venv is retired (Phase 5 rebuilds it on the lib)
+    pythonpath_package="moshi",  # legacy moshi-rag fork tag; the fork venv is retired (Phase 5 rebuilds it on the lib)
 )
 
 
@@ -516,6 +621,10 @@ class SpeechFinetune(Job):
         "max_steps": 2000,
         "eval_data": None,
         "lora_rank": 128,
+        # Held-out probe set for the in-training LIVE knowledge probe (MOSHI_LIB_ADAPTER only).
+        # Excluded at None -> existing arms keep their hash; set it and the finetune re-hashes (a
+        # genuinely new run that now self-monitors factual recall).
+        "knowledge_probe_data": None,
         # Free-form extra hyper-params (lr, full_finetuning, text_replay_frac, sample_every, ...).
         # A single bag so new knobs never touch this signature; excluded at None -> existing runs
         # keep their hash, a caller that passes a dict gets a fresh hash from the dict contents.
@@ -534,12 +643,16 @@ class SpeechFinetune(Job):
         num_epochs: int | None = None,
         max_steps: int = 2000,
         eval_data=None,
+        knowledge_probe_data=None,
         lora_rank: int = 128,
         hparams: dict | None = None,
     ):
         self.adapter = adapter
         self.train_data = train_data
         self.eval_data = eval_data
+        # Held-out knowledge probe set (probe.jsonl). Honored ONLY by MOSHI_LIB_ADAPTER (its launcher
+        # runs the in-loop generate+score probe); a first-class arg so Sisyphus makes the dep edge.
+        self.knowledge_probe_data = knowledge_probe_data
         self.venv_python_path = venv_python_path
         self.seed = seed
         self.duration_sec = duration_sec

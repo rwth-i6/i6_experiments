@@ -1,5 +1,7 @@
 """Guard: every benchmark tag used in the recipe must have a provenance entry."""
+
 import re, sys
+
 sys.path.insert(0, "recipe")
 sys.path.insert(0, "recipe/sisyphus")
 from i6_experiments.users.dorian_koch.speech_llm.fdb import FDB_MODEL_ORIGIN, _origin_map

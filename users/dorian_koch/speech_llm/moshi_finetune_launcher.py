@@ -11,8 +11,24 @@ Usage:
 
 import sys
 import importlib
+import os
 
 import fire
+
+# Pin the fork's own directory on sys.path so `finetune` -- the fork's internal top-level
+# package, imported as `from finetune.args import ...` inside moshi_finetune/train.py --
+# resolves to the fork SOURCE (recipe/moshi_finetune/finetune, which ships the `data` and
+# `monitoring` subpackages) rather than a stale/partial `finetune` copy that can sit in the
+# job venv's site-packages. That copy is built from `packages=["finetune"]` (moshi_finetune's
+# pyproject), which omits `finetune.data`, so importing it dies with
+# `ModuleNotFoundError: No module named 'finetune.data'`. Inserting at position 0 makes the
+# source win over any such shadowing copy. `import moshi_finetune` is cheap (empty __init__)
+# and does not itself trigger the `finetune` import.
+import moshi_finetune  # noqa: E402  (needed before .train to pin the path below)
+
+_fork_dir = os.path.dirname(os.path.abspath(moshi_finetune.__file__))
+if _fork_dir not in sys.path:
+    sys.path.insert(0, _fork_dir)
 
 # Import the fork's train module so we can patch it before fire runs it.
 import moshi_finetune.train as train_module  # type: ignore

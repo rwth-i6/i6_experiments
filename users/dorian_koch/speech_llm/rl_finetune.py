@@ -60,14 +60,14 @@ def _rl_render_shim(job: "RLFinetune", _batch_size: int, _max_steps: int) -> str
     return _render_rl_config(job)
 
 
-# The launcher_module + fork_module are all ``launch_training`` reads off the adapter; the config is
+# The launcher_module + pythonpath_package are all ``launch_training`` reads off the adapter; the config is
 # rendered by the job itself (no arrow sizing).
 RL_LIB_ADAPTER = FinetuneAdapter(
     name="rl_grpo",
     batch_size=1,
     render_config=_rl_render_shim,
     launcher_module="moshi_family.rl.launcher",
-    fork_module="moshi_family",
+    pythonpath_package="moshi_family",
 )
 
 

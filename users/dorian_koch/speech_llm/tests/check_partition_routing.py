@@ -63,8 +63,7 @@ print(f"[ok] {'job-supplied -x preserved':38s} -> {' '.join(out['sbatch_args'])}
 # --- unsatisfiable requirements must fail loudly, not silently mis-route -------------------------
 # NB: an over-long `time` is NOT in this list -- check_engine_limits clamps walltime to 72h before
 # routing, so it becomes satisfiable on c23g rather than unsatisfiable. Asserted just below.
-for bad in ({"gpu": 1, "time": 8, "requires": ["nonexistent_feature"]},
-            {"gpu": 1, "time": 8, "gpu_mem_gb": 500}):
+for bad in ({"gpu": 1, "time": 8, "requires": ["nonexistent_feature"]}, {"gpu": 1, "time": 8, "gpu_mem_gb": 500}):
     try:
         check_engine_limits(dict(bad), None)
     except ValueError:

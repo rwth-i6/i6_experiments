@@ -78,6 +78,9 @@ FDB_MODEL_ORIGIN = {
     "moshi_ft_a4_fisher": ("ours", "LoRA on kyutai/moshiko (Fisher)"),
     # A6: same hparams as A2, TriviaQA reshaped for turn count / answer length -- the corpus-shape arm.
     "moshi_ft_a6_mix": ("ours", "LoRA on kyutai/moshiko (reshaped TriviaQA mix)"),
+    # A7: PersonaPlex-style recipe minus the architecture -- 50/50 Fisher+QA mix, their loss weights
+    # and depth:temporal LR ratio, 160 s context, effective batch 32.
+    "moshi_ft_a7_mix": ("ours", "LoRA on kyutai/moshiko (Fisher+QA mix, PersonaPlex recipe)"),
     "moshi_lib_ft": ("ours", "LoRA on kyutai/moshiko (our lib)"),
     "moshi_lib_smoke": ("ours", "LoRA on kyutai/moshiko (smoke test)"),
     "moshirag_lib_ft": ("ours", "LoRA on kyutai/moshika-rag (our lib)"),

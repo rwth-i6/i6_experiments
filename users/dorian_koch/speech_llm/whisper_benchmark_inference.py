@@ -23,6 +23,9 @@ from faster_whisper import WhisperModel, BatchedInferencePipeline
 TARGET_SR = 16000
 
 
+# NOTE: deliberately duplicated across the standalone worker scripts -- see the note in
+# chatterbox_inference.py. These run under a job venv with no sisyphus/i6_experiments on the path,
+# so they cannot import common.py.
 def load_audio(path: str) -> np.ndarray:
     """Read wav, downmix to mono, resample to 16 kHz, return float32 numpy array."""
     audio, sr = sf.read(path, dtype="float32")

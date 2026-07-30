@@ -84,6 +84,20 @@ def adapt_triviaqa(example: dict) -> dict:
     }
 
 
+#: Context window we serve the dialogue generator at. The prompt is one template plus one QA
+#: example -- no evidence documents, no retrieved passages -- and generation is capped at
+#: max_tokens=800. Measured worst case over all 11 templates, using a deliberately inflated
+#: MMLU-Pro row (200-sentence CoT, ten verbose options), is ~10.6k chars ~= 3.0k tokens, so
+#: ~3.9k including the completion. 8192 leaves >2x headroom on the fattest input we can construct.
+#:
+#: This is a partition decision, not a tuning knob: at gemma's 65536 default the KV cache is
+#: ~12 GiB, which on top of ~58.9 GiB of weights does not fit an 80 GB H100, pinning the job to the
+#: perpetually-full c23g queue. At 8192 the KV cache is ~1.5 GiB and the job runs on c25g, which
+#: actually has idle nodes. Raise this only if a future adapter feeds long documents -- and raise
+#: `gpu_mem_gb` with it, or vLLM will fail at startup rather than fall back.
+DIALOGUE_MAX_MODEL_LEN = 8192
+
+
 # ---------------------------------------------------------------------------
 # Dialogue instruction templates
 # We select one per example by hashing its uid, so the choice is deterministic
@@ -490,6 +504,12 @@ class HfToDialogue(Job):
             "cpu": 2,
             "mem": 16,
             "time": 2,
+            # gemma-4-31B-it is ~58.9 GiB of weights, so this needs a big card either way -- but it
+            # no longer needs the *biggest* one. We serve it at DIALOGUE_MAX_MODEL_LEN (see there),
+            # not the 65536 default, which cuts the KV cache from ~12 GiB to ~1.5 GiB and leaves
+            # ample room on an 80 GB H100. Declared as a memory figure rather than a partition name
+            # to keep the job cluster-agnostic.
+            "gpu_mem_gb": 80,
         }
 
     @classmethod
@@ -564,7 +584,7 @@ class HfToDialogue(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
-        with vllm_server(self.llm_name) as llm_url:
+        with vllm_server(self.llm_name, max_model_len=DIALOGUE_MAX_MODEL_LEN) as llm_url:
             print("Now loading dataset")
             dataset = load_from_disk(self.dataset_split_path.get())
             if self.shard is not None and self.num_shards is not None:

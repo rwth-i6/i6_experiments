@@ -67,7 +67,7 @@ AUDEX_STAGE0_ADAPTER = FinetuneAdapter(
     batch_size=1,
     render_config=_audex_render_shim,
     launcher_module="moshi_family.audex.finetune_launcher",
-    fork_module="moshi_family",
+    pythonpath_package="moshi_family",
 )
 
 

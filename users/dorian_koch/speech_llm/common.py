@@ -186,6 +186,11 @@ def vllm_server(hf_model: str, max_model_len: int | None = None):
         port=port,
         ready_substrings=("Uvicorn running on", "Application startup complete"),
         log_prefix="vLLM",
+        # A cold Lustre load of a big checkpoint (gemma-4-31B: 58 GiB) can take ~11-12 min for
+        # weights alone before CUDA-graph capture -- the 900s default tips over on a c25g node whose
+        # page cache is cold, though warm c23g nodes booted fine. Give cold loads generous headroom;
+        # a genuinely dead server is still caught immediately by the proc.poll() check.
+        max_wait=30 * 60,
     ):
         yield f"http://localhost:{port}/v1"
 
