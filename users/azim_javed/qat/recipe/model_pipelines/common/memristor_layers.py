@@ -16,7 +16,7 @@ from torch import nn
 from torch.nn import init
 import torch.ao.quantization as torch_quant
 import torch.nn.functional as F
-from typing import Optional, Union, Tuple, TYPE_CHECKING
+from typing import Optional, Union, Tuple, TYPE_CHECKING, List
 import math
 
 if TYPE_CHECKING:
@@ -870,7 +870,6 @@ class LSTMQuant(nn.Module):
         converter_hardware_settings: Optional[DacAdcHardwareSettings] = None,
         correction_settings: Optional["CycleCorrectionSettings"] = None,
         num_cycles: int = 0,
-        quant_cell_state: bool = True,
     ):
         super().__init__()
         self.input_size = input_size
@@ -878,7 +877,6 @@ class LSTMQuant(nn.Module):
         self.num_layers = num_layers
         self.batch_first = batch_first
         self.dropout = dropout
-        self.quant_cell_state = quant_cell_state
         self.converter_hardware_settings = converter_hardware_settings
         self.correction_settings = correction_settings
         self.num_cycles = num_cycles
@@ -917,23 +915,28 @@ class LSTMQuant(nn.Module):
 
         for l in range(num_layers):
             in_size = input_size if l == 0 else hidden_size
+            # linear layers
             self.w_ih.append(_lq(in_size, 4 * hidden_size))
             self.w_hh.append(_lq(hidden_size, 4 * hidden_size))
+
+            # activation quantizers
             self.x_in_q.append(_aq())
             self.h_in_q.append(_aq())
             self.ih_out_q.append(_aq())
             self.hh_out_q.append(_aq())
-            self.gi_q.append(_aq())
-            self.gf_q.append(_aq())
-            self.gg_q.append(_aq())
-            self.go_q.append(_aq())
-            self.c_out_q.append(_aq() if quant_cell_state else nn.Identity())
-            self.h_out_q.append(_aq())
+            # gates
+            # self.gi_q.append(_aq())
+            # self.gf_q.append(_aq())
+            # self.gg_q.append(_aq())
+            # self.go_q.append(_aq())
+            # # states
+            # self.c_out_q.append(_aq())
+            # self.h_out_q.append(_aq())
 
     def forward(self, input: torch.Tensor, state=None):
         if not self.batch_first:
             input = input.transpose(0, 1)
-        B, T, *_ = input.shape
+        B, T, _D = input.shape
         dtype, device = input.dtype, input.device
 
         if state is None:
@@ -949,24 +952,43 @@ class LSTMQuant(nn.Module):
         for t in range(T):
             x = input[:, t, :]
             for l in range(self.num_layers):
-                ih = self.ih_out_q[l](self.w_ih[l](self.x_in_q[l](x)))
-                hh = self.hh_out_q[l](self.w_hh[l](self.h_in_q[l](h_lst[l])))
+
+                # state transformation/linear projections, based on a fused matrix
+                ih = self.x_in_q[l](x) #aq
+                ih = self.w_ih[l](ih) #lq
+                ih = self.ih_out_q[l](ih) #aq
+
+
+                hh = self.h_in_q[l](h_lst[l]) # aq
+                hh = self.w_hh[l](hh) # lq
+                hh = self.hh_out_q[l](hh) # aq
+
                 gates = ih + hh
+
+                # split fused matrix
                 i, f, g, o = gates.chunk(4, dim=-1)
 
-                i = self.gi_q[l](torch.sigmoid(i))
-                f = self.gf_q[l](torch.sigmoid(f))
-                g = self.gg_q[l](torch.tanh(g))
-                o = self.go_q[l](torch.sigmoid(o))
+                # gate activations
+                i = torch.sigmoid(i)
+                f = torch.sigmoid(f)
+                g = torch.tanh(g)
+                o = torch.sigmoid(o)
 
-                c = f * c_lst[l] + i * g
-                if self.quant_cell_state:
-                    c = self.c_out_q[l](c)
-                h = o * torch.tanh(c)
-                h = self.h_out_q[l](h)
+                # gate quantization
+                # i = self.gi_q[l](i)
+                # f = self.gf_q[l](f)
+                # g = self.gg_q[l](g)
+                # o = self.go_q[l](o)
 
+                # cell state update
+                c = f * c_lst[l] + i * g # c_lst[l] is unq; f, i, g are q
+
+                h = o * torch.tanh(c) # o is q; c is unq
+
+                # update state for next time step
                 h_lst[l], c_lst[l] = h, c
 
+                # input to next layer, with dropout
                 x = h
                 if self.training and self.dropout > 0 and l < self.num_layers - 1:
                     x = F.dropout(x, p=self.dropout, training=True)
@@ -979,7 +1001,7 @@ class LSTMQuant(nn.Module):
         return output, (h_n, c_n)
 
     def prep_quant(self):
-
+        # TODO: this implementation might be outdated.
         for l in range(self.num_layers):
             for gate_name, lin_attr, in_act_attr, out_act_attr in [
                 ("w_ih", "w_ih", "x_in_q", "ih_out_q"),

@@ -1,7 +1,7 @@
 import sys
 import os
 
-from recipe.experiments.librispeech import run_all
+from recipe.experiments.librispeech import run_all, run_test
 from sisyphus import tk
 
 def py():

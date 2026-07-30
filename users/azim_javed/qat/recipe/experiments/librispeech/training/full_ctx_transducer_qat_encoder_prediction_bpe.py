@@ -1,6 +1,6 @@
 __all__ = ["run", "get_model_config", "get_train_options"]
 
-from typing import Optional, Union
+from typing import Optional, Union, List
 
 import torch
 
@@ -63,7 +63,7 @@ def get_model_config(
     weight_bit_prec: Union[int, dict],
     activation_bit_prec: int,
     weight_dropout: float,
-    weight_pruning_config: WeightPruningConfig,
+    weight_pruning_config: WeightPruningConfig,\
     bpe_size: int = 128,
 ) -> LstmTransducerQATEncoderPredictionConfig:
     vocab_size = bpe_to_vocab_size(bpe_size)

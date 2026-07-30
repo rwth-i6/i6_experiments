@@ -30,10 +30,9 @@ def get_ffnn_transducer_label_scorer_config(
     rasr_config.recognition.model_path = checkpoint
     rasr_config.recognition.experiment = "ffnn_transducer_qat_encoder"
 
-    rasr_config.qat = RasrConfig()
-    rasr_config.qat.weight_bit_prec = 8
-    rasr_config.qat.activation_bit_prec = 8
-    rasr_config.qat.weight_dropout = 0.0
-    rasr_config.qat.weight_pruning_config = None
+    rasr_config.recognition.qat.weight_bit_prec = 8
+    rasr_config.recognition.qat.activation_bit_prec = 8
+    rasr_config.recognition.qat.weight_dropout = 0.0
+    rasr_config.recognition.qat.weight_pruning_config = None
 
     return rasr_config

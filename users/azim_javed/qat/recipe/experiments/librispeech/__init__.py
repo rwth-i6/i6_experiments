@@ -31,6 +31,12 @@ def run_all(filename):
         # "qat_ctc_bpe_w4_a8": training.qat_ctc_bpe_param_sync.run(
         #     descriptor="qat_ctc_bpe_w4_a8", qat_args=w4_a8_qat_config
         # ),
+        "qat_full_ctx_transducer_bpe": training.qat_full_ctx_transducer_bpe.run(
+            descriptor="qat_full_ctx_transducer_bpe", qat_args=w8_a8_qat_config
+        ),
+        "full_ctx_transducer_qat_encoder_prediction_bpe": training.full_ctx_transducer_qat_encoder_prediction_bpe.run(
+            descriptor="full_ctx_transducer_qat_encoder_prediction_bpe", qat_args=w8_a8_qat_config
+        ),
         "ffnn_transducer_qat_encoder_bpe_param_sync": training.ffnn_transducer_qat_encoder_bpe_param_sync.run(
             descriptor="ffnn_transducer_qat_encoder_bpe_param_sync", qat_args=w8_a8_qat_config
         ),
@@ -45,7 +51,9 @@ def run_all(filename):
         )
     )
     recog_results.extend(
-        recognition.qat_ffnn_transducer_bpe.run(model=models["qat_ffnn_transducer_full_quant"], corpora=["dev-other"])
+        recognition.ffnn_transducer_qat_encoder_bpe.run(
+            model=models["ffnn_transducer_qat_encoder_bpe_param_sync"], corpora=["dev-other"]
+        )
     )
     # recog_results.extend(recognition.qat_ctc_bpe_param_sync.run(model=models["qat_ctc_bpe_param_sync"], corpora=["dev-other"]))
     # recog_results.extend(recognition.qat_ctc_bpe_param_sync.run(model=models["qat_ctc_bpe_w4_a8"], corpora=["dev-other"]))
@@ -72,7 +80,7 @@ def run_test(filename):
         # "qat_ctc_bpe": training.qat_ctc_bpe.run(descriptor="qat_ctc_bpe", qat_args=baseline_qat_config),
     }
     recog_results = []
-    recog_results.extend(recognition.ffnn_transducer_qat_encoder_bpe.run(model=models["ffnn_transducer_qat_encoder"]))
+    # recog_results.extend(recognition.ffnn_transducer_qat_encoder_bpe.run(model=models["ffnn_transducer_qat_encoder"]))
     # recog_results.extend(recognition.qat_ctc_bpe.run(model=models["qat_ctc_bpe"]))
     # recog_results.extend(recognition.qat_ffnn_transducer_bpe.run(model=models["qat_ffnn_transducer_full_quant"]))
     register_recog_report(recog_results, filename=filename)
@@ -101,6 +109,21 @@ def run_debug(filename):
             descriptor="full_ctx_transducer_qat_encoder_prediction_bpe", qat_args=baseline_qat_config
         ),
     }
+    lstm_quant_configs = [
+        ("no_quant", [False, False, False, False, False]),  # 1. no quantization
+        ("quant_l", [True, False, False, False, False]),  # 2. quantized Linear layers, but not the entire projection
+        ("quant_lp", [True, True, True, False, False]),  # 3. 2 + quantized projection/state transformation
+        ("quant_lpg", [True, True, True, True, False]),  # 4. 3 + gates quantized post activation.
+    ]
+    for lstm_quant_config in lstm_quant_configs:
+        models["full_ctx_transducer_qat_encoder_prediction_bpe" + "_" + lstm_quant_config[0]] = (
+            training.full_ctx_transducer_qat_encoder_prediction_bpe.run(
+                descriptor="full_ctx_transducer_qat_encoder_prediction_bpe" + "_" + lstm_quant_config[0],
+                qat_args=baseline_qat_config,
+                lstm_quant_flags=lstm_quant_config[1],
+            )
+        )
+        # break
     recog_results = []
     # recog_results.extend(recognition_qat_ctc_bpe_param_sync.run(model=qat_ctc_trained_model, corpora=["dev-other"], converter_hardware_settings=converter_hardware_settings, pos_enc_converter_hardware_settings=pos_enc_converter_hardware_settings, correction_settings=correction_settings, num_cycles=num_cycles))
     # recog_results.extend(recognition.ffnn_transducer_qat_encoder_bpe.run(model=models["ffnn_transducer_qat_encoder"]))

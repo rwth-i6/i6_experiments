@@ -7,7 +7,7 @@ __all__ = [
 ]
 
 from dataclasses import dataclass
-from typing import Tuple, Union
+from typing import Tuple, Union, List
 
 import torch
 from ..common.assemblies.conformer import ConformerEncoderQuant, ConformerEncoderQuantV1Config
@@ -108,6 +108,7 @@ class LstmTransducerQATEncoderPredictionModel(torch.nn.Module):
             activation_bit_prec=cfg.activation_bit_prec,
             activation_quant_dtype=cfg.activation_quant_dtype,
             activation_quant_method=cfg.activation_quant_method,
+            moving_average=cfg.moving_average,
         )
         self.pred_act = cfg.pred_activation
 

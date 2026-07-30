@@ -59,7 +59,7 @@ def default_recog_variants() -> List[TransducerRecogVariant]:
         # default_streaming_lexfree_recog_variant(),
         # default_streaming_tree_4gram_recog_variant(),
     # ]
-    ] + param_sweep_tree_4gram_recog_variants() + param_sweep_lexfree_lstm_recog_variants() + param_sweep_tree_lstm_recog_variants()
+    ] + param_sweep_tree_4gram_recog_variants() + param_sweep_tree_lstm_recog_variants() + param_sweep_lexfree_lstm_recog_variants()
 
 
 def param_sweep_tree_4gram_recog_variants() -> List[TransducerRecogVariant]:
@@ -68,7 +68,7 @@ def param_sweep_tree_4gram_recog_variants() -> List[TransducerRecogVariant]:
         for ext_lm_scale in [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2]:
             variants.append(
                 TransducerRecogVariant(
-                    descriptor=f"tree_4gram_{ilm_scale}_{ext_lm_scale}",
+                    descriptor=f"tree_4gram_ilm{ilm_scale}_elm{ext_lm_scale}",
                     search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
                         collapse_repeated_labels=False,
                         word_lm_params=librispeech_lm.ArpaLmParams(scale=ext_lm_scale),
@@ -89,7 +89,7 @@ def param_sweep_lexfree_lstm_recog_variants() -> List[TransducerRecogVariant]:
         for ext_lm_scale in [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2]:
             variants.append(
                 TransducerRecogVariant(
-                    descriptor=f"lexfree_bpe-LSTM_{ilm_scale}_{ext_lm_scale}",
+                    descriptor=f"lexfree_bpe-LSTM_ilm{ilm_scale}_elm{ext_lm_scale}",
                     search_algorithm_params=LexiconfreeTimesyncRecogParams(
                         collapse_repeated_labels=False,
                         max_beam_sizes=[2048, 512],
@@ -108,7 +108,7 @@ def param_sweep_tree_lstm_recog_variants() -> List[TransducerRecogVariant]:
         for ext_lm_scale in [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2]:
             variants.append(
                 TransducerRecogVariant(
-                    descriptor=f"tree_bpe-LSTM_{ilm_scale}_{ext_lm_scale}",
+                    descriptor=f"tree_bpe-LSTM_ilm{ilm_scale}_elm{ext_lm_scale}",
                     search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
                         collapse_repeated_labels=False,
                         max_beam_sizes=[2048, 512],
