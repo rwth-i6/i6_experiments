@@ -198,14 +198,18 @@ class BuildFlashlightLexiconJob(Job):
 class Wav2Vec2KenlmDecodeJob(Job):
     """flashlight+kenlm lexicon beam decode of the §1d CTC student -> word hyps (+ dev word WER).
 
-    One GPU decode task per split (the flashlight beam search itself runs on CPU over the emissions,
-    so train's 28.5k utts get their own 11.5h window), then a cheap collect task joins `hypo.word`
-    to the `.uid` files (permutation-asserted) and scores the dev splits against the LibriSpeech
-    transcripts. Gold-less splits reuse the placeholder-label mechanics of the phone decode
-    (`_build_decode_data_dir`) and yield hypotheses only.
+    One GPU decode task per (split, shard): the flashlight beam search runs single-threaded on CPU
+    at ~16 utts/min, so train's 28.5k utts need ~30h serial — far past the cluster's 11.5h walltime
+    and not resumable. `train_shards` therefore splits the train manifest into interleaved
+    row-slices ([k::n], length-balanced) decoded as parallel array tasks. The collect task joins
+    each shard's `hypo.word` to its uid slice (permutation-asserted per shard), merges, and scores
+    the dev splits against the LibriSpeech transcripts. Gold-less splits reuse the
+    placeholder-label mechanics of the phone decode (`_build_decode_data_dir`) and yield
+    hypotheses only.
     """
 
     requires_env = "w2vu"
+    __sis_hash_exclude__ = {"train_shards": 1}
 
     def __init__(
         self,
@@ -222,6 +226,7 @@ class Wav2Vec2KenlmDecodeJob(Job):
         lm_weight: float = 2.0,
         word_score: float = -1.0,
         max_tokens: int = 1100000,
+        train_shards: int = 1,
         python_exe: tk.Path = W2VU_PYTHON,
     ):
         super().__init__()
@@ -237,6 +242,7 @@ class Wav2Vec2KenlmDecodeJob(Job):
         self.lm_weight = lm_weight
         self.word_score = word_score
         self.max_tokens = max_tokens
+        self.train_shards = train_shards
         self.python_exe = python_exe
 
         self.out_wer = self.output_path("word_wer.json")
@@ -244,19 +250,27 @@ class Wav2Vec2KenlmDecodeJob(Job):
         # mem: kenlm holds the multi-GB text ARPA in RAM inside the decode subprocess
         self.rqmt = {"gpu": 1, "gpu_mem": 40, "mem": 64, "time": 11.5, "cpu": 8}
 
+    def _n_shards(self, split: str) -> int:
+        return self.train_shards if split == "train" else 1
+
     def tasks(self):
-        yield Task("decode", rqmt=self.rqmt, args=[[s] for s in self.splits])
+        yield Task("decode", rqmt=self.rqmt,
+                   args=[[s, k] for s in self.splits for k in range(self._n_shards(s))])
         yield Task("collect", mini_task=True)
 
-    def decode(self, split: str):
+    def decode(self, split: str, shard: int = 0):
         assert_w2vu_env(self.python_exe)
         fs = _fairseq_dir(self.python_exe)
-        # per-split data dir: decode tasks run concurrently in the same work dir
+        n = self._n_shards(split)
+        tag = split if n == 1 else f"{split}_shard{shard}"
+        # per-(split, shard) data dir: decode tasks run concurrently in the same work dir
         data, _ = _build_decode_data_dir(
             audio_dir=self.audio_dir.get_path(), dict_phn=self.dict_phn.get_path(),
-            gold_path=self.gold.get_path(), splits=[split], dest=os.path.abspath(f"data_{split}"))
+            gold_path=self.gold.get_path(), splits=[split], dest=os.path.abspath(f"data_{tag}"))
+        if n > 1:
+            _shard_manifest(data, split, shard, n)
         conf = os.path.join(fs, "examples", "speech_recognition", "new", "conf")
-        resdir = os.path.abspath(f"decode_{split}")
+        resdir = os.path.abspath(f"decode_{tag}")
         os.makedirs(resdir, exist_ok=True)
         args = [
             os.fspath(self.python_exe), "-m", "examples.speech_recognition.new.infer",
@@ -290,7 +304,16 @@ class Wav2Vec2KenlmDecodeJob(Job):
         wers, hyps = {}, {}
         for s in self.splits:
             uids = _read_lines(os.path.join(self.audio_dir.get_path(), f"{s}.uid"))
-            hyps[s] = _parse_hypo_file(os.path.abspath(os.path.join(f"decode_{s}", "hypo.word")), uids)
+            n = self._n_shards(s)
+            if n == 1:
+                hyps[s] = _parse_hypo_file(os.path.abspath(os.path.join(f"decode_{s}", "hypo.word")), uids)
+            else:
+                merged: Dict[str, str] = {}
+                for k in range(n):
+                    merged.update(_parse_hypo_file(
+                        os.path.abspath(os.path.join(f"decode_{s}_shard{k}", "hypo.word")), uids[k::n]))
+                assert len(merged) == len(uids), f"{s}: {len(merged)} merged hyps vs {len(uids)} uids"
+                hyps[s] = {uid: merged[uid] for uid in uids}
             n_empty = sum(1 for v in hyps[s].values() if not v)
             print(f"{s}: {len(hyps[s])} hyps, {n_empty} empty", flush=True)
             if s in refs:
@@ -308,6 +331,30 @@ class Wav2Vec2KenlmDecodeJob(Job):
         with open(self.out_hyps.get_path(), "w") as f:
             json.dump(hyps, f, indent=2)
         print("word WER:", json.dumps(wers, indent=2), flush=True)
+
+
+def _shard_manifest(data: str, split: str, shard: int, num_shards: int) -> None:
+    """Restrict a `_build_decode_data_dir` output in place to manifest rows [shard::num_shards].
+
+    The tsv (a symlink to the full manifest) is replaced by a real file with the header + row
+    slice, and `{split}.phn` is rewritten with the same slice, so infer's (None-<idx>) indices
+    enumerate exactly the shard's rows — collect joins them against the identical uid slice.
+    """
+    tsv_path = os.path.join(data, f"{split}.tsv")
+    with open(tsv_path) as f:
+        header, *rows = [l.rstrip("\n") for l in f if l.strip()]
+    phn = _read_lines(os.path.join(data, f"{split}.phn"))
+    assert len(rows) == len(phn), f"{split}: {len(rows)} tsv rows vs {len(phn)} phn lines"
+    keep = range(shard, len(rows), num_shards)
+    os.unlink(tsv_path)
+    with open(tsv_path, "w") as f:
+        f.write(header + "\n")
+        for i in keep:
+            f.write(rows[i] + "\n")
+    with open(os.path.join(data, f"{split}.phn"), "w") as f:
+        for i in keep:
+            f.write(phn[i] + "\n")
+    print(f"{split} shard {shard}/{num_shards}: {len(keep)} of {len(rows)} utts", flush=True)
 
 
 def _levenshtein(a: List[str], b: List[str]) -> int:
