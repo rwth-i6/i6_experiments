@@ -710,6 +710,35 @@ def py_aed_graphc_loquacious():
         },
     )
     tk.register_output("returnn/loq-base-graphc-bench-packed_graphc-gap960.json", job.out_results)
+    # partitioned-graphc probe: fw/bwd split by min-cut rematerialization,
+    # activation_memory_budget = the global save-vs-recompute knob
+    # (see graph_capture opts "partitioned"; smoke-verified loss-identical to single-graph);
+    # target: the ~270 MiB real-liveness shortfall of the single-graph run
+    job = TrainStepBenchmarkJob(
+        returnn_config=cfg,
+        mode="packed_graphc",
+        num_steps=31,
+        config_overrides={
+            "packed_tensors": {
+                "per_key": {
+                    "audio": {"gap": 960, "align": 960},
+                    "text": {"gap": 2, "align": 1},
+                }
+            },
+            "torch_cuda_graph": {
+                "batch_size_bound": 200,
+                "dim_capacity": {"audio": 312_960, "text": classes_cap},
+                "packed_total_bound": {"audio": 16_384_000, "text": 200 * (classes_cap + 2)},
+                "warmup_steps": 2,
+                "capture_optimizer": True,
+                "compile": True,
+                "partitioned": True,
+                "activation_memory_budget": 0.5,
+                "dump_memory_snapshot": True,
+            },
+        },
+    )
+    tk.register_output("returnn/loq-base-graphc-bench-packed_graphc-partitioned.json", job.out_results)
 
 
 def _loq_batch_size_factor():
