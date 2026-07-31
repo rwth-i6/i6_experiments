@@ -44,7 +44,8 @@ def expect(name, rqmt, partition):
 
 # --- automatic routing by walltime ---------------------------------------------------------------
 expect("gpu 8h", {"gpu": 1, "time": 8}, "c25g")
-expect("gpu 24h (over c25g 12h cap)", {"gpu": 1, "time": 24}, "c23g")
+expect("gpu 24h (exactly c25g's cap)", {"gpu": 1, "time": 24}, "c25g")
+expect("gpu 25h (over c25g's 24h cap)", {"gpu": 1, "time": 25}, "c23g")
 expect("cpu job", {"cpu": 4, "time": 2}, "c23ms")
 
 # --- capability-driven routing -------------------------------------------------------------------
