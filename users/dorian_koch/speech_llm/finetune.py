@@ -679,7 +679,15 @@ class SpeechFinetune(Job):
         self.out_rundir = self.output_path("run_dir", directory=True)
         # time from hparams["rqmt_time_h"] (default 23h -> c23g). <=12 routes to the fast c25g queue;
         # safe for owned-launcher runs because resume() continues across the 12h cap. rqmt isn't hashed.
-        self.rqmt = {"gpu": 1, "cpu": 6, "mem": 24, "time": int(self.hparams.get("rqmt_time_h", 23))}
+        # gpu>1 -> single-node DDP (torchrun --nproc-per-node = visible GPUs); scale cpu/mem per GPU so 4
+        # dataloaders + 4 ranks have headroom. rqmt is NOT hashed, so this never re-hashes existing runs.
+        _gpu = int(self.hparams.get("gpu", 1))
+        self.rqmt = {
+            "gpu": _gpu,
+            "cpu": 6 * _gpu,
+            "mem": 24 * _gpu,
+            "time": int(self.hparams.get("rqmt_time_h", 23)),
+        }
 
     @classmethod
     def hash(cls, parsed_args):

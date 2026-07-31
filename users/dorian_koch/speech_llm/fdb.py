@@ -83,6 +83,8 @@ FDB_MODEL_ORIGIN = {
     "moshi_ft_a7_mix": ("ours", "LoRA on kyutai/moshiko (Fisher+QA mix, PersonaPlex recipe)"),
     "moshi_ft_a8_warmup": ("ours", "LoRA on kyutai/moshiko (A7-mix recipe, gentler warmup 500)"),
     "moshi_ft_a8_fast": ("ours", "LoRA on kyutai/moshiko (Fisher60s+QA mix, ga4, 3000 steps, warmup 500)"),
+    "moshi_ft_a8_long": ("ours", "LoRA on kyutai/moshiko (A8-fast recipe, 6000 steps)"),
+    "moshi_ft_a8_4gpu": ("ours", "LoRA on kyutai/moshiko (A8-fast recipe, 4-GPU DDP, eff batch 32)"),
     "moshi_lib_ft": ("ours", "LoRA on kyutai/moshiko (our lib)"),
     "moshi_lib_smoke": ("ours", "LoRA on kyutai/moshiko (smoke test)"),
     "moshirag_lib_ft": ("ours", "LoRA on kyutai/moshika-rag (our lib)"),
