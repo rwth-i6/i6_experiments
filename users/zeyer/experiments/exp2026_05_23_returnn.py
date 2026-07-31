@@ -828,7 +828,9 @@ class TrainStepBenchmarkJob(Job):
 
     def tasks(self):
         """tasks"""
-        yield Task("run", rqmt=self.rqmt)
+        # run() is idempotent (rewrites config, reruns, reparses),
+        # so an interrupted run can simply restart
+        yield Task("run", rqmt=self.rqmt, resume="run")
 
     _mode_overrides = {
         "padded_eager": "packed_tensors = None\ntorch_cuda_graph = None\n",
@@ -967,6 +969,9 @@ class TrainStepBenchmarkJob(Job):
         # the phase transitions of graph capture (warmup / compile / capture)
         # fragment badly without it
         env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        # loq 561M is ~270 MiB short of 80 GB with real liveness (not fragmentation);
+        # slab+offset planning recovers per-buffer rounding/reuse slack
+        env.setdefault("TORCHINDUCTOR_MEMORY_PLANNING", "1")
         # persistent Inductor cache:
         # the generated kernels survive the job (node-local tmp does not),
         # needed to map buffers in nan-assert failures to ops
