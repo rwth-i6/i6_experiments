@@ -82,6 +82,7 @@ FDB_MODEL_ORIGIN = {
     # and depth:temporal LR ratio, 160 s context, effective batch 32.
     "moshi_ft_a7_mix": ("ours", "LoRA on kyutai/moshiko (Fisher+QA mix, PersonaPlex recipe)"),
     "moshi_ft_a8_warmup": ("ours", "LoRA on kyutai/moshiko (A7-mix recipe, gentler warmup 500)"),
+    "moshi_ft_a8_fast": ("ours", "LoRA on kyutai/moshiko (Fisher60s+QA mix, ga4, 3000 steps, warmup 500)"),
     "moshi_lib_ft": ("ours", "LoRA on kyutai/moshiko (our lib)"),
     "moshi_lib_smoke": ("ours", "LoRA on kyutai/moshiko (smoke test)"),
     "moshirag_lib_ft": ("ours", "LoRA on kyutai/moshika-rag (our lib)"),
