@@ -81,6 +81,7 @@ FDB_MODEL_ORIGIN = {
     # A7: PersonaPlex-style recipe minus the architecture -- 50/50 Fisher+QA mix, their loss weights
     # and depth:temporal LR ratio, 160 s context, effective batch 32.
     "moshi_ft_a7_mix": ("ours", "LoRA on kyutai/moshiko (Fisher+QA mix, PersonaPlex recipe)"),
+    "moshi_ft_a8_warmup": ("ours", "LoRA on kyutai/moshiko (A7-mix recipe, gentler warmup 500)"),
     "moshi_lib_ft": ("ours", "LoRA on kyutai/moshiko (our lib)"),
     "moshi_lib_smoke": ("ours", "LoRA on kyutai/moshiko (smoke test)"),
     "moshirag_lib_ft": ("ours", "LoRA on kyutai/moshika-rag (our lib)"),
