@@ -18,15 +18,18 @@ The invariant that catches it is not "the arithmetic looks right", it is:
 so this file asserts that, over enough steps to wrap the ring several times, at several batch
 sizes (a per-batch offset bug hides at B=1).
 
-To prove the guard actually bites, it then re-introduces the off-by-one -- by rewriting the *real*
-source of ``RingKVCache.complete`` rather than a hand-copy, so the mutation cannot go stale -- and
-asserts the check fails. A guard that passes against the bug it was written for is worthless.
+To prove the guard actually bites, it then re-introduces the off-by-one and asserts the check
+fails. The mutation is always derived from the shipping code -- never a hand-copy -- so it cannot
+quietly go stale: it flips the temporary ``MOSHI_LEGACY_RING_KV`` flag while that exists, and
+rewrites the live source of ``RingKVCache.complete`` once the flag is gone. A guard that passes
+against the bug it was written for is worthless.
 
 Run from the setup root, no GPU needed:
     CUDA_HOME=/usr .venv/bin/python \\
         recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_streaming_kv_parity.py
 """
 
+import contextlib
 import inspect
 import os
 import sys
@@ -97,21 +100,39 @@ def check(model, *, expect_parity: bool, label: str):
     print(f"[ok] {label:44s} {detail}")
 
 
-def with_legacy_off_by_one():
-    """Rewrite the real `complete` source to increment before deriving the index, as PersonaPlex did.
+@contextlib.contextmanager
+def legacy_off_by_one():
+    """Re-introduce PersonaPlex's off-by-one, however it is currently reachable.
 
-    Derived from the live source rather than a copy, so it tracks refactors; if the expression it
-    keys on disappears, this raises instead of silently testing nothing.
+    While the temporary ``MOSHI_LEGACY_RING_KV`` flag exists (it is there only to validate the
+    PersonaPlex port), flip that -- it exercises the real legacy path rather than an imitation of
+    it. Once the flag is deleted, fall back to rewriting the live source of ``complete``. Either
+    way the mutation is derived from the shipping code, so it cannot quietly go stale: if neither
+    route is available this raises instead of testing nothing.
     """
+    module = sys.modules[RingKVCache.__module__]
+    if hasattr(module, "_LEGACY_RING_KV"):
+        previous = module._LEGACY_RING_KV
+        module._LEGACY_RING_KV = True
+        try:
+            yield "via MOSHI_LEGACY_RING_KV"
+        finally:
+            module._LEGACY_RING_KV = previous
+        return
+
     src = textwrap.dedent(inspect.getsource(RingKVCache.complete))
     marker = "+ T - 1"
     assert src.count(marker) == 1, (
         f"expected exactly one {marker!r} in RingKVCache.complete, found {src.count(marker)}. "
         "The position arithmetic was refactored -- update this mutation to match."
     )
-    ns = dict(sys.modules[RingKVCache.__module__].__dict__)
+    ns = dict(module.__dict__)
     exec(compile(src.replace(marker, "+ T"), "<legacy-ring-kv>", "exec"), ns)
-    return ns["complete"]
+    original, RingKVCache.complete = RingKVCache.complete, ns["complete"]
+    try:
+        yield "via source rewrite"
+    finally:
+        RingKVCache.complete = original
 
 
 model = build_transformer()
@@ -120,12 +141,8 @@ model = build_transformer()
 check(model, expect_parity=True, label="streaming == non-streaming (current)")
 
 # --- prove the invariant is load-bearing ----------------------------------------------------------
-original = RingKVCache.complete
-try:
-    RingKVCache.complete = with_legacy_off_by_one()
-    check(model, expect_parity=False, label="off-by-one is detected (mutation)")
-finally:
-    RingKVCache.complete = original
+with legacy_off_by_one() as how:
+    check(model, expect_parity=False, label=f"off-by-one detected ({how})")
 
 check(model, expect_parity=True, label="streaming == non-streaming (restored)")
 
