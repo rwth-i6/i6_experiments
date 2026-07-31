@@ -969,9 +969,6 @@ class TrainStepBenchmarkJob(Job):
         # the phase transitions of graph capture (warmup / compile / capture)
         # fragment badly without it
         env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-        # loq 561M is ~270 MiB short of 80 GB with real liveness (not fragmentation);
-        # slab+offset planning recovers per-buffer rounding/reuse slack
-        env.setdefault("TORCHINDUCTOR_MEMORY_PLANNING", "1")
         # persistent Inductor cache:
         # the generated kernels survive the job (node-local tmp does not),
         # needed to map buffers in nan-assert failures to ops
