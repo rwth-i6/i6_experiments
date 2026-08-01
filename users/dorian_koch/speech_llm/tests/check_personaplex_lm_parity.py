@@ -5,10 +5,15 @@ individually plausible and collectively unverifiable by inspection, so this pins
 build the same small architecture in both stacks, copy one set of weights into both, and assert
 the training forward agrees to floating-point noise.
 
-It is deliberately a *non-streaming* comparison. PersonaPlex's streaming path carried a ring-cache
-off-by-one (see check_streaming_kv_parity.py) which the port fixes, so streaming outputs are
-expected to differ until that is resolved; the non-streaming forward is the part that must not
-move, and it is also the path used for training.
+The cross-stack comparison is deliberately *non-streaming*: it is the path used for training, and
+it is the part that must not move. (Since the port, PersonaPlex's LM runs the canonical modules
+directly, so the two agree exactly rather than to rounding -- a non-zero diff here now means
+something genuinely diverged.)
+
+Streaming is then exercised separately, as a smoke test rather than a comparison. The port moved
+_LMGenState onto the canonical State ABC, and that machinery -- masked reset, the wrapped model's
+streaming scope on an exit_stack, the renamed step counter -- fails at *runtime*, not at import,
+so it needs real steps driven through it at more than one batch size.
 
 Note the state dict crosses a key-layout boundary: the canonical attention stores per-step
 projections as in_projs.{i}.weight where PersonaPlex stores one fused in_proj_weight. That is
@@ -29,7 +34,11 @@ sys.path.insert(0, os.path.join(os.getcwd(), "recipe", "speech_llm", "full_duple
 import torch  # noqa: E402
 
 from moshi_family.models.lm import LMModel as CanonicalLM  # noqa: E402
-from moshi_family.personaplex.models.lm import LMModel as PersonaPlexLM  # noqa: E402
+from moshi_family.personaplex.models.lm import (  # noqa: E402
+    AUDIO_TOKENS_PER_STREAM,
+    LMGen,
+    LMModel as PersonaPlexLM,
+)
 from moshi_family.personaplex.models import loaders  # noqa: E402
 
 TOL = 1e-4
@@ -90,4 +99,29 @@ assert audio_diff < TOL, f"audio logits diverge by {audio_diff:.3g} (tol {TOL})"
 print(f"[ok] text logits agree                   max diff {text_diff:.3g}")
 print(f"[ok] audio logits agree                  max diff {audio_diff:.3g}")
 
-print("\nPersonaPlex's LM matches the canonical LM on shared weights")
+# --- the streaming state, on the canonical contract ----------------------------------------------
+# The port moved _LMGenState onto the canonical State ABC: reset() now takes a mask, the wrapped
+# model's streaming scope is entered through the state's exit_stack, and the scalar step counter
+# was renamed offset_cpu. None of that is exercised by a forward pass, and all of it fails at
+# runtime rather than import time, so drive a few real steps.
+gen = LMGen(ppx, device="cpu", use_sampling=False)
+for batch_size in (1, 2, 3):
+    with gen.streaming(batch_size):
+        state = gen._streaming_state
+        assert hasattr(state, "exec_mask"), (
+            "_LMGenState is not a canonical State subclass -- the streaming contract regressed"
+        )
+        emitted = sum(
+            gen.step(moshi_tokens=torch.randint(0, ARCH["card"], (batch_size, AUDIO_TOKENS_PER_STREAM, 1))) is not None
+            for _ in range(6)
+        )
+        advanced = state.offset_cpu
+        assert advanced == 6, f"step counter advanced {advanced} times over 6 steps"
+        assert emitted, "no frames emitted -- generation stalled"
+
+        gen.reset_streaming()
+        assert state.offset_cpu == 0, "reset(reset_mask) did not clear the step counter"
+        assert bool((~state.provided).all()), "reset(reset_mask) did not clear `provided`"
+    print(f"[ok] streaming B={batch_size}                        {emitted}/6 frames, counter 0->{advanced}->0")
+
+print("\nPersonaPlex's LM matches the canonical LM, and streams on the canonical contract")
