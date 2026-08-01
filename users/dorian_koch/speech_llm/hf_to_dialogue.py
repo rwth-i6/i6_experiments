@@ -117,6 +117,18 @@ _COMMON_SUFFIX = (
     "spoken words.\n"
     "- The TTS system can render the paralinguistic tags [laugh], [chuckle], [cough].\n"
     "- The dialogue must be fully self-contained. A listener with no prior context must understand what is being discussed. Never refer to answer options by letter (A, B, C, F, G, …) — instead speak the actual content. Never say 'this question', 'the problem', or 'option X' without first stating what the question or option is.\n"
+    # Anything whose answer depends on WHEN or WHERE it is asked cannot be answered from a fixed
+    # corpus, so the model can only make it up -- and a confident invented answer is precisely what
+    # a knowledge model must not be taught. Measured on the 2026-07-24 corpus, 34% of
+    # followup_topic_change rows asked such a question and 22% had the assistant claim to look
+    # something up; every other template was under 4%.
+    "- NEVER invent information that depends on the current moment or place: no weather or forecasts, "
+    "no current time or date, no 'today'/'tonight'/'tomorrow' events, no live scores, prices, news, "
+    "or schedules. Every fact stated must be a durable one that is equally true whenever the "
+    "conversation happens.\n"
+    "- The assistant has NO live data, no internet, and no tools. Never say 'let me check', "
+    "'according to the latest', 'it is currently', or otherwise imply looking something up. If a "
+    "question of that kind would be natural here, ask a different question instead.\n"
     "The FIRST speaker in the dialogue MUST be the user.\n"
     "Output ONLY a JSON array of objects, each with 'speaker' ('user' or 'assistant') "
     "and 'text'. No explanations, no markdown wrapper.\n"
@@ -177,11 +189,16 @@ DIALOGUE_INSTRUCTION_TEMPLATES = [
     # question-answering dialogs ... and second-question scenarios (topic change, follow up etc.)",
     # which our single-question corpus had none of.
     (
-        "Write a spoken dialogue with TWO questions.  First the user asks the question and the "
-        "assistant answers it clearly.  Then the user asks a SECOND question — either a natural "
-        "follow-up about the same topic, or an unrelated change of subject — and the assistant "
-        "answers that too, without being thrown by the switch.  The user MUST speak first.  "
-        "Total turns: 4-6.\n" + _COMMON_SUFFIX
+        "Write a spoken dialogue with TWO questions.  First the user asks the question above and "
+        "the assistant answers it clearly.  Then the user asks a SECOND question — either a natural "
+        "follow-up about the same topic, or a change of subject — and the assistant answers that "
+        "too, without being thrown by the switch.  The user MUST speak first.  Total turns: 4-6.\n"
+        "The second question is NOT supplied to you, so you must choose one you can answer "
+        "correctly from durable, well-established general knowledge — history, geography, science, "
+        "language, culture — and it must have a single settled answer you are confident in.  Do not "
+        "reach for small talk about the weather, the time, or what is happening today; those have no "
+        "correct answer here and inventing one is worse than not asking.  If you are not sure the "
+        "answer is right, pick an easier second question.\n" + _COMMON_SUFFIX
     ),
     # --- Templates 8-10: MANY SHORT TURNS ----------------------------------------------------
     # These raise total assistant words WITHOUT making individual turns long-winded. The terse
