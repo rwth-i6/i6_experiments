@@ -362,13 +362,21 @@ _EXTRA_FACTS_HEADER = (
     "short piece of context or a memorable detail — never a bare one- or two-word reply. Reword a "
     "supplied question so it sounds like something a person would actually say out loud, keeping "
     "its meaning exactly; some are written in a terse quiz style that nobody speaks.\n"
+    # Handing the model a fact invites the one opener this corpus exists to avoid: measured on the
+    # second v6 build, "That would be" opened an assistant turn in 44% of quickfire and 43% of
+    # followup_topic_change dialogues (2,102 of 2,104 banned openers were that exact phrase), against
+    # 12.3% corpus-wide in v5. The general ban in the style rules above is evidently not enough at
+    # the point where a bare fact is being delivered, so it is restated here, concretely.
+    "Never open one of these answers with 'That would be' — it is the single most overused phrase "
+    "in this kind of dialogue and it is already forbidden above. Lead with the fact itself, or with "
+    "wording you have not used elsewhere in this dialogue.\n"
 )
 
 
 #: Bump when the wording above changes. It is passed as `templates_version` for exactly the
 #: templates that receive extras (see `make_per_template_dialogues`), which is what makes a prompt
 #: fix here regenerate those slices and leave every other slice's hash alone.
-EXTRA_FACTS_PROMPT_VERSION = 2
+EXTRA_FACTS_PROMPT_VERSION = 3
 
 
 #: The exact paragraph of a template that tells the generator to source a question ITSELF. That is
