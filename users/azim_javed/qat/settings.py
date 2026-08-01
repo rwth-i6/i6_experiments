@@ -27,7 +27,7 @@ def check_engine_limits(current_rqmt, task):
     i6 support for gpu_mem
     """
     current_rqmt["time"] = min(168, current_rqmt.get("time", 2))
-    bad_nodes = ["cn-290"]
+    bad_nodes = ["cn-627", "cn-828", "cn-617", "cn-619", "cn-506"]
     if current_rqmt.get("gpu", 0) > 0 and "-p" not in current_rqmt.get(
         "sbatch_args", []
     ):
