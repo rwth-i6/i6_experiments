@@ -353,7 +353,22 @@ _EXTRA_FACTS_HEADER = (
     "Additional supplied facts. Every FURTHER question in this dialogue must be taken from the list "
     "below, asked in the user's own words, and answered with the correct answer given here. Do not "
     "think up a further question of your own.\n"
+    # Without this, the model reads "answer with the answer given here" literally and replies with
+    # the bare gold string -- "Thelonious Monk." Measured on the first v6 build, that cut assistant
+    # words per dialogue by 56% (followup_topic_change 23.7 -> 10.4) and 62% (quickfire 32.4 ->
+    # 12.4), undoing most of what the v5 mixture was tuned to achieve. The supplied answer is the
+    # fact to convey, not the words to say.
+    "Speak these answers the way the rest of the dialogue speaks: a natural spoken sentence, plus a "
+    "short piece of context or a memorable detail — never a bare one- or two-word reply. Reword a "
+    "supplied question so it sounds like something a person would actually say out loud, keeping "
+    "its meaning exactly; some are written in a terse quiz style that nobody speaks.\n"
 )
+
+
+#: Bump when the wording above changes. It is passed as `templates_version` for exactly the
+#: templates that receive extras (see `make_per_template_dialogues`), which is what makes a prompt
+#: fix here regenerate those slices and leave every other slice's hash alone.
+EXTRA_FACTS_PROMPT_VERSION = 2
 
 
 #: The exact paragraph of a template that tells the generator to source a question ITSELF. That is
