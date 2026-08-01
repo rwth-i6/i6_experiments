@@ -68,14 +68,33 @@ assert len(idxs) > c.n, "stream must be endless (it cycles past one pass)"
 print(f"[ok] index stream endless and in range ({len(idxs)} draws over n={c.n})")
 
 # Every rank must see a disjoint slice, and together they must cover the corpus.
+#
+# Build each rank's generator the way the LOADER does -- via shard_rng -- not by hand. This check
+# used to construct `np.random.default_rng(0)` itself for every rank, which is disjoint by
+# construction and so passed while the real loader seeded `default_rng(seed + rank)` and handed each
+# rank a different permutation to stride. The stride only partitions an epoch when every rank strides
+# the same order, so the real shards overlapped for as long as this test looked at an idealised rng
+# instead of the one the caller actually creates. Test the wiring, not the primitive.
+import os  # noqa: E402
+
+from moshi_family.train_data_common import shard_rng  # noqa: E402
+
 shards = []
 for rank in range(4):
-    r = np.random.default_rng(0)
-    s = c.index_stream(r, rank=rank, world=4)
+    os.environ["RANK"], os.environ["WORLD_SIZE"] = str(rank), "4"
+    r, got_rank, got_world = shard_rng(0)
+    assert (got_rank, got_world) == (rank, 4), (got_rank, got_world)
+    s = c.index_stream(r, rank=got_rank, world=got_world)
     shards.append({next(s) for _ in range(c.n // 4)})
+os.environ["RANK"], os.environ["WORLD_SIZE"] = "0", "1"
 overlap = shards[0] & shards[1]
-assert not overlap, f"DDP shards overlap ({len(overlap)} shared indices)"
-print(f"[ok] DDP sharding disjoint across 4 ranks ({len(shards[0])} indices each)")
+assert not overlap, (
+    f"DDP shards overlap ({len(overlap)} shared indices) -- ranks are duplicating rows and missing "
+    "others, so the epoch is neither disjoint nor complete"
+)
+covered = set().union(*shards)
+assert len(covered) >= c.n - 4, f"4 ranks together covered only {len(covered)}/{c.n} rows"
+print(f"[ok] DDP sharding disjoint across 4 ranks ({len(shards[0])} each, {len(covered)}/{c.n} covered)")
 
 # --- 4. a small corpus is not exhausted when mixed with a large one -------------------------------
 # The point of sampling rather than concatenating: a 20k-row corpus mixed 50/50 with a 62k-row one
