@@ -871,3 +871,135 @@ class HfDialogueCleaner(Job):
                 f"({num_errors}/{len(dataset)}, > 1%). Something might be wrong."
             )
         filtered.save_to_disk(self.out_hf.get())
+
+
+#: A question whose answer depends on WHEN or WHERE it is asked. Nothing in a fixed QA corpus can
+#: answer one, so a generator that asks it must invent the answer.
+_LIVE_QUESTION_RE = (
+    r"\b(right now|currently|today|tonight|tomorrow|this (morning|afternoon|evening|week|weekend)|"
+    r"what time is it|weather|forecast|rain|snow|temperature|score|who won last night|"
+    r"latest|most recent|nowadays|these days)\b"
+)
+#: The assistant claiming live access, or reporting a current condition it cannot know.
+_LIVE_CLAIM_RE = (
+    r"\b(let me check|i'?ll check|checking (now|that)|according to the (forecast|latest)|"
+    r"the forecast|it'?s currently|it is currently|right now it|as of today|"
+    r"starts? (at|tonight)|begins at)\b"
+)
+
+
+class DialogueCorpusStats(Job):
+    """Per-template health readout for a generated dialogue corpus.
+
+    Exists because two regressions in one day were invisible to reading samples. Both were obvious
+    the moment the corpus was counted:
+
+    * `followup_topic_change` asked a question no source row could answer in 33.9% of its rows, and
+      had the assistant claim to look something up in 22.4% -- confident fabrication, in a corpus
+      whose whole purpose is teaching facts.
+    * Handing that template a real fact fixed the fabrication and made it *terse*: assistant words
+      per dialogue fell 23.7 -> 10.4, and quickfire 32.4 -> 12.4, because "answer with the correct
+      answer given here" reads as "say exactly this". A model learns response length as readily as
+      content, so that is a real regression and it is invisible in a loss curve.
+
+    Cheap enough (mini_task, login node) to attach to every corpus, which is the point: a corpus
+    should not reach TTS without someone able to see these numbers. Reports rather than asserts --
+    thresholds would need a per-template policy, and the mixture is deliberately heterogeneous.
+    """
+
+    def __init__(self, *, hf_dataset_path: tk.Path, sample: int = 0, seed: int = 1234):
+        """``sample``: rows to scan (0 = all). Sampling is seeded, so the numbers are reproducible."""
+        self.hf_dataset_path = hf_dataset_path
+        self.sample = sample
+        self.seed = seed
+        self.out_json = self.output_path("stats.json")
+        self.out_report = self.output_path("report.txt")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import random
+        import re
+        from collections import defaultdict
+
+        live_q = re.compile(_LIVE_QUESTION_RE, re.I)
+        live_a = re.compile(_LIVE_CLAIM_RE, re.I)
+
+        dataset = load_from_disk(self.hf_dataset_path.get())
+        idx = list(range(len(dataset)))
+        if self.sample and self.sample < len(idx):
+            random.Random(self.seed).shuffle(idx)
+            idx = idx[: self.sample]
+
+        per = defaultdict(lambda: defaultdict(float))
+        unparsed = 0
+        for i in idx:
+            row = dataset[i]
+            name = row.get("template_name") or "?"
+            stat = per[name]
+            stat["rows"] += 1
+            try:
+                turns = json.loads(row["dialogue"])
+            except (TypeError, ValueError):
+                unparsed += 1
+                stat["unparsed"] += 1
+                continue
+            asst = [t.get("text", "") for t in turns if t.get("speaker") == "assistant"]
+            user = [t.get("text", "") for t in turns if t.get("speaker") == "user"]
+            stat["turns"] += len(turns)
+            stat["asst_words"] += sum(len(t.split()) for t in asst)
+            stat["user_words"] += sum(len(t.split()) for t in user)
+            stat["extra_facts"] += row.get("n_extra_facts") or 0
+            # Only turns AFTER the first can be an invented question; the first is the source row's.
+            stat["live_q"] += any(live_q.search(t) for t in user[1:])
+            stat["live_claim"] += any(live_a.search(t) for t in asst)
+
+        total = sum(s["rows"] for s in per.values())
+        stats = {}
+        for name, s in per.items():
+            n = s["rows"]
+            ok = n - s["unparsed"] or 1
+            stats[name] = {
+                "rows": int(n),
+                "share": n / total,
+                "unparsed": int(s["unparsed"]),
+                "mean_turns": s["turns"] / ok,
+                "mean_assistant_words": s["asst_words"] / ok,
+                "mean_user_words": s["user_words"] / ok,
+                "mean_extra_facts": s["extra_facts"] / ok,
+                "live_question_rate": s["live_q"] / ok,
+                "live_claim_rate": s["live_claim"] / ok,
+            }
+        corpus = {
+            "rows_scanned": int(total),
+            "rows_total": len(dataset),
+            "unparsed": unparsed,
+            "mean_assistant_words": sum(s["asst_words"] for s in per.values()) / max(total - unparsed, 1),
+            "live_question_rate": sum(s["live_q"] for s in per.values()) / max(total - unparsed, 1),
+            "live_claim_rate": sum(s["live_claim"] for s in per.values()) / max(total - unparsed, 1),
+        }
+        with open(self.out_json.get(), "w") as f:
+            json.dump({"corpus": corpus, "per_template": stats}, f, indent=2, sort_keys=True)
+
+        head = f"{'template':<24}{'rows':>7}{'share':>8}{'turns':>7}{'asst w':>8}{'user w':>8}{'xfacts':>8}{'live Q':>8}{'live A':>8}"
+        lines = [f"dialogue corpus stats: {self.hf_dataset_path.get()}", "", head, "-" * len(head)]
+        for name in sorted(stats, key=lambda k: -stats[k]["rows"]):
+            s = stats[name]
+            lines.append(
+                f"{name:<24}{s['rows']:>7}{s['share']:>7.1%}{s['mean_turns']:>7.1f}"
+                f"{s['mean_assistant_words']:>8.1f}{s['mean_user_words']:>8.1f}"
+                f"{s['mean_extra_facts']:>8.2f}{s['live_question_rate']:>8.1%}{s['live_claim_rate']:>8.1%}"
+            )
+        lines += [
+            "-" * len(head),
+            f"{'CORPUS':<24}{corpus['rows_scanned']:>7}{'':>8}{'':>7}{corpus['mean_assistant_words']:>8.1f}"
+            f"{'':>8}{'':>8}{corpus['live_question_rate']:>8.1%}{corpus['live_claim_rate']:>8.1%}",
+            "",
+            "live Q = a user turn after the first asking something whose answer depends on when/where",
+            "         it is asked; live A = the assistant claiming to look something up.",
+        ]
+        report = "\n".join(lines)
+        print(report)
+        with open(self.out_report.get(), "w") as f:
+            f.write(report + "\n")
