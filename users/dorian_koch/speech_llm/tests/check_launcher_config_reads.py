@@ -7,7 +7,7 @@ match its declared config* -- which is worse than a crash, because the number lo
 catches this at runtime, but only after the model is built and only on the code path that actually
 ran. This check catches it statically, for every launcher, in a second.
 
-**2. Read, but only on one branch.** The subtler one, and the reason this check exists at all.
+**2. Read after the check, or only on one branch.** The subtler one, and the reason this check exists at all.
 `report_unread_config` is *fatal* by design, so a launcher that reads `init_checkpoint` only inside
 its `stage == "stage1"` branch will abort every `stage0` run -- even though the config is perfectly
 valid and the key is genuinely irrelevant to that stage. Adopting the strict guard therefore forces
@@ -15,6 +15,12 @@ an invariant: **`main()` reads every knob up front, into a local, before branchi
 shape independently (the knob block documents the schema in one place), but it is not self-enforcing
 -- the next person to add a branch-local `cfg.get()` reintroduces the abort, and only for the branch
 they did not test. So assert it here.
+
+Ordering is the same bug wearing a different hat: `report_unread_config` can only see the reads that
+have already happened, so a `cfg.get(...)` sitting in the argument list of the `run_training(...)`
+call *below* it counts as unread and aborts the run. That is precisely how the audex launcher failed
+on its first real submission after adopting the strict guard (`sample_every`), with every static check
+green -- the read was at the top level of `main()`, just late. So both rules are enforced here.
 
 Both audex and rl violated (2) before 2026-08-01: they carried private `_load_config` copies and so
 had never been subject to the strict guard at all.
@@ -93,8 +99,8 @@ def rendered_keys(recipe_file: str, fn_name: str) -> set:
     raise AssertionError(f"{fn_name} not found in {recipe_file}")
 
 
-def read_keys(path: Path) -> tuple[set, set]:
-    """Config keys the launcher reads -> (all keys, keys read inside a branch or nested function)."""
+def read_keys(path: Path) -> tuple[set, set, set]:
+    """Config keys main() reads -> (all, read inside a branch/closure, read after the strict check)."""
     tree = ast.parse(path.read_text())
     main = next(
         (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "main"),
@@ -102,7 +108,18 @@ def read_keys(path: Path) -> tuple[set, set]:
     )
     assert main is not None, f"{path.name} has no main()"
 
-    all_keys, conditional = set(), set()
+    # Line of the report_unread_config(...) call: every read must be strictly above it, because the
+    # tracking dict only knows about reads that have already run when the check fires.
+    check_line = min(
+        (
+            n.lineno
+            for n in ast.walk(main)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "report_unread_config"
+        ),
+        default=None,
+    )
+
+    all_keys, conditional, late = set(), set(), set()
 
     def visit(node, guarded: bool):
         for child in ast.iter_child_nodes(node):
@@ -111,12 +128,14 @@ def read_keys(path: Path) -> tuple[set, set]:
                 all_keys.add(key)
                 if guarded:
                     conditional.add(key)
+                if check_line is not None and child.lineno > check_line:
+                    late.add(key)
             # A read inside a branch, a loop, a try, or a closure is not guaranteed to happen.
             nested = guarded or isinstance(child, (ast.If, ast.For, ast.While, ast.Try, ast.FunctionDef, ast.IfExp))
             visit(child, nested)
 
     visit(main, False)
-    return all_keys, conditional
+    return all_keys, conditional, late
 
 
 def config_key(node) -> str | None:
@@ -144,7 +163,7 @@ def config_key(node) -> str | None:
 failures = []
 for launcher, (recipe_file, fn_name) in sorted(PAIRS.items()):
     emitted = rendered_keys(recipe_file, fn_name)
-    read, conditional = read_keys(launcher)
+    read, conditional, late = read_keys(launcher)
     name = launcher.name if launcher.parent.name == "speech_llm" else f"{launcher.parent.name}/{launcher.name}"
 
     if launcher in DELEGATED:
@@ -165,6 +184,13 @@ for launcher, (recipe_file, fn_name) in sorted(PAIRS.items()):
         )
 
     if launcher in UNCONDITIONAL:
+        after = sorted(emitted & late)
+        if after:
+            failures.append(
+                f"{name}: reads {after} BELOW its report_unread_config() call, which therefore sees "
+                f"them as unread and aborts the run. Move the cfg.get(...) above the check (usually "
+                f"into the knob block at the top of main())."
+            )
         branchy = sorted(emitted & conditional)
         if branchy:
             failures.append(
