@@ -11,6 +11,11 @@ no gold answer for -- produced a live/unanswerable question in **33.9%** of its 
 assistant claim live data access in **22.4%**. Every other template was at or below 4%. Typical
 output: "do you know if it's going to rain tomorrow?" -> "The forecast says it should stay dry".
 
+There are two defences and this checks both: the prompt rule, and -- for the one template that
+needs a question its row cannot supply -- actually GIVING it a second gold fact
+(`TEMPLATE_EXTRA_FACTS` / `attach_extra_facts`), which removes the reason to invent rather than
+forbidding it.
+
 The rule lives in `_COMMON_SUFFIX`, so it reaches every template automatically -- but only for as
 long as nobody writes a template that bypasses the suffix. That is what this checks. It also pins the
 extra grounding on the one template that invents its own question.
@@ -24,6 +29,8 @@ Run from the setup root, no GPU needed:
         recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_dialogue_templates.py
 """
 
+import collections
+import json
 import os
 import re
 import sys
@@ -37,6 +44,11 @@ os.environ.setdefault("CUDA_HOME", "/usr")
 from i6_experiments.users.dorian_koch.speech_llm.hf_to_dialogue import (  # noqa: E402
     DIALOGUE_INSTRUCTION_TEMPLATE_NAMES,
     DIALOGUE_INSTRUCTION_TEMPLATES,
+    TEMPLATE_EXTRA_FACTS,
+    _SELF_SOURCED_PARAGRAPHS,
+    _build_user_message,
+    _extras_for,
+    attach_extra_facts,
 )
 
 #: Phrases that must appear in every template's prompt for the ban to be stated at all.
@@ -78,6 +90,95 @@ for name, text in zip(DIALOGUE_INSTRUCTION_TEMPLATE_NAMES, DIALOGUE_INSTRUCTION_
             f"{name}: asks for a question the source row has no gold answer for, but is not in "
             "SELF_SOURCED, so the grounding requirement is not checked for it."
         )
+
+# ---------------------------------------------------------------------------
+# Multi-fact dialogues: a template that needs a further question must be GIVEN one
+# ---------------------------------------------------------------------------
+# Telling a generator "don't invent a question you can't answer" is a rule it can break silently.
+# Handing it a real second gold fact removes the reason to invent. `TEMPLATE_EXTRA_FACTS` is that
+# wiring, and these checks drive the real caller path (`attach_extra_facts` -> `_extras_for` ->
+# `_build_user_message`) rather than re-deriving it -- a guard that builds its own inputs is blind
+# to what the caller actually passes.
+
+unknown = set(TEMPLATE_EXTRA_FACTS) - set(DIALOGUE_INSTRUCTION_TEMPLATE_NAMES)
+if unknown:
+    failures.append(f"TEMPLATE_EXTRA_FACTS names {sorted(unknown)}, which are not templates")
+
+missing_escape = SELF_SOURCED - set(TEMPLATE_EXTRA_FACTS)
+if missing_escape:
+    failures.append(
+        f"{sorted(missing_escape)} invent their own question but cannot be given a real one "
+        "(absent from TEMPLATE_EXTRA_FACTS), so the only defence is prompt wording."
+    )
+
+# `_extras_for` must respect BOTH caps: the job-level count and the per-template one.
+row = {"extra_facts_json": json.dumps([{"question": "Q2?", "answer": "A2", "aliases": []}] * 3)}
+for name in DIALOGUE_INSTRUCTION_TEMPLATE_NAMES:
+    want = TEMPLATE_EXTRA_FACTS.get(name, 0)
+    got = _extras_for(row, name, extra_facts=3)
+    n_got = len(got or [])
+    if n_got != want:
+        failures.append(f"_extras_for({name!r}, extra_facts=3) gave {n_got} facts, expected {want}")
+if _extras_for(row, "followup_topic_change", extra_facts=0) is not None:
+    failures.append("_extras_for ignored extra_facts=0 -- the job-level switch does not switch off")
+if _extras_for({}, "followup_topic_change", extra_facts=1) is not None:
+    failures.append("_extras_for invented extras for a row that carries none")
+
+# The supplied facts must actually reach the prompt, and must override the self-sourcing
+# instruction the template still carries for the no-extras case.
+spec = {"question": "Q1?", "answer": "A1", "aliases": ["a1"], "options": None, "background": None}
+tpl = DIALOGUE_INSTRUCTION_TEMPLATES[DIALOGUE_INSTRUCTION_TEMPLATE_NAMES.index("followup_topic_change")]
+msg = _build_user_message(spec, tpl, [{"question": "Q2?", "answer": "A2", "aliases": ["a2"]}])
+for needle in ("Q2?", "A2", "Do not think up a further question of your own"):
+    if needle not in msg:
+        failures.append(f"prompt with extras is missing {needle!r} -- supplied facts do not reach the model")
+# ...and the instruction to source one itself must be GONE, not merely overridden later.
+for name, para in _SELF_SOURCED_PARAGRAPHS.items():
+    if para in msg:
+        failures.append(
+            f"{name}: the prompt still tells the generator to choose its own further question while "
+            "also supplying one -- two contradicting instructions in the same prompt"
+        )
+    if para not in _build_user_message(spec, tpl):
+        failures.append(f"{name}: with no extras supplied, the self-sourcing instruction is missing")
+if _build_user_message(spec, tpl) != _build_user_message(spec, tpl, None):
+    failures.append("passing extras=None changed the prompt -- single-fact corpora are not reproducible")
+if "Additional supplied facts" in _build_user_message(spec, tpl):
+    failures.append("the extras block leaked into a prompt with no extras")
+
+# Partner assignment: every row gets real OTHER rows, and every fact is used equally often.
+from datasets import Dataset  # noqa: E402
+
+N, N_EXTRA = 40, 2
+ds = Dataset.from_dict(
+    {
+        "question_id": [f"q{i}" for i in range(N)],
+        "question": [f"question {i}?" for i in range(N)],
+        "answer": [{"value": f"answer {i}", "aliases": []} for i in range(N)],
+    }
+)
+with_extras = attach_extra_facts(ds, "triviaqa", N_EXTRA)
+used = collections.Counter()
+for i, r in enumerate(with_extras):
+    picked = json.loads(r["extra_facts_json"])
+    if len(picked) != N_EXTRA:
+        failures.append(f"row {i} got {len(picked)} partners, expected {N_EXTRA}")
+    if r["question"] in {p["question"] for p in picked}:
+        failures.append(f"row {i} was given its own fact as a partner")
+    if len({p["question"] for p in picked}) != len(picked):
+        failures.append(f"row {i} got the same partner twice")
+    used.update(p["question"] for p in picked)
+if set(used.values()) != {N_EXTRA}:
+    failures.append(
+        f"partner exposure is uneven ({sorted(set(used.values()))} appearances per fact, want "
+        f"{N_EXTRA} for all) -- some facts would be over-represented in the corpus by luck"
+    )
+if attach_extra_facts(ds, "triviaqa", N_EXTRA)["extra_facts_json"] != with_extras["extra_facts_json"]:
+    failures.append("attach_extra_facts is not deterministic -- a shard could not be regenerated")
+print(
+    f"[ok] extra facts        {len(TEMPLATE_EXTRA_FACTS)} template(s) can take supplied facts, pairing is a derangement"
+)
+
 
 if failures:
     print("\nFAILED:", file=sys.stderr)

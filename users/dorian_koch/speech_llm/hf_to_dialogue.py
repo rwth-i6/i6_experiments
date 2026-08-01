@@ -319,11 +319,118 @@ def _pick_template(uid: str) -> tuple[str, str]:
 
 
 # ---------------------------------------------------------------------------
+# Multi-fact dialogues: give a template MORE than one gold QA row
+# ---------------------------------------------------------------------------
+
+#: template name -> how many EXTRA gold facts (beyond the row's own) it can absorb.
+#: A template not listed here is single-fact by construction and never sees extras.
+#:
+#: Only `followup_topic_change` is listed, because it is the only template whose prompt *requires* a
+#: question the row cannot supply -- so it invents one, and an invented question has an invented
+#: answer. Measured on the 2026-07-24 corpus that produced a live/unanswerable second question in
+#: 33.9% of its rows. Handing it a real second fact removes the reason to invent rather than telling
+#: it not to.
+#:
+#: `quickfire` and `reactive_chat` are the natural next candidates -- several short questions each --
+#: but their prompts say "about the topic", so feeding them an unrelated fact contradicts the
+#: template text. Rewording them is a deliberate change to what those templates mean, not something
+#: to slip in behind a flag; do it explicitly if we want mixed-topic quizzes.
+TEMPLATE_EXTRA_FACTS: dict[str, int] = {
+    "followup_topic_change": 1,
+}
+
+#: Prepended to the supplied facts. The OVERRIDE sentence is load-bearing: `followup_topic_change`'s
+#: own text tells the generator to choose a second question itself (the correct instruction when no
+#: extras are supplied), so the two would otherwise contradict each other.
+_EXTRA_FACTS_HEADER = (
+    "Additional supplied facts. Every FURTHER question in this dialogue must be taken from the list "
+    "below, asked in the user's own words, and answered with the correct answer given here. Do not "
+    "think up a further question of your own.\n"
+)
+
+
+#: The exact paragraph of a template that tells the generator to source a question ITSELF. That is
+#: the right instruction when we have nothing better to give it -- and false the moment we do, so
+#: `_build_user_message` strips it when extras are supplied rather than layering a contradicting
+#: override on top. Asserted to be a real substring at import: reword the template and this fails
+#: loudly instead of silently leaving the stale instruction in every prompt.
+_SELF_SOURCED_PARAGRAPHS: dict[str, str] = {
+    "followup_topic_change": (
+        "The second question is NOT supplied to you, so you must choose one you can answer "
+        "correctly from durable, well-established general knowledge — history, geography, science, "
+        "language, culture — and it must have a single settled answer you are confident in.  Do not "
+        "reach for small talk about the weather, the time, or what is happening today; those have no "
+        "correct answer here and inventing one is worse than not asking.  If you are not sure the "
+        "answer is right, pick an easier second question.\n"
+    ),
+}
+
+for _name, _para in _SELF_SOURCED_PARAGRAPHS.items():
+    assert _para in DIALOGUE_INSTRUCTION_TEMPLATES[DIALOGUE_INSTRUCTION_TEMPLATE_NAMES.index(_name)], (
+        f"{_name}'s self-sourcing paragraph no longer matches its template text -- update "
+        "_SELF_SOURCED_PARAGRAPHS, or a supplied-fact prompt will contradict itself"
+    )
+
+
+def _extra_facts_block(extras: list[dict]) -> str:
+    lines = [_EXTRA_FACTS_HEADER]
+    for i, e in enumerate(extras, start=2):
+        lines.append(f"Question {i}: {e['question']}")
+        lines.append(f"Correct answer {i}: {e['answer']}")
+        if e.get("aliases"):
+            lines.append(f"Acceptable answer {i} variants: {', '.join(e['aliases'])}")
+    return "\n".join(lines)
+
+
+def _extras_for(example: dict, template_name: str, extra_facts: int) -> list[dict] | None:
+    """Slice the row's supplied partner facts down to what this template can absorb."""
+    want = min(extra_facts, TEMPLATE_EXTRA_FACTS.get(template_name, 0))
+    if want <= 0:
+        return None
+    raw = example.get("extra_facts_json")
+    if not raw:
+        return None
+    return json.loads(raw)[:want]
+
+
+def attach_extra_facts(dataset, adapter_name: str, n_extra: int, seed: int = 1234):
+    """Add an ``extra_facts_json`` column: for each row, ``n_extra`` OTHER rows' gold facts.
+
+    Partners come from a fixed random derangement of the same dataset, offset by 1..n_extra, so
+    every fact is used as a partner *exactly* ``n_extra`` times. That matters: sampling partners
+    independently would give some facts three appearances and others none, quietly reweighting the
+    corpus by luck. Drawing from the dataset object we were handed is also what keeps the split
+    honest -- a train-split dialogue can only ever be seeded with train-split facts.
+    """
+    import numpy as np
+
+    assert adapter_name != "service", "service scenarios have their own message builder, no QA rows"
+    adapter = DATASET_ADAPTER_REGISTRY[adapter_name]
+    n = len(dataset)
+    assert n > n_extra, f"need more than {n_extra} rows to draw distinct partners, got {n}"
+    perm = np.random.default_rng(seed).permutation(n)
+    specs = [adapter(row) for row in dataset]
+    extras: list[str | None] = [None] * n
+    for j, i in enumerate(perm):
+        picked = [
+            {
+                "question": specs[perm[(j + k) % n]]["question"],
+                "answer": specs[perm[(j + k) % n]]["answer"],
+                "aliases": specs[perm[(j + k) % n]]["aliases"][:3],
+            }
+            for k in range(1, n_extra + 1)
+        ]
+        extras[int(i)] = json.dumps(picked)
+    assert all(e is not None for e in extras)
+    return dataset.add_column("extra_facts_json", extras)
+
+
+# ---------------------------------------------------------------------------
 # User message builder: adapts the fact spec to the dialogue-gen request
 # ---------------------------------------------------------------------------
 
 
-def _build_user_message(spec: dict, template: str) -> str:
+def _build_user_message(spec: dict, template: str, extras: list[dict] | None = None) -> str:
     parts = []
     if spec.get("background"):
         parts.append(f"Background: {spec['background']}")
@@ -335,7 +442,13 @@ def _build_user_message(spec: dict, template: str) -> str:
         opts = "  ".join(f"{chr(65 + i)}: {o}" for i, o in enumerate(spec["options"]))
         parts.append(f"Multiple-choice options: {opts}")
     parts.append("")
+    if extras:
+        for _para in _SELF_SOURCED_PARAGRAPHS.values():
+            template = template.replace(_para, "")
     parts.append(template)
+    if extras:
+        parts.append("")
+        parts.append(_extra_facts_block(extras))
     return "\n".join(parts)
 
 
@@ -369,6 +482,7 @@ def make_dialogue_gen(
     work_dir: str | None = None,
     total: int | None = None,
     template_name: str | None = None,
+    extra_facts: int = 0,
 ):
     """Return a datasets.map-compatible function that generates one dialogue.
 
@@ -388,6 +502,7 @@ def make_dialogue_gen(
             base_url=llm_url,
         )
         spec = adapter(example)
+        extras = None
         if adapter_name == "service":
             # Service scenarios use their own role-grounded templates + message builder
             # (personaplex_service_data); the QA path below is unchanged -> hash-safe.
@@ -408,7 +523,8 @@ def make_dialogue_gen(
                 )
             else:
                 template, resolved_template_name = _pick_template(str(spec["uid"]))
-            user_msg = _build_user_message(spec, template)
+            extras = _extras_for(example, resolved_template_name, extra_facts)
+            user_msg = _build_user_message(spec, template, extras)
 
         # Deterministic but varied seed: combine uid hash with a per-run offset
         # so re-generating with a different offset gives different outputs.
@@ -449,6 +565,7 @@ def make_dialogue_gen(
                     "llm_name": model_name,
                     "template_name": resolved_template_name,
                     "truncated": finish_reason == "length",
+                    "n_extra_facts": len(extras or []),
                 }
                 break
             print(
@@ -464,6 +581,7 @@ def make_dialogue_gen(
                 "llm_name": model_name,
                 "template_name": resolved_template_name,
                 "truncated": False,
+                "n_extra_facts": len(extras or []),
             }
         _local_done[0] += 1
         if work_dir and total and _local_done[0] % 10 == 0:
@@ -494,6 +612,7 @@ class HfToDialogue(Job):
         seed_offset: int = 0,
         templates_version: int = 1,
         template_name: str | None = None,
+        extra_facts: int = 0,
     ):
         self.dataset_split_path = dataset_split_path
         self.llm_name = llm_name
@@ -513,6 +632,10 @@ class HfToDialogue(Job):
         # independently addable: each becomes its own job with its own hash, so adding template N+1
         # leaves the N existing corpora finished and untouched. Merge them afterwards.
         self.template_name = template_name
+        # >0 gives every row that many OTHER rows' gold QA facts, so a template that needs a further
+        # question gets a real one instead of inventing it (see TEMPLATE_EXTRA_FACTS). Hashed, but
+        # excluded at the 0 default, so adding this changed no existing corpus.
+        self.extra_facts = extra_facts
 
         self.out_hf = self.output_path("dialogue_dataset", directory=True)
         self.out_json = self.output_path("json_files")
@@ -545,6 +668,8 @@ class HfToDialogue(Job):
             d.pop("templates_version", None)  # no-op at the default: existing corpora keep their hash
         if d.get("template_name") is None:
             d.pop("template_name", None)  # no-op unless single-template mode is used
+        if not d.get("extra_facts", 0):
+            d.pop("extra_facts", None)  # no-op at the default: single-fact corpora keep their hash
         return super().hash(d)
 
     @staticmethod
@@ -606,6 +731,11 @@ class HfToDialogue(Job):
             dataset = load_from_disk(self.dataset_split_path.get())
             if self.shard is not None and self.num_shards is not None:
                 dataset = dataset.shard(num_shards=self.num_shards, index=self.shard)
+            if self.extra_facts:
+                # After sharding on purpose: partners are drawn from the rows this job actually
+                # holds, so a shard is self-contained and reproducible on its own.
+                dataset = attach_extra_facts(dataset, self.adapter_name, self.extra_facts)
+                print(f"Attached {self.extra_facts} extra gold fact(s) per row.")
 
             print(
                 f"Dataset loaded ({len(dataset)} rows). Generating dialogues "
@@ -621,6 +751,7 @@ class HfToDialogue(Job):
                 work_dir=work_dir,
                 total=len(dataset),
                 template_name=self.template_name,
+                extra_facts=self.extra_facts,
             )
             dataset = dataset.map(gen_fn, num_proc=32)
 
