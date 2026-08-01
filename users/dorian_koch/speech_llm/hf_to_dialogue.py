@@ -880,6 +880,13 @@ _LIVE_QUESTION_RE = (
     r"what time is it|weather|forecast|rain|snow|temperature|score|who won last night|"
     r"latest|most recent|nowadays|these days)\b"
 )
+#: Openers `_COMMON_SUFFIX` explicitly forbids. Measuring them is how we find out whether the style
+#: rules are actually obeyed -- "That would be Thelonious Monk" shipped in v6 despite the ban. This
+#: is a prompt-adherence signal, not a defect count: a few percent is normal for an LLM.
+_BANNED_OPENER_RE = (
+    r"^\s*(that would be|i can help with that|great question|certainly|of course|sure!|"
+    r"absolutely|exactly!)"
+)
 #: The assistant claiming live access, or reporting a current condition it cannot know.
 _LIVE_CLAIM_RE = (
     r"\b(let me check|i'?ll check|checking (now|that)|according to the (forecast|latest)|"
@@ -925,6 +932,7 @@ class DialogueCorpusStats(Job):
 
         live_q = re.compile(_LIVE_QUESTION_RE, re.I)
         live_a = re.compile(_LIVE_CLAIM_RE, re.I)
+        banned = re.compile(_BANNED_OPENER_RE, re.I)
 
         dataset = load_from_disk(self.hf_dataset_path.get())
         idx = list(range(len(dataset)))
@@ -954,6 +962,7 @@ class DialogueCorpusStats(Job):
             # Only turns AFTER the first can be an invented question; the first is the source row's.
             stat["live_q"] += any(live_q.search(t) for t in user[1:])
             stat["live_claim"] += any(live_a.search(t) for t in asst)
+            stat["banned_opener"] += any(banned.search(t) for t in asst)
 
         total = sum(s["rows"] for s in per.values())
         stats = {}
@@ -970,6 +979,7 @@ class DialogueCorpusStats(Job):
                 "mean_extra_facts": s["extra_facts"] / ok,
                 "live_question_rate": s["live_q"] / ok,
                 "live_claim_rate": s["live_claim"] / ok,
+                "banned_opener_rate": s["banned_opener"] / ok,
             }
         corpus = {
             "rows_scanned": int(total),
@@ -978,11 +988,15 @@ class DialogueCorpusStats(Job):
             "mean_assistant_words": sum(s["asst_words"] for s in per.values()) / max(total - unparsed, 1),
             "live_question_rate": sum(s["live_q"] for s in per.values()) / max(total - unparsed, 1),
             "live_claim_rate": sum(s["live_claim"] for s in per.values()) / max(total - unparsed, 1),
+            "banned_opener_rate": sum(s["banned_opener"] for s in per.values()) / max(total - unparsed, 1),
         }
         with open(self.out_json.get(), "w") as f:
             json.dump({"corpus": corpus, "per_template": stats}, f, indent=2, sort_keys=True)
 
-        head = f"{'template':<24}{'rows':>7}{'share':>8}{'turns':>7}{'asst w':>8}{'user w':>8}{'xfacts':>8}{'live Q':>8}{'live A':>8}"
+        head = (
+            f"{'template':<24}{'rows':>7}{'share':>8}{'turns':>7}{'asst w':>8}{'user w':>8}"
+            f"{'xfacts':>8}{'live Q':>8}{'live A':>8}{'banned':>8}"
+        )
         lines = [f"dialogue corpus stats: {self.hf_dataset_path.get()}", "", head, "-" * len(head)]
         for name in sorted(stats, key=lambda k: -stats[k]["rows"]):
             s = stats[name]
@@ -990,14 +1004,17 @@ class DialogueCorpusStats(Job):
                 f"{name:<24}{s['rows']:>7}{s['share']:>7.1%}{s['mean_turns']:>7.1f}"
                 f"{s['mean_assistant_words']:>8.1f}{s['mean_user_words']:>8.1f}"
                 f"{s['mean_extra_facts']:>8.2f}{s['live_question_rate']:>8.1%}{s['live_claim_rate']:>8.1%}"
+                f"{s['banned_opener_rate']:>8.1%}"
             )
         lines += [
             "-" * len(head),
             f"{'CORPUS':<24}{corpus['rows_scanned']:>7}{'':>8}{'':>7}{corpus['mean_assistant_words']:>8.1f}"
-            f"{'':>8}{'':>8}{corpus['live_question_rate']:>8.1%}{corpus['live_claim_rate']:>8.1%}",
+            f"{'':>8}{'':>8}{corpus['live_question_rate']:>8.1%}{corpus['live_claim_rate']:>8.1%}"
+            f"{corpus['banned_opener_rate']:>8.1%}",
             "",
             "live Q = a user turn after the first asking something whose answer depends on when/where",
-            "         it is asked; live A = the assistant claiming to look something up.",
+            "         it is asked; live A = the assistant claiming to look something up;",
+            "banned = an assistant turn opening with filler the prompt forbids ('That would be', ...).",
         ]
         report = "\n".join(lines)
         print(report)
