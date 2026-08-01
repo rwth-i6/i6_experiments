@@ -210,11 +210,15 @@ DIALOGUE_INSTRUCTION_TEMPLATES = [
     #
     # Template 8 — quickfire: several short related questions, brief answers to each.
     (
-        "Write a spoken dialogue in which the user asks several short, quick questions about the "
-        "topic, one at a time, and the assistant answers each one briefly — one or two sentences "
-        "at most per turn, never a lecture.  The exchange should feel fast and easy, like two "
-        "people talking quickly.  Make sure the correct answer to the main question is clearly "
-        "stated in one of the assistant's turns.  The user MUST speak first.  Total turns: 6-8.\n" + _COMMON_SUFFIX
+        "Write a spoken dialogue in which the user asks several short, quick questions, one at a "
+        "time, and the assistant answers each one briefly — one or two sentences at most per turn, "
+        "never a lecture.  The exchange should feel fast and easy, like two people talking quickly.  "
+        "Make sure the correct answer to the main question is clearly stated in one of the "
+        "assistant's turns.  The user MUST speak first.  Total turns: 6-8.\n"
+        "The further questions are NOT supplied to you, so keep them on the same topic as the "
+        "question above, and only ask ones you can answer correctly from durable, well-established "
+        "general knowledge — never the weather, the time, or anything happening today.  If you are "
+        "not sure an answer is right, ask something easier.\n" + _COMMON_SUFFIX
     ),
     # Template 9 — clarify then answer: a short clarification round before the answer.
     (
@@ -337,6 +341,9 @@ def _pick_template(uid: str) -> tuple[str, str]:
 #: to slip in behind a flag; do it explicitly if we want mixed-topic quizzes.
 TEMPLATE_EXTRA_FACTS: dict[str, int] = {
     "followup_topic_change": 1,
+    # 6-8 turns of "several short, quick questions" off ONE gold fact means the rest are invented
+    # too -- it had the second-highest live-question rate (4.0%) after followup_topic_change.
+    "quickfire": 2,
 }
 
 #: Prepended to the supplied facts. The OVERRIDE sentence is load-bearing: `followup_topic_change`'s
@@ -362,6 +369,12 @@ _SELF_SOURCED_PARAGRAPHS: dict[str, str] = {
         "reach for small talk about the weather, the time, or what is happening today; those have no "
         "correct answer here and inventing one is worse than not asking.  If you are not sure the "
         "answer is right, pick an easier second question.\n"
+    ),
+    "quickfire": (
+        "The further questions are NOT supplied to you, so keep them on the same topic as the "
+        "question above, and only ask ones you can answer correctly from durable, well-established "
+        "general knowledge — never the weather, the time, or anything happening today.  If you are "
+        "not sure an answer is right, ask something easier.\n"
     ),
 }
 
