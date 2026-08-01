@@ -120,9 +120,7 @@ for pred, ans, al in _battery:
 if os.path.exists(p):
     for r in data:
         a = r.get("transcription", "")
-        assert kp.alias_match(a, r["answer"], r.get("aliases", [])) == alias_match(
-            a, r["answer"], r.get("aliases", [])
-        )
+        assert kp.alias_match(a, r["answer"], r.get("aliases", [])) == alias_match(a, r["answer"], r.get("aliases", []))
 print("[ok] moshi_family.knowledge_probe scorer is identical to quick_knowledge_eval's")
 
 print("\nALL CHECKS PASSED")

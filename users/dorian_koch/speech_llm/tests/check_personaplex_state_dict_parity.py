@@ -69,9 +69,7 @@ assert not would_expand, (
     f"bearing after all: {would_expand[:4]}"
 )
 missing = sorted(set(model_shapes) - set(ckpt_shapes))
-would_backfill = [
-    k for k in missing if any(f"{g}.{n}." in k for g in BACKFILL_GROUPS for n in range(8, 16))
-]
+would_backfill = [k for k in missing if any(f"{g}.{n}." in k for g in BACKFILL_GROUPS for n in range(8, 16))]
 assert not would_backfill, (
     "model expects depformer 8..15 weights the checkpoint lacks, so the deleted Patch 2 (back-fill "
     f"0..7 -> 8..15) was load-bearing after all: {would_backfill[:4]}"

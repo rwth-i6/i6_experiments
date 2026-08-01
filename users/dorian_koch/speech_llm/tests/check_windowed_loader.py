@@ -41,9 +41,7 @@ print("[ok] window length + alignment re-basing")
 
 # --- 2. rows already <= window are returned unchanged -----------------------------------------
 short_n = int(10 * SR)
-a, u, al = slice_random_window(
-    assistant[:short_n], user[:short_n], SR, alignments[:5], window_sec=20.0, rng=rng
-)
+a, u, al = slice_random_window(assistant[:short_n], user[:short_n], SR, alignments[:5], window_sec=20.0, rng=rng)
 assert len(a) == short_n and len(u) == short_n, "a sub-window row must pass through unchanged"
 assert len(al) == 5, "short-row alignments must pass through unchanged"
 print("[ok] short rows pass through unchanged")
