@@ -45,7 +45,6 @@ PAIRS = {
     LIB / "moshi_family/rl/launcher.py": ("rl_finetune.py", "_render_rl_config"),
     RECIPES / "moshi_finetune_launcher.py": ("finetune.py", "_render_moshi_finetune_config"),
     RECIPES / "personaplex_finetune_launcher.py": ("finetune.py", "_render_personaplex_config"),
-    RECIPES / "moshirag_finetune_launcher.py": ("finetune.py", "_render_moshi_finetune_config"),
 }
 
 #: Launchers that must read their whole config before branching. Every launcher whose recipe calls
@@ -53,14 +52,13 @@ PAIRS = {
 UNCONDITIONAL = {p for p in PAIRS if "full_duplex" in str(p)}
 
 #: Launchers that hand the rendered YAML to a *third-party* parser instead of reading ``cfg`` keys
-#: themselves -- these two are thin wrappers around the vendored kyutai moshi-finetune fork and end in
+#: themselves -- this one is a thin wrapper around the vendored kyutai moshi-finetune fork and ends in
 #: ``fire.Fire(train_module.train)``, which binds the YAML to the fork's own dataclasses. Scanning for
 #: ``cfg.get(...)`` therefore finds nothing, and "renders 20, reads 0" is correct rather than a bug.
 #: The exemption is checked, not assumed: an exempt launcher that starts reading ``cfg`` itself fails
 #: below, so converting one to our style cannot silently keep the free pass.
 DELEGATED = {
     RECIPES / "moshi_finetune_launcher.py",
-    RECIPES / "moshirag_finetune_launcher.py",
 }
 
 #: A YAML key at the start of a line in a rendered config.
