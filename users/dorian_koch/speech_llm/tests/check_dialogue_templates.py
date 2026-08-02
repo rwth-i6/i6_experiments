@@ -67,7 +67,10 @@ REQUIRED = [
 #: Templates that ask the generator to invent a question of its own, rather than using the supplied
 #: one. These need the extra instruction that the invented question must have a settled answer --
 #: the general ban says what not to do, this says what to do instead.
-SELF_SOURCED = {"followup_topic_change"}
+#: DERIVED from production, never hardcoded: this used to be a literal {"followup_topic_change"} and
+#: silently went stale when `quickfire` became self-sourcing, so the new template escaped the
+#: GROUNDED check entirely.
+SELF_SOURCED = set(_SELF_SOURCED_PARAGRAPHS)
 GROUNDED = re.compile(r"durable, well-established general knowledge", re.I)
 
 assert len(DIALOGUE_INSTRUCTION_TEMPLATE_NAMES) == len(DIALOGUE_INSTRUCTION_TEMPLATES)
@@ -131,21 +134,35 @@ if _extras_for({}, "followup_topic_change", extra_facts=1) is not None:
 
 # The supplied facts must actually reach the prompt, and must override the self-sourcing
 # instruction the template still carries for the no-extras case.
+#
+# Every self-sourcing template is checked against ITS OWN text. This loop used to build one message
+# from followup_topic_change's template and then look for *every* template's paragraph in it, so the
+# moment a second self-sourcing template (quickfire) was added the check failed permanently for a
+# reason that had nothing to do with the prompts.
 spec = {"question": "Q1?", "answer": "A1", "aliases": ["a1"], "options": None, "background": None}
-tpl = DIALOGUE_INSTRUCTION_TEMPLATES[DIALOGUE_INSTRUCTION_TEMPLATE_NAMES.index("followup_topic_change")]
-msg = _build_user_message(spec, tpl, [{"question": "Q2?", "answer": "A2", "aliases": ["a2"]}])
-for needle in ("Q2?", "A2", "Do not think up a further question of your own"):
-    if needle not in msg:
-        failures.append(f"prompt with extras is missing {needle!r} -- supplied facts do not reach the model")
-# ...and the instruction to source one itself must be GONE, not merely overridden later.
+extras = [{"question": "Q2?", "answer": "A2", "aliases": ["a2"]}]
+
 for name, para in _SELF_SOURCED_PARAGRAPHS.items():
-    if para in msg:
+    tpl = DIALOGUE_INSTRUCTION_TEMPLATES[DIALOGUE_INSTRUCTION_TEMPLATE_NAMES.index(name)]
+    with_extras = _build_user_message(spec, tpl, extras)
+    without_extras = _build_user_message(spec, tpl)
+
+    for needle in ("Q2?", "A2", "Do not think up a further question of your own"):
+        if needle not in with_extras:
+            failures.append(
+                f"{name}: prompt with extras is missing {needle!r} -- supplied facts do not reach the model"
+            )
+    # The instruction to source one itself must be GONE, not merely overridden later.
+    if para in with_extras:
         failures.append(
             f"{name}: the prompt still tells the generator to choose its own further question while "
             "also supplying one -- two contradicting instructions in the same prompt"
         )
-    if para not in _build_user_message(spec, tpl):
+    if para not in without_extras:
         failures.append(f"{name}: with no extras supplied, the self-sourcing instruction is missing")
+print(
+    f"[ok] self-sourcing      {len(_SELF_SOURCED_PARAGRAPHS)} template(s): paragraph present without extras, stripped with"
+)
 if _build_user_message(spec, tpl) != _build_user_message(spec, tpl, None):
     failures.append("passing extras=None changed the prompt -- single-fact corpora are not reproducible")
 if "Additional supplied facts" in _build_user_message(spec, tpl):
