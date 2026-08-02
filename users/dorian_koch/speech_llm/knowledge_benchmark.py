@@ -20,11 +20,12 @@ import os
 from pathlib import Path
 
 from .clip_store import is_clip_dataset, merge_clip_datasets, open_clips
-from .common import run_worker_script
+from .common import add_cuda_npp_to_env, run_worker_script
 from .inference_harness import BackendInferenceMixin
 from .moshi_client import moshi_server, _ws_url, MoshiFileClient
 from .speech_backends import MOSHI_BACKEND
 from .speech_inference import SpeechInference, ResolveOverlayCheckpoint
+from .tts import InstallFFmpeg
 
 
 # ---------------------------------------------------------------------------
@@ -203,6 +204,9 @@ class ChatterboxSingleSpeakerInference(Job):
         # hash and does NOT re-run; only a caller that opts in to "hf" gets a fresh hash. Consumers
         # read either layout (clip_store.open_clips), so the two coexist indefinitely.
         "storage": "wav",
+        # Our own FFmpeg build, passed so torchcodec does not depend on the node providing one.
+        # Excluded at None so adding it re-hashes nothing.
+        "ffmpeg_path": None,
     }
 
     def __init__(
@@ -213,7 +217,9 @@ class ChatterboxSingleSpeakerInference(Job):
         speaker_dir: tk.Path,
         speaker_name: str = "user_voices/rng_a",
         storage: str = "wav",
+        ffmpeg_path: tk.Path | None = None,
     ):
+        self.ffmpeg_path = ffmpeg_path
         self.venv_python_path = venv_python_path
         self.in_hf = in_hf
         self.speaker_dir = speaker_dir
@@ -221,7 +227,12 @@ class ChatterboxSingleSpeakerInference(Job):
         assert storage in ("wav", "hf"), f"storage must be 'wav' or 'hf', got {storage!r}"
         self.storage = storage
         self.out_dir = self.output_path("tts_output", directory=True)
-        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 24}
+        # Chatterbox pulls in torchcodec, which dlopens FFmpeg (libavutil.so.56). c25g has no system
+        # FFmpeg, so a run scheduled there dies at import with "libavutil.so.56: cannot open shared
+        # object file" -- 9 minutes in, after the GPU is allocated. Declared as a CAPABILITY, not a
+        # partition, so settings.py owns the mapping (same as ChatterboxInference). rqmt is not part
+        # of the Sisyphus hash, so adding this re-runs nothing.
+        self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 24, "requires": ["system_ffmpeg"]}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -240,12 +251,21 @@ class ChatterboxSingleSpeakerInference(Job):
             "--storage",
             self.storage,
         ]
+
+        # torchcodec needs our FFmpeg libs AND CUDA NPP on LD_LIBRARY_PATH; supplying both is what
+        # makes this job node-independent instead of relying on c23g providing them system-wide.
+        def env_hook(env):
+            if self.ffmpeg_path is not None:
+                InstallFFmpeg.add_to_env(self.ffmpeg_path, env)
+            add_cuda_npp_to_env(self.venv_python_path.get(), env)
+
         run_worker_script(
             self.venv_python_path.get(),
             script_path,
             args,
             log_label="Chatterbox benchmark inference",
             with_hf_home=False,
+            env_hook=env_hook,
         )
 
 
@@ -626,6 +646,7 @@ def knowledge_benchmark_py(
     audex_base_s2s: bool = False,
     monologue: bool = False,
     storage: str = "wav",
+    ffmpeg_path: tk.Path | None = None,
 ):
     """Build the knowledge benchmark pipeline.
 
@@ -647,6 +668,11 @@ def knowledge_benchmark_py(
             /hpcwork volume. Both read identically downstream (``clip_store.open_clips``), so a tag
             can switch without changing its numbers -- but it DOES change the job hashes of that
             tag's TTS/inference stages, so switching re-runs them. New tags should pass ``"hf"``.
+        ffmpeg_path: our own ``InstallFFmpeg`` build, handed to the question-TTS job so torchcodec
+            can load without the NODE providing FFmpeg. With this (plus nvidia-npp-cu12 in the
+            venv) the job no longer needs ``requires: ["system_ffmpeg"]`` and stops being pinned to
+            c23g. Hash-excluded at ``None`` on the job, so passing it re-runs only the tag that
+            opts in.
     """
     from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import (
         chatterbox_venv,
@@ -679,6 +705,7 @@ def knowledge_benchmark_py(
         in_hf=data,
         speaker_dir=speakers.out_dir,
         storage=storage,
+        ffmpeg_path=ffmpeg_path,
     )
     tk.register_output("benchmark/tts_output", tts.out_dir)
 

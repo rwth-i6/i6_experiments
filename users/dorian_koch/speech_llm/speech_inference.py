@@ -360,6 +360,17 @@ class SpeechInference(BackendInferenceMixin, Job):
         if self.storage != "hf":
             return
         clips = open_clips(scratch)
+        # Zero clips means the run produced nothing -- almost always an empty/missing input rather
+        # than a model that legitimately said nothing for every single prompt. Writing an empty
+        # arrow dataset here would put a valid-looking but contentless output into output/, and the
+        # failure would then surface downstream (the shard merge blowing up inside pyarrow) far from
+        # its cause. Fail here, where the input is still in view. See CLAUDE.md: assert non-empty
+        # counts at job boundaries rather than best-effort.
+        assert len(clips) > 0, (
+            f"produced 0 clips from {self.in_dir.get()!r} -- refusing to write an empty dataset to "
+            f"{final_dir}. Check that the input clip store is non-empty and that the shard "
+            f"({self.shard}/{self.num_shards}) actually covers some of it."
+        )
         monologues, traces = {}, {}
         for i in clips:
             mono = clips.sidecar(i, "monologue")

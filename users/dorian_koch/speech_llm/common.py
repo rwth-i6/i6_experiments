@@ -201,6 +201,29 @@ def vllm_server(hf_model: str, max_model_len: int | None = None):
 # ---------------------------------------------------------------------------
 
 
+def add_cuda_npp_to_env(venv_python_path, env: dict) -> None:
+    """Put a venv's CUDA NPP libraries on ``LD_LIBRARY_PATH``.
+
+    torchcodec's ``libtorchcodec_core*.so`` link against ``libnppicc.so.12`` (NVIDIA Performance
+    Primitives) for colour conversion. torch does NOT bundle NPP -- a torch venv ships
+    cublas/cudnn/cufft/... under ``site-packages/nvidia/`` but no ``npp`` -- so the import dies with
+    ``libnppicc.so.12: cannot open shared object file`` on any node that does not provide it
+    system-wide. Installing ``nvidia-npp-cu12`` puts it in the venv; this puts it on the path.
+
+    Pair with :meth:`InstallFFmpeg.add_to_env`. Together they are what make torchcodec
+    node-independent, i.e. what lets a job drop ``requires: ["system_ffmpeg"]``. Runtime only --
+    nothing here is hashed.
+    """
+    import glob as _glob
+
+    base = os.path.dirname(os.path.dirname(str(venv_python_path)))  # <venv>/bin/python -> <venv>
+    hits = _glob.glob(os.path.join(base, "lib", "python*", "site-packages", "nvidia", "npp", "lib"))
+    if not hits:
+        print(f"[npp] WARNING: no nvidia/npp/lib under {base} -- is nvidia-npp-cu12 installed?", flush=True)
+        return
+    env["LD_LIBRARY_PATH"] = hits[0] + ":" + env.get("LD_LIBRARY_PATH", "")
+
+
 def run_worker_script(
     python_exe,
     script_path,

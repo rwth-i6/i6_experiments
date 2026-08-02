@@ -2,7 +2,7 @@ from pathlib import Path
 from sisyphus import Job, Task, tk
 import os
 import subprocess
-from .common import job_progress_fraction, run_worker_script
+from .common import add_cuda_npp_to_env, job_progress_fraction, run_worker_script
 import json
 from i6_experiments.users.dorian_koch.jobs.hf import HfMergeShards
 
@@ -258,12 +258,13 @@ class ChatterboxInference(Job):
         if self.keep_columns:
             args += ["--keep_columns", *self.keep_columns]
 
-        env_hook = None
-        if self.ffmpeg_path is not None:
-            print(f"Adding FFmpeg from {self.ffmpeg_path.get()} to environment")
-
-            def env_hook(env):
+        # torchcodec needs BOTH our FFmpeg libs and CUDA NPP on LD_LIBRARY_PATH. Supplying both is
+        # what makes this job node-independent; c23g merely happened to provide them system-wide.
+        def env_hook(env):
+            if self.ffmpeg_path is not None:
+                print(f"Adding FFmpeg from {self.ffmpeg_path.get()} to environment")
                 InstallFFmpeg.add_to_env(self.ffmpeg_path, env)
+            add_cuda_npp_to_env(self.venv_python_path.get(), env)
 
         run_worker_script(
             self.venv_python_path.get(),

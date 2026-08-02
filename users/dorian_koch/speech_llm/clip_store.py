@@ -30,6 +30,7 @@ duplication is deliberate; see the note in ``chatterbox_inference.py``.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from collections.abc import Mapping
@@ -195,10 +196,26 @@ def merge_clip_datasets(out_path, in_paths) -> None:
     """
     from datasets import concatenate_datasets, load_from_disk
 
-    parts = [load_from_disk(str(p)) for p in in_paths]
+    # Check for content BEFORE load_from_disk: a dataset dir written with zero rows has a
+    # state.json listing no data files, and load_from_disk on that raises IndexError from deep
+    # inside pyarrow ("list index out of range"), which says nothing about the real problem.
+    parts = []
+    for p in in_paths:
+        state = Path(p) / "state.json"
+        if state.is_file():
+            try:
+                if not json.loads(state.read_text()).get("_data_files"):
+                    continue  # zero-row shard: the producing job emitted nothing
+            except (json.JSONDecodeError, OSError):
+                pass
+        parts.append(load_from_disk(str(p)))
     parts = [p for p in parts if len(p) > 0]
     if not parts:
-        raise ValueError(f"no non-empty shards to merge from {list(in_paths)}")
+        raise ValueError(
+            f"every shard is empty, so there is nothing to merge: {list(in_paths)}. The producing "
+            "inference job(s) wrote no clips -- check that their input actually contained clips "
+            "rather than treating this merge as the failure."
+        )
     merged = concatenate_datasets(parts)
     seen = merged[COL_INDEX]
     if len(set(seen)) != len(seen):

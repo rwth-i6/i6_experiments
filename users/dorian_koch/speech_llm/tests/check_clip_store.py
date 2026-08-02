@@ -167,6 +167,31 @@ try:
         pass
     ok("collisions rejected duplicate index and overlapping shards both raise", _n)
 
+    # --- an EMPTY shard must not crash the merge (regression, 2026-08-02) -------------------------
+    # A job that produced no clips writes a dataset dir whose state.json lists no data files.
+    # load_from_disk on that raises IndexError from inside pyarrow ("list index out of range"),
+    # which names neither the empty shard nor the job that produced it -- the failure surfaces in
+    # the merge, far from its cause. Merging must skip empty shards and, if nothing is left, say so.
+    _n = len(failures)
+    empty = tmp / "empty_shard"
+    write_clips(empty, [])
+    mixed = tmp / "mixed"
+    try:
+        merge_clip_datasets(mixed, [s0, empty, s1])
+        got = sorted(open_clips(mixed))
+        if got != sorted(CLIPS):
+            failures.append(f"merge with an empty shard gave {got}, want {sorted(CLIPS)}")
+    except Exception as exc:
+        failures.append(f"merge blew up on an empty shard ({type(exc).__name__}: {exc})")
+    try:
+        merge_clip_datasets(tmp / "all_empty", [empty])
+        failures.append("merging only-empty shards was accepted -- an empty result would look valid")
+    except ValueError:
+        pass  # the clear, named error
+    except Exception as exc:
+        failures.append(f"only-empty merge raised {type(exc).__name__}, expected a ValueError naming the cause")
+    ok("empty shards        skipped when mixed in, and rejected clearly when that is all there is", _n)
+
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
 
