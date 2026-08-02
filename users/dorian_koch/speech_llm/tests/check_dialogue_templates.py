@@ -34,6 +34,8 @@ import json
 import os
 import re
 import sys
+
+import jsonschema
 from pathlib import Path
 
 SETUP = next(p for p in Path(__file__).absolute().parents if (p / "recipe").is_dir())
@@ -45,10 +47,13 @@ from i6_experiments.users.dorian_koch.speech_llm.hf_to_dialogue import (  # noqa
     DIALOGUE_INSTRUCTION_TEMPLATE_NAMES,
     DIALOGUE_INSTRUCTION_TEMPLATES,
     TEMPLATE_EXTRA_FACTS,
+    _DIALOGUE_JSON_SCHEMA,
     _SELF_SOURCED_PARAGRAPHS,
     _build_user_message,
     _extras_for,
+    _pick_template,
     attach_extra_facts,
+    strip_dialogue_markdown_fence,
 )
 
 #: Phrases that must appear in every template's prompt for the ban to be stated at all.
@@ -178,6 +183,69 @@ if attach_extra_facts(ds, "triviaqa", N_EXTRA)["extra_facts_json"] != with_extra
 print(
     f"[ok] extra facts        {len(TEMPLATE_EXTRA_FACTS)} template(s) can take supplied facts, pairing is a derangement"
 )
+
+
+# --- template selection (migrated from the retired test_pipeline.py) ----------------------------
+# Corpus reproducibility rests on _pick_template being a pure function of the row uid: a shard that
+# is regenerated must pick the same template, or the mixture silently shifts between runs.
+
+if len(set(DIALOGUE_INSTRUCTION_TEMPLATE_NAMES)) != len(DIALOGUE_INSTRUCTION_TEMPLATE_NAMES):
+    dupes = [n for n, c in collections.Counter(DIALOGUE_INSTRUCTION_TEMPLATE_NAMES).items() if c > 1]
+    failures.append(f"duplicate template name(s) {dupes} -- per-template slices would collide")
+
+for uid in ["42", "hello", "question_id_999", ""]:
+    first = _pick_template(uid)
+    if _pick_template(uid) != first:
+        failures.append(f"_pick_template({uid!r}) is not deterministic -- shards cannot be regenerated")
+
+n_templates = len(DIALOGUE_INSTRUCTION_TEMPLATES)
+reached = {_pick_template(str(i))[1] for i in range(n_templates * 100)}
+if len(reached) != n_templates:
+    missing = sorted(set(DIALOGUE_INSTRUCTION_TEMPLATE_NAMES) - reached)
+    failures.append(
+        f"_pick_template never selects {missing} over {n_templates * 100} uids -- those templates "
+        "would contribute no rows despite being declared"
+    )
+print(f"[ok] template selection deterministic, all {n_templates} templates reachable")
+
+
+# --- generator output contract (migrated from test_pipeline.py) ---------------------------------
+# The schema is passed to vLLM as guided_json, so it is what actually constrains generation. An
+# empty-text turn survives TTS as a zero-length clip and poisons the alignment.
+
+_valid = [{"speaker": "user", "text": "Hello"}, {"speaker": "assistant", "text": "Hi"}]
+try:
+    jsonschema.validate(_valid, _DIALOGUE_JSON_SCHEMA)
+except jsonschema.ValidationError as exc:
+    failures.append(f"_DIALOGUE_JSON_SCHEMA rejects a valid dialogue: {exc.message}")
+
+try:
+    jsonschema.validate(
+        [{"speaker": "user", "text": ""}, {"speaker": "assistant", "text": "Hi"}],
+        _DIALOGUE_JSON_SCHEMA,
+    )
+    failures.append("_DIALOGUE_JSON_SCHEMA accepts an empty-text turn -- TTS would emit a 0-length clip")
+except jsonschema.ValidationError:
+    pass
+print("[ok] dialogue schema     accepts valid turns, rejects empty text")
+
+
+# --- markdown-fence stripping (migrated from test_pipeline.py) ----------------------------------
+# Drives the REAL HfDialogueCleaner helper. It used to be a closure inside the job's run(), and the
+# old test re-implemented it, so the "guard" could not have caught a change to the job.
+
+_payload = [{"speaker": "user", "text": "Hello"}]
+for label, raw in [
+    ("fenced", "```json\n" + json.dumps(_payload) + "\n```"),
+    ("plain", json.dumps(_payload)),
+    ("fenced+whitespace", "  ```json\n" + json.dumps(_payload) + "\n```  "),
+]:
+    try:
+        if json.loads(strip_dialogue_markdown_fence(raw)) != _payload:
+            failures.append(f"strip_dialogue_markdown_fence mangled the {label} payload")
+    except json.JSONDecodeError as exc:
+        failures.append(f"strip_dialogue_markdown_fence left unparseable JSON for {label}: {exc}")
+print("[ok] fence stripping     fenced / plain / padded payloads all parse")
 
 
 if failures:

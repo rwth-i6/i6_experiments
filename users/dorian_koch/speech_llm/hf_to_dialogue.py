@@ -821,6 +821,22 @@ class HfToDialogue(Job):
             dataset.to_json(self.out_json.get())
 
 
+def strip_dialogue_markdown_fence(dialogue_str: str) -> str:
+    """Strip a ```json ... ``` markdown fence the generator sometimes wraps the JSON in.
+
+    Module-level (not nested in :meth:`HfDialogueCleaner.run`) so a guard can exercise the REAL
+    function instead of a copy -- ``check_dialogue_templates.py`` drives this one. It used to be a
+    closure, and the test that "covered" it re-implemented the same five lines, so it would have
+    passed no matter what the job actually did.
+    """
+    dialogue_str = dialogue_str.strip()
+    if dialogue_str.startswith("```json"):
+        dialogue_str = dialogue_str[len("```json") :]
+    if dialogue_str.endswith("```"):
+        dialogue_str = dialogue_str[: -len("```")]
+    return dialogue_str
+
+
 class HfDialogueCleaner(Job):
     """Parse + filter dialogue JSON from an HF dataset, save clean copy."""
 
@@ -848,13 +864,7 @@ class HfDialogueCleaner(Job):
             assert type(dataset) is Dataset
 
         def clean_dialogue(example):
-            dialogue_str: str = example["dialogue"]
-            dialogue_str = dialogue_str.strip()
-            if dialogue_str.startswith("```json"):
-                dialogue_str = dialogue_str[len("```json") :]
-            if dialogue_str.endswith("```"):
-                dialogue_str = dialogue_str[: -len("```")]
-            example["dialogue"] = dialogue_str
+            example["dialogue"] = strip_dialogue_markdown_fence(example["dialogue"])
             return example
 
         cleaned = dataset.map(clean_dialogue)

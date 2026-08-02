@@ -36,6 +36,22 @@ def _write_progress(done, total, path="progress.json"):
 
 SPEAKER_ALIAS = {}
 
+# Inter-turn silence, in seconds. Truncated Gaussian: resample until inside [-0.3, 0.6] (negative =
+# the turns overlap slightly). Module-level rather than nested in main() so a guard can exercise the
+# REAL sampler -- the old test re-implemented these five lines and so could not have caught a change
+# to them. Draws from the module-global `random`, which main() seeds with 42.
+SILENCE_MEAN, SILENCE_STD = 0.2, 0.4
+SILENCE_MIN, SILENCE_MAX = -0.3, 0.6
+
+
+def silence_length_sampler():
+    """Sample one inter-turn silence length, resampling until within bounds."""
+    val = random.gauss(SILENCE_MEAN, SILENCE_STD)
+    while val < SILENCE_MIN or val > SILENCE_MAX:
+        val = random.gauss(SILENCE_MEAN, SILENCE_STD)
+    return val
+
+
 dialogue_features = Features(
     {
         # Unique identifier for the conversation
@@ -306,13 +322,6 @@ def main():
     keep_cols = args.keep_columns or []
 
     random.seed(42)  # For reproducibility
-
-    # TODO figure out good way to sample silence
-    def silence_length_sampler():
-        val = random.gauss(0.2, 0.4)
-        while val < -0.3 or val > 0.6:  # TODO vibe based, make this better later
-            val = random.gauss(0.2, 0.4)
-        return val
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     assert device == "cuda"
