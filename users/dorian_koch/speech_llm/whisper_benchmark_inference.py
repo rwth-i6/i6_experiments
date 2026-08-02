@@ -26,9 +26,27 @@ TARGET_SR = 16000
 # NOTE: deliberately duplicated across the standalone worker scripts -- see the note in
 # chatterbox_inference.py. These run under a job venv with no sisyphus/i6_experiments on the path,
 # so they cannot import common.py.
-def load_audio(path: str) -> np.ndarray:
-    """Read wav, downmix to mono, resample to 16 kHz, return float32 numpy array."""
-    audio, sr = sf.read(path, dtype="float32")
+def open_clips(path: str):
+    """Return an int-keyed {index: (samples, sample_rate)} view of a clip store.
+
+    Mirrors speech_llm/clip_store.py, duplicated because this worker runs under the whisper job
+    venv with no sisyphus / i6_experiments importable. Accepts BOTH layouts: a dir of <i>.wav
+    (original) and a single arrow dataset (storage="hf"). Column names must match clip_store.
+    """
+    p = str(path)
+    if os.path.isfile(os.path.join(p, "dataset_info.json")) or os.path.isfile(os.path.join(p, "state.json")):
+        from datasets import load_from_disk
+
+        ds = load_from_disk(p)
+        return {int(r["index"]): (np.asarray(r["audio"], dtype=np.float32), int(r["sampling_rate"])) for r in ds}
+    out = {}
+    for name in os.listdir(p) if os.path.isdir(p) else []:
+        if name.endswith(".wav") and name[:-4].isdigit():
+            out[int(name[:-4])] = os.path.join(p, name)
+    return out
+
+
+def _to_mono_16k(audio: np.ndarray, sr: int) -> np.ndarray:
     if audio.ndim > 1:
         audio = audio.mean(axis=1)
     if audio.size == 0:
@@ -37,7 +55,16 @@ def load_audio(path: str) -> np.ndarray:
         return np.zeros(0, dtype=np.float32)
     if sr != TARGET_SR:
         audio = torchaudio.functional.resample(torch.from_numpy(audio), sr, TARGET_SR).numpy()
-    return audio
+    return audio.astype(np.float32)
+
+
+def load_audio(entry) -> np.ndarray:
+    """Accept either a wav path (legacy layout) or a decoded (samples, sr) pair (arrow layout)."""
+    if isinstance(entry, tuple):
+        audio, sr = entry
+    else:
+        audio, sr = sf.read(entry, dtype="float32")
+    return _to_mono_16k(np.asarray(audio, dtype=np.float32), int(sr))
 
 
 def main():
@@ -58,13 +85,14 @@ def main():
     ref_ds = load_from_disk(args.reference_data)
 
     # Examples that actually have a Moshi response wav, in dataset order.
-    valid = [(i, ex) for i, ex in enumerate(ref_ds) if os.path.exists(os.path.join(args.in_dir, f"{i}.wav"))]
+    clips = open_clips(args.in_dir)
+    valid = [(i, ex) for i, ex in enumerate(ref_ds) if i in clips]
     print(f"Transcribing {len(valid)}/{len(ref_ds)} clips (batch_size={args.batch_size})", flush=True)
 
     n = 0
     with open(args.out_json, "w") as f:
         for i, example in valid:
-            audio = load_audio(os.path.join(args.in_dir, f"{i}.wav"))
+            audio = load_audio(clips[i])
 
             # Sub-10ms / empty audio: a silent (empty) model reply. Score it as an empty
             # hypothesis (a benchmark miss) rather than feeding whisper a degenerate buffer.

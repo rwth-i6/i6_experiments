@@ -19,6 +19,7 @@ import json
 import os
 from pathlib import Path
 
+from .clip_store import is_clip_dataset, merge_clip_datasets, open_clips
 from .common import run_worker_script
 from .inference_harness import BackendInferenceMixin
 from .moshi_client import moshi_server, _ws_url, MoshiFileClient
@@ -196,6 +197,14 @@ class LLMPreprocess(Job):
 class ChatterboxSingleSpeakerInference(Job):
     """Synthesize a single speaker voice from question text using Chatterbox TTS."""
 
+    __sis_hash_exclude__ = {
+        # Clip storage layout: "wav" writes one <i>.wav per question (the original), "hf" writes a
+        # single arrow dataset. Excluded at the "wav" default so every existing benchmark keeps its
+        # hash and does NOT re-run; only a caller that opts in to "hf" gets a fresh hash. Consumers
+        # read either layout (clip_store.open_clips), so the two coexist indefinitely.
+        "storage": "wav",
+    }
+
     def __init__(
         self,
         *,
@@ -203,11 +212,14 @@ class ChatterboxSingleSpeakerInference(Job):
         in_hf: tk.Path,
         speaker_dir: tk.Path,
         speaker_name: str = "user_voices/rng_a",
+        storage: str = "wav",
     ):
         self.venv_python_path = venv_python_path
         self.in_hf = in_hf
         self.speaker_dir = speaker_dir
         self.speaker_name = speaker_name
+        assert storage in ("wav", "hf"), f"storage must be 'wav' or 'hf', got {storage!r}"
+        self.storage = storage
         self.out_dir = self.output_path("tts_output", directory=True)
         self.rqmt = {"gpu": 1, "cpu": 4, "mem": 16, "time": 24}
 
@@ -225,6 +237,8 @@ class ChatterboxSingleSpeakerInference(Job):
             self.speaker_name,
             "--out_dir",
             self.out_dir.get(),
+            "--storage",
+            self.storage,
         ]
         run_worker_script(
             self.venv_python_path.get(),
@@ -277,6 +291,14 @@ class MergeMoshiOutputsViaSymlinks(Job):
 
     def merge(self):
         out = self.out_merged.get()
+        # Arrow shards concatenate into one dataset. The symlink path below spends one inode PER
+        # CLIP a second time, so a sharded 1000-clip benchmark cost ~2000 inodes just to be
+        # readable as a single dir -- on a shared /hpcwork volume whose binding limit is inodes.
+        # Concatenation costs a handful of files no matter how many shards.
+        srcs = [d.get() for d in self.in_dirs]
+        if srcs and is_clip_dataset(srcs[0]):
+            merge_clip_datasets(out, srcs)
+            return
         os.makedirs(out, exist_ok=True)
         for in_dir in self.in_dirs:
             src_dir = in_dir.get()
@@ -433,13 +455,19 @@ class MonologueTranscription(Job):
 
         ref_ds = load_from_disk(self.reference_data.get())
         in_dir = self.in_dir.get()
+        # Either layout: <i>.txt beside the reply wav (original) or the `monologue` column of an
+        # arrow clip dataset (storage="hf"). open_clips resolves both; sidecar() returns None when
+        # this clip has no monologue, which is the same "skip it" case as a missing .txt.
+        clips = open_clips(in_dir)
         n = empty = 0
         with open(self.out_json.get(), "w") as f:
             for i, example in enumerate(ref_ds):
-                txt = os.path.join(in_dir, f"{i}.txt")
-                if not os.path.exists(txt):
+                if i not in clips:
                     continue
-                mono = open(txt, encoding="utf-8").read().strip()
+                mono = clips.sidecar(i, "monologue")
+                if mono is None:
+                    continue
+                mono = mono.strip()
                 if not mono:
                     empty += 1
                 f.write(
@@ -597,6 +625,7 @@ def knowledge_benchmark_py(
     audex_base_speech: bool = False,
     audex_base_s2s: bool = False,
     monologue: bool = False,
+    storage: str = "wav",
 ):
     """Build the knowledge benchmark pipeline.
 
@@ -612,6 +641,12 @@ def knowledge_benchmark_py(
             ``None`` benchmarks the base ``kyutai/moshiko``.
         checkpoint_step: which fine-tune checkpoint step to use (``None`` = latest).
         tag: output namespace for the model-dependent stages (e.g. ``moshi_base`` / ``moshi_ft``).
+        storage: clip layout for the question TTS and the model replies. ``"wav"`` (default) writes
+            one file per example, as every existing benchmark did; ``"hf"`` writes one arrow
+            dataset per stage, cutting a 1000-example run from ~2000 inodes to ~3 on the shared
+            /hpcwork volume. Both read identically downstream (``clip_store.open_clips``), so a tag
+            can switch without changing its numbers -- but it DOES change the job hashes of that
+            tag's TTS/inference stages, so switching re-runs them. New tags should pass ``"hf"``.
     """
     from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import (
         chatterbox_venv,
@@ -643,6 +678,7 @@ def knowledge_benchmark_py(
         venv_python_path=chatterbox_venv(),
         in_hf=data,
         speaker_dir=speakers.out_dir,
+        storage=storage,
     )
     tk.register_output("benchmark/tts_output", tts.out_dir)
 
@@ -711,6 +747,7 @@ def knowledge_benchmark_py(
         **_bs_kw,
         **_oracle_kw,
         in_dir=tts.out_dir,
+        storage=storage,
         lora_weights=lora_weights,
         lora_config=lora_config,
         # SpeechInference infers offline-vs-server from offline_script/module presence (no

@@ -17,11 +17,14 @@ feed the same per-run ``lora_weights`` / ``lora_config`` overlay seam on ``Speec
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 from sisyphus import Job, Task, tk
+
+from .clip_store import is_clip_dataset, materialise_clips, open_clips, write_clips
 
 from .inference_harness import (
     BackendInferenceMixin,
@@ -129,6 +132,11 @@ class SpeechInference(BackendInferenceMixin, Job):
         # transcription/grading/eval) after a lib-code fix that is NOT part of the hash. Excluded
         # at the default (1) so it is a no-op until bumped.
         "code_version": 1,
+        # Clip storage layout for knowledge mode: "wav" writes one reply <i>.wav (the original),
+        # "hf" writes a single arrow dataset. Excluded at the "wav" default so no existing job
+        # re-hashes. fdb mode ignores it -- its nested <ind>/output.wav layout is read directly by
+        # the benchmark's NeMo ASR, which we do not own.
+        "storage": "wav",
     }
 
     def __init__(
@@ -158,6 +166,7 @@ class SpeechInference(BackendInferenceMixin, Job):
         capture_s: float = 24.0,
         batch_size: int = 32,
         oracle_dataset: tk.Path | None = None,
+        storage: str = "wav",
         # --- fdb mode ---
         fdb_task: str | None = None,
         asr_venv_python: tk.AbstractPath | None = None,
@@ -220,6 +229,9 @@ class SpeechInference(BackendInferenceMixin, Job):
                 hash_overwrite="FullDuplexBench-datasets",
             )
 
+        assert storage in ("wav", "hf"), f"storage must be 'wav' or 'hf', got {storage!r}"
+        # fdb mode always writes the nested wav layout the benchmark's own ASR expects.
+        self.storage = storage if mode == "knowledge" else "wav"
         self.out_dir = self.output_path("speech_output", directory=True)
 
         # rqmt is NOT part of the Sisyphus hash (it is an instance attribute, not a
@@ -255,11 +267,24 @@ class SpeechInference(BackendInferenceMixin, Job):
         except OSError:
             return 0
 
+    def _progress_dir(self) -> str:
+        """Where clips are accumulating right now.
+
+        Under storage="hf" the worker writes into the scratch dir and only packs at the very end,
+        so counting output/ would report 0% for the whole run and then jump to 100% -- exactly the
+        "is it working or hung?" ambiguity the progress hooks exist to remove.
+        """
+        if self.storage == "hf":
+            return os.path.join(self._sis_path(), "clip_scratch")
+        return self.out_dir.get_path()
+
     def _shard_total(self) -> "int | None":
         cached = getattr(self, "_total_cache", 0)
         if cached:
             return cached
-        n = self._count_wavs(self.in_dir.get_path())
+        # The input may be either layout, so count through the store rather than globbing wavs.
+        in_path = self.in_dir.get_path()
+        n = len(open_clips(in_path)) if is_clip_dataset(in_path) else self._count_wavs(in_path)
         if n and self.shard is not None and self.num_shards:
             n = len(range(self.shard, n, self.num_shards))
         if n:
@@ -271,7 +296,7 @@ class SpeechInference(BackendInferenceMixin, Job):
             return None
         try:
             total = self._shard_total()
-            return max(0.0, min(1.0, self._count_wavs(self.out_dir.get_path()) / total)) if total else None
+            return max(0.0, min(1.0, self._count_wavs(self._progress_dir()) / total)) if total else None
         except Exception:
             return None
 
@@ -280,7 +305,7 @@ class SpeechInference(BackendInferenceMixin, Job):
             return None
         try:
             total = self._shard_total()
-            return f"{self._count_wavs(self.out_dir.get_path())}/{total} clips" if total else None
+            return f"{self._count_wavs(self._progress_dir())}/{total} clips" if total else None
         except Exception:
             return None
 
@@ -292,8 +317,15 @@ class SpeechInference(BackendInferenceMixin, Job):
             self._run_fdb()
 
     def _run_knowledge(self):
-        out_dir = Path(self.out_dir.get())
+        # storage="hf": the driver / streaming path still writes loose wavs, but into a scratch dir
+        # inside the job work dir; run() then packs them into ONE arrow dataset and drops the
+        # scratch. That keeps all five offline drivers (and their five job venvs) untouched while
+        # the job's durable output costs ~3 inodes instead of one per clip. The scratch lives beside
+        # output/, so a crashed run leaves it behind for inspection rather than half-written output.
+        final_dir = Path(self.out_dir.get())
+        out_dir = Path("clip_scratch").absolute() if self.storage == "hf" else final_dir
         out_dir.mkdir(parents=True, exist_ok=True)
+        final_dir.mkdir(parents=True, exist_ok=True)
         if self.offline_script is not None or self.offline_module is not None:
             self._offline(
                 python_exe=self._python_exe(),
@@ -306,12 +338,44 @@ class SpeechInference(BackendInferenceMixin, Job):
                 num_shards=self.num_shards,
                 oracle_dataset=(self.oracle_dataset.get() if self.oracle_dataset is not None else None),
             )
+            self._pack_clips(out_dir, final_dir)
             return
-        wav_files = sorted(Path(self.in_dir.get()).glob("*.wav"))
+        # The input may itself be either layout; open_clips hides which. Materialise only when the
+        # producer wrote arrow, so the common wav->wav path stays a plain glob with no extra IO.
+        in_path = Path(self.in_dir.get())
+        if is_clip_dataset(in_path):
+            src_dir = Path("clip_input").absolute()
+            materialise_clips(in_path, src_dir)
+        else:
+            src_dir = in_path
+        wav_files = sorted(src_dir.glob("*.wav"))
         if self.shard is not None and self.num_shards is not None:
             wav_files = wav_files[self.shard :: self.num_shards]
         items = [(wav, out_dir / wav.name) for wav in wav_files]
         self._stream(items, opts=StreamOptions(lead_in_s=self.lead_in_s, capture_s=self.capture_s, progress_every=50))
+        self._pack_clips(out_dir, final_dir)
+
+    def _pack_clips(self, scratch: Path, final_dir: Path) -> None:
+        """Under storage="hf", fold the scratch wavs (+ monologue/trace sidecars) into one dataset."""
+        if self.storage != "hf":
+            return
+        clips = open_clips(scratch)
+        monologues, traces = {}, {}
+        for i in clips:
+            mono = clips.sidecar(i, "monologue")
+            if mono is not None:
+                monologues[i] = mono
+            trace = clips.sidecar(i, "trace")
+            if trace is not None:
+                traces[i] = trace
+        write_clips(
+            final_dir,
+            [(i, *clips[i]) for i in clips],
+            monologues=monologues,
+            traces=traces,
+        )
+        print(f"[clips] packed {len(clips)} clips into {final_dir}", flush=True)
+        shutil.rmtree(scratch, ignore_errors=True)
 
     def _run_fdb(self):
         assert os.path.exists(os.path.join(self.fdb_data, "candor_pause_handling/1/pause.json")), (

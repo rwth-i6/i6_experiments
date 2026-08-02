@@ -19,6 +19,8 @@ import re
 
 from sisyphus import Job, Task, tk
 
+from .clip_store import open_clips
+
 _AUDEX_REPO = "nvidia/Nemotron-Labs-Audex-2B"
 
 # --- audio-QA preprocessing (verbatim from audio_utils.py) -------------------------------------------
@@ -172,8 +174,12 @@ class AudexSpeechS2S(Job):
         decoder = AutoModel.from_pretrained(dec_dir, trust_remote_code=True).cuda().eval()
         print(f"[s2s] loaded qa+audiogen+decoder; {len(maps['speech_codec'])} speechcodec toks", flush=True)
 
-        def whisper_feats(wav):
-            audio, _ = librosa.load(wav, sr=sr_in, mono=True)
+        def whisper_feats(clip):
+            """clip is (samples, sample_rate) from clip_store.open_clips -- either layout."""
+            audio, clip_sr = clip
+            audio = np.asarray(audio, dtype=np.float32)
+            if clip_sr != sr_in:
+                audio = librosa.resample(audio, orig_sr=clip_sr, target_sr=sr_in)
             audio = np.asarray(audio, dtype=np.float32)
             mx = float(np.abs(audio).max()) if audio.size else 0.0
             if mx > 1.0:
@@ -187,8 +193,9 @@ class AudexSpeechS2S(Job):
                 if c.shape[0] < cn:
                     c = np.pad(c, (0, cn - c.shape[0]))
                 clips.append(c.astype(np.float32))
-            return feat(clips, sampling_rate=sr_in, return_tensors="pt", padding="max_length",
-                        return_attention_mask=False).input_features
+            return feat(
+                clips, sampling_rate=sr_in, return_tensors="pt", padding="max_length", return_attention_mask=False
+            ).input_features
 
         def answer_text(wav):
             feats = whisper_feats(wav)
@@ -196,11 +203,18 @@ class AudexSpeechS2S(Job):
             prompt = _expand_sound(_audioqa_prompt("Answer the spoken question."), feats.shape[0] * sound_emb)
             enc = qa_tok(prompt, return_tensors="pt", add_special_tokens=False)
             with torch.inference_mode():
-                out = qa.generate(input_ids=enc.input_ids.cuda(), attention_mask=enc.attention_mask.cuda(),
-                                  input_features=feats.cuda().to(torch.bfloat16), max_new_tokens=self.max_new_tokens,
-                                  do_sample=True, temperature=0.7, top_p=0.9, eos_token_id=qa_eos,
-                                  pad_token_id=qa_tok.pad_token_id or 0)
-            return _answer_text(qa_tok.decode(out[0, enc.input_ids.shape[-1]:], skip_special_tokens=False))
+                out = qa.generate(
+                    input_ids=enc.input_ids.cuda(),
+                    attention_mask=enc.attention_mask.cuda(),
+                    input_features=feats.cuda().to(torch.bfloat16),
+                    max_new_tokens=self.max_new_tokens,
+                    do_sample=True,
+                    temperature=0.7,
+                    top_p=0.9,
+                    eos_token_id=qa_eos,
+                    pad_token_id=qa_tok.pad_token_id or 0,
+                )
+            return _answer_text(qa_tok.decode(out[0, enc.input_ids.shape[-1] :], skip_special_tokens=False))
 
         def synth_wav(text):
             cond = gen_tok(_tts_prompt(text), return_tensors="pt", add_special_tokens=False)
@@ -209,11 +223,17 @@ class AudexSpeechS2S(Job):
                 unc = gen_tok(_tts_null_prompt(), return_tensors="pt", add_special_tokens=False).input_ids.cuda()
                 procs.append(UnbatchedClassifierFreeGuidanceLogitsProcessor(self.cfg_scale, gen, unconditional_ids=unc))
             with torch.inference_mode():
-                out = gen.generate(input_ids=cond.input_ids.cuda(), attention_mask=cond.attention_mask.cuda(),
-                                   max_new_tokens=self.max_speech_tokens, do_sample=True, temperature=0.8,
-                                   logits_processor=procs, eos_token_id=speechgen_end,
-                                   pad_token_id=gen_tok.pad_token_id or gen_tok.eos_token_id)
-            ids = _extract_speech_ids(out[0, cond.input_ids.shape[-1]:].tolist(), maps)
+                out = gen.generate(
+                    input_ids=cond.input_ids.cuda(),
+                    attention_mask=cond.attention_mask.cuda(),
+                    max_new_tokens=self.max_speech_tokens,
+                    do_sample=True,
+                    temperature=0.8,
+                    logits_processor=procs,
+                    eos_token_id=speechgen_end,
+                    pad_token_id=gen_tok.pad_token_id or gen_tok.eos_token_id,
+                )
+            ids = _extract_speech_ids(out[0, cond.input_ids.shape[-1] :].tolist(), maps)
             if not ids:
                 return None
             session = decoder.create_session(chunk_frames=_CAUSAL_CHUNK_FRAMES)
@@ -225,17 +245,18 @@ class AudexSpeechS2S(Job):
             return np.concatenate(chunks).astype(np.float32) if chunks else None
 
         in_dir = self.in_dir.get()
-        wavs = sorted(glob.glob(os.path.join(in_dir, "*.wav")), key=lambda p: int(os.path.basename(p)[:-4]))
-        wavs = wavs[self.shard :: self.num_shards]
+        # Either clip layout; indices (not filenames) are the identity the downstream join uses.
+        clips = open_clips(in_dir)
+        indices = sorted(clips)[self.shard :: self.num_shards]
         out_dir = self.out_dir.get()
         os.makedirs(out_dir, exist_ok=True)
         min_samples = int((MIN_TTS_FRAMES / CODEC_FPS) * 16000)
-        n = len(wavs)
+        n = len(indices)
         print(f"[s2s] shard {self.shard}/{self.num_shards}: {n} clips", flush=True)
         done = blank = 0
-        for k, wav in enumerate(wavs):
-            name = os.path.basename(wav)
-            text = answer_text(wav)
+        for k, idx in enumerate(indices):
+            name = f"{idx}.wav"
+            text = answer_text(clips[idx])
             w = synth_wav(text) if text.strip() else None
             if w is None or len(w) == 0:
                 w = np.zeros(min_samples, dtype=np.float32) + 1e-3

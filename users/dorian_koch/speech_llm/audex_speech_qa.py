@@ -19,6 +19,8 @@ import os
 
 from sisyphus import Job, Task, tk
 
+from .clip_store import open_clips
+
 _AUDEX_REPO = "nvidia/Nemotron-Labs-Audex-2B"
 
 # --- Audex audio-QA preprocessing (verbatim from the model's inference_scripts_hf/audio_utils.py) ----
@@ -124,8 +126,12 @@ class AudexSpeechQA(Job):
         n = len(ds)
         print(f"[audex-speechqa] {n} questions", flush=True)
 
-        def whisper_features(wav_path):
-            audio, _sr = librosa.load(wav_path, sr=sr, mono=True)
+        def whisper_features(clip):
+            """clip is (samples, sample_rate) from clip_store.open_clips -- either layout."""
+            audio, clip_sr = clip
+            audio = np.asarray(audio, dtype=np.float32)
+            if clip_sr != sr:
+                audio = librosa.resample(audio, orig_sr=clip_sr, target_sr=sr)
             audio = np.asarray(audio, dtype=np.float32)
             m = float(np.abs(audio).max()) if audio.size else 0.0
             if m > 1.0:
@@ -145,14 +151,15 @@ class AudexSpeechQA(Job):
             f = feat(clips, sampling_rate=sr, return_tensors="pt", padding="max_length", return_attention_mask=False)
             return f.input_features
 
+        # Either clip layout (dir of <i>.wav, or one arrow dataset under storage="hf").
+        clips = open_clips(in_dir)
         results = []
         missing = 0
         for i, ex in enumerate(ds):
-            wav = os.path.join(in_dir, f"{i}.wav")
-            if not os.path.exists(wav):
+            if i not in clips:
                 missing += 1
                 continue
-            input_features = whisper_features(wav)
+            input_features = whisper_features(clips[i])
             num_emb = input_features.shape[0] * sound_emb
             q = ex["question"]
             prompt = _expand_sound_placeholder(_build_prompt_template(_QA_INSTRUCTION), num_emb)
