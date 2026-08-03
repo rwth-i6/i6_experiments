@@ -647,6 +647,7 @@ def knowledge_benchmark_py(
     monologue: bool = False,
     storage: str = "wav",
     ffmpeg_path: tk.Path | None = None,
+    inference_seed: int | None = None,
 ):
     """Build the knowledge benchmark pipeline.
 
@@ -673,6 +674,11 @@ def knowledge_benchmark_py(
             venv) the job no longer needs ``requires: ["system_ffmpeg"]`` and stops being pinned to
             c23g. Hash-excluded at ``None`` on the job, so passing it re-runs only the tag that
             opts in.
+        inference_seed: RNG seed for the model's decoding (backlog E1). ``None`` (default) is the
+            historical unseeded behaviour. ⚠ Only the **lib** backends honour it -- the fork drivers
+            have their own argparse and are deliberately not sent ``--seed`` (they would exit(2)
+            after the GPU is allocated), so setting this on a fork-backend tag silently does
+            nothing. Hash-excluded at ``None``, so it re-runs only the tag that opts in.
     """
     from speech_llm.full_duplex.sis_recipe.doriank.synthetic_train_data import (
         chatterbox_venv,
@@ -775,6 +781,7 @@ def knowledge_benchmark_py(
         **_oracle_kw,
         in_dir=tts.out_dir,
         storage=storage,
+        seed=inference_seed,
         lora_weights=lora_weights,
         lora_config=lora_config,
         # SpeechInference infers offline-vs-server from offline_script/module presence (no
