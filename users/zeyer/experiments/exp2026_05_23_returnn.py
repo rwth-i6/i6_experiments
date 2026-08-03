@@ -820,32 +820,11 @@ def _loq_cost_decomposition(cfg, classes_cap):
         job = TrainStepBenchmarkJob(returnn_config=cfg, mode=mode, num_steps=31, config_overrides=overrides)
         tk.register_output(f"returnn/loq-base-graphc-bench-{mode}-gap960.json", job.out_results)
 
-    # how much of the step is the packed CTC native fast-BW op?
-    # (profile says 45% of GPU time; this A/B swaps it for the unpack + torch/cuDNN path)
-    for use_native in [False]:
-        job = TrainStepBenchmarkJob(
-            returnn_config=cfg,
-            mode="packed_graphc",
-            num_steps=31,
-            config_overrides={
-                **packed_overrides,
-                "packed_ctc_use_native_op": use_native,
-                # without the native op the packed ctc_loss must unpack -> the guarded slow path
-                "packed_fallback_allowed": ["ctc_loss"],
-                "torch_cuda_graph": {
-                    "batch_size_bound": 200,
-                    "dim_capacity": {"audio": 312_960, "text": classes_cap},
-                    "packed_total_bound": {"audio": 16_384_000, "text": 200 * (classes_cap + 2)},
-                    "warmup_steps": 2,
-                    "capture_optimizer": True,
-                    "compile": True,
-                    "partitioned": True,
-                    "activation_memory_budget": 0.8,
-                    "aggressive_recomputation": True,
-                },
-            },
-        )
-        tk.register_output(f"returnn/loq-base-graphc-bench-partitioned-ctcnative{use_native}.json", job.out_results)
+    # The packed CTC native fast-BW op was measured at 45% of GPU time
+    # (A/B against the unpack + torch/cuDNN path).
+    # The packed path always uses the native op now:
+    # the alternative unpacks to a padded [B,T,V] intermediate,
+    # and aten._ctc_loss is untraceable under fake tensors, so it cannot run compiled/captured.
 
     # A/B of the normalize frame early-exit (native op change, so a version bump gives it a
     # fresh job while keeping the 2.284 s/step reference): identical to the budget-0.8 baseline.
