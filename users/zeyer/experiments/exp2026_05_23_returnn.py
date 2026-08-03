@@ -549,6 +549,47 @@ def py_aed_graphc():
     )
     tk.register_output("returnn/aed-graphc-v3-pdec-compiled-fix-validation.json", job.out_results)
 
+    # LS counterpart of the loq gap sweep.
+    # On loq, audio gap 0 / text gap 0 tied the best step time
+    # and had the lowest peak memory of every packed variant.
+    # LS differs in ways that could change that:
+    # shorter utterances, speed perturbation, a different within-batch length spread,
+    # so measure it rather than extrapolate.
+    # The 18_240 / 2 point is the current default, carried along as the control.
+    for audio_gap, text_gap in [(0, 0), (0, 2), (_aed_graphc_packed_gap, 2)]:
+        audio_bound = 200_000 * _batch_size_factor + 200 * (audio_gap + _aed_graphc_packed_align)
+        audio_bound = -(-audio_bound // _aed_graphc_packed_align) * _aed_graphc_packed_align
+        job = TrainStepBenchmarkJob(
+            returnn_config=pdec_train_job.returnn_config,
+            mode="packed_graphc",
+            num_steps=31,
+            config_overrides={
+                "packed_tensors": {
+                    "per_key": {
+                        "data": {"gap": audio_gap, "align": _aed_graphc_packed_align},
+                        "classes": {"gap": text_gap, "align": 1},
+                    }
+                },
+                "torch_cuda_graph": {
+                    "batch_size_bound": 200,
+                    "dim_capacity": {"data": 720_000, "classes": _aed_graphc_classes_capacity},
+                    "packed_total_bound": {
+                        "data": audio_bound,
+                        "classes": 200 * (_aed_graphc_classes_capacity + text_gap),
+                    },
+                    "warmup_steps": 2,
+                    "capture_optimizer": True,
+                    "compile": True,
+                },
+            },
+        )
+        tk.register_output(f"returnn/aed-graphc-bench-gaps-a{audio_gap}-t{text_gap}.json", job.out_results)
+    # padded reference at the same RETURNN version and step count.
+    # The LS packed-vs-padded ratio we quote is from 2026-07-28,
+    # from before the packed rewrite and both CTC commits, so it says nothing about current code.
+    job = TrainStepBenchmarkJob(returnn_config=pdec_train_job.returnn_config, mode="padded_eager", num_steps=31)
+    tk.register_output("returnn/aed-graphc-bench-gaps-padded_eager.json", job.out_results)
+
 
 def _py_aed_graphc_exp(name_suffix, time_cap, packed_total, extra_cfg, *, packed_decoder=False):
     """
