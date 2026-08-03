@@ -640,6 +640,47 @@ def fdb_latency_histograms_py(tag, runs, tasks=("candor_turn_taking",), origin=N
         hist.add_alias(f"fdb_latency/{tag}/{task}")
 
 
+def seed_variance_py(
+    label,
+    *,
+    seeds=(1, 2, 3),
+    tasks=("candor_turn_taking",),
+    origin="ours",
+    **backend_kw,
+):
+    """Run one model at several RNG seeds and overlay the resulting latency distributions.
+
+    Every take-turn metric comes from temperature-sampled generation, so a single seed is one draw
+    from a distribution, not a measurement. This re-runs the SAME model across ``seeds`` and plots
+    the spread, which is what makes a cross-model gap readable: a difference smaller than one
+    model's own seed band is not a difference.
+
+    ``backend_kw`` is forwarded verbatim to :func:`fdb_benchmark_py` (``backend``,
+    ``server_venv_python``, ``moshi_checkpoint``, ...), so this stays a *mechanism*: the caller
+    supplies which model to sweep and nothing about how the sweep works.
+
+    Registers under ``fdb_latency/seedvar_<label>/`` and returns ``{seed_label -> run}``.
+
+    ⚠ ``tasks`` defaults to candor_turn_taking alone to bound GPU cost -- it is the only FDB task
+    the fork logs per-turn latencies for, so it is also the only one the histogram can read.
+
+    Seeding reaches BOTH inference paths as of 2026-08-03 (backlog E1): the pip ``moshi.server`` was
+    always pinned at 42424242, while the ``moshi_family`` offline drivers were unseeded until
+    ``run_offline_driver`` learned to forward ``--seed``. Numbers produced before that carry
+    unmeasured seed variance, so a sweep is not comparable with a pre-E1 run of the same model.
+    """
+    runs = {
+        f"seed{s}": fdb_benchmark_py(tag=f"seedvar/{label}/seed{s}", seed=s, tasks=tasks, **backend_kw) for s in seeds
+    }
+    fdb_latency_histograms_py(
+        tag=f"seedvar_{label}",
+        runs=runs,
+        tasks=tasks,
+        origin={lab: origin for lab in runs},
+    )
+    return runs
+
+
 def fdb_latency_histograms_from_registry(hist_tag, model_tags, tasks=("candor_turn_taking",), clip_s=15.0):
     """Wire a cross-model FDBLatencyHistogram from tags already benchmarked via fdb_benchmark_py.
 
