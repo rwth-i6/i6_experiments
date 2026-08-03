@@ -2,6 +2,7 @@ import torch
 import torchaudio
 from chatterbox.tts_turbo import ChatterboxTurboTTS
 import argparse
+import hashlib
 import json
 import os
 import random
@@ -35,6 +36,26 @@ def _write_progress(done, total, path="progress.json"):
 
 
 SPEAKER_ALIAS = {}
+
+#: Base seed for speaker choice, inter-turn silence and the TTS sampling itself. Changing it
+#: regenerates every corpus this worker produces, so treat it as a version, not a knob.
+SEED = 42
+
+
+def seed_for_dialogue(diag_id) -> int:
+    """Stable per-dialogue seed derived from the dialogue id.
+
+    ``hashlib``, NOT the builtin ``hash()``: Python salts ``hash()`` per process, so it would give a
+    different seed on every run and defeat the whole point.
+
+    Seeded per dialogue rather than once per run so a row's audio does not depend on iteration order
+    -- a shard, a resumed run, or a re-run of a subset all reproduce the same audio for the same
+    dialogue. ``model.generate`` is a SAMPLING TTS: with no torch seed the corpus is different audio
+    every regeneration (measured 2026-08-03 on the benchmark twin of this worker: 61 of 64 clips
+    differed in length, worst per-sample diff 0.725 vs a PCM-16 step of 6.1e-5).
+    """
+    return int(hashlib.sha1(str(diag_id).encode()).hexdigest()[:8], 16)
+
 
 # Inter-turn silence, in seconds. Truncated Gaussian: resample until inside [-0.3, 0.6] (negative =
 # the turns overlap slightly). Module-level rather than nested in main() so a guard can exercise the
@@ -196,6 +217,12 @@ def gen_conversation(
 
 
 def process_dialogue(model, dialogue, device, speaker_dir, silence_length_sampler, out_dir, diag_id, passthrough=None):
+
+    # Per-dialogue seed: covers the TTS sampling, the speaker draw and the silence sampler, all of
+    # which read the module-global RNGs. See seed_for_dialogue.
+    _seed = SEED ^ seed_for_dialogue(diag_id)
+    random.seed(_seed)
+    torch.manual_seed(_seed)
 
     assert isinstance(dialogue, list), "Each line in the input text file should be a json array that contains dialogues"
     assert len(dialogue) > 0, "Each dialogue should contain at least one turn"

@@ -108,6 +108,39 @@ if "HF_HOME" in captured["env"]:
 ok("run_worker_script   argv stringified, env applied, HF_HOME suppressed", _n)
 
 
+# --- TTS determinism (regression, 2026-08-03) ---------------------------------------------------
+# Both chatterbox workers call a SAMPLING `model.generate`. They used to seed only Python `random`
+# (for the speaker draw), leaving the audio itself unseeded -- so the benchmark's questions and the
+# training corpus were different audio on every regeneration. Measured: two runs of the benchmark
+# TTS on the same subsample gave 61 of 64 clips differing in LENGTH, worst per-sample diff 0.725
+# (a PCM-16 step is 6.1e-5). That is an unmeasured noise floor under every knowledge number, and it
+# made a storage-format A/B uninterpretable.
+#
+# The seed must be derived PER ITEM (clip index / dialogue id), not once per run, or a shard or a
+# resumed run silently produces different audio for the same row. And it must come from hashlib,
+# not the builtin hash(), which Python salts per process.
+_n = len(failures)
+for name, path in (
+    (
+        "chatterbox_benchmark_inference.py",
+        SETUP / "recipe/i6_experiments/users/dorian_koch/speech_llm/chatterbox_benchmark_inference.py",
+    ),
+    ("chatterbox_inference.py", SETUP / "recipe/i6_experiments/users/dorian_koch/speech_llm/chatterbox_inference.py"),
+):
+    src = path.read_text()
+    if "torch.manual_seed" not in src:
+        failures.append(f"{name}: no torch.manual_seed -- the TTS sampling is unseeded again")
+    if "hash(" in src.replace("hashlib", "").replace("_hash(", "") and "sha1" not in src:
+        failures.append(f"{name}: derives a seed from builtin hash(), which is salted per process")
+ben = (SETUP / "recipe/i6_experiments/users/dorian_koch/speech_llm/chatterbox_benchmark_inference.py").read_text()
+if "torch.manual_seed(SEED + i)" not in ben:
+    failures.append("chatterbox_benchmark_inference.py: seed is not derived from the clip index")
+conv = (SETUP / "recipe/i6_experiments/users/dorian_koch/speech_llm/chatterbox_inference.py").read_text()
+if "seed_for_dialogue" not in conv or "sha1" not in conv:
+    failures.append("chatterbox_inference.py: no stable per-dialogue seed (seed_for_dialogue/sha1)")
+ok("TTS determinism     both workers seed torch per item, from a stable (non-salted) hash", _n)
+
+
 # --- chatterbox_inference: reproducibility-critical helpers -------------------------------------
 
 _HEAVY = ["torch", "torchaudio", "chatterbox", "chatterbox.tts_turbo", "datasets"]

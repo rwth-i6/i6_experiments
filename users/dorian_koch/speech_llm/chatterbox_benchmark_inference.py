@@ -35,6 +35,11 @@ def write_clips(out_path, items):
     Dataset.from_dict(rows).save_to_disk(out_path)
 
 
+#: Base seed for both the speaker draw and the per-clip TTS sampling. Changing it regenerates every
+#: corpus this worker produces, so treat it as a version, not a knob.
+SEED = 42
+
+
 def resolve_speaker_path(speaker_dir: str, speaker_name: str) -> str:
     """Resolve speaker path, supporting rng_ prefix for random selection."""
     based = os.path.basename(speaker_name)
@@ -60,7 +65,7 @@ def main():
     )
     args = parser.parse_args()
 
-    random.seed(42)
+    random.seed(SEED)  # speaker choice
     ds = load_from_disk(args.in_hf)
 
     speaker_path = resolve_speaker_path(args.speaker_dir, args.speaker_name)
@@ -82,6 +87,17 @@ def main():
     rows = []
     with torch.inference_mode():
         for i, example in enumerate(ds):
+            # Seed PER CLIP, from the clip's index -- not once per run. `model.generate` is a
+            # SAMPLING TTS, so without a torch seed the benchmark's questions are different audio on
+            # every regeneration: measured 2026-08-03, two runs of this job on the same subsample
+            # gave 61 of 64 clips differing in LENGTH (worst per-sample diff 0.725, where a PCM-16
+            # step is 6.1e-5). That put an unmeasured noise floor under every knowledge number and
+            # made a storage-format A/B uninterpretable.
+            #
+            # Index-derived rather than run-level so a clip's audio does not depend on iteration
+            # order: a shard, a resumed run, or a re-run of a subset all reproduce the same audio
+            # for the same clip.
+            torch.manual_seed(SEED + i)
             wav = model.generate(text=example["question"], audio_prompt_path=None)
             if args.storage == "hf":
                 rows.append((i, wav.cpu().numpy().reshape(-1).astype("float32"), model.sr))

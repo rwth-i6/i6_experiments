@@ -326,10 +326,26 @@ class SpeechInference(BackendInferenceMixin, Job):
         out_dir = Path("clip_scratch").absolute() if self.storage == "hf" else final_dir
         out_dir.mkdir(parents=True, exist_ok=True)
         final_dir.mkdir(parents=True, exist_ok=True)
+
+        # Materialise an arrow input to scratch wavs HERE, for every path, rather than expecting the
+        # driver to understand arrow. offline_cli.resolve_run can do it for the five moshi_family
+        # drivers, but the FORK-era drivers (i6_experiments/.../moshi_offline_inference.py, used by
+        # the default MOSHI_BACKEND, and personaplex_offline_inference.py) do not go through it --
+        # they glob *.wav directly. Passing them an arrow dir silently yields zero pairs and an empty
+        # output, which is how storage_ab_hf failed on 2026-08-02. Doing it at the job makes the
+        # input contract driver-agnostic: every driver, fork or lib, always sees a dir of <i>.wav.
+        in_path = Path(self.in_dir.get())
+        if is_clip_dataset(in_path):
+            in_path = Path("clip_input").absolute()
+            materialise_clips(self.in_dir.get(), in_path)
+            print(
+                f"[clips] materialised arrow input -> {in_path} ({len(list(in_path.glob('*.wav')))} wavs)", flush=True
+            )
+
         if self.offline_script is not None or self.offline_module is not None:
             self._offline(
                 python_exe=self._python_exe(),
-                in_dir=str(self.in_dir.get()),
+                in_dir=str(in_path),
                 out_dir=str(out_dir),
                 lead_in_s=self.lead_in_s,
                 capture_s=self.capture_s,
@@ -340,15 +356,7 @@ class SpeechInference(BackendInferenceMixin, Job):
             )
             self._pack_clips(out_dir, final_dir)
             return
-        # The input may itself be either layout; open_clips hides which. Materialise only when the
-        # producer wrote arrow, so the common wav->wav path stays a plain glob with no extra IO.
-        in_path = Path(self.in_dir.get())
-        if is_clip_dataset(in_path):
-            src_dir = Path("clip_input").absolute()
-            materialise_clips(in_path, src_dir)
-        else:
-            src_dir = in_path
-        wav_files = sorted(src_dir.glob("*.wav"))
+        wav_files = sorted(in_path.glob("*.wav"))
         if self.shard is not None and self.num_shards is not None:
             wav_files = wav_files[self.shard :: self.num_shards]
         items = [(wav, out_dir / wav.name) for wav in wav_files]
