@@ -1124,6 +1124,41 @@ def _loq_cost_decomposition(cfg, classes_cap):
         )
         tk.register_output(f"returnn/loq-base-graphc-bench-bs{bs_k}k-ctcinfweight.json", job.out_results)
 
+    # v16: text gap 1 instead of 2.
+    # The decoder input is a BOS pad of the packed targets: footprint L+gap, content 1+L.
+    # With gap 2 that leaves gap 1, and _torch_sdpa_varlen_attention densifies whenever the packing
+    # has gap frames (nested/jagged needs contiguous offsets), so the decoder pays
+    # 26 re-layouts per step (12 q-in + 12 out + k/v; traced).
+    # With gap 1 the pad leaves gap 0 -- the pad stays in place AND the densify disappears.
+    # The targets-with-EOS is a separate tensor deriving from the same packing,
+    # so one slack frame should serve both; if something needs BOS+labels+EOS in ONE seq it will
+    # assert on insufficient gap, which is the informative outcome.
+    for text_gap in [1, 2]:
+        job = TrainStepBenchmarkJob(
+            returnn_config=cfg,
+            mode="packed_graphc",
+            num_steps=31,
+            version=16,
+            config_overrides={
+                "batch_size": 100_000 * 160,
+                "packed_tensors": {
+                    "per_key": {
+                        "audio": {"gap": 18_240, "align": 960},
+                        "text": {"gap": text_gap, "align": 1},
+                    }
+                },
+                "torch_cuda_graph": {
+                    "batch_size_bound": 200,
+                    "dim_capacity": {"audio": 312_960, "text": classes_cap},
+                    "packed_total_bound": {"audio": 19_840_320, "text": 18_000},
+                    "warmup_steps": 2,
+                    "capture_optimizer": True,
+                    "compile": True,
+                },
+            },
+        )
+        tk.register_output(f"returnn/loq-base-graphc-bench-textgap{text_gap}.json", job.out_results)
+
     # v15: regap now derives its bound from the DECLARED total bound (pack total_bound) instead of
     # the per-seq capacity product, which put every seq at its full length at once
     # (loq: 68_400 frames instead of 20_667, inherited by every op after the conv).
