@@ -674,84 +674,8 @@ def py_aed_graphc_loquacious():
     for mode in ["packed_graphc", "padded_eager"]:
         job = TrainStepBenchmarkJob(returnn_config=cfg, mode=mode, num_steps=31)
         tk.register_output(f"returnn/loq-base-graphc-bench-{mode}.json", job.out_results)
-    # tighter-audio-gap variant, probing the fix for the 808MiB OOM
-    # (FastBaumWelchPackedOp CTC buffer at the bound [20667, 10241] f32):
-    # gap 18240 is LS-sized (within-batch length spread there),
-    # gap 960 shrinks the audio bound 19.84M -> 16.38M samples,
-    # i.e. -17% on every bound-sized encoder activation;
-    # the bench also shows whether a 1-frame gap breaks anything (losses / asserts)
-    job = TrainStepBenchmarkJob(
-        returnn_config=cfg,
-        mode="packed_graphc",
-        num_steps=31,
-        config_overrides={
-            "packed_tensors": {
-                "per_key": {
-                    "audio": {"gap": 960, "align": 960},
-                    "text": {"gap": 2, "align": 1},
-                }
-            },
-            "torch_cuda_graph": {
-                "batch_size_bound": 200,
-                "dim_capacity": {"audio": 312_960, "text": classes_cap},
-                "packed_total_bound": {"audio": 16_384_000, "text": 200 * (classes_cap + 2)},
-                "warmup_steps": 2,
-                "capture_optimizer": True,
-                "compile": True,
-                # the -17% audio bound moved the OOM margin only ~0.4GB,
-                # so bound-sized activations do NOT dominate the ~78GB compile-run peak;
-                # the snapshot (dumped on OOM) names every allocation at the peak
-                "dump_memory_snapshot": True,
-                # the aten-level FX dump names the producer of the surviving
-                # [text_bound, vocab] scatter (scatter_add_53/54 in the wrapper);
-                # the generated-code node names alone were ambiguous
-                "dump_fx_dir": "fx-dump",
-            },
-        },
-    )
-    tk.register_output("returnn/loq-base-graphc-bench-packed_graphc-gap960.json", job.out_results)
-    # partitioned-graphc probe: fw/bwd split by min-cut rematerialization,
-    # activation_memory_budget = the global save-vs-recompute knob
-    # (see graph_capture opts "partitioned"; smoke-verified loss-identical to single-graph).
-    # With the deadline-anchored reorder (opts "reorder_alap") the budget knob is effective;
-    # sweep it: 0.15 undersaves (bwd recompute concurrency dominates, est 76.0 GB),
-    # 0.3 gave est 73.9 GB -- the trend favors saving more / recomputing less.
-    # speed matrix at the identical bs200k/gap960 regime: among the settings that FIT,
-    # which is fastest? Less recompute (higher budget) should be faster but needs more memory;
-    # reorder_alap=False asks whether the custom schedule is still needed for the fit
-    # now that the compiled halves free their saved inputs progressively.
-    for budget, reorder_alap in [(0.8, True), (0.9, True), (1.0, True), (0.8, False), (1.0, False)]:
-        job = TrainStepBenchmarkJob(
-            returnn_config=cfg,
-            mode="packed_graphc",
-            num_steps=31,
-            config_overrides={
-                "packed_tensors": {
-                    "per_key": {
-                        "audio": {"gap": 960, "align": 960},
-                        "text": {"gap": 2, "align": 1},
-                    }
-                },
-                "torch_cuda_graph": {
-                    "batch_size_bound": 200,
-                    "dim_capacity": {"audio": 312_960, "text": classes_cap},
-                    "packed_total_bound": {"audio": 16_384_000, "text": 200 * (classes_cap + 2)},
-                    "warmup_steps": 2,
-                    "capture_optimizer": True,
-                    "compile": True,
-                    "partitioned": True,
-                    "activation_memory_budget": budget,
-                    "aggressive_recomputation": True,
-                    "reorder_alap": reorder_alap,
-                    "dump_memory_snapshot": True,
-                },
-            },
-        )
-        tk.register_output(
-            f"returnn/loq-base-graphc-bench-packed_graphc-partitioned-budget{budget}"
-            f"{'' if reorder_alap else '-noreorder'}.json",
-            job.out_results,
-        )
+    # (the gap-960 debug probe at the loose text bound is superseded:
+    #  the declared-bound run measures 0.499 s/step at gap 960, see below)
     _loq_cost_decomposition(cfg, classes_cap)
     _loq_text_seq_len_stats()
 
@@ -800,22 +724,10 @@ def _loq_cost_decomposition(cfg, classes_cap):
     # config_overrides are appended AFTER the mode overrides, so anything set here WINS:
     # packed_eager must not carry a torch_cuda_graph dict (it would re-enable capture),
     # and packed_compiled must repeat the mode's capture=False, compile=True itself.
+    # packed_compiled at the loose text bound OOM'd; packed_eager is the informative half
+    # (0.725 s/step, vs padded_eager 0.594 -- the packed LAYOUT alone costs, the win is graphc).
     for mode, overrides in [
         ("packed_eager", packed_overrides),
-        (
-            "packed_compiled",
-            {
-                **packed_overrides,
-                "torch_cuda_graph": {
-                    "batch_size_bound": 200,
-                    "dim_capacity": {"audio": 312_960, "text": classes_cap},
-                    "packed_total_bound": {"audio": 16_384_000, "text": 200 * (classes_cap + 2)},
-                    "warmup_steps": 2,
-                    "capture": False,
-                    "compile": True,
-                },
-            },
-        ),
     ]:
         job = TrainStepBenchmarkJob(returnn_config=cfg, mode=mode, num_steps=31, config_overrides=overrides)
         tk.register_output(f"returnn/loq-base-graphc-bench-{mode}-gap960.json", job.out_results)
@@ -849,83 +761,6 @@ def _loq_cost_decomposition(cfg, classes_cap):
         },
     )
     tk.register_output("returnn/loq-base-graphc-bench-partitioned-normfix.json", job.out_results)
-
-    # v7: TIGHT text total bound, measured rather than worst-cased.
-    # The bound only has to cover the labels of ONE batch, and two constraints bound that far below
-    # 200x the per-seq cap: a batch holds at most max_seqs=200 seqs, and its audio has to fit
-    # packed_total_bound["audio"] = 16_384_000 samples = 1024s.
-    # Measured over the 9,487,873 train seqs (ExtractSeqLensJob, spm10k):
-    # max 366, p99.99 128, p99 92, median 21, mean 28.6, sum of the 200 longest = 29_262.
-    # Conditioning on the 19.5s audio filter (8_962_128 seqs pass) drops that to 21_456 (max 246),
-    # but those 200 seqs carry 2925s of audio, i.e. that batch cannot occur at all.
-    # Filling the 1024s budget by labels/sec instead gives the reachable worst case: the LP
-    # relaxation (fractional last item, count constraint dropped) upper-bounds it at 17_313,
-    # greedy reaches 16_347, so the optimum is pinned within 6%.
-    # 17_313 + max_seqs*(gap+align) = 600 -> 18_000, i.e. 2.9x tighter than 200*(256+2) = 51_600.
-    # This is a bound on the LABELS, so it moves with the audio bound and max_seqs, not on its own.
-    # dim_capacity stays 256: that is the PER-SEQ cap (and the FSA/edge width), a different knob.
-    # The second variant asks whether the memory freed here finally lets us stop recomputing
-    # matmuls (recompute_compute_intensive=False OOM'd at both the loose and the 30_000 bound).
-    for tight_total, no_mm_recompute in [(18_000, False), (18_000, True)]:
-        job = TrainStepBenchmarkJob(
-            returnn_config=cfg,
-            mode="packed_graphc",
-            num_steps=31,
-            version=7,
-            config_overrides={
-                **packed_overrides,
-                "torch_cuda_graph": {
-                    "batch_size_bound": 200,
-                    "dim_capacity": {"audio": 312_960, "text": classes_cap},
-                    "packed_total_bound": {"audio": 16_384_000, "text": tight_total},
-                    "warmup_steps": 2,
-                    "capture_optimizer": True,
-                    "compile": True,
-                    "partitioned": True,
-                    "activation_memory_budget": 0.8,
-                    "aggressive_recomputation": True,
-                    "recompute_compute_intensive": not no_mm_recompute,
-                },
-            },
-        )
-        tk.register_output(
-            f"returnn/loq-base-graphc-bench-partitioned-tighttotal{tight_total}"
-            f"{'-nommrecompute' if no_mm_recompute else ''}.json",
-            job.out_results,
-        )
-
-    # v8: make the no-matmul-recompute variant FIT. At budget 0.8 it needs 87.3 GB by inductor's own
-    # peak estimate vs 71.2 GB for the recompute variant, i.e. protecting the 467 recomputed matmuls
-    # costs +16.1 GB and overshoots the 79.2 GB card by ~8 GB. The allowlist ban keeps
-    # matmul/conv/attention saved whatever the budget is, so a lower budget spends the difference on
-    # the CHEAP ops instead. Sweep down until it fits, then compare s/step against the 1.355 of the
-    # recompute variant -- that is the actual price of recomputing the matmuls.
-    for budget in [0.6, 0.4]:
-        job = TrainStepBenchmarkJob(
-            returnn_config=cfg,
-            mode="packed_graphc",
-            num_steps=31,
-            version=8,
-            config_overrides={
-                **packed_overrides,
-                "torch_cuda_graph": {
-                    "batch_size_bound": 200,
-                    "dim_capacity": {"audio": 312_960, "text": classes_cap},
-                    "packed_total_bound": {"audio": 16_384_000, "text": 18_000},
-                    "warmup_steps": 2,
-                    "capture_optimizer": True,
-                    "compile": True,
-                    "partitioned": True,
-                    "activation_memory_budget": budget,
-                    "aggressive_recomputation": True,
-                    "recompute_compute_intensive": False,
-                },
-            },
-        )
-        tk.register_output(
-            f"returnn/loq-base-graphc-bench-partitioned-tight18000-nommrecompute-budget{budget}.json",
-            job.out_results,
-        )
 
     # v9: stop paying the conv re-layout. THE dominant cost of the packed loq step.
     # At gap 960 the packed backend logs
@@ -1026,11 +861,12 @@ def _loq_cost_decomposition(cfg, classes_cap):
     # Text bounds are the LP bound recomputed per audio budget (it scales with the budget):
     # 1000s -> 17_001, 1100s -> 18_286, 1250s -> 20_156.
     # Throughput = batch_size / sec_per_step; s/step across different batch sizes is meaningless.
+    # padded_eager OOMs at bs125k and bs150k (79.0 / 79.1 GiB in use), so its best batch is 100k
+    # at 26.9M frames/s; packed sustains 125k at 32.8M, i.e. +22% throughput on the same GPU.
+    # Those two OOM points are the result, not a job to keep re-running.
     for bench_mode, bs_k, audio_bound, text_bound in [
         ("packed_graphc", 110, 21_440_640, 19_000),
         ("packed_graphc", 125, 23_840_640, 21_000),
-        ("padded_eager", 125, None, None),
-        ("padded_eager", 150, None, None),
     ]:
         overrides = {"batch_size": bs_k * 1_000 * 160}
         if bench_mode == "packed_graphc":
@@ -1124,6 +960,45 @@ def _loq_cost_decomposition(cfg, classes_cap):
         )
         tk.register_output(f"returnn/loq-base-graphc-bench-bs{bs_k}k-ctcinfweight.json", job.out_results)
 
+    # v17: do we need any input-side gap at all?
+    # audio gap 0 / align 960 packs to 16_192_000 samples (16_867 frames); the conv then regaps to
+    # its 16 required frames -> 16_867 + 200*16 = 20_067, the same width gap 960 ends at
+    # (17_067 + 200*15), but from a smaller input buffer. text gap 0 means the BOS pad is no longer
+    # in-place, so it costs one re-layout -- against 26 attention densifies it should still win.
+    # The (0, 0) point is also simply the least the user has to configure.
+    # `repeat` only changes the sis hash: two identical configs give the run-to-run spread,
+    # which is what says whether the 0.499 / 0.508 / 0.512 above are actually different.
+    for audio_gap, text_gap, repeat in [(0, 0, 0), (0, 2, 0), (960, 2, 1), (18_240, 2, 1)]:
+        audio_bound = 16_000_000 + 200 * (audio_gap + 960)
+        audio_bound = -(-audio_bound // 960) * 960
+        job = TrainStepBenchmarkJob(
+            returnn_config=cfg,
+            mode="packed_graphc",
+            num_steps=31,
+            version=17 + repeat,
+            config_overrides={
+                "batch_size": 100_000 * 160,
+                "packed_tensors": {
+                    "per_key": {
+                        "audio": {"gap": audio_gap, "align": 960},
+                        "text": {"gap": text_gap, "align": 1},
+                    }
+                },
+                "torch_cuda_graph": {
+                    "batch_size_bound": 200,
+                    "dim_capacity": {"audio": 312_960, "text": classes_cap},
+                    "packed_total_bound": {"audio": audio_bound, "text": 18_000},
+                    "warmup_steps": 2,
+                    "capture_optimizer": True,
+                    "compile": True,
+                },
+            },
+        )
+        tk.register_output(
+            f"returnn/loq-base-graphc-bench-gaps-a{audio_gap}-t{text_gap}{'-rep' if repeat else ''}.json",
+            job.out_results,
+        )
+
     # v16: text gap 1 instead of 2.
     # The decoder input is a BOS pad of the packed targets: footprint L+gap, content 1+L.
     # With gap 2 that leaves gap 1, and _torch_sdpa_varlen_attention densifies whenever the packing
@@ -1166,7 +1041,8 @@ def _loq_cost_decomposition(cfg, classes_cap):
     # gap-18_240 layout (20_667), while the buffer before the encoder stays 16.38M samples
     # instead of 19.84M. So the gap becomes a layout detail again, not a speed decision.
     # References: gap 18_240 unpartitioned = 0.556 s/step, padded_eager = 0.594.
-    for audio_gap, audio_bound, tag in [(960, 16_384_000, "gap960"), (18_240, 19_840_320, "gap18240")]:
+    # (the gap-18_240 arm is v16 textgap2; gap 960 is the one this change unlocks)
+    for audio_gap, audio_bound, tag in [(960, 16_384_000, "gap960")]:
         job = TrainStepBenchmarkJob(
             returnn_config=cfg,
             mode="packed_graphc",
@@ -1201,40 +1077,6 @@ def _loq_cost_decomposition(cfg, classes_cap):
     # (two tensors regapped independently disagreed, aten.where: 20400 vs 18000), and was reverted.
     # Reference to beat: gap 18_240 unpartitioned = 0.554 s/step at bs100k.
 
-    # v6: aggressive_recomputation OFF. It was turned on early in the campaign to make the memory
-    # budget bite while we were fighting OOM, but it clears ban_if_not_in_allowlist, i.e. even aten
-    # matmuls become recompute candidates -- exactly what the default policy protects, because
-    # recomputing a GEMM is never free. Now that the CTC work took the step from 2.284 to 1.373,
-    # that memory-for-FLOPs trade is worth re-pricing.
-    # aggressive OFF entirely OOMs at both budgets (the recompute is what buys the memory), so
-    # keep it on but protect only the FLOP-heavy ops: recompute_compute_intensive=False keeps the
-    # allowlist ban (matmul/conv/attention stay saved) while the cheap bans stay lifted.
-    for budget, aggressive in [(0.8, True), (0.9, True)]:
-        job = TrainStepBenchmarkJob(
-            returnn_config=cfg,
-            mode="packed_graphc",
-            num_steps=31,
-            version=6,
-            config_overrides={
-                **packed_overrides,
-                "torch_cuda_graph": {
-                    "batch_size_bound": 200,
-                    "dim_capacity": {"audio": 312_960, "text": classes_cap},
-                    "packed_total_bound": {"audio": 16_384_000, "text": 200 * (classes_cap + 2)},
-                    "warmup_steps": 2,
-                    "capture_optimizer": True,
-                    "compile": True,
-                    "partitioned": True,
-                    "activation_memory_budget": budget,
-                    "aggressive_recomputation": aggressive,
-                    "recompute_compute_intensive": False,
-                },
-            },
-        )
-        tk.register_output(
-            f"returnn/loq-base-graphc-bench-partitioned-nomatmulrecompute-budget{budget}.json", job.out_results
-        )
-
     # v5: + next_frame_packed skips edges past each seq's OWN target length (derived from
     # start_end_states), i.e. the CTC work follows the actual targets rather than the buffer width.
     job = TrainStepBenchmarkJob(
@@ -1258,37 +1100,6 @@ def _loq_cost_decomposition(cfg, classes_cap):
         },
     )
     tk.register_output("returnn/loq-base-graphc-bench-partitioned-ctcedgeskip.json", job.out_results)
-
-    # v4: + device-side-M matmul for the packed Linears (returnn.torch.util.packed_mm_triton).
-    # Standalone it is 2.76x at 11x bound slack but 0.85x with none, and loq's AUDIO bound is
-    # tight (1.05x) while the TEXT one is loose (5.5x) -- so whether a global switch nets
-    # positive is exactly what this measures against the 2.042 s/step of v3.
-    job = TrainStepBenchmarkJob(
-        returnn_config=cfg,
-        mode="packed_graphc",
-        num_steps=31,
-        version=4,
-        config_overrides={
-            **packed_overrides,
-            # text/decoder packing only: that is where the bound is 5.5x the content, while the
-            # audio one is 1.05x (where the kernel is 0.85x cuBLAS and only adds buffers).
-            # Enabling it globally OOM'd: the opaque custom op moved the min-cut to a far more
-            # recompute-heavy point (saved set 46.5 -> 9.7 GiB).
-            "packed_device_m_matmul": ["text"],
-            "torch_cuda_graph": {
-                "batch_size_bound": 200,
-                "dim_capacity": {"audio": 312_960, "text": classes_cap},
-                "packed_total_bound": {"audio": 16_384_000, "text": 200 * (classes_cap + 2)},
-                "warmup_steps": 2,
-                "capture_optimizer": True,
-                "compile": True,
-                "partitioned": True,
-                "activation_memory_budget": 0.8,
-                "aggressive_recomputation": True,
-            },
-        },
-    )
-    tk.register_output("returnn/loq-base-graphc-bench-partitioned-devicem.json", job.out_results)
 
     # v3: + skip INF (zero-probability) edges in the normalize accumulation.
     # prob_add(x, INF) == x, so this is exact; it drops the contended log-space CAS for the
