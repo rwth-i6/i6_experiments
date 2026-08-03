@@ -1057,6 +1057,38 @@ def _loq_cost_decomposition(cfg, classes_cap):
         )
         tk.register_output(f"returnn/loq-base-graphc-bench-bs{bs_k}k-{bench_mode}.json", job.out_results)
 
+    # v13: re-measure the best config after two native-op changes:
+    # the CTC edge skip was REVERTED (it assumed the CTC topology inside the generic
+    # FastBaumWelchPackedOp, which takes arbitrary edges -- any other automaton would have had
+    # live edges silently zeroed), and the all-inactive-frame check in normalize now reads `index`
+    # once per block instead of once per thread.
+    # Reference: 0.554 s/step, measured WITH the edge skip, so this quantifies what the revert costs.
+    for bs_k, audio_bound, text_bound in [(100, 19_840_320, 18_000)]:
+        job = TrainStepBenchmarkJob(
+            returnn_config=cfg,
+            mode="packed_graphc",
+            num_steps=31,
+            version=13,
+            config_overrides={
+                "batch_size": bs_k * 1_000 * 160,
+                "packed_tensors": {
+                    "per_key": {
+                        "audio": {"gap": 18_240, "align": 960},
+                        "text": {"gap": 2, "align": 1},
+                    }
+                },
+                "torch_cuda_graph": {
+                    "batch_size_bound": 200,
+                    "dim_capacity": {"audio": 312_960, "text": classes_cap},
+                    "packed_total_bound": {"audio": audio_bound, "text": text_bound},
+                    "warmup_steps": 2,
+                    "capture_optimizer": True,
+                    "compile": True,
+                },
+            },
+        )
+        tk.register_output(f"returnn/loq-base-graphc-bench-bs{bs_k}k-ctcgeneric.json", job.out_results)
+
     # A gap-960 rerun belongs here once regap derives its bound from the DECLARED total bound
     # instead of the per-seq capacity product.
     # Then the regap lands at 17_067 + 200*15 = 20_067 frames,
