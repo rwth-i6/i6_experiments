@@ -1124,6 +1124,39 @@ def _loq_cost_decomposition(cfg, classes_cap):
         )
         tk.register_output(f"returnn/loq-base-graphc-bench-bs{bs_k}k-ctcinfweight.json", job.out_results)
 
+    # v15: regap now derives its bound from the DECLARED total bound (pack total_bound) instead of
+    # the per-seq capacity product, which put every seq at its full length at once
+    # (loq: 68_400 frames instead of 20_667, inherited by every op after the conv).
+    # gap 960 should now land at 17_067 + 200*15 = 20_067 frames, i.e. slightly BELOW the
+    # gap-18_240 layout (20_667), while the buffer before the encoder stays 16.38M samples
+    # instead of 19.84M. So the gap becomes a layout detail again, not a speed decision.
+    # References: gap 18_240 unpartitioned = 0.556 s/step, padded_eager = 0.594.
+    for audio_gap, audio_bound, tag in [(960, 16_384_000, "gap960"), (18_240, 19_840_320, "gap18240")]:
+        job = TrainStepBenchmarkJob(
+            returnn_config=cfg,
+            mode="packed_graphc",
+            num_steps=31,
+            version=15,
+            config_overrides={
+                "batch_size": 100_000 * 160,
+                "packed_tensors": {
+                    "per_key": {
+                        "audio": {"gap": audio_gap, "align": 960},
+                        "text": {"gap": 2, "align": 1},
+                    }
+                },
+                "torch_cuda_graph": {
+                    "batch_size_bound": 200,
+                    "dim_capacity": {"audio": 312_960, "text": classes_cap},
+                    "packed_total_bound": {"audio": audio_bound, "text": 18_000},
+                    "warmup_steps": 2,
+                    "capture_optimizer": True,
+                    "compile": True,
+                },
+            },
+        )
+        tk.register_output(f"returnn/loq-base-graphc-bench-declaredbound-{tag}.json", job.out_results)
+
     # A gap-960 rerun belongs here once regap derives its bound from the DECLARED total bound
     # instead of the per-seq capacity product.
     # Then the regap lands at 17_067 + 200*15 = 20_067 frames,
