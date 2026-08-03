@@ -189,6 +189,7 @@ def run_offline_driver(
     oracle_dataset: str | None = None,
     lora_weights: str | None = None,
     lora_config: str | None = None,
+    seed: int | None = None,
     extra_args: Sequence[str] = (),
     extra_env: dict | None = None,
 ) -> None:
@@ -230,6 +231,16 @@ def run_offline_driver(
         cmd += ["--shard", str(shard), "--num_shards", str(num_shards)]
     if oracle_dataset is not None:
         cmd += ["--oracle_dataset", str(oracle_dataset)]
+    if seed is not None:
+        # Only the LIB drivers (module=...) take --seed; offline_cli.build_parser adds it and
+        # seed_all() applies it to torch/CUDA/random/numpy. The FORK drivers (script_path=...) have
+        # their own argparse and would exit(2) on an unknown flag -- AFTER the GPU is allocated.
+        # Sending it unconditionally is exactly the class of failure check_offline_driver_cli.py
+        # exists to catch, so the module-vs-script distinction is load-bearing here.
+        assert module is not None, (
+            "seed is only supported by the lib (module) drivers; a fork driver would argparse-exit"
+        )
+        cmd += ["--seed", str(seed)]
     cmd += list(extra_args)
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
@@ -336,6 +347,12 @@ class BackendInferenceMixin:
         lora_weights = self.lora_weights.get() if self.lora_weights is not None else None
         lora_config = self.lora_config.get() if self.lora_config is not None else None
 
+        # backlog E1: the seed reached the pip-moshiko SERVER path (via _server_kwargs) but never
+        # the offline drivers, so every lib-backend benchmark ran unseeded even though the drivers
+        # already accept --seed. Only the lib (module) drivers take it; a fork driver would
+        # argparse-exit, so None is forwarded for those and behaviour is unchanged.
+        seed = getattr(self, "seed", None) if module is not None else None
+
         def _drive(extra_args, extra_env=None):
             run_offline_driver(
                 python_exe=python_exe,
@@ -344,6 +361,7 @@ class BackendInferenceMixin:
                 pythonpath=pythonpath,
                 lora_weights=lora_weights,
                 lora_config=lora_config,
+                seed=seed,
                 extra_args=tuple(self.offline_extra_args) + tuple(extra_args),
                 extra_env=extra_env,
                 **driver_kwargs,
