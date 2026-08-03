@@ -1078,38 +1078,14 @@ def _loq_cost_decomposition(cfg, classes_cap):
         )
         tk.register_output(f"returnn/loq-base-graphc-bench-bs{bs_k}k-{bench_mode}.json", job.out_results)
 
-    # v12: gap 960 was abandoned because the conv regap fell back to every-seq-at-capacity
-    # (68_400 frames instead of 20_667). With _regap_total_bound growing the EXISTING bound the
-    # regap now lands at 17_067 + 200*15 = 20_067 frames, i.e. slightly BELOW the gap-18_240 layout
-    # (20_667) -- and the audio buffer before the encoder is 16.38M samples instead of 19.84M,
-    # because gap 960 carries max_seqs*(960+960) of slack instead of max_seqs*(18_240+960).
-    # So the small gap should now win on both axes; one regap copy is the only extra cost.
+    # A gap-960 rerun belongs here once regap derives its bound from the DECLARED total bound
+    # instead of the per-seq capacity product.
+    # Then the regap lands at 17_067 + 200*15 = 20_067 frames,
+    # i.e. slightly below the gap-18_240 layout (20_667),
+    # while the audio buffer before the encoder stays at 16.38M samples instead of 19.84M.
+    # The first attempt derived the bound per tensor, which broke layout compatibility
+    # (two tensors regapped independently disagreed, aten.where: 20400 vs 18000), and was reverted.
     # Reference to beat: gap 18_240 unpartitioned = 0.554 s/step at bs100k.
-    for bs_k, audio_bound, text_bound in [(100, 16_384_000, 18_000), (125, 20_384_000, 21_000)]:
-        job = TrainStepBenchmarkJob(
-            returnn_config=cfg,
-            mode="packed_graphc",
-            num_steps=31,
-            version=12,
-            config_overrides={
-                "batch_size": bs_k * 1_000 * 160,
-                "packed_tensors": {
-                    "per_key": {
-                        "audio": {"gap": 960, "align": 960},
-                        "text": {"gap": 2, "align": 1},
-                    }
-                },
-                "torch_cuda_graph": {
-                    "batch_size_bound": 200,
-                    "dim_capacity": {"audio": 312_960, "text": classes_cap},
-                    "packed_total_bound": {"audio": audio_bound, "text": text_bound},
-                    "warmup_steps": 2,
-                    "capture_optimizer": True,
-                    "compile": True,
-                },
-            },
-        )
-        tk.register_output(f"returnn/loq-base-graphc-bench-bs{bs_k}k-gap960-regapfix.json", job.out_results)
 
     # v6: aggressive_recomputation OFF. It was turned on early in the campaign to make the memory
     # budget bite while we were fighting OOM, but it clears ban_if_not_in_allowlist, i.e. even aten
