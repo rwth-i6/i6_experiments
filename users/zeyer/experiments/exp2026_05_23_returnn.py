@@ -1089,6 +1089,41 @@ def _loq_cost_decomposition(cfg, classes_cap):
         )
         tk.register_output(f"returnn/loq-base-graphc-bench-bs{bs_k}k-ctcgeneric.json", job.out_results)
 
+    # v14: best config after the CTC work landed generically.
+    # Dead edges now carry an INF weight, written by GetCtcFsaFastBwOp itself
+    # (srel_edge_idx < 0 = the edges it routes into the dummy state),
+    # so fast_baum_welch skips them on one coalesced load,
+    # with no topology and no state-numbering convention shared across files.
+    # 81.7% of the 257k edges are dead at these shapes; the op alone: 94.0 -> 60.2 ms (1.56x).
+    # The aux heads also share one FSA now instead of building it three times.
+    # References: 0.864 with none of this, 0.554 with the (reverted) hardcoded skip,
+    # padded_eager 0.594.
+    for bs_k, audio_bound, text_bound in [(100, 19_840_320, 18_000)]:
+        job = TrainStepBenchmarkJob(
+            returnn_config=cfg,
+            mode="packed_graphc",
+            num_steps=31,
+            version=14,
+            config_overrides={
+                "batch_size": bs_k * 1_000 * 160,
+                "packed_tensors": {
+                    "per_key": {
+                        "audio": {"gap": 18_240, "align": 960},
+                        "text": {"gap": 2, "align": 1},
+                    }
+                },
+                "torch_cuda_graph": {
+                    "batch_size_bound": 200,
+                    "dim_capacity": {"audio": 312_960, "text": classes_cap},
+                    "packed_total_bound": {"audio": audio_bound, "text": text_bound},
+                    "warmup_steps": 2,
+                    "capture_optimizer": True,
+                    "compile": True,
+                },
+            },
+        )
+        tk.register_output(f"returnn/loq-base-graphc-bench-bs{bs_k}k-ctcinfweight.json", job.out_results)
+
     # A gap-960 rerun belongs here once regap derives its bound from the DECLARED total bound
     # instead of the per-seq capacity product.
     # Then the regap lands at 17_067 + 200*15 = 20_067 frames,
