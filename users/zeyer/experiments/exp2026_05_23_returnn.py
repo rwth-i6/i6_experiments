@@ -844,6 +844,11 @@ def py_aed_graphc_loquacious():
     # (the branch starts with FRESH Adam moments: the ep-6 opt state is already cleaned up).
     # The checkpoint is linked as epoch 1; the global train step in it drives the LR schedule,
     # so the branch continues at the real ep-7 learning rate.
+    # The ep-6 opt state is cleaned up, so the checkpoint is IMPORTED (fresh Adam moments)
+    # and the LR pinned to the collapse region: the old run's effective LR was
+    # 6.0e-5 (ep 6) -> 7.1e-5 (ep 7, collapse) -> 8.2e-5 (ep 8).
+    # (v1 of these jobs linked the checkpoint as epoch 1 for a native resume;
+    #  without the opt state the engine silently trained from scratch, see get_existing_models.)
     ckpt6 = exp_v2.get_training_job().out_checkpoints[6]
     for mode in ["packed_eager", "packed_compiled", "packed_graphc"]:
         job = TrainStepBenchmarkJob(
@@ -851,7 +856,8 @@ def py_aed_graphc_loquacious():
             mode=mode,
             num_steps=7000,  # ~2 epochs: the collapse developed over ep 7 -> 8
             load_checkpoint=ckpt6.path,
-            config_overrides={"num_epochs": 3},
+            version=2,
+            config_overrides={"num_epochs": 2, "dynamic_learning_rate": None, "learning_rate": 7e-05},
         )
         tk.register_output(f"returnn/loq-v2-branch-ep6-{mode}.json", job.out_results)
 
@@ -1570,30 +1576,40 @@ class TrainStepBenchmarkJob(Job):
                 cfg = f.read()
         work = os.path.abspath("train-work")
         os.makedirs(work + "/models", exist_ok=True)
+        import_model_line = ""
         if self.load_checkpoint is not None:
-            # continue-training repro: place the checkpoint (+ optimizer state) as epoch 1
-            # of the local model dir, so the engine natively resumes at epoch 2
-            # (a bare `load` makes the engine look for the optimizer state in the local dir)
             src = self.load_checkpoint.get_path()
-            for src_path, link_name in [(src, "epoch.001.pt"), (src[: -len(".pt")] + ".opt.pt", "epoch.001.opt.pt")]:
-                link_path = work + "/models/" + link_name
-                if os.path.exists(src_path) and not os.path.exists(link_path):
-                    os.symlink(src_path, link_path)
-            # the resume also needs the epoch-1 entry of the learning_rates file
-            # (the engine refuses to resume with the last epoch's scores missing).
-            # COPY it (RETURNN rewrites the file every epoch -- a symlink would
-            # write into the source training job).
-            # A finished training has it in output/, a running one still in work/
-            job_dir = os.path.join(os.path.dirname(src), "..", "..")
-            dst_lr = work + "/learning_rates"
-            for sub in ["output", "work"]:
-                src_lr = os.path.join(job_dir, sub, "learning_rates")
-                if os.path.exists(src_lr) and not os.path.exists(dst_lr):
-                    shutil.copyfile(src_lr, dst_lr)
-                    break
+            opt_src = src[: -len(".pt")] + ".opt.pt"
+            if os.path.exists(opt_src):
+                # continue-training repro: place the checkpoint (+ optimizer state) as epoch 1
+                # of the local model dir, so the engine natively resumes at epoch 2
+                # (a bare `load` makes the engine look for the optimizer state in the local dir)
+                for src_path, link_name in [(src, "epoch.001.pt"), (opt_src, "epoch.001.opt.pt")]:
+                    link_path = work + "/models/" + link_name
+                    if not os.path.exists(link_path):
+                        os.symlink(src_path, link_path)
+                # the resume also needs the epoch-1 entry of the learning_rates file
+                # (the engine refuses to resume with the last epoch's scores missing).
+                # COPY it (RETURNN rewrites the file every epoch -- a symlink would
+                # write into the source training job).
+                # A finished training has it in output/, a running one still in work/
+                job_dir = os.path.join(os.path.dirname(src), "..", "..")
+                dst_lr = work + "/learning_rates"
+                for sub in ["output", "work"]:
+                    src_lr = os.path.join(job_dir, sub, "learning_rates")
+                    if os.path.exists(src_lr) and not os.path.exists(dst_lr):
+                        shutil.copyfile(src_lr, dst_lr)
+                        break
+            else:
+                # no optimizer state (cleaned up): the resume path CANNOT be used --
+                # get_existing_models skips a checkpoint without .opt.pt for training,
+                # so the engine would silently start from scratch (that happened).
+                # Import the weights instead; the caller must pin the LR
+                # (the import restarts at global step 0, i.e. warmup).
+                import_model_line = f"import_model_train_epoch1 = {src!r}\n"
         cfg += (
             "\n\n# ---- TrainStepBenchmarkJob overrides ----\n"
-            f"model = {work + '/models/epoch'!r}\n"
+            f"model = {work + '/models/epoch'!r}\n" + import_model_line +
             f"learning_rate_file = {work + '/learning_rates'!r}\n"
             "use_train_proc_manager = False\n"
             f"random_seed = {self.random_seed}\n"
