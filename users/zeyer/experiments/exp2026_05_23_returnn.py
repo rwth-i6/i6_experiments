@@ -835,6 +835,26 @@ def py_aed_graphc_loquacious():
     )
     tk.register_output("returnn/loq-v2-packed_tensors-default.json", job.out_results)
 
+    # Collapse bisect: base-graphc-v2 collapsed at ep 7 (again; the old run did too, at a different
+    # config), while base-v2 (padded eager, same code) is healthy. Branch from the ep-6 checkpoint
+    # and run ~2 epochs in each mode of the packed ladder:
+    # eager (packed ops only) -> compiled (+ Inductor) -> graphc (+ CUDA graph).
+    # Whichever stage collapses names the faulty layer; the graphc control must collapse,
+    # else the trigger is data-order- or optimizer-state-dependent
+    # (the branch starts with FRESH Adam moments: the ep-6 opt state is already cleaned up).
+    # The checkpoint is linked as epoch 1; the global train step in it drives the LR schedule,
+    # so the branch continues at the real ep-7 learning rate.
+    ckpt6 = exp_v2.get_training_job().out_checkpoints[6]
+    for mode in ["packed_eager", "packed_compiled", "packed_graphc"]:
+        job = TrainStepBenchmarkJob(
+            returnn_config=cfg_v2,
+            mode=mode,
+            num_steps=7000,  # ~2 epochs: the collapse developed over ep 7 -> 8
+            load_checkpoint=ckpt6.path,
+            config_overrides={"num_epochs": 3},
+        )
+        tk.register_output(f"returnn/loq-v2-branch-ep6-{mode}.json", job.out_results)
+
 
 def _loq_text_seq_len_stats():
     """
