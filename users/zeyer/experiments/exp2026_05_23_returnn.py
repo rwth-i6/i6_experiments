@@ -63,7 +63,6 @@ def py():
         job = PackedVsPaddedBenchmarkJob(model="real", seq_lens=lens)
         tk.register_output(f"returnn/packed-bench-real-{lens_name}.json", job.out_results)
     py_aed_graphc()
-    py_aed_graphc_bench()
     py_aed_graphc_loquacious()
 
 
@@ -1358,38 +1357,6 @@ def _loq_batch_size_factor():
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs import _batch_size_factor
 
     return _batch_size_factor
-
-
-def py_aed_graphc_bench():
-    """
-    Realistic per-mode train-step benchmark + numerical parity check
-    on the graphc-v2 training config.
-    """
-    # The config file is referenced by absolute path, not via the training job output:
-    # the checks (finished jobs) ran against the exact config of the then-running v2 job,
-    # without pulling that job into the dependency graph.
-    v2_config = tk.Path(
-        "/home/az668407/setups/combined/2021-05-31/work/i6_core/returnn/training"
-        "/ReturnnTrainingJob.erqk3HOebeeL/output/returnn.config"
-    )
-    for mode in ["padded_eager", "packed_eager", "packed_compiled", "packed_graphc"]:
-        job = TrainStepBenchmarkJob(returnn_config_file=v2_config, mode=mode)
-        tk.register_output(f"returnn/aed-graphc-train-bench-{mode}.json", job.out_results)
-        # specaugment forced on from step 0:
-        # the static-traceable specaugment num-masks path was the convergence-regression cause
-        # (capacity-scaled masking);
-        # the normal schedule keeps specaugment off within the 300 bench steps,
-        # so these variants are the ones that verify the fix (all modes must match)
-        job = TrainStepBenchmarkJob(
-            returnn_config_file=v2_config, mode=mode, config_overrides={"specaugment_steps": (0, 0, 0)}
-        )
-        tk.register_output(f"returnn/aed-graphc-train-bench-{mode}-specaugOn.json", job.out_results)
-    # The Loquacious memory/NaN diagnostic jobs that used to be registered here
-    # (referencing a generated config file via a raw tk.Path -- wrong, never do that)
-    # are removed; their result evidence stays in the work dir and the project notes.
-    # The proper benchmark set for the Loquacious experiment
-    # gets wired via the ReturnnConfig object of the registered experiment
-    # (see py_aed_graphc_loquacious).
 
 
 class TrainStepBenchmarkJob(Job):
