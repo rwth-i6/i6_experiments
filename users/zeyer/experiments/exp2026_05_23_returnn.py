@@ -720,6 +720,99 @@ def py_aed_graphc_loquacious():
     _loq_cost_decomposition(cfg, classes_cap)
     _loq_text_seq_len_stats()
 
+    # v2 of the graphc training, replacing "base-graphc" (which collapsed at ep 7, 100% WER).
+    # Two changes, both from the 2026-08-03/04 investigation:
+    # - no input-side gaps: measured best-or-tied on both loq and LS, for step time and peak memory,
+    #   and with masked conv-norm statistics the gap no longer perturbs them either.
+    # - behavior_version 29 (up from 24): the conv-block BatchNorm now masks its statistics,
+    #   which otherwise run over the raw storage and count the packing gap frames.
+    #   This also brings 25 (scatter masking), 26 (DistributeFilesDataset sharding, a no-op unsharded),
+    #   27 (RF module output keeps the input dtype under autocast) and 28 (per-seq specaugment masks).
+    #   For a fresh training the latest semantics are what we want; nothing here needs the old ones.
+    nogap_total = 100_000 * _loq_batch_size_factor() + 200 * align
+    nogap_total = -(-nogap_total // align) * align
+    exp_v2, _, _ = loq_train(
+        "base-graphc-v2",
+        {},
+        config_overrides={
+            "train.optimizer.capturable": True,
+            "train.behavior_version": 29,
+            "train.packed_tensors": {
+                "per_key": {
+                    "audio": {"gap": 0, "align": align},
+                    "text": {"gap": 0, "align": 1},
+                }
+            },
+            "train.torch_cuda_graph": {
+                "batch_size_bound": 200,
+                "dim_capacity": {"audio": 312_960, "text": classes_cap},
+                "packed_total_bound": {"audio": nogap_total, "text": 200 * classes_cap},
+                "warmup_steps": 2,
+                "capture_optimizer": True,
+                "compile": True,
+            },
+        },
+    )
+    # 31-step fit/parity check on the real config, before the training burns GPU hours
+    job = TrainStepBenchmarkJob(
+        returnn_config=exp_v2.get_training_job().returnn_config, mode="packed_graphc", num_steps=31
+    )
+    tk.register_output("returnn/loq-base-graphc-v2-smoke.json", job.out_results)
+
+    # The padded baseline v2 must run at the SAME behavior version as base-graphc-v2,
+    # otherwise a packed-vs-padded comparison also carries behavior 24 -> 29:
+    # 29 masks the conv-block BatchNorm statistics (padded counted its padding frames until now),
+    # 27 keeps the module output dtype under autocast, 28 draws specaugment masks per seq.
+    # Everything else stays at the loq base defaults, so this is padded, eager, no graph capture.
+    loq_train("base-v2", {}, config_overrides={"train.behavior_version": 29})
+
+    # Packed-batch-size benchmark, all at behavior version 29 on the v2 config.
+    # Every earlier number used the padded-derived batch size, so the memory packing frees
+    # just sat idle. Three things to separate:
+    # - padded @ 100k: the baseline
+    # - packed @ 100k: the implementation win at an identical batch
+    # - packed @ >100k: what packing actually buys, by spending the freed memory
+    # Compare THROUGHPUT (frames/sec), not sec/step: a larger batch makes each step slower
+    # while doing more work. Note max_seqs stays 200, so if the seq count binds before the
+    # frame count, the larger batch sizes will not actually grow -- visible as a flat throughput.
+    cfg_v2 = exp_v2.get_training_job().returnn_config
+    for mode, bs_k in [
+        ("padded_eager", 100),
+        ("packed_graphc", 100),
+        ("packed_graphc", 125),
+        ("packed_graphc", 150),
+        ("packed_graphc", 200),
+    ]:
+        bs = bs_k * 1000 * _loq_batch_size_factor()
+        audio_bound = -(-(bs + 200 * align) // align) * align
+        job = TrainStepBenchmarkJob(
+            returnn_config=cfg_v2,
+            mode=mode,
+            num_steps=31,
+            config_overrides={
+                "batch_size": bs,
+                # only the graphc points get the capture config.
+                # Forcing it on padded_eager would compile the padded step, and there the CTC loss
+                # is aten._ctc_loss, which is untraceable under fake tensors
+                # (DynamicOutputShapeException) -- that untraceability is why the packed native op exists.
+                **(
+                    {
+                        "torch_cuda_graph": {
+                            "batch_size_bound": 200,
+                            "dim_capacity": {"audio": 312_960, "text": classes_cap},
+                            "packed_total_bound": {"audio": audio_bound, "text": 200 * classes_cap},
+                            "warmup_steps": 2,
+                            "capture_optimizer": True,
+                            "compile": True,
+                        }
+                    }
+                    if mode == "packed_graphc"
+                    else {}
+                ),
+            },
+        )
+        tk.register_output(f"returnn/loq-v2-bs{bs_k}k-{mode}.json", job.out_results)
+
 
 def _loq_text_seq_len_stats():
     """
