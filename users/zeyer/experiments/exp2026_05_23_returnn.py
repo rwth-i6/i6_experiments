@@ -812,6 +812,29 @@ def py_aed_graphc_loquacious():
         )
         tk.register_output(f"returnn/loq-v2-bs{bs_k}k-{mode}.json", job.out_results)
 
+    # bare `packed_tensors = True`: gap 0, align 1, no manual layout tuning at all.
+    # The frontend stride then does not divide the align, so the conv auto-realigns
+    # (align 1 -> 960) on every step. This measures what that costs against the tuned layout,
+    # i.e. whether specifying gap/align is worth it or the default is good enough.
+    job = TrainStepBenchmarkJob(
+        returnn_config=cfg_v2,
+        mode="packed_graphc",
+        num_steps=31,
+        config_overrides={
+            "packed_tensors": True,
+            "torch_cuda_graph": {
+                "batch_size_bound": 200,
+                "dim_capacity": {"audio": 312_960, "text": classes_cap},
+                # same bounds as the tuned run, so this compares layout, not buffer size
+                "packed_total_bound": {"audio": nogap_total, "text": 18_000},
+                "warmup_steps": 2,
+                "capture_optimizer": True,
+                "compile": True,
+            },
+        },
+    )
+    tk.register_output("returnn/loq-v2-packed_tensors-default.json", job.out_results)
+
 
 def _loq_text_seq_len_stats():
     """
