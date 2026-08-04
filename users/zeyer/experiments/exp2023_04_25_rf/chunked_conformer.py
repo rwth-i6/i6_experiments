@@ -20,7 +20,6 @@ chunked_att_chunk-35_step-20_linDecay300_0.0002_decayPt0.3333333333333333_bs1500
 See code i6_experiments.users.zeineldeen.models.asr.encoder.conformer_encoder.ConformerEncoder._self_att_v2.
 """
 
-
 from __future__ import annotations
 from typing import Optional, Union, Any, Tuple, Dict, Callable
 import copy as _copy
@@ -28,7 +27,11 @@ from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 from returnn.util.basic import NotSpecified
 from returnn.frontend.encoder.base import ISeqDownsamplingEncoder
-from returnn.frontend.encoder.conformer import ConformerPositionwiseFeedForward, ConformerConvSubsample
+from returnn.frontend.encoder.conformer import (
+    ConformerPositionwiseFeedForward,
+    ConformerConvSubsample,
+    conv_norm_use_mask_default,
+)
 
 
 class ChunkedConformerConvBlock(rf.Module):
@@ -153,7 +156,7 @@ class ChunkedConformerEncoderLayer(rf.Module):
 
         if conv_norm is NotSpecified or conv_norm is rf.BatchNorm:
             conv_norm_opts = conv_norm_opts.copy() if conv_norm_opts else {}
-            conv_norm_opts.setdefault("use_mask", False)
+            conv_norm_opts.setdefault("use_mask", conv_norm_use_mask_default())
             conv_norm = rf.BatchNorm(out_dim, **conv_norm_opts)
         elif isinstance(conv_norm, type):
             conv_norm = conv_norm(out_dim, **(conv_norm_opts or {}))

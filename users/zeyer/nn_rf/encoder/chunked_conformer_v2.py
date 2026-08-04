@@ -65,7 +65,13 @@ from returnn.util.math import ceil_div
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 from returnn.frontend.encoder.base import ISeqDownsamplingEncoder
-from returnn.frontend.encoder.conformer import ConformerEncoderLayer, ConformerConvSubsample, make_ff, make_norm
+from returnn.frontend.encoder.conformer import (
+    ConformerEncoderLayer,
+    ConformerConvSubsample,
+    make_ff,
+    make_norm,
+    conv_norm_use_mask_default,
+)
 from returnn.frontend.build_from_dict import _get_cls
 
 
@@ -492,7 +498,7 @@ class ChunkedConformerEncoderLayerV2(rf.Module):
 
         if conv_norm is NotSpecified or conv_norm is rf.BatchNorm:
             conv_norm_opts = conv_norm_opts.copy() if conv_norm_opts else {}
-            conv_norm_opts.setdefault("use_mask", False)
+            conv_norm_opts.setdefault("use_mask", conv_norm_use_mask_default())
             conv_norm = rf.BatchNorm(out_dim, **conv_norm_opts)
         elif isinstance(conv_norm, type):
             conv_norm = conv_norm(out_dim, **(conv_norm_opts or {}))

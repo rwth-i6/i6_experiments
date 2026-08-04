@@ -44,6 +44,7 @@ from returnn.frontend.encoder.conformer import (
     ConformerPositionwiseFeedForward,
     make_ff,
     make_norm,
+    conv_norm_use_mask_default,
 )
 
 
@@ -265,7 +266,7 @@ class ChunkedConformerEncoderLayer(rf.Module):
 
         if conv_norm is NotSpecified or conv_norm is rf.BatchNorm:
             conv_norm_opts = conv_norm_opts.copy() if conv_norm_opts else {}
-            conv_norm_opts.setdefault("use_mask", False)
+            conv_norm_opts.setdefault("use_mask", conv_norm_use_mask_default())
             conv_norm = rf.BatchNorm(out_dim, **conv_norm_opts)
         elif isinstance(conv_norm, type):
             conv_norm = conv_norm(out_dim, **(conv_norm_opts or {}))
