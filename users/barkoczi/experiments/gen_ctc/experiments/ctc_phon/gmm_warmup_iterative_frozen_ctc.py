@@ -1,5 +1,4 @@
 import os
-import tempfile
 from dataclasses import asdict
 from typing import cast
 
@@ -7,21 +6,24 @@ import numpy as np
 from sisyphus import tk
 
 from i6_core.returnn.forward import ReturnnForwardJobV2
+from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 from i6_experiments.common.setups.returnn.datastreams.base import FeatureDatastream
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
 
 from ....hsmm.data.common import build_training_datasets_with_hdf
 from ...config import get_forward_config
-from ...data.common import DatasetSettings
-from ...data.phon import build_eow_phon_training_datasets, get_eow_bliss_and_zip
+from ...data.common import DatasetSettings, build_test_dataset
+from ...data.phon import build_eow_phon_training_datasets, get_eow_bliss_and_zip, get_text_lexicon
 from ...default_tools import MINI_RETURNN_ROOT, RETURNN_EXE
-from ...pipeline import training
+from ...lm import get_4gram_binary_lm
+from ...pipeline import prepare_asr_model, search, training
 from ...pytorch_networks.ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6_generative_cfg import (
     LogMelFeatureExtractionV1Config,
     ModelConfig,
     SpecaugConfig,
     VGG4LayerActFrontendV1ConfigMod,
 )
+from ...pytorch_networks.ctc.decoder.flashlight_ctc_v2 import DecoderConfig
 from .gmm_warmup_generative import (
     GMM_ALIGNMENT_LABEL_MAP,
     _build_gmm_alignment_training_datasets,
@@ -32,6 +34,10 @@ TOTAL_NUM_EPOCHS = 300
 GMM_WARMUP_EPOCHS = 50
 CTC_TARGET_REFRESH_EPOCHS = 10
 CTC_TARGET_FILENAME = "ctc_soft_targets.hdf"
+TRACKING_LM_SCALES = (1.6, 2.0, 2.4)
+TRACKING_PRIOR_SCALES = (0.8, 1.0, 1.2)
+TRACKING_BLANK_LOG_BIASES = (-2.0, 0.0, 2.0)
+TRACKING_POSTERIOR_TEMPERATURES = (0.8, 1.0, 1.2)
 
 
 class _RunForwardInJobDir:
@@ -41,12 +47,25 @@ class _RunForwardInJobDir:
         self.job = job
 
     def __call__(self):
-        previous_tempdir = tempfile.tempdir
+        forward_tempfile = ReturnnForwardJobV2.run.__globals__["tempfile"]
+        previous_temporary_directory = forward_tempfile.TemporaryDirectory
+
+        def temporary_directory_in_job(*args, **kwargs):
+            kwargs["dir"] = os.path.abspath(".")
+            if kwargs.get("prefix"):
+                kwargs["prefix"] = os.path.basename(kwargs["prefix"])
+            return previous_temporary_directory(*args, **kwargs)
+
         try:
-            tempfile.tempdir = os.path.abspath(".")
+            forward_tempfile.TemporaryDirectory = temporary_directory_in_job
             ReturnnForwardJobV2.run(self.job)
         finally:
-            tempfile.tempdir = previous_tempdir
+            forward_tempfile.TemporaryDirectory = previous_temporary_directory
+
+
+def _format_scale_for_name(value):
+    sign = "m" if value < 0 else "p"
+    return sign + ("%.1f" % abs(value)).replace(".", "p")
 
 
 def _dump_ctc_soft_targets(
@@ -116,6 +135,11 @@ def eow_phon_ls960_1023_gmm_warmup_iterative_frozen_ctc_nce():
         settings=train_settings,
     )
     label_datastream = cast(LabelDatastream, ctc_train_data.datastreams["labels"])
+    dev_dataset_tuples = {
+        testset: build_test_dataset(dataset_key=testset, settings=train_settings)
+        for testset in ["dev-clean", "dev-other"]
+    }
+    arpa_4gram_lm = get_4gram_binary_lm(prefix_name=prefix_name)
     gmm_train_data = _build_gmm_alignment_training_datasets(
         prefix_name=prefix_name + "/gmm_hard_targets",
         settings=train_settings,
@@ -262,7 +286,106 @@ def eow_phon_ls960_1023_gmm_warmup_iterative_frozen_ctc_nce():
         "ctc.conformer_1023."
         "i6modelsV1_VGG4LayerActFrontendV1_v6_generative_conv_first_offline_ctc"
     )
+    decode_network_module = (
+        "ctc.conformer_1023."
+        "i6modelsV1_VGG4LayerActFrontendV1_v6_generative_conv_first_v2"
+    )
+    decode_train_args = {
+        "network_module": decode_network_module,
+        "net_args": model_args,
+        "debug": False,
+    }
+
+    def decode_refresh_checkpoint(
+        *,
+        source_global_epoch: int,
+        source_train_job,
+        train_hdf,
+        cv_hdf,
+    ):
+        decode_name = prefix_name + f"/wer_tracking/source_global_ep{source_global_epoch:03d}"
+        asr_model = prepare_asr_model(
+            decode_name + "/decode_as_generative_conv_first_v2",
+            source_train_job,
+            decode_train_args,
+            with_prior=True,
+            datasets=ctc_train_data,
+            get_specific_checkpoint=source_global_epoch,
+        )
+        tune_parameters = []
+        tune_values = {"dev-clean": [], "dev-other": []}
+        for lm_scale in TRACKING_LM_SCALES:
+            for prior_scale in TRACKING_PRIOR_SCALES:
+                for blank_log_bias in TRACKING_BLANK_LOG_BIASES:
+                    for posterior_temperature in TRACKING_POSTERIOR_TEMPERATURES:
+                        decoder_config = DecoderConfig(
+                            lexicon=get_text_lexicon(),
+                            returnn_vocab=label_datastream.vocab,
+                            beam_size=1024,
+                            beam_size_token=12,
+                            arpa_lm=arpa_4gram_lm,
+                            beam_threshold=14,
+                            lm_scale=lm_scale,
+                            prior_scale=prior_scale,
+                            prior_file=None,
+                            blank_log_penalty=None,
+                            normalize_log_probs=False,
+                            generative_score_conversion=True,
+                            blank_log_bias=blank_log_bias,
+                            posterior_temperature=posterior_temperature,
+                        )
+                        search_name = (
+                            decode_name
+                            + "/search_lm%.1f_prior%.1f_blank%s_temp%s"
+                            % (
+                                lm_scale,
+                                prior_scale,
+                                _format_scale_for_name(blank_log_bias),
+                                _format_scale_for_name(posterior_temperature),
+                            )
+                        )
+                        search_jobs, wers = search(
+                            search_name,
+                            forward_config={},
+                            asr_model=asr_model,
+                            decoder_module="ctc.decoder.flashlight_ctc_v2",
+                            decoder_args={"config": asdict(decoder_config)},
+                            test_dataset_tuples=dev_dataset_tuples,
+                            returnn_exe=RETURNN_EXE,
+                            returnn_root=MINI_RETURNN_ROOT,
+                        )
+                        for search_job in search_jobs:
+                            search_job.add_input(train_hdf)
+                            search_job.add_input(cv_hdf)
+                        tune_parameters.append(
+                            (lm_scale, prior_scale, blank_log_bias, posterior_temperature)
+                        )
+                        for dataset_key in tune_values:
+                            tune_values[dataset_key].append(wers[search_name + "/" + dataset_key])
+
+        parameter_names = (
+            "lm_scale",
+            "prior_scale",
+            "blank_log_bias",
+            "posterior_temperature",
+        )
+        for dataset_key, values in tune_values.items():
+            best_job = GetOptimalParametersAsVariableJob(
+                parameters=tune_parameters,
+                values=values,
+                mode="minimize",
+            )
+            best_job.add_alias(decode_name + f"/pick_best_{dataset_key}")
+            best_prefix = decode_name + f"/best_{dataset_key}"
+            tk.register_output(best_prefix + "/wer", best_job.out_optimal_value)
+            for index, parameter_name in enumerate(parameter_names):
+                tk.register_output(
+                    best_prefix + "/" + parameter_name,
+                    best_job.out_optimal_parameters[index],
+                )
+
     checkpoint = gmm_train_job.out_checkpoints[GMM_WARMUP_EPOCHS]
+    checkpoint_train_job = gmm_train_job
     num_blocks = (TOTAL_NUM_EPOCHS - GMM_WARMUP_EPOCHS) // CTC_TARGET_REFRESH_EPOCHS
     block_jobs = []
     for block_idx in range(num_blocks):
@@ -287,6 +410,12 @@ def eow_phon_ls960_1023_gmm_warmup_iterative_frozen_ctc_nce():
             net_args=model_args,
             num_classes=label_datastream.vocab_size + 1,
             time_rqmt=24,
+        )
+        decode_refresh_checkpoint(
+            source_global_epoch=source_global_epoch,
+            source_train_job=checkpoint_train_job,
+            train_hdf=train_hdf,
+            cv_hdf=cv_hdf,
         )
         frozen_target_data = build_training_datasets_with_hdf(
             train_ogg=train_ogg,
@@ -341,6 +470,7 @@ def eow_phon_ls960_1023_gmm_warmup_iterative_frozen_ctc_nce():
         block_job.rqmt["gpu_mem"] = 24
         block_jobs.append(block_job)
         checkpoint = block_job.out_checkpoints[target_end_epoch]
+        checkpoint_train_job = block_job
 
     return block_jobs
 
