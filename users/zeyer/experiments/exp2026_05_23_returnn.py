@@ -736,7 +736,7 @@ def py_aed_graphc_loquacious():
         {},
         config_overrides={
             "train.optimizer.capturable": True,
-            "train.behavior_version": 29,
+            "model.behavior_version": 29,
             "train.packed_tensors": {
                 "per_key": {
                     "audio": {"gap": 0, "align": align},
@@ -746,7 +746,7 @@ def py_aed_graphc_loquacious():
             "train.torch_cuda_graph": {
                 "batch_size_bound": 200,
                 "dim_capacity": {"audio": 312_960, "text": classes_cap},
-                "packed_total_bound": {"audio": nogap_total, "text": 200 * classes_cap},
+                "packed_total_bound": {"audio": nogap_total, "text": 18_000},
                 "warmup_steps": 2,
                 "capture_optimizer": True,
                 "compile": True,
@@ -764,7 +764,7 @@ def py_aed_graphc_loquacious():
     # 29 masks the conv-block BatchNorm statistics (padded counted its padding frames until now),
     # 27 keeps the module output dtype under autocast, 28 draws specaugment masks per seq.
     # Everything else stays at the loq base defaults, so this is padded, eager, no graph capture.
-    loq_train("base-v2", {}, config_overrides={"train.behavior_version": 29})
+    loq_train("base-v2", {}, config_overrides={"model.behavior_version": 29})
 
     # Packed-batch-size benchmark, all at behavior version 29 on the v2 config.
     # Every earlier number used the padded-derived batch size, so the memory packing frees
