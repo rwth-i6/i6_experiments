@@ -167,6 +167,9 @@ class Wav2Vec2PhonemeCtc(BaseModelInterface):
         self.target_sr = int(self.feature_extractor.sampling_rate)
         self.vocab: Dict[str, int] = dict(self.processor.tokenizer.get_vocab())
         self.blank_idx = int(self.model.config.pad_token_id)
+        # Chunk-DP exit lookup: log_probs carries the exit (chunk-finish) score at the blank index
+        # (prefix_fwd only), so blank plays the EOS role for the segmentation DP.
+        self.assistant_end_token_id = self.blank_idx
         # The wav2vec2 conv feature encoder (~50 Hz). Its output is the grad leaf.
         self._feat_extract = self.model.wav2vec2.feature_extractor
         # Every folded IPA symbol must be a real vocab class.
@@ -265,8 +268,7 @@ class Wav2Vec2PhonemeCtc(BaseModelInterface):
         assert raw_inputs_sample_rate is not None
         assert len(raw_inputs) == 1, "Wav2Vec2PhonemeCtc supports batch size 1 only"
         assert isinstance(raw_inputs, torch.Tensor) and raw_inputs.ndim == 2
-        if omitted_prev_context is not None and int(omitted_prev_context[0]) > 0:
-            raise NotImplementedError("chunked context not implemented")
+        # Omitted prev context needs nothing here (CTC: no cross-chunk label state).
 
         dev = self.device
         phones = raw_targets[0]  # TIMIT-61 phone labels (one per alignment unit)
@@ -345,7 +347,15 @@ class Wav2Vec2PhonemeCtc(BaseModelInterface):
         log_probs = torch.log_softmax(emission.float(), dim=-1)  # [1, T_feat, V]
         vocab_size = int(log_probs.shape[-1])
         assert max(flat_ids) < vocab_size, f"target id {max(flat_ids)} >= vocab {vocab_size}"
-        partial = self._ctc_partial_scores(log_probs[0], flat_ids)  # [S]
+        exit_padded = None
+        if self.per_token_score == "prefix_fwd":
+            from .ctc_partial import ctc_prefix_forward_scores
+
+            # exit_padded[w] = log P(no further emission in the chunk | first w labels):
+            # the chunk-exit score for the segmentation DP, from the same lattice.
+            partial, exit_padded = ctc_prefix_forward_scores(log_probs[0], flat_ids, self.blank_idx, return_exit=True)
+        else:
+            partial = self._ctc_partial_scores(log_probs[0], flat_ids)  # [S]
         partial_padded = torch.cat([partial, partial.new_zeros(1)])  # [S+1]
 
         targets = torch.tensor([flat_ids + [self.blank_idx]], dtype=torch.long, device=dev)  # [1, S+1]
@@ -369,7 +379,7 @@ class Wav2Vec2PhonemeCtc(BaseModelInterface):
             targets=targets,
             target_seq_lens=torch.tensor([targets.shape[1]]),
             target_start_end=torch.tensor(phone_start_end, dtype=torch.int64, device=dev).unsqueeze(0),
-            outputs=dict(partial_padded=partial_padded, vocab_size=vocab_size),
+            outputs=dict(partial_padded=partial_padded, vocab_size=vocab_size, exit_padded=exit_padded),
         )
 
     # ---- log_probs ------------------------------------------------------
@@ -391,4 +401,10 @@ class Wav2Vec2PhonemeCtc(BaseModelInterface):
         targets_slice = forward_output.targets[0, start_i:end_i].to(device)
         out = partial_padded.new_zeros((1, n, v))
         out[0, torch.arange(n, device=device), targets_slice] = vals
+        exit_padded = forward_output.outputs.get("exit_padded")
+        if exit_padded is not None:
+            # Chunk-exit scores at the blank index (= assistant_end_token_id):
+            # the segmentation DP reads log_probs[0, 0, blank] at each word start.
+            # Written AFTER the vals scatter, so the exit slot (target = blank) reads the exit score.
+            out[0, torch.arange(n, device=device), self.blank_idx] = exit_padded[start_i:end_i]
         return out

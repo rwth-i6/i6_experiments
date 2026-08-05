@@ -166,6 +166,8 @@ class Owls(BaseModelInterface):
         # OWSM ASR prompt: <sos> <lang> <asr> <notimestamps> <text...>.
         self.prefix_ids = [_sid("<sos>"), _sid(f"<{language}>"), _sid("<asr>"), _sid("<notimestamps>")]
         self.eos_id = _sid("<eos>")
+        # EOS plays the chunk-exit role for the segmentation DP (targets carry it in the exit slot).
+        self.assistant_end_token_id = self.eos_id
         self.vocab_size = len(token_list)
         print(f"  ({time.time() - start_time:.1f}s) prefix={self.prefix_ids} eos={self.eos_id} vocab={self.vocab_size}")
 
@@ -234,8 +236,8 @@ class Owls(BaseModelInterface):
     ) -> ForwardOutput:
         assert raw_inputs_sample_rate == 16000, "OWLS expects 16 kHz"
         assert len(raw_inputs) == 1 and isinstance(raw_inputs, torch.Tensor) and raw_inputs.ndim == 2
-        if omitted_prev_context is not None and int(omitted_prev_context[0]) > 0:
-            raise NotImplementedError("OWLS chunked context not implemented")
+        # Omitted prev context: "..." as an unscored context marker (Phi4MM pattern),
+        # prepended to the transcript ids below; word spans start after it.
 
         dev = self.device
         words = raw_targets[0]
@@ -245,6 +247,9 @@ class Owls(BaseModelInterface):
 
         transc_ids: List[int] = []
         words_start_end: List[List[int]] = []
+        if omitted_prev_context is not None and int(omitted_prev_context[0]) > 0:
+            _ctx_pieces = self._tokenizer.text2tokens("...")
+            transc_ids.extend(self._tok2id[p] for p in _ctx_pieces if p in self._tok2id)
         if self._char_level:
             # Per-char scoring (like the Whisper char adapter): map each char to its BARE
             # vocab piece directly (every ascii letter + apostrophe is a single OWLS piece;

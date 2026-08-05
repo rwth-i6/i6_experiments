@@ -45,6 +45,12 @@ class BaseModelInterface(torch.nn.Module):
         Process and (maybe partially) forward.
         Then :func:`score` is supposed to be called for each target frame.
 
+        Wrappers with a native prev-text mechanism (e.g. Whisper ``<|startofprev|>``)
+        may additionally declare ``omitted_prev_words: Optional[List[List[str]]] = None``
+        (the actual omitted words, [B] lists); callers pass it only when explicitly
+        configured to (e.g. `ChunkSegmentationFromModelJob(pass_omitted_prev_words=True)`,
+        part of the job hash), so wrappers without it stay untouched.
+
         :param raw_inputs: Input seqs. Shape [B,T_in_raw,...], e.g. audio raw samples, or words.
         :param raw_inputs_sample_rate: Sample rate of the input audio, if applicable.
         :param raw_input_seq_lens: Length of each input sequence.

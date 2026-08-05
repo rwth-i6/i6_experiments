@@ -18,6 +18,9 @@ class ChunkSegmentationFromModelJob(Job):
     and the audio sample start/end indices per chunk (although they are redundant, as they are fixed).
     """
 
+    # excluded value = pre-flag behavior (omitted_prev_words never passed)
+    __sis_hash_exclude__ = {"pass_omitted_prev_words": False}
+
     def __init__(
         self,
         *,
@@ -29,6 +32,7 @@ class ChunkSegmentationFromModelJob(Job):
         chunk_overlap_secs: float = 5.0,
         empty_exit_penalty: float = -5.0,
         word_start_heuristic: bool = True,
+        pass_omitted_prev_words: bool = False,
         dump_wav_first_n_seqs: int = 0,
     ):
         """
@@ -40,6 +44,9 @@ class ChunkSegmentationFromModelJob(Job):
         :param chunk_overlap_secs:
         :param empty_exit_penalty:
         :param word_start_heuristic:
+        :param pass_omitted_prev_words: pass the actual omitted previous words to the model forward
+            (`omitted_prev_words`), for wrappers with a native prev-text mechanism
+            (e.g. Whisper `<|startofprev|>`). The wrapper must declare the parameter.
         :param dump_wav_first_n_seqs: for debugging
         """
         super().__init__()
@@ -53,6 +60,7 @@ class ChunkSegmentationFromModelJob(Job):
         self.chunk_overlap_secs = chunk_overlap_secs
         self.empty_exit_penalty = empty_exit_penalty
         self.word_start_heuristic = word_start_heuristic
+        self.pass_omitted_prev_words = pass_omitted_prev_words
         self.dump_wav_first_n_seqs = dump_wav_first_n_seqs
 
         self.rqmt = {"time": 40, "cpu": 2, "gpu": 1, "mem": 125}
@@ -235,6 +243,8 @@ class ChunkSegmentationFromModelJob(Job):
                     raw_targets=[words[cur_word_start:cur_word_end]],
                     raw_target_seq_lens=torch.tensor([cur_word_end - cur_word_start]),
                     omitted_prev_context=torch.tensor([cur_word_start]),
+                    # wrappers with a native prev-text mechanism also get the actual words (explicit flag)
+                    **({"omitted_prev_words": [words[:cur_word_start]]} if self.pass_omitted_prev_words else {}),
                 )
 
                 # Calculate log probs

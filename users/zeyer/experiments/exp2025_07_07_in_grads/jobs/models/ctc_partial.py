@@ -17,7 +17,7 @@ The legacy ``include_next_blank`` values map as: False->inb_false, True->inb_tru
 "both_prev"->inb_both_prev (see ``include_next_blank_to_mode``).
 """
 
-from typing import List, Union
+from typing import List, Tuple, Union
 import torch
 
 CTC_PARTIAL_SCORE_MODES = (
@@ -35,7 +35,9 @@ def include_next_blank_to_mode(inb: Union[bool, str]) -> str:
     return {False: "inb_false", True: "inb_true", "both": "inb_both", "both_prev": "inb_both_prev"}[inb]
 
 
-def ctc_prefix_forward_scores(lp: torch.Tensor, target_ids: List[int], blank: int) -> torch.Tensor:
+def ctc_prefix_forward_scores(
+    lp: torch.Tensor, target_ids: List[int], blank: int, return_exit: bool = False
+) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
     """The REAL CTC prefix score (Graves / ESPnet ``CTCPrefixScoreTH``, as used in label-sync beam
     search incl. DLM-sum): per-token conditional ``log p(y_i | y_<i, x)`` via the free-continuation
     prefix forward. Unlike the forced-target occupancy differences (``ctc_partial_scores``), this is
@@ -46,10 +48,19 @@ def ctc_prefix_forward_scores(lp: torch.Tensor, target_ids: List[int], blank: in
     states, so we accumulate the prefix log-prob ``psi_i`` inside ONE vectorized forced-FSA forward
     (O(T) Python steps, vectorized over the S tokens; ~5-24x faster than the per-token scalar scan).
     Verified == brute-force enumeration (incl. repeated labels).
+
+    With ``return_exit``, additionally return the exit (chunk-finish) scores, shape [S+1]:
+    ``exit[w] = log P(no further emission in the remaining frames | prefix y_1..y_w)``
+    = completion score of the w-prefix at the last frame (forced-FSA final states)
+    minus the free-continuation prefix mass ``psi_w``.
+    ``exit[0]`` is the all-blank path (empty chunk); ``exit[S]`` the full-target completion.
+    Used as the per-word-start exit score by the chunk segmentation DP.
     """
     T = lp.shape[0]
     S = len(target_ids)
     if S == 0:
+        if return_exit:
+            return lp.new_zeros(0), lp[:, blank].sum()[None]
         return lp.new_zeros(0)
     neg = -1.0e30
     device = lp.device
@@ -91,7 +102,17 @@ def ctc_prefix_forward_scores(lp: torch.Tensor, target_ids: List[int], blank: in
         a_skip = torch.where(skip_ok, torch.cat([neg2, alpha[:-2]]), lp.new_full((sx,), neg))
         alpha = emit[t] + torch.logsumexp(torch.stack([alpha, a_prev, a_skip], 0), 0)
     # psi[i] = log P(prefix y_0..y_i); per-token conditional = psi[i] - psi[i-1]
-    return psi - torch.cat([lp.new_zeros(1), psi[:-1]])
+    cond = psi - torch.cat([lp.new_zeros(1), psi[:-1]])
+    if not return_exit:
+        return cond
+    # Completion of each w-prefix at the last frame:
+    # forced-FSA final states 2w (blank after label w; w=0 = the all-blank path)
+    # and 2w-1 (label w; invalid for w=0).
+    comp_blank = alpha[0::2]  # [S+1], state 2w
+    comp_label = torch.cat([lp.new_full((1,), neg), alpha[1::2]])  # [S+1], state 2w-1
+    complete = torch.logaddexp(comp_blank, comp_label)
+    psi_full = torch.cat([lp.new_zeros(1), psi])  # [S+1], psi_0 = 0
+    return cond, complete - psi_full
 
 
 def ctc_prefix_forward_scores_batched(

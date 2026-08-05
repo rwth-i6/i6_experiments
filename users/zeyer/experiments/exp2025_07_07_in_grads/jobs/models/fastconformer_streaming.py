@@ -94,6 +94,9 @@ class FastConformerStreaming(BaseModelInterface):
             f"  ({time.time() - start_time:.1f}s) head={head} att_ctx={self.att_context_size} "
             f"vocab={self.vocab_size} blank_idx={self.blank_idx} sr={self.target_sr} score={self.per_token_score}"
         )
+        # Chunk-DP exit lookup: log_probs carries the exit (chunk-finish) score at the blank index
+        # (prefix_fwd / prefix only), so blank plays the EOS role for the segmentation DP.
+        self.assistant_end_token_id = self.blank_idx
 
     def _tokenize_words(self, words: List[str]):
         """Encode to subwords and group into words via the '▁' (word-start) marker."""
@@ -130,8 +133,8 @@ class FastConformerStreaming(BaseModelInterface):
     ) -> ForwardOutput:
         assert raw_inputs_sample_rate is not None
         assert len(raw_inputs) == 1 and isinstance(raw_inputs, torch.Tensor) and raw_inputs.ndim == 2
-        if omitted_prev_context is not None and int(omitted_prev_context[0]) > 0:
-            raise NotImplementedError("chunked context not implemented")
+        # Omitted prev context: CTC head needs nothing (no cross-chunk label state);
+        # RNN-T head: predictor label history starts fresh per chunk (documented approximation).
         dev = self.device
         words = raw_targets[0]
         orig_n_samples = int(raw_input_seq_lens[0])
@@ -173,11 +176,20 @@ class FastConformerStreaming(BaseModelInterface):
             t_feat = int(leaf.shape[1])
             t_enc = int(enc.shape[2])
 
+            exit_padded = None
             if self.head == "ctc":
                 log_probs = self.model.ctc_decoder(encoder_output=enc)[0].float()  # [T_enc, V] (log_softmax)
-                from .ctc_partial import ctc_partial_scores
+                if self.per_token_score == "prefix_fwd":
+                    from .ctc_partial import ctc_prefix_forward_scores
 
-                partial = ctc_partial_scores(log_probs, sub_ids, self.blank_idx, mode=self.per_token_score)  # [S]
+                    # exit_padded[w] = chunk-exit score for the segmentation DP, same lattice.
+                    partial, exit_padded = ctc_prefix_forward_scores(
+                        log_probs, sub_ids, self.blank_idx, return_exit=True
+                    )
+                else:
+                    from .ctc_partial import ctc_partial_scores
+
+                    partial = ctc_partial_scores(log_probs, sub_ids, self.blank_idx, mode=self.per_token_score)  # [S]
             else:
                 tgt = torch.tensor([sub_ids], dtype=torch.long, device=dev)
                 tgt_len = torch.tensor([s_len], dtype=torch.long, device=dev)
@@ -191,7 +203,8 @@ class FastConformerStreaming(BaseModelInterface):
                 if self.per_token_score == "prefix":
                     from .parakeet_rnnt import ParakeetRnnt
 
-                    partial = ParakeetRnnt._rnnt_prefix_scores(self, log_probs, sub_ids)  # [S]
+                    # exit_padded[w] = chunk-exit score for the segmentation DP, same lattice.
+                    partial, exit_padded = ParakeetRnnt._rnnt_prefix_scores(self, log_probs, sub_ids, return_exit=True)
                 else:
                     ys = torch.tensor(sub_ids, dtype=torch.long, device=dev)
                     cols = log_probs[:, torch.arange(s_len, device=dev), ys]
@@ -216,7 +229,7 @@ class FastConformerStreaming(BaseModelInterface):
             targets=targets,
             target_seq_lens=torch.tensor([targets.shape[1]]),
             target_start_end=torch.tensor(word_start_end, dtype=torch.int64, device=dev).unsqueeze(0),
-            outputs=dict(partial_padded=partial_padded, vocab_size=self.vocab_size),
+            outputs=dict(partial_padded=partial_padded, vocab_size=self.vocab_size, exit_padded=exit_padded),
         )
 
     def _register_enc_grad_hook(self, captured: List[torch.Tensor]):
@@ -265,6 +278,12 @@ class FastConformerStreaming(BaseModelInterface):
         targets_slice = forward_output.targets[0, start_i:end_i].to(device)
         out = partial_padded.new_zeros((1, n, v))
         out[0, torch.arange(n, device=device), targets_slice] = vals
+        exit_padded = forward_output.outputs.get("exit_padded")
+        if exit_padded is not None:
+            # Chunk-exit scores at the blank index (= assistant_end_token_id):
+            # the segmentation DP reads log_probs[0, 0, blank] at each word start.
+            # Written AFTER the vals scatter, so the exit slot (target = blank) reads the exit score.
+            out[0, torch.arange(n, device=device), self.blank_idx] = exit_padded[start_i:end_i]
         return out
 
     def recog(

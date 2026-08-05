@@ -130,6 +130,9 @@ class OwsmCtc(BaseModelInterface):
         self.token_list = token_list
         self.vocab_size = len(token_list)
         self.blank_idx = self._tok2id.get("<blank>", 0)
+        # Chunk-DP exit lookup: log_probs carries the exit (chunk-finish) score at the blank index
+        # (prefix_fwd only), so blank plays the EOS role for the segmentation DP.
+        self.assistant_end_token_id = self.blank_idx
 
         from espnet2.text.build_tokenizer import build_tokenizer
 
@@ -205,8 +208,7 @@ class OwsmCtc(BaseModelInterface):
     ) -> ForwardOutput:
         assert raw_inputs_sample_rate == 16000, "OWSM-CTC expects 16 kHz"
         assert len(raw_inputs) == 1 and isinstance(raw_inputs, torch.Tensor) and raw_inputs.ndim == 2
-        if omitted_prev_context is not None and int(omitted_prev_context[0]) > 0:
-            raise NotImplementedError("OWSM-CTC chunked context not implemented")
+        # Omitted prev context needs nothing here (CTC: no cross-chunk label state).
         dev = self.device
         words = raw_targets[0]
         orig_n_samples = int(raw_input_seq_lens[0])
@@ -227,7 +229,15 @@ class OwsmCtc(BaseModelInterface):
         assert s_len > 0, f"empty target for {words!r}"
 
         lp = torch.log_softmax(logits[0].float(), dim=-1)  # [T_enc, V]
-        partial = self._ctc_partial_scores(lp, flat_ids)  # [S]
+        exit_padded = None
+        if self.per_token_score == "prefix_fwd":
+            from .ctc_partial import ctc_prefix_forward_scores
+
+            # exit_padded[w] = log P(no further emission in the chunk | first w labels):
+            # the chunk-exit score for the segmentation DP, from the same lattice.
+            partial, exit_padded = ctc_prefix_forward_scores(lp, flat_ids, self.blank_idx, return_exit=True)
+        else:
+            partial = self._ctc_partial_scores(lp, flat_ids)  # [S]
         partial_padded = torch.cat([partial, partial.new_zeros(1)])  # [S+1]
 
         targets = torch.tensor([flat_ids + [self.blank_idx]], dtype=torch.long, device=dev)
@@ -245,7 +255,7 @@ class OwsmCtc(BaseModelInterface):
             targets=targets,
             target_seq_lens=torch.tensor([targets.shape[1]]),
             target_start_end=torch.tensor(word_start_end, dtype=torch.int64, device=dev).unsqueeze(0),
-            outputs=dict(partial_padded=partial_padded, vocab_size=self.vocab_size),
+            outputs=dict(partial_padded=partial_padded, vocab_size=self.vocab_size, exit_padded=exit_padded),
         )
 
     def log_probs(
@@ -265,6 +275,12 @@ class OwsmCtc(BaseModelInterface):
         targets_slice = forward_output.targets[0, start_i:end_i].to(device)
         out = partial_padded.new_zeros((1, n, v))
         out[0, torch.arange(n, device=device), targets_slice] = vals
+        exit_padded = forward_output.outputs.get("exit_padded")
+        if exit_padded is not None:
+            # Chunk-exit scores at the blank index (= assistant_end_token_id):
+            # the segmentation DP reads log_probs[0, 0, blank] at each word start.
+            # Written AFTER the vals scatter, so the exit slot (target = blank) reads the exit score.
+            out[0, torch.arange(n, device=device), self.blank_idx] = exit_padded[start_i:end_i]
         return out
 
     def recog(

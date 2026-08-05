@@ -171,6 +171,9 @@ class Wav2Vec2Ctc(BaseModelInterface):
         # MMS_FA blank is the '-' token at index 0 (torchaudio forced_align's
         # default blank). Look it up rather than hard-coding, but fall back to 0.
         self.blank_idx = int(token_dict.get("-", 0))
+        # Chunk-DP exit lookup: log_probs carries the exit (chunk-finish) score at the blank index
+        # (prefix_fwd only), so blank plays the EOS role for the segmentation DP.
+        self.assistant_end_token_id = self.blank_idx
         print(f"  ({time.time() - start_time:.1f}s) vocab={len(self.valid_chars)} blank_idx={self.blank_idx}")
         print(self.model)
 
@@ -386,8 +389,9 @@ class Wav2Vec2Ctc(BaseModelInterface):
             )
         assert len(raw_inputs) == 1, "Wav2Vec2Ctc wrapper supports batch size 1 only"
         assert isinstance(raw_inputs, torch.Tensor) and raw_inputs.ndim == 2
-        if omitted_prev_context is not None and int(omitted_prev_context[0]) > 0:
-            raise NotImplementedError("Wav2Vec2Ctc chunked context not implemented yet")
+        # Omitted prev context needs nothing here:
+        # the CTC lattice conditions only on the labels of the given (chunk) target,
+        # there is no text/label state to carry over from previous chunks.
 
         dev = self.device
         words = raw_targets[0]
@@ -514,9 +518,17 @@ class Wav2Vec2Ctc(BaseModelInterface):
             f"target id {max(flat_ids)} >= vocab {vocab_size} "
             "(likely the '*' star fallback for an all-out-of-vocab word)"
         )
-        partial = self._ctc_partial_scores(log_probs[0], flat_ids)  # [S], grad-attached
+        exit_padded = None
+        if self.per_token_score == "prefix_fwd":
+            from .ctc_partial import ctc_prefix_forward_scores
+
+            # exit_padded[w] = log P(no further emission in the chunk | first w labels):
+            # the chunk-exit score for the segmentation DP, from the same lattice.
+            partial, exit_padded = ctc_prefix_forward_scores(log_probs[0], flat_ids, self.blank_idx, return_exit=True)
+        else:
+            partial = self._ctc_partial_scores(log_probs[0], flat_ids)  # [S], grad-attached
         # Pad one slot for the chunk-exit lookup (extract calls log_probs at
-        # target index S); 0.0 is a placeholder (exit score is diagnostic only).
+        # target index S); 0.0 is a placeholder for the word-score read there.
         partial_padded = torch.cat([partial, partial.new_zeros(1)])  # [S+1]
 
         targets = torch.tensor([flat_ids + [self.blank_idx]], dtype=torch.long, device=dev)  # [1, S+1]
@@ -569,7 +581,9 @@ class Wav2Vec2Ctc(BaseModelInterface):
             targets=targets,
             target_seq_lens=torch.tensor([targets.shape[1]]),
             target_start_end=torch.tensor(word_start_end, dtype=torch.int64, device=dev).unsqueeze(0),
-            outputs=dict(partial_padded=partial_padded, vocab_size=vocab_size, **extra_outputs),
+            outputs=dict(
+                partial_padded=partial_padded, vocab_size=vocab_size, exit_padded=exit_padded, **extra_outputs
+            ),
         )
 
     # ---- log_probs -------------------------------------------------------
@@ -598,6 +612,12 @@ class Wav2Vec2Ctc(BaseModelInterface):
         targets_slice = forward_output.targets[0, start_i:end_i].to(device)  # [n]
         out = partial_padded.new_zeros((1, n, v))
         out[0, torch.arange(n, device=device), targets_slice] = vals
+        exit_padded = forward_output.outputs.get("exit_padded")
+        if exit_padded is not None:
+            # Chunk-exit scores at the blank index (= assistant_end_token_id):
+            # the segmentation DP reads log_probs[0, 0, blank] at each word start.
+            # Written AFTER the vals scatter, so the exit slot (target = blank) reads the exit score.
+            out[0, torch.arange(n, device=device), self.blank_idx] = exit_padded[start_i:end_i]
         return out
 
     # ---- batched (B>1) variants, for seq-batched extraction ---------------

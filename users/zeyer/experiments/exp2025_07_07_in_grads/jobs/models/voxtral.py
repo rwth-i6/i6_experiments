@@ -561,12 +561,12 @@ class Voxtral(BaseModelInterface):
                 f"orig_samples={orig_n_samples} stretched_samples={raw_inputs.shape[1]}",
                 flush=True,
             )
-        # Note: ``omitted_prev_context`` from chunked datasets is not yet
-        # supported for Voxtral -- TIMIT is single-chunk so this is fine for
-        # the first pass; Buckeye long-form would need similar handling to
-        # Phi4MM's "... " prefix.
-        if omitted_prev_context is not None and int(omitted_prev_context[0]) > 0:
-            raise NotImplementedError("Voxtral chunked context not implemented yet")
+        # Omitted prev context: "... " prefix as an unscored context marker
+        # (Phi4MM pattern); the first recovered "word" below is the marker and is dropped.
+        added_prefix = omitted_prev_context is not None and int(omitted_prev_context[0]) > 0
+        if added_prefix:
+            assert not self._char_level, "Voxtral chunked context: char_level not supported"
+            transcription = "... " + transcription
 
         print(f"[fwd] start; words={len(words)} transcription={transcription!r}", flush=True)
         audio_path = self._save_audio_tmp(raw_inputs[0], raw_inputs_sample_rate)
@@ -685,6 +685,11 @@ class Voxtral(BaseModelInterface):
                     words_token_ids[-1].append(tid)
                     words_start_end[-1][1] = t + 1
             words_ = [tokenizer.decode(ids, skip_special_tokens=True).strip() for ids in words_token_ids]
+            if added_prefix:
+                # drop the "..." context marker (never scored; spans keep their token indices)
+                assert words_ and words_[0] == "...", f"expected '...' prefix, got {words_[:1]!r}"
+                words_ = words_[1:]
+                words_start_end = words_start_end[1:]
             assert len(words_start_end) == len(words_) == len(words), (
                 f"word-grouping mismatch: target_decoded={words_!r} ref={words!r}"
             )

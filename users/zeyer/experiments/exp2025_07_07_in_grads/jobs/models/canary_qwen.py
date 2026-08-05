@@ -227,8 +227,11 @@ class CanaryQwen(BaseModelInterface):
         assert (len(raw_inputs),) == raw_input_seq_lens.shape == (len(raw_targets),) == raw_target_seq_lens.shape
         assert len(raw_inputs) == 1, "CanaryQwen wrapper supports batch size 1 only"
         assert isinstance(raw_inputs, torch.Tensor) and raw_inputs.ndim == 2
-        if omitted_prev_context is not None and int(omitted_prev_context[0]) > 0:
-            raise NotImplementedError("CanaryQwen chunked context not implemented yet")
+        # Omitted prev context: "... " prefix as an unscored context marker
+        # (Phi4MM pattern); the first recovered "word" below is the marker and is dropped.
+        added_prefix = omitted_prev_context is not None and int(omitted_prev_context[0]) > 0
+        if added_prefix:
+            assert not self._char_level, "CanaryQwen chunked context: char_level not supported"
 
         dev = self.device
         orig_words = raw_targets[0]
@@ -285,6 +288,8 @@ class CanaryQwen(BaseModelInterface):
         else:
             words = orig_words
             transcription = " ".join(words)
+            if added_prefix:
+                transcription = "... " + transcription
 
         print(f"[fwd] start; words={len(orig_words)} transcription={transcription!r}", flush=True)
 
@@ -326,7 +331,7 @@ class CanaryQwen(BaseModelInterface):
 
         def _encode_audio(inp: torch.Tensor):
             a = inp.to(dev).float()
-            l = torch.tensor([inp.shape[1]], device=dev, dtype=torch.long)
+            a_len = torch.tensor([inp.shape[1]], device=dev, dtype=torch.long)
             if self.grad_wrt == "log_mel":
                 # Inject a grad leaf at the log-mel features via a preprocessor hook,
                 # then let NeMo perception run its normal encoder + projection on the leaf.
@@ -341,7 +346,7 @@ class CanaryQwen(BaseModelInterface):
 
                 h = self.model.perception.preprocessor.register_forward_hook(_pre_hook)
                 try:
-                    out, lens = self.model.perception(a, l)
+                    out, lens = self.model.perception(a, a_len)
                 finally:
                     h.remove()
                 torch.cuda.synchronize()
@@ -351,7 +356,7 @@ class CanaryQwen(BaseModelInterface):
                     flush=True,
                 )
                 return out, int(lens[0])
-            out, lens = self.model.perception(a, l)
+            out, lens = self.model.perception(a, a_len)
             torch.cuda.synchronize()
             return out, int(lens[0])
 
@@ -495,6 +500,11 @@ class CanaryQwen(BaseModelInterface):
                     words_token_ids[-1].append(tid)
                     words_start_end[-1][1] = t + 1
             words_ = [tokenizer.ids_to_text(ids).strip() for ids in words_token_ids]
+            if added_prefix:
+                # drop the "..." context marker (never scored; spans keep their token indices)
+                assert words_ and words_[0] == "...", f"expected '...' prefix, got {words_[:1]!r}"
+                words_ = words_[1:]
+                words_start_end = words_start_end[1:]
             assert len(words_start_end) == len(words_) == len(words), (
                 f"word-grouping mismatch: target_decoded={words_!r} ref_words={words!r}"
             )
@@ -503,7 +513,6 @@ class CanaryQwen(BaseModelInterface):
         words_start_end = words_start_end + [[n_targets, n_targets + 1]]  # EOS slot
 
         # Audio frame -> raw sample mapping.
-        n_samples = int(raw_input_seq_lens[0])
         input_slice = (
             torch.tensor([0], dtype=torch.int64),
             torch.tensor([n_grad], dtype=torch.int64),

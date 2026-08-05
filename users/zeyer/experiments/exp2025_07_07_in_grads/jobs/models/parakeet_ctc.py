@@ -73,6 +73,9 @@ class ParakeetCtc(BaseModelInterface):
         # NeMo CTC blank is the last class (num_classes_with_blank - 1).
         self.vocab_size = int(self.model.decoder.num_classes_with_blank)  # incl. blank
         self.blank_idx = self.vocab_size - 1
+        # Chunk-DP exit lookup: log_probs carries the exit (chunk-finish) score at the blank index
+        # (prefix_fwd only), so blank plays the EOS role for the segmentation DP.
+        self.assistant_end_token_id = self.blank_idx
         self.target_sr = int(self.model.cfg.sample_rate)
         print(
             f"  ({time.time() - start_time:.1f}s) vocab={self.vocab_size} blank_idx={self.blank_idx} sr={self.target_sr}"
@@ -154,8 +157,7 @@ class ParakeetCtc(BaseModelInterface):
     ) -> ForwardOutput:
         assert raw_inputs_sample_rate is not None
         assert len(raw_inputs) == 1 and isinstance(raw_inputs, torch.Tensor) and raw_inputs.ndim == 2
-        if omitted_prev_context is not None and int(omitted_prev_context[0]) > 0:
-            raise NotImplementedError("ParakeetCtc chunked context not implemented")
+        # Omitted prev context needs nothing here (CTC: no cross-chunk label state).
         dev = self.device
         words = raw_targets[0]
         orig_n_samples = int(raw_input_seq_lens[0])
@@ -180,7 +182,15 @@ class ParakeetCtc(BaseModelInterface):
             enc, enc_len = self.model.encoder(audio_signal=leaf.transpose(1, 2), length=proc_len)  # [1, H, T_enc]
             log_probs = self.model.decoder(encoder_output=enc)  # [1, T_enc, V] (NeMo CTC applies log_softmax)
             lp = log_probs[0].float()
-            partial = self._ctc_partial_scores(lp, sub_ids)  # [S]
+            exit_padded = None
+            if self.per_token_score == "prefix_fwd":
+                from .ctc_partial import ctc_prefix_forward_scores
+
+                # exit_padded[w] = log P(no further emission in the chunk | first w labels):
+                # the chunk-exit score for the segmentation DP, from the same lattice.
+                partial, exit_padded = ctc_prefix_forward_scores(lp, sub_ids, self.blank_idx, return_exit=True)
+            else:
+                partial = self._ctc_partial_scores(lp, sub_ids)  # [S]
 
         partial_padded = torch.cat([partial, partial.new_zeros(1)])
         targets = torch.tensor([sub_ids + [self.blank_idx]], dtype=torch.long, device=dev)
@@ -202,7 +212,7 @@ class ParakeetCtc(BaseModelInterface):
             targets=targets,
             target_seq_lens=torch.tensor([targets.shape[1]]),
             target_start_end=torch.tensor(word_start_end, dtype=torch.int64, device=dev).unsqueeze(0),
-            outputs=dict(partial_padded=partial_padded, vocab_size=self.vocab_size),
+            outputs=dict(partial_padded=partial_padded, vocab_size=self.vocab_size, exit_padded=exit_padded),
         )
 
     def log_probs(
@@ -222,6 +232,12 @@ class ParakeetCtc(BaseModelInterface):
         targets_slice = forward_output.targets[0, start_i:end_i].to(device)
         out = partial_padded.new_zeros((1, n, v))
         out[0, torch.arange(n, device=device), targets_slice] = vals
+        exit_padded = forward_output.outputs.get("exit_padded")
+        if exit_padded is not None:
+            # Chunk-exit scores at the blank index (= assistant_end_token_id):
+            # the segmentation DP reads log_probs[0, 0, blank] at each word start.
+            # Written AFTER the vals scatter, so the exit slot (target = blank) reads the exit score.
+            out[0, torch.arange(n, device=device), self.blank_idx] = exit_padded[start_i:end_i]
         return out
 
     def recog(

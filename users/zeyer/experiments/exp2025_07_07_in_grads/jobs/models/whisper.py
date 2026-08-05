@@ -86,6 +86,8 @@ class Whisper(BaseModelInterface):
             ["<|startoftranscript|>", f"<|{language}|>", "<|transcribe|>", "<|notimestamps|>"]
         )
         self.eos_id = int(tok.eos_token_id)
+        # EOS plays the chunk-exit role for the segmentation DP (targets carry it in the exit slot).
+        self.assistant_end_token_id = self.eos_id
         # log-mel hop = 160 samples (100 Hz at 16 kHz)
         self.hop = 160
         print(f"  ({time.time() - start_time:.1f}s) prefix={self.prefix_ids} eos={self.eos_id}")
@@ -99,9 +101,14 @@ class Whisper(BaseModelInterface):
         raw_targets: List[List[str]],
         raw_target_seq_lens: torch.Tensor,
         omitted_prev_context: Optional[torch.Tensor] = None,
+        omitted_prev_words: Optional[List[List[str]]] = None,
         collect_attentions: Optional[list] = None,
     ) -> ForwardOutput:
         """See :class:`BaseModelInterface`.
+
+        :param omitted_prev_words: the actual omitted previous words (chunked decoding):
+            fed as native Whisper prev-text context via ``<|startofprev|>``
+            (left-truncated to the prompt budget).
 
         :param collect_attentions: if given, the decoder runs with ``output_attentions=True``
             and a dict is appended:
@@ -114,8 +121,8 @@ class Whisper(BaseModelInterface):
         assert raw_inputs_sample_rate is not None
         assert len(raw_inputs) == 1, "Whisper wrapper supports batch size 1 only"
         assert isinstance(raw_inputs, torch.Tensor) and raw_inputs.ndim == 2
-        if omitted_prev_context is not None and int(omitted_prev_context[0]) > 0:
-            raise NotImplementedError("Whisper chunked context not implemented yet")
+        # Omitted prev context: handled below via the native <|startofprev|> prompt
+        # (needs omitted_prev_words; built after the transcript ids, for the token budget).
 
         dev = self.device
         words = raw_targets[0]
@@ -188,8 +195,21 @@ class Whisper(BaseModelInterface):
             transc_ids = tok(transcription, add_special_tokens=False).input_ids
             n_targets = len(transc_ids)
             assert n_targets > 0, f"empty target for words={words!r}"
-        dec_in = torch.tensor([self.prefix_ids + transc_ids], dtype=torch.long, device=dev)
-        dst_text_start = len(self.prefix_ids)
+        prompt_ids: List[int] = []
+        if omitted_prev_context is not None and int(omitted_prev_context[0]) > 0:
+            # Native Whisper prev-text conditioning: <|startofprev|> + the actual previous words.
+            assert omitted_prev_words is not None, "Whisper chunked context: pass omitted_prev_words"
+            prev_words = omitted_prev_words[0]
+            assert len(prev_words) == int(omitted_prev_context[0]), f"{len(prev_words)=} {omitted_prev_context=}"
+            (sop_id,) = tok.convert_tokens_to_ids(["<|startofprev|>"])
+            prev_ids = tok(" " + " ".join(prev_words), add_special_tokens=False).input_ids
+            # Prompt budget: half the 448-token decoder context (whisper convention),
+            # further capped so prompt + prefix + transcript + EOS fit in 448. Left-truncate.
+            budget = min(223, 448 - len(self.prefix_ids) - n_targets - 2)
+            assert budget > 0, f"no prev-context budget left ({n_targets=})"
+            prompt_ids = [sop_id] + prev_ids[-budget:]
+        dec_in = torch.tensor([prompt_ids + self.prefix_ids + transc_ids], dtype=torch.long, device=dev)
+        dst_text_start = len(prompt_ids) + len(self.prefix_ids)
 
         try:
             with torch.enable_grad():

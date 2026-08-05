@@ -25,7 +25,7 @@ Grad target: the log-mel features (100 Hz). Batch size 1 only.
 
 from __future__ import annotations
 
-from typing import Optional, Union, List
+from typing import Optional, Tuple, Union, List
 import time
 
 import numpy as np
@@ -58,11 +58,16 @@ class EmformerRnnt(BaseModelInterface):
         self.blank_idx = int(bundle._blank)
         self.target_sr = bundle.sample_rate
         self.vocab_size = self.blank_idx + 1  # joiner outputs subwords + blank
+        # Chunk-DP exit lookup: log_probs carries the exit (chunk-finish) score at the blank index
+        # (per_token_score="prefix" only), so blank plays the EOS role for the segmentation DP.
+        self.assistant_end_token_id = self.blank_idx
         print(f"  ({time.time() - start_time:.1f}s) vocab={self.vocab_size} blank_idx={self.blank_idx}")
 
     # ---- Helpers --------------------------------------------------------
 
-    def _rnnt_prefix_scores(self, logp: torch.Tensor, ys: List[int]) -> torch.Tensor:
+    def _rnnt_prefix_scores(
+        self, logp: torch.Tensor, ys: List[int], return_exit: bool = False
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """Proper transducer per-token prefix score (analog of the CTC partial score).
         RNN-T forward over the T x (U+1) lattice, then the telescoping difference of the
         time-integrated occupancy. Vectorized as a wavefront over anti-diagonals ``d = t + u``:
@@ -71,6 +76,12 @@ class EmformerRnnt(BaseModelInterface):
 
         :param logp: ``[T, U+1, V]`` log-probs from the joiner (teacher-forced).
         :param ys: length-U target subword ids.
+        :param return_exit: additionally return exit (chunk-finish) scores, shape [U+1]:
+            ``exit[u] = log P(all T frames consumed with exactly u labels) - accum(u)``
+            (``alpha[T-1, u] + logblank[T-1, u]`` = the RNN-T completion of the u-prefix).
+            With the telescoped occupancy word scores, a DP path summing both reduces to
+            ``sum_c complete_c(boundary_c)`` + a per-chunk constant (``accum(0)``) that
+            cancels across candidate assignments -- the exact chunk-exit objective.
         :return: ``[U]`` prefix scores ``Δ_u = accum(u) - accum(u-1)``, grad-attached.
         """
         T, U1, _ = logp.shape
@@ -103,7 +114,11 @@ class EmformerRnnt(BaseModelInterface):
             alpha_mat = alpha_mat.index_put((ts, us), vec)
             prev_t_lo, prev_vec = t_lo, vec
         accum = torch.logsumexp(alpha_mat, dim=0)  # [U+1]
-        return accum[1:] - accum[:-1]  # [U]
+        cond = accum[1:] - accum[:-1]  # [U]
+        if not return_exit:
+            return cond
+        complete = alpha_mat[T - 1] + logblank[T - 1]  # [U+1]
+        return cond, complete - accum
 
     def _rnnt_prefix_scores_loop(self, logp: torch.Tensor, ys: List[int]) -> torch.Tensor:
         """Scalar reference implementation of :func:`_rnnt_prefix_scores` (kept for equivalence)."""
@@ -173,8 +188,8 @@ class EmformerRnnt(BaseModelInterface):
         assert raw_inputs_sample_rate is not None
         assert len(raw_inputs) == 1, "EmformerRnnt wrapper supports batch size 1 only"
         assert isinstance(raw_inputs, torch.Tensor) and raw_inputs.ndim == 2
-        if omitted_prev_context is not None and int(omitted_prev_context[0]) > 0:
-            raise NotImplementedError("EmformerRnnt chunked context not implemented yet")
+        # Omitted prev context: the predictor label history starts fresh per chunk
+        # (documented approximation; no cross-chunk predictor state).
 
         dev = self.device
         words = raw_targets[0]
@@ -215,9 +230,11 @@ class EmformerRnnt(BaseModelInterface):
                 # RNN-T (no durations): native-viterbi forced-align reads this teacher-forced lattice.
                 collect_lattice.append(dict(log_probs=log_probs.detach().cpu().numpy(), log_dur=None, durations=None))
 
+            exit_padded = None
             if self.per_token_score == "prefix":
                 # Proper transducer prefix score (RNN-T forward); best.
-                partial = self._rnnt_prefix_scores(log_probs, sub_ids)  # [S]
+                # exit_padded[w] = chunk-exit score for the segmentation DP, same lattice.
+                partial, exit_padded = self._rnnt_prefix_scores(log_probs, sub_ids, return_exit=True)  # [S], [S+1]
             else:
                 # Crude: s_u = logsumexp_t emission of token u (time-marginal).
                 ys = torch.tensor(sub_ids, dtype=torch.long, device=dev)
@@ -251,7 +268,7 @@ class EmformerRnnt(BaseModelInterface):
             targets=targets,
             target_seq_lens=torch.tensor([targets.shape[1]]),
             target_start_end=torch.tensor(word_start_end, dtype=torch.int64, device=dev).unsqueeze(0),
-            outputs=dict(partial_padded=partial_padded, vocab_size=self.vocab_size),
+            outputs=dict(partial_padded=partial_padded, vocab_size=self.vocab_size, exit_padded=exit_padded),
         )
 
     # ---- log_probs -------------------------------------------------------
@@ -275,6 +292,12 @@ class EmformerRnnt(BaseModelInterface):
         targets_slice = forward_output.targets[0, start_i:end_i].to(device)
         out = partial_padded.new_zeros((1, n, v))
         out[0, torch.arange(n, device=device), targets_slice] = vals
+        exit_padded = forward_output.outputs.get("exit_padded")
+        if exit_padded is not None:
+            # Chunk-exit scores at the blank index (= assistant_end_token_id):
+            # the segmentation DP reads log_probs[0, 0, blank] at each word start.
+            # Written AFTER the vals scatter, so the exit slot (target = blank) reads the exit score.
+            out[0, torch.arange(n, device=device), self.blank_idx] = exit_padded[start_i:end_i]
         return out
 
     # ---- Open recognition (hyp-mode) ------------------------------------
