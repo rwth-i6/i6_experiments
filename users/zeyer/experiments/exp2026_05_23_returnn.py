@@ -861,6 +861,12 @@ def py_aed_graphc_loquacious():
         },
     }
     loq_train("base-graphc-v2-s1337", {}, config_overrides={**_loq_v2_packed_overrides, "train.random_seed": 1337})
+    # packed EAGER from scratch: no capture, no compile, fresh weights.
+    # The branch could not separate packed ops from capture
+    # (all its arms started from the possibly-damaged ep-6 checkpoint with fresh Adam).
+    # If this collapses at ep 7 too, capture/compile are out for real; if it survives, they are in.
+    _eager_overrides = {k: v for k, v in _loq_v2_packed_overrides.items() if k != "train.torch_cuda_graph"}
+    loq_train("base-packed-eager-v2", {}, config_overrides=_eager_overrides)
     # keep-opt variant: NOT via "train.cleanup_old_models" -- that key lives in post_config
     # (keep_last_n 5) and the ReturnnConfig consistency check forbids it in both,
     # which crashed the whole config load. Needs the post-config override channel; TODO.
