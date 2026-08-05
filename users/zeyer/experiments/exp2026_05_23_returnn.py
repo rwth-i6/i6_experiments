@@ -860,7 +860,80 @@ def py_aed_graphc_loquacious():
             "compile": True,
         },
     }
-    loq_train("base-graphc-v2-s1337", {}, config_overrides={**_loq_v2_packed_overrides, "train.random_seed": 1337})
+    exp_s1337, _, _ = loq_train(
+        "base-graphc-v2-s1337", {}, config_overrides={**_loq_v2_packed_overrides, "train.random_seed": 1337}
+    )
+
+    # Small-model FROM-SCRATCH repro: the same pipeline, data, LR schedule, packing and bounds,
+    # only the net shrunk (enc 16L/1024 -> 4L/256, dec 6L/1024 -> 2L/256, aux heads rescaled).
+    # Steps are ~6-10x faster, so the ep-7 window arrives in ~1h instead of ~4h.
+    # From scratch deliberately: the imported-checkpoint branches are not trusted as repro.
+    # If the small model reproduces the ep-7 collapse, every fix iterates at that speed;
+    # if not, the model scale is part of the mechanism -- also worth knowing.
+    import returnn.frontend as rf
+    from returnn.frontend.encoder.conformer import (
+        ConformerConvSubsample,
+        ConformerEncoder,
+        ConformerEncoderLayer,
+        ConformerPositionwiseFeedForward,
+    )
+    from returnn.frontend.decoder.transformer import FeedForwardGated, TransformerDecoder
+
+    small_overrides = {
+        "model.enc_build_dict": rf.build_dict(
+            ConformerEncoder,
+            input_layer=rf.build_dict(
+                ConformerConvSubsample,
+                out_dims=[32, 64, 64],
+                filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                pool_sizes=[(1, 2)],
+                strides=[(1, 1), (3, 1), (2, 1)],
+            ),
+            num_layers=4,
+            out_dim=256,
+            encoder_layer=rf.build_dict(
+                ConformerEncoderLayer,
+                ff=rf.build_dict(
+                    ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                ),
+                num_heads=4,
+            ),
+        ),
+        "model.dec_build_dict": rf.build_dict(
+            TransformerDecoder,
+            num_layers=2,
+            model_dim=256,
+            norm=rf.build_dict(rf.RMSNorm),
+            ff=rf.build_dict(FeedForwardGated),
+            layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+        ),
+        "train.aux_loss_layers": [2, 4],
+        "train.dec_aux_loss_layers": [1],
+    }
+    loq_train("base-graphc-v2-small", {}, config_overrides={**_loq_v2_packed_overrides, **small_overrides})
+    # the padded-eager counterpart: the convergence control that makes a small-model collapse
+    # interpretable (same role as base-v2 for the full size)
+    loq_train("base-small-v2", {}, config_overrides={"model.behavior_version": 29, **small_overrides})
+
+    # FAITHFUL fast repro: branch from s1337's ep-6 checkpoint WITH the real Adam moments
+    # (ep 6 healthy, collapse during ep 7; the opt state was snapshotted to ~/tmp/s1337-snapshots
+    # before cleanup can prune it).
+    # The native resume restores the global train step, so the LR schedule continues
+    # at the real ep-7 ramp: the collapse should reproduce within ~2500 steps (~40 min),
+    # making fix/ablation iterations ~6x faster than a from-scratch run.
+    # packed_graphc must collapse (control); packed_eager decides packed-ops vs capture
+    # without the fresh-Adam artifact that invalidated the first branch bisect.
+    ckpt6_s1337 = exp_s1337.get_training_job().out_checkpoints[6]
+    for mode in ["packed_eager", "packed_graphc"]:
+        job = TrainStepBenchmarkJob(
+            returnn_config=cfg_v2,
+            mode=mode,
+            num_steps=7000,
+            load_checkpoint=ckpt6_s1337.path,
+            version=2,
+            config_overrides={"num_epochs": 3, "random_seed": 1337},
+        )
+        tk.register_output(f"returnn/loq-v2-branch-s1337-ep6-{mode}.json", job.out_results)
     # packed EAGER from scratch: no capture, no compile, fresh weights.
     # The branch could not separate packed ops from capture
     # (all its arms started from the possibly-damaged ep-6 checkpoint with fresh Adam).
