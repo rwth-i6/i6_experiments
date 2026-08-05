@@ -523,6 +523,7 @@ log_every: 10
 seed: {getattr(job, "seed", 0)}
 sample_every: {hp.get("sample_every", 100)}
 eval_batches: {hp.get("eval_batches", 8)}
+holdout_every: {hp.get("holdout_every", 0)}
 general_eval_data: "{_gen}"
 do_eval: {str(getattr(job, "eval_data", None) is not None).lower()}
 eval_data: "{job.eval_data.get() if getattr(job, "eval_data", None) is not None else ""}"
