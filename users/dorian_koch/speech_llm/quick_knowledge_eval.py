@@ -304,24 +304,114 @@ def quick_knowledge_eval_py(
     return grading
 
 
+#: How many checkpoints a derived track measures, final one included.
+DEFAULT_TRACK_POINTS = 4
+
+#: ``save_every`` as ``finetune.py`` renders it. Not per-run: all three adapter renderers emit the
+#: literal 500, so intermediate checkpoints only ever exist at multiples of this.
+SAVE_EVERY = 500
+
+#: A step of ``None`` means "whatever the latest checkpoint is when this job runs" --
+#: ``ResolveOverlayCheckpoint(step=None)`` resolves it. This is the ONLY way to name the final
+#: checkpoint of a run whose length is not known at graph-build time (see below).
+LATEST = None
+
+
+def default_track_steps(
+    max_steps: int | None,
+    save_every: int = SAVE_EVERY,
+    *,
+    points: int = DEFAULT_TRACK_POINTS,
+) -> tuple:
+    """Checkpoint steps to benchmark for a training run: a cadence, PLUS the final step, always.
+
+    Derived from the run's own ``max_steps`` so it cannot drift out of sync with it.
+
+    ``max_steps=None`` means the run is sized at RUN time -- ``resolve_max_steps`` computes it from
+    the dataset when ``num_epochs`` is set, so the recipe genuinely cannot know the final step (e.g.
+    ``ft_v3_r8`` at ``num_epochs=1`` ends at step 3871). In that case the only honest answer is
+    ``(LATEST,)``: name the final checkpoint by reference, not by number. A caller that wants
+    intermediates for such a run must list them explicitly, accepting that a step past the run's
+    actual end has no checkpoint.
+
+    Every emitted step is one that will EXIST: intermediates are snapped down to ``save_every``
+    multiples and anything at or past ``max_steps`` is dropped in favour of ``max_steps`` itself
+    (which ``run_training`` always writes). So a 120-step run yields just its final checkpoint
+    rather than a 500 that never happens.
+    """
+    assert save_every > 0, save_every
+    if max_steps is None:
+        return (LATEST,)
+    assert max_steps > 0, max_steps
+    out = {max_steps}
+    for k in range(1, max(points, 1)):
+        snapped = int((max_steps * k / max(points, 1)) // save_every) * save_every
+        if 0 < snapped < max_steps:
+            out.add(snapped)
+    return tuple(sorted(out))
+
+
 def attach_quick_knowledge_track(
     *,
     arm_tag: str,
+    max_steps: int | None,
+    save_every: int = SAVE_EVERY,
     moshi_checkpoint: tk.Path | None = None,
     pplex_checkpoint: tk.Path | None = None,
     audex_checkpoint: tk.Path | None = None,
-    steps=(500, 1000, 1500),
+    steps=None,
     speech_backend=MOSHI_BACKEND,
     n: int = QUICK_N,
     **kwargs,
 ):
-    """Attach a fast knowledge eval at each of ``steps`` for one training arm, so the run produces a
-    knowledge-vs-step curve *while it trains* (each eval fires as its checkpoint lands). ONE call to
-    give any new arm the standing eval routine. Returns ``{step: grading_handle}``.
+    """Attach a fast knowledge eval at each of ``steps`` for one training run, giving it a
+    knowledge-vs-step curve. ONE call to give any run the standing eval routine.
+    Returns ``{step: grading_handle}``.
 
-    ``steps`` should be <= the arm's ``max_steps`` and multiples of its ``save_every`` so the
-    checkpoints actually exist; ``None`` in the list means "the final/latest checkpoint".
+    Each eval depends on the training job's ``out_rundir``, so the whole track fires **after training
+    finishes**, not as each checkpoint lands -- Sisyphus dependencies are job-level. (This docstring
+    claimed the latter for months; it was never true.)
+
+    ``steps`` defaults to :func:`default_track_steps` over the run's own ``max_steps``. Pass it
+    explicitly only to override the cadence -- the final checkpoint is enforced either way.
+
+    **The final checkpoint MUST be measured.** Hardcoded step lists silently rot: the a8-4gpu track
+    said ``(1000, 2000, 3000)`` while the run was lengthened to 3,750, so the end-of-epoch
+    checkpoint -- the point of the run -- would have gone unmeasured, and that run has no in-loop
+    probe to fall back on (2026-08-05). ``max_steps=None`` (a run sized from ``num_epochs`` at run
+    time) can only satisfy this with :data:`LATEST` in ``steps``, since no number is knowable here.
+
+    Every listed step must also be a checkpoint that will exist: a multiple of ``save_every`` below
+    ``max_steps``, ``max_steps`` itself, or :data:`LATEST`.
     """
+    if steps is None:
+        steps = default_track_steps(max_steps, save_every)
+    steps = tuple(steps)
+    assert steps, f"{arm_tag}: empty knowledge track -- the run would produce no curve at all"
+    covers_final = (LATEST in steps) or (max_steps is not None and max_steps in steps)
+    assert covers_final, (
+        f"{arm_tag}: knowledge track {steps} does not measure the FINAL checkpoint "
+        f"(max_steps={max_steps}). A track that stops short leaves the end of the run unmeasured, "
+        f"which is how a lengthened run silently loses its last datapoint. Add "
+        f"{max_steps if max_steps is not None else 'LATEST'} to steps, or let steps default."
+        + (
+            " This run's length is resolved at RUN time (num_epochs), so LATEST is the only way "
+            "to name its final checkpoint."
+            if max_steps is None
+            else ""
+        )
+    )
+    for s in steps:
+        if s is LATEST:
+            continue
+        assert s > 0 and s % save_every == 0 or s == max_steps, (
+            f"{arm_tag}: track step {s} is not a checkpoint -- must be a positive multiple of "
+            f"save_every={save_every}, or max_steps ({max_steps}) itself"
+        )
+        assert max_steps is None or s <= max_steps, (
+            f"{arm_tag}: track step {s} is past the end of the run (max_steps={max_steps}); "
+            f"that checkpoint will never exist and its eval job would fail"
+        )
     handles = {}
     for step in steps:
         step_tag = f"{arm_tag}_s{step}" if step is not None else f"{arm_tag}_final"
