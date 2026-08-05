@@ -34,7 +34,9 @@ os.environ.setdefault("CUDA_HOME", "/usr")
 import torch  # noqa: E402
 
 from speech_llm.full_duplex.moshi_family.train_loop import (  # noqa: E402
+    OTHER_BUCKET,
     TrainConfig,
+    classify_param,
     run_training,
 )
 
@@ -47,9 +49,7 @@ def _run(*, max_steps, grad_accum=2, log_every=1, grad_clip=1.0, scale_loss=1.0,
     params_a = list(lin_a.parameters())
     params_b = list(lin_b.parameters())
     base_lrs = base_lrs if base_lrs is not None else [1e-3, 2e-3]
-    opt = torch.optim.AdamW(
-        [{"params": params_a, "lr": base_lrs[0]}, {"params": params_b, "lr": base_lrs[1]}]
-    )
+    opt = torch.optim.AdamW([{"params": params_a, "lr": base_lrs[0]}, {"params": params_b, "lr": base_lrs[1]}])
 
     def batches():
         while True:
@@ -136,9 +136,134 @@ def check_step_timing_present():
     print("PASS  step_seconds logged")
 
 
+def _named_toy():
+    """A toy module whose parameter names match the four real MODULE_BUCKETS prefixes.
+
+    Names taken from a real trained LoRA checkpoint (a8-fast): ``text_linear.*``, ``linears.N.*``,
+    ``depformer.layers.N.*`` / ``depformer_in.N.*``, ``transformer.layers.N.*``.
+    """
+    m = torch.nn.Module()
+    m.text_linear = torch.nn.Linear(4, 4)
+    m.linears = torch.nn.ModuleList([torch.nn.Linear(4, 4)])
+    m.depformer = torch.nn.Linear(4, 4)
+    m.depformer_in = torch.nn.Linear(4, 4)
+    m.transformer = torch.nn.Linear(4, 4)
+    return m
+
+
+def check_module_classification():
+    """Every real checkpoint name must land in its intended bucket, and nothing in `other`."""
+    real = [
+        ("text_linear.lora_A.weight", "text_head"),
+        ("linears.3.lora_B.weight", "audio_heads"),
+        ("depformer.layers.2.self_attn.in_projs.0.lora_A.weight", "depformer"),
+        ("depformer_in.1.lora_B.weight", "depformer"),
+        ("transformer.layers.7.gating.linear_out.lora_A.weight", "temporal"),
+    ]
+    for name, want in real:
+        got = classify_param(name)
+        assert got == want, f"{name!r} -> {got!r}, expected {want!r}"
+    # A renamed module must be REPORTED, not absorbed into a neighbour.
+    assert classify_param("brand_new_stack.0.weight") == OTHER_BUCKET
+    print("PASS  module classification covers the real checkpoint names; drift lands in `other`")
+
+
+def _run_named(*, max_steps=4, aux=False, track_weight_delta=True):
+    torch.manual_seed(0)
+    m = _named_toy()
+    named = [(n, p) for n, p in m.named_parameters()]
+    params = [p for _, p in named]
+    opt = torch.optim.AdamW([{"params": params, "lr": 1e-2}])
+
+    def batches():
+        while True:
+            yield torch.randn(2, 4)
+
+    def loss_step(batch):
+        h = m.transformer(batch)
+        h = m.depformer(m.depformer_in(h))
+        loss = m.text_linear(h).pow(2).mean() + m.linears[0](h).pow(2).mean()
+        if aux:
+            return loss, {"text_loss": 1.25, "audio_loss": 0.5}
+        return loss
+
+    out_dir = tempfile.mkdtemp()
+    run_training(
+        optimizer=opt,
+        base_lrs=[1e-2],
+        group_names=("all",),
+        trainable_params=params,
+        named_trainable=named,
+        batch_iter=batches(),
+        loss_step=loss_step,
+        save_fn=lambda step, final: None,
+        cfg=TrainConfig(
+            max_steps=max_steps,
+            grad_accum=2,
+            warmup_steps=1,
+            grad_clip=1e6,
+            save_every=0,
+            log_every=1,
+            track_weight_delta=track_weight_delta,
+        ),
+        out_dir=out_dir,
+        log=lambda msg: None,
+    )
+    path = Path(out_dir) / "metrics.train.jsonl"
+    return [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+
+
+def check_per_module_norms():
+    rows = _run_named()
+    want = {"text_head", "audio_heads", "depformer", "temporal"}
+    for r in rows:
+        g = r["grad_norm_by_module"]
+        assert set(g) == want, f"buckets {set(g)} != {want}"
+        assert all(v > 0 for v in g.values()), g
+    print("PASS  grad_norm_by_module reports all four stacks separately")
+
+
+def check_weight_delta_grows():
+    rows = _run_named(max_steps=5)
+    d0 = rows[0]["weight_delta_by_module"]
+    dN = rows[-1]["weight_delta_by_module"]
+    assert set(d0) == set(dN), (d0, dN)
+    # The whole point: the delta is measured from theta_0, so it must GROW as training moves.
+    for b in d0:
+        assert dN[b] > d0[b], f"{b}: delta did not grow ({d0[b]} -> {dN[b]})"
+    assert rows[0]["weight_delta_baseline_step"] == 0
+    # And it must be separable from the gradient norm -- a stack can be pushed hard and not move.
+    assert rows[-1]["grad_norm_by_module"].keys() == dN.keys()
+    print("PASS  weight_delta_by_module grows from the theta_0 baseline, per stack")
+
+
+def check_weight_delta_can_be_disabled():
+    rows = _run_named(track_weight_delta=False)
+    assert all(r["weight_delta_by_module"] is None for r in rows), rows[0]
+    assert all(r["grad_norm_by_module"] for r in rows), "grad norms must survive the opt-out"
+    print("PASS  track_weight_delta=False drops the snapshot but keeps grad norms")
+
+
+def check_loss_components_merged():
+    """loss_step may return (loss, aux); aux must reach the record, averaged over microbatches."""
+    rows = _run_named(aux=True)
+    for r in rows:
+        assert abs(r["text_loss"] - 1.25) < 1e-9, r
+        assert abs(r["audio_loss"] - 0.5) < 1e-9, r
+    # Backward compatibility: a bare-scalar loss_step must still work and simply add no keys.
+    plain = _run_named(aux=False)
+    assert "text_loss" not in plain[0], plain[0]
+    print("PASS  loss components merged into every log row; scalar loss_step still supported")
+
+
 if __name__ == "__main__":
     check_lr_is_logged()
     check_grad_norm_and_clipping()
     check_non_finite_grad_is_fatal()
     check_step_timing_present()
+    check_module_classification()
+    check_per_module_norms()
+    check_weight_delta_grows()
+    check_weight_delta_can_be_disabled()
+    check_loss_components_merged()
     print("ALL PASS")
