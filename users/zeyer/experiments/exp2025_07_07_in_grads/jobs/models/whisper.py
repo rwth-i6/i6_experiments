@@ -41,6 +41,7 @@ class Whisper(BaseModelInterface):
         perturb_seed: int = 0,
         attn_implementation: Optional[str] = None,
         grad_wrt: str = "log_mel",
+        exit_score: Optional[str] = None,
         version: int = 1,
     ):
         super().__init__()
@@ -82,9 +83,21 @@ class Whisper(BaseModelInterface):
             install_activation_perturbation(self.model, kind, act_noise_std or act_dropout, perturb_seed)
         tok = self.processor.tokenizer
         self.feature_extractor = self.processor.feature_extractor
-        self.prefix_ids = tok.convert_tokens_to_ids(
-            ["<|startoftranscript|>", f"<|{language}|>", "<|transcribe|>", "<|notimestamps|>"]
-        )
+        assert exit_score in (None, "timestamps"), f"{exit_score=}"
+        self._exit_score = exit_score
+        if exit_score == "timestamps":
+            # Timestamp-mode prompt (no <|notimestamps|>), opened with <|0.00|>:
+            # the chunk-exit signal is then the mass on the timestamp tokens
+            # (Whisper's NATIVE close-the-segment signal, unlike mid-transcript EOT),
+            # folded into the EOS slot in log_probs below.
+            self.prefix_ids = tok.convert_tokens_to_ids(
+                ["<|startoftranscript|>", f"<|{language}|>", "<|transcribe|>", "<|0.00|>"]
+            )
+            (self.ts_begin_id,) = tok.convert_tokens_to_ids(["<|0.00|>"])
+        else:
+            self.prefix_ids = tok.convert_tokens_to_ids(
+                ["<|startoftranscript|>", f"<|{language}|>", "<|transcribe|>", "<|notimestamps|>"]
+            )
         self.eos_id = int(tok.eos_token_id)
         # EOS plays the chunk-exit role for the segmentation DP (targets carry it in the exit slot).
         self.assistant_end_token_id = self.eos_id
@@ -354,7 +367,13 @@ class Whisper(BaseModelInterface):
         # Decoder position P+i-1 predicts target token i; slice [start-1, end-1].
         sl = batch_slice(dec_hidden, (dst_text_start + start - 1, dst_text_start + end - 1))
         logits = self.model.proj_out(sl).float()
-        return logits.log_softmax(-1)
+        lp = logits.log_softmax(-1)
+        if self._exit_score == "timestamps":
+            # Fold the timestamp-token mass into the EOS slot,
+            # so the chunk DP's exit lookup (assistant_end_token_id = eos) reads
+            # P(close the segment here) instead of the degenerate mid-transcript EOT.
+            lp[..., self.eos_id] = torch.logsumexp(lp[..., self.ts_begin_id :], dim=-1)
+        return lp
 
     def recog(
         self,

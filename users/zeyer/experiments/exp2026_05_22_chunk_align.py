@@ -681,9 +681,23 @@ def py():
             False,
         ),
         ("emformer-rnnt", rf.build_dict(EmformerRnnt, per_token_score="prefix"), False),
-        ("whisper-base", rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir), True),
-        ("whisper-large-v3", rf.build_dict(Whisper, model_dir=dl_whisper_l3.out_hub_cache_dir), True),
-        ("crisperwhisper", rf.build_dict(Whisper, model_dir=dl_crisper.out_hub_cache_dir), True),
+        # exit_score="timestamps": Whisper's native close-the-segment signal (timestamp-token
+        # mass) as the chunk exit; mid-transcript EOT is degenerate (round-1/2/3 finding).
+        (
+            "whisper-base",
+            rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir, exit_score="timestamps"),
+            True,
+        ),
+        (
+            "whisper-large-v3",
+            rf.build_dict(Whisper, model_dir=dl_whisper_l3.out_hub_cache_dir, exit_score="timestamps"),
+            True,
+        ),
+        (
+            "crisperwhisper",
+            rf.build_dict(Whisper, model_dir=dl_crisper.out_hub_cache_dir, exit_score="timestamps"),
+            True,
+        ),
         ("owls-1b-180k", rf.build_dict(Owls, model_dir=dl_owls_1b.out_hub_cache_dir), False),
         (
             "voxtral",
@@ -703,15 +717,14 @@ def py():
     _zoo_max_words = {"whisper-base": 120, "whisper-large-v3": 120, "crisperwhisper": 120, "emformer-rnnt": 200}
     # Length-fair word-start selection for the weak-score models (acc < 90% in the first round;
     # plain argmax exit degenerates to extreme lag / erratic starts there, see the job docstring).
-    # "consumed" prices remaining words at the in-their-right-chunk rate
-    # (the naive True mean collapsed the audio-anchored CTC models, see readme).
+    # Per-model best after rounds 1-3 (see readme): mms-fa / w2v-phoneme best WITHOUT norm
+    # (both norm variants collapsed them); emformer best with "consumed";
+    # whisper best with the naive True norm (paired with the timestamp exit above).
     _zoo_start_norm = {
-        "whisper-base": "consumed",
-        "whisper-large-v3": "consumed",
-        "crisperwhisper": "consumed",
+        "whisper-base": True,
+        "whisper-large-v3": True,
+        "crisperwhisper": True,
         "emformer-rnnt": "consumed",
-        "mms-fa": "consumed",
-        "w2v-phoneme": "consumed",
     }
     for _zname, _zcfg, _zprev in _zoo:
         _zseg = ChunkSegmentationFromModelJob(
