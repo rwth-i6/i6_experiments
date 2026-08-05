@@ -209,9 +209,10 @@ class Whisper(BaseModelInterface):
             n_targets = len(transc_ids)
             assert n_targets > 0, f"empty target for words={words!r}"
         prompt_ids: List[int] = []
-        if omitted_prev_context is not None and int(omitted_prev_context[0]) > 0:
+        if omitted_prev_context is not None and int(omitted_prev_context[0]) > 0 and omitted_prev_words is not None:
             # Native Whisper prev-text conditioning: <|startofprev|> + the actual previous words.
-            assert omitted_prev_words is not None, "Whisper chunked context: pass omitted_prev_words"
+            # Without omitted_prev_words (job flag off), the chunk is scored with NO prev-text
+            # conditioning -- probe: prev text may fuel pure-LM continuation, hurting localization.
             prev_words = omitted_prev_words[0]
             assert len(prev_words) == int(omitted_prev_context[0]), f"{len(prev_words)=} {omitted_prev_context=}"
             (sop_id,) = tok.convert_tokens_to_ids(["<|startofprev|>"])

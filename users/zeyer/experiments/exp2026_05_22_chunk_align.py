@@ -683,21 +683,14 @@ def py():
         ("emformer-rnnt", rf.build_dict(EmformerRnnt, per_token_score="prefix"), False),
         # exit_score="timestamps": Whisper's native close-the-segment signal (timestamp-token
         # mass) as the chunk exit; mid-transcript EOT is degenerate (round-1/2/3 finding).
-        (
-            "whisper-base",
-            rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir, exit_score="timestamps"),
-            True,
-        ),
-        (
-            "whisper-large-v3",
-            rf.build_dict(Whisper, model_dir=dl_whisper_l3.out_hub_cache_dir, exit_score="timestamps"),
-            True,
-        ),
-        (
-            "crisperwhisper",
-            rf.build_dict(Whisper, model_dir=dl_crisper.out_hub_cache_dir, exit_score="timestamps"),
-            True,
-        ),
+        # FINAL whisper config = the round-2 best (EOT exit + startofprev prev context
+        # + completion norm True): 0.78 / 0.82 / 0.79. Variants tried and worse:
+        # consumed-norm (0.62-0.66), timestamp exit (0.75-0.78), no prev context (0.68-0.75).
+        # Whisper's teacher-forced token scores are position-insensitive (plateau ~0.8);
+        # its localization lives in cross-attention (cf. grad-align), not token log-probs.
+        ("whisper-base", rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir), True),
+        ("whisper-large-v3", rf.build_dict(Whisper, model_dir=dl_whisper_l3.out_hub_cache_dir), True),
+        ("crisperwhisper", rf.build_dict(Whisper, model_dir=dl_crisper.out_hub_cache_dir), True),
         ("owls-1b-180k", rf.build_dict(Owls, model_dir=dl_owls_1b.out_hub_cache_dir), False),
         (
             "voxtral",
