@@ -915,6 +915,43 @@ def py_aed_graphc_loquacious():
     # interpretable (same role as base-v2 for the full size)
     loq_train("base-small-v2", {}, config_overrides={"model.behavior_version": 29, **small_overrides})
 
+    # Medium repro (~84M params vs 22M small / 571M full; enc:dec ratio like the full model):
+    # the small model passed ep 7 clean, so the instability needs more scale;
+    # also compute-bound (the small one was ~60% computing = partly loader-bound,
+    # so going smaller saves no wall time and only tells less).
+    medium_overrides = {
+        "model.enc_build_dict": rf.build_dict(
+            ConformerEncoder,
+            input_layer=rf.build_dict(
+                ConformerConvSubsample,
+                out_dims=[32, 64, 64],
+                filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                pool_sizes=[(1, 2)],
+                strides=[(1, 1), (3, 1), (2, 1)],
+            ),
+            num_layers=10,
+            out_dim=512,
+            encoder_layer=rf.build_dict(
+                ConformerEncoderLayer,
+                ff=rf.build_dict(
+                    ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                ),
+                num_heads=8,
+            ),
+        ),
+        "model.dec_build_dict": rf.build_dict(
+            TransformerDecoder,
+            num_layers=3,
+            model_dim=512,
+            norm=rf.build_dict(rf.RMSNorm),
+            ff=rf.build_dict(FeedForwardGated),
+            layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+        ),
+        "train.aux_loss_layers": [3, 6, 10],
+        "train.dec_aux_loss_layers": [1],
+    }
+    loq_train("base-graphc-v2-medium", {}, config_overrides={**_loq_v2_packed_overrides, **medium_overrides})
+
     # FAITHFUL fast repro: branch from s1337's ep-6 checkpoint WITH the real Adam moments
     # (ep 6 healthy, collapse during ep 7; the opt state was snapshotted to ~/tmp/s1337-snapshots
     # before cleanup can prune it).
@@ -940,6 +977,31 @@ def py_aed_graphc_loquacious():
     # If this collapses at ep 7 too, capture/compile are out for real; if it survives, they are in.
     _eager_overrides = {k: v for k, v in _loq_v2_packed_overrides.items() if k != "train.torch_cuda_graph"}
     loq_train("base-packed-eager-v2", {}, config_overrides=_eager_overrides)
+    # COLLAPSED at ep 7 like all graphc runs (5/5 packed vs padded healthy):
+    # the cause is in the packed regime itself, not capture/compile.
+    # Component-swap bisects, from scratch, eager, one packed component made padded-equivalent each:
+    # attpad: attentions via unpack -> exact padded kernels -> repack
+    # (rf_packed_att_fast_paths=False skips Triton/flash/flex, the fallback must be allowed);
+    # ctcaten: the generic (aten) CTC instead of the packed fast-BW native op.
+    # Survives ep 7 = that component implicated; collapses = exonerated.
+    loq_train(
+        "base-packed-eager-v2-attpad",
+        {},
+        config_overrides={
+            **_eager_overrides,
+            "train.rf_packed_att_fast_paths": False,
+            "train.packed_fallback_allowed": ["rel_pos_self_attention", "scaled_dot_product_attention"],
+        },
+    )
+    loq_train(
+        "base-packed-eager-v2-ctcaten",
+        {},
+        config_overrides={
+            **_eager_overrides,
+            "train.ctc_use_native_op": False,
+            "train.packed_fallback_allowed": ["ctc_loss"],
+        },
+    )
     # keep-opt variant: NOT via "train.cleanup_old_models" -- that key lives in post_config
     # (keep_last_n 5) and the ReturnnConfig consistency check forbids it in both,
     # which crashed the whole config load. Needs the post-config override channel; TODO.
