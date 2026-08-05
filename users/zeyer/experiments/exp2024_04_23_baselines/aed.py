@@ -647,6 +647,10 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
         from i6_experiments.users.zeyer.nn_rf.torch_ctc_fixed_grad import ctc_loss_fixed_grad
 
         ctc_loss = ctc_loss_fixed_grad
+    ctc_use_native_op = config.typed_value("ctc_use_native_op", None)
+    if ctc_use_native_op is not None:
+        # diagnostic switch, e.g. force the generic (aten) CTC under packed training
+        ctc_loss = functools.partial(ctc_loss, use_native_op=ctc_use_native_op)
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
