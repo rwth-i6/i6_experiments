@@ -835,6 +835,66 @@ def py_aed_graphc_loquacious():
     )
     tk.register_output("returnn/loq-v2-packed_tensors-default.json", job.out_results)
 
+    # Divergence probes, all v2-identical except one axis each:
+    # - seed variant: is the packed ep-7 collapse systematic (3/3) or near-boundary luck?
+    # - keep-opt variant: same seed as v2; cleanup_old_models False keeps every checkpoint
+    #   AND optimizer state, so a faithful branch (real Adam moments) becomes possible --
+    #   the missing opt state is what turned the last branch bisect into a fresh-Adam artifact.
+    #   num_epochs stays 100 (the LR schedule derives from it); stop manually after the
+    #   collapse window via the sis hold file.
+    _loq_v2_packed_overrides = {
+        "train.optimizer.capturable": True,
+        "model.behavior_version": 29,
+        "train.packed_tensors": {
+            "per_key": {
+                "audio": {"gap": 0, "align": align},
+                "text": {"gap": 0, "align": 1},
+            }
+        },
+        "train.torch_cuda_graph": {
+            "batch_size_bound": 200,
+            "dim_capacity": {"audio": 312_960, "text": classes_cap},
+            "packed_total_bound": {"audio": nogap_total, "text": 18_000},
+            "warmup_steps": 2,
+            "capture_optimizer": True,
+            "compile": True,
+        },
+    }
+    loq_train("base-graphc-v2-s1337", {}, config_overrides={**_loq_v2_packed_overrides, "train.random_seed": 1337})
+    # keep-opt variant: NOT via "train.cleanup_old_models" -- that key lives in post_config
+    # (keep_last_n 5) and the ReturnnConfig consistency check forbids it in both,
+    # which crashed the whole config load. Needs the post-config override channel; TODO.
+
+    # Mitigation probe: identical to base-graphc-v2 except gradient_clip_global_norm 5.0 -> 1.0.
+    # Both real packed+graphc runs collapsed at ep 7 on the LR ramp, and the padded run's
+    # PRE-clip grad norm sits at 10-15 against clip 5, i.e. the model trains permanently clipped;
+    # the branch probes collapsed under perturbation in every mode, padded included,
+    # so the working read is an optimization instability near this LR, not a packed-specific bug.
+    # If the tighter clip carries this run past ep 8, we have a working recipe (and evidence).
+    loq_train(
+        "base-graphc-v3",
+        {},
+        config_overrides={
+            "train.optimizer.capturable": True,
+            "model.behavior_version": 29,
+            "train.gradient_clip_global_norm": 1.0,
+            "train.packed_tensors": {
+                "per_key": {
+                    "audio": {"gap": 0, "align": align},
+                    "text": {"gap": 0, "align": 1},
+                }
+            },
+            "train.torch_cuda_graph": {
+                "batch_size_bound": 200,
+                "dim_capacity": {"audio": 312_960, "text": classes_cap},
+                "packed_total_bound": {"audio": nogap_total, "text": 18_000},
+                "warmup_steps": 2,
+                "capture_optimizer": True,
+                "compile": True,
+            },
+        },
+    )
+
     # Collapse bisect: base-graphc-v2 collapsed at ep 7 (again; the old run did too, at a different
     # config), while base-v2 (padded eager, same code) is healthy. Branch from the ep-6 checkpoint
     # and run ~2 epochs in each mode of the packed ladder:
@@ -850,7 +910,9 @@ def py_aed_graphc_loquacious():
     # (v1 of these jobs linked the checkpoint as epoch 1 for a native resume;
     #  without the opt state the engine silently trained from scratch, see get_existing_models.)
     ckpt6 = exp_v2.get_training_job().out_checkpoints[6]
-    for mode in ["packed_eager", "packed_compiled", "packed_graphc"]:
+    # padded_eager = the control: all packed arms drifting together would otherwise not separate
+    # "bug in the packed ops" from "artifact of the branch conditions" (fresh Adam, constant LR)
+    for mode in ["padded_eager", "packed_eager", "packed_compiled", "packed_graphc"]:
         job = TrainStepBenchmarkJob(
             returnn_config=cfg_v2,
             mode=mode,
@@ -1609,8 +1671,9 @@ class TrainStepBenchmarkJob(Job):
                 import_model_line = f"import_model_train_epoch1 = {src!r}\n"
         cfg += (
             "\n\n# ---- TrainStepBenchmarkJob overrides ----\n"
-            f"model = {work + '/models/epoch'!r}\n" + import_model_line +
-            f"learning_rate_file = {work + '/learning_rates'!r}\n"
+            f"model = {work + '/models/epoch'!r}\n"
+            + import_model_line
+            + f"learning_rate_file = {work + '/learning_rates'!r}\n"
             "use_train_proc_manager = False\n"
             f"random_seed = {self.random_seed}\n"
             + self._mode_overrides[self.mode]
