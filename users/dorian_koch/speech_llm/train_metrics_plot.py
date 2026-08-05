@@ -16,6 +16,13 @@ Two row shapes live in ``metrics.train.jsonl`` and both are handled:
      "knowledge_n": 64}
 Only the probe rows carry ``kind``; a run without the probe simply renders no accuracy series
 rather than failing, so the job is safe to point at any arm.
+
+⚠ The file is APPEND-ordered, not STEP-ordered. A preempted run resumes from its last complete
+checkpoint and replays every step between that checkpoint and where it died, so the step counter
+runs backwards mid-file (observed on ``a8_fast``: step 1930 -> 1510, 43 steps replayed). Plotting
+the raw append order draws a line travelling right-to-left across the figure -- which is what a
+reader notices, and which silently double-counts the replayed steps in the summary stats. See
+``_split_at_resumes`` / ``_canonical``.
 """
 
 import json
@@ -50,7 +57,42 @@ class TrainMetricsPlot(Job):
         yield Task("run", mini_task=True)
 
     @staticmethod
-    def _parse(path: str) -> dict:
+    def _split_at_resumes(steps: list, vals: list) -> list:
+        """Split one series wherever the step counter fails to advance.
+
+        Each returned ``(steps, vals)`` run is monotonically increasing, so it can be drawn as a
+        polyline without the connecting segment that would otherwise shoot backwards. Every break
+        is a resume: the run died and restarted from an earlier checkpoint.
+        """
+        segments, cur_s, cur_v = [], [], []
+        for s, v in zip(steps, vals):
+            if cur_s and s <= cur_s[-1]:
+                segments.append((cur_s, cur_v))
+                cur_s, cur_v = [], []
+            cur_s.append(s)
+            cur_v.append(v)
+        if cur_s:
+            segments.append((cur_s, cur_v))
+        return segments
+
+    @staticmethod
+    def _canonical(steps: list, vals: list) -> tuple:
+        """Collapse a replayed series to one value per step, LAST occurrence winning.
+
+        After a resume the same step is logged twice: once by the attempt that died, once by the
+        attempt that actually carried the run forward. The later append is the surviving history --
+        the earlier one belongs to weights that were rolled back -- so it is the one that must feed
+        the curve and the summary stats. Taking the first (or averaging) would report numbers from
+        a discarded branch of training.
+        """
+        by_step = {}
+        for s, v in zip(steps, vals):
+            by_step[s] = v
+        ordered = sorted(by_step)
+        return ordered, [by_step[s] for s in ordered]
+
+    @classmethod
+    def _parse(cls, path: str) -> dict:
         """Split one metrics file into the loss series and the knowledge-probe series.
 
         Tolerant on purpose: a run that died mid-write leaves a truncated final line, and a partial
@@ -82,12 +124,29 @@ class TrainMetricsPlot(Job):
                 elif row.get("loss") is not None:
                     loss_steps.append(step)
                     loss_vals.append(float(row["loss"]))
+
+        # A resume is visible in the loss series (logged every few steps) long before the probe
+        # series (every ~100), so the loss stream is the one to detect it on.
+        resumes = [
+            {"died_at_step": loss_steps[i - 1], "resumed_from_step": s}
+            for i, s in enumerate(loss_steps)
+            if i and s <= loss_steps[i - 1]
+        ]
+        c_loss_steps, c_loss = cls._canonical(loss_steps, loss_vals)
+        c_acc_steps, c_acc = cls._canonical(acc_steps, acc_vals)
         return {
-            "loss_steps": loss_steps,
-            "loss": loss_vals,
-            "probe_steps": acc_steps,
-            "probe_accuracy": acc_vals,
+            "loss_segments": cls._split_at_resumes(loss_steps, loss_vals),
+            "probe_segments": cls._split_at_resumes(acc_steps, acc_vals),
+            "loss_steps": c_loss_steps,
+            "loss": c_loss,
+            "probe_steps": c_acc_steps,
+            "probe_accuracy": c_acc,
             "probe_quality": qual_vals,
+            "resumes": resumes,
+            # How many logged points were superseded by a replay -- i.e. how much of the file
+            # describes weights that were rolled back.
+            "superseded_loss_points": len(loss_steps) - len(c_loss_steps),
+            "superseded_probe_points": len(acc_steps) - len(c_acc_steps),
             "malformed_lines": bad,
         }
 
@@ -108,8 +167,15 @@ class TrainMetricsPlot(Job):
             # Provenance in the legend itself: filled marker + bold for ours, hollow for released.
             ours = self.origin.get(label, "ours") == "ours"
             tag = f"{'● ' if ours else '○ '}{label}"
+
+            # The canonical (post-resume) history is the curve; the replayed-over attempt is drawn
+            # faintly behind it so a resume is visible rather than silently dropped.
+            for seg_steps, seg_vals in s["loss_segments"][:-1]:
+                ax_loss.plot(seg_steps, seg_vals, color=colour, lw=0.8, alpha=0.22)
             if s["loss_steps"]:
                 ax_loss.plot(s["loss_steps"], s["loss"], color=colour, lw=1.2, alpha=0.75, label=f"{tag} loss")
+            for seg_steps, seg_vals in s["probe_segments"][:-1]:
+                ax_acc.plot(seg_steps, seg_vals, color=colour, lw=1.0, alpha=0.22, linestyle=":")
             if s["probe_steps"]:
                 ax_acc.plot(
                     s["probe_steps"],
@@ -121,12 +187,18 @@ class TrainMetricsPlot(Job):
                     linestyle="--",
                     label=f"{tag} knowledge %",
                 )
+            for r in s["resumes"]:
+                ax_loss.axvline(r["resumed_from_step"], color=colour, lw=0.9, alpha=0.45, linestyle="-.")
 
         ax_loss.set_xlabel("training step")
         ax_loss.set_ylabel("training loss")
         ax_acc.set_ylabel("in-loop knowledge probe (% correct)")
         ax_acc.set_ylim(bottom=0)
-        ax_loss.set_title(f"{self.title}\nsolid = loss (left), dashed = knowledge probe (right)")
+        n_resumes = sum(len(s["resumes"]) for s in series.values())
+        subtitle = "solid = loss (left), dashed = knowledge probe (right)"
+        if n_resumes:
+            subtitle += f"; {n_resumes} resume(s) marked -.- , replayed steps faded"
+        ax_loss.set_title(f"{self.title}\n{subtitle}")
         ax_loss.grid(alpha=0.25)
 
         # One merged legend: two axes would otherwise render two boxes that overlap.
@@ -153,6 +225,14 @@ class TrainMetricsPlot(Job):
                 "peak_probe_accuracy": max(acc) if acc else None,
                 "peak_probe_step": s["probe_steps"][acc.index(max(acc))] if acc else None,
                 "final_probe_accuracy": acc[-1] if acc else None,
+                # A preemption/resume record. last_probe_step well below the final loss step means
+                # the probe stopped reporting while training continued -- the failure mode that made
+                # a8_long look measured to step 6000 when it stopped at 800.
+                "last_loss_step": s["loss_steps"][-1] if s["loss_steps"] else None,
+                "last_probe_step": s["probe_steps"][-1] if s["probe_steps"] else None,
+                "resumes": s["resumes"],
+                "superseded_loss_points": s["superseded_loss_points"],
+                "superseded_probe_points": s["superseded_probe_points"],
                 "malformed_lines": s["malformed_lines"],
             }
         with open(self.out_stats.get(), "w", encoding="utf-8") as f:
