@@ -32,6 +32,9 @@ from sisyphus import Job, Task, tk
 #: Rows without this key are ordinary training rows (loss/lr); probe rows set it to "knowledge".
 KIND_KEY = "kind"
 KNOWLEDGE_KIND = "knowledge"
+#: A probe step that failed every retry. Written so a hole in the trajectory is present IN the data
+#: rather than merely absent from it -- absence is what let a8_long look measured to step 6000.
+KNOWLEDGE_ERROR_KIND = "knowledge_error"
 
 
 class TrainMetricsPlot(Job):
@@ -101,6 +104,7 @@ class TrainMetricsPlot(Job):
         """
         loss_steps, loss_vals = [], []
         acc_steps, acc_vals, qual_vals = [], [], []
+        probe_errors = []
         bad = 0
         with open(path, encoding="utf-8") as f:
             for line in f:
@@ -116,7 +120,9 @@ class TrainMetricsPlot(Job):
                 if step is None:
                     bad += 1
                     continue
-                if row.get(KIND_KEY) == KNOWLEDGE_KIND:
+                if row.get(KIND_KEY) == KNOWLEDGE_ERROR_KIND:
+                    probe_errors.append({"step": step, "error": row.get("error")})
+                elif row.get(KIND_KEY) == KNOWLEDGE_KIND:
                     if row.get("knowledge_accuracy") is not None:
                         acc_steps.append(step)
                         acc_vals.append(float(row["knowledge_accuracy"]) * 100.0)
@@ -143,6 +149,7 @@ class TrainMetricsPlot(Job):
             "probe_accuracy": c_acc,
             "probe_quality": qual_vals,
             "resumes": resumes,
+            "probe_errors": probe_errors,
             # How many logged points were superseded by a replay -- i.e. how much of the file
             # describes weights that were rolled back.
             "superseded_loss_points": len(loss_steps) - len(c_loss_steps),
@@ -231,6 +238,7 @@ class TrainMetricsPlot(Job):
                 "last_loss_step": s["loss_steps"][-1] if s["loss_steps"] else None,
                 "last_probe_step": s["probe_steps"][-1] if s["probe_steps"] else None,
                 "resumes": s["resumes"],
+                "probe_errors": s["probe_errors"],
                 "superseded_loss_points": s["superseded_loss_points"],
                 "superseded_probe_points": s["superseded_probe_points"],
                 "malformed_lines": s["malformed_lines"],
