@@ -117,6 +117,14 @@ def main():
             f.write(
                 json.dumps(
                     {
+                        # The CLIP index, carried explicitly. Without it the only way to join a
+                        # graded row back to its reply wav / inner monologue is by row POSITION,
+                        # which happens to work (this loop preserves dataset order and clip index
+                        # IS the enumerate index) but is unverifiable from the file and silently
+                        # wrong the moment a clip is missing -- exactly the by-position coupling
+                        # the naming rule in CLAUDE.md exists to prevent. Downstream readers key
+                        # on names, so an added key is backward compatible.
+                        "index": i,
                         "question": example["question"],
                         "answer": example["answer"],
                         "aliases": example["aliases"],
