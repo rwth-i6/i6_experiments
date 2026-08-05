@@ -21,6 +21,7 @@ from the setup root via the path used by the other checks.
 """
 
 import json
+import math
 import os
 import sys
 import tempfile
@@ -35,6 +36,8 @@ import torch  # noqa: E402
 
 from speech_llm.full_duplex.moshi_family.train_loop import (  # noqa: E402
     OTHER_BUCKET,
+    _relative,
+    _rms,
     TrainConfig,
     classify_param,
     run_training,
@@ -143,11 +146,14 @@ def _named_toy():
     ``depformer.layers.N.*`` / ``depformer_in.N.*``, ``transformer.layers.N.*``.
     """
     m = torch.nn.Module()
-    m.text_linear = torch.nn.Linear(4, 4)
-    m.linears = torch.nn.ModuleList([torch.nn.Linear(4, 4)])
-    m.depformer = torch.nn.Linear(4, 4)
-    m.depformer_in = torch.nn.Linear(4, 4)
-    m.transformer = torch.nn.Linear(4, 4)
+    # Deliberately UNEQUAL sizes (depformer ~8x the text head), mirroring the real checkpoint. With
+    # four identical Linear(4, 4)s the raw and normalised numbers stay proportional and a guard on
+    # the normalisation cannot fail.
+    m.text_linear = torch.nn.Linear(16, 4)
+    m.linears = torch.nn.ModuleList([torch.nn.Linear(16, 4)])
+    m.depformer = torch.nn.Linear(16, 16)
+    m.depformer_in = torch.nn.Linear(16, 16)
+    m.transformer = torch.nn.Linear(4, 16)
     return m
 
 
@@ -256,6 +262,62 @@ def check_loss_components_merged():
     print("PASS  loss components merged into every log row; scalar loss_step still supported")
 
 
+def check_raw_norms_are_not_comparable_across_buckets():
+    """Re-introduce the 2026-08-05 misreading and assert the normalised form removes it.
+
+    Reading raw per-module numbers side by side (text_head 0.059 vs depformer 0.86) looked like the
+    text head was frozen while the trunk rewrote itself. It was not a finding: an L2 norm is a sum
+    over a bucket, so it scales with sqrt(parameter count), and the depformer simply holds far more
+    weights. Two buckets moving IDENTICALLY per weight must read as identical.
+    """
+    numel = {"text_head": 1_000, "depformer": 25_000}
+    per_weight = 0.01
+    raw = {b: per_weight * math.sqrt(n) for b, n in numel.items()}
+    # The wrong inference the raw numbers invite:
+    assert abs(raw["depformer"] / raw["text_head"] - 5.0) < 1e-9, raw
+    # ...and what the normalised form says instead: same motion.
+    rms = _rms(raw, numel)
+    assert abs(rms["text_head"] - per_weight) < 1e-12, rms
+    assert abs(rms["depformer"] - per_weight) < 1e-12, rms
+    # A bucket with no parameters must not divide by zero.
+    assert _rms({"gone": 1.0}, {"gone": 0}) == {"gone": 0.0}
+    print("PASS  raw norms scale with bucket size; the RMS form makes stacks comparable")
+
+
+def check_relative_delta_marks_a_zero_baseline_unmeasurable():
+    """LoRA initialises B to zero, so ||theta_0|| == 0 is a real case, not a degenerate one."""
+    rel = _relative({"a": 2.0, "b": 1.0}, {"a": 4.0, "b": 0.0})
+    assert rel["a"] == 0.5, rel
+    assert rel["b"] is None, "a zero baseline must be marked unmeasurable, never an inf"
+    print("PASS  relative weight delta reports None (not inf) where theta_0 has no scale")
+
+
+def check_normalised_metrics_are_consistent_with_the_raw_ones():
+    """Drive the REAL loop and check the emitted pairs agree, bucket by bucket, row by row."""
+    rows = _run_named(max_steps=4)
+    counts = rows[0]["module_numel"]
+    assert counts and set(counts) == {"text_head", "audio_heads", "depformer", "temporal"}, counts
+    # The toy's real shapes: Linear(16, 4) -> 68 weights+bias; depformer is two Linear(16, 16).
+    assert counts["text_head"] == 68 and counts["depformer"] == 544, counts
+    assert counts["depformer"] > counts["text_head"], "the guard needs unequal buckets to bite"
+    for r in rows:
+        for bucket, raw in r["grad_norm_by_module"].items():
+            want = raw / math.sqrt(counts[bucket])
+            assert abs(r["grad_rms_by_module"][bucket] - want) < 1e-9, (bucket, r)
+        for bucket, rel in r["weight_delta_rel_by_module"].items():
+            assert rel is None or rel >= 0.0, (bucket, rel)
+        assert set(r["grad_rms_by_group"]) == set(r["grad_norm_by_group"]), r
+    # And the property that motivated all of it: the ORDER of stacks can differ between the raw and
+    # the normalised view, so a reader really cannot substitute one for the other.
+    last = rows[-1]
+    by_raw = sorted(last["grad_norm_by_module"], key=last["grad_norm_by_module"].get)
+    by_rms = sorted(last["grad_rms_by_module"], key=last["grad_rms_by_module"].get)
+    assert by_raw != by_rms or counts["text_head"] == counts["depformer"], (
+        f"raw order {by_raw} == rms order {by_rms}; the toy no longer exercises the difference"
+    )
+    print("PASS  grad_rms == raw / sqrt(numel) per bucket, and the two orderings really differ")
+
+
 if __name__ == "__main__":
     check_lr_is_logged()
     check_grad_norm_and_clipping()
@@ -266,4 +328,7 @@ if __name__ == "__main__":
     check_weight_delta_grows()
     check_weight_delta_can_be_disabled()
     check_loss_components_merged()
+    check_raw_norms_are_not_comparable_across_buckets()
+    check_relative_delta_marks_a_zero_baseline_unmeasurable()
+    check_normalised_metrics_are_consistent_with_the_raw_ones()
     print("ALL PASS")
