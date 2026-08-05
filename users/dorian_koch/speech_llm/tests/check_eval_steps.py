@@ -1,8 +1,8 @@
-"""Guard: a knowledge track must measure the END of the run it describes.
+"""Guard: a checkpoint evals must measure the END of the run it describes.
 
 The bug this exists for (2026-08-05): ``benchmarks.py`` said
 
-    attach_quick_knowledge_track(arm_tag="moshi_ft_a8_4gpu", steps=(1000, 2000, 3000))
+    attach_knowledge_evals(run_tag="moshi_ft_a8_4gpu", steps=(1000, 2000, 3000))
 
 while that run had been lengthened to ``max_steps=3750``. Its end-of-epoch checkpoint -- the entire
 point of the run -- would have gone unmeasured, and that run has **no in-loop probe by design**
@@ -25,7 +25,7 @@ declared under an older epoch, and an unrecognised date must be rejected rather 
 treated as older than everything (which would opt the run out of every rule).
 
 Run from the setup root:
-    CUDA_HOME=/usr .venv/bin/python recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_track_steps.py
+    CUDA_HOME=/usr .venv/bin/python recipe/i6_experiments/users/dorian_koch/speech_llm/tests/check_eval_steps.py
 """
 
 import os
@@ -40,8 +40,8 @@ os.environ.setdefault("CUDA_HOME", "/usr")
 from i6_experiments.users.dorian_koch.speech_llm.quick_knowledge_eval import (  # noqa: E402
     LATEST,
     SAVE_EVERY,
-    attach_quick_knowledge_track,
-    default_track_steps,
+    attach_knowledge_evals,
+    default_eval_steps,
 )
 
 
@@ -53,14 +53,14 @@ def _rejects(**kwargs) -> str:
     rules (the ``check_mixed_loader`` lesson in CLAUDE.md).
     """
     try:
-        attach_quick_knowledge_track(moshi_checkpoint=None, **kwargs)
+        attach_knowledge_evals(moshi_checkpoint=None, **kwargs)
     except AssertionError as e:
         return str(e)
     raise SystemExit(f"FAIL: these arguments should have been rejected: {kwargs}")
 
 
 def check_the_real_bug_is_caught():
-    msg = _rejects(arm_tag="moshi_ft_a8_4gpu", max_steps=3750, steps=(1000, 2000, 3000))
+    msg = _rejects(run_tag="moshi_ft_a8_4gpu", max_steps=3750, steps=(1000, 2000, 3000))
     assert "FINAL checkpoint" in msg, msg
     assert "3750" in msg, "the message must name the step that is missing"
     # ...and the corrected track is accepted (validation passes; we stop before job construction).
@@ -71,31 +71,31 @@ def check_the_real_bug_is_caught():
 
 def check_dynamic_length_needs_LATEST():
     """A num_epochs-sized run has no knowable final step, so only LATEST can satisfy the rule."""
-    msg = _rejects(arm_tag="v3_r8", max_steps=None, steps=(500, 1000, 1500))
+    msg = _rejects(run_tag="v3_r8", max_steps=None, steps=(500, 1000, 1500))
     assert "LATEST" in msg, msg
     # LATEST satisfies it; so does letting it default.
-    assert default_track_steps(None) == (LATEST,), default_track_steps(None)
+    assert default_eval_steps(None) == (LATEST,), default_eval_steps(None)
     print("PASS  a run sized at run time (num_epochs) is only satisfied by LATEST")
 
 
 def check_non_checkpoint_steps_rejected():
     # Not a multiple of save_every -> that checkpoint is never written.
-    msg = _rejects(arm_tag="x", max_steps=3000, steps=(700, 3000))
+    msg = _rejects(run_tag="x", max_steps=3000, steps=(700, 3000))
     assert "not a checkpoint" in msg, msg
     # Past the end of the run -> the job would fail after allocating a GPU.
-    msg = _rejects(arm_tag="x", max_steps=1500, steps=(500, 4000, 1500))
+    msg = _rejects(run_tag="x", max_steps=1500, steps=(500, 4000, 1500))
     assert "past the end" in msg, msg
     # Empty track -> no curve at all.
-    msg = _rejects(arm_tag="x", max_steps=1500, steps=())
-    assert "empty knowledge track" in msg, msg
+    msg = _rejects(run_tag="x", max_steps=1500, steps=())
+    assert "empty checkpoint evals" in msg, msg
     print("PASS  non-existent, past-the-end and empty steps are all rejected")
 
 
 def check_derivation_only_names_real_checkpoints():
     # 120-step run, save_every 500: exactly one checkpoint exists, its last.
-    assert default_track_steps(120) == (120,), default_track_steps(120)
+    assert default_eval_steps(120) == (120,), default_eval_steps(120)
     for max_steps in (1500, 3000, 3750, 6000, 501, 999):
-        steps = default_track_steps(max_steps)
+        steps = default_eval_steps(max_steps)
         assert steps[-1] == max_steps, (max_steps, steps)
         assert len(set(steps)) == len(steps), f"duplicate steps for {max_steps}: {steps}"
         assert list(steps) == sorted(steps), steps
@@ -106,7 +106,7 @@ def check_derivation_only_names_real_checkpoints():
 
 
 def check_policy_gate():
-    from speech_llm.full_duplex.sis_recipe.doriank.arms import (
+    from speech_llm.full_duplex.sis_recipe.doriank.runs import (
         KNOWN_POLICIES,
         POLICY_2026_07_31,
         POLICY_2026_08_05,
@@ -127,7 +127,7 @@ def check_policy_gate():
 
 def check_unknown_policy_rejected():
     """An invented date would be older than every rule and silently opt the run out of all of them."""
-    from speech_llm.full_duplex.sis_recipe.doriank.arms import make_finetune_run
+    from speech_llm.full_duplex.sis_recipe.doriank.runs import make_finetune_run
 
     try:
         make_finetune_run(

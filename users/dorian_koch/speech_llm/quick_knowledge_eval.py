@@ -25,8 +25,8 @@ Modularity:
     (identical eval_results.jsonl / summary.json schema, so every downstream printer/ResultNotify
     works unchanged).
   * ``quick_knowledge_eval_py``             -- assembles one small eval for a checkpoint.
-  * ``attach_quick_knowledge_track``        -- ONE call attaches evals at several checkpoint steps,
-    giving a knowledge-vs-step curve *during* the run.
+  * ``attach_knowledge_evals``        -- ONE call attaches evals at several checkpoint steps,
+    giving a accuracy-vs-step curve *during* the run.
 
 The alias-match accuracy is an APPROXIMATE proxy for monitoring a trend, not a reportable number --
 the LLM-judged full benchmark stays the metric of record. See ``check_quick_knowledge_eval.py``.
@@ -305,7 +305,7 @@ def quick_knowledge_eval_py(
 
 
 #: How many checkpoints a derived track measures, final one included.
-DEFAULT_TRACK_POINTS = 4
+DEFAULT_EVAL_POINTS = 4
 
 #: ``save_every`` as ``finetune.py`` renders it. Not per-run: all three adapter renderers emit the
 #: literal 500, so intermediate checkpoints only ever exist at multiples of this.
@@ -317,11 +317,11 @@ SAVE_EVERY = 500
 LATEST = None
 
 
-def default_track_steps(
+def default_eval_steps(
     max_steps: int | None,
     save_every: int = SAVE_EVERY,
     *,
-    points: int = DEFAULT_TRACK_POINTS,
+    points: int = DEFAULT_EVAL_POINTS,
 ) -> tuple:
     """Checkpoint steps to benchmark for a training run: a cadence, PLUS the final step, always.
 
@@ -351,9 +351,9 @@ def default_track_steps(
     return tuple(sorted(out))
 
 
-def attach_quick_knowledge_track(
+def attach_knowledge_evals(
     *,
-    arm_tag: str,
+    run_tag: str,
     max_steps: int | None,
     save_every: int = SAVE_EVERY,
     moshi_checkpoint: tk.Path | None = None,
@@ -365,14 +365,14 @@ def attach_quick_knowledge_track(
     **kwargs,
 ):
     """Attach a fast knowledge eval at each of ``steps`` for one training run, giving it a
-    knowledge-vs-step curve. ONE call to give any run the standing eval routine.
+    accuracy-vs-step curve. ONE call to give any run the standing eval routine.
     Returns ``{step: grading_handle}``.
 
     Each eval depends on the training job's ``out_rundir``, so the whole track fires **after training
     finishes**, not as each checkpoint lands -- Sisyphus dependencies are job-level. (This docstring
     claimed the latter for months; it was never true.)
 
-    ``steps`` defaults to :func:`default_track_steps` over the run's own ``max_steps``. Pass it
+    ``steps`` defaults to :func:`default_eval_steps` over the run's own ``max_steps``. Pass it
     explicitly only to override the cadence -- the final checkpoint is enforced either way.
 
     **The final checkpoint MUST be measured.** Hardcoded step lists silently rot: the a8-4gpu track
@@ -385,12 +385,12 @@ def attach_quick_knowledge_track(
     ``max_steps``, ``max_steps`` itself, or :data:`LATEST`.
     """
     if steps is None:
-        steps = default_track_steps(max_steps, save_every)
+        steps = default_eval_steps(max_steps, save_every)
     steps = tuple(steps)
-    assert steps, f"{arm_tag}: empty knowledge track -- the run would produce no curve at all"
+    assert steps, f"{run_tag}: empty checkpoint evals -- the run would produce no curve at all"
     covers_final = (LATEST in steps) or (max_steps is not None and max_steps in steps)
     assert covers_final, (
-        f"{arm_tag}: knowledge track {steps} does not measure the FINAL checkpoint "
+        f"{run_tag}: checkpoint evals {steps} does not measure the FINAL checkpoint "
         f"(max_steps={max_steps}). A track that stops short leaves the end of the run unmeasured, "
         f"which is how a lengthened run silently loses its last datapoint. Add "
         f"{max_steps if max_steps is not None else 'LATEST'} to steps, or let steps default."
@@ -405,16 +405,16 @@ def attach_quick_knowledge_track(
         if s is LATEST:
             continue
         assert s > 0 and s % save_every == 0 or s == max_steps, (
-            f"{arm_tag}: track step {s} is not a checkpoint -- must be a positive multiple of "
+            f"{run_tag}: track step {s} is not a checkpoint -- must be a positive multiple of "
             f"save_every={save_every}, or max_steps ({max_steps}) itself"
         )
         assert max_steps is None or s <= max_steps, (
-            f"{arm_tag}: track step {s} is past the end of the run (max_steps={max_steps}); "
+            f"{run_tag}: track step {s} is past the end of the run (max_steps={max_steps}); "
             f"that checkpoint will never exist and its eval job would fail"
         )
     handles = {}
     for step in steps:
-        step_tag = f"{arm_tag}_s{step}" if step is not None else f"{arm_tag}_final"
+        step_tag = f"{run_tag}_s{step}" if step is not None else f"{run_tag}_final"
         handles[step] = quick_knowledge_eval_py(
             tag=step_tag,
             moshi_checkpoint=moshi_checkpoint,

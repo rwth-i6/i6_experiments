@@ -60,6 +60,22 @@ class FinetuneAdapter:
     pythonpath_package: str
     progress: tuple[str, str] = ("metrics.train.jsonl", "percent_done")
 
+    # --- what DOWNSTREAM work needs to know about this architecture -------------------------
+    # These were previously restated by hand at every consumer, or buried where nothing could read
+    # them: `overlay_kind` was a string literal repeated at each ResolveOverlayCheckpoint call, and
+    # `base_model` was trapped inside render_config's functools.partial, invisible to the recipe.
+    # Declaring them on the adapter means a training run can describe itself (see
+    # sis_recipe/doriank/runs.py) and a consumer never has to know which family it is holding.
+    #
+    # Safe to add: SpeechFinetune.hash() replaces the adapter with adapter.name, so extra fields
+    # here cannot move any existing job's hash.
+    #: Discriminator for ResolveOverlayCheckpoint: how the trained delta sits on the base model.
+    overlay_kind: str = "lora"
+    #: HF repo of the frozen base this architecture finetunes.
+    base_model: str = ""
+    #: Filename of the trained weights inside a checkpoint dir.
+    weights_name: str = "lora.safetensors"
+
 
 # --------------------------------------------------------------------------- #
 # Shared harness helpers (used by both SpeechFinetune and the MoshiFinetune shim).
@@ -388,6 +404,9 @@ system_prompt_key: "context"
 MOSHI_ADAPTER = FinetuneAdapter(
     name="moshi",
     batch_size=16,
+    overlay_kind="lora",
+    base_model="kyutai/moshiko-pytorch-bf16",
+    weights_name="lora.safetensors",
     render_config=partial(_render_moshi_finetune_config, hf_repo_id="kyutai/moshiko-pytorch-bf16"),
     launcher_module="i6_experiments.users.dorian_koch.speech_llm.moshi_finetune_launcher",
     pythonpath_package="moshi_finetune",
@@ -410,6 +429,9 @@ MOSHI_ADAPTER = FinetuneAdapter(
 PERSONAPLEX_ADAPTER = FinetuneAdapter(
     name="personaplex",
     batch_size=32,  # paper
+    overlay_kind="personaplex_heads",
+    base_model="nvidia/personaplex-7b-v1",
+    weights_name="trained_heads.safetensors",
     render_config=partial(_render_personaplex_config, hf_repo_id="nvidia/personaplex-7b-v1"),
     launcher_module="i6_experiments.users.dorian_koch.speech_llm.personaplex_finetune_launcher",
     pythonpath_package="moshi",  # the moshi-personaplex fork (import name `moshi`); installed by personaplex_venv()
@@ -424,6 +446,9 @@ PERSONAPLEX_ADAPTER = FinetuneAdapter(
 PERSONAPLEX_LIB_ADAPTER = FinetuneAdapter(
     name="personaplex_lib",
     batch_size=32,
+    overlay_kind="personaplex_heads",
+    base_model="nvidia/personaplex-7b-v1",
+    weights_name="trained_heads.safetensors",
     render_config=partial(_render_personaplex_config, hf_repo_id="nvidia/personaplex-7b-v1"),
     launcher_module="moshi_family.personaplex.finetune_launcher",
     pythonpath_package="moshi_family",
@@ -543,6 +568,9 @@ knowledge_probe_n: {hp.get("knowledge_probe_n", 0)}
 MOSHI_LIB_ADAPTER = FinetuneAdapter(
     name="moshi_lib",
     batch_size=16,
+    overlay_kind="lora",
+    base_model="kyutai/moshiko-pytorch-bf16",
+    weights_name="lora.safetensors",
     render_config=partial(_render_moshi_lib_config, hf_repo_id="kyutai/moshiko-pytorch-bf16"),
     launcher_module="moshi_family.moshi_finetune_launcher",
     pythonpath_package="moshi_family",
@@ -585,6 +613,9 @@ seed: {getattr(job, "seed", 0)}
 MOSHIRAG_LIB_ADAPTER = FinetuneAdapter(
     name="moshirag_lib",
     batch_size=16,
+    overlay_kind="lora",
+    base_model="kyutai/moshika-rag-pytorch-bf16",
+    weights_name="lora.safetensors",
     render_config=partial(_render_moshirag_lib_config, hf_repo_id="kyutai/moshika-rag-pytorch-bf16"),
     launcher_module="moshi_family.moshirag_finetune_launcher",
     pythonpath_package="moshi_family",
