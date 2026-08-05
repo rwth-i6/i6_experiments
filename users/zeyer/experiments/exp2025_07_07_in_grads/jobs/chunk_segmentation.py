@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Optional, Any, Dict, List, Tuple
+from typing import Optional, Union, Any, Dict, List, Tuple
 from sisyphus import Job, Task, tk
 from i6_experiments.users.zeyer.external_models.huggingface import (
     set_hf_offline_mode,
@@ -18,8 +18,12 @@ class ChunkSegmentationFromModelJob(Job):
     and the audio sample start/end indices per chunk (although they are redundant, as they are fixed).
     """
 
-    # excluded value = pre-flag behavior (omitted_prev_words never passed)
-    __sis_hash_exclude__ = {"pass_omitted_prev_words": False}
+    # excluded values = pre-flag behavior
+    __sis_hash_exclude__ = {
+        "pass_omitted_prev_words": False,
+        "max_words_per_chunk": None,
+        "word_start_completion_norm": False,
+    }
 
     def __init__(
         self,
@@ -33,6 +37,8 @@ class ChunkSegmentationFromModelJob(Job):
         empty_exit_penalty: float = -5.0,
         word_start_heuristic: bool = True,
         pass_omitted_prev_words: bool = False,
+        max_words_per_chunk: Optional[int] = None,
+        word_start_completion_norm: Union[bool, str] = False,
         dump_wav_first_n_seqs: int = 0,
     ):
         """
@@ -47,6 +53,29 @@ class ChunkSegmentationFromModelJob(Job):
         :param pass_omitted_prev_words: pass the actual omitted previous words to the model forward
             (`omitted_prev_words`), for wrappers with a native prev-text mechanism
             (e.g. Whisper `<|startofprev|>`). The wrapper must declare the parameter.
+        :param max_words_per_chunk: cap the candidate words passed per chunk forward
+            (default: all remaining words of the sequence).
+            Needed for limited-context models
+            (Whisper: 448 decoder positions; transducers: the T x U joint memory).
+            Semantically free when the cap exceeds what a chunk can contain
+            (~100 words at 30s); the final chunk asserts the cap did not bite.
+        :param word_start_completion_norm: length-fair word-start selection:
+            the plain argmax over ``accum_exit(w)`` compares exits at different word counts
+            and ignores the remaining ``S - w`` words' future cost --
+            with weak per-word scores (several nats each, e.g. Whisper on conversational
+            speech) it degenerates to "consume almost nothing" (extreme lag).
+            With this on, each remaining word is credited with a mean per-word score c_bar
+            (optimistic completion estimate, A*-style):
+            ``argmax accum_exit(w) - w * c_bar``.
+            Exactly neutral when per-word scores are ~0 (confident models).
+            ``True``: c_bar = mean over ALL scored words of the just-scored chunk.
+            KNOWN BAD for audio-anchored scorers (CTC): the far-future words
+            (audio not in the chunk) score catastrophically and drag c_bar down,
+            over-rewarding progress (collapses to max consumption). Kept for hash
+            stability of finished jobs only.
+            ``"consumed"``: c_bar = running per-seq mean over the words up to the
+            plain-argmax boundary of each chunk (in-chunk by construction) --
+            prices remaining words at the observed in-their-right-chunk rate.
         :param dump_wav_first_n_seqs: for debugging
         """
         super().__init__()
@@ -61,6 +90,14 @@ class ChunkSegmentationFromModelJob(Job):
         self.empty_exit_penalty = empty_exit_penalty
         self.word_start_heuristic = word_start_heuristic
         self.pass_omitted_prev_words = pass_omitted_prev_words
+        self.max_words_per_chunk = max_words_per_chunk
+        if max_words_per_chunk is not None:
+            # the exact DP cannot move its word window, only the heuristic advances the start
+            assert word_start_heuristic, "max_words_per_chunk requires word_start_heuristic"
+        assert word_start_completion_norm in (False, True, "consumed"), f"{word_start_completion_norm=}"
+        self.word_start_completion_norm = word_start_completion_norm
+        if word_start_completion_norm:
+            assert word_start_heuristic, "word_start_completion_norm only affects the heuristic"
         self.dump_wav_first_n_seqs = dump_wav_first_n_seqs
 
         self.rqmt = {"time": 40, "cpu": 2, "gpu": 1, "mem": 125}
@@ -192,6 +229,8 @@ class ChunkSegmentationFromModelJob(Job):
                 assert cur_audio_start >= 0
 
             array: List[List[_Node]] = []  # [chunk_idx][rel word_idx]
+            # running per-seq stats for word_start_completion_norm == "consumed"
+            _cn_sum, _cn_cnt = 0.0, 0
 
             # In the (S+1)*C grid (RNN-T style), but we might not fill all S+1 entries per chunk idx.
             @dataclass
@@ -211,11 +250,62 @@ class ChunkSegmentationFromModelJob(Job):
                     cur_word_start = 0
                 else:
                     # Heuristic. Look through last chunk, look out for best exit_log_prob
+                    prev_nodes_sel = array[cur_chunk_idx - 1]
                     prev_array_word_idx = int(
-                        torch.stack([node.accum_exit_log_prob for node in array[cur_chunk_idx - 1]]).argmax().item()
+                        torch.stack([node.accum_exit_log_prob for node in prev_nodes_sel]).argmax().item()
                     )
-                    cur_word_start = array[cur_chunk_idx - 1][prev_array_word_idx].word_idx
+                    if self.word_start_completion_norm:
+                        # Length-fair selection (see __init__ docstring):
+                        # credit each remaining word with a mean per-word score c_bar.
+                        if self.word_start_completion_norm == "consumed":
+                            # in-chunk rate: the words up to the plain-argmax boundary,
+                            # accumulated per seq (bootstrap: the lag-argmax range IS in-chunk)
+                            _wl = [
+                                float(n.accum_word_log_prob - n.accum_in_log_prob)
+                                for n in prev_nodes_sel[:prev_array_word_idx]
+                                if n.accum_word_log_prob is not None
+                            ]
+                            _cn_sum += sum(_wl)
+                            _cn_cnt += len(_wl)
+                            _c_bar = (_cn_sum / _cn_cnt) if _cn_cnt else 0.0
+                        else:  # True: naive all-scored-words mean (see docstring caveat)
+                            _wl = [
+                                float(n.accum_word_log_prob - n.accum_in_log_prob)
+                                for n in prev_nodes_sel
+                                if n.accum_word_log_prob is not None
+                            ]
+                            _c_bar = (sum(_wl) / len(_wl)) if _wl else 0.0
+                        prev_array_word_idx = int(
+                            np.argmax([float(n.accum_exit_log_prob) - n.word_idx * _c_bar for n in prev_nodes_sel])
+                        )
+                    cur_word_start = prev_nodes_sel[prev_array_word_idx].word_idx
+                if self.max_words_per_chunk is not None:
+                    # Feasibility clamp: the remaining chunks (incl. this one) must be able to
+                    # absorb the remaining words (<= max_words_per_chunk each), so the DP always
+                    # reaches the last word. If the heuristic's best exit lags behind that
+                    # frontier, take the best exit among the feasible nodes instead.
+                    # By induction the feasible set is non-empty whenever the whole seq is
+                    # feasible (len(words) <= num_chunks * cap); otherwise assert (invalid seq).
+                    min_start = len(words) - (len(chunk_start_end) - cur_chunk_idx) * self.max_words_per_chunk
+                    if cur_word_start < min_start:
+                        assert cur_chunk_idx > 0, (
+                            f"seq {seq_idx}: infeasible: {len(words)} words in "
+                            f"{len(chunk_start_end)} chunks x cap {self.max_words_per_chunk}"
+                        )
+                        prev_nodes = array[cur_chunk_idx - 1]
+                        cand = [i for i, n in enumerate(prev_nodes) if n.word_idx >= min_start]
+                        assert cand, (
+                            f"seq {seq_idx} chunk {cur_chunk_idx}: no feasible word start >= {min_start} "
+                            f"(prev chunk covers {prev_nodes[0].word_idx}..{prev_nodes[-1].word_idx}); "
+                            f"{len(words)} words in {len(chunk_start_end)} chunks "
+                            f"x cap {self.max_words_per_chunk} is likely infeasible"
+                        )
+                        prev_array_word_idx = max(cand, key=lambda i: float(prev_nodes[i].accum_exit_log_prob))
+                        cur_word_start = prev_nodes[prev_array_word_idx].word_idx
                 cur_word_end = len(words)  # Go to the end. Not so expensive...
+                if self.max_words_per_chunk is not None:
+                    # Limited-context models (see __init__ docstring).
+                    cur_word_end = min(cur_word_end, cur_word_start + self.max_words_per_chunk)
                 print(
                     f"** Forwarding chunk {cur_chunk_idx} (out of {len(chunk_start_end)}),"
                     f" {cur_audio_start / samplerate}:{cur_audio_end / samplerate} secs,"

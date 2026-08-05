@@ -46,7 +46,27 @@ from sisyphus import tk
 
 from i6_experiments.users.zeyer.external_models.huggingface import DownloadHuggingFaceRepoJobV2
 from i6_experiments.users.zeyer.external_models.phi4multimodal import download_phi4multimodal_model
+from i6_experiments.users.zeyer.external_models.voxtral import download_voxtral_mini_3b_model
+from i6_experiments.users.zeyer.external_models.canary_qwen import (
+    download_canary_qwen_2_5b_model,
+    download_qwen3_1_7b_model,
+)
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.phi4mm import Phi4MM
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.wav2vec2_ctc import Wav2Vec2Ctc
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.wav2vec2_phoneme_ctc import (
+    Wav2Vec2PhonemeCtc,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.parakeet_ctc import ParakeetCtc
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.parakeet_rnnt import ParakeetRnnt
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.owsm_ctc import OwsmCtc
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.fastconformer_streaming import (
+    FastConformerStreaming,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.emformer_rnnt import EmformerRnnt
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.whisper import Whisper
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.owls import Owls
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.voxtral import Voxtral
+from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.models.canary_qwen import CanaryQwen
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.chunk_segmentation import (
     ChunkSegmentationFromModelJob,
     ChunkSegmentationFromModelBatchedJob,
@@ -60,6 +80,9 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.buckeye_
 
 # Same convention as exp2025_05_05_align.py / exp2026_05_23_grad_align.py.
 _DATASET_OFFSET_FACTORS = {"timit": 1, "buckeye": 1000}
+
+# Same NeMo overlay as exp2026_05_23_grad_align (import patches for Canary/Parakeet/FastConformer).
+_NEMO_OVERLAY = "/home/az668407/work/canary-qwen-overlay"
 
 _table_results: Dict[str, tk.Variable] = {}
 
@@ -561,3 +584,155 @@ def py():
     )
     _seg_fp32s.add_alias("chunk-align/phi4mm-buckeye-val-cs30-ov5-single-float32")
     reg("chunk-align/phi4mm-buckeye-val-cs30-ov5-single-float32.hdf", _seg_fp32s.out_hdf)
+
+    # === Model zoo: all grad-align paper models through the chunk DP (single-seq job). ===
+    # Download jobs re-created with the exact grad-align args (identical hash);
+    # the finished download dirs are imported (symlinked) from that setup, NEVER rerun.
+    # Word scores = the grad-align labelwise prefix scores (prefix_fwd CTC / prefix transducer);
+    # exit scores from the same lattices (verified; TDT falls back to exit=0).
+    # Whisper family uses the native <|startofprev|> prev context (pass_omitted_prev_words).
+    dl_owsm_ctc = DownloadHuggingFaceRepoJobV2(repo_id="espnet/owsm_ctc_v4_1B", repo_type="model")
+    dl_owsm_ctc.set_env("HF_HUB_DISABLE_XET", "1")
+    dl_whisper = DownloadHuggingFaceRepoJobV2(repo_id="openai/whisper-base", repo_type="model")
+    dl_whisper_l3 = DownloadHuggingFaceRepoJobV2(repo_id="openai/whisper-large-v3", repo_type="model")
+    dl_crisper = DownloadHuggingFaceRepoJobV2(repo_id="nyrahealth/CrisperWhisper", repo_type="model")
+    dl_parakeet_rnnt = DownloadHuggingFaceRepoJobV2(repo_id="nvidia/parakeet-rnnt-1.1b", repo_type="model")
+    dl_parakeet_tdt = DownloadHuggingFaceRepoJobV2(repo_id="nvidia/parakeet-tdt-0.6b-v2", repo_type="model")
+    dl_parakeet_ctc = DownloadHuggingFaceRepoJobV2(repo_id="nvidia/parakeet-ctc-1.1b", repo_type="model")
+    dl_fc_stream = DownloadHuggingFaceRepoJobV2(
+        repo_id="nvidia/stt_en_fastconformer_hybrid_large_streaming_multi", repo_type="model"
+    )
+    dl_owls_1b = DownloadHuggingFaceRepoJobV2(repo_id="espnet/owls_1B_180K", repo_type="model")
+    dl_w2v_phoneme = DownloadHuggingFaceRepoJobV2(
+        repo_id="vitouphy/wav2vec2-xls-r-300m-timit-phoneme", repo_type="model"
+    )
+    dl_voxtral = download_voxtral_mini_3b_model()
+    dl_canary = download_canary_qwen_2_5b_model()
+    dl_qwen3 = download_qwen3_1_7b_model()
+
+    _fc_att = [70, 6]
+    _zoo = [  # (name, model_config, pass_omitted_prev_words)
+        ("mms-fa", rf.build_dict(Wav2Vec2Ctc, per_token_score="prefix_fwd"), False),
+        (
+            "w2v-phoneme",
+            rf.build_dict(
+                Wav2Vec2PhonemeCtc,
+                model_dir=dl_w2v_phoneme.out_hub_cache_dir,
+                g2p_word_targets=True,
+                per_token_score="prefix_fwd",
+            ),
+            False,
+        ),
+        (
+            "parakeet-ctc-1.1b",
+            rf.build_dict(
+                ParakeetCtc,
+                model_dir=dl_parakeet_ctc.out_hub_cache_dir,
+                overlay_path=_NEMO_OVERLAY,
+                per_token_score="prefix_fwd",
+            ),
+            False,
+        ),
+        (
+            "owsm-ctc-v4-1b",
+            rf.build_dict(OwsmCtc, model_dir=dl_owsm_ctc.out_hub_cache_dir, version=2, per_token_score="prefix_fwd"),
+            False,
+        ),
+        (
+            "fastconformer-stream-ctc",
+            rf.build_dict(
+                FastConformerStreaming,
+                model_dir=dl_fc_stream.out_hub_cache_dir,
+                overlay_path=_NEMO_OVERLAY,
+                head="ctc",
+                att_context_size=_fc_att,
+            ),
+            False,
+        ),
+        (
+            "fastconformer-stream-rnnt",
+            rf.build_dict(
+                FastConformerStreaming,
+                model_dir=dl_fc_stream.out_hub_cache_dir,
+                overlay_path=_NEMO_OVERLAY,
+                head="rnnt",
+                att_context_size=_fc_att,
+            ),
+            False,
+        ),
+        (
+            "parakeet-rnnt-1.1b",
+            rf.build_dict(
+                ParakeetRnnt,
+                model_dir=dl_parakeet_rnnt.out_hub_cache_dir,
+                per_token_score="prefix",
+                overlay_path=_NEMO_OVERLAY,
+            ),
+            False,
+        ),
+        (
+            "parakeet-tdt-0.6b-v2",
+            rf.build_dict(
+                ParakeetRnnt,
+                model_dir=dl_parakeet_tdt.out_hub_cache_dir,
+                per_token_score="prefix",
+                overlay_path=_NEMO_OVERLAY,
+            ),
+            False,
+        ),
+        ("emformer-rnnt", rf.build_dict(EmformerRnnt, per_token_score="prefix"), False),
+        ("whisper-base", rf.build_dict(Whisper, model_dir=dl_whisper.out_hub_cache_dir), True),
+        ("whisper-large-v3", rf.build_dict(Whisper, model_dir=dl_whisper_l3.out_hub_cache_dir), True),
+        ("crisperwhisper", rf.build_dict(Whisper, model_dir=dl_crisper.out_hub_cache_dir), True),
+        ("owls-1b-180k", rf.build_dict(Owls, model_dir=dl_owls_1b.out_hub_cache_dir), False),
+        (
+            "voxtral",
+            rf.build_dict(Voxtral, model_dir=dl_voxtral, forward_mode="transcription", version=3),
+            False,
+        ),
+        (
+            "canary-qwen",
+            rf.build_dict(CanaryQwen, model_dir=dl_canary, llm_model_dir=dl_qwen3, version=3),
+            False,
+        ),
+    ]
+    # Cap candidate words per chunk for limited-context models
+    # (Whisper: 448 decoder positions incl. the <|startofprev|> prompt;
+    # Emformer: the T x (U+1) x V joint lattice OOMs on full-transcript U).
+    # A 30s chunk holds at most ~100 words, so the caps are semantically free.
+    _zoo_max_words = {"whisper-base": 120, "whisper-large-v3": 120, "crisperwhisper": 120, "emformer-rnnt": 200}
+    # Length-fair word-start selection for the weak-score models (acc < 90% in the first round;
+    # plain argmax exit degenerates to extreme lag / erratic starts there, see the job docstring).
+    # "consumed" prices remaining words at the in-their-right-chunk rate
+    # (the naive True mean collapsed the audio-anchored CTC models, see readme).
+    _zoo_start_norm = {
+        "whisper-base": "consumed",
+        "whisper-large-v3": "consumed",
+        "crisperwhisper": "consumed",
+        "emformer-rnnt": "consumed",
+        "mms-fa": "consumed",
+        "w2v-phoneme": "consumed",
+    }
+    for _zname, _zcfg, _zprev in _zoo:
+        _zseg = ChunkSegmentationFromModelJob(
+            dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+            dataset_key="val",
+            model_config=_zcfg,
+            chunk_size_secs=30.0,
+            chunk_overlap_secs=0.0,
+            pass_omitted_prev_words=_zprev,
+            max_words_per_chunk=_zoo_max_words.get(_zname),
+            word_start_completion_norm=_zoo_start_norm.get(_zname, False),
+        )
+        _zseg.add_alias(f"chunk-align/zoo/{_zname}-buckeye-val-cs30-ov0")
+        reg(f"chunk-align/zoo/{_zname}-buckeye-val-cs30-ov0.hdf", _zseg.out_hdf)
+        _zm = CalcChunkAssignmentMetricsJob(
+            chunk_seg_hdf=_zseg.out_hdf,
+            dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+            dataset_key="val",
+            dataset_offset_factors=_DATASET_OFFSET_FACTORS["buckeye"],
+        )
+        _zm.add_alias(f"chunk-align/zoo/{_zname}-buckeye-val-cs30-ov0-metric")
+        reg(f"chunk-align/zoo/{_zname}-buckeye-val-cs30-ov0-accuracy.txt", _zm.out_accuracy)
+        reg(f"chunk-align/zoo/{_zname}-buckeye-val-cs30-ov0-error-p95-sec.txt", _zm.out_error_p95_sec)
+        reg(f"chunk-align/zoo/{_zname}-buckeye-val-cs30-ov0-frac-gt-1s.txt", _zm.out_frac_gt_1s)
