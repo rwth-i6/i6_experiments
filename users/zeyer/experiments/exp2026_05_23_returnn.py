@@ -728,6 +728,8 @@ def py_aed_graphc_loquacious():
     #   This also brings 25 (scatter masking), 26 (DistributeFilesDataset sharding, a no-op unsharded),
     #   27 (RF module output keeps the input dtype under autocast) and 28 (per-seq specaugment masks).
     #   For a fresh training the latest semantics are what we want; nothing here needs the old ones.
+    # STATUS: collapsed at ep 7 as well (held); kept in the graph:
+    # cfg_v2 anchors the benches and probe configs below, and the ep-6 checkpoint stays reachable.
     nogap_total = 100_000 * _loq_batch_size_factor() + 200 * align
     nogap_total = -(-nogap_total // align) * align
     exp_v2, _, _ = loq_train(
@@ -775,12 +777,14 @@ def py_aed_graphc_loquacious():
     # while doing more work. Note max_seqs stays 200, so if the seq count binds before the
     # frame count, the larger batch sizes will not actually grow -- visible as a flat throughput.
     cfg_v2 = exp_v2.get_training_job().returnn_config
+    # (REMOVED the ("packed_graphc", 200) point, loq-v2-bs200k-packed_graphc:
+    #  OOM'd right after warmup -- audio bound 32.2M plus the outdated 200*classes_cap text bound;
+    #  the tuned-bound partitioned benches answer the bs200k-fit question instead)
     for mode, bs_k in [
         ("padded_eager", 100),
         ("packed_graphc", 100),
         ("packed_graphc", 125),
         ("packed_graphc", 150),
-        ("packed_graphc", 200),
     ]:
         bs = bs_k * 1000 * _loq_batch_size_factor()
         audio_bound = -(-(bs + 200 * align) // align) * align
@@ -835,13 +839,7 @@ def py_aed_graphc_loquacious():
     )
     tk.register_output("returnn/loq-v2-packed_tensors-default.json", job.out_results)
 
-    # Divergence probes, all v2-identical except one axis each:
-    # - seed variant: is the packed ep-7 collapse systematic (3/3) or near-boundary luck?
-    # - keep-opt variant: same seed as v2; cleanup_old_models False keeps every checkpoint
-    #   AND optimizer state, so a faithful branch (real Adam moments) becomes possible --
-    #   the missing opt state is what turned the last branch bisect into a fresh-Adam artifact.
-    #   num_epochs stays 100 (the LR schedule derives from it); stop manually after the
-    #   collapse window via the sis hold file.
+    # The shared v2 packed-graphc config, base of every packed collapse probe below.
     _loq_v2_packed_overrides = {
         "train.optimizer.capturable": True,
         "model.behavior_version": 29,
@@ -860,9 +858,9 @@ def py_aed_graphc_loquacious():
             "compile": True,
         },
     }
-    exp_s1337, _, _ = loq_train(
-        "base-graphc-v2-s1337", {}, config_overrides={**_loq_v2_packed_overrides, "train.random_seed": 1337}
-    )
+    # REMOVED base-graphc-v2-s1337 (held): v2 with random_seed 1337; collapsed at ep 7 like v2
+    # -> the collapse is systematic, not seed luck;
+    # its ep-5..7 checkpoints + opt states are snapshotted in ~/tmp/s1337-snapshots.
 
     # Small-model FROM-SCRATCH repro: the same pipeline, data, LR schedule, packing and bounds,
     # only the net shrunk (enc 16L/1024 -> 4L/256, dec 6L/1024 -> 2L/256, aux heads rescaled).
@@ -952,33 +950,14 @@ def py_aed_graphc_loquacious():
     }
     loq_train("base-graphc-v2-medium", {}, config_overrides={**_loq_v2_packed_overrides, **medium_overrides})
 
-    # FAITHFUL fast repro: branch from s1337's ep-6 checkpoint WITH the real Adam moments
-    # (ep 6 healthy, collapse during ep 7; the opt state was snapshotted to ~/tmp/s1337-snapshots
-    # before cleanup can prune it).
-    # The native resume restores the global train step, so the LR schedule continues
-    # at the real ep-7 ramp: the collapse should reproduce within ~2500 steps (~40 min),
-    # making fix/ablation iterations ~6x faster than a from-scratch run.
-    # packed_graphc must collapse (control); packed_eager decides packed-ops vs capture
-    # without the fresh-Adam artifact that invalidated the first branch bisect.
-    ckpt6_s1337 = exp_s1337.get_training_job().out_checkpoints[6]
-    for mode in ["packed_eager", "packed_graphc"]:
-        job = TrainStepBenchmarkJob(
-            returnn_config=cfg_v2,
-            mode=mode,
-            num_steps=7000,
-            load_checkpoint=ckpt6_s1337.path,
-            version=2,
-            config_overrides={"num_epochs": 3, "random_seed": 1337},
-        )
-        tk.register_output(f"returnn/loq-v2-branch-s1337-ep6-{mode}.json", job.out_results)
-    # packed EAGER from scratch: no capture, no compile, fresh weights.
-    # The branch could not separate packed ops from capture
-    # (all its arms started from the possibly-damaged ep-6 checkpoint with fresh Adam).
-    # If this collapses at ep 7 too, capture/compile are out for real; if it survives, they are in.
+    # REMOVED loq-v2-branch-s1337-ep6-{packed_eager,packed_graphc}: native resume from s1337's
+    # ep-6 checkpoint WITH the real Adam moments; both arms reproduced the grad-norm onset with
+    # near-identical per-step losses -> capture is numerically faithful at full scale.
+    # REMOVED base-packed-eager-v2 (held): packed ops WITHOUT capture/compile, from scratch;
+    # collapsed at ep 7 like all graphc runs (5/5 packed vs padded healthy)
+    # -> the cause is in the packed eager regime, capture/compile exonerated;
+    # ep-5..8 checkpoints (+ ep-7/8 opt) snapshotted in ~/tmp/packed-eager-v2-snapshots.
     _eager_overrides = {k: v for k, v in _loq_v2_packed_overrides.items() if k != "train.torch_cuda_graph"}
-    loq_train("base-packed-eager-v2", {}, config_overrides=_eager_overrides)
-    # COLLAPSED at ep 7 like all graphc runs (5/5 packed vs padded healthy):
-    # the cause is in the packed regime itself, not capture/compile.
     # Component-swap bisects, from scratch, eager, one packed component made padded-equivalent each:
     # attpad: attentions via unpack -> exact padded kernels -> repack
     # (rf_packed_att_fast_paths=False skips Triton/flash/flex, the fallback must be allowed);
@@ -1002,67 +981,18 @@ def py_aed_graphc_loquacious():
             "train.packed_fallback_allowed": ["ctc_loss"],
         },
     )
-    # keep-opt variant: NOT via "train.cleanup_old_models" -- that key lives in post_config
-    # (keep_last_n 5) and the ReturnnConfig consistency check forbids it in both,
-    # which crashed the whole config load. Needs the post-config override channel; TODO.
+    # (a keep-opt v2 variant for faithful branching was planned and dropped:
+    #  the s1337 / packed-eager checkpoint+opt snapshots serve that,
+    #  and from-scratch runs are the trusted repro anyway)
 
-    # Mitigation probe: identical to base-graphc-v2 except gradient_clip_global_norm 5.0 -> 1.0.
-    # Both real packed+graphc runs collapsed at ep 7 on the LR ramp, and the padded run's
-    # PRE-clip grad norm sits at 10-15 against clip 5, i.e. the model trains permanently clipped;
-    # the branch probes collapsed under perturbation in every mode, padded included,
-    # so the working read is an optimization instability near this LR, not a packed-specific bug.
-    # If the tighter clip carries this run past ep 8, we have a working recipe (and evidence).
-    loq_train(
-        "base-graphc-v3",
-        {},
-        config_overrides={
-            "train.optimizer.capturable": True,
-            "model.behavior_version": 29,
-            "train.gradient_clip_global_norm": 1.0,
-            "train.packed_tensors": {
-                "per_key": {
-                    "audio": {"gap": 0, "align": align},
-                    "text": {"gap": 0, "align": 1},
-                }
-            },
-            "train.torch_cuda_graph": {
-                "batch_size_bound": 200,
-                "dim_capacity": {"audio": 312_960, "text": classes_cap},
-                "packed_total_bound": {"audio": nogap_total, "text": 18_000},
-                "warmup_steps": 2,
-                "capture_optimizer": True,
-                "compile": True,
-            },
-        },
-    )
+    # REMOVED base-graphc-v3 (held): v2 + gradient_clip_global_norm 5.0 -> 1.0 (mitigation probe);
+    # collapsed at ep 7 exactly like v2 -> tighter clipping does not fix the collapse,
+    # and its pre-clip grad-norm log gave the onset curve (smooth exponential, doubling ~500 steps).
 
-    # Collapse bisect: base-graphc-v2 collapsed at ep 7 (again; the old run did too, at a different
-    # config), while base-v2 (padded eager, same code) is healthy. Branch from the ep-6 checkpoint
-    # and run ~2 epochs in each mode of the packed ladder:
-    # eager (packed ops only) -> compiled (+ Inductor) -> graphc (+ CUDA graph).
-    # Whichever stage collapses names the faulty layer; the graphc control must collapse,
-    # else the trigger is data-order- or optimizer-state-dependent
-    # (the branch starts with FRESH Adam moments: the ep-6 opt state is already cleaned up).
-    # The checkpoint is linked as epoch 1; the global train step in it drives the LR schedule,
-    # so the branch continues at the real ep-7 learning rate.
-    # The ep-6 opt state is cleaned up, so the checkpoint is IMPORTED (fresh Adam moments)
-    # and the LR pinned to the collapse region: the old run's effective LR was
-    # 6.0e-5 (ep 6) -> 7.1e-5 (ep 7, collapse) -> 8.2e-5 (ep 8).
-    # (v1 of these jobs linked the checkpoint as epoch 1 for a native resume;
-    #  without the opt state the engine silently trained from scratch, see get_existing_models.)
-    ckpt6 = exp_v2.get_training_job().out_checkpoints[6]
-    # padded_eager = the control: all packed arms drifting together would otherwise not separate
-    # "bug in the packed ops" from "artifact of the branch conditions" (fresh Adam, constant LR)
-    for mode in ["padded_eager", "packed_eager", "packed_compiled", "packed_graphc"]:
-        job = TrainStepBenchmarkJob(
-            returnn_config=cfg_v2,
-            mode=mode,
-            num_steps=7000,  # ~2 epochs: the collapse developed over ep 7 -> 8
-            load_checkpoint=ckpt6.path,
-            version=2,
-            config_overrides={"num_epochs": 2, "dynamic_learning_rate": None, "learning_rate": 7e-05},
-        )
-        tk.register_output(f"returnn/loq-v2-branch-ep6-{mode}.json", job.out_results)
+    # REMOVED loq-v2-branch-ep6-{padded_eager,packed_eager,packed_compiled,packed_graphc}:
+    # branch from v2's ep-6 checkpoint with FRESH Adam moments (the opt state was pruned), LR pinned 7e-5;
+    # ALL four arms collapsed, padded included -> a fresh-Adam artifact, no conclusion;
+    # lesson: never bisect from a checkpoint without its optimizer state.
 
 
 def _loq_text_seq_len_stats():
