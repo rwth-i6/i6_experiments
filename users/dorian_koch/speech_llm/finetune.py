@@ -541,7 +541,7 @@ temporal_lr: {_yaml_float(hp.get("temporal_lr", _lr))}
 audio_other_weight: {_yaml_float(hp.get("audio_other_weight", 0.01))}
 text_pad_weight: {_yaml_float(hp.get("text_pad_weight", 0.5))}
 warmup_steps: {hp.get("warmup_steps", 200)}
-grad_clip: 1.0
+grad_clip: {_yaml_float(hp.get("grad_clip", 1.0))}
 gradient_checkpointing: true
 save_every: 500
 log_every: 10
