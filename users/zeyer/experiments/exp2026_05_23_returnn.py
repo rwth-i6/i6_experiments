@@ -950,6 +950,42 @@ def py_aed_graphc_loquacious():
     }
     loq_train("base-graphc-v2-medium", {}, config_overrides={**_loq_v2_packed_overrides, **medium_overrides})
 
+    # Width probe at the FULL model dim (~160M): 1024 wide but shallow, incl. the full model's
+    # 128-dim heads (small/medium have 64); medium (10L/512) passed ep 7 clean,
+    # so this separates width/head-dim from depth/param-count as the scale driver.
+    medium1024_overrides = {
+        "model.enc_build_dict": rf.build_dict(
+            ConformerEncoder,
+            input_layer=rf.build_dict(
+                ConformerConvSubsample,
+                out_dims=[32, 64, 64],
+                filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                pool_sizes=[(1, 2)],
+                strides=[(1, 1), (3, 1), (2, 1)],
+            ),
+            num_layers=4,
+            out_dim=1024,
+            encoder_layer=rf.build_dict(
+                ConformerEncoderLayer,
+                ff=rf.build_dict(
+                    ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                ),
+                num_heads=8,
+            ),
+        ),
+        "model.dec_build_dict": rf.build_dict(
+            TransformerDecoder,
+            num_layers=2,
+            model_dim=1024,
+            norm=rf.build_dict(rf.RMSNorm),
+            ff=rf.build_dict(FeedForwardGated),
+            layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+        ),
+        "train.aux_loss_layers": [2, 4],
+        "train.dec_aux_loss_layers": [1],
+    }
+    loq_train("base-graphc-v2-medium1024", {}, config_overrides={**_loq_v2_packed_overrides, **medium1024_overrides})
+
     # REMOVED loq-v2-branch-s1337-ep6-{packed_eager,packed_graphc}: native resume from s1337's
     # ep-6 checkpoint WITH the real Adam moments; both arms reproduced the grad-norm onset with
     # near-identical per-step losses -> capture is numerically faithful at full scale.
