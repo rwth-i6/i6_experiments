@@ -80,6 +80,7 @@ class Voxtral(BaseModelInterface):
         char_level_sep: Optional[str] = None,
         logits_transform: Union[None, str, Dict[str, Any], Sequence[Union[str, Dict[str, Any]]]] = None,
         attn_implementation: Optional[str] = None,
+        omitted_ctx_marker: bool = True,
         version: int = 1,
     ):
         """
@@ -118,6 +119,9 @@ class Voxtral(BaseModelInterface):
         self.ensure_audio_long_enough = bool(ensure_audio_long_enough)
         self._char_level = bool(char_level)
         self._char_level_sep = char_level_sep
+        # "... " marker prepended when prev words were omitted (chunked decoding);
+        # False = feed nothing (no continuation cue) -- ablation.
+        self._omitted_ctx_marker = omitted_ctx_marker
         self.logits_transform = make_logits_transform(logits_transform)
         # NOTE on these version asserts:
         # only the >= 3 floor is a genuine behaviour fix (the v1/v2 splice / n_audio_real bugs).
@@ -563,7 +567,10 @@ class Voxtral(BaseModelInterface):
             )
         # Omitted prev context: "... " prefix as an unscored context marker
         # (Phi4MM pattern); the first recovered "word" below is the marker and is dropped.
-        added_prefix = omitted_prev_context is not None and int(omitted_prev_context[0]) > 0
+        # With omitted_ctx_marker=False: feed nothing (no continuation cue) -- ablation.
+        added_prefix = (
+            omitted_prev_context is not None and int(omitted_prev_context[0]) > 0 and self._omitted_ctx_marker
+        )
         if added_prefix:
             assert not self._char_level, "Voxtral chunked context: char_level not supported"
             transcription = "... " + transcription

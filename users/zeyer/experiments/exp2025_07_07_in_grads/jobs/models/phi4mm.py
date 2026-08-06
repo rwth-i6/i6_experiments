@@ -91,6 +91,7 @@ class Phi4MM(BaseModelInterface):
         target_start_end_to_device: bool = False,
         attn_implementation: Optional[str] = None,
         model_dtype: Optional[str] = None,
+        omitted_ctx_marker: bool = True,
     ):
         """
         :param model_dir: hub cache dir of model e.g. via DownloadHuggingFaceRepoJob.out_hub_cache_dir
@@ -121,6 +122,9 @@ class Phi4MM(BaseModelInterface):
         self._char_level_brackets = char_level_brackets
         self._char_level_skip_chars = set(char_level_skip_chars) if char_level_skip_chars else None
         self._target_start_end_to_device = target_start_end_to_device
+        # "... " marker prepended when prev words were omitted (chunked decoding);
+        # False = feed nothing (no continuation cue) -- ablation.
+        self._omitted_ctx_marker = omitted_ctx_marker
 
         print("Import Transformers...")
         start_time = time.time()
@@ -500,7 +504,7 @@ class Phi4MM(BaseModelInterface):
         words = raw_targets[0]
         transcription = " ".join(words)
         added_prefix = False
-        if omitted_prev_context is not None and omitted_prev_context[0] > 0:
+        if omitted_prev_context is not None and omitted_prev_context[0] > 0 and self._omitted_ctx_marker:
             added_prefix = True
             transcription = "... " + transcription
         prompt = f"<|user|><|audio_1|>{speech_prompt}<|end|><|assistant|>{transcription}<|end|>"

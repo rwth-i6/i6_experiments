@@ -719,6 +719,19 @@ def py():
         "crisperwhisper": True,
         "emformer-rnnt": "consumed",
     }
+    # No-context-marker ablation ("feed nothing as history"): the LLM wrappers prepend a
+    # "... " continuation marker for chunks after the first; is it needed at all?
+    # (Whisper's analog -- no startofprev -- was round 5: worse. CTC feeds nothing anyway.)
+    _zoo = _zoo + [
+        ("phi4mm-noctx", {**_cfg_hp, "omitted_ctx_marker": False}, False),
+        (
+            "voxtral-noctx",
+            rf.build_dict(
+                Voxtral, model_dir=dl_voxtral, forward_mode="transcription", version=3, omitted_ctx_marker=False
+            ),
+            False,
+        ),
+    ]
     for _zname, _zcfg, _zprev in _zoo:
         _zseg = ChunkSegmentationFromModelJob(
             dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
