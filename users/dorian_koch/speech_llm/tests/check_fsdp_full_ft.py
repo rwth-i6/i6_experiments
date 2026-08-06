@@ -36,6 +36,7 @@ FULL_DUPLEX = RECIPE / "speech_llm/full_duplex"
 
 WORKER = r'''
 import os, sys, tempfile
+from pathlib import Path as _FsPath
 import torch, torch.nn as nn
 import torch.distributed as dist
 from torch.distributed.device_mesh import init_device_mesh
@@ -199,6 +200,56 @@ if rank == 0:
           f"if only this one failed, the divergence is downstream of the state dicts, and the "
           f"control assertion above already rules out FSDP2 non-determinism and the save side.")
 
+# ---- 4. COLLECTIVE SYMMETRY --------------------------------------------------------------------
+# The bug this catches: the per-module norms all-reduce under FSDP2, and they were gated on
+# `logging_step`, which included `is_main`. So rank 0 ran one collective the others did not, got a
+# step ahead, and NCCL sat on a 1-element ALLREDUCE for ten minutes before killing the job. On CPU
+# The counts below name the asymmetry directly WHEN the mismatch is survivable. Verified 2026-08-06
+# by reintroducing the bug: gloo blocks inside the very first mismatched all_reduce, so the check
+# never reaches the comparison and fails as a HANG (the subprocess timeout in main()). Either way it
+# fails -- but if this check ever times out rather than printing counts, an is_main-gated collective
+# is the first thing to look for.
+import moshi_family.train_loop as TL
+
+_calls = {"n": 0}
+_real_all_reduce = dist.all_reduce
+def _counting_all_reduce(*a, **k):
+    _calls["n"] += 1
+    return _real_all_reduce(*a, **k)
+dist.all_reduce = _counting_all_reduce
+try:
+    tiny = build()
+    for blk in tiny:
+        fully_shard(blk, mesh=mesh)
+    fully_shard(tiny, mesh=mesh)
+    topt = torch.optim.AdamW(tiny.parameters(), lr=1e-3)
+    named = [(n, p) for n, p in tiny.named_parameters()]
+    TL.run_training(
+        optimizer=topt,
+        base_lrs=[1e-3],
+        group_names=("all",),
+        trainable_params=[p for _, p in named],
+        named_trainable=named,
+        batch_iter=iter([torch.ones(2, 16)] * 6),
+        loss_step=lambda b: tiny(b).pow(2).sum(),
+        save_fn=lambda step, final: None,
+        cfg=TL.TrainConfig(max_steps=4, grad_accum=1, warmup_steps=1, save_every=0, log_every=1),
+        out_dir=_FsPath(tempfile.mkdtemp()),
+        log=lambda *a, **k: None,
+        is_main=(rank == 0),          # exactly the asymmetry that caused the deadlock
+        start_step=0,
+    )
+finally:
+    dist.all_reduce = _real_all_reduce
+
+counts = [None] * dist.get_world_size()
+dist.all_gather_object(counts, _calls["n"])
+check(len(set(counts)) == 1,
+      f"ranks issued DIFFERENT numbers of collectives during training: {counts}. Under NCCL that is "
+      f"not an error, it is a HANG -- the ranks that ran fewer wait forever and the job dies on a "
+      f"watchdog timeout ~10 min later. Something inside the step is gated on is_main but performs "
+      f"a collective; compute it on every rank and let only rank 0 WRITE the result.")
+
 payload = [FAIL]
 gathered = [None] * dist.get_world_size()
 dist.all_gather_object(gathered, payload)
@@ -284,6 +335,7 @@ def main():
     print("[ok] mixed bucket refused a sharded+replicated bucket raises instead of mis-scaling")
     print("[ok] state dict on rank0  full unsharded tensors on rank 0, EMPTY on every other rank")
     print("[ok] no aliasing         a later optimizer step does not rewrite the captured checkpoint")
+    print("[ok] collective symmetry every rank issues the same number of collectives per step")
     print("[ok] resume round trip    weights exact, and replaying a step from the checkpoint lands "
           "where the uninterrupted run did")
     print("\nFSDP full-FT plumbing holds -- a sharded run's norms and checkpoints are the real ones")
