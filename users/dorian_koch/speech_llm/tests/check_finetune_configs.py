@@ -27,6 +27,7 @@ import yaml  # noqa: E402
 from i6_experiments.users.dorian_koch.speech_llm.finetune import (  # noqa: E402
     MOSHI_ADAPTER,
     MOSHI_LIB_ADAPTER,
+    MOSHI_LIB_FULL_ADAPTER,
     MOSHIRAG_LIB_ADAPTER,
     PERSONAPLEX_ADAPTER,
     PERSONAPLEX_LIB_ADAPTER,
@@ -37,6 +38,7 @@ from i6_experiments.users.dorian_koch.speech_llm.finetune import (  # noqa: E402
 ADAPTERS = {
     "moshi (fork schema)": MOSHI_ADAPTER,
     "moshi_lib": MOSHI_LIB_ADAPTER,
+    "moshi_lib_full": MOSHI_LIB_FULL_ADAPTER,
     "personaplex (fork)": PERSONAPLEX_ADAPTER,
     "personaplex_lib": PERSONAPLEX_LIB_ADAPTER,
     "moshirag_lib": MOSHIRAG_LIB_ADAPTER,
@@ -44,7 +46,7 @@ ADAPTERS = {
 # Only the base-Moshi lib launcher reads `train_data_mix`; the rest do cfg["train_data"]. The
 # renderers must therefore REFUSE a mix for those, at render time, rather than emit a config their
 # launcher dies on after the GPU has already been allocated.
-SUPPORTS_MIX = {"moshi_lib"}
+SUPPORTS_MIX = {"moshi_lib", "moshi_lib_full"}  # same renderer, so the same mix support
 
 
 class _FakePath:
@@ -63,7 +65,7 @@ class _FakePath:
 class _FakeJob:
     """Duck-typed SpeechFinetune: enough attributes for a renderer, no Sisyphus machinery."""
 
-    def __init__(self, train_data, hparams=None):
+    def __init__(self, train_data, hparams=None, adapter=None):
         self.train_data = train_data
         self.eval_data = None
         self.out_rundir = _FakePath("/tmp/run_dir")
@@ -73,6 +75,11 @@ class _FakeJob:
         self.audio_jitter_sec = 2.0
         self.lora_rank = 128
         self.hparams = hparams or {}
+        #: A real SpeechFinetune always carries the adapter it is being rendered by, and the
+        #: moshi_lib renderer reads it (`full_finetuning` is derived from `overlay_kind`, so the
+        #: adapter is the single thing that decides LoRA vs full-FT). Omitting it here made this
+        #: check pass against a job shape that cannot occur.
+        self.adapter = adapter
 
 
 SINGLE = _FakePath("/corpus/triviaqa")
@@ -82,7 +89,7 @@ MIX = [(_FakePath("/corpus/fisher_big"), 0.5), (_FakePath("/corpus/triviaqa_mix"
 # 1. Every adapter renders parseable YAML for a single corpus.
 # --------------------------------------------------------------------------------------------
 for label, adapter in ADAPTERS.items():
-    job = _FakeJob(SINGLE)
+    job = _FakeJob(SINGLE, adapter=adapter)
     text = adapter.render_config(job, adapter.batch_size, 1500)
     cfg = yaml.safe_load(text)
     assert isinstance(cfg, dict) and cfg, f"{label}: config did not parse to a mapping"
@@ -98,7 +105,7 @@ for label, adapter in ADAPTERS.items():
 for label, adapter in ADAPTERS.items():
     if label not in SUPPORTS_MIX:
         continue
-    cfg = yaml.safe_load(adapter.render_config(_FakeJob(MIX), adapter.batch_size, 1500))
+    cfg = yaml.safe_load(adapter.render_config(_FakeJob(MIX, adapter=adapter), adapter.batch_size, 1500))
     mix = cfg.get("train_data_mix")
     assert mix is not None, f"{label}: a mixed train_data produced no train_data_mix key"
     assert [row["path"] for row in mix] == ["/corpus/fisher_big", "/corpus/triviaqa_mix"], mix
@@ -110,7 +117,7 @@ for label, adapter in ADAPTERS.items():
     if label in SUPPORTS_MIX:
         continue
     try:
-        adapter.render_config(_FakeJob(MIX), adapter.batch_size, 1500)
+        adapter.render_config(_FakeJob(MIX, adapter=adapter), adapter.batch_size, 1500)
     except AssertionError:
         print(f"[ok] {label}: refuses a mix its launcher cannot read")
         continue
@@ -132,6 +139,7 @@ job = _FakeJob(
         "text_pad_weight": 0.3,
         "grad_accum": 32,
     },
+    adapter=MOSHI_LIB_ADAPTER,
 )
 cfg = yaml.safe_load(MOSHI_LIB_ADAPTER.render_config(job, 16, 1500))
 for key, expected in [

@@ -533,6 +533,7 @@ duration_sec: {job.duration_sec}
 audio_jitter_sec: {getattr(job, "audio_jitter_sec", 0.0)}
 lora_rank: {job.lora_rank}
 lora_scaling: 2.0
+full_finetuning: {str(job.adapter.overlay_kind == "full").lower()}
 per_gpu_batch: 1
 grad_accum: {hp.get("grad_accum", 16)}
 lr: {_yaml_float(_lr)}
@@ -543,7 +544,7 @@ text_pad_weight: {_yaml_float(hp.get("text_pad_weight", 0.5))}
 warmup_steps: {hp.get("warmup_steps", 200)}
 grad_clip: {_yaml_float(hp.get("grad_clip", 1.0))}
 gradient_checkpointing: true
-save_every: 500
+save_every: {hp.get("save_every", 500)}
 log_every: 10
 seed: {getattr(job, "seed", 0)}
 sample_every: {hp.get("sample_every", 100)}
@@ -571,6 +572,25 @@ MOSHI_LIB_ADAPTER = FinetuneAdapter(
     overlay_kind="lora",
     base_model="kyutai/moshiko-pytorch-bf16",
     weights_name="lora.safetensors",
+    render_config=partial(_render_moshi_lib_config, hf_repo_id="kyutai/moshiko-pytorch-bf16"),
+    launcher_module="moshi_family.moshi_finetune_launcher",
+    pythonpath_package="moshi_family",
+)
+
+
+# Full-parameter finetune of the same base, through the SAME launcher and the same rendered config --
+# the launcher branches on `full_finetuning`, which the renderer derives from `overlay_kind` above, so
+# the adapter is the single place that decides and the two cannot drift apart. The checkpoint is a
+# plain state dict over the base module names rather than a LoRA adapter, which is why the overlay
+# kind and weights name differ; `overlay_state_dict` already applies a full state dict (its docstring
+# names the case) and `moshi_family_backend_spec(lora_rank=None)` wraps no LoRA at inference, so the
+# eval path needs no new branch either. Sharding is FSDP2 -- see moshi_family/fsdp_full_ft.py.
+MOSHI_LIB_FULL_ADAPTER = FinetuneAdapter(
+    name="moshi_lib_full",
+    batch_size=16,
+    overlay_kind="full",
+    base_model="kyutai/moshiko-pytorch-bf16",
+    weights_name="model.safetensors",
     render_config=partial(_render_moshi_lib_config, hf_repo_id="kyutai/moshiko-pytorch-bf16"),
     launcher_module="moshi_family.moshi_finetune_launcher",
     pythonpath_package="moshi_family",

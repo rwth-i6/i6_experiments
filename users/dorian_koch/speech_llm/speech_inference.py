@@ -49,7 +49,7 @@ class ResolveOverlayCheckpoint(Job):
     """
 
     def __init__(self, *, run_dir: tk.Path, overlay_kind: str = "lora", step: int | None = None):
-        assert overlay_kind in ("lora", "personaplex_heads", "audex_stage0"), overlay_kind
+        assert overlay_kind in ("lora", "personaplex_heads", "audex_stage0", "full"), overlay_kind
         self.run_dir = run_dir
         self.overlay_kind = overlay_kind
         self.step = step  # None -> latest (lora) / final consolidated (personaplex)
@@ -57,6 +57,9 @@ class ResolveOverlayCheckpoint(Job):
             "lora": "lora.safetensors",
             "personaplex_heads": "trained_heads.safetensors",
             "audex_stage0": "stage0.safetensors",
+            # A full finetune: the whole LM state dict, not an adapter. Same checkpoint layout as
+            # "lora", so it resolves through the same branch below.
+            "full": "model.safetensors",
         }[overlay_kind]
         self.out_weights = self.output_path(_weights_name)
         self.out_config = self.output_path("config.json") if overlay_kind == "lora" else None
@@ -65,7 +68,7 @@ class ResolveOverlayCheckpoint(Job):
         yield Task("run", mini_task=True)
 
     def run(self):
-        if self.overlay_kind in ("lora", "audex_stage0"):
+        if self.overlay_kind in ("lora", "audex_stage0", "full"):
             ckpt_root = Path(self.run_dir.get()) / "checkpoints"
             ckpts = sorted(ckpt_root.glob("checkpoint_*"), key=lambda p: int(p.name.split("_")[-1]))
             assert ckpts, f"No checkpoints found in {ckpt_root}"
@@ -79,6 +82,8 @@ class ResolveOverlayCheckpoint(Job):
             if self.overlay_kind == "lora":
                 os.symlink(consolidated / "config.json", self.out_config.get())
                 os.symlink(consolidated / "lora.safetensors", self.out_weights.get())
+            elif self.overlay_kind == "full":  # whole state dict, no LoRA config to carry
+                os.symlink(consolidated / "model.safetensors", self.out_weights.get())
             else:  # audex_stage0/stage1: partial state-dict overlay, no config
                 import glob as _glob
 
