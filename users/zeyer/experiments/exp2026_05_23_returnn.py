@@ -985,6 +985,88 @@ def py_aed_graphc_loquacious():
         "train.dec_aux_loss_layers": [1],
     }
     loq_train("base-graphc-v2-medium1024", {}, config_overrides={**_loq_v2_packed_overrides, **medium1024_overrides})
+    # COLLAPSED at ep 7-8 (held) -> the collapse follows model dim 1024, not depth/params
+    # (512/10L and 256/4L stay clean); ALSO the fast from-scratch repro vehicle (~13.5 min/ep).
+    # attpad on the full size SURVIVED ep 7+ -> the packed attention fast-path kernels are implicated.
+    # One-kernel bisects on this fast vehicle (rf_packed_att_fast_paths list = ops KEEPING
+    # their fast paths; the disabled op takes the exact padded unpack fallback):
+    # enc-pad: Triton rel-pos padded, decoder flash stays -> survives = Triton implicated
+    # dec-pad: decoder flash padded, Triton stays -> survives = flash implicated
+    # h16: 16 heads x 64-dim at width 1024 -> survives = head-dim 128 is the driver, not width
+    loq_train(
+        "base-graphc-v2-medium1024-encpad",
+        {},
+        config_overrides={
+            **_loq_v2_packed_overrides,
+            **medium1024_overrides,
+            "train.rf_packed_att_fast_paths": ["scaled_dot_product_attention"],
+            "train.packed_fallback_allowed": ["rel_pos_self_attention"],
+        },
+    )
+    loq_train(
+        "base-graphc-v2-medium1024-decpad",
+        {},
+        config_overrides={
+            **_loq_v2_packed_overrides,
+            **medium1024_overrides,
+            "train.rf_packed_att_fast_paths": ["rel_pos_self_attention"],
+            "train.packed_fallback_allowed": ["scaled_dot_product_attention"],
+        },
+    )
+    medium1024_h16_overrides = {
+        **medium1024_overrides,
+        "model.enc_build_dict": rf.build_dict(
+            ConformerEncoder,
+            input_layer=rf.build_dict(
+                ConformerConvSubsample,
+                out_dims=[32, 64, 64],
+                filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                pool_sizes=[(1, 2)],
+                strides=[(1, 1), (3, 1), (2, 1)],
+            ),
+            num_layers=4,
+            out_dim=1024,
+            encoder_layer=rf.build_dict(
+                ConformerEncoderLayer,
+                ff=rf.build_dict(
+                    ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                ),
+                num_heads=16,
+            ),
+        ),
+        "model.dec_build_dict": rf.build_dict(
+            TransformerDecoder,
+            num_layers=2,
+            model_dim=1024,
+            num_heads=16,
+            norm=rf.build_dict(rf.RMSNorm),
+            ff=rf.build_dict(FeedForwardGated),
+            layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+        ),
+    }
+    loq_train(
+        "base-graphc-v2-medium1024-h16", {}, config_overrides={**_loq_v2_packed_overrides, **medium1024_h16_overrides}
+    )
+
+    # Validation of the Triton rel-pos bwd delta fix (2026-08-06): the pre-fix bwd took
+    # delta = out . do from the bf16-stored out while dp stays f32, breaking the sharp-row
+    # cancellation in ds = p * (dp - delta); measured as a systematic pos_bias_v grad bias
+    # (2.5x MC floor, both head dims) with superlinear growth in attention sharpness.
+    # The fix recomputes delta = sum_j p*dp in f32 in-kernel; bias gone to floor.
+    # The marker key only distinguishes the sis hash (the fix lives in tools/returnn);
+    # this run must pass ep 8-9 where the unfixed medium1024 collapsed.
+    loq_train(
+        "base-graphc-v2-medium1024-fixdelta",
+        {},
+        config_overrides={
+            **_loq_v2_packed_overrides,
+            **medium1024_overrides,
+            "train._rel_pos_att_bwd_delta_recompute": True,
+        },
+    )
+    # the padded-eager counterpart: the convergence control that makes the medium1024 collapse
+    # interpretable (same role as base-small-v2 for the small size)
+    loq_train("base-medium1024-v2", {}, config_overrides={"model.behavior_version": 29, **medium1024_overrides})
 
     # REMOVED loq-v2-branch-s1337-ep6-{packed_eager,packed_graphc}: native resume from s1337's
     # ep-6 checkpoint WITH the real Adam moments; both arms reproduced the grad-norm onset with
