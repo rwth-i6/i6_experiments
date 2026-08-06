@@ -738,6 +738,29 @@ def py():
             ),
             False,
         ),
+        # Transducer prev-label-context ablation: condition the predictor on the TRUE
+        # previous labels (last 32 words, no emission required -- cur-position joint states
+        # only), vs the plain fresh-predictor-per-chunk approximation.
+        (
+            "parakeet-rnnt-1.1b-prevctx",
+            rf.build_dict(
+                ParakeetRnnt,
+                model_dir=dl_parakeet_rnnt.out_hub_cache_dir,
+                per_token_score="prefix",
+                overlay_path=_NEMO_OVERLAY,
+            ),
+            True,
+        ),
+        (
+            "parakeet-tdt-0.6b-v2-prevctx",
+            rf.build_dict(
+                ParakeetRnnt,
+                model_dir=dl_parakeet_tdt.out_hub_cache_dir,
+                per_token_score="prefix",
+                overlay_path=_NEMO_OVERLAY,
+            ),
+            True,
+        ),
     ]
     for _zname, _zcfg, _zprev in _zoo:
         _zseg = ChunkSegmentationFromModelJob(

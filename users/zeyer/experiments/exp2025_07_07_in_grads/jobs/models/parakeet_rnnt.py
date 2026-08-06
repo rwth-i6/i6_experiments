@@ -337,6 +337,7 @@ class ParakeetRnnt(BaseModelInterface):
         raw_targets: List[List[str]],
         raw_target_seq_lens: torch.Tensor,
         omitted_prev_context: Optional[torch.Tensor] = None,
+        omitted_prev_words: Optional[List[List[str]]] = None,
         collect_lattice: Optional[list] = None,
     ) -> ForwardOutput:
         """See :class:`BaseModelInterface`.
@@ -351,8 +352,11 @@ class ParakeetRnnt(BaseModelInterface):
         assert raw_inputs_sample_rate is not None
         assert len(raw_inputs) == 1, "ParakeetRnnt wrapper supports batch size 1 only"
         assert isinstance(raw_inputs, torch.Tensor) and raw_inputs.ndim == 2
-        # Omitted prev context: the predictor label history starts fresh per chunk
-        # (documented approximation; no cross-chunk predictor state).
+        # Omitted prev context: with omitted_prev_words (job flag pass_omitted_prev_words),
+        # the label predictor is conditioned on the TRUE previous labels (last 32 words)
+        # WITHOUT requiring their emission in this chunk's audio:
+        # the predictor runs over prev+cur, the joint uses only the cur-position states.
+        # Without it: the predictor starts fresh per chunk (documented approximation).
 
         dev = self.device
         words = raw_targets[0]
@@ -371,6 +375,10 @@ class ParakeetRnnt(BaseModelInterface):
         )
         s_len = len(sub_ids)
         assert s_len > 0, f"empty target for words={words!r}"
+        prev_ids: List[int] = []
+        if omitted_prev_words is not None and omitted_prev_words[0]:
+            prev_text = " ".join(w.lower() for w in omitted_prev_words[0][-32:])
+            prev_ids = list(self.tokenizer.text_to_ids(prev_text))
 
         with torch.enable_grad():
             # Preprocessor -> log-mel [1, F, T_mel]. The grad leaf is the
@@ -385,9 +393,13 @@ class ParakeetRnnt(BaseModelInterface):
             enc, enc_len = self.model.encoder(audio_signal=leaf.transpose(1, 2), length=proc_len)  # [1, H, T_enc]
             # Prediction net teacher-forced on the ref subwords (NeMo prepends SOS=blank
             # internally, so the output has U+1 positions).
-            tgt = torch.tensor([sub_ids], dtype=torch.long, device=dev)
-            tgt_len = torch.tensor([s_len], dtype=torch.long, device=dev)
-            dec_out, _, _ = self.model.decoder(targets=tgt, target_length=tgt_len)  # [1, H, U+1]
+            tgt = torch.tensor([prev_ids + sub_ids], dtype=torch.long, device=dev)
+            tgt_len = torch.tensor([len(prev_ids) + s_len], dtype=torch.long, device=dev)
+            dec_out, _, _ = self.model.decoder(targets=tgt, target_length=tgt_len)  # [1, H, P+U+1]
+            if prev_ids:
+                # keep only the cur-position states (position P = state after the prev labels,
+                # replacing the SOS state)
+                dec_out = dec_out[:, :, len(prev_ids) :]  # [1, H, U+1]
             logits = self.model.joint.joint(enc.transpose(1, 2), dec_out.transpose(1, 2))  # [1, T_enc, U+1, V(+dur)]
             # TDT (Token-and-Duration Transducer) joints append duration logits to
             # the token logits along the last axis. Softmax over the TOKEN part only
