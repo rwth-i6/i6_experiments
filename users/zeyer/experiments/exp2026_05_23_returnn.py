@@ -1610,6 +1610,26 @@ def _loq_cost_decomposition(cfg, classes_cap):
     )
     tk.register_output("returnn/loq-base-graphc-bench-partitioned-profiled.json", job.out_results)
 
+    # Post-delta-fix CTC-share verification: kernel-level profiles on the CURRENT code,
+    # all three modes at the same bs100k batching (packed at the current best gap 18_240 config).
+    # Questions: what fraction is the CTC fast-BW op now (was ~45% before the varlen edge fixes,
+    # then partially reverted for generic-automaton correctness), and the padded/eager comparison
+    # of that share (padded runs aten CTC, not the native op).
+    # No packed_tensors/torch_cuda_graph overrides: cfg is the REAL training config and the
+    # mode string adapts it (padded_eager nulls both, packed_eager nulls the graph) --
+    # so these profile exactly what the production trainings run.
+    for profiled_mode in ["packed_graphc", "packed_eager", "padded_eager"]:
+        job = TrainStepBenchmarkJob(
+            returnn_config=cfg,
+            mode=profiled_mode,
+            num_steps=31,
+            version=18,
+            config_overrides={
+                "torch_profile": {"schedule": {"skip_first": 12, "wait": 1, "warmup": 2, "active": 3, "repeat": 1}},
+            },
+        )
+        tk.register_output(f"returnn/loq-bench-profiled-fixdelta-{profiled_mode}.json", job.out_results)
+
 
 def _loq_batch_size_factor():
     """the raw-sample batch-size factor of the baseline configs"""

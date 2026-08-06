@@ -467,7 +467,15 @@ def train(
     post_config = config.pop("train_post")
 
     vocab = config.pop("vocab", "spm10k")
-    task = get_loquacious_task_raw_v2(vocab=vocab, subset_name=subset, train_epoch_split=train_epoch_split)
+    # only passed through when set: the default (laplace:.1000) call stays byte-identical,
+    # so existing job hashes are unaffected
+    train_seq_ordering = config.pop("train_seq_ordering", None)
+    task_extra_kwargs = {}
+    if train_seq_ordering is not None:
+        task_extra_kwargs["train_seq_ordering"] = train_seq_ordering
+    task = get_loquacious_task_raw_v2(
+        vocab=vocab, subset_name=subset, train_epoch_split=train_epoch_split, **task_extra_kwargs
+    )
 
     train_vocab_opts = config.pop("train_vocab_opts")
     dataset_train_opts = config.pop("dataset_train_opts")
