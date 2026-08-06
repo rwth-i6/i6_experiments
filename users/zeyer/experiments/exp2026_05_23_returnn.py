@@ -671,7 +671,13 @@ def py_aed_graphc_loquacious():
       so the capacity must cover the measured spm10k target-len max of the large subset
       (a too-small value raises loudly in graph-capture _copy_in).
     """
-    from i6_experiments.users.zeyer.experiments.exp2026_05_26_base_fzj import train as loq_train
+    import functools
+    from i6_experiments.users.zeyer.experiments.exp2026_05_26_base_fzj import train as _loq_train_base
+    from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
+
+    # alias under THIS module's prefix (the defining module's _fzj name is historical;
+    # prefix is alias/output paths only, not hashed -- no job is invalidated by this)
+    loq_train = functools.partial(_loq_train_base, prefix=get_setup_prefix_for_module(__name__))
 
     gap, align = _aed_graphc_packed_gap, _aed_graphc_packed_align
     # measured on the train shards (spm10k SZcvHsG1gYNM),
@@ -862,12 +868,8 @@ def py_aed_graphc_loquacious():
     # -> the collapse is systematic, not seed luck;
     # its ep-5..7 checkpoints + opt states are snapshotted in ~/tmp/s1337-snapshots.
 
-    # Small-model FROM-SCRATCH repro: the same pipeline, data, LR schedule, packing and bounds,
-    # only the net shrunk (enc 16L/1024 -> 4L/256, dec 6L/1024 -> 2L/256, aux heads rescaled).
-    # Steps are ~6-10x faster, so the ep-7 window arrives in ~1h instead of ~4h.
-    # From scratch deliberately: the imported-checkpoint branches are not trusted as repro.
-    # If the small model reproduces the ep-7 collapse, every fix iterates at that speed;
-    # if not, the model scale is part of the mechanism -- also worth knowing.
+    # Scale ladder (small 22M / medium 84M / medium1024 160M), from scratch, packed graphc:
+    # located the collapse threshold and provided the fast repro vehicle.
     import returnn.frontend as rf
     from returnn.frontend.encoder.conformer import (
         ConformerConvSubsample,
@@ -908,15 +910,13 @@ def py_aed_graphc_loquacious():
         "train.aux_loss_layers": [2, 4],
         "train.dec_aux_loss_layers": [1],
     }
-    loq_train("base-graphc-v2-small", {}, config_overrides={**_loq_v2_packed_overrides, **small_overrides})
+    # REMOVED base-graphc-v2-small (pre-fix Triton kernel, held): looked clean for tens of epochs,
+    # then degenerate ce~4.5 plateau (visible by ep 50) -> even 64-dim heads at width 256 die; -> -small-fixdelta.
     # the padded-eager counterpart: the convergence control that makes a small-model collapse
     # interpretable (same role as base-v2 for the full size)
     loq_train("base-small-v2", {}, config_overrides={"model.behavior_version": 29, **small_overrides})
 
-    # Medium repro (~84M params vs 22M small / 571M full; enc:dec ratio like the full model):
-    # the small model passed ep 7 clean, so the instability needs more scale;
-    # also compute-bound (the small one was ~60% computing = partly loader-bound,
-    # so going smaller saves no wall time and only tells less).
+    # Medium ladder point (~84M, enc:dec ratio like the full model; compute-bound, unlike small):
     medium_overrides = {
         "model.enc_build_dict": rf.build_dict(
             ConformerEncoder,
@@ -948,7 +948,8 @@ def py_aed_graphc_loquacious():
         "train.aux_loss_layers": [3, 6, 10],
         "train.dec_aux_loss_layers": [1],
     }
-    loq_train("base-graphc-v2-medium", {}, config_overrides={**_loq_v2_packed_overrides, **medium_overrides})
+    # REMOVED base-graphc-v2-medium (pre-fix Triton kernel, held): passed ep 7 clean (which pointed
+    # the bisect at width/head-dim) but later degenerated (ce~4.4 flat by ep 42) -> -medium-fixdelta.
 
     # Width probe at the FULL model dim (~160M): 1024 wide but shallow, incl. the full model's
     # 128-dim heads (small/medium have 64); medium (10L/512) passed ep 7 clean,
@@ -984,69 +985,17 @@ def py_aed_graphc_loquacious():
         "train.aux_loss_layers": [2, 4],
         "train.dec_aux_loss_layers": [1],
     }
-    loq_train("base-graphc-v2-medium1024", {}, config_overrides={**_loq_v2_packed_overrides, **medium1024_overrides})
-    # COLLAPSED at ep 7-8 (held) -> the collapse follows model dim 1024, not depth/params
-    # (512/10L and 256/4L stay clean); ALSO the fast from-scratch repro vehicle (~13.5 min/ep).
-    # attpad on the full size SURVIVED ep 7+ -> the packed attention fast-path kernels are implicated.
-    # One-kernel bisects on this fast vehicle (rf_packed_att_fast_paths list = ops KEEPING
-    # their fast paths; the disabled op takes the exact padded unpack fallback):
-    # enc-pad: Triton rel-pos padded, decoder flash stays -> survives = Triton implicated
-    # dec-pad: decoder flash padded, Triton stays -> survives = flash implicated
-    # h16: 16 heads x 64-dim at width 1024 -> survives = head-dim 128 is the driver, not width
-    loq_train(
-        "base-graphc-v2-medium1024-encpad",
-        {},
-        config_overrides={
-            **_loq_v2_packed_overrides,
-            **medium1024_overrides,
-            "train.rf_packed_att_fast_paths": ["scaled_dot_product_attention"],
-            "train.packed_fallback_allowed": ["rel_pos_self_attention"],
-        },
-    )
-    loq_train(
-        "base-graphc-v2-medium1024-decpad",
-        {},
-        config_overrides={
-            **_loq_v2_packed_overrides,
-            **medium1024_overrides,
-            "train.rf_packed_att_fast_paths": ["rel_pos_self_attention"],
-            "train.packed_fallback_allowed": ["scaled_dot_product_attention"],
-        },
-    )
-    medium1024_h16_overrides = {
-        **medium1024_overrides,
-        "model.enc_build_dict": rf.build_dict(
-            ConformerEncoder,
-            input_layer=rf.build_dict(
-                ConformerConvSubsample,
-                out_dims=[32, 64, 64],
-                filter_sizes=[(3, 3), (3, 3), (3, 3)],
-                pool_sizes=[(1, 2)],
-                strides=[(1, 1), (3, 1), (2, 1)],
-            ),
-            num_layers=4,
-            out_dim=1024,
-            encoder_layer=rf.build_dict(
-                ConformerEncoderLayer,
-                ff=rf.build_dict(
-                    ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
-                ),
-                num_heads=16,
-            ),
-        ),
-        "model.dec_build_dict": rf.build_dict(
-            TransformerDecoder,
-            num_layers=2,
-            model_dim=1024,
-            num_heads=16,
-            norm=rf.build_dict(rf.RMSNorm),
-            ff=rf.build_dict(FeedForwardGated),
-            layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
-        ),
-    }
-    loq_train(
-        "base-graphc-v2-medium1024-h16", {}, config_overrides={**_loq_v2_packed_overrides, **medium1024_h16_overrides}
-    )
+    # REMOVED base-graphc-v2-medium1024 (pre-fix, held): COLLAPSED ep 7-8 like the full size
+    # -> width/head-dim drives the onset, not depth/params; served as the fast repro vehicle (~13.5 min/ep).
+    # One-kernel bisects on that vehicle (rf_packed_att_fast_paths list = ops KEEPING their fast
+    # paths, the disabled op takes the exact padded unpack fallback), all removed:
+    # REMOVED -encpad (Triton -> padded, decoder flash kept): SURVIVED clean (ce 0.72@ep45, stopped)
+    # -> the Triton rel-pos kernel implicated.
+    # REMOVED -decpad (flash -> padded, Triton kept): COLLAPSED ep 8 (gnorm 192) -> flash exonerated.
+    # REMOVED -h16 (16x64-dim heads at width 1024): LATE-collapsed ep 11-12
+    # -> smaller head dim only delays the runaway.
+    # Root cause = the bwd delta = out.do shortcut in the Triton kernel (bf16-out vs f32-dp bias),
+    # fixed by in-kernel f32 delta recompute; -fixdelta below validated it (tracks -encpad exactly).
 
     # Validation of the Triton rel-pos bwd delta fix (2026-08-06): the pre-fix bwd took
     # delta = out . do from the bf16-stored out while dp stays f32, breaking the sharp-row
@@ -1068,6 +1017,32 @@ def py_aed_graphc_loquacious():
     # interpretable (same role as base-small-v2 for the small size)
     loq_train("base-medium1024-v2", {}, config_overrides={"model.behavior_version": 29, **medium1024_overrides})
 
+    # Production relaunches on the FIXED Triton kernel (delta recompute, see -fixdelta above):
+    # the full-size flagship + the two scale-ladder points whose pre-fix runs late-collapsed.
+    loq_train(
+        "base-graphc-v2-fixdelta",
+        {},
+        config_overrides={**_loq_v2_packed_overrides, "train._rel_pos_att_bwd_delta_recompute": True},
+    )
+    loq_train(
+        "base-graphc-v2-small-fixdelta",
+        {},
+        config_overrides={
+            **_loq_v2_packed_overrides,
+            **small_overrides,
+            "train._rel_pos_att_bwd_delta_recompute": True,
+        },
+    )
+    loq_train(
+        "base-graphc-v2-medium-fixdelta",
+        {},
+        config_overrides={
+            **_loq_v2_packed_overrides,
+            **medium_overrides,
+            "train._rel_pos_att_bwd_delta_recompute": True,
+        },
+    )
+
     # REMOVED loq-v2-branch-s1337-ep6-{packed_eager,packed_graphc}: native resume from s1337's
     # ep-6 checkpoint WITH the real Adam moments; both arms reproduced the grad-norm onset with
     # near-identical per-step losses -> capture is numerically faithful at full scale.
@@ -1075,30 +1050,11 @@ def py_aed_graphc_loquacious():
     # collapsed at ep 7 like all graphc runs (5/5 packed vs padded healthy)
     # -> the cause is in the packed eager regime, capture/compile exonerated;
     # ep-5..8 checkpoints (+ ep-7/8 opt) snapshotted in ~/tmp/packed-eager-v2-snapshots.
-    _eager_overrides = {k: v for k, v in _loq_v2_packed_overrides.items() if k != "train.torch_cuda_graph"}
-    # Component-swap bisects, from scratch, eager, one packed component made padded-equivalent each:
-    # attpad: attentions via unpack -> exact padded kernels -> repack
-    # (rf_packed_att_fast_paths=False skips Triton/flash/flex, the fallback must be allowed);
-    # ctcaten: the generic (aten) CTC instead of the packed fast-BW native op.
-    # Survives ep 7 = that component implicated; collapses = exonerated.
-    loq_train(
-        "base-packed-eager-v2-attpad",
-        {},
-        config_overrides={
-            **_eager_overrides,
-            "train.rf_packed_att_fast_paths": False,
-            "train.packed_fallback_allowed": ["rel_pos_self_attention", "scaled_dot_product_attention"],
-        },
-    )
-    loq_train(
-        "base-packed-eager-v2-ctcaten",
-        {},
-        config_overrides={
-            **_eager_overrides,
-            "train.ctc_use_native_op": False,
-            "train.packed_fallback_allowed": ["ctc_loss"],
-        },
-    )
+    # Component-swap bisects (from scratch, eager, one packed component padded-equivalent), removed:
+    # REMOVED base-packed-eager-v2-attpad (all attentions via unpack -> exact padded kernels -> repack,
+    # rf_packed_att_fast_paths False): SURVIVED and converged (ce 0.76@ep28, stopped) -> attention implicated.
+    # REMOVED base-packed-eager-v2-ctcaten (generic aten CTC instead of the packed fast-BW native op):
+    # COLLAPSED ep 7 (held) -> the CTC native op exonerated.
     # (a keep-opt v2 variant for faithful branching was planned and dropped:
     #  the s1337 / packed-eager checkpoint+opt snapshots serve that,
     #  and from-scratch runs are the trusted repro anyway)
