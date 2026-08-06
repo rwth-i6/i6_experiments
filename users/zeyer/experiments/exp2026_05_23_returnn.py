@@ -31,12 +31,13 @@ so with att_dropout the packed attention would run eager NJT (correct but slow).
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Sequence, Union
+from typing import Any, Dict, Optional, Sequence, Tuple, Union
+from functools import cache
 
 from sisyphus import Job, Task, tk
 from i6_core.returnn.config import ReturnnConfig
 
-from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
+from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module, disable_register_output
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import (
     train_exp as _aed_train_exp,
@@ -52,7 +53,7 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ex
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc import (
     model_recog as _ctc_model_recog,
 )
-from i6_experiments.users.zeyer.experiments.exp2025_10_21_chunked_ctc import get_lm as _get_loq_lm
+from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
 from i6_experiments.users.zeyer.datasets.loquacious import (
     get_loquacious_task_raw_v2,
     get_loquacious_train_subset_dataset_v2,
@@ -852,7 +853,7 @@ def loq_train(
         aux_ctc_layer=aux_ctc_layer,
     )
     if vocab == "spm10k":
-        lm_name, lm = _get_loq_lm(prefix=prefix, vocab=vocab)
+        lm_name, lm = get_lm(prefix=prefix, vocab=vocab)
         ctc_recog_recomb_labelwise_prior_auto_scale(
             prefix=f"{prefix}/aed/{name}/ctc+lm-v2/{lm_name}",
             task=task,
@@ -874,6 +875,72 @@ def loq_train(
         )
 
     return exp, task, aux_ctc_layer
+
+
+@cache
+def get_lm(*, prefix: str, vocab: str, num_full_ep: int = 5, split: int = 10) -> Tuple[str, ModelWithCheckpoint]:
+    """Loquacious Transformer LM (verbatim copy, see the provenance note above)."""
+    from sisyphus import tk
+    from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs import (
+        config_96gb_bf16_accgrad1,
+        _get_cfg_lrlin_oclr_by_bs_nep_v4,
+    )
+    from i6_experiments.users.zeyer.decoding.perplexity import (
+        get_lm_perplexities_for_task_evals,
+    )
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm import lm_model_def, lm_train_def
+    from i6_experiments.users.zeyer.train_v4 import train as _train, ModelDefWithCfg
+
+    from i6_experiments.users.zeyer.datasets.loquacious import (
+        get_loquacious_text_only_dataset,
+    )
+
+    import returnn.frontend as rf
+    from returnn.frontend.decoder.transformer import TransformerDecoder
+
+    n_ep = round(num_full_ep * split)
+    # orig name: trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop01-b400_20k-nEp...-spm10k
+    name = f"trafo-n32-d1024-nFullEp{num_full_ep}-nEp{n_ep}-{vocab}"
+    exp = _train(
+        f"{prefix}/lm/{name}",
+        config=dict_update_deep(
+            config_96gb_bf16_accgrad1,
+            {
+                **_get_cfg_lrlin_oclr_by_bs_nep_v4(n_ep),
+                "batch_size": 20_000,
+                "max_seqs": 400,
+                "optimizer.weight_decay": 1e-2,
+                "calculate_exp_loss": True,
+            },
+        ),
+        train_dataset=get_loquacious_text_only_dataset(vocab="spm10k", train_epoch_split=split),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=32,
+                    model_dim=1024,
+                    pos_enc=None,
+                    norm=rf.build_dict(rf.RMSNorm),
+                    ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+                    decoder_layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+                    dropout=0.1,
+                    att_dropout=0.1,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+    )
+
+    task = get_loquacious_task_raw_v2(vocab=vocab)
+    perplexities_nlm = get_lm_perplexities_for_task_evals(task, label_level="task", lm=exp.get_last_fixed_epoch())
+    for eval_set_name, ppl in perplexities_nlm.items():
+        tk.register_output(f"{prefix}/lm/{name}/ppl/{eval_set_name}", ppl)
+
+    return name, exp.get_last_fixed_epoch()
 
 
 def py_aed_graphc_loquacious():
@@ -898,31 +965,38 @@ def py_aed_graphc_loquacious():
     classes_cap = 256
     packed_total = 100_000 * _loq_batch_size_factor() + 200 * (gap + align)
     packed_total = -(-packed_total // align) * align
-    exp, _, _ = loq_train(
-        "base-graphc",
-        {},
-        config_overrides={
-            "train.optimizer.capturable": True,
-            # NOTE: the Loquacious task uses extern-data keys "audio"/"text"
-            # (not "data"/"classes" like the LS baselines).
-            # Fully packed, INCLUDING the decoder targets;
-            # text gap 2 = per-seq slack for the BOS/EOS shifts (packed left/right pad)
-            "train.packed_tensors": {
-                "per_key": {
-                    "audio": {"gap": gap, "align": align},
-                    "text": {"gap": 2, "align": 1},
-                }
+    # get_lm is @cache'd: warm it OUTSIDE the disabled-registration blocks below,
+    # so its ppl outputs stay registered for all real experiments.
+    get_lm(prefix=get_setup_prefix_for_module(__name__), vocab="spm10k")
+    # CONFIG ANCHOR ONLY (benches read the ReturnnConfig OBJECT, no job output):
+    # with output registration disabled, neither this collapsed v1 training (superseded by
+    # -fixdelta) nor its recogs are scheduled -- nothing to hold, job dirs stay on disk.
+    with disable_register_output():
+        exp, _, _ = loq_train(
+            "base-graphc",
+            {},
+            config_overrides={
+                "train.optimizer.capturable": True,
+                # NOTE: the Loquacious task uses extern-data keys "audio"/"text"
+                # (not "data"/"classes" like the LS baselines).
+                # Fully packed, INCLUDING the decoder targets;
+                # text gap 2 = per-seq slack for the BOS/EOS shifts (packed left/right pad)
+                "train.packed_tensors": {
+                    "per_key": {
+                        "audio": {"gap": gap, "align": align},
+                        "text": {"gap": 2, "align": 1},
+                    }
+                },
+                "train.torch_cuda_graph": {
+                    "batch_size_bound": 200,
+                    "dim_capacity": {"audio": 312_960, "text": classes_cap},
+                    "packed_total_bound": {"audio": packed_total, "text": 200 * (classes_cap + 2)},
+                    "warmup_steps": 2,
+                    "capture_optimizer": True,
+                    "compile": True,
+                },
             },
-            "train.torch_cuda_graph": {
-                "batch_size_bound": 200,
-                "dim_capacity": {"audio": 312_960, "text": classes_cap},
-                "packed_total_bound": {"audio": packed_total, "text": 200 * (classes_cap + 2)},
-                "warmup_steps": 2,
-                "capture_optimizer": True,
-                "compile": True,
-            },
-        },
-    )
+        )
     # smoke/benchmark on the REAL experiment config (the ReturnnConfig object, proper hashing):
     # 31 graphc steps = memory fit + NaN-fix verification before/alongside the training,
     # padded_eager = the equal-hardware comparison cell
@@ -944,32 +1018,33 @@ def py_aed_graphc_loquacious():
     #   This also brings 25 (scatter masking), 26 (DistributeFilesDataset sharding, a no-op unsharded),
     #   27 (RF module output keeps the input dtype under autocast) and 28 (per-seq specaugment masks).
     #   For a fresh training the latest semantics are what we want; nothing here needs the old ones.
-    # STATUS: collapsed at ep 7 as well (held); kept in the graph:
-    # cfg_v2 anchors the benches and probe configs below, and the ep-6 checkpoint stays reachable.
+    # STATUS: collapsed at ep 7 as well; CONFIG ANCHOR ONLY (see base-graphc above):
+    # not scheduled, no hold needed; cfg_v2 anchors the benches and probe configs below.
     nogap_total = 100_000 * _loq_batch_size_factor() + 200 * align
     nogap_total = -(-nogap_total // align) * align
-    exp_v2, _, _ = loq_train(
-        "base-graphc-v2",
-        {},
-        config_overrides={
-            "train.optimizer.capturable": True,
-            "model.behavior_version": 29,
-            "train.packed_tensors": {
-                "per_key": {
-                    "audio": {"gap": 0, "align": align},
-                    "text": {"gap": 0, "align": 1},
-                }
+    with disable_register_output():
+        exp_v2, _, _ = loq_train(
+            "base-graphc-v2",
+            {},
+            config_overrides={
+                "train.optimizer.capturable": True,
+                "model.behavior_version": 29,
+                "train.packed_tensors": {
+                    "per_key": {
+                        "audio": {"gap": 0, "align": align},
+                        "text": {"gap": 0, "align": 1},
+                    }
+                },
+                "train.torch_cuda_graph": {
+                    "batch_size_bound": 200,
+                    "dim_capacity": {"audio": 312_960, "text": classes_cap},
+                    "packed_total_bound": {"audio": nogap_total, "text": 18_000},
+                    "warmup_steps": 2,
+                    "capture_optimizer": True,
+                    "compile": True,
+                },
             },
-            "train.torch_cuda_graph": {
-                "batch_size_bound": 200,
-                "dim_capacity": {"audio": 312_960, "text": classes_cap},
-                "packed_total_bound": {"audio": nogap_total, "text": 18_000},
-                "warmup_steps": 2,
-                "capture_optimizer": True,
-                "compile": True,
-            },
-        },
-    )
+        )
     # 31-step fit/parity check on the real config, before the training burns GPU hours
     job = TrainStepBenchmarkJob(
         returnn_config=exp_v2.get_training_job().returnn_config, mode="packed_graphc", num_steps=31
