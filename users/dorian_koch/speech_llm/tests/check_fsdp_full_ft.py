@@ -127,6 +127,16 @@ else:
           f"rank{rank} got a non-empty state dict ({len(sd)} entries). Only rank 0 writes the "
           f"checkpoint, so every rank holding data means either wasted memory or a write race")
 
+# ---- 2b. the captured dict must not ALIAS the live optimizer ------------------------------------
+# The bug this was written for: `get_optimizer_state_dict` returns AdamW's `step` counter by
+# REFERENCE (the moment buffers are DTensors and get gathered into fresh tensors, but `step` is an
+# unsharded CPU scalar and is passed straight through). The next optimizer step then increments the
+# very tensor sitting in the dict we are about to save, producing a checkpoint whose weights say
+# step N and whose bias correction says N+1 -- a 14% error on the next update, silent and permanent.
+# Asserted separately from the round trip because a round-trip check only catches it when the
+# capture and the write are separated by a step, which is a property of the CALLER, not of this API.
+_step_at_capture = float(osd["state"][next(iter(osd["state"]))]["step"]) if rank == 0 else 0.0
+
 # ---- 3. save -> load -> step round trip --------------------------------------------------------
 # Continue the sharded run one more step, remembering where it lands; then rewind to the saved
 # state, replay that step, and require the same weights. This is what proves the optimizer moments
@@ -135,6 +145,12 @@ else:
 m(batch(1)).pow(2).sum().backward()
 opt.step()
 after = {k: v.clone() for k, v in full_model_state_dict(m).items()}
+if rank == 0:
+    now = float(osd["state"][next(iter(osd["state"]))]["step"])
+    check(now == _step_at_capture,
+          f"the saved optimizer state's step counter moved from {_step_at_capture} to {now} when the "
+          f"LIVE optimizer stepped -- the captured dict aliases the optimizer, so any checkpoint "
+          f"written after a subsequent step carries the wrong Adam bias correction")
 
 obj = [sd, osd]
 dist.broadcast_object_list(obj, src=0)
@@ -179,14 +195,9 @@ if rank == 0:
     worst = max((float((replayed[k] - after[k]).abs().max()) for k in after), default=0.0)
     check(worst < 1e-6,
           f"replaying the step from the checkpoint diverged by {worst} -- a resumed run is a "
-          f"different experiment under the same name. ESTABLISHED, so do not re-derive it: the "
-          f"SAVE side is exact (the uninterrupted run matches an independent control bit-for-bit, "
-          f"asserted just above), FSDP2 is bit-deterministic across independently built shards, "
-          f"and calling the getters mid-run perturbs nothing. Before the replayed step the two "
-          f"models agree on gathered weights, on per-parameter exp_avg/exp_avg_sq/step, and on "
-          f"every param_group hyper-parameter, and their gradients after the backward are "
-          f"identical -- yet the step lands elsewhere. So the fault is in the LOAD path "
-          f"(set_optimizer_state_dict usage), not in the save, the model, or the norms.")
+          f"different experiment under the same name. If check 2b also failed, that is the cause; "
+          f"if only this one failed, the divergence is downstream of the state dicts, and the "
+          f"control assertion above already rules out FSDP2 non-determinism and the save side.")
 
 payload = [FAIL]
 gathered = [None] * dist.get_world_size()
@@ -220,6 +231,7 @@ def main():
     print("[ok] sharded grad norms   global_norm == unsharded reference; the per-shard form does not")
     print("[ok] mixed bucket refused a sharded+replicated bucket raises instead of mis-scaling")
     print("[ok] state dict on rank0  full unsharded tensors on rank 0, EMPTY on every other rank")
+    print("[ok] no aliasing         a later optimizer step does not rewrite the captured checkpoint")
     print("[ok] resume round trip    weights exact, and replaying a step from the checkpoint lands "
           "where the uninterrupted run did")
     print("\nFSDP full-FT plumbing holds -- a sharded run's norms and checkpoints are the real ones")
