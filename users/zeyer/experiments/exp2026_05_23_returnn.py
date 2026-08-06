@@ -1942,26 +1942,55 @@ def _loq_cost_decomposition(cfg, classes_cap):
     # No packed_tensors/torch_cuda_graph overrides: cfg is the REAL training config and the
     # mode string adapts it (padded_eager nulls both, packed_eager nulls the graph) --
     # so these profile exactly what the production trainings run.
-    # v21: after the RETURNN_CUDA macro fix -- the torch op builder #undef'ed CUDA before
-    # the op fw code, so `#if CUDA` picked norm_block_dim 1: normalize ran fully SERIAL
-    # (47ms/launch, block [1,1,1] in the v20 trace). Now truly block-512 parallel.
-    # Also still open from v20: compute_result grid was rectangular under capture
-    # (326 x 259k) although the packed-FSA gate works eager + static-traceable;
-    # the ctc_loss_edges fallback warn in the log settles where capture diverges.
-    # v20: normalize subtract-skip + packed FSA layout (GetCtcFsaFastBwPackedOp) landed,
-    # but graphc stayed 0.563 due to the serial normalize masking everything.
-    # v18 reference: packed_graphc 0.554 s/step, CTC op ~26% (normalize 25.1%/393ms).
-    # v19 RACED the code landing (jobs started before the FSA chain was in): only the
-    # subtract-skip was active (eager normalize 64->45ms; graphc within node noise).
+    # v22: measure the config the v2 TRAININGS actually run. v18-v21 inherited `cfg` = the
+    # ORIGINAL graphc experiment (gap 18_240, text bound 200*(cap+2)=51_600, bhv 24); the
+    # trainings moved on to the nogap v2 config (audio gap 0, text bound 18_000, bhv 29).
+    # The v21 trace proved the packed FSA follows the DECLARED bound exactly
+    # (n_edges 259_000 = 5*51_600+5*200), so the loose bench bound overstated the CTC cost
+    # ~2.8x vs the real trainings (91_000 edges at text 18_000).
+    # v21 (loose 51_600 bound): packed_graphc 0.435 (CTC 3.8%, normalize 27.8ms block-512),
+    # packed_eager 0.747 (CTC 0.4%), padded_eager 0.615 (aten CTC 1.6%).
+    # v21 vs v18 0.554: the RETURNN_CUDA macro fix -- the torch op builder #undef'ed CUDA
+    # before the op fw code, so `#if CUDA` picked norm_block_dim 1: normalize ran fully
+    # SERIAL (47ms/launch, block [1,1,1] in the v20 trace) in every torch training before.
+    # v19/v20 raced/were masked by that serial normalize.
+    # v23 (v22 BUG: config_overrides are appended AFTER the mode overrides, so re-declaring
+    # packed_tensors/torch_cuda_graph in the overrides resurrected full graphc in ALL THREE
+    # modes -- v22's trio came out identical, 0.358-0.362. That graphc measurement itself is
+    # valid: tight 18_000 text bound confirmed in-trace, 28_971 blocks = 91_000 edges,
+    # normalize 27.8 -> 5.8 ms, CTC 3.5%. v23 tailors the overrides per mode.)
+    _v2_align = 960
+    _v2_audio_bound = 100_000 * _loq_batch_size_factor() + 200 * _v2_align
+    _v2_audio_bound = -(-_v2_audio_bound // _v2_align) * _v2_align
+    _v2_packed_tensors = {
+        "per_key": {
+            "audio": {"gap": 0, "align": _v2_align},
+            "text": {"gap": 0, "align": 1},
+        }
+    }
+    _v2_graph_opts = {
+        "batch_size_bound": 200,
+        "dim_capacity": {"audio": 312_960, "text": classes_cap},
+        "packed_total_bound": {"audio": _v2_audio_bound, "text": 18_000},
+        "warmup_steps": 2,
+        "capture_optimizer": True,
+        "compile": True,
+    }
     for profiled_mode in ["packed_graphc", "packed_eager", "padded_eager"]:
+        overrides = {
+            "behavior_version": 29,
+            "torch_profile": {"schedule": {"skip_first": 12, "wait": 1, "warmup": 2, "active": 3, "repeat": 1}},
+        }
+        if profiled_mode != "padded_eager":
+            overrides["packed_tensors"] = _v2_packed_tensors
+        if profiled_mode == "packed_graphc":
+            overrides["torch_cuda_graph"] = _v2_graph_opts
         job = TrainStepBenchmarkJob(
             returnn_config=cfg,
             mode=profiled_mode,
             num_steps=31,
-            version=21,
-            config_overrides={
-                "torch_profile": {"schedule": {"skip_first": 12, "wait": 1, "warmup": 2, "active": 3, "repeat": 1}},
-            },
+            version=23,
+            config_overrides=overrides,
         )
         tk.register_output(f"returnn/loq-bench-profiled-fixdelta-{profiled_mode}.json", job.out_results)
 
