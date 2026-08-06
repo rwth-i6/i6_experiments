@@ -232,8 +232,13 @@ try:
         named_trainable=named,
         batch_iter=iter([torch.ones(2, 16)] * 6),
         loss_step=lambda b: tiny(b).pow(2).sum(),
-        save_fn=lambda step, final: None,
-        cfg=TL.TrainConfig(max_steps=4, grad_accum=1, warmup_steps=1, save_every=0, log_every=1),
+        # A save_fn that GATHERS, like the real one -- the first version of this check passed a
+        # no-op and so never exercised the save gate, which is exactly where the deadlock was.
+        save_fn=lambda step, final: full_model_state_dict(tiny),
+        cfg=TL.TrainConfig(
+            max_steps=4, grad_accum=1, warmup_steps=1, save_every=2, log_every=1,
+            sharded_callbacks=True,
+        ),
         out_dir=_FsPath(tempfile.mkdtemp()),
         log=lambda *a, **k: None,
         is_main=(rank == 0),          # exactly the asymmetry that caused the deadlock
