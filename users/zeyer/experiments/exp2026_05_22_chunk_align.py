@@ -723,7 +723,14 @@ def py():
     # "... " continuation marker for chunks after the first; is it needed at all?
     # (Whisper's analog -- no startofprev -- was round 5: worse. CTC feeds nothing anyway.)
     _zoo = _zoo + [
-        ("phi4mm-noctx", {**_cfg_hp, "omitted_ctx_marker": False}, False),
+        # NOT {**_cfg_hp, ...}: that carries grad_wrt=None (batched-job convention),
+        # which the single-seq Phi4MM forward asserts against; default grad_wrt is fine
+        # (the job disables grads globally).
+        (
+            "phi4mm-noctx",
+            rf.build_dict(Phi4MM, model_dir=dl_phi4mm_dir, model_dtype="bfloat16", omitted_ctx_marker=False),
+            False,
+        ),
         (
             "voxtral-noctx",
             rf.build_dict(
