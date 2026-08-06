@@ -215,7 +215,59 @@ sys.exit(1 if (rank == 0 and any(g[0] for g in gathered)) else 0)
 '''
 
 
+def check_shardable():
+    """Every StreamingModule must accept a __class__ swap, or fully_shard cannot wrap it.
+
+    FSDP2 shards by building a dynamic ``FSDP<YourClass>`` and assigning it to
+    ``module.__class__``. CPython refuses that when the class adds its own ``__dict__`` slot instead
+    of inheriting ``nn.Module``'s -- which is what happens when ``abc.ABC`` precedes ``nn.Module``
+    in the bases. Measured: ``(nn.Module)`` fine, ``(nn.Module, ABC)`` fine, ``(ABC, nn.Module)``
+    refused.
+
+    This is worth its own check because of HOW it failed: nothing is wrong at import, at
+    construction, or in any single-GPU path. It surfaced only after a 4-GPU job had allocated its
+    nodes and spent six minutes loading 15 GB of weights, and it would come back the moment anyone
+    reorders those bases for tidiness.
+    """
+    sys.path.insert(0, str(FULL_DUPLEX))
+    import torch.nn as nn
+    from torch.distributed.fsdp import FSDPModule
+
+    from moshi_family.modules.streaming import StreamingContainer, StreamingModule
+    from moshi_family.modules.transformer import (
+        StreamingTransformer,
+        StreamingTransformerLayer,
+    )
+
+    bad = []
+    for cls in (StreamingModule, StreamingContainer, StreamingTransformer, StreamingTransformerLayer):
+        assert issubclass(cls, nn.Module), cls
+        # Layout compatibility is inherited, so a concrete stand-in proves it for an abstract base --
+        # and a concrete subclass is what fully_shard actually meets in the module tree anyway.
+        target = cls
+        if getattr(cls, "__abstractmethods__", None):
+            target = type(
+                f"_Concrete{cls.__name__}",
+                (cls,),
+                {m: (lambda self, *a, **k: None) for m in cls.__abstractmethods__},
+            )
+        # No constructor arguments and no GPU: only the class layout is under test.
+        obj = nn.Module.__new__(target)
+        try:
+            obj.__class__ = type(f"FSDP{target.__name__}", (FSDPModule, target), {})
+        except TypeError as err:
+            bad.append(f"{cls.__name__}: {err}")
+    if bad:
+        print("FAILED: these classes cannot be sharded by fully_shard:", file=sys.stderr)
+        for b in bad:
+            print("  -", b, file=sys.stderr)
+        print("  fix: put nn.Module BEFORE abc.ABC in the bases", file=sys.stderr)
+        raise SystemExit(1)
+    print("[ok] shardable classes  every StreamingModule accepts fully_shard's __class__ swap")
+
+
 def main():
+    check_shardable()
     worker = _FsPath(os.environ.get("TMPDIR", "/tmp")) / "_check_fsdp_worker.py"
     worker.write_text(WORKER)
     env = dict(os.environ, FULL_DUPLEX=str(FULL_DUPLEX), CUDA_VISIBLE_DEVICES="", OMP_NUM_THREADS="1")
