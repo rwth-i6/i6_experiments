@@ -36,7 +36,10 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import _
 from i6_experiments.users.zeyer.datasets.loquacious import get_loquacious_task_raw_v2
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.base import streaming_model_def, model_recog_ctc
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.dataset import ChunkAlignDataset, ExtendVocabWithEocJob
-from i6_experiments.users.zeyer.nn_rf.decoder.streaming.standard_aed import standard_aed_training
+from i6_experiments.users.zeyer.nn_rf.decoder.streaming.standard_aed import (
+    standard_aed_training,
+    model_recog as standard_aed_model_recog,
+)
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.chunkwise import (
     ChunkwiseDecoder,
     chunkwise_training,
@@ -277,7 +280,7 @@ def _train_standard_aed_rz():
         dec_build_dict=rf.build_dict(ChunkwiseDecoder, model_dim=1024, num_layers=6, num_heads=8, version=2),
         train_def=standard_aed_training,
         target_mode="labels",
-        recog_def=None,  # CTC-only recog (= base 9.41 metric); AED decoder search deferred
+        recog_def=standard_aed_model_recog,  # full-context AED greedy search (closes the AED-decoder gap)
         dec_aux_loss_layers=[3],  # match the base AED (dec-layer-3 aux CE); only the std-AED decoder taps it
     )
 
