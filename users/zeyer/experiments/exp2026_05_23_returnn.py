@@ -36,6 +36,9 @@ from typing import Any, Dict, Optional, Sequence, Union
 from sisyphus import Job, Task, tk
 from i6_core.returnn.config import ReturnnConfig
 
+# for get_setup_prefix_for_module (alias/output prefix of the loq experiments declared here)
+__setup_root_prefix__ = "exp2026_05_23_returnn"
+
 
 _SEQ_LENS_PRESETS = {
     "realistic": [3200, 1600, 1544, 1388, 1200, 1112, 988, 924, 876, 812, 768, 700, 644, 592, 512, 456]
