@@ -1942,8 +1942,14 @@ def _loq_cost_decomposition(cfg, classes_cap):
     # No packed_tensors/torch_cuda_graph overrides: cfg is the REAL training config and the
     # mode string adapts it (padded_eager nulls both, packed_eager nulls the graph) --
     # so these profile exactly what the production trainings run.
-    # v20: after the CTC fast-BW normalize subtract-skip + the PACKED FSA edge layout
-    # (GetCtcFsaFastBwPackedOp; edge list content-sized instead of batch x capacity).
+    # v21: after the RETURNN_CUDA macro fix -- the torch op builder #undef'ed CUDA before
+    # the op fw code, so `#if CUDA` picked norm_block_dim 1: normalize ran fully SERIAL
+    # (47ms/launch, block [1,1,1] in the v20 trace). Now truly block-512 parallel.
+    # Also still open from v20: compute_result grid was rectangular under capture
+    # (326 x 259k) although the packed-FSA gate works eager + static-traceable;
+    # the ctc_loss_edges fallback warn in the log settles where capture diverges.
+    # v20: normalize subtract-skip + packed FSA layout (GetCtcFsaFastBwPackedOp) landed,
+    # but graphc stayed 0.563 due to the serial normalize masking everything.
     # v18 reference: packed_graphc 0.554 s/step, CTC op ~26% (normalize 25.1%/393ms).
     # v19 RACED the code landing (jobs started before the FSA chain was in): only the
     # subtract-skip was active (eager normalize 64->45ms; graphc within node noise).
@@ -1952,7 +1958,7 @@ def _loq_cost_decomposition(cfg, classes_cap):
             returnn_config=cfg,
             mode=profiled_mode,
             num_steps=31,
-            version=20,
+            version=21,
             config_overrides={
                 "torch_profile": {"schedule": {"skip_first": 12, "wait": 1, "warmup": 2, "active": 3, "repeat": 1}},
             },
