@@ -36,6 +36,37 @@ from typing import Any, Dict, Optional, Sequence, Union
 from sisyphus import Job, Task, tk
 from i6_core.returnn.config import ReturnnConfig
 
+from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
+from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
+from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import (
+    train_exp as _aed_train_exp,
+    _raw_sample_rate,
+)
+from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines import configs as _baseline_configs
+from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.aed_ctc import (
+    aed_ctc_timesync_recog_recomb_auto_scale,
+)
+from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc_recog_ext import (
+    ctc_recog_recomb_labelwise_prior_auto_scale,
+)
+from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc import (
+    model_recog as _ctc_model_recog,
+)
+from i6_experiments.users.zeyer.experiments.exp2025_10_21_chunked_ctc import get_lm as _get_loq_lm
+from i6_experiments.users.zeyer.datasets.loquacious import (
+    get_loquacious_task_raw_v2,
+    get_loquacious_train_subset_dataset_v2,
+)
+
+import returnn.frontend as rf
+from returnn.frontend.decoder.transformer import TransformerDecoder
+from returnn.frontend.encoder.conformer import (
+    ConformerEncoder,
+    ConformerEncoderLayer,
+    ConformerConvSubsample,
+    ConformerPositionwiseFeedForward,
+)
+
 # for get_setup_prefix_for_module (alias/output prefix of the loq experiments declared here)
 __setup_root_prefix__ = "exp2026_05_23_returnn"
 
@@ -661,11 +692,195 @@ def _py_aed_graphc_exp(name_suffix, time_cap, packed_total, extra_cfg, *, packed
     )
 
 
+# ----------------------------------------------------------------------------
+# Below: ``_base_config`` and ``loq_train`` are a verbatim copy of
+# ``exp2026_05_26_base_fzj.train`` (itself copied verbatim from
+# ``exp2025_10_21_chunked_ctc``); ``get_lm`` is imported from the original.
+# **Do not refactor** without re-verifying that all downstream Job hashes
+# still match (``hpc-sis-m.py --inspect`` must show no changed jobs).
+# ----------------------------------------------------------------------------
+
+
+_base_config = {
+    # ("large", 100),  # 100kh in total, 4 full epochs
+    # ("large", 150),  # 150kh in total, 6 full epochs
+    # ("large", 200),  # 200kh in total, 8 full epochs
+    # ("large", 250),  # 250kh in total, 10 full epochs
+    # ("large", 500),  # 500kh in total, 20 full epochs
+    "subset": "large",
+    "total_k_hours": 100,
+    "vocab": "spm10k",
+    "model": {
+        "behavior_version": 24,
+        "__serialization_version": 2,
+        "enc_build_dict": rf.build_dict(
+            ConformerEncoder,
+            input_layer=rf.build_dict(
+                ConformerConvSubsample,
+                out_dims=[32, 64, 64],
+                filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                pool_sizes=[(1, 2)],
+                strides=[(1, 1), (3, 1), (2, 1)],  # downsampling 6
+            ),
+            num_layers=16,
+            out_dim=1024,
+            encoder_layer=rf.build_dict(
+                ConformerEncoderLayer,
+                ff=rf.build_dict(
+                    ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                ),
+                num_heads=8,
+            ),
+        ),
+        # Default AED decoder size: 6 layers, 512 dim
+        "dec_build_dict": rf.build_dict(
+            TransformerDecoder,
+            num_layers=6,
+            model_dim=1024,
+            norm=rf.build_dict(rf.RMSNorm),
+            ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+            layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+            # When only trained on LS ASR data, keep the default dropout?
+            # dropout=0.0,
+            # att_dropout=0.0,
+        ),
+        "feature_batch_norm": True,
+    },
+    "train_update_func_from_n_ep": lambda n_ep: {
+        "train": _baseline_configs._get_cfg_lrlin_oclr_by_bs_nep_v4(n_ep, base_lr=0.5)
+    },
+    "train": dict_update_deep(
+        _baseline_configs.config_96gb_bf16_accgrad1,
+        {
+            "batch_size": 100_000 * _baseline_configs._batch_size_factor,
+            "optimizer.weight_decay": 1e-2,
+            "accum_grad_multiple_step": 1,
+            "aux_loss_layers": [4, 10, 16],
+            "dec_aux_loss_layers": [3],
+            "max_seq_length_default_target": None,
+            # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+            # out of 281241 seqs in train, we removed only 71 seqs.
+            # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+        },
+    ),
+    "train_post": dict_update_deep(
+        _baseline_configs.post_config, {"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}}
+    ),
+    # TODO (for later): Bug: train_vocab_opts/dataset_train_opts are not actually plumbed through aed_train_exp.
+    #   Not a quick fix: patching now would silently change every training run and break
+    #   comparability with all existing results.
+    #   Revisit when starting a fresh batch of experiments where breakage is acceptable.
+    "train_vocab_opts": {"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    "dataset_train_opts": {"train_epoch_split": 1, "train_epoch_wise_filter": None},
+    "env_updates": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    "lm_recog_extra": {},
+}
+
+
+def loq_train(
+    name: str,
+    config: Dict[str, Any],
+    config_overrides: Optional[Dict[str, Any]] = None,
+    *,
+    recog_def_ctc_only: bool = True,
+    prefix: Optional[str] = None,
+):
+    """Loquacious AED+CTC training + recog pipeline (see the provenance note above)."""
+    if prefix is None:
+        prefix = get_setup_prefix_for_module(__name__)
+
+    config = dict_update_deep(_base_config.copy(), config.copy())
+    config = dict_update_deep(config, config_overrides, dict_value_merge=False)
+
+    train_epoch_split_per_subset = {"clean": 13, "small": 1, "medium": 2, "large": 25}
+    hours_per_subset = {"clean": 13_000, "small": 250, "medium": 2_500, "large": 25_000}
+    subset = config.pop("subset")
+    total_k_hours = config.pop("total_k_hours")
+    train_epoch_split = train_epoch_split_per_subset[subset]
+    num_full_ep = total_k_hours * 1_000 / hours_per_subset[subset]
+    n_ep = round(num_full_ep * train_epoch_split)
+
+    train_update_func_from_n_ep = config.pop("train_update_func_from_n_ep")
+    if train_update_func_from_n_ep:
+        config = dict_update_deep(config, train_update_func_from_n_ep(n_ep))
+
+    model_config = config.pop("model")
+    train_config: Dict[str, Any] = config.pop("train")
+    post_config = config.pop("train_post")
+
+    vocab = config.pop("vocab", "spm10k")
+    # only passed through when set: the default (laplace:.1000) call stays byte-identical,
+    # so existing job hashes are unaffected
+    train_seq_ordering = config.pop("train_seq_ordering", None)
+    task_extra_kwargs = {}
+    if train_seq_ordering is not None:
+        task_extra_kwargs["train_seq_ordering"] = train_seq_ordering
+    task = get_loquacious_task_raw_v2(
+        vocab=vocab, subset_name=subset, train_epoch_split=train_epoch_split, **task_extra_kwargs
+    )
+
+    train_vocab_opts = config.pop("train_vocab_opts")
+    dataset_train_opts = config.pop("dataset_train_opts")
+    env_updates = config.pop("env_updates")
+    lm_recog_extra_config = config.pop("lm_recog_extra")
+
+    assert not config
+
+    aux_ctc_layer = max(
+        [i for i in train_config["aux_loss_layers"] if i <= model_config["enc_build_dict"]["num_layers"]]
+    )
+
+    exp = _aed_train_exp(
+        name,
+        train_config,
+        prefix=prefix + "/aed/",
+        task=task,
+        model_config=model_config,
+        post_config_updates=post_config,
+        vocab=vocab,
+        train_vocab_opts=train_vocab_opts,
+        dataset_train_opts=dataset_train_opts,
+        env_updates=env_updates,
+        recog_def=_ctc_model_recog if recog_def_ctc_only else None,
+        search_config={"aux_loss_layers": [aux_ctc_layer]} if recog_def_ctc_only else None,
+    )
+    aed_ctc_timesync_recog_recomb_auto_scale(
+        prefix=prefix + "/aed/" + name + "/aed+ctc",
+        task=task,
+        aed_ctc_model=exp.get_last_fixed_epoch(),
+        aux_ctc_layer=aux_ctc_layer,
+    )
+    if vocab == "spm10k":
+        lm_name, lm = _get_loq_lm(prefix=prefix, vocab=vocab)
+        ctc_recog_recomb_labelwise_prior_auto_scale(
+            prefix=f"{prefix}/aed/{name}/ctc+lm-v2/{lm_name}",
+            task=task,
+            ctc_model=exp.get_last_fixed_epoch(),
+            extra_config={
+                "aux_loss_layers": [
+                    max(
+                        [
+                            i
+                            for i in train_config["aux_loss_layers"]
+                            if i <= model_config["enc_build_dict"]["num_layers"]
+                        ]
+                    )
+                ],
+                **lm_recog_extra_config,
+            },
+            lm=lm,
+            prior_dataset=get_loquacious_train_subset_dataset_v2(vocab="spm10k"),
+        )
+
+    return exp, task, aux_ctc_layer
+
+
 def py_aed_graphc_loquacious():
     """
     Loquacious ~500M CTC+AED base (16L Conformer 1024d + 6L Transformer dec 1024d, spm10k),
     trained with graphc (packed collate + Inductor compile + whole-step CUDA graph),
-    cloned from :func:`i6_experiments.users.zeyer.experiments.exp2026_05_26_base_fzj.train` ("base").
+    via the local :func:`loq_train` pipeline copy above.
 
     Capacity notes (vs the LS 160M runs):
     - data: max_seq_length_default_input = 19.5s = 312_000 samples, NO speed perturbation
@@ -674,14 +889,6 @@ def py_aed_graphc_loquacious():
       so the capacity must cover the measured spm10k target-len max of the large subset
       (a too-small value raises loudly in graph-capture _copy_in).
     """
-    import functools
-    from i6_experiments.users.zeyer.experiments.exp2026_05_26_base_fzj import train as _loq_train_base
-    from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
-
-    # alias under THIS module's prefix (the defining module's _fzj name is historical;
-    # prefix is alias/output paths only, not hashed -- no job is invalidated by this)
-    loq_train = functools.partial(_loq_train_base, prefix=get_setup_prefix_for_module(__name__))
-
     gap, align = _aed_graphc_packed_gap, _aed_graphc_packed_align
     # measured on the train shards (spm10k SZcvHsG1gYNM),
     # CONDITIONED on the 19.5s audio filter (8.96M of 9.49M seqs pass):
