@@ -51,6 +51,7 @@ class FFNNTransducerQATEncoderPredictionConfig(ModelConfiguration):
     pos_enc_converter_hardware_settings: DacAdcHardwareSettings
     correction_settings: Union[CycleCorrectionSettings, None]
     num_cycles: int
+    version_control: Union[str, None]
 
 
 @dataclass
@@ -68,7 +69,15 @@ class FFNNTransducerQATEncoderPredictionModel(torch.nn.Module):
         self.specaug_config = cfg.specaug_cfg
         self.conformer = ConformerEncoderQuant(cfg.conformer_cfg)
 
-        self.enc_output_q = ActivationQuantizer(
+        self.enc_output_in_q = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=2,
+            moving_avrg=cfg.moving_average,
+        )
+
+        self.enc_output_out_q = ActivationQuantizer(
             bit_precision=cfg.activation_bit_prec,
             dtype=cfg.activation_quant_dtype,
             method=cfg.activation_quant_method,
@@ -78,7 +87,7 @@ class FFNNTransducerQATEncoderPredictionModel(torch.nn.Module):
 
         self.encoder_output = torch.nn.Sequential(
             torch.nn.Dropout(cfg.dropout),
-            self.enc_output_q,
+            self.enc_output_in_q,
             LinearQuant(
                 cfg.enc_dim,
                 self.target_size,
@@ -87,9 +96,11 @@ class FFNNTransducerQATEncoderPredictionModel(torch.nn.Module):
                 weight_quant_method=cfg.weight_quant_method,
                 bias=True,
             ),
-        )
+            self.enc_output_out_q,
+        ) # only for loss, but quantized just for consistency
 
         self.context_history_size = cfg.context_history_size
+
         self.token_embedding = EmbeddingQuant(
             num_embeddings=self.target_size,
             embedding_dim=cfg.context_embedding_dim,
@@ -103,7 +114,6 @@ class FFNNTransducerQATEncoderPredictionModel(torch.nn.Module):
         prev_size = self.context_history_size * cfg.context_embedding_dim
         for _ in range(cfg.pred_num_layers):
             prediction_layers.append(torch.nn.Dropout(cfg.dropout))
-            prediction_layers.append(cfg.pred_activation)
             prediction_layers.append(
                 ActivationQuantizer(
                     bit_precision=cfg.activation_bit_prec,
@@ -123,10 +133,28 @@ class FFNNTransducerQATEncoderPredictionModel(torch.nn.Module):
                     bias=True,
                 )
             )
+            prediction_layers.append(
+                ActivationQuantizer(
+                    bit_precision=cfg.activation_bit_prec,
+                    dtype=cfg.activation_quant_dtype,
+                    method=cfg.activation_quant_method,
+                    channel_axis=1,
+                    moving_avrg=cfg.moving_average,
+                )
+            )
+            prediction_layers.append(cfg.pred_activation)
             prev_size = cfg.pred_dim
         self.prediction_net = torch.nn.Sequential(*prediction_layers)
 
-        self.prediction_output_q = ActivationQuantizer(
+        self.prediction_output_in_q = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
+        )
+
+        self.prediction_output_out_q = ActivationQuantizer(
             bit_precision=cfg.activation_bit_prec,
             dtype=cfg.activation_quant_dtype,
             method=cfg.activation_quant_method,
@@ -136,7 +164,7 @@ class FFNNTransducerQATEncoderPredictionModel(torch.nn.Module):
 
         self.prediction_output = torch.nn.Sequential(
             torch.nn.Dropout(cfg.dropout),
-            self.prediction_output_q,
+            self.prediction_output_in_q,
             LinearQuant(
                 cfg.pred_dim,
                 self.target_size,
@@ -145,7 +173,8 @@ class FFNNTransducerQATEncoderPredictionModel(torch.nn.Module):
                 weight_quant_method=cfg.weight_quant_method,
                 bias=True,
             ),
-        )
+            self.prediction_output_out_q,
+        ) # only for loss, but quantized just for consistency
 
         self.joint_net = torch.nn.Sequential(
             torch.nn.Dropout(cfg.dropout),

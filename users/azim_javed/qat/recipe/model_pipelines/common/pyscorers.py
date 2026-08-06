@@ -2,6 +2,9 @@ from dataclasses import fields
 import numpy as np
 import torch
 
+from synaptogen_ml.memristor_modules import DacAdcHardwareSettings
+from synaptogen_ml.memristor_modules.config import CycleCorrectionSettings
+
 SHOULD_LOG = True
 
 _TransitionType = None
@@ -97,6 +100,13 @@ class FixedContextTransducerPy:
             config.set_selection(f"{base_selection}.qat")
             w_prec = get_config_value(config, "weight-bit-prec", None, dtype=int)
             if w_prec is not None:
+                prior_train_dac_settings = DacAdcHardwareSettings(
+                        input_bits=0,
+                        output_precision_bits=0,
+                        output_range_bits=0,
+                        hardware_input_vmax=0.6,
+                        hardware_output_current_scaling=8020.0,
+                    )
                 qat_params = dict(
                     weight_bit_prec=w_prec,
                     activation_bit_prec=get_config_value(config, "activation-bit-prec", dtype=int),

@@ -21,6 +21,7 @@ def compute_priors(
     prior_data_config: DataConfig,
     model_serializers: Collection,
     checkpoint: PtCheckpoint,
+    gpu_mem_rqmt: int = 24,
 ) -> tk.Path:
     prior_returnn_config = ReturnnConfig(
         config={
@@ -53,8 +54,11 @@ def compute_priors(
         returnn_python_exe=returnn_python_exe,
         returnn_root=returnn_root,
         output_files=["prior.txt"],
+        time_rqmt=100,
+        cpu_rqmt=8,
+        mem_rqmt=16,
     )
-    prior_job.rqmt["gpu_mem"] = 24
+    prior_job.rqmt["gpu_mem"] = gpu_mem_rqmt
 
     return prior_job.out_files["prior.txt"]
 

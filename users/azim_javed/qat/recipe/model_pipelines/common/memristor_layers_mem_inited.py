@@ -11,7 +11,7 @@ from torch import nn
 import torch.ao.quantization as torch_quant
 import torch.nn.functional as F
 from typing import Optional, Union, Dict, Callable
-from ...assemblies.conformer import QuantizedConformerMHSARelPosV1Config
+from .assemblies.conformer import QuantizedConformerMHSARelPosV1Config
 import math
 from torch.ao.quantization.utils import check_min_max_valid
 import numpy

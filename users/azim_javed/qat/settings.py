@@ -4,8 +4,8 @@ import sys
 
 sys.path.append("/u/beck/dev/cachemanager/")
 
-if "/u/azim.javed/experiments/training/qat" not in sys.path:
-    sys.path.append("/u/azim.javed/experiments/training/qat")
+if "/u/azim.javed/experiments/training/baselines_clean" not in sys.path:
+    sys.path.append("/u/azim.javed/experiments/training/baselines_clean")
 
 
 def file_caching(path, is_output=False):
@@ -21,13 +21,26 @@ CPU_SLOW_JOBLIST = [
     "PipelineJob",
 ]
 
+FAST_TRACK_JOBS = ["ReturnnForwardJobV2"]
+gpu_job_hashes = []
+
 
 def check_engine_limits(current_rqmt, task):
     """
     i6 support for gpu_mem
     """
     current_rqmt["time"] = min(168, current_rqmt.get("time", 2))
-    bad_nodes = ["cn-627", "cn-828", "cn-617", "cn-619", "cn-506"]
+    bad_nodes = [
+        "cn-627",
+        "cn-828",
+        "cn-617",
+        "cn-619",
+        "cn-622",
+        "cn-624",
+        "cn-506",
+        "cn-820",
+        "cn-230",
+    ]
     if current_rqmt.get("gpu", 0) > 0 and "-p" not in current_rqmt.get(
         "sbatch_args", []
     ):
@@ -37,11 +50,31 @@ def check_engine_limits(current_rqmt, task):
             current_rqmt["sbatch_args"] = ["-p", "gpu_24gb"]
         else:
             current_rqmt["sbatch_args"] = ["-p", "gpu_11gb"]
+
+    job_hash = task._job._sis_id().rsplit(".", 1)[-1]
+
+    if current_rqmt.get("engine", "long") == "long" and job_hash in gpu_job_hashes:
+        current_rqmt["gpu"] = 1
+        current_rqmt["sbatch_args"].append("-p")
+        current_rqmt["sbatch_args"].append("gpu_11gb")
+
+    if (
+        task._job.__class__.__name__ in FAST_TRACK_JOBS
+        and current_rqmt.get("gpu", 0) > 0
+    ):
+        if current_rqmt.get("gpu_mem", 0) > 24:
+            current_rqmt["sbatch_args"] = ["-p", "gpu_48gb"]
+        elif current_rqmt.get("gpu_mem", 0) > 11:
+            current_rqmt["sbatch_args"] = ["-p", "gpu_24gb,gpu_48gb"]
+        else:
+            current_rqmt["sbatch_args"] = ["-p", "gpu_11gb,gpu_24gb,gpu_48gb"]
+
+    if task._job.__class__.__name__ in CPU_SLOW_JOBLIST:
+        current_rqmt["sbatch_args"] = ["-p", "cpu_slow"]
+
     current_rqmt["sbatch_args"] = current_rqmt.get("sbatch_args", []) + [
         "--exclude=%s" % ",".join(bad_nodes)
     ]
-    if task._job.__class__.__name__ in CPU_SLOW_JOBLIST:
-        current_rqmt["sbatch_args"] = ["-p", "cpu_slow"]
 
     return current_rqmt
 
@@ -151,12 +184,13 @@ DEFAULT_ENVIRONMENT_SET.update(
     {
         "TMPDIR": TMP_PREFIX,
         "TMP": TMP_PREFIX,
-        "PYTHONPATH": os.environ.get("PWD", os.getcwd()) + ":/u/azim.javed/experiments/training/qat" + (":" + os.environ["PYTHONPATH"] if "PYTHONPATH" in os.environ else ""),
+        "PYTHONPATH": os.environ.get("PWD", os.getcwd())
+        + ":/u/azim.javed/experiments/training/baselines_clean"
+        + (":" + os.environ["PYTHONPATH"] if "PYTHONPATH" in os.environ else ""),
         "NUMBA_CACHE_DIR": f"{TMP_PREFIX}/numba_cache_{getpass.getuser()}",  # used for librosa
-        "PYTORCH_KERNEL_CACHE_PATH": f"{TMP_PREFIX}/pt_kernel_cache_{getpass.getuser()}", 
-        "OMP_NUM_THREADS": 2,
-        "MKL_NUM_THREADS": 2,
+        "PYTORCH_KERNEL_CACHE_PATH": f"{TMP_PREFIX}/pt_kernel_cache_{getpass.getuser()}",
+        # "OMP_NUM_THREADS": 2,
+        # "MKL_NUM_THREADS": 2,
         "CXXFLAGS": "-include cstdint",
-        "PYTORCH_CUDA_ALLOC_CONF":"expandable_segments:True"
     }
 )

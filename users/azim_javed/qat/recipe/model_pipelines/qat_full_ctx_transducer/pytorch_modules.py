@@ -23,7 +23,6 @@ from synaptogen_ml.memristor_modules import DacAdcHardwareSettings
 from synaptogen_ml.memristor_modules.config import CycleCorrectionSettings
 
 
-
 @dataclass
 class QATLstmTransducerConfig(ModelConfiguration):
     logmel_cfg: LogMelFeatureExtractionV1Config
@@ -49,6 +48,7 @@ class QATLstmTransducerConfig(ModelConfiguration):
     pos_enc_converter_hardware_settings: DacAdcHardwareSettings
     correction_settings: Union[CycleCorrectionSettings, None]
     num_cycles: int
+    version_control: Union[str, None]
 
 
 @dataclass
@@ -66,16 +66,25 @@ class QATLstmTransducerModel(torch.nn.Module):
         self.specaug_config = cfg.specaug_cfg
         self.conformer = ConformerEncoderQuant(cfg.conformer_cfg)
 
-        self.enc_output_q = ActivationQuantizer(
+        self.enc_output_q_in = ActivationQuantizer(
             bit_precision=cfg.activation_bit_prec,
             dtype=cfg.activation_quant_dtype,
             method=cfg.activation_quant_method,
             channel_axis=2,
             moving_avrg=cfg.moving_average,
         )
+
+        self.enc_output_q_out = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=2,
+            moving_avrg=cfg.moving_average,
+        )
+
         self.enc_output = torch.nn.Sequential(
             torch.nn.Dropout(cfg.dropout),
-            self.enc_output_q,
+            self.enc_output_q_in,
             LinearQuant(
                 cfg.enc_dim,
                 self.target_size,
@@ -84,6 +93,7 @@ class QATLstmTransducerModel(torch.nn.Module):
                 weight_quant_method=cfg.weight_quant_method,
                 bias=True,
             ),
+            self.enc_output_q_out,
         )
 
         self.token_embedding = EmbeddingQuant(
@@ -111,7 +121,15 @@ class QATLstmTransducerModel(torch.nn.Module):
         )
         self.pred_act = cfg.pred_activation
 
-        self.pred_output_q = ActivationQuantizer(
+        self.pred_output_q_in = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=2,
+            moving_avrg=cfg.moving_average,
+        )
+
+        self.pred_output_q_out = ActivationQuantizer(
             bit_precision=cfg.activation_bit_prec,
             dtype=cfg.activation_quant_dtype,
             method=cfg.activation_quant_method,
@@ -121,7 +139,7 @@ class QATLstmTransducerModel(torch.nn.Module):
 
         self.pred_output = torch.nn.Sequential(
             torch.nn.Dropout(cfg.dropout),
-            self.pred_output_q,
+            self.pred_output_q_in,
             LinearQuant(
                 cfg.pred_dim,
                 self.target_size,
@@ -130,9 +148,10 @@ class QATLstmTransducerModel(torch.nn.Module):
                 weight_quant_method=cfg.weight_quant_method,
                 bias=True,
             ),
+            self.pred_output_q_out,
         )
 
-        self.joiner_q_1 = ActivationQuantizer(
+        self.joiner_q1_in = ActivationQuantizer(
             bit_precision=cfg.activation_bit_prec,
             dtype=cfg.activation_quant_dtype,
             method=cfg.activation_quant_method,
@@ -140,7 +159,23 @@ class QATLstmTransducerModel(torch.nn.Module):
             moving_avrg=cfg.moving_average,
         )
 
-        self.joiner_q_2 = ActivationQuantizer(
+        self.joiner_q1_out = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
+        )
+
+        self.joiner_q2_in = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
+        )
+
+        self.joiner_q2_out = ActivationQuantizer(
             bit_precision=cfg.activation_bit_prec,
             dtype=cfg.activation_quant_dtype,
             method=cfg.activation_quant_method,
@@ -150,7 +185,7 @@ class QATLstmTransducerModel(torch.nn.Module):
 
         self.joiner = torch.nn.Sequential(
             torch.nn.Dropout(cfg.dropout),
-            self.joiner_q_1,
+            self.joiner_q1_in,
             LinearQuant(
                 cfg.enc_dim + cfg.pred_dim,
                 cfg.joiner_dim,
@@ -159,9 +194,10 @@ class QATLstmTransducerModel(torch.nn.Module):
                 weight_quant_method=cfg.weight_quant_method,
                 bias=True,
             ),
+            self.joiner_q1_out,
             cfg.joiner_activation,
             torch.nn.Dropout(cfg.dropout),
-            self.joiner_q_2,
+            self.joiner_q2_in,
             LinearQuant(
                 cfg.joiner_dim,
                 self.target_size,
@@ -170,6 +206,7 @@ class QATLstmTransducerModel(torch.nn.Module):
                 weight_quant_method=cfg.weight_quant_method,
                 bias=True,
             ),
+            self.joiner_q2_out,
         )
 
     def forward_encoder(

@@ -9,6 +9,7 @@ from sisyphus import Job, Task
 from synaptogen_ml.memristor_modules import DacAdcHardwareSettings
 from synaptogen_ml.memristor_modules.config import CycleCorrectionSettings
 
+
 class MemristorModelConversionJob(Job):
     def __init__(self, checkpoint: PtCheckpoint, model_config: ModelConfiguration, model_class: torch.nn.Module, replace_params: dict = None):
         self.checkpoint = checkpoint
@@ -17,7 +18,7 @@ class MemristorModelConversionJob(Job):
         self.replace_params = replace_params
         self.out_config = self.model_config.with_replaced(**self.replace_params)
         self.out_checkpoint = PtCheckpoint(self.output_path("memristor_converted_model.pt"))
-        self.rqmt = {"cpu": 2, "mem": 4, "time": 4}
+        self.rqmt = {"cpu": 48, "mem": 48, "time": 96}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)

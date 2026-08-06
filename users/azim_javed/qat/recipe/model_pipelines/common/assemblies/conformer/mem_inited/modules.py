@@ -30,7 +30,7 @@ from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
 
 # from returnn.torch.context import get_run_ctx
 
-from ...config import (
+from ..config import (
     ConformerPositionwiseFeedForwardQuantV4Config,
     QuantizedConformerMHSARelPosV1Config,
     ConformerConvolutionQuantV4Config,
@@ -38,7 +38,7 @@ from ...config import (
     ConformerEncoderQuantV1Config,
 )
 
-from .....memristor_layers.mem_inited import ActivationQuantizer, QuantizedMultiheadAttention
+from ....memristor_layers_mem_inited import ActivationQuantizer, QuantizedMultiheadAttention
 
 # from lovely_tensors import monkey_patch
 
@@ -55,10 +55,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         self.model_cfg = cfg
         self.layer_norm = nn.LayerNorm(cfg.input_dim)
 
-        try:
-            from torch_memristor.memristor_modules import TiledMemristorLinear
-        except ModuleNotFoundError:
-            from synaptogen_ml.memristor_modules.linear import TiledMemristorLinear
+        from synaptogen_ml.memristor_modules.linear import TiledMemristorLinear
 
         self.linear_ff = TiledMemristorLinear(
             in_features=cfg.input_dim,
@@ -178,11 +175,9 @@ class ConformerConvolutionQuant(nn.Module):
         """
         super().__init__()
         model_cfg.check_valid()
-        try:
-            from torch_memristor.memristor_modules import TiledMemristorLinear, MemristorConv1d
-        except ModuleNotFoundError:
-            from synaptogen_ml.memristor_modules.linear import TiledMemristorLinear
-            from synaptogen_ml.memristor_modules.conv import MemristorConv1d
+
+        from synaptogen_ml.memristor_modules.linear import TiledMemristorLinear
+        from synaptogen_ml.memristor_modules.conv import MemristorConv1d
 
         self.model_cfg = model_cfg
 

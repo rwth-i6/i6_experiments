@@ -3,7 +3,7 @@ __all__ = [
     "FFNNTransducerQATEncoderRecogConfig",
     "FFNNTransducerQATEncoderModel",
     "FFNNTransducerQATEncoder",
-    "FFNNTransducerQATEScorer",
+    "FFNNTransducerQATEncoderScorer",
 ]
 
 from dataclasses import dataclass

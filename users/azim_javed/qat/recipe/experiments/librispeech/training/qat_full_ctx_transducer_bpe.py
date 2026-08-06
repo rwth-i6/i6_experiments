@@ -258,6 +258,7 @@ def get_model_config(
         correction_settings=qat_args["correction_settings"],
         num_cycles=qat_args["num_cycles"],
         moving_average=qat_args["moving_average"],
+        version_control="v2-qact-lowbs",
     )
 
 
@@ -266,7 +267,7 @@ def get_train_options(bpe_size: int = 128) -> QATLstmTransducerTrainOptions:
         train_data_config=librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size),
         cv_data_config=librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size),
         save_epochs=list(range(1500, 1900, 100)) + list(range(1900, 2001, 20)),
-        batch_size=36_000 * 160,
+        batch_size=12_000 * 160,
         accum_grad_multiple_step=2,
         optimizer_config=RAdamConfig(
             epsilon=1e-12,

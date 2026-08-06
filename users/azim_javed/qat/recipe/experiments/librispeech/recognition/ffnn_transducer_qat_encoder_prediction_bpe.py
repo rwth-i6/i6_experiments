@@ -11,10 +11,10 @@ from ....model_pipelines.common.recog import OfflineRecogParameters, RecogResult
 from ....model_pipelines.common.recog_rasr_config import LexiconfreeTimesyncRecogParams
 from ....model_pipelines.common.serializers import get_model_serializers
 from ....model_pipelines.common.train import TrainedModel
-from ....model_pipelines.ffnn_transducer_qat_encoder.label_scorer_config import get_ffnn_transducer_label_scorer_config
-from ....model_pipelines.ffnn_transducer_qat_encoder.pytorch_modules import (
-    FFNNTransducerQATEncoderConfig,
-    FFNNTransducerQATEncoder,
+from ....model_pipelines.ffnn_transducer_qat_encoder_pred.label_scorer_config import get_ffnn_transducer_label_scorer_config
+from ....model_pipelines.ffnn_transducer_qat_encoder_pred.pytorch_modules import (
+    FFNNTransducerQATEncoderPredictionConfig,
+    FFNNTransducerQATEncoderPredictionEncoder,
 )
 
 from .common import BaseRecogVariant, run_single_bpe_variant
@@ -29,7 +29,7 @@ class TransducerRecogVariant(BaseRecogVariant):
 
 
 def run(
-    model: TrainedModel[FFNNTransducerQATEncoderConfig],
+    model: TrainedModel[FFNNTransducerQATEncoderPredictionConfig],
     variants: Optional[List[TransducerRecogVariant]] = None,
     corpora: Optional[List[librispeech_datasets.EvalSet]] = None,
 ) -> List[RecogResult]:
@@ -290,7 +290,7 @@ def default_streaming_tree_4gram_recog_variant() -> TransducerRecogVariant:
 
 
 def _get_label_scorer_configs(
-    model: TrainedModel[FFNNTransducerQATEncoderConfig], variant: TransducerRecogVariant
+    model: TrainedModel[FFNNTransducerQATEncoderPredictionConfig], variant: TransducerRecogVariant
 ) -> List[RasrConfig]:
     bpe_size = vocab_to_bpe_size(model.model_config.target_size - 1)
     use_gpu = variant.search_mode_params.gpu_mem_rqmt > 0
@@ -318,7 +318,7 @@ def _get_label_scorer_configs(
 
 
 def _run_single_variant(
-    model: TrainedModel[FFNNTransducerQATEncoderConfig],
+    model: TrainedModel[FFNNTransducerQATEncoderPredictionConfig],
     variant: TransducerRecogVariant,
     corpora: List[librispeech_datasets.EvalSet],
 ) -> List[RecogResult]:
@@ -326,7 +326,7 @@ def _run_single_variant(
     return run_single_bpe_variant(
         model_descriptor=model.descriptor,
         checkpoint=model.get_checkpoint(variant.epoch),
-        encoder_serializers=get_model_serializers(FFNNTransducerQATEncoder, model.model_config),
+        encoder_serializers=get_model_serializers(FFNNTransducerQATEncoderPredictionEncoder, model.model_config),
         label_scorer_configs=label_scorer_configs,
         bpe_size=vocab_to_bpe_size(model.model_config.target_size - 1),
         blank_index=model.model_config.target_size - 1,

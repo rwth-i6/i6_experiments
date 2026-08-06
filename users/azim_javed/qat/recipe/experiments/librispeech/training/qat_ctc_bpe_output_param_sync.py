@@ -4,72 +4,61 @@ from typing import Optional, Union
 
 import torch
 from i6_models.config import ModuleFactoryV1
+from synaptogen_ml.memristor_modules import DacAdcHardwareSettings
 
 from i6_models.parts.conformer.norm import LayerNormNC
 from i6_models.parts.frontend.generic_frontend import FrontendLayerType, GenericFrontendV1, GenericFrontendV1Config
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Config
 
-from synaptogen_ml.memristor_modules import DacAdcHardwareSettings
-
 from ....data.librispeech import datasets as librispeech_datasets
 from ....data.librispeech.bpe import bpe_to_vocab_size
 from ....model_pipelines.common.learning_rates import OCLRConfig
 from ....model_pipelines.common.optimizer import RAdamConfig
+from ....model_pipelines.common.train import TrainOptions, TrainedModel, train
 from ....model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
-from ....model_pipelines.common.train import TrainedModel, train
-from ....model_pipelines.qat_ffnn_transducer.pytorch_modules import (
-    QATFFNNTransducerConfig,
-    QATFFNNTransducerModel,
-)
-from ....model_pipelines.qat_ffnn_transducer.train import QATFFNNTransducerTrainOptions, get_train_step_import
 
-from ....model_pipelines.common.assemblies.conformer import (
-    ConformerEncoderQuantV1Config,
-    ConformerBlockQuantV1Config,
-    ConformerPositionwiseFeedForwardQuantV4Config,
-    QuantizedConformerMHSARelPosV1Config,
-    ConformerConvolutionQuantV4Config,
-    WeightPruningConfig,
+from ....model_pipelines.qat_ctc_output.pytorch_modules import (
+    QATConformerCTCOutputConfig,
+    QATConformerCTCOutputModel,
 )
 
+from ....model_pipelines.common.assemblies.conformer import ConformerEncoderQuantV1Config, ConformerBlockQuantV1Config, ConformerPositionwiseFeedForwardQuantV4Config, QuantizedConformerMHSARelPosV1Config, ConformerConvolutionQuantV4Config, WeightPruningConfig
+
+from ....model_pipelines.qat_ctc.train import get_train_step_import
 
 def run(
     descriptor: str,
-    qat_args: Optional[dict] = None,
-    model_config: Optional[QATFFNNTransducerConfig] = None,
-    train_options: Optional[QATFFNNTransducerTrainOptions] = None,
-) -> TrainedModel[QATFFNNTransducerConfig]:
+    qat_args: dict,
+    model_config: Optional[QATConformerCTCOutputConfig] = None,
+    train_options: Optional[TrainOptions] = None,
+) -> TrainedModel[QATConformerCTCOutputConfig]:
     if model_config is None:
         if qat_args is None:
-            raise ValueError("Either model_config or qat_args must be provided")
+            raise ValueError("Must specify either model_config or qat_args")
         model_config = get_model_config(**qat_args)
     if train_options is None:
         train_options = get_train_options()
 
     return train(
         descriptor=descriptor,
-        model_class=QATFFNNTransducerModel,
+        model_class=QATConformerCTCOutputModel,
         model_config=model_config,
         options=train_options,
-        train_step_import=get_train_step_import(train_options),
+        train_step_import=get_train_step_import(),
+        best_n_epochs=4,
     )
 
 
-def get_model_config(
-    weight_bit_prec: Union[int, dict],
-    activation_bit_prec: int,
-    weight_dropout: float,
-    weight_pruning_config: WeightPruningConfig,
-    bpe_size: int = 128,
-) -> QATFFNNTransducerConfig:
 
+def get_model_config(weight_bit_prec: Union[int, dict], activation_bit_prec: int, weight_dropout: float, weight_pruning_config: WeightPruningConfig, bpe_size: int = 128, layer_size: int = 512) -> QATConformerCTCOutputConfig:
+    
     if isinstance(weight_bit_prec, dict):
         ff_prec = weight_bit_prec["ff"]
         mhsa_prec = weight_bit_prec["mhsa"]
         conv_prec = weight_bit_prec["conv"]
     else:
         ff_prec = mhsa_prec = conv_prec = weight_bit_prec
-
+    
     prior_train_dac_settings = DacAdcHardwareSettings(
         input_bits=0,
         output_precision_bits=0,
@@ -103,10 +92,10 @@ def get_model_config(
         weight_noise=None,
         weight_noise_func=None,
         weight_noise_values=None,
-        weight_noise_start_epoch=None,
+        weight_noise_start_epoch=None
     )
-
-    return QATFFNNTransducerConfig(
+    
+    return QATConformerCTCOutputConfig(
         logmel_cfg=LogMelFeatureExtractionV1Config(
             sample_rate=16000,
             win_size=0.025,
@@ -119,7 +108,7 @@ def get_model_config(
             n_fft=400,
         ),
         specaug_cfg=SpecaugmentByLengthConfig(
-            start_epoch=41,
+            start_epoch=21,
             time_min_num_masks=2,
             time_max_mask_per_n_frames=25,
             time_mask_max_size=20,
@@ -197,7 +186,7 @@ def get_model_config(
                     activation_quant_dtype=qat_args["activation_quant_dtype"],
                     activation_quant_method=qat_args["activation_quant_method"],
                     dot_quant_dtype=qat_args["dot_quant_dtype"],
-                    dot_quant_method=qat_args["dot_quant_method"],
+                    dot_quant_method=qat_args["dot_quant_method"], 
                     Av_quant_dtype=qat_args["Av_quant_dtype"],
                     Av_quant_method=qat_args["Av_quant_method"],
                     moving_average=qat_args["moving_average"],
@@ -207,7 +196,7 @@ def get_model_config(
                     correction_settings=qat_args["correction_settings"],
                     weight_noise=qat_args["weight_noise"],
                     weight_dropout=weight_dropout,
-                    weight_pruning=weight_pruning_config,
+                    weight_pruning=weight_pruning_config
                 ),
                 conv_cfg=ConformerConvolutionQuantV4Config(
                     channels=512,
@@ -227,64 +216,58 @@ def get_model_config(
                     correction_settings=qat_args["correction_settings"],
                     weight_noise=qat_args["weight_noise"],
                     weight_dropout=weight_dropout,
-                    weight_pruning=weight_pruning_config,
+                    weight_pruning=weight_pruning_config
                 ),
                 modules=["ff", "conv", "mhsa", "ff"],
                 scales=[0.5, 1.0, 1.0, 0.5],
             ),
         ),
-        dropout=0.1,
-        enc_dim=512,
-        pred_num_layers=2,
-        pred_dim=640,
-        pred_activation=torch.nn.Tanh(),
-        context_history_size=1,
-        context_embedding_dim=256,
-        joiner_dim=1024,
-        joiner_activation=torch.nn.Tanh(),
+        dim=layer_size,
         target_size=bpe_to_vocab_size(bpe_size=bpe_size) + 1,
+        dropout=0.1,
         weight_bit_prec=weight_bit_prec,
         weight_quant_dtype=qat_args["weight_quant_dtype"],
         weight_quant_method=qat_args["weight_quant_method"],
         activation_bit_prec=activation_bit_prec,
         activation_quant_dtype=qat_args["activation_quant_dtype"],
         activation_quant_method=qat_args["activation_quant_method"],
-        converter_hardware_settings=prior_train_dac_settings,
-        pos_enc_converter_hardware_settings=prior_train_dac_settings,
-        correction_settings=qat_args["correction_settings"],
-        num_cycles=qat_args["num_cycles"],
         moving_average=qat_args["moving_average"],
-        version_control="v2-qact-fix-12bs"
+                
     )
 
+def get_train_options(bpe_size: int = 128, num_epochs: int = 100) -> TrainOptions:
+    train_data_config = librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size)
+    cv_data_config = librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size)
 
-def get_train_options(bpe_size: int = 128) -> QATFFNNTransducerTrainOptions:
-    return QATFFNNTransducerTrainOptions(
-        train_data_config=librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size),
-        cv_data_config=librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size),
-        save_epochs=list(range(1500, 1900, 100)) + list(range(1900, 2001, 20)),
-        batch_size=12_000 * 160,
-        accum_grad_multiple_step=2,
+    partition_epoch = train_data_config.partition_epoch
+
+    save_epochs = list(range(num_epochs * 3 // 4, num_epochs - 5, 5)) + list(range(num_epochs - 5, num_epochs + 1))
+    save_subepochs = [epoch * partition_epoch for epoch in save_epochs]
+
+    return TrainOptions(
+        train_data_config=train_data_config,
+        cv_data_config=cv_data_config,
+        save_epochs=save_subepochs,
+        batch_size=36_000 * 160,
+        accum_grad_multiple_step=1,
         optimizer_config=RAdamConfig(
             epsilon=1e-12,
             weight_decay=0.01,
-            decoupled_weight_decay=True,
+            decoupled_weight_decay=True
         ),
         lr_config=OCLRConfig(
             init_lr=7e-06,
             peak_lr=5e-04,
             decayed_lr=5e-05,
             final_lr=1e-07,
-            inc_epochs=960,
-            dec_epochs=960,
-            final_epochs=80,
+            inc_epochs=(num_epochs - 4) // 2 * partition_epoch,
+            dec_epochs=(num_epochs - 4) // 2 * partition_epoch,
+            final_epochs=4 * partition_epoch,
         ),
         gradient_clip=1.0,
         num_workers_per_gpu=2,
         automatic_mixed_precision=True,
-        gpu_mem_rqmt=24,
-        enc_loss_scale=0.5,
-        pred_loss_scale=0.0,
+        gpu_mem_rqmt=48,
         max_seqs=None,
-        max_seq_length=None,
+        max_seq_length={"audio_features": 35 * 16000},
     )

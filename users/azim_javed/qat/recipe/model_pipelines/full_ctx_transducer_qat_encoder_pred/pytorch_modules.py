@@ -66,16 +66,25 @@ class LstmTransducerQATEncoderPredictionModel(torch.nn.Module):
         self.specaug_config = cfg.specaug_cfg
         self.conformer = ConformerEncoderQuant(cfg.conformer_cfg)
 
-        self.enc_output_q = ActivationQuantizer(
+        self.enc_output_q_in = ActivationQuantizer(
             bit_precision=cfg.activation_bit_prec,
             dtype=cfg.activation_quant_dtype,
             method=cfg.activation_quant_method,
             channel_axis=2,
             moving_avrg=cfg.moving_average,
         )
+
+        self.enc_output_q_out = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=2,
+            moving_avrg=cfg.moving_average,
+        )
+
         self.enc_output = torch.nn.Sequential(
             torch.nn.Dropout(cfg.dropout),
-            self.enc_output_q,
+            self.enc_output_q_in,
             LinearQuant(
                 cfg.enc_dim,
                 self.target_size,
@@ -84,6 +93,7 @@ class LstmTransducerQATEncoderPredictionModel(torch.nn.Module):
                 weight_quant_method=cfg.weight_quant_method,
                 bias=True,
             ),
+            self.enc_output_q_out,
         )
 
         self.token_embedding = EmbeddingQuant(
@@ -112,7 +122,15 @@ class LstmTransducerQATEncoderPredictionModel(torch.nn.Module):
         )
         self.pred_act = cfg.pred_activation
 
-        self.pred_output_q = ActivationQuantizer(
+        self.pred_output_q_in = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=2,
+            moving_avrg=cfg.moving_average,
+        )
+
+        self.pred_output_q_out = ActivationQuantizer(
             bit_precision=cfg.activation_bit_prec,
             dtype=cfg.activation_quant_dtype,
             method=cfg.activation_quant_method,
@@ -122,7 +140,7 @@ class LstmTransducerQATEncoderPredictionModel(torch.nn.Module):
 
         self.pred_output = torch.nn.Sequential(
             torch.nn.Dropout(cfg.dropout),
-            self.pred_output_q,
+            self.pred_output_q_in,
             LinearQuant(
                 cfg.pred_dim,
                 self.target_size,
@@ -131,8 +149,9 @@ class LstmTransducerQATEncoderPredictionModel(torch.nn.Module):
                 weight_quant_method=cfg.weight_quant_method,
                 bias=True,
             ),
+            self.pred_output_q_out,
         )
-
+        
         self.joiner = torch.nn.Sequential(
             torch.nn.Dropout(cfg.dropout),
             torch.nn.Linear(cfg.enc_dim + cfg.pred_dim, cfg.joiner_dim),

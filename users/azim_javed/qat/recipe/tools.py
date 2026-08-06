@@ -46,6 +46,8 @@ rasr_make_job = CMakeJob(
 synaptogen_ml_root = CloneGitRepositoryJob(
     "https://github.com/rwth-i6/SynaptogenML",
     checkout_folder_name="synaptogen_ml",
+    branch="bene_memristor_speedup",
+    commit="6f89b529e034d0bf17f8f5c211867be5f1358e9e"
 ).out_repository.copy()
 synaptogen_ml_root.hash_overwrite = "SYNAPTOGEN_ML_ROOT"
 

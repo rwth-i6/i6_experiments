@@ -55,6 +55,8 @@ def default_recog_variants() -> List[TransducerRecogVariant]:
             default_offline_tree_recog_variant(),
             default_offline_tree_4gram_recog_variant(),
             default_offline_tree_lstm_recog_variant(),
+            mbs1024_offline_tree_recog_variant(),
+            mbs2048_offline_tree_recog_variant(),
             # default_offline_tree_lstm_4gram_recog_variant(),
             # default_offline_tree_trafo_recog_variant(),
             # default_offline_tree_trafo_recog_variant_gpu(),
@@ -161,6 +163,26 @@ def default_offline_tree_recog_variant() -> TransducerRecogVariant:
             collapse_repeated_labels=False,
             max_beam_sizes=[8],
             score_thresholds=[6.0],
+        ),
+    )
+
+def mbs1024_offline_tree_recog_variant() -> TransducerRecogVariant:
+    return TransducerRecogVariant(
+        descriptor="tree_mbs1024",
+        search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
+            collapse_repeated_labels=False,
+            score_thresholds=[18.0],
+            max_beam_sizes=[1024],
+        ),
+    )
+
+def mbs2048_offline_tree_recog_variant() -> TransducerRecogVariant:
+    return TransducerRecogVariant(
+        descriptor="tree_mbs2048",
+        search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
+            collapse_repeated_labels=False,
+            score_thresholds=[18.0],
+            max_beam_sizes=[2048],
         ),
     )
 

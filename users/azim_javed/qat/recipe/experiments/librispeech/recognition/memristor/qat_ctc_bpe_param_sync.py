@@ -1,4 +1,4 @@
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from typing import List, Optional
 
 from i6_core.rasr import RasrConfig
@@ -13,8 +13,9 @@ from .....model_pipelines.common.recog import OfflineRecogParameters, RecogResul
 from .....model_pipelines.common.recog_rasr_config import LexiconfreeTimesyncRecogParams
 from .....model_pipelines.common.serializers import get_model_serializers
 from .....model_pipelines.common.train import TrainedModel
+from .....model_pipelines.qat_ctc.mem_inited.prior import compute_priors as compute_priors_memristor
 from .....model_pipelines.qat_ctc.prior import compute_priors
-from .....model_pipelines.qat_ctc.pytorch_modules.mem_inited import (
+from .....model_pipelines.qat_ctc.mem_inited.pytorch_modules import (
     QATConformerCTCModel,
     QATConformerCTCConfig,
     QATConformerCTCRecogConfig,
@@ -30,6 +31,10 @@ from ..common import BaseRecogVariant, run_single_bpe_variant
 from .....model_pipelines.common.memrecog import convert_model_for_memristor
 from synaptogen_ml.memristor_modules import DacAdcHardwareSettings
 from synaptogen_ml.memristor_modules.config import CycleCorrectionSettings
+
+from .....tools import synaptogen_ml_root
+
+from i6_experiments.common.setups.serialization import ExternalImport
 
 
 @dataclass
@@ -49,6 +54,7 @@ def run(
     pos_enc_converter_hardware_settings: Optional[DacAdcHardwareSettings] = None,
     correction_settings: Optional[CycleCorrectionSettings] = None,
     num_cycles: Optional[int] = 0,
+    memristor_prior: bool = False,
 ) -> List[RecogResult]:
     if variants is None:
         variants = default_recog_variants()
@@ -86,77 +92,20 @@ def run(
                 pos_enc_converter_hardware_settings=pos_enc_converter_hardware_settings,
                 correction_settings=correction_settings,
                 num_cycles=num_cycles,
+                memristor_prior=memristor_prior
             )
         )
     return results
 
 
 def default_recog_variants() -> List[CTCRecogVariant]:
-    variants = []
-    # for lm_scale in [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2]:
-    #     for prior_scale in [0.2, 0.3, 0.4, 0.5]:
-    #         variants.append(
-    #             CTCRecogVariant(
-    #                 descriptor=f"tree_4gram_lm{lm_scale}_p{prior_scale}",
-    #                 search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
-    #                     collapse_repeated_labels=True,
-    #                     word_lm_params=librispeech_lm.ArpaLmParams(scale=lm_scale),
-    #                     score_thresholds=[18.0],
-    #                     max_beam_sizes=[2048],
-    #                     word_end_score_threshold=None,
-    #                     max_word_end_beam_size=None,
-    #                 ),
-    #                 prior_scale=prior_scale,
-    #             )
-    #         )
-    # variants.append(memristor_eq_base_tree_recog_variant())
-    # variants.append(
-    #     CTCRecogVariant(
-    #         descriptor="tree_4gram_lm0.8_p0.6",
-    #         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
-    #             collapse_repeated_labels=True,
-    #             word_lm_params=librispeech_lm.ArpaLmParams(scale=0.8),
-    #             score_thresholds=[18.0],
-    #             max_beam_sizes=[2048],
-    #             word_end_score_threshold=None,
-    #             max_word_end_beam_size=None,
-    #         ),
-    #         prior_scale=0.6,
-    #     )
-    # )
-    # variants.append(
-    #     CTCRecogVariant(
-    #         descriptor="tree_4gram_lm0.8_p0.7",
-    #         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
-    #             collapse_repeated_labels=True,
-    #             word_lm_params=librispeech_lm.ArpaLmParams(scale=0.8),
-    #             score_thresholds=[18.0],
-    #             max_beam_sizes=[2048],
-    #             word_end_score_threshold=None,
-    #             max_word_end_beam_size=None,
-    #         ),
-    #         prior_scale=0.7,
-    #     )
-    # )
-    # variants.extend(lstm_tree_recog_variants())
-    # variants.extend(lstm_lexfree_recog_variants())
-    # variants.append(default_offline_lexfree_lstm_recog_variant())
-    # return variants
-
-    # # return [
-    # #     st14_mb1024_west_off_mweb_off_offline_tree_4gram_recog_variant(),
-    # #     st18_mb1024_west_off_mweb_off_offline_tree_4gram_recog_variant(),
-    # #     st14_mb512_west_off_mweb_off_offline_tree_4gram_recog_variant(),
-    # #     st18_mb512_west_off_mweb_off_offline_tree_4gram_recog_variant(),
-    # #     st14_mb2048_west_off_mweb_off_offline_tree_4gram_recog_variant(),
-    # #     st18_mb2048_west_off_mweb_off_offline_tree_4gram_recog_variant(),
-    # # ]
     return [
-        # default_offline_lexfree_recog_variant(),
+        default_offline_lexfree_recog_variant(),
         # memristor_eq_base_tree_recog_variant(),
         # default_offline_lexfree_lstm_recog_variant(),
         # default_offline_lexfree_trafo_recog_variant(),
         # default_offline_tree_recog_variant(),
+        memristor_eq_base_tree_recog_variant(),
         default_offline_tree_4gram_recog_variant(),
         # default_offline_tree_lstm_recog_variant(),
         # default_offline_tree_lstm_4gram_recog_variant(),
@@ -167,13 +116,14 @@ def default_recog_variants() -> List[CTCRecogVariant]:
     ]
 
 
-def lstm_lexfree_recog_variants() -> List[CTCRecogVariant]:
+def param_sweep_lstm_lexfree_recog() -> List[CTCRecogVariant]:
     variants = []
     for lm_scale in [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2]:
         for prior_scale in [0.2, 0.3, 0.4, 0.5]:
             variants.append(
                 CTCRecogVariant(
-                    descriptor="lexfree_bpe-LSTM_lm{}_p{}_st18.0|14.0_mb2048|256".format(lm_scale, prior_scale),
+                    descriptor=f"lexfree_bpe-LSTM_lm{lm_scale}_p{prior_scale}",
+                    search_mode_params=OfflineRecogParameters(gpu_mem_rqmt=24),
                     search_algorithm_params=LexiconfreeTimesyncRecogParams(
                         collapse_repeated_labels=True,
                         score_thresholds=[18.0, 14.0],
@@ -186,29 +136,36 @@ def lstm_lexfree_recog_variants() -> List[CTCRecogVariant]:
     return variants
 
 
-def lstm_tree_recog_variants() -> List[CTCRecogVariant]:
+def param_sweep_tree_4gram_recog() -> List[CTCRecogVariant]:
     variants = []
     for lm_scale in [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2]:
         for prior_scale in [0.2, 0.3, 0.4, 0.5]:
             variants.append(
                 CTCRecogVariant(
-                    descriptor=f"tree_bpe-LSTM_lm{lm_scale}_p{prior_scale}_st12.0|10.0_mb128|64",
+                    descriptor=f"tree_4gram_lm{lm_scale}_p{prior_scale}",
+                    search_mode_params=OfflineRecogParameters(gpu_mem_rqmt=24),
                     search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
                         collapse_repeated_labels=True,
-                        score_thresholds=[12.0, 10.0],
-                        max_beam_sizes=[128, 64],
-                        word_end_score_threshold=0.6,
-                        max_word_end_beam_size=16,
+                        word_lm_params=librispeech_lm.ArpaLmParams(scale=lm_scale),
+                        score_thresholds=[18.0],
+                        max_beam_sizes=[2048],
+                        word_end_score_threshold=None,
+                        max_word_end_beam_size=None,
                     ),
                     prior_scale=prior_scale,
-                    bpe_lstm_lm_scale=lm_scale,
                 )
             )
+    return variants
+
+
+def param_sweep_lstm_tree_recog() -> List[CTCRecogVariant]:
+    variants = []
     for lm_scale in [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2]:
         for prior_scale in [0.2, 0.3, 0.4, 0.5]:
             variants.append(
                 CTCRecogVariant(
-                    descriptor=f"tree_bpe-LSTM_lm{lm_scale}_p{prior_scale}_st18.0|14.0_mb1024|256",
+                    descriptor=f"tree_bpe-LSTM_lm{lm_scale}_p{prior_scale}",
+                    search_mode_params=OfflineRecogParameters(gpu_mem_rqmt=24),
                     search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
                         collapse_repeated_labels=True,
                         score_thresholds=[18.0, 14.0],
@@ -226,7 +183,7 @@ def lstm_tree_recog_variants() -> List[CTCRecogVariant]:
 def memristor_eq_base_tree_recog_variant() -> CTCRecogVariant:
     return CTCRecogVariant(
         descriptor="tree_memristor_eq",
-        search_mode_params=OfflineRecogParameters(gpu_mem_rqmt=24),
+        search_mode_params=OfflineRecogParameters(gpu_mem_rqmt=11),
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=True,
             score_thresholds=[18.0],
@@ -240,6 +197,7 @@ def memristor_eq_base_tree_recog_variant() -> CTCRecogVariant:
 def default_offline_lexfree_recog_variant() -> CTCRecogVariant:
     return CTCRecogVariant(
         descriptor="lexfree",
+        search_mode_params=OfflineRecogParameters(gpu_mem_rqmt=11),
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
             collapse_repeated_labels=True,
             score_thresholds=[0.0],
@@ -251,6 +209,7 @@ def default_offline_lexfree_recog_variant() -> CTCRecogVariant:
 def default_offline_lexfree_lstm_recog_variant() -> CTCRecogVariant:
     return CTCRecogVariant(
         descriptor="lexfree_bpe-LSTM",
+        search_mode_params=OfflineRecogParameters(gpu_mem_rqmt=24),
         search_algorithm_params=LexiconfreeTimesyncRecogParams(
             collapse_repeated_labels=True,
             score_thresholds=[14.0, 12.0],
@@ -277,6 +236,7 @@ def default_offline_lexfree_trafo_recog_variant() -> CTCRecogVariant:
 def default_offline_tree_recog_variant() -> CTCRecogVariant:
     return CTCRecogVariant(
         descriptor="tree",
+        search_mode_params=OfflineRecogParameters(gpu_mem_rqmt=11),
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=True,
             score_thresholds=[6.0],
@@ -290,7 +250,7 @@ def default_offline_tree_recog_variant() -> CTCRecogVariant:
 def default_offline_tree_4gram_recog_variant() -> CTCRecogVariant:
     return CTCRecogVariant(
         descriptor="tree_4gram",
-        search_mode_params=OfflineRecogParameters(gpu_mem_rqmt=24),
+        search_mode_params=OfflineRecogParameters(gpu_mem_rqmt=11),
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=True,
             word_lm_params=librispeech_lm.ArpaLmParams(scale=0.6),  # lm scales 0.6 to 1.2
@@ -303,99 +263,10 @@ def default_offline_tree_4gram_recog_variant() -> CTCRecogVariant:
     )
 
 
-def st14_mb1024_west_off_mweb_off_offline_tree_4gram_recog_variant() -> CTCRecogVariant:
-    return CTCRecogVariant(
-        descriptor="tree_4gram_st14.0_mb1024_west_off_mweb_off",
-        search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
-            collapse_repeated_labels=True,
-            word_lm_params=librispeech_lm.ArpaLmParams(scale=0.6),  # lm scales 0.6 to 1.2
-            score_thresholds=[14.0],  # TODO: Try ~14~, 18 # first try the thresholds
-            max_beam_sizes=[1024],  # Try ~1024~, 512, 2048
-            word_end_score_threshold=None,
-            max_word_end_beam_size=None,  # TODO: ^^
-        ),
-        prior_scale=0.2,  # 0.2 to 0.5
-    )
-
-
-def st18_mb1024_west_off_mweb_off_offline_tree_4gram_recog_variant() -> CTCRecogVariant:
-    return CTCRecogVariant(
-        descriptor="tree_4gram_st18.0_mb1024_west_off_mweb_off",
-        search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
-            collapse_repeated_labels=True,
-            word_lm_params=librispeech_lm.ArpaLmParams(scale=0.6),  # lm scales 0.6 to 1.2
-            score_thresholds=[18.0],  # TODO: Try ~14~, ~18~ # first try the thresholds
-            max_beam_sizes=[1024],  # Try ~1024~, 512, 2048
-            word_end_score_threshold=None,
-            max_word_end_beam_size=None,  # TODO: ^^
-        ),
-        prior_scale=0.2,  # 0.2 to 0.5
-    )
-
-
-def st14_mb512_west_off_mweb_off_offline_tree_4gram_recog_variant() -> CTCRecogVariant:
-    return CTCRecogVariant(
-        descriptor="tree_4gram_st14.0_mb512_west_off_mweb_off",
-        search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
-            collapse_repeated_labels=True,
-            word_lm_params=librispeech_lm.ArpaLmParams(scale=0.6),  # lm scales 0.6 to 1.2
-            score_thresholds=[14.0],  # TODO: Try ~14~, 18 # first try the thresholds
-            max_beam_sizes=[512],  # Try ~1024~, 512, 2048
-            word_end_score_threshold=None,  # TODO: find out, should it be None?
-            max_word_end_beam_size=None,  # TODO: ^^
-        ),
-        prior_scale=0.2,  # 0.2 to 0.5
-    )
-
-
-def st18_mb512_west_off_mweb_off_offline_tree_4gram_recog_variant() -> CTCRecogVariant:
-    return CTCRecogVariant(
-        descriptor="tree_4gram_st18.0_mb512_west_off_mweb_off",
-        search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
-            collapse_repeated_labels=True,
-            word_lm_params=librispeech_lm.ArpaLmParams(scale=0.6),  # lm scales 0.6 to 1.2
-            score_thresholds=[18.0],  # TODO: Try ~14~, ~18~ # first try the thresholds
-            max_beam_sizes=[512],  # Try ~1024~, 512, 2048
-            word_end_score_threshold=None,  # TODO: find out, should it be None?
-            max_word_end_beam_size=None,  # TODO: ^^
-        ),
-        prior_scale=0.2,  # 0.2 to 0.5
-    )
-
-
-def st14_mb2048_west_off_mweb_off_offline_tree_4gram_recog_variant() -> CTCRecogVariant:
-    return CTCRecogVariant(
-        descriptor="tree_4gram_st14.0_mb2048_west_off_mweb_off",
-        search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
-            collapse_repeated_labels=True,
-            word_lm_params=librispeech_lm.ArpaLmParams(scale=0.6),  # lm scales 0.6 to 1.2
-            score_thresholds=[14.0],  # TODO: Try ~14~, 18 # first try the thresholds
-            max_beam_sizes=[2048],  # Try ~1024~, 512, 2048
-            word_end_score_threshold=None,  # TODO: find out, should it be None?
-            max_word_end_beam_size=None,  # TODO: ^^
-        ),
-        prior_scale=0.2,  # 0.2 to 0.5
-    )
-
-
-def st18_mb2048_west_off_mweb_off_offline_tree_4gram_recog_variant() -> CTCRecogVariant:
-    return CTCRecogVariant(
-        descriptor="tree_4gram_st18.0_mb2048_west_off_mweb_off",
-        search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
-            collapse_repeated_labels=True,
-            word_lm_params=librispeech_lm.ArpaLmParams(scale=0.6),  # lm scales 0.6 to 1.2
-            score_thresholds=[18.0],  # TODO: Try ~14~, ~18~ # first try the thresholds
-            max_beam_sizes=[2048],  # Try ~1024~, 512, 2048
-            word_end_score_threshold=None,  # TODO: find out, should it be None?
-            max_word_end_beam_size=None,  # TODO: ^^
-        ),
-        prior_scale=0.2,  # 0.2 to 0.5
-    )
-
-
 def default_offline_tree_lstm_recog_variant() -> CTCRecogVariant:
     return CTCRecogVariant(
         descriptor="tree_bpe-LSTM",
+        search_mode_params=OfflineRecogParameters(gpu_mem_rqmt=24),
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=True,
             score_thresholds=[12.0, 10.0],
@@ -411,6 +282,7 @@ def default_offline_tree_lstm_recog_variant() -> CTCRecogVariant:
 def default_offline_tree_lstm_4gram_recog_variant() -> CTCRecogVariant:
     return CTCRecogVariant(
         descriptor="tree_4gram_bpe-LSTM",
+        search_mode_params=OfflineRecogParameters(gpu_mem_rqmt=24),
         search_algorithm_params=LibrispeechTreeTimesyncRecogParams(
             collapse_repeated_labels=True,
             score_thresholds=[10.0, 10.0],
@@ -482,14 +354,27 @@ def default_streaming_tree_4gram_recog_variant() -> CTCRecogVariant:
     )
 
 
-def _get_model_serializers(model: TrainedModel[QATConformerCTCConfig], variant: CTCRecogVariant) -> Collection:
+def _get_model_serializers(
+    model: TrainedModel[QATConformerCTCConfig],
+    base_model: TrainedModel[BaseQATConformerCTCConfig],
+    variant: CTCRecogVariant,
+    memristor_prior: bool,
+) -> Collection:
     checkpoint = model.get_checkpoint(variant.epoch)
+    base_checkpoint = base_model.get_checkpoint(variant.epoch)
     if variant.prior_scale != 0.0:
-        prior_file = compute_priors(
-            prior_data_config=librispeech_datasets.get_default_prior_data(),
-            model_config=model.model_config,
-            checkpoint=checkpoint,
-        )
+        if memristor_prior:
+            prior_file = compute_priors_memristor(
+                prior_data_config=librispeech_datasets.get_default_prior_data(),
+                model_config=model.model_config,
+                checkpoint=checkpoint,
+            )
+        else:
+            prior_file = compute_priors(
+                prior_data_config=librispeech_datasets.get_default_prior_data(),
+                model_config=base_model.model_config,
+                checkpoint=base_checkpoint,
+            )
     serializers = get_model_serializers(
         QATConformerCTCRecogModel,
         QATConformerCTCRecogConfig(
@@ -499,7 +384,7 @@ def _get_model_serializers(model: TrainedModel[QATConformerCTCConfig], variant: 
             blank_penalty=variant.blank_penalty,
         ),
     )
-    # serializers.serializer_objects.append(Call("cfg.prep_quant()"))
+    serializers.serializer_objects.insert(0, ExternalImport(synaptogen_ml_root))
     return serializers
 
 
@@ -560,6 +445,7 @@ def _run_single_variant(
     pos_enc_converter_hardware_settings: DacAdcHardwareSettings,
     correction_settings: Optional[CycleCorrectionSettings],
     num_cycles: int,
+    memristor_prior: bool,
 ) -> List[RecogResult]:
 
     memristor_model = _convert_model_for_memristor(
@@ -570,12 +456,15 @@ def _run_single_variant(
         correction_settings=correction_settings,
         num_cycles=num_cycles,
     )
-    print(memristor_model, flush=True)
-
+    variant_prefix = f"num_cycle_{num_cycles}_" 
+    if memristor_prior and variant.prior_scale != 0.0:
+        variant_prefix = f"{variant_prefix}memristor_prior_"
+    variant = replace(variant, descriptor=f"{variant_prefix}{variant.descriptor}")
+    
     return run_single_bpe_variant(
         model_descriptor=memristor_model.descriptor,
         checkpoint=memristor_model.get_checkpoint(variant.epoch),
-        encoder_serializers=_get_model_serializers(model=memristor_model, variant=variant),
+        encoder_serializers=_get_model_serializers(model=memristor_model, base_model=model, variant=variant, memristor_prior=memristor_prior),
         label_scorer_configs=_get_label_scorer_configs(model=memristor_model, variant=variant),
         bpe_size=vocab_to_bpe_size(memristor_model.model_config.target_size - 1),
         blank_index=memristor_model.model_config.target_size - 1,

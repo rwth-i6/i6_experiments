@@ -5,7 +5,9 @@ from typing import Optional, Tuple
 
 import numpy as np
 import torch
-from ...common.assemblies.conformer import ConformerEncoderQuant, ConformerEncoderQuantV1Config
+from ...common.assemblies.conformer import ConformerEncoderQuantV1Config
+
+from ...common.assemblies.conformer.mem_inited import ConformerEncoderQuant
 
 from i6_models.config import ModelConfiguration
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
@@ -104,6 +106,7 @@ class QATConformerCTCModel(torch.nn.Module):
         self.target_size = cfg.target_size
         self.final_linear = torch.nn.Linear(cfg.dim, self.target_size)
         self.specaug_config = cfg.specaug_cfg
+        self.prep_quant()
 
     def __sis_state__(self):
         return str(type(self))
@@ -112,6 +115,9 @@ class QATConformerCTCModel(torch.nn.Module):
         return str(type(self))
 
     def prep_quant(self):
+        print("Preparing quantization for ConformerEncoderQuant...", flush=True)
+        import synaptogen_ml
+        synaptogen_ml.set_fast_inference(True)
         self.conformer.prep_quant()
 
     def forward(
@@ -161,6 +167,7 @@ class QATConformerCTCRecogModel(QATConformerCTCModel):
         else:
             self.scaled_priors = torch.zeros((cfg.target_size,), dtype=torch.float32)
         self.blank_penalty = cfg.blank_penalty
+        self.prep_quant()
 
     def forward(
         self,
