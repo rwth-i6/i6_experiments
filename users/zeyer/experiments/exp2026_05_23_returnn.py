@@ -1131,6 +1131,9 @@ def py_aed_graphc_loquacious():
     tk.register_output("returnn/loq-v2-packed_tensors-default.json", job.out_results)
 
     # The shared v2 packed-graphc config, base of every packed collapse probe below.
+    # FROZEN: this is the hashed config base of the RUNNING v2/fixdelta lineage --
+    # any change here rehashes (= restarts) those trainings. New experiments use
+    # _loq_v3_overrides below instead (packed_tensors True, see the pbs block).
     _loq_v2_packed_overrides = {
         "train.optimizer.capturable": True,
         "model.behavior_version": 29,
@@ -1325,6 +1328,45 @@ def py_aed_graphc_loquacious():
             **_loq_v2_packed_overrides,
             **medium_overrides,
             "train._rel_pos_att_bwd_delta_recompute": True,
+        },
+    )
+
+    # packed_batch_size regime: batch forming on PACKED sums (batch_size None, else the padded
+    # accounting always binds first and the packed budget is a no-op). Budget == buffer bound
+    # by construction, for BOTH keys. Audio budget = the previous audio bound (same buffers,
+    # now FILLED with content: the ~10% padding slack of padded accounting becomes content).
+    # Text 4_000 from the laplace batch simulation on the full train set (durations x text lens,
+    # 3 epochs, 239_714 batches at this audio budget): text sums mean 2_910 / p99.9 3_303 /
+    # max 3_429 -> 4_000 = max +17%, never closes a batch early; the old 18_000 was 5x oversized
+    # (it had to worst-case because nothing GUARANTEED the sum; the budget now does).
+    # packed_tensors True (auto layout, conv realigns on the fly): measured FASTER than the
+    # tuned per_key layout (0.484 vs 0.499-0.545 s/step, loq-v2-packed_tensors-default bench).
+    # The clean base for all NEW experiments (pbs / randshuf / bs200k line); the frozen
+    # _loq_v2_packed_overrides above stays only for the running v2/fixdelta lineage.
+    _loq_v3_overrides = {
+        "train.optimizer.capturable": True,
+        "model.behavior_version": 29,
+        "train.packed_tensors": True,
+        # NOT a real RETURNN option -- a pure sis-hash marker (the delta fix lives in
+        # tools/returnn, invisible to hashing). FROZEN: renaming it rehashes every -fixdelta
+        # job. Future markers: use a "_hash_only_" prefix so this is obvious from the name.
+        "train._rel_pos_att_bwd_delta_recompute": True,
+    }
+    loq_train(
+        "base-graphc-v2-pbs-fixdelta",
+        {},
+        config_overrides={
+            **_loq_v3_overrides,
+            "train.batch_size": None,
+            "train.packed_batch_size": {"audio": 16_192_320, "text": 4_000},
+            "train.torch_cuda_graph": {
+                "batch_size_bound": 200,
+                "dim_capacity": {"audio": 312_960, "text": classes_cap},
+                "packed_total_bound": {"audio": 16_192_320, "text": 4_000},
+                "warmup_steps": 2,
+                "capture_optimizer": True,
+                "compile": True,
+            },
         },
     )
 
