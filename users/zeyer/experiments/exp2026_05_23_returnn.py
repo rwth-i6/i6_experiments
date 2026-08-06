@@ -1942,12 +1942,15 @@ def _loq_cost_decomposition(cfg, classes_cap):
     # No packed_tensors/torch_cuda_graph overrides: cfg is the REAL training config and the
     # mode string adapts it (padded_eager nulls both, packed_eager nulls the graph) --
     # so these profile exactly what the production trainings run.
+    # v19: after the CTC fast-BW normalize subtract-skip + the PACKED FSA edge layout
+    # (GetCtcFsaFastBwPackedOp; edge list content-sized instead of batch x capacity).
+    # v18 reference: packed_graphc 0.554 s/step with the CTC op at ~26% (normalize 25.1%).
     for profiled_mode in ["packed_graphc", "packed_eager", "padded_eager"]:
         job = TrainStepBenchmarkJob(
             returnn_config=cfg,
             mode=profiled_mode,
             num_steps=31,
-            version=18,
+            version=19,
             config_overrides={
                 "torch_profile": {"schedule": {"skip_first": 12, "wait": 1, "warmup": 2, "active": 3, "repeat": 1}},
             },
