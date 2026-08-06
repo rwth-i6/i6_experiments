@@ -230,7 +230,6 @@ def _ls_train_forced_align(exp, name: str = "base-librispeech", aux_ctc_layer: i
     OK as a first-pass alignment but worth revisiting if a streaming variant's
     WER suggests alignment is bottlenecking it.
     """
-    from sisyphus import tk
     from i6_experiments.users.zeyer.datasets.librispeech import (
         LibrispeechOggZip,
         _raw_audio_opts,
@@ -443,8 +442,10 @@ def train(
     config_overrides: Optional[Dict[str, Any]] = None,
     *,
     recog_def_ctc_only: bool = True,
+    prefix: Optional[str] = None,
 ):
-    prefix = get_setup_prefix_for_module(__name__)
+    if prefix is None:
+        prefix = get_setup_prefix_for_module(__name__)
 
     config = dict_update_deep(_base_config.copy(), config.copy())
     config = dict_update_deep(config, config_overrides, dict_value_merge=False)
@@ -526,7 +527,6 @@ def train(
 
 @cache
 def get_lm(*, prefix: str, vocab: str, num_full_ep: int = 5, split: int = 10) -> Tuple[str, ModelWithCheckpoint]:
-    from sisyphus import tk
     from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs import (
         config_96gb_bf16_accgrad1,
