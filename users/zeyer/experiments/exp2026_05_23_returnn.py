@@ -1056,7 +1056,11 @@ def py_aed_graphc_loquacious():
     # 29 masks the conv-block BatchNorm statistics (padded counted its padding frames until now),
     # 27 keeps the module output dtype under autocast, 28 draws specaugment masks per seq.
     # Everything else stays at the loq base defaults, so this is padded, eager, no graph capture.
-    loq_train("base-v2", {}, config_overrides={"model.behavior_version": 29})
+    loq_train(
+        "base-v2",
+        {},
+        config_overrides={"model.behavior_version": 29, "train._hash_only_returnn_2026_08_06": True},
+    )
 
     # Packed-batch-size benchmark, all at behavior version 29 on the v2 config.
     # Every earlier number used the padded-derived batch size, so the memory packing frees
@@ -1135,6 +1139,10 @@ def py_aed_graphc_loquacious():
     # any change here rehashes (= restarts) those trainings. New experiments use
     # _loq_v3_overrides below instead (packed_tensors True, see the pbs block).
     _loq_v2_packed_overrides = {
+        # sis-hash marker (user-approved restart 2026-08-06): restart the whole lineage on the
+        # frozen RETURNN (RETURNN_CUDA serial-normalize fix + packed FSA + delta fix all in;
+        # the code lives in tools/returnn, invisible to hashing -- hence the marker)
+        "train._hash_only_returnn_2026_08_06": True,
         "train.optimizer.capturable": True,
         "model.behavior_version": 29,
         "train.packed_tensors": {
@@ -1303,7 +1311,15 @@ def py_aed_graphc_loquacious():
     )
     # the padded-eager counterpart: the convergence control that makes the medium1024 collapse
     # interpretable (same role as base-small-v2 for the small size)
-    loq_train("base-medium1024-v2", {}, config_overrides={"model.behavior_version": 29, **medium1024_overrides})
+    loq_train(
+        "base-medium1024-v2",
+        {},
+        config_overrides={
+            "model.behavior_version": 29,
+            "train._hash_only_returnn_2026_08_06": True,
+            **medium1024_overrides,
+        },
+    )
 
     # Production relaunches on the FIXED Triton kernel (delta recompute, see -fixdelta above):
     # the full-size flagship + the two scale-ladder points whose pre-fix runs late-collapsed.
@@ -1344,6 +1360,8 @@ def py_aed_graphc_loquacious():
     # The clean base for all NEW experiments (pbs / randshuf / bs200k line); the frozen
     # _loq_v2_packed_overrides above stays only for the running v2/fixdelta lineage.
     _loq_v3_overrides = {
+        # same 2026-08-06 frozen-RETURNN restart marker as _loq_v2_packed_overrides above
+        "train._hash_only_returnn_2026_08_06": True,
         "train.optimizer.capturable": True,
         "model.behavior_version": 29,
         "train.packed_tensors": True,
