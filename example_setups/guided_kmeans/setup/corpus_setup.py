@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from i6_core.text import HeadJob
 from i6_core.corpus.segments import SegmentCorpusJob, ShuffleAndSplitSegmentsJob
+from i6_core.corpus.transform import ApplyLexiconToCorpusJob
 from i6_experiments.common.datasets.librispeech.corpus import get_bliss_corpus_dict
 from i6_experiments.common.datasets.librispeech.lexicon import get_bliss_lexicon, get_g2p_augmented_bliss_lexicon_dict
 
@@ -47,3 +48,12 @@ def setup_corpus(key="train-clean-100") -> CorpusSetupResult:
 
 
     return CorpusSetupResult(corpus, lex, all_segments)
+
+@cache
+def phoneme_corpus(corpus: CorpusSetupResult):
+    apply_lexicon = ApplyLexiconToCorpusJob(
+        corpus.corpus,
+        corpus.lexicon,
+    )
+
+    return apply_lexicon.out_corpus

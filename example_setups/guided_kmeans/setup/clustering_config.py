@@ -73,6 +73,10 @@ class ClusteringCallbackConfig:
     rasr_path: tk.Path | None = None
     num_workers: int = 7
     use_forward_backward: bool = False
+    # Set this for pre-existing experiments to keep num_workers part of the job hash,
+    # reproducing the hash they had before num_workers became unhashed. Do not set it
+    # in new configs.
+    legacy_hash_num_workers: bool = False
 
     def is_fully_specified(self) -> bool:
         return (
@@ -201,15 +205,19 @@ def get_clustering_call_config(
         "distance_scale": callback_config.distance_scale,
         **({"lm_scale_schedule": callback_config.lm_scale_schedule} if callback_config.lm_scale_schedule is not None else {}),
         **({"transition_scale_schedule": callback_config.transition_scale_schedule} if callback_config.transition_scale_schedule is not None else {}),
-        "num_workers": callback_config.num_workers,
         "use_forward_backward": callback_config.use_forward_backward,
         **callback_config.callback_opts
     }
+    unhashed_args = {}
+    if callback_config.legacy_hash_num_workers:
+        arguments["num_workers"] = callback_config.num_workers
+    else:
+        unhashed_args["num_workers"] = callback_config.num_workers
     clustering_callback = CallImport(
         code_object_path=GuidedKMeansClusteringCallback,
         unhashed_package_root=None,
         hashed_arguments=arguments,
-        unhashed_arguments={},
+        unhashed_arguments=unhashed_args,
         import_as="forward_callback"
     )
     serializer_objs.append(clustering_callback)
@@ -234,6 +242,7 @@ def clustering(
     hdf_path: str | tk.Path | list[str | tk.Path] | None = None,
     precomputed: bool = False,
     partition_epoch: int = 1,
+    device: str = "gpu",
 ) -> ClusteringExpResult:
     # FB mode has no separate clustering phase: 1 init + num_epochs recognition passes
     # Non-FB mode: 1 init + num_epochs recognition + num_epochs clustering passes
@@ -290,11 +299,12 @@ def clustering(
         ],
         log_verbosity=log_verbosity,
         time_rqmt=168,
-        device="cpu",
+        device=device,
         cpu_rqmt=num_cpus,
     )
 
-    #fwd_job.rqmt["gpu_mem"] = 24
+    if device == "gpu":
+        fwd_job.rqmt["gpu_mem"] = 24
     fwd_job.rqmt["mem"] = max(num_cpus * 4, 48)
 
     out_centroids = {
