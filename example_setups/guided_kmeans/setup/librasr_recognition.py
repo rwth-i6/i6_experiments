@@ -9,7 +9,7 @@ from i6_core.util import uopen, write_xml
 from i6_core.text import PipelineJob
 from i6_core.lib import lexicon
 
-from .external.recog_rasr_config import get_tree_timesync_recog_config, get_linear_search_recog_config
+from .external.recog_rasr_config import get_tree_timesync_recog_config, get_linear_search_recog_config, get_forward_backward_recog_config
 
 phonetic_vocabulary_path = tk.Path("/work/smt4/zeineldeen/enrique.leon.lozano/setups-data/ubuntu_22_setups"
                                    "/fairseq_2025_06_02/work/i6_experiments/users/enrique/jobs/fairseq/wav2vec"
@@ -43,13 +43,14 @@ def neg_log(x):
     return -math.log(x) if x > 0.0 else float("inf")
 
 class PhoneticLexiconFromPhonemeListJob(Job):
-    def __init__(self, phoneme_list_file, add_unknown=True, add_unknown_phoneme=True, add_noise=False, silence_orth="[SILENCE]", add_empty_silence=False):
+    def __init__(self, phoneme_list_file, add_unknown=True, add_unknown_phoneme=True, add_noise=False, silence_orth="[SILENCE]", add_empty_silence=False, phonemes_before_special=False):
         self.add_unknown = add_unknown
         self.add_unknown_phoneme = add_unknown_phoneme
         self.add_noise = add_noise
         self.phoneme_list_file = phoneme_list_file
         self.silence_orth = silence_orth
         self.add_empty_silence = add_empty_silence
+        self.phonemes_before_special = phonemes_before_special
 
         self.out_bliss_lexicon = self.output_path("phoneme.lex.xml.gz", cached=True)
 
@@ -83,8 +84,7 @@ class PhoneticLexiconFromPhonemeListJob(Job):
         if self.add_noise:
             lex.add_phoneme("noise", "none")
 
-        # TODO: figure out requirements on synt/eval element for differnt types of lemmata
-        # silence lemma, needs synt/eval element with empty token sequence
+        # silence lemma first (always lemma id=0 = blank)
         lex.add_lemma(
             lexicon.Lemma(
                 orth=[self.silence_orth, ""],
@@ -104,30 +104,40 @@ class PhoneticLexiconFromPhonemeListJob(Job):
                     eval=[[]],
                 )
             )
-        # sentence border lemmata, needs no eval element
-        lex.add_lemma(lexicon.Lemma(orth=["[SENTENCE_BEGIN]"], synt=["<s>"], special="sentence-begin"))
-        lex.add_lemma(lexicon.Lemma(orth=["[SENTENCE_END]"], synt=["</s>"], special="sentence-end"))
-        # unknown lemma, needs no synt/eval element
-        if self.add_unknown:
-            if self.add_unknown_phoneme:
-                lex.add_lemma(lexicon.Lemma(orth=["[UNKNOWN]"], phon=["[UNKNOWN]"], synt=["<unk>"], special="unknown"))
-            else:
-                lex.add_lemma(lexicon.Lemma(orth=["[UNKNOWN]"], synt=["<unk>"], special="unknown"))
-            # TODO: synt = ["<UNK>"] ???
-        # noise lemma, needs empty synt token sequence but no eval element?
-        if self.add_noise:
-            lex.add_lemma(
-                lexicon.Lemma(
-                    orth=["[NOISE]"],
-                    phon=["noise"],
-                    synt=[],
-                    special="unknown",
-                )
-            )
 
-        for phoneme in phonemes_ordered: #phonemes:
-            phonetic_lemma = lexicon.Lemma([phoneme], [phoneme])
-            lex.add_lemma(phonetic_lemma)
+        if self.phonemes_before_special:
+            # Phoneme lemmas before sentence markers so their lemma IDs immediately
+            # follow silence (ids 1..N). The FB search accesses scores by lemma ID,
+            # so this keeps the IDs in the range [0, N] matching the score matrix.
+            for phoneme in phonemes_ordered:
+                lex.add_lemma(lexicon.Lemma([phoneme], [phoneme]))
+            if self.add_unknown:
+                if self.add_unknown_phoneme:
+                    lex.add_lemma(lexicon.Lemma(orth=["[UNKNOWN]"], phon=["[UNKNOWN]"], synt=["<unk>"], special="unknown"))
+                else:
+                    lex.add_lemma(lexicon.Lemma(orth=["[UNKNOWN]"], synt=["<unk>"], special="unknown"))
+            lex.add_lemma(lexicon.Lemma(orth=["[SENTENCE_BEGIN]"], synt=["<s>"], special="sentence-begin"))
+            lex.add_lemma(lexicon.Lemma(orth=["[SENTENCE_END]"], synt=["</s>"], special="sentence-end"))
+        else:
+            # Original order: sentence markers before phoneme lemmas
+            lex.add_lemma(lexicon.Lemma(orth=["[SENTENCE_BEGIN]"], synt=["<s>"], special="sentence-begin"))
+            lex.add_lemma(lexicon.Lemma(orth=["[SENTENCE_END]"], synt=["</s>"], special="sentence-end"))
+            if self.add_unknown:
+                if self.add_unknown_phoneme:
+                    lex.add_lemma(lexicon.Lemma(orth=["[UNKNOWN]"], phon=["[UNKNOWN]"], synt=["<unk>"], special="unknown"))
+                else:
+                    lex.add_lemma(lexicon.Lemma(orth=["[UNKNOWN]"], synt=["<unk>"], special="unknown"))
+            if self.add_noise:
+                lex.add_lemma(
+                    lexicon.Lemma(
+                        orth=["[NOISE]"],
+                        phon=["noise"],
+                        synt=[],
+                        special="unknown",
+                    )
+                )
+            for phoneme in phonemes_ordered:
+                lex.add_lemma(lexicon.Lemma([phoneme], [phoneme]))
         
         write_xml(self.out_bliss_lexicon.get_path(), lex.to_xml())
 
@@ -167,6 +177,21 @@ def create_lexicon(use_eow_phonemes: bool = False, add_unknown_phoneme: bool = T
     output_name = "lexicon/phoneme.lex.xml.gz"
     if use_eow_phonemes:
         output_name = "lexicon/eow_phoneme.lex.xml.gz"
+    tk.register_output(output_name, lexicon_job.out_bliss_lexicon)
+    return lexicon_job.out_bliss_lexicon
+
+def create_fb_lexicon(use_eow_phonemes: bool = False) -> tk.Path:
+    # Lexicon for forward-backward search: phoneme lemmas immediately after silence
+    # so their lemma IDs (1..N) match the score matrix column indices
+    phoneme_list = PipelineJob(phonetic_vocabulary_path, ["cut -f1 -d ' '", "grep -vE \"'|<SIL>\""], mini_task=True).out
+    if use_eow_phonemes:
+        phoneme_list = AddEOWPhonemesToVocabListJob(phoneme_list).out_phoneme_list
+    lexicon_job = PhoneticLexiconFromPhonemeListJob(
+        phoneme_list, add_unknown_phoneme=False, phonemes_before_special=True
+    )
+    output_name = "lexicon/fb_phoneme.lex.xml.gz"
+    if use_eow_phonemes:
+        output_name = "lexicon/fb_eow_phoneme.lex.xml.gz"
     tk.register_output(output_name, lexicon_job.out_bliss_lexicon)
     return lexicon_job.out_bliss_lexicon
 
@@ -226,7 +251,9 @@ def create_recog_rasr_config(
     score_threshold=None,
     lm_order=2,
     use_eow_phonemes=False,
-    use_tree_search=False
+    use_tree_search=False,
+    use_forward_backward_search=False,
+    rasr_binary_path=None,
 ):
     if transition_scale is None:
         transition_scale = lm_scale
@@ -255,6 +282,25 @@ def create_recog_rasr_config(
             max_word_end_beam_size=None,
             sentence_end_fallback=False,
             log_stepwise_statistics=False,
+            rasr_binary_path=rasr_binary_path,
+        )
+    elif use_forward_backward_search:
+        recog_config = get_forward_backward_recog_config(
+            lexicon_file=create_fb_lexicon(use_eow_phonemes),
+            collapse_repeated_labels=True,
+            label_scorer_config=get_label_scorer_config(
+                emission_scale=emission_scale,
+                transition_scale=transition_scale,
+                loop_probability=loop_probability,
+                silence_loop_probability=silence_loop_probability
+            ),
+            lm_config=get_lm_config(lm_path, lm_scale),
+            blank_index=0,
+            max_beam_size=max_beam_size,
+            score_threshold=score_threshold,
+            log_statistics=False,
+            log_stepwise_statistics=False,
+            rasr_binary_path=rasr_binary_path,
         )
     else:
         recog_config = get_linear_search_recog_config(
@@ -272,6 +318,7 @@ def create_recog_rasr_config(
             score_threshold=score_threshold,
             log_statistics=False,
             log_stepwise_statistics=False,
+            rasr_binary_path=rasr_binary_path,
         )
     return recog_config
 

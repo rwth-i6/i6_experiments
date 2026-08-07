@@ -15,11 +15,21 @@ def create_report(recog_results: List[DecodeRecogResult], title: str = "Experime
         report.add_entry(col="3 Del", row=row, var=recog_result.deletion)
         report.add_entry(col="4 Ins", row=row, var=recog_result.insertion)
         report.add_entry(col="5 Sub", row=row, var=recog_result.substitution)
+        if recog_result.fer is not None:
+            report.add_entry(col="6 FER", row=row, var=recog_result.fer)
         if recog_result.mean_cos_sim is not None:
-            report.add_entry(col="6 MeanCosSim", row=row, var=recog_result.mean_cos_sim)
+            report.add_entry(col="7 MeanCosSim", row=row, var=recog_result.mean_cos_sim)
         if recog_result.l1_dist is not None:
-            report.add_entry(col="7 L1Dist", row=row, var=recog_result.l1_dist)
+            report.add_entry(col="8 L1Dist", row=row, var=recog_result.l1_dist)
         if recog_result.avg_total_score is not None:
-            report.add_entry(col="8 AvgScore", row=row, var=recog_result.avg_total_score)
+            report.add_entry(col="9 AvgScore", row=row, var=recog_result.avg_total_score)
+        if recog_result.avg_am_score is not None:
+            report.add_entry(col="10 AvgAMScore", row=row, var=recog_result.avg_am_score)
+        if recog_result.avg_transition_score is not None:
+            report.add_entry(col="11 AvgTransScore", row=row, var=recog_result.avg_transition_score)
+        if recog_result.avg_lm_score is not None:
+            report.add_entry(col="12 AvgLMScore", row=row, var=recog_result.avg_lm_score)
+        if recog_result.avg_segment_duration is not None:
+            report.add_entry(col="13 AvgSegLen", row=row, var=recog_result.avg_segment_duration)
 
     return report

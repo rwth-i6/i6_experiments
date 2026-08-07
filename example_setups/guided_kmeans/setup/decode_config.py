@@ -40,7 +40,14 @@ class DecodeRecogResult:
     mean_cos_sim: tk.Variable | None = None
     l1_dist: tk.Variable | None = None
     avg_total_score: tk.Variable | None = None
+    avg_am_score: tk.Variable | None = None
+    avg_transition_score: tk.Variable | None = None
+    avg_lm_score: tk.Variable | None = None
+    avg_segment_duration: tk.Variable | None = None
     frame_labels: tk.Path | None = None
+    confusion_pairs: tk.Path | None = None
+    fer: tk.Variable | None = None
+    frame_confusion_pairs: tk.Path | None = None
 
 def build_gaussian_model_object(centroids: tk.Path, cov: tk.Path) -> CallImport:
     args = {
@@ -167,15 +174,19 @@ def _decode(
     if config.write_frame_labels:
         output_files.append("frame_labels.jsonl")
 
+    num_cpus = config.num_workers + 1
+
     fwd_job = ReturnnForwardJobV2(
         model_checkpoint=None,
         returnn_config=returnn_config,
         returnn_python_exe=returnn_python_exe,
         returnn_root=returnn_root,
         output_files=output_files,
-        cpu_rqmt=config.num_workers + 1,
+        device="cpu",
+        cpu_rqmt=num_cpus,
     )
-    fwd_job.rqmt["gpu_mem"] = 24
+    #fwd_job.rqmt["gpu_mem"] = 24
+    fwd_job.rqmt["mem"] = num_cpus * 4
 
     out_hyp = fwd_job.out_files["hyp.txt"]
     out_frame_labels = fwd_job.out_files.get("frame_labels.jsonl")
@@ -241,4 +252,5 @@ def decode_and_score(
         score_res.insertions,
         score_res.substitutions,
         frame_labels=decode_res.frame_labels,
+        confusion_pairs=score_job.out_confusion_pairs,
     )

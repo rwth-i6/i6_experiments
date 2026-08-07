@@ -26,8 +26,10 @@ for _env_var in (
     os.environ[_env_var] = "1"
 
 import multiprocessing
+import signal
+import threading
 import time
-from concurrent.futures import Future, ProcessPoolExecutor
+from concurrent.futures import BrokenExecutor, Future, ProcessPoolExecutor
 from dataclasses import dataclass
 
 import numpy as np
@@ -47,6 +49,7 @@ class PlainTracebackItem:
     end_time: float
     lm_score: float
     am_score: float
+    transition_score: float = 0.0
 
 
 def expand_traceback(items: list[PlainTracebackItem]) -> list[PlainTracebackItem]:
@@ -65,6 +68,7 @@ def expand_traceback(items: list[PlainTracebackItem]) -> list[PlainTracebackItem
                 end_time=t + 1,
                 am_score=item.am_score,
                 lm_score=item.lm_score,
+                transition_score=item.transition_score,
             ))
     return result
 
@@ -89,6 +93,7 @@ def collapse_traceback(items: list[PlainTracebackItem]) -> list[PlainTracebackIt
                 end_time=item.end_time,
                 am_score=item.am_score,
                 lm_score=item.lm_score,
+                transition_score=item.transition_score,
             )
         else:
             result.append(cur)
@@ -99,10 +104,11 @@ def collapse_traceback(items: list[PlainTracebackItem]) -> list[PlainTracebackIt
 
 _worker_search_algo = None
 _worker_lm_scale: float | None = None
+_worker_transition_scale: float | None = None
 
 
 def _init_worker(recognition_config: str):
-    global _worker_search_algo, _worker_lm_scale
+    global _worker_search_algo, _worker_lm_scale, _worker_transition_scale
     # Re-assert thread pinning: this runs first in each freshly forked/spawned
     # worker, before librasr's search engine (and any BLAS library it links
     # against) gets a chance to size its thread pool from the environment.
@@ -120,34 +126,71 @@ def _init_worker(recognition_config: str):
     config.set_from_file(recognition_config)
     _worker_search_algo = SearchAlgorithm(config=config)
     _worker_lm_scale = None
+    _worker_transition_scale = None
     print(f"[TIMING] _init_worker pid={os.getpid()} took {time.perf_counter() - t0:.3f}s", flush=True)
 
 
-def _worker_recognize(seq_tag: str, scaled_distances: np.ndarray, lm_scale: float | None = None):
-    global _worker_search_algo, _worker_lm_scale
-    if lm_scale is not None and lm_scale != _worker_lm_scale:
+def _worker_recognize(
+    seq_tag: str,
+    scaled_distances: np.ndarray,
+    lm_scale: float | None = None,
+    transition_scale: float | None = None,
+    per_task_timeout: float | None = None,
+):
+    global _worker_search_algo, _worker_lm_scale, _worker_transition_scale
+    lm_changed = lm_scale is not None and lm_scale != _worker_lm_scale
+    ts_changed = transition_scale is not None and transition_scale != _worker_transition_scale
+    if lm_changed or ts_changed:
         mc = _worker_search_algo.model_combination()
-        mc.language_model().set_scale(lm_scale)
-        mc.label_scorer().get_sub_scorer(1).set_scale(lm_scale)
-        _worker_lm_scale = lm_scale
-    t_start = time.time()
-    traceback = _worker_search_algo.recognize_segment(scaled_distances)
-    t_end = time.time()
-    items = [
-        PlainTracebackItem(
+        if lm_changed:
+            mc.language_model().set_scale(lm_scale)
+            _worker_lm_scale = lm_scale
+        if ts_changed:
+            mc.label_scorer().get_sub_scorer(1).set_scale(transition_scale)
+            _worker_transition_scale = transition_scale
+
+    # Watchdog: if RASR's C++ search hangs (e.g. with a high-order LM and a
+    # large beam on a long sequence with uniform acoustic scores), it can run
+    # indefinitely.  Python signal handling cannot interrupt a blocking C call,
+    # so the only reliable way to break out is to SIGKILL this process from a
+    # daemon thread.  The parent's drain() then sees BrokenExecutor for this
+    # future and assigns an empty traceback rather than hanging for task_timeout.
+    _watchdog: threading.Timer | None = None
+    if per_task_timeout is not None:
+        def _kill_self() -> None:
+            print(
+                f"[WORKER-TIMEOUT] pid={os.getpid()} seq={seq_tag!r} exceeded "
+                f"{per_task_timeout:.0f}s — sending SIGKILL to self",
+                flush=True,
+            )
+            os.kill(os.getpid(), signal.SIGKILL)
+        _watchdog = threading.Timer(per_task_timeout, _kill_self)
+        _watchdog.daemon = True
+        _watchdog.start()
+
+    try:
+        t_start = time.time()
+        traceback = _worker_search_algo.recognize_segment(scaled_distances)
+        t_end = time.time()
+    finally:
+        if _watchdog is not None:
+            _watchdog.cancel()
+    items = []
+    for item in traceback:
+        sub_scores = getattr(item, "sub_scores", None) or []
+        items.append(PlainTracebackItem(
             lemma=item.lemma,
             start_time=item.start_time,
             end_time=item.end_time,
             lm_score=item.lm_score,
-            am_score=item.am_score,
-        )
-        for item in traceback
-    ]
-    print(
-        f"[TIMING] _worker_recognize pid={os.getpid()} seq={seq_tag} "
-        f"took {t_end - t_start:.3f}s (wall {t_start:.3f}-{t_end:.3f})",
-        flush=True,
-    )
+            am_score=sub_scores[0] if len(sub_scores) > 0 else item.am_score,
+            transition_score=sub_scores[1] if len(sub_scores) > 1 else 0.0,
+        ))
+   # print(
+   #     f"[TIMING] _worker_recognize pid={os.getpid()} seq={seq_tag} "
+   #     f"took {t_end - t_start:.3f}s (wall {t_start:.3f}-{t_end:.3f})",
+   #     flush=True,
+   # )
     return seq_tag, items, os.getpid(), t_start, t_end
 
 
@@ -170,26 +213,33 @@ class ParallelSegmentRecognizer:
         recognition_config: str,
         num_workers: int | None = 7,
         task_timeout: float | None = 1800.0,
+        per_task_timeout: float | None = 120.0,
     ):
         self.recognition_config = recognition_config
         self.num_workers = num_workers
-        # A worker that dies outright (segfault, OOM-killed) is caught by
-        # ProcessPoolExecutor itself (BrokenProcessPool). A worker that
-        # *hangs* while staying alive - e.g. librasr's search getting stuck
-        # on some pathological input - is invisible to it: the OS sees a
-        # healthy process, so future.result() would otherwise block forever.
-        # This bounds that wait; see _hard_abort() for what happens next.
+        # job-level safety net: if a future is still pending this long after
+        # drain() starts waiting on it, something has gone very wrong beyond
+        # what the per-task watchdog can catch (e.g. the SIGKILL itself hung).
         self.task_timeout = task_timeout
+        # per-task watchdog inside the worker: kills the worker process after
+        # this many seconds so the parent sees BrokenExecutor quickly rather
+        # than waiting task_timeout seconds per hung sequence.  High-order LMs
+        # with large beams and uniform acoustic scores (e.g. random centroids)
+        # can cause RASR's C++ search to run for 30+ minutes on long sequences.
+        self.per_task_timeout = per_task_timeout
         self.executor: ProcessPoolExecutor | None = None
         self.futures: list[tuple[str, Future]] = []
         self._pending_lm_scale: float | None = None
+        self._pending_transition_scale: float | None = None
 
         self._t_first_submit: float | None = None
         self._t_last_submit: float | None = None
 
     def set_lm_scale(self, scale: float) -> None:
-        # Queue an LM/transition scale update to be applied on next submit()
         self._pending_lm_scale = scale
+
+    def set_transition_scale(self, scale: float) -> None:
+        self._pending_transition_scale = scale
 
     def start(self) -> None:
         assert self.executor is None, "already started"
@@ -244,7 +294,11 @@ class ParallelSegmentRecognizer:
         self._t_last_submit = t_submit
 
         try:
-            future = self.executor.submit(_worker_recognize, seq_tag, scaled_distances, self._pending_lm_scale)
+            future = self.executor.submit(
+                _worker_recognize, seq_tag, scaled_distances,
+                self._pending_lm_scale, self._pending_transition_scale,
+                self.per_task_timeout,
+            )
         except Exception as e:
             self._hard_abort(f"submit() for seq_tag={seq_tag!r} failed: {e!r} (worker pool likely already broken)")
         self.futures.append((seq_tag, future))
@@ -268,9 +322,26 @@ class ParallelSegmentRecognizer:
         t_drain_start = time.time()
         results = []
         task_intervals = []  # (pid, start, end) as reported by the workers themselves
-        for seq_tag, future in self.futures:
+        had_broken_worker = False
+        n_total = len(self.futures)
+        log_every = 1000 #n_total #max(1, n_total // 10)  # ~10 progress lines regardless of corpus size
+        for i, (seq_tag, future) in enumerate(self.futures):
             try:
                 result_seq_tag, items, pid, t_start, t_end = future.result(timeout=self.task_timeout)
+            except BrokenExecutor as e:
+                # A worker was killed (by the per-task watchdog, OOM-killer, or
+                # segfault).  ProcessPoolExecutor propagates BrokenExecutor to
+                # all still-pending futures from that executor.  Futures that
+                # already completed are unaffected — their result() calls succeed
+                # normally even after the executor is marked broken.
+                print(
+                    f"[WARNING] Worker died while processing seq_tag={seq_tag!r}: {e!r} — "
+                    f"assigning empty traceback for this sequence.",
+                    flush=True,
+                )
+                results.append((seq_tag, []))
+                had_broken_worker = True
+                continue
             except Exception as e:
                 self._hard_abort(
                     f"recognize_segment for seq_tag={seq_tag!r} did not complete "
@@ -279,7 +350,26 @@ class ParallelSegmentRecognizer:
             assert result_seq_tag == seq_tag
             results.append((seq_tag, items))
             task_intervals.append((pid, t_start, t_end))
+            done = i + 1
+            if done % log_every == 0 or done == n_total:
+                elapsed = time.time() - t_drain_start
+                print(
+                    f"[TIMING] drain: {done}/{n_total} sequences done, "
+                    f"{elapsed:.1f}s elapsed, {elapsed / done:.2f}s/seq avg",
+                    flush=True,
+                )
         t_drain_end = time.time()
+
+        if had_broken_worker:
+            # Restart so the next drain() call (next epoch) gets a clean pool.
+            print("[INFO] Restarting worker pool after worker death(s).", flush=True)
+            try:
+                if self.executor is not None:
+                    self.executor.shutdown(wait=False)
+            except Exception:
+                pass
+            self.executor = None
+            self.start()
 
         self.futures.clear()
         self._t_first_submit = None
@@ -304,6 +394,17 @@ class ParallelSegmentRecognizer:
             )
 
         return results
+
+    def restart(self) -> None:
+        """Shut down the current worker pool and start a fresh one.
+
+        The pending lm_scale / transition_scale are preserved so they are
+        applied to the new workers on their first submit() call, starting
+        from a clean RASR config state rather than from a potentially
+        corrupted in-process scale state (e.g. after set_scale(0) → set_scale(X)).
+        """
+        self.shutdown()
+        self.start()
 
     def shutdown(self) -> None:
         if self.executor is not None:

@@ -65,11 +65,14 @@ class ClusteringCallbackConfig:
     recognition_config: str | tk.Path
     lexicon_path: str | tk.Path
     subsampling: int | None = 3
+    distance_scale: float = 1.0
     lm_scale_schedule: list[float] | None = None
+    transition_scale_schedule: list[float] | None = None
     callback_opts: dict = field(default_factory=dict)
     num_seqs: int | DelayedBase | None = field(init=False, default=None)
     rasr_path: tk.Path | None = None
     num_workers: int = 7
+    use_forward_backward: bool = False
 
     def is_fully_specified(self) -> bool:
         return (
@@ -131,14 +134,16 @@ def get_dataset_config(
     num_epochs: int,
     sampled_segments: tk.Path | _All,
     hdf_path: str | tk.Path | list[str | tk.Path] | None = None,
+    partition_epoch: int = 1,
 ):
     files = hdf_path or "/work/asr4/jxu/setups/pretraining/2025-02-28--best-rq-pretraining/work/i6_core/returnn/hdf/BlissToPcmHDFJob.vExsEVfudAcd/output/audio.hdf"
     if not isinstance(files, list):
         files = [files]
-    core_dataset = {
+
+    core_dataset: dict = {
         "class": "HDFDataset",
         "files": files,
-        "partition_epoch": 1,
+        "partition_epoch": partition_epoch,
         "use_cache_manager": True,
     }
     if not isinstance(sampled_segments, _All):
@@ -148,7 +153,7 @@ def get_dataset_config(
         forward_data = {
             "class": "MultiEpochDataset",
             "dataset": core_dataset,
-            "multi_epoch": num_epochs,
+            "multi_epoch": num_epochs * partition_epoch,
         }
     )
 
@@ -193,8 +198,11 @@ def get_clustering_call_config(
         "num_seqs": callback_config.num_seqs,
         "recognition_config": callback_config.recognition_config,
         "subsampling": callback_config.subsampling,
+        "distance_scale": callback_config.distance_scale,
         **({"lm_scale_schedule": callback_config.lm_scale_schedule} if callback_config.lm_scale_schedule is not None else {}),
+        **({"transition_scale_schedule": callback_config.transition_scale_schedule} if callback_config.transition_scale_schedule is not None else {}),
         "num_workers": callback_config.num_workers,
+        "use_forward_backward": callback_config.use_forward_backward,
         **callback_config.callback_opts
     }
     clustering_callback = CallImport(
@@ -225,8 +233,14 @@ def clustering(
     log_verbosity: int = 5,
     hdf_path: str | tk.Path | list[str | tk.Path] | None = None,
     precomputed: bool = False,
+    partition_epoch: int = 1,
 ) -> ClusteringExpResult:
-    internal_num_epochs = num_epochs * 2 + 1
+    # FB mode has no separate clustering phase: 1 init + num_epochs recognition passes
+    # Non-FB mode: 1 init + num_epochs recognition + num_epochs clustering passes
+    if cluster_callback_config.use_forward_backward:
+        internal_num_epochs = num_epochs + 1
+    else:
+        internal_num_epochs = num_epochs * 2 + 1
     # set defaults
     if returnn_python_exe is None:
         returnn_python_exe = tools.RETURNN_PYTHON_EXE
@@ -239,6 +253,7 @@ def clustering(
         num_epochs=internal_num_epochs,
         sampled_segments=sampled_segments,
         hdf_path=hdf_path,
+        partition_epoch=partition_epoch,
     )
 
     files = hdf_path or "/work/asr4/jxu/setups/pretraining/2025-02-28--best-rq-pretraining/work/i6_core/returnn/hdf/BlissToPcmHDFJob.vExsEVfudAcd/output/audio.hdf"
@@ -262,6 +277,8 @@ def clustering(
     }
     statistics_file = "epoch_statistics.json"
 
+    num_cpus = cluster_callback_config.num_workers + 1
+
     fwd_job = ReturnnForwardJobV2(
         model_checkpoint=None,
         returnn_config=config,
@@ -273,15 +290,17 @@ def clustering(
         ],
         log_verbosity=log_verbosity,
         time_rqmt=168,
-        cpu_rqmt=cluster_callback_config.num_workers + 1,
+        device="cpu",
+        cpu_rqmt=num_cpus,
     )
 
-    fwd_job.rqmt["gpu_mem"] = 24
+    #fwd_job.rqmt["gpu_mem"] = 24
+    fwd_job.rqmt["mem"] = max(num_cpus * 4, 48)
 
     out_centroids = {
         epoch: fwd_job.out_files[filename] for epoch, filename in centroid_files.items()
     }
-    out_statistics = fwd_job.out_files[statistics_file] 
+    out_statistics = fwd_job.out_files[statistics_file]
 
     return ClusteringExpResult(
         fwd_job=fwd_job,

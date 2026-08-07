@@ -1,4 +1,4 @@
-__all__ = ["CentroidCosineSimilarityJob", "PhonemeL1DistanceJob", "AverageTotalScoreJob"]
+__all__ = ["CentroidCosineSimilarityJob", "PhonemeL1DistanceJob", "AverageTotalScoreJob", "AverageNamedScoreJob"]
 
 from sisyphus import tk, Job, Task
 
@@ -98,3 +98,30 @@ class AverageTotalScoreJob(Job):
 
         raw = stats[epoch_key].get("average_total_score", float("nan"))
         self.out_avg_total_score.set(round(float(raw), 1))
+
+
+class AverageNamedScoreJob(Job):
+    # Extract a named average score for one recognition pass from epoch_statistics.json
+
+    def __init__(self, statistics_path: tk.Path, epoch: int, key: str):
+        self.statistics_path = statistics_path
+        self.epoch = epoch
+        self.key = key
+        self.out_avg_score = self.output_var("avg_score")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import json
+
+        with open(str(self.statistics_path)) as f:
+            stats = json.load(f)
+
+        epoch_key = str(self.epoch)
+        if epoch_key not in stats:
+            self.out_avg_score.set(float("nan"))
+            return
+
+        raw = stats[epoch_key].get(self.key, float("nan"))
+        self.out_avg_score.set(round(float(raw), 1))
