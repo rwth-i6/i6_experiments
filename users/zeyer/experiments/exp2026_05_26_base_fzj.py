@@ -96,9 +96,19 @@ def _train_loquacious_base():
     """
     base_exp, _, base_aux_ctc_layer = train("base", {})
 
+    _loq_chunked_base_exp()  # registered as before; handle exposed via _train_loquacious_chunked_base
+    return base_exp, base_aux_ctc_layer
+
+
+def _loq_chunked_base_exp():
+    """The chunked-L80-C5-R4-v2.3-dyn-rope-ctembed base (ChunkedConformerEncoderV2, CTC 9.41), factored
+    out of :func:`_train_loquacious_base` as a :func:`train` call so its exp handle can be reused (e.g. as
+    a chunk-native forced-align source). Byte-identical to the original inline call, so the Job hash --
+    and the trained checkpoint -- are unchanged.
+    """
     left_n, center_size, right_size, bs, max_seqs = 16, 5, 4, 50_000, 200
     name = f"chunked-L{left_n * center_size}-C{center_size}-R{right_size}-v2.3-dyn-rope-ctembed"
-    train(
+    return train(
         name,
         {
             "model.enc_build_dict": rf.build_dict(
@@ -118,7 +128,15 @@ def _train_loquacious_base():
             "lm_recog_extra.__serialization_version_stats": 2,
         },
     )
-    return base_exp, base_aux_ctc_layer
+
+
+def _train_loquacious_chunked_base():
+    """Chunk-native forced-align base: the chunked-L80 model's exp + its top aux-CTC layer, as a 2-tuple
+    ``(exp, aux_ctc_layer)`` matching :func:`_train_loquacious_base`, so it drops into the streaming
+    variants' ``align_base`` slot. Reuses the already-trained chunked-L80 checkpoint (no retrain).
+    """
+    exp, _task, aux_ctc_layer = _loq_chunked_base_exp()
+    return exp, aux_ctc_layer
 
 
 def _train_librispeech_base():

@@ -42,6 +42,7 @@ from i6_experiments.users.zeyer.experiments.exp2025_10_21_chunked_ctc import _ae
 from i6_experiments.users.zeyer.experiments.exp2026_05_26_base_fzj import (
     _train_librispeech_base,
     _train_loquacious_base,
+    _train_loquacious_chunked_base,
 )
 from i6_experiments.users.zeyer.datasets.loquacious import get_loquacious_task_raw_v2
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
@@ -103,6 +104,8 @@ def py():
     # (and they cannot use the dynamic encoder as-is; see the _enc_build_dict dynamic note).
     _train_standard_aed_loq()
     _train_chunkwise_loq_smoke()
+    # Chunked-base-align probe: framewise (delay 0) aligned off the chunked-L80 CTC head.
+    _train_framewise_chunkalign_loq()
     # _train_framewise_loq_smoke()
     # _train_ext_transducer_loq_smoke()
     # _train_two_tower_loq_smoke()
@@ -374,6 +377,7 @@ def _train_streaming_variant(
     speed_pert: bool = False,
     recog_extra: Optional[Dict[str, Any]] = None,
     corpus: str = "ls",
+    align_base=None,
 ):
     """Train a streaming-decoder variant + greedy recog -> dev-other WER.
 
@@ -409,7 +413,7 @@ def _train_streaming_variant(
         assert not speed_pert, "loq smoke runs speed-pert off (forced align is on un-perturbed audio)"
         vocab = _loq_vocab()
         with disable_register_output():
-            exp_base, base_aux_ctc_layer = _train_loquacious_base()
+            exp_base, base_aux_ctc_layer = (align_base or _train_loquacious_base)()
         base_model = exp_base.get_last_fixed_epoch()
         # HF audio is raw [B, T]: declare no feature axis and map the "audio" key. No inner MPD (the HF
         # dataset is the MetaDataset seq-order control); the map_seq postproc is still parallelized.
@@ -699,4 +703,25 @@ def _train_standard_aed_loq():
         recog_def=None,  # CTC-only recog (= the base 9.41 metric); AED decoder search deferred
         target_mode="labels",
         corpus="loq",
+    )
+
+
+def _train_framewise_chunkalign_loq():
+    """Chunked-base-align probe: framewise (delay 0) trained on an alignment forced by the CHUNKED-L80
+    model's CTC head (spikes timed for the streaming encoder) rather than the offline base.
+
+    The single change vs a plain delay-0 framewise loq variant is ``align_base`` = the chunked-L80 model,
+    so the ChunkAlignDataset's per-frame targets come from a chunk-native forced alignment. Tests whether
+    a chunk-native alignment removes the need for the rightward DSM audio->text delay.
+    """
+    return _train_streaming_variant(
+        "framewise-chunkalign-loq",
+        dec_build_dict=rf.build_dict(FramewiseDecoder, model_dim=1024, num_layers=6, num_heads=8, version=2),
+        enc_opts={"num_layers": 16, "out_dim": 1024, "num_heads": 8, "dynamic": True},
+        aux_loss_layers=[4, 10, 16],
+        train_def=framewise_training,
+        recog_def=framewise_model_recog,
+        target_mode="rna_frame",
+        corpus="loq",
+        align_base=_train_loquacious_chunked_base,
     )
