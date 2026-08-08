@@ -1388,6 +1388,56 @@ def py_aed_graphc_loquacious():
         },
     )
 
+    # RANDOM ordering, the configuration the content budget is actually FOR: a packed_batch_size
+    # bounds CONTENT, so it is ordering-independent, whereas a normal batch_size bounds the padded
+    # rectangle and only means anything under laplace. Measured on the real trainings, pbs vs
+    # batch_size at laplace is 1.144x (31.09h vs 35.56h over 100 ep) -- laplace already wastes
+    # little, so most of the content budget's advantage is not available there.
+    # Single-variable vs base-graphc-v2-pbs-fixdelta: ONLY train_seq_ordering differs.
+    # The text budget stays 4_000: packed_batch_size is enforced BY THE BATCHER, so a budget can
+    # never overflow the buffer -- it can only close batches early, which shows up as seqs/batch.
+    loq_train(
+        "base-graphc-v2-pbs-randshuf-fixdelta",
+        {},
+        config_overrides={
+            **_loq_v3_overrides,
+            "train_seq_ordering": "random",
+            "train.batch_size": None,
+            "train.packed_batch_size": {"audio": 16_192_320, "text": 4_000},
+            "train.torch_cuda_graph": {
+                "batch_size_bound": 200,
+                "dim_capacity": {"audio": 312_960, "text": classes_cap},
+                "packed_total_bound": {"audio": 16_192_320, "text": 4_000},
+                "warmup_steps": 2,
+                "capture_optimizer": True,
+                "compile": True,
+            },
+        },
+    )
+
+    # Throughput optimum from the batch-size sweep: 28M packed content, unpartitioned,
+    # 409 seqs/s at 71.6 GB (30M buys nothing: +4.7 GB, -2 seqs/s). The sweep measured 227 seqs
+    # at this budget, so batch_size_bound 200 would bind -> 300. Text budget scales with the
+    # audio budget (28M/16.19M = 1.73x over a laplace max of 3_429) -> 8_000, still non-binding.
+    loq_train(
+        "base-graphc-v2-pbs28m-randshuf-fixdelta",
+        {},
+        config_overrides={
+            **_loq_v3_overrides,
+            "train_seq_ordering": "random",
+            "train.batch_size": None,
+            "train.packed_batch_size": {"audio": 28_000_000, "text": 8_000},
+            "train.torch_cuda_graph": {
+                "batch_size_bound": 300,
+                "dim_capacity": {"audio": 312_960, "text": classes_cap},
+                "packed_total_bound": {"audio": 28_000_000, "text": 8_000},
+                "warmup_steps": 2,
+                "capture_optimizer": True,
+                "compile": True,
+            },
+        },
+    )
+
     # REMOVED loq-v2-branch-s1337-ep6-{packed_eager,packed_graphc}: native resume from s1337's
     # ep-6 checkpoint WITH the real Adam moments; both arms reproduced the grad-norm onset with
     # near-identical per-step losses -> capture is numerically faithful at full scale.
