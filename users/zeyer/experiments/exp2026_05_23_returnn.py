@@ -1627,6 +1627,58 @@ def _loq_cost_decomposition(cfg, classes_cap):
         )
         tk.register_output(f"returnn/loq-base-graphc-bench-bs{bs_k}k-{bench_mode}.json", job.out_results)
 
+    # v24 (AZ request 2026-08-08): THROUGHPUT OPTIMUM over (batch size x activation memory budget).
+    # With graphc the batch is memory-bound; "partitioned" + activation_memory_budget trades step
+    # time for memory (base config, measured 2026-08-07: graph pool 37.4 / 27.9 / 21.6 GiB at
+    # ~0.40 / 0.44 / 0.49 s/step for budget none / 0.8 / 0.5). So a smaller budget should allow a
+    # BIGGER batch; whether that nets more data throughput is what this sweep answers.
+    # packed_batch_size regime (budget == bound, defaults gap 0 align 1): the batcher fills the
+    # budget, so content per step == budget and throughput = audio_budget / sec_per_step exactly
+    # (s/step across different batch sizes is meaningless, cf. the v11 block above).
+    # Grid walks the feasible frontier instead of a full square: unpartitioned cannot hold the
+    # large batches (16.2M already sits at ~46GB resident incl. the graph pool), and tiny budgets
+    # at small batches only pay the recompute without buying anything.
+    # Text budget scales with the audio budget (LP bound, cf. v11): 4_000 per 16.2M.
+    for audio_budget, mem_budget in [
+        (16_192_320, None),  # reference: current production config
+        (16_192_320, 0.8),
+        (16_192_320, 0.5),
+        (24_000_000, 0.8),
+        (24_000_000, 0.5),
+        (32_000_000, 0.5),
+        (32_000_000, 0.4),
+        (40_000_000, 0.4),
+    ]:
+        text_budget = int(round(4_000 * audio_budget / 16_192_320))
+        graph_opts = {
+            "batch_size_bound": 200,
+            "dim_capacity": {"audio": 312_960, "text": classes_cap},
+            "packed_total_bound": {"audio": audio_budget, "text": text_budget},
+            "warmup_steps": 2,
+            "capture_optimizer": True,
+            "compile": True,
+        }
+        if mem_budget is not None:
+            graph_opts["partitioned"] = True
+            graph_opts["activation_memory_budget"] = mem_budget
+        job = TrainStepBenchmarkJob(
+            returnn_config=cfg,
+            mode="packed_graphc",
+            num_steps=31,
+            version=24,
+            config_overrides={
+                "batch_size": None,
+                "packed_batch_size": {"audio": audio_budget, "text": text_budget},
+                "packed_tensors": True,
+                "torch_cuda_graph": graph_opts,
+            },
+        )
+        tk.register_output(
+            f"returnn/loq-throughput-sweep-audio{audio_budget // 1_000_000}M"
+            f"-membudget{'none' if mem_budget is None else mem_budget}.json",
+            job.out_results,
+        )
+
     # v13: re-measure the best config after two native-op changes:
     # the CTC edge skip was REVERTED (it assumed the CTC topology inside the generic
     # FastBaumWelchPackedOp, which takes arbitrary edges -- any other automaton would have had
