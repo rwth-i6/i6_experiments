@@ -1230,13 +1230,9 @@ def py_aed_graphc_loquacious():
             "train.backend": "tensorflow",
             "train.tf_amp": "bfloat16",
         },
-        # torch_amp sits in the train config, the other two in the post config
-        # (i6_experiments...exp2024_04_23_baselines.configs), hence the different prefixes
-        config_deletes=[
-            "train.torch_amp",
-            "train_post.torch_dataloader_opts",
-            "train_post.torch_log_memory_usage",
-        ],
+        # only the hashed train config needs an explicit delete here; the torch_* entries in the
+        # post config are dropped by train() itself, by backend
+        config_deletes=["train.torch_amp"],
     )
 
     # Medium ladder point (~84M, enc:dec ratio like the full model; compute-bound, unlike small):

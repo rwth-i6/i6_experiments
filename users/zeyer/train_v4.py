@@ -177,9 +177,8 @@ def train(
     # The memory-usage logging option is named after the backend (torch_* / tf_*), so pick it
     # from the backend that will actually run. post_config is not hashed, so this cannot change
     # any existing job; it only stops a non-torch run from being handed a torch_* option.
-    _mem_usage_opt = {"torch": "torch_log_memory_usage", "tensorflow": "tf_log_memory_usage"}.get(
-        returnn_train_config_dict.get("backend")
-    )
+    _backend = returnn_train_config_dict.get("backend")
+    _mem_usage_opt = {"torch": "torch_log_memory_usage", "tensorflow": "tf_log_memory_usage"}.get(_backend)
     returnn_train_config = ReturnnConfigWithNewSerialization(
         returnn_train_config_dict,
         post_config=dict(  # not hashed
@@ -202,6 +201,18 @@ def train(
         if k in returnn_train_config.config or k in returnn_train_config.post_config:
             continue
         returnn_train_config.post_config[k] = v
+
+    # An option named after a backend applies only to that backend, and the post_config this
+    # inherits from (aed.post_config / the shared baseline one) is torch-flavoured. Drop the
+    # foreign ones here instead of making every non-torch call site delete them: several sources
+    # merge into post_config, so a call-site delete does not stick.
+    # post_config is not hashed, so this moves no existing job; and for a torch run there is
+    # nothing to drop, so it is a no-op there.
+    _own_prefix = {"torch": "torch_", "tensorflow": "tf_", "jax": "jax_"}.get(_backend)
+    for k in list(returnn_train_config.post_config):
+        prefix = next((p for p in ("torch_", "tf_", "jax_") if k.startswith(p)), None)
+        if prefix and prefix != _own_prefix:
+            del returnn_train_config.post_config[k]
 
     maybe_add_global_startup_callback_to_post_config(returnn_train_config.config, returnn_train_config.post_config)
 
