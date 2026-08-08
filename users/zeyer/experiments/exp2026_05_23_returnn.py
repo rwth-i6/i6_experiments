@@ -784,6 +784,7 @@ def loq_train(
     config: Dict[str, Any],
     config_overrides: Optional[Dict[str, Any]] = None,
     *,
+    config_deletes: Optional[Sequence[str]] = None,
     recog_def_ctc_only: bool = True,
     prefix: Optional[str] = None,
 ):
@@ -792,7 +793,9 @@ def loq_train(
         prefix = get_setup_prefix_for_module(__name__)
 
     config = dict_update_deep(_base_config.copy(), config.copy())
-    config = dict_update_deep(config, config_overrides, dict_value_merge=False)
+    # deletes run before the updates, so a variant can drop an option that does not apply to it
+    # (e.g. the torch_* options for a TF run) instead of having to set it to a no-op value
+    config = dict_update_deep(config, config_overrides, config_deletes, dict_value_merge=False)
 
     train_epoch_split_per_subset = {"clean": 13, "small": 1, "medium": 2, "large": 25}
     hours_per_subset = {"clean": 13_000, "small": 250, "medium": 2_500, "large": 25_000}
@@ -1211,6 +1214,30 @@ def py_aed_graphc_loquacious():
     # the padded-eager counterpart: the convergence control that makes a small-model collapse
     # interpretable (same role as base-v2 for the full size)
     loq_train("base-small-v2", {}, config_overrides={"model.behavior_version": 29, **small_overrides})
+
+    # The same model, data and LR schedule on RETURNN's pure-TF RF backend
+    # (backend = "tensorflow" -> returnn/tf/engine_rf.py), as the backend comparison:
+    # only the backend differs, so the training curves are directly comparable.
+    # The torch_* options have TF counterparts (tf_amp) or no equivalent
+    # (torch_dataloader_opts: this engine batches in the main process),
+    # and the engine rejects any it would otherwise ignore silently.
+    loq_train(
+        "base-small-v2-tf",
+        {},
+        config_overrides={
+            "model.behavior_version": 29,
+            **small_overrides,
+            "train.backend": "tensorflow",
+            "train.tf_amp": "bfloat16",
+        },
+        # torch_amp sits in the train config, the other two in the post config
+        # (i6_experiments...exp2024_04_23_baselines.configs), hence the different prefixes
+        config_deletes=[
+            "train.torch_amp",
+            "train_post.torch_dataloader_opts",
+            "train_post.torch_log_memory_usage",
+        ],
+    )
 
     # Medium ladder point (~84M, enc:dec ratio like the full model; compute-bound, unlike small):
     medium_overrides = {

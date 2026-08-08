@@ -174,6 +174,12 @@ def train(
     if init_params:
         returnn_train_config_dict["import_model_train_epoch1"] = init_params
 
+    # The memory-usage logging option is named after the backend (torch_* / tf_*), so pick it
+    # from the backend that will actually run. post_config is not hashed, so this cannot change
+    # any existing job; it only stops a non-torch run from being handed a torch_* option.
+    _mem_usage_opt = {"torch": "torch_log_memory_usage", "tensorflow": "tf_log_memory_usage"}.get(
+        returnn_train_config_dict.get("backend")
+    )
     returnn_train_config = ReturnnConfigWithNewSerialization(
         returnn_train_config_dict,
         post_config=dict(  # not hashed
@@ -182,7 +188,7 @@ def train(
             # debug_add_check_numerics_ops = True
             # debug_add_check_numerics_on_output = True
             # stop_on_nonfinite_train_score = False,
-            torch_log_memory_usage=True,
+            **({_mem_usage_opt: True} if _mem_usage_opt else {}),
             watch_memory=True,
             use_lovely_tensors=True,
             use_train_proc_manager=True,
