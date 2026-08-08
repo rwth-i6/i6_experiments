@@ -1627,34 +1627,65 @@ def _loq_cost_decomposition(cfg, classes_cap):
         )
         tk.register_output(f"returnn/loq-base-graphc-bench-bs{bs_k}k-{bench_mode}.json", job.out_results)
 
-    # v24 (AZ request 2026-08-08): THROUGHPUT OPTIMUM over (batch size x activation memory budget).
+    # v24 (AZ request 2026-08-08): THROUGHPUT OPTIMUM over (batch size x activation memory budget),
+    # under RANDOM seq ordering.
+    # Ordering matters more than anything else here: with laplace:.1000 the batches are
+    # length-homogeneous and padded/packed is only 1.105, under random it is 2.19 (cf. v11).
+    # Random is therefore the setting in which the packed batch size is worth measuring at all,
+    # and it makes the padded reference honest instead of flattering.
     # With graphc the batch is memory-bound; "partitioned" + activation_memory_budget trades step
     # time for memory (base config, measured 2026-08-07: graph pool 37.4 / 27.9 / 21.6 GiB at
     # ~0.40 / 0.44 / 0.49 s/step for budget none / 0.8 / 0.5). So a smaller budget should allow a
     # BIGGER batch; whether that nets more data throughput is what this sweep answers.
     # packed_batch_size regime (budget == bound, defaults gap 0 align 1): the batcher fills the
-    # budget, so content per step == budget and throughput = audio_budget / sec_per_step exactly
-    # (s/step across different batch sizes is meaningless, cf. the v11 block above).
-    # Grid walks the feasible frontier instead of a full square: unpartitioned cannot hold the
+    # budget, so content per step == budget.
+    # Metrics come from the job's log_batch_size parsing: seqs/sec and content-frames/sec are the
+    # comparable throughput numbers (s/step across different batch sizes is meaningless), plus the
+    # peak mem_usage incl. the CUDA-graph pool -- the memory-vs-speed trade is the point of the grid.
+    # The grid walks the feasible frontier instead of a full square: unpartitioned cannot hold the
     # large batches (16.2M already sits at ~46GB resident incl. the graph pool), and tiny budgets
-    # at small batches only pay the recompute without buying anything.
-    # Text budget scales with the audio budget (LP bound, cf. v11): 4_000 per 16.2M.
+    # at small batches only pay the recompute without buying anything. An OOM at the top end is a
+    # RESULT (it locates the frontier), not a job to keep re-running.
+    # Text budget and seq bound scale with the audio budget (LP bound, cf. v11): 4_000 text and
+    # 200 seqs per 16.2M audio, i.e. the same ~2x headroom over the mean seq count as production.
+    # v25 (AZ 2026-08-08): the grid above was shaped while the EAGER WARMUP still set the memory
+    # ceiling, so every budget over 16.19M was only ever run PARTITIONED -- which confounds batch
+    # size with the activation-recompute cost. Like-for-like at budget 0.8 the bigger batch is
+    # already better (24M 363 seqs/s vs 16.19M 345), and unpartitioned 16.19M uses 45.6 of 79.2 GB.
+    # With warmup_steps 0 the ceiling moved, so the unpartitioned points are now reachable:
+    # measured pool scales ~2.30 GB per M of budget over a ~8.4 GB param/grad/moment base,
+    # so 24M -> ~63 GB and 28M -> ~73 GB should fit, 32M (~82 GB) should not.
     for audio_budget, mem_budget in [
         (16_192_320, None),  # reference: current production config
         (16_192_320, 0.8),
-        (16_192_320, 0.5),
+        (24_000_000, None),  # v25: does the bigger batch pay once partitioning is not forced?
+        (28_000_000, None),  # v25: expected ~73 GB, i.e. near the unpartitioned frontier
+        # v25: MEASURED 24M -> 63.0 GB / 397 seqs/s and 28M -> 71.6 GB / 409 seqs/s (vs 377 at
+        # 16.19M), so the bigger batch pays and 28M is close to the wall. This pins it: predicted
+        # ~76 GB of 79.2. An OOM here is the RESULT (the frontier sits between 28M and 30M),
+        # not a job to re-run. Beyond it partitioning would be needed, and that costs throughput
+        # (48M/0.4 manages only 351 seqs/s), so the unpartitioned frontier IS the optimum.
+        (30_000_000, None),
         (24_000_000, 0.8),
         (24_000_000, 0.5),
         (32_000_000, 0.5),
         (32_000_000, 0.4),
         (40_000_000, 0.4),
+        (48_000_000, 0.4),
     ]:
-        text_budget = int(round(4_000 * audio_budget / 16_192_320))
+        scale = audio_budget / 16_192_320
+        text_budget = int(round(4_000 * scale))
         graph_opts = {
-            "batch_size_bound": 200,
+            "batch_size_bound": int(round(200 * scale)),
             "dim_capacity": {"audio": 312_960, "text": classes_cap},
             "packed_total_bound": {"audio": audio_budget, "text": text_budget},
-            "warmup_steps": 2,
+            # MEASURED 2026-08-08: with the default 2 eager warmup steps every point above
+            # 16.19M died with a real CUDA OOM at 79.1 of 79.2 GiB -- in the WARMUP, before the
+            # compile ever ran. The eager step is the memory peak (61.6 GB at 16.19M), so it,
+            # not the captured graph, was setting the batch-size ceiling. warmup_steps 0 removes
+            # it entirely (explicit optimizer-state init + host constants outside the trace),
+            # which is what makes the bigger budgets measurable at all.
+            "warmup_steps": 0,
             "capture_optimizer": True,
             "compile": True,
         }
@@ -1666,10 +1697,13 @@ def _loq_cost_decomposition(cfg, classes_cap):
             mode="packed_graphc",
             num_steps=31,
             version=24,
+            seq_ordering="random",
             config_overrides={
                 "batch_size": None,
                 "packed_batch_size": {"audio": audio_budget, "text": text_budget},
                 "packed_tensors": True,
+                "max_seqs": graph_opts["batch_size_bound"],
+                "log_batch_size": True,
                 "torch_cuda_graph": graph_opts,
             },
         )
@@ -1677,6 +1711,79 @@ def _loq_cost_decomposition(cfg, classes_cap):
             f"returnn/loq-throughput-sweep-audio{audio_budget // 1_000_000}M"
             f"-membudget{'none' if mem_budget is None else mem_budget}.json",
             job.out_results,
+        )
+
+    # Production-as-it-runs-today, at its OWN ordering. A normal `batch_size` budget bounds the
+    # PADDED rectangle, so pairing it with random ordering measures nothing but the padding waste
+    # (measured: 42% fill, 6.66M content in a 15.8M rectangle) -- laplace is what such a config
+    # must run, and the only setting in which it means anything. Only the packed_batch_size rows,
+    # whose budget counts content, are ordering-independent and therefore worth running random.
+    tk.register_output(
+        "returnn/loq-throughput-sweep-production-laplace.json",
+        TrainStepBenchmarkJob(
+            returnn_config=cfg,
+            mode="packed_graphc",
+            num_steps=31,
+            version=25,
+            config_overrides={"log_batch_size": True},
+        ).out_results,
+    )
+
+    # Isolation row for the production comparison. The sweep rows above declare text bound
+    # 4_000 per 16.19M audio, production declares 18_000 -- a 4.5x difference on a dim where the
+    # ACTUAL content is ~2_600-3_000 either way. Since production measures 65.8 GB / 0.434 s and
+    # the same-audio-bound sweep row measures 45.6 GB / 0.347 s, the text bound is the prime
+    # suspect for both gaps, and without this row the pbs-vs-production comparison confounds the
+    # regime change with the bound change. Same as the 16.19M/none row except the text bound.
+    tk.register_output(
+        "returnn/loq-throughput-sweep-audio16M-textbound18000.json",
+        TrainStepBenchmarkJob(
+            returnn_config=cfg,
+            mode="packed_graphc",
+            num_steps=31,
+            version=25,
+            seq_ordering="random",
+            config_overrides={
+                "batch_size": None,
+                "packed_batch_size": {"audio": 16_192_320, "text": 18_000},
+                "packed_tensors": True,
+                "max_seqs": 200,
+                "log_batch_size": True,
+                "torch_cuda_graph": {
+                    "batch_size_bound": 200,
+                    "dim_capacity": {"audio": 312_960, "text": classes_cap},
+                    "packed_total_bound": {"audio": 16_192_320, "text": 18_000},
+                    "warmup_steps": 0,
+                    "capture_optimizer": True,
+                    "compile": True,
+                },
+            },
+        ).out_results,
+    )
+
+    # Padded reference, at LAPLACE: bs100k is the largest padded batch that fits (125k/150k OOMed,
+    # cf. v11). It runs laplace because a padded batch_size budget bounds the rectangle, so random
+    # ordering would measure its padding waste rather than the setup anyone would actually run --
+    # each side gets its own realistic ordering, and only the packed_batch_size rows, being
+    # ordering-independent, are run random.
+    # The padded side gets its batch size TUNED TOO, else the comparison is unfair: bs100k came
+    # from the v11 measurement where 125k/150k OOMed, but at laplace it measures only 64.4 GB of
+    # 79.2, i.e. ~15 GB unused. Scaling from that point (~8.4 GB base + ~0.56 GB per 1k of padded
+    # batch) puts the wall near 126k, so 110k and 120k should fit and 125k is marginal --
+    # an OOM at the top is the result, the same convention as the packed rows.
+    for padded_bs_k in [100, 110, 120]:
+        tk.register_output(
+            f"returnn/loq-throughput-sweep-padded-bs{padded_bs_k}k.json",
+            TrainStepBenchmarkJob(
+                returnn_config=cfg,
+                mode="padded_eager",
+                num_steps=31,
+                # v25: the first run predates the content logging (the eager path reported only
+                # num_seqs and the per-dim max), so it could not say how much of the padded
+                # rectangle was actually data -- which is the whole comparison
+                version=25,
+                config_overrides={"batch_size": padded_bs_k * 1_000 * 160, "log_batch_size": True},
+            ).out_results,
         )
 
     # v13: re-measure the best config after two native-op changes:
@@ -2095,6 +2202,7 @@ class TrainStepBenchmarkJob(Job):
         "returnn_config": None,
         "returnn_config_file": None,
         "load_checkpoint": None,
+        "seq_ordering": None,
         "version": 1,
     }
 
@@ -2108,6 +2216,7 @@ class TrainStepBenchmarkJob(Job):
         random_seed: int = 42,
         config_overrides: Optional[Dict[str, Any]] = None,
         load_checkpoint: Optional[tk.Path] = None,
+        seq_ordering: Optional[str] = None,
         version: int = 1,
     ):
         """
@@ -2119,6 +2228,12 @@ class TrainStepBenchmarkJob(Job):
         :param config_overrides: appended (repr) after the mode overrides,
             e.g. ``{"specaugment_steps": (0, 0, 0)}`` to force the specaugment schedule on from step 0
         :param load_checkpoint: init the params from this checkpoint (e.g. for ep-2 repro benches)
+        :param seq_ordering: rewrite the seq ordering of every train (sub-)dataset that has one,
+            e.g. "random" instead of the config's "laplace:.1000".
+            Laplace batches are length-homogeneous, which hides most of the padding waste --
+            exactly the effect a packed-vs-padded throughput measurement is about
+            (measured on the real durations: padded/packed = 1.105 under laplace:.1000,
+            2.19 under random).
         :param version: behavior version, bump to force a re-run (hash-neutral at the default)
         """
         assert mode in (
@@ -2138,6 +2253,7 @@ class TrainStepBenchmarkJob(Job):
         self.returnn_config_file = returnn_config_file
         self.returnn_config = returnn_config
         self.load_checkpoint = load_checkpoint
+        self.seq_ordering = seq_ordering
         self.mode = mode
         self.num_steps = num_steps
         self.random_seed = random_seed
@@ -2290,6 +2406,34 @@ class TrainStepBenchmarkJob(Job):
             "            _strip_epoch_wise_filter(v)\n"
             "\n"
             "_strip_epoch_wise_filter(train)\n"
+            + (
+                ""
+                if self.seq_ordering is None
+                else (
+                    "import functools as _functools\n"
+                    "def _set_seq_ordering(d):\n"
+                    # the real sub-dataset dict is a KEYWORD of a functools.partial
+                    # (DistributeFilesDataset get_sub_epoch_dataset=partial(..., base_dict={...})),
+                    # so a plain dict/list walk never reaches the ordering that matters
+                    "    if isinstance(d, _functools.partial):\n"
+                    "        _set_seq_ordering(d.keywords)\n"
+                    "        _set_seq_ordering(list(d.args))\n"
+                    "    elif isinstance(d, dict):\n"
+                    # 'default' means unordered; only real orderings (laplace, sorted, random) are rewritten
+                    "        if d.get('seq_ordering', 'default') != 'default':\n"
+                    f"            d['seq_ordering'] = {self.seq_ordering!r}\n"
+                    "        for v in d.values():\n"
+                    "            _set_seq_ordering(v)\n"
+                    "    elif isinstance(d, (list, tuple)):\n"
+                    "        for v in d:\n"
+                    "            _set_seq_ordering(v)\n"
+                    "\n"
+                    "_set_seq_ordering(train)\n"
+                    # guard the partial path above: a silently unchanged ordering would make the
+                    # whole measurement meaningless (laplace batches hide the padding waste)
+                    f"assert 'laplace' not in repr(train), 'seq_ordering {self.seq_ordering} did not reach every dataset'\n"
+                )
+            )
         )
         cfg_path = work + "/returnn.config"
         with open(cfg_path, "wt", encoding="utf-8") as f:
@@ -2340,7 +2484,12 @@ class TrainStepBenchmarkJob(Job):
         ):
             shutil.copy(fn, os.path.join(os.path.dirname(self.out_results.get_path()), os.path.basename(fn)))
 
-        step_re = re.compile(r"ep \d+ train, step (\d+), (.*?), mem_usage:cuda [0-9.]+GB(?:, ([0-9.]+) sec/step)?")
+        # "ep 1 train, step 3, <losses>[, num_seqs N, max_size:k N, sum_size:k N (log_batch_size)],
+        #  mem_usage:cuda 46.9GB[, mem_graph_pool:cuda 38.3GB][, 0.398 sec/step], ..."
+        step_re = re.compile(r"ep \d+ train, step (\d+), (.*?), mem_usage:cuda ([0-9.]+)([KMGT]?B)(.*)")
+        pool_re = re.compile(r"mem_graph_pool:cuda ([0-9.]+)([KMGT]?B)")
+        sec_re = re.compile(r"([0-9.]+) sec/step")
+        gb_per = {"B": 1 / 1024**3, "KB": 1 / 1024**2, "MB": 1 / 1024, "GB": 1.0, "TB": 1024.0}
         steps = []
         with open(log_path, "rt", encoding="utf-8", errors="replace") as f:
             for line in f:
@@ -2348,27 +2497,63 @@ class TrainStepBenchmarkJob(Job):
                 if not m:
                     continue
                 losses = {}
+                sizes = {}
                 for part in m.group(2).split(", "):
                     name, _, value = part.rpartition(" ")
+                    # batch-size info (log_batch_size), kept apart from the losses
+                    # so the cross-mode loss diff stays a pure parity check
+                    if name == "num_seqs" or name.startswith(("max_size:", "sum_size:")):
+                        sizes[name] = int(value)
+                        continue
                     try:
                         losses[name] = float(value)
                     except ValueError:
                         pass
+                tail = m.group(5)
+                m_pool = pool_re.search(tail)
+                m_sec = sec_re.search(tail)
                 steps.append(
                     {
                         "step": int(m.group(1)),
                         "losses": losses,
-                        "sec_per_step": float(m.group(3)) if m.group(3) else None,
+                        "sizes": sizes,
+                        "mem_usage_gb": float(m.group(3)) * gb_per[m.group(4)],
+                        "graph_pool_gb": float(m_pool.group(1)) * gb_per[m_pool.group(2)] if m_pool else None,
+                        "sec_per_step": float(m_sec.group(1)) if m_sec else None,
                     }
                 )
         # a crashed run can still leave a few parsed steps (e.g. OOM after warmup);
         # a deadline-killed healthy run has close to num_steps
         assert len(steps) >= min(self.num_steps, 10), f"only {len(steps)} train steps parsed from {log_path}"
-        times = sorted(s["sec_per_step"] for s in steps if s["sec_per_step"] is not None and s["step"] >= 5)
+        # from step 5 on: warmup, compile and capture are done, the rest are steady-state steps
+        steady = [s for s in steps if s["step"] >= 5]
+        times = sorted(s["sec_per_step"] for s in steady if s["sec_per_step"] is not None)
+        median_sec = times[len(times) // 2] if times else None
+
+        def _mean_size(name):
+            """mean over the steady steps of one batch-size field (None if not logged)"""
+            vals = [s["sizes"][name] for s in steady if name in s["sizes"]]
+            return sum(vals) / len(vals) if vals else None
+
+        mean_seqs = _mean_size("num_seqs")
+        # Content frames actually computed on. The key is named after the DATA KEY under graph
+        # capture and after the DIM in the eager path, so pick the largest sum_size instead of
+        # guessing a name: audio content outweighs the label content by orders of magnitude.
+        content_keys = {k for s in steady for k in s["sizes"] if k.startswith("sum_size:")}
+        mean_content = max((_mean_size(k) for k in content_keys), default=None)
         res = {
             "mode": self.mode,
             "num_steps_parsed": len(steps),
-            "median_sec_per_step": times[len(times) // 2] if times else None,
+            "median_sec_per_step": median_sec,
+            "mean_num_seqs": mean_seqs,
+            "mean_content_frames": mean_content,
+            # the throughput numbers: what a bigger batch actually buys.
+            # sec/step alone is meaningless across different batch sizes.
+            "seqs_per_sec": mean_seqs / median_sec if (mean_seqs and median_sec) else None,
+            "content_frames_per_sec": mean_content / median_sec if (mean_content and median_sec) else None,
+            # peak GPU need INCL the CUDA-graph private pool (the engine reports the sum)
+            "max_mem_usage_gb": max((s["mem_usage_gb"] for s in steps), default=None),
+            "graph_pool_gb": next((s["graph_pool_gb"] for s in reversed(steps) if s["graph_pool_gb"]), None),
             "steps": steps,
         }
         with open(self.out_results.get_path(), "wt", encoding="utf-8") as f:
