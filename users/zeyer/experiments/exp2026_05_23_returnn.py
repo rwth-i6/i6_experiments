@@ -779,6 +779,57 @@ _base_config = {
 }
 
 
+def small_model_overrides() -> Dict[str, Any]:
+    """
+    :return: the config overrides of the SMALL ladder point (~22M: 4-layer/256 conformer encoder,
+        2-layer/256 transformer decoder), as ``base-small-v2`` and its backend variants use it.
+
+    Module level so a companion recipe (run by its own sis manager, e.g. the JAX one on the
+    torch-2.12 env) uses the very same dict: the backend comparison only means something if the
+    model config is identical, and a copy would drift.
+    """
+    import returnn.frontend as rf
+    from returnn.frontend.encoder.conformer import (
+        ConformerConvSubsample,
+        ConformerEncoder,
+        ConformerEncoderLayer,
+        ConformerPositionwiseFeedForward,
+    )
+    from returnn.frontend.decoder.transformer import FeedForwardGated, TransformerDecoder
+
+    return {
+        "model.enc_build_dict": rf.build_dict(
+            ConformerEncoder,
+            input_layer=rf.build_dict(
+                ConformerConvSubsample,
+                out_dims=[32, 64, 64],
+                filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                pool_sizes=[(1, 2)],
+                strides=[(1, 1), (3, 1), (2, 1)],
+            ),
+            num_layers=4,
+            out_dim=256,
+            encoder_layer=rf.build_dict(
+                ConformerEncoderLayer,
+                ff=rf.build_dict(
+                    ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                ),
+                num_heads=4,
+            ),
+        ),
+        "model.dec_build_dict": rf.build_dict(
+            TransformerDecoder,
+            num_layers=2,
+            model_dim=256,
+            norm=rf.build_dict(rf.RMSNorm),
+            ff=rf.build_dict(FeedForwardGated),
+            layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+        ),
+        "train.aux_loss_layers": [2, 4],
+        "train.dec_aux_loss_layers": [1],
+    }
+
+
 def loq_train(
     name: str,
     config: Dict[str, Any],
@@ -1178,37 +1229,7 @@ def py_aed_graphc_loquacious():
     )
     from returnn.frontend.decoder.transformer import FeedForwardGated, TransformerDecoder
 
-    small_overrides = {
-        "model.enc_build_dict": rf.build_dict(
-            ConformerEncoder,
-            input_layer=rf.build_dict(
-                ConformerConvSubsample,
-                out_dims=[32, 64, 64],
-                filter_sizes=[(3, 3), (3, 3), (3, 3)],
-                pool_sizes=[(1, 2)],
-                strides=[(1, 1), (3, 1), (2, 1)],
-            ),
-            num_layers=4,
-            out_dim=256,
-            encoder_layer=rf.build_dict(
-                ConformerEncoderLayer,
-                ff=rf.build_dict(
-                    ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
-                ),
-                num_heads=4,
-            ),
-        ),
-        "model.dec_build_dict": rf.build_dict(
-            TransformerDecoder,
-            num_layers=2,
-            model_dim=256,
-            norm=rf.build_dict(rf.RMSNorm),
-            ff=rf.build_dict(FeedForwardGated),
-            layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
-        ),
-        "train.aux_loss_layers": [2, 4],
-        "train.dec_aux_loss_layers": [1],
-    }
+    small_overrides = small_model_overrides()
     # REMOVED base-graphc-v2-small (pre-fix Triton kernel, held): looked clean for tens of epochs,
     # then degenerate ce~4.5 plateau (visible by ep 50) -> even 64-dim heads at width 256 die; -> -small-fixdelta.
     # the padded-eager counterpart: the convergence control that makes a small-model collapse
@@ -1458,6 +1479,13 @@ def py_aed_graphc_loquacious():
             "train_seq_ordering": "random",
             "train.batch_size": None,
             "train.packed_batch_size": {"audio": 28_000_000, "text": 6_917},
+            # max_seqs MUST track batch_size_bound (the sweep sets it from the same value).
+            # The first attempt left it at the base default 200 while the bound was 346, so the
+            # batcher closed every batch at 200 seqs and the 28M content budget was never reached:
+            # measured 24.3-27.2M content per step instead of 28M, showing up as 3-13% audio bound
+            # slack that tracked the sub-epoch's mean seq length. The buffer was still sized (and
+            # computed over) for 28M, so that slack was pure waste.
+            "train.max_seqs": 346,
             "train.torch_cuda_graph": {
                 "batch_size_bound": 346,
                 "dim_capacity": {"audio": 312_960, "text": classes_cap},
