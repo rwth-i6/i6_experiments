@@ -1442,6 +1442,14 @@ def py_aed_graphc_loquacious():
     # 409 seqs/s at 71.6 GB (30M buys nothing: +4.7 GB, -2 seqs/s). The sweep measured 227 seqs
     # at this budget, so batch_size_bound 200 would bind -> 300. Text budget scales with the
     # audio budget (28M/16.19M = 1.73x over a laplace max of 3_429) -> 8_000, still non-binding.
+    # warmup_steps 0, exactly as the sweep row that MEASURED this point. The first attempt here
+    # used warmup_steps 2 and died with CUDA OOM 1.06 GiB short, inside the EAGER warmup -- which
+    # is the very effect the sweep documents: the eager step is the memory peak, so it, not the
+    # captured graph, sets the batch-size ceiling, and warmup_steps 0 removes it (explicit
+    # optimizer-state init + host constants outside the trace).
+    # The other two values are the sweep's own derivation at scale = 28M/16_192_320 = 1.7292:
+    # text budget round(4_000*scale) = 6_917 and batch_size_bound round(200*scale) = 346.
+    # (My first attempt guessed 8_000 / 300; 300 would additionally have bound the batch.)
     loq_train(
         "base-graphc-v2-pbs28m-randshuf-fixdelta",
         {},
@@ -1449,12 +1457,12 @@ def py_aed_graphc_loquacious():
             **_loq_v3_overrides,
             "train_seq_ordering": "random",
             "train.batch_size": None,
-            "train.packed_batch_size": {"audio": 28_000_000, "text": 8_000},
+            "train.packed_batch_size": {"audio": 28_000_000, "text": 6_917},
             "train.torch_cuda_graph": {
-                "batch_size_bound": 300,
+                "batch_size_bound": 346,
                 "dim_capacity": {"audio": 312_960, "text": classes_cap},
-                "packed_total_bound": {"audio": 28_000_000, "text": 8_000},
-                "warmup_steps": 2,
+                "packed_total_bound": {"audio": 28_000_000, "text": 6_917},
+                "warmup_steps": 0,
                 "capture_optimizer": True,
                 "compile": True,
             },
