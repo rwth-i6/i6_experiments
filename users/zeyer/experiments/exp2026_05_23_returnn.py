@@ -1880,7 +1880,11 @@ def _loq_cost_decomposition(cfg, classes_cap):
     # 79.2, i.e. ~15 GB unused. Scaling from that point (~8.4 GB base + ~0.56 GB per 1k of padded
     # batch) puts the wall near 126k, so 110k and 120k should fit and 125k is marginal --
     # an OOM at the top is the result, the same convention as the packed rows.
-    for padded_bs_k in [100, 110, 120]:
+    # v26: 100k/110k/120k measured 206.1/196.3/196.9 seqs/sec -- throughput FALLS as the batch
+    # grows, so the optimum is at or below the smallest point ever measured. The padded rectangle
+    # is bounded by the longest seq in the batch, so a bigger budget buys mostly padding here.
+    # Probe downwards until the per-step overhead takes over again.
+    for padded_bs_k in [60, 70, 80, 90, 100, 110, 120]:
         tk.register_output(
             f"returnn/loq-throughput-sweep-padded-bs{padded_bs_k}k.json",
             TrainStepBenchmarkJob(
