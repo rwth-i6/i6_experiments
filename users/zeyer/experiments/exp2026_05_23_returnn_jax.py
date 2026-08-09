@@ -37,15 +37,23 @@ from .exp2026_05_23_returnn import loq_train, small_model_overrides
 # those by padded length into 8 buckets costs 1.21x the batcher's own padding. Every bucket is
 # ~one batch's worth of work (16-23M samples, vs batch_size 16M): a bucket must be, since
 # max_seqs x max_seq_length would be 64M and OOMs (measured: 44.7 GiB allocation, fp32).
+# Audio levels are MULTIPLES OF time_multiple (16000) and text of 8, because the engine rounds a
+# batch up to those before matching a bucket -- buckets derived from raw observed lengths sit just
+# below the rounded shapes and cover nothing (measured: batch (200, 96000) fit no bucket, run died).
+#
+# The sequence count per level comes from the batch budget rather than from observed batches:
+# n = min(max_seqs, 1.5 * batch_size / audio). Every bucket is then ~24M samples, i.e. 1.5x the 16M
+# content budget, which is the headroom for a batch whose padding is worse than usual. Coverage is
+# then structural, not observational -- fitting one epoch's shapes exactly would leave the next
+# epoch's data order free to produce a batch that fits nothing and stops the run.
 _BUCKETS = [
-    {"batch_dim": 200, "audio": 89_920, "text": 73},  # 18M
-    {"batch_dim": 177, "audio": 120_320, "text": 70},  # 21M
-    {"batch_dim": 132, "audio": 176_640, "text": 110},  # 23M
-    {"batch_dim": 90, "audio": 229_440, "text": 85},  # 21M
-    {"batch_dim": 69, "audio": 236_320, "text": 89},  # 16M
-    {"batch_dim": 67, "audio": 239_200, "text": 91},  # 16M
-    {"batch_dim": 66, "audio": 279_664, "text": 91},  # 18M
-    {"batch_dim": 57, "audio": 311_939, "text": 98},  # 18M
+    {"batch_dim": 200, "audio": 96_000, "text": 128},  # 19M
+    {"batch_dim": 188, "audio": 128_000, "text": 128},  # 24M
+    {"batch_dim": 150, "audio": 160_000, "text": 128},  # 24M
+    {"batch_dim": 125, "audio": 192_000, "text": 128},  # 24M
+    {"batch_dim": 100, "audio": 240_000, "text": 128},  # 24M
+    {"batch_dim": 84, "audio": 288_000, "text": 128},  # 24M
+    {"batch_dim": 75, "audio": 320_000, "text": 128},  # 24M
 ]
 
 

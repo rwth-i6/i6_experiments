@@ -1256,6 +1256,24 @@ def py_aed_graphc_loquacious():
         config_deletes=["train.torch_amp"],
     )
 
+    # Same again, but with CTC on RETURNN's native op,
+    # the TFBackend.ctc_loss default since the TF 2.20 port of native_op.cpp
+    # (https://github.com/rwth-i6/returnn/issues/1833, https://github.com/rwth-i6/returnn/issues/1834).
+    # The run above had CTC on TF's CPU-only op, the dominant part of its ~2.1x wall clock vs torch.
+    # _hash_only marker: the switch lives in tools/returnn, invisible to sis hashing.
+    loq_train(
+        "base-small-v2-tf-nativectc",
+        {},
+        config_overrides={
+            "model.behavior_version": 29,
+            **small_overrides,
+            "train.backend": "tensorflow",
+            "train.tf_amp": "bfloat16",
+            "train._hash_only_tf_native_ctc": True,
+        },
+        config_deletes=["train.torch_amp"],
+    )
+
     # Medium ladder point (~84M, enc:dec ratio like the full model; compute-bound, unlike small):
     medium_overrides = {
         "model.enc_build_dict": rf.build_dict(
