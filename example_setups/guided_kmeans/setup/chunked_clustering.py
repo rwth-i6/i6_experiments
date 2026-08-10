@@ -22,10 +22,12 @@ __all__ = [
     "chunked_clustering",
 ]
 
+import gzip
 import json
 import os
 import sys
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 import i6_experiments
@@ -33,6 +35,8 @@ from typing import Any, Dict, List, Optional, Sequence, Union
 
 from sisyphus import Job, Task, tk
 
+from .score import JiwerScoringJob, ScoreResult
+from ..lib.guided_kmeans.util import DEFAULT_EXCLUDED_LEMMATA, traceback_to_text
 from ..lib.guided_kmeans.chunked import (
     EuclideanModel,
     GaussianAccumulator,
@@ -69,7 +73,15 @@ class GuidedClusteringEpochJob(Job):
     :param statistics: optional spec for a statistics counter. UNHASHED, and
         deliberately not exposed by :func:`chunked_clustering` - which
         diagnostics get recorded must not change a job's identity.
+    :param exclude_lemmata: lemmata dropped when writing ``out_hypotheses``;
+        silence by default, because the references those hypotheses get scored
+        against do not contain it. Hash-excluded at its default value, so
+        adding this parameter left every existing job's hash untouched - but
+        that only holds for the default *tuple*: passing the equivalent list
+        changes the hash.
     """
+
+    __sis_hash_exclude__ = {"exclude_lemmata": DEFAULT_EXCLUDED_LEMMATA}
 
     def __init__(
         self,
@@ -83,6 +95,7 @@ class GuidedClusteringEpochJob(Job):
         rasr_path: Optional[tk.Path] = None,
         num_chunks: int = 30,
         statistics: Optional[Spec] = None,
+        exclude_lemmata: Sequence[str] = DEFAULT_EXCLUDED_LEMMATA,
         verbosity: int = 1,
         rqmt: Optional[Dict[str, Any]] = None,
     ):
@@ -95,6 +108,7 @@ class GuidedClusteringEpochJob(Job):
         self.rasr_path = rasr_path
         self.num_chunks = num_chunks
         self.statistics = statistics
+        self.exclude_lemmata = tuple(exclude_lemmata)
         self.verbosity = verbosity
 
         self.rqmt = {"cpu": 9, "mem": 16, "time": 4}
@@ -108,6 +122,17 @@ class GuidedClusteringEpochJob(Job):
         # the i6_core convention of `some_dir_path.join_right("file")`.
         self.out_model = self.output_path("model", directory=True)
         self.out_statistics = self.output_path("statistics.json")
+        # The epoch's recognition of the whole corpus, in the format
+        # ClusteringDecodeCallback writes, so a JiwerScoringJob can score it
+        # against a TaggedCorpusToTxtJob reference exactly like a decode's.
+        # Written unconditionally: the search that produces it dominates epoch
+        # wall time and has already run, so a run that turns out to want PER
+        # should not have to repeat it. Gzipped - ~17 MB of text per epoch for
+        # ls-100 compresses to a few MB, and nothing reads it hot.
+        #
+        # NB these hypotheses come from recognizing with the model this epoch
+        # *started* from, i.e. from `model`, not from the model it produces.
+        self.out_hypotheses = self.output_path("hyp.txt.gz")
 
     @classmethod
     def hash(cls, kwargs):
@@ -206,6 +231,7 @@ class GuidedClusteringEpochJob(Job):
             recognizer=self.recognizer.build(),
             accumulator=self._build_accumulator(),
             counter=self._build_statistics(),
+            transcribe=partial(traceback_to_text, exclude_lemmata=self.exclude_lemmata),
             verbosity=self.verbosity,
         )
         save_chunk(result, self._chunk_path(index))
@@ -220,7 +246,7 @@ class GuidedClusteringEpochJob(Job):
                 f"{os.getcwd()} (the job's work/ directory) and rerun."
             )
 
-        model, statistics, totals = reduce_chunks(
+        model, statistics, totals, hypotheses = reduce_chunks(
             chunk_paths=chunk_paths,
             accumulator_factory=self._build_accumulator,
             previous_model=self.model.build(),
@@ -229,6 +255,13 @@ class GuidedClusteringEpochJob(Job):
         # save() writes the manifest and verifies every artifact it lists was
         # actually written, so there is nothing model-specific to check here.
         model.save(self.out_model.get_path())
+
+        # Sorted by tag, so the file is a function of the epoch alone: chunk
+        # order would otherwise leak num_chunks, an unhashed knob, into the
+        # content of a hashed output.
+        with gzip.open(self.out_hypotheses.get_path(), "wt") as fp:
+            for seq_tag in sorted(hypotheses):
+                fp.write(f"{seq_tag}\t{hypotheses[seq_tag]}\n")
 
         statistics = dict(statistics)
         statistics.update(totals)
@@ -270,6 +303,13 @@ class ChunkedClusteringExpResult:
     because the existing decode configs take individual ``tk.Path``s
     (``DecodeConfig(centroids=..., covs=...)``); a model with other parameters
     is reached with ``result.jobs[epoch - 1].artifact("name")``.
+
+    ``out_hypotheses`` and ``out_guided_scores`` are keyed like the models they
+    describe, not like the job that produced them: epoch ``e``'s job recognizes
+    with model ``e - 1``, so its hypotheses and PER are filed under ``e - 1``,
+    next to ``out_centroids[e - 1]``. The last model therefore has no entry -
+    no epoch ever recognized with it. Getting its number needs one decode of
+    its own (or one more clustering epoch whose model you ignore).
     """
 
     jobs: List[GuidedClusteringEpochJob]
@@ -277,6 +317,32 @@ class ChunkedClusteringExpResult:
     out_statistics: tk.Path
     out_models: Dict[int, tk.Path]
     out_covs: Optional[Dict[int, tk.Path]] = None
+    out_hypotheses: Optional[Dict[int, tk.Path]] = None
+    out_guided_scores: Optional[Dict[int, ScoreResult]] = None
+
+    def guided_score_row(self, epoch: int) -> Dict[str, Any]:
+        """
+        ``values=`` dict for ``LatexTableReport.add_row``, filling the
+        ``guided_per``/``guided_del``/``guided_ins``/``guided_sub`` columns::
+
+            latex_report.add_row(
+                result=res, epoch=epoch, statistics=statistics,
+                values=exp_result.guided_score_row(epoch),
+            )
+
+        Empty for an epoch that has no guided score - the last one, or any
+        epoch if the run was built without ``score_reference`` - so it can be
+        passed unconditionally and those cells simply stay blank.
+        """
+        score = (self.out_guided_scores or {}).get(epoch)
+        if score is None:
+            return {}
+        return {
+            "guided_per": score.wer,
+            "guided_del": score.deletions,
+            "guided_ins": score.insertions,
+            "guided_sub": score.substitutions,
+        }
 
 
 def chunked_clustering(
@@ -292,6 +358,7 @@ def chunked_clustering(
     subsampling: Optional[int] = None,
     pooling_function: str = "maxpool_time_np",
     distance_scale: float = 1.0,
+    score_reference: Optional[tk.Path] = None,
     rasr_path: Optional[tk.Path] = None,
     num_chunks: int = 30,
     num_workers: int = 8,
@@ -326,6 +393,21 @@ def chunked_clustering(
     :param initial_covs: pass to run with full-covariance Gaussian scoring;
         omit for plain squared-Euclidean k-means. For continuation pass the
         previous result's ``out_covs[N]`` alongside its ``out_centroids[N]``.
+    :param score_reference: tagged phoneme reference for the clustering corpus
+        (``TaggedCorpusToTxtJob(phoneme_corpus(setup_corpus(...))).out_txt``).
+        Given one, every epoch's own recognition of the corpus is scored, which
+        is where ``out_guided_scores`` comes from. Note what that PER measures:
+        the *guiding* search, over the training corpus, with this run's
+        recognition config - not a decoding of held-out data with the decoding
+        config, so it is a convergence diagnostic rather than a number to
+        compare against the decode tables. For a run whose recognition config
+        has ``cheating=True`` it is degenerate by construction (the search is
+        constrained to the reference), so leave it unset there.
+
+        Scoring is a separate job rather than part of the epoch: the reference
+        stays out of the expensive job's inputs and hash, and re-scoring - with
+        different lemma exclusions, or with a metric not invented yet - never
+        re-runs a RASR search.
     """
     if num_epochs < 1:
         raise ValueError(f"num_epochs must be >= 1, got {num_epochs}")
@@ -382,6 +464,8 @@ def chunked_clustering(
     out_covs: Dict[int, tk.Path] = {}
     if initial_covs is not None:
         out_covs[0] = initial_covs
+    out_hypotheses: Dict[int, tk.Path] = {}
+    out_guided_scores: Dict[int, ScoreResult] = {}
 
     for epoch in range(1, num_epochs + 1):
         job = GuidedClusteringEpochJob(
@@ -404,6 +488,20 @@ def chunked_clustering(
         if initial_covs is not None:
             out_covs[epoch] = job.artifact("covs")
 
+        # Filed under the model that produced them: this job recognized with
+        # the model of epoch-1, so its hypotheses describe out_centroids[epoch-1].
+        out_hypotheses[epoch - 1] = job.out_hypotheses
+        if score_reference is not None:
+            score_job = JiwerScoringJob(
+                score_reference,
+                job.out_hypotheses,
+                # Full corpus: the per-sentence visualization would be hundreds
+                # of megabytes per epoch, and the counts no longer come from it.
+                write_alignment=False,
+            )
+            score_job.add_alias(f"{alias_prefix}/guided_score/epoch_{epoch - 1:03d}")
+            out_guided_scores[epoch - 1] = ScoreResult.from_job(score_job)
+
         # Structurally identical to the initial spec above - same class, same
         # artifact names, only the paths now point into this epoch's model
         # directory. That sameness is what keeps a continued run hash-identical
@@ -418,4 +516,6 @@ def chunked_clustering(
         out_covs=out_covs or None,
         out_models=out_models,
         out_statistics=merge_job.out_statistics,
+        out_hypotheses=out_hypotheses,
+        out_guided_scores=out_guided_scores or None,
     )

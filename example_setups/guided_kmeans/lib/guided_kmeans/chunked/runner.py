@@ -41,6 +41,11 @@ class ChunkResult:
     num_seqs: int
     num_frames: int
     num_recognized: int
+    #: ``{seq_tag: hypothesis}`` if run_chunk was given a ``transcribe``, else
+    #: None. Small next to the accumulator state (~600 B per sequence against
+    #: up to 84 MB of full-covariance statistics), so it travels in the same
+    #: pickle rather than in a file of its own.
+    hypotheses: Optional[Dict[str, str]] = None
 
 
 def run_chunk(
@@ -50,6 +55,7 @@ def run_chunk(
     recognizer: Recognizer,
     accumulator: Accumulator,
     counter: Optional[CounterProtocol] = None,
+    transcribe: Optional[Callable[[List[Any]], str]] = None,
     verbosity: int = 1,
 ) -> ChunkResult:
     """
@@ -59,8 +65,16 @@ def run_chunk(
     their result arrives. That dict is bounded by the recognizer's in-flight
     limit (``ParallelSegmentRecognizer`` drains its oldest task once more than
     ``max_pending_tasks`` are outstanding), not by the size of the chunk.
+
+    :param transcribe: turns a traceback into a hypothesis string; when given,
+        the hypothesis of every recognized sequence is kept in the result. This
+        is a separate hook rather than another statistics counter because a
+        counter only ever sees the traceback, not the sequence tag - and it
+        takes the lemma-exclusion policy from the caller, keeping the loop
+        itself free of any notion of what a label means.
     """
     pending: Dict[str, np.ndarray] = {}
+    hypotheses: Optional[Dict[str, str]] = {} if transcribe is not None else None
     stats = {"recognized": 0, "frames": 0}
 
     def on_result(seq_tag: str, posteriors, traceback: List[Any]) -> None:
@@ -78,6 +92,11 @@ def run_chunk(
         accumulator.observe(seq_features, posteriors)
         if counter is not None and traceback:
             counter.read(traceback)
+        if transcribe is not None and hypotheses is not None:
+            # Unconditionally, empty traceback included: a sequence the search
+            # emitted nothing for is a legitimate empty hypothesis and scoring
+            # has to see it as a deletion, not as a missing segment.
+            hypotheses[seq_tag] = transcribe(traceback)
         stats["recognized"] += 1
 
     recognizer.start(on_result)
@@ -119,6 +138,7 @@ def run_chunk(
         num_seqs=num_seqs,
         num_frames=stats["frames"],
         num_recognized=stats["recognized"],
+        hypotheses=hypotheses,
     )
 
 
@@ -151,13 +171,16 @@ def reduce_chunks(
 
     :param accumulator_factory: builds a fresh, empty accumulator to load each
         chunk's state into - the same spec the chunk tasks were built from
-    :return: ``(model, statistics_dict, totals_dict)``
+    :return: ``(model, statistics_dict, totals_dict, hypotheses)``, the last
+        being ``{seq_tag: hypothesis}`` over all chunks and empty unless the
+        chunks were run with a ``transcribe``
     """
     if not chunk_paths:
         raise ValueError("no chunk results to reduce")
 
     counters: List[Optional[CounterProtocol]] = []
     totals = {"num_seqs": 0, "num_frames": 0, "num_recognized": 0}
+    hypotheses: Dict[str, str] = {}
 
     merged: Optional[Accumulator] = None
     for path in chunk_paths:
@@ -168,10 +191,21 @@ def reduce_chunks(
         totals["num_seqs"] += result.num_seqs
         totals["num_frames"] += result.num_frames
         totals["num_recognized"] += result.num_recognized
+        if result.hypotheses:
+            hypotheses.update(result.hypotheses)
 
     assert merged is not None
     model = merged.finalize(previous_model)
 
+    if hypotheses and len(hypotheses) != totals["num_recognized"]:
+        # Chunks partition the corpus, so tags cannot repeat across them; if
+        # they do, update() silently dropped hypotheses and the accumulators
+        # saw those sequences more than once too.
+        raise RuntimeError(
+            f"{totals['num_recognized']} sequences recognized but only "
+            f"{len(hypotheses)} distinct tags - the chunks overlap"
+        )
+
     counter = merge_counters(counters)
     statistics = counter.finalize() if counter is not None else {}
-    return model, statistics, totals
+    return model, statistics, totals, hypotheses

@@ -26,6 +26,7 @@ from .models import ArtifactModel, EuclideanModel, GaussianModel, load_model, re
 from .runner import reduce_chunks, run_chunk, save_chunk
 from .spec import Spec
 from ..running_update import RunningAverageUpdater
+from ..util import traceback_to_text
 
 _FAILURES = []
 
@@ -67,11 +68,19 @@ def _check(name, condition, extra=""):
     print(f"  [{'ok ' if condition else 'FAIL'}] {name} {extra}")
 
 
+class _StubItem:
+    """Stand-in for a traceback item; only ``lemma`` is read by transcription."""
+
+    def __init__(self, lemma):
+        self.lemma = lemma
+
+
 class _StubRecognizer:
     """Replays a fixed alignment per tag, so no RASR/librasr is needed."""
 
-    def __init__(self, table):
+    def __init__(self, table, tracebacks=None):
         self.table = table
+        self.tracebacks = tracebacks or {}
         self._buffer = []
         self._cb = None
 
@@ -83,7 +92,7 @@ class _StubRecognizer:
 
     def drain(self):
         for seq_tag in self._buffer:
-            self._cb(seq_tag, self.table[seq_tag], [])
+            self._cb(seq_tag, self.table[seq_tag], self.tracebacks.get(seq_tag, []))
         self._buffer = []
 
     def shutdown(self):
@@ -182,21 +191,31 @@ def main() -> int:
     print("runner")
     tags = [f"seq{i}" for i in range(num_seqs)]
     table = dict(zip(tags, labels))
+    # A silence item in front of every traceback, which transcription has to
+    # drop: the references these hypotheses get scored against have no silence.
+    tracebacks = {
+        tag: [_StubItem("[SILENCE]")] + [_StubItem(f"p{int(label)}") for label in seq_labels]
+        for tag, seq_labels in table.items()
+    }
+    expected_hyps = {
+        tag: " ".join(f"p{int(label)}" for label in seq_labels) for tag, seq_labels in table.items()
+    }
     with tempfile.TemporaryDirectory() as tmp:
         paths = []
         for chunk_idx, part in enumerate(plan_chunks(lengths, 4)):
             result = run_chunk(
                 features=_ListSource([(tags[i], feats[i]) for i in part]),
                 model=previous,
-                recognizer=_StubRecognizer(table),
+                recognizer=_StubRecognizer(table, tracebacks),
                 accumulator=MeanAccumulator(num_clusters, dim),
                 counter=None,
+                transcribe=traceback_to_text,
                 verbosity=0,
             )
             path = os.path.join(tmp, f"chunk.{chunk_idx}.pkl")
             save_chunk(result, path)
             paths.append(path)
-        model, _stats, totals = reduce_chunks(
+        model, _stats, totals, hypotheses = reduce_chunks(
             chunk_paths=paths,
             accumulator_factory=lambda: MeanAccumulator(num_clusters),
             previous_model=previous,
@@ -207,6 +226,11 @@ def main() -> int:
             "every sequence recognized exactly once",
             totals["num_seqs"] == num_seqs and totals["num_recognized"] == num_seqs,
             str(totals),
+        )
+        _check(
+            "hypotheses survive chunking, without silence",
+            hypotheses == expected_hyps,
+            f"{len(hypotheses)} of {num_seqs} sequences",
         )
 
     print("model artifacts")
@@ -282,6 +306,46 @@ def main() -> int:
     diverged = next((i for i, (a, b) in enumerate(zip(ids_ten, ids_split), 1) if a != b), None)
     _check("5+5 continued == 10 in one call", ids_ten == ids_split,
            "identical" if diverged is None else f"diverges at epoch {diverged}")
+
+    print("hashes")
+    # Recorded from the graph these arguments produced before hypothesis output
+    # and guided scoring existed. Everything added since has to stay out of the
+    # hash - the models are unchanged, and re-running a whole sweep to get a
+    # by-product of a search that already ran would defeat the purpose. A
+    # deliberate change to what an epoch computes updates these literals; an
+    # unexpected failure here means something non-computational leaked in
+    # (check GuidedClusteringEpochJob.hash and __sis_hash_exclude__).
+    gauss = chunked_clustering(
+        num_epochs=1,
+        initial_centroids=tk.Path("/init/c.npy"),
+        initial_covs=tk.Path("/init/cov.npy"),
+        **common,
+    )
+    for label, jobs, expected in (
+        ("euclidean", ten.jobs[:2], ["hgUvNvDgy6ob", "3ZlRk7zFC5hg"]),
+        ("gaussian", gauss.jobs, ["57zSk7rGJDVJ"]),
+    ):
+        got = [j._sis_id().rsplit(".", 1)[-1] for j in jobs]
+        _check(f"{label} epoch job hashes unchanged", got == expected, str(got))
+
+    # The scoring jobs hang off the epoch jobs, so asking for them must not
+    # change the epoch jobs themselves.
+    scored = chunked_clustering(
+        num_epochs=2,
+        initial_centroids=tk.Path("/init/c.npy"),
+        score_reference=tk.Path("/ref.txt"),
+        **common,
+    )
+    _check(
+        "score_reference does not touch the epoch jobs",
+        [j._sis_id() for j in scored.jobs] == ids_ten[:2],
+    )
+    _check(
+        "guided scores are keyed by the model they measure",
+        sorted(scored.out_guided_scores) == [0, 1]
+        and sorted(scored.out_hypotheses) == [0, 1]
+        and scored.guided_score_row(2) == {},
+    )
 
     print("spec")
     from sisyphus.hash import sis_hash_helper

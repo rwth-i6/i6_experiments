@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from scipy.spatial.distance import cdist
 
-from .util import PoolingRegistry
+from .util import PoolingRegistry, traceback_to_text
 from .model import GaussianModelNumpy
 from .parallel_recognizer import ParallelSegmentRecognizer, PlainTracebackItem
 
@@ -68,7 +68,7 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
     def _on_recognition_result(self, seq_tag: str, items: list[PlainTracebackItem]) -> None:
         if self.verbosity >= 2:
             print(f"Finished sequence {seq_tag}.")
-        hyp = " ".join(filter(lambda lem: lem not in self.exclude_lemmata, (item.lemma for item in items)))
+        hyp = traceback_to_text(items, self.exclude_lemmata)
         self.hyp_buffer.append(f"{seq_tag}\t{hyp}")
 
     def load_centroids(self) -> bool:

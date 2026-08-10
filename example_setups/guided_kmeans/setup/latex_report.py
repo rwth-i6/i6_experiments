@@ -40,7 +40,7 @@ every column that is constant across the group, which is what produces the
 ``columns`` accepts, in any mix:
 
 * a name from ``COLUMN_LIBRARY`` (``"epoch"``, ``"per"``, ``"del"``, ``"ins"``,
-  ``"sub"``, ``"l1"``, ``"am_score"``, ...),
+  ``"sub"``, ``"guided_per"``, ``"l1"``, ``"am_score"``, ...),
 * any other string, which becomes a column reading that key out of ``params``,
 * a ``Column`` built by hand or by ``param()`` / ``statistic()`` / ``prior_l1()``
   when the defaults do not fit.
@@ -405,6 +405,26 @@ COLUMN_LIBRARY: dict = {
     # nothing in the pipeline computes a frame error rate yet; pass one in per row via
     # add_row(values={"fer": ...}) and this column will pick it up
     "fer": lambda: Column("fer", _percent("FER"), _from_value("fer"), fmt="{:.1f}", block="score"),
+    # scores of the guiding recognition itself, over the clustering corpus, as
+    # produced by chunked_clustering(score_reference=...). Fill them in with
+    # add_row(values=exp_result.guided_score_row(epoch)). Same units as the
+    # decoding scores: PER in percent, the edits as fractions.
+    "guided_per": lambda: Column(
+        "guided_per", ("Guided", _percent("PER")), _from_value("guided_per"),
+        fmt="{:.1f}", block="guided",
+    ),
+    "guided_del": lambda: Column(
+        "guided_del", ("Guided", _percent("Del")), _from_value("guided_del"),
+        fmt="{:.1f}", scale=100, block="guided",
+    ),
+    "guided_ins": lambda: Column(
+        "guided_ins", ("Guided", _percent("Ins")), _from_value("guided_ins"),
+        fmt="{:.1f}", scale=100, block="guided",
+    ),
+    "guided_sub": lambda: Column(
+        "guided_sub", ("Guided", _percent("Sub")), _from_value("guided_sub"),
+        fmt="{:.1f}", scale=100, block="guided",
+    ),
     # statistics
     "l1": prior_l1,
     "am_score": lambda: statistic("average_am_score", ("Avg. AM", "score"), fmt="{:,.0f}"),

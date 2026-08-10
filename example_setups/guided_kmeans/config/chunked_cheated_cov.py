@@ -30,6 +30,7 @@ from i6_experiments.example_setups.guided_kmeans.setup.decode_config import deco
 from i6_experiments.example_setups.guided_kmeans.setup.dataset_config import DatasetConfig, SegmentFile
 from i6_experiments.example_setups.guided_kmeans.setup.phoneme_frequency import get_sampled_segments_file
 from i6_experiments.example_setups.guided_kmeans.setup.corpus_setup import phoneme_corpus, setup_corpus
+from i6_experiments.example_setups.guided_kmeans.setup.score import TaggedCorpusToTxtJob
 from i6_experiments.example_setups.guided_kmeans.setup.report import create_report
 from i6_experiments.example_setups.guided_kmeans.setup.latex_report import LatexTableReport, clustering_statistics
 
@@ -61,6 +62,12 @@ rasr_path = tk.Path("/work/asr3/michel/mann/tools/rasr/librasr_recog2/arch/linux
 
 def run():
     corpus_file = phoneme_corpus(setup_corpus("train-clean-100"))
+    # Reference for scoring each epoch's own recognition of the clustering
+    # corpus (see chunked_clustering(score_reference=...)). This is the whole
+    # corpus, not the sampled subset the decodes below use, and the recognition
+    # is the guided one with this run's lm_scale - a convergence diagnostic, not
+    # a number to compare against the decoding columns.
+    guided_reference = TaggedCorpusToTxtJob(corpus_file).out_txt
 
     use_eow_phonemes = False
     use_pruning = False
@@ -77,8 +84,9 @@ def run():
 
     parameters = [
         # lm_scale
-        1.0, 20.0, 30.0, 40.0, 50.0, 100.0, 1000.0
+        # 1.0, 20.0, 30.0, 40.0, 50.0, 100.0, 1000.0
         # 40.0
+        2.0
     ]
 
     recognition_config_decode = create_recog_rasr_config(
@@ -112,9 +120,14 @@ def run():
 
     # One table per decoding: the two differ only in the recognition config they are
     # decoded with, so they need separate rows but share the training statistics.
+    # guided_per is the PER of the epoch's own guiding search over the whole
+    # clustering corpus; the per/del/ins/sub block is the separate decoding of
+    # the sampled subset. The last epoch has no guided score - no epoch ever
+    # recognized with that model - so that cell stays blank.
     latex_columns = [
         "lm_scale",
         "epoch", "per", "del", "ins", "sub",
+        "guided_per",
         "l1", "am_score", "lm_score",
     ]
     latex_report = LatexTableReport(
@@ -170,11 +183,17 @@ def run():
             num_workers=num_workers,
             alias_prefix=f"guided_kmeans/{exp_dir}/{exp_name}",
             initial_covs=input_data[input_data_key]["cheating_covs"],
+            score_reference=guided_reference,
         )
 
         tk.register_output(
             f"guided_kmeans/{exp_dir}/statistics/{exp_name}.json", exp_result.out_statistics
         )
+
+        for epoch, score in sorted(exp_result.out_guided_scores.items()):
+            tk.register_output(
+                f"guided_kmeans/{exp_dir}/guided/{exp_name}_epoch-{epoch}_per", score.wer
+            )
 
         # once per experiment, shared by both decodings and all epochs.
         # epoch_offset=1: chunked_clustering keys its merged statistics 1..num_epochs,
@@ -216,6 +235,7 @@ def run():
                 params={"lm_scale": lm_scale},
                 epoch=recog_epoch,
                 statistics=statistics,
+                values=exp_result.guided_score_row(recog_epoch),
             )
 
         # recognition on segmented features
@@ -251,6 +271,7 @@ def run():
                 params={"lm_scale": lm_scale},
                 epoch=recog_epoch,
                 statistics=statistics,
+                values=exp_result.guided_score_row(recog_epoch),
             )
 
 
