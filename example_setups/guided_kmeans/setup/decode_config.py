@@ -94,7 +94,10 @@ def get_callback_config(
         "pooling_function": pooling_function,
         "verbosity": verbosity,
         "exclude_lemmata": exclude_lemmata,
-        "write_frame_labels": write_frame_labels,
+        # Only hashed once it is actually switched on: hyp.txt is unaffected by it, so
+        # decodes that don't write frame labels keep the hash they had before the option
+        # existed. Same pattern as the scale schedules in clustering_config.py.
+        **({"write_frame_labels": True} if write_frame_labels else {}),
     }
     unhashed_args = {}
     if legacy_hash_num_workers:

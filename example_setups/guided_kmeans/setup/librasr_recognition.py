@@ -43,6 +43,11 @@ def neg_log(x):
     return -math.log(x) if x > 0.0 else float("inf")
 
 class PhoneticLexiconFromPhonemeListJob(Job):
+    # phonemes_before_special only reorders lemmata for the forward-backward lexicon; at its
+    # default the produced lexicon is byte-identical to the pre-FB one, so keep it out of the
+    # hash and let every existing (non-FB) lexicon job stay on its old hash.
+    __sis_hash_exclude__ = {"phonemes_before_special": False}
+
     def __init__(self, phoneme_list_file, add_unknown=True, add_unknown_phoneme=True, add_noise=False, silence_orth="[SILENCE]", add_empty_silence=False, phonemes_before_special=False):
         self.add_unknown = add_unknown
         self.add_unknown_phoneme = add_unknown_phoneme

@@ -214,10 +214,13 @@ def get_clustering_call_config(
         "num_seqs": callback_config.num_seqs,
         "recognition_config": callback_config.recognition_config,
         "subsampling": callback_config.subsampling,
-        "distance_scale": callback_config.distance_scale,
+        # Both of these are only hashed once they deviate from the callback's own default,
+        # so experiments that use neither keep the hash they had before the options existed
+        # (same pattern as the two schedules below).
+        **({"distance_scale": callback_config.distance_scale} if callback_config.distance_scale != 1.0 else {}),
         **({"lm_scale_schedule": callback_config.lm_scale_schedule} if callback_config.lm_scale_schedule is not None else {}),
         **({"transition_scale_schedule": callback_config.transition_scale_schedule} if callback_config.transition_scale_schedule is not None else {}),
-        "use_forward_backward": callback_config.use_forward_backward,
+        **({"use_forward_backward": True} if callback_config.use_forward_backward else {}),
         **callback_config.callback_opts
     }
     unhashed_args = {}
