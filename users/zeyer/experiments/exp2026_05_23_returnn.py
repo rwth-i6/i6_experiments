@@ -871,6 +871,15 @@ def loq_train(
     task_extra_kwargs = {}
     if train_seq_ordering is not None:
         task_extra_kwargs["train_seq_ordering"] = train_seq_ordering
+    # Same only-when-set passthrough as train_seq_ordering above:
+    # unset, the task call stays byte-identical, so existing job hashes are unaffected.
+    # Context: the shared train_post carries "__multi_proc_dataset_opts": {"num_workers": 25},
+    # but that is the v3 key; train_v4 reads "__multi_proc_dataset" (see the WARNING there),
+    # so it never applied, and every run here used the task default of 2 workers --
+    # which is why both backends sit at a ~0.25 s/batch loader ceiling on base-small.
+    multi_proc = config.pop("multi_proc", None)
+    if multi_proc is not None:
+        task_extra_kwargs["multi_proc"] = multi_proc
     task = get_loquacious_task_raw_v2(
         vocab=vocab, subset_name=subset, train_epoch_split=train_epoch_split, **task_extra_kwargs
     )
