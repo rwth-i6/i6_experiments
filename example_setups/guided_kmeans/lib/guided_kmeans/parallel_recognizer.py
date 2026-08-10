@@ -29,8 +29,10 @@ import multiprocessing
 import signal
 import threading
 import time
+from collections import deque
 from concurrent.futures import BrokenExecutor, Future, ProcessPoolExecutor
 from dataclasses import dataclass
+from typing import Callable
 
 import numpy as np
 
@@ -170,7 +172,7 @@ def _worker_recognize(
 
     try:
         t_start = time.time()
-        traceback = _worker_search_algo.recognize_segment(scaled_distances)
+        traceback = _worker_search_algo.recognize_segment(scaled_distances, seq_tag)
         t_end = time.time()
     finally:
         if _watchdog is not None:
@@ -186,11 +188,6 @@ def _worker_recognize(
             am_score=sub_scores[0] if len(sub_scores) > 0 else item.am_score,
             transition_score=sub_scores[1] if len(sub_scores) > 1 else 0.0,
         ))
-   # print(
-   #     f"[TIMING] _worker_recognize pid={os.getpid()} seq={seq_tag} "
-   #     f"took {t_end - t_start:.3f}s (wall {t_start:.3f}-{t_end:.3f})",
-   #     flush=True,
-   # )
     return seq_tag, items, os.getpid(), t_start, t_end
 
 
@@ -199,13 +196,22 @@ class ParallelSegmentRecognizer:
     Wraps a pool of librasr SearchAlgorithm worker processes for parallel
     recognize_segment() calls.
 
-    Usage: start() once, then submit() sequences as they become available
-    (non-blocking) and drain() to block until every outstanding submission
-    is done, returning results *in submission order*. drain() does not tear
-    the pool down, so it can be called repeatedly - once at job end (see
-    ClusteringDecodeCallback), or once per phase/epoch while reusing the same
-    pool across many drains (see GuidedKMeansClusteringCallback) - call
-    shutdown() only when the pool is no longer needed at all.
+    Usage: start(on_result) once, then submit() sequences as they become
+    available (non-blocking). Every result is delivered to on_result(seq_tag,
+    traceback_items) in submission order - not completion order, since some
+    callers' downstream state (e.g. a fixed reservoir sample keyed on call
+    order) depends on that. Results are applied as soon as they're available
+    rather than buffered: submit() itself drains and applies the oldest
+    outstanding task whenever more than max_pending_tasks are in flight, so
+    memory use stays bounded by max_pending_tasks regardless of how many
+    sequences a phase/job submits in total - buffering results for an entire
+    RECOGNITION phase (which can span the whole corpus) grew a job's RSS from
+    tens of MB to double-digit GB before this was added. drain() flushes
+    whatever's still outstanding and does not tear the pool down, so it can
+    be called repeatedly - once at job end (see ClusteringDecodeCallback), or
+    once per phase/epoch while reusing the same pool (see
+    GuidedKMeansClusteringCallback) - call shutdown() only when the pool is
+    no longer needed at all.
     """
 
     def __init__(
@@ -214,6 +220,7 @@ class ParallelSegmentRecognizer:
         num_workers: int | None = 7,
         task_timeout: float | None = 1800.0,
         per_task_timeout: float | None = 120.0,
+        max_pending_tasks: int | None = None,
     ):
         self.recognition_config = recognition_config
         self.num_workers = num_workers
@@ -227,13 +234,19 @@ class ParallelSegmentRecognizer:
         # with large beams and uniform acoustic scores (e.g. random centroids)
         # can cause RASR's C++ search to run for 30+ minutes on long sequences.
         self.per_task_timeout = per_task_timeout
+        # Keep enough queued that workers are never starved waiting for the
+        # next submission, without letting outstanding tasks (and their
+        # scaled_distances payloads) accumulate for an entire phase.
+        self.max_pending_tasks = max_pending_tasks if max_pending_tasks is not None else 4 * (num_workers or 4)
         self.executor: ProcessPoolExecutor | None = None
-        self.futures: list[tuple[str, Future]] = []
+        self.futures: deque[tuple[str, Future]] = deque()
+        self._on_result: Callable[[str, list[PlainTracebackItem]], None] | None = None
         self._pending_lm_scale: float | None = None
         self._pending_transition_scale: float | None = None
 
         self._t_first_submit: float | None = None
         self._t_last_submit: float | None = None
+        self._task_intervals: list[tuple[int, float, float]] = []  # (pid, start, end), for drain()'s stats
 
     def set_lm_scale(self, scale: float) -> None:
         self._pending_lm_scale = scale
@@ -241,8 +254,9 @@ class ParallelSegmentRecognizer:
     def set_transition_scale(self, scale: float) -> None:
         self._pending_transition_scale = scale
 
-    def start(self) -> None:
+    def start(self, on_result: Callable[[str, list[PlainTracebackItem]], None]) -> None:
         assert self.executor is None, "already started"
+        self._on_result = on_result
         # The calling process typically already holds an active CUDA context
         # (the encoder model loaded onto the GPU) by the time this runs. The
         # default "fork" start method is not safe/supported in that
@@ -286,6 +300,38 @@ class ParallelSegmentRecognizer:
                 proc.kill()
         os._exit(1)
 
+    def _drain_one(self) -> bool:
+        """Pop and apply the oldest outstanding future, blocking on it if needed.
+
+        Returns True if the worker was found broken (empty traceback delivered), False on success.
+        """
+        assert self._on_result is not None, "call start(on_result) first"
+        seq_tag, future = self.futures.popleft()
+        try:
+            result_seq_tag, items, pid, t_start, t_end = future.result(timeout=self.task_timeout)
+        except BrokenExecutor as e:
+            # A worker was killed (by the per-task watchdog, OOM-killer, or
+            # segfault).  ProcessPoolExecutor propagates BrokenExecutor to
+            # all still-pending futures from that executor.  Futures that
+            # already completed are unaffected — their result() calls succeed
+            # normally even after the executor is marked broken.
+            print(
+                f"[WARNING] Worker died while processing seq_tag={seq_tag!r}: {e!r} — "
+                f"assigning empty traceback for this sequence.",
+                flush=True,
+            )
+            self._on_result(seq_tag, [])
+            return True
+        except Exception as e:
+            self._hard_abort(
+                f"recognize_segment for seq_tag={seq_tag!r} did not complete "
+                f"within task_timeout={self.task_timeout}s: {e!r}"
+            )
+        assert result_seq_tag == seq_tag
+        self._task_intervals.append((pid, t_start, t_end))
+        self._on_result(seq_tag, items)
+        return False
+
     def submit(self, seq_tag: str, scaled_distances: np.ndarray) -> None:
         assert self.executor is not None, "call start() first"
         t_submit = time.time()
@@ -303,53 +349,37 @@ class ParallelSegmentRecognizer:
             self._hard_abort(f"submit() for seq_tag={seq_tag!r} failed: {e!r} (worker pool likely already broken)")
         self.futures.append((seq_tag, future))
 
-    def drain(self) -> list[tuple[str, list[PlainTracebackItem]]]:
+        # Bound memory: apply (and release) the oldest outstanding results
+        # instead of letting them, and their queued scaled_distances
+        # payloads, pile up for an entire phase - on a phase spanning
+        # thousands of sequences this previously grew RSS from tens of MB to
+        # double-digit GB.
+        while len(self.futures) > self.max_pending_tasks:
+            self._drain_one()
+
+    def drain(self) -> None:
         """
-        Block until every future submitted since the last drain() is done.
-        Returns (seq_tag, traceback_items) pairs in submission order - not
-        completion order, since some callers' downstream state (e.g. a fixed
-        reservoir sample keyed on call order) depends on that.
+        Block until every outstanding submission (including whatever
+        submit() hasn't already drained incrementally) has been applied via
+        on_result, then print this batch's submission/concurrency stats.
         """
         assert self.executor is not None, "call start() first"
 
-        if self.futures and self._t_first_submit is not None:
+        n_pending = len(self.futures)
+        if self._t_first_submit is not None and self._t_last_submit is not None:
             print(
                 f"[TIMING] submission phase (first->last submit): "
-                f"{self._t_last_submit - self._t_first_submit:.3f}s for {len(self.futures)} sequences",
+                f"{self._t_last_submit - self._t_first_submit:.3f}s, {n_pending} sequences still pending at drain()",
                 flush=True,
             )
 
         t_drain_start = time.time()
-        results = []
-        task_intervals = []  # (pid, start, end) as reported by the workers themselves
         had_broken_worker = False
         n_total = len(self.futures)
-        log_every = 1000 #n_total #max(1, n_total // 10)  # ~10 progress lines regardless of corpus size
-        for i, (seq_tag, future) in enumerate(self.futures):
-            try:
-                result_seq_tag, items, pid, t_start, t_end = future.result(timeout=self.task_timeout)
-            except BrokenExecutor as e:
-                # A worker was killed (by the per-task watchdog, OOM-killer, or
-                # segfault).  ProcessPoolExecutor propagates BrokenExecutor to
-                # all still-pending futures from that executor.  Futures that
-                # already completed are unaffected — their result() calls succeed
-                # normally even after the executor is marked broken.
-                print(
-                    f"[WARNING] Worker died while processing seq_tag={seq_tag!r}: {e!r} — "
-                    f"assigning empty traceback for this sequence.",
-                    flush=True,
-                )
-                results.append((seq_tag, []))
+        log_every = 1000
+        for i in range(n_total):
+            if self._drain_one():
                 had_broken_worker = True
-                continue
-            except Exception as e:
-                self._hard_abort(
-                    f"recognize_segment for seq_tag={seq_tag!r} did not complete "
-                    f"within task_timeout={self.task_timeout}s: {e!r}"
-                )
-            assert result_seq_tag == seq_tag
-            results.append((seq_tag, items))
-            task_intervals.append((pid, t_start, t_end))
             done = i + 1
             if done % log_every == 0 or done == n_total:
                 elapsed = time.time() - t_drain_start
@@ -363,21 +393,17 @@ class ParallelSegmentRecognizer:
         if had_broken_worker:
             # Restart so the next drain() call (next epoch) gets a clean pool.
             print("[INFO] Restarting worker pool after worker death(s).", flush=True)
-            try:
-                if self.executor is not None:
-                    self.executor.shutdown(wait=False)
-            except Exception:
-                pass
-            self.executor = None
-            self.start()
+            on_result = self._on_result
+            self.shutdown()
+            self.start(on_result)
 
-        self.futures.clear()
         self._t_first_submit = None
         self._t_last_submit = None
 
         # Sanity-check whether tasks actually ran concurrently: sum of
         # per-task durations divided by the wall-clock span they occupy.
         # ~1x means effectively serial, ~num_workers means real parallelism.
+        task_intervals, self._task_intervals = self._task_intervals, []
         if task_intervals:
             busy_time = sum(end - start for _, start, end in task_intervals)
             span_start = min(start for _, start, _ in task_intervals)
@@ -385,15 +411,13 @@ class ParallelSegmentRecognizer:
             span = span_end - span_start
             n_distinct_workers = len({pid for pid, _, _ in task_intervals})
             print(
-                f"[TIMING] drain phase: {t_drain_end - t_drain_start:.3f}s wall, "
-                f"{busy_time:.3f}s summed worker-busy time over {len(task_intervals)} tasks, "
+                f"[TIMING] drain phase: {t_drain_end - t_drain_start:.3f}s wall to flush the last {n_pending} pending, "
+                f"{busy_time:.3f}s summed worker-busy time over {len(task_intervals)} tasks since the last drain(), "
                 f"span={span:.3f}s, distinct worker pids={n_distinct_workers}, "
                 f"concurrency utilization={busy_time / span if span > 0 else float('nan'):.2f}x "
                 f"(expected up to ~{self.num_workers}x if truly parallel, ~1x if effectively serial)",
                 flush=True,
             )
-
-        return results
 
     def restart(self) -> None:
         """Shut down the current worker pool and start a fresh one.
@@ -403,8 +427,9 @@ class ParallelSegmentRecognizer:
         from a clean RASR config state rather than from a potentially
         corrupted in-process scale state (e.g. after set_scale(0) → set_scale(X)).
         """
+        on_result = self._on_result
         self.shutdown()
-        self.start()
+        self.start(on_result)
 
     def shutdown(self) -> None:
         if self.executor is not None:
@@ -414,7 +439,12 @@ class ParallelSegmentRecognizer:
     def __getstate__(self) -> dict:
         d = dict(self.__dict__)
         d["executor"] = None
-        d["futures"] = []
+        d["futures"] = deque()
+        # A bound method of the owning callback would otherwise pull that
+        # callback (and transitively this recognizer again) into the pickle.
+        # Not restorable via unpickling anyway - start(on_result) must be
+        # called again regardless, same as the executor.
+        d["_on_result"] = None
         return d
 
     def __setstate__(self, d) -> None:
