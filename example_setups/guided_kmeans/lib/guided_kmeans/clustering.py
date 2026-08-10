@@ -1,6 +1,7 @@
 __all__ = [
     "BatchwiseUpdater",
     "KMeansPlusPlusInitializer",
+    "KMeansPlusPlusReservoirInitializer",
     "BatchwiseKMeansUpdater",
     "NnOutputClusteringCallback",
 ]
@@ -30,7 +31,7 @@ from i6_core.lib.lexicon import Lexicon
 from i6_core.util import uopen
 
 from .util import segments_to_array, ProgressLogger, TracebackLogger, PoolingRegistry
-from .pca import PCAUpdater
+from .pca import PCAUpdater, StreamingPCA
 from .running_update import RunningAverageUpdater, RelativeFrequencyUpdater
 from .statistics import (
     get_default_logger
@@ -65,6 +66,7 @@ class BatchwiseUpdater:
         self.batch_size = state["batch_size"]
         self.data_index = state["data_index"]
         self.data_batch = state["data_batch"]
+        self.l2_normalize = state.get("l2_normalize", False)
     
     @property
     def batch_idx(self) -> int:
@@ -211,6 +213,39 @@ class StreamingStandardInitializer(BaseInitializer):
     def finalize(self) -> np.ndarray:
         assert len(self.samples) == self.num_clusters
         return np.array(self.samples)
+
+class KMeansPlusPlusReservoirInitializer(BaseInitializer):
+    """
+    Collects frames via reservoir sampling, then runs proper k-means++ on the reservoir.
+    """
+    def __init__(self, num_clusters: int, reservoir_size: int = 10000, seed: int = 42):
+        super().__init__()
+        self.num_clusters = num_clusters
+        self.reservoir_size = reservoir_size
+        self.rng = np.random.RandomState(seed)
+        self._reservoir = []
+        self._counter = 0
+
+    def process_seq(self, data: np.ndarray, last_seq: bool = False):
+        for x in data:
+            self._counter += 1
+            if len(self._reservoir) < self.reservoir_size:
+                self._reservoir.append(x)
+            else:
+                j = self.rng.randint(0, self._counter - 1)
+                if j < self.reservoir_size:
+                    self._reservoir[j] = x
+
+        if last_seq:
+            pool = np.array(self._reservoir)
+            first = self.rng.randint(len(pool))
+            centroids = [pool[first]]
+            for _ in range(self.num_clusters - 1):
+                D = cdist(pool, np.array(centroids)).min(axis=1) ** 2
+                probs = D / D.sum()
+                idx = self.rng.choice(len(pool), p=probs)
+                centroids.append(pool[idx])
+            self.centroids = np.stack(centroids, axis=0)
 
 class PreloadCentroidsInitializer(BaseInitializer):
     def __init__(
@@ -817,8 +852,11 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         pool_for_init: bool = True,
         gaussian_model: GaussianModelNumpy | None = None,
         verbosity: int = 1,
+        lm_scale_schedule: Optional[list] = None,
+        transition_scale_schedule: Optional[list] = None,
         num_workers: int | None = 7,
         task_timeout: float | None = 1800.0,
+        use_forward_backward: bool = False,
     ):
         super().__init__(
             num_clusters=num_clusters,
@@ -844,11 +882,17 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         self.subsampling = subsampling
 
         self.distance_scale = distance_scale
+        self.use_forward_backward = use_forward_backward
 
         self.config = None
-        self.recognizer = ParallelSegmentRecognizer(
-            recognition_config, num_workers=num_workers, task_timeout=task_timeout
-        )
+        if not use_forward_backward:
+            self.recognizer = ParallelSegmentRecognizer(
+                recognition_config, num_workers=num_workers, task_timeout=task_timeout
+            )
+        else:
+            self.recognizer = None
+        self._fb_search_algo = None
+        self._label_order_checked = False
         self.gaussian_model = gaussian_model
 
         self.centroid_updater = RunningAverageUpdater((num_clusters, 1024))
@@ -865,10 +909,107 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         self.pool_for_init = pool_for_init
 
         self.verbosity = verbosity
-    
+        # Only the forward-backward path keeps per-sequence hard assignments here (for
+        # debug inspection). The parallel-recognizer path deliberately does not: holding
+        # every sequence's labels for a whole RECOGNITION phase is what the traceback
+        # repository exists to avoid.
+        self.tracebacks = {} if use_forward_backward else None
+        self.lm_scale_schedule = lm_scale_schedule
+        self.transition_scale_schedule = transition_scale_schedule
+        # Tracks the scales most recently applied to the worker pool so we can
+        # detect changes and restart the pool when they occur
+        self._applied_lm_scale: float | None = None
+        self._applied_transition_scale: float | None = None
+
+    def _ensure_fb_search_algo(self):
+        if self._fb_search_algo is None:
+            from librasr import Configuration, SearchAlgorithm
+            config = Configuration()
+            config.set_from_file(self.recognition_config)
+            self._fb_search_algo = SearchAlgorithm(config=config)
+        return self._fb_search_algo
+
+    def _check_label_order_once(self, result: dict):
+        if self._label_order_checked:
+            return
+        label_names = list(result["label_names"])
+        # With the FB lexicon, silence is at label 0 and phonemes at 1..num_clusters-1
+        # Verify the returned label names match our phoneme_map
+        for label_id, name in enumerate(label_names[:self.num_clusters]):
+            if name not in self.phoneme_map:
+                raise ValueError(
+                    f"RASR label {label_id} has name {name!r}, but this name is missing from phoneme_map."
+                )
+            mapped = self.phoneme_map[name]
+            if mapped != label_id:
+                raise ValueError(
+                    f"RASR label {label_id} has name {name!r}, but phoneme_map maps it to {mapped}."
+                )
+        self._label_order_checked = True
+
+    def update_centroids_soft(self, hidden_states: np.ndarray, gammas: np.ndarray):
+        assert self.centroids is not None
+        hidden_states = np.asarray(hidden_states, dtype=np.float64)
+        gammas = np.asarray(gammas, dtype=np.float64)
+        if hidden_states.shape[0] != gammas.shape[0]:
+            raise ValueError(
+                f"hidden_states length {hidden_states.shape[0]} != gammas length {gammas.shape[0]}"
+            )
+        if gammas.shape[1] != self.num_clusters:
+            raise ValueError(
+                f"gammas width {gammas.shape[1]} != num_clusters {self.num_clusters}"
+            )
+        idx_counts = gammas.sum(axis=0)
+        feature_sums = gammas.T @ hidden_states
+        self.centroid_updater.update(feature_sums, idx_counts)
+
+    @staticmethod
+    def _posterior_entropy(posteriors: np.ndarray) -> np.ndarray:
+        p = np.clip(posteriors, 1e-12, 1.0)
+        return -np.sum(p * np.log(p), axis=1)
+
+    def _apply_scale_schedules(self):
+        if self.use_forward_backward:
+            return
+        epoch_idx = self.current_epoch // 2
+        new_lm_scale: float | None = None
+        new_ts: float | None = None
+
+        if self.lm_scale_schedule is not None:
+            idx = min(epoch_idx, len(self.lm_scale_schedule) - 1)
+            if epoch_idx >= len(self.lm_scale_schedule):
+                print(f"LM scale schedule exhausted at recognition pass {epoch_idx}, keeping last scale.")
+            new_lm_scale = self.lm_scale_schedule[idx]
+
+        if self.transition_scale_schedule is not None:
+            idx = min(epoch_idx, len(self.transition_scale_schedule) - 1)
+            if epoch_idx >= len(self.transition_scale_schedule):
+                print(f"Transition scale schedule exhausted at recognition pass {epoch_idx}, keeping last scale.")
+            new_ts = self.transition_scale_schedule[idx]
+
+        lm_changed = new_lm_scale is not None and new_lm_scale != self._applied_lm_scale
+        ts_changed = new_ts is not None and new_ts != self._applied_transition_scale
+
+        if lm_changed or ts_changed:
+            # Apply pending values first so fresh workers pick them up immediately
+            if new_lm_scale is not None:
+                self.recognizer.set_lm_scale(new_lm_scale)
+                self._applied_lm_scale = new_lm_scale
+                print(f"Recognition pass {epoch_idx}: set LM scale to {new_lm_scale}")
+            if new_ts is not None:
+                self.recognizer.set_transition_scale(new_ts)
+                self._applied_transition_scale = new_ts
+                print(f"Recognition pass {epoch_idx}: set transition scale to {new_ts}")
+            # Restart workers so the new scales are applied to a clean RASR state
+            # Dynamic set_scale(0) → set_scale(X) in the same worker process can
+            # corrupt RASR's internal scale bookkeeping and crash the search
+            print(f"Recognition pass {epoch_idx}: restarting worker pool to apply new scales cleanly")
+            self.recognizer.restart()
+
     def init(self, *, model: Optional[torch.nn.Module] = None):
         super().init(model=model)
-        self.recognizer.start(on_result=self._apply_recognition_result)
+        if not self.use_forward_backward:
+            self.recognizer.start(on_result=self._apply_recognition_result)
 
         self.traceback_repository = PlyvelTracebackRepository(self.traceback_write_chunk_size)
         # self.traceback_repository = SimpleDictRepository()
@@ -932,7 +1073,7 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         self.current_epoch = last_epoch * 2 + 1
 
     def _on_phase_transition(self, new_phase: GuidedClusteringPhase, old_phase: Optional[GuidedClusteringPhase] = None):
-        # transition out of initialization
+        # transition out of initialization (same for both modes)
         if old_phase is GuidedClusteringPhase.INITIALIZATION:
             if not isinstance(self.initializer, PreloadGMInitializer):
                 self.centroids = self.initializer.finalize()
@@ -946,55 +1087,80 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
                 print(f"Saving Gaussian model to {{centroids,covs}}.0.npy")
                 np.save(centroids_file, self.gaussian_model.means)
                 np.save(covs_file, self.gaussian_model.covs)
-        
-        # transition in and out of recognition
-        if new_phase is GuidedClusteringPhase.RECOGNITION:
-            self.traceback_repository.start_write()
-            self.score_updater = RunningAverageUpdater(())
-            self.unigram_counter = RelativeFrequencyUpdater((len(self.phoneme_map),))
 
-            self.statistics_logger.start_epoch()
-        
-        if old_phase is GuidedClusteringPhase.RECOGNITION:
-            self.traceback_repository.end_write()
-            current_score = self.score_updater.value
-            self.score_history.append(current_score)
-            with open("scores.txt", "w+") as sf:
-                sf.write("\n".join(map(str, self.score_history)))
-            print(f"Finished Recognition with score {current_score}")
-
-            self.statistics_logger.end_epoch(self.current_epoch // 2)
-
-        # transition into and out of clustering
-        if new_phase is GuidedClusteringPhase.CLUSTERING:
-            if self.gaussian_model is None:
-                feature_dim = self.centroids.shape[1]
-                self.centroid_updater = RunningAverageUpdater((self.num_clusters, feature_dim))
-            else:
-                self.centroid_updater = PCAUpdater(self.num_clusters)
-            
-
-        if old_phase is GuidedClusteringPhase.CLUSTERING:
-            if self.gaussian_model is None:
+        if self.use_forward_backward:
+            # FB mode: RECOGNITION→RECOGNITION loop, no CLUSTERING phase
+            # Centroid update accumulates inline in process_seq via update_centroids_soft
+            # Not parallelized yet
+            if old_phase is GuidedClusteringPhase.RECOGNITION:
                 new_centroids = self.centroid_updater.value
-                # Phonemes never assigned this pass would become zero vectors; keep their old centroid
-                # so they remain viable candidates in the next recognition pass rather than dying out.
                 dead_mask = self.centroid_updater.counts == 0
                 new_centroids[dead_mask] = self.centroids[dead_mask]
                 self.centroids = new_centroids
-                centroids_file = f"centroids.{self.current_epoch // 2}.npy"
-                print(f"Saving centroids to {centroids_file}")
+                centroids_file = f"centroids.{self.current_epoch}.npy"
+                print(f"Saving centroids (FB) to {centroids_file}")
                 np.save(centroids_file, self.centroids)
-            else:
-                assert isinstance(self.centroid_updater, UpdaterBase_)
-                self.gaussian_model = self.centroid_updater.get_model(self.gaussian_model)
 
-                centroids_file = f"centroids.{self.current_epoch // 2}.npy"
-                covs_file = f"covs.{self.current_epoch // 2}.npy"
-                print(f"Saving Gaussian model to {{centroids,covs}}.{self.current_epoch // 2}.npy")
-                np.save(centroids_file, self.gaussian_model.means)
-                np.save(covs_file, self.gaussian_model.covs)
-        
+                current_score = self.score_updater.value
+                self.score_history.append(current_score)
+                with open("scores.txt", "w+") as sf:
+                    sf.write("\n".join(map(str, self.score_history)))
+                print(f"Finished Recognition (FB) with score {current_score}")
+                self.statistics_logger.end_epoch(self.current_epoch)
+
+            if new_phase is GuidedClusteringPhase.RECOGNITION:
+                self._ensure_fb_search_algo()
+                feature_dim = self.centroids.shape[1]
+                self.centroid_updater = RunningAverageUpdater((self.num_clusters, feature_dim))
+                self.score_updater = RunningAverageUpdater(())
+                self.unigram_counter = RelativeFrequencyUpdater((len(self.phoneme_map),))
+                self.statistics_logger.start_epoch()
+        else:
+            # Non-FB mode: RECOGNITION→CLUSTERING→RECOGNITION→... loop
+            if new_phase is GuidedClusteringPhase.RECOGNITION:
+                self._apply_scale_schedules()
+                self.traceback_repository.start_write()
+                self.score_updater = RunningAverageUpdater(())
+                self.unigram_counter = RelativeFrequencyUpdater((len(self.phoneme_map),))
+                self.statistics_logger.start_epoch()
+
+            if old_phase is GuidedClusteringPhase.RECOGNITION:
+                self.traceback_repository.end_write()
+                current_score = self.score_updater.value
+                self.score_history.append(current_score)
+                with open("scores.txt", "w+") as sf:
+                    sf.write("\n".join(map(str, self.score_history)))
+                print(f"Finished Recognition with score {current_score}")
+                self.statistics_logger.end_epoch(self.current_epoch // 2)
+
+            if new_phase is GuidedClusteringPhase.CLUSTERING:
+                if self.gaussian_model is None:
+                    feature_dim = self.centroids.shape[1]
+                    self.centroid_updater = RunningAverageUpdater((self.num_clusters, feature_dim))
+                else:
+                    self.centroid_updater = PCAUpdater(self.num_clusters)
+
+            if old_phase is GuidedClusteringPhase.CLUSTERING:
+                if self.gaussian_model is None:
+                    new_centroids = self.centroid_updater.value
+                    # Phonemes never assigned this pass would become zero vectors; keep their old centroid
+                    # so they remain viable candidates in the next recognition pass rather than dying out
+                    dead_mask = self.centroid_updater.counts == 0
+                    new_centroids[dead_mask] = self.centroids[dead_mask]
+                    self.centroids = new_centroids
+                    centroids_file = f"centroids.{self.current_epoch // 2}.npy"
+                    print(f"Saving centroids to {centroids_file}")
+                    np.save(centroids_file, self.centroids)
+                else:
+                    assert isinstance(self.centroid_updater, UpdaterBase_)
+                    self.gaussian_model = self.centroid_updater.get_model(self.gaussian_model)
+
+                    centroids_file = f"centroids.{self.current_epoch // 2}.npy"
+                    covs_file = f"covs.{self.current_epoch // 2}.npy"
+                    print(f"Saving Gaussian model to {{centroids,covs}}.{self.current_epoch // 2}.npy")
+                    np.save(centroids_file, self.gaussian_model.means)
+                    np.save(covs_file, self.gaussian_model.covs)
+
         # handle process
         self.progress_logger = ProgressLogger(
             self.num_seqs,
@@ -1007,7 +1173,7 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         """
         Determine the current phase of processing based on the sequence tag.
         Phase 1: Generating pseudo-labels via recognition.
-        Phase 2: Using pseudo-labels as targets for clustering.
+        Phase 2: Using pseudo-labels as targets for clustering (non-FB only).
         """
         if self.current_seq == self.initialization_offset or last_seq:
             if self.phase == GuidedClusteringPhase.RECOGNITION:
@@ -1018,7 +1184,12 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
                 # score/statistics updated) before that runs, and before the
                 # following CLUSTERING phase starts reading the repository.
                 self._drain_recognition()
-            self.phase = self.phase.transition(self._on_phase_transition)
+
+            if self.use_forward_backward and self.phase is GuidedClusteringPhase.RECOGNITION:
+                # FB mode: loop back to RECOGNITION; no CLUSTERING phase exists
+                self._on_phase_transition(GuidedClusteringPhase.RECOGNITION, old_phase=GuidedClusteringPhase.RECOGNITION)
+            else:
+                self.phase = self.phase.transition(self._on_phase_transition)
             print(f"Starting Phase {self.phase} in epoch {self.current_epoch}")
 
     def increase_epoch_and_seq(self, last_seq: bool = False):
@@ -1085,6 +1256,8 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         (some downstream state, e.g. SampledTracebackPrinter's reservoir
         sample, is keyed on call order, not completion order).
         """
+        if self.use_forward_backward:
+            return
         self.recognizer.drain()
 
     def process_seq(self, *, seq_tag: str, outputs: TensorDict, last_seq: bool = False):
@@ -1137,11 +1310,59 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
             else:
                 distances = self.gaussian_model.forward(hidden_state_tensor)
             scaled_distances = distances * self.distance_scale
-            # Non-blocking: the result (and everything that used to happen
-            # here immediately - statistics, repository store, score update)
-            # is applied later in _drain_recognition(), called from
-            # maybe_transition_phase() before this phase ends.
-            self.recognizer.submit(seq_tag, scaled_distances)
+
+            if self.use_forward_backward:
+                search_algo = self._ensure_fb_search_algo()
+                T = scaled_distances.shape[0]
+                t0 = time.perf_counter()
+                result = search_algo.recognize_segment_forward_backward(scaled_distances)
+                search_time = time.perf_counter() - t0
+                self._check_label_order_once(result)
+
+                log_likelihood = float(result["log_likelihood"])
+                gammas = np.asarray(result["label_gammas"], dtype=np.float64)
+
+                if gammas.shape[0] != hidden_state_tensor.shape[0]:
+                    raise ValueError(
+                        f"{seq_tag}: gamma length {gammas.shape[0]} != "
+                        f"hidden-state length {hidden_state_tensor.shape[0]}"
+                    )
+
+                phoneme_posteriors = gammas[:, :self.num_clusters]
+                # RASR accumulates alpha/beta in float32. At ~64M accumulated cost,
+                # the ULP (~8) causes exp(partitionCost - arcPathCost) to deviate from
+                # true posteriors by factors up to 10^15. The error is a common scalar
+                # multiplier across phonemes at each frame, so per-frame normalization
+                # recovers the correct relative posteriors.
+                row_sums = phoneme_posteriors.sum(axis=1, keepdims=True)
+                phoneme_posteriors = np.where(
+                    row_sums > 1e-30,
+                    phoneme_posteriors / np.maximum(row_sums, 1e-300),
+                    np.zeros_like(phoneme_posteriors),
+                )
+                posterior_entropy = self._posterior_entropy(phoneme_posteriors)
+
+                # print(
+                #     f"[FB] {seq_tag}: T={T} frames, "
+                #     f"search={search_time:.3f}s ({search_time/T*1000:.1f}ms/frame), "
+                #     f"log_likelihood={log_likelihood:.4f}, "
+                #     f"entropy={posterior_entropy.mean():.4f}"
+                # )
+
+                self.score_updater.update_single(log_likelihood)
+                self.update_centroids_soft(
+                    hidden_states=hidden_state_tensor,
+                    gammas=phoneme_posteriors,
+                )
+                # Store argmax assignment for debug inspection only
+                hard_idx = phoneme_posteriors.argmax(axis=1).astype(np.int32)
+                self.tracebacks[seq_tag] = hard_idx.tolist()
+            else:
+                # Non-blocking: the result (and everything that used to happen
+                # here immediately - statistics, repository store, score update)
+                # is applied later in _drain_recognition(), called from
+                # maybe_transition_phase() before this phase ends
+                self.recognizer.submit(seq_tag, scaled_distances)
 
         if self.phase == GuidedClusteringPhase.CLUSTERING:
             try:
@@ -1164,7 +1385,8 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         self.increase_epoch_and_seq(last_seq)
 
     def finish(self):
-        self.recognizer.shutdown()
+        if not self.use_forward_backward:
+            self.recognizer.shutdown()
 
         if self.phase is GuidedClusteringPhase.CLUSTERING and self.centroid_updater.counts.any():
             # if RETURNN ran out of data mid-clustering (e.g. HDF has fewer seqs than num_seqs)

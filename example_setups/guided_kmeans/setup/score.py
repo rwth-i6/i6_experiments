@@ -1,5 +1,6 @@
-__all__ = ["JiwerScoringJob", "TaggedCorpusToTxtJob"]
+__all__ = ["JiwerScoringJob", "TaggedCorpusToTxtJob", "FrameErrorRateJob"]
 import re
+from collections import Counter
 from dataclasses import dataclass
 from typing import TextIO, cast
 
@@ -65,6 +66,7 @@ class JiwerScoringJob(Job):
         # never appears would leave any consumer of it with a missing file
         # (sisyphus marks the job finished on task completion, not on outputs).
         self.out_alignment = self.output_path("alignment.txt") if write_alignment else None
+        self.out_confusion_pairs = self.output_path("confusion_pairs.tsv")
         self.out_wer = self.output_var("wer")
         self.out_substitutions = self.output_var("substitutions")
         self.out_deletions = self.output_var("deletions")
@@ -103,15 +105,20 @@ class JiwerScoringJob(Job):
             raise ValueError("no segment tag occurs in both the reference and the hypotheses")
 
         counts = {"substitutions": 0, "deletions": 0, "insertions": 0, "hits": 0}
+        # Substituted (reference, hypothesis) label pairs, accumulated over all
+        # batches - which label the recognizer confuses for which is the main
+        # thing this job is inspected for beyond the plain error rate.
+        confusion: Counter = Counter()
         alignment = open(self.out_alignment.get_path(), "w") if self.out_alignment else None
         try:
             for start in range(0, len(common_tags), self.BATCH_SIZE):
                 batch = common_tags[start : start + self.BATCH_SIZE]
-                out = jiwer.process_words(
-                    [ref_dict[t] for t in batch], [hyp_dict[t] for t in batch]
-                )
+                ref_sentences = [ref_dict[t] for t in batch]
+                hyp_sentences = [hyp_dict[t] for t in batch]
+                out = jiwer.process_words(ref_sentences, hyp_sentences)
                 for key in counts:
                     counts[key] += getattr(out, key)
+                self._collect_confusions(out, ref_sentences, hyp_sentences, confusion)
                 if alignment is not None:
                     # Measures per batch would be misleading; the summary of
                     # the whole file is appended once, below.
@@ -144,6 +151,83 @@ class JiwerScoringJob(Job):
         finally:
             if alignment is not None:
                 alignment.close()
+
+        with open(self.out_confusion_pairs.get_path(), "w") as fp:
+            fp.write("ref\thyp\tcount\n")
+            for (r, h), count in sorted(confusion.items(), key=lambda x: -x[1]):
+                fp.write(f"{r}\t{h}\t{count}\n")
+
+    @staticmethod
+    def _collect_confusions(out, ref_sentences: list, hyp_sentences: list, confusion: Counter) -> None:
+        """Tally the substituted (reference, hypothesis) label pairs of one jiwer batch."""
+        for chunks, ref_sent, hyp_sent in zip(out.alignments, ref_sentences, hyp_sentences):
+            ref_words = ref_sent.split()
+            hyp_words = hyp_sent.split()
+            for chunk in chunks:
+                if chunk.type == "substitute":
+                    for r, h in zip(
+                        ref_words[chunk.ref_start_idx:chunk.ref_end_idx],
+                        hyp_words[chunk.hyp_start_idx:chunk.hyp_end_idx],
+                    ):
+                        confusion[(r, h)] += 1
+
+
+class FrameErrorRateJob(Job):
+    def __init__(self, frame_labels: tk.Path, alignment: tk.Path, lexicon: tk.Path):
+        self.frame_labels = frame_labels
+        self.alignment = alignment
+        self.lexicon = lexicon
+        self.out_fer = self.output_var("fer")
+        self.out_frame_confusion_pairs = self.output_path("frame_confusion_pairs.tsv")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import gzip, json, pickle
+        import numpy as np
+        from xml.etree import ElementTree as ET
+
+        lexicon_path = self.lexicon.get_path()
+        open_fn = gzip.open if lexicon_path.endswith(".gz") else open
+        with open_fn(lexicon_path, "rb") as f:
+            root = ET.parse(f).getroot()
+        phonemes = [e.findtext("symbol") for e in root.findall(".//phoneme-inventory/phoneme")]
+        phoneme_to_idx = {p: i for i, p in enumerate(phonemes)}
+
+        with open(str(self.alignment), "rb") as f:
+            ref_alignment = pickle.load(f)
+
+        hyp_frames = {}
+        with open(str(self.frame_labels)) as f:
+            for line in f:
+                entry = json.loads(line)
+                tag = "/".join(entry["seq_tag"].split("/")[-2:])
+                hyp_frames[tag] = entry["frames"]
+
+        idx_to_phoneme = {i: p for p, i in phoneme_to_idx.items()}
+
+        total = 0
+        errors = 0
+        confusion: Counter = Counter()
+        for ref_tag, ref in ref_alignment.items():
+            short_tag = "/".join(ref_tag.split("/")[-2:])
+            if short_tag not in hyp_frames:
+                continue
+            hyp = np.array([phoneme_to_idx.get(p, -1) for p in hyp_frames[short_tag]])
+            n = min(len(ref), len(hyp))
+            total += n
+            errors += int(np.sum(ref[:n] != hyp[:n]))
+            for r_idx, h_idx in zip(ref[:n], hyp[:n]):
+                confusion[(idx_to_phoneme.get(int(r_idx), "?"), idx_to_phoneme.get(int(h_idx), "?"))] += 1
+
+        self.out_fer.set(round(errors / total * 100, 2) if total > 0 else float("nan"))
+
+        with open(self.out_frame_confusion_pairs.get_path(), "w") as fp:
+            fp.write("ref\thyp\tcount\n")
+            for (r, h), count in sorted(confusion.items(), key=lambda x: -x[1]):
+                fp.write(f"{r}\t{h}\t{count}\n")
+
 
 @dataclass
 class ScoreResult:

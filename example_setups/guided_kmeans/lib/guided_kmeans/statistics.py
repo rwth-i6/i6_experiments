@@ -129,20 +129,26 @@ class ScoreStatisticsCounter(CounterProtocol):
     def __init__(self, **_kwargs):
         self.lm_score_updater = RunningAverageUpdater(shape=())
         self.am_score_updater = RunningAverageUpdater(shape=())
+        self.transition_score_updater = RunningAverageUpdater(shape=())
         self.normed_total_score_updater = RunningAverageUpdater(shape=())
-    
+
     def read(self, traceback: list[TracebackItemProtocol]):
         item = traceback[-1]  # only consider the last item in the traceback for scoring
         num_frames = traceback[-1].end_time
+        transition_score = getattr(item, "transition_score", 0.0)
+        total = item.am_score + transition_score + item.lm_score
         self.lm_score_updater.update_single(item.lm_score)
         self.am_score_updater.update_single(item.am_score)
-        self.normed_total_score_updater.update_single((item.am_score + item.lm_score) / num_frames)
+        self.transition_score_updater.update_single(transition_score)
+        self.normed_total_score_updater.update_single(total / num_frames)
 
     def finalize(self):
+        total = self.lm_score_updater.value + self.am_score_updater.value + self.transition_score_updater.value
         return {
             "average_lm_score": self.lm_score_updater.value.item(),
             "average_am_score": self.am_score_updater.value.item(),
-            "average_total_score": (self.lm_score_updater.value + self.am_score_updater.value).item(),
+            "average_transition_score": self.transition_score_updater.value.item(),
+            "average_total_score": total.item(),
             "average_total_normed_score": self.normed_total_score_updater.value.item(),
         }
 

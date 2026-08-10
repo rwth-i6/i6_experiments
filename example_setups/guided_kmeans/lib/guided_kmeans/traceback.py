@@ -6,3 +6,4 @@ class TracebackItemProtocol(Protocol):
     end_time: float
     lm_score: float
     am_score: float
+    transition_score: float

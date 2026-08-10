@@ -6,7 +6,7 @@ from i6_experiments.example_setups.guided_kmeans.setup.decode_config import deco
 from i6_experiments.example_setups.guided_kmeans.setup.dataset_config import DatasetConfig, RandomNumber, All,  SegmentFile
 from i6_experiments.example_setups.guided_kmeans.setup.librasr_recognition import RecogConfig
 from i6_experiments.example_setups.guided_kmeans.setup.report import create_report
-from .. import tools
+from i6_experiments.example_setups.guided_kmeans import tools
 
 parameters = \
     [

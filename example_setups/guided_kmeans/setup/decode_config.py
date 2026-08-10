@@ -37,6 +37,17 @@ class DecodeRecogResult:
     deletion: tk.Variable
     insertion: tk.Variable
     substitution: tk.Variable
+    mean_cos_sim: tk.Variable | None = None
+    l1_dist: tk.Variable | None = None
+    avg_total_score: tk.Variable | None = None
+    avg_am_score: tk.Variable | None = None
+    avg_transition_score: tk.Variable | None = None
+    avg_lm_score: tk.Variable | None = None
+    avg_segment_duration: tk.Variable | None = None
+    frame_labels: tk.Path | None = None
+    confusion_pairs: tk.Path | None = None
+    fer: tk.Variable | None = None
+    frame_confusion_pairs: tk.Path | None = None
 
 def build_gaussian_model_object(centroids: tk.Path, cov: tk.Path) -> CallImport:
     args = {
@@ -63,6 +74,7 @@ def get_callback_config(
     rasr_path: str | None = None,
     cov_path: tk.Path | None = None,
     num_workers: int = 7,
+    write_frame_labels: bool = False,
     legacy_hash_num_workers: bool = False,
 ) -> ReturnnConfig:
     serializer_objs = []
@@ -82,6 +94,7 @@ def get_callback_config(
         "pooling_function": pooling_function,
         "verbosity": verbosity,
         "exclude_lemmata": exclude_lemmata,
+        "write_frame_labels": write_frame_labels,
     }
     unhashed_args = {}
     if legacy_hash_num_workers:
@@ -120,6 +133,7 @@ class DecodeConfig:
     covs: tk.Path | None = None
     verbosity: int = 1
     num_workers: int = 7
+    write_frame_labels: bool = False
     # Set this for pre-existing experiments to keep num_workers part of the job hash,
     # reproducing the hash they had before num_workers became unhashed. Do not set it
     # in new configs.
@@ -129,6 +143,7 @@ class DecodeConfig:
 class DecodeResult:
     fwd_job: ReturnnForwardJobV2
     hyp: tk.Path
+    frame_labels: tk.Path | None = None
 
 def _decode(
     config: DecodeConfig,
@@ -156,6 +171,7 @@ def _decode(
         rasr_path=rasr_path,
         cov_path=config.covs,
         num_workers=config.num_workers,
+        write_frame_labels=config.write_frame_labels,
         legacy_hash_num_workers=config.legacy_hash_num_workers,
     )
 
@@ -165,24 +181,32 @@ def _decode(
 
     returnn_config.black_formatting = False
 
-    hyp_file = "hyp.txt"
+    output_files = ["hyp.txt"]
+    if config.write_frame_labels:
+        output_files.append("frame_labels.jsonl")
+
+    num_cpus = config.num_workers + 1
+
     fwd_job = ReturnnForwardJobV2(
         model_checkpoint=None,
         returnn_config=returnn_config,
         returnn_python_exe=returnn_python_exe,
         returnn_root=returnn_root,
-        output_files=[hyp_file],
-        cpu_rqmt=config.num_workers + 1,
-        device=device
+        output_files=output_files,
+        device=device,
+        cpu_rqmt=num_cpus,
     )
     if device == "gpu":
         fwd_job.rqmt["gpu_mem"] = 24
+    fwd_job.rqmt["mem"] = num_cpus * 4
 
-    out_hyp = fwd_job.out_files[hyp_file]
+    out_hyp = fwd_job.out_files["hyp.txt"]
+    out_frame_labels = fwd_job.out_files.get("frame_labels.jsonl")
 
     return DecodeResult(
         fwd_job=fwd_job,
         hyp=out_hyp,
+        frame_labels=out_frame_labels,
     )
 
 def decode_and_score(
@@ -241,4 +265,6 @@ def decode_and_score(
         score_res.deletions,
         score_res.insertions,
         score_res.substitutions,
+        frame_labels=decode_res.frame_labels,
+        confusion_pairs=score_job.out_confusion_pairs,
     )

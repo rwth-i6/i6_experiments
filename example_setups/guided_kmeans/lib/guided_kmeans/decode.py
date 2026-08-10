@@ -1,4 +1,5 @@
 __all__ = ["ClusteringDecodeCallback"]
+import json
 import os
 import time
 
@@ -8,7 +9,7 @@ from scipy.spatial.distance import cdist
 
 from .util import PoolingRegistry, traceback_to_text
 from .model import GaussianModelNumpy
-from .parallel_recognizer import ParallelSegmentRecognizer, PlainTracebackItem
+from .parallel_recognizer import ParallelSegmentRecognizer, PlainTracebackItem, expand_traceback
 
 from returnn.forward_iface import ForwardCallbackIface
 from returnn.tensor.tensor_dict import TensorDict
@@ -27,6 +28,7 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
         exclude_lemmata=["[SILENCE]"],
         num_workers: int | None = 7,
         task_timeout: float | None = 1800.0,
+        write_frame_labels: bool = False,
     ):
         self.centroids_file = centroids_file
         self.recognition_config = recognition_config
@@ -48,10 +50,16 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
 
         self.exclude_lemmata = exclude_lemmata
 
-        self.hyp_buffer = []
+        self.hyp_buffer: list[str] = []
+        self.frame_label_entries: list[dict] | None = [] if write_frame_labels else None
+
+        # When True, finish() expands the per-phoneme traceback to per-frame labels
+        # (using expand_traceback) and writes them to frame_labels.jsonl. The hypothesis
+        # output in hyp.txt is not affected.
+        self.write_frame_labels = write_frame_labels
 
         self.recognizer = ParallelSegmentRecognizer(
-            recognition_config, num_workers=num_workers, task_timeout=task_timeout
+            recognition_config, num_workers=num_workers, task_timeout=task_timeout,
         )
 
         # --- debug timing (see finish() for the breakdown this feeds) ---
@@ -68,6 +76,11 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
     def _on_recognition_result(self, seq_tag: str, items: list[PlainTracebackItem]) -> None:
         if self.verbosity >= 2:
             print(f"Finished sequence {seq_tag}.")
+        if self.frame_label_entries is not None:
+            self.frame_label_entries.append({
+                "seq_tag": seq_tag,
+                "frames": [item.lemma for item in expand_traceback(items)],
+            })
         hyp = traceback_to_text(items, self.exclude_lemmata)
         self.hyp_buffer.append(f"{seq_tag}\t{hyp}")
 
@@ -128,6 +141,10 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
 
         print(f"[TIMING] total (init->finish): {time.time() - self._t_init:.3f}s", flush=True)
 
-        # print(self.hyp_buffer)
         with open("hyp.txt", "w+") as fp:
             fp.write("\n".join(self.hyp_buffer))
+
+        if self.frame_label_entries is not None:
+            with open("frame_labels.jsonl", "w+") as fp:
+                for entry in self.frame_label_entries:
+                    fp.write(json.dumps(entry) + "\n")
