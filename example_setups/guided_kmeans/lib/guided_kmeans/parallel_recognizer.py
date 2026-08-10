@@ -375,9 +375,19 @@ class ParallelSegmentRecognizer:
 
         t_drain_start = time.time()
         had_broken_worker = False
-        while self.futures:
+        n_total = len(self.futures)
+        log_every = 1000
+        for i in range(n_total):
             if self._drain_one():
                 had_broken_worker = True
+            done = i + 1
+            if done % log_every == 0 or done == n_total:
+                elapsed = time.time() - t_drain_start
+                print(
+                    f"[TIMING] drain: {done}/{n_total} sequences done, "
+                    f"{elapsed:.1f}s elapsed, {elapsed / done:.2f}s/seq avg",
+                    flush=True,
+                )
         t_drain_end = time.time()
 
         if had_broken_worker:
