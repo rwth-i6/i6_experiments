@@ -14,10 +14,11 @@ from i6_experiments.example_setups.guided_kmeans.setup.dataset_config import _Al
 from i6_experiments.example_setups.guided_kmeans.lib.guided_kmeans.clustering import (
     GuidedKMeansClusteringCallback,
     StreamingStandardInitializer,
-        PreloadCentroidsInitializer,
+    PreloadCentroidsInitializer,
     PickleCentroidRandomMapInitializer,
     PickleCentroidFrequencyOrderMapInitializer,
-    PickleCheatingCentroidInitializer
+    PickleCheatingCentroidInitializer,
+    PreloadGMInitializer,
 )
 from ..lib.serialization import HashedCode
 from .. import tools
@@ -29,6 +30,7 @@ _INITIALIZER_CLASS_DICT = {
     "PickleCentroidFrequencyOrderMapInitializerConfig": PickleCentroidFrequencyOrderMapInitializer,
     "PickleCentroidRandomMapInitializerConfig": PickleCentroidRandomMapInitializer,
     "PickleCheatingCentroidInitializerConfig": PickleCheatingCentroidInitializer,
+    "PreloadGMInitializerConfig": PreloadGMInitializer,
 }
 
 
@@ -52,6 +54,11 @@ class _Config:
 
 class _NeedsLexicon:
     lexicon_path: str | tk.Path | None = None
+
+class _NotProvided:
+    pass
+
+NotProvided = _NotProvided()
 
 class LateInitConfig(_Config):
     pass
@@ -100,6 +107,11 @@ class PickleCentroidRandomMapInitializerConfig(_Config, _NeedsLexicon):
 class PickleCheatingCentroidInitializerConfig(_Config, _NeedsLexicon):
     centroids_path: str | tk.Path = "/u/jxu/setups/unsupervised/2025-05-30--marten-unsupervised/output/sampled_alignments.pkl"
     lexicon_path: str | tk.Path | None = None
+
+@dataclass
+class PreloadGMInitializerConfig(_Config):
+    centroids_path: str | tk.Path
+    covs_path: str | tk.Path | _NotProvided = NotProvided
 
 # def get_import_rasr_config(rasr_path: tk.Path):
 #     import_recipes = NonhashedCode(f'import sys\nsys.path.insert(0, "{recipe_root}")\n')
@@ -214,6 +226,7 @@ class ClusteringExpResult:
     fwd_job: ReturnnForwardJobV2
     out_centroids: dict[int, tk.Path]
     out_statistics: tk.Path
+    out_covs: dict[int, tk.Path] | None = None
 
 def clustering(
     num_epochs: int,
@@ -262,6 +275,17 @@ def clustering(
     }
     statistics_file = "epoch_statistics.json"
 
+    output_files = [
+        *centroid_files.values(),
+        statistics_file
+    ]
+
+    if isinstance(cluster_callback_config.initializer_config, PreloadGMInitializerConfig):
+        covs_files = {
+            epoch: f"covs.{epoch}.npy" for epoch in range(num_epochs + 1)
+        }
+        output_files += list(covs_files.values())
+
     num_cpus = cluster_callback_config.num_workers + 1
 
     fwd_job = ReturnnForwardJobV2(
@@ -269,23 +293,32 @@ def clustering(
         returnn_config=config,
         returnn_python_exe=returnn_python_exe,
         returnn_root=returnn_root,
-        output_files=[
-            *centroid_files.values(),
-            statistics_file
-        ],
+        output_files=output_files,
         log_verbosity=log_verbosity,
-        time_rqmt=168,
+        time_rqmt=2 + (2 + 135 / cluster_callback_config.num_workers) * num_epochs,
         device=device,
         cpu_rqmt=num_cpus
     )
 
-    fwd_job.rqmt["gpu_mem"] = 24
-    fwd_job.rqmt["mem"] = num_cpus * 4
+    if device == "gpu":
+        fwd_job.rqmt["gpu_mem"] = 24
+    fwd_job.rqmt["mem"] = num_cpus * 4 + 8
 
     out_centroids = {
         epoch: fwd_job.out_files[filename] for epoch, filename in centroid_files.items()
     }
     out_statistics = fwd_job.out_files[statistics_file] 
+
+    if isinstance(cluster_callback_config.initializer_config, PreloadGMInitializerConfig):
+        out_covs = {
+            epoch: fwd_job.out_files[filename] for epoch, filename in covs_files.items()
+        }
+        return ClusteringExpResult(
+            fwd_job=fwd_job,
+            out_centroids=out_centroids,
+            out_statistics=out_statistics,
+            out_covs=out_covs,
+        )
 
     return ClusteringExpResult(
         fwd_job=fwd_job,

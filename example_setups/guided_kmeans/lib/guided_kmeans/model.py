@@ -19,23 +19,18 @@ class GaussianModelNumpy:
 
         self.means = torch.as_tensor(centroids, dtype=torch.float32, device=self.device)
 
+        self.covs = covariance_matrices
+
         if covariance_matrices is not None:
-            # np.linalg.solve() would otherwise LU-factorize these same N
-            # (D, D) covariance matrices from scratch on every forward()
-            # call. They never change, so invert once here (on CPU - a single
-            # ~1s cost, not worth shipping to the GPU) and turn the per-call
-            # solve into a single batched matmul instead.
             inv_covs = np.linalg.inv(covariance_matrices)
-            # float32 because these GPUs (GTX 1080 Ti / RTX 2080 Ti) have
-            # only a small fraction of their fp32 throughput available for
-            # fp64; the result is cast back to float64 below for interface
-            # consistency with the cdist-based path, but the actual
-            # computation loses some precision. That's fine for a
-            # nearest-centroid distance score, not an iterative computation
-            # where error would accumulate.
             self.inv_covs = torch.as_tensor(inv_covs, dtype=torch.float32, device=self.device)
+
+            _, log_det = np.linalg.slogdet(covariance_matrices)
+            self.norm_const = 0.5 * log_det
         else:
             self.inv_covs = None
+
+        
 
     @classmethod
     def load(cls, centroids_path, covs_path=None):
@@ -88,7 +83,7 @@ class GaussianModelNumpy:
         # Downstream (ProcessPoolExecutor IPC to CPU search workers, and the
         # cdist-based code path this feeds alongside) expects a plain float64
         # numpy array, not a CUDA tensor.
-        return (0.5 * mahal).to("cpu", dtype=torch.float64).numpy()
+        return (0.5 * mahal).to("cpu", dtype=torch.float64).numpy() + self.norm_const
 
 def load_gaussian_model(centroids_path: str, covs_path: str | None=None) -> GaussianModelNumpy:
     centroids = np.load(centroids_path)

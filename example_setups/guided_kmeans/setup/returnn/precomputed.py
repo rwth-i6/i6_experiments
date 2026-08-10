@@ -16,6 +16,7 @@ device = "gpu"
 
 max_seqs = 200
 torch_log_memory_usage = False
+torch_dataloader_opts = {"num_workers": 0}
 
 config = {}
 

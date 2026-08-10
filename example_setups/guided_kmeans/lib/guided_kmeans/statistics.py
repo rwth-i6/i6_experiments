@@ -5,6 +5,8 @@ __all__ = [
     "CombinedStatisticsCounter",
     "CounterBuilder",
     "EpochwiseStatisticsLogger",
+    "get_default_counter_builder",
+    "get_default_logger",
 ]
 
 import os
@@ -36,11 +38,27 @@ class CounterProtocol(ABC):
     @abstractmethod
     def finalize(self) -> dict: ...
 
+    def merge(self, other: "CounterProtocol") -> "CounterProtocol":
+        """
+        Combine another counter of the same type into this one, in place.
+
+        Only needed when an epoch is split across independent chunk tasks and
+        the per-chunk counters have to be reduced before finalize(); the
+        single-process path (EpochwiseStatisticsLogger) never calls this.
+        Deliberately not abstract, so existing subclasses stay valid.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support merge()")
+
+    @staticmethod
+    def _check_mergeable(own, other):
+        if type(own) is not type(other):
+            raise TypeError(f"cannot merge {type(other).__name__} into {type(own).__name__}")
+
 class LoopFrequencyCounter(CounterProtocol):
     def __init__(self, **_kwargs):
         self.count_has_loop = 0
         self.segment_count = 0
-    
+
     def read(self, traceback: list[TracebackItemProtocol]):
         for item in traceback:
             if item.end_time - item.start_time > 1.0:
@@ -52,11 +70,17 @@ class LoopFrequencyCounter(CounterProtocol):
             "relative_loop_frequency": self.count_has_loop / self.segment_count if self.segment_count > 0 else 0.0,
             "absolute_loop_count": self.count_has_loop,
         }
-    
+
+    def merge(self, other: "LoopFrequencyCounter") -> "LoopFrequencyCounter":
+        self._check_mergeable(self, other)
+        self.count_has_loop += other.count_has_loop
+        self.segment_count += other.segment_count
+        return self
+
 class AverageSegmentDurationCounter(CounterProtocol):
     def __init__(self, **_kwargs):
         self.duration_updater = RunningAverageUpdater(shape=())
-    
+
     def read(self, traceback: list[TracebackItemProtocol]):
         for item in traceback:
             self.duration_updater.update_single(item.end_time - item.start_time)
@@ -65,6 +89,11 @@ class AverageSegmentDurationCounter(CounterProtocol):
         return {
             "average_segment_duration": self.duration_updater.value.item(),
         }
+
+    def merge(self, other: "AverageSegmentDurationCounter") -> "AverageSegmentDurationCounter":
+        self._check_mergeable(self, other)
+        self.duration_updater.merge(other.duration_updater)
+        return self
 
 class PhoenemeFrequencyCounter(CounterProtocol):
     def __init__(self, config: StatisticsConfig, **_kwargs):
@@ -91,6 +120,11 @@ class PhoenemeFrequencyCounter(CounterProtocol):
             "fraction_visited_phonemes": fraction_non_zero
         }
 
+    def merge(self, other: "PhoenemeFrequencyCounter") -> "PhoenemeFrequencyCounter":
+        self._check_mergeable(self, other)
+        self.counts.update(other.counts)
+        return self
+
 class ScoreStatisticsCounter(CounterProtocol):
     def __init__(self, **_kwargs):
         self.lm_score_updater = RunningAverageUpdater(shape=())
@@ -111,6 +145,13 @@ class ScoreStatisticsCounter(CounterProtocol):
             "average_total_score": (self.lm_score_updater.value + self.am_score_updater.value).item(),
             "average_total_normed_score": self.normed_total_score_updater.value.item(),
         }
+
+    def merge(self, other: "ScoreStatisticsCounter") -> "ScoreStatisticsCounter":
+        self._check_mergeable(self, other)
+        self.lm_score_updater.merge(other.lm_score_updater)
+        self.am_score_updater.merge(other.am_score_updater)
+        self.normed_total_score_updater.merge(other.normed_total_score_updater)
+        return self
 
 class SampledTracebackPrinter(CounterProtocol):
     """
@@ -140,6 +181,22 @@ class SampledTracebackPrinter(CounterProtocol):
             "sampled_tracebacks": self.stored_tracebacks
         }
 
+    def merge(self, other: "SampledTracebackPrinter") -> "SampledTracebackPrinter":
+        """
+        Concatenate up to num_tracebacks examples, this counter's first.
+
+        Note this is *not* the same sample a single-process pass would draw:
+        the reservoir in read() is keyed on call order, so it cannot be
+        reproduced exactly once the corpus is split across chunks. The result
+        is still deterministic (chunks are merged in index order) and this is
+        a debug printer, not a statistic anything downstream depends on.
+        """
+        self._check_mergeable(self, other)
+        room = self.num_tracebacks - len(self.stored_tracebacks)
+        if room > 0:
+            self.stored_tracebacks.extend(other.stored_tracebacks[:room])
+        return self
+
 class CombinedStatisticsCounter(CounterProtocol):
     """
     Accepts a list of different CounterProtocol subclass instances
@@ -148,16 +205,26 @@ class CombinedStatisticsCounter(CounterProtocol):
     def __init__(self, config: StatisticsConfig, counters: Sequence[CounterProtocol], **_kwargs):
         self.config = config
         self.counters = counters
-    
+
     def read(self, traceback: list[TracebackItemProtocol]):
         for counter in self.counters:
             counter.read(traceback)
-    
+
     def finalize(self):
         result = {}
         for counter in self.counters:
             result.update(counter.finalize())
         return result
+
+    def merge(self, other: "CombinedStatisticsCounter") -> "CombinedStatisticsCounter":
+        self._check_mergeable(self, other)
+        if len(self.counters) != len(other.counters):
+            raise ValueError(
+                f"counter count mismatch: {len(self.counters)} vs {len(other.counters)}"
+            )
+        for own, incoming in zip(self.counters, other.counters):
+            own.merge(incoming)
+        return self
 
 class CounterBuilder(Protocol):
     def __call__(self) -> CounterProtocol: ...
@@ -198,7 +265,12 @@ class EpochwiseStatisticsLogger:
                 print(f"  {key}: {value}")
         self.counter = None
 
-def get_default_logger(phonemes):
+def get_default_counter_builder(phonemes) -> CounterBuilder:
+    """
+    The standard counter set, as a builder that can be called once per epoch
+    (single-process path) or once per chunk (chunked path, whose per-chunk
+    counters are then reduced via CounterProtocol.merge).
+    """
     config = StatisticsConfig(phonemes=set(phonemes))
     def default_counter_builder():
         return CombinedStatisticsCounter(
@@ -211,4 +283,7 @@ def get_default_logger(phonemes):
                 SampledTracebackPrinter(num_tracebacks=5, random_seed=42),
             ]
         )
-    return EpochwiseStatisticsLogger(counter_builder=default_counter_builder)
+    return default_counter_builder
+
+def get_default_logger(phonemes):
+    return EpochwiseStatisticsLogger(counter_builder=get_default_counter_builder(phonemes))

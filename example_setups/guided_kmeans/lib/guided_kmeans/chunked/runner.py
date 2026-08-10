@@ -1,0 +1,177 @@
+"""
+The clustering loop itself, free of sisyphus so it can be run and debugged
+standalone (see ``run_chunk`` / ``reduce_chunks``).
+
+Two differences to the single-process callback, both deliberate:
+
+* Recognition and accumulation happen in **one** pass over the data. The old
+  pipeline used separate RECOGNITION and CLUSTERING phases with a traceback
+  database in between, but recognition uses centroids held fixed for the whole
+  epoch and accumulation is order independent, so fusing them is
+  mathematically identical - and removes the database, the phase state machine
+  and the MultiEpochDataset entirely. (It saves little time: the clustering
+  pass was measured at 0.4% of an epoch.)
+* An epoch is split across chunks that are reduced afterwards, rather than
+  streamed through one process.
+"""
+
+from __future__ import annotations
+
+__all__ = ["ChunkResult", "run_chunk", "reduce_chunks", "save_chunk", "load_chunk"]
+
+import pickle
+import time
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Optional, Sequence
+
+import numpy as np
+
+from ..statistics import CounterProtocol
+from ..util import ProgressLogger
+from .interfaces import Accumulator, FeatureSource, Recognizer, ScoreModel
+from .stats import merge_counters
+
+
+@dataclass
+class ChunkResult:
+    """What one chunk task contributes to the epoch."""
+
+    accumulator_state: dict
+    counter: Optional[CounterProtocol]
+    num_seqs: int
+    num_frames: int
+    num_recognized: int
+
+
+def run_chunk(
+    *,
+    features: FeatureSource,
+    model: ScoreModel,
+    recognizer: Recognizer,
+    accumulator: Accumulator,
+    counter: Optional[CounterProtocol] = None,
+    verbosity: int = 1,
+) -> ChunkResult:
+    """
+    Score, recognize and accumulate one chunk of the corpus.
+
+    Recognition is asynchronous, so features are parked in ``pending`` until
+    their result arrives. That dict is bounded by the recognizer's in-flight
+    limit (``ParallelSegmentRecognizer`` drains its oldest task once more than
+    ``max_pending_tasks`` are outstanding), not by the size of the chunk.
+    """
+    pending: Dict[str, np.ndarray] = {}
+    stats = {"recognized": 0, "frames": 0}
+
+    def on_result(seq_tag: str, posteriors, traceback: List[Any]) -> None:
+        try:
+            seq_features = pending.pop(seq_tag)
+        except KeyError:
+            raise KeyError(
+                f"recognition result for unknown sequence {seq_tag!r}"
+            ) from None
+        if len(posteriors) != len(seq_features):
+            raise ValueError(
+                f"{seq_tag}: recognizer returned {len(posteriors)} labels for "
+                f"{len(seq_features)} frames"
+            )
+        accumulator.observe(seq_features, posteriors)
+        if counter is not None and traceback:
+            counter.read(traceback)
+        stats["recognized"] += 1
+
+    recognizer.start(on_result)
+    progress = ProgressLogger(max(len(features), 1), bar_length=40, logging_step=32)
+    progress.start()
+    started = time.time()
+
+    num_seqs = 0
+    try:
+        for seq_idx, (seq_tag, seq_features) in enumerate(features):
+            if seq_tag in pending:
+                raise ValueError(f"duplicate sequence tag in chunk: {seq_tag!r}")
+            pending[seq_tag] = seq_features
+            stats["frames"] += len(seq_features)
+            num_seqs += 1
+            if verbosity >= 2:
+                print(f"Submitting {seq_tag} ({len(seq_features)} frames)")
+            recognizer.submit(seq_tag, model.scores(seq_features))
+            progress.progress(seq_idx)
+
+        recognizer.drain()
+    finally:
+        recognizer.shutdown()
+
+    if pending:
+        raise RuntimeError(
+            f"{len(pending)} sequence(s) never got a recognition result, "
+            f"e.g. {sorted(pending)[:3]}"
+        )
+
+    print(
+        f"[TIMING] chunk: {num_seqs} seqs, {stats['frames']} frames, "
+        f"{time.time() - started:.1f}s",
+        flush=True,
+    )
+    return ChunkResult(
+        accumulator_state=accumulator.state_dict(),
+        counter=counter,
+        num_seqs=num_seqs,
+        num_frames=stats["frames"],
+        num_recognized=stats["recognized"],
+    )
+
+
+def save_chunk(result: ChunkResult, path: str) -> None:
+    """
+    Persist a chunk result for the reduce step.
+
+    Pickle rather than npz because the payload mixes arrays with a statistics
+    counter object. These files live in the job's ``work/`` directory, which
+    sisyphus deletes on job completion (``JOB_CLEANUP_KEEP_WORK = False``), so
+    nothing here accumulates across epochs.
+    """
+    with open(path, "wb") as fp:
+        pickle.dump(result, fp, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def load_chunk(path: str) -> ChunkResult:
+    with open(path, "rb") as fp:
+        return pickle.load(fp)
+
+
+def reduce_chunks(
+    *,
+    chunk_paths: Sequence[str],
+    accumulator_factory: Callable[[], Accumulator],
+    previous_model: ScoreModel,
+) -> tuple:
+    """
+    Merge every chunk's sufficient statistics and finalize the next model.
+
+    :param accumulator_factory: builds a fresh, empty accumulator to load each
+        chunk's state into - the same spec the chunk tasks were built from
+    :return: ``(model, statistics_dict, totals_dict)``
+    """
+    if not chunk_paths:
+        raise ValueError("no chunk results to reduce")
+
+    counters: List[Optional[CounterProtocol]] = []
+    totals = {"num_seqs": 0, "num_frames": 0, "num_recognized": 0}
+
+    merged: Optional[Accumulator] = None
+    for path in chunk_paths:
+        result = load_chunk(path)
+        incoming = accumulator_factory().load_state_dict(result.accumulator_state)
+        merged = incoming if merged is None else merged.merge(incoming)
+        counters.append(result.counter)
+        totals["num_seqs"] += result.num_seqs
+        totals["num_frames"] += result.num_frames
+        totals["num_recognized"] += result.num_recognized
+
+    assert merged is not None
+    model = merged.finalize(previous_model)
+
+    counter = merge_counters(counters)
+    statistics = counter.finalize() if counter is not None else {}
+    return model, statistics, totals

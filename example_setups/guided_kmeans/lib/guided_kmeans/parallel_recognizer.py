@@ -1,4 +1,4 @@
-__all__ = ["ParallelSegmentRecognizer", "PlainTracebackItem"]
+__all__ = ["ParallelSegmentRecognizer", "PlainTracebackItem", "RecognizerAborted"]
 
 import os
 
@@ -30,9 +30,21 @@ import time
 from collections import deque
 from concurrent.futures import Future, ProcessPoolExecutor
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, NoReturn
 
 import numpy as np
+
+
+class RecognizerAborted(RuntimeError):
+    """
+    Raised by :meth:`ParallelSegmentRecognizer._hard_abort` after the worker
+    pool has been killed, i.e. when recognition cannot continue: a worker
+    hung past ``task_timeout``, or the pool broke outright.
+
+    Propagating an exception (rather than exiting the process) is what lets
+    the caller's own error handling run - notably sisyphus', which records the
+    task as failed instead of silently rescheduling it.
+    """
 
 
 @dataclass(frozen=True)
@@ -172,18 +184,30 @@ class ParallelSegmentRecognizer:
             flush=True,
         )
 
-    def _hard_abort(self, reason: str) -> None:
+    def _hard_abort(self, reason: str) -> NoReturn:
         """
-        Kill every worker process and terminate this process immediately,
-        bypassing the normal shutdown path.
+        Kill every worker process, then raise :class:`RecognizerAborted`.
 
-        Just letting an exception propagate isn't enough: on interpreter
-        shutdown, concurrent.futures.process runs an atexit handler that
-        *joins* every worker process, and joining a genuinely hung worker
-        blocks forever too - the job would keep occupying its cluster
-        allocation even after "crashing". SIGKILL-ing the workers and
-        calling os._exit() (which skips atexit handlers entirely) is the
-        only way to guarantee the job process actually terminates.
+        The kill has to come first, and that ordering is the whole subtlety.
+        On interpreter shutdown concurrent.futures.process *joins* every
+        worker, and joining a genuinely hung worker never returns - so simply
+        raising would leave the job occupying its cluster allocation forever.
+        SIGKILL-ing them first makes those joins return immediately, because
+        the processes are already dead.
+
+        Measured, spawn context, one hung worker per case:
+
+            kill then raise  -> exits in 2.1s, traceback visible
+            raise, no kill   -> still alive after 120s, never terminates
+            kill then _exit  -> exits in 2.1s, no traceback
+
+        So raising is as reliable as the os._exit() this used to do, and
+        strictly better in two ways: the traceback reaches the log, and the
+        exception propagates to whatever is driving the recognizer. That
+        matters for sisyphus - os._exit() skips Task.run's exception handling,
+        which is the only thing that records a task as failed, leaving a task
+        that is neither finished nor failed for the manager to resubmit
+        forever.
         """
         print(f"[FATAL] {reason} - killing worker pool and aborting so the job stops occupying cluster resources.", flush=True)
         if self.executor is not None:
@@ -191,7 +215,7 @@ class ParallelSegmentRecognizer:
             # pid -> multiprocessing.Process map.
             for proc in getattr(self.executor, "_processes", {}).values():
                 proc.kill()
-        os._exit(1)
+        raise RecognizerAborted(reason)
 
     def _drain_one(self) -> None:
         """Pop and apply the oldest outstanding future, blocking on it if needed."""

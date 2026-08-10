@@ -30,7 +30,7 @@ from i6_core.lib.lexicon import Lexicon
 from i6_core.util import uopen
 
 from .util import segments_to_array, ProgressLogger, TracebackLogger, PoolingRegistry
-from .pca import StreamingPCA
+from .pca import PCAUpdater
 from .running_update import RunningAverageUpdater, RelativeFrequencyUpdater
 from .statistics import (
     get_default_logger
@@ -38,59 +38,7 @@ from .statistics import (
 
 from .model import GaussianModelNumpy
 from .parallel_recognizer import ParallelSegmentRecognizer, PlainTracebackItem
-
-class EvalReservoir:
-    def __init__(self, cap=50000, l2_normalize=True, seed=0, dtype=np.float32):
-        self.cap = cap
-        self.l2 = l2_normalize
-        self.rng = np.random.default_rng(seed)
-        self.buf = None
-        self.filled = 0
-        self.seen = 0
-        self.dtype = dtype
-
-    def _norm(self, X):
-        if not self.l2: return X
-        n = np.linalg.norm(X, axis=1, keepdims=True)
-        return X / np.maximum(n, 1e-12)
-
-    def add(self, X):
-        if X.ndim == 1: X = X[None, :]
-        X = self._norm(X.astype(self.dtype, copy=False))
-        n, d = X.shape
-        if self.buf is None:
-            self.buf = np.empty((self.cap, d), dtype=self.dtype)
-
-        # Fill phase (contiguous copy, no Python loops)
-        if self.filled < self.cap:
-            take = min(n, self.cap - self.filled)
-            self.buf[self.filled:self.filled+take] = X[:take]
-            self.filled += take
-            self.seen  += take
-            X = X[take:]
-            n -= take
-            if n == 0:
-                return
-
-        # Reservoir replacement (simple, in-place)
-        # This loop runs only for overflow items (usually small vs total data)
-        for i in range(n):
-            self.seen += 1
-            j = self.rng.integers(0, self.seen)
-            if j < self.cap:
-                self.buf[j] = X[i]
-
-    def eval_sse(self, centroids):
-        if self.filled == 0: return None
-        # Use sqeuclidean via fast BLAS path
-        C = centroids.astype(self.dtype, copy=False)
-        X = self.buf[:self.filled]
-        x2 = np.sum(X*X, axis=1, keepdims=True)
-        c2 = np.sum(C*C, axis=1, keepdims=True).T
-        # dist2 = ||x||^2 + ||c||^2 - 2 x.c
-        dist2 = x2 + c2 - 2.0 * (X @ C.T)
-        return float(np.mean(np.min(dist2, axis=1)))
-
+from .update import UpdaterBase_
 
 class BatchwiseUpdater:
     # make this class pickable, so it can be used in the config
@@ -287,6 +235,38 @@ class PreloadCentroidsInitializer(BaseInitializer):
         self.centroids = centroids
 
         self._loaded = True
+
+class PreloadGMInitializer(BaseInitializer):
+    def __init__(
+        self,
+        num_clusters: int,
+        centroids_path: str,
+        covs_path: str | None = None,
+    ):
+        super().__init__()
+        self.num_clusters = num_clusters
+        self.centroids_path = centroids_path
+        self.covs_path = covs_path
+        self._loaded = False
+    
+    def process_seq(self, data: np.ndarray, last_seq: bool = False):
+        if self._loaded:
+            return
+
+        centroids = np.load(self.centroids_path)
+        covs = None
+        if self.covs_path:
+            covs = np.load(self.covs_path)
+        if centroids.shape[0] != self.num_clusters:
+            raise ValueError(
+                f"Expected {self.num_clusters} centroids, got {centroids.shape[0]}"
+            )
+        self.gm = GaussianModelNumpy(centroids, covs)
+
+        self._loaded = True
+    
+    def finalize(self) -> GaussianModelNumpy:
+        return self.gm
 
 class PickleCentroidRandomMapInitializer(BaseInitializer):
     def __init__(self, kmeans_path: str="/u/jxu/setups/unsupervised/2025-05-30--marten-unsupervised/output/w2v_kmeans_41.pkl", num_clusters: int=41):
@@ -572,18 +552,6 @@ class NnOutputClusteringCallback(ForwardCallbackIface):
         self.centroids = None
         self.is_initialized = False
 
-        # self.initializer = SlidingWindowKMeansPPInitializer(
-        #     self.num_clusters,
-        #     self.batch_size,
-        # )
-
-        # self.kmeans_updater = BatchwiseKMeansUpdater(
-        #     num_clusters=self.num_clusters,
-        #     batch_size=self.batch_size,
-        # )
-
-        self.eval_pool = EvalReservoir(cap=50000, l2_normalize=True, seed=0)
-    
     def _write_buffer_to_file(self):
         """
         Write the contents of the write buffer to a file.
@@ -966,9 +934,18 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
     def _on_phase_transition(self, new_phase: GuidedClusteringPhase, old_phase: Optional[GuidedClusteringPhase] = None):
         # transition out of initialization
         if old_phase is GuidedClusteringPhase.INITIALIZATION:
-            self.centroids = self.initializer.finalize()
-            np.save("centroids.0.npy", self.centroids)
-            print(f"Finished Initialization: centroids = {self.centroids}")
+            if not isinstance(self.initializer, PreloadGMInitializer):
+                self.centroids = self.initializer.finalize()
+                np.save("centroids.0.npy", self.centroids)
+                print(f"Finished Initialization: centroids = {self.centroids}")
+            else:
+                # assert isinstance(self.initializer, PreloadGMInitializer)
+                self.gaussian_model = self.initializer.finalize()
+                centroids_file = f"centroids.0.npy"
+                covs_file = f"covs.0.npy"
+                print(f"Saving Gaussian model to {{centroids,covs}}.0.npy")
+                np.save(centroids_file, self.gaussian_model.means)
+                np.save(covs_file, self.gaussian_model.covs)
         
         # transition in and out of recognition
         if new_phase is GuidedClusteringPhase.RECOGNITION:
@@ -990,19 +967,33 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
 
         # transition into and out of clustering
         if new_phase is GuidedClusteringPhase.CLUSTERING:
-            feature_dim = self.centroids.shape[1]
-            self.centroid_updater = RunningAverageUpdater((self.num_clusters, feature_dim))
+            if self.gaussian_model is None:
+                feature_dim = self.centroids.shape[1]
+                self.centroid_updater = RunningAverageUpdater((self.num_clusters, feature_dim))
+            else:
+                self.centroid_updater = PCAUpdater(self.num_clusters)
+            
 
         if old_phase is GuidedClusteringPhase.CLUSTERING:
-            new_centroids = self.centroid_updater.value
-            # Phonemes never assigned this pass would become zero vectors; keep their old centroid
-            # so they remain viable candidates in the next recognition pass rather than dying out.
-            dead_mask = self.centroid_updater.counts == 0
-            new_centroids[dead_mask] = self.centroids[dead_mask]
-            self.centroids = new_centroids
-            centroids_file = f"centroids.{self.current_epoch // 2}.npy"
-            print(f"Saving centroids to {centroids_file}")
-            np.save(centroids_file, self.centroids)
+            if self.gaussian_model is None:
+                new_centroids = self.centroid_updater.value
+                # Phonemes never assigned this pass would become zero vectors; keep their old centroid
+                # so they remain viable candidates in the next recognition pass rather than dying out.
+                dead_mask = self.centroid_updater.counts == 0
+                new_centroids[dead_mask] = self.centroids[dead_mask]
+                self.centroids = new_centroids
+                centroids_file = f"centroids.{self.current_epoch // 2}.npy"
+                print(f"Saving centroids to {centroids_file}")
+                np.save(centroids_file, self.centroids)
+            else:
+                assert isinstance(self.centroid_updater, UpdaterBase_)
+                self.gaussian_model = self.centroid_updater.get_model(self.gaussian_model)
+
+                centroids_file = f"centroids.{self.current_epoch // 2}.npy"
+                covs_file = f"covs.{self.current_epoch // 2}.npy"
+                print(f"Saving Gaussian model to {{centroids,covs}}.{self.current_epoch // 2}.npy")
+                np.save(centroids_file, self.gaussian_model.means)
+                np.save(covs_file, self.gaussian_model.covs)
         
         # handle process
         self.progress_logger = ProgressLogger(
@@ -1051,13 +1042,17 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         return dist
     
     def update_centroids(self, hidden_states: np.ndarray, centroid_idxs: np.ndarray):
-        assert self.centroids is not None
         assert len(hidden_states) == len(centroid_idxs), \
             f"Shape of hidden states {hidden_states.shape} does not match shape of centroid indices {centroid_idxs.shape}"
-        idx_matrix = one_hot_numpy(centroid_idxs, self.num_clusters) # [T, C]
-        idx_counts = idx_matrix.sum(0) # [C]
-        feature_sums = idx_matrix.T @ hidden_states # [C, T] x [T, F] = [C, F]
-        self.centroid_updater.update(feature_sums, idx_counts)
+        if self.gaussian_model is None:
+            assert self.centroids is not None
+            idx_matrix = one_hot_numpy(centroid_idxs, self.num_clusters) # [T, C]
+            idx_counts = idx_matrix.sum(0) # [C]
+            feature_sums = idx_matrix.T @ hidden_states # [C, T] x [T, F] = [C, F]
+            self.centroid_updater.update(feature_sums, idx_counts)
+        else:
+            assert isinstance(self.centroid_updater, UpdaterBase_)
+            self.centroid_updater.update(hidden_states, centroid_idxs)
 
     def _apply_recognition_result(self, seq_tag: str, traceback: List[PlainTracebackItem]):
         """
@@ -1134,10 +1129,13 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         
         if self.phase == GuidedClusteringPhase.RECOGNITION:
             # assert self.is_initialized, "Not initialized before recognition phase"
-            distances = self.compute_squared_distances(
-                seq_tag=seq_tag,
-                hidden_states=hidden_state_tensor,
-            )
+            if self.gaussian_model is None:
+                distances = self.compute_squared_distances(
+                    seq_tag=seq_tag,
+                    hidden_states=hidden_state_tensor,
+                )
+            else:
+                distances = self.gaussian_model.forward(hidden_state_tensor)
             scaled_distances = distances * self.distance_scale
             # Non-blocking: the result (and everything that used to happen
             # here immediately - statistics, repository store, score update)
@@ -1170,13 +1168,14 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
 
         if self.phase is GuidedClusteringPhase.CLUSTERING and self.centroid_updater.counts.any():
             # if RETURNN ran out of data mid-clustering (e.g. HDF has fewer seqs than num_seqs)
-            new_centroids = self.centroid_updater.value
-            dead_mask = self.centroid_updater.counts == 0
-            new_centroids[dead_mask] = self.centroids[dead_mask]
-            self.centroids = new_centroids
-            centroids_file = f"centroids.{self.current_epoch // 2}.npy"
-            print(f"Saving partial centroids (finish) to {centroids_file}")
-            np.save(centroids_file, self.centroids)
+            if self.gaussian_model is not None:
+                new_centroids = self.centroid_updater.value
+                dead_mask = self.centroid_updater.counts == 0
+                new_centroids[dead_mask] = self.centroids[dead_mask]
+                self.centroids = new_centroids
+                centroids_file = f"centroids.{self.current_epoch // 2}.npy"
+                print(f"Saving partial centroids (finish) to {centroids_file}")
+                np.save(centroids_file, self.centroids)
         # flush any remaining data points in the centroid updater
         # last_seq = self.current_seq == self.num_seqs
         # if not last_seq:
