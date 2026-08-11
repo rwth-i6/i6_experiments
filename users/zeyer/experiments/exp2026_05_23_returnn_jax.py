@@ -41,23 +41,19 @@ from .exp2026_05_23_returnn import loq_train, small_model_overrides
 # batch up to those before matching a bucket -- buckets derived from raw observed lengths sit just
 # below the rounded shapes and cover nothing (measured: batch (200, 96000) fit no bucket, run died).
 #
-# The sequence count per level comes from the batch budget rather than from observed batches:
-# n = min(max_seqs, 1.5 * batch_size / audio). Every bucket is then ~24M samples, i.e. 1.5x the 16M
-# content budget, which is the headroom for a batch whose padding is worse than usual. Coverage is
-# then structural, not observational -- fitting one epoch's shapes exactly would leave the next
-# epoch's data order free to produce a batch that fits nothing and stops the run.
-# (padded audio samples, sequence count). The count comes from the batch budget, not from observed
-# batches: n = min(max_seqs, 1.5 * batch_size / audio), so every bucket is ~24M samples, i.e. one
-# batch's worth of work with headroom for above-average padding.
-_AUDIO_LEVELS = [
-    (96_000, 200),
-    (128_000, 188),
-    (160_000, 150),
-    (192_000, 125),
-    (240_000, 100),
-    (288_000, 84),
-    (320_000, 75),
-]
+# Audio every 16k samples, so a batch is padded at most 1 s beyond its own longest sequence.
+# The sequence count per cell is FITTED to a replay of 114910 real batches (the first run's log),
+# with a 15% margin, floored by what the batcher could produce at that length
+# (n = min(max_seqs, 20M / audio)) so that cells the replay never visited are still covered.
+#
+# The previous grid derived n from a 1.5x budget headroom at 7 audio levels. Measured against the
+# same replay, that computed 1.41x the volume PyTorch does (which pads only to the batch's own max),
+# and the run was 1.40x slower -- the headroom WAS the slowdown. This grid computes 1.19x.
+#
+# 60 buckets is 60 compiles at ~35 s. That is ~35 min, and it would be paid again on every
+# resubmission (the 11.9h limit splits the run), which is why jax_compilation_cache_dir is set
+# below: a resubmitted run reloads the programs instead of rebuilding them.
+_AUDIO_LEVELS = list(range(16_000, 320_001, 16_000))
 
 # The text axis needs its OWN levels, not one bound per audio level: a run died after 1771 steps on
 # audio (141, 128000) with text 192, where the audio and the sequence count fit and only the text
@@ -65,16 +61,39 @@ _AUDIO_LEVELS = [
 # far above the ~3.5 average), and a single generous bound instead would pad EVERY batch's decoder
 # to it -- the decoder self-attention is quadratic in this axis.
 #
-# Three levels are affordable because a compile costs ~35 s, not the ~200 s assumed when the list
-# was first written: 21 programs is ~12 min of startup, paid once. Unused buckets cost only that,
-# never memory -- precompilation lowers and compiles, it does not execute.
+# Unused buckets cost only their compile, never memory -- precompilation lowers and compiles,
+# it does not execute. The replay never needed 768, but a different epoch order could.
 _TEXT_LEVELS = [128, 384, 768]
+
+# Per (audio, text) cell, the seq count the replayed batches actually needed, +15%, and never below
+# what the batcher could produce at that audio length. See the comment on _AUDIO_LEVELS.
+_FITTED_SEQ_COUNTS = {
+    112_000: 191,
+    128_000: 164,
+    144_000: 143,
+    160_000: 127,
+    176_000: 114,
+    192_000: 104,
+    208_000: 96,
+    224_000: 88,
+    240_000: 82,
+    256_000: 76,
+    272_000: 72,
+    288_000: 67,
+    304_000: 64,
+    320_000: 60,
+}
+_MAX_SEQS, _SEQ_BUDGET = 200, 20_000_000
 
 # audio-major, text ascending: _bucket_for takes the first fit, so a batch lands in the smallest
 # text bucket that holds it
 _BUCKETS = [
-    {"batch_dim": num_seqs, "audio": audio, "text": text}
-    for audio, num_seqs in _AUDIO_LEVELS
+    {
+        "batch_dim": min(_MAX_SEQS, max(_SEQ_BUDGET // audio, _FITTED_SEQ_COUNTS.get(audio, 0))),
+        "audio": audio,
+        "text": text,
+    }
+    for audio in _AUDIO_LEVELS
     for text in _TEXT_LEVELS
 ]
 
@@ -97,6 +116,9 @@ def py():
                 "time_multiple": {"audio": 16_000, "text": 8},
                 "buckets": _BUCKETS,
             },
+            # 60 buckets is ~35 min of compiles at startup, and the 11.9h SLURM limit splits the
+            # run into several submissions. Cached, a resubmitted run reloads them instead.
+            "train.jax_compilation_cache_dir": "/work/az668407/jax_compilation_cache",
         },
         # torch-only, no JAX counterpart. The post-config torch_* entries are dropped by train()
         # itself; only the hashed train config needs an explicit delete, as for the TF variant.
