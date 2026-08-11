@@ -1283,6 +1283,37 @@ def py_aed_graphc_loquacious():
         config_deletes=["train.torch_amp"],
     )
 
+    # DRAFT, DISABLED (uncomment to schedule -- launch is gated on AZ):
+    # the packed + static-shapes + XLA TF run, the TF analogue of base-graphc-v2-pbs-randshuf-fixdelta.
+    # torch_cuda_graph maps to tf_jit (the XLA compile) + tf_static_shapes (the shape bounds);
+    # warmup/capture/compile knobs have no TF meaning (a TF1 graph is built once, static by
+    # construction). Same content budgets/bounds as the pbs line (they are data properties,
+    # not model properties). Open design decision before launching: which small-model PT arm
+    # (eager padded vs graphc packed) is the comparison twin, and whether this runs at small
+    # or full model size.
+    # loq_train(
+    #     "base-small-v2-tf-packed-jit",
+    #     {},
+    #     config_overrides={
+    #         "model.behavior_version": 29,
+    #         **small_overrides,
+    #         "train.backend": "tensorflow",
+    #         "train.tf_amp": "bfloat16",
+    #         "train._hash_only_tf_native_ctc": True,
+    #         "train_seq_ordering": "random",
+    #         "train.packed_tensors": True,
+    #         "train.batch_size": None,
+    #         "train.packed_batch_size": {"audio": 16_192_320, "text": 4_000},
+    #         "train.tf_jit": True,
+    #         "train.tf_static_shapes": {
+    #             "batch_size_bound": 200,
+    #             "dim_capacity": {"audio": 312_960, "text": classes_cap},
+    #             "packed_total_bound": {"audio": 16_192_320, "text": 4_000},
+    #         },
+    #     },
+    #     config_deletes=["train.torch_amp"],
+    # )
+
     # Medium ladder point (~84M, enc:dec ratio like the full model; compute-bound, unlike small):
     medium_overrides = {
         "model.enc_build_dict": rf.build_dict(
