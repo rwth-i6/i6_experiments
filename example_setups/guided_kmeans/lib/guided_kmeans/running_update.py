@@ -34,6 +34,42 @@ class RunningAverageUpdater:
         ) / (self.counts + len(seq))
         self.counts += len(seq)
 
+    def merge(self, other: "RunningAverageUpdater") -> "RunningAverageUpdater":
+        """
+        Combine another updater's state into this one, in place.
+
+        Count-weighted, hence associative: merging per-chunk updaters in any
+        order/grouping gives the same result as feeding every observation to a
+        single updater (up to float summation order). This is what lets the
+        clustering epoch be split over independent chunk tasks.
+
+        Entries with zero total count keep value 0, matching what __init__
+        leaves behind for a cluster nothing was ever assigned to.
+        """
+        assert self.value.shape == other.value.shape, \
+            f"shape mismatch: {self.value.shape} vs {other.value.shape}"
+        assert self.counts.shape == other.counts.shape, \
+            f"count shape mismatch: {self.counts.shape} vs {other.counts.shape}"
+
+        total_counts = self.counts + other.counts
+        if self.value.ndim > self.counts.ndim:
+            # per-row counts broadcast over the feature axis, as in update()
+            w_self = np.expand_dims(self.counts, axis=-1)
+            w_other = np.expand_dims(other.counts, axis=-1)
+            denom = np.expand_dims(total_counts, axis=-1)
+        else:
+            w_self, w_other, denom = self.counts, other.counts, total_counts
+
+        weighted_sum = self.value * w_self + other.value * w_other
+        self.value = np.divide(
+            weighted_sum,
+            denom,
+            out=np.zeros_like(weighted_sum),
+            where=denom > 0,
+        )
+        self.counts = total_counts
+        return self
+
 
 class RelativeFrequencyUpdater:
     def __init__(self, shape):
@@ -84,3 +120,14 @@ class RelativeFrequencyUpdater:
         binc = np.bincount(seq, minlength=self._counts.shape[0])
         self._counts += binc
         self.total += len(seq)
+
+    def merge(self, other: "RelativeFrequencyUpdater") -> "RelativeFrequencyUpdater":
+        """
+        Combine another updater's raw counts into this one, in place.
+        Trivially associative since the state is a plain count vector.
+        """
+        assert self._counts.shape == other._counts.shape, \
+            f"shape mismatch: {self._counts.shape} vs {other._counts.shape}"
+        self._counts += other._counts
+        self.total += other.total
+        return self

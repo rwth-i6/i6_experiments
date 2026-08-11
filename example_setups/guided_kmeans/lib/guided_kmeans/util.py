@@ -108,6 +108,25 @@ def progress_bar(current, total, bar_length=20):
     print(f'Progress: [{arrow}{padding}] {int(fraction*100)}%', end=ending)
 
 
+#: Lemmata dropped when a traceback is turned into a hypothesis string. The
+#: references these hypotheses are scored against come from
+#: ApplyLexiconToCorpusJob and contain no silence, so silence has to go.
+DEFAULT_EXCLUDED_LEMMATA = ("[SILENCE]",)
+
+
+def traceback_to_text(traceback: list, exclude_lemmata=DEFAULT_EXCLUDED_LEMMATA) -> str:
+    """
+    Turn a RASR traceback into a whitespace-separated hypothesis.
+
+    Shared by the decoding callback and the chunked epoch job so that both
+    write byte-identical hypothesis files and their scores stay comparable.
+
+    :param traceback: traceback items, each with a ``lemma`` attribute
+    :param exclude_lemmata: lemmata to drop, silence by default
+    """
+    return " ".join(item.lemma for item in traceback if item.lemma not in exclude_lemmata)
+
+
 def segments_to_array(segments: np.ndarray) -> np.ndarray:
     """
     Turn segment information into an array expressing the segments.

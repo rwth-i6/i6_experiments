@@ -1,4 +1,5 @@
 __all__ = ["ClusteringDecodeCallback"]
+import json
 import os
 import time
 
@@ -6,7 +7,7 @@ import numpy as np
 import torch
 from scipy.spatial.distance import cdist
 
-from .util import PoolingRegistry
+from .util import PoolingRegistry, traceback_to_text
 from .model import GaussianModelNumpy
 from .parallel_recognizer import ParallelSegmentRecognizer, PlainTracebackItem, expand_traceback
 
@@ -80,7 +81,7 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
                 "seq_tag": seq_tag,
                 "frames": [item.lemma for item in expand_traceback(items)],
             })
-        hyp = " ".join(filter(lambda lem: lem not in self.exclude_lemmata, (item.lemma for item in items)))
+        hyp = traceback_to_text(items, self.exclude_lemmata)
         self.hyp_buffer.append(f"{seq_tag}\t{hyp}")
 
     def load_centroids(self) -> bool:
@@ -135,8 +136,6 @@ class ClusteringDecodeCallback(ForwardCallbackIface):
 
     def finish(self):
         """Wait for all pending recognitions to be applied, then write the hypothesis file."""
-        import json
-
         self.recognizer.drain()
         self.recognizer.shutdown()
 

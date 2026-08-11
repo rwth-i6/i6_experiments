@@ -16,3 +16,5 @@ else:
     RETURNN_ROOT = tk.Path("/u/mann/src/returnn")
 
     RASR_PATH = tk.Path("/work/asr3/michel/mann/tools/rasr/librasr_recog2/arch/linux-x86_64-standard")
+    # no dedicated forward-backward build here yet; fall back to the linear-search binaries
+    RASR_PATH_FORWARD_BACKWARD = RASR_PATH

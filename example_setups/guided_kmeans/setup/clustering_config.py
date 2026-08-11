@@ -18,7 +18,8 @@ from i6_experiments.example_setups.guided_kmeans.lib.guided_kmeans.clustering im
     KMeansPlusPlusReservoirInitializer,
     PickleCentroidRandomMapInitializer,
     PickleCentroidFrequencyOrderMapInitializer,
-    PickleCheatingCentroidInitializer
+    PickleCheatingCentroidInitializer,
+    PreloadGMInitializer,
 )
 from ..lib.serialization import HashedCode
 from .. import tools
@@ -31,6 +32,7 @@ _INITIALIZER_CLASS_DICT = {
     "PickleCentroidFrequencyOrderMapInitializerConfig": PickleCentroidFrequencyOrderMapInitializer,
     "PickleCentroidRandomMapInitializerConfig": PickleCentroidRandomMapInitializer,
     "PickleCheatingCentroidInitializerConfig": PickleCheatingCentroidInitializer,
+    "PreloadGMInitializerConfig": PreloadGMInitializer,
 }
 
 
@@ -54,6 +56,11 @@ class _Config:
 
 class _NeedsLexicon:
     lexicon_path: str | tk.Path | None = None
+
+class _NotProvided:
+    pass
+
+NotProvided = _NotProvided()
 
 class LateInitConfig(_Config):
     pass
@@ -111,6 +118,11 @@ class PickleCentroidRandomMapInitializerConfig(_Config, _NeedsLexicon):
 class PickleCheatingCentroidInitializerConfig(_Config, _NeedsLexicon):
     centroids_path: str | tk.Path = "/u/jxu/setups/unsupervised/2025-05-30--marten-unsupervised/output/sampled_alignments.pkl"
     lexicon_path: str | tk.Path | None = None
+
+@dataclass
+class PreloadGMInitializerConfig(_Config):
+    centroids_path: str | tk.Path
+    covs_path: str | tk.Path | _NotProvided = NotProvided
 
 # def get_import_rasr_config(rasr_path: tk.Path):
 #     import_recipes = NonhashedCode(f'import sys\nsys.path.insert(0, "{recipe_root}")\n')
@@ -202,10 +214,13 @@ def get_clustering_call_config(
         "num_seqs": callback_config.num_seqs,
         "recognition_config": callback_config.recognition_config,
         "subsampling": callback_config.subsampling,
-        "distance_scale": callback_config.distance_scale,
+        # Both of these are only hashed once they deviate from the callback's own default,
+        # so experiments that use neither keep the hash they had before the options existed
+        # (same pattern as the two schedules below).
+        **({"distance_scale": callback_config.distance_scale} if callback_config.distance_scale != 1.0 else {}),
         **({"lm_scale_schedule": callback_config.lm_scale_schedule} if callback_config.lm_scale_schedule is not None else {}),
         **({"transition_scale_schedule": callback_config.transition_scale_schedule} if callback_config.transition_scale_schedule is not None else {}),
-        "use_forward_backward": callback_config.use_forward_backward,
+        **({"use_forward_backward": True} if callback_config.use_forward_backward else {}),
         **callback_config.callback_opts
     }
     unhashed_args = {}
@@ -231,6 +246,7 @@ class ClusteringExpResult:
     fwd_job: ReturnnForwardJobV2
     out_centroids: dict[int, tk.Path]
     out_statistics: tk.Path
+    out_covs: dict[int, tk.Path] | None = None
 
 def clustering(
     num_epochs: int,
@@ -286,6 +302,17 @@ def clustering(
     }
     statistics_file = "epoch_statistics.json"
 
+    output_files = [
+        *centroid_files.values(),
+        statistics_file
+    ]
+
+    if isinstance(cluster_callback_config.initializer_config, PreloadGMInitializerConfig):
+        covs_files = {
+            epoch: f"covs.{epoch}.npy" for epoch in range(num_epochs + 1)
+        }
+        output_files += list(covs_files.values())
+
     num_cpus = cluster_callback_config.num_workers + 1
 
     fwd_job = ReturnnForwardJobV2(
@@ -293,24 +320,34 @@ def clustering(
         returnn_config=config,
         returnn_python_exe=returnn_python_exe,
         returnn_root=returnn_root,
-        output_files=[
-            *centroid_files.values(),
-            statistics_file
-        ],
+        output_files=output_files,
         log_verbosity=log_verbosity,
-        time_rqmt=168,
+        time_rqmt=2 + (2 + 135 / cluster_callback_config.num_workers) * num_epochs,
         device=device,
         cpu_rqmt=num_cpus,
     )
 
     if device == "gpu":
         fwd_job.rqmt["gpu_mem"] = 24
-    fwd_job.rqmt["mem"] = max(num_cpus * 4, 48)
+    # scales with the worker pool (each worker holds its own RASR search state),
+    # with a floor for the small-num_workers case
+    fwd_job.rqmt["mem"] = max(num_cpus * 4 + 8, 48)
 
     out_centroids = {
         epoch: fwd_job.out_files[filename] for epoch, filename in centroid_files.items()
     }
     out_statistics = fwd_job.out_files[statistics_file]
+
+    if isinstance(cluster_callback_config.initializer_config, PreloadGMInitializerConfig):
+        out_covs = {
+            epoch: fwd_job.out_files[filename] for epoch, filename in covs_files.items()
+        }
+        return ClusteringExpResult(
+            fwd_job=fwd_job,
+            out_centroids=out_centroids,
+            out_statistics=out_statistics,
+            out_covs=out_covs,
+        )
 
     return ClusteringExpResult(
         fwd_job=fwd_job,

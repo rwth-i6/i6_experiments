@@ -24,11 +24,13 @@ from i6_experiments.example_setups.guided_kmeans import tools
 input_data = {
     "train-clean-100-dbg": {
         "features": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/features/filtered_features_train-clean-100-dbg.hdf"),
-        "cheating_centroids": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/cheating_centroids/train-clean-100-dbg/centroids.npy"),
+        # "cheating_centroids": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/cheating_centroids/train-clean-100-dbg/centroids.npy"),
+        "cheating_centroids": tk.Path("/u/mann/experiments/2026-06-09--guided-k-means/test/cheating_centroids_larissa/centroids.npy"),
+        "cheating_covs": tk.Path("/u/mann/experiments/2026-06-09--guided-k-means/test/cheating_centroids_larissa/covs.npy"),
         "segment_file": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/segments_list/train-clean-100-dbg-segments.txt"),
     },
     "ls-100": {
-        "features": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/features/wav2vec2_ls100h.hdf"),
+        "features": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/features/segmented_features_wav2vec2_ls100h.hdf"),
         "cheating_centroids": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/cheating_centroids/centroids.npy"), # computed on the full 960h
         "segment_file": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/segments_list/ls100h-segments.txt"),
     }
@@ -42,20 +44,16 @@ def run():
 
     use_eow_phonemes = False
     # num_epochs = 20
-    num_epochs = 2
+    num_epochs = 10
     use_pruning = False
 
     input_data_key = "ls-100"
     initialization = "cheating"
 
     parameters = [
-        (None, 10000.0, 0.7, 0.7)
-    ] + [
-        (None, ts, lp, lp)
-        # for ts in [0.1, 0.5, 1.0, 10.0]
-        for ts in [1.0]
-        for lp in [0.1, 0.3, 0.5, 0.7]
+        (None, 1.0, 0.0, 0.0)
     ]
+    
 
     recog_results = []
 
@@ -123,7 +121,7 @@ def run():
             device="cpu",
         )
 
-        tk.register_output(f"guided_kmeans/cheating_lm/statistics/{exp_name}.json", exp_result.out_statistics)
+        tk.register_output(f"guided_kmeans/cheated_seg_plus_lm/statistics/{exp_name}.json", exp_result.out_statistics)
 
 
         for recog_epoch in range(num_epochs+1):     # run recognition after each epoch to see how PER develops
@@ -142,16 +140,17 @@ def run():
             )
 
             res = decode_and_score(
-                exp_name + f"_epoch-{recog_epoch}", "train-clean-100-dbg",
+                exp_name + f"_epoch-{recog_epoch}",
+                "train-clean-100",
                 decode_config,
                 dataset_config,
                 rasr_path=rasr_path,
                 device="cpu",
             )
-            tk.register_output(f"guided_kmeans/cheating_lm/recognition/{exp_name}_epoch-{recog_epoch}_per", res.per)
+            tk.register_output(f"guided_kmeans/testing_experimental/recognition/{exp_name}_epoch-{recog_epoch}_per", res.per)
             recog_results.append(res)
 
-    tk.register_report(f"guided_kmeans/cheating_lm/recognition/report_{input_data_key}.txt", values=create_report(recog_results), required=True)
+    tk.register_report(f"guided_kmeans/cheated_seg_plus_lm/recognition/report_{input_data_key}.txt", values=create_report(recog_results), required=True)
 
 
 def py():
