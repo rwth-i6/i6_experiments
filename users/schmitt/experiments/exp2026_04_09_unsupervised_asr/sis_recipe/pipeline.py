@@ -9,8 +9,10 @@ import os.path
 from typing import Any, Dict, List, Optional, Tuple, Union, Iterator, Callable
 
 from sisyphus import tk, Task, Job
+from sisyphus.delayed_ops import DelayedBase
 
 from i6_core.corpus.convert import CorpusToStmJob
+from i6_core.serialization import SerializerObject
 from i6_core.recognition.scoring import ScliteJob
 
 from i6_core.returnn.search import SearchOutputRawReplaceJob, SearchTakeBestJob
@@ -81,6 +83,57 @@ class ApplyHuggingFaceNormalizerToTextDictJob(Job):
             f.write("}\n")
 
 
+class DelayedSerializerObjectValue(DelayedBase):
+    """
+    Wraps an :class:`i6_core.serialization.SerializerObject` (e.g. :class:`CallImport`) such that
+    ``instanciate_delayed`` yields the actual python *object* instead of the code string.
+
+    Background: our ``PostprocessingDataset`` gets ``map_seq`` as a :class:`CallImport`
+    (see ``unsup_.../librispeech/data/common.py::_get_phonemize_post_proc_func``). When the dataset
+    dict is written into a RETURNN config, ``ReturnnConfigWithNewSerialization`` turns that into real
+    python code, so RETURNN sees a callable. But jobs which build the dataset *directly* via
+    ``init_dataset`` (here :class:`ReturnnDatasetToTextDictJob`) call ``instanciate_delayed`` on the
+    dict, and ``SerializerObject.get()`` returns the *code string* -> RETURNN then fails with
+    ``TypeError: 'str' object is not callable``. So exec that code here and return the object it
+    defines.
+
+    The sis hash is delegated to the wrapped serializer object, i.e. wrapping does not change any
+    job hashes.
+    """
+
+    def __init__(self, obj: SerializerObject):
+        super().__init__(None)
+        self.obj = obj
+
+    def get(self) -> Any:
+        code = self.obj.get()
+        scope = {}
+        exec(code, scope)
+        names = [name for name in scope if name != "__builtins__"]
+        assert len(names) == 1, f"{self.obj} code defines {names}, expected exactly one name:\n{code}"
+        return scope[names[0]]
+
+    def _sis_hash(self) -> bytes:
+        return self.obj._sis_hash()
+
+
+def _resolve_serializer_objects(obj: Any) -> Any:
+    """
+    Recursively replace :class:`SerializerObject` values by :class:`DelayedSerializerObjectValue`,
+    for dataset dicts which are passed to a job instead of into a RETURNN config
+    (see :class:`DelayedSerializerObjectValue`). Does not modify the given structure.
+    """
+    if isinstance(obj, SerializerObject):
+        return DelayedSerializerObjectValue(obj)
+    if isinstance(obj, dict):
+        return {k: _resolve_serializer_objects(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_resolve_serializer_objects(v) for v in obj]
+    if isinstance(obj, tuple):
+        return tuple(_resolve_serializer_objects(v) for v in obj)
+    return obj
+
+
 def generic_sclite_score_recog_out(
     dataset: Dict[str, Any],
     recog_output: tk.Path,
@@ -90,7 +143,7 @@ def generic_sclite_score_recog_out(
 ) -> ScoreResult:
     ref = RecogOutput(
         output=ReturnnDatasetToTextDictJob(
-            returnn_dataset=dataset,
+            returnn_dataset=_resolve_serializer_objects(dataset),
             data_key=target_key,
             vocab=vocab_opts,
         ).out_txt
