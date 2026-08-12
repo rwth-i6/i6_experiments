@@ -221,12 +221,11 @@ def decode_and_score(
     returnn_python_exe: tk.Path | None = None,
     returnn_root: tk.Path | None = None,
     device: str = "gpu",
+    corpus_key: str | None = None,
 ) -> DecodeRecogResult:
     # setup corpus
-    corpus_name_key = corpus_name
-    if corpus_name == "train-clean-100-dbg":
-        corpus_name_key = "train-clean-100"
-    setup_result = setup_corpus(key=corpus_name_key)
+    effective_key = corpus_key if corpus_key is not None else corpus_name
+    setup_result = setup_corpus(key=effective_key)
 
     filtered_corpus = FilterCorpusRemoveUnknownWordSegmentsJob(setup_result.corpus, setup_result.lexicon, all_unknown=False, delete_empty_recordings=True).out_corpus
     phoneme_corpus = ApplyLexiconToCorpusJob(filtered_corpus, setup_result.lexicon).out_corpus
@@ -239,7 +238,7 @@ def decode_and_score(
 
     # dataset config
     whitelist_job = CreateSequenceWhitelistJob(filtered_corpus)
-    whitelist_job.add_alias(f"datasets/LibriSpeech/{corpus_name_key}_whitelist")
+    whitelist_job.add_alias(f"datasets/LibriSpeech/{effective_key}_whitelist")
     whitelist = whitelist_job.out_whitelist
 
     if sampled_segments is not None:

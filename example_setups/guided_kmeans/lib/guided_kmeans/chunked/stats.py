@@ -11,11 +11,11 @@ account for. None of the counters do, and they are not user-supplied.
 
 from __future__ import annotations
 
-__all__ = ["default_stats_hooks", "merge_counters"]
+__all__ = ["default_stats_hooks", "fb_stats_hooks", "merge_counters"]
 
 from typing import Iterable, Optional, Sequence
 
-from ..statistics import CounterProtocol, get_default_counter_builder
+from ..statistics import CounterProtocol, FBStatisticsCounter, get_default_counter_builder
 
 
 def default_stats_hooks(phonemes: Iterable[str]) -> CounterProtocol:
@@ -25,6 +25,15 @@ def default_stats_hooks(phonemes: Iterable[str]) -> CounterProtocol:
     phoneme frequencies, score statistics and a few sampled tracebacks.
     """
     return get_default_counter_builder(phonemes)()
+
+
+def fb_stats_hooks(num_clusters: int) -> FBStatisticsCounter:
+    """
+    Counter set for forward-backward chunked runs: driven by gammas and
+    log-likelihoods from :class:`.recognizers.FBTracebackItem`, not Viterbi
+    tracebacks. Analogous to :func:`default_stats_hooks` but for the FB path.
+    """
+    return FBStatisticsCounter(num_clusters=num_clusters)
 
 
 def merge_counters(counters: Sequence[Optional[CounterProtocol]]) -> Optional[CounterProtocol]:

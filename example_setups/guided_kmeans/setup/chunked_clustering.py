@@ -17,7 +17,9 @@ from __future__ import annotations
 
 __all__ = [
     "GuidedClusteringEpochJob",
+    "IdentityCovsJob",
     "MergeEpochStatisticsJob",
+    "RandomCentroidsJob",
     "ChunkedClusteringExpResult",
     "chunked_clustering",
 ]
@@ -43,13 +45,16 @@ from ..lib.guided_kmeans.chunked import (
     GaussianModel,
     HDFFeatureSource,
     MeanAccumulator,
+    RasrFBRecognizer,
     RasrViterbiRecognizer,
+    SoftGaussianAccumulator,
     Spec,
     default_stats_hooks,
     reduce_chunks,
     run_chunk,
     save_chunk,
 )
+from ..lib.guided_kmeans.statistics import FBStatisticsCounter
 
 _CHUNK_FILE = "chunk.{num_chunks}.{index}.pkl"
 
@@ -294,6 +299,57 @@ class MergeEpochStatisticsJob(Job):
             json.dump(merged, fp, indent=4)
 
 
+class RandomCentroidsJob(Job):
+    """Sample K random frames from a feature HDF as initial centroids.
+
+    Reads only K rows from ``inputs`` (total-frames × feature-dim), so memory
+    usage is O(K × feature-dim) regardless of corpus size.
+    """
+
+    def __init__(self, features_hdf: tk.Path, num_clusters: int, seed: int = 42):
+        self.features_hdf = features_hdf
+        self.num_clusters = num_clusters
+        self.seed = seed
+        self.out_centroids = self.output_path("centroids.npy")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import h5py
+        import numpy as np
+
+        rng = np.random.RandomState(self.seed)
+        with h5py.File(self.features_hdf.get_path(), "r") as f:
+            total_frames = f["inputs"].shape[0]
+            indices = np.sort(rng.choice(total_frames, size=self.num_clusters, replace=False))
+            centroids = f["inputs"][indices]
+        np.save(self.out_centroids.get_path(), centroids)
+
+
+class IdentityCovsJob(Job):
+    """Write K identity covariance matrices as the initial state for covariance models.
+
+    With identity covariances the Mahalanobis distance degenerates to Euclidean,
+    so the first epoch of a random-init covariance run behaves like plain k-means.
+    Subsequent epochs learn cluster-specific covariances from the data.
+    """
+
+    def __init__(self, num_clusters: int, feature_dim: int = 512):
+        self.num_clusters = num_clusters
+        self.feature_dim = feature_dim
+        self.out_covs = self.output_path("covs.npy")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import numpy as np
+
+        covs = np.stack([np.eye(self.feature_dim) for _ in range(self.num_clusters)])
+        np.save(self.out_covs.get_path(), covs)
+
+
 @dataclass
 class ChunkedClusteringExpResult:
     """
@@ -358,6 +414,7 @@ def chunked_clustering(
     subsampling: Optional[int] = None,
     pooling_function: str = "maxpool_time_np",
     distance_scale: float = 1.0,
+    use_forward_backward: bool = False,
     score_reference: Optional[tk.Path] = None,
     rasr_path: Optional[tk.Path] = None,
     num_chunks: int = 30,
@@ -425,15 +482,26 @@ def chunked_clustering(
     )
     # num_workers/task_timeout are per-task scheduling knobs, like num_chunks:
     # they change how fast a chunk runs, never its result.
-    recognizer_spec = Spec(
-        RasrViterbiRecognizer,
-        {
-            "recognition_config": recognition_config,
-            "lexicon_path": lexicon,
-            "distance_scale": distance_scale,
-        },
-        {"num_workers": num_workers, "task_timeout": task_timeout},
-    )
+    if use_forward_backward:
+        recognizer_spec = Spec(
+            RasrFBRecognizer,
+            {
+                "recognition_config": recognition_config,
+                "num_clusters": num_clusters,
+                "distance_scale": distance_scale,
+            },
+            {"num_workers": num_workers, "task_timeout": task_timeout},
+        )
+    else:
+        recognizer_spec = Spec(
+            RasrViterbiRecognizer,
+            {
+                "recognition_config": recognition_config,
+                "lexicon_path": lexicon,
+                "distance_scale": distance_scale,
+            },
+            {"num_workers": num_workers, "task_timeout": task_timeout},
+        )
     # Model class and its artifact names are chosen once, here, and then used
     # to build every epoch's model spec identically. Keeping the *form* of that
     # spec the same for the first epoch and all later ones is what makes
@@ -443,7 +511,9 @@ def chunked_clustering(
     if initial_covs is not None:
         model_cls, artifact_names = GaussianModel, ("centroids", "covs")
         initial_artifacts = {"centroids": initial_centroids, "covs": initial_covs}
-        accumulator_spec = Spec(GaussianAccumulator, {})
+        accumulator_spec = Spec(
+            SoftGaussianAccumulator if use_forward_backward else GaussianAccumulator, {}
+        )
     else:
         model_cls, artifact_names = EuclideanModel, ("centroids",)
         initial_artifacts = {"centroids": initial_centroids}
@@ -467,6 +537,14 @@ def chunked_clustering(
     out_hypotheses: Dict[int, tk.Path] = {}
     out_guided_scores: Dict[int, ScoreResult] = {}
 
+    # FBStatisticsCounter replaces the Viterbi traceback counters for FB epochs.
+    # Unhashed: changing which diagnostics are recorded must not alter job identity.
+    statistics_spec = (
+        Spec(FBStatisticsCounter, {"num_clusters": num_clusters})
+        if use_forward_backward
+        else None
+    )
+
     for epoch in range(1, num_epochs + 1):
         job = GuidedClusteringEpochJob(
             features=features_spec,
@@ -477,6 +555,7 @@ def chunked_clustering(
             lexicon=lexicon,
             rasr_path=rasr_path,
             num_chunks=num_chunks,
+            statistics=statistics_spec,
             rqmt=job_rqmt,
         )
         job.add_alias(f"{alias_prefix}/epoch_{epoch:03d}")

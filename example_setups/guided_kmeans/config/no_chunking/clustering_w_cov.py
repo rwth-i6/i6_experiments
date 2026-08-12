@@ -19,26 +19,12 @@ from i6_experiments.example_setups.guided_kmeans.setup.report import create_repo
 from i6_experiments.example_setups.guided_kmeans.setup.latex_report import LatexTableReport, clustering_statistics
 from i6_experiments.example_setups.guided_kmeans.setup.dataset_config import DatasetConfig, RandomNumber, All, SegmentFile
 
+from i6_experiments.example_setups.guided_kmeans.setup.constants import (
+    INPUT_DATA as input_data,
+    FEATURES_LS_CV as _CV_FEATURES,
+    SEGMENTS_LS_CV as _CV_SEGMENTS,
+)
 from i6_experiments.example_setups.guided_kmeans import tools
-
-# TODO maybe use DistributedFileDataset
-
-input_data = {
-    "train-clean-100-dbg": {
-        "features": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/features/filtered_features_train-clean-100-dbg.hdf"),
-        # "cheating_centroids": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/cheating_centroids/train-clean-100-dbg/centroids.npy"),
-        "cheating_centroids": tk.Path("/u/mann/experiments/2026-06-09--guided-k-means/test/cheating_centroids_larissa/centroids.npy"),
-        "cheating_covs": tk.Path("/u/mann/experiments/2026-06-09--guided-k-means/test/cheating_centroids_larissa/covs.npy"),
-        "segment_file": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/segments_list/train-clean-100-dbg-segments.txt"),
-    },
-    "ls-100": {
-        "features": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/features/wav2vec2_ls100h.hdf"),
-        # "cheating_centroids": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/cheating_centroids/centroids.npy"), # computed on the full 960h
-        "cheating_centroids": tk.Path("/u/mann/experiments/2026-06-09--guided-k-means/test/cheating_centroids_larissa/centroids.npy"),
-        "cheating_covs": tk.Path("/u/mann/experiments/2026-06-09--guided-k-means/test/cheating_centroids_larissa/covs.npy"),
-        "segment_file": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/segments_list/ls100h-segments.txt"),
-    }
-}
 
 def run():
     use_eow_phonemes = False
@@ -68,6 +54,13 @@ def run():
     ]
 
     recog_results = []
+    recog_results_cv = []
+
+    cv_dataset_config = DatasetConfig(
+        audio_hdf_path=_CV_FEATURES,
+        sampling_method=SegmentFile(_CV_SEGMENTS),
+        precomputed=True,
+    )
 
     # One block per (LM scale, loop probability), one line per decoded epoch. The
     # statistics columns come from the clustering job's epoch_statistics.json, the L1
@@ -176,10 +169,24 @@ def run():
                 "train-clean-100-dbg",
                 decode_config,
                 dataset_config,
-                rasr_path=tools.RASR_PATH
+                rasr_path=tools.RASR_PATH,
+                corpus_key="train-clean-100",
             )
             tk.register_output(f"guided_kmeans/cov/recognition/{exp_name}_epoch-{recog_epoch}_per", res.per)
             recog_results.append(res)
+
+            res_cv = decode_and_score(
+                exp_name + f"_cv_epoch-{recog_epoch}",
+                "cv",
+                decode_config,
+                cv_dataset_config,
+                rasr_path=tools.RASR_PATH,
+                device="cpu",
+                corpus_key="train-other-960",
+            )
+            tk.register_output(f"guided_kmeans/cov/recognition/{exp_name}_cv_epoch-{recog_epoch}_per", res_cv.per)
+            recog_results_cv.append(res_cv)
+
             latex_report.add_row(
                 result=res,
                 params={"lm_scale": lm_scale, "loop_probability": loop_probability},
@@ -188,6 +195,7 @@ def run():
             )
 
     tk.register_report(f"guided_kmeans/cov/recognition/report_{input_data_key}.txt", values=create_report(recog_results), required=True)
+    tk.register_report(f"guided_kmeans/cov/recognition/report_cv.txt", values=create_report(recog_results_cv), required=True)
     latex_report.register(f"guided_kmeans/cov/recognition/report_{input_data_key}.tex")
     latex_report_first_last.register(
         f"guided_kmeans/cov/recognition/report_{input_data_key}_first_last.tex"

@@ -20,26 +20,24 @@ from i6_experiments.example_setups.guided_kmeans.setup.dataset_config import Dat
 from i6_experiments.example_setups.guided_kmeans.setup.centroid_metrics import CentroidCosineSimilarityJob, PhonemeL1DistanceJob, AverageTotalScoreJob, AverageNamedScoreJob
 from i6_experiments.example_setups.guided_kmeans.setup.score import FrameErrorRateJob
 
+from i6_experiments.example_setups.guided_kmeans.setup.constants import (
+    INPUT_DATA as _BASE_INPUT_DATA,
+    CHEATING_CENTROIDS_DBG,
+    FEATURES_LS_CV as _CV_FEATURES,
+    FEATURES_LS100H_SEGMENTED,
+    SEGMENTS_LS_CV as _CV_SEGMENTS,
+    GMM_ALIGNMENT_DBG as _GMM_ALIGNMENT_DBG,
+    PHONEME_FREQUENCIES_LS100H,
+)
 from i6_experiments.example_setups.guided_kmeans import tools
 
-_GMM_ALIGNMENT_DBG = tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/cheating_centroids/train-clean-100-dbg/alignments.pkl")
-
+# train-clean-100-dbg uses the DBG-subset centroids in this config
 input_data = {
+    **_BASE_INPUT_DATA,
     "train-clean-100-dbg": {
-        "features": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/features/filtered_features_train-clean-100-dbg.hdf"),
-        "cheating_centroids": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/cheating_centroids/train-clean-100-dbg/centroids.npy"),
-        "segment_file": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/segments_list/train-clean-100-dbg-segments.txt"),
+        **_BASE_INPUT_DATA["train-clean-100-dbg"],
+        "cheating_centroids": CHEATING_CENTROIDS_DBG,
     },
-    "ls-100": {
-        "features": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/features/wav2vec2_ls100h.hdf"),
-        "features_sharded": [
-            tk.Path(f"/work/asr4/lkleppel/experiments/20260520_unsupervised_asr/wav2vec2_ls100h/wav2vec2_ls100h_part{i:02d}.hdf")
-            for i in range(10)
-        ],
-        "features_segmented": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/features/segmented_features_wav2vec2_ls100h.hdf"),
-        "cheating_centroids": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/cheating_centroids/centroids.npy"), # computed on the full 960h
-        "segment_file": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/segments_list/ls100h-segments.txt"),
-    }
 }
 
 
@@ -102,6 +100,12 @@ def _test_forward_backward(
 
     tk.register_output(f"guided_kmeans/testing_experimental/results/forward_backward_test/cheating/statistics/{exp_name}.json", exp_result.out_statistics)
 
+    cv_dataset_config = DatasetConfig(
+        audio_hdf_path=_CV_FEATURES,
+        sampling_method=SegmentFile(_CV_SEGMENTS),
+        precomputed=True,
+    )
+
     recog_results = []
     for lm_scale_recog in [2000.0, 5000.0]:
         for recog_epoch in range(num_epochs + 1):
@@ -134,10 +138,15 @@ def _test_forward_backward(
                 decode_config,
                 dataset_config,
                 rasr_path=tools.RASR_PATH,
+                corpus_key="train-clean-100",
             )
             #tk.register_output(f"guided_kmeans/fb_test/recognition/{exp_name}_epoch-{recog_epoch}_per", res.per)
             tk.register_output(f"guided_kmeans/testing_experimental/recognition/{exp_name}_fb_epoch-{recog_epoch}_per", res.per)
             tk.register_output(f"guided_kmeans/testing_experimental/recognition/{exp_name}_fb_epoch-{recog_epoch}_confusion", res.confusion_pairs)
+
+            res_cv = decode_and_score(exp_name + f"_cv_epoch-{recog_epoch}_scale-{lm_scale_recog}", "cv", decode_config, cv_dataset_config, rasr_path=tools.RASR_PATH, device="cpu", corpus_key="train-other-960")
+            tk.register_output(f"guided_kmeans/testing_experimental/recognition/{exp_name}_fb_cv_epoch-{recog_epoch}_scale-{lm_scale_recog}_per", res_cv.per)
+
             if res.frame_labels is not None:
                 fer_job = FrameErrorRateJob(res.frame_labels, _GMM_ALIGNMENT_DBG, create_lexicon(use_eow_phonemes=use_eow_phonemes, add_unknown_phoneme=False))
                 res.fer = fer_job.out_fer
@@ -147,7 +156,7 @@ def _test_forward_backward(
             res.mean_cos_sim = CentroidCosineSimilarityJob(exp_result.out_centroids[recog_epoch]).out_mean_cos_sim
             tk.register_output(f"guided_kmeans/testing_experimental/recognition/{exp_name}_epoch-{recog_epoch}_cos_sim", res.mean_cos_sim)
             if recog_epoch < num_epochs:
-                res.l1_dist = PhonemeL1DistanceJob(exp_result.out_statistics, recog_epoch, tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/phoneme_frequencies/phoneme_frequencies_ls_100.txt")).out_l1_dist
+                res.l1_dist = PhonemeL1DistanceJob(exp_result.out_statistics, recog_epoch, PHONEME_FREQUENCIES_LS100H).out_l1_dist
                 res.avg_total_score = AverageTotalScoreJob(exp_result.out_statistics, recog_epoch).out_avg_total_score
                 res.avg_am_score = AverageNamedScoreJob(exp_result.out_statistics, recog_epoch, "average_am_score").out_avg_score
                 res.avg_transition_score = AverageNamedScoreJob(exp_result.out_statistics, recog_epoch, "average_transition_score").out_avg_score
@@ -225,6 +234,11 @@ def _run_test_experiments(
 
         tk.register_output(f"guided_kmeans/testing_experimental/statistics/{exp_name}.json", exp_result.out_statistics)
 
+        cv_dataset_config = DatasetConfig(
+            audio_hdf_path=_CV_FEATURES,
+            sampling_method=SegmentFile(_CV_SEGMENTS),
+            precomputed=True,
+        )
 
         for recog_epoch in range(num_epochs+1):     # run recognition after each epoch to see how PER develops
 
@@ -241,9 +255,12 @@ def _run_test_experiments(
                 subsampling=subsampling,
             )
 
-            res = decode_and_score(exp_name + f"_epoch-{recog_epoch}", "train-clean-100-dbg", decode_config, dataset_config, rasr_path=tools.RASR_PATH)
+            res = decode_and_score(exp_name + f"_epoch-{recog_epoch}", "train-clean-100-dbg", decode_config, dataset_config, rasr_path=tools.RASR_PATH, corpus_key="train-clean-100")
             tk.register_output(f"guided_kmeans/testing_experimental/recognition/{exp_name}_epoch-{recog_epoch}_per", res.per)
             tk.register_output(f"guided_kmeans/testing_experimental/recognition/{exp_name}_epoch-{recog_epoch}_confusion", res.confusion_pairs)
+
+            res_cv = decode_and_score(exp_name + f"_cv_epoch-{recog_epoch}", "cv", decode_config, cv_dataset_config, rasr_path=tools.RASR_PATH, device="cpu", corpus_key="train-other-960")
+            tk.register_output(f"guided_kmeans/testing_experimental/recognition/{exp_name}_cv_epoch-{recog_epoch}_per", res_cv.per)
             if res.frame_labels is not None:
                 fer_job = FrameErrorRateJob(res.frame_labels, _GMM_ALIGNMENT_DBG, create_lexicon(use_eow_phonemes=use_eow_phonemes, add_unknown_phoneme=False))
                 res.fer = fer_job.out_fer
@@ -252,7 +269,7 @@ def _run_test_experiments(
             res.mean_cos_sim = CentroidCosineSimilarityJob(exp_result.out_centroids[recog_epoch]).out_mean_cos_sim
             tk.register_output(f"guided_kmeans/testing_experimental/recognition/{exp_name}_epoch-{recog_epoch}_cos_sim", res.mean_cos_sim)
             if recog_epoch < num_epochs:
-                res.l1_dist = PhonemeL1DistanceJob(exp_result.out_statistics, recog_epoch, tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/phoneme_frequencies/phoneme_frequencies_ls_100.txt")).out_l1_dist
+                res.l1_dist = PhonemeL1DistanceJob(exp_result.out_statistics, recog_epoch, PHONEME_FREQUENCIES_LS100H).out_l1_dist
                 res.avg_total_score = AverageTotalScoreJob(exp_result.out_statistics, recog_epoch).out_avg_total_score
                 res.avg_am_score = AverageNamedScoreJob(exp_result.out_statistics, recog_epoch, "average_am_score").out_avg_score
                 res.avg_transition_score = AverageNamedScoreJob(exp_result.out_statistics, recog_epoch, "average_transition_score").out_avg_score
@@ -401,12 +418,18 @@ def cheating_segmentation():
             num_epochs=num_epochs,
             sampled_segments=All,
             cluster_callback_config=clustering_callback_config,
-            hdf_path=tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/features/segmented_features_wav2vec2_ls100h.hdf"),
+            hdf_path=FEATURES_LS100H_SEGMENTED,
             precomputed=True,
             log_verbosity=3,
         )
 
         tk.register_output(f"guided_kmeans/testing_experimental/results/cheating_segmentation/statistics/{exp_name}.json", exp_result.out_statistics)
+
+        cv_dataset_config = DatasetConfig(
+            audio_hdf_path=_CV_FEATURES,
+            sampling_method=SegmentFile(_CV_SEGMENTS),
+            precomputed=True,
+        )
 
         recognition_config_decode = create_recog_rasr_config(
             lm_scale=lm_scale,
@@ -438,9 +461,12 @@ def cheating_segmentation():
                 num_workers=1,
             )
 
-            res = decode_and_score(exp_name + f"_epoch-{recog_epoch}", "train-clean-100-dbg", decode_config, dataset_config, rasr_path=tools.RASR_PATH)
+            res = decode_and_score(exp_name + f"_epoch-{recog_epoch}", "train-clean-100-dbg", decode_config, dataset_config, rasr_path=tools.RASR_PATH, corpus_key="train-clean-100")
             tk.register_output(f"guided_kmeans/testing_experimental/results/cheating_segmentation/recognition/{exp_name}_epoch-{recog_epoch}_per", res.per)
             tk.register_output(f"guided_kmeans/testing_experimental/results/cheating_segmentation/confusion_pairs/{exp_name}_epoch-{recog_epoch}_confusion", res.confusion_pairs)
+
+            res_cv = decode_and_score(exp_name + f"_cv_epoch-{recog_epoch}", "cv", decode_config, cv_dataset_config, rasr_path=tools.RASR_PATH, device="cpu", corpus_key="train-other-960")
+            tk.register_output(f"guided_kmeans/testing_experimental/results/cheating_segmentation/recognition/{exp_name}_cv_epoch-{recog_epoch}_per", res_cv.per)
             if res.frame_labels is not None:
                 #tk.register_output(f"guided_kmeans/cheating_segmentation/frame_labels/{exp_name}_epoch-{recog_epoch}", res.frame_labels)
                 fer_job = FrameErrorRateJob(res.frame_labels, _GMM_ALIGNMENT_DBG, create_lexicon(use_eow_phonemes=use_eow_phonemes, add_unknown_phoneme=False))
@@ -452,7 +478,7 @@ def cheating_segmentation():
             res.mean_cos_sim = CentroidCosineSimilarityJob(exp_result.out_centroids[recog_epoch]).out_mean_cos_sim
             tk.register_output(f"guided_kmeans/testing_experimental/results/cheating_segmentation/recognition/{exp_name}_epoch-{recog_epoch}_cos_sim", res.mean_cos_sim)
             if recog_epoch < num_epochs:
-                res.l1_dist = PhonemeL1DistanceJob(exp_result.out_statistics, recog_epoch, tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/phoneme_frequencies/phoneme_frequencies_ls_100.txt")).out_l1_dist
+                res.l1_dist = PhonemeL1DistanceJob(exp_result.out_statistics, recog_epoch, PHONEME_FREQUENCIES_LS100H).out_l1_dist
                 res.avg_total_score = AverageTotalScoreJob(exp_result.out_statistics, recog_epoch).out_avg_total_score
                 res.avg_am_score = AverageNamedScoreJob(exp_result.out_statistics, recog_epoch, "average_am_score").out_avg_score
                 res.avg_transition_score = AverageNamedScoreJob(exp_result.out_statistics, recog_epoch, "average_transition_score").out_avg_score

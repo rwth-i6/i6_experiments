@@ -2,11 +2,14 @@ __all__ = [
     "LoopFrequencyCounter",
     "PhoenemeFrequencyCounter",
     "ScoreStatisticsCounter",
+    "FBStatisticsCounter",
     "CombinedStatisticsCounter",
     "CounterBuilder",
     "EpochwiseStatisticsLogger",
     "get_default_counter_builder",
     "get_default_logger",
+    "get_fb_counter_builder",
+    "get_fb_logger",
 ]
 
 import os
@@ -17,6 +20,8 @@ from functools import cached_property
 from collections import Counter
 from abc import ABC, abstractmethod
 from typing import Any, Protocol, Sequence
+
+import numpy as np
 
 from .traceback import TracebackItemProtocol
 from .running_update import RunningAverageUpdater
@@ -156,6 +161,7 @@ class ScoreStatisticsCounter(CounterProtocol):
         self._check_mergeable(self, other)
         self.lm_score_updater.merge(other.lm_score_updater)
         self.am_score_updater.merge(other.am_score_updater)
+        self.transition_score_updater.merge(other.transition_score_updater)
         self.normed_total_score_updater.merge(other.normed_total_score_updater)
         return self
 
@@ -202,6 +208,87 @@ class SampledTracebackPrinter(CounterProtocol):
         if room > 0:
             self.stored_tracebacks.extend(other.stored_tracebacks[:room])
         return self
+
+class FBStatisticsCounter(CounterProtocol):
+    """
+    Statistics accumulated from soft posterior distributions produced by
+    forward-backward search, as a drop-in replacement for the default
+    Viterbi-traceback counters in FB clustering epochs.
+
+    Driven by :meth:`read_gammas` (called once per sequence from the
+    recognition loop or the chunked ``on_result`` hook); the inherited
+    :meth:`read` is a no-op because FB produces no Viterbi path.
+
+    Statistics logged:
+
+    * ``mean_log_likelihood_per_frame`` — normalized FB objective; the primary
+      convergence signal when guided PER is not available.
+    * ``mean_posterior_entropy`` — average ``-Σ_k γ_tk log γ_tk`` over all
+      frames; decreases as posteriors sharpen around individual clusters.
+    * ``soft_cluster_frequencies`` — expected fraction of frames per cluster;
+      the FB analogue of ``PhoenemeFrequencyCounter``.
+    * ``dead_cluster_count`` — clusters whose expected frame rate falls below
+      ``1e-4``; a sudden increase flags mode collapse.
+    """
+
+    def __init__(self, num_clusters: int, **_kwargs):
+        self.num_clusters = num_clusters
+        self.total_log_likelihood = 0.0
+        self.total_frames = 0
+        self.total_seqs = 0
+        self.entropy_sum = 0.0
+        self.cluster_counts = np.zeros(num_clusters, dtype=np.float64)
+
+    def read(self, traceback):
+        pass
+
+    def read_gammas(self, gammas: np.ndarray, log_likelihood: float) -> None:
+        gammas = np.asarray(gammas, dtype=np.float64)
+        T = len(gammas)
+        if T == 0:
+            return
+        self.total_log_likelihood += log_likelihood
+        self.total_frames += T
+        self.total_seqs += 1
+        p = np.clip(gammas, 1e-12, 1.0)
+        self.entropy_sum += float(-np.sum(p * np.log(p)))
+        self.cluster_counts += gammas.sum(0)
+
+    def finalize(self) -> dict:
+        if self.total_frames == 0:
+            return {
+                "mean_log_likelihood_per_frame": 0.0,
+                "mean_posterior_entropy": 0.0,
+                "soft_cluster_frequencies": [0.0] * self.num_clusters,
+                "dead_cluster_count": self.num_clusters,
+                "total_sequences": 0,
+                "total_frames": 0,
+            }
+        total_mass = self.cluster_counts.sum()
+        freqs = (
+            (self.cluster_counts / total_mass).tolist()
+            if total_mass > 0
+            else [0.0] * self.num_clusters
+        )
+        dead = int((self.cluster_counts / self.total_frames < 1e-4).sum())
+        return {
+            "mean_log_likelihood_per_frame": self.total_log_likelihood / self.total_frames,
+            "mean_posterior_entropy": self.entropy_sum / self.total_frames,
+            "soft_cluster_frequencies": freqs,
+            "dead_cluster_count": dead,
+            "total_sequences": self.total_seqs,
+            "total_frames": self.total_frames,
+        }
+
+    def merge(self, other: "FBStatisticsCounter") -> "FBStatisticsCounter":
+        self._check_mergeable(self, other)
+        self.total_log_likelihood += other.total_log_likelihood
+        self.total_frames += other.total_frames
+        self.total_seqs += other.total_seqs
+        self.entropy_sum += other.entropy_sum
+        self.cluster_counts += other.cluster_counts
+        return self
+
 
 class CombinedStatisticsCounter(CounterProtocol):
     """
@@ -257,6 +344,13 @@ class EpochwiseStatisticsLogger:
         if self.counter is None:
             raise RuntimeError("Epoch not started. Call start_epoch() before reading tracebacks.")
         self.counter.read(traceback)
+
+    def read_soft(self, gammas: np.ndarray, log_likelihood: float) -> None:
+        """Forward-backward path: accumulate per-sequence gamma statistics."""
+        if self.counter is None:
+            raise RuntimeError("Epoch not started. Call start_epoch() before reading gammas.")
+        if hasattr(self.counter, "read_gammas"):
+            self.counter.read_gammas(gammas, log_likelihood)
     
     def end_epoch(self, epoch: int, print_stats: bool = False):
         if self.counter is None:
@@ -293,3 +387,14 @@ def get_default_counter_builder(phonemes) -> CounterBuilder:
 
 def get_default_logger(phonemes):
     return EpochwiseStatisticsLogger(counter_builder=get_default_counter_builder(phonemes))
+
+
+def get_fb_counter_builder(num_clusters: int) -> CounterBuilder:
+    """Builder for one FB-statistics counter instance (called once per epoch or chunk)."""
+    def fb_counter_builder():
+        return FBStatisticsCounter(num_clusters=num_clusters)
+    return fb_counter_builder
+
+
+def get_fb_logger(num_clusters: int) -> EpochwiseStatisticsLogger:
+    return EpochwiseStatisticsLogger(counter_builder=get_fb_counter_builder(num_clusters))

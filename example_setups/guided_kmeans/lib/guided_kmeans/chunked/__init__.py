@@ -34,10 +34,10 @@ from .models import (
     load_model,
     read_manifest,
 )
-from .recognizers import PhonemeIdxMap, RasrViterbiRecognizer, SerialRasrRecognizer
-from .accumulators import GaussianAccumulator, MeanAccumulator, keep_previous_where_dead
+from .recognizers import FBTracebackItem, PhonemeIdxMap, RasrFBRecognizer, RasrViterbiRecognizer, SerialRasrRecognizer
+from .accumulators import GaussianAccumulator, MeanAccumulator, SoftGaussianAccumulator, keep_previous_where_dead
 from .runner import ChunkResult, load_chunk, reduce_chunks, run_chunk, save_chunk
-from .stats import default_stats_hooks, merge_counters
+from .stats import default_stats_hooks, fb_stats_hooks, merge_counters
 
 __all__ = [
     "Spec",
@@ -57,11 +57,14 @@ __all__ = [
     "GaussianModel",
     "load_model",
     "read_manifest",
+    "FBTracebackItem",
     "PhonemeIdxMap",
+    "RasrFBRecognizer",
     "RasrViterbiRecognizer",
     "SerialRasrRecognizer",
     "GaussianAccumulator",
     "MeanAccumulator",
+    "SoftGaussianAccumulator",
     "keep_previous_where_dead",
     "ChunkResult",
     "load_chunk",
@@ -69,5 +72,6 @@ __all__ = [
     "run_chunk",
     "save_chunk",
     "default_stats_hooks",
+    "fb_stats_hooks",
     "merge_counters",
 ]

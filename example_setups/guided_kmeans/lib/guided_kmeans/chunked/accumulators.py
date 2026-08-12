@@ -10,7 +10,7 @@ cannot change the result (up to float summation order).
 
 from __future__ import annotations
 
-__all__ = ["MeanAccumulator", "GaussianAccumulator", "keep_previous_where_dead"]
+__all__ = ["MeanAccumulator", "GaussianAccumulator", "SoftGaussianAccumulator", "keep_previous_where_dead"]
 
 from dataclasses import dataclass
 from typing import Optional, TypeVar
@@ -105,6 +105,19 @@ class MeanAccumulator:
     def observe(self, features: np.ndarray, posteriors: Posteriors) -> None:
         features = np.asarray(features, dtype=np.float64)
         self._ensure(features.shape[1])
+        if isinstance(posteriors, np.ndarray) and posteriors.ndim == 2:
+            # Dense gamma matrix [T, K] from forward-backward search — use directly.
+            if len(posteriors) != len(features):
+                raise ValueError(
+                    f"frame count mismatch: {len(features)} features vs {len(posteriors)} gammas"
+                )
+            if posteriors.shape[1] != self.num_clusters:
+                raise ValueError(
+                    f"gamma columns {posteriors.shape[1]} != num_clusters {self.num_clusters}"
+                )
+            self.counts += posteriors.sum(0)
+            self.sums += posteriors.T @ features
+            return
         idx, weights = as_responsibilities(posteriors)
         if len(idx) != len(features):
             raise ValueError(
@@ -155,6 +168,156 @@ class MeanAccumulator:
             )
         self.counts = np.asarray(state["counts"], dtype=np.float64)
         self.sums = None if state["sums"] is None else np.asarray(state["sums"], dtype=np.float64)
+        return self
+
+
+class SoftGaussianAccumulator:
+    """
+    Per-cluster soft sufficient statistics for means and full covariances.
+
+    Accumulates the weighted sums needed for the soft EM M-step:
+
+        n_k      = Σ_t γ_tk                    (soft count)
+        S1_k     = Σ_t γ_tk · x_t              (weighted feature sum)
+        S2_k     = Σ_t γ_tk · x_t x_t^T        (weighted outer-product sum)
+
+    and at finalize() computes:
+
+        µ_k = S1_k / n_k
+        Σ_k = S2_k / n_k − µ_k µ_k^T
+
+    Merge is exact (plain addition of sums), so this works correctly with
+    chunked clustering without any approximation.
+
+    Memory: S2 is K × D × D float64. At K=40, D=512 that is ~84 MB per
+    accumulator instance. Size the cluster rqmt accordingly (≥ 16 GB is
+    safe for the ls-100 setup).
+
+    Only dense 2-D gamma posteriors [T, K] are accepted as posteriors;
+    use MeanAccumulator if hard labels are needed, GaussianAccumulator if
+    hard labels and covariances are needed.
+
+    :param num_clusters: size of the label inventory
+    :param dim: feature dimension; inferred from the first observation if None
+    """
+
+    def __init__(self, num_clusters: int, dim: Optional[int] = None):
+        self.num_clusters = num_clusters
+        self.dim = dim
+        self.counts = np.zeros(num_clusters, dtype=np.float64)
+        if dim is not None:
+            self.weighted_sums = np.zeros((num_clusters, dim), dtype=np.float64)
+            self.weighted_sq = np.zeros((num_clusters, dim, dim), dtype=np.float64)
+        else:
+            self.weighted_sums = None
+            self.weighted_sq = None
+
+    def _ensure(self, dim: int) -> None:
+        if self.weighted_sums is None:
+            self.dim = dim
+            self.weighted_sums = np.zeros((self.num_clusters, dim), dtype=np.float64)
+            self.weighted_sq = np.zeros((self.num_clusters, dim, dim), dtype=np.float64)
+        elif self.dim != dim:
+            raise ValueError(f"feature dim changed: {self.dim} -> {dim}")
+
+    def observe(self, features: np.ndarray, posteriors: Posteriors) -> None:
+        features = np.asarray(features, dtype=np.float64)
+        if features.ndim != 2:
+            raise ValueError(f"features must be 2-D [T, D], got shape {features.shape}")
+        T, D = features.shape
+        self._ensure(D)
+
+        if not (isinstance(posteriors, np.ndarray) and posteriors.ndim == 2):
+            raise ValueError(
+                "SoftGaussianAccumulator requires dense 2-D gamma posteriors [T, K]; "
+                f"got {type(posteriors).__name__} with ndim={getattr(posteriors, 'ndim', '?')}. "
+                "Use GaussianAccumulator for hard-label input."
+            )
+        if posteriors.shape != (T, self.num_clusters):
+            raise ValueError(
+                f"gamma shape {posteriors.shape} != expected ({T}, {self.num_clusters})"
+            )
+
+        gammas = np.asarray(posteriors, dtype=np.float64)
+
+        self.counts += gammas.sum(0)
+        self.weighted_sums += gammas.T @ features  # [K, D]
+
+        # Weighted outer-product sum: S2[k] += Σ_t γ_tk · x_t x_t^T
+        # Loop over K to keep the per-call memory footprint at O(T·D) rather
+        # than O(T·K·D); at K=40 the loop overhead is negligible.
+        for k in range(self.num_clusters):
+            wf = features * gammas[:, k : k + 1]  # [T, D], broadcast weight
+            self.weighted_sq[k] += wf.T @ features  # [D, T] @ [T, D] = [D, D]
+
+    def merge(self, other: "SoftGaussianAccumulator") -> "SoftGaussianAccumulator":
+        if self.num_clusters != other.num_clusters:
+            raise ValueError(
+                f"cluster count mismatch: {self.num_clusters} vs {other.num_clusters}"
+            )
+        if other.weighted_sums is None:
+            return self
+        self._ensure(other.dim)
+        self.counts += other.counts
+        self.weighted_sums += other.weighted_sums
+        self.weighted_sq += other.weighted_sq
+        return self
+
+    def finalize(self, previous: ScoreModel) -> GaussianModel:
+        if self.weighted_sums is None:
+            raise RuntimeError("nothing accumulated; cannot finalize")
+
+        arrays = previous.artifacts()
+        missing = {"centroids", "covs"} - set(arrays)
+        if missing:
+            raise TypeError(
+                f"SoftGaussianAccumulator needs a model with {sorted(missing)}, "
+                f"got {type(previous).__name__} with {sorted(arrays)}"
+            )
+        prev_centroids = np.asarray(arrays["centroids"])
+        prev_covs = np.asarray(arrays["covs"])
+
+        alive = self.counts > 0
+        n = np.where(alive, self.counts, 1.0)  # avoid division by zero; dead rows replaced below
+
+        means = self.weighted_sums / n[:, np.newaxis]  # [K, D]
+        # Σ_k = E[x x^T | k] - µ_k µ_k^T
+        second_moment = self.weighted_sq / n[:, np.newaxis, np.newaxis]  # [K, D, D]
+        mu_outer = means[:, :, np.newaxis] * means[:, np.newaxis, :]     # [K, D, D]
+        covs = second_moment - mu_outer
+        # Symmetrize to correct for floating-point asymmetry in the accumulation.
+        covs = (covs + covs.transpose(0, 2, 1)) / 2
+
+        # Dead clusters keep the previous model's parameters.
+        means[~alive] = prev_centroids[~alive]
+        covs[~alive] = prev_covs[~alive]
+
+        return GaussianModel(means, covs, device=getattr(previous, "device", None))
+
+    def state_dict(self) -> dict:
+        return {
+            "num_clusters": self.num_clusters,
+            "dim": self.dim,
+            "counts": self.counts,
+            "weighted_sums": self.weighted_sums,
+            "weighted_sq": self.weighted_sq,
+        }
+
+    def load_state_dict(self, state: dict) -> "SoftGaussianAccumulator":
+        if int(state["num_clusters"]) != self.num_clusters:
+            raise ValueError(
+                f"cluster count mismatch: {state['num_clusters']} vs {self.num_clusters}"
+            )
+        self.dim = state["dim"]
+        self.counts = np.asarray(state["counts"], dtype=np.float64)
+        self.weighted_sums = (
+            None if state["weighted_sums"] is None
+            else np.asarray(state["weighted_sums"], dtype=np.float64)
+        )
+        self.weighted_sq = (
+            None if state["weighted_sq"] is None
+            else np.asarray(state["weighted_sq"], dtype=np.float64)
+        )
         return self
 
 

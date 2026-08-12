@@ -34,7 +34,8 @@ from .util import segments_to_array, ProgressLogger, TracebackLogger, PoolingReg
 from .pca import PCAUpdater, StreamingPCA
 from .running_update import RunningAverageUpdater, RelativeFrequencyUpdater
 from .statistics import (
-    get_default_logger
+    get_default_logger,
+    get_fb_logger,
 )
 
 from .model import GaussianModelNumpy
@@ -899,7 +900,10 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
         self.score_updater = RunningAverageUpdater(())
         self.score_history = []
 
-        self.statistics_logger = get_default_logger(self.phoneme_map)
+        self.statistics_logger = (
+            get_fb_logger(num_clusters) if use_forward_backward
+            else get_default_logger(self.phoneme_map)
+        )
 
         self.pool = PoolingRegistry.select(
             pooling_function,
@@ -1350,6 +1354,7 @@ class GuidedKMeansClusteringCallback(NnOutputClusteringCallback):
                 # )
 
                 self.score_updater.update_single(log_likelihood)
+                self.statistics_logger.read_soft(phoneme_posteriors, log_likelihood)
                 self.update_centroids_soft(
                     hidden_states=hidden_state_tensor,
                     gammas=phoneme_posteriors,

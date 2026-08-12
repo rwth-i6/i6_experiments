@@ -29,6 +29,7 @@ import numpy as np
 from ..statistics import CounterProtocol
 from ..util import ProgressLogger
 from .interfaces import Accumulator, FeatureSource, Recognizer, ScoreModel
+from .recognizers import FBTracebackItem
 from .stats import merge_counters
 
 
@@ -90,13 +91,19 @@ def run_chunk(
                 f"{len(seq_features)} frames"
             )
         accumulator.observe(seq_features, posteriors)
+        is_fb = traceback and isinstance(traceback[0], FBTracebackItem)
         if counter is not None and traceback:
-            counter.read(traceback)
+            if is_fb and hasattr(counter, "read_gammas"):
+                counter.read_gammas(posteriors, traceback[0].log_likelihood)
+            else:
+                counter.read(traceback)
         if transcribe is not None and hypotheses is not None:
             # Unconditionally, empty traceback included: a sequence the search
             # emitted nothing for is a legitimate empty hypothesis and scoring
             # has to see it as a deletion, not as a missing segment.
-            hypotheses[seq_tag] = transcribe(traceback)
+            # For FB the traceback carries FBTracebackItem, not lemma items —
+            # pass an empty list so transcribe produces the correct empty string.
+            hypotheses[seq_tag] = transcribe([] if is_fb else traceback)
         stats["recognized"] += 1
 
     recognizer.start(on_result)

@@ -21,6 +21,7 @@ import sys
 import numpy as np
 
 from .accumulators import GaussianAccumulator, MeanAccumulator, keep_previous_where_dead
+from .recognizers import RasrFBRecognizer
 from .features import plan_chunks
 from .models import ArtifactModel, EuclideanModel, GaussianModel, load_model, read_manifest
 from .runner import reduce_chunks, run_chunk, save_chunk
@@ -73,6 +74,33 @@ class _StubItem:
 
     def __init__(self, lemma):
         self.lemma = lemma
+
+
+class _StubFBRecognizer:
+    """
+    Replays a fixed gamma matrix [T, K] per tag, so no RASR/librasr is needed
+    for FB tests. Gammas are delivered as-is (already normalized), matching
+    what RasrFBRecognizer._handle outputs after row-normalization.
+    """
+
+    def __init__(self, gammas_table):
+        self.gammas_table = gammas_table  # {seq_tag: np.ndarray [T, K]}
+        self._buffer = []
+        self._cb = None
+
+    def start(self, on_result):
+        self._cb = on_result
+
+    def submit(self, seq_tag, scores):
+        self._buffer.append(seq_tag)
+
+    def drain(self):
+        for seq_tag in self._buffer:
+            self._cb(seq_tag, self.gammas_table[seq_tag], [])
+        self._buffer = []
+
+    def shutdown(self):
+        pass
 
 
 class _StubRecognizer:
@@ -231,6 +259,107 @@ def main() -> int:
             "hypotheses survive chunking, without silence",
             hypotheses == expected_hyps,
             f"{len(hypotheses)} of {num_seqs} sequences",
+        )
+
+    print("MeanAccumulator — dense soft (FB) posteriors")
+    # Soft gammas: each row is a proper probability distribution over clusters.
+    gammas = [rng.dirichlet(np.ones(num_clusters), size=len(f)) for f in feats]
+
+    # Reference: the update update_centroids_soft + RunningAverageUpdater performs.
+    ref_sums = np.zeros((num_clusters, dim), dtype=np.float64)
+    ref_counts = np.zeros(num_clusters, dtype=np.float64)
+    for f, g in zip(feats, gammas):
+        ref_sums += g.T @ f.astype(np.float64)
+        ref_counts += g.sum(0)
+    ref_centroids_soft = np.divide(
+        ref_sums, ref_counts[:, np.newaxis],
+        out=np.zeros_like(ref_sums),
+        where=ref_counts[:, np.newaxis] > 0,
+    )
+    ref_centroids_soft[ref_counts == 0] = previous.centroids[ref_counts == 0]
+
+    soft_acc = MeanAccumulator(num_clusters, dim)
+    for f, g in zip(feats, gammas):
+        soft_acc.observe(f, g)
+    err = np.abs(soft_acc.finalize(previous).centroids - ref_centroids_soft).max()
+    _check("soft observe matches update_centroids_soft reference", err < 1e-10, f"max err {err:.2e}")
+
+    soft_errs = []
+    for chunks in (1, 3, 7, num_seqs):
+        merged = None
+        for part in plan_chunks(lengths, chunks):
+            a = MeanAccumulator(num_clusters, dim)
+            for i in part:
+                a.observe(feats[i], gammas[i])
+            a = MeanAccumulator(num_clusters).load_state_dict(a.state_dict())
+            merged = a if merged is None else merged.merge(a)
+        soft_errs.append(np.abs(merged.finalize(previous).centroids - ref_centroids_soft).max())
+    _check("soft merge associative over chunk counts", max(soft_errs) < 1e-10, f"max err {max(soft_errs):.2e}")
+
+    # Verify that the 2-D branch rejects shape mismatches.
+    bad_cols = MeanAccumulator(num_clusters, dim)
+    try:
+        bad_cols.observe(feats[0], np.ones((len(feats[0]), num_clusters + 1)))
+        _check("wrong gamma column count raises ValueError", False)
+    except ValueError:
+        _check("wrong gamma column count raises ValueError", True)
+
+    print("RasrFBRecognizer._handle — gamma normalization and slicing")
+    # Instantiate without starting the pool; _handle does not touch the executor.
+    fb_rec = RasrFBRecognizer("/nonexistent.config", num_clusters=num_clusters)
+    delivered = []
+    fb_rec._on_result = lambda seq_tag, posteriors, tb: delivered.append((seq_tag, posteriors, tb))
+
+    T = 15
+    raw_gammas = rng.exponential(1.0, size=(T, num_clusters + 3)).astype(np.float64)
+    seq_tag_fb = "test_fb_seq"
+    fb_rec._handle(seq_tag_fb, raw_gammas, log_likelihood=-42.0)
+    assert len(delivered) == 1
+    out_tag, out_gammas, out_tb = delivered[0]
+    _check("_handle: seq_tag passed through", out_tag == seq_tag_fb)
+    _check("_handle: extra RASR label columns stripped", out_gammas.shape == (T, num_clusters))
+    _check("_handle: rows sum to 1 after normalization",
+           np.allclose(out_gammas.sum(axis=1), 1.0, atol=1e-12))
+    _check("_handle: empty traceback passed through", out_tb == [])
+
+    # All-zero row (degenerate sequence) must produce a zero row, not nan.
+    zero_row = np.zeros((T, num_clusters + 3), dtype=np.float64)
+    delivered_zero = []
+    fb_rec._on_result = lambda seq_tag, posteriors, tb: delivered_zero.append(posteriors)
+    fb_rec._handle("zero_seq", zero_row, float("nan"))
+    _check("_handle: all-zero row produces zero row (not nan)",
+           delivered_zero and not np.isnan(delivered_zero[0]).any()
+           and np.all(delivered_zero[0] == 0.0))
+
+    print("FB runner — run_chunk + reduce_chunks")
+    tags_fb = [f"seq{i}" for i in range(num_seqs)]
+    gammas_table = dict(zip(tags_fb, gammas))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        paths_fb = []
+        for chunk_idx, part in enumerate(plan_chunks(lengths, 4)):
+            result = run_chunk(
+                features=_ListSource([(tags_fb[i], feats[i]) for i in part]),
+                model=previous,
+                recognizer=_StubFBRecognizer({tags_fb[i]: gammas[i] for i in part}),
+                accumulator=MeanAccumulator(num_clusters, dim),
+                counter=None,
+                verbosity=0,
+            )
+            path = os.path.join(tmp, f"chunk_fb.{chunk_idx}.pkl")
+            save_chunk(result, path)
+            paths_fb.append(path)
+        model_fb, _stats_fb, totals_fb, _ = reduce_chunks(
+            chunk_paths=paths_fb,
+            accumulator_factory=lambda: MeanAccumulator(num_clusters),
+            previous_model=previous,
+        )
+        err_fb = np.abs(model_fb.centroids - ref_centroids_soft).max()
+        _check("FB run_chunk + reduce_chunks == reference", err_fb < 1e-10, f"max err {err_fb:.2e}")
+        _check(
+            "FB: every sequence recognized exactly once",
+            totals_fb["num_seqs"] == num_seqs and totals_fb["num_recognized"] == num_seqs,
+            str(totals_fb),
         )
 
     print("model artifacts")

@@ -253,6 +253,10 @@ class RecogConfig:
     silence_loop_probability: float = 0.1
     max_beam_size: int = 100_000
     lm_path: str | tk.Path | None = None
+    # Alternative duration parameterisation: set loop_log_odds = β to use
+    # transition_scale=1 with loop_probability = sigmoid(β).  Mutually
+    # exclusive with setting transition_scale / loop_probability explicitly.
+    loop_log_odds: float | None = None
 
 def create_recog_rasr_config(
     lm_scale=3.0,
@@ -269,7 +273,20 @@ def create_recog_rasr_config(
     rasr_binary_path=None,
     corpus=None,
     cheating=False,
+    loop_log_odds=None,
 ):
+    if loop_log_odds is not None:
+        if transition_scale is not None:
+            raise ValueError(
+                "loop_log_odds and transition_scale are mutually exclusive: "
+                "loop_log_odds fixes transition_scale=1 and derives loop_probability "
+                "from the log-odds. Remove one of the two."
+            )
+        p = 1.0 / (1.0 + math.exp(-loop_log_odds))
+        loop_probability = p
+        silence_loop_probability = p
+        transition_scale = 1.0
+
     if transition_scale is None:
         transition_scale = lm_scale
 

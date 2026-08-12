@@ -18,24 +18,14 @@ from i6_experiments.example_setups.guided_kmeans.setup.dataset_config import Dat
 from i6_experiments.example_setups.guided_kmeans.setup.report import create_report
 from i6_experiments.example_setups.guided_kmeans.setup.corpus_setup import phoneme_corpus, setup_corpus
 
+from i6_experiments.example_setups.guided_kmeans.setup.constants import (
+    INPUT_DATA as input_data,
+    FEATURES_LS_CV as _CV_FEATURES,
+    SEGMENTS_LS_CV as _CV_SEGMENTS,
+    RASR_PATH_LIBRASR as rasr_path,
+)
 from i6_experiments.example_setups.guided_kmeans import tools
 
-
-input_data = {
-    "train-clean-100-dbg": {
-        "features": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/features/filtered_features_train-clean-100-dbg.hdf"),
-        "cheating_centroids": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/cheating_centroids/train-clean-100-dbg/centroids.npy"),
-        "segment_file": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/segments_list/train-clean-100-dbg-segments.txt"),
-    },
-    "ls-100": {
-        "features": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/features/wav2vec2_ls100h.hdf"),
-        "cheating_centroids": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/cheating_centroids/centroids.npy"), # computed on the full 960h
-        "segment_file": tk.Path("/u/lkleppel/experiments/20260520_unsupervised_asr/output/segments_list/ls100h-segments.txt"),
-    }
-}
-
-
-rasr_path = tk.Path("/work/asr3/michel/mann/tools/rasr/librasr_recog2/arch/linux-x86_64-standard")
 
 def run():
     corpus_file = phoneme_corpus(setup_corpus("train-clean-100"))
@@ -58,6 +48,13 @@ def run():
     ]
 
     recog_results = []
+    recog_results_cv = []
+
+    cv_dataset_config = DatasetConfig(
+        audio_hdf_path=_CV_FEATURES,
+        sampling_method=SegmentFile(_CV_SEGMENTS),
+        precomputed=True,
+    )
 
     recognition_config_decode = create_recog_rasr_config(
         lm_scale=10000.0,
@@ -147,11 +144,24 @@ def run():
                 dataset_config,
                 rasr_path=rasr_path,
                 device="cpu",
+                corpus_key="train-clean-100",
             )
             tk.register_output(f"guided_kmeans/cheating_lm/recognition/{exp_name}_epoch-{recog_epoch}_per", res.per)
             recog_results.append(res)
 
+            res_cv = decode_and_score(
+                exp_name + f"_cv_epoch-{recog_epoch}", "cv",
+                decode_config,
+                cv_dataset_config,
+                rasr_path=rasr_path,
+                device="cpu",
+                corpus_key="train-other-960",
+            )
+            tk.register_output(f"guided_kmeans/cheating_lm/recognition/{exp_name}_cv_epoch-{recog_epoch}_per", res_cv.per)
+            recog_results_cv.append(res_cv)
+
     tk.register_report(f"guided_kmeans/cheating_lm/recognition/report_{input_data_key}.txt", values=create_report(recog_results), required=True)
+    tk.register_report(f"guided_kmeans/cheating_lm/recognition/report_cv.txt", values=create_report(recog_results_cv), required=True)
 
 
 def py():

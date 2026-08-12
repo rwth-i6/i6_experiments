@@ -12,18 +12,32 @@ Adding an n-best or full-sum recognizer means implementing
 
 from __future__ import annotations
 
-__all__ = ["PhonemeIdxMap", "RasrViterbiRecognizer", "SerialRasrRecognizer"]
+__all__ = ["PhonemeIdxMap", "RasrViterbiRecognizer", "SerialRasrRecognizer", "RasrFBRecognizer", "FBTracebackItem"]
 
 from collections import UserDict
+from dataclasses import dataclass
 from typing import Any, Callable, Iterable, List, Optional
 
 import numpy as np
 
 from i6_core.lib.lexicon import Lexicon
 
-from ..parallel_recognizer import ParallelSegmentRecognizer, PlainTracebackItem
+from ..parallel_recognizer import ParallelFBRecognizer, ParallelSegmentRecognizer, PlainTracebackItem
 from ..util import segments_to_array
 from .interfaces import Posteriors
+
+
+@dataclass
+class FBTracebackItem:
+    """
+    Carries forward-backward metadata through on_result's traceback slot.
+
+    The chunked runner's on_result callback has no separate log_likelihood
+    parameter; this wrapper threads it through traceback[0] for the FB path
+    so FBStatisticsCounter can accumulate it without changing the Recognizer
+    protocol.
+    """
+    log_likelihood: float
 
 
 class PhonemeIdxMap(UserDict):
@@ -107,6 +121,78 @@ class RasrViterbiRecognizer:
     def _handle(self, seq_tag: str, traceback: List[PlainTracebackItem]) -> None:
         assert self._on_result is not None
         self._on_result(seq_tag, traceback_to_labels(traceback, self.phoneme_map), traceback)
+
+    def submit(self, seq_tag: str, scores: np.ndarray) -> None:
+        self._recognizer.submit(seq_tag, scores * self.distance_scale)
+
+    def drain(self) -> None:
+        self._recognizer.drain()
+
+    def shutdown(self) -> None:
+        self._recognizer.shutdown()
+
+
+class RasrFBRecognizer:
+    """
+    Parallel forward-backward recognizer behind the Recognizer protocol.
+
+    Runs recognize_segment_forward_backward() in a worker pool (same spawn
+    infrastructure as RasrViterbiRecognizer) and delivers the soft gamma
+    matrix as the Posteriors value — a plain 2-D numpy array [T, num_clusters].
+
+    The paired accumulator must handle dense gammas; MeanAccumulator does.
+    GaussianAccumulator does not (it requires hard assignments).
+
+    :param recognition_config: RASR config with the FB language model topology
+    :param num_clusters: label inventory size (gamma columns to keep)
+    :param distance_scale: acoustic scale applied to model scores before search
+    :param num_workers: worker processes within this chunk task
+    """
+
+    def __init__(
+        self,
+        recognition_config: str,
+        num_clusters: int,
+        distance_scale: float = 1.0,
+        num_workers: int | None = 8,
+        task_timeout: float | None = 1800.0,
+        per_task_timeout: float | None = None,
+    ):
+        self.recognition_config = recognition_config
+        self.num_clusters = num_clusters
+        self.distance_scale = distance_scale
+        self._recognizer = ParallelFBRecognizer(
+            recognition_config,
+            num_workers=num_workers,
+            task_timeout=task_timeout,
+            per_task_timeout=per_task_timeout,
+        )
+        self._on_result: Optional[Callable[[str, Posteriors, List[Any]], None]] = None
+
+    @property
+    def num_labels(self) -> int:
+        return self.num_clusters
+
+    def start(self, on_result: Callable[[str, Posteriors, List[Any]], None]) -> None:
+        self._on_result = on_result
+        self._recognizer.start(on_result=self._handle)
+
+    def _handle(self, seq_tag: str, gammas: np.ndarray, log_likelihood: float) -> None:
+        assert self._on_result is not None
+        if gammas.shape[0] == 0:
+            # Broken worker — propagate so run_chunk's length check raises cleanly.
+            self._on_result(seq_tag, gammas, [])
+            return
+        # RASR accumulates alpha/beta in float32; per-frame normalization recovers
+        # the correct relative posteriors (same fix as the single-process FB path).
+        phoneme_gammas = gammas[:, :self.num_clusters]
+        row_sums = phoneme_gammas.sum(axis=1, keepdims=True)
+        phoneme_gammas = np.where(
+            row_sums > 1e-30,
+            phoneme_gammas / np.maximum(row_sums, 1e-300),
+            np.zeros_like(phoneme_gammas),
+        )
+        self._on_result(seq_tag, phoneme_gammas, [FBTracebackItem(log_likelihood=log_likelihood)])
 
     def submit(self, seq_tag: str, scores: np.ndarray) -> None:
         self._recognizer.submit(seq_tag, scores * self.distance_scale)

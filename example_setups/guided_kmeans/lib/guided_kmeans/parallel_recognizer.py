@@ -1,5 +1,6 @@
 __all__ = [
     "ParallelSegmentRecognizer",
+    "ParallelFBRecognizer",
     "PlainTracebackItem",
     "RecognizerAborted",
     "collapse_traceback",
@@ -474,6 +475,201 @@ class ParallelSegmentRecognizer:
         # callback (and transitively this recognizer again) into the pickle.
         # Not restorable via unpickling anyway - start(on_result) must be
         # called again regardless, same as the executor.
+        d["_on_result"] = None
+        return d
+
+    def __setstate__(self, d) -> None:
+        self.__dict__ = d
+
+
+def _worker_recognize_fb(
+    seq_tag: str,
+    scaled_distances: np.ndarray,
+    per_task_timeout: float | None = None,
+):
+    global _worker_search_algo
+    _watchdog: threading.Timer | None = None
+    if per_task_timeout is not None:
+        def _kill_self() -> None:
+            print(
+                f"[WORKER-TIMEOUT] pid={os.getpid()} seq={seq_tag!r} exceeded "
+                f"{per_task_timeout:.0f}s — sending SIGKILL to self",
+                flush=True,
+            )
+            os.kill(os.getpid(), signal.SIGKILL)
+        _watchdog = threading.Timer(per_task_timeout, _kill_self)
+        _watchdog.daemon = True
+        _watchdog.start()
+    try:
+        t_start = time.time()
+        result = _worker_search_algo.recognize_segment_forward_backward(scaled_distances)
+        t_end = time.time()
+    finally:
+        if _watchdog is not None:
+            _watchdog.cancel()
+    log_likelihood = float(result["log_likelihood"])
+    gammas = np.asarray(result["label_gammas"], dtype=np.float64)
+    return seq_tag, gammas, log_likelihood, os.getpid(), t_start, t_end
+
+
+class ParallelFBRecognizer:
+    """
+    Wraps a pool of librasr SearchAlgorithm worker processes for parallel
+    recognize_segment_forward_backward() calls.
+
+    Same pool management as ParallelSegmentRecognizer (spawn context,
+    _init_worker, per-task watchdog, max_pending_tasks backpressure, drain
+    in submission order), but delivers soft gamma matrices and log-likelihoods
+    instead of traceback items.
+
+    on_result receives (seq_tag, gammas [T, K], log_likelihood) where gammas
+    are raw float64 forward-backward posteriors (not yet row-normalized).
+    """
+
+    def __init__(
+        self,
+        recognition_config: str,
+        num_workers: int | None = 7,
+        task_timeout: float | None = 1800.0,
+        per_task_timeout: float | None = None,
+        max_pending_tasks: int | None = None,
+    ):
+        self.recognition_config = recognition_config
+        self.num_workers = num_workers
+        self.task_timeout = task_timeout
+        self.per_task_timeout = per_task_timeout
+        self.max_pending_tasks = max_pending_tasks if max_pending_tasks is not None else 4 * (num_workers or 4)
+        self.executor: ProcessPoolExecutor | None = None
+        self.futures: deque[tuple[str, Future]] = deque()
+        self._on_result: Callable[[str, np.ndarray, float], None] | None = None
+
+        self._t_first_submit: float | None = None
+        self._t_last_submit: float | None = None
+        self._task_intervals: list[tuple[int, float, float]] = []
+
+    def start(self, on_result: Callable[[str, np.ndarray, float], None]) -> None:
+        assert self.executor is None, "already started"
+        self._on_result = on_result
+        t0 = time.perf_counter()
+        ctx = multiprocessing.get_context("spawn")
+        self.executor = ProcessPoolExecutor(
+            max_workers=self.num_workers,
+            mp_context=ctx,
+            initializer=_init_worker,
+            initargs=(self.recognition_config,),
+        )
+        print(
+            f"[TIMING] ParallelFBRecognizer: ProcessPoolExecutor constructed in {time.perf_counter() - t0:.3f}s "
+            f"(workers start lazily on first submit())",
+            flush=True,
+        )
+
+    def _hard_abort(self, reason: str) -> NoReturn:
+        print(f"[FATAL] {reason} - killing FB worker pool and aborting.", flush=True)
+        if self.executor is not None:
+            for proc in getattr(self.executor, "_processes", {}).values():
+                proc.kill()
+        raise RecognizerAborted(reason)
+
+    def _drain_one(self) -> bool:
+        assert self._on_result is not None, "call start(on_result) first"
+        seq_tag, future = self.futures.popleft()
+        try:
+            result_seq_tag, gammas, log_likelihood, pid, t_start, t_end = future.result(
+                timeout=self.task_timeout
+            )
+        except BrokenExecutor as e:
+            print(
+                f"[WARNING] FB worker died while processing seq_tag={seq_tag!r}: {e!r} — "
+                f"delivering empty gammas for this sequence.",
+                flush=True,
+            )
+            self._on_result(seq_tag, np.zeros((0, 0), dtype=np.float64), float("nan"))
+            return True
+        except Exception as e:
+            self._hard_abort(
+                f"recognize_segment_forward_backward for seq_tag={seq_tag!r} did not complete "
+                f"within task_timeout={self.task_timeout}s: {e!r}"
+            )
+        assert result_seq_tag == seq_tag
+        self._task_intervals.append((pid, t_start, t_end))
+        self._on_result(seq_tag, gammas, log_likelihood)
+        return False
+
+    def submit(self, seq_tag: str, scaled_distances: np.ndarray) -> None:
+        assert self.executor is not None, "call start() first"
+        t_submit = time.time()
+        if self._t_first_submit is None:
+            self._t_first_submit = t_submit
+        self._t_last_submit = t_submit
+        try:
+            future = self.executor.submit(
+                _worker_recognize_fb, seq_tag, scaled_distances, self.per_task_timeout,
+            )
+        except Exception as e:
+            self._hard_abort(f"submit() for seq_tag={seq_tag!r} failed: {e!r}")
+        self.futures.append((seq_tag, future))
+        while len(self.futures) > self.max_pending_tasks:
+            self._drain_one()
+
+    def drain(self) -> None:
+        assert self.executor is not None, "call start() first"
+        n_pending = len(self.futures)
+        if self._t_first_submit is not None and self._t_last_submit is not None:
+            print(
+                f"[TIMING] FB submission phase (first->last submit): "
+                f"{self._t_last_submit - self._t_first_submit:.3f}s, "
+                f"{n_pending} sequences still pending at drain()",
+                flush=True,
+            )
+        t_drain_start = time.time()
+        had_broken_worker = False
+        n_total = len(self.futures)
+        log_every = 100
+        for i in range(n_total):
+            if self._drain_one():
+                had_broken_worker = True
+            done = i + 1
+            if done % log_every == 0 or done == n_total:
+                elapsed = time.time() - t_drain_start
+                print(
+                    f"[TIMING] FB drain: {done}/{n_total} sequences done, "
+                    f"{elapsed:.1f}s elapsed, {elapsed / done:.2f}s/seq avg",
+                    flush=True,
+                )
+        t_drain_end = time.time()
+        if had_broken_worker:
+            print("[INFO] Restarting FB worker pool after worker death(s).", flush=True)
+            on_result = self._on_result
+            self.shutdown()
+            self.start(on_result)
+        self._t_first_submit = None
+        self._t_last_submit = None
+        task_intervals, self._task_intervals = self._task_intervals, []
+        if task_intervals:
+            busy_time = sum(end - start for _, start, end in task_intervals)
+            span_start = min(start for _, start, _ in task_intervals)
+            span_end = max(end for _, _, end in task_intervals)
+            span = span_end - span_start
+            n_distinct_workers = len({pid for pid, _, _ in task_intervals})
+            print(
+                f"[TIMING] FB drain phase: {t_drain_end - t_drain_start:.3f}s wall, "
+                f"{busy_time:.3f}s summed worker-busy time over {len(task_intervals)} tasks, "
+                f"span={span:.3f}s, distinct worker pids={n_distinct_workers}, "
+                f"concurrency={busy_time / span if span > 0 else float('nan'):.2f}x "
+                f"(expected up to ~{self.num_workers}x if truly parallel)",
+                flush=True,
+            )
+
+    def shutdown(self) -> None:
+        if self.executor is not None:
+            self.executor.shutdown(wait=True)
+            self.executor = None
+
+    def __getstate__(self) -> dict:
+        d = dict(self.__dict__)
+        d["executor"] = None
+        d["futures"] = deque()
         d["_on_result"] = None
         return d
 
