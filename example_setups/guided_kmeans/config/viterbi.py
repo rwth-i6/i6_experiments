@@ -4,7 +4,11 @@ from itertools import product
 
 from sisyphus import tk
 
-from i6_experiments.example_setups.guided_kmeans.setup.constants import INPUT_DATA as input_data
+from i6_experiments.example_setups.guided_kmeans.setup.constants import (
+    INPUT_DATA as input_data,
+    GMM_ALIGNMENT_CV,
+    PHONEME_FREQUENCIES_LS100H,
+)
 from i6_experiments.example_setups.guided_kmeans.setup.chunked_clustering import (
     RandomCentroidsJob,
     chunked_clustering,
@@ -18,6 +22,12 @@ from i6_experiments.example_setups.guided_kmeans.setup.dataset_config import Dat
 from i6_experiments.example_setups.guided_kmeans.setup.report import create_report
 from i6_experiments.example_setups.guided_kmeans.setup.latex_report import LatexTableReport, clustering_statistics
 from i6_experiments.example_setups.guided_kmeans import tools
+from i6_experiments.example_setups.guided_kmeans.setup.centroid_metrics import (
+    CentroidCosineSimilarityJob,
+    PhonemeL1DistanceJob,
+    AverageNamedScoreJob,
+)
+from i6_experiments.example_setups.guided_kmeans.setup.score import FrameErrorRateJob
 
 exp_dir = "viterbi"
 
@@ -121,6 +131,7 @@ def run():
                     recog_rasr_config=recognition_config_decode,
                     distance_scale=decode_distance_scale,
                     subsampling=subsampling,
+                    write_frame_labels=True,
                 )
                 res = decode_and_score(
                     decode_name + f"_epoch-{recog_epoch}",
@@ -131,6 +142,13 @@ def run():
                     device="cpu",
                     corpus_key="train-other-960",
                 )
+                res.mean_cos_sim = CentroidCosineSimilarityJob(exp_result.out_centroids[recog_epoch]).out_mean_cos_sim
+                res.l1_dist = PhonemeL1DistanceJob(exp_result.out_statistics, recog_epoch, PHONEME_FREQUENCIES_LS100H).out_l1_dist
+                res.avg_am_score = AverageNamedScoreJob(exp_result.out_statistics, recog_epoch, "average_am_score").out_avg_score
+                res.avg_transition_score = AverageNamedScoreJob(exp_result.out_statistics, recog_epoch, "average_transition_score").out_avg_score
+                res.avg_lm_score = AverageNamedScoreJob(exp_result.out_statistics, recog_epoch, "average_lm_score").out_avg_score
+                if res.frame_labels is not None:
+                    res.fer = FrameErrorRateJob(res.frame_labels, GMM_ALIGNMENT_CV, lexicon).out_fer
                 tk.register_output(
                     f"guided_kmeans/{exp_dir}/recognition/{decode_name}_epoch-{recog_epoch}_per",
                     res.per,

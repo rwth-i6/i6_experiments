@@ -35,8 +35,9 @@ CHEATING_CENTROIDS_LS960 = tk.Path(f"{_CENTROIDS_BASE}/centroids.npy")
 # Covariances
 CHEATING_COVS = tk.Path(f"{_DANIEL_BASE}/covs.npy")
 
-# --- GMM alignment (train-clean-100-dbg) ---
+# --- GMM alignments ---
 GMM_ALIGNMENT_DBG = tk.Path(f"{_CENTROIDS_BASE}/train-clean-100-dbg/alignments.pkl")
+GMM_ALIGNMENT_CV = tk.Path(f"{_CENTROIDS_BASE}/ls-cv/alignments.pkl")
 
 # --- Phoneme frequency reference ---
 PHONEME_FREQUENCIES_LS100H = tk.Path(
