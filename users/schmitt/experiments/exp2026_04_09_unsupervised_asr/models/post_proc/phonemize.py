@@ -24,6 +24,8 @@ class PhonemizeAndInsertSilence:
         vocab_opts: Dict,
         min_num_sil: int = 1,
         max_num_sil: int = 1,
+        min_num_surround_sil: int = 1,
+        max_num_surround_sil: int = 1,
         **unused_kwargs,
     ):
         """ """
@@ -37,6 +39,10 @@ class PhonemizeAndInsertSilence:
         assert min_num_sil >= 1 and max_num_sil >= min_num_sil
         self.min_num_sil = min_num_sil
         self.max_num_sil = max_num_sil
+
+        assert min_num_surround_sil >= 1 and max_num_surround_sil >= min_num_surround_sil
+        self.min_num_surround_sil = min_num_surround_sil
+        self.max_num_surround_sil = max_num_surround_sil
 
         self.wrd_to_phn = {}
 
@@ -84,7 +90,8 @@ class PhonemizeAndInsertSilence:
 
         phones_w_sil = []
         if self.surround_w_sil:
-            phones_w_sil.append(sil)
+            num_sil = np.random.randint(self.min_num_surround_sil, self.max_num_surround_sil + 1)
+            phones_w_sil += [sil] * num_sil
 
         sample_sil_probs = None
         if self.sil_prob > 0 and len(words) > 1:
