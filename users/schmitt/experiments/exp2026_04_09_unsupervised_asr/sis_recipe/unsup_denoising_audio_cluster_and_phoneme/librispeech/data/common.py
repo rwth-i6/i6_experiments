@@ -24,19 +24,26 @@ def _get_phonemize_post_proc_func(
     max_num_sil: int,
     lexicon_file: tk.Path,
     phoneme_datastream,
+    min_num_surround_sil: int = 1,
+    max_num_surround_sil: int = 1,
 ):
+    hashed_args = {
+        "sil_prob": sil_prob,
+        "surround_w_sil": surround_w_sil,
+        "lexicon_file": lexicon_file,
+        "target_key": "data",
+        "new_target_key": "data_w_sil",
+        "vocab_opts": phoneme_datastream.as_returnn_targets_opts(),
+        "min_num_sil": min_num_sil,
+        "max_num_sil": max_num_sil,
+    }
+    if min_num_surround_sil != 1:
+        hashed_args["min_num_surround_sil"] = min_num_surround_sil
+    if max_num_surround_sil != 1:
+        hashed_args["max_num_surround_sil"] = max_num_surround_sil
     return CallImport(
         code_object_path="i6_experiments.users.schmitt.experiments.exp2026_04_09_unsupervised_asr.models.post_proc.phonemize.PhonemizeAndInsertSilence",
-        hashed_arguments={
-            "sil_prob": sil_prob,
-            "surround_w_sil": surround_w_sil,
-            "lexicon_file": lexicon_file,
-            "target_key": "data",
-            "new_target_key": "data_w_sil",
-            "vocab_opts": phoneme_datastream.as_returnn_targets_opts(),
-            "min_num_sil": min_num_sil,
-            "max_num_sil": max_num_sil,
-        },
+        hashed_arguments=hashed_args,
         unhashed_package_root=None,
         unhashed_arguments={},
     )
@@ -184,6 +191,8 @@ def build_training_datasets_w_silence_in_input(
     surround_w_sil: bool = True,
     min_num_sil: int = 1,
     max_num_sil: int = 3,
+    min_num_surround_sil: int = 1,
+    max_num_surround_sil: int = 1,
 ):
     _, clusters_960, pca_960, clusters_960_hdfs = audio.get_featurized_audio(
         librispeech_key="train-other-960",
@@ -260,6 +269,8 @@ def build_training_datasets_w_silence_in_input(
         lexicon_file=lexicon_file,
         min_num_sil=min_num_sil,
         max_num_sil=max_num_sil,
+        min_num_surround_sil=min_num_surround_sil,
+        max_num_surround_sil=max_num_surround_sil,
         phoneme_datastream=phoneme_datastream,
     )
 
@@ -488,6 +499,8 @@ def build_test_datasets_w_silence_in_input(
     surround_w_sil: bool = True,
     min_num_sil: int = 1,
     max_num_sil: int = 3,
+    min_num_surround_sil: int = 1,
+    max_num_surround_sil: int = 1,
 ):
     _, clusters_960, pca_960, _ = audio.get_featurized_audio(
         librispeech_key="train-other-960",
@@ -531,12 +544,14 @@ def build_test_datasets_w_silence_in_input(
         lexicon_file=lexicon_file,
         min_num_sil=min_num_sil,
         max_num_sil=max_num_sil,
+        min_num_surround_sil=min_num_surround_sil,
+        max_num_surround_sil=max_num_surround_sil,
         phoneme_datastream=phoneme_datastream,
     )
 
     map_outputs = {
-        "data": phoneme_datastream.as_returnn_extern_data_opts(),
-        "data_w_sil": phoneme_datastream.as_returnn_extern_data_opts(),
+        "data": phoneme_datastream.as_returnn_extern_data_opts(available_for_inference=True),
+        "data_w_sil": phoneme_datastream.as_returnn_extern_data_opts(available_for_inference=True),
     }
 
     return {
