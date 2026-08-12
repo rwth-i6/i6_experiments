@@ -1,34 +1,28 @@
 __all__ = [
-    "FFNNTransducerQATEncoderConfig",
-    "FFNNTransducerQATEncoderRecogConfig",
-    "FFNNTransducerQATEncoderModel",
-    "FFNNTransducerQATEncoder",
-    "FFNNTransducerQATEncoderScorer",
+    "FFNNTransducerConfig",
+    "FFNNTransducerRecogConfig",
+    "FFNNTransducerModel",
+    "FFNNTransducerEncoder",
+    "FFNNTransducerScorer",
 ]
 
 from dataclasses import dataclass
-from typing import Tuple, Union, Optional, Literal, Dict, List, Callable
+from typing import Tuple
 
 import torch
-
-from ..common.assemblies.conformer import ConformerEncoderQuant, ConformerEncoderQuantV1Config
-
+from i6_models.assemblies.conformer import ConformerRelPosEncoderV1, ConformerRelPosEncoderV1Config
 from i6_models.config import ModelConfiguration
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
 from i6_models.primitives.specaugment import specaugment_v1_by_length
 
 from ..common.pytorch_modules import SpecaugmentByLengthConfig, lengths_to_padding_mask
 
-from synaptogen_ml.memristor_modules import DacAdcHardwareSettings
-from synaptogen_ml.memristor_modules.config import CycleCorrectionSettings
-
-
 
 @dataclass
-class FFNNTransducerQATEncoderConfig(ModelConfiguration):
+class FFNNTransducerConfig(ModelConfiguration):
     logmel_cfg: LogMelFeatureExtractionV1Config
     specaug_cfg: SpecaugmentByLengthConfig
-    conformer_cfg: ConformerEncoderQuantV1Config
+    conformer_cfg: ConformerRelPosEncoderV1Config
     enc_dim: int
     pred_num_layers: int
     pred_dim: int
@@ -40,80 +34,21 @@ class FFNNTransducerQATEncoderConfig(ModelConfiguration):
     joiner_activation: torch.nn.Module
     target_size: int
 
-    def __sis_state__(self):
-        import dataclasses, torch
-        from sisyphus import tk
-
-        def _sanitize(v):
-            if isinstance(v, torch.dtype):
-                return str(v)
-            if isinstance(v, tk.Path):
-                return v                 # keep for path extraction
-            if dataclasses.is_dataclass(v):
-                return {f.name: _sanitize(getattr(v, f.name)) for f in dataclasses.fields(v)}
-            if isinstance(v, dict):
-                return {k: _sanitize(x) for k, x in v.items()}
-            if isinstance(v, (list, tuple)):
-                return type(v)(_sanitize(x) for x in v)
-            return v
-
-        return {f.name: _sanitize(getattr(self, f.name)) for f in dataclasses.fields(self)}
-
-    def __sis_hash__(self):
-        return str(type(self))
-
-    def with_replaced(self, **kwargs):
-        import dataclasses
-
-        consumed = set()
-
-        def _recurse(obj):
-            # 1. Handle lists and tuples
-            if isinstance(obj, (list, tuple)):
-                new_seq = type(obj)(_recurse(v) for v in obj)
-                if any(old is not new for old, new in zip(obj, new_seq)):
-                    return new_seq
-                return obj
-
-            # 2. Base case: not a dataclass
-            if not dataclasses.is_dataclass(obj):
-                return obj
-
-            # 3. Handle dataclasses
-            changes = {}
-            for f in dataclasses.fields(obj):
-                val = getattr(obj, f.name)
-                if f.name in kwargs:
-                    changes[f.name] = kwargs[f.name]
-                    consumed.add(f.name)
-                else:
-                    new_val = _recurse(val)
-                    if new_val is not val:
-                        changes[f.name] = new_val
-            if changes:
-                return dataclasses.replace(obj, **changes)
-            return obj
-
-        result = _recurse(self)
-        unconsumed = set(kwargs) - consumed
-        assert not unconsumed, f"with_replaced: keys not found in config tree: {unconsumed}"
-        return result
-
 
 @dataclass
-class FFNNTransducerQATEncoderRecogConfig(FFNNTransducerQATEncoderConfig):
+class FFNNTransducerRecogConfig(FFNNTransducerConfig):
     ilm_scale: float
     blank_penalty: float
 
 
-class FFNNTransducerQATEncoderModel(torch.nn.Module):
-    def __init__(self, cfg: FFNNTransducerQATEncoderConfig, **_):
+class FFNNTransducerModel(torch.nn.Module):
+    def __init__(self, cfg: FFNNTransducerConfig, **_):
         super().__init__()
         self.target_size = cfg.target_size
 
         self.feature_extraction = LogMelFeatureExtractionV1(cfg.logmel_cfg)
         self.specaug_config = cfg.specaug_cfg
-        self.conformer = ConformerEncoderQuant(cfg.conformer_cfg)
+        self.conformer = ConformerRelPosEncoderV1(cfg.conformer_cfg)
 
         self.encoder_output = torch.nn.Sequential(
             torch.nn.Dropout(cfg.dropout),
@@ -145,9 +80,6 @@ class FFNNTransducerQATEncoderModel(torch.nn.Module):
             torch.nn.Dropout(cfg.dropout),
             torch.nn.Linear(cfg.joiner_dim, self.target_size),
         )
-
-    def prep_quant(self):
-        self.conformer.prep_quant()
 
     def forward_encoder(
         self,
@@ -238,8 +170,8 @@ class FFNNTransducerQATEncoderModel(torch.nn.Module):
         return joint_output
 
 
-class FFNNTransducerQATEncoder(FFNNTransducerQATEncoderModel):
-    def __init__(self, cfg: FFNNTransducerQATEncoderConfig, **_):
+class FFNNTransducerEncoder(FFNNTransducerModel):
+    def __init__(self, cfg: FFNNTransducerConfig, **_):
         super().__init__(cfg=cfg)
         self.enc_output_indices = []
 
@@ -252,11 +184,12 @@ class FFNNTransducerQATEncoder(FFNNTransducerQATEncoderModel):
         return encoder_states  # [B, T', E]
 
 
-class FFNNTransducerQATEncoderScorer(FFNNTransducerQATEncoderModel):
-    def __init__(self, cfg: FFNNTransducerQATEncoderRecogConfig, **_):
+class FFNNTransducerScorer(FFNNTransducerModel):
+    def __init__(self, cfg: FFNNTransducerRecogConfig, **_):
         super().__init__(cfg=cfg)
         self.ilm_scale = cfg.ilm_scale
         self.blank_penalty = cfg.blank_penalty
+        print("constructed scorer with ilm_scale={} and blank_penalty={}".format(self.ilm_scale, self.blank_penalty))
 
     def forward(
         self,

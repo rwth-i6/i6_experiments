@@ -10,7 +10,7 @@ import pprint
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from time import perf_counter
-from typing import Iterator, List, Optional, Protocol
+from typing import Iterator, List, Optional, Protocol, Tuple, Union
 
 import numpy as np
 import torch
@@ -28,7 +28,6 @@ from ...tools import rasr_binary_path, returnn_python_exe, returnn_root
 from .corpus import ScorableCorpus
 from .serializers import recipe_imports
 from .pyscorers import register_pyscorers
-from .memrecog import MemristorModelConversionJob
 
 # =============================
 # ======== Dataclasses ========
@@ -40,9 +39,12 @@ class RecogResult:
     descriptor: str
     corpus_name: str
     wer: Optional[tk.Variable]
+    num_errors: Optional[tk.Variable]
+    num_correct: Optional[tk.Variable]
     deletion: Optional[tk.Variable]
     insertion: Optional[tk.Variable]
     substitution: Optional[tk.Variable]
+    ref_words: Optional[tk.Variable]
     search_error_rate: Optional[tk.Variable]
     model_error_rate: Optional[tk.Variable]
     correct_rate: Optional[tk.Variable]
@@ -58,9 +60,23 @@ class RecogResult:
 
 
 @dataclass
+class MemristorRecogResult:
+    descriptor: str
+    corpus_name: str
+    average_wer: Optional[tk.Variable]
+    stddev_wer: Optional[tk.Variable]
+    min_wer: Optional[tk.Variable]
+    max_wer: Optional[tk.Variable]
+    average_total_rtf: Optional[tk.Variable]
+    average_enc_rtf: Optional[tk.Variable]
+    average_search_rtf: Optional[tk.Variable]
+
+
+@dataclass
 class OfflineRecogParameters:
     mem_rqmt: int = 16
     gpu_mem_rqmt: int = 0
+    batched_decoder: bool = False
 
 
 @dataclass
@@ -71,6 +87,7 @@ class StreamingRecogParameters:
     chunk_future_seconds: float = 1.0
     mem_rqmt: int = 16
     gpu_mem_rqmt: int = 0
+    batched_decoder: bool = False
 
 
 def recog_rasr_offline(
@@ -139,6 +156,37 @@ def recog_rasr_offline(
         )
         forward_step_kwargs.append(("align_rasr_config_file", DelayedFormat('tk.Path("{}")', align_rasr_config_file)))
 
+    if params.batched_decoder:
+        decoder_epilog = [
+            Import(
+                f"{OfflineSearchCallback.__module__}.{OfflineSearchCallback.__name__}",
+                import_as="forward_callback",
+            ),
+            Import(
+                f"{OfflineRasrRecogForwardStepV2.__module__}.{OfflineRasrRecogForwardStepV2.__name__}",
+            ),
+            Call(
+                OfflineRasrRecogForwardStepV2.__name__,
+                kwargs=forward_step_kwargs,
+                return_assign_variables="forward_step",
+            ),
+            "print('batched_decoder_test')",
+        ]
+    else:
+        decoder_epilog = [
+            Import(
+                f"{OfflineSearchCallback.__module__}.{OfflineSearchCallback.__name__}",
+                import_as="forward_callback",
+            ),
+            Import(
+                f"{OfflineRasrRecogForwardStep.__module__}.{OfflineRasrRecogForwardStep.__name__}",
+            ),
+            Call(
+                OfflineRasrRecogForwardStep.__name__,
+                kwargs=forward_step_kwargs,
+                return_assign_variables="forward_step",
+            ),
+        ]
     recog_returnn_config = ReturnnConfig(
         config={
             "extern_data": {
@@ -154,20 +202,7 @@ def recog_rasr_offline(
             encoder_serializers,
             Import("sisyphus.tk"),
         ]
-        + [
-            Import(
-                f"{OfflineSearchCallback.__module__}.{OfflineSearchCallback.__name__}",
-                import_as="forward_callback",
-            ),
-            Import(
-                f"{OfflineRasrRecogForwardStep.__module__}.{OfflineRasrRecogForwardStep.__name__}",
-            ),
-            Call(
-                OfflineRasrRecogForwardStep.__name__,
-                kwargs=forward_step_kwargs,
-                return_assign_variables="forward_step",
-            ),
-        ],  # type: ignore
+        + decoder_epilog,  # type: ignore
         sort_config=False,
     )
 
@@ -249,9 +284,12 @@ def recog_rasr_offline(
         descriptor=descriptor,
         corpus_name=recog_corpus.corpus_name,
         wer=score_job.out_wer,
+        num_correct=score_job.out_num_correct,
+        num_errors=score_job.out_num_errors,
         deletion=score_job.out_percent_deletions,
         insertion=score_job.out_percent_insertions,
         substitution=score_job.out_percent_substitution,
+        ref_words=score_job.out_ref_words,
         search_error_rate=search_error_job.out_search_error_rate if compute_search_errors else None,
         model_error_rate=search_error_job.out_model_error_rate if compute_search_errors else None,
         correct_rate=search_error_job.out_correct_rate if compute_search_errors else None,
@@ -401,9 +439,82 @@ def recog_rasr_streaming(
     )
 
 
+def post_recog_memristor_offline(
+    descriptor: str, recog_corpus: ScorableCorpus, recog_results: List[RecogResult]
+) -> MemristorRecogResult:
+    extract_stats_job = ExtractMemristorRecogStatsJob(recog_results=recog_results)
+
+    output_dir = f"recognition/{descriptor}/{recog_corpus.corpus_name}/memristor_stats"
+    extract_stats_job.add_alias(f"recognition/memristor/{descriptor}/{recog_corpus.corpus_name}")
+    tk.register_output(f"{output_dir}/average_wer", extract_stats_job.out_average_wer)
+    tk.register_output(f"{output_dir}/stddev_wer", extract_stats_job.out_stddev_wer)
+    tk.register_output(f"{output_dir}/min_wer", extract_stats_job.out_min_wer)
+    tk.register_output(f"{output_dir}/max_wer", extract_stats_job.out_max_wer)
+    tk.register_output(f"{output_dir}/average_total_rtf", extract_stats_job.out_average_total_rtf)
+    tk.register_output(f"{output_dir}/average_enc_rtf", extract_stats_job.out_average_enc_rtf)
+    tk.register_output(f"{output_dir}/average_search_rtf", extract_stats_job.out_average_search_rtf)
+
+    return MemristorRecogResult(
+        descriptor=descriptor,
+        corpus_name=recog_corpus.corpus_name,
+        average_wer=extract_stats_job.out_average_wer,
+        stddev_wer=extract_stats_job.out_stddev_wer,
+        min_wer=extract_stats_job.out_min_wer,
+        max_wer=extract_stats_job.out_max_wer,
+        average_total_rtf=extract_stats_job.out_average_total_rtf,
+        average_enc_rtf=extract_stats_job.out_average_enc_rtf,
+        average_search_rtf=extract_stats_job.out_average_search_rtf,
+    )
+
+
 # =============================
 # ========== Helpers ==========
 # =============================
+
+
+class ExtractMemristorRecogStatsJob(Job):
+    def __init__(self, recog_results: List[RecogResult]) -> None:
+        self.recog_results = recog_results
+        self.out_average_wer = self.output_var("average_wer")
+        self.out_stddev_wer = self.output_var("stddev_wer")
+        self.out_min_wer = self.output_var("min_wer")
+        self.out_max_wer = self.output_var("max_wer")
+        self.out_average_total_rtf = self.output_var("average_total_rtf")
+        self.out_average_enc_rtf = self.output_var("average_enc_rtf")
+        self.out_average_search_rtf = self.output_var("average_search_rtf")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", mini_task=True)
+
+    def run(self) -> None:
+        wer_values = [
+            100 * float(result.num_errors.get()) / float(result.ref_words.get())
+            for result in self.recog_results
+            if result.wer.get() is not None
+        ]
+
+        total_rtf_values = [float(result.total_rtf.get()) for result in self.recog_results]
+        enc_rtf_values = [float(result.enc_rtf.get()) for result in self.recog_results]
+        search_rtf_values = [float(result.search_rtf.get()) for result in self.recog_results]
+
+        average_wer = float(np.mean(wer_values))
+        stddev_wer = float(np.std(wer_values))
+        min_wer = float(np.min(wer_values))
+        max_wer = float(np.max(wer_values))
+
+        average_total_rtf = float(np.mean(total_rtf_values))
+        average_enc_rtf = float(np.mean(enc_rtf_values))
+        average_search_rtf = float(np.mean(search_rtf_values))
+
+        self.out_average_wer.set(average_wer)
+        self.out_stddev_wer.set(stddev_wer)
+        self.out_min_wer.set(min_wer)
+        self.out_max_wer.set(max_wer)
+        self.out_average_wer.set(average_wer)
+        self.out_stddev_wer.set(stddev_wer)
+        self.out_average_total_rtf.set(average_total_rtf)
+        self.out_average_enc_rtf.set(average_enc_rtf)
+        self.out_average_search_rtf.set(average_search_rtf)
 
 
 class ExtractSearchErrorDataJob(Job):
@@ -517,6 +628,7 @@ class TracebackItem(Protocol):
     confidence_score: Optional[float]
     start_time: int
     end_time: int
+
 
 def _samples_to_frames(n_samples: int, sample_rate: int, frame_shift_seconds: float) -> int:
     return int(np.round(n_samples / (sample_rate * frame_shift_seconds)))
@@ -773,7 +885,9 @@ class StreamingSearchCallback(SearchCallback):
 
 
 class EncoderModel(Protocol):
-    def forward(self, audio_samples: torch.Tensor, audio_samples_size: torch.Tensor) -> torch.Tensor: ...
+    def forward(
+        self, audio_samples: torch.Tensor, audio_samples_size: torch.Tensor
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]: ...
 
 
 class RasrRecogForwardStep(ABC):
@@ -857,7 +971,13 @@ class OfflineRasrRecogForwardStep(RasrRecogForwardStep):
             seq_samples = audio_samples[b : b + 1, : seq_samples_size[0]]  # [1, T, 1]
 
             encoder_start = perf_counter()
-            encoder_states = model.forward(seq_samples, seq_samples_size)
+
+            model_output = model.forward(seq_samples, seq_samples_size)
+            if isinstance(model_output, (tuple, list)):
+                encoder_states, _ = model_output
+            else:
+                encoder_states = model_output
+
             encoder_time = perf_counter() - encoder_start
             encoder_times.append(encoder_time)
 
@@ -893,6 +1013,181 @@ class OfflineRasrRecogForwardStep(RasrRecogForwardStep):
 
             if self.aligner is not None:
                 align_traceback = self.aligner.align_segment(features=encoder_states, orth=orths[b] + " ")
+                recog_transcription = _traceback_to_transcription(traceback)
+                align_transcription = _traceback_to_transcription(align_traceback)
+
+                recog_score = _traceback_to_score(traceback)
+                align_score = _traceback_to_score(align_traceback)
+
+                if align_transcription != orths[b]:
+                    print("    Could not successfully compute forced alignment. Transcription may contain OOV words.")
+                    skipped.append(1)
+                    search_errors.append(0)
+                    model_errors.append(0)
+                    correct.append(0)
+                elif recog_transcription == orths[b]:
+                    print("    Correct transcription found.")
+                    skipped.append(0)
+                    search_errors.append(0)
+                    model_errors.append(0)
+                    correct.append(1)
+                elif align_score < recog_score:
+                    print(
+                        f"    Encountered search error. Forced alignment has score {align_score} while search has score {recog_score}"
+                    )
+                    skipped.append(0)
+                    search_errors.append(1)
+                    model_errors.append(0)
+                    correct.append(0)
+                else:
+                    print(
+                        f"    Encountered model error. Forced alignment has score {align_score} while search has score {recog_score}"
+                    )
+                    skipped.append(0)
+                    search_errors.append(0)
+                    model_errors.append(1)
+                    correct.append(0)
+
+        import returnn.frontend as rf
+
+        run_ctx = rf.get_run_ctx()
+
+        ctm_string_tensor = Tensor(
+            name="ctm_string",
+            dtype="string",
+            raw_tensor=np.array(ctm_strs, dtype="U"),
+            feature_dim_axis=None,
+            time_dim_axis=None,
+        )
+        run_ctx.mark_as_output(ctm_string_tensor, name="ctm_string")
+
+        if len(search_errors) > 0:
+            search_errors_tensor = Tensor(
+                name="search_errors",
+                dtype="int32",
+                raw_tensor=np.array(search_errors, dtype=np.int32),
+                feature_dim_axis=None,
+                time_dim_axis=None,
+            )
+            run_ctx.mark_as_output(search_errors_tensor, name="search_errors")
+
+            model_errors_tensor = Tensor(
+                name="model_errors",
+                dtype="int32",
+                raw_tensor=np.array(model_errors, dtype=np.int32),
+                feature_dim_axis=None,
+                time_dim_axis=None,
+            )
+            run_ctx.mark_as_output(model_errors_tensor, name="model_errors")
+
+            skipped_tensor = Tensor(
+                name="skipped",
+                dtype="int32",
+                raw_tensor=np.array(skipped, dtype=np.int32),
+                feature_dim_axis=None,
+                time_dim_axis=None,
+            )
+            run_ctx.mark_as_output(skipped_tensor, name="skipped")
+
+            correct_tensor = Tensor(
+                name="correct",
+                dtype="int32",
+                raw_tensor=np.array(correct, dtype=np.int32),
+                feature_dim_axis=None,
+                time_dim_axis=None,
+            )
+            run_ctx.mark_as_output(correct_tensor, name="correct")
+
+        enc_time_tensor = Tensor(
+            name="enc_time",
+            dtype="float32",
+            raw_tensor=np.array(encoder_times, dtype=np.float32),
+            feature_dim_axis=None,
+            time_dim_axis=None,
+        )
+        run_ctx.mark_as_output(enc_time_tensor, name="enc_time")
+
+        audio_time_tensor = Tensor(
+            name="audio_time",
+            dtype="float32",
+            raw_tensor=audio_samples_size / self.sample_rate,
+            feature_dim_axis=None,
+            time_dim_axis=None,
+        )
+        run_ctx.mark_as_output(audio_time_tensor, name="audio_time")
+
+        search_time_tensor = Tensor(
+            name="search_time",
+            dtype="float32",
+            raw_tensor=np.array(search_times, dtype=np.float32),
+            feature_dim_axis=None,
+            time_dim_axis=None,
+        )
+        run_ctx.mark_as_output(search_time_tensor, name="search_time")
+
+
+class OfflineRasrRecogForwardStepV2(RasrRecogForwardStep):
+    def __call__(self, *, model: EncoderModel, extern_data: TensorDict, **_) -> None:
+        assert self.search_algorithm is not None
+
+        raw_data = extern_data.as_raw_tensor_dict()
+        audio_samples = raw_data["data"]
+        audio_samples_size = raw_data["data:size1"].to(device=audio_samples.device)
+        orths = raw_data["raw"]
+        seq_tags = raw_data["seq_tag"]
+
+        B = audio_samples.size(0)
+
+        ctm_strs = []
+
+        search_errors = []
+        model_errors = []
+        skipped = []
+        correct = []
+
+        encoder_start = perf_counter()
+        encoder_states, encoder_states_len = model.forward(audio_samples, audio_samples_size)  # [B, T, V]
+        encoder_time = perf_counter() - encoder_start
+        encoder_states = encoder_states.to(device="cpu")
+
+        enc_time_per_seq = encoder_time / B
+        encoder_times = [enc_time_per_seq for _ in range(B)]
+        search_times = []
+
+        for b in range(B):
+            seq_samples_size_b = audio_samples_size[b]
+            T_b = int(encoder_states_len[b])
+            es = encoder_states[b : b + 1, :T_b]
+            ms_per_enc_frame = round(seq_samples_size_b.item() / T_b / self.sample_rate * 1000)  # per-seq, like V1
+
+            seq_time = _samples_to_seconds(seq_samples_size_b, self.sample_rate)
+
+            search_start = perf_counter()
+
+            traceback = self.search_algorithm.recognize_segment(features=es)
+            search_time = perf_counter() - search_start
+            search_times.append(search_time)
+
+            print(f"Recognized sequence {repr(seq_tags[b])}")
+            print(f'    Ground truth: "{orths[b]}"', flush=True)
+            print(f'    Recognized: "{_traceback_to_transcription(traceback)}"')
+            print("    Traceback:")
+            for item in traceback:
+                # if item.lemma.startswith("<") or item.lemma.startswith("["):
+                #     continue
+                print(f"        {repr(item)}")
+            print(
+                f"    Encoder time: {enc_time_per_seq:.3f} seconds, RTF {enc_time_per_seq / seq_time:.3f}, XRTF {seq_time / enc_time_per_seq:.3f}"
+            )
+            print(
+                f"    Search time: {search_time:.3f} seconds, RTF {search_time / seq_time:.3f}, XRTF {seq_time / search_time:.3f}"
+            )
+            print()
+
+            ctm_strs.append(_traceback_to_ctm_str(traceback, ms_per_enc_frame))
+
+            if self.aligner is not None:
+                align_traceback = self.aligner.align_segment(features=es, orth=orths[b] + " ")
                 recog_transcription = _traceback_to_transcription(traceback)
                 align_transcription = _traceback_to_transcription(align_traceback)
 
@@ -1075,10 +1370,11 @@ class StreamingRasrRecogForwardStep(RasrRecogForwardStep):
 
                 encoder_start = perf_counter()
 
-                encoder_states = model.forward(
-                    seq_samples[:, chunk_start_sample:chunk_end_sample],
-                    torch.tensor([chunk_end_sample - chunk_start_sample], device=audio_samples_size.device),
-                )
+                model_output = model.forward(seq_samples, seq_samples_size)
+                if isinstance(model_output, (tuple, list)):
+                    encoder_states, _ = model_output
+                else:
+                    encoder_states = model_output
 
                 ms_per_enc_frame = round(
                     ((chunk_end_sample - chunk_start_sample) / encoder_states.size(1)) / self.sample_rate * 1000

@@ -1,7 +1,7 @@
 __all__ = ["BaseRecogVariant", "run_single_bpe_variant", "run_single_phoneme_variant"]
 
 from dataclasses import dataclass, field, replace
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
 
 from i6_core.rasr import RasrConfig
 from i6_core.returnn import PtCheckpoint
@@ -13,10 +13,14 @@ from ....data.librispeech import lm as librispeech_lm
 from ....data.librispeech.bpe import get_bpe_vocab_file
 from ....data.librispeech.lexicon import get_bliss_phoneme_lexicon, get_bpe_bliss_lexicon
 from ....data.librispeech.recog import LibrispeechTreeTimesyncRecogParams
+from ....data.base import DataConfig
+from ....model_pipelines.common.corpus import ScorableCorpus
 from ....model_pipelines.common.recog import (
+    MemristorRecogResult,
     OfflineRecogParameters,
     RecogResult,
     StreamingRecogParameters,
+    post_recog_memristor_offline,
     recog_rasr_offline,
     recog_rasr_streaming,
 )
@@ -39,6 +43,10 @@ class BaseRecogVariant:
         default_factory=OfflineRecogParameters
     )
     compute_search_errors: bool = False
+    num_cycles: Optional[int] = None
+
+
+RecogVariantResult = Union[List[RecogResult], Tuple[int, List[RecogResult]]]
 
 
 def run_single_bpe_variant(
@@ -51,7 +59,7 @@ def run_single_bpe_variant(
     sentence_end_index: Optional[int],
     variant: BaseRecogVariant,
     corpora: List[librispeech_datasets.EvalSet],
-) -> List[RecogResult]:
+) -> RecogVariantResult:
     use_blank = blank_index is not None
     use_sentence_end = sentence_end_index is not None
     vocab_file = get_bpe_vocab_file(bpe_size=bpe_size, add_blank=use_blank)
@@ -80,7 +88,7 @@ def run_single_phoneme_variant(
     sentence_end_index: Optional[int],
     variant: BaseRecogVariant,
     corpora: List[librispeech_datasets.EvalSet],
-) -> List[RecogResult]:
+) -> RecogVariantResult:
     assert not isinstance(variant.search_algorithm_params, LexiconfreeTimesyncRecogParams)
     assert not isinstance(variant.search_algorithm_params, LexiconfreeLabelsyncRecogParams)
     lexicon_file = get_bliss_phoneme_lexicon()
@@ -110,7 +118,7 @@ def _run_single_variant(
     sentence_end_index: Optional[int],
     variant: BaseRecogVariant,
     corpora: List[librispeech_datasets.EvalSet],
-) -> List[RecogResult]:
+) -> RecogVariantResult:
     if isinstance(variant.search_algorithm_params, LexiconfreeLabelsyncRecogParams):
         assert vocab_file is not None
         if variant.compute_search_errors:
@@ -176,30 +184,76 @@ def _run_single_variant(
         recog_data = librispeech_datasets.get_default_recog_data(corpus)
         score_corpus = librispeech_datasets.get_default_score_corpus(corpus)
 
-        if isinstance(variant.search_mode_params, OfflineRecogParameters):
-            recog_result = recog_rasr_offline(
-                descriptor=f"{model_descriptor}__recog_{variant.descriptor}",
-                checkpoint=checkpoint,
-                recog_rasr_config_file=recog_config,
-                align_rasr_config_file=align_config,
-                recog_data_config=recog_data,
-                recog_corpus=score_corpus,
-                encoder_serializers=encoder_serializers,
-                sample_rate=16000,
-                params=variant.search_mode_params,
-            )
-        elif isinstance(variant.search_mode_params, StreamingRecogParameters):
-            recog_result = recog_rasr_streaming(
-                descriptor=f"{model_descriptor}__recog_{variant.descriptor}",
-                checkpoint=checkpoint,
-                recog_rasr_config_file=recog_config,
-                recog_data_config=recog_data,
-                recog_corpus=score_corpus,
-                encoder_serializers=encoder_serializers,
-                sample_rate=16000,
-                params=variant.search_mode_params,
-            )
+        recog_result = _run_standard_single_variant(
+            model_descriptor=model_descriptor,
+            checkpoint=checkpoint,
+            encoder_serializers=encoder_serializers,
+            recog_config=recog_config,
+            score_corpus=score_corpus,
+            recog_data=recog_data,
+            variant=variant,
+            align_config=align_config,
+        )
 
         results.append(recog_result)
 
-    return results
+    if variant.num_cycles is None:
+        return results
+
+    return variant.num_cycles, results
+
+
+def post_recog_memristor_results(
+    descriptor: str,
+    corpora: List[librispeech_datasets.EvalSet],
+    recog_results: List[RecogResult],
+) -> List[MemristorRecogResult]:
+    memristor_results = []
+    for corpus in corpora:
+        score_corpus = librispeech_datasets.get_default_score_corpus(corpus)
+        corpus_results = [result for result in recog_results if result.corpus_name == score_corpus.corpus_name]
+        memristor_results.append(
+            post_recog_memristor_offline(
+                descriptor=descriptor,
+                recog_corpus=score_corpus,
+                recog_results=corpus_results,
+            )
+        )
+    return memristor_results
+
+
+def _run_standard_single_variant(
+    model_descriptor: str,
+    encoder_serializers: Collection,
+    recog_config: tk.Path,
+    score_corpus: ScorableCorpus,
+    recog_data: DataConfig,
+    variant: BaseRecogVariant,
+    checkpoint: Optional[PtCheckpoint],
+    align_config: Optional[tk.Path] = None,
+) -> RecogResult:
+    
+    if isinstance(variant.search_mode_params, OfflineRecogParameters):
+        recog_result = recog_rasr_offline(
+            descriptor=f"{model_descriptor}__recog_{variant.descriptor}",
+            checkpoint=checkpoint,
+            recog_rasr_config_file=recog_config,
+            align_rasr_config_file=align_config,
+            recog_data_config=recog_data,
+            recog_corpus=score_corpus,
+            encoder_serializers=encoder_serializers,
+            sample_rate=16000,
+            params=variant.search_mode_params,
+        )
+    elif isinstance(variant.search_mode_params, StreamingRecogParameters):
+        recog_result = recog_rasr_streaming(
+            descriptor=f"{model_descriptor}__recog_{variant.descriptor}",
+            checkpoint=checkpoint,
+            recog_rasr_config_file=recog_config,
+            recog_data_config=recog_data,
+            recog_corpus=score_corpus,
+            encoder_serializers=encoder_serializers,
+            sample_rate=16000,
+            params=variant.search_mode_params,
+        )
+    return recog_result

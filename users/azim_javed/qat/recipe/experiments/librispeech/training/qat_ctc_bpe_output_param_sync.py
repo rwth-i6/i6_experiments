@@ -267,7 +267,7 @@ def get_train_options(bpe_size: int = 128, num_epochs: int = 100) -> TrainOption
         gradient_clip=1.0,
         num_workers_per_gpu=2,
         automatic_mixed_precision=True,
-        gpu_mem_rqmt=48,
+        gpu_mem_rqmt=24,
         max_seqs=None,
         max_seq_length={"audio_features": 35 * 16000},
     )

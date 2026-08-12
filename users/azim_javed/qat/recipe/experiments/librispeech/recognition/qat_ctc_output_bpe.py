@@ -13,11 +13,11 @@ from ....model_pipelines.common.recog import OfflineRecogParameters, RecogResult
 from ....model_pipelines.common.recog_rasr_config import LexiconfreeTimesyncRecogParams
 from ....model_pipelines.common.serializers import get_model_serializers
 from ....model_pipelines.common.train import TrainedModel
-from ....model_pipelines.qat_ctc.prior import compute_priors
-from ....model_pipelines.qat_ctc.pytorch_modules import (
-    QATConformerCTCConfig,
-    QATConformerCTCRecogConfig,
-    QATConformerCTCRecogModel,
+from ....model_pipelines.qat_ctc_output.prior import compute_priors
+from ....model_pipelines.qat_ctc_output.pytorch_modules import (
+    QATConformerCTCOutputConfig,
+    QATConformerCTCOutputRecogConfig,
+    QATConformerCTCOutputRecogModel,
 )
 from .common import BaseRecogVariant, run_single_bpe_variant
 
@@ -32,7 +32,7 @@ class CTCRecogVariant(BaseRecogVariant):
 
 
 def run(
-    model: TrainedModel[QATConformerCTCConfig],
+    model: TrainedModel[QATConformerCTCOutputConfig],
     variants: Optional[List[CTCRecogVariant]] = None,
     corpora: Optional[List[librispeech_datasets.EvalSet]] = None,
     batched_decoder: bool = False,
@@ -53,7 +53,7 @@ def run(
 def default_recog_variants() -> List[CTCRecogVariant]:
 
     return [
-        # default_offline_lexfree_recog_variant(),
+        default_offline_lexfree_recog_variant(),
         # default_offline_lexfree_lstm_recog_variant(),
         # default_offline_lexfree_trafo_recog_variant(),
         # default_offline_tree_recog_variant(),
@@ -66,7 +66,7 @@ def default_recog_variants() -> List[CTCRecogVariant]:
         # default_offline_tree_trafo_recog_variant_gpu(),
         # default_streaming_lexfree_recog_variant(),
         # default_streaming_tree_4gram_recog_variant(),
-    ] + param_sweep_tree_4gram_recog() #+ param_sweep_lstm_tree_recog() + param_sweep_lstm_lexfree_recog()
+    ] + param_sweep_tree_4gram_recog() + param_sweep_lstm_tree_recog() + param_sweep_lstm_lexfree_recog()
 
 def param_sweep_lstm_lexfree_recog() -> List[CTCRecogVariant]:
     variants = []
@@ -393,7 +393,7 @@ def default_streaming_tree_4gram_recog_variant() -> CTCRecogVariant:
     )
 
 
-def _get_model_serializers(model: TrainedModel[QATConformerCTCConfig], variant: CTCRecogVariant) -> Collection:
+def _get_model_serializers(model: TrainedModel[QATConformerCTCOutputConfig], variant: CTCRecogVariant) -> Collection:
     checkpoint = model.get_checkpoint(variant.epoch)
     if variant.prior_scale != 0.0:
         prior_file = compute_priors(
@@ -402,8 +402,8 @@ def _get_model_serializers(model: TrainedModel[QATConformerCTCConfig], variant: 
             checkpoint=checkpoint,
         )
     return get_model_serializers(
-        QATConformerCTCRecogModel,
-        QATConformerCTCRecogConfig(
+        QATConformerCTCOutputRecogModel,
+        QATConformerCTCOutputRecogConfig(
             **{f.name: getattr(model.model_config, f.name) for f in fields(model.model_config)},
             prior_file=prior_file if variant.prior_scale != 0.0 else None,
             prior_scale=variant.prior_scale,
@@ -412,7 +412,7 @@ def _get_model_serializers(model: TrainedModel[QATConformerCTCConfig], variant: 
     )
 
 
-def _get_label_scorer_configs(model: TrainedModel[QATConformerCTCConfig], variant: CTCRecogVariant) -> List[RasrConfig]:
+def _get_label_scorer_configs(model: TrainedModel[QATConformerCTCOutputConfig], variant: CTCRecogVariant) -> List[RasrConfig]:
     bpe_size = vocab_to_bpe_size(model.model_config.target_size - 1)
 
     label_scorer_configs = [get_no_op_label_scorer_config()]
@@ -437,7 +437,7 @@ def _get_label_scorer_configs(model: TrainedModel[QATConformerCTCConfig], varian
 
 
 def _run_single_variant(
-    model: TrainedModel[QATConformerCTCConfig], variant: CTCRecogVariant, corpora: List[librispeech_datasets.EvalSet], batched_decoder: bool
+    model: TrainedModel[QATConformerCTCOutputConfig], variant: CTCRecogVariant, corpora: List[librispeech_datasets.EvalSet], batched_decoder: bool
 ) -> List[RecogResult]:
 
     if batched_decoder:

@@ -12,7 +12,7 @@ returnn_root = CloneGitRepositoryJob(
 returnn_root.hash_overwrite = "RETURNN_ROOT"
 
 minireturnn_root = CloneGitRepositoryJob(
-    "https://github.com/JackTemaki/MiniReturnn.git", checkout_folder_name="returnn"
+    "https://github.com/AzimJaved/MiniReturnn", checkout_folder_name="returnn"
 ).out_repository.copy()
 minireturnn_root.hash_overwrite = "MINIRETURNN_ROOT"
 
@@ -29,7 +29,7 @@ rasr_root = CloneGitRepositoryJob(
     checkout_folder_name="rasr",
     # commit="65320624abf373921ec6d4f12d866cfad8a44985"
 ).out_repository.copy()
-rasr_root.hash_overwrite = "RASR_ROOT"
+rasr_root.hash_overwrite = "RASR_ROOT_hilmes_apptainer"
 
 rasr_make_job = CMakeJob(
     source_folder=rasr_root,

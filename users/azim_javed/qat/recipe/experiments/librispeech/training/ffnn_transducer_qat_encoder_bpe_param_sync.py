@@ -250,11 +250,18 @@ def get_model_config(
     )
 
 
-def get_train_options(bpe_size: int = 128) -> FFNNTransducerQATEncoderTrainOptions:
+def get_train_options(bpe_size: int = 128, num_epochs: int = 100) -> FFNNTransducerQATEncoderTrainOptions:
+    train_data_config = librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size)
+    cv_data_config = librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size)
+
+    partition_epoch = train_data_config.partition_epoch
+
+    save_epochs = list(range(num_epochs * 3 // 4, num_epochs - 5, 5)) + list(range(num_epochs - 5, num_epochs + 1))
+    save_subepochs = [epoch * partition_epoch for epoch in save_epochs]
     return FFNNTransducerQATEncoderTrainOptions(
-        train_data_config=librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size),
-        cv_data_config=librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size),
-        save_epochs=list(range(1500, 1900, 100)) + list(range(1900, 2001, 20)),
+        train_data_config=train_data_config,
+        cv_data_config=cv_data_config,
+        save_epochs=save_subepochs,
         batch_size=36_000 * 160,
         accum_grad_multiple_step=2,
         optimizer_config=RAdamConfig(
@@ -267,9 +274,9 @@ def get_train_options(bpe_size: int = 128) -> FFNNTransducerQATEncoderTrainOptio
             peak_lr=5e-04,
             decayed_lr=5e-05,
             final_lr=1e-07,
-            inc_epochs=960,
-            dec_epochs=960,
-            final_epochs=80,
+            inc_epochs=(num_epochs - 4) // 2 * partition_epoch,
+            dec_epochs=(num_epochs - 4) // 2 * partition_epoch,
+            final_epochs=4 * partition_epoch,
         ),
         gradient_clip=1.0,
         num_workers_per_gpu=2,

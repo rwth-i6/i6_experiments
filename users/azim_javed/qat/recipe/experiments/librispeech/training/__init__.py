@@ -1,5 +1,7 @@
 from . import (
+    ffnn_transducer_bpe,
     qat_ffnn_transducer_bpe,
+    qat_ffnn_transducer_aux_no_quant_bpe,
     ffnn_transducer_qat_encoder_bpe,
     ffnn_transducer_qat_encoder_bpe_param_sync,
     qat_ctc_bpe,
@@ -14,7 +16,9 @@ from . import (
 )
 
 __all__ = [
+    "ffnn_transducer_bpe",
     "qat_ffnn_transducer_bpe",
+    "qat_ffnn_transducer_aux_no_quant_bpe",
     "ffnn_transducer_qat_encoder_bpe",
     "ffnn_transducer_qat_encoder_bpe_param_sync",
     "qat_ctc_bpe",

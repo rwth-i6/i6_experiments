@@ -6,6 +6,7 @@ from . import (
     qat_ctc_bpe,
     qat_ctc_bpe_part10,
     qat_ctc_bpe_param_sync,
+    qat_ctc_output_bpe,
     memristor
 )
 
@@ -17,5 +18,6 @@ __all__ = [
     "qat_ctc_bpe",
     "qat_ctc_bpe_part10",
     "qat_ctc_bpe_param_sync",
+    "qat_ctc_output_bpe",
     "memristor"
 ]

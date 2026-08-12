@@ -1,4 +1,4 @@
-__all__ = ["run", "get_model_config", "get_train_options", "init_scorer"]
+__all__ = ["run", "get_model_config", "get_train_options"]
 
 from typing import Optional, Union
 
@@ -17,16 +17,11 @@ from ....model_pipelines.common.learning_rates import OCLRConfig
 from ....model_pipelines.common.optimizer import RAdamConfig
 from ....model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
 from ....model_pipelines.common.train import TrainedModel, train
-from ....model_pipelines.ffnn_transducer_qat_encoder_pred.pytorch_modules import (
-    FFNNTransducerQATEncoderPredictionConfig,
-    FFNNTransducerQATEncoderPredictionModel,
-    FFNNTransducerQATEncoderPredictionScorer,
-    FFNNTransducerQATEncoderPredictionRecogConfig,
+from ....model_pipelines.qat_ffnn_transducer_aux_no_quant.pytorch_modules import (
+    QATFFNNTransducerAuxNoQuantConfig,
+    QATFFNNTransducerAuxNoQuantModel,
 )
-from ....model_pipelines.ffnn_transducer_qat_encoder_pred.train import (
-    FFNNTransducerQATEncoderPredictionTrainOptions,
-    get_train_step_import,
-)
+from ....model_pipelines.qat_ffnn_transducer_aux_no_quant.train import QATFFNNTransducerAuxNoQuantTrainOptions, get_train_step_import
 
 from ....model_pipelines.common.assemblies.conformer import (
     ConformerEncoderQuantV1Config,
@@ -37,12 +32,13 @@ from ....model_pipelines.common.assemblies.conformer import (
     WeightPruningConfig,
 )
 
+
 def run(
     descriptor: str,
     qat_args: Optional[dict] = None,
-    model_config: Optional[FFNNTransducerQATEncoderPredictionConfig] = None,
-    train_options: Optional[FFNNTransducerQATEncoderPredictionTrainOptions] = None,
-) -> TrainedModel[FFNNTransducerQATEncoderPredictionConfig]:
+    model_config: Optional[QATFFNNTransducerAuxNoQuantConfig] = None,
+    train_options: Optional[QATFFNNTransducerAuxNoQuantTrainOptions] = None,
+) -> TrainedModel[QATFFNNTransducerAuxNoQuantConfig]:
     if model_config is None:
         if qat_args is None:
             raise ValueError("Either model_config or qat_args must be provided")
@@ -52,7 +48,7 @@ def run(
 
     return train(
         descriptor=descriptor,
-        model_class=FFNNTransducerQATEncoderPredictionModel,
+        model_class=QATFFNNTransducerAuxNoQuantModel,
         model_config=model_config,
         options=train_options,
         train_step_import=get_train_step_import(train_options),
@@ -65,7 +61,7 @@ def get_model_config(
     weight_dropout: float,
     weight_pruning_config: WeightPruningConfig,
     bpe_size: int = 128,
-) -> FFNNTransducerQATEncoderPredictionConfig:
+) -> QATFFNNTransducerAuxNoQuantConfig:
 
     if isinstance(weight_bit_prec, dict):
         ff_prec = weight_bit_prec["ff"]
@@ -110,7 +106,7 @@ def get_model_config(
         weight_noise_start_epoch=None,
     )
 
-    return FFNNTransducerQATEncoderPredictionConfig(
+    return QATFFNNTransducerAuxNoQuantConfig(
         logmel_cfg=LogMelFeatureExtractionV1Config(
             sample_rate=16000,
             win_size=0.025,
@@ -262,8 +258,8 @@ def get_model_config(
     )
 
 
-def get_train_options(bpe_size: int = 128) -> FFNNTransducerQATEncoderPredictionTrainOptions:
-    return FFNNTransducerQATEncoderPredictionTrainOptions(
+def get_train_options(bpe_size: int = 128) -> QATFFNNTransducerAuxNoQuantTrainOptions:
+    return QATFFNNTransducerAuxNoQuantTrainOptions(
         train_data_config=librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size),
         cv_data_config=librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size),
         save_epochs=list(range(1500, 1900, 100)) + list(range(1900, 2001, 20)),
@@ -290,6 +286,5 @@ def get_train_options(bpe_size: int = 128) -> FFNNTransducerQATEncoderPrediction
         enc_loss_scale=0.5,
         pred_loss_scale=0.0,
         max_seqs=None,
-        max_seq_length={"audio_features": 35 * 16000},
+        max_seq_length=None,
     )
-

@@ -31,15 +31,13 @@ def check_engine_limits(current_rqmt, task):
     """
     current_rqmt["time"] = min(168, current_rqmt.get("time", 2))
     bad_nodes = [
-        "cn-627",
-        "cn-828",
-        "cn-617",
-        "cn-619",
-        "cn-622",
-        "cn-624",
-        "cn-506",
-        "cn-820",
-        "cn-230",
+        "cn-235",
+        "cn-240",
+        "cn-273",
+        "cn-245",
+        # "cn-230",
+        "cn-277",
+        "cn-269",
     ]
     if current_rqmt.get("gpu", 0) > 0 and "-p" not in current_rqmt.get(
         "sbatch_args", []
@@ -67,7 +65,7 @@ def check_engine_limits(current_rqmt, task):
         elif current_rqmt.get("gpu_mem", 0) > 11:
             current_rqmt["sbatch_args"] = ["-p", "gpu_24gb,gpu_48gb"]
         else:
-            current_rqmt["sbatch_args"] = ["-p", "gpu_11gb,gpu_24gb,gpu_48gb"]
+            current_rqmt["sbatch_args"] = ["-p", "gpu_11gb,gpu_24gb"]
 
     if task._job.__class__.__name__ in CPU_SLOW_JOBLIST:
         current_rqmt["sbatch_args"] = ["-p", "cpu_slow"]
@@ -108,10 +106,17 @@ def engine():
         default_engine="long",
     )
 
-
+BERGER_JOBS = [
+    "ReturnnTrainingJob",
+]
 def worker_wrapper(job, task_name, call):
-    image = "/work/asr4/berger/apptainer/images/torch-2.8_onnx-1.22.sif"
+    task = next(task for task in job._sis_tasks() if task.name() == task_name)
+    rqmt = task.rqmt()
     # image = "/work/asr4/hilmes/apptainer/torch-2.8_onnx-1.22_v3.sif"
+    if rqmt.get("gpu", 0) > 0 and rqmt.get("gpu_mem", 0) <= 11:
+        image = "/work/asr4/hilmes/apptainer/torch-2.8_onnx-1.22_v3.sif"
+    else:
+        image = "/work/asr4/berger/apptainer/images/torch-2.8_onnx-1.22.sif"
 
     binds = [
         "/u",
@@ -185,7 +190,7 @@ DEFAULT_ENVIRONMENT_SET.update(
         "TMPDIR": TMP_PREFIX,
         "TMP": TMP_PREFIX,
         "PYTHONPATH": os.environ.get("PWD", os.getcwd())
-        + ":/u/azim.javed/experiments/training/baselines_clean"
+        + ":/u/azim.javed/experiments/training/qat"
         + (":" + os.environ["PYTHONPATH"] if "PYTHONPATH" in os.environ else ""),
         "NUMBA_CACHE_DIR": f"{TMP_PREFIX}/numba_cache_{getpass.getuser()}",  # used for librosa
         "PYTORCH_KERNEL_CACHE_PATH": f"{TMP_PREFIX}/pt_kernel_cache_{getpass.getuser()}",

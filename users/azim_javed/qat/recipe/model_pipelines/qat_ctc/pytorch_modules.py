@@ -90,9 +90,8 @@ class QATConformerCTCRecogConfig(QATConformerCTCConfig):
     prior_scale: float
     prior_file: Optional[tk.Path]
 
-
-def __post_init__(self) -> None:
-    assert self.prior_scale == 0 or self.prior_file is not None, "Must specify prior file if prior scale is not 0"
+    def __post_init__(self) -> None:
+        assert self.prior_scale == 0 or self.prior_file is not None, "Must specify prior file if prior scale is not 0"
 
 
 class QATConformerCTCModel(torch.nn.Module):
@@ -139,6 +138,7 @@ class QATConformerCTCModel(torch.nn.Module):
                         freq_mask_max_size=self.specaug_config.freq_mask_max_size,
                     )  # [B, T, F]
 
+        features = features * sequence_mask.unsqueeze(-1)
         encoder_states, sequence_mask = self.conformer(features, sequence_mask)  # [B, T, F], [B, T]
         encoder_states = encoder_states[-1]
 
@@ -166,11 +166,11 @@ class QATConformerCTCRecogModel(QATConformerCTCModel):
         self,
         audio_samples: torch.Tensor,  # [B, T, 1]
         audio_samples_size: torch.Tensor,  # [B]
-    ) -> torch.Tensor:
-        log_probs, _ = super().forward(audio_samples=audio_samples, audio_samples_size=audio_samples_size)  # [B, T, V]
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        log_probs, enc_len = super().forward(audio_samples=audio_samples, audio_samples_size=audio_samples_size)  # [B, T, V]
         scores = -log_probs  # [B, T, V]
         scores[:, :, -1] += self.blank_penalty  # [B, T, V]
-        return scores + self.scaled_priors.to(device=log_probs.device)  # [B, T, V]
+        return scores + self.scaled_priors.to(device=log_probs.device), enc_len  # [B, T, V], [B]
 
 
 class QATConformerCTCRecogExportModel(QATConformerCTCModel):

@@ -1,0 +1,16 @@
+                                              Experiments |  2 corpus | 3 Average WER | 4 Stddev WER | 5 Min WER | 6 Max WER | 7 Average Total RTF | 8 Average Enc RTF | 9 Average Search RTF
+----------------------------------------------------------+-----------+---------------+--------------+-----------+-----------+---------------------+-------------------+---------------------
+              1__qat_ctc_bpe_param_sync_memristor_lexfree | dev-other |      13.53066 |      0.36931 |  12.95635 |  13.98288 |             1.52943 |           1.52906 |              0.00037
+2__qat_ctc_bpe_param_sync_memristor_tree_4gram_lm0.7_p0.3 | dev-other |       6.99301 |      0.06672 |   6.91882 |   7.09547 |             1.86151 |           1.78265 |              0.07887
+3__qat_ctc_bpe_param_sync_memristor_tree_4gram_lm0.8_p0.2 | dev-other |       7.88961 |        0.214 |   7.54887 |   8.15734 |             1.13991 |           1.08617 |              0.05373
+4__qat_ctc_bpe_param_sync_memristor_tree_4gram_lm0.8_p0.3 | dev-other |       7.34828 |      0.11137 |   7.18968 |   7.53513 |             1.63235 |            1.5442 |              0.08815
+5__qat_ctc_bpe_param_sync_memristor_tree_4gram_lm0.8_p0.4 | dev-other |       6.89527 |      0.08265 |    6.7775 |   6.98163 |             1.82322 |           1.74259 |              0.08063
+6__qat_ctc_bpe_param_sync_memristor_tree_4gram_lm0.8_p0.5 | dev-other |        6.6668 |      0.09208 |   6.53804 |   6.80105 |             0.77556 |           0.71317 |              0.06238
+7__qat_ctc_bpe_param_sync_memristor_tree_4gram_lm0.9_p0.3 | dev-other |       7.66703 |      0.20456 |   7.38007 |   7.95517 |             1.49755 |            1.4345 |              0.06305
+                   8__qat_ctc_bpe_w4_a8_memristor_lexfree | dev-other |               |              |           |           |                     |                   |                     
+     9__qat_ctc_bpe_w4_a8_memristor_tree_4gram_lm0.7_p0.3 | dev-other |               |              |           |           |                     |                   |                     
+    10__qat_ctc_bpe_w4_a8_memristor_tree_4gram_lm0.8_p0.2 | dev-other |               |              |           |           |                     |                   |                     
+    11__qat_ctc_bpe_w4_a8_memristor_tree_4gram_lm0.8_p0.3 | dev-other |               |              |           |           |                     |                   |                     
+    12__qat_ctc_bpe_w4_a8_memristor_tree_4gram_lm0.8_p0.4 | dev-other |               |              |           |           |                     |                   |                     
+    13__qat_ctc_bpe_w4_a8_memristor_tree_4gram_lm0.8_p0.5 | dev-other |               |              |           |           |                     |                   |                     
+    14__qat_ctc_bpe_w4_a8_memristor_tree_4gram_lm0.9_p0.3 | dev-other |               |              |           |           |                     |                   |                     

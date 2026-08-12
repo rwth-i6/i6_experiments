@@ -1,9 +1,9 @@
 __all__ = [
-    "FFNNTransducerQATEncoderConfig",
-    "FFNNTransducerQATEncoderRecogConfig",
-    "FFNNTransducerQATEncoderModel",
-    "FFNNTransducerQATEncoder",
-    "FFNNTransducerQATEncoderScorer",
+    "QATFFNNTransducerAuxNoQuantConfig",
+    "QATFFNNTransducerAuxNoQuantRecogConfig",
+    "QATFFNNTransducerAuxNoQuantModel",
+    "QATFFNNTransducerAuxNoQuantEncoder",
+    "QATFFNNTransducerAuxNoQuantScorer",
 ]
 
 from dataclasses import dataclass
@@ -12,6 +12,7 @@ from typing import Tuple, Union, Optional, Literal, Dict, List, Callable
 import torch
 
 from ..common.assemblies.conformer import ConformerEncoderQuant, ConformerEncoderQuantV1Config
+from ..common.memristor_layers import LinearQuant, EmbeddingQuant, ActivationQuantizer
 
 from i6_models.config import ModelConfiguration
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
@@ -23,9 +24,8 @@ from synaptogen_ml.memristor_modules import DacAdcHardwareSettings
 from synaptogen_ml.memristor_modules.config import CycleCorrectionSettings
 
 
-
 @dataclass
-class FFNNTransducerQATEncoderConfig(ModelConfiguration):
+class QATFFNNTransducerAuxNoQuantConfig(ModelConfiguration):
     logmel_cfg: LogMelFeatureExtractionV1Config
     specaug_cfg: SpecaugmentByLengthConfig
     conformer_cfg: ConformerEncoderQuantV1Config
@@ -39,75 +39,29 @@ class FFNNTransducerQATEncoderConfig(ModelConfiguration):
     joiner_dim: int
     joiner_activation: torch.nn.Module
     target_size: int
-
-    def __sis_state__(self):
-        import dataclasses, torch
-        from sisyphus import tk
-
-        def _sanitize(v):
-            if isinstance(v, torch.dtype):
-                return str(v)
-            if isinstance(v, tk.Path):
-                return v                 # keep for path extraction
-            if dataclasses.is_dataclass(v):
-                return {f.name: _sanitize(getattr(v, f.name)) for f in dataclasses.fields(v)}
-            if isinstance(v, dict):
-                return {k: _sanitize(x) for k, x in v.items()}
-            if isinstance(v, (list, tuple)):
-                return type(v)(_sanitize(x) for x in v)
-            return v
-
-        return {f.name: _sanitize(getattr(self, f.name)) for f in dataclasses.fields(self)}
-
-    def __sis_hash__(self):
-        return str(type(self))
-
-    def with_replaced(self, **kwargs):
-        import dataclasses
-
-        consumed = set()
-
-        def _recurse(obj):
-            # 1. Handle lists and tuples
-            if isinstance(obj, (list, tuple)):
-                new_seq = type(obj)(_recurse(v) for v in obj)
-                if any(old is not new for old, new in zip(obj, new_seq)):
-                    return new_seq
-                return obj
-
-            # 2. Base case: not a dataclass
-            if not dataclasses.is_dataclass(obj):
-                return obj
-
-            # 3. Handle dataclasses
-            changes = {}
-            for f in dataclasses.fields(obj):
-                val = getattr(obj, f.name)
-                if f.name in kwargs:
-                    changes[f.name] = kwargs[f.name]
-                    consumed.add(f.name)
-                else:
-                    new_val = _recurse(val)
-                    if new_val is not val:
-                        changes[f.name] = new_val
-            if changes:
-                return dataclasses.replace(obj, **changes)
-            return obj
-
-        result = _recurse(self)
-        unconsumed = set(kwargs) - consumed
-        assert not unconsumed, f"with_replaced: keys not found in config tree: {unconsumed}"
-        return result
+    weight_bit_prec: int
+    weight_quant_dtype: Union[str, torch.dtype]
+    weight_quant_method: str
+    # v2
+    activation_bit_prec: int
+    activation_quant_dtype: Union[str, torch.dtype]
+    activation_quant_method: str
+    moving_average: Union[float, None]
+    converter_hardware_settings: DacAdcHardwareSettings
+    pos_enc_converter_hardware_settings: DacAdcHardwareSettings
+    correction_settings: Union[CycleCorrectionSettings, None]
+    num_cycles: int
+    version_control: Union[str, None]
 
 
 @dataclass
-class FFNNTransducerQATEncoderRecogConfig(FFNNTransducerQATEncoderConfig):
+class QATFFNNTransducerAuxNoQuantRecogConfig(QATFFNNTransducerAuxNoQuantConfig):
     ilm_scale: float
     blank_penalty: float
 
 
-class FFNNTransducerQATEncoderModel(torch.nn.Module):
-    def __init__(self, cfg: FFNNTransducerQATEncoderConfig, **_):
+class QATFFNNTransducerAuxNoQuantModel(torch.nn.Module):
+    def __init__(self, cfg: QATFFNNTransducerAuxNoQuantConfig, **_):
         super().__init__()
         self.target_size = cfg.target_size
 
@@ -121,15 +75,47 @@ class FFNNTransducerQATEncoderModel(torch.nn.Module):
         )
 
         self.context_history_size = cfg.context_history_size
-        self.token_embedding = torch.nn.Embedding(
-            num_embeddings=self.target_size, embedding_dim=cfg.context_embedding_dim, padding_idx=cfg.target_size - 1
+        self.token_embedding = EmbeddingQuant(
+            num_embeddings=self.target_size,
+            embedding_dim=cfg.context_embedding_dim,
+            padding_idx=cfg.target_size - 1,
+            weight_bit_prec=cfg.weight_bit_prec,
+            weight_quant_dtype=cfg.weight_quant_dtype,
+            weight_quant_method=cfg.weight_quant_method,
         )
 
         prediction_layers = []
         prev_size = self.context_history_size * cfg.context_embedding_dim
         for _ in range(cfg.pred_num_layers):
             prediction_layers.append(torch.nn.Dropout(cfg.dropout))
-            prediction_layers.append(torch.nn.Linear(prev_size, cfg.pred_dim))
+            prediction_layers.append(
+                ActivationQuantizer(
+                    bit_precision=cfg.activation_bit_prec,
+                    dtype=cfg.activation_quant_dtype,
+                    method=cfg.activation_quant_method,
+                    channel_axis=1,
+                    moving_avrg=cfg.moving_average,
+                )
+            )
+            prediction_layers.append(
+                LinearQuant(
+                    prev_size,
+                    cfg.pred_dim,
+                    weight_bit_prec=cfg.weight_bit_prec,
+                    weight_quant_dtype=cfg.weight_quant_dtype,
+                    weight_quant_method=cfg.weight_quant_method,
+                    bias=True,
+                )
+            )
+            prediction_layers.append(
+                ActivationQuantizer(
+                    bit_precision=cfg.activation_bit_prec,
+                    dtype=cfg.activation_quant_dtype,
+                    method=cfg.activation_quant_method,
+                    channel_axis=1,
+                    moving_avrg=cfg.moving_average,
+                )
+            )
             prediction_layers.append(cfg.pred_activation)
             prev_size = cfg.pred_dim
         self.prediction_net = torch.nn.Sequential(*prediction_layers)
@@ -138,16 +124,63 @@ class FFNNTransducerQATEncoderModel(torch.nn.Module):
             torch.nn.Dropout(cfg.dropout), torch.nn.Linear(cfg.pred_dim, self.target_size)
         )
 
-        self.joint_net = torch.nn.Sequential(
-            torch.nn.Dropout(cfg.dropout),
-            torch.nn.Linear(cfg.enc_dim + cfg.pred_dim, cfg.joiner_dim),
-            cfg.joiner_activation,
-            torch.nn.Dropout(cfg.dropout),
-            torch.nn.Linear(cfg.joiner_dim, self.target_size),
+        self.joint_net_q1_in = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
         )
 
-    def prep_quant(self):
-        self.conformer.prep_quant()
+        self.joint_net_q1_out = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
+        )
+
+        self.joint_net_q2_in = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
+        )
+
+        self.joint_net_q2_out = ActivationQuantizer(
+            bit_precision=cfg.activation_bit_prec,
+            dtype=cfg.activation_quant_dtype,
+            method=cfg.activation_quant_method,
+            channel_axis=1,
+            moving_avrg=cfg.moving_average,
+        )
+
+        self.joint_net = torch.nn.Sequential(
+            torch.nn.Dropout(cfg.dropout),
+            self.joint_net_q1_in,
+            LinearQuant(
+                cfg.enc_dim + cfg.pred_dim,
+                cfg.joiner_dim,
+                weight_bit_prec=cfg.weight_bit_prec,
+                weight_quant_dtype=cfg.weight_quant_dtype,
+                weight_quant_method=cfg.weight_quant_method,
+                bias=True,
+            ),
+            self.joint_net_q1_out,
+            cfg.joiner_activation,
+            torch.nn.Dropout(cfg.dropout),
+            self.joint_net_q2_in,
+            LinearQuant(
+                cfg.joiner_dim,
+                self.target_size,
+                weight_bit_prec=cfg.weight_bit_prec,
+                weight_quant_dtype=cfg.weight_quant_dtype,
+                weight_quant_method=cfg.weight_quant_method,
+                bias=True,
+            ),
+            self.joint_net_q2_out,
+        )
 
     def forward_encoder(
         self,
@@ -238,8 +271,8 @@ class FFNNTransducerQATEncoderModel(torch.nn.Module):
         return joint_output
 
 
-class FFNNTransducerQATEncoder(FFNNTransducerQATEncoderModel):
-    def __init__(self, cfg: FFNNTransducerQATEncoderConfig, **_):
+class QATFFNNTransducerAuxNoQuantEncoder(QATFFNNTransducerAuxNoQuantModel):
+    def __init__(self, cfg: QATFFNNTransducerAuxNoQuantConfig, **_):
         super().__init__(cfg=cfg)
         self.enc_output_indices = []
 
@@ -252,8 +285,8 @@ class FFNNTransducerQATEncoder(FFNNTransducerQATEncoderModel):
         return encoder_states  # [B, T', E]
 
 
-class FFNNTransducerQATEncoderScorer(FFNNTransducerQATEncoderModel):
-    def __init__(self, cfg: FFNNTransducerQATEncoderRecogConfig, **_):
+class QATFFNNTransducerAuxNoQuantScorer(QATFFNNTransducerAuxNoQuantModel):
+    def __init__(self, cfg: QATFFNNTransducerAuxNoQuantRecogConfig, **_):
         super().__init__(cfg=cfg)
         self.ilm_scale = cfg.ilm_scale
         self.blank_penalty = cfg.blank_penalty

@@ -1,7 +1,7 @@
 __all__ = ["TrainOptions", "TrainedModel", "train"]
 
 from dataclasses import dataclass
-from typing import Generic, List, Optional, Type, TypeVar
+from typing import Generic, List, Optional, Type, TypeVar, Union
 
 from i6_core.returnn import PtCheckpoint
 from i6_core.returnn.config import ReturnnConfig
@@ -34,6 +34,16 @@ class TrainOptions:
     max_seq_length: Optional[int]
 
 
+@dataclass
+class FinetuneOptions:
+    label: str
+    filename: Union[tk.Path, str]
+    init_for_train: bool = True
+    ignore_missing: bool = False
+    var_name_mapping: Optional[dict[str, str]] = None
+    allowed_missing_prefix: List[str] = None
+
+
 ModelConfigType = TypeVar("ModelConfigType", bound=ModelConfiguration)
 
 
@@ -56,6 +66,7 @@ def train(
     options: TrainOptions,
     train_step_import: Import,
     best_n_epochs: int = 0,
+    finetune_options: Optional[FinetuneOptions] = None,
 ) -> TrainedModel[ModelConfigType]:
     model_serializers = get_model_serializers(model_class=model_class, model_config=model_config)
 
@@ -74,6 +85,17 @@ def train(
         "num_workers_per_gpu": options.num_workers_per_gpu,
         "stop_on_nonfinite_train_score": True,
     }
+    if finetune_options is not None:
+        # the finetune options could be a list with different labels in the future.
+        config_dict["preload_from_files"] = {
+            finetune_options.label: {
+                "filename": finetune_options.filename,
+                "init_for_train": finetune_options.init_for_train,
+                "ignore_missing": finetune_options.ignore_missing,
+                "var_name_mapping": finetune_options.var_name_mapping,
+                "allowed_missing_prefix": finetune_options.allowed_missing_prefix,
+            }
+        }
     if options.automatic_mixed_precision:
         config_dict["torch_amp_options"] = {"dtype": "bfloat16"}
 

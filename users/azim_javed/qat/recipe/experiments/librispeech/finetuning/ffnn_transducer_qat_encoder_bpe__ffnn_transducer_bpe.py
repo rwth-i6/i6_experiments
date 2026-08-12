@@ -16,15 +16,18 @@ from ....data.librispeech.bpe import bpe_to_vocab_size
 from ....model_pipelines.common.learning_rates import OCLRConfig
 from ....model_pipelines.common.optimizer import RAdamConfig
 from ....model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
-from ....model_pipelines.common.train import TrainedModel, train
-from ....model_pipelines.ffnn_transducer_qat_encoder_pred.pytorch_modules import (
-    FFNNTransducerQATEncoderPredictionConfig,
-    FFNNTransducerQATEncoderPredictionModel,
-    FFNNTransducerQATEncoderPredictionScorer,
-    FFNNTransducerQATEncoderPredictionRecogConfig,
+from ....model_pipelines.common.train import FinetuneOptions, TrainedModel, train
+from ....model_pipelines.ffnn_transducer_qat_encoder.pytorch_modules import (
+    FFNNTransducerQATEncoderConfig,
+    FFNNTransducerQATEncoderModel,
 )
-from ....model_pipelines.ffnn_transducer_qat_encoder_pred.train import (
-    FFNNTransducerQATEncoderPredictionTrainOptions,
+
+from ....model_pipelines.ffnn_transducer.pytorch_modules import (
+    FFNNTransducerConfig,
+)
+
+from ....model_pipelines.ffnn_transducer_qat_encoder.train import (
+    FFNNTransducerQATEncoderTrainOptions,
     get_train_step_import,
 )
 
@@ -37,25 +40,31 @@ from ....model_pipelines.common.assemblies.conformer import (
     WeightPruningConfig,
 )
 
+
 def run(
     descriptor: str,
+    base_model: TrainedModel[FFNNTransducerConfig],
     qat_args: Optional[dict] = None,
-    model_config: Optional[FFNNTransducerQATEncoderPredictionConfig] = None,
-    train_options: Optional[FFNNTransducerQATEncoderPredictionTrainOptions] = None,
-) -> TrainedModel[FFNNTransducerQATEncoderPredictionConfig]:
+    model_config: Optional[FFNNTransducerQATEncoderConfig] = None,
+    train_options: Optional[FFNNTransducerQATEncoderTrainOptions] = None,
+    finetune_options: Optional[FinetuneOptions] = None,
+) -> TrainedModel[FFNNTransducerQATEncoderConfig]:
     if model_config is None:
         if qat_args is None:
             raise ValueError("Either model_config or qat_args must be provided")
         model_config = get_model_config(**qat_args)
     if train_options is None:
-        train_options = get_train_options()
+        train_options = get_train_options(num_epochs=25)
+    if finetune_options is None:
+        finetune_options = get_finetune_options(base_model)
 
     return train(
         descriptor=descriptor,
-        model_class=FFNNTransducerQATEncoderPredictionModel,
+        model_class=FFNNTransducerQATEncoderModel,
         model_config=model_config,
         options=train_options,
         train_step_import=get_train_step_import(train_options),
+        finetune_options=finetune_options,
     )
 
 
@@ -65,7 +74,7 @@ def get_model_config(
     weight_dropout: float,
     weight_pruning_config: WeightPruningConfig,
     bpe_size: int = 128,
-) -> FFNNTransducerQATEncoderPredictionConfig:
+) -> FFNNTransducerQATEncoderConfig:
 
     if isinstance(weight_bit_prec, dict):
         ff_prec = weight_bit_prec["ff"]
@@ -110,7 +119,7 @@ def get_model_config(
         weight_noise_start_epoch=None,
     )
 
-    return FFNNTransducerQATEncoderPredictionConfig(
+    return FFNNTransducerQATEncoderConfig(
         logmel_cfg=LogMelFeatureExtractionV1Config(
             sample_rate=16000,
             win_size=0.025,
@@ -247,26 +256,67 @@ def get_model_config(
         joiner_dim=1024,
         joiner_activation=torch.nn.Tanh(),
         target_size=bpe_to_vocab_size(bpe_size=bpe_size) + 1,
-        weight_bit_prec=weight_bit_prec,
-        weight_quant_dtype=qat_args["weight_quant_dtype"],
-        weight_quant_method=qat_args["weight_quant_method"],
-        activation_bit_prec=activation_bit_prec,
-        activation_quant_dtype=qat_args["activation_quant_dtype"],
-        activation_quant_method=qat_args["activation_quant_method"],
-        converter_hardware_settings=prior_train_dac_settings,
-        pos_enc_converter_hardware_settings=prior_train_dac_settings,
-        correction_settings=qat_args["correction_settings"],
-        num_cycles=qat_args["num_cycles"],
-        moving_average=qat_args["moving_average"],
-        version_control="v2-qact-fix-12bs"
     )
 
 
-def get_train_options(bpe_size: int = 128) -> FFNNTransducerQATEncoderPredictionTrainOptions:
-    return FFNNTransducerQATEncoderPredictionTrainOptions(
-        train_data_config=librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size),
-        cv_data_config=librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size),
-        save_epochs=list(range(1500, 1900, 100)) + list(range(1900, 2001, 20)),
+# def get_train_options(bpe_size: int = 128) -> FFNNTransducerQATEncoderTrainOptions:
+#     return FFNNTransducerQATEncoderTrainOptions(
+#         train_data_config=librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size),
+#         cv_data_config=librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size),
+#         save_epochs=list(range(1500, 1900, 100)) + list(range(1900, 2001, 20)),
+#         batch_size=12_000 * 160,
+#         accum_grad_multiple_step=2,
+#         optimizer_config=RAdamConfig(
+#             epsilon=1e-12,
+#             weight_decay=0.01,
+#             decoupled_weight_decay=True,
+#         ),
+#         lr_config=OCLRConfig(
+#             init_lr=7e-06,
+#             peak_lr=5e-04,
+#             decayed_lr=5e-05,
+#             final_lr=1e-07,
+#             inc_epochs=960,
+#             dec_epochs=960,
+#             final_epochs=80,
+#         ),
+#         gradient_clip=1.0,
+#         num_workers_per_gpu=2,
+#         automatic_mixed_precision=True,
+#         gpu_mem_rqmt=48,
+#         enc_loss_scale=0.5,
+#         pred_loss_scale=0.0,
+#         max_seqs=None,
+#         max_seq_length={"audio_features": 35 * 16000},
+#     )
+
+
+def get_train_options(
+    bpe_size: int = 128, num_epochs: int = 25, learning_rate_config: OCLRConfig = None, gpu_mem_rqmt: int = 48
+) -> FFNNTransducerQATEncoderTrainOptions:
+    train_data_config = librispeech_datasets.get_default_bpe_train_data(bpe_size=bpe_size)
+    cv_data_config = librispeech_datasets.get_default_bpe_cv_data(bpe_size=bpe_size)
+
+    partition_epoch = train_data_config.partition_epoch
+
+    save_epochs = list(range(num_epochs * 3 // 4, num_epochs - 5, 5)) + list(range(num_epochs - 5, num_epochs + 1))
+    save_subepochs = [epoch * partition_epoch for epoch in save_epochs]
+
+    if learning_rate_config is None:
+        learning_rate_config = OCLRConfig(
+            init_lr=7e-06,
+            peak_lr=5e-04,
+            decayed_lr=5e-05,
+            final_lr=1e-07,
+            inc_epochs=(num_epochs - 4) // 2 * partition_epoch,
+            dec_epochs=(num_epochs - 4) // 2 * partition_epoch,
+            final_epochs=4 * partition_epoch,
+        )
+
+    return FFNNTransducerQATEncoderTrainOptions(
+        train_data_config=train_data_config,
+        cv_data_config=cv_data_config,
+        save_epochs=save_subepochs,
         batch_size=12_000 * 160,
         accum_grad_multiple_step=2,
         optimizer_config=RAdamConfig(
@@ -274,22 +324,112 @@ def get_train_options(bpe_size: int = 128) -> FFNNTransducerQATEncoderPrediction
             weight_decay=0.01,
             decoupled_weight_decay=True,
         ),
-        lr_config=OCLRConfig(
-            init_lr=7e-06,
-            peak_lr=5e-04,
-            decayed_lr=5e-05,
-            final_lr=1e-07,
-            inc_epochs=960,
-            dec_epochs=960,
-            final_epochs=80,
-        ),
+        lr_config=learning_rate_config,
         gradient_clip=1.0,
         num_workers_per_gpu=2,
         automatic_mixed_precision=True,
-        gpu_mem_rqmt=24,
+        gpu_mem_rqmt=gpu_mem_rqmt,
         enc_loss_scale=0.5,
         pred_loss_scale=0.0,
         max_seqs=None,
         max_seq_length={"audio_features": 35 * 16000},
     )
 
+
+def get_finetune_options(base_model: TrainedModel[FFNNTransducerConfig]) -> FinetuneOptions:
+    var_name_mapping, allowed_missing_prefix = map_params(num_layers=12)
+    return FinetuneOptions(
+        label="conformer_encoder",
+        filename=base_model.get_checkpoint(),
+        init_for_train=True,
+        ignore_missing=False,
+        var_name_mapping=var_name_mapping,
+        allowed_missing_prefix=allowed_missing_prefix,
+    )
+
+
+def map_params(num_layers=12):
+    excluded = []
+    mapped = {}
+    checkpoint_prefix = "conformer.module_list"
+    for layer in range(num_layers):
+        excluded.extend(
+            [
+                f"{checkpoint_prefix}.{layer}.module_list.0.linear_ff.weight_quantizer",
+                f"{checkpoint_prefix}.{layer}.module_list.0.linear_out.weight_quantizer",
+                f"{checkpoint_prefix}.{layer}.module_list.0.lin_1_out_quant",
+                f"{checkpoint_prefix}.{layer}.module_list.0.lin_1_in_quant",
+                f"{checkpoint_prefix}.{layer}.module_list.0.lin_2_out_quant",
+                f"{checkpoint_prefix}.{layer}.module_list.0.lin_2_in_quant",
+                f"{checkpoint_prefix}.{layer}.module_list.1.pconv_2_out_quant",
+                f"{checkpoint_prefix}.{layer}.module_list.1.dconv_1_out_quant",
+                f"{checkpoint_prefix}.{layer}.module_list.1.pconv_2_in_quant",
+                f"{checkpoint_prefix}.{layer}.module_list.1.pointwise_conv2.weight_quantizer",
+                f"{checkpoint_prefix}.{layer}.module_list.1.depthwise_conv.weight_quantizer",
+                f"{checkpoint_prefix}.{layer}.module_list.1.dconv_1_in_quant",
+                f"{checkpoint_prefix}.{layer}.module_list.1.pointwise_conv1.weight_quantizer",
+                f"{checkpoint_prefix}.{layer}.module_list.1.pconv_1_out_quant",
+                f"{checkpoint_prefix}.{layer}.module_list.1.pconv_1_in_quant",
+                f"{checkpoint_prefix}.{layer}.module_list.2.mhsa.out_proj_in_quant",
+                f"{checkpoint_prefix}.{layer}.module_list.2.mhsa.linear_pos.weight_quantizer",
+                f"{checkpoint_prefix}.{layer}.module_list.2.mhsa.qkv_proj.weight_quantizer",
+                f"{checkpoint_prefix}.{layer}.module_list.2.mhsa.out_proj_out_quant",
+                f"{checkpoint_prefix}.{layer}.module_list.2.mhsa.out_proj.weight_quantizer",
+                f"{checkpoint_prefix}.{layer}.module_list.2.mhsa.learn_emb_out_quant",
+                f"{checkpoint_prefix}.{layer}.module_list.2.mhsa.in_proj_out_quant",
+                f"{checkpoint_prefix}.{layer}.module_list.2.mhsa.learn_emb_in_quant",
+                f"{checkpoint_prefix}.{layer}.module_list.2.mhsa.in_proj_in_quant",
+                f"{checkpoint_prefix}.{layer}.module_list.2.mhsa.q_quantizer",
+                f"{checkpoint_prefix}.{layer}.module_list.2.mhsa.k_quantizer",
+                f"{checkpoint_prefix}.{layer}.module_list.3.lin_1_in_quant",
+                f"{checkpoint_prefix}.{layer}.module_list.3.linear_ff.weight_quantizer",
+                f"{checkpoint_prefix}.{layer}.module_list.3.lin_1_out_quant",
+                f"{checkpoint_prefix}.{layer}.module_list.3.lin_2_out_quant",
+                f"{checkpoint_prefix}.{layer}.module_list.3.linear_out.weight_quantizer",
+                f"{checkpoint_prefix}.{layer}.module_list.3.lin_2_in_quant",
+                f"{checkpoint_prefix}.{layer}.module_list.2.layernorm",
+            ]
+        )
+    mapped = {
+        new: old
+        for layer in range(12)
+        for old, new in [
+            (
+                f"{checkpoint_prefix}.{layer}.module_list.2.layernorm.weight",
+                f"{checkpoint_prefix}.{layer}.module_list.2.mhsa.layernorm.weight",
+            ),
+            (
+                f"{checkpoint_prefix}.{layer}.module_list.2.layernorm.bias",
+                f"{checkpoint_prefix}.{layer}.module_list.2.mhsa.layernorm.bias",
+            ),
+            (
+                f"{checkpoint_prefix}.{layer}.module_list.2.pos_bias_u",
+                f"{checkpoint_prefix}.{layer}.module_list.2.mhsa.pos_bias_u",
+            ),
+            (
+                f"{checkpoint_prefix}.{layer}.module_list.2.pos_bias_v",
+                f"{checkpoint_prefix}.{layer}.module_list.2.mhsa.pos_bias_v",
+            ),
+            (
+                f"{checkpoint_prefix}.{layer}.module_list.2.qkv_proj.weight",
+                f"{checkpoint_prefix}.{layer}.module_list.2.mhsa.qkv_proj.weight",
+            ),
+            (
+                f"{checkpoint_prefix}.{layer}.module_list.2.qkv_proj.bias",
+                f"{checkpoint_prefix}.{layer}.module_list.2.mhsa.qkv_proj.bias",
+            ),
+            (
+                f"{checkpoint_prefix}.{layer}.module_list.2.out_proj.weight",
+                f"{checkpoint_prefix}.{layer}.module_list.2.mhsa.out_proj.weight",
+            ),
+            (
+                f"{checkpoint_prefix}.{layer}.module_list.2.out_proj.bias",
+                f"{checkpoint_prefix}.{layer}.module_list.2.mhsa.out_proj.bias",
+            ),
+            (
+                f"{checkpoint_prefix}.{layer}.module_list.2.linear_pos.weight",
+                f"{checkpoint_prefix}.{layer}.module_list.2.mhsa.linear_pos.weight",
+            ),
+        ]
+    }
+    return mapped, excluded
