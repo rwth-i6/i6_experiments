@@ -162,12 +162,12 @@ def py():
     # LSTM discriminator (a stronger critic than the frame-wise MLP), otherwise identical to
     # baseline_gan-adv-0.1_disc-lstm_mask-p-0.1-span-1-1 so the only difference is the GAN objective.
     run_experiment(
-        training_name=f"{prefix_name}/baseline_gan-wasserstein-adv-0.1-gp-10_disc-lstm_mask-p-0.1-span-1-1_bs-12k",
+        training_name=f"{prefix_name}/baseline_gan-wasserstein-adv-0.1-gp-10_disc-lstm_mask-p-0.1-span-1-1_bs-8k",
         config=dict_update_deep(
             copy.deepcopy(base_config),
             {
                 "model_args.discriminator_type": "lstm",
-                "training.batch_size": 12_000,
+                "training.batch_size": 8_000,
                 "train_args": {
                     "adv_loss_scale": 0.1,
                     "adv_loss_type": "wasserstein",
@@ -212,12 +212,13 @@ def py():
     # Single-modality batches (if any) simply skip the interpolation loss for that step. LSTM critic,
     # grad_penalty_scale=10.0, otherwise as close as possible to the other GAN variants.
     run_experiment(
-        training_name=f"{prefix_name}/baseline_gan-wasserstein-interp-adv-0.1-gp-10_disc-lstm_mask-p-0.1-span-1-1",
+        training_name=f"{prefix_name}/baseline_gan-wasserstein-interp-adv-0.1-gp-10_disc-lstm_mask-p-0.1-span-1-1_bs-6k",
         config=dict_update_deep(
             copy.deepcopy(base_config),
             {
                 "model_args.discriminator_type": "lstm",
                 "training.accum_grad_multiple_step": 1,  # mixed batches: both modalities per step
+                "training.batch_size": 6_000,
                 "train_args": {
                     "adv_loss_scale": 0.1,
                     "adv_loss_type": "wasserstein_interp",

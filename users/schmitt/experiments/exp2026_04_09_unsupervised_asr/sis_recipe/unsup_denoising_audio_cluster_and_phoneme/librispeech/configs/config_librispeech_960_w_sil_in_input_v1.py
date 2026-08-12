@@ -30,7 +30,6 @@ settings = DatasetSettings(
     buffer_size=0,
 )
 train_data = build_training_datasets_w_silence_in_input(sil_prob=0.25, surround_w_sil=True, settings=settings)
-test_data_dict_w_sil = build_test_datasets_w_silence_in_input(settings=settings, sil_prob=0.25, surround_w_sil=True)
 
 
 base_config = dict_update_deep(
@@ -74,6 +73,7 @@ base_config = dict_update_deep(
                 "max_span": 1,  # 3
             },
         },
+        "train_rqmt.mem_rqmt": 56,
     },
     [
         "train_args.masking_opts",
@@ -143,57 +143,76 @@ def _text_recon_sweep(num_epochs):
 def py():
     prefix_name = f"{__setup_base_name__}/librispeech/{__name__.split('.')[-1]}"
 
-    run_experiment(
-        training_name=f"{prefix_name}/baseline",
-        config=copy.deepcopy(base_config),
-        train_data=train_data,
-        test_data_dict=test_data_dict_w_sil,
-        keep_epochs=[base_num_epochs],  # get_keep_epochs(base_num_epochs),
-        # skip_eval=True,
-        additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
-        analysis_opts={
-            "checkpoints": get_keep_epochs(base_num_epochs),
-            "max_plotted_seqs": 20,
-            "cosine_similarity_summary": True,
-        },
-        # conditional (audio->phoneme) perplexity of the shared AED model on the last checkpoint,
-        # scored on the wo-silence reference (matching the wo-sil model) via a separate PPL dataset;
-        # recognition / analysis keep the with-silence test_data_dict.
-        ppl_opts={
-            "checkpoints": [base_num_epochs],
-            "input_modality": "audio",
-            "test_data_dict": test_data_dict_w_sil,
-        },
-        # same-modality reconstruction on the last checkpoint, masking the input with the same
-        # settings as in training, to probe how well the shared denoising model reconstructs each
-        # modality (scored against the unmasked input).
-        recog_variants=[
-            {
-                "recog_name": "recon_audio",
-                "input_modality": "audio",
-                "output_modality": "audio",
-                "mask_input": True,
-                "masking_opts": copy.deepcopy(base_config["train_args"]["audio_masking_opts"]),
-                "keep_epochs": [base_num_epochs],
-            },
-            {
-                "recog_name": "recon_text",
-                "input_modality": "text",
-                "output_modality": "text",
-                "mask_input": True,
-                "masking_opts": copy.deepcopy(base_config["train_args"]["text_masking_opts"]),
-                "keep_epochs": [base_num_epochs],
-            },
-            # fixed-masking text-recon sweep (copy ceiling + degradation curve), for a fair
-            # single-task (text-only) vs multi-task comparison of the text denoiser.
-            *_text_recon_sweep(base_num_epochs),
-        ],
-    )
-
-    for max_num_sil in [3, 5, 7]:
+    for max_num_sil, max_num_surround_sil, add_epochs in [
+        (3, 1, None),
+        (5, 1, None),
+        (7, 1, None),
+        (11, 1, None),
+        (17, 1, None),
+        (17, 25, [99]),
+    ]:
         train_data_var_sil = build_training_datasets_w_silence_in_input(
-            sil_prob=0.25, surround_w_sil=True, settings=settings, max_num_sil=max_num_sil
+            sil_prob=0.25,
+            surround_w_sil=True,
+            settings=settings,
+            max_num_sil=max_num_sil,
+            max_num_surround_sil=max_num_surround_sil,
         )
+        test_data_dict_w_sil = build_test_datasets_w_silence_in_input(
+            settings=settings,
+            sil_prob=0.25,
+            surround_w_sil=True,
+            max_num_sil=max_num_sil,
+            max_num_surround_sil=max_num_surround_sil,
+        )
+
+        run_experiment(
+            training_name=f"{prefix_name}/baseline_max-num-sil-{max_num_sil}_max-surround-{max_num_surround_sil}",
+            config=copy.deepcopy(base_config),
+            train_data=train_data_var_sil,
+            test_data_dict=test_data_dict_w_sil,
+            keep_epochs=get_keep_epochs(base_num_epochs),
+            # skip_eval=True,
+            additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
+            analysis_opts={
+                "checkpoints": get_keep_epochs(base_num_epochs) + (add_epochs if add_epochs else []),
+                "max_plotted_seqs": 20,
+                "cosine_similarity_summary": True,
+            },
+            # conditional (audio->phoneme) perplexity of the shared AED model on the last checkpoint,
+            # scored on the wo-silence reference (matching the wo-sil model) via a separate PPL dataset;
+            # recognition / analysis keep the with-silence test_data_dict.
+            ppl_opts={
+                "checkpoints": [base_num_epochs],
+                "input_modality": "audio",
+                "test_data_dict": test_data_dict_w_sil,
+            },
+            # same-modality reconstruction on the last checkpoint, masking the input with the same
+            # settings as in training, to probe how well the shared denoising model reconstructs each
+            # modality (scored against the unmasked input).
+            recog_variants=[
+                {
+                    "recog_name": "recon_audio",
+                    "input_modality": "audio",
+                    "output_modality": "audio",
+                    "mask_input": True,
+                    "masking_opts": copy.deepcopy(base_config["train_args"]["audio_masking_opts"]),
+                    "keep_epochs": [base_num_epochs],
+                },
+                {
+                    "recog_name": "recon_text",
+                    "input_modality": "text",
+                    "output_modality": "text",
+                    "mask_input": True,
+                    "masking_opts": copy.deepcopy(base_config["train_args"]["text_masking_opts"]),
+                    "keep_epochs": [base_num_epochs],
+                },
+                # fixed-masking text-recon sweep (copy ceiling + degradation curve), for a fair
+                # single-task (text-only) vs multi-task comparison of the text denoiser.
+                *_text_recon_sweep(base_num_epochs),
+            ],
+        )
+
         # discriminator-architecture sweep for the domain-adversarial loss. Same adv scale + masking as
         # baseline_gan-adv-0.1_mask-p-0.1-span-1-1 (which uses the frame-wise "mlp" discriminator), but
         # with discriminators that see more temporal context:
@@ -201,7 +220,7 @@ def py():
         #   lstm                  -> LSTM over the whole encoder output sequence
         for discriminator_type in ("lstm",):
             run_experiment(
-                training_name=f"{prefix_name}/baseline_gan-adv-0.1_disc-{discriminator_type}_mask-p-0.1-span-1-1_max-num-sil-{max_num_sil}",
+                training_name=f"{prefix_name}/baseline_gan-adv-0.1_disc-{discriminator_type}_mask-p-0.1-span-1-1_max-num-sil-{max_num_sil}_max-surround-{max_num_surround_sil}",
                 config=dict_update_deep(
                     copy.deepcopy(base_config),
                     {
@@ -227,7 +246,7 @@ def py():
                 # skip_eval=True,
                 additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
                 analysis_opts={
-                    "checkpoints": get_keep_epochs(base_num_epochs),
+                    "checkpoints": get_keep_epochs(base_num_epochs) + (add_epochs if add_epochs else []),
                     "max_plotted_seqs": 20,
                     "cosine_similarity_summary": True,
                 },
