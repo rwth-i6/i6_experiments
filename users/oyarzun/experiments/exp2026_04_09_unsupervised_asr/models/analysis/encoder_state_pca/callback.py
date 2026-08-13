@@ -57,6 +57,30 @@ def _avg_pairwise_cosine_similarity(x: np.ndarray, y: Optional[np.ndarray] = Non
     return mean_sim
 
 
+def _avg_pairwise_l2_distance(x: np.ndarray, y: Optional[np.ndarray] = None) -> float:
+    """
+    Average pairwise L2 distance in the *original* feature space.
+    """
+    x = x.astype(np.float64)
+    if y is None:
+        n = x.shape[0]
+        if n < 2:
+            return float("nan")
+        x2 = np.sum(x**2, axis=1)
+        dists = np.sqrt(np.clip(x2[:, None] + x2[None, :] - 2 * (x @ x.T), 0, None))
+        off_diag_sum = float(dists.sum())
+        mean_dist = off_diag_sum / (n * (n - 1))
+        return mean_dist
+    y = y.astype(np.float64)
+    if x.shape[0] == 0 or y.shape[0] == 0:
+        return float("nan")
+    x2 = np.sum(x**2, axis=1)
+    y2 = np.sum(y**2, axis=1)
+    dists = np.sqrt(np.clip(x2[:, None] + y2[None, :] - 2 * (x @ y.T), 0, None))
+    mean_dist = float(dists.mean())
+    return mean_dist
+
+
 class EncoderStatePcaCallback(ForwardCallbackIface):
     """
     Forward callback for the shared-encoder state PCA analysis.
@@ -221,9 +245,16 @@ class EncoderStatePcaCallback(ForwardCallbackIface):
                 title = f"Shared encoder PCA for {seq_tag}"
                 if self.cosine_similarity_summary:
                     cos = cosine_similarities[seq_tag]
+                    dist = {
+                        "audio_audio": _avg_pairwise_l2_distance(audio_states),
+                        "text_text": _avg_pairwise_l2_distance(text_states),
+                        "audio_text": _avg_pairwise_l2_distance(audio_states, text_states),
+                    }
                     title += (
                         f"\navg cos-sim (orig. space)  a-a {cos['audio_audio']:.3f}"
                         f"  t-t {cos['text_text']:.3f}  a-t {cos['audio_text']:.3f}"
+                        f"\navg L2-dist (orig. space)  a-a {dist['audio_audio']:.3f}"
+                        f"  t-t {dist['text_text']:.3f}  a-t {dist['audio_text']:.3f}"
                     )
                 plt.title(title)
                 plt.xlabel("PC1")

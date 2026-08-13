@@ -186,6 +186,7 @@ def run_encoder_embedding_visualization(
     recog_model_args: Optional[Dict] = None,
     main_eval_measure_key: str = "dev",
     recog_post_proc_funcs: Optional[List[Callable[[tk.Path], tk.Path]]] = None,
+    cosine_similarity_summary: bool = False,
 ): 
 
     analyze_encoder_states(
@@ -198,6 +199,7 @@ def run_encoder_embedding_visualization(
         test_data_dict=test_data_dict,
         checkpoints=keep_epochs,
         extra_forward_config=extra_forward_config,
+        cosine_similarity_summary=cosine_similarity_summary,
     )
 
 def run_rasr_eval(
@@ -280,6 +282,7 @@ def run_experiment(
     recog_post_proc_funcs: Optional[List[Callable[[tk.Path], tk.Path]]] = None,
     rasr_recog_opts: Optional[Dict] = None,
     vis_epochs: Optional[List[int]] = None,
+    vis_kwargs: Optional[Dict[str, Any]] = None,
 ):
     train_job, train_args = run_train(
         training_name=training_name,
@@ -330,6 +333,7 @@ def run_experiment(
         )
 
     if vis_epochs is not None:
+        kwargs = vis_kwargs or {}
         run_encoder_embedding_visualization(
             training_name=training_name,
             train_job=train_job,
@@ -345,6 +349,7 @@ def run_experiment(
             recog_model_args=recog_model_args,
             main_eval_measure_key=main_eval_measure_key,
             recog_post_proc_funcs=recog_post_proc_funcs,
+            **kwargs,
         )
 
     return train_job

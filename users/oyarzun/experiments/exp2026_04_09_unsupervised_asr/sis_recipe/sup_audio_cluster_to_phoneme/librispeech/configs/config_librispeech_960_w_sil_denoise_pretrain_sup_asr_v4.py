@@ -241,6 +241,7 @@ def py():
             skip_eval=False,
             rasr_recog_opts={"line_based_lexicon_file": current_train_data.add_opts["line_based_lexicon_file"]},
             vis_epochs=[250, 500, 750, 1000],
+            vis_kwargs={"cosine_similarity_summary": True},
         )
 
     # --- New Ablations with longer masking spans ---
@@ -310,7 +311,7 @@ def py():
         use_lm = train_args.get("use_lm_for_asr_adv", False)
         current_train_data = train_data_lm if use_lm else train_data_no_lm
 
-        config["recog_rqmt"] = {"time": 48, "mem": 24, "cpu": 8}
+        config["recog_rqmt"] = {"time": 48, "mem": 24, "cpu": 8, "gpu_mem": 11, "gpu": 1}
         run_experiment(
             training_name=f"{prefix_name}/{new_train_name}",
             config=config,
@@ -320,4 +321,5 @@ def py():
             skip_eval=False,
             rasr_recog_opts={"line_based_lexicon_file": current_train_data.add_opts["line_based_lexicon_file"]},
             vis_epochs=[250, 500, 750, 1000],
+            vis_kwargs={"cosine_similarity_summary": True},
         )
