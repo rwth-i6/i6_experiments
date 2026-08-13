@@ -25,6 +25,7 @@ from i6_experiments.example_setups.guided_kmeans.setup.centroid_metrics import (
 from i6_experiments.example_setups.guided_kmeans.setup.score import FrameErrorRateJob
 
 exp_dir = "fb_cheat_seg_cheat_init"
+version = 1
 
 
 def run():
@@ -85,7 +86,9 @@ def run():
     recog_results_seg = []
 
     for lm_scale, distance_scale in product(lm_scales, distance_scales):
-        exp_name = f"lm-{lm_order}-{lm_scale}_loop-{loop_prob}_am-{distance_scale}"
+        _ts = transition_scale if transition_scale is not None else lm_scale
+        _beam = "inf" if train_beam_size is None else (f"{train_beam_size // 1000}k" if train_beam_size >= 1000 else str(train_beam_size))
+        exp_name = f"lm-{lm_order}-{lm_scale}_ts-{_ts}_loop-{loop_prob}_am-{distance_scale}_beam-{_beam}"
 
         recognition_config = create_recog_rasr_config(
             lm_scale=lm_scale,
@@ -122,7 +125,9 @@ def run():
         statistics = clustering_statistics(exp_result.out_statistics, name=exp_name, epoch_offset=1)
 
         for decode_lm_scale in decode_lm_scales:
-            decode_name = exp_name + f"_dec-{decode_lm_scale}"
+            _dts = transition_scale_decode if transition_scale_decode is not None else decode_lm_scale
+            _dbeam = "inf" if decode_beam_size is None else (f"{decode_beam_size // 1000}k" if decode_beam_size >= 1000 else str(decode_beam_size))
+            decode_name = exp_name + f"_dec-{decode_lm_scale}_dts-{_dts}_dloop-{decode_loop_prob}_dbeam-{_dbeam}"
             recognition_config_decode = create_recog_rasr_config(
                 lm_scale=decode_lm_scale,
                 emission_scale=1.0,
@@ -154,7 +159,7 @@ def run():
                     write_frame_labels=True,
                 )
                 res = decode_and_score(
-                    decode_name + f"_epoch-{recog_epoch}",
+                    decode_name + f"_ep-{recog_epoch}",
                     "cv",
                     decode_config,
                     cv_dataset_config,
@@ -168,14 +173,14 @@ def run():
                 res.avg_lm_score = AverageNamedScoreJob(exp_result.out_statistics, recog_epoch, "average_lm_score").out_avg_score
                 if res.frame_labels is not None:
                     res.fer = FrameErrorRateJob(res.frame_labels, GMM_ALIGNMENT_CV, lexicon).out_fer
-                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_epoch-{recog_epoch}_cos_sim", res.mean_cos_sim)
-                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_epoch-{recog_epoch}_avg_am_score", res.avg_am_score)
-                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_epoch-{recog_epoch}_avg_transition_score", res.avg_transition_score)
-                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_epoch-{recog_epoch}_avg_lm_score", res.avg_lm_score)
+                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_ep-{recog_epoch}_cos_sim", res.mean_cos_sim)
+                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_ep-{recog_epoch}_avg_am_score", res.avg_am_score)
+                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_ep-{recog_epoch}_avg_transition_score", res.avg_transition_score)
+                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_ep-{recog_epoch}_avg_lm_score", res.avg_lm_score)
                 if res.frame_labels is not None:
-                    tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_epoch-{recog_epoch}_fer", res.fer)
+                    tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_ep-{recog_epoch}_fer", res.fer)
                 tk.register_output(
-                    f"guided_kmeans/{exp_dir}/per/{decode_name}_epoch-{recog_epoch}_per",
+                    f"guided_kmeans/{exp_dir}/per/{decode_name}_ep-{recog_epoch}_per",
                     res.per,
                 )
                 recog_results.append(res)
@@ -193,7 +198,7 @@ def run():
                     subsampling=subsampling,
                 )
                 res_seg = decode_and_score(
-                    decode_name + f"_seg_epoch-{recog_epoch}",
+                    decode_name + f"_seg_ep-{recog_epoch}",
                     "cv",
                     decode_config_seg,
                     cv_seg_dataset_config,
@@ -205,12 +210,12 @@ def run():
                 res_seg.avg_am_score = AverageNamedScoreJob(exp_result.out_statistics, recog_epoch, "average_am_score").out_avg_score
                 res_seg.avg_transition_score = AverageNamedScoreJob(exp_result.out_statistics, recog_epoch, "average_transition_score").out_avg_score
                 res_seg.avg_lm_score = AverageNamedScoreJob(exp_result.out_statistics, recog_epoch, "average_lm_score").out_avg_score
-                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_seg_epoch-{recog_epoch}_cos_sim", res_seg.mean_cos_sim)
-                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_seg_epoch-{recog_epoch}_avg_am_score", res_seg.avg_am_score)
-                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_seg_epoch-{recog_epoch}_avg_transition_score", res_seg.avg_transition_score)
-                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_seg_epoch-{recog_epoch}_avg_lm_score", res_seg.avg_lm_score)
+                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_seg_ep-{recog_epoch}_cos_sim", res_seg.mean_cos_sim)
+                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_seg_ep-{recog_epoch}_avg_am_score", res_seg.avg_am_score)
+                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_seg_ep-{recog_epoch}_avg_transition_score", res_seg.avg_transition_score)
+                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_seg_ep-{recog_epoch}_avg_lm_score", res_seg.avg_lm_score)
                 tk.register_output(
-                    f"guided_kmeans/{exp_dir}/per/{decode_name}_seg_epoch-{recog_epoch}_per",
+                    f"guided_kmeans/{exp_dir}/per/{decode_name}_seg_ep-{recog_epoch}_per",
                     res_seg.per,
                 )
                 recog_results_seg.append(res_seg)
@@ -222,17 +227,17 @@ def run():
                 )
 
     tk.register_report(
-        f"guided_kmeans/{exp_dir}/recognition/report.txt",
+        f"guided_kmeans/{exp_dir}/recognition/report_{version}.txt",
         values=create_report(recog_results),
         required=True,
     )
     tk.register_report(
-        f"guided_kmeans/{exp_dir}/recognition/report_seg.txt",
+        f"guided_kmeans/{exp_dir}/recognition/report_seg_{version}.txt",
         values=create_report(recog_results_seg),
         required=True,
     )
-    latex_report.register(f"guided_kmeans/{exp_dir}/tex/report_first_last.tex")
-    latex_report_seg.register(f"guided_kmeans/{exp_dir}/tex/report_seg_first_last.tex")
+    latex_report.register(f"guided_kmeans/{exp_dir}/tex/report_first_last_{version}.tex")
+    latex_report_seg.register(f"guided_kmeans/{exp_dir}/tex/report_seg_first_last_{version}.tex")
 
 
 def py():
