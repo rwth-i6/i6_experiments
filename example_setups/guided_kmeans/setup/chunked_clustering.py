@@ -521,7 +521,7 @@ def chunked_clustering(
 
     model_spec = Spec(model_cls, initial_artifacts)
 
-    job_rqmt = {"cpu": num_workers + 1, "mem": 16, "time": 4}
+    job_rqmt = {"cpu": num_workers + 1, "mem": 16, "time": 168}
     if rqmt:
         job_rqmt.update(rqmt)
 

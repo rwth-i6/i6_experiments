@@ -44,14 +44,19 @@ def run():
     subsampling = None
     seed = 42
 
-    # --- Hyperparameter sweeps ---
     lm_scales = [50.0]
+    transition_scale = None
     loop_probs = [0.4]
 
-    # --- Decode settings ---
     decode_lm_scales = [5000.0]
+    transition_scale_decode = None
     decode_loop_prob = 0.4
-    decode_distance_scale = 1.0
+
+    train_beam_size = 100_000
+    train_score_threshold = None
+    decode_beam_size = 100_000
+    decode_score_threshold = None
+
 
     initial_centroids = RandomCentroidsJob(
         input_data[input_data_key]["features"], num_clusters, seed=seed
@@ -88,11 +93,13 @@ def run():
         recognition_config = create_recog_rasr_config(
             lm_scale=lm_scale,
             emission_scale=1.0,
-            transition_scale=lm_scale,
+            transition_scale=transition_scale if transition_scale is not None else lm_scale,
             loop_probability=loop_prob,
             silence_loop_probability=loop_prob,
             lm_order=lm_order,
             use_eow_phonemes=use_eow_phonemes,
+            max_beam_size=train_beam_size,
+            score_threshold=train_score_threshold,
         )
 
         exp_result = chunked_clustering(
@@ -119,17 +126,19 @@ def run():
             recognition_config_decode = create_recog_rasr_config(
                 lm_scale=decode_lm_scale,
                 emission_scale=1.0,
-                transition_scale=None,
+                transition_scale=transition_scale_decode,
                 loop_probability=decode_loop_prob,
                 silence_loop_probability=decode_loop_prob,
                 lm_order=lm_order,
                 use_eow_phonemes=use_eow_phonemes,
+                max_beam_size=decode_beam_size,
+                score_threshold=decode_score_threshold,
             )
             for recog_epoch in range(num_epochs + 1):
                 decode_config = DecodeConfig(
                     centroids=exp_result.out_centroids[recog_epoch],
                     recog_rasr_config=recognition_config_decode,
-                    distance_scale=decode_distance_scale,
+                    distance_scale=1.0,
                     subsampling=subsampling,
                     write_frame_labels=True,
                 )
@@ -149,8 +158,15 @@ def run():
                 res.avg_lm_score = AverageNamedScoreJob(exp_result.out_statistics, recog_epoch, "average_lm_score").out_avg_score
                 if res.frame_labels is not None:
                     res.fer = FrameErrorRateJob(res.frame_labels, GMM_ALIGNMENT_CV, lexicon).out_fer
+                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_epoch-{recog_epoch}_cos_sim", res.mean_cos_sim)
+                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_epoch-{recog_epoch}_l1_dist", res.l1_dist)
+                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_epoch-{recog_epoch}_avg_am_score", res.avg_am_score)
+                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_epoch-{recog_epoch}_avg_transition_score", res.avg_transition_score)
+                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_epoch-{recog_epoch}_avg_lm_score", res.avg_lm_score)
+                if res.frame_labels is not None:
+                    tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_epoch-{recog_epoch}_fer", res.fer)
                 tk.register_output(
-                    f"guided_kmeans/{exp_dir}/recognition/{decode_name}_epoch-{recog_epoch}_per",
+                    f"guided_kmeans/{exp_dir}/per/{decode_name}_epoch-{recog_epoch}_per",
                     res.per,
                 )
                 recog_results.append(res)
@@ -166,7 +182,7 @@ def run():
         values=create_report(recog_results),
         required=True,
     )
-    latex_report.register(f"guided_kmeans/{exp_dir}/recognition/report_first_last.tex")
+    latex_report.register(f"guided_kmeans/{exp_dir}/tex/report_first_last.tex")
 
 
 def py():

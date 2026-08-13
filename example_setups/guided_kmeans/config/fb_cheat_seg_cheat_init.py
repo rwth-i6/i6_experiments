@@ -7,7 +7,6 @@ from sisyphus import tk
 from i6_experiments.example_setups.guided_kmeans.setup.constants import (
     INPUT_DATA as input_data,
     GMM_ALIGNMENT_CV,
-    PHONEME_FREQUENCIES_LS100H,
 )
 from i6_experiments.example_setups.guided_kmeans.setup.chunked_clustering import chunked_clustering
 from i6_experiments.example_setups.guided_kmeans.setup.librasr_recognition import (
@@ -21,7 +20,6 @@ from i6_experiments.example_setups.guided_kmeans.setup.latex_report import Latex
 from i6_experiments.example_setups.guided_kmeans import tools
 from i6_experiments.example_setups.guided_kmeans.setup.centroid_metrics import (
     CentroidCosineSimilarityJob,
-    PhonemeL1DistanceJob,
     AverageNamedScoreJob,
 )
 from i6_experiments.example_setups.guided_kmeans.setup.score import FrameErrorRateJob
@@ -41,12 +39,20 @@ def run():
     subsampling = None
 
     lm_scales = [1.0]
+    transition_scale = None
     loop_prob = 0.0  # forced by cheating segmentation
     distance_scales = [0.1]  # AM weight applied to emission scores before FB search
 
     decode_lm_scales = [5000.0]
+    transition_scale_decode = None
     decode_loop_prob = 0.4
     decode_distance_scale = 1.0
+
+    train_beam_size = 100_000
+    train_score_threshold = None
+    decode_beam_size = 100_000
+    decode_score_threshold = None
+
 
     initial_centroids = input_data[input_data_key]["cheating_centroids"]
 
@@ -84,12 +90,14 @@ def run():
         recognition_config = create_recog_rasr_config(
             lm_scale=lm_scale,
             emission_scale=1.0,
-            transition_scale=lm_scale,
+            transition_scale=transition_scale if transition_scale is not None else lm_scale,
             loop_probability=loop_prob,
             silence_loop_probability=loop_prob,
             use_forward_backward_search=True,
             lm_order=lm_order,
             use_eow_phonemes=use_eow_phonemes,
+            max_beam_size=train_beam_size,
+            score_threshold=train_score_threshold,
         )
 
         exp_result = chunked_clustering(
@@ -118,20 +126,24 @@ def run():
             recognition_config_decode = create_recog_rasr_config(
                 lm_scale=decode_lm_scale,
                 emission_scale=1.0,
-                transition_scale=None,
+                transition_scale=transition_scale_decode,
                 loop_probability=decode_loop_prob,
                 silence_loop_probability=decode_loop_prob,
                 lm_order=lm_order,
                 use_eow_phonemes=use_eow_phonemes,
+                max_beam_size=decode_beam_size,
+                score_threshold=decode_score_threshold,
             )
             recognition_config_decode_seg = create_recog_rasr_config(
                 lm_scale=decode_lm_scale,
                 emission_scale=1.0,
-                transition_scale=None,
+                transition_scale=transition_scale_decode,
                 loop_probability=0.0,
                 silence_loop_probability=0.0,
                 lm_order=lm_order,
                 use_eow_phonemes=use_eow_phonemes,
+                max_beam_size=decode_beam_size,
+                score_threshold=decode_score_threshold,
             )
             for recog_epoch in range(num_epochs + 1):
                 decode_config = DecodeConfig(
@@ -151,14 +163,19 @@ def run():
                     corpus_key="train-other-960",
                 )
                 res.mean_cos_sim = CentroidCosineSimilarityJob(exp_result.out_centroids[recog_epoch]).out_mean_cos_sim
-                res.l1_dist = PhonemeL1DistanceJob(exp_result.out_statistics, recog_epoch, PHONEME_FREQUENCIES_LS100H).out_l1_dist
                 res.avg_am_score = AverageNamedScoreJob(exp_result.out_statistics, recog_epoch, "average_am_score").out_avg_score
                 res.avg_transition_score = AverageNamedScoreJob(exp_result.out_statistics, recog_epoch, "average_transition_score").out_avg_score
                 res.avg_lm_score = AverageNamedScoreJob(exp_result.out_statistics, recog_epoch, "average_lm_score").out_avg_score
                 if res.frame_labels is not None:
                     res.fer = FrameErrorRateJob(res.frame_labels, GMM_ALIGNMENT_CV, lexicon).out_fer
+                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_epoch-{recog_epoch}_cos_sim", res.mean_cos_sim)
+                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_epoch-{recog_epoch}_avg_am_score", res.avg_am_score)
+                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_epoch-{recog_epoch}_avg_transition_score", res.avg_transition_score)
+                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_epoch-{recog_epoch}_avg_lm_score", res.avg_lm_score)
+                if res.frame_labels is not None:
+                    tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_epoch-{recog_epoch}_fer", res.fer)
                 tk.register_output(
-                    f"guided_kmeans/{exp_dir}/recognition/{decode_name}_epoch-{recog_epoch}_per",
+                    f"guided_kmeans/{exp_dir}/per/{decode_name}_epoch-{recog_epoch}_per",
                     res.per,
                 )
                 recog_results.append(res)
@@ -185,12 +202,15 @@ def run():
                     corpus_key="train-other-960",
                 )
                 res_seg.mean_cos_sim = CentroidCosineSimilarityJob(exp_result.out_centroids[recog_epoch]).out_mean_cos_sim
-                res_seg.l1_dist = PhonemeL1DistanceJob(exp_result.out_statistics, recog_epoch, PHONEME_FREQUENCIES_LS100H).out_l1_dist
                 res_seg.avg_am_score = AverageNamedScoreJob(exp_result.out_statistics, recog_epoch, "average_am_score").out_avg_score
                 res_seg.avg_transition_score = AverageNamedScoreJob(exp_result.out_statistics, recog_epoch, "average_transition_score").out_avg_score
                 res_seg.avg_lm_score = AverageNamedScoreJob(exp_result.out_statistics, recog_epoch, "average_lm_score").out_avg_score
+                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_seg_epoch-{recog_epoch}_cos_sim", res_seg.mean_cos_sim)
+                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_seg_epoch-{recog_epoch}_avg_am_score", res_seg.avg_am_score)
+                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_seg_epoch-{recog_epoch}_avg_transition_score", res_seg.avg_transition_score)
+                tk.register_output(f"guided_kmeans/{exp_dir}/eval/{decode_name}_seg_epoch-{recog_epoch}_avg_lm_score", res_seg.avg_lm_score)
                 tk.register_output(
-                    f"guided_kmeans/{exp_dir}/recognition/{decode_name}_seg_epoch-{recog_epoch}_per",
+                    f"guided_kmeans/{exp_dir}/per/{decode_name}_seg_epoch-{recog_epoch}_per",
                     res_seg.per,
                 )
                 recog_results_seg.append(res_seg)
@@ -211,8 +231,8 @@ def run():
         values=create_report(recog_results_seg),
         required=True,
     )
-    latex_report.register(f"guided_kmeans/{exp_dir}/recognition/report_first_last.tex")
-    latex_report_seg.register(f"guided_kmeans/{exp_dir}/recognition/report_seg_first_last.tex")
+    latex_report.register(f"guided_kmeans/{exp_dir}/tex/report_first_last.tex")
+    latex_report_seg.register(f"guided_kmeans/{exp_dir}/tex/report_seg_first_last.tex")
 
 
 def py():
