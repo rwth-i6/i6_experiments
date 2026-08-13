@@ -1,6 +1,6 @@
 import ast
 
-from i6_experiments.users.schmitt.experiments.exp2026_04_09_unsupervised_asr.sis_recipe.default_tools import (
+from i6_experiments.users.oyarzun.experiments.exp2026_04_09_unsupervised_asr.sis_recipe.default_tools import (
     RETURNN_EXE,
     RETURNN_ROOT,
 )

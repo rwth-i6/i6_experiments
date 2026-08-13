@@ -42,9 +42,10 @@ def serialize_training(
     """
     package = PACKAGE
 
+    mod_path = network_module if network_module.startswith("i6_experiments") else f"{package}.{network_module}"
     pytorch_model_import = PartialImport(
-        code_object_path=f"{package}.{network_module}",
-        unhashed_package_root=PACKAGE,
+        code_object_path=mod_path,
+        unhashed_package_root=PACKAGE if mod_path.startswith(PACKAGE) else None,
         hashed_arguments=net_args,
         unhashed_arguments=unhashed_net_args or {},
         import_as="get_model",
@@ -100,9 +101,10 @@ def serialize_forward(
     :return:
     """
 
+    mod_path = network_module if network_module.startswith("i6_experiments") else f"{PACKAGE}.{network_module}"
     pytorch_model_import = PartialImport(
-        code_object_path=f"{PACKAGE}.{network_module}",
-        unhashed_package_root=PACKAGE,
+        code_object_path=mod_path,
+        unhashed_package_root=PACKAGE if mod_path.startswith(PACKAGE) else None,
         hashed_arguments=net_args,
         unhashed_arguments=unhashed_net_args or {},
         import_as="get_model",

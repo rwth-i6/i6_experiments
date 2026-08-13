@@ -116,6 +116,7 @@ def train_step(
     adv_loss_scale: float = 0.0,
     codebook_diversity_loss_scale: float = 0.0,  
     denoise_pretrain_steps: int = 0,
+    denoise_pretrain_epochs: int = 0,
     pretrain_codebook_prob: Optional[float] = None,
     pretrain_codebook_diversity_loss_scale: Optional[float] = None,
     pretrain_adv_loss_scale: Optional[float] = None,
@@ -124,9 +125,10 @@ def train_step(
     gradual_unfreeze_start_iter: int = 0,
     gradual_unfreeze_end_iter: int = 0,
     asr_loss_warmup_steps: int = 0,
+    use_lm_for_asr_adv: bool = False,
     **_kwargs,
 ):
-    assert set(extern_data.data.keys()) == {"data", "target", "seq_tag"}
+    assert {"data", "target", "seq_tag"}.issubset(extern_data.data.keys())
     if "data" in extern_data:
         audio_indices_: ReturnnTensor = extern_data["data"]
     else:
@@ -138,10 +140,17 @@ def train_step(
 
     ctx = rf.get_run_ctx()
     # Check if we are in the MLM pretraining phase where backtranslation is skipped
-    is_pretraining = ctx.step < denoise_pretrain_steps
+    if denoise_pretrain_epochs > 0:
+        is_pretraining = ctx.epoch <= denoise_pretrain_epochs
+    else:
+        is_pretraining = ctx.step < denoise_pretrain_steps
+        
+    if not is_pretraining and not hasattr(model, "_asr_start_step"):
+        model._asr_start_step = ctx.step
+        print(f"========== PRETRAINING OVER, TRANSLATION STARTED at global step {ctx.step} (epoch {ctx.epoch}) ==========", flush=True)
     
     if gradual_unfreeze and not is_pretraining:
-        bt_step = ctx.step - denoise_pretrain_steps
+        bt_step = ctx.step - model._asr_start_step
         encoder_obj = getattr(model.encoder, "encoder", model.encoder)
         if hasattr(encoder_obj, "module_list"):
             num_layers = len(encoder_obj.module_list)
@@ -223,9 +232,7 @@ def train_step(
         )
 
     if not is_pretraining:
-        asr_step = ctx.step - denoise_pretrain_steps
-        if asr_step == 0:
-            print(f"========== PRETRAINING OVER, TRANSLATION STARTED at global step {ctx.step} ==========", flush=True)
+        asr_step = ctx.step - model._asr_start_step
         
         # Lower initial ASR LR: scale the loss down during warmup
         if asr_loss_warmup_steps > 0:
@@ -251,6 +258,31 @@ def train_step(
                 aux_loss_scales=None,
                 codebook_diversity_loss_scale=codebook_diversity_loss_scale,  
                 loss_name="sup_asr",
+                adv_loss_scale=adv_loss_scale if use_lm_for_asr_adv else 0.0,
+                true_adv_target=0 if use_lm_for_asr_adv else None,
+            )
+
+        if use_lm_for_asr_adv and adv_loss_scale > 0.0 and "lm_text" in extern_data:
+            lm_text_indices_ = extern_data["lm_text"]
+            model.decode_seq = model.decode_text_seq
+            model.forward = model.forward_text
+            model.mask_idx = model.text_mask_idx
+            model.bos_idx = model.text_bos_idx
+            model.eos_idx = model.text_eos_idx
+            model.decoder = model.text_decoder
+            aed_denoising_discrete.train_step(
+                model=model,
+                extern_data=TensorDict({"data": lm_text_indices_, "seq_tag": extern_data["seq_tag"]}),
+                ce_loss_scale=0.0,
+                masked_ce_loss_scale=0.0,
+                label_smoothing=label_smoothing,
+                label_smoothing_start_epoch=label_smoothing_start_epoch,
+                masking_opts={"mask_prob": 0.0},
+                aux_loss_scales=None,
+                codebook_diversity_loss_scale=codebook_diversity_loss_scale,  
+                loss_name="lm_text",
+                adv_loss_scale=adv_loss_scale,
+                true_adv_target=1,  # real text
             )
 
     dummy_tensor = next((p for p in model.parameters() if p.requires_grad), next(model.parameters(), None))

@@ -71,6 +71,7 @@ def build_training_datasets(
     dev_seq_tags = TakeNRandomLinesJob(text_file=dev_seq_tags, num_lines=3000).out
 
     return TrainingDatasets(
+        add_opts={"line_based_lexicon_file": lexicon_file},
         train=CombinedDataset(
             datasets={
                 "feature_clusters": HdfDataset(

@@ -177,7 +177,10 @@ def generate_pseudo_labels_for_batch(
                 eos_idx=target_eos_idx,
             )
             pseudo_target_indices = pseudo_target_indices[:, :-1]
-            
+            if pseudo_target_indices.shape[1] < 33:
+                pad_size = 33 - pseudo_target_indices.shape[1]
+                pseudo_target_indices = torch.nn.functional.pad(pseudo_target_indices, (0, pad_size), value=target_eos_idx)
+                
             batch_dim = ReturnnDim(pseudo_target_indices.shape[0], name="batch")
             target_vocab_dim = ReturnnDim(target_out_dim, name="vocab")
             pseudo_target_lens_data = rf.convert_to_tensor(pseudo_target_indices_lens, dims=[batch_dim])
@@ -268,6 +271,7 @@ def train_step(
     adv_loss_scale: float = 0.0,
     codebook_diversity_loss_scale: float = 0.0,  
     denoise_pretrain_steps: int = 0,
+    denoise_pretrain_epochs: int = 0,
     pretrain_codebook_prob: Optional[float] = None,
     pretrain_codebook_diversity_loss_scale: Optional[float] = None,
     pretrain_adv_loss_scale: Optional[float] = None,
@@ -291,9 +295,14 @@ def train_step(
 
     ctx = rf.get_run_ctx()
     # Check if we are in the MLM pretraining phase where backtranslation is skipped
-    is_pretraining = ctx.step < denoise_pretrain_steps
-    if not is_pretraining and (ctx.step - denoise_pretrain_steps) == 0:
-        print(f"========== PRETRAINING OVER, TRANSLATION STARTED at global step {ctx.step} ==========", flush=True)
+    if denoise_pretrain_epochs > 0:
+        is_pretraining = ctx.epoch <= denoise_pretrain_epochs
+    else:
+        is_pretraining = ctx.step < denoise_pretrain_steps
+        
+    if not is_pretraining and not hasattr(model, "_asr_start_step"):
+        model._asr_start_step = ctx.step
+        print(f"========== PRETRAINING OVER, TRANSLATION STARTED at global step {ctx.step} (epoch {ctx.epoch}) ==========", flush=True)
     
     if not hasattr(model, "_bt_phon_sparse_dim") and phon_indices_ is not None:
         model._bt_phon_sparse_dim = phon_indices_.sparse_dim
@@ -301,7 +310,7 @@ def train_step(
         model._bt_audio_sparse_dim = audio_indices_.sparse_dim
 
     if gradual_unfreeze and not is_pretraining:
-        bt_step = ctx.step - denoise_pretrain_steps
+        bt_step = ctx.step - model._asr_start_step
         encoder_obj = getattr(model.encoder, "encoder", model.encoder)
         if hasattr(encoder_obj, "module_list"):
             num_layers = len(encoder_obj.module_list)

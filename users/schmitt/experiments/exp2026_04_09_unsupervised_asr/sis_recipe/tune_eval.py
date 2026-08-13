@@ -420,14 +420,13 @@ def eval_model_rasr(
             output_names=["scores"],
             returnn_python_exe=RETURNN_ONNX_EXE,
             returnn_root=RETURNN_ONNX_ROOT,
-            verify_model=True,
         )
         tk.register_output(f"{recog_path}/onnx_model", onnx_export_job.out_onnx_model)
         onnx_export_job.add_alias(f"{recog_path}/onnx_export")
 
         lexicon = get_lexicon(
             vocab_file=train_data.datastreams[output_data_key].vocab,
-            line_based_lexicon_file=recog_opts.pop("line_based_lexicon_file"),
+            line_based_lexicon_file=recog_opts["line_based_lexicon_file"],
         )
         label_scorer_config = get_stateless_label_scorer_config(
             exported_model=onnx_export_job.out_onnx_model,
@@ -449,13 +448,14 @@ def eval_model_rasr(
             unhashed_arguments={},
             unhashed_package_root=None,
         )
-        forward_step_args["search_function"] = CodeWrapper("search_function")
+        search_decoder_args = copy.copy(forward_step_args)
+        search_decoder_args["search_function"] = CodeWrapper("search_function")
         python_prolog = [
             Collection(
                 [
                     # needed for librasr import
                     NonhashedCode(
-                        'sys.path.insert(0, "/work/asr4/lkleppel/rasr_dev/tree-labelsync-search/rasr/arch/linux-x86_64-standard")\n'
+                        'sys.path.insert(0, "/work/smt4/benjamin.oyarzun/rasr/arch/linux-x86_64-release")\n'
                     ),
                     search_function,
                 ],
@@ -470,7 +470,7 @@ def eval_model_rasr(
             network_module=train_args["network_module"],
             extra_config=extra_forward_config if extra_forward_config else ReturnnConfig({}),
             net_args=train_args["net_args"],
-            decoder_args=forward_step_args,
+            decoder_args=search_decoder_args,
             decoder=decoder_module,
             callback_module=callback_module,
             datastreams=train_data.datastreams,

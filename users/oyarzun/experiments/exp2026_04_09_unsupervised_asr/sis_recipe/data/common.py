@@ -12,6 +12,7 @@ class TrainingDatasets:
     train: Dataset
     eval_datasets: Dict[str, Dataset]
     datastreams: Dict[str, Datastream]
+    add_opts: Optional[Dict] = None
 
 
 class LabelDatastreamWoVocab(Datastream):

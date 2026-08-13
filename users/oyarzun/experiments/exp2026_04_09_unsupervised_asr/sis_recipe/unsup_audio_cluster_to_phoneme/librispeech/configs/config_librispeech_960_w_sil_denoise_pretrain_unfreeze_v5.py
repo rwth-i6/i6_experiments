@@ -23,12 +23,11 @@ settings = DatasetSettings(
 
 #: ablation study, sil prob = 0 (remember meta gan paper, silence insertion part) 
 # surrounding silence definition as in the paper
-train_data = build_training_datasets(sil_prob=0.0, surround_w_sil=False, settings=settings)
+train_data = build_training_datasets(sil_prob=0.25, surround_w_sil=True, settings=settings)
 
-# Extend the base config to use the new MLM training step module
+# Extend the base config to use the new denoising training step module
 base_config = copy.deepcopy(base_config)
-base_config["__train_step_module"] = "train_steps.aed_denoising_discrete_shared_backtranslation_mlm_v3.train_step"
-base_config["__onnx_export_forward_step_module"] = "onnx_export.discrete_audio_aed.forward_step.forward_step_v1"
+base_config["__train_step_module"] = "train_steps.aed_denoising_discrete_shared_backtranslation_denoise_v3.train_step"
 
 
 def py():
@@ -40,17 +39,17 @@ def py():
 
     ablations = [
         (
-            f"unfreeze_p-{int(prop*100)}_start-{int(start*100)}_end-{int(end*100)}_predisc-{pre_disc}_btdisc-{bt_disc}_v4.1",
+            f"unfreeze_enc-{layers}_dec-{layers}_p-{int(prop*100)}_start-{int(start*100)}_end-{int(end*100)}_predisc-{pre_disc}_btdisc-{bt_disc}_epoch-{pretrain_epochs}_v5",
             {
-                "num_enc_layers": 6,
-                "num_text_dec_layers": 6,
-                "num_audio_dec_layers": 6,
-                "discriminator_type": "lstm", #: included LSTM discriminator
+                "num_enc_layers": layers,
+                "num_text_dec_layers": layers,
+                "num_audio_dec_layers": layers,
+                "discriminator_type": "lstm",
                 "codebook_opts": {"codebook_prob": 0.0}
             },
             {
                 "codebook_diversity_loss_scale": 0.0,
-                "mlm_pretrain_steps": 10_000,
+                "denoise_pretrain_epochs": pretrain_epochs,
                 "pretrain_codebook_prob": 0.0,
                 "pretrain_codebook_diversity_loss_scale": 0.0,
                 "adv_loss_scale": 0.1 if bt_disc else 0.0,
@@ -67,41 +66,58 @@ def py():
                 "accum_grad_multiple_step": 8,
             }
         )
+        for layers in [3, 6]
         for prop in [0.8, 0.6]
+        for pretrain_epochs in [100, 200, 500]
         for start, end in [(0.5, 0.9)]
         for pre_disc in [True] 
-        for bt_disc in [True, False]  #test use of discriminator also during translation training 
+        for bt_disc in [True, False] 
     ]
 
     for train_name, model_args, train_args, training_args in ablations:
         config = copy.deepcopy(base_config)
         config["model_args"].update(model_args)
         config["train_args"].update(train_args)
+        config["train_args"].update({
+            "text_masking_opts": {
+                "mask_prob": 0.1,
+                "min_span": 1,
+                "max_span": 1,
+            },
+            "audio_masking_opts": {
+                "mask_prob": 0.1,
+                "min_span": 1,
+                "max_span": 1,
+            },
+        })
         config["training"].update(training_args)
         config["training"]["grad_scaler"] = None
 
         #config["training"]["__num_gpus"] = 1  # CHANGE TO 1 GPU for debugging.
 
-
-        pretrain_steps = train_args.get("denoise_pretrain_steps", train_args.get("mlm_pretrain_steps", 0))
-        pretrain_epochs = int(pretrain_steps / 5580)
-        checkpoints = [pretrain_epochs, pretrain_epochs + 10, pretrain_epochs + 100]
+        pretrain_ep = train_args["denoise_pretrain_epochs"]
+        checkpoints = [pretrain_ep, pretrain_ep + 10, pretrain_ep + 100]
         
-        keep_epochs = get_keep_epochs(base_num_epochs)
-        if keep_epochs is None:
-            keep_epochs = []
-        keep_epochs.extend(checkpoints)
+        keep_eps = get_keep_epochs(base_num_epochs)
+        if keep_eps is None:
+            keep_eps = []
+        for chk in checkpoints:
+            if chk not in keep_eps:
+                keep_eps = sorted(keep_eps + [chk])
         
-        vis_epochs = [250, 500, 750, 1000] + checkpoints
+        vis_eps = [250, 500, 750, 1000]
+        for chk in checkpoints:
+            if chk not in vis_eps:
+                vis_eps = sorted(vis_eps + [chk])
 
         run_experiment(
             training_name=f"{prefix_name}/{train_name}",
             config=config,
             train_data=train_data,
             test_data_dict=test_data_dict,
-            keep_epochs=keep_epochs,
+            keep_epochs=keep_eps,
             skip_eval=False,
             rasr_recog_opts={"line_based_lexicon_file": train_data.add_opts["line_based_lexicon_file"]},
             additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
-            vis_epochs=vis_epochs,
+            vis_epochs=vis_eps,
         )

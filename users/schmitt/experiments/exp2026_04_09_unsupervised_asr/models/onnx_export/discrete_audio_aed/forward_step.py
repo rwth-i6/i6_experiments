@@ -1,5 +1,6 @@
 __all__ = ["forward_step_v1"]
 
+import torch
 import torch.nn.functional as F
 
 from ....models.definitions.conformer_aed_discrete_shared_v1 import Model
@@ -20,7 +21,7 @@ def forward_step_v1(
 
     logits = model.decode_seq(tokens, tokens_len, encoder_out, encoder_lens)
     logits = logits[..., : model.text_out_dim]
-    last_logits = logits[:, tokens_len.long().max() - 1]
+    last_logits = torch.index_select(logits, 1, (tokens_len.long().max() - 1).view(-1)).squeeze(1)
     scores = -F.log_softmax(last_logits, dim=-1)  # Batch, Vocab
     run_ctx = rf.get_run_ctx()
     run_ctx.mark_as_output(name="scores", tensor=scores)

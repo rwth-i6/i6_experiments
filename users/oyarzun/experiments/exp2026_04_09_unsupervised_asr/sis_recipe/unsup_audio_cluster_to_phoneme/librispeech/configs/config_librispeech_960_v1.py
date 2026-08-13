@@ -46,6 +46,9 @@ base_config = {
     "__baseline_alias": "v1",
     "__forward_step_module": "recognition.discrete_audio_aed.forward_step.forward_step",
     "__callback_module": "recognition.discrete_audio_aed.callback.RecognitionToTextDictCallback",
+    "__rasr_forward_step_module": "recognition.discrete_audio_aed.rasr.forward_step.forward_step_v1",
+    "__rasr_callback_module": "recognition.discrete_audio_aed.rasr.callback.RecognitionToTextDictCallback",
+    "__onnx_export_forward_step_module": "onnx_export.discrete_audio_aed.forward_step.forward_step_v1",
     "train_rqmt": {
         "cpu_rqmt": 6,
         "gpu_mem": 11,

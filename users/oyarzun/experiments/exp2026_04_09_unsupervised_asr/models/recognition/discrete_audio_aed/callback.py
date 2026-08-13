@@ -52,7 +52,17 @@ class RecognitionToTextDictCallback(ForwardCallbackIface):
             for i in range(num_beam):
                 score = float(scores[i])
                 hyp_ids = tokens[i, : tokens_lens[i] if tokens_lens.shape else tokens_lens]
-                labels = [self.vocab.id_to_label(int(l)) for l in hyp_ids]
+                if self.remove_labels is not None:
+                    hyp_ids = np.array(
+                        [t for t in hyp_ids if t not in self.remove_labels],
+                        dtype=hyp_ids.dtype,
+                    )
+                labels = []
+                for l in hyp_ids:
+                    try:
+                        labels.append(self.vocab.id_to_label(int(l)))
+                    except KeyError:
+                        pass  # Skip out-of-range labels or we could append `<{int(l)}>`
                 hyp_serialized = " ".join(labels)
                 self._out_file.write(f"  ({score!r}, {hyp_serialized!r}),\n")
             self._out_file.write("],\n")
@@ -70,7 +80,12 @@ class RecognitionToTextDictCallback(ForwardCallbackIface):
                     [t for t in best_hyp if t not in self.remove_labels],
                     dtype=best_hyp.dtype,
                 )
-            labels = [self.vocab.id_to_label(int(l)) for l in best_hyp]
+            labels = []
+            for l in best_hyp:
+                try:
+                    labels.append(self.vocab.id_to_label(int(l)))
+                except KeyError:
+                    pass  # Skip out-of-range labels
             text = " ".join(labels)
 
             self._out_file.write(f"  {repr(seq_tag)}: {repr(text)},\n")

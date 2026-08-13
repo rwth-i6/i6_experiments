@@ -85,5 +85,6 @@ def py():
             test_data_dict=test_data_dict,
             keep_epochs=get_keep_epochs(base_num_epochs),
             skip_eval=False,
+            rasr_recog_opts={"line_based_lexicon_file": train_data.add_opts["line_based_lexicon_file"]},
             additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
         )

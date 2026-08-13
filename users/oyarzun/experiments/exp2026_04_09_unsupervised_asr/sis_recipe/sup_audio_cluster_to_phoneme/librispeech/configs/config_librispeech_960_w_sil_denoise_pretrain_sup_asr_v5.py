@@ -35,11 +35,10 @@ base_config["__train_step_module"] = "train_steps.aed_denoising_discrete_shared_
 def py():
     prefix_name = f"{__setup_base_name__}/librispeech/{__name__.split('.')[-1]}"
 
-
     ablations = [
         # Debug ablation: 3 layers, disc in all stages, 5 pretrain epochs
         (
-            "baseline_disc_enc-3_dec-3_denoise_ep-5_v4.1_lmdata_adv_asr_DEBUG",
+            "baseline_disc_enc-3_dec-3_denoise_ep-5_v5.1_lmdata_adv_asr_DEBUG",
             {
                 "num_enc_layers": 3,
                 "num_text_dec_layers": 3,
@@ -62,9 +61,31 @@ def py():
             True  # is_debug
         )
     ] + [
-        # With discriminator in both pretraining and ASR, using LM text for ASR phase
+        # no discriminator for both pretraining and ASR; only pretrain - asr
         (
-            f"baseline_disc_enc-{layers}_dec-{layers}_denoise_ep-{pretrain_epochs}_v4.1_lmdata_adv_asr",
+            f"baseline_NO_disc_enc-{layers}_dec-{layers}_denoise_epoch-{pretrain_epochs}_v5.1",
+            {
+                "num_enc_layers": layers,
+                "num_text_dec_layers": layers,
+                "num_audio_dec_layers": layers,
+                "codebook_opts": {"codebook_prob": 0.0},
+            },
+            {
+                "codebook_diversity_loss_scale": 0.0,
+                "denoise_pretrain_epochs": pretrain_epochs,
+                "pretrain_codebook_prob": 0.0,
+                "pretrain_codebook_diversity_loss_scale": 0.0,
+                "adv_loss_scale": 0.0,
+                "pretrain_adv_loss_scale": 0.0,
+            },
+            {
+                "batch_size": 4000,
+            }
+        ) for layers in [3, 6] for pretrain_epochs in [100, 200, 500]
+    ] + [
+        # With discriminator in both pretraining and ASR
+        (
+            f"baseline_disc_enc-{layers}_dec-{layers}_denoise_epoch-{pretrain_epochs}_v5.1",
             {
                 "num_enc_layers": layers,
                 "num_text_dec_layers": layers,
@@ -84,43 +105,11 @@ def py():
             {
                 "batch_size": 4000,
             }
-        ) for layers, pretrain_epochs in [
-            (3, 10),
-            (3, 100),
-            (6, 100), 
-        ]
-    ] \
-    + [
-        # no discriminator for both pretraining and ASR; only pretrian - asr
-        (
-            f"baseline_NO_disc_enc-{layers}_dec-{layers}_denoise_ep-{pretrain_epochs}_v4.1",
-            {
-                "num_enc_layers": layers,
-                "num_text_dec_layers": layers,
-                "num_audio_dec_layers": layers,
-                "codebook_opts": {"codebook_prob": 0.0},
-            },
-            {
-                "codebook_diversity_loss_scale": 0.0,
-                "denoise_pretrain_epochs": pretrain_epochs,
-                "pretrain_codebook_prob": 0.0,
-                "pretrain_codebook_diversity_loss_scale": 0.0,
-                "adv_loss_scale": 0.0,
-                "pretrain_adv_loss_scale": 0.0,
-            },
-            {
-                "batch_size": 4000,
-            }
-        ) for layers, pretrain_epochs in [
-            (3, 10),
-            (3, 100),
-            (6, 100), 
-        ]
-    ] \
-    + [
+        ) for layers in [3, 6] for pretrain_epochs in [100, 200, 500]
+    ] + [
         # With discriminator in pretraining only, not in ASR
         (
-            f"baseline_disc_enc-{layers}_dec-{layers}_denoise_ep-{pretrain_epochs}_nodiscasr_v4.1",
+            f"baseline_disc_enc-{layers}_dec-{layers}_denoise_epoch-{pretrain_epochs}_nodiscasr_v5.1",
             {
                 "num_enc_layers": layers,
                 "num_text_dec_layers": layers,
@@ -138,17 +127,12 @@ def py():
             },
             {
                 "batch_size": 4000,
-            }, 
-        ) for layers, pretrain_epochs in [
-            (3, 10),
-            (3, 100),
-            (6, 10), 
-            (6, 100), 
-        ]
+            }
+        ) for layers in [3, 6] for pretrain_epochs in [100, 200, 500]
     ] + [
         # Fully supervised ASR, no pretraining, no discriminator
         (
-            f"baseline_sup_asr_-nopretrain-enc_{layers}_dec-{layers}_v4.1",
+            f"baseline_sup_asr_-nopretrain-enc_{layers}_dec-{layers}_v5.1",
             {
                 "num_enc_layers": layers,
                 "num_text_dec_layers": layers,
@@ -169,6 +153,76 @@ def py():
             }, 
         ) for layers in [3, 6]
     ]
+
+
+    # --- PHASE 1: Pretraining Jobs ---
+    unique_pretrains = set()
+    for ablation in ablations:
+        train_args = ablation[2]
+        pretrain_epochs = train_args.get("denoise_pretrain_epochs", 0)
+        layers = ablation[1]["num_enc_layers"]
+        if pretrain_epochs > 0:
+            unique_pretrains.add((layers, pretrain_epochs))
+            
+    pretrain_jobs = {}
+    for layers, pretrain_epochs in unique_pretrains:
+        config = copy.deepcopy(base_config)
+        config["model_args"].update({
+            "num_enc_layers": layers,
+            "num_text_dec_layers": layers,
+            "num_audio_dec_layers": layers,
+            "discriminator_type": "lstm",
+            "codebook_opts": {"codebook_prob": 0.0},
+        })
+        config["train_args"].update({
+            "codebook_diversity_loss_scale": 0.0,
+            "denoise_pretrain_epochs": pretrain_epochs,
+            "pretrain_codebook_prob": 0.0,
+            "pretrain_codebook_diversity_loss_scale": 0.0,
+            "adv_loss_scale": 0.0,
+            "pretrain_adv_loss_scale": 0.1,
+            "use_lm_for_asr_adv": False,
+            
+            "pseudo_audio_text_ce_loss_scale": 0.0,
+            "pseudo_text_audio_ce_loss_scale": 0.0,
+            "supervised_asr_ce_loss_scale": 0.0,
+            "asr_loss_warmup_steps": 0,
+            
+            "text_masking_opts": {"mask_prob": 0.1, "min_span": 1, "max_span": 1},
+            "audio_masking_opts": {"mask_prob": 0.1, "min_span": 1, "max_span": 1},
+        })
+        config["training"].update({"batch_size": 4000, "grad_scaler": None})
+        
+        piecewise_epochs = [
+            0,
+            0.45 * pretrain_epochs,
+            0.9 * pretrain_epochs,
+            pretrain_epochs
+        ]
+        piecewise_values = [1e-5, 1e-3, 1e-5, 1e-6]
+        config["training"]["__lr_opts"] = {
+            "type": "dyn_lr_piecewise_linear",
+            "piecewise_epochs": piecewise_epochs,
+            "piecewise_values": piecewise_values,
+        }
+        config["training"]["__num_epochs"] = pretrain_epochs
+        config["recog_rqmt"] = {"time": 48, "mem": 24, "cpu": 8}
+        
+        train_name = f"pretrain_enc-{layers}_dec-{layers}_ep-{pretrain_epochs}_v5.1"
+        
+        train_job = run_experiment(
+            training_name=f"{prefix_name}/{train_name}",
+            config=config,
+            train_data=train_data_no_lm,
+            test_data_dict=test_data_dict,
+            keep_epochs=[pretrain_epochs],
+            skip_eval=True,
+            rasr_recog_opts={"line_based_lexicon_file": train_data_no_lm.add_opts["line_based_lexicon_file"]},
+            vis_epochs=[],
+        )
+        pretrain_jobs[(layers, pretrain_epochs)] = train_job
+
+    # --- PHASE 2: ASR Finetuning Jobs ---
 
     for ablation in ablations:
         train_name = ablation[0]
@@ -203,44 +257,46 @@ def py():
 
         if is_debug:
             config["training"]["__num_gpus"] = 1
-
-        pretrain_epochs = train_args.get("denoise_pretrain_epochs", 0)
-        asr_epochs = base_num_epochs - pretrain_epochs
-
-        if pretrain_epochs > 0:
-            piecewise_epochs = [
-                0,
-                0.45 * pretrain_epochs,
-                0.9 * pretrain_epochs,
-                pretrain_epochs,
-                pretrain_epochs + 1e-5,
-                pretrain_epochs + 0.45 * asr_epochs,
-                pretrain_epochs + 0.9 * asr_epochs,
-                base_num_epochs
-            ]
-            piecewise_values = [
-                1e-5, 1e-3, 1e-5, 1e-6,
-                1e-5, 1e-3, 1e-5, 1e-6
-            ]
-            config["training"]["__lr_opts"] = {
-                "type": "dyn_lr_piecewise_linear",
-                "piecewise_epochs": piecewise_epochs,
-                "piecewise_values": piecewise_values,
-            }
-
+        
         use_lm = train_args.get("use_lm_for_asr_adv", False)
         current_train_data = train_data_lm if use_lm else train_data_no_lm
 
         config["recog_rqmt"] = {"time": 48, "mem": 24, "cpu": 8}
+        
+        pretrain_ep = train_args.get("denoise_pretrain_epochs", 0)
+        
+        config["training"]["__num_epochs"] = base_num_epochs
+        if pretrain_ep > 0:
+            layers = model_args["num_enc_layers"]
+            p_job = pretrain_jobs[(layers, pretrain_ep)]
+            config["training"]["preload_from_files"] = {"": p_job.out_checkpoints[pretrain_ep].path}
+
+        piecewise_epochs = [
+            0,
+            0.45 * base_num_epochs,
+            0.9 * base_num_epochs,
+            base_num_epochs
+        ]
+        piecewise_values = [1e-5, 1e-3, 1e-5, 1e-6]
+        config["training"]["__lr_opts"] = {
+            "type": "dyn_lr_piecewise_linear",
+            "piecewise_epochs": piecewise_epochs,
+            "piecewise_values": piecewise_values,
+        }
+
+        keep_eps = get_keep_epochs(base_num_epochs)
+        if keep_eps is None: keep_eps = []
+        vis_eps = [250, 500, 750, 1000]
+            
         run_experiment(
             training_name=f"{prefix_name}/{train_name}",
             config=config,
             train_data=current_train_data,
             test_data_dict=test_data_dict,
-            keep_epochs=get_keep_epochs(base_num_epochs),
+            keep_epochs=keep_eps,
             skip_eval=False,
             rasr_recog_opts={"line_based_lexicon_file": current_train_data.add_opts["line_based_lexicon_file"]},
-            vis_epochs=[250, 500, 750, 1000],
+            vis_epochs=vis_eps,
         )
 
     # --- New Ablations with longer masking spans ---
@@ -249,11 +305,7 @@ def py():
         model_args = ablation[1]
         train_args = ablation[2]
         training_args = ablation[3]
-        
-
-        #: basically the fifth position in each ablation tuple (if exists, and set to True) is
-        #: considered as an ablation being debugged --> use 1 gpu.
-        is_debug = ablation[4] if len(ablation) > 4 else False
+        is_debug = ablation[4] if (len(ablation) > 4 and ablation[4]) else False
 
         new_train_name = train_name + "_longer_spans"
         config = copy.deepcopy(base_config)
@@ -283,41 +335,43 @@ def py():
         if is_debug:
             config["training"]["__num_gpus"] = 1
 
-        pretrain_epochs = train_args.get("denoise_pretrain_epochs", 0)
-        asr_epochs = base_num_epochs - pretrain_epochs
-
-        if pretrain_epochs > 0:
-            piecewise_epochs = [
-                0,
-                0.45 * pretrain_epochs,
-                0.9 * pretrain_epochs,
-                pretrain_epochs,
-                pretrain_epochs + 1e-5,
-                pretrain_epochs + 0.45 * asr_epochs,
-                pretrain_epochs + 0.9 * asr_epochs,
-                base_num_epochs
-            ]
-            piecewise_values = [
-                1e-5, 1e-3, 1e-5, 1e-6,
-                1e-5, 1e-3, 1e-5, 1e-6
-            ]
-            config["training"]["__lr_opts"] = {
-                "type": "dyn_lr_piecewise_linear",
-                "piecewise_epochs": piecewise_epochs,
-                "piecewise_values": piecewise_values,
-            }
-
         use_lm = train_args.get("use_lm_for_asr_adv", False)
         current_train_data = train_data_lm if use_lm else train_data_no_lm
-
+        
         config["recog_rqmt"] = {"time": 48, "mem": 24, "cpu": 8}
+        
+        pretrain_ep = train_args.get("denoise_pretrain_epochs", 0)
+        
+        config["training"]["__num_epochs"] = base_num_epochs
+        if pretrain_ep > 0:
+            layers = model_args["num_enc_layers"]
+            p_job = pretrain_jobs[(layers, pretrain_ep)]
+            config["training"]["preload_from_files"] = {"": p_job.out_checkpoints[pretrain_ep].path}
+
+        piecewise_epochs = [
+            0,
+            0.45 * base_num_epochs,
+            0.9 * base_num_epochs,
+            base_num_epochs
+        ]
+        piecewise_values = [1e-5, 1e-3, 1e-5, 1e-6]
+        config["training"]["__lr_opts"] = {
+            "type": "dyn_lr_piecewise_linear",
+            "piecewise_epochs": piecewise_epochs,
+            "piecewise_values": piecewise_values,
+        }
+
+        keep_eps = get_keep_epochs(base_num_epochs)
+        if keep_eps is None: keep_eps = []
+        vis_eps = [250, 500, 750, 1000]
+            
         run_experiment(
             training_name=f"{prefix_name}/{new_train_name}",
             config=config,
             train_data=current_train_data,
             test_data_dict=test_data_dict,
-            keep_epochs=get_keep_epochs(base_num_epochs),
+            keep_epochs=keep_eps,
             skip_eval=False,
             rasr_recog_opts={"line_based_lexicon_file": current_train_data.add_opts["line_based_lexicon_file"]},
-            vis_epochs=[250, 500, 750, 1000],
+            vis_epochs=vis_eps,
         )

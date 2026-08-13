@@ -105,6 +105,7 @@ def py():
         config["training"]["grad_scaler"] = None
 
         #config["training"]["__num_gpus"] = 1 #: use for debugging
+        config["recog_rqmt"] = {"time": 8, "mem": 80, "cpu": 8}
         run_experiment(
             training_name=f"{prefix_name}/{train_name}",
             config=config,
@@ -112,4 +113,6 @@ def py():
             test_data_dict=test_data_dict,
             keep_epochs=get_keep_epochs(base_num_epochs),
             skip_eval=False,
+            rasr_recog_opts={"line_based_lexicon_file": train_data.add_opts["line_based_lexicon_file"]},
+            vis_epochs=[250, 500, 750, 1000],
         )

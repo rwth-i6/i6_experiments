@@ -10,7 +10,8 @@ from i6_core.returnn.config import CodeWrapper, ReturnnConfig
 
 from . import learning_rate_configs
 from .tune_eval import eval_model
-from .visualize_encoder_embeddings import visualize_encoder_embeddings
+from i6_experiments.users.schmitt.experiments.exp2026_04_09_unsupervised_asr.sis_recipe.tune_eval import eval_model_rasr
+from .analysis import analyze_encoder_states
 from .pipeline import training
 from .default_tools import RETURNN_EXE, RETURNN_ROOT
 from ..models.recognition.discrete_audio_aed.beam_search import DecoderConfig
@@ -43,6 +44,9 @@ def run_train(
 ):
     num_epochs = config["training"].pop("__num_epochs")
     network_module = config.pop("__network_module")
+    if network_module is not None and not network_module.startswith("i6_experiments"):
+        from ..models import PACKAGE
+        network_module = f"{PACKAGE}.{network_module}"
     train_step_module = config.pop("__train_step_module")
     lr_opts = config["training"].pop("__lr_opts")
 
@@ -184,11 +188,55 @@ def run_encoder_embedding_visualization(
     recog_post_proc_funcs: Optional[List[Callable[[tk.Path], tk.Path]]] = None,
 ): 
 
-    forward_step_module = config.pop("__forward_step_module")
-    callback_module = config.pop("__callback_module")
-    visualize_encoder_embeddings(
+    analyze_encoder_states(
         config={**config["general"], **config.get("recog", {})},
-        recog_name=recog_name,
+        analysis_name=recog_name,
+        training_name=training_name,
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data,
+        test_data_dict=test_data_dict,
+        checkpoints=keep_epochs,
+        extra_forward_config=extra_forward_config,
+    )
+
+def run_rasr_eval(
+    training_name: str,
+    train_job,
+    train_args,
+    config: Dict,
+    train_data,
+    test_data_dict: Dict[str, Tuple],
+    recog_opts: Dict,
+    keep_epochs: Optional[List[int]] = None,
+    recog_name: str = "recog",
+    network_module: Optional[str] = None,
+    extra_forward_config: Optional[ReturnnConfig] = None,
+    decoder_config: Optional[DecoderConfig] = None,
+    recog_model_args: Optional[Dict] = None,
+    main_eval_measure_key: str = "dev",
+    recog_post_proc_funcs: Optional[List[Callable[[tk.Path], tk.Path]]] = None,
+    input_modality: str = "audio",
+    output_modality: str = "text",
+    mask_input: bool = False,
+    masking_opts: Optional[Dict[str, Any]] = None,
+):
+    forward_step_module = config.pop("__rasr_forward_step_module")
+    callback_module = config.pop("__rasr_callback_module")
+    export_forward_step = config.pop("__onnx_export_forward_step_module")
+
+    # don't mutate the caller's train_args (run_eval may be called multiple times, e.g. for several
+    # recog variants), only override on a local copy when needed.
+    if network_module is not None or recog_model_args is not None:
+        train_args = copy.deepcopy(train_args)
+        if network_module is not None:
+            train_args["network_module"] = network_module
+        if recog_model_args is not None:
+            train_args["net_args"] = recog_model_args
+    eval_model_rasr(
+        recog_config={**config["general"], **config.get("rasr_recog", {})},
+        onnx_config={**config["general"]},
+        recog_name=f"{recog_name}_rasr",
         training_name=training_name,
         train_job=train_job,
         train_args=train_args,
@@ -202,10 +250,13 @@ def run_encoder_embedding_visualization(
         main_eval_measure_key=main_eval_measure_key,
         rqmt=config.get("recog_rqmt", None),
         recog_post_proc_funcs=recog_post_proc_funcs,
+        input_modality=input_modality,
+        output_modality=output_modality,
+        mask_input=mask_input,
+        masking_opts=masking_opts,
+        recog_opts=recog_opts,
+        export_forward_step=export_forward_step,
     )
-
-    pass
-
 
 
 
@@ -227,6 +278,8 @@ def run_experiment(
     cleanup_old_models: Optional[Dict[str, Any]] = None,
     skip_eval: bool = False,
     recog_post_proc_funcs: Optional[List[Callable[[tk.Path], tk.Path]]] = None,
+    rasr_recog_opts: Optional[Dict] = None,
+    vis_epochs: Optional[List[int]] = None,
 ):
     train_job, train_args = run_train(
         training_name=training_name,
@@ -256,5 +309,42 @@ def run_experiment(
         main_eval_measure_key=main_eval_measure_key,
         recog_post_proc_funcs=recog_post_proc_funcs,
     )
+
+    if rasr_recog_opts is not None:
+        run_rasr_eval(
+            training_name=training_name,
+            train_job=train_job,
+            train_args=train_args,
+            config=copy.deepcopy(config),
+            train_data=train_data,
+            test_data_dict=test_data_dict,
+            keep_epochs=keep_epochs,
+            recog_name=recog_name,
+            network_module=network_module_recog,
+            extra_forward_config=extra_forward_config,
+            decoder_config=None,
+            recog_model_args=recog_model_args,
+            main_eval_measure_key=main_eval_measure_key,
+            recog_post_proc_funcs=recog_post_proc_funcs,
+            recog_opts=rasr_recog_opts,
+        )
+
+    if vis_epochs is not None:
+        run_encoder_embedding_visualization(
+            training_name=training_name,
+            train_job=train_job,
+            train_args=train_args,
+            config=copy.deepcopy(config),
+            train_data=train_data,
+            test_data_dict=test_data_dict,
+            keep_epochs=vis_epochs,
+            recog_name="vis_encoder_pca",
+            network_module=network_module_recog,
+            extra_forward_config=extra_forward_config,
+            decoder_config=decoder_config,
+            recog_model_args=recog_model_args,
+            main_eval_measure_key=main_eval_measure_key,
+            recog_post_proc_funcs=recog_post_proc_funcs,
+        )
 
     return train_job

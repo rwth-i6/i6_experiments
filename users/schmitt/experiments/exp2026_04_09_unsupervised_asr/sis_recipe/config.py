@@ -145,9 +145,11 @@ def get_forward_config(
     # changeing these does change the hash
     base_config = {
         "max_seqs": 200,
+        "batch_size": 10000,
         **base_config,
     }
     config = {**base_config, **config}
+    config["torch_dataloader_opts"] = {"num_workers": 0}
     post_config["backend"] = "torch"
 
     default_data_key = config.get("default_data_key", "audio")

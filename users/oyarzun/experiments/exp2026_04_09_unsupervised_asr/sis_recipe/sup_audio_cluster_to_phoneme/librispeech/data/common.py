@@ -1,6 +1,21 @@
 from i6_core.text.processing import TakeNRandomLinesJob, ConcatenateJob
 
-from i6_experiments.common.setups.returnn.datasets.base import MetaDataset
+from i6_experiments.common.setups.returnn.datasets.base import MetaDataset, Dataset
+class CombinedDataset(Dataset):
+    def __init__(self, datasets, data_map, seq_ordering=None, additional_options=None):
+        super().__init__(additional_options=additional_options)
+        self.datasets = datasets
+        self.data_map = data_map
+        self.seq_ordering = seq_ordering
+    def as_returnn_opts(self):
+        opts = super().as_returnn_opts()
+        opts["class"] = "CombinedDataset"
+        opts["datasets"] = {k: v if isinstance(v, dict) else v.as_returnn_opts() for k, v in self.datasets.items()}
+        opts["data_map"] = self.data_map
+        if self.seq_ordering:
+            opts["seq_ordering"] = self.seq_ordering
+        return opts
+
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
 from i6_experiments.users.schmitt.datasets.hdf import HdfDataset
 
@@ -12,6 +27,7 @@ def build_training_datasets(
     settings: DatasetSettings,
     sil_prob: float = 0.25,
     surround_w_sil: bool = True,
+    include_lm_data: bool = True,
 ):
     _, clusters_960, pca_960, clusters_960_hdfs = audio.get_featurized_audio(
         librispeech_key="train-other-960",
@@ -36,9 +52,13 @@ def build_training_datasets(
         remove_cluster_repetitions=True,
     )
 
-    # we don't pass sil_prob here, because we just want to get the lexicon here
-    # we don't use the text-only data for training here
-    _, phoneme_vocab, lexicon_file, _ = text.get_phonemized_text("lm_minus_librivox", dump_hdf_concurrent=100)
+    # pass sil_prob here so we can use the text-only data for LM adversarial training
+    lm_phoneme_hdfs, phoneme_vocab, lexicon_file, lm_seq_tags = text.get_phonemized_text(
+        "lm_minus_librivox", 
+        dump_hdf_concurrent=100,
+        sil_prob=sil_prob,
+        surround_w_sil=surround_w_sil,
+    )
     phoneme_960_hdfs, _, _, train_seq_tags = text.get_phonemized_text(
         "train-other-960",
         lexicon_file=lexicon_file,
@@ -69,8 +89,8 @@ def build_training_datasets(
     devtrain_seq_tags = TakeNRandomLinesJob(text_file=train_seq_tags, num_lines=3000).out
     dev_seq_tags = TakeNRandomLinesJob(text_file=dev_seq_tags, num_lines=3000).out
 
-    return TrainingDatasets(
-        train=MetaDataset(
+    datasets = {
+        "acoustic": MetaDataset(
             datasets={
                 "feature_clusters": HdfDataset(
                     files=clusters_960_hdfs,
@@ -89,7 +109,36 @@ def build_training_datasets(
                 "target": ("phon_indices", "data"),
             },
             seq_order_control_dataset="phon_indices",
-        ),
+        )
+    }
+    
+    data_map = {
+        ("acoustic", "data"): "data",
+        ("acoustic", "target"): "target",
+    }
+    
+    if include_lm_data:
+        datasets["lm"] = HdfDataset(
+            files=lm_phoneme_hdfs,
+            segment_file=lm_seq_tags,
+            # Set to 2800 to yield ~14k sequences per epoch, balancing exactly with the acoustic data
+            partition_epoch=2800,
+            seq_ordering="random",
+        )
+        data_map[("lm", "data")] = "lm_text"
+
+    if include_lm_data:
+        train_dataset = CombinedDataset(
+            datasets=datasets,
+            data_map=data_map,
+            seq_ordering="interleave",
+        )
+    else:
+        train_dataset = datasets["acoustic"]
+
+    return TrainingDatasets(
+        add_opts={"line_based_lexicon_file": lexicon_file},
+        train=train_dataset,
         eval_datasets={
             "devtrain": MetaDataset(
                 datasets={
