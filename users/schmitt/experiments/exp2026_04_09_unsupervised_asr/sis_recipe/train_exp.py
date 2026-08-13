@@ -129,6 +129,7 @@ def run_eval(
     mask_input: bool = False,
     masking_opts: Optional[Dict[str, Any]] = None,
     expansion_opts: Optional[Dict[str, Any]] = None,
+    score_data_dict: Optional[Dict[str, Dict]] = None,
 ):
     forward_step_module = config.pop("__forward_step_module")
     callback_module = config.pop("__callback_module")
@@ -162,6 +163,7 @@ def run_eval(
         mask_input=mask_input,
         masking_opts=masking_opts,
         expansion_opts=expansion_opts,
+        score_data_dict=score_data_dict,
     )
 
 
@@ -301,6 +303,7 @@ def run_experiment(
     ppl_opts: Optional[Dict[str, Any]] = None,
     recog_variants: Optional[List[Dict[str, Any]]] = None,
     rasr_recog_opts: Optional[Dict] = None,
+    score_data_dict: Optional[Dict[str, Dict]] = None,
 ):
     """
     :param skip_eval: skip the standard (audio->text ASR) recognition + scoring.
@@ -371,6 +374,7 @@ def run_experiment(
             recog_model_args=recog_model_args,
             main_eval_measure_key=main_eval_measure_key,
             recog_post_proc_funcs=recog_post_proc_funcs,
+            score_data_dict=score_data_dict,
         )
 
     if rasr_recog_opts is not None:

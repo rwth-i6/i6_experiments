@@ -192,6 +192,7 @@ def eval_model(
     mask_input: bool = False,
     masking_opts: Optional[Dict[str, Any]] = None,
     expansion_opts: Optional[Dict[str, Any]] = None,
+    score_data_dict: Optional[Dict[str, Dict]] = None,
 ):
     """
     :param input_modality: "audio" or "text" -- which modality is fed to the (shared) encoder.
@@ -284,6 +285,7 @@ def eval_model(
                 vocab_opts=train_data.datastreams[output_data_key].as_returnn_targets_opts(),
                 recog_post_proc_funcs=recog_post_proc_funcs,
                 score_target_key=output_data_key,
+                score_dataset=score_data_dict[key] if score_data_dict else None,
             )
             search_ctms[key] = search_ctm
             outputs[key] = score_result

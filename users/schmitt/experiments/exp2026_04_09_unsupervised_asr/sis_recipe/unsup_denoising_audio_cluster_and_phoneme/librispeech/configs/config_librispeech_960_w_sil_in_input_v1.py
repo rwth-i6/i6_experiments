@@ -165,6 +165,10 @@ def py():
             max_num_sil=max_num_sil,
             max_num_surround_sil=max_num_surround_sil,
         )
+        score_data_dict = copy.deepcopy(test_data_dict_w_sil)
+        for _, meta_dataset in score_data_dict.items():
+            # for scoring, we want to use the phoneme seqs without silence
+            meta_dataset.data_map["phon_indices"] = ("phon_indices", "data")
 
         run_experiment(
             training_name=f"{prefix_name}/baseline_max-num-sil-{max_num_sil}_max-surround-{max_num_surround_sil}",
@@ -211,6 +215,7 @@ def py():
                 # single-task (text-only) vs multi-task comparison of the text denoiser.
                 *_text_recon_sweep(base_num_epochs),
             ],
+            score_data_dict=score_data_dict,
         )
 
         # discriminator-architecture sweep for the domain-adversarial loss. Same adv scale + masking as
@@ -273,4 +278,5 @@ def py():
                     # single-task (text-only) vs multi-task comparison of the text denoiser.
                     *_text_recon_sweep(base_num_epochs),
                 ],
+                score_data_dict=score_data_dict,
             )
