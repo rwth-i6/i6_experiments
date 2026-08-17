@@ -128,7 +128,9 @@ class ModelWithCheckpoints:
         # with config backend "tensorflow" writes TF .index checkpoints).
         job = self.scores_and_learning_rates.creator
         if isinstance(job, ReturnnTrainingJob) and epoch in job.out_checkpoints:
-            return ModelWithCheckpoint(self.definition, job.out_checkpoints[epoch])
+            return ModelWithCheckpoint(
+                _definition_matching_train_backend(self.definition, job), job.out_checkpoints[epoch]
+            )
         # Fallback: pretrain epochs (not in out_checkpoints), or no training job attached
         # (e.g. wrapped external models).
         is_pretrain = epoch <= self.num_pretrain_epochs
@@ -173,6 +175,30 @@ class ModelWithCheckpointAndRecog(ModelWithCheckpoint):
     """Model with recog"""
 
     recog: RecogDef
+
+
+def _definition_matching_train_backend(
+    definition: Union[ModelDef, ModelDefWithCfg], job: ReturnnTrainingJob
+) -> Union[ModelDef, ModelDefWithCfg]:
+    """
+    :return: the definition, with ``.backend`` overridden to the TRAINING config's backend
+        when they differ.
+        The forward/search config builders read ``model_def.backend``,
+        and a checkpoint written by e.g. the TF engine can only be loaded by a TF forward job --
+        same reason the checkpoint object above comes from the training job.
+        Same backend (the standard case): returned UNCHANGED, so nothing rehashes.
+    """
+    from .model import ModelDefWithCfg
+
+    train_backend = job.returnn_config.get("backend", None)
+    if not train_backend or getattr(definition, "backend", None) == train_backend:
+        return definition
+    if isinstance(definition, ModelDefWithCfg):
+        new_def = ModelDefWithCfg(definition.model_def, definition.config)
+    else:
+        new_def = ModelDefWithCfg(definition, {})
+    new_def.backend = train_backend
+    return new_def
 
 
 def model_def_is_torch(model_def: ModelDef) -> bool:
