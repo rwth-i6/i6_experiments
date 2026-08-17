@@ -122,6 +122,15 @@ class ModelWithCheckpoints:
 
     def get_epoch(self, epoch: int) -> ModelWithCheckpoint:
         """for one specific epoch"""
+        # The training job is the authoritative source for the checkpoint type:
+        # it declares .pt vs .index from the CONFIG backend, while model_def.backend
+        # can differ (e.g. an RF model def with backend "torch" trained
+        # with config backend "tensorflow" writes TF .index checkpoints).
+        job = self.scores_and_learning_rates.creator
+        if isinstance(job, ReturnnTrainingJob) and epoch in job.out_checkpoints:
+            return ModelWithCheckpoint(self.definition, job.out_checkpoints[epoch])
+        # Fallback: pretrain epochs (not in out_checkpoints), or no training job attached
+        # (e.g. wrapped external models).
         is_pretrain = epoch <= self.num_pretrain_epochs
         return ModelWithCheckpoint(
             self.definition,
