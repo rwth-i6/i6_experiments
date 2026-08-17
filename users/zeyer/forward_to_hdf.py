@@ -21,7 +21,13 @@ from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
 
 from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate_delayed_inplace_with_warning
 from i6_experiments.users.zeyer import tools_paths
-from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, ForwardRFDef, serialize_model_def
+from i6_experiments.users.zeyer.model_interfaces import (
+    ModelDef,
+    ModelDefWithCfg,
+    ForwardRFDef,
+    serialize_model_def,
+    backend_post_config_opts,
+)
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint
 from i6_experiments.users.zeyer.returnn.config import pop_from_config_post_config
 
@@ -396,9 +402,8 @@ def _returnn_forward_config(
             # debug_add_check_numerics_ops = True
             # debug_add_check_numerics_on_output = True
             # flat_net_construction=True,
-            torch_log_memory_usage=True,
+            **backend_post_config_opts(returnn_recog_config_dict.get("backend")),
             watch_memory=True,
-            use_lovely_tensors=True,
         ),
         sort_config=False,
     )
@@ -540,9 +545,8 @@ def _returnn_forward_config_v2(
         log_batch_size=True,
         # debug_add_check_numerics_ops = True
         # debug_add_check_numerics_on_output = True
-        torch_log_memory_usage=True,
+        **backend_post_config_opts(config.get("backend")),
         watch_memory=True,
-        use_lovely_tensors=True,
     )
     if post_config:
         post_config_.update(post_config)

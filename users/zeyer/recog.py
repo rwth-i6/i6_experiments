@@ -32,7 +32,13 @@ from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zeyer.utils.failsafe_text_io import FailsafeTextOutput
 from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, ScoreResultCollection
-from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, serialize_model_def
+from i6_experiments.users.zeyer.model_interfaces import (
+    ModelDef,
+    ModelDefWithCfg,
+    RecogDef,
+    serialize_model_def,
+    backend_post_config_opts as _backend_post_config_opts,
+)
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint, ModelWithCheckpoints
 from i6_experiments.users.zeyer.model_interfaces.config_utils import get_from_config
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
@@ -540,9 +546,8 @@ def search_config_v2(
             # debug_add_check_numerics_ops = True
             # debug_add_check_numerics_on_output = True
             # flat_net_construction=True,
-            torch_log_memory_usage=True,
+            **_backend_post_config_opts(returnn_recog_config_dict.get("backend")),
             watch_memory=True,
-            use_lovely_tensors=True,
         ),
         sort_config=False,
     )
@@ -630,9 +635,8 @@ def search_config_v3(
         log_batch_size=True,
         # debug_add_check_numerics_ops = True
         # debug_add_check_numerics_on_output = True
-        torch_log_memory_usage=True,
+        **_backend_post_config_opts(config.get("backend")),
         watch_memory=True,
-        use_lovely_tensors=True,
     )
     if post_config:
         config_dict_update_(post_config_, post_config)

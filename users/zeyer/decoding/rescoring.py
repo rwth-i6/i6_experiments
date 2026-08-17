@@ -14,7 +14,12 @@ from i6_core.returnn.forward import ReturnnForwardJobV2
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 
 from i6_experiments.users.zeyer import tools_paths
-from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RescoreDef
+from i6_experiments.users.zeyer.model_interfaces import (
+    ModelDef,
+    ModelDefWithCfg,
+    RescoreDef,
+    backend_post_config_opts,
+)
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
 
@@ -276,9 +281,8 @@ def _returnn_rescore_config(
         log_batch_size=True,
         # debug_add_check_numerics_ops = True
         # debug_add_check_numerics_on_output = True
-        torch_log_memory_usage=True,
+        **backend_post_config_opts(config.get("backend")),
         watch_memory=True,
-        use_lovely_tensors=True,
     )
     if post_config:
         post_config_.update(post_config)

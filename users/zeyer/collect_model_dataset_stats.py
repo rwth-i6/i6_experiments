@@ -21,7 +21,13 @@ from i6_experiments.users.zeyer.model_interfaces.config_utils import get_from_co
 
 from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate_delayed_copy
 from i6_experiments.users.zeyer import tools_paths
-from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, ForwardDef, serialize_model_def
+from i6_experiments.users.zeyer.model_interfaces import (
+    ModelDef,
+    ModelDefWithCfg,
+    ForwardDef,
+    serialize_model_def,
+    backend_post_config_opts,
+)
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint
 
 if TYPE_CHECKING:
@@ -516,9 +522,8 @@ def _collect_stats_returnn_forward_config(
             # debug_add_check_numerics_ops = True
             # debug_add_check_numerics_on_output = True
             # flat_net_construction=True,
-            torch_log_memory_usage=True,
+            **backend_post_config_opts(returnn_recog_config_dict.get("backend")),
             watch_memory=True,
-            use_lovely_tensors=True,
         ),
         sort_config=False,
     )
@@ -612,9 +617,8 @@ def _collect_stats_returnn_forward_config_v2(
             # debug_add_check_numerics_ops = True
             # debug_add_check_numerics_on_output = True
             # flat_net_construction=True,
-            torch_log_memory_usage=True,
+            **backend_post_config_opts(returnn_recog_config_dict.get("backend")),
             watch_memory=True,
-            use_lovely_tensors=True,
         ),
         sort_config=False,
     )

@@ -49,6 +49,23 @@ class ModelDefWithCfg:
         return self.model_def(**kwargs)
 
 
+def backend_post_config_opts(backend: Optional[str]) -> Dict[str, Any]:
+    """
+    :param backend: the RESOLVED backend of a forward/recog config (after all merges) --
+        which can differ from ``model_def.backend``: a model def declared for torch can be
+        trained and forwarded on the TF engine (see ``ModelWithCheckpoints.get_epoch``).
+    :return: unhashed backend-specific debug/log options for the post config.
+        The engines REJECT foreign-backend options rather than ignoring them silently
+        (e.g. the TF RF engine errors on ``torch_log_memory_usage``),
+        so these must follow the resolved backend, not the model def.
+    """
+    if backend == "torch":
+        return {"torch_log_memory_usage": True, "use_lovely_tensors": True}
+    if backend == "tensorflow":
+        return {"tf_log_memory_usage": True}
+    return {}
+
+
 def serialize_model_def(
     model_def: ModelDef,
     *,
