@@ -211,7 +211,7 @@ def train(
     # merge into post_config, so a call-site delete does not stick.
     # post_config is not hashed, so this moves no existing job; and for a torch run there is
     # nothing to drop, so it is a no-op there.
-    _own_prefix = {"torch": "torch_", "tensorflow": "tf_", "jax": "jax_"}.get(_backend)
+    _own_prefix = {"torch": "torch_", "tensorflow": "tf_", "jax": "jax_"}.get(returnn_train_config_dict.get("backend"))
     for k in list(returnn_train_config.post_config):
         prefix = next((p for p in ("torch_", "tf_", "jax_") if k.startswith(p)), None)
         if prefix and prefix != _own_prefix:
