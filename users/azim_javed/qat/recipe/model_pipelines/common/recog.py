@@ -77,6 +77,8 @@ class OfflineRecogParameters:
     mem_rqmt: int = 16
     gpu_mem_rqmt: int = 0
     batched_decoder: bool = False
+    dataloader_num_workers: int = 1
+    batch_size_seconds: int = 360
 
 
 @dataclass
@@ -187,16 +189,20 @@ def recog_rasr_offline(
                 return_assign_variables="forward_step",
             ),
         ]
-    recog_returnn_config = ReturnnConfig(
-        config={
-            "extern_data": {
-                "data": {"dim": 1, "dtype": "float32"},
-                "raw": {"feature_dim_axis": None, "time_dim_axis": None, "dtype": "string"},
-            },
-            "model_outputs": model_outputs,
-            "backend": "torch",
-            "batch_size": 360 * sample_rate,
+    recog_config = {
+        "extern_data": {
+            "data": {"dim": 1, "dtype": "float32"},
+            "raw": {"feature_dim_axis": None, "time_dim_axis": None, "dtype": "string"},
         },
+        "model_outputs": model_outputs,
+        "backend": "torch",
+        "batch_size": params.batch_size_seconds * sample_rate,
+    }
+    if params.dataloader_num_workers != 1:
+        recog_config["torch_dataloader_opts"] = {"num_workers": params.dataloader_num_workers}
+
+    recog_returnn_config = ReturnnConfig(
+        config=recog_config,
         python_prolog=recipe_imports + ["import torch"] + [ExternalImport(rasr_binary_path)],
         python_epilog=[
             encoder_serializers,

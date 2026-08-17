@@ -247,9 +247,9 @@ class FFNNTransducerQATEncoder(FFNNTransducerQATEncoderModel):
         self,
         audio_samples: torch.Tensor,  # [B, T, 1]
         audio_samples_size: torch.Tensor,  # [B]
-    ) -> torch.Tensor:  # [B, T', E]
-        encoder_states, _ = self.forward_encoder(audio_samples=audio_samples, audio_samples_size=audio_samples_size)
-        return encoder_states  # [B, T', E]
+    ) -> Tuple[torch.Tensor, torch.Tensor]:  # [B, T', E], [B]
+        encoder_states, encoder_states_size = self.forward_encoder(audio_samples=audio_samples, audio_samples_size=audio_samples_size)
+        return encoder_states, encoder_states_size
 
 
 class FFNNTransducerQATEncoderScorer(FFNNTransducerQATEncoderModel):

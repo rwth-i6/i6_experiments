@@ -70,8 +70,8 @@ def param_sweep_tree_4gram_recog_variants() -> List[TransducerRecogVariant]:
                         word_lm_params=librispeech_lm.ArpaLmParams(scale=ext_lm_scale),
                         max_beam_sizes=[2048],
                         score_thresholds=[18.0],
-                        word_end_score_threshold=0.4,
-                        max_word_end_beam_size=4,
+                        word_end_score_threshold=None,
+                        max_word_end_beam_size=None,
                     ),
                     ilm_scale=ilm_scale,
                 )

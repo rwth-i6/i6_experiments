@@ -2,7 +2,7 @@ from dataclasses import dataclass, fields, replace
 from typing import List, Optional, Tuple
 
 from i6_core.rasr import RasrConfig
-from i6_experiments.common.setups.serialization import Collection, Call, NonhashedCode
+from i6_experiments.common.setups.serialization import Collection, Call, NonhashedCode, ExternalImport
 
 from .....data.librispeech import datasets as librispeech_datasets
 from .....data.librispeech import lm as librispeech_lm
@@ -39,8 +39,6 @@ from synaptogen_ml.memristor_modules import DacAdcHardwareSettings
 from synaptogen_ml.memristor_modules.config import CycleCorrectionSettings
 
 from .....tools import synaptogen_ml_root
-
-from i6_experiments.common.setups.serialization import ExternalImport
 
 
 @dataclass

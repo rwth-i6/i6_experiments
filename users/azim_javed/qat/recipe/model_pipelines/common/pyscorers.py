@@ -2,16 +2,20 @@ from dataclasses import fields
 import numpy as np
 import torch
 
+import synaptogen_ml
 from synaptogen_ml.memristor_modules import DacAdcHardwareSettings
 from synaptogen_ml.memristor_modules.config import CycleCorrectionSettings
 
 SHOULD_LOG = True
 
 _TransitionType = None
+
+
 def _get_transition_types():
     global _TransitionType
     if _TransitionType is None:
         from librasr import TransitionType as _TT
+
         _TransitionType = _TT
     return _TransitionType
 
@@ -31,18 +35,95 @@ def get_config_value(config, key, default=None, dtype=None):
         return val
 
 
+def _get_device(config, base_selection):
+    device_val = get_config_value(config, "device", None)
+    if device_val is None:
+        config.set_selection(f"{base_selection}.recognition")
+        device_val = get_config_value(config, "device", None)
+        config.set_selection(base_selection)
+    return torch.device(device_val if device_val is not None else "cpu")
+
+
 _MODEL_CACHE = {}
 
 
-def _get_eval_scorer(scorer_cls, recog_cfg_cls, get_model_config, qat_params,
-                     ilm_scale, blank_penalty, checkpoint, device):
-    cache_key = (checkpoint, ilm_scale, blank_penalty, str(device))
+def _parse_dac_adc_settings(value):
+    if isinstance(value, (list, tuple)):
+        vals = [str(v) for v in value]
+    else:
+        vals = str(value).split()
+    assert len(vals) == 5, f"expected 5 converter hardware settings values, got {vals!r}"
+    return DacAdcHardwareSettings(
+        input_bits=int(vals[0]),
+        output_precision_bits=int(vals[1]),
+        output_range_bits=int(vals[2]),
+        hardware_input_vmax=float(vals[3]),
+        hardware_output_current_scaling=float(vals[4]),
+    )
+
+
+def _parse_correction_settings(value):
+    if isinstance(value, (list, tuple)):
+        vals = [str(v) for v in value]
+    else:
+        vals = str(value).split()
+    assert len(vals) == 4, f"expected 4 cycle correction settings values, got {vals!r}"
+
+    def _opt_float(x):
+        return None if x.lower() in ("none", "null") else float(x)
+
+    return CycleCorrectionSettings(
+        num_cycles=None if vals[0].lower() in ("none", "null") else int(vals[0]),
+        test_input_value=_opt_float(vals[1]),
+        relative_deviation=_opt_float(vals[2]),
+        ideal_programming=vals[3].lower() in ("yes", "true", "1", "on"),
+    )
+
+
+def _get_memristor_params(config, base_selection):
+    memristor_params = {}
+    try:
+        config.set_selection(f"{base_selection}.memristor")
+        converter = get_config_value(config, "converter-hardware-settings", None)
+        if converter is not None:
+            memristor_params["converter_hardware_settings"] = _parse_dac_adc_settings(converter)
+        pos_enc = get_config_value(config, "pos-enc-converter-hardware-settings", None)
+        if pos_enc is not None:
+            memristor_params["pos_enc_converter_hardware_settings"] = _parse_dac_adc_settings(pos_enc)
+        num_cycles = get_config_value(config, "num-cycles", None, dtype=int)
+        if num_cycles is not None:
+            memristor_params["num_cycles"] = num_cycles
+        correction = get_config_value(config, "correction-settings", None)
+        if correction is not None:
+            memristor_params["correction_settings"] = _parse_correction_settings(correction)
+    except Exception:
+        pass
+    finally:
+        config.set_selection(base_selection)
+    return memristor_params
+
+
+def _get_eval_scorer(
+    scorer_cls,
+    recog_cfg_cls,
+    get_model_config,
+    qat_params,
+    ilm_scale,
+    blank_penalty,
+    checkpoint,
+    device,
+    memristor_params=None,
+):
+    memristor_params = memristor_params or {}
+    cache_key = (checkpoint, ilm_scale, blank_penalty, str(device), repr(memristor_params))
     if SHOULD_LOG:
         print(f"get_eval_scorer: cache_key={cache_key}")
     cached = _MODEL_CACHE.get(cache_key)
     if cached is not None:
         return cached
     model_config = get_model_config(**qat_params) if qat_params else get_model_config()
+    if memristor_params:
+        model_config = model_config.with_replaced(**memristor_params)
     recog_model_config = recog_cfg_cls(
         **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
         ilm_scale=ilm_scale,
@@ -60,14 +141,6 @@ def _get_eval_scorer(scorer_cls, recog_cfg_cls, get_model_config, qat_params,
 
 
 class FixedContextTransducerPy:
-    """Optimized Fixed-Context Transducer Scorer in Python.
-    Features:
-    - Score cache eviction for stale timesteps
-    - max-batch-size chunking to prevent OOM
-    - Cross-timestep batching for high throughput
-    - Configurable PyTorch device parameter
-    - Dynamic code execution of imports via config 'import' parameter
-    """
 
     def __init__(self, config):
         if SHOULD_LOG:
@@ -81,16 +154,17 @@ class FixedContextTransducerPy:
         self._vertical_label_transition = get_config_value(config, "vertical-label-transition", False)
         self._max_batch_size = get_config_value(config, "max-batch-size", 2147483647, dtype=int)
 
-        device_val = get_config_value(config, "device", "cpu")
-        self._device = torch.device(device_val if device_val is not None else "cpu")
+        self._device = _get_device(config, base_selection)
 
         config.set_selection(f"{base_selection}.recognition")
 
         self._model = self.get_scorer(config)
 
         self._score_cache = {}
+        self._enc_dev_cache = {}
         self._inputs = []
         self._expect_more_features = True
+        synaptogen_ml.set_fast_inference(True)
 
     def get_scorer(self, config):
         base_selection = config.get_selection()
@@ -100,40 +174,40 @@ class FixedContextTransducerPy:
             config.set_selection(f"{base_selection}.qat")
             w_prec = get_config_value(config, "weight-bit-prec", None, dtype=int)
             if w_prec is not None:
-                prior_train_dac_settings = DacAdcHardwareSettings(
-                        input_bits=0,
-                        output_precision_bits=0,
-                        output_range_bits=0,
-                        hardware_input_vmax=0.6,
-                        hardware_output_current_scaling=8020.0,
-                    )
                 qat_params = dict(
                     weight_bit_prec=w_prec,
                     activation_bit_prec=get_config_value(config, "activation-bit-prec", dtype=int),
                     weight_dropout=get_config_value(config, "weight-dropout", dtype=float),
                     weight_pruning_config=get_config_value(config, "weight-pruning-config"),
                 )
-                assert qat_params["weight_pruning_config"] is None, "weight_pruning_config non None configuration is not supported"
+                assert (
+                    qat_params["weight_pruning_config"] is None
+                ), "weight_pruning_config non None configuration is not supported"
         except Exception:
             pass
         finally:
             config.set_selection(base_selection)
+
+        memristor_params = _get_memristor_params(config, base_selection)
 
         ilm_scale = get_config_value(config, "ilm-scale", dtype=float)
         blank_penalty = get_config_value(config, "blank-penalty", dtype=float)
         checkpoint = get_config_value(config, "model-path", None)
 
         import_val = get_config_value(config, "imports", None)
-            
+
         if isinstance(import_val, (list, tuple)):
             code_str = "\n".join(
-                item.get().strip() if hasattr(item, "get") else str(item).strip()
-                for item in import_val
+                item.get().strip() if hasattr(item, "get") else str(item).strip() for item in import_val
             )
         else:
             code_str = str(import_val)
 
-        lines = [line.strip() for line in code_str.replace(";", "\n").replace(" from ", "\nfrom ").split("\n") if line.strip()]
+        lines = [
+            line.strip()
+            for line in code_str.replace(";", "\n").replace(" from ", "\nfrom ").split("\n")
+            if line.strip()
+        ]
         ns = {}
         exec("\n".join(lines), globals(), ns)
 
@@ -142,7 +216,15 @@ class FixedContextTransducerPy:
         get_model_config = ns.get("get_model_config")
 
         scorer = _get_eval_scorer(
-            scorer_cls, recog_cfg_cls, get_model_config, qat_params, ilm_scale, blank_penalty, checkpoint, self._device
+            scorer_cls,
+            recog_cfg_cls,
+            get_model_config,
+            qat_params,
+            ilm_scale,
+            blank_penalty,
+            checkpoint,
+            self._device,
+            memristor_params=memristor_params,
         )
         config.set_selection(base_selection)
         return scorer
@@ -150,14 +232,23 @@ class FixedContextTransducerPy:
     def allowed_transition_types(self):
         TT = _get_transition_types()
         return [
-            TT.BLANK_TO_LABEL, TT.LABEL_TO_LABEL, TT.LABEL_TO_BLANK,
-            TT.BLANK_LOOP, TT.LABEL_LOOP,
-            TT.INITIAL_LABEL, TT.INITIAL_BLANK, TT.SENTENCE_END,
-            TT.SILENCE_LOOP, TT.LABEL_TO_SILENCE, TT.INITIAL_SILENCE, TT.SILENCE_TO_LABEL,
+            TT.BLANK_TO_LABEL,
+            TT.LABEL_TO_LABEL,
+            TT.LABEL_TO_BLANK,
+            TT.BLANK_LOOP,
+            TT.LABEL_LOOP,
+            TT.INITIAL_LABEL,
+            TT.INITIAL_BLANK,
+            TT.SENTENCE_END,
+            TT.SILENCE_LOOP,
+            TT.LABEL_TO_SILENCE,
+            TT.INITIAL_SILENCE,
+            TT.SILENCE_TO_LABEL,
         ]
 
     def reset(self):
         self._score_cache.clear()
+        self._enc_dev_cache.clear()
         self._inputs.clear()
         self._expect_more_features = True
 
@@ -193,8 +284,11 @@ class FixedContextTransducerPy:
             update_history = loop_updates
             increment_time = 0 if vertical else 1
         elif transition_type in (
-            TT.BLANK_TO_LABEL, TT.SILENCE_TO_LABEL, TT.LABEL_TO_LABEL,
-            TT.INITIAL_LABEL, TT.SENTENCE_END
+            TT.BLANK_TO_LABEL,
+            TT.SILENCE_TO_LABEL,
+            TT.LABEL_TO_LABEL,
+            TT.INITIAL_LABEL,
+            TT.SENTENCE_END,
         ):
             update_history = True
             increment_time = 0 if vertical else 1
@@ -213,21 +307,24 @@ class FixedContextTransducerPy:
         self._inputs.extend(inputs[t] for t in range(inputs.shape[0]))  # per-step [D] views
 
     def compute_scores_with_times(self, contexts):
+        synaptogen_ml.set_fast_inference(True)
         cache = self._score_cache
+        enc_cache = self._enc_dev_cache
         inputs = self._inputs
         n_inputs = len(inputs)
         results = [None] * len(contexts)
 
-        # Evict cache entries for timesteps no longer active
-        if cache and contexts:
+        if contexts:
             min_step = min(ctx[0] for ctx in contexts)
             if min_step > 0:
                 stale_keys = [k for k in cache if k[0] < min_step]
                 for k in stale_keys:
                     del cache[k]
+                stale_enc = [k for k in enc_cache if k < min_step]
+                for k in stale_enc:
+                    del enc_cache[k]
 
-        # Partition into cached hits and uncached misses
-        uncached = []  # (result_idx, ctx, step, history)
+        by_step = {}
         for idx, ctx in enumerate(contexts):
             step, history = ctx
             if step >= n_inputs:
@@ -236,42 +333,42 @@ class FixedContextTransducerPy:
             if cached_scores is not None:
                 results[idx] = (cached_scores, step)
             else:
-                uncached.append((idx, ctx, step, history))
+                by_step.setdefault(step, []).append((idx, ctx, history))
 
-        if not uncached:
+        if not by_step:
             return results
 
-        # De-duplicate across all uncached contexts
-        unique_ctxs = {}  # ctx -> (step, history)
-        for _, ctx, step, history in uncached:
-            if ctx not in unique_ctxs:
-                unique_ctxs[ctx] = (step, history)
-
-        to_forward = list(unique_ctxs.items())
         device = self._device
 
         with torch.no_grad():
             max_bs = self._max_batch_size
-            for offset in range(0, len(to_forward), max_bs):
-                chunk = to_forward[offset : offset + max_bs]
-                B = len(chunk)
+            for step, entries in by_step.items():
+                enc_tensor = enc_cache.get(step)
+                if enc_tensor is None:
+                    enc_tensor = torch.from_numpy(inputs[step]).float().unsqueeze(0).to(device)
+                    enc_cache[step] = enc_tensor
 
-                enc_batch = torch.stack(
-                    [torch.from_numpy(inputs[step]).float() for _, (step, _) in chunk],
-                    dim=0,
-                ).to(device)  # [B, D]
+                unique_ctxs = {}
+                for _, ctx, history in entries:
+                    if ctx not in unique_ctxs:
+                        unique_ctxs[ctx] = history
 
-                hist_flat = [tok for _, (_, h) in chunk for tok in h]  # [B * H]
-                hist_tensor = torch.tensor(hist_flat, dtype=torch.long, device=device).view(B, -1)  # [B, H]
+                to_forward = list(unique_ctxs.items())
+                for offset in range(0, len(to_forward), max_bs):
+                    chunk = to_forward[offset : offset + max_bs]
+                    B = len(chunk)
 
-                scores_tensor = self._model(enc_batch, hist_tensor)  # [B, V]
-                scores_lists = scores_tensor.tolist()
+                    hist_flat = [tok for (_, h) in chunk for tok in h]
+                    hist_tensor = torch.tensor(hist_flat, dtype=torch.long, device=device).view(B, -1)
 
-                for b, (ctx, _) in enumerate(chunk):
-                    cache[ctx] = scores_lists[b]
+                    scores_tensor = self._model(enc_tensor, hist_tensor)
+                    scores_np = scores_tensor.detach().cpu().numpy()
 
-        for idx, ctx, step, _ in uncached:
-            results[idx] = (cache[ctx], step)
+                    for b, (ctx, _) in enumerate(chunk):
+                        cache[ctx] = scores_np[b]
+
+                for idx, ctx, _ in entries:
+                    results[idx] = (cache[ctx], step)
 
         return results
 
@@ -297,19 +394,20 @@ class StatefulTransducerPy:
         self._vertical_label_transition = get_config_value(config, "vertical-label-transition", False)
         self._max_batch_size = get_config_value(config, "max-batch-size", 2147483647, dtype=int)
 
-        device_val = get_config_value(config, "device", "cpu")
-        self._device = torch.device(device_val if device_val is not None else "cpu")
+        self._device = _get_device(config, base_selection)
 
         config.set_selection(f"{base_selection}.recognition")
 
         self._scorer, self._state_initializer, self._state_updater = self.get_scorer(config)
 
         self._score_cache = {}
+        self._enc_dev_cache = {}
         self._state_cache = {}
         self._initial_hidden_state = None
 
         self._inputs = []
         self._expect_more_features = True
+        synaptogen_ml.set_fast_inference(True)
 
     def get_scorer(self, config):
         rec_selection = config.get_selection()
@@ -324,7 +422,9 @@ class StatefulTransducerPy:
                     weight_dropout=get_config_value(config, "weight-dropout", dtype=float),
                     weight_pruning_config=get_config_value(config, "weight-pruning-config"),
                 )
-                assert qat_params["weight_pruning_config"] is None, "weight_pruning_config non None configuration is not supported"
+                assert (
+                    qat_params["weight_pruning_config"] is None
+                ), "weight_pruning_config non None configuration is not supported"
         except Exception:
             pass
         finally:
@@ -351,13 +451,16 @@ class StatefulTransducerPy:
 
         if isinstance(import_val, (list, tuple)):
             code_str = "\n".join(
-                item.get().strip() if hasattr(item, "get") else str(item).strip()
-                for item in import_val
+                item.get().strip() if hasattr(item, "get") else str(item).strip() for item in import_val
             )
         else:
             code_str = str(import_val)
 
-        lines = [line.strip() for line in code_str.replace(";", "\n").replace(" from ", "\nfrom ").split("\n") if line.strip()]
+        lines = [
+            line.strip()
+            for line in code_str.replace(";", "\n").replace(" from ", "\nfrom ").split("\n")
+            if line.strip()
+        ]
         ns = {}
         exec("\n".join(lines), globals(), ns)
 
@@ -420,6 +523,7 @@ class StatefulTransducerPy:
 
     def reset(self):
         self._score_cache.clear()
+        self._enc_dev_cache.clear()
         self._state_cache.clear()
         self._initial_hidden_state = None
         self._inputs.clear()
@@ -515,32 +619,36 @@ class StatefulTransducerPy:
             h_list = [ps[1] if ps[1].dim() == 3 else ps[1].unsqueeze(0) for ps in parent_states]
             c_list = [ps[2] if ps[2].dim() == 3 else ps[2].unsqueeze(0) for ps in parent_states]
 
-            h_batch = torch.cat(h_list, dim=0).to(device)  # [B, L, P]
-            c_batch = torch.cat(c_list, dim=0).to(device)  # [B, L, P]
+            h_batch = torch.cat(h_list, dim=0)  # [B, L, P]
+            c_batch = torch.cat(c_list, dim=0)  # [B, L, P]
 
             lstm_out_b, lstm_h_b, lstm_c_b = self._state_updater(tokens_tensor, h_batch, c_batch)
 
             for i, seq in enumerate(seqs_at_length):
                 new_state = (
                     lstm_out_b[i : i + 1],  # [1, P]
-                    lstm_h_b[i : i + 1],    # [1, L, P]
-                    lstm_c_b[i : i + 1],    # [1, L, P]
+                    lstm_h_b[i : i + 1],  # [1, L, P]
+                    lstm_c_b[i : i + 1],  # [1, L, P]
                 )
                 self._state_cache[seq] = new_state
 
     def compute_scores_with_times(self, contexts):
         cache = self._score_cache
+        enc_cache = self._enc_dev_cache
         inputs = self._inputs
         n_inputs = len(inputs)
         results = [None] * len(contexts)
+        synaptogen_ml.set_fast_inference(True)
 
-        # Evict cache entries for timesteps no longer active
-        if cache and contexts:
+        if contexts:
             min_step = min(ctx[0] for ctx in contexts)
             if min_step > 0:
                 stale_keys = [k for k in cache if k[0] < min_step]
                 for k in stale_keys:
                     del cache[k]
+                stale_enc = [k for k in enc_cache if k < min_step]
+                for k in stale_enc:
+                    del enc_cache[k]
 
         to_score = {}
 
@@ -563,6 +671,7 @@ class StatefulTransducerPy:
         device = self._device
 
         with torch.no_grad():
+            max_bs = self._max_batch_size
             all_seqs_to_ensure = set()
             for step, items in to_score.items():
                 for _, _, label_seq in items:
@@ -571,26 +680,40 @@ class StatefulTransducerPy:
             self._ensure_states_cached(all_seqs_to_ensure)
 
             for step, items in to_score.items():
-                enc = inputs[step]
-                enc_tensor = torch.from_numpy(enc).unsqueeze(0).float().to(device)  # [1, D]
+                enc_tensor = enc_cache.get(step)
+                if enc_tensor is None:
+                    enc_tensor = torch.from_numpy(inputs[step]).unsqueeze(0).float().to(device)
+                    enc_cache[step] = enc_tensor
 
-                lstm_outs = []
-                for _, _, label_seq in items:
-                    state = self._get_state(label_seq)
-                    l_out = state[0]
-                    if l_out.dim() == 1:
-                        l_out = l_out.unsqueeze(0)
-                    lstm_outs.append(l_out)
+                unique_ctxs = {}
+                for _, ctx, label_seq in items:
+                    if ctx not in unique_ctxs:
+                        unique_ctxs[ctx] = label_seq
 
-                lstm_out_batch = torch.cat(lstm_outs, dim=0).to(device)  # [B, P]
+                to_forward = list(unique_ctxs.items())
 
-                scores_tensor = self._scorer(enc_tensor, lstm_out_batch)  # [B, V]
-                scores_lists = scores_tensor.tolist()
+                for offset in range(0, len(to_forward), max_bs):
+                    chunk = to_forward[offset : offset + max_bs]
+                    B = len(chunk)
 
-                for b, (idx, ctx, _) in enumerate(items):
-                    s = scores_lists[b]
-                    cache[ctx] = s
-                    results[idx] = (s, step)
+                    lstm_outs = []
+                    for _, label_seq in chunk:
+                        state = self._get_state(label_seq)
+                        l_out = state[0]
+                        if l_out.dim() == 1:
+                            l_out = l_out.unsqueeze(0)
+                        lstm_outs.append(l_out)
+
+                    lstm_out_batch = torch.cat(lstm_outs, dim=0)  # [B, P]
+
+                    scores_tensor = self._scorer(enc_tensor, lstm_out_batch)  # [B, V]
+                    scores_np = scores_tensor.detach().cpu().numpy()
+
+                    for b, (ctx, _) in enumerate(chunk):
+                        cache[ctx] = scores_np[b]
+
+                for idx, ctx, _ in items:
+                    results[idx] = (cache[ctx], step)
 
         return results
 

@@ -10,14 +10,18 @@ from dataclasses import dataclass
 from typing import Tuple
 
 import torch
-from ..common.assemblies.conformer import ConformerEncoderQuant, ConformerEncoderQuantV1Config
+from ...common.assemblies.conformer import ConformerEncoderQuantV1Config
+from ...common.assemblies.conformer.mem_inited import ConformerEncoderQuant
+
+
 from i6_models.config import ModelConfiguration
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
 from i6_models.primitives.specaugment import specaugment_v1_by_length
 
-from ..common.pytorch_modules import SpecaugmentByLengthConfig, lengths_to_padding_mask
+from ...common.pytorch_modules import SpecaugmentByLengthConfig, lengths_to_padding_mask
 
 import synaptogen_ml
+
 
 @dataclass
 class LstmTransducerQATEncoderConfig(ModelConfiguration):
@@ -138,10 +142,12 @@ class LstmTransducerQATEncoderModel(torch.nn.Module):
             torch.nn.Dropout(cfg.dropout),
             torch.nn.Linear(cfg.joiner_dim, self.target_size),
         )
+        self.prep_quant()
 
     def prep_quant(self):
         synaptogen_ml.set_fast_inference(True)
         self.conformer.prep_quant()
+    
 
     def forward_encoder(
         self,
@@ -242,9 +248,40 @@ class LstmTransducerQATEncoderEncoder(LstmTransducerQATEncoderModel):
         return encoder_states, encoder_states_size  # [B, T, E], [B]
 
 
-class LstmTransducerQATEncoderScorer(LstmTransducerQATEncoderModel):
+class LstmTransducerQATEncoderPredNet(torch.nn.Module):
+    def __init__(self, cfg: LstmTransducerQATEncoderConfig, **_):
+        super().__init__()
+        self.target_size = cfg.target_size
+        self.token_embedding = torch.nn.Embedding(
+            num_embeddings=self.target_size, embedding_dim=cfg.context_embedding_dim, padding_idx=self.target_size - 1
+        )
+        self.pred_lstm = torch.nn.LSTM(
+            input_size=cfg.context_embedding_dim,
+            hidden_size=cfg.pred_dim,
+            num_layers=cfg.pred_num_layers,
+            bias=True,
+            batch_first=True,
+            dropout=cfg.dropout,
+            bidirectional=False,
+        )
+        self.pred_act = cfg.pred_activation
+
+
+# class LstmTransducerQATEncoderScorer(LstmTransducerQATEncoderModel):
+#     def __init__(self, cfg: LstmTransducerQATEncoderRecogConfig, **_):
+#         super().__init__(cfg=cfg)
+#         self.ilm_scale = cfg.ilm_scale
+#         self.blank_penalty = cfg.blank_penalty
+class LstmTransducerQATEncoderScorer(torch.nn.Module):
     def __init__(self, cfg: LstmTransducerQATEncoderRecogConfig, **_):
-        super().__init__(cfg=cfg)
+        super().__init__()
+        self.joiner = torch.nn.Sequential(
+            torch.nn.Dropout(cfg.dropout),
+            torch.nn.Linear(cfg.enc_dim + cfg.pred_dim, cfg.joiner_dim),
+            cfg.joiner_activation,
+            torch.nn.Dropout(cfg.dropout),
+            torch.nn.Linear(cfg.joiner_dim, cfg.target_size),
+        )
         self.ilm_scale = cfg.ilm_scale
         self.blank_penalty = cfg.blank_penalty
 
@@ -284,12 +321,15 @@ class LstmTransducerQATEncoderScorer(LstmTransducerQATEncoderModel):
         return scores
 
 
-class LstmTransducerQATEncoderStateInitializer(LstmTransducerQATEncoderModel):
+# class LstmTransducerQATEncoderStateInitializer(LstmTransducerQATEncoderModel):
+#     def forward(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+class LstmTransducerQATEncoderStateInitializer(LstmTransducerQATEncoderPredNet):
     def forward(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        token = torch.tensor([[self.target_size - 1]], dtype=torch.int32)  # [1, 1]
+        device = self.token_embedding.weight.device
+        token = torch.tensor([[self.target_size - 1]], dtype=torch.int32, device=device)  # [1, 1]
         embed = self.token_embedding(token)  # [1, 1, E]
-        h_0 = torch.zeros((self.pred_lstm.num_layers, 1, self.pred_lstm.hidden_size), dtype=torch.float32)  # [L, 1, P]
-        c_0 = torch.zeros((self.pred_lstm.num_layers, 1, self.pred_lstm.hidden_size), dtype=torch.float32)  # [L, 1, P]
+        h_0 = torch.zeros((self.pred_lstm.num_layers, 1, self.pred_lstm.hidden_size), dtype=torch.float32, device=device)  # [L, 1, P]
+        c_0 = torch.zeros((self.pred_lstm.num_layers, 1, self.pred_lstm.hidden_size), dtype=torch.float32, device=device)  # [L, 1, P]
 
         lstm_out, (h_0, c_0) = self.pred_lstm(embed, (h_0, c_0))  # [1, 1, P], [L, 1, P], [L, 1, P]
         lstm_out = self.pred_act(lstm_out)  # [1, 1, P]
@@ -301,7 +341,14 @@ class LstmTransducerQATEncoderStateInitializer(LstmTransducerQATEncoderModel):
         return lstm_out, h_0, c_0  # [1, P], [1, L, P], [1, L, P]
 
 
-class LstmTransducerQATEncoderStateUpdater(LstmTransducerQATEncoderModel):
+# class LstmTransducerQATEncoderStateUpdater(LstmTransducerQATEncoderModel):
+#     def forward(
+#         self,
+#         token: torch.Tensor,  # [B]
+#         lstm_h: torch.Tensor,  # [B, L, H]
+#         lstm_c: torch.Tensor,  # [B, L, H]
+#     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+class LstmTransducerQATEncoderStateUpdater(LstmTransducerQATEncoderPredNet):
     def forward(
         self,
         token: torch.Tensor,  # [B]

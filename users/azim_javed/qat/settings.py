@@ -21,9 +21,11 @@ CPU_SLOW_JOBLIST = [
     "PipelineJob",
 ]
 
-FAST_TRACK_JOBS = ["ReturnnForwardJobV2"]
+# FAST_TRACK_JOBS = ["ReturnnForwardJobV2"]
+FAST_TRACK_JOBS = []
 gpu_job_hashes = []
 
+SOLO_GPU_JOBS = ["ReturnnForwardJobV2"]
 
 def check_engine_limits(current_rqmt, task):
     """
@@ -31,13 +33,12 @@ def check_engine_limits(current_rqmt, task):
     """
     current_rqmt["time"] = min(168, current_rqmt.get("time", 2))
     bad_nodes = [
-        "cn-235",
-        "cn-240",
-        "cn-273",
-        "cn-245",
-        # "cn-230",
-        "cn-277",
-        "cn-269",
+        # "cn-236",
+        # "cn-265",
+        # "cn-280",
+        # "cn-262",
+        # "cn-253"
+        "cn-230"
     ]
     if current_rqmt.get("gpu", 0) > 0 and "-p" not in current_rqmt.get(
         "sbatch_args", []
@@ -69,6 +70,9 @@ def check_engine_limits(current_rqmt, task):
 
     if task._job.__class__.__name__ in CPU_SLOW_JOBLIST:
         current_rqmt["sbatch_args"] = ["-p", "cpu_slow"]
+
+    # if task._job.__class__.__name__ in SOLO_GPU_JOBS and current_rqmt.get("gpu", 0) == 11:
+    #     current_rqmt["sbatch_args"].append("--exclusive")
 
     current_rqmt["sbatch_args"] = current_rqmt.get("sbatch_args", []) + [
         "--exclude=%s" % ",".join(bad_nodes)
@@ -109,13 +113,23 @@ def engine():
 BERGER_JOBS = [
     "ReturnnTrainingJob",
 ]
+# Jobs that run memristor inference (recognition / prior): import synaptogen_ml,
+# so enable the fast-inference path via env (SYN_FAST is read at import time in
+# synaptogen_ml/__init__.py). Scoping to ReturnnForwardJobV2 keeps training jobs
+# on the bit-exact eager path. SYN_NO_COMPILE=1 (commented below) is a fallback
+# for nodes/environments where torch.compile/Triton is problematic.
+RECOGNITION_JOBS = [
+    "ReturnnForwardJobV2",
+]
 def worker_wrapper(job, task_name, call):
     task = next(task for task in job._sis_tasks() if task.name() == task_name)
     rqmt = task.rqmt()
-    # image = "/work/asr4/hilmes/apptainer/torch-2.8_onnx-1.22_v3.sif"
-    if rqmt.get("gpu", 0) > 0 and rqmt.get("gpu_mem", 0) <= 11:
-        image = "/work/asr4/hilmes/apptainer/torch-2.8_onnx-1.22_v3.sif"
-    else:
+    image = "/work/asr4/hilmes/apptainer/torch-2.8_onnx-1.22_v3.sif"
+    # if rqmt.get("gpu", 0) > 0 and rqmt.get("gpu_mem", 0) <= 11:
+    #      image = "/work/asr4/berger/apptainer/images/torch-2.8_onnx-1.22.sif"
+    # else:
+    #     image = "/work/asr4/berger/apptainer/images/torch-2.8_onnx-1.22.sif"
+    if job.__class__.__name__ in BERGER_JOBS:
         image = "/work/asr4/berger/apptainer/images/torch-2.8_onnx-1.22.sif"
 
     binds = [
@@ -125,6 +139,7 @@ def worker_wrapper(job, task_name, call):
         "/work/common",
         # "/work/tools/",
         # "/u/corpora",
+        "/var/tmp",
         "/run",
     ]
 
@@ -133,6 +148,11 @@ def worker_wrapper(job, task_name, call):
         "exec",
         "--env",
         f"NUMBA_CACHE_DIR=/var/tmp/numba_cache_{getpass.getuser()}",
+    ]
+    if job.__class__.__name__ in RECOGNITION_JOBS:
+        app_call += ["--env", "SYN_FAST=1"]
+        # app_call += ["--env", "SYN_NO_COMPILE=1"]
+    app_call += [
         "--pwd",
         os.environ.get("PWD", os.getcwd()),
         "--nv",
@@ -197,5 +217,6 @@ DEFAULT_ENVIRONMENT_SET.update(
         # "OMP_NUM_THREADS": 2,
         # "MKL_NUM_THREADS": 2,
         "CXXFLAGS": "-include cstdint",
+        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
     }
 )
