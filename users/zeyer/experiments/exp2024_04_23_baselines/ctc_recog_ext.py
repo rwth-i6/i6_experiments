@@ -27,6 +27,7 @@ from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.recog import recog_model, search_dataset, ctc_alignment_to_label_seq, RecogOutput
 from i6_experiments.users.zeyer.collect_model_dataset_stats import collect_statistics
 from i6_experiments.users.zeyer.returnn.config import config_dict_update_
+from i6_experiments.users.zeyer.returnn.convert_checkpoint import checkpoint_for_backend, checkpoint_as_backend
 
 from .ctc import Model, ctc_model_def, _batch_size_factor
 from .lm import lm_model_def
@@ -767,11 +768,22 @@ def get_ctc_with_lm_and_framewise_prior(
             "lm_scale": lm_scale,
         }
     )
-    config.setdefault("preload_from_files", {})["lm"] = {"prefix": "lm.", "filename": language_model.checkpoint}
+    # The combined recog runs on the backend that trained the CTC model (= its checkpoint
+    # format); the torch-trained LM's checkpoint gets converted to it (see convert_checkpoint).
+    # For torch-trained models all of this is a no-op and the config stays byte-identical.
+    target_backend = getattr(ctc_model.definition, "backend", None)
+    config.setdefault("preload_from_files", {})["lm"] = {
+        "prefix": "lm.",
+        "filename": checkpoint_as_backend(language_model.checkpoint, target_backend),
+    }
 
+    definition = ModelDefWithCfg(model_def=ctc_model_ext_def, config=config)
+    if target_backend and target_backend != definition.backend:
+        definition.backend = target_backend
+        config["backend"] = target_backend
     return ModelWithCheckpoint(
-        definition=ModelDefWithCfg(model_def=ctc_model_ext_def, config=config),
-        checkpoint=ctc_model.checkpoint,
+        definition=definition,
+        checkpoint=checkpoint_for_backend(definition, ctc_model.checkpoint),
     )
 
 
@@ -815,9 +827,16 @@ def get_ctc_with_lm_and_labelwise_prior(
     else:
         config["_lm_model_def"] = lm_def.model_def
     config["lm_scale"] = lm_scale
+    # The combined recog runs on the backend that trained the CTC model (= its checkpoint
+    # format); the torch-trained LM's checkpoint gets converted to it (see convert_checkpoint).
+    # For torch-trained models all of this is a no-op and the config stays byte-identical.
+    target_backend = getattr(ctc_model.definition, "backend", None)
     config["preload_from_files"] = config["preload_from_files"].copy() if config.get("preload_from_files") else {}
     if language_model.checkpoint:
-        config["preload_from_files"]["lm"] = {"prefix": "lm.", "filename": language_model.checkpoint}
+        config["preload_from_files"]["lm"] = {
+            "prefix": "lm.",
+            "filename": checkpoint_as_backend(language_model.checkpoint, target_backend),
+        }
     lm_config_preload_from_files = lm_config.pop("preload_from_files", None)
     if lm_config_preload_from_files:
         for k, v in lm_config_preload_from_files.items():
@@ -849,9 +868,13 @@ def get_ctc_with_lm_and_labelwise_prior(
         # Need new recog serialization for the partial.
         config["__serialization_version"] = max(2, config.get("__serialization_version", 0))
 
+    definition = ModelDefWithCfg(model_def=combined_model_def, config=config)
+    if target_backend and target_backend != definition.backend:
+        definition.backend = target_backend
+        config["backend"] = target_backend
     return ModelWithCheckpoint(
-        definition=ModelDefWithCfg(model_def=combined_model_def, config=config),
-        checkpoint=ctc_model.checkpoint,
+        definition=definition,
+        checkpoint=checkpoint_for_backend(definition, ctc_model.checkpoint),
     )
 
 
@@ -915,9 +938,12 @@ def get_ctc_with_ngram_lm_and_framewise_prior(
     # Need new recog serialization for the partial.
     config["__serialization_version"] = max(2, config.get("__serialization_version", 0))
 
+    definition = ModelDefWithCfg(model_def=ctc_model_ext_def_, config=config)
     return ModelWithCheckpoint(
-        definition=ModelDefWithCfg(model_def=ctc_model_ext_def_, config=config),
-        checkpoint=ctc_model.checkpoint,
+        definition=definition,
+        # torchaudio's ctc_decoder (flashlight) is torch-only, so this recog STAYS on torch
+        # regardless of the training backend; a TF-trained ctc_model's checkpoint gets converted
+        checkpoint=checkpoint_for_backend(definition, ctc_model.checkpoint),
     )
 
 
@@ -1723,6 +1749,16 @@ def ctc_recog_recomb_labelwise_prior_auto_scale(
         base_config = dict_update_deep(base_config, extra_config)
         if "__serialization_version_stats" in base_config:
             base_config.pop("__serialization_version_stats")  # this is for prior above, should not be needed below
+    if getattr(ctc_model.definition, "backend", None) == "tensorflow" and "tf_static_shapes" not in base_config:
+        # TF-engine SEARCH steps: the beam-search recog_def is a build-time (unrolled) loop,
+        # so every dim needs a static bound (tf_static_shapes; TF TensorArray ops).
+        # base_config feeds only the search configs -- the prior/rescore steps have their own
+        # and would just waste compute on the bound padding.
+        # Bounds generous; the engine asserts WITH the observed sizes when exceeded.
+        base_config["tf_static_shapes"] = {
+            "batch_size_bound": 200,
+            "dim_capacity": {"audio": 576_000, "text": 1024},
+        }
     if ctc_soft_collapse_threshold is not None:
         base_config.update(
             {

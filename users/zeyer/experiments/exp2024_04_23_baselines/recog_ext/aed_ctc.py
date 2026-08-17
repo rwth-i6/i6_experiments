@@ -29,6 +29,7 @@ from i6_experiments.users.zeyer.recog import recog_model, search_dataset
 from i6_experiments.users.zeyer.decoding.rescoring import combine_scores, rescore
 from i6_experiments.users.zeyer.decoding.prior_rescoring import prior_score, Prior, PriorRemoveLabelRenormJob
 from i6_experiments.users.zeyer.collect_model_dataset_stats import collect_statistics
+from i6_experiments.users.zeyer.returnn.convert_checkpoint import checkpoint_for_backend
 
 if TYPE_CHECKING:
     from returnn_common.datasets_old_2022_10.interface import DatasetConfig
@@ -87,6 +88,13 @@ def aed_ctc_timesync_recog_recomb_auto_scale(
     }
     if extra_config:
         base_config = dict_update_deep(base_config, extra_config)
+    if getattr(aed_ctc_model.definition, "backend", None) == "tensorflow" and "tf_static_shapes" not in base_config:
+        # TF-engine SEARCH steps need static bounds (build-time unrolled beam search);
+        # see ctc_recog_ext.ctc_recog_recomb_labelwise_prior_auto_scale for the same block.
+        base_config["tf_static_shapes"] = {
+            "batch_size_bound": 200,
+            "dim_capacity": {"audio": 576_000, "text": 1024},
+        }
 
     # Only use CTC for first search, no AED, no prior.
     ctc_model_only = get_aed_ctc_and_labelwise_prior(aed_ctc_model=aed_ctc_model, aed_scale=0.0)
@@ -263,6 +271,13 @@ def aed_ctc_timesync_recog_recomb_labelwise_prior_auto_scale(
     }
     if extra_config:
         base_config = dict_update_deep(base_config, extra_config)
+    if getattr(aed_ctc_model.definition, "backend", None) == "tensorflow" and "tf_static_shapes" not in base_config:
+        # TF-engine SEARCH steps need static bounds (build-time unrolled beam search);
+        # see ctc_recog_ext.ctc_recog_recomb_labelwise_prior_auto_scale for the same block.
+        base_config["tf_static_shapes"] = {
+            "batch_size_bound": 200,
+            "dim_capacity": {"audio": 576_000, "text": 1024},
+        }
 
     # Only use CTC for first search, no AED, no prior.
     ctc_model_only = get_aed_ctc_and_labelwise_prior(aed_ctc_model=aed_ctc_model, aed_scale=0.0)
@@ -689,9 +704,17 @@ def get_aed_ctc_and_labelwise_prior(
     # Need new recog serialization for the partial.
     config["__serialization_version"] = max(2, config.get("__serialization_version", 0))
 
+    definition = ModelDefWithCfg(model_def=combined_model_def, config=config)
+    # The combined recog runs on the backend that TRAINED the model (= its checkpoint format);
+    # no second checkpoint is involved here, so nothing needs conversion.
+    # For torch-trained models this is a no-op and the config stays byte-identical.
+    target_backend = getattr(aed_ctc_model.definition, "backend", None)
+    if target_backend and target_backend != definition.backend:
+        definition.backend = target_backend
+        config["backend"] = target_backend
     return ModelWithCheckpoint(
-        definition=ModelDefWithCfg(model_def=combined_model_def, config=config),
-        checkpoint=aed_ctc_model.checkpoint,
+        definition=definition,
+        checkpoint=checkpoint_for_backend(definition, aed_ctc_model.checkpoint),
     )
 
 
