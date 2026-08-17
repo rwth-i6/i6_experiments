@@ -11,7 +11,14 @@ from typing import TYPE_CHECKING, Optional, Union, Dict, Any, Sequence
 import copy
 from sisyphus import gs, tk
 from i6_core.returnn.training import ReturnnTrainingJob
-from i6_experiments.users.zeyer.model_interfaces import ModelT, ModelDef, ModelDefWithCfg, TrainDef, serialize_model_def
+from i6_experiments.users.zeyer.model_interfaces import (
+    ModelT,
+    ModelDef,
+    ModelDefWithCfg,
+    TrainDef,
+    serialize_model_def,
+    backend_post_config_opts,
+)
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, Checkpoint
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.returnn.global_startup_callback import maybe_serialize_global_startup_callback
@@ -195,9 +202,8 @@ def train(
             # debug_add_check_numerics_ops = True
             # debug_add_check_numerics_on_output = True
             # stop_on_nonfinite_train_score = False,
-            torch_log_memory_usage=True,
+            **backend_post_config_opts(returnn_train_config_dict.get("backend")),
             watch_memory=True,
-            use_lovely_tensors=True,
             use_train_proc_manager=True,
             stop_for_resubmission_when_low_time_left=True,
         ),

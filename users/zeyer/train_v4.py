@@ -16,7 +16,13 @@ import copy
 import functools
 from sisyphus import gs, tk
 from i6_core.returnn.training import ReturnnTrainingJob
-from i6_experiments.users.zeyer.model_interfaces import ModelT, ModelDef, ModelDefWithCfg, TrainDef
+from i6_experiments.users.zeyer.model_interfaces import (
+    ModelT,
+    ModelDef,
+    ModelDefWithCfg,
+    TrainDef,
+    backend_post_config_opts,
+)
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, Checkpoint
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.returnn.global_startup_callback import maybe_add_global_startup_callback_to_post_config
@@ -177,8 +183,6 @@ def train(
     # The memory-usage logging option is named after the backend (torch_* / tf_*), so pick it
     # from the backend that will actually run. post_config is not hashed, so this cannot change
     # any existing job; it only stops a non-torch run from being handed a torch_* option.
-    _backend = returnn_train_config_dict.get("backend")
-    _mem_usage_opt = {"torch": "torch_log_memory_usage", "tensorflow": "tf_log_memory_usage"}.get(_backend)
     returnn_train_config = ReturnnConfigWithNewSerialization(
         returnn_train_config_dict,
         post_config=dict(  # not hashed
@@ -187,9 +191,8 @@ def train(
             # debug_add_check_numerics_ops = True
             # debug_add_check_numerics_on_output = True
             # stop_on_nonfinite_train_score = False,
-            **({_mem_usage_opt: True} if _mem_usage_opt else {}),
+            **backend_post_config_opts(returnn_train_config_dict.get("backend")),
             watch_memory=True,
-            use_lovely_tensors=True,
             use_train_proc_manager=True,
             stop_for_resubmission_when_low_time_left=True,
         ),
