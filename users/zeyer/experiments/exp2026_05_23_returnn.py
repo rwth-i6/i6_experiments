@@ -907,7 +907,23 @@ def loq_train(
         dataset_train_opts=dataset_train_opts,
         env_updates=env_updates,
         recog_def=_ctc_model_recog if recog_def_ctc_only else None,
-        search_config={"aux_loss_layers": [aux_ctc_layer]} if recog_def_ctc_only else None,
+        search_config=dict_update_deep(
+            {"aux_loss_layers": [aux_ctc_layer]},
+            # TF-engine recogs: the beam-search recog_def is a BUILD-TIME (unrolled) loop,
+            # so every dim needs a static bound (tf_static_shapes; TF TensorArray ops).
+            # Bounds are generous; the engine asserts WITH the observed sizes when a batch
+            # exceeds them -- tighten/raise from those messages.
+            {
+                "tf_static_shapes": {
+                    "batch_size_bound": 200,
+                    "dim_capacity": {"audio": 576_000, "text": 1024},
+                }
+            }
+            if train_config.get("backend") == "tensorflow"
+            else None,
+        )
+        if recog_def_ctc_only
+        else None,
     )
     aed_ctc_timesync_recog_recomb_auto_scale(
         prefix=prefix + "/aed/" + name + "/aed+ctc",
