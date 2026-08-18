@@ -906,3 +906,302 @@ def bench_vs():
     )
     job.add_alias("jax-vs-torch-benchmark")
     tk.register_output("jax_vs_torch_benchmark.txt", job.out_results)
+
+
+# JAX vs PT on the FULL model (~500M: 16L Conformer 1024d + 6L Transformer dec 1024d).
+# Everything before this ran base-small-v2 (256d, 4L/2L), where the step is so cheap that both
+# backends idle on the input pipeline and the comparison measures the dataset, not the engines.
+# ONE config drives both arms -- the PT base-v2 training config -- with the JAX arm deriving from it
+# by swapping the backend and adding jax_amp/jax_jit, so model, data, batching and behavior version
+# are identical by construction.
+_VS_FULL_SCRIPT = r'''
+"""One arm on the full-size model: real dataset, production prefetch, warmup steps dropped."""
+
+import sys
+import time
+import tempfile
+
+RETURNN = {returnn_root!r}
+RESULT = {result_path!r}
+WARM_STEPS, N_STEPS = {warm_steps}, {num_steps}
+BUCKETS = {buckets!r}
+TIME_MULTIPLE = {time_multiple!r}
+VOLUME_KEY = "audio"
+
+
+def _emit(line):
+    """:param line: result line, appended to RESULT and echoed"""
+    print(line, flush=True)
+    with open(RESULT, "a") as f:
+        f.write(line + "\n")
+
+
+def _config(path, backend):
+    """
+    :param path: the PT training config both arms derive from
+    :param backend: "jax" or "torch"
+    :return: the config for this arm
+
+    The JAX engine REJECTS options it would otherwise ignore, so every torch_* key goes; jax_amp
+    mirrors torch_amp, and jax_jit carries the declared bucket grid.
+    """
+    from returnn.config import Config, set_global_config
+    from returnn.util.basic import BackendEngine, BehaviorVersion
+
+    config = Config()
+    config.load_file(path)
+    for key in ["eval_datasets", "dev", "eval", "cleanup_old_models", "use_train_proc_manager",
+                "watch_memory", "use_lovely_tensors", "startup_callback"]:
+        config.typed_dict.pop(key, None)
+        config.dict.pop(key, None)
+    config.typed_dict["model"] = f"{{tempfile.mkdtemp(prefix='full-')}}/model"
+    config.typed_dict["learning_rate_file"] = f"{{tempfile.mkdtemp(prefix='full-lr-')}}/lr"
+
+    if backend == "jax":
+        for key in [k for k in list(config.typed_dict) + list(config.dict) if k.startswith("torch_")]:
+            config.typed_dict.pop(key, None)
+            config.dict.pop(key, None)
+        config.typed_dict["backend"] = "jax"
+        config.typed_dict["device"] = "gpu"
+        config.typed_dict["jax_amp"] = "bfloat16"
+        config.typed_dict["jax_jit"] = {{"time_multiple": TIME_MULTIPLE, "buckets": BUCKETS}}
+        config.typed_dict["jax_compilation_cache_dir"] = "/work/az668407/jax_compilation_cache"
+        # the per-shape timing pass EXECUTES every bucket and copies params + optimizer state each
+        # time; at 500M that is real memory and minutes of startup, and it is only a diagnostic
+        config.typed_dict["jax_time_buckets"] = 0
+    else:
+        config.typed_dict["backend"] = "torch"
+        config.typed_dict["device"] = "cuda"
+
+    set_global_config(config)
+    BackendEngine.select_engine(config=config)
+    BehaviorVersion.set(config.int("behavior_version", 0) or None)
+    return config
+
+
+def _padded_volume(item):
+    """
+    :param item: one batch (JAX yields ``(raws, complete_frac)``, torch a dict)
+    :return: padded audio samples, i.e. batch x padded time
+    """
+    raws = item[0] if isinstance(item, tuple) else item
+    data = raws.get(VOLUME_KEY) if hasattr(raws, "get") else None
+    if data is None or getattr(data, "ndim", 0) < 2:
+        return 0
+    return int(data.shape[0]) * int(data.shape[1])
+
+
+class _Limiter:
+    """Wraps the batch source, cutting it off and timing each step the loop takes."""
+
+    def __init__(self, inner, steps):
+        """
+        :param inner: the real iterable
+        :param steps: list the (duration, volume) pairs land in
+        """
+        self.inner = inner
+        self.steps = steps
+        self.limit = WARM_STEPS
+        self.measuring = False
+
+    def __iter__(self):
+        """:return: the inner items, up to the limit"""
+        t_prev = time.time()
+        for i, item in enumerate(self.inner):
+            if i >= self.limit:
+                return
+            vol = _padded_volume(item)
+            yield item
+            now = time.time()
+            if self.measuring:
+                self.steps.append((now - t_prev, vol))
+            t_prev = now
+
+
+def _run_jax(config_path):
+    """
+    :param config_path: the shared training config
+    :return: per-step (duration, volume)
+    """
+    config = _config(config_path, "jax")
+    from returnn.datasets import init_dataset
+    from returnn.jax.engine import Engine
+
+    t0 = time.time()
+    engine = Engine(config=config)
+    engine.init_train_from_config(
+        config=config,
+        train_data=init_dataset(config.typed_value("train"), default_kwargs={{"name": "train"}}),
+    )
+    _emit(f"    jax engine built ({{len(BUCKETS)}} buckets compiled) in {{time.time() - t0:.0f}} s")
+
+    steps = []
+    orig = engine._iter_batches
+    state = {{"limit": WARM_STEPS, "measuring": False}}
+
+    def _wrapped(*args, **kwargs):
+        """the real iterator, wrapped so the arm can stop and time it"""
+        limiter = _Limiter(orig(*args, **kwargs), steps)
+        limiter.limit, limiter.measuring = state["limit"], state["measuring"]
+        return iter(limiter)
+
+    engine._iter_batches = _wrapped
+    engine.epoch += 1
+    engine.train_epoch()   # warm: prefetch spin-up and first-touch land here
+    state.update(limit=N_STEPS, measuring=True)
+    engine.epoch += 1
+    engine.train_epoch()
+    return steps
+
+
+def _run_torch(config_path):
+    """
+    :param config_path: the shared training config
+    :return: per-step (duration, volume)
+    """
+    config = _config(config_path, "torch")
+    from returnn.datasets import init_dataset
+    from returnn.torch.engine import Engine
+
+    t0 = time.time()
+    engine = Engine(config=config)
+    engine.init_train_from_config(
+        config=config,
+        train_data=init_dataset(config.typed_value("train"), default_kwargs={{"name": "train"}}),
+    )
+    _emit(f"    torch engine built in {{time.time() - t0:.0f}} s")
+
+    steps = []
+    inner = engine._train_dataloader
+    limiter = _Limiter(inner, steps)
+    engine._train_dataloader = limiter
+
+    def _epoch():
+        """advance one epoch the way `train()` does, so the LR control has this epoch's entry"""
+        engine.set_epoch(engine.epoch + 1)
+        engine.init_train_epoch()
+
+    _epoch()
+    engine.train_epoch()   # warm
+    limiter.inner = inner
+    limiter.limit, limiter.measuring = N_STEPS, True
+    _epoch()
+    engine.train_epoch()
+    return steps
+
+
+def _main():
+    """run one arm, named by argv"""
+    sys.path.insert(0, RETURNN)
+    backend, config_path, tag = sys.argv[1], sys.argv[2], sys.argv[3]
+    steps = _run_jax(config_path) if backend == "jax" else _run_torch(config_path)
+    if not steps:
+        _emit(f"  {{tag}} {{backend}}: NO STEPS MEASURED")
+        return
+    ordered = sorted(d for d, _ in steps)
+    median = ordered[len(ordered) // 2]
+    kept = [(d, v) for d, v in steps if d <= 3 * median]
+    elapsed = sum(d for d, _ in kept)
+    volume = sum(v for _, v in kept)
+    ms_per_msample = elapsed * 1000 / volume * 1e6 if volume else float("nan")
+    _emit(f"  {{tag}} {{backend:5s}}: {{elapsed / len(kept):.4f}} s/step  "
+          f"median {{median:.4f}}  p10 {{ordered[len(ordered) // 10]:.4f}}  "
+          f"{{ms_per_msample:6.3f}} ms/Msample  [{{len(kept)}} kept of {{len(steps)}}, "
+          f"{{volume / 1e6:.0f}} Msample]")
+
+
+if __name__ == "__main__":
+    _main()
+'''
+
+
+class JaxVsTorchFullBenchmarkJob(Job):
+    """
+    JAX vs PyTorch on the full ~500M model, real dataset, production prefetch.
+
+    One subprocess per arm, alternating: JAX preallocates GPU memory and both frameworks hold CUDA
+    runtimes, so co-hosting them would distort what is measured.
+    """
+
+    def __init__(
+        self,
+        *,
+        returnn_config_file: tk.Path,
+        returnn_root: tk.Path,
+        python_exe: str,
+        buckets,
+        time_multiple,
+        num_steps: int = 100,
+        warm_steps: int = 30,
+        passes: int = 3,
+        version: int = 1,
+    ):
+        """
+        :param returnn_config_file: the PT training config both arms derive from
+        :param returnn_root: RETURNN checkout to import
+        :param python_exe: interpreter with both frameworks
+        :param buckets: declared input shapes for the JAX arm's compiled step
+        :param time_multiple: per-key rounding of the padded time extent
+        :param num_steps: measured steps per arm
+        :param warm_steps: steps run before measuring, so prefetch spin-up does not count
+        :param passes: how often to run each backend, alternating which goes first
+        :param version: bump to force a re-run
+        """
+        self.returnn_config_file = returnn_config_file
+        self.returnn_root = returnn_root
+        self.python_exe = python_exe
+        self.buckets = buckets
+        self.time_multiple = time_multiple
+        self.num_steps = num_steps
+        self.warm_steps = warm_steps
+        self.passes = passes
+        self.version = version
+        # 8 h: the 60-bucket precompile is ~30 min at 256d and unmeasured at 1024d, paid per JAX arm
+        # process, plus the arms themselves.
+        self.rqmt = {"gpu": 1, "cpu": 24, "mem": 200, "time": 8}
+        self.out_results = self.output_path("results.txt")
+
+    def tasks(self):
+        """tasks"""
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        """write the arm script, then alternate backends across passes"""
+        with open("vs_full_arm.py", "w") as f:
+            f.write(
+                _VS_FULL_SCRIPT.format(
+                    returnn_root=self.returnn_root.get_path(),
+                    result_path=self.out_results.get_path(),
+                    warm_steps=self.warm_steps,
+                    num_steps=self.num_steps,
+                    buckets=self.buckets,
+                    time_multiple=self.time_multiple,
+                )
+            )
+        with open(self.out_results.get_path(), "a") as f:
+            f.write(f"\n=== JAX vs PyTorch, FULL model, same node, {self.num_steps} steps/arm,"
+                    f" {self.passes} passes, alternating\n")
+        cfg = self.returnn_config_file.get_path()
+        for p in range(self.passes):
+            arms = ["jax", "torch"] if p % 2 == 0 else ["torch", "jax"]
+            for backend in arms:
+                subprocess.check_call(
+                    [self.python_exe, "-u", "vs_full_arm.py", backend, cfg, f"pass {p + 1}"]
+                )
+
+
+def bench_vs_full():
+    """Sisyphus entry point: JAX vs PyTorch on the full-size model."""
+    job = JaxVsTorchFullBenchmarkJob(
+        # base-v2: 16L Conformer 1024d + 6L Transformer dec 1024d, padded, eager, bhv 29
+        returnn_config_file=tk.Path(
+            "/rwthfs/rz/cluster/home/az668407/setups/2026-05-23-returnn-paper/work/"
+            "i6_core/returnn/training/ReturnnTrainingJob.LySQsb8NNT9g/output/returnn.config"
+        ),
+        returnn_root=tk.Path("/home/az668407/setups/combined/2021-05-31/tools/returnn"),
+        python_exe="/home/az668407/work/py-envs/py3.12-torch2.12/bin/python",
+        buckets=_BUCKETS,
+        time_multiple={"audio": 16_000, "text": 8},
+    )
+    job.add_alias("jax-vs-torch-full")
+    tk.register_output("jax_vs_torch_full.txt", job.out_results)
