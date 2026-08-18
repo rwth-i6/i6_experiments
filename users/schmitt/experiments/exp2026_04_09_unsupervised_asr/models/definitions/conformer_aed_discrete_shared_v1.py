@@ -440,6 +440,7 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
         # defaults); None disables the codebook.
         codebook_opts: Optional[Dict[str, Any]] = None,
         fix_decode_text_seq_for_shared_dec: bool = False,
+        freeze_params_list: Optional[List[str]] = None,
         **_kwargs_unused,
     ):
         super().__init__()
@@ -638,6 +639,20 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
         self.audio_blank_idx = audio_out_dim
 
         self.fix_decode_text_seq_for_shared_dec = fix_decode_text_seq_for_shared_dec
+
+        if freeze_params_list:
+            self.freeze_params(freeze_params_list)
+
+    def freeze_params(
+        self,
+        freeze_list: List[str],
+    ):
+        import re
+
+        for name, param in self.named_parameters():
+            if any(re.search(match, name) for match in freeze_list):
+                print(f"Freezing parameter: {name}")
+                param.requires_grad = False
 
     def freeze_encoder(self):
         for param in self.encoder.parameters():
