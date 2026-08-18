@@ -7,7 +7,6 @@ from sisyphus.delayed_ops import DelayedFormat
 from i6_core.tools.download import DownloadJob
 from i6_core.text.processing import PipelineJob, TailJob, HeadJob, ConcatenateJob
 
-from i6_core.tools.git import CloneGitRepositoryJob
 from i6_experiments.users.enrique.jobs.fairseq.wav2vec.wav2vec_data_utils import SetupFairseqJob
 from i6_experiments.users.schmitt.experiments.exp2025_10_02_shared_enc.librispeech.data.audio_preprocessing import (
     Wav2VecUDeleteSilencesInAudioJob,
@@ -25,14 +24,13 @@ def remove_silences_from_audio(
     audio_dir: tk.Path,
     concurrent: int,
 ):
-    environment = None
+    environment = tk.Path("/work/smt4/zeineldeen/enrique.leon.lozano/py_envs/fairseq_env_v3")
     delete_silences_job = Wav2VecUDeleteSilencesInAudioJob(
         environment=environment,
         fairseq_root=SetupFairseqJob(
-            CloneGitRepositoryJob(
-                repository="https://github.com/facebookresearch/fairseq.git",
-                commit="e4a2e4e93efbcbaaae52a17ae6600beb2083fb33",
-            ).out_repo_dir,
+            tk.Path(
+                "/u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/Fairseq/fairseq_w2vu/fairseq"
+            ),
             environment,
         ).out_fairseq_root,
         audio_dir=audio_dir,
@@ -64,14 +62,13 @@ def featurize_audio(
         target_filename="wav2vec_60kh_no_finetune.pt",
     ).out_file
 
-    environment = None
+    environment = tk.Path("/work/smt4/zeineldeen/enrique.leon.lozano/py_envs/fairseq_env_v3")
     featurize_job = Wav2VecUFeaturizeAudioJob(
-        environment=environment,
+        environment=tk.Path("/work/asr4/schmitt/venvs/fairseq_env"),
         fairseq_root=SetupFairseqJob(
-            CloneGitRepositoryJob(
-                repository="https://github.com/facebookresearch/fairseq.git",
-                commit="e4a2e4e93efbcbaaae52a17ae6600beb2083fb33",
-            ).out_repo_dir,
+            tk.Path(
+                "/u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/Fairseq/fairseq_w2vu/fairseq"
+            ),
             environment,
         ).out_fairseq_root,
         layer=14,
