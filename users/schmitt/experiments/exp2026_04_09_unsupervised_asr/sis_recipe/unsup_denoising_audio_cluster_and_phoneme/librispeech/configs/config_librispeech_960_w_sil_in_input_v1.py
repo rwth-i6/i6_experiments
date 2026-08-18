@@ -30,6 +30,16 @@ settings = DatasetSettings(
     buffer_size=0,
 )
 train_data = build_training_datasets_w_silence_in_input(sil_prob=0.25, surround_w_sil=True, settings=settings)
+train_data_wo_sil = build_training_datasets_w_silence_in_input(sil_prob=0.0, surround_w_sil=False, settings=settings)
+test_data_dict_wo_sil = build_test_datasets_w_silence_in_input(
+    settings=settings,
+    sil_prob=0.0,
+    surround_w_sil=False,
+)
+score_data_dict_wo_sil = copy.deepcopy(test_data_dict_wo_sil)
+for _, meta_dataset in score_data_dict_wo_sil.items():
+    # for scoring, we want to use the phoneme seqs without silence
+    meta_dataset.data_map["phon_indices"] = ("phon_indices", "data")
 
 
 base_config = dict_update_deep(
@@ -142,6 +152,60 @@ def _text_recon_sweep(num_epochs):
 
 def py():
     prefix_name = f"{__setup_base_name__}/librispeech/{__name__.split('.')[-1]}"
+
+    run_experiment(
+        training_name=f"{prefix_name}/baseline-wo-sil",
+        config=copy.deepcopy(base_config),
+        train_data=train_data_wo_sil,
+        test_data_dict=test_data_dict_wo_sil,
+        keep_epochs=get_keep_epochs(base_num_epochs),
+        # skip_eval=True,
+        additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
+        analysis_opts={
+            "checkpoints": get_keep_epochs(base_num_epochs),
+            "max_plotted_seqs": 20,
+            "cosine_similarity_summary": True,
+        },
+        # conditional (audio->phoneme) perplexity of the shared AED model on the last checkpoint,
+        # scored on the wo-silence reference (matching the wo-sil model) via a separate PPL dataset;
+        # recognition / analysis keep the with-silence test_data_dict.
+        ppl_opts={
+            "checkpoints": [base_num_epochs],
+            "input_modality": "audio",
+            "test_data_dict": test_data_dict_wo_sil,
+        },
+        # same-modality reconstruction on the last checkpoint, masking the input with the same
+        # settings as in training, to probe how well the shared denoising model reconstructs each
+        # modality (scored against the unmasked input).
+        recog_variants=[
+            {
+                "recog_name": "recon_audio",
+                "input_modality": "audio",
+                "output_modality": "audio",
+                "mask_input": True,
+                "masking_opts": copy.deepcopy(base_config["train_args"]["audio_masking_opts"]),
+                "keep_epochs": [base_num_epochs],
+            },
+            {
+                "recog_name": "recon_text",
+                "input_modality": "text",
+                "output_modality": "text",
+                "mask_input": True,
+                "masking_opts": copy.deepcopy(base_config["train_args"]["text_masking_opts"]),
+                "keep_epochs": [base_num_epochs],
+            },
+            # fixed-masking text-recon sweep (copy ceiling + degradation curve), for a fair
+            # single-task (text-only) vs multi-task comparison of the text denoiser.
+            *_text_recon_sweep(base_num_epochs),
+        ],
+        score_data_dict=score_data_dict_wo_sil,
+        cross_att_opts={
+            "checkpoints": get_keep_epochs(base_num_epochs),
+            "input_modality": "audio",
+            "output_modality": "text",
+            "max_plotted_seqs": 20,
+        },
+    )
 
     # TEST DIFFERENT NUMBER OF SILENCE INSERTIONS
     for max_num_sil, max_num_surround_sil, add_epochs in [
