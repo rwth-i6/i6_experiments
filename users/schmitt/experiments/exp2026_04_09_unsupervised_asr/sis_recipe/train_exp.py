@@ -10,7 +10,7 @@ from i6_core.returnn.config import CodeWrapper, ReturnnConfig
 
 from . import learning_rate_configs
 from .tune_eval import eval_model, eval_model_rasr
-from .analysis import analyze_encoder_states
+from .analysis import analyze_encoder_states, analyze_cross_attention
 from .ppl import compute_ppl
 from .pipeline import training
 from .default_tools import RETURNN_EXE, RETURNN_ROOT
@@ -252,6 +252,34 @@ def run_analysis(
     )
 
 
+def run_cross_att_analysis(
+    training_name: str,
+    train_job,
+    train_args,
+    config: Dict,
+    train_data,
+    test_data_dict: Dict[str, Tuple],
+    checkpoints: List[Union[int, str]],
+    analysis_name: str = "cross_att",
+    extra_forward_config: Optional[ReturnnConfig] = None,
+    **analysis_kwargs,
+):
+    # like run_analysis, the forward step/callback are fixed (analysis.CROSS_ATT_* defaults), NOT the
+    # config's __forward_step_module/__callback_module (which are the beam-search recog).
+    analyze_cross_attention(
+        config={**config["general"], **config.get("recog", {})},
+        training_name=training_name,
+        analysis_name=analysis_name,
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data,
+        test_data_dict=test_data_dict,
+        checkpoints=checkpoints,
+        extra_forward_config=extra_forward_config,
+        **analysis_kwargs,
+    )
+
+
 def run_ppl(
     training_name: str,
     train_job,
@@ -300,6 +328,7 @@ def run_experiment(
     skip_eval: bool = False,
     recog_post_proc_funcs: Optional[List[Callable[[tk.Path], tk.Path]]] = None,
     analysis_opts: Optional[Dict[str, Any]] = None,
+    cross_att_opts: Optional[Dict[str, Any]] = None,
     ppl_opts: Optional[Dict[str, Any]] = None,
     recog_variants: Optional[List[Dict[str, Any]]] = None,
     rasr_recog_opts: Optional[Dict] = None,
@@ -307,6 +336,11 @@ def run_experiment(
 ):
     """
     :param skip_eval: skip the standard (audio->text ASR) recognition + scoring.
+    :param cross_att_opts: if given, additionally run the decoder cross-attention analysis
+        (models.analysis.cross_attention) via :func:`run_cross_att_analysis`. A kwargs dict for it,
+        e.g. ``{"checkpoints": [1000], "max_plotted_seqs": 20}`` for the audio->text (ASR) direction.
+        Uses the same (paired) ``test_data_dict`` as the encoder-PCA analysis, so the plotted seqs
+        are the same.
     :param ppl_opts: if given, additionally run the perplexity forward job (models.scoring.ppl) via
         :func:`run_ppl`. A kwargs dict for :func:`run_ppl`, e.g. ``{"checkpoints": [1000]}`` for the
         phoneme LM (decoder-only), or ``{"checkpoints": [1000], "input_modality": "audio"}`` to score
@@ -340,6 +374,17 @@ def run_experiment(
             train_data=train_data,
             test_data_dict=test_data_dict,
             **analysis_opts,
+        )
+
+    if cross_att_opts is not None:
+        run_cross_att_analysis(
+            training_name=training_name,
+            train_job=train_job,
+            train_args=train_args,
+            config=copy.deepcopy(config),
+            train_data=train_data,
+            test_data_dict=test_data_dict if score_data_dict is None else score_data_dict,
+            **cross_att_opts,
         )
 
     if ppl_opts is not None:

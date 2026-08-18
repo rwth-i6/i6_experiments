@@ -1,5 +1,6 @@
 """
-Pipeline for running analysis forward jobs (e.g. the shared-encoder state PCA visualization).
+Pipeline for running analysis forward jobs (the shared-encoder state PCA visualization and the
+decoder cross-attention plots).
 
 This mirrors :func:`tune_eval.eval_model` but, instead of beam search + scoring, it just runs a
 RETURNN forward job whose ``forward_step``/``forward_callback`` implement the analysis (see
@@ -23,6 +24,9 @@ from .data.common import TrainingDatasets
 
 ENCODER_PCA_FORWARD_STEP_MODULE = "analysis.encoder_state_pca.forward_step.forward_step"
 ENCODER_PCA_CALLBACK_MODULE = "analysis.encoder_state_pca.callback.EncoderStatePcaCallback"
+
+CROSS_ATT_FORWARD_STEP_MODULE = "analysis.cross_attention.forward_step.forward_step"
+CROSS_ATT_CALLBACK_MODULE = "analysis.cross_attention.callback.CrossAttentionWeightsCallback"
 
 
 @dataclass
@@ -118,6 +122,149 @@ def analyze_encoder_states(
         callback_module=callback_module,
         datastreams=train_data.datastreams,
         callback_opts=callback_opts,
+        add_text_to_extern_data=True,
+    )
+
+    if rqmt is None:
+        rqmt = {}
+
+    for checkpoint_name in checkpoints:
+        if isinstance(checkpoint_name, int):
+            checkpoint = get_checkpoint(training_name, train_job, get_specific_checkpoint=checkpoint_name)
+        elif checkpoint_name == "best":
+            checkpoint = get_checkpoint(training_name, train_job, get_best_averaged_checkpoint=(1, loss_name))
+        else:
+            assert checkpoint_name == "best4", f"unknown checkpoint spec: {checkpoint_name!r}"
+            checkpoint = get_checkpoint(training_name, train_job, get_best_averaged_checkpoint=(4, loss_name))
+
+        for key, dataset in test_data_dict.items():
+            forward_config = copy.deepcopy(returnn_forward_config)
+            forward_config.config["forward_data"] = dataset.as_returnn_opts()
+
+            prefix_name = f"{training_name}/{analysis_name}/{checkpoint_name}/{key}"
+            forward_job = ReturnnForwardJobV2(
+                model_checkpoint=checkpoint,
+                returnn_config=forward_config,
+                log_verbosity=5,
+                mem_rqmt=rqmt.get("mem", 20),
+                time_rqmt=rqmt.get("time", 1),
+                device="gpu",
+                cpu_rqmt=rqmt.get("cpu", 4),
+                returnn_python_exe=RETURNN_EXE,
+                returnn_root=RETURNN_ROOT,
+                output_files=[out_dir_name],
+            )
+            gpu_mem = rqmt.get("gpu_mem", None)
+            if gpu_mem is not None and gpu_mem != 11:
+                forward_job.rqmt["gpu_mem"] = gpu_mem
+            forward_job.add_alias(prefix_name + "/forward")
+            tk.register_output(prefix_name + f"/{out_dir_name}", forward_job.out_files[out_dir_name])
+
+
+@dataclass
+class CrossAttentionConfig:
+    """forward_init args passed to the cross-attention ``forward_step`` (hashed)."""
+
+    input_data_key: str = "data"
+    target_data_key: str = "phon_indices"
+    input_modality: str = "audio"
+    output_modality: str = "text"
+
+
+def analyze_cross_attention(
+    *,
+    config: Dict[str, Any],
+    training_name: str,
+    train_job: Optional[ReturnnTrainingJob],
+    train_args: Dict[str, Any],
+    train_data: TrainingDatasets,
+    test_data_dict: Dict[str, Any],
+    checkpoints: List[Union[int, str]],
+    analysis_name: str = "cross_att",
+    forward_step_module: str = CROSS_ATT_FORWARD_STEP_MODULE,
+    callback_module: str = CROSS_ATT_CALLBACK_MODULE,
+    input_modality: str = "audio",
+    output_modality: str = "text",
+    masking_opts: Optional[Dict[str, Any]] = None,
+    expansion_opts: Optional[Dict[str, Any]] = None,
+    plot_seq_tags: Optional[List[str]] = None,
+    max_plotted_seqs: int = 20,
+    plot_layers: Optional[List[int]] = None,
+    plot_head_average: bool = True,
+    max_num_seqs: Optional[int] = None,
+    out_dir_name: str = "cross_att",
+    loss_name: str = "dev_loss_ce",
+    extra_forward_config: Optional[ReturnnConfig] = None,
+    rqmt: Optional[Dict[str, Any]] = None,
+):
+    """
+    Run the decoder cross-attention analysis forward job for one or more checkpoints / test datasets.
+
+    The encoder is run over ``input_modality`` and the ``output_modality`` decoder is teacher-forced
+    on that modality's reference labels while its cross-attention weights are recorded and plotted
+    (see ``models.analysis.cross_attention``). The default audio->text is the ASR direction. The
+    dataset must expose both modalities of the same sequence (a paired ``MetaDataset``, i.e. the same
+    dataset the encoder-state PCA analysis uses).
+
+    :param config: RETURNN config args, e.g. ``{**config["general"], **config["recog"]}``. Provides
+        ``default_data_key`` (audio) and ``default_target_key`` (text).
+    :param checkpoints: list of epochs (int) or "best"/"best4".
+    :param masking_opts: if given, mask the encoder input like in training
+        (``mask_prob``/``min_span``/``max_span``).
+    :param expansion_opts: if given (``{"min_dup", "max_dup"}``), upsample the (masked) encoder input
+        like the train-time text upsampling (applied after masking).
+    :param plot_seq_tags: if given, exactly these seqs are plotted; else the first
+        ``max_plotted_seqs`` seqs of the dataset -- the same ones the encoder PCA analysis plots.
+    :param plot_layers: decoder layers to plot per-head; None -> all.
+    :param max_num_seqs: how many sequences the model is run on at all (defaults to
+        ``max_plotted_seqs``). The attention tensors are big, so there is no point in computing them
+        for the whole dataset. When using ``plot_seq_tags``, raise this so the requested seqs are
+        actually reached.
+    """
+    assert input_modality in ("audio", "text"), input_modality
+    assert output_modality in ("audio", "text"), output_modality
+
+    default_data_key = config.get("default_data_key", "data")
+    default_target_key = config.get("default_target_key", "target")
+    modality_to_key = {"audio": default_data_key, "text": default_target_key}
+
+    base_att_config = CrossAttentionConfig(
+        input_data_key=modality_to_key[input_modality],
+        target_data_key=modality_to_key[output_modality],
+        input_modality=input_modality,
+        output_modality=output_modality,
+    )
+
+    forward_step_args = asdict(base_att_config)
+    if masking_opts is not None:
+        forward_step_args["masking_opts"] = masking_opts
+    if expansion_opts is not None:
+        forward_step_args["expansion_opts"] = expansion_opts
+    if max_num_seqs is None:
+        max_num_seqs = max_plotted_seqs
+    forward_step_args["max_num_seqs"] = max_num_seqs
+
+    callback_opts = {
+        "out_dir": out_dir_name,
+        "plot_seq_tags": plot_seq_tags,
+        "max_plotted_seqs": max_plotted_seqs,
+        "plot_layers": plot_layers,
+        "plot_head_average": plot_head_average,
+    }
+
+    # both the encoder input and the teacher-forced labels must be in extern_data
+    returnn_forward_config = get_forward_config(
+        config=config,
+        network_module=train_args["network_module"],
+        extra_config=extra_forward_config if extra_forward_config else ReturnnConfig({}),
+        net_args=train_args["net_args"],
+        decoder_args=forward_step_args,
+        decoder=forward_step_module,
+        callback_module=callback_module,
+        datastreams=train_data.datastreams,
+        callback_opts=callback_opts,
+        # the callback decodes the teacher-forced labels for the plots' query axis
+        vocab_key=base_att_config.target_data_key,
         add_text_to_extern_data=True,
     )
 
