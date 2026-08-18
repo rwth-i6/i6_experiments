@@ -205,3 +205,67 @@ model_recog: RecogDef
 model_recog.output_with_beam = True
 model_recog.output_blank_label = None
 model_recog.batch_size_dependent = False
+
+
+def model_recog_beam(
+    *,
+    model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Full-context AED beam-search recognition (label-synchronous).
+
+    Beam-search counterpart of :func:`model_recog` via
+    :func:`...streaming.beam_search.label_sync_beam_search` (the ``rf.top_k`` beam search of
+    ``exp2024_04_23_baselines.aed.model_recog``, here driven through this decoder's chunk-masked
+    cross-attention: ``key_chunk_idx`` = frame index, ``query_chunk_idx`` = enc_len-1, i.e. full
+    context). ``beam_size`` (default 12) and ``length_normalization_exponent`` (default 1.0) come
+    from the config; ``beam_size = 1`` with exponent 0 reproduces the greedy :func:`model_recog`.
+    Terminates each hypothesis on the reused end-of-chunk slot (== EOS); EOS is trimmed off.
+    """
+    from returnn.config import get_global_config
+    from .beam_search import label_sync_beam_search
+
+    config = get_global_config(return_empty_if_none=True)
+    beam_size = config.int("beam_size", 12)
+    length_norm = config.float("length_normalization_exponent", 1.0)
+
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim)
+    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+
+    # Full context (identical mask to training / the greedy recog): admit every real frame.
+    key_chunk_idx = rf.range_over_dim(enc_spatial_dim)  # [enc_spatial]
+    enc_lens = rf.copy_to_device(enc_spatial_dim.get_size_tensor())  # [batch]
+    query_chunk_idx = enc_lens - 1  # per-seq query chunk = last frame (broadcasts over the beam)
+    encoder_kv = model.decoder.transform_encoder(enc, axis=enc_spatial_dim)
+
+    def _step(target, state):
+        logits, new_state = model.decoder(
+            target,
+            spatial_dim=single_step_dim,
+            state=state,
+            encoder_kv=encoder_kv,
+            enc_spatial_dim=enc_spatial_dim,
+            query_chunk_idx=query_chunk_idx,
+            key_chunk_idx=key_chunk_idx,
+        )
+        return logits, new_state
+
+    return label_sync_beam_search(
+        batch_dims=batch_dims,
+        target_dim=model.target_dim_ext,
+        bos_idx=model.bos_idx,
+        eos_idx=model.eoc_idx,
+        beam_size=beam_size,
+        length_normalization_exponent=length_norm,
+        max_seq_len=enc_lens,  # a transcript never has more spm labels than encoder frames
+        init_state=lambda bd: model.decoder.default_initial_state(batch_dims=bd),
+        step=_step,
+    )
+
+
+model_recog_beam: RecogDef
+model_recog_beam.output_with_beam = True
+model_recog_beam.output_blank_label = None
+model_recog_beam.batch_size_dependent = False

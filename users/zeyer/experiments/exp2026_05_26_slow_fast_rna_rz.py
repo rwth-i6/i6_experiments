@@ -30,7 +30,8 @@ from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_modu
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.model_interfaces import ModelDefWithCfg
 from i6_experiments.users.zeyer import train_v4
-from i6_experiments.users.zeyer.recog import recog_training_exp
+from i6_experiments.users.zeyer.recog import recog_training_exp, recog_model
+from sisyphus import tk
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines import configs
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import _raw_sample_rate
 from i6_experiments.users.zeyer.datasets.loquacious import get_loquacious_task_raw_v2
@@ -49,6 +50,7 @@ from i6_experiments.users.zeyer.nn_rf.decoder.streaming.framewise import (
     FramewiseDecoder,
     framewise_training,
     model_recog as framewise_model_recog,
+    model_recog_beam as framewise_model_recog_beam,
 )
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.ext_transducer import (
     ExtTransducerDecoder,
@@ -186,6 +188,7 @@ def _train_variant_rz(
     aux_loss_layers: Sequence[int] = (4, 10, 16),
     nep: int = 100,
     extra_config: Optional[Dict[str, Any]] = None,
+    beam_verify=None,
 ):
     """Train one streaming-decoder variant on a single 96 GB RZ GPU + recog.
 
@@ -270,6 +273,21 @@ def _train_variant_rz(
     recog_training_exp(
         prefix + "/" + name + "/recog-ctc", task=task, model=exp, recog_def=model_recog_ctc, search_config=recog_cfg
     )
+
+    # Optional beam-search verification: single last-epoch checkpoint, dev only, one job per beam size.
+    if beam_verify is not None:
+        beam_recog_def, beam_sizes = beam_verify
+        for bs in beam_sizes:
+            verify_name = prefix + "/" + name + f"/recog-beam-verify/b{bs}"
+            res = recog_model(
+                task=task,
+                model=exp.get_last_fixed_epoch(),
+                recog_def=beam_recog_def,
+                config={**recog_cfg, "beam_size": bs},
+                dev_sets=["dev"],
+                name=verify_name,
+            )
+            tk.register_output(verify_name, res.output)
     return exp
 
 
@@ -507,6 +525,7 @@ def _train_framewise_delay_rz():
         train_def=framewise_training,
         recog_def=framewise_model_recog,
         target_mode="rna_frame",
+        beam_verify=(framewise_model_recog_beam, [1]),
     )
 
 

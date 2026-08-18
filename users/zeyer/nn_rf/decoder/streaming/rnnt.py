@@ -257,3 +257,80 @@ model_recog: RecogDef
 model_recog.output_with_beam = True
 model_recog.output_blank_label = None
 model_recog.batch_size_dependent = False
+
+
+def model_recog_beam(
+    *,
+    model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Frame-synchronous beam-search recognition (monotonic RNN-T).
+
+    Beam-search counterpart of :func:`model_recog` via
+    :func:`...streaming.beam_search.frame_sync_beam_search` (``rf.top_k`` over labels+blank each
+    frame). ``beam_size`` from the config (default 12); ``beam_size = 1`` reproduces the greedy
+    :func:`model_recog`. The prediction state is kept as the emitted-label buffer + emit count
+    (re-run over the buffer each step, gathered at ``n_emitted``); both are gathered by backrefs,
+    so no growing self-attention cache has to be masked across the beam. Blanks are stripped.
+    """
+    from returnn.config import get_global_config
+    from .beam_search import frame_sync_beam_search
+
+    config = get_global_config(return_empty_if_none=True)
+    beam_size = config.int("beam_size", 12)
+    max_labels = config.int("max_labels", 0) or 200
+
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim)
+    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    dec = model.decoder
+    blank, bos = model.blank_idx, model.bos_idx
+    model_dim = dec.model_dim
+    label_dim = Dim(max_labels, name="emit_labels")  # fixed emitted-label buffer
+    label_range = rf.range_over_dim(label_dim)
+
+    def _init(bd):
+        return {
+            "emitted_labels": rf.constant(blank, dims=bd + [label_dim], sparse_dim=model.target_dim_ext, dtype="int32"),
+            "n_emitted": rf.constant(0, dims=bd, dtype="int32"),
+        }
+
+    def _step(prev, enc_t, state):
+        emitted_labels, n_emitted = state["emitted_labels"], state["n_emitted"]
+        # Append the previously chosen symbol if it was a real label (blank / initial BOS are no-ops).
+        is_label = rf.logical_and(prev != blank, prev != bos)
+        write = rf.logical_and(is_label, label_range == n_emitted)
+        emitted_labels = rf.where(write, prev, emitted_labels)
+        n_emitted = n_emitted + rf.cast(is_label, "int32")
+        # g_{n_emitted} = f(BOS, y_1..y_{n_emitted}): re-run the pred net over [BOS, emitted...],
+        # gather at n_emitted (the blank pad past n_emitted is causally later, so it does not leak in).
+        pred_bd = [d for d in emitted_labels.dims if d != label_dim]
+        pred_in, (ext_dim,) = rf.pad(emitted_labels, axes=[label_dim], padding=[(1, 0)], value=bos)
+        pred_in.sparse_dim = model.target_dim_ext
+        pred, _ = dec.pred_forward(pred_in, spatial_dim=ext_dim, state=dec.pred_initial_state(batch_dims=pred_bd))
+        current_pred = rf.gather(pred, indices=n_emitted, axis=ext_dim)
+        current_pred.feature_dim = model_dim
+        logits = dec.joiner(enc_t, current_pred)
+        return rf.log_softmax(logits, axis=model.target_dim_ext), {
+            "emitted_labels": emitted_labels,
+            "n_emitted": n_emitted,
+        }
+
+    return frame_sync_beam_search(
+        batch_dims=batch_dims,
+        target_dim_ext=model.target_dim_ext,
+        bos_idx=bos,
+        blank_idx=blank,
+        enc=enc,
+        enc_spatial_dim=enc_spatial_dim,
+        beam_size=beam_size,
+        init_state=_init,
+        step=_step,
+    )
+
+
+model_recog_beam: RecogDef
+model_recog_beam.output_with_beam = True
+model_recog_beam.output_blank_label = None
+model_recog_beam.batch_size_dependent = False

@@ -284,3 +284,52 @@ model_recog: RecogDef
 model_recog.output_with_beam = True
 model_recog.output_blank_label = None
 model_recog.batch_size_dependent = False
+
+
+def model_recog_beam(
+    *,
+    model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Frame-synchronous beam-search recognition (RNA topology).
+
+    Beam-search counterpart of :func:`model_recog`: the same per-frame decoder step (previous
+    symbol + current encoder frame -> label-or-blank log-probs), but ``beam_size`` hypotheses are
+    kept via :func:`...streaming.beam_search.frame_sync_beam_search` (``rf.top_k`` over
+    labels+blank each frame). ``beam_size`` is read from the config (default 12); ``beam_size = 1``
+    reproduces the greedy :func:`model_recog`. Blanks are stripped from the output.
+    """
+    from returnn.config import get_global_config
+    from .beam_search import frame_sync_beam_search
+
+    config = get_global_config(return_empty_if_none=True)
+    beam_size = config.int("beam_size", 12)
+
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim)
+    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    delay = getattr(model.decoder, "delay_frames", 0)  # extra flush frames for the delayed-tail labels
+
+    def _step(prev, enc_t, state):
+        logits, new_state = model.decoder(prev, enc_t, spatial_dim=single_step_dim, state=state)
+        return rf.log_softmax(logits, axis=model.target_dim_ext), new_state
+
+    return frame_sync_beam_search(
+        batch_dims=batch_dims,
+        target_dim_ext=model.target_dim_ext,
+        bos_idx=model.bos_idx,
+        blank_idx=model.blank_idx,
+        enc=enc,
+        enc_spatial_dim=enc_spatial_dim,
+        beam_size=beam_size,
+        init_state=lambda bd: model.decoder.default_initial_state(batch_dims=bd),
+        step=_step,
+        num_flush_frames=delay,
+    )
+
+
+model_recog_beam: RecogDef
+model_recog_beam.output_with_beam = True
+model_recog_beam.output_blank_label = None
+model_recog_beam.batch_size_dependent = False
