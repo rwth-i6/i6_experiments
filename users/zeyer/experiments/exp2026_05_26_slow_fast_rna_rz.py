@@ -525,7 +525,7 @@ def _train_framewise_delay_rz():
         train_def=framewise_training,
         recog_def=framewise_model_recog,
         target_mode="rna_frame",
-        beam_verify=(framewise_model_recog_beam, [1]),
+        beam_verify=(framewise_model_recog_beam, [1, 32]),
     )
 
 
