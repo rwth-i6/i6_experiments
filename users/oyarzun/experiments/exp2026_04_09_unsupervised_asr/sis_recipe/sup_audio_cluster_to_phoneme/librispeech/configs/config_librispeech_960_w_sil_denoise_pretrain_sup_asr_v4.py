@@ -232,6 +232,7 @@ def py():
         current_train_data = train_data_lm if use_lm else train_data_no_lm
 
         config["recog_rqmt"] = {"time": 48, "mem": 24, "cpu": 8}
+        config.setdefault("train_rqmt", {})["mem_rqmt"] = 24
         run_experiment(
             training_name=f"{prefix_name}/{train_name}",
             config=config,
@@ -239,7 +240,7 @@ def py():
             test_data_dict=test_data_dict,
             keep_epochs=get_keep_epochs(base_num_epochs),
             skip_eval=False,
-            rasr_recog_opts={"line_based_lexicon_file": current_train_data.add_opts["line_based_lexicon_file"]},
+            rasr_recog_opts=None,
             vis_epochs=[250, 500, 750, 1000],
             vis_kwargs={"cosine_similarity_summary": True},
         )
@@ -312,6 +313,7 @@ def py():
         current_train_data = train_data_lm if use_lm else train_data_no_lm
 
         config["recog_rqmt"] = {"time": 48, "mem": 24, "cpu": 8, "gpu_mem": 11, "gpu": 1}
+        config.setdefault("train_rqmt", {})["mem_rqmt"] = 24
         run_experiment(
             training_name=f"{prefix_name}/{new_train_name}",
             config=config,
@@ -319,7 +321,7 @@ def py():
             test_data_dict=test_data_dict,
             keep_epochs=get_keep_epochs(base_num_epochs),
             skip_eval=False,
-            rasr_recog_opts={"line_based_lexicon_file": current_train_data.add_opts["line_based_lexicon_file"]},
+            rasr_recog_opts=None,
             vis_epochs=[250, 500, 750, 1000],
             vis_kwargs={"cosine_similarity_summary": True},
         )

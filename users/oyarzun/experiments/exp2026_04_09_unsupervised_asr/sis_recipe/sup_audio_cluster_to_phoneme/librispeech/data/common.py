@@ -96,13 +96,16 @@ def build_training_datasets(
                     files=clusters_960_hdfs,
                     segment_file=train_seq_tags,
                 ),
-                "phon_indices": HdfDataset(
-                    files=phoneme_960_hdfs,
-                    segment_file=train_seq_tags,
-                    # set here because this controls which seqs are loaded
-                    partition_epoch=settings.train_partition_epoch,
-                    seq_ordering=settings.train_seq_ordering,
-                ),
+                "phon_indices": {
+                    **HdfDataset(
+                        files=phoneme_960_hdfs,
+                        segment_file=train_seq_tags,
+                        # set here because this controls which seqs are loaded
+                        partition_epoch=settings.train_partition_epoch,
+                        seq_ordering=settings.train_seq_ordering,
+                    ).as_returnn_opts(),
+                    "cache_byte_size": 0,
+                },
             },
             data_map={
                 "data": ("feature_clusters", "data"),
@@ -118,13 +121,16 @@ def build_training_datasets(
     }
     
     if include_lm_data:
-        datasets["lm"] = HdfDataset(
-            files=lm_phoneme_hdfs,
-            segment_file=lm_seq_tags,
-            # Set to 2800 to yield ~14k sequences per epoch, balancing exactly with the acoustic data
-            partition_epoch=2800,
-            seq_ordering="random",
-        )
+        datasets["lm"] = {
+            **HdfDataset(
+                files=lm_phoneme_hdfs,
+                segment_file=lm_seq_tags,
+                # Set to 2800 to yield ~14k sequences per epoch, balancing exactly with the acoustic data
+                partition_epoch=2800,
+                seq_ordering="random",
+            ).as_returnn_opts(),
+            "cache_byte_size": 0,
+        }
         data_map[("lm", "data")] = "lm_text"
 
     if include_lm_data:

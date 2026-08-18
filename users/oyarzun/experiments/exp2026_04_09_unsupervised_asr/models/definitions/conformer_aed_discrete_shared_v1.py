@@ -597,7 +597,7 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
             )
 
         # codebook (GumbelVectorQuantizer) on top of the shared encoder output
-        if codebook_opts is not None:
+        if codebook_opts is not None and codebook_opts.get("codebook_prob", 0.0) > 0.0:
             codebook_opts = {**_DEFAULT_CODEBOOK_OPTS, **codebook_opts}
             self.codebook_prob = codebook_opts["codebook_prob"]
             vq_dim = codebook_opts["latent_dim"] if codebook_opts["latent_dim"] > 0 else encoder_dim

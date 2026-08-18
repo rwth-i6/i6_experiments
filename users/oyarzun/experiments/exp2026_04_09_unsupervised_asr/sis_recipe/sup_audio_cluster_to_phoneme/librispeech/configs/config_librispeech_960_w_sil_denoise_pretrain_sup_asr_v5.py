@@ -231,6 +231,7 @@ def py():
         }
         config["training"]["__num_epochs"] = pretrain_epochs
         config["recog_rqmt"] = {"time": 48, "mem": 24, "cpu": 8, "gpu_mem": 11, "gpu": 1}
+        config.setdefault("train_rqmt", {})["mem_rqmt"] = 24
         
         train_name = f"pretrain_enc-{layers}_dec-{layers}_ep-{pretrain_epochs}_v5.1"
         
@@ -241,7 +242,7 @@ def py():
             test_data_dict=test_data_dict,
             keep_epochs=[pretrain_epochs],
             skip_eval=True,
-            rasr_recog_opts={"line_based_lexicon_file": train_data_no_lm.add_opts["line_based_lexicon_file"]},
+            rasr_recog_opts=None,
             vis_epochs=[],
         )
         pretrain_jobs[(layers, pretrain_epochs)] = train_job
@@ -286,6 +287,7 @@ def py():
         current_train_data = train_data_lm if use_lm else train_data_no_lm
 
         config["recog_rqmt"] = {"time": 48, "mem": 24, "cpu": 8}
+        config.setdefault("train_rqmt", {})["mem_rqmt"] = 24
         
         pretrain_ep = train_args.get("denoise_pretrain_epochs", 0)
         
@@ -293,7 +295,7 @@ def py():
         if pretrain_ep > 0:
             layers = model_args["num_enc_layers"]
             p_job = pretrain_jobs[(layers, pretrain_ep)]
-            config["training"]["preload_from_files"] = {"": p_job.out_checkpoints[pretrain_ep].path}
+            config["training"]["preload_from_files"] = {"": {"filename": p_job.out_checkpoints[pretrain_ep].path}}
 
         piecewise_epochs = [
             0,
@@ -319,7 +321,7 @@ def py():
             test_data_dict=test_data_dict,
             keep_epochs=keep_eps,
             skip_eval=False,
-            rasr_recog_opts={"line_based_lexicon_file": current_train_data.add_opts["line_based_lexicon_file"]},
+            rasr_recog_opts=None,
             vis_epochs=vis_eps,
             vis_kwargs={"cosine_similarity_summary": True},
         )
@@ -364,6 +366,7 @@ def py():
         current_train_data = train_data_lm if use_lm else train_data_no_lm
         
         config["recog_rqmt"] = {"time": 48, "mem": 24, "cpu": 8}
+        config.setdefault("train_rqmt", {})["mem_rqmt"] = 24
         
         pretrain_ep = train_args.get("denoise_pretrain_epochs", 0)
         
@@ -371,7 +374,7 @@ def py():
         if pretrain_ep > 0:
             layers = model_args["num_enc_layers"]
             p_job = pretrain_jobs[(layers, pretrain_ep)]
-            config["training"]["preload_from_files"] = {"": p_job.out_checkpoints[pretrain_ep].path}
+            config["training"]["preload_from_files"] = {"": {"filename": p_job.out_checkpoints[pretrain_ep].path}}
 
         piecewise_epochs = [
             0,
@@ -397,7 +400,7 @@ def py():
             test_data_dict=test_data_dict,
             keep_epochs=keep_eps,
             skip_eval=False,
-            rasr_recog_opts={"line_based_lexicon_file": current_train_data.add_opts["line_based_lexicon_file"]},
+            rasr_recog_opts=None,
             vis_epochs=vis_eps,
             vis_kwargs={"cosine_similarity_summary": True},
         )
