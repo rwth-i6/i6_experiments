@@ -73,7 +73,7 @@ base_config = dict_update_deep(
                 "max_span": 1,  # 3
             },
         },
-        "train_rqmt.mem_rqmt": 56,
+        # "train_rqmt.mem_rqmt": 56,
     },
     [
         "train_args.masking_opts",
@@ -143,6 +143,7 @@ def _text_recon_sweep(num_epochs):
 def py():
     prefix_name = f"{__setup_base_name__}/librispeech/{__name__.split('.')[-1]}"
 
+    # TEST DIFFERENT NUMBER OF SILENCE INSERTIONS
     for max_num_sil, max_num_surround_sil, add_epochs in [
         (3, 1, None),
         (5, 1, None),
@@ -216,6 +217,12 @@ def py():
                 *_text_recon_sweep(base_num_epochs),
             ],
             score_data_dict=score_data_dict,
+            cross_att_opts={
+                "checkpoints": get_keep_epochs(base_num_epochs),
+                "input_modality": "audio",
+                "output_modality": "text",
+                "max_plotted_seqs": 20,
+            },
         )
 
         # discriminator-architecture sweep for the domain-adversarial loss. Same adv scale + masking as
@@ -279,4 +286,116 @@ def py():
                     *_text_recon_sweep(base_num_epochs),
                 ],
                 score_data_dict=score_data_dict,
+                cross_att_opts={
+                    "checkpoints": get_keep_epochs(base_num_epochs),
+                    "input_modality": "audio",
+                    "output_modality": "text",
+                    "max_plotted_seqs": 20,
+                },
             )
+
+    # TEST DIFFERENT NUMBER OF LAYERS (maybe smaller model forces it to share representations?)
+    for (
+        max_num_sil,
+        max_num_surround_sil,
+        num_enc_layers,
+        num_dec_layers,
+        model_dim,
+        batch_size,
+    ) in [
+        (17, 25, 1, 1, 512, 30_000),
+        (17, 25, 1, 2, 512, 30_000),
+        (17, 25, 2, 2, 512, 25_000),
+        (17, 25, 3, 3, 512, 25_000),
+        (17, 25, 3, 3, 256, 25_000),
+        (17, 1, 3, 3, 256, 20_000),
+        (17, 1, 3, 3, 512, 20_000),
+        (17, 1, 4, 4, 512, 12_000),
+        (17, 1, 5, 5, 512, 6_000),
+    ]:
+        train_data_var_sil = build_training_datasets_w_silence_in_input(
+            sil_prob=0.25,
+            surround_w_sil=True,
+            settings=settings,
+            max_num_sil=max_num_sil,
+            max_num_surround_sil=max_num_surround_sil,
+        )
+        test_data_dict_w_sil = build_test_datasets_w_silence_in_input(
+            settings=settings,
+            sil_prob=0.25,
+            surround_w_sil=True,
+            max_num_sil=max_num_sil,
+            max_num_surround_sil=max_num_surround_sil,
+        )
+        score_data_dict = copy.deepcopy(test_data_dict_w_sil)
+        for _, meta_dataset in score_data_dict.items():
+            # for scoring, we want to use the phoneme seqs without silence
+            meta_dataset.data_map["phon_indices"] = ("phon_indices", "data")
+
+        run_experiment(
+            training_name=f"{prefix_name}/baseline_max-num-sil-{max_num_sil}_max-surround-{max_num_surround_sil}_enc-{num_enc_layers}-dec-{num_dec_layers}-dim-{model_dim}_bs-{batch_size}",
+            config=dict_update_deep(
+                copy.deepcopy(base_config),
+                {
+                    "model_args": {
+                        "num_enc_layers": num_enc_layers,
+                        "num_text_dec_layers": num_dec_layers,
+                        "num_audio_dec_layers": num_dec_layers,
+                        "model_dim": model_dim,
+                    },
+                    "training.batch_size": batch_size,
+                    "train_post_config.torch_dataloader_opts": {"num_workers": 0},
+                },
+            ),
+            train_data=train_data_var_sil,
+            test_data_dict=test_data_dict_w_sil,
+            keep_epochs=get_keep_epochs(base_num_epochs),
+            # skip_eval=True,
+            additional_configs=[ReturnnConfig(config={}, python_prolog=[Collection([alternate_batching])])],
+            analysis_opts={
+                "checkpoints": get_keep_epochs(base_num_epochs) + (add_epochs if add_epochs else []),
+                "max_plotted_seqs": 20,
+                "cosine_similarity_summary": True,
+            },
+            # conditional (audio->phoneme) perplexity of the shared AED model on the last checkpoint,
+            # scored on the wo-silence reference (matching the wo-sil model) via a separate PPL dataset;
+            # recognition / analysis keep the with-silence test_data_dict.
+            ppl_opts={
+                "checkpoints": [base_num_epochs],
+                "input_modality": "audio",
+                "test_data_dict": test_data_dict_w_sil,
+            },
+            # same-modality reconstruction on the last checkpoint, masking the input with the same
+            # settings as in training, to probe how well the shared denoising model reconstructs each
+            # modality (scored against the unmasked input).
+            recog_variants=[
+                {
+                    "recog_name": "recon_audio",
+                    "input_modality": "audio",
+                    "output_modality": "audio",
+                    "mask_input": True,
+                    "masking_opts": copy.deepcopy(base_config["train_args"]["audio_masking_opts"]),
+                    "keep_epochs": [base_num_epochs],
+                },
+                {
+                    "recog_name": "recon_text",
+                    "input_modality": "text",
+                    "output_modality": "text",
+                    "mask_input": True,
+                    "masking_opts": copy.deepcopy(base_config["train_args"]["text_masking_opts"]),
+                    "keep_epochs": [base_num_epochs],
+                },
+                # fixed-masking text-recon sweep (copy ceiling + degradation curve), for a fair
+                # single-task (text-only) vs multi-task comparison of the text denoiser.
+                *_text_recon_sweep(base_num_epochs),
+            ],
+            score_data_dict=score_data_dict,
+            # decoder cross-attention weights (audio in / phoneme out, i.e. the ASR direction) on the
+            # last checkpoint, for the same dev-other seqs the encoder-PCA analysis plots.
+            cross_att_opts={
+                "checkpoints": get_keep_epochs(base_num_epochs),
+                "input_modality": "audio",
+                "output_modality": "text",
+                "max_plotted_seqs": 20,
+            },
+        )

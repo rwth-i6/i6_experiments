@@ -165,6 +165,14 @@ def py():
             "max_plotted_seqs": 20,
             "cosine_similarity_summary": True,
         },
+        # decoder cross-attention weights (audio in / phoneme out, i.e. the ASR direction) on the
+        # last checkpoint, for the same dev-other seqs the encoder-PCA analysis plots.
+        cross_att_opts={
+            "checkpoints": [base_num_epochs],
+            "input_modality": "audio",
+            "output_modality": "text",
+            "max_plotted_seqs": 20,
+        },
         # conditional (audio->phoneme) perplexity of the shared AED model on the last checkpoint,
         # scored on the wo-silence reference (matching the wo-sil model) via a separate PPL dataset;
         # recognition / analysis keep the with-silence test_data_dict.
@@ -253,10 +261,20 @@ def py():
             recog_variants=[
                 # main text->text recon reflects training: masking + text upsampling as in training
                 # (both come from this variant's train_args via _text_recon_variant).
-                _text_recon_variant(config, base_num_epochs, keep_epochs=get_keep_epochs(base_num_epochs)),
+                _text_recon_variant(
+                    config,
+                    base_num_epochs,
+                    keep_epochs=get_keep_epochs(base_num_epochs),
+                ),
                 # the fixed-masking sweep intentionally stays as-is (no upsampling) for comparison.
                 *_text_recon_sweep(base_num_epochs),
             ],
+            cross_att_opts={
+                "checkpoints": get_keep_epochs(base_num_epochs),
+                "input_modality": "audio",
+                "output_modality": "text",
+                "max_plotted_seqs": 20,
+            },
         )
 
     # baseline settings (3 enc / 3 dec layers) + a GumbelVectorQuantizer codebook on top of the
@@ -284,6 +302,12 @@ def py():
             "cosine_similarity_summary": True,
         },
         recog_variants=[_text_recon_variant(codebook_config, base_num_epochs)],
+        cross_att_opts={
+            "checkpoints": get_keep_epochs(base_num_epochs),
+            "input_modality": "audio",
+            "output_modality": "text",
+            "max_plotted_seqs": 20,
+        },
     )
 
     # NOTE: the single-task text-only reference moved to config_librispeech_960_text_only_v1.py
@@ -329,6 +353,12 @@ def py():
                 "cosine_similarity_summary": True,
             },
             recog_variants=[_text_recon_variant(config, num_epochs)],
+            cross_att_opts={
+                "checkpoints": get_keep_epochs(base_num_epochs),
+                "input_modality": "audio",
+                "output_modality": "text",
+                "max_plotted_seqs": 20,
+            },
         )
 
     for exp_idx, (config, train_name) in enumerate(
@@ -368,6 +398,12 @@ def py():
                 "cosine_similarity_summary": True,
             },
             recog_variants=[_text_recon_variant(config, num_epochs)],
+            cross_att_opts={
+                "checkpoints": get_keep_epochs(base_num_epochs),
+                "input_modality": "audio",
+                "output_modality": "text",
+                "max_plotted_seqs": 20,
+            },
         )
 
     for exp_idx, (config, train_name) in enumerate(
@@ -407,6 +443,12 @@ def py():
                 "cosine_similarity_summary": True,
             },
             recog_variants=[_text_recon_variant(config, num_epochs)],
+            cross_att_opts={
+                "checkpoints": get_keep_epochs(base_num_epochs),
+                "input_modality": "audio",
+                "output_modality": "text",
+                "max_plotted_seqs": 20,
+            },
         )
 
     for exp_idx, (config, train_name) in enumerate(
@@ -455,6 +497,12 @@ def py():
                 "cosine_similarity_summary": True,
             },
             recog_variants=[_text_recon_variant(config, num_epochs)],
+            cross_att_opts={
+                "checkpoints": get_keep_epochs(base_num_epochs),
+                "input_modality": "audio",
+                "output_modality": "text",
+                "max_plotted_seqs": 20,
+            },
         )
 
     for exp_idx, (config, train_name) in enumerate(
@@ -516,4 +564,10 @@ def py():
                 *_text_recon_sweep(base_num_epochs),
             ],
             # recog_variants=[_text_recon_variant(config, get_keep_epochs(num_epochs))],
+            cross_att_opts={
+                "checkpoints": get_keep_epochs(base_num_epochs),
+                "input_modality": "audio",
+                "output_modality": "text",
+                "max_plotted_seqs": 20,
+            },
         )
