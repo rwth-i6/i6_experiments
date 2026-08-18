@@ -41,6 +41,7 @@ from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_modu
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import (
     train_exp as _aed_train_exp,
+    model_recog_while_loop as _aed_model_recog_while_loop,
     _raw_sample_rate,
 )
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines import configs as _baseline_configs
@@ -908,10 +909,11 @@ def loq_train(
         dataset_train_opts=dataset_train_opts,
         env_updates=env_updates,
         # TF: the in-graph search, else the graph unrolls over the frames. Same results.
+        # None keeps the aed default (aed.model_recog), which is the same def the in-graph one mirrors.
         recog_def=(
             (_ctc_model_recog_while_loop if train_config.get("backend") == "tensorflow" else _ctc_model_recog)
             if recog_def_ctc_only
-            else None
+            else (_aed_model_recog_while_loop if train_config.get("backend") == "tensorflow" else None)
         ),
         search_config={"aux_loss_layers": [aux_ctc_layer]} if recog_def_ctc_only else None,
     )
@@ -2365,6 +2367,21 @@ def _loq_cost_decomposition(cfg, classes_cap):
         },
     )
     tk.register_output("returnn/loq-bench-fixdelta-packed_compiled.json", job.out_results)
+
+    # the exact graphc twin (same everything, only capture on): paired capture-increment
+    # + per-step loss parity vs the packed_compiled cell (same seed, same warmup 0, no profile)
+    job = TrainStepBenchmarkJob(
+        returnn_config=cfg,
+        mode="packed_graphc",
+        num_steps=300,
+        version=23,
+        config_overrides={
+            "behavior_version": 29,
+            "packed_tensors": _v2_packed_tensors,
+            "torch_cuda_graph": {**_v2_graph_opts, "warmup_steps": 0},
+        },
+    )
+    tk.register_output("returnn/loq-bench-fixdelta-packed_graphc-warmup0.json", job.out_results)
 
 
 def _loq_batch_size_factor():

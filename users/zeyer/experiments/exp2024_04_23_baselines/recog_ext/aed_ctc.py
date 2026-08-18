@@ -88,13 +88,12 @@ def aed_ctc_timesync_recog_recomb_auto_scale(
     }
     if extra_config:
         base_config = dict_update_deep(base_config, extra_config)
-    if getattr(aed_ctc_model.definition, "backend", None) == "tensorflow" and "tf_static_shapes" not in base_config:
-        # TF-engine SEARCH steps need static bounds (build-time unrolled beam search);
-        # see ctc_recog_ext.ctc_recog_recomb_labelwise_prior_auto_scale for the same block.
-        base_config["tf_static_shapes"] = {
-            "batch_size_bound": 200,
-            "dim_capacity": {"audio": 576_000, "text": 1024},
-        }
+    # TF: the in-graph search, else the graph unrolls over the frames. Same results.
+    recog_def = (
+        model_recog_with_recomb_while_loop
+        if getattr(aed_ctc_model.definition, "backend", None) == "tensorflow"
+        else model_recog_with_recomb
+    )
 
     # Only use CTC for first search, no AED, no prior.
     ctc_model_only = get_aed_ctc_and_labelwise_prior(aed_ctc_model=aed_ctc_model, aed_scale=0.0)
@@ -102,7 +101,7 @@ def aed_ctc_timesync_recog_recomb_auto_scale(
     ctc_scores = search_dataset(
         dataset=dataset,
         model=ctc_model_only,
-        recog_def=model_recog_with_recomb,
+        recog_def=recog_def,
         config={**base_config, "beam_size": n_best_list_size},
         keep_beam=True,
     )
@@ -120,7 +119,7 @@ def aed_ctc_timesync_recog_recomb_auto_scale(
     res = recog_model(
         task=task,
         model=ctc_model_only,
-        recog_def=model_recog_with_recomb,
+        recog_def=recog_def,
         config={**base_config, "beam_size": n_best_list_size},
     )
     tk.register_output(f"{prefix}/ctc-only-res.txt", res.output)
@@ -158,7 +157,7 @@ def aed_ctc_timesync_recog_recomb_auto_scale(
     res = recog_model(
         task=task,
         model=ctc_model_only,
-        recog_def=model_recog_with_recomb,
+        recog_def=recog_def,
         config={**base_config, "beam_size": n_best_list_size},
         recog_pre_post_proc_funcs_ext=[
             functools.partial(
@@ -183,7 +182,7 @@ def aed_ctc_timesync_recog_recomb_auto_scale(
     res = recog_model(
         task=task,
         model=model,
-        recog_def=model_recog_with_recomb,
+        recog_def=recog_def,
         config={
             **base_config,
             "beam_size": first_pass_recog_beam_size,
@@ -1003,6 +1002,271 @@ model_recog_with_recomb: RecogDef[Model]
 model_recog_with_recomb.output_with_beam = True
 model_recog_with_recomb.output_blank_label = _aed_model_def_blank_label
 model_recog_with_recomb.batch_size_dependent = True  # our models currently just are batch-size-dependent...
+
+
+def model_recog_with_recomb_while_loop(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Like :func:`model_recog_with_recomb`, but the frame loop is :func:`rf.while_loop`, i.e. in the graph,
+    with the fixed-size beam and the -inf init of :func:`ctc.model_recog_while_loop`.
+
+    Two things the eager version does are not expressible with fixed shapes, and are replaced here:
+
+    - the decoder runs for every beam, not only for those with a new label
+      (:func:`rf.nested.masked_select_nested` packs a data-dependent number of beams);
+      the result is then selected by the same mask, so the scores are the same, only the compute is more.
+    - the label history is a fixed-capacity buffer (one label per frame at most) with an explicit length,
+      instead of a growing history; recombination compares buffer and length.
+      The slots beyond the length are never written, so equal prefixes give equal buffers.
+
+    The final invalid-beam removal is also left out (again data-dependent),
+    so recombined-away hypotheses stay in the beam with score -inf.
+
+    :return:
+        recog results including beam {batch, beam, out_spatial},
+        log probs {batch, beam},
+        out_spatial_dim,
+        final beam_dim
+    """
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+    beam_size = config.int("beam_size", 12)
+    recomb = config.typed_value("recog_recomb", "max")  # None, "max", "sum"
+    aed_scale = config.float("aed_scale", 1.0)
+    ctc_scale = config.float("ctc_scale", 1.0)
+
+    if data.feature_dim is not None:
+        batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
+    else:
+        batch_dims = data.remaining_dims(data_spatial_dim)
+
+    ctc_label_log_prob, enc_out, enc_spatial_dim = model.encode_and_get_ctc_log_probs(
+        data, in_spatial_dim=data_spatial_dim
+    )
+    enc = model.decoder.transform_encoder(enc_out.enc_output, axis=enc_out.enc_spatial_dim)
+
+    neg_inf = float("-inf")
+    ctc_label_log_prob = rf.where(
+        enc_spatial_dim.get_mask(),
+        ctc_label_log_prob,
+        rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=neg_inf),
+    )
+    if config.bool("use_eos_postfix", False):
+        ctc_label_log_prob = rf.where(
+            rf.range_over_dim(model.wb_target_dim) != model.eos_idx, ctc_label_log_prob, neg_inf
+        )
+    ctc_label_log_prob_ta = TensorArray.unstack(ctc_label_log_prob, axis=enc_spatial_dim)  # t -> Batch, VocabWB
+
+    beam_dim = Dim(beam_size, name="beam")
+    step_beam_dim = Dim(beam_size, name="beam-step")  # top_k out dim, mapped back onto beam_dim
+    batch_dims_ = [beam_dim] + batch_dims
+    # at most one label per frame, so the frames bound both the KV cache and the label history
+    max_seq_len_cpu = rf.copy_to_device(enc_spatial_dim.get_dim_value_tensor(), "cpu")
+    label_cap_dim = Dim(enc_spatial_dim.get_dim_value_tensor(), name="label-hist-capacity")
+
+    # Models built by the plain AED model def (not aed_model_ext_def) have no labelwise_prior attribute.
+    labelwise_prior: Optional[rf.Parameter] = getattr(model, "labelwise_prior", None)
+
+    def _decoder_log_probs(target: Tensor, decoder_state: rf.State) -> Tuple[Tensor, rf.State]:
+        logits, decoder_state = model.decoder(
+            target, encoder=enc, spatial_dim=single_step_dim, state=decoder_state
+        )  # Batch, Beam, Vocab / ...
+        log_probs = rf.log_softmax(logits, axis=model.target_dim) * aed_scale
+        if labelwise_prior is not None:
+            log_probs -= labelwise_prior  # prior scale already applied
+        return log_probs, decoder_state
+
+    if aed_scale or labelwise_prior is not None:
+        decoder_state0 = model.decoder.default_initial_state(batch_dims=batch_dims_, capacity=label_cap_dim)
+        decoder_log_probs0, decoder_state0 = _decoder_log_probs(
+            rf.constant(model.bos_idx, dims=batch_dims_, dtype="int32", sparse_dim=model.target_dim), decoder_state0
+        )
+    else:  # aed_scale == 0 and no prior
+        decoder_state0 = None
+        decoder_log_probs0 = None
+
+    def _body(state):
+        (
+            t,
+            seq_log_prob_,
+            target_,
+            target_wb_,
+            label_hist_,
+            label_hist_len_,
+            decoder_log_probs_,
+            decoder_state_,
+            targets_wb_ta_,
+            backrefs_ta_,
+        ) = state
+        prev_target = target_
+        prev_target_wb = target_wb_
+
+        # both sides broadcast, which is implicit only up to some behavior versions
+        seq_log_prob_ = rf.combine(
+            seq_log_prob_, "+", ctc_scale * ctc_label_log_prob_ta[t], allow_broadcast_all_sources=True
+        )  # Batch, InBeam, VocabWB
+        if decoder_state_ is not None:
+            # add the label score where the align label starts a new label, else 0
+            seq_log_prob_ += rf.where(
+                (prev_target_wb == model.blank_idx)
+                # both sides broadcast, which is implicit only up to some behavior versions
+                | rf.compare(
+                    prev_target_wb, "!=", rf.range_over_dim(model.wb_target_dim), allow_broadcast_all_sources=True
+                ),
+                _target_dense_extend_blank(
+                    decoder_log_probs_,
+                    target_dim=model.target_dim,
+                    wb_target_dim=model.wb_target_dim,
+                    blank_idx=model.blank_idx,
+                    value=0.0,
+                ),
+                0.0,
+            )  # Batch, InBeam, VocabWB
+
+        seq_log_prob_, (backrefs, target_wb_), _ = rf.top_k(
+            seq_log_prob_, k_dim=step_beam_dim, axis=[beam_dim, model.wb_target_dim]
+        )
+        # replace_dim, not v2: same static size, and v2 is eager-only
+        seq_log_prob_, _ = rf.replace_dim(seq_log_prob_, in_dim=step_beam_dim, out_dim=beam_dim)
+        backrefs, _ = rf.replace_dim(backrefs, in_dim=step_beam_dim, out_dim=beam_dim)
+        backrefs = rf.cast(backrefs, "int32")  # top_k index dtype is backend specific, loop var dtype is not
+        backrefs.sparse_dim = beam_dim
+        target_wb_, _ = rf.replace_dim(target_wb_, in_dim=step_beam_dim, out_dim=beam_dim)
+        target_wb_ = rf.cast(target_wb_, "int32")
+        target_wb_.sparse_dim = model.wb_target_dim
+
+        if decoder_state_ is not None:
+            decoder_log_probs_ = rf.gather(decoder_log_probs_, indices=backrefs)  # Batch, Beam, Vocab
+            decoder_state_ = rf.nested.gather_nested(decoder_state_, indices=backrefs)
+        label_hist_ = rf.gather(label_hist_, indices=backrefs)
+        label_hist_len_ = rf.gather(label_hist_len_, indices=backrefs)
+        prev_target = rf.gather(prev_target, indices=backrefs)  # Batch, Beam -> Vocab
+        prev_target_wb = rf.gather(prev_target_wb, indices=backrefs)  # Batch, Beam -> VocabWB
+
+        got_new_label = (target_wb_ != model.blank_idx) & (target_wb_ != prev_target_wb)  # Batch, Beam -> 0|1
+        target_ = rf.where(
+            got_new_label,
+            _target_remove_blank(
+                target_wb_, target_dim=model.target_dim, wb_target_dim=model.wb_target_dim, blank_idx=model.blank_idx
+            ),
+            prev_target,
+        )  # Batch, Beam -> Vocab
+        label_hist_ = rf.where(
+            got_new_label
+            & rf.compare(rf.range_over_dim(label_cap_dim), "==", label_hist_len_, allow_broadcast_all_sources=True),
+            target_,
+            label_hist_,
+        )
+        label_hist_len_ = label_hist_len_ + rf.where(got_new_label, 1, 0)
+
+        if recomb:
+            # Recombine paths with the same label seq. The eager version does this only in steps where some
+            # beam got a new label, so gate on the same (global) condition -- without it, paths that became
+            # equal earlier would be recombined one step sooner and a hypothesis would drop out.
+            any_new_label = rf.reduce_any(got_new_label, axis=got_new_label.dims)
+            label_hist_dual, beam_dual_dim = rf.replace_dim(label_hist_, in_dim=beam_dim)
+            label_hist_len_dual, _ = rf.replace_dim(label_hist_len_, in_dim=beam_dim, out_dim=beam_dual_dim)
+            same_seq_labels = rf.logical_and(
+                rf.reduce_all(rf.compare_bc(label_hist_, "==", label_hist_dual), axis=label_cap_dim),
+                rf.compare_bc(label_hist_len_, "==", label_hist_len_dual),
+            )  # Batch, Beam, BeamDual
+            seq_log_prob_ext, _ = rf.replace_dim(seq_log_prob_, in_dim=beam_dim, out_dim=beam_dual_dim)
+            seq_log_prob_ext = rf.where(same_seq_labels, seq_log_prob_ext, neg_inf)  # Batch, Beam, BeamDual
+            if recomb == "sum":
+                seq_log_prob_recomb = rf.reduce_logsumexp(seq_log_prob_ext, axis=beam_dual_dim)  # Batch, Beam
+            elif recomb == "max":
+                seq_log_prob_recomb = seq_log_prob_
+            else:
+                raise ValueError(f"invalid recog_recomb {recomb!r}")
+            argmax_seq_log_prob = rf.reduce_argmax(seq_log_prob_ext, axis=beam_dual_dim)  # Batch, Beam -> BeamDual
+            mask = argmax_seq_log_prob == rf.range_over_dim(beam_dim)  # Batch, Beam -> 0|1
+            seq_log_prob_recomb = rf.where(mask, seq_log_prob_recomb, neg_inf)
+            seq_log_prob_ = rf.where(any_new_label, seq_log_prob_recomb, seq_log_prob_)
+            # don't re-eval the decoder when masked out
+            got_new_label = rf.where(any_new_label, got_new_label & mask, got_new_label)
+
+        if decoder_state_ is not None:
+            # unlike the eager version, this runs for all beams, and the mask selects afterwards
+            decoder_log_probs_new, decoder_state_new = _decoder_log_probs(target_, decoder_state_)
+            decoder_log_probs_, decoder_state_ = rf.nested.mask_nested(
+                (decoder_log_probs_new, decoder_state_new),
+                mask=got_new_label,
+                mask_value=(decoder_log_probs_, decoder_state_),
+            )
+
+        return (
+            t + 1,
+            seq_log_prob_,
+            target_,
+            target_wb_,
+            label_hist_,
+            label_hist_len_,
+            decoder_log_probs_,
+            decoder_state_,
+            targets_wb_ta_.push_back(target_wb_),
+            backrefs_ta_.push_back(backrefs),
+        )
+
+    target_wb_template = Tensor("target_wb", dims=batch_dims_, dtype="int32", sparse_dim=model.wb_target_dim)
+    backrefs_template = Tensor("backrefs", dims=batch_dims_, dtype="int32", sparse_dim=beam_dim)
+    _, seq_log_prob, _, _, _, _, decoder_log_probs, _, seq_targets_wb_ta, seq_backrefs_ta = rf.while_loop(
+        cond=lambda state: state[0] < max_seq_len_cpu,
+        body=_body,
+        initial=(
+            rf.constant(0, dims=(), dtype="int32", device="cpu"),
+            rf.where(rf.range_over_dim(beam_dim) == 0, rf.constant(0.0, dims=batch_dims_), neg_inf),
+            rf.constant(model.bos_idx, dims=batch_dims_, dtype="int32", sparse_dim=model.target_dim),
+            rf.constant(model.blank_idx, dims=batch_dims_, dtype="int32", sparse_dim=model.wb_target_dim),
+            rf.zeros(batch_dims_ + [label_cap_dim], dtype="int32", sparse_dim=model.target_dim),
+            rf.constant(0, dims=batch_dims_, dtype="int32"),
+            decoder_log_probs0,
+            decoder_state0,
+            TensorArray(target_wb_template),
+            TensorArray(backrefs_template),
+        ),
+    )
+    if decoder_log_probs is not None:
+        seq_log_prob += rf.gather(decoder_log_probs, indices=model.eos_idx, axis=model.target_dim)
+
+    # Backtrack via backrefs, resolve beams. Backwards, so the result is flipped below.
+    def _backtrack_body(state):
+        t, indices, out_ta_ = state
+        out_ta_ = out_ta_.push_back(rf.gather(seq_targets_wb_ta[t], indices=indices))  # FinalBeam -> VocabWB
+        indices = rf.gather(seq_backrefs_ta[t], indices=indices)  # FinalBeam -> PrevBeam
+        return t - 1, indices, out_ta_
+
+    # already with the batch dims: a loop var keeps its dims, and the gather in the body has them
+    indices0 = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
+    for dim in batch_dims:
+        indices0 = rf.expand_dim(indices0, dim=dim)
+    indices0.sparse_dim = beam_dim
+    _, _, seq_targets_rev_ta = rf.while_loop(
+        cond=lambda state: state[0] >= 0,
+        body=_backtrack_body,
+        initial=(max_seq_len_cpu - 1, indices0, TensorArray(target_wb_template)),
+    )
+    out_spatial_dim = enc_spatial_dim
+    seq_targets_wb = seq_targets_rev_ta.stack(axis=out_spatial_dim)
+    # Flip over the PADDED extent: entry i is frame max_seq_len-1-i for every sequence,
+    # so clipping to the per-seq length would fold a short sequence onto its last frame.
+    rev_indices = max_seq_len_cpu - 1 - rf.range_over_dim(out_spatial_dim, device="cpu")
+    seq_targets_wb = rf.gather(
+        seq_targets_wb, indices=rf.copy_to_device(rev_indices, seq_targets_wb.device), axis=out_spatial_dim
+    )
+
+    return seq_targets_wb, seq_log_prob, out_spatial_dim, beam_dim
+
+
+# RecogDef API
+model_recog_with_recomb_while_loop: RecogDef[Model]
+model_recog_with_recomb_while_loop.output_with_beam = True
+model_recog_with_recomb_while_loop.output_blank_label = _aed_model_def_blank_label
+model_recog_with_recomb_while_loop.batch_size_dependent = True  # as model_recog_with_recomb
 
 
 def _target_remove_blank(target: Tensor, *, target_dim: Dim, wb_target_dim: Dim, blank_idx: int) -> Tensor:

@@ -906,6 +906,156 @@ model_recog.output_blank_label = None
 model_recog.batch_size_dependent = False  # not totally correct, but we treat it as such...
 
 
+def model_recog_while_loop(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Like :func:`model_recog`, but the label loop is :func:`rf.while_loop`, i.e. in the graph,
+    with the fixed-size beam and the -inf init of :func:`ctc.model_recog_while_loop`.
+
+    The decoder KV cache is preallocated over the max decode length
+    (see :func:`rf.CausalSelfAttention.default_initial_state`),
+    as a growing cache would change the loop var shapes per iteration.
+
+    :return:
+        recog results including beam {batch, beam, out_spatial},
+        log probs {batch, beam},
+        out_spatial_dim,
+        final beam_dim
+    """
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim)
+    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    beam_size = config.int("beam_size", 12)
+    length_normalization_exponent = config.float("length_normalization_exponent", 1.0)
+    max_seq_len = enc_spatial_dim.get_size_tensor(device=data.device)  # Batch
+    # the loop counter and bound stay on CPU: rf.while_loop wants the cond there,
+    # else every iteration syncs the device
+    max_seq_len_cpu = rf.copy_to_device(enc_spatial_dim.get_dim_value_tensor(), "cpu")
+    capacity_dim = Dim(enc_spatial_dim.get_dim_value_tensor(), name="dec-capacity")
+
+    beam_dim = Dim(beam_size, name="beam")
+    step_beam_dim = Dim(beam_size, name="beam-step")  # top_k out dim, mapped back onto beam_dim
+    batch_dims_ = [beam_dim] + batch_dims
+
+    def _body(state):
+        t, seq_log_prob_, ended_, out_seq_len_, target_, dec_state_, targets_ta_, backrefs_ta_ = state
+        logits, dec_state_ = model.decoder(target_, spatial_dim=single_step_dim, encoder=enc, state=dec_state_)
+        if not model.out_eos_separated:  # joint distrib, std case
+            label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
+        else:
+            label_log_prob = log_probs_with_eos_separated(logits, target_dim=model.target_dim, eos_idx=model.eos_idx)
+        label_log_prob = rf.where(
+            ended_,
+            rf.sparse_to_dense(model.eos_idx, axis=model.target_dim, label_value=0.0, other_value=-1.0e30),
+            label_log_prob,
+        )
+        # both sides broadcast, which is implicit only up to some behavior versions
+        seq_log_prob_ = rf.combine(seq_log_prob_, "+", label_log_prob, allow_broadcast_all_sources=True)
+        seq_log_prob_, (backrefs, target_), _ = rf.top_k(
+            seq_log_prob_, k_dim=step_beam_dim, axis=[beam_dim, model.target_dim]
+        )
+        # replace_dim, not v2: same static size, and v2 is eager-only
+        seq_log_prob_, _ = rf.replace_dim(seq_log_prob_, in_dim=step_beam_dim, out_dim=beam_dim)
+        backrefs, _ = rf.replace_dim(backrefs, in_dim=step_beam_dim, out_dim=beam_dim)
+        backrefs = rf.cast(backrefs, "int32")  # top_k index dtype is backend specific, loop var dtype is not
+        backrefs.sparse_dim = beam_dim
+        target_, _ = rf.replace_dim(target_, in_dim=step_beam_dim, out_dim=beam_dim)
+        target_ = rf.cast(target_, "int32")
+        target_.sparse_dim = model.target_dim
+        dec_state_ = rf.nested.gather_nested(dec_state_, indices=backrefs)
+        ended_ = rf.gather(ended_, indices=backrefs)
+        out_seq_len_ = rf.gather(out_seq_len_, indices=backrefs)
+        t = t + 1
+
+        ended_ = ended_ | (target_ == model.eos_idx) | (rf.copy_to_device(t, data.device) >= max_seq_len)
+        # the eager loop breaks here, i.e. it does neither of the two updates below in its last iteration
+        all_ended = rf.reduce_all(ended_, axis=ended_.dims)
+        out_seq_len_ = out_seq_len_ + rf.where(all_ended | ended_, 0, 1)
+        if length_normalization_exponent != 0:
+            # score_t/t, and a finished seq keeps its score: score_t = score_{t-1} * (t/(t-1))**exp.
+            # t counts the EOS symbol, hence the shift by one.
+            t_f = rf.cast(rf.copy_to_device(t, data.device), "float32")
+            seq_log_prob_ = seq_log_prob_ * rf.where(
+                (t_f > 1) & ended_ & rf.logical_not(all_ended),
+                (t_f / rf.maximum(t_f - 1, 1.0)) ** length_normalization_exponent,
+                1.0,
+            )
+        return (
+            t,
+            seq_log_prob_,
+            ended_,
+            out_seq_len_,
+            target_,
+            dec_state_,
+            targets_ta_.push_back(target_),
+            backrefs_ta_.push_back(backrefs),
+        )
+
+    target_template = Tensor("target", dims=batch_dims_, dtype="int32", sparse_dim=model.target_dim)
+    backrefs_template = Tensor("backrefs", dims=batch_dims_, dtype="int32", sparse_dim=beam_dim)
+    num_steps, seq_log_prob, _, out_seq_len, _, _, seq_targets_ta, seq_backrefs_ta = rf.while_loop(
+        cond=lambda state: (state[0] < max_seq_len_cpu)
+        & rf.logical_not(rf.copy_to_device(rf.reduce_all(state[2], axis=state[2].dims), "cpu")),
+        body=_body,
+        initial=(
+            rf.constant(0, dims=(), dtype="int32", device="cpu"),
+            rf.where(rf.range_over_dim(beam_dim) == 0, rf.constant(0.0, dims=batch_dims_), float("-inf")),
+            rf.constant(False, dims=batch_dims_),
+            rf.constant(0, dims=batch_dims_, dtype="int32"),
+            rf.constant(model.bos_idx, dims=batch_dims_, dtype="int32", sparse_dim=model.target_dim),
+            model.decoder.default_initial_state(batch_dims=batch_dims_, capacity=capacity_dim),
+            TensorArray(target_template),
+            TensorArray(backrefs_template),
+        ),
+    )
+    if length_normalization_exponent != 0:
+        # WARNING: as in model_recog, this should be (1/(t-1))**exp. Kept for the same behavior.
+        num_steps_f = rf.cast(rf.copy_to_device(num_steps, seq_log_prob.device), "float32")
+        seq_log_prob = seq_log_prob * (1.0 / rf.maximum(num_steps_f, 1.0)) ** length_normalization_exponent
+
+    # Backtrack via backrefs, resolve beams. Backwards, so the result is flipped below.
+    def _backtrack_body(state):
+        t, indices, out_ta_ = state
+        out_ta_ = out_ta_.push_back(rf.gather(seq_targets_ta[t], indices=indices))  # FinalBeam -> Vocab
+        indices = rf.gather(seq_backrefs_ta[t], indices=indices)  # FinalBeam -> PrevBeam
+        return t - 1, indices, out_ta_
+
+    # already with the batch dims: a loop var keeps its dims, and the gather in the body has them
+    indices0 = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
+    for dim in batch_dims:
+        indices0 = rf.expand_dim(indices0, dim=dim)
+    indices0.sparse_dim = beam_dim
+    _, _, seq_targets_rev_ta = rf.while_loop(
+        cond=lambda state: state[0] >= 0,
+        body=_backtrack_body,
+        initial=(num_steps - 1, indices0, TensorArray(target_template)),
+    )
+    out_spatial_dim = Dim(out_seq_len, name="out-spatial")
+    seq_targets = seq_targets_rev_ta.stack(axis=out_spatial_dim)
+    # Flip over the PADDED extent: entry i is step num_steps-1-i for every sequence,
+    # so clipping to the per-seq length would fold a short sequence onto its last step.
+    rev_indices = num_steps - 1 - rf.range_over_dim(out_spatial_dim, device="cpu")
+    seq_targets = rf.gather(
+        seq_targets, indices=rf.copy_to_device(rev_indices, seq_targets.device), axis=out_spatial_dim
+    )
+
+    return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
+
+
+# RecogDef API
+model_recog_while_loop: RecogDef[Model]
+model_recog_while_loop.output_with_beam = True
+model_recog_while_loop.output_blank_label = None
+model_recog_while_loop.batch_size_dependent = False  # as model_recog
+
+
 def _gather_backrefs(s, *, backrefs: Tensor):
     if isinstance(s, Tensor):
         if backrefs.sparse_dim in s.dims:
