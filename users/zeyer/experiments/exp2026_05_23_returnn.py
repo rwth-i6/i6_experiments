@@ -2358,6 +2358,24 @@ def _loq_cost_decomposition(cfg, classes_cap):
         )
         tk.register_output(f"returnn/loq-bench-profiled-fixdelta-{profiled_mode}.json", job.out_results)
 
+    # packed_compiled = graphc minus capture (same bounds/copy-in; the mode override sets
+    # capture=False on the same torch_cuda_graph dict). Re-tests the 2026-07-28 step-15 NaN,
+    # which predates the bound-buffer engine wiring (the mode re-traced per shape back then;
+    # now it is one bound-shaped program, so that failure mode is structurally gone).
+    # 300 steps like the original parity benches; warmup_steps 0 (the production regime).
+    job = TrainStepBenchmarkJob(
+        returnn_config=cfg,
+        mode="packed_compiled",
+        num_steps=300,
+        version=23,
+        config_overrides={
+            "behavior_version": 29,
+            "packed_tensors": _v2_packed_tensors,
+            "torch_cuda_graph": {**_v2_graph_opts, "warmup_steps": 0},
+        },
+    )
+    tk.register_output("returnn/loq-bench-fixdelta-packed_compiled.json", job.out_results)
+
 
 def _loq_batch_size_factor():
     """the raw-sample batch-size factor of the baseline configs"""
