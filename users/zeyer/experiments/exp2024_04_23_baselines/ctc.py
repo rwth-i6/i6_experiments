@@ -2082,6 +2082,127 @@ model_recog.output_blank_label = "<blank>"
 model_recog.batch_size_dependent = False  # not totally correct, but we treat it as such...
 
 
+def model_recog_while_loop(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Like :func:`model_recog`, but the frame loop is :func:`rf.while_loop`, i.e. in the graph.
+    A graph backend can only unroll the Python loop there,
+    and its trip count needs the frame count on the host.
+
+    One traced body means one beam dim for all iterations, so the beam is fixed size here,
+    not growing (1, in_beam*pre_filter, ..., beam_size).
+    The extra initial hypotheses are -inf,
+    so the first iterations select the same as the growing beam.
+
+    :return:
+        recog results including beam {batch, beam, out_spatial},
+        log probs {batch, beam},
+        out_spatial_dim,
+        final beam_dim
+    """
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+
+    label_log_prob, _, enc_spatial_dim = model.encode_and_get_ctc_log_probs(data, in_spatial_dim=data_spatial_dim)
+    batch_dims = label_log_prob.remaining_dims((enc_spatial_dim, label_log_prob.feature_dim))
+    beam_size = config.int("beam_size", 12)
+
+    label_log_prob = rf.where(
+        enc_spatial_dim.get_mask(),
+        label_log_prob,
+        rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
+    )
+    label_log_prob_pre_filter, (backrefs_pre_filter,), pre_filter_beam_dim = rf.top_k(
+        label_log_prob,
+        k_dim=Dim(min(beam_size, model.wb_target_dim.dimension), name="pre-filter-beam"),
+        axis=[model.wb_target_dim],
+    )  # Batch, Spatial, PreFilterBeam. backrefs_pre_filter -> Vocab
+    label_log_prob_pre_filter_ta = TensorArray.unstack(label_log_prob_pre_filter, axis=enc_spatial_dim)
+    backrefs_pre_filter_ta = TensorArray.unstack(backrefs_pre_filter, axis=enc_spatial_dim)
+
+    beam_dim = Dim(beam_size, name="beam")
+    step_beam_dim = Dim(beam_size, name="beam-step")  # top_k out dim, mapped back onto beam_dim
+    batch_dims_ = [beam_dim] + batch_dims
+    seq_log_prob = rf.where(rf.range_over_dim(beam_dim) == 0, rf.constant(0.0, dims=batch_dims_), float("-inf"))
+    max_seq_len = enc_spatial_dim.get_dim_value_tensor()
+    # the loop counter and bound stay on CPU: rf.while_loop wants the cond there,
+    # else every iteration syncs the device
+    max_seq_len_cpu = rf.copy_to_device(max_seq_len, "cpu")
+
+    def _body(state):
+        t, seq_log_prob_, targets_ta_, backrefs_ta_ = state
+        # both sides broadcast, which is implicit only up to some behavior versions
+        seq_log_prob_ = rf.combine(
+            seq_log_prob_, "+", label_log_prob_pre_filter_ta[t], allow_broadcast_all_sources=True
+        )  # Batch, Beam, PreFilterBeam
+        seq_log_prob_, (backrefs, target), _ = rf.top_k(
+            seq_log_prob_, k_dim=step_beam_dim, axis=[beam_dim, pre_filter_beam_dim]
+        )  # backrefs -> Beam, target -> PreFilterBeam
+        # replace_dim, not v2: same static size, and v2 is eager-only
+        seq_log_prob_, _ = rf.replace_dim(seq_log_prob_, in_dim=step_beam_dim, out_dim=beam_dim)
+        backrefs, _ = rf.replace_dim(backrefs, in_dim=step_beam_dim, out_dim=beam_dim)
+        backrefs = rf.cast(backrefs, "int32")  # top_k index dtype is backend specific, loop var dtype is not
+        backrefs.sparse_dim = beam_dim
+        target, _ = rf.replace_dim(target, in_dim=step_beam_dim, out_dim=beam_dim)
+        target = rf.gather(backrefs_pre_filter_ta[t], indices=target)  # Batch, Beam -> Vocab
+        return t + 1, seq_log_prob_, targets_ta_.push_back(target), backrefs_ta_.push_back(backrefs)
+
+    target_template = Tensor(
+        "target", dims=batch_dims_, dtype=backrefs_pre_filter.dtype, sparse_dim=model.wb_target_dim
+    )
+    backrefs_template = Tensor("backrefs", dims=batch_dims_, dtype="int32", sparse_dim=beam_dim)
+    _, seq_log_prob, seq_targets_ta, seq_backrefs_ta = rf.while_loop(
+        cond=lambda state: state[0] < max_seq_len_cpu,
+        body=_body,
+        initial=(
+            rf.constant(0, dims=(), dtype="int32", device="cpu"),
+            seq_log_prob,
+            TensorArray(target_template),
+            TensorArray(backrefs_template),
+        ),
+    )
+
+    # Backtrack via backrefs, resolve beams. Backwards, so the result is flipped below.
+    def _backtrack_body(state):
+        t, indices, out_ta_ = state
+        out_ta_ = out_ta_.push_back(rf.gather(seq_targets_ta[t], indices=indices))  # FinalBeam -> Vocab
+        indices = rf.gather(seq_backrefs_ta[t], indices=indices)  # FinalBeam -> PrevBeam
+        return t - 1, indices, out_ta_
+
+    # already with the batch dims: a loop var keeps its dims, and the gather in the body has them
+    indices0 = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
+    for dim in batch_dims:
+        indices0 = rf.expand_dim(indices0, dim=dim)
+    indices0.sparse_dim = beam_dim
+    _, _, seq_targets_rev_ta = rf.while_loop(
+        cond=lambda state: state[0] >= 0,
+        body=_backtrack_body,
+        initial=(max_seq_len_cpu - 1, indices0, TensorArray(target_template)),
+    )
+    out_spatial_dim = enc_spatial_dim
+    seq_targets = seq_targets_rev_ta.stack(axis=out_spatial_dim)
+    # Flip over the PADDED extent: entry i is frame max_seq_len-1-i for every sequence,
+    # so clipping to the per-seq length would fold a short sequence onto its last frame.
+    rev_indices = max_seq_len_cpu - 1 - rf.range_over_dim(out_spatial_dim, device="cpu")
+    seq_targets = rf.gather(
+        seq_targets, indices=rf.copy_to_device(rev_indices, seq_targets.device), axis=out_spatial_dim
+    )
+
+    return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
+
+
+# RecogDef API
+model_recog_while_loop: RecogDef[Model]
+model_recog_while_loop.output_with_beam = True
+model_recog_while_loop.output_blank_label = "<blank>"
+model_recog_while_loop.batch_size_dependent = False  # as model_recog
+
+
 class Model(rf.Module):
     """Model definition"""
 
