@@ -1,5 +1,5 @@
 import copy
-from typing import List
+from typing import List, Dict
 
 from i6_experiments.users.schmitt.util.dict_update import dict_update_deep
 from i6_experiments.common.setups.serialization import PartialImport
@@ -150,7 +150,7 @@ def _text_recon_sweep(num_epochs):
     ]
 
 
-def py():
+def py(checkpoints: Dict):
     prefix_name = f"{__setup_base_name__}/librispeech/{__name__.split('.')[-1]}"
 
     run_experiment(
@@ -235,8 +235,9 @@ def py():
             # for scoring, we want to use the phoneme seqs without silence
             meta_dataset.data_map["phon_indices"] = ("phon_indices", "data")
 
-        run_experiment(
-            training_name=f"{prefix_name}/baseline_max-num-sil-{max_num_sil}_max-surround-{max_num_surround_sil}",
+        training_name = f"{prefix_name}/baseline_max-num-sil-{max_num_sil}_max-surround-{max_num_surround_sil}"
+        train_job = run_experiment(
+            training_name=training_name,
             config=copy.deepcopy(base_config),
             train_data=train_data_var_sil,
             test_data_dict=test_data_dict_w_sil,
@@ -288,6 +289,7 @@ def py():
                 "max_plotted_seqs": 20,
             },
         )
+        checkpoints[training_name] = train_job.out_checkpoints
 
         # discriminator-architecture sweep for the domain-adversarial loss. Same adv scale + masking as
         # baseline_gan-adv-0.1_mask-p-0.1-span-1-1 (which uses the frame-wise "mlp" discriminator), but
@@ -295,7 +297,8 @@ def py():
         #   mlp_2gram/3gram/4gram -> MLP over 2/3/4 consecutive frames concatenated in the feature dim
         #   lstm                  -> LSTM over the whole encoder output sequence
         for discriminator_type in ("lstm",):
-            run_experiment(
+            training_name = f"{prefix_name}/baseline_gan-adv-0.1_disc-{discriminator_type}_mask-p-0.1-span-1-1_max-num-sil-{max_num_sil}_max-surround-{max_num_surround_sil}"
+            train_job = run_experiment(
                 training_name=f"{prefix_name}/baseline_gan-adv-0.1_disc-{discriminator_type}_mask-p-0.1-span-1-1_max-num-sil-{max_num_sil}_max-surround-{max_num_surround_sil}",
                 config=dict_update_deep(
                     copy.deepcopy(base_config),
@@ -357,6 +360,7 @@ def py():
                     "max_plotted_seqs": 20,
                 },
             )
+            checkpoints[training_name] = train_job.out_checkpoints
 
     # TEST DIFFERENT NUMBER OF LAYERS (maybe smaller model forces it to share representations?)
     for (
