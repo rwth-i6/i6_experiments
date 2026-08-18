@@ -214,15 +214,9 @@ def model_recog_beam(
     data_spatial_dim: Dim,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
-    Full-context AED beam-search recognition (label-synchronous).
-
-    Beam-search counterpart of :func:`model_recog` via
-    :func:`...streaming.beam_search.label_sync_beam_search` (the ``rf.top_k`` beam search of
-    ``exp2024_04_23_baselines.aed.model_recog``, here driven through this decoder's chunk-masked
-    cross-attention: ``key_chunk_idx`` = frame index, ``query_chunk_idx`` = enc_len-1, i.e. full
-    context). ``beam_size`` (default 12) and ``length_normalization_exponent`` (default 1.0) come
-    from the config; ``beam_size = 1`` with exponent 0 reproduces the greedy :func:`model_recog`.
-    Terminates each hypothesis on the reused end-of-chunk slot (== EOS); EOS is trimmed off.
+    Full-context AED beam search (label-sync; cf. :func:`model_recog`).
+    beam_size (default 12) + length_normalization_exponent (default 1.0) from config.
+    Cross-att admits every real frame (key=frame idx, query=enc_len-1); terminates on eoc (== eos), trimmed.
     """
     from returnn.config import get_global_config
     from .beam_search import label_sync_beam_search
@@ -234,10 +228,9 @@ def model_recog_beam(
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim)
     enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
 
-    # Full context (identical mask to training / the greedy recog): admit every real frame.
-    key_chunk_idx = rf.range_over_dim(enc_spatial_dim)  # [enc_spatial]
+    key_chunk_idx = rf.range_over_dim(enc_spatial_dim)
     enc_lens = rf.copy_to_device(enc_spatial_dim.get_size_tensor())  # [batch]
-    query_chunk_idx = enc_lens - 1  # per-seq query chunk = last frame (broadcasts over the beam)
+    query_chunk_idx = enc_lens - 1  # full context: query = last frame (broadcasts over beam)
     encoder_kv = model.decoder.transform_encoder(enc, axis=enc_spatial_dim)
 
     def _step(target, state):

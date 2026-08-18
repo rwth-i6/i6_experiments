@@ -293,13 +293,8 @@ def model_recog_beam(
     data_spatial_dim: Dim,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
-    Frame-synchronous beam-search recognition (RNA topology).
-
-    Beam-search counterpart of :func:`model_recog`: the same per-frame decoder step (previous
-    symbol + current encoder frame -> label-or-blank log-probs), but ``beam_size`` hypotheses are
-    kept via :func:`...streaming.beam_search.frame_sync_beam_search` (``rf.top_k`` over
-    labels+blank each frame). ``beam_size`` is read from the config (default 12); ``beam_size = 1``
-    reproduces the greedy :func:`model_recog`. Blanks are stripped from the output.
+    Frame-synchronous beam search (cf. :func:`model_recog`); beam_size from config (default 12),
+    beam_size=1 == greedy. Blanks stripped.
     """
     from returnn.config import get_global_config
     from .beam_search import frame_sync_beam_search
@@ -309,7 +304,7 @@ def model_recog_beam(
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim)
     enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
-    delay = getattr(model.decoder, "delay_frames", 0)  # extra flush frames for the delayed-tail labels
+    delay = getattr(model.decoder, "delay_frames", 0)
 
     def _step(prev, enc_t, state):
         logits, new_state = model.decoder(prev, enc_t, spatial_dim=single_step_dim, state=state)

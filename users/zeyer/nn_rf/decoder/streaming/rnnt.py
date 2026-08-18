@@ -266,14 +266,9 @@ def model_recog_beam(
     data_spatial_dim: Dim,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
-    Frame-synchronous beam-search recognition (monotonic RNN-T).
-
-    Beam-search counterpart of :func:`model_recog` via
-    :func:`...streaming.beam_search.frame_sync_beam_search` (``rf.top_k`` over labels+blank each
-    frame). ``beam_size`` from the config (default 12); ``beam_size = 1`` reproduces the greedy
-    :func:`model_recog`. The prediction state is kept as the emitted-label buffer + emit count
-    (re-run over the buffer each step, gathered at ``n_emitted``); both are gathered by backrefs,
-    so no growing self-attention cache has to be masked across the beam. Blanks are stripped.
+    Frame-synchronous beam search, monotonic RNN-T (cf. :func:`model_recog`); beam_size from config (default 12).
+    Prediction state = emitted-label buffer + count (re-run each step, gathered at n_emitted),
+    so no growing self-att cache to mask across the beam. Blanks stripped.
     """
     from returnn.config import get_global_config
     from .beam_search import frame_sync_beam_search
@@ -298,13 +293,12 @@ def model_recog_beam(
 
     def _step(prev, enc_t, state):
         emitted_labels, n_emitted = state["emitted_labels"], state["n_emitted"]
-        # Append the previously chosen symbol if it was a real label (blank / initial BOS are no-ops).
+        # append prev if a real label (blank / initial bos are no-ops)
         is_label = rf.logical_and(prev != blank, prev != bos)
         write = rf.logical_and(is_label, label_range == n_emitted)
         emitted_labels = rf.where(write, prev, emitted_labels)
         n_emitted = n_emitted + rf.cast(is_label, "int32")
-        # g_{n_emitted} = f(BOS, y_1..y_{n_emitted}): re-run the pred net over [BOS, emitted...],
-        # gather at n_emitted (the blank pad past n_emitted is causally later, so it does not leak in).
+        # g_{n_emitted}: re-run pred net over [bos, emitted...], gather at n_emitted (blank pad is causally later)
         pred_bd = [d for d in emitted_labels.dims if d != label_dim]
         pred_in, (ext_dim,) = rf.pad(emitted_labels, axes=[label_dim], padding=[(1, 0)], value=bos)
         pred_in.sparse_dim = model.target_dim_ext
