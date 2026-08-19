@@ -22,13 +22,13 @@ __all__ = ["ChunkResult", "run_chunk", "reduce_chunks", "save_chunk", "load_chun
 import pickle
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 from ..statistics import CounterProtocol
 from ..util import ProgressLogger
-from .interfaces import Accumulator, FeatureSource, Recognizer, ScoreModel
+from .interfaces import Accumulator, FeatureSource, Probe, Recognizer, ScoreModel
 from .stats import merge_counters
 
 
@@ -56,6 +56,7 @@ def run_chunk(
     accumulator: Accumulator,
     counter: Optional[CounterProtocol] = None,
     transcribe: Optional[Callable[[List[Any]], str]] = None,
+    probe: Optional[Probe] = None,
     verbosity: int = 1,
 ) -> ChunkResult:
     """
@@ -72,14 +73,23 @@ def run_chunk(
         counter only ever sees the traceback, not the sequence tag - and it
         takes the lemma-exclusion policy from the caller, keeping the loop
         itself free of any notion of what a label means.
+    :param probe: optional diagnostics observer (:class:`.interfaces.Probe`).
+        Given one, the ``[T, K]`` score matrix is parked alongside the features
+        rather than handed to the recognizer and dropped, so the probe can
+        relate the alignment back to the model that produced it. That is the
+        only cost of this hook and it is paid only when it is used: the parked
+        matrices are bounded by the same in-flight limit as ``pending`` (32
+        sequences at the pipeline's default worker count, ~15 MB at K=40).
+        The probe never feeds anything back into the loop - what it records
+        cannot change the epoch's result.
     """
-    pending: Dict[str, np.ndarray] = {}
+    pending: Dict[str, Tuple[np.ndarray, Optional[np.ndarray]]] = {}
     hypotheses: Optional[Dict[str, str]] = {} if transcribe is not None else None
     stats = {"recognized": 0, "frames": 0}
 
     def on_result(seq_tag: str, posteriors, traceback: List[Any]) -> None:
         try:
-            seq_features = pending.pop(seq_tag)
+            seq_features, seq_scores = pending.pop(seq_tag)
         except KeyError:
             raise KeyError(
                 f"recognition result for unknown sequence {seq_tag!r}"
@@ -97,6 +107,15 @@ def run_chunk(
             # emitted nothing for is a legitimate empty hypothesis and scoring
             # has to see it as a deletion, not as a missing segment.
             hypotheses[seq_tag] = transcribe(traceback)
+        if probe is not None:
+            assert seq_scores is not None
+            probe.observe(
+                seq_tag=seq_tag,
+                features=seq_features,
+                scores=seq_scores,
+                posteriors=posteriors,
+                traceback=traceback,
+            )
         stats["recognized"] += 1
 
     recognizer.start(on_result)
@@ -109,12 +128,16 @@ def run_chunk(
         for seq_idx, (seq_tag, seq_features) in enumerate(features):
             if seq_tag in pending:
                 raise ValueError(f"duplicate sequence tag in chunk: {seq_tag!r}")
-            pending[seq_tag] = seq_features
+            seq_scores = model.scores(seq_features)
+            # Park before submitting, not after: submit() may deliver a result
+            # synchronously (SerialRasrRecognizer) or drain an older task to
+            # stay under its in-flight limit, and on_result reads this dict.
+            pending[seq_tag] = (seq_features, seq_scores if probe is not None else None)
             stats["frames"] += len(seq_features)
             num_seqs += 1
             if verbosity >= 2:
                 print(f"Submitting {seq_tag} ({len(seq_features)} frames)")
-            recognizer.submit(seq_tag, model.scores(seq_features))
+            recognizer.submit(seq_tag, seq_scores)
             progress.progress(seq_idx)
 
         recognizer.drain()

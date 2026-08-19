@@ -13,6 +13,7 @@ __all__ = [
     "ScoreModel",
     "Recognizer",
     "Accumulator",
+    "Probe",
     "as_hard_labels",
     "as_responsibilities",
 ]
@@ -116,6 +117,34 @@ class Recognizer(Protocol):
         ...
 
     def shutdown(self) -> None: ...
+
+
+@runtime_checkable
+class Probe(Protocol):
+    """
+    Read-only observer of one recognized sequence, for diagnostics.
+
+    The fifth injection point, and the only one that may not influence the
+    epoch's result: :func:`.runner.run_chunk` calls it after the accumulator
+    has already seen the sequence, and never reads anything back. It exists
+    because the statistics counters take a traceback alone - enough for corpus
+    aggregates, not enough to relate a score to the sequence it came from or to
+    the model that scored it.
+
+    ``scores`` is the model's output *before* the recognizer applies its
+    ``distance_scale``, i.e. the plain distance from each frame to each
+    cluster; multiply by that scale to reconstruct what the search saw.
+    """
+
+    def observe(
+        self,
+        *,
+        seq_tag: str,
+        features: np.ndarray,
+        scores: np.ndarray,
+        posteriors: "Posteriors",
+        traceback: List[Any],
+    ) -> None: ...
 
 
 @runtime_checkable

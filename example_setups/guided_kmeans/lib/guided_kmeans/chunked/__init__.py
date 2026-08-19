@@ -14,6 +14,7 @@ Injection points, all supplied as :class:`.spec.Spec` objects:
 * :mod:`.models`       - how features are scored against clusters
 * :mod:`.recognizers`  - how scores become per-frame labels
 * :mod:`.accumulators` - how labelled frames update the model
+* :mod:`.diagnostics`  - what a pass records about itself, changing nothing
 """
 
 from .spec import Spec, resolve
@@ -21,6 +22,7 @@ from .interfaces import (
     Accumulator,
     FeatureSource,
     Posteriors,
+    Probe,
     Recognizer,
     ScoreModel,
     as_hard_labels,
@@ -35,9 +37,15 @@ from .models import (
     read_manifest,
 )
 from .recognizers import PhonemeIdxMap, RasrViterbiRecognizer, SerialRasrRecognizer
-from .accumulators import GaussianAccumulator, MeanAccumulator, keep_previous_where_dead
+from .accumulators import (
+    GaussianAccumulator,
+    MeanAccumulator,
+    NullAccumulator,
+    keep_previous_where_dead,
+)
 from .runner import ChunkResult, load_chunk, reduce_chunks, run_chunk, save_chunk
 from .stats import default_stats_hooks, merge_counters
+from .diagnostics import Diagnostics, FrameDiagnostics, load_diagnostics
 
 __all__ = [
     "Spec",
@@ -45,6 +53,7 @@ __all__ = [
     "Accumulator",
     "FeatureSource",
     "Posteriors",
+    "Probe",
     "Recognizer",
     "ScoreModel",
     "as_hard_labels",
@@ -62,6 +71,7 @@ __all__ = [
     "SerialRasrRecognizer",
     "GaussianAccumulator",
     "MeanAccumulator",
+    "NullAccumulator",
     "keep_previous_where_dead",
     "ChunkResult",
     "load_chunk",
@@ -70,4 +80,7 @@ __all__ = [
     "save_chunk",
     "default_stats_hooks",
     "merge_counters",
+    "Diagnostics",
+    "FrameDiagnostics",
+    "load_diagnostics",
 ]
