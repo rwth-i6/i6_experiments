@@ -57,7 +57,7 @@ class RoverJob(Job):
         self.null_confidence = null_confidence
 
         self.out = self.output_path("outfile")
-        self.rqmt = {"cpu": 1, "mem": 12, "time": 1}
+        self.rqmt = {"cpu": 1, "mem": 64, "time": 4}
 
     def tasks(self):
         yield Task("run", resume="run", rqmt=self.rqmt, mini_task=True)
