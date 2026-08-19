@@ -22,6 +22,7 @@ __all__ = [
     "RandomCentroidsJob",
     "ChunkedClusteringExpResult",
     "chunked_clustering",
+    "prepare_worker_sys_path",
 ]
 
 import gzip
@@ -57,6 +58,33 @@ from ..lib.guided_kmeans.chunked import (
 from ..lib.guided_kmeans.statistics import FBStatisticsCounter
 
 _CHUNK_FILE = "chunk.{num_chunks}.{index}.pkl"
+
+
+def prepare_worker_sys_path(rasr_path: Optional[tk.Path] = None) -> None:
+    """
+    Make ``i6_experiments`` and ``librasr`` importable in the recognition
+    worker processes.
+
+    ParallelSegmentRecognizer's pool uses the "spawn" start method (see that
+    module - "fork" is unsafe with a live CUDA context). A spawned child is a
+    fresh interpreter that receives the parent's ``sys.path`` via
+    multiprocessing's preparation data, but *not* the parent's
+    ``sys.meta_path``. Sisyphus resolves recipe modules through a custom
+    meta-path finder (loader.RecipeFinder) rather than through sys.path, so
+    without this the child cannot import the module holding ``_init_worker``
+    and dies with ModuleNotFoundError: i6_experiments before it ever runs a
+    search.
+
+    The old pipeline got this for free: its RETURNN config prolog does the same
+    absolute ``sys.path.insert`` (see clustering_config.get_base_config).
+
+    Module-level rather than a method because every job that drives a RASR
+    worker pool needs it, not just the epoch job.
+    """
+    recipe_root = str(Path(i6_experiments.__file__).parent.parent)
+    for path in (recipe_root, rasr_path.get_path() if rasr_path else None):
+        if path and path not in sys.path:
+            sys.path.insert(0, path)
 
 
 class GuidedClusteringEpochJob(Job):
@@ -191,27 +219,7 @@ class GuidedClusteringEpochJob(Job):
         return _CHUNK_FILE.format(num_chunks=self.num_chunks, index=index)
 
     def _prepare_worker_sys_path(self):
-        """
-        Make ``i6_experiments`` and ``librasr`` importable in the recognition
-        worker processes.
-
-        ParallelSegmentRecognizer's pool uses the "spawn" start method (see
-        that module - "fork" is unsafe with a live CUDA context). A spawned
-        child is a fresh interpreter that receives the parent's ``sys.path``
-        via multiprocessing's preparation data, but *not* the parent's
-        ``sys.meta_path``. Sisyphus resolves recipe modules through a custom
-        meta-path finder (loader.RecipeFinder) rather than through sys.path,
-        so without this the child cannot import the module holding
-        ``_init_worker`` and dies with ModuleNotFoundError: i6_experiments
-        before it ever runs a search.
-
-        The old pipeline got this for free: its RETURNN config prolog does the
-        same absolute ``sys.path.insert`` (see clustering_config.get_base_config).
-        """
-        recipe_root = str(Path(i6_experiments.__file__).parent.parent)
-        for path in (recipe_root, self.rasr_path.get_path() if self.rasr_path else None):
-            if path and path not in sys.path:
-                sys.path.insert(0, path)
+        prepare_worker_sys_path(self.rasr_path)
 
     def _build_accumulator(self):
         return self.accumulator.build(num_clusters=self.num_clusters)

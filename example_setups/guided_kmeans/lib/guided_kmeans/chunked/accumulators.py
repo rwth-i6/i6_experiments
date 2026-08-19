@@ -10,7 +10,13 @@ cannot change the result (up to float summation order).
 
 from __future__ import annotations
 
-__all__ = ["MeanAccumulator", "GaussianAccumulator", "SoftGaussianAccumulator", "keep_previous_where_dead"]
+__all__ = [
+    "MeanAccumulator",
+    "GaussianAccumulator",
+    "NullAccumulator",
+    "SoftGaussianAccumulator",
+    "keep_previous_where_dead",
+]
 
 from dataclasses import dataclass
 from typing import Optional, TypeVar
@@ -318,6 +324,40 @@ class SoftGaussianAccumulator:
             None if state["weighted_sq"] is None
             else np.asarray(state["weighted_sq"], dtype=np.float64)
         )
+class NullAccumulator:
+    """
+    Accumulates nothing, for a pass that recognizes in order to *observe* it
+    rather than to update a model - see
+    :class:`...setup.diagnostics.ClusteringDiagnosticsJob`.
+
+    ``run_chunk`` requires an accumulator, and satisfying it with this instead
+    of making the argument optional keeps the loop's contract single-shaped:
+    every pass through the corpus scores, recognizes and accumulates, and a
+    diagnostics pass is the degenerate case where accumulating is a no-op.
+    ``finalize`` raises rather than returning the previous model unchanged: a
+    caller that reaches it wanted a new model out of a pass that by
+    construction cannot produce one.
+    """
+
+    def __init__(self, num_clusters: Optional[int] = None, **_kwargs):
+        self.num_clusters = num_clusters
+
+    def observe(self, features: np.ndarray, posteriors: Posteriors) -> None:
+        pass
+
+    def merge(self, other: "NullAccumulator") -> "NullAccumulator":
+        return self
+
+    def finalize(self, previous: ScoreModel) -> ScoreModel:
+        raise NotImplementedError(
+            "NullAccumulator records no statistics and cannot produce a model; "
+            "it is for diagnostics passes, which have no reduce step"
+        )
+
+    def state_dict(self) -> dict:
+        return {}
+
+    def load_state_dict(self, state: dict) -> "NullAccumulator":
         return self
 
 

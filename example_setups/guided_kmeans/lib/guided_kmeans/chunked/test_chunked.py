@@ -20,8 +20,18 @@ import sys
 
 import numpy as np
 
+<<<<<<< HEAD
 from .accumulators import GaussianAccumulator, MeanAccumulator, keep_previous_where_dead
 from .recognizers import RasrFBRecognizer
+=======
+from .accumulators import (
+    GaussianAccumulator,
+    MeanAccumulator,
+    NullAccumulator,
+    keep_previous_where_dead,
+)
+from .diagnostics import FrameDiagnostics, load_diagnostics
+>>>>>>> gkm_cov
 from .features import plan_chunks
 from .models import ArtifactModel, EuclideanModel, GaussianModel, load_model, read_manifest
 from .runner import reduce_chunks, run_chunk, save_chunk
@@ -101,6 +111,38 @@ class _StubFBRecognizer:
 
     def shutdown(self):
         pass
+class _StubTracebackItem:
+    """A traceback item carrying spans and scores, for the diagnostics probe."""
+
+    def __init__(self, lemma, start_time, end_time, am_score, lm_score, transition_score):
+        self.lemma = lemma
+        self.start_time = start_time
+        self.end_time = end_time
+        self.am_score = am_score
+        self.lm_score = lm_score
+        self.transition_score = transition_score
+
+
+def _scored_traceback(labels, rng):
+    """
+    Run-length encode a label sequence into a traceback, with *accumulated*
+    scores - the layout the rest of the code base assumes when it reads a
+    sequence total off the last item.
+    """
+    items = []
+    totals = np.zeros(3)
+    start = 0
+    for end in range(1, len(labels) + 1):
+        if end < len(labels) and labels[end] == labels[end - 1]:
+            continue
+        totals = totals + np.abs(rng.randn(3))
+        items.append(
+            _StubTracebackItem(
+                f"p{int(labels[start])}", start, end, totals[0], totals[1], totals[2]
+            )
+        )
+        start = end
+    return items
 
 
 class _StubRecognizer:
@@ -361,6 +403,124 @@ def main() -> int:
             totals_fb["num_seqs"] == num_seqs and totals_fb["num_recognized"] == num_seqs,
             str(totals_fb),
         )
+
+    print("diagnostics")
+    # One sequence gets an empty traceback: a search that emitted nothing is a
+    # real case (run_chunk keeps it as an empty hypothesis) and the dump has to
+    # carry it as the anomaly it is rather than dropping or crashing on it.
+    scored_tracebacks = {tag: _scored_traceback(table[tag], rng) for tag in tags}
+    silent_tag = tags[3]
+    scored_tracebacks[silent_tag] = []
+
+    with tempfile.TemporaryDirectory() as tmp:
+        for chunk_idx, part in enumerate(plan_chunks(lengths, 4)):
+            probe = FrameDiagnostics()
+            run_chunk(
+                features=_ListSource([(tags[i], feats[i]) for i in part]),
+                model=previous,
+                recognizer=_StubRecognizer(table, scored_tracebacks),
+                accumulator=NullAccumulator(),
+                probe=probe,
+                verbosity=0,
+            )
+            probe.save(os.path.join(tmp, f"diagnostics.4.{chunk_idx:04d}.npz"))
+        diag = load_diagnostics(tmp)
+
+        _check(
+            "every sequence survives chunking, exactly once",
+            diag.num_sequences == num_seqs and sorted(diag.seq_tag) == sorted(tags),
+            f"{diag.num_sequences} of {num_seqs}",
+        )
+
+        # The load-bearing claim of the whole dump: the cost recorded for a
+        # frame is the distance to the centroid it was aligned with, and the
+        # best cost is the distance to the one it would have picked alone.
+        cost_err, best_err, label_err = 0.0, 0.0, 0
+        for tag, seq_feats, seq_labels in zip(tags, feats, labels):
+            scored = previous.scores(seq_feats)
+            got = diag.frames_of(tag)
+            rows = np.arange(len(seq_labels))
+            cost_err = max(cost_err, np.abs(got["frame_assigned_cost"] - scored[rows, seq_labels]).max())
+            best_err = max(best_err, np.abs(got["frame_best_cost"] - scored.min(axis=1)).max())
+            label_err += int((got["frame_label"] != seq_labels).sum())
+        _check(
+            "assigned cost is the distance to the aligned centroid",
+            cost_err < 1e-4 and label_err == 0,
+            f"max err {cost_err:.2e}, {label_err} label mismatches",
+        )
+        _check("best cost is the distance to the nearest centroid", best_err < 1e-4,
+               f"max err {best_err:.2e}")
+
+        margin = diag.frame_margin
+        agreed = diag.frame_label == diag.frame_best_label
+        _check(
+            "margin is non-negative and zero exactly where the search agreed",
+            margin.min() >= 0 and np.all(margin[agreed] == 0) and np.all(margin[~agreed] > 0),
+        )
+
+        # Segment labels are read off the frame axis, so the two axes have to
+        # agree by construction - the property that lets the dump carry no
+        # lexicon of its own.
+        seg_ok = all(
+            np.array_equal(
+                diag.segments_of(tag)["seg_label"],
+                np.array([int(item.lemma[1:]) for item in scored_tracebacks[tag]]),
+            )
+            for tag in tags
+        )
+        _check("segment labels live in the same index space as frame labels", seg_ok)
+
+        table_out = diag.sequence_table()
+        rows = {tag: i for i, tag in enumerate(table_out["seq_tag"])}
+        last_err, sum_err = 0.0, 0.0
+        for tag in tags:
+            i = rows[tag]
+            items = scored_tracebacks[tag]
+            if not items:
+                continue
+            last_err = max(last_err, abs(table_out["am_last"][i] - items[-1].am_score))
+            sum_err = max(sum_err, abs(table_out["am_sum"][i] - sum(it.am_score for it in items)))
+        _check(
+            "both readings of the traceback scores are recorded",
+            last_err < 1e-9 and sum_err < 1e-9,
+            f"last {last_err:.2e}, sum {sum_err:.2e}",
+        )
+        _check(
+            "per-frame normalization divides by the sequence's frame count",
+            np.allclose(
+                table_out["total_last_per_frame"] * table_out["num_frames"],
+                table_out["total_last"],
+                equal_nan=True,
+            ),
+        )
+        i = rows[silent_tag]
+        _check(
+            "an empty traceback stays in the table, as nan",
+            table_out["num_segments"][i] == 0
+            and np.isnan(table_out["am_last"][i])
+            and table_out["am_sum"][i] == 0.0
+            and not np.isnan(table_out["mean_assigned_cost"][i]),
+        )
+
+    # The probe must be incapable of changing what the pass computes; that is
+    # what allows it to be attached to a pass whose model is used downstream.
+    with_probe = MeanAccumulator(num_clusters, dim)
+    without_probe = MeanAccumulator(num_clusters, dim)
+    for accumulator, attached in ((with_probe, FrameDiagnostics()), (without_probe, None)):
+        run_chunk(
+            features=_ListSource(list(zip(tags, feats))),
+            model=previous,
+            recognizer=_StubRecognizer(table, scored_tracebacks),
+            accumulator=accumulator,
+            probe=attached,
+            verbosity=0,
+        )
+    _check(
+        "attaching a probe does not change the result",
+        np.array_equal(
+            with_probe.finalize(previous).centroids, without_probe.finalize(previous).centroids
+        ),
+    )
 
     print("model artifacts")
     with tempfile.TemporaryDirectory() as tmp:
