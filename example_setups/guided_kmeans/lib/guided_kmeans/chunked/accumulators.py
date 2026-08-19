@@ -19,15 +19,18 @@ __all__ = [
 ]
 
 from dataclasses import dataclass
-from typing import Optional, TypeVar
+from typing import Dict, Mapping, Optional
 
 import numpy as np
 
 from ..pca import PCAUpdater
-from .interfaces import Posteriors, ScoreModel, as_hard_labels, as_responsibilities
-from .models import ArtifactModel, EuclideanModel, GaussianModel
-
-_ModelT = TypeVar("_ModelT", bound=ArtifactModel)
+from .interfaces import (
+    Posteriors,
+    ScoreModel,
+    as_dense_responsibilities,
+    as_hard_labels,
+)
+from .models import EuclideanModel, GaussianModel
 
 
 @dataclass
@@ -43,8 +46,8 @@ class _PreviousArrays:
 
 
 def keep_previous_where_dead(
-    updated: _ModelT, previous: ScoreModel, dead: np.ndarray
-) -> _ModelT:
+    updated: Mapping[str, np.ndarray], previous: ScoreModel, dead: np.ndarray
+) -> Dict[str, np.ndarray]:
     """
     Restore the previous epoch's parameters for clusters that received no data.
 
@@ -53,24 +56,31 @@ def keep_previous_where_dead(
     callback applies to centroids, here generalized over a model's artifacts so
     it holds for any parameter set.
 
+    Takes and returns the *artifact mapping* rather than a model, because a
+    model may not survive construction from pre-fallback arrays: GaussianModel
+    inverts its covariances eagerly, and a dead cluster's covariance is all
+    zeros until this rule has replaced it. Callers therefore fix the arrays up
+    first and construct once, from values that are already correct.
+
     Relies on every artifact being indexed by cluster on its first axis, which
     is asserted rather than assumed: a model carrying a genuinely global
     parameter needs this rule extended, and should fail loudly here instead of
     having that parameter silently overwritten.
     """
+    new_arrays = dict(updated)
     if not dead.any():
-        return updated
+        return new_arrays
 
-    new_arrays = updated.artifacts()
     old_arrays = previous.artifacts()
     if set(new_arrays) != set(old_arrays):
         raise ValueError(
-            f"cannot carry parameters over from {type(previous).__name__} to "
-            f"{type(updated).__name__}: artifacts {sorted(old_arrays)} vs {sorted(new_arrays)}"
+            f"cannot carry parameters over from {type(previous).__name__}: its "
+            f"artifacts {sorted(old_arrays)} do not match {sorted(new_arrays)}"
         )
 
     merged = {}
     for name, array in new_arrays.items():
+        array = np.asarray(array)
         old = np.asarray(old_arrays[name])
         if array.shape[0] != len(dead) or old.shape[0] != len(dead):
             raise ValueError(
@@ -82,7 +92,7 @@ def keep_previous_where_dead(
         array[dead] = old[dead]
         merged[name] = array
 
-    return type(updated).from_artifacts(merged, updated.meta())
+    return merged
 
 
 class MeanAccumulator:
@@ -111,31 +121,17 @@ class MeanAccumulator:
     def observe(self, features: np.ndarray, posteriors: Posteriors) -> None:
         features = np.asarray(features, dtype=np.float64)
         self._ensure(features.shape[1])
-        if isinstance(posteriors, np.ndarray) and posteriors.ndim == 2:
-            # Dense gamma matrix [T, K] from forward-backward search — use directly.
-            if len(posteriors) != len(features):
-                raise ValueError(
-                    f"frame count mismatch: {len(features)} features vs {len(posteriors)} gammas"
-                )
-            if posteriors.shape[1] != self.num_clusters:
-                raise ValueError(
-                    f"gamma columns {posteriors.shape[1]} != num_clusters {self.num_clusters}"
-                )
-            self.counts += posteriors.sum(0)
-            self.sums += posteriors.T @ features
-            return
-        idx, weights = as_responsibilities(posteriors)
-        if len(idx) != len(features):
+        # One conversion covers hard labels, n-best and dense FB gammas alike.
+        # For hard labels it yields exactly the one-hot matrix the
+        # single-process callback contracts (`idx_matrix.T @ hidden_states`),
+        # down to the summation order, keeping the two pipelines bit-comparable;
+        # soft posteriors put non-binary weights in the same matrix.
+        responsibilities = as_dense_responsibilities(posteriors, self.num_clusters)
+        if len(responsibilities) != len(features):
             raise ValueError(
-                f"frame count mismatch: {len(features)} features vs {len(idx)} labels"
+                f"frame count mismatch: {len(features)} features vs "
+                f"{len(responsibilities)} posteriors"
             )
-        # Build the [T, K] responsibility matrix and contract. For hard labels
-        # this is exactly the one-hot matmul the single-process callback does
-        # (`idx_matrix.T @ hidden_states`), down to the summation order, which
-        # keeps the two pipelines bit-comparable; soft posteriors just put
-        # non-binary weights in the same matrix.
-        responsibilities = np.zeros((len(features), self.num_clusters), dtype=np.float64)
-        np.add.at(responsibilities, (np.arange(len(features))[:, None], idx), weights)
         self.counts += responsibilities.sum(0)
         self.sums += responsibilities.T @ features
 
@@ -160,9 +156,10 @@ class MeanAccumulator:
             out=np.zeros_like(self.sums),
             where=self.counts[:, np.newaxis] > 0,
         )
-        return keep_previous_where_dead(
-            EuclideanModel(centroids), previous, self.counts == 0
+        merged = keep_previous_where_dead(
+            {"centroids": centroids}, previous, self.counts == 0
         )
+        return EuclideanModel(merged["centroids"])
 
     def state_dict(self) -> dict:
         return {"counts": self.counts, "sums": self.sums, "num_clusters": self.num_clusters}
@@ -233,18 +230,20 @@ class SoftGaussianAccumulator:
         T, D = features.shape
         self._ensure(D)
 
-        if not (isinstance(posteriors, np.ndarray) and posteriors.ndim == 2):
+        # Dense-only on purpose, even though as_dense_responsibilities() would
+        # happily one-hot hard labels: doing so would silently duplicate
+        # GaussianAccumulator while computing the covariance from raw moments
+        # rather than Welford, i.e. pick the worse-conditioned of two equivalent
+        # routes. Refuse instead, and say which class to use.
+        if isinstance(posteriors, tuple) or np.asarray(posteriors).ndim != 2:
             raise ValueError(
                 "SoftGaussianAccumulator requires dense 2-D gamma posteriors [T, K]; "
                 f"got {type(posteriors).__name__} with ndim={getattr(posteriors, 'ndim', '?')}. "
                 "Use GaussianAccumulator for hard-label input."
             )
-        if posteriors.shape != (T, self.num_clusters):
-            raise ValueError(
-                f"gamma shape {posteriors.shape} != expected ({T}, {self.num_clusters})"
-            )
-
-        gammas = np.asarray(posteriors, dtype=np.float64)
+        gammas = as_dense_responsibilities(posteriors, self.num_clusters)
+        if len(gammas) != T:
+            raise ValueError(f"frame count mismatch: {T} features vs {len(gammas)} gammas")
 
         self.counts += gammas.sum(0)
         self.weighted_sums += gammas.T @ features  # [K, D]
@@ -273,32 +272,34 @@ class SoftGaussianAccumulator:
         if self.weighted_sums is None:
             raise RuntimeError("nothing accumulated; cannot finalize")
 
-        arrays = previous.artifacts()
-        missing = {"centroids", "covs"} - set(arrays)
+        missing = {"centroids", "covs"} - set(previous.artifacts())
         if missing:
             raise TypeError(
                 f"SoftGaussianAccumulator needs a model with {sorted(missing)}, "
-                f"got {type(previous).__name__} with {sorted(arrays)}"
+                f"got {type(previous).__name__} with {sorted(previous.artifacts())}"
             )
-        prev_centroids = np.asarray(arrays["centroids"])
-        prev_covs = np.asarray(arrays["covs"])
 
         alive = self.counts > 0
         n = np.where(alive, self.counts, 1.0)  # avoid division by zero; dead rows replaced below
 
         means = self.weighted_sums / n[:, np.newaxis]  # [K, D]
-        # Σ_k = E[x x^T | k] - µ_k µ_k^T
+        # Σ_k = E[x x^T | k] - µ_k µ_k^T.
+        # Raw moments rather than the Welford form used in pca.py: measured on
+        # these features (near zero-mean, |mean| ~ 1.3 vs std ~ 9.5) the two
+        # agree to a relative 3e-16 and both stay positive definite, so the
+        # cancellation that motivates Welford there does not bite here.
         second_moment = self.weighted_sq / n[:, np.newaxis, np.newaxis]  # [K, D, D]
         mu_outer = means[:, :, np.newaxis] * means[:, np.newaxis, :]     # [K, D, D]
         covs = second_moment - mu_outer
         # Symmetrize to correct for floating-point asymmetry in the accumulation.
         covs = (covs + covs.transpose(0, 2, 1)) / 2
 
-        # Dead clusters keep the previous model's parameters.
-        means[~alive] = prev_centroids[~alive]
-        covs[~alive] = prev_covs[~alive]
-
-        return GaussianModel(means, covs, device=getattr(previous, "device", None))
+        merged = keep_previous_where_dead(
+            {"centroids": means, "covs": covs}, previous, ~alive
+        )
+        return GaussianModel(
+            merged["centroids"], merged["covs"], device=getattr(previous, "device", None)
+        )
 
     def state_dict(self) -> dict:
         return {
@@ -324,6 +325,9 @@ class SoftGaussianAccumulator:
             None if state["weighted_sq"] is None
             else np.asarray(state["weighted_sq"], dtype=np.float64)
         )
+        return self
+
+
 class NullAccumulator:
     """
     Accumulates nothing, for a pass that recognizes in order to *observe* it

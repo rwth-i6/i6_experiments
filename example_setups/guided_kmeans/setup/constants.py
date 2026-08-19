@@ -34,6 +34,7 @@ CHEATING_CENTROIDS_DBG = tk.Path(f"{_CENTROIDS_BASE}/train-clean-100-dbg/centroi
 CHEATING_CENTROIDS_LS960 = tk.Path(f"{_CENTROIDS_BASE}/centroids.npy")
 # Covariances
 CHEATING_COVS = tk.Path(f"{_DANIEL_BASE}/covs.npy")
+SHARED_COVS = tk.Path(f"{_DANIEL_BASE}/shared_cov.npy") # unclustered covariance matrix duplicated 40 times [40, 512, 512]
 
 # --- GMM alignments ---
 GMM_ALIGNMENT_DBG = tk.Path(f"{_CENTROIDS_BASE}/train-clean-100-dbg/alignments.pkl")
@@ -80,4 +81,10 @@ INPUT_DATA = {
         "features": FEATURES_LS_CV_SEGMENTED,
         "segment_file": SEGMENTS_LS_CV,
     },
+}
+
+INITIALIZATIONS = {
+    "shared_covariances": SHARED_COVS,
+    "cheating_centroids": CHEATING_CENTROIDS_LS960,
+    "cheating_covs": CHEATING_COVS,
 }

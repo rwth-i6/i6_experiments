@@ -28,8 +28,14 @@ import numpy as np
 
 from ..statistics import CounterProtocol
 from ..util import ProgressLogger
-from .interfaces import Accumulator, FeatureSource, Probe, Recognizer, ScoreModel
-from .recognizers import FBTracebackItem
+from .interfaces import (
+    Accumulator,
+    FeatureSource,
+    Probe,
+    Recognizer,
+    RecognitionResult,
+    ScoreModel,
+)
 from .stats import merge_counters
 
 
@@ -88,7 +94,8 @@ def run_chunk(
     hypotheses: Optional[Dict[str, str]] = {} if transcribe is not None else None
     stats = {"recognized": 0, "frames": 0}
 
-    def on_result(seq_tag: str, posteriors, traceback: List[Any]) -> None:
+    def on_result(result: RecognitionResult) -> None:
+        seq_tag, posteriors, traceback = result.seq_tag, result.posteriors, result.traceback
         try:
             seq_features, seq_scores = pending.pop(seq_tag)
         except KeyError:
@@ -101,19 +108,20 @@ def run_chunk(
                 f"{len(seq_features)} frames"
             )
         accumulator.observe(seq_features, posteriors)
-        is_fb = traceback and isinstance(traceback[0], FBTracebackItem)
-        if counter is not None and traceback:
-            if is_fb and hasattr(counter, "read_gammas"):
-                counter.read_gammas(posteriors, traceback[0].log_likelihood)
-            else:
+        if counter is not None:
+            # Which reader applies follows from what the recognizer reported,
+            # not from inspecting the items inside the traceback: a search that
+            # produces no discrete path reports a sequence_score instead.
+            if result.sequence_score is not None and hasattr(counter, "read_gammas"):
+                counter.read_gammas(posteriors, result.sequence_score)
+            elif traceback:
                 counter.read(traceback)
         if transcribe is not None and hypotheses is not None:
             # Unconditionally, empty traceback included: a sequence the search
             # emitted nothing for is a legitimate empty hypothesis and scoring
-            # has to see it as a deletion, not as a missing segment.
-            # For FB the traceback carries FBTracebackItem, not lemma items —
-            # pass an empty list so transcribe produces the correct empty string.
-            hypotheses[seq_tag] = transcribe([] if is_fb else traceback)
+            # has to see it as a deletion, not as a missing segment. A
+            # pathless search leaves traceback empty, which yields exactly that.
+            hypotheses[seq_tag] = transcribe(traceback)
         if probe is not None:
             assert seq_scores is not None
             probe.observe(

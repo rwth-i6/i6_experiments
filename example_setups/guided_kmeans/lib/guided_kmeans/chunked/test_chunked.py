@@ -20,10 +20,6 @@ import sys
 
 import numpy as np
 
-<<<<<<< HEAD
-from .accumulators import GaussianAccumulator, MeanAccumulator, keep_previous_where_dead
-from .recognizers import RasrFBRecognizer
-=======
 from .accumulators import (
     GaussianAccumulator,
     MeanAccumulator,
@@ -31,7 +27,8 @@ from .accumulators import (
     keep_previous_where_dead,
 )
 from .diagnostics import FrameDiagnostics, load_diagnostics
->>>>>>> gkm_cov
+from .interfaces import RecognitionResult
+from .recognizers import RasrFBRecognizer
 from .features import plan_chunks
 from .models import ArtifactModel, EuclideanModel, GaussianModel, load_model, read_manifest
 from .runner import reduce_chunks, run_chunk, save_chunk
@@ -106,11 +103,17 @@ class _StubFBRecognizer:
 
     def drain(self):
         for seq_tag in self._buffer:
-            self._cb(seq_tag, self.gammas_table[seq_tag], [])
+            self._cb(RecognitionResult(
+                seq_tag=seq_tag,
+                posteriors=self.gammas_table[seq_tag],
+                sequence_score=-1.0,
+            ))
         self._buffer = []
 
     def shutdown(self):
         pass
+
+
 class _StubTracebackItem:
     """A traceback item carrying spans and scores, for the diagnostics probe."""
 
@@ -162,7 +165,11 @@ class _StubRecognizer:
 
     def drain(self):
         for seq_tag in self._buffer:
-            self._cb(seq_tag, self.table[seq_tag], self.tracebacks.get(seq_tag, []))
+            self._cb(RecognitionResult(
+                seq_tag=seq_tag,
+                posteriors=self.table[seq_tag],
+                traceback=self.tracebacks.get(seq_tag, []),
+            ))
         self._buffer = []
 
     def shutdown(self):
@@ -350,24 +357,40 @@ def main() -> int:
     # Instantiate without starting the pool; _handle does not touch the executor.
     fb_rec = RasrFBRecognizer("/nonexistent.config", num_clusters=num_clusters)
     delivered = []
-    fb_rec._on_result = lambda seq_tag, posteriors, tb: delivered.append((seq_tag, posteriors, tb))
+    fb_rec._on_result = delivered.append
 
     T = 15
     raw_gammas = rng.exponential(1.0, size=(T, num_clusters + 3)).astype(np.float64)
     seq_tag_fb = "test_fb_seq"
     fb_rec._handle(seq_tag_fb, raw_gammas, log_likelihood=-42.0)
     assert len(delivered) == 1
-    out_tag, out_gammas, out_tb = delivered[0]
+    out_tag, out_gammas = delivered[0].seq_tag, delivered[0].posteriors
     _check("_handle: seq_tag passed through", out_tag == seq_tag_fb)
     _check("_handle: extra RASR label columns stripped", out_gammas.shape == (T, num_clusters))
     _check("_handle: rows sum to 1 after normalization",
            np.allclose(out_gammas.sum(axis=1), 1.0, atol=1e-12))
-    _check("_handle: empty traceback passed through", out_tb == [])
+    # The log-likelihood rides in its own field; run_chunk dispatches on that
+    # rather than on the type of whatever sits in the traceback slot, and a
+    # pathless search leaves the traceback empty.
+    _check("_handle: log-likelihood reported as sequence_score",
+           delivered[0].sequence_score == -42.0, repr(delivered[0].sequence_score))
+    _check("_handle: no discrete path reported for FB", delivered[0].traceback == [])
+
+    # A sequence the worker produced nothing for carries no FB metadata; the
+    # empty gammas then trip run_chunk's frame-count check, as intended.
+    empty_delivered = []
+    fb_rec._on_result = empty_delivered.append
+    fb_rec._handle("empty_seq", np.zeros((0, num_clusters + 3)), log_likelihood=float("nan"))
+    _check("_handle: empty gammas carry no score and no path",
+           len(empty_delivered) == 1 and empty_delivered[0].traceback == []
+           and empty_delivered[0].sequence_score is None
+           and empty_delivered[0].posteriors.shape[0] == 0)
+    fb_rec._on_result = delivered.append
 
     # All-zero row (degenerate sequence) must produce a zero row, not nan.
     zero_row = np.zeros((T, num_clusters + 3), dtype=np.float64)
     delivered_zero = []
-    fb_rec._on_result = lambda seq_tag, posteriors, tb: delivered_zero.append(posteriors)
+    fb_rec._on_result = lambda result: delivered_zero.append(result.posteriors)
     fb_rec._handle("zero_seq", zero_row, float("nan"))
     _check("_handle: all-zero row produces zero row (not nan)",
            delivered_zero and not np.isnan(delivered_zero[0]).any()
@@ -554,18 +577,29 @@ def main() -> int:
 
     dead = np.zeros(num_clusters, bool)
     dead[[1, 4]] = True
+    # Operates on the artifact mapping, not a model: a model built from
+    # pre-fallback arrays may not survive construction (GaussianModel inverts
+    # its covariances, and a dead cluster's is all zeros).
     carried = keep_previous_where_dead(
-        _DiagModel(
-            np.zeros((num_clusters, dim)), np.zeros((num_clusters, dim)), np.zeros(num_clusters)
-        ),
+        {
+            "centroids": np.zeros((num_clusters, dim)),
+            "variances": np.zeros((num_clusters, dim)),
+            "priors": np.zeros(num_clusters),
+        },
         diag,
         dead,
     )
     _check(
         "dead-cluster carry-over is generic over artifacts",
-        np.array_equal(carried.variances[dead], diag.variances[dead])
-        and np.array_equal(carried.priors[dead], diag.priors[dead])
-        and np.array_equal(carried.priors[~dead], np.zeros(num_clusters - 2)),
+        np.array_equal(carried["variances"][dead], diag.variances[dead])
+        and np.array_equal(carried["priors"][dead], diag.priors[dead])
+        and np.array_equal(carried["priors"][~dead], np.zeros(num_clusters - 2)),
+    )
+    _check(
+        "a model rebuilt from the carried artifacts is intact",
+        np.array_equal(
+            _DiagModel.from_artifacts(carried, {}).variances[dead], diag.variances[dead]
+        ),
     )
 
     print("continuation")

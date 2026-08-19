@@ -12,7 +12,7 @@ Adding an n-best or full-sum recognizer means implementing
 
 from __future__ import annotations
 
-__all__ = ["PhonemeIdxMap", "RasrViterbiRecognizer", "SerialRasrRecognizer", "RasrFBRecognizer", "FBTracebackItem"]
+__all__ = ["PhonemeIdxMap", "RasrViterbiRecognizer", "SerialRasrRecognizer", "RasrFBRecognizer"]
 
 from collections import UserDict
 from dataclasses import dataclass
@@ -24,20 +24,7 @@ from i6_core.lib.lexicon import Lexicon
 
 from ..parallel_recognizer import ParallelFBRecognizer, ParallelSegmentRecognizer, PlainTracebackItem
 from ..util import segments_to_array
-from .interfaces import Posteriors
-
-
-@dataclass
-class FBTracebackItem:
-    """
-    Carries forward-backward metadata through on_result's traceback slot.
-
-    The chunked runner's on_result callback has no separate log_likelihood
-    parameter; this wrapper threads it through traceback[0] for the FB path
-    so FBStatisticsCounter can accumulate it without changing the Recognizer
-    protocol.
-    """
-    log_likelihood: float
+from .interfaces import Posteriors, RecognitionResult
 
 
 class PhonemeIdxMap(UserDict):
@@ -108,19 +95,25 @@ class RasrViterbiRecognizer:
         self._recognizer = ParallelSegmentRecognizer(
             recognition_config, num_workers=num_workers, task_timeout=task_timeout
         )
-        self._on_result: Optional[Callable[[str, Posteriors, List[Any]], None]] = None
+        self._on_result: Optional[Callable[[RecognitionResult], None]] = None
 
     @property
     def num_labels(self) -> int:
         return len(self.phoneme_map)
 
-    def start(self, on_result: Callable[[str, Posteriors, List[Any]], None]) -> None:
+    def start(self, on_result: Callable[[RecognitionResult], None]) -> None:
         self._on_result = on_result
         self._recognizer.start(on_result=self._handle)
 
     def _handle(self, seq_tag: str, traceback: List[PlainTracebackItem]) -> None:
         assert self._on_result is not None
-        self._on_result(seq_tag, traceback_to_labels(traceback, self.phoneme_map), traceback)
+        self._on_result(
+            RecognitionResult(
+                seq_tag=seq_tag,
+                posteriors=traceback_to_labels(traceback, self.phoneme_map),
+                traceback=traceback,
+            )
+        )
 
     def submit(self, seq_tag: str, scores: np.ndarray) -> None:
         self._recognizer.submit(seq_tag, scores * self.distance_scale)
@@ -167,13 +160,13 @@ class RasrFBRecognizer:
             task_timeout=task_timeout,
             per_task_timeout=per_task_timeout,
         )
-        self._on_result: Optional[Callable[[str, Posteriors, List[Any]], None]] = None
+        self._on_result: Optional[Callable[[RecognitionResult], None]] = None
 
     @property
     def num_labels(self) -> int:
         return self.num_clusters
 
-    def start(self, on_result: Callable[[str, Posteriors, List[Any]], None]) -> None:
+    def start(self, on_result: Callable[[RecognitionResult], None]) -> None:
         self._on_result = on_result
         self._recognizer.start(on_result=self._handle)
 
@@ -181,7 +174,7 @@ class RasrFBRecognizer:
         assert self._on_result is not None
         if gammas.shape[0] == 0:
             # Broken worker — propagate so run_chunk's length check raises cleanly.
-            self._on_result(seq_tag, gammas, [])
+            self._on_result(RecognitionResult(seq_tag=seq_tag, posteriors=gammas))
             return
         # RASR accumulates alpha/beta in float32; per-frame normalization recovers
         # the correct relative posteriors (same fix as the single-process FB path).
@@ -192,7 +185,13 @@ class RasrFBRecognizer:
             phoneme_gammas / np.maximum(row_sums, 1e-300),
             np.zeros_like(phoneme_gammas),
         )
-        self._on_result(seq_tag, phoneme_gammas, [FBTracebackItem(log_likelihood=log_likelihood)])
+        self._on_result(
+            RecognitionResult(
+                seq_tag=seq_tag,
+                posteriors=phoneme_gammas,
+                sequence_score=log_likelihood,
+            )
+        )
 
     def submit(self, seq_tag: str, scores: np.ndarray) -> None:
         self._recognizer.submit(seq_tag, scores * self.distance_scale)
@@ -221,13 +220,13 @@ class SerialRasrRecognizer:
         self.phoneme_map = PhonemeIdxMap(lexicon_path)
         self.distance_scale = distance_scale
         self._search = None
-        self._on_result: Optional[Callable[[str, Posteriors, List[Any]], None]] = None
+        self._on_result: Optional[Callable[[RecognitionResult], None]] = None
 
     @property
     def num_labels(self) -> int:
         return len(self.phoneme_map)
 
-    def start(self, on_result: Callable[[str, Posteriors, List[Any]], None]) -> None:
+    def start(self, on_result: Callable[[RecognitionResult], None]) -> None:
         from librasr import Configuration, SearchAlgorithm
 
         config = Configuration()
@@ -238,7 +237,13 @@ class SerialRasrRecognizer:
     def submit(self, seq_tag: str, scores: np.ndarray) -> None:
         assert self._search is not None and self._on_result is not None
         traceback = self._search.recognize_segment(scores * self.distance_scale, seq_tag)
-        self._on_result(seq_tag, traceback_to_labels(traceback, self.phoneme_map), traceback)
+        self._on_result(
+            RecognitionResult(
+                seq_tag=seq_tag,
+                posteriors=traceback_to_labels(traceback, self.phoneme_map),
+                traceback=traceback,
+            )
+        )
 
     def drain(self) -> None:
         pass  # submit() is synchronous

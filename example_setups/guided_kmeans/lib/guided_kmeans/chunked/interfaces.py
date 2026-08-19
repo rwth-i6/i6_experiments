@@ -9,6 +9,7 @@ from __future__ import annotations
 
 __all__ = [
     "Posteriors",
+    "RecognitionResult",
     "FeatureSource",
     "ScoreModel",
     "Recognizer",
@@ -16,21 +17,42 @@ __all__ = [
     "Probe",
     "as_hard_labels",
     "as_responsibilities",
+    "as_dense_responsibilities",
 ]
 
-from typing import Any, Callable, Dict, Iterator, List, Protocol, Tuple, Union, runtime_checkable
+from dataclasses import dataclass, field
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterator,
+    List,
+    Optional,
+    Protocol,
+    Tuple,
+    Union,
+    runtime_checkable,
+)
 
 import numpy as np
 
-#: What a recognizer hands back for one sequence, in one of two forms:
+#: What a recognizer hands back for one sequence, in one of three forms:
 #:
 #: * ``[T]`` integer array - one label per frame (Viterbi / forced alignment)
 #: * ``([T, n] int, [T, n] float)`` - the n best labels per frame with their
-#:   weights, which is how n-best lists and full-sum posteriors will arrive
+#:   weights, which is how an n-best recognizer reports
+#: * ``[T, K]`` float array - a dense posterior (gamma) matrix over all
+#:   clusters, which is how forward-backward search reports
 #:
-#: Accumulators consume this single type, so moving from Viterbi to n-best or
-#: full-sum is a recognizer swap and touches no accumulator code.
+#: The forms are told apart by structure: a tuple is the sparse form, a 1-D
+#: array is hard labels, a 2-D array is dense gammas. Accumulators consume the
+#: single type through the converters below, so swapping Viterbi for n-best or
+#: full-sum is a recognizer change and touches no accumulator arithmetic.
 Posteriors = Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]
+
+
+def _is_dense(posteriors: Posteriors) -> bool:
+    return not isinstance(posteriors, tuple) and np.asarray(posteriors).ndim == 2
 
 
 def as_hard_labels(posteriors: Posteriors) -> np.ndarray:
@@ -38,6 +60,13 @@ def as_hard_labels(posteriors: Posteriors) -> np.ndarray:
     ``[T]`` label array, for accumulators that cannot use soft assignments.
     Raises on genuinely soft input rather than silently taking the argmax.
     """
+    if _is_dense(posteriors):
+        raise NotImplementedError(
+            "this accumulator requires hard assignments, got a dense "
+            f"{np.asarray(posteriors).shape} posterior matrix; pair a "
+            "forward-backward recognizer with an accumulator that takes soft "
+            "assignments (MeanAccumulator, SoftGaussianAccumulator)"
+        )
     if isinstance(posteriors, tuple):
         idx, weights = posteriors
         if idx.shape[1] != 1:
@@ -51,12 +80,50 @@ def as_hard_labels(posteriors: Posteriors) -> np.ndarray:
 
 def as_responsibilities(posteriors: Posteriors) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Normalize either form to ``([T, n] idx, [T, n] weights)``. Hard labels
-    become one candidate per frame with weight 1.0.
+    Normalize any form to ``([T, n] idx, [T, n] weights)``. Hard labels become
+    one candidate per frame with weight 1.0; a dense ``[T, K]`` matrix becomes
+    K candidates per frame.
+
+    Prefer :func:`as_dense_responsibilities` for accumulators that contract
+    against all clusters anyway - it avoids materializing an index array the
+    dense form does not need.
     """
     if isinstance(posteriors, tuple):
         return posteriors
+    posteriors = np.asarray(posteriors)
+    if posteriors.ndim == 2:
+        num_frames, num_clusters = posteriors.shape
+        idx = np.broadcast_to(np.arange(num_clusters), (num_frames, num_clusters))
+        return idx, posteriors
     return posteriors[:, None], np.ones((len(posteriors), 1), dtype=np.float64)
+
+
+def as_dense_responsibilities(posteriors: Posteriors, num_clusters: int) -> np.ndarray:
+    """
+    ``[T, K]`` responsibility matrix, whichever form the recognizer used.
+
+    This is the single place the three forms are told apart. Hard labels give a
+    one-hot matrix, so an accumulator written against this sees exactly the
+    arithmetic it saw before dense posteriors existed.
+    """
+    if isinstance(posteriors, tuple):
+        idx, weights = posteriors
+        dense = np.zeros((len(idx), num_clusters), dtype=np.float64)
+        np.add.at(dense, (np.arange(len(idx))[:, None], idx), weights)
+        return dense
+
+    posteriors = np.asarray(posteriors)
+    if posteriors.ndim == 2:
+        if posteriors.shape[1] != num_clusters:
+            raise ValueError(
+                f"dense posteriors have {posteriors.shape[1]} columns, "
+                f"expected {num_clusters}"
+            )
+        return posteriors.astype(np.float64, copy=False)
+
+    dense = np.zeros((len(posteriors), num_clusters), dtype=np.float64)
+    dense[np.arange(len(posteriors)), posteriors] = 1.0
+    return dense
 
 
 @runtime_checkable
@@ -98,17 +165,45 @@ class ScoreModel(Protocol):
     def save(self, directory: str) -> None: ...
 
 
+@dataclass
+class RecognitionResult:
+    """
+    Everything a recognizer reports about one sequence.
+
+    A single object rather than a widening argument list, so a recognizer with
+    something extra to say has a named field to say it in. The alternative -
+    threading per-sequence metadata through the ``traceback`` slot - worked for
+    one value but made the slot mean different things for different
+    recognizers, and forced consumers to identify the producer by inspecting
+    the items inside it.
+
+    :param seq_tag: the sequence this result belongs to
+    :param posteriors: per-frame assignments, in any of the :data:`Posteriors`
+        forms
+    :param traceback: the search's own path representation, passed through
+        untouched for the statistics counters. Empty for recognizers that
+        produce no discrete path, such as forward-backward.
+    :param sequence_score: the search's score for the whole sequence, in the
+        recognizer's natural units - log-likelihood for forward-backward. Left
+        as ``None`` by recognizers whose per-sequence score is already
+        recoverable from ``traceback`` (Viterbi puts it in the final item).
+    """
+
+    seq_tag: str
+    posteriors: "Posteriors"
+    traceback: List[Any] = field(default_factory=list)
+    sequence_score: Optional[float] = None
+
+
 @runtime_checkable
 class Recognizer(Protocol):
     """
     Turns per-frame scores into per-frame labels, asynchronously.
 
-    ``on_result`` receives ``(seq_tag, posteriors, traceback)``; the traceback
-    is passed through untouched for the statistics counters and may be an
-    empty list for recognizers that do not produce one.
+    ``on_result`` receives one :class:`RecognitionResult` per sequence.
     """
 
-    def start(self, on_result: Callable[[str, Posteriors, List[Any]], None]) -> None: ...
+    def start(self, on_result: Callable[["RecognitionResult"], None]) -> None: ...
 
     def submit(self, seq_tag: str, scores: np.ndarray) -> None: ...
 

@@ -23,8 +23,10 @@ from .interfaces import (
     FeatureSource,
     Posteriors,
     Probe,
+    RecognitionResult,
     Recognizer,
     ScoreModel,
+    as_dense_responsibilities,
     as_hard_labels,
     as_responsibilities,
 )
@@ -36,15 +38,21 @@ from .models import (
     load_model,
     read_manifest,
 )
-from .recognizers import FBTracebackItem, PhonemeIdxMap, RasrViterbiRecognizer, SerialRasrRecognizer
+from .recognizers import (
+    PhonemeIdxMap,
+    RasrFBRecognizer,
+    RasrViterbiRecognizer,
+    SerialRasrRecognizer,
+)
 from .accumulators import (
     GaussianAccumulator,
     MeanAccumulator,
     NullAccumulator,
+    SoftGaussianAccumulator,
     keep_previous_where_dead,
 )
 from .runner import ChunkResult, load_chunk, reduce_chunks, run_chunk, save_chunk
-from .stats import default_stats_hooks, merge_counters
+from .stats import default_stats_hooks, fb_stats_hooks, merge_counters
 from .diagnostics import Diagnostics, FrameDiagnostics, load_diagnostics
 
 __all__ = [
@@ -54,8 +62,10 @@ __all__ = [
     "FeatureSource",
     "Posteriors",
     "Probe",
+    "RecognitionResult",
     "Recognizer",
     "ScoreModel",
+    "as_dense_responsibilities",
     "as_hard_labels",
     "as_responsibilities",
     "HDFFeatureSource",
@@ -66,7 +76,6 @@ __all__ = [
     "GaussianModel",
     "load_model",
     "read_manifest",
-    "FBTracebackItem",
     "PhonemeIdxMap",
     "RasrFBRecognizer",
     "RasrViterbiRecognizer",

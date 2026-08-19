@@ -30,7 +30,7 @@ def default_stats_hooks(phonemes: Iterable[str]) -> CounterProtocol:
 def fb_stats_hooks(num_clusters: int) -> FBStatisticsCounter:
     """
     Counter set for forward-backward chunked runs: driven by gammas and
-    log-likelihoods from :class:`.recognizers.FBTracebackItem`, not Viterbi
+    log-likelihoods from :class:`.interfaces.RecognitionResult`, not Viterbi
     tracebacks. Analogous to :func:`default_stats_hooks` but for the FB path.
     """
     return FBStatisticsCounter(num_clusters=num_clusters)
