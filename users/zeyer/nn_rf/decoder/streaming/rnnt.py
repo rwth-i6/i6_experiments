@@ -24,7 +24,7 @@ from __future__ import annotations
 from typing import Dict, Optional, Sequence, Tuple, TYPE_CHECKING
 
 import returnn.frontend as rf
-from returnn.tensor import Tensor, Dim
+from returnn.tensor import Tensor, Dim, single_step_dim
 
 from .framewise import FramewiseDecoderLayer
 from .base import label_smoothed_log_probs, mark_frame_error, rna_targets_on_enc_spatial
@@ -267,49 +267,51 @@ def model_recog_beam(
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Frame-synchronous beam search, monotonic RNN-T (cf. :func:`model_recog`); beam_size from config (default 12).
-    Prediction state = emitted-label buffer + count (re-run each step, gathered at n_emitted),
-    so no growing self-att cache to mask across the beam. Blanks stripped.
+    The prediction net is stepped incrementally (single-step self-att cache), advanced only on the beams that emit a
+    label this frame -- masked select/scatter, as in ...recog_ext.aed_ctc.model_recog_with_recomb. Blanks stripped.
     """
     from returnn.config import get_global_config
     from .beam_search import frame_sync_beam_search
 
     config = get_global_config(return_empty_if_none=True)
     beam_size = config.int("beam_size", 12)
-    max_labels = config.int("max_labels", 0) or 200
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim)
     enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     dec = model.decoder
     blank, bos = model.blank_idx, model.bos_idx
     model_dim = dec.model_dim
-    label_dim = Dim(max_labels, name="emit_labels")  # fixed emitted-label buffer
-    label_range = rf.range_over_dim(label_dim)
 
     def _init(bd):
-        return {
-            "emitted_labels": rf.constant(blank, dims=bd + [label_dim], sparse_dim=model.target_dim_ext, dtype="int32"),
-            "n_emitted": rf.constant(0, dims=bd, dtype="int32"),
-        }
+        # current prediction = f(BOS); pred_state = its self-att KV cache.
+        pred_state = dec.pred_initial_state(batch_dims=bd)
+        bos_in = rf.constant(bos, dims=bd, sparse_dim=model.target_dim_ext, dtype="int32")
+        current_pred, pred_state = dec.pred_forward(bos_in, spatial_dim=single_step_dim, state=pred_state)
+        current_pred.feature_dim = model_dim
+        return {"pred_state": pred_state, "current_pred": current_pred}
 
     def _step(prev, enc_t, state):
-        emitted_labels, n_emitted = state["emitted_labels"], state["n_emitted"]
-        # append prev if a real label (blank / initial bos are no-ops)
-        is_label = rf.logical_and(prev != blank, prev != bos)
-        write = rf.logical_and(is_label, label_range == n_emitted)
-        emitted_labels = rf.where(write, prev, emitted_labels)
-        n_emitted = n_emitted + rf.cast(is_label, "int32")
-        # g_{n_emitted}: re-run pred net over [bos, emitted...], gather at n_emitted (blank pad is causally later)
-        pred_bd = [d for d in emitted_labels.dims if d != label_dim]
-        pred_in, (ext_dim,) = rf.pad(emitted_labels, axes=[label_dim], padding=[(1, 0)], value=bos)
-        pred_in.sparse_dim = model.target_dim_ext
-        pred, _ = dec.pred_forward(pred_in, spatial_dim=ext_dim, state=dec.pred_initial_state(batch_dims=pred_bd))
-        current_pred = rf.gather(pred, indices=n_emitted, axis=ext_dim)
+        pred_state, current_pred = state["pred_state"], state["current_pred"]
+        # Advance the pred net by one label, only on the beams that emitted a (non-blank) label last frame.
+        emit = rf.logical_and(prev != blank, prev != bos)
+        emit_cpu = rf.copy_to_device(emit, "cpu")
+        if emit_cpu.raw_tensor.sum().item() > 0:
+            (prev_e, pred_state_e), packed_dim, packed_map = rf.nested.masked_select_nested(
+                (prev, pred_state), mask=emit, mask_cpu=emit_cpu, dims=list(prev.dims)
+            )
+            new_pred_e, pred_state_e = dec.pred_forward(prev_e, spatial_dim=single_step_dim, state=pred_state_e)
+            current_pred, pred_state = rf.nested.masked_scatter_nested(
+                (new_pred_e, pred_state_e),
+                (current_pred, pred_state),
+                mask=emit,
+                mask_cpu=emit_cpu,
+                dims=list(prev.dims),
+                in_dim=packed_dim,
+                masked_select_dim_map=packed_map,
+            )
         current_pred.feature_dim = model_dim
         logits = dec.joiner(enc_t, current_pred)
-        return rf.log_softmax(logits, axis=model.target_dim_ext), {
-            "emitted_labels": emitted_labels,
-            "n_emitted": n_emitted,
-        }
+        return rf.log_softmax(logits, axis=model.target_dim_ext), {"pred_state": pred_state, "current_pred": current_pred}
 
     return frame_sync_beam_search(
         batch_dims=batch_dims,

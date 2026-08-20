@@ -376,10 +376,11 @@ def model_recog_beam_rescore_check(
     # Re-feed the returned alignment (same per-frame masking as the search) and re-sum its log-probs.
     bd = [beam_dim] + batch_dims
     enc_lens = rf.copy_to_device(enc_spatial_dim.get_size_tensor())
+    t_total = int(rf.reduce_max(enc_lens, axis=enc_lens.dims).raw_tensor) + delay
     state = model.decoder.default_initial_state(batch_dims=bd)
     prev = rf.constant(model.bos_idx, dims=bd, sparse_dim=model.target_dim_ext, dtype="int32")
     rescore = rf.constant(0.0, dims=bd)
-    for t in range(out_spatial_dim.dimension):
+    for t in range(t_total):
         t_t = rf.constant(t, dims=batch_dims, dtype="int32")
         audio_valid = t_t < enc_lens
         emit_valid = t_t < enc_lens + delay
@@ -392,6 +393,7 @@ def model_recog_beam_rescore_check(
         rescore = rescore + rf.where(emit_valid, rf.gather(lp, indices=a_t, axis=model.target_dim_ext), 0.0)
         prev = a_t
 
+    # Return the alignment (blanks kept); blanks are removed downstream as a post-proc (rna_collapse).
     return align, search_score - rescore, out_spatial_dim, beam_dim
 
 

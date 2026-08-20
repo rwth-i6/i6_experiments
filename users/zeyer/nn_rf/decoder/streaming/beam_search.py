@@ -90,7 +90,7 @@ def frame_sync_beam_search(
         )  # each [beam, batch]; backrefs -> old beam
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
-        state = tree.map_structure(functools.partial(_gather_backrefs, backrefs=backrefs), state)
+        state = rf.nested.gather_nested(state, indices=backrefs)
         seq_label = rf.nested.gather_nested(seq_label, indices=backrefs)
         prev = target
 
@@ -123,8 +123,11 @@ def frame_sync_beam_search(
     out_spatial_dim = Dim(t_total, name="out-spatial")
     aligned = _backtrack(seq_targets, seq_backrefs, beam_dim, out_spatial_dim)  # [beam, batch, t_total]
     aligned.sparse_dim = target_dim_ext
-    if return_alignment:  # raw alignment (blanks kept), for re-scoring / analysis
-        return aligned, seq_log_prob, out_spatial_dim, beam_dim
+    if return_alignment:  # blanks-kept alignment, truncated to the per-seq emit window (dynamic dim)
+        in_window = rf.range_over_dim(out_spatial_dim) < (enc_lens + num_flush_frames)
+        align_out, align_spatial_dim = rf.masked_select(aligned, mask=in_window, dims=[out_spatial_dim])
+        align_out.sparse_dim = target_dim_ext
+        return align_out, seq_log_prob, align_spatial_dim, beam_dim
     seq_targets_out, seq_targets_spatial_dim = rf.masked_select(
         aligned, mask=aligned != blank_idx, dims=[out_spatial_dim]
     )
