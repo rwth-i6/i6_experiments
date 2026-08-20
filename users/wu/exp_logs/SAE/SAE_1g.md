@@ -293,6 +293,15 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 
 ## Verifier feedback
 
+- 2026-08-20 — The pre-rewrite theory battery has been audited by provenance and relevance. The
+  completed, decision-bearing evidence is now summarized in `PLAN_1G.md`: the raw-versus-pooled
+  rate/identity tradeoff, the need for two-state within-symbol structure, the weakness of aggregate
+  matching as content evidence, the positional design's rank limitation, the damage from hard unit
+  coarsening, and the scoped likelihood/error warning. The generic finite-HMM identifiability theorem
+  is literature context only and does not establish identifiability of the live tied duration model.
+  The archived corpus-size, pair/triple nullity, moment-sample, repair-basin, decoder-gain, and anchor
+  predictions are uncommitted synthetic motivation, not results or gate evidence.
+
 - 2026-08-19 — H1 remains accepted at the exact 6,414/890/7,304/1,112 partition and two-state phone
   choice `p=0.23560298`; do not rerun it. H2's numerical core and boundary-aware fixed scorer/decoder
   pass 20 focused, 10 legacy, 6 handoff, and 4 production-boundary tests plus independent exact

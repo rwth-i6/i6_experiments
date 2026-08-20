@@ -6,8 +6,9 @@ not solve ASR by itself.
 
 This rewrite replaces the old live specification from 2026-08-19 onward. It does not rewrite any completed
 gate or result. The pre-rewrite plan is preserved in
-`archive/PLAN_1G_pre_rewrite_2026-08-19.md`; experimental evidence belongs in
-`SAE_1g.md`.
+`archive/PLAN_1G_pre_rewrite_2026-08-19.md`. Detailed measurements and artifact records belong in
+`SAE_1g.md` and the earlier phase logs; the durable scientific conclusions that determine the live
+direction are summarized here.
 
 ## 1. Method definition
 
@@ -175,6 +176,30 @@ The following constraints are binding:
 - **Lock a final evaluation.** Development results guide the campaign only after each run is
   frozen. Any final claim is repeated once on untouched test data after all method choices stop.
 
+### Scientific conclusions carried into the live design
+
+These are the compact, decision-bearing conclusions from completed project evidence. Their detailed
+measurements and artifacts remain in `SAE_1a.md`, `SAE_1f.md`, and `SAE_1g.md`.
+
+| Completed evidence | Conclusion and consequence for Phase 1g |
+|---|---|
+| On dev-other, the raw-unit memoryless oracle has PER `0.832 = 0.132 sub + 0.692 ins + 0.008 del`; `seg12.5` pooling changes this to `0.414 = 0.230 sub + 0.067 ins + 0.117 del`. A supervised context-kernel probe on the pooled path reaches 0.3565. | Raw units retain substantial phone identity but a lookup decoder fails mainly through over-segmentation; pooling repairs rate while trading away some identity. This motivates explicit duration and local context before changing the codebook, and retaining the raw stream for the first character experiment; it does not claim that gold boundary error has been isolated. |
+| The one-unit-per-symbol channel failed the historical screen. On the prospective construction-only read, the one-state duration model is rejected and the two-state model is admissible at the label-free fitted `p=0.23560298`. | Duration alone is insufficient on the live stream; within-symbol acoustic order is required. The phone H3/H4 path therefore freezes the two-state topology rather than reopening a larger topology search. |
+| Coarticulation hides 26.7% of real phone transitions, and the best banked aggregate starts remain close to the content-free control: ESPUM 0.8580 and fingerprint 0.8809 versus random-map 0.8946. | Matching marginals, rates, skipgrams, or positional fingerprints is not reliable evidence of recovered content on this stream. These methods remain weak initializers only; H4 must judge them after common repair with audio swaps and content-sensitive decoding, and H5 must judge the actual SAE handoff. |
+| The positional-unigram inverse design is severely rank-limited: `sigma_min` is `5e-33` on raw units, exactly zero when usable position rows are fewer than the 500 unit columns, and `2e-17` even for the full-column-rank `brown100` case. The registered spectral and hard-descriptor routes also failed their gates. | The exact row-fewer-than-column failures cannot be repaired by more samples at unchanged shape, and the remaining tested rows fail through severe conditioning. Standalone positional inversion, spectral partitioning, and hard descriptors remain closed; the live route instead estimates `P(unit | symbol)` with a full-sequence channel. This closure does not extend to every possible sequence model. |
+| Coarsening the inventory to `brown100` worsened the dev-other oracle PER to 1.152 and reduced graph correlation from 0.370 to 0.103, while the original 500-unit inventory supports the 0.3565 contextual probe. Across tested pooled representations, better oracle ceilings also did not consistently produce better unsupervised matches. | Unit identity is load-bearing, and representation surgery is not a substitute for a working channel or optimizer. Hard merging stays dropped; splitting, resegmentation, or smaller `K` is funded only after a content-bearing channel diagnoses the specific unit failure. |
+| A prior misspecified channel exhibited likelihood/error anti-alignment. | Model likelihood may certify numerical health but may not select a seed, checkpoint, repair count, or method. The cause of the anti-alignment is not established by this observation; the live plan tests content with the frozen label-free own-minus-donor selector and reports accuracy only after choices freeze. |
+
+The archived theory battery has a narrower status. [Allman, Matias, and Rhodes (2009), Theorem
+6](https://doi.org/10.1214/09-AOS689) establishes generic identifiability for a standard finite HMM
+under its assumptions. It rules out treating generic HMM non-identifiability as a blanket
+impossibility argument, but it does **not** establish identifiability of this tied, duration-bearing,
+potentially misspecified channel and fires no Phase-1g gate. The archived sample-sufficiency forecast,
+pair-versus-triple nullity extrapolation, moment sample estimate, 10--20% repair-basin threshold,
+language-model gain forecast, and anchor-count prediction came from uncommitted synthetic scratch
+runs. They motivated bounded experiments but are not scientific conclusions and cannot discharge a
+gate unless reproduced by a catalogued job.
+
 ### Why the old (0.05/0.05) gate is not reused
 
 That gate asked whether a Phase-1 system was already substantially better than content-free
@@ -193,7 +218,7 @@ The old margins remain reported for comparison. They no longer decide admission 
 
 ## 3. Status and priority queue
 
-**Planner/verifier read: 2026-08-19.**
+**Planner/verifier read: 2026-08-20.**
 
 1. **Make H2 use one silence-gap path law — highest priority.** H2 is otherwise generally sound on
    the trusted internal artifacts: its numerical engine, actual 39-by-500 start, strict settings,
