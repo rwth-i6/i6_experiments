@@ -186,6 +186,13 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
    This stage does not yet decode, score the 890-utterance selection role, freeze the selector, or
    construct the final 7,304-utterance refits; those remain downstream H4 work.
 
+   The graph completed on 2026-08-20. `H4CalibrationPreparationJob.DPv4aIqwPEzM` produced the
+   start bundle, phone LM, and one donor table covering all 8,416 construction/evaluation-bed
+   utterances. All 85 repair trajectories now contain finite normalized two-state tables at exactly
+   counts 0, 1, 2, and 4: 81 controlled trajectories plus fingerprint, random-map seed 1000,
+   pseudo-pair seed 0, and ESPUM seed 0/update 30,000. This is completed calibration infrastructure,
+   not an H4 gate result.
+
 ## Conclusion
 
 1. **Approach 1: one segment per text symbol is rejected.** It exceeds the registered ratio on all
@@ -301,7 +308,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 | H3 construction-population final initializers | `work/speech_llm/sae/h3_jobs/H3InitializerJob.uKw59MBJC4Hj`; `work/speech_llm/sae/h3_jobs/H3InitializerJob.ABTGA9vIwwI8`; `work/speech_llm/sae/h3_jobs/H3InitializerJob.BS1nPUwf1fel` |
 | H3 selected construction-population ESPUM refit and strict projection | `work/speech_llm/sae/espum_jobs/EspumMatchTrainJob.t1l7N4lQ9dtY`; `work/speech_llm/sae/h3_projection/H3FinalEspumProjectionJob.PJMwUGUXUb7s` |
 | H4 artifact, donor, bootstrap, and gate harnesses | commits `93f6261`, `4e67695`; `src/speech_llm/sae/h4_harness.py` |
-| H4 calibration preparation and update-only repair graph | commit `c2e930b`; `work/speech_llm/sae/h4_jobs/H4CalibrationPreparationJob.DPv4aIqwPEzM`; reference repair `work/speech_llm/sae/h4_jobs/H4RepairJob.x1TyHJMfEVpb` |
+| H4 calibration preparation and update-only repair graph | commit `c2e930b`; `work/speech_llm/sae/h4_jobs/H4CalibrationPreparationJob.DPv4aIqwPEzM`; reference `H4RepairJob.x1TyHJMfEVpb`; fingerprint `.iUFh7IwniCMl`; random-map seed 1000 `.Ds0zM1NTY2C1`; pseudo-pair seed 0 `.aeetC3NfgPxB`; ESPUM seed 0/update 30,000 `.ViPSmq4Am8vX` |
 | H5 handoff and H6 character-route interfaces | commit `ce265ce`; `src/speech_llm/sae/handoff.py`; `src/speech_llm/sae/character_route.py` |
 
 ## Verifier feedback
@@ -334,11 +341,22 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   runtime sources. The refit does not hash selection IDs. Never relaunch calibration or this final
   graph.
 
-  H4's first production stage is now launched as a separate calibration graph. It freezes the
+  H4's first production stage is complete as a separate calibration graph. It freezes the
   label-fitted reference, the complete controlled start library, the same-speaker donor table, and
-  update-only repair trajectories at counts 0/1/2/4 for all controlled and accepted H3 calibration
-  starts. The graph is provenance-bound to the accepted H1, pinned alignment snapshots, complete
-  `T_phi`, unit raster, and runtime source hashes. It does not yet invoke either decoder, compute
-  selection scores, freeze the selector, or consume the completed final-refit manifests; those are
-  the remaining production H4 stages. `JOB_AUTO_CLEANUP=True` is preserved for manager execution;
-  Sisyphus intentionally disables it only in non-manager console mode.
+  update-only repair trajectories at counts 0/1/2/4 for all 81 controlled and four accepted H3
+  calibration starts. The graph is provenance-bound to the accepted H1, pinned alignment snapshots,
+  complete `T_phi`, unit raster, and runtime source hashes. All 85 repair manifests and NPZ bundles
+  are present and the reconstructed graph has no unfinished or problem jobs.
+
+  The downstream production consumer is blocked on a planner-owned path law. Under the frozen donor
+  table and the required local reference decode, 1,237 of 8,900 selection donor pairs have fewer
+  retained donor units than fixed hypothesis phones; 316 of 890 selection utterances have at least
+  one such donor. The accepted duration topology therefore assigns those donor scores exact
+  `-inf`, while the selector contract requires finite per-utterance scores. No exclusion,
+  reassignment, zero-duration-phone, or finite-conditioning rule is specified. Separately, the
+  controlled calibration bundle persists only `B(unit | phone)`, whereas count-0 local decoding is
+  specified to consume the original `Q(phone | unit)`; `Q` is not uniquely recoverable from `B`.
+  Do not launch selection decoding or final refit until the plan freezes both interfaces. The
+  production job audit also requires a final-refit repair mode, count adapter, singleton-aware gate,
+  selector-freeze artifact, and decoder resource contract. `JOB_AUTO_CLEANUP=True` remains effective
+  for managers; console mode intentionally overrides it only for inspection.
