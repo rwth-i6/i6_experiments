@@ -15,7 +15,13 @@ class ScalingLawPlotJob(Job):
     """
 
     __sis_version__ = 10
-    __sis_hash_exclude__ = {"secondary_x_label": None, "secondary_x_factor": 1.0, "x_tick_factor": None}
+    __sis_hash_exclude__ = {
+        "secondary_x_label": None,
+        "secondary_x_factor": 1.0,
+        "x_tick_factor": None,
+        "secondary_x_ticks": None,
+        "x_ticks": None,
+    }
 
     def __init__(
         self,
@@ -31,6 +37,8 @@ class ScalingLawPlotJob(Job):
         secondary_x_label: Optional[str] = None,
         secondary_x_factor: float = 1.0,
         x_tick_factor: Optional[float] = None,
+        secondary_x_ticks: Optional[Sequence[float]] = None,
+        x_ticks: Optional[Sequence[float]] = None,
     ):
         """
         :param x_label: label for x-axis
@@ -45,10 +53,17 @@ class ScalingLawPlotJob(Job):
             showing the primary x rescaled by ``secondary_x_factor``
             (e.g. wall clock in minutes for an RTF primary axis)
         :param secondary_x_factor: secondary x = primary x * this factor
-        :param x_tick_factor: if set, x tick labels show ``value * x_tick_factor`` as plain numbers,
+        :param x_tick_factor: if set, x tick labels show ``value * x_tick_factor`` as plain numbers
+            at one uniform size (major and minor),
             so the scale can move into the axis label
             (e.g. factor 100 with x_label "Recognition RTF [$10^{-2}$]").
             Also applied as plain-number formatting to the secondary axis.
+        :param secondary_x_ticks: if set, the secondary axis shows exactly these tick positions
+            (in secondary-axis units, e.g. minutes) and no minor tick labels --
+            a log-scale secondary axis labels every minor tick otherwise, which overlaps.
+        :param x_ticks: if set, the primary x-axis shows exactly these tick positions
+            (in raw data units; labels still go through ``x_tick_factor``)
+            and no minor tick labels.
         """
         super().__init__()
 
@@ -63,6 +78,8 @@ class ScalingLawPlotJob(Job):
         self.secondary_x_label = secondary_x_label
         self.secondary_x_factor = secondary_x_factor
         self.x_tick_factor = x_tick_factor
+        self.secondary_x_ticks = secondary_x_ticks
+        self.x_ticks = x_ticks
 
         self.out_plot_pdf = self.output_path("scaling_laws.pdf")
 
@@ -206,25 +223,35 @@ class ScalingLawPlotJob(Job):
         ax.set_ylabel(self.y_label, fontsize=14)
 
         if self.x_tick_factor is not None:
-            from matplotlib.ticker import FuncFormatter
+            from matplotlib.ticker import FuncFormatter, NullFormatter
 
             tick_factor = self.x_tick_factor
             fmt = FuncFormatter(lambda v, pos: f"{v * tick_factor:g}")
+            if self.x_ticks is not None:
+                ax.set_xticks(list(self.x_ticks))
+                ax.xaxis.set_minor_formatter(NullFormatter())
+            else:
+                ax.xaxis.set_minor_formatter(fmt)
             ax.xaxis.set_major_formatter(fmt)
-            ax.xaxis.set_minor_formatter(fmt)
 
         if self.secondary_x_label:
+            from matplotlib.ticker import FuncFormatter, NullFormatter
+
             factor = self.secondary_x_factor
             secax = ax.secondary_xaxis("top", functions=(lambda x: x * factor, lambda x: x / factor))
             secax.set_xlabel(self.secondary_x_label, fontsize=14)
-            secax.tick_params(axis="x", which="major", labelsize=14)
-            secax.tick_params(axis="x", which="minor", labelsize=10)
-            if self.x_tick_factor is not None:
-                from matplotlib.ticker import FuncFormatter
-
-                sec_fmt = FuncFormatter(lambda v, pos: f"{v:g}")
+            sec_fmt = FuncFormatter(lambda v, pos: f"{v:g}")
+            if self.secondary_x_ticks is not None:
+                secax.set_xticks(list(self.secondary_x_ticks))
                 secax.xaxis.set_major_formatter(sec_fmt)
-                secax.xaxis.set_minor_formatter(sec_fmt)
+                secax.xaxis.set_minor_formatter(NullFormatter())
+                secax.tick_params(axis="x", which="both", labelsize=12)
+            else:
+                secax.tick_params(axis="x", which="major", labelsize=14)
+                secax.tick_params(axis="x", which="minor", labelsize=10)
+                if self.x_tick_factor is not None:
+                    secax.xaxis.set_major_formatter(sec_fmt)
+                    secax.xaxis.set_minor_formatter(sec_fmt)
 
         # Add the 'non-embedding' sub-label with specific positioning and style
         # ax.text(0.5, -0.15, "non-embedding", ha="center", va="center", transform=ax.transAxes, fontsize=18, color="gray")
@@ -238,6 +265,11 @@ class ScalingLawPlotJob(Job):
 
         # show the minor tick labels
         ax.tick_params(axis="x", which="minor", labelsize=10)
+
+        if self.x_tick_factor is not None:
+            # One uniform size for major and minor x tick labels, re-applied after the
+            # generic sizing above (which would make e.g. the "10" on a log axis stand out).
+            ax.tick_params(axis="x", which="both", labelsize=12)
 
         # Display the plot
         plt.tight_layout()  # Adjust layout to prevent labels from being cut off
