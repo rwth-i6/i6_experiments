@@ -30,6 +30,7 @@ class ScalingLawPlotJob(Job):
         figsize: Tuple[float, float] = (8, 6),
         secondary_x_label: Optional[str] = None,
         secondary_x_factor: float = 1.0,
+        x_tick_factor: Optional[float] = None,
     ):
         """
         :param x_label: label for x-axis
@@ -44,6 +45,10 @@ class ScalingLawPlotJob(Job):
             showing the primary x rescaled by ``secondary_x_factor``
             (e.g. wall clock in minutes for an RTF primary axis)
         :param secondary_x_factor: secondary x = primary x * this factor
+        :param x_tick_factor: if set, x tick labels show ``value * x_tick_factor`` as plain numbers,
+            so the scale can move into the axis label
+            (e.g. factor 100 with x_label "Recognition RTF [$10^{-2}$]").
+            Also applied as plain-number formatting to the secondary axis.
         """
         super().__init__()
 
@@ -57,6 +62,7 @@ class ScalingLawPlotJob(Job):
         self.figsize = figsize
         self.secondary_x_label = secondary_x_label
         self.secondary_x_factor = secondary_x_factor
+        self.x_tick_factor = x_tick_factor
 
         self.out_plot_pdf = self.output_path("scaling_laws.pdf")
 
@@ -199,11 +205,26 @@ class ScalingLawPlotJob(Job):
         ax.set_xlabel(self.x_label, fontsize=14)
         ax.set_ylabel(self.y_label, fontsize=14)
 
+        if self.x_tick_factor is not None:
+            from matplotlib.ticker import FuncFormatter
+
+            tick_factor = self.x_tick_factor
+            fmt = FuncFormatter(lambda v, pos: f"{v * tick_factor:g}")
+            ax.xaxis.set_major_formatter(fmt)
+            ax.xaxis.set_minor_formatter(fmt)
+
         if self.secondary_x_label:
             factor = self.secondary_x_factor
             secax = ax.secondary_xaxis("top", functions=(lambda x: x * factor, lambda x: x / factor))
             secax.set_xlabel(self.secondary_x_label, fontsize=14)
             secax.tick_params(axis="x", which="major", labelsize=14)
+            secax.tick_params(axis="x", which="minor", labelsize=10)
+            if self.x_tick_factor is not None:
+                from matplotlib.ticker import FuncFormatter
+
+                sec_fmt = FuncFormatter(lambda v, pos: f"{v:g}")
+                secax.xaxis.set_major_formatter(sec_fmt)
+                secax.xaxis.set_minor_formatter(sec_fmt)
 
         # Add the 'non-embedding' sub-label with specific positioning and style
         # ax.text(0.5, -0.15, "non-embedding", ha="center", va="center", transform=ax.transAxes, fontsize=18, color="gray")
