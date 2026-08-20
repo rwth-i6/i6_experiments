@@ -2047,10 +2047,9 @@ def model_recog(
     seq_backrefs = []
     for t in range(max_seq_len):
         # Filter out finished beams
-        # combine_bc: every InBeam hypothesis is extended by every PreFilterBeam candidate, and the
-        # CTC frame posterior does not depend on the hypothesis, so neither source has all dims.
-        # The top_k below reduces over both dims, i.e. this outer product is what it consumes.
-        # (Only the eager torch path broadcasts this implicitly, the TF one requires it explicit.)
+        # combine_bc: the frame posterior has no beam dim,
+        # so neither source has all dims, and the outer product is what the top_k below consumes.
+        # torch broadcasts this implicitly, TF wants it explicit.
         seq_log_prob = rf.combine_bc(seq_log_prob, "add", label_log_prob_pre_filter_ta[t])  # B, InBeam, PreFilter
         seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
             seq_log_prob,
