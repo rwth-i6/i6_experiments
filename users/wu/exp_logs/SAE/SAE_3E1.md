@@ -743,6 +743,27 @@ bias that runs against the reference, so it cannot inflate the headline). The du
 columns were written under psi_g_tc100 while every swap number here is under the named refit. The
 corpus-zero repair direction is unmeasured at 11 of 8806 swaps and nothing here speaks to it.
 
+**30. D7.0a raw donor-support census** (`D7RawDonorCensusJob.zsnx1p9nLyV3`). This is the
+standalone, label-free feasibility read authorized before D7-v2: it enumerates every directed edge
+from each of the immutable 1,500 external source utterances to the disjoint 4,067-utterance dev
+complement, and separately every directed edge within the intended 28,539-utterance scorer corpus.
+An edge requires a different utterance from the same speaker and inclusive raw-unit duration match
+`20 * abs(L_d - L_s) <= max(L_s, 1)`, where `L_s` and `L_d` are the 50 Hz unit-array lengths before
+deduplication. “Same chapter” means equality of the middle LibriSpeech utterance-ID field; the other
+stratum is “different chapter”. No tokenization, dynamic-programming feasibility, duplicate
+filtering, nuisance ranking, capacity, assignment, scorer, reference text, WER, or training enters.
+
+| population | sources | candidates | raw edges | same / different chapter | sources with >=2 in both | sources with >=8 in both |
+|---|---:|---:|---:|---:|---:|---:|
+| external held/complement | 1,500 | 4,067 | 4,911 | 2,553 / 2,358 | 276 (18.4 %) | 0 |
+| intended scorer corpus | 28,539 | 28,539 | 632,913 | 327,169 / 305,744 | 18,843 (66.0 %) | 11,711 (41.0 %) |
+
+On the external graph, 1,331 sources have any donor and 169 are isolated; 2,571 candidates are used
+and 1,496 have zero load. The edgeful bipartite graph has 583 weak components. Complete sorted edge
+tables and per-source degrees, donor loads, component membership, split/speaker/chapter coverage and
+signed/absolute duration shifts are retained in the cited artifact. Their semantic tuple hashes are
+`7855557c...d2f3` externally and `3a6038ab...4376` on the scorer corpus.
+
 
 ## Conclusion
 
@@ -1230,6 +1251,13 @@ function-word pairs rather than broad spelling diversity.
     valid statement about the reconstruction scorer on controlled swaps, but it does not predict the
     realized policy direction under the composed reward, whose Qwen3 language-model term dominates
     homophone spelling. The midpoint and final registered reads remain outstanding.
+56. **D7's registered eight-donors-per-chapter-stratum construction is impossible on the immutable
+    external population under its own raw duration law** (30). Not one of the 1,500 sources has eight
+    donors in both strata, and only 276 have even two in both. This is a structural support failure,
+    not a tunable coverage threshold: later feasibility and filtering can only remove edges. The
+    scorer corpus is substantially denser, but that does not repair the external estimand. D7.0b and
+    D7.1 therefore remain closed until the planner supplies the required prospective D7-v2 donor,
+    capacity, weighting and selected-population specification.
 
 ## Catalog
 
@@ -1238,8 +1266,9 @@ function-word pairs rather than broad spelling diversity.
 
 | artifact | path |
 |---|---|
-| code | `sae/scorer_diag.py`, `sae/text_repair.py`, `sae/psi_align_jobs.py`, `sae/psi_align.py`, `sae/curate.py`, `sae/gate_table.py`, `sae/refresh_gate.py` (+ their test modules, 469 tests over `sae/`) |
-| entry points | `config/sae_3e1_d0.py`, `config/sae_3e1_usage.py`, `config/sae_3e1_d1d2.py`, `config/sae_3e1_d3.py`, `config/sae_3e1_d4.py`, `config/sae_3e1_d4p.py`, `config/sae_3e1_d5b.py`, `config/sae_3e1_d6.py` (builds D4' and the swap-in too), `config/sae_3e1_d6periodic.py`, `config/sae_3e1_d6periodic_warm.py`, `config/sae_3e1_hom.py` |
+| code | `sae/scorer_diag.py`, `sae/text_repair.py`, `sae/psi_align_jobs.py`, `sae/psi_align.py`, `sae/curate.py`, `sae/gate_table.py`, `sae/refresh_gate.py`, `sae/d7_census.py` (+ focused tests; D7.0a code commit `a0a22b4`) |
+| entry points | `config/sae_3e1_d0.py`, `config/sae_3e1_usage.py`, `config/sae_3e1_d1d2.py`, `config/sae_3e1_d3.py`, `config/sae_3e1_d4.py`, `config/sae_3e1_d4p.py`, `config/sae_3e1_d5b.py`, `config/sae_3e1_d6.py` (builds D4' and the swap-in too), `config/sae_3e1_d6periodic.py`, `config/sae_3e1_d6periodic_warm.py`, `config/sae_3e1_hom.py`, `config/sae_3e1_d7_0a.py` |
+| D7.0a complete raw external/scorer edge tables and census (approach 30) | `S/d7_census/D7RawDonorCensusJob.zsnx1p9nLyV3` |
 | D6-PERIODIC legs 1-8 (approach 22), parent sub-ep 3-10 | `T/ReturnnTrainingJob.5FqdnhWTOf1f`, `.BTnU1gSuMG0i`, `.ZKCbq529Hgp8`, `.gFNpNmXwvrsc`, `.nQtnPdKCuJ0m`, `.n8abYvLR4IP5`, `.jGj7TTbW5DTm`, `.wWqYY7iOCw1s` |
 | its per-boundary refits (rounds 2-8) | `S/psi_align_jobs/PsiAlignTrainJob.JWV3InILYF5v`, `.yUUSN2Hx96E0`, `.QMO8VcAtZ6Gi`, `.DzhBWCy61tiN`, `.Vha8vvKu9lWk`, `.RGTtwlQHt3HY`, `.Ls0TQGiyhQbf` |
 | D6-PERIODIC-WARM legs 1-8 (approach 24), parent sub-ep 3-10; leg 1 is approach 22's, shared | `T/ReturnnTrainingJob.5FqdnhWTOf1f`, `.OOr3UybqUEHD`, `.X3biCvDKgQ7N`, `.7dANeLqxFFbq`, `.nd92xaRDY0uw`, `.kkh0u4rI7I6D`, `.kQRZtXc1ubTV`, `.oRbUsmYR6fRT` |
@@ -1884,48 +1913,17 @@ the absolute beta, is what carries the contamination claim.
   recency is the only intended difference from D6-PERIODIC/GAN. Leg 2 was verified running at
   15:37 CEST; no endpoint exists yet. Normative gate and interpretation are in `PLAN_3E1.md`
   D6-PERIODIC/GAN-FROZEN.
-- 2026-08-20 (D7 pre-run structural and gate correction; supersedes the registration-only read):
-  both user-raised defects verify before any D7 implementation or result. The read binds
-  `FrozenHeldPairsJob.E8UaEwRF65HW/output/held_pairs.json`,
-  `MergeUnitsPklJob.ncxcd3vouD5E/output/units.pkl` and
-  `Wav2Vec2KenlmDecodeJob.AQw3EcUo6rks/output/word_hyps.json`, plus
-  `GreedyPoolJob.Yv6qBpz0UC0U/output/pool.json` for the scorer-corpus IDs. The immutable 1,500 gate
-  sources have a disjoint 4,067-row donor complement in the 5,567 usable dev rows. For source `i`
-  and donor `d`, requiring `d != i`, the same speaker and inclusive
-  `abs(|U_d|-|U_i|) <= 0.05*max(|U_i|,1)` on raw 50-Hz no-dedup unit length gives 276/1,500 (18.4%)
-  with at least two donors in both same- and different-chapter strata, and zero with eight in both;
-  the intended 28,539-row scorer corpus has 18,843/28,539 (66.025%) at the same optimistic degree
-  test. Following the actual code order—drop `4014-186175-0018` for own-DP infeasibility, then apply
-  the seed-42 split—gives 17,748/27,111 (65.464%) on the role-local train side, so the training-side
-  conclusion is unchanged. Exact-negative feasibility, duplicate exclusions, nuisance bands and any
-  later regularity can only shrink those counts. The original
-  external-table specification also failed to say whether the training second-quartile band, all
-  eligible edges or the closest-quartile stress band applies, including its percentile and tie
-  scope; unlike the single-population training b-matching, the external source/complement graph is
-  bipartite and has no registered donor-capacity law. This is a missing external estimand, not a
-  coverage floor that may be set at 18.4%.
-  `SAE_3G.md` Approach 3 had already recorded the weaker 965/1,500 one-same-speaker-partner result
-  and warned that the retained subset is selected; D7 had not reconciled it. Only standalone D7.0a
-  census implementation is now authorized. It must hash the exact populations and emit the complete
-  raw eligible-edge table plus cumulative degree/load/component/speaker/chapter and duration-shift
-  summaries; it may not invent an external band, capacity or matching rule. D7.0b and all D7.1
-  construction/launch remain blocked until a prospective, label-free D7-v2 amendment fixes and
-  re-censuses the donor surface, band/rank/tie rule, K/capacity, minimum rows/speakers, weights and
-  selected-population estimand. Acceptance gate v2 remains on all immutable 1,500 rows; only D7's
-  donor-gap statistic may use the separately named donor-supported subset.
-
-  The D7.3 absolute clause was also miscalibrated. Under the intended banked-reuse path, conditional
-  on the required epoch-30 scorer parity, `ReturnnTrainingJob.kr1foUV6lecx` is the exact control at
-  14.45/19.69 (`ScliteJob.LzKRDl102Jaf` / `.bdTjc72qi0Jt`); requiring no worse than 13.89/17.84
-  therefore demands a 0.56/1.85 one-leg gain. The six banked D6-PERIODIC/GAN legs improve the 18.34
-  init by at most 0.45 on dev-other. D7 supplied no independent calibration for 0.5, whose sole prior
-  PLAN occurrence is D6's some-leg-over-eight-rounds bar, while the same-init 12.68/17.57 utility
-  reference is already stronger than 17.84. These trajectories do not prove an upper bound on D7,
-  but they do leave the absolute bar unsupported as either a local-effect or best-system criterion.
-  Prospectively, D7.3 passes scientifically only if the fixed candidate beats its exact matched
-  control on both dev splits. theta_0^G (13.89/18.34) and 12.68/17.57 are report-only utility anchors;
-  no D7 result may retrofit a numeric bar onto this one-leg read. A pass licenses only a separately
-  preregistered durability/utility decision, which must own any later absolute bar. Gold rank/WER
-  remains sealed through the amended label-free gate and any one-leg launch decision. Normative
-  specification:
-  `PLAN_3E1.md` D7-GAN-SEQDISC.
+- 2026-08-20 (D7.3 gate correction): the former absolute 13.89/17.84 clause was unsupported for a
+  one-leg causal read. Conditional on required scorer parity, the exact matched control is
+  `ReturnnTrainingJob.kr1foUV6lecx` at 14.45/19.69; the GAN initialization (13.89/18.34) and prior
+  frozen-loop result (12.68/17.57) are report-only utility anchors. The prospective scientific gate
+  is improvement over that exact matched control on both dev splits; any durability or absolute
+  utility decision remains a separately preregistered next stage, with gold sealed until then.
+- 2026-08-20 (D7.0a independently verified): the isolated graph contains exactly one finished
+  label-free mini-task and no scorer, assignment, training, reference, or WER dependency. All 9
+  focused tests pass, including the accepted split-grouped held-pair order. On-disk complete edge
+  tables reproduce 4,911 external edges (tuple hash `7855557c...d2f3`) and 632,913 intended-scorer
+  edges (`3a6038ab...4376`); all population and input hashes match the pinned artifacts. The
+  external graph has 276/1,500 sources with at least two donors in both chapter strata and zero with
+  eight, confirming the preregistered construction is unsupported before stricter filters. D7.0b and
+  D7.1 remain blocked pending the planner-owned D7-v2 amendment described in `PLAN_3E1.md`.
