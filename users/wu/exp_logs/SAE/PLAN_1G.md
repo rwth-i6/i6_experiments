@@ -90,10 +90,12 @@ sequence likelihood and state posteriors for the one- and two-state forms.
 
 The sequence decoder returns
 `Ŷ = argmax_Y [log P_B(U|Y) + λ log G_dec(Y) + β|Y|]`, with the frozen decoder language model,
-language-model scale, and symbol penalty specified below. Phone repair uses the unpaired phone
-bigram as `G_fit`, while phone decoding uses the banked phone 4-gram as `G_dec`; they are not
-multiplied together. For the scorer handoff, `S_B(U,Y)=log P_B(U|Y)/T` measures how well a fixed
-hypothesis explains the audio without adding its language-model score. Channel A produces
+language-model scale, and symbol penalty specified below. The baseline phone arm uses the add-one
+phone bigram from complete `T_phi` as `G_fit` and the banked phone 4-gram as `G_dec`. They enter separate
+computations and are never multiplied in one objective. The conditional H4-LM arm in 1g.2a changes
+only the fitting-LM identity during its diagnostic and retains this decoder; within every arm `G_fit`
+is fixed. For the scorer handoff, `S_B(U,Y)=log P_B(U|Y)/T` measures how well a fixed hypothesis
+explains the audio without adding its language-model score. Channel A produces
 pseudo-text for policy training. Channel B is initialized and fitted independently and supplies the
 reconstruction score; it never trains on channel A's one-best pseudo-text. The policy-only and
 scorer-only handoffs are tested before the fixed combined SAE pass. A mediocre standalone error rate
@@ -128,6 +130,7 @@ different symbol inventories and audio streams as listed in Section 4.
 | p10 scorer | The existing Phase-2 audio-unit reconstruction model, fixed here at epoch 50 |
 | decode-swap check | Replace an utterance's audio with matched donor audio, rerun decoding, and keep the original reference for evaluation |
 | score-swap check | Keep a hypothesis fixed and compare its label-free channel score on its own versus matched donor audio |
+| H4-LM | Conditional H4 fitting-language-model study; it is not the H6 character route |
 | oracle | A label-fitted diagnostic that shows what the same representation and decoder can do; never a candidate |
 | repair step | One fixed soft re-estimation update of the channel; no transcript is used |
 | rank correlation | Whether a score orders better and worse transcripts correctly; reported with Spearman's statistic |
@@ -220,28 +223,37 @@ The old margins remain reported for comparison. They no longer decide admission 
 
 **Planner/verifier read: 2026-08-20.**
 
-1. **H3 is complete; do not relaunch it.** H2 consumes one explicit deleted-silence boundary law and
-   passes 23/23 channel tests including exact enumeration. H3's construction-population fingerprint,
-   random-map, pseudo-pair, selected ESPUM seed-0/update-30,000 refit, and strict projection all
-   finished on the exact 7,304 construction IDs. Do not relaunch H1, H2 timing, H3 calibration, or
-   the H3 final graph.
-2. **Build and preflight the production H4 graph now.** The evidence/gate harness exists, but no
-   Sisyphus job/config yet supplies the real channels and decodes. Wire it against the corrected H2
-   engine and only `final_refit` H3 manifests. The workspace now has `JOB_AUTO_CLEANUP = True`;
-   verify the effective imported value again before launching its manager.
-3. **Run the corrected H4 phone assay.** Use the
-   read-only 890-ID selection set to freeze all choices before any 7,304-ID final refit or 1,112-ID
-   evaluation read. Require H4 to consume `final_refit` manifests with the exact construction hash,
-   never the calibration handoff used for mechanics/preflight. Use the completed decoder timing grid
-   to size the production shards, then run the controlled repair curves, decoder checks, score
-   validation, and real starts under the held-out protocol, retaining the gate evidence in Section 4.
-4. **Test the two SAE handoff paths separately after H4 passes.** First ask whether Phase 1g helps the policy, then
-   whether it helps the scorer, before coupling both.
-5. **Start the character route after one phone handoff is valid.** The combined phone loop may run
+1. **H1--H3 and the baseline H2 engine are accepted; do not relaunch them.** H2 consumes one explicit
+   deleted-silence boundary law and passes 23/23 channel tests including exact enumeration. H3's
+   calibration and construction-population fingerprint, random-map, pseudo-pair, selected ESPUM
+   seed-0/update-30,000 refit, and strict projections are complete. Distinct H1-LM/H2-LM artifacts
+   below are conditional extensions, not permission to rerun these accepted baseline graphs.
+2. **Repair the H4 calibration interfaces now.** Keep the completed non-soft repair work only after
+   exact input/hash checks, replace the donor table with the shared support-compatible law in Section
+   4, restore count-0 `Q`, and rerun the ten redefined soft trajectories. Finish the count adapter,
+   direct-`Q` decoder, no-swap-aware gate, selector-freeze artifact, final-refit mode, and production
+   decoder resource contract before selection starts.
+3. **Complete the baseline bigram H4 assay before evaluation opens.** Calibration consumes H3
+   `calibration` starts, repairs on exactly 6,414 update utterances, and reads the 890 selection
+   utterances without fitting. Only after the selector freezes may final repair consume H3
+   `final_refit` starts and all 7,304 construction utterances. Open the 1,112 evaluation utterances
+   once after every baseline or triggered H4-LM choice is fixed.
+4. **Run H4-LM only under its pre-evaluation trigger.** It is a conditional H4 fitting-context
+   follow-up, not H6. Its **assay prerequisites** are mechanics, the positive control, donor-score
+   calibration/correlation, and selector validity; they explicitly exclude the method-specific
+   nonzero-count/update-health outcome and every evaluation-label gate. A failed or unresolved assay
+   prerequisite is fixed first and does not trigger H4-LM. Once the prerequisites pass, call baseline
+   H4 **pre-evaluation-ready** only when the frozen label-free selector assigns a safe nonzero repair
+   count to at least one real start. Such an arm may skip H4-LM and open evaluation; this is not a
+   held-out content verdict. Otherwise trigger H4-LM and resolve it or document measured infeasibility
+   before interpreting that operating point as evidence against repair.
+5. **Test the two SAE handoff paths separately after H4 passes.** First ask whether Phase 1g helps the
+   policy, then whether it helps the scorer, before coupling both.
+6. **Start the character route after one phone handoff is valid.** The combined phone loop may run
    in parallel or only if its assay still needs validation; it must not delay the primary route.
-6. **Run the fixed combined test on the lexicon-free candidate.**
-7. **Use exact loop BPE only for a demonstrated scorer-interface need.**
-8. **Keep resegmentation, repeated-speech mining, synthetic speech, and adaptive restart or
+7. **Run the fixed combined test on the lexicon-free candidate.**
+8. **Use exact loop BPE only for a demonstrated scorer-interface need.**
+9. **Keep resegmentation, repeated-speech mining, synthetic speech, and adaptive restart or
    hyperparameter searches parked** until a failed direct experiment identifies which missing
    information they would supply. The fixed 29-draw character yield test below is a bounded
    preregistered experiment, not a search for the best labelled-development result.
@@ -258,6 +270,8 @@ The old margins remain reported for comparison. They no longer decide admission 
 | 1f content-free controls | Reuse their construction rules, but rebuild them on the same construction-only population before the held-out comparison. |
 | First E5 job | Completed as exploratory evidence; do not use it for a gate. |
 | Corrected phone gate experiment | Implement the held-out assay below. Do not repeat or extend the flawed full-population E5 configuration. |
+| Completed H4 calibration repairs | Reuse up to 71 non-soft controlled trajectories and four H3 trajectories only after their canonical count-0 `B` hashes and start provenance pass. Supersede and rerun the ten soft trajectories. A mismatching controlled trajectory is rerun alone from its verified canonical start; a mismatch in one of the four already-persisted H3 `Q`/`B` pairs is a provenance blocker and does not authorize an H3 relaunch. The original donor table is provenance only and is replaced for every production swap. |
+| Higher-order phone fitting LM | Conditional new H4-LM work under 1g.2a. It cannot delay a pre-evaluation-ready bigram H4 arm and is not H6. |
 | SAE handoff | New work. The old plan measured a channel in isolation and never tested the clarified Phase-1 purpose directly. |
 | Character/BPE channel | New work, staged only after the phone mechanics are sound. |
 
@@ -332,16 +346,36 @@ There are two different swap tests and they must not be conflated.
    score on its own audio minus its score on the same matched donor audio. This is the selector used
    without transcripts; 1g.2 must validate it before deployment.
 
-Construct the primary donors without text or labels. For each utterance, exclude itself and retain
-same-speaker utterances within plus or minus 5% of its encoder-frame duration. Sort them by absolute
-log audio-unit-rate ratio, then absolute frame-count difference, then utterance ID. Assignment
-`s=0,...,9` uses candidate `s mod k` among the first `k=min(10, number of candidates)` rows. If the
-5% band is empty, use the nearest same-speaker utterance under the sum of absolute log duration and
-unit-rate ratios and flag the fallback. A speaker singleton has no primary swap row; report its count
-and keep it in the plain-error read. Donor reuse across source utterances is allowed. Freeze one donor
-table per audio stream and use it unchanged for reference, candidates, and controls. There is no
-adaptive increase. Report variation across the ten assignments; for confidence intervals, resample
-donor assignment first and utterances second while recomputing aggregate edit counts.
+Construct the primary donors without text, decoded hypotheses, or labels. Build exactly two tables per
+route/audio stream. The **selection table** has the 890 H1 selection IDs as both sources and candidate
+pool. The **evaluation table** has the 1,112 H1 evaluation IDs as both sources and candidate pool.
+Exclude the source itself. Update/construction IDs are not donor candidates: this keeps both sides of
+each comparison in the same read-only role and keeps evaluation audio out of selection. Bind both
+source and candidate-pool ID hashes. The earlier exploratory
+792/890 coverage read used all 8,416 construction/evaluation-bed utterances as candidates and is not a
+production-pool result; recompute and report coverage under these exact pools before decoding.
+
+Let `T_s` and `C_s` be a source utterance's retained-unit count and number of silence-delimited retained
+chunks. Require a same-speaker donor to satisfy `T_d >= T_s` and `C_d <= C_s`. Any hypothesis
+with finite source score obeys `C_s <= |z| <= T_s`, so this audio-only law guarantees
+`C_d <= |z| <= T_d` for every arm and decoder without conditioning donor choice on output length.
+Among support-compatible peers, first retain those within plus or minus 5% of source encoder-frame
+duration and sort them by absolute log audio-unit-rate ratio, then absolute frame-count difference,
+then utterance ID. If that band is empty but a compatible peer exists, use the nearest compatible peer
+under the existing sum of absolute log duration and unit-rate ratios and flag the fallback. Assignment
+`s=0,...,9` uses candidate `s mod k` among the first `k=min(10, number of candidates)` rows. If no
+compatible same-speaker peer exists, emit an explicit `no_swap` row with no assignments. Donor reuse
+across sources is allowed.
+
+Freeze each immutable replacement donor table and use it unchanged for every
+reference, candidate, control, repair count, and decoder. `D_plain` and ordinary own-output metrics
+retain every source. Fixed-text donor scores, `A_eval`, and `D_audio` use the identical precomputed
+swap-eligible source population for every arm; bootstrap only those sources for donor quantities while
+retaining the role-specific clean/other weights below. Report eligible, `no_swap`, fallback, match-distance,
+and split counts and require every retained own/donor score to be finite. Report variation across the
+ten assignments; resample donor assignment first and utterances second while recomputing aggregate
+edit counts. Never clip an exact `-inf`, truncate or re-decode the fixed hypothesis, or add zero-
+duration phones to rescue a donor comparison. The superseded table remains provenance only.
 
 Let `E(c)` be held-out error under own audio: PER for phones, character error for character output,
 and WER for the common downstream word interface. Compare the candidate jointly with the two
@@ -351,8 +385,11 @@ identically treated controls:
 - `D_audio` = the candidate's `A_eval` minus the larger control `A_eval`.
 
 Use simultaneous paired 95% intervals over both controls, with 10,000 resamples and bootstrap RNG
-seed 0. Bootstrap within
-clean and other, then combine them with fixed utterance weights 540/1,112 and 572/1,112. Do not require
+seed 0. Bootstrap within clean and other. Every selection aggregation, including label-free selector
+means and controlled validation, uses fixed weights 432/890 and 458/890; every evaluation aggregation
+uses 540/1,112 and 572/1,112. Do not renormalize these target weights after `no_swap` removal: compute
+each split's donor statistic on its eligible rows, report its coverage, and combine using the fixed
+role weights. A split with no eligible source leaves the donor component unresolved. Do not require
 two noisy split point estimates to share a sign. Instead, no split may show a statistically supported
 effect in the opposite direction.
 
@@ -388,6 +425,9 @@ SAE handoff.
   `work/speech_llm/sae/seed_basin/SeedBasinJob.Zm3EuTveSGBL`
 - Current E5 implementation:
   `recipe/2025-10-speech-llm/src/speech_llm/sae/seed_basin.py`
+- External method and fitting-order motivation:
+  `Lecture_UnsupervisedTraining_Seminar_UPV_26Sep24.pdf`; its synthetic results motivate H4-LM but
+  are not project measurements or gates.
 
 ### Launch and evidence contract
 
@@ -423,6 +463,7 @@ complete-text corrections in this plan override only the old full-bed or subsamp
 | fingerprint and its controls | `config/sae_1f_entry3.py`; `speech_llm/sae/fingerprint_match.py` |
 | ESPUM | `config/sae_1f_entry5.py`; `speech_llm/sae/espum_jobs.py`, `espum_match.py`, `espum_model.py` |
 | phone 4-gram | `KenLMplzJob.0aJeN88X6EdW`; binary `CreateBinaryLMJob.hvZoC014xnIe` |
+| matched H4-LM 2/3/4 recipe | `i6_experiments/users/wu/experiments/unsupervised_asr/phoneme_lm.py`; compile to the proper fitting automaton specified in 1g.2a |
 | frozen local phone fixture | `speech_llm/sae/espum_jobs.py` and the historical `seg12.5` prefix-0 stream |
 
 Every future gate job must save enough evidence to recompute its verdict: fitted duration and
@@ -433,6 +474,17 @@ Catalog the concrete job directories in `SAE_1g.md`. An aggregate report alone i
 artifact. This requirement directly addresses the unpersisted uncertainty and missing-map problems
 found in the audit.
 
+Every prospective phone start must persist its original `Q(phone | unit)` before conversion, its
+canonical `B(unit | phone)`, the audio marginal, probability floor, inventory order, generator inputs,
+RNG seed, and hashes of both arrays. Count-0 local decoding reads that persisted `Q`; no consumer may
+infer it from `B`. A completed repair trajectory is reusable only when its recorded count-0 `B` hash
+exactly matches the canonical `B` regenerated from its bound start. A lossless count adapter must bind
+one chosen table from a multi-count repair bundle to the decoder snapshot schema without changing any
+number. The selector-freeze artifact must bind the selected initializer/restart, `G_fit` identity,
+repair count, decoder family, `lambda`, `beta`, beam, donor table, selection sufficient statistics,
+and every input hash; it is the only artifact allowed to authorize a construction-population final
+refit.
+
 ## 5. Phases
 
 ### 1g.H — GPT audit handover: corrective implementation package
@@ -442,10 +494,10 @@ created by the 2026-08-19 plan/evidence audit. This is not a new model family or
 gate; the detailed normative specifications remain in the referenced subphases below.
 
 **Approach.** Execute one ordered corrective phone path, followed only by the handoff and fallback
-branches that its gates fund. H2 engine correction and H3 data/job wiring are independent development
-tracks and should proceed in parallel. H3 consumes the frozen H1 splits and masks; its calibration
-fan-out may start once its own scope and graph preflight pass while H2 finishes. Gate-bearing H4
-repair and decoding consume both corrected H2 and H3. H5 and H6 are conditional follow-ups.
+branches that its gates fund. Baseline H1--H3 are accepted. H4 calibration repairs use H3
+`calibration` starts on the update role; only a selector-frozen final rerun uses H3 `final_refit`
+starts on the construction role. H4-LM is a conditional fitting-context extension before H5, not a
+renumbering of H6. H5 and H6 remain conditional follow-ups.
 
 **Experiments.** Implementation TODOs, checked only after the corresponding artifacts and assertions
 have been recorded:
@@ -459,15 +511,24 @@ have been recorded:
   repair, marginal-over-path sequence score, occupancy-weighted two-state local postprocessing, and
   the registered decoder grid. Verify the repair likelihood and posteriors against exact enumeration
   before an integration run. Detailed specification: Sections 1 and 1g.1.
-- [ ] **H3 — Rebuild clean phone initializations.** Reproduce the historical fingerprint fixture
+- [x] **H3 — Rebuild clean phone initializations.** Reproduce the historical fingerprint fixture
   for provenance, then build hash-pinned calibration/final-refit fingerprint, ESPUM, random-map, and
   pseudo-pair rows with no fitting or selection on evaluation audio. Add Sisyphus jobs that enforce
   update-only ESPUM training, read-only selection, and a no-selection fixed-update final rerun.
   Detailed specification: 1g.1.
-- [ ] **H4 — Run the corrected phone assay.** Run the controlled-map and soft-flattening curves;
-  repair real seeds and controls for 0/1/2/4 updates; run the decoder check, donor swaps, label-free
-  selector validation, and held-out content gate. Persist every per-utterance, donor, resampling, and
-  uncertainty artifact. Detailed specification: Sections 4, 1g.1, and 1g.2.
+- [ ] **H4 — Complete the corrected phone assay.** Replace the donor table by the common support-
+  compatible audio-only table; restore count-0 `Q`; retain up to 75 hash-compatible trajectories,
+  rerun any mismatching controlled trajectory, and rerun the ten redefined soft starts; add the
+  direct-`Q` decoder, count adapter, no-swap-aware gate,
+  decoder resource contract, selector-freeze artifact, and 7,304-ID final-refit mode. Then run the
+  decoder check, label-free selection, and held-out content gate. Persist every per-utterance, donor,
+  resampling, and uncertainty artifact. Detailed specification: Sections 4, 1g.1, and 1g.2.
+- [ ] **H4-LM — Conditionally test fitting context before rejecting repair.** Under the trigger in
+  1g.2a, build the exact H2-LM engine and run the bounded fixed-duration matched-2/3/4 diagnostic.
+  Then give the resource-feasible matched 4-gram its own coherent H1-LM duration/topology refit and
+  complete H4 gate; only a label-free selection between the baseline and that full arm may advance.
+  This is not required when baseline H4 is pre-evaluation-ready. Evaluation labels may never choose
+  an order. Detailed specification: 1g.2a.
 - [ ] **H5 — Build the SAE handoff, only after H4 passes.** Freeze independently initialized
   channel A and channel B; run policy-only and scorer-only checks before any combined loop. Detailed
   specification: 1g.3.
@@ -485,48 +546,28 @@ arms. Their funding status is already settled below.
 **Gate.** H1--H4 are accepted only when the frozen fixture reproduces, all split/provenance and
 construction-only assertions pass, the positive controls make the phone assay valid, and the
 catalogued artifacts suffice to recompute every gate. A failed assertion makes the affected result
-unresolved; it does not license an additional initializer or hyperparameter search. H5 and H6 retain
+unresolved; it does not license an additional initializer or hyperparameter search. A triggered
+H4-LM must resolve before evaluation opens; otherwise it cannot alter the H5 input. H5 and H6 retain
 their own scientific gates.
 
-**Status.** **2026-08-20 — H1--H3 accepted; H4 production consumer not yet built.**
-`Phase1gH1Job.HbxKiuBTJ8aN` remains the accepted H1 read and fixes the two-state phone topology at
-`p=0.23560298`; do not rerun it.
+**Status.** **2026-08-20 — H1--H3 accepted; H4 calibration repair complete but its production
+interfaces require the frozen corrections above.** `Phase1gH1Job.HbxKiuBTJ8aN` fixes the baseline
+two-state phone topology at `p=0.23560298`; baseline H1, the H2 engine/timing grid, and H3 calibration
+and final graphs must not be relaunched. H4 preparation and all 85 bigram repair trajectories at
+counts 0/1/2/4 finished, but no selection decode, selector freeze, final repair, or evaluation ran.
 
-H2 is closed at the common-engine level. Commits `88762f2` and `bda896a` propagate the same explicit
-deleted-silence `boundary_before_seqs` vector through repair, fixed scoring, and decoding and reject a
-missing vector. The current `channel_h` suite passes 23/23, including exact enumeration of the
-boundary-aware repair. This resolves the mismatch at 53,498 update-population gaps affecting 97.71%
-of the 6,414 utterances. Strict settings, evidence, shard merging, the real two-state
-39-phone-by-500-unit count-0 snapshot, and all 48 timing cells remain accepted; do not rerun them.
-Retaining eight alternatives remains an output-only cap because one-best and confidence use the
-complete surviving beam.
+The old donor table lacks the hard support conditions of the accepted duration topology and is
+superseded for production. The controlled start bundle also omitted original count-0 `Q`, and the ten
+soft starts used a B-space flooring rule whose `q=1` endpoint is not the canonical reference. Build
+immutable replacement donor/Q artifacts, rerun the ten soft trajectories, and reuse up to 75 others
+only after exact start and `B`-hash verification. A mismatching controlled row is rerun alone;
+an H3 `Q`/`B` mismatch blocks for provenance. Section 4 fixes the replacement donor roles and requires
+a new production-pool preflight.
 
-H3's corrected stream `H3MaskedEspumStreamJob.GqAphDUVZJ7f` remains valid at 8,416 utterances,
-715,099 retained pooled runs, and 72,842 chunks. The four calibration arms completed once without a
-resume or error; the exact 6,414-utterance update fit and disjoint 890-utterance label-free read select
-seed 0/update 30,000 at weighted phone-LM perplexity 32.5352. These calibration results remain valid;
-the earlier frame-as-token batch and superseded non-strict projections remain quarantined.
-
-H3's requested functional repairs are now implemented. CUDA restore records device count and rejects
-null, short, wrong-count, empty, and non-tensor CUDA RNG states. The final graph wires construction-
-population fingerprint, random-map seed 1000, pseudo-pair seed 0, and the frozen ESPUM seed/update,
-with no selection or phone-LM reader in the ESPUM refit. The refreshed strict projection
-`H3CalibrationEspumProjectionJob.5WaObcxvytCC` records all eight runtime source hashes and has maximum
-`Q`/`B` row-sum errors `5.55e-16`/`4.88e-15`; the refreshed GH200 assertion
-`H3EspumResumeEquivalenceJob.hRJnt1vbaKkG` is bit-exact for the same 12-update split trajectory.
-
-H3's isolated final graph is complete. Construction-population fingerprint
-`H3InitializerJob.uKw59MBJC4Hj`, random-map `H3InitializerJob.ABTGA9vIwwI8`, and pseudo-pair
-`H3InitializerJob.BS1nPUwf1fel` are finished on the exact 7,304 IDs with the accepted construction
-hash. `EspumMatchTrainJob.t1l7N4lQ9dtY` finished the frozen seed-0/update-30,000 final refit, and
-`H3FinalEspumProjectionJob.PJMwUGUXUb7s` finished the strict projection. Never relaunch calibration
-or this final graph.
-
-H4 is the next scientific experiment but is not yet production-wired: `h4_harness.py` verifies
-artifacts, donors, bootstrap intervals, and gates, but deliberately neither constructs a seed nor
-invokes a decoder. Build that consumer graph now, then run it using only the completed final-refit
-manifests. H5--H6 remain gated on H4. Before its manager starts, satisfy the cleanup prerequisite in
-the launch contract above.
+The next run is H4 calibration decoding/scoring on the 6,414/890 roles, followed by an immutable
+selector choice and construction-only final refit. H4-LM is planned but unrun and fires only under
+1g.2a before evaluation labels open. H5--H6 remain gated on the resulting valid H4 output. Before a
+manager starts, satisfy the cleanup and measured-resource prerequisites in the launch contract.
 
 ### 1g.0 — Choose the smallest channel shape that the data do not reject
 
@@ -564,7 +605,9 @@ stream and was split-dependent for raw characters, while the two-state form pass
 cells; on dev-clean five cells passed, two were indeterminate, and one was rejected. Those historical
 reads do not choose duration. The accepted construction-only H1 read fits each route on the 6,414
 update utterances: one state is decisively rejected and two states are admissible for both live routes.
-Freeze the phone value `p=0.23560298`; see `SAE_1g.md` Approach 6. No further topology run is required.
+Freeze the baseline phone value `p=0.23560298`; see `SAE_1g.md` Approach 6. No further baseline
+topology run is required; a triggered deployable higher-order `G_fit` uses the distinct H1-LM read in
+1g.2a.
 
 ### 1g.1 — Phone reference: can the existing weak seeds be repaired?
 
@@ -587,10 +630,12 @@ utterances contribute no labels. It is a positive control, not a candidate. If i
 map differs from the frozen fixture, report a fresh local baseline rather than demanding 0.4148.
 Never fit and score a channel on the same utterances.
 
-Every prospective start first supplies `Q(phone | unit)`. Multiply it by the measured audio-unit
-marginal and normalize each phone row to obtain `P(audio unit | phone)`. The complete unpaired phone
-text `T_phi` supplies the fitting bigram; the fixed Phase-1a/1f phone 4-gram supplies the sequence
-decoder prior. Construction transcripts supply neither to
+Every prospective start first supplies and persists `Q(phone | unit)`. Multiply it by the measured
+audio-unit marginal, apply the common floor, and normalize each phone row to obtain and persist
+`B=P(audio unit | phone)`. Store both array hashes, the marginal, floor, inventory order, inputs, and
+seed; count-0 `Q` is never reconstructed from `B`. The complete unpaired phone text `T_phi` supplies
+the baseline add-one fitting bigram; the fixed Phase-1a/1f phone 4-gram supplies the sequence decoder
+prior. Construction transcripts supply neither to
 a real seed or control. Every prospective marginal, per-unit projection, and pseudo-pair count is
 estimated without the fixed evaluation fifth: first on the 6,414 update utterances, then on all 7,304
 construction utterances only after label-free settings are frozen. Before channel repair, tie all phone emission rows
@@ -599,7 +644,9 @@ under the unpaired phone language model and its end-of-sentence probabilities, t
 reference, both real seeds, and both controls. The gold-derived 0.3164 repetition rate and mean
 duration 1.463 used by the first E5 rehearsal are diagnostics only. After the shape check, only the
 selected model's one or two `P(audio unit | phone-state)` tables move during soft re-estimation. Do
-not refit duration on the 890 selection or final 7,304-construction populations.
+not refit baseline duration on the 890 selection or final 7,304-construction populations. A distinct
+coherent H1-LM arm under 1g.2a may refit duration on the same 6,414 update IDs only; that is not a
+baseline rerun.
 
 Rebuild the proxy-silence convention before these fits. On the 6,414 update utterances only, apply
 the canonical 0.2-second edge-enrichment statistic and weighted two-means high-cluster rule separately
@@ -651,6 +698,15 @@ Convert every starting method to that common channel representation:
   `exp(log(1.1) r[y,u])` and state 2 by `exp(-log(1.1) r[y,u])`, then normalize each row. This is the
   positivity-preserving, symmetric “10% perturbation”; it is never swept.
 
+For the completed H4 recovery, regenerate and provenance-bind `Q` for the 71 non-soft controlled
+starts (reference, retain/redraw maps, and marginal-random maps) from their pinned inputs and seeds;
+import and hash-bind the already persisted `Q` and `B` from the four H3 calibration starts. Forward
+conversion must reproduce each retained count-0 `B` hash exactly before its repair trajectory is
+reused. If a regenerated controlled start misses its old hash, supersede and rerun only that
+trajectory after the pinned construction checks pass. If one of the four accepted H3 pairs fails its
+own stored `Q`-to-`B` check, stop for planner/verifier provenance review; do not relaunch H3. The ten
+old soft trajectories do not satisfy this interface and are replaced under 1g.2.
+
 Measure every method's iteration-0 output under the common decoder. Do not inherit the ESPUM 0.8580
 or fingerprint 0.8809 headline after projection and decoder changes.
 
@@ -665,6 +721,8 @@ first-position row and `p` for the later-position row. It then chooses the phone
 delete the fixed proxy-silence segments, use first/lowest sorted phone ID on an exact argmax tie,
 collapse adjacent equal phones only within each silence-delimited chunk, then concatenate chunks.
 This is the frozen Phase-1f convention; do not collapse across a removed silence boundary.
+The production implementation therefore requires a direct-`Q` decoder path; the repaired
+`B`-times-text-prior helper is not a substitute at count 0.
 
 The **sequence decoder** uses
 the same unperturbed channel rows
@@ -673,9 +731,10 @@ symmetry break and subsequently learned state rows. Sequence decoding uses the b
 4-gram at
 `work/i6_core/lm/kenlm/CreateBinaryLMJob.hvZoC014xnIe/output/lm.bin` and beam search. Beam prefix
 scores sum probabilities over duration/state paths that yield the same text prefix; a Viterbi-max
-alignment is not a second decoder candidate. During sequence decoding, this
-4-gram **replaces** the across-phone bigram used during repair; only the within-phone duration
-transitions remain. The two language models are never multiplied together. Its language-model scale
+alignment is not a second decoder candidate. During baseline sequence decoding, this 4-gram
+**replaces** the across-phone bigram used during repair; in H4-LM it likewise replaces whichever
+fitting order that arm used. Only the within-phone duration transitions remain. The fitting and
+decoder language models are never multiplied together. Its language-model scale
 and per-phone insertion penalty use the new fixed grid
 `lambda={0.5,1,2,4}` by `beta={-2,-1,0}`. This grid contains the natural unit scale and neutral
 penalty plus the only nearby project anchor, Phase 1d's cross-decoder `(2,-1)` operating point; no
@@ -719,8 +778,8 @@ the selector before any count or decoder setting is deployed.
    `s`, initialize NumPy with `SeedSequence([0,j,s])`; use draws 0--4 initially and 5--19 only for
    an extended level. Then apply the same
    marginal-and-row-normalization conversion used by the real starts; the observed audio-unit
-   marginal remains fixed. The second damage family in 1g.2 instead mixes each soft emission row
-   toward that marginal.
+   marginal remains fixed. The second damage family is the canonical `Q`-space mixture defined in
+   1g.2; it is not a direct mixture of stored emission rows.
    Use
    `q={0,.05,.10,.15,.20,.30,.40,.60,.80,1}` with five independent maps initially. For each repair
    count, a transition bracket is the adjacent `q` pair whose observed gate-pass fractions lie on
@@ -758,15 +817,18 @@ the selector before any count or decoder setting is deployed.
   seeds and controls.
 - This verdict applies only to the phone reference.
 
-**Status.** **The first E5 job completed as exploratory, non-decisive evidence.** It tests only the
-two-state form, fits and scores on the same 2,864 dev-other utterances, differs from the frozen 1f preprocessing, uses the
-gold-derived fixed mean duration 1.463, a hard 0.9-smoothed map, a fixed-stride text prefix, and
-phone-bigram posterior-argmax decoding. It runs neither real seed nor treated control. Its code field
-`fraction_correct` is a misnamed retention probability: the archived prose—not the current `q`
-definition—had its endpoints reversed. At configured retention 0, PER moved 1.0109 to the selected
-and final 0.8409; at retention 1, it moved 0.4865 to a selected 0.4589 and then drifted to 0.6699 at
-step 30. These are engineering observations, not a gate. Run the corrected experiment above; the
-historical 1f gate failure remains unchanged.
+**Status.** **2026-08-20 — H4 calibration repair is partially reusable; decoding and the gate remain
+pending.** All 85 baseline bigram trajectories finished, but the ten soft trajectories are
+superseded by the canonical `Q` definition above. Reuse up to 75 after exact `Q`/`B` and manifest
+checks, with the mismatch handling above. No selection decode, selector freeze, construction refit,
+or evaluation has run.
+
+The first E5 job remains exploratory, non-decisive evidence. It fit and scored the same 2,864 dev-
+other utterances under different preprocessing, gold-derived mean duration 1.463, a hard 0.9-smoothed
+map, fixed-stride text, and bigram posterior-argmax decoding; it ran neither real seed nor treated
+control. Its configured retention 0 moved PER 1.0109 to 0.8409, while retention 1 moved 0.4865 to an
+LM-selected 0.4589 and then 0.6699 at step 30. These engineering observations fire no gate, and the
+historical 1f verdict is unchanged.
 
 ### 1g.2 — Check that the training score rewards speech content
 
@@ -797,13 +859,48 @@ open final error only on the final evaluation fifth. Controlled calibration may 
 reference labels only after every output is fixed; those labels may never choose a real seed's
 restart, repair count, or decoder setting.
 
+The production interfaces are explicit. Calibration repair accepts only an H3 `calibration` start,
+fits exactly the 6,414 update IDs, and never updates on selection audio. A lossless count adapter
+exports one of counts 0/1/2/4 into the decoder schema while binding its source array, inventory,
+duration, boundary law, role, count, and hashes.
+
+The sequence-decoder resource contract is deterministic and role-specific. Retain the accepted H2
+32-way sharding: for each H1 role, chunk `j` receives canonical role IDs `j::32`. Among every adapted
+channel/count table that the role may decode, deduplicate identical array hashes and sort by
+`(mean emission-row entropy, canonical arm name, repair count)`. Select indices `0`, `(n-1)//2`, and
+`n-1`, deduplicating those
+indices when `n<3`. For each chosen table, run all
+48 `(lambda,beta,beam)` cells on the role's longest retained-unit
+utterance, chosen by descending `(retained-unit count, utterance ID)` exactly as in H2. Rerun the cell
+with maximum elapsed time and the cell with maximum RSS—once if they coincide—on the actual 32-way
+chunk with the largest total retained-unit count, tie by lower chunk index. The selection contract may
+read only the 890 selection IDs; construction and evaluation contracts are created only after the
+selector freezes and use only their own role IDs. Persist all probe IDs, table identities, settings,
+chunk contents, duration/topology, `G_fit`/`G_dec` identities, code hashes, elapsed time, maximum RSS,
+and queue limits. Production requests must be at least
+1.5 times the maximum measured elapsed time and 1.5 times the maximum measured RSS, rounded up to
+whole hours and GiB; failure to fit the
+declared queue limits is resource-unresolved. Every production chunk binds this contract and retains
+its actual usage. The accepted H2 timing grid supplies probe anchors but cannot substitute for these
+channel- and role-bound measurements or select a scientific setting.
+
+After all calibration outputs exist, one immutable selector artifact freezes the
+initializer/restart, fitting-LM identity, repair count, local/sequence decoder choice, `lambda`,
+`beta`, beam, donor table, and score evidence. Final-refit repair starts from the corresponding H3
+`final_refit` artifact, applies exactly that frozen count to all 7,304 construction IDs, and has no
+selector, selection-label, or evaluation reader.
+
 **Experiments.**
 
 1. Use the 1g.1 `q` grid under two damage mechanisms. The map family is the exact-size
-   retain/redraw construction and draw schedule defined there. The soft family is deterministic:
-   `B_q(y,u)=q B_ref(y,u)+(1-q)m(u)`, followed by the common floor and row normalization. It has one
-   row per `q`, not five fake replicates. Retain outputs at repair counts 0, 1, 2, and 4 for every
-   trajectory; score calibration must cover the exact checkpoint choice it will later make.
+   retain/redraw construction and draw schedule defined there. For the deterministic soft family let
+   `pi_ref(y)=sum_u m(u)Q_ref(y|u)` and
+   `Q_q(y|u)=q Q_ref(y|u)+(1-q)pi_ref(y)`. Convert every `Q_q` through the same canonical `Q`-to-`B`
+   operation and floor as every other start. Thus `q=1` is exactly the reference and `q=0` is class-
+   independent. Persist both tables and rerun the ten soft trajectories; the old B-space trajectories
+   are superseded. It has one row per `q`, not five fake replicates. Retain outputs at repair counts
+   0, 1, 2, and 4 for every trajectory; score calibration must cover the exact checkpoint choice it
+   will later make.
 2. Add the pseudo-pair control at pairing seed 0 and 20 marginal-random maps with seeds 1000--1019.
    Seed 1000 is the named random-map control; the remaining maps estimate the null spread. Twenty
    probes roughly the upper 5% null tail; inference nevertheless uses the simultaneous maximum-null
@@ -850,11 +947,141 @@ restart, repair count, or decoder setting.
 - A failure closes only the tested score, channel shape, decoder, and representation combination.
   It cannot close all Phase-1 initializers.
 
-**Status.** **Pending.** The six banked 1f endpoints are too few, correlated, and selected to
-validate a general selector. The controlled library above supplies the independent validation set.
-The earlier likelihood/error anti-alignment is a warning, not a verdict on the newly selected
-discrete duration model. The character route must repeat this compact calibration because phone score
-scaling and duration do not transfer automatically.
+**Status.** **2026-08-20 — Normatively unblocked; execution pending.** The original donor table can
+assign exact zero-support comparisons and is superseded. The replacement audio-only law has a
+exploratory all-8,416-candidate preflight of 792/890 swap-eligible and 98 `no_swap` utterances; it is
+not the production-pool coverage. Production must rebuild the two role-local tables in Section 4,
+hash them, and report split-specific coverage. A common feasible subset of
+the old table is rejected because only 3,398/8,900 assignments survive across all 340 existing local
+outputs and 267 utterances retain none. The controlled library still supplies the independent score-
+validation set; no score, selector, or gate result exists yet. The earlier likelihood/error anti-
+alignment remains a warning, not a verdict on the selected duration model. The character route must
+repeat this compact calibration because phone score scaling and duration do not transfer.
+
+### 1g.2a — Test higher-order fitting context before rejecting phone repair (H4-LM)
+
+**Purpose.** Determine whether the baseline fitting bigram is a load-bearing operating-point choice
+without attributing decoder-language-model gains to repair or rejecting the estimator at one context
+order.
+
+**Approach.** This is a conditional H4 follow-up before H5, not H6. Trigger it only before evaluation
+labels open and only after the baseline assay prerequisites pass: mechanics, the positive control,
+donor-score calibration/correlation, and selector validity. These prerequisites explicitly exclude
+the method-specific nonzero-count/update-health result. A failed or unresolved prerequisite is fixed
+first and does not trigger an LM arm. After they pass, H4-LM triggers unless the frozen label-free
+selector assigns a safe nonzero bigram repair count to at least one admissible real H3 start. This
+includes the cases where no nonzero count is safe or both ESPUM and fingerprint select count 0. A
+pre-evaluation-ready baseline bigram arm
+leaves H4-LM parked and may open evaluation. This does not assert that the held-out content gate will
+pass. Ney's synthetic order sweep motivates the question but changes
+recognition order for the learned- and correct-channel rows together; it does not isolate fitting
+order or predict a LibriSpeech gain.
+
+Keep smoothing and order separate. The current H4 add-one bigram is `legacy-2g`. Build a matched
+unpruned modified-Kneser--Ney `G_fit` family at orders 2, 3, and 4 from the same complete `T_phi`,
+39-phone inventory, BOS/EOS convention, `interpolate_unigrams=True`, and fallback discounts
+`[0.5,1.0,1.5]` used by the canonical `phoneme_ngram_lm` recipe. Compile each ARPA into a proper
+generative automaton: BOS is history only, `<unk>` is not an emitting phone, the legal 39-phone-plus-
+EOS continuations are explicitly normalized at every history, and hashes bind source text, ARPA,
+compiler, and symbol order. The clean order contrast is matched 2/3/4; comparison with `legacy-2g`
+separately reports the smoothing bridge. The banked phone 4-gram remains `G_dec` for every arm and
+replaces rather than multiplies `G_fit` during decoding.
+
+The bounded full-method comparison is nevertheless an operating-point contrast between add-one
+`legacy-2g` and matched-MKN order 4, so it changes smoothing and order together. The D bridge makes
+that confound visible but does not remove it. Report any deployable difference as a `G_fit`-identity
+effect, not as a causal order-only gain; a full matched-order-2 control is not funded here.
+
+Separate two questions. **H4-LM-D** freezes the accepted `p=0.23560298`, two-state topology, starts,
+floor, boundary law, repair counts, donor table, decoder, and selector and changes only `G_fit` during
+repair. It is a bounded read on the reference and four accepted H3 starts: matched order 2 measures
+the smoothing bridge, order 3 is directional, and order 4 is the proposed context probe. It cannot
+feed H5. **H4-LM-F** is the coherent matched-4 method arm: recompute its EOS-conditioned sentence-
+length law, refit `p` on exactly the 6,414 update IDs, repeat the one-/two-state H1 gate, and rerun the
+complete H4 calibration under that operating point. Only a label-free selection between the coherent
+`legacy-2g` baseline and this full F arm may feed H5. D neither selects that comparison nor supplies a
+deployable channel. Matched orders 2 and 3 do not receive full controlled-library arms and cannot feed
+H5; no result may silently expand that scope.
+
+**Experiments.**
+
+1. **Matched LM artifacts.** Persist `legacy-2g` and matched 2/3/4 identities, explicit BOS/EOS/
+   backoff normalization checks, history/arc counts, and complete-`T_phi` hashes. No 5-gram is funded.
+2. **Exact H2-LM engine.** Implement a context-state automaton whose state is the up-to-`order-1`
+   phone history and duration sub-state; emission rows remain tied by current phone/sub-state and the
+   M-step aggregates fractional counts over histories. Preserve exact BOS initialization, EOS exit,
+   backoff probability, and the deleted-silence rule that forces a phone exit while retaining LM
+   history. On tiny examples, orders 2/3/4 must reproduce exhaustive likelihoods, posteriors, and
+   counts. Instantiated with `legacy-2g`, the generalized sparse engine must reproduce the accepted
+   dense H2 likelihood, posteriors, M-step `B`, and boundary behavior. The matched MKN order-2
+   automaton is checked separately against exhaustive enumeration.
+3. **Measured resource gate.** Use the accepted H1 update-ID order and the same deterministic 32-way
+   `ids[j::32]` sharding as the decoder. Deduplicate identical array hashes and sort all corrected
+   baseline start/count tables by `(mean emission-row entropy, canonical arm name, repair count)`.
+   Select indices `0`, `(n-1)//2`, and `n-1`. For each selected table,
+   preflight one exact E-step for trigram and then 4-gram repair on the longest update utterance chosen
+   by descending `(retained-unit count, utterance ID)`. Rerun the maximum-time and maximum-RSS cells
+   on the update chunk having the largest total retained-unit count, tie by lower chunk index. Exact
+   production EM aggregates shard likelihoods and expected counts before each single common M-step;
+   no shard performs an independent M-step. Persist probe IDs, table identities, timing, maximum RSS,
+   reached histories/arcs, shard contents, queue limits, and headroom. Production requests must be at
+   least 1.5 times the maximum measured elapsed time and 1.5 times the maximum measured RSS, rounded
+   up to whole hours and GiB; a cell that
+   cannot fit the declared queue limits is resource-infeasible. A 4-gram has at most `39^3=59,319`
+   full phone histories; including the empty and shorter BOS histories gives at most
+   `1+39+39^2+39^3=60,880` context identities, each with two duration sub-states. Implementation
+   decisions use measured reached states/arcs, not that bound. The accepted 48 H2 cells are beam-
+   decoder timings and provide
+   probe anchors only. No context/beam pruning may silently change the EM objective.
+4. **Fixed-duration diagnostic.** Run `legacy-2g` and the matched 2/3/4 family only on the prospective
+   reference and four accepted H3 calibration starts, with identical update/selection roles, counts
+   0/1/2/4, masks, donors, and the already frozen baseline decoder setting for each start. Report
+   label-free likelihood and own-minus-donor trajectories plus later descriptive error; do not run the
+   81-row controlled library, refit a selector, choose an order, authorize final refit, or close an
+   unrun coherent arm from D.
+5. **Coherent matched-4 arm.** If exact order 4 passes the resource gate, create its distinct H1-LM
+   duration/topology and H2-LM engine artifacts and repeat the complete calibration for the 81-row
+   controlled library and four accepted H3 starts. Before that fan-out, repeat the order-4 longest-ID
+   and worst-32-way-shard resource reads with the F arm's actual `p` and topology and bind the new
+   contract; the fixed-`p` D contract is not a substitute. Combine this coherent arm with the already
+   valid `legacy-2g` tuples, extend the frozen selection tuple to `(G_fit identity, repair count,
+   decoder setting, restart)`, and validate it over every deployable full-method tuple. Real-start
+   selection uses only the validated own-minus-donor score on the 890 selection utterances; exact ties
+   retain `legacy-2g`, then choose the lower repair count and existing decoder/restart order. Only then
+   repair the selected H3 `final_refit` starts on 7,304 construction utterances and open the 1,112
+   evaluation utterances once. Initial H3 `Q`/`B` tables are reused; the LM arm does not rebuild
+   initializers.
+6. **Descriptive perplexity.** After the order/selector artifact is frozen, report conventional per-
+   phone perplexity including EOS for every fitting LM and fixed `G_dec` on phonemized text disjoint
+   from `T_phi`: the 890 selection transcripts when their labels are opened for controlled
+   validation, and the 1,112 evaluation transcripts only when evaluation itself opens. Persist ID,
+   text, sentence/phone-count, OOV/drop, and scorer hashes, and assert sentence-level disjointness from
+   `T_phi`. Any overlap makes that descriptive PPL unavailable rather than a gate failure. Perplexity
+   never selects or gates order; the ESPUM checkpoint statistic 32.5352 is not an LM perplexity.
+
+**Gate.**
+
+- H4-LM execution is valid only after exact enumeration, `legacy-2g` dense compatibility, and a bounded
+  production resource contract pass. An exact 4-gram that exceeds available scheduler resources is
+  **resource-infeasible/unresolved**, not a scientific failure; an approximate variant requires a new
+  preregistered approximation and stability gate. The exact matched trigram remains directional and
+  cannot advance or stand in for an unrun 4-gram.
+- Calibration labels validate the expanded full-method selector but never choose `G_fit` for a real
+  start. Perplexity and PER cannot select order. In F, candidate and both controls receive the
+  identical `legacy-2g`/matched-4, count, and decoder grid; do not thin controls after timing or
+  results are seen. D retains only its five specified starts and cannot be expanded after its reads.
+- H4-LM-D is diagnostic only. A negative fixed-duration result cannot close the coherent higher-order
+  method, and a positive D result cannot enter H5.
+- The matched-4 H4-LM-F arm may enter H5 only if its refitted duration/topology is admissible, its label-free
+  selector passes the existing H4 validation, and its frozen held-out output passes the same content
+  gate against both controls. Failure closes only the tested matched-4 operating point; the diagnostic
+  matched-2/3 reads do not close their coherent methods, and a resource-infeasible 4-gram remains
+  unresolved.
+
+**Status.** **2026-08-20 — Planned, conditional, and unrun.** The current exact repair engine is
+bigram-specific; neither the higher-order engine, matched fitting LMs, resource evidence, diagnostic,
+nor coherent arm exists. H4-LM does not delay a pre-evaluation-ready baseline bigram arm and H6
+remains the separately gated character route.
 
 ### 1g.3 — Pass the weak seed into the SAE loop
 
@@ -970,9 +1197,10 @@ cannot enter the reported initialization.
 - Passing on phones validates mechanics and the existence of a useful weak seed; it does not establish
   the lexicon-free claim.
 
-**Status.** **Pending 1g.1 and 1g.2.** A passing policy-only or scorer-only row is a promising
-component, not yet a usable end-to-end Phase-1 initialization. Existing project evidence makes the
-separation essential: an audio-to-text model can bind to audio even above 100 WER, while the G-track
+**Status.** **Pending 1g.1, 1g.2, and any triggered 1g.2a arm.** A passing policy-only or scorer-only
+row is a promising component, not yet a usable end-to-end Phase-1 initialization. Existing project
+evidence makes the separation essential: an audio-to-text model can bind to audio even above 100 WER,
+while the G-track
 showed that a policy and scorer trained around the same filler errors can reward their shared mistake.
 
 ### 1g.4 — Preserve the closed anchor result; conditionally test one new soft-energy hint
@@ -1223,6 +1451,7 @@ added to this plan before launch.
 | 0 | Label-free one-segment rejection, gold-duration diagnostics, and hard-anchor verdicts | Reuse valid Phase-1g work at its actual scope |
 | 1 | Correct phone decoder and repair curve with construction-only seeds and controls | Decide whether weak phone seeds can be repaired |
 | 2 | Validated content-sensitive training and selection score | Select without transcripts |
+| 2a | Conditional matched-2/3/4 diagnostic and coherent matched-4 H4-LM arm before evaluation | Resolve a valid but inert/non-deployable bigram repair without conflating decoder order |
 | 3 | Separate phone policy-start and score-start results | Validate at least one concrete handoff and start characters |
 | 4 | Optional combined phone-reference loop | Validate the coupled assay without delaying characters |
 | 5 | Character channel, separate handoffs, and fixed combined test | Establish or refute the first lexicon-free end-to-end initialization |

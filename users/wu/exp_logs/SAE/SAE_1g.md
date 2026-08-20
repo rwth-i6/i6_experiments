@@ -348,15 +348,66 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   complete `T_phi`, unit raster, and runtime source hashes. All 85 repair manifests and NPZ bundles
   are present and the reconstructed graph has no unfinished or problem jobs.
 
-  The downstream production consumer is blocked on a planner-owned path law. Under the frozen donor
-  table and the required local reference decode, 1,237 of 8,900 selection donor pairs have fewer
-  retained donor units than fixed hypothesis phones; 316 of 890 selection utterances have at least
-  one such donor. The accepted duration topology therefore assigns those donor scores exact
-  `-inf`, while the selector contract requires finite per-utterance scores. No exclusion,
-  reassignment, zero-duration-phone, or finite-conditioning rule is specified. Separately, the
-  controlled calibration bundle persists only `B(unit | phone)`, whereas count-0 local decoding is
-  specified to consume the original `Q(phone | unit)`; `Q` is not uniquely recoverable from `B`.
-  Do not launch selection decoding or final refit until the plan freezes both interfaces. The
-  production job audit also requires a final-refit repair mode, count adapter, singleton-aware gate,
-  selector-freeze artifact, and decoder resource contract. `JOB_AUTO_CLEANUP=True` remains effective
-  for managers; console mode intentionally overrides it only for inspection.
+  H4's downstream protocol is now normatively unblocked but remains unexecuted. For a fixed source-
+  decoded hypothesis of `N` phones, a donor with `T_d` retained units and `C_d` silence-delimited
+  chunks has finite score exactly when `C_d <= N <= T_d`. The old preparation table did not enforce
+  that support law; exact `-inf` values are correct model behavior and must not be clipped into
+  apparent content evidence. The earlier 1,237/8,900 and 316/890 prevalence used the available
+  `B`-times-text-prior surrogate, not the specified original-`Q` count-0 decoder. Reconstructing the
+  pinned reference `Q` gives 1,156/8,900 affected pairs across 296/890 utterances. Across all 340
+  existing local outputs, a common feasible subset of the old table retains only 3,398/8,900 pairs
+  and leaves 267 utterances without a donor, so pair censoring is not the production fix.
+
+  Rebuild immutable arm-independent audio-only donor tables requiring `T_d >= T_s` and
+  `C_d <= C_s` before the existing same-speaker, duration-band, unit-rate, and fallback ranking. This
+  guarantees support for every hypothesis that is valid on its source audio without conditioning the
+  table on method output length. The selection table uses only the 890 selection IDs as sources and
+  candidates; the evaluation table uses only the 1,112 evaluation IDs as sources and candidates.
+  Update/construction IDs are not donors. The exploratory all-8,416-candidate preflight
+  left 792/890 selection sources eligible and 98 `no_swap`, but that is not production-pool coverage
+  and must be recomputed. Use one common eligible population per role for every candidate/control
+  donor contrast, retain all sources in non-donor metrics, use fixed clean/other weights 432/890 and
+  458/890 for selection and 540/1,112 and 572/1,112 for evaluation, report coverage and match
+  distances, and assert every retained score is finite.
+
+  Count-0 local decoding also requires the original `Q(phone | unit)`. The 71 non-soft controlled
+  starts omitted it, while the four H3 starts already persist `Q` and `B`; `Q` cannot be recovered
+  provenance-safely from `B` because row normalization loses phone scale and 103/500 units have zero
+  update marginal. Regenerate and bind `Q` for the reference, retain/redraw, and marginal-random
+  starts and require exact canonical `B`-hash reproduction; import and verify the four H3 pairs. The
+  ten old soft B-space trajectories are superseded: define
+  `pi_ref(y)=sum_u m(u)Q_ref(y|u)` and
+  `Q_q(y|u)=q Q_ref(y|u)+(1-q)pi_ref(y)`, convert canonically so `q=1` is exactly the reference, and
+  rerun those ten. Up to 75/85 other repair trajectories remain reusable after hash verification; a
+  mismatching controlled trajectory is rerun alone from its verified canonical start, while a mismatch
+  in one of the four persisted H3 pairs is a provenance blocker and does not authorize an H3 relaunch.
+
+  Before selection, implement the direct-`Q` decoder, lossless repair-count adapter, no-swap-aware
+  gate, measured decoder resource contract, immutable selector-freeze artifact, and explicit final-
+  refit repair mode on all 7,304 construction utterances. Calibration repair uses only the 6,414
+  update IDs and reads the 890 selection IDs without fitting; final refit starts only after the
+  selector freezes. `JOB_AUTO_CLEANUP=True` remains effective for managers; console mode intentionally
+  overrides it only for inspection.
+
+- 2026-08-20 — Higher-order `G_fit` is registered as conditional H4-LM work, not H6; H6 remains the
+  character route after a valid H5 phone handoff. First complete the corrected baseline bigram H4
+  assay prerequisites: mechanics, positive controls, donor-score calibration/correlation, and selector
+  validity. The method-specific nonzero-count/update-health outcome is not a prerequisite. A failed
+  prerequisite is fixed first and does not trigger an LM arm. Trigger H4-LM before evaluation only if
+  those prerequisites pass and the selector assigns no safe nonzero count to any admissible real phone
+  seed—including when no nonzero count is safe or both seeds choose count 0. A safe nonzero choice for
+  at least one seed is merely pre-evaluation-ready, not a held-out content result. The motivating Ney
+  order sweep changes recognition
+  order for its learned- and correct-channel rows together, so it does not isolate fitting order or
+  predict the project effect.
+
+  H4-LM separates the legacy add-one bigram from a matched unpruned modified-Kneser--Ney 2/3/4
+  fitting family while keeping the banked 4-gram decoder fixed. H2-LM must implement exact context-
+  state repair, reproduce dense `legacy-2g` and exhaustive tiny matched order-2/3/4 reads, and obtain
+  measured trigram/4-gram timing and RSS; the 48 H2 beam-decoder cells cannot size repair. The fixed-
+  `p` diagnostic is bounded to the reference and four accepted H3 starts: matched order 2 reads the
+  smoothing bridge, order 3 is directional, and order 4 is the proposed context probe. It cannot feed
+  H5. Only matched order 4 receives a full controlled-library arm, with a separate H1-LM EOS-
+  conditioned duration/topology read on the 6,414 update IDs. The frozen label-free selector then
+  compares that coherent arm with `legacy-2g` before any 7,304-ID refit. Held-out LM perplexity is
+  descriptive and never selects order. This is planned work, not a result.
