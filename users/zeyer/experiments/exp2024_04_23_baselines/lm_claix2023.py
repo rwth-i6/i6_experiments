@@ -133,6 +133,20 @@ def py():
         )
         lm_eval(prefix=f"{name}-seed{_seed}", task=task_spm10k, lm=seed_exp)
 
+        # CTC recogs with the seed LMs at the same tuned scale as the main LM-vs-DLM table (sct 0.8),
+        # on both the with-TTS and the without-TTS ASR model,
+        # so the table can report seed averages for the standard-LM rows.
+        # (The sct 0.9 recogs on the with-TTS ASR come via denoising_lm_2024 lm_scaling_laws.)
+        from .ctc_claix2023 import recog_ext_with_lm
+
+        for _ctc_model_name in ["L16-D1024-spm10k-auxAED-b100k-tts", "L16-D1024-spm10k-auxAED-b100k"]:
+            recog_ext_with_lm(
+                ctc_model_name=_ctc_model_name,
+                lm_name=f"{name[len('lm/') :]}-seed{_seed}",
+                lm=seed_exp.get_last_fixed_epoch(),
+                ctc_soft_collapse_threshold=0.8,
+            )
+
     for n_ep in [20, 50, 100, 200, 300, 400]:
         train(
             f"lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b400_20k-nEp{n_ep}-spm10k",
