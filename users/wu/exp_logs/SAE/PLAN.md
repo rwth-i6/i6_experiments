@@ -213,14 +213,16 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    cheap registered correction; direct SFT and WER comparisons are unaffected.
 4. **Pseudo-label scale and one-generation self-training (§3d.A; TOP GAN-BRANCH READ,
    IMPLEMENTED/LAUNCHED 2026-08-20)**: do not fund another G-track scorer or reward variant before
-   this read. At 15:15 CEST, the packed-reader preflight decode is finished, the theta_0^G
-   fixed-§1d-label continuation and all eight teacher-decode shards are running, and the fresh-label
-   continuations wait on those decodes. The preflight agreement and subsequent graph progression
-   require the stopped managers; before any manager relaunch, make the effective
-   `JOB_AUTO_CLEANUP = True`. Read only fixed endpoints against the same-start §1d-label controls.
-   A fresh-label pass on both dev splits is evidence to consider one further generation; a win by
-   fixed labels alone means extra CE optimization, not iterative self-training. No open-ended
-   relabeling loop is authorized.
+   this read. The separate 960 h scale arm is BLOCKED at its fail-closed packed-input preflight:
+   coverage/order are exact, but only 289/298 shard-0 hypotheses match the banked decoder (nine
+   substantive transcript differences), so no full decode or 960 h SFT may proceed before root-cause
+   diagnosis. The one-generation graph itself is healthy: the theta_0^G fixed-§1d-label continuation
+   is running, teacher decodes are partly finished/partly running, and fresh-label continuations wait.
+   Its stopped manager prevents newly runnable jobs from submitting; before any manager relaunch,
+   make the effective `JOB_AUTO_CLEANUP = True`. Read only fixed endpoints against the same-start
+   §1d-label controls. A fresh-label pass on both dev splits is evidence to consider one further
+   generation; a win by fixed labels alone means extra CE optimization, not iterative self-training.
+   No open-ended relabeling loop is authorized.
 5. **PLAN_3A matrix wrap-up**: M4 contingency call; collapse the sub-plan when closed.
 6. **§1e §2.5(d)+usage gates on the ep50 pins** — the §3d init upgrade path.
 7. **G2P-equivalence ceiling** on existing rollouts.jsonl (CPU): phone-reachable vs
@@ -888,17 +890,21 @@ it becomes a new decision only after a fresh-label arm passes this gate.
 **Status.** IMPLEMENTED AND LAUNCHED 2026-08-20; no experimental result yet. The verifier confirms
 that the legacy tc100 decoder still resolves to `Wav2Vec2KenlmDecodeJob.AQw3EcUo6rks`, the new path
 reads packed HF/Ogg audio without a per-utterance FLAC tree, and the real bed has exactly 281,241
-unique IDs with the banked 28,539 tc100 IDs first in identical order. Runtime acceptance remains
-conditional on `PackedDecodeAgreementJob.xEBbTHwTJScE` reporting exact hypothesis agreement and the
-full decode passing its 281,241-ID coverage assertion. The one-generation graph is also
+unique IDs with the banked 28,539 tc100 IDs first in identical order. Runtime acceptance required
+`PackedDecodeAgreementJob.xEBbTHwTJScE` to report exact hypothesis agreement before the full decode's
+281,241-ID coverage assertion could run. The one-generation graph is also
 verifier-approved: both teachers and all four same-start arms are pinned as specified, with no
-further generation wired. At 15:15 CEST, the packed preflight decode is finished, the theta_0^G
-fixed-§1d-label continuation and all eight teacher-decode shards are running, and the two own-label
-continuations still wait on their teacher outputs. Both §3d managers are stopped, so the agreement
-check and later dependencies cannot advance until a manager is safely relaunched; the effective
-`JOB_AUTO_CLEANUP` must first be corrected from `False` to `True`. The packed decoder uses 96 shards,
-co-located four per four-GPU node. Funding still ends at the fixed-final theta_0^G960 AV-SFT read: no GRPO/autoencoder
-loop, scorer refit or D6 branch from theta_0^G960 is authorized without a new preregistered decision.
+further generation wired. At 15:21 CEST, the packed-input acceptance condition has FAILED: shard 0
+has correct ordered coverage (298/298) but only 289 hypotheses exactly match the banked decoder; the
+nine differences include real word/segmentation changes rather than case or ordering differences.
+`PackedDecodeAgreementJob.xEBbTHwTJScE` therefore failed closed, and the full 860 h decode and 960 h
+SFT correctly remain waiting pending root-cause diagnosis. This does not block the separate
+one-generation graph: its theta_0^G fixed-§1d-label continuation is running, teacher decodes are
+partly finished/partly running, and both own-label continuations wait on their teacher outputs. The
+self-training manager is stopped, so newly runnable jobs will not submit; the effective
+`JOB_AUTO_CLEANUP` must first be corrected from `False` to `True` before it is relaunched. Funding
+still ends at the fixed-final theta_0^G960 AV-SFT read: no GRPO/autoencoder loop, scorer refit or D6
+branch from theta_0^G960 is authorized without a new preregistered decision.
 
 ### 3e. Reward and update protocol
 

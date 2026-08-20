@@ -143,17 +143,20 @@ different tc100-derived pseudo-SFT. The new isolated graphs pass source and grap
 packed path preserves the legacy `Wav2Vec2KenlmDecodeJob.AQw3EcUo6rks` hash, reads the existing
 HF/Ogg bytes directly, creates no per-utterance FLAC tree, and co-locates four of 96 shards per
 four-GPU node. The real source has 281,241 unique IDs and begins with the exact banked 28,539 tc100
-IDs in the same order. Runtime validity remains conditional on
-`PackedDecodeAgreementJob.xEBbTHwTJScE` reporting exact hypothesis agreement and the full decode
-passing its 281,241-ID coverage check. The one-generation graph pins theta_0 ep50 and theta_0^G ep10,
+IDs in the same order. Runtime validity required `PackedDecodeAgreementJob.xEBbTHwTJScE` to report
+exact hypothesis agreement before the full decode's 281,241-ID coverage check could run. The
+one-generation graph pins theta_0 ep50 and theta_0^G ep10,
 and its four same-start arms differ within each pair only by pseudo-text targets; the banked theta_0
 comparator remains `ReturnnTrainingJob.xChfzEkd4CGE`, and no later generation is wired. Jobs are
-submitted but no self-training result exists yet. At 15:15 CEST the packed-reader preflight decode
-`PackedWav2Vec2KenlmDecodeJob.mFKyL6x2Gc9o` is finished; the theta_0^G fixed-§1d-label continuation
-`ReturnnTrainingJob.sYvNhnEDQvli` and all eight theta_0/theta_0^G teacher-decode shards are running.
-The own-label continuations still wait on the teacher outputs. Both §3d managers are stopped, and
-the effective workspace `JOB_AUTO_CLEANUP=False` must be corrected before either is relaunched, so
-the packed agreement check and downstream jobs otherwise cannot advance. This read is now the first
+submitted but no self-training result exists yet. At 15:21 CEST the packed-reader decode
+`PackedWav2Vec2KenlmDecodeJob.mFKyL6x2Gc9o` finished with exact ordered coverage, but its fail-closed
+agreement job `.xEBbTHwTJScE` reports only 289/298 matches and nine substantive transcript
+differences (`exact_match=false`). The full packed decode and 960 h SFT correctly remain waiting;
+the root cause is not established and the gate must not be waived. The separate one-generation
+graph has no error: `ReturnnTrainingJob.sYvNhnEDQvli` is running, teacher shards are partly
+finished/partly running, and the own-label continuations wait on their teacher outputs. Its stopped
+manager prevents newly runnable scoring and downstream jobs from submitting, and the effective
+workspace `JOB_AUTO_CLEANUP=False` must be corrected before relaunch. This read is now the first
 GAN-branch decision before any new scorer/reward mechanism: a fresh-label win over both the teacher
 start and same-start fixed-label continuation on both dev splits supports considering another
 generation; a fixed-label-only win is extra CE optimization rather than iterative self-training.
