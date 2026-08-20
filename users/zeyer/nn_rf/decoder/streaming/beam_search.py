@@ -47,6 +47,7 @@ def frame_sync_beam_search(
     step: Callable[[Tensor, Tensor, Any], Tuple[Tensor, Any]],
     num_flush_frames: int = 0,
     recomb: Optional[str] = "max",
+    return_alignment: bool = False,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Frame-synchronous beam search (RNA), blanks stripped.
@@ -122,6 +123,8 @@ def frame_sync_beam_search(
     out_spatial_dim = Dim(t_total, name="out-spatial")
     aligned = _backtrack(seq_targets, seq_backrefs, beam_dim, out_spatial_dim)  # [beam, batch, t_total]
     aligned.sparse_dim = target_dim_ext
+    if return_alignment:  # raw alignment (blanks kept), for re-scoring / analysis
+        return aligned, seq_log_prob, out_spatial_dim, beam_dim
     seq_targets_out, seq_targets_spatial_dim = rf.masked_select(
         aligned, mask=aligned != blank_idx, dims=[out_spatial_dim]
     )

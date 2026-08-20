@@ -321,6 +321,7 @@ def model_recog_beam(
         init_state=lambda bd: model.decoder.default_initial_state(batch_dims=bd),
         step=_step,
         num_flush_frames=delay,
+        recomb=config.typed_value("recog_recomb", "max"),
     )
 
 
@@ -328,3 +329,73 @@ model_recog_beam: RecogDef
 model_recog_beam.output_with_beam = True
 model_recog_beam.output_blank_label = None
 model_recog_beam.batch_size_dependent = False
+
+
+def model_recog_beam_rescore_check(
+    *,
+    model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Search-score sanity check: run the beam search, then teacher-force the returned alignment back
+    through the decoder and re-sum its per-frame log-probs. Returns the alignment (blanks kept) with
+    seq_log_prob = search_score - rescore, which must be ~0 for every hyp if the search score
+    accumulation + backtracking are correct. Not a WER recog (blanks kept on purpose); read the raw
+    scores from the forward output.
+    """
+    from returnn.config import get_global_config
+    from .beam_search import frame_sync_beam_search
+
+    config = get_global_config(return_empty_if_none=True)
+    beam_size = config.int("beam_size", 12)
+
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim) if data.feature_dim else data_spatial_dim)
+    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    delay = getattr(model.decoder, "delay_frames", 0)
+
+    def _step(prev, enc_t, state):
+        logits, new_state = model.decoder(prev, enc_t, spatial_dim=single_step_dim, state=state)
+        return rf.log_softmax(logits, axis=model.target_dim_ext), new_state
+
+    align, search_score, out_spatial_dim, beam_dim = frame_sync_beam_search(
+        batch_dims=batch_dims,
+        target_dim_ext=model.target_dim_ext,
+        bos_idx=model.bos_idx,
+        blank_idx=model.blank_idx,
+        enc=enc,
+        enc_spatial_dim=enc_spatial_dim,
+        beam_size=beam_size,
+        init_state=lambda bd: model.decoder.default_initial_state(batch_dims=bd),
+        step=_step,
+        num_flush_frames=delay,
+        recomb=config.typed_value("recog_recomb", "max"),
+        return_alignment=True,
+    )
+
+    # Re-feed the returned alignment (same per-frame masking as the search) and re-sum its log-probs.
+    bd = [beam_dim] + batch_dims
+    enc_lens = rf.copy_to_device(enc_spatial_dim.get_size_tensor())
+    state = model.decoder.default_initial_state(batch_dims=bd)
+    prev = rf.constant(model.bos_idx, dims=bd, sparse_dim=model.target_dim_ext, dtype="int32")
+    rescore = rf.constant(0.0, dims=bd)
+    for t in range(out_spatial_dim.dimension):
+        t_t = rf.constant(t, dims=batch_dims, dtype="int32")
+        audio_valid = t_t < enc_lens
+        emit_valid = t_t < enc_lens + delay
+        idx = rf.where(audio_valid, t_t, enc_lens - 1)
+        enc_t = rf.where(audio_valid, rf.gather(enc, indices=idx, axis=enc_spatial_dim), 0.0)
+        a_t = rf.gather(align, indices=rf.constant(t, dims=batch_dims, dtype="int32"), axis=out_spatial_dim)
+        a_t.sparse_dim = model.target_dim_ext
+        logits, state = model.decoder(prev, enc_t, spatial_dim=single_step_dim, state=state)
+        lp = rf.log_softmax(logits, axis=model.target_dim_ext)
+        rescore = rescore + rf.where(emit_valid, rf.gather(lp, indices=a_t, axis=model.target_dim_ext), 0.0)
+        prev = a_t
+
+    return align, search_score - rescore, out_spatial_dim, beam_dim
+
+
+model_recog_beam_rescore_check: RecogDef
+model_recog_beam_rescore_check.output_with_beam = True
+model_recog_beam_rescore_check.output_blank_label = None
+model_recog_beam_rescore_check.batch_size_dependent = False

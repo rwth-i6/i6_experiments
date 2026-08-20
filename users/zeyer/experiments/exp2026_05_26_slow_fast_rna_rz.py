@@ -40,6 +40,7 @@ from i6_experiments.users.zeyer.nn_rf.decoder.streaming.dataset import ChunkAlig
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.standard_aed import (
     standard_aed_training,
     model_recog as standard_aed_model_recog,
+    model_recog_beam as standard_aed_model_recog_beam,
 )
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.chunkwise import (
     ChunkwiseDecoder,
@@ -51,6 +52,7 @@ from i6_experiments.users.zeyer.nn_rf.decoder.streaming.framewise import (
     framewise_training,
     model_recog as framewise_model_recog,
     model_recog_beam as framewise_model_recog_beam,
+    model_recog_beam_rescore_check as framewise_model_recog_beam_rescore_check,
 )
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.ext_transducer import (
     ExtTransducerDecoder,
@@ -66,6 +68,7 @@ from i6_experiments.users.zeyer.nn_rf.decoder.streaming.rnnt import (
     RnntDecoder,
     rnnt_training,
     model_recog as rnnt_model_recog,
+    model_recog_beam as rnnt_model_recog_beam,
 )
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.rnnt_fullsum import (
     rnnt_fullsum_training,
@@ -189,6 +192,7 @@ def _train_variant_rz(
     nep: int = 100,
     extra_config: Optional[Dict[str, Any]] = None,
     beam_verify=None,
+    beam_verify_extra=None,
 ):
     """Train one streaming-decoder variant on a single 96 GB RZ GPU + recog.
 
@@ -288,6 +292,18 @@ def _train_variant_rz(
                 name=verify_name,
             )
             tk.register_output(verify_name, res.output)
+    if beam_verify_extra is not None:
+        for _suffix, _br_def, _cfg in beam_verify_extra:
+            _vname = prefix + "/" + name + "/recog-beam-verify/" + _suffix
+            _res = recog_model(
+                task=task,
+                model=exp.get_last_fixed_epoch(),
+                recog_def=_br_def,
+                config={**recog_cfg, **_cfg},
+                dev_sets=["dev"],
+                name=_vname,
+            )
+            tk.register_output(_vname, _res.output)
     return exp
 
 
@@ -300,6 +316,7 @@ def _train_standard_aed_rz():
         target_mode="labels",
         recog_def=standard_aed_model_recog,  # full-context AED greedy search (closes the AED-decoder gap)
         dec_aux_loss_layers=[3],  # match the base AED (dec-layer-3 aux CE); only the std-AED decoder taps it
+        beam_verify=(standard_aed_model_recog_beam, [1, 4, 8, 12, 16, 24, 32]),
     )
 
 
@@ -364,6 +381,7 @@ def _train_rnnt_mono_framewise_rz():
         train_def=rnnt_training,
         recog_def=rnnt_model_recog,
         target_mode="rna_frame",
+        beam_verify=(rnnt_model_recog_beam, [1, 4, 8, 12, 16, 24, 32]),
     )
 
 
@@ -390,6 +408,7 @@ def _train_rnnt_mono_fullsum_rz():
         # 4.8M fits with margin; the -small pair keeps the standard batch,
         # so the controlled framewise-vs-fullsum comparison lives there.
         extra_config={"batch_size": 30_000 * configs._batch_size_factor},
+        beam_verify=(rnnt_model_recog_beam, [1, 4, 8, 12, 16, 24, 32]),
     )
 
 
@@ -525,7 +544,12 @@ def _train_framewise_delay_rz():
         train_def=framewise_training,
         recog_def=framewise_model_recog,
         target_mode="rna_frame",
-        beam_verify=(framewise_model_recog_beam, [1, 32]),
+        beam_verify=(framewise_model_recog_beam, [1, 2, 4, 8, 12, 16, 24, 32]),
+        beam_verify_extra=[
+            ("b32-norecomb", framewise_model_recog_beam, {"beam_size": 32, "recog_recomb": None}),
+            ("b4-norecomb", framewise_model_recog_beam, {"beam_size": 4, "recog_recomb": None}),
+            ("b32-rescore-check", framewise_model_recog_beam_rescore_check, {"beam_size": 32}),
+        ],
     )
 
 
