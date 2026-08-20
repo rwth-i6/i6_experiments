@@ -1012,6 +1012,12 @@ config, verified at source).**
   uses from-scratch d_min=2 scorers trained on each policy's anchor-free greedy pool and one
   training job with a fresh Adam state per leg. A schedule-only test requires freezing the
   periodic arm's own d_min=2 round-1 scorer inside the same segmented-leg graph.
+  WHY d_min=1, source/history audit 2026-08-20: it was inherited, not selected against
+  d_min=2. D2 was committed 2026-08-07 as a single-variable contrastive-objective repair whose
+  topology stayed byte-identical to psi_g_tc100; PsiAlignTrainJob did not yet expose min_dur.
+  D6 introduced the minimum-duration topology on 2026-08-11 after the structural insertion-price
+  diagnosis, and the later standing d_min=2 rule applied to new refits rather than retroactively
+  rebuilding D2/D3. Scorer topology is therefore the main scientific confound in this comparison.
 
 **D6-PERIODIC/GAN+HOM — homophone-diversity SFT arm on the same bed (USER-directed
 2026-08-17).**

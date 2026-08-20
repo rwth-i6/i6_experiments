@@ -617,6 +617,12 @@ pool and runs one training job per leg, restarting Adam. Isolating scorer schedu
 periodic graph with its own round-1 d_min=2 scorer held fixed across otherwise identical legs; that
 arm does not exist.
 
+The d_min=1 setting was historical, not a winning hyperparameter. D2 was committed on 2026-08-07
+to change only the contrastive objective relative to psi_g_tc100, and its PsiAlignTrainJob call had
+no `min_dur` argument because that interface did not yet exist. D6 added the minimum-duration
+topology on 2026-08-11 in response to the later insertion-price diagnosis. D3 then froze the already
+finished D2 winner, inheriting d_min=1; it never compared d_min=1 against d_min=2.
+
 | dev-clean / dev-other, plain WER as scored | sub-ep 1 | sub-ep 2 | sub-ep 3 | sub-ep 4 | sub-ep 5 | sub-ep 6 |
 |---|---|---|---|---|---|---|
 | frozen contaminated psi_align^G, `shaped` (held) | 13.42 / 18.75 | 13.91 / 18.91 | 13.49 / 18.81 | 17.99 / 23.33 | -- | -- |
@@ -1861,3 +1867,11 @@ the absolute beta, is what carries the contamination claim.
   not a scorer-schedule-only control, because scorer topology and corpus plus policy-optimizer
   continuity differ. The missing controlled arm freezes periodic round 1's own d_min=2 scorer while
   retaining periodic's segmented-leg graph.
+- 2026-08-20 (why the frozen G-track reference is d_min=1, source/history audit): git history and
+  the original D2 builder establish chronology rather than selection. D2 landed 2026-08-07 with
+  topology intentionally identical to psi_g_tc100 so d2_contrast changed one objective term;
+  PsiAlignTrainJob had no min_dur interface in that revision. D6 introduced the structural
+  minimum-duration repair on 2026-08-11, after D2 was complete, and D3 inherited its frozen winner.
+  Therefore d_min=1 has no empirical superiority claim over d_min=2 here, and topology is the main
+  scientific confound in the frozen-versus-periodic WER comparison; corpus and Adam continuity
+  remain additional confounds.
