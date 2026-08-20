@@ -29,7 +29,7 @@ from i6_experiments.users.zeyer.recog import recog_model, search_dataset
 from i6_experiments.users.zeyer.decoding.rescoring import combine_scores, rescore
 from i6_experiments.users.zeyer.decoding.prior_rescoring import prior_score, Prior, PriorRemoveLabelRenormJob
 from i6_experiments.users.zeyer.collect_model_dataset_stats import collect_statistics
-from i6_experiments.users.zeyer.returnn.convert_checkpoint import checkpoint_for_backend
+from i6_experiments.users.zeyer.returnn.convert_checkpoint import backend_of, checkpoint_for_backend
 
 if TYPE_CHECKING:
     from returnn_common.datasets_old_2022_10.interface import DatasetConfig
@@ -91,7 +91,7 @@ def aed_ctc_timesync_recog_recomb_auto_scale(
     # TF: the in-graph search, else the graph unrolls over the frames. Same results.
     recog_def = (
         model_recog_with_recomb_while_loop
-        if getattr(aed_ctc_model.definition, "backend", None) == "tensorflow"
+        if backend_of(aed_ctc_model.definition) == "tensorflow"
         else model_recog_with_recomb
     )
 

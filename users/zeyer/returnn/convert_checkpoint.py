@@ -177,17 +177,28 @@ def checkpoint_as_backend(
     return checkpoint
 
 
+def backend_of(definition: Union[ModelDefWithCfg, Any]) -> Optional[str]:
+    """
+    :param definition: the (possibly wrapped) model def
+    :return: the backend it will run on, resolved as the config builders do it:
+        a config ``backend`` entry wins over the def attribute.
+        ``getattr(definition, "backend")`` alone does not do that,
+        since ModelDefWithCfg proxies it to the wrapped def,
+        so a torch def in a TF config reports "torch".
+    """
+    backend = getattr(definition, "backend", None)
+    if isinstance(definition, ModelDefWithCfg):
+        backend = definition.config.get("backend", backend)
+    return backend
+
+
 def checkpoint_for_backend(
     definition: Union[ModelDefWithCfg, Any], checkpoint: Union[TfCheckpoint, PtCheckpoint, None]
 ) -> Union[TfCheckpoint, PtCheckpoint, None]:
     """
     :param definition: the (possibly wrapped) model def the checkpoint is loaded into.
-        Its RESOLVED backend decides the required checkpoint format
-        (a config ``backend`` entry wins over the def attribute, as in the config builders).
+        Its resolved backend decides the required checkpoint format.
     :param checkpoint:
     :return: see :func:`checkpoint_as_backend`
     """
-    backend = getattr(definition, "backend", None)
-    if isinstance(definition, ModelDefWithCfg):
-        backend = definition.config.get("backend", backend)
-    return checkpoint_as_backend(checkpoint, backend)
+    return checkpoint_as_backend(checkpoint, backend_of(definition))
