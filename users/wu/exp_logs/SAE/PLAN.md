@@ -163,9 +163,10 @@ all live arms (sha-verified, `SAE_3A.md` §6.10). Current results, all label-fre
    does NOT proceed and is superseded by this arm), plus a **homophone-diversity SFT
    arm** on the same bed as the one-argument A/B against it (specs, ratifications and
    pre-registered reads in `PLAN_3E1.md` D6-PERIODIC/GAN and /GAN+HOM).
-   USER 2026-08-20: NEXT PARALLEL CONTROL — build and launch
-   D6-PERIODIC/GAN-FROZEN with periodic round 1's exact `d_min=2` scorer and segmented
-   policy graph; it is the funded scorer-recency test and does not wait for periodic to finish.
+   2026-08-20 VERIFIER: D6-PERIODIC/GAN-FROZEN is IMPLEMENTED AND LAUNCHED with periodic
+   round 1's exact `d_min=2` scorer and segmented policy graph. Leg 1 reuses the banked periodic
+   job and legs 2–8 contain no later scorer refit; leg 2 is queued under cluster maintenance, so
+   there is no result yet.
    USER 2026-08-17: 1f fork resolved — entry 5 (ESPUM statistics-matching init) FUNDED
    as one contained simplicity-constrained batch; spec pre-registered in `PLAN_1F.md`;
    BPE-level ESPUM registered as conditional follow-up on a phone-level pass.
@@ -194,9 +195,9 @@ all live arms (sha-verified, `SAE_3A.md` §6.10). Current results, all label-fre
    statistic/lam/bed-dependent; pass proposed for theta0-bed lam=1 only, no lam=0.3, no G-track).
    theta_0' re-SFT alone beats every stock-theta_0 loop result. Open: donor-axis loop reads when
    `_lbslm` arms finish; §2a-rescorer and lam_1/lam_2 recalibration deferred until then.
-4. **Pseudo-label scale and one-generation self-training (§3d.A; USER 2026-08-20)**: build the
-   missing full-960 h §1d-pseudo-label AV start, and run one own-label continuation from each of
-   theta_0 and theta_0^G against matched fixed-label controls. No open-ended relabeling loop.
+4. **Pseudo-label scale and one-generation self-training (§3d.A; IMPLEMENTED/LAUNCHED
+   2026-08-20)**: packed-input compatibility preflight and the two teacher/fixed-label branches are
+   queued; read the preregistered fixed endpoints after they complete. No open-ended relabeling loop.
 5. **PLAN_3A matrix wrap-up**: M4 contingency call; collapse the sub-plan when closed.
 6. **§1e §2.5(d)+usage gates on the ep50 pins** — the §3d init upgrade path.
 7. **G2P-equivalence ceiling** on existing rollouts.jsonl (CPU): phone-reachable vs
@@ -843,16 +844,17 @@ same-start §1d-label comparator on both dev splits. Lower loss or sharper confi
 WER gain is self-confirmation, not progress. A further generation is not authorized by this plan;
 it becomes a new decision only after a fresh-label arm passes this gate.
 
-**Status.** REGISTERED AND FUNDED 2026-08-20. No 960 h pseudo-text artifact or 960 h GAN-init SFT
-currently exists; the completed 960 h audio bed is the direct packed decode input. The two teacher
-decodes, the 960 h §1d-student decode and D6-PERIODIC/GAN-FROZEN are independent and may run in
-parallel; each student waits only for its own labels. The banked tc100 throughput projects about 261
-single-GPU task-hours for the 252,702 new utterances. Current exclusive-node routing would turn that
-into about 261 four-GPU node-hours (about 1,046 allocated-GPU-hours), so pack four shards per node or
-use nonexclusive routing rather than silently paying that allocation. This funding ends at the
-fixed-final theta_0^G960 AV-SFT read: it does not authorize a GRPO/autoencoder loop, scorer refit or
-D6 branch from theta_0^G960. Any downstream loop is a separate preregistered funding decision after
-the SFT result. Implementation and launch belong to the executor.
+**Status.** IMPLEMENTED AND LAUNCHED 2026-08-20; no experimental result yet. The verifier confirms
+that the legacy tc100 decoder still resolves to `Wav2Vec2KenlmDecodeJob.AQw3EcUo6rks`, the new path
+reads packed HF/Ogg audio without a per-utterance FLAC tree, and the real bed has exactly 281,241
+unique IDs with the banked 28,539 tc100 IDs first in identical order. Runtime acceptance remains
+conditional on `PackedDecodeAgreementJob.xEBbTHwTJScE` reporting exact hypothesis agreement and the
+full decode passing its 281,241-ID coverage assertion; its preflight is queued under cluster
+maintenance. The one-generation graph is also verifier-approved: both teachers and all four
+same-start arms are pinned as specified, with no further generation wired. The independent teacher
+decodes and fixed-label work are queued. The packed decoder uses 96 shards, co-located four per
+four-GPU node. Funding still ends at the fixed-final theta_0^G960 AV-SFT read: no GRPO/autoencoder
+loop, scorer refit or D6 branch from theta_0^G960 is authorized without a new preregistered decision.
 
 ### 3e. Reward and update protocol
 

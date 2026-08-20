@@ -135,22 +135,16 @@ spearman 0.170 against AR^G's +0.0020 / 0.0124 / 0.094.
 the incumbent's +0.2246 anchor was measured on the 10 h seed bed — theta_0's own training data, oracle
 WER 0.0316 — so it is not this arm's comparator. Folded into conclusions 5-6.
 
-**2026-08-20.** An exhaustive config, alias, work-directory and history audit confirms that no
-GAN-init AV SFT on 960 h pseudo-text has run. Theta_0^G (`ReturnnTrainingJob.2fb02hGUdHNj`) uses
-the 28,539 train-clean-100 hypotheses in `TransformAndMapHuggingFaceDatasetJob.XqPlB1nRGHyK`;
-the plain theta_0^G 960 h arms import that checkpoint, while GAN+HOM imports another
-train-clean-100-derived pseudo-SFT. In every case 960 h is only the later unlabeled loop bed.
-`TransformAndMapHuggingFaceDatasetJob.1c6JQRMlzCyy` provides reusable HF/Ogg Arrow audio for
-281,241 utterances, but neither full pseudo-text nor the FLAC+manifest layout consumed by the word
-decoder exists. USER 2026-08-20 selects direct packed/sharded decoding from the existing audio and
-rejects per-utterance FLAC staging. The implementer must add a separate packed-input job/interface,
-leaving the legacy `Wav2Vec2KenlmDecodeJob` behavior and completed hashes unchanged; only the new
-960 h decode work receives new hashes. This avoids a 281,241-file tree at the reported
-3,584,516 / 4,000,000 project inode usage. The user also funds one
-own-label generation from theta_0 and theta_0^G with same-start §1d-label comparators.
-Executor update 2026-08-20: the three funded chains are implemented as isolated Sisyphus graphs.
-The legacy decoder still resolves to `Wav2Vec2KenlmDecodeJob.AQw3EcUo6rks`; the new full decode is
-dependency-gated by an exact ordered-ID/hypothesis comparison on deterministic shard 0/96 and packs
-four shards into each four-GPU allocation. The theta_0 fixed-label comparator still resolves to the
-banked `ReturnnTrainingJob.xChfzEkd4CGE`. No experimental result or conclusion exists yet.
-Normative specification and gate: `PLAN.md` §3d.A.
+**2026-08-20.** Audit confirms that no GAN-init AV SFT on 960 h pseudo-text had previously run: the
+plain 960 h loop arms import the 28,539-utterance tc100 theta_0^G checkpoint, while GAN+HOM imports a
+different tc100-derived pseudo-SFT. The new isolated graphs pass source and graph verification. The
+packed path preserves the legacy `Wav2Vec2KenlmDecodeJob.AQw3EcUo6rks` hash, reads the existing
+HF/Ogg bytes directly, creates no per-utterance FLAC tree, and co-locates four of 96 shards per
+four-GPU node. The real source has 281,241 unique IDs and begins with the exact banked 28,539 tc100
+IDs in the same order. Runtime validity remains conditional on
+`PackedDecodeAgreementJob.xEBbTHwTJScE` reporting exact hypothesis agreement and the full decode
+passing its 281,241-ID coverage check. The one-generation graph pins theta_0 ep50 and theta_0^G ep10,
+and its four same-start arms differ within each pair only by pseudo-text targets; the banked theta_0
+comparator remains `ReturnnTrainingJob.xChfzEkd4CGE`, and no later generation is wired. Jobs are
+queued under cluster maintenance; no experimental result or conclusion exists yet. Normative
+specification and gate: `PLAN.md` §3d.A.

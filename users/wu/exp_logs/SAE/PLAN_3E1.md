@@ -1042,10 +1042,10 @@ config, verified at source).**
   A split trade-off or a frozen final-leg win means scorer refresh has no established durable
   benefit here. The historical D3 comparison remains evidence for scorer repair as a package, not
   for recency.
-- Status: REGISTERED AND FUNDED 2026-08-20 by the user; implementation and launch are pending.
-  Leg 1 should resolve to the existing periodic job rather than consume a duplicate run; legs 2-8
-  are the new branch. It is independent of the unfinished periodic trajectory and may run in
-  parallel.
+- Status: IMPLEMENTED AND LAUNCHED 2026-08-20; verifier pass, no result yet. Leg 1 resolves to the
+  banked periodic job `ReturnnTrainingJob.kr1foUV6lecx`; every leg reads the exact round-1 scorer
+  `PsiAlignTrainJob.dsMKgPHQApyR`, and no dump, pool or refit exists after round 1. Leg 2 is queued
+  under cluster maintenance. The gate above is unchanged.
 
 **D6-PERIODIC/GAN+HOM — homophone-diversity SFT arm on the same bed (USER-directed
 2026-08-17).**

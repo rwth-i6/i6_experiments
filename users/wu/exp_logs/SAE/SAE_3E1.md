@@ -1876,11 +1876,11 @@ the absolute beta, is what carries the contamination claim.
   Therefore d_min=1 has no empirical superiority claim over d_min=2 here, and topology is the main
   scientific confound in the frozen-versus-periodic WER comparison; corpus and Adam continuity
   remain additional confounds.
-- 2026-08-20 (matched control funded by the user): merely rebuilding D2/D3 with d_min=2 would leave
-  the scorer-corpus and policy-optimizer-continuity confounds. The registered schedule-only control
-  instead freezes periodic round 1's existing d_min=2 scorer
-  `PsiAlignTrainJob.dsMKgPHQApyR` for all eight legs of the identical segmented graph. It changes
-  only scorer recency relative to D6-PERIODIC/GAN. Executor update 2026-08-20: the isolated graph is
-  implemented; leg 1 resolves to the banked `ReturnnTrainingJob.kr1foUV6lecx`, all eight legs read
-  `PsiAlignTrainJob.dsMKgPHQApyR`, and no dump/pool/refit exists after round 1. No result exists yet;
-  normative gate and interpretation are in `PLAN_3E1.md` D6-PERIODIC/GAN-FROZEN.
+- 2026-08-20 (matched frozen control): merely rebuilding D2/D3 with d_min=2 would leave the
+  scorer-corpus and policy-optimizer-continuity confounds. Source, resolved-config and graph checks
+  pass for the isolated schedule-only control: leg 1 reuses
+  `ReturnnTrainingJob.kr1foUV6lecx`, all eight legs read periodic round 1's exact d_min=2 scorer
+  `PsiAlignTrainJob.dsMKgPHQApyR`, and no dump, pool or refit exists after round 1. Thus scorer
+  recency is the only intended difference from D6-PERIODIC/GAN. Leg 2 is queued under cluster
+  maintenance; no result exists yet. Normative gate and interpretation are in `PLAN_3E1.md`
+  D6-PERIODIC/GAN-FROZEN.
