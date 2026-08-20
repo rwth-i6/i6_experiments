@@ -2047,7 +2047,11 @@ def model_recog(
     seq_backrefs = []
     for t in range(max_seq_len):
         # Filter out finished beams
-        seq_log_prob = seq_log_prob + label_log_prob_pre_filter_ta[t]  # Batch, InBeam, PreFilterBeam
+        # combine_bc: every InBeam hypothesis is extended by every PreFilterBeam candidate, and the
+        # CTC frame posterior does not depend on the hypothesis, so neither source has all dims.
+        # The top_k below reduces over both dims, i.e. this outer product is what it consumes.
+        # (Only the eager torch path broadcasts this implicitly, the TF one requires it explicit.)
+        seq_log_prob = rf.combine_bc(seq_log_prob, "add", label_log_prob_pre_filter_ta[t])  # B, InBeam, PreFilter
         seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
             seq_log_prob,
             k_dim=Dim(min(beam_size, beam_dim.dimension * pre_filter_beam_dim.dimension), name=f"dec-step{t}-beam"),

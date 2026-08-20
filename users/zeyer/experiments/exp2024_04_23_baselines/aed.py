@@ -916,9 +916,8 @@ def model_recog_while_loop(
     Like :func:`model_recog`, but the label loop is :func:`rf.while_loop`, i.e. in the graph,
     with the fixed-size beam and the -inf init of :func:`ctc.model_recog_while_loop`.
 
-    The decoder KV cache is preallocated over the max decode length
-    (see :func:`rf.CausalSelfAttention.default_initial_state`),
-    as a growing cache would change the loop var shapes per iteration.
+    The decoder KV cache grows per step as in eager mode:
+    the graph loop carries the hist dim's size as a loop var (returnn#1327).
 
     :return:
         recog results including beam {batch, beam, out_spatial},
@@ -938,7 +937,6 @@ def model_recog_while_loop(
     # the loop counter and bound stay on CPU: rf.while_loop wants the cond there,
     # else every iteration syncs the device
     max_seq_len_cpu = rf.copy_to_device(enc_spatial_dim.get_dim_value_tensor(), "cpu")
-    capacity_dim = Dim(enc_spatial_dim.get_dim_value_tensor(), name="dec-capacity")
 
     beam_dim = Dim(beam_size, name="beam")
     step_beam_dim = Dim(beam_size, name="beam-step")  # top_k out dim, mapped back onto beam_dim
@@ -1010,7 +1008,7 @@ def model_recog_while_loop(
             rf.constant(False, dims=batch_dims_),
             rf.constant(0, dims=batch_dims_, dtype="int32"),
             rf.constant(model.bos_idx, dims=batch_dims_, dtype="int32", sparse_dim=model.target_dim),
-            model.decoder.default_initial_state(batch_dims=batch_dims_, capacity=capacity_dim),
+            model.decoder.default_initial_state(batch_dims=batch_dims_),
             TensorArray(target_template),
             TensorArray(backrefs_template),
         ),
