@@ -911,6 +911,10 @@ alone (decisive only if the allegiance grid is).
   collapse, but this is not a single-variable causal comparison: D5(b)-b uses the gold d_min=1
   scorer, continuous full-dataset partitioning and 1e6/accum-2 batching, whereas periodic uses
   d_min=2 outer refits, round-robin shard jobs and Adam restarts.
+  TWO PRIMARY 10 h-INIT ANCHORS, stated explicitly: the adapted-donor AV-SFT checkpoint
+  theta_0' before any loop is 11.43/15.54 dev-clean/dev-other; the best previous frozen-scorer
+  loop checkpoint is the D6 one-shot d_min=2 swap at 4.68/8.64. The original incumbent-scorer
+  loop's 5.34/9.50 fork remains a secondary historical anchor, not the best frozen result.
 
 **D6-PERIODIC/GAN — the periodic-refresh arm on the label-free init (USER-directed
 2026-08-17; launched by the implementer same day; planner registration from the launched
@@ -998,6 +1002,11 @@ config, verified at source).**
   chiefly substitutions (4,110 at the best leg 2 -> 7,331 at leg 6), while insertions stay
   near 4.3-4.5k. There is no same-init continuously trainable-scorer arm, so the D5(b)-b
   contrast is qualitative only and cannot attribute this trajectory to within-leg freezing.
+  TWO PRIMARY GAN-INIT ANCHORS, stated explicitly: theta_0^G AV SFT before any loop is
+  13.89/18.34; the best previous frozen-scorer loop checkpoint is the shaped arm with the
+  repaired d2_contrast scorer at 12.68/17.57. GAN+HOM has its own 16.67/21.45 AV-SFT anchor
+  but no same-init frozen-scorer loop; 12.68/17.57 is therefore cross-init context for it,
+  not a controlled baseline.
 
 **D6-PERIODIC/GAN+HOM — homophone-diversity SFT arm on the same bed (USER-directed
 2026-08-17).**

@@ -496,6 +496,17 @@ points reads against the median.
 
 The user then removed the scorer-statistic gate and relaunched. The completed ungated prefix is:
 
+The two primary 10 h-init anchors are separated from the trajectory. “Best” selects the checkpoint
+with lowest dev-other WER and reports its paired dev-clean value:
+
+| 10 h-init anchor | dev-clean / dev-other | operating point |
+|---|---|---|
+| AV SFT, no loop: adapted-donor theta_0' | 11.43 / 15.54 | 10 h AV SFT, epoch 50 |
+| best previous frozen-scorer loop | **4.68 / 8.64** | D6 one-shot d_min=2 scorer swap, scorer then frozen, global sub-epoch 3 |
+
+The older incumbent-scorer loop's 5.34 / 9.50 fork is retained as a secondary historical anchor,
+but it is not the best previous frozen-loop result.
+
 | ungated leg / global sub-ep | fresh periodic dev-clean / dev-other | one-shot frozen scorer | frozen control | dev-other S / D / I, fresh |
 |---|---|---|---|---|
 | 1 / 3 | 4.97 / 8.88 | 4.68 / 8.64 | 6.56 / 11.15 | 3572 / 471 / 479 |
@@ -589,6 +600,16 @@ and the refit's own model goes straight to the next leg with no acceptance gate 
 the schedule position the two held frozen-scorer arms occupied at their sub-epoch k, so those arms and
 the frozen-repaired-scorer control are read at matched points; the no-loop init theta_0^G is
 13.89 / 18.34 and is the level every G-track loop arm has so far failed to clear.
+
+The two primary GAN-init anchors are:
+
+| GAN-init anchor | dev-clean / dev-other | operating point |
+|---|---|---|
+| AV SFT, no loop: theta_0^G | 13.89 / 18.34 | pseudo-label AV SFT, epoch 10 |
+| best previous frozen-scorer loop | **12.68 / 17.57** | shaped arm, repaired d2_contrast scorer frozen, sub-epoch 2 |
+
+The frozen contaminated-scorer arm is shown below as a diagnostic control, but it is not the best
+previous frozen-loop result.
 
 | dev-clean / dev-other, plain WER as scored | sub-ep 1 | sub-ep 2 | sub-ep 3 | sub-ep 4 | sub-ep 5 | sub-ep 6 |
 |---|---|---|---|---|---|---|
@@ -1824,3 +1845,9 @@ the absolute beta, is what carries the contamination claim.
   comparison is only a timescale control because scorer topology, partitioning, batching and
   optimizer continuity also differ; there is no continuously trained scorer with the GAN or HOM
   initialization.
+- 2026-08-20 (baseline presentation correction, user-directed): the periodic tables now expose
+  exactly two primary anchors per initialization family before the live trajectories. For the 10 h
+  adapted-donor init these are theta_0' AV SFT 11.43/15.54 and the best prior frozen-scorer loop
+  4.68/8.64; for GAN init they are theta_0^G AV SFT 13.89/18.34 and the best prior frozen-scorer
+  loop 12.68/17.57. GAN+HOM has no same-init frozen loop, so its 16.67/21.45 AV-SFT checkpoint is
+  reported as its own anchor and the plain-GAN frozen result is labeled cross-init context only.
