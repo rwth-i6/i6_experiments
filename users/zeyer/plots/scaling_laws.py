@@ -15,6 +15,7 @@ class ScalingLawPlotJob(Job):
     """
 
     __sis_version__ = 10
+    __sis_hash_exclude__ = {"secondary_x_label": None, "secondary_x_factor": 1.0, "x_tick_factor": None}
 
     def __init__(
         self,
@@ -27,6 +28,8 @@ class ScalingLawPlotJob(Job):
         points: Dict[str, Union[Sequence[Tuple[TNumber, TNumber]], Dict[str, Any]]],
         filter_outliers: bool = False,
         figsize: Tuple[float, float] = (8, 6),
+        secondary_x_label: Optional[str] = None,
+        secondary_x_factor: float = 1.0,
     ):
         """
         :param x_label: label for x-axis
@@ -37,6 +40,10 @@ class ScalingLawPlotJob(Job):
         :param points: name -> list of (x, y) points
         :param filter_outliers: whether to filter out outliers in y-axis
         :param figsize: figure size (width, height)
+        :param secondary_x_label: if set, adds a second x-axis at the top,
+            showing the primary x rescaled by ``secondary_x_factor``
+            (e.g. wall clock in minutes for an RTF primary axis)
+        :param secondary_x_factor: secondary x = primary x * this factor
         """
         super().__init__()
 
@@ -48,6 +55,8 @@ class ScalingLawPlotJob(Job):
         self.points = points
         self.filter_outliers = filter_outliers
         self.figsize = figsize
+        self.secondary_x_label = secondary_x_label
+        self.secondary_x_factor = secondary_x_factor
 
         self.out_plot_pdf = self.output_path("scaling_laws.pdf")
 
@@ -189,6 +198,12 @@ class ScalingLawPlotJob(Job):
         # Set the x-axis label with 'Parameters' in bold and 'non-embedding' below
         ax.set_xlabel(self.x_label, fontsize=14)
         ax.set_ylabel(self.y_label, fontsize=14)
+
+        if self.secondary_x_label:
+            factor = self.secondary_x_factor
+            secax = ax.secondary_xaxis("top", functions=(lambda x: x * factor, lambda x: x / factor))
+            secax.set_xlabel(self.secondary_x_label, fontsize=14)
+            secax.tick_params(axis="x", which="major", labelsize=14)
 
         # Add the 'non-embedding' sub-label with specific positioning and style
         # ax.text(0.5, -0.15, "non-embedding", ha="center", va="center", transform=ax.transAxes, fontsize=18, color="gray")
