@@ -66,7 +66,10 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
   18.38/24.01 by leg 6. Its exact schedule-matched control freezes periodic round 1's own
   `d_min=2` scorer; that control is running, but it can isolate scorer recency only, not establish
   that this loop beats ordinary self-training. The decisive GAN-branch operator read is now the
-  same-start one-generation comparison in §3d.A.
+  same-start one-generation comparison in §3d.A. D7-GAN-SEQDISC is registered as the next
+  scorer-mechanism phase: add same-speaker, duration/density/silence-matched audio negatives to the
+  round-1 `d_min=2` scorer's sequence-discriminative fit, admit its fixed endpoint label-free, and
+  expose at most one matched policy leg. It is not implemented or launched.
 - **960 h stock-donor supervision-axis endpoint is ABSENT**: the theta_0 + gold-scorer arm ran
   only through sub-epoch 4, was stopped and deleted 2026-08-08, and never produced the listed
   3-pass endpoint; `ReturnnTrainingJob.22Ntu7y0O6iW` does not exist. Its observed collapse is
@@ -180,8 +183,8 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    pre-registered reads in `PLAN_3E1.md` D6-PERIODIC/GAN and /GAN+HOM).
    2026-08-20 VERIFIER: D6-PERIODIC/GAN-FROZEN is IMPLEMENTED AND LAUNCHED with periodic
    round 1's exact `d_min=2` scorer and segmented policy graph. Leg 1 reuses the banked periodic
-   job and legs 2–8 contain no later scorer refit; leg 2 is queued under cluster maintenance, so
-   there is no result yet.
+   job and legs 2–8 contain no later scorer refit; leg 2 was verified running at 15:37 CEST, and
+   there is no endpoint yet.
    USER 2026-08-17: 1f fork resolved — entry 5 (ESPUM statistics-matching init) FUNDED
    as one contained simplicity-constrained batch; spec pre-registered in `PLAN_1F.md`;
    BPE-level ESPUM registered as conditional follow-up on a phone-level pass.
@@ -223,7 +226,11 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    newly released work can submit; no endpoint exists yet. Read only fixed endpoints against the same-start
    §1d-label controls. A fresh-label pass on both dev splits is evidence to consider one further
    generation; a win by fixed labels alone means extra CE optimization, not iterative self-training.
-   No open-ended relabeling loop is authorized.
+   No open-ended relabeling loop is authorized. After this read and the already-funded
+   periodic/frozen/HOM endpoints close, the registered next GAN-loop mechanism is `PLAN_3E1.md`
+   D7-GAN-SEQDISC: scorer-only donor/loss preflight, a census-pinned coverage amendment, matched
+   scorer A/B, and label-free frozen assay first. Its gate includes the existing scorer Acceptance
+   gate v2; its one policy leg still awaits implementation/launch authorization.
 5. **PLAN_3A matrix wrap-up**: M4 contingency call; collapse the sub-plan when closed.
 6. **§1e §2.5(d)+usage gates on the ep50 pins** — the §3d init upgrade path.
 7. **G2P-equivalence ceiling** on existing rollouts.jsonl (CPU): phone-reachable vs
@@ -828,6 +835,15 @@ homophone-diversity SFT arm rides the same bed as its one-argument A/B.
 frozen scorer reaches 12.68/17.57 only transiently, while D6-PERIODIC/GAN reaches 12.85/17.89 at leg
 2 and degrades to 18.38/24.01 by leg 6. Finish the already-funded trajectories and frozen schedule
 control, but open no further GAN-loop mechanism arm before the §3d.A same-start self-training read.
+USER 2026-08-20: D7-GAN-SEQDISC is the registered successor after that read and the funded endpoints
+close. It holds the exact theta_0^G round-1 corpus, `d_min=2` topology, NLL, current text-negative
+contrast, LM reward and policy recipe fixed, and adds a K=4 same-speaker, duration and
+density/silence/unit-histogram-matched wrong-audio sequence loss during scorer fitting. The scorer
+must pass its label-free conditional-gap clauses and the existing scorer Acceptance gate v2 at fixed
+epoch 30 before any policy compute. Gold WER remains sealed until the user authorizes and the one-leg
+graph is submitted.
+One matched frozen-scorer policy leg is specified but not yet authorized to launch. Full design and
+failure reading: `PLAN_3E1.md` D7-GAN-SEQDISC.
 
 #### 3d.A. Pseudo-label scale and one-generation self-training (USER-directed 2026-08-20)
 
@@ -977,7 +993,12 @@ and localized the insertion price as a scorer-family issue. D5 closed continuous
 catastrophic on the best bed. D6's offline minimum-duration screen and one-shot frozen continuation
 are complete; the fresh/warm periodic, GAN periodic, exact GAN-frozen schedule control, and GAN+HOM
 endpoint trajectories are the only live experiments. Full configurations and gates are maintained in
-`PLAN_3E1.md`; no old D2/D3 launch item survives.
+`PLAN_3E1.md`; no old D2/D3 launch item survives. D7-GAN-SEQDISC is now registered, not live: on the
+28,539-ID theta_0^G round-1 scorer bed (28,538 feasible pairs) it adds the reverse
+sequence-discriminative direction—fixed pseudo-text with K=4 nuisance-matched wrong audios—to the
+existing NLL plus text-negative loss, then freezes the scorer. A donor-census amendment pins coverage
+before training, and its phase-specific clauses are cumulative with Acceptance gate v2 before the
+single specified policy leg.
 **Gate v2 (replaces the two-sided gate, 2026-08-07 — amended BEFORE any verdict was read against
 v1, because v1's `text_explained_loo` arm is gold-conditioned as instrumented
 (`config_sae_3a_enc50_units_v1.py:233-243`) and has the wrong sign against the filler mode, and
@@ -991,9 +1012,10 @@ stays a reported diagnostic that can never flip a G-track decision.
 after 5.12/9.27 -> 17.35/21.97 -> 41.78/50.88. The one-shot `d_min=2` scorer-repair package passed
 its matched continuation read, ending 4.73/9.31 against 6.46/11.41 with dev-other insertions 933 vs
 1,964. Repeated fresh and warm scorer refits deteriorate through their current prefixes; the
-label-free GAN periodic and HOM arms are running, while the exact schedule-matched frozen control is
-queued. Finish those already-funded endpoints, but register no new scorer variant before their gates
-are read.
+label-free GAN periodic, HOM, and exact schedule-matched frozen-control arms are in flight; their
+endpoints remain pending. Finish those already-funded endpoints and the §3d.A operator read first.
+D7-GAN-SEQDISC is the user-registered next scorer variant, but is not implemented or launched; no
+additional variant is admitted around its scorer-only A/B and label-free gate.
 Normative details and exact operating points: `PLAN_3E1.md`; evidence: `SAE_3E1.md`.
 
 ### 3f. Exit gate (Rung 3)

@@ -54,8 +54,10 @@ unavoidable." Refined, evidence-anchored:
 1. NO in-loop trainable path for psi_align exists: `grpo/psi_scorer.py:153-156` raises on
    ce_loss; `train_steps/sae_grpo.py:153` forces the frozen path under `reward_mode="psi_align"`
    (`freeze_ar` refers to the retired token-LM scorer only). Any refresh is a sisyphus outer
-   loop: dump -> build HF text dir -> `PsiAlignTrainJob` (always from scratch; no init/resume
-   arg, `psi_align_jobs.py:378`) -> gates -> new loop job. psi lives inside the loop job's
+   loop: dump -> build HF text dir -> `PsiAlignTrainJob` -> gates -> new loop job. The current
+   job interface has an `init_model` input, added after this standing fact was first written;
+   D7 nevertheless uses the exact round-1 from-scratch recipe for its matched loss ablation.
+   psi lives inside the loop job's
    state_dict (`definitions/sae_grpo.py:203-215`), so a swap is stop/relaunch with explicit
    checkpoint import; an import override that carries the policy but NOT the old psi is a build
    item.
@@ -1503,6 +1505,171 @@ config, verified at source).**
   spelling damage even though the refitted reconstruction scorer alone prefers it. The result
   remains attributable mainly to the Qwen3 language-model prior and is provisional until the
   registered midpoint/final reads exist.
+
+**D7-GAN-SEQDISC — nuisance-matched sequence-discriminative scorer fitting
+(USER-directed 2026-08-20).**
+
+**Purpose.** Test whether the round-1 GAN scorer fails because maximum-likelihood fitting plus its
+existing text-negative contrast does not require *utterance-specific* acoustic/text correspondence.
+The target is not global speaker invariance and not transcript correction. It is conditional
+specificity: after speaker, duration, pseudo-text density, silence and broad unit statistics are
+controlled, does pseudo-text `z_i` explain its own pinned acoustic-unit sequence `U_i` better than
+another utterance's? The label-free gate can establish conditional matching and fit safety only;
+post-freeze diagnostics and a policy leg determine whether that matching helps ASR.
+
+The actual operating point is theta_0^G (13.89/18.34 dev-clean/dev-other), its 28,539 intended
+train-clean-100 greedy pseudo-pairs, pretrained wav2vec2-Large-lv60 layer-15 features, PCA-96,
+K=500 units at 50 Hz with no deduplication or AV-checkpoint re-extraction, graphemic-BPE psi_align
+with `d_min=2`, and exact round-1 scorer `PsiAlignTrainJob.dsMKgPHQApyR`. That scorer fits 28,538
+feasible pairs (27,111 train / 1,427 internal held) after dropping one `U > 2T` row. D7 freezes and
+hashes those IDs and reports any further donor-ineligible rows separately. LibriSpeech speaker and
+chapter metadata enter negative construction and are disclosed as a supervision cost; chapter is a
+recording-context proxy, not a verified session. No reference transcript, reference alignment or
+gold selector enters fitting, but the declared theta_0^G pseudo-transcripts do enter NLL, both
+matching directions and duplicate filtering. The later policy assay uses the existing segmented
+960 h loop bed; scorer fitting remains train-clean-100.
+
+**Approach.** For pseudo-text `z_i`, own units `U_i`, and a donor utterance `d_k(i)`, define the
+per-frame sequence score
+
+    s_ij = log p_psi(U_j | z_i) / |U_j| .
+
+Keep the exact round-1 reconstruction NLL and its existing one-negative matching loss, which holds
+audio fixed and contrasts another row's text (`L_U->z`). Add the reverse, audio-negative term
+
+    L_z->U = mean_i,k softplus((s_i,d_k(i) - s_i,i) / tau),
+    L_total = L_NLL + 1.0 L_U->z + alpha L_z->U .
+
+The mean is over registered `K=4`, so a tie costs `log 2` independent of K. Four is the minimum
+that gives two balanced same-chapter and two different-chapter donors. The old and new losses use
+different score currencies, so coefficient 1 would not be a justified symmetry claim. On the common
+epoch-4 checkpoint, D7.0 freezes `tau` to `max(1.4826 MAD, 1e-4)` of own-minus-donor per-frame
+differences over the complete first training assignment. It freezes `alpha` to the ratio of the
+root-mean-square parameter-gradient norms of `L_U->z` and temperature-normalized `L_z->U` over the
+existing deterministic epoch-5 batch order. Non-finite gradients or zero pre-floor MAD return to the
+planner; no WER, gold statistic or sweep enters this calibration. Report both terms and gradient
+norms through training. A text-only offset cancels inside `L_z->U`, while `L_U->z` constrains text
+offsets. Equal donor degrees remove a trivial frequency shortcut; they do not prove invariance. NLL remains the
+absolute-fit anchor. The loss can still learn a duration/density/private code carried by pseudo-text,
+as Z2 did.
+
+The raw 50-Hz no-dedup unit count divided by duration is constant and is therefore explicitly *not*
+a matching variable. Instead define, without reference labels: text-state density
+`rho_z=N_min_states(z,d_min=2)/|U|`; unit-run rate `rho_r=N_dedup_runs(U)/|U|`; frozen round-1
+Viterbi silence share `q_sil`; and normalized K=500 unit histogram `h`. For every directed edge
+`i -> j`, require the same speaker, encoder-frame duration within plus or minus 5%, own-pair
+feasibility, and exact negative feasibility
+`N_min_states(z_i,d_min=2) <= |U_j|`. Exclude self-pairs, byte-identical unit sequences and identical
+pseudo-text; never pad or repeat a missing donor.
+
+Within each row's eligible same-chapter and different-chapter pools, map the absolute differences in
+`log rho_z`, `log rho_r`, `q_sil` and Jensen-Shannon distance of `h` to empirical percentile ranks
+and take their maximum as nuisance distance. Training edges come from its second quartile
+(25th--50th percentile): the closest quartile, including histogram-nearest Z3-style donors, is a
+frozen stress test rather than a mandatory gradient source. Construct two deterministic directed
+b-matchings by max-flow, each with in-degree=out-degree=2 on its admitted subset: one same-chapter
+and one different-chapter. Their union gives K=4. Rows not admitted to both regular subgraphs retain
+NLL and `L_U->z` only. Materialize ten frozen K=4 assignment tables by deterministic tie rotation;
+epochs 5--30 cycle through them. Report component/degree/coverage censuses and chapter strata.
+Separately report K={1,4,8} score variance and throughput on the common K=8-eligible subset; K=4 is
+the only training point and a change requires a planner amendment, never a WER sweep. Never aggregate
+with a hardest-donor maximum. Same-speaker negatives improved CPC's LibriSpeech phone-classification
+read from 64.6% to 65.5%; speaker invariance was not evaluated for that ablation
+([CPC](https://arxiv.org/abs/1807.03748)). Audio-text retrieval evidence that semi-hard negatives
+can beat random/hard mining, with collapse under hardest cross-modal negatives, is caution rather
+than validation of this scorer ([Xie et al.](https://arxiv.org/abs/2211.04070)).
+
+Train the exact round-1 control and candidate from the same random seed for the existing 30-epoch
+schedule. During the guided alignment-prior warmup, both matching terms remain off exactly as in the
+current job; once the prior is zero, the control activates only `L_U->z` and the candidate activates
+both directions. Make the sorted train/internal-held IDs, their hashes, all donor tables, and every
+post-contrast checkpoint explicit job outputs. Fixed epoch 30 is primary for both arms; neither the
+internal 5% monitor, contrast nor external gates select an epoch. This repairs Z4's interaction,
+where every served scorer was selected before its audio hinge trained, without replacing that
+failure by a private-code selector. Intermediate epochs are diagnostics only and cannot enter D7.3.
+
+**Experiments.** Run in this order:
+
+1. **D7.0 donor/loss preflight:** emit and hash the exact scorer train/internal-held IDs; assert
+   split isolation, positive/negative DP feasibility, K=4 graph regularity, chapter strata,
+   components, duplicate exclusions and common K-subset coverage; freeze `tau` and `alpha`; report
+   per-term loss/gradient norms and one K=4 memory/time step. The external table builder takes the
+   existing frozen 1,500 §1d-dev pseudo-pair gate rows from the 5,567-ID dev pool and draws donors
+   only from its disjoint complement; it emits ten independently balanced K=4 tables and hashes.
+   Before D7.1, the planner must amend this phase with minimum admitted-row coverage for the training
+   and external same-/different-chapter subgraphs, derived only from this census and its
+   covariate-shift read. No scorer result, reference text or WER may set that floor; D7.1 cannot start
+   without it.
+2. **D7.1 scorer A/B:** exact round-1 loss control versus the single added `L_z->U` direction, with
+   identical corpus, topology, initialization, schedule, batching, and held split. No policy trains.
+3. **D7.2a label-free frozen admission:** after both fixed epoch-30 artifacts seal, read the scorer's
+   internal held monitor for reporting only, then make the one allowed admission read on the untouched
+   external 1,500 pseudo-pairs, their donor tables and registered corruption probes. Keep reference
+   transcripts and WER-conditioned rollout rank sealed; the Gate-v2 scorer-to-control rank-stability
+   read remains label-free and binding. Reward-time own-minus-donor subtraction is report-only;
+   D7's deployment remains the ordinary one-forward raw scorer.
+4. **D7.3 one-leg policy assay, conditionally specified:** if D7.2a passes, ask the user for launch
+   authorization *before* opening any gold diagnostic. On authorization, freeze and submit the graph
+   from exact theta_0^G using D6-PERIODIC/GAN leg 1's shard of the segmented 960 h bed, T=0.7, G,
+   sampling seed, optimizer/update budget, cosine point, batching and shaped reward with `lam_lm=1`,
+   `lm_prior_norm="units"`; change only psi and do not subtract donor scores in RL. The banked
+   `ReturnnTrainingJob.kr1foUV6lecx` is the control only if the rerun epoch-30 control scorer passes
+   parameter/output parity with `PsiAlignTrainJob.dsMKgPHQApyR`; otherwise run a new matched control
+   policy leg. No full loop or scorer refresh is authorized.
+5. **D7.2b post-launch labeled diagnosis:** only after D7.3 submission, open the external gold-text
+   coupling and fixed theta_0^G T=0.7, G=12 rollout WER/rank. Report raw and composed Spearman, eta,
+   selected WER, filler bias and LM-only rows. These results classify the mechanism but cannot stop or
+   alter the submitted leg. If gold is opened before authorization/submission, any later D7.3 is
+   explicitly gold-selected and cannot support the label-free claim.
+
+**Gate.** On external gate row `i`, scorer `a` and frozen assignment `m`, define
+
+    g_a(i,m) = s_a(i,i) - mean_k s_a(i,d_mk(i)),
+    delta_g(i,m) = g_D7(i,m) - g_control(i,m).
+
+Average each row across the ten tables, then bootstrap whole speakers. Also fit the preregistered
+edge-level linear residual model for `delta_g` using signed log frame ratio, signed log text-state
+density ratio, signed log unit-run-rate ratio, silence-share difference, unit-histogram
+Jensen-Shannon distance and same-chapter effect-coded as -1/2 versus +1/2. Center every continuous
+predictor on the admitted external edges and redo centering and fitting inside every speaker
+bootstrap; the intercept is therefore the adjusted mean at observed support, not an extrapolated
+zero-nuisance effect. The D7-specific clauses below are cumulative with Acceptance gate v2, not a
+replacement. The fixed epoch-30 candidate reaches the D7.3 authorization point only if all hold:
+
+1. Speaker-cluster-bootstrap 95% lower bounds exceed zero for mean `g_D7`, mean `delta_g`, the
+   residual-model intercept, and mean `delta_g` separately in same-chapter and different-chapter
+   strata.
+2. Because the corpus domain is unchanged, external `ce_loo` improves over the exact control,
+   remains below the unit-marginal floor, and `text_explained_loo` remains at or above the pre-loop
+   floor; finite-path coverage is no lower.
+3. Gate-v2 filler delta and posterior suspect-state mass do not degrade. For every registered
+   insertion, substitution and deletion ladder Spearman, the candidate-control point difference is
+   nonnegative; D7 also fails if its paired speaker-cluster-bootstrap 95% interval lies wholly below
+   zero.
+4. Mean `delta_g` is positive in every one of the ten tables, and the label-free
+   `PsiAlignPairedCompareJob` rank-stability floor holds on the fixed rollout dump. Report, but do not
+   select on, donor degree, component, frame, density, silence and histogram residual plots.
+5. `PsiScorerParityJob` passes before any live reward reads the candidate.
+
+Failure closes D7 before policy compute. Gold coupling, rollout rank and WER remain sealed through
+this decision and cannot rescue it. Contrast accuracy or a positive donor gap alone is not phonetic
+evidence.
+
+D7.3's fixed-final scientific pass requires the candidate-scorer leg to beat its exact-control leg on
+both dev splits, improve theta_0^G's 18.34 dev-other by at least 0.5 absolute and not regress from
+theta_0^G's 13.89 dev-clean. Report S/D/I plus gold-text, same-chapter, different-chapter and
+different-speaker gaps. One-leg success establishes a local scorer-quality effect and licenses only
+a new preregistered durability decision; it does not select an intermediate checkpoint or authorize
+periodic refits. A positive held contrast with no raw rollout-rank or policy-WER gain is classified
+as nuisance/private correspondence, not a useful scorer. D7 cannot repair the measured ~77% of
+filler-carrying groups that contain no corrective candidate; proposal coverage remains separate.
+
+**Status.** REGISTERED, NOT IMPLEMENTED OR LAUNCHED. It is the next G-track scorer-mechanism phase,
+but does not override the current execution order: first read the already-running §3d.A same-start
+one-generation self-training comparison and finish the funded periodic/frozen/HOM endpoints. No new
+full loop is authorized. D7.0 is a census/preflight and D7.1 cannot begin until its coverage-floor
+amendment is canonical. D7.0--D7.2a are scorer-only; D7.3 is specified behind the label-free gate
+and requires a fresh user launch word while all D7 gold diagnostics remain sealed.
 
 ## Acceptance gate v2
 

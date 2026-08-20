@@ -1881,6 +1881,17 @@ the absolute beta, is what carries the contamination claim.
   pass for the isolated schedule-only control: leg 1 reuses
   `ReturnnTrainingJob.kr1foUV6lecx`, all eight legs read periodic round 1's exact d_min=2 scorer
   `PsiAlignTrainJob.dsMKgPHQApyR`, and no dump, pool or refit exists after round 1. Thus scorer
-  recency is the only intended difference from D6-PERIODIC/GAN. Leg 2 is queued under cluster
-  maintenance; no result exists yet. Normative gate and interpretation are in `PLAN_3E1.md`
+  recency is the only intended difference from D6-PERIODIC/GAN. Leg 2 was verified running at
+  15:37 CEST; no endpoint exists yet. Normative gate and interpretation are in `PLAN_3E1.md`
   D6-PERIODIC/GAN-FROZEN.
+- 2026-08-20 (D7 registration, user-directed): the next G-track scorer question is nuisance-matched
+  sequence discrimination, not another refresh cadence. The current round-1 `d_min=2` scorer already
+  contrasts one wrong text per audio; D7 adds the reverse direction with K=4 same-speaker,
+  duration/density/silence/unit-histogram-matched wrong audios while retaining NLL. This is genuinely
+  new on the GAN bed: Z2's operative K=1 hinge learned duration/density private code, and every
+  served Z4 refit was pinned before its offline audio hinge activated. D7.0 must pin a donor-coverage
+  floor from its label-free census before D7.1. The fixed epoch-30 scorer then needs both the new
+  same-speaker coupling clauses and existing Acceptance gate v2. Gold rank/WER stays sealed through
+  that gate and any one-leg launch decision. It remains behind the live §3d.A operator read and
+  already-funded periodic/frozen/HOM endpoints. Normative specification:
+  `PLAN_3E1.md` D7-GAN-SEQDISC.
