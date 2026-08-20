@@ -10,6 +10,15 @@ Fired by the user 2026-08-05 ("do a research on what exact neural architecture t
 AR, read TTS and TTE papers") — this is the escalation §3a pre-registered on 2026-07-18
 ("an explicit monotonic-alignment scorer, duration/MAS-style").
 
+**Current implementation amendment (2026-08-20).** Sections 4.1 and 4.3 define the original
+phone/G2P reference arm, not the adopted live reward interface. After the §5c matrix, live
+`psi_align` uses the lexicon-free `bpe512_cps15` state graph: decoded orthography is tokenized by
+the scorer's own BPE and expanded at a target of 1.5 characters per sub-state, so
+`R_recon(z) = T^-1 log p_psi(u | BPE_states(z))`. No G2P appears in the live reward. Consequently,
+homophone spellings are not reconstruction-invariant; their reconstruction, LM-prior, and composed
+reward deltas are attribution diagnostics. The phone graph remains the higher-ranking reference
+scorer and a mechanics/evaluation arm.
+
 ---
 
 ## 1. Requirements — each anchored to a measurement
@@ -96,14 +105,14 @@ gold-text-trained 0.409 nats text-explained ≈ pseudo-text AR_G 0.419 — satur
 training text (`SAE_2S.md` approach 10, conclusions 17-19). The AV half keeps its LLM: AV^G beating its CTC teacher by
 ~4 WER *is* the language prior working.
 
-## 4. psi_align v1 — normative specification
+## 4. psi_align v1 — phone-reference specification
 
 A conditional neural HMM over the G2P phone string: "RAD-TTS aligner turned into a normalized
 generative scorer", equally "neural-HMM TTS minus acoustic autoregression".
 
 ### 4.1 Generative model
 
-- **State graph** from phones(z): closed-lexicon G2P (the §3e reward's lookup, one canonical
+- **State graph** from phones(z): closed-lexicon G2P (the original phone reference, one canonical
   pronunciation; stress markers stripped in v1 → ~45-symbol inventory incl. silence and
   word-boundary marks). Left-to-right phone states; **optional silence states** at word boundaries
   and utterance edges (enterable or skippable — standard Kaldi-style topology); a final absorbing
@@ -144,15 +153,17 @@ context to every state's emissions without any history channel.
 
 ### 4.3 Reward definition and CI status
 
-R_recon(z) = (1/T) · log p_psi(u_1..T, T | phones(z)) — a drop-in for the §3e recon slot; T is
-fixed within a GRPO group so the 1/T is a shared constant. **In-lexicon** homophone spellings
+For the phone-reference arm,
+R_recon(z) = (1/T) · log p_psi(u_1..T, T | phones(z)); T is fixed within a GRPO group so the
+1/T is a shared constant. **In-lexicon** homophone spellings
 collapse to one phone string → byte-identical recon reward by construction (today those groups
 get pure-noise advantage differences; after collapse, zero — strictly better under
 group-normalized advantages). Scope caveat (verifier, 2026-08-05): the *measured* within-group
 spelling variance (`SAE_2S.md` approach 15, conclusions 31-33 — cosett/kosetz/so'st, literal underscores) is
 largely OUT-of-lexicon, where collapse cannot fire; those candidates route through the single
 pre-registered OOV convention (§9 risk 4) instead. The de-noising is real but narrower than "the
-§5 channel is deleted". Ranking spellings is the LM/lexicon side's job and no acoustic scorer's.
+§5 channel is deleted". This invariance is specific to the phone reference; the adopted BPE scorer
+prices spelling directly, as the implementation amendment above records.
 
 CI status, stated precisely: emissions and transitions are functions of (text, state) only —
 there is **no parameterized dependence on u_<t** (stronger than p10's masking: nothing to mask).
@@ -361,6 +372,13 @@ trains. **The text-BPE contingency trigger has therefore FIRED**; planner ruling
 built **only after the phone arm's G3 lands and shows the family has ranking signal** — BPE
 changes the text side, not the scorer class, so it cannot rescue a family that is flat, and at
 T/U ≈ 3–4 it is the lexicon-free escape worth wiring the moment the family works.
+
+**LIVE OUTCOME (2026-08-05, current interface clarified 2026-08-20).** The BPE contingency fired,
+was built, and passed the scorer-family gates. `bpe512_cps15` reads ce_loo 2.3426, theta_0
+Spearman/eta 0.7533/0.8162, and G-track 0.6122/0.6540, with a closed inventory. It is the adopted
+live reward text side despite the phone reference's somewhat stronger 0.7778/0.8257 and
+0.6507/0.6805, because it removes the human pronunciation lexicon and OOV path. Future live-reward
+claims use BPE semantics unless an arm explicitly declares the phone reference.
 
 ## 6. Gates (pre-registered) — what each one asks, and what happens either way
 

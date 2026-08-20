@@ -73,4 +73,9 @@ the student.
 
 ## Verifier feedback
 
-None recorded.
+- 2026-08-20 — Rung-0 completion verified end to end. CTC training
+  `Wav2Vec2CtcFinetuneJob.BI1uYgPyTeQ0` and word decode
+  `Wav2Vec2KenlmDecodeJob.AQw3EcUo6rks` have finished markers; the latter completed every decode
+  shard and collection, covers all 2,703 dev-clean and 2,864 dev-other utterances with zero empty
+  hypotheses, and records WER fractions 0.179607/0.218654. The plan's former "pipeline unfinished"
+  status was stale; Rung 0 is 17.96/21.87 and Phase 2a is unblocked.

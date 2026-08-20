@@ -898,8 +898,9 @@ alone (decisive only if the allegiance grid is).
   work directories; neither arm has ended). Fresh-from-scratch periodic has completed legs
   1-5 at dev-clean/dev-other 4.97/8.88, 4.65/9.02, 5.28/9.27, 6.05/10.56 and 7.42/12.68;
   WARM has completed 1-5 at 4.97/8.88, 5.07/9.19, 4.85/9.04, 6.39/11.19 and
-  12.18/19.33. Both leg-6 jobs exist and are pending for cluster maintenance, with live
-  managers and no error markers; legs 7-8 remain dependency-unbuilt. The fresh arm never
+  12.18/19.33. Both leg-6 jobs are running (`ReturnnTrainingJob.n8abYvLR4IP5` fresh,
+  `.kkh0u4rI7I6D` warm) with live managers and no error markers; legs 7-8 remain
+  dependency-unbuilt. The fresh arm never
   beats the one-shot scorer's registered 8.64 best, and by matched leg 5 is worse than
   one-shot by +2.72/+3.56 and the frozen control by +0.73/+1.65. Its late dev-other loss is
   almost entirely insertions (479 -> 2,489, substitutions 3,572 -> 3,597); WARM compounds
@@ -993,8 +994,9 @@ config, verified at source).**
   matched sub-epoch it has".
 - Status 2026-08-20 (six-leg prefix, planner-verified from concrete work directories;
   arm not ended). Dev-clean/dev-other is 14.45/19.69, 12.85/17.89, 13.20/18.20,
-  17.76/23.17, 17.92/23.27 and 18.38/24.01. Leg 7 exists and is pending for cluster
-  maintenance; leg 8 is dependency-unbuilt, the manager is live, and no error marker is
+  17.76/23.17, 17.92/23.27 and 18.38/24.01. Leg 7
+  `ReturnnTrainingJob.QTQuYQnppmSs` is running; leg 8 is dependency-unbuilt, the manager is
+  live, and no error marker is
   present. Only leg 2 improves the no-loop theta_0^G dev-other 18.34, by 0.45, missing the
   registered >=0.5 bar by 0.05; the improvement is transient. At the matched first three
   points it does not beat the frozen repaired scorer decisively, and by leg 6 it is
@@ -1490,7 +1492,7 @@ config, verified at source).**
   arm's refit, so both scorers must be named.
   2026-08-20 (live loop prefix, planner-verified from concrete work directories; arm not
   ended). Legs 1-3 read 14.84/19.99, 13.94/18.77 and 12.80/18.08 dev-clean/dev-other;
-  leg 4 exists and is pending for cluster maintenance, legs 5-8 remain dependency-unbuilt,
+  leg 4 `ReturnnTrainingJob.JBaqJExxDKGz` is running, legs 5-8 remain dependency-unbuilt,
   the manager is live, and no error marker is present. Against its own 16.67/21.45 init this
   is a 3.87/3.37 gain by leg 3. Against plain D6-PERIODIC/GAN the hom-minus-plain deltas are
   +0.39/+0.30, +1.09/+0.88 and -0.40/-0.12: it misses the old every-leg 0.3 condition at leg

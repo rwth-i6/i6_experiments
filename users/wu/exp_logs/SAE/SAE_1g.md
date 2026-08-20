@@ -288,6 +288,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 | live H2 count-0 channel snapshot | `work/speech_llm/sae/channel_decode_jobs/Phase1gChannelSnapshotJob.TJWNeqBXGjfy` |
 | completed H2 decoder timing grid | `work/speech_llm/sae/channel_decode_jobs/Phase1gDecoderPreflightJob.egplrTqzH7Ys` (fastest cell); `work/speech_llm/sae/channel_decode_jobs/Phase1gDecoderPreflightJob.5xQSQqaShtXI` (largest elapsed-time cell) |
 | H3 construction-population final initializers | `work/speech_llm/sae/h3_jobs/H3InitializerJob.uKw59MBJC4Hj`; `work/speech_llm/sae/h3_jobs/H3InitializerJob.ABTGA9vIwwI8`; `work/speech_llm/sae/h3_jobs/H3InitializerJob.BS1nPUwf1fel` |
+| H3 selected construction-population ESPUM refit and strict projection | `work/speech_llm/sae/espum_jobs/EspumMatchTrainJob.t1l7N4lQ9dtY`; `work/speech_llm/sae/h3_projection/H3FinalEspumProjectionJob.PJMwUGUXUb7s` |
 | H4 artifact, donor, bootstrap, and gate harnesses | commits `93f6261`, `4e67695`; `src/speech_llm/sae/h4_harness.py` |
 | H5 handoff and H6 character-route interfaces | commit `ce265ce`; `src/speech_llm/sae/handoff.py`; `src/speech_llm/sae/character_route.py` |
 
@@ -302,26 +303,22 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   The archived corpus-size, pair/triple nullity, moment-sample, repair-basin, decoder-gain, and anchor
   predictions are uncommitted synthetic motivation, not results or gate evidence.
 
-- 2026-08-19 — H1 remains accepted at the exact 6,414/890/7,304/1,112 partition and two-state phone
-  choice `p=0.23560298`; do not rerun it. H2's numerical core and boundary-aware fixed scorer/decoder
-  pass 20 focused, 10 legacy, 6 handoff, and 4 production-boundary tests plus independent exact
-  enumeration. The actual count-0 snapshot is the intended two-state, 39-phone by 500-unit channel
-  bound to accepted H1 and the real H3 handoff. Strict settings, finite evidence, and exact shard
-  merging are sound. The sole material H2 issue is that scoring/decoding force a new duration after
-  deleted silence while repair forward--backward permits a duration to bridge it. The mismatch occurs
-  at 53,498 update-population gaps, affects 97.71% of the 6,414 utterances, and changed a one-step
-  normalized emission cell by up to 0.036 in an exact local check; it must be made consistent. All 48
-  isolated timing-preflight cells completed with no error marker and must not be rerun. Eight
-  persisted alternatives are accepted as an output-only cap because one-best and confidence normalize
-  over the complete surviving beam.
+- 2026-08-20 — H1 remains accepted at the exact 6,414/890/7,304/1,112 partition and two-state phone
+  choice `p=0.23560298`; do not rerun it. H2 is now closed at the common-engine level: commits
+  `88762f2` and `bda896a` require and propagate the same explicit deleted-silence boundary vector
+  through repair, scoring, and decoding. The current channel suite passes 23/23, including exact
+  boundary-aware repair enumeration. This resolves the previously material mismatch at 53,498 gaps
+  affecting 97.71% of the update utterances. The accepted 39-phone by 500-unit snapshot, strict
+  evidence/merge checks, 48 timing cells, and eight-alternative output-only cap remain unchanged.
 
-  H3 implementation is accepted. The exact 6,414/890 calibration selected full-loss ESPUM seed 0 at
-  update 30,000 and weighted phone-LM perplexity 32.5352. Projection
-  `H3CalibrationEspumProjectionJob.5WaObcxvytCC` hashes all eight runtime modules and has maximum
-  `Q`/`B` row-sum errors `5.55e-16`/`4.88e-15`; GH200 resume-equivalence job
-  `H3EspumResumeEquivalenceJob.hRJnt1vbaKkG` is bit-exact. The final graph contains construction-role
-  fingerprint, random-map seed 1000, pseudo-pair seed 0, and blind ESPUM refits. Its unchanged ESPUM
-  revision is nonblocking for this launch because no prior final work directory exists and the worker
-  checks runtime source hashes. Launch only `config/sae_1g_h3_final.py`; never relaunch calibration.
-  H4 waits for the H2 path-law fix and completed H3 final artifacts, and must reject a calibration-
-  phase start where a construction-population `final_refit` manifest is required.
+  H3 calibration remains valid: the exact 6,414/890 roles selected full-loss ESPUM seed 0/update
+  30,000 at weighted phone-LM perplexity 32.5352; strict projection and GH200 resume equivalence pass.
+  Final-refit fingerprint `H3InitializerJob.uKw59MBJC4Hj`, random map `.ABTGA9vIwwI8`, and
+  pseudo-pair `.BS1nPUwf1fel` are finished on all 7,304 construction IDs. ESPUM final refit
+  `EspumMatchTrainJob.t1l7N4lQ9dtY` is running and `H3FinalEspumProjectionJob.PJMwUGUXUb7s` waits.
+  Never relaunch calibration.
+
+  H4 is not production-wired: `h4_harness.py` supplies verification/gate utilities but intentionally
+  neither constructs a seed nor invokes a decoder. Build the consumer job/config while H3 finishes,
+  then consume only final-refit manifests. Before any new manager launch, correct and verify the
+  effective workspace `JOB_AUTO_CLEANUP`, currently `False`, to the required `True`.

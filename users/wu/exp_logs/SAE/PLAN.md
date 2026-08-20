@@ -5,8 +5,9 @@ Reconstruction-through-text unsupervised ASR, structurally following the NLA tra
 (audio reconstructor, text→speech-unit channel model) trained jointly — AR by supervised CE on AV
 samples, AV by GRPO against the AR's reconstruction likelihood. The pair is an autoencoder over
 speech whose bottleneck is a grapheme transcript; the reconstruction score is an exact discrete
-likelihood, so the AV-optimal policy is amortized noisy-channel decoding:
-z_hat = argmax_z p_LM(z) * p_AR(u | G2P(z)).
+likelihood, so the AV-optimal policy is amortized noisy-channel decoding. In the adopted live
+`psi_align` system the channel conditions on the scorer's own orthographic BPE states, not G2P:
+z_hat = argmax_z p_LM(z) * p_psi(u | BPE_states(z)). G2P survives only in evaluation and probes.
 
 > Restructured 2026-08-07 (planner): this file holds live decisions, gates, and one status
 > snapshot; results and history live in the SAE_*.md logs; `PLAN_3A.md` is the normative psi_align
@@ -41,8 +42,12 @@ z_hat = argmax_z p_LM(z) * p_AR(u | G2P(z)).
 
 ## Status & priority queue (current read 2026-08-20)
 
-**Where we are.** psi_align (§3a, `PLAN_3A.md`) is the adopted reconstruction scorer — frozen in
-all live arms (sha-verified, `SAE_3A.md` §6.10). Current results, all label-free-selected:
+**Where we are.** psi_align (§3a, `PLAN_3A.md`) is the adopted reconstruction scorer — frozen within
+each policy leg (periodic arms refit it only between legs; sha-verified, `SAE_3A.md` §6.10). Loop
+checkpoints below use fixed or label-free pins, but the strongest arms are semi-supervised: their AV
+initialization and scorer use the 2,849-pair 10 h seed. The adapted donor was chosen by transcript-dev
+perplexity, observationally equal to its fixed final checkpoint because the curve was monotone; it is
+therefore disclosed and treated as fixed-final, not evidence that the whole stack is label-free-selected.
 
 - **10 h seed bed** (§6.5/§6.9): psi_align beats the token-LM AR on all four sets at equal
   supervision (last-epoch −3.4/−3.2/−2.8/−2.2); extended run final: shaped 9.59/12.84 dev.
@@ -60,26 +65,33 @@ all live arms (sha-verified, `SAE_3A.md` §6.10). Current results, all label-fre
   the user's label-hygiene ruling, so the arm reads as a trajectory). USER 2026-08-20: the exact
   schedule-matched control that freezes periodic round 1's own `d_min=2` scorer is FUNDED; this,
   rather than rebuilding historical D3 alone, isolates scorer recency.
-- **960 h supervision-axis arm RUNNING**: theta_0 init + gold scorer + all 960 h audio, shaped
-  only, 3 passes (`ReturnnTrainingJob.22Ntu7y0O6iW`, ~5.5 h/sub-epoch, ~7 days). Separates
-  "more audio" from "contaminated bootstrap".
+- **960 h stock-donor supervision-axis endpoint is ABSENT**: the theta_0 + gold-scorer arm ran
+  only through sub-epoch 4, was stopped and deleted 2026-08-08, and never produced the listed
+  3-pass endpoint; `ReturnnTrainingJob.22Ntu7y0O6iW` does not exist. Its observed collapse is
+  retained in `SAE_3A.md`, but any restart is a new decision and is not the current critical path.
 - **§0d donor swap VERIFIED 2026-08-08**: the LBS-adapted donor's theta_0' re-SFT alone is
   11.43/15.54 dev, 11.99/14.34 test vs stock 16.91/20.64, 15.28/20.78 (one-argument A/B) —
-  better than anything any loop earned from stock theta_0. `_lbslm` loop arms RUNNING (100 h
-  `fFp8sXTA5Wug`, 960 h 1-pass `vhyvv2waeU16`) at unchanged lam=1/T=0.7: the controlled
-  donor-axis A/B vs the stock shaped arms. Gate (ii) read in §0d Status awaits the user's
-  blessing.
+  better than anything any loop earned from stock theta_0. Both `_lbslm` loop arms are FINISHED:
+  the 100 h fixed-last pin is 5.22/9.67 dev; the 960 h one-pass arm ends 6.46/11.41 dev and
+  6.94/12.16 test after a transient 5.34/9.50 at sub-epoch 2. Gate (ii) still awaits the user's
+  blessing and its small reward-margin claims require the registered EOS-consistent re-score;
+  these caveats do not affect the direct SFT or WER endpoints.
 - 2S incumbent reward program: superseded by psi_align; history in `SAE_2S*.md`.
 - Reward hygiene: the LM-prior per-token mean pays for length (§6.6) — `lm_prior_norm="units"`
   is the standing fix; `len_eps` 0.4 leaves a 49 % free band if the hinge is ever load-bearing.
 
 **Priority queue (current revision, 2026-08-20):**
-1. **960 h 3-pass read** — the supervision axis at fixed audio/target/schedule.
+1. **§1g H3 → H4 — TOP NEW SPEND.** Let the live construction-only ESPUM final refit and its
+   projection finish; meanwhile build and preflight the missing production H4 phone-assay graph.
+   Then run the registered 6,414-update/890-selection/7,304-final-refit/1,112-evaluation assay.
+   This is the first pending experiment that can establish a content-bearing no-GAN seed. Before
+   launching any new manager, change and verify the effective `JOB_AUTO_CLEANUP = True`; the
+   workspace currently resolves it as `False`.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional
    winner), then redirected BOTH phases to the best arm — the theta_0' lbs 960 h 1-pass
-   shaped loop `vhyvv2waeU16` (running; gold-seed psi, 2849-pair train set, 281k-utt bed).
+   shaped loop `vhyvv2waeU16` (finished; gold-seed psi, 2,849-pair train set, 281k-utt bed).
    One label-free fork checkpoint feeds THREE update-rule arms at matched remaining
    schedule: FROZEN continuation (the running arm, free) / CONTINUOUS JOINT psi (D5(b), the
    collapsed form, 4-6 sub-epochs, stop regardless) / GATED DISCRETE REFRESH (D4' —
@@ -126,12 +138,12 @@ all live arms (sha-verified, `SAE_3A.md` §6.10). Current results, all label-fre
    classification, taxonomy pre-registered in §3g); (b) §1f, statistics-matching init
    revisited (1b was never run — superseded, not refuted; two kill-condition prerequisites
    registered before any matching arm). Z-track (now `PLAN_3G.md`): base arm CLOSED (A)
-   2026-08-13; Z2 STOPPED by user 2026-08-14 mid sub-ep 5 — coupling ladder duration ->
-   density, no phone content; Z3 (tempo/noise/pitch perturbation-consistency package)
-   REGISTERED AND FUNDED 2026-08-14, close-out battery on Z2's checkpoint first. Planner
-   read 2026-08-15 (Z3 live in sub-ep 4/6): primary clause failing so far — dur-matched gap
-   flat negative, same duration code rebuilt more purely (98.7% stem-times-k), no content
-   signal; LM-prior demotion WITHDRAWN 2026-08-15 (user pushback + mechanics review — prior
+   2026-08-13; Z2 actually completed all six sub-epochs despite the earlier stop directive —
+   coupling ladder duration -> density, no phone-content evidence. Z3 also completed all six
+   and FAILED its primary: the duration-matched gap stayed negative (-0.0137...-0.0093), the
+   same duration code rebuilt more purely, and final WER was 94.87/96.14. The formal B/C
+   taxonomy remains incomplete because no unit-emission purity/PER read was produced. LM-prior
+   demotion was WITHDRAWN 2026-08-15 (user pushback + mechanics review — prior
    is the posterior's own term, and the code is recon-funded). Z4 (discrete psi refresh +
    within-seq repetition price + lam_len activation; lam_lm kept) REGISTERED AND FUNDED
    2026-08-15 on the user's word — build order and pre-registered gate in `PLAN_3G.md` 3g.4;
@@ -193,8 +205,10 @@ all live arms (sha-verified, `SAE_3A.md` §6.10). Current results, all label-fre
    the pre-run item because the phase executed): pre-check (i) PASSED; gate (ii) read — planner
    verdict in §0d Status **awaits the user's blessing** (margin over the audio-free null is
    statistic/lam/bed-dependent; pass proposed for theta0-bed lam=1 only, no lam=0.3, no G-track).
-   theta_0' re-SFT alone beats every stock-theta_0 loop result. Open: donor-axis loop reads when
-   `_lbslm` arms finish; §2a-rescorer and lam_1/lam_2 recalibration deferred until then.
+   theta_0' re-SFT alone beats every stock-theta_0 loop result. Both donor-axis loop reads are
+   finished; §2a-rescorer and lam_1/lam_2 recalibration remain deferred behind the bootstrap-critical
+   §1g assay. The adapted reward sweeps mix EOS conventions, so their small margin claims await the
+   cheap registered correction; direct SFT and WER comparisons are unaffected.
 4. **Pseudo-label scale and one-generation self-training (§3d.A; IMPLEMENTED/LAUNCHED
    2026-08-20)**: packed-input compatibility preflight and the two teacher/fixed-label branches are
    queued; read the preregistered fixed endpoints after they complete. No open-ended relabeling loop.
@@ -204,23 +218,25 @@ all live arms (sha-verified, `SAE_3A.md` §6.10). Current results, all label-fre
    orthography-only oracle-gap split.
 8. **Rung repair** (Rung S 1 h/10 min): first attempt VOID (budget artifacts, `SAE_2S.md` approaches 3-4);
    extend AV budgets through the phase transition, ARs get full budget, then per-rung §2.5(d).
-9. **§1d → Rung 0**: word-level self-training pipeline to completion.
+9. **Rung 0 is COMPLETE; §2a is unblocked but deferred.** The fixed CTC-student + lexicon/4-gram
+   word decode is 17.96/21.87 dev WER with full 2,703/2,864 coverage. Qwen rescoring can now run,
+   but it is behind §1g/H4 because it cannot resolve the north-star initialization question.
 10. **B0 gate table** (§3b) — role shrunk by the PLAN_3A closures; read under psi_align only if
     the target axis reopens.
-11. **§1g simple weak initialization — TOP OF THE QUEUE FOR NEW SPEND (rewritten 2026-08-19
+11. **§1g simple weak initialization — detailed handover for priority 1 (rewritten 2026-08-19
     after the USER clarified Phase 1's role).** H1 is accepted: the construction-only topology read
     selected two states for both live routes and fixed the phone duration at `p=0.23560298`; do not
     rerun it. H3 calibration is also complete and valid: the corrected 715,099-run stream selected
     full-loss ESPUM seed 0/update 30,000 on the exact 6,414/890 roles, its strict update-population
     `Q`/`B` projection is materialized, and the GH200 resume trajectory is bit-exact. H2's numerical
-    engine, actual wired start, strict input parsing, evidence, and shard merge now pass, and its
-    isolated 48-cell timing preflight completed cleanly. One material H2 issue remains: repair allows
-    a duration to bridge deleted silence while scoring/decoding force a new duration. Propagate the
-    same boundary law through repair. Eight persisted alternatives are accepted as an output-only cap
-    because one-best and confidence use the complete beam. H3's CUDA, projection, and all-family final
-    wiring pass; its final graph is launch-ready because no old final directory exists and the worker
-    verifies runtime code hashes. Run that graph in parallel with the H2 fix, and never relaunch the
-    accepted calibration graph. H4 waits for both.
+    engine, actual wired start, strict input parsing, evidence, and shard merge now pass. H2 is now
+    corrected and verified: repair consumes the same explicit deleted-silence boundary vector as
+    scoring/decoding, fails closed when it is absent, and passes 23/23 channel tests including exact
+    enumeration. Eight persisted alternatives remain an output-only cap because one-best and
+    confidence use the complete beam. H3's three simple 7,304-ID final initializers are finished;
+    the selected ESPUM seed-0/update-30,000 final refit is running and its strict projection waits.
+    H4 has evidence/gate utilities but no production Sisyphus consumer graph yet; build that graph
+    while H3 finishes, then launch only after the cleanup preflight in priority 1.
     Reuse 1g.4's spectral and hard-descriptor failures; the unrun six-factor product is corrected to
     not answerable and stays parked. Reuse the fixed 1f recipes and original artifacts as provenance,
     but not as held-out inputs: both banked seeds saw the evaluation audio. The first E5 job remains an
@@ -351,7 +367,7 @@ use only after that read.
 if the margin shrinks, reject regardless of perplexity (a better English prior raises the null
 too, and the over-generation exploit gets stronger, not weaker). After any swap: re-sweep lam_lm
 per bed, keep `lm_prior_norm="units"`, recalibrate the lam_1/lam_2 balance.
-**Status: LIVE — built, run, and read; verified 2026-08-08** (`SAE_0d.md`; planner audit same
+**Status: EXPERIMENTS COMPLETE; interpretation partly open — verified 2026-08-08** (`SAE_0d.md`; planner audit same
 day: all numbers reproduce; the "one exact pass" claim is false as run — rank-dependent shuffle
 seeds gave one-pass volume over 68.4 % of distinct lines; no number invalidated; pin a common
 `random_seed_offset` on any future donor iteration).
@@ -372,8 +388,13 @@ seeds gave one-pass volume over 68.4 % of distinct lines; no number invalidated;
   **11.43 / 15.54 dev, 11.99 / 14.34 test** vs stock 16.91 / 20.64, 15.28 / 20.78 — a clean
   one-argument A/B at ep50 both, psi-view deltas <= 0.06 — better than anything any loop earned
   from stock theta_0. Loop use began before the (ii) read (procedural violation, noted); at
-  unchanged lam=1 / T=0.7 the running `_lbslm` arms (100 h `fFp8sXTA5Wug`, 960 h 1-pass
-  `vhyvv2waeU16`) are the controlled donor-axis A/B against the stock shaped arms, so they stand.
+  unchanged lam=1 / T=0.7 the now-finished `_lbslm` arms (100 h `fFp8sXTA5Wug`, fixed-last
+  5.22/9.67 dev; 960 h 1-pass `vhyvv2waeU16`, 6.46/11.41 dev and 6.94/12.16 test) are the
+  controlled donor-axis A/B against the stock shaped arms. The donor checkpoint was selected with
+  transcript-dev perplexity, contrary to the unsupervised-arm selection rule, but the curve was
+  monotone and the selected checkpoint is the fixed final endpoint; future donor runs use a fixed or
+  label-free pin. The 2026-08-18 EOS-token scoring mismatch leaves only the small gate-(ii) reward
+  margins unresolved pending the registered re-score; it does not change these WER endpoints.
 
 ---
 
@@ -421,8 +442,9 @@ generator to ~12.5 Hz, discriminator + gp/sp/pd/ss terms); selection by the §1.
 metric only.
 **Experiments.** Full grid × seeds on both encoders, identical pipeline.
 **Gate.** §1.0 metric with a non-empty converged filter set.
-**Status: PASSED on wav2vec2** — 0.168 dev-other PER ppl-selected (paper anchor 0.136) vs BEST-RQ
-flat at 0.75–0.92; this run decided the encoder. Tables and mechanism: `SAE_1c.md`.
+**Status: PASSED on wav2vec2** — the honest perplexity-selected seed is 0.173/0.214
+dev-clean/dev-other PER; 0.137/0.168 is the oracle-best seed and is diagnostic, not reportable.
+BEST-RQ stays flat at 0.75–0.92; this run decided the encoder. Tables: `SAE_1c.md`.
 
 ### 1d. Rung 0 self-training
 
@@ -430,10 +452,11 @@ flat at 0.75–0.92; this run decided the encoder. Tables and mechanism: `SAE_1c
 loop must beat.
 **Approach.** WFST pseudo-label decode → CTC finetune of wav2vec2 on pseudo-labels (HMM-GMM stage
 skipped, no-Kaldi route), last checkpoint, lexicon + 4-gram word decode.
-**Experiments.** CTC student and word decode done; the completed Rung-0 pipeline read is queue 9.
+**Experiments.** CTC student and word decode complete.
 **Gate.** §1.0-metric selection throughout; Rung 0 = word WER of the final system.
-**Status: student stands, pipeline unfinished** — 0.172 dev-other phone; word decode 17.96/21.87
-WER (`output/sae/1d/word_wer.json`). `SAE_1d.md`.
+**Status: CLOSED; Rung 0 complete** — 0.172 dev-other phone PER; the fixed lexicon/4-gram word
+decode is 17.96/21.87 dev WER with 2,703/2,864 utterances and zero empty hypotheses
+(`Wav2Vec2KenlmDecodeJob.AQw3EcUo6rks`). `SAE_1d.md`.
 
 ### 1e. Pairing-free initialization (mainline; USER priority 2026-08-01)
 
@@ -634,13 +657,15 @@ The historical 1f (0.05/0.05) failure remains recorded but is not the future adm
 Phone results validate mechanics. The phone-versus-character difference bundles several design
 changes, including pronunciation-lexicon cost; only a lexicon-free result supports the main claim.
 
-**Status.** **Active; H1 and H3 implementation accepted, one H2 algorithmic fix remains
-(2026-08-19).** The first E5 job remains exploratory and non-decisive. The accepted H1 artifact
-freezes the split, masks, two-state topology, and phone `p=0.23560298`; no further H1 run is required.
-H3's final-refit graph is ready to run in parallel with propagation of the deleted-silence boundary
-through H2 repair. The H2 timing preflight completed cleanly and must not be rerun.
-H4--H6 remain blocked until the H2 law is consistent and H3 final artifacts exist. Details and all
-future gates: `PLAN_1G.md`. Evidence: `SAE_1g.md`.
+**Status.** **Active; H1 and H2 accepted, H3 final refit live (2026-08-20).** The first E5 job
+remains exploratory and non-decisive. H1 freezes the split, masks, two-state topology, and phone
+`p=0.23560298`; no further H1 run is required. H2's deleted-silence boundary law is now identical in
+repair, scoring, and decoding and passes the exact-enumeration suite; its timing preflight must not be
+rerun. H3's fingerprint, random-map, and pseudo-pair final initializers are finished on all 7,304
+construction utterances; the selected ESPUM final refit is running and projection waits. Only H4's
+evidence harness exists—the production job/config still has to be built. Build it while H3 finishes,
+then run H4; H5--H6 remain gated on its scientific result. Details: `PLAN_1G.md`; evidence:
+`SAE_1g.md`.
 
 ---
 
@@ -652,9 +677,9 @@ future gates: `PLAN_1G.md`. Evidence: `SAE_1g.md`.
 **Approach.** Frozen-base Qwen3 n-best rescoring of §1d's WFST lattices (kappa from a
 dev-disjoint unsupervised sweep), with a 4-gram-prior-only control separating "better prior"
 from Gutenberg memorization.
-**Experiments.** Rescoring vs same-lattice 4-gram 1-best; pending on Rung 0 (queue 9).
+**Experiments.** Rescoring vs same-lattice 4-gram 1-best; Rung 0 is complete, so this is unblocked.
 **Gate.** Rung 1 ≤ WER of the 4-gram WFST decode of the *same* lattices.
-**Status: PENDING.**
+**Status: PENDING, lower priority than §1g/H4.**
 
 ### 2b. AV SFT → Rung 2
 
@@ -688,8 +713,11 @@ seed, plus the shuffled-reward and frozen-vs-joint controls.
 **Experiments.** 10 h loop + controls done; the 1 h/10 min rung repair is queue 8 (first attempt
 VOID — budget artifacts, not seed-size verdicts).
 **Gate.** Loop beats identical-seed self-training by ≥ 0.5 dev-other, unsupervised-selected.
-**Status: role complete at 10 h.** Gate PASSED (+1.24); shuffled control DECISIVE (ep1 202.54 vs
-14.74 — the reward is load-bearing); joint AR beats frozen run-to-completion; the measured
+**Status: role complete at 10 h.** The reported +1.24 was INVALID for this gate because it compared
+independently dev-WER-selected minima (15.89 vs 17.13). Under the fixed four-epoch endpoint, joint AR
+beats identical-start self-training by 1.61 dev-other (16.13 vs 17.74), clearing 0.5 without label-based
+checkpoint choice; no learned unsupervised selector was measured. Shuffled reward is DECISIVE (ep1
+207.59 vs 16.87 dev-other — the reward is load-bearing); joint AR beats frozen run-to-completion; the measured
 0.27-nat information cap of the token-LM reward drove the §3a escalation. Logs: `SAE_2S*.md`.
 
 ---
@@ -891,7 +919,10 @@ arm, per-sub-epoch recogs.
 recalibrate against the within-group-std monitors, never carry values across beds.
 **Gate.** Checkpoint selection by dev reward + LM score only; monitor reward components, ins/del,
 and within-group std separately; a degrading run is reverted, not compounded.
-**Status: LIVE** — 10 h and 100 h rounds complete, 960 h 3-pass running (queue 1).
+**Status: LIVE only through the §3e.1 update-rule families.** The 10 h and 100 h rounds are
+complete; the stock-donor 960 h 3-pass arm stopped at sub-epoch 4 and was deleted, while the adapted-
+donor 960 h one-pass arm completed all ten sub-epochs. The fresh/warm and GAN periodic trajectories,
+HOM arm, and exact GAN-frozen schedule control remain in flight; no endpoint verdict yet.
 
 ### 3e.1 Scorer trainability without collapse (USER-directed 2026-08-06; sub-plan `PLAN_3E1.md`)
 
@@ -904,8 +935,8 @@ sample set collapses the scorer — the trainable 100 h replay arm (`freeze_ar=F
 uniform) — so the update *rule*, not trainability, is the question. Attribution of that
 collapse to co-training itself is REOPENED 2026-08-09 (user question): no frozen-scorer
 control has ever run on that bed and the 10 h matched pair went the other way — `PLAN_3E1.md`
-D5 carries it: (a) forensics on the collapsed run's own checkpoints, (b) a USER-redirected
-joint-psi control arm on the current best 960 h bed (the running frozen arm is its matched
+D5 carried it: (a) forensics on the collapsed run's own checkpoints, (b) a USER-redirected
+joint-psi control arm on the current best 960 h bed (the now-finished frozen arm is its matched
 control).
 **Approach.** The evidence splits the failure three ways (`PLAN_3E1.md`): ranking NOISE is
 refuted (twice — recon within-group std, and in-group spearman ~0.50/0.56 at the loop's own
@@ -918,18 +949,12 @@ accepted frozen scorer, so rollback is free; ladder D0–D4 (discriminator → p
 repair without co-training → frozen-repaired control arm → gated outer refresh) pre-registered in
 `PLAN_3E1.md`. Old candidates posterior-weighted CE and emissions-pinned text refresh are
 withdrawn (published collapse mode; not a real parameter partition — one trunk feeds all heads).
-**Experiments.** Diagnostics, the coverage/steerability read, and D1 are DONE and
-audit-verified 2026-08-07 (`SAE_3E1.md`). D1's pre-registered power check FAILED: no filler
-statistic separates the contaminated scorer from the gold-text control, and the audit shows the
-probe's headline discount was majority a state-length artifact — the lattice charges ~0.03
-nats/frame per inserted emitting state in every scorer, so the cheap-insertion exploit is open
-to any minimal-state word (`PLAN_3E1.md` D1 verdict). Direction change: text repair is hygiene;
-mechanism-level insertion pricing (contrastive term, bounded lambda reprice at prior-variance
-share <= ~46 %) is primary. D2 candidates are mid-training; the T=0.9 presumptive point is
-withdrawn (oracle degrades 0.107 -> 0.150, c11) — the (scorer, lambda, T) point is selected
-jointly on the D0 dump with the D2 winner. Next, the user's call: length-matched probe variant +
-D2 admission reads (~1-2 GPU-h), then D3 at its corrected cost (~85 GPU-h as wired on the 960 h
-bed, ~42 trimmed to 2 arms x 2 sub-epochs); D4 stays unfunded.
+**Experiments.** D0--D4 diagnostics and historical repairs are complete; D1's power check failed
+and localized the insertion price as a scorer-family issue. D5 closed continuous co-training as
+catastrophic on the best bed. D6's offline minimum-duration screen and one-shot frozen continuation
+are complete; the fresh/warm periodic, GAN periodic, exact GAN-frozen schedule control, and GAN+HOM
+endpoint trajectories are the only live experiments. Full configurations and gates are maintained in
+`PLAN_3E1.md`; no old D2/D3 launch item survives.
 **Gate v2 (replaces the two-sided gate, 2026-08-07 — amended BEFORE any verdict was read against
 v1, because v1's `text_explained_loo` arm is gold-conditioned as instrumented
 (`config_sae_3a_enc50_units_v1.py:233-243`) and has the wrong sign against the filler mode, and
@@ -939,16 +964,14 @@ held unit NLL improves vs the last accepted scorer AND `text_explained_loo` ≥ 
 AND filler-contrast probes do not degrade AND paired rank stability vs the last accepted scorer
 holds; `PsiScorerParityJob` before any live use. Full battery in `PLAN_3E1.md`; the gold-text G1
 stays a reported diagnostic that can never flip a G-track decision.
-**Status: OPEN** — 2026-08-07 planner fan-out closed (14-agent, 6-lens literature review); gate
-v2 registered; D0 queued beside the usage diagnostic; no mechanism funded. 2026-08-07 (later,
-post-diagnostics): both reads verified clean; fork picked in `PLAN_3E1.md` (bias-dominant with
-partial group blindness); gate v2 amended pre-verdict (absolute unit-marginal floor on arm (i);
-selector filler-affinity admissibility for D4). 2026-08-07 (D1 read): power check FAILED,
-verified + audited (two direction-neutral numeric slips; conclusion 8's "token-specific"
-corrected to a state-count artifact); probe battery demoted to mechanism meter; gate v2 (i)
-improvement clause found domain-confounded — floor-only for changed-text candidates, amendment
-flagged for the user's blessing; D3 cost corrected to ~85 GPU-h (~42 trimmed). AWAITING the
-user: gate amendment blessing + funding shape for the admission reads and D3.
+**Status: ACTIVE; D5/D6 decisions supersede the old D0--D3 queue.** Continuous joint psi is closed
+after 5.12/9.27 -> 17.35/21.97 -> 41.78/50.88. The one-shot `d_min=2` scorer-repair package passed
+its matched continuation read, ending 4.73/9.31 against 6.46/11.41 with dev-other insertions 933 vs
+1,964. Repeated fresh and warm scorer refits deteriorate through their current prefixes; the
+label-free GAN periodic and HOM arms are running, while the exact schedule-matched frozen control is
+queued. Finish those already-funded endpoints, but register no new scorer variant before their gates
+are read.
+Normative details and exact operating points: `PLAN_3E1.md`; evidence: `SAE_3E1.md`.
 
 ### 3f. Exit gate (Rung 3)
 
@@ -965,30 +988,30 @@ balance, scorer drift, anchor) — iterate there, not in Phase 1.
 
 ### 3g. Z-track — from-scratch fully-unsupervised joint loop (USER-directed 2026-08-12)
 
-(Moved to `PLAN_3G.md` 2026-08-14 — replaces the inline block, because the track outgrew a
-page: two closed arms and one live registration. Gate text carried verbatim there.)
+(Moved to `PLAN_3G.md` 2026-08-14 — replaces the inline block; all four registered arms are now
+closed. Gate text was carried verbatim there.)
 **Purpose.** Real unsupervised ASR without GAN: run the joint loop from zero paired data and
 classify the failure mode against the pre-registered (A)/(B)/(C) taxonomy; labels evaluate
 only.
 **Approach / Experiments / Gate.** `PLAN_3G.md`; log `SAE_3G.md`.
 **Status.** 3g.1 base arm CLOSED 2026-08-13, outcome (A) — mode collapse to one constant
 sentence by step 346; the per-utterance joint objective's optimum sits at zero coupling.
-3g.2 (Z2: diversity price + pseudo-pair init + derangement hinge) STOPPED BY USER
-2026-08-14 mid sub-ep 5 — verdict: escaped zero coupling via a nuisance-channel ladder,
-duration (0.856) then speech density (0.252), held gap +0.085 = ~2 % of a real scorer's, no
-phone content, lexicon churn 14/2703; close-out battery on its last checkpoint pins the Z3
-baseline. 3g.3 (Z3: tempo/noise/pitch perturbation-consistency package + hardened hinge
-negatives + raised lam_div) REGISTERED AND FUNDED 2026-08-14; planner mid-run read
-2026-08-15: collapse beaten but the primary clause failing — the same duration code rebuilt
-more purely (98.7% stem-times-k) under the live co-trained scorer; runs untouched to its
-registered end as Z4's comparison. 3g.4 (Z4: discrete psi refresh replacing co-training +
+3g.2 (Z2: diversity price + pseudo-pair init + derangement hinge) completed all six sub-epochs
+despite the earlier stop directive — verdict: it escaped zero coupling via a nuisance-channel
+ladder, duration then speech density, with no phone-content evidence. 3g.3 (Z3:
+tempo/noise/pitch perturbation consistency + hardened negatives + raised lam_div) also completed
+all six and FAILED its primary: the duration-matched gap remained negative throughout and final
+WER was 94.87/96.14. Neither Z2 nor Z3 has the registered purity/PER read, so the formal B/C
+taxonomy letter remains incomplete even though the controlled nulls strongly support nuisance/private
+coding. 3g.4 (Z4: discrete psi refresh replacing co-training +
 within-seq repetition price + lam_len activation; lam_lm kept at 1.0 units-norm by the
 2026-08-15 ruling) REGISTERED AND FUNDED 2026-08-15. Z4 GATE VERDICT 2026-08-16 (six
 rounds, planner-verified): FAILS — primary above bar only at round 1, speaker-meter
 secondary fails as written, repetition price binds; the registered exhaustion reading does
 NOT fire (within-group spread recovers past start), so this is a gate failure with
-earnable variance remaining, not a loop that ran dry. Track pauses; follow-up space
-(any Z5 vs standing on §1f alone) is the USER's call. Detail: `PLAN_3G.md` 3g.4 Status.
+earnable variance remaining, not a loop that ran dry. No Z5 is funded: the planner recommendation is
+to require a content-bearing §1g seed before any further no-pairs loop, rather than add another reward
+term to the same content-free initialization. Detail: `PLAN_3G.md` 3g.4 Status.
 
 ---
 
@@ -1012,11 +1035,11 @@ unsupervised-selected.
 **Purpose.** The paper's credibility section: leakage probes, attribution controls, ablations.
 **Approach.** Probes (dev, frequent during Phase 3):
 
-| Probe | Transform | Pass condition |
+| Probe | Transform | Interpretation |
 |-------|-----------|----------------|
-| Orthographic | homophone swap, case/punct jitter → same phi | mean Δr within 0.1 sigma_r |
-| Word-boundary | resegmentations with identical phone string | mean Δr within 0.1 sigma_r |
-| Content sensitivity | random G2P-distinct word substitution | mean Δr ≤ −1 sigma_r |
+| Orthographic | homophone swap and case/punctuation jitter | Report reconstruction, LM-prior, and composed-reward deltas separately; the live BPE scorer is not homophone-invariant, so this is an attribution diagnostic, not a pass condition |
+| Word-boundary | resegmentation with the same lexical content | Report the delta; BPE states and explicit SIL boundaries may legitimately change |
+| Content sensitivity | random BPE-distinct word substitution | More-negative reward is better; report scale relative to within-group reward std |
 | Speaker leakage | linear speaker-ID probe on AV states, pre vs post RL | accuracy gain ≤ 2 abs |
 
 **Experiments.** Remaining ablations at 100 h scale: scorer-frozen-vs-updated (now the §3e.1

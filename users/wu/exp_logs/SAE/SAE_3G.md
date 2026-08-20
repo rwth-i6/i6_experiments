@@ -252,6 +252,9 @@ turning its pre-registered primary read positive -- the duration-matched gap sta
 sub-epoch (-0.0137, -0.0160, -0.0142, -0.0122, -0.0125, -0.0093) while the own-text gap under the
 length-matched null climbed to +0.0265 -- so what this arm accumulates is again the channel that null
 fails to control rather than content, and dev WER never crossed 100% (94.87 / 96.14 at the end).
+WRONG in the final WER clause: 94.87/96.14 is below 100, and the arm first crossed below 100 at
+sub-epoch 3. Correction: WER remained unusably near 100 and supplied no content evidence; it did not
+stay above 100 throughout. The primary-gap conclusion is unchanged.
 
 5. (5) **Z4 ran to its registered six-round end and FAILS its pre-registered primary**: the
 duration-matched own-text gap clears the +0.0272 bar only at round 1 (+0.0303, +0.0018, +0.0036,
@@ -312,6 +315,15 @@ round 5) that is neither monotone nor larger than the round-to-round movement of
 | Z4 dev-clean decodes, rounds 1-6 (the persistence and distinct-string reads) | `work/i6_core/returnn/forward/ReturnnForwardJobV2.` `E6l55PIltKpC`, `spP2gP7nkeTJ`, `JjbK1T1lHhH7`, `boicjaBRxWUV`, `OXv2E5lToWCX`, `bw2goum8WGXb` |
 
 ## Verifier feedback
+
+- 2026-08-20: Plan/artifact reconciliation closes two stale execution states. Z2
+  `ReturnnTrainingJob.hjxeQdZbG9TY` has finished markers, checkpoints 1--6, and six epochs in
+  `learning_rates`; it completed the registered run rather than stopping mid-sub-epoch 5. Z3 also
+  completed all six and its primary duration-matched gap remained negative throughout, as Approach 4
+  and Conclusion 4 record. `PLAN_3G.md` now reflects both endpoints. The mechanism evidence strongly
+  favors nuisance/private coding, but the pre-registered B/C taxonomy is formally incomplete: no
+  unit-emission purity/PER result exists, so the controlled nulls must not be presented as that missing
+  deliverable.
 
 - 2026-08-13: Base-arm spot-verify against ground truth passes — all 2 703 dev-clean hyps are
   one sentence family (top variants 1 361 + 1 117, `ReturnnForwardJobV2.12kyAcqkZCoY`); wer

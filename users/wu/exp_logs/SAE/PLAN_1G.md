@@ -220,19 +220,16 @@ The old margins remain reported for comparison. They no longer decide admission 
 
 **Planner/verifier read: 2026-08-20.**
 
-1. **Make H2 use one silence-gap path law — highest priority.** H2 is otherwise generally sound on
-   the trusted internal artifacts: its numerical engine, actual 39-by-500 start, strict settings,
-   evidence, and shard merge pass. One scientific mismatch remains. Fixed scoring and decoding force
-   a new duration after deleted silence, while repair forward--backward still permits a duration to
-   bridge that gap. Propagate the same boundary vector through repair and its focused exact-enumeration
-   test. The 48-cell timing preflight is complete and must not be rerun.
-2. **Run the isolated H3 final-refit graph in parallel.** H3 implementation is accepted. CUDA resume
-   is fail-closed, projection provenance and GH200 equivalence pass, and the graph contains exact
-   construction-population fingerprint, random-map, pseudo-pair, and ESPUM refits. No old final work
-   directory exists and the worker verifies runtime code hashes, so the graph is safe to run. Launch
-   only `config/sae_1g_h3_final.py`; never
-   launch the calibration config, which would redundantly retrain four accepted arms.
-3. **After the H2 boundary fix and H3 final artifacts, run the corrected H4 phone assay.** Use the
+1. **Finish the already-live H3 final refit.** H2 is closed: repair, fixed scoring, and decoding now
+   consume one explicit deleted-silence boundary law, and the fail-closed implementation passes 23/23
+   channel tests including exact enumeration. H3's construction-population fingerprint, random-map,
+   and pseudo-pair rows are finished on all 7,304 IDs. The selected ESPUM seed-0/update-30,000 refit
+   is running and its strict projection waits. Do not relaunch H1, H2 timing, or H3 calibration.
+2. **Build and preflight the production H4 graph now.** The evidence/gate harness exists, but no
+   Sisyphus job/config yet supplies the real channels and decodes. Wire it against the corrected H2
+   engine and only `final_refit` H3 manifests. Before launching its manager, change and verify the
+   effective workspace `JOB_AUTO_CLEANUP = True`; it currently resolves to `False`.
+3. **When H3 finishes, run the corrected H4 phone assay.** Use the
    read-only 890-ID selection set to freeze all choices before any 7,304-ID final refit or 1,112-ID
    evaluation read. Require H4 to consume `final_refit` manifests with the exact construction hash,
    never the calibration handoff used for mechanics/preflight. Use the completed decoder timing grid
@@ -314,7 +311,7 @@ All values below are at their recorded operating point. PER is phone error rate;
 | Pseudo-pair control | 0.9239 | Content-free control |
 | Banked ESPUM seed | 0.8580 | Historical transductive row; it saw evaluation audio and is not a held-out input |
 | Banked fingerprint seed | 0.8809 | Historical transductive row; it saw evaluation audio and is not a held-out input |
-| GAN reference | 0.168 | Positive handoff control, not the desired method |
+| GAN reference | 0.214 selected / 0.168 oracle-best | Positive handoff control, not the desired method; only 0.214 is selection-honest |
 
 At its historical transductive operating point, selected ESPUM improved over the stronger
 content-free control by 0.0365 on dev-other and its audio-swap loss was 0.0466, versus 0.0091 for that
@@ -413,6 +410,12 @@ maximum RSS despite declaring 24 GB. Do not copy that request into H3/H4 or rely
 whole-node allocation to mask it. Measure a representative full-coverage path, request explicit
 headroom, and retain the worker usage record with the job evidence.
 
+Manager cleanup is also a launch prerequisite. The 2026-08-20 verifier read finds the effective
+workspace `settings.py` at `JOB_AUTO_CLEANUP = False`, contrary to the standing project rule. Before
+starting any additional manager, the implementer must make the effective value `True` and verify it
+from that manager's workspace. This does not require interrupting the healthy H3 job already in
+flight.
+
 The construction-only rebuilds inherit their algorithms from these canonical sources; the split and
 complete-text corrections in this plan override only the old full-bed or subsampled inputs:
 
@@ -452,7 +455,7 @@ have been recorded:
   7,304 construction, and 1,112 evaluation IDs; rebuild route-specific proxy-silence masks using
   update audio only; recompute the label-free duration/topology read without evaluation audio.
   Detailed specification: Sections 4 and 1g.0.
-- [ ] **H2 — Build the common channel engine.** Implement the one-state and two-state duration
+- [x] **H2 — Build the common channel engine.** Implement the one-state and two-state duration
   models, update-only duration fit, common probability floor, BOS/EOS-aware marginal forward–backward
   repair, marginal-over-path sequence score, occupancy-weighted two-state local postprocessing, and
   the registered decoder grid. Verify the repair likelihood and posteriors against exact enumeration
@@ -486,25 +489,18 @@ catalogued artifacts suffice to recompute every gate. A failed assertion makes t
 unresolved; it does not license an additional initializer or hyperparameter search. H5 and H6 retain
 their own scientific gates.
 
-**Status.** **2026-08-19 — H1 and H3 implementation accepted; one H2 path-law fix and H3 final rows
-remain.** `Phase1gH1Job.HbxKiuBTJ8aN` remains the accepted H1 read and fixes the two-state phone
-topology at `p=0.23560298`; do not rerun it.
+**Status.** **2026-08-20 — H1 and H2 accepted; H3 final rows in progress.**
+`Phase1gH1Job.HbxKiuBTJ8aN` remains the accepted H1 read and fixes the two-state phone topology at
+`p=0.23560298`; do not rerun it.
 
-H2's BOS/EOS likelihood/posteriors, `p=0` impossible-path behavior, exact once-floor contract,
-two-state perturbation, occupancy-weighted local reduction, and boundary-aware fixed scoring/decoding
-now pass 20 focused, 10 legacy, 6 handoff, and 4 decoder-boundary tests plus independent exact
-enumeration. Strict integral/finite settings and the merge schema, role/hash/revision, unique-index,
-and deterministic-coverage assertions are repaired. The real count-0 snapshot and all 48 content-bound
-timing preflights completed under one manager with no error marker; do not rerun them.
-
-H2 has one remaining material defect. Scoring and decoding force a new duration after deleted
-silence, while repair forward--backward still permits a duration to bridge the same gap. This affects
-53,498 update-population gaps and 97.71% of the 6,414 utterances; an exact local check changed the
-one-step normalized emission table by as much as 0.036. Repair must therefore consume the identical
-boundary vector before H2 is checked. The actual wired snapshot is the intended two-state,
-39-phone-by-500-unit table and is bound to accepted H1 and the real H3 handoff. Retaining eight
-alternatives is accepted as an output-only cap: one-best and confidence are computed from the complete
-surviving beam, so this cap does not change decoding or selection.
+H2 is closed at the common-engine level. Commits `88762f2` and `bda896a` propagate the same explicit
+deleted-silence `boundary_before_seqs` vector through repair, fixed scoring, and decoding and reject a
+missing vector. The current `channel_h` suite passes 23/23, including exact enumeration of the
+boundary-aware repair. This resolves the mismatch at 53,498 update-population gaps affecting 97.71%
+of the 6,414 utterances. Strict settings, evidence, shard merging, the real two-state
+39-phone-by-500-unit count-0 snapshot, and all 48 timing cells remain accepted; do not rerun them.
+Retaining eight alternatives remains an output-only cap because one-best and confidence use the
+complete surviving beam.
 
 H3's corrected stream `H3MaskedEspumStreamJob.GqAphDUVZJ7f` remains valid at 8,416 utterances,
 715,099 retained pooled runs, and 72,842 chunks. The four calibration arms completed once without a
@@ -520,13 +516,17 @@ with no selection or phone-LM reader in the ESPUM refit. The refreshed strict pr
 `Q`/`B` row-sum errors `5.55e-16`/`4.88e-15`; the refreshed GH200 assertion
 `H3EspumResumeEquivalenceJob.hRJnt1vbaKkG` is bit-exact for the same 12-update split trajectory.
 
-H3 implementation is accepted and its isolated final graph is launch-ready. The unchanged
-`H3_ESPUM_REVISION` is not a current cache collision: `EspumMatchTrainJob.t1l7N4lQ9dtY` has no work
-directory, the worker verifies current source hashes before training, and resume/final artifacts save
-their code and input identities. Launch only `config/sae_1g_h3_final.py`; the fingerprint,
-random-map, pseudo-pair, and ESPUM final refits may run in parallel and projection waits on ESPUM.
-Never relaunch the original calibration graph. H4--H6 remain blocked on the H2 boundary fix and the
-actual H3 final artifacts.
+H3's isolated final graph is live. Construction-population fingerprint
+`H3InitializerJob.uKw59MBJC4Hj`, random-map `H3InitializerJob.ABTGA9vIwwI8`, and pseudo-pair
+`H3InitializerJob.BS1nPUwf1fel` are finished on the exact 7,304 IDs with the accepted construction
+hash. `EspumMatchTrainJob.t1l7N4lQ9dtY` is running the frozen seed-0/update-30,000 final refit, and
+`H3FinalEspumProjectionJob.PJMwUGUXUb7s` waits on it. Never relaunch calibration.
+
+H4 is the next scientific experiment but is not yet production-wired: `h4_harness.py` verifies
+artifacts, donors, bootstrap intervals, and gates, but deliberately neither constructs a seed nor
+invokes a decoder. Build that consumer graph while H3 finishes, then run it using only the final-refit
+manifests. H5--H6 remain gated on H4. Before its manager starts, satisfy the cleanup prerequisite in
+the launch contract above.
 
 ### 1g.0 — Choose the smallest channel shape that the data do not reject
 

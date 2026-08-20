@@ -1,7 +1,7 @@
 # PLAN_3G — Z-track: from-scratch fully-unsupervised joint loop
 
-Sub-plan of PLAN §3g (moved here 2026-08-14 because the track outgrew a page: two closed arms
-and one live registration). The Z-track asks the user's question "real unsupervised ASR
+Sub-plan of PLAN §3g (moved here 2026-08-14 because the track outgrew a page; all four
+registered arms are now closed). The Z-track asks the user's question "real unsupervised ASR
 without GAN": start the joint GRPO loop from zero paired data — text-only LBS-SFT Qwen donor,
 min-duration psi co-trained from scratch on the policy's own rollouts, LM prior at the bed's
 units-normalized settings — and classify what happens. No gold pairs, no GAN init, no seed
@@ -67,16 +67,22 @@ margin (hinge 0.5 nats/frame, weight 1.0)?
 anti-collapse instrumentation). Gate addition (registered 2026-08-13 before launch): minimum
 non-(A) reading = derangement gap leaves zero and grows two consecutive sub-epochs on both
 gold and own text; alarms per ~50 steps.
-**Status: STOPPED BY USER 2026-08-14 mid sub-epoch 5 ("the result is telling already").**
-Verdict, from sub-eps 1–4 (all rows verified against job outputs): the loop escaped the
+**Status: COMPLETED all six sub-epochs.** The earlier 2026-08-14 stop directive did not take effect
+before the job reached its registered endpoint: `ReturnnTrainingJob.hjxeQdZbG9TY` has finished
+markers, checkpoints 1--6, and six learning-rate epochs. The loop escaped the
 zero-coupling fixed point by climbing a NUISANCE-CHANNEL LADDER — duration first (the code
 is repeat-count-of-a-stem-phrase; corr(audio frames, decode tokens) 0.856), speech density
 second (residual-residual corr 0.252: at fixed length, wordier gold gets more repeats), no
-phone content; held own-text gap +0.085 = ~2 % of a real scorer's; gold gap ~0/negative
+phone-content evidence. By sub-epoch 6 the held own-text gap reaches +0.1167 while gold stays
+negative (-0.0053), allegiance reaches +0.796, and dev WER remains 101.94/101.55. The controlled
+sub-epoch-4 read gives +0.0272 after duration and text-length matching, with no gold-side coupling.
+This is strong private/nuisance-code evidence, but the formal B/C taxonomy letter remains unresolved
+because the registered unit-emission purity/PER read was never produced. At sub-epoch 4 the raw held
+own-text gap +0.085 was ~2 % of a real scorer's; gold gap was ~0/negative
 (psi cannot fit English at all — 0.7 nats/frame worse than the code); lexicon churns
 (14/2703 stable across sub-epochs); the diversity price is outbid (0.086 paid vs 0.062 LM
 earned — the overlap is funded by psi recon gains, the number any lam_div raise must beat).
-CLOSE-OUT BATTERY on the last completed checkpoint, pinning Z3's baseline (registered
+CLOSE-OUT BATTERY on the registered sub-epoch-4 diagnostic checkpoint, pinning Z3's baseline
 2026-08-14, pre-results): (i) duration-matched derangement read — partner matched on audio
 n_units AND text length; prediction: small positive survival, well below 0.085; (ii) the
 same within-speaker (speaker IDs evaluate only) — the speaker meter; (iii) residual-density
@@ -116,30 +122,13 @@ Secondary: code persistence strictly above Z2's 14/2703 at matched read points; 
 within-band speaker enrichment (eval-only) does NOT grow while the primary grows — coupling
 gains must not be speaker-carried. Final letter at close by the standing taxonomy plus the
 purity read.
-**Status: REGISTERED AND FUNDED 2026-08-14** (user: stop Z2, go to Z3). Build order:
-close-out battery on Z2's checkpoint first (it is Z3's baseline), then the perturbed-unit
-dumps, then launch. Planner constants the user may override: the lam_div value (derivation
-above) and the pitch/VTLP perturbation strength.
-Status 2026-08-15 (planner mid-run read; launched 2026-08-14, live in sub-epoch 4 of 6;
-sub-eps 1-3 verified against job outputs): the primary clause is failing so far — held
-dur-matched own gap -0.0137/-0.0160/-0.0142, flat and negative, vs the required "exceeds
-+0.0272 and grows two consecutive sub-epochs". Collapse is prevented (in-loop distinct frac
-0.90, within-group reward std rising 0.047->0.136, cross-utt overlap held at 0.043 vs Z2's
-0.335) but the coupling channel is the SAME duration code rebuilt more purely: after a
-transient sub-ep-1 break (canned-sentence mode, corr(n_units, tokens) 0.255), sub-eps 2-3 are
-98.7% exact stem-times-k with 2-token stems, corr 0.811, no content-word signal above chance,
-and the stem vocabulary turns over every sub-epoch (persistence 0/2703). Two prices are paid
-rather than binding: lam_div is cross-utterance only (blind to within-sequence repetition,
-the code's carrier — 0.807 bigram repetition), and only the tempo half of the perturbation
-mixture punishes duration coding. Restructure proposals surfaced to the user (within-seq
-repetition price, activating the dormant lam_len speaking-rate hinge, discrete psi refresh
-instead of continuous co-training, optional corpus-level n-gram distribution match ADDED
-beside the LM prior); the LM-prior demotion proposal is WITHDRAWN (replaces the 2026-08-15
-proposal line, 2026-08-15, because the user pushed back and the mechanics review confirmed
-it wrong: under units-norm the prior is a charge with a sign guarantee, recon + prior at
-lam_lm 1.0 is exactly the group-standardized posterior over transcripts, and the Z2/Z3
-repeat code is recon-funded, not LM-funded). No Z4 registered pending the user's word.
-Full forensics in `SAE_3G.md` verifier feedback 2026-08-15.
+**Status: CLOSED; PRIMARY FAIL (all six sub-epochs).** The held duration-matched gap stayed negative
+at every read (-0.0137, -0.0160, -0.0142, -0.0122, -0.0125, -0.0093) instead of exceeding
++0.0272 and growing twice. Collapse was prevented, but the same duration code rebuilt more purely;
+dev WER ended 94.87/96.14 without content evidence. The final taxonomy letter remains formally
+incomplete because the registered purity read is absent. The LM-prior demotion proposal remains
+withdrawn: the repeat code is reconstruction-funded, not LM-funded. Z4 below is the closed successor.
+Full trajectories and forensics: `SAE_3G.md` approaches/conclusions 4.
 
 **Speaker-information fallback ladder (USER amendment 2026-08-14 to the 2026-07-16 label
 ruling; transcripts/alignments stay absolute — they ARE the unpaired claim).** Escalate one
@@ -305,7 +294,8 @@ emitted exactly the registered exhaustion signature while the in-loop spread was
 0.079; the gate never references the probe, and its fix (a multi-sample dump, G>1) is
 funded only if a refresh-family follow-up is ever funded. CONSEQUENCE: Z4 closes at its
 registered end; the verdict licenses not funding a continuation, never "a refresh loop
-could never work". The follow-up space is the USER's decision: any Z5 must respect the
-current-policy-only refit ruling and address the emergent hinge-never-trains interaction
-(addendum above); the alternative is standing on §1f (independently funded, running) as
-the sole initialization effort. Nothing new launched.
+  could never work". No Z5 is funded. Planner read 2026-08-20: do not spend another reward-side
+  variant on the same content-free initialization; move the bootstrap question to §1g's prospective
+  content-bearing assay. Any future Z5 still requires a new user decision, must respect the current-
+  policy-only refit ruling, must fix the hinge/checkpoint interaction, and must supply the missing
+  purity/PER read. Nothing new launched.

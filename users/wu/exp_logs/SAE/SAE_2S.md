@@ -617,6 +617,14 @@ they are CEs of different random variables.
 
 ## Verifier feedback
 
+**2026-08-20 (gate reconciliation).** The `PLAN.md` claim of a +1.24 unsupervised-selected win is
+not valid as stated: 15.89 and 17.13 are independently cherry-picked dev-other minima from epochs 1
+and 2, and Conclusion 43 already notes that the frozen best requires supervised dev-WER selection.
+The fixed four-epoch comparison is joint AR 16.13 versus identical-start self-training 17.74, a 1.61
+point win that clears the 0.5 gate without label-based checkpoint choice. No learned unsupervised
+checkpoint selector was run, so report this specifically as a fixed-endpoint pass. The shuffled-
+reward result and the conclusion that reward ranking is load-bearing are unaffected.
+
 **2026-07-15 (build audit).** All 63 tests reproduced; GRPO math matches the plan (k1 KL estimator,
 within-group normalization, tie -> 0, gradient-tested decoupling both directions). Findings: an
 **undeclared deviation** — the plan's AR capacity ladder (wider LoRA -> full-FT AR -> small from-scratch AR)
