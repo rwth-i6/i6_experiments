@@ -1006,7 +1006,12 @@ config, verified at source).**
   13.89/18.34; the best previous frozen-scorer loop checkpoint is the shaped arm with the
   repaired d2_contrast scorer at 12.68/17.57. GAN+HOM has its own 16.67/21.45 AV-SFT anchor
   but no same-init frozen-scorer loop; 12.68/17.57 is therefore cross-init context for it,
-  not a controlled baseline.
+  not a controlled baseline. CLARIFICATION 2026-08-20: even for plain GAN, 12.68/17.57 is a
+  reference baseline, not a schedule-only control. It freezes a d_min=1 d2_contrast scorer
+  trained once under the D2 recipe and carries Adam through one multi-sub-epoch job; periodic
+  uses from-scratch d_min=2 scorers trained on each policy's anchor-free greedy pool and one
+  training job with a fresh Adam state per leg. A schedule-only test requires freezing the
+  periodic arm's own d_min=2 round-1 scorer inside the same segmented-leg graph.
 
 **D6-PERIODIC/GAN+HOM — homophone-diversity SFT arm on the same bed (USER-directed
 2026-08-17).**

@@ -606,10 +606,16 @@ The two primary GAN-init anchors are:
 | GAN-init anchor | dev-clean / dev-other | operating point |
 |---|---|---|
 | AV SFT, no loop: theta_0^G | 13.89 / 18.34 | pseudo-label AV SFT, epoch 10 |
-| best previous frozen-scorer loop | **12.68 / 17.57** | shaped arm, repaired d2_contrast scorer frozen, sub-epoch 2 |
+| best previous frozen-scorer loop (reference, not schedule-only control) | **12.68 / 17.57** | shaped arm, repaired d2_contrast scorer frozen, sub-epoch 2 |
 
 The frozen contaminated-scorer arm is shown below as a diagnostic control, but it is not the best
-previous frozen-loop result.
+previous frozen-loop result. The best frozen row is also not a single-variable control for periodic:
+both start from theta_0^G and match the 960 h bed, shaped reward, T=0.7 and nominal cosine position,
+but the frozen row uses one d_min=1 d2_contrast scorer trained under the D2 recipe and one continuous
+multi-sub-epoch training job. Periodic fits d_min=2 from scratch on each policy's anchor-free greedy
+pool and runs one training job per leg, restarting Adam. Isolating scorer schedule requires the
+periodic graph with its own round-1 d_min=2 scorer held fixed across otherwise identical legs; that
+arm does not exist.
 
 | dev-clean / dev-other, plain WER as scored | sub-ep 1 | sub-ep 2 | sub-ep 3 | sub-ep 4 | sub-ep 5 | sub-ep 6 |
 |---|---|---|---|---|---|---|
@@ -1851,3 +1857,7 @@ the absolute beta, is what carries the contamination claim.
   4.68/8.64; for GAN init they are theta_0^G AV SFT 13.89/18.34 and the best prior frozen-scorer
   loop 12.68/17.57. GAN+HOM has no same-init frozen loop, so its 16.67/21.45 AV-SFT checkpoint is
   reported as its own anchor and the plain-GAN frozen result is labeled cross-init context only.
+  Clarification after source-level comparison: the plain-GAN frozen result is itself a reference,
+  not a scorer-schedule-only control, because scorer topology and corpus plus policy-optimizer
+  continuity differ. The missing controlled arm freezes periodic round 1's own d_min=2 scorer while
+  retaining periodic's segmented-leg graph.
