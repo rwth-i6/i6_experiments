@@ -1251,13 +1251,16 @@ function-word pairs rather than broad spelling diversity.
     valid statement about the reconstruction scorer on controlled swaps, but it does not predict the
     realized policy direction under the composed reward, whose Qwen3 language-model term dominates
     homophone spelling. The midpoint and final registered reads remain outstanding.
-56. **D7's registered eight-donors-per-chapter-stratum construction is impossible on the immutable
-    external population under its own raw duration law** (30). Not one of the 1,500 sources has eight
-    donors in both strata, and only 276 have even two in both. This is a structural support failure,
-    not a tunable coverage threshold: later feasibility and filtering can only remove edges. The
-    scorer corpus is substantially denser, but that does not repair the external estimand. D7.0b and
-    D7.1 therefore remain closed until the planner supplies the required prospective D7-v2 donor,
-    capacity, weighting and selected-population specification.
+56. **WRONG in its description of the registered surface (2026-08-20 verifier): “D7's registered
+    eight-donors-per-chapter-stratum construction is impossible.”** The external band and donor-
+    capacity law were not registered; K=4 means two donors per chapter stratum. **Correction:**
+    D7.0a proves that the original external donor statistic is not executable as written. Only
+    276/1,500 immutable sources meet even the all-eligible raw K=4 degree requirement, so full-
+    `E_all` K=4 is impossible; zero meet the conservative eight-donors-per-stratum diagnostic. The
+    latter does not establish exact second-quartile support because the rank, boundary and tie laws
+    are themselves unregistered. Later filters can only shrink a chosen surface. This triggers, but
+    does not choose, the prospective D7-v2 donor surface, capacity, weighting and selected-population
+    estimand. D7.0b and D7.1 remain closed until that amendment is canonical and re-censused.
 
 ## Catalog
 
@@ -1267,7 +1270,7 @@ function-word pairs rather than broad spelling diversity.
 | artifact | path |
 |---|---|
 | code | `sae/scorer_diag.py`, `sae/text_repair.py`, `sae/psi_align_jobs.py`, `sae/psi_align.py`, `sae/curate.py`, `sae/gate_table.py`, `sae/refresh_gate.py`, `sae/d7_census.py` (+ focused tests; D7.0a code commit `a0a22b4`) |
-| entry points | `config/sae_3e1_d0.py`, `config/sae_3e1_usage.py`, `config/sae_3e1_d1d2.py`, `config/sae_3e1_d3.py`, `config/sae_3e1_d4.py`, `config/sae_3e1_d4p.py`, `config/sae_3e1_d5b.py`, `config/sae_3e1_d6.py` (builds D4' and the swap-in too), `config/sae_3e1_d6periodic.py`, `config/sae_3e1_d6periodic_warm.py`, `config/sae_3e1_hom.py`, `config/sae_3e1_d7_0a.py` |
+| entry points | `config/sae_3e1_d0.py`, `config/sae_3e1_usage.py`, `config/sae_3e1_d1d2.py`, `config/sae_3e1_d3.py`, `config/sae_3e1_d4.py`, `config/sae_3e1_d4p.py`, `config/sae_3e1_d5b.py`, `config/sae_3e1_d6.py` (builds D4' and the swap-in too), `config/sae_3e1_d6periodic.py`, `config/sae_3e1_d6periodic_warm.py`, `config/sae_3e1_hom.py`; D7.0a tracked canonical config `src/speech_llm/prefix_lm/sis_recipe/exp2025_11_06_speech_llms/librispeech/configs/config_sae_3e1_d7_0a_v1.py` at `a0a22b4` (the workspace wrapper only delegates) |
 | D7.0a complete raw external/scorer edge tables and census (approach 30) | `S/d7_census/D7RawDonorCensusJob.zsnx1p9nLyV3` |
 | D6-PERIODIC legs 1-8 (approach 22), parent sub-ep 3-10 | `T/ReturnnTrainingJob.5FqdnhWTOf1f`, `.BTnU1gSuMG0i`, `.ZKCbq529Hgp8`, `.gFNpNmXwvrsc`, `.nQtnPdKCuJ0m`, `.n8abYvLR4IP5`, `.jGj7TTbW5DTm`, `.wWqYY7iOCw1s` |
 | its per-boundary refits (rounds 2-8) | `S/psi_align_jobs/PsiAlignTrainJob.JWV3InILYF5v`, `.yUUSN2Hx96E0`, `.QMO8VcAtZ6Gi`, `.DzhBWCy61tiN`, `.Vha8vvKu9lWk`, `.RGTtwlQHt3HY`, `.Ls0TQGiyhQbf` |
@@ -1919,11 +1922,21 @@ the absolute beta, is what carries the contamination claim.
   frozen-loop result (12.68/17.57) are report-only utility anchors. The prospective scientific gate
   is improvement over that exact matched control on both dev splits; any durability or absolute
   utility decision remains a separately preregistered next stage, with gold sealed until then.
-- 2026-08-20 (D7.0a independently verified): the isolated graph contains exactly one finished
-  label-free mini-task and no scorer, assignment, training, reference, or WER dependency. All 9
-  focused tests pass, including the accepted split-grouped held-pair order. On-disk complete edge
-  tables reproduce 4,911 external edges (tuple hash `7855557c...d2f3`) and 632,913 intended-scorer
-  edges (`3a6038ab...4376`); all population and input hashes match the pinned artifacts. The
-  external graph has 276/1,500 sources with at least two donors in both chapter strata and zero with
-  eight, confirming the preregistered construction is unsupported before stricter filters. D7.0b and
-  D7.1 remain blocked pending the planner-owned D7-v2 amendment described in `PLAN_3E1.md`.
+- 2026-08-20 (D7.0a independently verified): PASS. The reconstructed Sisyphus graph contains exactly
+  one finished label-free mini-task and no live scorer, assignment, training, reference or WER graph
+  dependency. Code commit `a0a22b4` predates execution and contains only the tracked canonical
+  config, census implementation and focused tests; the artifact source hash matches it and all 9
+  tests pass. Independently regenerating both graphs from the four pinned inputs without importing
+  D7 code matches every emitted edge and all input, population,
+  tuple and file hashes: 4,911 external edges (`7855557c...d2f3`) and 632,913 intended-scorer edges
+  (`3a6038ab...4376`). Representative boundary, just-outside-duration, different-speaker, self-edge
+  and directed-asymmetry examples all behave as specified. The artifact contains no downstream
+  filter, band, capacity, assignment, scorer or gold field.
+
+  The scientific verdict is narrower than Conclusion 56 originally claimed. The external band was
+  unregistered: 276/1,500 is the optimistic all-eligible raw K=4 support, while zero rows meet the
+  conservative eight-donors-per-stratum diagnostic. Exact second-quartile support is undefined until
+  its empirical-rank, boundary and tie laws are frozen. The census therefore validates the planned
+  amendment trigger and shows that full-`E_all` K=4 cannot be measured; it does not select a
+  replacement external surface. D7-v2 is the next planner action. D7.0b and D7.1 remain blocked until
+  its surface, donor capacity, weights and `E_D` estimand are frozen and re-censused.

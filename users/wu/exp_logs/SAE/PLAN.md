@@ -67,13 +67,15 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
   `d_min=2` scorer; that control is running, but it can isolate scorer recency only, not establish
   that this loop beats ordinary self-training. The decisive GAN-branch operator read is now the
   same-start one-generation comparison in §3d.A. D7-GAN-SEQDISC is registered as the next
-  scorer-mechanism phase, but is on a pre-run structural hold. Its current external donor surface
-  supports the raw K=4 outgoing-degree requirement for only 276/1,500 frozen rows before the
-  remaining filters and supports no row at the literal training-quartile capacity check. Only a
-  standalone D7.0a census is authorized; the external surface and estimand must be amended
-  prospectively before any D7.1 build. The later one-leg scientific bar is paired improvement over
-  its exact control on both dev splits; the former absolute threshold is withdrawn as an
-  unsupported repeat of an eight-leg bar.
+  scorer-mechanism phase, but remains on structural hold after the verified D7.0a census. The
+  all-eligible external raw graph supports K=4 (two donors in each chapter stratum) for only
+  276/1,500 frozen rows before the remaining filters; zero rows meet the conservative eight-donors-
+  per-stratum diagnostic. Exact second-quartile support is undefined until its rank, boundary and tie
+  rules are frozen. This confirms that the original external donor statistic is not executable as
+  written, because its band, donor capacity, admitted population and estimand were not frozen. D7-v2
+  is now the planner action; D7.0b and D7.1 remain closed. The later one-leg scientific bar is paired
+  improvement over its exact control on both dev splits; the former absolute threshold is withdrawn
+  as an unsupported repeat of an eight-leg bar.
 - **960 h stock-donor supervision-axis endpoint is ABSENT**: the theta_0 + gold-scorer arm ran
   only through sub-epoch 4, was stopped and deleted 2026-08-08, and never produced the listed
   3-pass endpoint; `ReturnnTrainingJob.22Ntu7y0O6iW` does not exist. Its observed collapse is
@@ -232,14 +234,14 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    generation; a win by fixed labels alone means extra CE optimization, not iterative self-training.
    No open-ended relabeling loop is authorized. After this read and the already-funded
    periodic/frozen/HOM endpoints close, the registered next GAN-loop mechanism is `PLAN_3E1.md`
-   D7-GAN-SEQDISC. Its CPU/read-only standalone D7.0a structural census may run now in parallel; no
-   scorer or policy work is admitted. Under the literal training second-quartile reading, the
-   registered external construction has zero rows with enough raw donors, while the all-eligible raw
-   K=4 upper bound is only 276/1,500. A prospective amendment must freeze the donor-supported subset,
-   nuisance-band law, donor capacity/coverage rule and selected-population estimand before D7.0b or
-   any D7.1 construction; Acceptance gate v2 still reads all 1,500 immutable rows. The later matched
-   scorer A/B and label-free frozen assay remain behind that amendment; its one policy leg still
-   awaits launch authorization.
+   D7-GAN-SEQDISC. Its isolated CPU/read-only D7.0a structural census is verified complete: the
+   all-eligible raw K=4 upper bound is 276/1,500, and zero rows meet the conservative eight-donors-
+   per-stratum diagnostic. Exact second-quartile support remains undefined until its rank, boundary
+   and tie rules are frozen. No scorer or policy work was admitted. The next action is a prospective
+   D7-v2 amendment that freezes the donor-supported subset, nuisance-band law, donor capacity/
+   coverage rule and selected-population estimand before D7.0b or any D7.1 construction; Acceptance
+   gate v2 still reads all 1,500 immutable rows. The later matched scorer A/B and label-free frozen
+   assay remain behind that amendment; its one policy leg still awaits launch authorization.
 5. **PLAN_3A matrix wrap-up**: M4 contingency call; collapse the sub-plan when closed.
 6. **§1e §2.5(d)+usage gates on the ep50 pins** — the §3d init upgrade path.
 7. **G2P-equivalence ceiling** on existing rollouts.jsonl (CPU): phone-reachable vs
@@ -850,11 +852,14 @@ contrast, LM reward and policy recipe fixed, and adds a K=4 same-speaker, durati
 density/silence/unit-histogram-matched wrong-audio sequence loss during scorer fitting. The scorer
 must pass its label-free conditional-gap clauses and the existing scorer Acceptance gate v2 at fixed
 epoch 30 before any policy compute. Gold WER remains sealed until the user authorizes and the one-leg
-graph is submitted. PRE-RUN AMENDMENT 2026-08-20: only the standalone D7.0a donor census is
-authorized. Its raw external upper bound is 276/1,500 at two donors in each chapter stratum and zero
-at the literal training-quartile capacity requirement, before feasibility, exclusions, nuisance
-bands or any external donor-capacity law. D7.1 must remain unbuilt until a label-free D7-v2
-amendment defines and re-censuses the external gate surface and selected-population estimand. One
+graph is submitted. VERIFIED STRUCTURAL READ 2026-08-20: the standalone D7.0a donor census completed
+as one isolated label-free job. Its all-eligible raw external upper bound is 276/1,500 at two donors
+in each chapter stratum; zero rows meet the conservative eight-donors-per-stratum diagnostic before
+feasibility, exclusions, nuisance bands or any external donor-capacity law. Exact second-quartile
+support is undefined until its rank, boundary and tie rules are frozen. The original external
+surface was under-specified rather than an eight-per-stratum construction. D7.1 must remain unbuilt
+until a label-free D7-v2 amendment defines and re-censuses the external gate surface and selected-
+population estimand. One
 matched frozen-scorer policy leg remains specified but not authorized; its local pass is paired
 superiority on both dev splits, while
 theta_0^G and the banked same-init best are descriptive utility anchors. Full design and failure
@@ -1008,13 +1013,14 @@ and localized the insertion price as a scorer-family issue. D5 closed continuous
 catastrophic on the best bed. D6's offline minimum-duration screen and one-shot frozen continuation
 are complete; the fresh/warm periodic, GAN periodic, exact GAN-frozen schedule control, and GAN+HOM
 endpoint trajectories are the only live experiments. Full configurations and gates are maintained in
-`PLAN_3E1.md`; no old D2/D3 launch item survives. D7-GAN-SEQDISC is now registered, not live: on the
+`PLAN_3E1.md`; no old D2/D3 launch item survives. D7-GAN-SEQDISC is registered, not live: on the
 28,539-ID theta_0^G round-1 scorer bed (28,538 feasible pairs) it adds the reverse
 sequence-discriminative direction—fixed pseudo-text with K=4 nuisance-matched wrong audios—to the
-existing NLL plus text-negative loss, then freezes the scorer. Its first step is now a census-only
-structural read: no D7.1 code or training may exist until the external graph surface, band and
-selected-population estimand are prospectively amended and re-censused. Its later phase-specific
-clauses remain cumulative with Acceptance gate v2 before the single specified policy leg.
+existing NLL plus text-negative loss, then freezes the scorer. Its census-only D7.0a structural read
+is verified complete and triggers the prospective D7-v2 amendment: no D7.0b, D7.1 code or training
+may exist until the external graph surface, band and selected-population estimand are frozen and re-
+censused. Its later phase-specific clauses remain cumulative with Acceptance gate v2 before the
+single specified policy leg.
 **Gate v2 (replaces the two-sided gate, 2026-08-07 — amended BEFORE any verdict was read against
 v1, because v1's `text_explained_loo` arm is gold-conditioned as instrumented
 (`config_sae_3a_enc50_units_v1.py:233-243`) and has the wrong sign against the filler mode, and
@@ -1030,10 +1036,10 @@ its matched continuation read, ending 4.73/9.31 against 6.46/11.41 with dev-othe
 1,964. Repeated fresh and warm scorer refits deteriorate through their current prefixes; the
 label-free GAN periodic, HOM, and exact schedule-matched frozen-control arms are in flight; their
 endpoints remain pending. Finish that GPU work and the §3d.A operator read without displacement.
-D7-GAN-SEQDISC is the user-registered next scorer variant, but is not implemented or launched; no
-additional variant is admitted around it. Its CPU/read-only D7.0a census may run concurrently and is
-the only authorized D7 implementation; D7.0b and D7.1 remain on structural hold pending the
-prospective external-surface amendment.
+D7-GAN-SEQDISC is the user-registered next scorer variant; its scorer and policy are not implemented
+or launched, and no additional variant is admitted around it. The isolated CPU/read-only D7.0a
+census is verified complete. D7-v2 is the next planner action; D7.0b and D7.1 remain on structural
+hold pending that prospective external-surface amendment and repeated census.
 Normative details and exact operating points: `PLAN_3E1.md`; evidence: `SAE_3E1.md`.
 
 ### 3f. Exit gate (Rung 3)

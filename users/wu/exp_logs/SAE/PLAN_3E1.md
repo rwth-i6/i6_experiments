@@ -1741,13 +1741,18 @@ held contrast with no raw rollout-rank or policy-WER gain is classified as nuisa
 correspondence, not a useful scorer. D7 cannot repair the measured ~77% of filler-carrying groups
 that contain no corrective candidate; proposal coverage remains separate.
 
-**Status.** PRE-RUN STRUCTURAL HOLD; NOT IMPLEMENTED OR LAUNCHED. It is the next G-track scorer-
-mechanism phase, but does not displace the already-running §3d.A same-start comparison or funded
-periodic/frozen/HOM
-GPU endpoints. The CPU/read-only D7.0a census is authorized now in parallel and is the only current
-D7 implementation/run; no new full loop is authorized. D7.0b, every production donor table, and
-D7.1 construction or launch remain blocked until the D7-v2 surface amendment is canonical and
-passes the repeated census. The paired-only D7.3 correction above is prospective: the
+**Status.** STRUCTURAL HOLD AFTER VERIFIED D7.0a; THE D7 SCORER AND POLICY ARE NOT IMPLEMENTED OR
+LAUNCHED. It is the next G-track scorer-mechanism phase, but does not displace the already-running
+§3d.A same-start comparison or funded periodic/frozen/HOM GPU endpoints. On 2026-08-20 the isolated
+CPU/read-only `D7RawDonorCensusJob.zsnx1p9nLyV3` completed; a separate verifier regeneration then
+reproduced every raw edge and pinned hash. The all-eligible external graph has 4,911 edges and only
+276/1,500 `E_all` sources with at least two donors in both chapter strata, so a full-`E_all` K=4
+donor statistic is unsupported. Zero sources meet the conservative eight-donors-per-stratum
+diagnostic, but exact second-quartile support remains undefined until its rank, boundary and tie laws
+are frozen. The external band was not registered: D7.0a verifies the amendment trigger, not an eight-
+per-stratum design. D7-v2 is now the planner action. D7.0b, every production donor table, and D7.1
+construction or launch remain blocked until that amendment is canonical and passes the repeated
+census; no new full loop is authorized. The paired-only D7.3 correction above is prospective: the
 intended banked-reuse path has control 14.45/19.69 only conditional on the required epoch-30 scorer
 parity, so on that path the withdrawn clause would have demanded a 0.56/1.85 one-leg gain to reach
 13.89/17.84 while still allowing a result worse than the banked 12.68/17.57 utility reference.
