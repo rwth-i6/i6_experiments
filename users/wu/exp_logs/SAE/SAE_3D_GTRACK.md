@@ -154,9 +154,9 @@ agreement job `.xEBbTHwTJScE` reports only 289/298 matches and nine substantive 
 differences (`exact_match=false`). The full packed decode and 960 h SFT correctly remain waiting;
 the root cause is not established and the gate must not be waived. The separate one-generation
 graph has no error: `ReturnnTrainingJob.sYvNhnEDQvli` is running, teacher shards are partly
-finished/partly running, and the own-label continuations wait on their teacher outputs. Its stopped
-manager prevents newly runnable scoring and downstream jobs from submitting, and the effective
-workspace `JOB_AUTO_CLEANUP=False` must be corrected before relaunch. This read is now the first
+finished/partly running, and the own-label continuations wait on their teacher outputs. At 15:37 CEST
+the effective workspace setting is `JOB_AUTO_CLEANUP=True` and the graph manager is running again,
+so released downstream jobs can submit. This read is now the first
 GAN-branch decision before any new scorer/reward mechanism: a fresh-label win over both the teacher
 start and same-start fixed-label continuation on both dev splits supports considering another
 generation; a fixed-label-only win is extra CE optimization rather than iterative self-training.

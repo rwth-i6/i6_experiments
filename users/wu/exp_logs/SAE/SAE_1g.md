@@ -323,5 +323,5 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 
   H4 is not production-wired: `h4_harness.py` supplies verification/gate utilities but intentionally
   neither constructs a seed nor invokes a decoder. Build the consumer job/config against only the
-  completed final-refit manifests. Before any new manager launch, correct and verify the
-  effective workspace `JOB_AUTO_CLEANUP`, currently `False`, to the required `True`.
+  completed final-refit manifests. The workspace setting was corrected to `JOB_AUTO_CLEANUP=True`
+  at 15:31 CEST; verify the effective imported value again before any new manager launch.

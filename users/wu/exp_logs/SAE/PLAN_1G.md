@@ -220,16 +220,16 @@ The old margins remain reported for comparison. They no longer decide admission 
 
 **Planner/verifier read: 2026-08-20.**
 
-1. **Finish the already-live H3 final refit.** H2 is closed: repair, fixed scoring, and decoding now
-   consume one explicit deleted-silence boundary law, and the fail-closed implementation passes 23/23
-   channel tests including exact enumeration. H3's construction-population fingerprint, random-map,
-   and pseudo-pair rows are finished on all 7,304 IDs. The selected ESPUM seed-0/update-30,000 refit
-   is running and its strict projection waits. Do not relaunch H1, H2 timing, or H3 calibration.
+1. **H3 is complete; do not relaunch it.** H2 consumes one explicit deleted-silence boundary law and
+   passes 23/23 channel tests including exact enumeration. H3's construction-population fingerprint,
+   random-map, pseudo-pair, selected ESPUM seed-0/update-30,000 refit, and strict projection all
+   finished on the exact 7,304 construction IDs. Do not relaunch H1, H2 timing, H3 calibration, or
+   the H3 final graph.
 2. **Build and preflight the production H4 graph now.** The evidence/gate harness exists, but no
    Sisyphus job/config yet supplies the real channels and decodes. Wire it against the corrected H2
-   engine and only `final_refit` H3 manifests. Before launching its manager, change and verify the
-   effective workspace `JOB_AUTO_CLEANUP = True`; it currently resolves to `False`.
-3. **When H3 finishes, run the corrected H4 phone assay.** Use the
+   engine and only `final_refit` H3 manifests. The workspace now has `JOB_AUTO_CLEANUP = True`;
+   verify the effective imported value again before launching its manager.
+3. **Run the corrected H4 phone assay.** Use the
    read-only 890-ID selection set to freeze all choices before any 7,304-ID final refit or 1,112-ID
    evaluation read. Require H4 to consume `final_refit` manifests with the exact construction hash,
    never the calibration handoff used for mechanics/preflight. Use the completed decoder timing grid
@@ -410,11 +410,10 @@ maximum RSS despite declaring 24 GB. Do not copy that request into H3/H4 or rely
 whole-node allocation to mask it. Measure a representative full-coverage path, request explicit
 headroom, and retain the worker usage record with the job evidence.
 
-Manager cleanup is also a launch prerequisite. The 2026-08-20 verifier read finds the effective
-workspace `settings.py` at `JOB_AUTO_CLEANUP = False`, contrary to the standing project rule. Before
-starting any additional manager, the implementer must make the effective value `True` and verify it
-from that manager's workspace. This does not require interrupting the healthy H3 job already in
-flight.
+Manager cleanup is also a launch prerequisite. An earlier 2026-08-20 verifier read found the
+effective workspace `settings.py` at `JOB_AUTO_CLEANUP = False`, contrary to the standing project
+rule; this was corrected to `True` at 15:31 CEST. Every future manager launch must still verify the
+effective imported value from that manager's workspace.
 
 The construction-only rebuilds inherit their algorithms from these canonical sources; the split and
 complete-text corrections in this plan override only the old full-bed or subsampled inputs:
@@ -489,7 +488,7 @@ catalogued artifacts suffice to recompute every gate. A failed assertion makes t
 unresolved; it does not license an additional initializer or hyperparameter search. H5 and H6 retain
 their own scientific gates.
 
-**Status.** **2026-08-20 — H1 and H2 accepted; H3 final rows in progress.**
+**Status.** **2026-08-20 — H1--H3 accepted; H4 production consumer not yet built.**
 `Phase1gH1Job.HbxKiuBTJ8aN` remains the accepted H1 read and fixes the two-state phone topology at
 `p=0.23560298`; do not rerun it.
 
@@ -516,15 +515,16 @@ with no selection or phone-LM reader in the ESPUM refit. The refreshed strict pr
 `Q`/`B` row-sum errors `5.55e-16`/`4.88e-15`; the refreshed GH200 assertion
 `H3EspumResumeEquivalenceJob.hRJnt1vbaKkG` is bit-exact for the same 12-update split trajectory.
 
-H3's isolated final graph is live. Construction-population fingerprint
+H3's isolated final graph is complete. Construction-population fingerprint
 `H3InitializerJob.uKw59MBJC4Hj`, random-map `H3InitializerJob.ABTGA9vIwwI8`, and pseudo-pair
 `H3InitializerJob.BS1nPUwf1fel` are finished on the exact 7,304 IDs with the accepted construction
-hash. `EspumMatchTrainJob.t1l7N4lQ9dtY` is running the frozen seed-0/update-30,000 final refit, and
-`H3FinalEspumProjectionJob.PJMwUGUXUb7s` waits on it. Never relaunch calibration.
+hash. `EspumMatchTrainJob.t1l7N4lQ9dtY` finished the frozen seed-0/update-30,000 final refit, and
+`H3FinalEspumProjectionJob.PJMwUGUXUb7s` finished the strict projection. Never relaunch calibration
+or this final graph.
 
 H4 is the next scientific experiment but is not yet production-wired: `h4_harness.py` verifies
 artifacts, donors, bootstrap intervals, and gates, but deliberately neither constructs a seed nor
-invokes a decoder. Build that consumer graph while H3 finishes, then run it using only the final-refit
+invokes a decoder. Build that consumer graph now, then run it using only the completed final-refit
 manifests. H5--H6 remain gated on H4. Before its manager starts, satisfy the cleanup prerequisite in
 the launch contract above.
 

@@ -83,12 +83,13 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
   is the standing fix; `len_eps` 0.4 leaves a 49 % free band if the hinge is ever load-bearing.
 
 **Priority queue (current revision, 2026-08-20):**
-1. **§1g H3 → H4 — TOP NEW SPEND.** Let the live construction-only ESPUM final refit and its
-   projection finish; meanwhile build and preflight the missing production H4 phone-assay graph.
-   Then run the registered 6,414-update/890-selection/7,304-final-refit/1,112-evaluation assay.
-   This is the first pending experiment that can establish a content-bearing no-GAN seed. Before
-   launching any new manager, change and verify the effective `JOB_AUTO_CLEANUP = True`; the
-   workspace currently resolves it as `False`.
+1. **§1g H4 — TOP NEW SPEND.** H3's construction-only ESPUM seed-0/update-30,000 final refit and
+   strict projection are finished, as are the fingerprint, random-map and pseudo-pair controls on
+   all 7,304 construction IDs. Do not relaunch H3. Build and preflight the missing production H4
+   phone-assay graph, then run the registered 6,414-update/890-selection/7,304-final-refit/
+   1,112-evaluation assay. This is the first pending experiment that can establish a content-bearing
+   no-GAN seed. The workspace now has `JOB_AUTO_CLEANUP = True`; verify the effective imported value
+   again before launching H4 or any other new manager.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional
@@ -218,8 +219,8 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    substantive transcript differences), so no full decode or 960 h SFT may proceed before root-cause
    diagnosis. The one-generation graph itself is healthy: the theta_0^G fixed-§1d-label continuation
    is running, teacher decodes are partly finished/partly running, and fresh-label continuations wait.
-   Its stopped manager prevents newly runnable jobs from submitting; before any manager relaunch,
-   make the effective `JOB_AUTO_CLEANUP = True`. Read only fixed endpoints against the same-start
+   At 15:37 CEST the cleanup prerequisite is satisfied and the graph manager is running again, so
+   newly released work can submit; no endpoint exists yet. Read only fixed endpoints against the same-start
    §1d-label controls. A fresh-label pass on both dev splits is evidence to consider one further
    generation; a win by fixed labels alone means extra CE optimization, not iterative self-training.
    No open-ended relabeling loop is authorized.
@@ -245,9 +246,9 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
     scoring/decoding, fails closed when it is absent, and passes 23/23 channel tests including exact
     enumeration. Eight persisted alternatives remain an output-only cap because one-best and
     confidence use the complete beam. H3's three simple 7,304-ID final initializers are finished;
-    the selected ESPUM seed-0/update-30,000 final refit is running and its strict projection waits.
+    the selected ESPUM seed-0/update-30,000 final refit and strict projection are finished.
     H4 has evidence/gate utilities but no production Sisyphus consumer graph yet; build that graph
-    while H3 finishes, then launch only after the cleanup preflight in priority 1.
+    against the completed final-refit manifests and retain the cleanup preflight in priority 1.
     Reuse 1g.4's spectral and hard-descriptor failures; the unrun six-factor product is corrected to
     not answerable and stays parked. Reuse the fixed 1f recipes and original artifacts as provenance,
     but not as held-out inputs: both banked seeds saw the evaluation audio. The first E5 job remains an
@@ -668,14 +669,14 @@ The historical 1f (0.05/0.05) failure remains recorded but is not the future adm
 Phone results validate mechanics. The phone-versus-character difference bundles several design
 changes, including pronunciation-lexicon cost; only a lexicon-free result supports the main claim.
 
-**Status.** **Active; H1 and H2 accepted, H3 final refit live (2026-08-20).** The first E5 job
+**Status.** **Active; H1--H3 accepted, H4 production graph missing (2026-08-20).** The first E5 job
 remains exploratory and non-decisive. H1 freezes the split, masks, two-state topology, and phone
 `p=0.23560298`; no further H1 run is required. H2's deleted-silence boundary law is now identical in
 repair, scoring, and decoding and passes the exact-enumeration suite; its timing preflight must not be
 rerun. H3's fingerprint, random-map, and pseudo-pair final initializers are finished on all 7,304
-construction utterances; the selected ESPUM final refit is running and projection waits. Only H4's
-evidence harness exists—the production job/config still has to be built. Build it while H3 finishes,
-then run H4; H5--H6 remain gated on its scientific result. Details: `PLAN_1G.md`; evidence:
+construction utterances; the selected ESPUM final refit and strict projection are also finished.
+Only H4's evidence harness exists—the production job/config still has to be built. Build it against
+the completed H3 final-refit manifests, then run H4; H5--H6 remain gated on its scientific result. Details: `PLAN_1G.md`; evidence:
 `SAE_1g.md`.
 
 ---
@@ -900,9 +901,9 @@ nine differences include real word/segmentation changes rather than case or orde
 `PackedDecodeAgreementJob.xEBbTHwTJScE` therefore failed closed, and the full 860 h decode and 960 h
 SFT correctly remain waiting pending root-cause diagnosis. This does not block the separate
 one-generation graph: its theta_0^G fixed-§1d-label continuation is running, teacher decodes are
-partly finished/partly running, and both own-label continuations wait on their teacher outputs. The
-self-training manager is stopped, so newly runnable jobs will not submit; the effective
-`JOB_AUTO_CLEANUP` must first be corrected from `False` to `True` before it is relaunched. Funding
+partly finished/partly running, and both own-label continuations wait on their teacher outputs. At
+15:37 CEST `JOB_AUTO_CLEANUP=True` is effective and the self-training manager is running again; no
+self-training endpoint exists yet. Funding
 still ends at the fixed-final theta_0^G960 AV-SFT read: no GRPO/autoencoder loop, scorer refit or D6
 branch from theta_0^G960 is authorized without a new preregistered decision.
 
