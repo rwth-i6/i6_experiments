@@ -140,12 +140,10 @@ class ConvertPtCheckpointToTfJob(Job):
             saver = tf.compat.v1.train.Saver(var_list=variables, max_to_keep=1)
             with tf.compat.v1.Session(graph=graph) as session:
                 session.run(assigns, feed_dict=feeds)
-                # with the meta graph: nothing reads it back (the engine restores by variable name),
+                # the meta graph is unused (we restore by variable name),
                 # but the engine checks that it is there, as for any TF-engine checkpoint.
-                # No state file: it is named 'checkpoint' by default, which is exactly this prefix
-                # (out_checkpoint is output/checkpoint.index), and Saver rejects that collision --
-                # unconditionally, so latest_filename has to differ even with write_state=False.
-                # Nothing reads the state file anyway, the load path is explicit.
+                # the state file would be 'checkpoint', which is exactly our prefix here,
+                # and Saver rejects that collision even when not writing it.
                 saver.save(
                     session, prefix, write_meta_graph=True, write_state=False, latest_filename="checkpoint.state"
                 )
