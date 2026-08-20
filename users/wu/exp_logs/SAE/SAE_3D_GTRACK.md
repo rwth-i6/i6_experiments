@@ -89,11 +89,13 @@ spearman 0.170 against AR^G's +0.0020 / 0.0124 / 0.094.
    zero. Its extra information about the unit stream is **redundant with what a language model already
    supplies**, so the decision survives the composition being fixed — no longer only "not worth
    funding" but "measured not to contribute under the best reward available".
-7. **§3d's question is UNANSWERED, not answered against the autoencoder.** The question compares two
-   refinement operators and neither was run on this init: the loop was never launched and no
-   self-training arm on AV^G's own pseudo-labels exists. What was measured is the gate — a property of
-   the reward at the init point — and a decision not to fund the comparison. Declining to run a race is
-   not losing it.
+7. **WRONG after the D6-PERIODIC/GAN launch: the original statement that neither refinement operator
+   had run on this init is stale.** A reconstruction-loop family now has a six-leg prefix: from
+   theta_0^G at 13.89/18.34, periodic refresh reaches 12.85/17.89 only at leg 2 and then degrades to
+   18.38/24.01 by leg 6; the repaired frozen-scorer reference reaches 12.68/17.57 at its best matched
+   point but slips to 13.54/18.56 one sub-epoch later. This establishes no durable GAN-init loop gain.
+   The other half of §3d's operator question remains unanswered until the §3d.A same-start own-label
+   and fixed-§1d-label continuations produce fixed-endpoint WER.
 8. The comparison §3d asks for *has* been run at 10 h from a paired init, and the loop won: last-epoch,
    no dev-WER checkpoint picking, GRPO joint-AR ep4 13.15 / **16.13** on 2849 utterances against the
    self-training control's 13.05 / 17.74 on 28,539, with the shuffled control (202.54 / 207.59 at ep1)
@@ -146,5 +148,13 @@ IDs in the same order. Runtime validity remains conditional on
 passing its 281,241-ID coverage check. The one-generation graph pins theta_0 ep50 and theta_0^G ep10,
 and its four same-start arms differ within each pair only by pseudo-text targets; the banked theta_0
 comparator remains `ReturnnTrainingJob.xChfzEkd4CGE`, and no later generation is wired. Jobs are
-queued under cluster maintenance; no experimental result or conclusion exists yet. Normative
-specification and gate: `PLAN.md` §3d.A.
+submitted but no self-training result exists yet. At 15:15 CEST the packed-reader preflight decode
+`PackedWav2Vec2KenlmDecodeJob.mFKyL6x2Gc9o` is finished; the theta_0^G fixed-§1d-label continuation
+`ReturnnTrainingJob.sYvNhnEDQvli` and all eight theta_0/theta_0^G teacher-decode shards are running.
+The own-label continuations still wait on the teacher outputs. Both §3d managers are stopped, and
+the effective workspace `JOB_AUTO_CLEANUP=False` must be corrected before either is relaunched, so
+the packed agreement check and downstream jobs otherwise cannot advance. This read is now the first
+GAN-branch decision before any new scorer/reward mechanism: a fresh-label win over both the teacher
+start and same-start fixed-label continuation on both dev splits supports considering another
+generation; a fixed-label-only win is extra CE optimization rather than iterative self-training.
+Normative specification and gate: `PLAN.md` §3d.A.

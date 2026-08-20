@@ -57,14 +57,16 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
   term (the topology prices length natively). `recon` turns at ep2: off-seed the LM prior is the
   difference between converging and turning, and its share grows with bed size — lam values are
   per-bed, never carried over.
-- **G-track (train-clean-100 pseudo-SFT init; 960 h loop bed): both arms HELD at sub-ep4**
-  (§6.7/§6.10): `recon` diverges via an *inherited*
-  filler token (init and scorer share the §1d pseudo-text — correlated errors are rewarded, not
-  caught); `shaped` plateaus at init then slips. The suspected fix — outer scorer re-estimation
-  between passes — is RUNNING since 2026-08-17 as D6-PERIODIC/GAN (`PLAN_3E1.md`; gate deleted by
-  the user's label-hygiene ruling, so the arm reads as a trajectory). USER 2026-08-20: the exact
-  schedule-matched control that freezes periodic round 1's own `d_min=2` scorer is FUNDED; this,
-  rather than rebuilding historical D3 alone, isolates scorer recency.
+- **G-track (train-clean-100 pseudo-SFT init; 960 h loop bed): no durable loop gain yet.** The
+  original `recon` arm diverged through an inherited filler and `shaped` plateaued then slipped
+  (§6.7/§6.10): init and scorer share the §1d pseudo-text, so correlated errors are rewarded rather
+  than caught. The repaired frozen-scorer arm's best matched point is 12.68/17.57 from the
+  13.89/18.34 no-loop init, but it returns to 13.54/18.56 one sub-epoch later. D6-PERIODIC/GAN's
+  six-leg prefix likewise improves only at leg 2 (12.85/17.89, 0.45 dev-other) and then degrades to
+  18.38/24.01 by leg 6. Its exact schedule-matched control freezes periodic round 1's own
+  `d_min=2` scorer; that control is running, but it can isolate scorer recency only, not establish
+  that this loop beats ordinary self-training. The decisive GAN-branch operator read is now the
+  same-start one-generation comparison in §3d.A.
 - **960 h stock-donor supervision-axis endpoint is ABSENT**: the theta_0 + gold-scorer arm ran
   only through sub-epoch 4, was stopped and deleted 2026-08-08, and never produced the listed
   3-pass endpoint; `ReturnnTrainingJob.22Ntu7y0O6iW` does not exist. Its observed collapse is
@@ -209,9 +211,16 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    finished; §2a-rescorer and lam_1/lam_2 recalibration remain deferred behind the bootstrap-critical
    §1g assay. The adapted reward sweeps mix EOS conventions, so their small margin claims await the
    cheap registered correction; direct SFT and WER comparisons are unaffected.
-4. **Pseudo-label scale and one-generation self-training (§3d.A; IMPLEMENTED/LAUNCHED
-   2026-08-20)**: packed-input compatibility preflight and the two teacher/fixed-label branches are
-   queued; read the preregistered fixed endpoints after they complete. No open-ended relabeling loop.
+4. **Pseudo-label scale and one-generation self-training (§3d.A; TOP GAN-BRANCH READ,
+   IMPLEMENTED/LAUNCHED 2026-08-20)**: do not fund another G-track scorer or reward variant before
+   this read. At 15:15 CEST, the packed-reader preflight decode is finished, the theta_0^G
+   fixed-§1d-label continuation and all eight teacher-decode shards are running, and the fresh-label
+   continuations wait on those decodes. The preflight agreement and subsequent graph progression
+   require the stopped managers; before any manager relaunch, make the effective
+   `JOB_AUTO_CLEANUP = True`. Read only fixed endpoints against the same-start §1d-label controls.
+   A fresh-label pass on both dev splits is evidence to consider one further generation; a win by
+   fixed labels alone means extra CE optimization, not iterative self-training. No open-ended
+   relabeling loop is authorized.
 5. **PLAN_3A matrix wrap-up**: M4 contingency call; collapse the sub-plan when closed.
 6. **§1e §2.5(d)+usage gates on the ep50 pins** — the §3d init upgrade path.
 7. **G2P-equivalence ceiling** on existing rollouts.jsonl (CPU): phone-reachable vs
@@ -812,6 +821,10 @@ gated on the §3e.1 rule — deferred, user's call.
 acceptance-gate clause is DELETED on this track by the user's label-hygiene ruling — a gold-read
 gate selects what trains the next leg, and no annotation may train or select here). The
 homophone-diversity SFT arm rides the same bed as its one-argument A/B.
+2026-08-20 planner read: the outer-refresh hypothesis has not produced a durable gain. The repaired
+frozen scorer reaches 12.68/17.57 only transiently, while D6-PERIODIC/GAN reaches 12.85/17.89 at leg
+2 and degrades to 18.38/24.01 by leg 6. Finish the already-funded trajectories and frozen schedule
+control, but open no further GAN-loop mechanism arm before the §3d.A same-start self-training read.
 
 #### 3d.A. Pseudo-label scale and one-generation self-training (USER-directed 2026-08-20)
 
@@ -877,11 +890,14 @@ that the legacy tc100 decoder still resolves to `Wav2Vec2KenlmDecodeJob.AQw3EcUo
 reads packed HF/Ogg audio without a per-utterance FLAC tree, and the real bed has exactly 281,241
 unique IDs with the banked 28,539 tc100 IDs first in identical order. Runtime acceptance remains
 conditional on `PackedDecodeAgreementJob.xEBbTHwTJScE` reporting exact hypothesis agreement and the
-full decode passing its 281,241-ID coverage assertion; its preflight is queued under cluster
-maintenance. The one-generation graph is also verifier-approved: both teachers and all four
-same-start arms are pinned as specified, with no further generation wired. The independent teacher
-decodes and fixed-label work are queued. The packed decoder uses 96 shards, co-located four per
-four-GPU node. Funding still ends at the fixed-final theta_0^G960 AV-SFT read: no GRPO/autoencoder
+full decode passing its 281,241-ID coverage assertion. The one-generation graph is also
+verifier-approved: both teachers and all four same-start arms are pinned as specified, with no
+further generation wired. At 15:15 CEST, the packed preflight decode is finished, the theta_0^G
+fixed-§1d-label continuation and all eight teacher-decode shards are running, and the two own-label
+continuations still wait on their teacher outputs. Both §3d managers are stopped, so the agreement
+check and later dependencies cannot advance until a manager is safely relaunched; the effective
+`JOB_AUTO_CLEANUP` must first be corrected from `False` to `True`. The packed decoder uses 96 shards,
+co-located four per four-GPU node. Funding still ends at the fixed-final theta_0^G960 AV-SFT read: no GRPO/autoencoder
 loop, scorer refit or D6 branch from theta_0^G960 is authorized without a new preregistered decision.
 
 ### 3e. Reward and update protocol
