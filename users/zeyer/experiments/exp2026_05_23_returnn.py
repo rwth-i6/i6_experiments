@@ -1410,7 +1410,7 @@ def py_aed_graphc_loquacious():
     # The fix recomputes delta = sum_j p*dp in f32 in-kernel; bias gone to floor.
     # The marker key only distinguishes the sis hash (the fix lives in tools/returnn);
     # this run must pass ep 8-9 where the unfixed medium1024 collapsed.
-    loq_train(
+    exp_scale_medium1024, _, _ = loq_train(
         "base-graphc-v2-medium1024-fixdelta",
         {},
         config_overrides={
@@ -1438,7 +1438,7 @@ def py_aed_graphc_loquacious():
         {},
         config_overrides={**_loq_v2_packed_overrides, "train._rel_pos_att_bwd_delta_recompute": True},
     )
-    loq_train(
+    exp_scale_small, _, _ = loq_train(
         "base-graphc-v2-small-fixdelta",
         {},
         config_overrides={
@@ -1447,7 +1447,7 @@ def py_aed_graphc_loquacious():
             "train._rel_pos_att_bwd_delta_recompute": True,
         },
     )
-    loq_train(
+    exp_scale_medium, _, _ = loq_train(
         "base-graphc-v2-medium-fixdelta",
         {},
         config_overrides={
@@ -1456,6 +1456,24 @@ def py_aed_graphc_loquacious():
             "train._rel_pos_att_bwd_delta_recompute": True,
         },
     )
+
+    # GPU-side per-scale packed-vs-padded ratios (AZ 2026-08-19): the scale-ladder TRAININGS
+    # sit at the 2-worker loader wall (small 27-68% / medium1024 53-97% computing time), so
+    # their wall-clock ratios measure the loader, not packing. These cells give the
+    # loader-independent s/step ratio per scale; the base pair lives in the fixdelta family.
+    for _scale_name, _scale_exp in [
+        ("small", exp_scale_small),
+        ("medium", exp_scale_medium),
+        ("medium1024", exp_scale_medium1024),
+    ]:
+        for _scale_mode in ["packed_graphc", "padded_eager"]:
+            job = TrainStepBenchmarkJob(
+                returnn_config=_scale_exp.get_training_job().returnn_config,
+                mode=_scale_mode,
+                num_steps=300,
+                version=23,
+            )
+            tk.register_output(f"returnn/loq-bench-scale-{_scale_name}-{_scale_mode}.json", job.out_results)
 
     # packed_batch_size regime: batch forming on PACKED sums (batch_size None, else the padded
     # accounting always binds first and the packed budget is a no-op). Budget == buffer bound
@@ -2382,6 +2400,35 @@ def _loq_cost_decomposition(cfg, classes_cap):
         },
     )
     tk.register_output("returnn/loq-bench-fixdelta-packed_graphc-warmup0.json", job.out_results)
+
+    # pin_memory/prefetch probe (AZ 2026-08-19): same graphc twin, ONLY the dataloader opts
+    # changed. The loader pins batches in its pinning thread, so graph_capture._copy_in takes
+    # the direct non_blocking branch instead of the main-thread pinned-staging memcpy
+    # (the profiled ~16%% host share). num_workers deliberately stays 1.
+    job = TrainStepBenchmarkJob(
+        returnn_config=cfg,
+        mode="packed_graphc",
+        num_steps=300,
+        version=23,
+        config_overrides={
+            "behavior_version": 29,
+            "packed_tensors": _v2_packed_tensors,
+            "torch_cuda_graph": {**_v2_graph_opts, "warmup_steps": 0},
+            "torch_dataloader_opts": {"num_workers": 1, "pin_memory": True, "prefetch_factor": 4},
+        },
+    )
+    tk.register_output("returnn/loq-bench-fixdelta-packed_graphc-warmup0-pinmem.json", job.out_results)
+
+    # padded_eager at 300 steps on the same base config: the uniform base-scale counterpart
+    # for the per-scale ratio table (the old padded_eager cell ran only 31 steps).
+    job = TrainStepBenchmarkJob(
+        returnn_config=cfg,
+        mode="padded_eager",
+        num_steps=300,
+        version=23,
+        config_overrides={"behavior_version": 29},
+    )
+    tk.register_output("returnn/loq-bench-fixdelta-padded_eager.json", job.out_results)
 
 
 def _loq_batch_size_factor():
