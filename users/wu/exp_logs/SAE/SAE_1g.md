@@ -172,8 +172,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
    Torch, exact CUDA device count and one nonempty RNG tensor per device, permutation, and batch-offset
    state; a serialized GH200 interrupted-versus-uninterrupted trajectory check exercises it. Projection
    manifests hash all eight modules imported by the runtime path. Its final graph contains all four
-   initializer families and is launch-ready; no old final directory exists and the trainer verifies
-   runtime source hashes before work begins.
+   initializer families; the trainer verifies runtime source hashes before work begins.
 
 ## Conclusion
 
@@ -314,11 +313,15 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   H3 calibration remains valid: the exact 6,414/890 roles selected full-loss ESPUM seed 0/update
   30,000 at weighted phone-LM perplexity 32.5352; strict projection and GH200 resume equivalence pass.
   Final-refit fingerprint `H3InitializerJob.uKw59MBJC4Hj`, random map `.ABTGA9vIwwI8`, and
-  pseudo-pair `.BS1nPUwf1fel` are finished on all 7,304 construction IDs. ESPUM final refit
-  `EspumMatchTrainJob.t1l7N4lQ9dtY` is running and `H3FinalEspumProjectionJob.PJMwUGUXUb7s` waits.
-  Never relaunch calibration.
+  pseudo-pair `.BS1nPUwf1fel` finished on all 7,304 construction IDs. The selected ESPUM construction
+  refit `EspumMatchTrainJob.t1l7N4lQ9dtY` and strict final projection
+  `H3FinalEspumProjectionJob.PJMwUGUXUb7s` also finished. The projected 500-by-39
+  `Q(phone | unit)` and 39-by-500 `B(unit | phone)` are finite and normalized; their manifest binds
+  all 7,304 construction IDs, the frozen seed-0/update-30,000 choice, every input, and all eight
+  runtime sources. The refit does not hash selection IDs. Never relaunch calibration or this final
+  graph.
 
   H4 is not production-wired: `h4_harness.py` supplies verification/gate utilities but intentionally
-  neither constructs a seed nor invokes a decoder. Build the consumer job/config while H3 finishes,
-  then consume only final-refit manifests. Before any new manager launch, correct and verify the
+  neither constructs a seed nor invokes a decoder. Build the consumer job/config against only the
+  completed final-refit manifests. Before any new manager launch, correct and verify the
   effective workspace `JOB_AUTO_CLEANUP`, currently `False`, to the required `True`.
