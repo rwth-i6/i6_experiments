@@ -1082,7 +1082,18 @@ def model_recog_with_recomb_while_loop(
         return log_probs, decoder_state
 
     if aed_scale or labelwise_prior is not None:
-        decoder_state0 = model.decoder.default_initial_state(batch_dims=batch_dims_, capacity=label_cap_dim)
+        decoder_state0 = model.decoder.default_initial_state(batch_dims=batch_dims_)
+        # Only a new label re-runs the decoder here, so the hypotheses diverge:
+        # both the decoder position and the KV history length are per hypothesis, not shared.
+        decoder_state0.pos = decoder_state0.pos + rf.zeros(batch_dims_, dtype="int32")
+        for _layer_key, _layer_state in decoder_state0.items():
+            if _layer_key == "pos":
+                continue
+            att_state = _layer_state.self_att
+            hist_dim = Dim(rf.zeros(batch_dims_, dtype="int32"), name="self_att_hist")  # empty, as the initial one
+            att_state.k_accum, _ = rf.replace_dim(att_state.k_accum, in_dim=att_state.accum_axis, out_dim=hist_dim)
+            att_state.v_accum, _ = rf.replace_dim(att_state.v_accum, in_dim=att_state.accum_axis, out_dim=hist_dim)
+            att_state.accum_axis = hist_dim
         decoder_log_probs0, decoder_state0 = _decoder_log_probs(
             rf.constant(model.bos_idx, dims=batch_dims_, dtype="int32", sparse_dim=model.target_dim), decoder_state0
         )
