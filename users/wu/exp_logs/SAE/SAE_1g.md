@@ -193,6 +193,22 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
    pseudo-pair seed 0, and ESPUM seed 0/update 30,000. This is completed calibration infrastructure,
    not an H4 gate result.
 
+9. **Corrected H4 recovery and decoder-resource preflight.** A role firewall first materializes only
+   the 3,565 labelled dev utterances inside the 6,414-utterance update role. From those sealed inputs,
+   the recovery stage regenerates `Q(phone | unit)` for the 71 non-soft controlled starts, imports the
+   four persisted H3 `Q`/`B` pairs, and authorizes reuse only when canonical `Q`-to-`B` conversion and
+   the old count-0 repair state match exactly. It replaces exactly the ten old B-space soft starts by
+   the registered Q-space mixtures and reruns only those trajectories. Every one of the 85 direct-Q
+   adapters and 340 lossless count adapters depends on the recovery authorization.
+
+   Before selector freeze, the donor graph contains only the exact 890-utterance selection role. Its
+   same-speaker support law requires donor retained length at least the source length and donor chunk
+   count at most the source count before duration/rate ranking; sources without compatible donors are
+   retained as `no_swap`. The resource graph then measures the exact 32-way update and selection
+   workloads over three hash-deduplicated representative channel tables and all 48 decoder settings,
+   followed by the globally slowest/highest-RSS setting on the heaviest real shard. It contains no
+   construction/evaluation donor, decode, scoring, selector, or final-refit job.
+
 ## Conclusion
 
 1. **Approach 1: one segment per text symbol is rejected.** It exceeds the registered ratio on all
@@ -309,6 +325,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 | H3 selected construction-population ESPUM refit and strict projection | `work/speech_llm/sae/espum_jobs/EspumMatchTrainJob.t1l7N4lQ9dtY`; `work/speech_llm/sae/h3_projection/H3FinalEspumProjectionJob.PJMwUGUXUb7s` |
 | H4 artifact, donor, bootstrap, and gate harnesses | commits `93f6261`, `4e67695`; `src/speech_llm/sae/h4_harness.py` |
 | H4 calibration preparation and update-only repair graph | commit `c2e930b`; `work/speech_llm/sae/h4_jobs/H4CalibrationPreparationJob.DPv4aIqwPEzM`; reference `H4RepairJob.x1TyHJMfEVpb`; fingerprint `.iUFh7IwniCMl`; random-map seed 1000 `.Ds0zM1NTY2C1`; pseudo-pair seed 0 `.aeetC3NfgPxB`; ESPUM seed 0/update 30,000 `.ViPSmq4Am8vX` |
+| H4 corrected recovery and decoder-resource preflight | commit `436ea50`; update-only reference `work/speech_llm/sae/h4_production_jobs/H4UpdateReferenceArtifactJob.DZa7gIj8rZNj`; Q recovery `work/speech_llm/sae/h4_production_jobs/H4QRecoveryJob.ar34r8ltGTGW`; selection donor `work/speech_llm/sae/h4_production_jobs/H4RoleDonorTableJob.w2RMXcCJyGoy`; update contract `work/speech_llm/sae/h4_decode_jobs/H4ResourceContractJob.kFA99bygctlt`; selection contract `work/speech_llm/sae/h4_decode_jobs/H4ResourceContractJob.kyMk7fwm027C` |
 | H5 handoff and H6 character-route interfaces | commit `ce265ce`; `src/speech_llm/sae/handoff.py`; `src/speech_llm/sae/character_route.py` |
 
 ## Verifier feedback
@@ -348,9 +365,9 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   complete `T_phi`, unit raster, and runtime source hashes. All 85 repair manifests and NPZ bundles
   are present and the reconstructed graph has no unfinished or problem jobs.
 
-  H4's downstream protocol is now normatively unblocked but remains unexecuted. For a fixed source-
-  decoded hypothesis of `N` phones, a donor with `T_d` retained units and `C_d` silence-delimited
-  chunks has finite score exactly when `C_d <= N <= T_d`. The old preparation table did not enforce
+  H4's corrected recovery mechanics are specified; selector semantics remain unresolved below. For a
+  fixed source-decoded hypothesis of `N` phones, a donor with `T_d` retained units and `C_d`
+  silence-delimited chunks has finite score exactly when `C_d <= N <= T_d`. The old preparation table did not enforce
   that support law; exact `-inf` values are correct model behavior and must not be clipped into
   apparent content evidence. The earlier 1,237/8,900 and 316/890 prevalence used the available
   `B`-times-text-prior surrogate, not the specified original-`Q` count-0 decoder. Reconstructing the
@@ -388,6 +405,23 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   update IDs and reads the 890 selection IDs without fitting; final refit starts only after the
   selector freezes. `JOB_AUTO_CLEANUP=True` remains effective for managers; console mode intentionally
   overrides it only for inspection.
+
+- 2026-08-20 — The corrected H4 prerequisite graph is independently verified and launched. All 71
+  regenerated non-soft controls reproduce their retained count-0 `B` exactly, and all four imported
+  H3 pairs reproduce canonical `B` from persisted `Q`; therefore exactly 75 trajectories are reused
+  and the ten soft Q-space trajectories are rerun. The graph exposes 85 direct-Q starts and the full
+  85-by-4 lossless channel inventory. The production selection donor law yields 513/890 eligible
+  sources (235/432 clean and 278/458 other), with 377 explicit `no_swap`; these are construction-time
+  facts about the frozen table, not a content result. Resource preflight is exactly 288 probes: three
+  representatives by 48 cells on each of update and selection, plus one global worst-cell shard rerun
+  and contract per role. Evaluation audio, labels, donors, decodes, and scoring remain absent.
+
+  Selector freeze is blocked by a normative conflict in `PLAN_1G.md`: Section 1g.2 defines the
+  own-minus-donor contrast as the selection score, while experiment 6 makes construction-fold
+  likelihood the primary checkpoint selector and calls own-minus-donor only its backup. The plan also
+  does not freeze a single normalization for unequal source/donor retained lengths. The launched graph
+  deliberately stops at raw sufficient statistics and resource contracts; no final refit or evaluation
+  graph is authorized until the planner resolves those choices.
 
 - 2026-08-20 — Higher-order `G_fit` is registered as conditional H4-LM work, not H6; H6 remains the
   character route after a valid H5 phone handoff. First complete the corrected baseline bigram H4
