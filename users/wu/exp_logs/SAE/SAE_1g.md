@@ -174,6 +174,18 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
    manifests hash all eight modules imported by the runtime path. Its final graph contains all four
    initializer families; the trainer verifies runtime source hashes before work begins.
 
+8. **H4 controlled calibration and repair production stage.** The first production H4 graph freezes
+   the calibration inputs before any selection or evaluation labels are read. Its preparation job
+   uses the accepted H1 roles and silence mask, the exact `seg12.5` frame raster, every line of
+   `T_phi`, and pinned dev-clean/dev-other MFA parquet snapshots. It fits the positive-reference
+   channel only on the 3,565 labelled dev utterances inside the 6,414-utterance update role and
+   persists content hashes for those external inputs and every local runtime source. The fixed
+   library contains the reference, 50 retain/redraw maps (ten `q` levels by five initial draws), ten
+   soft-damage rows, and 20 marginal-random maps. The same update-only two-state repair is then wired
+   at counts 0, 1, 2, and 4 for all 81 controlled starts and the four accepted H3 calibration starts.
+   This stage does not yet decode, score the 890-utterance selection role, freeze the selector, or
+   construct the final 7,304-utterance refits; those remain downstream H4 work.
+
 ## Conclusion
 
 1. **Approach 1: one segment per text symbol is rejected.** It exceeds the registered ratio on all
@@ -289,6 +301,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 | H3 construction-population final initializers | `work/speech_llm/sae/h3_jobs/H3InitializerJob.uKw59MBJC4Hj`; `work/speech_llm/sae/h3_jobs/H3InitializerJob.ABTGA9vIwwI8`; `work/speech_llm/sae/h3_jobs/H3InitializerJob.BS1nPUwf1fel` |
 | H3 selected construction-population ESPUM refit and strict projection | `work/speech_llm/sae/espum_jobs/EspumMatchTrainJob.t1l7N4lQ9dtY`; `work/speech_llm/sae/h3_projection/H3FinalEspumProjectionJob.PJMwUGUXUb7s` |
 | H4 artifact, donor, bootstrap, and gate harnesses | commits `93f6261`, `4e67695`; `src/speech_llm/sae/h4_harness.py` |
+| H4 calibration preparation and update-only repair graph | commit `c2e930b`; `work/speech_llm/sae/h4_jobs/H4CalibrationPreparationJob.DPv4aIqwPEzM`; reference repair `work/speech_llm/sae/h4_jobs/H4RepairJob.x1TyHJMfEVpb` |
 | H5 handoff and H6 character-route interfaces | commit `ce265ce`; `src/speech_llm/sae/handoff.py`; `src/speech_llm/sae/character_route.py` |
 
 ## Verifier feedback
@@ -321,7 +334,11 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   runtime sources. The refit does not hash selection IDs. Never relaunch calibration or this final
   graph.
 
-  H4 is not production-wired: `h4_harness.py` supplies verification/gate utilities but intentionally
-  neither constructs a seed nor invokes a decoder. Build the consumer job/config against only the
-  completed final-refit manifests. The workspace setting was corrected to `JOB_AUTO_CLEANUP=True`
-  at 15:31 CEST; verify the effective imported value again before any new manager launch.
+  H4's first production stage is now launched as a separate calibration graph. It freezes the
+  label-fitted reference, the complete controlled start library, the same-speaker donor table, and
+  update-only repair trajectories at counts 0/1/2/4 for all controlled and accepted H3 calibration
+  starts. The graph is provenance-bound to the accepted H1, pinned alignment snapshots, complete
+  `T_phi`, unit raster, and runtime source hashes. It does not yet invoke either decoder, compute
+  selection scores, freeze the selector, or consume the completed final-refit manifests; those are
+  the remaining production H4 stages. `JOB_AUTO_CLEANUP=True` is preserved for manager execution;
+  Sisyphus intentionally disables it only in non-manager console mode.
