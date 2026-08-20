@@ -133,9 +133,11 @@ the plain theta_0^G 960 h arms import that checkpoint, while GAN+HOM imports ano
 train-clean-100-derived pseudo-SFT. In every case 960 h is only the later unlabeled loop bed.
 `TransformAndMapHuggingFaceDatasetJob.1c6JQRMlzCyy` provides reusable HF/Ogg Arrow audio for
 281,241 utterances, but neither full pseudo-text nor the FLAC+manifest layout consumed by the word
-decoder exists. The missing scale arm therefore requires scratch-resident or packed/sharded audio
-staging plus §1d-student word decoding of the remaining 860 h before SFT; a per-utterance project
-tree is unsafe at the reported 3,584,516 / 4,000,000 project inode usage. The user also funds one
+decoder exists. USER 2026-08-20 selects direct packed/sharded decoding from the existing audio and
+rejects per-utterance FLAC staging. The implementer must add a separate packed-input job/interface,
+leaving the legacy `Wav2Vec2KenlmDecodeJob` behavior and completed hashes unchanged; only the new
+960 h decode work receives new hashes. This avoids a 281,241-file tree at the reported
+3,584,516 / 4,000,000 project inode usage. The user also funds one
 own-label generation from theta_0 and theta_0^G with same-start §1d-label comparators; no result or
 conclusion exists yet.
 Normative specification and gate: `PLAN.md` §3d.A.

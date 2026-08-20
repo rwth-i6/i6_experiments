@@ -798,8 +798,13 @@ train-clean-100 utterances and decode train-clean-360 plus train-other-500 with 
 §1d CTC student, lexicon, word LM and decoder configuration. Merge to the exact 281,241-utterance
 960 h bed; every training transcript must be pseudo-text, never the audio bed's gold/blank text.
 The completed HF/Ogg Arrow bed is only the audio source, not the FLAC+manifest input expected by the
-word decoder. Stage the decoder input directly under `/e/scratch/spell` or add a packed/sharded
-reader; do not create a 281,241-file utterance tree under `/e/project1/spell`.
+legacy word-decoder job. USER 2026-08-20 selects a new packed/sharded input path that reads those
+existing shards directly; do not materialize an intermediate FLAC tree. Preserve the legacy
+`Wav2Vec2KenlmDecodeJob` constructor, behavior and completed hashes, including the canonical tc100
+artifact. The packed reader is a separate job/interface with new hashes only for its new decode
+work, while reusing the identical §1d acoustic model and lexicon/LM search. Before the 860 h spend,
+run it on one fixed tc100 shard and report ordered-ID/coverage and hypothesis agreement with the
+banked decoder output; this is an input-path check, not a new model-selection gate.
 Train theta_0^G960 from scratch with the theta_0^G AV recipe and approximately matched exposure:
 one 960 h corpus pass, partitioned into ten sub-epochs, versus ten 100 h passes for theta_0^G; walk
 the same learning-rate curve by optimizer update, not by nominal corpus epoch.
@@ -839,7 +844,7 @@ WER gain is self-confirmation, not progress. A further generation is not authori
 it becomes a new decision only after a fresh-label arm passes this gate.
 
 **Status.** REGISTERED AND FUNDED 2026-08-20. No 960 h pseudo-text artifact or 960 h GAN-init SFT
-currently exists; the completed 960 h audio bed is reusable as a staging source. The two teacher
+currently exists; the completed 960 h audio bed is the direct packed decode input. The two teacher
 decodes, the 960 h §1d-student decode and D6-PERIODIC/GAN-FROZEN are independent and may run in
 parallel; each student waits only for its own labels. The banked tc100 throughput projects about 261
 single-GPU task-hours for the 252,702 new utterances. Current exclusive-node routing would turn that
