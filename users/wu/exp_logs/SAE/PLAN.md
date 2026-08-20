@@ -849,8 +849,10 @@ decodes, the 960 h §1d-student decode and D6-PERIODIC/GAN-FROZEN are independen
 parallel; each student waits only for its own labels. The banked tc100 throughput projects about 261
 single-GPU task-hours for the 252,702 new utterances. Current exclusive-node routing would turn that
 into about 261 four-GPU node-hours (about 1,046 allocated-GPU-hours), so pack four shards per node or
-use nonexclusive routing rather than silently paying that allocation. Implementation and launch
-belong to the executor.
+use nonexclusive routing rather than silently paying that allocation. This funding ends at the
+fixed-final theta_0^G960 AV-SFT read: it does not authorize a GRPO/autoencoder loop, scorer refit or
+D6 branch from theta_0^G960. Any downstream loop is a separate preregistered funding decision after
+the SFT result. Implementation and launch belong to the executor.
 
 ### 3e. Reward and update protocol
 
