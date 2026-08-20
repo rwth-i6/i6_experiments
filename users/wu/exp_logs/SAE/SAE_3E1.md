@@ -494,6 +494,20 @@ maximum of 0.36 / 1.30 and a median of 0.29 / 0.30 over five paired points. A si
 claim on this bed has to clear the maximum; a consistent-sign difference over four or more matched
 points reads against the median.
 
+The user then removed the scorer-statistic gate and relaunched. The completed ungated prefix is:
+
+| ungated leg / global sub-ep | fresh periodic dev-clean / dev-other | one-shot frozen scorer | frozen control | dev-other S / D / I, fresh |
+|---|---|---|---|---|
+| 1 / 3 | 4.97 / 8.88 | 4.68 / 8.64 | 6.56 / 11.15 | 3572 / 471 / 479 |
+| 2 / 4 | 4.65 / 9.02 | 4.61 / 8.98 | 6.89 / 11.31 | 3593 / 395 / 607 |
+| 3 / 5 | 5.28 / 9.27 | 4.61 / 9.03 | 6.32 / 11.03 | 3551 / 561 / 610 |
+| 4 / 6 | 6.05 / 10.56 | 5.01 / 9.51 | 6.54 / 11.16 | 3553 / 476 / 1350 |
+| 5 / 7 | 7.42 / 12.68 | 4.70 / 9.12 | 6.69 / 11.03 | 3597 / 376 / 2489 |
+
+These are a prefix, not an endpoint: leg 6 is submitted but pending for maintenance and legs 7-8
+do not yet exist. `S / D / I` are sclite substitution, deletion and insertion counts on dev-other;
+the late WER loss is almost entirely insertion growth, not a drift in substitutions.
+
 **23. HOM-0a -- how much of the pseudo-label corpus a homophone substitution could reach.** The
 D6-PERIODIC/GAN+HOM arm resamples homophone spellings in the init's SFT targets, so the admission
 read asks whether enough corpus mass sits in a homophone class to be worth funding, against a
@@ -526,6 +540,20 @@ was deleted with the rest -- the warm-started round-2 candidate was REJECTED und
 confidence-interval reading, failing the corruption ladder (worse on filler substitution and on
 language-model substitution) while passing the insertion price it was the sibling's habitual failure,
 so a continuation of the incumbent did NOT find the clause table easier as registered.
+
+The ungated relaunch has completed the same five-leg prefix as approach 22:
+
+| leg | fresh periodic dev-clean / dev-other | warm periodic dev-clean / dev-other | dev-other S / D / I, warm |
+|---|---|---|---|
+| 1 | 4.97 / 8.88 | 4.97 / 8.88 | 3572 / 471 / 479 |
+| 2 | 4.65 / 9.02 | 5.07 / 9.19 | 3576 / 456 / 680 |
+| 3 | 5.28 / 9.27 | 4.85 / 9.04 | 3570 / 386 / 649 |
+| 4 | 6.05 / 10.56 | 6.39 / 11.19 | 3593 / 522 / 1593 |
+| 5 | 7.42 / 12.68 | 12.18 / 19.33 | 3685 / 441 / 5874 |
+
+Warm inheritance is inside the fresh arm's range through leg 3, then separates in the harmful
+direction; the leg-5 gap is +4.76 / +6.65 WER and is an insertion explosion. Leg 6 is submitted but
+pending for maintenance, so this is not the final registered read.
 
 **25. HOM-0b and HOM-0c -- whether the reward can act on a spelling, and whether sampling already
 varies one.** 0b takes the label-free arm's own round-1 samples at T=0.7, substitutes ONE in-class
@@ -562,11 +590,28 @@ the schedule position the two held frozen-scorer arms occupied at their sub-epoc
 the frozen-repaired-scorer control are read at matched points; the no-loop init theta_0^G is
 13.89 / 18.34 and is the level every G-track loop arm has so far failed to clear.
 
-| dev-clean / dev-other, plain WER as scored | sub-ep 1 | sub-ep 2 | sub-ep 3 | sub-ep 4 |
+| dev-clean / dev-other, plain WER as scored | sub-ep 1 | sub-ep 2 | sub-ep 3 | sub-ep 4 | sub-ep 5 | sub-ep 6 |
+|---|---|---|---|---|---|---|
+| frozen contaminated psi_align^G, `shaped` (held) | 13.42 / 18.75 | 13.91 / 18.91 | 13.49 / 18.81 | 17.99 / 23.33 | -- | -- |
+| frozen repaired scorer, `shaped` (held) | 13.57 / 19.69 | 12.68 / 17.57 | 13.54 / 18.56 | -- | -- | -- |
+| refit at every boundary (this arm) | 14.45 / 19.69 | 12.85 / 17.89 | 13.20 / 18.20 | 17.76 / 23.17 | 17.92 / 23.27 | 18.38 / 24.01 |
+
+Only sub-epoch 2 improves the no-loop init's 18.34 dev-other, by 0.45; the later loss is mainly
+substitutions (4,110 at sub-epoch 2 to 7,331 at sub-epoch 6), not insertions. Sub-epoch 7 is submitted
+but pending for maintenance and sub-epoch 8 is dependency-unbuilt.
+
+The GAN+HOM variant changes the policy initialization through homophone-resampled SFT and then runs
+the same loop with its own downstream refits:
+
+| dev-clean / dev-other, plain WER as scored | init | loop leg 1 | loop leg 2 | loop leg 3 |
 |---|---|---|---|---|
-| frozen contaminated psi_align^G, `shaped` (held) | 13.42 / 18.75 | 13.91 / 18.91 | 13.49 / 18.81 | 17.99 / 23.33 |
-| frozen repaired scorer, `shaped` (held) | 13.57 / 19.69 | 12.68 / 17.57 | 13.54 / 18.56 | -- |
-| refit at every boundary (this arm) | 14.45 / 19.69 | 12.85 / 17.89 | -- | -- |
+| plain GAN init / periodic | 13.89 / 18.34 | 14.45 / 19.69 | 12.85 / 17.89 | 13.20 / 18.20 |
+| GAN+HOM init / periodic | 16.67 / 21.45 | 14.84 / 19.99 | 13.94 / 18.77 | 12.80 / 18.08 |
+| class-internal substitutions, GAN+HOM dev-other | 1827 | 130 | 110 | 105 |
+
+The hom arm loses at legs 1-2 but catches the plain trajectory at leg 3, while removing nearly all
+augmentation-specific class-internal substitutions in its first leg. Its leg 4 is submitted but
+pending for maintenance; later legs do not yet exist.
 
 **27. theta_0^G_hom -- the homophone arm's policy init** (launched 2026-08-18 on the user's
 greenlight, after HOM-0b admitted the arm). theta_0^G's own builder with the resampled pseudo-label
@@ -1048,12 +1093,14 @@ function-word pairs rather than broad spelling diversity.
     confidence-interval reading of the clauses actually PASSED and was overridden -- so legs 2 to 8
     all run the round-1 scorer, and the arm's comparison against the one-shot swap-in measures the
     shard rule and the Adam restarts, not refresh frequency.
-42. **On the label-free init a refit at every boundary is the first loop arm to go below the no-loop
+42. **WRONG after the six-leg read: on the label-free init a refit at every boundary is the first loop arm to go below the no-loop
     init at a matched sub-epoch, and it is still not the best scorer there** (26). At sub-epoch 2 it
     reaches 12.85 / 17.89 against theta_0^G's 13.89 / 18.34, where both frozen-scorer arms sat at or
     above the init -- but the frozen REPAIRED scorer reaches 12.68 / 17.57 at the same point, so
     what the two scored legs support is "a scorer that is not the contaminated one helps", not yet
     "recency helps"; six legs are outstanding and no replication spread exists on this bed.
+    CORRECTION 2026-08-20: only two legs were available here. The six-leg prefix makes that gain
+    transient and is replaced by conclusion 54.
 43. **Sampling already proposes spelling variety, but almost never proposes the spelling that is
     missing** (25). 23.43 % of homophone-bearing groups already hold two spellings of one class, so
     the reward has within-group variance to steer on there today, while only 0.82 % ever contain a
@@ -1124,6 +1171,32 @@ function-word pairs rather than broad spelling diversity.
     errors -- and it is not specific to the homophone arm, since every arm in the D6-PERIODIC family
     refits the same way. The open risk it names is compounding: each round refits on decodes the
     previous round's entrenched scorer helped produce.
+52. **Periodic outer updates avoid the catastrophic continuous-joint failure, but they do not beat
+    a good frozen scorer on the D-track** (17, 21, 22). The closest continuously trainable-scorer
+    arm reads 5.12/9.27, 17.35/21.97 and 41.78/50.88 over three banked sub-epochs, with dev-other
+    insertions growing 630 -> 21,406. Fresh periodic is 4.97/8.88, 4.65/9.02 and 5.28/9.27 at its
+    first three legs, so holding the scorer fixed within each leg avoids same-step collapse. But it
+    then worsens to 7.42/12.68 by leg 5, never beats the one-shot scorer's 8.64 best, and trails
+    both the matched one-shot scorer and the original frozen control at that point. This comparison
+    establishes a useful timescale, not a single-variable causal effect: the joint arm also differs
+    in scorer topology, data partitioning, batching and optimizer continuity.
+53. **Carrying scorer weights across periodic refits is harmful on this bed** (24). Fresh and warm
+    are close through leg 3, but warm reaches 12.18/19.33 at leg 5 against fresh 7.42/12.68. The
+    separation is an insertion failure: warm dev-other insertions grow from 479 to 5,874 while
+    substitutions stay near 3.6k. The trajectories are not ended, but the completed prefix rejects
+    warm inheritance as a stabilizer at this operating point.
+54. **The plain GAN periodic gain is small, transient, and does not establish a recency benefit**
+    (26). Leg 2 improves the no-loop init by only 0.45 dev-other, missing the registered 0.5 bar,
+    and the arm worsens to 18.38/24.01 by leg 6. At the three matched points it is not decisively
+    better than the frozen repaired scorer; later deterioration is substitution-led. No same-init
+    continuously trainable-scorer arm exists, so D5(b)-b is not a causal control for this variant.
+55. **The live GAN+HOM loop rapidly removes the augmentation's spelling damage despite the fixed-dump
+    scorer-entrenchment diagnostic** (26, 27, 29). Its class-internal dev-other substitutions fall
+    from 1,827 at init to 130 after one leg and 105 after three; total WER improves from 16.67/21.45
+    to 12.80/18.08 and catches the plain periodic trajectory at leg 3. Thus conclusion 51 remains a
+    valid statement about the reconstruction scorer on controlled swaps, but it does not predict the
+    realized policy direction under the composed reward, whose Qwen3 language-model term dominates
+    homophone spelling. The midpoint and final registered reads remain outstanding.
 
 ## Catalog
 
@@ -1142,6 +1215,7 @@ function-word pairs rather than broad spelling diversity.
 | all three arms' error anatomy at matched points | `S/scorer_diag/PolicyAnatomyJob.Cda1gPFxLM2V` |
 | D6-PERIODIC/GAN legs 1-8 (approach 26), G-track sub-ep 1-8 | `T/ReturnnTrainingJob.kr1foUV6lecx`, `.AuzMGgyskdJT`, `.KD73Hc4eGDfW`, `.E6s3lUUaodzw`, `.J9m38fxEwXl4`, `.AS1g33qDo28i`, `.QTQuYQnppmSs`, `.cR8Q29Pmfuhy` |
 | its per-boundary refits (rounds 1-8; no gate on this track, each one serves the next leg) | `S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR`, `.7jHYVGToyWPR`, `.M2Z0M9UpKW98`, `.rdkbJsLOLEJW`, `.YPyCrmgjglsj`, `.jMaYmBUAffMb`, `.NM6sQa0D9uQM`, `.wPujQSh4PLSd` |
+| D6-PERIODIC/GAN+HOM loop legs 1-4 currently materialized (approach 26; first three finished) | `T/ReturnnTrainingJob.JocWKAmYroFJ`, `.dp0XmU5Mm9V5`, `.tpby6E3kTeSE`, `.JBaqJExxDKGz` |
 | its comparators at matched sub-epochs, both held: frozen contaminated psi_align^G and the frozen repaired scorer | `T/ReturnnTrainingJob.2fb02hGUdHNj` is the init they all start from; the two arms' own WER rows are in `SAE_3A.md` approach 10 and this log's approach 9 |
 | HOM-0a class statistics (approach 23); its `classes.json` carries every class with per-member LM and corpus counts | `S/homophone/HomophoneClassStatsJob.our76yheSD0c` |
 | HOM augmented corpus (uniform in-class resampling, seed 0, train split only); `word_hyps.json` is the SFT-ready drop-in | `S/homophone/HomophoneAugmentJob.k2OwZiTcKpEG` |
@@ -1737,3 +1811,16 @@ the absolute beta, is what carries the contamination claim.
   and 0.90, biased in known and opposite directions at the two ends. That bracket spans chance
   to strong, so it is uninformative for the funding question -- which is a stronger reason to
   run the read on the hom arm's own dump than the one I gave, not a weaker one.
+- 2026-08-20 (periodic-family on-disk audit): read every available WER from the concrete sclite
+  work artifacts and independently reconstructed each completed dev-other S/D/I count from
+  `sclite.pra`, checking it against the reported WER. Completed prefixes are fresh D-track 5/8,
+  warm D-track 5/8, plain GAN 6/8 and GAN+HOM 3/8; the next leg of each exists in Slurm but is
+  pending because nodes are reserved for maintenance. All four managers are live and none of the
+  four next jobs has an error marker, so no arm has an endpoint yet. The fresh periodic prefix
+  avoids D5(b)-b's catastrophic continuous-joint insertion collapse but later loses to both the
+  one-shot scorer and matched frozen control through insertions; warm inheritance compounds that
+  failure. Plain GAN's one improvement is transient and later loss is substitution-led. GAN+HOM
+  removes its induced class-internal errors in one leg and catches plain GAN by leg 3. The D5(b)-b
+  comparison is only a timescale control because scorer topology, partitioning, batching and
+  optimizer continuity also differ; there is no continuously trained scorer with the GAN or HOM
+  initialization.

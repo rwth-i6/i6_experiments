@@ -894,6 +894,23 @@ alone (decisive only if the allegiance grid is).
   chain now forming by construction. Both read on plain WER at matched parent
   sub-epochs under the paired floor above; leg 1 stays shared across all three arms
   (ReturnnTrainingJob.5FqdnhWTOf1f).
+- Status 2026-08-20 (ungated prefixes, planner-verified from concrete training and sclite
+  work directories; neither arm has ended). Fresh-from-scratch periodic has completed legs
+  1-5 at dev-clean/dev-other 4.97/8.88, 4.65/9.02, 5.28/9.27, 6.05/10.56 and 7.42/12.68;
+  WARM has completed 1-5 at 4.97/8.88, 5.07/9.19, 4.85/9.04, 6.39/11.19 and
+  12.18/19.33. Both leg-6 jobs exist and are pending for cluster maintenance, with live
+  managers and no error markers; legs 7-8 remain dependency-unbuilt. The fresh arm never
+  beats the one-shot scorer's registered 8.64 best, and by matched leg 5 is worse than
+  one-shot by +2.72/+3.56 and the frozen control by +0.73/+1.65. Its late dev-other loss is
+  almost entirely insertions (479 -> 2,489, substitutions 3,572 -> 3,597); WARM compounds
+  this to 5,874 insertions and is +4.76/+6.65 worse than fresh at leg 5. Provisional verdict:
+  scorer inheritance is harmful here, while periodic fresh refits do not beat a good frozen
+  scorer. The closest continuously trainable-scorer control, D5(b)-b, reads 5.12/9.27 ->
+  17.35/21.97 -> 41.78/50.88 over its three banked sub-epochs, dominated by insertions
+  (630 -> 21,406). Thus freezing the scorer within each sub-epoch avoids same-step joint
+  collapse, but this is not a single-variable causal comparison: D5(b)-b uses the gold d_min=1
+  scorer, continuous full-dataset partitioning and 1e6/accum-2 batching, whereas periodic uses
+  d_min=2 outer refits, round-robin shard jobs and Adam restarts.
 
 **D6-PERIODIC/GAN — the periodic-refresh arm on the label-free init (USER-directed
 2026-08-17; launched by the implementer same day; planner registration from the launched
@@ -970,6 +987,17 @@ config, verified at source).**
   legs are weaker evidence by construction (implementer-flagged, recorded). The
   pre-registered arm read is unchanged: its clause already binds only "at every
   matched sub-epoch it has".
+- Status 2026-08-20 (six-leg prefix, planner-verified from concrete work directories;
+  arm not ended). Dev-clean/dev-other is 14.45/19.69, 12.85/17.89, 13.20/18.20,
+  17.76/23.17, 17.92/23.27 and 18.38/24.01. Leg 7 exists and is pending for cluster
+  maintenance; leg 8 is dependency-unbuilt, the manager is live, and no error marker is
+  present. Only leg 2 improves the no-loop theta_0^G dev-other 18.34, by 0.45, missing the
+  registered >=0.5 bar by 0.05; the improvement is transient. At the matched first three
+  points it does not beat the frozen repaired scorer decisively, and by leg 6 it is
+  +4.49/+5.67 worse than its init. Unlike the D-track periodic failure, the late loss is
+  chiefly substitutions (4,110 at the best leg 2 -> 7,331 at leg 6), while insertions stay
+  near 4.3-4.5k. There is no same-init continuously trainable-scorer arm, so the D5(b)-b
+  contrast is qualitative only and cannot attribute this trajectory to within-leg freezing.
 
 **D6-PERIODIC/GAN+HOM — homophone-diversity SFT arm on the same bed (USER-directed
 2026-08-17).**
@@ -1412,6 +1440,19 @@ config, verified at source).**
   reference so it does not inflate the headline, but it is disclosed wherever recon is quoted);
   and the dump consumed psi_g_tc100 for its own reward columns while the swap job used the
   arm's refit, so both scorers must be named.
+  2026-08-20 (live loop prefix, planner-verified from concrete work directories; arm not
+  ended). Legs 1-3 read 14.84/19.99, 13.94/18.77 and 12.80/18.08 dev-clean/dev-other;
+  leg 4 exists and is pending for cluster maintenance, legs 5-8 remain dependency-unbuilt,
+  the manager is live, and no error marker is present. Against its own 16.67/21.45 init this
+  is a 3.87/3.37 gain by leg 3. Against plain D6-PERIODIC/GAN the hom-minus-plain deltas are
+  +0.39/+0.30, +1.09/+0.88 and -0.40/-0.12: it misses the old every-leg 0.3 condition at leg
+  2 but catches and slightly beats plain by leg 3. The class-internal dev-other substitutions
+  fall from 1,827 at init to 130, 110 and 105 in legs 1-3 (plain init: 293); total improvement
+  is substitution-led. This reverses the practical implication one might draw from the fixed-
+  dump scorer-entrenchment diagnostic: the deployed loop rapidly removes the augmentation's
+  spelling damage even though the refitted reconstruction scorer alone prefers it. The result
+  remains attributable mainly to the Qwen3 language-model prior and is provisional until the
+  registered midpoint/final reads exist.
 
 ## Acceptance gate v2
 
