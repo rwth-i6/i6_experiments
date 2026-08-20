@@ -1303,6 +1303,7 @@ function-word pairs rather than broad spelling diversity.
 | state-matched probe battery (approach 10; carries `items.json`) | `S/psi_align_jobs/PsiTextProbeJob.WBXWwmZIK7HY` (psi_g_tc100), `.4KpANAZV864A` (psi_g_seed), `.a8WsW4jjddcq` (gold_enc50), `.jQPGx36tCccz` (d2_rate), `.cMO136SC9uUu` (d2_contrast), `.rNCJA9Y987bY` (d2_both), `.lcbBuAIimK11` (d2_states) |
 | D2 steerable coverage vs T, per candidate | `S/scorer_diag/CoverageTemperatureJob.Ku9zNUNDK12D` |
 | D3 control arms (frozen `d2_contrast` psi) | `T/ReturnnTrainingJob.rJWSC5xOsrf2` (shaped), `.L6FwOOpffNL4` (recon) |
+| D6-PERIODIC/GAN-FROZEN schedule-only control | round-1 scorer `S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR`; policy legs `T/ReturnnTrainingJob.kr1foUV6lecx` (reused), `.JVfEDCPIPWkq`, `.o2GFVkZZPNRT`, `.fEvotypkqDao`, `.91wIJ5JpsdIW`, `.2p2hpz7nk5vd`, `.ZgRzUxDRhajE`, `.ycoJLypxisD7` |
 | D4 entry point | `config/sae_3e1_d4.py` |
 | D4 (b) selector affinity, 5 arms | `S/scorer_diag/RolloutMechanismJob.jYDxg98sWJIj` |
 | D4 (c) clause table, 7 finished arms | `S/gate_table/PsiGateClauseTableJob.x0d7dYpOdilI` |
@@ -1879,5 +1880,7 @@ the absolute beta, is what carries the contamination claim.
   the scorer-corpus and policy-optimizer-continuity confounds. The registered schedule-only control
   instead freezes periodic round 1's existing d_min=2 scorer
   `PsiAlignTrainJob.dsMKgPHQApyR` for all eight legs of the identical segmented graph. It changes
-  only scorer recency relative to D6-PERIODIC/GAN. No job or result exists yet; normative gate and
-  interpretation are in `PLAN_3E1.md` D6-PERIODIC/GAN-FROZEN.
+  only scorer recency relative to D6-PERIODIC/GAN. Executor update 2026-08-20: the isolated graph is
+  implemented; leg 1 resolves to the banked `ReturnnTrainingJob.kr1foUV6lecx`, all eight legs read
+  `PsiAlignTrainJob.dsMKgPHQApyR`, and no dump/pool/refit exists after round 1. No result exists yet;
+  normative gate and interpretation are in `PLAN_3E1.md` D6-PERIODIC/GAN-FROZEN.

@@ -118,6 +118,15 @@ spearman 0.170 against AR^G's +0.0020 / 0.0124 / 0.094.
 | pseudo-transcript dir (shared with the self-training control) | `TransformAndMapHuggingFaceDatasetJob.XqPlB1nRGHyK` |
 | gold tc100 dir the probe reads | `TransformAndMapHuggingFaceDatasetJob.nUHRlXQVM0H3` |
 | 10 h loop comparison arms | `T/ReturnnTrainingJob.MquKQUTRgZj9` (joint), `.qmkzvAX3gOVW` (frozen) |
+| 960 h packed-reader preflight, exact banked-hypothesis gate | `W/PackedWav2Vec2KenlmDecodeJob.mFKyL6x2Gc9o` -> `W/PackedDecodeAgreementJob.xEBbTHwTJScE` |
+| 860 h packed §1d decode; four shards per four-GPU node, merged with banked tc100 | `W/PackedWav2Vec2KenlmDecodeJob.4CPtPQPBEczq` |
+| theta_0^G960 one-pass AV SFT (waits for the full pseudo-text bed) | `T/ReturnnTrainingJob.1OALJ3Yaa9UL` |
+| one-generation theta_0 / theta_0^G teacher hypotheses | `S/scorer_diag/SearchOutHypsJob.qwcf5P0za2SI` / `.VSbqKSm4Bmyo` |
+| theta_0 fixed-§1d comparator (banked) / own-label continuation | `T/ReturnnTrainingJob.xChfzEkd4CGE` / `.aTR981EDGPZe` |
+| theta_0^G fixed-§1d comparator / own-label continuation | `T/ReturnnTrainingJob.sYvNhnEDQvli` / `.e4uDmyBdTlEG` |
+
+`W/` = `work/i6_experiments/users/wu/experiments/unsupervised_asr/w2vu2/word_decode/`,
+`S/` = `work/speech_llm/sae/`.
 
 ## Verifier feedback
 
@@ -138,6 +147,10 @@ rejects per-utterance FLAC staging. The implementer must add a separate packed-i
 leaving the legacy `Wav2Vec2KenlmDecodeJob` behavior and completed hashes unchanged; only the new
 960 h decode work receives new hashes. This avoids a 281,241-file tree at the reported
 3,584,516 / 4,000,000 project inode usage. The user also funds one
-own-label generation from theta_0 and theta_0^G with same-start §1d-label comparators; no result or
-conclusion exists yet.
+own-label generation from theta_0 and theta_0^G with same-start §1d-label comparators.
+Executor update 2026-08-20: the three funded chains are implemented as isolated Sisyphus graphs.
+The legacy decoder still resolves to `Wav2Vec2KenlmDecodeJob.AQw3EcUo6rks`; the new full decode is
+dependency-gated by an exact ordered-ID/hypothesis comparison on deterministic shard 0/96 and packs
+four shards into each four-GPU allocation. The theta_0 fixed-label comparator still resolves to the
+banked `ReturnnTrainingJob.xChfzEkd4CGE`. No experimental result or conclusion exists yet.
 Normative specification and gate: `PLAN.md` §3d.A.

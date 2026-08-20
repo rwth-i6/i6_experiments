@@ -34,6 +34,8 @@ from __future__ import annotations
 
 import os
 import re
+import json
+import struct
 import subprocess as sp
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -331,6 +333,222 @@ class Wav2Vec2KenlmDecodeJob(Job):
         with open(self.out_hyps.get_path(), "w") as f:
             json.dump(hyps, f, indent=2)
         print("word WER:", json.dumps(wers, indent=2), flush=True)
+
+
+class PackedWav2Vec2KenlmDecodeJob(Job):
+    """Decode HF/Ogg Arrow rows directly, packing four independent shards per GPU node.
+
+    The parent reads ``Audio(decode=False)`` and writes one transient framed file per worker.  Four
+    w2vu subprocesses then decode those files on the node's four GPUs.  This preserves the exact
+    §1d model/lexicon/LM search while avoiding both a 281k-file FLAC tree and the site's otherwise
+    wasteful one-GPU-per-exclusive-node routing.
+    """
+
+    requires_env = "w2vu"
+
+    def __init__(
+        self,
+        *,
+        hf_data_dir: tk.Path,
+        checkpoint: tk.Path,
+        dict_phn: tk.Path,
+        lexicon: tk.Path,
+        arpa: tk.Path,
+        banked_hyps: tk.Path,
+        row_start: int,
+        row_stop: int,
+        total_shards: int,
+        shard_ids: Optional[Sequence[int]] = None,
+        workers_per_task: int = 4,
+        prerequisite: Optional[tk.Path] = None,
+        expected_total_rows: int = 281_241,
+        beam: int = 500,
+        lm_weight: float = 2.0,
+        word_score: float = -1.0,
+        max_tokens: int = 1_100_000,
+        python_exe: tk.Path = W2VU_PYTHON,
+    ):
+        super().__init__()
+        self.hf_data_dir = hf_data_dir
+        self.checkpoint = checkpoint
+        self.dict_phn = dict_phn  # explicit provenance/hash pin; checkpoint embeds the same dictionary
+        self.lexicon = lexicon
+        self.arpa = arpa
+        self.banked_hyps = banked_hyps
+        self.row_start = row_start
+        self.row_stop = row_stop
+        self.total_shards = total_shards
+        self.shard_ids = list(range(total_shards)) if shard_ids is None else list(shard_ids)
+        self.workers_per_task = workers_per_task
+        self.prerequisite = prerequisite
+        self.expected_total_rows = expected_total_rows
+        self.beam = beam
+        self.lm_weight = lm_weight
+        self.word_score = word_score
+        self.max_tokens = max_tokens
+        self.python_exe = python_exe
+
+        if not (0 <= row_start < row_stop <= expected_total_rows):
+            raise ValueError((row_start, row_stop, expected_total_rows))
+        if len(set(self.shard_ids)) != len(self.shard_ids) or any(
+            not 0 <= s < total_shards for s in self.shard_ids
+        ):
+            raise ValueError(f"invalid shard ids {self.shard_ids} for {total_shards}")
+        if workers_per_task < 1 or workers_per_task > 4:
+            raise ValueError("workers_per_task must be in 1..4")
+
+        self.out_shards = {s: self.output_path(f"shard_{s:03d}.json") for s in self.shard_ids}
+        self.out_hyps = self.output_path("word_hyps.json")
+        self.rqmt = {
+            "gpu": workers_per_task,
+            "gpu_mem": 40,
+            "cpu": 8 * workers_per_task,
+            "mem": 112 * workers_per_task,
+            "time": 11.5,
+        }
+
+    def _groups(self):
+        return [self.shard_ids[i : i + self.workers_per_task] for i in range(0, len(self.shard_ids), self.workers_per_task)]
+
+    def tasks(self):
+        yield Task("decode", rqmt=self.rqmt, args=self._groups())
+        yield Task("collect", rqmt={"cpu": 2, "mem": 16, "time": 2})
+
+    def decode(self, *shards: int):
+        from datasets import Audio, load_from_disk
+
+        assert_w2vu_env(self.python_exe)
+        if self.prerequisite is not None:
+            with open(self.prerequisite.get_path()) as f:
+                assert json.load(f)["exact_match"], "packed-reader preflight did not pass"
+        visible = os.environ.get("CUDA_VISIBLE_DEVICES", "").split(",")
+        assert len(visible) >= len(shards), (visible, shards)
+
+        train = load_from_disk(self.hf_data_dir.get_path())["train"].cast_column("audio", Audio(decode=False))
+        assert len(train) == self.expected_total_rows, (len(train), self.expected_total_rows)
+        header = struct.Struct("<QQQ")
+        packed_paths = {}
+        handles = {}
+        try:
+            for shard in shards:
+                packed_paths[shard] = os.path.abspath(f"packed_{shard:03d}.bin")
+                handles[shard] = open(packed_paths[shard], "wb")
+            for row in range(self.row_start, self.row_stop):
+                shard = (row - self.row_start) % self.total_shards
+                if shard not in handles:
+                    continue
+                ex = train[row]
+                uid = str(ex["id"]).encode("utf-8")
+                encoded = ex["audio"]["bytes"]
+                assert encoded, f"row {row} {uid!r} has no packed audio bytes"
+                handles[shard].write(header.pack(row, len(uid), len(encoded)))
+                handles[shard].write(uid)
+                handles[shard].write(encoded)
+        finally:
+            for f in handles.values():
+                f.close()
+
+        worker = os.path.join(os.path.dirname(__file__), "packed_word_decode_worker.py")
+        procs = []
+        for local_rank, shard in enumerate(shards):
+            env = _torch_unsafe_load_env()
+            env["CUDA_VISIBLE_DEVICES"] = visible[local_rank]
+            cmd = [
+                os.fspath(self.python_exe), worker,
+                "--packed", packed_paths[shard],
+                "--output", self.out_shards[shard].get_path(),
+                "--checkpoint", self.checkpoint.get_path(),
+                "--lexicon", self.lexicon.get_path(),
+                "--arpa", self.arpa.get_path(),
+                "--beam", str(self.beam),
+                "--lm-weight", str(self.lm_weight),
+                "--word-score", str(self.word_score),
+                "--max-tokens", str(self.max_tokens),
+            ]
+            print("RUN:", " ".join(cmd), flush=True)
+            procs.append((shard, sp.Popen(cmd, env=env)))
+        try:
+            for shard, proc in procs:
+                code = proc.wait()
+                if code:
+                    raise sp.CalledProcessError(code, f"packed worker shard {shard}")
+        finally:
+            for path in packed_paths.values():
+                if os.path.exists(path):
+                    os.remove(path)
+
+    def collect(self):
+        banked = json.load(open(self.banked_hyps.get_path()))["train"]
+        rows = []
+        for shard in self.shard_ids:
+            with open(self.out_shards[shard].get_path()) as f:
+                rows.extend(json.load(f))
+        rows.sort(key=lambda x: x[0])
+        expected_rows = [
+            row for row in range(self.row_start, self.row_stop)
+            if (row - self.row_start) % self.total_shards in set(self.shard_ids)
+        ]
+        assert [r[0] for r in rows] == expected_rows, "packed decode row coverage/order mismatch"
+        assert len({r[1] for r in rows}) == len(rows), "duplicate packed decode utterance ids"
+
+        if self.row_start == len(banked) and self.row_stop == self.expected_total_rows and len(self.shard_ids) == self.total_shards:
+            merged = dict(banked)
+            for _row, uid, hyp in rows:
+                assert uid not in merged, f"duplicate banked/new id {uid}"
+                merged[uid] = hyp
+            assert len(merged) == self.expected_total_rows, (len(merged), self.expected_total_rows)
+            with open(self.out_hyps.get_path(), "w") as f:
+                json.dump({"train": merged}, f)
+        else:
+            with open(self.out_hyps.get_path(), "w") as f:
+                json.dump({"train": {uid: hyp for _row, uid, hyp in rows}}, f)
+
+
+class PackedDecodeAgreementJob(Job):
+    """Fail-closed tc100 input-path check against the banked legacy decoder."""
+
+    def __init__(self, *, packed_shard: tk.Path, banked_hyps: tk.Path, total_shards: int, shard: int):
+        super().__init__()
+        self.packed_shard = packed_shard
+        self.banked_hyps = banked_hyps
+        self.total_shards = total_shards
+        self.shard = shard
+        self.out_report = self.output_path("agreement.json")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        packed = json.load(open(self.packed_shard.get_path()))["train"]
+        banked = json.load(open(self.banked_hyps.get_path()))["train"]
+        report = packed_decode_agreement(
+            packed=packed, banked=banked, total_shards=self.total_shards, shard=self.shard
+        )
+        with open(self.out_report.get_path(), "w") as f:
+            json.dump(report, f, indent=2)
+        if not report["exact_match"]:
+            raise AssertionError(f"packed reader disagrees with banked decoder: {report}")
+
+
+def packed_decode_agreement(*, packed, banked, total_shards: int, shard: int) -> dict:
+    """Ordered coverage and exact-hypothesis comparison used by the fail-closed preflight."""
+    if not (0 <= shard < total_shards):
+        raise ValueError((shard, total_shards))
+    expected_ids = list(banked)[shard::total_shards]
+    got_ids = list(packed)
+    ordered_coverage = got_ids == expected_ids
+    mismatch = [uid for uid in expected_ids if packed.get(uid) != banked[uid]]
+    return {
+        "total_shards": total_shards,
+        "shard": shard,
+        "expected": len(expected_ids),
+        "decoded": len(got_ids),
+        "ordered_coverage": ordered_coverage,
+        "hypothesis_matches": len(expected_ids) - len(mismatch),
+        "hypothesis_mismatches": len(mismatch),
+        "mismatch_examples": mismatch[:20],
+        "exact_match": ordered_coverage and not mismatch,
+    }
 
 
 def _shard_manifest(data: str, split: str, shard: int, num_shards: int) -> None:
