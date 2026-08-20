@@ -2507,6 +2507,7 @@ class TrainStepBenchmarkJob(Job):
             "packed_aot_eager",
             "packed_eager_bound",
             "packed_graphc",
+            "packed_jax",
         )
         assert (returnn_config is None) != (returnn_config_file is None), "specify exactly one config source"
         self.returnn_config_file = returnn_config_file
@@ -2529,6 +2530,7 @@ class TrainStepBenchmarkJob(Job):
         yield Task("run", rqmt=self.rqmt, resume="run")
 
     _mode_overrides = {
+        "packed_jax": "",
         "padded_eager": "packed_tensors = None\ntorch_cuda_graph = None\n",
         "packed_eager": "torch_cuda_graph = None\n",
         "packed_compiled": "torch_cuda_graph = dict(torch_cuda_graph, capture=False, compile=True)\n",
