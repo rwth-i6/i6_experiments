@@ -341,6 +341,14 @@ def py(checkpoints: Dict):
                 else None,
                 recog_variants=[
                     {
+                        "recog_name": "recon_audio",
+                        "input_modality": "audio",
+                        "output_modality": "audio",
+                        "mask_input": True,
+                        "masking_opts": copy.deepcopy(base_config["train_args"]["audio_masking_opts"]),
+                        "keep_epochs": get_keep_epochs(base_num_epochs),
+                    },
+                    {
                         "recog_name": "recon_text",
                         "input_modality": "text",
                         "output_modality": "text",

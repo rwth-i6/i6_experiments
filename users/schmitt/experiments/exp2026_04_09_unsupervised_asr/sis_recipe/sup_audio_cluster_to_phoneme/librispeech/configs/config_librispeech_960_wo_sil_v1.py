@@ -43,6 +43,37 @@ def py():
             "input_modality": "audio",
             "test_data_dict": test_data_dict_wo_sil,
         },
+        cross_att_opts={
+            "checkpoints": get_keep_epochs(base_num_epochs),
+            "input_modality": "audio",
+            "output_modality": "text",
+            "max_plotted_seqs": 20,
+        },
+        score_data_dict=test_data_dict_wo_sil,
+    )
+
+    run_experiment(
+        training_name=f"{prefix_name}/baseline_w_ctc",
+        config=dict_update_deep(
+            copy.deepcopy(base_config),
+            {
+                "model_args.text_aux_loss_layers": (3,),
+                "train_args.aux_loss_scales": (1.0,),
+            },
+        ),
+        train_data=train_data,
+        test_data_dict=test_data_dict,
+        keep_epochs=get_keep_epochs(base_num_epochs),
+        skip_eval=False,
+        # conditional (audio->phoneme) perplexity of the AED model on the last checkpoint, scored on
+        # the wo-silence reference (matching this wo-sil model) via a separate PPL dataset; recognition
+        # keeps the with-silence test_data_dict. Both expose audio + text (paired MetaDataset).
+        ppl_opts={
+            "checkpoints": [base_num_epochs],
+            "input_modality": "audio",
+            "test_data_dict": test_data_dict_wo_sil,
+        },
+        score_data_dict=test_data_dict_wo_sil,
     )
 
     run_experiment(
