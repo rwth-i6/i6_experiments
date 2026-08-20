@@ -125,3 +125,17 @@ spearman 0.170 against AR^G's +0.0020 / 0.0124 / 0.094.
 (`SAE_2S.md` approach 15): "worse than random" is not resolvable at n=128 (CI [-0.202, +0.096]), and
 the incumbent's +0.2246 anchor was measured on the 10 h seed bed — theta_0's own training data, oracle
 WER 0.0316 — so it is not this arm's comparator. Folded into conclusions 5-6.
+
+**2026-08-20.** An exhaustive config, alias, work-directory and history audit confirms that no
+GAN-init AV SFT on 960 h pseudo-text has run. Theta_0^G (`ReturnnTrainingJob.2fb02hGUdHNj`) uses
+the 28,539 train-clean-100 hypotheses in `TransformAndMapHuggingFaceDatasetJob.XqPlB1nRGHyK`;
+the plain theta_0^G 960 h arms import that checkpoint, while GAN+HOM imports another
+train-clean-100-derived pseudo-SFT. In every case 960 h is only the later unlabeled loop bed.
+`TransformAndMapHuggingFaceDatasetJob.1c6JQRMlzCyy` provides reusable HF/Ogg Arrow audio for
+281,241 utterances, but neither full pseudo-text nor the FLAC+manifest layout consumed by the word
+decoder exists. The missing scale arm therefore requires scratch-resident or packed/sharded audio
+staging plus §1d-student word decoding of the remaining 860 h before SFT; a per-utterance project
+tree is unsafe at the reported 3,584,516 / 4,000,000 project inode usage. The user also funds one
+own-label generation from theta_0 and theta_0^G with same-start §1d-label comparators; no result or
+conclusion exists yet.
+Normative specification and gate: `PLAN.md` §3d.A.

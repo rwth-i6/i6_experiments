@@ -965,9 +965,9 @@ config, verified at source).**
   + LM score. Every gold read (per-leg WER, any CE_true/allegiance forensics) reports
   and can never gate, select, or kill. (iv) Attribution, fixed before any read: against
   the held shaped arm the contrast carries scorer topology AND recency TOGETHER (no
-  G-track arm ever froze a d_min=2 scorer) — a win belongs to the refresh package;
-  separating recency from topology needs a frozen-d_min=2 comparator arm, unfunded, the
-  user's call.
+  G-track arm ever froze a d_min=2 scorer) — a win belongs to the refresh package. The
+  topology- and schedule-matched frozen control registered below now separates scorer recency
+  from that package.
 - Arm read (pre-registered; planner constants, user may override): PRIMARY — some leg's
   unsupervised-selected checkpoint clears theta_0^G's 18.34 dev-other by >= 0.5 abs (the
   level the held shaped arm never cleared), and from leg 2 on the trajectory sits below
@@ -1018,6 +1018,34 @@ config, verified at source).**
   D6 introduced the minimum-duration topology on 2026-08-11 after the structural insertion-price
   diagnosis, and the later standing d_min=2 rule applied to new refits rather than retroactively
   rebuilding D2/D3. Scorer topology is therefore the main scientific confound in this comparison.
+
+**D6-PERIODIC/GAN-FROZEN — topology- and schedule-matched frozen control (USER-directed
+2026-08-20).**
+- Purpose: isolate the value of refreshing the scorer after round 1. Rebuilding the historical
+  D2/D3 frozen scorer with `d_min=2` would remove only the topology mismatch while retaining a
+  different scorer corpus and one continuous policy-training job, so it would not answer the
+  schedule question completely.
+- Approach: start from the exact theta_0^G checkpoint and freeze the existing periodic arm's
+  exact round-1 scorer, `PsiAlignTrainJob.dsMKgPHQApyR`, for all eight legs. Reuse the
+  D6-PERIODIC/GAN segmented policy graph verbatim: the same 960 h round-robin shard at each leg,
+  shaped reward and T=0.7, cosine epoch offsets, batching, checkpoint imports and fresh Adam
+  state per leg. There are no scorer dumps or refits after round 1. Thus scorer recency is the
+  only experimental difference from D6-PERIODIC/GAN.
+- Experiments: verify leg 1 reproduces the periodic arm, then compare frozen and periodic policy
+  checkpoints at every matched leg through leg 8. Plain dev-clean/dev-other WER is primary;
+  substitution/deletion/insertion counts explain any separation but do not select checkpoints.
+- Gate: this control does not change the periodic arm's absolute gate. A durable/actionable recency
+  benefit requires periodic leg 8 to beat frozen leg 8 on both dev-clean and dev-other.
+  Intermediate matched-leg deltas may establish a transient effect at those operating points but do
+  not select an endpoint or license continued refresh; a one-leg crossing is inconclusive as a
+  durable benefit.
+  A split trade-off or a frozen final-leg win means scorer refresh has no established durable
+  benefit here. The historical D3 comparison remains evidence for scorer repair as a package, not
+  for recency.
+- Status: REGISTERED AND FUNDED 2026-08-20 by the user; implementation and launch are pending.
+  Leg 1 should resolve to the existing periodic job rather than consume a duplicate run; legs 2-8
+  are the new branch. It is independent of the unfinished periodic trajectory and may run in
+  parallel.
 
 **D6-PERIODIC/GAN+HOM — homophone-diversity SFT arm on the same bed (USER-directed
 2026-08-17).**

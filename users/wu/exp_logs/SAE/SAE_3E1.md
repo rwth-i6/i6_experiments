@@ -1875,3 +1875,9 @@ the absolute beta, is what carries the contamination claim.
   Therefore d_min=1 has no empirical superiority claim over d_min=2 here, and topology is the main
   scientific confound in the frozen-versus-periodic WER comparison; corpus and Adam continuity
   remain additional confounds.
+- 2026-08-20 (matched control funded by the user): merely rebuilding D2/D3 with d_min=2 would leave
+  the scorer-corpus and policy-optimizer-continuity confounds. The registered schedule-only control
+  instead freezes periodic round 1's existing d_min=2 scorer
+  `PsiAlignTrainJob.dsMKgPHQApyR` for all eight legs of the identical segmented graph. It changes
+  only scorer recency relative to D6-PERIODIC/GAN. No job or result exists yet; normative gate and
+  interpretation are in `PLAN_3E1.md` D6-PERIODIC/GAN-FROZEN.

@@ -39,7 +39,7 @@ z_hat = argmax_z p_LM(z) * p_AR(u | G2P(z)).
   audio–text; Qwen3's pretraining almost surely contains the Gutenberg books underlying
   LibriSpeech — disclosed, controlled (§4), never hidden.
 
-## Status & priority queue (current read 2026-08-19)
+## Status & priority queue (current read 2026-08-20)
 
 **Where we are.** psi_align (§3a, `PLAN_3A.md`) is the adopted reconstruction scorer — frozen in
 all live arms (sha-verified, `SAE_3A.md` §6.10). Current results, all label-free-selected:
@@ -52,11 +52,14 @@ all live arms (sha-verified, `SAE_3A.md` §6.10). Current results, all label-fre
   term (the topology prices length natively). `recon` turns at ep2: off-seed the LM prior is the
   difference between converging and turning, and its share grows with bed size — lam values are
   per-bed, never carried over.
-- **G-track 960 h: both arms HELD at sub-ep4** (§6.7/§6.10): `recon` diverges via an *inherited*
+- **G-track (train-clean-100 pseudo-SFT init; 960 h loop bed): both arms HELD at sub-ep4**
+  (§6.7/§6.10): `recon` diverges via an *inherited*
   filler token (init and scorer share the §1d pseudo-text — correlated errors are rewarded, not
   caught); `shaped` plateaus at init then slips. The suspected fix — outer scorer re-estimation
   between passes — is RUNNING since 2026-08-17 as D6-PERIODIC/GAN (`PLAN_3E1.md`; gate deleted by
-  the user's label-hygiene ruling, so the arm reads as a trajectory).
+  the user's label-hygiene ruling, so the arm reads as a trajectory). USER 2026-08-20: the exact
+  schedule-matched control that freezes periodic round 1's own `d_min=2` scorer is FUNDED; this,
+  rather than rebuilding historical D3 alone, isolates scorer recency.
 - **960 h supervision-axis arm RUNNING**: theta_0 init + gold scorer + all 960 h audio, shaped
   only, 3 passes (`ReturnnTrainingJob.22Ntu7y0O6iW`, ~5.5 h/sub-epoch, ~7 days). Separates
   "more audio" from "contaminated bootstrap".
@@ -70,7 +73,7 @@ all live arms (sha-verified, `SAE_3A.md` §6.10). Current results, all label-fre
 - Reward hygiene: the LM-prior per-token mean pays for length (§6.6) — `lm_prior_norm="units"`
   is the standing fix; `len_eps` 0.4 leaves a 49 % free band if the hinge is ever load-bearing.
 
-**Priority queue (current revision, 2026-08-19):**
+**Priority queue (current revision, 2026-08-20):**
 1. **960 h 3-pass read** — the supervision axis at fixed audio/target/schedule.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
@@ -160,6 +163,9 @@ all live arms (sha-verified, `SAE_3A.md` §6.10). Current results, all label-fre
    does NOT proceed and is superseded by this arm), plus a **homophone-diversity SFT
    arm** on the same bed as the one-argument A/B against it (specs, ratifications and
    pre-registered reads in `PLAN_3E1.md` D6-PERIODIC/GAN and /GAN+HOM).
+   USER 2026-08-20: NEXT PARALLEL CONTROL — build and launch
+   D6-PERIODIC/GAN-FROZEN with periodic round 1's exact `d_min=2` scorer and segmented
+   policy graph; it is the funded scorer-recency test and does not wait for periodic to finish.
    USER 2026-08-17: 1f fork resolved — entry 5 (ESPUM statistics-matching init) FUNDED
    as one contained simplicity-constrained batch; spec pre-registered in `PLAN_1F.md`;
    BPE-level ESPUM registered as conditional follow-up on a phone-level pass.
@@ -188,7 +194,9 @@ all live arms (sha-verified, `SAE_3A.md` §6.10). Current results, all label-fre
    statistic/lam/bed-dependent; pass proposed for theta0-bed lam=1 only, no lam=0.3, no G-track).
    theta_0' re-SFT alone beats every stock-theta_0 loop result. Open: donor-axis loop reads when
    `_lbslm` arms finish; §2a-rescorer and lam_1/lam_2 recalibration deferred until then.
-4. **G-track round-2 self-training** (AV^G decodes → AV^G2, ~2.5 h): the §3d operator baseline.
+4. **Pseudo-label scale and one-generation self-training (§3d.A; USER 2026-08-20)**: build the
+   missing full-960 h §1d-pseudo-label AV start, and run one own-label continuation from each of
+   theta_0 and theta_0^G against matched fixed-label controls. No open-ended relabeling loop.
 5. **PLAN_3A matrix wrap-up**: M4 contingency call; collapse the sub-plan when closed.
 6. **§1e §2.5(d)+usage gates on the ep50 pins** — the §3d init upgrade path.
 7. **G2P-equivalence ceiling** on existing rollouts.jsonl (CPU): phone-reachable vs
@@ -654,8 +662,8 @@ init.
 **Approach.** §0c recipe on (audio → pseudo-transcript) pairs, LoRA-A; AV-U twin with LoRA-A'.
 **Experiments.** The two SFTs; pending on Rung 1.
 **Gate.** Rung 2 ≤ Rung 1 + 1 abs AND dev insertion rate ≤ 1.5× the teacher's.
-**Status: PENDING** — the G-track AV^G (13.89/18.34 from §1d labels at 960 h) is evidence the
-distillation step itself works.
+**Status: PENDING** — the G-track AV^G (13.89/18.34 from 28,539 train-clean-100 utterances with
+§1d pseudo-labels; its later loop bed is 960 h) is evidence the distillation step itself works.
 
 ### 2c. AR SFT
 
@@ -750,17 +758,19 @@ ar_ce, so supervision enters via AV).
 survives as the artifact-backed 2S bar (§6.8). Replay anchors to a good seed — the wrong anchor
 for the bad-init regime (§3e.1); admissible in the 2S arm only.
 
-### 3d. G-track — GAN-init fully-unsupervised 960 h track
+### 3d. G-track — GAN-init label-free track (train-clean-100 SFT init; 960 h loop bed)
 
 **Purpose.** The operator question: does the autoencoder loop beat plain self-training as the
 refinement operator, from the same label-free init?
-**Approach.** Init = SFT on §1d-student pseudo-labels under the **init-only carve-out** (AV:
-audio→pseudo-text; scorer conditioning only — targets stay audio-derived units). Arms: (1) real
+**Approach.** Init = ten-pass SFT on §1d-student pseudo-labels for the 28,539 train-clean-100
+utterances under the **init-only carve-out** (AV: audio→pseudo-text; scorer conditioning only —
+targets stay audio-derived units). The existing theta_0^G is not a 960 h pseudo-label SFT; 960 h
+enters only as the later unlabeled loop bed. Arms: (1) real
 reward, (2) shuffled reward (= iterated pseudo-labeling, the built-in pivot result), (3) no-loop
 baselines; (1)−(2) = reward contribution, (2)−(3) = distillation contribution. Init hierarchy:
 §1e (goal) → GAN/§1d (working fallback) → 10 h seed (2S only).
 **Experiments.** AV^G and psi_align^G built and gated; both 960 h loop arms ran to sub-ep4;
-round-2 self-training (AV^G2) is queue 4 — the operator baseline either way.
+the missing full-960 h pseudo-SFT and one-generation own-label controls are §3d.A / queue 4.
 **Gate.** §2.5(d) at the init before loop compute (passed under psi_align^G; the earlier AR_G
 attempt declined funding on the same read).
 **Status: both loop arms HELD at sub-ep4** (§6.7/§6.10) — `recon` diverges through an
@@ -773,6 +783,69 @@ gated on the §3e.1 rule — deferred, user's call.
 acceptance-gate clause is DELETED on this track by the user's label-hygiene ruling — a gold-read
 gate selects what trains the next leg, and no annotation may train or select here). The
 homophone-diversity SFT arm rides the same bed as its one-argument A/B.
+
+#### 3d.A. Pseudo-label scale and one-generation self-training (USER-directed 2026-08-20)
+
+**Purpose.** Answer two separate questions: whether pseudo-labeling all 960 h gives a better
+label-free AV starting point than the existing 100 h start, and whether one fresh generation of a
+model's own labels improves either the 10 h supervised init or GAN-init beyond simply continuing
+on the §1d teacher's labels. The scale arm is a practical matched-exposure comparison, not a pure
+data-volume ablation: unique coverage, clean/other domain mix and out-of-sample pseudo-label quality
+all change together.
+
+**Approach.** For the scale arm, retain the banked §1d word hypotheses for all 28,539
+train-clean-100 utterances and decode train-clean-360 plus train-other-500 with the exact same frozen
+§1d CTC student, lexicon, word LM and decoder configuration. Merge to the exact 281,241-utterance
+960 h bed; every training transcript must be pseudo-text, never the audio bed's gold/blank text.
+The completed HF/Ogg Arrow bed is only the audio source, not the FLAC+manifest input expected by the
+word decoder. Stage the decoder input directly under `/e/scratch/spell` or add a packed/sharded
+reader; do not create a 281,241-file utterance tree under `/e/project1/spell`.
+Train theta_0^G960 from scratch with the theta_0^G AV recipe and approximately matched exposure:
+one 960 h corpus pass, partitioned into ten sub-epochs, versus ten 100 h passes for theta_0^G; walk
+the same learning-rate curve by optimizer update, not by nominal corpus epoch.
+
+For one-generation self-training, freeze theta_0 at ep50 and theta_0^G at ep10 as two teachers.
+Here “10 h” means theta_0 itself, the paired 10 h AV SFT, rather than the later xCh self-training
+checkpoint.
+Each generates hard labels for all train-clean-100 audio with the project's canonical AV beam-4
+decoder. Continue its own checkpoint with the same four-epoch CE recipe already used by the
+theta_0 self-training control. Read the theta_0 own-label arm against the existing matched
+comparator `ReturnnTrainingJob.xChfzEkd4CGE`, which starts from theta_0 and trains on fixed §1d
+teacher labels. Add the corresponding theta_0^G continuation on its original §1d labels so the
+theta_0^G own-label arm changes targets only. Keep
+the current augmentation, label smoothing, batching and learning-rate schedule fixed; no confidence
+filter or threshold sweep in this first diagnostic.
+
+Iterative pseudo-labeling is established ASR practice: [IPL](https://arxiv.org/abs/2005.09267)
+uses repeated LM-assisted decoding plus augmented student training, and
+[Noisy Student](https://arxiv.org/abs/2005.09629) likewise separates a clean teacher from an
+augmented student. The concern about a peaky fixed point is real: cache-free online relabeling can
+collapse to empty transcripts in [slimIPL](https://arxiv.org/abs/2010.11524), while wav2vec-U's
+same-model fine-tune→fine-tune step was essentially flat (12.1→12.0 PER) and attributed to
+overfitting ([§6.5](https://arxiv.org/abs/2105.11084)). Therefore this plan funds one new label
+generation with matched controls, not an automatic multi-round loop.
+
+**Experiments.** (A) theta_0^G960 at the fixed final sub-epoch versus theta_0^G's 13.89/18.34
+dev-clean/dev-other anchor. (B) theta_0-own-label and theta_0^G-own-label continuations versus their
+same-start §1d-label comparators at every epoch and at the fixed final epoch. Report plain WER and
+S/D/I, pseudo-label coverage/empty rate, old-versus-new transcript edit rate, length/token
+distribution, and the inherited `to` rate. Training loss or confidence is diagnostic only.
+
+**Gate.** Call theta_0^G960 a better AV start only if its fixed final checkpoint improves both dev
+splits over theta_0^G; a split trade-off is reported but does not replace the start. Call fresh-label
+self-training useful only if its fixed final checkpoint beats both its teacher start and its
+same-start §1d-label comparator on both dev splits. Lower loss or sharper confidence without a
+WER gain is self-confirmation, not progress. A further generation is not authorized by this plan;
+it becomes a new decision only after a fresh-label arm passes this gate.
+
+**Status.** REGISTERED AND FUNDED 2026-08-20. No 960 h pseudo-text artifact or 960 h GAN-init SFT
+currently exists; the completed 960 h audio bed is reusable as a staging source. The two teacher
+decodes, the 960 h §1d-student decode and D6-PERIODIC/GAN-FROZEN are independent and may run in
+parallel; each student waits only for its own labels. The banked tc100 throughput projects about 261
+single-GPU task-hours for the 252,702 new utterances. Current exclusive-node routing would turn that
+into about 261 four-GPU node-hours (about 1,046 allocated-GPU-hours), so pack four shards per node or
+use nonexclusive routing rather than silently paying that allocation. Implementation and launch
+belong to the executor.
 
 ### 3e. Reward and update protocol
 
