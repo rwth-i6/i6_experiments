@@ -156,6 +156,7 @@ def train_step(
     model.eos_idx = model.text_eos_idx
     model.embedding = model.text_embedding
     model.decoder = model.text_decoder
+    model.blank_idx = model.text_blank_idx
     aed_denoising_discrete.train_step(
         model=model,
         extern_data=TensorDict(
@@ -188,6 +189,7 @@ def train_step(
     model.eos_idx = model.audio_eos_idx
     model.embedding = model.audio_embedding
     model.decoder = model.audio_decoder
+    model.blank_idx = model.audio_blank_idx
     aed_denoising_discrete.train_step(
         model=model,
         extern_data=TensorDict({"data": audio_indices_, "seq_tag": extern_data["seq_tag"]}),
