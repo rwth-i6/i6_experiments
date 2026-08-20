@@ -56,6 +56,22 @@ half the 512 utterances and scored on the other half.
 Same-bed, same-n, same-G reward columns at T=0.7, G=12: theta_0 gap_true +0.0124 / reward std 0.0324 /
 spearman 0.170 against AR^G's +0.0020 / 0.0124 / 0.094.
 
+**4. One-generation iterative self-training on train-clean-100.** Each start produced a fresh
+beam-4 pseudo-transcript for all 28,539 training utterances, then continued for exactly four epochs
+on either that own-label generation or the fixed §1d labels. Evaluation is corpus WER on all 2,703
+dev-clean and 2,864 dev-other utterances. The table reports the fixed epoch-4 endpoint, with no
+dev-set checkpoint selection.
+
+| start | start WER | fixed-§1d labels, ep4 | own labels, ep4 | own minus fixed |
+|---|---:|---:|---:|---:|
+| theta_0 (10 h paired) | 16.91 / 20.64 | **13.05 / 17.74** | 15.87 / 20.26 | +2.82 / +2.52 |
+| theta_0^G (GAN init) | **13.89 / 18.34** | 13.81 / 18.13 | 15.19 / 19.24 | +1.38 / +1.11 |
+
+The own-label files have exact 28,539-ID coverage and zero empty hypotheses. Relative to the fixed
+§1d pseudo-labels (not to gold transcripts), theta_0 changes 97.63% of utterances at 28.28% word
+edit rate; theta_0^G changes 93.70% at 15.81% word edit rate. Thus the negative result is not caused
+by accidentally copying the fixed labels.
+
 ## Conclusion
 
 1. (1) **AV^G is the project's best label-free ASR**: it beats the §1d student that taught it by ~4
@@ -96,6 +112,7 @@ spearman 0.170 against AR^G's +0.0020 / 0.0124 / 0.094.
    point but slips to 13.54/18.56 one sub-epoch later. This establishes no durable GAN-init loop gain.
    The other half of §3d's operator question remains unanswered until the §3d.A same-start own-label
    and fixed-§1d-label continuations produce fixed-endpoint WER.
+   **WRONG after §3d.A completed:** that final sentence is now stale; conclusion 10 gives the answer.
 8. The comparison §3d asks for *has* been run at 10 h from a paired init, and the loop won: last-epoch,
    no dev-WER checkpoint picking, GRPO joint-AR ep4 13.15 / **16.13** on 2849 utterances against the
    self-training control's 13.05 / 17.74 on 28,539, with the shuffled control (202.54 / 207.59 at ep1)
@@ -106,6 +123,12 @@ spearman 0.170 against AR^G's +0.0020 / 0.0124 / 0.094.
    the *reward* does not survive replacing the paired seed with a label-free init.
 9. The operator that produced conclusion 1 — the project's best label-free ASR — is plain pseudo-label
    self-training, no loop.
+10. (4) **One-generation own-label self-training fails the same-start comparison for both starts.**
+    At the fixed epoch-4 endpoint, theta_0's own labels are 2.82 / 2.52 WER worse than fixed §1d
+    labels. For theta_0^G they are 1.38 / 1.11 worse and also 1.30 / 0.90 worse than the teacher
+    start itself. Theta_0's own-label run improves on its start by 1.04 / 0.38, but most of the useful
+    gain still comes from retaining the external §1d labels. The preregistered criterion required an
+    own-label win over both anchors on both dev splits, so no second generation is warranted.
 
 ## Catalog
 
@@ -124,8 +147,11 @@ spearman 0.170 against AR^G's +0.0020 / 0.0124 / 0.094.
 | 860 h packed §1d decode; four shards per four-GPU node, merged with banked tc100 | `W/PackedWav2Vec2KenlmDecodeJob.4CPtPQPBEczq` |
 | theta_0^G960 one-pass AV SFT (waits for the full pseudo-text bed) | `T/ReturnnTrainingJob.1OALJ3Yaa9UL` |
 | one-generation theta_0 / theta_0^G teacher hypotheses | `S/scorer_diag/SearchOutHypsJob.qwcf5P0za2SI` / `.VSbqKSm4Bmyo` |
+| one-generation pseudo-label diagnostics | `S/selftrain/PseudoLabelDiagnosticsJob.Cixv9XXsMwQz` / `.MumIuNoveFvq` |
 | theta_0 fixed-§1d comparator (banked) / own-label continuation | `T/ReturnnTrainingJob.xChfzEkd4CGE` / `.aTR981EDGPZe` |
 | theta_0^G fixed-§1d comparator / own-label continuation | `T/ReturnnTrainingJob.sYvNhnEDQvli` / `.e4uDmyBdTlEG` |
+| epoch-4 WER scorers, theta_0 fixed / own | `work/i6_core/recognition/scoring/ScliteJob.gN9U1SXNomnD`, `.vczyFFxliz4X` / `.OkZQ1bc87Jhi`, `.Hcb0d1OBuMXc` |
+| epoch-4 WER scorers, theta_0^G fixed / own | `work/i6_core/recognition/scoring/ScliteJob.gJCk8XigFAux`, `.GnqbfR2a4QXw` / `.odINoSBb3YIS`, `.3i1nk9ppbhb1` |
 
 `W/` = `work/i6_experiments/users/wu/experiments/unsupervised_asr/w2vu2/word_decode/`,
 `S/` = `work/speech_llm/sae/`.
@@ -139,25 +165,11 @@ WER 0.0316 — so it is not this arm's comparator. Folded into conclusions 5-6.
 
 **2026-08-20.** Audit confirms that no GAN-init AV SFT on 960 h pseudo-text had previously run: the
 plain 960 h loop arms import the 28,539-utterance tc100 theta_0^G checkpoint, while GAN+HOM imports a
-different tc100-derived pseudo-SFT. The new isolated graphs pass source and graph verification. The
-packed path preserves the legacy `Wav2Vec2KenlmDecodeJob.AQw3EcUo6rks` hash, reads the existing
-HF/Ogg bytes directly, creates no per-utterance FLAC tree, and co-locates four of 96 shards per
-four-GPU node. The real source has 281,241 unique IDs and begins with the exact banked 28,539 tc100
-IDs in the same order. Runtime validity required `PackedDecodeAgreementJob.xEBbTHwTJScE` to report
-exact hypothesis agreement before the full decode's 281,241-ID coverage check could run. The
-one-generation graph pins theta_0 ep50 and theta_0^G ep10,
-and its four same-start arms differ within each pair only by pseudo-text targets; the banked theta_0
-comparator remains `ReturnnTrainingJob.xChfzEkd4CGE`, and no later generation is wired. Jobs are
-submitted but no self-training result exists yet. At 15:21 CEST the packed-reader decode
-`PackedWav2Vec2KenlmDecodeJob.mFKyL6x2Gc9o` finished with exact ordered coverage, but its fail-closed
-agreement job `.xEBbTHwTJScE` reports only 289/298 matches and nine substantive transcript
-differences (`exact_match=false`). The full packed decode and 960 h SFT correctly remain waiting;
-the root cause is not established and the gate must not be waived. The separate one-generation
-graph has no error: `ReturnnTrainingJob.sYvNhnEDQvli` is running, teacher shards are partly
-finished/partly running, and the own-label continuations wait on their teacher outputs. At 15:37 CEST
-the effective workspace setting is `JOB_AUTO_CLEANUP=True` and the graph manager is running again,
-so released downstream jobs can submit. This read is now the first
-GAN-branch decision before any new scorer/reward mechanism: a fresh-label win over both the teacher
-start and same-start fixed-label continuation on both dev splits supports considering another
-generation; a fixed-label-only win is extra CE optimization rather than iterative self-training.
-Normative specification and gate: `PLAN.md` §3d.A.
+different tc100-derived pseudo-SFT. The isolated one-generation graph pins theta_0 ep50 and theta_0^G
+ep10; its four same-start arms differ within each pair only by pseudo-text targets; the banked theta_0
+comparator remains `ReturnnTrainingJob.xChfzEkd4CGE`; and no later generation is wired. That graph
+has now completed with exact pseudo-label coverage and all fixed-endpoint WER artifacts; approach 4
+and conclusion 10 record its failed fresh-label gate. Separately, the original packed-reader
+equivalence attempt is invalid evidence: `PackedDecodeAgreementJob.xEBbTHwTJScE` matched only
+289/298 hypotheses. Do not waive exact decoder equivalence for the distinct 960 h arm. Normative
+specification and gate: `PLAN.md` §3d.A.
