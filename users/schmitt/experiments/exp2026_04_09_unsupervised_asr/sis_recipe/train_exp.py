@@ -377,13 +377,17 @@ def run_experiment(
         )
 
     if cross_att_opts is not None:
+        cross_att_opts = dict(cross_att_opts)
+        cross_att_test_data_dict = cross_att_opts.pop("test_data_dict", None)
         run_cross_att_analysis(
             training_name=training_name,
             train_job=train_job,
             train_args=train_args,
             config=copy.deepcopy(config),
             train_data=train_data,
-            test_data_dict=test_data_dict if score_data_dict is None else score_data_dict,
+            test_data_dict=cross_att_test_data_dict
+            if cross_att_test_data_dict is not None
+            else (test_data_dict if score_data_dict is None else score_data_dict),
             **cross_att_opts,
         )
 
