@@ -367,7 +367,7 @@ class PackedWav2Vec2KenlmDecodeJob(Job):
         word_score: float = -1.0,
         max_tokens: int = 1_100_000,
         python_exe: tk.Path = W2VU_PYTHON,
-        implementation_revision: str = "hf-ogg-pcm16-reconstruction-v2",
+        implementation_revision: str = "hf-audio-in-memory-flac-v3",
     ):
         super().__init__()
         self.hf_data_dir = hf_data_dir
@@ -417,7 +417,12 @@ class PackedWav2Vec2KenlmDecodeJob(Job):
         yield Task("collect", rqmt={"cpu": 2, "mem": 16, "time": 2})
 
     def decode(self, *shards: int):
+        import numpy as np
         from datasets import Audio, load_from_disk
+
+        from i6_experiments.users.wu.experiments.unsupervised_asr.w2vu2.packed_audio import (
+            legacy_flac_bytes,
+        )
 
         assert_w2vu_env(self.python_exe)
         if self.prerequisite is not None:
@@ -426,7 +431,13 @@ class PackedWav2Vec2KenlmDecodeJob(Job):
         visible = os.environ.get("CUDA_VISIBLE_DEVICES", "").split(",")
         assert len(visible) >= len(shards), (visible, shards)
 
-        train = load_from_disk(self.hf_data_dir.get_path())["train"].cast_column("audio", Audio(decode=False))
+        # Match LibriStAudioJob's waveform boundary exactly. Reading raw Ogg bytes in the w2vu
+        # child changes a few half-LSB samples relative to Hugging Face Audio and has been observed
+        # to flip tied beam decisions. The FLAC representation below exists only as one in-memory
+        # record inside the framed shard; no per-utterance tree is staged.
+        train = load_from_disk(self.hf_data_dir.get_path())["train"].cast_column(
+            "audio", Audio(sampling_rate=16_000)
+        )
         assert len(train) == self.expected_total_rows, (len(train), self.expected_total_rows)
         header = struct.Struct("<QQQ")
         packed_paths = {}
@@ -441,8 +452,10 @@ class PackedWav2Vec2KenlmDecodeJob(Job):
                     continue
                 ex = train[row]
                 uid = str(ex["id"]).encode("utf-8")
-                encoded = ex["audio"]["bytes"]
-                assert encoded, f"row {row} {uid!r} has no packed audio bytes"
+                audio = ex["audio"]
+                if int(audio["sampling_rate"]) != 16_000:
+                    raise ValueError(f"row {row} {uid!r} is not 16 kHz")
+                encoded = legacy_flac_bytes(np.asarray(audio["array"], dtype=np.float32))
                 handles[shard].write(header.pack(row, len(uid), len(encoded)))
                 handles[shard].write(uid)
                 handles[shard].write(encoded)

@@ -1,7 +1,10 @@
+import io
+
 import numpy as np
 import pytest
+import soundfile as sf
 
-from .packed_audio import reconstruct_pcm16
+from .packed_audio import legacy_flac_bytes, reconstruct_pcm16
 from .word_decode import packed_decode_agreement
 
 
@@ -21,6 +24,14 @@ def test_reconstruct_pcm16_rejects_non_mono_or_integer_input():
         reconstruct_pcm16(np.zeros((2, 3), dtype=np.float32))
     with pytest.raises(ValueError):
         reconstruct_pcm16(np.zeros(3, dtype=np.int16))
+
+
+def test_legacy_flac_bytes_matches_pcm16_boundary():
+    wave = np.asarray([-1.0, -0.25, 0.0, 0.25, 0.9999], dtype=np.float32)
+    decoded, sample_rate = sf.read(io.BytesIO(legacy_flac_bytes(wave)), dtype="float32")
+    assert sample_rate == 16_000
+    assert decoded.dtype == np.float32
+    assert np.array_equal(decoded * 32768.0, np.rint(decoded * 32768.0))
 
 
 def test_packed_decode_agreement_checks_order_and_hypotheses():

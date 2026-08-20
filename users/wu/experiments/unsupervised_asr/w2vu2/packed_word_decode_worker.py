@@ -18,10 +18,6 @@ import torch
 import torch.nn.functional as F
 from fairseq import checkpoint_utils
 
-from i6_experiments.users.wu.experiments.unsupervised_asr.w2vu2.packed_audio import (
-    reconstruct_pcm16,
-)
-
 from examples.speech_recognition.new.decoders.decoder import Decoder
 from examples.speech_recognition.new.infer import DecodingConfig
 
@@ -60,7 +56,6 @@ def _decode_batch(*, records, task, models, decoder):
             raise ValueError(
                 f"{uid}: expected mono 16 kHz audio, got {wave.shape} at {sample_rate} Hz"
             )
-        wave = reconstruct_pcm16(wave)
         source = torch.from_numpy(wave)
         waves.append(F.layer_norm(source, source.shape))
 

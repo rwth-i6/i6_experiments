@@ -2,7 +2,29 @@
 
 from __future__ import annotations
 
+import io
+
 import numpy as np
+import soundfile as sf
+
+
+def legacy_flac_bytes(wave: np.ndarray, *, sample_rate: int = 16_000) -> bytes:
+    """Apply the legacy HF-array -> PCM16-FLAC boundary entirely in memory.
+
+    ``LibriStAudioJob`` decoded Hugging Face audio first and then called ``sf.write`` with
+    ``format="FLAC"``. Decoding the original Ogg bytes directly with libsndfile is not equivalent:
+    the Hugging Face decoder differs at a few half-LSB samples, and tied CTC+KenLM beams can amplify
+    those differences into another transcript. Repeating the original conversion in memory gives
+    the worker exactly the old PCM16 samples without creating a per-utterance file tree.
+    """
+    wave = np.asarray(wave, dtype=np.float32)
+    if wave.ndim != 1 or not wave.size:
+        raise ValueError(f"expected a nonempty mono waveform, got {wave.shape}")
+    if int(sample_rate) != 16_000:
+        raise ValueError(f"expected 16 kHz audio, got {sample_rate}")
+    encoded = io.BytesIO()
+    sf.write(encoded, wave, sample_rate, format="FLAC")
+    return encoded.getvalue()
 
 
 def reconstruct_pcm16(wave: np.ndarray) -> np.ndarray:
