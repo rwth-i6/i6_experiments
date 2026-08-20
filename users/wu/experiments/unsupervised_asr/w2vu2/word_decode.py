@@ -367,6 +367,7 @@ class PackedWav2Vec2KenlmDecodeJob(Job):
         word_score: float = -1.0,
         max_tokens: int = 1_100_000,
         python_exe: tk.Path = W2VU_PYTHON,
+        implementation_revision: str = "hf-ogg-pcm16-reconstruction-v2",
     ):
         super().__init__()
         self.hf_data_dir = hf_data_dir
@@ -387,6 +388,7 @@ class PackedWav2Vec2KenlmDecodeJob(Job):
         self.word_score = word_score
         self.max_tokens = max_tokens
         self.python_exe = python_exe
+        self.implementation_revision = implementation_revision
 
         if not (0 <= row_start < row_stop <= expected_total_rows):
             raise ValueError((row_start, row_stop, expected_total_rows))
