@@ -1884,14 +1884,48 @@ the absolute beta, is what carries the contamination claim.
   recency is the only intended difference from D6-PERIODIC/GAN. Leg 2 was verified running at
   15:37 CEST; no endpoint exists yet. Normative gate and interpretation are in `PLAN_3E1.md`
   D6-PERIODIC/GAN-FROZEN.
-- 2026-08-20 (D7 registration, user-directed): the next G-track scorer question is nuisance-matched
-  sequence discrimination, not another refresh cadence. The current round-1 `d_min=2` scorer already
-  contrasts one wrong text per audio; D7 adds the reverse direction with K=4 same-speaker,
-  duration/density/silence/unit-histogram-matched wrong audios while retaining NLL. This is genuinely
-  new on the GAN bed: Z2's operative K=1 hinge learned duration/density private code, and every
-  served Z4 refit was pinned before its offline audio hinge activated. D7.0 must pin a donor-coverage
-  floor from its label-free census before D7.1. The fixed epoch-30 scorer then needs both the new
-  same-speaker coupling clauses and existing Acceptance gate v2. Gold rank/WER stays sealed through
-  that gate and any one-leg launch decision. It remains behind the live §3d.A operator read and
-  already-funded periodic/frozen/HOM endpoints. Normative specification:
+- 2026-08-20 (D7 pre-run structural and gate correction; supersedes the registration-only read):
+  both user-raised defects verify before any D7 implementation or result. The read binds
+  `FrozenHeldPairsJob.E8UaEwRF65HW/output/held_pairs.json`,
+  `MergeUnitsPklJob.ncxcd3vouD5E/output/units.pkl` and
+  `Wav2Vec2KenlmDecodeJob.AQw3EcUo6rks/output/word_hyps.json`, plus
+  `GreedyPoolJob.Yv6qBpz0UC0U/output/pool.json` for the scorer-corpus IDs. The immutable 1,500 gate
+  sources have a disjoint 4,067-row donor complement in the 5,567 usable dev rows. For source `i`
+  and donor `d`, requiring `d != i`, the same speaker and inclusive
+  `abs(|U_d|-|U_i|) <= 0.05*max(|U_i|,1)` on raw 50-Hz no-dedup unit length gives 276/1,500 (18.4%)
+  with at least two donors in both same- and different-chapter strata, and zero with eight in both;
+  the intended 28,539-row scorer corpus has 18,843/28,539 (66.025%) at the same optimistic degree
+  test. Following the actual code order—drop `4014-186175-0018` for own-DP infeasibility, then apply
+  the seed-42 split—gives 17,748/27,111 (65.464%) on the role-local train side, so the training-side
+  conclusion is unchanged. Exact-negative feasibility, duplicate exclusions, nuisance bands and any
+  later regularity can only shrink those counts. The original
+  external-table specification also failed to say whether the training second-quartile band, all
+  eligible edges or the closest-quartile stress band applies, including its percentile and tie
+  scope; unlike the single-population training b-matching, the external source/complement graph is
+  bipartite and has no registered donor-capacity law. This is a missing external estimand, not a
+  coverage floor that may be set at 18.4%.
+  `SAE_3G.md` Approach 3 had already recorded the weaker 965/1,500 one-same-speaker-partner result
+  and warned that the retained subset is selected; D7 had not reconciled it. Only standalone D7.0a
+  census implementation is now authorized. It must hash the exact populations and emit the complete
+  raw eligible-edge table plus cumulative degree/load/component/speaker/chapter and duration-shift
+  summaries; it may not invent an external band, capacity or matching rule. D7.0b and all D7.1
+  construction/launch remain blocked until a prospective, label-free D7-v2 amendment fixes and
+  re-censuses the donor surface, band/rank/tie rule, K/capacity, minimum rows/speakers, weights and
+  selected-population estimand. Acceptance gate v2 remains on all immutable 1,500 rows; only D7's
+  donor-gap statistic may use the separately named donor-supported subset.
+
+  The D7.3 absolute clause was also miscalibrated. Under the intended banked-reuse path, conditional
+  on the required epoch-30 scorer parity, `ReturnnTrainingJob.kr1foUV6lecx` is the exact control at
+  14.45/19.69 (`ScliteJob.LzKRDl102Jaf` / `.bdTjc72qi0Jt`); requiring no worse than 13.89/17.84
+  therefore demands a 0.56/1.85 one-leg gain. The six banked D6-PERIODIC/GAN legs improve the 18.34
+  init by at most 0.45 on dev-other. D7 supplied no independent calibration for 0.5, whose sole prior
+  PLAN occurrence is D6's some-leg-over-eight-rounds bar, while the same-init 12.68/17.57 utility
+  reference is already stronger than 17.84. These trajectories do not prove an upper bound on D7,
+  but they do leave the absolute bar unsupported as either a local-effect or best-system criterion.
+  Prospectively, D7.3 passes scientifically only if the fixed candidate beats its exact matched
+  control on both dev splits. theta_0^G (13.89/18.34) and 12.68/17.57 are report-only utility anchors;
+  no D7 result may retrofit a numeric bar onto this one-leg read. A pass licenses only a separately
+  preregistered durability/utility decision, which must own any later absolute bar. Gold rank/WER
+  remains sealed through the amended label-free gate and any one-leg launch decision. Normative
+  specification:
   `PLAN_3E1.md` D7-GAN-SEQDISC.
