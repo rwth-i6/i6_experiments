@@ -124,14 +124,25 @@ class ConvertPtCheckpointToTfJob(Job):
             meta["epoch"] = numpy.int64(epoch)  # same tensor the RF TF engine stores
         graph = tf.Graph()
         with graph.as_default():
-            variables = {
-                name: tf.compat.v1.get_variable(name, initializer=value, use_resource=True)
-                for name, value in {**params, **meta}.items()
-            }
+            variables, feeds, assigns = {}, {}, []
+            for name, value in {**params, **meta}.items():
+                var = tf.compat.v1.get_variable(
+                    name,
+                    shape=value.shape,
+                    dtype=value.dtype,
+                    use_resource=True,
+                    initializer=tf.compat.v1.zeros_initializer(),
+                )
+                placeholder = tf.compat.v1.placeholder(value.dtype, value.shape)
+                variables[name] = var
+                feeds[placeholder] = value
+                assigns.append(var.assign(placeholder))
             saver = tf.compat.v1.train.Saver(var_list=variables, max_to_keep=1)
             with tf.compat.v1.Session(graph=graph) as session:
-                session.run(tf.compat.v1.global_variables_initializer())
-                saver.save(session, prefix, write_meta_graph=False)
+                session.run(assigns, feed_dict=feeds)
+                # with the meta graph: nothing reads it back (the engine restores by variable name),
+                # but the engine checks that it is there, as for any TF-engine checkpoint
+                saver.save(session, prefix, write_meta_graph=True)
         # read-back verification: every tensor bit-exact vs the source
         reader = tf.train.load_checkpoint(prefix)
         names = set(reader.get_variable_to_shape_map())
