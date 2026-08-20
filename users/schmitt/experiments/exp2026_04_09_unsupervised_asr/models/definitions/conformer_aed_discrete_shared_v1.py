@@ -630,6 +630,8 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
         )
         self._out_fetch_layers_text = sorted(v - 1 for v in {*text_aux_loss_layers, enc_cfg.num_layers})
         self.text_blank_idx = text_out_dim
+        # by default, text is the output modality
+        self.blank_idx = self.text_blank_idx
 
         self.audio_aux_loss_layers = audio_aux_loss_layers
         self.out_audio_aux_logits = nn.ModuleList(
@@ -642,6 +644,50 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
 
         if freeze_params_list:
             self.freeze_params(freeze_params_list)
+
+        self.print_param_summary()
+
+    def print_param_summary(self):
+        num_enc_params = 0
+        num_train_enc_params = 0
+        for param in self.encoder.parameters():
+            num_enc_params += param.numel()
+            if param.requires_grad:
+                num_train_enc_params += param.numel()
+
+        num_dec_params = 0
+        num_train_dec_params = 0
+        for param in self.decoder.parameters():
+            num_dec_params += param.numel()
+            if param.requires_grad:
+                num_train_dec_params += param.numel()
+
+        num_text_emb_params = 0
+        num_train_text_emb_params = 0
+        for param in self.text_embedding.parameters():
+            num_text_emb_params += param.numel()
+            if param.requires_grad:
+                num_train_text_emb_params += param.numel()
+
+        num_audio_emb_params = 0
+        num_train_audio_emb_params = 0
+        for param in self.audio_embedding.parameters():
+            num_audio_emb_params += param.numel()
+            if param.requires_grad:
+                num_train_audio_emb_params += param.numel()
+
+        num_total_params = 0
+        num_train_params = 0
+        for param in self.parameters():
+            num_total_params += param.numel()
+            if param.requires_grad:
+                num_train_params += param.numel()
+
+        print(f"#enc_params: {num_enc_params} ({num_train_enc_params} trainable)")
+        print(f"#dec_params: {num_dec_params} ({num_train_dec_params} trainable)")
+        print(f"#text_emb_params: {num_text_emb_params} ({num_train_text_emb_params} trainable)")
+        print(f"#audio_emb_params: {num_audio_emb_params} ({num_train_audio_emb_params} trainable)")
+        print(f"#total_params: {num_total_params} ({num_train_params} trainable)")
 
     def freeze_params(
         self,
