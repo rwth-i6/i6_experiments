@@ -1,0 +1,318 @@
+# SAE_1g — Evidence for a simple weak SAE initialization
+
+## Approach
+
+This log contains experimental evidence only; the current method, gates, and future work are defined
+in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-free ARPAbet phones. A
+“rung” is one fixed audio-unit stream: adjacent-deduplicated raw codes or one of the pooled streams
+`seg16`, `seg12.5`, and `seg9`.
+
+1. **Channel-shape screen (1g.0).** On 2,703 dev-clean and 2,864 dev-other utterances, measure how
+   much adjacent audio units depend on one another and compare it with three increasingly flexible
+   channel shapes:
+
+   - one audio segment per text symbol;
+   - variable duration with conditionally independent emissions;
+   - two ordered emission states per text symbol.
+
+   The decision statistic is measured audio-pair mutual information divided by the maximum allowed
+   by the tested shape. A ratio at or below 2 is admissible. The plug-in and Miller–Madow-corrected
+   estimates must agree or the cell is indeterminate. The one-segment column needs no gold duration.
+   The independent-duration and two-state columns were read at within-symbol rates measured from
+   gold boundaries; they are historical diagnostics and do not set a prospective candidate's
+   duration.
+
+   Dev-other inputs to the decision:
+
+   | audio stream | lag-1 mutual information | gold within-symbol pair rate | cross-utterance floor | gold cross-boundary share |
+   |---|---:|---:|---:|---:|
+   | adjacent-deduplicated raw codes | 3.2964 | 0.7093 | 0.2423 | 0.291 |
+   | `seg16` | 2.6171 | 0.4226 | 0.4005 | 0.577 |
+   | `seg12.5` | 2.3730 | 0.3164 | 0.4995 | 0.684 |
+   | `seg9` | 1.9596 | 0.2037 | 0.6444 | 0.796 |
+
+   Resulting ratios on dev-other, with the duration-bearing columns at that gold-derived operating
+   point; parenthetical values are the only materially different dev-clean reads:
+
+   | stream / text symbols | one segment | independent duration | two ordered states |
+   |---|---:|---:|---:|
+   | raw / phones | 5.76, rejected | 1.69, admissible | 1.30, admissible |
+   | raw / characters | 5.62, rejected | 1.96, admissible (**2.14, rejected**) | 1.47, admissible |
+   | `seg16` / phones | 4.58, rejected | 2.42, rejected | 1.50, admissible |
+   | `seg16` / characters | 4.47, rejected | 2.73, rejected | 1.66, admissible |
+   | `seg12.5` / phones | 4.15, rejected | 2.81, rejected | 1.64, admissible |
+   | `seg12.5` / characters | 4.05, rejected | 3.08, rejected | 1.79, admissible (**1.99, indeterminate**) |
+   | `seg9` / phones | 3.43, rejected | 3.01, rejected | 1.72, admissible (**1.91, indeterminate**) |
+   | `seg9` / characters | 3.34, rejected | 3.14, rejected | 1.84, admissible (**2.03, rejected**) |
+
+   Subtracting the complete cross-utterance floor still leaves every pooled independent-duration
+   cell above 2 (2.02–2.79). The raw-character independent-duration result is split-dependent, not a
+   clean pass.
+
+2. **Spectral two-class anchor (1g.4).** Split text symbols and audio units into a
+   syllabic/non-syllabic pair using the largest-eigenvalue eigenvector of the symmetric normalized
+   Laplacian. The text side is a positive control. “Mass accuracy” weights each unit type by its
+   number of evaluated occurrences; the majority is the score from always choosing the dominant
+   class. “Containment” checks whether the proposed unit–phone mask retains the class of each unit's
+   majority phone. The registered hard gate requires mass accuracy at least 0.85, at least 0.20 above
+   the measured majority, and containment at least 0.85.
+
+   The initial audio read used segment duration to orient the two classes because the descriptor dump
+   did not yet exist. The registered energy/periodicity orientation was subsequently run; it flips
+   `seg16` and `seg12.5` and leaves the verdict unchanged. The canonical dev-other read is the fixed
+   572-utterance evaluation fifth; the 540-utterance dev-clean fifth gives the same all-fail verdict.
+
+   | side / stream | top-eigengap check | canonical mass accuracy | measured majority | verdict |
+   |---|---|---:|---:|---|
+   | text phones (`T_phi`) | pass | 1.0000 | 0.6095 | positive control passes |
+   | text characters | pass | 0.9764 | 0.6130 | positive control passes |
+   | audio raw | fail | 0.5488 | 0.5711 | fail |
+   | audio `seg16` | fail | 0.4452 | 0.5449 | fail |
+   | audio `seg12.5` | pass | 0.4968 | 0.5312 | fail |
+   | audio `seg9` | unstable | 0.7867 | 0.5154 | fail |
+
+   The later permutation and bootstrap uncertainty reads were not persisted in a catalogued
+   artifact, so this log does not treat their reported numbers as evidence. The saved point-estimate
+   jobs do preserve every accuracy above, and every stream fails the 0.85 accuracy bar independently
+   of either pre-check.
+
+3. **Deterministic hard two-class descriptor screen (1g.4).** Compute seven waveform descriptors on
+   the frozen wav2vec2 50 Hz grid, average each descriptor per unit over the 8,416-utterance seed bed
+   (3,685,941 frames), and set its binary mass cut from the syllabic proportion of unpaired text. No
+   label enters the descriptor dump or cut. The canonical reads use the same fixed 540/572 evaluation
+   fifths and silence-unit convention as Approach 2.
+
+   | stream | dev-clean best accuracy | dev-other best accuracy | dev-other majority | dev-other margin | gate |
+   |---|---:|---:|---:|---:|---|
+   | raw | 0.7894 | 0.7929 | 0.5711 | +0.2218 | fail |
+   | `seg16` | 0.7849 | **0.8130** | 0.5449 | +0.2681 | fail |
+   | `seg12.5` | 0.7629 | 0.7859 | 0.5312 | +0.2548 | fail |
+   | `seg9` | 0.7588 | 0.7824 | 0.5154 | +0.2671 | fail |
+
+   Energy is the best descriptor on every stream. These seven descriptors are seven alternative
+   estimators of the **same** syllabic/non-syllabic target. They are not the six independent
+   articulatory memberships required by the registered soft-product specification, so this screen
+   does not answer that soft-product prerequisite.
+
+4. **Exploratory phone repair rehearsal (E5).** The completed job exercises the soft
+   two-sub-state Baum–Welch implementation on `seg12.5`, but its configuration does not implement the
+   corrected experiment in `PLAN_1G.md`:
+
+   | item | completed exploratory implementation |
+   |---|---|
+   | population | all 2,864 dev-other utterances used both to fit the oracle map and to score it |
+   | preprocessing | differs from the frozen 1f fixture |
+   | x-axis | code field `fraction_correct` is misnamed: it is the probability of retaining the reference label; `1` retains all and `0` redraws all |
+   | initial channel | hard unit-to-phone map with 0.9 mass on assigned units and a uniform remainder |
+   | state split | independently randomized ±10% perturbations |
+   | duration | fixed mean 1.463, derived from the old gold-boundary operating point |
+   | text sample | every 80th line, capped at 300,000 lines |
+   | update | 30 soft emission-only Baum–Welch steps under a pinned phone bigram |
+   | decoder / stopping | posterior argmax; stopping iteration selected by weighted phone-LM perplexity |
+   | real candidates | neither ESPUM nor fingerprint nor the two treated controls is run |
+
+   The old prose called retention 0 the reference endpoint and retention 1 content-free; the code
+   does the reverse. The endpoint results were:
+
+   | configured retention | realized units matching reference | start PER | LM-selected PER | step-30 PER |
+   |---:|---:|---:|---:|---:|
+   | 0 | 0.016 | 1.0109 | 0.8409 | 0.8409 |
+   | 1 | 1.000 | 0.4865 | 0.4589 | 0.6699 |
+
+   These show that the implementation runs and that the fixed 30 repair steps can drift even from
+   its own fitted reference. Because the same utterances built and scored that reference, and because
+   no real seed or treated control was run, the numbers are engineering evidence only and cannot
+   fire a gate.
+
+5. **Banked phone-seed artifact audit.** Neither 1f seed persisted a per-unit map, and both original
+   seeds were fitted on all 8,416 utterances, including the fixed evaluation audio. The deterministic
+   fingerprint map can be recomputed with its original arguments to verify its complete recorded
+   error decomposition, but that full-bed reconstruction is provenance only. ESPUM did persist the
+   selected neural checkpoint, a context-dependent convolution with `conv.weight` shape
+   `(39, 500, 4)` rather than a per-unit table; that checkpoint is likewise transductive provenance,
+   not a held-out input. A decisive held-out row requires construction-only fingerprint recomputation
+   or ESPUM retraining and a newly measured operating point.
+
+   The frozen encoder normalization, PCA, and K-means were fitted only on the 2,849 dedicated train
+   utterances, and segment pooling is per utterance; those common transforms did not fit evaluation
+   audio. The historical `UnitWordStreamJob.eIxgmMh99RSE` did learn its proxy-silence mask from all
+   8,416 utterances, however. That stream is valid for fixture reproduction but not as the unchanged
+   prospective held-out stream.
+
+6. **Construction-only topology read (H1).** On the frozen 6,414-utterance update partition from the
+   8,416-utterance seed bed, fit each route's duration from unpaired complete text and update audio,
+   then read both channel shapes on those same masked update sequences. The execution snapshot archived
+   the four imported source modules before computation; its SHA-256 is
+   `b939c19d669b1b5c585915cb7a634196d31b64f38113698cabab35a1503832d9`. Both plug-in and
+   Miller--Madow ratios must be at most 2 for a shape to be admissible.
+
+   | route | retained units | fitted mean duration | one-state ratios (plug-in, MM) | two-state ratios (plug-in, MM) |
+   |---|---:|---:|---:|---:|
+   | `seg12.5` / phones | 397 | 1.308221 | 3.2424, 3.1845 | 1.8525, 1.8194 |
+   | raw / characters | 395 | 2.601966 | 2.6394, 2.6322 | 1.8086, 1.8037 |
+
+7. **Corrected H2/H3 phone calibration path.** H2 keeps a zero-probability duration self-loop
+   impossible and treats the normalized, once-floored emission table `B(unit | phone)` as its
+   canonical scoring, decoding, perturbation, and repair input. Its validator requires finite,
+   positive rows whose sums agree with one at zero relative tolerance. The production decoder now
+   rejects coerced grid/shard/count values and non-finite scalar evidence and proves deterministic
+   shard coverage. The actual wired start has the intended 39-phone by 500-unit inventory and exact
+   H1/H3 provenance. It retains eight alternatives as an output-only cap; one-best and confidence use
+   the complete surviving beam. Deleted silence is one shared duration boundary for fixed scoring,
+   decoding, and repair forward--backward, while phone-LM history continues across the gap. H3
+   reconstructs `seg12.5` tokens as maximal runs on the
+   original frame raster, removes frozen-mask silence runs as chunk boundaries, and pools ESPUM logits
+   over each run's complete frame span. On the real 8,416-utterance seed bed this construction contains
+   exactly 715,099 retained runs in 72,842 chunks, matching the verifier's reference counts. The
+   calibration graph fits fingerprint, random-map, pseudo-pair, and ESPUM rows on the H1 update role;
+   ESPUM reads the disjoint selection role label-free. The strict calibration projection averages the
+   frozen selected checkpoint posterior on exactly the update role to persist `Q(phone | unit)` and
+   `B(unit | phone)`. A separate graph wires blind construction-role fingerprint, random-map,
+   pseudo-pair, and ESPUM refits plus the ESPUM projection. Resume state includes NumPy, CPU/CUDA
+   Torch, exact CUDA device count and one nonempty RNG tensor per device, permutation, and batch-offset
+   state; a serialized GH200 interrupted-versus-uninterrupted trajectory check exercises it. Projection
+   manifests hash all eight modules imported by the runtime path. Its final graph contains all four
+   initializer families and is launch-ready; no old final directory exists and the trainer verifies
+   runtime source hashes before work begins.
+
+## Conclusion
+
+1. **Approach 1: one segment per text symbol is rejected.** It exceeds the registered ratio on all
+   eight dev-other cells and on both estimators. This is a result about that channel shape, not about
+   every Phase-1 initializer.
+
+2. **WRONG AS AN UNSCOPED CLAIM (old Approach-1 conclusion): independent duration is rejected.** At
+   the historical gold-derived duration point it is rejected on every pooled stream, passes for raw
+   phones, and is split-dependent for raw characters. Subtracting the measured cross-utterance floor
+   does not rescue a pooled cell. This does not fix or reject a duration fitted prospectively without
+   labels.
+
+3. **WRONG AS STATED (old Approach-1 two-state conclusion): seven dev-clean cells pass and one is
+   indeterminate.** The exception rows were attached incorrectly. All eight dev-other cells pass. On
+   dev-clean, five pass, `seg12.5`/characters and `seg9`/phones are indeterminate because the two
+   estimators straddle the threshold, and `seg9`/characters is rejected. These are gold-duration
+   diagnostics; a prospective duration must be fitted and checked without labels.
+
+4. **Approach 2: the spectral anchor fails its registered gate.** The phone and character text
+   controls pass near ceiling, while every audio stream misses the 0.85 accuracy requirement. The
+   failure remains valid after the polarity correction.
+
+5. **WRONG / UNVERIFIED (old Conclusions 2, 23, and 24): the silence pre-check demonstrated that the
+   eigenvector tracked silence, and later uncertainty tests repaired the pre-check.** No catalogued
+   artifact preserves the later permutation or bootstrap outputs, so neither claim can support a
+   verdict. This is not load-bearing: every audio stream independently fails the saved accuracy gate.
+
+6. **WRONG AS STATED (old Conclusion 4): the audio partition carries no information about the text
+   partition.** The experiment supports only the narrower claim that this fixed binary partition and
+   its registered containment/accuracy metrics did not recover a useful correspondence.
+
+7. **Approach 3: the deterministic hard descriptor route also fails.** Its best held-out result is
+   energy on `seg16`, 0.8130 mass accuracy versus the required 0.85. The +0.20-over-majority half
+   passes on dev-other, but the gate is a conjunction. Both evaluated splits fail.
+
+8. **WRONG AND SUPERSEDED (old descriptor population read):** the first report used all 2,703/2,864
+   labelled utterances. That operating point is not comparable with the registered fixed fifth and
+   must not support a verdict. The corrected 540/572-utterance reports give the 0.7588–0.8130 range
+   in Approach 3. The all-utterance artifacts remain provenance only.
+
+9. **WRONG (old Conclusion 5): the descriptor route replaces the failed spectral route.** That was a
+   temporary next-step statement. The hard descriptor experiment subsequently ran; both exercised
+   1g.4 routes failed their registered gates. Current funding status belongs in `PLAN_1G.md`.
+
+10. **WRONG / NOT ANSWERABLE (old Conclusion 19): the six-factor soft product failed its registered
+    prerequisite.** The implementation counted seven alternative descriptors for one binary target,
+    rather than testing six independent memberships. No six-factor channel or prerequisite screen was
+    run, so no experimental verdict exists; current funding status belongs in `PLAN_1G.md`.
+
+11. **WRONG AND SUPERSEDED (old E5 endpoint and hard-stop interpretation).** The completed code uses
+    retention 1 for the reference and 0 for a random redraw, fits and evaluates on the same
+    utterances, and does not run the actual seeds or controls. Its reference endpoint moved from
+    0.4865 PER to an LM-selected 0.4589 and then drifted to 0.6699 at step 30; its random endpoint
+    moved from 1.0109 to 0.8409. These observations are non-decisive and fire no gate.
+
+12. **Approach 5 establishes the seed-provenance constraint.** The original fingerprint and ESPUM
+    artifacts saw the evaluation audio and are transductive rows only. Neither qualifies for the
+    held-out gate or can silently inherit its original headline; `PLAN_1G.md` specifies the required
+    construction-only operating point.
+
+13. **Approach 5 localizes the preprocessing correction.** The frozen encoder, PCA/K-means, and
+    per-utterance pooling need no refit. The proxy-silence mask does: its historical construction saw
+    evaluation audio, so the prospective route must learn that mask on update audio and freeze it.
+
+14. **Approach 6 selects the two-state phone channel.** On the construction-only `seg12.5`/phone
+    read, the one-state channel is decisively rejected while the two-state channel is admissible under
+    both estimators. Freeze `p=0.23560298` (mean duration 1.308221) and the two-state topology for the
+    H3/H4 phone path. The raw-character row makes the same topology choice, but does not unblock H6's
+    separately gated handoff.
+
+15. **Approach 7 freezes ESPUM seed 0 at update 30,000.** All three full-loss ESPUM generators were
+    fitted on the exact 6,414-utterance H1 update population and selected without labels on the
+    disjoint 890-utterance H1 selection population. Weighted phone-language-model perplexity (lower
+    is better; ordinary perplexity divided by squared emitted-inventory coverage) was 32.5352 for
+    seed 0 at update 30,000, 32.5912 for seed 1 at update 38,000, and 33.1554 for seed 2 at update
+    34,000. This freezes the seed/update for projection and the later 7,304-utterance construction
+    refit; it is not an evaluation phone-error-rate result.
+
+## Catalog
+
+| evidence | concrete artifact or source |
+|---|---|
+| 1g.0 structure screen, dev-clean | `work/speech_llm/sae/structure_screen/StructureScreenJob.Xyy7r1zTK9hU` |
+| 1g.0 structure screen, dev-other | `work/speech_llm/sae/structure_screen/StructureScreenJob.U3QYclOJHgq2` |
+| spectral duration-polarity reads, clean/other | `work/speech_llm/sae/spectral_split/SpectralVCJob.AK0OUD2QcPXz`; `work/speech_llm/sae/spectral_split/SpectralVCJob.ZA7uvQ2s7Zta` |
+| spectral registered-polarity reads, clean/other | `work/speech_llm/sae/spectral_split/SpectralVCJob.dP9A1geKgd45`; `work/speech_llm/sae/spectral_split/SpectralVCJob.koxlC99UA0t6` |
+| raw and pooled unit streams | `work/speech_llm/sae/quantize_states/MergeUnitsPklJob.ncxcd3vouD5E`; `work/speech_llm/sae/repr_pool/SegmentPoolUnitsJob.IHRNqQfnxrQ3` |
+| frozen encoder states and train-fit quantizer | `work/speech_llm/sae/av_states/AvStatesJob.c4Ak1rACchRC`; `work/speech_llm/sae/quantize_states/QuantizeStatesJob.FWpGhC941JMi` |
+| historical full-bed silence-delimited stream | `work/speech_llm/sae/lexfree_match/UnitWordStreamJob.eIxgmMh99RSE` |
+| phone text (`T_phi`) | `work/i6_experiments/users/wu/experiments/posterior_hmm/data/phon_lm/TextToPhonemeJob.THKMON3k9LJQ` |
+| normalized character text | `work/i6_core/tools/download/DownloadJob.g4jClO48cAvP` |
+| descriptor dump | `work/speech_llm/sae/descriptors/UnitDescriptorsJob.cSmt6LY5WVOu` |
+| canonical descriptor read, dev-clean 540 | `work/speech_llm/sae/descriptors/UnitClassReadJob.m0usvL4Oxlv2` |
+| canonical descriptor read, dev-other 572 | `work/speech_llm/sae/descriptors/UnitClassReadJob.kvZb0zdRznOY` |
+| superseded all-utterance descriptor reads | `work/speech_llm/sae/descriptors/UnitClassReadJob.yeB6P7J3rdwz`; `work/speech_llm/sae/descriptors/UnitClassReadJob.FIwiUeQ5bgGv` |
+| descriptor audio manifest | `work/speech_llm/sae/gua_jobs/GuaAudioManifestJob.rdVx8r37h78h` |
+| completed exploratory E5 rehearsal | `work/speech_llm/sae/seed_basin/SeedBasinJob.Zm3EuTveSGBL` |
+| original fingerprint reads, clean/other | `work/speech_llm/sae/fingerprint_match/FingerprintMatchJob.O4dpJTesB66u`; `work/speech_llm/sae/fingerprint_match/FingerprintMatchJob.MHmUIV85g8Ry` |
+| selected ESPUM checkpoint | `work/speech_llm/sae/espum_jobs/EspumMatchTrainJob.lALR9ldNG8f1` |
+| completed but invalid H1 read | `work/speech_llm/sae/channel_h/Phase1gH1Job.Bz5bcz5grt8B` (runtime source was not frozen; see verifier feedback) |
+| accepted construction-only H1 read | `work/speech_llm/sae/channel_h/Phase1gH1Job.HbxKiuBTJ8aN` (`phase1g_h1.json`, source snapshot, and progress log) |
+| H2 common channel and bounded raw-character fitting | commits `0556513`, `80408cf`; `src/speech_llm/sae/channel_h.py` |
+| H3 role manifest and valid frozen fingerprint fixture | `work/speech_llm/sae/h3_jobs/H3RoleManifestJob.3hl4qCJKKlUN`; `work/speech_llm/sae/lexfree_match/LexFreeMatchJob.lQqgQGjbVe6A`; `work/speech_llm/sae/h3_jobs/H3FrozenFingerprintFixtureAssertJob.Vv2w4KN5173K` |
+| invalid H3 prospective stream (quarantined) | `work/speech_llm/sae/h3_jobs/H3MaskedEspumStreamJob.423jpYfDsDkM` |
+| invalid H3 prospective initializer batch (quarantined) | `work/speech_llm/sae/h3_jobs/H3InitializerJob.mV1ulU6v75Zr`; `work/speech_llm/sae/h3_jobs/H3InitializerJob.wuJrQHnNPq9m`; `work/speech_llm/sae/h3_jobs/H3InitializerJob.lQQcUgcUry7z` |
+| invalid H3 prospective ESPUM batch (quarantined) | `work/speech_llm/sae/espum_jobs/EspumMatchTrainJob.nJBsngMMc59s`; `work/speech_llm/sae/espum_jobs/EspumMatchTrainJob.CCohNXNZgPsX`; `work/speech_llm/sae/espum_jobs/EspumMatchTrainJob.jU2ODb1ahIlK`; `work/speech_llm/sae/espum_jobs/EspumMatchTrainJob.F0AcQFAYmv0E` |
+| corrected H2/H3 core implementation | commits `8c8eec5`, `5be4263`, `3ba4917`, `04a0b3a`, `925c0be`, `4ba0f32`, `88762f2`, `bda896a`; `src/speech_llm/sae/channel_h.py`; `src/speech_llm/sae/channel_decode_jobs.py`; `src/speech_llm/sae/h3_projection.py`; `src/speech_llm/sae/h3_resume_equivalence.py`; `src/speech_llm/sae/espum_jobs.py` |
+| corrected H3 pooled-run stream and calibration starts | `work/speech_llm/sae/h3_jobs/H3MaskedEspumStreamJob.GqAphDUVZJ7f`; `work/speech_llm/sae/h3_jobs/H3InitializerJob.6ifXwi6C9o4b`; `work/speech_llm/sae/h3_jobs/H3InitializerJob.wP5OnAoxzDow`; `work/speech_llm/sae/h3_jobs/H3InitializerJob.gNAARAXeogOt` |
+| corrected H3 ESPUM calibration fan-out and frozen pick | `work/speech_llm/sae/espum_jobs/EspumMatchTrainJob.97FwGhhItdpO`; `work/speech_llm/sae/espum_jobs/EspumMatchTrainJob.eQyuM6m4rPX2`; `work/speech_llm/sae/espum_jobs/EspumMatchTrainJob.lk3V9mM67j0m`; `work/speech_llm/sae/espum_jobs/EspumMatchTrainJob.h4LngSZ4YvKL`; `work/speech_llm/sae/h3_jobs/H3EspumPickJob.ezmw64E1JwzI` |
+| selected calibration projection and GPU resume-equivalence evidence | `work/speech_llm/sae/h3_projection/H3CalibrationEspumProjectionJob.s4GWy36bdWxZ`; `work/speech_llm/sae/h3_resume_equivalence/H3EspumResumeEquivalenceJob.yL2E4UjTDxQ6` |
+| live H2 count-0 channel snapshot | `work/speech_llm/sae/channel_decode_jobs/Phase1gChannelSnapshotJob.TJWNeqBXGjfy` |
+| completed H2 decoder timing grid | `work/speech_llm/sae/channel_decode_jobs/Phase1gDecoderPreflightJob.egplrTqzH7Ys` (fastest cell); `work/speech_llm/sae/channel_decode_jobs/Phase1gDecoderPreflightJob.5xQSQqaShtXI` (largest elapsed-time cell) |
+| H3 construction-population final initializers | `work/speech_llm/sae/h3_jobs/H3InitializerJob.uKw59MBJC4Hj`; `work/speech_llm/sae/h3_jobs/H3InitializerJob.ABTGA9vIwwI8`; `work/speech_llm/sae/h3_jobs/H3InitializerJob.BS1nPUwf1fel` |
+| H4 artifact, donor, bootstrap, and gate harnesses | commits `93f6261`, `4e67695`; `src/speech_llm/sae/h4_harness.py` |
+| H5 handoff and H6 character-route interfaces | commit `ce265ce`; `src/speech_llm/sae/handoff.py`; `src/speech_llm/sae/character_route.py` |
+
+## Verifier feedback
+
+- 2026-08-19 — H1 remains accepted at the exact 6,414/890/7,304/1,112 partition and two-state phone
+  choice `p=0.23560298`; do not rerun it. H2's numerical core and boundary-aware fixed scorer/decoder
+  pass 20 focused, 10 legacy, 6 handoff, and 4 production-boundary tests plus independent exact
+  enumeration. The actual count-0 snapshot is the intended two-state, 39-phone by 500-unit channel
+  bound to accepted H1 and the real H3 handoff. Strict settings, finite evidence, and exact shard
+  merging are sound. The sole material H2 issue is that scoring/decoding force a new duration after
+  deleted silence while repair forward--backward permits a duration to bridge it. The mismatch occurs
+  at 53,498 update-population gaps, affects 97.71% of the 6,414 utterances, and changed a one-step
+  normalized emission cell by up to 0.036 in an exact local check; it must be made consistent. All 48
+  isolated timing-preflight cells completed with no error marker and must not be rerun. Eight
+  persisted alternatives are accepted as an output-only cap because one-best and confidence normalize
+  over the complete surviving beam.
+
+  H3 implementation is accepted. The exact 6,414/890 calibration selected full-loss ESPUM seed 0 at
+  update 30,000 and weighted phone-LM perplexity 32.5352. Projection
+  `H3CalibrationEspumProjectionJob.5WaObcxvytCC` hashes all eight runtime modules and has maximum
+  `Q`/`B` row-sum errors `5.55e-16`/`4.88e-15`; GH200 resume-equivalence job
+  `H3EspumResumeEquivalenceJob.hRJnt1vbaKkG` is bit-exact. The final graph contains construction-role
+  fingerprint, random-map seed 1000, pseudo-pair seed 0, and blind ESPUM refits. Its unchanged ESPUM
+  revision is nonblocking for this launch because no prior final work directory exists and the worker
+  checks runtime source hashes. Launch only `config/sae_1g_h3_final.py`; never relaunch calibration.
+  H4 waits for the H2 path-law fix and completed H3 final artifacts, and must reject a calibration-
+  phase start where a construction-population `final_refit` manifest is required.
