@@ -66,16 +66,17 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
   18.38/24.01 by leg 6. Its exact schedule-matched control freezes periodic round 1's own
   `d_min=2` scorer; that control is running, but it can isolate scorer recency only, not establish
   that this loop beats ordinary self-training. The decisive GAN-branch operator read is now the
-  same-start one-generation comparison in §3d.A. D7-GAN-SEQDISC is now CLOSED at its prospective
-  D7.0b structural gate. The label-free feature read found 136,966 Q2 training edges, but the exact
+  same-start one-generation comparison in §3d.A. The superseded offline D7-v2 specification CLOSED
+  at its prospective D7.0b structural gate. The label-free feature read found 136,966 Q2 training
+  edges, but the exact
   common same/different-chapter 2-in/2-out construction admitted only 56 rows/two speakers against
   the frozen 6,778/201 floor. An independent necessary-core replay upper-bounds every feasible
   solution by 120 rows/four speakers. No external assignment, loss calibration, scorer or policy
   ran. This is a failure of the registered K=4/Q2/common-regular operating point, not a measurement
-  of the reverse loss; no third donor amendment or D7 retry is authorized. USER 2026-08-21 replaces
-  that architecture with D8-ONLINE-SEQDISC: one full-960 h scorer A/B using K=1 online random
+  of the reverse loss; no graph amendment or retry is authorized. USER 2026-08-21 corrects active
+  D7-GAN-SEQDISC to one full-960 h scorer A/B using K=1 online random
   same-speaker, duration-windowed donors, with no graph, chapter/Q2 band, nuisance filters or donor
-  capacity. D8.0 and D8.1 are registered for implementation; a policy leg still needs authorization.
+  capacity. D7.0 and D7.1 are registered for implementation; a policy leg still needs authorization.
 - **960 h stock-donor supervision-axis endpoint is ABSENT**: the theta_0 + gold-scorer arm ran
   only through sub-epoch 4, was stopped and deleted 2026-08-08, and never produced the listed
   3-pass endpoint; `ReturnnTrainingJob.22Ntu7y0O6iW` does not exist. Its observed collapse is
@@ -235,14 +236,15 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    newly released work can submit; no endpoint exists yet. Read only fixed endpoints against the same-start
    §1d-label controls. A fresh-label pass on both dev splits is evidence to consider one further
    generation; a win by fixed labels alone means extra CE optimization, not iterative self-training.
-   No open-ended relabeling loop is authorized. D7-GAN-SEQDISC is CLOSED at D7.0b: its exact K=4/Q2
+   No open-ended relabeling loop is authorized. The superseded offline D7-v2 design CLOSED at
+   D7.0b: its exact K=4/Q2
    common-regular training graph admits 56 rows/two speakers and the independent necessary core has
    at most 120/four, far below the frozen 6,778/201 floor. No external assignment, loss preflight,
    scorer A/B or policy leg ran. Do not retry the optimizer or relax the floor. USER 2026-08-21
-   directs the separate D8-ONLINE-SEQDISC successor: generate theta_0^G greedy pseudo-text for all
+   replaces that design inside active D7-GAN-SEQDISC: generate theta_0^G greedy pseudo-text for all
    281,241 960 h utterances, then train a one-pass matched scorer control/candidate with one online
    same-speaker donor per anchor and only a reciprocal 0.8--1.25 duration window. No offline edge
-   table, matching, chapter balance, nuisance quartile or capacity law survives. D8.0/D8.1 may be
+   table, matching, chapter balance, nuisance quartile or capacity law survives. D7.0/D7.1 may be
    implemented now without another planner round; do not displace running funded GPU jobs.
 5. **PLAN_3A matrix wrap-up**: M4 contingency call; collapse the sub-plan when closed.
 6. **§1e §2.5(d)+usage gates on the ep50 pins** — the §3d init upgrade path.
@@ -855,22 +857,17 @@ homophone-diversity SFT arm rides the same bed as its one-argument A/B.
 frozen scorer reaches 12.68/17.57 only transiently, while D6-PERIODIC/GAN reaches 12.85/17.89 at leg
 2 and degrades to 18.38/24.01 by leg 6. Finish the already-funded trajectories and frozen schedule
 control, but open no further GAN-loop mechanism arm before the §3d.A same-start self-training read.
-USER 2026-08-20: D7-GAN-SEQDISC is the registered successor after that read and the funded endpoints
-close. It holds the exact theta_0^G round-1 corpus, `d_min=2` topology, NLL, current text-negative
-contrast, LM reward and policy recipe fixed, and adds a K=4 same-speaker, duration and
-density/silence/unit-histogram-matched wrong-audio sequence loss during scorer fitting. The scorer
-must pass its label-free conditional-gap clauses and the existing scorer Acceptance gate v2 at fixed
-epoch 30 before any policy compute. Gold WER remains sealed until the user authorizes and the one-leg
-graph is submitted. D7-GAN-SEQDISC is CLOSED at the prospectively frozen D7.0b support gate. Its
-feature job passed, but the exact K=4/Q2 common-set optimizer admitted 56 rows/two speakers versus
+USER 2026-08-20 registered D7-GAN-SEQDISC. Its first, offline-graph specification CLOSED at the
+prospectively frozen D7.0b support gate: the feature job passed, but the exact K=4/Q2 common-set
+optimizer admitted 56 rows/two speakers versus
 6,778/201 required; a separate necessary-core replay bounds the whole feasible surface by 120/four.
-The assignment failed closed before external matching or loss calibration, and no D7.1 scorer,
-D7.2 admission or D7.3 policy ran. No solver retry, support-floor relaxation or third donor amendment
-is authorized. Full operating point and failure interpretation: `PLAN_3E1.md` D7-GAN-SEQDISC;
-evidence: `SAE_3E1.md` approach 31 and conclusion 57. USER 2026-08-21 registers
-D8-ONLINE-SEQDISC as a different method: full-960 h pseudo-pairs, K=1 online uniform donors from
+The assignment failed closed before external matching or loss calibration, and no offline-graph
+scorer, admission or policy work ran. No solver retry, support-floor relaxation or graph amendment
+is authorized. Historical failure evidence: `SAE_3E1.md` approach 31 and conclusion 57.
+USER 2026-08-21 corrects the active
+D7-GAN-SEQDISC method to full-960 h pseudo-pairs, K=1 online uniform donors from
 same-speaker 0.8--1.25 duration pools, and no graph/nuisance matching. Its full specification is in
-`PLAN_3E1.md`; D8.0/D8.1 are authorized, while D8.3 policy compute still needs a launch word.
+`PLAN_3E1.md`; D7.0/D7.1 are authorized, while D7.3 policy compute still needs a launch word.
 
 #### 3d.A. Pseudo-label scale and one-generation self-training (USER-directed 2026-08-20)
 
@@ -1020,13 +1017,14 @@ and localized the insertion price as a scorer-family issue. D5 closed continuous
 catastrophic on the best bed. D6's offline minimum-duration screen and one-shot frozen continuation
 are complete; the fresh/warm periodic, GAN periodic, exact GAN-frozen schedule control, and GAN+HOM
 endpoint trajectories are the only live experiments. Full configurations and gates are maintained in
-`PLAN_3E1.md`; no old D2/D3 launch item survives. D7-GAN-SEQDISC is CLOSED before scorer fitting.
-Its D7-v2 feature census passed, but the registered K=4/Q2 common-regular training construction
+`PLAN_3E1.md`; no old D2/D3 launch item survives. The superseded offline D7-v2 design closed before
+scorer fitting.
+Its feature census passed, but the registered K=4/Q2 common-regular training construction
 failed its prospective support floor by two orders of magnitude (56 admitted rows versus 6,778;
 necessary-core upper bound 120). The external instrument, loss calibration, scorer A/B and policy
-leg were never reached. The user-directed D8 successor drops graph matching entirely and runs the
+leg were never reached. Active D7 drops graph matching entirely and runs the
 matched scorer A/B on all 281,241 pseudo-labeled 960 h utterances with dynamic K=1 same-speaker,
-duration-windowed donors. D8.0/D8.1 are authorized; D8.3 is not.
+duration-windowed donors. D7.0/D7.1 are authorized; D7.3 is not.
 **Gate v2 (replaces the two-sided gate, 2026-08-07 — amended BEFORE any verdict was read against
 v1, because v1's `text_explained_loo` arm is gold-conditioned as instrumented
 (`config_sae_3a_enc50_units_v1.py:233-243`) and has the wrong sign against the filler mode, and
@@ -1042,9 +1040,10 @@ its matched continuation read, ending 4.73/9.31 against 6.46/11.41 with dev-othe
 1,964. Repeated fresh and warm scorer refits deteriorate through their current prefixes; the
 label-free GAN periodic, HOM, and exact schedule-matched frozen-control arms are in flight; their
 endpoints remain pending. Finish that GPU work and the §3d.A operator read without displacement.
-D7-GAN-SEQDISC closed at D7.0b without scorer or policy compute: exact admission was 56 rows/two
-speakers and the necessary upper bound is 120/four versus the 6,778/201 gate. Do not retry D7.
-D8-ONLINE-SEQDISC is registered and authorized through its full-960 h matched scorer A/B; build it
+D7-v2 closed at D7.0b without scorer or policy compute: exact admission was 56 rows/two
+speakers and the necessary upper bound is 120/four versus the 6,778/201 gate. Do not retry the
+offline graph. Corrected D7-GAN-SEQDISC is registered and authorized through its full-960 h matched
+scorer A/B; build it
 without displacing the already-funded trajectories or §3d.A operator read. Its policy leg is held.
 Normative details and exact operating points: `PLAN_3E1.md`; evidence: `SAE_3E1.md`.
 
