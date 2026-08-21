@@ -250,7 +250,14 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    implemented now without another planner round; do not displace running funded GPU jobs.
    2026-08-21 (later, verifier): D7.0/D7.1 implemented and launched — decode shards running, the
    scorer A/B gated behind the D7.0 preflight barrier, no funded job displaced; detail in
-   `PLAN_3E1.md` D7 Status and `SAE_3E1.md` Verifier feedback.
+   `PLAN_3E1.md` D7 Status and `SAE_3E1.md` Verifier feedback. Decode shards FINISHED 18:11 and
+   both pre-run fixes landed (implementer-reported); the d7 manager restart is a user `!` line.
+   2026-08-21 (planner, on the user's instruction): D8 REGISTERED in `PLAN_3E1.md` —
+   posterior-weighted multi-hypothesis scorer refit (soft EM over theta_0^G sampled rollouts,
+   weights from the arm's own shaped score at pinned lam_lm=1.0, D7 control reused as the
+   comparator). UNFUNDED; D8.0 is a CPU read of the frozen group-12 dump and may start on the
+   user's word; D8.1 additionally waits for the D7.2 verdict; the policy leg needs its own
+   launch word.
 5. **PLAN_3A matrix wrap-up**: M4 contingency call; collapse the sub-plan when closed.
 6. **§1e §2.5(d)+usage gates on the ep50 pins** — the §3d init upgrade path.
 7. **G2P-equivalence ceiling** on existing rollouts.jsonl (CPU): phone-reachable vs
