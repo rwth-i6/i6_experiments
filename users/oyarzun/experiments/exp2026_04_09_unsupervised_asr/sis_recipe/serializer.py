@@ -34,6 +34,7 @@ def serialize_training(
     extern_data: Dict[str, Any],
     unhashed_net_args: Optional[Dict[str, Any]] = None,
     train_step_import_as: Optional[str] = None,
+    serialize_extern_data_version: int = 1,
 ) -> Collection:
     """
     Helper function to create the serialization collection

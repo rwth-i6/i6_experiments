@@ -115,6 +115,7 @@ def get_forward_config(
     callback_opts: Optional[Dict[str, Any]] = None,
     extern_data: Optional[Dict[str, Any]] = None,
     base_config: Optional[Dict[str, Any]] = None,
+    vocab_key: Optional[str] = None,
 ) -> ReturnnConfig:
     """
     Get a generic config for forwarding
@@ -175,7 +176,7 @@ def get_forward_config(
         callback_module=callback_module,
         forward_init_args=decoder_args,
         extern_data=extern_data,
-        vocab_opts=datastreams[default_target_key].as_returnn_targets_opts(),
+        vocab_opts=datastreams[vocab_key or default_target_key].as_returnn_targets_opts(),
         callback_opts=callback_opts,
     )
     returnn_config = ReturnnConfig(config=config, post_config=post_config, python_prolog=[serializer])

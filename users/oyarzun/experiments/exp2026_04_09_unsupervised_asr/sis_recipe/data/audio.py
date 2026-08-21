@@ -30,9 +30,9 @@ def remove_silences_from_audio(
         environment=environment,
         fairseq_root=SetupFairseqJob(
             CloneGitRepositoryJob(
-                repository="https://github.com/facebookresearch/fairseq.git",
+                url="https://github.com/facebookresearch/fairseq.git",
                 commit="e4a2e4e93efbcbaaae52a17ae6600beb2083fb33",
-            ).out_repo_dir,
+            ).out_repository,
             environment,
         ).out_fairseq_root,
         audio_dir=audio_dir,
@@ -69,9 +69,9 @@ def featurize_audio(
         environment=environment,
         fairseq_root=SetupFairseqJob(
             CloneGitRepositoryJob(
-                repository="https://github.com/facebookresearch/fairseq.git",
+                url="https://github.com/facebookresearch/fairseq.git",
                 commit="e4a2e4e93efbcbaaae52a17ae6600beb2083fb33",
-            ).out_repo_dir,
+            ).out_repository,
             environment,
         ).out_fairseq_root,
         layer=14,

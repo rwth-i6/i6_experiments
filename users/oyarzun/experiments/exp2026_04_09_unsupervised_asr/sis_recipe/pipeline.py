@@ -164,6 +164,8 @@ def search_single(
     vocab_opts: Optional[Dict] = None,
     recog_post_proc_funcs: Optional[List[Callable[[tk.Path], tk.Path]]] = None,
     score_function: Optional[Callable] = None,
+    score_target_key: Optional[str] = None,
+    score_dataset: Optional[Dict[str, Any]] = None,
 ):
     """
     Run search for a specific test dataset
@@ -219,11 +221,11 @@ def search_single(
     else:
         default_target_key = returnn_config.config.get("default_target_key", "text")
         score_result = generic_sclite_score_recog_out(
-            dataset=dataset_dict,
+            dataset=score_dataset or dataset_dict,
             recog_output=search_out,
             corpus_name=dataset_name,
             vocab_opts=vocab_opts,
-            target_key=default_target_key,
+            target_key=score_target_key or default_target_key,
         )
         search_ctm = None
 
