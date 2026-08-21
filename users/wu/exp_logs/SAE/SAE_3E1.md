@@ -31,33 +31,32 @@ Next action: start the d7 manager (above), confirm the pool and the D7.0 preflig
 confirm the two D7.1 trainings start matched. A D7 policy leg is NOT authorized and none is in this
 graph.
 
-D8 spec read 2026-08-21 (planner asked for implementability flags; nothing implemented, nothing
-authorized). D8.0 is implementable on `F/ReturnnForwardJobV2.QbIYruVEI0fF` -- verified on disk as
-28,539 tc100 utterances with exactly 12 T=0.7 rollouts each (342,468) plus a greedy and a true entry,
-and the pinned weight scorer `S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR` has its `model.pt`.
-Four flags, none fatal:
+D8 spec read 2026-08-21, second pass on the amendments (`PLAN_3E1.md` at 584a949dc; nothing
+implemented, nothing authorized). All four of the first pass's flags are resolved in the plan: the
+per-unit conversion is pinned with its tau_star rationale, the single-temperature artifact is named
+with J9yA1eYnxwYA demoted to context, the reader whitelist is registered, and the 3.37 M-decode
+pricing is in the Status envelope. The planner's own added rule -- the operative D8.1a support takes
+its greedy member from the D7 pool at identical hash rather than from a dump's own re-decode -- is
+mechanically feasible today: `S/scorer_diag/SearchOutHypsJob.h8GoSrbrTPHh` already carries the pool
+texts for all 281,241 train utterances, so the candidate's one-hot special case can coincide exactly
+with the control's targets rather than approximately.
 
-1. **Currency, the standing trap.** The dump's `lm_prior` column is per generated TEXT TOKEN while
-   `recon` is per unit frame, so `s(y) = recon + lam_lm * lm_prior_units` cannot be formed from the
-   dump's columns as they stand: it needs `lm_prior * n_tokens / n_units`, with `n_units` joined from
-   the frozen unit store. `sae/curate.py` already carries exactly this view (`lm_prior_units`, line
-   43) and the join (line 112) -- reuse it rather than reading the column raw. This is not cosmetic:
-   tau_star is fixed by an effective-sample-size rule computed ON these weights, so a mixed-currency
-   score would silently move tau_star and every D8.0 statistic with it. The emitting code states the
-   same caveat at `prefix_lm/model/recognition/forward_step.py:941-943`.
-2. **"All stored temperatures reported" is vacuous on the artifact D8.0 names.** QbIYruVEI0fF stores
-   one temperature, T=0.7. The only multi-temperature dump is `F/ReturnnForwardJobV2.J9yA1eYnxwYA`
-   (T = 0.3/0.5/0.7/0.9/1.0, G=12), and it is 512 utterances of theta_0^G, not the fork epoch. So
-   D8.0 either reports a single temperature, or the clause must name that 512-utterance theta_0^G set
-   as a separate read on a different bed. Planner's call; I have assumed the former.
-3. **Label-quarantine hazard inside the input file.** The same `rollouts.jsonl` carries the reference
-   transcript as `kind="true"` and a per-rollout `wer` column. `curate.py`'s existing filter keeps
-   only `kind == "rollout"`, but D8's support deliberately ADDS the greedy 1-best, so a new reader
-   has to be written -- and it must not get there by relaxing the filter to "not true", which would
-   walk the gold text into the support. Weights and dedup must see neither `true` nor `wer`.
-4. **D8.1a cost, for pricing before authorization** (not a D8.0 issue): group-12 sampling over the
-   281,241-utterance bed is 3.37 M decodes, about twelve times the D7 greedy pass that took roughly
-   1.5 h on ten GPUs, plus one pinned-scorer forward per candidate.
+One axis is still unnamed, and it is not wording. D8.0's verdict-scope sentence says its "scorer and
+bed differ from D8.1's"; the POLICY differs too. `QbIYruVEI0fF` is the fork-epoch policy, while
+D8.1a samples theta_0^G -- which is why the amendment calls the 512-utterance J9yA1eYnxwYA the
+"right policy". This matters because two of the three D8.0 no-go clauses, (a) median distinct
+hypotheses per group and (b) median ESS in [1.5, 8], are properties of the sampling policy's
+diversity at T=0.7, and this project has already established that the fork policy over-generates
+(D5(a)). A no-go could therefore close D8 on a diversity statistic the operative policy would not
+have produced, which is a decision-changing difference rather than a caveat about transfer.
+
+I deliberately did NOT measure it. The comparison that would settle it -- distinct hypotheses per
+group on the fork dump versus the theta_0^G dump -- is clause (a)'s own statistic at clause (a)'s
+own threshold, and D8.0 is unauthorized. Computing it now and reporting it would discharge a
+pre-registered gate before the read that owns it exists, which is the standing trap about
+pre-registration being discharged by whoever reads the number first. It is seconds of CPU on two
+frozen files whenever the planner wants it; the planner's call whether that is a scoping read taken
+before the clause is finalized, or a contamination of it.
 
 Proposal for the planner: none outstanding.
 
