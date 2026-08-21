@@ -925,6 +925,28 @@ own/donor duration ratio mean 1.0144 (min 0.4615, max 3.7246). D7.2 and D7.3 rem
 graph; the config registers d7_0 and d7_1 only and is now fully finished.
 
 
+
+**D7.2 clause 3, the external half, completed 2026-08-22 23:22** (both `PsiHeldNllJob`s; the probes,
+reranks, parity and the clause table are still running). On the unchanged frozen 1,500-row external
+gold-dev set, 1,493 of 1,500 pairs scored in both arms, 0.47 % impossible under the length-matched
+null in both:
+
+| arm | nll/frame, true | held `ce_loo` | `text_explained_loo` | usage gate | job |
+|---|---:|---:|---:|---:|---|
+| control | 2.4595 | 2.2588 | +3.7744 | +5.0509 | `S/psi_align_jobs/PsiHeldNllJob.6bf5GyPGHuAi` |
+| candidate | 2.4595 | 2.2581 | +3.7751 | +5.3587 | `S/psi_align_jobs/PsiHeldNllJob.QDKOlbGXdEOA` |
+
+Both sit far below the unit marginal H_uni 6.0332, so the absolute floor of gate v2 (i) passes for
+both, and the candidate's own report records clause (i) and (ii) PASS against the control as
+incumbent (+0.0007 on each). Read this beside the internal-held NLL, which orders the other way
+(candidate 2.5319 against control 2.5259): these are different measurements on different
+populations -- D7's own pseudo-text held rows against gold dev text -- so they do not contradict
+each other, and it is the INTERNAL one that D7.2's clause 2 reads. The largest external separation
+is the usage gate, +5.3587 against +5.0509: the candidate separates a true pairing from a
+length-matched deranged one more sharply than the control does, on a set neither arm trained on,
+which is the online same-speaker negative's intended effect showing outside its own bed.
+
+
 **33. D6-PERIODIC/GAN960-FROZEN: the frozen-scorer loop restarted from theta_0^G960.** User-funded
 2026-08-21 on the §3d.A scale read (`SAE_3D_GTRACK.md` approach 5, verdict 11), registered by the
 planner in `PLAN_3E1.md`. The arm is `config_sae_3e1_d6periodic_gan_frozen_v1`'s recipe verbatim --
