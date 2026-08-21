@@ -31,37 +31,32 @@ Next action: start the d7 manager (above), confirm the pool and the D7.0 preflig
 confirm the two D7.1 trainings start matched. A D7 policy leg is NOT authorized and none is in this
 graph.
 
-D8 spec read 2026-08-21, third pass on the re-scope (`PLAN_3E1.md` at 9d702cbef; nothing
-implemented, nothing authorized). The clause re-scope is implementable as written and I did not run
-the comparison. `J9yA1eYnxwYA`'s T=0.7 slice checks out as the clause-(a) surface: 512 groups of
-exactly 12 rollouts, same column set as the fork dump (`recon`, `lm_prior`, `n_tokens`, `text`), and
-its 512 IDs are a strict subset of the tc100 bed, so the `n_units` join that clauses (b) and (c) need
-is available on both artifacts.
+D8 spec read 2026-08-21, fourth pass (`PLAN_3E1.md` at 0b654c274; nothing implemented, nothing
+authorized). The normalizer wording is now correct and verified at the source: `SearchOutHypsJob`
+defaults to `lowercase=True, ascii_fold=True` and its fold at `scorer_diag.py:1255` is exactly NFKD,
+combining marks dropped, remaining non-ASCII deleted -- so identity on pool texts does hold by
+construction, which is why 0 of 281,241 changed.
 
-One new flag, on the dedup normalization, found while checking that the re-scope was mechanical:
+One correction to the new rule's stated mechanism, measured on the binding artifact:
 
-1. **The pool does not normalize.** `D7OnlinePoolJob` passes the merge text through verbatim
-   (`str(v)`, `d7_online.py:199`); it stores speaker, length and role only. So "the pool's exact text
-   normalization: lowercase, ASCII fold" names a step the pool does not perform. On the operative
-   artifact the described transform is an exact identity -- verified: 0 of 281,241 pool texts change
-   under lowercase + ASCII fold -- so the rule-5 coincidence between the candidate's one-hot case and
-   the control's targets is NOT at risk. The wording should name the D8 reader as the normalizer.
-2. **"ASCII fold" is under-specified exactly where it stops being a no-op.** It is a no-op on the
-   fork dump (3 of 371,007 texts change) but not on the artifact that now binds clause (a): on
-   `J9yA1eYnxwYA`'s T=0.7 slice 3.8 % of texts carry non-ASCII characters. Dropping them,
-   transliterating them and rejecting the hypothesis are three defensible readings of "fold" with
-   three different dedup outcomes, and dedup is clause (a)'s input. One registered definition in the
-   reader's docstring settles it.
+- **The scoreability criterion cannot fire on the multilingual leakage, so it does not price it.**
+  The canonical fold DELETES non-Latin script before the text side ever sees the string, and what is
+  left is ASCII English, which the BPE side always encodes (an unmatched word becomes UNK, which is
+  in the inventory; `phones.py:301-304`). On `J9yA1eYnxwYA`'s T=0.7 slice, all 236 of the texts
+  carrying non-ASCII survive the fold as NON-EMPTY scoreable English -- zero become empty. So on this
+  artifact the empty / infeasible / not-encodable arms exclude nothing at all.
+- What remains are two other mechanisms, and only one of them thins support. Two rollouts differing
+  only in deleted glyphs COLLAPSE under dedup, which does thin it -- that is clause (a)'s own
+  statistic and I have not measured it. But a rollout carrying partial leakage is instead silently
+  REPAIRED into a shorter, perfectly scoreable English candidate that competes for weight on equal
+  terms. The plan's claim that unusable candidates thin the measured support and so price the
+  leakage automatically describes the collapse path but not the repair path, and the repair path is
+  the one that is certain to occur here (236 of 236).
 
-Context for the planner, reported as a character-class property and NOT a gate statistic -- I have
-computed no distinct-hypothesis count, no ESS and no weight variance on either artifact. The
-non-ASCII share of theta_0^G's sampled text is strongly temperature-dependent: 0.4 % at T=0.3, 0.5 %
-at T=0.5, 3.8 % at T=0.7, 41.1 % at T=0.9, 76.2 % at T=1.0 (its greedy rows 0.4 %, its true rows
-0 %). The fork policy shows none of this at T=0.7 (3 texts in 342,468). The characters are Cyrillic,
-Chinese and Arabic -- the multilingual vocabulary leaking into sampled text. This is an independent,
-non-gate confirmation that the two artifacts' sampling distributions differ by policy, which is the
-axis the re-scope just acted on; it also bears on D8's premise that the sampled group is a support of
-plausible transcripts.
+Whether repair-into-a-competing-candidate is acceptable is the planner's call; it is named here
+because the automatic-pricing argument currently rests on an exclusion that never fires. Everything
+above is a per-text character-class and encodability property: no distinct-hypothesis count, no ESS
+and no weight variance has been computed on either artifact.
 
 Proposal for the planner: none outstanding.
 
