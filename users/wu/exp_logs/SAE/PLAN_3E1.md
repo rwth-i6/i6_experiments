@@ -1723,7 +1723,11 @@ pinned 2026-08-21, implementer proposal: the WEIGHT job owns the fold, the dedup
 re-scoring and the reported rate, co-located with the tau_star rule in one docstring, and the
 dump machinery keeps scoring what it generates, unchanged; the weight job MAY reuse a stored
 column verbatim wherever normalized == raw -- the same string under the same pinned scorer --
-and re-scores only the differing minority, in the dump pass's exact forward configuration; the
+and re-scores only the differing minority, in the dump pass's exact forward CONFIGURATION --
+same checkpoint, precision, prior settings and normalization, but not bit-exact numerics, since
+batch composition necessarily differs (a ~1e-6-nat perturbation, ~2e-5 relative on a weight at
+the grid's smallest tau, below anything the ESS rule or the arm-selection spearman can resolve;
+any parity assertion against this contract compares within tolerance, never for equality); the
 differing-string predicate and the repair rate are one computation. D8.0's provisional
 statistics read the dumps' STORED columns, computed at dump time on raw pre-fold text --
 negligible on the fork dump, 3 of 342,468 raw texts non-ASCII, and one more reason clauses (b)
