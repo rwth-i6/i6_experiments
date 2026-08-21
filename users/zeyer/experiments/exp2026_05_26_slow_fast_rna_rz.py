@@ -34,6 +34,7 @@ from i6_experiments.users.zeyer.recog import recog_training_exp, recog_model
 from sisyphus import tk
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines import configs
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import _raw_sample_rate
+from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import model_recog as aed_model_recog
 from i6_experiments.users.zeyer.datasets.loquacious import get_loquacious_task_raw_v2
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.base import streaming_model_def, model_recog_ctc
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.dataset import ChunkAlignDataset, ExtendVocabWithEocJob
@@ -81,7 +82,10 @@ from i6_experiments.users.zeyer.nn_rf.decoder.streaming.align_probe import (
 from i6_experiments.users.zeyer.nn_rf.decoder.streaming.rnnt_scaled import rnnt_scaled_training
 
 # Reused verbatim from the FZJ module -> identical Job hashes -> the rsync'd base + alignment are found.
-from i6_experiments.users.zeyer.experiments.exp2026_05_26_base_fzj import _train_loquacious_base
+from i6_experiments.users.zeyer.experiments.exp2026_05_26_base_fzj import (
+    _train_loquacious_base,
+    _train_loquacious_chunked_base,
+)
 from i6_experiments.users.zeyer.experiments.exp2026_05_26_slow_fast_rna_fzj import (
     _CHUNK_SIZE,
     _enc_build_dict,
@@ -95,8 +99,35 @@ from i6_experiments.users.zeyer.experiments.exp2026_05_26_slow_fast_rna_fzj impo
 __setup_root_prefix__ = "exp2026_05_26_slow_fast_rna_rz"
 
 
+def _recog_chunked_base_aed():
+    """Chunked base's own AED decoder, decoder-only (label-sync beam search) on dev --
+    the AED counterpart to its 9.41 CTC. Reuses the standard aed.py beam search on the base checkpoint.
+    """
+    prefix = get_setup_prefix_for_module(__name__)
+    exp, _aux = _train_loquacious_chunked_base()
+    task = get_loquacious_task_raw_v2(vocab="spm10k")
+    for bs in [1, 12, 32]:
+        name = prefix + f"/chunked-base-aed/recog-dev/b{bs}"
+        res = recog_model(
+            task=task,
+            model=exp.get_last_fixed_epoch(),
+            recog_def=aed_model_recog,
+            config={
+                "beam_size": bs,
+                "search_version": 2,
+                "length_normalization_exponent": 1.0,
+                "batch_size": 10_000 * configs._batch_size_factor,
+                "max_seqs": 100,
+            },
+            dev_sets=["dev"],
+            name=name,
+        )
+        tk.register_output(name, res.output)
+
+
 def py():
     # The standard-AED control (CTC-only = base 9.41 metric) + the four streaming decoder variants.
+    _recog_chunked_base_aed()  # chunked base's own AED decoder-only (dev), the AED counterpart to its 9.41 CTC
     _train_standard_aed_rz()
     _train_chunkwise_rz()
     _train_framewise_rz()
