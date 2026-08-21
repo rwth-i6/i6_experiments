@@ -1704,12 +1704,27 @@ computed once, detached, and frozen as an artifact before any training exists. A
 infeasible candidate (text minimum feasible frames > T_i), an empty text, or a text the scorer's
 text side cannot encode after the registered normalization (out-of-inventory characters; added
 2026-08-21) gets weight exactly 0 before weight normalization and is counted; such candidates
-also do not count toward clause (a)'s distinct-support statistic, so unusable candidates thin the
-measured support instead of padding it. Context, measured as character-class shares only, no gate
+also do not count toward clause (a)'s distinct-support statistic. (Mechanism corrected
+2026-08-21, implementer-measured on the binding artifact, replacing "priced automatically by
+clause (a) through exclusion": the exclusion arm cannot fire there -- the fold deletes non-Latin
+glyphs BEFORE the text side sees the string, the ASCII residue is always encodable because an
+unmatched word maps to UNK, which is in the inventory, and all 236 non-ASCII T=0.7 texts survive
+the fold as non-empty scoreable English. Leakage is therefore priced by three mechanisms, in this
+order, not by exclusion: COLLAPSE -- glyph-only variants dedup to one string and thin clause
+(a)'s distinct support; WEIGHT -- a partially-deleted rollout becomes a shorter English candidate
+that competes at the price of its normalized string, legitimate by the same symmetry that lets
+the control train on folded greedy text, since the merge applies the identical fold; and
+exclusion only as the backstop for texts that fold to empty, live at higher temperatures where
+whole-string leakage occurs. To make the WEIGHT price honest, one same-string rule binds
+everywhere: the dedup key, the weight-side scoring -- pinned-scorer forward and LM prior -- and
+the training target are the SAME normalized string; the per-group repair rate, candidates whose
+normalized string differs from the raw generation, is a reported diagnostic. D8.0's provisional
+statistics read the dumps' STORED columns, computed at dump time on raw pre-fold text --
+negligible on the fork dump, 3 of 342,468 raw texts non-ASCII, and one more reason clauses (b)
+and (c) only report at D8.0.) Context, measured as character-class shares only, no gate
 statistic touched: theta_0^G sampled text leaks multilingual vocabulary -- non-ASCII in 3.8% of
 T=0.7 hypotheses on the 512-utterance dump (planner-verified 236/6,144), 41.1%/76.2% at
-T=0.9/1.0, ~0 for the fork policy and the greedy rows -- so the fold's deletions and the
-out-of-inventory exclusions are reported diagnostics, priced automatically by clause (a). A
+T=0.9/1.0, ~0 for the fork policy and the greedy rows. A
 group whose whole support is infeasible or unscoreable collapses to one-hot greedy and is
 counted (the preflight asserts greedy feasibility bed-wide). tau_star comes
 from a pre-registered deterministic rule, never a sweep of trainings: on the operative weight
