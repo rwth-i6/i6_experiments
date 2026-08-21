@@ -243,7 +243,9 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    from either start; verdict 10); no second generation. USER 2026-08-21 (resolves the open
    decision in part): fund ONE frozen-scorer reconstruction loop from theta_0^G960 — registered
    as D6-PERIODIC/GAN960-FROZEN in `PLAN_3E1.md` (the GAN-FROZEN recipe verbatim, init swapped,
-   same frozen round-1 scorer; leg-8-vs-init both-splits gate pre-registered). Rebasing anything
+   same frozen round-1 scorer; leg-8-vs-init both-splits gate pre-registered). Same day later:
+   IMPLEMENTED AND VERIFIED (planner config-diff read + implementer graph census, zero scorer
+   work funded); launch awaits the user's manager start, detail in `PLAN_3E1.md`. Rebasing anything
    else (D7/D8, refits, other arms) on theta_0^G960 remains undecided; the running D7 A/B stays
    on theta_0^G as registered. Detail: `SAE_3D_GTRACK.md` A5 and `PLAN.md` §3d.A Status.
    The superseded offline D7-v2 design CLOSED at
@@ -258,14 +260,19 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    implemented now without another planner round; do not displace running funded GPU jobs.
    2026-08-21 (later, verifier): D7.0/D7.1 implemented and launched — decode shards running, the
    scorer A/B gated behind the D7.0 preflight barrier, no funded job displaced; detail in
-   `PLAN_3E1.md` D7 Status and `SAE_3E1.md` Verifier feedback. Decode shards FINISHED 18:11 and
-   both pre-run fixes landed (implementer-reported); the d7 manager restart is a user `!` line.
+   `PLAN_3E1.md` D7 Status and `SAE_3E1.md` Verifier feedback. Decode shards FINISHED 18:11;
+   both pre-run fixes verifier-confirmed; the user restarted the d7 manager, the pool PASSED on
+   its own artifact, and the preflight FAILED its control-parity step on an unsatisfiable
+   bit-exact gradient assertion (CUDA-atomics noise exceeds the cross-copy difference; losses
+   exactly equal). Planner amendment same day pins the operational parity rule
+   (self-calibrating noise floor, `PLAN_3E1.md` D7 Status); one implementer edit plus one more
+   user-run d7 manager restart are pending.
    2026-08-21 (planner, on the user's instruction): D8 REGISTERED in `PLAN_3E1.md` —
    posterior-weighted multi-hypothesis scorer refit (soft EM over theta_0^G sampled rollouts,
    weights from the arm's own shaped score at pinned lam_lm=1.0, D7 control reused as the
-   comparator). UNFUNDED; D8.0 is a CPU read of the frozen group-12 dump and may start on the
-   user's word; D8.1 additionally waits for the D7.2 verdict; the policy leg needs its own
-   launch word.
+   comparator). USER-FUNDED 2026-08-21 ("I approve starting D8"): D8.0 — the CPU read of the
+   frozen group-12 dump — starts now; D8.1 still waits for the D7.2 verdict as registered; the
+   policy leg still needs its own launch word.
 5. **PLAN_3A matrix wrap-up**: M4 contingency call; collapse the sub-plan when closed.
 6. **§1e §2.5(d)+usage gates on the ep50 pins** — the §3d init upgrade path.
 7. **G2P-equivalence ceiling** on existing rollouts.jsonl (CPU): phone-reachable vs

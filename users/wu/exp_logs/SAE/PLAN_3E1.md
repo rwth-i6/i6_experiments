@@ -1084,6 +1084,23 @@ config, verified at source).**
   no dev-selected checkpoint feeds anything downstream.
 - Status: REGISTERED AND AUTHORIZED 2026-08-21 (the user's launch word, given on the verified A5
   read); not yet implemented. Implementation must not displace any running funded job.
+  2026-08-21 later: IMPLEMENTED AND VERIFIED, awaiting the user's manager start
+  (`./sis_managers.sh start sae_3e1_d6periodic_gan960_frozen`; classifier-blocked for both
+  sessions). Planner verification basis: the config diff against the sibling
+  (`config_sae_3e1_d6periodic_gan960_frozen_v1.py` vs `..._gan_frozen_v1.py`) read directly —
+  the only non-cosmetic change is the leg-1 init `ReturnnTrainingJob.HuSkdbuVRg6d`
+  `output/models/epoch.010.pt` plus the arm's own alias namespace, so no refit path exists
+  structurally. Implementer graph census (accepted on that basis): leg-1 training is the new
+  `ReturnnTrainingJob.ohmLWWmr6Kxe` (sibling `kr1foUV6lecx`, no collision); the 64 jobs a launch
+  funds contain zero psi_align/curate/scorer_diag work; frozen `dsMKgPHQApyR` at every leg.
+  Two recorded resolutions of flagged points: (i) the "anchors follow the init" instruction above
+  is VACUOUS on this bed — `loop_config` takes only `psi_checkpoint` and `av_checkpoint`, no KL
+  snapshot or init-relative anchor exists, nothing to re-point; (ii) leg 1 inherits the sibling's
+  `round1_artifacts()` bookkeeping, so its record's dump/pool/refit fields cite the sibling's
+  finished round-1 jobs. Ruling: keep the recipe verbatim (no compute is funded by those
+  references) and read them as PROVENANCE OF THE SHARED FROZEN SCORER, built from theta_0^G
+  decodes — this arm refreshed NOTHING at leg 1 or anywhere; any audit of this arm's round 1 must
+  use this line, not the record fields.
 
 **D6-PERIODIC/GAN+HOM — homophone-diversity SFT arm on the same bed (USER-directed
 2026-08-17).**
@@ -1671,6 +1688,31 @@ diagnostics; all four D7 hashes plus the merge unmoved). All ten decode shards F
 merged 18:11; the pool stopped on the source-identity guard as designed and its error marker is
 cleared, so the d7 manager restart -- a user `!` line, classifier-blocked for both sessions --
 is the only step between here and D7.0/D7.1 running with the fixes in.
+2026-08-21 latest (planner ruling, operational-parity amendment): the pool PASSED on its own
+artifact (281,241 rows, 2,338 speakers, 0 empty; train 266,138 ordinary / 1,041
+nearest_fallback / 0 singleton; held 11,855 / 2,153 / 54), then the preflight FAILED its
+control-parity step because the implementation asserted BIT-EXACT gradient equality
+(`torch.equal`) between the two `L_online=0` copies. A read-only diagnostic
+(`scripts/d7_parity_diag.py`, `log/d7_parity_diag.1446568.out`, GH200) shows the assertion is
+unsatisfiable by construction on this backend: losses are exactly equal (9.983121871948242
+both), cross-copy max abs gradient difference is 2.623e-06, and the SAME model object re-run on
+the identical batch/RNG differs by MORE (5.484e-06) -- CUDA atomics in the FastBaumWelch
+backward, `deterministic_algorithms` False. The registered clause is "control parity when
+`L_online=0`"; bit-exactness was an implementation over-strengthening, and the
+tolerance-not-equality principle was already pinned for D8 the same day BEFORE this failure was
+observed. This amendment therefore specifies the clause's operational form; it does not relax
+what the clause detects (a real state/wiring difference between control and parity paths).
+Operational rule, pre-registered here before any PASS artifact exists: (1) losses must be
+exactly equal; (2) in the same preflight job, same batch, same restored-RNG protocol, measure
+the backend noise floor F = the maximum over at least 2 additional re-runs of ONE model of the
+max abs gradient difference against that model's first run; (3) PASS requires cross-copy max
+abs gradient difference <= 3*F AND F <= 1e-4. F = 0 (a deterministic backend) degenerates to
+exact equality, which is then the correct demand; F > 1e-4 at this loss scale (~10) indicates a
+different defect and fails the barrier. The recorded FAIL stands as a fact about the old
+instrument, not about the wiring. Cost disclosed: `d7_online.py` is inside the source-identity
+pin, so this one edit requires one further user-run manager restart. First live counter read,
+same run: infeasible donors 0/256 pairs in shard 0's first batch (209 ordinary_window / 47
+nearest_fallback).
 
 **D8 -- posterior-weighted multi-hypothesis scorer refit (soft EM over sampled rollouts;
 USER-proposed 2026-08-21, registered same day; UNFUNDED).**
@@ -1882,6 +1924,11 @@ up to two D7.1-sized fixed-final trainings;
 the policy leg is priced separately at D8.3 authorization. Labels appear nowhere: rollouts read
 audio only, every gate statistic is label-free, and speaker IDs enter only the evaluation-side
 cluster bootstrap, as in D7.2.
+2026-08-21 later (USER): D8 FUNDED — "I approve starting D8". This is the launch word for D8.0
+(implement and run the CPU read of the frozen fork-epoch artifact now). It does NOT lift the
+registered ordering: D8.1a-b still wait for the D7.2 admission verdict (shared control arm,
+admission machinery and reference), and D8.3 still requires its own authorization after a D8.2
+pass. No gate clause, pin or statistic changes with this funding line.
 
 ## Acceptance gate v2
 
