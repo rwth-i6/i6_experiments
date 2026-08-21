@@ -152,7 +152,14 @@ class LLMPreprocess(Job):
 
         ds = load_from_disk(str(self.in_hf.get()))
 
-        with vllm_server(self.llm_name) as llm_url:
+        # Shrink the context so this fits c25g's 80 GB card: gemma-4-31B-it at vLLM's 65536 default
+        # loads 58.9 GiB of weights and leaves only 8.2 GiB for KV, which is not enough for 65536 --
+        # the engine refused to start and this job errored (2026-08-05), stalling the whole graph.
+        # 16384 is measured, not guessed: over all 12,000 rows of the real input the worst prompt is
+        # 13,731 chars (~3.9k tokens -- one row carries a very long alias list), and the completion
+        # echoes those aliases back as JSON with no max_tokens cap, so ~4x the worst prompt is the
+        # headroom that keeps a long-alias row from being truncated mid-object. KV at 16384 is ~3 GiB.
+        with vllm_server(self.llm_name, max_model_len=16384) as llm_url:
             _client = OpenAI(api_key="EMPTY", base_url=llm_url)
             _client.models.list()
 
