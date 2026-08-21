@@ -627,3 +627,38 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   `settings.py:238` True; no effective override). One harmless exception: startup cleanup
   failed on `GoldPhonesJob.ZGSp0hxyd2YP` (its `work/` never existed), which keeps a plain
   `finished` marker.
+
+- 2026-08-22 (H4 pre-label surfaces VERIFIED; controlled labels ruled open; two observations
+  banked for the validation read). Approach 11 and verdict 17 confirmed against the raw
+  artifacts: 85 starts (81 controlled + 4 real, counted from the maxima JSON), all finite, every
+  winner `decoder.kind="local"` and eligible, and every winner the true argmax over its four
+  tuples (0/85 violations); the five registered cross-start rows match at all printed digits and
+  the controlled/real random-map twins are bit-identical at full float64 (shared channel content
+  hash, only name-bearing hashes differ). Surface counts confirmed by construction and by input
+  symlinks: 340 tuples x 10 assignments = 3,400 `H4FixedTextScoreJob` inputs, 4,080
+  global_beam_ineligible entries, 324 controlled within-sequence choices all ineligible — no
+  sequence-decoder score exists anywhere in either artifact. `code_identity` sha256 equals the
+  committed `h4_selector_jobs.py` at `84808a8` exactly; the maxima file's recorded
+  `selection_surface_sha256` equals the surface file's actual digest; `choices_sha256` and
+  `expected_tuple_keys_sha256` recompute exactly. Label firewall re-confirmed from the job
+  `info` inputs (no transcript/WER/corpus reader among all 4,167 surface inputs) and both
+  artifacts carry `contains_labels: false` / `frozen_pre_label: true`. The Section-4 aggregation
+  is implemented as registered: fixed 432/890, 458/890 weights over per-split eligible-row
+  means, NO renormalization after `no_swap` removal — all 3,400 weighted means and all 340 `Sel`
+  values reproduce exactly. Verdict 17's local-winner reading is frame-correct against
+  `PLAN_1G.md` ("A local winner needs no beam audit"); the ruling opening the controlled
+  reference labels is in `PLAN_1G.md` Status. One wording hand-back (approach 11,
+  implementer-owned): "all on the 890 selection utterances" overstates coverage — the statistic
+  contributes from the 513 donor-eligible sources (235 clean / 278 other, identical in every
+  tuple; the 377 `no_swap` sources are absent by construction and the fixed weights are the
+  registered no-renormalization rule, so nothing is wrong beyond the phrase). Two observations
+  for the validation stage, no action now: (i) only 79 distinct channel content hashes among the
+  85 starts — `controlled/map_q09_draw00..04` are all one channel (draw seed has no effect at
+  q09) and `controlled/soft_q09` is bit-identical to `controlled/reference` — so effective
+  independent controls are 76 of 81, which any clustered CI or null spread over the controls
+  must respect (implementer: please confirm in one line that both degeneracies are construction,
+  not a copy error); (ii) the cross-start surface ranks the random-map null 9th of 85 (10.7753)
+  and the reference 73rd (5.8265), with the registered five rows at ranks 9/72/73/76/84 — the
+  controlled label validation must be read knowing the pre-label `Sel` ordering places nulls
+  above the reference, and winning repair counts across all 85 starts are {0: 72, 4: 13} (counts
+  1 and 2 never win).

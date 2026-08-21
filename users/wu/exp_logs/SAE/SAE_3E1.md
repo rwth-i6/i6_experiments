@@ -2442,3 +2442,29 @@ the absolute beta, is what carries the contamination claim.
   slice's rho(shaped, LM-only) 0.9790 sits above the registered 0.95 arm-selection bar — if
   D8.1a reproduces it, candidate-shaped is not funded and only candidate-acoustic trains, per
   the registered rule; the D8.0 value is provisional and selects nothing.
+
+- 2026-08-22 (D7.1 completion round VERIFIED; hand-backs closed). Every approach-32 D7.1 claim
+  confirmed against the raw job artifacts: both arms' `monitors.json` carry
+  `own_infeasible_dropped` = exactly the four registered train-role rows (no held drops, key
+  absent), `anchor_rows` 267,175 / 14,062, digit-identical to the offline dropcheck and to each
+  other; NLL 2.52588->2.5259 (control) / 2.53190->2.5319 (candidate), mean `L_online`
+  0.0102246->0.010225 / 0.0075412->0.007541; the train-side sampling files are byte-equal across
+  arms and all ten per-shard row/frame counts and step boundaries are bit-identical arm to arm.
+  An exhaustive recursive diff of the two arms' monitors finds ONE non-metric difference:
+  `online_weight` 0.0 vs 1.0 — the A/B is single-variable at the artifact level, not just by
+  intent. Single 14-minute run each (13:59/13:58), no resubmit, `.cleared.0001` failure dirs
+  preserved; both `model_final.pt` present; the four dropped anchors were all ordinary_window
+  donor cases (census 266,138 -> 266,134, fallback untouched), so the donor law was untouched by
+  the drop. Both manager logs end at sisyphus's "All calculations are done" EOFError, confirming
+  the corrected STALLED-artifact reading in State. Verdicts 64-65 rest on the tables and are
+  accurate; the 26% claim recomputes (0.7376x). Precision notes, no action needed: held
+  `L_online` averages over 14,008 rows — the 54 singleton anchors contribute no online term —
+  matching the gate's own "per eligible held anchor" wording, same denominator both arms;
+  control shards 6/9 and candidate shard 9 report `u_to_z` exactly 0.0 (fine for a satisfied
+  hinge, worth knowing if `u_to_z` is ever read as a live signal). Hand-backs from the previous
+  round verified closed: the rho(shaped, acoustic-only) column matches the artifacts at every
+  digit (0.3000/0.2857/0.3132/0.5497/0.6593; fork 1.0000), verdict 63's corrected range
+  0.2857-0.6593 is the exact min/max, the State pin names `3843918`, and the mechanics test
+  reproduces 47/47 PASS live at branch head. The D7.2 clause-2 flag is acknowledged in
+  `PLAN_3E1.md` D7 Status: the gate does not move, and a failure closes D7 without a policy leg
+  per the registered law — D7.2 is authorized to build and run as registered, no new word needed.

@@ -608,7 +608,22 @@ break a tie. The selector artifact authorizes the H3 7,304-ID and reference 4,45
 final-refit health/resource/beam release in Section 4 authorizes the one evaluation read. H4-LM
 remains conditional under 1g.2a; H5--H6 remain gated on a valid H4 output.
 
-### 1g.0 — Choose the smallest channel shape that the data do not reject
+**2026-08-22 (planner): pre-label boundary COMPLETE and verifier-confirmed; controlled reference
+labels MAY OPEN.** The global beam table classified all 12 grid points ineligible (baseline surface
+local-only by construction), the 340-decode / 3,400-score selection surface and the provisional
+maxima are persisted and hash-bound (`SAE_1g.md` approach 11, verdict 17; artifacts in its
+Catalog), and all 85 provisional winners are local — so the frozen-versus-next-beam winner audit
+is discharged by the registered local-winner exemption and the at-most-320 budgeted audit cells
+are not needed at this boundary. The implementer's proposal 1 is ratified as exactly that
+registered exemption. The next step is the registered one and no other: open the CONTROLLED
+REFERENCE labels for selector validation and the method-level safety read; the four H3 rows' own
+errors remain quarantined, no maximum may be recomputed or reranked, and likelihood remains
+update-health evidence only. Two verifier observations bind the validation read (detail in
+`SAE_1g.md` Verifier feedback 2026-08-22): only 79 of the 85 start channels are distinct (the five
+`map_q09` draws share one channel; `soft_q09` is bit-identical to the reference), so clustered
+intervals or null spreads over the controls must collapse duplicate channels — 76 effective of 81;
+and the pre-label cross-start `Sel` ordering places the random-map null 9th of 85 against the
+reference at 73rd, which the selector-validity verdict must be read against, not around.
 
 **Purpose.** Rule out a channel that is too simple, then define a label-free check for the first
 duration model.

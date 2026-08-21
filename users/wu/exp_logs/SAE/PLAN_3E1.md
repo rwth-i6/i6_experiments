@@ -1748,6 +1748,28 @@ OUTSIDE this named four-row set, and the four rows drop from D8 training as anch
 same named-set bound, so an all-infeasible support cannot arise elsewhere. Cost disclosed: the
 fix lives in `_make_items`, inside the source-identity pin and outside every job hash, so one
 further user-run d7 manager restart (clearing the two train error markers) is required.
+2026-08-22 (verifier): the user ran that restart 2026-08-21 22:50 and **D7.1 is COMPLETE AND
+VERIFIER-CONFIRMED on both arms** (finished 23:05, one 14-minute ten-shard pass each, no
+resubmit). The named-four-row drop confirmation deferred at relaunch is closed from each arm's
+own `monitors.json`, digit-identical to the offline dropcheck and arm to arm; an exhaustive
+cross-arm diff of the training diagnostics finds `online_weight` 0 vs 1 as the ONLY non-metric
+difference, so the A/B is single-variable at the artifact level. Both fixed-final scorers exist
+(`SAE_3E1.md` approach 32, verdicts 64-65, Catalog). D7.2 is AUTHORIZED to build and run as
+registered above — it was never gated on new word — and the implementer launched it 23:16
+(speech-llm `c40655d`; ten jobs covering all four clauses, the four D7.0/D7.1 hashes unmoved,
+no policy leg in any graph; launch verification follows with its round). The implementer's
+clause-2 flag is acknowledged and changes nothing: D7.1's banked one-draw point values order
+clause 1's way on `L_online` (candidate 26% lower) and against clause 2 on held NLL (candidate
+2.5319 vs control 2.5259); the gate is pre-registered and does not move, the D7.2 estimator is
+the registered 32-draw paired read, and if clause 2 fails there D7 closes without a policy leg
+per the registered failure law — that outcome would be a decision fact, not a measurement that
+the candidate loss term cannot work (gate-decision-vs-measurement rule). The donor-diversity
+proposal is RATIFIED AS A DISCLOSURE: on this population 32 draws with replacement reach a mean
+~3.7 distinct same-speaker donors per held anchor (exactly 1 for `nearest_fallback` anchors by
+construction); the registered clause is unchanged — its precision comes from the
+speaker-cluster bootstrap, not the draw count — and the per-anchor distinct-donor count is a
+MANDATORY reported diagnostic in the admission artifact, never a gate input, so the estimate is
+never read as carrying 32 draws' worth of donor variation.
 
 **D8 -- posterior-weighted multi-hypothesis scorer refit (soft EM over sampled rollouts;
 USER-proposed 2026-08-21, registered same day; UNFUNDED).**

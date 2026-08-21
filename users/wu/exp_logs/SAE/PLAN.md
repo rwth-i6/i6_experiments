@@ -84,8 +84,12 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
   leg still needs authorization. Same day latest: preflight PASSED under the amended parity rule;
   the first D7.1 run failed closed on four degenerate own-infeasible greedy anchors — drop-and-count
   amendment registered (`PLAN_3E1.md` D7 Status); 2026-08-22 the edit is implemented and
-  verifier-confirmed (speech-llm `e2a421b`, hashes unmoved) — only the user-run
-  `./sis_managers.sh start sae_3e1_d7_gan_seqdisc -co` restart pends.
+  verifier-confirmed (speech-llm `e2a421b`, hashes unmoved), the user ran the restart 22:50, and
+  D7.1 COMPLETED 23:05 on both arms and is verifier-confirmed — four named drops closed per-arm,
+  arms single-variable at the artifact level, fixed-final scorers banked. D7.2 (label-free
+  admission) LAUNCHED 23:16 under the standing registration — no new word was needed; its
+  clause-2 risk and the donor-diversity disclosure are ruled in `PLAN_3E1.md` D7 Status and
+  the gate does not move.
 - **960 h stock-donor supervision-axis endpoint is ABSENT**: the theta_0 + gold-scorer arm ran
   only through sub-epoch 4, was stopped and deleted 2026-08-08, and never produced the listed
   3-pass endpoint; `ReturnnTrainingJob.22Ntu7y0O6iW` does not exist. Its observed collapse is
@@ -112,6 +116,13 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    pass the release checks, and open the 1,112-ID evaluation once. Likelihood is update-
    health evidence only, never a selector, fallback, or tiebreaker. The workspace has
    `JOB_AUTO_CLEANUP = True`; verify the effective imported value before any new manager.
+   2026-08-22: the global-beam boundary ruled ALL 12 grid points ineligible (baseline surface is
+   local-decoder-only), the pre-label selection surfaces are COMPLETE and verifier-confirmed
+   (340 local decodes, 3,400 donor scores, 85 provisional maxima persisted, every winner local —
+   the winner beam audit is discharged by the registered local-winner exemption), and the
+   planner has ruled the controlled reference labels OPEN (`PLAN_1G.md` Status 2026-08-22, with
+   two banked observations the validation read must respect: 76 effective independent controls
+   of 81, and the pre-label cross-start ordering ranks the random-map null above the reference).
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional
@@ -282,7 +293,12 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    no new dump) is registered in `PLAN_3E1.md` D8 Status. 2026-08-22 later: the v3 read ran
    and is verifier-confirmed — clause (a) GO (exclusion 0/5,730, median distinct feasible 12
    vs threshold 3); D8.0 is discharged, D8.1a-b stay gated behind the D7.2 verdict as
-   registered.
+   registered. 2026-08-22 latest: the user's 22:50 d7 restart worked and D7.1 is COMPLETE AND
+   VERIFIER-CONFIRMED on both arms (one 14-minute pass each; four named drops confirmed from
+   each arm's own artifact; `online_weight` the only non-metric cross-arm difference); D7.2
+   LAUNCHED 23:16 under the standing registration (ten jobs, all four clauses, D7.0/D7.1
+   hashes unmoved), clause-2 risk flagged and donor-diversity disclosure ratified, gate
+   unmoved (`PLAN_3E1.md` D7 Status 2026-08-22).
    2026-08-21 (planner, on the user's instruction): D8 REGISTERED in `PLAN_3E1.md` —
    posterior-weighted multi-hypothesis scorer refit (soft EM over theta_0^G sampled rollouts,
    weights from the arm's own shaped score at pinned lam_lm=1.0, D7 control reused as the
@@ -745,10 +761,13 @@ repair, scoring, and decoding and passes the exact-enumeration suite; its timing
 rerun. H3's fingerprint, random-map, and pseudo-pair final initializers are finished on all 7,304
 construction utterances; the selected ESPUM final refit and strict projection are also finished.
 H4's verified 821-job prerequisite graph exposes every corrected channel table and passes both
-resource contracts, but no full-role decode, normalized own-minus-donor selector, final refit, or
-evaluation has run. Add the bounded beam-stability extension and validate the deterministic selector
-boundary, then complete H4;
-H5--H6 remain gated on its scientific result. Details: `PLAN_1G.md`; evidence:
+resource contracts. 2026-08-22 (replaces "no full-role decode ... has run", because the pre-label
+boundary completed): the beam-stability extension ruled every sequence setting ineligible (baseline
+surface local-only), the selection surfaces and all 85 provisional maxima are persisted, hash-bound
+and verifier-confirmed, every winner is local (winner beam audit discharged by the registered
+exemption), and the controlled reference labels are ruled open for selector validation
+(`PLAN_1G.md` Status 2026-08-22). Final refit and evaluation still have not run;
+H5--H6 remain gated on H4's scientific result. Details: `PLAN_1G.md`; evidence:
 `SAE_1g.md`.
 
 ---
@@ -1119,7 +1138,9 @@ barrier, with no displacement of the already-funded trajectories or §3d.A opera
 policy leg is held. 2026-08-21 latest: preflight PASSED under the amended parity rule; both
 D7.1 trainings failed closed on four own-infeasible degenerate greedy anchors — drop-and-count
 amendment registered in `PLAN_3E1.md` D7 Status; 2026-08-22 the edit is implemented and
-verifier-confirmed, only the user-run restart pends.
+verifier-confirmed, the user restarted 22:50, and D7.1 COMPLETED 23:05 on both arms
+(verifier-confirmed; four named drops closed per-arm, fixed finals banked). D7.2 label-free
+admission LAUNCHED 23:16 under the standing registration; D7.3 still needs its own word.
 Normative details and exact operating points: `PLAN_3E1.md`; evidence: `SAE_3E1.md`.
 
 ### 3f. Exit gate (Rung 3)
