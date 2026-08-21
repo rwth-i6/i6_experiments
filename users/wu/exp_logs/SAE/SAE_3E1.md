@@ -764,6 +764,16 @@ tables and per-source degrees, donor loads, component membership, split/speaker/
 signed/absolute duration shifts are retained in the cited artifact. Their semantic tuple hashes are
 `7855557c...d2f3` externally and `3a6038ab...4376` on the scorer corpus.
 
+**31. D7-v2 / D7.0b frozen donor and loss preflight.** The 2026-08-21 amendment is implemented as
+three serial, label-free jobs. The first binds the accepted D7.0a edges, exact pseudo-pairs, raw
+units, BPE/lexicon inventory and round-1 scorer, then applies the registered feasibility, duplicate
+and two-stage ordinal nuisance law. The second solves the common-set training construction (ten
+K=4, 2+2, exact 2-in/2-out Q2 tables) and the external construction (one K=1 cap-three matching,
+fixed chapter balance and split floors). Only after both structural floors pass, the third recreates
+the common epoch-4 training point, freezes MAD temperature and gradient-norm coefficient, reports
+the K1/K4/K8 diagnostics on one common K8-eligible population, and measures one K=4 update. The graph
+contains no D7.1 scorer, policy, reference text or WER consumer.
+
 
 ## Conclusion
 
@@ -1271,9 +1281,10 @@ function-word pairs rather than broad spelling diversity.
 
 | artifact | path |
 |---|---|
-| code | `sae/scorer_diag.py`, `sae/text_repair.py`, `sae/psi_align_jobs.py`, `sae/psi_align.py`, `sae/curate.py`, `sae/gate_table.py`, `sae/refresh_gate.py`, `sae/d7_census.py` (+ focused tests; D7.0a code commit `a0a22b4`) |
+| code | `sae/scorer_diag.py`, `sae/text_repair.py`, `sae/psi_align_jobs.py`, `sae/psi_align.py`, `sae/curate.py`, `sae/gate_table.py`, `sae/refresh_gate.py`, `sae/d7_census.py`, `sae/d7_v2.py` (+ focused tests; D7.0a commit `a0a22b4`, D7-v2 commit `7b2069d`) |
 | entry points | `config/sae_3e1_d0.py`, `config/sae_3e1_usage.py`, `config/sae_3e1_d1d2.py`, `config/sae_3e1_d3.py`, `config/sae_3e1_d4.py`, `config/sae_3e1_d4p.py`, `config/sae_3e1_d5b.py`, `config/sae_3e1_d6.py` (builds D4' and the swap-in too), `config/sae_3e1_d6periodic.py`, `config/sae_3e1_d6periodic_warm.py`, `config/sae_3e1_hom.py`; D7.0a tracked canonical config `src/speech_llm/prefix_lm/sis_recipe/exp2025_11_06_speech_llms/librispeech/configs/config_sae_3e1_d7_0a_v1.py` at `a0a22b4` (the workspace wrapper only delegates) |
 | D7.0a complete raw external/scorer edge tables and census (approach 30) | `S/d7_census/D7RawDonorCensusJob.zsnx1p9nLyV3` |
+| D7-v2 / D7.0b feature, assignment and loss-preflight chain (approach 31) | `S/d7_v2/D7V2FeatureJob.hnReOv8t9UWg`, `S/d7_v2/D7V2AssignmentJob.aSOMkw3hSc0K`, `S/d7_v2/D7V2LossPreflightJob.tou1ziPwBt5t` |
 | D6-PERIODIC legs 1-8 (approach 22), parent sub-ep 3-10 | `T/ReturnnTrainingJob.5FqdnhWTOf1f`, `.BTnU1gSuMG0i`, `.ZKCbq529Hgp8`, `.gFNpNmXwvrsc`, `.nQtnPdKCuJ0m`, `.n8abYvLR4IP5`, `.jGj7TTbW5DTm`, `.wWqYY7iOCw1s` |
 | its per-boundary refits (rounds 2-8) | `S/psi_align_jobs/PsiAlignTrainJob.JWV3InILYF5v`, `.yUUSN2Hx96E0`, `.QMO8VcAtZ6Gi`, `.DzhBWCy61tiN`, `.Vha8vvKu9lWk`, `.RGTtwlQHt3HY`, `.Ls0TQGiyhQbf` |
 | D6-PERIODIC-WARM legs 1-8 (approach 24), parent sub-ep 3-10; leg 1 is approach 22's, shared | `T/ReturnnTrainingJob.5FqdnhWTOf1f`, `.OOr3UybqUEHD`, `.X3biCvDKgQ7N`, `.7dANeLqxFFbq`, `.nd92xaRDY0uw`, `.kkh0u4rI7I6D`, `.kQRZtXc1ubTV`, `.oRbUsmYR6fRT` |
