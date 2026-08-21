@@ -4,7 +4,7 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-In flight 2026-08-22 00:55:
+In flight 2026-08-21 22:55:
 
 - **D7-GAN-SEQDISC** (`config/sae_3e1_d7_gan_seqdisc.py`, approach 32). All ten theta_0^G
   argmax-decode shards FINISHED (16:37-18:11) and `S/scorer_diag/SearchOutHypsJob.h8GoSrbrTPHh`
@@ -13,10 +13,10 @@ In flight 2026-08-22 00:55:
   2,338 speakers, 0 empty hypotheses; train donor cases 266,138 ordinary_window / 1,041
   nearest_fallback / 0 singleton, internal-held 11,855 / 2,153 / 54. The preflight
   `D7OnlinePreflightJob.ZxfANwBZYpaI` then PASSED under the amended operational parity rule
-  (finished 21:32). **Both D7.1 trainings `D7OnlineTrainJob.j16rTskXF1QU` (control) and
-  `.WA1bqjXQtzeZ` (candidate) then failed closed at data load**, 21:32, on the same row: an anchor
-  whose own pseudo-text cannot align to its own audio at `d_min=2`. Fixed under the planner's
-  own-infeasible-anchor amendment (below); both hold `error.run.1` and have never trained a step.
+  (finished 21:32). Both D7.1 trainings then failed closed at data load, 21:32, on
+  the same row: an anchor whose own pseudo-text cannot align to its own audio at `d_min=2`. Fixed
+  under the planner's own-infeasible-anchor amendment and RELAUNCHED 22:50 (below); the failed
+  attempts are preserved as `.cleared.0001`.
 - **D6-PERIODIC/GAN-FROZEN**: leg 7 of 8 running (`T/ReturnnTrainingJob.ZgRzUxDRhajE`), legs 1-6
   finished. Watcher attached this session (manager pid 1991977).
 - **D6-PERIODIC/GAN960-FROZEN** (approach 33): leg 1 `T/ReturnnTrainingJob.ohmLWWmr6Kxe` running,
@@ -36,17 +36,19 @@ exactly the four registered train-role rows fails the run. Verified on the real 
 none and keeps its 26,743 rows. All four D7 job hashes verified unmoved from the graph. The pool
 artifact and its 281,241-row coverage clause are untouched.
 
-**BLOCKER 1, D7, needs one user command:**
-`./sis_managers.sh start sae_3e1_d7_gan_seqdisc -co` -- with `-co`, not bare. Checked on disk, it
-clears exactly the two `D7OnlineTrainJob` dirs, which hold `error.run.1` and no checkpoint (they
-failed before the first shard save, so `-co` discards no training progress); the pool and preflight
-are finished and are not touched. The edit sits inside the source-identity pin and outside every job
-hash, which is why the restart is needed at all.
-History for whoever resumes: the earlier pool-stage recovery went wrong twice. Renaming a
-non-resumable job's `error.run.1` aside leaves it `interrupted_not_resumable`, whose clearing
-sisyphus asks about interactively while the manager holds `/dev/null` on stdin -- fail-closed, as
-designed. The rename is the wrong recovery for any job that is not resumable; use the per-job clear,
-`-cio`, or `-co` as here.
+**D7 BLOCKER CLEARED 2026-08-21 22:50** (user-run `./sis_managers.sh start sae_3e1_d7_gan_seqdisc
+-co`). The clear moved exactly the two errored train dirs aside as `.cleared.0001`, preserving their
+failure logs, and left the finished pool and preflight untouched. Both arms resubmitted and are
+RUNNING under the drop law: `D7OnlineTrainJob.j16rTskXF1QU` (control) and `.WA1bqjXQtzeZ`
+(candidate), matched to within ~10 s at every stage. Both are past the data load that killed them --
+the failure came at 31 s, both now reach the training loop at ~2 min with the same resident-set
+trajectory -- which means the named-set equality assert passed in both: the realized drop set is
+exactly the four registered train-role rows, or the run would have failed closed there.
+The report line and `own_infeasible_dropped` in `monitors.json` name that set per arm, but both are
+written at the end of the run, so the explicit per-arm confirmation is DEFERRED to completion; the
+offline dropcheck already pins what those lines must say. One 960 h pass in ten shards with an
+11.5 h wall cap and shard-boundary resume, so expect several resubmits per arm; the resume path
+carries the RNG state, which is what keeps the two dropout streams matched across a wall hit.
 
 **D8.0 IS COMPLETE AND ITS BINDING CLAUSE PASSES** (approach 34, verdicts 62-63; speech-llm
 `889750c`, `a3dd6c7`, operative v3 below; manager `sae_3e1_d8_0`, all reads finished). The planner's
@@ -1548,7 +1550,7 @@ function-word pairs rather than broad spelling diversity.
 | code | `sae/scorer_diag.py`, `sae/text_repair.py`, `sae/psi_align_jobs.py`, `sae/psi_align.py`, `sae/curate.py`, `sae/gate_table.py`, `sae/refresh_gate.py`, `sae/d7_census.py`, `sae/d7_v2.py`, `sae/d7_online.py` (+ focused tests; D7.0a commit `a0a22b4`, D7-v2 commit `7b2069d`, D7 resume-RNG and infeasible-donor counter `1d10945` on speech-llm `haotian_modality_matching_jupiter`). `test_psi_align.py`'s CUDA/python lattice parity test now also carries two `d_min=2` skip_ok cases, so the topology D7 trains in is pinned; executed on a GH200 2026-08-21 (`log/parity_test.1445759.out`, passed, not skipped) since the login node has no GPU. |
 | entry points | `config/sae_3e1_d0.py`, `config/sae_3e1_usage.py`, `config/sae_3e1_d1d2.py`, `config/sae_3e1_d3.py`, `config/sae_3e1_d4.py`, `config/sae_3e1_d4p.py`, `config/sae_3e1_d5b.py`, `config/sae_3e1_d6.py` (builds D4' and the swap-in too), `config/sae_3e1_d6periodic.py`, `config/sae_3e1_d6periodic_warm.py`, `config/sae_3e1_hom.py`; D7 tracked canonical configs `src/speech_llm/prefix_lm/sis_recipe/exp2025_11_06_speech_llms/librispeech/configs/config_sae_3e1_d7_0a_v1.py` at `a0a22b4` and `config_sae_3e1_d7_v2_v1.py` at `7b2069d` (workspace wrappers only delegate) |
 | D8.0 registered feasibility reads (approach 34) | **operative v3** `S/d8_feasibility/D8FeasibilityReadJob.mv2d0vkWN93a` (theta_0^G, binding, GO) and `.W7TWfwoZtkaC` (fork epoch); superseded v2 `.mDQ2LoAzrMTE` / `.ulUbBcxIiJtf` and v1 `.iCuYuvkL6bwr` / `.onK5ekDuoLLA`, kept as the evidence that motivated the guard and then the ruling |
-| D8.0 code and entry point | `sae/d8_feasibility.py`, `configs/config_sae_3e1_d8_0_v1.py`, `config/sae_3e1_d8_0.py`, `scripts/d8_0_mechanics_test.py` (speech-llm `889750c`, v2 guard `a3dd6c7`, operative v3 below) |
+| D8.0 code and entry point | `sae/d8_feasibility.py`, `configs/config_sae_3e1_d8_0_v1.py`, `config/sae_3e1_d8_0.py`, `scripts/d8_0_mechanics_test.py` (speech-llm `889750c`, v2 guard `a3dd6c7`, operative v3 `3843918` — reference completed by the verifier 2026-08-22; the "below" pointer resolved nowhere) |
 | D7 own-infeasible-anchor drop law and its verification | speech-llm `e2a421b`; `scripts/d7_make_items_dropcheck.{py,json}` |
 | D7.0a complete raw external/scorer edge tables and census (approach 30) | `S/d7_census/D7RawDonorCensusJob.zsnx1p9nLyV3` |
 | D7-v2 / D7.0b feature and fail-closed assignment jobs (approach 31); the downstream loss preflight never materialized | `S/d7_v2/D7V2FeatureJob.hnReOv8t9UWg`, `S/d7_v2/D7V2AssignmentJob.aSOMkw3hSc0K` |
@@ -2366,3 +2368,30 @@ the absolute beta, is what carries the contamination claim.
   order; approach 34's table omits the artifact's T=0.5 slice (conflicts 4,199/4,693, distinct
   0 / scorer-free 10, tau* 0.05) — add the row; the commit message's "5,096 of 6,656" is the
   pre-dedup member count, the log's 5,730 post-dedup denominator is the correct one.
+- 2026-08-22 (D8.0 v3 round VERIFIED; clause-(a) GO confirmed; two conservative deviations
+  ratified). The v3 reader (speech-llm `3843918`) implements the 2026-08-22 ruling clause by
+  clause, confirmed in code and by a fully independent recompute of the binding slice from the
+  raw dump rows and the raw 50 Hz store (own join/dedup/median logic, project primitives only):
+  512 groups, 5,730 distinct scored classes, ZERO empty/unencodable/infeasible members against
+  the operative T_i, with-greedy median 12.0 (rollouts-only also 12.0) — exactly the artifact,
+  so clause (a) is GO at threshold 3, and the verdict first existed in the job's own output as
+  required. The margin is structural, not marginal: raw-store median 695 frames over the slice
+  vs the pooled 169/174 that drove v1's 88.9% exclusion, tightest single-utterance margin 65
+  frames. The fork v3 read matches v2 field for field, and its operative exclusion 18/101,190 =
+  0.0178% is digit-identical to v2's law-conflict count — the measured genuine rate the 5%
+  valve was priced against. All four v1/v2 job dirs untouched; only the two v3 jobs are new;
+  aliases repointed. Verdict hygiene checked: 59/60 originals unchanged with accurate
+  corrections below, 61's confirmation true, 62 rests on the tables. TWO RATIFICATIONS of
+  implementation-over-ruling deviations, both conservative: the safety-valve denominator counts
+  ALL excluded scored members (superset of operative-infeasible — trips earlier), and the
+  coverage assert spans all 34,106 dump ids (superset of the slice — fails closed sooner);
+  both stand as the operational form. Hand-backs, implementer's lane: verdict 63's
+  "shaped-versus-acoustic-only runs 0.30-0.66" — the T=0.5 value is 0.2857, so the range reads
+  ~0.29-0.66, and that clause rests on the JSON rather than a table column (add the
+  acoustic-spearman column or cite the artifact in the verdict); the State's "operative v3
+  below" pointer needs the commit `3843918` (the Catalog copy was completed by the verifier as
+  an objectively dangling reference); trivia: the commit message says 32 mechanics checks, the
+  script now prints 47, all passing. Consequence recorded for D8.1a, no action now: the binding
+  slice's rho(shaped, LM-only) 0.9790 sits above the registered 0.95 arm-selection bar — if
+  D8.1a reproduces it, candidate-shaped is not funded and only candidate-acoustic trains, per
+  the registered rule; the D8.0 value is provisional and selects nothing.
