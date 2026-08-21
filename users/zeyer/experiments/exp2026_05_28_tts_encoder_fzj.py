@@ -513,51 +513,54 @@ def py():
     #     extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
     #     extra_config_deletes=["optimizer.epsilon"],
     # )
+    # better: -> tts-enc-logmel-refcfg-single-gumbel-muon-nep38
     # Same as ref-match-logmel-muon (= ref-match-logmel + muon-lr5e3-wdbl), but nep 25 -> 38 (+50% updates):
     # the training-matched point removing the 4-GPU step-count penalty (audio-only nep38 bought 4.22 -> 4.01).
     # Isolates whether the ~0 TTS text-util gain is the regime, not the TTS.
     # {"dev-clean": 1.74, "dev-other": 3.98, "test-clean": 1.92, "test-other": 4.22}  (1st TTS variant < 4.0)
-    _train_tts_encoder(
-        "tts-enc-ref-match-logmel-muon-nep38",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=100_000,  # 120k/5k OOM'd at the long-phon bucket (92.4GB GL spike)
-        # post preload-fix: real durations are ~167ms audio/phoneme,
-        # the old 25k phon default OOMs at step 0 even on 96GB (~66M samples/text batch).
-        batch_size_phon=4_000,
-        max_phon_len=300,
-        tts_waveform=True,
-        asr_logmel=True,
-        tts_waveform_peak_norm=True,
-        glow_tts_noise_scale_range=(0.7, 0.7),
-        glow_tts_length_scale_range=(1.0, 1.0),
-        base_lr=1.0,
-        peak_lr=5e-3,
-        nep=38,
-        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
-        extra_config_deletes=["optimizer.epsilon"],
-    )
+    # _train_tts_encoder(
+    #     "tts-enc-ref-match-logmel-muon-nep38",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=100_000,  # 120k/5k OOM'd at the long-phon bucket (92.4GB GL spike)
+    #     # post preload-fix: real durations are ~167ms audio/phoneme,
+    #     # the old 25k phon default OOMs at step 0 even on 96GB (~66M samples/text batch).
+    #     batch_size_phon=4_000,
+    #     max_phon_len=300,
+    #     tts_waveform=True,
+    #     asr_logmel=True,
+    #     tts_waveform_peak_norm=True,
+    #     glow_tts_noise_scale_range=(0.7, 0.7),
+    #     glow_tts_length_scale_range=(1.0, 1.0),
+    #     base_lr=1.0,
+    #     peak_lr=5e-3,
+    #     nep=38,
+    #     extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+    #     extra_config_deletes=["optimizer.epsilon"],
+    # )
+    # better: -> tts-enc-logmel-refcfg-single-gumbel-muon-nep38
     # Clean front-end x path comparison vs ref-match-logmel-muon-nep38: DbMel front-end + DIRECT injection
     # (no waveform/Griffin-Lim), everything else identical. The pair isolates DbMel+direct vs log-mel+waveform
     # at the best regime (log-mel is +0.13 better front-end but needs the ~0.10 GL waveform round-trip).
     # {"dev-clean": 1.62, "dev-other": 3.98, "test-clean": 1.91, "test-other": 4.37}  (== logmel 3.98)
-    _train_tts_encoder(
-        "tts-enc-ref-match-dbmel-muon-nep38",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        # post preload-fix: real durations are ~167ms audio/phoneme,
-        # the old 25k phon default OOMs at step 0 even on 96GB (~66M samples/text batch).
-        batch_size_phon=5_000,
-        max_phon_len=300,
-        glow_tts_noise_scale_range=(0.7, 0.7),
-        glow_tts_length_scale_range=(1.0, 1.0),
-        base_lr=1.0,
-        peak_lr=5e-3,
-        nep=38,
-        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
-        extra_config_deletes=["optimizer.epsilon"],
-    )
+    # _train_tts_encoder(
+    #     "tts-enc-ref-match-dbmel-muon-nep38",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     # post preload-fix: real durations are ~167ms audio/phoneme,
+    #     # the old 25k phon default OOMs at step 0 even on 96GB (~66M samples/text batch).
+    #     batch_size_phon=5_000,
+    #     max_phon_len=300,
+    #     glow_tts_noise_scale_range=(0.7, 0.7),
+    #     glow_tts_length_scale_range=(1.0, 1.0),
+    #     base_lr=1.0,
+    #     peak_lr=5e-3,
+    #     nep=38,
+    #     extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+    #     extra_config_deletes=["optimizer.epsilon"],
+    # )
+    # better: -> tts-enc-logmel-refcfg-single-gumbel-muon-nep38
     # noise0-muon-nep38 (ref-match-logmel + noise 0 + muon + nep38) REMOVED 2026-06-17: NaN'd at ep12 (inf/nan
     # via debug_inf_nan). Cause = low/zero-variance synthesis x muon -- noise0 was stable under AdamW/nep25
     # (4.26) and muon+nep38 was stable at noise 0.7; only the combination NaN'd. See the noise01 variant below
@@ -566,26 +569,26 @@ def py():
     # the muon+nep38 NaN that noise0 (exactly 0) hit, while keeping the low-noise benefit (noise0 was the best
     # synth at nep25, 4.26). If it NaNs too, the trigger is low-noise x muon broadly, not the exact zero.
     # {"dev-clean": 1.62, "dev-other": 3.98, "test-clean": 1.80, "test-other": 4.10}  (stable; best TTS variant)
-    _train_tts_encoder(
-        "tts-enc-ref-match-logmel-noise01-muon-nep38",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=100_000,  # 120k/5k OOM'd at the long-phon bucket (92.4GB GL spike)
-        # post preload-fix: real durations are ~167ms audio/phoneme,
-        # the old 25k phon default OOMs at step 0 even on 96GB (~66M samples/text batch).
-        batch_size_phon=4_000,
-        max_phon_len=300,
-        tts_waveform=True,
-        asr_logmel=True,
-        tts_waveform_peak_norm=True,
-        glow_tts_noise_scale_range=(0.1, 0.1),
-        glow_tts_length_scale_range=(1.0, 1.0),
-        base_lr=1.0,
-        peak_lr=5e-3,
-        nep=38,
-        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
-        extra_config_deletes=["optimizer.epsilon"],
-    )
+    # _train_tts_encoder(
+    #     "tts-enc-ref-match-logmel-noise01-muon-nep38",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=100_000,  # 120k/5k OOM'd at the long-phon bucket (92.4GB GL spike)
+    #     # post preload-fix: real durations are ~167ms audio/phoneme,
+    #     # the old 25k phon default OOMs at step 0 even on 96GB (~66M samples/text batch).
+    #     batch_size_phon=4_000,
+    #     max_phon_len=300,
+    #     tts_waveform=True,
+    #     asr_logmel=True,
+    #     tts_waveform_peak_norm=True,
+    #     glow_tts_noise_scale_range=(0.1, 0.1),
+    #     glow_tts_length_scale_range=(1.0, 1.0),
+    #     base_lr=1.0,
+    #     peak_lr=5e-3,
+    #     nep=38,
+    #     extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+    #     extra_config_deletes=["optimizer.epsilon"],
+    # )
     # ref-match-logmel-muon-nep38 + more text (P20 ~5 passes vs P75's 1.33): grafts v1's text-amount advantage
     # onto the best log-mel+waveform+muon+nep38 regime (more text helped: v1 P20 4.13 vs ref-match P75 4.48).
     _train_tts_encoder(
@@ -614,30 +617,31 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+    # better: -> tts-enc-logmel-refcfg-rnddur-short-muon-nep38
     # ref-match-logmel-muon-nep38 + random durations (rnddur: i.i.d.-uniform durations renormalized to the
     # predictor total -- structure removed, length kept), to see if random durations hold up in the best regime.
     # {"dev-clean": 1.72, "dev-other": 3.95, "test-clean": 1.92, "test-other": 4.35}  (ties layer8 dev-other)
-    _train_tts_encoder(
-        "tts-enc-ref-match-logmel-rnddur-muon-nep38",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=100_000,  # 120k/5k OOM'd at the long-phon bucket (92.4GB GL spike)
-        # post preload-fix: real durations are ~167ms audio/phoneme,
-        # the old 25k phon default OOMs at step 0 even on 96GB (~66M samples/text batch).
-        batch_size_phon=4_000,
-        max_phon_len=300,
-        tts_waveform=True,
-        asr_logmel=True,
-        tts_waveform_peak_norm=True,
-        glow_tts_noise_scale_range=(0.7, 0.7),
-        glow_tts_length_scale_range=(1.0, 1.0),
-        glow_tts_random_durations_jitter=(0.2, 1.8),
-        base_lr=1.0,
-        peak_lr=5e-3,
-        nep=38,
-        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
-        extra_config_deletes=["optimizer.epsilon"],
-    )
+    # _train_tts_encoder(
+    #     "tts-enc-ref-match-logmel-rnddur-muon-nep38",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=100_000,  # 120k/5k OOM'd at the long-phon bucket (92.4GB GL spike)
+    #     # post preload-fix: real durations are ~167ms audio/phoneme,
+    #     # the old 25k phon default OOMs at step 0 even on 96GB (~66M samples/text batch).
+    #     batch_size_phon=4_000,
+    #     max_phon_len=300,
+    #     tts_waveform=True,
+    #     asr_logmel=True,
+    #     tts_waveform_peak_norm=True,
+    #     glow_tts_noise_scale_range=(0.7, 0.7),
+    #     glow_tts_length_scale_range=(1.0, 1.0),
+    #     glow_tts_random_durations_jitter=(0.2, 1.8),
+    #     base_lr=1.0,
+    #     peak_lr=5e-3,
+    #     nep=38,
+    #     extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+    #     extra_config_deletes=["optimizer.epsilon"],
+    # )
     # Stronger duration compression: length 0.3-0.7 (mean 0.5 -> ~2x cheaper synthetic speech than
     # ref-match length 1.0), with the length-scaled SpecAugment.
     # Cost-vs-WER axis point below lensamp (0.5-1.0).
@@ -656,22 +660,23 @@ def py():
     #     glow_tts_noise_scale_range=(0.7, 0.7),
     #     glow_tts_length_scale_range=(0.3, 0.7),
     # )
+    # better: -> pseudo-enc-logmel-muon-nep38
     # Speech-likeness 2x2, cell A (acoustics=embedding, durations=random): pseudo-speech-encoder --
     # TRAINABLE phoneme embedding, blank-interleaved, random durations (labels 1 frame, blanks 0-3;
     # the earlier study's winning setting), no TTS at all. SpecAugment time-mask width scaled to the
     # ~3x-compressed pseudo sequences (20 -> 6).
     # Same text/audio regime as ref-match-logmel (cell D: acoustics=TTS, durations=learned).
     # {"dev-clean": 1.73, "dev-other": 4.30, "test-clean": 1.98, "test-other": 4.58}
-    _train_tts_encoder(
-        "pseudo-enc-logmel",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        max_phon_len=300,
-        asr_logmel=True,
-        pseudo_speech_enc=True,
-        pseudo_enc_specaug_max_width=6,
-    )
+    # _train_tts_encoder(
+    #     "pseudo-enc-logmel",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     max_phon_len=300,
+    #     asr_logmel=True,
+    #     pseudo_speech_enc=True,
+    #     pseudo_enc_specaug_max_width=6,
+    # )
     # pseudo-enc-logmel (best pseudo-enc at 4.30) in the best 4-GPU regime: muon-lr5e3-wdbl + nep38.
     # {"dev-clean": 1.64, "dev-other": 4.05, "test-clean": 1.81, "test-other": 4.27}
     _train_tts_encoder(
@@ -689,54 +694,57 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+    # better: -> pseudo-enc-logmel-muon-nep38
     # Consistency-ladder (b): NO blank insertion -- blanks get duration 0, so the feature sequence is
     # pure label embeddings (labels still 1 frame each). Isolates the contribution of the random blank
     # frames; the phoneme seq itself already carries [space] silence tokens between words.
     # {"dev-clean": 2.11, "dev-other": 4.97, "test-clean": 2.32, "test-other": 5.32}
-    _train_tts_encoder(
-        "pseudo-enc-logmel-noblank",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        max_phon_len=300,
-        asr_logmel=True,
-        pseudo_speech_enc=True,
-        pseudo_enc_blank_duration_range=(0, 0),
-        pseudo_enc_specaug_max_width=6,
-    )
+    # _train_tts_encoder(
+    #     "pseudo-enc-logmel-noblank",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     max_phon_len=300,
+    #     asr_logmel=True,
+    #     pseudo_speech_enc=True,
+    #     pseudo_enc_blank_duration_range=(0, 0),
+    #     pseudo_enc_specaug_max_width=6,
+    # )
     # Consistency-ladder (d): like (b) no-blank, but the embedding is the FROZEN per-phoneme mean
     # log-mel table from real audio + MFA alignments ("table-lookup TTS"): acoustics from data, zero
     # trained text-encoder params. [space] keeps its real-silence row; [start]/[end] = global mean.
     from i6_experiments.users.zeyer.datasets.hf_librispeech_mfa_alignments import get_mfa_phone_mean_logmel_table
 
+    # better: -> pseudo-enc-logmel-mfatable-muon-nep38
     # {"dev-clean": 2.19, "dev-other": 4.90, "test-clean": 2.24, "test-other": 5.21}
-    _train_tts_encoder(
-        "pseudo-enc-logmel-noblank-mfatable",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        max_phon_len=300,
-        asr_logmel=True,
-        pseudo_speech_enc=True,
-        pseudo_enc_blank_duration_range=(0, 0),
-        pseudo_enc_frozen_table=get_mfa_phone_mean_logmel_table().out_mean_table,
-        pseudo_enc_specaug_max_width=6,
-    )
+    # _train_tts_encoder(
+    #     "pseudo-enc-logmel-noblank-mfatable",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     max_phon_len=300,
+    #     asr_logmel=True,
+    #     pseudo_speech_enc=True,
+    #     pseudo_enc_blank_duration_range=(0, 0),
+    #     pseudo_enc_frozen_table=get_mfa_phone_mean_logmel_table().out_mean_table,
+    #     pseudo_enc_specaug_max_width=6,
+    # )
+    # better: -> pseudo-enc-logmel-mfatable-muon-nep38
     # Rung (d) WITH blank: the frozen MFA mean-logmel table, but blanks restored (0-3 frames) like the
     # phoneme winner -- the apples-to-apples mfatable comparison (blank gave -0.67 abs dev-other for the
     # trained embedding). Blank row = [space] silence acoustics (frozen-table loader, by design).
     # {"dev-clean": 1.70, "dev-other": 4.28, "test-clean": 1.85, "test-other": 4.70}
-    _train_tts_encoder(
-        "pseudo-enc-logmel-mfatable",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        max_phon_len=300,
-        asr_logmel=True,
-        pseudo_speech_enc=True,
-        pseudo_enc_frozen_table=get_mfa_phone_mean_logmel_table().out_mean_table,
-        pseudo_enc_specaug_max_width=6,
-    )
+    # _train_tts_encoder(
+    #     "pseudo-enc-logmel-mfatable",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     max_phon_len=300,
+    #     asr_logmel=True,
+    #     pseudo_speech_enc=True,
+    #     pseudo_enc_frozen_table=get_mfa_phone_mean_logmel_table().out_mean_table,
+    #     pseudo_enc_specaug_max_width=6,
+    # )
     # pseudo-enc-logmel-mfatable (frozen MFA table + blank) in the best 4-GPU regime: muon-lr5e3-wdbl + nep38.
     # {"dev-clean": 1.59, "dev-other": 3.95, "test-clean": 1.78, "test-other": 4.44}
     _train_tts_encoder(
@@ -755,6 +763,7 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+    # {"dev-clean": 1.69, "dev-other": 4.21, "test-clean": 1.88, "test-other": 4.39}
     # mfatable with realistic durations: NO blanks (the phoneme seq already carries [space] silence) + label
     # duration 4-8 frames at the 100Hz front-end (avg ~60ms/phon, like real speech; ~1 enc-frame/phon after
     # 6x down, vs ~25ms / 0.4-frame at the old label-1 + blank-0-3). Tests whether the frozen mean-log-mel
@@ -781,34 +790,37 @@ def py():
         extra_config_deletes=["optimizer.epsilon"],
     )
 
+    # {"dev-clean": 2.06, "dev-other": 4.92, "test-clean": 2.17, "test-other": 5.18}
+    # better: -> tts-enc-logmel-refcfg-single-gumbel-muon-nep38
     # ============ Fixed-era wave (2026-07-16, post preload-fix), muon-nep38 regime ============
     # Counterparts of the running RZ fixed experiments (see exp2026_05_28_tts_encoder_rz.py),
     # naming per the new scheme: "refcfg" = the 4 reference knobs (SamplingBPE/auxShared/auxNoBias/padRnd100).
     # batch_size_phon is EXPLICIT everywhere: with the preload fixed, real durations are ~167ms
     # audio/phoneme, so the old 25k default text batches would OOM (the RZ lesson).
     # The full-match dual-stream base (waveform + log-mel + the 4 knobs).
-    _train_tts_encoder(
-        "tts-enc-logmel-refcfg-muon-nep38",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=100_000,  # 120k/5k OOM'd at the long-phon bucket (92.4GB GL spike)
-        batch_size_phon=4_000,
-        max_phon_len=300,
-        tts_waveform=True,
-        asr_logmel=True,
-        tts_waveform_peak_norm=True,
-        glow_tts_noise_scale_range=(0.7, 0.7),
-        glow_tts_length_scale_range=(1.0, 1.0),
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-        enc_aux_logits_share_weights=True,
-        enc_aux_logits_with_bias=False,
-        pad_audio_rnd=100,
-        base_lr=1.0,
-        peak_lr=5e-3,
-        nep=38,
-        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
-        extra_config_deletes=["optimizer.epsilon"],
-    )
+    # _train_tts_encoder(
+    #     "tts-enc-logmel-refcfg-muon-nep38",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=100_000,  # 120k/5k OOM'd at the long-phon bucket (92.4GB GL spike)
+    #     batch_size_phon=4_000,
+    #     max_phon_len=300,
+    #     tts_waveform=True,
+    #     asr_logmel=True,
+    #     tts_waveform_peak_norm=True,
+    #     glow_tts_noise_scale_range=(0.7, 0.7),
+    #     glow_tts_length_scale_range=(1.0, 1.0),
+    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    #     enc_aux_logits_share_weights=True,
+    #     enc_aux_logits_with_bias=False,
+    #     pad_audio_rnd=100,
+    #     base_lr=1.0,
+    #     peak_lr=5e-3,
+    #     nep=38,
+    #     extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+    #     extra_config_deletes=["optimizer.epsilon"],
+    # )
+    # {"dev-clean": 1.53, "dev-other": 3.55, "test-clean": 1.64, "test-other": 3.69}
     # refcfg + single-stream: audio + text mixed in ONE batch, one loss set.
     # 90k/4k, not 120k/5k: merged batches stack audio AND text in one step.
     _train_tts_encoder(
@@ -834,6 +846,7 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+    # {"dev-clean": 1.59, "dev-other": 3.56, "test-clean": 1.69, "test-other": 3.76}
     # + gumbel interleave: random union ordering (sampling-without-replacement), the offline ordering.
     _train_tts_encoder(
         "tts-enc-logmel-refcfg-single-gumbel-muon-nep38",
@@ -886,6 +899,7 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+    # {"dev-clean": 2.56, "dev-other": 4.96, "test-clean": 2.99, "test-other": 4.83}
     # DbMel DIRECT injection (no GL/Griffin-Lim/waveform) on the refcfg base.
     _train_tts_encoder(
         "tts-enc-dbmel-direct-refcfg-muon-nep38",
@@ -906,30 +920,33 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+    # {"dev-clean": 1.97, "dev-other": 4.56, "test-clean": 2.27, "test-other": 4.85}
+    # better: -> tts-enc-logmel-refcfg-rnddur-short-muon-nep38
     # Degenerate durations: fixed 1 mel frame per phoneme (waveform path).
-    _train_tts_encoder(
-        "tts-enc-logmel-refcfg-dur1-muon-nep38",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        batch_size_phon=15_000,
-        max_phon_len=300,
-        tts_waveform=True,
-        asr_logmel=True,
-        tts_waveform_peak_norm=True,
-        glow_tts_noise_scale_range=(0.7, 0.7),
-        glow_tts_length_scale_range=(1.0, 1.0),
-        glow_tts_fixed_duration=1,
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-        enc_aux_logits_share_weights=True,
-        enc_aux_logits_with_bias=False,
-        pad_audio_rnd=100,
-        base_lr=1.0,
-        peak_lr=5e-3,
-        nep=38,
-        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
-        extra_config_deletes=["optimizer.epsilon"],
-    )
+    # _train_tts_encoder(
+    #     "tts-enc-logmel-refcfg-dur1-muon-nep38",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     batch_size_phon=15_000,
+    #     max_phon_len=300,
+    #     tts_waveform=True,
+    #     asr_logmel=True,
+    #     tts_waveform_peak_norm=True,
+    #     glow_tts_noise_scale_range=(0.7, 0.7),
+    #     glow_tts_length_scale_range=(1.0, 1.0),
+    #     glow_tts_fixed_duration=1,
+    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    #     enc_aux_logits_share_weights=True,
+    #     enc_aux_logits_with_bias=False,
+    #     pad_audio_rnd=100,
+    #     base_lr=1.0,
+    #     peak_lr=5e-3,
+    #     nep=38,
+    #     extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+    #     extra_config_deletes=["optimizer.epsilon"],
+    # )
+    # {"dev-clean": 1.79, "dev-other": 3.98, "test-clean": 1.96, "test-other": 4.23}
     # Short random durations: w = w_pred * U(0.2, 0.5) per phoneme (waveform path).
     _train_tts_encoder(
         "tts-enc-logmel-refcfg-rnddur-short-muon-nep38",
@@ -979,6 +996,7 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+    # {"dev-clean": 2.03, "dev-other": 4.76, "test-clean": 2.09, "test-other": 5.25}
     # DbMel-direct + dur1: the cheapest online-TTS variant (RZ shows a duration x path interaction).
     _train_tts_encoder(
         "tts-enc-dbmel-direct-refcfg-dur1-muon-nep38",
@@ -1000,6 +1018,7 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+    # {"dev-clean": 1.66, "dev-other": 3.70, "test-clean": 1.89, "test-other": 4.08}
     # The pseudo-enc winner (RZ 1-GPU nep100: 3.74 joint) in the muon-nep38 regime:
     # layer-4 injection, NO blanks (the June fleet only had layer4 WITH blanks / layer8 noblank).
     _train_tts_encoder(
@@ -1020,29 +1039,31 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+    # {"dev-clean": 14.56, "dev-other": 6.86, "test-clean": 13.66, "test-other": 7.67}
+    # better: -> pseudo-enc-layer4-noblank-muon-nep38
     # Single-stream version of the pseudo-enc winner (merged at the layer-4 boundary, one loss set).
     # 90k/7k: merged batches stack audio + text (RZ: 100k/8k OOM'd at 80GB; here 96GB).
-    _train_tts_encoder(
-        "pseudo-enc-layer4-noblank-single-muon-nep38",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        # 90k/7k OOM'd mid-ep1 (16.5GB spike at 77GB); 70k/6k = the proven RZ caps.
-        batch_size_audio_frames=70_000,
-        batch_size_phon=6_000,
-        max_phon_len=300,
-        asr_logmel=True,
-        pseudo_speech_enc=True,
-        pseudo_enc_start_layer=4,
-        pseudo_enc_blank_duration_range=(0, 0),
-        pseudo_enc_specaug_max_width=6,
-        single_stream=True,
-        pseudo_enc_single_stream_version=3,  # v1/v2 were broken (see notes)
-        base_lr=1.0,
-        peak_lr=5e-3,
-        nep=38,
-        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
-        extra_config_deletes=["optimizer.epsilon"],
-    )
+    # _train_tts_encoder(
+    #     "pseudo-enc-layer4-noblank-single-muon-nep38",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     # 90k/7k OOM'd mid-ep1 (16.5GB spike at 77GB); 70k/6k = the proven RZ caps.
+    #     batch_size_audio_frames=70_000,
+    #     batch_size_phon=6_000,
+    #     max_phon_len=300,
+    #     asr_logmel=True,
+    #     pseudo_speech_enc=True,
+    #     pseudo_enc_start_layer=4,
+    #     pseudo_enc_blank_duration_range=(0, 0),
+    #     pseudo_enc_specaug_max_width=6,
+    #     single_stream=True,
+    #     pseudo_enc_single_stream_version=3,  # v1/v2 were broken (see notes)
+    #     base_lr=1.0,
+    #     peak_lr=5e-3,
+    #     nep=38,
+    #     extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+    #     extra_config_deletes=["optimizer.epsilon"],
+    # )
     # gumbel-single on the pseudo-enc winner: single-stream v3 merge (layer-4, noblank)
     # + gumbel interleave ordering -- the mandated mixing on the cheapest injection mechanism.
     _train_tts_encoder(
@@ -1066,6 +1087,7 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+    # {"dev-clean": 1.83, "dev-other": 4.39, "test-clean": 1.97, "test-other": 4.56}
     # Front-end injection with RATE-MATCHED durations on the LEARNED embedding
     # (label dur 4-8 at 100Hz ~ 1 enc-frame/phon; completes the mfatable-realdur cell with
     # trainable embeddings -- separates injection depth from effective frames-per-phoneme).
@@ -1087,43 +1109,47 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+    # {"dev-clean": 2.00, "dev-other": 4.35, "test-clean": 2.30, "test-other": 4.85}
+    # better: -> pseudo-enc-layer4-noblank-muon-nep38
     # SpecAugment width sweep on the pseudo output (6 = the scaled default; 3 / 12 bracket it).
-    _train_tts_encoder(
-        "pseudo-enc-layer4-noblank-specaug3-muon-nep38",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        batch_size_phon=8_000,
-        max_phon_len=300,
-        asr_logmel=True,
-        pseudo_speech_enc=True,
-        pseudo_enc_start_layer=4,
-        pseudo_enc_blank_duration_range=(0, 0),
-        pseudo_enc_specaug_max_width=3,
-        base_lr=1.0,
-        peak_lr=5e-3,
-        nep=38,
-        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
-        extra_config_deletes=["optimizer.epsilon"],
-    )
-    _train_tts_encoder(
-        "pseudo-enc-layer4-noblank-specaug12-muon-nep38",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        batch_size_phon=8_000,
-        max_phon_len=300,
-        asr_logmel=True,
-        pseudo_speech_enc=True,
-        pseudo_enc_start_layer=4,
-        pseudo_enc_blank_duration_range=(0, 0),
-        pseudo_enc_specaug_max_width=12,
-        base_lr=1.0,
-        peak_lr=5e-3,
-        nep=38,
-        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
-        extra_config_deletes=["optimizer.epsilon"],
-    )
+    # _train_tts_encoder(
+    #     "pseudo-enc-layer4-noblank-specaug3-muon-nep38",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     batch_size_phon=8_000,
+    #     max_phon_len=300,
+    #     asr_logmel=True,
+    #     pseudo_speech_enc=True,
+    #     pseudo_enc_start_layer=4,
+    #     pseudo_enc_blank_duration_range=(0, 0),
+    #     pseudo_enc_specaug_max_width=3,
+    #     base_lr=1.0,
+    #     peak_lr=5e-3,
+    #     nep=38,
+    #     extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+    #     extra_config_deletes=["optimizer.epsilon"],
+    # )
+    # {"dev-clean": 1.62, "dev-other": 3.74, "test-clean": 1.82, "test-other": 4.04}
+    # better: -> pseudo-enc-layer4-noblank-muon-nep38
+    # _train_tts_encoder(
+    #     "pseudo-enc-layer4-noblank-specaug12-muon-nep38",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     batch_size_phon=8_000,
+    #     max_phon_len=300,
+    #     asr_logmel=True,
+    #     pseudo_speech_enc=True,
+    #     pseudo_enc_start_layer=4,
+    #     pseudo_enc_blank_duration_range=(0, 0),
+    #     pseudo_enc_specaug_max_width=12,
+    #     base_lr=1.0,
+    #     peak_lr=5e-3,
+    #     nep=38,
+    #     extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+    #     extra_config_deletes=["optimizer.epsilon"],
+    # )
     # Encoder-share / layer-split injection (earlier study's insight #1), at the ENC frame rate:
     # the pseudo features live in the encoder model space and enter the Conformer at layer N directly
     # (no conv front-end on the text branch -- this matches the earlier study's injection point;
@@ -1200,44 +1226,46 @@ def py():
             extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
             extra_config_deletes=["optimizer.epsilon"],
         )
+    # better: -> pseudo-enc-layer4-noblank-muon-nep38
     # layer8 with NO blanks (the phoneme seq already carries [space] silence): label 1 frame at the enc-rate
     # = ~1 enc-frame/phon (still feasible, unlike the front-end noblank which collapsed to ~0.17 enc-frame).
     # Tests whether blanks help layer8 or just bloat it, and whether the noblank regression transfers here.
     # {"dev-clean": 1.62, "dev-other": 3.95, "test-clean": 1.78, "test-other": 4.09}  (best test-other)
-    _train_tts_encoder(
-        "pseudo-enc-layer8-noblank-muon-nep38",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        max_phon_len=300,
-        batch_size_phon=8_000,
-        asr_logmel=True,
-        pseudo_speech_enc=True,
-        pseudo_enc_start_layer=8,
-        pseudo_enc_blank_duration_range=(0, 0),
-        pseudo_enc_specaug_max_width=6,
-        base_lr=1.0,
-        peak_lr=5e-3,
-        nep=38,
-        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
-        extra_config_deletes=["optimizer.epsilon"],
-    )
+    # _train_tts_encoder(
+    #     "pseudo-enc-layer8-noblank-muon-nep38",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     max_phon_len=300,
+    #     batch_size_phon=8_000,
+    #     asr_logmel=True,
+    #     pseudo_speech_enc=True,
+    #     pseudo_enc_start_layer=8,
+    #     pseudo_enc_blank_duration_range=(0, 0),
+    #     pseudo_enc_specaug_max_width=6,
+    #     base_lr=1.0,
+    #     peak_lr=5e-3,
+    #     nep=38,
+    #     extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+    #     extra_config_deletes=["optimizer.epsilon"],
+    # )
+    # better: -> pseudo-enc-logmel-muon-nep38
     # Unit-granularity ablation (CJST-style): the ASR's own spm10k subword units as pseudo-enc input
     # instead of phonemes (identity output mapping; no lexicon/phoneme step needed; the earlier study
     # also used the ASR target units). Same duration setting -> ~3.2x shorter sequences than the
     # phoneme variant (cheapness bonus of coarser units).
     # {"dev-clean": 2.30, "dev-other": 5.11, "test-clean": 2.47, "test-other": 5.51}
-    _train_tts_encoder(
-        "pseudo-enc-logmel-spm",
-        prefix=prefix,
-        text_train_epoch_split=75,
-        batch_size_audio_frames=120_000,
-        max_phon_len=300,
-        asr_logmel=True,
-        pseudo_speech_enc=True,
-        pseudo_enc_units="spm",
-        pseudo_enc_specaug_max_width=6,
-    )
+    # _train_tts_encoder(
+    #     "pseudo-enc-logmel-spm",
+    #     prefix=prefix,
+    #     text_train_epoch_split=75,
+    #     batch_size_audio_frames=120_000,
+    #     max_phon_len=300,
+    #     asr_logmel=True,
+    #     pseudo_speech_enc=True,
+    #     pseudo_enc_units="spm",
+    #     pseudo_enc_specaug_max_width=6,
+    # )
     # Speech-likeness 2x2, cell B (acoustics=TTS, durations=random): frozen GlowTTS acoustics, but the
     # per-phoneme durations replaced by i.i.d. uniform samples renormalized to the predictor total
     # (same length/cost as ref-match-logmel; only the learned alignment structure is removed).
