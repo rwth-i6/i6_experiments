@@ -31,6 +31,34 @@ Next action: start the d7 manager (above), confirm the pool and the D7.0 preflig
 confirm the two D7.1 trainings start matched. A D7 policy leg is NOT authorized and none is in this
 graph.
 
+D8 spec read 2026-08-21 (planner asked for implementability flags; nothing implemented, nothing
+authorized). D8.0 is implementable on `F/ReturnnForwardJobV2.QbIYruVEI0fF` -- verified on disk as
+28,539 tc100 utterances with exactly 12 T=0.7 rollouts each (342,468) plus a greedy and a true entry,
+and the pinned weight scorer `S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR` has its `model.pt`.
+Four flags, none fatal:
+
+1. **Currency, the standing trap.** The dump's `lm_prior` column is per generated TEXT TOKEN while
+   `recon` is per unit frame, so `s(y) = recon + lam_lm * lm_prior_units` cannot be formed from the
+   dump's columns as they stand: it needs `lm_prior * n_tokens / n_units`, with `n_units` joined from
+   the frozen unit store. `sae/curate.py` already carries exactly this view (`lm_prior_units`, line
+   43) and the join (line 112) -- reuse it rather than reading the column raw. This is not cosmetic:
+   tau_star is fixed by an effective-sample-size rule computed ON these weights, so a mixed-currency
+   score would silently move tau_star and every D8.0 statistic with it. The emitting code states the
+   same caveat at `prefix_lm/model/recognition/forward_step.py:941-943`.
+2. **"All stored temperatures reported" is vacuous on the artifact D8.0 names.** QbIYruVEI0fF stores
+   one temperature, T=0.7. The only multi-temperature dump is `F/ReturnnForwardJobV2.J9yA1eYnxwYA`
+   (T = 0.3/0.5/0.7/0.9/1.0, G=12), and it is 512 utterances of theta_0^G, not the fork epoch. So
+   D8.0 either reports a single temperature, or the clause must name that 512-utterance theta_0^G set
+   as a separate read on a different bed. Planner's call; I have assumed the former.
+3. **Label-quarantine hazard inside the input file.** The same `rollouts.jsonl` carries the reference
+   transcript as `kind="true"` and a per-rollout `wer` column. `curate.py`'s existing filter keeps
+   only `kind == "rollout"`, but D8's support deliberately ADDS the greedy 1-best, so a new reader
+   has to be written -- and it must not get there by relaxing the filter to "not true", which would
+   walk the gold text into the support. Weights and dedup must see neither `true` nor `wer`.
+4. **D8.1a cost, for pricing before authorization** (not a D8.0 issue): group-12 sampling over the
+   281,241-utterance bed is 3.37 M decodes, about twelve times the D7 greedy pass that took roughly
+   1.5 h on ten GPUs, plus one pinned-scorer forward per candidate.
+
 Proposal for the planner: none outstanding.
 
 ## Approach
