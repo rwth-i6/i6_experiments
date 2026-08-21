@@ -29,7 +29,9 @@ from typing import Optional, Tuple
 
 from sisyphus import Job, Task, tk
 
-from .exp2026_05_23_returnn import loq_train, small_model_overrides
+from i6_experiments.users.zeyer.utils.sis_setup import disable_register_output
+
+from .exp2026_05_23_returnn import loq_train, small_model_overrides, _loq_batch_size_factor, TrainStepBenchmarkJob
 
 
 # Declared input shapes for the compiled step. The JAX step is compiled per input signature and a
@@ -60,18 +62,57 @@ from .exp2026_05_23_returnn import loq_train, small_model_overrides
 # below: a resubmitted run reloads the programs instead of rebuilding them.
 _AUDIO_LEVELS = list(range(16_000, 320_001, 16_000))
 
-# The text axis needs its OWN levels, not one bound per audio level: a run died after 1771 steps on
-# audio (141, 128000) with text 192, where the audio and the sequence count fit and only the text
-# did not. Transcript density has a long tail (192 SPM labels for 8 s of audio is ~23 labels/sec,
-# far above the ~3.5 average), and a single generous bound instead would pad EVERY batch's decoder
-# to it -- the decoder self-attention is quadratic in this axis.
+# The text axis is derived, one cap per audio level, not a flat set of levels.
 #
-# Unused buckets cost only their compile, never memory -- precompilation lowers and compiles,
-# it does not execute. The replay never needed 768, but a different epoch order could.
-_TEXT_LEVELS = [128, 384, 768]
+# It used to be the cross product of the audio levels with [128, 384, 768],
+# where 768 was headroom over a run that died at text 192.
+# But labels are bounded by the audio that carries them,
+# so (200 seqs, 16000 audio, 768 text) declares 200 one-second utterances of 768 labels each,
+# against a corpus max of 13.3 labels/sec.
+# The AED logits are batch_dim x text x vocab,
+# so that corner cost 5.86 GB per buffer and OOMed the ~500M model at 42.64 GiB.
+# PT never pays it: it pads to the batch's own max text.
+#
+# The cap is max{labels : duration <= audio} over the train corpus,
+# joined per sequence by tag from the shards' `duration` column and ExtractSeqLensJob
+# (9,487,873 seqs), rounded up to the text time_multiple of 8.
+# It reaches 246 labels at 18-20 s,
+# independently reproducing the documented spm10k max of 246 under the 19.5 s filter,
+# and it matches the per-level maxima of a 118k-batch replay at every level the replay covers.
+# Two levels per audio level, the cap and half of it,
+# so batches with short transcripts do not pad all the way up.
+#
+# The seq count stays as it was:
+# batch_size bounds the summed content frames, not the padded product
+# (a real batch: 171 seqs, max audio 96000, sum 14.05M within the 16M limit, 16.4M padded),
+# so it cannot be derived as batch_size // audio -- it comes from the replay, +15%.
+_TEXT_CAPS = {
+    16_000: 8,
+    32_000: 24,
+    48_000: 112,
+    64_000: 112,
+    80_000: 144,
+    96_000: 144,
+    112_000: 200,
+    128_000: 200,
+    144_000: 200,
+    160_000: 200,
+    176_000: 200,
+    192_000: 200,
+    208_000: 200,
+    224_000: 200,
+    240_000: 208,
+    256_000: 208,
+    272_000: 208,
+    288_000: 248,
+    304_000: 248,
+    320_000: 248,
+}
 
-# Per (audio, text) cell, the seq count the replayed batches actually needed, +15%, and never below
-# what the batcher could produce at that audio length. See the comment on _AUDIO_LEVELS.
+
+# Per audio level, the seq count the replayed batches actually needed, +15%,
+# and never below what the batcher could produce at that length.
+# Reproduced from a 118k-batch replay.
 _FITTED_SEQ_COUNTS = {
     112_000: 191,
     128_000: 164,
@@ -90,6 +131,17 @@ _FITTED_SEQ_COUNTS = {
 }
 _MAX_SEQS, _SEQ_BUDGET = 200, 20_000_000
 
+
+def _text_levels(audio: int):
+    """
+    :param audio: declared audio extent
+    :return: the text extents to compile for it, ascending
+    """
+    cap = _TEXT_CAPS[audio]
+    half = max(8, -(-(cap // 2) // 8) * 8)
+    return sorted({half, cap})
+
+
 # audio-major, text ascending: _bucket_for takes the first fit, so a batch lands in the smallest
 # text bucket that holds it
 _BUCKETS = [
@@ -99,7 +151,7 @@ _BUCKETS = [
         "text": text,
     }
     for audio in _AUDIO_LEVELS
-    for text in _TEXT_LEVELS
+    for text in _text_levels(audio)
 ]
 
 
@@ -123,7 +175,6 @@ def py():
             },
             # 60 buckets is ~35 min of compiles at startup, and the 11.9h SLURM limit splits the
             # run into several submissions. Cached, a resubmitted run reloads them instead.
-            "train.jax_compilation_cache_dir": "/work/az668407/jax_compilation_cache",
         },
         # torch-only, no JAX counterpart. The post-config torch_* entries are dropped by train()
         # itself; only the hashed train config needs an explicit delete, as for the TF variant.
@@ -131,6 +182,53 @@ def py():
         # run names further ones, they belong here.
         config_deletes=["train.torch_amp"],
     )
+
+    # The real 500M AED+CTC with packed tensors, mirroring the PT packed setup:
+    # same option names, same bounds, same behavior version. No small_model_overrides.
+    # Packed needs no bucket grid -- one bound-shaped program covers every batch,
+    # so jax_jit only keeps the per-key rounding,
+    # and jax_static_shapes carries what the buckets carried.
+    # The training itself is not scheduled yet, only the step benchmark below:
+    # the packed step is complete (no fallbacks, every attention on a native packed kernel)
+    # and matches eager step for step on the small model,
+    # but its speed vs the PT packed setup is what has to come first.
+    _packed_jax_anchor()
+    bench_packed()
+
+
+def _packed_jax_anchor():
+    """
+    :return: (exp, align, audio_bound) of the 500M packed-JAX config
+
+    One definition for the training anchor and the benchmark,
+    so the benchmark cannot drift from the config it is supposed to measure.
+    """
+    align = 960
+    audio_bound = 100_000 * _loq_batch_size_factor() + 200 * align
+    audio_bound = -(-audio_bound // align) * align
+    with disable_register_output():
+        exp, _, _ = loq_train(
+            "base-v2-jax-packed",
+            {},
+            config_overrides={
+                "model.behavior_version": 29,
+                "train.backend": "jax",
+                "train.jax_amp": "bfloat16",
+                "train.packed_tensors": {
+                    "per_key": {"audio": {"gap": 0, "align": align}, "text": {"gap": 0, "align": 1}},
+                },
+                "train.jax_jit": {"time_multiple": {"audio": 16_000, "text": 8}},
+                "train.jax_static_shapes": {
+                    "batch_size_bound": 200,  # == max_seqs
+                    # text 256 = the conditional max label count under the 19.5s audio filter
+                    # plus headroom, as measured for the PT setup
+                    "dim_capacity": {"audio": 312_960, "text": 256},
+                    "packed_total_bound": {"audio": audio_bound, "text": 18_000},
+                },
+            },
+            config_deletes=["train.torch_amp"],
+        )
+    return exp, align, audio_bound
 
 
 # The producer benchmark below lives here rather than in its own recipe: it belongs to this
@@ -393,7 +491,6 @@ def bench():
     )
     job.add_alias("jax-producer-benchmark")
     tk.register_output("jax_producer_benchmark.txt", job.out_results)
-
 
 
 # Bucket-grid benchmark: the text axis is where the grid's padding sits.
@@ -884,14 +981,11 @@ class JaxVsTorchBenchmarkJob(Job):
                 )
             )
         with open(self.out_results.get_path(), "a") as f:
-            f.write(f"\n=== JAX vs PyTorch, same node, {self.num_steps} steps/arm,"
-                    f" {self.passes} passes, alternating\n")
+            f.write(f"\n=== JAX vs PyTorch, same node, {self.num_steps} steps/arm, {self.passes} passes, alternating\n")
         arms = [("jax", self.jax_config_file.get_path()), ("torch", self.torch_config_file.get_path())]
         for p in range(self.passes):
-            for backend, cfg in (arms if p % 2 == 0 else arms[::-1]):
-                subprocess.check_call(
-                    [self.python_exe, "-u", "vs_arm.py", backend, cfg, f"pass {p + 1}"]
-                )
+            for backend, cfg in arms if p % 2 == 0 else arms[::-1]:
+                subprocess.check_call([self.python_exe, "-u", "vs_arm.py", backend, cfg, f"pass {p + 1}"])
 
 
 def bench_vs():
@@ -965,7 +1059,8 @@ def _config(path, backend):
         config.typed_dict["device"] = "gpu"
         config.typed_dict["jax_amp"] = "bfloat16"
         config.typed_dict["jax_jit"] = {{"time_multiple": TIME_MULTIPLE, "buckets": BUCKETS}}
-        config.typed_dict["jax_compilation_cache_dir"] = "/work/az668407/jax_compilation_cache"
+        # the engine reads RETURNN_JAX_COMPILATION_CACHE_DIR itself; no path here
+        pass
         # the per-shape timing pass EXECUTES every bucket and copies params + optimizer state each
         # time; at 500M that is real memory and minutes of startup, and it is only a diagnostic
         config.typed_dict["jax_time_buckets"] = 0
@@ -1179,15 +1274,33 @@ class JaxVsTorchFullBenchmarkJob(Job):
                 )
             )
         with open(self.out_results.get_path(), "a") as f:
-            f.write(f"\n=== JAX vs PyTorch, FULL model, same node, {self.num_steps} steps/arm,"
-                    f" {self.passes} passes, alternating\n")
+            f.write(
+                f"\n=== JAX vs PyTorch, full model, same node, {self.num_steps} steps/arm,"
+                f" {self.passes} passes, alternating\n"
+            )
         cfg = self.returnn_config_file.get_path()
         for p in range(self.passes):
             arms = ["jax", "torch"] if p % 2 == 0 else ["torch", "jax"]
             for backend in arms:
-                subprocess.check_call(
-                    [self.python_exe, "-u", "vs_full_arm.py", backend, cfg, f"pass {p + 1}"]
-                )
+                subprocess.check_call([self.python_exe, "-u", "vs_full_arm.py", backend, cfg, f"pass {p + 1}"])
+
+
+def bench_packed():
+    """
+    Sisyphus entry point for the packed-JAX speed benchmark.
+
+    Uses the same job as the PT packed benches, so the numbers are comparable:
+    same harness, same log parsing, same step counting.
+    The packed/jit options ride in the config from :func:`_packed_jax_anchor`;
+    mode ``packed_jax`` adds no override text of its own.
+    """
+    exp, _, _ = _packed_jax_anchor()
+    job = TrainStepBenchmarkJob(
+        returnn_config=exp.get_training_job().returnn_config,
+        mode="packed_jax",
+        num_steps=31,
+    )
+    tk.register_output("returnn/jax-packed-bench.json", job.out_results)
 
 
 def bench_vs_full():
