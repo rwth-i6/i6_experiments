@@ -1629,7 +1629,8 @@ same-dropout-stream parity survives a wall-clock resume, and count donor-side
 structurally-infeasible pairs (donor shorter than the anchor text's minimum feasible frames; the
 softplus term saturates to exactly 0 there) in the sampling diagnostics.
 D7.3 still requires a fresh launch word.
-2026-08-21 later (implementer-reported, not yet verifier-confirmed): both requested fixes landed
+2026-08-21 later (VERIFIER-CONFIRMED same day: diff read, all five CPU tests reproduced, GH200
+parity log verified; replaces "implementer-reported"): both requested fixes landed
 (speech-llm commit 1d10945; resume payload carries torch CPU/CUDA RNG state with a
 device-change refusal; donor structural-infeasibility counters in sampling/held/preflight
 diagnostics; all four D7 hashes plus the merge unmoved). All ten decode shards FINISHED and

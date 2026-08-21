@@ -2083,19 +2083,24 @@ the absolute beta, is what carries the contamination claim.
   tests pass); D7.1 is hard-gated on the D7.0 preflight PASS artifact plus index-hash binding;
   fixed-final only, D7.2/D7.3 absent from the graph; the fixed-final checkpoint dict satisfies
   `PsiScorerParityJob.from_checkpoint`; no funded GPU job was cancelled or displaced at launch.
-  Caveats a reader of D7.1 numbers must know: (i) the registered same-dropout-stream parity is
-  currently guaranteed only for unbroken runs — the shard-resume checkpoint carries no torch RNG
-  state, so a wall-clock resume of one arm desynchronizes the streams (fix requested from the
-  implementer before the train jobs first run; hash-free while their dirs do not exist); (ii) a
-  donor structurally too short for the anchor's text yields a softplus term of exactly 0 with zero
-  gradient — conservative for the gate but invisible in the current diagnostics (counter
-  requested); (iii) prior weight is 0 from step 0, a forced deviation from the refit's 4-epoch
-  prior anneal, entailed by carrying `L_U->z` across a single pass (definition now pinned in
-  `PLAN_3E1.md`); (iv) the ~0.035% max-generation-length truncation tail of the argmax decoder
-  (measured 10/28,539 on the finished tc100 greedy dump) extrapolates to roughly 100 of 281,241
-  rows — the decoder's established operating point, not a D7 deviation; once shards finish, the
-  free equivalence check is diffing the D7 merge against `ReturnnForwardJobV2.66pIzBzffnK2`'s
-  greedy texts on the shared tc100 utterances; (v) the CUDA/python backend parity test does not
-  cover a `d_min=2` skip lattice — equivalence rests on the c38 end-to-end identical-fit
-  comparison, and both arms share the backend so any residual discrepancy cancels in the paired
-  read.
+  Caveats a reader of D7.1 numbers must know (rewritten 2026-08-21 after the fix verification
+  below; the resolved resume-RNG, donor-infeasibility and parity-gap caveats are absorbed):
+  (i) prior weight is 0 from step 0, a forced deviation from the refit's 4-epoch prior anneal,
+  entailed by carrying `L_U->z` across a single pass (definition pinned in `PLAN_3E1.md`);
+  (ii) the ~0.035% max-generation-length truncation tail of the argmax decoder is the decoder's
+  established operating point, not a D7 deviation — and the equivalence check ran once the shards
+  finished: the D7 merge agrees with `ReturnnForwardJobV2.66pIzBzffnK2` on the 28,539 shared
+  tc100 utterances at 0.459% word distance, argmax ties under different batching, no length or
+  content bias (approach 32).
+  Fix verification 2026-08-21 (speech-llm commit 1d10945, verifier-reproduced): the shard-resume
+  payload now carries torch CPU+CUDA RNG state, restored after the start-of-run reseed with
+  refusals on a changed dropout device or CUDA device count — diff-verified, and the
+  stream-continuity test carries a negative control that fails without the restore; donor
+  structural infeasibility is counted via `_min_frames` in the train sampling diagnostics, the
+  fixed-final held diagnostics and the preflight `candidate_stats`, pairing kept (conservative
+  direction unchanged); the CUDA/python lattice parity test gained two `d_min=2` skip-arc cases
+  and was EXECUTED on a GH200 (`log/parity_test.1445759.out`: the test's own ok line, 1 passed —
+  exit 0 alone cannot distinguish passed from skipped there), pinning backend agreement at 1e-3
+  on scores, gamma and both gradients in D7's own topology; all five CPU unit tests pass in the
+  verifier's own run under the project env; all four D7 job hashes and the merge are unmoved by
+  the fix commit.
