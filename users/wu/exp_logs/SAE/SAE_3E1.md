@@ -2178,3 +2178,29 @@ the absolute beta, is what carries the contamination claim.
   on scores, gamma and both gradients in D7's own topology; all five CPU unit tests pass in the
   verifier's own run under the project env; all four D7 job hashes and the merge are unmoved by
   the fix commit.
+- 2026-08-21 (parity fix verified; first D7.1 run root-caused; amendment registered): commit
+  `91c437a` is diff-verified faithful to the registered operational parity rule — losses keep
+  exact equality; F is the max over 2 extra re-runs of the CONTROL model of the max abs gradient
+  difference against its own first run, each `grads` call restoring the saved CPU+CUDA RNG state
+  and zeroing grads on the fixed first batch, gradients snapshotted as fresh flattened CPU
+  copies; PASS iff cross <= 3F and F <= 1e-4, with the F > 1e-4 case failing as the distinct
+  backend-too-noisy defect; the report carries F and cross. Hash-neutral by construction:
+  `source_identity` is an instance attribute, not a constructor argument, so no job hash can
+  move. After the user's restart the preflight PASSED on its own artifact
+  (`D7OnlinePreflightJob.ZxfANwBZYpaI/output/preflight.json`: verdict PASS, losses exactly equal
+  at 9.983121871948242, F 7.391e-06, cross 4.053e-06 — same order as the diagnostic's 5.5e-06/
+  2.6e-06, confirming noise-floor calibration was the right form; candidate gradient delta
+  0.02046 confirms candidate-only gradient flow). BOTH D7.1 trainings
+  (`D7OnlineTrainJob.j16rTskXF1QU` / `.WA1bqjXQtzeZ`) then failed closed at 21:32 in
+  `_make_items` on the SAME row — own pseudo-text infeasible on own audio under d_min=2
+  (`3889-130125-0028`: 481 states, min feasible 400 frames, T=356) — identical raise in both
+  arms, so the matched-arm property held even in failure. Verifier census over all 281,241 pool
+  rows with the production law (`scripts/d7_own_infeasible_census.{py,json}`): exactly 4
+  own-infeasible rows, all train-role, zero internal-held; all four are runaway-repetition
+  greedy texts. The incumbent recipe's own artifact defines the handling —
+  `PsiAlignTrainJob.dsMKgPHQApyR` trained after "pairs: 28538 (27111 train / 1427 held out),
+  1 dropped as U > 2T" — so the raise was an implementation over-strengthening of the
+  exact-control-recipe-verbatim contract. Drop-and-count amendment with a named-four-row bound
+  registered in `PLAN_3E1.md` D7 Status (including the D8 bed-wide-greedy-feasibility
+  consequence); one implementer edit in `_make_items` plus one further user-run d7 manager
+  restart (clearing both train error markers) are pending.

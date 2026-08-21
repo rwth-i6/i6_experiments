@@ -81,7 +81,10 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
   same-speaker, duration-windowed donors, with no graph, chapter/Q2 band, nuisance filters or donor
   capacity. D7.0/D7.1 are IMPLEMENTED AND LAUNCHED 2026-08-21 (verifier-confirmed same day: decode
   shards running, scorer A/B gated behind the preflight barrier, no funded job displaced); a policy
-  leg still needs authorization.
+  leg still needs authorization. Same day latest: preflight PASSED under the amended parity rule;
+  the first D7.1 run failed closed on four degenerate own-infeasible greedy anchors — drop-and-count
+  amendment registered (`PLAN_3E1.md` D7 Status), one `_make_items` edit and one user-run restart
+  pending.
 - **960 h stock-donor supervision-axis endpoint is ABSENT**: the theta_0 + gold-scorer arm ran
   only through sub-epoch 4, was stopped and deleted 2026-08-08, and never produced the listed
   3-pass endpoint; `ReturnnTrainingJob.22Ntu7y0O6iW` does not exist. Its observed collapse is
@@ -266,7 +269,13 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    bit-exact gradient assertion (CUDA-atomics noise exceeds the cross-copy difference; losses
    exactly equal). Planner amendment same day pins the operational parity rule
    (self-calibrating noise floor, `PLAN_3E1.md` D7 Status); one implementer edit plus one more
-   user-run d7 manager restart are pending.
+   user-run d7 manager restart are pending. Same day latest: parity fix verified, restart done,
+   preflight PASSED under the amended rule; both D7.1 trainings then failed closed at data load on
+   the first of four own-infeasible degenerate greedy anchors (verifier census 4/281,241, all
+   train-role, none held; runaway-repetition texts). The incumbent recipe drops such rows with a
+   counted diagnostic, so a drop-and-count amendment with a named-four-row fail-closed bound is
+   registered in `PLAN_3E1.md` D7 Status (with its D8 preflight consequence); one implementer
+   `_make_items` edit plus one further user-run d7 restart are pending.
    2026-08-21 (planner, on the user's instruction): D8 REGISTERED in `PLAN_3E1.md` —
    posterior-weighted multi-hypothesis scorer refit (soft EM over theta_0^G sampled rollouts,
    weights from the arm's own shaped score at pinned lam_lm=1.0, D7 control reused as the
@@ -1100,7 +1109,10 @@ speakers and the necessary upper bound is 120/four versus the 6,778/201 gate. Do
 offline graph. Corrected D7-GAN-SEQDISC is implemented and launched (2026-08-21,
 verifier-confirmed) through its full-960 h matched scorer A/B, gated behind the D7.0 preflight
 barrier, with no displacement of the already-funded trajectories or §3d.A operator read. Its
-policy leg is held.
+policy leg is held. 2026-08-21 latest: preflight PASSED under the amended parity rule; both
+D7.1 trainings failed closed on four own-infeasible degenerate greedy anchors — drop-and-count
+amendment registered in `PLAN_3E1.md` D7 Status; one `_make_items` edit and one user-run
+restart pending.
 Normative details and exact operating points: `PLAN_3E1.md`; evidence: `SAE_3E1.md`.
 
 ### 3f. Exit gate (Rung 3)

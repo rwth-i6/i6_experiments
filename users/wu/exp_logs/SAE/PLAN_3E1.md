@@ -1713,6 +1713,41 @@ instrument, not about the wiring. Cost disclosed: `d7_online.py` is inside the s
 pin, so this one edit requires one further user-run manager restart. First live counter read,
 same run: infeasible donors 0/256 pairs in shard 0's first batch (209 ordinary_window / 47
 nearest_fallback).
+2026-08-21 latest+1 (verifier ruling, own-infeasible-anchor amendment; pre-registered before
+any re-run exists). After the user's restart the preflight PASSED under the operational parity
+rule exactly as amended (losses exactly equal at 9.983121871948242; noise floor F = 7.391e-06
+<= 1e-4; cross-copy delta 4.053e-06 <= 3F; `D7OnlinePreflightJob.ZxfANwBZYpaI/output/
+preflight.json`, verdict PASS), and then BOTH D7.1 trainings failed closed at data load, at
+21:32, on the same row: `_make_items` raises when an anchor's OWN pseudo-text cannot align to
+its OWN audio under d_min=2 (`3889-130125-0028`: 481 states, minimum feasible 400 frames, T =
+356 units). The preflight could not see this because it loads shard 0 only. Verifier census
+over the whole pool with the production `_encode`/`_min_frames` law and the pool index's unit
+lengths (`scripts/d7_own_infeasible_census.{py,json}`): exactly 4 of 281,241 rows are
+own-infeasible, ALL train-role, ZERO internal-held — `3488-85273-0024`, `3889-130125-0028`,
+`4492-8904-0032`, `8424-284526-0028` — and all four texts are the greedy decoder's known
+runaway-repetition tail ("and not at shanghai and not at shanghai ...", "tickety tickety ...",
+"hahaha..."), i.e. the established ~0.035% degenerate tail, not an interface error. The
+registered contract is the D7 exact-control recipe VERBATIM, and the incumbent recipe defines
+this exact case: `_load_pairs` DROPS an own-infeasible row with a counted diagnostic — the
+round-1 refit `PsiAlignTrainJob.dsMKgPHQApyR` itself trained after "1 dropped as U > 2T" on
+its own 28,538-row pool. Raising was therefore an implementation over-strengthening, the same
+shape as the parity defect, and this amendment specifies the clause's operational form without
+relaxing what it detects. Operational rule: (1) both arms drop own-infeasible rows (empty
+states/units, or minimum feasible frames > T) from training as ANCHORS only — no unit NLL, no
+`L_U->z`, no `L_online` visit — deterministically and identically in both arms; (2) dropped
+rows remain donor-eligible unchanged, because the donor path draws from the index/unit store
+and never reads text feasibility, so the registered donor law is untouched; (3) the realized
+dropped set is counted AND NAMED per role in the training diagnostics, and any realized set
+other than exactly these four train-role rows (a held row, a fifth row, an arm asymmetry)
+FAILS the run as a different defect — this named-set bound is what keeps the drop from ever
+becoming D7-style row filtering; (4) the pool artifact and its 281,241-row coverage clause are
+untouched. Consequence for D8, dated here because its spec is already registered: the D8
+parenthetical "(the preflight asserts greedy feasibility bed-wide)" is unsatisfiable as
+written on the real bed; the D8.1a preflight instead asserts greedy feasibility on all rows
+OUTSIDE this named four-row set, and the four rows drop from D8 training as anchors under the
+same named-set bound, so an all-infeasible support cannot arise elsewhere. Cost disclosed: the
+fix lives in `_make_items`, inside the source-identity pin and outside every job hash, so one
+further user-run d7 manager restart (clearing the two train error markers) is required.
 
 **D8 -- posterior-weighted multi-hypothesis scorer refit (soft EM over sampled rollouts;
 USER-proposed 2026-08-21, registered same day; UNFUNDED).**

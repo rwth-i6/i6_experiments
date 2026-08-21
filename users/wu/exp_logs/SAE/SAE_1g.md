@@ -485,3 +485,29 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   evaluation remains closed without label-based count substitution. Only unchanged passing maxima may
   refit/release. Held-out LM perplexity is descriptive and never selects order. This is planned work,
   not a result.
+
+- 2026-08-21 — H4 global-beam boundary VERIFIED; approach 10 and conclusion 16 CONFIRMED. Full
+  independent recomputation from the 144 raw `H4SequenceDecodeChunkJob` cells reproduces every
+  claim: no `(lambda,beta)` setting has an adjacent beam pair passing both clauses on all three
+  representatives; the best worst-representative one-best agreement is 0.7313432835820896
+  (lambda=2, beta=-2, pair 256->512) and the smallest worst-representative score change is
+  0.005448072638504445 nats per retained unit (lambda=0.5, beta=-2, 256->512), matching the
+  logged 0.7313/0.005448; the reducer's own per-setting verdicts agree cell-for-cell with the
+  recomputation, no anomalies. Frame verified at source and artifact: `beam_pair_statistics`
+  implements exact one-best symbol-sequence equality and the fsum-over-retained-units
+  denominator with inclusive 0.999 and strict 1e-4 bounds, and `derive_global_beams` walks
+  ascending adjacent pairs requiring EVERY representative, freezing the smaller beam of the
+  first passing pair; the three representatives are the frozen resource-contract triple (340
+  tables deduplicated to 316 hashes, entropy-sorted, indices 0/157/315:
+  `controlled/map_q04_draw03` r0, `controlled/map_q06_draw01` r2, `controlled/soft_q00` r0);
+  the shard is the canonical heaviest update chunk `update[2::32]` (201 IDs, 19,515 retained
+  units, hash-bound to contract `H4ResourceContractJob.kFA99bygctlt`); zero selection or
+  evaluation IDs appear in any cell; every `code_identity` sha256 matches the current checkout,
+  and commits `3de988a`/`84808a8` touched neither `h4_production.py` nor `h4_decode_jobs.py`
+  (last touched by `436ea50`). Consequence ratified as plan-consistent: all 12 sequence
+  settings are label-free ineligible, the baseline surface retains the LOCAL decoder only, H4
+  is NOT failed, no provisional sequence winner can exist so the sequence-family gate cannot
+  bind at this boundary, and local winners need no beam audit. Reading note: with 201 shard
+  utterances the 99.9% clause is effectively 201/201 unchanged one-bests — a property of the
+  frozen shard size, not an implementation choice. The `sae_1g_h4_prelabel_surfaces` launch
+  condition ("12 grid verdicts verified") is MET.
