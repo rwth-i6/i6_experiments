@@ -4,8 +4,17 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-In flight 2026-08-22 -- only the two D6-periodic loops:
+In flight 2026-08-22:
 
+- **D7.2, the registered label-free admission** (`config/sae_3e1_d7_gan_seqdisc.py`, speech-llm
+  `c40655d`), launched 23:16 under manager pid 936497 with a watcher. Ten jobs, all D7.2, verified
+  against the built graph before launch: 227 jobs total, exactly 10 unfinished, and the four
+  D7.0/D7.1 hashes unmoved, so nothing finished reruns and no policy leg is funded anywhere.
+  Clauses 1-2 are `S/d7_admission/D7OnlineAdmissionJob.h0LsMi9zt5aI` (paired 32-draw internal-held
+  read); clause 3 is `S/gate_table/PsiGateClauseTableJob.4Z0gb5GgtD2u` over the unchanged frozen
+  1,500 external gold-dev rows with the exact D7 control as incumbent, fed by two `PsiTextProbeJob`
+  and two `PsiHeldNllJob`; clause 4 is two `PsiScorerParityJob` behind two `PsiAlignRerankJob`.
+  The admission job is past its checkpoint asserts and into the GPU loop.
 - **D6-PERIODIC/GAN-FROZEN**: leg 7 of 8 running (`T/ReturnnTrainingJob.ZgRzUxDRhajE`), legs 1-6
   finished. Manager pid 1991977, watcher attached.
 - **D6-PERIODIC/GAN960-FROZEN** (approach 33): leg 1 `T/ReturnnTrainingJob.ohmLWWmr6Kxe` running,
@@ -52,12 +61,19 @@ its pre-amend twin; the collapse tally is labelled CLASSES not groups in both th
 this log, and the artifact now reports classes and groups separately; approach 34's v2 table carries
 the omitted T=0.5 row.
 
-Next action: build and run D7.2, the registered label-free admission
-(`PLAN_3E1.md` D7 item 3): at both fixed-final scorers, internal-held NLL and `L_online` with 32
-stateless donor draws per eligible held anchor paired across scorers, then the unchanged 1,500-row
-Acceptance gate v2 and `PsiScorerParityJob`. Nothing in this is authorization-gated -- D7.3, the
-policy leg, is, and none is in any graph. D8 has nothing left to build until D7.2 returns a verdict.
+Next action: hold the D7.2 watcher to DONE, then read the four clause artifacts and append the
+admission verdict. D7.3, the policy leg, needs its own launch authorization and is in no graph.
+D8 has nothing left to build until D7.2 returns a verdict.
 §1g H4's pre-label surfaces are COMPLETE (`SAE_1g.md` State, approach 11, verdict 17).
+
+Proposal for the planner, measured while building D7.2 and now reported inside the admission
+artifact: the registered "32 stateless donor draws" does not buy 32 independent donors on this
+population. A speaker's internal-held rows inside the duration window are few, so an anchor's draws
+are sampled with replacement from a pool of typically about four -- mean 3.67 distinct donors over
+32 draws on the first 400 held anchors, and exactly 1 for every `nearest_fallback` anchor by
+construction. Nothing about the clause changes; the precision comes from the speaker-cluster
+resampling and not from the draw count, and the artifact now reports the distinct-donor count per
+anchor so the estimate is never read as carrying 32 draws' worth of donor variation.
 
 Proposal for the planner, on D7.2's second gate clause: it requires the candidate's internal-held
 per-frame NLL to be no greater than the control's point value, and the two point values D7.1 banked
