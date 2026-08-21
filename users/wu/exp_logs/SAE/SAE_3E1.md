@@ -31,32 +31,32 @@ Next action: start the d7 manager (above), confirm the pool and the D7.0 preflig
 confirm the two D7.1 trainings start matched. A D7 policy leg is NOT authorized and none is in this
 graph.
 
-D8 spec read 2026-08-21, fourth pass (`PLAN_3E1.md` at 0b654c274; nothing implemented, nothing
-authorized). The normalizer wording is now correct and verified at the source: `SearchOutHypsJob`
-defaults to `lowercase=True, ascii_fold=True` and its fold at `scorer_diag.py:1255` is exactly NFKD,
-combining marks dropped, remaining non-ASCII deleted -- so identity on pool texts does hold by
-construction, which is why 0 of 281,241 changed.
+D8 spec read 2026-08-21, fifth pass (`PLAN_3E1.md` at fd7b2b83b; nothing implemented, nothing
+authorized). The registered three-mechanism account matches what I measured, and both new binding
+details are implementable. One implementation note, because the obvious reading of the same-string
+rule is expensive and does not have to be:
 
-One correction to the new rule's stated mechanism, measured on the binding artifact:
+- **The rule needs re-scoring only where the normalized string differs from the raw generation.**
+  Taken literally, "weight-side scoring is the same normalized string" reads as a second scoring pass
+  over the whole candidate set -- a pinned-scorer forward plus a Qwen3 prior forward for each of
+  roughly 3.4 M candidates, which would cost more than generating them. It is unnecessary: where the
+  folded string is byte-identical to the generation, the post-fold score IS the stored score under
+  the same pinned scorer, so only the differing candidates need re-scoring. On the theta_0^G T=0.7
+  estimate that is about 3.8 % of candidates, and on the fork policy 3 in 342,468. The greedy member
+  needs none at all: the pool text is already a fixed point of the fold (0 of 281,241 change), which
+  is the same fact that makes the control's targets folded text.
+- **The repair-rate diagnostic and that subset are the same computation.** "Normalized string differs
+  from raw generation" is exactly the predicate that selects what must be re-scored, so detail (2)
+  costs nothing beyond detail (1) and each validates the other: the reported rate is the fraction
+  re-scored.
+- **The re-scoring belongs to the weight job, not the dump job.** The existing dump machinery scores
+  what it generated, i.e. raw pre-fold text; leaving it untouched keeps its hashes and behavior fixed
+  as the plan intends, and lets the weight job own the fold, the dedup key, the re-scored minority
+  and the reported rate together -- which is also where the pre-registered tau_star rule already
+  lives.
 
-- **The scoreability criterion cannot fire on the multilingual leakage, so it does not price it.**
-  The canonical fold DELETES non-Latin script before the text side ever sees the string, and what is
-  left is ASCII English, which the BPE side always encodes (an unmatched word becomes UNK, which is
-  in the inventory; `phones.py:301-304`). On `J9yA1eYnxwYA`'s T=0.7 slice, all 236 of the texts
-  carrying non-ASCII survive the fold as NON-EMPTY scoreable English -- zero become empty. So on this
-  artifact the empty / infeasible / not-encodable arms exclude nothing at all.
-- What remains are two other mechanisms, and only one of them thins support. Two rollouts differing
-  only in deleted glyphs COLLAPSE under dedup, which does thin it -- that is clause (a)'s own
-  statistic and I have not measured it. But a rollout carrying partial leakage is instead silently
-  REPAIRED into a shorter, perfectly scoreable English candidate that competes for weight on equal
-  terms. The plan's claim that unusable candidates thin the measured support and so price the
-  leakage automatically describes the collapse path but not the repair path, and the repair path is
-  the one that is certain to occur here (236 of 236).
-
-Whether repair-into-a-competing-candidate is acceptable is the planner's call; it is named here
-because the automatic-pricing argument currently rests on an exclusion that never fires. Everything
-above is a per-text character-class and encodability property: no distinct-hypothesis count, no ESS
-and no weight variance has been computed on either artifact.
+No gate statistic touched: no distinct-hypothesis count, no ESS, no weight variance on either
+artifact.
 
 Proposal for the planner: none outstanding.
 
