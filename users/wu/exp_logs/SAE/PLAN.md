@@ -91,14 +91,17 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
 - Reward hygiene: the LM-prior per-token mean pays for length (§6.6) — `lm_prior_norm="units"`
   is the standing fix; `len_eps` 0.4 leaves a 49 % free band if the hinge is ever load-bearing.
 
-**Priority queue (current revision, 2026-08-20):**
-1. **§1g H4 — TOP NEW SPEND.** H3's construction-only ESPUM seed-0/update-30,000 final refit and
-   strict projection are finished, as are the fingerprint, random-map and pseudo-pair controls on
-   all 7,304 construction IDs. Do not relaunch H3. Build and preflight the missing production H4
-   phone-assay graph, then run the registered 6,414-update/890-selection/7,304-final-refit/
-   1,112-evaluation assay. This is the first pending experiment that can establish a content-bearing
-   no-GAN seed. The workspace now has `JOB_AUTO_CLEANUP = True`; verify the effective imported value
-   again before launching H4 or any other new manager.
+**Priority queue (current revision, 2026-08-21):**
+1. **§1g H4 — TOP NEW SPEND.** Preserve the verified 821-job prerequisite graph: all 85-by-4 channel
+   tables, direct-`Q` starts, role-local selection donors, and update/selection decoder resource
+   contracts are complete. No selection decode, normalized score, selector, final refit, or evaluation
+   has run. Add the bounded global-beam stability extension and deterministic Section-4 aggregation/
+   selector boundary. Before controlled labels open, persist the prospective reference/four-H3
+   provisional maxima and winner audits; then validate own-minus-donor and freeze those maxima
+   unchanged. Final-refit the H3 rows on 7,304 construction IDs and the reference on 4,455 dev IDs,
+   pass the release checks, and open the 1,112-ID evaluation once. Likelihood is update-
+   health evidence only, never a selector, fallback, or tiebreaker. The workspace has
+   `JOB_AUTO_CLEANUP = True`; verify the effective imported value before any new manager.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional
@@ -265,13 +268,16 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
     enumeration. Eight persisted alternatives remain an output-only cap because one-best and
     confidence use the complete beam. H3's three simple 7,304-ID final initializers are finished;
     the selected ESPUM seed-0/update-30,000 final refit and strict projection are finished.
-    H4 has evidence/gate utilities but no production Sisyphus consumer graph yet; build that graph
-    against the completed final-refit manifests and retain the cleanup preflight in priority 1.
+    H4's 821-job prerequisite graph is complete and verified; it binds all corrected starts/counts,
+    the selection donors, and both resource contracts. Preserve it. The remaining boundary is the
+    bounded beam-stability extension, full-role decode/raw scoring, and deterministic sole-selector
+    aggregate specified in `PLAN_1G.md`; no selector, final refit, or evaluation result exists yet.
     Reuse 1g.4's spectral and hard-descriptor failures; the unrun six-factor product is corrected to
     not answerable and stays parked. Reuse the fixed 1f recipes and original artifacts as provenance,
     but not as held-out inputs: both banked seeds saw the evaluation audio. The first E5 job remains an
-    engineering rehearsal and cannot fire a gate. Once H2/H3 close, run the corrected phone repair,
-    decoder, and score assay, then test policy-side and scorer-side SAE handoffs separately.
+    engineering rehearsal and cannot fire a gate. Complete the remaining H4 full-role decode,
+    selector, final-refit, and score assay, then test policy-side and scorer-side SAE handoffs
+    separately.
     Characters are the first lexicon-free candidate. Use the loop's exact BPE only for a demonstrated
     scorer-interface need. Resegmentation, repeated-speech mining, synthetic speech, and adaptive
     restart searches remain deferred. Prospective admission compares uncertainty-aware gains over identically
@@ -687,14 +693,18 @@ The historical 1f (0.05/0.05) failure remains recorded but is not the future adm
 Phone results validate mechanics. The phone-versus-character difference bundles several design
 changes, including pronunciation-lexicon cost; only a lexicon-free result supports the main claim.
 
-**Status.** **Active; H1--H3 accepted, H4 production graph missing (2026-08-20).** The first E5 job
+**Status.** **Active; H1--H3 accepted, H4 prerequisites complete and selection pending
+(2026-08-21).** The first E5 job
 remains exploratory and non-decisive. H1 freezes the split, masks, two-state topology, and phone
 `p=0.23560298`; no further H1 run is required. H2's deleted-silence boundary law is now identical in
 repair, scoring, and decoding and passes the exact-enumeration suite; its timing preflight must not be
 rerun. H3's fingerprint, random-map, and pseudo-pair final initializers are finished on all 7,304
 construction utterances; the selected ESPUM final refit and strict projection are also finished.
-Only H4's evidence harness exists—the production job/config still has to be built. Build it against
-the completed H3 final-refit manifests, then run H4; H5--H6 remain gated on its scientific result. Details: `PLAN_1G.md`; evidence:
+H4's verified 821-job prerequisite graph exposes every corrected channel table and passes both
+resource contracts, but no full-role decode, normalized own-minus-donor selector, final refit, or
+evaluation has run. Add the bounded beam-stability extension and validate the deterministic selector
+boundary, then complete H4;
+H5--H6 remain gated on its scientific result. Details: `PLAN_1G.md`; evidence:
 `SAE_1g.md`.
 
 ---
