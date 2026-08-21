@@ -1,5 +1,24 @@
 # SAE §3d — the G-track: GAN-init fully-unsupervised autoencoder
 
+## State
+<!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
+question each answers), blockers, next action, proposals for the planner. -->
+
+In flight 2026-08-21 17:45: the 960 h G-track pseudo-SFT one-pass AV training
+(`T/ReturnnTrainingJob.HuSkdbuVRg6d`, alias `sae_2s/config_sae_2s_av_sft_v1/
+seed10h_layer15_gtrack_pseudo_960h_onepass/training`) is running; its epoch-10 dev-clean/dev-other
+recognition, scoring and robust-WER chain (11 jobs) waits behind it.
+
+This arm made no progress between 2026-08-20 19:33 and 2026-08-21 17:35 and the loss was purely
+operational, not experimental: its two upstream dataset-transform jobs finished, but one finished
+job's worker process never exited and held all four cpus of that manager's login-node engine, so the
+training stayed runnable and unsubmitted for 22 h with the manager alive and no error anywhere.
+Cleared by restarting the manager; the training was submitted within a minute. No job was cleared,
+re-run or deleted and no hash moved, so nothing on record is affected. Recurrence and detection are
+in the memory entry on workers of finished jobs; the watcher now heartbeats for it.
+
+Blockers: none. Next action: let the training finish, then read the WER chain.
+
 ## Approach
 
 **1. Build a label-free init and gate it before funding a loop.** Chain: §1d student word decode

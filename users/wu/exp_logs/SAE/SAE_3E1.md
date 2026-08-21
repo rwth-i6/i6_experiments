@@ -1,5 +1,34 @@
 # SAE §3e.1 — scorer trainability without collapse (ladder D0–D4, `PLAN_3E1.md`)
 
+## State
+<!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
+question each answers), blockers, next action, proposals for the planner. -->
+
+In flight 2026-08-21 17:45:
+
+- **D7-GAN-SEQDISC** (`config/sae_3e1_d7_gan_seqdisc.py`, approach 32). Ten theta_0^G argmax-decode
+  shards over the 281,241-utterance 960 h bed are running since 16:37
+  (`T/../forward/ReturnnForwardJobV2.pYcTsax31JWW` and nine siblings; ~65 % at 17:30, all ten in step).
+  They answer nothing on their own: they produce the pseudo-text the A/B is defined on. The rest of
+  the graph is registered and waiting behind them, in order --
+  `S/scorer_diag/SearchOutHypsJob.h8GoSrbrTPHh` -> `S/d7_online/D7OnlinePoolJob.XLjSgTzHfwAu` ->
+  `S/d7_online/D7OnlinePreflightJob.ZxfANwBZYpaI` (the D7.0 barrier; the one-update finite/resource
+  check on frozen shard 0) -> the matched pair `D7OnlineTrainJob.j16rTskXF1QU` (control, `L_NLL +
+  L_U->z`) and `.WA1bqjXQtzeZ` (candidate, same plus `softplus(s_donor - s_own)`), which answer
+  whether the online same-speaker donor negative changes the scorer at equal schedule. No errors in
+  the graph.
+- **D6-PERIODIC/GAN-FROZEN** (`config/sae_3e1_d6periodic_gan_frozen.py`, the schedule-matched control
+  that freezes periodic round 1's own d_min=2 scorer): leg 6 of 8 running
+  (`T/ReturnnTrainingJob.2p2hpz7nk5vd`, 3.5 h in), legs 1-5 finished, 23 jobs waiting behind it.
+
+Next action: when the D7.0 preflight PASS artifact exists, confirm the two D7.1 trainings start
+matched (same initialization, batch order, dropout RNG stream) before letting them run out. A D7
+policy leg is NOT authorized and none is in this graph.
+
+Blockers: none. Note for whoever babysits: a finished job's worker can hang and starve the login-node
+engine silently -- see the memory entry on workers of finished jobs; the watcher now has a heartbeat
+that catches it.
+
 ## Approach
 
 **1. AR text-usage gate along the co-trained trajectory** (PLAN.md §3e.1 queue item 2, first half).
