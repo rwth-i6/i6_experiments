@@ -264,10 +264,15 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 11. **H4 pre-label selection surfaces (1g.2).** With the sequence family ruled out by approach 10,
     the baseline surface is local-only: 340 local decodes (85 starts by repair counts 0/1/2/4),
     3,400 fixed-text donor scores (10 frozen assignments per tuple), one selection surface and one
-    provisional-maxima read, all on the 890 selection utterances and reading no label. Each tuple's
-    statistic is the own-minus-donor fixed-text channel rate
+    provisional-maxima read, over the 890 selection utterances and reading no label. The statistic
+    itself contributes from the 513 donor-eligible sources of those 890 -- 235 dev-clean and 278
+    dev-other, the same set in every tuple and every assignment -- because the 377 `no_swap` sources
+    have no eligible donor and are absent by construction. Each tuple's statistic is the
+    own-minus-donor fixed-text channel rate
     (`own_logp/own_retained_units - donor_logp/donor_retained_units`), summed with `math.fsum` in
-    sorted-id order and weighted by split size (dev-clean 432, dev-other 458). The maximum over the
+    sorted-id order over the eligible rows of each split, then weighted by the registered fixed
+    shares 432/890 and 458/890 -- the no-renormalization rule, so the weights are the split sizes of
+    the full 890 and not of the 513 that contribute. The maximum over the
     10 frozen assignments is that tuple's provisional maximum; ties break on the registered order
     `legacy-2g;repair_count;local;lambda_outer_beta_inner;initializer;seed;update`. Both artifacts
     carry `contains_labels: false` and `frozen_pre_label: true`, and their recorded `code_identity`
@@ -292,6 +297,19 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     (340 tuples by 12 settings) are ineligible, so the surface carries no sequence-decoder score
     anywhere -- which is what approach 10 requires.
 
+    The two channel degeneracies among the 81 controlled starts are CONSTRUCTION, not a copy error,
+    and both are the same fact: `Q_LEVELS` ends at 1.0 (`h4_jobs.py:34`), so level index 09 is the
+    undamaged endpoint of each damage ladder. In the map ladder `keep_count` is then the whole live
+    set, so `assignment[keep] = reference_map[keep]` overwrites every drawn entry and the draw seed
+    cannot survive -- `controlled/map_q09_draw00..04` are necessarily one channel, and they return
+    10.3872214431 at all five draws. In the soft ladder `canonical_soft_q` early-returns
+    `reference.copy()` at `q_level == 1.0` (`h4_production.py:223-224`), so `controlled/soft_q09` IS
+    the reference channel and returns the reference's 5.8264784397 exactly. The two q09 endpoints do
+    NOT coincide with each other: the map ladder builds a hard one-hot `q` from the reference map
+    while the soft ladder keeps the reference's own soft rows, which is why one reads 10.3872 and
+    the other 5.8265. Effective independent controls are therefore 76 of 81, a property of the
+    registered ladder design that any clustered interval or null spread over the controls must
+    respect.
 
 ## Verdicts
 
