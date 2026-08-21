@@ -1258,9 +1258,11 @@ function-word pairs rather than broad spelling diversity.
     276/1,500 immutable sources meet even the all-eligible raw K=4 degree requirement, so full-
     `E_all` K=4 is impossible; zero meet the conservative eight-donors-per-stratum diagnostic. The
     latter does not establish exact second-quartile support because the rank, boundary and tie laws
-    are themselves unregistered. Later filters can only shrink a chosen surface. This triggers, but
-    does not choose, the prospective D7-v2 donor surface, capacity, weighting and selected-population
-    estimand. D7.0b and D7.1 remain closed until that amendment is canonical and re-censused.
+    are themselves unregistered. Later filters can only shrink a chosen surface. This triggered the
+    prospective D7-v2 amendment, now frozen on 2026-08-21: training retains K=4 balanced Q2
+    negatives, while the external donor-gap instrument uses one no-band nuisance-minimized donor,
+    one table and donor load at most three on a coverage-gated `E_D`. D7.0b is authorized to verify
+    and materialize that surface; D7.1 remains closed until D7.0b passes.
 
 ## Catalog
 
@@ -1922,7 +1924,7 @@ the absolute beta, is what carries the contamination claim.
   frozen-loop result (12.68/17.57) are report-only utility anchors. The prospective scientific gate
   is improvement over that exact matched control on both dev splits; any durability or absolute
   utility decision remains a separately preregistered next stage, with gold sealed until then.
-- 2026-08-20 (D7.0a independently verified): PASS. The reconstructed Sisyphus graph contains exactly
+- 2026-08-21 (D7.0a independently verified; D7-v2 frozen): PASS. The reconstructed Sisyphus graph contains exactly
   one finished label-free mini-task and no live scorer, assignment, training, reference or WER graph
   dependency. Code commit `a0a22b4` predates execution and contains only the tracked canonical
   config, census implementation and focused tests; the artifact source hash matches it and all 9
@@ -1935,8 +1937,18 @@ the absolute beta, is what carries the contamination claim.
 
   The scientific verdict is narrower than Conclusion 56 originally claimed. The external band was
   unregistered: 276/1,500 is the optimistic all-eligible raw K=4 support, while zero rows meet the
-  conservative eight-donors-per-stratum diagnostic. Exact second-quartile support is undefined until
-  its empirical-rank, boundary and tie laws are frozen. The census therefore validates the planned
-  amendment trigger and shows that full-`E_all` K=4 cannot be measured; it does not select a
-  replacement external surface. D7-v2 is the next planner action. D7.0b and D7.1 remain blocked until
-  its surface, donor capacity, weights and `E_D` estimand are frozen and re-censused.
+  conservative eight-donors-per-stratum diagnostic. Exact second-quartile support was undefined
+  before the amendment, so D7.0a establishes that full-`E_all` K=4 cannot be measured rather than an
+  eight-per-stratum theorem.
+
+  A planner-side maximum-matching replay of the immutable external raw edge table gives 1,267,
+  1,328 and 1,331 admitted edgeful sources at donor capacities one, two and three; a deterministic
+  cap-three raw matching contains 669 same-chapter and 662 different-chapter edges. Capacity three
+  is therefore the smallest tested load cap that preserves every raw edgeful source. Before any D7
+  scorer read, D7-v2 freezes: the original K=4 (2+2), row-local Q2, ten-table regular construction
+  for training with an executable ordinal rank/tie law; and a separate external K=1, M=1, no-band,
+  max-cardinality/minimum-nuisance cap-three matching. External admission requires at least 435/725
+  dev-clean and 465/775 dev-other sources plus 32/40 and 27/33 source speakers, retains fixed
+  725/1500 and 775/1500 split weights, and never shrinks the all-1,500-row Acceptance gate. D7.0b is
+  now the authorized executable next step; D7.1 remains blocked only until its repeated census,
+  table/loss calibration and one-step resource preflight pass.
