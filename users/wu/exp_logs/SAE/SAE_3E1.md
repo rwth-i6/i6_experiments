@@ -774,6 +774,16 @@ the common epoch-4 training point, freezes MAD temperature and gradient-norm coe
 the K1/K4/K8 diagnostics on one common K8-eligible population, and measures one K=4 update. The graph
 contains no D7.1 scorer, policy, reference text or WER consumer.
 
+**32. D7-GAN-SEQDISC full-bed online-negative A/B.** This is the corrected active D7 and shares no
+construction with Approaches 30--31. Ten deterministic theta_0^G argmax-decode shards cover the
+281,241-utterance unlabeled 960 h bed. A D7.0 barrier binds those texts to the frozen enc50 K=500 raw
+50 Hz unit store, reproduces the established ordered seed-42 5% holdout, persists only a
+speaker/duration/role index, and runs the registered one-update finite/resource check on frozen shard
+0. Only after that PASS artifact exists do the matched D7.1 control (`L_NLL + L_U->z`) and candidate
+(`L_NLL + L_U->z + softplus(s_donor-s_own)`) run for one ten-shard corpus pass. Both jobs preserve the
+same initialization, batch order and dropout RNG stream; the candidate's extra forward contributes
+gradient without advancing the next positive batch's RNG. D7.2 and D7.3 are absent from this graph.
+
 
 ## Conclusion
 
@@ -1297,10 +1307,11 @@ function-word pairs rather than broad spelling diversity.
 
 | artifact | path |
 |---|---|
-| code | `sae/scorer_diag.py`, `sae/text_repair.py`, `sae/psi_align_jobs.py`, `sae/psi_align.py`, `sae/curate.py`, `sae/gate_table.py`, `sae/refresh_gate.py`, `sae/d7_census.py`, `sae/d7_v2.py` (+ focused tests; D7.0a commit `a0a22b4`, D7-v2 commit `7b2069d`) |
+| code | `sae/scorer_diag.py`, `sae/text_repair.py`, `sae/psi_align_jobs.py`, `sae/psi_align.py`, `sae/curate.py`, `sae/gate_table.py`, `sae/refresh_gate.py`, `sae/d7_census.py`, `sae/d7_v2.py`, `sae/d7_online.py` (+ focused tests; D7.0a commit `a0a22b4`, D7-v2 commit `7b2069d`) |
 | entry points | `config/sae_3e1_d0.py`, `config/sae_3e1_usage.py`, `config/sae_3e1_d1d2.py`, `config/sae_3e1_d3.py`, `config/sae_3e1_d4.py`, `config/sae_3e1_d4p.py`, `config/sae_3e1_d5b.py`, `config/sae_3e1_d6.py` (builds D4' and the swap-in too), `config/sae_3e1_d6periodic.py`, `config/sae_3e1_d6periodic_warm.py`, `config/sae_3e1_hom.py`; D7 tracked canonical configs `src/speech_llm/prefix_lm/sis_recipe/exp2025_11_06_speech_llms/librispeech/configs/config_sae_3e1_d7_0a_v1.py` at `a0a22b4` and `config_sae_3e1_d7_v2_v1.py` at `7b2069d` (workspace wrappers only delegate) |
 | D7.0a complete raw external/scorer edge tables and census (approach 30) | `S/d7_census/D7RawDonorCensusJob.zsnx1p9nLyV3` |
 | D7-v2 / D7.0b feature and fail-closed assignment jobs (approach 31); the downstream loss preflight never materialized | `S/d7_v2/D7V2FeatureJob.hnReOv8t9UWg`, `S/d7_v2/D7V2AssignmentJob.aSOMkw3hSc0K` |
+| corrected D7-GAN-SEQDISC graph (approach 32) | `config/sae_3e1_d7_gan_seqdisc.py`; pool `S/d7_online/D7OnlinePoolJob.C7lYfPdjkfKh`; preflight `S/d7_online/D7OnlinePreflightJob.FTsqgpL32vFd`; fixed-final control/candidate `S/d7_online/D7OnlineTrainJob.INnd9DRcBIN6`, `.cbsHFSRBVpan` |
 | D6-PERIODIC legs 1-8 (approach 22), parent sub-ep 3-10 | `T/ReturnnTrainingJob.5FqdnhWTOf1f`, `.BTnU1gSuMG0i`, `.ZKCbq529Hgp8`, `.gFNpNmXwvrsc`, `.nQtnPdKCuJ0m`, `.n8abYvLR4IP5`, `.jGj7TTbW5DTm`, `.wWqYY7iOCw1s` |
 | its per-boundary refits (rounds 2-8) | `S/psi_align_jobs/PsiAlignTrainJob.JWV3InILYF5v`, `.yUUSN2Hx96E0`, `.QMO8VcAtZ6Gi`, `.DzhBWCy61tiN`, `.Vha8vvKu9lWk`, `.RGTtwlQHt3HY`, `.Ls0TQGiyhQbf` |
 | D6-PERIODIC-WARM legs 1-8 (approach 24), parent sub-ep 3-10; leg 1 is approach 22's, shared | `T/ReturnnTrainingJob.5FqdnhWTOf1f`, `.OOr3UybqUEHD`, `.X3biCvDKgQ7N`, `.7dANeLqxFFbq`, `.nd92xaRDY0uw`, `.kkh0u4rI7I6D`, `.kQRZtXc1ubTV`, `.oRbUsmYR6fRT` |

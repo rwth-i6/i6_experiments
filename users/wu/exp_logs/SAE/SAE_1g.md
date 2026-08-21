@@ -218,6 +218,13 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     smaller beam; a setting with no passing pair is ineligible. This stage reads update audio only and
     stops before selection-surface decoding, controlled labels, construction refit, or evaluation.
 
+    The boundary completed on 2026-08-21, and none of the 12 sequence-decoder settings has a stable
+    beam under the registered criterion. Even the adjacent pair with the best worst-representative
+    one-best agreement reaches only 0.7313 (required 0.999), while the pair with the smallest
+    worst-representative score change reaches 0.005448 nats per retained unit (required strictly
+    below 0.0001). Thus the baseline H4 surface retains the local decoder only; no sequence setting
+    may enter selection, and the graph stopped without opening selection labels or evaluation.
+
 ## Conclusion
 
 1. **Approach 1: one segment per text symbol is rejected.** It exceeds the registered ratio on all
@@ -295,6 +302,12 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     seed 0 at update 30,000, 32.5912 for seed 1 at update 38,000, and 33.1554 for seed 2 at update
     34,000. This freezes the seed/update for projection and the later 7,304-utterance construction
     refit; it is not an evaluation phone-error-rate result.
+
+16. **Approach 10 rejects every baseline sequence-decoder setting at the label-free beam boundary.**
+    Across all 12 language-model-scale/insertion-penalty settings, no adjacent beam pair from
+    64/128/256/512 passes both stability clauses on all three frozen update representatives. H4 is
+    not failed by this result: its mechanically admissible baseline surface is reduced to the local
+    decoder, which is the only decoder family that may proceed to the selection stage.
 
 ## Catalog
 
