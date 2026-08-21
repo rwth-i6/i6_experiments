@@ -16,9 +16,13 @@ Cleared by restarting the manager; the training was submitted within a minute an
 there. No job was cleared, re-run or deleted and no hash moved, so nothing on record is affected.
 Recurrence and detection are in the memory entry on workers of finished jobs.
 
-Next action: none from the implementer side. A5 is the §3d.A scale read and is ready for
-verification; the one-generation self-training half of §3d.A (its second question) has not been
-launched and is a separate decision.
+Next action: none from the implementer side. Both of §3d.A's questions are now answered: the scale
+arm passes its gate (approach 5, verdict 11) and the one-generation own-label self-training ran on
+train-clean-100 and FAILED its same-start comparison for both starts on 2026-08-20 (approach 4,
+verdict 10). What has NOT been run is a one-generation pass from theta_0^G960 itself; that is an
+unregistered new idea rather than §3d.A's second question, and §3d.A's own gate says a further
+generation becomes a new decision only after a fresh-label arm passes -- which none has. Whether
+theta_0^G960 is adopted as the track's start is with the planner and the user.
 
 ## Approach
 
