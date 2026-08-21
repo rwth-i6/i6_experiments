@@ -4,6 +4,7 @@ including serializing their parameters.
 """
 
 from typing import Any, Dict, Optional
+from returnn_common.nn.naming import ReturnnConfigSerializer
 
 from i6_core.util import instanciate_delayed
 
@@ -13,10 +14,14 @@ from i6_experiments.common.setups.serialization import ExternalImport, Import, P
 from ..models import PACKAGE
 
 
-def serialize_extern_data(extern_data: Dict[str, Any]):
+def serialize_extern_data(extern_data: Dict[str, Any], version: int = 1):
     from returnn.util.pprint import pformat
 
-    extern_data_str = f"extern_data = {pformat(extern_data)}\n"
+    if version == 1:
+        extern_data_str = f"extern_data = {pformat(extern_data)}\n"
+    else:
+        assert version == 2, "Unsupported version"
+        extern_data_str = ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data)
 
     return NonhashedCode(extern_data_str)
 
@@ -59,7 +64,7 @@ def serialize_training(
     )
 
     serializer_objects = [
-        serialize_extern_data(instanciate_delayed(extern_data)),
+        serialize_extern_data(instanciate_delayed(extern_data), version=serialize_extern_data_version),
         pytorch_model_import,
         pytorch_train_step,
     ]
@@ -84,6 +89,7 @@ def serialize_forward(
     callback_opts: Optional[Dict[str, Any]] = None,
     forward_init_args: Optional[Dict[str, Any]] = None,
     include_native_ops=False,
+    serialize_extern_data_version: int = 1,
 ):
     """
     Serialize for a forward job. Can be used e.g. for search or prior computation.
@@ -111,7 +117,7 @@ def serialize_forward(
     )
 
     serializer_objects = [
-        serialize_extern_data(instanciate_delayed(extern_data)),
+        serialize_extern_data(instanciate_delayed(extern_data), version=serialize_extern_data_version),
         pytorch_model_import,
     ]
 

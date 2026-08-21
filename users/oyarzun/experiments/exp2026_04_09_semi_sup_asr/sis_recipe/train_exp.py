@@ -10,7 +10,7 @@ from i6_core.returnn.config import CodeWrapper, ReturnnConfig
 
 from . import learning_rate_configs
 from .tune_eval import eval_model
-from i6_experiments.users.schmitt.experiments.exp2026_04_09_unsupervised_asr.sis_recipe.tune_eval import eval_model_rasr
+from .tune_eval import eval_model_rasr
 from .analysis import analyze_encoder_states
 from .pipeline import training
 from .default_tools import RETURNN_EXE, RETURNN_ROOT

@@ -1,0 +1,1 @@
+import sys, types; sys.modules['sisyphus'] = types.ModuleType('sisyphus'); sys.modules['sisyphus.tk'] = types.ModuleType('sisyphus.tk'); import sys; sys.path.append('/rwthfs/rz/cluster/home/p0023999/experiments/2026_05_07_first_experiments/recipe/'); import i6_experiments.users.oyarzun.experiments.exp2026_04_09_semi_sup_asr.sis_recipe.train_exp
