@@ -164,7 +164,7 @@ def train_step(
         if ctx.stage == "train_step":
             ctx.mark_as_loss(q_out["prob_perplexity"], f"codebook_prob_ppl{loss_suffix}", dims=[], as_error=True)
 
-    if adv_loss_name != "disc":
+    if adv_loss_name != "disc" and (ce_loss_scale > 0.0 or masked_ce_loss_scale > 0.0):
         # only compute the reconstruction loss, if we are not training the discriminator
         # since the encoder is frozen in that case
 
