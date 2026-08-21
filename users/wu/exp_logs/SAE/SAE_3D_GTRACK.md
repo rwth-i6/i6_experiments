@@ -252,7 +252,8 @@ Gate read as pre-registered in `PLAN.md` §3d.A (both splits improve; no split t
 needed); the approach-4 comparison is correctly framed as usability, not superiority. One
 disclosure for readers: all four data-parallel ranks each make one full corpus pass; the
 registered exposure match holds because the comparator recipe shares the convention verbatim.
-Two housekeeping items: the A5 verdict's list number was corrected 5 -> 11 (duplicate of an
-existing entry; objectively wrong reference), and one State error is with the implementer: State
-calls the one-generation half "not launched", contradicting approach 4 / verdict 10 in this log,
-which record it as completed and failed on 2026-08-20.
+Two housekeeping items, both closed same day: the A5 verdict's list number was corrected 5 -> 11
+(duplicate of an existing entry; objectively wrong reference), and a State sentence calling the
+one-generation half "not launched" (contradicting approach 4 / verdict 10) was flagged and
+corrected by the implementer — State now distinguishes §3d.A's answered second question from the
+unregistered idea of a one-generation pass from theta_0^G960 itself.
