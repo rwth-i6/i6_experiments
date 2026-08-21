@@ -4,24 +4,21 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-In flight 2026-08-21 17:45: the §3d.A scale arm, theta_0^G960 -- the from-scratch AV SFT on
-pseudo-labels for all 281,241 utterances of the 960 h bed, one corpus pass partitioned into ten
-sub-epochs with evaluation at sub-epoch 10, i.e. the registered exposure match against ten 100 h
-passes for theta_0^G (`T/ReturnnTrainingJob.HuSkdbuVRg6d`, alias `sae_2s/config_sae_2s_av_sft_v1/
-seed10h_layer15_gtrack_pseudo_960h_onepass/training`). It answers whether pseudo-labeling all 960 h
-gives a better label-free AV starting point than the existing 100 h start. Started from scratch
-17:42 (no earlier checkpoint exists); about 27 min per sub-epoch on four GPUs. Its sub-epoch-10
-dev-clean/dev-other recognition, scoring and robust-WER chain (11 jobs) waits behind it.
+The §3d.A scale arm is COMPLETE and its gate PASSES: theta_0^G960 = 13.11 / 16.82 dev
+against theta_0^G's 13.89 / 18.34 (approach 5, verdict A5). Nothing from this config is running; its
+manager has exited with every job in its graph finished.
 
-This arm made no progress between 2026-08-20 19:33 and 2026-08-21 17:35 and the loss was purely
-operational, not experimental: its two upstream dataset-transform jobs finished, but one finished
+Earlier today this arm made no progress between 2026-08-20 19:33 and 2026-08-21 17:35, and the loss
+was operational, not experimental: its two upstream dataset-transform jobs finished, but one finished
 job's worker process never exited and held all four cpus of that manager's login-node engine, so the
 training stayed runnable and unsubmitted for 22 h with the manager alive and no error anywhere.
-Cleared by restarting the manager; the training was submitted within a minute. No job was cleared,
-re-run or deleted and no hash moved, so nothing on record is affected. Recurrence and detection are
-in the memory entry on workers of finished jobs; the watcher now heartbeats for it.
+Cleared by restarting the manager; the training was submitted within a minute and ran clean from
+there. No job was cleared, re-run or deleted and no hash moved, so nothing on record is affected.
+Recurrence and detection are in the memory entry on workers of finished jobs.
 
-Blockers: none. Next action: let the training finish, then read the WER chain.
+Next action: none from the implementer side. A5 is the §3d.A scale read and is ready for
+verification; the one-generation self-training half of §3d.A (its second question) has not been
+launched and is a separate decision.
 
 ## Approach
 
@@ -95,7 +92,29 @@ The own-label files have exact 28,539-ID coverage and zero empty hypotheses. Rel
 edit rate; theta_0^G changes 93.70% at 15.81% word edit rate. Thus the negative result is not caused
 by accidentally copying the fixed labels.
 
-## Conclusion
+**5. §3d.A scale arm: pseudo-label all 960 h, then one-pass AV SFT (theta_0^G960).** Training bed:
+the 960 h HF/Ogg bed, all 281,241 utterances, every training transcript pseudo-text from the frozen
+§1d CTC student word decode -- no gold transcript anywhere in training. Model/recipe: the theta_0^G
+AV SFT recipe verbatim (`theta0g_av_sft`), from random init, one corpus pass partitioned into ten
+sub-epochs (`train_partition_epoch=10`), evaluated at sub-epoch 10 only (`eval_epochs=[10]`), four
+GPUs. This is the registered approximate exposure match against ten 100 h passes for theta_0^G, not
+a pure data-volume ablation: unique coverage, clean/other domain mix and out-of-sample pseudo-label
+quality all move together. Evaluation is plain sclite corpus WER as scored, on all 2,703 dev-clean
+and 2,864 dev-other utterances, at the fixed sub-epoch-10 endpoint with no dev-set checkpoint
+selection.
+
+| system | dev-clean | dev-other | sub / del / ins (clean) | sub / del / ins (other) |
+|---|---:|---:|---|---|
+| theta_0^G, ep10 -- the registered comparator | 13.89 | 18.34 | -- | -- |
+| **theta_0^G960, sub-ep 10** | **13.11** | **16.82** | 7.31 / 2.24 / 3.56 | 10.18 / 2.34 / 4.30 |
+| theta_0 (10 h PAIRED) + fixed §1d labels, ep4 -- approach 4's operator row | 13.05 | 17.74 | -- | -- |
+
+Scoring chain traced end to end rather than by alias name: `ScliteJob.DIAVsH7AYjYG` <-
+`SearchWordsDummyTimesToCTMJob.VmUZmoDFU6bR` <- `ReturnnForwardJobV2.6PtnGRKwNrXi` = the
+`recog/10/dev-clean` search job, and `.ZCp83Qd7Lf9C` <- `.k6QOsbjZ2hs4` <- `.XBlIu4M8K9ic` =
+`recog/10/dev-other`.
+
+## Verdicts
 
 1. (1) **AV^G is the project's best label-free ASR**: it beats the §1d student that taught it by ~4
    points and the 10 h *paired* AV_10h by ~3 / ~2.4, using no transcripts at all, and sits 0.84 / 0.60
@@ -153,6 +172,17 @@ by accidentally copying the fixed labels.
     gain still comes from retaining the external §1d labels. The preregistered criterion required an
     own-label win over both anchors on both dev splits, so no second generation is warranted.
 
+5. **A5: the §3d.A scale-arm gate PASSES -- pseudo-labeling all 960 h is a better label-free AV
+   start than the 100 h one.** theta_0^G960 is 13.11 / 16.82 against theta_0^G's 13.89 / 18.34, so
+   it improves BOTH dev splits (-0.78 clean, -1.52 other), which is exactly what the pre-registered
+   gate requires; no split trade-off clause is needed. Read against approach 4's operator row
+   instead -- self-training from the 10 h PAIRED start on fixed §1d labels, 13.05 / 17.74 -- it is a
+   split trade-off, 0.06 worse on dev-clean and 0.92 better on dev-other, at strictly lower
+   supervision cost, since that operator's start consumes the 10 h paired seed and this arm consumes
+   no transcripts at all. That is a usability claim, not a superiority claim, and the scale gate does
+   not rest on it. The gain is concentrated on dev-other, the split the added 860 h actually
+   broadens; insertions remain the larger error term on both splits (3.56 clean, 4.30 other).
+
 ## Catalog
 
 `T/` = `work/i6_core/returnn/training/`, `F/` = `work/i6_core/returnn/forward/`.
@@ -161,6 +191,9 @@ by accidentally copying the fixed labels.
 |---|---|
 | graph (71 jobs, 15 finished upstream) | `config/sae_3d_gtrack.py` |
 | **AV^G (theta_0^G), 10 epochs** | `T/ReturnnTrainingJob.2fb02hGUdHNj` |
+| **theta_0^G960, §3d.A scale arm (approach 5), one 960 h pass in 10 sub-epochs** | `T/ReturnnTrainingJob.HuSkdbuVRg6d` |
+| its sub-ep-10 recognition / scoring, dev-clean then dev-other | `F/ReturnnForwardJobV2.6PtnGRKwNrXi`, `.XBlIu4M8K9ic`; `work/i6_core/recognition/scoring/ScliteJob.DIAVsH7AYjYG`, `.ZCp83Qd7Lf9C` |
+| its 960 h pseudo-label decode (860 h new work, tc100 reused at the banked hash) | `work/i6_experiments/users/wu/experiments/unsupervised_asr/w2vu2/word_decode/PackedWav2Vec2KenlmDecodeJob.523Wyir5Weg2`, `.K71ryNx3XFZH`; agreement check `PackedDecodeAgreementJob.FATi7mwI43o7` |
 | AR^G | `T/ReturnnTrainingJob.cGl2KHUclIlP` |
 | the gate probe | `F/ReturnnForwardJobV2.faxctn9Uzcn6` |
 | pseudo-transcript dir (shared with the self-training control) | `TransformAndMapHuggingFaceDatasetJob.XqPlB1nRGHyK` |
