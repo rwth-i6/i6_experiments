@@ -678,10 +678,12 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
 
         num_total_params = 0
         num_train_params = 0
-        for param in self.parameters():
+        print("TRAINABLE PARAMETERS:")
+        for name, param in self.named_parameters():
             num_total_params += param.numel()
             if param.requires_grad:
                 num_train_params += param.numel()
+                print(name, param.numel())
 
         print(f"#enc_params: {num_enc_params} ({num_train_enc_params} trainable)")
         print(f"#dec_params: {num_dec_params} ({num_train_dec_params} trainable)")
