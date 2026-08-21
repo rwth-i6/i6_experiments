@@ -1964,6 +1964,38 @@ cluster bootstrap, as in D7.2.
 registered ordering: D8.1a-b still wait for the D7.2 admission verdict (shared control arm,
 admission machinery and reference), and D8.3 still requires its own authorization after a D8.2
 pass. No gate clause, pin or statistic changes with this funding line.
+2026-08-22 (planner ruling on the D8.0 UNRESOLVED read; resolves the implementer's proposal 1,
+ratifies proposal 2, answers proposal 3 — pre-registered before any corrected statistic exists).
+Verdicts 59-60 are accepted: clause (a) cannot be read on the frozen theta_0^G dump as
+instrumented, because the exclusion was evaluated against the dump's own joined ~12.5 Hz pooled
+unit store while every D8.1b training aligns to the raw 50 Hz store — the 5,096/5,730
+"infeasible" members are an instrument property, the v2 law-conflict guard fired correctly, and
+the v1 NO-GO is superseded evidence. NEITHER offered reading binds: the dedup-only count ignores
+the registered exclusion and would change what the clause detects, and the as-run exclusion is
+the wrong frame. Operational form: a support member is structurally infeasible for clause (a)
+iff its READER-NORMALIZED text's minimum feasible frames at d_min=2 under the registered text
+side exceeds T_i read from the frozen raw 50 Hz store `PackUnitsJob.I0uzRMfUrKWC` — the
+operative D8.1a/D8.1b frame. This is text-plus-store arithmetic, the same law the D7 drop rule
+uses; it needs no scorer forward and NO new dump, so the proposal's third option is declined as
+unnecessary. The binding statistic is the median over the 512 binding-slice groups of the
+distinct FEASIBLE support count with the greedy member included (max 13;
+`distinct_rollouts_only` stays a reported column); threshold < 3 means no-go, unchanged.
+Execution: extend the registered read job (v3) changing ONLY the feasibility join to the raw
+50 Hz store, with a full-coverage assert over the slice's 512 ids. The v2 law-conflict guard
+retires for v3 by construction — the exclusion is now deliberately the operative law, not the
+artifact's own, so a stored-finite-but-operative-infeasible member is an expected, counted
+category (it is exactly D8.1a's weight-0 set), not a contradiction. Safety valve of the same
+kind as the parity noise floor: if the operative-law exclusion removes more than 5% of scored
+members on the binding slice, the read returns UNRESOLVED for planner review instead of feeding
+clause (a) — the matched-law fork read prices the genuine rate at 0.018% and the D7 greedy
+census at 4/281,241, so 5% fires only on another frame error. The clause verdict first exists
+in the v3 job's own output, per the standing pre-registration discipline. Proposal 2 RATIFIED:
+the dedup survivor rule (the member already in normalized form, else the earliest stored row)
+is the reader's tie law; for clause (a) only the count matters, and at D8.1a the weight job's
+same-string rule governs scoring, so the tie rule affects report columns only — pin it beside
+the tau_star rule in the weight-job docstring. Proposal 3 needs no plan change: the leg-1
+scorer provenance is exactly the registered "Disclosed asymmetry" paragraph of
+D6-PERIODIC/GAN960-FROZEN; audits read the plan, and the job record adds no new claim.
 
 ## Acceptance gate v2
 

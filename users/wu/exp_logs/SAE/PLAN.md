@@ -83,8 +83,9 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
   shards running, scorer A/B gated behind the preflight barrier, no funded job displaced); a policy
   leg still needs authorization. Same day latest: preflight PASSED under the amended parity rule;
   the first D7.1 run failed closed on four degenerate own-infeasible greedy anchors — drop-and-count
-  amendment registered (`PLAN_3E1.md` D7 Status), one `_make_items` edit and one user-run restart
-  pending.
+  amendment registered (`PLAN_3E1.md` D7 Status); 2026-08-22 the edit is implemented and
+  verifier-confirmed (speech-llm `e2a421b`, hashes unmoved) — only the user-run
+  `./sis_managers.sh start sae_3e1_d7_gan_seqdisc -co` restart pends.
 - **960 h stock-donor supervision-axis endpoint is ABSENT**: the theta_0 + gold-scorer arm ran
   only through sub-epoch 4, was stopped and deleted 2026-08-08, and never produced the listed
   3-pass endpoint; `ReturnnTrainingJob.22Ntu7y0O6iW` does not exist. Its observed collapse is
@@ -274,8 +275,11 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    the first of four own-infeasible degenerate greedy anchors (verifier census 4/281,241, all
    train-role, none held; runaway-repetition texts). The incumbent recipe drops such rows with a
    counted diagnostic, so a drop-and-count amendment with a named-four-row fail-closed bound is
-   registered in `PLAN_3E1.md` D7 Status (with its D8 preflight consequence); one implementer
-   `_make_items` edit plus one further user-run d7 restart are pending.
+   registered in `PLAN_3E1.md` D7 Status (with its D8 preflight consequence); 2026-08-22 the
+   edit is implemented and verifier-confirmed (four named train-role drops, hashes unmoved) —
+   only the user-run d7 restart pends. D8.0 ran and its binding clause read UNRESOLVED on a
+   frame contradiction; the planner's clause-(a) ruling (raw 50 Hz feasibility join, v3 read,
+   no new dump) is registered in `PLAN_3E1.md` D8 Status.
    2026-08-21 (planner, on the user's instruction): D8 REGISTERED in `PLAN_3E1.md` —
    posterior-weighted multi-hypothesis scorer refit (soft EM over theta_0^G sampled rollouts,
    weights from the arm's own shaped score at pinned lam_lm=1.0, D7 control reused as the
@@ -1111,8 +1115,8 @@ verifier-confirmed) through its full-960 h matched scorer A/B, gated behind the 
 barrier, with no displacement of the already-funded trajectories or §3d.A operator read. Its
 policy leg is held. 2026-08-21 latest: preflight PASSED under the amended parity rule; both
 D7.1 trainings failed closed on four own-infeasible degenerate greedy anchors — drop-and-count
-amendment registered in `PLAN_3E1.md` D7 Status; one `_make_items` edit and one user-run
-restart pending.
+amendment registered in `PLAN_3E1.md` D7 Status; 2026-08-22 the edit is implemented and
+verifier-confirmed, only the user-run restart pends.
 Normative details and exact operating points: `PLAN_3E1.md`; evidence: `SAE_3E1.md`.
 
 ### 3f. Exit gate (Rung 3)

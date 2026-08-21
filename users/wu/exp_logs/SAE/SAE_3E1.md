@@ -2280,3 +2280,41 @@ the absolute beta, is what carries the contamination claim.
   registered in `PLAN_3E1.md` D7 Status (including the D8 bed-wide-greedy-feasibility
   consequence); one implementer edit in `_make_items` plus one further user-run d7 manager
   restart (clearing both train error markers) are pending.
+- 2026-08-22 (round verification: D7 drop law, D8.0, both VERIFIED; clause-(a) ruling issued).
+  D7 drop law (`e2a421b`) verified end to end against the amendment, by diff read and agent
+  reproduction: named four-row constant with a train-role pre-assert (d7_online.py:32-42,
+  352-354), drop-and-continue keeps rows out of shards/held so no unit NLL, `L_U->z` or
+  `L_online` visit exists for them, realized-set-equality raise (:378-383), naming per role in
+  the train.txt report line and in monitors.json (`own_infeasible_dropped`, counts,
+  `anchor_rows`), donor path untouched (reads index/store only; all four rows present in their
+  speaker lists). The dropcheck artifact reproduces independently: full load drops exactly the
+  four, 267,175 train / 14,062 held (= index 267,179 - 4 / 14,062; ten shard sizes sum to
+  267,175); the preflight's shard-0 load keeps 26,743 rows and drops none. Hash neutrality
+  proven at the sisyphus level: no `__init__` signature or config change, `source_identity` is
+  an instance attribute and not hashed, `j16rTskXF1QU`'s info lists only the unchanged ctor
+  args. The proposed `-co` restart is safe: the only error-state jobs in the graph are the two
+  train dirs, both with empty work/ and output/ (no checkpoint to discard); pool and preflight
+  are finished and untouched by `-co`. All five D7 unit tests pass in the verifier's own run.
+  Two implementer follow-ups, their lane: `scripts/d7_parity_diag.py:25` still unpacks the old
+  4-tuple and crashes if rerun; the cited commit `4dc65a3` is the pre-amend twin of branch head
+  `a3dd6c7` (same message, D8 files byte-identical; the amend dropped an out-of-scope
+  config_sae_1g_v1 hunk) — cite `a3dd6c7`.
+  D8.0 verified: the v2 guard's docstring (d8_feasibility.py:51-61) and logic (:325-327,
+  :499-509) match; a full offline re-run of the v2 reader reproduces EVERY field of all five
+  slices of the binding artifact exactly (group counts, distinct histograms, law conflicts,
+  collapse counts, tau_star, clause booleans, median ESS to 1e-9) and re-derives all three
+  verdict branches (theta v2 UNRESOLVED / theta v1 NO-GO / fork REPORTED-ONLY); whitelist
+  discipline confirmed at source (rows enter only via kind in {rollout, greedy}, `wer` never
+  read, no reference input); the v1 jobs are preserved as superseded evidence; the store joins
+  and medians confirm verdict 59's frame diagnosis (dump-joined pooled store median 169 vs raw
+  50 Hz 674/695), and the raw store covers all 512 binding-slice tags — so the registered v3
+  read (clause-(a) ruling, `PLAN_3E1.md` D8 Status 2026-08-22) is executable offline with no
+  new dump. ONE DISCREPANCY, label only: "exercised on 256 groups / 25 groups" counts collapse
+  CLASSES, not groups — 256 classes across 237 groups at T=0.7 and 25 across 24 at T=1.0; the
+  job docstring at d8_feasibility.py:45 shares the mislabel (code :274-279 increments per
+  class); numbers real, unit label wrong — implementer to fix both wordings. Reading notes:
+  `a3dd6c7` is timestamped seconds AFTER the v2 jobs finished — pre-registration is carried by
+  the hashed `reader_revision=v2` job parameter and the in-job verdict rule, not by commit
+  order; approach 34's table omits the artifact's T=0.5 slice (conflicts 4,199/4,693, distinct
+  0 / scorer-free 10, tau* 0.05) — add the row; the commit message's "5,096 of 6,656" is the
+  pre-dedup member count, the log's 5,730 post-dedup denominator is the correct one.

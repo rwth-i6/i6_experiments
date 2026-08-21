@@ -550,3 +550,37 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   utterances the 99.9% clause is effectively 201/201 unchanged one-bests — a property of the
   frozen shard size, not an implementation choice. The `sae_1g_h4_prelabel_surfaces` launch
   condition ("12 grid verdicts verified") is MET.
+
+- 2026-08-22 — Pre-label selection-surfaces launch VERIFIED (speech-llm `84808a8`; manager pid
+  3796121 with watcher attached). The graph's new work is exactly 340 `H4LocalDecodeJob` (85
+  starts x counts 0/1/2/4), 3,400 `H4FixedTextScoreJob` (ten frozen assignments per tuple), one
+  `H4SelectionSurfaceJob` and one `H4ProvisionalMaximaJob`; no sequence decode or merge exists,
+  and the config enforces local-only by construction (`_load_completed_global_table` raises
+  unless the beam table classifies all 12 points, and an ineligible row contributes no tuple).
+  All 966 pre-existing dirs (821 prerequisites + 144 beam cells + the reducer) show zero files
+  modified after launch except two startup auto-cleanup re-tars with outputs untouched; nothing
+  rerun, no error markers. Label firewall confirmed at source: `h4_selector_jobs.py` contains no
+  transcript, edit-count, or evaluation reader; the selector implements Section 4's `Sel`
+  exactly (own-minus-donor per-unit contrast, 432/890 and 458/890 weights, ten assignments
+  averaged with `math.fsum` in sorted order; beam and likelihood excluded from the tie order);
+  the later-boundary freeze/audit classes exist in the module but are not instantiated, and both
+  launched selector jobs re-assert their own source identity at run time. `h4_production.py` and
+  `h4_decode_jobs.py` remain untouched since `436ea50`. Both log migrations verified: SAE_1g
+  Conclusion -> Verdicts byte-identical (16 items, all 8 WRONG markers verbatim), SAE_3E1
+  append-only (59-61 added after untouched 1-58) — no plan reference can dangle. Progress at
+  ~22:20: all 340 local decodes finished, 1,420+/3,400 scores done, zero errors.
+  State corrections handed to the implementer (State is implementer-owned): (i) "the best
+  adjacent-beam pair keeps only 62%" is unsupported by the artifact — the binding best
+  worst-representative agreement is 0.7313 (best mean/pooled 0.7678); 0.6202 is the best pair of
+  the WORST setting (lm_scale 0.5, beta 0), the likely misread; (ii) the launch split "635
+  finished / 343 runnable / 3,730 waiting" is the known one-shot console status misreport —
+  ground truth 966 finished / 3,742 unfinished (the 4,708 total and "nothing in a problem
+  state" are correct); (iii) the cleanup note's "input/ goes" is wrong — `JOB_CLEANUP_KEEP_INPUT
+  = True` is effective and cleaned dirs on disk retain `input/`; cleanup keeps `output/`,
+  `info`, and `input/`, removes internal `work/`, and tars logs; (iv) trivial: manager start
+  21:48 not 21:47, and "two orders above the 1e-4 bound" overstates (smallest
+  worst-representative change is 54x). The JOB_AUTO_CLEANUP console fact itself is verified
+  correct (`sisyphus/__main__.py:217-218` forces False for every non-manager subcommand;
+  `settings.py:238` True; no effective override). One harmless exception: startup cleanup
+  failed on `GoldPhonesJob.ZGSp0hxyd2YP` (its `work/` never existed), which keeps a plain
+  `finished` marker.
