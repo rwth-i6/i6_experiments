@@ -31,32 +31,37 @@ Next action: start the d7 manager (above), confirm the pool and the D7.0 preflig
 confirm the two D7.1 trainings start matched. A D7 policy leg is NOT authorized and none is in this
 graph.
 
-D8 spec read 2026-08-21, second pass on the amendments (`PLAN_3E1.md` at 584a949dc; nothing
-implemented, nothing authorized). All four of the first pass's flags are resolved in the plan: the
-per-unit conversion is pinned with its tau_star rationale, the single-temperature artifact is named
-with J9yA1eYnxwYA demoted to context, the reader whitelist is registered, and the 3.37 M-decode
-pricing is in the Status envelope. The planner's own added rule -- the operative D8.1a support takes
-its greedy member from the D7 pool at identical hash rather than from a dump's own re-decode -- is
-mechanically feasible today: `S/scorer_diag/SearchOutHypsJob.h8GoSrbrTPHh` already carries the pool
-texts for all 281,241 train utterances, so the candidate's one-hot special case can coincide exactly
-with the control's targets rather than approximately.
+D8 spec read 2026-08-21, third pass on the re-scope (`PLAN_3E1.md` at 9d702cbef; nothing
+implemented, nothing authorized). The clause re-scope is implementable as written and I did not run
+the comparison. `J9yA1eYnxwYA`'s T=0.7 slice checks out as the clause-(a) surface: 512 groups of
+exactly 12 rollouts, same column set as the fork dump (`recon`, `lm_prior`, `n_tokens`, `text`), and
+its 512 IDs are a strict subset of the tc100 bed, so the `n_units` join that clauses (b) and (c) need
+is available on both artifacts.
 
-One axis is still unnamed, and it is not wording. D8.0's verdict-scope sentence says its "scorer and
-bed differ from D8.1's"; the POLICY differs too. `QbIYruVEI0fF` is the fork-epoch policy, while
-D8.1a samples theta_0^G -- which is why the amendment calls the 512-utterance J9yA1eYnxwYA the
-"right policy". This matters because two of the three D8.0 no-go clauses, (a) median distinct
-hypotheses per group and (b) median ESS in [1.5, 8], are properties of the sampling policy's
-diversity at T=0.7, and this project has already established that the fork policy over-generates
-(D5(a)). A no-go could therefore close D8 on a diversity statistic the operative policy would not
-have produced, which is a decision-changing difference rather than a caveat about transfer.
+One new flag, on the dedup normalization, found while checking that the re-scope was mechanical:
 
-I deliberately did NOT measure it. The comparison that would settle it -- distinct hypotheses per
-group on the fork dump versus the theta_0^G dump -- is clause (a)'s own statistic at clause (a)'s
-own threshold, and D8.0 is unauthorized. Computing it now and reporting it would discharge a
-pre-registered gate before the read that owns it exists, which is the standing trap about
-pre-registration being discharged by whoever reads the number first. It is seconds of CPU on two
-frozen files whenever the planner wants it; the planner's call whether that is a scoping read taken
-before the clause is finalized, or a contamination of it.
+1. **The pool does not normalize.** `D7OnlinePoolJob` passes the merge text through verbatim
+   (`str(v)`, `d7_online.py:199`); it stores speaker, length and role only. So "the pool's exact text
+   normalization: lowercase, ASCII fold" names a step the pool does not perform. On the operative
+   artifact the described transform is an exact identity -- verified: 0 of 281,241 pool texts change
+   under lowercase + ASCII fold -- so the rule-5 coincidence between the candidate's one-hot case and
+   the control's targets is NOT at risk. The wording should name the D8 reader as the normalizer.
+2. **"ASCII fold" is under-specified exactly where it stops being a no-op.** It is a no-op on the
+   fork dump (3 of 371,007 texts change) but not on the artifact that now binds clause (a): on
+   `J9yA1eYnxwYA`'s T=0.7 slice 3.8 % of texts carry non-ASCII characters. Dropping them,
+   transliterating them and rejecting the hypothesis are three defensible readings of "fold" with
+   three different dedup outcomes, and dedup is clause (a)'s input. One registered definition in the
+   reader's docstring settles it.
+
+Context for the planner, reported as a character-class property and NOT a gate statistic -- I have
+computed no distinct-hypothesis count, no ESS and no weight variance on either artifact. The
+non-ASCII share of theta_0^G's sampled text is strongly temperature-dependent: 0.4 % at T=0.3, 0.5 %
+at T=0.5, 3.8 % at T=0.7, 41.1 % at T=0.9, 76.2 % at T=1.0 (its greedy rows 0.4 %, its true rows
+0 %). The fork policy shows none of this at T=0.7 (3 texts in 342,468). The characters are Cyrillic,
+Chinese and Arabic -- the multilingual vocabulary leaking into sampled text. This is an independent,
+non-gate confirmation that the two artifacts' sampling distributions differ by policy, which is the
+axis the re-scope just acted on; it also bears on D8's premise that the sampled group is a support of
+plausible transcripts.
 
 Proposal for the planner: none outstanding.
 
