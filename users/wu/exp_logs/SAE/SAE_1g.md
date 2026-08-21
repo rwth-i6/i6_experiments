@@ -665,17 +665,20 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   means, NO renormalization after `no_swap` removal — all 3,400 weighted means and all 340 `Sel`
   values reproduce exactly. Verdict 17's local-winner reading is frame-correct against
   `PLAN_1G.md` ("A local winner needs no beam audit"); the ruling opening the controlled
-  reference labels is in `PLAN_1G.md` Status. One wording hand-back (approach 11,
-  implementer-owned): "all on the 890 selection utterances" overstates coverage — the statistic
-  contributes from the 513 donor-eligible sources (235 clean / 278 other, identical in every
-  tuple; the 377 `no_swap` sources are absent by construction and the fixed weights are the
-  registered no-renormalization rule, so nothing is wrong beyond the phrase). Two observations
-  for the validation stage, no action now: (i) only 79 distinct channel content hashes among the
-  85 starts — `controlled/map_q09_draw00..04` are all one channel (draw seed has no effect at
-  q09) and `controlled/soft_q09` is bit-identical to `controlled/reference` — so effective
-  independent controls are 76 of 81, which any clustered CI or null spread over the controls
-  must respect (implementer: please confirm in one line that both degeneracies are construction,
-  not a copy error); (ii) the cross-start surface ranks the random-map null 9th of 85 (10.7753)
+  reference labels is in `PLAN_1G.md` Status. Both hand-backs CLOSED same day (commit
+  `1c0ab7a88`, verifier-checked): the approach-11 coverage wording now states the 513
+  donor-eligible contributing sources and the no-renormalization weights correctly, and the q09
+  degeneracies are confirmed as construction at source — `Q_LEVELS` ends at 1.0
+  (`h4_jobs.py:34`) so level 09 is each ladder's undamaged endpoint; at q=1.0 the map ladder's
+  `keep_count` is the whole live set and `assignment[keep] = reference_map[keep]` discards the
+  draw (`h4_jobs.py:307-316`), and `canonical_soft_q` early-returns `reference.copy()`
+  (`h4_production.py:223-224`) — all three citations verified against the committed source.
+  Two observations for the validation stage, no action now: (i) only 79 distinct channel
+  content hashes among the 85 starts — `controlled/map_q09_draw00..04` are all one channel and
+  `controlled/soft_q09` is bit-identical to `controlled/reference`, both by the ladder
+  construction above — so effective independent controls are 76 of 81, which any clustered CI
+  or null spread over the controls must
+  respect; (ii) the cross-start surface ranks the random-map null 9th of 85 (10.7753)
   and the reference 73rd (5.8265), with the registered five rows at ranks 9/72/73/76/84 — the
   controlled label validation must be read knowing the pre-label `Sel` ordering places nulls
   above the reference, and winning repair counts across all 85 starts are {0: 72, 4: 13} (counts
