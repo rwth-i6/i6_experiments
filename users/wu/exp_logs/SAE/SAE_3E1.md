@@ -817,6 +817,14 @@ speaker/duration/role index, and runs the registered one-update finite/resource 
 same initialization, batch order and dropout RNG stream; the candidate's extra forward contributes
 gradient without advancing the next positive batch's RNG. D7.2 and D7.3 are absent from this graph.
 
+Decoder equivalence of the merged shards, 2026-08-21 (verification-round check, label-free): on the
+28,539 train-clean-100 utterances the ten-shard merge shares with the banked greedy decode
+`ReturnnForwardJobV2.66pIzBzffnK2`, the two texts agree on 25,426 utterances exactly (89.09 %) and
+differ by 4,667 word edits against 1,016,991 reference words, i.e. 0.459 %. Of the 3,113 differing
+utterances 67.9 % differ by a single word edit (mean 1.50), and the net length drift is +7 words over
+the whole set. That is the signature of argmax ties resolving differently under a different batching
+of the same model and decoder, not of a different decode: no systematic length or content bias.
+
 
 ## Conclusion
 
