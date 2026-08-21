@@ -859,6 +859,33 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+    # gumbel-single (the mixing winner) + short random durations (w = w_pred * U(0.2, 0.5)):
+    # efficiency axis (shrunk durations) stacked on the FIXED mixing winner, waveform path kept.
+    _train_tts_encoder(
+        "tts-enc-logmel-refcfg-single-gumbel-rnddur-short-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=90_000,
+        batch_size_phon=4_000,
+        max_phon_len=300,
+        tts_waveform=True,
+        asr_logmel=True,
+        tts_waveform_peak_norm=True,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        glow_tts_random_durations_jitter_mult=(0.2, 0.5),
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        enc_aux_logits_share_weights=True,
+        enc_aux_logits_with_bias=False,
+        pad_audio_rnd=100,
+        single_stream=True,
+        interleave_gumbel_scale=1.0,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
     # DbMel DIRECT injection (no GL/Griffin-Lim/waveform) on the refcfg base.
     _train_tts_encoder(
         "tts-enc-dbmel-direct-refcfg-muon-nep38",
@@ -927,6 +954,31 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+    # Full efficiency combo on the FIXED mixing winner: gumbel-single + DIRECT dbmel injection
+    # (no GL/waveform) + short random durations. The one config that stacks the quality winner with
+    # both cheap moves -- tests whether the mixing win survives the efficiency shortcuts, or they interact.
+    _train_tts_encoder(
+        "tts-enc-dbmel-direct-single-gumbel-rnddur-short-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=90_000,
+        batch_size_phon=4_000,
+        max_phon_len=300,
+        glow_tts_noise_scale_range=(0.7, 0.7),
+        glow_tts_length_scale_range=(1.0, 1.0),
+        glow_tts_random_durations_jitter_mult=(0.2, 0.5),
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        enc_aux_logits_share_weights=True,
+        enc_aux_logits_with_bias=False,
+        pad_audio_rnd=100,
+        single_stream=True,
+        interleave_gumbel_scale=1.0,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
     # DbMel-direct + dur1: the cheapest online-TTS variant (RZ shows a duration x path interaction).
     _train_tts_encoder(
         "tts-enc-dbmel-direct-refcfg-dur1-muon-nep38",
@@ -985,6 +1037,29 @@ def py():
         pseudo_enc_specaug_max_width=6,
         single_stream=True,
         pseudo_enc_single_stream_version=3,  # v1/v2 were broken (see notes)
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+    # gumbel-single on the pseudo-enc winner: single-stream v3 merge (layer-4, noblank)
+    # + gumbel interleave ordering -- the mandated mixing on the cheapest injection mechanism.
+    _train_tts_encoder(
+        "pseudo-enc-layer4-noblank-single-gumbel-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=70_000,
+        batch_size_phon=6_000,
+        max_phon_len=300,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_start_layer=4,
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_specaug_max_width=6,
+        single_stream=True,
+        pseudo_enc_single_stream_version=3,
+        interleave_gumbel_scale=1.0,
         base_lr=1.0,
         peak_lr=5e-3,
         nep=38,
@@ -1534,8 +1609,11 @@ def _train_tts_encoder(
         from i6_experiments.users.zeyer.recog import recog_training_exp as recog_training_func
 
     if single_stream:
-        assert tts_waveform or (pseudo_speech_enc and pseudo_enc_start_layer >= 0), (
-            "single_stream: waveform TTS, or layer-split pseudo-enc"
+        # Supported single-stream mechanisms: waveform TTS, layer-split pseudo-enc, or direct-mel
+        # injection (direct-mel = not tts_waveform and not pseudo_speech_enc; the step featurizes the
+        # audio rows and merges the TTS log-mel in feature space). Only front-end pseudo-enc is unsupported.
+        assert (not pseudo_speech_enc) or (pseudo_enc_start_layer >= 0), (
+            "single_stream: front-end pseudo-enc unsupported; use layer-split pseudo-enc, waveform TTS, or direct-mel"
         )
 
     vocab = "spm10k"
@@ -2273,14 +2351,16 @@ def aed_glowtts_single_stream_train_step(*, model: Model, extern_data, **_kwargs
     scatter those back into their batch positions next to the real waveforms
     (rf.nested handles the ragged batch-dependent time dims),
     then a single model.encode + one loss set (no "txt_" prefix, no global_loss_scale).
-    Requires tts_waveform=True.
+    With tts_waveform=True the text rows carry synth WAVEFORMS (merged next to real audio, one model.encode).
+    With tts_waveform=False (direct-mel) the text rows carry TTS log-mel directly: the audio rows are
+    featurized to log-mel and the two are merged in FEATURE space, then model.encode_from_features.
     """
     from returnn.config import get_global_config
     from returnn.util.collect_outputs_dict import CollectOutputsDict
     import torch
 
     config = get_global_config()  # noqa
-    assert config.bool("tts_waveform", False), "single_stream requires tts_waveform=True"
+    direct_mel = not config.bool("tts_waveform", False)  # direct DbMel injection (no GL/waveform) vs waveform TTS
     data = extern_data[config.typed_value("default_input")]
     data_spatial_dim = data.get_time_dim_tag()
     targets = extern_data[config.typed_value("target")]
@@ -2329,7 +2409,7 @@ def aed_glowtts_single_stream_train_step(*, model: Model, extern_data, **_kwargs
         with torch.no_grad():
             wave_t, wave_t_spatial_dim = model.tts(phon_t, spatial_dim=phon_t_spatial_dim)
         wave_t = rf.stop_gradient(wave_t)  # TTS is frozen
-    if config.bool("debug_single_stream_stats", False) and wave_t is not None:
+    if config.bool("debug_single_stream_stats", False) and not direct_mel and wave_t is not None:
         _lens = wave_t_spatial_dim.dyn_size_ext.raw_tensor
         _n_text = int(_lens.numel())
         _n_tot = int(batch_dim.get_dim_value())
@@ -2344,23 +2424,6 @@ def aed_glowtts_single_stream_train_step(*, model: Model, extern_data, **_kwargs
             f" tgt/seq(all) mean {float(_tgt_lens.float().mean()):.1f}"
         )
 
-    # scatter synth waveforms into the text positions; real waveforms (data) are the backup.
-    # masked_scatter_nested merges wave_t_spatial_dim (text rows) and data_spatial_dim (audio rows).
-    if num_text == 0:
-        wave, wave_spatial_dim = data, data_spatial_dim
-    elif num_text == num_total:
-        wave, wave_spatial_dim = wave_t, wave_t_spatial_dim
-    else:
-        wave, wave_spatial_dim = rf.nested.masked_scatter_nested(
-            (wave_t, wave_t_spatial_dim),
-            (data, data_spatial_dim),
-            mask=text_mask,
-            mask_cpu=text_mask_cpu,
-            dims=[batch_dim],
-            in_dim=text_bdim,
-            masked_select_dim_map=sel_dim_map,
-        )
-
     if config.bool("use_eos_postfix", False):
         ctc_targets, (ctc_targets_spatial_dim,) = rf.pad(
             targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx
@@ -2368,9 +2431,50 @@ def aed_glowtts_single_stream_train_step(*, model: Model, extern_data, **_kwargs
     else:
         ctc_targets, ctc_targets_spatial_dim = targets, targets_spatial_dim
 
-    # one encode over the combined batch (uniform feature-extraction + feature-BN + SpecAugment).
     collected_outputs = CollectOutputsDict(allowed_key_patterns=[str(i - 1) for i in aux_loss_layers])
-    enc, enc_spatial_dim = model.encode(wave, in_spatial_dim=wave_spatial_dim, collected_outputs=collected_outputs)
+    if not direct_mel:
+        # waveform path: scatter synth WAVEFORMS (wave_t) into the text positions, real waveforms are the
+        # backup, then one model.encode (uniform feature-extraction + feature-BN + SpecAugment over the batch).
+        if num_text == 0:
+            wave, wave_spatial_dim = data, data_spatial_dim
+        elif num_text == num_total:
+            wave, wave_spatial_dim = wave_t, wave_t_spatial_dim
+        else:
+            wave, wave_spatial_dim = rf.nested.masked_scatter_nested(
+                (wave_t, wave_t_spatial_dim),
+                (data, data_spatial_dim),
+                mask=text_mask,
+                mask_cpu=text_mask_cpu,
+                dims=[batch_dim],
+                in_dim=text_bdim,
+                masked_select_dim_map=sel_dim_map,
+            )
+        enc, enc_spatial_dim = model.encode(wave, in_spatial_dim=wave_spatial_dim, collected_outputs=collected_outputs)
+    else:
+        # direct-mel path: wave_t holds the TTS log-mel (model.in_dim / DbMel space, no GL/waveform).
+        # Featurize the real-audio rows to log-mel and merge with the TTS log-mel in FEATURE space,
+        # then encode_from_features (feature-BN + SpecAugment + conformer, uniform over the batch).
+        # Audio rows skip pad_audio here (a minor aug), kept symmetric with the text rows which never get it.
+        if num_text == num_total:
+            feats, feats_spatial_dim = wave_t, wave_t_spatial_dim
+        else:
+            feat_audio, feat_audio_spatial_dim = model.feature_extraction(data, in_spatial_dim=data_spatial_dim)
+            if num_text == 0:
+                feats, feats_spatial_dim = feat_audio, feat_audio_spatial_dim
+            else:
+                feats, feats_spatial_dim = rf.nested.masked_scatter_nested(
+                    (wave_t, wave_t_spatial_dim),
+                    (feat_audio, feat_audio_spatial_dim),
+                    mask=text_mask,
+                    mask_cpu=text_mask_cpu,
+                    dims=[batch_dim],
+                    in_dim=text_bdim,
+                    masked_select_dim_map=sel_dim_map,
+                )
+        enc_raw, enc_spatial_dim = model.encode_from_features(
+            feats, in_spatial_dim=feats_spatial_dim, collected_outputs=collected_outputs
+        )
+        enc = model.decoder.transform_encoder(enc_raw, axis=enc_spatial_dim)
 
     # aux CTC losses (single stream)
     for i, layer_idx in enumerate(aux_loss_layers):
