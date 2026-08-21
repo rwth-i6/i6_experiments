@@ -172,7 +172,7 @@ Scoring chain traced end to end rather than by alias name: `ScliteJob.DIAVsH7AYj
     gain still comes from retaining the external §1d labels. The preregistered criterion required an
     own-label win over both anchors on both dev splits, so no second generation is warranted.
 
-5. **A5: the §3d.A scale-arm gate PASSES -- pseudo-labeling all 960 h is a better label-free AV
+11. **A5: the §3d.A scale-arm gate PASSES -- pseudo-labeling all 960 h is a better label-free AV
    start than the 100 h one.** theta_0^G960 is 13.11 / 16.82 against theta_0^G's 13.89 / 18.34, so
    it improves BOTH dev splits (-0.78 clean, -1.52 other), which is exactly what the pre-registered
    gate requires; no split trade-off clause is needed. Read against approach 4's operator row
@@ -229,3 +229,26 @@ and conclusion 10 record its failed fresh-label gate. Separately, the original p
 equivalence attempt is invalid evidence: `PackedDecodeAgreementJob.xEBbTHwTJScE` matched only
 289/298 hypotheses. Do not waive exact decoder equivalence for the distinct 960 h arm. Normative
 specification and gate: `PLAN.md` §3d.A.
+
+**2026-08-21 (A5 verified end to end): the scale-arm gate verdict STANDS.** Numbers reproduced
+from the sclite outputs and raw counts (13.11 = 7131/54402 dev-clean, 16.82 = 8572/50948
+dev-other; S/D/I match the approach-5 row exactly); both scoring chains match the claimed hashes
+link by link, both search jobs load `ReturnnTrainingJob.HuSkdbuVRg6d/output/models/epoch.010.pt`
+and decode the correct corpora against the correct STMs. Training frame confirmed at config and
+disk level: the train stream is pseudo-text (transform bound to
+`PackedWav2Vec2KenlmDecodeJob.523Wyir5Weg2` hypotheses; spot-checked pseudo-vs-gold divergence on
+raw arrow rows), exactly 281,241 rows counted; no project checkpoint import (`preload`/`import`/
+`load` absent — "random init" = fresh adapter/LoRA over the public foundation weights, the
+comparator recipe's own convention); `partition_epoch=10`, `num_epochs=10`, fixed endpoint
+`eval_checkpoints=[10]` with no dev-selection mechanism (`keep_best_n` is disk retention only,
+nothing downstream reads it). The 2026-08-20 equivalence hold was satisfied, not waived:
+`PackedDecodeAgreementJob.FATi7mwI43o7` reads 298/298 exact on the registered shard-0 check after
+the PCM16/waveform fix (commits 3d3918698, b2d98a5b1); the failed attempt remains preserved.
+Gate read as pre-registered in `PLAN.md` §3d.A (both splits improve; no split trade-off clause
+needed); the approach-4 comparison is correctly framed as usability, not superiority. One
+disclosure for readers: all four data-parallel ranks each make one full corpus pass; the
+registered exposure match holds because the comparator recipe shares the convention verbatim.
+Two housekeeping items: the A5 verdict's list number was corrected 5 -> 11 (duplicate of an
+existing entry; objectively wrong reference), and one State error is with the implementer: State
+calls the one-generation half "not launched", contradicting approach 4 / verdict 10 in this log,
+which record it as completed and failed on 2026-08-20.

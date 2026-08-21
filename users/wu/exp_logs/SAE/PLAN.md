@@ -65,8 +65,11 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
   six-leg prefix likewise improves only at leg 2 (12.85/17.89, 0.45 dev-other) and then degrades to
   18.38/24.01 by leg 6. Its exact schedule-matched control freezes periodic round 1's own
   `d_min=2` scorer; that control is running, but it can isolate scorer recency only, not establish
-  that this loop beats ordinary self-training. The decisive GAN-branch operator read is now the
-  same-start one-generation comparison in §3d.A. The superseded offline D7-v2 specification CLOSED
+  that this loop beats ordinary self-training. Both §3d.A reads are in (2026-08-21, replacing "the
+  decisive read is now §3d.A"): one-generation own-label self-training FAILED both starts, while
+  the 960 h pseudo-label scale arm PASSED its gate — theta_0^G960 reads 13.11/16.82 against the
+  13.89/18.34 init, the project's best label-free AV start (verifier-confirmed;
+  `SAE_3D_GTRACK.md` A5). The superseded offline D7-v2 specification CLOSED
   at its prospective D7.0b structural gate. The label-free feature read found 136,966 Q2 training
   edges, but the exact
   common same/different-chapter 2-in/2-out construction admitted only 56 rows/two speakers against
@@ -227,18 +230,21 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    finished; §2a-rescorer and lam_1/lam_2 recalibration remain deferred behind the bootstrap-critical
    §1g assay. The adapted reward sweeps mix EOS conventions, so their small margin claims await the
    cheap registered correction; direct SFT and WER comparisons are unaffected.
-4. **Pseudo-label scale and one-generation self-training (§3d.A; TOP GAN-BRANCH READ,
-   IMPLEMENTED/LAUNCHED 2026-08-20)**: do not fund another G-track scorer or reward variant before
-   this read. The separate 960 h scale arm is BLOCKED at its fail-closed packed-input preflight:
-   coverage/order are exact, but only 289/298 shard-0 hypotheses match the banked decoder (nine
-   substantive transcript differences), so no full decode or 960 h SFT may proceed before root-cause
-   diagnosis. The one-generation graph itself is healthy: the theta_0^G fixed-§1d-label continuation
-   is running, teacher decodes are partly finished/partly running, and fresh-label continuations wait.
-   At 15:37 CEST the cleanup prerequisite is satisfied and the graph manager is running again, so
-   newly released work can submit; no endpoint exists yet. Read only fixed endpoints against the same-start
-   §1d-label controls. A fresh-label pass on both dev splits is evidence to consider one further
-   generation; a win by fixed labels alone means extra CE optimization, not iterative self-training.
-   No open-ended relabeling loop is authorized. The superseded offline D7-v2 design CLOSED at
+4. **Pseudo-label scale and one-generation self-training (§3d.A) — BOTH QUESTIONS ANSWERED
+   2026-08-21 (replaces the 2026-08-20 BLOCKED/in-flight text; decision now with the user).**
+   The scale gate PASSES, verifier-confirmed end to end: theta_0^G960 (from-scratch AV SFT on §1d
+   pseudo-labels for all 281,241 960 h utterances, one pass, fixed sub-epoch-10 endpoint) reads
+   13.11/16.82 dev-clean/dev-other against theta_0^G's 13.89/18.34 — both splits improve, the
+   project's best label-free AV start; against the 10 h-PAIRED self-training operator (13.05/17.74)
+   it is a split trade-off (+0.06 clean / -0.92 other) at strictly lower supervision cost —
+   usability, not superiority. The blocking packed-input preflight was root-caused (waveform/PCM16
+   mismatch) and re-passed exactly (298/298) before any decode spend — never waived. The
+   one-generation fresh-label gate FAILED both starts (own labels worse than the fixed §1d labels
+   from either start; verdict 10); no second generation. OPEN DECISION for the user: whether
+   theta_0^G960 replaces theta_0^G as the G-track init for future arms — rebasing any loop, refit,
+   or the D7/D8 campaigns on it is a new preregistered decision; the running D7 A/B stays on
+   theta_0^G as registered. Detail: `SAE_3D_GTRACK.md` A5 and `PLAN.md` §3d.A Status.
+   The superseded offline D7-v2 design CLOSED at
    D7.0b: its exact K=4/Q2
    common-regular training graph admits 56 rows/two speakers and the independent necessary core has
    at most 120/four, far below the frozen 6,778/201 floor. No external assignment, loss preflight,
@@ -881,6 +887,9 @@ D7-GAN-SEQDISC method to full-960 h pseudo-pairs, K=1 online uniform donors from
 same-speaker 0.8--1.25 duration pools, and no graph/nuisance matching. Its full specification is in
 `PLAN_3E1.md`; D7.0/D7.1 are implemented and launched 2026-08-21 (verifier-confirmed), while D7.3
 policy compute still needs a launch word.
+2026-08-21: both §3d.A reads now exist -- one-generation self-training FAILED both starts, the
+960 h scale arm PASSED (theta_0^G960 13.11/16.82; §3d.A Status) -- so the 2026-08-20 hold's
+condition is met; whether any new arm opens on theta_0^G960 is a fresh user decision.
 
 #### 3d.A. Pseudo-label scale and one-generation self-training (USER-directed 2026-08-20)
 
@@ -959,6 +968,26 @@ partly finished/partly running, and both own-label continuations wait on their t
 self-training endpoint exists yet. Funding
 still ends at the fixed-final theta_0^G960 AV-SFT read: no GRPO/autoencoder loop, scorer refit or D6
 branch from theta_0^G960 is authorized without a new preregistered decision.
+2026-08-20 later: the packed-input failure was root-caused and FIXED, never waived -- the packed
+reader now reconstructs PCM16 to byte-match the legacy decoder's waveform (i6_experiments
+3d3918698 + b2d98a5b1), and the re-run acceptance on the new decode hashes reads 298/298 exact
+hypothesis agreement (`PackedDecodeAgreementJob.FATi7mwI43o7`; the invalid 289/298 attempt
+`xEBbTHwTJScE` is preserved as history). The 860 h decode and 960 h SFT proceeded behind the
+passing gate.
+2026-08-20/21 one-generation verdict: the fresh-label gate FAILED for both starts at the fixed
+epoch-4 endpoint (own labels worse than fixed §1d labels by 2.82/2.52 from theta_0 and 1.38/1.11
+from theta_0^G; `SAE_3D_GTRACK.md` verdict 10). No second generation is authorized.
+2026-08-21 scale verdict: the scale gate PASSES, verifier-confirmed same day end to end (sclite
+outputs and raw counts, CTM/search chains, checkpoint identity, training frame): theta_0^G960 =
+13.11/16.82 dev-clean/dev-other at the fixed sub-epoch-10 endpoint against theta_0^G's
+13.89/18.34 -- both splits improve, so theta_0^G960 is the project's best label-free AV start
+(`SAE_3D_GTRACK.md` A5). Two disclosures: "random init" means fresh adapter/LoRA over the public
+foundation weights with no project checkpoint imported (the comparator recipe's own convention,
+config-verified), and all four data-parallel ranks each make one full corpus pass (the comparator
+shares this convention verbatim, so the registered exposure match holds). The funding boundary
+above is UNCHANGED: nothing downstream of theta_0^G960 -- loop, scorer refit, D6 branch, or
+adopting it as an init elsewhere -- is authorized without a new preregistered decision, which is
+now with the user.
 
 ### 3e. Reward and update protocol
 
