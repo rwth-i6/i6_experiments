@@ -1051,6 +1051,40 @@ config, verified at source).**
   `PsiAlignTrainJob.dsMKgPHQApyR`, and no dump, pool or refit exists after round 1. Leg 2 is queued
   under cluster maintenance. The gate above is unchanged.
 
+**D6-PERIODIC/GAN960-FROZEN — frozen-scorer loop from the theta_0^G960 init (USER-directed
+2026-08-21).**
+- Purpose: the A5 scale arm produced a better label-free start (theta_0^G960, 13.11/16.82 against
+  theta_0^G's 13.89/18.34, `SAE_3D_GTRACK.md` A5), and the user funds one reconstruction loop on
+  it with a frozen scorer only — no periodic refresh, no refit machinery. Two questions, one arm:
+  does the GRPO loop improve on the stronger init at all (both prior loop trajectories peaked by
+  leg 2 and then degraded), and how much of the loop's behavior was owed to the weaker init
+  (paired against GAN-FROZEN, which differs from this arm only in its starting checkpoint).
+- Approach: the D6-PERIODIC/GAN-FROZEN recipe verbatim — the segmented eight-leg policy graph,
+  the same 960 h round-robin shard at each leg, shaped reward and T=0.7, cosine epoch offsets,
+  batching, checkpoint imports and fresh Adam state per leg, and the same frozen scorer
+  `PsiAlignTrainJob.dsMKgPHQApyR` at every leg — with exactly one experimental change: the
+  starting checkpoint is theta_0^G960 (`ReturnnTrainingJob.HuSkdbuVRg6d`
+  `output/models/epoch.010.pt`). Any reward or monitor anchor defined relative to the arm's own
+  init (a KL snapshot, if wired on this bed) follows the init; the implementer flags any knob
+  where recipe reuse and the init swap conflict rather than resolving it silently. Disclosed
+  asymmetry, accepted: the frozen scorer was refit on round-1 decodes of the theta_0^G
+  trajectory, so it is native to the OLD init's error distribution; a fresh refit on
+  theta_0^G960's own decodes would confound the init comparison with a scorer change and is NOT
+  funded — it is a possible follow-up decision, not part of this arm.
+- Experiments: run the same leg schedule as GAN-FROZEN with per-sub-epoch recogs; report plain
+  dev-clean/dev-other WER and S/D/I per leg, the full trajectory, and the paired per-leg deltas
+  against GAN-FROZEN at matched legs. No scorer dumps, pools or refits exist anywhere in this
+  graph.
+- Gate (pre-registered before any leg result exists): the loop is useful on this init only if the
+  fixed leg-8 endpoint beats the arm's own init 13.11/16.82 on BOTH dev splits; intermediate
+  matched-leg deltas may establish transient effects but select no endpoint and license nothing.
+  The paired init read is leg 8 vs GAN-FROZEN leg 8, reported on both splits. Per-sub-epoch
+  monitors (filler mass, per-term within-group std, insertion histogram) carry kill authority
+  between legs per the standing residual-risk rule; a degrading run is reverted, not compounded;
+  no dev-selected checkpoint feeds anything downstream.
+- Status: REGISTERED AND AUTHORIZED 2026-08-21 (the user's launch word, given on the verified A5
+  read); not yet implemented. Implementation must not displace any running funded job.
+
 **D6-PERIODIC/GAN+HOM — homophone-diversity SFT arm on the same bed (USER-directed
 2026-08-17).**
 - Purpose (the user's mechanism, planner-formalized): make the AV's conditional diverse

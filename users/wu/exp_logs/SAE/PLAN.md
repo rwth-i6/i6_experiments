@@ -240,10 +240,12 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    usability, not superiority. The blocking packed-input preflight was root-caused (waveform/PCM16
    mismatch) and re-passed exactly (298/298) before any decode spend — never waived. The
    one-generation fresh-label gate FAILED both starts (own labels worse than the fixed §1d labels
-   from either start; verdict 10); no second generation. OPEN DECISION for the user: whether
-   theta_0^G960 replaces theta_0^G as the G-track init for future arms — rebasing any loop, refit,
-   or the D7/D8 campaigns on it is a new preregistered decision; the running D7 A/B stays on
-   theta_0^G as registered. Detail: `SAE_3D_GTRACK.md` A5 and `PLAN.md` §3d.A Status.
+   from either start; verdict 10); no second generation. USER 2026-08-21 (resolves the open
+   decision in part): fund ONE frozen-scorer reconstruction loop from theta_0^G960 — registered
+   as D6-PERIODIC/GAN960-FROZEN in `PLAN_3E1.md` (the GAN-FROZEN recipe verbatim, init swapped,
+   same frozen round-1 scorer; leg-8-vs-init both-splits gate pre-registered). Rebasing anything
+   else (D7/D8, refits, other arms) on theta_0^G960 remains undecided; the running D7 A/B stays
+   on theta_0^G as registered. Detail: `SAE_3D_GTRACK.md` A5 and `PLAN.md` §3d.A Status.
    The superseded offline D7-v2 design CLOSED at
    D7.0b: its exact K=4/Q2
    common-regular training graph admits 56 rows/two speakers and the independent necessary core has
@@ -988,6 +990,9 @@ shares this convention verbatim, so the registered exposure match holds). The fu
 above is UNCHANGED: nothing downstream of theta_0^G960 -- loop, scorer refit, D6 branch, or
 adopting it as an init elsewhere -- is authorized without a new preregistered decision, which is
 now with the user.
+2026-08-21 later: the user gives that decision in part -- one frozen-scorer reconstruction loop
+from theta_0^G960 is funded, registered as D6-PERIODIC/GAN960-FROZEN in `PLAN_3E1.md`. Everything
+else downstream of theta_0^G960 remains unauthorized.
 
 ### 3e. Reward and update protocol
 
