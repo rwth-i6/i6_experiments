@@ -48,32 +48,38 @@ sisyphus asks about interactively while the manager holds `/dev/null` on stdin -
 designed. The rename is the wrong recovery for any job that is not resumable; use the per-job clear,
 `-cio`, or `-co` as here.
 
-**D8.0 is FUNDED and worded for launch** (planner, on the user's approval; D8.1a-b stay gated behind
-the D7.2 admission verdict, D8.3 needs its own word). Implementation of the CPU-only read of the two
-frozen artifacts is IN PROGRESS this session. Both dumps are on disk and are both tc100-bed:
-`ReturnnForwardJobV2.QbIYruVEI0fF` (fork epoch, 28,539 utterances, T=0.7 only, units
-`MergeUnitsPklJob.ncxcd3vouD5E`) and `ReturnnForwardJobV2.J9yA1eYnxwYA` (the operative theta_0^G
-policy, 512 utterances, 30,720 rollout rows at T={0.3,0.5,0.7,0.9,1.0} G=12, plus 512 `greedy` and
-512 `true` rows, units `MergeUnitsPklJob.hJmZtbPDa2hd`) -- each dump's own unit source is the join,
-since that is what its stored `recon` was scored against. Pre-registration discipline restated by
-the planner and accepted: the clause statistics first exist inside the registered job's own output,
-with no informal pre-read anywhere -- which is why this log still carries no distinct-hypothesis
-count, ESS or weight-variance number for either artifact.
+**D8.0 IS IMPLEMENTED, RUN AND RECORDED** (approach 34, verdicts 59-61; speech-llm `889750c` and
+`4dc65a3`, manager `sae_3e1_d8_0`, both reads finished). D8.1a-b stay gated behind the D7.2
+admission verdict and D8.3 needs its own word, unchanged. The binding clause-(a) read on the
+theta_0^G T=0.7 slice is **UNRESOLVED**, not a no-go: the `d_min=2` exclusion the clause depends on
+contradicts the artifact's own finite scores on 5,096 of 5,730 scored members, all 512 greedy rows
+included, because both frozen dumps predate the min-duration topology and the theta_0^G dump joins a
+~12.5 Hz pooled unit store rather than the raw 50 Hz store the pinned weight scorer uses. Median
+distinct support on that slice is 0 of 13 with the exclusion and 12 of 13 without it, against a
+threshold of 3.
 
-Next action: (1) ask the user for the one D7 restart above and confirm both D7.1 trainings begin
-matched; (2) finish and launch the D8.0 read. A D7 policy leg is NOT authorized and none is in this
-graph.
+**Proposals for the planner, in priority order.**
 
-**Proposal for the planner (D8.0 reader, one unspecified rule).** Clause (a) dedups the support on
-the D8 reader-normalized string, while D8.0 deliberately reads the dumps' STORED score columns,
-which were computed at dump time on the raw pre-fold text. When two raw texts in one group collapse
-to the same normalized string their stored `recon`/`lm_prior` differ, and the spec does not say
-which survives. Implementing the deterministic rule "keep the member whose raw text already equals
-its normalized form, else the earliest in the artifact's stored row order", reported with the count
-of groups where the choice was exercised. On these two artifacts the rule is near-inert by the
-planner's own measurement (3 of 342,468 raw texts non-ASCII on the fork dump), but it is a reader
-decision and belongs in the plan rather than only in the job. Flagging rather than assuming; the
-job will state the rule in its docstring either way.
+1. **D8.0 clause (a) needs a reading, and the choice decides D8 outright.** The gate re-scope calls
+   clause (a) "the scorer-free statistic", which argues for the dedup-only count; the Approach text
+   says an excluded candidate does not count toward it, which argues for the other. Both numbers are
+   in `D8FeasibilityReadJob.mDQ2LoAzrMTE` and neither was chosen here. A third option the implementer
+   can build on request: generate a small theta_0^G group dump under the registered `d_min=2` scorer
+   and unit store, which is the only way to read the clause as literally written on the operative
+   policy.
+2. **D8.0's reader had one unspecified rule, now fixed deterministically and reported.** When two
+   raw texts fold to the same normalized string their stored scores differ; the survivor is the
+   member already in normalized form, else the earliest stored row. Exercised on 256 groups at the
+   binding slice and 25 at T=1.0. Also reported both ways: whether clause (a)'s support includes the
+   greedy member (`distinct_rollouts_only` carries the "of 12" reading).
+3. **Inherited bookkeeping, D6-PERIODIC/GAN960-FROZEN** (approach 33): leg 1's record carries the
+   scorer's provenance from theta_0^G decodes, which in this arm is not its own round 1. Funds
+   nothing; a downstream audit could misread it.
+
+Next action: ask the user for the one D7 restart above, then confirm both D7.1 trainings begin
+matched and that each names exactly the four registered drops in its report. A D7 policy leg is NOT
+authorized and none is in this graph. D8 is parked on proposal 1 above; nothing further to build
+there until the planner rules.
 
 ## Approach
 
@@ -919,7 +925,36 @@ reuses `round1_artifacts()`, so leg 1's record carries dump/pool/refit that are 
 provenance from theta_0^G decodes, which in this arm is not its own round 1. Those jobs are finished
 and fund nothing, but a downstream audit could misread them.
 
-## Conclusion
+**34. D8.0 feasibility read of the two frozen rollout dumps.** The CPU-only registered read
+(`config/sae_3e1_d8_0.py`, `speech_llm/sae/d8_feasibility.py`) that can close D8 before any rollout
+is generated on the 960 h bed. Per group it dedups the support on the D8 reader-normalized string,
+zeroes and counts candidates that are empty after the fold, structurally infeasible on their own
+audio at `d_min=2`, or unencodable, then reports distinct support, median effective sample size
+across the registered tau grid for the shaped, acoustic-only and LM-only scores, the provisional
+`tau_star` from the `|median ESS - 3|` rule, the within-group weight variance token count alone
+explains at `tau_star`, and the median spearman between shaped weights and each single-term weight
+vector. Rows are whitelisted by `kind`, so the reference rows and the gold-derived `wer` column are
+never read; the LM term is converted to per-unit currency (`lm_prior * n_tokens / n_units`) against
+each dump's OWN unit store before any weight. Only the theta_0^G artifact binds, on its T=0.7 slice.
+
+The v1 read returned NO-GO on that slice. The v2 reader adds one guard, pre-registered in the job
+docstring before it was run: a member the reader calls structurally infeasible whose STORED `recon`
+is finite is a contradiction, because the artifact's own scorer aligned that pair. When that count
+is nonzero on the binding slice the verdict is UNRESOLVED, never a no-go. Every slice also reports
+`distinct_support_scorer_free`, which applies only dedup and the empty-after-fold drop.
+
+| artifact | units store, median length | slice | law conflicts | distinct: exclusion / scorer-free | tau* | verdict | job |
+|---|---|---|---:|---|---:|---|---|
+| theta_0^G, 512 utts | `MergeUnitsPklJob.hJmZtbPDa2hd`, 169 | T=0.3 | 2,872/3,182 | 0 / 6 | 1.0 | reported | `S/d8_feasibility/D8FeasibilityReadJob.mDQ2LoAzrMTE` |
+| theta_0^G, 512 utts | same | **T=0.7 (binds)** | 5,096/5,730 | **0 / 12** | 0.05 | **UNRESOLVED** | same |
+| theta_0^G, 512 utts | same | T=0.9 | 5,211/6,457 | 1 / 13 | 1.0 | reported | same |
+| theta_0^G, 512 utts | same | T=1.0 | 4,228/6,604 | 4 / 13 | 0.5 | reported | same |
+| fork epoch, 28,539 utts | `MergeUnitsPklJob.ncxcd3vouD5E`, 674 | T=0.7 | 18/101,190 | 3 / 3 | 1.0 | reported-only | `S/d8_feasibility/D8FeasibilityReadJob.ulUbBcxIiJtf` |
+
+The superseded v1 reads are kept as the evidence that motivated the guard:
+`D8FeasibilityReadJob.iCuYuvkL6bwr` (theta_0^G, verdict NO-GO) and `.onK5ekDuoLLA` (fork epoch).
+
+## Verdicts
 
 1. **The co-trained scorer did NOT go text-blind — the hypothesis is refuted by its own instrument.**
    The usage gate RISES from 0.3331 at ep0 to a peak 0.6210 at ep6 (+86 %) and never falls below ep0
@@ -1433,6 +1468,27 @@ function-word pairs rather than broad spelling diversity.
     nuisance, capacity or regularity constraint. The matched full-bed scorer A/B is the next method
     read; a policy leg becomes eligible for separate launch authorization only after its label-free
     fixed-final gate.
+59. **The D8.0 binding clause cannot be read on either frozen dump: its exclusion rule is not the
+    law those dumps were scored under** (34). Clause (a) excludes structurally infeasible
+    candidates at `d_min=2`, but both dumps predate the standing min-duration topology, and the
+    theta_0^G artifact additionally joins a ~12.5 Hz pooled unit store (median length 169) rather
+    than the raw 50 Hz store the pinned weight scorer uses (median 674). On its binding T=0.7 slice
+    the reader calls 5,096 of 5,730 scored members infeasible while the artifact's own scorer
+    returned finite scores for them — including all 512 greedy rows — so the exclusion is a property
+    of the instrument, not of the policy. The same law costs the fork-epoch dump 18 of 101,190
+    members. The registered read therefore returns UNRESOLVED, not the NO-GO the exclusion alone
+    would produce.
+60. **Which reading clause (a) takes decides it outright, in opposite directions** (34). On the
+    binding slice the median distinct support is 0 of 13 with the exclusion applied and 12 of 13
+    without it, against a threshold of 3. No intermediate outcome exists, so the clause cannot be
+    reported as a measurement until the plan fixes the reading; this is a specification question,
+    not a noisy statistic.
+61. **On the one artifact whose scorer law the reader nearly matches, no D8 clause fires** (34).
+    The fork-epoch dump gives median distinct support 3 under both readings, every grid tau inside
+    the [1.5, 8] ESS band, token count explaining 0.39 of within-group weight variance at
+    `tau_star = 1.0`, and shaped-versus-acoustic-only spearman 1.0 against shaped-versus-LM-only
+    0.5. Its policy, bed and scorer are all wrong for D8.1a, so this reports and binds nothing;
+    the arm-selection rule reads only D8.1a statistics.
 
 ## Catalog
 
@@ -1443,6 +1499,9 @@ function-word pairs rather than broad spelling diversity.
 |---|---|
 | code | `sae/scorer_diag.py`, `sae/text_repair.py`, `sae/psi_align_jobs.py`, `sae/psi_align.py`, `sae/curate.py`, `sae/gate_table.py`, `sae/refresh_gate.py`, `sae/d7_census.py`, `sae/d7_v2.py`, `sae/d7_online.py` (+ focused tests; D7.0a commit `a0a22b4`, D7-v2 commit `7b2069d`, D7 resume-RNG and infeasible-donor counter `1d10945` on speech-llm `haotian_modality_matching_jupiter`). `test_psi_align.py`'s CUDA/python lattice parity test now also carries two `d_min=2` skip_ok cases, so the topology D7 trains in is pinned; executed on a GH200 2026-08-21 (`log/parity_test.1445759.out`, passed, not skipped) since the login node has no GPU. |
 | entry points | `config/sae_3e1_d0.py`, `config/sae_3e1_usage.py`, `config/sae_3e1_d1d2.py`, `config/sae_3e1_d3.py`, `config/sae_3e1_d4.py`, `config/sae_3e1_d4p.py`, `config/sae_3e1_d5b.py`, `config/sae_3e1_d6.py` (builds D4' and the swap-in too), `config/sae_3e1_d6periodic.py`, `config/sae_3e1_d6periodic_warm.py`, `config/sae_3e1_hom.py`; D7 tracked canonical configs `src/speech_llm/prefix_lm/sis_recipe/exp2025_11_06_speech_llms/librispeech/configs/config_sae_3e1_d7_0a_v1.py` at `a0a22b4` and `config_sae_3e1_d7_v2_v1.py` at `7b2069d` (workspace wrappers only delegate) |
+| D8.0 registered feasibility reads (approach 34) | v2 `S/d8_feasibility/D8FeasibilityReadJob.mDQ2LoAzrMTE` (theta_0^G, binding, UNRESOLVED) and `.ulUbBcxIiJtf` (fork epoch); superseded v1 `.iCuYuvkL6bwr` and `.onK5ekDuoLLA`, kept as the evidence that motivated the feasibility-law guard |
+| D8.0 code and entry point | `sae/d8_feasibility.py`, `configs/config_sae_3e1_d8_0_v1.py`, `config/sae_3e1_d8_0.py`, `scripts/d8_0_mechanics_test.py` (speech-llm `889750c`, guard `4dc65a3`) |
+| D7 own-infeasible-anchor drop law and its verification | speech-llm `e2a421b`; `scripts/d7_make_items_dropcheck.{py,json}` |
 | D7.0a complete raw external/scorer edge tables and census (approach 30) | `S/d7_census/D7RawDonorCensusJob.zsnx1p9nLyV3` |
 | D7-v2 / D7.0b feature and fail-closed assignment jobs (approach 31); the downstream loss preflight never materialized | `S/d7_v2/D7V2FeatureJob.hnReOv8t9UWg`, `S/d7_v2/D7V2AssignmentJob.aSOMkw3hSc0K` |
 | D7.0 parity diagnostic (approach 32): the read-only GPU reproduction of the preflight's parity clause | `scripts/d7_parity_diag.py`, output `log/d7_parity_diag.1446568.out` |
