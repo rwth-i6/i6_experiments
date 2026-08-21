@@ -1282,6 +1282,13 @@ function-word pairs rather than broad spelling diversity.
     rather than merely exposing a poor optimizer solution. The assignment job therefore stopped
     before external matching, and the loss preflight did not run. Per the frozen gate, this result
     does not authorize another donor amendment and D7.1 remains closed.
+58. **USER-DIRECTED architecture correction after D7: retire offline donor graphs and test the
+    reverse loss with online negatives on the full 960 h bed.** This does not reinterpret conclusion
+    57 or claim an experimental win. D8-ONLINE-SEQDISC uses all 281,241 theta_0^G-greedy pseudo-pairs,
+    one dynamically resampled same-speaker duration-windowed donor per anchor, and no chapter/Q2,
+    nuisance, capacity or regularity constraint. The matched full-bed scorer A/B is the next method
+    read; a policy leg becomes eligible for separate launch authorization only after its label-free
+    fixed-final gate.
 
 ## Catalog
 
@@ -1988,3 +1995,13 @@ the absolute beta, is what carries the contamination claim.
   The registered K=4/Q2/common-regular operating point is structurally closed, while the reverse
   matching loss itself remains unmeasured. Per the prospective rule, no solver retry, floor
   relaxation or third donor amendment is authorized; D7.1--D7.3 remain closed.
+- 2026-08-21 (post-D7 user override; D8 registration): the user rejects D7's offline graph as the
+  wrong abstraction and directs ordinary online random negatives on the full loop population. Local
+  interface verification supports that separation: the existing enc50 960 h chain already binds
+  exactly 281,241 train-clean-100/train-clean-360/train-other-500 utterances and their packed K=500
+  raw-50 Hz units, whereas every D6 periodic scorer refresh decodes/refits only the 28,539-row
+  train-clean-100 pool. D8 therefore generates one scorer-independent theta_0^G greedy pseudo-text
+  per 960 h utterance and samples K=1 donors dynamically from role-local same-speaker pools with
+  reciprocal duration ratio 0.8--1.25, using closest-duration fallback only when that window is
+  empty. It does not depend on §3d.A's currently blocked packed CTC decoder. D7 remains closed;
+  D8.0/D8.1 are registered but no D8 code or job exists yet, and D8.3 policy compute remains held.

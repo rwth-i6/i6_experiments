@@ -1796,6 +1796,101 @@ measure the reverse matching loss or establish that every sequence-discriminativ
 untrainable. Evidence and exact artifacts: `SAE_3E1.md` approaches 30--31 and conclusion 57. The
 campaign returns to the already-funded D6 endpoints and §3d.A operator read; no D7 action remains.
 
+**D8-ONLINE-SEQDISC — full-960 h online negative sampling (USER-directed 2026-08-21).**
+
+**Purpose.** Test the reverse audio-negative sequence objective that D7 never reached, after removing
+the offline graph formalism that caused D7's structural collapse. This is a new operating point, not
+a relaxed D7 gate: D7 remains closed and its result is preserved. D8 asks whether ordinary dynamic
+negative sampling over the actual 960 h loop population improves utterance-specific correspondence
+without damaging absolute fit, and whether a scorer with that change helps one matched policy leg.
+
+The operating population is all 281,241 LibriSpeech train-clean-100, train-clean-360 and
+train-other-500 utterances in the existing unlabeled 960 h HF/Ogg bed, with the frozen enc50 K=500
+raw 50 Hz unit store. Generate exactly one deterministic greedy pseudo-text per utterance from the
+fixed theta_0^G checkpoint using the existing G-track argmax decoder; neither a scorer, stochastic
+rollout, reference transcript nor the blocked §3d.A packed CTC decoder may choose these texts.
+LibriSpeech speaker ID and raw unit length are the only donor-conditioning metadata. Chapter,
+silence share, text density, unit-run rate, histogram distance, percentile bands, global donor
+capacities and graph regularity are absent.
+
+This follows the ordinary negative-sampling pattern rather than claiming a novel mining result:
+CPC makes the contrastive objective tractable through sampled negatives
+([van den Oord et al.](https://arxiv.org/abs/1807.03748)), and wav2vec 2.0 samples speech
+distractors uniformly during training rather than solving a corpus-wide assignment
+([Baevski et al.](https://arxiv.org/abs/2006.11477)). Those methods do not validate this scorer or
+its pseudo-text; they justify making the negative sampler simple and testing the loss itself.
+
+**Approach.** For pseudo-text `z_i`, own units `U_i`, raw unit length `T_i`, and dynamically sampled
+donor `j`, retain the per-frame score
+
+    s_psi(z_i,U_j) = log p_psi(U_j | z_i) / T_j
+
+and add one binary sampled-softmax term per eligible anchor visit,
+
+    L_online = mean_i softplus(s_psi(z_i,U_j) - s_psi(z_i,U_i)).
+
+Use K=1, temperature 1 in the score's native nats/frame currency, and coefficient 1. The exact
+control is `L_NLL + L_U->z`; the candidate is `L_NLL + L_U->z + L_online`. Both use the existing
+graphemic-BPE psi_align architecture, `d_min=2`, random initialization, seed, optimizer, batch order
+and one complete 960 h corpus pass split into the bed's existing ten 96 h shards. Fixed final is the
+only checkpoint; loss, donor gaps and internal-held metrics never select an epoch. No temperature,
+K, coefficient or duration-window sweep is admitted.
+
+Apply the existing deterministic seed-42 5% ID holdout to the full pseudo-pair list and hash both
+roles. Training anchors draw donors only from the training role; internal-held anchors draw only
+from internal held. For each anchor, its ordinary candidate pool is every other utterance from the
+same speaker with `0.8 <= T_j/T_i <= 1.25`. Draw uniformly with a stateless RNG keyed by
+`(seed=42, corpus_pass, global_step, anchor_id)`, so reruns reproduce exactly while repeated visits
+resample donors. If that window is empty, use the closest-duration other utterance from the same
+speaker, with donor ID as the tie break; only a true single-utterance speaker skips `L_online` for
+that anchor while retaining the two control losses. Report ordinary-window, nearest-fallback and
+singleton rates plus realized length ratios and donor reuse. They are diagnostics, not admission
+filters: no row is removed from NLL, no donor is padded, and frequency equalization is left to
+sampling in expectation.
+
+**Experiments.** Run in order:
+
+1. **D8.0 full-bed pool and one-step preflight:** generate/hash all 281,241 theta_0^G greedy texts;
+   bind the existing unit store; materialize only a speaker/duration index, never an edge table; and
+   census the three sampling cases above. On one frozen 96 h shard, verify deterministic resampling,
+   exact own/donor path finiteness, control parity when `L_online=0`, candidate-only gradient flow,
+   and measured time/RSS for one update. This is an interface/resource check, not a support gate or
+   hyperparameter search.
+2. **D8.1 full-bed scorer A/B:** train the exact control and candidate for one 960 h pass with the
+   same ten-shard order. Persist the fixed-final scorers, role hashes, sampler seed/state contract,
+   loss curves, internal-held NLL and online loss, and sampling diagnostics. No policy trains.
+3. **D8.2 label-free admission:** at both fixed-final scorers, evaluate internal-held NLL and
+   `L_online` with 32 stateless donor draws per eligible held anchor, paired across scorers. Then run
+   the existing all-1,500-row Acceptance gate v2 and `PsiScorerParityJob`. The exact D8 full-bed
+   control is the paired comparator; the gate's incumbent absolute floors, population and weights
+   remain unchanged. Reference text, rollout WER and intermediate checkpoints remain sealed.
+4. **D8.3 matched one-leg policy assay:** only if D8.2 passes, request launch authorization. Freeze
+   the scorer and substitute it for the exact full-bed control in one otherwise-identical
+   theta_0^G, 960 h G-track leg. Submit candidate and control before opening gold; then report paired
+   dev-clean/dev-other WER and S/D/I. No periodic refresh or full loop is authorized.
+
+**Gate.** D8.0 fails only for an interface error, non-finite loss/gradient, missing 281,241-row
+coverage or resource infeasibility; donor frequency or fallback prevalence cannot recreate D7-style
+row filtering. D8.1 reaches admission only at its fixed final endpoint. D8.2 passes only if all hold:
+
+1. candidate minus control mean internal-held `L_online` has a speaker-cluster-bootstrap 95% upper
+   bound below zero under the paired 32-draw estimator;
+2. candidate internal-held per-frame NLL is no greater than the exact control's point value;
+3. every cumulative Acceptance-gate-v2 clause passes on the unchanged 1,500 external rows; and
+4. scorer parity passes before any live reward read.
+
+Failure closes D8 without a policy leg; no sampler/temperature rescue is selected from the result.
+After an authorized D8.3 submission, its local scientific pass is candidate WER strictly below the
+matched control on both dev splits. A label-free scorer win without a two-split policy win establishes
+only scorer-side conditional discrimination, not useful ASR progress.
+
+**Status.** REGISTERED, NOT IMPLEMENTED OR LAUNCHED. The user's 2026-08-21 direction explicitly
+supersedes the earlier “no D7 successor” campaign choice while leaving D7's frozen gate and negative
+verdict unchanged. D8.0 and the D8.1 matched scorer A/B are authorized for implementation; D8.1 may
+submit after D8.0 passes its finite/resource checks without another planner round. This work may be
+built while the funded D6/§3d.A jobs finish, but it does not preempt their running GPU allocations.
+D8.3 still requires a fresh launch word.
+
 ## Acceptance gate v2
 
 Replaces the §3e.1 two-sided gate (2026-08-07) BEFORE any verdict was read against v1, because
