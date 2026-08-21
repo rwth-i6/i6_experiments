@@ -1718,7 +1718,13 @@ exclusion only as the backstop for texts that fold to empty, live at higher temp
 whole-string leakage occurs. To make the WEIGHT price honest, one same-string rule binds
 everywhere: the dedup key, the weight-side scoring -- pinned-scorer forward and LM prior -- and
 the training target are the SAME normalized string; the per-group repair rate, candidates whose
-normalized string differs from the raw generation, is a reported diagnostic. D8.0's provisional
+normalized string differs from the raw generation, is a reported diagnostic. Implementation
+pinned 2026-08-21, implementer proposal: the WEIGHT job owns the fold, the dedup key, the
+re-scoring and the reported rate, co-located with the tau_star rule in one docstring, and the
+dump machinery keeps scoring what it generates, unchanged; the weight job MAY reuse a stored
+column verbatim wherever normalized == raw -- the same string under the same pinned scorer --
+and re-scores only the differing minority, in the dump pass's exact forward configuration; the
+differing-string predicate and the repair rate are one computation. D8.0's provisional
 statistics read the dumps' STORED columns, computed at dump time on raw pre-fold text --
 negligible on the fork dump, 3 of 342,468 raw texts non-ASCII, and one more reason clauses (b)
 and (c) only report at D8.0.) Context, measured as character-class shares only, no gate
