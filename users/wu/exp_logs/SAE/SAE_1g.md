@@ -7,19 +7,20 @@ question each answers), blockers, next action, proposals for the planner. -->
 In flight 2026-08-22 00:10:
 
 - **H4 pre-label selection surfaces** (`config/sae_1g_h4_prelabel_surfaces.py`, manager started
-  2026-08-21 21:47, pid 3796121, watcher attached). Question: what is every baseline H4 tuple's
+  2026-08-21 21:48, pid 3796121, watcher attached). Question: what is every baseline H4 tuple's
   own-minus-donor selection score on the 890 selection utterances, so the five provisional pre-label
   maxima can be frozen before any controlled label opens. Launch condition met and independently
   read from the artifact rather than the log: `H4GlobalBeamTableJob.ro6L8QCnqYpx/output/
   global_beams.json` classifies all 12 `(lm_scale, insertion_penalty)` grid points, every one
-  `eligible=false`, on real 201-utterance / 19,515-retained-unit representative decodes -- the best
-  adjacent-beam pair keeps only 62% of one-best hypotheses against a 0.999 requirement, and every
-  score-change-per-unit is two orders above the 1e-4 bound. The sequence family is therefore
-  mechanically ineligible for baseline H4 and the surface graph builds no sequence decode: it is
-  340 local decodes (85 starts x counts 0/1/2/4), 3,400 fixed-text donor scores (10 frozen
-  assignments each), the selection surface and the provisional maxima. Graph read at launch: 635
-  finished, 343 runnable, 3,730 waiting, nothing in a problem state. All 821 prerequisite jobs are
-  preserved and none is rerun.
+  `eligible=false`, on real 201-utterance / 19,515-retained-unit representative decodes. Clause
+  margins on the binding cell, the best grid point's worst representative: one-best agreement
+  0.7313 against the 0.999 requirement, and a score change per retained unit 54x the 1e-4 bound.
+  The sequence family is therefore mechanically ineligible for baseline H4 and the surface graph
+  builds no sequence decode: it is 340 local decodes (85 starts x counts 0/1/2/4), 3,400 fixed-text
+  donor scores (10 frozen assignments each), the selection surface and the provisional maxima.
+  Graph state at launch, taken from on-disk markers rather than the console's one-shot status
+  (which misreported the split): 966 finished, 3,742 unfinished, 4,708 total, nothing in a problem
+  state. All 821 prerequisite jobs are preserved and none is rerun.
 - `sis_managers.sh` no longer blocks this config; the blocked entry named exactly the verdict check
   performed above, and the config moved into IN_SCOPE.
 
@@ -33,9 +34,9 @@ Operational note for whoever resumes: `JOB_AUTO_CLEANUP` cannot be checked from 
 `sisyphus/__main__.py:218` forces it to `False` for every non-manager subcommand, so a console read
 always reports `False` regardless of `settings.py`. The effective value in a manager here is `True`
 (`settings.py:238`, no override anywhere in the tree), confirmed on disk by finished jobs carrying
-`finished.tar.gz` rather than a plain `finished` marker. Cleanup keeps each job's `output/` and
-`info`; only logs, `input/` and the internal `work/` go, so preserving the H4 prerequisite graph is
-unaffected.
+`finished.tar.gz` rather than a plain `finished` marker. Cleanup keeps each job's `output/`, `info`
+and `input/` (`JOB_CLEANUP_KEEP_INPUT` is effective here); it removes the internal `work/` and tars
+the logs, so preserving the H4 prerequisite graph is unaffected.
 
 Proposal for the planner: none outstanding.
 
