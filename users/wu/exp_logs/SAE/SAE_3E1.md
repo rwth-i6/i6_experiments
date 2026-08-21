@@ -4,30 +4,34 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-In flight 2026-08-21 17:45:
+In flight 2026-08-21 18:40:
 
-- **D7-GAN-SEQDISC** (`config/sae_3e1_d7_gan_seqdisc.py`, approach 32). Ten theta_0^G argmax-decode
-  shards over the 281,241-utterance 960 h bed are running since 16:37
-  (`T/../forward/ReturnnForwardJobV2.pYcTsax31JWW` and nine siblings; ~65 % at 17:30, all ten in step).
-  They answer nothing on their own: they produce the pseudo-text the A/B is defined on. The rest of
-  the graph is registered and waiting behind them, in order --
-  `S/scorer_diag/SearchOutHypsJob.h8GoSrbrTPHh` -> `S/d7_online/D7OnlinePoolJob.XLjSgTzHfwAu` ->
-  `S/d7_online/D7OnlinePreflightJob.ZxfANwBZYpaI` (the D7.0 barrier; the one-update finite/resource
-  check on frozen shard 0) -> the matched pair `D7OnlineTrainJob.j16rTskXF1QU` (control, `L_NLL +
-  L_U->z`) and `.WA1bqjXQtzeZ` (candidate, same plus `softplus(s_donor - s_own)`), which answer
-  whether the online same-speaker donor negative changes the scorer at equal schedule. No errors in
-  the graph.
+- **D7-GAN-SEQDISC** (`config/sae_3e1_d7_gan_seqdisc.py`, approach 32). All ten theta_0^G
+  argmax-decode shards FINISHED (16:37-18:11) and `S/scorer_diag/SearchOutHypsJob.h8GoSrbrTPHh`
+  merged them, so the pseudo-text the A/B is defined on now exists. The graph is parked at the D7.0
+  barrier: `S/d7_online/D7OnlinePoolJob.XLjSgTzHfwAu` -> `D7OnlinePreflightJob.ZxfANwBZYpaI` -> the
+  matched pair `D7OnlineTrainJob.j16rTskXF1QU` (control, `L_NLL + L_U->z`) and `.WA1bqjXQtzeZ`
+  (candidate, same plus `softplus(s_donor - s_own)`), which answer whether the online same-speaker
+  donor negative changes the scorer at equal schedule.
+- **BLOCKED, needs one user command.** The verification round's two pre-run fixes are implemented,
+  tested and committed (`1d10945`, speech-llm branch `haotian_modality_matching_jupiter`), but the
+  d7 manager pinned the source identity at 16:37 and has since exited. The pool job started at 18:11
+  under that stale pin and stopped on its own guard ("D7 online source changed after graph
+  construction") -- the guard behaving exactly as designed, with nothing written and nothing lost.
+  Its error marker is renamed aside to `error.run.1.backup`, so the job is runnable again and will
+  rerun as soon as a manager re-pins the edited source:
+  `./sis_managers.sh start sae_3e1_d7_gan_seqdisc` (blocked for the agent by the tool classifier).
+  Both D7.1 train jobs' work dirs still do not exist, so the fixes land before their first run as
+  the round required. All four D7 job hashes plus the merge were verified unmoved by the edits.
 - **D6-PERIODIC/GAN-FROZEN** (`config/sae_3e1_d6periodic_gan_frozen.py`, the schedule-matched control
   that freezes periodic round 1's own d_min=2 scorer): leg 6 of 8 running
-  (`T/ReturnnTrainingJob.2p2hpz7nk5vd`, 3.5 h in), legs 1-5 finished, 23 jobs waiting behind it.
+  (`T/ReturnnTrainingJob.2p2hpz7nk5vd`, 4.3 h in), legs 1-5 finished, 23 jobs waiting behind it.
 
-Next action: when the D7.0 preflight PASS artifact exists, confirm the two D7.1 trainings start
-matched (same initialization, batch order, dropout RNG stream) before letting them run out. A D7
-policy leg is NOT authorized and none is in this graph.
+Next action: start the d7 manager (above), confirm the pool and the D7.0 preflight PASS, then
+confirm the two D7.1 trainings start matched. A D7 policy leg is NOT authorized and none is in this
+graph.
 
-Blockers: none. Note for whoever babysits: a finished job's worker can hang and starve the login-node
-engine silently -- see the memory entry on workers of finished jobs; the watcher now has a heartbeat
-that catches it.
+Proposal for the planner: none outstanding.
 
 ## Approach
 
