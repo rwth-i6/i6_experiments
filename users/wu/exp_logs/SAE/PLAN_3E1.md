@@ -1682,7 +1682,8 @@ failure by a private-code selector. Intermediate epochs are diagnostics only and
    `E_D` after seeing a scorer. `E_D` scopes only D7 donor-gap clauses; all Acceptance-gate-v2
    clauses still use every row in `E_all`.
 
-   D7.0b is now authorized to bind and hash the exact `GreedyPoolJob.Yv6qBpz0UC0U` pseudo-pair
+   The prospective D7.0b build was authorized to bind and hash the exact
+   `GreedyPoolJob.Yv6qBpz0UC0U` pseudo-pair
    corpus, resolved BPE/lexicon/tokenization manifest, and pinned
    `PsiAlignTrainJob.dsMKgPHQApyR` model/config used to derive `q_sil`. It records all 28,539
    intended IDs, the one rejected ID and `U > 2T` reason, all 28,538 feasible IDs, and the exact
@@ -1691,8 +1692,8 @@ failure by a private-code selector. Intermediate epochs are diagnostics only and
    It then reports every filter/rank/coverage stage, materializes and hashes the role-isolated train
    and external tables, verifies the two frozen constructions, freezes `tau` and `alpha`, reports
    per-term loss/gradient norms, and runs one K=4 training memory/time step. A failed floor returns
-   D7 as structurally unresolved; it does not authorize a third donor amendment. D7.1 remains
-   closed until D7.0b passes. No D7 scorer result, gold statistic or WER may alter these choices.
+   D7 as structurally unresolved; it does not authorize a third donor amendment. D7.1 was to remain
+   closed unless D7.0b passed. No D7 scorer result, gold statistic or WER may alter these choices.
 3. **D7.1 scorer A/B:** exact round-1 loss control versus the single added `L_z->U` direction, with
    identical corpus, topology, initialization, schedule, batching, and held split. No policy trains.
 4. **D7.2a label-free frozen admission:** after both fixed epoch-30 artifacts seal, read the scorer's
@@ -1776,25 +1777,24 @@ held contrast with no raw rollout-rank or policy-WER gain is classified as nuisa
 correspondence, not a useful scorer. D7 cannot repair the measured ~77% of filler-carrying groups
 that contain no corrective candidate; proposal coverage remains separate.
 
-**Status.** D7-v2 FROZEN; D7.0b IS THE AUTHORIZED NEXT BUILD; THE D7 SCORER AND POLICY ARE NOT
-IMPLEMENTED OR LAUNCHED. It is the next G-track scorer-mechanism phase, but does not displace the already-running
-§3d.A same-start comparison or funded periodic/frozen/HOM GPU endpoints. On 2026-08-20 the isolated
-CPU/read-only `D7RawDonorCensusJob.zsnx1p9nLyV3` completed; a separate verifier regeneration then
-reproduced every raw edge and pinned hash. The all-eligible external graph has 4,911 edges and only
-276/1,500 `E_all` sources with at least two donors in both chapter strata, so a full-`E_all` K=4
-donor statistic is unsupported. Zero sources meet the conservative eight-donors-per-stratum
-diagnostic, but exact second-quartile support remains undefined until its rank, boundary and tie laws
-are frozen. The external band was not registered: D7.0a verifies the amendment trigger, not an eight-
-per-stratum design. On 2026-08-21 D7-v2 prospectively froze the executable training rank/tie law and
-the external K=1, M=1, no-band, donor-cap-three matching above. D7.0b may now be implemented and
-launched; every production donor consumer and D7.1 remain blocked until its repeated census and
-loss/resource preflight pass. No new full loop is authorized. The paired-only D7.3 correction above is prospective: the
-intended banked-reuse path has control 14.45/19.69 only conditional on the required epoch-30 scorer
-parity, so on that path the withdrawn clause would have demanded a 0.56/1.85 one-leg gain to reach
-13.89/17.84 while still allowing a result worse than the banked 12.68/17.57 utility reference.
-Those trajectory observations diagnose an unsupported bar, not a mathematical upper bound on D7.
-D7.0a--D7.2a are scorer-only; D7.3 is specified behind the amended label-free gate and requires a
-fresh user launch word while all D7 gold diagnostics remain sealed.
+**Status.** CLOSED — STRUCTURAL FAIL AT D7.0b; NO D7 SCORER OR POLICY RAN. D7.0a and the D7-v2
+feature job passed their pinned-input and label-free checks. The feature artifact contains 28,538
+feasible scorer rows and 136,966 Q2 training edges; 17,748 rows have at least two raw outgoing
+donors in both chapter strata. That outgoing-degree count was not enough for the registered common
+K=4 surface: the exact simultaneous same/different-chapter 2-in/2-out optimizer admitted only 56
+rows from two speakers, against the frozen 6,778-row and 201-speaker floor.
+
+The 2026-08-21 verifier replay independently peeled any vertex with fewer than two incoming or two
+outgoing Q2 edges in either chapter stratum. Its fixed point has only 120 rows from four speakers,
+which is a necessary superset of every feasible common 2-in/2-out solution and is already far below
+the floor. The verdict is therefore structural, not an optimizer timeout or retryable runtime
+failure. `D7V2AssignmentJob.aSOMkw3hSc0K` failed closed before external matching; the planned loss
+preflight, D7.1 scorer training, D7.2 admission and D7.3 policy work did not run. Per the prospective
+D7-v2 rule, no third donor amendment, floor relaxation or solver retry is authorized. This closes
+only the registered K=4/Q2/common-regular operating point; it does not
+measure the reverse matching loss or establish that every sequence-discriminative scorer is
+untrainable. Evidence and exact artifacts: `SAE_3E1.md` approaches 30--31 and conclusion 57. The
+campaign returns to the already-funded D6 endpoints and §3d.A operator read; no D7 action remains.
 
 ## Acceptance gate v2
 

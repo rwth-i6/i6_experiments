@@ -1271,8 +1271,8 @@ function-word pairs rather than broad spelling diversity.
     are themselves unregistered. Later filters can only shrink a chosen surface. This triggered the
     prospective D7-v2 amendment, now frozen on 2026-08-21: training retains K=4 balanced Q2
     negatives, while the external donor-gap instrument uses one no-band nuisance-minimized donor,
-    one table and donor load at most three on a coverage-gated `E_D`. D7.0b is authorized to verify
-    and materialize that surface; D7.1 remains closed until D7.0b passes.
+    one table and donor load at most three on a coverage-gated `E_D`. Conclusion 57 records the
+    prospective D7.0b read of that surface; D7.1 was never authorized before a pass.
 57. **D7-v2 / D7.0b fails its preregistered training-support floor and is structurally unresolved**
     (31). The feature census passed every frozen checksum and found 28,538 feasible scorer rows,
     136,966 Q2 edges and 17,748 rows with at least two raw outgoing donors in both chapter strata.
@@ -1291,9 +1291,9 @@ function-word pairs rather than broad spelling diversity.
 | artifact | path |
 |---|---|
 | code | `sae/scorer_diag.py`, `sae/text_repair.py`, `sae/psi_align_jobs.py`, `sae/psi_align.py`, `sae/curate.py`, `sae/gate_table.py`, `sae/refresh_gate.py`, `sae/d7_census.py`, `sae/d7_v2.py` (+ focused tests; D7.0a commit `a0a22b4`, D7-v2 commit `7b2069d`) |
-| entry points | `config/sae_3e1_d0.py`, `config/sae_3e1_usage.py`, `config/sae_3e1_d1d2.py`, `config/sae_3e1_d3.py`, `config/sae_3e1_d4.py`, `config/sae_3e1_d4p.py`, `config/sae_3e1_d5b.py`, `config/sae_3e1_d6.py` (builds D4' and the swap-in too), `config/sae_3e1_d6periodic.py`, `config/sae_3e1_d6periodic_warm.py`, `config/sae_3e1_hom.py`; D7.0a tracked canonical config `src/speech_llm/prefix_lm/sis_recipe/exp2025_11_06_speech_llms/librispeech/configs/config_sae_3e1_d7_0a_v1.py` at `a0a22b4` (the workspace wrapper only delegates) |
+| entry points | `config/sae_3e1_d0.py`, `config/sae_3e1_usage.py`, `config/sae_3e1_d1d2.py`, `config/sae_3e1_d3.py`, `config/sae_3e1_d4.py`, `config/sae_3e1_d4p.py`, `config/sae_3e1_d5b.py`, `config/sae_3e1_d6.py` (builds D4' and the swap-in too), `config/sae_3e1_d6periodic.py`, `config/sae_3e1_d6periodic_warm.py`, `config/sae_3e1_hom.py`; D7 tracked canonical configs `src/speech_llm/prefix_lm/sis_recipe/exp2025_11_06_speech_llms/librispeech/configs/config_sae_3e1_d7_0a_v1.py` at `a0a22b4` and `config_sae_3e1_d7_v2_v1.py` at `7b2069d` (workspace wrappers only delegate) |
 | D7.0a complete raw external/scorer edge tables and census (approach 30) | `S/d7_census/D7RawDonorCensusJob.zsnx1p9nLyV3` |
-| D7-v2 / D7.0b feature, assignment and loss-preflight chain (approach 31) | `S/d7_v2/D7V2FeatureJob.hnReOv8t9UWg`, `S/d7_v2/D7V2AssignmentJob.aSOMkw3hSc0K`, `S/d7_v2/D7V2LossPreflightJob.tou1ziPwBt5t` |
+| D7-v2 / D7.0b feature and fail-closed assignment jobs (approach 31); the downstream loss preflight never materialized | `S/d7_v2/D7V2FeatureJob.hnReOv8t9UWg`, `S/d7_v2/D7V2AssignmentJob.aSOMkw3hSc0K` |
 | D6-PERIODIC legs 1-8 (approach 22), parent sub-ep 3-10 | `T/ReturnnTrainingJob.5FqdnhWTOf1f`, `.BTnU1gSuMG0i`, `.ZKCbq529Hgp8`, `.gFNpNmXwvrsc`, `.nQtnPdKCuJ0m`, `.n8abYvLR4IP5`, `.jGj7TTbW5DTm`, `.wWqYY7iOCw1s` |
 | its per-boundary refits (rounds 2-8) | `S/psi_align_jobs/PsiAlignTrainJob.JWV3InILYF5v`, `.yUUSN2Hx96E0`, `.QMO8VcAtZ6Gi`, `.DzhBWCy61tiN`, `.Vha8vvKu9lWk`, `.RGTtwlQHt3HY`, `.Ls0TQGiyhQbf` |
 | D6-PERIODIC-WARM legs 1-8 (approach 24), parent sub-ep 3-10; leg 1 is approach 22's, shared | `T/ReturnnTrainingJob.5FqdnhWTOf1f`, `.OOr3UybqUEHD`, `.X3biCvDKgQ7N`, `.7dANeLqxFFbq`, `.nd92xaRDY0uw`, `.kkh0u4rI7I6D`, `.kQRZtXc1ubTV`, `.oRbUsmYR6fRT` |
@@ -1969,12 +1969,22 @@ the absolute beta, is what carries the contamination claim.
   for training with an executable ordinal rank/tie law; and a separate external K=1, M=1, no-band,
   max-cardinality/minimum-nuisance cap-three matching. External admission requires at least 435/725
   dev-clean and 465/775 dev-other sources plus 32/40 and 27/33 source speakers, retains fixed
-  725/1500 and 775/1500 split weights, and never shrinks the all-1,500-row Acceptance gate. D7.0b is
-  now the authorized executable next step; D7.1 remains blocked only until its repeated census,
-  table/loss calibration and one-step resource preflight pass.
-- 2026-08-21 (D7-v2 / D7.0b structural verdict): FAIL. The label-free feature job completed and
-  reproduced all pinned inputs, but the assignment job's common-set K=4 construction admitted only
-  56 rows and two speakers, below the frozen 6,778-row/201-speaker floor. An implementation-independent
-  simultaneous 2-in/2-out necessary-core replay bounds the entire feasible surface by 120 rows and
-  four speakers, so retrying or tuning the solver cannot change the gate verdict. No external
-  assignment, loss calibration, scorer training, policy training or WER job ran; D7.1 remains closed.
+  725/1500 and 775/1500 split weights, and never shrinks the all-1,500-row Acceptance gate. This
+  prospectively authorized the D7.0b read whose closed verdict follows.
+- 2026-08-21 (D7-v2 / D7.0b structural verdict, independently verified): FAIL. The label-free
+  feature job completed and its manifest reproduces all frozen role sizes, hashes and checksums:
+  28,538 feasible scorer rows, 569,785 hard training edges, 136,966 Q2 edges and 17,748 rows with at
+  least two raw outgoing donors in both chapter strata. The assignment code encodes, for every
+  admitted vertex and each chapter stratum, both incoming and outgoing edge counts exactly equal to
+  `2*a_i`; its zero-gap MILP returned 56 admitted rows from two speakers before the registered
+  6,778-row/201-speaker check raised.
+
+  Independently streaming the emitted Q2 table and repeatedly removing every vertex with fewer than
+  two incoming or two outgoing edges in either stratum leaves 120 rows from four speakers. Every
+  feasible common 2-in/2-out solution must lie inside that necessary core, so even a different exact
+  optimizer is bounded far below the floor. This is the intended fail-closed scientific gate, not a
+  scheduler, timeout or convergence failure. The assignment stopped before external matching; no
+  loss-preflight directory, scorer training, policy training, reference-text or WER consumer exists.
+  The registered K=4/Q2/common-regular operating point is structurally closed, while the reverse
+  matching loss itself remains unmeasured. Per the prospective rule, no solver retry, floor
+  relaxation or third donor amendment is authorized; D7.1--D7.3 remain closed.
