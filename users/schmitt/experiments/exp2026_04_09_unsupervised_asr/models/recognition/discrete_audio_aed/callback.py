@@ -37,14 +37,19 @@ class RecognitionToTextDictCallback(ForwardCallbackIface):
         self._out_file.write("{\n")
 
     def process_seq(self, *, seq_tag: str, outputs: TensorDict, **kwargs):
-        tokens: np.ndarray = outputs["tokens"].raw_tensor  # Beam, Time
-        assert tokens.ndim == 2
-        dyn_dims = [d for d in outputs["tokens"].dims if d.dyn_size_ext is not None]
-        assert len(dyn_dims) == 1, f"found more than one dynamic dim: {dyn_dims}"
-        tokens_lens: np.ndarray = dyn_dims[0].dyn_size_ext.raw_tensor  # Beam
-        assert tokens_lens.ndim == 1
-        scores: np.ndarray = outputs["scores"].raw_tensor  # Beam
-        assert scores.ndim == 1
+        tokens: np.ndarray = outputs["tokens"].raw_tensor  # Beam, Time or Time
+        scores: np.ndarray = outputs["scores"].raw_tensor  # Beam or []
+        if tokens.ndim == 2:
+            dyn_dims = [d for d in outputs["tokens"].dims if d.dyn_size_ext is not None]
+            assert len(dyn_dims) == 1, f"found more than one dynamic dim: {dyn_dims}"
+            tokens_lens: np.ndarray = dyn_dims[0].dyn_size_ext.raw_tensor  # Beam
+            assert tokens_lens.ndim == 1
+            assert scores.ndim == 1
+        else:
+            assert tokens.ndim == 1
+            tokens = tokens[None, :]
+            tokens_lens: np.ndarray = np.array([tokens.shape[1]])
+            scores = scores[None]
 
         if self.include_beam:
             num_beam = scores.shape[0]
