@@ -4,59 +4,76 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-In flight 2026-08-21 21:30:
+In flight 2026-08-22 00:10:
 
 - **D7-GAN-SEQDISC** (`config/sae_3e1_d7_gan_seqdisc.py`, approach 32). All ten theta_0^G
   argmax-decode shards FINISHED (16:37-18:11) and `S/scorer_diag/SearchOutHypsJob.h8GoSrbrTPHh`
   merged them, decoder-equivalent to the banked greedy decode (numbers under approach 32). The D7.0
-  pool `S/d7_online/D7OnlinePoolJob.XLjSgTzHfwAu` then ran and PASSED on its own census artifact,
-  read rather than inferred from its finished marker: 281,241 rows, 2,338 speakers, 0 empty
-  hypotheses; train donor cases 266,138 ordinary_window / 1,041 nearest_fallback / 0 singleton,
-  internal-held 11,855 / 2,153 / 54. **The D7.0 preflight `D7OnlinePreflightJob.ZxfANwBZYpaI` then
-  FAILED**, and the failure is in the barrier's own clause, not in the arms -- see approach 32's
-  parity paragraph. The matched pair `D7OnlineTrainJob.j16rTskXF1QU` / `.WA1bqjXQtzeZ` has still
-  never run; their work dirs do not exist.
+  pool `S/d7_online/D7OnlinePoolJob.XLjSgTzHfwAu` PASSED on its own census artifact: 281,241 rows,
+  2,338 speakers, 0 empty hypotheses; train donor cases 266,138 ordinary_window / 1,041
+  nearest_fallback / 0 singleton, internal-held 11,855 / 2,153 / 54. The preflight
+  `D7OnlinePreflightJob.ZxfANwBZYpaI` then PASSED under the amended operational parity rule
+  (finished 21:32). **Both D7.1 trainings `D7OnlineTrainJob.j16rTskXF1QU` (control) and
+  `.WA1bqjXQtzeZ` (candidate) then failed closed at data load**, 21:32, on the same row: an anchor
+  whose own pseudo-text cannot align to its own audio at `d_min=2`. Fixed under the planner's
+  own-infeasible-anchor amendment (below); both hold `error.run.1` and have never trained a step.
 - **D6-PERIODIC/GAN-FROZEN**: leg 7 of 8 running (`T/ReturnnTrainingJob.ZgRzUxDRhajE`), legs 1-6
-  finished.
-- **D6-PERIODIC/GAN960-FROZEN** (approach 33): LAUNCHED 2026-08-21 21:40, manager alive, leg 1
-  `T/ReturnnTrainingJob.ohmLWWmr6Kxe` running -- confirmed from its on-disk job dir, not from the
-  manager's word. Watcher attached. Its gate is leg 8 beating this arm's own init 13.11/16.82 on
-  both splits; matched-leg deltas against GAN-FROZEN are reported and select nothing.
+  finished. Watcher attached this session (manager pid 1991977).
+- **D6-PERIODIC/GAN960-FROZEN** (approach 33): leg 1 `T/ReturnnTrainingJob.ohmLWWmr6Kxe` running,
+  manager alive (pid 3514914), watcher attached this session. Its gate is leg 8 beating this arm's
+  own init 13.11/16.82 on both splits; matched-leg deltas against GAN-FROZEN are reported and
+  select nothing.
+
+**D7 own-infeasible-anchor amendment IMPLEMENTED AND VERIFIED** (speech-llm `e2a421b`). Both arms
+now drop an own-infeasible anchor (empty states/units, or minimum feasible frames > T) from
+training as an ANCHOR only, deterministically and identically; the row stays donor-eligible,
+because the donor law reads the pool index and unit store and never text feasibility. The realized
+drop set is named per role in the training report and in `out_monitors`, and any set other than
+exactly the four registered train-role rows fails the run. Verified on the real pool inputs
+(`scripts/d7_make_items_dropcheck.{py,json}`): the full load drops exactly `3488-85273-0024`,
+`3889-130125-0028`, `4492-8904-0032`, `8424-284526-0028`, all train-role, leaving 267,175 train and
+14,062 held anchors against the index's 267,179 / 14,062; the shard-0 load the preflight uses drops
+none and keeps its 26,743 rows. All four D7 job hashes verified unmoved from the graph. The pool
+artifact and its 281,241-row coverage clause are untouched.
 
 **BLOCKER 1, D7, needs one user command:**
-`./sis_managers.sh start sae_3e1_d7_gan_seqdisc -co` -- with `-co`, not bare: the preflight holds
-`error.run.1` and `-co` is the correct clear for a stateless job. Checked on disk, it clears exactly
-that one job; the pool is finished and its earlier attempt is preserved as `.cleared.0001`. The
-planner ruled on the parity clause and the amendment is implemented and committed (`91c437a`,
-speech-llm): losses keep exact equality, and the gradient arm is calibrated against a noise floor F
-measured in the same job (2 extra re-runs of one model), passing iff cross <= 3F and F <= 1e-4, with
-F > 1e-4 failing as the distinct backend-too-noisy defect. Job hashes verified unmoved; the edit sits
-inside the source-identity pin, which is why the restart is needed at all.
-History for whoever resumes: the manager was started twice tonight. The first start exited
-immediately because this implementer had renamed the pool job's `error.run.1` aside, which for a
-non-resumable job leaves it `interrupted_not_resumable`, whose clearing sisyphus asks about
-interactively while the manager holds `/dev/null` on stdin -- fail-closed, working as designed. The
-second start passed `-cio` and cleared exactly that one stateless job. The rename is the wrong
-recovery for any job that is not resumable; use the per-job clear or `-cio`.
+`./sis_managers.sh start sae_3e1_d7_gan_seqdisc -co` -- with `-co`, not bare. Checked on disk, it
+clears exactly the two `D7OnlineTrainJob` dirs, which hold `error.run.1` and no checkpoint (they
+failed before the first shard save, so `-co` discards no training progress); the pool and preflight
+are finished and are not touched. The edit sits inside the source-identity pin and outside every job
+hash, which is why the restart is needed at all.
+History for whoever resumes: the earlier pool-stage recovery went wrong twice. Renaming a
+non-resumable job's `error.run.1` aside leaves it `interrupted_not_resumable`, whose clearing
+sisyphus asks about interactively while the manager holds `/dev/null` on stdin -- fail-closed, as
+designed. The rename is the wrong recovery for any job that is not resumable; use the per-job clear,
+`-cio`, or `-co` as here.
 
 **D8.0 is FUNDED and worded for launch** (planner, on the user's approval; D8.1a-b stay gated behind
 the D7.2 admission verdict, D8.3 needs its own word). Implementation of the CPU-only read of the two
-frozen artifacts is the implementer's next task. Pre-registration discipline restated by the planner
-and accepted: the clause statistics first exist inside the registered job's own output, with no
-informal pre-read anywhere -- which is why this log still carries no distinct-hypothesis count, ESS
-or weight-variance number for either artifact.
+frozen artifacts is IN PROGRESS this session. Both dumps are on disk and are both tc100-bed:
+`ReturnnForwardJobV2.QbIYruVEI0fF` (fork epoch, 28,539 utterances, T=0.7 only, units
+`MergeUnitsPklJob.ncxcd3vouD5E`) and `ReturnnForwardJobV2.J9yA1eYnxwYA` (the operative theta_0^G
+policy, 512 utterances, 30,720 rollout rows at T={0.3,0.5,0.7,0.9,1.0} G=12, plus 512 `greedy` and
+512 `true` rows, units `MergeUnitsPklJob.hJmZtbPDa2hd`) -- each dump's own unit source is the join,
+since that is what its stored `recon` was scored against. Pre-registration discipline restated by
+the planner and accepted: the clause statistics first exist inside the registered job's own output,
+with no informal pre-read anywhere -- which is why this log still carries no distinct-hypothesis
+count, ESS or weight-variance number for either artifact.
 
-Next action: on the planner's ruling, make the single parity edit, ask for the one restart, then
-confirm the preflight PASS artifact and that the two D7.1 trainings begin matched. A D7 policy leg
-is NOT authorized and none is in this graph.
+Next action: (1) ask the user for the one D7 restart above and confirm both D7.1 trainings begin
+matched; (2) finish and launch the D8.0 read. A D7 policy leg is NOT authorized and none is in this
+graph.
 
-D8 (`PLAN_3E1.md`, spec stable at ef89e5dc5): five implementer flags absorbed across five spec
-passes -- per-unit currency, single-temperature artifact, reader whitelist, the policy axis, and the
-scoreability arm that could not fire -- and the same-string rule now re-scores only the repaired
-minority beside the tau_star rule in the weight job's docstring. Nothing to implement until the user
-authorizes D8.0; no gate statistic has been computed on either artifact.
-
-Proposal for the planner: none outstanding.
+**Proposal for the planner (D8.0 reader, one unspecified rule).** Clause (a) dedups the support on
+the D8 reader-normalized string, while D8.0 deliberately reads the dumps' STORED score columns,
+which were computed at dump time on the raw pre-fold text. When two raw texts in one group collapse
+to the same normalized string their stored `recon`/`lm_prior` differ, and the spec does not say
+which survives. Implementing the deterministic rule "keep the member whose raw text already equals
+its normalized form, else the earliest in the artifact's stored row order", reported with the count
+of groups where the choice was exercised. On these two artifacts the rule is near-inert by the
+planner's own measurement (3 of 342,468 raw texts non-ASCII on the fork dump), but it is a reader
+decision and belongs in the plan rather than only in the job. Flagging rather than assuming; the
+job will state the rule in its docstring either way.
 
 ## Approach
 

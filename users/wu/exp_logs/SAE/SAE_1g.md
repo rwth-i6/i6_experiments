@@ -1,5 +1,44 @@
 # SAE_1g — Evidence for a simple weak SAE initialization
 
+## State
+<!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
+question each answers), blockers, next action, proposals for the planner. -->
+
+In flight 2026-08-22 00:10:
+
+- **H4 pre-label selection surfaces** (`config/sae_1g_h4_prelabel_surfaces.py`, manager started
+  2026-08-21 21:47, pid 3796121, watcher attached). Question: what is every baseline H4 tuple's
+  own-minus-donor selection score on the 890 selection utterances, so the five provisional pre-label
+  maxima can be frozen before any controlled label opens. Launch condition met and independently
+  read from the artifact rather than the log: `H4GlobalBeamTableJob.ro6L8QCnqYpx/output/
+  global_beams.json` classifies all 12 `(lm_scale, insertion_penalty)` grid points, every one
+  `eligible=false`, on real 201-utterance / 19,515-retained-unit representative decodes -- the best
+  adjacent-beam pair keeps only 62% of one-best hypotheses against a 0.999 requirement, and every
+  score-change-per-unit is two orders above the 1e-4 bound. The sequence family is therefore
+  mechanically ineligible for baseline H4 and the surface graph builds no sequence decode: it is
+  340 local decodes (85 starts x counts 0/1/2/4), 3,400 fixed-text donor scores (10 frozen
+  assignments each), the selection surface and the provisional maxima. Graph read at launch: 635
+  finished, 343 runnable, 3,730 waiting, nothing in a problem state. All 821 prerequisite jobs are
+  preserved and none is rerun.
+- `sis_managers.sh` no longer blocks this config; the blocked entry named exactly the verdict check
+  performed above, and the config moved into IN_SCOPE.
+
+Blockers: none for H4.
+
+Next action: hold the watcher to DONE, then read `provisional_maxima.json` and the selection surface
+before anything else in 1g.2 -- no controlled label may open until the five provisional maxima are
+persisted and the update-role winner audits are done.
+
+Operational note for whoever resumes: `JOB_AUTO_CLEANUP` cannot be checked from a sisyphus console.
+`sisyphus/__main__.py:218` forces it to `False` for every non-manager subcommand, so a console read
+always reports `False` regardless of `settings.py`. The effective value in a manager here is `True`
+(`settings.py:238`, no override anywhere in the tree), confirmed on disk by finished jobs carrying
+`finished.tar.gz` rather than a plain `finished` marker. Cleanup keeps each job's `output/` and
+`info`; only logs, `input/` and the internal `work/` go, so preserving the H4 prerequisite graph is
+unaffected.
+
+Proposal for the planner: none outstanding.
+
 ## Approach
 
 This log contains experimental evidence only; the current method, gates, and future work are defined
@@ -225,7 +264,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     below 0.0001). Thus the baseline H4 surface retains the local decoder only; no sequence setting
     may enter selection, and the graph stopped without opening selection labels or evaluation.
 
-## Conclusion
+## Verdicts
 
 1. **Approach 1: one segment per text symbol is rejected.** It exceeds the registered ratio on all
    eight dev-other cells and on both estimators. This is a result about that channel shape, not about
