@@ -107,8 +107,6 @@ def forward_step(
     seq_log_prob = ctc_scores.sum(dim=-1)
     seq_log_prob = rf.convert_to_tensor(seq_log_prob, dims=[batch_dim])
 
-    # breakpoint()
-
     seq_targets, ctc_output_lens = _get_collapsed_out_seqs(
         seq_targets=seq_targets[:, None],  # (B, 1, T)
         blank_idx=model.blank_idx,

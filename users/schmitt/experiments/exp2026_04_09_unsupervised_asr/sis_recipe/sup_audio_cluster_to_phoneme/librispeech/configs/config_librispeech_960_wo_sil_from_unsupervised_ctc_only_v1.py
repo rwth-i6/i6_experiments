@@ -9,7 +9,7 @@ from .... import optimizer_configs
 from ... import __setup_base_name__
 
 from .config_librispeech_960_v1 import base_config, base_num_epochs
-from .config_librispeech_960_wo_sil_v1 import train_data, test_data_dict_wo_sil, test_data_dict
+from .config_librispeech_960_wo_sil_v1 import train_data, test_data_dict_wo_sil
 
 
 def get_keep_epochs(num_epochs: int) -> List[int]:
@@ -69,7 +69,7 @@ def py(checkpoints: Dict):
                 },
             ),
             train_data=train_data,
-            test_data_dict=test_data_dict,
+            test_data_dict=test_data_dict_wo_sil,
             keep_epochs=get_keep_epochs(base_num_epochs),
             skip_eval=False,
             # score_data_dict=test_data_dict_wo_sil,
