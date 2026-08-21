@@ -2047,5 +2047,39 @@ the absolute beta, is what carries the contamination claim.
   reciprocal duration ratio 0.8--1.25, using closest-duration fallback only when that window is
   empty. It does not depend on §3d.A's currently blocked packed CTC decoder. The executed offline
   D7-v2 result remains closed as conclusion 57, while its active specification is superseded.
-  D7.0/D7.1 are registered but no corrected-D7 code or job exists yet, and D7.3 policy compute
-  remains held.
+  D7.3 policy compute remains held.
+- 2026-08-21 (corrected D7 implementation verified; approach 32 / Catalog / State audited): PASS —
+  build faithful to the registered specification; no experimental number exists yet. Confirmed
+  against code, the live manager graph, on-disk artifacts and the scheduler: all four Catalog job
+  ids match the manager's own graph (aliases the manager wrote at 16:37; work dirs legitimately
+  absent while the decode chain runs); the ten decode shards are GPU `ReturnnForwardJobV2`s on the
+  frozen theta_0^G epoch-10 checkpoint, with `d7_greedy` a thin wrapper that calls the pre-existing
+  argmax stepping (`forward_step.py` `_greedy_argmax_decode`, the same function behind the D6
+  greedy dumps; it never reads the dataset's text stream) and the same tokenizer/lowercase/
+  ascii-fold conventions; the pseudo-text transform replaces the train text with two-sided
+  coverage asserts and a zero-empty assert; the bound unit store is the frozen raw-50 Hz K=500
+  `PackUnitsJob.I0uzRMfUrKWC`; the seed-42 5% holdout reproduces the D7-v2/PsiAlign row-order
+  convention exactly (verbatim toy re-run, identical held sets); every training constant
+  (contrastive weight 1.0 / 1 negative, batch cells 24M, max batch 256, lr/decay/warmup, default
+  architecture, `d_min=2`, CUDA backend, bpe512 codes and lexicon artifacts) is byte-identical to
+  the round-1 refit `PsiAlignTrainJob.dsMKgPHQApyR` job record; the loss algebra implements the
+  registered per-frame softplus donor-minus-own term with the stateless keyed draw (three CPU unit
+  tests pass); D7.1 is hard-gated on the D7.0 preflight PASS artifact plus index-hash binding;
+  fixed-final only, D7.2/D7.3 absent from the graph; the fixed-final checkpoint dict satisfies
+  `PsiScorerParityJob.from_checkpoint`; no funded GPU job was cancelled or displaced at launch.
+  Caveats a reader of D7.1 numbers must know: (i) the registered same-dropout-stream parity is
+  currently guaranteed only for unbroken runs — the shard-resume checkpoint carries no torch RNG
+  state, so a wall-clock resume of one arm desynchronizes the streams (fix requested from the
+  implementer before the train jobs first run; hash-free while their dirs do not exist); (ii) a
+  donor structurally too short for the anchor's text yields a softplus term of exactly 0 with zero
+  gradient — conservative for the gate but invisible in the current diagnostics (counter
+  requested); (iii) prior weight is 0 from step 0, a forced deviation from the refit's 4-epoch
+  prior anneal, entailed by carrying `L_U->z` across a single pass (definition now pinned in
+  `PLAN_3E1.md`); (iv) the ~0.035% max-generation-length truncation tail of the argmax decoder
+  (measured 10/28,539 on the finished tc100 greedy dump) extrapolates to roughly 100 of 281,241
+  rows — the decoder's established operating point, not a D7 deviation; once shards finish, the
+  free equivalence check is diffing the D7 merge against `ReturnnForwardJobV2.66pIzBzffnK2`'s
+  greedy texts on the shared tc100 utterances; (v) the CUDA/python backend parity test does not
+  cover a `d_min=2` skip lattice — equivalence rests on the c38 end-to-end identical-fit
+  comparison, and both arms share the backend so any residual discrepancy cancels in the paired
+  read.

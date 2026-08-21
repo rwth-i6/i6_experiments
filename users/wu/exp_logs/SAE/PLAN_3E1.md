@@ -1542,9 +1542,20 @@ and add one binary sampled-softmax term per eligible anchor visit,
     L_online = mean_i softplus(s_psi(z_i,U_j) - s_psi(z_i,U_i)).
 
 Use K=1, temperature 1 in the score's native nats/frame currency, and coefficient 1. The exact
-control is `L_NLL + L_U->z`; the candidate is `L_NLL + L_U->z + L_online`. Both use the existing
+control is `L_NLL + L_U->z`; the candidate is `L_NLL + L_U->z + L_online`. (Definition pinned
+2026-08-21 post-implementation-verification, no operative change: `L_NLL` is the per-frame
+forward-sum unit NLL and `L_U->z` is the D2 matching-aware in-batch text-negative term
+(`matching_contrastive_loss`) at weight 1.0 with 1 negative — exactly the objective and operating
+point the D6 round-1 `d_min=2` refit `PsiAlignTrainJob.dsMKgPHQApyR` trained under, whose recipe
+constants (batch cells 24M, max batch 256, lr 1e-3, warmup 500, default architecture, CUDA
+forward-backward) both arms reuse verbatim. One forced deviation from that refit's 30-epoch
+curriculum: the alignment-prior anneal is inactive (prior weight 0 from step 0), because the
+contrastive term is defined only at prior weight 0 and the registered control objective carries it
+across the whole single pass.) Both use the existing
 graphemic-BPE psi_align architecture, `d_min=2`, random initialization, seed, optimizer, batch order
-and one complete 960 h corpus pass split into the bed's existing ten 96 h shards. Fixed final is the
+and one complete 960 h corpus pass split into the bed's existing ten 96 h shards (eight of the ten
+interleaved shard datasets pre-existed from the D6-PERIODIC campaign and are reused at identical
+hash; shards 8-9 are fresh instantiations of the same rule). Fixed final is the
 only checkpoint; loss, donor gaps and internal-held metrics never select an epoch. No temperature,
 K, coefficient or duration-window sweep is admitted.
 
@@ -1596,13 +1607,27 @@ After an authorized D7.3 submission, its local scientific pass is candidate WER 
 matched control on both dev splits. A label-free scorer win without a two-split policy win establishes
 only scorer-side conditional discrimination, not useful ASR progress.
 
-**Status.** ACTIVE SPECIFICATION; NOT IMPLEMENTED OR LAUNCHED. The user's 2026-08-21 correction
+**Status.** IMPLEMENTED AND LAUNCHED 2026-08-21; VERIFIER-CONFIRMED same day (replaces "not
+implemented or launched", because the implementer built and launched the graph under the standing
+authorization). The user's 2026-08-21 correction
 supersedes the offline D7-v2 design, not its recorded result: that graph admitted 56 rows/two
 speakers against the frozen 6,778/201 floor, with an independently verified necessary-core upper
 bound of 120/four; it stopped before loss, scorer or policy work (phase log conclusion 57).
-D7.0 and the D7.1 matched scorer A/B are authorized for implementation; D7.1 may
-submit after D7.0 passes its finite/resource checks without another planner round. This work may be
-built while the funded D6/§3d.A jobs finish, but it does not preempt their running GPU allocations.
+Ten theta_0^G greedy decode shards (frozen `ReturnnTrainingJob.2fb02hGUdHNj` epoch-10 checkpoint,
+the pre-existing G-track argmax decoder reused, GPU `ReturnnForwardJobV2`s) run since 16:37; the
+pool, preflight barrier, and both fixed-final train jobs are registered and waiting behind them
+(hashes in `SAE_3E1.md` Catalog/State). D7.1 auto-submits only after the D7.0 preflight PASS
+artifact exists, per the standing authorization; no funded GPU job was displaced at launch
+(verified against the scheduler and every running arm's logs). Verification 2026-08-21 also
+confirmed: pseudo-text path replaces the train text with two-sided coverage asserts and no empty
+rows; frozen raw-50 Hz K=500 store bound; seed-42 5% holdout reproduces the D7-v2/PsiAlign
+row-order convention exactly (toy re-run); every training constant traces to the round-1 refit's
+job record; the fixed-final checkpoint format satisfies `PsiScorerParityJob`. Two implementer
+actions are requested before the D7.1 jobs first run (both in not-yet-created jobs, so hash-free):
+carry the torch CPU/CUDA RNG state through the shard-resume checkpoint so the registered
+same-dropout-stream parity survives a wall-clock resume, and count donor-side
+structurally-infeasible pairs (donor shorter than the anchor text's minimum feasible frames; the
+softplus term saturates to exactly 0 there) in the sampling diagnostics.
 D7.3 still requires a fresh launch word.
 
 ## Acceptance gate v2

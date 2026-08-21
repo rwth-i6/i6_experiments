@@ -76,7 +76,9 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
   of the reverse loss; no graph amendment or retry is authorized. USER 2026-08-21 corrects active
   D7-GAN-SEQDISC to one full-960 h scorer A/B using K=1 online random
   same-speaker, duration-windowed donors, with no graph, chapter/Q2 band, nuisance filters or donor
-  capacity. D7.0 and D7.1 are registered for implementation; a policy leg still needs authorization.
+  capacity. D7.0/D7.1 are IMPLEMENTED AND LAUNCHED 2026-08-21 (verifier-confirmed same day: decode
+  shards running, scorer A/B gated behind the preflight barrier, no funded job displaced); a policy
+  leg still needs authorization.
 - **960 h stock-donor supervision-axis endpoint is ABSENT**: the theta_0 + gold-scorer arm ran
   only through sub-epoch 4, was stopped and deleted 2026-08-08, and never produced the listed
   3-pass endpoint; `ReturnnTrainingJob.22Ntu7y0O6iW` does not exist. Its observed collapse is
@@ -246,6 +248,9 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    same-speaker donor per anchor and only a reciprocal 0.8--1.25 duration window. No offline edge
    table, matching, chapter balance, nuisance quartile or capacity law survives. D7.0/D7.1 may be
    implemented now without another planner round; do not displace running funded GPU jobs.
+   2026-08-21 (later, verifier): D7.0/D7.1 implemented and launched — decode shards running, the
+   scorer A/B gated behind the D7.0 preflight barrier, no funded job displaced; detail in
+   `PLAN_3E1.md` D7 Status and `SAE_3E1.md` Verifier feedback.
 5. **PLAN_3A matrix wrap-up**: M4 contingency call; collapse the sub-plan when closed.
 6. **§1e §2.5(d)+usage gates on the ep50 pins** — the §3d init upgrade path.
 7. **G2P-equivalence ceiling** on existing rollouts.jsonl (CPU): phone-reachable vs
@@ -867,7 +872,8 @@ is authorized. Historical failure evidence: `SAE_3E1.md` approach 31 and conclus
 USER 2026-08-21 corrects the active
 D7-GAN-SEQDISC method to full-960 h pseudo-pairs, K=1 online uniform donors from
 same-speaker 0.8--1.25 duration pools, and no graph/nuisance matching. Its full specification is in
-`PLAN_3E1.md`; D7.0/D7.1 are authorized, while D7.3 policy compute still needs a launch word.
+`PLAN_3E1.md`; D7.0/D7.1 are implemented and launched 2026-08-21 (verifier-confirmed), while D7.3
+policy compute still needs a launch word.
 
 #### 3d.A. Pseudo-label scale and one-generation self-training (USER-directed 2026-08-20)
 
@@ -1024,7 +1030,8 @@ failed its prospective support floor by two orders of magnitude (56 admitted row
 necessary-core upper bound 120). The external instrument, loss calibration, scorer A/B and policy
 leg were never reached. Active D7 drops graph matching entirely and runs the
 matched scorer A/B on all 281,241 pseudo-labeled 960 h utterances with dynamic K=1 same-speaker,
-duration-windowed donors. D7.0/D7.1 are authorized; D7.3 is not.
+duration-windowed donors. D7.0/D7.1 are implemented and launched (2026-08-21); D7.3 is not
+authorized.
 **Gate v2 (replaces the two-sided gate, 2026-08-07 — amended BEFORE any verdict was read against
 v1, because v1's `text_explained_loo` arm is gold-conditioned as instrumented
 (`config_sae_3a_enc50_units_v1.py:233-243`) and has the wrong sign against the filler mode, and
@@ -1042,9 +1049,10 @@ label-free GAN periodic, HOM, and exact schedule-matched frozen-control arms are
 endpoints remain pending. Finish that GPU work and the §3d.A operator read without displacement.
 D7-v2 closed at D7.0b without scorer or policy compute: exact admission was 56 rows/two
 speakers and the necessary upper bound is 120/four versus the 6,778/201 gate. Do not retry the
-offline graph. Corrected D7-GAN-SEQDISC is registered and authorized through its full-960 h matched
-scorer A/B; build it
-without displacing the already-funded trajectories or §3d.A operator read. Its policy leg is held.
+offline graph. Corrected D7-GAN-SEQDISC is implemented and launched (2026-08-21,
+verifier-confirmed) through its full-960 h matched scorer A/B, gated behind the D7.0 preflight
+barrier, with no displacement of the already-funded trajectories or §3d.A operator read. Its
+policy leg is held.
 Normative details and exact operating points: `PLAN_3E1.md`; evidence: `SAE_3E1.md`.
 
 ### 3f. Exit gate (Rung 3)
