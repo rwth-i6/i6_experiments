@@ -209,6 +209,15 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
    followed by the globally slowest/highest-RSS setting on the heaviest real shard. It contains no
    construction/evaluation donor, decode, scoring, selector, or final-refit job.
 
+10. **H4 label-free global-beam boundary.** The baseline `legacy-2g` continuation reuses the frozen
+    three-table update inventory and passing 10-hour/2-GiB update contract. On its canonical heaviest
+    shard it runs exactly 144 cells: three representatives by the fixed 12
+    `(language-model scale, insertion penalty)` settings by beams 64/128/256/512. For each setting,
+    the first adjacent beam pair passing at least 99.9% exact one-best agreement and strictly less
+    than `1e-4` absolute decoder-score change per retained unit on every representative freezes the
+    smaller beam; a setting with no passing pair is ineligible. This stage reads update audio only and
+    stops before selection-surface decoding, controlled labels, construction refit, or evaluation.
+
 ## Conclusion
 
 1. **Approach 1: one segment per text symbol is rejected.** It exceeds the registered ratio on all
@@ -326,6 +335,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 | H4 artifact, donor, bootstrap, and gate harnesses | commits `93f6261`, `4e67695`; `src/speech_llm/sae/h4_harness.py` |
 | H4 calibration preparation and update-only repair graph | commit `c2e930b`; `work/speech_llm/sae/h4_jobs/H4CalibrationPreparationJob.DPv4aIqwPEzM`; reference `H4RepairJob.x1TyHJMfEVpb`; fingerprint `.iUFh7IwniCMl`; random-map seed 1000 `.Ds0zM1NTY2C1`; pseudo-pair seed 0 `.aeetC3NfgPxB`; ESPUM seed 0/update 30,000 `.ViPSmq4Am8vX` |
 | H4 corrected recovery and decoder-resource preflight | commit `436ea50`; update-only reference `work/speech_llm/sae/h4_production_jobs/H4UpdateReferenceArtifactJob.DZa7gIj8rZNj`; Q recovery `work/speech_llm/sae/h4_production_jobs/H4QRecoveryJob.ar34r8ltGTGW`; selection donor `work/speech_llm/sae/h4_production_jobs/H4RoleDonorTableJob.w2RMXcCJyGoy`; update contract `work/speech_llm/sae/h4_decode_jobs/H4ResourceContractJob.kFA99bygctlt`; selection contract `work/speech_llm/sae/h4_decode_jobs/H4ResourceContractJob.kyMk7fwm027C` |
+| H4 baseline global-beam boundary | code commit `3de988a`; reducer `work/speech_llm/sae/h4_beam_jobs/H4GlobalBeamTableJob.ro6L8QCnqYpx` |
 | H5 handoff and H6 character-route interfaces | commit `ce265ce`; `src/speech_llm/sae/handoff.py`; `src/speech_llm/sae/character_route.py` |
 
 ## Verifier feedback
