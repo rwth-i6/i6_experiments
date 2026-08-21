@@ -4,59 +4,36 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-In flight 2026-08-21 18:40:
+In flight 2026-08-21 18:57:
 
 - **D7-GAN-SEQDISC** (`config/sae_3e1_d7_gan_seqdisc.py`, approach 32). All ten theta_0^G
   argmax-decode shards FINISHED (16:37-18:11) and `S/scorer_diag/SearchOutHypsJob.h8GoSrbrTPHh`
-  merged them, so the pseudo-text the A/B is defined on now exists. The graph is parked at the D7.0
-  barrier: `S/d7_online/D7OnlinePoolJob.XLjSgTzHfwAu` -> `D7OnlinePreflightJob.ZxfANwBZYpaI` -> the
-  matched pair `D7OnlineTrainJob.j16rTskXF1QU` (control, `L_NLL + L_U->z`) and `.WA1bqjXQtzeZ`
-  (candidate, same plus `softplus(s_donor - s_own)`), which answer whether the online same-speaker
-  donor negative changes the scorer at equal schedule.
-- **BLOCKED, needs one user command.** The verification round's two pre-run fixes are implemented,
-  tested and committed (`1d10945`, speech-llm branch `haotian_modality_matching_jupiter`), but the
-  d7 manager pinned the source identity at 16:37 and has since exited. The pool job started at 18:11
-  under that stale pin and stopped on its own guard ("D7 online source changed after graph
-  construction") -- the guard behaving exactly as designed, with nothing written and nothing lost.
-  Its error marker is renamed aside to `error.run.1.backup`, so the job is runnable again and will
-  rerun as soon as a manager re-pins the edited source:
-  `./sis_managers.sh start sae_3e1_d7_gan_seqdisc` (blocked for the agent by the tool classifier).
-  Both D7.1 train jobs' work dirs still do not exist, so the fixes land before their first run as
-  the round required. All four D7 job hashes plus the merge were verified unmoved by the edits.
-- **D6-PERIODIC/GAN-FROZEN** (`config/sae_3e1_d6periodic_gan_frozen.py`, the schedule-matched control
-  that freezes periodic round 1's own d_min=2 scorer): leg 6 of 8 running
-  (`T/ReturnnTrainingJob.2p2hpz7nk5vd`, 4.3 h in), legs 1-5 finished, 23 jobs waiting behind it.
+  merged them; the merge is decoder-equivalent to the banked greedy decode (numbers under approach
+  32). The graph is parked at the D7.0 barrier: `S/d7_online/D7OnlinePoolJob.XLjSgTzHfwAu` ->
+  `D7OnlinePreflightJob.ZxfANwBZYpaI` -> the matched pair `D7OnlineTrainJob.j16rTskXF1QU` (control)
+  and `.WA1bqjXQtzeZ` (candidate).
+- **D6-PERIODIC/GAN-FROZEN**: leg 6 of 8 running (`T/ReturnnTrainingJob.2p2hpz7nk5vd`, 4.9 h in),
+  legs 1-5 finished, 23 jobs waiting behind it.
 
-Next action: start the d7 manager (above), confirm the pool and the D7.0 preflight PASS, then
-confirm the two D7.1 trainings start matched. A D7 policy leg is NOT authorized and none is in this
-graph.
+**BLOCKER, needs one user command.** The verification round's two pre-run fixes are implemented,
+tested and committed (`1d10945`, speech-llm branch `haotian_modality_matching_jupiter`); all four D7
+job hashes plus the merge were verified unmoved by the edits, and both D7.1 work dirs still do not
+exist, so the fixes land before their first run as the round required. The d7 manager pinned the
+source identity at 16:37 and has since exited; the pool job started at 18:11 under that stale pin and
+stopped on its own guard ("D7 online source changed after graph construction") with nothing written.
+Its error marker is renamed to `error.run.1.backup`, so the job is runnable and reruns as soon as a
+manager re-pins the edited source: `./sis_managers.sh start sae_3e1_d7_gan_seqdisc`. Both start and
+restart are blocked for the agent by the tool classifier.
 
-D8 spec read 2026-08-21, fifth pass (`PLAN_3E1.md` at fd7b2b83b; nothing implemented, nothing
-authorized). The registered three-mechanism account matches what I measured, and both new binding
-details are implementable. One implementation note, because the obvious reading of the same-string
-rule is expensive and does not have to be:
+Next action: on that start, confirm the pool and the D7.0 preflight PASS, then confirm the two D7.1
+trainings begin matched, and hand the preflight verdict to the verifier. A D7 policy leg is NOT
+authorized and none is in this graph.
 
-- **The rule needs re-scoring only where the normalized string differs from the raw generation.**
-  Taken literally, "weight-side scoring is the same normalized string" reads as a second scoring pass
-  over the whole candidate set -- a pinned-scorer forward plus a Qwen3 prior forward for each of
-  roughly 3.4 M candidates, which would cost more than generating them. It is unnecessary: where the
-  folded string is byte-identical to the generation, the post-fold score IS the stored score under
-  the same pinned scorer, so only the differing candidates need re-scoring. On the theta_0^G T=0.7
-  estimate that is about 3.8 % of candidates, and on the fork policy 3 in 342,468. The greedy member
-  needs none at all: the pool text is already a fixed point of the fold (0 of 281,241 change), which
-  is the same fact that makes the control's targets folded text.
-- **The repair-rate diagnostic and that subset are the same computation.** "Normalized string differs
-  from raw generation" is exactly the predicate that selects what must be re-scored, so detail (2)
-  costs nothing beyond detail (1) and each validates the other: the reported rate is the fraction
-  re-scored.
-- **The re-scoring belongs to the weight job, not the dump job.** The existing dump machinery scores
-  what it generated, i.e. raw pre-fold text; leaving it untouched keeps its hashes and behavior fixed
-  as the plan intends, and lets the weight job own the fold, the dedup key, the re-scored minority
-  and the reported rate together -- which is also where the pre-registered tau_star rule already
-  lives.
-
-No gate statistic touched: no distinct-hypothesis count, no ESS, no weight variance on either
-artifact.
+D8 (`PLAN_3E1.md`, spec stable at ef89e5dc5): five implementer flags absorbed across five spec
+passes -- per-unit currency, single-temperature artifact, reader whitelist, the policy axis, and the
+scoreability arm that could not fire -- and the same-string rule now re-scores only the repaired
+minority beside the tau_star rule in the weight job's docstring. Nothing to implement until the user
+authorizes D8.0; no gate statistic has been computed on either artifact.
 
 Proposal for the planner: none outstanding.
 
