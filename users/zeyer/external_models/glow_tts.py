@@ -194,14 +194,28 @@ def get_glow_tts_phoneme_dataset_dict(
     }
 
 
-def get_glow_tts_phone_info(*, train: bool) -> Dict[str, Any]:
-    """``phone_info`` for RETURNN's ``PhoneSeqGenerator``: text -> GlowTTS phonemes via the lexicon."""
+def get_glow_tts_phone_info(*, train: bool, add_silence_between_words: Optional[float] = None) -> Dict[str, Any]:
+    """``phone_info`` for RETURNN's ``PhoneSeqGenerator``: text -> GlowTTS phonemes via the lexicon.
+
+    :param train: training variant (random silence / pronunciation variants) vs deterministic
+    :param add_silence_between_words: override the per-word-boundary silence probability, train-only.
+        The default 0.95 yields ~30 [space] per utterance,
+        while real LibriSpeech has 4.76, i.e. ~0.15.
+    """
+    # A probability < 1 is random, while the non-train default 1.0 always fires and so is deterministic.
+    # For a reproducible random pattern outside training, use the dataset's fixed_random_seed.
+    assert add_silence_between_words is None or train, (
+        "add_silence_between_words is a training-time knob, a probability < 1 is random;"
+        " non-train uses the deterministic 1.0, use the dataset fixed_random_seed instead"
+    )
     return {
         "lexicon_file": get_glow_tts_lexicon(),
         "phoneme_vocab_file": get_glow_tts_phoneme_vocab(),
         "allo_num_states": 1,
         "add_silence_beginning": 0.01 if train else 0.0,
-        "add_silence_between_words": 0.95 if train else 1.0,
+        "add_silence_between_words": (
+            add_silence_between_words if add_silence_between_words is not None else (0.95 if train else 1.0)
+        ),
         "add_silence_end": 0.01 if train else 0.0,
         "repetition": 0.01 if train else 0.0,
         "silence_repetition": 0.01 if train else 0.0,

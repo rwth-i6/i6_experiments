@@ -1088,6 +1088,62 @@ def py():
         extra_config_deletes=["optimizer.epsilon"],
     )
     # {"dev-clean": 1.83, "dev-other": 4.39, "test-clean": 1.97, "test-other": 4.56}
+    # Frozen MFA mean-logmel table, realistic durations, box smoothing, under gumbel-single.
+    # Box width 9 == linear interpolation: upsampling is already a box of width d, a second gives a triangle.
+    # Odd width stays centered, and 9 >= the max duration 8, which is what removes the plateaus.
+    _train_tts_encoder(
+        "pseudo-enc-logmel-mfatable-realdur-smoothbox9-single-gumbel-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=70_000,
+        batch_size_phon=6_000,
+        max_phon_len=300,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_frozen_table=get_mfa_phone_mean_logmel_table().out_mean_table,
+        pseudo_enc_duration_range=(4, 8),
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_smooth_box_width=9,
+        pseudo_enc_specaug_max_width=6,
+        single_stream=True,
+        interleave_gumbel_scale=1.0,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
+    from i6_experiments.users.zeyer.datasets.hf_librispeech_mfa_alignments import get_mfa_phone_duration_table
+
+    # Frozen MFA table, per-phone durations, linear interpolation, under gumbel-single.
+    # Real durations are right-skewed and span 3.4x across phones, so the uniform (4,8) fit only 43% of them.
+    # Sampled as median[phone] * exp(0.45 * N(0,1)); lerp because no box width fits 5..17-frame segments.
+    _train_tts_encoder(
+        "pseudo-enc-logmel-mfatable-realdur2-lerp-single-gumbel-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=70_000,
+        batch_size_phon=6_000,
+        max_phon_len=300,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_frozen_table=get_mfa_phone_mean_logmel_table().out_mean_table,
+        pseudo_enc_duration_table=get_mfa_phone_duration_table().out_duration_table,
+        pseudo_enc_duration_sigma=0.45,
+        pseudo_enc_lerp=True,
+        # Real LibriSpeech has 4.76 pauses/utterance, the 0.95 default gives ~30.
+        # The [space] duration comes from the table's gap-derived row, so count and length both match.
+        glow_tts_add_silence_between_words=0.15,
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_specaug_max_width=6,
+        single_stream=True,
+        interleave_gumbel_scale=1.0,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
     # Front-end injection with RATE-MATCHED durations on the LEARNED embedding
     # (label dur 4-8 at 100Hz ~ 1 enc-frame/phon; completes the mfatable-realdur cell with
     # trainable embeddings -- separates injection depth from effective frames-per-phoneme).
@@ -1580,6 +1636,12 @@ def _train_tts_encoder(
     pseudo_enc_units: str = "phonemes",
     pseudo_enc_blank_duration_range: Tuple[int, int] = (0, 3),
     pseudo_enc_frozen_table: Optional[tk.Path] = None,
+    pseudo_enc_smooth_sigma: Optional[float] = None,
+    pseudo_enc_smooth_box_width: Optional[int] = None,
+    pseudo_enc_duration_table: Optional[tk.Path] = None,
+    pseudo_enc_duration_sigma: Optional[float] = None,
+    pseudo_enc_lerp: bool = False,
+    glow_tts_add_silence_between_words: Optional[float] = None,
     pseudo_enc_start_layer: Optional[int] = None,
     pseudo_enc_specaug_max_width: Optional[int] = None,
     glow_tts_random_durations_jitter: Optional[Tuple[float, float]] = None,
@@ -1636,13 +1698,9 @@ def _train_tts_encoder(
     else:
         from i6_experiments.users.zeyer.recog import recog_training_exp as recog_training_func
 
-    if single_stream:
-        # Supported single-stream mechanisms: waveform TTS, layer-split pseudo-enc, or direct-mel
-        # injection (direct-mel = not tts_waveform and not pseudo_speech_enc; the step featurizes the
-        # audio rows and merges the TTS log-mel in feature space). Only front-end pseudo-enc is unsupported.
-        assert (not pseudo_speech_enc) or (pseudo_enc_start_layer >= 0), (
-            "single_stream: front-end pseudo-enc unsupported; use layer-split pseudo-enc, waveform TTS, or direct-mel"
-        )
+    # Every injection mechanism supports single_stream now.
+    # Waveform TTS and layer-split pseudo-enc have their own steps;
+    # direct-mel TTS and front-end pseudo-enc both merge with the featurized audio rows in model.in_dim.
 
     vocab = "spm10k"
     task = get_librispeech_task_raw_v2(
@@ -1800,6 +1858,23 @@ def _train_tts_encoder(
                 "pseudo_enc_blank_duration_range": pseudo_enc_blank_duration_range,
                 **({"pseudo_enc_units": pseudo_enc_units} if pseudo_enc_units != "phonemes" else {}),
                 **({"pseudo_enc_start_layer": pseudo_enc_start_layer} if pseudo_enc_start_layer is not None else {}),
+                **({"pseudo_enc_smooth_sigma": pseudo_enc_smooth_sigma} if pseudo_enc_smooth_sigma is not None else {}),
+                **(
+                    {"pseudo_enc_smooth_box_width": pseudo_enc_smooth_box_width}
+                    if pseudo_enc_smooth_box_width is not None
+                    else {}
+                ),
+                **(
+                    {"pseudo_enc_duration_table": pseudo_enc_duration_table}
+                    if pseudo_enc_duration_table is not None
+                    else {}
+                ),
+                **(
+                    {"pseudo_enc_duration_sigma": pseudo_enc_duration_sigma}
+                    if pseudo_enc_duration_sigma is not None
+                    else {}
+                ),
+                **({"pseudo_enc_lerp": True} if pseudo_enc_lerp else {}),
             }
             if pseudo_speech_enc
             else {}
@@ -1849,7 +1924,13 @@ def _train_tts_encoder(
             **({} if single_stream else {"torch_batching": functools.partial(alternate_batching, asr_key=in_key)}),
             # custom step; no TrainDef needed
             "train_step": (
-                (aed_pseudo_enc_single_stream_train_step if pseudo_speech_enc else aed_glowtts_single_stream_train_step)
+                (
+                    # layer-split pseudo merges in encoder space and has its own step;
+                    # front-end pseudo and direct-mel TTS merge in feature space, so they share this one.
+                    aed_pseudo_enc_single_stream_train_step
+                    if pseudo_speech_enc and pseudo_enc_start_layer is not None and pseudo_enc_start_layer >= 0
+                    else aed_glowtts_single_stream_train_step
+                )
                 if single_stream
                 else aed_glowtts_train_step
             ),
@@ -1894,6 +1975,23 @@ def _train_tts_encoder(
             **({"pseudo_enc_units": pseudo_enc_units} if pseudo_speech_enc and pseudo_enc_units != "phonemes" else {}),
             **({"pseudo_enc_frozen_table": pseudo_enc_frozen_table} if pseudo_enc_frozen_table is not None else {}),
             **({"pseudo_enc_start_layer": pseudo_enc_start_layer} if pseudo_enc_start_layer is not None else {}),
+            **({"pseudo_enc_smooth_sigma": pseudo_enc_smooth_sigma} if pseudo_enc_smooth_sigma is not None else {}),
+            **(
+                {"pseudo_enc_smooth_box_width": pseudo_enc_smooth_box_width}
+                if pseudo_enc_smooth_box_width is not None
+                else {}
+            ),
+            **(
+                {"pseudo_enc_duration_table": pseudo_enc_duration_table}
+                if pseudo_enc_duration_table is not None
+                else {}
+            ),
+            **(
+                {"pseudo_enc_duration_sigma": pseudo_enc_duration_sigma}
+                if pseudo_enc_duration_sigma is not None
+                else {}
+            ),
+            **({"pseudo_enc_lerp": True} if pseudo_enc_lerp else {}),
             **(
                 {"pseudo_enc_specaug_max_width": pseudo_enc_specaug_max_width}
                 if pseudo_enc_specaug_max_width is not None
@@ -1919,7 +2017,9 @@ def _train_tts_encoder(
             "glow_tts_text_spm_opts": (
                 get_vocab_by_str(vocab).copy(**train_vocab_opts) if train_vocab_opts else get_vocab_by_str(vocab)
             ).get_opts(),
-            "glow_tts_phone_info": get_glow_tts_phone_info(train=True),
+            "glow_tts_phone_info": get_glow_tts_phone_info(
+                train=True, add_silence_between_words=glow_tts_add_silence_between_words
+            ),
             # DDP across 4 GH200: each runs a model replica + its data shard, gradients all-reduced via NCCL.
             # ~400 M trainable params (Enc L16 D1024 + Dec L6 D1024 + spm10k) fits one GH200 (95 GB) easily,
             # so DDP is the right tool here -- FSDP would only add sharding overhead for no memory benefit.
@@ -2005,6 +2105,11 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
             out_dim=model.encoder.out_dim if start_layer >= 0 else model.in_dim,
             label_duration_range=tuple(config.typed_value("pseudo_enc_duration_range", (1, 1))),
             blank_duration_range=tuple(config.typed_value("pseudo_enc_blank_duration_range", (0, 3))),
+            smooth_sigma=config.typed_value("pseudo_enc_smooth_sigma", None),
+            smooth_box_width=config.typed_value("pseudo_enc_smooth_box_width", None),
+            duration_table=config.typed_value("pseudo_enc_duration_table", None),
+            duration_sigma=config.float("pseudo_enc_duration_sigma", 0.45),
+            lerp=config.bool("pseudo_enc_lerp", False),
         )
         frozen_table = config.typed_value("pseudo_enc_frozen_table", None)
         if frozen_table:
@@ -2078,10 +2183,30 @@ class PseudoSpeechEncoder(rf.Module):
         out_dim: Dim,
         label_duration_range: Tuple[int, int] = (1, 1),
         blank_duration_range: Tuple[int, int] = (0, 3),
+        smooth_sigma: Optional[float] = None,
+        smooth_box_width: Optional[int] = None,
+        duration_table: Optional[str] = None,
+        duration_sigma: float = 0.45,
+        lerp: bool = False,
     ):
         super().__init__()
         self.vocab_dim = vocab_dim
         self.out_dim = out_dim
+        # Optional temporal smoothing of the upsampled step function (None = off).
+        # A Gaussian rounds the corners but keeps a plateau inside long segments;
+        # a box of width d is exact linear interpolation instead. Frozen either way, so no trained params.
+        assert not (smooth_sigma and smooth_box_width), "smooth_sigma and smooth_box_width are exclusive"
+        self.smooth_sigma = smooth_sigma
+        self.smooth_box_width = smooth_box_width
+        self.smooth = None
+        if smooth_sigma or smooth_box_width:
+            import numpy
+        if smooth_sigma:
+            half = max(1, int(numpy.ceil(3.0 * smooth_sigma)))
+            kernel = numpy.exp(-0.5 * ((numpy.arange(2 * half + 1) - half) / smooth_sigma) ** 2)
+            self.smooth = self._make_smoother(out_dim, kernel)
+        elif smooth_box_width:
+            self.smooth = self._make_smoother(out_dim, numpy.ones(smooth_box_width))
         # Durations in output frames, sampled uniform int [lo, hi] per position.
         # Defaults follow the earlier study's winning setting:
         # labels always exactly 1 frame, blanks 0-3 frames (mean total ~2.5 frames per label).
@@ -2091,13 +2216,43 @@ class PseudoSpeechEncoder(rf.Module):
         self.blank_idx = vocab_dim.dimension
         self.wb_vocab_dim = vocab_dim + 1
         self.embedding = rf.Embedding(self.wb_vocab_dim, out_dim)
+        # Per-phone durations from the MFA alignments (None = the uniform label_duration_range).
+        # Real durations are right-skewed and span ~3.4x across phones, which a uniform range cannot represent.
+        # Data, not a weight, so it stays out of the checkpoint and is reloaded from the path at recog.
+        self.duration_sigma = duration_sigma
+        self.duration_medians = None
+        if duration_table:
+            import numpy
+
+            npz = numpy.load(duration_table, allow_pickle=True)
+            med = npz["medians"].astype("float32")
+            assert med.shape == (vocab_dim.dimension,), f"duration table {med.shape} vs vocab {vocab_dim}"
+            # Blank row: 1 frame. Blank is not a phone, and with blank_duration_range=(0,0)
+            # (the standard here) it is never emitted anyway.
+            self.duration_medians = numpy.concatenate([med, numpy.ones((1,), dtype="float32")])
+        # Linear interpolation between successive phoneme targets instead of a step function.
+        # Real log-mel has essentially no plateaus, which lerp reproduces and a Gaussian does not.
+        # With per-phone durations the box shortcut no longer applies: one width cannot fit 5..17 frames.
+        self.lerp = lerp
 
     def __call__(self, labels: Tensor, *, spatial_dim: Dim) -> Tuple[Tensor, Dim]:
         assert labels.sparse_dim.dimension == self.vocab_dim.dimension, (
             f"vocab size mismatch: {labels.sparse_dim} vs {self.vocab_dim}"
         )
-        if self.blank_duration_range == (0, 0) and self.label_duration_range == (1, 1):
-            interleaved = labels
+        # Fast path: exactly one frame per label and no blanks -> nothing to interleave or repeat.
+        # Only valid when durations are uniform-1 and no interpolation is requested.
+        if (
+            self.duration_medians is None
+            and not self.lerp
+            and self.blank_duration_range == (0, 0)
+            and self.label_duration_range == (1, 1)
+        ):
+            # The embedding is over the with-blank vocab, so re-tag the sparse dim.
+            # The values are all < blank_idx here; only the dim label differs.
+            labels_wb = labels.copy()
+            labels_wb.sparse_dim = self.wb_vocab_dim
+            emb = self.embedding(labels_wb)
+            emb.feature_dim = self.out_dim
             out_spatial_dim = spatial_dim
         else:
             import torch
@@ -2112,17 +2267,76 @@ class PseudoSpeechEncoder(rf.Module):
             inter_raw[:, 1::2] = ids_raw
             inter_dim = spatial_dim * 2 + 1
             interleaved = rf.convert_to_tensor(inter_raw, dims=[batch_dim, inter_dim], sparse_dim=self.wb_vocab_dim)
-            # Random durations, separately for blanks (even positions) and labels (odd positions).
-            l_lo, l_hi = self.label_duration_range
+            # Durations: blanks (even positions) always from blank_duration_range; labels (odd
+            # positions) either per-phone lognormal from the MFA table, or the uniform range.
             b_lo, b_hi = self.blank_duration_range
-            label_dur = rf.random_uniform(interleaved.dims, minval=l_lo, maxval=l_hi + 1, dtype="int32")
             blank_dur = rf.random_uniform(interleaved.dims, minval=b_lo, maxval=b_hi + 1, dtype="int32")
+            if self.duration_medians is not None:
+                med = torch.tensor(self.duration_medians, device=dev)  # [wb_vocab], tiny
+                base = med[inter_raw.long()]  # [B, S] per-position median duration
+                jitter = torch.exp(self.duration_sigma * torch.randn(base.shape, device=dev))
+                label_dur_raw = torch.clamp(torch.round(base * jitter), min=1.0).to(torch.int32)
+                label_dur = rf.convert_to_tensor(label_dur_raw, dims=[batch_dim, inter_dim])
+            else:
+                l_lo, l_hi = self.label_duration_range
+                label_dur = rf.random_uniform(interleaved.dims, minval=l_lo, maxval=l_hi + 1, dtype="int32")
             durations = rf.where(rf.range_over_dim(inter_dim) % 2 == 0, blank_dur, label_dur)
             durations = durations.copy_masked(0, dims=[inter_dim])
-            interleaved, out_spatial_dim = rf.repeat(interleaved, in_spatial_dim=inter_dim, repeats=durations)
-        emb = self.embedding(interleaved)
-        emb.feature_dim = self.out_dim
+            if not self.lerp:
+                interleaved, out_spatial_dim = rf.repeat(interleaved, in_spatial_dim=inter_dim, repeats=durations)
+                emb = self.embedding(interleaved)
+                emb.feature_dim = self.out_dim
+            else:
+                # Each frame glides from its own phoneme target toward the next, by position in the segment.
+                # Frame 0 is exactly the phoneme's own embedding, and no duration leaves a flat middle.
+                # Shift by two: the sequence is interleaved, so the successor sits 2 positions away.
+                assert self.blank_duration_range == (0, 0), "lerp assumes no blanks (glide target skips them)"
+                nxt_raw = torch.cat([inter_raw[:, 2:], inter_raw[:, -2:]], dim=1)
+                nxt = rf.convert_to_tensor(nxt_raw, dims=[batch_dim, inter_dim], sparse_dim=self.wb_vocab_dim)
+                dur_raw = durations.copy_compatible_to_dims_raw([batch_dim, inter_dim]).to(torch.int64)
+                start_raw = (torch.cumsum(dur_raw, dim=1) - dur_raw).to(torch.int32)  # exclusive cumsum
+                seg_start = rf.convert_to_tensor(start_raw, dims=[batch_dim, inter_dim])
+                # All four repeats share one out_spatial_dim, else they would not align in time.
+                cur_rep, out_spatial_dim = rf.repeat(interleaved, in_spatial_dim=inter_dim, repeats=durations)
+                nxt_rep, _ = rf.repeat(
+                    nxt, in_spatial_dim=inter_dim, repeats=durations, out_spatial_dim=out_spatial_dim
+                )
+                start_rep, _ = rf.repeat(
+                    seg_start, in_spatial_dim=inter_dim, repeats=durations, out_spatial_dim=out_spatial_dim
+                )
+                dur_rep, _ = rf.repeat(
+                    durations, in_spatial_dim=inter_dim, repeats=durations, out_spatial_dim=out_spatial_dim
+                )
+                pos = rf.range_over_dim(out_spatial_dim)
+                # clamp the denominator: padded positions carry no meaningful duration
+                frac = rf.cast(pos - start_rep, "float32") / rf.cast(rf.maximum(dur_rep, 1), "float32")
+                emb_cur = self.embedding(cur_rep)
+                emb_nxt = self.embedding(nxt_rep)
+                frac = rf.cast(frac, emb_cur.dtype)
+                emb = emb_cur * (1.0 - frac) + emb_nxt * frac
+                emb.feature_dim = self.out_dim
+        if self.smooth is not None:
+            # out_spatial_dim passed explicitly so "same" padding reuses that dim
+            # instead of minting a new one (downstream dims must keep matching).
+            emb, _ = self.smooth(emb, in_spatial_dim=out_spatial_dim, out_spatial_dim=out_spatial_dim)
+            emb.feature_dim = self.out_dim
         return emb, out_spatial_dim
+
+    @staticmethod
+    def _make_smoother(out_dim: Dim, kernel) -> rf.Conv1d:
+        """Depthwise (groups = feature dim) 1D conv with a frozen kernel: a pure temporal blur,
+        identical per channel, no cross-feature mixing and no trained parameters.
+        The kernel is renormalized to sum 1 (DC gain 1), so feature magnitudes are preserved."""
+        import numpy
+
+        kernel = numpy.asarray(kernel, dtype="float64")
+        kernel = kernel / kernel.sum()
+        width = int(kernel.shape[0])
+        conv = rf.Conv1d(out_dim, out_dim, width, padding="same", with_bias=False, groups=out_dim.dimension)
+        # filter is [out_dim, in_dim // groups = 1, width]; broadcast the one kernel over all channels.
+        conv.filter.initial = numpy.broadcast_to(kernel[None, None, :], (out_dim.dimension, 1, width)).astype("float32")
+        conv.filter.trainable = False
+        return conv
 
 
 def aed_glowtts_train_step(*, model: Model, extern_data, **_kwargs_unused):
@@ -2382,6 +2596,9 @@ def aed_glowtts_single_stream_train_step(*, model: Model, extern_data, **_kwargs
     With tts_waveform=True the text rows carry synth WAVEFORMS (merged next to real audio, one model.encode).
     With tts_waveform=False (direct-mel) the text rows carry TTS log-mel directly: the audio rows are
     featurized to log-mel and the two are merged in FEATURE space, then model.encode_from_features.
+    With pseudo_speech_enc (front-end, start_layer < 0) the text rows come from the trainable
+    pseudo encoder instead of the frozen TTS, merged the same way.
+    The merged batch gets one uniform SpecAugment width, so audio and text rows are augmented alike.
     """
     from returnn.config import get_global_config
     from returnn.util.collect_outputs_dict import CollectOutputsDict
@@ -2432,11 +2649,17 @@ def aed_glowtts_single_stream_train_step(*, model: Model, extern_data, **_kwargs
             (phonemes, phonemes_spatial_dim), mask=text_mask, mask_cpu=text_mask_cpu, dims=[batch_dim]
         )
     if phon_t is not None:
-        # no_grad: the TTS is frozen;
-        # without it, all TTS activations are kept for a backward that never happens (GPU OOM).
-        with torch.no_grad():
-            wave_t, wave_t_spatial_dim = model.tts(phon_t, spatial_dim=phon_t_spatial_dim)
-        wave_t = rf.stop_gradient(wave_t)  # TTS is frozen
+        if model.pseudo_enc is not None:
+            # Front-end pseudo-enc features are already in model.in_dim,
+            # so they merge with the featurized audio rows like direct-mel TTS below.
+            # No stop_gradient here: unlike the frozen TTS, the pseudo encoder trains.
+            wave_t, wave_t_spatial_dim = model.pseudo_enc(phon_t, spatial_dim=phon_t_spatial_dim)
+        else:
+            # no_grad: the TTS is frozen;
+            # without it, all TTS activations are kept for a backward that never happens (GPU OOM).
+            with torch.no_grad():
+                wave_t, wave_t_spatial_dim = model.tts(phon_t, spatial_dim=phon_t_spatial_dim)
+            wave_t = rf.stop_gradient(wave_t)  # TTS is frozen
     if config.bool("debug_single_stream_stats", False) and not direct_mel and wave_t is not None:
         _lens = wave_t_spatial_dim.dyn_size_ext.raw_tensor
         _n_text = int(_lens.numel())
@@ -2479,10 +2702,8 @@ def aed_glowtts_single_stream_train_step(*, model: Model, extern_data, **_kwargs
             )
         enc, enc_spatial_dim = model.encode(wave, in_spatial_dim=wave_spatial_dim, collected_outputs=collected_outputs)
     else:
-        # direct-mel path: wave_t holds the TTS log-mel (model.in_dim / DbMel space, no GL/waveform).
-        # Featurize the real-audio rows to log-mel and merge with the TTS log-mel in FEATURE space,
-        # then encode_from_features (feature-BN + SpecAugment + conformer, uniform over the batch).
-        # Audio rows skip pad_audio here (a minor aug), kept symmetric with the text rows which never get it.
+        # direct-mel: wave_t holds the TTS log-mel, so featurize the audio rows and merge in feature space.
+        # Audio rows skip pad_audio here, symmetric with the text rows, which never get it.
         if num_text == num_total:
             feats, feats_spatial_dim = wave_t, wave_t_spatial_dim
         else:
@@ -2490,6 +2711,10 @@ def aed_glowtts_single_stream_train_step(*, model: Model, extern_data, **_kwargs
             if num_text == 0:
                 feats, feats_spatial_dim = feat_audio, feat_audio_spatial_dim
             else:
+                # The front-end yields float32, but the embedding runs under autocast and yields bfloat16,
+                # and masked_scatter_ rejects mixed dtypes.
+                if wave_t.dtype != feat_audio.dtype:
+                    wave_t = rf.cast(wave_t, feat_audio.dtype)
                 feats, feats_spatial_dim = rf.nested.masked_scatter_nested(
                     (wave_t, wave_t_spatial_dim),
                     (feat_audio, feat_audio_spatial_dim),

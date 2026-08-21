@@ -30,6 +30,8 @@ __all__ = [
     "get_librispeech_mfa_alignments_dir",
     "get_mfa_phone_mean_logmel_table",
     "ComputeMfaPhoneMeanLogMelJob",
+    "get_mfa_phone_duration_table",
+    "ComputeMfaPhoneDurationStatsJob",
 ]
 
 
@@ -254,3 +256,149 @@ class ComputeMfaPhoneMeanLogMelJob(Job):
         with open(self.out_stats.get_path(), "w") as f:
             json.dump(stats, f, indent=2)
         print("done:", n_seqs, "seqs; unmapped:", unmapped)
+
+
+@cache
+def get_mfa_phone_duration_table() -> ComputeMfaPhoneDurationStatsJob:
+    """:return: job computing the per-phone duration table (in 10ms frames) for the GlowTTS phoneme vocab"""
+    from i6_experiments.users.zeyer.external_models.glow_tts import get_glow_tts_phoneme_vocab
+    from i6_experiments.users.zeyer import tools_paths
+
+    job = ComputeMfaPhoneDurationStatsJob(
+        dataset_dir=get_librispeech_mfa_alignments_dir(),
+        returnn_root=tools_paths.get_returnn_root(),
+        phoneme_vocab=get_glow_tts_phoneme_vocab(),
+    )
+    job.add_alias("datasets/LibriSpeech/mfa_phone_durations")
+    tk.register_output("datasets/LibriSpeech/mfa_phone_durations.npz", job.out_duration_table)
+    tk.register_output("datasets/LibriSpeech/mfa_phone_durations_stats.json", job.out_stats)
+    return job
+
+
+class ComputeMfaPhoneDurationStatsJob(Job):
+    """
+    Per-phone duration statistics (in 10ms frames) from the MFA alignments,
+    for the pseudo-speech encoder's duration sampling.
+    Real durations are right-skewed and vary ~3.4x across phones, which a uniform range cannot represent;
+    sample ``median[phone] * exp(sigma * N(0,1))`` instead, with a shared sigma ~0.45.
+
+    Drops the audio column before iterating, so it is cheap
+    and avoids torchcodec, whose ffmpeg libs do not load on this cluster.
+
+    Mapping matches :class:`ComputeMfaPhoneMeanLogMelJob`:
+    stress-stripped ARPAbet (``IH1`` -> ``IH``), and ``spn`` -> ``[UNKNOWN]``.
+    Silence is not a phone label here, so the gaps between phone intervals go to the ``[space]`` row.
+
+    Output ``out_duration_table``: npz with ``medians``/``means``/``counts``/``labels``, all [vocab_size].
+    ``out_stats``: json with the same per label, plus a config echo.
+    """
+
+    def __init__(
+        self,
+        *,
+        dataset_dir: tk.Path,
+        returnn_root: tk.Path,
+        phoneme_vocab: tk.Path,
+        splits: Sequence[str] = ("train_clean_100", "train_clean_360", "train_other_500"),
+        step_len: float = 0.010,
+    ):
+        super().__init__()
+        self.dataset_dir = dataset_dir
+        self.returnn_root = returnn_root
+        self.phoneme_vocab = phoneme_vocab
+        self.splits = tuple(splits)
+        self.step_len = step_len
+
+        self.rqmt = {"cpu": 2, "mem": 8, "time": 4}
+
+        self.out_duration_table = self.output_path("phone_durations.npz")
+        self.out_stats = self.output_path("stats.json")
+
+    def tasks(self):
+        yield Task("run", resume="run", rqmt=self.rqmt)
+
+    def run(self):
+        import sys
+
+        sys.path.insert(0, self.returnn_root.get_path())
+
+        import json
+        import re
+        import numpy
+        from datasets import load_from_disk
+        from returnn.datasets.util.vocabulary import Vocabulary
+
+        vocab = Vocabulary(self.phoneme_vocab.get_path(), unknown_label="[UNKNOWN]")
+        labels = vocab.labels
+        label_to_idx = {lab: i for i, lab in enumerate(labels)}
+        silence_idx = label_to_idx["[space]"]
+        unknown_idx = label_to_idx["[UNKNOWN]"]
+        num_labels = len(labels)
+
+        durs = [[] for _ in range(num_labels)]
+        unmapped = {}
+        n_seqs = 0
+
+        ds_all = load_from_disk(self.dataset_dir.get_path())
+        for split in self.splits:
+            # Drop everything but the alignment: decoding audio would pull in torchcodec.
+            ds = ds_all[split].select_columns(["phonemes"])
+            for ex in ds:
+                prev_end = None
+                for ph in ex["phonemes"]:
+                    if prev_end is not None and ph["start"] - prev_end > 1e-6:
+                        # gap between phones = silence -> the [space] row
+                        durs[silence_idx].append((ph["start"] - prev_end) / self.step_len)
+                    prev_end = ph["end"]
+                    base = re.sub(r"\d+$", "", ph["phoneme"])
+                    if base in label_to_idx:
+                        idx = label_to_idx[base]
+                    elif base == "spn":
+                        idx = unknown_idx
+                    else:
+                        unmapped[base] = unmapped.get(base, 0) + 1
+                        continue
+                    durs[idx].append((ph["end"] - ph["start"]) / self.step_len)
+                n_seqs += 1
+
+        counts = numpy.array([len(d) for d in durs], dtype="int64")
+        # Global median over the speech phones only,
+        # as the fallback for labels never seen: [start]/[end]/[blank], and any phone absent.
+        speech = numpy.concatenate(
+            [numpy.asarray(d) for i, d in enumerate(durs) if d and i not in (silence_idx, unknown_idx)]
+        )
+        global_median = float(numpy.median(speech))
+        global_mean = float(speech.mean())
+
+        medians = numpy.full((num_labels,), global_median, dtype="float32")
+        means = numpy.full((num_labels,), global_mean, dtype="float32")
+        for i, d in enumerate(durs):
+            if d:
+                a = numpy.asarray(d)
+                medians[i] = numpy.median(a)
+                means[i] = a.mean()
+
+        numpy.savez(
+            self.out_duration_table.get_path(),
+            medians=medians,
+            means=means,
+            counts=counts,
+            labels=numpy.array(labels),
+        )
+        with open(self.out_stats.get_path(), "w") as f:
+            json.dump(
+                {
+                    "n_seqs": n_seqs,
+                    "global_median": global_median,
+                    "global_mean": global_mean,
+                    "per_label": {
+                        labels[i]: {"median": float(medians[i]), "mean": float(means[i]), "count": int(counts[i])}
+                        for i in range(num_labels)
+                    },
+                    "unmapped": unmapped,
+                    "splits": list(self.splits),
+                    "config": {"step_len": self.step_len},
+                },
+                f,
+                indent=2,
+            )
