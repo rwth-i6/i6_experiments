@@ -1273,6 +1273,15 @@ function-word pairs rather than broad spelling diversity.
     negatives, while the external donor-gap instrument uses one no-band nuisance-minimized donor,
     one table and donor load at most three on a coverage-gated `E_D`. D7.0b is authorized to verify
     and materialize that surface; D7.1 remains closed until D7.0b passes.
+57. **D7-v2 / D7.0b fails its preregistered training-support floor and is structurally unresolved**
+    (31). The feature census passed every frozen checksum and found 28,538 feasible scorer rows,
+    136,966 Q2 edges and 17,748 rows with at least two raw outgoing donors in both chapter strata.
+    The exact common-set 2-in/2-out optimizer could admit only 56 rows from two speakers, versus the
+    required 6,778 rows and 201 speakers. An independent iterative necessary-core calculation leaves
+    at most 120 rows from four speakers, proving that the floor cannot be met by this registered graph
+    rather than merely exposing a poor optimizer solution. The assignment job therefore stopped
+    before external matching, and the loss preflight did not run. Per the frozen gate, this result
+    does not authorize another donor amendment and D7.1 remains closed.
 
 ## Catalog
 
@@ -1963,3 +1972,9 @@ the absolute beta, is what carries the contamination claim.
   725/1500 and 775/1500 split weights, and never shrinks the all-1,500-row Acceptance gate. D7.0b is
   now the authorized executable next step; D7.1 remains blocked only until its repeated census,
   table/loss calibration and one-step resource preflight pass.
+- 2026-08-21 (D7-v2 / D7.0b structural verdict): FAIL. The label-free feature job completed and
+  reproduced all pinned inputs, but the assignment job's common-set K=4 construction admitted only
+  56 rows and two speakers, below the frozen 6,778-row/201-speaker floor. An implementation-independent
+  simultaneous 2-in/2-out necessary-core replay bounds the entire feasible surface by 120 rows and
+  four speakers, so retrying or tuning the solver cannot change the gate verdict. No external
+  assignment, loss calibration, scorer training, policy training or WER job ran; D7.1 remains closed.
