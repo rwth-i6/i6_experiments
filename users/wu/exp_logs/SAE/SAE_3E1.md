@@ -4,30 +4,39 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-In flight 2026-08-21 18:57:
+In flight 2026-08-21 21:30:
 
 - **D7-GAN-SEQDISC** (`config/sae_3e1_d7_gan_seqdisc.py`, approach 32). All ten theta_0^G
   argmax-decode shards FINISHED (16:37-18:11) and `S/scorer_diag/SearchOutHypsJob.h8GoSrbrTPHh`
-  merged them; the merge is decoder-equivalent to the banked greedy decode (numbers under approach
-  32). The graph is parked at the D7.0 barrier: `S/d7_online/D7OnlinePoolJob.XLjSgTzHfwAu` ->
-  `D7OnlinePreflightJob.ZxfANwBZYpaI` -> the matched pair `D7OnlineTrainJob.j16rTskXF1QU` (control)
-  and `.WA1bqjXQtzeZ` (candidate).
-- **D6-PERIODIC/GAN-FROZEN**: leg 6 of 8 running (`T/ReturnnTrainingJob.2p2hpz7nk5vd`, 4.9 h in),
-  legs 1-5 finished, 23 jobs waiting behind it.
+  merged them, decoder-equivalent to the banked greedy decode (numbers under approach 32). The D7.0
+  pool `S/d7_online/D7OnlinePoolJob.XLjSgTzHfwAu` then ran and PASSED on its own census artifact,
+  read rather than inferred from its finished marker: 281,241 rows, 2,338 speakers, 0 empty
+  hypotheses; train donor cases 266,138 ordinary_window / 1,041 nearest_fallback / 0 singleton,
+  internal-held 11,855 / 2,153 / 54. **The D7.0 preflight `D7OnlinePreflightJob.ZxfANwBZYpaI` then
+  FAILED**, and the failure is in the barrier's own clause, not in the arms -- see approach 32's
+  parity paragraph. The matched pair `D7OnlineTrainJob.j16rTskXF1QU` / `.WA1bqjXQtzeZ` has still
+  never run; their work dirs do not exist.
+- **D6-PERIODIC/GAN-FROZEN**: leg 7 of 8 running (`T/ReturnnTrainingJob.ZgRzUxDRhajE`), legs 1-6
+  finished.
+- **D6-PERIODIC/GAN960-FROZEN** (approach 33, funded by the user on the A5 read): implemented and
+  graph-verified, NOT launched. Needs one manager start, which is classifier-blocked for the agent.
 
-**BLOCKER, needs one user command.** The verification round's two pre-run fixes are implemented,
-tested and committed (`1d10945`, speech-llm branch `haotian_modality_matching_jupiter`); all four D7
-job hashes plus the merge were verified unmoved by the edits, and both D7.1 work dirs still do not
-exist, so the fixes land before their first run as the round required. The d7 manager pinned the
-source identity at 16:37 and has since exited; the pool job started at 18:11 under that stale pin and
-stopped on its own guard ("D7 online source changed after graph construction") with nothing written.
-Its error marker is renamed to `error.run.1.backup`, so the job is runnable and reruns as soon as a
-manager re-pins the edited source: `./sis_managers.sh start sae_3e1_d7_gan_seqdisc`. Both start and
-restart are blocked for the agent by the tool classifier.
+**BLOCKER 1, D7, needs a planner decision THEN one user command.** The registered D7.0 parity clause
+cannot pass on this backend (approach 32). Until the planner rules on its form, the barrier emits no
+PASS artifact and D7.1 cannot start. Any repair edits `d7_online.py`, which is inside the
+source-identity pin, so it costs one further `./sis_managers.sh start sae_3e1_d7_gan_seqdisc`.
+History for whoever resumes: the manager was started twice tonight. The first start exited
+immediately because this implementer had renamed the pool job's `error.run.1` aside, which for a
+non-resumable job leaves it `interrupted_not_resumable`, whose clearing sisyphus asks about
+interactively while the manager holds `/dev/null` on stdin -- fail-closed, working as designed. The
+second start passed `-cio` and cleared exactly that one stateless job. The rename is the wrong
+recovery for any job that is not resumable; use the per-job clear or `-cio`.
 
-Next action: on that start, confirm the pool and the D7.0 preflight PASS, then confirm the two D7.1
-trainings begin matched, and hand the preflight verdict to the verifier. A D7 policy leg is NOT
-authorized and none is in this graph.
+**BLOCKER 2, GAN960-FROZEN launch:** `./sis_managers.sh start sae_3e1_d6periodic_gan960_frozen`.
+
+Next action: on the planner's ruling, make the single parity edit, ask for the one restart, then
+confirm the preflight PASS artifact and that the two D7.1 trainings begin matched. A D7 policy leg
+is NOT authorized and none is in this graph.
 
 D8 (`PLAN_3E1.md`, spec stable at ef89e5dc5): five implementer flags absorbed across five spec
 passes -- per-unit currency, single-temperature artifact, reader whitelist, the policy axis, and the
@@ -829,6 +838,57 @@ utterances 67.9 % differ by a single word edit (mean 1.50), and the net length d
 the whole set. That is the signature of argmax ties resolving differently under a different batching
 of the same model and decoder, not of a different decode: no systematic length or content bias.
 
+D7.0's registered parity clause cannot pass on this backend, 2026-08-21. The preflight asserts that
+two deepcopies of one model, given the same restored RNG state and the same batch at
+``online_weight=0``, produce byte-equal loss AND byte-equal gradients
+(``torch.equal(g_control, g_parity)``). On its first ever run it raised "D7 control parity failed
+when L_online=0". Reproduced read-only on one GH200 through the job's own code path
+(`scripts/d7_parity_diag.py`, `log/d7_parity_diag.1446568.out`, shard 0's first batch, 256 rows):
+
+| comparison | loss | max abs gradient delta | gradients equal |
+|---|---|---:|---|
+| the two deepcopies, i.e. what the clause asserts | 9.983121871948242 both, EQUAL | 2.623e-06 | no |
+| the SAME model object, run twice -- the control | identical again | 5.484e-06 | no |
+
+The same-object repeat is decisive: rerunning one model on one batch perturbs its gradients MORE
+than the two copies differ from each other, so the difference is the backend's own run-to-run noise
+(``deterministic_algorithms`` False, ``fast_bw`` True, atomics in the FastBaumWelch backward), not a
+state difference between the arms and not an effect of the resume-RNG or counter commit. Exact
+gradient equality is therefore unreachable here and the barrier can never emit its PASS artifact as
+written, while loss equality holds exactly. This is the configuration-exact versus bit-exact
+distinction already pinned for D8, firing inside D7's own barrier. The clause is pre-registered, so
+its form is the planner's to rule on and no repair has been made; the implementer's proposal is to
+keep exact equality on the loss and make the gradient arm self-calibrating -- measure the run-to-run
+floor in the same job and require the control-versus-parity delta not to exceed it -- which needs no
+constant and still fails loudly on a real state difference. First live exercise of the registered
+infeasible-donor counter in the same run: 0 infeasible of 256 donor pairs, cases 209
+ordinary_window / 47 nearest_fallback.
+
+
+**33. D6-PERIODIC/GAN960-FROZEN: the frozen-scorer loop restarted from theta_0^G960.** User-funded
+2026-08-21 on the §3d.A scale read (`SAE_3D_GTRACK.md` approach 5, verdict 11), registered by the
+planner in `PLAN_3E1.md`. The arm is `config_sae_3e1_d6periodic_gan_frozen_v1`'s recipe verbatim --
+eight segmented policy legs, the same round-robin 960 h shard per leg, shaped reward, temperature
+0.7, cosine offsets, fresh optimizer state per leg, and round 1's completed `d_min=2` scorer
+`S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR` held frozen at EVERY leg -- with exactly one
+experimental change: the policy init is theta_0^G960
+(`T/ReturnnTrainingJob.HuSkdbuVRg6d` sub-epoch 10, dev 13.11/16.82) instead of theta_0^G
+(`.2fb02hGUdHNj` ep10, dev 13.89/18.34). A fresh scorer refit on theta_0^G960's own decodes is
+deliberately NOT funded: holding the sibling's frozen scorer is what keeps this a one-argument init
+A/B readable against it at matched legs.
+
+Verified against the built graph rather than the diff, before any launch: the frozen scorer resolves
+to `dsMKgPHQApyR` at all eight legs; leg 1 is a new job `T/ReturnnTrainingJob.ohmLWWmr6Kxe` against
+the sibling's `.kr1foUV6lecx`; the alias namespace is `..._8se_gan960frozen/rK`, no collision; legs
+2-8 carry dump/pool/refit `None`; and of the 64 unfinished jobs a launch would fund the classes are 8
+ReturnnTrainingJob, 8 ExtractAvSubmodelJob, 17 ReturnnForwardJobV2, 16 SearchWordsDummyTimesToCTMJob
+and 16 ScliteJob, with ZERO psi_align/curate/scorer_diag work -- no refit is funded anywhere. The
+planner's anchor instruction has nothing to bind on this bed: `loop_config` takes only
+`psi_checkpoint` and `av_checkpoint`, so no KL snapshot or reference anchor exists to follow the
+init. One inherited-bookkeeping conflict is flagged to the planner rather than resolved: `build()`
+reuses `round1_artifacts()`, so leg 1's record carries dump/pool/refit that are the SCORER's
+provenance from theta_0^G decodes, which in this arm is not its own round 1. Those jobs are finished
+and fund nothing, but a downstream audit could misread them.
 
 ## Conclusion
 
@@ -1356,6 +1416,8 @@ function-word pairs rather than broad spelling diversity.
 | entry points | `config/sae_3e1_d0.py`, `config/sae_3e1_usage.py`, `config/sae_3e1_d1d2.py`, `config/sae_3e1_d3.py`, `config/sae_3e1_d4.py`, `config/sae_3e1_d4p.py`, `config/sae_3e1_d5b.py`, `config/sae_3e1_d6.py` (builds D4' and the swap-in too), `config/sae_3e1_d6periodic.py`, `config/sae_3e1_d6periodic_warm.py`, `config/sae_3e1_hom.py`; D7 tracked canonical configs `src/speech_llm/prefix_lm/sis_recipe/exp2025_11_06_speech_llms/librispeech/configs/config_sae_3e1_d7_0a_v1.py` at `a0a22b4` and `config_sae_3e1_d7_v2_v1.py` at `7b2069d` (workspace wrappers only delegate) |
 | D7.0a complete raw external/scorer edge tables and census (approach 30) | `S/d7_census/D7RawDonorCensusJob.zsnx1p9nLyV3` |
 | D7-v2 / D7.0b feature and fail-closed assignment jobs (approach 31); the downstream loss preflight never materialized | `S/d7_v2/D7V2FeatureJob.hnReOv8t9UWg`, `S/d7_v2/D7V2AssignmentJob.aSOMkw3hSc0K` |
+| D7.0 parity diagnostic (approach 32): the read-only GPU reproduction of the preflight's parity clause | `scripts/d7_parity_diag.py`, output `log/d7_parity_diag.1446568.out` |
+| D6-PERIODIC/GAN960-FROZEN graph (approach 33) | `config/sae_3e1_d6periodic_gan960_frozen.py` -> `configs/config_sae_3e1_d6periodic_gan960_frozen_v1.py`; init `T/ReturnnTrainingJob.HuSkdbuVRg6d` ep10; frozen scorer `S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR`; legs 1/2/8 `T/ReturnnTrainingJob.ohmLWWmr6Kxe`, `.liehXoiGoRI0`, `.V1WEV1giQXZA` |
 | corrected D7-GAN-SEQDISC graph (approach 32) | `config/sae_3e1_d7_gan_seqdisc.py`; pool `S/d7_online/D7OnlinePoolJob.XLjSgTzHfwAu`; preflight `S/d7_online/D7OnlinePreflightJob.ZxfANwBZYpaI`; fixed-final control/candidate `S/d7_online/D7OnlineTrainJob.j16rTskXF1QU`, `.WA1bqjXQtzeZ` |
 | D6-PERIODIC legs 1-8 (approach 22), parent sub-ep 3-10 | `T/ReturnnTrainingJob.5FqdnhWTOf1f`, `.BTnU1gSuMG0i`, `.ZKCbq529Hgp8`, `.gFNpNmXwvrsc`, `.nQtnPdKCuJ0m`, `.n8abYvLR4IP5`, `.jGj7TTbW5DTm`, `.wWqYY7iOCw1s` |
 | its per-boundary refits (rounds 2-8) | `S/psi_align_jobs/PsiAlignTrainJob.JWV3InILYF5v`, `.yUUSN2Hx96E0`, `.QMO8VcAtZ6Gi`, `.DzhBWCy61tiN`, `.Vha8vvKu9lWk`, `.RGTtwlQHt3HY`, `.Ls0TQGiyhQbf` |
