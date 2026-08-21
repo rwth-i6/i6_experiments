@@ -4,10 +4,14 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-In flight 2026-08-21 17:45: the 960 h G-track pseudo-SFT one-pass AV training
-(`T/ReturnnTrainingJob.HuSkdbuVRg6d`, alias `sae_2s/config_sae_2s_av_sft_v1/
-seed10h_layer15_gtrack_pseudo_960h_onepass/training`) is running; its epoch-10 dev-clean/dev-other
-recognition, scoring and robust-WER chain (11 jobs) waits behind it.
+In flight 2026-08-21 17:45: the §3d.A scale arm, theta_0^G960 -- the from-scratch AV SFT on
+pseudo-labels for all 281,241 utterances of the 960 h bed, one corpus pass partitioned into ten
+sub-epochs with evaluation at sub-epoch 10, i.e. the registered exposure match against ten 100 h
+passes for theta_0^G (`T/ReturnnTrainingJob.HuSkdbuVRg6d`, alias `sae_2s/config_sae_2s_av_sft_v1/
+seed10h_layer15_gtrack_pseudo_960h_onepass/training`). It answers whether pseudo-labeling all 960 h
+gives a better label-free AV starting point than the existing 100 h start. Started from scratch
+17:42 (no earlier checkpoint exists); about 27 min per sub-epoch on four GPUs. Its sub-epoch-10
+dev-clean/dev-other recognition, scoring and robust-WER chain (11 jobs) waits behind it.
 
 This arm made no progress between 2026-08-20 19:33 and 2026-08-21 17:35 and the loss was purely
 operational, not experimental: its two upstream dataset-transform jobs finished, but one finished
