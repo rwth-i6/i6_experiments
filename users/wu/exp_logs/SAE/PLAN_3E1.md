@@ -1724,12 +1724,15 @@ No temperature, group-size, tau or coefficient sweep is admitted.
    by `psi_g_tc100`; replaces "all stored temperatures reported, the T=0.7 slice decides" --
    vacuous on this single-temperature artifact. The only multi-temperature dump,
    `ReturnnForwardJobV2.J9yA1eYnxwYA`, 512 theta_0^G utterances at T={0.3,0.5,0.7,0.9,1.0} G=12,
-   MAY be reported as context -- right policy, tiny n -- but decides nothing), compute per group:
+   carries the OPERATIVE policy and now decides clause (a) -- replaces "decides nothing", see the
+   Gate re-scope of 2026-08-21), compute per group:
    distinct-hypothesis count after dedup; ESS across the tau grid for the shaped and acoustic-only
    scores; the within-group fraction of weight variance explained by token count alone; and the
    median-across-groups spearman between shaped weights and each single-term weight vector
-   (LM-only, acoustic-only). A pure read. Its scorer and bed differ from D8.1's, so its verdict is
-   go/no-go plus a provisional tau only.
+   (LM-only, acoustic-only). A pure read. Its scorer, bed AND SAMPLING POLICY all differ from
+   D8.1a's (fork epoch vs theta_0^G), so its verdict is the clause-(a) go/no-go on the theta_0^G
+   slice plus a provisional tau; every other statistic is reported, not binding (re-scoped
+   2026-08-21, see Gate).
 2. **D8.1a candidate generation and weight artifact:** one group-12 T=0.7 sampled dump pass of
    theta_0^G over all 281,241 utterances (ten shards, existing dump machinery, recon under the
    pinned weight scorer, `lm_prior_units` under the registered prior); then a deterministic weight
@@ -1750,7 +1753,15 @@ No temperature, group-size, tau or coefficient sweep is admitted.
    once-per-leg periodic refresh inside the deployed loop is a separate arm that would be
    registered only after a D8.3 pass; nothing here authorizes it.
 
-**Gate.** D8.0 and D8.1a no-go clauses, each closing D8 with no rescue selected from the result:
+**Gate.** (Scope amended 2026-08-21, before any clause statistic was computed anywhere -- the
+implementer flagged, and deliberately declined to measure, that clauses (a) and (b) are
+sampling-policy properties while the fork-epoch dump is the wrong policy; D5(a) established the
+fork policy over-generates, so an unscoped D8.0 could close D8 on diversity theta_0^G would not
+produce. At D8.0, only clause (a) -- the scorer-free statistic -- BINDS, and it is read on the
+theta_0^G T=0.7 slice of `J9yA1eYnxwYA` (512 groups; a median is robust at that n); clauses (b)
+and (c) are computed and reported on both artifacts, since neither carries the pinned weight
+scorer, and bind only at D8.1a, where all three clauses re-apply verbatim on the operative bed,
+policy and scorer.) No-go clauses, each closing D8 with no rescue selected from the result:
 (a) median distinct hypotheses per group < 3 of 12 -- the support is too thin and the method
 degenerates to the incumbent at extra cost; (b) at every grid tau the median ESS falls outside
 [1.5, 8] -- the posterior is one-hot or near-uniform at every registered temperature; (c) token
