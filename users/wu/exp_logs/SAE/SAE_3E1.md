@@ -18,13 +18,20 @@ In flight 2026-08-21 21:30:
   never run; their work dirs do not exist.
 - **D6-PERIODIC/GAN-FROZEN**: leg 7 of 8 running (`T/ReturnnTrainingJob.ZgRzUxDRhajE`), legs 1-6
   finished.
-- **D6-PERIODIC/GAN960-FROZEN** (approach 33, funded by the user on the A5 read): implemented and
-  graph-verified, NOT launched. Needs one manager start, which is classifier-blocked for the agent.
+- **D6-PERIODIC/GAN960-FROZEN** (approach 33): LAUNCHED 2026-08-21 21:40, manager alive, leg 1
+  `T/ReturnnTrainingJob.ohmLWWmr6Kxe` running -- confirmed from its on-disk job dir, not from the
+  manager's word. Watcher attached. Its gate is leg 8 beating this arm's own init 13.11/16.82 on
+  both splits; matched-leg deltas against GAN-FROZEN are reported and select nothing.
 
-**BLOCKER 1, D7, needs a planner decision THEN one user command.** The registered D7.0 parity clause
-cannot pass on this backend (approach 32). Until the planner rules on its form, the barrier emits no
-PASS artifact and D7.1 cannot start. Any repair edits `d7_online.py`, which is inside the
-source-identity pin, so it costs one further `./sis_managers.sh start sae_3e1_d7_gan_seqdisc`.
+**BLOCKER 1, D7, needs one user command:**
+`./sis_managers.sh start sae_3e1_d7_gan_seqdisc -co` -- with `-co`, not bare: the preflight holds
+`error.run.1` and `-co` is the correct clear for a stateless job. Checked on disk, it clears exactly
+that one job; the pool is finished and its earlier attempt is preserved as `.cleared.0001`. The
+planner ruled on the parity clause and the amendment is implemented and committed (`91c437a`,
+speech-llm): losses keep exact equality, and the gradient arm is calibrated against a noise floor F
+measured in the same job (2 extra re-runs of one model), passing iff cross <= 3F and F <= 1e-4, with
+F > 1e-4 failing as the distinct backend-too-noisy defect. Job hashes verified unmoved; the edit sits
+inside the source-identity pin, which is why the restart is needed at all.
 History for whoever resumes: the manager was started twice tonight. The first start exited
 immediately because this implementer had renamed the pool job's `error.run.1` aside, which for a
 non-resumable job leaves it `interrupted_not_resumable`, whose clearing sisyphus asks about
@@ -32,7 +39,12 @@ interactively while the manager holds `/dev/null` on stdin -- fail-closed, worki
 second start passed `-cio` and cleared exactly that one stateless job. The rename is the wrong
 recovery for any job that is not resumable; use the per-job clear or `-cio`.
 
-**BLOCKER 2, GAN960-FROZEN launch:** `./sis_managers.sh start sae_3e1_d6periodic_gan960_frozen`.
+**D8.0 is FUNDED and worded for launch** (planner, on the user's approval; D8.1a-b stay gated behind
+the D7.2 admission verdict, D8.3 needs its own word). Implementation of the CPU-only read of the two
+frozen artifacts is the implementer's next task. Pre-registration discipline restated by the planner
+and accepted: the clause statistics first exist inside the registered job's own output, with no
+informal pre-read anywhere -- which is why this log still carries no distinct-hypothesis count, ESS
+or weight-variance number for either artifact.
 
 Next action: on the planner's ruling, make the single parity edit, ask for the one restart, then
 confirm the preflight PASS artifact and that the two D7.1 trainings begin matched. A D7 policy leg
