@@ -4,51 +4,30 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-In flight 2026-08-21 22:55:
+In flight 2026-08-22 -- only the two D6-periodic loops:
 
-- **D7-GAN-SEQDISC** (`config/sae_3e1_d7_gan_seqdisc.py`, approach 32). All ten theta_0^G
-  argmax-decode shards FINISHED (16:37-18:11) and `S/scorer_diag/SearchOutHypsJob.h8GoSrbrTPHh`
-  merged them, decoder-equivalent to the banked greedy decode (numbers under approach 32). The D7.0
-  pool `S/d7_online/D7OnlinePoolJob.XLjSgTzHfwAu` PASSED on its own census artifact: 281,241 rows,
-  2,338 speakers, 0 empty hypotheses; train donor cases 266,138 ordinary_window / 1,041
-  nearest_fallback / 0 singleton, internal-held 11,855 / 2,153 / 54. The preflight
-  `D7OnlinePreflightJob.ZxfANwBZYpaI` then PASSED under the amended operational parity rule
-  (finished 21:32). Both D7.1 trainings then failed closed at data load, 21:32, on
-  the same row: an anchor whose own pseudo-text cannot align to its own audio at `d_min=2`. Fixed
-  under the planner's own-infeasible-anchor amendment and RELAUNCHED 22:50 (below); the failed
-  attempts are preserved as `.cleared.0001`.
 - **D6-PERIODIC/GAN-FROZEN**: leg 7 of 8 running (`T/ReturnnTrainingJob.ZgRzUxDRhajE`), legs 1-6
-  finished. Watcher attached this session (manager pid 1991977).
+  finished. Manager pid 1991977, watcher attached.
 - **D6-PERIODIC/GAN960-FROZEN** (approach 33): leg 1 `T/ReturnnTrainingJob.ohmLWWmr6Kxe` running,
-  manager alive (pid 3514914), watcher attached this session. Its gate is leg 8 beating this arm's
-  own init 13.11/16.82 on both splits; matched-leg deltas against GAN-FROZEN are reported and
-  select nothing.
+  manager pid 3514914, watcher attached. Its gate is leg 8 beating this arm's own init 13.11/16.82
+  on both splits; matched-leg deltas against GAN-FROZEN are reported and select nothing.
+- `sae_3e1_hom` manager also alive (pid 1992923).
 
-**D7 own-infeasible-anchor amendment IMPLEMENTED AND VERIFIED** (speech-llm `e2a421b`). Both arms
-now drop an own-infeasible anchor (empty states/units, or minimum feasible frames > T) from
-training as an ANCHOR only, deterministically and identically; the row stays donor-eligible,
-because the donor law reads the pool index and unit store and never text feasibility. The realized
-drop set is named per role in the training report and in `out_monitors`, and any set other than
-exactly the four registered train-role rows fails the run. Verified on the real pool inputs
-(`scripts/d7_make_items_dropcheck.{py,json}`): the full load drops exactly `3488-85273-0024`,
-`3889-130125-0028`, `4492-8904-0032`, `8424-284526-0028`, all train-role, leaving 267,175 train and
-14,062 held anchors against the index's 267,179 / 14,062; the shard-0 load the preflight uses drops
-none and keeps its 26,743 rows. All four D7 job hashes verified unmoved from the graph. The pool
-artifact and its 281,241-row coverage clause are untouched.
+**D7-GAN-SEQDISC IS COMPLETE THROUGH D7.1** (approach 32, verdicts 64-65; config
+`config/sae_3e1_d7_gan_seqdisc.py`, which registers d7_0 and d7_1 only). The own-infeasible-anchor
+amendment (speech-llm `e2a421b`) held: both arms name exactly the four registered train-role rows in
+their own `monitors.json` and `train.txt`, 267,175 trained / 14,062 held, digit-identical to the
+offline dropcheck and to each other -- the confirmation deferred at relaunch is now closed from the
+artifacts, not inferred. Each arm is a single ~14-minute job, 2,361 batches over ten round-robin
+shards; the 11.5 h wall cap and shard-boundary resume never came into play, so the earlier
+expectation of several resubmits per arm was wrong. Both fixed-final scorers exist
+(`.../output/model_final.pt`). Held statistics and the matched-bed evidence are in approach 32.
 
-**D7 BLOCKER CLEARED 2026-08-21 22:50** (user-run `./sis_managers.sh start sae_3e1_d7_gan_seqdisc
--co`). The clear moved exactly the two errored train dirs aside as `.cleared.0001`, preserving their
-failure logs, and left the finished pool and preflight untouched. Both arms resubmitted and are
-RUNNING under the drop law: `D7OnlineTrainJob.j16rTskXF1QU` (control) and `.WA1bqjXQtzeZ`
-(candidate), matched to within ~10 s at every stage. Both are past the data load that killed them --
-the failure came at 31 s, both now reach the training loop at ~2 min with the same resident-set
-trajectory -- which means the named-set equality assert passed in both: the realized drop set is
-exactly the four registered train-role rows, or the run would have failed closed there.
-The report line and `own_infeasible_dropped` in `monitors.json` name that set per arm, but both are
-written at the end of the run, so the explicit per-arm confirmation is DEFERRED to completion; the
-offline dropcheck already pins what those lines must say. One 960 h pass in ten shards with an
-11.5 h wall cap and shard-boundary resume, so expect several resubmits per arm; the resume path
-carries the RNG state, which is what keeps the two dropout streams matched across a wall hit.
+Correction to an earlier State claim: this manager, like `sae_1g_h4_prelabel_surfaces`, exits on
+sisyphus's interactive "All calculations are done" prompt once its graph finishes, and a one-shot
+console status then calls several finished jobs `runnable`/`waiting`. A watcher verdict of
+`STATUS=STALLED ... work remains` on this config is that artifact; all 49 jobs carry `finished` or
+`finished.tar.gz` on disk.
 
 **D8.0 IS COMPLETE AND ITS BINDING CLAUSE PASSES** (approach 34, verdicts 62-63; speech-llm
 `889750c`, `a3dd6c7`, operative v3 `3843918`; manager `sae_3e1_d8_0`, all reads finished). The planner's
@@ -73,10 +52,20 @@ its pre-amend twin; the collapse tally is labelled CLASSES not groups in both th
 this log, and the artifact now reports classes and groups separately; approach 34's v2 table carries
 the omitted T=0.5 row.
 
-Next action: ask the user for the one D7 restart above, then confirm both D7.1 trainings begin
-matched and that each names exactly the four registered drops in its report. A D7 policy leg is NOT
-authorized and none is in this graph. D8 has nothing left to build until the D7.2 admission verdict
-opens D8.1a. §1g H4's pre-label surfaces run on their own manager and watcher (`SAE_1g.md` State).
+Next action: build and run D7.2, the registered label-free admission
+(`PLAN_3E1.md` D7 item 3): at both fixed-final scorers, internal-held NLL and `L_online` with 32
+stateless donor draws per eligible held anchor paired across scorers, then the unchanged 1,500-row
+Acceptance gate v2 and `PsiScorerParityJob`. Nothing in this is authorization-gated -- D7.3, the
+policy leg, is, and none is in any graph. D8 has nothing left to build until D7.2 returns a verdict.
+§1g H4's pre-label surfaces are COMPLETE (`SAE_1g.md` State, approach 11, verdict 17).
+
+Proposal for the planner, on D7.2's second gate clause: it requires the candidate's internal-held
+per-frame NLL to be no greater than the control's point value, and the two point values D7.1 banked
+already order the wrong way (candidate 2.5319 against control 2.5259). Those are one-draw values
+from the training jobs, not the D7.2 estimator, and clause 1 orders the other way (candidate mean
+`L_online` 26 % lower), so nothing is decided -- but if D7.2 reproduces the NLL ordering, D7 closes
+without a policy leg on clause 2 while clause 1 passes. Flagging it now rather than after the run,
+since the gate is pre-registered and must not move once the number is in.
 
 Proposal for the planner: none outstanding.
 
@@ -899,6 +888,27 @@ infeasible-donor counter in the same run: 0 infeasible of 256 donor pairs, cases
 ordinary_window / 47 nearest_fallback.
 
 
+**D7.1 completed 2026-08-21 23:05, both arms, one ten-shard corpus pass each.** The pass is a single
+14-minute job per arm, not a multi-resubmit run: 2,361 batches over 10 round-robin shards at ~70 s
+per shard, peak resident set 4.89 / 4.85 GiB. Both arms report the identical bed -- 281,241 rows,
+267,179 train and 14,062 held before filtering, then the SAME four own-infeasible train anchors
+dropped by name (`3488-85273-0024`, `3889-130125-0028`, `4492-8904-0032`, `8424-284526-0028`),
+267,175 trained and 14,062 held. Shard row and frame counts agree arm to arm at every one of the ten
+shards, and the internal-held donor draw is identical (case counts 11,855 ordinary_window / 2,153
+nearest_fallback / 54 singleton, 14 infeasible donor pairs, 9,825 unique donors), so the two arms
+differ only in the loss term.
+
+| arm | objective | internal-held NLL per frame | internal-held mean `L_online` | job |
+|---|---|---:|---:|---|
+| control | `L_NLL + L_U->z` | 2.5259 | 0.010225 | `S/d7_online/D7OnlineTrainJob.j16rTskXF1QU` |
+| candidate | control `+ softplus(s_donor - s_own)` | 2.5319 | 0.007541 | `S/d7_online/D7OnlineTrainJob.WA1bqjXQtzeZ` |
+
+Train-side sampling over the 267,175 anchors, identical in both arms: 266,134 ordinary_window /
+1,041 nearest_fallback, 1 infeasible donor pair, 170,443 unique donors, maximum donor reuse 8,
+own/donor duration ratio mean 1.0144 (min 0.4615, max 3.7246). D7.2 and D7.3 remain absent from this
+graph; the config registers d7_0 and d7_1 only and is now fully finished.
+
+
 **33. D6-PERIODIC/GAN960-FROZEN: the frozen-scorer loop restarted from theta_0^G960.** User-funded
 2026-08-21 on the §3d.A scale read (`SAE_3D_GTRACK.md` approach 5, verdict 11), registered by the
 planner in `PLAN_3E1.md`. The arm is `config_sae_3e1_d6periodic_gan_frozen_v1`'s recipe verbatim --
@@ -1542,6 +1552,24 @@ function-word pairs rather than broad spelling diversity.
     (Correction 2026-08-22: the shaped-versus-acoustic-only low end was first transcribed as 0.30;
     the T=0.5 slice reads 0.2857. Direction-neutral -- the verdict binds nowhere either way.)
 
+64. **The D7 own-infeasible drop set is exactly the four registered train-role rows, confirmed
+    per arm from each arm's own artifact** (32). Both `monitors.json` files carry
+    `own_infeasible_dropped = {"train": ["3488-85273-0024", "3889-130125-0028", "4492-8904-0032",
+    "8424-284526-0028"]}` with `anchor_rows = {"train": 267175, "internal_held": 14062}`, digit-identical
+    to the offline end-to-end dropcheck on the same pool inputs and to each other. This closes the
+    check that was deferred at relaunch; nothing was inferred from the runs merely starting.
+
+65. **D7.1 reached its fixed final endpoint on both arms, and its two banked held statistics point
+    in opposite directions** (32). The candidate's internal-held mean `L_online` is 0.007541 against
+    the control's 0.010225, i.e. 26 % lower, which is the direction the online same-speaker negative
+    is meant to produce; its internal-held per-frame NLL is 2.5319 against the control's 2.5259, i.e.
+    0.0060 higher. Both are single point values from the arms' own `monitors.json`, computed on one
+    donor draw per held anchor, so neither is the D7.2 statistic: the registered admission recomputes
+    `L_online` with 32 stateless donor draws per eligible held anchor under a paired speaker-cluster
+    bootstrap, and adds the 1,500-row Acceptance gate v2 and scorer parity. What D7.1 establishes is
+    only that the A/B ran matched to its endpoint and produced two fixed-final scorers.
+
+
 ## Catalog
 
 `T/` = `work/i6_core/returnn/training/`, `F/` = `work/i6_core/returnn/forward/`,
@@ -1559,6 +1587,7 @@ function-word pairs rather than broad spelling diversity.
 | D7.0 parity diagnostic (approach 32): the read-only GPU reproduction of the preflight's parity clause | `scripts/d7_parity_diag.py`, output `log/d7_parity_diag.1446568.out` |
 | D6-PERIODIC/GAN960-FROZEN graph (approach 33) | `config/sae_3e1_d6periodic_gan960_frozen.py` -> `configs/config_sae_3e1_d6periodic_gan960_frozen_v1.py`; init `T/ReturnnTrainingJob.HuSkdbuVRg6d` ep10; frozen scorer `S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR`; legs 1/2/8 `T/ReturnnTrainingJob.ohmLWWmr6Kxe`, `.liehXoiGoRI0`, `.V1WEV1giQXZA` |
 | corrected D7-GAN-SEQDISC graph (approach 32) | `config/sae_3e1_d7_gan_seqdisc.py`; pool `S/d7_online/D7OnlinePoolJob.XLjSgTzHfwAu`; preflight `S/d7_online/D7OnlinePreflightJob.ZxfANwBZYpaI`; fixed-final control/candidate `S/d7_online/D7OnlineTrainJob.j16rTskXF1QU`, `.WA1bqjXQtzeZ` |
+| D7.1 fixed-final scorers, both arms complete | control `S/d7_online/D7OnlineTrainJob.j16rTskXF1QU/output/model_final.pt`; candidate `S/d7_online/D7OnlineTrainJob.WA1bqjXQtzeZ/output/model_final.pt`; per-arm `monitors.json`, `sampling.json`, `train.txt` beside each |
 | D6-PERIODIC legs 1-8 (approach 22), parent sub-ep 3-10 | `T/ReturnnTrainingJob.5FqdnhWTOf1f`, `.BTnU1gSuMG0i`, `.ZKCbq529Hgp8`, `.gFNpNmXwvrsc`, `.nQtnPdKCuJ0m`, `.n8abYvLR4IP5`, `.jGj7TTbW5DTm`, `.wWqYY7iOCw1s` |
 | its per-boundary refits (rounds 2-8) | `S/psi_align_jobs/PsiAlignTrainJob.JWV3InILYF5v`, `.yUUSN2Hx96E0`, `.QMO8VcAtZ6Gi`, `.DzhBWCy61tiN`, `.Vha8vvKu9lWk`, `.RGTtwlQHt3HY`, `.Ls0TQGiyhQbf` |
 | D6-PERIODIC-WARM legs 1-8 (approach 24), parent sub-ep 3-10; leg 1 is approach 22's, shared | `T/ReturnnTrainingJob.5FqdnhWTOf1f`, `.OOr3UybqUEHD`, `.X3biCvDKgQ7N`, `.7dANeLqxFFbq`, `.nd92xaRDY0uw`, `.kkh0u4rI7I6D`, `.kQRZtXc1ubTV`, `.oRbUsmYR6fRT` |
