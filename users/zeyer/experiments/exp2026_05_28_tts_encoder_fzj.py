@@ -2065,36 +2065,36 @@ class PseudoSpeechEncoder(rf.Module):
         self.embedding = rf.Embedding(self.wb_vocab_dim, out_dim)
 
     def __call__(self, labels: Tensor, *, spatial_dim: Dim) -> Tuple[Tensor, Dim]:
-        import torch
-
         assert labels.sparse_dim.dimension == self.vocab_dim.dimension, (
             f"vocab size mismatch: {labels.sparse_dim} vs {self.vocab_dim}"
         )
-        # batch dim DERIVED from the input: single-stream calls this on a SELECTED sub-batch,
-        # so the global batch_dim would mismatch (tensor_copy_compatible_to_dims_raw crash).
-        (batch_dim,) = labels.remaining_dims(spatial_dim)
-        ids_raw = labels.copy_compatible_to_dims_raw([batch_dim, spatial_dim])  # [B, T] int
-        lens = spatial_dim.get_size_tensor(device=labels.device).copy_compatible_to_dims_raw([batch_dim])
-        bs, t = ids_raw.shape
-        dev = ids_raw.device
-        # Interleave with the blank index: [blank, l0, blank, l1, ..., l_{T-1}, blank],
-        # per-seq length 2*len+1 (padding positions are blank too; masked via the dyn dim).
-        inter_raw = torch.full((bs, 2 * t + 1), self.blank_idx, dtype=ids_raw.dtype, device=dev)
-        inter_raw[:, 1::2] = ids_raw
-        inter_lens = rf.convert_to_tensor((2 * lens + 1).to(torch.int32).cpu(), dims=[batch_dim])
-        inter_dim = Dim(inter_lens, name="pseudo_enc_interleaved")
-        interleaved = rf.convert_to_tensor(inter_raw, dims=[batch_dim, inter_dim], sparse_dim=self.wb_vocab_dim)
-        # Random durations, separately for blanks (even positions) and labels (odd positions).
-        l_lo, l_hi = self.label_duration_range
-        b_lo, b_hi = self.blank_duration_range
-        label_dur = rf.random_uniform(interleaved.dims, minval=l_lo, maxval=l_hi + 1, dtype="int32")
-        blank_dur = rf.random_uniform(interleaved.dims, minval=b_lo, maxval=b_hi + 1, dtype="int32")
-        durations = rf.where(rf.range_over_dim(inter_dim) % 2 == 0, blank_dur, label_dur)
-        durations = durations.copy_masked(0, dims=[inter_dim])
+        if self.blank_duration_range == (0, 0) and self.label_duration_range == (1, 1):
+            interleaved = labels
+            out_spatial_dim = spatial_dim
+        else:
+            import torch
+
+            (batch_dim,) = labels.remaining_dims(spatial_dim)
+            ids_raw = labels.copy_compatible_to_dims_raw([batch_dim, spatial_dim])  # [B, T] int
+            bs, t = ids_raw.shape
+            dev = ids_raw.device
+            # Interleave with the blank index: [blank, l0, blank, l1, ..., l_{T-1}, blank],
+            # per-seq length 2*len+1 (padding positions are blank too; masked via the dyn dim).
+            inter_raw = torch.full((bs, 2 * t + 1), self.blank_idx, dtype=ids_raw.dtype, device=dev)
+            inter_raw[:, 1::2] = ids_raw
+            inter_dim = spatial_dim * 2 + 1
+            interleaved = rf.convert_to_tensor(inter_raw, dims=[batch_dim, inter_dim], sparse_dim=self.wb_vocab_dim)
+            # Random durations, separately for blanks (even positions) and labels (odd positions).
+            l_lo, l_hi = self.label_duration_range
+            b_lo, b_hi = self.blank_duration_range
+            label_dur = rf.random_uniform(interleaved.dims, minval=l_lo, maxval=l_hi + 1, dtype="int32")
+            blank_dur = rf.random_uniform(interleaved.dims, minval=b_lo, maxval=b_hi + 1, dtype="int32")
+            durations = rf.where(rf.range_over_dim(inter_dim) % 2 == 0, blank_dur, label_dur)
+            durations = durations.copy_masked(0, dims=[inter_dim])
+            interleaved, out_spatial_dim = rf.repeat(interleaved, in_spatial_dim=inter_dim, repeats=durations)
         emb = self.embedding(interleaved)
-        feats, out_spatial_dim = rf.repeat(emb, in_spatial_dim=inter_dim, repeats=durations)
-        feats.feature_dim = self.out_dim
-        return feats, out_spatial_dim
+        emb.feature_dim = self.out_dim
+        return emb, out_spatial_dim
 
 
 def aed_glowtts_train_step(*, model: Model, extern_data, **_kwargs_unused):
