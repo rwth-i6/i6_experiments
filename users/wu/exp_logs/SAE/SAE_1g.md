@@ -406,7 +406,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   selector freezes. `JOB_AUTO_CLEANUP=True` remains effective for managers; console mode intentionally
   overrides it only for inspection.
 
-- 2026-08-20 — The corrected H4 prerequisite graph is independently verified and launched. All 71
+- 2026-08-21 — The corrected H4 prerequisite graph is independently verified and complete. All 71
   regenerated non-soft controls reproduce their retained count-0 `B` exactly, and all four imported
   H3 pairs reproduce canonical `B` from persisted `Q`; therefore exactly 75 trajectories are reused
   and the ten soft Q-space trajectories are rerun. The graph exposes 85 direct-Q starts and the full
@@ -414,12 +414,16 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   sources (235/432 clean and 278/458 other), with 377 explicit `no_swap`; these are construction-time
   facts about the frozen table, not a content result. Resource preflight is exactly 288 probes: three
   representatives by 48 cells on each of update and selection, plus one global worst-cell shard rerun
-  and contract per role. Evaluation audio, labels, donors, decodes, and scoring remain absent.
+  and contract per role. Both contracts pass the registered 1.5-times resource rule. The update role
+  measured 23,768.19 seconds and 1.043 GiB on its heaviest 19,515-unit shard, yielding a 10-hour,
+  2-GiB production request; selection measured 3,069.04 seconds and 0.908 GiB on its heaviest
+  2,466-unit shard, yielding 2 hours and 2 GiB. The graph has 821/821 jobs finished and no scheduler
+  or problem state. Evaluation audio, labels, donors, decodes, and scoring remain absent.
 
   Selector freeze is blocked by a normative conflict in `PLAN_1G.md`: Section 1g.2 defines the
   own-minus-donor contrast as the selection score, while experiment 6 makes construction-fold
   likelihood the primary checkpoint selector and calls own-minus-donor only its backup. The plan also
-  does not freeze a single normalization for unequal source/donor retained lengths. The launched graph
+  does not freeze a single normalization for unequal source/donor retained lengths. The completed graph
   deliberately stops at raw sufficient statistics and resource contracts; no final refit or evaluation
   graph is authorized until the planner resolves those choices.
 
