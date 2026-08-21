@@ -279,7 +279,10 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    edit is implemented and verifier-confirmed (four named train-role drops, hashes unmoved) —
    only the user-run d7 restart pends. D8.0 ran and its binding clause read UNRESOLVED on a
    frame contradiction; the planner's clause-(a) ruling (raw 50 Hz feasibility join, v3 read,
-   no new dump) is registered in `PLAN_3E1.md` D8 Status.
+   no new dump) is registered in `PLAN_3E1.md` D8 Status. 2026-08-22 later: the v3 read ran
+   and is verifier-confirmed — clause (a) GO (exclusion 0/5,730, median distinct feasible 12
+   vs threshold 3); D8.0 is discharged, D8.1a-b stay gated behind the D7.2 verdict as
+   registered.
    2026-08-21 (planner, on the user's instruction): D8 REGISTERED in `PLAN_3E1.md` —
    posterior-weighted multi-hypothesis scorer refit (soft EM over theta_0^G sampled rollouts,
    weights from the arm's own shaped score at pinned lam_lm=1.0, D7 control reused as the

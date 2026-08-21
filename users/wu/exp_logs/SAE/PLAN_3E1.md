@@ -1996,6 +1996,16 @@ same-string rule governs scoring, so the tie rule affects report columns only â€
 the tau_star rule in the weight-job docstring. Proposal 3 needs no plan change: the leg-1
 scorer provenance is exactly the registered "Disclosed asymmetry" paragraph of
 D6-PERIODIC/GAN960-FROZEN; audits read the plan, and the job record adds no new claim.
+2026-08-22 later: the ruling is EXECUTED AND VERIFIER-CONFIRMED (speech-llm `3843918`;
+operative v3 jobs `D8FeasibilityReadJob.mv2d0vkWN93a` / `.W7TWfwoZtkaC`; independent recompute
+of the binding slice matches exactly). Clause (a) reads GO in the operative frame â€” exclusion
+0 of 5,730, median distinct feasible support 12 of 13 against the threshold 3, safety valve
+not fired, fork read unchanged to the last digit. Two conservative implementation deviations
+ratified as the operational form (valve denominator = all excluded scored members; coverage
+assert over the whole dump). This GO discharges D8.0 ONLY: D8.1a-b remain gated behind the
+D7.2 admission verdict and D8.3 behind its own authorization, exactly as registered. Noted
+for D8.1a, selecting nothing now: the binding slice's provisional rho(shaped, LM-only) is
+0.9790, above the registered 0.95 arm-selection bar.
 
 ## Acceptance gate v2
 
