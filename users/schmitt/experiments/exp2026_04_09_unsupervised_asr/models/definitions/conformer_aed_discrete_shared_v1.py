@@ -409,6 +409,10 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
         - `TransformerDecoderV1` as decoder.
     """
 
+    # whether this model has a decoder at all. Subclasses which only use the encoder
+    # (e.g. the CTC-only model) set this to False, so no decoder is built in `__init__`.
+    has_decoder: bool = True
+
     def __init__(
         self,
         *,
@@ -525,60 +529,68 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
         # self.audio_eos_predictor = nn.Linear(model_dim, 1)  # binary classifier for audio eos
 
         encoder_dim = model_dim if enc_bottleneck_dim is None else enc_bottleneck_dim
-        dec_cfgs = {
-            name: TransformerDecoderV1Config(
-                block_cfg=TransformerDecoderBlockV1Config(
-                    ff_cfg=ConformerPositionwiseFeedForwardV2Config(
-                        input_dim=model_dim,
-                        hidden_dim=model_dim * 4,
-                        dropout=dropout,
-                        activation=nn.functional.relu,
-                        dropout_broadcast_axes=dropout_broadcast_axes,
+        # subclasses without a decoder (e.g. the CTC-only model) set `has_decoder = False`,
+        # so the decoder is never built in the first place (instead of being built and discarded)
+        if self.has_decoder:
+            dec_cfgs = {
+                name: TransformerDecoderV1Config(
+                    block_cfg=TransformerDecoderBlockV1Config(
+                        ff_cfg=ConformerPositionwiseFeedForwardV2Config(
+                            input_dim=model_dim,
+                            hidden_dim=model_dim * 4,
+                            dropout=dropout,
+                            activation=nn.functional.relu,
+                            dropout_broadcast_axes=dropout_broadcast_axes,
+                        ),
+                        mhsa_cfg=CausalSelfAttentionV1Config(
+                            att_dropout=dropout,
+                            att_dropout_broadcast_axes=attn_dropout_broadcast,
+                            dropout=dropout,
+                            dropout_broadcast_axes=dropout_broadcast_axes,
+                            model_dim=model_dim,
+                            key_dim_total=model_dim,
+                            value_dim_total=model_dim,
+                            num_heads=num_heads,
+                            with_bias=True,
+                        ),
+                        cross_cfg=CrossAttentionV1Config(
+                            att_dropout=dropout,
+                            att_dropout_broadcast_axes=attn_dropout_broadcast,
+                            dropout=dropout,
+                            dropout_broadcast_axes=dropout_broadcast_axes,
+                            encoder_dim=encoder_dim,
+                            model_dim=model_dim,
+                            key_dim_total=model_dim,
+                            value_dim_total=model_dim,
+                            num_heads=num_heads,
+                            with_bias=True,
+                        ),
                     ),
-                    mhsa_cfg=CausalSelfAttentionV1Config(
-                        att_dropout=dropout,
-                        att_dropout_broadcast_axes=attn_dropout_broadcast,
-                        dropout=dropout,
-                        dropout_broadcast_axes=dropout_broadcast_axes,
-                        model_dim=model_dim,
-                        key_dim_total=model_dim,
-                        value_dim_total=model_dim,
-                        num_heads=num_heads,
-                        with_bias=True,
-                    ),
-                    cross_cfg=CrossAttentionV1Config(
-                        att_dropout=dropout,
-                        att_dropout_broadcast_axes=attn_dropout_broadcast,
-                        dropout=dropout,
-                        dropout_broadcast_axes=dropout_broadcast_axes,
-                        encoder_dim=encoder_dim,
-                        model_dim=model_dim,
-                        key_dim_total=model_dim,
-                        value_dim_total=model_dim,
-                        num_heads=num_heads,
-                        with_bias=True,
-                    ),
-                ),
-                input_dropout=dropout,
-                input_embedding_scale=None,
-                num_blocks=num_text_dec_layers
-                if share_decoder
-                else (num_text_dec_layers if name == "text" else num_audio_dec_layers),
-                num_output=(self.text_out_dim + self.audio_out_dim)
-                if share_decoder
-                else (self.text_out_dim if name == "text" else self.audio_out_dim),
-                logits_bias=logits_bias,
-                share_embedding=False,
-            )
-            for name in (["shared"] if share_decoder else ["text", "audio"])
-        }
-        if share_decoder:
-            self.decoder = TransformerDecoderV1(dec_cfgs["shared"])
-            self.text_decoder = self.decoder
-            self.audio_decoder = self.decoder
+                    input_dropout=dropout,
+                    input_embedding_scale=None,
+                    num_blocks=num_text_dec_layers
+                    if share_decoder
+                    else (num_text_dec_layers if name == "text" else num_audio_dec_layers),
+                    num_output=(self.text_out_dim + self.audio_out_dim)
+                    if share_decoder
+                    else (self.text_out_dim if name == "text" else self.audio_out_dim),
+                    logits_bias=logits_bias,
+                    share_embedding=False,
+                )
+                for name in (["shared"] if share_decoder else ["text", "audio"])
+            }
+            if share_decoder:
+                self.decoder = TransformerDecoderV1(dec_cfgs["shared"])
+                self.text_decoder = self.decoder
+                self.audio_decoder = self.decoder
+            else:
+                self.decoder = None  # only the two separate decoders below
+                self.text_decoder = TransformerDecoderV1(dec_cfgs["text"])
+                self.audio_decoder = TransformerDecoderV1(dec_cfgs["audio"])
         else:
-            self.text_decoder = TransformerDecoderV1(dec_cfgs["text"])
-            self.audio_decoder = TransformerDecoderV1(dec_cfgs["audio"])
+            self.decoder = None
+            self.text_decoder = None
+            self.audio_decoder = None
 
         # domain-adversarial discriminator on the shared encoder output. Options:
         #   None                  -> no discriminator
@@ -647,34 +659,33 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
 
         self.print_param_summary()
 
+    def _param_summary_groups(self) -> Dict[str, Optional[nn.Module]]:
+        """
+        The named sub-modules reported by `print_param_summary`. Entries which are None
+        (e.g. the decoder of a CTC-only subclass) are skipped.
+        """
+        groups: Dict[str, Optional[nn.Module]] = {"enc": self.encoder}
+        if self.share_decoder:
+            groups["dec"] = self.decoder
+        else:
+            groups["text_dec"] = self.text_decoder
+            groups["audio_dec"] = self.audio_decoder
+        groups["text_emb"] = self.text_embedding
+        groups["audio_emb"] = self.audio_embedding
+        return groups
+
     def print_param_summary(self):
-        num_enc_params = 0
-        num_train_enc_params = 0
-        for param in self.encoder.parameters():
-            num_enc_params += param.numel()
-            if param.requires_grad:
-                num_train_enc_params += param.numel()
-
-        num_dec_params = 0
-        num_train_dec_params = 0
-        for param in self.decoder.parameters():
-            num_dec_params += param.numel()
-            if param.requires_grad:
-                num_train_dec_params += param.numel()
-
-        num_text_emb_params = 0
-        num_train_text_emb_params = 0
-        for param in self.text_embedding.parameters():
-            num_text_emb_params += param.numel()
-            if param.requires_grad:
-                num_train_text_emb_params += param.numel()
-
-        num_audio_emb_params = 0
-        num_train_audio_emb_params = 0
-        for param in self.audio_embedding.parameters():
-            num_audio_emb_params += param.numel()
-            if param.requires_grad:
-                num_train_audio_emb_params += param.numel()
+        group_counts = {}
+        for group_name, module in self._param_summary_groups().items():
+            if module is None:
+                continue
+            num_params = 0
+            num_train_params_ = 0
+            for param in module.parameters():
+                num_params += param.numel()
+                if param.requires_grad:
+                    num_train_params_ += param.numel()
+            group_counts[group_name] = (num_params, num_train_params_)
 
         num_total_params = 0
         num_train_params = 0
@@ -685,10 +696,8 @@ class Model(nn.Module, SharedDenoisingAedModel, EncoderDecoderModel):
                 num_train_params += param.numel()
                 print(name, param.numel())
 
-        print(f"#enc_params: {num_enc_params} ({num_train_enc_params} trainable)")
-        print(f"#dec_params: {num_dec_params} ({num_train_dec_params} trainable)")
-        print(f"#text_emb_params: {num_text_emb_params} ({num_train_text_emb_params} trainable)")
-        print(f"#audio_emb_params: {num_audio_emb_params} ({num_train_audio_emb_params} trainable)")
+        for group_name, (num_params, num_train_params_) in group_counts.items():
+            print(f"#{group_name}_params: {num_params} ({num_train_params_} trainable)")
         print(f"#total_params: {num_total_params} ({num_train_params} trainable)")
 
     def freeze_params(

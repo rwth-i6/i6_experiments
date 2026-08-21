@@ -1,11 +1,8 @@
 __all__ = ["Model"]
 
-import math
-from typing import Callable, Dict, List, Literal, Optional, Sequence, Tuple, TypedDict, Union, Any
+from typing import Callable, Tuple
 
-import torch
-from torch import Tensor, nn
-from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+from torch import Tensor
 
 from i6_models.assemblies.transformer.transformer_decoder_v1 import (
     TransformerDecoderV1,
@@ -17,78 +14,13 @@ from .conformer_aed_discrete_shared_v1 import Model as AEDModel
 
 class Model(AEDModel):
     """
-    Conformer encoder + Transformer decoder AED + CTC model
-    similar to the RETURNN frontend implementation but using primitives from i6_models.
-
-    Uses:
-        - `RasrCompatibleLogMelFeatureExtractionV1` for feature extraction,
-        - `VGG4LayerActFrontendV1` as convolutional frontend,
-        - `ConformerRelPosEncoderV1` as encoder and
-        - `TransformerDecoderV1` as decoder.
+    CTC-only variant of the shared AED model: same Conformer encoder (`ConformerRelPosEncoderV1`)
+    and embeddings, but no decoder at all — the output comes from the encoder-side CTC aux heads.
     """
 
-    def __init__(
-        self,
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
-
-        self.decoder = None
-        self.text_decoder = None
-        self.audio_decoder = None
-
-    def print_param_summary(self):
-        num_enc_params = 0
-        num_train_enc_params = 0
-        for param in self.encoder.parameters():
-            num_enc_params += param.numel()
-            if param.requires_grad:
-                num_train_enc_params += param.numel()
-
-        num_text_emb_params = 0
-        num_train_text_emb_params = 0
-        for param in self.text_embedding.parameters():
-            num_text_emb_params += param.numel()
-            if param.requires_grad:
-                num_train_text_emb_params += param.numel()
-
-        num_audio_emb_params = 0
-        num_train_audio_emb_params = 0
-        for param in self.audio_embedding.parameters():
-            num_audio_emb_params += param.numel()
-            if param.requires_grad:
-                num_train_audio_emb_params += param.numel()
-
-        num_total_params = 0
-        num_train_params = 0
-        for param in self.parameters():
-            num_total_params += param.numel()
-            if param.requires_grad:
-                num_train_params += param.numel()
-
-        print(f"#enc_params: {num_enc_params} ({num_train_enc_params} trainable)")
-        print(f"#text_emb_params: {num_text_emb_params} ({num_train_text_emb_params} trainable)")
-        print(f"#audio_emb_params: {num_audio_emb_params} ({num_train_audio_emb_params} trainable)")
-        print(f"#total_params: {num_total_params} ({num_train_params} trainable)")
-
-    def freeze_params(
-        self,
-        freeze_list: List[str],
-    ):
-        import re
-
-        for name, param in self.named_parameters():
-            if any(re.search(match, name) for match in freeze_list):
-                print(f"Freezing parameter: {name}")
-                param.requires_grad = False
-
-    def freeze_encoder(self):
-        for param in self.encoder.parameters():
-            param.requires_grad = False
-
-    def unfreeze_encoder(self):
-        for param in self.encoder.parameters():
-            param.requires_grad = True
+    # no decoder is built at all (see `AEDModel.__init__`), so `print_param_summary`
+    # (called at the end of the base `__init__`) already reports encoder-only counts.
+    has_decoder = False
 
     def decode_text_seq(self, x: Tensor, x_lens: Tensor, encoder_output: Tensor, encoder_output_lens: Tensor) -> Tensor:
         raise NotImplementedError
