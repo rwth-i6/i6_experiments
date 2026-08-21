@@ -4,41 +4,37 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-In flight 2026-08-22 00:10:
+State as of 2026-08-22 -- nothing in flight for 1g:
 
-- **H4 pre-label selection surfaces** (`config/sae_1g_h4_prelabel_surfaces.py`, manager started
-  2026-08-21 21:48, pid 3796121, watcher attached). Question: what is every baseline H4 tuple's
-  own-minus-donor selection score on the 890 selection utterances, so the five provisional pre-label
-  maxima can be frozen before any controlled label opens. Launch condition met and independently
-  read from the artifact rather than the log: `H4GlobalBeamTableJob.ro6L8QCnqYpx/output/
-  global_beams.json` classifies all 12 `(lm_scale, insertion_penalty)` grid points, every one
-  `eligible=false`, on real 201-utterance / 19,515-retained-unit representative decodes. Clause
-  margins on the binding cell, the best grid point's worst representative: one-best agreement
-  0.7313 against the 0.999 requirement, and a score change per retained unit 54x the 1e-4 bound.
-  The sequence family is therefore mechanically ineligible for baseline H4 and the surface graph
-  builds no sequence decode: it is 340 local decodes (85 starts x counts 0/1/2/4), 3,400 fixed-text
-  donor scores (10 frozen assignments each), the selection surface and the provisional maxima.
-  Graph state at launch, taken from on-disk markers rather than the console's one-shot status
-  (which misreported the split): 966 finished, 3,742 unfinished, 4,708 total, nothing in a problem
-  state. All 821 prerequisite jobs are preserved and none is rerun.
-- `sis_managers.sh` no longer blocks this config; the blocked entry named exactly the verdict check
-  performed above, and the config moved into IN_SCOPE.
+- **H4 pre-label selection surfaces are COMPLETE** (`config/sae_1g_h4_prelabel_surfaces.py`). Both
+  registered outputs resolve to finished job dirs: surface
+  `work/speech_llm/sae/h4_selector_jobs/H4SelectionSurfaceJob.MKHfnUO9XwkU`, maxima
+  `.../H4ProvisionalMaximaJob.ejmy4sdTOcS3`. The numbers and the local-winner reading are approach
+  11 and verdict 17.
+- Read this before believing a STALLED report on this config: the manager exits on sisyphus's
+  interactive "All calculations are done, print verbose overview (v), update outputs and alias (u),
+  cancel (c)?" prompt, which under `nohup` raises `EOFError` and looks exactly like a crash in the
+  manager log. The one-shot console status then calls the finished consumer jobs `waiting`, so a
+  watcher verdict reads `STATUS=STALLED ... work remains` on a graph that is fully finished. Grep
+  the manager log for "All calculations are done" before restarting anything.
+- Nothing else in 1g is running. The 821-job H4 prerequisite graph and the beam table are preserved.
 
-Blockers: none for H4.
+Blockers: none.
 
-Next action: hold the watcher to DONE, then read `provisional_maxima.json` and the selection surface
-before anything else in 1g.2 -- no controlled label may open until the five provisional maxima are
-persisted and the update-role winner audits are done.
+Next action is the planner's, not the implementer's: the next step in `PLAN_1G.md` 1g.2 opens the
+controlled labels, and the audit that had to precede them is discharged by construction (verdict
+17). No 1g job should start until the planner rules on that.
 
-Operational note for whoever resumes: `JOB_AUTO_CLEANUP` cannot be checked from a sisyphus console.
-`sisyphus/__main__.py:218` forces it to `False` for every non-manager subcommand, so a console read
-always reports `False` regardless of `settings.py`. The effective value in a manager here is `True`
-(`settings.py:238`, no override anywhere in the tree), confirmed on disk by finished jobs carrying
-`finished.tar.gz` rather than a plain `finished` marker. Cleanup keeps each job's `output/`, `info`
-and `input/` (`JOB_CLEANUP_KEEP_INPUT` is effective here); it removes the internal `work/` and tars
-the logs, so preserving the H4 prerequisite graph is unaffected.
+Proposals for the planner:
 
-Proposal for the planner: none outstanding.
+1. The frozen-versus-next-beam winner audit standing in front of the controlled labels is satisfied
+   without running it: all 85 provisional winners are `decoder.kind = "local"`, and `PLAN_1G.md`
+   states that a local winner needs no beam audit. The at-most-320 shard cells budgeted for it are
+   not needed at this boundary.
+2. The label-free half of the baseline pre-evaluation-ready condition already reads positive -- the
+   selector assigns a nonzero repair count to two of the four real starts
+   (`espum_seed0_update30000` and `pseudo_pair_seed0`, both count 4) -- so the only outstanding
+   input to that condition is the controlled method-level safety read, which is a label read.
 
 ## Approach
 
@@ -265,6 +261,38 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     below 0.0001). Thus the baseline H4 surface retains the local decoder only; no sequence setting
     may enter selection, and the graph stopped without opening selection labels or evaluation.
 
+11. **H4 pre-label selection surfaces (1g.2).** With the sequence family ruled out by approach 10,
+    the baseline surface is local-only: 340 local decodes (85 starts by repair counts 0/1/2/4),
+    3,400 fixed-text donor scores (10 frozen assignments per tuple), one selection surface and one
+    provisional-maxima read, all on the 890 selection utterances and reading no label. Each tuple's
+    statistic is the own-minus-donor fixed-text channel rate
+    (`own_logp/own_retained_units - donor_logp/donor_retained_units`), summed with `math.fsum` in
+    sorted-id order and weighted by split size (dev-clean 432, dev-other 458). The maximum over the
+    10 frozen assignments is that tuple's provisional maximum; ties break on the registered order
+    `legacy-2g;repair_count;local;lambda_outer_beta_inner;initializer;seed;update`. Both artifacts
+    carry `contains_labels: false` and `frozen_pre_label: true`, and their recorded `code_identity`
+    sha256 of `h4_selector_jobs.py` (`517401b9...`) matches the committed file at `84808a8` byte for
+    byte.
+
+    The graph completed 2026-08-21. All 85 starts (81 controlled, 4 real) produced a finite
+    provisional maximum and every one of the 85 winners is `decoder.kind = "local"` and
+    `eligible = true`. The five registered cross-start rows:
+
+    | cross-start row | provisional maximum | winning repair count | winning assignment |
+    |---|---:|---:|---:|
+    | `real/random_map_seed1000` | 10.7753 | 0 | 0 |
+    | `real/fingerprint` | 10.1520 | 0 | 0 |
+    | `controlled/reference` | 5.8265 | 4 | 6 |
+    | `real/espum_seed0_update30000` | 4.2613 | 4 | 0 |
+    | `real/pseudo_pair_seed0` | 0.1437 | 4 | 5 |
+
+    Two internal consistency reads, neither a gate: `controlled/random_map_seed1000` returns
+    10.7753, identical to its `real/` twin at every printed digit, and all 324 controlled
+    within-sequence choices (81 rows by 4 counts) plus all 4,080 `global_beam_ineligible` entries
+    (340 tuples by 12 settings) are ineligible, so the surface carries no sequence-decoder score
+    anywhere -- which is what approach 10 requires.
+
+
 ## Verdicts
 
 1. **Approach 1: one segment per text symbol is rejected.** It exceeds the registered ratio on all
@@ -349,6 +377,19 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     not failed by this result: its mechanically admissible baseline surface is reduced to the local
     decoder, which is the only decoder family that may proceed to the selection stage.
 
+17. **Approach 11 persists the five pre-label provisional maxima, and every one of them is a
+    local winner.** All 85 starts carry a finite own-minus-donor maximum computed with no label
+    read (`contains_labels: false`, `frozen_pre_label: true`), and all 85 winning tuples are
+    `decoder.kind = "local"`. `PLAN_1G.md` requires a frozen-versus-next-beam winner audit only for
+    a sequence winner and states that a local winner needs none, so the audit precondition standing
+    in front of the controlled labels is discharged by construction rather than by running the
+    audit. The label-free half of the baseline pre-evaluation-ready condition also reads positive:
+    of the four real starts the selector assigns a nonzero repair count to two
+    (`espum_seed0_update30000` and `pseudo_pair_seed0`, both count 4). The controlled method-level
+    safety read is a label read and has not run, so pre-evaluation readiness itself is not decided
+    here.
+
+
 ## Catalog
 
 | evidence | concrete artifact or source |
@@ -389,6 +430,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 | H4 calibration preparation and update-only repair graph | commit `c2e930b`; `work/speech_llm/sae/h4_jobs/H4CalibrationPreparationJob.DPv4aIqwPEzM`; reference `H4RepairJob.x1TyHJMfEVpb`; fingerprint `.iUFh7IwniCMl`; random-map seed 1000 `.Ds0zM1NTY2C1`; pseudo-pair seed 0 `.aeetC3NfgPxB`; ESPUM seed 0/update 30,000 `.ViPSmq4Am8vX` |
 | H4 corrected recovery and decoder-resource preflight | commit `436ea50`; update-only reference `work/speech_llm/sae/h4_production_jobs/H4UpdateReferenceArtifactJob.DZa7gIj8rZNj`; Q recovery `work/speech_llm/sae/h4_production_jobs/H4QRecoveryJob.ar34r8ltGTGW`; selection donor `work/speech_llm/sae/h4_production_jobs/H4RoleDonorTableJob.w2RMXcCJyGoy`; update contract `work/speech_llm/sae/h4_decode_jobs/H4ResourceContractJob.kFA99bygctlt`; selection contract `work/speech_llm/sae/h4_decode_jobs/H4ResourceContractJob.kyMk7fwm027C` |
 | H4 baseline global-beam boundary | code commit `3de988a`; reducer `work/speech_llm/sae/h4_beam_jobs/H4GlobalBeamTableJob.ro6L8QCnqYpx` |
+| H4 pre-label selection surface and provisional maxima | commit `84808a8`; `src/speech_llm/sae/h4_selector_jobs.py`; surface `work/speech_llm/sae/h4_selector_jobs/H4SelectionSurfaceJob.MKHfnUO9XwkU`; maxima `work/speech_llm/sae/h4_selector_jobs/H4ProvisionalMaximaJob.ejmy4sdTOcS3` |
 | H5 handoff and H6 character-route interfaces | commit `ce265ce`; `src/speech_llm/sae/handoff.py`; `src/speech_llm/sae/character_route.py` |
 
 ## Verifier feedback

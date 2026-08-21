@@ -51,7 +51,7 @@ offline dropcheck already pins what those lines must say. One 960 h pass in ten 
 carries the RNG state, which is what keeps the two dropout streams matched across a wall hit.
 
 **D8.0 IS COMPLETE AND ITS BINDING CLAUSE PASSES** (approach 34, verdicts 62-63; speech-llm
-`889750c`, `a3dd6c7`, operative v3 below; manager `sae_3e1_d8_0`, all reads finished). The planner's
+`889750c`, `a3dd6c7`, operative v3 `3843918`; manager `sae_3e1_d8_0`, all reads finished). The planner's
 2026-08-22 clause-(a) ruling is implemented: the structural-infeasibility exclusion now joins `T_i`
 from the frozen raw 50 Hz store `S/quantize_states/PackUnitsJob.I0uzRMfUrKWC`, the operative
 D8.1a/D8.1b frame, with coverage over the slice's ids asserted; the per-unit prior currency still
@@ -964,14 +964,14 @@ deliberately separate. The v2 law-conflict guard retires by construction and its
 the reported `operative_law_finite_score_exclusions`. A 5 % safety valve on the binding slice's
 exclusion rate returns UNRESOLVED instead of feeding clause (a).
 
-| artifact | slice | excluded / scored | distinct (feasible, greedy incl.) | tau* | median ESS at tau* | token R2 | rho(shaped, LM-only) | verdict |
-|---|---|---:|---:|---:|---:|---:|---:|---|
-| theta_0^G, 512 utts | T=0.3 | 0 / 3,182 | 6 | 0.05 | 3.685 | 0.4133 | 1.0000 | reported |
-| theta_0^G, 512 utts | T=0.5 | 0 / 4,693 | 10 | 0.05 | 5.308 | 0.2837 | 0.9833 | reported |
-| theta_0^G, 512 utts | **T=0.7 (binds)** | **0 / 5,730** | **12 of 13** | 0.05 | 5.433 | 0.1741 | 0.9790 | **GO** |
-| theta_0^G, 512 utts | T=0.9 | 0 / 6,457 | 13 | 0.05 | 2.392 | 0.0483 | 0.9785 | reported |
-| theta_0^G, 512 utts | T=1.0 | 0 / 6,604 | 13 | 0.2 | 3.976 | 0.0354 | 0.9785 | reported |
-| fork epoch, 28,539 utts | T=0.7 | 18 / 101,190 | 3 | 1.0 | 2.976 | 0.3928 | 0.5000 | reported-only |
+| artifact | slice | excluded / scored | distinct (feasible, greedy incl.) | tau* | median ESS at tau* | token R2 | rho(shaped, LM-only) | rho(shaped, acoustic-only) | verdict |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---|
+| theta_0^G, 512 utts | T=0.3 | 0 / 3,182 | 6 | 0.05 | 3.685 | 0.4133 | 1.0000 | 0.3000 | reported |
+| theta_0^G, 512 utts | T=0.5 | 0 / 4,693 | 10 | 0.05 | 5.308 | 0.2837 | 0.9833 | 0.2857 | reported |
+| theta_0^G, 512 utts | **T=0.7 (binds)** | **0 / 5,730** | **12 of 13** | 0.05 | 5.433 | 0.1741 | 0.9790 | 0.3132 | **GO** |
+| theta_0^G, 512 utts | T=0.9 | 0 / 6,457 | 13 | 0.05 | 2.392 | 0.0483 | 0.9785 | 0.5497 | reported |
+| theta_0^G, 512 utts | T=1.0 | 0 / 6,604 | 13 | 0.2 | 3.976 | 0.0354 | 0.9785 | 0.6593 | reported |
+| fork epoch, 28,539 utts | T=0.7 | 18 / 101,190 | 3 | 1.0 | 2.976 | 0.3928 | 0.5000 | 1.0000 | reported-only |
 
 Jobs: `S/d8_feasibility/D8FeasibilityReadJob.mv2d0vkWN93a` (theta_0^G, binding) and
 `.W7TWfwoZtkaC` (fork epoch). The fork read's numbers are unchanged from v2 to the last digit,
@@ -1533,12 +1533,14 @@ function-word pairs rather than broad spelling diversity.
 63. **Reported at D8.0, binding nowhere: the shaped weights track the LM-only weights closely on
     the operative policy** (34). Median spearman between shaped and LM-only weight vectors is
     0.9790 on the binding slice and 0.978-1.000 across all five, while shaped versus
-    acoustic-only runs 0.30-0.66. The registered arm-selection rule reads only D8.1a statistics on
-    the operative bed and scorer, so this selects nothing and funds nothing; it is logged because
-    a value above the rule's 0.95 line would, if it survived to D8.1a, leave only
-    candidate-acoustic funded. Clauses (b) and (c) fire nowhere at v3: at least one grid tau sits
-    inside the [1.5, 8] ESS band on every slice, and token count explains 0.035-0.413 of
-    within-group weight variance at `tau_star`.
+    acoustic-only runs 0.2857-0.6593; both are now columns of the v3 table in approach 34. The
+    registered arm-selection rule reads only D8.1a statistics on the operative bed and scorer, so
+    this selects nothing and funds nothing; it is logged because a value above the rule's 0.95 line
+    would, if it survived to D8.1a, leave only candidate-acoustic funded. Clauses (b) and (c) fire
+    nowhere at v3: at least one grid tau sits inside the [1.5, 8] ESS band on every slice, and
+    token count explains 0.035-0.413 of within-group weight variance at `tau_star`.
+    (Correction 2026-08-22: the shaped-versus-acoustic-only low end was first transcribed as 0.30;
+    the T=0.5 slice reads 0.2857. Direction-neutral -- the verdict binds nowhere either way.)
 
 ## Catalog
 
@@ -1550,7 +1552,7 @@ function-word pairs rather than broad spelling diversity.
 | code | `sae/scorer_diag.py`, `sae/text_repair.py`, `sae/psi_align_jobs.py`, `sae/psi_align.py`, `sae/curate.py`, `sae/gate_table.py`, `sae/refresh_gate.py`, `sae/d7_census.py`, `sae/d7_v2.py`, `sae/d7_online.py` (+ focused tests; D7.0a commit `a0a22b4`, D7-v2 commit `7b2069d`, D7 resume-RNG and infeasible-donor counter `1d10945` on speech-llm `haotian_modality_matching_jupiter`). `test_psi_align.py`'s CUDA/python lattice parity test now also carries two `d_min=2` skip_ok cases, so the topology D7 trains in is pinned; executed on a GH200 2026-08-21 (`log/parity_test.1445759.out`, passed, not skipped) since the login node has no GPU. |
 | entry points | `config/sae_3e1_d0.py`, `config/sae_3e1_usage.py`, `config/sae_3e1_d1d2.py`, `config/sae_3e1_d3.py`, `config/sae_3e1_d4.py`, `config/sae_3e1_d4p.py`, `config/sae_3e1_d5b.py`, `config/sae_3e1_d6.py` (builds D4' and the swap-in too), `config/sae_3e1_d6periodic.py`, `config/sae_3e1_d6periodic_warm.py`, `config/sae_3e1_hom.py`; D7 tracked canonical configs `src/speech_llm/prefix_lm/sis_recipe/exp2025_11_06_speech_llms/librispeech/configs/config_sae_3e1_d7_0a_v1.py` at `a0a22b4` and `config_sae_3e1_d7_v2_v1.py` at `7b2069d` (workspace wrappers only delegate) |
 | D8.0 registered feasibility reads (approach 34) | **operative v3** `S/d8_feasibility/D8FeasibilityReadJob.mv2d0vkWN93a` (theta_0^G, binding, GO) and `.W7TWfwoZtkaC` (fork epoch); superseded v2 `.mDQ2LoAzrMTE` / `.ulUbBcxIiJtf` and v1 `.iCuYuvkL6bwr` / `.onK5ekDuoLLA`, kept as the evidence that motivated the guard and then the ruling |
-| D8.0 code and entry point | `sae/d8_feasibility.py`, `configs/config_sae_3e1_d8_0_v1.py`, `config/sae_3e1_d8_0.py`, `scripts/d8_0_mechanics_test.py` (speech-llm `889750c`, v2 guard `a3dd6c7`, operative v3 `3843918` — reference completed by the verifier 2026-08-22; the "below" pointer resolved nowhere) |
+| D8.0 code and entry point | `sae/d8_feasibility.py`, `configs/config_sae_3e1_d8_0_v1.py`, `config/sae_3e1_d8_0.py`, `scripts/d8_0_mechanics_test.py`, 47 synthetic-only checks at v3, all passing (the `889750c` commit message says 32, which was the v1 count) (speech-llm `889750c`, v2 guard `a3dd6c7`, operative v3 `3843918`) |
 | D7 own-infeasible-anchor drop law and its verification | speech-llm `e2a421b`; `scripts/d7_make_items_dropcheck.{py,json}` |
 | D7.0a complete raw external/scorer edge tables and census (approach 30) | `S/d7_census/D7RawDonorCensusJob.zsnx1p9nLyV3` |
 | D7-v2 / D7.0b feature and fail-closed assignment jobs (approach 31); the downstream loss preflight never materialized | `S/d7_v2/D7V2FeatureJob.hnReOv8t9UWg`, `S/d7_v2/D7V2AssignmentJob.aSOMkw3hSc0K` |
