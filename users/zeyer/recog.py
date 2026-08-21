@@ -14,7 +14,12 @@ from sisyphus import tk, gs
 from sisyphus import tools as sis_tools
 
 from i6_core.returnn import ReturnnConfig
-from i6_core.returnn.training import ReturnnTrainingJob, PtCheckpoint, AverageTorchCheckpointsJob
+from i6_core.returnn.training import (
+    ReturnnTrainingJob,
+    PtCheckpoint,
+    Checkpoint as TfCheckpoint,
+    AverageTorchCheckpointsJob,
+)
 from i6_core.returnn.search import (
     ReturnnSearchJobV2,
     SearchRemoveLabelJob,
@@ -880,7 +885,7 @@ class GetBestRecogTrainExp(sisyphus.Job):
         finished = self.exp.scores_and_learning_rates.available()
         last_fixed_epoch = max(exp.fixed_epochs)
         for epoch in exp.fixed_epochs:
-            if not finished or epoch == last_fixed_epoch or self.exp.get_epoch(epoch).checkpoint.exists():
+            if not finished or epoch == last_fixed_epoch or _checkpoint_exists(self.exp.get_epoch(epoch).checkpoint):
                 self._add_recog(epoch)
 
     @classmethod
@@ -989,6 +994,22 @@ class GetBestRecogTrainExp(sisyphus.Job):
                 f.write(f'  "{epoch}": {json.dumps(res)}')
                 count += 1
             f.write("\n}\n")
+
+
+def _checkpoint_exists(checkpoint: Union[PtCheckpoint, TfCheckpoint, tk.Path]) -> bool:
+    """
+    :param checkpoint: as :func:`ModelWithCheckpoints.get_epoch` returns it.
+        The JAX training hands out the Orbax directory as a plain path,
+        which has ``available()`` but no ``exists()``.
+    :return: whether the checkpoint is there
+    """
+    if isinstance(checkpoint, PtCheckpoint):
+        return checkpoint.path.available()
+    if isinstance(checkpoint, TfCheckpoint):
+        return checkpoint.index_path.available()
+    if isinstance(checkpoint, tk.Path):
+        return checkpoint.available()
+    raise TypeError(f"unexpected checkpoint type {type(checkpoint).__name__}: {checkpoint!r}")
 
 
 class GetTorchAvgModelResult(sisyphus.Job):
