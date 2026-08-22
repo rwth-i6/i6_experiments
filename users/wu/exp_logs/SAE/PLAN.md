@@ -143,6 +143,11 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    (labels-as-evaluation-only over the closed gate; ruling in `PLAN_1G.md` 1g.2 Status): plain
    per-split PER, all four repair counts, on the frozen 432/458 selection-role decodes; the
    1,112-ID held-out evaluation stays sealed; selects and funds nothing.
+   2026-08-22 LATER (user): trigram/4-gram fitting context is MANDATORY — H4-LM (1g.2a) is
+   FUNDED at D scope (engine + matched 2/3/4 artifacts + resource gate + five-start diagnostic;
+   implementation ruling in `PLAN_1G.md` 1g.2a Status). The selector route stays closed. SAE
+   init from the best-PER pseudo-pair row is recommended AGAINST (output audit in `PLAN_1G.md`
+   1g.2 Status: deletion-dominated collapsed outputs, margins are unigram-level only).
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional
@@ -781,10 +786,13 @@ The historical 1f (0.05/0.05) failure remains recorded but is not the future adm
 Phone results validate mechanics. The phone-versus-character difference bundles several design
 changes, including pronunciation-lexicon cost; only a lexicon-free result supports the main claim.
 
-**Status.** **HOLDING for the user's direction word; the 1g.2 selector gate fired NEGATIVE
-2026-08-22 (replaces "selection pending", because the gate fired): H4 is unresolved with no
-selector, no likelihood fallback, and the evaluation closed — details and the pre-registered
-consequences in `PLAN_1G.md` 1g.2 Status; evidence SAE_1g.md verdicts 18-20.** The first E5 job
+**Status.** **1g.2a FUNDED 2026-08-22, route fork otherwise open (replaces the bare HOLDING
+line, because the user funded H4-LM execution at D scope): the 1g.2 selector gate fired
+NEGATIVE 2026-08-22 — H4 is unresolved with no selector, no likelihood fallback, and the
+evaluation closed (details and pre-registered consequences in `PLAN_1G.md` 1g.2 Status;
+evidence SAE_1g.md verdicts 18-20) — while the user directs matched trigram/4-gram fitting
+context (1g.2a) to run at D scope under the implementation ruling in `PLAN_1G.md` 1g.2a
+Status.** The first E5 job
 remains exploratory and non-decisive. H1 freezes the split, masks, two-state topology, and phone
 `p=0.23560298`; no further H1 run is required. H2's deleted-silence boundary law is now identical in
 repair, scoring, and decoding and passes the exact-enumeration suite; its timing preflight must not be

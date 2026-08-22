@@ -1309,6 +1309,31 @@ bigram-specific; neither the higher-order engine, matched fitting LMs, resource 
 nor coherent arm exists. H4-LM does not delay a pre-evaluation-ready baseline bigram arm and H6
 remains the separately gated character route.
 
+**2026-08-22 — USER FUNDS EXECUTION (out-of-trigger; user: "run trigram/4-gram is MANDATORY
+now").** The registered trigger record stands (it did not fire); this is a user direction, not a
+trigger revision. Funded scope = Experiments items 1-4: matched LM artifacts, the exact
+context-state engine with its tiny-example and legacy-2g compatibility harness, the measured
+resource gate, and the D fixed-duration diagnostic on the reference plus the four accepted H3
+starts. The F arm and every selector-shaped consequence stay closed per the 1g.2 verdict. A
+descriptive PER read of the new D decodes runs under the 2026-08-22 reporting rule
+(labels-as-evaluation-only, circularity disclosed, 1,112-ID set sealed).
+
+**2026-08-22 — PLANNER IMPLEMENTATION RULING (efficiency).** The engine must be the batched
+history-tensor contraction form: alpha/beta indexed (utterance, duration sub-state,
+39^(order-1) histories). Per frame, duration moves are elementwise-diagonal; the only
+contraction is over phone-exit arcs against the explicitly-normalized per-history continuation
+table — exact by construction under this section's normalization requirement, no pruning, no
+approximation gate. Emissions stay in the tied (phone, sub-state) form and broadcast, never
+materialized per history; expected counts aggregate over histories on the fly for the M-step;
+float64 with the existing per-frame scaling law. Default compute bed: CPU numpy under the
+existing node-sharing cpu-8 request — GPU jobs on this cluster take an exclusive whole 4-GH200
+node and would idle it at D scale; a torch device path is optional and not funded for D. Cost
+projection (the item-3 preflight remains binding; production request = 1.5x measured): an
+order-4 E-step is ~5.6e12 floating-point operations over the 6,414-utterance update fold, i.e.
+tens of minutes per (start, order) cell on cpu-8; order 3 is ~39x cheaper. The current dense
+engine cannot represent order 4 at all (its dense transition matrix would be ~118 GB), so this
+restructure is the minimum runnable implementation, not an optimization add-on.
+
 ### 1g.3 — Pass the weak seed into the SAE loop
 
 **Purpose.** Test the clarified Phase-1 question directly: does Phase 1g improve the starting point
