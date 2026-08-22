@@ -2136,6 +2136,42 @@ utterances (lexically, on rare words) on this bed — consistent with the 0.459%
 distance already in approach 32 — so decode-path identity is never again assumed without a
 read of exactly this kind.
 
+2026-08-22 latest+2 (planner ruling on the collapse-diagnostic proposal; execution notes for
+ruling piece 3). Pieces 1 and 2 of the latest+1 ruling are verified as built (line review of
+speech-llm `54929cf` plus the 21/21 support suite re-run by the planner); the hash-sequencing
+position — no weight hash statable until piece 3's producing job exists — is correct and is
+what the ruling intended. COLLAPSE PROPOSAL, ruled in three parts. (1) The substance is
+ACCEPTED and planner-verified from the merged dump: the dedup diagnostic flags only
+`round(recon,12)` spread, but lm_prior is tokenization-dependent while recon is
+text-determined — over rollout-only classes the planner measures 17,874 of 155,890 collapse
+classes with differing lm_prior and 17,713 with shaped-numerator spread above 0.01 nats
+(max 65.0); including the quarantined dump-greedy rows, 84,649 and 74,410 of 198,172. The
+proposal's own printed figures (197,825/135/77,077/73,902/0.881/35.2) sit in neither of those
+two populations, so when the diagnostic is banked its population rule must be stated in the
+output; no verdict rests on the ad hoc figures and nothing blocks. (2) The SURVIVOR RULE DOES
+NOT CHANGE for D8.1a: it is the registered computation, it is deterministic, and both arms of
+the A/B read the same support builder over the same merged dump, so the tokenization
+arbitrariness is arm-shared and cannot bias the comparison; changing the statistic between
+registration and read would unregister the gate. Any survivor-rule change (for example scoring
+the canonical tokenization) is a NEW registration for a later round. (3) The DIAGNOSTIC IS
+EXTENDED inside the already-moving weight-job hash, report-only, feeding no clause and no
+valve: per-class lm_prior-differ count and shaped-numerator spread statistics (count above
+0.01 nats, p50/p90/max) over the OPERATIVE post-exclusion support population, banked in the
+weight artifact as the authoritative measurement superseding all ad hoc figures. PIECE 3
+EXECUTION NOTES, binding on the build: (a) the pool member's score is DEFINED as the score of
+the pool STRING through the dataset text pipeline — the same path the D7.1 control consumed
+its targets through — never a reconstruction of the D7 decode's internal token path;
+control-consumption parity is the operative meaning of "the pool member's score". (b) The
+implementer's own flagged check is required: the pass must produce non-degenerate columns
+where the banked dump's `kind=="true"` rows are empty. (c) An OVERLAP PROBE is required
+before the 31,562 differing rows are trusted: score a sample (at least 64) of AGREEING tags
+through the same true-row hook; recon must agree with the dump's stored greedy columns within
+tolerance (this validates forward-configuration parity end to end), and the probe reports the
+lm_prior and n_tokens deltas as the measured decode-path-versus-text-path tokenization gap —
+the same phenomenon the collapse proposal surfaced — so the size of the mixed convention
+(reused dump columns on agreeing rows, text-path scores on differing rows) is bounded by
+measurement inside the artifact before any weight read.
+
 ## Acceptance gate v2
 
 Replaces the §3e.1 two-sided gate (2026-08-07) BEFORE any verdict was read against v1, because

@@ -3082,3 +3082,29 @@ the absolute beta, is what carries the contamination claim.
   manager pid 1992923 are DEAD; for D8 nothing is lost (dump, merge, and equivalence outputs
   all finished and verified before the read, and the corrected weight job needs a fresh start
   anyway), but whether `sae_3e1_hom` still had pending work is the implementer's check.
+- 2026-08-22 (ruling-execution round: pieces 1-2 VERIFIED, collapse proposal RULED, piece-3
+  execution notes registered). Piece 1/2 line review of speech-llm `54929cf` confirms the
+  build matches the latest+1 ruling: pool artifacts are hash-carried ctor inputs with the
+  member-count, missing-member, duplicate-greedy and rollout-width asserts all present; the
+  same-string law is implemented as reuse-on-normalized-equality with a raise (naming the
+  count) on any differing tag lacking a scored pool member; the quarantined dump greedy can
+  never be a fallback. `scripts/d8_support_test.py` re-run by the verifier: 21/21. Withholding
+  the weight hash until piece 3's producing job exists is correct sequencing, not a gap. The
+  collapse proposal's SUBSTANCE is verified independently from
+  `D8MergeRolloutsJob.gXDwFsfvraDS` (planner scan of all 3,937,374 rows): lm_prior genuinely
+  is tokenization-dependent where recon is text-determined, at tens of thousands of collapse
+  classes with nats-scale shaped-numerator spreads in every population variant tried. The
+  proposal's exact printed figures reproduce under NEITHER the rollout-only population
+  (155,890 classes / 17,874 lm_prior-differ / 17,713 spread>0.01 / max 65.0) nor the
+  with-quarantined-greedy population (198,172 / 84,649 / 74,410 / 65.0) — not blocking, since
+  no verdict rests on them, but the banked diagnostic must state its population rule. The
+  ruling (PLAN_3E1.md D8 Status, latest+2): survivor rule unchanged for D8.1a (arm-shared,
+  registered); diagnostic extended report-only inside the already-moving weight hash;
+  piece 3 binds to the dataset-text-pipeline score definition (D7.1-control parity) with the
+  non-degeneracy check and a 64-tag overlap probe whose recon must match the dump's stored
+  greedy columns within tolerance while its lm_prior/n_tokens deltas measure the tokenization
+  gap. Separately, at the user's request, the matched-4g count-4 pseudo-pair decode was
+  audited against gold like the 1g.2 legacy audit: same collapsed babble (length ratio 0.366,
+  deletion 0.634, AH +0.423, zero of 890 utterances below 0.50 PER, TV distance 0.683 vs
+  legacy 0.689) — recorded in the SAE_1g context by its numbers here only because the audit
+  ran in this round; the SAE-init recommendation is unchanged by fitting order.
