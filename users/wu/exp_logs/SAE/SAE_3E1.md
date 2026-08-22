@@ -7,11 +7,18 @@ question each answers), blockers, next action, proposals for the planner. -->
 In flight 2026-08-22:
 
 - **D8.1a, the operative-bed candidate generation pass** (`config/sae_3e1_d8_1a.py`, speech-llm
-  `c9747c7` + `5428a62`), launched 02:32 under manager pid 3126775 with a watcher. Ten sampled dump
-  shards running; then the merge and the deterministic weight job. Verified against the built graph
-  before launch: 61 jobs, exactly 12 unfinished (ten shards, merge, weights), with the ten shard
-  directories resolving to D7.0's finished ones, so nothing re-shards and no training is funded.
-  Approach 35 has the design and the one launch bug.
+  `c9747c7`, `5428a62`, `3af12bd`), ten sampled dump shards running since 02:32; manager restarted
+  at 03:0x as pid 3430479 with a watcher, purely to pick up the new greedy-equivalence read -- the
+  ten SLURM dump jobs were untouched by the restart and kept running. Then the merge, the
+  equivalence read and the deterministic weight job. Approach 35 has the design, the one launch
+  bug, and the five pre-run weight-job fixes.
+
+  **The five fixes required by the 2026-08-22 verification are IN and are HASH-NEUTRAL**, so no
+  manager restart was needed for them and none of the running work moved. That is measured, not
+  assumed: the graph was built against the committed tree and against the fixed tree and both give
+  `D8WeightJob.lF7OF4pQu66m` and `D8MergeRolloutsJob.XPXsAbeeZWVE`. (The hash difference from the
+  very first build was the earlier `av_checkpoint_prefix` fix moving the dump hashes, not these
+  edits.) The edits therefore land at worker import, as the verifier anticipated.
 
 - **D6-PERIODIC/GAN-FROZEN**: leg 7 of 8 running (`T/ReturnnTrainingJob.ZgRzUxDRhajE`), legs 1-6
   finished. Manager pid 1991977, watcher attached.
@@ -1114,6 +1121,37 @@ keys start at `encoder.`. The D6-periodic arms are the reference and are explici
 `policy_prefix` is `None` for theta_0^G at leg 1 and only becomes `"av."` from leg 2. Dropping the
 argument moved the ten dump hashes, so the crashed dirs are orphans at the old hashes and nothing
 needed clearing.
+
+
+**The five pre-run weight-job fixes (2026-08-22).** Four of the five had one root cause: the weight
+job re-implemented D8.0's support construction instead of calling it. `_support` and `_slice` are now
+module-level `build_support` / `slice_statistics` in `d8_feasibility`; the D8.0 read job delegates to
+them unchanged and `D8WeightJob` calls the same functions, so "the same statistic as D8.0" is the
+same code rather than a second implementation that happens to agree. D8.0's 47 mechanics checks pass
+before and after the extraction, which is the regression guard.
+
+| fix | what was wrong | what it is now |
+|---|---|---|
+| (i) binding slice | the filter read `row["temperature"]`; the dump writes `T`, so it was dead code enforcing nothing | a fail-closed assert: an off-slice rollout row raises. Greedy rows carry `T=null` and belong to every slice of their utterance |
+| (ii) safety valve | the 5 % valve was a report field | enforced: over the valve returns UNRESOLVED and clause (a) never speaks. The order lives in `decide()`, testable without a dump, a store or a GPU |
+| (iii) `tau_star` | undefined-ESS fallback `or 0.0` let an undefined tau score \|0-3\|=3 and win a tie | `math.inf` via the shared code, matching D8.0 |
+| (iv) dedup survivor | silent first-seen file order; a greedy row folding into a rollout text was dropped with its recon | the ratified rule (already-normalized member, else earliest stored row), the score-differing collapse diagnostic, and a folded greedy keeps both `is_greedy` and `has_rollout` |
+| (v) non-finite recon | a structurally FEASIBLE member with non-finite recon entered the live support silently | its own loud category feeding the valve. One `-inf` score would otherwise take the group's whole posterior mass |
+
+Fix (v) also corrects an exclusion counter that double-counted repeated infeasible texts, because
+dedup now precedes exclusion. Both D8.0 dumps carry ZERO feasible-but-non-finite rows (checked
+directly: 31,232 and 371,007 whitelisted rows, all finite), so (v) is a pure guard there and D8.0's
+finished artifacts remain exactly reproducible.
+
+`D8GreedyEquivalenceJob` implements the planner's ruling on the registration deviation: the dump
+regenerates greedy through `SaeGrpoModelV1` rather than reusing the D7 pool's 1-best, which is
+admissible only against a zero-mismatch normalized-text equivalence read over all 281,241
+utterances. It compares on the D8 reader's own fold -- the string the weight job actually dedups --
+reports coverage in its own buckets so zero mismatches cannot be reached on a subset, and reports
+rather than raises, because a real divergence between two decoders is a finding for the planner and
+not a crash. `scripts/d8_1a_weights_test.py` carries 39 synthetic-only checks covering every fix
+above plus the label firewall; it never reads the dump or the store, so it runs while the dump is
+still generating and cannot launder a real number into a passing check.
 
 
 ## Verdicts
