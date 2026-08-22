@@ -2548,3 +2548,39 @@ the absolute beta, is what carries the contamination claim.
   reproduces 47/47 PASS live at branch head. The D7.2 clause-2 flag is acknowledged in
   `PLAN_3E1.md` D7 Status: the gate does not move, and a failure closes D7 without a policy leg
   per the registered law — D7.2 is authorized to build and run as registered, no new word needed.
+
+- 2026-08-22 (D7.2 closure round VERIFIED; D7 CLOSED on clause 2; D8.1a-b released by ruling).
+  All four clause artifacts confirmed against the claims. The gate table was independently
+  recomputed BIT-EXACTLY from the upstream per-utterance dumps (all five ladder CIs, all three
+  insertion-discount levels, paired differences, both CI endpoints and p-values, at the recorded
+  seed 42 / 10,000 resamples in the job's own call order), so clause 3's numbers are beyond
+  transcription doubt. The admission artifact's donor-diversity histogram recomputes exactly
+  (median 3.0, mean 3.4208, 4,022 single-donor anchors of 14,008); the clause-2 comparison
+  stands at 2.531898 > 2.525882 over 8,642,253 frames, cross-checked against the D7.1 training
+  reports at 3.62e-9 agreement (the "~1e-9" in State/approach 32 is slightly optimistic; the
+  job's own assert is 1e-6). Label firewall traced through all nine admission inputs: the
+  pseudo-text store's train split has the gold text column REMOVED upstream and the gold
+  dev/test splits are never opened. Parity is exactly 0.0 on 512/512 rows in both arms; the ten
+  D7.2 jobs are finished with no error marker and neither D7.1 fixed final was rerun. Verdicts
+  66-67 rest on confirmed numbers; the closure reading (licenses not funding D7.3, not evidence
+  the method cannot work) matches the registered gate-decision-vs-measurement rule. Hand-backs,
+  implementer's lane: (i) `gate_table.py:250` hard-codes "NO WINNER (reduction CI includes
+  zero)" as the fallback reason, which is FALSE here — under the CI reading the candidate's k=1
+  paired CI [+0.0039, +0.0106] excludes zero on the wrong side, and under the point reading no
+  arm is eligible at all; the no-winner OUTCOME is correct under both readings, but the printed
+  reason and the approach-32 sentence inheriting it ("because the k=1 reduction CI includes
+  zero") need correcting before anyone quotes them; (ii) trivia: "~1e-9" -> 3.62e-9.
+  Observations recorded, no gate touched: the candidate's usage-gate widening (+0.3078)
+  decomposes to +0.30712 from the length-matched deranged NULL against +0.00071 from the true
+  side — the candidate mostly prices the null worse, not the truth better — which sharpens
+  verdict 67's transfer sentence without flipping it; the substitution discount (computed,
+  registered to decide nothing) is also worse for the candidate at every k with CIs excluding
+  zero; 448 of 448,256 donor draws are structurally impossible and contribute exactly 0 to both
+  arms by documented design (`d7_online.py:446-451`). Process finding promoted to a registered
+  D8 requirement (`PLAN_3E1.md` D8 Status): the admission job persists NO per-anchor arrays, so
+  its paired mean, negative share and bootstrap bound cannot be re-derived from surviving
+  artifacts — harmless here because the gate closed on clause 2's deterministic comparison, but
+  the D8.2 admission job must dump per-anchor deltas and cluster ids before any D8.2 number is
+  read. The clause-3 point-versus-CI eligibility convention stays DUAL-REPORTED per the user's
+  still-pending blessing (PLAN.md queue item 2); it decided nothing here and is not pinned by
+  the planner.

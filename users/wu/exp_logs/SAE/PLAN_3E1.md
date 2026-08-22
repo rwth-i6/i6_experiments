@@ -1770,6 +1770,19 @@ construction); the registered clause is unchanged — its precision comes from t
 speaker-cluster bootstrap, not the draw count — and the per-anchor distinct-donor count is a
 MANDATORY reported diagnostic in the admission artifact, never a gate input, so the estimate is
 never read as carrying 32 draws' worth of donor variation.
+2026-08-22 later (planner): **D7 IS CLOSED.** D7.2 ran all four registered clauses and FAILED
+clause 2 (candidate internal-held per-frame NLL 2.531898 against the control's 2.525882 over
+8,642,253 frames; clause 1 passed decisively, clause 4 exactly, clause 3 returned no winner
+under both eligibility readings) — verifier-confirmed against the artifacts, with the gate
+table independently recomputed bit-exactly (`SAE_3E1.md` Verifier feedback 2026-08-22, verdicts
+66-67). Per the registered gate the failure closes D7 without a policy leg and no sampler or
+temperature rescue is selected from the result; D7.3 is closed by the gate, not merely
+unauthorized. The closure licenses NOT FUNDING the policy leg at this operating point and is
+not evidence that an online same-speaker negative cannot work; verdict 67's trade (decisive
+same-speaker discrimination bought a significantly larger insertion discount, and the external
+usage-gate widening is almost entirely the null side) is the recorded legacy a future design
+must break rather than re-tune. The clause-3 point-versus-CI eligibility convention remains
+DUAL-REPORTED per the user's pending blessing (PLAN.md queue item 2) and is not pinned here.
 
 **D8 -- posterior-weighted multi-hypothesis scorer refit (soft EM over sampled rollouts;
 USER-proposed 2026-08-21, registered same day; UNFUNDED).**
@@ -2028,6 +2041,24 @@ assert over the whole dump). This GO discharges D8.0 ONLY: D8.1a-b remain gated 
 D7.2 admission verdict and D8.3 behind its own authorization, exactly as registered. Noted
 for D8.1a, selecting nothing now: the binding slice's provisional rho(shaped, LM-only) is
 0.9790, above the registered 0.95 arm-selection bar.
+2026-08-22 later (planner): **D8.1a-b ARE RELEASED.** The D7.2 verdict is in (FAIL on clause 2,
+verifier-confirmed; D7 Status above), which is the registered release condition — the ordering
+waited on the VERDICT, not on a pass. Consequences, all as already written: the D7.1 exact
+control (`D7OnlineTrainJob.j16rTskXF1QU`) remains the pinned comparator and gate v2's
+last-accepted reference does NOT move; the weight scorer stays `dsMKgPHQApyR`; the admission
+machinery and GPU budget are free (the whole D7 config is finished). The implementer may build
+and launch D8.1a — the group-12 T=0.7 sampled dump pass over all 281,241 utterances plus the
+deterministic weight job — under the user's standing D8 funding and the priced envelope, with
+no displacement of the running D6-periodic loops. The three no-go clauses re-apply verbatim at
+D8.1a and the arm-selection rule reads D8.1a statistics alone (the banked D8.0 rho 0.9790 > 0.95
+forewarns that candidate-shaped is likely not funded, but the D8.1a value decides). D8.1b
+trains only per that rule; D8.2 follows the registered design; D8.3 still requires its own
+authorization after a D8.2 pass. One operational requirement added for D8.2, registered now
+before that job exists (from the D7.2 verification, `SAE_3E1.md` Verifier feedback 2026-08-22):
+the D8.2 admission job MUST persist its per-anchor paired deltas and speaker-cluster ids beside
+the aggregate artifact, so the paired mean, negative share and bootstrap bound are re-derivable
+from disk — in D7.2 those three rested solely on the job's own arithmetic, harmless only
+because the gate closed on clause 2's deterministic comparison.
 
 ## Acceptance gate v2
 

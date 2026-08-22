@@ -86,10 +86,13 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
   amendment registered (`PLAN_3E1.md` D7 Status); 2026-08-22 the edit is implemented and
   verifier-confirmed (speech-llm `e2a421b`, hashes unmoved), the user ran the restart 22:50, and
   D7.1 COMPLETED 23:05 on both arms and is verifier-confirmed — four named drops closed per-arm,
-  arms single-variable at the artifact level, fixed-final scorers banked. D7.2 (label-free
-  admission) LAUNCHED 23:16 under the standing registration — no new word was needed; its
-  clause-2 risk and the donor-diversity disclosure are ruled in `PLAN_3E1.md` D7 Status and
-  the gate does not move.
+  arms single-variable at the artifact level, fixed-final scorers banked. 2026-08-22 later:
+  D7.2 COMPLETED and FAILED clause 2 (candidate held NLL 2.531898 vs control 2.525882; clauses
+  1 and 4 pass, clause 3 no winner) — **D7 IS CLOSED** per the registered gate,
+  verifier-confirmed against the artifacts: no policy leg, no rescue selected from the result;
+  the recorded legacy is verdict 67's trade (decisive same-speaker discrimination, but a
+  significantly larger insertion discount). The D8.1a-b release this verdict unlocks is ruled
+  in `PLAN_3E1.md` D8 Status.
 - **960 h stock-donor supervision-axis endpoint is ABSENT**: the theta_0 + gold-scorer arm ran
   only through sub-epoch 4, was stopped and deleted 2026-08-08, and never produced the listed
   3-pass endpoint; `ReturnnTrainingJob.22Ntu7y0O6iW` does not exist. Its observed collapse is
@@ -296,9 +299,12 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    registered. 2026-08-22 latest: the user's 22:50 d7 restart worked and D7.1 is COMPLETE AND
    VERIFIER-CONFIRMED on both arms (one 14-minute pass each; four named drops confirmed from
    each arm's own artifact; `online_weight` the only non-metric cross-arm difference); D7.2
-   LAUNCHED 23:16 under the standing registration (ten jobs, all four clauses, D7.0/D7.1
-   hashes unmoved), clause-2 risk flagged and donor-diversity disclosure ratified, gate
-   unmoved (`PLAN_3E1.md` D7 Status 2026-08-22).
+   then ran all four clauses and FAILED clause 2 exactly as flagged — **D7 CLOSED 2026-08-22**,
+   verifier-confirmed, no policy leg, no rescue (`PLAN_3E1.md` D7 Status). The D7.2 verdict
+   releases D8.1a-b under the user's standing D8 funding: the D7.1 exact control stays the
+   pinned comparator, the D8.1a dump pass and weight job may launch, the no-go clauses and
+   arm-selection rule bind there, and the D8.2 admission job must persist per-anchor
+   bootstrap inputs (`PLAN_3E1.md` D8 Status 2026-08-22).
    2026-08-21 (planner, on the user's instruction): D8 REGISTERED in `PLAN_3E1.md` —
    posterior-weighted multi-hypothesis scorer refit (soft EM over theta_0^G sampled rollouts,
    weights from the arm's own shaped score at pinned lam_lm=1.0, D7 control reused as the
@@ -1139,8 +1145,9 @@ policy leg is held. 2026-08-21 latest: preflight PASSED under the amended parity
 D7.1 trainings failed closed on four own-infeasible degenerate greedy anchors — drop-and-count
 amendment registered in `PLAN_3E1.md` D7 Status; 2026-08-22 the edit is implemented and
 verifier-confirmed, the user restarted 22:50, and D7.1 COMPLETED 23:05 on both arms
-(verifier-confirmed; four named drops closed per-arm, fixed finals banked). D7.2 label-free
-admission LAUNCHED 23:16 under the standing registration; D7.3 still needs its own word.
+(verifier-confirmed; four named drops closed per-arm, fixed finals banked). D7.2 completed
+2026-08-22 and FAILED clause 2: **D7 is CLOSED** per the registered gate (verifier-confirmed;
+no policy leg, no rescue; verdicts 66-67). The verdict releases D8.1a-b as registered.
 Normative details and exact operating points: `PLAN_3E1.md`; evidence: `SAE_3E1.md`.
 
 ### 3f. Exit gate (Rung 3)
