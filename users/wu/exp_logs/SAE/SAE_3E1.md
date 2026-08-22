@@ -4,7 +4,14 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-In flight 2026-08-22 -- only the two D6-periodic loops:
+In flight 2026-08-22:
+
+- **D8.1a, the operative-bed candidate generation pass** (`config/sae_3e1_d8_1a.py`, speech-llm
+  `c9747c7` + `5428a62`), launched 02:32 under manager pid 3126775 with a watcher. Ten sampled dump
+  shards running; then the merge and the deterministic weight job. Verified against the built graph
+  before launch: 61 jobs, exactly 12 unfinished (ten shards, merge, weights), with the ten shard
+  directories resolving to D7.0's finished ones, so nothing re-shards and no training is funded.
+  Approach 35 has the design and the one launch bug.
 
 - **D6-PERIODIC/GAN-FROZEN**: leg 7 of 8 running (`T/ReturnnTrainingJob.ZgRzUxDRhajE`), legs 1-6
   finished. Manager pid 1991977, watcher attached.
@@ -58,9 +65,17 @@ its pre-amend twin; the collapse tally is labelled CLASSES not groups in both th
 this log, and the artifact now reports classes and groups separately; approach 34's v2 table carries
 the omitted T=0.5 row.
 
-Next action is the planner's: D7.2 has returned its verdict, so the D8.1a-b gate that waited on it
-is now free to be ruled. D7.3 is closed by the gate, not merely unauthorized. Nothing in 3e.1 is
-queued for the implementer beyond the two D6-periodic loops above.
+Next action: hold the D8.1a watcher, then read the weight artifact -- the three no-go clauses
+re-apply verbatim on the binding T=0.7 slice and a no-go closes D8 before any D8.1b training. If it
+is a GO, the arm-selection rule in the same artifact says which of candidate-shaped and
+candidate-acoustic is funded; D8.1b is built only then. D7.3 is closed by the D7.2 gate, not merely
+unauthorized.
+
+Registered for D8.2 before that job exists (planner, 2026-08-22, from the D7.2 verification): its
+admission job MUST persist the per-anchor paired deltas and speaker-cluster ids beside the aggregate,
+so the paired mean, negative share and bootstrap bound are re-derivable from disk. In D7.2 those
+three rested solely on the job's own arithmetic, which was harmless only because the gate closed on
+clause 2's deterministic comparison.
 §1g H4's pre-label surfaces are COMPLETE (`SAE_1g.md` State, approach 11, verdict 17).
 
 Proposal for the planner, measured while building D7.2 and now reported inside the admission
@@ -1063,6 +1078,43 @@ Jobs: `S/d8_feasibility/D8FeasibilityReadJob.mv2d0vkWN93a` (theta_0^G, binding) 
 `.W7TWfwoZtkaC` (fork epoch). The fork read's numbers are unchanged from v2 to the last digit,
 because that dump already joined the raw 50 Hz store; its 18 exclusions are the genuine rate the
 ruling prices the safety valve against.
+
+**35. D8.1a: the operative-bed candidate generation pass and the frozen weight artifact.** Released
+by the planner 2026-08-22 once the D7.2 verdict existed -- the registered condition was the verdict,
+not a pass. One group-12, T=0.7 sampled dump of theta_0^G over all 281,241 utterances of the 960 h
+bed, in the same ten round-robin shards D7.0 decoded in, `recon` under the pinned weight scorer
+`S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR` and `lm_prior` under the registered prior; then
+`D8MergeRolloutsJob` and `D8WeightJob`. Nothing from D8.1b or D8.3 is in this graph.
+
+Two construction facts worth stating because both are places a silent error would have survived.
+First, the dump does not call the existing `_reward_rank`: that builder attaches its reconstruction
+target from a whole `{seq_tag: units}` pickle, which the 960 h raw 50 Hz stream cannot be, so
+`forward_step._units_by_tag` now also accepts the packed store and the dump passes
+`units_store_path`. The two interfaces were checked against each other on the real artifacts BEFORE
+the config was written: over 2,000 shared tags the tc100 pickle `MergeUnitsPklJob.ncxcd3vouD5E` and
+the operative store `PackUnitsJob.I0uzRMfUrKWC` return byte-equal unit sequences with an identical
+median length of 671 and zero mismatches, which is also an independent re-confirmation of the premise
+behind D8.0's v3 operative-frame ruling. Second, the frame separation D8.0 needed does not exist
+here: because this dump is GENERATED against the operative store, the per-unit currency denominator
+and the structural-feasibility frame are the same object, and `D8WeightJob` asserts every scored tag
+is present in that one store rather than assuming it. The per-token-to-per-unit conversion still
+applies and is explicit (`recon + lam_lm * lm_prior * n_tokens / n_units`).
+
+`D8WeightJob` imports every statistic from `d8_feasibility` rather than reimplementing it, so "the
+same statistic as D8.0" is the same code; it re-applies the three no-go clauses verbatim, fixes
+`tau_star` by the registered rule, evaluates the pre-registered arm-selection rule, and freezes the
+per-utterance supports and weight vectors to `supports.jsonl` so both D8.1b arms provably read one
+weight artifact. `D8MergeRolloutsJob` asserts the shards are a partition -- no tag in two shards and
+the union exactly 281,241 -- so a lost shard cannot arrive as a smaller but well-formed corpus.
+
+One launch bug, fixed the same minute it appeared: the first submission crashed all ten shards in
+40 s with "no key under prefix 'av.'". `av_checkpoint_prefix="av."` was copied from the d4p fork
+dump, whose policy is a combined outer-loop state dict; theta_0^G is a STANDALONE AV checkpoint whose
+keys start at `encoder.`. The D6-periodic arms are the reference and are explicit about it --
+`policy_prefix` is `None` for theta_0^G at leg 1 and only becomes `"av."` from leg 2. Dropping the
+argument moved the ten dump hashes, so the crashed dirs are orphans at the old hashes and nothing
+needed clearing.
+
 
 ## Verdicts
 
