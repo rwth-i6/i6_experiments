@@ -302,9 +302,11 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    then ran all four clauses and FAILED clause 2 exactly as flagged — **D7 CLOSED 2026-08-22**,
    verifier-confirmed, no policy leg, no rescue (`PLAN_3E1.md` D7 Status). The D7.2 verdict
    releases D8.1a-b under the user's standing D8 funding: the D7.1 exact control stays the
-   pinned comparator, the D8.1a dump pass and weight job may launch, the no-go clauses and
-   arm-selection rule bind there, and the D8.2 admission job must persist per-anchor
-   bootstrap inputs (`PLAN_3E1.md` D8 Status 2026-08-22).
+   pinned comparator, the no-go clauses and arm-selection rule bind at D8.1a, and the D8.2
+   admission job must persist per-anchor bootstrap inputs. D8.1a LAUNCHED 02:32 and
+   build-verified same day; before its verdict is read, five weight-job fixes and a
+   zero-mismatch greedy-equivalence read are required and the 5 % safety valve applies
+   (`PLAN_3E1.md` D8 Status 2026-08-22).
    2026-08-21 (planner, on the user's instruction): D8 REGISTERED in `PLAN_3E1.md` —
    posterior-weighted multi-hypothesis scorer refit (soft EM over theta_0^G sampled rollouts,
    weights from the arm's own shaped score at pinned lam_lm=1.0, D7 control reused as the

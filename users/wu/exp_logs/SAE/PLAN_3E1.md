@@ -2059,6 +2059,24 @@ the D8.2 admission job MUST persist its per-anchor paired deltas and speaker-clu
 the aggregate artifact, so the paired mean, negative share and bootstrap bound are re-derivable
 from disk — in D7.2 those three rested solely on the job's own arithmetic, harmless only
 because the gate closed on clause 2's deterministic comparison.
+2026-08-22 later (planner, on the launched D8.1a build; verifier round in `SAE_3E1.md`): the
+launch is sound at the frame level (constants trace, shards genuinely reused, weight job
+label-free, interface equivalence independently confirmed over the whole shared population),
+and two operational rulings bind before any D8.1a number is read. (1) GREEDY PROVENANCE: the
+registered "greedy 1-best reused at identical hash" is implemented as an in-dump regeneration
+through a different code path at the same checkpoint; this operational form is ACCEPTED IF AND
+ONLY IF a zero-mismatch normalized-text equivalence read against the D7 pool's greedy texts
+over all 281,241 utterances exists once the dump finishes — any mismatch makes the D8.1a read
+UNRESOLVED for planner review before D8.1b, and no verdict is accepted before the read exists.
+(2) The 5 % SAFETY VALVE ruled for D8.0's clause-(a) read applies at D8.1a identically:
+exclusion above 5 % of scored members on the binding slice returns UNRESOLVED instead of
+feeding clause (a). Five weight-job fixes (dead temperature filter -> fail-closed T==0.7
+assert; valve enforcement; tau_star undefined-ESS fallback to match D8.0; the RATIFIED dedup
+survivor rule with the score-differing-collapse diagnostic; loud counting of
+feasible-but-non-finite-recon members and de-double-counted exclusion counters) are required
+to land before `D8WeightJob` first executes — the dump's ~8 h remaining runtime is the window,
+and if any fix moves the job hash the implementer states it and the planner requests the one
+manager restart.
 
 ## Acceptance gate v2
 

@@ -2644,3 +2644,47 @@ the absolute beta, is what carries the contamination claim.
   read. The clause-3 point-versus-CI eligibility convention stays DUAL-REPORTED per the user's
   still-pending blessing (PLAN.md queue item 2); it decided nothing here and is not pinned by
   the planner.
+
+- 2026-08-22 (D8.1a build/launch VERIFIED at code and graph level; five pre-run weight-job fixes
+  required, one registration deviation ruled; hand-backs closed). The gate_table reason fix
+  (`fc30dc1`) is correct — three derived branches, the wrong-side case keyed on a positive CI
+  lower bound — and the approach-32 correction states both true reasons; "3.62e-9" is in all
+  three places. D8.1a as launched: every config constant traces to the registration or the
+  reused reference builders (none untraceable); the ten data shards are genuinely reused
+  finished D7.0 jobs summing to 281,241; the pinned scorer, group 12, T=0.7, lam_lm 1.0 and
+  the per-token-to-per-unit conversion are all confirmed at file:line; `D8WeightJob` reads no
+  reference text, WER column or gold field; the merge partition assert is real; the packed-store
+  read path is fail-closed (searchsorted with exact-match confirmation, sound byte-order
+  argument). The claimed interface equivalence was INDEPENDENTLY reproduced STRONGER than
+  stated: over the whole 34,106-tag shared population (not a 2,000-tag sample) the tc100 pickle
+  and the operative store return byte-equal unit sequences with zero mismatches (population
+  median length 674; the logged 671 was a draw-dependent sample statistic). Graph state
+  confirmed: ten new shards RUNNING (ETA ~8 h), ten crashed 41-second orphans at the old hashes
+  with the av_checkpoint_prefix root cause confirmed by config diff and error text, merge and
+  weight jobs registered and waiting, NO training job created. HAND-BACKS, all in the not-yet-run
+  `D8WeightJob` and required to land BEFORE it first executes (hash-neutral if its hash permits;
+  if any fix moves the hash, say so in State and the planner will request the one manager
+  restart): (i) the binding-temperature filter is DEAD CODE — `d8_weights.py:187` reads key
+  "temperature" but the dump writes "T", so the registered binding-slice restriction is
+  unenforced; make it a fail-closed assert that every scored row's T equals 0.7; (ii) the ruled
+  5 % safety valve is computed as a report field but not enforced — an exclusion rate above 5 %
+  must return UNRESOLVED instead of feeding clause (a), as at D8.0; (iii) tau_star's
+  undefined-ESS fallback is `or 0.0` against D8.0's `or math.inf`, letting an undefined-ESS tau
+  score |0-3|=3 and win a tie — match D8.0; (iv) the dedup survivor is silent first-seen file
+  order, not the RATIFIED rule (normalized-form member, else earliest stored row), and a greedy
+  row folding into a rollout text is dropped with its recon and no score-differing-collapse
+  count — implement the ratified rule and the D8.0-style collapse diagnostic; (v) a non-finite
+  recon on a STRUCTURALLY FEASIBLE member is silently excluded — count and report it as its own
+  category feeding the valve (a feasible member with -inf recon under the operative store is
+  exactly the v1 anomaly class and must be loud), and fix the exclusion counters double-counting
+  repeated infeasible texts. REGISTRATION DEVIATION RULED (PLAN_3E1.md D8 Status 2026-08-22):
+  the registered support reuses the D7 pool's greedy 1-best at identical hash, but the launched
+  dump REGENERATES greedy through a different code path (`SaeGrpoModelV1`/`_greedy_argmax_decode`
+  vs the D7 `SpeechLmV3` path, same checkpoint and max_gen_len); the regenerated greedy is
+  admissible ONLY against a zero-mismatch normalized-text equivalence read vs the pool's texts
+  over all 281,241 utterances once the dump finishes — the D8.1a verdict is not accepted before
+  that read exists. Recorded, no action: the dump artifact will carry gold-text "true" rows and
+  a WER column for ~28.5k tc100 utterances exactly as the registration anticipates (the weight
+  job provably never reads them); the sampling seed is unpinned as in the reference machinery,
+  so artifact reproducibility rests on the frozen `supports.jsonl` — a disclosed property, not
+  a defect.
