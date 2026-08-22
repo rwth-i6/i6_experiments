@@ -1129,8 +1129,12 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     the 39 phones; `real/pseudo_pair_seed0` emits 9 and sits at 0.6871, with a decoded rate 50.6
     percent BELOW `r_target` while the other four run 12 to 24 percent above it. At count 0 it
     emits 3 phones at total variation 0.8345 and 85.6 percent below target. Its AH overproduction
-    against `p_text` is +0.835 at count 0 and +0.415 at count 4, independently reproducing the
-    1g.2 audit's +0.417 figure for the same cell from a registered job. So the "babble" the 1g.2
+    against `p_text` is +0.835 at count 0 and +0.415 at count 4, beside the 1g.2 audit's
+    +0.417 for the same cell.
+    CORRECTION 2026-08-22: "independently reproducing the audit's figure" overstated it. The +0.415
+    here is an excess over `p_text`, the audit's +0.417 an excess over the gold 890 unigram -- two
+    different references agreeing to 0.002, which is corroboration, not identity. Every other
+    number in the verdict stands. So the "babble" the 1g.2
     audit characterized is a property of one start under the frozen local decoder -- a per-unit
     argmax over `Q * prior` with run collapse, which consults neither the fitting language model
     nor the duration law -- and not a property the repair objective produces: the very same
