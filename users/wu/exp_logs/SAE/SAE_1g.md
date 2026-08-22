@@ -921,6 +921,29 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   not enter the 1g.2 graph and the accepted H1 stays pinned, but its label-boundary status
   needs its author to explain it — raised to the USER (plus untracked
   `config_sae_3e1_d6_swap_cont_v1.py`).
+
+- 2026-08-22 (user-funded descriptive PER read VERIFIED; verdict 21 accepted; one wording
+  hand-back). `H4RealSeedPerJob.vu6Dp6HkJ2pH` finished; the code (`h4_real_seed_per.py` at
+  speech-llm `97662ff`, tree matches) implements the registration exactly: construction-time
+  exact-key firewall (the four `real/` rows at counts 0/1/2/4, nothing else accepted), runtime
+  cross-check of each decode artifact's own `arm_name`/`repair_count`/`role` fields, the
+  890-utterance selection-role assertion, the shared verified `pooled_per`/`utterance_errors`
+  measure, the reporting rule in docstring AND payload, provenance sha256s, and
+  `held_out_evaluation: SEALED` in the artifact; `H4ControlledValidationJob` untouched. All
+  sixteen pooled and all quoted dev-other values in verdict 21, every best count (4 for all four
+  rows), and both candidate-versus-random-map margins (0.0393/0.0335) reproduce from the
+  artifact's own fields exactly; split sizes {432, 458}. Anchor attributions verified in
+  SAE_1f.md: n2 is the pseudo-pair null in map form (:91, :459) so 0.9239 is correctly
+  attributed; the 0.8809 row is the unary fingerprint candidate (:84, :222, :407); the
+  historical "+0.0365" (:218, :397) reproduces as ESPUM's distance to the stronger null n1
+  (0.8946 - 0.8580), the same construction as today's margins — SAE_1f's own M1-bar phrasing
+  differs, so the margins are read as null-distances, which is what verdict 21 does. Suite
+  re-run by the verifier: 58/58. WORDING HAND-BACK (one number): verdict 21's
+  "892-utterance-bed subset" — the bed is 890 (432 + 458; artifact `selection_ids_count` 890).
+  Verdict 21's framing is correct where it matters: descriptive, selects nothing, the gate
+  untouched, and the headline honestly stated — no real seed beats a content-free control on
+  plain PER at this operating point, and the table's best number belongs to the pseudo-pair
+  control.
   Notes, no action: the bootstrap draws its three levels independently per iteration and shares
   them across arms rather than literally nesting (defensible — utterances are shared across
   channels, and every observed interval is far from its threshold); the winner-audit
