@@ -582,8 +582,9 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     random-map margin at best count is 0.0393 for ESPUM and 0.0335 for fingerprint, in the
     neighbourhood of the historical 0.0365 recorded for selected ESPUM over the stronger control.
 
-    Provenance and limits, so this is not over-read: these are selection-role numbers on a
-    892-utterance-bed subset (432 + 458), while the banked SAE_1f anchors (ESPUM 0.8580,
+    Provenance and limits, so this is not over-read: these are selection-role numbers on the full
+    890-utterance selection bed (432 dev-clean + 458 dev-other; the artifact's own
+    `selection_ids_count`), while the banked SAE_1f anchors (ESPUM 0.8580,
     fingerprint 0.8809, pseudo-pair 0.9239, random-map 0.8946) were computed on the DISJOINT
     572-utterance dev-other evaluation fifth at their own historical transductive operating
     points; the rows are in the same regime but are not the same measurement, and no held-out
