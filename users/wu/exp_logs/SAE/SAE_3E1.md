@@ -12,12 +12,16 @@ In flight 2026-08-22:
   against the 11.5 h wall. The first launch's ten shards were cancelled at 49 % because they
   projected past that wall -- approach 35 has the numbers. Then the merge, the greedy-equivalence
   read and the deterministic weight job. Weight `D8WeightJob.1G2lPRnRmPks`, merge
-  `D8MergeRolloutsJob.gXDwFsfvraDS`.
+  `D8MergeRolloutsJob.gXDwFsfvraDS`, greedy-equivalence read
+  `D8GreedyEquivalenceJob.xR1RduqgjFKe` (the merge is its input, so the relaunch moved it too;
+  the earlier `XTdRp3OO3LNf` is an orphan at the pre-relaunch hash and holds no result).
 
   **The five fixes required by the 2026-08-22 verification are IN and are HASH-NEUTRAL**, so no
   manager restart was needed for them and none of the running work moved. That is measured, not
   assumed: the graph was built against the committed tree and against the fixed tree and both give
-  `D8WeightJob.lF7OF4pQu66m` and `D8MergeRolloutsJob.XPXsAbeeZWVE`. (The hash difference from the
+  `D8WeightJob.lF7OF4pQu66m` and `D8MergeRolloutsJob.XPXsAbeeZWVE` -- the PRE-RELAUNCH hashes,
+  which is what made the check meaningful at the time; the later `max_seqs` correction moved them
+  to the values named above. (The hash difference from the
   very first build was the earlier `av_checkpoint_prefix` fix moving the dump hashes, not these
   edits.) The edits therefore land at worker import, as the verifier anticipated.
 
@@ -1166,8 +1170,10 @@ own batching arguments, so this changes what the dump costs and nothing it compu
 
 At 8 the ten shards project 6.5-7.0 h, i.e. ~4.7 h of margin on every shard instead of two certain
 failures. The ten in-flight shards were cancelled deliberately, matched on their old hashes so
-nothing else was touched, and the ten new hashes relaunched; `D8WeightJob.1G2lPRnRmPks` and
-`D8MergeRolloutsJob.gXDwFsfvraDS` moved with them.
+nothing else was touched, and the ten new hashes relaunched; `D8WeightJob.1G2lPRnRmPks`,
+`D8MergeRolloutsJob.gXDwFsfvraDS` and `D8GreedyEquivalenceJob.xR1RduqgjFKe` moved with them --
+every hash below the dump, since the merge feeds both readers. The pre-relaunch equivalence pin
+`XTdRp3OO3LNf` is superseded and never ran.
 
 One launch bug, fixed the same minute it appeared: the first submission crashed all ten shards in
 40 s with "no key under prefix 'av.'". `av_checkpoint_prefix="av."` was copied from the d4p fork
@@ -1208,7 +1214,8 @@ because the slice keys come from the rollout rows, so it would leave the support
 recorded and no count anywhere. It cannot happen on this bed, which is exactly why it is an assert
 rather than a trusted invariant.
 
-`D8GreedyEquivalenceJob` implements the planner's ruling on the registration deviation: the dump
+`D8GreedyEquivalenceJob.xR1RduqgjFKe` implements the planner's ruling on the registration
+deviation: the dump
 regenerates greedy through `SaeGrpoModelV1` rather than reusing the D7 pool's 1-best, which is
 admissible only against a zero-mismatch normalized-text equivalence read over all 281,241
 utterances. It compares on the D8 reader's own fold -- the string the weight job actually dedups --
