@@ -2922,12 +2922,20 @@ the absolute beta, is what carries the contamination claim.
   operating regime; lesson recorded in memory. Execution verified: all ten announced new shard
   hashes RUNNING under manager pid 2554047 (~15 min in), the old shards cancelled matched on
   their old hashes with no error markers and nothing else touched, and an independent graph
-  rebuild at `b68dd1a` reproduces weight `1G2lPRnRmPks` and merge `gXDwFsfvraDS`. HAND-BACK:
-  the greedy-equivalence job's hash ALSO moved — the rebuild gives
-  `D8GreedyEquivalenceJob.xR1RduqgjFKe` (its merge input moved, so it must) — but State,
-  approach 35 and the relaunch message name only the weight and merge moves, and earlier
-  entries pin the now-orphan `XTdRp3OO3LNf`; name the new hash in State/approach 35 so nobody
-  chases the orphan registration. Precision note, nothing to change: "batching moves no number"
+  rebuild at `b68dd1a` reproduces weight `1G2lPRnRmPks` and merge `gXDwFsfvraDS`. HAND-BACK
+  CLOSED (885fc732c, verified in the diff): the greedy-equivalence hash also moved — the
+  rebuild gives `D8GreedyEquivalenceJob.xR1RduqgjFKe` (its merge input moved, so it must) —
+  and State and approach 35 now name it everywhere, mark `XTdRp3OO3LNf` superseded-and-
+  never-ran, and label the pre-relaunch hash-neutrality pins PRE-RELAUNCH. The
+  matched-completion margin addition (86af44b79) is ACCEPTED: the saw-tooth mechanism is the
+  known laplace:.1000 ordering periodicity, matched-completion comparison is the sound
+  estimator on it, and the arithmetic checks out (0.62 x 11.08-11.88 h = 6.9-7.4 h); it
+  independently confirms the cancellation and retires short-window projection as a check on
+  this bed. One precision correction, no verdict moved: "every one of them was at or past the
+  11.5 h clamp" overstates its own table — three of the five deepest shards project
+  11.08/11.19/11.28 h, i.e. UNDER the clamp by 0.2-0.4 h; the cancellation stands because the
+  merge needs all ten shards, two (11.60/11.88 h) project past the clamp outright, and the
+  other three sit inside the projection's own swing of it. Precision note, nothing to change: "batching moves no number"
   is exact for the deterministic columns (greedy text, recon and prior per text) but the
   SAMPLED rollouts are a fresh draw from the registered distribution under the unpinned seed —
   acceptable because the registration pins the distribution, not the draw, and reproducibility
