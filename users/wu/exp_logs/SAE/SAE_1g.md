@@ -1527,3 +1527,27 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   +0.853, +0.110), so the discrepancy is fully explained and both number sets are understood.
   The verdict's conclusion was never in question; verdict 25 is now ACCEPTED in full and item 4
   is closed on both trajectories.
+- 2026-08-22 (1g.9 experiment-1 launch VERIFIED; three implementer pins RATIFIED; one clause-0
+  reading pre-stated before results). The launch is real: `H4CollapseLocateJob.gZ9d6e3E7ZGu` on
+  disk and running under a live engine at check, the experiment-2 constrained arms correctly
+  unbuilt until the planner rules on this output. Suite re-run by the verifier: 6/6 (torch
+  forward-backward against `channel_h.marginal_forward_backward`, gradients against central
+  finite differences, `E[N|T]` against a direct sum). Docstring review (speech-llm `d08cd88`) —
+  every pinned constant traces: `p_text` is the `phone_prior` array of the accepted calibration
+  over the complete 39,630,169-line unpaired phone corpus, the exact corpus and preprocessing the
+  fitting LM is estimated from, unsmoothed; `r_target` is DERIVED from the frozen H1 length-law
+  fit exactly as the subphase registers, with the memoryless reading `1-p` = 0.7644 beside it and
+  the forced deleted-silence-boundary count reported as the one term a healthy posterior may
+  legitimately exceed the target by — RATIFIED, the caveat is real and correctly separated;
+  `lambda_equal = ||grad L_HMM|| / ||grad L_term||` in the `B = softmax(theta)` parameterization
+  — RATIFIED, it answers the dead-band check and gives experiment 2's lambda magnitude a
+  traceable origin; the fold pin (gradients on the 6,414 update role, clause-0 read on the
+  matched 890 with the update-role posterior beside) — RATIFIED, it removes a stage/fold
+  confound the registered clause 0 had left open. Pre-stated by the planner NOW, before any
+  artifact exists (also in `PLAN_1G.md` 1g.9 Status): the clause-0 decision read is the COUNT-4
+  row, where posterior and decode read the same repaired emission table; count 0 is context
+  only, because there the decode reads the start's direct `Q` while the posterior reads its `B`
+  — the asymmetry State itself discloses. Also noted for the clause-0 reading: the frozen local
+  decoder is a per-unit argmax with run collapse and consults neither the language model nor the
+  duration law, so a decoder-resident collapse is a live mechanism this diagnostic can genuinely
+  separate, not a straw man.

@@ -1793,6 +1793,15 @@ improves the constrained criterion.
 (coverage-direction divergence; gate statistics read decoded output because expectations can be
 hedged; duration control stays within the frozen H1 law; `r_target` traced to the H1 fit),
 user-greenlit the same day at HIGHEST priority. Nothing launched; evidence goes to `SAE_1g.md`.
+2026-08-22 later: experiment 1 is launched (`H4CollapseLocateJob.gZ9d6e3E7ZGu`, verifier-confirmed
+on disk and running; experiment 2 correctly unbuilt pending the clause-0 ruling). Pre-stated
+before any artifact exists: the clause-0 DECISION read is the count-4 row, where posterior and
+decode read the same repaired emission table; the count-0 row is context only, because there the
+decode reads the start's direct `Q` while the posterior reads its `B` — not two views of one
+table. The implementer's three pins (r_target derived from the frozen H1 length-law fit with the
+forced deleted-silence-boundary count as the one legitimate excess; gradient reporting as
+`lambda_equal` in the softmax parameterization; gradients on the update role with the clause-0
+read on the matched 890) are ratified — `SAE_1g.md` Verifier feedback.
 
 ## 6. Deliverables ladder
 

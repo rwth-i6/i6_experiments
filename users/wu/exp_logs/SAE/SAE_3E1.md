@@ -3192,3 +3192,26 @@ the absolute beta, is what carries the contamination claim.
   line required, convention-sensitivity line pre-registered in the three-together read, and
   `qBb5teJvluqB` is superseded by construction with the state-the-hash-before-restart
   requirement unchanged.
+- 2026-08-22 (latest+3 execution VERIFIED; launch real; mechanism named; nothing blocking).
+  Option (i) with the stated refusal of option (ii) is sound and inside the ruling. The
+  successor hash `D8WeightJob.juRpzTNHKCSq` was stated before the restart per the standing
+  requirement, and the unchanged probe hash is correct — the probe's inputs did not move, so
+  the licensing artifact is the finished one. On disk at check: all ten `all_bed` jobs exist
+  under the live `sae_3e1_d8_1a` manager with beds finishing and forward dirs materializing
+  progressively (six of ten present), which is normal graph growth, not a missing launch.
+  Suites re-run by the verifier: `d8_convention_test.py` 7/7, `d8_support_test.py` 27/27. Line
+  review of speech-llm `3123090` confirms State: `corrected_text_path` takes every member
+  column from the pass with no reuse branch left to get wrong; `legacy_mixed` exists only to be
+  compared against; and the pre-registered sensitivity recomputes the no-go clauses, the
+  valve, the verdict and the funded-arm set under both conventions and returns UNRESOLVED
+  naming the flips — a faithful and self-enforcing implementation of ruling part 4. Ruling
+  part 3 is discharged: `D8PoolTokenMechanismJob.rVkoJpPoBGG8` names the mechanism — the
+  decode path appends the generation's terminal token `<|endoftext|>` (id 151643), which the
+  text path never appends; 58 of 64 probe tags are exactly that one token, and the 6 tags with
+  a larger surplus are reported unexplained rather than absorbed — non-blocking, since the
+  corrected law does not rest on the mechanism. Made legible by the naming, for the record:
+  under the corrected law all twelve rollouts pay the terminal token's prior cost and the
+  member does not — the member-versus-rollout gap that definition (a) always implied, now with
+  a measured size (~+9.5 nats in the shaped numerator), uniform across classes, disclosed, and
+  anchored on D7.1 control-consumption parity; the banked sensitivity block and artifacts let
+  the member-weight shift be read directly at verdict time.
