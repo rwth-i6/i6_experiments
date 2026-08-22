@@ -1144,6 +1144,33 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+    # Same, but durations scaled to 0.7, so ~30% shorter sequences at ~1 encoder frame per phoneme.
+    # Differs from the run above in exactly this one knob.
+    _train_tts_encoder(
+        "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-single-gumbel-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=70_000,
+        batch_size_phon=6_000,
+        max_phon_len=300,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_frozen_table=get_mfa_phone_mean_logmel_table().out_mean_table,
+        pseudo_enc_duration_table=get_mfa_phone_duration_table().out_duration_table,
+        pseudo_enc_duration_sigma=0.45,
+        pseudo_enc_duration_scale=0.7,
+        pseudo_enc_lerp=True,
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_specaug_max_width=6,
+        single_stream=True,
+        interleave_gumbel_scale=1.0,
+        glow_tts_add_silence_between_words=0.15,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
+        extra_config_deletes=["optimizer.epsilon"],
+    )
     # Front-end injection with RATE-MATCHED durations on the LEARNED embedding
     # (label dur 4-8 at 100Hz ~ 1 enc-frame/phon; completes the mfatable-realdur cell with
     # trainable embeddings -- separates injection depth from effective frames-per-phoneme).
@@ -1640,6 +1667,7 @@ def _train_tts_encoder(
     pseudo_enc_smooth_box_width: Optional[int] = None,
     pseudo_enc_duration_table: Optional[tk.Path] = None,
     pseudo_enc_duration_sigma: Optional[float] = None,
+    pseudo_enc_duration_scale: Optional[float] = None,
     pseudo_enc_lerp: bool = False,
     glow_tts_add_silence_between_words: Optional[float] = None,
     pseudo_enc_start_layer: Optional[int] = None,
@@ -1874,6 +1902,11 @@ def _train_tts_encoder(
                     if pseudo_enc_duration_sigma is not None
                     else {}
                 ),
+                **(
+                    {"pseudo_enc_duration_scale": pseudo_enc_duration_scale}
+                    if pseudo_enc_duration_scale is not None
+                    else {}
+                ),
                 **({"pseudo_enc_lerp": True} if pseudo_enc_lerp else {}),
             }
             if pseudo_speech_enc
@@ -1989,6 +2022,11 @@ def _train_tts_encoder(
             **(
                 {"pseudo_enc_duration_sigma": pseudo_enc_duration_sigma}
                 if pseudo_enc_duration_sigma is not None
+                else {}
+            ),
+            **(
+                {"pseudo_enc_duration_scale": pseudo_enc_duration_scale}
+                if pseudo_enc_duration_scale is not None
                 else {}
             ),
             **({"pseudo_enc_lerp": True} if pseudo_enc_lerp else {}),
@@ -2109,6 +2147,7 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
             smooth_box_width=config.typed_value("pseudo_enc_smooth_box_width", None),
             duration_table=config.typed_value("pseudo_enc_duration_table", None),
             duration_sigma=config.float("pseudo_enc_duration_sigma", 0.45),
+            duration_scale=config.float("pseudo_enc_duration_scale", 1.0),
             lerp=config.bool("pseudo_enc_lerp", False),
         )
         frozen_table = config.typed_value("pseudo_enc_frozen_table", None)
@@ -2187,6 +2226,7 @@ class PseudoSpeechEncoder(rf.Module):
         smooth_box_width: Optional[int] = None,
         duration_table: Optional[str] = None,
         duration_sigma: float = 0.45,
+        duration_scale: float = 1.0,
         lerp: bool = False,
     ):
         super().__init__()
@@ -2220,6 +2260,10 @@ class PseudoSpeechEncoder(rf.Module):
         # Real durations are right-skewed and span ~3.4x across phones, which a uniform range cannot represent.
         # Data, not a weight, so it stays out of the checkpoint and is reloaded from the path at recog.
         self.duration_sigma = duration_sigma
+        # Shortens the sequences without touching the shape: lognormal is scale-invariant,
+        # so the skew and the per-phone ratios survive. Below ~0.7 the phones fall under one
+        # encoder frame each (6x subsampling), which is what made the old label-1 setup unusable.
+        self.duration_scale = duration_scale
         self.duration_medians = None
         if duration_table:
             import numpy
@@ -2273,7 +2317,7 @@ class PseudoSpeechEncoder(rf.Module):
             blank_dur = rf.random_uniform(interleaved.dims, minval=b_lo, maxval=b_hi + 1, dtype="int32")
             if self.duration_medians is not None:
                 med = torch.tensor(self.duration_medians, device=dev)  # [wb_vocab], tiny
-                base = med[inter_raw.long()]  # [B, S] per-position median duration
+                base = med[inter_raw.long()] * self.duration_scale  # [B, S] per-position median duration
                 jitter = torch.exp(self.duration_sigma * torch.randn(base.shape, device=dev))
                 label_dur_raw = torch.clamp(torch.round(base * jitter), min=1.0).to(torch.int32)
                 label_dur = rf.convert_to_tensor(label_dur_raw, dims=[batch_dim, inter_dim])
