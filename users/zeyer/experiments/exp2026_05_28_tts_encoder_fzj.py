@@ -1171,6 +1171,51 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+    # Same as the dur07 run, but with packed tensors + Inductor compile, to compare speed directly.
+    # Bounds come from that run's own config; classes gets 80 (cap 75) for the BOS/EOS shifts.
+    # capture stays off: muon is not capturable, and capture measured no throughput gain anyway.
+    _train_tts_encoder(
+        "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep38",
+        prefix=prefix,
+        text_train_epoch_split=75,
+        batch_size_audio_frames=70_000,
+        batch_size_phon=6_000,
+        max_phon_len=300,
+        asr_logmel=True,
+        pseudo_speech_enc=True,
+        pseudo_enc_frozen_table=get_mfa_phone_mean_logmel_table().out_mean_table,
+        pseudo_enc_duration_table=get_mfa_phone_duration_table().out_duration_table,
+        pseudo_enc_duration_sigma=0.45,
+        pseudo_enc_duration_scale=0.7,
+        pseudo_enc_lerp=True,
+        pseudo_enc_blank_duration_range=(0, 0),
+        pseudo_enc_specaug_max_width=6,
+        single_stream=True,
+        interleave_gumbel_scale=1.0,
+        glow_tts_add_silence_between_words=0.15,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        extra_config_updates={
+            "optimizer.class": rf.build_dict(Muon)["class"],
+            "behavior_version": 29,
+            "packed_tensors": True,
+            "batch_size": None,
+            # classes is ~3-4k tokens per batch here, so 8k never binds:
+            # if it did, batches would shrink and the comparison against dur07 would not be like-for-like
+            "packed_batch_size": {"data": 11_200_000, "classes": 8_000, "phonemes": 6_000},
+            # laplace sorting exists to reduce padding, which packing already removes
+            "batching": "random",
+            "torch_cuda_graph": {
+                "batch_size_bound": 500,
+                "dim_capacity": {"data": 312_000, "classes": 80, "phonemes": 300},
+                "warmup_steps": 0,
+                "compile": True,
+                "capture_optimizer": True,
+            },
+        },
+        extra_config_deletes=["optimizer.epsilon"],
+    )
     # Front-end injection with RATE-MATCHED durations on the LEARNED embedding
     # (label dur 4-8 at 100Hz ~ 1 enc-frame/phon; completes the mfatable-realdur cell with
     # trainable embeddings -- separates injection depth from effective frames-per-phoneme).
