@@ -132,6 +132,13 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    E5 rehearsal endpoints are engineering-only); the 1g.2 controlled validation read is clear to
    START NOW — D8.1a babysitting does not block it — and the one-shot 1,112-ID evaluation PER
    follows the refits and release checks in the registered order.
+   2026-08-22 LATER — THE 1g.2 GATE FIRED NEGATIVE (verified; `PLAN_1G.md` 1g.2 Status): the
+   own-minus-donor selector is inverted (reference loses to the strongest content-free control
+   by 5.02, all correlation upper bounds below zero), while the count safety read passes (repair
+   itself is safe; the choosing score is what failed). H4 is unresolved, maxima frozen, refits
+   and the 1,112-ID evaluation CLOSED — no PER of the approach can exist on this route. Phase 1g
+   HOLDS for the user's direction word: close the phone-repair route / fund a new selector
+   science with fresh controls / amend to open the lexicon-free character route.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional
@@ -770,8 +777,10 @@ The historical 1f (0.05/0.05) failure remains recorded but is not the future adm
 Phone results validate mechanics. The phone-versus-character difference bundles several design
 changes, including pronunciation-lexicon cost; only a lexicon-free result supports the main claim.
 
-**Status.** **Active; H1--H3 accepted, H4 prerequisites complete and selection pending
-(2026-08-21).** The first E5 job
+**Status.** **HOLDING for the user's direction word; the 1g.2 selector gate fired NEGATIVE
+2026-08-22 (replaces "selection pending", because the gate fired): H4 is unresolved with no
+selector, no likelihood fallback, and the evaluation closed — details and the pre-registered
+consequences in `PLAN_1G.md` 1g.2 Status; evidence SAE_1g.md verdicts 18-20.** The first E5 job
 remains exploratory and non-decisive. H1 freezes the split, masks, two-state topology, and phone
 `p=0.23560298`; no further H1 run is required. H2's deleted-silence boundary law is now identical in
 repair, scoring, and decoding and passes the exact-enumeration suite; its timing preflight must not be

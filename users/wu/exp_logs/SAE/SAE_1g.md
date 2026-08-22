@@ -782,10 +782,60 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   Two observations for the validation stage, no action now: (i) only 79 distinct channel
   content hashes among the 85 starts — `controlled/map_q09_draw00..04` are all one channel and
   `controlled/soft_q09` is bit-identical to `controlled/reference`, both by the ladder
-  construction above — so effective independent controls are 76 of 81, which any clustered CI
+  construction above, and (correction 2026-08-22, third group found in the audited maxima)
+  `controlled/random_map_seed1000` is bit-identical to `real/random_map_seed1000`, which is
+  what makes 85 go to 79 rather than 80 — so effective independent controls are 76 of 81
+  (unaffected by the third, cross-namespace group), which any clustered CI
   or null spread over the controls must
   respect; (ii) the cross-start surface ranks the random-map null 9th of 85 (10.7753)
   and the reference 73rd (5.8265), with the registered five rows at ranks 9/72/73/76/84 — the
   controlled label validation must be read knowing the pre-label `Sel` ordering places nulls
   above the reference, and winning repair counts across all 85 starts are {0: 72, 4: 13} (counts
   1 and 2 never win).
+
+- 2026-08-22 (1g.2 controlled validation read VERIFIED; verdicts 18-20 ACCEPTED on the gate;
+  one material hand-back). Code audit (`h4_validation_jobs.py` at `31ea348`, tree matches the
+  commit): the label firewall is CONSTRUCTION-time (`h4_validation_jobs.py:691-698`, non-
+  `controlled/` keys raise before outputs exist) with a runtime backstop cross-checking each
+  artifact's own `arm_name`/`repair_count`/`role` fields; the job recomputes no score and
+  reranks no maximum (only writes are its own three outputs); the `Sel`-rebuild guard sits
+  before the RNG and hard-fails at 1e-9 (`:456-465`); duplicate collapse is by the artifacts'
+  own `channel_array` sha256 (`:329`, provenance to `h4_production_jobs.py:884`); verdict logic
+  implements the registered readings exactly (correlation NEGATIVE iff upper95 <= 0, count SAFE
+  iff upper95 <= 0.05 matching the gate's "no greater than"; `h4_lm_trigger` fires iff no safe
+  count). Test suite re-run by the verifier: 50/50, synthetic-only, no real artifact read.
+  Artifact cross-check (`H4ControlledValidationJob.Otv6GBVY8ZUj`, finished 5m34s; audit job
+  `kBCapQOpk1Hj`): every clause interval, point estimate, and verdict word in verdicts 18-20
+  traces to `controlled_evidence.json` fields and brackets its point estimate; bootstrap
+  metadata as registered (10,000 resamples, seed 20260822, three levels); `n_finite` = 10,000
+  on EVERY interval block (discharging the audit's no-minimum-finite-gate concern for this
+  run); no NaN anywhere; the audited maxima are value-identical to the provisional maxima
+  except the schema string plus two provenance keys, zero remappings, all 85 winners
+  `decoder.kind = "local"` counted in the artifact itself, and the validation artifact records
+  the audited file's sha256. Instrument validity is artifact-traceable WITHOUT the anchor
+  sentence: the reference channel reads 0.3934-0.4168 PER by count under the error measure
+  while the 48 in-band controls were constructed into the 0.80-0.93 starting-PER band.
+  HAND-BACK (material): verdict 18's instrument-validation sentence cites a count-0 dev-other
+  PER 0.4149 and a random-map 0.9094 that exist in NO field of either artifact — the artifacts
+  carry no split-resolved PER at all — and the SAE_1f anchors (0.4148/0.8946, banked 2026-08-20)
+  were computed on a 572-utterance dev-other fifth, so any comparison must also state its
+  utterance set; cite the artifact that computed those two numbers or strike the sentence.
+  Wording corrections, implementer's lane: verdict 18's "all four correlation clauses" — the
+  artifact has THREE correlation clauses (global, band, within-trajectory), the other NEGATIVEs
+  being the two comparison clauses; the reference-minus-strongest-control point estimate is
+  -5.0215, not -5.03; approach 12's 79-of-85 arithmetic needs the third duplicate group
+  (`controlled/random_map_seed1000` = `real/random_map_seed1000`, corrected above in my
+  approach-11-era entry too). Shared-tree item: an UNCOMMITTED edit to `config_sae_1g_v1.py`
+  wires `Phase1gH1Job` with `gold_json` into a Phase-1g config — a second gold consumer in 1g
+  sitting loose; commit it with its justification or remove it, and the planner will rule on
+  its label-boundary status once explained (plus untracked `config_sae_3e1_d6_swap_cont_v1.py`).
+  Notes, no action: the bootstrap draws its three levels independently per iteration and shares
+  them across arms rather than literally nesting (defensible — utterances are shared across
+  channels, and every observed interval is far from its threshold); the winner-audit
+  local-exemption loop asserts the five baseline rows, not all 85 maxima (immaterial here — the
+  artifact itself counts 85 local winners); dead code in the label-reading module (`spearman`
+  defined twice, unused `resample_sel`, dead `has_sequence` parameter) is a review hazard worth
+  a hash-neutral cleanup; the suite never asserts an end-to-end overall PASS (moot for this
+  NEGATIVE read). Gate consequences are ruled in `PLAN_1G.md` 1g.2 Status (2026-08-22): H4
+  unresolved, selector closed on this combination, maxima frozen, refits and the 1,112-ID
+  evaluation stay closed, H4-LM not triggered; the direction fork goes to the user.

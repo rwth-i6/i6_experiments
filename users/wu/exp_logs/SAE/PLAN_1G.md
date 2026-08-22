@@ -224,7 +224,11 @@ The old margins remain reported for comparison. They no longer decide admission 
 
 ## 3. Status and priority queue
 
-**Planner/verifier read: 2026-08-21.**
+**Planner/verifier read: 2026-08-22 (replaces 2026-08-21 because the 1g.2 gate fired).** Item 3
+is discharged with a NEGATIVE selector verdict (1g.2 Status 2026-08-22): H4 is unresolved, the
+evaluation stays closed, and items 4-6 are blocked by their own conditions (trigger not fired; no
+H4 pass; no valid phone handoff). Phase 1g holds for the user's direction word; items below are
+kept as the registered frame they would resume into.
 
 1. **H1--H3 and the baseline H2 engine are accepted; do not relaunch them.** H2 consumes one explicit
    deleted-silence boundary law and passes 23/23 channel tests including exact enumeration. H3's
@@ -1102,6 +1106,29 @@ fallback. Add the consumer in a new module/config: do not modify the source-hash
 `recipe/2025-10-speech-llm/src/speech_llm/sae/h4_decode_jobs.py` and thereby invalidate the
 prerequisite identities. The character route must repeat this compact calibration because phone
 score scaling and duration do not transfer.
+
+**2026-08-22 — GATE VERDICT (planner, verified round: SAE_1g.md verdicts 18-20 and the
+2026-08-22 verifier entry).** The selector clauses read NEGATIVE, not unresolved: the reference
+loses to the strongest control by 5.02 with a one-sided 95% interval of [-5.0719, -4.9782], and
+all three rank-correlation clauses have upper bounds below zero (global -0.6226, band -0.2522,
+within-trajectory -0.7900). The count method-level safety read PASSES (all three nonzero counts
+safe; count 1 slightly improves), so the H4-LM trigger does NOT fire. The sequence family is
+UNRESOLVED-untested (no eligible tuple; all winners local). Consequences, exactly as
+pre-registered: `Sel` is failed and H4 has no selector; no likelihood fallback; no contrastive
+update may be invented now that labels are read; the 85 provisional maxima stay frozen and
+unreranked; no `H4SelectorFreezeJob` may be built; the 7,304-ID and 4,455-ID final refits and the
+1,112-ID evaluation stay CLOSED. The failure closes the tested own-minus-donor score on this
+channel-shape/decoder/representation combination only — it is a decision not to fund this
+selector, not a finding that repair cannot work (the safety read shows repair itself is safe at
+this operating point; the score that chooses among repairs is what failed, inverted with
+substantial magnitude, consistent with the pre-label ordering and with the earlier
+likelihood/error anti-alignment on this bed). Queue items 5 (handoffs, need an H4 pass) and 6
+(character route, needs a valid phone handoff) are therefore blocked by their own registered
+conditions: Phase 1g has NO live registered next step. Whether to close the phone-repair route
+here, fund a new pre-registered selector science (the current controlled labels are burned as a
+validation instrument — a successor selector would need fresh controls), or amend the plan to
+open the lexicon-free character route without a valid phone handoff is a direction fork put to
+the USER with the verifier round of 2026-08-22; no successor work starts before the user's word.
 
 ### 1g.2a — Test higher-order fitting context before rejecting phone repair (H4-LM)
 
