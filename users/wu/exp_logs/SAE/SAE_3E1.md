@@ -60,12 +60,25 @@ output -- classes whose survivor is a LIVE member of the operative post-exclusio
 is the point the verification made: three defensible populations give three different answers.
 Suite now 27/27.
 
-My proposal's own printed figures (197,825 / 135 / 77,077 / 73,902) reproduce under NEITHER
-population the planner measured, and the cause is mine: the scan flushed a group whenever
-`seq_tag` changed, which silently assumes each utterance's rows are contiguous in the merged file.
-Those numbers are SUPERSEDED and must not be cited -- the authoritative measurement is the one the
-weight artifact will bank. Nothing rested on them; the qualitative finding they surfaced is
-confirmed by the planner's own scan of all 3,937,374 rows.
+My proposal's own printed figures (197,825 / 135 / 77,077 / 73,902 / max 35.2) are SUPERSEDED and
+must not be cited; the authoritative measurement is the one the weight artifact banks. The cause is
+now ESTABLISHED, and my first explanation of it was wrong: I blamed a flush-on-tag-change scan
+assuming contiguous rows, but the planner's scan found every one of the 281,241 tags perfectly
+contiguous and my own re-scan flushes exactly 281,241 tag blocks, so that assumption holds and
+explains nothing. The real cause is two convention choices, both now measured on the full file:
+
+- I grouped on the RAW stored text; the support and the planner group on the NORMALIZED text, the
+  string `build_support` actually dedups on. Regrouping on the normalized text reproduces the
+  planner's with-quarantined-greedy population EXACTLY: 198,172 classes, 74,410 above 0.01 nats,
+  maximum 65.0 (mine were 197,825 / 73,902 / 35.2). Merging can raise the multi-member class count,
+  because two singletons that normalize alike become one collapsing class.
+- The remaining difference in the `lm_prior`-differs count is a threshold, not a population: I used
+  a 1e-6 tolerance and read 77,570 on the normalized grouping, while an exact inequality reads
+  84,649 -- the planner's figure to the digit.
+
+Both are now closed off in the banked diagnostic rather than left to the next reader: it states its
+grouping rule in its own output and reports the `lm_prior`-differs count under BOTH the exact
+inequality and the 1e-6 tolerance, since that single unstated choice accounted for 7,079 classes.
 
 **D8.1a HAS A BLOCKING RESULT FOR THE PLANNER (verdict 70): the greedy-equivalence read is NOT
 EQUIVALENT** -- 31,562 of 281,241 utterances (11.2 %) differ between the dump's regenerated greedy
