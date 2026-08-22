@@ -1143,14 +1143,24 @@ dedup now precedes exclusion. Both D8.0 dumps carry ZERO feasible-but-non-finite
 directly: 31,232 and 371,007 whitelisted rows, all finite), so (v) is a pure guard there and D8.0's
 finished artifacts remain exactly reproducible.
 
+Two follow-up hand-backs from the same round, both hash-neutral (`e7fc5ef`; weight, merge and
+equivalence hashes all unmoved, so again no restart and the running shards untouched). The
+valve-before-clause ordering now lives once, in `valve_verdict`: its whole content is the order, and
+the `clauses` argument is the only difference between the two readers -- D8.0 binds on clause (a)
+alone, D8.1a on all three -- so the two cannot drift apart. And `D8WeightJob` now asserts that every
+whitelisted utterance produced a group: a tag with ONLY greedy rows produces no `(T, tag)` entry,
+because the slice keys come from the rollout rows, so it would leave the support with no exclusion
+recorded and no count anywhere. It cannot happen on this bed, which is exactly why it is an assert
+rather than a trusted invariant.
+
 `D8GreedyEquivalenceJob` implements the planner's ruling on the registration deviation: the dump
 regenerates greedy through `SaeGrpoModelV1` rather than reusing the D7 pool's 1-best, which is
 admissible only against a zero-mismatch normalized-text equivalence read over all 281,241
 utterances. It compares on the D8 reader's own fold -- the string the weight job actually dedups --
 reports coverage in its own buckets so zero mismatches cannot be reached on a subset, and reports
 rather than raises, because a real divergence between two decoders is a finding for the planner and
-not a crash. `scripts/d8_1a_weights_test.py` carries 39 synthetic-only checks covering every fix
-above plus the label firewall; it never reads the dump or the store, so it runs while the dump is
+not a crash. `scripts/d8_1a_weights_test.py` carries 46 synthetic-only checks covering every fix
+above, the shared ordering through both readers' clause sets, and the label firewall; it never reads the dump or the store, so it runs while the dump is
 still generating and cannot launder a real number into a passing check.
 
 
