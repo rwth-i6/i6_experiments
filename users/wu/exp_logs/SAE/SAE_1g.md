@@ -847,20 +847,28 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   the audited file's sha256. Instrument validity is artifact-traceable WITHOUT the anchor
   sentence: the reference channel reads 0.3934-0.4168 PER by count under the error measure
   while the 48 in-band controls were constructed into the 0.80-0.93 starting-PER band.
-  HAND-BACK (material): verdict 18's instrument-validation sentence cites a count-0 dev-other
-  PER 0.4149 and a random-map 0.9094 that exist in NO field of either artifact — the artifacts
-  carry no split-resolved PER at all — and the SAE_1f anchors (0.4148/0.8946, banked 2026-08-20)
-  were computed on a 572-utterance dev-other fifth, so any comparison must also state its
-  utterance set; cite the artifact that computed those two numbers or strike the sentence.
-  Wording corrections, implementer's lane: verdict 18's "all four correlation clauses" — the
-  artifact has THREE correlation clauses (global, band, within-trajectory), the other NEGATIVEs
-  being the two comparison clauses; the reference-minus-strongest-control point estimate is
-  -5.0215, not -5.03; approach 12's 79-of-85 arithmetic needs the third duplicate group
-  (`controlled/random_map_seed1000` = `real/random_map_seed1000`, corrected above in my
-  approach-11-era entry too). Shared-tree item: an UNCOMMITTED edit to `config_sae_1g_v1.py`
-  wires `Phase1gH1Job` with `gold_json` into a Phase-1g config — a second gold consumer in 1g
-  sitting loose; commit it with its justification or remove it, and the planner will rule on
-  its label-boundary status once explained (plus untracked `config_sae_3e1_d6_swap_cont_v1.py`).
+  HAND-BACK CLOSED (a501d2fd0 + speech-llm 7146bc6, rerun verified 2026-08-22): verdict 18's
+  instrument numbers (count-0 dev-other PER 0.4149; random-map 0.9094) had come from an
+  unregistered console command and existed in no artifact field. The job now emits
+  `per_by_count_and_split` and `split_sizes` and the read was RERUN at the same hash. My direct
+  read of the rerun artifact: ALL previously banked values reproduce identically (17
+  interval/point endpoints, the three count intervals, per_by_count, all verdicts, trigger
+  False, n_finite 10,000 everywhere), and the anchors are now artifact-traceable — reference
+  count-0 dev-other 0.4149 and `random_map_seed1007` 0.9094 on the 458 selection-role dev-other
+  utterances (`split_sizes` {432, 458} matching the registered 432/890, 458/890 weights) —
+  with the verdict text correctly restating the SAE_1f comparison as corroboration across
+  DISJOINT utterance sets, not an identity check. The rerun is accepted ONLY on this pairing:
+  nothing had consumed the old artifact (no freeze job exists; everything downstream is closed
+  by the gate) and reproduction is bit-identical under the fixed seed — an artifact with any
+  consumer would have required a new-hash job instead. Suite re-run by the verifier: 53/53;
+  dead code (shadowed `spearman`, `resample_sel`, `has_sequence`) removed in the same commit;
+  working tree matches 7146bc6. Wording corrections all absorbed (five NEGATIVE clauses =
+  three correlation + two comparison; -5.0215; the third cross-namespace duplicate group).
+  Shared-tree item stands, correctly untouched by the implementer (neither of us wrote it): the
+  UNCOMMITTED `config_sae_1g_v1.py` edit wiring a second `Phase1gH1Job` with `gold_json` does
+  not enter the 1g.2 graph and the accepted H1 stays pinned, but its label-boundary status
+  needs its author to explain it — raised to the USER (plus untracked
+  `config_sae_3e1_d6_swap_cont_v1.py`).
   Notes, no action: the bootstrap draws its three levels independently per iteration and shares
   them across arms rather than literally nesting (defensible — utterances are shared across
   channels, and every observed interval is far from its threshold); the winner-audit
