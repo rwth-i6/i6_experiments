@@ -3182,3 +3182,24 @@ the absolute beta, is what carries the contamination claim.
   grouping rule in its own output and reports the lm_prior-differs count under BOTH the exact
   inequality and the 1e-6 tolerance; suite re-run 27/27. Every scan of this quantity is now
   mutually explained and the forensic account is complete.
+- 2026-08-22 (piece-3 build design REVIEWED: sound, nothing blocking; two pins before build). The
+  design satisfies the latest+2 binding notes by construction: substituting the pool 1-best into
+  the dataset `text` column via `TransformAndMapHuggingFaceDatasetJob` is the D7.1-control text
+  path itself (the idiom at `sae/data.py:459-473`), the forward configuration stays the dump's
+  own, and the overlap probe runs first and alone, as the ruling sequences. Verified against
+  source rather than taken from the design text: the job class hashes the transform and every
+  argument bound into it — only `non_hashed_load_dataset_opts` and `non_hashed_map_opts` are
+  popped (`i6_core/datasets/huggingface.py:228-230`) — so BOTH routes of the open mapping
+  decision are genuinely hash-carried; and the cost projection is consistent with the dump's own
+  measured rate (28k utterances/shard in 6.9-7.4 h scales to ~7.8-8.3 h for the 31,562, four
+  shards ~2 h each). Two pins before build: (i) the overlap probe's tag-selection rule and text
+  source are unstated — pin a deterministic rule (population: the 249,679 agreeing tags; e.g.
+  lexicographically first 64, or a fixed-seed draw with the seed stated) and name the substituted
+  string's source artifact in the probe job's docstring before it runs, per the
+  pre-registration-lives-with-the-code rule; (ii) on the open decision the planner's non-binding
+  preference is the `tk.Path` route (graph and job-pickle hygiene at 31,562 entries), chosen with
+  eyes open that sisyphus hashes a Path by producer identity rather than content — admissible
+  here because `D8GreedyEquivalenceJob.xR1RduqgjFKe` is a deterministic stateless read and is the
+  ruling's own designated artifact; if the inlined-mapping route is chosen instead, the mapping
+  must be derived deterministically from that same artifact. The weight-hash-before-restart
+  sequencing in State is correct and stands.
