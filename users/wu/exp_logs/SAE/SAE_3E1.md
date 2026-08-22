@@ -49,7 +49,13 @@ takes every column from the text path and reuses none, legacy reuses exactly on 
 the two disagree exactly there, and corrected refuses a tag the pass did not score.
 `scripts/d8_support_test.py` still 27/27.
 
-IN FLIGHT: the `sae_3e1_d8_1a` manager, ten `all_forward*` shards over the full bed. The
+IN FLIGHT: the `sae_3e1_d8_1a` manager, all ten `all_forward*` shards over the full bed running
+(~7 h each, from the dump shards' own measured clock). EXPECT `STATUS=ERROR` from any status read
+and do NOT act on it: the ten `all_bed*` jobs are FINISHED with complete 1.9 GB three-split outputs,
+and their `error.run.1` markers are stray workers dying on the `job.save` that JOB_AUTO_CLEANUP
+archived (249 such failures on one bed alone). The marker is a hardlink of the log, so renaming it
+is undone by the next duplicate; the duplicates drain on their own and block nothing, since
+downstream reads the finished markers. Never `-co` here. The
 token-mechanism line is READ and banked (verdict 72): the decode path's extra token is
 `<|endoftext|>` (id 151643), explaining 58 of the 64 probe tags, with the 6 larger-surplus tags
 reported unexplained. NEXT: the weight artifact's sensitivity block, before its verdict.
