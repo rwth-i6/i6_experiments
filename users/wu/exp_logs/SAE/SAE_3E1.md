@@ -7,11 +7,12 @@ question each answers), blockers, next action, proposals for the planner. -->
 In flight 2026-08-22:
 
 - **D8.1a, the operative-bed candidate generation pass** (`config/sae_3e1_d8_1a.py`, speech-llm
-  `c9747c7`, `5428a62`, `3af12bd`), ten sampled dump shards running since 02:32; manager restarted
-  at 03:0x as pid 3430479 with a watcher, purely to pick up the new greedy-equivalence read -- the
-  ten SLURM dump jobs were untouched by the restart and kept running. Then the merge, the
-  equivalence read and the deterministic weight job. Approach 35 has the design, the one launch
-  bug, and the five pre-run weight-job fixes.
+  `c9747c7`, `5428a62`, `3af12bd`, `e7fc5ef`, `b68dd1a`), ten sampled dump shards RELAUNCHED 08:10
+  under manager pid 2554047 with a watcher, at the corrected `max_seqs=8`; all ten project 6.5-7.0 h
+  against the 11.5 h wall. The first launch's ten shards were cancelled at 49 % because they
+  projected past that wall -- approach 35 has the numbers. Then the merge, the greedy-equivalence
+  read and the deterministic weight job. Weight `D8WeightJob.1G2lPRnRmPks`, merge
+  `D8MergeRolloutsJob.gXDwFsfvraDS`.
 
   **The five fixes required by the 2026-08-22 verification are IN and are HASH-NEUTRAL**, so no
   manager restart was needed for them and none of the running work moved. That is measured, not
@@ -1145,6 +1146,28 @@ same statistic as D8.0" is the same code; it re-applies the three no-go clauses 
 per-utterance supports and weight vectors to `supports.jsonl` so both D8.1b arms provably read one
 weight artifact. `D8MergeRolloutsJob` asserts the shards are a partition -- no tag in two shards and
 the union exactly 281,241 -- so a lost shard cannot arrive as a smaller but well-formed corpus.
+
+**A second launch defect, caught at 49 % and fixed before it cost the read** (`b68dd1a`). The ten
+shards were running ~4.5 s/step and projecting 11.2-12.0 h against the hard 11.5 h wall: on a
+recent-step-rate projection two shards finished SHORT (-16 and -31 min) and four more sat inside
+twenty minutes of the wall. A `ReturnnForwardJobV2` that hits the wall dies with no output and no
+resume, the merge asserts the full 281,241-utterance partition, so any lost shard blocks the whole
+D8.1a read -- and a resubmission at the same size fails identically. `settings.py`'s
+`check_engine_limits` clamps every job in this setup to 11.5 h, so raising the time was never
+available, and re-sharding would have deviated from the registered ten-shard pass.
+
+The root cause was a constant that did not trace. `DUMP_MAX_SEQS` was 4, which is `_reward_rank`'s
+function DEFAULT -- the value its 128-utterance probes take. No corpus dump has ever used it: the
+reference full-corpus dump (`config_sae_3e1_d4p_v1`, 28,539 utterances at the same group 12, T=0.7,
+`dump_reward_parts=True`) uses 8. Headroom was checked before changing anything -- the shards were
+using 8.9 GB of a 96 GB GH200, so `max_seqs` was the binding constraint and not memory. Batching
+moves the wall clock and no number, the same property the reference rerank builder documents for its
+own batching arguments, so this changes what the dump costs and nothing it computes.
+
+At 8 the ten shards project 6.5-7.0 h, i.e. ~4.7 h of margin on every shard instead of two certain
+failures. The ten in-flight shards were cancelled deliberately, matched on their old hashes so
+nothing else was touched, and the ten new hashes relaunched; `D8WeightJob.1G2lPRnRmPks` and
+`D8MergeRolloutsJob.gXDwFsfvraDS` moved with them.
 
 One launch bug, fixed the same minute it appeared: the first submission crashed all ten shards in
 40 s with "no key under prefix 'av.'". `av_checkpoint_prefix="av."` was copied from the d4p fork
