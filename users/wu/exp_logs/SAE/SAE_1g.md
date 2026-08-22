@@ -21,6 +21,10 @@ State as of 2026-08-22 -- 1g.2 is READ and CLOSED on its gate; nothing in flight
   `work/speech_llm/sae/h4_selector_jobs/H4SelectionSurfaceJob.MKHfnUO9XwkU`, maxima
   `.../H4ProvisionalMaximaJob.ejmy4sdTOcS3`. No maximum was recomputed or reranked by the read.
 - The 821-job H4 prerequisite graph, the beam table and all 85 provisional maxima are preserved.
+- **The user-funded descriptive real-seed PER read is COMPLETE** (`config/sae_1g_h4_real_seed_per.py`,
+  `H4RealSeedPerJob.vu6Dp6HkJ2pH`; approach 13, verdict 21). It is a measurement over the closed
+  gate and selects nothing; the 1g.2 verdict and all its consequences are unchanged, and the
+  1,112-ID evaluation stays sealed.
 - The read was RERUN once on 2026-08-22 after the verifier's hand-back, to bank split-resolved PER
   in the job's own artifact instead of citing numbers from an unregistered console command. Under
   the fixed seed every previously logged interval, point estimate and verdict reproduced
@@ -379,6 +383,24 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     would place a job in the graph whose outcome is not yet known. It is built in a follow-up
     config only if the validation artifact reads PASS.
 
+13. **User-funded descriptive PER read over the four real H3 seeds (1g.2, gate already closed).**
+    Registered by the planner on 2026-08-22 from the user's request to compute PER on real
+    dev-other data, as a measurement over the closed gate rather than a revision of it
+    (`PLAN_1G.md` 1g.2 Status). One CPU job, `H4RealSeedPerJob.vu6Dp6HkJ2pH`, in its own module
+    and its own config: plain per-split PER on the 890 selection-role utterances (432 dev-clean,
+    458 dev-other) for the four real rows at counts 0/1/2/4, from the frozen surface's EXISTING
+    decode artifacts against the same `GoldPhonesJob.ZGSp0hxyd2YP` gold. No decode was run, no
+    score recomputed, no maximum reranked.
+
+    `H4ControlledValidationJob` and its label firewall were not touched, as the registration
+    requires. The two jobs are mirror images and refuse each other's inputs -- the validation
+    reader rejects any non-`controlled/` key, this one requires exactly the four registered real
+    rows at exactly the four registered counts -- so neither can quietly become the other. The
+    reporting rule lives in the job's docstring AND in its output payload: descriptive and
+    evaluation-only, selects nothing, funds nothing, and any later decision that uses these
+    numbers to pick a seed or count must be re-registered with the label circularity disclosed as
+    a supervision cost. The 1,112-ID held-out evaluation stays sealed.
+
 ## Verdicts
 
 1. **Approach 1: one segment per text symbol is rejected.** It exceeds the registered ratio on all
@@ -541,6 +563,35 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     maximum is local, so the registered local-winner exemption applies, and the sequence verdict
     would only have bound a sequence winner.
 
+21. **DESCRIPTIVE (selects nothing): on plain PER over the selection role, no real seed beats a
+    content-free control, and the best number in the whole table belongs to a control.** Read
+    under approach 13's registered rule -- these values may not pick a seed, a count or a setting,
+    and they do not touch the closed 1g.2 gate. Pooled PER over the 890 selection utterances, best
+    count per row, with dev-other beside it (458 utterances of the selection role): ESPUM
+    seed-0/update-30,000 0.8528 pooled / 0.8624 dev-other at count 4; fingerprint 0.8586 / 0.8691
+    at count 4; pseudo-pair 0.8096 / 0.8105 at count 4; random-map 0.8921 / 0.9022 at count 4. At
+    count 0 the same rows read 0.8573 / 0.8673 / 0.9136 / 0.9015 pooled.
+
+    Two of these four rows are content-free CONTROLS, not candidate seeds -- pseudo-pair and
+    random-map -- so the comparison that matters is candidates against controls, and it does not
+    favour the candidates. The pseudo-pair control moves furthest under repair (0.9136 to 0.8096
+    pooled, -0.104 from count 0, the largest movement of any row) and ends BELOW both candidate
+    seeds; ESPUM and fingerprint move by -0.0045 and -0.0087. So at this operating point a
+    content-free control's repaired output has lower phone error than either real seed's best,
+    which is the opposite of what a content-bearing seed should show. The candidate-versus-
+    random-map margin at best count is 0.0393 for ESPUM and 0.0335 for fingerprint, in the
+    neighbourhood of the historical 0.0365 recorded for selected ESPUM over the stronger control.
+
+    Provenance and limits, so this is not over-read: these are selection-role numbers on a
+    892-utterance-bed subset (432 + 458), while the banked SAE_1f anchors (ESPUM 0.8580,
+    fingerprint 0.8809, pseudo-pair 0.9239, random-map 0.8946) were computed on the DISJOINT
+    572-utterance dev-other evaluation fifth at their own historical transductive operating
+    points; the rows are in the same regime but are not the same measurement, and no held-out
+    number exists here because the 1,112-ID evaluation stays sealed. Nothing in this verdict
+    changes verdict 18: the gate closed on the selector, and this read neither rescues nor
+    re-argues it.
+
+
 
 ## Catalog
 
@@ -588,6 +639,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 | 1g.2 audited provisional maxima (local-winner exemption asserted) | `work/speech_llm/sae/h4_selector_jobs/H4ProvisionalWinnerAuditJob.kBCapQOpk1Hj` |
 | 1g.2 controlled validation read (verdicts 18-20; the only label reader) | `work/speech_llm/sae/h4_validation_jobs/H4ControlledValidationJob.Otv6GBVY8ZUj` |
 | controlled reference gold phones | `work/i6_experiments/users/wu/experiments/unsupervised_asr/w2vu2/eval/GoldPhonesJob.ZGSp0hxyd2YP` |
+| 1g.2 descriptive real-seed PER (verdict 21; selects nothing) | `work/speech_llm/sae/h4_real_seed_per/H4RealSeedPerJob.vu6Dp6HkJ2pH` |
 
 ## Verifier feedback
 
