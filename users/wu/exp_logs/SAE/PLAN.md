@@ -128,6 +128,10 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    planner has ruled the controlled reference labels OPEN (`PLAN_1G.md` Status 2026-08-22, with
    two banked observations the validation read must respect: 76 effective independent controls
    of 81, and the pre-label cross-start ordering ranks the random-map null above the reference).
+   2026-08-22 (user): the PER of this approach is wanted. No label PER exists yet by design (the
+   E5 rehearsal endpoints are engineering-only); the 1g.2 controlled validation read is clear to
+   START NOW — D8.1a babysitting does not block it — and the one-shot 1,112-ID evaluation PER
+   follows the refits and release checks in the registered order.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional
