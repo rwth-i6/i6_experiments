@@ -152,6 +152,13 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    HIGHEST priority — the locate-the-collapse diagnostic runs first and alone, the constrained
    refits only past its clause-0 off-ramp; spec and pre-registered gate in `PLAN_1G.md` 1g.9.
    The D8.1a ruling execution (piece 3, `PLAN_3E1.md` D8 Status) continues as the next spend.
+   2026-08-22 LATER: 1g.9 CLOSED by its own clause-0 off-ramp (verifier-confirmed; ruling in
+   `PLAN_1G.md` 1g.9 Status): every start's training posterior already satisfies both proposed
+   constraints (total variation 0.012-0.074 vs 0.15, rate within 5.5 % vs 20 %), so no
+   constrained arm runs; the audited babble is decode-resident and specific to the pseudo-pair
+   start under the LM-blind frozen local decoder. The direction fork — close the phone-repair
+   route (planner's recommendation) or fund a bounded descriptive full-model-decode follow-up —
+   awaits the USER's word.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional
@@ -836,7 +843,10 @@ exemption), and the controlled reference labels are ruled open for selector vali
 H5--H6 remain gated on H4's scientific result. 2026-08-22 latest (USER): the anti-collapse
 constrained-repair probe (1g.9 — coverage-direction unigram matching plus rate regularization on
 the repair objective, corrected and pre-gated by the planner) is GREENLIT at HIGHEST priority;
-spec and gate in `PLAN_1G.md` 1g.9. Details: `PLAN_1G.md`; evidence:
+spec and gate in `PLAN_1G.md` 1g.9. 2026-08-22 later: 1g.9 CLOSED by its clause-0 off-ramp —
+the training posterior already meets both targets on every start, the babble is decoder-resident
+and start-specific, no constrained arm runs; direction fork with the user (`PLAN_1G.md` 1g.9
+Status). Details: `PLAN_1G.md`; evidence:
 `SAE_1g.md`.
 
 ---

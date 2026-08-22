@@ -230,10 +230,12 @@ unresolved, the evaluation stays closed, and items 4-6 are blocked by their own 
 (trigger not fired; no H4 pass; no valid phone handoff). The user's direction word arrived as
 item 0 below; items 1-9 are kept as the registered frame they would resume into.
 
-0. **1g.9 anti-collapse constrained-repair probe — HIGHEST PRIORITY (USER greenlit 2026-08-22).**
-   Run the locate-the-collapse diagnostic (1g.9 experiment 1) first and alone; the constrained
-   refits run only past the clause-0 off-ramp. Full spec and pre-registered gate in subphase
-   1g.9 below; the 1,112-ID evaluation stays sealed throughout.
+0. **1g.9 anti-collapse constrained-repair probe — CLOSED by its own clause-0 off-ramp
+   (replaces the launch item, 2026-08-22, because the diagnostic completed and the planner
+   ruled).** All five starts' training posteriors already satisfy both proposed constraints; the
+   babble is decode-resident and start-specific; no constrained arm runs. Ruling and the
+   user-facing direction fork in 1g.9 Status; evidence SAE_1g.md approach 15, verdicts 26-29.
+   Phase 1g again holds for the user's direction word.
 1. **H1--H3 and the baseline H2 engine are accepted; do not relaunch them.** H2 consumes one explicit
    deleted-silence boundary law and passes 23/23 channel tests including exact enumeration. H3's
    calibration and construction-population fingerprint, random-map, pseudo-pair, selected ESPUM
@@ -1802,6 +1804,29 @@ table. The implementer's three pins (r_target derived from the frozen H1 length-
 forced deleted-silence-boundary count as the one legitimate excess; gradient reporting as
 `lambda_equal` in the softmax parameterization; gradients on the update role with the clause-0
 read on the matched 890) are ratified — `SAE_1g.md` Verifier feedback.
+2026-08-22 latest (planner ruling: CLAUSE 0 FIRED; 1g.9 CLOSES as the registered off-ramp
+outcome). Verifier-confirmed cell by cell from `H4CollapseLocateJob.gZ9d6e3E7ZGu`: at the
+pre-stated count-4 decision read, all five starts' posteriors satisfy BOTH proposed targets
+(total variation to `p_text` 0.0120-0.0736 against the 0.15 criterion; rate residual -5.5 % to
+0.0 % against the 20 % band), and `lambda_equal` runs 8.1e+05 to 1.5e+08 — a penalty on already-
+satisfied quantities that the optimizer cannot feel at any sane weight. Per the registered
+off-ramp, experiments 2 and 3 DO NOT RUN, their graphs stay unbuilt, no constrained arm and no
+lambda is funded, and experiment 1 is the subphase's deliverable (SAE_1g.md approach 15,
+verdicts 26-29). The gate licenses "the constraints are not funded at this operating point
+because their target quantities are already met" — never "anti-collapse constraints cannot
+work". Findings carried forward, verifier-confirmed: the audited babble is DECODE-RESIDENT and
+specific to the pseudo-pair start under the frozen local decoder, which consults neither the
+fitting LM nor the duration law (verdict 27); posterior unigram closeness is content-blind —
+it is satisfied most easily by the least informative channel, so the likelihood column is
+mandatory beside any such statistic (verdict 28); decoded unigram closeness is content-blind
+too — the random-map control passes it best, so the registered clause 1 admits rather than
+evidences and only the babble-null comparison would have discriminated (verdict 29); recorded
+as design constraints for any future gate. The DIRECTION FORK exceeds 1g.9's greenlit scope and
+goes to the USER: (i) close the phone-repair route — the planner's recommendation, now
+strengthened by verdicts 28-29 — or (ii) fund a bounded descriptive decode-stage follow-up
+(full-model sequence decode of the count-4 channels on the 890), noting the prior global-beam
+stability extension ruled every sequence setting ineligible on stability grounds, which such a
+follow-up must first explain. No further 1g work is authorized meanwhile.
 
 ## 6. Deliverables ladder
 

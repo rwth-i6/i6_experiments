@@ -1659,3 +1659,25 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   decoder is a per-unit argmax with run collapse and consults neither the language model nor the
   duration law, so a decoder-resident collapse is a live mechanism this diagnostic can genuinely
   separate, not a straw man.
+- 2026-08-22 (1g.9 experiment-1 result VERIFIED in full; verdicts 26-29 ACCEPTED; clause-0
+  ruling issued in `PLAN_1G.md` 1g.9 Status). Every number in both approach-15 tables
+  reproduces from `H4CollapseLocateJob.gZ9d6e3E7ZGu/output/collapse_locate.json` under the
+  verifier's independent recomputation: all ten (posterior TV, posterior rate residual, decoded
+  TV, decoded rate residual, distinct symbols, clause-0 flag) tuples to the printed precision,
+  the `lambda_equal` range 8.085e+05 to 1.454e+08, the pseudo-pair decoded AH excesses +0.8345
+  and +0.4151, and the per-retained-unit log likelihoods to all four decimals including the
+  divisors (60,604 selection / 584,424 update retained units). The pinned constants are stated
+  inside the artifact as required: `r_target` 0.7643970 with its derivation text, `p` 0.23560298,
+  the memoryless reading, the forced deleted-silence boundaries (53,498 update / 5,110
+  selection), and `p_text`'s source with the 39,630,169-line count. The clause-0
+  operationalization (posterior passes both targets while the decode meets fewer) is a faithful
+  reading of the registered pattern, and the decision does not rest on it: the all-five-pass
+  fact plus `lambda_equal` decides. One precision note, non-blocking: verdict 27's "+0.415
+  reproduces the 1g.2 audit's +0.417" compares an excess over `p_text` with the audit's excess
+  over the gold 890 unigram — two different references agreeing to 0.002, which is
+  corroboration, not identity. Verdict 28's counterexample is verified and is the round's
+  deepest finding: the lowest posterior total variation of all ten cells belongs to the start
+  with the worst likelihood and the worst decode, so the proposed constraint statistic is
+  satisfied most easily by the channel carrying the least audio information. Clause 0 FIRED;
+  experiments 2-3 stay unbuilt (verified: no constrained-arm graph exists); the direction fork
+  is with the user.
