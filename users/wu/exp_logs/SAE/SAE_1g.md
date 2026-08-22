@@ -21,6 +21,19 @@ State as of 2026-08-22 -- 1g.2 is READ and CLOSED on its gate; nothing in flight
   `work/speech_llm/sae/h4_selector_jobs/H4SelectionSurfaceJob.MKHfnUO9XwkU`, maxima
   `.../H4ProvisionalMaximaJob.ejmy4sdTOcS3`. No maximum was recomputed or reranked by the read.
 - The 821-job H4 prerequisite graph, the beam table and all 85 provisional maxima are preserved.
+- The read was RERUN once on 2026-08-22 after the verifier's hand-back, to bank split-resolved PER
+  in the job's own artifact instead of citing numbers from an unregistered console command. Under
+  the fixed seed every previously logged interval, point estimate and verdict reproduced
+  identically; only the new `per_by_count_and_split` and `split_sizes` fields are added, so the
+  evidence sha256 moved and nothing consumed it (no freeze job exists).
+
+Proposal for the planner (shared-tree item, NOT mine to resolve): `config_sae_1g_v1.py` carries an
+UNCOMMITTED working-tree edit adding a `corrective_h1()` builder that registers a second
+`Phase1gH1Job` with `gold_json` inside a Phase-1g config. I did not write it and have neither
+committed nor removed it -- committing another session's uncommitted work, or deleting it, are both
+wrong from here. It does not enter the 1g.2 graph: `config_sae_1g_h4_controlled_validation_v1`
+never imports it, and the accepted H1 stays pinned at `Phase1gH1Job.HbxKiuBTJ8aN`. Its
+label-boundary status needs whoever wrote it to explain it.
 
 Blockers: none.
 
@@ -343,14 +356,19 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 
     Duplicate channels are collapsed by the artifacts' own `channel_array` sha256 rather than by
     parsing arm names; that rule independently reproduces approach 11's degeneracy finding from
-    the surface alone (79 distinct of 85, 76 effective controlled of 81, the two groups being the
-    five `map_q09` draws and `soft_q09`-with-reference), which is why it is the rule rather than a
-    hand-written exception list. Before any interval is taken the reader rebuilds every controlled
+    the surface alone, which is why it is the rule rather than a hand-written exception list.
+    85 starts carry 79 distinct channels through THREE duplicate groups: the five `map_q09` draws
+    (one channel), `soft_q09` with `controlled/reference`, and -- cross-namespace, so the reader's
+    controlled-only view never sees it -- `controlled/random_map_seed1000` with
+    `real/random_map_seed1000`. Effective independent CONTROLS are 76 of 81, unaffected by the
+    third group since it pairs a controlled arm with a real one. (Corrected 2026-08-22: the first
+    version named two groups and so could not reach 79 from 85; the verifier found the third in
+    the audited maxima.) Before any interval is taken the reader rebuilds every controlled
     tuple's frozen `Sel` from that tuple's own stored per-utterance deltas and refuses to continue
     unless it matches to 1e-9 -- otherwise the bootstrap would be resampling a different statistic
     than the one the surface froze, which nothing downstream would catch.
 
-    `scripts/h4_validation_test.py` carries 50 synthetic-only checks: the interval readings in all
+    `scripts/h4_validation_test.py` carries 53 synthetic-only checks: the interval readings in all
     three directions, a planted quality-tracking selector that must PASS and its inversion that
     must read NEGATIVE, a harmless and a damaging repair count, the verdict table, and the label
     firewall. It builds every fixture in memory and reads no real artifact, so it runs before the
@@ -463,20 +481,34 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     76 effective channels, 10,000 resamples at seed 20260822). Under `Sel` the reference channel
     scores 5.826478 while the strongest null `controlled/random_map_seed1007` scores 10.807694 and
     the strongest control of either damage family `controlled/map_q05_draw00` scores 10.848025:
-    reference minus strongest control is -5.03 with a one-sided 95 % interval of
+    reference minus strongest control is -5.0215 with a one-sided 95 % interval of
     [-5.071922, -4.978244], so the reference loses to a content-free random map by about five
     units and the interval is nowhere near zero. Rank agreement runs the wrong way at every scale
     -- global Spearman(`Sel`, -error) -0.7493 [-0.826461, -0.622575], inside the predeclared
     starting-PER band 0.80-0.93 (48 channels) -0.5125 [-0.702978, -0.252155], and within
-    trajectory [-0.928046, -0.789989]. All four correlation clauses are NEGATIVE, which is the
-    registered reading for an upper bound at or below zero; none is merely unresolved.
+    trajectory [-0.928046, -0.789989]. All five NEGATIVE clauses -- the three correlation clauses
+    just listed plus the two reference-versus-control comparison clauses -- take the registered
+    reading for an upper bound at or below zero; none is merely unresolved. (Corrections
+    2026-08-22, verifier hand-back: the point estimate reads -5.0215 not -5.03, and the earlier
+    "all four correlation clauses" miscounted -- the artifact carries three correlation clauses
+    and two comparison clauses. No interval, verdict or consequence moves.)
 
     This is a property of the frozen score, not of the reader. It reproduces the pre-label
-    cross-start ordering banked before any label existed (the random-map null above the reference),
-    and the error instrument itself validates against a banked anchor essentially exactly: the
-    reference channel's count-0 dev-other PER is 0.4149 against the recorded memoryless-oracle-map
-    anchor of 0.4148, with the random-map control at 0.9094 against the recorded 0.8946 for a
-    different draw. So the selector is measuring something real and ranking it upside down.
+    cross-start ordering banked before any label existed (the random-map null above the reference).
+    The error instrument reads plausibly against the independently banked anchors, with the
+    comparison stated at its own operating point: on the 458 dev-other utterances OF THE SELECTION
+    ROLE the reference channel's count-0 PER is 0.4149 and `random_map_seed1007` reads 0.9094
+    (`controlled_evidence.json`, `per_arm[*].per_by_count_and_split`), against SAE_1f's
+    memoryless-oracle-map 0.4148 and random-map-control 0.8946 computed on the DISJOINT
+    572-utterance dev-other evaluation fifth. Different utterance sets and, for the null, a
+    different draw, so this is corroboration that the instrument measures ordinary phone error in
+    the expected regime -- it is NOT an identity check, and the closeness of 0.4149 to 0.4148
+    carries no more weight than that. (Correction 2026-08-22, verifier hand-back: the first
+    version of this paragraph cited both numbers as an "essentially exact" match without naming
+    either utterance set, and they existed in no artifact field because I had computed them in an
+    unregistered console command. The split-resolved PER is now produced by the job itself and the
+    read was rerun to bank it; every other number in this verdict was reproduced identically under
+    the fixed seed.) So the selector is measuring something real and ranking it upside down.
 
     The two margin clauses pass and do not rescue it: mean selection regret is
     [0.015849, 0.020977] and selected-minus-count-0 is [-0.006181, 0.004722], both inside the 0.05
