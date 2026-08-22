@@ -1142,6 +1142,28 @@ that picks a seed or count using them must be re-registered with the label circu
 as supervision cost. The 1,112-ID held-out evaluation stays SEALED. The 1g.2 gate verdict and
 all its consequences stand unchanged.
 
+**2026-08-22 — OUTPUT AUDIT OF THE BEST-PER ROW; RECOMMENDATION AGAINST SAE INIT FROM IT.** The
+user proposed initializing SAE work from the best row of the descriptive PER table
+(`real/pseudo_pair_seed0`, pooled 0.8096 at count 4) and asked whether its outputs look related
+to the references. Planner audit of the frozen decode artifacts (`H4LocalDecodeJob.fmuKOR9QfZT9`
+count 0, `H4LocalDecodeJob.5PcPAqGhDLYT` count 4, vs `GoldPhonesJob.ZGSp0hxyd2YP`; recomputed
+pooled PER reproduces the banked `H4RealSeedPerJob.vu6Dp6HkJ2pH` values to full float precision
+at both counts): the count-4 hypotheses average 0.389 of gold length (deletion rate 0.625,
+insertion 0.0005, substitution 0.184, aligned-correct 0.191) and collapse onto a tiny inventory
+— AH is overproduced by +0.417 relative frequency, only AH/N/T/DH are net overproduced at all.
+No utterance of 890 is below 0.50 PER; 1 of 890 is below 0.65; dev-clean and dev-other are
+equally affected (0.8088/0.8105). The count-0-to-count-4 gain (0.9136 to 0.8096) tracks the
+hyp-vs-gold unigram total-variation distance (0.837 to 0.689): unigram calibration, not
+sequence-level correctness. Reading: the row carries no sequence-level signal worth
+transplanting; its margin over the random-map control is unigram-statistics deep. Planner
+recommendation: do NOT initialize SAE from any real H4 start; the project's banked label-free
+anchor for usable phone quality is the Rung 0 CTC student at 0.172 dev-other phone PER
+(PLAN.md phase 1d), which no fitting-order change moves an 0.81-PER collapsed channel toward.
+1g.2a (H4-LM) remains available as user-fundable science on the order question — a D-style
+diagnostic on this start is cheap (dense-tensor exact engine; the registered resource preflight
+binds the contract) — but it is registered as an estimator-family question, not a performance
+route. Descriptive read only; the 1g.2 gate verdict and all its consequences stand unchanged.
+
 ### 1g.2a — Test higher-order fitting context before rejecting phone repair (H4-LM)
 
 **Purpose.** Determine whether the baseline fitting bigram is a load-bearing operating-point choice
