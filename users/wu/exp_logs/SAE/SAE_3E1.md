@@ -31,9 +31,19 @@ In flight 2026-08-22:
   control wins leg 8 on both splits, so scorer refresh has no established durable benefit here.
   The periodic arm it controls also completed all eight legs -- the log's earlier "legs 1-3, leg 4
   pending" was stale and is superseded by approach 36's table.
-- **D6-PERIODIC/GAN960-FROZEN** (approach 33): leg 1 `T/ReturnnTrainingJob.ohmLWWmr6Kxe` running,
-  manager pid 3514914, watcher attached. Its gate is leg 8 beating this arm's own init 13.11/16.82
-  on both splits; matched-leg deltas against GAN-FROZEN are reported and select nothing.
+- **D6-PERIODIC/GAN960-FROZEN** (approach 33), manager pid 3514914, watcher attached. Leg 1
+  `ReturnnTrainingJob.ohmLWWmr6Kxe` FINISHED; leg 2 `liehXoiGoRI0` and leg 3 `VEE2CPJ5jHn0` both
+  running 2026-08-22, plus two recog forwards. Its gate is leg 8 beating this arm's own init
+  13.11/16.82 on both splits; matched-leg deltas against GAN-FROZEN are reported and select
+  nothing.
+
+  Two legs running at once is NORMAL for this arm and is not a race -- checked 2026-08-22 rather
+  than assumed, because a chained leg overlapping its own predecessor looks like a broken
+  dependency. Leg N+1 takes leg N's epoch-1 checkpoint through sisyphus's per-epoch checkpoint
+  dependency, so it becomes runnable when that file lands and not when the job finishes: leg 2
+  wrote `epoch.001.pt` at 08:33:24.60, sisyphus set leg 3's directory up at 08:33:25.29 and
+  submitted it at 08:33:29, and leg 3 only loaded it at 08:33:58, well after both the checkpoint
+  and its `.opt.pt` were complete. Leg N stays "running" afterwards only to finalize.
 - `sae_3e1_hom` manager also alive (pid 1992923).
 
 **D7-GAN-SEQDISC IS CLOSED: D7.2 FAILS ON CLAUSE 2** (approach 32, verdicts 64-67; speech-llm
@@ -1187,9 +1197,12 @@ rather than the run, so the 4 % read was the rising limb of the first tooth.
 The sound comparison is between the two launches at MATCHED completion, since they decode the same
 data in the same order. The new run reaches every checkpoint in 0.62 of the old run's time, and the
 ratio is stable -- 0.667 / 0.629 / 0.622 / 0.620 at 1 / 2 / 3 / 4 %. The five first-launch shards
-that reached ~50 % project to full runs of 11.08, 11.19, 11.28, 11.60 and 11.88 h, which is the
-independent confirmation that the cancellation was necessary: every one of them was at or past the
-11.5 h clamp, not merely close to it. At 0.62 those become 6.9-7.4 h, i.e. ~4.1-4.6 h of margin,
+that reached ~50 % project to full runs of 11.08, 11.19, 11.28, 11.60 and 11.88 h. Stated
+precisely (the first wording of this line overstated its own table, corrected 2026-08-22): two of
+the five project PAST the 11.5 h clamp outright and the other three land 0.2-0.4 h under it, i.e.
+inside the projection's own swing. That still makes the cancellation necessary rather than
+cautious, because the merge asserts the full ten-shard partition -- two lost shards block the
+read, and the three marginal ones carry no usable margin. At 0.62 those become 6.9-7.4 h, i.e. ~4.1-4.6 h of margin,
 and the ten live shards' own estimates (7.2-7.7 h) agree. No action needed; the dump is left to run.
 
 One launch bug, fixed the same minute it appeared: the first submission crashed all ten shards in
