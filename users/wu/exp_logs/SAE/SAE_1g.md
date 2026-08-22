@@ -45,16 +45,34 @@ items 1-4; the F arm and every selector-shaped consequence stay closed under the
   `sae_1g_h4_context_resource`, which is BLOCKED in `sis_managers.sh` for the same
   double-submission reason `sae_1g_h4_matched_lm` is.
 
-  Still to wire: the decode and own-minus-donor half of item 4, at each start's already frozen
-  decoder setting, plus the later descriptive error read. The plan asks for likelihood AND
-  own-minus-donor trajectories; only the likelihood half exists, so item 4 is NOT finished and no
-  order may be chosen from what is banked. Its shape follows from the gate rather than from a guess: at
-  49 s per order-4 chunk, 32 chunks x 6 E-steps is about 2.6 h, so each of the 20 (start, fitting
-  LM) curves runs in ONE process over the whole update fold instead of 32 sharded jobs plus
-  merges. Five starts (`controlled/reference` and the four real H3 rows) x four fitting LMs
-  (`legacy-2g`, matched 2/3/4) x counts 0/1/2/4, with identical roles, masks, donors and the
-  already frozen per-start decoder setting. Its resource requests must be read from
-  `resource_gate.json` at graph-build time, never copied into the config by hand.
+  The DECODE and descriptive phone-error half of item 4 is BUILT, RUN and COMPLETE 2026-08-22 at
+  the user's request (verdict 24, table in approach 14): `config/sae_1g_h4_context_diagnostic_per.py`, module `h4_context_decode.py`,
+  121 new jobs (60 channel adapters, 60 local decodes, one error read), all finished with no
+  errors. The frozen decoder for all
+  five of these starts is the LOCAL decoder -- `H4ProvisionalMaximaJob.ejmy4sdTOcS3` records
+  `decoder.kind == "local"` with no lambda, no insertion penalty and no beam for every baseline row
+  -- so no sequence decode, no beam and no `G_dec` binary enters this half at all. Counts 1/2/4 are
+  decoded from the repaired tables `H4ContextRepairJob` already banked; count 0 is READ from the
+  frozen 1g.2 direct-Q decode, because at count 0 the accepted method decodes the start's direct
+  `Q`, that column cannot depend on the fitting LM, and the read job re-hashes all four columns and
+  refuses the grid if they ever disagree. The bed is the same 890 selection-role utterances and the
+  same gold the 1g.2 descriptive read used, so the count-0 and `legacy-2g` columns are directly
+  comparable with verdict 21's numbers.
+
+  One design point I had to settle, recorded here because it is the only place the two halves could
+  have diverged: H4-LM-D freezes the decoder and changes only `G_fit` DURING REPAIR, so the local
+  decoder's phone prior stays the accepted `phone_lm.npz` in every one of the twenty columns. That
+  is why these cells cannot reuse `H4LocalDecodeJob`: that job pins its prior FILE to the channel's
+  fitting LM, which is the right binding in 1g.2 where the two are one object and the wrong one
+  here. The binding is re-aimed, not dropped -- the hypotheses still carry the channel's
+  `fitting_lm_sha256`, so the frozen scorer still refuses a channel and a decode from different
+  fitting LMs.
+
+  STILL MISSING, so item 4 is NOT finished and no order may be chosen from what is banked: the
+  own-minus-donor half. It needs the same 60 channel adapters (already built and hash-stable, so
+  wiring it later costs no rework) fanned into `H4FixedTextScoreJob` at the ten frozen donor
+  assignments -- 600 further jobs -- plus an aggregator that reproduces the 1g.2 surface's
+  normalization exactly. That aggregator is the piece that needs writing.
 - Nothing in 1g.2a reranks a maximum or reads a label. No 5-gram is funded. (Item 4 DOES repair
   utterances -- that is what the diagnostic is -- but only on the five funded starts, at the frozen
   `p` and topology, and it refits nothing.)
@@ -608,8 +626,62 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     cannot close the unrun coherent matched-4 arm. The own-minus-donor and descriptive-error halves
     of item 4 are not yet built, and the ordering question is not answerable from this table alone.
 
-    Still to wire: the decode and own-minus-donor half at each start's already frozen decoder
-    setting, and the later descriptive error read. Not funded and not run: the 81-row controlled
+    The DECODE and descriptive-error half of item 4 is COMPLETE 2026-08-22
+    (`config/sae_1g_h4_context_diagnostic_per.py`, `h4_context_decode.py`): 60 channel adapters,
+    60 local decodes and one error read, all finished with no errors. The frozen decoder for all
+    five of these starts is the LOCAL decoder -- `H4ProvisionalMaximaJob.ejmy4sdTOcS3` records
+    `decoder.kind == "local"` with no lambda, no insertion penalty and no beam on every baseline row
+    -- so no beam search, no sequence decode and no decoding 4-gram enter this half. Counts 1/2/4
+    decode the repaired tables the 20 repair cells already banked; count 0 is read from the frozen
+    1g.2 direct-Q decode, and the read job re-hashes that column in all four fitting-LM positions
+    and refuses the grid if they ever disagree. Bed and gold are the 890 selection-role utterances
+    of the 1g.2 descriptive read, so the count-0 and `legacy-2g` columns are comparable with
+    verdict 21.
+
+    Pooled corpus phone error rate (total edits over total reference phones), 890 selection
+    utterances:
+
+    | start | count | `legacy-2g` | `matched-2g` | `matched-3g` | `matched-4g` |
+    | --- | --- | --- | --- | --- | --- |
+    | `controlled/reference` | 0 | 0.3934 | 0.3934 | 0.3934 | 0.3934 |
+    | `controlled/reference` | 1 | 0.3913 | 0.3913 | 0.3886 | 0.3882 |
+    | `controlled/reference` | 2 | 0.4042 | 0.4042 | 0.3941 | 0.3930 |
+    | `controlled/reference` | 4 | 0.4168 | 0.4168 | 0.4089 | 0.3985 |
+    | `real/espum_seed0_update30000` | 0 | 0.8573 | 0.8573 | 0.8573 | 0.8573 |
+    | `real/espum_seed0_update30000` | 1 | 0.8579 | 0.8579 | 0.8603 | 0.8600 |
+    | `real/espum_seed0_update30000` | 2 | 0.8603 | 0.8603 | 0.8576 | 0.8555 |
+    | `real/espum_seed0_update30000` | 4 | 0.8528 | 0.8528 | 0.8466 | 0.8492 |
+    | `real/fingerprint` | 0 | 0.8673 | 0.8673 | 0.8673 | 0.8673 |
+    | `real/fingerprint` | 1 | 0.8673 | 0.8673 | 0.8673 | 0.8673 |
+    | `real/fingerprint` | 2 | 0.8656 | 0.8656 | 0.8649 | 0.8651 |
+    | `real/fingerprint` | 4 | 0.8586 | 0.8586 | 0.8557 | 0.8564 |
+    | `real/pseudo_pair_seed0` | 0 | 0.9136 | 0.9136 | 0.9136 | 0.9136 |
+    | `real/pseudo_pair_seed0` | 1 | 0.8757 | 0.8757 | 0.8774 | 0.8774 |
+    | `real/pseudo_pair_seed0` | 2 | 0.8563 | 0.8563 | 0.8585 | 0.8562 |
+    | `real/pseudo_pair_seed0` | 4 | 0.8096 | 0.8096 | 0.8114 | 0.8103 |
+    | `real/random_map_seed1000` | 0 | 0.9015 | 0.9015 | 0.9015 | 0.9015 |
+    | `real/random_map_seed1000` | 1 | 0.9015 | 0.9015 | 0.9015 | 0.9015 |
+    | `real/random_map_seed1000` | 2 | 0.9001 | 0.9001 | 0.8985 | 0.8990 |
+    | `real/random_map_seed1000` | 4 | 0.8921 | 0.8921 | 0.8868 | 0.8874 |
+
+    The `legacy-2g` and `matched-2g` columns are not a copying error and were checked as such: the
+    two decodes are separate artifacts with different content hashes, produced from repaired tables
+    with different array hashes, and their decoded phone sequences are nevertheless BYTE-IDENTICAL
+    on all 890 utterances in all 15 repaired cells. For contrast, `matched-4g` differs from
+    `legacy-2g` on 664, 796 and 849 of 890 utterances at counts 1, 2 and 4 on the reference.
+
+    One design point, recorded because it is the only place the two halves of item 4 could have
+    diverged: H4-LM-D freezes the decoder and changes only the fitting LM DURING REPAIR, so the
+    local decoder's phone prior stays the accepted `phone_lm.npz` in all twenty columns. That is
+    why these cells cannot reuse `H4LocalDecodeJob`, which pins its prior FILE to the channel's
+    fitting LM -- the right binding in 1g.2 where the two are one object, the wrong one here. The
+    binding is re-aimed, not dropped: the hypotheses still carry the channel's `fitting_lm_sha256`,
+    so the frozen scorer still refuses a channel and a decode from different fitting LMs.
+
+    STILL MISSING, so item 4 is NOT finished and no order may be chosen: the own-minus-donor half.
+    It reuses the same 60 channel adapters (already built and hash-stable, so no rework) fanned into
+    `H4FixedTextScoreJob` at the ten frozen donor assignments, 600 jobs, plus an aggregator that
+    reproduces the 1g.2 surface normalization exactly. Not funded and not run: the 81-row controlled
     library, any selector refit, any order choice, any final refit.
 
 ## Verdicts
@@ -847,10 +919,34 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     better, and the own-minus-donor and descriptive-error halves are not yet run. Artifacts are the
     20 `H4ContextRepairJob` cells under `work/speech_llm/sae/h4_context_diagnostic/`.
 
+24. **A14: on descriptive phone error rate the matched order-3 and order-4 fitting models are not
+    a usable gain over the baseline bigram at this operating point, and the smoothing bridge is
+    null here too.** Bed: the 890 selection-role utterances (432 dev-clean, 458 dev-other), plain
+    pooled corpus PER against the same gold as verdict 21, at the frozen local decoder with the
+    accepted phone prior held fixed across every column. (a) `legacy-2g` and `matched-2g` decode to
+    byte-identical phone sequences in all 15 repaired cells, which is the decode-side counterpart
+    of verdict 23. (b) On the prospective reference, higher fitting order reduces the DAMAGE repair
+    does rather than producing a gain: every fitting LM is worse at counts 2 and 4 than the
+    unrepaired 0.3934, and order 4 shrinks that loss from +0.0234 to +0.0051 at count 4. (c) On the
+    four real H3 starts, count-4 repair helps under every fitting LM (largest,
+    `real/pseudo_pair_seed0`, 0.9136 to 0.8096), but changing order on top of that moves PER by at
+    most 0.0062 in either direction and does not move it consistently: at count 4, order 4 beats
+    the baseline bigram on espum (-0.0037), fingerprint (-0.0022) and random_map (-0.0047) and
+    loses on pseudo_pair (+0.0006), while order 3 beats order 4 on three of the four. Every real
+    start stays in the 0.81-0.91 PER band under every fitting LM, so the start dominates the
+    fitting order by an order of magnitude. SCOPE AND STATUS: this is descriptive and reads labels.
+    PLAN_1G 1g.2a Gate says in as many words that perplexity and PER cannot select order, so this
+    verdict does not choose a fitting LM, does not authorize the coherent matched-4 arm (item 5) and
+    does not close it; the own-minus-donor half of item 4 is still unrun. Artifacts: the 60
+    `H4ContextLocalDecodeJob` cells and `H4ContextDiagnosticPerJob.IYHS4cX3j3XV` under
+    `work/speech_llm/sae/h4_context_decode/`.
+
 ## Catalog
 
 | evidence | concrete artifact or source |
 |---|---|
+| 1g.2a item 4 descriptive PER, five starts x four fitting LMs | `work/speech_llm/sae/h4_context_decode/H4ContextDiagnosticPerJob.IYHS4cX3j3XV` |
+| 1g.2a item 4 repaired-table decodes, 60 cells at counts 1/2/4 | `work/speech_llm/sae/h4_context_decode/H4ContextLocalDecodeJob.*` (60 dirs) |
 | 1g.2a fitting LM `legacy-2g` (add-one bigram) | `work/speech_llm/sae/h4_lm_artifacts/H4LegacyLmJob.lZI6TrYdVpev` |
 | 1g.2a fitting LM matched-2g / 3g / 4g (unpruned MKN) | `work/speech_llm/sae/h4_lm_artifacts/H4MatchedLmJob.T8ImJUXHaB0l`; `.Jb2m4aM2fUTy`; `.VpVkGMMy7xKW` |
 | 1g.2a matched MKN ARPAs, orders 2/3/4 | `work/i6_core/lm/kenlm/KenLMplzJob.ef5FXMvv8af5`; `.tis71OtNidgL`; `.bg0iYRzBQynx` |
