@@ -7,11 +7,25 @@ question each answers), blockers, next action, proposals for the planner. -->
 State as of 2026-08-22 -- 1g.9 is the user-greenlit highest-priority subphase and its experiment 1
 is RUNNING; 1g.2 is READ and CLOSED on its gate; 1g.2a (H4-LM) is open with items 1-4 complete.
 
-**1g.9 EXPERIMENT 1 IS BUILT, TESTED AND RUNNING** (`config/sae_1g_h4_collapse_locate.py`,
-`H4CollapseLocateJob.gZ9d6e3E7ZGu`; speech-llm `d08cd88`). It runs FIRST AND ALONE, as the subphase
-requires -- the constrained arms of experiment 2 are a separate graph and stay unbuilt until the
-planner rules on this output. Every input is already frozen and finished; the job adds
-forward-backward posteriors and gradients and reads no gold.
+**1g.9 EXPERIMENT 1 IS COMPLETE AND ITS RESULT IS A BLOCKING ONE FOR THE PLANNER**
+(`H4CollapseLocateJob.gZ9d6e3E7ZGu`, 31 minutes; approach 15, verdicts 26-29). The registered
+clause-0 off-ramp condition IS MET: at count 4 -- the planner's pre-stated decision read -- all five
+starts already satisfy both proposed targets in the posterior (total variation 0.0108-0.0736 against
+0.15; rate residual -5.5 to 0.0 percent against 20 percent), while the decode collapses on
+`real/pseudo_pair_seed0` alone. `lambda_equal` is 8.1e+05 to 1.5e+08, so neither constraint can be
+felt at any weight anyone would set. Per the gate, "the constrained-training arm does not run as
+specced ... and the finding returns to the planner with the diagnostic as the deliverable" --
+experiment 2's graph does not exist and I am not building it. NEXT ACTION IS THE PLANNER'S.
+
+Two readings the planner should carry into that ruling, both banked: a near-zero posterior total
+variation is satisfied most easily by the LEAST informative channel (verdict 28 -- the collapsed
+start has the lowest divergence and the worst likelihood, barely moving from count 0 while two other
+starts move 1.3-1.6 nats per unit), and the registered `random_map` control has the SMALLEST decoded
+unigram distance of all five starts, so the 1g.9 gate's own clause-1 readability criterion is passed
+by a content-free null (verdict 29). Reported, not acted on: clause 1 is pre-registered.
+
+Experiment 1 ran FIRST AND ALONE as the subphase requires; every input was already frozen, and the
+job added only forward-backward posteriors and gradients, reading no gold.
 
 - What it banks, for the five 1g.2a starts at repair counts 0 and 4: the posterior expected
   symbol-ENTRY distribution `q_bar` and the posterior expected rate `N/T` at the frozen H1
@@ -761,6 +775,55 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     Not funded and not run: the 81-row controlled library, any selector refit, any order choice, any
     final refit.
 
+15. **1g.9 experiment 1: locate the phone-repair collapse.** For the five 1g.2a starts at repair
+    counts 0 and 4, under the accepted two-state topology at the frozen H1 duration p=0.235603 and
+    the `legacy-2g` fitting LM, compute the posterior expected symbol-ENTRY distribution `q_bar`
+    and the posterior expected rate by forward-backward, the same two statistics from the banked
+    frozen local one-bests (no new decode), and each proposed constraint term's gradient. `p_text`
+    is the accepted calibration `phone_lm`'s `phone_prior` over the complete 39,630,169-line
+    unpaired phone corpus; `r_target` = 0.7644 symbols per retained unit, derived from the frozen
+    H1 length-law fit (the memoryless reading `1-p` agrees to four decimals, and 53,498 update /
+    5,110 selection forced boundaries at deleted-silence gaps are the one term a healthy posterior
+    may legitimately exceed it by). Gradients are reported as `lambda_equal = ||grad L_HMM|| /
+    ||grad L_term||` in the `B = softmax(theta)` parameterization. Label-free; selects nothing.
+    One job, `H4CollapseLocateJob.gZ9d6e3E7ZGu`, 31 minutes.
+
+    Posterior on the 890 selection utterances, matched to the decode. Residuals are relative to
+    `r_target`; `cl0` is the registered clause-0 pattern (posterior within total variation 0.15 and
+    rate within 20 percent, while the decode meets fewer).
+
+    | start | count | post TV | post rate res | dec TV | dec rate res | distinct | cl0 |
+    |---|---|---|---|---|---|---|---|
+    | `controlled/reference` | 0 | 0.0498 | -0.014 | 0.0854 | +0.148 | 37 | no |
+    | `controlled/reference` | 4 | 0.0436 | -0.054 | 0.0658 | +0.121 | 37 | no |
+    | `real/espum_seed0_update30000` | 0 | 0.0334 | +0.153 | 0.1058 | +0.266 | 35 | yes |
+    | `real/espum_seed0_update30000` | 4 | 0.0690 | +0.000 | 0.0847 | +0.222 | 36 | yes |
+    | `real/fingerprint` | 0 | 0.1165 | +0.208 | 0.1545 | +0.233 | 39 | no |
+    | `real/fingerprint` | 4 | 0.0317 | -0.042 | 0.1357 | +0.209 | 38 | yes |
+    | `real/pseudo_pair_seed0` | 0 | 0.0023 | +0.027 | 0.8345 | -0.856 | 3 | yes |
+    | `real/pseudo_pair_seed0` | 4 | 0.0120 | -0.001 | 0.6871 | -0.506 | 9 | yes |
+    | `real/random_map_seed1000` | 0 | 0.0851 | +0.118 | 0.0291 | +0.263 | 37 | yes |
+    | `real/random_map_seed1000` | 4 | 0.0664 | -0.055 | 0.0402 | +0.240 | 37 | yes |
+
+    Update-role posterior (the fold the constrained objective would run on), the two constraint
+    terms' `lambda_equal`, and the per-retained-unit log likelihood on each fold.
+
+    | start | count | TV | KL coverage | rate | lam coverage | lam rate | sel LL/unit | upd LL/unit |
+    |---|---|---|---|---|---|---|---|---|
+    | `controlled/reference` | 0 | 0.0473 | 0.0068 | 0.7563 | 6.068e+06 | 9.440e+07 | -5.6506 | -5.6452 |
+    | `controlled/reference` | 4 | 0.0439 | 0.0064 | 0.7208 | 1.223e+06 | 5.283e+06 | -5.2971 | -5.2736 |
+    | `real/espum_seed0_update30000` | 0 | 0.0365 | 0.0039 | 0.8825 | 3.296e+06 | 5.820e+06 | -5.7715 | -5.7663 |
+    | `real/espum_seed0_update30000` | 4 | 0.0736 | 0.0160 | 0.7624 | 1.034e+06 | 4.040e+07 | -5.3792 | -5.3568 |
+    | `real/fingerprint` | 0 | 0.1205 | 0.0449 | 0.9242 | 1.422e+06 | 1.927e+07 | -7.2593 | -7.2930 |
+    | `real/fingerprint` | 4 | 0.0352 | 0.0052 | 0.7259 | 1.987e+06 | 1.077e+07 | -5.6502 | -5.6262 |
+    | `real/pseudo_pair_seed0` | 0 | 0.0006 | 0.0000 | 0.7861 | 1.454e+08 | 1.532e+07 | -5.9457 | -5.9438 |
+    | `real/pseudo_pair_seed0` | 4 | 0.0108 | 0.0008 | 0.7620 | 3.509e+06 | 2.812e+07 | -5.9037 | -5.8930 |
+    | `real/random_map_seed1000` | 0 | 0.0809 | 0.0712 | 0.8519 | 2.166e+06 | 7.495e+06 | -6.9734 | -6.9771 |
+    | `real/random_map_seed1000` | 4 | 0.0630 | 0.0175 | 0.7178 | 8.085e+05 | 8.302e+06 | -5.6775 | -5.6547 |
+
+    Not funded and not run: 1g.9 experiment 2's constrained refits, experiment 3's unigram-matched
+    babble null, and every constrained-arm lambda. Their graph does not exist.
+
 ## Verdicts
 
 1. **Approach 1: one segment per text symbol is rejected.** It exceeds the registered ratio on all
@@ -1050,10 +1113,55 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     call. Artifacts: `H4ContextOwnMinusDonorJob.SygqXhY8F2Qt` under `work/speech_llm/sae/h4_context_scores/` and
     the 600 `H4FixedTextScoreJob` cells it reads.
 
+26. **A15: the phone-repair collapse is NOT in the posterior the 1g.9 constraints would act on --
+    at count 4 every one of the five starts already satisfies both proposed targets.** On the 890
+    selection utterances at repair count 4 (the planner's pre-stated clause-0 decision read),
+    posterior total variation to `p_text` runs 0.0108 to 0.0736 against the 0.15 criterion and the
+    posterior rate residual runs -5.5 to 0.0 percent against the 20 percent band -- all five starts
+    pass both, including the one whose decode collapses. The constraint gradients say the same in
+    their own currency: `lambda_equal` is 8.1e+05 to 1.5e+08, so either term would need a weight
+    six to eight orders of magnitude above the likelihood's scale before the optimizer could feel
+    it, which is what a penalty on an already-satisfied quantity looks like. This is the registered
+    clause-0 off-ramp condition, and the ruling on it is the planner's.
+
+27. **A15: the collapse is DECODE-RESIDENT and specific to ONE start.** At count 4, decoded total
+    variation to `p_text` is 0.0402 to 0.1357 for four of the five starts, which emit 36 to 38 of
+    the 39 phones; `real/pseudo_pair_seed0` emits 9 and sits at 0.6871, with a decoded rate 50.6
+    percent BELOW `r_target` while the other four run 12 to 24 percent above it. At count 0 it
+    emits 3 phones at total variation 0.8345 and 85.6 percent below target. Its AH overproduction
+    against `p_text` is +0.835 at count 0 and +0.415 at count 4, independently reproducing the
+    1g.2 audit's +0.417 figure for the same cell from a registered job. So the "babble" the 1g.2
+    audit characterized is a property of one start under the frozen local decoder -- a per-unit
+    argmax over `Q * prior` with run collapse, which consults neither the fitting language model
+    nor the duration law -- and not a property the repair objective produces: the very same
+    emission table yields a healthy posterior when the language model and duration law are summed
+    over.
+
+28. **A15: a near-zero posterior total variation is NECESSARY but NOT SUFFICIENT for a healthy
+    posterior, and this table contains the counterexample.** `real/pseudo_pair_seed0` has the
+    LOWEST posterior total variation of all ten cells (0.0006 at count 0, 0.0108 at count 4) and
+    the worst decode. Its per-retained-unit log likelihood is also the worst of the count-4 column
+    (-5.8930 update, against -5.2736 to -5.6547 for the other four) and it barely moves from count
+    0 (-5.9438), while `real/fingerprint` moves -7.2930 to -5.6262 and `real/random_map_seed1000`
+    -6.9771 to -5.6547. An emission table that carries little audio information leaves the
+    posterior to fall back on the fitting language model's own marginal, which IS approximately
+    `p_text` -- so the clause-0 statistic is satisfied most easily by the least informative
+    channel. Any reading of clause 0 must carry the likelihood column beside the divergence.
+
+29. **A15: decoded unigram distance to `p_text` does not discriminate, because the registered
+    random-map control passes it best.** `real/random_map_seed1000` has the SMALLEST decoded total
+    variation of all five starts at both counts (0.0291 and 0.0402), better than the reference
+    (0.0854, 0.0658). Bearing on the pre-registered 1g.9 gate: clause 1's readability criterion
+    (decoded total variation <= 0.30) is met by a control that carries no phonetic content, so
+    clause 1 admits cells rather than evidencing them, and clause 2's comparison against the babble
+    null is doing all the discriminating work. Reported for the planner; clause 1 is
+    pre-registered and I am not proposing to change it.
+
 ## Catalog
 
 | evidence | concrete artifact or source |
 |---|---|
+| 1g.9 experiment 1, locate the collapse (approach 15, verdicts 26-29) | `work/speech_llm/sae/h4_collapse_locate/H4CollapseLocateJob.gZ9d6e3E7ZGu`; code `sae/h4_collapse_locate.py`, `configs/config_sae_1g_h4_collapse_locate_v1.py`, `config/sae_1g_h4_collapse_locate.py`, `scripts/h4_collapse_locate_test.py` (6/6) at speech-llm `d08cd88` |
 | 1g.2a item 4 rank agreement between the two halves | `work/speech_llm/sae/h4_context_agreement/H4ContextAgreementJob.zd6RBdYcvzti` |
 | 1g.2a item 4 label-free own-minus-donor, five starts x four fitting LMs | `work/speech_llm/sae/h4_context_scores/H4ContextOwnMinusDonorJob.SygqXhY8F2Qt` |
 | 1g.2a item 4 descriptive PER, five starts x four fitting LMs | `work/speech_llm/sae/h4_context_decode/H4ContextDiagnosticPerJob.IYHS4cX3j3XV` |
