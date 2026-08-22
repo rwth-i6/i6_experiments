@@ -4,131 +4,54 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-**RULING EXECUTION (planner ruling 2026-08-22 latest+1, PLAN_3E1.md D8 Status): restore the
-registered support.** Pieces 1 and 2 are BUILT, TESTED and COMMITTED (speech-llm `54929cf`);
-piece 3 is designed but not built, and it is what still blocks a D8.1a result.
+**RULING EXECUTION (planner ruling 2026-08-22 latest+3, PLAN_3E1.md D8 Status): the mixed
+convention is REJECTED; the corrected law is BUILT, TESTED and LAUNCHED.** The held question is
+answered, so the hold is lifted.
 
-1. DONE. `build_support` now requires a `pool_greedy` mapping and QUARANTINES the dump's
-   `kind=="greedy"` rows, counting them so a dump that carried them stays distinguishable from one
-   that never did. A tag with rollouts and no pool member raises instead of falling back to the
-   quarantined row. The pool member sorts ahead of every dump row in the dedup survivor rule, so a
-   rollout that normalizes to the same string cannot displace the member whose scores define the
-   support. The closed D8.0 read passes its own greedy rows through WITH their real positions, so
-   its banked numbers reproduce exactly, and it now asserts one greedy row per utterance rather
-   than quietly keeping the first (the pre-ruling code admitted all of them).
-   `scripts/d8_support_test.py`, 21/21, no artifact and no scorer.
-2. DONE at code level. `D8WeightJob` takes `pool_hyps_json` and `pool_scores_jsonl` as explicit
-   hash-carried inputs plus the expected pool-member count and rollout width, and asserts: the pool
-   artifact carries exactly the expected members, no scored tag lacks a pool member, no duplicated
-   greedy row, and every group has the registered rollout width. Where the dump greedy normalizes
-   to the pool 1-best its stored columns are reused verbatim; where they differ, an unscored tag
-   raises and names the count.
-   **The new hash CANNOT be stated yet, and that is not an oversight**: `pool_scores_jsonl` is a
-   hash-carried input, so the job's identity is undefined until piece 3's producing job exists. The
-   hash will be stated here before any manager restart, as the ruling requires.
-3. DESIGNED, NOT BUILT, and now bound by the latest+2 execution notes. The hook needs no
-   model-code change: the `_KIND_TRUE` row scores whatever token list it is handed
-   (`forward_step.py:1095`), and that list comes from the dataset's target text. So the pass is a
-   forward run over ONLY the 31,562 differing tags with the POOL 1-best substituted where the true
-   text goes, in the dump pass's exact forward configuration under the pinned scorer and registered
-   prior, reading the `kind=="true"` rows back as the pool member's columns. Pool text is in
-   `D8GreedyEquivalenceJob.xR1RduqgjFKe/output/mismatches.jsonl` (`dump`, `pool`, `seq_tag`).
-   Three binding requirements from the ruling: (a) the pool member's score is DEFINED as the score
-   of the pool STRING through the dataset text pipeline -- the path the D7.1 control consumed its
-   targets through -- never a reconstruction of the D7 decode's internal token path; (b) the pass
-   must be shown to produce non-degenerate columns where the banked dump's `kind=="true"` rows are
-   empty (`text: ""`, `n_tokens: 0`, `lm_prior: 0.0`, correct for a bed scored without
-   transcripts); (c) an OVERLAP PROBE of at least 64 AGREEING tags through the same hook must run
-   first -- `recon` must match the dump's stored greedy columns within tolerance, which is the
-   end-to-end forward-configuration parity check, and its `lm_prior`/`n_tokens` deltas measure the
-   decode-path-versus-text-path tokenization gap, bounding the mixed convention (reused dump
-   columns on agreeing rows, text-path scores on differing rows) before any weight read.
+**The successor weight-job hash, as the standing requirement demands before any manager restart:
+`D8WeightJob.juRpzTNHKCSq`** (supersedes `qBb5teJvluqB`, which was correctly stated under the same
+requirement and is superseded by construction; `1G2lPRnRmPks` remains quarantined and feeds
+nothing). New alongside it: `D8PoolScoresJob.1ivehCZ5q5ON` and
+`D8PoolTokenMechanismJob.rVkoJpPoBGG8`. The overlap probe's hash is UNCHANGED
+(`D8PoolOverlapProbeJob.GerShND5ibtT`), so the artifact that licensed the pass is the finished one
+and is reused rather than regenerated.
 
-**PIECE 3: BUILT, and the OVERLAP PROBE IS RUN AND PASSES (verdict 71). The differing pass is
-HELD.** `d8_pool_scores.py` + the D8.1a config: probe bed, probe forward, probe read, and behind a
-build-time gate the four differing shards, the scores job and the weight job. The verifier's two
-pins are honoured -- the probe population is the agreeing tags and its rule is the lexicographically
-first 64 by sequence tag (no seed), the substituted string's source for BOTH beds is the D7 pool
-hypotheses artifact with `mismatches.jsonl` used only to partition, and both are stated in the
-producing module's docstring; the pool text reaches the transform by `tk.Path`, the planner's
-preferred route.
+IMPLEMENTATION CHOICE, ruling part (2): **option (i)**, extending the probe-validated pass to the
+full bed -- ten shards, the dump's own sharding and rate, zero new scoring code, one convention.
+Option (ii) was refused on its own admission bar: it requires a text-only prior scorer to reproduce
+the audio pass on all 31,626 reference rows to 1e-4 per token, and batch-composition numerics alone
+can miss that; failing the bar costs option (i) anyway on top of the attempt. Cost, from the dump
+shards' own measured wall clock (6:51 to 7:08 for ~28 k utterances at `max_seqs=8`): ten shards of
+the same size, so ~7 h each inside the 11.5 h wall, ~70 GPU-hours in one wall-clock window.
 
-**The new weight-job hash, as the ruling requires before any manager restart:
-`D8WeightJob.qBb5teJvluqB`** (was `1G2lPRnRmPks`, which is quarantined and feeds nothing).
+BUILT (speech-llm, this round):
+- `d8_pool_scores.py` gains the `all` bed selection; `D8PoolScoresJob` takes `coverage` and
+  `expected_members` and refuses anything but the full 281,241-member population under the
+  corrected law. The superseded `differing` coverage stays expressible so the old contract is
+  refusable rather than silently reinterpreted.
+- `d8_weights.py`: `_pool_greedy` takes a `convention`. Under `corrected_text_path` every column of
+  every member comes from the text-path pass and an uncovered tag raises -- there is no reuse
+  branch left to get wrong. `legacy_mixed` reproduces the superseded convention and exists only to
+  be compared against.
+- PRE-REGISTERED CONVENTION-SENSITIVITY LINE (ruling part 4), written into the job before it had
+  ever run: the whole read is recomputed under the legacy convention from the same artifacts, and
+  if any no-go clause, the safety valve, the verdict, or the funded-arm set flips between the two,
+  the job returns `UNRESOLVED` with the flipped names instead of reporting a verdict. The
+  sensitivity block is banked in `weights.json` either way, so "no flip" is a measured statement.
+- `D8PoolTokenMechanismJob` (ruling part 3, disclosure not gate): tokenizes the probe tags' pool
+  strings with the bed's own tokenizer artifact and reports whether the text path's `n_tokens` is
+  the plain tokenization length and how many tags the decode path exceeds it by exactly one, naming
+  that terminal token. Tags whose surplus exceeds one are reported, not absorbed. CPU-only and
+  independent of the pass, so it does not wait on the ten shards.
 
-**WHY THE DIFFERING PASS IS HELD rather than launched.** The probe's binding half passes, so the
-ruling licenses the pass. Its measured half says the dataset text pipeline and the decode's own
-token path disagree about tokenization on 64 of 64 tags -- always, not rarely. That makes the
-weight job's mixed convention a systematic difference in the `lm_prior` column rather than a small
-perturbation, and whether to accept it or to put both halves on one convention is a normative
-choice. Eight GPU hours spent before that choice would be spent on a support the ruling might not
-want. Nothing else blocks: restarting the D8.1a manager builds and submits the four shards.
+TESTED before launch, no artifact and no scorer: `scripts/d8_convention_test.py` 7/7 -- corrected
+takes every column from the text path and reuses none, legacy reuses exactly on the agreeing tags,
+the two disagree exactly there, and corrected refuses a tag the pass did not score.
+`scripts/d8_support_test.py` still 27/27.
 
-The gate is a build-time one, so it cannot leak: the differing shards, the scores job and the weight
-job are not in the graph at all until the probe artifact exists and reads PARITY, which is now true.
+IN FLIGHT: the `sae_3e1_d8_1a` manager, ten `all_forward*` shards over the full bed. NEXT: read
+the token-mechanism line, then the weight artifact's sensitivity block before its verdict.
 
-BUILD DESIGN AS EXECUTED:
-The pass needs no model-code change and no new forward step. The dump
-(`config_sae_3e1_d8_1a_v1._dump_config`) takes its true text from the dataset's `text` datastream,
-and this bed's transcripts are empty, which is why the banked `kind=="true"` rows are empty. So the
-pool member is scored by SUBSTITUTING the pool 1-best into that column on a restricted bed, which is
-also what makes the ruling's requirement (a) true by construction: the score comes through the
-dataset text pipeline, not through any reconstruction of the D7 decode's token path.
-
-- Bed: `TransformAndMapHuggingFaceDatasetJob` over the same `unlab_960h` dir, the idiom
-  `data.get_sae_seed_only_text_hf_ogg` already uses to swap the `text` column, filtered to the
-  required ids. Open decision to settle at build time: whether the pool text reaches the transform
-  as an inlined mapping (hash carries the content, 31,562 entries) or as a `tk.Path` read inside it
-  (hash carries the artifact). The mapping must be hash-carried one way or the other -- a pass
-  scored against a silently different pool text is the whole failure being repaired.
-- Forward config: IDENTICAL to the dump's, group 12, T=0.7, pinned psi, registered prior, so
-  requirement (a)'s "exact forward configuration" holds by construction rather than by argument.
-  The `true` row's score does not depend on the sampled rollouts, but keeping the config identical
-  is what the overlap probe is able to verify end to end.
-- Sequencing, which is the ruling's own: the OVERLAP PROBE (at least 64 AGREEING tags) runs FIRST
-  and alone. It is cheap, and until its `recon` matches the dump's stored greedy columns within
-  tolerance there is no reason to spend the differing pass. Its `lm_prior`/`n_tokens` deltas are the
-  measured decode-path-versus-text-path gap that bounds the mixed convention.
-- Cost, projected from the dump's own measured rate (about 28 k utterances per shard in 6.9-7.4 h at
-  `max_seqs=8`): the 31,562 differing utterances are roughly one shard's worth, about 8 h, which
-  exceeds the 11.5 h wall only if run as one job but leaves no margin -- so it shards, four ways at
-  roughly 2 h each. The probe is minutes.
-
-**COLLAPSE DIAGNOSTIC: proposal RULED, extension BUILT** (planner ruling 2026-08-22 latest+2).
-The substance was accepted and independently verified: the dedup diagnostic watches `recon`, which
-is a function of the normalized text, while `lm_prior` is tokenization-dependent, so a class can
-collapse members whose shaped scores differ by nats and still be counted as clean. Rulings I am
-executing: the survivor rule does NOT change for D8.1a (registered, deterministic, arm-shared, so
-the arbitrariness cannot bias the A/B), and the diagnostic is extended report-only inside the
-weight-job hash that is already moving.
-
-BUILT: `build_support` takes `collect_collapse_stats`, defaulting OFF so the closed D8.0 read stays
-byte-identical, and attaches a per-class `lm_prior`-differs flag and shaped-numerator spread to each
-survivor; `D8WeightJob._collapse_diagnostic` aggregates count, count above 0.01 nats and p50/p90/max
-into the weight artifact, feeding no clause and no valve. Its POPULATION is stated in its own
-output -- classes whose survivor is a LIVE member of the operative post-exclusion support -- which
-is the point the verification made: three defensible populations give three different answers.
-Suite now 27/27.
-
-My proposal's own printed figures (197,825 / 135 / 77,077 / 73,902 / max 35.2) are SUPERSEDED and
-must not be cited; the authoritative measurement is the one the weight artifact banks. The cause is
-now ESTABLISHED, and my first explanation of it was wrong: I blamed a flush-on-tag-change scan
-assuming contiguous rows, but the planner's scan found every one of the 281,241 tags perfectly
-contiguous and my own re-scan flushes exactly 281,241 tag blocks, so that assumption holds and
-explains nothing. The real cause is two convention choices, both now measured on the full file:
-
-- I grouped on the RAW stored text; the support and the planner group on the NORMALIZED text, the
-  string `build_support` actually dedups on. Regrouping on the normalized text reproduces the
-  planner's with-quarantined-greedy population EXACTLY: 198,172 classes, 74,410 above 0.01 nats,
-  maximum 65.0 (mine were 197,825 / 73,902 / 35.2). Merging can raise the multi-member class count,
-  because two singletons that normalize alike become one collapsing class.
-- The remaining difference in the `lm_prior`-differs count is a threshold, not a population: I used
-  a 1e-6 tolerance and read 77,570 on the normalized grouping, while an exact inequality reads
-  84,649 -- the planner's figure to the digit.
-
-Both are now closed off in the banked diagnostic rather than left to the next reader: it states its
-grouping rule in its own output and reports the `lm_prior`-differs count under BOTH the exact
-inequality and the 1e-6 tolerance, since that single unstated choice accounted for 7,079 classes.
 
 **D8.1a HAS A BLOCKING RESULT FOR THE PLANNER (verdict 70): the greedy-equivalence read is NOT
 EQUIVALENT** -- 31,562 of 281,241 utterances (11.2 %) differ between the dump's regenerated greedy
