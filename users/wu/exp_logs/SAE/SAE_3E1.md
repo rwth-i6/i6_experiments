@@ -4,29 +4,53 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-**NEXT ACTION (planner ruling 2026-08-22 latest+1, PLAN_3E1.md D8 Status): restore the registered
-support.** The ruling is read and its execution decomposes into three pieces, of which only the
-first two are specified enough to build blind:
+**RULING EXECUTION (planner ruling 2026-08-22 latest+1, PLAN_3E1.md D8 Status): restore the
+registered support.** Pieces 1 and 2 are BUILT, TESTED and COMMITTED (speech-llm `54929cf`);
+piece 3 is designed but not built, and it is what still blocks a D8.1a result.
 
-1. `build_support` must stop taking its greedy member from the dump. The support becomes the
-   registered dedup of the POOL greedy member plus the twelve `kind=="rollout"` members; the
-   dump's `kind=="greedy"` rows are QUARANTINED for every D8 reader and survive in the merge
-   artifact only as the divergence record. Pure and unit-testable; no GPU.
-2. The corrected `D8WeightJob` takes the D7 pool artifact as an explicit hash-carried input and
-   asserts coverage on both sides (281,241 pool members, twelve whitelisted rollouts per group,
-   zero duplicates). Its hash moves; the new hash is stated here for the planner before any
-   manager restart.
-3. **The long pole, and it is a GPU pass, not a reader change.** The scoring law reuses stored
-   dump columns verbatim ONLY where the normalized string is identical -- true for the 249,679
-   agreeing utterances -- so the 31,562 DIFFERING utterances have no stored score for the pool
-   member and must be scored in the dump pass's exact forward configuration under the pinned
-   scorer and registered prior, at within-tolerance parity rather than bit equality. The hook
-   already exists: the dump's `kind=="true"` row scores a PROVIDED token list
-   (`forward_step.py:1095`, `_KIND_TRUE`), so the pool member is scored the same way the true
-   transcript is, over a restricted 31,562-utterance bed. This has not been built yet and is the
-   next thing to design; the pool text needed for it is already in
-   `D8GreedyEquivalenceJob.xR1RduqgjFKe/output/mismatches.jsonl`, which carries `dump`, `pool` and
-   `seq_tag` per differing utterance.
+1. DONE. `build_support` now requires a `pool_greedy` mapping and QUARANTINES the dump's
+   `kind=="greedy"` rows, counting them so a dump that carried them stays distinguishable from one
+   that never did. A tag with rollouts and no pool member raises instead of falling back to the
+   quarantined row. The pool member sorts ahead of every dump row in the dedup survivor rule, so a
+   rollout that normalizes to the same string cannot displace the member whose scores define the
+   support. The closed D8.0 read passes its own greedy rows through WITH their real positions, so
+   its banked numbers reproduce exactly, and it now asserts one greedy row per utterance rather
+   than quietly keeping the first (the pre-ruling code admitted all of them).
+   `scripts/d8_support_test.py`, 21/21, no artifact and no scorer.
+2. DONE at code level. `D8WeightJob` takes `pool_hyps_json` and `pool_scores_jsonl` as explicit
+   hash-carried inputs plus the expected pool-member count and rollout width, and asserts: the pool
+   artifact carries exactly the expected members, no scored tag lacks a pool member, no duplicated
+   greedy row, and every group has the registered rollout width. Where the dump greedy normalizes
+   to the pool 1-best its stored columns are reused verbatim; where they differ, an unscored tag
+   raises and names the count.
+   **The new hash CANNOT be stated yet, and that is not an oversight**: `pool_scores_jsonl` is a
+   hash-carried input, so the job's identity is undefined until piece 3's producing job exists. The
+   hash will be stated here before any manager restart, as the ruling requires.
+3. DESIGNED, NOT BUILT. The hook works as the ruling describes, and the design needs no model-code
+   change: the `_KIND_TRUE` row scores whatever token list it is handed
+   (`forward_step.py:1095`), and that list comes from the dataset's target text. So the pass is a
+   forward run over ONLY the 31,562 differing tags with the POOL 1-best substituted where the true
+   text goes, in the dump pass's exact forward configuration under the pinned scorer and registered
+   prior, reading the `kind=="true"` rows back as the pool member's columns. The pool text is
+   already in `D8GreedyEquivalenceJob.xR1RduqgjFKe/output/mismatches.jsonl` (`dump`, `pool`,
+   `seq_tag`). One check to make before building: in the banked dump the `kind=="true"` rows carry
+   `text: ""`, `n_tokens: 0`, `lm_prior: 0.0` -- correct, since this bed is scored without
+   transcripts -- so the pass must be verified to produce non-degenerate columns rather than
+   inheriting that emptiness.
+
+**PROPOSAL FOR THE PLANNER, found while building piece 2 and independent of it: the dedup collapse
+diagnostic watches the wrong column.** `build_support` dedups on the normalized text and keeps ONE
+member's stored scores, and its `dedup_collapse_classes_scored` diagnostic flags a class only when
+`recon` differs across it. Measured over the whole merged dump (3,937,374 rows,
+`D8MergeRolloutsJob.gXDwFsfvraDS`): 197,825 classes collapse more than one member; `recon` differs
+in 135 of them (0.07 %), which is what the diagnostic reports; but `lm_prior` differs in 77,077
+(39.0 %), and the shaped-score numerator `LAM_LM * lm_prior * n_tokens` spreads by more than
+0.01 nats in 73,902 classes (37.4 %), with a p90 of 0.881 and a maximum of 35.2. `recon` is a
+function of the normalized text (it agrees to 1.2e-6 wherever the text agrees); `lm_prior` is not.
+So in roughly a third of collapse classes the surviving member's shaped score is an arbitrary
+choice among tokenizations of the same string, and the diagnostic reports it as a clean collapse.
+This does not block pieces 1-3 and I have changed nothing about it: whether the survivor rule, the
+diagnostic, or neither should change is a normative decision and therefore the planner's.
 
 **D8.1a HAS A BLOCKING RESULT FOR THE PLANNER (verdict 70): the greedy-equivalence read is NOT
 EQUIVALENT** -- 31,562 of 281,241 utterances (11.2 %) differ between the dump's regenerated greedy
