@@ -44,7 +44,30 @@ piece 3 is designed but not built, and it is what still blocks a D8.1a result.
    decode-path-versus-text-path tokenization gap, bounding the mixed convention (reused dump
    columns on agreeing rows, text-path scores on differing rows) before any weight read.
 
-**PIECE 3 BUILD DESIGN, settled 2026-08-22 from reading the dump config; nothing launched yet.**
+**PIECE 3: BUILT, and the OVERLAP PROBE IS RUN AND PASSES (verdict 71). The differing pass is
+HELD.** `d8_pool_scores.py` + the D8.1a config: probe bed, probe forward, probe read, and behind a
+build-time gate the four differing shards, the scores job and the weight job. The verifier's two
+pins are honoured -- the probe population is the agreeing tags and its rule is the lexicographically
+first 64 by sequence tag (no seed), the substituted string's source for BOTH beds is the D7 pool
+hypotheses artifact with `mismatches.jsonl` used only to partition, and both are stated in the
+producing module's docstring; the pool text reaches the transform by `tk.Path`, the planner's
+preferred route.
+
+**The new weight-job hash, as the ruling requires before any manager restart:
+`D8WeightJob.qBb5teJvluqB`** (was `1G2lPRnRmPks`, which is quarantined and feeds nothing).
+
+**WHY THE DIFFERING PASS IS HELD rather than launched.** The probe's binding half passes, so the
+ruling licenses the pass. Its measured half says the dataset text pipeline and the decode's own
+token path disagree about tokenization on 64 of 64 tags -- always, not rarely. That makes the
+weight job's mixed convention a systematic difference in the `lm_prior` column rather than a small
+perturbation, and whether to accept it or to put both halves on one convention is a normative
+choice. Eight GPU hours spent before that choice would be spent on a support the ruling might not
+want. Nothing else blocks: restarting the D8.1a manager builds and submits the four shards.
+
+The gate is a build-time one, so it cannot leak: the differing shards, the scores job and the weight
+job are not in the graph at all until the probe artifact exists and reads PARITY, which is now true.
+
+BUILD DESIGN AS EXECUTED:
 The pass needs no model-code change and no new forward step. The dump
 (`config_sae_3e1_d8_1a_v1._dump_config`) takes its true text from the dataset's `text` datastream,
 and this bed's transcripts are empty, which is why the banked `kind=="true"` rows are empty. So the
@@ -2022,6 +2045,25 @@ function-word pairs rather than broad spelling diversity.
     greedy 281,241 + rollouts 3,374,892 + true 281,241, and 281,241 x 12 = 3,374,892 exactly).
 
 
+71. **D8.1a piece 3: the pool scoring pass reproduces the dump's forward configuration exactly,
+    and the mixed convention it licenses is NOT small.** Overlap probe
+    `D8PoolOverlapProbeJob.GerShND5ibtT`, on the 64 lexicographically first tags where the dump's
+    regenerated greedy and the D7 pool 1-best already agree, scored through the substituted-text
+    bed in the dump's own forward configuration. BINDING half: `recon` reproduces the dump's stored
+    greedy column to 4.77e-07 maximum absolute difference against a 1e-3 tolerance, median exactly
+    0, with no degenerate row and no text mismatch -- so the text-path pass IS the dump pass, and
+    verdict PARITY licenses scoring the 31,562 differing utterances. MEASURED half, which binds
+    nothing but is the reason the probe was required: `lm_prior` differs on 64 of 64 tags (median
+    absolute 0.0967, maximum 0.5310) and `n_tokens` differs on 64 of 64 tags (maximum 3). So for the
+    SAME string, the dataset text pipeline and the decode's own token path never agree on the
+    tokenization -- not rarely, always. CONSEQUENCE: the weight job's mixed convention, which reuses
+    the dump's stored greedy columns on the 249,679 agreeing utterances and text-path scores on the
+    31,562 differing ones, is not a small perturbation between two nearly identical measurements; it
+    is a systematic difference in the `lm_prior` column, which is exactly the column the shaped
+    score depends on and the same phenomenon the collapse diagnostic surfaced. Whether that is
+    acceptable, or whether both halves should come from one convention, is a normative choice and
+    therefore the planner's; nothing has been spent on the differing pass while it is open.
+
 ## Catalog
 
 `T/` = `work/i6_core/returnn/training/`, `F/` = `work/i6_core/returnn/forward/`,
@@ -2029,6 +2071,7 @@ function-word pairs rather than broad spelling diversity.
 
 | artifact | path |
 |---|---|
+| D8.1a pool-scoring overlap probe (64 agreeing tags, PARITY) | `work/speech_llm/sae/d8_pool_scores/D8PoolOverlapProbeJob.GerShND5ibtT` |
 | code | `sae/scorer_diag.py`, `sae/text_repair.py`, `sae/psi_align_jobs.py`, `sae/psi_align.py`, `sae/curate.py`, `sae/gate_table.py`, `sae/refresh_gate.py`, `sae/d7_census.py`, `sae/d7_v2.py`, `sae/d7_online.py` (+ focused tests; D7.0a commit `a0a22b4`, D7-v2 commit `7b2069d`, D7 resume-RNG and infeasible-donor counter `1d10945` on speech-llm `haotian_modality_matching_jupiter`). `test_psi_align.py`'s CUDA/python lattice parity test now also carries two `d_min=2` skip_ok cases, so the topology D7 trains in is pinned; executed on a GH200 2026-08-21 (`log/parity_test.1445759.out`, passed, not skipped) since the login node has no GPU. |
 | entry points | `config/sae_3e1_d0.py`, `config/sae_3e1_usage.py`, `config/sae_3e1_d1d2.py`, `config/sae_3e1_d3.py`, `config/sae_3e1_d4.py`, `config/sae_3e1_d4p.py`, `config/sae_3e1_d5b.py`, `config/sae_3e1_d6.py` (builds D4' and the swap-in too), `config/sae_3e1_d6periodic.py`, `config/sae_3e1_d6periodic_warm.py`, `config/sae_3e1_hom.py`; D7 tracked canonical configs `src/speech_llm/prefix_lm/sis_recipe/exp2025_11_06_speech_llms/librispeech/configs/config_sae_3e1_d7_0a_v1.py` at `a0a22b4` and `config_sae_3e1_d7_v2_v1.py` at `7b2069d` (workspace wrappers only delegate) |
 | D8.0 registered feasibility reads (approach 34) | **operative v3** `S/d8_feasibility/D8FeasibilityReadJob.mv2d0vkWN93a` (theta_0^G, binding, GO) and `.W7TWfwoZtkaC` (fork epoch); superseded v2 `.mDQ2LoAzrMTE` / `.ulUbBcxIiJtf` and v1 `.iCuYuvkL6bwr` / `.onK5ekDuoLLA`, kept as the evidence that motivated the guard and then the ruling |
