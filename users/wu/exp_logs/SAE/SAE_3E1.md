@@ -27,7 +27,7 @@ D7.1's own facts stand behind that: the own-infeasible-anchor amendment held (bo
 the four registered train-role rows, 267,175 trained / 14,062 held, digit-identical to the offline
 dropcheck and to each other), each arm was a single ~14-minute ten-shard job so the 11.5 h wall cap
 and resume path never came into play, and D7.2's independent recompute reproduced both arms' banked
-per-frame NLL to ~1e-9.
+per-frame NLL to 3.62e-9.
 
 Correction to an earlier State claim: this manager, like `sae_1g_h4_prelabel_surfaces`, exits on
 sisyphus's interactive "All calculations are done" prompt once its graph finishes, and a one-shot
@@ -938,7 +938,7 @@ both arms), in 2,274 speaker clusters, 32 paired draws each.
 | share of anchors with a negative difference | — | 99.25 % | -- |
 | internal-held NLL per frame (8,642,253 frames) | 2.525882 | 2.531898 | **2 FAIL** |
 
-The recomputed per-frame NLLs reproduce the values D7.1 banked to ~1e-9 (control 2.5258815395 there
+The recomputed per-frame NLLs reproduce the values D7.1 banked to 3.62e-9 on both arms (control 2.5258815395 there
 against 2.5258815431 here, candidate 2.5318976985 against 2.5318977021), which is the job's own
 assert that checkpoint and training report describe the same scorer. The ratified donor-diversity
 diagnostic reads: 32 draws land on a median 3.0 distinct donors per anchor (mean 3.42, min 1, max
@@ -969,8 +969,16 @@ paired difference straddles zero. The one clear movement is the wrong way:
 The candidate pays MORE for the inserted filler than the control at every k, significantly and with
 CIs excluding zero. The table's own eligibility columns split on the convention the planner pins:
 `elig_pt False` / `elig_CI True` for the candidate (`worse_pt 2`, `worse_CI 0`), and the table
-returns NO WINNER under BOTH readings because the k=1 reduction CI includes zero. That pin is not
-made here and does not need to be: clause 2 already fails.
+returns NO WINNER under BOTH readings -- but for two DIFFERENT reasons, and neither is the one the
+finished artifact prints. On the point reading no arm is eligible at all. On the CI reading the
+candidate is the argmax and its k=1 paired CI [0.0039, 0.0106] excludes zero on the WRONG side: a
+significant INCREASE in the discount, not an unproven reduction. `clauses.txt` says "NO WINNER
+(reduction CI includes zero)" in both places because that reason was hard-coded rather than derived
+(`gate_table.py:263` as it stood); the numbers in the same file and in `clauses.json` are correct and
+were verified bit-exactly, only that one printed line is false. Fixed in speech-llm `fc30dc1` so the
+reason is derived and persisted as `no_winner_reason`, but the FINISHED artifact
+`4Z0gb5GgtD2u` still carries the false line and no rerun was spent on a display string. That pin is
+not made here and does not need to be: clause 2 already fails.
 
 *Clause 4, scorer parity* -- PASS on both arms, exactly: 512 of 512 rollouts round-tripped,
 `max |online - offline| = 0.000e+00` against a 2e-3 tolerance, 0.00 % rows floored
@@ -1643,7 +1651,7 @@ function-word pairs rather than broad spelling diversity.
     and clause 3 shows both arms clearing the external floor -- but the candidate's internal-held
     per-frame NLL is 2.531898 against the control's 2.525882, and clause 2 requires it to be no
     greater. The number is not a surprise from a new instrument: it reproduces what D7.1 banked to
-    ~1e-9, and it was flagged to the planner as the standing risk before D7.2 was run, with the gate
+    3.62e-9, and it was flagged to the planner as the standing risk before D7.2 was run, with the gate
     ruled unmoved. The outcome does not depend on the one convention still open, the point-versus-CI
     eligibility reading of clause 3, because clause 2 fails under either. Per the registered gate no
     sampler or temperature rescue may be selected from this result. This licenses not funding the
