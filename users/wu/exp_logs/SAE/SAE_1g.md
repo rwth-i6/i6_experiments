@@ -678,11 +678,47 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     binding is re-aimed, not dropped: the hypotheses still carry the channel's `fitting_lm_sha256`,
     so the frozen scorer still refuses a channel and a decode from different fitting LMs.
 
-    STILL MISSING, so item 4 is NOT finished and no order may be chosen: the own-minus-donor half.
-    It reuses the same 60 channel adapters (already built and hash-stable, so no rework) fanned into
-    `H4FixedTextScoreJob` at the ten frozen donor assignments, 600 jobs, plus an aggregator that
-    reproduces the 1g.2 surface normalization exactly. Not funded and not run: the 81-row controlled
-    library, any selector refit, any order choice, any final refit.
+    The OWN-MINUS-DONOR half is COMPLETE 2026-08-22 as well, so item 4 is now finished on both
+    trajectories the plan asks for. It reuses the same 60 channel adapters plus the 60 decodes above
+    fanned into `H4FixedTextScoreJob` at the ten frozen donor assignments (600 jobs), and the
+    count-0 column reuses the frozen 1g.2 adapter and its ten already-finished score jobs. The
+    statistic is NOT re-derived: `H4ContextOwnMinusDonorJob` calls `compute_selection_aggregate`
+    from the 1g.2 selector module, the same function the frozen selection surface calls, so a cell
+    here and a cell there are the same statistic by construction. All 80 cells came back eligible;
+    no cell was dropped. The reader lives in its own module `h4_context_scores.py` rather than in
+    `h4_context_decode.py`, because both modules hash their own source into every job identity and
+    adding a reader to the decode module would have moved the hash of all 121 finished decode cells,
+    re-run them and orphaned the artifacts this Catalog cites.
+
+    Own-minus-donor (own log probability per own audio unit minus donor log probability per donor
+    audio unit, averaged over eligible non-`no_swap` utterances within each split, weighted 432/890
+    and 458/890, then averaged over the ten frozen donor assignments):
+
+    | start | count | `legacy-2g` | `matched-2g` | `matched-3g` | `matched-4g` |
+    | --- | --- | --- | --- | --- | --- |
+    | `controlled/reference` | 0 | 4.2212 | 4.2212 | 4.2212 | 4.2212 |
+    | `controlled/reference` | 1 | 4.5828 | 4.5828 | 4.6133 | 4.5886 |
+    | `controlled/reference` | 2 | 5.0198 | 5.0198 | 5.0152 | 4.9173 |
+    | `controlled/reference` | 4 | 5.8265 | 5.8265 | 5.6251 | 5.3723 |
+    | `real/espum_seed0_update30000` | 0 | 3.2048 | 3.2048 | 3.2048 | 3.2048 |
+    | `real/espum_seed0_update30000` | 1 | 3.3912 | 3.3912 | 3.3297 | 3.2423 |
+    | `real/espum_seed0_update30000` | 2 | 3.6519 | 3.6519 | 3.5188 | 3.3815 |
+    | `real/espum_seed0_update30000` | 4 | 4.2613 | 4.2613 | 3.9725 | 3.7627 |
+    | `real/fingerprint` | 0 | 10.1520 | 10.1520 | 10.1520 | 10.1520 |
+    | `real/fingerprint` | 1 | 6.0444 | 6.0441 | 4.6789 | 4.5984 |
+    | `real/fingerprint` | 2 | 5.1106 | 5.1104 | 3.9494 | 3.7163 |
+    | `real/fingerprint` | 4 | 4.5317 | 4.5316 | 3.5672 | 3.2584 |
+    | `real/pseudo_pair_seed0` | 0 | -0.0272 | -0.0272 | -0.0272 | -0.0272 |
+    | `real/pseudo_pair_seed0` | 1 | 0.0266 | 0.0266 | 0.0245 | 0.0244 |
+    | `real/pseudo_pair_seed0` | 2 | 0.0506 | 0.0506 | 0.0480 | 0.0510 |
+    | `real/pseudo_pair_seed0` | 4 | 0.1437 | 0.1437 | 0.1390 | 0.1404 |
+    | `real/random_map_seed1000` | 0 | 10.7753 | 10.7753 | 10.7753 | 10.7753 |
+    | `real/random_map_seed1000` | 1 | 7.1353 | 7.1351 | 6.3593 | 6.7122 |
+    | `real/random_map_seed1000` | 2 | 5.6890 | 5.6888 | 4.5740 | 4.3967 |
+    | `real/random_map_seed1000` | 4 | 4.8425 | 4.8424 | 3.7748 | 3.4494 |
+
+    Not funded and not run: the 81-row controlled library, any selector refit, any order choice, any
+    final refit.
 
 ## Verdicts
 
@@ -941,10 +977,38 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     `H4ContextLocalDecodeJob` cells and `H4ContextDiagnosticPerJob.IYHS4cX3j3XV` under
     `work/speech_llm/sae/h4_context_decode/`.
 
+25. **A14: item 4 is COMPLETE on both trajectories, and its two halves DISAGREE about fitting
+    order, so the arm answers no order question.** Same bed and operating point as verdict 24, plus
+    the label-free own-minus-donor statistic on all 80 cells, every one eligible. (a) The smoothing
+    bridge is null on this statistic too: add-one and matched Kneser-Ney at order 2 differ by at
+    most 2.7e-4 anywhere (`real/fingerprint` count 1), against cell-to-cell spreads of whole units.
+    It is small-but-nonzero here where the decoded sequences were byte-identical, which is the
+    expected asymmetry -- the score reads the channel, the decode reads only its argmax. (b) Raising
+    the fitting order LOWERS own-minus-donor at count 4 at every one of the five starts, by -0.0033
+    (`real/pseudo_pair_seed0`), -0.4542 (reference), -0.4986 (espum), -1.2733 (fingerprint) and
+    -1.3931 (random map). Higher is what the frozen selector maximizes, so on the label-free
+    statistic the higher-order fitting model looks WORSE, and by a margin far larger than the
+    smoothing bridge. (c) That is the opposite direction from verdict 24, where order 3 or 4 gave a
+    small phone-error improvement on three of the four real starts. The two halves are not merely
+    differently sized, they point opposite ways: within a start, the rank correlation between the
+    two over the twelve repaired cells is +0.902, -0.636, +0.734, -0.979 and +0.853, and +0.110
+    pooled over all 60 -- no consistent sign. This reproduces the 1g.2 finding that the
+    own-minus-donor selector is inverted rather than uninformative, now with fitting order as the
+    moving coordinate instead of the arm, and it is why the label-free half cannot be read as an
+    order preference in either direction. CONSEQUENCE AND SCOPE: item 4 is complete and its answer
+    is that a fixed-duration diagnostic at this operating point does not identify a better fitting
+    order -- the label-free statistic and the error rate disagree, and PLAN_1G 1g.2a already forbids
+    the error rate from selecting order. This closes no method: per the gate, "a negative
+    fixed-duration result cannot close the coherent higher-order method", so the unrun coherent
+    matched-4 arm (item 5) is untouched, neither authorized nor refused, and remains the planner's
+    call. Artifacts: `H4ContextOwnMinusDonorJob.SygqXhY8F2Qt` under `work/speech_llm/sae/h4_context_scores/` and
+    the 600 `H4FixedTextScoreJob` cells it reads.
+
 ## Catalog
 
 | evidence | concrete artifact or source |
 |---|---|
+| 1g.2a item 4 label-free own-minus-donor, five starts x four fitting LMs | `work/speech_llm/sae/h4_context_scores/H4ContextOwnMinusDonorJob.SygqXhY8F2Qt` |
 | 1g.2a item 4 descriptive PER, five starts x four fitting LMs | `work/speech_llm/sae/h4_context_decode/H4ContextDiagnosticPerJob.IYHS4cX3j3XV` |
 | 1g.2a item 4 repaired-table decodes, 60 cells at counts 1/2/4 | `work/speech_llm/sae/h4_context_decode/H4ContextLocalDecodeJob.*` (60 dirs) |
 | 1g.2a fitting LM `legacy-2g` (add-one bigram) | `work/speech_llm/sae/h4_lm_artifacts/H4LegacyLmJob.lZI6TrYdVpev` |
