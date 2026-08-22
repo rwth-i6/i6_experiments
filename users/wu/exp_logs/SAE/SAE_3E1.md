@@ -2948,10 +2948,22 @@ the absolute beta, is what carries the contamination claim.
   11.5 h clamp" overstates its own table — three of the five deepest shards project
   11.08/11.19/11.28 h, i.e. UNDER the clamp by 0.2-0.4 h; the cancellation stands because the
   merge needs all ten shards, two (11.60/11.88 h) project past the clamp outright, and the
-  other three sit inside the projection's own swing of it. Precision note, nothing to change: "batching moves no number"
+  other three sit inside the projection's own swing of it (correction absorbed in d0b7abbae).
+  Precision note, nothing to change: "batching moves no number"
   is exact for the deterministic columns (greedy text, recon and prior per text) but the
   SAMPLED rollouts are a fresh draw from the registered distribution under the unpinned seed —
   acceptable because the registration pins the distribution, not the draw, and reproducibility
   rests on the frozen `supports.jsonl` as already disclosed; no number from the first launch
   was ever banked, so nothing is invalidated. The greedy-equivalence read remains the
   instrument that would catch any batching-induced greedy drift.
+
+- 2026-08-22 (d0b7abbae VERIFIED; no hand-backs). The clamp correction implements the precision
+  feedback exactly. The GAN960-FROZEN leg-overlap State entry is confirmed on disk, not from the
+  message: leg 2 `liehXoiGoRI0` wrote `epoch.001.pt` at 08:33:24.604 (`.opt.pt` complete at
+  .949), leg 3 `VEE2CPJ5jHn0` was set up and submitted after it (create_files 08:33:28.4, submit
+  08:33:29.04), its config's `av_checkpoint_path` (returnn.config:59) points at exactly that
+  file, and its RETURNN log loads it at 08:33:58.748 — 34 s after both files were complete. Leg 1
+  `ohmLWWmr6Kxe` has its finished marker; legs 2 and 3 concurrently RUNNING in squeue. Verdict:
+  the overlap is the per-epoch checkpoint dependency working as designed, not a race; concurrent
+  chained legs on this arm need no alarm as long as the successor's load timestamp postdates a
+  complete checkpoint pair, which is the check to repeat if it ever looks off.
