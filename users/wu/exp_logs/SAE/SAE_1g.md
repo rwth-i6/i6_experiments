@@ -4,41 +4,33 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-State as of 2026-08-22 -- the 1g.2 controlled validation read is IN FLIGHT:
+State as of 2026-08-22 -- 1g.2 is READ and CLOSED on its gate; nothing in flight for 1g:
 
-- **1g.2 controlled validation LAUNCHED** (`config/sae_1g_h4_controlled_validation.py`, manager
-  pid 3258905, watcher attached). Approach 12 has the design and the pre-registration.
-  `H4ProvisionalWinnerAuditJob.kBCapQOpk1Hj` then `H4ControlledValidationJob.Otv6GBVY8ZUj`; the
-  graph builds to 4,710 jobs of which only these two are new, every other job being the preserved
-  and finished prerequisite graph. The question each answers: does the frozen own-minus-donor
-  selector order controlled channels by their now-openable reference error, and is any nonzero
-  repair count safe at the method level?
-
-- **H4 pre-label selection surfaces are COMPLETE** (`config/sae_1g_h4_prelabel_surfaces.py`). Both
-  registered outputs resolve to finished job dirs: surface
+- **The 1g.2 controlled validation read is COMPLETE** (`config/sae_1g_h4_controlled_validation.py`;
+  approach 12; verdicts 18-20). Both jobs finished:
+  `H4ProvisionalWinnerAuditJob.kBCapQOpk1Hj` and `H4ControlledValidationJob.Otv6GBVY8ZUj` (5m34s).
+  **The selector verdict is NEGATIVE** -- `Sel` is inverted, not merely uninformative -- while the
+  count method-level safety read PASSES with all three nonzero counts safe, and the sequence family
+  is UNRESOLVED because no eligible sequence tuple exists. `h4_lm_trigger` is False.
+- A STALLED watcher verdict on this config is the known artifact, and it fired again here: the
+  manager exits on sisyphus's interactive "All calculations are done, print verbose overview (v),
+  update outputs and alias (u), cancel (c)?" prompt, which under `nohup` raises `EOFError` and
+  looks like a crash, and the one-shot console then calls finished consumer jobs `waiting`. The
+  on-disk `finished` marker and "Job finished successfully" in the job log are what settle it.
+- **H4 pre-label selection surfaces remain COMPLETE and unchanged**: surface
   `work/speech_llm/sae/h4_selector_jobs/H4SelectionSurfaceJob.MKHfnUO9XwkU`, maxima
-  `.../H4ProvisionalMaximaJob.ejmy4sdTOcS3`. The numbers and the local-winner reading are approach
-  11 and verdict 17.
-- Read this before believing a STALLED report on this config: the manager exits on sisyphus's
-  interactive "All calculations are done, print verbose overview (v), update outputs and alias (u),
-  cancel (c)?" prompt, which under `nohup` raises `EOFError` and looks exactly like a crash in the
-  manager log. The one-shot console status then calls the finished consumer jobs `waiting`, so a
-  watcher verdict reads `STATUS=STALLED ... work remains` on a graph that is fully finished. Grep
-  the manager log for "All calculations are done" before restarting anything.
-- Nothing else in 1g is running. The 821-job H4 prerequisite graph and the beam table are preserved.
+  `.../H4ProvisionalMaximaJob.ejmy4sdTOcS3`. No maximum was recomputed or reranked by the read.
+- The 821-job H4 prerequisite graph, the beam table and all 85 provisional maxima are preserved.
 
 Blockers: none.
 
-Next action: hold the watcher, then read `controlled_validation.txt` and the evidence together.
-The reading is pre-registered and must not be softened after the fact. Two things are already
-known to bear on it and are NOT reasons to reinterpret the gate: the pre-label cross-start `Sel`
-ordering puts the random-map null 9th of 85 against the reference at 73rd (verifier, approach 11),
-which the selector-validity clause is read AGAINST rather than around; and effective independent
-controls are 76 of 81. If the selector reads PASS, the follow-up config adds
-`H4SelectorFreezeJob` and the 7,304-ID / 4,455-ID final refits become authorized. If it reads
-NEGATIVE or UNRESOLVED, H4 is unresolved with no likelihood fallback (PLAN_1G 1g.2 gate), the
-maxima stay frozen and unreranked, and the next move is the planner's -- a failed gate here closes
-the tested score/channel/decoder/representation combination, not all Phase-1 initializers.
+Next action is the PLANNER'S, not the implementer's. The pre-registered gate has spoken and I have
+not acted beyond it: no `H4SelectorFreezeJob` was built, the final refits (7,304 construction IDs
+and 4,455 dev IDs) and the 1,112-ID evaluation stay closed, and the four real H3 rows stay sealed.
+Per PLAN_1G 1g.2 a failed `Sel` means H4 has no selector, likelihood cannot rescue it, and no
+contrastive update may be invented after labels are read -- so the decision of what to do next
+(close this initializer combination, or fund a different score/representation) is the planner's
+call, not a fallback I may pick.
 
 Proposals for the planner:
 
@@ -465,6 +457,58 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     safety read is a label read and has not run, so pre-evaluation readiness itself is not decided
     here.
 
+18. **The frozen own-minus-donor selector FAILS 1g.2: it is not uninformative but systematically
+    INVERTED, so H4 is unresolved and no baseline maximum may freeze.** The controlled reference
+    labels opened once (`H4ControlledValidationJob.Otv6GBVY8ZUj`, approach 12; 81 controlled arms,
+    76 effective channels, 10,000 resamples at seed 20260822). Under `Sel` the reference channel
+    scores 5.826478 while the strongest null `controlled/random_map_seed1007` scores 10.807694 and
+    the strongest control of either damage family `controlled/map_q05_draw00` scores 10.848025:
+    reference minus strongest control is -5.03 with a one-sided 95 % interval of
+    [-5.071922, -4.978244], so the reference loses to a content-free random map by about five
+    units and the interval is nowhere near zero. Rank agreement runs the wrong way at every scale
+    -- global Spearman(`Sel`, -error) -0.7493 [-0.826461, -0.622575], inside the predeclared
+    starting-PER band 0.80-0.93 (48 channels) -0.5125 [-0.702978, -0.252155], and within
+    trajectory [-0.928046, -0.789989]. All four correlation clauses are NEGATIVE, which is the
+    registered reading for an upper bound at or below zero; none is merely unresolved.
+
+    This is a property of the frozen score, not of the reader. It reproduces the pre-label
+    cross-start ordering banked before any label existed (the random-map null above the reference),
+    and the error instrument itself validates against a banked anchor essentially exactly: the
+    reference channel's count-0 dev-other PER is 0.4149 against the recorded memoryless-oracle-map
+    anchor of 0.4148, with the random-map control at 0.9094 against the recorded 0.8946 for a
+    different draw. So the selector is measuring something real and ranking it upside down.
+
+    The two margin clauses pass and do not rescue it: mean selection regret is
+    [0.015849, 0.020977] and selected-minus-count-0 is [-0.006181, 0.004722], both inside the 0.05
+    margin. A small regret is what an inverted score looks like when the counts within one channel
+    differ little -- it constrains the damage per pick, not the validity of the ranking.
+
+    Consequence, taken from the pre-registered gate and not softened after the fact: `Sel` has
+    failed, so H4 has no selector, likelihood cannot rescue it, and no contrastive update may be
+    invented after labels are read. The 85 provisional maxima stay frozen and unreranked, no
+    `H4SelectorFreezeJob` is built, and the 7,304-ID and 4,455-ID final refits and the 1,112-ID
+    evaluation stay closed. The failure closes the tested score/channel-shape/decoder/
+    representation combination only -- it does not close all Phase-1 initializers, and it is a
+    decision not to fund this selector rather than a finding that repair cannot work.
+
+19. **The count method-level safety read PASSES: every nonzero repair count is safe at the
+    controlled operating point.** On the reference start's local decoder the paired differences are
+    PER(1)-PER(0) [-0.003457, -0.000787], PER(2)-PER(0) [0.008906, 0.012588] and PER(4)-PER(0)
+    [0.021156, 0.025474], all with an upper bound below the registered 0.05 margin, so all three
+    are SAFE and the read is PASS (reference PER by count 0.3934 / 0.3913 / 0.4042 / 0.4168; count
+    1 is a slight improvement). The H4-LM trigger therefore does NOT fire: it is fired by a count
+    read that finds no safe count, and this one found three. Read with verdict 18 this is the
+    informative split -- repair itself is not what failed at this operating point; the score that
+    was supposed to choose among repairs is. Baseline H4 is still not pre-evaluation-ready,
+    because that condition needs the safe nonzero count AND a valid frozen selector, and the
+    selector is negative.
+
+20. **The sequence family is UNRESOLVED, and untested rather than failed.** No mechanically
+    eligible sequence tuple exists to test, because the baseline global beam table ruled all 12
+    grid points ineligible (verdict 16). This blocks nothing at this boundary: every provisional
+    maximum is local, so the registered local-winner exemption applies, and the sequence verdict
+    would only have bound a sequence winner.
+
 
 ## Catalog
 
@@ -508,6 +552,10 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 | H4 baseline global-beam boundary | code commit `3de988a`; reducer `work/speech_llm/sae/h4_beam_jobs/H4GlobalBeamTableJob.ro6L8QCnqYpx` |
 | H4 pre-label selection surface and provisional maxima | commit `84808a8`; `src/speech_llm/sae/h4_selector_jobs.py`; surface `work/speech_llm/sae/h4_selector_jobs/H4SelectionSurfaceJob.MKHfnUO9XwkU`; maxima `work/speech_llm/sae/h4_selector_jobs/H4ProvisionalMaximaJob.ejmy4sdTOcS3` |
 | H5 handoff and H6 character-route interfaces | commit `ce265ce`; `src/speech_llm/sae/handoff.py`; `src/speech_llm/sae/character_route.py` |
+
+| 1g.2 audited provisional maxima (local-winner exemption asserted) | `work/speech_llm/sae/h4_selector_jobs/H4ProvisionalWinnerAuditJob.kBCapQOpk1Hj` |
+| 1g.2 controlled validation read (verdicts 18-20; the only label reader) | `work/speech_llm/sae/h4_validation_jobs/H4ControlledValidationJob.Otv6GBVY8ZUj` |
+| controlled reference gold phones | `work/i6_experiments/users/wu/experiments/unsupervised_asr/w2vu2/eval/GoldPhonesJob.ZGSp0hxyd2YP` |
 
 ## Verifier feedback
 
