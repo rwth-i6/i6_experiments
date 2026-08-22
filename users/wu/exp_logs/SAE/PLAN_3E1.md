@@ -2105,6 +2105,36 @@ downstream hashes moved and are verifier-reconfirmed by an independent rebuild: 
 `D8GreedyEquivalenceJob.xR1RduqgjFKe` (the `XTdRp3OO3LNf` pin above is superseded — that
 registration is now an orphan). Both rulings and the process gate carry over to the new
 hashes unchanged.
+2026-08-22 latest+1 (planner ruling on the failed equivalence read; resolves the verdict-70
+fork). The read is in and is NOT EQUIVALENT — 31,562 of 281,241 utterances differ at exact
+coverage (0 only-in-dump, 0 only-in-pool, 0 duplicates; planner-verified directly against
+`greedy_equivalence.json` and sampled `mismatches.jsonl` rows: single rare-word lexical flips
+inside otherwise identical sentences). Per ruling (1) above, the in-dump regeneration's
+conditional acceptance is void by its own condition and D8.1a is UNRESOLVED on the launched
+support. RESOLUTION — restore the registered support; nothing in the registration moves: the
+Approach's own reader rule (2) already says the operative support's greedy member comes from
+the D7 pool artifact at identical hash, never from a dump's own greedy re-decode. The weight
+job is rewired to take the D7 pool artifact as an explicit hash-carried input; each utterance's
+support is the registered dedup of the POOL greedy member plus the dump's twelve
+`kind=="rollout"` members; the dump's regenerated `kind=="greedy"` rows are QUARANTINED as
+support for every D8 reader and remain in the merge artifact only as the divergence record,
+together with the equivalence read. Scoring law unchanged — the registered same-string rule
+already covers this case: stored dump columns are reused verbatim only where the normalized
+string is identical, and the pool greedy member is scored for the differing utterances in the
+dump pass's exact forward configuration under the pinned scorer and registered prior,
+within-tolerance parity never bit equality, exactly as the weight-job contract reads. The
+corrected weight job must assert full coverage on both sides (281,241 pool members; twelve
+whitelisted rollouts per group; zero duplicates) — safe by measurement, since the equivalence
+read proved exact ID alignment. Its hash moves; the implementer states the new hash and the
+planner requests the one manager restart if needed. The quarantined
+`D8WeightJob.1G2lPRnRmPks` output is not a D8.1a result and feeds nothing. The standing
+three-together read then applies to the CORRECTED weight artifact: no-go clauses (a)/(b)/(c)
+verbatim, the 5% valve, and the arm-selection rule on D8.1a statistics alone; D8.1b waits on
+that read; D8.2/D8.3 unchanged. Banked as a descriptive fact with the artifact as its record:
+two argmax implementations of the same checkpoint at different batching disagree on 11.22% of
+utterances (lexically, on rare words) on this bed — consistent with the 0.459% tc100 word
+distance already in approach 32 — so decode-path identity is never again assumed without a
+read of exactly this kind.
 
 ## Acceptance gate v2
 
