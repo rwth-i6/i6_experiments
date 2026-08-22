@@ -4,50 +4,107 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-State as of 2026-08-22 -- 1g.2 is READ and CLOSED on its gate; nothing in flight for 1g:
+State as of 2026-08-22 -- 1g.2 is READ and CLOSED on its gate; 1g.2a (H4-LM) is OPEN and its
+first jobs are running:
 
-- **The 1g.2 controlled validation read is COMPLETE** (`config/sae_1g_h4_controlled_validation.py`;
-  approach 12; verdicts 18-20). Both jobs finished:
-  `H4ProvisionalWinnerAuditJob.kBCapQOpk1Hj` and `H4ControlledValidationJob.Otv6GBVY8ZUj` (5m34s).
-  **The selector verdict is NEGATIVE** -- `Sel` is inverted, not merely uninformative -- while the
-  count method-level safety read PASSES with all three nonzero counts safe, and the sequence family
-  is UNRESOLVED because no eligible sequence tuple exists. `h4_lm_trigger` is False.
-- A STALLED watcher verdict on this config is the known artifact, and it fired again here: the
-  manager exits on sisyphus's interactive "All calculations are done, print verbose overview (v),
-  update outputs and alias (u), cancel (c)?" prompt, which under `nohup` raises `EOFError` and
-  looks like a crash, and the one-shot console then calls finished consumer jobs `waiting`. The
-  on-disk `finished` marker and "Job finished successfully" in the job log are what settle it.
-- **H4 pre-label selection surfaces remain COMPLETE and unchanged**: surface
+**1g.2a, the user-mandated matched trigram/4-gram arm** (approach 14). Funded scope is Experiments
+items 1-4; the F arm and every selector-shaped consequence stay closed under the 1g.2 verdict.
+
+- Item 2, the exact context-state repair engine, is COMPLETE: `h4_context_engine.py`, 24/24
+  synthetic checks. Orders 2/3/4 reproduce exhaustive path enumeration in likelihood, posteriors
+  and counts with and without the deleted-silence boundary rule; instantiated with `legacy-2g` it
+  reproduces the accepted dense engine; reachable histories come out at 1+39+39^2+39^3 = 60,880.
+- Item 1, the matched LM artifacts, is BUILT AND RUN. All four automata exist: `legacy-2g`
+  (`H4LegacyLmJob.lZI6TrYdVpev`) and matched 2/3/4 (`H4MatchedLmJob.T8ImJUXHaB0l` /
+  `.Jb2m4aM2fUTy` / `.VpVkGMMy7xKW`) from `KenLMplzJob.ef5FXMvv8af5` / `.tis71OtNidgL` /
+  `.bg0iYRzBQynx`. The legacy rebuild's phone-sequence hash reproduced the accepted H1's recorded
+  hash EXACTLY over 39,630,169 phone lines, which is the binding that says this bigram is the one
+  the accepted surface was fitted on. Both reruns and the reasoning for each are recorded in
+  approach 14 and nowhere else.
+- Item 3, the measured resource gate, is COMPLETE and PASSES (verdict 22):
+  `config/sae_1g_h4_context_resource.py`, `H4ContextResourceGateJob.HA1vzRL7MEAz`. Exact order 4
+  on the heaviest update chunk costs about 50 s and 0.67 GiB, so the request is 1 h per shard and
+  5 h for the whole 32-shard fold in one process, at 2 GiB either way, against
+  11.5 h and 256 GiB -- the same 1.5x multiplier and limits the accepted decoder resource contract
+  used, so the two are comparable. It ran no M-step and applied no pruning. Independent
+  cross-check: its lowest-entropy probe table is the same arm, count and array hash the accepted
+  decoder contract selected months earlier, with the entropy agreeing to all 16 digits, so the two
+  implementations of the probe rule agree.
+- This config SUBSUMES `sae_1g_h4_matched_lm`, whose graph it contains; that config is now BLOCKED
+  in `sis_managers.sh` so a second manager cannot double-submit the shared LM jobs.
+- The EM driver itself (`h4_context_em.py`) is BUILT and verified, including exact sub-batching:
+  the engine's alpha is `(batch, time, 2, 40^(order-1))`, so at order 4 a whole 200-utterance
+  shard packed at once would need on the order of 150 GB, and the shard E-step now takes a
+  `max_batch` that changes memory and nothing else.
+- Item 4, the fixed-duration diagnostic on the reference plus the four accepted H3 starts, is
+  BUILT: `config/sae_1g_h4_context_diagnostic.py`, 20 jobs
+  (`H4ContextRepairJob`, five starts x four fitting LMs), each requesting 5 h and 2 GiB read from
+  the gate artifact at graph-build time. It refuses to build unless the gate's `whole_fold_verdict`
+  is PASS. LAUNCHED and COMPLETE 2026-08-22: all 20 cells finished, no errors; the count-4 table
+  is in approach 14 and the smoothing-bridge reading is verdict 23. This config now subsumes
+  `sae_1g_h4_context_resource`, which is BLOCKED in `sis_managers.sh` for the same
+  double-submission reason `sae_1g_h4_matched_lm` is.
+
+  Still to wire: the decode and own-minus-donor half of item 4, at each start's already frozen
+  decoder setting, plus the later descriptive error read. The plan asks for likelihood AND
+  own-minus-donor trajectories; only the likelihood half exists, so item 4 is NOT finished and no
+  order may be chosen from what is banked. Its shape follows from the gate rather than from a guess: at
+  49 s per order-4 chunk, 32 chunks x 6 E-steps is about 2.6 h, so each of the 20 (start, fitting
+  LM) curves runs in ONE process over the whole update fold instead of 32 sharded jobs plus
+  merges. Five starts (`controlled/reference` and the four real H3 rows) x four fitting LMs
+  (`legacy-2g`, matched 2/3/4) x counts 0/1/2/4, with identical roles, masks, donors and the
+  already frozen per-start decoder setting. Its resource requests must be read from
+  `resource_gate.json` at graph-build time, never copied into the config by hand.
+- Nothing in 1g.2a reranks a maximum or reads a label. No 5-gram is funded. (Item 4 DOES repair
+  utterances -- that is what the diagnostic is -- but only on the five funded starts, at the frozen
+  `p` and topology, and it refits nothing.)
+
+**RESOLVED 2026-08-22, both halves of a double outage.** The login node's `/tmp` filled (1.4 TB,
+essentially all `/tmp/mmfs` GPFS traces -- NOT this user's files, whose whole Claude tree was 739 MB)
+and every harness Bash call died with ENOSPC; separately the project fileset hit its quota and every
+write failed with `EDQUOT`/`Errno 122`. The Bash half is fixed by pointing `CLAUDE_CODE_TMPDIR` at
+`/e/scratch/spell/wu24/claude-tmp` (the project fileset is the wrong target -- it was the other
+casualty). The quota half eased on its own; `jutil` reads the project fileset at 46.8/53.7 TB and
+3.58M/4.0M inodes but its `last-updated` was three days stale, so it never showed the violation.
+Cost: two D8.1a jobs killed mid-write (see SAE_3E1.md), no 1g.2a artifact affected.
+
+**1g.2 is closed and unchanged.**
+
+- The controlled validation read is COMPLETE (`config/sae_1g_h4_controlled_validation.py`;
+  approach 12; verdicts 18-20): `H4ProvisionalWinnerAuditJob.kBCapQOpk1Hj` and
+  `H4ControlledValidationJob.Otv6GBVY8ZUj`. **The selector verdict is NEGATIVE** -- `Sel` is
+  inverted, not merely uninformative -- while the count method-level safety read PASSES with all
+  three nonzero counts safe, and the sequence family is UNRESOLVED because no eligible sequence
+  tuple exists. `h4_lm_trigger` is False, which is why 1g.2a is out-of-trigger user-funded work
+  rather than a triggered follow-up.
+- A STALLED watcher verdict on a finished 1g config is the known artifact: the manager exits on
+  sisyphus's interactive "All calculations are done ... (v/u/c)?" prompt, which under `nohup` raises
+  `EOFError` and looks like a crash, and the one-shot console then calls finished consumer jobs
+  `waiting`. The on-disk `finished` marker and "Job finished successfully" settle it.
+- H4 pre-label selection surfaces remain COMPLETE and unchanged: surface
   `work/speech_llm/sae/h4_selector_jobs/H4SelectionSurfaceJob.MKHfnUO9XwkU`, maxima
-  `.../H4ProvisionalMaximaJob.ejmy4sdTOcS3`. No maximum was recomputed or reranked by the read.
-- The 821-job H4 prerequisite graph, the beam table and all 85 provisional maxima are preserved.
-- **The user-funded descriptive real-seed PER read is COMPLETE** (`config/sae_1g_h4_real_seed_per.py`,
+  `.../H4ProvisionalMaximaJob.ejmy4sdTOcS3`. The 821-job H4 prerequisite graph, the beam table and
+  all 85 provisional maxima are preserved.
+- The user-funded descriptive real-seed PER read is COMPLETE (`config/sae_1g_h4_real_seed_per.py`,
   `H4RealSeedPerJob.vu6Dp6HkJ2pH`; approach 13, verdict 21). It is a measurement over the closed
-  gate and selects nothing; the 1g.2 verdict and all its consequences are unchanged, and the
-  1,112-ID evaluation stays sealed.
-- The read was RERUN once on 2026-08-22 after the verifier's hand-back, to bank split-resolved PER
-  in the job's own artifact instead of citing numbers from an unregistered console command. Under
-  the fixed seed every previously logged interval, point estimate and verdict reproduced
-  identically; only the new `per_by_count_and_split` and `split_sizes` fields are added, so the
-  evidence sha256 moved and nothing consumed it (no freeze job exists).
+  gate and selects nothing; the 1,112-ID evaluation stays sealed. It was rerun once on 2026-08-22
+  after the verifier's hand-back, to bank split-resolved PER in the job's own artifact instead of
+  citing numbers from an unregistered console command; under the fixed seed every previously logged
+  interval, point estimate and verdict reproduced identically.
+- No `H4SelectorFreezeJob` was built, the final refits (7,304 construction IDs and 4,455 dev IDs)
+  and the 1,112-ID evaluation stay closed, and the four real H3 rows stay sealed at every boundary
+  the controlled read touches.
+
+Blockers: none. Nothing is waiting on the user, the cluster or the verifier.
 
 Proposal for the planner (shared-tree item, NOT mine to resolve): `config_sae_1g_v1.py` carries an
 UNCOMMITTED working-tree edit adding a `corrective_h1()` builder that registers a second
 `Phase1gH1Job` with `gold_json` inside a Phase-1g config. I did not write it and have neither
 committed nor removed it -- committing another session's uncommitted work, or deleting it, are both
-wrong from here. It does not enter the 1g.2 graph: `config_sae_1g_h4_controlled_validation_v1`
-never imports it, and the accepted H1 stays pinned at `Phase1gH1Job.HbxKiuBTJ8aN`. Its
-label-boundary status needs whoever wrote it to explain it.
-
-Blockers: none.
-
-Next action is the PLANNER'S, not the implementer's. The pre-registered gate has spoken and I have
-not acted beyond it: no `H4SelectorFreezeJob` was built, the final refits (7,304 construction IDs
-and 4,455 dev IDs) and the 1,112-ID evaluation stay closed, and the four real H3 rows stay sealed.
-Per PLAN_1G 1g.2 a failed `Sel` means H4 has no selector, likelihood cannot rescue it, and no
-contrastive update may be invented after labels are read -- so the decision of what to do next
-(close this initializer combination, or fund a different score/representation) is the planner's
-call, not a fallback I may pick.
+wrong from here. It does not enter the 1g.2 or 1g.2a graphs: neither
+`config_sae_1g_h4_controlled_validation_v1` nor `config_sae_1g_h4_matched_lm_v1` imports it, and
+the accepted H1 stays pinned at `Phase1gH1Job.HbxKiuBTJ8aN`. Its label-boundary status needs
+whoever wrote it to explain it.
 
 Proposals for the planner:
 
@@ -401,6 +458,147 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     numbers to pick a seed or count must be re-registered with the label circularity disclosed as
     a supervision cost. The 1,112-ID held-out evaluation stays sealed.
 
+14. **1g.2a: matched higher-order fitting LMs and the exact context-state repair engine.**
+    User-mandated trigram/4-gram work, registered by the planner on 2026-08-22 as out-of-trigger
+    (`h4_lm_trigger` is False from verdict 18). Funded scope is Experiments items 1-4; the F arm
+    and every selector-shaped consequence stay closed under the 1g.2 verdict.
+
+    The question item 1 answers is separation, not size. The accepted baseline `legacy-2g` is an
+    add-one bigram, so raising the order alone would move SMOOTHING and ORDER together. The
+    matched family is unpruned modified Kneser-Ney at orders 2/3/4 built from the SAME pinned
+    complete `T_phi`, the same 39-phone inventory and the same BOS/EOS convention, with the
+    canonical `phoneme_ngram_lm` settings (`interpolate_unigrams=True`, `pruning=None`, discount
+    fallback 0.5/1.0/1.5 -- Kneser-Ney needs the fallback because a ~40-symbol vocabulary has no
+    singleton unigrams). Matched 2 vs 3 vs 4 is then the order contrast; `legacy-2g` vs matched 2
+    is the separate smoothing bridge.
+
+    An ARPA is a backoff SCORING function, not a generator: `<unk>` carries mass, `<s>` is a
+    token, and a history's continuations need not sum to one over the symbols the repair law
+    permits. The compiler therefore evaluates the full backoff recursion at every history, drops
+    `<unk>`/`<s>` as successors, explicitly renormalizes over the 39 phones plus EOS, and RECORDS
+    the removed mass per history instead of absorbing it -- that recorded number is the audit
+    trail for a leaking ARPA. The engine's BOS-padded history collapses to a single `<s>` before
+    the lookup, since repeating it would query n-grams the training text never contains.
+
+    `H4LegacyLmJob` exists because the baseline was never an artifact: `Phase1gH1Job` builds the
+    add-one bigram inside its own run and keeps only what it derived. The job rebuilds it through
+    the same code path and refuses to continue unless the rebuilt phone-sequence hash and line
+    count match what the accepted H1 recorded. That check, not a file hash, is what binds the
+    bigram to the `T_phi` the accepted surface was fitted on.
+
+    Item 2 is the engine those automata feed. The accepted engine is bigram-specific and its dense
+    transition matrix at order 4 would be about 118 GB, so it cannot represent the arm at all. The
+    ruled form keeps the state as (duration sub-state, BOS-padded history), makes duration moves
+    elementwise-diagonal, and leaves exactly one contraction over phone-exit arcs against the
+    normalized per-history table; emissions stay tied by (phone, sub-state) and broadcast rather
+    than materializing per history, and the backward pass is shared across sub-states, which the
+    topology proves. Reachable histories come out at exactly 1+39+39^2+39^3 = 60,880 and an
+    order-4 E-step over the update fold costs about 5.6e12 operations, both derived here and both
+    matching the plan's independent projection.
+
+    | artifact | deviating parameters | reachable histories / arcs; max renormalized mass | job hash |
+    | --- | --- | --- | --- |
+    | `legacy-2g` | add-one, order 2 (the accepted baseline) | 40 / 1,600; 0 (add-one needs none) | `H4LegacyLmJob.lZI6TrYdVpev` |
+    | `matched-2g` | MKN, order 2 | 40 / 1,600; 7.05e-08 | `H4MatchedLmJob.T8ImJUXHaB0l` (`KenLMplzJob.ef5FXMvv8af5`) |
+    | `matched-3g` | MKN, order 3 | 1,561 / 62,440; 1.274e-04 | `H4MatchedLmJob.Jb2m4aM2fUTy` (`KenLMplzJob.tis71OtNidgL`) |
+    | `matched-4g` | MKN, order 4 | 60,880 / 2,435,200; 1.274e-04 | `H4MatchedLmJob.VpVkGMMy7xKW` (`KenLMplzJob.bg0iYRzBQynx`) |
+
+    All four normalize to machine precision (max absolute error 5.6e-16). The renormalized mass is
+    what each ARPA was spending on symbols this automaton cannot emit, and it is small: the
+    matched family loses at most 1.3e-04 at any history, so the order contrast is not an artifact
+    of throwing mass away. The legacy rebuild reproduced the accepted H1's recorded phone-sequence
+    hash exactly over 39,630,169 phone lines, which is the binding that says this bigram is the
+    one the accepted surface was fitted on -- a file hash would not have shown that.
+
+    Two reruns happened in this phase and they were decided differently, which is worth stating in
+    one place because the record otherwise reads as contradictory. The three MATCHED compiles were
+    rerun, because their first outputs were provably wrong: one had read a superseded ARPA. The
+    LEGACY artifact was rerun for a cosmetic reason -- to write the matched family's manifest field
+    names so the four automata could be compared without translating between two vocabularies. That
+    second rerun was a MISTAKE OF PROCESS, and the verifier was right to hand it back
+    (2026-08-22): unlike the 1g.2 validation rerun, this artifact had consumers, and rewriting a
+    manifest that finished cells had already bound could have stranded them. It happens to be safe
+    -- the rerun completed before any diagnostic cell started, and every legacy cell's
+    `input_content_sha256.automaton` equals the manifest's current `automaton_sha256` (`0aa488aa`),
+    checked directly -- but that is timing, not design. The rule stands as the 1g.2 rerun set it: a
+    finished artifact may be rerun only when nothing has consumed it, and a cosmetic gain never
+    clears that bar.
+
+    A residue of that decision remains and is left alone deliberately: `code_identity` hashes the
+    whole module, and `h4_lm_artifacts.py` holds both job classes, so the legacy artifact now
+    records a different module hash from the three matched ones. The difference is the legacy job's
+    own manifest fields and memory request, neither of which the matched compile path executes.
+    Re-running three correct artifacts to erase a cosmetic hash difference would repeat the mistake
+    above, so the coarseness is recorded here instead.
+
+    Orders are read from each job's own `identity`/`order` fields in the loaded graph, not from a
+    hand-written hash-to-order list. Time and memory for the KenLM jobs trace to the order-4 run
+    of the same job class over this same corpus (`KenLMplzJob.0aJeN88X6EdW`: 0.05 h elapsed,
+    3.3 GiB max RSS at `mem=16`, `time=2`).
+
+    Verification is synthetic-only and reads no real artifact, so it runs before anything is
+    measured and cannot launder a real number into a passing check: `scripts/h4_context_engine_test.py`
+    24/24 -- orders 2/3/4 reproduce exhaustive path enumeration in likelihood, posteriors AND
+    counts, with and without the deleted-silence boundary rule, and the `legacy-2g` instantiation
+    reproduces the accepted dense engine's likelihood, posteriors and M-step; `scripts/h4_lm_artifacts_test.py`
+    24/24 -- backoff evaluation, BOS/EOS handling, renormalization audit, and the plan's separate
+    requirement that the matched order-2 automaton reproduce exhaustive enumeration.
+
+    The engine is the E-step only, so the trainer itself is a third piece:
+    `h4_context_em.py` is the counterpart of the accepted `soft_reestimation_curve`, preserving
+    everything that routine owns -- the two-state symmetry break applied once immediately before
+    repair step 1, the unperturbed count-0 snapshot, the single common floor, the pinned fitting LM
+    the M-step never touches, and the meaning of a snapshot at count `n` (the table after `n`
+    M-steps with the likelihood evaluated at that table). It is written in shard form even for one
+    shard, because the plan requires shards to aggregate likelihood and expected counts before ONE
+    common M-step: a per-shard M-step is a different estimator, not a parallel implementation of
+    the same one, and making the single-process path the one-shard case is what keeps that true
+    rather than merely intended. Shards return UNNORMALIZED counts; only the driver floors and
+    normalizes. `scripts/h4_context_em_test.py` 36/36, the decisive check being that the order-2
+    instantiation reproduces the accepted trainer snapshot for snapshot across counts 0/1/2/4 --
+    without that, a higher-order likelihood would not be comparable to the banked baseline at all
+    -- plus 2/3/5-way sharding changing no number and the boundary contract refusing every way of
+    getting it wrong.
+
+    A real corruption was caught while item 1 first ran, and it is the reason `parse_arpa` now
+    checks the ARPA's own declared per-order counts against what it read. The login-node
+    LocalEngine ran each `KenLMplzJob` more than once (order 2 twice, order 3 three times), and a
+    compile read `lm.gz` while lmplz was rewriting it. The order-2 compile failed loudly. The
+    order-3 compile did NOT: it finished, its `ngram_counts` match the final file exactly, and
+    only its banked `arpa_sha256` gives it away -- no file on disk carries that hash any more.
+    Structurally-plausible truncation is invisible to every other check, so all matched compiles
+    are rerun under the hardened reader and the family shares one compiler identity.
+
+    Item 3, the measured resource gate, is COMPLETE and PASSES (verdict 22 and its correction):
+    exact order 4 on the heaviest of the 32 update chunks costs about 50 s and 0.67 GiB, giving a
+    1 h per-shard and 5 h whole-fold request at 2 GiB against 11.5 h and 256 GiB. Nothing higher
+    than the baseline bigram was requested before that measurement existed.
+
+    Item 4, the fixed-duration diagnostic, is COMPLETE in its label-free likelihood half: all 20
+    cells (five starts x four fitting LMs) finished, each running the accepted 0/1/2/4 repair
+    trajectory over the whole 6,414-utterance update fold (584,424 retained audio units) with only
+    the fitting LM changed. Per-audio-unit log likelihood at repair count 4, read from each cell's
+    own `row_name` and `fitting_lm.identity` fields:
+
+    | start | `legacy-2g` | `matched-2g` | `matched-3g` | `matched-4g` |
+    | --- | --- | --- | --- | --- |
+    | `controlled/reference` | -5.2736 | -5.2736 | -5.2418 | -5.2201 |
+    | `real/espum_seed0_update30000` | -5.3568 | -5.3568 | -5.3653 | -5.3821 |
+    | `real/fingerprint` | -5.6262 | -5.6262 | -5.6082 | -5.6079 |
+    | `real/pseudo_pair_seed0` | -5.8930 | -5.8930 | -5.8839 | -5.8822 |
+    | `real/random_map_seed1000` | -5.6547 | -5.6547 | -5.6255 | -5.6410 |
+
+    These numbers are NOT an order choice and cannot become one. Each column is the likelihood of
+    the same audio under a DIFFERENT fitting LM, so the columns are not readings of one model on a
+    common scale; a higher-order LM is a larger model, and the plan's own reporting rule -- carried
+    in every cell's payload -- says D selects nothing, chooses no order, funds no final refit and
+    cannot close the unrun coherent matched-4 arm. The own-minus-donor and descriptive-error halves
+    of item 4 are not yet built, and the ordering question is not answerable from this table alone.
+
+    Still to wire: the decode and own-minus-donor half at each start's already frozen decoder
+    setting, and the later descriptive error read. Not funded and not run: the 81-row controlled
+    library, any selector refit, any order choice, any final refit.
+
 ## Verdicts
 
 1. **Approach 1: one segment per text symbol is rejected.** It exceeds the registered ratio on all
@@ -594,10 +792,57 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 
 
 
+22. **A14: exact order-4 repair CLEARS the measured resource gate, with a wide margin.** On the
+    heaviest of the 32 update chunks (chunk 2, 19,515 retained units) one exact order-4 E-step
+    takes 49.12 s and peaks at 0.67 GiB, so a full repair curve out to count 4 is requested at
+    1 h and 2 GiB against limits of 11.5 h and 256 GiB. Order 3 costs 0.05 s and 0.17 GiB per
+    probe utterance against order 4's 0.90 s and 0.67 GiB. Measured reachability is 60,879
+    histories and 2,435,160 arcs at order 4 and 1,560 histories and 62,400 arcs at order 3 --
+    one below the `1+39+39^2+39^3` and `1+39+39^2` bounds in each case, the all-BOS history
+    being unreachable once the first phone is emitted. This licenses item 4 to run each
+    (start, fitting LM) curve in ONE process over the whole update fold rather than as 32
+    sharded jobs: 32 chunks x 49 s x 6 E-steps is about 2.6 h, inside the 11.5 h clamp.
+    Artifact `H4ContextResourceGateJob.HA1vzRL7MEAz`. This is a statement about affordability on
+    this machine, not about repair.
+
+    CORRECTION 2026-08-22, the request clause only: the "1 h" first reported was the PER-SHARD
+    request, and item 4 runs the whole fold in one process, so it would have asked for a
+    thirty-second of what it needs and died at the wall with nothing saved -- these jobs do not
+    resume. The gate now emits both figures and a separate `whole_fold_verdict`; on re-measurement
+    the heaviest chunk read 50.82 s, giving 1 h per shard and 5 h whole-fold at 2 GiB, both PASS,
+    with 6.5 h of headroom. Memory does not scale with the fold, because shards are processed one
+    sub-batch at a time. The PASS verdict and every other number above stand.
+
+    Second correction, same date, the probe timing only: the order-4 probe cells read 0.9366-0.9499 s
+    in the artifact as it now stands, not the 0.90 s above (verifier). A few percent of node-to-node
+    variation on a sub-second cell changes nothing, because the request is sized from the chunk
+    rerun and not from the probe.
+
+23. **A14: the smoothing bridge is empirically NULL, so an order-3 or order-4 difference is
+    attributable to order rather than to smoothing.** On the label-free update-fold likelihood,
+    add-one `legacy-2g` and matched modified-Kneser-Ney `matched-2g` agree to within 4e-5 per audio
+    unit on all five D starts at all four repair counts, so rounded displays can still differ in the
+    fourth decimal; the largest disagreement anywhere is `real/fingerprint` count 0, -7.293028
+    against -7.293065, a gap of 3.7e-5. (Corrected 2026-08-22: the first wording said "agree to four
+    decimals", which its own example contradicts.) This is the expected result rather
+    than a surprise: smoothing only matters where counts are sparse, and a 39-phone inventory over
+    39,630,169 lines of text leaves no sparse bigram, so both estimators sit on essentially the
+    maximum-likelihood bigram. It matters anyway, because the plan's whole reason for building a
+    matched family was that raising the order alone would confound order with smoothing -- and the
+    confound turns out to be negligible at this corpus size. SCOPE: this is the label-free
+    likelihood half of item 4 only, on the update role. It says nothing about which order decodes
+    better, and the own-minus-donor and descriptive-error halves are not yet run. Artifacts are the
+    20 `H4ContextRepairJob` cells under `work/speech_llm/sae/h4_context_diagnostic/`.
+
 ## Catalog
 
 | evidence | concrete artifact or source |
 |---|---|
+| 1g.2a fitting LM `legacy-2g` (add-one bigram) | `work/speech_llm/sae/h4_lm_artifacts/H4LegacyLmJob.lZI6TrYdVpev` |
+| 1g.2a fitting LM matched-2g / 3g / 4g (unpruned MKN) | `work/speech_llm/sae/h4_lm_artifacts/H4MatchedLmJob.T8ImJUXHaB0l`; `.Jb2m4aM2fUTy`; `.VpVkGMMy7xKW` |
+| 1g.2a matched MKN ARPAs, orders 2/3/4 | `work/i6_core/lm/kenlm/KenLMplzJob.ef5FXMvv8af5`; `.tis71OtNidgL`; `.bg0iYRzBQynx` |
+| 1g.2a fixed-duration diagnostic, 5 starts x 4 fitting LMs (item 4) | `work/speech_llm/sae/h4_context_diagnostic/H4ContextRepairJob.*` (20 cells) |
+| 1g.2a measured resource gate (item 3) | `work/speech_llm/sae/h4_context_resource/H4ContextResourceGateJob.HA1vzRL7MEAz` |
 | 1g.0 structure screen, dev-clean | `work/speech_llm/sae/structure_screen/StructureScreenJob.Xyy7r1zTK9hU` |
 | 1g.0 structure screen, dev-other | `work/speech_llm/sae/structure_screen/StructureScreenJob.U3QYclOJHgq2` |
 | spectral duration-polarity reads, clean/other | `work/speech_llm/sae/spectral_split/SpectralVCJob.AK0OUD2QcPXz`; `work/speech_llm/sae/spectral_split/SpectralVCJob.ZA7uvQ2s7Zta` |
@@ -955,3 +1200,52 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   NEGATIVE read). Gate consequences are ruled in `PLAN_1G.md` 1g.2 Status (2026-08-22): H4
   unresolved, selector closed on this combination, maxima frozen, refits and the 1,112-ID
   evaluation stay closed, H4-LM not triggered; the direction fork goes to the user.
+
+- 2026-08-22 (1g.2a items 1, 3, and item 4's likelihood half VERIFIED; one process hand-back,
+  three wording nits; no banked number moves). Verified READ-ONLY under the harness temp-full
+  blocker (no Bash, so no test re-execution; see deferred items). Engine
+  (`h4_context_engine.py`): line-level review against the accepted dense law — BOS start into
+  sub-state 0, duration moves p into sub-state 1 from BOTH sub-states, exits q*P(j|h) into
+  sub-state 0 of the shifted history from both, boundary rule kills duration moves and keeps
+  history through the exit contraction, terminal q*P(EOS|h) after the last real frame, per-frame
+  scaling — every arc reproduces `repair_hmm`/`marginal_forward_backward`, and the shared
+  backward variable is proven by the topology (both sub-states have identical outgoing arcs);
+  the base-40 padded history axis with the reachability mask is exact by construction. Cells:
+  eight of 20 payloads covering ALL five rows and ALL four fitting LMs reproduce the approach-14
+  count-4 table digit for digit (also fingerprint count-0 -7.293028 / -7.293065 behind verdict
+  23); every cell banks the same accepted H1 (`5a3ef9de`), unit stream (`59192a3d`), and an
+  `input_content_sha256.automaton` equal to the CURRENT manifest's `automaton_sha256` (legacy
+  `0aa488aa`, matched-3g `bc176309`, matched-4g `f38eedfc`), so the cells provably consumed the
+  post-hardening automata and the caught mid-rewrite ARPA corruption reached no banked number.
+  Gate (`resource_gate.json`): verdict 22 and its correction reproduce exactly — 340 candidate
+  tables deduplicated to 316, selected indices 0/157/315, probe utterance 2902-9006-0015 (353
+  units), heaviest chunk 2 (19,515 units, 201 utterances) re-measured 50.82 s / 0.6734 GiB,
+  multiplier 1.5 giving 1 h per-shard and 5 h whole-fold at 2 GiB, `m_steps_run` 0, pruning
+  none, `whole_fold_verdict` PASS, reached 60,879/2,435,160 (order 4) and 1,560/62,400 (order
+  3), one below the bounds as read. Matched manifests reproduce the approach-14 automaton table
+  (histories/arcs/renormalized-mass/normalization error) and the diagnostic config enforces the
+  whole-fold gate, exact scope (5x4), alias plus registered output, and gate-read (never
+  hand-copied) resource requests.
+  HAND-BACK (process, the one material item): the in-flight `legacy-2g` cosmetic rerun
+  contradicts approach 14's own recorded principle ("the artifacts were NOT rerun ... to chase a
+  cosmetic hash") and, unlike the 1g.2 validation rerun, has CONSUMERS — the five finished
+  legacy cells bank `input_content_sha256.automaton_manifest = a01ee7ce...` and `.automaton =
+  0aa488aa...`, so a rewrite that adds manifest fields changes the manifest digest (and the
+  automaton digest too unless `np.savez_compressed` is byte-stable here), stranding finished
+  cells citing content no longer on disk. Park the rerun if it has not finished; if it has,
+  verify both output files byte-identical to the banked digests, and on ANY difference restore
+  the banked content and move field-name alignment into a new job for future consumers only.
+  Either way, reconcile the State bullet ("is rerunning to write the same manifest field names")
+  with the approach-14 paragraph and record the final decision in exactly one place.
+  Wording nits: (i) verdict 23 "agree to four decimals" is contradicted by its own example
+  (-7.2930 vs -7.2931 differ in the fourth displayed decimal; the actual gap is 3.7e-5 — say
+  "within 4e-5 per audio unit, so rounded displays can differ in the fourth decimal"); (ii)
+  verdict 22's "order 4's 0.90 s" per probe utterance is measured 0.9366-0.9499 s (say 0.95 s);
+  (iii) State's item-3 bullet still carries the pre-correction single "1 h and 2 GiB" figure —
+  align with the corrected per-shard/whole-fold pair.
+  Deferred until the harness temp is fixed (standing verifier items, not blockers on this
+  verdict): re-execute the three suites (engine 24, LM artifacts 24, EM driver 36) and re-open
+  the accepted decoder-contract artifact to independently confirm the 16-digit entropy agreement
+  State claims for the lowest-entropy probe table (gate side read and consistent:
+  `controlled/map_q04_draw03|0`, entropy 1.9224904277792318, array `c6d85886`). Feedback commits
+  are likewise pending on the same blocker.

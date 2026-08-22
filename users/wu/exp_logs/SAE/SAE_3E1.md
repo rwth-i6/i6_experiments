@@ -4,6 +4,22 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
+**D8.1a HAS A BLOCKING RESULT FOR THE PLANNER (verdict 70): the greedy-equivalence read is NOT
+EQUIVALENT** -- 31,562 of 281,241 utterances (11.2 %) differ between the dump's regenerated greedy
+and the D7 pool's 1-best, at exact coverage. The registered deviation is admissible only at zero
+mismatches, so the D8.1a verdict is not accepted on this support and the direction fork is the
+planner's. Nothing is auto-escalated and no fallback has been chosen here. The dump and merge are
+complete and unaffected; `D8WeightJob.1G2lPRnRmPks` was left running because it is deterministic,
+cheap and selects nothing, but ANY number it produces rests on a support that failed its
+admissibility read and must not be read as a D8.1a result.
+
+A double storage outage on 2026-08-22 killed both downstream jobs mid-write with `Errno 122`
+(quota), NOT on content: the login node's `/tmp` filled with 1.4 TB of `/tmp/mmfs` GPFS traces
+(not this user's files -- the whole Claude tree was 739 MB) and the project fileset hit its quota
+at the same time. `jutil` showed 46.8/53.7 TB and 3.58M/4.0M inodes but its reading was three days
+stale, so it never showed the violation. Both jobs were cleared and rerun once writes worked again
+-- safe because both are stateless deterministic reads, never for a training job.
+
 In flight 2026-08-22:
 
 - **D8.1a, the operative-bed candidate generation pass** (`config/sae_3e1_d8_1a.py`, speech-llm
@@ -1886,6 +1902,21 @@ function-word pairs rather than broad spelling diversity.
     question that D6-PERIODIC/GAN-FROZEN was built to answer is therefore settled inside a regime
     where the loop itself is losing ground after leg 3, which is the standing problem the arm was
     not designed to address and which no frozen-versus-periodic contrast can fix.
+
+70. **D8.1a's regenerated greedy is NOT the D7 pool's 1-best: 31,562 of 281,241 utterances differ
+    (11.2 %), so the registered deviation is NOT admissible** (35). The registration says D8.1a's
+    support reuses the D7 pool's greedy 1-best at identical hash; the launched dump instead
+    regenerates it through `SaeGrpoModelV1._greedy_argmax_decode` on the same checkpoint, and the
+    planner ruled that admissible ONLY against a zero-mismatch read over the whole bed. The read is
+    `D8GreedyEquivalenceJob.xR1RduqgjFKe` and it reports NOT EQUIVALENT. Coverage is exact and rules
+    out a subset artifact: 281,241 of 281,241 compared, 0 only-in-dump, 0 only-in-pool, 0 duplicate
+    greedy rows. The differences are lexical rather than formatting -- the comparison is already on
+    the D8 reader's own normalized fold, the same string the weight job dedups and encodes -- and
+    fall on hard or rare words ("barny to unless" against "barnett unless"; "sowing wood" against
+    "saucing wood"). Per the registration the D8.1a verdict is therefore NOT ACCEPTED on the
+    present support, and what to do about it is the planner's call, not a fallback the implementer
+    may pick. The merged dump itself is unaffected and complete (281,241 utterances, 3,937,374 rows:
+    greedy 281,241 + rollouts 3,374,892 + true 281,241, and 281,241 x 12 = 3,374,892 exactly).
 
 
 ## Catalog
