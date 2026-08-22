@@ -26,31 +26,46 @@ piece 3 is designed but not built, and it is what still blocks a D8.1a result.
    **The new hash CANNOT be stated yet, and that is not an oversight**: `pool_scores_jsonl` is a
    hash-carried input, so the job's identity is undefined until piece 3's producing job exists. The
    hash will be stated here before any manager restart, as the ruling requires.
-3. DESIGNED, NOT BUILT. The hook works as the ruling describes, and the design needs no model-code
-   change: the `_KIND_TRUE` row scores whatever token list it is handed
+3. DESIGNED, NOT BUILT, and now bound by the latest+2 execution notes. The hook needs no
+   model-code change: the `_KIND_TRUE` row scores whatever token list it is handed
    (`forward_step.py:1095`), and that list comes from the dataset's target text. So the pass is a
    forward run over ONLY the 31,562 differing tags with the POOL 1-best substituted where the true
    text goes, in the dump pass's exact forward configuration under the pinned scorer and registered
-   prior, reading the `kind=="true"` rows back as the pool member's columns. The pool text is
-   already in `D8GreedyEquivalenceJob.xR1RduqgjFKe/output/mismatches.jsonl` (`dump`, `pool`,
-   `seq_tag`). One check to make before building: in the banked dump the `kind=="true"` rows carry
-   `text: ""`, `n_tokens: 0`, `lm_prior: 0.0` -- correct, since this bed is scored without
-   transcripts -- so the pass must be verified to produce non-degenerate columns rather than
-   inheriting that emptiness.
+   prior, reading the `kind=="true"` rows back as the pool member's columns. Pool text is in
+   `D8GreedyEquivalenceJob.xR1RduqgjFKe/output/mismatches.jsonl` (`dump`, `pool`, `seq_tag`).
+   Three binding requirements from the ruling: (a) the pool member's score is DEFINED as the score
+   of the pool STRING through the dataset text pipeline -- the path the D7.1 control consumed its
+   targets through -- never a reconstruction of the D7 decode's internal token path; (b) the pass
+   must be shown to produce non-degenerate columns where the banked dump's `kind=="true"` rows are
+   empty (`text: ""`, `n_tokens: 0`, `lm_prior: 0.0`, correct for a bed scored without
+   transcripts); (c) an OVERLAP PROBE of at least 64 AGREEING tags through the same hook must run
+   first -- `recon` must match the dump's stored greedy columns within tolerance, which is the
+   end-to-end forward-configuration parity check, and its `lm_prior`/`n_tokens` deltas measure the
+   decode-path-versus-text-path tokenization gap, bounding the mixed convention (reused dump
+   columns on agreeing rows, text-path scores on differing rows) before any weight read.
 
-**PROPOSAL FOR THE PLANNER, found while building piece 2 and independent of it: the dedup collapse
-diagnostic watches the wrong column.** `build_support` dedups on the normalized text and keeps ONE
-member's stored scores, and its `dedup_collapse_classes_scored` diagnostic flags a class only when
-`recon` differs across it. Measured over the whole merged dump (3,937,374 rows,
-`D8MergeRolloutsJob.gXDwFsfvraDS`): 197,825 classes collapse more than one member; `recon` differs
-in 135 of them (0.07 %), which is what the diagnostic reports; but `lm_prior` differs in 77,077
-(39.0 %), and the shaped-score numerator `LAM_LM * lm_prior * n_tokens` spreads by more than
-0.01 nats in 73,902 classes (37.4 %), with a p90 of 0.881 and a maximum of 35.2. `recon` is a
-function of the normalized text (it agrees to 1.2e-6 wherever the text agrees); `lm_prior` is not.
-So in roughly a third of collapse classes the surviving member's shaped score is an arbitrary
-choice among tokenizations of the same string, and the diagnostic reports it as a clean collapse.
-This does not block pieces 1-3 and I have changed nothing about it: whether the survivor rule, the
-diagnostic, or neither should change is a normative decision and therefore the planner's.
+**COLLAPSE DIAGNOSTIC: proposal RULED, extension BUILT** (planner ruling 2026-08-22 latest+2).
+The substance was accepted and independently verified: the dedup diagnostic watches `recon`, which
+is a function of the normalized text, while `lm_prior` is tokenization-dependent, so a class can
+collapse members whose shaped scores differ by nats and still be counted as clean. Rulings I am
+executing: the survivor rule does NOT change for D8.1a (registered, deterministic, arm-shared, so
+the arbitrariness cannot bias the A/B), and the diagnostic is extended report-only inside the
+weight-job hash that is already moving.
+
+BUILT: `build_support` takes `collect_collapse_stats`, defaulting OFF so the closed D8.0 read stays
+byte-identical, and attaches a per-class `lm_prior`-differs flag and shaped-numerator spread to each
+survivor; `D8WeightJob._collapse_diagnostic` aggregates count, count above 0.01 nats and p50/p90/max
+into the weight artifact, feeding no clause and no valve. Its POPULATION is stated in its own
+output -- classes whose survivor is a LIVE member of the operative post-exclusion support -- which
+is the point the verification made: three defensible populations give three different answers.
+Suite now 27/27.
+
+My proposal's own printed figures (197,825 / 135 / 77,077 / 73,902) reproduce under NEITHER
+population the planner measured, and the cause is mine: the scan flushed a group whenever
+`seq_tag` changed, which silently assumes each utterance's rows are contiguous in the merged file.
+Those numbers are SUPERSEDED and must not be cited -- the authoritative measurement is the one the
+weight artifact will bank. Nothing rested on them; the qualitative finding they surfaced is
+confirmed by the planner's own scan of all 3,937,374 rows.
 
 **D8.1a HAS A BLOCKING RESULT FOR THE PLANNER (verdict 70): the greedy-equivalence read is NOT
 EQUIVALENT** -- 31,562 of 281,241 utterances (11.2 %) differ between the dump's regenerated greedy
