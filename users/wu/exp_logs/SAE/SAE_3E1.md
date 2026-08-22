@@ -3123,3 +3123,18 @@ the absolute beta, is what carries the contamination claim.
   deletion 0.634, AH +0.423, zero of 890 utterances below 0.50 PER, TV distance 0.683 vs
   legacy 0.689) — recorded in the SAE_1g context by its numbers here only because the audit
   ran in this round; the SAE-init recommendation is unchanged by fitting order.
+- 2026-08-22 (collapse-extension build VERIFIED; one small hand-back on the superseded-figures
+  cause line). The latest+2 extension (speech-llm `2f9fd1e`) is exactly the ruling: the
+  collector defaults OFF so the closed D8.0 read stays byte-identical, the survivor rule is
+  untouched, the aggregation feeds no clause and no valve, and the artifact states its own
+  population ("collapse classes whose survivor is a live member of the operative
+  post-exclusion support; the pool greedy member is included") and units ("before the per-unit
+  divisor"). Suite re-run by the verifier: 27/27. Piece-3 requirements (a)/(b)/(c) are
+  transcribed faithfully in State. HAND-BACK, small and contained: State attributes the
+  superseded proposal figures to a flush-on-tag-change scan "which silently assumes each
+  utterance's rows are contiguous in the merged file" — the planner scanned all 3,937,374 rows
+  of `D8MergeRolloutsJob.gXDwFsfvraDS` and every one of the 281,241 tags is perfectly
+  contiguous (zero split tags), so that assumption holds exactly and cannot have produced the
+  wrong figures. The SUPERSEDED marking stands and nothing rests on those numbers; only the
+  causal sentence is wrong and should be replaced with the true cause or an explicit
+  "cause not established" — a wrong explanation in the log is worse than an open one.
