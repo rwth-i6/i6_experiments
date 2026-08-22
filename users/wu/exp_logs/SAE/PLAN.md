@@ -139,6 +139,10 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    and the 1,112-ID evaluation CLOSED — no PER of the approach can exist on this route. Phase 1g
    HOLDS for the user's direction word: close the phone-repair route / fund a new selector
    science with fresh controls / amend to open the lexicon-free character route.
+   2026-08-22 (user): a DESCRIPTIVE dev PER read on the four real seeds is FUNDED
+   (labels-as-evaluation-only over the closed gate; ruling in `PLAN_1G.md` 1g.2 Status): plain
+   per-split PER, all four repair counts, on the frozen 432/458 selection-role decodes; the
+   1,112-ID held-out evaluation stays sealed; selects and funds nothing.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional

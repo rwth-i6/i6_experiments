@@ -1130,6 +1130,18 @@ validation instrument — a successor selector would need fresh controls), or am
 open the lexicon-free character route without a valid phone handoff is a direction fork put to
 the USER with the verifier round of 2026-08-22; no successor work starts before the user's word.
 
+**2026-08-22 — USER-FUNDED DESCRIPTIVE PER READ (user: "I again am not against just using real
+dev other data to compute PER").** Authorized as a measurement over the closed gate, not a gate
+revision: one new CPU job computes plain per-split PER (dev-clean 432 / dev-other 458
+selection-role utterances, same bed as the controlled read) for the FOUR REAL H3 rows at all four
+repair counts 0/1/2/4, from the frozen surface's existing decode artifacts against the
+`GoldPhonesJob.ZGSp0hxyd2YP` gold — no new decode, no modification of
+`H4ControlledValidationJob` or its firewall. The job's docstring must carry the reporting rule:
+descriptive evaluation-only; these numbers select nothing and fund nothing; any future decision
+that picks a seed or count using them must be re-registered with the label circularity disclosed
+as supervision cost. The 1,112-ID held-out evaluation stays SEALED. The 1g.2 gate verdict and
+all its consequences stand unchanged.
+
 ### 1g.2a — Test higher-order fitting context before rejecting phone repair (H4-LM)
 
 **Purpose.** Determine whether the baseline fitting bigram is a load-bearing operating-point choice
