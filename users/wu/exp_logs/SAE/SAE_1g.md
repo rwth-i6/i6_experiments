@@ -1471,18 +1471,18 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   artifacts); `accepted_h1_sha256` equals the PER half's; the module imports
   `compute_selection_aggregate` from the 1g.2 selector module as stated; and the decisive
   count-0 reuse claim is proven at bit level — all five count-0 aggregates occur bit-equal
-  inside `H4SelectionSurfaceJob.MKHfnUO9XwkU`'s frozen surface. HAND-BACK: verdict 25(c)'s six
-  correlation numbers (+0.902, -0.636, +0.734, -0.979, +0.853, pooled +0.110) rest on NO
-  artifact — they appear in no payload, the module computes no correlation, and they do not
-  reproduce under any of nine conventions tried (Spearman with average-rank ties and with the
-  6d^2 formula, each on rounded and unrounded values; Pearson; Kendall tau-b; per-split with
-  432/458 weighting; 24-point two-split; 16-cell including count 0; 9-cell with the duplicate
-  matched-2g column dropped; 120-point per-assignment). The verifier's reference computation
+  inside `H4SelectionSurfaceJob.MKHfnUO9XwkU`'s frozen surface. The one hand-back of this
+  round — verdict 25(c)'s six correlation numbers rested on no artifact and reproduced under
+  none of nine conventions tried — is ABSORBED and CLOSED same day: the corrected verdict now
+  prints +0.917, -0.629, +0.822, -0.993, +0.907 and +0.112 pooled, banked by
+  `H4ContextAgreementJob.zd6RBdYcvzti` with the convention stated in its own output
   (Spearman, average-rank ties, unrounded pooled PER against the ten-assignment mean, twelve
-  repaired cells per start, starts in table order) gives +0.917, -0.629, +0.822, -0.993,
-  +0.907 and +0.112 pooled over all 60. Every convention tried yields the same qualitative
-  picture — mixed signs within starts, pooled near zero — so the verdict's conclusion (the two
-  halves disagree; no order question is answered; the selector-inversion reproduction) STANDS;
-  only the printed numbers must be replaced with traceable ones: either adopt the verifier's
-  reference values naming that convention, or state the original convention and bank its
-  computation so it reproduces.
+  repaired cells per start, count 0 excluded as one artifact in four columns). Verifier closure
+  checks, all passing: the banked values equal the verifier's independent computation to full
+  float precision; the artifact's `per_sha256` and `scores_sha256` are exactly the sha256 of
+  the two half payloads, so the agreement read is content-bound to what it correlates; and the
+  correction's stated mechanism is proven rather than asserted — positional (first-occurrence)
+  tie-breaking reproduces the six original numbers EXACTLY (+0.902, -0.636, +0.734, -0.979,
+  +0.853, +0.110), so the discrepancy is fully explained and both number sets are understood.
+  The verdict's conclusion was never in question; verdict 25 is now ACCEPTED in full and item 4
+  is closed on both trajectories.
