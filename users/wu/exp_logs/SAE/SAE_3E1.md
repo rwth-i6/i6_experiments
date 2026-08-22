@@ -44,6 +44,33 @@ piece 3 is designed but not built, and it is what still blocks a D8.1a result.
    decode-path-versus-text-path tokenization gap, bounding the mixed convention (reused dump
    columns on agreeing rows, text-path scores on differing rows) before any weight read.
 
+**PIECE 3 BUILD DESIGN, settled 2026-08-22 from reading the dump config; nothing launched yet.**
+The pass needs no model-code change and no new forward step. The dump
+(`config_sae_3e1_d8_1a_v1._dump_config`) takes its true text from the dataset's `text` datastream,
+and this bed's transcripts are empty, which is why the banked `kind=="true"` rows are empty. So the
+pool member is scored by SUBSTITUTING the pool 1-best into that column on a restricted bed, which is
+also what makes the ruling's requirement (a) true by construction: the score comes through the
+dataset text pipeline, not through any reconstruction of the D7 decode's token path.
+
+- Bed: `TransformAndMapHuggingFaceDatasetJob` over the same `unlab_960h` dir, the idiom
+  `data.get_sae_seed_only_text_hf_ogg` already uses to swap the `text` column, filtered to the
+  required ids. Open decision to settle at build time: whether the pool text reaches the transform
+  as an inlined mapping (hash carries the content, 31,562 entries) or as a `tk.Path` read inside it
+  (hash carries the artifact). The mapping must be hash-carried one way or the other -- a pass
+  scored against a silently different pool text is the whole failure being repaired.
+- Forward config: IDENTICAL to the dump's, group 12, T=0.7, pinned psi, registered prior, so
+  requirement (a)'s "exact forward configuration" holds by construction rather than by argument.
+  The `true` row's score does not depend on the sampled rollouts, but keeping the config identical
+  is what the overlap probe is able to verify end to end.
+- Sequencing, which is the ruling's own: the OVERLAP PROBE (at least 64 AGREEING tags) runs FIRST
+  and alone. It is cheap, and until its `recon` matches the dump's stored greedy columns within
+  tolerance there is no reason to spend the differing pass. Its `lm_prior`/`n_tokens` deltas are the
+  measured decode-path-versus-text-path gap that bounds the mixed convention.
+- Cost, projected from the dump's own measured rate (about 28 k utterances per shard in 6.9-7.4 h at
+  `max_seqs=8`): the 31,562 differing utterances are roughly one shard's worth, about 8 h, which
+  exceeds the 11.5 h wall only if run as one job but leaves no margin -- so it shards, four ways at
+  roughly 2 h each. The probe is minutes.
+
 **COLLAPSE DIAGNOSTIC: proposal RULED, extension BUILT** (planner ruling 2026-08-22 latest+2).
 The substance was accepted and independently verified: the dedup diagnostic watches `recon`, which
 is a function of the normalized text, while `lm_prior` is tokenization-dependent, so a class can
