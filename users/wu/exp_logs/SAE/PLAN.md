@@ -304,8 +304,9 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    releases D8.1a-b under the user's standing D8 funding: the D7.1 exact control stays the
    pinned comparator, the no-go clauses and arm-selection rule bind at D8.1a, and the D8.2
    admission job must persist per-anchor bootstrap inputs. D8.1a LAUNCHED 02:32 and
-   build-verified same day; before its verdict is read, five weight-job fixes and a
-   zero-mismatch greedy-equivalence read are required and the 5 % safety valve applies
+   build-verified same day; the five required weight-job fixes are IN and verifier-confirmed
+   hash-neutral, the greedy-equivalence read is in the graph, and the verdict is accepted
+   only with a zero-mismatch equivalence read and the 5 % safety valve clear
    (`PLAN_3E1.md` D8 Status 2026-08-22).
    2026-08-21 (planner, on the user's instruction): D8 REGISTERED in `PLAN_3E1.md` —
    posterior-weighted multi-hypothesis scorer refit (soft EM over theta_0^G sampled rollouts,

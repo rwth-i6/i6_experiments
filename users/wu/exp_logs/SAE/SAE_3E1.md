@@ -2726,3 +2726,39 @@ the absolute beta, is what carries the contamination claim.
   job provably never reads them); the sampling seed is unpinned as in the reference machinery,
   so artifact reproducibility rests on the frozen `supports.jsonl` — a disclosed property, not
   a defect.
+
+- 2026-08-22 (five weight-job fixes VERIFIED IN, hash-neutrality independently confirmed;
+  equivalence job sound; three small hand-backs). All five fixes are implemented as claimed,
+  each verified at file:line and exercised by tests I re-ran myself at branch head `3af12bd`
+  (mechanics 47/47, weights test 39/39; the weights test is confirmed synthetic-only — its only
+  file I/O is a tempfile). The shared extraction is real: `build_support`/`slice_statistics`
+  are module-level in `d8_feasibility`, the D8.0 read job delegates unchanged, `D8WeightJob`
+  calls the same functions, and no statistic reimplementation remains in `d8_weights.py`.
+  Hash-neutrality was verified INDEPENDENTLY, not from the implementer's measurement: a fresh
+  graph build from the fixed tree returns `D8WeightJob.lF7OF4pQu66m`,
+  `D8MergeRolloutsJob.XPXsAbeeZWVE` and all ten shard hashes unchanged. The restart evidence
+  is clean — every shard dir has exactly one submission (SLURM 1452448-58, submitted 02:32,
+  all RUNNING), nothing rewritten after the 02:58 restart, and the new
+  `D8GreedyEquivalenceJob.XTdRp3OO3LNf` is in the graph (240 jobs, 13 unfinished on disk). The
+  equivalence job compares the dump greedy against the SAME `word_hyps.json` artifact the D7
+  pool consumed (identical hash; the pool's input, which is the correct object), on the D8
+  reader's own fold, and its EQUIVALENT verdict requires compared == 281,241 — unreachable on
+  a subset. The D8.0 fix-effect claim reproduces exactly: 31,232 and 371,007 whitelisted rows,
+  zero non-finite recon, zero missing, and zero rows carrying a "temperature" key — which
+  independently proves the old filter was dead code. Precision notes: the T assert protects
+  D8.1a only (the D8.0 read path passes no binding temperature — correct, that dump is
+  deliberately multi-T); one benign `or 0.0` survives in report formatting
+  (`d8_weights.py:431`), so the commit's blanket wording is not literal. Hand-backs, all
+  small: (i) OPS — a STALE WATCHER (pid 3130533) still watches the dead pre-restart manager
+  and appends "manager exited, scheduler still draining" to the watch log every ~2 minutes
+  while the real manager (pid 3430479) is alive; kill it before it misleads a resume; (ii)
+  fail-closed gap, hash-neutral: a tag whose merged rows contain a greedy but NO rollout rows
+  forms no group and vanishes silently from `supports.jsonl` — cannot fire on this dump by
+  construction, but add an assert that the built group count equals the distinct seq_tags in
+  the merged dump (derivable from the job's existing inputs, no ctor change); (iii) at next
+  code touch, no rerun: `D8FeasibilityReadJob.run` keeps its own inline copy of the
+  valve-before-clause ordering that `decide()` now owns — fold it in so the ordering exists
+  once. Ruling noted in PLAN_3E1.md D8 Status: the equivalence read staying a sibling output
+  rather than a `D8WeightJob` dependency is ACCEPTED as a process gate — the planner is the
+  only consumer of the verdict and acceptance requires the read — so no hash-moving rewiring
+  is spent on it.

@@ -2077,6 +2077,15 @@ feasible-but-non-finite-recon members and de-double-counted exclusion counters) 
 to land before `D8WeightJob` first executes — the dump's ~8 h remaining runtime is the window,
 and if any fix moves the job hash the implementer states it and the planner requests the one
 manager restart.
+2026-08-22 latest: ALL FIVE FIXES ARE IN AND VERIFIER-CONFIRMED (speech-llm `3af12bd`),
+hash-neutrality independently reproduced by a fresh graph build (weight/merge/shard hashes
+unmoved), and the greedy-equivalence read is in the graph as
+`D8GreedyEquivalenceJob.XTdRp3OO3LNf`, whose EQUIVALENT verdict requires full 281,241-tag
+coverage by construction. The equivalence read remains a sibling output rather than a
+`D8WeightJob` input; this is ACCEPTED as a process gate because the planner is the verdict's
+only consumer and acceptance requires the read — no hash-moving rewiring. Both rulings above
+stand unchanged; next planner action is reading the weight artifact, the equivalence read and
+the valve together when the dump finishes.
 
 ## Acceptance gate v2
 
