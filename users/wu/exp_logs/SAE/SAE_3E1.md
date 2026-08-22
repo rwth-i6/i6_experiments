@@ -2758,17 +2758,17 @@ the absolute beta, is what carries the contamination claim.
   independently proves the old filter was dead code. Precision notes: the T assert protects
   D8.1a only (the D8.0 read path passes no binding temperature — correct, that dump is
   deliberately multi-T); one benign `or 0.0` survives in report formatting
-  (`d8_weights.py:431`), so the commit's blanket wording is not literal. Hand-backs, all
-  small: (i) OPS — a STALE WATCHER (pid 3130533) still watches the dead pre-restart manager
-  and appends "manager exited, scheduler still draining" to the watch log every ~2 minutes
-  while the real manager (pid 3430479) is alive; kill it before it misleads a resume; (ii)
-  fail-closed gap, hash-neutral: a tag whose merged rows contain a greedy but NO rollout rows
-  forms no group and vanishes silently from `supports.jsonl` — cannot fire on this dump by
-  construction, but add an assert that the built group count equals the distinct seq_tags in
-  the merged dump (derivable from the job's existing inputs, no ctor change); (iii) at next
-  code touch, no rerun: `D8FeasibilityReadJob.run` keeps its own inline copy of the
-  valve-before-clause ordering that `decide()` now owns — fold it in so the ordering exists
-  once. Ruling noted in PLAN_3E1.md D8 Status: the equivalence read staying a sibling output
+  (`d8_weights.py:431`), so the commit's blanket wording is not literal. All three hand-backs
+  CLOSED same day (speech-llm `e7fc5ef`, verifier-checked): exactly three watchers live, each
+  on a live manager, and the dead manager's watch log stopped growing (last stale line
+  03:07:54, none after); the weight job asserts every whitelisted utterance produced a group
+  and names vanished tags; `valve_verdict` in `d8_feasibility` now holds the
+  valve-before-clause ordering once, with the `clauses` argument the only difference between
+  the D8.0 read (clause a alone) and D8.1a (all three) — both readers call it. Verified by
+  re-running both suites (47/47, 46/46 — the D8.1a suite grew by seven covering exactly these)
+  and by a second independent graph rebuild: weight `lF7OF4pQu66m`, merge `XPXsAbeeZWVE`,
+  equivalence `XTdRp3OO3LNf` all unmoved at `e7fc5ef`, so the running shards were again
+  untouched. Ruling noted in PLAN_3E1.md D8 Status: the equivalence read staying a sibling output
   rather than a `D8WeightJob` dependency is ACCEPTED as a process gate — the planner is the
   only consumer of the verdict and acceptance requires the read — so no hash-moving rewiring
   is spent on it.
