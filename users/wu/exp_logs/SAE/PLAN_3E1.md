@@ -2095,6 +2095,16 @@ coverage by construction. The equivalence read remains a sibling output rather t
 only consumer and acceptance requires the read — no hash-moving rewiring. Both rulings above
 stand unchanged; next planner action is reading the weight artifact, the equivalence read and
 the valve together when the dump finishes.
+2026-08-22 (relaunch amendment): the first dump launch was cancelled at 49 % on a verified
+wall-clock projection (two shards finishing past the unraisable 11.5 h clamp; no forward
+resume) and relaunched at the corpus-scale batching `max_seqs=8`, which traces to the
+`config_sae_3e1_d4p_v1` full-corpus dump — batching moves cost, not the registered
+distribution or any deterministic column, and no first-launch number was ever banked. ALL
+downstream hashes moved and are verifier-reconfirmed by an independent rebuild: weight
+`D8WeightJob.1G2lPRnRmPks`, merge `D8MergeRolloutsJob.gXDwFsfvraDS`, equivalence
+`D8GreedyEquivalenceJob.xR1RduqgjFKe` (the `XTdRp3OO3LNf` pin above is superseded — that
+registration is now an orphan). Both rulings and the process gate carry over to the new
+hashes unchanged.
 
 ## Acceptance gate v2
 

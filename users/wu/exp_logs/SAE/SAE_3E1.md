@@ -2885,3 +2885,28 @@ the absolute beta, is what carries the contamination claim.
   (gap_true is per-arm-units; the 0.0248 bar was registered for 3a-bed scorers). Policy-leg
   performance (WER of a leg trained on the candidate reward) remains the one genuinely
   unmeasured quantity — D7.3 closed by the registered gate.
+
+- 2026-08-22 (D8.1a wall-clock relaunch VERIFIED as justified and clean; one stale-hash
+  hand-back). The cancellation of the ten 49%-complete shards is within the delete rule: the
+  11.5 h clamp is real and unraisable (`settings.py:119-120`, `min(11.5, ...)` inside
+  `check_engine_limits`), a wall-hit forward job leaves no output and has no resume, the merge
+  requires the full partition, and a same-size resubmission fails identically — the first
+  launch could not answer its question. The corrected constant now traces to the RIGHT
+  reference: `config_sae_3e1_d4p_v1.DUMP_MAX_SEQS = 8` is the corpus-scale dump value (line 40,
+  applied at its full-corpus call), while 4 was `_reward_rank`'s probe-scale function default —
+  my build-round check accepted 4 as "traceable" and missed that it traced to the wrong
+  operating regime; lesson recorded in memory. Execution verified: all ten announced new shard
+  hashes RUNNING under manager pid 2554047 (~15 min in), the old shards cancelled matched on
+  their old hashes with no error markers and nothing else touched, and an independent graph
+  rebuild at `b68dd1a` reproduces weight `1G2lPRnRmPks` and merge `gXDwFsfvraDS`. HAND-BACK:
+  the greedy-equivalence job's hash ALSO moved — the rebuild gives
+  `D8GreedyEquivalenceJob.xR1RduqgjFKe` (its merge input moved, so it must) — but State,
+  approach 35 and the relaunch message name only the weight and merge moves, and earlier
+  entries pin the now-orphan `XTdRp3OO3LNf`; name the new hash in State/approach 35 so nobody
+  chases the orphan registration. Precision note, nothing to change: "batching moves no number"
+  is exact for the deterministic columns (greedy text, recon and prior per text) but the
+  SAMPLED rollouts are a fresh draw from the registered distribution under the unpinned seed —
+  acceptable because the registration pins the distribution, not the draw, and reproducibility
+  rests on the frozen `supports.jsonl` as already disclosed; no number from the first launch
+  was ever banked, so nothing is invalidated. The greedy-equivalence read remains the
+  instrument that would catch any batching-induced greedy drift.
