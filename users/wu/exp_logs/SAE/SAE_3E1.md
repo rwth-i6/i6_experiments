@@ -8,8 +8,9 @@ In flight 2026-08-22:
 
 - **D8.1a, the operative-bed candidate generation pass** (`config/sae_3e1_d8_1a.py`, speech-llm
   `c9747c7`, `5428a62`, `3af12bd`, `e7fc5ef`, `b68dd1a`), ten sampled dump shards RELAUNCHED 08:10
-  under manager pid 2554047 with a watcher, at the corrected `max_seqs=8`; all ten project 6.5-7.0 h
-  against the 11.5 h wall. The first launch's ten shards were cancelled at 49 % because they
+  under manager pid 2554047 with a watcher, at the corrected `max_seqs=8`. Margin re-checked at
+  4 % by matched-completion comparison against the first launch (approach 35): 6.9-7.4 h against
+  the 11.5 h wall, ~4.1-4.6 h of margin, healthy and left alone. The first launch's ten shards were cancelled at 49 % because they
   projected past that wall -- approach 35 has the numbers. Then the merge, the greedy-equivalence
   read and the deterministic weight job. Weight `D8WeightJob.1G2lPRnRmPks`, merge
   `D8MergeRolloutsJob.gXDwFsfvraDS`, greedy-equivalence read
@@ -1174,6 +1175,22 @@ nothing else was touched, and the ten new hashes relaunched; `D8WeightJob.1G2lPR
 `D8MergeRolloutsJob.gXDwFsfvraDS` and `D8GreedyEquivalenceJob.xR1RduqgjFKe` moved with them --
 every hash below the dump, since the merge feeds both readers. The pre-relaunch equivalence pin
 `XTdRp3OO3LNf` is superseded and never ran.
+
+**The relaunch's margin is measured, not projected (2026-08-22).** A first read of the new shards
+at 4 % looked like a compounding slowdown -- each chunk ~7 % slower than the last, which would have
+eaten the margin. It is an artifact of the `laplace:.1000` sequence ordering: on the first launch's
+full curve the cost per completion-percent oscillates between ~140 s and ~590 s with a period of
+~7.4 % of the corpus, so the instantaneous full-run projection swings between 3.9 h and 16.4 h while
+the run-average is flat. Any window shorter than one period measures position in the saw-tooth
+rather than the run, so the 4 % read was the rising limb of the first tooth.
+
+The sound comparison is between the two launches at MATCHED completion, since they decode the same
+data in the same order. The new run reaches every checkpoint in 0.62 of the old run's time, and the
+ratio is stable -- 0.667 / 0.629 / 0.622 / 0.620 at 1 / 2 / 3 / 4 %. The five first-launch shards
+that reached ~50 % project to full runs of 11.08, 11.19, 11.28, 11.60 and 11.88 h, which is the
+independent confirmation that the cancellation was necessary: every one of them was at or past the
+11.5 h clamp, not merely close to it. At 0.62 those become 6.9-7.4 h, i.e. ~4.1-4.6 h of margin,
+and the ten live shards' own estimates (7.2-7.7 h) agree. No action needed; the dump is left to run.
 
 One launch bug, fixed the same minute it appeared: the first submission crashed all ten shards in
 40 s with "no key under prefix 'av.'". `av_checkpoint_prefix="av."` was copied from the d4p fork
