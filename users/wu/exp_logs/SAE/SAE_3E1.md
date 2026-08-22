@@ -4,17 +4,8 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-In flight 2026-08-22:
+In flight 2026-08-22 -- only the two D6-periodic loops:
 
-- **D7.2, the registered label-free admission** (`config/sae_3e1_d7_gan_seqdisc.py`, speech-llm
-  `c40655d`), launched 23:16 under manager pid 936497 with a watcher. Ten jobs, all D7.2, verified
-  against the built graph before launch: 227 jobs total, exactly 10 unfinished, and the four
-  D7.0/D7.1 hashes unmoved, so nothing finished reruns and no policy leg is funded anywhere.
-  Clauses 1-2 are `S/d7_admission/D7OnlineAdmissionJob.h0LsMi9zt5aI` (paired 32-draw internal-held
-  read); clause 3 is `S/gate_table/PsiGateClauseTableJob.4Z0gb5GgtD2u` over the unchanged frozen
-  1,500 external gold-dev rows with the exact D7 control as incumbent, fed by two `PsiTextProbeJob`
-  and two `PsiHeldNllJob`; clause 4 is two `PsiScorerParityJob` behind two `PsiAlignRerankJob`.
-  The admission job is past its checkpoint asserts and into the GPU loop.
 - **D6-PERIODIC/GAN-FROZEN**: leg 7 of 8 running (`T/ReturnnTrainingJob.ZgRzUxDRhajE`), legs 1-6
   finished. Manager pid 1991977, watcher attached.
 - **D6-PERIODIC/GAN960-FROZEN** (approach 33): leg 1 `T/ReturnnTrainingJob.ohmLWWmr6Kxe` running,
@@ -22,21 +13,27 @@ In flight 2026-08-22:
   on both splits; matched-leg deltas against GAN-FROZEN are reported and select nothing.
 - `sae_3e1_hom` manager also alive (pid 1992923).
 
-**D7-GAN-SEQDISC IS COMPLETE THROUGH D7.1** (approach 32, verdicts 64-65; config
-`config/sae_3e1_d7_gan_seqdisc.py`, which registers d7_0 and d7_1 only). The own-infeasible-anchor
-amendment (speech-llm `e2a421b`) held: both arms name exactly the four registered train-role rows in
-their own `monitors.json` and `train.txt`, 267,175 trained / 14,062 held, digit-identical to the
-offline dropcheck and to each other -- the confirmation deferred at relaunch is now closed from the
-artifacts, not inferred. Each arm is a single ~14-minute job, 2,361 batches over ten round-robin
-shards; the 11.5 h wall cap and shard-boundary resume never came into play, so the earlier
-expectation of several resubmits per arm was wrong. Both fixed-final scorers exist
-(`.../output/model_final.pt`). Held statistics and the matched-bed evidence are in approach 32.
+**D7-GAN-SEQDISC IS CLOSED: D7.2 FAILS ON CLAUSE 2** (approach 32, verdicts 64-67; speech-llm
+`e2a421b`, `c40655d`). The whole config is finished -- D7.0, D7.1 and all ten D7.2 jobs. Clause 1
+passes decisively (paired mean -0.00269867, one-sided 95 % bootstrap upper bound -0.0026589, 99.25 %
+of 14,008 anchors), clause 4 passes exactly on both arms, and clause 3 has both arms clearing the
+external floor; clause 2 fails because the candidate's internal-held per-frame NLL is 2.531898
+against the control's 2.525882. Per the registered gate that closes D7 without a policy leg and no
+sampler or temperature rescue may be selected from the result. The one convention still open --
+clause 3's point-versus-CI eligibility reading -- does not change the outcome and is the planner's
+to pin if it is wanted for the record.
+
+D7.1's own facts stand behind that: the own-infeasible-anchor amendment held (both arms name exactly
+the four registered train-role rows, 267,175 trained / 14,062 held, digit-identical to the offline
+dropcheck and to each other), each arm was a single ~14-minute ten-shard job so the 11.5 h wall cap
+and resume path never came into play, and D7.2's independent recompute reproduced both arms' banked
+per-frame NLL to ~1e-9.
 
 Correction to an earlier State claim: this manager, like `sae_1g_h4_prelabel_surfaces`, exits on
 sisyphus's interactive "All calculations are done" prompt once its graph finishes, and a one-shot
 console status then calls several finished jobs `runnable`/`waiting`. A watcher verdict of
-`STATUS=STALLED ... work remains` on this config is that artifact; all 49 jobs carry `finished` or
-`finished.tar.gz` on disk.
+`STATUS=STALLED ... work remains` on this config is that artifact; every one of its 227 jobs
+carries `finished` or `finished.tar.gz` on disk.
 
 **D8.0 IS COMPLETE AND ITS BINDING CLAUSE PASSES** (approach 34, verdicts 62-63; speech-llm
 `889750c`, `a3dd6c7`, operative v3 `3843918`; manager `sae_3e1_d8_0`, all reads finished). The planner's
@@ -61,9 +58,9 @@ its pre-amend twin; the collapse tally is labelled CLASSES not groups in both th
 this log, and the artifact now reports classes and groups separately; approach 34's v2 table carries
 the omitted T=0.5 row.
 
-Next action: hold the D7.2 watcher to DONE, then read the four clause artifacts and append the
-admission verdict. D7.3, the policy leg, needs its own launch authorization and is in no graph.
-D8 has nothing left to build until D7.2 returns a verdict.
+Next action is the planner's: D7.2 has returned its verdict, so the D8.1a-b gate that waited on it
+is now free to be ruled. D7.3 is closed by the gate, not merely unauthorized. Nothing in 3e.1 is
+queued for the implementer beyond the two D6-periodic loops above.
 §1g H4's pre-label surfaces are COMPLETE (`SAE_1g.md` State, approach 11, verdict 17).
 
 Proposal for the planner, measured while building D7.2 and now reported inside the admission
@@ -75,13 +72,11 @@ construction. Nothing about the clause changes; the precision comes from the spe
 resampling and not from the draw count, and the artifact now reports the distinct-donor count per
 anchor so the estimate is never read as carrying 32 draws' worth of donor variation.
 
-Proposal for the planner, on D7.2's second gate clause: it requires the candidate's internal-held
-per-frame NLL to be no greater than the control's point value, and the two point values D7.1 banked
-already order the wrong way (candidate 2.5319 against control 2.5259). Those are one-draw values
-from the training jobs, not the D7.2 estimator, and clause 1 orders the other way (candidate mean
-`L_online` 26 % lower), so nothing is decided -- but if D7.2 reproduces the NLL ordering, D7 closes
-without a policy leg on clause 2 while clause 1 passes. Flagging it now rather than after the run,
-since the gate is pre-registered and must not move once the number is in.
+The clause-2 flag raised before the run is DISCHARGED: D7.2 reproduced the NLL ordering and D7
+closed on it exactly as flagged, with the gate ruled unmoved. Remaining item for the planner, for
+the record only: clause 3's point-versus-CI eligibility convention (`elig_pt False` /
+`elig_CI True` for the candidate) is a pin the gate table deliberately leaves to the planner, and it
+is now moot for D7 but will recur at the next acceptance round.
 
 Proposal for the planner: none outstanding.
 
@@ -926,8 +921,31 @@ graph; the config registers d7_0 and d7_1 only and is now fully finished.
 
 
 
-**D7.2 clause 3, the external half, completed 2026-08-22 23:22** (both `PsiHeldNllJob`s; the probes,
-reranks, parity and the clause table are still running). On the unchanged frozen 1,500-row external
+**D7.2 COMPLETED 2026-08-22, all four registered clauses** (speech-llm `c40655d`; ten jobs, all
+finished). Clause 2 fails and the other three do not, so the registered gate closes; the numbers are
+below and the reading of clause 3 does not change the outcome.
+
+*Clauses 1 and 2, `S/d7_admission/D7OnlineAdmissionJob.h0LsMi9zt5aI`.* 14,008 of the 14,062 internal
+held anchors are eligible (the 54 `singleton` anchors have no donor and are excluded identically in
+both arms), in 2,274 speaker clusters, 32 paired draws each.
+
+| statistic | control | candidate | clause |
+|---|---:|---:|---|
+| mean internal-held `L_online` | 0.0102249 | 0.0075263 | -- |
+| paired candidate-minus-control mean | — | -0.00269867 | -- |
+| speaker-cluster bootstrap, one-sided 95 % upper bound | — | -0.0026589 | **1 PASS** |
+| two-sided bootstrap interval | — | [-0.0027472, -0.0026505] | -- |
+| share of anchors with a negative difference | — | 99.25 % | -- |
+| internal-held NLL per frame (8,642,253 frames) | 2.525882 | 2.531898 | **2 FAIL** |
+
+The recomputed per-frame NLLs reproduce the values D7.1 banked to ~1e-9 (control 2.5258815395 there
+against 2.5258815431 here, candidate 2.5318976985 against 2.5318977021), which is the job's own
+assert that checkpoint and training report describe the same scorer. The ratified donor-diversity
+diagnostic reads: 32 draws land on a median 3.0 distinct donors per anchor (mean 3.42, min 1, max
+12), and 4,022 of the 14,008 anchors -- 28.7 % -- see exactly ONE distinct donor across all 32
+draws. The precision is the speaker-cluster resampling, not the draw count.
+
+*Clause 3, the external half.* Both `PsiHeldNllJob`s on the unchanged frozen 1,500-row external
 gold-dev set, 1,493 of 1,500 pairs scored in both arms, 0.47 % impossible under the length-matched
 null in both:
 
@@ -936,15 +954,27 @@ null in both:
 | control | 2.4595 | 2.2588 | +3.7744 | +5.0509 | `S/psi_align_jobs/PsiHeldNllJob.6bf5GyPGHuAi` |
 | candidate | 2.4595 | 2.2581 | +3.7751 | +5.3587 | `S/psi_align_jobs/PsiHeldNllJob.QDKOlbGXdEOA` |
 
-Both sit far below the unit marginal H_uni 6.0332, so the absolute floor of gate v2 (i) passes for
-both, and the candidate's own report records clause (i) and (ii) PASS against the control as
-incumbent (+0.0007 on each). Read this beside the internal-held NLL, which orders the other way
-(candidate 2.5319 against control 2.5259): these are different measurements on different
-populations -- D7's own pseudo-text held rows against gold dev text -- so they do not contradict
-each other, and it is the INTERNAL one that D7.2's clause 2 reads. The largest external separation
-is the usage gate, +5.3587 against +5.0509: the candidate separates a true pairing from a
-length-matched deranged one more sharply than the control does, on a set neither arm trained on,
-which is the online same-speaker negative's intended effect showing outside its own bed.
+*Clause 3, the gate table* (`S/gate_table/PsiGateClauseTableJob.4Z0gb5GgtD2u`, incumbent = the exact
+D7 control, 1,443 utterances scored by both arms, seed 42, 10,000 resamples, `improvement_void`
+empty). Both arms clear the (i) absolute floor against H_uni 6.0332 and pass (ii); the candidate also
+passes the (i) improvement half. The five corruption ladders (clause iv) are unchanged -- every
+paired difference straddles zero. The one clear movement is the wrong way:
+
+| matched insertion discount | control | candidate | paired difference | 95 % CI | p |
+|---|---:|---:|---:|---|---:|
+| k=1 | 0.0037 | 0.0109 | +0.0072 | [0.0039, 0.0106] | 0.000 |
+| k=2 | 0.0156 | 0.0238 | +0.0082 | [0.0031, 0.0133] | 0.001 |
+| k=4 | 0.0238 | 0.0443 | +0.0205 | [0.0125, 0.0287] | 0.000 |
+
+The candidate pays MORE for the inserted filler than the control at every k, significantly and with
+CIs excluding zero. The table's own eligibility columns split on the convention the planner pins:
+`elig_pt False` / `elig_CI True` for the candidate (`worse_pt 2`, `worse_CI 0`), and the table
+returns NO WINNER under BOTH readings because the k=1 reduction CI includes zero. That pin is not
+made here and does not need to be: clause 2 already fails.
+
+*Clause 4, scorer parity* -- PASS on both arms, exactly: 512 of 512 rollouts round-tripped,
+`max |online - offline| = 0.000e+00` against a 2e-3 tolerance, 0.00 % rows floored
+(`S/psi_align_jobs/PsiScorerParityJob.sZPxS9hlIGKa`, `.vTOLyrLz4Kl6`).
 
 
 **33. D6-PERIODIC/GAN960-FROZEN: the frozen-scorer loop restarted from theta_0^G960.** User-funded
@@ -1608,6 +1638,33 @@ function-word pairs rather than broad spelling diversity.
     only that the A/B ran matched to its endpoint and produced two fixed-final scorers.
 
 
+66. **D7.2 FAILS on clause 2, so D7 closes without a policy leg** (32). The registered gate passes
+    only if all four clauses hold. Clause 1 passes decisively, clause 4 passes exactly on both arms,
+    and clause 3 shows both arms clearing the external floor -- but the candidate's internal-held
+    per-frame NLL is 2.531898 against the control's 2.525882, and clause 2 requires it to be no
+    greater. The number is not a surprise from a new instrument: it reproduces what D7.1 banked to
+    ~1e-9, and it was flagged to the planner as the standing risk before D7.2 was run, with the gate
+    ruled unmoved. The outcome does not depend on the one convention still open, the point-versus-CI
+    eligibility reading of clause 3, because clause 2 fails under either. Per the registered gate no
+    sampler or temperature rescue may be selected from this result. This licenses not funding the
+    D7.3 policy leg at this operating point; it is not evidence that an online same-speaker negative
+    cannot work.
+
+67. **The online same-speaker negative did exactly what it was built to do, and the cost landed on
+    the insertion channel** (32). Its own objective moves decisively: the paired candidate-minus-
+    control mean `L_online` is -0.00269867 with a two-sided bootstrap interval of
+    [-0.0027472, -0.0026505] over 2,274 speaker clusters, and 99.25 % of the 14,008 eligible anchors
+    move the right way, so this is a population-wide shift and not a tail. It also transfers off its
+    own bed: on the frozen external gold-dev rows the candidate's usage gate is +5.3587 against the
+    control's +5.0509, i.e. it separates a true pairing from a length-matched deranged one more
+    sharply on data neither arm trained on, while both arms' plain per-frame NLL there is 2.4595 to
+    four digits. What it costs is the length/insertion channel: the matched insertion discount is
+    significantly LARGER for the candidate at every k (+0.0072 / +0.0082 / +0.0205 at k=1/2/4, all
+    CIs excluding zero), on the same axis the D1/D2 lattice reading identified as open to every
+    minimal-state word. Sharper same-speaker discrimination and a worse insertion exploit are the
+    same trade here, which is what a future design has to break rather than re-tune.
+
+
 ## Catalog
 
 `T/` = `work/i6_core/returnn/training/`, `F/` = `work/i6_core/returnn/forward/`,
@@ -1625,6 +1682,7 @@ function-word pairs rather than broad spelling diversity.
 | D7.0 parity diagnostic (approach 32): the read-only GPU reproduction of the preflight's parity clause | `scripts/d7_parity_diag.py`, output `log/d7_parity_diag.1446568.out` |
 | D6-PERIODIC/GAN960-FROZEN graph (approach 33) | `config/sae_3e1_d6periodic_gan960_frozen.py` -> `configs/config_sae_3e1_d6periodic_gan960_frozen_v1.py`; init `T/ReturnnTrainingJob.HuSkdbuVRg6d` ep10; frozen scorer `S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR`; legs 1/2/8 `T/ReturnnTrainingJob.ohmLWWmr6Kxe`, `.liehXoiGoRI0`, `.V1WEV1giQXZA` |
 | corrected D7-GAN-SEQDISC graph (approach 32) | `config/sae_3e1_d7_gan_seqdisc.py`; pool `S/d7_online/D7OnlinePoolJob.XLjSgTzHfwAu`; preflight `S/d7_online/D7OnlinePreflightJob.ZxfANwBZYpaI`; fixed-final control/candidate `S/d7_online/D7OnlineTrainJob.j16rTskXF1QU`, `.WA1bqjXQtzeZ` |
+| D7.2 admission, all four clauses | clauses 1-2 `S/d7_admission/D7OnlineAdmissionJob.h0LsMi9zt5aI`; clause 3 `S/gate_table/PsiGateClauseTableJob.4Z0gb5GgtD2u` over `S/psi_align_jobs/PsiHeldNllJob.6bf5GyPGHuAi`, `.QDKOlbGXdEOA`, `PsiTextProbeJob.o6d4bN6EBB2O`, `.C3vgGM2guvS0`; clause 4 `S/psi_align_jobs/PsiScorerParityJob.sZPxS9hlIGKa`, `.vTOLyrLz4Kl6` behind `PsiAlignRerankJob.kkEEVosPO80P`, `.OiRBghBiTriv` (speech-llm `c40655d`) |
 | D7.1 fixed-final scorers, both arms complete | control `S/d7_online/D7OnlineTrainJob.j16rTskXF1QU/output/model_final.pt`; candidate `S/d7_online/D7OnlineTrainJob.WA1bqjXQtzeZ/output/model_final.pt`; per-arm `monitors.json`, `sampling.json`, `train.txt` beside each |
 | D6-PERIODIC legs 1-8 (approach 22), parent sub-ep 3-10 | `T/ReturnnTrainingJob.5FqdnhWTOf1f`, `.BTnU1gSuMG0i`, `.ZKCbq529Hgp8`, `.gFNpNmXwvrsc`, `.nQtnPdKCuJ0m`, `.n8abYvLR4IP5`, `.jGj7TTbW5DTm`, `.wWqYY7iOCw1s` |
 | its per-boundary refits (rounds 2-8) | `S/psi_align_jobs/PsiAlignTrainJob.JWV3InILYF5v`, `.yUUSN2Hx96E0`, `.QMO8VcAtZ6Gi`, `.DzhBWCy61tiN`, `.Vha8vvKu9lWk`, `.RGTtwlQHt3HY`, `.Ls0TQGiyhQbf` |
