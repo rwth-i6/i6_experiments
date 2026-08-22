@@ -1256,9 +1256,17 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   verdict 22's "order 4's 0.90 s" per probe utterance is measured 0.9366-0.9499 s (say 0.95 s);
   (iii) State's item-3 bullet still carries the pre-correction single "1 h and 2 GiB" figure —
   align with the corrected per-shard/whole-fold pair.
-  Deferred until the harness temp is fixed (standing verifier items, not blockers on this
-  verdict): re-execute the three suites (engine 24, LM artifacts 24, EM driver 36) and re-open
-  the accepted decoder-contract artifact to independently confirm the 16-digit entropy agreement
-  State claims for the lowest-entropy probe table (gate side read and consistent:
-  `controlled/map_q04_draw03|0`, entropy 1.9224904277792318, array `c6d85886`). Feedback commits
-  are likewise pending on the same blocker.
+  Deferred items DISCHARGED 2026-08-22 evening, shell restored (replaces the deferred list, same
+  date, because all four items ran): (a) three suites re-executed green — engine 36/36, LM
+  artifacts 36/36, EM driver 45/45; the counts exceed the banked 24/24/24/24/36/36 because the
+  scripts grew during the hardening round (mtimes 11:12-11:49, before any diagnostic cell ran at
+  12:29+), so the banked counts describe an earlier revision and every current check passes.
+  (b) Entropy cross-check confirmed and stronger than State's claim: the accepted decoder
+  contract `H4ResourceContractJob.kFA99bygctlt` and the gate agree to all 16 digits on ALL THREE
+  probe indices (1.9224904277792318 / 3.06327078252676 / 5.860070935311313), same array sha
+  `c6d85886` for the lowest. (c) Legacy-2g rerun timeline verified on disk: rerun finished
+  12:25:39, earliest diagnostic cell started 12:29:31 — the "completed before any cell started"
+  narrative holds, with under four minutes of margin. (d) Feedback commits pushed. The State
+  fan-in inode proposal is ACCEPTED and the PLAN.md storage-placement paragraph amended
+  (planner re-measured: 342 input symlinks in the live gate dir and in each of the three cleared
+  copies, 1,026 debris); cleared-dir deletion stays the user's call.

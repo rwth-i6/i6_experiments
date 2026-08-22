@@ -3046,10 +3046,15 @@ the absolute beta, is what carries the contamination claim.
   SAE_1g.md corrections verified absorbed in the same pass: the State item-3 dual figures, the
   verdict-22 second correction (0.9366-0.9499 s), the verdict-23 rewrite (within 4e-5, dated
   correction note), and the approach-14 two-reruns reconciliation, which correctly rules the
-  legacy rerun a process mistake saved by timing and restates the consumer rule. One deferred
-  check when the shell returns: approach 14 says the legacy rerun completed BEFORE any
-  diagnostic cell started, while the earlier State said "is rerunning" after the cells were
-  logged complete — a job-dir timestamp read settles which narrative is right; the material
-  content bindings are already verified equal from the cell payloads either way. Standing
-  deferred items, all shell-blocked in the verifier session: the three 1g.2a suite re-runs, the
-  decoder-contract entropy cross-check, and every pending exp_logs commit from both sessions.
+  legacy rerun a process mistake saved by timing and restates the consumer rule. All deferred
+  items DISCHARGED 2026-08-22 evening, shell restored (replaces the deferred list, same date):
+  the timestamp read settles the rerun narrative in approach 14's favor (rerun finished
+  12:25:39, earliest cell started 12:29:31); the suite re-runs and entropy cross-check results
+  are in the SAE_1g.md feedback entry; every exp_logs commit is pushed (the implementer's
+  570bcb9b7/b0ab4f527 carried the log entries, the planner's 65182acd8 the PLAN_3E1 ruling).
+  Post-outage health, planner-observed 20:58: GAN960-FROZEN is fine — manager pid 3514914
+  alive 23.5 h, legs 2/3 (`liehXoiGoRI0`/`VEE2CPJ5jHn0`) finished with markers, the current leg
+  RUNNING under slurm (1457982_1, 1.2 h in). The D8 manager pid 2554047 and the `sae_3e1_hom`
+  manager pid 1992923 are DEAD; for D8 nothing is lost (dump, merge, and equivalence outputs
+  all finished and verified before the read, and the corrected weight job needs a fresh start
+  anyway), but whether `sae_3e1_hom` still had pending work is the implementer's check.

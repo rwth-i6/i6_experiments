@@ -425,9 +425,16 @@ project fileset. Constraints that bind this: the project fileset is at ~3.58M of
 ~47 of 54 TB (jutil 2026-08-19/22 reading, cached); `$SCRATCH` auto-purges untouched files on a
 90-day lease starting 2026-09-01, so scratch may hold only regenerable payloads; when relocating
 an existing job dir, move only the payload subdir and symlink it back, never the `finished`
-marker, which stays in project. Measured 2026-08-22: D8.1a dump shards write ~10-23 files each
-(the payload is one `rollouts.jsonl`) and the H4/H4-LM family writes 2-3 files per cell —
-neither is high-inode; no kaldi-style many-small-file archives exist on this route. Inode
+marker, which stays in project. The inode test for a job design is outputs per cell PLUS
+upstream fan-in (one `input/` symlink per upstream job, duplicated in full by every cleared
+rerun dir, which sisyphus keeps forever), times the reruns the job is likely to need (replaces
+the outputs-only reading, 2026-08-22, because the fan-in dominates for wide-input jobs:
+implementer-measured and planner-verified, `H4ContextResourceGateJob` carries 342 input
+symlinks against 2-3 outputs, and its three cleared rerun dirs hold 1,026 debris symlinks —
+removable, pending the user's word). Measured 2026-08-22: D8.1a dump shards write ~10-23 files
+each (the payload is one `rollouts.jsonl`) and the H4/H4-LM family writes 2-3 files per cell
+plus the fan-in above — still not relocation-scale; no kaldi-style many-small-file archives
+exist on this route. Inode
 census 2026-08-22 (du over the fileset): ~3.75M scanned inodes split wu24 985k / xu34 948k /
 struver1 873k / zeyer1 610k — three quarters of the pressure is other members' trees. Within
 wu24: this setup 268k (largest block `work/speech_llm/sae/h4_decode_jobs`, 136k across 4,180
