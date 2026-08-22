@@ -4,6 +4,30 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
+**NEXT ACTION (planner ruling 2026-08-22 latest+1, PLAN_3E1.md D8 Status): restore the registered
+support.** The ruling is read and its execution decomposes into three pieces, of which only the
+first two are specified enough to build blind:
+
+1. `build_support` must stop taking its greedy member from the dump. The support becomes the
+   registered dedup of the POOL greedy member plus the twelve `kind=="rollout"` members; the
+   dump's `kind=="greedy"` rows are QUARANTINED for every D8 reader and survive in the merge
+   artifact only as the divergence record. Pure and unit-testable; no GPU.
+2. The corrected `D8WeightJob` takes the D7 pool artifact as an explicit hash-carried input and
+   asserts coverage on both sides (281,241 pool members, twelve whitelisted rollouts per group,
+   zero duplicates). Its hash moves; the new hash is stated here for the planner before any
+   manager restart.
+3. **The long pole, and it is a GPU pass, not a reader change.** The scoring law reuses stored
+   dump columns verbatim ONLY where the normalized string is identical -- true for the 249,679
+   agreeing utterances -- so the 31,562 DIFFERING utterances have no stored score for the pool
+   member and must be scored in the dump pass's exact forward configuration under the pinned
+   scorer and registered prior, at within-tolerance parity rather than bit equality. The hook
+   already exists: the dump's `kind=="true"` row scores a PROVIDED token list
+   (`forward_step.py:1095`, `_KIND_TRUE`), so the pool member is scored the same way the true
+   transcript is, over a restricted 31,562-utterance bed. This has not been built yet and is the
+   next thing to design; the pool text needed for it is already in
+   `D8GreedyEquivalenceJob.xR1RduqgjFKe/output/mismatches.jsonl`, which carries `dump`, `pool` and
+   `seq_tag` per differing utterance.
+
 **D8.1a HAS A BLOCKING RESULT FOR THE PLANNER (verdict 70): the greedy-equivalence read is NOT
 EQUIVALENT** -- 31,562 of 281,241 utterances (11.2 %) differ between the dump's regenerated greedy
 and the D7 pool's 1-best, at exact coverage. The registered deviation is admissible only at zero
@@ -2998,3 +3022,34 @@ the absolute beta, is what carries the contamination claim.
   the overlap is the per-epoch checkpoint dependency working as designed, not a race; concurrent
   chained legs on this arm need no alarm as long as the successor's load timestamp postdates a
   complete checkpoint pair, which is the check to repeat if it ever looks off.
+
+- 2026-08-22 (D8.1a equivalence round VERIFIED; verdict 70 accepted; fork RULED in PLAN_3E1.md).
+  Verified read-only (the verifier session's shell is still down on the /tmp outage).
+  `greedy_equivalence.json` confirms every verdict-70 claim: NOT EQUIVALENT, 31,562 mismatches,
+  compared 281,241 of 281,241 expected, greedy rows in dump 281,241, and the three coverage
+  lists (`only_in_dump`, `only_in_pool`, `duplicate_greedy_rows`) all empty — so the failure is
+  content, not coverage. Sampled `mismatches.jsonl` rows reproduce both quoted examples verbatim
+  (100-121669-0006 "barny to"/"barnett", -0011 "sowing"/"saucing") and show the single-rare-word
+  lexical character throughout; the row arithmetic is exact (281,241 x 12 = 3,374,892;
+  + greedy + true = 3,937,374). The registered consequence chain was applied correctly and
+  nothing was auto-escalated: the deviation's conditional acceptance voided itself, the State
+  quarantines `D8WeightJob.1G2lPRnRmPks`'s output as a non-result, and the fork came to the
+  planner exactly as ruling (1) pre-registered. The double-outage handling is within the rerun
+  rules: both killed downstream jobs are stateless deterministic reads with no consumers,
+  cleared and rerun once writes returned — correctly never applied to a training job. The fork
+  is RULED in `PLAN_3E1.md` D8 Status (2026-08-22 latest+1): support restored to the
+  registration's own reader rule (2) — the D7 pool greedy at identical hash becomes an explicit
+  weight-job input, dump `kind=="rollout"` whitelist, the dump's regenerated greedy quarantined
+  as the divergence record, same-string scoring law for the differing minority, both-sides
+  coverage asserts, new weight-job hash to be stated, and the three-together read then applies
+  to the corrected artifact.
+  SAE_1g.md corrections verified absorbed in the same pass: the State item-3 dual figures, the
+  verdict-22 second correction (0.9366-0.9499 s), the verdict-23 rewrite (within 4e-5, dated
+  correction note), and the approach-14 two-reruns reconciliation, which correctly rules the
+  legacy rerun a process mistake saved by timing and restates the consumer rule. One deferred
+  check when the shell returns: approach 14 says the legacy rerun completed BEFORE any
+  diagnostic cell started, while the earlier State said "is rerunning" after the cells were
+  logged complete — a job-dir timestamp read settles which narrative is right; the material
+  content bindings are already verified equal from the cell payloads either way. Standing
+  deferred items, all shell-blocked in the verifier session: the three 1g.2a suite re-runs, the
+  decoder-contract entropy cross-check, and every pending exp_logs commit from both sessions.
