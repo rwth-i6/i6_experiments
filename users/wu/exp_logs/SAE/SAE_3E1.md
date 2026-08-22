@@ -49,8 +49,10 @@ takes every column from the text path and reuses none, legacy reuses exactly on 
 the two disagree exactly there, and corrected refuses a tag the pass did not score.
 `scripts/d8_support_test.py` still 27/27.
 
-IN FLIGHT: the `sae_3e1_d8_1a` manager, ten `all_forward*` shards over the full bed. NEXT: read
-the token-mechanism line, then the weight artifact's sensitivity block before its verdict.
+IN FLIGHT: the `sae_3e1_d8_1a` manager, ten `all_forward*` shards over the full bed. The
+token-mechanism line is READ and banked (verdict 72): the decode path's extra token is
+`<|endoftext|>` (id 151643), explaining 58 of the 64 probe tags, with the 6 larger-surplus tags
+reported unexplained. NEXT: the weight artifact's sensitivity block, before its verdict.
 
 
 **D8.1a HAS A BLOCKING RESULT FOR THE PLANNER (verdict 70): the greedy-equivalence read is NOT
@@ -1986,6 +1988,21 @@ function-word pairs rather than broad spelling diversity.
     score depends on and the same phenomenon the collapse diagnostic surfaced. Whether that is
     acceptable, or whether both halves should come from one convention, is a normative choice and
     therefore the planner's; nothing has been spent on the differing pass while it is open.
+    RESOLVED 2026-08-22 (planner ruling latest+3): the mixed convention is rejected; every column of
+    the pool member now comes from the text path on all 281,241 tags.
+
+72. **The decode path's extra token is the generation's terminal token, and it explains 58 of 64
+    tags but not all of them.** `D8PoolTokenMechanismJob.rVkoJpPoBGG8`, on the same 64 probe tags,
+    tokenizing each pool string with the bed's own tokenizer artifact. The text path's `n_tokens`
+    equals the plain tokenization of the pool string on 64 of 64 tags -- an exact anchor, so the
+    decode path's surplus is a clean subtraction. That surplus is exactly one token on 58 tags,
+    which is `<|endoftext|>` (id 151643), appended by the generation and never by the text path; it
+    is two on 3 tags and three on 3 tags, and those 6 are reported unexplained rather than absorbed
+    into the terminal-token account. Disclosure discharging ruling part 3: it feeds no clause, no
+    weight and no verdict, and the corrected law does not rest on it. What it makes legible is that
+    under the corrected convention all twelve rollouts pay the terminal token's prior cost while the
+    pool member does not -- the member-versus-rollout gap definition (a) always implied, now with a
+    measured size and a named cause.
 
 ## Catalog
 
@@ -1995,6 +2012,8 @@ function-word pairs rather than broad spelling diversity.
 | artifact | path |
 |---|---|
 | D8.1a pool-scoring overlap probe (64 agreeing tags, PARITY) | `work/speech_llm/sae/d8_pool_scores/D8PoolOverlapProbeJob.GerShND5ibtT` |
+| D8.1a token mechanism, disclosure for ruling part 3 (verdict 72) | `S/d8_pool_scores/D8PoolTokenMechanismJob.rVkoJpPoBGG8` |
+| D8.1a corrected-convention pool scoring and weight artifact (in flight) | `S/d8_pool_scores/D8PoolScoresJob.1ivehCZ5q5ON`, `S/d8_weights/D8WeightJob.juRpzTNHKCSq`; code `sae/d8_pool_scores.py`, `sae/d8_weights.py`, `configs/config_sae_3e1_d8_1a_v1.py`, `scripts/d8_convention_test.py` (7/7), `scripts/d8_support_test.py` (27/27) at speech-llm `3123090` |
 | code | `sae/scorer_diag.py`, `sae/text_repair.py`, `sae/psi_align_jobs.py`, `sae/psi_align.py`, `sae/curate.py`, `sae/gate_table.py`, `sae/refresh_gate.py`, `sae/d7_census.py`, `sae/d7_v2.py`, `sae/d7_online.py` (+ focused tests; D7.0a commit `a0a22b4`, D7-v2 commit `7b2069d`, D7 resume-RNG and infeasible-donor counter `1d10945` on speech-llm `haotian_modality_matching_jupiter`). `test_psi_align.py`'s CUDA/python lattice parity test now also carries two `d_min=2` skip_ok cases, so the topology D7 trains in is pinned; executed on a GH200 2026-08-21 (`log/parity_test.1445759.out`, passed, not skipped) since the login node has no GPU. |
 | entry points | `config/sae_3e1_d0.py`, `config/sae_3e1_usage.py`, `config/sae_3e1_d1d2.py`, `config/sae_3e1_d3.py`, `config/sae_3e1_d4.py`, `config/sae_3e1_d4p.py`, `config/sae_3e1_d5b.py`, `config/sae_3e1_d6.py` (builds D4' and the swap-in too), `config/sae_3e1_d6periodic.py`, `config/sae_3e1_d6periodic_warm.py`, `config/sae_3e1_hom.py`; D7 tracked canonical configs `src/speech_llm/prefix_lm/sis_recipe/exp2025_11_06_speech_llms/librispeech/configs/config_sae_3e1_d7_0a_v1.py` at `a0a22b4` and `config_sae_3e1_d7_v2_v1.py` at `7b2069d` (workspace wrappers only delegate) |
 | D8.0 registered feasibility reads (approach 34) | **operative v3** `S/d8_feasibility/D8FeasibilityReadJob.mv2d0vkWN93a` (theta_0^G, binding, GO) and `.W7TWfwoZtkaC` (fork epoch); superseded v2 `.mDQ2LoAzrMTE` / `.ulUbBcxIiJtf` and v1 `.iCuYuvkL6bwr` / `.onK5ekDuoLLA`, kept as the evidence that motivated the guard and then the ruling |
