@@ -1206,12 +1206,15 @@ def py():
             "packed_batch_size": {"data": 11_200_000, "classes": 8_000, "phonemes": 6_000},
             # laplace sorting exists to reduce padding, which packing already removes
             "batching": "random",
+            # no DDP wrap: the compiled step returns the grads, so DDP's autograd hooks never fire
+            "torch_distributed": {"reduce_type": "grad_explicit"},
             "torch_cuda_graph": {
                 "batch_size_bound": 500,
                 "dim_capacity": {"data": 312_000, "classes": 80, "phonemes": 300},
                 "warmup_steps": 0,
                 "compile": True,
-                "capture_optimizer": True,
+                # the optimizer stays eager: the grad reduce has to run between step and optimizer
+                "capture_optimizer": False,
             },
         },
         extra_config_deletes=["optimizer.epsilon"],
