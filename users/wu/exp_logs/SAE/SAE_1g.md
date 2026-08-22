@@ -97,6 +97,19 @@ Cost: two D8.1a jobs killed mid-write (see SAE_3E1.md), no 1g.2a artifact affect
 
 Blockers: none. Nothing is waiting on the user, the cluster or the verifier.
 
+Proposal for the planner, refining the 2026-08-22 storage-placement policy in `PLAN.md`: that
+paragraph classifies the H4/H4-LM family as not high-inode because it "writes 2-3 files per cell",
+which is true of OUTPUTS and misses where this family actually spends inodes. A job dir also holds
+one symlink in `input/` per upstream JOB, so `H4ContextResourceGateJob`, whose registered probe
+population is the 340 corrected start/count tables, carries 342 input symlinks -- more than a
+hundred times its own output count. Sisyphus keeps a cleared job dir forever, so every `-co` rerun
+duplicates that whole tree: my three gate reruns left 1,026 symlink inodes of debris behind
+(`H4ContextResourceGateJob.HA1vzRL7MEAz.cleared.0001..0003`), against 342 for the live artifact.
+Small in absolute terms on a 4.0M limit, but it is the wrong shape, it is self-inflicted, and the
+policy as written would not flag it. Suggested amendment: the inode test for a job design is
+outputs per cell PLUS upstream fan-in, times the number of reruns a job is likely to need. The
+cleared dirs hold no result and are safe to remove, but deletion is the user's call, not mine.
+
 Proposal for the planner (shared-tree item, NOT mine to resolve): `config_sae_1g_v1.py` carries an
 UNCOMMITTED working-tree edit adding a `corrective_h1()` builder that registers a second
 `Phase1gH1Job` with `gold_json` inside a Phase-1g config. I did not write it and have neither
