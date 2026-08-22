@@ -1366,3 +1366,27 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   fan-in inode proposal is ACCEPTED and the PLAN.md storage-placement paragraph amended
   (planner re-measured: 342 input symlinks in the live gate dir and in each of the three cleared
   copies, 1,026 debris); cleared-dir deletion stays the user's call.
+- 2026-08-22 (1g.2a item 4 descriptive PER half VERIFIED; verdict 24 ACCEPTED, no hand-backs).
+  Everything checked reproduces from the artifacts, not the log: all 80 table cells match
+  `H4ContextDiagnosticPerJob.IYHS4cX3j3XV` `per_pooled` at four decimals; the bed is the
+  registered one by content hash (`gold_sha256` and `accepted_h1_sha256` both equal the
+  verdict-21 artifact `H4RealSeedPerJob.vu6Dp6HkJ2pH`; 890 = 432+458); the count-0 column
+  equals the frozen 1g.2 direct-Q PERs for all four real starts and is hash-identical across
+  the four fitting-LM positions in the payload. The frozen-decoder claim was verified at its
+  source: all 425 decoder blocks in `H4ProvisionalMaximaJob.ejmy4sdTOcS3` are kind local with
+  null lm_scale/insertion/beam, and all 60 decode cells carry ONE decoder block and ONE
+  `phone_prior_sha256` (`9b4a00f4`), so the prior is fixed across every column as the design
+  point requires. Verdict 24(a) was reproduced from the raw hypotheses, not the file hashes:
+  legacy-2g and matched-2g decoded sequences are byte-identical in 15/15 repaired cells (their
+  differing `hypotheses_sha256` is the re-aimed `fitting_lm_sha256` binding, present as
+  described), and the reference-row divergence counts against matched-4g are exactly
+  664/796/849 of 890 at counts 1/2/4. Verdict arithmetic checked unrounded: count-4
+  order-4-minus-legacy deltas are -0.00365 (espum; the verdict's -0.0037 is the correct round,
+  the displayed-table -0.0036 is not), -0.00221, -0.00469, +0.00064, and the largest order
+  effect is espum matched-3g -0.00624. Scope discipline is right: the no-selection reporting
+  rule is pre-registered inside the artifact with the label-circularity disclosure, held-out is
+  SEALED, and the verdict claims no order choice with the own-minus-donor half still open.
+  Observation, no action needed: `h4_context_decode.py` has no synthetic suite of its own, but
+  it reuses the suite-covered decode kernel (`repaired_b_local_decode`) and PER arithmetic
+  (`pooled_per`/`utterance_errors`), and the count-0 byte-equality to the frozen 1g.2 decode is
+  a stronger end-to-end anchor for the wiring than a synthetic suite would be.
