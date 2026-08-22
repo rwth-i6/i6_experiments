@@ -950,8 +950,8 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   channels, and every observed interval is far from its threshold); the winner-audit
   local-exemption loop asserts the five baseline rows, not all 85 maxima (immaterial here — the
   artifact itself counts 85 local winners); dead code in the label-reading module (`spearman`
-  defined twice, unused `resample_sel`, dead `has_sequence` parameter) is a review hazard worth
-  a hash-neutral cleanup; the suite never asserts an end-to-end overall PASS (moot for this
+  defined twice, unused `resample_sel`, dead `has_sequence` parameter) was a review hazard —
+  removed hash-neutrally in speech-llm `7146bc6` (this note absorbed 2026-08-22); the suite never asserts an end-to-end overall PASS (moot for this
   NEGATIVE read). Gate consequences are ruled in `PLAN_1G.md` 1g.2 Status (2026-08-22): H4
   unresolved, selector closed on this combination, maxima frozen, refits and the 1,112-ID
   evaluation stay closed, H4-LM not triggered; the direction fork goes to the user.
