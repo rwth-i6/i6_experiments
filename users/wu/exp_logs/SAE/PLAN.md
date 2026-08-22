@@ -61,11 +61,13 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
   original `recon` arm diverged through an inherited filler and `shaped` plateaued then slipped
   (§6.7/§6.10): init and scorer share the §1d pseudo-text, so correlated errors are rewarded rather
   than caught. The repaired frozen-scorer arm's best matched point is 12.68/17.57 from the
-  13.89/18.34 no-loop init, but it returns to 13.54/18.56 one sub-epoch later. D6-PERIODIC/GAN's
-  six-leg prefix likewise improves only at leg 2 (12.85/17.89, 0.45 dev-other) and then degrades to
-  18.38/24.01 by leg 6. Its exact schedule-matched control freezes periodic round 1's own
-  `d_min=2` scorer; that control is running, but it can isolate scorer recency only, not establish
-  that this loop beats ordinary self-training. Both §3d.A reads are in (2026-08-21, replacing "the
+  13.89/18.34 no-loop init, but it returns to 13.54/18.56 one sub-epoch later. 2026-08-22 (replaces the
+  six-leg-prefix and control-running sentences — both arms completed): the D6-PERIODIC/GAN
+  recency A/B is DECIDED against refresh: the frozen-scorer control wins the final leg on both
+  splits (17.61/22.66 vs periodic 18.82/24.56, verifier-confirmed), the periodic lead at legs
+  2-4 is the registered non-licensing transient, and — the larger fact — BOTH arms degrade
+  after leg 3 with neither leg-8 endpoint beating the no-loop init 13.89/18.34
+  (`PLAN_3E1.md` GAN-FROZEN Status, `SAE_3E1.md` verdicts 68-69). Both §3d.A reads are in (2026-08-21, replacing "the
   decisive read is now §3d.A"): one-generation own-label self-training FAILED both starts, while
   the 960 h pseudo-label scale arm PASSED its gate — theta_0^G960 reads 13.11/16.82 against the
   13.89/18.34 init, the project's best label-free AV start (verifier-confirmed;

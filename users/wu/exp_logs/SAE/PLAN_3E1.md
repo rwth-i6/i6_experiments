@@ -1050,6 +1050,15 @@ config, verified at source).**
   banked periodic job `ReturnnTrainingJob.kr1foUV6lecx`; every leg reads the exact round-1 scorer
   `PsiAlignTrainJob.dsMKgPHQApyR`, and no dump, pool or refit exists after round 1. Leg 2 is queued
   under cluster maintenance. The gate above is unchanged.
+  2026-08-22: COMPLETE, gate DECIDED, VERIFIER-CONFIRMED (all 32 cells traced to their own
+  scoring jobs; frozen scorer verified in all eight legs' on-disk configs; `SAE_3E1.md` approach
+  36, verdicts 68-69). The result is the registered "frozen final-leg win" case: periodic leg 8
+  reads 18.82/24.56 against frozen 17.61/22.66, so scorer refresh has NO established durable
+  benefit at this operating point; the periodic lead at legs 2-4 (best 0.55/0.55) is the
+  registered transient that licenses nothing. Standing fact for any successor arm (verdict 69):
+  both arms degrade after leg 3 and neither leg-8 endpoint beats the no-loop init 13.89/18.34 —
+  the recency question was answered inside a regime where the loop itself loses ground, which no
+  frozen-versus-periodic contrast can address.
 
 **D6-PERIODIC/GAN960-FROZEN — frozen-scorer loop from the theta_0^G960 init (USER-directed
 2026-08-21).**

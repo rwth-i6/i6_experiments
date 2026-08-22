@@ -2827,3 +2827,25 @@ the absolute beta, is what carries the contamination claim.
   rather than a `D8WeightJob` dependency is ACCEPTED as a process gate — the planner is the
   only consumer of the verdict and acceptance requires the read — so no hash-moving rewiring
   is spent on it.
+
+- 2026-08-22 (D6-PERIODIC/GAN-FROZEN completion VERIFIED; gate verdict confirmed; no hand-backs).
+  All 32 WER cells of approach 36's table traced to their own `ScliteJob` artifacts and
+  CONFIRMED digit for digit (reference word counts constant at 54,402 / 50,948 across every
+  cell, both arms on the same two reference STM jobs, so no eval-set drift). Leg-1 identity is
+  exact: both arms resolve to `ScliteJob.LzKRDl102Jaf`/`.bdTjc72qi0Jt` over the shared
+  `ReturnnTrainingJob.kr1foUV6lecx`, by alias tree and by dependency walk independently. The
+  frozen arm reads `PsiAlignTrainJob.dsMKgPHQApyR` in ALL EIGHT legs' on-disk configs (not a
+  sample), and its 127-job transitive closure contains no per-leg refit — exactly two
+  `PsiAlignTrainJob`s, the round-1 refit and the diagnostic-only psi_align^G — against the
+  periodic arm's eight distinct refits; policy chaining is correct in both arms (leg 1 from
+  theta_0^G epoch 10, legs 2-8 from the previous leg's own epoch 1). Every cell is plain sclite
+  through the identical four-job chain with no rescoring or postprocessing job anywhere in
+  either closure. The init reference 13.89/18.34 reproduces from three independent
+  decode+score pairs on the exact theta_0^G checkpoint with bit-identical error counts.
+  Verdict 68 applies the registered gate verbatim (the frozen final-leg win is the gate's
+  named no-established-benefit case; the legs 2-4 transient is the registered non-licensing
+  case), and verdict 69's arithmetic checks out in every clause. The approach-26 stale-text
+  correction is applied as described. One reader note, no action: a DISTINCT frozen variant
+  `config_sae_3e1_d6periodic_gan960_frozen_v1` (the GAN960 arm, still running) exists beside
+  the `_frozen` config verified here — anyone re-reading these numbers should confirm which of
+  the two they mean.
