@@ -148,6 +148,10 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    implementation ruling in `PLAN_1G.md` 1g.2a Status). The selector route stays closed. SAE
    init from the best-PER pseudo-pair row is recommended AGAINST (output audit in `PLAN_1G.md`
    1g.2 Status: deletion-dominated collapsed outputs, margins are unigram-level only).
+   2026-08-22 LATEST (user): the 1g.9 anti-collapse constrained-repair probe is GREENLIT at
+   HIGHEST priority — the locate-the-collapse diagnostic runs first and alone, the constrained
+   refits only past its clause-0 off-ramp; spec and pre-registered gate in `PLAN_1G.md` 1g.9.
+   The D8.1a ruling execution (piece 3, `PLAN_3E1.md` D8 Status) continues as the next spend.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional
@@ -829,7 +833,10 @@ surface local-only), the selection surfaces and all 85 provisional maxima are pe
 and verifier-confirmed, every winner is local (winner beam audit discharged by the registered
 exemption), and the controlled reference labels are ruled open for selector validation
 (`PLAN_1G.md` Status 2026-08-22). Final refit and evaluation still have not run;
-H5--H6 remain gated on H4's scientific result. Details: `PLAN_1G.md`; evidence:
+H5--H6 remain gated on H4's scientific result. 2026-08-22 latest (USER): the anti-collapse
+constrained-repair probe (1g.9 — coverage-direction unigram matching plus rate regularization on
+the repair objective, corrected and pre-gated by the planner) is GREENLIT at HIGHEST priority;
+spec and gate in `PLAN_1G.md` 1g.9. Details: `PLAN_1G.md`; evidence:
 `SAE_1g.md`.
 
 ---

@@ -224,12 +224,16 @@ The old margins remain reported for comparison. They no longer decide admission 
 
 ## 3. Status and priority queue
 
-**Planner/verifier read: 2026-08-22 (replaces 2026-08-21 because the 1g.2 gate fired).** Item 3
-is discharged with a NEGATIVE selector verdict (1g.2 Status 2026-08-22): H4 is unresolved, the
-evaluation stays closed, and items 4-6 are blocked by their own conditions (trigger not fired; no
-H4 pass; no valid phone handoff). Phase 1g holds for the user's direction word; items below are
-kept as the registered frame they would resume into.
+**Planner/verifier read: 2026-08-22 latest (replaces the morning read because the user greenlit
+1g.9).** Item 3 is discharged with a NEGATIVE selector verdict (1g.2 Status 2026-08-22): H4 is
+unresolved, the evaluation stays closed, and items 4-6 are blocked by their own conditions
+(trigger not fired; no H4 pass; no valid phone handoff). The user's direction word arrived as
+item 0 below; items 1-9 are kept as the registered frame they would resume into.
 
+0. **1g.9 anti-collapse constrained-repair probe — HIGHEST PRIORITY (USER greenlit 2026-08-22).**
+   Run the locate-the-collapse diagnostic (1g.9 experiment 1) first and alone; the constrained
+   refits run only past the clause-0 off-ramp. Full spec and pre-registered gate in subphase
+   1g.9 below; the 1,112-ID evaluation stays sealed throughout.
 1. **H1--H3 and the baseline H2 engine are accepted; do not relaunch them.** H2 consumes one explicit
    deleted-silence boundary law and passes 23/23 channel tests including exact enumeration. H3's
    calibration and construction-population fingerprint, random-map, pseudo-pair, selected ESPUM
@@ -1695,6 +1699,101 @@ Failure closes this prior, not channel estimation.
 routes are tested. Numerical support, covered-mass, stability, and repair-region thresholds must be
 added to this plan before launch.
 
+### 1g.9 — Anti-collapse constraints on the channel-repair objective (USER-proposed and greenlit 2026-08-22; highest priority)
+
+**Purpose.** Decide whether two explicit anti-collapse constraints added to the unsupervised
+channel-repair objective recover phonetic content in the decoded output, or whether the collapse the
+1g.2/1g.2a audits measured (deletion-dominated output at 0.37 of the reference length, AH
+overproduced by +0.42, unigram total-variation distance 0.68 from the text distribution) enters
+elsewhere: at initialization, at the decoder operating point, or below the objective in emission
+discriminability. The probe must LOCATE the collapse before spending the training arm, because the
+audited babble is already present at repair count 0, before the repair objective has touched
+anything.
+
+**Approach.** The repair criterion `sum_i log sum_Y G_fit(Y) P_B(U_i|Y)` becomes
+`maximize L_HMM - lambda_uni * L_uni - lambda_rate * L_rate` with two terms:
+
+1. *Corpus-level symbol-distribution matching.* `q_bar(v)` is the corpus-normalized posterior
+   expected number of ENTRIES into symbol `v` (symbol entries, not frame occupancy, so duration
+   cannot distort the estimated distribution), accumulated by forward-backward under the full
+   model; `p_text(v)` is the unigram distribution of the same unpaired text corpus `T_phi` the
+   fitting LM is estimated from (corpus and preprocessing pinned in the producing job's
+   docstring). The divergence runs in the COVERAGE direction, `L_uni = KL(p_text || q_bar)`,
+   which diverges when any text-supported symbol's usage goes to zero. The originally proposed
+   mode-seeking direction `KL(q_bar || p_text)` is rejected: it prices a collapse onto the
+   highest-frequency phones at only `-log p_text` of those phones, roughly 2.5-3 nats — a bounded
+   cost the likelihood can pay — and gives zero gradient to symbols with `q_bar(v) = 0`
+   (correction accepted by the user 2026-08-22). Jensen-Shannon is the admissible alternative;
+   the choice is made before launch and stated in the docstring.
+2. *Rate regularization.* `L_rate = mean_i (N_i/T_i - r_target)^2` on the posterior expected
+   emitted-symbol count `N_i` per retained-unit count `T_i`. The topology and the geometric
+   duration parameter stay FROZEN as H1 fixed them; this subphase does not reopen H1. `r_target`
+   is NOT a new free constant: it is the symbols-per-retained-unit rate implied by the frozen H1
+   length-law fit on update audio (that fit already maximized exactly this length law), derived
+   and pinned in the producing job's docstring. Only if that derivation is shown degenerate may
+   an external label-free segmentation estimate be proposed, and that is a new planner decision.
+
+A hard maximum-duration cap is the registered escalation if the soft rate term proves insufficient
+AND experiment 1 locates the collapse in the alignment posterior; it would unfreeze the H1
+duration law and is not funded here. Because both constraints act on posterior EXPECTATIONS, which
+soft posteriors can satisfy by hedging while the decoded best path stays collapsed, every gate
+statistic below reads the DECODED output, never the expectations.
+
+**Experiments.** All model-forward computation runs as sisyphus GPU jobs. The constraints break
+the closed-form emission update; the constrained update rule is the implementer's choice, pinned
+in the docstring, and the tiny enumerated example is extended to verify the constrained update
+improves the constrained criterion.
+
+1. *Locate-the-collapse diagnostic (runs first, alone).* One registered job computes, for the
+   five 1g.2a starts at repair counts 0 and 4: the posterior expected symbol-entry distribution
+   `q_bar`, the posterior expected rate `N/T`, the same two statistics from the banked decoded
+   one-bests (the audited 1g.2a cells; no new decode), and both constraint terms' gradient norms
+   at the current parameters (a term the optimizer cannot feel does nothing). This banks the
+   "before" row, verifies the two proposed statistics flag the pathology, and answers WHERE the
+   collapse enters: posterior versus decode.
+2. *Constrained refits, smallest decisive set.* Two starts — the selected ESPUM start (H3's
+   label-free selected real seed) and the pseudo-pair reference — at count 4 only, from the
+   shared banked count-0 start: arms uni-only, rate-only, and both-terms at one lambda magnitude,
+   plus both-terms at a second magnitude (four constrained cells per start; the banked
+   unconstrained count-4 cells are the controls). Decode with the frozen 1g.2a decoder
+   configuration; evaluate on the frozen 890 selection utterances (432 dev-clean + 458
+   dev-other) with gold as EVALUATION ONLY; the 1,112-ID evaluation stays sealed.
+3. *Unigram-matched babble null.* A registered job draws, per utterance, 100 random symbol
+   sequences of the decoded length i.i.d. from `p_text` and reports the null distribution (mean,
+   p99) of pooled correct-phone fraction and PER, printing its alignment convention. This is the
+   audio-free floor: matching length and the unigram marginal is free, and the gate charges
+   for it.
+
+**Gate (pre-registered 2026-08-22, before any run).**
+
+- *Clause 0, off-ramp.* If experiment 1 shows the POSTERIOR `q_bar` and rate already near their
+  targets (total variation to `p_text` <= 0.15 and rate within 20 % relative of `r_target`)
+  while only the DECODED statistics collapse, the constrained-training arm does not run as
+  specced: the constraints would be aimed at the wrong stage, and the finding returns to the
+  planner with the diagnostic as the deliverable.
+- *Clause 1, effectiveness.* A constrained cell is READABLE when its decoded length ratio to
+  gold is within [0.80, 1.25] and its decoded unigram total-variation distance to `p_text` is
+  <= 0.30. If no cell is readable, the verdict is "constraints do not bind through decode at
+  these operating points" — a not-funded outcome, not proof the idea cannot work.
+- *Clause 2, content against the null.* A readable cell shows phonetic content when its pooled
+  correct-phone fraction on the 890 exceeds the babble null's p99 by >= 0.05 absolute. The edit
+  decomposition (deletions/insertions/substitutions) is reported next to any PER: with deletions
+  at 0.63 of the current babble, fixing the rate mechanically converts deletions to
+  substitutions and produces a large headline PER drop with zero content gain, so headline PER
+  alone is never a pass.
+- *Clause 3, paired reading.* Every constrained cell is read as the paired delta against its own
+  start's banked unconstrained count-4 and count-0 cells, per start, never pooled across starts.
+- Any selection among constrained cells is by label-free statistics only (decoded total
+  variation to `p_text`, rate residual); gold reads are reporting-only. Passing clause 2 funds a
+  scaled arm as a new planner decision and REOPENS the selection-rule question (the 1g.2
+  selector inversion; SAE_1g.md verdict 25's two disagreeing halves) as its own item; it does
+  not revive own-minus-donor.
+
+**Status.** Registered 2026-08-22 from the user's proposal with the planner's corrections
+(coverage-direction divergence; gate statistics read decoded output because expectations can be
+hedged; duration control stays within the frozen H1 law; `r_target` traced to the H1 fit),
+user-greenlit the same day at HIGHEST priority. Nothing launched; evidence goes to `SAE_1g.md`.
+
 ## 6. Deliverables ladder
 
 | Step | Deliverable | Decision it enables |
@@ -1703,6 +1802,7 @@ added to this plan before launch.
 | 1 | Correct phone decoder and repair curve with construction-only seeds and controls | Decide whether weak phone seeds can be repaired |
 | 2 | Validated content-sensitive training and selection score | Select without transcripts |
 | 2a | Conditional matched-2/3/4 diagnostic and coherent matched-4 H4-LM arm before evaluation | Resolve a valid but inert/non-deployable bigram repair without conflating decoder order |
+| 2b | Locate-the-collapse diagnostic and anti-collapse constrained-repair probe (1g.9) | Decide whether the phone-repair collapse is fixable at the objective, lives elsewhere, or closes the route |
 | 3 | Separate phone policy-start and score-start results | Validate at least one concrete handoff and start characters |
 | 4 | Optional combined phone-reference loop | Validate the coupled assay without delaying characters |
 | 5 | Character channel, separate handoffs, and fixed combined test | Establish or refute the first lexicon-free end-to-end initialization |
