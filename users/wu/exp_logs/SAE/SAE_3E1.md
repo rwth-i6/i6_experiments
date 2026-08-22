@@ -2849,3 +2849,16 @@ the absolute beta, is what carries the contamination claim.
   `config_sae_3e1_d6periodic_gan960_frozen_v1` (the GAN960 arm, still running) exists beside
   the `_frozen` config verified here — anyone re-reading these numbers should confirm which of
   the two they mean.
+
+- 2026-08-22 (user question on D7 paired-data performance; existing evidence surfaced). The
+  clause-4 parity vehicles already computed full label-as-evaluation ranking tables for BOTH D7
+  fixed finals over the fork-epoch dump (28,531 groups, T=0.7; WER enters as evaluation only,
+  never a gate input — parity was the only clause-4 statistic): candidate
+  (`PsiAlignRerankJob.kkEEVosPO80P`) spearman 0.3889, selection WER 5.126 %, eta 0.258; control
+  (`.OiRBghBiTriv`) 0.3878, 5.136 %, 0.250; mean WER 5.477 %, oracle 4.116 % shared. The two
+  arms rank near-identically; the tiny candidate lead has no null spread behind it and selects
+  nothing. Caveats pinned: this bed is the BEST-BED fork policy's tc100 rollouts, not the
+  operative theta_0^G policy, and the tables' G3 bar lines are cross-bed diagnostics
+  (gap_true is per-arm-units; the 0.0248 bar was registered for 3a-bed scorers). Policy-leg
+  performance (WER of a leg trained on the candidate reward) remains the one genuinely
+  unmeasured quantity — D7.3 closed by the registered gate.
