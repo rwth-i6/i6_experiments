@@ -418,6 +418,23 @@ numeric slips found, direction-neutral.*
 | LLM      | Qwen3-1.7B (Phases 0–4), Qwen3-8B (Phase 5 only) |
 | Compute  | 4×GH200 96 GB per experiment |
 
+**Storage placement (user decision 2026-08-22).** Any job that creates many small files (high
+inode usage) must put that payload on `$SCRATCH`, and future jobs of that character are designed
+to land there; trained model checkpoints and every durable/decision-bearing artifact stay in the
+project fileset. Constraints that bind this: the project fileset is at ~3.58M of 4.0M inodes and
+~47 of 54 TB (jutil 2026-08-19/22 reading, cached); `$SCRATCH` auto-purges untouched files on a
+90-day lease starting 2026-09-01, so scratch may hold only regenerable payloads; when relocating
+an existing job dir, move only the payload subdir and symlink it back, never the `finished`
+marker, which stays in project. Measured 2026-08-22: D8.1a dump shards write ~10-23 files each
+(the payload is one `rollouts.jsonl`) and the H4/H4-LM family writes 2-3 files per cell —
+neither is high-inode; no kaldi-style many-small-file archives exist on this route. Inode
+census 2026-08-22 (du over the fileset): ~3.75M scanned inodes split wu24 985k / xu34 948k /
+struver1 873k / zeyer1 610k — three quarters of the pressure is other members' trees. Within
+wu24: this setup 268k (largest block `work/speech_llm/sae/h4_decode_jobs`, 136k across 4,180
+finished tarball-cleaned job dirs — frozen 1g.2 gate evidence, exempt from scratch relocation
+under the purge lease), the 2026-05-20 and 2026-07-28 setups 251k + 196k, conda/venv envs
+240k. No current SAE job needs relocation; the policy binds future many-small-file designs.
+
 **Notation.** x waveform; h = E_l(x) encoder features; u = dedup(kmeans_K(h)) unit sequence;
 z grapheme transcript; phi = G2P(z), stress-free ARPAbet, one canonical pronunciation per word, no
 word-boundary symbols in AR inputs. AV: p_theta(z|x) = base LLM + LoRA-A + conv
