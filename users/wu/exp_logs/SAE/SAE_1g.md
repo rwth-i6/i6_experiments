@@ -991,8 +991,13 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     smoothing bridge. (c) That is the opposite direction from verdict 24, where order 3 or 4 gave a
     small phone-error improvement on three of the four real starts. The two halves are not merely
     differently sized, they point opposite ways: within a start, the rank correlation between the
-    two over the twelve repaired cells is +0.902, -0.636, +0.734, -0.979 and +0.853, and +0.110
-    pooled over all 60 -- no consistent sign. This reproduces the 1g.2 finding that the
+    two over the twelve repaired cells is +0.917, -0.629, +0.822, -0.993 and +0.907, and +0.112
+    pooled over all 60 -- no consistent sign. (Corrected 2026-08-22 after a verifier hand-back: the
+    first printed values +0.902, -0.636, +0.734, -0.979, +0.853 and +0.110 rested on no artifact and
+    used positional instead of average ranks for ties. The values above are Spearman with
+    average-rank ties on the unrounded banked numbers, computed and banked by
+    `H4ContextAgreementJob.zd6RBdYcvzti`, which carries the convention in its own output; the
+    qualitative picture and this verdict's conclusion are unchanged.) This reproduces the 1g.2 finding that the
     own-minus-donor selector is inverted rather than uninformative, now with fitting order as the
     moving coordinate instead of the arm, and it is why the label-free half cannot be read as an
     order preference in either direction. CONSEQUENCE AND SCOPE: item 4 is complete and its answer
@@ -1008,6 +1013,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 
 | evidence | concrete artifact or source |
 |---|---|
+| 1g.2a item 4 rank agreement between the two halves | `work/speech_llm/sae/h4_context_agreement/H4ContextAgreementJob.zd6RBdYcvzti` |
 | 1g.2a item 4 label-free own-minus-donor, five starts x four fitting LMs | `work/speech_llm/sae/h4_context_scores/H4ContextOwnMinusDonorJob.SygqXhY8F2Qt` |
 | 1g.2a item 4 descriptive PER, five starts x four fitting LMs | `work/speech_llm/sae/h4_context_decode/H4ContextDiagnosticPerJob.IYHS4cX3j3XV` |
 | 1g.2a item 4 repaired-table decodes, 60 cells at counts 1/2/4 | `work/speech_llm/sae/h4_context_decode/H4ContextLocalDecodeJob.*` (60 dirs) |
