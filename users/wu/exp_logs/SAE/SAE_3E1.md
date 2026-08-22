@@ -20,8 +20,11 @@ In flight 2026-08-22:
   very first build was the earlier `av_checkpoint_prefix` fix moving the dump hashes, not these
   edits.) The edits therefore land at worker import, as the verifier anticipated.
 
-- **D6-PERIODIC/GAN-FROZEN**: leg 7 of 8 running (`T/ReturnnTrainingJob.ZgRzUxDRhajE`), legs 1-6
-  finished. Manager pid 1991977, watcher attached.
+- **D6-PERIODIC/GAN-FROZEN is COMPLETE** (approach 36, verdicts 68-69). All eight legs finished
+  2026-08-22, manager exited on DONE, watcher retired. Its registered gate is decided: the frozen
+  control wins leg 8 on both splits, so scorer refresh has no established durable benefit here.
+  The periodic arm it controls also completed all eight legs -- the log's earlier "legs 1-3, leg 4
+  pending" was stale and is superseded by approach 36's table.
 - **D6-PERIODIC/GAN960-FROZEN** (approach 33): leg 1 `T/ReturnnTrainingJob.ohmLWWmr6Kxe` running,
   manager pid 3514914, watcher attached. Its gate is leg 8 beating this arm's own init 13.11/16.82
   on both splits; matched-leg deltas against GAN-FROZEN are reported and select nothing.
@@ -745,8 +748,10 @@ the same loop with its own downstream refits:
 | class-internal substitutions, GAN+HOM dev-other | 1827 | 130 | 110 | 105 |
 
 The hom arm loses at legs 1-2 but catches the plain trajectory at leg 3, while removing nearly all
-augmentation-specific class-internal substitutions in its first leg. Its leg 4 is submitted but
-pending for maintenance; later legs do not yet exist.
+augmentation-specific class-internal substitutions in its first leg. Its leg 4 was submitted but
+pending for maintenance when this was written; later legs did not yet exist. The PLAIN arm's own
+eight-leg trajectory has since completed and is in approach 36's table -- legs 4-8 are far worse
+than legs 2-3, so the three legs above are its best three and not a representative sample.
 
 **27. theta_0^G_hom -- the homophone arm's policy init** (launched 2026-08-18 on the user's
 greenlight, after HOM-0b admitted the arm). theta_0^G's own builder with the resampled pseudo-label
@@ -1005,6 +1010,33 @@ not made here and does not need to be: clause 2 already fails.
 *Clause 4, scorer parity* -- PASS on both arms, exactly: 512 of 512 rollouts round-tripped,
 `max |online - offline| = 0.000e+00` against a 2e-3 tolerance, 0.00 % rows floored
 (`S/psi_align_jobs/PsiScorerParityJob.sZPxS9hlIGKa`, `.vTOLyrLz4Kl6`).
+
+
+**36. D6-PERIODIC/GAN-FROZEN completes: the frozen-scorer control against the periodic arm, all
+eight legs.** The registered schedule-only control (`PLAN_3E1.md` D6-PERIODIC/GAN-FROZEN, user-
+directed 2026-08-20): the D6-PERIODIC/GAN policy graph verbatim from theta_0^G, with round 1's
+scorer `S/psi_align_jobs/PsiAlignTrainJob.dsMKgPHQApyR` frozen at all eight legs, so scorer recency
+is the only experimental difference. Both arms finished 2026-08-22.
+
+The registered reproduction check passes by construction rather than by luck: frozen leg 1 and
+periodic leg 1 resolve to the SAME scoring job (`R/scoring/ScliteJob.LzKRDl102Jaf`), because leg 1 IS
+the banked periodic job `T/ReturnnTrainingJob.kr1foUV6lecx` shared between the arms. Legs 2-8 resolve
+to distinct scoring jobs per arm; every number below was traced to its own job dir rather than read
+off the `output/` path.
+
+| leg | periodic, dev-clean / dev-other | frozen, dev-clean / dev-other | ahead |
+|---|---|---|---|
+| 1 | 14.45 / 19.69 | 14.45 / 19.69 | identical by construction |
+| 2 | **12.85 / 17.89** | 13.40 / 18.44 | periodic, 0.55 / 0.55 |
+| 3 | 13.20 / 18.20 | 13.55 / 18.74 | periodic, 0.35 / 0.54 |
+| 4 | 17.76 / 23.17 | 17.80 / 23.27 | periodic, 0.04 / 0.10 |
+| 5 | 17.92 / 23.27 | **16.01 / 21.57** | frozen, 1.91 / 1.70 |
+| 6 | 18.38 / 24.01 | 17.66 / 23.02 | frozen, 0.72 / 0.99 |
+| 7 | 18.28 / 23.70 | 17.50 / 22.82 | frozen, 0.78 / 0.88 |
+| 8 | 18.82 / 24.56 | 17.61 / 22.66 | frozen, 1.21 / 1.90 |
+
+Reference levels on the same reading: the no-loop init theta_0^G is 13.89 / 18.34.
+
 
 
 **33. D6-PERIODIC/GAN960-FROZEN: the frozen-scorer loop restarted from theta_0^G960.** User-funded
@@ -1771,6 +1803,29 @@ function-word pairs rather than broad spelling diversity.
     CIs excluding zero), on the same axis the D1/D2 lattice reading identified as open to every
     minimal-state word. Sharper same-speaker discrimination and a worse insertion exploit are the
     same trade here, which is what a future design has to break rather than re-tune.
+
+
+68. **Scorer refresh has no established durable benefit: the frozen control WINS the final leg on
+    both splits** (36). The registered requirement is explicit -- "a durable/actionable recency
+    benefit requires periodic leg 8 to beat frozen leg 8 on both dev-clean and dev-other" -- and at
+    leg 8 periodic is 18.82 / 24.56 against frozen's 17.61 / 22.66, i.e. worse by 1.21 and 1.90.
+    That is the gate's named "frozen final-leg win" case, which it pre-registers as meaning refresh
+    has no established durable benefit here. The early legs do show the transient the gate
+    anticipated and refuses to fund: periodic leads at legs 2, 3 and 4 (by 0.55 / 0.55 at its best),
+    then loses from leg 5 onward and never recovers. Per the registered wording that establishes a
+    transient effect at those operating points and does not select an endpoint or license continued
+    refresh. This licenses not funding scorer refresh at this operating point; it is not evidence
+    that a refreshed scorer cannot help.
+
+69. **The bigger fact both arms share: the eight-leg loop degrades badly after leg 3, and NEITHER
+    arm ends better than its own no-loop init** (36). Periodic runs 12.85 -> 18.82 dev-clean and
+    17.89 -> 24.56 dev-other from its best leg to its last; frozen runs 13.40 -> 17.61 and
+    18.44 -> 22.66. Against theta_0^G's no-loop 13.89 / 18.34, leg 8 is worse by 4.93 / 6.22
+    (periodic) and 3.72 / 4.32 (frozen). Only legs 2 and 3 of either arm ever beat the init on
+    dev-clean, and no leg of either arm beats it on dev-other by more than 0.45. The recency
+    question that D6-PERIODIC/GAN-FROZEN was built to answer is therefore settled inside a regime
+    where the loop itself is losing ground after leg 3, which is the standing problem the arm was
+    not designed to address and which no frozen-versus-periodic contrast can fix.
 
 
 ## Catalog
