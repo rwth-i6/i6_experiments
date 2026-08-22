@@ -2172,6 +2172,46 @@ the same phenomenon the collapse proposal surfaced — so the size of the mixed 
 (reused dump columns on agreeing rows, text-path scores on differing rows) is bounded by
 measurement inside the artifact before any weight read.
 
+2026-08-22 latest+3 (planner ruling on the held mixed-convention question; resolves the
+verdict-71 hold). The probe did exactly what it was registered to do: the bound came back, and
+it is too large and one-sided to admit. The verifier's signed read of
+`D8PoolOverlapProbeJob.GerShND5ibtT` (all headline statistics independently reproduced first)
+shows the shaped-score NUMERATOR (`lm_prior * n_tokens`, the quantity the weights consume) is
+HIGHER through the text path on 64 of 64 tags — median +9.17 nats, mean +9.53, range +6.94 to
++17.69 — because the decode path always spends more tokens on the same normalized string
+(`n_tokens` delta negative 64 of 64, median -1, minimum -3; the per-token column alone, median
++0.097, understates this and is sign-mixed 61/3). RULING, in five parts. (1) The MIXED
+CONVENTION IS REJECTED for D8.1a. Binding note (a) DEFINES the member's score as the text-path
+score of the pool string; the latest+1 reuse clause was an efficiency shortcut resting on the
+assumption that the score is a function of the string. The probe refutes that assumption for
+the prior columns while confirming it for `recon` (4.77e-07 maximum). Reusing decode-path
+prior columns on agreeing tags would score the member ~9.5 nats below its defined value in
+88.8 % of classes and at its defined value in 11.2 % — a one-sided offset, three orders above
+the collapse diagnostic's own 0.01-nat materiality line, concentrated exactly on the
+divergence classes, in the column the shaped arm consumes, with the arm-selection bar
+(rho 0.9790 vs 0.95) sitting 0.03 from its threshold. (2) CORRECTED LAW: the pool member's
+`lm_prior` and `n_tokens` come from the text path on ALL 281,241 tags; `recon` may be reused
+on agreeing tags (validated string-determined). Two admissible implementations, implementer's
+choice: (i) extend the probe-validated pass machinery to the full bed, ten shards at the
+dump's own measured rate and sharding, zero new code; or (ii) the built four differing shards
+plus a text-only prior scorer over the 249,679 agreeing strings — admissible ONLY if the
+text-only scorer reproduces the audio-pass text-path values on ALL 31,626 reference rows
+(31,562 differing + 64 probe: `n_tokens` identical, per-token `lm_prior` maximum absolute
+difference <= 1e-4); failing that bar falls back to (i). (3) MECHANISM NAMING, disclosure not
+gate: one log line naming which token(s) the decode path spends that the text path does not
+(the constant -1 suggests a boundary token), from stored token data or a three-tag
+inspection. (4) PRE-REGISTERED CONVENTION-SENSITIVITY LINE in the three-together read: the
+no-go clauses, the 5 % valve, and the arm selection are computed under the corrected
+convention AND recomputed under the legacy mixed convention (both computable from the same
+artifacts on agreeing tags, no new compute); any flip of any verdict renders the read
+UNRESOLVED and returns it to the planner; no flip makes the convention choice immaterial to
+the decision by measurement. (5) The weight job's prior-column reuse branch retires and its
+asserts move to full member coverage; `D8WeightJob.qBb5teJvluqB` was correctly stated under
+the standing requirement and is superseded by construction — the requirement stands
+unchanged: state the successor hash in State before any manager restart, after which the
+implementer may start the D8.1a manager. This is the last D8.1a-scoring spend the planner
+will order; any further convention issue goes to the user.
+
 ## Acceptance gate v2
 
 Replaces the §3e.1 two-sided gate (2026-08-07) BEFORE any verdict was read against v1, because

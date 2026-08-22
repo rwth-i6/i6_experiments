@@ -3246,3 +3246,26 @@ the absolute beta, is what carries the contamination claim.
   ruling's own designated artifact; if the inlined-mapping route is chosen instead, the mapping
   must be derived deterministically from that same artifact. The weight-hash-before-restart
   sequencing in State is correct and stands.
+- 2026-08-22 (piece-3 probe round VERIFIED; the hold was right; ruling issued as latest+3).
+  Every headline statistic of verdict 71 reproduces bit-for-bit from
+  `D8PoolOverlapProbeJob.GerShND5ibtT/output/overlap_probe.json` (recon max 4.76837e-07 / p50
+  exactly 0 against tolerance 1e-3; lm_prior deltas 64/64, p50 0.0966562, max 0.5309954;
+  n_tokens 64/64, max 3; degenerate rows 0; text mismatches 0; verdict PARITY; rows lex-sorted
+  100-121669-0000 .. 100-121674-0039). Both verifier pins are honoured in the committed module
+  docstring (speech-llm `7c1a2fa`): lexicographically-first-64 rule with no seed, pool
+  hypotheses artifact as the single text source with mismatches.jsonl partition-only, and the
+  `tk.Path` route. The build-time gate is real: the differing shards, scores job and weight job
+  are constructed only after `_probe_passes` reads PARITY from the on-disk artifact
+  (config_sae_3e1_d8_1a_v1.py:230-346), so nothing could have been submitted early. The
+  verifier's SIGNED read of the probe rows — which the verdict's absolute statistics do not
+  carry and which decides the held question — is banked in the latest+3 ruling: the shaped
+  numerator `lm_prior * n_tokens` is higher through the text path on 64 of 64 tags (median
+  +9.17 nats, mean +9.53, range +6.94..+17.69), driven by the decode path always spending more
+  tokens (delta -1 median, -3 minimum, negative 64/64). Holding the differing pass on that was
+  the correct escalation: the mixed convention is one-sided and three orders above the collapse
+  diagnostic's materiality line, and the ruling (PLAN_3E1.md D8 Status latest+3) rejects it —
+  text-path prior columns for the member on all 281,241 tags (full-bed pass, or the built four
+  shards plus an exactly-validated text-only prior scorer), recon reuse stays valid, mechanism
+  line required, convention-sensitivity line pre-registered in the three-together read, and
+  `qBb5teJvluqB` is superseded by construction with the state-the-hash-before-restart
+  requirement unchanged.
