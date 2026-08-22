@@ -3143,11 +3143,15 @@ the absolute beta, is what carries the contamination claim.
   population ("collapse classes whose survivor is a live member of the operative
   post-exclusion support; the pool greedy member is included") and units ("before the per-unit
   divisor"). Suite re-run by the verifier: 27/27. Piece-3 requirements (a)/(b)/(c) are
-  transcribed faithfully in State. HAND-BACK, small and contained: State attributes the
-  superseded proposal figures to a flush-on-tag-change scan "which silently assumes each
-  utterance's rows are contiguous in the merged file" — the planner scanned all 3,937,374 rows
-  of `D8MergeRolloutsJob.gXDwFsfvraDS` and every one of the 281,241 tags is perfectly
-  contiguous (zero split tags), so that assumption holds exactly and cannot have produced the
-  wrong figures. The SUPERSEDED marking stands and nothing rests on those numbers; only the
-  causal sentence is wrong and should be replaced with the true cause or an explicit
-  "cause not established" — a wrong explanation in the log is worse than an open one.
+  transcribed faithfully in State. The round's hand-back — the first causal explanation of the
+  superseded figures (a contiguity assumption) was disproven by the planner's full-file scan
+  (zero split tags among 281,241) — is ABSORBED and CLOSED same day, with the true cause
+  established and cross-verified to the digit: (i) raw-versus-normalized text grouping
+  (regrouping on the normalized string reproduces the planner's population exactly: 198,172
+  classes, 74,410 above 0.01 nats, max 65.0) and (ii) an exact-versus-1e-6 threshold on the
+  lm_prior comparison (planner re-scan at 1e-6 on the normalized grouping: 77,570, the
+  implementer's figure to the digit; exact: 84,649, the planner's original; the gap is the
+  7,079 classes State names). The banked diagnostic (speech-llm `9ba1fb5`) now states its
+  grouping rule in its own output and reports the lm_prior-differs count under BOTH the exact
+  inequality and the 1e-6 tolerance; suite re-run 27/27. Every scan of this quantity is now
+  mutually explained and the forensic account is complete.
