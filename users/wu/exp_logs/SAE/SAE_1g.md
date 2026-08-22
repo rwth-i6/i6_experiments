@@ -4,8 +4,49 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-State as of 2026-08-22 -- 1g.2 is READ and CLOSED on its gate; 1g.2a (H4-LM) is OPEN and its
-first jobs are running:
+State as of 2026-08-22 -- 1g.9 is the user-greenlit highest-priority subphase and its experiment 1
+is RUNNING; 1g.2 is READ and CLOSED on its gate; 1g.2a (H4-LM) is open with items 1-4 complete.
+
+**1g.9 EXPERIMENT 1 IS BUILT, TESTED AND RUNNING** (`config/sae_1g_h4_collapse_locate.py`,
+`H4CollapseLocateJob.gZ9d6e3E7ZGu`; speech-llm `d08cd88`). It runs FIRST AND ALONE, as the subphase
+requires -- the constrained arms of experiment 2 are a separate graph and stay unbuilt until the
+planner rules on this output. Every input is already frozen and finished; the job adds
+forward-backward posteriors and gradients and reads no gold.
+
+- What it banks, for the five 1g.2a starts at repair counts 0 and 4: the posterior expected
+  symbol-ENTRY distribution `q_bar` and the posterior expected rate `N/T` at the frozen H1
+  duration, the same two statistics recomputed from the banked decoded one-bests (no new decode),
+  and each proposed constraint term's gradient. Under the accepted two-state topology a symbol's
+  first-position state is reachable only by entering that symbol, so its summed posterior occupancy
+  IS the entry count and no transition posterior is needed.
+- DECISIONS I made and pinned in the producing module's docstring, because the subphase left them
+  open. (i) `r_target` is DERIVED, not chosen: the frozen H1 length-law fit maximized the
+  geometric-duration marginal over the 6,414 update utterances, and `r_target` is that same law's
+  posterior `E[N|T]` per retained unit at the accepted `p`; the memoryless reading `1-p` = 0.7644
+  is reported beside it, and so is the count of forced symbol boundaries at deleted-silence gaps,
+  which neither reading models and which is the one term by which a healthy posterior may
+  legitimately exceed the target. (ii) A gradient norm is meaningless without a parameterization
+  and an absolute norm compares nothing, so gradients are taken in `B = softmax(theta)` and
+  reported as `lambda_equal = ||grad L_HMM|| / ||grad L_term||` -- the weight at which each
+  constraint first pushes as hard as the likelihood. That also gives experiment 2's "one lambda
+  magnitude" a traceable origin instead of an invented one. (iii) The constraints act on the update
+  role but the banked decodes exist only on the 890 selection utterances, so a posterior-versus-
+  decode read drawn across those folds would confound stage with fold: the posterior is computed on
+  BOTH, and the clause-0 read is taken on the matched 890 with the update-role figure beside it.
+- ASYMMETRY the reader must carry, stated in the artifact: at count 0 the banked decode reads the
+  start's direct `Q` while the posterior reads the start's `B`; they are not two views of one
+  table. At count 4 both read the same repaired `B`.
+- A prior observation that sharpens what clause 0 is testing: the frozen local decoder is a
+  per-unit argmax over `Q * prior` followed by run collapse (`channel_h.frozen_local_decode`). It
+  consults neither the language model nor the duration law, so a collapse that lives in the decoder
+  rather than in the objective is a live possibility the diagnostic can actually separate.
+- TESTED before launch, no artifact and no scorer: `scripts/h4_collapse_locate_test.py` 6/6 -- the
+  torch forward-backward transcription reproduces `channel_h.marginal_forward_backward` to 2.2e-16,
+  all three gradients match central finite differences (worst 6.6e-09), and `E[N|T]` matches a
+  direct sum and pins to the atom of a degenerate length prior. The job re-checks the two
+  forward-backward implementations against each other at run time and refuses to report a gradient
+  if they disagree.
+
 
 **1g.2a, the user-mandated matched trigram/4-gram arm** (approach 14). Funded scope is Experiments
 items 1-4; the F arm and every selector-shaped consequence stay closed under the 1g.2 verdict.
