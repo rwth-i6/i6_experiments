@@ -15,7 +15,11 @@ starts already satisfy both proposed targets in the posterior (total variation 0
 `real/pseudo_pair_seed0` alone. `lambda_equal` is 8.1e+05 to 1.5e+08, so neither constraint can be
 felt at any weight anyone would set. Per the gate, "the constrained-training arm does not run as
 specced ... and the finding returns to the planner with the diagnostic as the deliverable" --
-experiment 2's graph does not exist and I am not building it. NEXT ACTION IS THE PLANNER'S.
+experiment 2's graph does not exist and I am not building it. RULED 2026-08-22 (PLAN_1G.md 1g.9
+Status): clause 0 FIRED, the subphase CLOSES as the registered off-ramp outcome, experiments 2 and 3
+do not run, and the direction fork -- close the phone-repair route, or fund a bounded descriptive
+decode-stage follow-up -- exceeds 1g.9's greenlit scope and is WITH THE USER. No further 1g work is
+authorized meanwhile, so nothing in Phase 1g is in flight.
 
 Two readings the planner should carry into that ruling, both banked: a near-zero posterior total
 variation is satisfied most easily by the LEAST informative channel (verdict 28 -- the collapsed
