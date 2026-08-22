@@ -4,7 +4,15 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-State as of 2026-08-22 -- nothing in flight for 1g:
+State as of 2026-08-22 -- the 1g.2 controlled validation read is IN FLIGHT:
+
+- **1g.2 controlled validation LAUNCHED** (`config/sae_1g_h4_controlled_validation.py`, manager
+  pid 3258905, watcher attached). Approach 12 has the design and the pre-registration.
+  `H4ProvisionalWinnerAuditJob.kBCapQOpk1Hj` then `H4ControlledValidationJob.Otv6GBVY8ZUj`; the
+  graph builds to 4,710 jobs of which only these two are new, every other job being the preserved
+  and finished prerequisite graph. The question each answers: does the frozen own-minus-donor
+  selector order controlled channels by their now-openable reference error, and is any nonzero
+  repair count safe at the method level?
 
 - **H4 pre-label selection surfaces are COMPLETE** (`config/sae_1g_h4_prelabel_surfaces.py`). Both
   registered outputs resolve to finished job dirs: surface
@@ -21,16 +29,24 @@ State as of 2026-08-22 -- nothing in flight for 1g:
 
 Blockers: none.
 
-Next action is the planner's, not the implementer's: the next step in `PLAN_1G.md` 1g.2 opens the
-controlled labels, and the audit that had to precede them is discharged by construction (verdict
-17). No 1g job should start until the planner rules on that.
+Next action: hold the watcher, then read `controlled_validation.txt` and the evidence together.
+The reading is pre-registered and must not be softened after the fact. Two things are already
+known to bear on it and are NOT reasons to reinterpret the gate: the pre-label cross-start `Sel`
+ordering puts the random-map null 9th of 85 against the reference at 73rd (verifier, approach 11),
+which the selector-validity clause is read AGAINST rather than around; and effective independent
+controls are 76 of 81. If the selector reads PASS, the follow-up config adds
+`H4SelectorFreezeJob` and the 7,304-ID / 4,455-ID final refits become authorized. If it reads
+NEGATIVE or UNRESOLVED, H4 is unresolved with no likelihood fallback (PLAN_1G 1g.2 gate), the
+maxima stay frozen and unreranked, and the next move is the planner's -- a failed gate here closes
+the tested score/channel/decoder/representation combination, not all Phase-1 initializers.
 
 Proposals for the planner:
 
-1. The frozen-versus-next-beam winner audit standing in front of the controlled labels is satisfied
-   without running it: all 85 provisional winners are `decoder.kind = "local"`, and `PLAN_1G.md`
-   states that a local winner needs no beam audit. The at-most-320 shard cells budgeted for it are
-   not needed at this boundary.
+1. RATIFIED 2026-08-22 by the planner as exactly the registered local-winner exemption, and now
+   asserted in the graph by `H4ProvisionalWinnerAuditJob` with empty audit mappings (approach 12):
+   the frozen-versus-next-beam winner audit is satisfied without running it because all 85
+   provisional winners are `decoder.kind = "local"`. The at-most-320 budgeted shard cells were not
+   spent.
 2. The label-free half of the baseline pre-evaluation-ready condition already reads positive -- the
    selector assigns a nonzero repair count to two of the four real starts
    (`espum_seed0_update30000` and `pseudo_pair_seed0`, both count 4) -- so the only outstanding
@@ -310,6 +326,48 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     the other 5.8265. Effective independent controls are therefore 76 of 81, a property of the
     registered ladder design that any clustered interval or null spread over the controls must
     respect.
+
+12. **H4 controlled validation read (1g.2 label boundary).** The planner opened the controlled
+    reference labels on 2026-08-22 (`PLAN_1G.md` Status; `PLAN.md` queue item 1, user priority).
+    Two jobs sit on the frozen graph and nothing else: `H4ProvisionalWinnerAuditJob.kBCapQOpk1Hj`
+    emits the audited maxima -- with EMPTY audit mappings, which is how the local-winner exemption
+    is ASSERTED rather than assumed, because that job errors on a sequence winner lacking an audit
+    -- and `H4ControlledValidationJob.Otv6GBVY8ZUj` is the only label reader in Phase 1g
+    (`speech_llm/sae/h4_validation_jobs.py`, config `sae_1g_h4_controlled_validation`). No decode,
+    score, refit or maximum is recomputed: every input was already on disk, so the read is one CPU
+    job over frozen artifacts plus one gold file.
+
+    The four real H3 rows are not passed to the reader at all; it refuses any non-`controlled/`
+    key at construction, so their own errors cannot be read even by mistake. Registered statistics
+    (transcribed into the module docstring, so the reporting rule lives with the code that
+    produces the numbers): reference vs the strongest null under a simultaneous 95 % interval,
+    formed by bootstrapping `Sel(reference) - max_over_controls Sel` so bounding the maximum
+    bounds every control at once; Spearman(`Sel`, -error) globally and inside the predeclared
+    starting-PER band 0.80-0.93; the reference-start paired count safety read PER(r)-PER(0) for
+    r in 1/2/4 against the 0.05 margin; and the within-trajectory rank/regret/count-0 bounds.
+    Bounds are the ONE-SIDED 5th/95th percentiles with the two-sided pair reported beside them,
+    10,000 resamples at seed 20260822, resampled channel cluster then donor assignment then
+    utterance within split.
+
+    Duplicate channels are collapsed by the artifacts' own `channel_array` sha256 rather than by
+    parsing arm names; that rule independently reproduces approach 11's degeneracy finding from
+    the surface alone (79 distinct of 85, 76 effective controlled of 81, the two groups being the
+    five `map_q09` draws and `soft_q09`-with-reference), which is why it is the rule rather than a
+    hand-written exception list. Before any interval is taken the reader rebuilds every controlled
+    tuple's frozen `Sel` from that tuple's own stored per-utterance deltas and refuses to continue
+    unless it matches to 1e-9 -- otherwise the bootstrap would be resampling a different statistic
+    than the one the surface froze, which nothing downstream would catch.
+
+    `scripts/h4_validation_test.py` carries 50 synthetic-only checks: the interval readings in all
+    three directions, a planted quality-tracking selector that must PASS and its inversion that
+    must read NEGATIVE, a harmless and a damaging repair count, the verdict table, and the label
+    firewall. It builds every fixture in memory and reads no real artifact, so it runs before the
+    boundary opens and cannot launder a real number into a passing check.
+
+    `H4SelectorFreezeJob` is deliberately NOT in this graph. It raises unless the selector verdict
+    is PASS -- correct, since a failed selector must not freeze a maximum -- so adding it now
+    would place a job in the graph whose outcome is not yet known. It is built in a follow-up
+    config only if the validation artifact reads PASS.
 
 ## Verdicts
 
