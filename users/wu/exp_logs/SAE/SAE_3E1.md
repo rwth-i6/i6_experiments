@@ -22,8 +22,37 @@ verdicts 73-74). The latest+3 ruling is fully executed and nothing about D8.1a s
   (`D8PoolScoresJob.1ivehCZ5q5ON`, 281,241 of 281,241 members, 0 degenerate), no reuse branch left
   in the weight job, and the token mechanism named (verdict 72).
 
-NEXT ACTION IS THE PLANNER'S: D8.1a's deliverable is a GO with one funded arm, and whether D8.1b
-trains `candidate_acoustic` from this weight artifact is a plan decision, not mine to start.
+**D8.1b IS AUTHORIZED, BUILT, TESTED AND LAUNCHED** (planner ruling 2026-08-23; speech-llm
+`aadf92b`; `D8ScorerRefitJob.2bQzhz6U1yHp` under the `sae_3e1_d8_1b` manager). One training job,
+`candidate_acoustic` only; the shaped arm is not funded and a future shaped arm is a new
+registration.
+
+- The recipe is the D7 exact control VERBATIM by import, not by restatement: every constant, the
+  model, the batching, the optimizer, the schedule and the loss come from `d7_online`. The one
+  registered change is that each anchor visit draws its target from the anchor's frozen
+  `acoustic_only` weight vector at `tau_star` 0.05 instead of always the greedy 1-best.
+- NO CONTROL TRAINS. The D7.1 exact control is reused at its existing hash
+  (`D7OnlineTrainJob.j16rTskXF1QU`, verified finished) because under this recipe it IS the one-hot
+  special case; `scripts/d8_draw_test.py` asserts that nesting directly.
+- Decisions pinned in the producing module's docstring: batches are formed from the control's own
+  items by the control's own code BEFORE any draw, so the shards, the batch partition and the step
+  count are the control's and the registered per-step-cost claim holds by construction; the draw
+  uses D7's verified stateless key exactly, which correlates it with the donor draw -- harmless
+  only because this arm runs at `online_weight` 0 so the donor term contributes no gradient, and
+  flagged as something a live-donor arm must key apart; a drawn member that does not fit its units
+  raises rather than being skipped.
+- The job refuses to start unless the weight artifact reads GO, funds exactly
+  `candidate_acoustic`, and reports no flip on its sensitivity line.
+- PRE-LAUNCH FEASIBILITY CHECK (that the arm is not silently the control): on the frozen artifact
+  the `acoustic_only` weights carry median effective sample size 3.195, median 13 positive members,
+  and only 0.63 percent one-hot groups; the median weight on the greedy member is 0.18 and the mean
+  0.25, so roughly three quarters of anchor visits draw a NON-greedy target. The arm is a real A/B.
+- TESTED before launch, no model and no GPU: `scripts/d8_draw_test.py` 11/11 -- reproducible from
+  the key, never selects a zero-weight member, empirical frequencies match the weights to 0.004,
+  one-hot nests the incumbent, and a vector that does not sum to one is refused.
+
+NEXT: read `sampling.json`'s realized greedy-draw fraction against the 0.25 the artifact predicts,
+then D8.2's paired admission, which is a plan decision and not mine to start.
 
 Housekeeping, not a blocker: the ten `all_bed*` jobs carry `error.run.1` markers from duplicate
 workers dying on the `job.save` that JOB_AUTO_CLEANUP archived. All ten are FINISHED with complete
