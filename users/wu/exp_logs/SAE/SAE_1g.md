@@ -6,8 +6,60 @@ question each answers), blockers, next action, proposals for the planner. -->
 
 State as of 2026-08-23 -- 1g.2 is READ and CLOSED on its gate; 1g.9 is CLOSED by its own
 off-ramp; the whole 1g.10 family (the decode route the USER chose at the direction fork) is CLOSED
-by the planner. The ONLY open work in this phase is 1g.2a (H4-LM), items 1-4 complete. Nothing of
-mine is in flight here; the live implementer work is PLAN_1F entry 8, logged in SAE_1f.md.
+by the planner. Open work: 1g.2a (H4-LM), items 1-4 complete, and 1g.11, whose experiment 1 is in
+flight. The other live implementer work is PLAN_1F entry 8 (SAE_1f.md) and PLAN_3E1 D9.1
+(SAE_3E1.md).
+
+**1g.11 EXPERIMENT 1 IS BUILT, TESTED AND IN FLIGHT** (user-greenlit 2026-08-23; speech-llm
+`16b1063`; manager `sae_1g_11`; `G11ContinuousSegmentsJob.hImWJG0X4eZh`, the only unfinished job in
+that graph). It builds the continuous twin of the `seg12.5` observation stream -- one vector per
+token of the frozen discrete stream, from the frozen transform -- and nothing else. The Gaussian
+repair cells, the nulls and the evaluation are separate registrations and no graph pre-empts them.
+
+TWO REGISTERED CONSTANTS THE FROZEN ARTIFACTS DO NOT ADMIT AS WRITTEN. Both were measured off the
+finished artifacts before the job existed, and both are flagged here rather than resolved silently.
+
+1. THE FROZEN PCA BASIS HAS 96 COMPONENTS, not more (read off `pca.components_` of
+   `QuantizeStatesJob.FWpGhC941JMi`). The registration pins "the leading 128 components (user's
+   choice)" with a full-dimension sensitivity cell optional. 128 exceeds 96, so there is nothing to
+   truncate: keeping the leading 128 of a 96-component basis IS the full-dimension cell, and the
+   optional sensitivity cell coincides with the primary one. The job is passed `pca_dim=None`,
+   meaning the frozen dimension whatever it is, and records the number in every artifact; a pin
+   wider than the basis raises rather than silently keeping fewer. PROPOSAL: read the user's 128 as
+   "do not refit or widen the basis", which this satisfies, and drop the truncation cell as
+   vacuous on this stream.
+2. THE COUNT-IDENTITY CLAUSE SELECTS THE TOKEN SEGMENTATION, not the Ward one. The frozen pooling
+   merges the raw codebook runs by adjacent-pair Ward cost to a per-utterance target, assigns each
+   surviving segment to a centroid, and writes that code over the segment's frames. Over the 8,416
+   seed-bed utterances that is 921,432 Ward segments against 919,248 run-length tokens: 2,184
+   segments (0.237 percent, somewhere in 1,334 of the 8,416 utterances) were handed the same
+   centroid as their neighbour and merge in the run view. So "per-utterance segment count identity
+   with the discrete token sequence is asserted" is FALSE at the Ward segmentation and true by
+   construction at the token one -- and the token reading is also what "the mean over exactly that
+   token's frames" says, and what a paired per-utterance read needs, since it makes both arms'
+   observation sequences the same length utterance by utterance.
+
+   The job therefore carries TWO checks that answer different questions and do not substitute for
+   each other. THE PIPELINE CHECK is asserted exact on every utterance: at the WARD segmentation
+   the re-assigned segment means reproduce the frozen stream bit-for-bit, run through
+   `repr_pool.pool_utterance` itself rather than a re-derivation of it -- that is what proves the
+   features, basis and segmentation here are the frozen pipeline's and not a lookalike. THE TWIN
+   CHECK is reported and never asserted: the share of TOKENS whose re-assigned mean still returns
+   the frozen code, which is below 1 by the arithmetic above because an absorbed token's mean spans
+   both Ward segments. A value far from 1 would be a STOP, not a tolerance to widen.
+
+IMPLEMENTER READING, also flagged: the registration names "the `ContinuousFeatsJob` fit/assign
+split", which is a discipline about WHICH utterances a statistic may be fitted on, not about which
+objects it is fitted over. The component scale here is fitted over SEGMENT vectors, not frame
+vectors, because segments are what this model observes -- a frame-fitted scale leaves the segment
+means well inside unit variance and makes one variance floor mean different things per component,
+which is the very thing the standardization exists to prevent. The fit population is the dedicated
+train half alone, asserted to be the registered 2,849.
+
+Tests `scripts/g11_continuous_test.py` 19/19. The gold artifact is nested `{split: {tag: ...}}`;
+the fixture is nested so that a flat read -- which would hold out split NAMES, fit the scale on the
+evaluation utterances, and leave every printed count looking right -- fails the suite. I had
+written exactly that flat read before checking `repr_pool.py`'s own reading of the same file.
 
 **THE WHOLE 1g.10 FAMILY IS CLOSED** (planner ruling 2026-08-23, `PLAN_1G.md` 1g.10 Status). It
 collapses to its verdicts; the tables and job dirs are in Approach 16 and the Catalog.
