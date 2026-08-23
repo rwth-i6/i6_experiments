@@ -2169,3 +2169,16 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   convex combination of two segment means inside one convex nearest-centroid cell.
   Verifier re-runs: `g11_gaussian_test` 21/21, `h4_context_engine_test` 36/36,
   `h4_collapse_locate_test` 6/6.
+- 2026-08-23 (primitives shakeout round VERIFIED; the decode fix RATIFIED; no plan change --
+  the experiment-2 build clearance stands). The `validate` flag fix (speech-llm 50ee93f) is
+  correctly scoped: the verifier read the diff -- validation is not dropped but REPLACED
+  with a density-appropriate check (shape, finiteness, strict positivity), and the
+  duration-occupancy reduction stays the one shared implementation, so the attribution
+  property survives the fix. The named cause (every decode fixture was one-state, so the
+  two-state reduction branch was never exercised) plus the regression test on the real
+  topology is the right closure for a fourth wrong-call instance. The eight-utterance
+  login-node shakeout is within the standalone-probe allowance and is correctly disclaimed
+  as non-evidence; its retained share ~0.79 independently corroborates the corpus reading
+  (720,315 retained of 919,248 pre-mask tokens = 0.7836), so the plan's phone-stream count
+  is confirmed as the post-silence-mask count. Verifier re-runs: `g11_gaussian_test` 24/24,
+  `test_channel_h` 23/23.
