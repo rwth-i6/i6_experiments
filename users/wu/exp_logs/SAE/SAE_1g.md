@@ -5,37 +5,60 @@
 question each answers), blockers, next action, proposals for the planner. -->
 
 State as of 2026-08-23 -- 1g.9 is CLOSED by its own off-ramp; the USER resolved the direction fork
-toward the decode route and 1g.10 (full-model LM-aware descriptive decode) is REGISTERED, BUILT and
-LAUNCHED; 1g.2 is READ and CLOSED on its gate; 1g.2a (H4-LM) is open with items 1-4 complete.
+toward the decode route and 1g.10 (full-model LM-aware descriptive decode) is COMPLETE with its
+table BLOCKED by its own pre-registered explanation duty; 1g.2 is READ and CLOSED on its gate;
+1g.2a (H4-LM) is open with items 1-4 complete.
 
-**1g.10 IS IN FLIGHT, and its sizing proposal is here as the registration requires**
-(`config/sae_1g_h4_full_model_decode.py`, manager `sae_1g_h4_full_model_decode`; reader
-`H4FullModelDecodeReadJob` in `h4_full_model_decode.py`).
+**1g.10 IS COMPLETE, AND ITS TABLE IS BLOCKED BY ITS OWN PRE-REGISTERED EXPLANATION DUTY**
+(verdicts 30-31; `H4FullModelDecodeReadJob.MXhi20TtG1I0`; all 1,332 chunks and 36 merges finished
+with ZERO error markers). This is a blocking result for the planner, not a fallback decision.
 
-- THE PLANNER TOOK THE BEAM-256 CUT I OFFERED (ruling 2026-08-23 latest) and it is EXECUTED:
-  beam 512 runs the full registered scope and every decoded surface, margin, babble null and PER
-  column reads from it; beam 256 now runs on ONE shard per cell. The shard is READ from the
-  measured contract's own `shard` block -- index 28, 2,466 retained units, the canonical heaviest
-  selection-role shard that `heaviest_shard` picked when the contract was measured and that the
-  historical beam table used -- so it is not a number I chose. Exact effect: 1,116 of the 2,304
-  chunks drop (31 of 32 shards on each of 36 beam-256 cells; the planner's "1,152" counts the
-  retained 36 as well), leaving 1,152 beam-512 chunks + 36 beam-256 probes + 36 merges. The
-  agreement and drift columns are now read on 28 utterances, and the reader carries that count in
-  its payload, its report header and a `beam_probe_note`, so no quote of them can pass as an
-  890-utterance number. Executed at 10:40: manager stopped, the 1,116 surplus jobs cancelled in
-  SLURM and their dirs deleted per the standing rule, config and reader re-registered, tests
-  9/9, manager restarted on the cut graph.
+- THE DUTY FIRED ON THE DECODER-DEFECT BRANCH. It was written into the producing module before any
+  statistic existed: tiny margins where instability is measured confirm verdict 28's flat-score
+  mechanism; wide margins with persisting instability indicate a decoder defect and BLOCK every
+  cell. Zero of 36 cells reaches the registered 0.999 adjacent-beam agreement (min 0.2222, median
+  0.6111, max 0.8889) and zero of 36 has a median score margin at or below the registered 1e-3
+  nats per retained unit (min 1.210e-03, median 4.345e-03, max 1.540e-02). The report prints
+  "DECODER DEFECT SUSPECTED -- no cell of this table may be read until that is explained".
+- I AM NOT READING THE CELLS, and no row is compared against another. The per-cell correct-phone,
+  total-variation and babble-null columns are banked in approach 16 as the record of what the run
+  produced, under the duty's block.
+- THE POSITIVE CONTROL IS HEALTHY, which is what makes the finding pointed rather than trivial:
+  `controlled/reference` gives 7 of 12 readable cells and a best correct-phone fraction of 0.6010
+  against the LM-blind local decoder's 0.5832 on the same channel. The decoder produces sensible
+  content on a channel known to carry content while its adjacent beams still disagree on roughly
+  one utterance in three.
+- TWO OBSERVATIONS FOR THE PLANNER, offered as facts and explicitly NOT as rescues. The margin
+  population is a mixture rather than uniformly wide: between 6.1 and 46.6 percent of utterances
+  WITHIN a cell do sit at or below the flat threshold, so the cell medians summarize two
+  populations. And the agreement column is read on the probe's 27 utterances, where one
+  disagreeing utterance is 3.7 points and the 0.999 test cannot be met by anything short of
+  perfect agreement. Neither softens a measured agreement of 0.2222. The threshold and the duty
+  are pre-registered and I have not adjusted either; whether the suspected defect is investigated,
+  and how, is the planner's call.
+- CORRECTION TO MY EARLIER STATE ENTRY: I wrote that the agreement and drift columns would be read
+  on 28 utterances, from the contract's 2,466 retained units. The artifact says 27, and 27 is the
+  number the reader carries in its payload, its report header and its `beam_probe_note`. Every
+  quote of those two columns is on 27 utterances.
+- THE BEAM-256 CUT AS EXECUTED (planner ruling 2026-08-23): beam 512 ran the full registered scope
+  and every decoded surface, margin, babble null and PER column reads from it; beam 256 ran ONE
+  shard per cell, the shard READ from the measured contract's own `shard` block (index 28, 2,466
+  retained units, the canonical heaviest selection-role shard `heaviest_shard` picked when the
+  contract was measured) rather than a number I chose. 1,116 of 2,304 chunks dropped (31 of 32
+  shards on each of 36 beam-256 cells; the ruling's "1,152" counted the retained 36 as well),
+  leaving 1,152 beam-512 chunks + 36 beam-256 probes + 36 merges = 1,332, which is the on-disk
+  census.
 - SHAPE, exactly as experiment (1) registers it after the same-day amendment: the three audited
   count-4 channels (`controlled/reference` as positive control, `real/pseudo_pair_seed0` as the
-  collapsed row, and `real/espum_seed0_update30000`, which the user promoted in as the old PUSM
-  approach's projection into this route), all 12 registered grid points, beams 256 and 512, on the
-  890 selection-role utterances. Channels are bound BY NAME through the existing count adapters,
-  never by a hash I typed. The
-  registered decoder is used unchanged -- no new modelling code, no new job class: existing
-  `H4SequenceDecodeChunkJob`/`H4SequenceDecodeMergeJob` at the passing measured SELECTION resource
-  contract, its fixed 32-way sharding, the deleted-silence boundary policy, the frozen duration
-  law, the banked KenLM 4-gram replacing the fitting bigram. The global-beam eligibility flag is
-  read for provenance and deliberately NOT applied, per "beam is not an eligibility bar here".
+  collapsed row, and `real/espum_seed0_update30000`, which the user promoted in as the old
+  approach's projection into this route), all 12 registered grid points, on the 890 selection-role
+  utterances. Channels are bound BY NAME through the existing count adapters, never by a hash I
+  typed. The registered decoder is used unchanged -- no new modelling code, no new job class:
+  existing `H4SequenceDecodeChunkJob`/`H4SequenceDecodeMergeJob` at the passing measured SELECTION
+  resource contract, its fixed 32-way sharding, the deleted-silence boundary policy, the frozen
+  duration law, the banked KenLM 4-gram replacing the fitting bigram. The global-beam eligibility
+  flag is read for provenance and deliberately NOT applied, per "beam is not an eligibility bar
+  here".
 - SHARDING is not mine to choose: `H4_NUM_SHARDS = 32` is validated inside the job class and the
   merge refuses any other count. After the beam-256 cut the graph is 1,152 beam-512 chunks (3 x 12
   x 32) plus 36 merges, plus 36 single-shard beam-256 probes with no merge -- 1,188 chunk jobs in
@@ -897,6 +920,42 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     Not funded and not run: 1g.9 experiment 2's constrained refits, experiment 3's unigram-matched
     babble null, and every constrained-arm lambda. Their graph does not exist.
 
+16. **1g.10: the full-model (LM-aware) sequence decode of the audited count-4 channels.** The
+    registered prefix-mass beam decoder under the frozen H1 two-state law with the banked KenLM
+    phone 4-gram REPLACING the fitting bigram, run on the three audited count-4 channels over the
+    12-point grid (lm_scale in {0.5, 1, 2, 4} x insertion penalty in {-2, -1, 0}). Beam 512 is the
+    decision beam and runs the full 890-utterance selection role over 32 shards per cell (1,152
+    chunk jobs plus 36 merges); beam 256 exists only to supply the adjacent-pair agreement and
+    drift columns and runs ONE shard per cell on the planner's budget ruling -- the heaviest
+    selection-role shard taken from the measured resource contract's own `shard` block, 27
+    utterances, the same index for every cell. The global-beam eligibility flag is read for
+    provenance and deliberately NOT applied: measuring the surface that bar was hiding is the
+    point. Nothing is refit and nothing is selected; the held-out evaluation stays sealed.
+
+    | row | readable cells of 12 | cells clearing the babble null | best correct-phone fraction (cell) |
+    |---|---|---|---|
+    | `controlled/reference` (positive control) | 7 | 12 | 0.6010 (lam 0.5, beta 0) |
+    | `real/espum_seed0_update30000` | 7 | 12 | 0.1907 (lam 2, beta 0) |
+    | `real/pseudo_pair_seed0` (collapsed) | 1 | 12 | 0.1756 (lam 1, beta 0) |
+
+    The LM-blind local decoder on the same channels, for reference (this is what 1g.9 measured):
+    `controlled/reference` correct-phone 0.5832 at TV 0.0658 and length ratio 1.1205;
+    `real/espum_seed0_update30000` 0.1472 at TV 0.0847 / ratio 1.2224; `real/pseudo_pair_seed0`
+    0.1904 at TV 0.6871 / ratio 0.4941 on only 9 distinct phones.
+
+    Beam-stability explanation duty, over all 36 cells (agreement and drift on the probe's 27
+    utterances; margins on all 890):
+
+    | quantity | min | median | max |
+    |---|---|---|---|
+    | one-best agreement, beam 256 against beam 512 | 0.2222 | 0.6111 | 0.8889 |
+    | median score margin, nats per retained unit | 1.210e-03 | 4.345e-03 | 1.540e-02 |
+    | fraction of utterances in a cell at or below the flat threshold | 0.061 | -- | 0.466 |
+
+    ZERO of 36 cells reaches the registered 0.999 agreement level and ZERO of 36 has a median
+    margin at or below the registered flat threshold of 1e-3 nats per retained unit.
+
+
 ## Verdicts
 
 1. **Approach 1: one segment per text symbol is rejected.** It exceeds the registered ratio on all
@@ -1234,7 +1293,44 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     null is doing all the discriminating work. Reported for the planner; clause 1 is
     pre-registered and I am not proposing to change it.
 
+30. **A16: 1g.10's TABLE IS BLOCKED BY ITS OWN PRE-REGISTERED EXPLANATION DUTY -- the beams
+    disagree while the score margins are wide, which is the decoder-defect branch, not verdict
+    28's flat-score branch.** The duty was written into the producing module before any statistic
+    of this job existed: tiny margins where instability is measured confirm verdict 28's mechanism
+    (an uninformative channel rides the language-model marginal, so hypotheses tie), whereas wide
+    margins with persisting instability indicate a decoder defect and BLOCK any reading of the
+    cells. The numbers land squarely on the second branch. Zero of 36 cells reaches the registered
+    0.999 adjacent-beam agreement level (min 0.2222, median 0.6111, max 0.8889), and zero of 36
+    has a median score margin at or below the registered flat threshold of 1e-3 nats per retained
+    unit (min 1.210e-03, median 4.345e-03, max 1.540e-02). The job therefore prints "DECODER
+    DEFECT SUSPECTED -- no cell of this table may be read until that is explained", and the
+    per-cell columns below it are NOT read here. WHAT THIS LICENSES AND WHAT IT DOES NOT: it
+    licenses "the registered sequence decoder does not currently produce a readable surface on
+    these channels", and it does NOT license any comparison among the three rows, any statement
+    about the phone-repair route's viability, or any reading of the correct-phone, total-variation
+    or babble-null columns -- which is exactly what the duty exists to prevent. Two facts the
+    planner will want beside this, offered as observations and not as rescues: the population is
+    heterogeneous rather than uniformly wide (between 6.1 and 46.6 percent of utterances WITHIN a
+    cell do sit at or below the flat threshold, so the cell medians are summarizing a mixture),
+    and the agreement column is read on the probe's 27 utterances, where a single disagreeing
+    utterance is 3.7 percentage points and the 0.999 test cannot be passed by anything short of
+    perfect agreement -- though neither observation softens a measured agreement of 0.2222. The
+    threshold and the duty are pre-registered and are not adjusted here; whether the suspected
+    defect is investigated, and how, is the planner's call.
+
+31. **A16: the positive control's own reading is internally consistent with the blocked verdict,
+    and is reported only as a decoder-health observation.** `controlled/reference` produces 7 of 12
+    readable cells and its best cell reaches a correct-phone fraction of 0.6010 (lam 0.5, beta 0),
+    against 0.5832 for the LM-blind local decoder on the same channel -- so the full model is not
+    grossly broken on a channel known to carry content. That is what makes the instability finding
+    pointed rather than trivial: the decoder produces sensible content on the control while its
+    adjacent beams still disagree on 1 utterance in 3. This entry records the observation; under
+    verdict 30 it is NOT a licence to read the control's cells as a result, and no row is compared
+    against another.
+
 ## Catalog
+
+1g.10 full-model decode read, BLOCKED by its explanation duty (verdicts 30-31): `work/speech_llm/sae/h4_full_model_decode/H4FullModelDecodeReadJob.MXhi20TtG1I0` (`full_model_decode.json`, `full_model_decode.txt`); 1,152 beam-512 chunks + 36 merges + 36 single-shard beam-256 probes under `work/speech_llm/sae/h4_decode_jobs/`; code `sae/h4_full_model_decode.py`, `configs/config_sae_1g_h4_full_model_decode_v1.py`, `config/sae_1g_h4_full_model_decode.py`, `scripts/h4_full_model_decode_test.py` (9/9) at speech-llm `359dbeb`.
 
 | evidence | concrete artifact or source |
 |---|---|
