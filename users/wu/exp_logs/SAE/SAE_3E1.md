@@ -86,8 +86,65 @@ first was that D8.4 could not make this call until after its refits had been tra
   actual call in the config, and writing that test caught a bug in the test itself, which had split
   the call at the first parenthesis and would have passed a broken config.
 
-NEXT: D9.1 is a separate registration and is NOT funded by the D9.0 launch. The gate's PASS is the
-evidence the planner asked for before authorizing that spend.
+**D9.1 IS BUILT, TESTED AND LAUNCHED** (planner authorization 2026-08-23 in `PLAN_3E1.md` D9
+Status latest; speech-llm `a42fa37`; manager `sae_3e1_d9_1`). Eighteen jobs and no others, verified
+against the graph's own job dirs -- ten sampled dump shards over the 960 h bed from the pinned
+checkpoint, the pseudo-text bed and pool built from that dump's own greedy rows, and the two refit
+trainings; the other 38 jobs it reaches are finished and reused. It trains arms 2 and 3 and
+measures nothing. D9.2 is the read and is a separate registration.
+
+- ARM 2 `D7OnlineTrainJob.qcbbdPnZ2nLK` (1-best refit, online weight 0), ARM 3
+  `D8ScorerRefitJob.XvPF118rphQP` (soft-EM) on `D9WeightJob.uyKXr4ZiGj9R`; the shared dump merges
+  at `D8MergeRolloutsJob.C4G6qGzjEIrx` from ten `ReturnnForwardJobV2` shards
+  (`7pn7wCdqQ7Wb pfmSXPmED4Ov hhbi9TmvyRnc lzKuXw4bkFRF 5tXsjYhVMIMF 0ZcqQ8rhgO0N UMJyglLRiKkf
+  AHhdYqA5ukeE yVygb8dep7HF ueKzHy0j1OjW`); pool `D9PoolFromDumpJob.RhwBlgMhqHbA`.
+- WALL CLOCK FROM MEASUREMENT, not assumption: D8.1a's finished shards ran 3,516 steps in 7:00 h at
+  `max_seqs=8`, 41 GB resident against 64 requested; D9.0's 512-utterance dump of THIS policy ran
+  256 steps in 21:23 at `max_seqs=2`, i.e. 2.51 s per utterance against D8.1a's 0.895 s at four
+  times the batch, which is the ratio the launch-bound cost model predicts. So the shards project
+  near 7 h against the 11.5 h cap and the batching is D8.1a's proven value, not a new guess.
+
+TWO IMPLEMENTER DECISIONS FOR THE PLANNER, both stated because the registration asks for knobs to
+be flagged rather than resolved silently. Neither is expensive to reverse: the 960 h dump is shared
+by every reading of them, and each refit training is minutes.
+
+1. THE POOL IS BUILT FROM THE DUMP'S OWN GREEDY ROWS, not from a separately decoded pool. In D8 the
+   support's greedy member was the D7 pool 1-best, decoded through a different decoder path, and
+   the dump's regenerated greedy disagreed with it on 31,562 of 281,241 utterances; the equivalence
+   read, the ten-shard text-path rescoring pass, the corrected-versus-legacy convention and the
+   sensitivity line that watches it all exist to repair that. D9 has no pre-existing pool -- its
+   1-best IS this dump's greedy decode, scored in the same forward pass as the rollouts. Building
+   the pool from the dump makes the two agree BY CONSTRUCTION, makes the same string arm 2's target
+   and arm 3's greedy support member (which is what makes "the one-hot special case of the drawn
+   target" true rather than approximately true), and saves the ten-shard greedy decode, about 115
+   GPU-hours. The price, stated rather than enjoyed: D8's convention-sensitivity line is VACUOUS
+   here -- both conventions read the same row for every tag -- so its empty flip list is a
+   tautology and not a passed check. The weight job's report says exactly that in print.
+2. ARM 2 IS `D7OnlineTrainJob` AT WEIGHT 0, i.e. D8's control recipe, on the reading that "the
+   incumbent refit recipe" means the recipe D8's own A/B calls the one-hot special case of the
+   drawn target. Under the other reading -- a fresh `PsiAlignTrainJob` -- arms 2 and 3 would differ
+   in recipe as well as target and D9.2's "soft-EM versus 1-best" contrast would be unreadable.
+   Switching costs one 14-minute job and nothing upstream.
+
+TAU IS PINNED, NOT SOLVED. `D8WeightJob` solves the registered |median ESS - 3| rule on whatever bed
+it is given, so running it unchanged here would re-derive on the evolved-point bed exactly the
+constant the registration pins ("at D8's registered tau ... no constant is re-derived here").
+`D9WeightJob` pins it at D8.1a's own `tau_star` = 0.05 and prints the bed's OWN solution beside it,
+so a bed that disagrees with the pin is visible in the artifact instead of hidden by it.
+
+HASH SAFETY ASSERTED, not assumed: the seams added to `d8_weights.py` (`_slice_statistics`,
+`_report_addendum`) and the optional `tau_override` in `d8_feasibility.slice_statistics` are all
+`run()`- or function-level, and `_source_identity` covers `d8_train.py`/`d7_online.py`/`psi_align*`
+but neither edited file. Re-read from the D8.4 graph after the edits: `D8WeightJob.juRpzTNHKCSq`,
+`D8ScorerRefitJob.2bQzhz6U1yHp`, `PsiAlignRerankJob.GNOktIsG251m` and `D8PoolScoresJob.1ivehCZ5q5ON`
+are all unmoved.
+
+Tests `scripts/d9_refit_test.py` 44/44; `d8_support_test` 27/27, `d8_convention_test` 7/7,
+`d8_draw_test` 11/11, `d8_admission_test` 4/4, `d8_eta_test` 12/12, `d8_bed_feasibility_test` 12/12,
+`d8_0_mechanics_test` and `d9_feasibility_test` 28/28 all still pass. `scripts/d8_1a_weights_test.py`
+fails with `build_support() missing pool_greedy` -- PRE-EXISTING and not mine: it predates the
+2026-08-22 pool-greedy ruling and `build_support` is untouched by these commits. Noted so a later
+reader does not mistake it for a live regression.
 
 **D8.1a IS COMPLETE. Verdict GO, one arm funded: `candidate_acoustic`** (approach 35 result table,
 verdicts 73-74). The latest+3 ruling is fully executed and nothing about D8.1a scoring is open.
