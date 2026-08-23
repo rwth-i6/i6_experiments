@@ -23,7 +23,7 @@ verdicts 73-74). The latest+3 ruling is fully executed and nothing about D8.1a s
   in the weight job, and the token mechanism named (verdict 72).
 
 **D8.1b IS COMPLETE** (planner ruling 2026-08-23; speech-llm `aadf92b`;
-`D8ScorerRefitJob.2bQzhz6U1yHp`; approach 36, verdicts 75-77). One training job,
+`D8ScorerRefitJob.2bQzhz6U1yHp`; approach 37, verdicts 75-77). One training job,
 `candidate_acoustic` only; the shaped arm is not funded and a future shaped arm is a new
 registration. No control trained -- the D7.1 exact control is reused at
 `D7OnlineTrainJob.j16rTskXF1QU` as the one-hot special case.
@@ -1329,7 +1329,7 @@ Pool-member provenance in the operative row: 281,241 of 281,241 members scored t
 path, 0 dump columns reused, 249,679 tags where the dump's regenerated greedy agrees anyway.
 `D8PoolScoresJob.1ivehCZ5q5ON` carries the full-bed pass with 0 degenerate rows.
 
-**36. D8.1b: the candidate-acoustic scorer refit.** The D7 exact-control recipe by import, with the
+**37. D8.1b: the candidate-acoustic scorer refit.** The D7 exact-control recipe by import, with the
 one registered change -- each anchor visit draws its target from the anchor's frozen `acoustic_only`
 weight vector at `tau_star` 0.05 instead of always the greedy 1-best. Batches are the control's own,
 formed by the control's code before any draw. No control trains: the D7.1 exact control
@@ -1344,6 +1344,14 @@ Draw diagnostics banked in `sampling.json`: 267,175 draws (one per anchor visit,
 11.273 members available, 68,164 drawn targets that encode identically to the control's, mean state
 length delta +1.379 against the control, 0 infeasible drawn members, donor cases
 `ordinary_window` 266,134 / `nearest_fallback` 1,041 with 0 infeasible donor pairs.
+
+Reading `sampling.json`: its `target` field says "own greedy pseudo-text, never a draw" and
+describes the INTERNAL-HELD evaluation only, not training. It is inherited from the D7 schema's
+held block and flattened into the top-level read here, where it reads as a contradiction of the
+arm's whole purpose. The held read must not depend on a training-time random variate and the
+control's held read is on the same texts, which is why the held targets are the greedy ones; every
+TRAINING target was drawn. The field is renamed in the next schema revision -- renaming it now
+would re-hash the finished job and orphan the artifact for a wording fix.
 
 ## Verdicts
 
@@ -2051,7 +2059,7 @@ function-word pairs rather than broad spelling diversity.
     the shaped numerator (verdicts 71-72) was real and its immateriality could only be established
     by making the measurement, never assumed from its size.
 
-75. **A36: D8.1b candidate-acoustic is COMPLETE, and the realized draw reproduces the frozen
+75. **A37: D8.1b candidate-acoustic is COMPLETE, and the realized draw reproduces the frozen
     weights.** `D8ScorerRefitJob.2bQzhz6U1yHp`: 267,175 draws, one per anchor visit over one pass,
     with a realized greedy-draw fraction of 0.25312 against the 0.25266 mean weight the frozen
     artifact places on the greedy member -- agreement to 5e-04 on a quantity nothing tuned. Three
@@ -2061,14 +2069,14 @@ function-word pairs rather than broad spelling diversity.
     format with role hashes, the sampler seed/state contract and its RNG key construction, ten
     per-shard loss records, and the internal-held read.
 
-76. **A36: the registered per-step-cost parity with the control HOLDS, measured.** The candidate ran
+76. **A37: the registered per-step-cost parity with the control HOLDS, measured.** The candidate ran
     13:52 against the control's 13:59 and the D7 online candidate's 13:58, over an identical 10
     shards, 2,361 batches, 267,175 trained and 14,062 held anchors. This is what the batching pin
     was for: forming batches from the control's items before any draw makes the shard membership,
     the batch partition and the step count the control's by construction, and the wall clock
     confirms the drawn targets did not move the cost.
 
-77. **A36 (DESCRIPTIVE, NOT AN ADMISSION READ): the candidate's fixed-final internal-held per-frame
+77. **A37 (DESCRIPTIVE, NOT AN ADMISSION READ): the candidate's fixed-final internal-held per-frame
     NLL is 2.51389 against the control's 2.52588.** One deterministic read on the held greedy
     targets, scored the same way for both arms and reported because the authorization asks for it.
     It decides NOTHING: D8.2 owns the registered admission, which is a PAIRED estimator with a
@@ -2086,7 +2094,7 @@ function-word pairs rather than broad spelling diversity.
 |---|---|
 | D8.1a pool-scoring overlap probe (64 agreeing tags, PARITY) | `work/speech_llm/sae/d8_pool_scores/D8PoolOverlapProbeJob.GerShND5ibtT` |
 | D8.1a token mechanism, disclosure for ruling part 3 (verdict 72) | `S/d8_pool_scores/D8PoolTokenMechanismJob.rVkoJpPoBGG8` |
-| D8.1b candidate-acoustic scorer refit (approach 36, verdicts 75-77) | `S/d8_train/D8ScorerRefitJob.2bQzhz6U1yHp`; control reused at `S/d7_online/D7OnlineTrainJob.j16rTskXF1QU`; code `sae/d8_train.py`, `configs/config_sae_3e1_d8_1b_v1.py`, `config/sae_3e1_d8_1b.py`, `scripts/d8_draw_test.py` (11/11) at speech-llm `aadf92b` |
+| D8.1b candidate-acoustic scorer refit (approach 37, verdicts 75-77) | `S/d8_train/D8ScorerRefitJob.2bQzhz6U1yHp`; control reused at `S/d7_online/D7OnlineTrainJob.j16rTskXF1QU`; code `sae/d8_train.py`, `configs/config_sae_3e1_d8_1b_v1.py`, `config/sae_3e1_d8_1b.py`, `scripts/d8_draw_test.py` (11/11) at speech-llm `aadf92b` |
 | D8.1a corrected-convention pool scoring and weight artifact (COMPLETE, verdicts 73-74) | `S/d8_pool_scores/D8PoolScoresJob.1ivehCZ5q5ON`, `S/d8_weights/D8WeightJob.juRpzTNHKCSq`; code `sae/d8_pool_scores.py`, `sae/d8_weights.py`, `configs/config_sae_3e1_d8_1a_v1.py`, `scripts/d8_convention_test.py` (7/7), `scripts/d8_support_test.py` (27/27) at speech-llm `3123090` |
 | code | `sae/scorer_diag.py`, `sae/text_repair.py`, `sae/psi_align_jobs.py`, `sae/psi_align.py`, `sae/curate.py`, `sae/gate_table.py`, `sae/refresh_gate.py`, `sae/d7_census.py`, `sae/d7_v2.py`, `sae/d7_online.py` (+ focused tests; D7.0a commit `a0a22b4`, D7-v2 commit `7b2069d`, D7 resume-RNG and infeasible-donor counter `1d10945` on speech-llm `haotian_modality_matching_jupiter`). `test_psi_align.py`'s CUDA/python lattice parity test now also carries two `d_min=2` skip_ok cases, so the topology D7 trains in is pinned; executed on a GH200 2026-08-21 (`log/parity_test.1445759.out`, passed, not skipped) since the login node has no GPU. |
 | entry points | `config/sae_3e1_d0.py`, `config/sae_3e1_usage.py`, `config/sae_3e1_d1d2.py`, `config/sae_3e1_d3.py`, `config/sae_3e1_d4.py`, `config/sae_3e1_d4p.py`, `config/sae_3e1_d5b.py`, `config/sae_3e1_d6.py` (builds D4' and the swap-in too), `config/sae_3e1_d6periodic.py`, `config/sae_3e1_d6periodic_warm.py`, `config/sae_3e1_hom.py`; D7 tracked canonical configs `src/speech_llm/prefix_lm/sis_recipe/exp2025_11_06_speech_llms/librispeech/configs/config_sae_3e1_d7_0a_v1.py` at `a0a22b4` and `config_sae_3e1_d7_v2_v1.py` at `7b2069d` (workspace wrappers only delegate) |
