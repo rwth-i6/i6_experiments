@@ -9,41 +9,53 @@ toward the decode route and 1g.10 (full-model LM-aware descriptive decode) is CO
 table BLOCKED by its own pre-registered explanation duty; 1g.2 is READ and CLOSED on its gate;
 1g.2a (H4-LM) is open with items 1-4 complete.
 
-**1g.10a IS BUILT, TESTED AND LAUNCHED under the planner's 2026-08-23 re-rule**
-(`H4CrossBeamDefectJob.2pV5rHuWJW3d`, alias `sae/1g/h4_full_model_decode/cross_beam_defect`;
-speech-llm `294c8fc`; manager `sae_1g_h4_full_model_decode` pid 3255771). Step zero came back
-STOP-AND-REPORT, the planner voided TESTS A and B, and TEST D and TEST U replace them. The
-re-ruled reporting rule is in the module docstring verbatim, written before any statistic of this
-job existed.
+**1g.10a IS COMPLETE: VERDICT DISCHARGED, both tests passing**
+(`H4CrossBeamDefectJob.2pV5rHuWJW3d`, 2 h 28 m, peak RSS 782 MB against an 8 GiB request).
+TEST D re-decoded 81 utterances (three disclosed cells, twice each) with ZERO violations at
+1e-12 nats. TEST U checked all 1,944 banked winners against their exact unpruned totals with
+ZERO violations at 1e-6 nats. Exact-currency context: of 384 differing-winner cases,
+exact(w512) beats exact(w256) in 352 and LOSES in 32, median gain +0.0109 nats per retained
+unit -- the wider beam usually but not always finds the better-scoring sequence, which is the
+search-error signature and not a scorer defect.
 
-- STEP ZERO, for the record: the selection RULE has the registered form
-  (`channel_h.py:518`, `max(final, key=final.get)`, no renormalization; the beam-normalized
-  `posterior`/`confidence` take no part in selection), but the SCORE is a pruned path-sum --
-  `prune` (`channel_h.py:479-485`) ranks whole prefixes by the logsumexp of their surviving states
-  and discards the rest, so a sequence's banked score sums only the paths that survived pruning.
-  Of 588 same-winner utterances only 117 agreed to 1e-9 nats per unit, so TEST A would have
-  convicted a decoder behaving as designed.
-- TEST U IS AN IDENTITY, NOT A SECOND IMPLEMENTATION, and that is the design point. The channel
-  part is `channel_h.marginal_path_log_score` unchanged -- the same forward sum the chunk job
-  already uses for its `channel_log_probability` column -- and the language-model and insertion
-  terms are alignment-independent, so they factor straight out of the sum over paths and are added
-  once per emitted symbol exactly where the decoder adds them. Re-implementing the topology would
-  have tested this module against itself rather than the decoder against its own unpruned total.
-- TESTED BEFORE LAUNCH, no artifact and no KenLM: `scripts/h4_cross_beam_defect_test.py` 9/9. The
-  load-bearing check runs the REAL decoder at a beam wide enough to prune nothing and requires the
-  exact score to reproduce its `log_score` to 1e-9, over six seeds and three grid points, for
-  every retained alternative and not only the winner, and with the silence-boundary policy on. A
-  further check confirms pruning actually bites at a narrow beam, so the direction test is not
-  vacuous.
-- TEST D's SELECTION IS DISCLOSED IN THE ARTIFACT: the minimum, median and maximum
-  observed-agreement cells, ties broken by cell key so the choice is reproducible from the
-  artifact alone, and the payload and report both carry the note that it is a bug hunt never
-  quoted as a comparison.
-- PURELY ADDITIVE: `H4FullModelDecodeReadJob.MXhi20TtG1I0` is hash-unchanged, so nothing about the
-  blocked 1g.10 table moves. The diagnostic reads the beam-512 CHUNK of the probe's own shard
-  rather than the merge, because TEST U compares both beams' winners on identical utterances.
-- NOT DONE AND NOT AUTHORIZED: no 1g.10b beam-1024 probe, no consequence branch taken, no 1g.10
-  cell read or quoted. The route question stays with the USER.
+**1g.10b IS BLOCKED ON A PLAN-VERSUS-CODE CONFLICT AND IS NOT BUILT. The registration says the
+beam-1024 probe uses "the existing chunk class at the same contract"; it cannot, because 1024 is
+not a registered beam and the beam tuple is load-bearing well outside 1g.10.** Reported rather
+than worked around, because both ways out have real cost and the choice is the planner's.
+
+- THE MECHANISM: `H4SequenceDecodeChunkJob.__init__` rejects any setting outside
+  `decoder_grid_rows()`, which is `DECODER_GRID` x `DECODER_BEAMS` with `DECODER_BEAMS =
+  (64, 128, 256, 512)` in `channel_h.py:33` and a hard `len(rows) != 48` assertion at
+  `h4_decode_jobs.py:209`. Beam 1024 is refused at construction.
+- WHAT I CHECKED AND GOT WRONG FIRST: I expected the source-identity guard to re-hash every
+  chunk if `channel_h.py` were edited. It does not. `self.source_identity` is set inside
+  `__init__` but is NOT a hashed constructor argument -- the chunk job's `info` file lists 16
+  PARAMETERs and it is not among them -- so it is a runtime drift guard, not a hash input. The
+  1,332 finished chunks would survive an edit to that file.
+- THE ACTUAL BLAST RADIUS, which is the reason to stop. `DECODER_BEAMS` is consumed by
+  `config_sae_1g_h2_decoder_preflight_v1.py:35` (12 new preflight cells),
+  `config_sae_1g_h4_global_beam_v1.py:82`, and `h4_beam_jobs.py:172/183/445`. The last is an
+  exact-count assertion, `expected_n = representatives x grid x beams`; the banked table
+  `H4GlobalBeamTableJob.ro6L8QCnqYpx` holds 144 cells = 3 representatives x 12 x 4, so a fifth
+  beam demands 36 NEW global-beam shard cells before the assertion can pass, and adds a
+  512-vs-1024 pair to that table's adjacent-beam logic, changing what the historical table
+  means. Worse, `cells` is a hashed argument of that job, so the banked table RE-HASHES and is
+  orphaned -- and because 1g.10 consumes `global_beam_table.out_global_beams`, the just
+  discharged `H4FullModelDecodeReadJob.MXhi20TtG1I0` re-hashes and is orphaned with it.
+- OPTION (a), add 1024 to `DECODER_BEAMS`: orphans the banked global-beam table cited in closed
+  verdicts AND the discharged 1g.10 read, and needs 48 new jobs before the graph builds. Not
+  recommended.
+- OPTION (b), RECOMMENDED: give 1g.10b its own probe job class that calls the same
+  `prefix_beam_decode` at beam 1024 on the contract shard and imports `_load_h1_units`,
+  `_retained_runs`, `_load_channel` and `_validate_contract` unchanged, so the input path and
+  the decode are literally the same code, without putting 1024 into the global beam tuple.
+  Every banked artifact survives. The deviation from "the existing chunk class" is a wrapper,
+  not a method.
+- OPTION (c), add a probe-only beam allowance via a new `__init__` kwarg on the existing class:
+  REJECTED on inspection, because a new constructor argument changes the parsed arguments and
+  would re-hash all 1,332 existing chunks -- the very cost option (b) avoids.
+- NOT DONE: no code edited, no job built, no beam constant touched. Awaiting the planner's
+  ruling between (a) and (b).
 
 **1g.10 IS COMPLETE, AND ITS TABLE IS BLOCKED BY ITS OWN PRE-REGISTERED EXPLANATION DUTY**
 (verdicts 30-31; `H4FullModelDecodeReadJob.MXhi20TtG1I0`; all 1,332 chunks and 36 merges finished
@@ -1364,7 +1376,34 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     verdict 30 it is NOT a licence to read the control's cells as a result, and no row is compared
     against another.
 
+32. **A16: 1g.10a returns DISCHARGED -- the adjacent-beam instability is pruning reshuffle in a
+    correct scorer, not a decoder defect, so the duty's block is satisfied.**
+    `H4CrossBeamDefectJob.2pV5rHuWJW3d`. TEST D (determinism): 81 utterances across three
+    disclosed cells, decoded twice each through the same entry point, ZERO violations at 1e-12
+    nats. TEST U (upper bound): all 1,944 banked winners -- both beams, every probe
+    utterance-cell -- rescored against their exact unpruned all-alignments totals, ZERO
+    violations at 1e-6 nats, so no pruned sum exceeds the total it is a subset of. The exact
+    score is an identity rather than a second implementation: its channel part is the
+    `marginal_path_log_score` the chunk jobs already bank, and the language-model and insertion
+    terms are alignment-independent and factor out of the path sum. WHAT THIS LICENSES: that the
+    beam-512 table may be read AS DESCRIPTIVE with each quoted cell carrying its own 256-vs-512
+    agreement beside it. It does NOT license cross-channel comparison, which the registration
+    holds pending 1g.10b, and it does not revisit verdict 30, which stands as written for its
+    date -- the block was correct until it was explained.
+
+33. **A16: beam 512 is NOT converged, and the exact-currency column says so in the only currency
+    where the question is well posed.** Rescoring both beams' winners unpruned and differencing:
+    of 384 differing-winner cases exact(w512) beats exact(w256) in 352 and LOSES in 32 (8.3
+    percent), median gain +0.0109 nats per retained unit, range -0.0567 to +0.1657. A wider beam
+    that were merely searching a superset could never lose, so this is the non-nested kept-set
+    effect the scouting round saw, now measured in a beam-independent currency: `prune` ranks
+    whole prefixes by their surviving mass, and because those masses grow with the beam the
+    ranking reshuffles, so a prefix kept at 256 can fall outside 512's top set. This is the
+    quantitative reason 1g.10b's beam-1024 probe exists, and it is context rather than a gate.
+
 ## Catalog
+
+1g.10a cross-beam defect diagnostic, verdict DISCHARGED (verdicts 32-33): `work/speech_llm/sae/h4_cross_beam_defect/H4CrossBeamDefectJob.2pV5rHuWJW3d` (`cross_beam_defect.json`, `cross_beam_defect.txt`); code `sae/h4_cross_beam_defect.py`, `scripts/h4_cross_beam_defect_test.py` (9/9) at speech-llm `294c8fc`.
 
 1g.10 full-model decode read, BLOCKED by its explanation duty (verdicts 30-31): `work/speech_llm/sae/h4_full_model_decode/H4FullModelDecodeReadJob.MXhi20TtG1I0` (`full_model_decode.json`, `full_model_decode.txt`); 1,152 beam-512 chunks + 36 merges + 36 single-shard beam-256 probes under `work/speech_llm/sae/h4_decode_jobs/`; code `sae/h4_full_model_decode.py`, `configs/config_sae_1g_h4_full_model_decode_v1.py`, `config/sae_1g_h4_full_model_decode.py`, `scripts/h4_full_model_decode_test.py` (9/9) at speech-llm `359dbeb`.
 
