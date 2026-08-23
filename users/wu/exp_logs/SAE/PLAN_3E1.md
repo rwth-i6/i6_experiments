@@ -2360,6 +2360,52 @@ dump) and so carries the D7-vs-D8 continuity story -- but it is never the verdic
 context; transcripts of the 512 tc100 utterances enter as evaluation measurement only, the same
 use every reward-rank probe of this dump family has made, disclosed.
 
+2026-08-23 closing (D8.4 FAILED CLOSED on the operative bed as registered; bed re-pin ruling).
+`D8EtaReadJob.S3NTCZAOfSnZ` refused per its own registered guard: 46 of 512 groups survive,
+because 25,867 of 31,744 rollout rows (81.5 pct) are unalignable by the psi family on the
+registered units join -- identically in BOTH arms (verified on disk: both rerank JSONs report the
+same 25,867/498 counts), so infeasibility belongs to the text-to-unit alignment, not to either
+scorer's weights. The guard behaved exactly as the standing rule wants: it gated a broken
+measurement and closed nothing. Mechanism verified by the planner's own read of both stores: the
+operative sae3d store (`MergeUnitsPklJob.hJmZtbPDa2hd`) and the 50 Hz enc50 tc100 pkl
+(`MergeUnitsPklJob.ncxcd3vouD5E`) carry the IDENTICAL 34,106 utterances at mean 146.8 vs 585.7
+unit frames per utterance, per-utterance ratio inside [3.79, 4.00] (median 3.99) -- the same
+stream at a quarter of the frame rate -- and under the standing minimum-duration topology
+(d_min >= 2 frames per symbol state) most operative-bed rollout texts need more states than the
+frames can host. The frame error was the PLANNER'S at registration: D8.0's clause (a) ("each
+dump joins ITS OWN unit store") governs reading a dump's STORED per-frame columns, and I carried
+it into FRESH alignment scoring, where the instrument's native evidence stream is what matters --
+both fixed-final scorers train against the same frozen 50 Hz enc50 store
+(`PackUnitsJob.I0uzRMfUrKWC`, verified in both training jobs' info files), so the quarter-rate
+join handed the instrument a bed it structurally cannot read.
+
+RULING (adopts implementer proposal 1; replaces the units join of the D8.4 primary pair,
+2026-08-23, because the registered join is structurally unreadable by the instrument): the
+primary pair re-runs on the SAME `J9yA1eYnxwYA` T=0.7 slice -- same policy, same draw, same
+banked per-rollout WERs -- joined to the 50 Hz enc50 tc100 pkl `MergeUnitsPklJob.ncxcd3vouD5E`
+(verified to cover all 512 dump utterances). Everything else is unchanged: same fixed-final
+scorers differing in `model_pt` alone, `n_boot=10000`, `seed=42`, the three-way reading with the
+incumbent-tie rule, and the reader guard (shared groups at or just below 512) -- which is now
+expected to PASS; if it refuses again that is again a planner matter, never a fallback. Clause
+(a) is SCOPED, not revoked: stored-column reads keep the own-store join; fresh alignment scoring
+joins the scorer's native-rate stream. Proposal 2 (re-decode) is DECLINED: the rollout texts do
+not depend on the store join, so a fresh decode changes the draw, loses the banked per-rollout
+WERs, costs a GPU pass, and buys nothing. Proposal 3 (full-set rank-only as the primary) is
+DECLINED: its measurand is dominated by a feasibility artifact common to both arms and
+confounded with candidate length; it stays the descriptive column it already is. The
+failed-closed artifacts stay banked as the record (log verdict 83). REQUIRED before the verdict
+is read: the bed-feasibility statistics quoted in verdict 83 / approach 38 (146.8 / 585.7,
+ratio 3.99, characters per frame, the crude bound) have no registered producer -- register a
+small reader job that prints its convention and point the approach-38 feasibility paragraph at
+it (the planner's verification read reproduced the headline numbers, but verdict-quoted
+aggregates need a reproducible producer; standing rule of 2026-08-22). Context that MUST print
+beside the eventual verdict for the USER: under the standing d_min >= 2 topology NEITHER psi arm
+can score the operative quarter-rate G-track stream (81.5 pct of rows at exactly zero
+probability), so psi-family selection reading that stream directly is structurally unavailable
+as pinned and any deployment reading of D8.3 must have the scorer read the 50 Hz stream, as this
+measurement now does. d_min >= 2 itself is standing by the user's ruling and is not revisited
+here; the interaction is recorded, not reopened.
+
 Replaces the §3e.1 two-sided gate (2026-08-07) BEFORE any verdict was read against v1, because
 v1's second arm is gold-conditioned as instrumented (fact 2), has the wrong sign against the
 filler mode (fact 3), and its first arm is not comparable across rounds (fact 4). All statistics

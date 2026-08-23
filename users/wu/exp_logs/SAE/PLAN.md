@@ -118,7 +118,12 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
   and the verdict is the paired delta eta with the registered bootstrap (spec in `PLAN_3E1.md`
   D8 Status; two new standing evaluation rules under North star & hard constraints). No
   operating point is selected from the failed tables; the still-running parity job is read
-  first as the possible vehicle.
+  first as the possible vehicle. 2026-08-23 closing: D8.4 FAILED CLOSED on the operative bed
+  as registered -- the quarter-rate G-track units join leaves 81.5 pct of rollout rows
+  unalignable under d_min >= 2, identically in both arms -- so the primary pair's units join is
+  re-pinned to the 50 Hz enc50 stream both scorers train against (same dump, same draw; ruling
+  and mechanism in `PLAN_3E1.md` D8 Status 2026-08-23 closing; fork-bed context column is
+  banked and INDISTINGUISHABLE at -0.0033 [-0.0164, +0.0096]).
 - **960 h stock-donor supervision-axis endpoint is ABSENT**: the theta_0 + gold-scorer arm ran
   only through sub-epoch 4, was stopped and deleted 2026-08-08, and never produced the listed
   3-pass endpoint; `ReturnnTrainingJob.22Ntu7y0O6iW` does not exist. Its observed collapse is

@@ -3719,3 +3719,24 @@ the absolute beta, is what carries the contamination claim.
   the reader, the per-dump unit-store join, and the State's plain self-correction are all as
   ruled. Awaiting results: the two operative reranks, the fork-pair candidate rerank, then the
   compares and `D8EtaReadJob.S3NTCZAOfSnZ`.
+- 2026-08-23 closing (D8.4 fail-closed round VERIFIED; ruling = bed re-pin, in `PLAN_3E1.md` D8
+  Status 2026-08-23 closing; ONE required correction). Every number in approach 38 and verdicts
+  82-83 reproduces on disk: the reader's refusal traceback (46 shared groups vs bed 512), both
+  compares' JSONs (primary +0.004347 [-0.10196, +0.12570] on 46 groups; fork context -0.003273
+  [-0.016366, +0.009597] on 28,531 groups, etas 0.24705/0.25033), identical infeasibility across
+  arms on BOTH beds (25,867/31,744 and 498 dropped in each operative arm; 38/399,546 and 8 in
+  each fork arm), the full-set rank-only columns (-0.16804/-0.15476 operative; +0.30862 fork
+  candidate), and clause-4 parity (512/512 round-tripped, max 2.384e-07, mean 4.657e-10, 0 pct
+  floored, tol 2e-3). The verifier independently reproduced the bed-feasibility mechanism from
+  the two stores directly: identical 34,106-key sets, mean frames/utt 146.8 vs 585.7,
+  per-utterance ratio in [3.79, 4.00] median 3.99, and all 512 dump utterances covered by BOTH
+  stores; also verified that both scorers train against the same frozen 50 Hz enc50 store
+  (`PackUnitsJob.I0uzRMfUrKWC`, from both training jobs' info files), which grounds the ruling.
+  The fail-closed guard, the no-fallback discipline, and the three proposals-without-choosing
+  are endorsed as exactly right. REQUIRED correction: the store statistics quoted in verdict 83
+  (146.8/585.7, ratio 3.99, chars per frame, the crude bound) have no registered producer --
+  no job, no checked-in script -- and the standing derived-statistics rule requires a
+  registered reader that prints its convention; register one and point the approach-38
+  feasibility paragraph at it. The ruling adopts proposal 1 (re-pin the primary pair's units
+  join to `MergeUnitsPklJob.ncxcd3vouD5E`, same dump, same draw; clause (a) scoped to
+  stored-column reads); proposals 2 and 3 declined. Verdict 83 itself stands as written.
