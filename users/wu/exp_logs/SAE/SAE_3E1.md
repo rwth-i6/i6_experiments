@@ -63,11 +63,27 @@ registration. No control trained -- the D7.1 exact control is reused at
   authorized persistence set already exposed a candidate number, so literal sequencing was gone.
 - The control is the D7.1 exact control at its existing hash; nothing retrains it.
 
-CLAUSE 1 IS READ AND PASSES (verdict 78): paired delta mean -0.012475, one-sided 95 percent upper
-bound -0.011800 against `delta_NI` 0.004826 -- the bound is below ZERO, so it would pass at D7's
-stricter zero margin too and the data-defined margin never became load-bearing. Clauses 2-4 (the
-paired corruption ladder, Acceptance gate v2 on the 1,500 external rows, and `PsiScorerParityJob`)
-are still running; the D8.2 verdict needs all four and is the planner's read.
+**D8.2 HAS A BLOCKING RESULT FOR THE PLANNER: it does not pass, and the registered consequence is
+that D8 CLOSES WITHOUT A POLICY LEG** (verdicts 78-81).
+
+- Clause 1 PASSES and strongly: paired delta mean -0.012475, one-sided 95 percent upper bound
+  -0.011800 against `delta_NI` 0.004826 -- below ZERO, so it would pass at D7's stricter zero
+  margin and the data-defined margin never became load-bearing.
+- Clause 2 FAILS: no corruption ladder has a bootstrap lower bound above zero, and `filler_ins` is
+  significantly WORSE at -0.0033 [-0.0064, -0.0003].
+- Clause 3 FAILS: gate v2 returns NO WINNER under both readings; the candidate is ineligible on
+  the ladder-not-below clause despite passing (i) floor, (i) improvement and (ii) and improving the
+  matched insertion discount at every k and leave-one-out cross entropy.
+- Clause 4 (`PsiScorerParityJob.sRJ7LUmF4nMw`) is still running. It is not needed to reach the
+  outcome and is NOT being skipped: it will be read, because no clause here is decided on another's
+  expected result.
+
+The localization to carry: the arm improved absolute fit and insertion pricing while failing to
+improve ranking. It learned the target distribution better without learning to discriminate
+corruption better -- the failure mode the acoustic-only arm was registered to expose. The gate's
+no-rescue rule bars selecting a different tau, group size or weight view from this table.
+
+NEXT ACTION IS THE PLANNER'S: the D8.2 verdict and the D8 closure are a plan decision, not mine.
 
 Housekeeping, not a blocker: the ten `all_bed*` jobs carry `error.run.1` markers from duplicate
 workers dying on the `job.save` that JOB_AUTO_CLEANUP archived. All ten are FINISHED with complete
@@ -1381,6 +1397,26 @@ speaker clusters, 10,000 resamples at seed 42:
 | `delta_NI` (control-only, D7.2 convention verbatim) | 0.004826 |
 | clause 1 | PASSES |
 
+D8.2 CLAUSES 2-3 (`PsiGateClauseTableJob.xFSaHcqvUR2S`), paired on the 1,443 of 1,500 external rows
+scored by every arm, seed 42, 10,000 row-bootstrap resamples. Corruption-ladder spearman, candidate
+minus control:
+
+| ladder | candidate level | paired delta | 95 percent CI |
+|---|---|---|---|
+| `filler_sub` | 0.9493 | +0.0027 | [-0.0001, +0.0053] |
+| `lmsub` | 0.9617 | +0.0019 | [-0.0007, +0.0044] |
+| `del` | 0.9520 | -0.0012 | [-0.0046, +0.0021] |
+| `filler_ins` | 0.9769 | -0.0033 | [-0.0064, -0.0003] |
+| `lmins` | 0.9258 | -0.0028 | [-0.0078, +0.0022] |
+
+Matched insertion discount, candidate minus control: k=1 +0.0078 [0.0044, 0.0113] p 0.000;
+k=2 +0.0060 [0.0006, 0.0114] p 0.029; k=4 +0.0097 [0.0019, 0.0172] p 0.012. Leave-one-out cross
+entropy: candidate 2.2343 against control 2.2588.
+
+Gate v2 clause row: candidate (i)floor PASS, (i)improvement PASS, (ii) PASS, ladders worse on 3 of
+5 by point estimate and 1 of 5 by confidence interval, ELIGIBLE False under both the point and the
+CI reading. Verdict NO WINNER (no eligible arm) under both readings.
+
 Reading `sampling.json`: its `target` field says "own greedy pseudo-text, never a draw" and
 describes the INTERNAL-HELD evaluation only, not training. It is inherited from the D7 schema's
 held block and flattened into the top-level read here, where it reads as a contradiction of the
@@ -2134,6 +2170,37 @@ function-word pairs rather than broad spelling diversity.
     FOUR registered clauses and decides D8.2 alone with none of them; discrimination, the external
     1,500-row gate and scorer parity are clauses 2-4 and are unread.
 
+79. **A37: D8.2 clause 2 FAILS -- the mechanism's claimed win is absent.** Clause 2 requires the
+    candidate-minus-control corruption-ladder spearman on the external rows to have a row-bootstrap
+    95 percent LOWER bound above zero. No ladder has one: the two positive point estimates
+    (`filler_sub` +0.0027, `lmsub` +0.0019) both have intervals straddling zero, and of the three
+    negative ones `filler_ins` is significantly WORSE at -0.0033 [-0.0064, -0.0003]. So spreading
+    the training target over the sampled group did not improve discrimination on any registered
+    corruption family, and degraded filler-insertion discrimination.
+
+80. **A37: D8.2 clause 3 FAILS -- gate v2 returns NO WINNER because the candidate is ineligible.**
+    The candidate passes the gate's (i) floor, (i) improvement and (ii) clauses, and improves the
+    matched insertion discount significantly at every k (+0.0078 p 0.000, +0.0060 p 0.029, +0.0097
+    p 0.012) and leave-one-out cross entropy (2.2343 against 2.2588). It is nonetheless INELIGIBLE
+    under both the point and the CI reading, on the ladder-not-below clause that verdict 79
+    measures. The incumbent control is eligible but cannot improve on itself, so the table returns
+    NO WINNER with no arm admitted.
+
+81. **A37: D8.2 does not pass, and the registered consequence is that D8 CLOSES WITHOUT A POLICY
+    LEG.** The gate reads "D8.2 passes for a candidate only if all four hold" and "failure at any
+    rung closes D8 without a policy leg; no tau, temperature, support or coefficient rescue is
+    selected from results." Clause 1 passes (verdict 78), clauses 2 and 3 fail (verdicts 79-80),
+    and clause 4 (`PsiScorerParityJob.sRJ7LUmF4nMw`) is still running and is not needed to reach
+    the outcome -- it is built and will be read rather than skipped, because no clause is decided
+    on another's expected result. WHAT THIS LICENSES AND WHAT IT DOES NOT: the posterior-weighted
+    refit is not funded to a policy leg AT THIS OPERATING POINT (group 12, T=0.7, tau_star 0.05,
+    acoustic-only weights). It is NOT a finding that soft multi-hypothesis targets cannot work, and
+    the registered no-rescue rule exists precisely so that the tau, group size or weight view that
+    happens to look better here cannot be selected from this table. The verdict is the planner's.
+    Localization worth carrying: the arm improved absolute fit and insertion pricing while failing
+    to improve ranking -- it learned the target distribution better without learning to discriminate
+    corruption better, which is the failure mode the acoustic-only arm was registered to expose.
+
 ## Catalog
 
 `T/` = `work/i6_core/returnn/training/`, `F/` = `work/i6_core/returnn/forward/`,
@@ -2143,6 +2210,7 @@ function-word pairs rather than broad spelling diversity.
 |---|---|
 | D8.1a pool-scoring overlap probe (64 agreeing tags, PARITY) | `work/speech_llm/sae/d8_pool_scores/D8PoolOverlapProbeJob.GerShND5ibtT` |
 | D8.1a token mechanism, disclosure for ruling part 3 (verdict 72) | `S/d8_pool_scores/D8PoolTokenMechanismJob.rVkoJpPoBGG8` |
+| D8.2 clauses 2-3, gate v2 table over the 1,500 external rows (verdicts 79-81) | `S/gate_table/PsiGateClauseTableJob.xFSaHcqvUR2S` |
 | D8.2 clause 1, paired admission with per-anchor evidence (verdict 78) | `S/d8_admission/D8AdmissionJob.C2HUHUtUjfhN` (`admission.json`, `admission.txt`, `per_anchor.jsonl` with 14,062 rows carrying paired deltas and speaker-cluster ids); code `sae/d8_admission.py`, `configs/config_sae_3e1_d8_2_v1.py`, `config/sae_3e1_d8_2.py`, `scripts/d8_admission_test.py` (4/4) at speech-llm `2bdb188` |
 | D8.1b candidate-acoustic scorer refit (approach 37, verdicts 75-77) | `S/d8_train/D8ScorerRefitJob.2bQzhz6U1yHp`; control reused at `S/d7_online/D7OnlineTrainJob.j16rTskXF1QU`; code `sae/d8_train.py`, `configs/config_sae_3e1_d8_1b_v1.py`, `config/sae_3e1_d8_1b.py`, `scripts/d8_draw_test.py` (11/11) at speech-llm `aadf92b` |
 | D8.1a corrected-convention pool scoring and weight artifact (COMPLETE, verdicts 73-74) | `S/d8_pool_scores/D8PoolScoresJob.1ivehCZ5q5ON`, `S/d8_weights/D8WeightJob.juRpzTNHKCSq`; code `sae/d8_pool_scores.py`, `sae/d8_weights.py`, `configs/config_sae_3e1_d8_1a_v1.py`, `scripts/d8_convention_test.py` (7/7), `scripts/d8_support_test.py` (27/27) at speech-llm `3123090` |
