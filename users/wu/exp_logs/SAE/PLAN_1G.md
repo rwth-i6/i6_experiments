@@ -2162,17 +2162,32 @@ T=1.0) — but M2 asked whether continuous observations improve a TRAINED scorer
 whether they rescue unsupervised EM from content-free optima; that question is untested and is
 this subphase's.
 
-**Approach.** Observations are the continuous twin of the `seg12.5` stream: segments are the
-SAME tokens the discrete stream has (per-utterance segment count identity with the discrete
-token sequence is asserted), and each segment's vector is the mean, over exactly that token's
-frames, of the same normalized PCA-space frame vectors the frozen unit pipeline pooled and
-assigned (normalization, PCA basis, and centroids fitted on the 2,849 dedicated train
-utterances only, read verbatim from the frozen artifacts; if any piece is not persisted, the
-repair is a refit from the same recipe accepted only when the reassigned discrete units
-reproduce the frozen stream exactly). The basis is truncated to its leading 128 components
-(user's choice; the actual frozen dimension is recorded, and a full-dimension sensitivity cell
-is optional); components are standardized by a scale fitted on the same 2,849 utterances and
-shipped for reuse (the `ContinuousFeatsJob` fit/assign split). Emissions: one diagonal Gaussian
+**Approach.** Observations are the continuous twin of the `seg12.5` stream at the TOKEN
+segmentation (replaces the bare "segments" wording, 2026-08-23, because the frozen pooling
+has a Ward layer the registration did not name: raw codebook runs are merged by adjacent-pair
+Ward cost to a per-utterance target, each surviving segment is assigned a centroid and its
+code written over the segment's frames, and the discrete stream is the run-length view of
+those codes -- 2,184 of 921,432 Ward segments, 0.237 pct, merge in that view): one vector per
+token of the frozen discrete stream, the mean over exactly that token's frames of the same
+normalized PCA-space frame vectors the frozen unit pipeline pooled and assigned
+(normalization, PCA basis, and centroids fitted on the 2,849 dedicated train utterances only,
+read verbatim from the frozen artifacts). Per-utterance count identity with the discrete
+token sequence holds by construction at this reading, which is what the paired per-utterance
+read requires. Fidelity rests on two checks that do not substitute for each other: the
+PIPELINE CHECK, asserted exact -- at the Ward segmentation the re-assigned segment means
+reproduce the frozen stream bit-for-bit through the pipeline's own pooling code, which is
+what binds features, basis, and segmentation to the frozen pipeline rather than a lookalike
+-- and the TWIN CHECK, reported never asserted -- the share of tokens whose mean re-assigns
+to the frozen code; given a passing pipeline check a non-absorbed token cannot mismatch, so
+any mismatch outside the absorbed-token set is a STOP, while absorbed-token mismatches are
+expected (their means span two Ward segments). The basis is the frozen one in FULL: it
+measured 96-dimensional (read off the artifact by implementer and verifier independently), so
+the registered leading-128 pin (replaces the truncation clause, 2026-08-23, because 128
+exceeds the frozen dimension) is discharged as a capacity ceiling plus a no-refit instruction
+that 96-of-96 satisfies, and the full-dimension sensitivity cell is dropped as vacuous -- it
+coincides with the primary. Components are standardized by a scale fitted over SEGMENT
+vectors (the objects this model observes; the fit/assign split governs the fit population,
+not the object type) on the same 2,849 dedicated train utterances and shipped for reuse. Emissions: one diagonal Gaussian
 per emission row of the frozen topology; PRIMARY covariance is one shared diagonal across all
 rows, with per-row diagonals as the single disclosed relaxation; both carry the M2 variance
 floor (`logvar = 2*min_log_std + softplus(raw)`, `min_log_std = log 0.1`, or the twin pinned in
@@ -2244,6 +2259,20 @@ re-derived; the frozen PCA basis truncated to 128, never refit; M2 disclosed. US
 2026-08-23 ("I greenlight 1g 11") — the 1g work hold, previously lifted for 1g.10 only, is
 lifted for 1g.11 by that word. Nothing launched; evidence goes to `SAE_1g.md`. Entry 8 cells
 3-4 (`PLAN_1F.md`) remain a separate open user decision.
+2026-08-23 result (experiment 1 COMPLETE and VERIFIED; both implementer flags RULED as the
+Approach amendments above). `G11ContinuousSegmentsJob.hImWJG0X4eZh` (speech-llm 16b1063):
+8,416 utterances, 919,248 token vectors, 921,432 Ward segments, frozen PCA dimension 96 kept
+in full, scale fitted on the 2,849 dedicated train utterances over 448,204 segment vectors.
+PIPELINE CHECK passed on all 8,416 utterances (bit-for-bit at the Ward segmentation, through
+the pipeline's own pooling code); TWIN CHECK 919,248 of 919,248 tokens (100.0000 pct)
+re-assign to their frozen code -- above the guaranteed floor (absorbed tokens need not match;
+all did), so no STOP question arises. The verifier independently re-read the quantizer
+artifact (pca components (96, 1024), centroids (500, 96)) and re-ran
+`g11_continuous_test.py`: 19/19. One standing pin for the unbuilt experiments 2-4: the
+Gaussian repair cells consume the same RETAINED token stream the table arm consumes (after
+the frozen silence mask), selected from the twin stream by per-token keying -- the twin's
+full-stream build is correct because masking is a downstream selection, and the repair
+registration must state the retained counts it actually trains on.
 
 ## 6. Deliverables ladder
 

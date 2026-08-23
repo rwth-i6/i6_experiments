@@ -2080,3 +2080,16 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   argue harder against escalation, not softer). The same universal claim in the PLAN_1G
   Status entry and in commit 66e4f5bf7's message is corrected by replacement in the plan;
   the commit message stands as history.
+- 2026-08-23 (1g.11 experiment 1 VERIFIED COMPLETE; both flags RULED as Approach amendments,
+  `PLAN_1G.md` 1g.11). Independent verifier reads: the frozen quantizer's `pca_components`
+  is (96, 1024) and centroids (500, 96) -- flag 1's fact confirmed from the artifact, the
+  128 pin discharged as a ceiling-plus-no-refit instruction, sensitivity cell dropped as
+  vacuous. Flag 2's token reading RATIFIED (count identity and "that token's frames" both
+  select it; it is what the paired read needs), with the reading rule now pinned in the
+  plan: after a passing pipeline check, a token mismatch outside the absorbed set is a
+  STOP. The job's own report matches the State entry field for field, the twin check landed
+  at 100.0000 pct (all 2,184 absorbed tokens included), and `g11_continuous_test.py` re-run
+  by the verifier is 19/19. The segment-fitted (not frame-fitted) component scale is
+  ratified with the implementer's stated reason. The nested-gold fixture story (a flat read
+  would have fitted the scale on evaluation utterances and looked right) is exactly the
+  leakage class the fit/assign split exists for -- good catch, nothing further needed.
