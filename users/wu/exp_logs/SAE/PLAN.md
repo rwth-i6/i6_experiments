@@ -188,7 +188,9 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    full-model sequence decode of the audited count-4 channels with the LM and duration law in
    the decoder; beam instability reported and explained by measurement, not used as an
    eligibility bar) is REGISTERED in `PLAN_1G.md`; the label-free selection surface stays
-   local-only and closed.
+   local-only and closed. 2026-08-23 later: the espum start's count-4 cells are promoted into
+   1g.10 experiment (1) on the USER's PUSM question; the fairseq-side companion is
+   `PLAN_1F.md` entry 8.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional
@@ -303,6 +305,19 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    on our LibriSpeech seed bed, full + bigram-only arms, signature-based read
    (bigram-only worse by >= 0.10); swaps then localize on the same bed. TIMIT returns
    only as a user option if the signature is absent.
+   2026-08-19: stage A RAN AND CLOSED NOT ANSWERABLE — the signature is reversed (-0.44
+   vs the +0.10 bar) but both arms sit far above the interpretability margin with flat
+   audio-swap controls, a contrast between two uninformative decodes (`PLAN_1F.md` entry
+   7 Status); stages B/C never built.
+   2026-08-23 (USER): "maybe even old PUSM approach should be decoded with LM? I never
+   saw PER from it as well" — verified: every banked 1f PER is a greedy/argmax decode
+   (the phone 4-gram only ever selected checkpoints, never decoded), while the released
+   wav2vec-U-family protocol's headline numbers are LM-decoded. Entry 8 (LM-decoded PER
+   of the PUSM/ESPUM arms: flashlight KenLM unit-LM decode of the stage-A arms +
+   CTC-student sanity control + nulls/ceiling RE-BANKED under the same decode +
+   published-anchor decode pin) is REGISTERED in `PLAN_1F.md` and AWAITS THE USER'S
+   LAUNCH WORD (planner recommends funding); the espum channel cells are already funded
+   inside 1g.10 experiment (1).
 3. **LM-prior domain adaptation (§0d) — RUN AND VERIFIED 2026-08-08** (`SAE_0d.md`; replaces
    the pre-run item because the phase executed): pre-check (i) PASSED; gate (ii) read — planner
    verdict in §0d Status **awaits the user's blessing** (margin over the audio-free null is

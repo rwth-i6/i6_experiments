@@ -1150,6 +1150,74 @@ hole wherever a selection curve is shown, and carries clip fraction and gnorm be
 PER (live logs 2026-08-18 14:42: full arm gnorm ~2332 at 100 % clip, bigram-only ~593 at
 95-100 % — the registered confound is live).
 
+## Entry 8 — LM-decoded PER of the PUSM/ESPUM arms (USER question 2026-08-23; registered pre-build; launch awaits the user's word)
+
+**Why (USER 2026-08-23: "maybe even old PUSM approach should be decoded with LM? I never saw
+PER from it as well").** Fact base, verified against the code and logs: every PER ever banked
+on the 1f track is an LM-free greedy decode — entry 5 by per-segment argmax (deviation (vi)),
+entry 7 by the released `w2vu_generate.py` "viterbi", which uses an all-zero transition
+matrix and is exactly per-frame argmax (the KenLM/lexicon decoders are stubbed to raise in
+the shim; the phone 4-gram enters only the label-free checkpoint/seed SELECTION metric). The
+released wav2vec-U-family evaluation protocol, by contrast, includes LM-decoded modes and its
+published headline numbers are typically LM-decoded. Scientific stake beyond fairness: stage
+A closed NOT ANSWERABLE because both arms were uninformative decodes — and the full-loss
+arm's PER is insertion-dominated (ins 1.0650 of 1.6828 at the fixed endpoint), which is
+exactly what an LM-plus-insertion-penalized beam decode attacks. If LM decoding pulls the
+arms below the interpretability margin's analog, the entry-7 signature question could become
+answerable after all — consistent with the standing 2026-08-23 rule that a registered kill
+condition is not the last word without the real measurement.
+
+**Cells (bounded, descriptive, labels evaluation-only, selects nothing).**
+1. GAN-generator leg (stage A): both arms (full loss, bigram-only) at both banked operating
+   points (label-free pick; fixed endpoint 40,000) — four decodes on the scored fifth (572
+   utterances). Decoder: an extension of the existing eval worker that constructs the
+   flashlight `LexiconFreeDecoder` with KenLM directly in the lexicon-free unit-LM mode
+   (mirroring the released `w2l_decoder.py` lexicon-free branch); NOT via `w2vu_generate`'s
+   KENLM path, which is broken as shipped (missing `flashlight.lib.sequence` poisons the old
+   import block; `lm_model` vs `kenlm_model` attribute mismatch). Bindings verified
+   installed and GH200-proven by the word-decode jobs (`flashlight-text` 0.0.7 with compiled
+   KenLM, python `kenlm`).
+2. Decode LM, pinned: PRIMARY is a SIL-augmented phone 4-gram built to the released recipe
+   (lmplz on the existing PhonemizeWithSilJob corpus; one `KenLMplzJob` +
+   `CreateBinaryLMJob` pair) matching the generator's SIL-augmented output vocabulary;
+   SENSITIVITY column is the banked SIL-free o4 (`CreateBinaryLMJob.hvZoC014xnIe`) with
+   `<SIL>` priced by sil_weight only. Grid: lm_weight {0.5, 1, 2, 4} x insertion/word_score
+   {-2, -1, 0}, beam at the released default; the FULL grid is reported, and the single
+   quotable number per arm sits at the LABEL-FREE-selected grid point (entry 5's weighted
+   phone-LM perplexity metric on the selection four-fifths), with the label-oracle best
+   disclosed beside it as an upper bound and never quoted alone.
+3. Decoder-sanity positive control: the Rung 0 CTC student (greedy 0.172 dev-other phone
+   PER) through the near-zero-code `decoding.type=kenlm, unitlm=true` path with the banked
+   SIL-free o4 (its vocabulary matches directly) — LM decoding must not materially degrade a
+   healthy model, and shows the expected gain shape at a healthy operating point.
+4. Currency re-banking: LM-decoded PERs are a NEW currency. They are never compared to the
+   banked argmax nulls/ceiling (0.8946 / 0.9239 / 0.4148); before any margin is quoted, the
+   null pair and the memoryless oracle-map ceiling are RE-BANKED under the identical LM
+   decode by the same LexFreeMatchJob protocol (the stage-C precedent), per the standing
+   magnitudes-are-per-arm rule.
+5. OPTIONAL second leg, separately launchable: the four banked entry-5 ESPUM checkpoints
+   (full seeds 0/1/2, bigram-only seed 0) through an analogous beam+LM decode over the
+   entry-5 segment stream — small new code; entry 5's gate is NOT reopened by it.
+
+**Anchor pin duty (before any external comparison).** Determine from arXiv:2310.02382 /
+GraphUnsupASR which decode produced the published TIMIT 0.473 anchor (viterbi or kenlm, and
+with which LM); record the answer in the producing job's docstring. Until pinned, no
+comparison of any of our numbers to that anchor may be quoted in either direction.
+
+**Reading (a measurement, not a kill gate; reporting rule goes verbatim into the producing
+job's docstring before results exist).** Per arm: LM-decoded PER with sub/ins/del beside the
+banked greedy PER at the same checkpoint. The one decision this read can trigger,
+pre-registered: IF the LM-decoded arms fall below the re-banked interpretability margin's
+analog, the planner brings the "is stage A answerable after all" question BACK to the USER as
+a fork; nothing reopens automatically, entry 5 and stage A closures stand meanwhile.
+
+**Status.** REGISTERED 2026-08-23 on the user's question. New spend on closed arms sits
+outside ruling 6's stage scope, so LAUNCH AWAITS THE USER'S WORD — planner recommendation:
+fund cells 1-4 (the stage-A decodes, the control, and the re-banked nulls; cheap CPU-side
+decoding on 572 utterances); cell 5 optional second. The 1g-side companion (LM-aware decode
+of the espum CHANNEL projection) is already funded as part of 1g.10 experiment (1),
+`PLAN_1G.md`.
+
 ## Screen battery (prerequisites (i)+(ii) made operational; the first fundable step)
 
 Run per REPRESENTATION of the same enc50 stream — raw, run-length-deduped, segment-pooled

@@ -1868,10 +1868,18 @@ All decodes are sisyphus GPU jobs on the existing
 `H4SequenceDecodeChunkJob`/`H4SequenceDecodeMergeJob` contract, channels bound through the
 existing count adapters; no new modeling code.
 
-**Experiments.** (1) pseudo-pair (`H4RepairJob.aeetC3NfgPxB`, count 4) and the controlled
-reference (`H4RepairJob.x1TyHJMfEVpb`, count 4) on the 890 selection-role utterances, all 12
-grid points, beams 256 and 512. (2) The Gate read; extension to the remaining three starts
-(fingerprint, random-map, espum) at the same cells only on the planner's read of (1). (3)
+**Experiments.** (1) pseudo-pair (`H4RepairJob.aeetC3NfgPxB`, count 4), the controlled
+reference (`H4RepairJob.x1TyHJMfEVpb`, count 4), and the espum start
+(`H4RepairJob.ViPSmq4Am8vX`, count 4) on the 890 selection-role utterances, all 12 grid
+points, beams 256 and 512 (espum added 2026-08-23, replacing the same-day two-start form,
+because the USER asked for the old PUSM approach decoded with an LM — the espum channel is
+its projection into this route; the fairseq-side companion is `PLAN_1F.md` entry 8). A true
+count-0 direct-Q sequence decode is NOT mechanically supported (the Q-start artifact schema
+`phase1g-h4-q-start-v1` fails the sequence decoder's `phase1g-phone-channel-v1` gate) and is
+NOT funded — no new modeling code stands; the count-0 B-table cell is decodable but is a
+different object from the banked count-0 direct-Q read and enters only if the planner asks
+after (1). (2) The Gate read; extension to the remaining two starts (fingerprint,
+random-map) at the same cells only on the planner's read of (1). (3)
 Readers are registered jobs printing their conventions: decoded TV to `p_text`, decoded rate
 residual to `r_target`, distinct-phone count, correct-phone fraction against the
 unigram-matched babble null p99 (the one statistic of the family verdict 29 showed
@@ -1893,6 +1901,11 @@ before any result exists.
 
 **Status.** REGISTERED 2026-08-23 on the user's direction word. Implementation not started;
 the implementer proposes shard/resource sizing in `SAE_1g.md` State before launch.
+2026-08-23 later (USER: "maybe even old PUSM approach should be decoded with LM?"):
+experiment (1) is amended by replacement to include the espum start's count-4 cells (see the
+replacement note in Experiments); the extension clause now covers fingerprint and random-map
+only. The fairseq-side LM-decoded PER of the PUSM/ESPUM arms is registered separately as
+`PLAN_1F.md` entry 8 and awaits the user's launch word there.
 
 ## 6. Deliverables ladder
 
