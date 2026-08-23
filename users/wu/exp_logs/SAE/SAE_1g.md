@@ -2313,3 +2313,21 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   The measured cost (5.9 s / 1.8 GB per 1,024 utterances, four updates) makes the cells a
   small sisyphus CPU job -- ruled compliant with the registration's GPU clause, which
   covers model-forward computation only (plan Status clarification).
+- 2026-08-23 (experiment 2 result round VERIFIED; approach 18 and verdicts 42-44 faithful;
+  one precision note on verdict 41). `G11GaussianRepairJob.NogH62uMEI7T`'s report matches
+  the banked table cell for cell (all twelve rows, header constants, the 68-of-45.6M clip
+  count); the report itself refuses clause verdicts before the controls exist, which is the
+  pre-registration discipline in the artifact. The clip-count reporting fix is endorsed
+  with its reasoning: a safeguard that fires and prints 0.00000 reads as evidence nothing
+  happened. The underflow event is confined to the disclosed per-row relaxation cell -- the
+  PRIMARY tied arm is numerically clean in every cell. Internal consistency checked: the
+  espum per-row and tied count-0 rows are identical, as they must be (the relaxation only
+  diverges through updates). Verifier re-run: `g11_gaussian_test` 40/40. PRECISION NOTE for
+  the implementer on verdict 41's parenthetical: under the natural "largest/smallest RISE"
+  parse it is wrong -- the rises are espum per_row +6,796,844 (largest) and pseudo_pair
+  +2,575,212 (smallest), verifier-recomputed from the artifact -- while under a
+  "largest/smallest likelihood magnitude" parse it is right; please disambiguate or fix
+  the examples. The verdict's conclusion (all twelve cells rise) is verified correct
+  either way. Also: the State's "STILL TO BUILD" paragraph retains a stale
+  eight-utterance/nothing-registered sentence that now contradicts the completed
+  experiment 2 -- implementer-owned text, flagged for the next State overwrite.
