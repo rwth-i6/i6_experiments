@@ -3296,3 +3296,23 @@ the absolute beta, is what carries the contamination claim.
   difference, not a contradiction; the registered rule reads D8.1a statistics alone. Verdict
   74's closing sentence is endorsed as written: the convention correction was necessary even
   though it proved immaterial, because immateriality was establishable only by measurement.
+- 2026-08-23 (D8.1b launch VERIFIED; conforms to the authorization; one convention pinned).
+  `D8ScorerRefitJob.2bQzhz6U1yHp` is on disk and running under the live `sae_3e1_d8_1b`
+  manager; the reused D7.1 exact control `D7OnlineTrainJob.j16rTskXF1QU` carries its finished
+  marker, so no control retrains, as authorized. Line review of speech-llm `aadf92b`: the
+  recipe is the control's code by IMPORT (constants, item construction, batching, model, store
+  loaders from `d7_online`), the one change is the target draw from the frozen `acoustic_only`
+  vector at tau_star 0.05, the funded view is a module constant that refuses shaped by
+  construction, and the refusal gate is real — the job raises unless the weight artifact reads
+  GO, funds exactly `candidate_acoustic`, and reports no sensitivity flips
+  (`d8_train.py:235-250`), plus a source-drift guard after graph construction. Suite re-run by
+  the verifier: `d8_draw_test.py` 11/11. The pre-launch feasibility numbers reproduce from the
+  frozen artifact under the verifier's own stream (median acoustic ESS 3.1945, median 13
+  positive members, greedy-member weight median 0.1795 / mean 0.2527, so ~75 % of visits draw a
+  non-greedy target — the arm is a real A/B); the "0.63 % one-hot groups" figure is exact under
+  the single-positive-member convention (0.631 %; thresholded readings give 0.643-2.567 %), now
+  pinned here since State did not name it — informational only, it feeds nothing. To read at
+  completion, per the authorization: the fixed-final persistence set (role hashes, sampler
+  seed/state contract, loss curves, internal-held reads), and `sampling.json`'s realized
+  greedy-draw fraction against the predicted ~0.25. D8.2's admission start remains a plan
+  decision after the refit finishes.
