@@ -160,8 +160,38 @@ also produces. The EM ran on the full 6,414-utterance update role and the decode
   worse than no safeguard, because it reads as evidence nothing happened. It now prints a count, and
   the rerun reproduced every other number identically.
 
-STILL TO BUILD: experiment 3's two nulls (the 1g.9 babble null, registered again verbatim, and the
-continuous observation null) and experiment 4's evaluation.
+**1g.11 EXPERIMENTS 3 AND 4 ARE BUILT AND LAUNCHED** (2026-08-23, on the USER's direction "I
+absolutely wanna see 1g.11 exp4 (actual decoding PER) tomorrow morning"; speech-llm `5a344f2`;
+config `sae_1g_11_exp34`; `scripts/g11_exp34_test.py` 26/26 plus the three earlier g11 suites
+green after the seam). Two jobs, and the graph is otherwise the finished 4,714 -- the experiment 1
+and 2 hashes were re-read from the loaded graph and are unmoved.
+
+- EXPERIMENT 3, the OBSERVATION NULL, is COMPLETE: `G11ObservationNullJob.orOc9h6K3cuR`, 47
+  seconds, 645,028 vectors redrawn. It is a SUBCLASS of the experiment-2 job overriding one
+  method, so "fitted and decoded exactly like the real arm" is a property of the code path rather
+  than a promise: the start, the constrained update rule, the decoder, the census and the artifact
+  schema are all reached through the arm's own calls, and the token counts, unit IDs, retained
+  index and boundaries are asserted to survive the redraw. The marginal is the pooled retained-token
+  set over BOTH folds, drawn as whole vectors with replacement (the literal object the registration
+  names; a component-wise draw would also destroy the feature geometry and answer a different
+  question).
+- EXPERIMENT 3's OTHER null, the babble null, is computed inside the experiment-4 reader rather
+  than as its own job. It is a function of gold and of each cell's decoded lengths and of nothing
+  else, so putting it beside the number it bars is the only placement that guarantees the two share
+  an alignment convention, a fold and a symbol inventory.
+- EXPERIMENT 4 is IN FLIGHT: `G11EvaluateJob.sWoS1bP4Nd12`, which scores both arms against gold on
+  the 890 selection utterances (the table arm from its banked one-bests, never re-decoded) and
+  reads all four clauses. Expected around 35 minutes, nearly all of it the babble-null draws.
+
+PROPOSAL FOR THE PLANNER, on a gap in the registered null rather than a change to it. Clause 2's
+bar is the 99th percentile of 100 draws, which is within noise of their maximum and is therefore a
+noisy bar. The job computes the registered 100-draw value as PRIMARY and prints two columns beside
+it that decide nothing: the same `p_text` null at 1,000 draws, so a reader can see whether the
+registered bar is stable rather than assume it, and the 1g.10 family's unigram-MATCHED null at
+1,000 draws, which redraws each cell from its OWN decoded histogram. The second is the strictly
+harder bar and it is the one verdict 29's failure mode motivates -- a content-free random-map
+control had the SMALLEST decoded total variation of five starts, so a cell can clear a `p_text` bar
+by having a better phone histogram than `p_text` and no content at all.
 
 ARTIFACT POINTERS for those, kept from the build notes (the shakeout numbers earlier in this entry
 are superseded by approach 18's table and were never evidence -- they ran on eight utterances):
