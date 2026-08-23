@@ -7,74 +7,40 @@ question each answers), blockers, next action, proposals for the planner. -->
 State as of 2026-08-23 -- entry 5 and entry 7 stage A are closed; PLAN_1F entry 8 (LM-decoded phone
 error rate) is BUILT, TESTED AND LAUNCHED on the USER's word for cells 1 and 2 only.
 
-**ENTRY 8 CELLS 1-2 ARE LAUNCHED** (`sae/gua_lm_decode.py` + `configs/config_sae_1f_entry8_v1.py`,
-speech-llm `4fa256c`/`9c82344`; manager `sae_1f_entry8`; read `GuaLmGridReadJob.1z40npwD4yu1`
-primary and `GuaLmGridReadJob.a1Z3OBHz3tjl` sensitivity). Eight grid-decode jobs, two reads, plus
-the two language-model jobs the sensitivity column needs -- twelve unfinished jobs and nothing else.
+**ENTRY 8 CELLS 1-2 ARE COMPLETE** (verdicts E8.1-E8.4; primary read
+`GuaLmGridReadJob.SeNSdRhV1Wo3`, SIL-augmented sensitivity `GuaLmGridReadJob.I9lgMOqar8RO`; all
+eight grid-decode jobs and both reads finished, ZERO error markers). The headline: language-model
+decoding does cut the arms' error rate a long way (full loss 1.6828 -> 0.8444, bigram only
+1.2409 -> 0.8172 at the label-oracle cell) and it does it largely by emitting half as many phones,
+so the mechanism is confirmed and a usable decode is not. Sizing note for anyone repeating this:
+the whole grid cost about an hour of GPU per arm; 572-utterance lexicon-free decoding at beam 50 is
+51 seconds.
 
-- VERIFIED END TO END BEFORE LAUNCH, not asserted: the released generation script with the patched
-  KenLM branch decoded the full arm's scored fifth at the fixed endpoint in 51 seconds and moved
-  its phone error rate from the banked greedy 1.6828 to 0.9322, with insertions 1.0650 -> 0.0979.
-  That is the registration's own predicted mechanism, measured before any job was submitted. It is
-  NOT a result: it is one grid cell of one arm, run by hand, and it is superseded by the read job.
-- THE ENTRY-7 RELABELING CHAIN IS KEPT OUT OF THIS GRAPH. Entry 8 needs entry 7's four finished
-  checkpoints, so it calls entry 7's build -- which registers its relabeling chain, twelve
-  unfinished jobs, and a manager here would have funded them. That is exactly the spend
-  `sis_managers.sh` blocks the entry-7 manager to prevent, so entry 8 suppresses entry 7's
-  registrations while it builds and registers only its own outputs. Job construction is untouched
-  and every entry-7 hash is unchanged; verified from the graph, whose only unfinished jobs are the
-  twelve above.
-- THREE PROPOSALS FOR THE PLANNER, each a place where the registration assumed something the code
-  or the data does not support. All three are disclosed in the producing module's docstring and in
-  the reader's printed payload, so no number can be read without them.
-  1. THE SECOND GRID AXIS IS NOT AN INSERTION SCORE. The registration names the axis
-     "insertion/word_score". The released lexicon-free branch has no such knob -- its options
-     carry beam size, beam size token, beam threshold, lm_weight, sil_score, log_add and criterion
-     type, and a word score exists only in the LEXICON branch. The registered values {-2, -1, 0}
-     are taken by `sil_weight` here, with 0 the released default. The registration's stake, an
-     insertion-dominated error rate, is attacked on this decoder by `lm_weight`, because a unit
-     language model charges every emitted phone; the hand probe above is that mechanism.
-  2. THE PRIMARY AND SENSITIVITY LANGUAGE MODELS ARE INVERTED BY THE VOCABULARY. The registration
-     pins a SIL-augmented 4-gram as primary, "matching the generator's SIL-augmented output
-     vocabulary". The entry-7 generator has no such vocabulary: `GuaTextJob` writes 39 phone types
-     and no silence symbol, and the model already in its text directory is the SIL-free
-     `CreateBinaryLMJob.hvZoC014xnIe`. The SIL-free model is therefore run as PRIMARY and the
-     SIL-augmented one as a DISCLOSED vocabulary-mismatch sensitivity on the two fixed-endpoint
-     arms.
-  3. THE LABEL-FREE GRID SELECTOR IS CIRCULAR ON THE lm_weight AXIS. The registered rule picks the
-     quotable grid point by entry 5's weighted phone-LM perplexity, which scores hypotheses with
-     the SAME phone language model this decoder optimizes against; raising lm_weight improves it
-     almost by construction, with only the inventory-usage penalty pushing back. The full grid is
-     printed, the rule's pick is named as quotable with this disclosure attached, and the
-     label-oracle best is printed beside it as an upper bound.
-- ONE THING THE REGISTRATION DID NOT ASK FOR AND THE DECODER NEEDS: a beam. This bundle ships no
-  configuration for language-model decoding of the generator -- its `run.sh` decodes the generator
-  with viterbi only and reaches KenLM in the Kaldi self-training stage -- so the defaults of the
-  configuration that owns the branch being mirrored are used (beam 50, threshold 50, beam size
-  token the full vocabulary) and a beam-500 convergence probe runs on the scored fifth of both
-  fixed-endpoint arms, so the beam is measured rather than asserted.
-- THE PLANNER'S 2026-08-23 RULINGS ARE ABSORBED AND EXECUTED (speech-llm `0b74181`). All three
-  proposals were ruled as amendments by replacement in my favour, so nothing built needs changing:
-  the second axis IS `sil_weight`, the SIL-free 4-gram IS primary with the SIL-augmented one the
-  disclosed mismatch sensitivity, and the label-free selector stands with its circularity
-  disclosed. Two things did need doing and are done. (a) THE ANCHOR PIN IS DISCHARGED and now sits
-  verbatim in `gua_lm_decode.py`'s docstring rather than only in the plan: the published TIMIT
-  0.473 is ESPUM "uni+bi+tri" on the UNMATCHED TEST set WITHOUT HMM self-training, and the repo's
-  `run.sh` evaluates through `w2vu_generate.py --config-name viterbi`, which is per-frame argmax
-  with NO language model at decode time (Kaldi's LM decode lives only in the separate
-  self-training stage). So the anchor is GREEDY/ARGMAX currency: the banked entry-5 and entry-7
-  argmax rates were already like-for-like with it, entry 8's LM-decoded rates are NOT, and no
-  entry-8 number may be quoted against 0.473 in either direction. (b) RULING (3)'s reporting rule
-  is now code: the reader prints the grid's own PER range beside the quotable pick, so the
-  near-circular selector's leverage is visible at every citation. `scripts/gua_lm_decode_test.py`
-  31/31.
-- NOT BUILT AND NOT LAUNCHED, deliberately: cell 3 (the CTC-student decoder-sanity control) and
-  cell 4 (re-banking the argmax nulls and the memoryless oracle-map ceiling under this decode).
-  Until cell 4 exists NO margin against 0.8946 / 0.9239 / 0.4148 may be quoted from this graph --
-  LM-decoded rates are a new currency -- and the read job prints that restriction with every table.
-  Cell 5 (the entry-5 ESPUM checkpoints) is the registration's optional second leg and is
-  untouched. The ANCHOR PIN DUTY is undischarged: no comparison against the published TIMIT 0.473
-  anchor is licensed in either direction until its decode is pinned.
+- THREE THINGS THE RESULT ITSELF EXPOSED, all now in the verdicts. (1) `sil_weight` is INERT --
+  identical decodes at all three values -- because the vocabulary has no silence symbol and
+  fairseq's index rule falls through to end-of-sentence, so the ruled second axis is a no-op and
+  the grid is 4 points, not 12. (2) The registered label-free selector picks the WORST cell on
+  both full-loss arms, and in the opposite direction to the circularity I disclosed: it prefers
+  low lm_scale because per-token perplexity rewards the long insertion-heavy decode. (3) Beam 50
+  is converged for the RATE (a ten-fold wider beam moves PER by at most 0.0195) and nowhere near
+  converged for the SEQUENCE (one-best agreement as low as 0.1136).
+- TWO GAPS OF MINE THAT THE FIRST READ EXPOSED, both fixed at speech-llm `55045ed`, both
+  re-keying only the read jobs: the beam-500 probe finished with NOTHING consuming it -- a probe
+  that is registered and never read is a probe that was not run -- and the payload still printed
+  the anchor pin as UNDISCHARGED after the planner discharged it.
+- FOR THE PLANNER, since two ruled constants turned out to be inert or harmful in practice rather
+  than in principle: ruling (1)'s `sil_weight` axis buys nothing on this vocabulary and a future
+  grid should drop it; and the registered label-free rule of ruling (3) is not just circular but
+  actively anti-selecting on the full-loss arms, so if any entry-8 number is to be quoted as a
+  single figure, the label-oracle cell with its range is the honest one and the rule's pick is
+  not. Neither is mine to change.
+- STILL NOT BUILT: cell 3 (the CTC-student decoder-sanity control) and cell 4 (re-banking the
+  argmax nulls and the memoryless oracle-map ceiling under this decode). Until cell 4 exists no
+  margin against 0.8946 / 0.9239 / 0.4148 may be quoted, and the pre-registered "stage A
+  answerable after all" trigger cannot be evaluated. Cell 5 (the entry-5 ESPUM checkpoints) is
+  untouched. The ANCHOR PIN IS DISCHARGED and recorded in `gua_lm_decode.py`: the published TIMIT
+  0.473 is greedy/argmax currency, so no entry-8 number may be quoted against it in either
+  direction.
 
 ## Approach
 
@@ -348,11 +314,74 @@ probe on the fixed-endpoint arms. Nothing is refit and no checkpoint is selected
 | greedy (banked, entry 7) | full loss, fixed endpoint | 40,000 | 1.6828 | 0.6153 | 1.0650 | 0.0025 |
 | pre-launch hand probe, lm_weight 2 / sil 0 / beam 50 | full loss, fixed endpoint | 40,000 | 0.9322 | 0.7624 | 0.0979 | 0.0718 |
 
-The second row is a single cell run by hand to prove the chain end to end before any job was
-submitted; it is not a result and is superseded by `GuaLmGridReadJob.1z40npwD4yu1`. Both rows are
-plain rates on the same 572 utterances against the same references.
+The second row was a single cell run by hand to prove the chain end to end before any job was
+submitted; it is superseded by the table below. Both rows are plain rates on the same 572
+utterances against the same references.
+
+RESULT, primary language model (SIL-free 4-gram, `CreateBinaryLMJob.hvZoC014xnIe`), beam 50,
+`GuaLmGridReadJob.SeNSdRhV1Wo3`. Every arm's full 12-cell grid is in the artifact; each row here
+carries the registered label-free pick, the label-oracle best as its upper bound, and the grid's
+own range, per the planner's ruling (3):
+
+| arm | greedy PER | label-free pick | label-oracle best | grid PER range | hyp/ref phones at the oracle cell |
+|---|---|---|---|---|---|
+| bigram only, fixed endpoint | 1.2409 | 0.8481 (lm 0.5) | 0.8172 (lm 1) | 0.8172-0.8985 | 20836/34135 |
+| bigram only, label-free pick | 1.2449 | 0.8520 (lm 0.5) | 0.8195 (lm 1) | 0.8195-0.8963 | 21082/34135 |
+| full loss, fixed endpoint | 1.6828 | 1.5446 (lm 0.5) | 0.8444 (lm 4) | 0.8444-1.5446 | 17212/34135 |
+| full loss, label-free pick | 1.6843 | 1.4805 (lm 0.5) | 0.8463 (lm 4) | 0.8463-1.4805 | 15949/34135 |
+
+Error decomposition at the two ends of the full-loss endpoint arm's grid: at lm 0.5 the decode is
+still insertion-dominated (sub 0.6466, ins 0.8950, del 0.0030, 64,586 phones emitted against
+34,135 reference); at lm 4 the insertions are gone and deletions have taken over (sub 0.3444, ins
+0.0021, del 0.4979, 17,212 phones). The bigram-only arm shows the same trade at lower lm_scale.
+
+Beam-500 convergence probe, same cells, same 572 utterances, both fixed-endpoint arms: PER moves by
+at most 0.0195 in any cell (every delta negative, i.e. the wider beam is never worse), while
+one-best agreement between the two beams runs 0.1136 to 0.4843. The rate is converged at beam 50;
+the SEQUENCE is nowhere near converged.
+
+SENSITIVITY, SIL-augmented 4-gram on the two fixed-endpoint arms
+(`GuaLmGridReadJob.I9lgMOqar8RO`): same shape, slightly worse throughout -- full loss best 0.8476
+against 0.8444, bigram only best 0.8145 against 0.8172 -- so the vocabulary mismatch costs little
+here and changes no conclusion.
 
 ## Verdicts
+
+**Entry 8 cells 1-2, four verdicts.**
+
+E8.1. **Language-model decoding cuts the entry-7 arms' phone error rate by a large margin, and it
+does it mostly by emitting fewer phones.** Best cell against the greedy rate at the same
+checkpoint: full loss 1.6828 -> 0.8444, bigram only 1.2409 -> 0.8172. But the best cells emit
+between 47 and 62 percent of the reference phone count, and their error is deletion-dominated
+(full loss at lm 4: ins 0.0021, del 0.4979). Both arms land in the same 0.82-0.85 band from very
+different starting points, which is the band a decode reaches by saying little. The registered
+mechanism -- an insertion-dominated rate attacked by a language model -- is CONFIRMED as a
+mechanism and does NOT deliver a usable decode.
+
+E8.2. **The second grid axis is INERT on this decoder: all three `sil_weight` values give the same
+decode in every cell.** Not merely "not an insertion score" (the ruled amendment), but a no-op.
+The cause is the same fact that inverted the language-model pin: the entry-7 generator's
+vocabulary has no silence symbol, so fairseq's own index rule falls through to the
+end-of-sentence index, and `sil_score` is charged on a token the decoder never emits. The grid
+that ran is therefore 4 points, not 12. Every 12-row table in the artifact is 4 distinct decodes
+repeated three times, and it should be read that way.
+
+E8.3. **The registered label-free selector fails here, and in the OPPOSITE direction to the one I
+disclosed.** I flagged it as near-circular and predicted it would be dragged toward high
+lm_weight. It picks lm 0.5 -- the LOWEST -- in all four arms, because weighted phone-LM perplexity
+per token rewards the long, insertion-heavy decode. On the two full-loss arms that is the WORST
+cell of the grid: 1.5446 picked against 0.8444 available, and 1.4805 against 0.8463. On the
+bigram-only arms the damage is small (0.8481 against 0.8172). CONSEQUENCE: the quotable number
+under the registered rule is 1.5446 for the full-loss arm, which is worse than three quarters of
+its own grid; quoting it without the range beside it would misrepresent the decode in the harmful
+direction. The planner's ruling (3) reporting rule is what makes that visible, and it is now
+printed by the producing job.
+
+E8.4. **Beam 50 is converged for the RATE and not for the SEQUENCE.** A ten-fold wider beam moves
+PER by at most 0.0195 in any cell while the two beams agree on the one-best in as few as 11.4
+percent of utterances. The same signature the 1g decoder showed at its own beam doublings
+(PLAN_1G verdicts 33-35): many near-equal hypotheses, so which one wins is unstable while what it
+scores is not. No beam escalation is warranted for this measurement.
 <!-- One line per answered experimental question, resting on a number in that approach's table. A
 wrong verdict is marked WRONG with a one-line correction below it, never rewritten. (Migrated from
 the pre-format "Conclusion" heading, 2026-08-23; entries below predate the one-line form.) -->
@@ -574,6 +603,8 @@ different reasons, only one of which a larger budget could move.
 |---|---|
 | entry 8 LM decode code (+ tests) | `recipe/2025-10-speech-llm/src/speech_llm/sae/gua_lm_decode.py`, `scripts/gua_lm_decode_test.py` (27/27) at speech-llm `4fa256c` |
 | entry 8 config | `config/sae_1f_entry8.py` -> `.../librispeech/configs/config_sae_1f_entry8_v1.py` |
+| entry 8 reads, primary / SIL-augmented sensitivity | `work/speech_llm/sae/gua_lm_decode/GuaLmGridReadJob.SeNSdRhV1Wo3` / `.I9lgMOqar8RO` (`entry8_lm_per.txt`, `.json`) |
+| entry 8 grid decodes (8 jobs, 4 arms x 2 LMs + 2 beam probes) | `work/speech_llm/sae/gua_lm_decode/GuaLmDecodeGridJob.*` |
 | §1f prerequisite config | `config/sae_1f_prereq.py` -> `.../librispeech/configs/config_sae_1f_prereq_v1.py` |
 | measurement code (+ CPU tests) | `recipe/2025-10-speech-llm/src/speech_llm/sae/channel_audit.py`, `test_channel_audit.py` |
 | audited inventory (codebook) | `work/speech_llm/sae/quantize_states/QuantizeStatesJob.FWpGhC941JMi` |
