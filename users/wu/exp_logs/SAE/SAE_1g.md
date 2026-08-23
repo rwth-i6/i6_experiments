@@ -4,11 +4,11 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-State as of 2026-08-23 -- 1g.2 is READ and CLOSED on its gate; 1g.9 is CLOSED by its own
+State as of 2026-08-24 -- 1g.2 is READ and CLOSED on its gate; 1g.9 is CLOSED by its own
 off-ramp; the whole 1g.10 family (the decode route the USER chose at the direction fork) is CLOSED
-by the planner. Open work: 1g.2a (H4-LM), items 1-4 complete, and 1g.11, whose experiment 1 is in
-flight. The other live implementer work is PLAN_1F entry 8 (SAE_1f.md) and PLAN_3E1 D9.1
-(SAE_3E1.md).
+by the planner. 1g.11 is COMPLETE through all four experiments and its gate is read; nothing of it
+is in flight and I have launched no follow-up. Open work: 1g.2a (H4-LM), items 1-4 complete. The
+other live implementer work is PLAN_1F entry 8 (SAE_1f.md) and PLAN_3E1 D9.1 (SAE_3E1.md).
 
 **1g.11 EXPERIMENT 1 IS COMPLETE, BOTH CHECKS CLEAN** (user-greenlit 2026-08-23; speech-llm
 `16b1063`; `G11ContinuousSegmentsJob.hImWJG0X4eZh`; approach 17, verdicts 38-40). The continuous
@@ -179,19 +179,36 @@ and 2 hashes were re-read from the loaded graph and are unmoved.
   than as its own job. It is a function of gold and of each cell's decoded lengths and of nothing
   else, so putting it beside the number it bars is the only placement that guarantees the two share
   an alignment convention, a fold and a symbol inventory.
-- EXPERIMENT 4 is IN FLIGHT: `G11EvaluateJob.sWoS1bP4Nd12`, which scores both arms against gold on
-  the 890 selection utterances (the table arm from its banked one-bests, never re-decoded) and
-  reads all four clauses. Expected around 35 minutes, nearly all of it the babble-null draws.
+- EXPERIMENT 4 is COMPLETE: `G11EvaluateJob.sWoS1bP4Nd12`, 24 minutes, all four clauses read
+  (approach 19, verdicts 45-51). Twenty-four cells, both arms, on the 890 selection utterances;
+  the evaluation fifth untouched.
 
-PROPOSAL FOR THE PLANNER, on a gap in the registered null rather than a change to it. Clause 2's
-bar is the 99th percentile of 100 draws, which is within noise of their maximum and is therefore a
-noisy bar. The job computes the registered 100-draw value as PRIMARY and prints two columns beside
-it that decide nothing: the same `p_text` null at 1,000 draws, so a reader can see whether the
-registered bar is stable rather than assume it, and the 1g.10 family's unigram-MATCHED null at
-1,000 draws, which redraws each cell from its OWN decoded histogram. The second is the strictly
-harder bar and it is the one verdict 29's failure mode motivates -- a content-free random-map
-control had the SMALLEST decoded total variation of five starts, so a cell can clear a `p_text` bar
-by having a better phone histogram than `p_text` and no content at all.
+**1g.11 IS ANSWERED AND THE ANSWER IS FOR THE PLANNER TO RULE ON.** Clause 3 fails on its second
+condition: the selected real start's Gaussian gain over its own banked table cell is +0.0098
+[+0.0058, +0.0137], and the content-free random-map control gains +0.0251 [+0.0202, +0.0302]
+against the same comparator -- a larger gain with a non-overlapping interval, so no threshold for
+"comparable" is needed to read it. The registration's own failure clause applies verbatim:
+"continuous emissions are not funded at this operating point; evidence toward the training
+paradigm as the binding constraint", conditional on the shared `seg12.5` segmentation. The
+registered follow-up (the wav2vec-U-faithful variant) is by that same clause NOT funded, and I
+have launched nothing further.
+
+The reading a quote of this table could easily get backwards, so it is stated here as well as in
+verdict 47: `gaussian|controlled/reference` is scored `c2 = .` NOT because it lacks content -- its
+margin over the babble bar is +0.4952 at count 0 -- but because clause 2 reads readable cells only
+and clause 1 excluded it on decoded length (0.7947 of gold, under the 0.80 floor).
+
+PROPOSAL FOR THE PLANNER, now answered by its own measurement rather than left open. Before the
+run I flagged that clause 2's bar is the 99th percentile of 100 draws, within noise of their
+maximum. The job printed the registered value as PRIMARY and the same null at 1,000 draws beside
+it; they agree to within 6.1e-04 in the worst of the 24 cells, against a smallest clause-2 gap of
+0.0090, so the concern does not bite and no amendment is proposed. The 1g.10 unigram-MATCHED null
+is printed as a third column and decides nothing; it changes no clause-2 verdict in this table.
+
+NOT MEASURED HERE, so that no reader infers it: the sequence (LM-aware) decoder was not run on the
+Gaussian arm -- the registration makes those cells readable only after the same stability duty
+1g.10 imposed, which 1g.10b found no beam satisfies. Every number in approach 19 is from the frozen
+local decoder twin on both arms.
 
 ARTIFACT POINTERS for those, kept from the build notes (the shakeout numbers earlier in this entry
 are superseded by approach 18's table and were never evidence -- they ran on eight utterances):
@@ -1113,6 +1130,66 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     `clipped` counts (token, state) emissions held at the float64 dynamic range out of about 45.6
     million per cell; it is a numerical floor, not a model term.
 
+19. **1g.11 experiments 3 and 4: the observation null and the evaluation against gold.** The
+    observation null is the same class with one method overridden: every retained token's vector
+    redrawn i.i.d. with replacement from the pooled corpus segment-vector marginal over both folds,
+    token counts, unit IDs, retained index and duration boundaries asserted to survive, fitted and
+    decoded through the arm's own code (`G11ObservationNullJob.orOc9h6K3cuR`; 645,028 vectors
+    redrawn; log-likelihood -79,970,371.2 at count 0 to -75,850,789.7 at count 4). The evaluation
+    scores BOTH arms against gold on the 890 selection utterances -- the table arm from its banked
+    one-bests, never re-decoded -- on the unit-cost Levenshtein of `h4_validation_jobs`, pooled
+    PER, with the edit decomposition beside every PER and the babble null computed in the same job.
+    The 1,112-utterance evaluation fifth is untouched. `len/gold` is decoded symbols over GOLD
+    phones (clause 1's own wording) and is NOT the 1g.10 family's ratio to `r_target`.
+
+    | cell | PER | corr | len/gold | TV | S | I | D | null p99 | c1 | c2 |
+    |---|---|---|---|---|---|---|---|---|---|---|
+    | gaussian reference tied 0 | 0.3498 | 0.6502 | 0.7947 | 0.1018 | 6,687 | 1,066 | 13,594 | 0.1550 | . | . |
+    | gaussian reference tied 4 | 0.4429 | 0.5571 | 0.7735 | 0.1186 | 11,212 | 996 | 14,821 | 0.1581 | . | . |
+    | gaussian espum per_row 0 | 0.8440 | 0.1560 | 0.9155 | 0.1625 | 41,658 | 2,349 | 7,504 | 0.1224 | Y | . |
+    | gaussian espum per_row 4 | 0.8523 | 0.1477 | 0.8680 | 0.2134 | 41,252 | 1,355 | 9,412 | 0.1370 | Y | . |
+    | gaussian espum tied 0 | 0.8440 | 0.1560 | 0.9155 | 0.1625 | 41,658 | 2,349 | 7,504 | 0.1224 | Y | . |
+    | gaussian espum tied 4 | 0.8491 | 0.1509 | 0.8634 | 0.2161 | 40,901 | 1,292 | 9,632 | 0.1385 | Y | . |
+    | gaussian fingerprint tied 0 | 0.8404 | 0.1596 | 0.8730 | 0.1173 | 40,330 | 1,605 | 9,359 | 0.1351 | Y | . |
+    | gaussian fingerprint tied 4 | 0.8392 | 0.1608 | 0.8024 | 0.1695 | 37,892 | 632 | 12,694 | 0.1518 | Y | . |
+    | gaussian pseudo_pair tied 0 | 0.9855 | 0.0145 | 0.0151 | 0.8806 | 34 | 0 | 60,111 | 0.0123 | . | . |
+    | gaussian pseudo_pair tied 4 | 0.8711 | 0.1289 | 0.7359 | 0.2860 | 36,139 | 456 | 16,572 | 0.1578 | . | . |
+    | gaussian random_map tied 0 | 0.8846 | 0.1154 | 0.8885 | 0.1010 | 43,247 | 1,967 | 8,773 | 0.1296 | Y | . |
+    | gaussian random_map tied 4 | 0.8752 | 0.1248 | 0.7832 | 0.1956 | 39,110 | 538 | 13,769 | 0.1560 | . | . |
+    | obsnull espum tied 0 | 0.8946 | 0.1054 | 0.9487 | 0.1701 | 44,778 | 3,344 | 6,475 | 0.1077 | Y | . |
+    | obsnull espum tied 4 | 0.9252 | 0.0748 | 0.9630 | 0.2123 | 47,601 | 3,304 | 5,563 | 0.1021 | Y | . |
+    | table reference 0 | 0.3934 | 0.6066 | 0.8711 | 0.0854 | 10,909 | 2,617 | 10,486 | 0.1366 | Y | Y |
+    | table reference 4 | 0.4168 | 0.5832 | 0.8505 | 0.0658 | 11,844 | 2,235 | 11,357 | 0.1417 | Y | Y |
+    | table espum 0 | 0.8573 | 0.1427 | 0.9612 | 0.1058 | 42,550 | 3,702 | 6,068 | 0.1043 | Y | . |
+    | table espum 4 | 0.8528 | 0.1472 | 0.9279 | 0.0847 | 42,144 | 2,752 | 7,155 | 0.1176 | Y | . |
+    | table fingerprint 0 | 0.8673 | 0.1327 | 0.9359 | 0.1545 | 43,150 | 2,935 | 6,848 | 0.1128 | Y | . |
+    | table fingerprint 4 | 0.8586 | 0.1414 | 0.9174 | 0.1357 | 42,232 | 2,566 | 7,606 | 0.1195 | Y | . |
+    | table pseudo_pair 0 | 0.9136 | 0.0864 | 0.1095 | 0.8345 | 1,409 | 0 | 54,350 | 0.0701 | . | . |
+    | table pseudo_pair 4 | 0.8096 | 0.1904 | 0.3751 | 0.6871 | 11,236 | 18 | 38,159 | 0.1485 | . | . |
+    | table random_map 0 | 0.9015 | 0.0985 | 0.9584 | 0.0291 | 45,103 | 3,690 | 6,227 | 0.1037 | Y | . |
+    | table random_map 4 | 0.8921 | 0.1079 | 0.9416 | 0.0402 | 44,378 | 3,252 | 6,818 | 0.1106 | Y | . |
+
+    Clause 3, the decision read -- paired per-utterance correct-phone delta at count 4, candidate
+    minus its own start's banked table cell, stratified within evaluation split, 10,000 resamples
+    at seed 42. Every interval below excludes zero.
+
+    | pair (candidate minus its own table cell) | delta | 95 pct interval | role |
+    |---|---|---|---|
+    | gaussian reference tied 4 | -0.0208 | [-0.0260, -0.0154] | arm |
+    | gaussian espum per_row 4 | +0.0055 | [+0.0013, +0.0096] | arm |
+    | gaussian espum tied 4 | +0.0098 | [+0.0058, +0.0137] | arm (the gate's selected real start) |
+    | gaussian fingerprint tied 4 | +0.0273 | [+0.0226, +0.0321] | arm |
+    | gaussian pseudo_pair tied 4 | -0.0746 | [-0.0799, -0.0698] | arm |
+    | gaussian random_map tied 4 | +0.0251 | [+0.0202, +0.0302] | CONTENT-FREE CONTROL |
+    | obsnull espum tied 4 | -0.0772 | [-0.0817, -0.0728] | CONTENT-FREE CONTROL |
+
+    Clause 4: the floor share is 0.0000 in every Gaussian and null cell. The registered babble null
+    (100 draws from `p_text`) reproduces the same null at 1,000 draws to within 6.1e-04 in the
+    worst of the 24 cells (`gaussian random_map tied 4`), so the noisy-bar concern raised before
+    the run does not bite at this margin -- the smallest clause-2 gap in the table is 0.0090 in
+    absolute terms, an order of magnitude above the bar's own wobble. The unigram-matched null of
+    the 1g.10 family is printed beside both and decides nothing.
+
 ## Verdicts
 
 1. **Approach 1: one segment per text symbol is rejected.** It exceeds the registered ratio on all
@@ -1610,6 +1687,68 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     denominators, so the two numbers may not be set beside each other, and the paired
     per-utterance contrast clause 3 registers is experiment 4's.
 
+45. **A19: clause 3, the decision read, FAILS -- and it fails on the CONTROL, not on the arm.**
+    The selected real start's Gaussian gain over its own banked table cell is +0.0098
+    [+0.0058, +0.0137], which excludes zero in the Gaussian arm's favour, so clause 3's first
+    condition passes. Its second condition does not: the content-free random-map control gains
+    +0.0251 [+0.0202, +0.0302] against the same comparator -- 2.6 times larger, with an interval
+    lying ENTIRELY ABOVE the arm's. The registration's word "comparable" carries no number and
+    none is needed here, because the control does not merely match the arm's gain, it exceeds it
+    with non-overlapping intervals. Under the registration this licenses "continuous emissions are
+    not funded at this operating point; evidence toward the training paradigm as the binding
+    constraint, jointly with the banked oracle gap (0.4148 achievable on this stream, 0.85+
+    found)" -- never "the paradigm cannot work". The attribution is conditional on the shared
+    `seg12.5` segmentation both arms inherit.
+
+46. **A19: on the one channel known to carry content the Gaussian swap LOSES phones.**
+    `controlled/reference` at count 4 is -0.0208 [-0.0260, -0.0154] paired against its own table
+    cell; pooled PER 0.4168 for the table arm against 0.4429 for the Gaussian one. The gate's
+    positive control therefore runs in the OPPOSITE direction to the small positive deltas on the
+    real starts, which is what identifies those deltas as a length or rate effect rather than the
+    geometric inductive bias the subphase was testing for.
+
+47. **A19: no Gaussian cell shows content by clause 2, and the reference cell fails it for a
+    reason a reader must not misread.** Only `table|controlled/reference` shows content, at both
+    counts (margins over the babble p99 of +0.4700 and +0.4415). `gaussian|controlled/reference`
+    has margins of +0.4952 and +0.3990 -- far above the registered 0.05 bar -- but is recorded
+    `c2 = .` because clause 2 reads READABLE cells only and clause 1 excludes it: its decoded
+    length is 0.7947 and 0.7735 of gold, under the [0.80, 1.25] band. The Gaussian reference
+    channel CARRIES content; it is inadmissible on length, not empty, and quoting its clause-2
+    column without this sentence would invert the fact.
+
+48. **A19: clause 1 excluded the content and admitted the babble -- verdict 29's warning running
+    in reverse.** Seven of twenty-four cells fail admission, and two of them are the Gaussian
+    reference cells, which hold the two highest correct-phone fractions in the whole table (0.6502
+    and 0.5571). Meanwhile both observation-null cells and every real-start cell within 0.04 of
+    the babble bar pass. Verdict 29 recorded that a content-free control passes clause 1 best;
+    this adds the other half, that a content-bearing cell can fail it, and confirms clause 1 as
+    admission only in BOTH directions.
+
+49. **A19: the criterion ascends where the PER worsens, including on observations with no
+    structure left in them.** The observation null -- every retained token's vector redrawn from
+    the corpus marginal, nothing else changed -- rises +4,119,582 in log-likelihood from count 0
+    to count 4 (-79,970,371.2 to -75,850,789.7), against +5,064,753 for the real arm on the same
+    start, while its PER goes the wrong way, 0.8946 to 0.9252. On `controlled/reference` the same
+    repair rises +3,529,805 and worsens PER from 0.3498 to 0.4429. Verdict 41 established that the
+    constrained update improves the criterion on every registered cell; this establishes that
+    roughly four fifths of that improvement survives destroying the observations, so criterion
+    ascent is not evidence of content and verdict 41 must never be quoted as if it were.
+
+50. **A19: the Gaussian arm DOES read the acoustics -- which is what makes clause 3's failure
+    informative rather than vacuous.** Redrawing the observations costs the arm 0.0761 of pooled
+    correct-phone fraction on the selected real start (0.1509 with the real continuous twin,
+    0.0748 with the marginal-redrawn one), and the null's paired delta against the banked table
+    cell is -0.0772 [-0.0817, -0.0728]. So the continuous features carry signal the model uses;
+    the finding is that the categorical table already extracts as much of it, not that the
+    emission swap was inert.
+
+51. **A19: clause 4 reads clean across every cell of both experiments.** The share of variance
+    components at the M2 floor is 0.0000 in all twelve experiment-2 cells and both observation-null
+    cells, so no emission row in this subphase won by variance collapse and the registered floor
+    did no work at this operating point. The registered babble null is also stable at its own
+    operating point: the 100-draw bar reproduces the 1,000-draw bar to within 6.1e-04 in the worst
+    cell, an order of magnitude below the smallest clause-2 gap in the table.
+
 ## Catalog
 
 1g.10c positive insertion-bonus cells, parity PASS, sign split between rows (verdicts 36-37): `work/speech_llm/sae/h4_insertion_bonus/H4InsertionBonusReadJob.da3bGeQIkS0R` (`insertion_bonus.json`, `insertion_bonus.txt`); 256 beam-512 chunks + 8 probes + 1 parity chunk under `work/speech_llm/sae/h4_insertion_bonus/`, merged by the production `H4SequenceDecodeMergeJob`; code `sae/h4_insertion_bonus.py`, `scripts/h4_insertion_bonus_test.py` (14/14) at speech-llm `3d395de`.
@@ -1676,6 +1815,8 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 | controlled reference gold phones | `work/i6_experiments/users/wu/experiments/unsupervised_asr/w2vu2/eval/GoldPhonesJob.ZGSp0hxyd2YP` |
 | 1g.2 descriptive real-seed PER (verdict 21; selects nothing) | `work/speech_llm/sae/h4_real_seed_per/H4RealSeedPerJob.vu6Dp6HkJ2pH` |
 | 1g.11 experiment 1 continuous observation twin of `seg12.5` (segments.pkl, boundaries.pkl, component_scale.npy) | `work/speech_llm/sae/g11_continuous/G11ContinuousSegmentsJob.hImWJG0X4eZh`; code `sae/g11_continuous.py`, `configs/config_sae_1g_11_v1.py`, `scripts/g11_continuous_test.py` (19/19) at speech-llm `16b1063` |
+| 1g.11 experiment 4 evaluation against gold, the gate table (evaluate.json, evaluate.txt) | `work/speech_llm/sae/g11_evaluate/G11EvaluateJob.sWoS1bP4Nd12`; code `sae/g11_evaluate.py`, `configs/config_sae_1g_11_exp34_v1.py`, `config/sae_1g_11_exp34.py`, `scripts/g11_exp34_test.py` (26/26) at speech-llm `5a344f2` |
+| 1g.11 experiment 3 observation null (observation_null.json, hypotheses.json, repair.json, repair.txt) | `work/speech_llm/sae/g11_nulls/G11ObservationNullJob.orOc9h6K3cuR`; code `sae/g11_nulls.py` at speech-llm `5a344f2` |
 | 1g.11 experiment 2 Gaussian repair cells (hypotheses.json, repair.json, repair.txt) | `work/speech_llm/sae/g11_repair_jobs/G11GaussianRepairJob.NogH62uMEI7T`; code `sae/g11_gaussian.py`, `sae/g11_repair_jobs.py`, `configs/config_sae_1g_11_exp2_v1.py`, `scripts/g11_gaussian_test.py` (40/40), `scripts/g11_repair_jobs_test.py` (20/20) at speech-llm `92e5d24` |
 
 ## Verifier feedback
