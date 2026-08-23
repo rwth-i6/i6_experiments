@@ -4,202 +4,29 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-State as of 2026-08-23 -- 1g.9 is CLOSED by its own off-ramp; the USER resolved the direction fork
-toward the decode route and 1g.10 (full-model LM-aware descriptive decode) is COMPLETE with its
-table BLOCKED by its own pre-registered explanation duty; 1g.2 is READ and CLOSED on its gate;
-1g.2a (H4-LM) is open with items 1-4 complete.
+State as of 2026-08-23 -- 1g.2 is READ and CLOSED on its gate; 1g.9 is CLOSED by its own
+off-ramp; the whole 1g.10 family (the decode route the USER chose at the direction fork) is CLOSED
+by the planner. The ONLY open work in this phase is 1g.2a (H4-LM), items 1-4 complete. Nothing of
+mine is in flight here; the live implementer work is PLAN_1F entry 8, logged in SAE_1f.md.
 
-**1g.10a IS COMPLETE: VERDICT DISCHARGED, both tests passing**
-(`H4CrossBeamDefectJob.2pV5rHuWJW3d`, 2 h 28 m, peak RSS 782 MB against an 8 GiB request).
-TEST D re-decoded 81 utterances (three disclosed cells, twice each) with ZERO violations at
-1e-12 nats. TEST U checked all 1,944 banked winners against their exact unpruned totals with
-ZERO violations at 1e-6 nats. Exact-currency context: of 384 differing-winner cases,
-exact(w512) beats exact(w256) in 352 and LOSES in 32, median gain +0.0109 nats per retained
-unit -- the wider beam usually but not always finds the better-scoring sequence, which is the
-search-error signature and not a scorer defect.
+**THE WHOLE 1g.10 FAMILY IS CLOSED** (planner ruling 2026-08-23, `PLAN_1G.md` 1g.10 Status). It
+collapses to its verdicts; the tables and job dirs are in Approach 16 and the Catalog.
 
-**1g.10c IS COMPLETE: parity PASS, and the two rows split by SIGN** (verdicts 36-37;
-`H4InsertionBonusReadJob.da3bGeQIkS0R`; all 265 decodes, 8 merges and the reader finished, ZERO
-outstanding error markers). The positive control gains phones at every extension point
-(+0.0222 to +0.0555, intervals excluding zero); the real ESPUM arm loses them at three of four and
-straddles zero at the fourth. Answers the USER-directed question directly, within channel and
-paired, with cross-channel comparison still closed by 1g.10b's bar.
+- 1g.10, the full-model LM-aware descriptive decode -- verdicts 30-31, table blocked by its own
+  pre-registered explanation duty, then explained. `H4FullModelDecodeReadJob.MXhi20TtG1I0`.
+- 1g.10a, the cross-beam defect diagnostic -- verdicts 32-33, DISCHARGED: the adjacent-beam
+  disagreement is pruning reshuffle in a correct scorer, and beam 512 is not converged in the
+  exact currency. `H4CrossBeamDefectJob.2pV5rHuWJW3d`.
+- 1g.10b, the beam-1024 convergence probe -- verdicts 34-35, parity PASS and 0 of 36 cells
+  quotable, so cross-channel comparison stays closed and beam escalation is not funded.
+  `H4Beam1024ReadJob.tKbQ0MHLdX03`.
+- 1g.10c, the positive insertion-bonus cells -- verdicts 36-37, parity PASS and a SIGN SPLIT
+  between the rows, which is what closed the family: mechanism confirmed causal, no further
+  decode-parameter probes on this harness. `H4InsertionBonusReadJob.da3bGeQIkS0R`.
 
-- TWO BUGS OF MINE DELAYED THE READ AND NOTHING ELSE, both hash-neutral `run()` fixes on the same
-  job dir, both after every decode had finished, neither having produced a number. (1) speech-llm
-  `6fb0301`: the retained-unit counts indexed `_fold`'s name-keyed block as a
-  (sequences, boundaries) pair. (2) speech-llm `3d395de`: `_decoded_statistics` was called with
-  phone STRINGS, with the retained DICT, and its returned dict unpacked as a pair, where its
-  contract -- the one `h4_full_model_decode.measure` already uses -- is symbol ids, a length per id
-  in id order, and a dict out.
-- WHY THE 12 TESTS MISSED BOTH, since the guard against this is what the suite is for: they
-  exercised the reader's statistics through fixtures and never called `_fold` or
-  `_decoded_statistics` themselves, so a wrong CALL into a right primitive was invisible. Two
-  regression tests now call both directly, one asserting that phone strings are refused where
-  symbol ids are required (`scripts/h4_insertion_bonus_test.py` 14/14).
-- AN ORPHANED READER RAN AND ERRORED FIRST, an ops observation and not a result:
-  `H4InsertionBonusReadJob.vJSHAkECj8hH` is the pre-read-revision hash and is NOT in the current
-  graph (verified: the only reader is `da3bGeQIkS0R`). It ran because the manager that submitted
-  it had loaded its graph BEFORE the read-revision commit and keeps that snapshot for its whole
-  life. Its dir is inert -- no `finished`, no live error marker, unreachable from the graph -- and
-  is left in place rather than deleted, since removing job directories is not mine to decide.
-
-**1g.10b IS COMPLETE: parity PASS, 0 of 36 cells quotable** (verdicts 34-35;
-`H4Beam1024ReadJob.tKbQ0MHLdX03`; 37 probe chunks finished, ZERO error markers). The
-cross-channel quoting bar fired as designed and cross-channel comparison on the 1g.10 table
-stays closed; beam escalation is declined on the measured +0.09-per-doubling trend. One
-correction for the planner, banked as verdict 35: drift per retained unit is down in 25 of 36
-cells and UP in 11, not down in every cell -- the medians and the ruling are unaffected, but a
-per-cell monotone extrapolation is not supported by this artifact.
-
-**1g.10 IS COMPLETE, AND ITS TABLE IS BLOCKED BY ITS OWN PRE-REGISTERED EXPLANATION DUTY**
-(verdicts 30-31; `H4FullModelDecodeReadJob.MXhi20TtG1I0`; all 1,332 chunks and 36 merges finished
-with ZERO error markers). This is a blocking result for the planner, not a fallback decision.
-
-- THE DUTY FIRED ON THE DECODER-DEFECT BRANCH. It was written into the producing module before any
-  statistic existed: tiny margins where instability is measured confirm verdict 28's flat-score
-  mechanism; wide margins with persisting instability indicate a decoder defect and BLOCK every
-  cell. Zero of 36 cells reaches the registered 0.999 adjacent-beam agreement (min 0.2222, median
-  0.6111, max 0.8889) and zero of 36 has a median score margin at or below the registered 1e-3
-  nats per retained unit (min 1.210e-03, median 4.345e-03, max 1.540e-02). The report prints
-  "DECODER DEFECT SUSPECTED -- no cell of this table may be read until that is explained".
-- I AM NOT READING THE CELLS, and no row is compared against another. The per-cell correct-phone,
-  total-variation and babble-null columns are banked in approach 16 as the record of what the run
-  produced, under the duty's block.
-- THE POSITIVE CONTROL IS HEALTHY, which is what makes the finding pointed rather than trivial:
-  `controlled/reference` gives 7 of 12 readable cells and a best correct-phone fraction of 0.6010
-  against the LM-blind local decoder's 0.5832 on the same channel. The decoder produces sensible
-  content on a channel known to carry content while its adjacent beams still disagree on roughly
-  one utterance in three.
-- TWO OBSERVATIONS FOR THE PLANNER, offered as facts and explicitly NOT as rescues. The margin
-  population is a mixture rather than uniformly wide: between 6.1 and 46.6 percent of utterances
-  WITHIN a cell do sit at or below the flat threshold, so the cell medians summarize two
-  populations. And the agreement column is read on the probe's 27 utterances, where one
-  disagreeing utterance is 3.7 points and the 0.999 test cannot be met by anything short of
-  perfect agreement. Neither softens a measured agreement of 0.2222. The threshold and the duty
-  are pre-registered and I have not adjusted either; whether the suspected defect is investigated,
-  and how, is the planner's call.
-- CORRECTION TO MY EARLIER STATE ENTRY: I wrote that the agreement and drift columns would be read
-  on 28 utterances, from the contract's 2,466 retained units. The artifact says 27, and 27 is the
-  number the reader carries in its payload, its report header and its `beam_probe_note`. Every
-  quote of those two columns is on 27 utterances.
-- THE BEAM-256 CUT AS EXECUTED (planner ruling 2026-08-23): beam 512 ran the full registered scope
-  and every decoded surface, margin, babble null and PER column reads from it; beam 256 ran ONE
-  shard per cell, the shard READ from the measured contract's own `shard` block (index 28, 2,466
-  retained units, the canonical heaviest selection-role shard `heaviest_shard` picked when the
-  contract was measured) rather than a number I chose. 1,116 of 2,304 chunks dropped (31 of 32
-  shards on each of 36 beam-256 cells; the ruling's "1,152" counted the retained 36 as well),
-  leaving 1,152 beam-512 chunks + 36 beam-256 probes + 36 merges = 1,332, which is the on-disk
-  census.
-- SHAPE, exactly as experiment (1) registers it after the same-day amendment: the three audited
-  count-4 channels (`controlled/reference` as positive control, `real/pseudo_pair_seed0` as the
-  collapsed row, and `real/espum_seed0_update30000`, which the user promoted in as the old
-  approach's projection into this route), all 12 registered grid points, on the 890 selection-role
-  utterances. Channels are bound BY NAME through the existing count adapters, never by a hash I
-  typed. The registered decoder is used unchanged -- no new modelling code, no new job class:
-  existing `H4SequenceDecodeChunkJob`/`H4SequenceDecodeMergeJob` at the passing measured SELECTION
-  resource contract, its fixed 32-way sharding, the deleted-silence boundary policy, the frozen
-  duration law, the banked KenLM 4-gram replacing the fitting bigram. The global-beam eligibility
-  flag is read for provenance and deliberately NOT applied, per "beam is not an eligibility bar
-  here".
-- SHARDING is not mine to choose: `H4_NUM_SHARDS = 32` is validated inside the job class and the
-  merge refuses any other count. After the beam-256 cut the graph is 1,152 beam-512 chunks (3 x 12
-  x 32) plus 36 merges, plus 36 single-shard beam-256 probes with no merge -- 1,188 chunk jobs in
-  all, each shard about 28 of the 890 utterances.
-- RESOURCES per chunk are the contract's own 1.5x rounding, which the job class enforces as a
-  floor: 1 cpu, 2 GiB, 2 h. The measured selection-role maximum is 3,069 s and 0.91 GiB at beam
-  512, so 2 h has ~2.4x headroom and the timeout doubling never needs to fire.
-- BUDGET, and the one thing the planner should look at: prior chunk jobs each landed on their own
-  booster node (checked across 20 finished update-role chunks -- 20 distinct hosts), so 1,536
-  single-cpu jobs was on the order of 900-2,100 GH200 node-hours for a CPU-only descriptive read,
-  which is what prompted the cut above. After it the graph is 1,188 chunk jobs, roughly half that.
-  I flagged the budget rather than trimming it on my own, because scaling the registered scope
-  down is the planner's call, and the planner took the cut.
-- CONVENTIONS I had to pin, all in the producing module's docstring before any result exists.
-  (i) `p_text` and `r_target` are 1g.9's pins IMPORTED from that module, not restated, so every
-  cell is read against the same channel-independent target. (ii) One alignment convention for the
-  whole job -- the plain unit-cost Levenshtein of `h4_validation_jobs.edit_distance`, which is the
-  measure the funded 1g.2 descriptive read uses; pooled PER is total edits over total reference
-  phones, and correct-phone fraction is `1 - pooled PER`, which may go negative when insertions
-  outnumber the reference and is meant to. (iii) The babble null is unigram-MATCHED per cell: each
-  draw keeps every utterance's decoded length and the cell's own decoded phone histogram and
-  replaces only the ordering and identity. That is the direct answer to verdict 29 -- a cell
-  cannot clear its own null by matching a histogram, which is how a content-free control passed
-  1g.9's clause 1. 1,000 draws, seed 42, keyed per cell by a digest of the cell name; the bar is
-  the empirical 99th percentile, reported with the null mean, standard deviation and maximum.
-  (iv) Beam agreement and score drift are descriptive columns and never an eligibility bar, and
-  the reader carries the registered explanation duty: it states FLAT SCORES when the measured
-  instability sits on near-tied margins (verdict 28's mechanism) and DECODER DEFECT SUSPECTED when
-  margins are wide while beams disagree, in which case no cell may be read.
-- TESTED before launch, no artifact and no decoder: `scripts/h4_full_model_decode_test.py` 8/8.
-  The load-bearing check is that the vectorised batched Levenshtein used for the null reproduces
-  the scalar 1g.2 `edit_distance` exactly on random inputs -- otherwise the observed number and
-  its null would be two different measures. Also checked: a content-free decode does not clear its
-  own matched null, the null is still beatable so the bar is not vacuous, and the reader refuses a
-  grid with any cell dropped.
-- NOT DONE and not authorized: experiment (2)'s extension to fingerprint and random-map, which the
-  registration puts behind the planner's read of (1), and the count-0 B-table cell, which the
-  registration leaves to the planner and which is in any case a different object from the banked
-  count-0 direct-Q read. Nothing here opens a selection surface.
-
-**1g.9 EXPERIMENT 1 IS COMPLETE AND ITS RESULT IS A BLOCKING ONE FOR THE PLANNER**
-(`H4CollapseLocateJob.gZ9d6e3E7ZGu`, 31 minutes; approach 15, verdicts 26-29). The registered
-clause-0 off-ramp condition IS MET: at count 4 -- the planner's pre-stated decision read -- all five
-starts already satisfy both proposed targets in the posterior (total variation 0.0108-0.0736 against
-0.15; rate residual -5.5 to 0.0 percent against 20 percent), while the decode collapses on
-`real/pseudo_pair_seed0` alone. `lambda_equal` is 8.1e+05 to 1.5e+08, so neither constraint can be
-felt at any weight anyone would set. Per the gate, "the constrained-training arm does not run as
-specced ... and the finding returns to the planner with the diagnostic as the deliverable" --
-experiment 2's graph does not exist and I am not building it. RULED 2026-08-22 (PLAN_1G.md 1g.9
-Status): clause 0 FIRED, the subphase CLOSES as the registered off-ramp outcome, experiments 2 and 3
-do not run. The direction fork exceeded 1g.9's scope and went to the USER, who RESOLVED it
-2026-08-23 toward the decode route -- the language model was never in the production decode and is
-to be used -- so 1g.10 is registered and the "no further 1g work" hold is lifted for it alone.
-
-Two readings the planner should carry into that ruling, both banked: a near-zero posterior total
-variation is satisfied most easily by the LEAST informative channel (verdict 28 -- the collapsed
-start has the lowest divergence and the worst likelihood, barely moving from count 0 while two other
-starts move 1.3-1.6 nats per unit), and the registered `random_map` control has the SMALLEST decoded
-unigram distance of all five starts, so the 1g.9 gate's own clause-1 readability criterion is passed
-by a content-free null (verdict 29). Reported, not acted on: clause 1 is pre-registered.
-
-Experiment 1 ran FIRST AND ALONE as the subphase requires; every input was already frozen, and the
-job added only forward-backward posteriors and gradients, reading no gold.
-
-- What it banks, for the five 1g.2a starts at repair counts 0 and 4: the posterior expected
-  symbol-ENTRY distribution `q_bar` and the posterior expected rate `N/T` at the frozen H1
-  duration, the same two statistics recomputed from the banked decoded one-bests (no new decode),
-  and each proposed constraint term's gradient. Under the accepted two-state topology a symbol's
-  first-position state is reachable only by entering that symbol, so its summed posterior occupancy
-  IS the entry count and no transition posterior is needed.
-- DECISIONS I made and pinned in the producing module's docstring, because the subphase left them
-  open. (i) `r_target` is DERIVED, not chosen: the frozen H1 length-law fit maximized the
-  geometric-duration marginal over the 6,414 update utterances, and `r_target` is that same law's
-  posterior `E[N|T]` per retained unit at the accepted `p`; the memoryless reading `1-p` = 0.7644
-  is reported beside it, and so is the count of forced symbol boundaries at deleted-silence gaps,
-  which neither reading models and which is the one term by which a healthy posterior may
-  legitimately exceed the target. (ii) A gradient norm is meaningless without a parameterization
-  and an absolute norm compares nothing, so gradients are taken in `B = softmax(theta)` and
-  reported as `lambda_equal = ||grad L_HMM|| / ||grad L_term||` -- the weight at which each
-  constraint first pushes as hard as the likelihood. That also gives experiment 2's "one lambda
-  magnitude" a traceable origin instead of an invented one. (iii) The constraints act on the update
-  role but the banked decodes exist only on the 890 selection utterances, so a posterior-versus-
-  decode read drawn across those folds would confound stage with fold: the posterior is computed on
-  BOTH, and the clause-0 read is taken on the matched 890 with the update-role figure beside it.
-- ASYMMETRY the reader must carry, stated in the artifact: at count 0 the banked decode reads the
-  start's direct `Q` while the posterior reads the start's `B`; they are not two views of one
-  table. At count 4 both read the same repaired `B`.
-- A prior observation that sharpens what clause 0 is testing: the frozen local decoder is a
-  per-unit argmax over `Q * prior` followed by run collapse (`channel_h.frozen_local_decode`). It
-  consults neither the language model nor the duration law, so a collapse that lives in the decoder
-  rather than in the objective is a live possibility the diagnostic can actually separate.
-- TESTED before launch, no artifact and no scorer: `scripts/h4_collapse_locate_test.py` 6/6 -- the
-  torch forward-backward transcription reproduces `channel_h.marginal_forward_backward` to 2.2e-16,
-  all three gradients match central finite differences (worst 6.6e-09), and `E[N|T]` matches a
-  direct sum and pins to the atom of a degenerate length prior. The job re-checks the two
-  forward-backward implementations against each other at run time and refuses to report a gradient
-  if they disagree.
-
+**1g.9 IS CLOSED by its own off-ramp** -- verdicts 26-29, approach 15,
+`H4CollapseLocateJob.gZ9d6e3E7ZGu`. Its blocking result is what sent the direction fork to the
+USER, who resolved it toward the decode route that became 1g.10.
 
 **1g.2a, the user-mandated matched trigram/4-gram arm** (approach 14). Funded scope is Experiments
 items 1-4; the F arm and every selector-shaped consequence stay closed under the 1g.2 verdict.
@@ -270,15 +97,6 @@ items 1-4; the F arm and every selector-shaped consequence stay closed under the
 - Nothing in 1g.2a reranks a maximum or reads a label. No 5-gram is funded. (Item 4 DOES repair
   utterances -- that is what the diagnostic is -- but only on the five funded starts, at the frozen
   `p` and topology, and it refits nothing.)
-
-**RESOLVED 2026-08-22, both halves of a double outage.** The login node's `/tmp` filled (1.4 TB,
-essentially all `/tmp/mmfs` GPFS traces -- NOT this user's files, whose whole Claude tree was 739 MB)
-and every harness Bash call died with ENOSPC; separately the project fileset hit its quota and every
-write failed with `EDQUOT`/`Errno 122`. The Bash half is fixed by pointing `CLAUDE_CODE_TMPDIR` at
-`/e/scratch/spell/wu24/claude-tmp` (the project fileset is the wrong target -- it was the other
-casualty). The quota half eased on its own; `jutil` reads the project fileset at 46.8/53.7 TB and
-3.58M/4.0M inodes but its `last-updated` was three days stale, so it never showed the violation.
-Cost: two D8.1a jobs killed mid-write (see SAE_3E1.md), no 1g.2a artifact affected.
 
 **1g.2 is closed and unchanged.**
 
