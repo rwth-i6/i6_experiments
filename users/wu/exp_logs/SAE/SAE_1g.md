@@ -18,77 +18,31 @@ exact(w512) beats exact(w256) in 352 and LOSES in 32, median gain +0.0109 nats p
 unit -- the wider beam usually but not always finds the better-scoring sequence, which is the
 search-error signature and not a scorer defect.
 
-**1g.10c IS BUILT, TESTED AND LAUNCHED, with the sizing proposal the registration requires**
-(`sae/h4_insertion_bonus.py`, speech-llm `c23bbe4`; read
-`H4InsertionBonusReadJob.da3bGeQIkS0R`; manager `sae_1g_h4_full_model_decode` pid 1748197).
-USER-directed: "insertion bonus makes sense, please try that".
+**1g.10c IS COMPLETE: parity PASS, and the two rows split by SIGN** (verdicts 36-37;
+`H4InsertionBonusReadJob.da3bGeQIkS0R`; all 265 decodes, 8 merges and the reader finished, ZERO
+outstanding error markers). The positive control gains phones at every extension point
+(+0.0222 to +0.0555, intervals excluding zero); the real ESPUM arm loses them at three of four and
+straddles zero at the fourth. Answers the USER-directed question directly, within channel and
+paired, with cross-channel comparison still closed by 1g.10b's bar.
 
-- SIZING PROPOSAL: 4 h and 4 GiB per chunk, against the measured contract's rounded 2 h / 2 GiB.
-  The reason is not headroom-for-its-own-sake: a positive bonus LENGTHENS the decoded output, and
-  KenLM prefix scoring in `kenlm_phone_callbacks` rebuilds and scores the whole prefix string per
-  extension, so its cost is linear in hypothesis length. The beta-0 cells' measured time is
-  therefore not a safe bound for beta +1 and +2. Beam and shard count are unchanged, so the
-  memory shape is unchanged and 4 GiB is pure margin. Total: 256 beam-512 chunks + 8 merges +
-  8 adjacent-beam probes + 1 parity chunk = 273 jobs, about a quarter of the 1g.10 bill, as the
-  registration estimated.
-- THE MERGE IS THE PRODUCTION MERGE, REUSED UNCHANGED. These chunks emit the production chunk
-  contract exactly, so `H4SequenceDecodeMergeJob` merges them with its own 32-shard coverage
-  check, identity anchor and per-record validation applying to the extension cells too. The
-  chunk's own `implementation_revision` keeps provenance, and the merge only requires the 32 to
-  agree on it. That is one more path where nothing had to be reimplemented.
-- THE THREE GUARDS, as pre-approved: imports-not-copies, now enforced by a source-grep test
-  covering the decode, input, parity, statistics AND null helpers; the grid hard-pinned to the
-  four registered pairs plus the parity point, with (1, -1), (4, +1), (0.5, +2) and (2, +3) all
-  refused; and a parity cell at the registered (lm_scale 1, beta 0, beam 512) point on
-  `controlled/reference` that suppresses every extension column unless it reproduces the banked
-  production chunk exactly.
-- THE EXCLUDED ROW IS REFUSED IN CODE, not merely omitted from the config:
-  `real/pseudo_pair_seed0` raises at construction, carrying the registration's own reason (its
-  failure is a flat likelihood, not deletion, so a bonus buys only more fluent hallucination).
-- THE OPEN CONVENTION IS RULED AND EXECUTED (planner 2026-08-23 launch ruling; speech-llm
-  `37e3c52`). The PRIMARY paired interval now resamples utterances WITHIN each evaluation split
-  at the bed's fixed 432/458 counts, because that composition is fixed by construction and the
-  family's own `h4_harness._bootstrap_content_values` already stratifies; my literal unstratified
-  reading prints beside it as a named SENSITIVITY column, and the payload states both conventions
-  rather than only the one used. `n_boot` and `seed` are unchanged.
-- THE READ REVISION IS NOW A SEPARATE CONSTANT FROM THE DECODE REVISION, and that separation is
-  load-bearing rather than tidiness: `implementation_revision` is a HASHED argument of the chunk
-  class, so bumping the single shared constant for a reading-only change would have re-hashed all
-  256 running decode jobs. VERIFIED AFTER THE CHANGE: the graph's 265 chunk dirs are exactly the
-  265 on disk, zero orphans and none missing, and only the reader moved
-  (`vJSHAkECj8hH` -> `H4InsertionBonusReadJob.da3bGeQIkS0R`).
-- TESTED: `scripts/h4_insertion_bonus_test.py` 12/12. The load-bearing ones are that the paired
-  read is genuinely paired rather than a difference of two pooled means, that a non-finite
-  per-utterance delta is refused rather than averaged in, and that the stratified draw holds the
-  split composition fixed and yields a strictly TIGHTER interval than the unstratified one on a
-  fixture whose two splits disagree in sign.
-- PURELY ADDITIVE, verified: the 1g.10, 1g.10a and 1g.10b artifacts are all hash-unchanged in the
-  rebuilt graph. 1g.10b's 37 SLURM probes survived the manager restart, as SLURM jobs do.
-
-**1g.10c: ALL 265 DECODES AND 8 MERGES ARE FINISHED; the reader is rerunning after two bugs of
-mine** (live reader `H4InsertionBonusReadJob.da3bGeQIkS0R`, manager 1748197). Both were the same
-kind of mistake -- calling a shared primitive on a contract I had not read -- and both were fixed
-hash-neutrally in `run()`, so the same job dir reruns and no decode was touched. No number was ever
-produced by either broken version, so nothing logged is affected.
-
-- BUG 1 (speech-llm `6fb0301`): the retained-unit counts indexed `_fold`'s result as a
-  (sequences, boundaries) pair. `_fold` returns a block keyed by name, so this raised
-  `KeyError: 0`. Counts come from `"lengths"` in the order of `"ids"`.
-- BUG 2 (speech-llm `3d395de`): `_decoded_statistics` was called with phone STRINGS, with the
-  retained DICT, and its returned dict was unpacked as a pair. Its contract -- the one
-  `h4_full_model_decode.measure` already uses -- is symbol ids, a retained length per id in id
-  order, and a dict out. The reader now passes the banked `one_best_symbol_ids` field.
-- WHY THE 12 TESTS MISSED BOTH: they exercised the reader's statistics through fixtures and never
-  called `_fold` or `_decoded_statistics` themselves, so a wrong CALL into a right primitive was
-  invisible. Two regression tests now call both primitives directly, one of them asserting that
-  phone strings are refused where symbol ids are required
-  (`scripts/h4_insertion_bonus_test.py` 14/14).
-- AN ORPHANED READER RAN AND ERRORED FIRST, which is worth recording as an ops observation rather
-  than a result: `H4InsertionBonusReadJob.vJSHAkECj8hH` is the pre-read-revision hash and is NOT in
-  the current graph (verified from the graph: the only reader is `da3bGeQIkS0R`). It ran anyway,
-  because the manager that submitted it had loaded its graph BEFORE the read-revision commit and
-  keeps that snapshot for its whole life. A hash change therefore needs a manager restart to take
-  effect, and until then the old job is still submittable.
+- TWO BUGS OF MINE DELAYED THE READ AND NOTHING ELSE, both hash-neutral `run()` fixes on the same
+  job dir, both after every decode had finished, neither having produced a number. (1) speech-llm
+  `6fb0301`: the retained-unit counts indexed `_fold`'s name-keyed block as a
+  (sequences, boundaries) pair. (2) speech-llm `3d395de`: `_decoded_statistics` was called with
+  phone STRINGS, with the retained DICT, and its returned dict unpacked as a pair, where its
+  contract -- the one `h4_full_model_decode.measure` already uses -- is symbol ids, a length per id
+  in id order, and a dict out.
+- WHY THE 12 TESTS MISSED BOTH, since the guard against this is what the suite is for: they
+  exercised the reader's statistics through fixtures and never called `_fold` or
+  `_decoded_statistics` themselves, so a wrong CALL into a right primitive was invisible. Two
+  regression tests now call both directly, one asserting that phone strings are refused where
+  symbol ids are required (`scripts/h4_insertion_bonus_test.py` 14/14).
+- AN ORPHANED READER RAN AND ERRORED FIRST, an ops observation and not a result:
+  `H4InsertionBonusReadJob.vJSHAkECj8hH` is the pre-read-revision hash and is NOT in the current
+  graph (verified: the only reader is `da3bGeQIkS0R`). It ran because the manager that submitted
+  it had loaded its graph BEFORE the read-revision commit and keeps that snapshot for its whole
+  life. Its dir is inert -- no `finished`, no live error marker, unreachable from the graph -- and
+  is left in place rather than deleted, since removing job directories is not mine to decide.
 
 **1g.10b IS COMPLETE: parity PASS, 0 of 36 cells quotable** (verdicts 34-35;
 `H4Beam1024ReadJob.tKbQ0MHLdX03`; 37 probe chunks finished, ZERO error markers). The
@@ -1056,6 +1010,31 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     | score drift per retained unit, beam 256 against beam 512 | 1.567e-03 | 8.173e-03 | 1.821e-02 |
     | score drift per retained unit, beam 512 against beam 1024 | 1.061e-03 | 5.143e-03 | 2.755e-02 |
 
+    1g.10c re-decoded two of the three rows -- the positive control and the real ESPUM arm, the
+    collapsed row refused in code -- at four extension points (lm_scale in {1, 2} x insertion bonus
+    beta in {+1, +2}), each paired against ITS OWN beta-0 production cell at the same lm_scale on
+    the same 890 utterances. The parity cell reproduced the banked production chunk exactly.
+    Deltas are correct-phone fraction, extension minus baseline, so positive means the bonus
+    recovers phones:
+
+    | cell | paired delta | 95 pct CI (stratified) | CI (unstratified) | frac of utterances improved |
+    |---|---|---|---|---|
+    | `controlled/reference` lambda 1, beta +1 | +0.0222 | [+0.0188, +0.0256] | [+0.0188, +0.0256] | 0.565 |
+    | `controlled/reference` lambda 1, beta +2 | +0.0358 | [+0.0315, +0.0403] | [+0.0314, +0.0403] | 0.664 |
+    | `controlled/reference` lambda 2, beta +1 | +0.0312 | [+0.0278, +0.0347] | [+0.0277, +0.0347] | 0.570 |
+    | `controlled/reference` lambda 2, beta +2 | +0.0555 | [+0.0506, +0.0605] | [+0.0505, +0.0604] | 0.740 |
+    | `real/espum_seed0_update30000` lambda 1, beta +1 | -0.0122 | [-0.0144, -0.0101] | [-0.0144, -0.0101] | 0.189 |
+    | `real/espum_seed0_update30000` lambda 1, beta +2 | -0.0294 | [-0.0330, -0.0261] | [-0.0329, -0.0260] | 0.166 |
+    | `real/espum_seed0_update30000` lambda 2, beta +1 | -0.0021 | [-0.0046, +0.0003] | [-0.0046, +0.0002] | 0.310 |
+    | `real/espum_seed0_update30000` lambda 2, beta +2 | -0.0090 | [-0.0124, -0.0058] | [-0.0123, -0.0058] | 0.322 |
+
+    Pooled description beside the paired read, never instead of it: the control's best extension
+    cell reaches PER 0.3943 (lambda 1, beta +2) against its own beta-0 cell, and the real arm stays
+    between 0.8102 and 0.8417 across all four. Decoded length rises with beta in every cell (the
+    control 51.0 -> 57.2 units at lambda 1; the real arm 50.8 -> 60.2), which is the bonus doing
+    what it is for; all eight cells clear their own babble null, and all eight use the full
+    39-phone inventory.
+
     Per row at beam 512 against 1024 (median agreement over that row's 12 cells):
     `controlled/reference` 0.7222, `real/espum_seed0_update30000` 0.7407,
     `real/pseudo_pair_seed0` 0.6296. Cell by cell against the same cell's 256-vs-512 column,
@@ -1486,7 +1465,31 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     that treats each further doubling as monotone improvement per cell is not supported by this
     artifact, which is a second reason the escalation was correctly declined.
 
+36. **A16: the positive insertion bonus recovers phones on the positive control and does NOT on the
+    real arm -- the two rows split by SIGN, within channel and paired.**
+    `H4InsertionBonusReadJob.da3bGeQIkS0R`, parity cell PASS. All four `controlled/reference`
+    cells are positive with 95 percent intervals excluding zero (+0.0222 to +0.0555, best at
+    lambda 2 / beta +2, improving 74.0 percent of utterances). Three of four
+    `real/espum_seed0_update30000` cells are NEGATIVE with intervals excluding zero (-0.0090 to
+    -0.0294) and the fourth straddles zero (-0.0021, [-0.0046, +0.0003]). On a channel known to
+    carry content the bonus buys back real phones; on the real arm the extra length it pays for is
+    not content. This is a WITHIN-channel paired read against each row's own beta-0 cell -- it
+    quotes no comparison between the two rows, which 1g.10b's bar keeps closed (agreement on the
+    contract shard runs 0.593 to 0.778 here, no cell near 26 of 27). It answers the USER-directed
+    question "does an insertion bonus help" with: on this evidence, only where there was something
+    to recover.
+
+37. **A16: the stratified resampling convention made no material difference to this result, and
+    that is reported rather than quietly dropped.** The planner's 2026-08-23 ruling made the
+    PRIMARY interval resample within each evaluation split at the bed's fixed 432/458 counts, with
+    my literal unstratified reading printed beside it as a named sensitivity. Across all eight
+    cells the two intervals agree to within 1e-4 in every bound. The ruling was still the right
+    call -- it fixes the convention in advance rather than after seeing which one is narrower --
+    but no conclusion here rests on it, and a reader should not infer that it was load-bearing.
+
 ## Catalog
+
+1g.10c positive insertion-bonus cells, parity PASS, sign split between rows (verdicts 36-37): `work/speech_llm/sae/h4_insertion_bonus/H4InsertionBonusReadJob.da3bGeQIkS0R` (`insertion_bonus.json`, `insertion_bonus.txt`); 256 beam-512 chunks + 8 probes + 1 parity chunk under `work/speech_llm/sae/h4_insertion_bonus/`, merged by the production `H4SequenceDecodeMergeJob`; code `sae/h4_insertion_bonus.py`, `scripts/h4_insertion_bonus_test.py` (14/14) at speech-llm `3d395de`.
 
 1g.10b beam-1024 convergence probe, parity PASS and 0 of 36 cells quotable (verdicts 34-35): `work/speech_llm/sae/h4_beam1024_probe/H4Beam1024ReadJob.tKbQ0MHLdX03` (`beam1024.json`, `beam1024.txt`); 36 probe chunks + 1 parity chunk under `work/speech_llm/sae/h4_beam1024_probe/H4Beam1024ProbeChunkJob.*`; code `sae/h4_beam1024_probe.py`, `scripts/h4_beam1024_probe_test.py` (8/8) at speech-llm `8e2c841`.
 
