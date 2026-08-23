@@ -4,6 +4,40 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
+**D9 IS REGISTERED AND FUNDED; ITS PRE-SPEND PROVENANCE DUTY IS DISCHARGED, PIN CONFIRMED.** The
+registration requires the epoch-to-recog provenance to be asserted from the recog job's own inputs
+before any spend. Traced end to end on 2026-08-23, every link read from a job's own `info`:
+
+`ReturnnTrainingJob.rJWSC5xOsrf2/output/models/epoch.002.pt`
+-> `ExtractAvSubmodelJob.FSYsyEJm5VHX` (its `grpo_checkpoint` PARAMETER is that exact file,
+   `submodel_prefix` `av.`)
+-> `ReturnnForwardJobV2.SgTOBGwxO6nF` (dev-clean) and `.9GwKJ97FtuG6` (dev-other)
+-> `SearchWordsDummyTimesToCTMJob.e3rgP2fFMD8f` / `.lyBmKhRT3pUZ`
+-> `ScliteJob.paK5JVk5SckU` = **12.68** and `ScliteJob.KTVFso7HriMn` = **17.57**, read from each
+   job's own `output/wer`.
+
+The recog does NOT consume the training checkpoint directly -- an `ExtractAvSubmodelJob` sits
+between them -- so a check that stopped at "the training job has an epoch.002.pt" would have
+proved nothing about which checkpoint produced 12.68/17.57.
+
+ARM 1 IS CONFIRMED AS THE SCORER THAT SHAPED THIS ARM, from the same source: the training job's
+INPUT list contains `PsiAlignTrainJob.DnBJxqz4sNQZ/output/model.pt`, which is the incumbent D9
+names, and its alias is `..._shaped_T0.7_lr2e5_psid2_contrast/training`. The pin is therefore the
+d2_contrast-shaped arm, not the incumbent-shaped one at the same schedule position -- the two sit
+adjacent in approach 9's table at 12.68/17.57 and 13.91/18.91, so this is a real confusion risk.
+
+Note in passing, not a blocker: the pinned training job carries a `hold` file, so that arm is
+paused. D9 only reads a written checkpoint from it.
+
+NEXT: D9.0, the feasibility launch gate. One scoping point for the planner rather than a silent
+resolution, since the registration's D9.0 clause names three arms that do not all exist yet: arms
+2 and 3 are BUILT BY D9.1, so at D9.0 time only the incumbent can have a finite-score census. I
+read D9.0 as (a) the rollout dump, (b) the structural d_min>=2 alignability census that arms 2 and
+3 will be subject to, plus the incumbent's own finite-score census, and (c) the PRE-REGISTRATION
+of the all-three-arms-finite read-set rule, which is applied at D9.2 where all three exist. If the
+planner intends the read set to be fixed only after D9.1, the gate still passes or fails on (a)
+and (b) alone.
+
 **D8.1a IS COMPLETE. Verdict GO, one arm funded: `candidate_acoustic`** (approach 35 result table,
 verdicts 73-74). The latest+3 ruling is fully executed and nothing about D8.1a scoring is open.
 
