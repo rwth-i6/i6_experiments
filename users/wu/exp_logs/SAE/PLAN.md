@@ -133,7 +133,11 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
   refit, both refits on the pinned checkpoint's own decodes only) ranking one shared rollout
   draw from the D3 shaped arm's sub-epoch-2 endpoint `ReturnnTrainingJob.rJWSC5xOsrf2`
   epoch.002.pt (banked 12.68/17.57), paired delta eta with the D8.4 machinery verbatim;
-  feasibility gate D9.0 before any refit spend; with the implementer to build.
+  feasibility gate D9.0 before any refit spend; with the implementer to build. 2026-08-23
+  latest: D9.0 PASS, verified (`D9FeasibilityJob.oabVIcp22cy1`: incumbent census 7,168 rows /
+  0 infeasible; structural d_min>=2 alignability 6,144/6,144 rollout rows, 512/512 groups,
+  median 695 frames vs 210 needed -- the opposite of D8.4's bed) -- D9.1 refits AUTHORIZED,
+  with the implementer.
 - **960 h stock-donor supervision-axis endpoint is ABSENT**: the theta_0 + gold-scorer arm ran
   only through sub-epoch 4, was stopped and deleted 2026-08-08, and never produced the listed
   3-pass endpoint; `ReturnnTrainingJob.22Ntu7y0O6iW` does not exist. Its observed collapse is

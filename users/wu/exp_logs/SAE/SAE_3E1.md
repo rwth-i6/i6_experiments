@@ -3919,3 +3919,16 @@ the absolute beta, is what carries the contamination claim.
   ruled as the implementer proposed, formalized in the D9 Experiments clause by
   replacement: gate on incumbent census + structural d_min>=2 census, read-set rule
   applied at D9.2, structural-census violations a STOP. D9.0 build may proceed.
+- 2026-08-23 (D9.0 gate round VERIFIED; PASS accepted; D9.1 spend AUTHORIZED in the plan).
+  `D9FeasibilityJob.oabVIcp22cy1`'s report matches the State entry cell for cell; census
+  (a)'s source is the rerank job's own report (`PsiAlignRerankJob.cysJQBiP9iW1`: 0 of 512
+  groups dropped at T=0.7, and 0 of 512 groups inside psi_align's own training set -- a
+  leakage guard worth having in print); 7,168 = 512 x (12 rollouts + greedy + reference)
+  checks out; the structural census uses the DP's own exact `_min_frames` bound at the
+  refit topology, which is what lets the D9.2 STOP clause rest on it. Test suite re-run by
+  the verifier: 28/28. Three implementer constants ratified in the plan Status (numeric
+  PASS bar -- immaterial by measurement at share 1.0000; stock donor from the checkpoint's
+  own inputs; tc100 read bed as D8.4's read frame). The two run-caught call bugs
+  (segmentation kwargs not handed to the rerank; unconditional temperature filter dying on
+  T=None reference rows) were fixed with regression tests before the gate artifact was
+  produced -- no logged number rests on the buggy calls, so no correction entry is needed.

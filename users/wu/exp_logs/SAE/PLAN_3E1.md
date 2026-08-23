@@ -2534,6 +2534,21 @@ gate decides on the incumbent census plus the scorer-independent structural d_mi
 the three-arm read-set rule applies at D9.2 with the structural census as its by-construction
 predictor and any violation a STOP. The pinned training job's `hold` file is noted and is not
 a blocker (D9 reads a written checkpoint only). D9.0 build may proceed.
+2026-08-23 latest: D9.0 COMPLETE, GATE PASS, VERIFIED -- D9.1 REFIT SPEND IS AUTHORIZED
+(`D9FeasibilityJob.oabVIcp22cy1`; dump `ReturnnForwardJobV2.t4sIOlpGVDcY` at D8.4's exact read
+size, incumbent rerank `PsiAlignRerankJob.cysJQBiP9iW1`). Census (a): 7,168 rows, 0 infeasible,
+0 groups dropped, taken from the rerank job's own report (which also prints 0 of 512 groups
+inside psi_align's own training set). Census (b): structural d_min>=2 alignability 6,144 of
+6,144 rollout rows, 512 of 512 groups, exact DP `_min_frames` bound at the refit topology
+(median 695 frames against 210 needed) -- the opposite of D8.4's bed, which lost 81.5 pct of
+rows. Three implementer constants RATIFIED: (i) the numeric PASS bar (rollout share >= 0.95,
+every group >= 2 alignable members, full units coverage) as the operative reading of "passes
+or fails on (a) and (b)" -- at share 1.0000 every admissible bar agrees, so the choice is
+immaterial by measurement; (ii) the STOCK Qwen donor, traced to the pinned checkpoint's own
+INPUT list (no `ExportHfLmDirJob`), not the D4' adapted donor; (iii) the tc100 read bed as
+D8.4's established read frame -- the registration's 960 h bed names the refit frame. The gate
+says the bed can carry the read and nothing about eta. D9.1 builds the two refits per the
+registration; D9.2 constants unchanged.
 
 Replaces the §3e.1 two-sided gate (2026-08-07) BEFORE any verdict was read against v1, because
 v1's second arm is gold-conditioned as instrumented (fact 2), has the wrong sign against the
