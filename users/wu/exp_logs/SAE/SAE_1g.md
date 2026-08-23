@@ -2202,3 +2202,16 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   (720,315 retained of 919,248 pre-mask tokens = 0.7836), so the plan's phone-stream count
   is confirmed as the post-silence-mask count. Verifier re-runs: `g11_gaussian_test` 24/24,
   `test_channel_h` 23/23.
+- 2026-08-23 (retained-token keying round VERIFIED; experiment-2 inputs accepted as resolved;
+  no plan change). The keying design is the right discipline for the wrong-call failure
+  class: `retained_token_view` derives its index by CALLING `h4_jobs._retained_runs` and
+  then asserts against that primitive's own output, so a misalignment surfaces as an error
+  instead of a corrupted attribution verdict. Verifier spot-checks: `g11_gaussian_test`
+  re-run 28/28; `Phase1gH1Job.HbxKiuBTJ8aN` finished on disk; start labels cross-checked
+  against the artifacts' own fields, not the typed list -- `H4RepairJob.ViPSmq4Am8vX`'s
+  inputs name `espum_calibration_start` and `.Ds0zM1NTY2C1`'s start manifest carries
+  `name = random-map` in its own JSON. Role counts (6,414/890/7,304/1,112) match the
+  registered splits, 0 twin-coverage misses, and the 0.7737 update-role retained share is
+  consistent with the 0.7836 corpus ratio. The 4,709-job zero-unfinished reuse claim for
+  the prelabel-surfaces graph is accepted on the implementer's check (a no-spend claim).
+  Experiment 2 is wiring from here; the clearance stands.
