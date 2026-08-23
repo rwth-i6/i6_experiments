@@ -18,44 +18,40 @@ exact(w512) beats exact(w256) in 352 and LOSES in 32, median gain +0.0109 nats p
 unit -- the wider beam usually but not always finds the better-scoring sequence, which is the
 search-error signature and not a scorer defect.
 
-**1g.10b IS BLOCKED ON A PLAN-VERSUS-CODE CONFLICT AND IS NOT BUILT. The registration says the
-beam-1024 probe uses "the existing chunk class at the same contract"; it cannot, because 1024 is
-not a registered beam and the beam tuple is load-bearing well outside 1g.10.** Reported rather
-than worked around, because both ways out have real cost and the choice is the planner's.
+**1g.10b IS BUILT, TESTED AND LAUNCHED under the planner's option (b) ruling**
+(`sae/h4_beam1024_probe.py`, speech-llm `8e2c841`; 36 probe cells plus one parity cell;
+read `H4Beam1024ReadJob.tKbQ0MHLdX03`; manager `sae_1g_h4_full_model_decode` pid 450055). The
+planner verified my blocker in the code and rejected option (a); the registration line "the
+existing chunk class at the same contract" is amended by replacement.
 
-- THE MECHANISM: `H4SequenceDecodeChunkJob.__init__` rejects any setting outside
-  `decoder_grid_rows()`, which is `DECODER_GRID` x `DECODER_BEAMS` with `DECODER_BEAMS =
-  (64, 128, 256, 512)` in `channel_h.py:33` and a hard `len(rows) != 48` assertion at
-  `h4_decode_jobs.py:209`. Beam 1024 is refused at construction.
-- WHAT I CHECKED AND GOT WRONG FIRST: I expected the source-identity guard to re-hash every
-  chunk if `channel_h.py` were edited. It does not. `self.source_identity` is set inside
-  `__init__` but is NOT a hashed constructor argument -- the chunk job's `info` file lists 16
-  PARAMETERs and it is not among them -- so it is a runtime drift guard, not a hash input. The
-  1,332 finished chunks would survive an edit to that file.
-- THE ACTUAL BLAST RADIUS, which is the reason to stop. `DECODER_BEAMS` is consumed by
-  `config_sae_1g_h2_decoder_preflight_v1.py:35` (12 new preflight cells),
-  `config_sae_1g_h4_global_beam_v1.py:82`, and `h4_beam_jobs.py:172/183/445`. The last is an
-  exact-count assertion, `expected_n = representatives x grid x beams`; the banked table
-  `H4GlobalBeamTableJob.ro6L8QCnqYpx` holds 144 cells = 3 representatives x 12 x 4, so a fifth
-  beam demands 36 NEW global-beam shard cells before the assertion can pass, and adds a
-  512-vs-1024 pair to that table's adjacent-beam logic, changing what the historical table
-  means. Worse, `cells` is a hashed argument of that job, so the banked table RE-HASHES and is
-  orphaned -- and because 1g.10 consumes `global_beam_table.out_global_beams`, the just
-  discharged `H4FullModelDecodeReadJob.MXhi20TtG1I0` re-hashes and is orphaned with it.
-- OPTION (a), add 1024 to `DECODER_BEAMS`: orphans the banked global-beam table cited in closed
-  verdicts AND the discharged 1g.10 read, and needs 48 new jobs before the graph builds. Not
-  recommended.
-- OPTION (b), RECOMMENDED: give 1g.10b its own probe job class that calls the same
-  `prefix_beam_decode` at beam 1024 on the contract shard and imports `_load_h1_units`,
-  `_retained_runs`, `_load_channel` and `_validate_contract` unchanged, so the input path and
-  the decode are literally the same code, without putting 1024 into the global beam tuple.
-  Every banked artifact survives. The deviation from "the existing chunk class" is a wrapper,
-  not a method.
-- OPTION (c), add a probe-only beam allowance via a new `__init__` kwarg on the existing class:
-  REJECTED on inspection, because a new constructor argument changes the parsed arguments and
-  would re-hash all 1,332 existing chunks -- the very cost option (b) avoids.
-- NOT DONE: no code edited, no job built, no beam constant touched. Awaiting the planner's
-  ruling between (a) and (b).
+- WHY A DEDICATED CLASS, in one line: extending `DECODER_BEAMS` would have orphaned the banked
+  global-beam table (its `cells` is a hashed argument) and, through it, the discharged 1g.10
+  read. VERIFIED AFTER THE CHANGE rather than assumed -- both
+  `H4FullModelDecodeReadJob.MXhi20TtG1I0` and `H4CrossBeamDefectJob.2pV5rHuWJW3d` are
+  hash-unchanged in the rebuilt graph.
+- GUARD (1), NO COPIED CODE: `prefix_beam_decode`, `kenlm_phone_callbacks`, `decoder_record`,
+  `_load_h1_units`, `_retained_runs`, `_load_channel` and `_validate_contract` are all imported
+  from the modules that own them; the probe class contributes sharding arithmetic and
+  bookkeeping only. A test greps the module source to enforce both halves -- that each name is
+  imported and that none is redefined -- so the guard cannot rot silently.
+- GUARD (2), THE BEAM IS HARD-PINNED: only 1024 and the 512 parity mode construct; 64, 256 and
+  2048 are refused, so the probe cannot become a general beam knob.
+- GUARD (3), THE PARITY CELL GATES EVERYTHING: the probe class runs at beam 512 on the contract
+  shard for the median observed-agreement cell and must reproduce the banked production chunk's
+  one-best sequences AND scores exactly; the reader emits no beam-1024 column otherwise. The
+  cell is READ from the 1g.10a artifact's own disclosed selection
+  (`controlled/reference|lambda=0.5|beta=-1`), never typed, and the config refuses to build
+  unless that artifact's verdict is DISCHARGED.
+- THE PRE-REGISTERED QUOTING BAR is in the module docstring verbatim: cross-channel comparisons
+  only from cells whose 512-vs-1024 agreement is at least 26 of 27, every quote naming its
+  27-utterance support. Every column carries `read_on` with that support so no quote can pass as
+  an 890-utterance number.
+- COST: 37 decode jobs on the contract shard (27 utterances each), 8 h and 4 GiB requested
+  against the contract's 2 h / 2 GiB floor, because beam 1024 roughly doubles the beam-512 work.
+- TESTED BEFORE LAUNCH: `scripts/h4_beam1024_probe_test.py` 8/8, the load-bearing one being that
+  a failing parity cell suppresses every beam-1024 column -- without it, "this class decodes like
+  production" would be an assertion rather than a measurement, which is the property that
+  justified the dedicated class over extending the beam tuple.
 
 **1g.10 IS COMPLETE, AND ITS TABLE IS BLOCKED BY ITS OWN PRE-REGISTERED EXPLANATION DUTY**
 (verdicts 30-31; `H4FullModelDecodeReadJob.MXhi20TtG1I0`; all 1,332 chunks and 36 merges finished
