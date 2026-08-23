@@ -3852,4 +3852,19 @@ the absolute beta, is what carries the contamination claim.
   populations, and states the ratio direction. The claim that the revision bump cannot reach
   the verdict is structurally sound (the feasibility producer is a leaf with no dependents;
   the reader consumes the compare, not the producer). Nothing further is required on D8.4;
-  the phase waits on the USER's closure word.
+  the phase waits on the USER's closure word. [2026-08-23 later: the closure word arrived via
+  the D9 funding message; D8 is CLOSED in the plan, control retained, D8.3 unfunded.]
+- 2026-08-23 (D9 pre-spend provenance round VERIFIED; D9.0 scoping RULED in the plan). The
+  implementer's five-link chain (epoch.002.pt -> `ExtractAvSubmodelJob.FSYsyEJm5VHX` ->
+  two `ReturnnForwardJobV2` recogs -> two CTM conversions -> `ScliteJob.paK5JVk5SckU` /
+  `.KTVFso7HriMn`) is accepted; the planner independently re-read both endpoints --
+  the submodel job's `grpo_checkpoint` PARAMETER is the exact pinned file and both sclite
+  `output/wer` files print 12.68 / 17.57. The submodel-in-between observation is
+  load-bearing and the right standard: a check stopping at "epoch.002.pt exists" would not
+  have tied the checkpoint to the banked WERs. The arm-identity confirmation (training
+  INPUT list carries `DnBJxqz4sNQZ`; alias names psid2_contrast) closes the real
+  adjacent-row confusion risk in approach 9's table. The flagged D9.0 scoping conflict was
+  a genuine registration defect of the planner's (a three-arm census cannot precede D9.1);
+  ruled as the implementer proposed, formalized in the D9 Experiments clause by
+  replacement: gate on incumbent census + structural d_min>=2 census, read-set rule
+  applied at D9.2, structural-census violations a STOP. D9.0 build may proceed.

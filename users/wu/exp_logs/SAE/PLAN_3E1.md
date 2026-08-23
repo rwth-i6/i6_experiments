@@ -2487,16 +2487,26 @@ measurement in eta currency, never as a rescue of the degrading loop family.
   2026-08-23). The implementer flags any knob where the D8 frame and the new checkpoint
   conflict rather than resolving it silently.
 
-**Experiments.** D9.0 -- feasibility LAUNCH GATE before any refit spend: one rollout dump from
-the pinned checkpoint at the registered operating point (group 12, T=0.7) on a read bed sized
-to D8.4's read for comparability; a `D8BedFeasibilityJob`-analog prints, per arm population,
-the d_min alignability and finite-score census, naming its populations; the read set is
-pre-registered as the groups where ALL THREE arms score every member finitely, drop count
-printed (impossible scores poison means). D9.1 -- the two refits on the shared corpus. D9.2 --
-the three-arm read on the ONE shared draw: per-group eta, paired per-group delta eta,
-`bootstrap_delta_eta` n_boot 10000 seed 42 -- D8.4 machinery verbatim. Contrasts: each refit
-vs arm 1 (decisional); soft-EM vs 1-best (attribution only, never adoption). The reporting
-rule lives in the producing job's docstring before any result exists.
+**Experiments.** D9.0 -- feasibility LAUNCH GATE before any refit spend (scope amended by
+replacement 2026-08-23, implementer flag: arms 2-3 are built by D9.1, so a three-arm
+finite-score census cannot exist at gate time): one rollout dump from the pinned checkpoint at
+the registered operating point (group 12, T=0.7) on a read bed sized to D8.4's read for
+comparability; a `D8BedFeasibilityJob`-analog prints, naming its populations, (a) the
+INCUMBENT's finite-score census under its own d_min=1 topology and (b) the STRUCTURAL
+d_min>=2 alignability census of every group member -- a property of rollout length vs
+phone-sequence length under min-duration and of the units join, independent of any refit's
+learned weights and therefore identical for arms 2 and 3 by construction. The gate passes or
+fails on (a) and (b); this is what catches a D8.4-style bed failure before refit GPU is
+spent. The read-set rule stays pre-registered here and is APPLIED at D9.2, where all three
+arms exist: the read set is the groups where all three arms score every member finitely,
+per-arm drop counts printed (impossible scores poison means) -- and a row that is
+structurally alignable under (b) yet scored non-finite by a refit is a STOP surfaced to the
+planner, never a silent drop, because (b) predicts the refit census by construction. D9.1 --
+the two refits on the shared corpus. D9.2 -- the three-arm read on the ONE shared draw:
+per-group eta, paired per-group delta eta, `bootstrap_delta_eta` n_boot 10000 seed 42 --
+D8.4 machinery verbatim. Contrasts: each refit vs arm 1 (decisional); soft-EM vs 1-best
+(attribution only, never adoption). The reporting rule lives in the producing job's docstring
+before any result exists.
 
 **Gate (pre-registered).** A refit arm is adopted only if its paired delta eta against the
 incumbent has a 95 pct CI excluding zero in the refit's favor; INDISTINGUISHABLE resolves to
@@ -2511,6 +2521,19 @@ that arm passing its own leg-8 gate and is a separate decision.
 let implementer work on it"); with the implementer to build, D9.0 first. Planner constants
 the user may override: the schedule-pinned checkpoint, the incumbent-as-trained d_min
 asymmetry, the read-bed sizing at D8.4 parity.
+2026-08-23 later: PRE-SPEND PROVENANCE DISCHARGED AND ACCEPTED (planner spot-checked the
+chain's endpoints on disk): `epoch.002.pt` is the exact `grpo_checkpoint` of
+`ExtractAvSubmodelJob.FSYsyEJm5VHX` (the recog consumes the extracted AV submodel, not the
+raw training checkpoint), and `ScliteJob.paK5JVk5SckU` / `.KTVFso7HriMn` print 12.68 / 17.57
+from their own `output/wer`. Arm identity confirmed from the training job's own inputs
+(`PsiAlignTrainJob.DnBJxqz4sNQZ` in the INPUT list; alias
+`..._shaped_T0.7_lr2e5_psid2_contrast/training`) -- the pin is the d2_contrast-shaped arm,
+distinct from the adjacent incumbent-shaped arm at 13.91/18.91. The D9.0 scoping conflict the
+implementer flagged is RULED in the Experiments clause above (amended by replacement): the
+gate decides on the incumbent census plus the scorer-independent structural d_min>=2 census;
+the three-arm read-set rule applies at D9.2 with the structural census as its by-construction
+predictor and any violation a STOP. The pinned training job's `hold` file is noted and is not
+a blocker (D9 reads a written checkpoint only). D9.0 build may proceed.
 
 Replaces the §3e.1 two-sided gate (2026-08-07) BEFORE any verdict was read against v1, because
 v1's second arm is gold-conditioned as instrumented (fact 2), has the wrong sign against the
