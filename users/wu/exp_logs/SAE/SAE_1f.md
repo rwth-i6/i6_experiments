@@ -323,7 +323,9 @@ RESULT, primary language model (SIL-free 4-gram, `CreateBinaryLMJob.hvZoC014xnIe
 carries the registered label-free pick, the label-oracle best as its upper bound, and the grid's
 own range, per the planner's ruling (3):
 
-| arm | greedy PER | label-free pick | label-oracle best | grid PER range | hyp/ref phones at the oracle cell |
+Read every row as the registered TRIPLE; no column is quotable on its own.
+
+| arm | greedy PER | label-free pick (ANTI-SELECTING) | label-oracle best (upper bound) | grid PER range | hyp/ref phones at the oracle cell |
 |---|---|---|---|---|---|
 | bigram only, fixed endpoint | 1.2409 | 0.8481 (lm 0.5) | 0.8172 (lm 1) | 0.8172-0.8985 | 20836/34135 |
 | bigram only, label-free pick | 1.2449 | 0.8520 (lm 0.5) | 0.8195 (lm 1) | 0.8195-0.8963 | 21082/34135 |
@@ -359,24 +361,36 @@ different starting points, which is the band a decode reaches by saying little. 
 mechanism -- an insertion-dominated rate attacked by a language model -- is CONFIRMED as a
 mechanism and does NOT deliver a usable decode.
 
-E8.2. **The second grid axis is INERT on this decoder: all three `sil_weight` values give the same
-decode in every cell.** Not merely "not an insertion score" (the ruled amendment), but a no-op.
+E8.2. **The second grid axis is INERT on this decoder: the three `sil_weight` values move the
+phone error rate by at most 8.8e-05.** (AMENDED 2026-08-23 on the verifier's catch: this verdict
+first said "identical in every cell", which is false -- the decodes differ at one `lm_weight`
+point per read, by up to 8 emitted phones out of ~17,000 and 8.8e-05 of error rate, re-derived
+independently from both artifacts as the spread across the three values WITHIN one lm point.
+"Inert" is the claim; "identical" was an overstatement, and near-tie reshuffling is exactly what
+the fall-through mechanism predicts.) Not merely "not an insertion score" (the ruled amendment), but a no-op.
 The cause is the same fact that inverted the language-model pin: the entry-7 generator's
 vocabulary has no silence symbol, so fairseq's own index rule falls through to the
 end-of-sentence index, and `sil_score` is charged on a token the decoder never emits. The grid
 that ran is therefore 4 points, not 12. Every 12-row table in the artifact is 4 distinct decodes
-repeated three times, and it should be read that way.
+repeated three times, and it should be read that way. RETIRED by the planner 2026-08-23; anything
+run after that date uses the four-point grid, named `RETIRED_GRID` in the producing module so a
+later cell cannot re-run the dead axis by accident.
 
 E8.3. **The registered label-free selector fails here, and in the OPPOSITE direction to the one I
 disclosed.** I flagged it as near-circular and predicted it would be dragged toward high
 lm_weight. It picks lm 0.5 -- the LOWEST -- in all four arms, because weighted phone-LM perplexity
 per token rewards the long, insertion-heavy decode. On the two full-loss arms that is the WORST
 cell of the grid: 1.5446 picked against 0.8444 available, and 1.4805 against 0.8463. On the
-bigram-only arms the damage is small (0.8481 against 0.8172). CONSEQUENCE: the quotable number
-under the registered rule is 1.5446 for the full-loss arm, which is worse than three quarters of
-its own grid; quoting it without the range beside it would misrepresent the decode in the harmful
-direction. The planner's ruling (3) reporting rule is what makes that visible, and it is now
-printed by the producing job.
+bigram-only arms the damage is small (0.8481 against 0.8172). Ranked over DISTINCT lm_weight
+points -- the retired axis triples every cell, so a rank out of 12 would overstate the grid -- the
+rule picks the WORST point on both full-loss arms (5 of 5 and 4 of 4) and the third of four on
+both bigram-only arms. CONSEQUENCE, and the planner's replacement quoting rule of 2026-08-23: NO
+standalone entry-8 number exists. Every quote is the TRIPLE (rule pick, label-oracle best as an
+upper bound, grid range), the anti-selection is named wherever the pick appears, and the
+label-oracle best never stands alone because labels select nothing. The producing job prints the
+triple as one copyable line and prints the pick's rank whenever it is not the best point, so the
+rule cannot be discharged by whoever reads the number first. A repaired label-free selector --
+normalized per reference unit rather than per token -- would be a NEW registration.
 
 E8.4. **Beam 50 is converged for the RATE and not for the SEQUENCE.** A ten-fold wider beam moves
 PER by at most 0.0195 in any cell while the two beams agree on the one-best in as few as 11.4
