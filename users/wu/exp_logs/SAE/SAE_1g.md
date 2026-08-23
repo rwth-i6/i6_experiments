@@ -1770,3 +1770,11 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   shard per cell (canonical heaviest selection-role shard, same index everywhere), dropping
   1,152 chunks; surplus beam-256 jobs are deleted per the standing delete rule; beam 512 is
   uncut. The reader's key set re-registration is with the implementer.
+- 2026-08-23 later (beam-256 cut VERIFIED EXECUTED; hand-back ABSORBED). On-disk chunk count
+  is exactly the predicted post-cut census (1,332 = 144 historical beam-table cells + 1,152
+  beam-512 + 36 single-shard beam-256 probes); the probe shard traces to the measured
+  contract's own shard block (`H4ResourceContractJob.kyMk7fwm027C`: chunk_index 28, 2,466
+  retained units), not a typed number. The implementer's arithmetic correction is accepted:
+  the surplus is 1,116 (31 of 32 shards on 36 cells), not the ruling's 1,152, which would
+  have deleted the kept probes. Agreement/drift columns carry their 28-utterance support in
+  payload, header and `beam_probe_note` as ruled.

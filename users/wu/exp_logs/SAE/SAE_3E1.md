@@ -3600,3 +3600,12 @@ the absolute beta, is what carries the contamination claim.
   launched fork-policy pair completes as the same-bed-as-precedent context column (comparable
   to the banked D7 rerank etas 0.258/0.250). The "fairness pins were already satisfied by the
   D8.2 graph" State claim is corrected by this entry.
+- 2026-08-23 later (bed correction VERIFIED EXECUTED; hand-back ABSORBED). Both operative-bed
+  reranks confirmed on disk with single-variable wiring: `PsiAlignRerankJob.8oYpO4IBeqHb`
+  (candidate `D8ScorerRefitJob.2bQzhz6U1yHp` final) and `.sQGYUL22Kpg6` (control
+  `D7OnlineTrainJob.j16rTskXF1QU` final), both consuming
+  `ReturnnForwardJobV2.J9yA1eYnxwYA/output/rollouts.jsonl` at temperatures [0.7] and differing
+  in `model_pt` alone. The verdict re-keying to the operative pair, the wrong-bed refusal in
+  the reader, the per-dump unit-store join, and the State's plain self-correction are all as
+  ruled. Awaiting results: the two operative reranks, the fork-pair candidate rerank, then the
+  compares and `D8EtaReadJob.S3NTCZAOfSnZ`.
