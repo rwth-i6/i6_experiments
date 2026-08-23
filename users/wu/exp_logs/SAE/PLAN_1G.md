@@ -1827,6 +1827,72 @@ strengthened by verdicts 28-29 — or (ii) fund a bounded descriptive decode-sta
 (full-model sequence decode of the count-4 channels on the 890), noting the prior global-beam
 stability extension ruled every sequence setting ineligible on stability grounds, which such a
 follow-up must first explain. No further 1g work is authorized meanwhile.
+2026-08-23 (USER resolves the direction fork): option (ii), strengthened -- the user is
+surprised the language model was never used in production decoding and directs that it be
+("we did not use LM for decoding at all?? ... this should ofc be used"). The follow-up is
+registered as 1g.10 below; the "must first explain" duty attaches to 1g.10's score-margin
+read. The "no further 1g work" hold is lifted for 1g.10 only.
+
+### 1g.10 — Full-model (LM-aware) descriptive decode of the audited channels (USER-directed 2026-08-23)
+
+**Purpose.** Answer, by measurement, whether the phone-repair collapse is an artifact of the
+LM-blind readout rather than of the channel. The registered sequence decoder (prefix-mass beam
+search under the frozen H1 two-state law with the KenLM phone 4-gram `G_dec`) has existed
+since 1g.1 but never entered production: the pre-registered global-beam stability gate found
+no stable beam at any of the 12 grid points (best adjacent-pair one-best agreement 0.7313
+against the required 0.999; best score drift 0.005448 against the required 1e-4 nats per
+retained unit), so every banked decode fell back to the frozen local decoder -- a per-unit
+argmax over `Q * prior` with run collapse that consults neither the fitting LM nor the
+duration law. 1g.9 then located the babble exactly there: pseudo-pair's count-4 emission
+table yields healthy posteriors under the full model (TV to `p_text` 0.0120, rate residual
+-0.1 %) while its local decode emits 9 of 39 phones at TV 0.687 and rate -50.6 % (verdict
+27), and uninformative channels ride the LM marginal (verdict 28) -- which also predicts the
+observed beam instability: near-tied hypothesis scores wherever the channel is weak.
+
+**Approach.** Descriptive only, labels as evaluation. Decode the audited count-4 repaired
+channels with the registered sequence decoder exactly as frozen: `prefix_beam_decode` under
+the frozen H1 law (`p = 0.23560298`; both sub-states may exit -- the H1 law imposes NO
+minimum duration, and `d_min>=2` is the psi-track topology, which does not govern this
+channel), the deleted-silence boundary policy `force_duration_reset_keep_lm_context_v1`, the
+banked KenLM 4-gram (`CreateBinaryLMJob.hvZoC014xnIe`) REPLACING the fitting bigram (the two
+are never multiplied), prefix scores summed over duration/state paths (no Viterbi-max), and
+the registered grid `lambda = {0.5, 1, 2, 4}` by `beta = {-2, -1, 0}`. Beam is NOT an
+eligibility bar here: decode at beam 512 and report the adjacent 256-vs-512 one-best
+agreement and score drift as descriptive columns per cell, plus the per-utterance
+one-best-vs-runner-up score-margin distribution -- the registered explanation duty: tiny
+margins where instability was measured confirm verdict 28's flat-score mechanism; large
+margins with persisting instability would instead indicate a decoder defect and block any
+reading. The label-free selection surface stays local-only and CLOSED: nothing here promotes
+a sequence setting into selection; that would need a new stability law and the user's word.
+All decodes are sisyphus GPU jobs on the existing
+`H4SequenceDecodeChunkJob`/`H4SequenceDecodeMergeJob` contract, channels bound through the
+existing count adapters; no new modeling code.
+
+**Experiments.** (1) pseudo-pair (`H4RepairJob.aeetC3NfgPxB`, count 4) and the controlled
+reference (`H4RepairJob.x1TyHJMfEVpb`, count 4) on the 890 selection-role utterances, all 12
+grid points, beams 256 and 512. (2) The Gate read; extension to the remaining three starts
+(fingerprint, random-map, espum) at the same cells only on the planner's read of (1). (3)
+Readers are registered jobs printing their conventions: decoded TV to `p_text`, decoded rate
+residual to `r_target`, distinct-phone count, correct-phone fraction against the
+unigram-matched babble null p99 (the one statistic of the family verdict 29 showed
+discriminates), descriptive per-split PER on the same labels-as-evaluation surface as the
+funded 1g.2 descriptive read, the two beam-agreement columns, and the score-margin
+distribution.
+
+**Gate.** Pre-declared reading; per the standing 2026-08-23 rule this is a measurement, not a
+kill gate. The question "did the full model repair the decoded surface" is answered per cell
+by (i) readability -- pseudo-pair's decoded TV and rate entering the 1g.9 clause-1 band (TV
+<= 0.30, rate within the 0.80-1.25 length-ratio equivalent) that its local decode fails
+outright; and (ii) content -- correct-phone fraction clearing the babble-null p99; with the
+reference channel as the positive control (it must stay readable under the sequence decoder,
+else the decode path itself is broken and no cell is readable). The beam-agreement and
+score-margin columns qualify every cell. Whatever the outcome, the result feeds the USER's
+next direction decision on the phone-repair route; nothing closes automatically, and no
+selection surface opens. The reporting rule goes verbatim into the producing job's docstring
+before any result exists.
+
+**Status.** REGISTERED 2026-08-23 on the user's direction word. Implementation not started;
+the implementer proposes shard/resource sizing in `SAE_1g.md` State before launch.
 
 ## 6. Deliverables ladder
 
@@ -1837,6 +1903,7 @@ follow-up must first explain. No further 1g work is authorized meanwhile.
 | 2 | Validated content-sensitive training and selection score | Select without transcripts |
 | 2a | Conditional matched-2/3/4 diagnostic and coherent matched-4 H4-LM arm before evaluation | Resolve a valid but inert/non-deployable bigram repair without conflating decoder order |
 | 2b | Locate-the-collapse diagnostic and anti-collapse constrained-repair probe (1g.9) | Decide whether the phone-repair collapse is fixable at the objective, lives elsewhere, or closes the route |
+| 2c | Full-model (LM-aware) descriptive decode of the audited channels (1g.10) | Decide whether the collapse is a readout artifact and whether the phone-repair route stays open |
 | 3 | Separate phone policy-start and score-start results | Validate at least one concrete handoff and start characters |
 | 4 | Optional combined phone-reference loop | Validate the coupled assay without delaying characters |
 | 5 | Character channel, separate handoffs, and fixed combined test | Establish or refute the first lexicon-free end-to-end initialization |

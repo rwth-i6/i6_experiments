@@ -39,6 +39,14 @@ z_hat = argmax_z p_LM(z) * p_psi(u | BPE_states(z)). G2P survives only in evalua
   pre-register non-inferiority margins; count circularity as a cost. "Unpaired" = no paired
   audio–text; Qwen3's pretraining almost surely contains the Gutenberg books underlying
   LibriSpeech — disclosed, controlled (§4), never hidden.
+- **Evaluation discipline (USER rulings 2026-08-18 and 2026-08-23).** Every model-evaluation
+  comparison uses PAIRED data: both arms score the same items and the read is per-item paired
+  deltas with a resampled/clustered CI, never two pooled numbers. Constructed clause batteries
+  (corruption ladders, proxy discrimination statistics) may gate spend inside a phase but
+  never close a phase: a phase-closing better-or-worse verdict requires the direct measurement
+  of the real target quantity -- ranking quality eta (equal, on shared groups, to the paired
+  selection-WER delta over the shared oracle headroom) for scorers, plain WER for policies --
+  in a fair paired comparison, and the closure decision then rests with the user.
 
 ## Status & priority queue (current read 2026-08-20)
 
@@ -105,6 +113,12 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
   policy leg** per the registered no-rescue gate, verifier-confirmed bit-exactly from the
   per-anchor evidence. The banked legacy: posterior-weighted refitting improves fit and
   insertion pricing, not discrimination (`PLAN_3E1.md` D8 Status 2026-08-23 latest).
+  2026-08-23 later: the USER OVERRULES the closure -- **D8 IS REOPENED** for the D8.4 paired
+  ranking-quality (eta) read: both fixed-final scorers rerank the same banked rollout groups
+  and the verdict is the paired delta eta with the registered bootstrap (spec in `PLAN_3E1.md`
+  D8 Status; two new standing evaluation rules under North star & hard constraints). No
+  operating point is selected from the failed tables; the still-running parity job is read
+  first as the possible vehicle.
 - **960 h stock-donor supervision-axis endpoint is ABSENT**: the theta_0 + gold-scorer arm ran
   only through sub-epoch 4, was stopped and deleted 2026-08-08, and never produced the listed
   3-pass endpoint; `ReturnnTrainingJob.22Ntu7y0O6iW` does not exist. Its observed collapse is
@@ -169,6 +183,12 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    start under the LM-blind frozen local decoder. The direction fork — close the phone-repair
    route (planner's recommendation) or fund a bounded descriptive full-model-decode follow-up —
    awaits the USER's word.
+   2026-08-23 (USER): the fork is RESOLVED for the decode route — the user, surprised the LM
+   was never in the production decode, directs that it be used: 1g.10 (bounded descriptive
+   full-model sequence decode of the audited count-4 channels with the LM and duration law in
+   the decoder; beam instability reported and explained by measurement, not used as an
+   eligibility bar) is REGISTERED in `PLAN_1G.md`; the label-free selection surface stays
+   local-only and closed.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional

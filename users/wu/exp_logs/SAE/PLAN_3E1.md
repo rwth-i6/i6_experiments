@@ -1945,6 +1945,13 @@ No temperature, group-size, tau or coefficient sweep is admitted.
    the exact control leg, paired dev-clean/dev-other plain WER and S/D/I). The proposal's eventual
    once-per-leg periodic refresh inside the deployed loop is a separate arm that would be
    registered only after a D8.3 pass; nothing here authorizes it.
+6. **D8.4 paired ranking-quality (eta) read (added 2026-08-23 on the USER's reopening
+   directive; ordered before any D8.3 authorization despite its number):** both fixed-final
+   scorers -- candidate-acoustic (`D8ScorerRefitJob.2bQzhz6U1yHp`) and the exact control
+   (`D7OnlineTrainJob.j16rTskXF1QU`) -- rerank the SAME banked rollout groups, and the read is
+   the paired delta eta with the registered bootstrap. Full spec and pre-declared reading in
+   the Status entry of 2026-08-23 later; the reporting rule goes verbatim into the producing
+   job's docstring before any result exists.
 
 **Gate.** (Scope amended 2026-08-21, before any clause statistic was computed anywhere -- the
 implementer flagged, and deliberately declined to measure, that clauses (a) and (b) are
@@ -2282,6 +2289,52 @@ candidate-acoustic arm was registered to expose. What this licenses: soft multi-
 targets are NOT funded to a policy leg at this operating point (group 12, T=0.7, tau_star
 0.05, acoustic-only weights); it is not a finding that they cannot work, and no operating
 point may be selected from this table.
+
+2026-08-23 later (USER overrules the closure: D8 REOPENED; two standing rules; D8.4
+registered). The USER's directive: paired data for model evaluation is now a real rule; D8 is
+not closed; the phase question must be answered by measuring eta -- the real ranking quality
+-- to say whether the candidate is better or worse, in a fair comparison; and a
+planner-constructed kill gate must not kill a phase. Ruling: the closure entry above stands as
+an accurate record of the registered gate firing and is SUPERSEDED as a phase verdict by this
+directive -- the USER is the one authority above a registration. What survives unchanged: no
+tau, temperature, support or coefficient is selected from the failed D8.2 tables; both
+operating points stay frozen exactly as trained (candidate-acoustic at tau_star 0.05, fixed
+final; the D7 exact control, fixed final). The reopening adds a measurement, not a rescue.
+Standing rules (added same day to `PLAN.md` North star & hard constraints): (1) every
+model-evaluation comparison is PAIRED -- same items, per-item deltas, resampled CI, never two
+pooled numbers; (2) proxy clause batteries (corruption ladders, constructed discrimination
+statistics) may gate spend inside a phase but never close one -- a phase-closing
+better-or-worse verdict requires the direct measurement of the real target quantity in a fair
+paired comparison, and the closure decision then rests with the user. D8.4 -- paired
+ranking-quality (eta) read, pre-declared before any statistic exists:
+- VEHICLE. The psi rerank/gate-table machinery (`PsiAlignRerankJob` family), whose eta is the
+  registered convention: eta = (mean_WER - selected_WER)/(mean_WER - oracle_WER) as a ratio of
+  corpus means over rollout groups, first-max argmax ties, groups containing an unalignable
+  candidate dropped whole with the rank-columns sensitivity table, produced by the registered
+  reader that prints its own convention. Step zero: `PsiScorerParityJob.sRJ7LUmF4nMw` (clause
+  4, still running) is read FIRST when it lands -- if it already carries the paired
+  candidate-vs-control rerank on an operative-policy bed with the registered nulls, D8.4
+  discharges by reading it; otherwise fund exactly the missing rerank probe, no new scorer or
+  dump machinery.
+- FAIRNESS PINS. Same-bed/same-n/same-G/same-draw (absolute-eta bars are withdrawn; only the
+  paired delta is read): both scorers rerank the SAME banked rollout groups from the operative
+  theta_0^G-family policy at T=0.7, G=12, n >= 512 utterances, reusing an existing banked dump
+  where role hygiene admits it before any new decode spend; the two arms differ in the scorer
+  only. Transcripts enter as evaluation measurement only (the label quarantine's allowed use);
+  both scorers are fixed-final, so the read selects nothing.
+- READING (a measurement, not a kill gate). Primary: paired delta eta (candidate minus
+  control) with the registered `bootstrap_delta_eta` (utterance resampling on shared groups;
+  the shared mean/oracle denominators cancel), 95 % CI. On shared groups the delta eta equals
+  the paired selection-WER delta divided by the shared positive oracle headroom, so this IS
+  the plain-WER form of the same question. BETTER if the CI excludes zero in the candidate's
+  favor; WORSE if it excludes zero against; otherwise INDISTINGUISHABLE, resolving to the
+  control per the standing incumbent-tie rule. Context columns, reported never gating:
+  spearman, the AR-free null, the length-only null, the OOV-count null (the standing null
+  battery), beside the D8.2 clause results above.
+- CONSEQUENCE. The verdict goes to the USER with the D8.3 authorization question attached:
+  BETTER makes D8.3 the natural next ask; WORSE or INDISTINGUISHABLE makes non-funding the
+  natural ask -- but per standing rule (2) the phase closes only on the USER's word over this
+  measured number, never automatically.
 
 Replaces the §3e.1 two-sided gate (2026-08-07) BEFORE any verdict was read against v1, because
 v1's second arm is gold-conditioned as instrumented (fact 2), has the wrong sign against the
