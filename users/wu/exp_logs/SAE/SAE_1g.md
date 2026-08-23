@@ -65,9 +65,35 @@ Gaussian twin's decoder replaces ONLY that lookup with a per-token argmax over G
 plus log prior, and the silence test still keys on the token's frozen unit ID -- which is exactly
 the per-token keying the planner pinned, and it is available from experiment 1's `boundaries.pkl`
 plus the frozen stream without any new alignment. The retained counts the cells actually train on
-must be printed by the producing job, per the pin. STILL TO DESIGN, not yet chosen: the constrained
-update rule (implementer's choice, to be pinned in the producing docstring, with the tiny
-enumerated example extended to show the update improves the criterion).
+must be printed by the producing job, per the pin.
+
+THE CONSTRAINED UPDATE RULE IS NOW DESIGNED, PINNED AND TESTED (speech-llm `HEAD`, module
+`sae/g11_gaussian.py`; `scripts/g11_gaussian_test.py` 21/21). It is the M-step under the shared
+diagonal covariance, per-row as the single disclosed relaxation, with the M2 variance floor. Three
+things about it worth the planner's eye:
+
+- THE FLOOR IS A CONSTRAINT, NOT A HEURISTIC. `logvar = 2*min_log_std + softplus(raw)` at
+  `min_log_std = log 0.1` is a gradient-friendly way of writing `var >= 0.01`. The closed-form
+  M-step clamps to that floor, and the clamp IS the constrained maximizer rather than an
+  approximation of it: the M-step objective is unimodal in each variance component with its
+  unconstrained maximum at the weighted second moment, so on the convex set `{var >= v_min}` the
+  maximizer is `max(var_hat, v_min)` and EM's ascent survives. That argument is checked rather
+  than trusted, on a fixture where the floor genuinely binds -- a clamp that broke monotonicity
+  would otherwise surface much later as a mysteriously bad repair curve.
+- ONE RECURSION SERVES BOTH ARMS. `channel_h.marginal_forward_backward` gained one optional
+  argument, `emissions_by_time`, so the Gaussian arm calls the table arm's own forward-backward
+  instead of a second implementation; its 23 tests still pass unchanged. This matters for the
+  attribution: "only the emission model changed" is false if the two arms run different DP code
+  that merely agrees on the fixtures anyone thought to write.
+- THE DECODE TWIN REPLACES EXACTLY ONE LOOKUP. `gaussian_local_decode` is
+  `channel_h.frozen_local_decode` with the per-unit-ID argmax replaced by a per-token argmax over
+  Gaussian log-density plus log prior; the no-collapse-across-silence rule, the run collapse and
+  the two-state occupancy reduction are the table arm's own code, and silence is still tested on
+  the token's FROZEN unit ID.
+
+STILL TO BUILD: the sisyphus job and config that run the five 1g.2a starts at repair counts 0 and
+4 on the retained stream, the per-row relaxation on the selected real start, and the two nulls
+(experiment 3). Nothing of experiment 2 is registered in a graph yet.
 
 IMPLEMENTER READING, also flagged: the registration names "the `ContinuousFeatsJob` fit/assign
 split", which is a discipline about WHICH utterances a statistic may be fitted on, not about which
