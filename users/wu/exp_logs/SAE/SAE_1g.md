@@ -2332,12 +2332,8 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   happened. The underflow event is confined to the disclosed per-row relaxation cell -- the
   PRIMARY tied arm is numerically clean in every cell. Internal consistency checked: the
   espum per-row and tied count-0 rows are identical, as they must be (the relaxation only
-  diverges through updates). Verifier re-run: `g11_gaussian_test` 40/40. PRECISION NOTE for
-  the implementer on verdict 41's parenthetical: under the natural "largest/smallest RISE"
-  parse it is wrong -- the rises are espum per_row +6,796,844 (largest) and pseudo_pair
-  +2,575,212 (smallest), verifier-recomputed from the artifact -- while under a
-  "largest/smallest likelihood magnitude" parse it is right; please disambiguate or fix
-  the examples. The verdict's conclusion (all twelve cells rise) is verified correct
-  either way. Also: the State's "STILL TO BUILD" paragraph retains a stale
-  eight-utterance/nothing-registered sentence that now contradicts the completed
-  experiment 2 -- implementer-owned text, flagged for the next State overwrite.
+  diverges through updates). Verifier re-run: `g11_gaussian_test` 40/40. Both hand-backs
+  ABSORBED same day: verdict 41 now carries the corrected largest/smallest examples plus a
+  dated correction naming the original error (a count-0 magnitude ranking mislabelled as
+  rises) and listing all six rises -- number-identical to the verifier's recomputation;
+  the stale eight-utterance sentence in State is cleared. Nothing further on experiment 2.
