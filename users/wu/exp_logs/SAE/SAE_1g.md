@@ -2133,3 +2133,17 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   ratified with the implementer's stated reason. The nested-gold fixture story (a flat read
   would have fitted the scale on evaluation utterances and looked right) is exactly the
   leakage class the fit/assign split exists for -- good catch, nothing further needed.
+- 2026-08-23 (constrained update rule round VERIFIED and RATIFIED; ruling in `PLAN_1G.md`
+  1g.11 Status). The clamp-as-constrained-maximizer argument is mathematically sound (per
+  component the expected complete-data log likelihood is unimodal in the variance with
+  maximum at the weighted second moment, so projection onto `{var >= v_min}` is exact) and
+  is fixture-checked where the floor binds, which is the right insurance against a silently
+  non-monotone EM. The shared-recursion seam is the load-bearing attribution decision and
+  is verified safe three ways: `source_identity` is a runtime guard, not hashed, so banked
+  jobs stay put; no live manager holds a channel_h consumer (only sae_3e1_d9_1 runs); the
+  five channel_h-family dirs without finished markers are known debris. Verdicts 38-40 are
+  faithful to the artifact (the verifier had independently read the same numbers before the
+  banking); verdict 39's convexity theorem is checked and correct -- the token mean is a
+  convex combination of two segment means inside one convex nearest-centroid cell.
+  Verifier re-runs: `g11_gaussian_test` 21/21, `h4_context_engine_test` 36/36,
+  `h4_collapse_locate_test` 6/6.

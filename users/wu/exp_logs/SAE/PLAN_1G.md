@@ -2273,6 +2273,26 @@ Gaussian repair cells consume the same RETAINED token stream the table arm consu
 the frozen silence mask), selected from the twin stream by per-token keying -- the twin's
 full-stream build is correct because masking is a downstream selection, and the repair
 registration must state the retained counts it actually trains on.
+2026-08-23 (constrained update rule RATIFIED before experiment 2 is built; speech-llm 537f968,
+module `sae/g11_gaussian.py`). Three design points accepted as pinned: (i) the variance-floor
+clamp is the exact constrained maximizer, not an approximation -- the M-step objective is
+unimodal per variance component with its unconstrained maximum at the weighted second moment,
+so on `{var >= v_min}` the maximizer is `max(var_hat, v_min)` and EM monotonicity survives;
+checked on a fixture where the floor binds. (ii) ONE RECURSION SERVES BOTH ARMS:
+`channel_h.marginal_forward_backward` gained an optional `emissions_by_time` argument so the
+Gaussian arm runs the table arm's own forward-backward -- the attribution claim "only the
+emission model changed" requires shared DP code, and this is the registered way it holds.
+(iii) `gaussian_local_decode` replaces exactly the per-unit-ID lookup in
+`channel_h.frozen_local_decode`; the silence rule still keys on the token's FROZEN unit ID, so
+silence handling is identical across arms by construction. Verifier checks on the seam: the
+`source_identity` mechanism is a runtime guard (constructor attribute plus run-time
+assertion), not part of the sisyphus hash, so no banked hash moves; the only live manager is
+D9.1's, whose graph does not consume `channel_h`; the only channel_h-family dirs without
+finished markers are five known debris dirs (three H1-era orphans, the inert
+`vJSHAkECj8hH`, one `.cleared` rename), so no constructed-but-unrun job can trip the
+assertion. Suites re-run by the verifier: `g11_gaussian_test` 21/21,
+`h4_context_engine_test` 36/36, `h4_collapse_locate_test` 6/6 -- the pre-existing consumers
+of the shared recursion pass unchanged. Experiment 2's job and config may be built.
 
 ## 6. Deliverables ladder
 
