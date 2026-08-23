@@ -124,6 +124,21 @@ construction / 1,112 evaluation exactly as registered; EVERY one of those IDs is
 experiment-1 twin (0 missing), so no fold needs a coverage exception; retained share over 400
 update utterances is 0.7737.
 
+THE REPAIR NOW FITS THE REGISTERED FOLD, WHICH THE FIRST IMPLEMENTATION DID NOT (speech-llm
+`21b0fd1`; `g11_gaussian_test` 35/35). Both the log-density and the M-step materialized a
+[utterance, time, state, dim] tensor, which at the 6,414-utterance fold is 230 GB; it passed every
+test because every fixture was tiny, and it would have died hours into a job. Both are now the
+algebraically identical matmul forms, ASSERTED against the direct forms for the tied and the
+per-row covariance rather than assumed from the algebra. The M-step is split into additive
+per-chunk sufficient statistics so a chunk's posterior is discarded once accumulated, and a test
+asserts chunking moves neither a parameter nor a criterion -- otherwise the fold's answer would
+depend on how many utterances happened to fit in a batch. `floor_share` is now reported per count,
+which is the registration's clause-4 honesty line.
+
+MEASURED COST, so the job's requirements are not a guess: 1,024 update utterances through four EM
+updates take 5.9 s at 1.8 GB peak. The full update role is therefore well under a minute per cell
+and all five starts are minutes of CPU, not hours -- this is a small CPU job, not a GPU one.
+
 STILL TO BUILD: the sisyphus job and config that run the five 1g.2a starts at repair counts 0 and
 4 on the retained stream, the per-row relaxation on the selected real start, and the two nulls
 (experiment 3). Nothing of experiment 2 is registered in a graph yet, and no number above is
