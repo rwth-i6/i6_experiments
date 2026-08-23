@@ -55,6 +55,20 @@ finished artifacts before the job existed, and both are flagged here rather than
    amend the clause to name the token segmentation, since that is the reading the registration's
    own "exactly that token's frames" selects and the only one under which it is true.
 
+NEXT, 1g.11 EXPERIMENT 2 (Gaussian repair cells), with the planner's retained-stream pin located
+in code so the build is resumable. The table arm's retained stream is `masked_sequences`
+(`h3_initializers.py:177`): `seq[~silence[seq]]`, where `silence` is a per-UNIT-ID boolean from the
+frozen H1 artifact (`h3_jobs.py:134`, `h1["routes"][route]["mask"]["silence_unit_ids"]`). Its local
+decoder is `channel_h.frozen_local_decode`, whose readout is a per-unit-ID lookup
+`argmax(E * prior[:, None], axis=0)` plus a no-collapse-across-silence rule and run collapse. So the
+Gaussian twin's decoder replaces ONLY that lookup with a per-token argmax over Gaussian log-density
+plus log prior, and the silence test still keys on the token's frozen unit ID -- which is exactly
+the per-token keying the planner pinned, and it is available from experiment 1's `boundaries.pkl`
+plus the frozen stream without any new alignment. The retained counts the cells actually train on
+must be printed by the producing job, per the pin. STILL TO DESIGN, not yet chosen: the constrained
+update rule (implementer's choice, to be pinned in the producing docstring, with the tiny
+enumerated example extended to show the update improves the criterion).
+
 IMPLEMENTER READING, also flagged: the registration names "the `ContinuousFeatsJob` fit/assign
 split", which is a discipline about WHICH utterances a statistic may be fitted on, not about which
 objects it is fitted over. The component scale here is fitted over SEGMENT vectors, not frame
