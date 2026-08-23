@@ -2098,8 +2098,14 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   1g.10 Status 2026-08-23 result). `H4Beam1024ReadJob.tKbQ0MHLdX03`: parity cell PASS (the
   option-(b) identity guard held end to end), 0 of 36 cells clear the 26-of-27 bar (best
   24/27; median 512-vs-1024 agreement 0.704 vs 0.611 at 256-vs-512; drift per unit down in
-  every cell). The bar fired as designed: cross-channel quoting stays closed, beam
-  escalation is not funded (trend ~+0.09 median agreement per doubling), within-channel
-  paired reads remain the standing currency. The implementer's banking of this result in
-  Approach/Verdicts is expected in their next round; this entry records the planner-side
-  reading so the two can be cross-checked.
+  25 of 36 cells and up in 11). The bar fired as designed: cross-channel quoting stays
+  closed, beam escalation is not funded (trend ~+0.09 median agreement per doubling),
+  within-channel paired reads remain the standing currency. The implementer's banking of
+  this result in Approach/Verdicts is expected in their next round; this entry records the
+  planner-side reading so the two can be cross-checked. CORRECTION (2026-08-23, after
+  verdict 35): this entry originally claimed drift fell "in every cell" -- WRONG; the
+  implementer's 25-down/11-up count is re-verified by the planner from both artifacts and
+  is the record. The ruling is unaffected (11 cells with rising drift under a doubling
+  argue harder against escalation, not softer). The same universal claim in the PLAN_1G
+  Status entry and in commit 66e4f5bf7's message is corrected by replacement in the plan;
+  the commit message stands as history.

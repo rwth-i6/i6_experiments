@@ -2054,7 +2054,10 @@ chunk exactly (the dedicated-class mechanism is validated), and 512-vs-1024 one-
 on the 27 probe utterances reaches at best 24 of 27 (0.889), median 0.704 across the 36 cells,
 against the pre-registered bar of at least 26 of 27. The search is converging but slowly:
 median agreement rose from 0.611 (256-vs-512) to 0.704 (512-vs-1024) -- roughly +0.09 per beam
-doubling -- and per-unit drift fell everywhere, so on even a generous linear read the bar sits
+doubling -- and per-unit drift fell in 25 of 36 cells and ROSE in 11 (CORRECTED 2026-08-23,
+replacing this entry's original "fell everywhere", which the implementer's verdict 35 caught
+and the planner re-verified from both artifacts; the 11 rising cells strengthen, not weaken,
+the no-escalation reading below), so on even a generous linear read the bar sits
 about three more doublings away (beam 8192) at doubling cost per step. RULED: no further beam
 escalation is funded; the bar fired as designed and gates QUOTING, not the route. The 1g.10
 grid's standing currency is therefore: WITHIN-CHANNEL comparisons, per-utterance paired with
