@@ -94,7 +94,11 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
   verifier-confirmed against the artifacts: no policy leg, no rescue selected from the result;
   the recorded legacy is verdict 67's trade (decisive same-speaker discrimination, but a
   significantly larger insertion discount). The D8.1a-b release this verdict unlocks is ruled
-  in `PLAN_3E1.md` D8 Status.
+  in `PLAN_3E1.md` D8 Status. 2026-08-23: D8.1a read GO on the corrected support
+  (verifier-recomputed to the last digit; convention immaterial by the pre-registered
+  sensitivity read) with `candidate_acoustic` the ONLY funded arm — shaped and acoustic-only
+  weights are operationally identical (spearman 0.9835 > 0.95) — and D8.1b is authorized for
+  that arm alone (`PLAN_3E1.md` D8 Status 2026-08-23).
 - **960 h stock-donor supervision-axis endpoint is ABSENT**: the theta_0 + gold-scorer arm ran
   only through sub-epoch 4, was stopped and deleted 2026-08-08, and never produced the listed
   3-pass endpoint; `ReturnnTrainingJob.22Ntu7y0O6iW` does not exist. Its observed collapse is

@@ -3245,3 +3245,25 @@ the absolute beta, is what carries the contamination claim.
   a measured size (~+9.5 nats in the shaped numerator), uniform across classes, disclosed, and
   anchored on D7.1 control-consumption parity; the banked sensitivity block and artifacts let
   the member-weight shift be read directly at verdict time.
+- 2026-08-23 (D8.1a completion round VERIFIED IN FULL; verdicts 72-74 ACCEPTED; GO accepted and
+  D8.1b authorized in `PLAN_3E1.md` D8 Status). The decisive check is a fresh independent
+  implementation of the registered definitions streamed over all 281,241 frozen groups of
+  `D8WeightJob.juRpzTNHKCSq/output/supports.jsonl`: every gate statistic reproduces to the last
+  digit — median distinct 13, median shaped ESS at all five taus (2.982409 and 5.32854 inside
+  the band, the rest outside), tau_star 0.05 by the nearest-to-target rule, median per-group
+  spearman 0.34615384615384615 (shaped-LM) and 0.9835164835164836 (shaped-acoustic), median
+  token R-squared 0.06203486419535191 with 278,215 defined groups, and live members 3,170,658 =
+  3,170,676 scored minus the 18 exclusions (7 empty_after_fold + 11 infeasible), valve idle at
+  5.7e-06. The spearman convention is verified at source: per-group rho with average-rank ties
+  aggregated by median, `d8_feasibility.py:145-172`, so the tie-handling trap is closed. The
+  sensitivity block matches the ruling's watched list, finds no flip, and the acoustic spearman
+  being bit-identical under both conventions is self-consistent (ranks cannot move under the
+  probe's <=4.77e-07 recon deltas). Provenance: convention corrected_text_path, 281,241 members
+  text-path scored, reused 0 — the latest+3 law implemented with no reuse branch. Housekeeping
+  accepted: the ten `all_bed` error markers are the known duplicate-worker artifact
+  (spot-checked: `finished.tar.gz` present, marker renamed `.backup.stray-worker-after-cleanup`),
+  every downstream read succeeded. Reconciliation note in the ruling: the D8.0 forewarning
+  rho 0.9790 (fork-epoch, 512 groups, non-binding) versus 0.3462 here is a bed/policy
+  difference, not a contradiction; the registered rule reads D8.1a statistics alone. Verdict
+  74's closing sentence is endorsed as written: the convention correction was necessary even
+  though it proved immaterial, because immateriality was establishable only by measurement.

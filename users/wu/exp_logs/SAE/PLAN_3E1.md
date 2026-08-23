@@ -2212,6 +2212,32 @@ unchanged: state the successor hash in State before any manager restart, after w
 implementer may start the D8.1a manager. This is the last D8.1a-scoring spend the planner
 will order; any further convention issue goes to the user.
 
+2026-08-23 (planner verdict acceptance and D8.1b authorization). D8.1a is COMPLETE and its GO
+is ACCEPTED: the verifier independently recomputed every clause statistic from the frozen
+`D8WeightJob.juRpzTNHKCSq/output/supports.jsonl` over all 281,241 groups with a fresh
+implementation of the registered definitions and reproduced the artifact to the last digit
+(median distinct 13; median shaped ESS 2.982409 / 5.32854 in the [1.5, 8] band at tau 0.05 /
+0.1 and outside it elsewhere; tau_star 0.05; median per-group spearman shaped-versus-LM-only
+0.34615384615384615 and shaped-versus-acoustic-only 0.9835164835164836, average-rank ties,
+exactly as the code states; median token-count R-squared 0.06203486419535191 on 278,215
+defined groups; member accounting 3,170,658 live = 3,170,676 scored minus 18 excluded). All
+three no-go clauses pass, the valve is idle at 5.7e-06 against 0.05, and the arm-selection
+rule fires on its REDUNDANCY clause: shaped and acoustic-only weights are operationally
+identical (0.9835 > 0.95), so `candidate_shaped` is not funded and `candidate_acoustic` is the
+one funded arm. The pre-registered convention-sensitivity line finds no flip, so the latest+3
+convention question is closed by measurement. Reconciliation for the record: the banked D8.0
+forewarning rho(shaped, LM-only) 0.9790 was measured on the fork-epoch policy's 512-group
+slice and was explicitly non-binding; on the operative theta_0^G bed the same statistic is
+0.3462, and the registered rule reads D8.1a statistics alone — there is no contradiction,
+the two beds' rollout populations differ exactly the way D5(a) said they would. RULING:
+D8.1b is AUTHORIZED per registered phase item 3, for `candidate_acoustic` ONLY — weights from
+`recon` alone at tau_star 0.05 read from the frozen artifact, full-bed, fixed-final scorer
+persisted with role hashes, the sampler seed/state contract, loss curves, internal-held reads
+and sampling diagnostics; no policy trains; D8.2's already-registered persistence requirement
+(per-anchor paired deltas and speaker-cluster ids beside the aggregate) binds its admission
+job. The shaped arm may not be revived from this read; a future shaped arm is a new
+registration.
+
 ## Acceptance gate v2
 
 Replaces the §3e.1 two-sided gate (2026-08-07) BEFORE any verdict was read against v1, because
