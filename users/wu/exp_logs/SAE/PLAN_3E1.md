@@ -2259,6 +2259,30 @@ aggregate (registered 2026-08-22), and the rest of the registered D8.2 battery a
 unchanged: the paired corruption-ladder read, the all-1,500-row Acceptance gate v2, and
 `PsiScorerParityJob`, with reference text, rollout WER and intermediate checkpoints sealed.
 
+2026-08-23 latest (D8.2 verdict and D8 CLOSURE). D8.2 DOES NOT PASS and, per the registered
+gate ("D8.2 passes for a candidate only if all four hold"; "failure at any rung closes D8
+without a policy leg; no tau, temperature, support or coefficient rescue is selected from
+results"), **D8 IS CLOSED WITHOUT A POLICY LEG**. D8.3 never runs and the proposal's eventual
+periodic-refresh arm, registered only behind a D8.3 pass, dies with it. Verifier-confirmed
+from the artifacts: clause 1 PASSES decisively — paired mean -0.012475, speaker-cluster
+bootstrap one-sided 95 % upper bound -0.011800 against delta_NI 0.004826, and the bound is
+below ZERO, so the data-defined margin never became load-bearing; the verifier reproduced
+mean, delta_NI, upper bound and negative share BIT-EXACTLY from the persisted
+`per_anchor.jsonl`, which is the per-anchor persistence registration doing its job. Clause 2
+FAILS — no corruption ladder's lower bound clears zero and filler-insertion discrimination is
+significantly degraded (-0.00333 [-0.00638, -0.00028]); clause 3 FAILS — gate v2 returns NO
+WINNER under both the point and CI readings because the candidate is ineligible on the
+ladder-not-below clause, despite passing the floors, both improvement clauses, ce_loo 2.23428
+vs 2.25883, and significantly improving the matched insertion discount at every k. Clause 4
+(`PsiScorerParityJob.sRJ7LUmF4nMw`) completes and is read FOR THE RECORD; it cannot change
+the outcome. The registered legacy to carry: the acoustic-weighted refit learned the target
+distribution better (held fit better than the control at the strict zero margin) and priced
+insertions better, without learning to discriminate corruption better — the failure mode the
+candidate-acoustic arm was registered to expose. What this licenses: soft multi-hypothesis
+targets are NOT funded to a policy leg at this operating point (group 12, T=0.7, tau_star
+0.05, acoustic-only weights); it is not a finding that they cannot work, and no operating
+point may be selected from this table.
+
 Replaces the §3e.1 two-sided gate (2026-08-07) BEFORE any verdict was read against v1, because
 v1's second arm is gold-conditioned as instrumented (fact 2), has the wrong sign against the
 filler mode (fact 3), and its first arm is not comparable across rounds (fact 4). All statistics

@@ -98,7 +98,13 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
   (verifier-recomputed to the last digit; convention immaterial by the pre-registered
   sensitivity read) with `candidate_acoustic` the ONLY funded arm — shaped and acoustic-only
   weights are operationally identical (spearman 0.9835 > 0.95) — and D8.1b is authorized for
-  that arm alone (`PLAN_3E1.md` D8 Status 2026-08-23).
+  that arm alone (`PLAN_3E1.md` D8 Status 2026-08-23). 2026-08-23 later: D8.1b trained at
+  measured cost parity and D8.2 read its gate — clause 1 passes below even the strict zero
+  margin, but clauses 2-3 fail (no discrimination gain on any corruption ladder,
+  filler-insertion significantly degraded, gate v2 NO WINNER) — so **D8 IS CLOSED without a
+  policy leg** per the registered no-rescue gate, verifier-confirmed bit-exactly from the
+  per-anchor evidence. The banked legacy: posterior-weighted refitting improves fit and
+  insertion pricing, not discrimination (`PLAN_3E1.md` D8 Status 2026-08-23 latest).
 - **960 h stock-donor supervision-axis endpoint is ABSENT**: the theta_0 + gold-scorer arm ran
   only through sub-epoch 4, was stopped and deleted 2026-08-08, and never produced the listed
   3-pass endpoint; `ReturnnTrainingJob.22Ntu7y0O6iW` does not exist. Its observed collapse is

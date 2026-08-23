@@ -3509,3 +3509,21 @@ the absolute beta, is what carries the contamination claim.
   2-4 are D7.2's construction by code reuse with the candidate substituted; all four clauses
   built, none gated on another's expected outcome; the control is reused at its existing hash.
   The D8.2 verdict is the planner's read once `admission.json` and the clause table land.
+- 2026-08-23 (D8.2 result round VERIFIED IN FULL; verdicts 78-81 ACCEPTED; D8 CLOSED in
+  `PLAN_3E1.md` D8 Status). Clause 1 is verified at the strongest level available: the
+  verifier recomputed mean (-0.012475352516886666), delta_NI (0.004825604859880695), the
+  one-sided upper bound (-0.011799971482361846) and the negative share (0.6555255297966149)
+  BIT-EXACTLY from the persisted `per_anchor.jsonl` with a fresh implementation of the pinned
+  bootstrap — the per-anchor persistence registration is thereby proven functional, and the
+  bound sits below zero, so the data-defined margin never became load-bearing. Clause 2's five
+  ladder rows and clause 3's NO WINNER reproduce from `PsiGateClauseTableJob.xFSaHcqvUR2S`
+  (filler_ins -0.003326 [-0.006376, -0.000277]; best lower bound filler_sub -0.000056, still
+  below zero; insertion-discount improvements at every k as quoted; ce_loo 2.2342825843 vs
+  reference 2.2588296056 from `PsiHeldNllJob.BhUn7Sa3CW67`, clauses i/ii true — the candidate
+  fails ONLY ladder-not-below, under both the point and CI readings). The closure wording
+  verdict 81 quotes is the registered gate text verbatim (`PLAN_3E1.md:1986`). Verdict 81's
+  fencing and localization are endorsed as written. Both earlier hand-backs are ABSORBED:
+  D8.1b is renumbered approach 37 with verdicts repointed, and the admission artifact names
+  `held_target` explicitly, resolving the sampling.json `target` ambiguity at the successor
+  schema. Clause 4 remains to be read for the record when `PsiScorerParityJob.sRJ7LUmF4nMw`
+  finishes; it cannot move the closed verdict.
