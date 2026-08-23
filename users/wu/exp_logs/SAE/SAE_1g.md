@@ -112,10 +112,30 @@ four updates; tied variance 1.0 -> 0.2407, well clear of the 0.01 floor), and bo
   utterances the retained share after the frozen silence mask is about 0.79 (e.g. 153 of 184), and
   the mask holds 103 of the 500 unit IDs.
 
+THE RETAINED-TOKEN KEYING IS BUILT AND VERIFIED AGAINST THE REAL ROLES (speech-llm `88198ea`;
+`g11_gaussian_test` 28/28). `retained_token_view` calls the table arm's own
+`h4_jobs._retained_runs` for the retained stream and its duration boundaries, then selects the
+twin's vectors by the same token positions, and ASSERTS the index against `_retained_runs`'s own
+output rather than trusting it -- deriving an index alongside a shared primitive instead of from it
+is how two streams silently stop being the same tokens, and that failure would not surface as an
+error but as an attribution verdict about inductive bias that was really about misaligned
+observations. Read from the artifacts: the H1 roles are 6,414 update / 890 selection / 7,304
+construction / 1,112 evaluation exactly as registered; EVERY one of those IDs is present in the
+experiment-1 twin (0 missing), so no fold needs a coverage exception; retained share over 400
+update utterances is 0.7737.
+
 STILL TO BUILD: the sisyphus job and config that run the five 1g.2a starts at repair counts 0 and
 4 on the retained stream, the per-row relaxation on the selected real start, and the two nulls
 (experiment 3). Nothing of experiment 2 is registered in a graph yet, and no number above is
-evidence for anything -- the EM ran on eight utterances, not the 6,414-utterance update role.
+evidence for anything -- the EM ran on eight utterances, not the 6,414-utterance update role. All
+inputs are now resolved to concrete finished artifacts, so what remains is wiring rather than
+discovery: starts `H4RepairJob.x1TyHJMfEVpb` (controlled/reference), `.ViPSmq4Am8vX`
+(espum_seed0_update30000), `.iUFh7IwniCMl` (fingerprint), `.aeetC3NfgPxB` (pseudo_pair_seed0),
+`.Ds0zM1NTY2C1` (random_map_seed1000, which is also the gate's content-free control); accepted H1
+`Phase1gH1Job.HbxKiuBTJ8aN` (duration p = 0.2356, 103 of 500 unit IDs masked as silence); fitting
+LM `H4CalibrationPreparationJob.DPv4aIqwPEzM/output/phone_lm.npz`. The prelabel-surfaces graph that
+carries the banked table comparator decodes was checked and is 4,709 jobs with ZERO unfinished, so
+reusing it funds nothing and needs no registration suppression (unlike PLAN_1F entry 8).
 
 IMPLEMENTER READING, also flagged: the registration names "the `ContinuousFeatsJob` fit/assign
 split", which is a discipline about WHICH utterances a statistic may be fitted on, not about which
