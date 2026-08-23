@@ -3350,3 +3350,24 @@ the absolute beta, is what carries the contamination claim.
   seed/state contract, loss curves, internal-held reads), and `sampling.json`'s realized
   greedy-draw fraction against the predicted ~0.25. D8.2's admission start remains a plan
   decision after the refit finishes.
+- 2026-08-23 (D8.1b completion VERIFIED; verdicts 75-77 ACCEPTED; two hand-backs, neither
+  touching a number; D8.2 authorized in `PLAN_3E1.md` D8 Status). Verified from the banked
+  artifacts: `sampling.json`'s 67,628 greedy draws over 267,175 visits give exactly the quoted
+  0.25312, which meets the frozen artifact's mean greedy weight (verifier's own stream: 0.2527)
+  to 4.6e-04; 0 infeasible drawn members and 0 infeasible donor pairs; the 68,164
+  identical-encoding drawn targets exceed the greedy draws by 536, which is coherent (non-greedy
+  texts can encode identically); `internal_held_per_frame_nll` 2.513888 matches verdict 77 and
+  the control's 2.52588 matches D7.2's banked 2.525882; the persistence set is complete and
+  content-bound (`monitors.json`: fixed_final, role hashes for train and internal-held, code
+  identity over five modules, input sha256s including the frozen weight artifact,
+  preflight_sha256, ten per-shard loss records summing to 2,361 steps; per-shard greedy-draw
+  fractions converge to the banked total). Verdict 77's descriptive-only fencing of the held
+  read is exactly right and is preserved in the ruling. HAND-BACK (bookkeeping): the Approach
+  section now carries TWO entries numbered 36 — D6-PERIODIC/GAN-FROZEN (line ~1093, verdicts
+  68-69) and D8.1b (line ~1332, verdicts 75-77) — so the "A36" citations are ambiguous;
+  renumber D8.1b's entry to 37 and repoint verdicts 75-77. HAND-BACK (artifact self-description):
+  `sampling.json` carries `target = "own greedy pseudo-text, never a draw"` inside the artifact
+  whose purpose is drawn targets — presumably it describes the HELD-evaluation target
+  convention inherited from the D7 schema, but as banked it reads as a contradiction; state its
+  meaning in the approach entry and rename the field in the next schema revision. Neither
+  hand-back touches a banked number.

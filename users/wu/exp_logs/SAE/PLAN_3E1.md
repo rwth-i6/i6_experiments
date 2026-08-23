@@ -2238,7 +2238,26 @@ and sampling diagnostics; no policy trains; D8.2's already-registered persistenc
 job. The shaped arm may not be revived from this read; a future shaped arm is a new
 registration.
 
-## Acceptance gate v2
+2026-08-23 later (D8.1b acceptance and D8.2 authorization). D8.1b is COMPLETE and ACCEPTED
+(verifier-confirmed): the realized greedy-draw fraction 0.25312 reproduces the frozen
+artifact's 0.2527 mean greedy weight to 4.6e-04 on a quantity nothing tuned, zero drawn
+members were infeasible, per-step cost parity with the control held (13:52 vs 13:59 over an
+identical 10 shards / 2,361 batches / 267,175 + 14,062 anchors), and the persistence set is
+banked content-bound (fixed-final checkpoint, role hashes, code identity, input sha256s
+including the frozen weight artifact, sampler RNG contract, ten per-shard loss records). The
+internal-held per-frame NLL banked by the training job is DESCRIPTIVE ONLY, exactly as verdict
+77 fences it. D8.2 IS AUTHORIZED, with one convention pinned by this ruling: the authorized
+persistence set necessarily exposes the candidate's held aggregate before the admission job
+exists, so the registered "delta_NI computed and recorded before any candidate number is read"
+is discharged by CONVENTION PINNING rather than by literal sequencing — delta_NI is the
+speaker-cluster bootstrap standard deviation of the control's own held per-frame NLL computed
+by the D7.2 admission implementation VERBATIM (its resample count, seed rule, and
+speaker-cluster construction, all fixed before any D8 candidate existed), leaving zero free
+choices; any deviation from that convention is a new registration and returns to the planner.
+The admission job must persist the per-anchor paired deltas and speaker-cluster ids beside the
+aggregate (registered 2026-08-22), and the rest of the registered D8.2 battery applies
+unchanged: the paired corruption-ladder read, the all-1,500-row Acceptance gate v2, and
+`PsiScorerParityJob`, with reference text, rollout WER and intermediate checkpoints sealed.
 
 Replaces the §3e.1 two-sided gate (2026-08-07) BEFORE any verdict was read against v1, because
 v1's second arm is gold-conditioned as instrumented (fact 2), has the wrong sign against the
