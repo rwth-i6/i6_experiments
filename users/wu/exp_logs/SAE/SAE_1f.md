@@ -341,8 +341,9 @@ one-best agreement between the two beams runs 0.1136 to 0.4843. The rate is conv
 the SEQUENCE is nowhere near converged.
 
 SENSITIVITY, SIL-augmented 4-gram on the two fixed-endpoint arms
-(`GuaLmGridReadJob.I9lgMOqar8RO`): same shape, slightly worse throughout -- full loss best 0.8476
-against 0.8444, bigram only best 0.8145 against 0.8172 -- so the vocabulary mismatch costs little
+(`GuaLmGridReadJob.I9lgMOqar8RO`): same shape, differences small and in BOTH directions -- full
+loss best 0.8476 against 0.8444 (worse), bigram only best 0.8145 against 0.8172 (better; verifier
+correction of "slightly worse throughout", 2026-08-23) -- so the vocabulary mismatch costs little
 here and changes no conclusion.
 
 ## Verdicts
@@ -916,3 +917,24 @@ record per `train_num_updates`).
   currency, no LM, no self-training; entry-8 numbers are a different currency with no
   like-for-like published counterpart) are in the plan; the pin text goes into
   `gua_lm_decode.py`'s docstring before any result is read.
+- 2026-08-23 (entry 8 cells 1-2 result VERIFIED; three result rulings in `PLAN_1F.md` entry 8
+  Status 2026-08-23 result ruling). Both read artifacts reproduced line for line by the
+  planner: every Approach table number, decomposition, range, pick marker, probe delta and
+  agreement matches `entry8_lm_per.txt` in `GuaLmGridReadJob.SeNSdRhV1Wo3` / `.I9lgMOqar8RO`,
+  and the payload prints the discharged anchor pin and consumes the beam-500 probe (both
+  `55045ed` gaps closed pre-read as claimed; zero error markers on all ten jobs). Verdicts
+  E8.1, E8.3, E8.4 are faithful to the artifact. TWO PRECISION NOTES, neither flipping a
+  verdict: (i) E8.2's "identical decodes at all three values ... in every cell" is slightly
+  too strong -- at lm 4 the three sil_weight rows differ by up to 0.0001 PER and 2 hypothesis
+  phones (full endpoint 17212/17213/17214), which is the near-tie reshuffling the
+  eos-fall-through mechanism itself predicts; the axis is inert to any decision-relevant
+  precision, and the retirement ruling stands on the measured 0.0001 bound, but the verdict's
+  universal phrasing should carry that bound (implementer's amendment). (ii) The SIL-augmented
+  sensitivity paragraph said "slightly worse throughout" while its own numbers show the
+  bigram-only best BETTER (0.8145 vs 0.8172); objectively wrong reference corrected in place
+  by the verifier, conclusion unchanged. The E8.3 anti-selection finding is verified in the
+  artifact (sel wppl 43.03 at the picked lm 0.5 vs 431.14 at the oracle cell on the full
+  endpoint arm -- per-token perplexity rewards the 64,586-phone decode) and its mechanism
+  matches the banked per-token-mean-pays-for-length principle; the tightened TRIPLE quoting
+  rule and the sil-axis retirement are in the plan. Cells 3-4 stay with the user; cell 4's
+  stakes are raised, as ruled.

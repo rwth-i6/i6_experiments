@@ -1262,6 +1262,37 @@ into `gua_lm_decode.py`'s docstring (implementer). STILL WITH THE USER: the cell
 cell 4 (nulls and ceiling re-banked under this decode) is what licenses any margin reading and
 the pre-registered "stage A answerable after all" trigger; recommendation unchanged: fund it.
 
+2026-08-23 result ruling (cells 1-2 COMPLETE and VERIFIED -- verdicts E8.1-E8.4, primary
+`GuaLmGridReadJob.SeNSdRhV1Wo3`, sensitivity `.I9lgMOqar8RO`; artifact reproduced by the
+planner line for line). HEADLINE, in the registered frame: the LM decode removes the insertion
+flood as the registration predicted (full loss 1.6828 -> 0.8444 at the label-oracle cell, ins
+1.0650 -> 0.0021) and does NOT deliver a usable decode -- both arms land in an 0.82-0.85 band
+by emitting 47-62 percent of the reference phone count, deletion-dominated, the band a decode
+reaches by saying little. No margin against the argmax nulls exists until cell 4 re-banks them
+in this currency. Three rulings on what the result exposed, each an amendment by replacement:
+(1) SIL-WEIGHT AXIS RETIRED (replaces the launch ruling's axis assignment, because measurement
+showed it inert): with no silence symbol in the vocabulary, `sil_score` falls through to
+fairseq's end-of-sentence index and the axis moves PER by at most 0.0001 (near-tie reshuffling
+at lm 4 only, exactly what the fall-through mechanism predicts). The banked grid reads as its
+4 distinct lm_weight points; cells 3-5, if funded, run the 4-point grid without the axis.
+(2) QUOTING RULE TIGHTENED (replaces ruling (3)'s disclosure form, because the registered
+label-free selector ANTI-selects): the selector picked lm 0.5 on all four arms -- the WORST
+full-loss cells (1.5446 quoted against 0.8444 available) -- because per-token weighted
+perplexity PAYS for length, the same exploit family as the banked lm-prior length rule. The
+rule's pick remains the only label-free single figure, but every entry-8 quote is now the
+TRIPLE (rule pick, label-oracle best as upper bound, grid range); no standalone single number
+exists for any entry-8 arm, and the anti-selection finding is named wherever the pick is
+quoted. The label-oracle best never stands alone (labels select nothing). Any repaired
+label-free selector (e.g. per-reference-unit normalization instead of per-token) is a NEW
+registration, not a patch to this one. (3) BEAM RATIFIED: rate converged at beam 50 (wider
+beam moves PER by at most 0.0195 and is never worse), sequence not converged (one-best
+agreement down to 0.1136) -- no escalation funded, and sequence-identity claims are barred at
+this beam, mirroring 1g.10b's closure. The implementer's two self-caught gaps (unconsumed
+beam-500 probe, stale anchor-pin print) were fixed pre-read at `55045ed`, re-keying only the
+read jobs; accepted. Cells 3-4 remain the user's word; this result RAISES cell 4's stakes:
+a content-free stream decoded at high lm_weight may land in the same 0.82-0.85 deletion band,
+so whether stage A shows any content signal in this currency is exactly what cell 4 decides.
+
 ## Screen battery (prerequisites (i)+(ii) made operational; the first fundable step)
 
 Run per REPRESENTATION of the same enc50 stream — raw, run-length-deduped, segment-pooled

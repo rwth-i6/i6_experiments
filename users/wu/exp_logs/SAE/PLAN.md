@@ -226,8 +226,13 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    straddles zero at the fourth; the bonus buys length on both rows, content only on the control.
    1g.10c CLOSES (`PLAN_1G.md` 1g.10 Status 2026-08-23 1g.10c result): the deletion mechanism is
    confirmed causal, the truncated-grid concern is discharged, no further decode-parameter probes
-   on this harness. The decode route's live measurement is now `PLAN_1F.md` entry 8 (cells 1-2
-   running).
+   on this harness. 2026-08-23 (entry 8 cells 1-2 result, `PLAN_1F.md` entry 8 Status): the LM
+   decode kills the insertion flood as predicted (full loss 1.6828 -> 0.8444 at the label-oracle
+   cell) but delivers NO usable decode -- both arms land at 0.82-0.85 by emitting half the
+   reference length, deletion-dominated; the sil_weight axis measured inert and is retired; the
+   registered label-free selector ANTI-selects (per-token perplexity pays for length), so every
+   entry-8 quote is a (pick, oracle-best, range) triple. No null margin until cell 4 re-banks
+   the nulls in this currency -- cells 3-4 remain THE USER'S WORD, stakes raised.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional
