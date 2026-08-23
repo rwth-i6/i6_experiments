@@ -4,8 +4,65 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-State as of 2026-08-22 -- 1g.9 is the user-greenlit highest-priority subphase and its experiment 1
-is RUNNING; 1g.2 is READ and CLOSED on its gate; 1g.2a (H4-LM) is open with items 1-4 complete.
+State as of 2026-08-23 -- 1g.9 is CLOSED by its own off-ramp; the USER resolved the direction fork
+toward the decode route and 1g.10 (full-model LM-aware descriptive decode) is REGISTERED, BUILT and
+LAUNCHED; 1g.2 is READ and CLOSED on its gate; 1g.2a (H4-LM) is open with items 1-4 complete.
+
+**1g.10 IS IN FLIGHT, and its sizing proposal is here as the registration requires**
+(`config/sae_1g_h4_full_model_decode.py`, manager `sae_1g_h4_full_model_decode`; reader
+`H4FullModelDecodeReadJob` in `h4_full_model_decode.py`).
+
+- SHAPE, exactly as experiment (1) registers it after the same-day amendment: the three audited
+  count-4 channels (`controlled/reference` as positive control, `real/pseudo_pair_seed0` as the
+  collapsed row, and `real/espum_seed0_update30000`, which the user promoted in as the old PUSM
+  approach's projection into this route), all 12 registered grid points, beams 256 and 512, on the
+  890 selection-role utterances. Channels are bound BY NAME through the existing count adapters,
+  never by a hash I typed. The
+  registered decoder is used unchanged -- no new modelling code, no new job class: existing
+  `H4SequenceDecodeChunkJob`/`H4SequenceDecodeMergeJob` at the passing measured SELECTION resource
+  contract, its fixed 32-way sharding, the deleted-silence boundary policy, the frozen duration
+  law, the banked KenLM 4-gram replacing the fitting bigram. The global-beam eligibility flag is
+  read for provenance and deliberately NOT applied, per "beam is not an eligibility bar here".
+- SHARDING is not mine to choose: `H4_NUM_SHARDS = 32` is validated inside the job class and the
+  merge refuses any other count, so the grid is 3 x 12 x 2 x 32 = 2,304 chunk jobs plus 72 merges,
+  each shard about 28 of the 890 utterances.
+- RESOURCES per chunk are the contract's own 1.5x rounding, which the job class enforces as a
+  floor: 1 cpu, 2 GiB, 2 h. The measured selection-role maximum is 3,069 s and 0.91 GiB at beam
+  512, so 2 h has ~2.4x headroom and the timeout doubling never needs to fire.
+- BUDGET, and the one thing the planner should look at: prior chunk jobs each landed on their own
+  booster node (checked across 20 finished update-role chunks -- 20 distinct hosts), so 1,536
+  single-cpu jobs is on the order of 900-2,100 GH200 node-hours for a CPU-only descriptive read.
+  I am running the registered scope rather than trimming it, because scaling it down is not my
+  call. If the planner wants it cheaper, the clean cut is beam 256: it exists only to supply the
+  adjacent-pair agreement and drift columns, so restricting it to one shard per cell would drop
+  1,152 of the 2,304 jobs at the cost of computing those two columns on 28 rather than 890
+  utterances. Say the word and I will re-register the reader's key set accordingly.
+- CONVENTIONS I had to pin, all in the producing module's docstring before any result exists.
+  (i) `p_text` and `r_target` are 1g.9's pins IMPORTED from that module, not restated, so every
+  cell is read against the same channel-independent target. (ii) One alignment convention for the
+  whole job -- the plain unit-cost Levenshtein of `h4_validation_jobs.edit_distance`, which is the
+  measure the funded 1g.2 descriptive read uses; pooled PER is total edits over total reference
+  phones, and correct-phone fraction is `1 - pooled PER`, which may go negative when insertions
+  outnumber the reference and is meant to. (iii) The babble null is unigram-MATCHED per cell: each
+  draw keeps every utterance's decoded length and the cell's own decoded phone histogram and
+  replaces only the ordering and identity. That is the direct answer to verdict 29 -- a cell
+  cannot clear its own null by matching a histogram, which is how a content-free control passed
+  1g.9's clause 1. 1,000 draws, seed 42, keyed per cell by a digest of the cell name; the bar is
+  the empirical 99th percentile, reported with the null mean, standard deviation and maximum.
+  (iv) Beam agreement and score drift are descriptive columns and never an eligibility bar, and
+  the reader carries the registered explanation duty: it states FLAT SCORES when the measured
+  instability sits on near-tied margins (verdict 28's mechanism) and DECODER DEFECT SUSPECTED when
+  margins are wide while beams disagree, in which case no cell may be read.
+- TESTED before launch, no artifact and no decoder: `scripts/h4_full_model_decode_test.py` 8/8.
+  The load-bearing check is that the vectorised batched Levenshtein used for the null reproduces
+  the scalar 1g.2 `edit_distance` exactly on random inputs -- otherwise the observed number and
+  its null would be two different measures. Also checked: a content-free decode does not clear its
+  own matched null, the null is still beatable so the bar is not vacuous, and the reader refuses a
+  grid with any cell dropped.
+- NOT DONE and not authorized: experiment (2)'s extension to fingerprint and random-map, which the
+  registration puts behind the planner's read of (1), and the count-0 B-table cell, which the
+  registration leaves to the planner and which is in any case a different object from the banked
+  count-0 direct-Q read. Nothing here opens a selection surface.
 
 **1g.9 EXPERIMENT 1 IS COMPLETE AND ITS RESULT IS A BLOCKING ONE FOR THE PLANNER**
 (`H4CollapseLocateJob.gZ9d6e3E7ZGu`, 31 minutes; approach 15, verdicts 26-29). The registered
@@ -17,9 +74,9 @@ felt at any weight anyone would set. Per the gate, "the constrained-training arm
 specced ... and the finding returns to the planner with the diagnostic as the deliverable" --
 experiment 2's graph does not exist and I am not building it. RULED 2026-08-22 (PLAN_1G.md 1g.9
 Status): clause 0 FIRED, the subphase CLOSES as the registered off-ramp outcome, experiments 2 and 3
-do not run, and the direction fork -- close the phone-repair route, or fund a bounded descriptive
-decode-stage follow-up -- exceeds 1g.9's greenlit scope and is WITH THE USER. No further 1g work is
-authorized meanwhile, so nothing in Phase 1g is in flight.
+do not run. The direction fork exceeded 1g.9's scope and went to the USER, who RESOLVED it
+2026-08-23 toward the decode route -- the language model was never in the production decode and is
+to be used -- so 1g.10 is registered and the "no further 1g work" hold is lifted for it alone.
 
 Two readings the planner should carry into that ruling, both banked: a near-zero posterior total
 variation is satisfied most easily by the LEAST informative channel (verdict 28 -- the collapsed

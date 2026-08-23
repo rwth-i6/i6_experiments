@@ -74,16 +74,54 @@ that D8 CLOSES WITHOUT A POLICY LEG** (verdicts 78-81).
 - Clause 3 FAILS: gate v2 returns NO WINNER under both readings; the candidate is ineligible on
   the ladder-not-below clause despite passing (i) floor, (i) improvement and (ii) and improving the
   matched insertion discount at every k and leave-one-out cross entropy.
-- Clause 4 (`PsiScorerParityJob.sRJ7LUmF4nMw`) is still running. It is not needed to reach the
-  outcome and is NOT being skipped: it will be read, because no clause here is decided on another's
-  expected result.
+- Clause 4 (`PsiScorerParityJob.sRJ7LUmF4nMw`) is still waiting on the candidate's rerank. It is
+  not needed to reach the outcome and is NOT being skipped: it will be read, because no clause here
+  is decided on another's expected result.
 
 The localization to carry: the arm improved absolute fit and insertion pricing while failing to
 improve ranking. It learned the target distribution better without learning to discriminate
 corruption better -- the failure mode the acoustic-only arm was registered to expose. The gate's
 no-rescue rule bars selecting a different tau, group size or weight view from this table.
 
-NEXT ACTION IS THE PLANNER'S: the D8.2 verdict and the D8 closure are a plan decision, not mine.
+**D8 IS REOPENED BY THE USER AND D8.4 IS BUILT AND LAUNCHED** (planner ruling 2026-08-23 later;
+`config/sae_3e1_d8_4.py`, manager `sae_3e1_d8_4`; two new jobs,
+`PsiAlignPairedCompareJob.9jijhmYSBYR9` and `D8EtaReadJob.vXVBNkDGb7FL`). The user's rule is that a
+constructed clause battery gates spend but never closes a phase, so the phase question is answered
+by measuring ranking quality (eta) in a fair paired comparison.
+
+- STEP ZERO OF THE REGISTRATION IS ANSWERED, and on the code rather than on a pending result:
+  `PsiScorerParityJob` does NOT discharge D8.4. It re-scores ONE arm's own rerank dump through the
+  online scorer path and requires it to reproduce that same dump's `recon` column to 2e-3. There is
+  no second arm in it, no selection, no eta and no null. So D8.4 funds exactly the missing read and
+  nothing else.
+- THE FAIRNESS PINS WERE ALREADY SATISFIED BY THE D8.2 GRAPH, which is why no new decode or dump
+  spend was needed: clause 4 required one `PsiAlignRerankJob` per arm, and both re-score the SAME
+  banked fork-policy dump over tc100 at G=12, T=0.7. The control's rerank
+  (`PsiAlignRerankJob.OiRBghBiTriv`) is finished; the candidate's (`qVTVrRvyOjZ9`) is the one job
+  still running, and everything downstream waits on it.
+- THE PAIRING INSTRUMENT IS PLAN_3A's OWN `PsiAlignPairedCompareJob`, reused unchanged except that
+  its per-temperature cell now also carries the shared `mean_wer`/`oracle_wer`/`sel_wer` it already
+  computed. That addition is hash-neutral (only `__init__` kwargs hash) and it lets the reader
+  restate delta eta in its plain-WER form without recomputing the pairing on a second,
+  differently-dropped bed. It is instantiated at the D8 family's pins, `n_boot=10000`, `seed=42`,
+  at the bed's only temperature.
+- THE VERDICT IS THREE-WAY AND THE READER OWNS IT: BETTER when the 95 percent interval excludes
+  zero for the candidate, WORSE when it excludes zero against it, otherwise INDISTINGUISHABLE,
+  resolving to the control under the standing incumbent-tie rule. The registered reporting rule is
+  in the producing module's docstring verbatim, written before any statistic of this job existed.
+  The standing null battery (length-only, OOV-count, audio-free margin) and the D8.2 clause verdict
+  are printed as context and cannot move it -- every null is arm-internal and is never differenced.
+- TESTED before launch, no artifact and no scorer: `scripts/d8_eta_test.py` 11/11, including that
+  a swapped candidate/control pairing is refused, that a bed below the registered 512 shared groups
+  is refused, that the bootstrap pins cannot be overridden, and that a delta eta inconsistent with
+  its own plain-WER form fails closed rather than reporting a confident interval over two beds.
+- MANAGER CHANGE: `sae_3e1_d8_4` REPLACES `sae_3e1_d8_2`, because the D8.4 config calls the D8.2
+  build and its graph is therefore a strict superset. `sae_3e1_d8_2` is now in the manager script's
+  BLOCKED list; two managers over the shared reranks would double-submit them.
+
+NEXT ACTION IS THE PLANNER'S when D8.4 lands: the verdict goes to the USER with the D8.3
+authorization question attached, and per the standing rule the phase closes only on the user's word
+over that measured number.
 
 Housekeeping, not a blocker: the ten `all_bed*` jobs carry `error.run.1` markers from duplicate
 workers dying on the `job.save` that JOB_AUTO_CLEANUP archived. All ten are FINISHED with complete
