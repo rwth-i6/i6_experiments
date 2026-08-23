@@ -1923,6 +1923,48 @@ reader's key set is re-registered accordingly; already-created surplus beam-256 
 per the standing delete rule. Beam 512 runs at full registered scope -- the decoded surfaces,
 margins, babble nulls and PER all read from it and are uncut.
 
+2026-08-23 result (1g.10 COMPLETE; the table is BLOCKED by its own explanation duty on the
+DECODER-DEFECT branch; verified; 1g.10a defect diagnostic REGISTERED). All 1,332 chunks and 36
+merges finished with zero error markers and `H4FullModelDecodeReadJob.MXhi20TtG1I0` landed on
+the pre-registered duty's second branch: ZERO of 36 cells reaches the 0.999 adjacent-beam
+agreement (min 0.2222, median 0.6111, max 0.8889 on the probe's 27 utterances) while ZERO of 36
+has a median score margin at or below the 1e-3 nats-per-retained-unit flat threshold (min
+1.210e-03, median 4.345e-03) -- wide margins with persisting instability, so the report prints
+"DECODER DEFECT SUSPECTED -- no cell of this table may be read until that is explained" and no
+cell is read (verdict 30). The positive control is healthy as a decoder-health observation only
+(verdict 31, fenced): sensible content flows while adjacent beams disagree on roughly one
+utterance in three. The implementer's 27-vs-28 correction is accepted from the artifact. The
+duty fired exactly as designed and blocks reading, not spend.
+
+1g.10a -- REGISTERED (pre-results): the cross-beam defect diagnostic, from BANKED data only (no
+new decoding). The chunk artifacts bank per utterance `one_best_symbol_ids`, `one_best_text`,
+`decoder_log_score`, `retained_prefix_log_mass`, `n_audio_units`; the diagnostic joins, per cell
+and probe utterance, the beam-256 probe chunk with the beam-512 chunk of the same shard.
+STEP ZERO, before anything runs: state from the decoder's code which rule selects the one-best
+-- the tests below are registered ONLY for a beam-independent per-sequence score (argmax of
+`decoder_log_score` over completed hypotheses); if the selection rule is beam-dependent (e.g.
+mass-renormalized), STOP and report, and the planner re-rules the invariant. TEST A (scoring
+determinism): wherever the two beams' winners are the SAME symbol sequence, their banked scores
+must agree to 1e-9 nats per retained unit; any violation = DEFECT CONFIRMED (nondeterministic
+scoring). TEST B (pruning monotonicity): wherever the winners differ, score(beam-512 winner)
+minus score(beam-256 winner) must be >= -1e-9 nats per retained unit; any violation = DEFECT
+CONFIRMED (widening the beam lost a better-scoring hypothesis). CONTEXT, never gating: the
+distribution of the 512-winner's score gain over the 256-winner; the disagreement-vs-flat
+cross-tab per utterance at the registered 1e-3 flat bar; agreement stratified by lm_scale
+(mechanism check: pruning error should grow with the LM weight). CONSEQUENCES, pre-registered
+before any diagnostic number exists: (i) any DEFECT CONFIRMED -> the table stays blocked, the
+code investigation becomes its own registered item, no cell is quoted anywhere; (ii) zero
+violations -> the suspicion is DISCHARGED AS SEARCH ERROR (beam 256 under-beams; the instability
+lives between the beams, not in a broken scorer), the duty's "until that is explained" clause is
+satisfied, and the beam-512 table becomes readable as DESCRIPTIVE with each quoted cell carrying
+its own 256-vs-512 agreement beside it; (iii) under (ii) only, 1g.10b is AUTHORIZED -- a
+beam-1024 probe on the same single shard (36 chunks, the 27 probe utterances, same contract) --
+and CROSS-CHANNEL comparisons may be quoted only from cells whose 512-vs-1024 agreement is at
+least 26 of 27 (at most one flip; the 0.999 bar is not reachable at n=27 and is deliberately not
+reused for the probe). The reporting rule goes verbatim into the diagnostic module's docstring
+before any result exists. The route question ("does LM-aware decoding reopen phone repair?")
+stays open and with the USER; nothing here closes it.
+
 ## 6. Deliverables ladder
 
 | Step | Deliverable | Decision it enables |

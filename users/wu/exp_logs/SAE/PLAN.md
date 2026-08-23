@@ -200,7 +200,12 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    eligibility bar) is REGISTERED in `PLAN_1G.md`; the label-free selection surface stays
    local-only and closed. 2026-08-23 later: the espum start's count-4 cells are promoted into
    1g.10 experiment (1) on the USER's PUSM question; the fairseq-side companion is
-   `PLAN_1F.md` entry 8.
+   `PLAN_1F.md` entry 8. 2026-08-23 result: 1g.10 COMPLETED and its table is BLOCKED by its own
+   pre-registered explanation duty -- adjacent beams disagree (median agreement 0.61 of 1) while
+   score margins are wide, the decoder-defect branch, so no cell is read. The 1g.10a cross-beam
+   defect diagnostic is REGISTERED on banked data (scoring-determinism and pruning-monotonicity
+   tests, pre-registered consequences, `PLAN_1G.md` 1g.10 Status 2026-08-23 result); the route
+   question stays with the USER.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional

@@ -1874,3 +1874,20 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   the surplus is 1,116 (31 of 32 shards on 36 cells), not the ruling's 1,152, which would
   have deleted the kept probes. Agreement/drift columns carry their 28-utterance support in
   payload, header and `beam_probe_note` as ruled.
+- 2026-08-23 (1g.10 result round VERIFIED; the duty's block is endorsed; 1g.10a registered in
+  `PLAN_1G.md` 1g.10 Status 2026-08-23 result). Verified on disk: 1,332 chunk dirs with ZERO
+  `error.run*` markers (completion proven by the reader having consumed every merge;
+  per-chunk `finished` markers live inside `finished.tar.gz` after auto-cleanup);
+  `H4FullModelDecodeReadJob.MXhi20TtG1I0`'s payload carries the duty verdict verbatim
+  ("DECODER DEFECT SUSPECTED -- ... no cell of this table may be read until that is
+  explained"), `beam_probe_utterances` = 27, and the printed grid matches approach 16's table
+  (agreement min/median/max 0.2222/0.6111/0.8889; margins 1.210e-03/4.345e-03/1.540e-02;
+  zero cells passing either branch bar). The implementer's refusal to read any cell, the
+  fenced decoder-health observation (verdict 31), and the facts-not-rescues framing of the
+  mixture and 27-utterance observations are all exactly right. The 27-vs-28 correction is
+  accepted from the artifact -- the prior round's "28-utterance support" line above is
+  OBJECTIVELY WRONG on that count (the ruling's shard index 28 was conflated with the
+  utterance count; the probe shard holds 27 utterances). NEXT: the 1g.10a cross-beam defect
+  diagnostic (banked data only; step-zero selection-rule question; scoring-determinism and
+  pruning-monotonicity tests at 1e-9 nats per retained unit; pre-registered consequences
+  including the conditional beam-1024 probe) is registered and ready for the implementer.

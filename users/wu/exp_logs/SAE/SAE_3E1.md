@@ -3809,3 +3809,13 @@ the absolute beta, is what carries the contamination claim.
   rule and the incumbent-tie resolution verbatim. INDISTINGUISHABLE, resolves to control;
   planner reading and recommendation in `PLAN_3E1.md` D8 Status 2026-08-23 verdict; the
   closure question is with the USER.
+- 2026-08-23 (verdict-banking and true-up round VERIFIED; hand-back ABSORBED). Verdict 84 is
+  faithful to the reader's artifact, including its licenses fence (indistinguishable, not
+  inferior; tie resolved by the incumbent rule, not by evidence). The true-up is discharged
+  beyond the requirement: producer v2 (`D8BedFeasibilityJob.9fCCv5HAPg4a`, finished on disk)
+  prints the shared-key-set corpus means -- verified 146.80 / 585.72 in its JSON -- and the
+  rewritten approach-38 paragraph now quotes the producer's own figures, names the three
+  populations, and states the ratio direction. The claim that the revision bump cannot reach
+  the verdict is structurally sound (the feasibility producer is a leaf with no dependents;
+  the reader consumes the compare, not the producer). Nothing further is required on D8.4;
+  the phase waits on the USER's closure word.
