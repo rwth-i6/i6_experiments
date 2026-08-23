@@ -65,40 +65,13 @@ USER-directed: "insertion bonus makes sense, please try that".
 - PURELY ADDITIVE, verified: the 1g.10, 1g.10a and 1g.10b artifacts are all hash-unchanged in the
   rebuilt graph. 1g.10b's 37 SLURM probes survived the manager restart, as SLURM jobs do.
 
-**1g.10b IS BUILT, TESTED AND LAUNCHED under the planner's option (b) ruling**
-(`sae/h4_beam1024_probe.py`, speech-llm `8e2c841`; 36 probe cells plus one parity cell;
-read `H4Beam1024ReadJob.tKbQ0MHLdX03`; manager `sae_1g_h4_full_model_decode` pid 450055). The
-planner verified my blocker in the code and rejected option (a); the registration line "the
-existing chunk class at the same contract" is amended by replacement.
-
-- WHY A DEDICATED CLASS, in one line: extending `DECODER_BEAMS` would have orphaned the banked
-  global-beam table (its `cells` is a hashed argument) and, through it, the discharged 1g.10
-  read. VERIFIED AFTER THE CHANGE rather than assumed -- both
-  `H4FullModelDecodeReadJob.MXhi20TtG1I0` and `H4CrossBeamDefectJob.2pV5rHuWJW3d` are
-  hash-unchanged in the rebuilt graph.
-- GUARD (1), NO COPIED CODE: `prefix_beam_decode`, `kenlm_phone_callbacks`, `decoder_record`,
-  `_load_h1_units`, `_retained_runs`, `_load_channel` and `_validate_contract` are all imported
-  from the modules that own them; the probe class contributes sharding arithmetic and
-  bookkeeping only. A test greps the module source to enforce both halves -- that each name is
-  imported and that none is redefined -- so the guard cannot rot silently.
-- GUARD (2), THE BEAM IS HARD-PINNED: only 1024 and the 512 parity mode construct; 64, 256 and
-  2048 are refused, so the probe cannot become a general beam knob.
-- GUARD (3), THE PARITY CELL GATES EVERYTHING: the probe class runs at beam 512 on the contract
-  shard for the median observed-agreement cell and must reproduce the banked production chunk's
-  one-best sequences AND scores exactly; the reader emits no beam-1024 column otherwise. The
-  cell is READ from the 1g.10a artifact's own disclosed selection
-  (`controlled/reference|lambda=0.5|beta=-1`), never typed, and the config refuses to build
-  unless that artifact's verdict is DISCHARGED.
-- THE PRE-REGISTERED QUOTING BAR is in the module docstring verbatim: cross-channel comparisons
-  only from cells whose 512-vs-1024 agreement is at least 26 of 27, every quote naming its
-  27-utterance support. Every column carries `read_on` with that support so no quote can pass as
-  an 890-utterance number.
-- COST: 37 decode jobs on the contract shard (27 utterances each), 8 h and 4 GiB requested
-  against the contract's 2 h / 2 GiB floor, because beam 1024 roughly doubles the beam-512 work.
-- TESTED BEFORE LAUNCH: `scripts/h4_beam1024_probe_test.py` 8/8, the load-bearing one being that
-  a failing parity cell suppresses every beam-1024 column -- without it, "this class decodes like
-  production" would be an assertion rather than a measurement, which is the property that
-  justified the dedicated class over extending the beam tuple.
+**1g.10b IS COMPLETE: parity PASS, 0 of 36 cells quotable** (verdicts 34-35;
+`H4Beam1024ReadJob.tKbQ0MHLdX03`; 37 probe chunks finished, ZERO error markers). The
+cross-channel quoting bar fired as designed and cross-channel comparison on the 1g.10 table
+stays closed; beam escalation is declined on the measured +0.09-per-doubling trend. One
+correction for the planner, banked as verdict 35: drift per retained unit is down in 25 of 36
+cells and UP in 11, not down in every cell -- the medians and the ruling are unaffected, but a
+per-cell monotone extrapolation is not supported by this artifact.
 
 **1g.10 IS COMPLETE, AND ITS TABLE IS BLOCKED BY ITS OWN PRE-REGISTERED EXPLANATION DUTY**
 (verdicts 30-31; `H4FullModelDecodeReadJob.MXhi20TtG1I0`; all 1,332 chunks and 36 merges finished
@@ -1046,6 +1019,25 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     ZERO of 36 cells reaches the registered 0.999 agreement level and ZERO of 36 has a median
     margin at or below the registered flat threshold of 1e-3 nats per retained unit.
 
+    1g.10b re-ran the same 36 cells on the same 27-utterance contract shard at beam 1024, through
+    a dedicated probe class that imports the production decoder and first reproduces one banked
+    production chunk exactly at beam 512 (parity cell). Adjacent-pair columns, both read on those
+    27 utterances:
+
+    | quantity | min | median | max |
+    |---|---|---|---|
+    | one-best agreement, beam 256 against beam 512 | 0.2222 | 0.6111 | 0.8889 |
+    | one-best agreement, beam 512 against beam 1024 | 0.3704 | 0.7037 | 0.8889 |
+    | score drift per retained unit, beam 256 against beam 512 | 1.567e-03 | 8.173e-03 | 1.821e-02 |
+    | score drift per retained unit, beam 512 against beam 1024 | 1.061e-03 | 5.143e-03 | 2.755e-02 |
+
+    Per row at beam 512 against 1024 (median agreement over that row's 12 cells):
+    `controlled/reference` 0.7222, `real/espum_seed0_update30000` 0.7407,
+    `real/pseudo_pair_seed0` 0.6296. Cell by cell against the same cell's 256-vs-512 column,
+    agreement rises in 24 of 36 cells, falls in 10 and ties in 2; drift falls in 25 and RISES in
+    11. Best cell 24 of 27; ZERO of 36 cells reaches the pre-registered 26-of-27 cross-channel
+    quoting bar.
+
 
 ## Verdicts
 
@@ -1444,7 +1436,34 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     ranking reshuffles, so a prefix kept at 256 can fall outside 512's top set. This is the
     quantitative reason 1g.10b's beam-1024 probe exists, and it is context rather than a gate.
 
+34. **A16: 1g.10b's parity cell PASSES and ZERO of 36 cells clears the cross-channel quoting bar,
+    so cross-channel comparison on the 1g.10 table stays closed and beam escalation is not
+    funded.** `H4Beam1024ReadJob.tKbQ0MHLdX03`, 36 probe cells plus the parity cell, all on the
+    27-utterance contract shard. PARITY: the probe class at beam 512 reproduced the banked
+    production chunk's one-best sequences AND scores exactly on
+    `controlled/reference|lambda=0.5|beta=-1`, zero mismatches -- so every beam-1024 column below
+    is a measurement of the beam and not of a second decoder implementation. BAR: the best cell
+    reaches 24 of 27 (0.8889) against the registered 26 of 27, and the median cell reaches 19 of
+    27 (0.7037); no cell is quotable across channels. WHAT MOVED between doublings: median
+    agreement 0.6111 (256 against 512) to 0.7037 (512 against 1024), about +0.09 per doubling,
+    from which reaching the bar's 0.963 would take several further doublings at a cost that
+    doubles each time -- so the escalation is declined on the measurement, not on taste. The
+    within-channel paired read stays the standing currency for this table.
+
+35. **A16: the convergence is a TENDENCY, not a per-cell fact, and that limits what the trend
+    above may be used for.** Comparing each cell against its own 256-vs-512 column: one-best
+    agreement rises in 24 of 36 cells, FALLS in 10 (down to -0.1852) and ties in 2; the score
+    drift per retained unit falls in 25 and RISES in 11, by up to +9.333e-03 nats per unit (2.62x
+    its own 256-vs-512 value). This corrects one intermediate number in the planner's 2026-08-23
+    reading of the same artifact, which recorded drift as "down in every cell"; the medians it
+    quoted (0.704 against 0.611) and its ruling are unaffected, since a bar cleared by no cell is
+    cleared by no cell under either reading. It matters for what comes next: an extrapolation
+    that treats each further doubling as monotone improvement per cell is not supported by this
+    artifact, which is a second reason the escalation was correctly declined.
+
 ## Catalog
+
+1g.10b beam-1024 convergence probe, parity PASS and 0 of 36 cells quotable (verdicts 34-35): `work/speech_llm/sae/h4_beam1024_probe/H4Beam1024ReadJob.tKbQ0MHLdX03` (`beam1024.json`, `beam1024.txt`); 36 probe chunks + 1 parity chunk under `work/speech_llm/sae/h4_beam1024_probe/H4Beam1024ProbeChunkJob.*`; code `sae/h4_beam1024_probe.py`, `scripts/h4_beam1024_probe_test.py` (8/8) at speech-llm `8e2c841`.
 
 1g.10a cross-beam defect diagnostic, verdict DISCHARGED (verdicts 32-33): `work/speech_llm/sae/h4_cross_beam_defect/H4CrossBeamDefectJob.2pV5rHuWJW3d` (`cross_beam_defect.json`, `cross_beam_defect.txt`); code `sae/h4_cross_beam_defect.py`, `scripts/h4_cross_beam_defect_test.py` (9/9) at speech-llm `294c8fc`.
 
