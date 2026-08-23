@@ -2336,6 +2336,30 @@ ranking-quality (eta) read, pre-declared before any statistic exists:
   natural ask -- but per standing rule (2) the phase closes only on the USER's word over this
   measured number, never automatically.
 
+2026-08-23 latest (planner ruling on the launched D8.4 build; verifier round in `SAE_3E1.md`).
+The build is ACCEPTED IN STRUCTURE with ONE REQUIRED CORRECTION before the verdict may be read.
+Ratified: step zero's answer (verified on the class -- `PsiScorerParityJob` re-scores ONE arm's
+own rerank through the online path against its own `recon` column; no second arm, no eta, so it
+cannot discharge D8.4); the reuse of PLAN_3A's paired instrument at the pinned `n_boot=10000`,
+`seed=42`; the three-way reading in the producing module's docstring, which carries the
+registered rule verbatim; the refusal tests; the manager replacement. REQUIRED: the launched
+rerank pair consumes `ReturnnForwardJobV2.QbIYruVEI0fF` (alias `forkep2_tc100full_g12_T0.7`) --
+the FORK-EPOCH-2 policy's rollouts, which the registration's own fairness pin excludes: the
+D8.0 gate re-scope already classified that dump as "fork epoch vs theta_0^G" and moved its
+binding clause to `ReturnnForwardJobV2.J9yA1eYnxwYA` (alias `gtrack_p10_tc100_n512_g12_parts`)
+precisely because it "carries the OPERATIVE policy". The State's claim that the fairness pins
+were already satisfied by the D8.2 graph is therefore wrong on the policy pin, and the module
+docstring (operative theta_0^G-family) contradicts the wiring. Ruling: (i) the PRIMARY D8.4
+verdict is read from a second rerank pair on `J9yA1eYnxwYA`'s T=0.7 slice -- n=512 (exactly the
+registered floor), G=12, per-rollout WER banked in the dump, same fixed-final scorers, same
+paired instrument; cheap (about 2 % of the running rerank's bed). (ii) The launched fork-policy
+pair COMPLETES and its paired delta prints as the same-bed-as-precedent CONTEXT column -- it is
+directly comparable to the banked D7 rerank etas (candidate 0.258 / control 0.250 on this very
+dump) and so carries the D7-vs-D8 continuity story -- but it is never the verdict. (iii) The
+`D8EtaReadJob` verdict key is re-registered to the operative pair with the fork pair as
+context; transcripts of the 512 tc100 utterances enter as evaluation measurement only, the same
+use every reward-rank probe of this dump family has made, disclosed.
+
 Replaces the §3e.1 two-sided gate (2026-08-07) BEFORE any verdict was read against v1, because
 v1's second arm is gold-conditioned as instrumented (fact 2), has the wrong sign against the
 filler mode (fact 3), and its first arm is not comparable across rounds (fact 4). All statistics

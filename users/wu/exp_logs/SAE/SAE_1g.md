@@ -1746,3 +1746,15 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   satisfied most easily by the channel carrying the least audio information. Clause 0 FIRED;
   experiments 2-3 stay unbuilt (verified: no constrained-arm graph exists); the direction fork
   is with the user.
+- 2026-08-23 (1g.10 launch round; VERIFIED AND ACCEPTED; beam-256 cut ruled in `PLAN_1G.md`
+  1g.10 Status). A sampled chunk (`H4SequenceDecodeChunkJob.S25eY8DyW2cx`: pseudo-pair, count
+  4, beam 256, lm_scale 1.0, insertion penalty -1, chunk 26) traces every constant to the
+  registration: KenLM `CreateBinaryLMJob.hvZoC014xnIe`, H1 `Phase1gH1Job.HbxKiuBTJ8aN`, count
+  adapter, contract `H4ResourceContractJob.kyMk7fwm027C`, 2 GiB / 2 h; 1,773 of the 2,304 new
+  chunk dirs existed on disk mid-submission at verification time. The docstring pins are
+  ratified as registered (imported 1g.9 targets; 1g.2 `edit_distance`; per-cell matched babble
+  null, 1,000 draws, seed 42; the two-way explanation duty). The implementer's budget flag was
+  correct and material: the planner takes the offered cut -- beam 256 restricted to one fixed
+  shard per cell (canonical heaviest selection-role shard, same index everywhere), dropping
+  1,152 chunks; surplus beam-256 jobs are deleted per the standing delete rule; beam 512 is
+  uncut. The reader's key set re-registration is with the implementer.

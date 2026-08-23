@@ -1906,6 +1906,22 @@ experiment (1) is amended by replacement to include the espum start's count-4 ce
 replacement note in Experiments); the extension clause now covers fingerprint and random-map
 only. The fairseq-side LM-decoded PER of the PUSM/ESPUM arms is registered separately as
 `PLAN_1F.md` entry 8 and awaits the user's launch word there.
+2026-08-23 latest (planner ruling on the launched build; verifier round in `SAE_1g.md`). The
+launch is VERIFIED AND ACCEPTED: constants trace (banked KenLM `CreateBinaryLMJob.hvZoC014xnIe`,
+frozen H1 `Phase1gH1Job.HbxKiuBTJ8aN`, count adapters, selection resource contract
+`H4ResourceContractJob.kyMk7fwm027C`, registered grid and beams, 2 GiB / 2 h at the contract's
+1.5x), the docstring conventions are ratified (1g.9's `p_text`/`r_target` imported not restated;
+the 1g.2 `edit_distance` as the one alignment convention; the per-cell length-and-histogram-
+matched babble null with 1,000 draws at seed 42 answering verdict 29 by construction; the FLAT
+SCORES vs DECODER DEFECT SUSPECTED explanation duty). On the flagged budget (each single-cpu
+chunk occupying its own booster node; order 900-2,100 node-hours), the planner TAKES THE OFFERED
+CUT: beam 256 is restricted to ONE fixed shard per cell -- the canonical heaviest selection-role
+shard by retained units, the same index for every cell, mirroring the historical beam-table
+convention -- dropping 1,152 of the 2,304 chunks; the adjacent-pair agreement and drift columns
+are then computed on that shard alone and every quote of them names its utterance count. The
+reader's key set is re-registered accordingly; already-created surplus beam-256 jobs are deleted
+per the standing delete rule. Beam 512 runs at full registered scope -- the decoded surfaces,
+margins, babble nulls and PER all read from it and are uncut.
 
 ## 6. Deliverables ladder
 

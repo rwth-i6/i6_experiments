@@ -3565,3 +3565,19 @@ the absolute beta, is what carries the contamination claim.
   `held_target` explicitly, resolving the sampling.json `target` ambiguity at the successor
   schema. Clause 4 remains to be read for the record when `PsiScorerParityJob.sRJ7LUmF4nMw`
   finishes; it cannot move the closed verdict.
+- 2026-08-23 (D8.4 launch round; build ACCEPTED IN STRUCTURE, one REQUIRED correction; ruling
+  in `PLAN_3E1.md` D8 Status 2026-08-23 latest). Verified: the step-zero answer is right on
+  the class (parity re-scores one arm against its own `recon`; no second arm, no eta); the
+  module docstring carries the registered reporting rule verbatim with the pinned
+  `bootstrap_delta_eta` at `n_boot=10000`/`seed=42`; the candidate rerank
+  (`PsiAlignRerankJob.qVTVrRvyOjZ9`) is on disk and running against
+  `D8ScorerRefitJob.2bQzhz6U1yHp/output/model_final.pt`. REQUIRED correction, found on the
+  running job's own info file: the rerank pair consumes `ReturnnForwardJobV2.QbIYruVEI0fF`
+  (alias `forkep2_tc100full_g12_T0.7`), the fork-epoch-2 policy -- but the registration and
+  the module's own docstring pin the OPERATIVE theta_0^G-family policy, and the D8.0 re-scope
+  already moved its binding clause to `ReturnnForwardJobV2.J9yA1eYnxwYA`
+  (`gtrack_p10_tc100_n512_g12_parts`, n=512, G=12, T=0.7 slice, WER column banked) for
+  exactly this reason. The primary verdict moves to a second rerank pair on that dump; the
+  launched fork-policy pair completes as the same-bed-as-precedent context column (comparable
+  to the banked D7 rerank etas 0.258/0.250). The "fairness pins were already satisfied by the
+  D8.2 graph" State claim is corrected by this entry.
