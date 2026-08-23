@@ -2067,3 +2067,11 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   fixed-composition estimand and the family convention the implementer correctly pointed to
   (`h4_harness._bootstrap_content_values`); the unstratified interval prints beside as
   sensitivity. Decided before any statistic exists; only the reader re-hashes.
+- 2026-08-23 (stratified ruling VERIFIED EXECUTED; absorbed). The read revision is now a
+  separate constant from the decode revision -- the right call, and load-bearing:
+  `implementation_revision` is a hashed chunk argument, so a shared bump would have re-hashed
+  all 256 running decode jobs. Census verified: 265 chunk dirs, zero orphans, only the reader
+  re-keyed (`vJSHAkECj8hH` -> `H4InsertionBonusReadJob.da3bGeQIkS0R`). Tests re-run by the
+  verifier, 12/12 -- the new fixture proving the stratified draw holds composition fixed and
+  tightens the interval exactly where the two splits disagree in sign is the right proof of
+  the ruling's mechanism. Nothing further; awaiting the decode results.
