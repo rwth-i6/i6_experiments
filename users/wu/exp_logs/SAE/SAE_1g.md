@@ -91,9 +91,31 @@ things about it worth the planner's eye:
   the two-state occupancy reduction are the table arm's own code, and silence is still tested on
   the token's FROZEN unit ID.
 
+THE PRIMITIVES ARE NOW VALIDATED END TO END ON THE REAL ARTIFACTS (speech-llm `50ee93f`;
+`g11_gaussian_test` 24/24, `test_channel_h` 23/23). Not a result -- an eight-utterance shakeout on
+the login node whose only purpose was to prove the pieces fit before a job is written:
+the five 1g.2a starts' repair tables load (`repair_0_emissions` is `(2, 39, 500)`, so the two-state
+row order matches `repair_hmm`'s), the codebook is `(500, 96)` and start means come out at the
+shipped component scale, EM ascends monotonically on the retained stream (-155,475 -> -133,938 over
+four updates; tied variance 1.0 -> 0.2407, well clear of the 0.01 floor), and both counts decode.
+
+- A REAL BUG, found by running rather than reviewing: `gaussian_local_decode` reduced its two-state
+  rows through `occupancy_weighted_local_rows`, which validates its input as a canonical channel
+  table (rows summing to 1 over units). Gaussian rows are per-token densities and cannot satisfy
+  that, so the two-state path died on contact with the accepted 1g topology. FOURTH instance this
+  session of a wrong CALL into a correct primitive. The test suite missed it for a nameable reason:
+  every decode fixture was ONE-state, so the duration-reduction branch was never exercised. Fixed
+  by giving `occupancy_weighted_local_rows` an optional `validate` flag -- only the canonical-table
+  check is skipped, the reduction itself stays the one shared implementation -- plus a regression
+  test that runs the two-state topology the real data uses.
+- FRAME NUMBERS for the job to print, per the planner's retained-stream pin: on the first eight
+  utterances the retained share after the frozen silence mask is about 0.79 (e.g. 153 of 184), and
+  the mask holds 103 of the 500 unit IDs.
+
 STILL TO BUILD: the sisyphus job and config that run the five 1g.2a starts at repair counts 0 and
 4 on the retained stream, the per-row relaxation on the selected real start, and the two nulls
-(experiment 3). Nothing of experiment 2 is registered in a graph yet.
+(experiment 3). Nothing of experiment 2 is registered in a graph yet, and no number above is
+evidence for anything -- the EM ran on eight utterances, not the 6,414-utterance update role.
 
 IMPLEMENTER READING, also flagged: the registration names "the `ContinuousFeatsJob` fit/assign
 split", which is a discipline about WHICH utterances a statistic may be fitted on, not about which
