@@ -3400,3 +3400,15 @@ the absolute beta, is what carries the contamination claim.
   convention inherited from the D7 schema, but as banked it reads as a contradiction; state its
   meaning in the approach entry and rename the field in the next schema revision. Neither
   hand-back touches a banked number.
+- 2026-08-23 (D8.2 launch VERIFIED; the delta_NI pin is discharged by test, which is stronger
+  than the ruling asked). `D8AdmissionJob.C2HUHUtUjfhN` on disk under the live `sae_3e1_d8_2`
+  manager. Line review of speech-llm `2bdb188`: `speaker_clusters` and `cluster_bootstrap`
+  reproduce D7.2's construction, `delta_NI` is computed FIRST from the control values alone at
+  the D7 seed before any candidate arithmetic (`d8_admission.py:242-247`), a resample count
+  other than D7.2's raises as a new registration, `per_anchor.jsonl` persists the paired deltas
+  and cluster ids as registered, and the eligible anchor sets are asserted identical across
+  arms. `scripts/d8_admission_test.py` re-run by the verifier: 4/4, including the bit-identity
+  requirement against D7.2's inline bootstrap and the control-only dependence assert. Clauses
+  2-4 are D7.2's construction by code reuse with the candidate substituted; all four clauses
+  built, none gated on another's expected outcome; the control is reused at its existing hash.
+  The D8.2 verdict is the planner's read once `admission.json` and the clause table land.
