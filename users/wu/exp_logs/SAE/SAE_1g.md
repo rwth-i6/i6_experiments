@@ -9,6 +9,43 @@ toward the decode route and 1g.10 (full-model LM-aware descriptive decode) is CO
 table BLOCKED by its own pre-registered explanation duty; 1g.2 is READ and CLOSED on its gate;
 1g.2a (H4-LM) is open with items 1-4 complete.
 
+**1g.10a STEP ZERO IS ANSWERED FROM THE CODE, AND IT IS A STOP-AND-REPORT: the one-best SELECTION
+RULE has the registered beam-independent form, but the SCORE it selects on is NOT beam-independent,
+so TEST A's equality invariant does not hold by construction.** The registration says the tests are
+registered only for a beam-independent per-sequence score and that a beam-dependent one means STOP
+and report, so nothing beyond step zero has been built or run, and neither TEST A nor TEST B is
+reported as a verdict here.
+
+- THE SELECTION RULE, from the decoder itself (`channel_h.py:518-521`):
+  `best_prefix = max(final, key=final.get)` and `log_score = final[best_prefix]`. It is the argmax
+  of the per-sequence score over completed hypotheses with NO renormalization, which is the
+  registered form. The `posterior` and `confidence` fields ARE beam-normalized (each divided by
+  `total`, the logsumexp of the retained set) but they take no part in selection, so the
+  mass-renormalized case the registration names is not what this is.
+- WHY THE SCORE IS STILL BEAM-DEPENDENT: `final[prefix]` is the logsumexp over every duration and
+  state path for that prefix THAT SURVIVED PRUNING, and `prune` (`channel_h.py:479-485`) keeps the
+  top `beam_size` PREFIXES by summed mass at every timestep, discarding all states of the rest. A
+  sequence's banked score is therefore a pruned path-sum, and the same symbol sequence legitimately
+  carries different scores at different beams. TEST A would read those differences as
+  nondeterministic scoring.
+- MEASURED ON THE BANKED ARTIFACTS, read-only, to confirm the code reading rather than rest on it
+  (36 cells joined, 972 probe-shard utterances, beam-256 probe against the beam-512 chunk of the
+  same shard): 588 utterances have the SAME winning sequence at both beams, and only 117 of them
+  agree to the registered 1e-9 nats per retained unit. TEST A as written would therefore report
+  DEFECT CONFIRMED on 471 utterances of a decoder behaving as designed.
+- A SEPARATE ANOMALY THAT THE REGISTERED TESTS WERE NOT WRITTEN TO DETECT, reported without a
+  verdict word because it is not theirs to give: the two beams' kept sets are NOT nested. In 8 of
+  972 utterances the TOTAL `retained_prefix_log_mass` is LOWER at beam 512 than at beam 256, and
+  13 of the 588 same-sequence scores are lower at 512 (largest -0.299 nats over 97 units,
+  `174-168635-0010`, lambda 4 / beta -1 on `real/espum_seed0_update30000`). A wider beam summing
+  over a superset of paths could not lower either quantity, so the ranking inside `prune` must be
+  reshuffling prefixes out of the wider beam's top set. That is a code question, not a pass/fail
+  the diagnostic can return. Checked against the obvious artifact first: `n_audio_units` agrees
+  between the two beams on all 972 utterances, so this is not a normalization effect, and the
+  differences are in raw nats.
+- WHAT I HAVE NOT DONE: no diagnostic module is written, no `1g.10b` beam-1024 probe is built, and
+  no consequence branch (i), (ii) or (iii) is taken. The invariant is the planner's to re-rule.
+
 **1g.10 IS COMPLETE, AND ITS TABLE IS BLOCKED BY ITS OWN PRE-REGISTERED EXPLANATION DUTY**
 (verdicts 30-31; `H4FullModelDecodeReadJob.MXhi20TtG1I0`; all 1,332 chunks and 36 merges finished
 with ZERO error markers). This is a blocking result for the planner, not a fallback decision.
