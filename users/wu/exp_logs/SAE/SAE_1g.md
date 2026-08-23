@@ -139,9 +139,28 @@ MEASURED COST, so the job's requirements are not a guess: 1,024 update utterance
 updates take 5.9 s at 1.8 GB peak. The full update role is therefore well under a minute per cell
 and all five starts are minutes of CPU, not hours -- this is a small CPU job, not a GPU one.
 
-STILL TO BUILD: the sisyphus job and config that run the five 1g.2a starts at repair counts 0 and
-4 on the retained stream, the per-row relaxation on the selected real start, and the two nulls
-(experiment 3). Nothing of experiment 2 is registered in a graph yet, and no number above is
+**1g.11 EXPERIMENT 2 IS COMPLETE** (`G11GaussianRepairJob.NogH62uMEI7T`; approach 18, verdicts
+41-44; speech-llm `92e5d24`). All twelve cells produced, EM ascends on every one, clause 4's floor
+line reads clean, and the job computes no clause verdict by design. Nothing here is evidence of
+content: no gold is read, and a full inventory at a plausible rate is what a content-free control
+also produces.
+
+- ONE RUN-CAUGHT FAILURE, and which cell it was IS the explanation. The job died in my own guard on
+  the real fold: at 96 dimensions and 78 states a token's log-density spread across states exceeds
+  float64's exp range, so far states underflow to EXACTLY zero -- an impossible path rather than a
+  hopeless one. It got through `controlled/reference` and `espum|tied` and died on `espum|PER_ROW`:
+  the tied covariance holds every state at one scale, while the per-row relaxation lets individual
+  states shrink, which is what widens the spread. After the fix that is the only cell reporting any
+  clipping at all (68 emissions of about 45.6 million). No fixture caught it because no fixture was
+  that wide -- the third time this session a green suite missed something the real data showed at
+  once.
+- A REPORTING FLAW I CAUGHT AND RERAN FOR: the clip was printed as a share, and that cell's share is
+  1.5e-06, which a fixed-decimal column rounds to 0.00000. A safeguard that fires and prints zero is
+  worse than no safeguard, because it reads as evidence nothing happened. It now prints a count, and
+  the rerun reproduced every other number identically.
+
+STILL TO BUILD: experiment 3's two nulls (the 1g.9 babble null, registered again verbatim, and the
+continuous observation null) and experiment 4's evaluation. Nothing of experiment 2 is registered in a graph yet, and no number above is
 evidence for anything -- the EM ran on eight utterances, not the 6,414-utterance update role. All
 inputs are now resolved to concrete finished artifacts, so what remains is wiring rather than
 discovery: starts `H4RepairJob.x1TyHJMfEVpb` (controlled/reference), `.ViPSmq4Am8vX`
@@ -1034,6 +1053,34 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     Scale fitted on 2,849 dedicated train utterances, 448,204 segment vectors. 2,184 ward segments
     (0.237%) are absorbed into tokens across 1,334 of the 8,416 utterances.
 
+18. **1g.11 experiment 2: the Gaussian repair cells.** The five 1g.2a starts at repair counts 0 and
+    4 under the constrained update rule (shared diagonal covariance, M2 floor), EM on the accepted
+    H1 update role and decode on its selection role, with the single disclosed per-row-covariance
+    relaxation on `real/espum_seed0_update30000`. The table arm is NOT re-decoded: the audited
+    1g.2a one-bests are the comparator, so this produces the Gaussian side only. Retained after the
+    frozen silence mask: 584,424 of 751,195 tokens (0.7780) over 6,414 update utterances and 60,604
+    of 77,566 (0.7813) over 890 selection utterances. Duration p 0.2356; 103 of 500 unit IDs masked.
+    `sym/tok` is decoded symbols per RETAINED TOKEN and is NOT the table arm's decoded-length-versus-
+    gold ratio; the two have different denominators and may not be compared.
+
+    | cell | log-likelihood | floor share | clipped | sym/tok | distinct |
+    |---|---|---|---|---|---|
+    | controlled/reference tied 0 | -77,517,283.6 | 0.0000 | 0 | 0.8003 | 39 of 39 |
+    | controlled/reference tied 4 | -73,987,478.3 | 0.0000 | 0 | 0.7789 | 39 of 39 |
+    | espum_seed0_update30000 per_row 0 | -79,791,528.0 | 0.0000 | 0 | 0.9220 | 38 of 39 |
+    | espum_seed0_update30000 per_row 4 | -72,994,684.4 | 0.0000 | 68 | 0.8741 | 39 of 39 |
+    | espum_seed0_update30000 tied 0 | -79,791,528.0 | 0.0000 | 0 | 0.9220 | 38 of 39 |
+    | espum_seed0_update30000 tied 4 | -74,726,774.7 | 0.0000 | 0 | 0.8694 | 39 of 39 |
+    | fingerprint tied 0 | -79,836,863.3 | 0.0000 | 0 | 0.8791 | 39 of 39 |
+    | fingerprint tied 4 | -74,841,463.6 | 0.0000 | 0 | 0.8080 | 38 of 39 |
+    | pseudo_pair_seed0 tied 0 | -80,515,490.0 | 0.0000 | 0 | 0.0152 | 3 of 39 |
+    | pseudo_pair_seed0 tied 4 | -77,940,277.7 | 0.0000 | 0 | 0.7411 | 39 of 39 |
+    | random_map_seed1000 tied 0 | -79,781,460.4 | 0.0000 | 0 | 0.8948 | 37 of 39 |
+    | random_map_seed1000 tied 4 | -75,065,550.4 | 0.0000 | 0 | 0.7887 | 39 of 39 |
+
+    `clipped` counts (token, state) emissions held at the float64 dynamic range out of about 45.6
+    million per cell; it is a numerical floor, not a model term.
+
 ## Verdicts
 
 1. **Approach 1: one segment per text symbol is rejected.** It exceeds the registered ratio on all
@@ -1499,6 +1546,30 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     registration's optional full-dimension sensitivity cell are the same cell, and no truncation
     axis exists to sweep.
 
+41. **A18: the constrained update improves the criterion on every registered cell.** All twelve
+    cells rise from count 0 to count 4 (largest, `pseudo_pair_seed0` -80,515,490 to -77,940,278;
+    smallest, `controlled/reference` -77,517,284 to -73,987,478). This says the EM implementation
+    ascends on the real fold as the enumerated fixtures said it would; it says nothing about
+    whether the decoded output carries content, which needs experiment 3's nulls.
+
+42. **A18: clause 4's honesty line reads clean -- no cell sits on the variance floor.** `floor
+    share` is 0.0000 in all twelve cells, so no emission row won by variance collapse and the
+    registered floor is doing no work at this operating point. The one numerical event anywhere is
+    68 clipped emissions of about 45.6 million on `espum_seed0_update30000 per_row 4`, which is the
+    per-row relaxation widening the density spread past float64's range.
+
+43. **A18: the count-0 decode of `real/pseudo_pair_seed0` is degenerate and the repair recovers
+    it.** It emits 0.0152 symbols per retained token over 3 of 39 phones at count 0, against 0.80
+    to 0.92 over 37 to 39 phones for every other start, then reaches 0.7411 over 39 of 39 by count
+    4. DESCRIPTIVE ONLY: no gold is read in this job, and a full inventory at a plausible rate is
+    exactly what a content-free control also produces (verdict 29), so none of this is evidence of
+    content. That reading waits on the babble null and the paired gold read.
+
+44. **A18: no cross-arm comparison is licensed from this table.** `sym/tok` is per RETAINED TOKEN;
+    the table arm's audited collapse is quoted as decoded length against GOLD. Different
+    denominators, so the two numbers may not be set beside each other, and the paired
+    per-utterance contrast clause 3 registers is experiment 4's.
+
 ## Catalog
 
 1g.10c positive insertion-bonus cells, parity PASS, sign split between rows (verdicts 36-37): `work/speech_llm/sae/h4_insertion_bonus/H4InsertionBonusReadJob.da3bGeQIkS0R` (`insertion_bonus.json`, `insertion_bonus.txt`); 256 beam-512 chunks + 8 probes + 1 parity chunk under `work/speech_llm/sae/h4_insertion_bonus/`, merged by the production `H4SequenceDecodeMergeJob`; code `sae/h4_insertion_bonus.py`, `scripts/h4_insertion_bonus_test.py` (14/14) at speech-llm `3d395de`.
@@ -1565,6 +1636,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 | controlled reference gold phones | `work/i6_experiments/users/wu/experiments/unsupervised_asr/w2vu2/eval/GoldPhonesJob.ZGSp0hxyd2YP` |
 | 1g.2 descriptive real-seed PER (verdict 21; selects nothing) | `work/speech_llm/sae/h4_real_seed_per/H4RealSeedPerJob.vu6Dp6HkJ2pH` |
 | 1g.11 experiment 1 continuous observation twin of `seg12.5` (segments.pkl, boundaries.pkl, component_scale.npy) | `work/speech_llm/sae/g11_continuous/G11ContinuousSegmentsJob.hImWJG0X4eZh`; code `sae/g11_continuous.py`, `configs/config_sae_1g_11_v1.py`, `scripts/g11_continuous_test.py` (19/19) at speech-llm `16b1063` |
+| 1g.11 experiment 2 Gaussian repair cells (hypotheses.json, repair.json, repair.txt) | `work/speech_llm/sae/g11_repair_jobs/G11GaussianRepairJob.NogH62uMEI7T`; code `sae/g11_gaussian.py`, `sae/g11_repair_jobs.py`, `configs/config_sae_1g_11_exp2_v1.py`, `scripts/g11_gaussian_test.py` (40/40), `scripts/g11_repair_jobs_test.py` (20/20) at speech-llm `92e5d24` |
 
 ## Verifier feedback
 
