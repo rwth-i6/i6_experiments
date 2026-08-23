@@ -1218,6 +1218,50 @@ decoding on 572 utterances); cell 5 optional second. The 1g-side companion (LM-a
 of the espum CHANNEL projection) is already funded as part of 1g.10 experiment (1),
 `PLAN_1G.md`.
 
+2026-08-23 launch ruling (cells 1-2 LAUNCHED on the user's word, given in the implementer
+session; build ACCEPTED; all three flagged proposals RULED; ANCHOR PIN DISCHARGED). Verified:
+eight grid-decode jobs, two reads and two LM jobs on disk and nothing else (the entry-7
+relabeling chain correctly suppressed, every entry-7 hash unchanged); the module docstring
+carries the disclosures; the pre-launch hand probe (full arm's scored fifth at the fixed
+endpoint: PER 1.6828 -> 0.9322, insertions 1.0650 -> 0.0979) is accepted as the registration's
+predicted mechanism MEASURED, never as a result -- the read jobs supersede it. RULINGS, each an
+amendment by replacement because a registered constant assumed something the code or data does
+not support:
+(1) THE SECOND GRID AXIS IS `sil_weight` (replaces "insertion/word_score", 2026-08-23): the
+released lexicon-free branch has no word or insertion score -- that knob exists only in the
+lexicon branch -- and the registered values {-2, -1, 0} bind `sil_weight` with 0 the released
+default. The insertion-domination stake is carried by `lm_weight` (a unit language model
+charges every emitted phone), which the hand probe measured.
+(2) THE SIL-FREE 4-GRAM (`CreateBinaryLMJob.hvZoC014xnIe`) IS PRIMARY (replaces the
+SIL-augmented-primary pin, 2026-08-23): the entry-7 generator emits 39 phone types and NO
+silence symbol, so a SIL-augmented model mismatches the decoded vocabulary; the SIL-augmented
+model runs as the DISCLOSED vocabulary-mismatch sensitivity, exactly inverted from the
+registration.
+(3) THE REGISTERED LABEL-FREE GRID SELECTOR STANDS WITH ITS CIRCULARITY DISCLOSED: entry 5's
+weighted phone-LM perplexity scores with the same phone LM the decoder optimizes, so the
+lm_weight axis is near-circular; the full grid prints, the rule's pick is quotable only with
+that disclosure attached and the label-oracle best beside it, and -- reporting rule, no code
+change -- every quotable-point citation in plan or log also names the grid's min-max PER range
+so the pick's leverage is visible.
+Ratified besides: beam 50 at the released defaults with the beam-500 convergence probe (the
+bundle ships no LM-decode configuration for the generator, so the beam is measured rather than
+asserted), and the standing restriction that NO margin against the argmax nulls/ceiling may be
+quoted until cell 4 re-banks them under this decode.
+
+ANCHOR PIN DISCHARGED (2026-08-23, planner, from the paper and the repo's own run script): the
+published 0.473 is ESPUM "uni+bi+tri" on TIMIT UNMATCHED TEST, WITHOUT HMM self-training
+(ar5iv Table 1; the +ST unmatched test row is 0.429), and the repo's `run.sh` produces
+evaluation hypotheses via `w2vu_generate.py --config-name viterbi` (lines 143/193/278) -- the
+config that is per-frame argmax with NO language model at decode time; Kaldi's LM decode
+(`decode_phone.sh`) exists only inside the separate self-training stage. CONSEQUENCE: the
+anchor is in GREEDY/ARGMAX currency -- our banked entry-5/entry-7 argmax PERs were already
+like-for-like with it, and entry 8's LM-decoded numbers are a DIFFERENT currency from the
+anchor with no like-for-like published counterpart; no entry-8 number may be quoted against
+0.473 in either direction, and every anchor mention names the currency. The pin goes verbatim
+into `gua_lm_decode.py`'s docstring (implementer). STILL WITH THE USER: the cell 3-4 word --
+cell 4 (nulls and ceiling re-banked under this decode) is what licenses any margin reading and
+the pre-registered "stage A answerable after all" trigger; recommendation unchanged: fund it.
+
 ## Screen battery (prerequisites (i)+(ii) made operational; the first fundable step)
 
 Run per REPRESENTATION of the same enc50 stream — raw, run-length-deduped, segment-pooled

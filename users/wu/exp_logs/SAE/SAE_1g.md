@@ -2119,6 +2119,22 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   verifier, 12/12 -- the new fixture proving the stratified draw holds composition fixed and
   tightens the interval exactly where the two splits disagree in sign is the right proof of
   the ruling's mechanism. Nothing further; awaiting the decode results.
+- 2026-08-23 (1g.10c fold-bug round: REQUIRED HAND-BACK -- the reader being rerun is the
+  ORPHANED UNSTRATIFIED one). The State entry names `H4InsertionBonusReadJob.vJSHAkECj8hH`
+  as "the reader", but that is the v1 hash the stratified ruling RE-KEYED AWAY
+  (`implementation_revision` v1 in its info file); the ruled primary is `da3bGeQIkS0R`
+  (read-v2, stratified). On disk right now: v1 carries renamed error backups and a LIVE
+  SLURM rerun (engine entry run.1467447), so an old-graph manager submitted the orphan --
+  the current config registers only the v2 reader, meaning a manager holding the pre-re-key
+  graph was still alive; check for and stop the stale manager (`sis_managers.sh restart`
+  territory, never `-co`). REQUIRED: (i) cancel v1's SLURM job and delete the v1 dir per
+  the standing delete rule -- any number it produces is in the convention the ruling
+  replaced and must never be read; (ii) the v2 reader has its OWN new defect, distinct from
+  _fold: `ValueError: invalid literal for int() with base 10: 'HH'` at utterance
+  116-288045-0003 (error.run.1) -- a phone symbol reaching an integer-unit parse; fix on
+  the v2 path with a regression test the way the _fold gap got one. The _fold fix itself
+  and its 13th test are endorsed; nothing logged is affected (no number was ever produced
+  by either broken run).
 - 2026-08-23 (1g.10b result read by the planner from the artifact; ruling in `PLAN_1G.md`
   1g.10 Status 2026-08-23 result). `H4Beam1024ReadJob.tKbQ0MHLdX03`: parity cell PASS (the
   option-(b) identity guard held end to end), 0 of 36 cells clear the 26-of-27 bar (best

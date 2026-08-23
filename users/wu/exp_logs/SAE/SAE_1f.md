@@ -856,3 +856,17 @@ record per `train_num_updates`).
   19-point ruling was still wrong and would have crashed both iteration-1 sweeps at 28000;
   the corrected grid is 18 points (minus 14000 and 28000), recorded in PLAN_1F.md by
   replacement. Iteration-2/3 grids need their own epoch arithmetic checked, not assumed.
+- 2026-08-23 (entry 8 cells 1-2 launch round VERIFIED AND ACCEPTED; three proposals ruled and
+  the anchor pin discharged in `PLAN_1F.md` entry 8 Status 2026-08-23 launch ruling).
+  Verified: 8 grid-decode dirs on disk plus the two reads and two LM jobs, matching the
+  twelve-job accounting; the module docstring carries the sil_weight and SIL-free-primary
+  decisions verbatim; the env guard fired correctly under the default environment (the
+  suite runs only in the w2vu env -- the guard firing IS the env discipline observable, and
+  the implementer's 'tested before launch' is accepted on that basis plus the disclosures
+  verified in source). The hand probe (PER 1.6828 -> 0.9322, ins 1.0650 -> 0.0979 on the
+  full arm's scored fifth) is accepted as a mechanism check only. All three proposals were
+  the right kind of stop: each names a registered constant the code or data cannot support,
+  none was worked around silently. Rulings and the discharged anchor pin (0.473 = argmax
+  currency, no LM, no self-training; entry-8 numbers are a different currency with no
+  like-for-like published counterpart) are in the plan; the pin text goes into
+  `gua_lm_decode.py`'s docstring before any result is read.
