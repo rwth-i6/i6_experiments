@@ -47,6 +47,10 @@ registration.
   the `acoustic_only` weights carry median effective sample size 3.195, median 13 positive members,
   and only 0.63 percent one-hot groups; the median weight on the greedy member is 0.18 and the mean
   0.25, so roughly three quarters of anchor visits draw a NON-greedy target. The arm is a real A/B.
+  Convention for the one-hot figure, named because three defensible ones give three answers: it
+  counts groups with exactly ONE positive-weight member (0.631 percent); thresholded readings give
+  0.643 to 2.567 percent. Informational, feeds nothing -- these are a pre-launch feasibility read,
+  not a gate statistic, and the arm's realized behaviour is banked by the job in `sampling.json`.
 - TESTED before launch, no model and no GPU: `scripts/d8_draw_test.py` 11/11 -- reproducible from
   the key, never selects a zero-weight member, empirical frequencies match the weights to 0.004,
   one-hot nests the incumbent, and a vector that does not sum to one is refused.
