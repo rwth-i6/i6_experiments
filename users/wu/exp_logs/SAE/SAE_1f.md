@@ -1,5 +1,66 @@
 # SAE §1f — statistics-matching initialization, prerequisite kill conditions
 
+## State
+<!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
+question each answers), blockers, next action, proposals for the planner. -->
+
+State as of 2026-08-23 -- entry 5 and entry 7 stage A are closed; PLAN_1F entry 8 (LM-decoded phone
+error rate) is BUILT, TESTED AND LAUNCHED on the USER's word for cells 1 and 2 only.
+
+**ENTRY 8 CELLS 1-2 ARE LAUNCHED** (`sae/gua_lm_decode.py` + `configs/config_sae_1f_entry8_v1.py`,
+speech-llm `4fa256c`/`54a4d2c`; manager `sae_1f_entry8`; read `GuaLmGridReadJob.1z40npwD4yu1`
+primary and `GuaLmGridReadJob.a1Z3OBHz3tjl` sensitivity). Eight grid-decode jobs, two reads, plus
+the two language-model jobs the sensitivity column needs -- twelve unfinished jobs and nothing else.
+
+- VERIFIED END TO END BEFORE LAUNCH, not asserted: the released generation script with the patched
+  KenLM branch decoded the full arm's scored fifth at the fixed endpoint in 51 seconds and moved
+  its phone error rate from the banked greedy 1.6828 to 0.9322, with insertions 1.0650 -> 0.0979.
+  That is the registration's own predicted mechanism, measured before any job was submitted. It is
+  NOT a result: it is one grid cell of one arm, run by hand, and it is superseded by the read job.
+- THE ENTRY-7 RELABELING CHAIN IS KEPT OUT OF THIS GRAPH. Entry 8 needs entry 7's four finished
+  checkpoints, so it calls entry 7's build -- which registers its relabeling chain, twelve
+  unfinished jobs, and a manager here would have funded them. That is exactly the spend
+  `sis_managers.sh` blocks the entry-7 manager to prevent, so entry 8 suppresses entry 7's
+  registrations while it builds and registers only its own outputs. Job construction is untouched
+  and every entry-7 hash is unchanged; verified from the graph, whose only unfinished jobs are the
+  twelve above.
+- THREE PROPOSALS FOR THE PLANNER, each a place where the registration assumed something the code
+  or the data does not support. All three are disclosed in the producing module's docstring and in
+  the reader's printed payload, so no number can be read without them.
+  1. THE SECOND GRID AXIS IS NOT AN INSERTION SCORE. The registration names the axis
+     "insertion/word_score". The released lexicon-free branch has no such knob -- its options
+     carry beam size, beam size token, beam threshold, lm_weight, sil_score, log_add and criterion
+     type, and a word score exists only in the LEXICON branch. The registered values {-2, -1, 0}
+     are taken by `sil_weight` here, with 0 the released default. The registration's stake, an
+     insertion-dominated error rate, is attacked on this decoder by `lm_weight`, because a unit
+     language model charges every emitted phone; the hand probe above is that mechanism.
+  2. THE PRIMARY AND SENSITIVITY LANGUAGE MODELS ARE INVERTED BY THE VOCABULARY. The registration
+     pins a SIL-augmented 4-gram as primary, "matching the generator's SIL-augmented output
+     vocabulary". The entry-7 generator has no such vocabulary: `GuaTextJob` writes 39 phone types
+     and no silence symbol, and the model already in its text directory is the SIL-free
+     `CreateBinaryLMJob.hvZoC014xnIe`. The SIL-free model is therefore run as PRIMARY and the
+     SIL-augmented one as a DISCLOSED vocabulary-mismatch sensitivity on the two fixed-endpoint
+     arms.
+  3. THE LABEL-FREE GRID SELECTOR IS CIRCULAR ON THE lm_weight AXIS. The registered rule picks the
+     quotable grid point by entry 5's weighted phone-LM perplexity, which scores hypotheses with
+     the SAME phone language model this decoder optimizes against; raising lm_weight improves it
+     almost by construction, with only the inventory-usage penalty pushing back. The full grid is
+     printed, the rule's pick is named as quotable with this disclosure attached, and the
+     label-oracle best is printed beside it as an upper bound.
+- ONE THING THE REGISTRATION DID NOT ASK FOR AND THE DECODER NEEDS: a beam. This bundle ships no
+  configuration for language-model decoding of the generator -- its `run.sh` decodes the generator
+  with viterbi only and reaches KenLM in the Kaldi self-training stage -- so the defaults of the
+  configuration that owns the branch being mirrored are used (beam 50, threshold 50, beam size
+  token the full vocabulary) and a beam-500 convergence probe runs on the scored fifth of both
+  fixed-endpoint arms, so the beam is measured rather than asserted.
+- NOT BUILT AND NOT LAUNCHED, deliberately: cell 3 (the CTC-student decoder-sanity control) and
+  cell 4 (re-banking the argmax nulls and the memoryless oracle-map ceiling under this decode).
+  Until cell 4 exists NO margin against 0.8946 / 0.9239 / 0.4148 may be quoted from this graph --
+  LM-decoded rates are a new currency -- and the read job prints that restriction with every table.
+  Cell 5 (the entry-5 ESPUM checkpoints) is the registration's optional second leg and is
+  untouched. The ANCHOR PIN DUTY is undischarged: no comparison against the published TIMIT 0.473
+  anchor is licensed in either direction until its decode is pinned.
+
 ## Approach
 
 **1. Kill condition (i): the §0a information audit re-read on the current `enc50_raw` inventory.**
@@ -255,7 +316,31 @@ full arm's middle segment).
 | bigram only, fixed endpoint | 40,000 | 1.2409 | 0.6811 | 0.5535 | 0.0062 | 92.3 | +0.0107 | same arm | same arm | same arm |
 | reference | -- | -- | -- | -- | -- | 59.7 | -- | -- | -- | -- |
 
-## Conclusion
+**Entry 8. The same four entry-7 decodes under a phone 4-gram beam search instead of per-frame
+argmax.** The released generation script keeps the emissions, the batching and the hypothesis
+writing; one further patch anchor makes its KenLM branch return a mirror of fairseq's lexicon-free
+unit-language-model branch (one dictionary word per phone, `KenLM`, `LexiconFreeDecoder`), because
+the branch the script itself imports no longer exists in this fairseq. Emissions are log-softmaxed
+before decoding -- the script overrides the model with `no_softmax`, which is harmless for argmax
+and not for a beam that adds acoustic and language-model scores on one scale. Four checkpoints
+(both arms x label-free pick and fixed endpoint 40,000) x 12 grid points (lm_weight in
+{0.5, 1, 2, 4} x sil_weight in {-2, -1, 0}) x two splits: the selection four-fifths for the
+registered label-free grid pick, the scored fifth for the read. Beam 50 with a beam-500 convergence
+probe on the fixed-endpoint arms. Nothing is refit and no checkpoint is selected.
+
+| decode | arm | update read | PER | sub | ins | del |
+|---|---|---|---|---|---|---|
+| greedy (banked, entry 7) | full loss, fixed endpoint | 40,000 | 1.6828 | 0.6153 | 1.0650 | 0.0025 |
+| pre-launch hand probe, lm_weight 2 / sil 0 / beam 50 | full loss, fixed endpoint | 40,000 | 0.9322 | 0.7624 | 0.0979 | 0.0718 |
+
+The second row is a single cell run by hand to prove the chain end to end before any job was
+submitted; it is not a result and is superseded by `GuaLmGridReadJob.1z40npwD4yu1`. Both rows are
+plain rates on the same 572 utterances against the same references.
+
+## Verdicts
+<!-- One line per answered experimental question, resting on a number in that approach's table. A
+wrong verdict is marked WRONG with a one-line correction below it, never rewritten. (Migrated from
+the pre-format "Conclusion" heading, 2026-08-23; entries below predate the one-line form.) -->
 
 1. (1) **Kill condition (i) FAILS its registered bar**: the inventory the loops run on reads oracle-map
    PER 0.832 on dev-other and 0.712 on dev-clean against a bar of 0.50, so it caps a unit-level token
@@ -472,6 +557,8 @@ different reasons, only one of which a larger budget could move.
 
 | artifact | path |
 |---|---|
+| entry 8 LM decode code (+ tests) | `recipe/2025-10-speech-llm/src/speech_llm/sae/gua_lm_decode.py`, `scripts/gua_lm_decode_test.py` (27/27) at speech-llm `54a4d2c` |
+| entry 8 config | `config/sae_1f_entry8.py` -> `.../librispeech/configs/config_sae_1f_entry8_v1.py` |
 | §1f prerequisite config | `config/sae_1f_prereq.py` -> `.../librispeech/configs/config_sae_1f_prereq_v1.py` |
 | measurement code (+ CPU tests) | `recipe/2025-10-speech-llm/src/speech_llm/sae/channel_audit.py`, `test_channel_audit.py` |
 | audited inventory (codebook) | `work/speech_llm/sae/quantize_states/QuantizeStatesJob.FWpGhC941JMi` |
