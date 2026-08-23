@@ -10,11 +10,20 @@ by the planner. Open work: 1g.2a (H4-LM), items 1-4 complete, and 1g.11, whose e
 flight. The other live implementer work is PLAN_1F entry 8 (SAE_1f.md) and PLAN_3E1 D9.1
 (SAE_3E1.md).
 
-**1g.11 EXPERIMENT 1 IS BUILT, TESTED AND IN FLIGHT** (user-greenlit 2026-08-23; speech-llm
-`16b1063`; manager `sae_1g_11`; `G11ContinuousSegmentsJob.hImWJG0X4eZh`, the only unfinished job in
-that graph). It builds the continuous twin of the `seg12.5` observation stream -- one vector per
-token of the frozen discrete stream, from the frozen transform -- and nothing else. The Gaussian
-repair cells, the nulls and the evaluation are separate registrations and no graph pre-empts them.
+**1g.11 EXPERIMENT 1 IS COMPLETE, BOTH CHECKS CLEAN** (user-greenlit 2026-08-23; speech-llm
+`16b1063`; `G11ContinuousSegmentsJob.hImWJG0X4eZh`; approach 17, verdicts 38-40). The continuous
+twin of the `seg12.5` observation stream exists: one vector per token of the frozen discrete
+stream, from the frozen transform, 8,416 utterances and 919,248 tokens at 96 components. The
+Gaussian repair cells, the nulls and the evaluation are separate registrations and no graph
+pre-empts them.
+
+- PIPELINE CHECK exact on all 8,416 utterances, so the emission swap is ONE change: the features,
+  basis and segmentation are the objects the discrete arm reads.
+- TWIN CHECK 919,248 of 919,248 tokens (100.0000%). I predicted this would fall below 1 and it does
+  not, including on all 2,184 absorbed tokens -- an absorbed pair is two adjacent segments assigned
+  the SAME centroid, a nearest-centroid cell is convex, and the token mean is a convex combination
+  of two points inside it, so it cannot leave. The flagged "price" of the token reading is
+  therefore ZERO, and there is no residual to disclose to the Gaussian cells.
 
 TWO REGISTERED CONSTANTS THE FROZEN ARTIFACTS DO NOT ADMIT AS WRITTEN. Both were measured off the
 finished artifacts before the job existed, and both are flagged here rather than resolved silently.
@@ -39,14 +48,12 @@ finished artifacts before the job existed, and both are flagged here rather than
    token's frames" says, and what a paired per-utterance read needs, since it makes both arms'
    observation sequences the same length utterance by utterance.
 
-   The job therefore carries TWO checks that answer different questions and do not substitute for
-   each other. THE PIPELINE CHECK is asserted exact on every utterance: at the WARD segmentation
-   the re-assigned segment means reproduce the frozen stream bit-for-bit, run through
-   `repr_pool.pool_utterance` itself rather than a re-derivation of it -- that is what proves the
-   features, basis and segmentation here are the frozen pipeline's and not a lookalike. THE TWIN
-   CHECK is reported and never asserted: the share of TOKENS whose re-assigned mean still returns
-   the frozen code, which is below 1 by the arithmetic above because an absorbed token's mean spans
-   both Ward segments. A value far from 1 would be a STOP, not a tolerance to widen.
+   Both readings were carried into the job as separate checks and BOTH came back clean (verdicts
+   38-39): the Ward-level reproduction is exact, and the token-level re-assignment rate is 1.0000,
+   which the convexity argument in verdict 39 explains. So the token reading is not a compromise --
+   it satisfies the clause by construction and agrees with the frozen assignment exactly. PROPOSAL:
+   amend the clause to name the token segmentation, since that is the reading the registration's
+   own "exactly that token's frames" selects and the only one under which it is true.
 
 IMPLEMENTER READING, also flagged: the registration names "the `ContinuousFeatsJob` fit/assign
 split", which is a discipline about WHICH utterances a statistic may be fitted on, not about which
@@ -913,6 +920,23 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     quoting bar.
 
 
+17. **1g.11 experiment 1: the continuous twin of the `seg12.5` observation stream.** One vector per
+    TOKEN of the frozen discrete stream: the frozen state dump standardized and projected on the
+    frozen PCA basis (`QuantizeStatesJob.FWpGhC941JMi`), averaged over exactly the frames of each
+    run-length run of the frozen `seg12.5` stream, then standardized per component by a scale
+    fitted on the dedicated train half alone. Two checks, answering different questions. THE
+    PIPELINE CHECK, asserted: at the WARD segmentation the re-assigned segment means must reproduce
+    the frozen stream bit-for-bit, run through `repr_pool.pool_utterance` itself. THE TWIN CHECK,
+    reported: the share of TOKENS whose re-assigned mean still returns the frozen code, which is
+    the question of whether the token-level twin is the discrete stream's twin at all.
+
+    | bed | utterances | tokens | ward segments | frozen PCA dim | kept | pipeline check | twin check | job |
+    |---|---|---|---|---|---|---|---|---|
+    | seed bed, `seg12.5` | 8,416 | 919,248 | 921,432 | 96 | 96 | exact, 8,416 of 8,416 | 919,248 of 919,248 (100.0000%) | `G11ContinuousSegmentsJob.hImWJG0X4eZh` |
+
+    Scale fitted on 2,849 dedicated train utterances, 448,204 segment vectors. 2,184 ward segments
+    (0.237%) are absorbed into tokens across 1,334 of the 8,416 utterances.
+
 ## Verdicts
 
 1. **Approach 1: one segment per text symbol is rejected.** It exceeds the registered ratio on all
@@ -1357,6 +1381,27 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     call -- it fixes the convention in advance rather than after seeing which one is narrower --
     but no conclusion here rests on it, and a reader should not infer that it was load-bearing.
 
+38. **A17: the continuous twin is the frozen pipeline's own, asserted rather than argued.** At the
+    Ward segmentation the re-assigned segment means reproduce the frozen `seg12.5` stream
+    bit-for-bit on all 8,416 utterances, run through `repr_pool.pool_utterance` itself rather than
+    a re-derivation of it. The emission swap 1g.11 tests is therefore one change and not two: the
+    features, the PCA basis and the segmentation are the same objects the discrete arm reads.
+
+39. **A17: the token-level twin costs nothing, and the reason is a theorem rather than luck.**
+    All 919,248 tokens re-assign to their frozen code, including every one of the 2,184 whose mean
+    spans two Ward segments the merge had absorbed. This was predicted to fall BELOW 1 and does
+    not: an absorbed pair is two adjacent segments assigned the SAME centroid, a nearest-centroid
+    cell is a convex polytope, and the token mean is a frame-count-weighted convex combination of
+    two points inside that cell -- so it cannot leave it. The measurement is what establishes that
+    no tie on a cell boundary bites in practice. Consequence for the registration's count-identity
+    clause: the token reading satisfies it by construction AND agrees with the frozen assignment
+    exactly, so choosing it costs no fidelity and there is no residual to disclose.
+
+40. **A17: the registered 128-component truncation is vacuous on this stream.** The frozen basis
+    carries 96 components, so keeping "the leading 128" keeps all of them; the primary cell and the
+    registration's optional full-dimension sensitivity cell are the same cell, and no truncation
+    axis exists to sweep.
+
 ## Catalog
 
 1g.10c positive insertion-bonus cells, parity PASS, sign split between rows (verdicts 36-37): `work/speech_llm/sae/h4_insertion_bonus/H4InsertionBonusReadJob.da3bGeQIkS0R` (`insertion_bonus.json`, `insertion_bonus.txt`); 256 beam-512 chunks + 8 probes + 1 parity chunk under `work/speech_llm/sae/h4_insertion_bonus/`, merged by the production `H4SequenceDecodeMergeJob`; code `sae/h4_insertion_bonus.py`, `scripts/h4_insertion_bonus_test.py` (14/14) at speech-llm `3d395de`.
@@ -1422,6 +1467,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 | 1g.2 controlled validation read (verdicts 18-20; the only label reader) | `work/speech_llm/sae/h4_validation_jobs/H4ControlledValidationJob.Otv6GBVY8ZUj` |
 | controlled reference gold phones | `work/i6_experiments/users/wu/experiments/unsupervised_asr/w2vu2/eval/GoldPhonesJob.ZGSp0hxyd2YP` |
 | 1g.2 descriptive real-seed PER (verdict 21; selects nothing) | `work/speech_llm/sae/h4_real_seed_per/H4RealSeedPerJob.vu6Dp6HkJ2pH` |
+| 1g.11 experiment 1 continuous observation twin of `seg12.5` (segments.pkl, boundaries.pkl, component_scale.npy) | `work/speech_llm/sae/g11_continuous/G11ContinuousSegmentsJob.hImWJG0X4eZh`; code `sae/g11_continuous.py`, `configs/config_sae_1g_11_v1.py`, `scripts/g11_continuous_test.py` (19/19) at speech-llm `16b1063` |
 
 ## Verifier feedback
 
