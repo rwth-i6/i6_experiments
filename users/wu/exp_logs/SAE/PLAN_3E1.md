@@ -2406,6 +2406,35 @@ as pinned and any deployment reading of D8.3 must have the scorer read the 50 Hz
 measurement now does. d_min >= 2 itself is standing by the user's ruling and is not revisited
 here; the interaction is recorded, not reopened.
 
+2026-08-23 verdict (D8.4 READ COMPLETE on the re-pinned bed: INDISTINGUISHABLE, resolving to the
+CONTROL; the phase-closure question goes to the USER). The re-pinned primary pair
+(`PsiAlignRerankJob.GNOktIsG251m` / `.JSZvokFxjNkJ` on the 50 Hz enc50 join) came back with ZERO
+infeasible rows and ZERO dropped groups in both arms, the guard passed at 512 of 512 shared
+groups, and `D8EtaReadJob.KwmHTXqiJMGr` finished. Operating point: operative theta_0^G rollouts
+(`J9yA1eYnxwYA`), 512 utterances, G=12, T=0.7, both scorers fixed-final differing in `model_pt`
+alone, `bootstrap_delta_eta` at `n_boot=10000`/`seed=42`. THE MEASURED NUMBER: paired delta eta
+-0.0293 with 95 pct CI [-0.0697, +0.0085] (candidate eta +0.4220, control +0.4513); in the
+plain-WER identity, selection WER 0.1417 candidate vs 0.1400 control over shared oracle headroom
+0.0600. The CI includes zero, so per the pre-registered three-way reading the verdict is
+INDISTINGUISHABLE and resolves to the CONTROL under the incumbent-tie rule. Context, reported and
+never gating: only 6.4 pct of bootstrap replicates favour the candidate; the paired spearman
+delta is -0.0114 [-0.0234, -0.0004] (a context statistic, not the verdict statistic -- the
+registered reading is delta eta and is not revisited after the result); the fork-bed context
+column is likewise indistinguishable (-0.0033 [-0.0164, +0.0096]); arm-internal nulls are sane in
+both arms (length-only null eta strongly negative, audio-free null margin positive). The
+verifier recomputed the eta identity from the reader's own JSON and the reader's printed text
+carries the registered rule verbatim. Deployment context printed beside the verdict as required:
+psi-family scoring of the operative policy reads the 50 Hz stream; the quarter-rate G-track
+stream is structurally unscoreable under the standing topology. PLANNER RECOMMENDATION TO THE
+USER (decision is the user's under the standing closure rule): do NOT fund the D8.3 policy leg
+and close D8 with the control retained -- the direct ranking measurement finds no candidate
+advantage at full coverage on the operative policy's own rollouts (point estimate worse, 94 pct
+of bootstrap mass negative), consistent with D8.2's localization that the refit improved fit and
+insertion pricing but not discrimination; a 960 h policy leg would spend GPU on a scorer with no
+measured ranking edge. One bookkeeping item stays open and does not block the verdict: the
+feasibility producer's printed figures and the approach-38 paragraph quotes need a true-up
+(Verifier feedback, same date).
+
 Replaces the §3e.1 two-sided gate (2026-08-07) BEFORE any verdict was read against v1, because
 v1's second arm is gold-conditioned as instrumented (fact 2), has the wrong sign against the
 filler mode (fact 3), and its first arm is not comparable across rounds (fact 4). All statistics

@@ -3773,3 +3773,31 @@ the absolute beta, is what carries the contamination claim.
   feasibility paragraph at it. The ruling adopts proposal 1 (re-pin the primary pair's units
   join to `MergeUnitsPklJob.ncxcd3vouD5E`, same dump, same draw; clause (a) scoped to
   stored-column reads); proposals 2 and 3 declined. Verdict 83 itself stands as written.
+- 2026-08-23 (re-pin execution round VERIFIED; the D8.4 verdict LANDED and its numbers are
+  verified; one required TRUE-UP on the feasibility figures). Execution verified on disk: both
+  re-pinned reranks (`GNOktIsG251m`/`JSZvokFxjNkJ`) consume `J9yA1eYnxwYA` at temperatures
+  [0.7] joined to `ncxcd3vouD5E`, differing in `model_pt` alone (info files); the
+  `bed_feasibility` alias resolves to exactly the cited `D8BedFeasibilityJob.QTlLFcnka0Hy`;
+  `d8_bed_feasibility_test.py` re-run by the verifier, 10/10; the clause-(a) scoping is in
+  `d8_eta.py`'s docstring; the module's conventions block is exemplary. The feasibility
+  artifact then landed and the load-bearing facts all reproduce from it: identical
+  infeasibility across arms asserted (25,867/498 quarter-rate; 38/8 fork; 0/0 on the re-pinned
+  join), per-utterance ratio table on the 34,106 shared keys (median 0.2507, bounds
+  [0.25, 0.2642] -- reciprocals of the quoted 3.99 [3.79, 4.00]), full coverage, bound
+  over-predicts as stated. REQUIRED TRUE-UP (does not block the verdict; the mechanism and
+  verdict 83 are unaffected): the approach-38 paragraph says the figures are "restated from
+  that job", but three quoted figures are not what the job prints -- the 146.8/585.7 corpus
+  means are not in the job's output at all (it prints per-bed means 158.2/631.2/633.8 and the
+  ratio table; extend the job to print the shared-key-set corpus means it is cited for, a leaf
+  re-run with no dependents), the fork chars-per-frame p05 is 0.2222 in the job vs 0.24
+  quoted, and the operative crude-bound prediction is 98.76 pct on the job's stated
+  T=0.7-slice convention (6,068 of 6,144) vs 97.2 pct quoted from the ad-hoc all-rows read --
+  and observed 81.5 pct is over all 31,744 rerank rows, a different population the paragraph
+  should name. Quote the producer's own figures and name its reciprocal ratio convention.
+  VERDICT VERIFIED: `D8EtaReadJob.KwmHTXqiJMGr` finished with the guard passing at 512 of 512;
+  the verifier recomputed the eta identity from the reader's JSON (selection WER delta
+  +0.0018 / headroom 0.0600 = delta eta -0.0293, matching `delta_eta_from_wer_identity`);
+  `n_boot=10000`/`seed=42` as registered; the printed text carries the registered three-way
+  rule and the incumbent-tie resolution verbatim. INDISTINGUISHABLE, resolves to control;
+  planner reading and recommendation in `PLAN_3E1.md` D8 Status 2026-08-23 verdict; the
+  closure question is with the USER.

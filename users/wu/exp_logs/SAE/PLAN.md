@@ -123,7 +123,12 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
   unalignable under d_min >= 2, identically in both arms -- so the primary pair's units join is
   re-pinned to the 50 Hz enc50 stream both scorers train against (same dump, same draw; ruling
   and mechanism in `PLAN_3E1.md` D8 Status 2026-08-23 closing; fork-bed context column is
-  banked and INDISTINGUISHABLE at -0.0033 [-0.0164, +0.0096]).
+  banked and INDISTINGUISHABLE at -0.0033 [-0.0164, +0.0096]). 2026-08-23 verdict: the
+  re-pinned read COMPLETED at full 512-group coverage -- paired delta eta -0.0293
+  [-0.0697, +0.0085], INDISTINGUISHABLE, resolving to the CONTROL under the incumbent-tie
+  rule. **THE D8 CLOSURE QUESTION IS ON THE USER'S DESK** with the D8.3 authorization question;
+  planner recommends closing D8 with the control retained and not funding the policy leg
+  (`PLAN_3E1.md` D8 Status 2026-08-23 verdict).
 - **960 h stock-donor supervision-axis endpoint is ABSENT**: the theta_0 + gold-scorer arm ran
   only through sub-epoch 4, was stopped and deleted 2026-08-08, and never produced the listed
   3-pass endpoint; `ReturnnTrainingJob.22Ntu7y0O6iW` does not exist. Its observed collapse is
