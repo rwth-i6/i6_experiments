@@ -143,7 +143,8 @@ and all five starts are minutes of CPU, not hours -- this is a small CPU job, no
 41-44; speech-llm `92e5d24`). All twelve cells produced, EM ascends on every one, clause 4's floor
 line reads clean, and the job computes no clause verdict by design. Nothing here is evidence of
 content: no gold is read, and a full inventory at a plausible rate is what a content-free control
-also produces.
+also produces. The EM ran on the full 6,414-utterance update role and the decode on the full
+890-utterance selection role.
 
 - ONE RUN-CAUGHT FAILURE, and which cell it was IS the explanation. The job died in my own guard on
   the real fold: at 96 dimensions and 78 states a token's log-density spread across states exceeds
@@ -160,10 +161,11 @@ also produces.
   the rerun reproduced every other number identically.
 
 STILL TO BUILD: experiment 3's two nulls (the 1g.9 babble null, registered again verbatim, and the
-continuous observation null) and experiment 4's evaluation. Nothing of experiment 2 is registered in a graph yet, and no number above is
-evidence for anything -- the EM ran on eight utterances, not the 6,414-utterance update role. All
-inputs are now resolved to concrete finished artifacts, so what remains is wiring rather than
-discovery: starts `H4RepairJob.x1TyHJMfEVpb` (controlled/reference), `.ViPSmq4Am8vX`
+continuous observation null) and experiment 4's evaluation.
+
+ARTIFACT POINTERS for those, kept from the build notes (the shakeout numbers earlier in this entry
+are superseded by approach 18's table and were never evidence -- they ran on eight utterances):
+starts `H4RepairJob.x1TyHJMfEVpb` (controlled/reference), `.ViPSmq4Am8vX`
 (espum_seed0_update30000), `.iUFh7IwniCMl` (fingerprint), `.aeetC3NfgPxB` (pseudo_pair_seed0),
 `.Ds0zM1NTY2C1` (random_map_seed1000, which is also the gate's content-free control); accepted H1
 `Phase1gH1Job.HbxKiuBTJ8aN` (duration p = 0.2356, 103 of 500 unit IDs masked as silence); fitting
@@ -1546,11 +1548,19 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     registration's optional full-dimension sensitivity cell are the same cell, and no truncation
     axis exists to sweep.
 
-41. **A18: the constrained update improves the criterion on every registered cell.** All twelve
-    cells rise from count 0 to count 4 (largest, `pseudo_pair_seed0` -80,515,490 to -77,940,278;
-    smallest, `controlled/reference` -77,517,284 to -73,987,478). This says the EM implementation
-    ascends on the real fold as the enumerated fixtures said it would; it says nothing about
-    whether the decoded output carries content, which needs experiment 3's nulls.
+41. **A18: the constrained update improves the criterion on every registered cell.** All six
+    start-covariance cells rise from count 0 to count 4. Largest rise `espum_seed0_update30000`
+    per_row +6,796,844 (-79,791,528 to -72,994,684); smallest `pseudo_pair_seed0` tied +2,575,212
+    (-80,515,490 to -77,940,278). This says the EM implementation ascends on the real fold as the
+    enumerated fixtures said it would; it says nothing about whether the decoded output carries
+    content, which needs experiment 3's nulls.
+    [2026-08-23 correction, on the verifier's hand-back: the original parenthetical named
+    `pseudo_pair_seed0` the largest rise and `controlled/reference` the smallest. Both were wrong --
+    I ranked the cells by their count-0 log-likelihood MAGNITUDE and then labelled that ranking as
+    one of rises. The verdict's claim, that every cell ascends, is unaffected. The six rises are
+    +2,575,212 (`pseudo_pair_seed0`), +3,529,805 (`controlled/reference`), +4,715,910
+    (`random_map_seed1000`), +4,995,400 (`fingerprint`), +5,064,753 (`espum` tied), +6,796,844
+    (`espum` per_row).]
 
 42. **A18: clause 4's honesty line reads clean -- no cell sits on the variance floor.** `floor
     share` is 0.0000 in all twelve cells, so no emission row won by variance collapse and the
