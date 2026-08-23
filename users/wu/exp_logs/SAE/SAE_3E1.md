@@ -29,7 +29,35 @@ adjacent in approach 9's table at 12.68/17.57 and 13.91/18.91, so this is a real
 Note in passing, not a blocker: the pinned training job carries a `hold` file, so that arm is
 paused. D9 only reads a written checkpoint from it.
 
-NEXT: D9.0, the feasibility launch gate. One scoping point for the planner rather than a silent
+D9.0 IS SCOPED AND ITS FRAME IS VERIFIED AGAINST THE CHECKPOINT (planner amendment accepted
+2026-08-23: gate on the incumbent census plus the structural d_min>=2 census; the read-set rule
+applies at D9.2; a structurally-alignable row scored non-finite by a refit is a STOP). Two knobs
+where the registration's D8 frame and the pinned checkpoint could have conflicted are settled by
+reading the checkpoint's own inputs rather than by choosing:
+
+- THE DONOR IS STOCK, NOT THE ADAPTED ONE. The pinned training job's INPUT list carries
+  `DownloadHuggingFaceRepoJob.JcEANaYZr2oe/output/hub_cache` -- the stock Qwen download -- and no
+  `ExportHfLmDirJob` output. So the D9.0 dump must NOT pass `qwen_hub_dir=lbslm_donor()`, which is
+  what the D4' psi-bed dump passes; passing it would hand the rollout policy a donor its own
+  checkpoint contradicts. `_reward_rank`'s default (omit the argument) is the correct call here.
+- THE READ BED IS tc100, NOT THE 960 h BED, and that is the established frame rather than my
+  choice: D6-PERIODIC's own refresh dumps a 960 h-trained policy over tc100 with
+  `tc100_units()`, because tc100 is the third of the 960 h bed that carries text, which the
+  evaluation columns need; D8.4's beds are tc100 on both sides. The registration's "960 h HF/Ogg
+  bed" names the refit frame, not the read bed, and "sized to D8.4's read" fixes the read at 512
+  utterances x 12 rollouts at T=0.7.
+
+MACHINERY IDENTIFIED, all reused rather than rebuilt: the dump is `_reward_rank` with
+`psi_model_args` and `av_checkpoint_prefix="av."` (the D4'/D6-PERIODIC psi-bed idiom, which
+extracts the submodel itself); the incumbent census comes from a `PsiAlignRerankJob` on that dump
+with `DnBJxqz4sNQZ` at d_min=1 as trained, which prints its own infeasibility counts; the report is
+a `D8BedFeasibilityJob`-analog. The one genuinely new piece is the STRUCTURAL census, which must be
+exact rather than D8.4's crude character bound -- feasible iff the realized state count times
+d_min=2 fits the frame count -- because the registration rests the D9.2 STOP clause on (b)
+predicting the refit census by construction, and a bound that over-predicts by design cannot carry
+that.
+
+NEXT: build D9.0 on the scope above. One scoping point for the planner rather than a silent
 resolution, since the registration's D9.0 clause names three arms that do not all exist yet: arms
 2 and 3 are BUILT BY D9.1, so at D9.0 time only the incumbent can have a finite-score census. I
 read D9.0 as (a) the rollout dump, (b) the structural d_min>=2 alignability census that arms 2 and
