@@ -1699,6 +1699,15 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     constraint, jointly with the banked oracle gap (0.4148 achievable on this stream, 0.85+
     found)" -- never "the paradigm cannot work". The attribution is conditional on the shared
     `seg12.5` segmentation both arms inherit.
+    [2026-08-24 completion, not a correction: the deciding control is itself clause-1
+    INADMISSIBLE -- `gaussian random_map tied 4` decodes 0.7832 of gold length, under the 0.80
+    floor. I did not surface that when I wrote this verdict and should have, since a reader of
+    verdict 45 alone would not know it. The planner ruled it counts as registered
+    (`PLAN_1G.md` 1g.11 Status 2026-08-24, ruling ii): the registration scopes clause 1 to
+    clause-2 readability and names clause 3's controls with no admission precondition, so
+    filtering it out after seeing that doing so flips the verdict would be an unregistered gate
+    edit -- and would delete the very length pathology the control exists to expose. The verdict's
+    claim is unaffected either way, because verdict 46's positive control fails independently.]
 
 46. **A19: on the one channel known to carry content the Gaussian swap LOSES phones.**
     `controlled/reference` at count 4 is -0.0208 [-0.0260, -0.0154] paired against its own table
