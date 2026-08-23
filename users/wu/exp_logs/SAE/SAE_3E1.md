@@ -43,7 +43,28 @@ registration. No control trained -- the D7.1 exact control is reused at
   speaker-cluster bootstrap and a `delta_NI` margin computed from the control's own held spread
   before any candidate number is read. This unpaired difference is not that statistic.
 
-NEXT ACTION IS THE PLANNER'S: whether D8.2's paired admission starts is a plan decision, not mine.
+**D8.2 IS AUTHORIZED, BUILT, TESTED AND LAUNCHED** (planner ruling 2026-08-23; speech-llm
+`2bdb188`; `sae_3e1_d8_2` manager; 6 new jobs, everything else reused at its existing hash).
+
+- Clause 1 is a new job, `D8AdmissionJob.C2HUHUtUjfhN`: the paired candidate-minus-control
+  internal-held per-frame NLL with a speaker-cluster bootstrap, against a control-defined
+  `delta_NI`. It persists the per-anchor paired deltas and speaker-cluster ids beside the
+  aggregate, as registered 2026-08-22 -- D7.2's own job banks aggregates only, which is why a new
+  job was needed rather than a reuse.
+- Clauses 2-4 are literally D7.2's construction with the candidate substituted
+  (`d4p.battery`, `d4p.rerank`, `PsiGateClauseTableJob.xFSaHcqvUR2S` with the exact D7 control as
+  incumbent), so "the rest of the battery applies unchanged" holds by code reuse, not assertion.
+  No clause is skipped on another's expected outcome; all four are built.
+- THE `delta_NI` CONVENTION PIN IS DISCHARGED BY TEST, not by assertion.
+  `scripts/d8_admission_test.py` 4/4 re-runs D7.2's INLINE bootstrap and cluster construction
+  beside the helpers this module exposes and requires bit-identical output value for value; it
+  also asserts `delta_NI` is a function of the control alone and that a resample count other than
+  D7.2's is refused as a new registration. That is what makes the pin real given that D8.1b's
+  authorized persistence set already exposed a candidate number, so literal sequencing was gone.
+- The control is the D7.1 exact control at its existing hash; nothing retrains it.
+
+NEXT: read clause 1's `admission.json` and the clause table; the D8.2 verdict itself is the
+planner's.
 
 Housekeeping, not a blocker: the ten `all_bed*` jobs carry `error.run.1` markers from duplicate
 workers dying on the `job.save` that JOB_AUTO_CLEANUP archived. All ten are FINISHED with complete
