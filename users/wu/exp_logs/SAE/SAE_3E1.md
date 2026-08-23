@@ -140,71 +140,39 @@ by measuring ranking quality (eta) in a fair paired comparison.
   build and its graph is therefore a strict superset. `sae_3e1_d8_2` is now in the manager script's
   BLOCKED list; two managers over the shared reranks would double-submit them.
 
-**D8.4 FAILED CLOSED ON THE REGISTERED JOIN (verdict 83), THE PLANNER RULED, AND THE RULING IS
-EXECUTED AND RELAUNCHED** (PLAN_3E1 D8 Status 2026-08-23 closing; speech-llm `2c5990d`; manager
-`sae_3e1_d8_4` pid 2773154). The first `D8EtaReadJob.S3NTCZAOfSnZ` carries `error.run.1` and its
-refusal message IS the banked result: "the primary pair carries 46 shared groups; the registered
-operative bed is 512 utterances, so this is a DIFFERENT bed".
+**D8.4 IS COMPLETE AND ITS VERDICT IS WITH THE USER: INDISTINGUISHABLE, resolving to the control**
+(verdict 84; `D8EtaReadJob.KwmHTXqiJMGr`; planner reading in PLAN_3E1 D8 Status 2026-08-23 verdict).
+Paired delta eta -0.0293 [-0.0697, +0.0085] on the re-pinned operative bed, guard passing at 512 of
+512 shared groups. Nothing here closes the phase: this is a measurement, and the closure question
+is the USER's with the D8.3 authorization attached.
 
-- IT IS NOT A WIRING ERROR, and that was verified against the registration before anything was
-  written. `config_sae_3e1_d8_0_v1.py:54-61` pins `GTRACK_DUMP` = `ReturnnForwardJobV2.J9yA1eYnxwYA`
-  and `GTRACK_UNITS` = `MergeUnitsPklJob.hJmZtbPDa2hd`; that is exactly the pair both reranks
-  consume, at `temperatures=[0.7]`, differing in `model_pt` alone. The dump itself is intact: 512
-  distinct utterances x 12 rollouts at T=0.7, and the unit store covers all 512.
-- THE CAUSE IS MEASURED. Both arms independently report the SAME 25,867 infeasible rows of 31,744
-  and the same 498 dropped groups, so infeasibility belongs to the text-to-unit alignment, not to
-  either scorer's weights. The operative store holds 146.8 unit frames per utterance against the
-  fork store's 585.7 on the IDENTICAL 34,106 utterances (median per-utterance ratio 3.99, max 4.00)
-  -- the same stream at a quarter of the frame rate. Under the standing minimum-duration topology
-  (`d_min` >= 2) most operative rollouts need more symbol states than the frames can host and score
-  exactly zero probability. A crude length bound predicts 97.2 pct infeasible there against
-  0.016 pct on the fork bed; observed 81.5 pct and 0.010 pct.
-- WHAT THE SURVIVING BED SAYS, AND WHY IT DOES NOT DISCHARGE THE READ: on the 46 groups that do
-  align, delta eta is +0.0043 [-0.1020, +0.1257] -- INDISTINGUISHABLE, resolving to the control
-  under the incumbent-tie rule, but on 9 percent of the registered bed. Under the standing rule
-  that a screen failing its bar is reported rather than rescued, that number is not offered as the
-  D8.4 answer in either direction.
-- DESCRIPTIVE, NOT A VERDICT ON RANKING: the full-set rank-only column keeps all 512 groups by
-  ranking infeasible candidates last and gives eta -0.1680 candidate against -0.1548 control, where
-  the same candidate scores +0.3086 on the fork bed. It is per-arm and carries no paired interval.
+- THE ROUND BEHIND IT, IN ONE LINE: the read first FAILED CLOSED on the registered quarter-rate
+  units join (verdict 83), the planner re-pinned the join to the 50 Hz enc50 stream both scorers
+  train against, and the re-pinned read passed its guard at full bed size. Same dump, same draw,
+  same banked per-rollout WERs -- only the frame stream moved. The failed-closed artifacts stay
+  banked as the record and stay in the graph at their finished hashes.
+- THE PLANNER'S REQUIRED TRUE-UP IS EXECUTED (speech-llm `be2019a`). Approach 38 cited the
+  feasibility producer for three figures it did not print. `D8BedFeasibilityJob` is now v2
+  (`9fCCv5HAPg4a`, superseding `QTlLFcnka0Hy`): it adds the shared-key-set corpus means -- which
+  print as exactly the cited 146.8 and 585.7 -- states in its conventions why a per-bed mean
+  (158.2 / 631.2 / 633.8, each over that bed's own utterances) cannot substitute for them, and
+  names the ratio's direction as right over left, so the quarter-rate store reads 0.25 rather than
+  its reciprocal 4.00. Approach 38 now quotes the producer's own figures and names the THREE
+  DIFFERENT POPULATIONS the paragraph mixes: the crude bound is on the T=0.7 slice (98.76 pct,
+  6,068 of 6,144, not the 97.2 pct I had from an ad-hoc all-rows read), observed infeasibility is
+  over all rerank rows at every temperature (81.486 pct of 31,744), and the store statistics are
+  over the 34,106 utterances every store holds. The fork characters-per-frame p05 is the
+  producer's 0.22, not the 0.24 my truncated sample gave.
+- THE TRUE-UP CANNOT REACH THE VERDICT, and that was checked rather than assumed: bumping the
+  producer's revision re-hashes only the feasibility leaf, and `D8EtaReadJob.KwmHTXqiJMGr` is
+  byte-identical in hash before and after. The producer has no dependents.
+- THE VERDICT'S OWN NUMBERS, for the record: eta +0.4220 candidate against +0.4513 control;
+  selection WER 0.1417 against 0.1400, delta +0.0018 over a 0.0600 headroom, which recomputes the
+  same -0.0293; paired delta spearman -0.0114 [-0.0234, -0.0004] as context; the fork context pair
+  -0.0033 [-0.0164, +0.0096] agreeing in direction on a different policy.
 
-THE RULING, EXECUTED (adopts proposal 1; proposals 2 and 3 declined by the planner):
-
-- THE PRIMARY PAIR IS RE-PINNED TO THE 50 Hz enc50 tc100 STORE (`MergeUnitsPklJob.ncxcd3vouD5E`),
-  on the SAME `J9yA1eYnxwYA` T=0.7 slice -- same policy, same draw, same banked per-rollout WERs.
-  Only the frame stream moves. Everything else is untouched: same fixed-final scorers differing in
-  `model_pt` alone, `n_boot=10000`, `seed=42`, the three-way reading with the incumbent-tie rule,
-  and the same reader guard. New hashes `PsiAlignRerankJob.GNOktIsG251m` (candidate) and
-  `.JSZvokFxjNkJ` (control), compare `PsiAlignPairedCompareJob.ACR10RHlnsop`, read
-  `D8EtaReadJob.KwmHTXqiJMGr`.
-- CHECKED BEFORE LAUNCH RATHER THAN AFTER: the 50 Hz store covers all 512 dump utterances, and
-  against the crude length bound the re-pinned join predicts ZERO unalignable rows (characters per
-  frame p95 0.36, max 0.50) where the quarter-rate join predicted 97.2 percent. The guard is
-  expected to pass; if it refuses again that is again the planner's matter and not a fallback.
-- CLAUSE (a) IS SCOPED, NOT REVOKED, and the scoping is recorded in the producing module's
-  docstring: own-store join for reading a dump's STORED per-frame columns, native-rate join for
-  FRESH alignment scoring. The frame error at registration was the planner's, who has said so.
-- THE FAILED-CLOSED ARTIFACTS STAY IN THE GRAPH at their existing hashes (`8oYpO4IBeqHb`,
-  `sQGYUL22Kpg6`, both finished, zero recompute) rather than being pinned by path, so the
-  feasibility reader below has live inputs. They are never read as a verdict.
-- THE REQUIRED CORRECTION IS DISCHARGED BY A JOB, not by a script: `D8BedFeasibilityJob.QTlLFcnka0Hy`
-  (`sae/d8_bed_feasibility.py`) is the registered producer for every store statistic verdict 83
-  quotes. It prints its conventions ahead of any number -- per-utterance frame ratios never a ratio
-  of corpus means, nearest-rank quantiles with no interpolation, and the crude bound labelled as
-  OVER-predicting and as a mechanism check only -- and it ASSERTS that both arms of a bed report
-  identical infeasibility, which is the step that moves the cause from either scorer's weights to
-  the text-to-unit alignment. It reads all three beds: both joins of the operative dump and the
-  fork bed. `scripts/d8_bed_feasibility_test.py` 10/10, the load-bearing one being that arms
-  disagreeing on infeasibility are REFUSED rather than reported as if they agreed.
-- CONTEXT THE PLANNER REQUIRES BESIDE THE EVENTUAL VERDICT FOR THE USER: under the standing
-  minimum-duration topology NEITHER psi arm can score the operative quarter-rate G-track stream
-  (81.5 percent of rows at exactly zero probability), so psi-family selection reading that stream
-  directly is structurally unavailable as pinned, and any deployment reading of D8.3 must have the
-  scorer read the 50 Hz stream, as this measurement now does. The topology floor itself is standing
-  by the user's ruling and is not reopened here; the interaction is recorded.
-
-The D8.3 authorization question still goes to the USER, and per the standing rule the phase closes
-only on the user's word over a measured number -- which D8.4 has not yet produced.
+The D8.3 authorization question goes to the USER together with verdict 84, and per the standing
+rule the phase closes only on the user's word over that measured number.
 
 Housekeeping, not a blocker: the ten `all_bed*` jobs carry `error.run.1` markers from duplicate
 workers dying on the `job.save` that JOB_AUTO_CLEANUP archived. All ten are FINISHED with complete
@@ -1560,29 +1528,45 @@ column quoted in the verdicts is a separate per-arm statistic and is not in this
 
 | bed | rerank pair | groups offered | groups surviving | rows infeasible | candidate eta | control eta | paired delta eta [95 pct CI] |
 |---|---|---|---|---|---|---|---|
-| operative theta_0^G (primary) | `8oYpO4IBeqHb` / `sQGYUL22Kpg6` | 512 | 46 | 25,867 of 31,744 (81.5 pct) | -0.5688 | -0.5731 | +0.0043 [-0.1020, +0.1257] |
+| operative theta_0^G, 50 Hz enc50 join (THE VERDICT) | `GNOktIsG251m` / `JSZvokFxjNkJ` | 512 | 512 | 0 of 31,744 (0.000 pct) | +0.4220 | +0.4513 | -0.0293 [-0.0697, +0.0085] |
+| operative theta_0^G, sae3d quarter-rate join (failed closed) | `8oYpO4IBeqHb` / `sQGYUL22Kpg6` | 512 | 46 | 25,867 of 31,744 (81.5 pct) | -0.5688 | -0.5731 | +0.0043 [-0.1020, +0.1257] |
 | operative, full-set rank-only column | same | 512 | 512 | (infeasible ranked last) | -0.1680 | -0.1548 | not computed as a pair |
 | fork epoch 2 (context) | `qVTVrRvyOjZ9` / `OiRBghBiTriv` | 28,539 | 28,531 | 38 of 399,546 (0.010 pct) | +0.2471 | +0.2503 | -0.0033 [-0.0164, +0.0096] |
 
-Bed feasibility, from the REGISTERED PRODUCER `D8BedFeasibilityJob.QTlLFcnka0Hy`
-(`sae/d8_bed_feasibility.py`), which prints its conventions ahead of every number: per-utterance
-frame ratios summarized on the shared key set and never taken as a ratio of corpus means;
-nearest-rank quantiles with no interpolation; the crude length bound stated as OVER-predicting
-(dividing characters by the nominal 1.5 characters per state overestimates the state count, because
-BPE merges pull the realized count below it) and offered only as a mechanism check, never as a
-replacement for the scorer's own feasibility test; and observed infeasibility taken from each arm's
-own rerank report with the two arms ASSERTED equal. The figures below were first computed ad hoc on
-2026-08-23 and are restated here from that job on the planner's required correction. Both stores
-cover the identical 34,106 utterances:
-mean unit frames per utterance 146.8 in the operative store `MergeUnitsPklJob.hJmZtbPDa2hd` against
-585.7 in the fork store `MergeUnitsPklJob.ncxcd3vouD5E` -- a median per-utterance frame ratio of
-3.99 (min 3.79, max 4.00), i.e. the operative store is the same stream at a quarter of the frame
-rate. Text characters per unit frame: operative median 1.16 (p05 0.88), fork median 0.30 (p05 0.24).
-Under the standing minimum-duration topology (`d_min` >= 2, every symbol state occupies at least two
-unit frames) a crude length bound -- (characters / 1.5) * 2 <= frames -- predicts 97.2 pct of
-operative rollout rows and 0.016 pct of fork rollout rows unalignable, against 81.5 pct and
-0.010 pct observed. The bound over-predicts on the operative bed because dividing characters by 1.5
-overestimates the state count, and it is near exact on the fork bed (54 predicted, 38 observed).
+Bed feasibility, quoted from the REGISTERED PRODUCER `D8BedFeasibilityJob.9fCCv5HAPg4a`
+(`sae/d8_bed_feasibility.py` v2) in the producer's own figures and populations. Its conventions
+print ahead of every number: per-utterance frame ratios summarized on the shared key set and never
+taken as a ratio of corpus means, printed as right / left in the order the label names the two beds
+so a quarter-rate store reads 0.25 and NOT its reciprocal 4.00; nearest-rank quantiles with no
+interpolation; the crude length bound stated as OVER-predicting (dividing characters by the nominal
+1.5 characters per state overestimates the state count, because BPE merges pull the realized count
+below it) and offered only as a mechanism check, never as a replacement for the scorer's own
+feasibility test; observed infeasibility taken from each arm's own rerank report with the two arms
+ASSERTED equal; and the shared-key-set corpus mean distinguished from the per-bed mean, which is
+restricted to that bed's own utterances and is not a store comparison.
+
+THREE POPULATIONS APPEAR BELOW AND THEY ARE NOT THE SAME SET. The crude bound is evaluated on the
+T=0.7 rollout slice the bed is read at (6,144 rows for the operative beds, 342,468 for the fork
+bed). Observed infeasibility is the rerank's own count over ALL its rows at every temperature
+(31,744 operative, 399,546 fork). The frame ratios and shared-key-set means are over the 34,106
+utterances every store holds.
+
+| statistic | operative, sae3d quarter-rate join | operative, 50 Hz enc50 join | fork ep2, 50 Hz enc50 join |
+|---|---|---|---|
+| shared-key-set corpus mean frames/utt (34,106 utterances) | 146.8 | 585.7 | 585.7 (same store) |
+| per-bed mean frames/utt (that bed's own utterances) | 158.2 | 631.2 | 633.8 |
+| characters per unit frame, p05 / p50 / p95 | 0.88 / 1.16 / 1.42 | 0.22 / 0.29 / 0.36 | 0.22 / 0.29 / 0.36 |
+| crude bound, T=0.7 slice | 6,068 of 6,144 (98.76 pct) | 0 of 6,144 (0.00 pct) | 54 of 342,468 (0.02 pct) |
+| observed infeasible, all rerank rows | 25,867 of 31,744 (81.486 pct) | 0 of 31,744 (0.000 pct) | 38 of 399,546 (0.010 pct) |
+| groups dropped | 498 | 0 | 8 |
+
+Per-utterance frame ratio, quarter-rate store over the 50 Hz store, on all 34,106 shared
+utterances: p05 0.25, p50 0.25, p95 0.25, min 0.25, max 0.26 -- the same stream decimated by four,
+with no utterance escaping the pattern. The two 50 Hz beds ratio to 1.00 throughout, which is the
+job's own check that they share a store. Every infeasibility count above is IDENTICAL across the
+two arms, asserted by the job rather than observed by eye, which is what carries the cause from
+either scorer's weights to the text-to-unit alignment. The bound over-predicts as its convention
+says it will (98.76 against 81.486 observed on the quarter-rate join).
 
 D8.2 CLAUSE 4 (`PsiScorerParityJob.sRJ7LUmF4nMw`), read for the record after the outcome was
 already reached: online (loop) against offline (G3) per-frame reconstruction on the candidate arm.
@@ -2397,6 +2381,29 @@ function-word pairs rather than broad spelling diversity.
     the fork bed. No fallback is chosen here and nothing is escalated; the bed question is the
     planner's.
 
+84. **A38: D8.4 ANSWERS THE REOPENED D8 QUESTION -- the candidate-acoustic scorer and the exact D7
+    control are INDISTINGUISHABLE at ranking, and the tie resolves to the control.**
+    `D8EtaReadJob.KwmHTXqiJMGr` on the re-pinned operative bed, with the guard passing at 512 of
+    512 shared groups: paired delta eta (candidate minus control) **-0.0293 [-0.0697, +0.0085]**,
+    which straddles zero, so under the pre-registered three-way rule the verdict is
+    INDISTINGUISHABLE and resolves to the control under the standing incumbent-tie rule. Per arm,
+    eta is +0.4220 candidate against +0.4513 control. The same number in plain WER on the shared
+    groups: selection WER 0.1417 candidate against 0.1400 control, delta +0.0018 over a headroom
+    of 0.0600 (shared mean 0.1670, shared oracle 0.1071), which is -0.0293 -- the reader recomputes
+    this identity rather than restating it, and refuses if the two forms disagree. Both scorers are
+    fixed-final, so this read selects nothing; `n_boot=10000`, `seed=42` as registered.
+    CONTEXT, never gating: paired delta spearman -0.0114 [-0.0234, -0.0004], candidate +0.4815
+    against control +0.4929; every null is arm-internal and is not differenced (candidate
+    length-only -0.2798, OOV-count +0.0254, audio-free margin +0.1172; control -0.2662, +0.0254,
+    +0.1259). The fork-bed context pair agrees in direction and also straddles zero
+    (-0.0033 [-0.0164, +0.0096] over 28,531 groups) but is a different policy and is never the
+    verdict. WHAT THIS LICENSES AND WHAT IT DOES NOT: it licenses "the posterior-weighted refit
+    does not rank better than the control at this operating point", which is a MEASUREMENT of the
+    real target quantity and not a constructed clause battery -- the distinction the user's
+    reopening rested on. It does NOT license "the candidate is worse": the interval contains zero
+    and the tie resolves to the incumbent by rule, not by evidence of inferiority. The phase closes
+    only on the USER's word over this number, with the D8.3 authorization question attached.
+
 ## Catalog
 
 `T/` = `work/i6_core/returnn/training/`, `F/` = `work/i6_core/returnn/forward/`,
@@ -2404,7 +2411,8 @@ function-word pairs rather than broad spelling diversity.
 
 | artifact | path |
 |---|---|
-| D8.4 bed-feasibility reader, the registered producer for verdict 83's store statistics | `S/d8_bed_feasibility/D8BedFeasibilityJob.QTlLFcnka0Hy` (`bed_feasibility.json`, `bed_feasibility.txt`); code `sae/d8_bed_feasibility.py`, `scripts/d8_bed_feasibility_test.py` (10/10) at speech-llm `2c5990d` |
+| D8.4 bed-feasibility reader v2, the registered producer for approach 38's store statistics | `S/d8_bed_feasibility/D8BedFeasibilityJob.9fCCv5HAPg4a` (`bed_feasibility.json`, `bed_feasibility.txt`; adds the shared-key-set corpus means and names the ratio direction, on the planner's 2026-08-23 true-up); v1 `QTlLFcnka0Hy` superseded; code `sae/d8_bed_feasibility.py`, `scripts/d8_bed_feasibility_test.py` (12/12) at speech-llm `be2019a` |
+| D8.4 THE VERDICT, INDISTINGUISHABLE resolving to control (verdict 84) | `S/d8_eta/D8EtaReadJob.KwmHTXqiJMGr` (`eta_read.json`, `eta_read.txt`) |
 | D8.4 primary pair RE-PINNED to the 50 Hz enc50 join (2026-08-23 closing ruling) | `S/psi_align_jobs/PsiAlignRerankJob.GNOktIsG251m` (candidate) and `.JSZvokFxjNkJ` (control) on `MergeUnitsPklJob.ncxcd3vouD5E`; compare `S/psi_align_compare/PsiAlignPairedCompareJob.ACR10RHlnsop`; read `S/d8_eta/D8EtaReadJob.KwmHTXqiJMGr`; code `configs/config_sae_3e1_d8_4_v1.py`, `sae/d8_eta.py` at speech-llm `2c5990d` |
 | D8.4 paired ranking-quality read, FAILED CLOSED on the bed guard (verdict 83) | `S/d8_eta/D8EtaReadJob.S3NTCZAOfSnZ` (`error.run.1`; the refusal message is the result); primary compare `S/psi_align_compare/PsiAlignPairedCompareJob.ffqCTOA3qssf`, operative reranks `S/psi_align_jobs/PsiAlignRerankJob.8oYpO4IBeqHb` (candidate) and `.sQGYUL22Kpg6` (control); context compare `S/psi_align_compare/PsiAlignPairedCompareJob.yrEq1ogcluJF`, fork candidate rerank `S/psi_align_jobs/PsiAlignRerankJob.qVTVrRvyOjZ9`; code `sae/d8_eta.py`, `sae/psi_align_compare.py`, `configs/config_sae_3e1_d8_4_v1.py`, `config/sae_3e1_d8_4.py`, `scripts/d8_eta_test.py` (12/12) at speech-llm `359dbeb` |
 | D8.2 clause 4, online-vs-offline scorer parity PASS (verdict 82) | `S/psi_align_jobs/PsiScorerParityJob.sRJ7LUmF4nMw` (`parity.json`, `parity.txt`) |
