@@ -9,42 +9,41 @@ toward the decode route and 1g.10 (full-model LM-aware descriptive decode) is CO
 table BLOCKED by its own pre-registered explanation duty; 1g.2 is READ and CLOSED on its gate;
 1g.2a (H4-LM) is open with items 1-4 complete.
 
-**1g.10a STEP ZERO IS ANSWERED FROM THE CODE, AND IT IS A STOP-AND-REPORT: the one-best SELECTION
-RULE has the registered beam-independent form, but the SCORE it selects on is NOT beam-independent,
-so TEST A's equality invariant does not hold by construction.** The registration says the tests are
-registered only for a beam-independent per-sequence score and that a beam-dependent one means STOP
-and report, so nothing beyond step zero has been built or run, and neither TEST A nor TEST B is
-reported as a verdict here.
+**1g.10a IS BUILT, TESTED AND LAUNCHED under the planner's 2026-08-23 re-rule**
+(`H4CrossBeamDefectJob.2pV5rHuWJW3d`, alias `sae/1g/h4_full_model_decode/cross_beam_defect`;
+speech-llm `294c8fc`; manager `sae_1g_h4_full_model_decode` pid 3255771). Step zero came back
+STOP-AND-REPORT, the planner voided TESTS A and B, and TEST D and TEST U replace them. The
+re-ruled reporting rule is in the module docstring verbatim, written before any statistic of this
+job existed.
 
-- THE SELECTION RULE, from the decoder itself (`channel_h.py:518-521`):
-  `best_prefix = max(final, key=final.get)` and `log_score = final[best_prefix]`. It is the argmax
-  of the per-sequence score over completed hypotheses with NO renormalization, which is the
-  registered form. The `posterior` and `confidence` fields ARE beam-normalized (each divided by
-  `total`, the logsumexp of the retained set) but they take no part in selection, so the
-  mass-renormalized case the registration names is not what this is.
-- WHY THE SCORE IS STILL BEAM-DEPENDENT: `final[prefix]` is the logsumexp over every duration and
-  state path for that prefix THAT SURVIVED PRUNING, and `prune` (`channel_h.py:479-485`) keeps the
-  top `beam_size` PREFIXES by summed mass at every timestep, discarding all states of the rest. A
-  sequence's banked score is therefore a pruned path-sum, and the same symbol sequence legitimately
-  carries different scores at different beams. TEST A would read those differences as
-  nondeterministic scoring.
-- MEASURED ON THE BANKED ARTIFACTS, read-only, to confirm the code reading rather than rest on it
-  (36 cells joined, 972 probe-shard utterances, beam-256 probe against the beam-512 chunk of the
-  same shard): 588 utterances have the SAME winning sequence at both beams, and only 117 of them
-  agree to the registered 1e-9 nats per retained unit. TEST A as written would therefore report
-  DEFECT CONFIRMED on 471 utterances of a decoder behaving as designed.
-- A SEPARATE ANOMALY THAT THE REGISTERED TESTS WERE NOT WRITTEN TO DETECT, reported without a
-  verdict word because it is not theirs to give: the two beams' kept sets are NOT nested. In 8 of
-  972 utterances the TOTAL `retained_prefix_log_mass` is LOWER at beam 512 than at beam 256, and
-  13 of the 588 same-sequence scores are lower at 512 (largest -0.299 nats over 97 units,
-  `174-168635-0010`, lambda 4 / beta -1 on `real/espum_seed0_update30000`). A wider beam summing
-  over a superset of paths could not lower either quantity, so the ranking inside `prune` must be
-  reshuffling prefixes out of the wider beam's top set. That is a code question, not a pass/fail
-  the diagnostic can return. Checked against the obvious artifact first: `n_audio_units` agrees
-  between the two beams on all 972 utterances, so this is not a normalization effect, and the
-  differences are in raw nats.
-- WHAT I HAVE NOT DONE: no diagnostic module is written, no `1g.10b` beam-1024 probe is built, and
-  no consequence branch (i), (ii) or (iii) is taken. The invariant is the planner's to re-rule.
+- STEP ZERO, for the record: the selection RULE has the registered form
+  (`channel_h.py:518`, `max(final, key=final.get)`, no renormalization; the beam-normalized
+  `posterior`/`confidence` take no part in selection), but the SCORE is a pruned path-sum --
+  `prune` (`channel_h.py:479-485`) ranks whole prefixes by the logsumexp of their surviving states
+  and discards the rest, so a sequence's banked score sums only the paths that survived pruning.
+  Of 588 same-winner utterances only 117 agreed to 1e-9 nats per unit, so TEST A would have
+  convicted a decoder behaving as designed.
+- TEST U IS AN IDENTITY, NOT A SECOND IMPLEMENTATION, and that is the design point. The channel
+  part is `channel_h.marginal_path_log_score` unchanged -- the same forward sum the chunk job
+  already uses for its `channel_log_probability` column -- and the language-model and insertion
+  terms are alignment-independent, so they factor straight out of the sum over paths and are added
+  once per emitted symbol exactly where the decoder adds them. Re-implementing the topology would
+  have tested this module against itself rather than the decoder against its own unpruned total.
+- TESTED BEFORE LAUNCH, no artifact and no KenLM: `scripts/h4_cross_beam_defect_test.py` 9/9. The
+  load-bearing check runs the REAL decoder at a beam wide enough to prune nothing and requires the
+  exact score to reproduce its `log_score` to 1e-9, over six seeds and three grid points, for
+  every retained alternative and not only the winner, and with the silence-boundary policy on. A
+  further check confirms pruning actually bites at a narrow beam, so the direction test is not
+  vacuous.
+- TEST D's SELECTION IS DISCLOSED IN THE ARTIFACT: the minimum, median and maximum
+  observed-agreement cells, ties broken by cell key so the choice is reproducible from the
+  artifact alone, and the payload and report both carry the note that it is a bug hunt never
+  quoted as a comparison.
+- PURELY ADDITIVE: `H4FullModelDecodeReadJob.MXhi20TtG1I0` is hash-unchanged, so nothing about the
+  blocked 1g.10 table moves. The diagnostic reads the beam-512 CHUNK of the probe's own shard
+  rather than the merge, because TEST U compares both beams' winners on identical utterances.
+- NOT DONE AND NOT AUTHORIZED: no 1g.10b beam-1024 probe, no consequence branch taken, no 1g.10
+  cell read or quoted. The route question stays with the USER.
 
 **1g.10 IS COMPLETE, AND ITS TABLE IS BLOCKED BY ITS OWN PRE-REGISTERED EXPLANATION DUTY**
 (verdicts 30-31; `H4FullModelDecodeReadJob.MXhi20TtG1I0`; all 1,332 chunks and 36 merges finished
