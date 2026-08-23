@@ -1998,3 +1998,15 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   planner applies the pre-registered consequences: beam-512 table readable as descriptive
   with per-cell agreement disclosed; 1g.10b (beam-1024 probe, 36 cells x contract shard 28,
   reader extension, 26-of-27 cross-channel bar) is registered and ready to build.
+- 2026-08-23 (1g.10b blocker VERIFIED; ruled OPTION (b) in `PLAN_1G.md` 1g.10 Status
+  2026-08-23 ruling). The stop was right and all three load-bearing claims verify in the
+  code: `DECODER_BEAMS = (64, 128, 256, 512)` (`channel_h.py`), `cells` is a hashed
+  constructor argument of `H4GlobalBeamTableJob` (`h4_beam_jobs.py:399`), and the 1g.10 read
+  consumes `out_global_beams` (`config_sae_1g_h4_full_model_decode_v1.py:222`) -- option (a)
+  would orphan the banked global-beam table and the discharged read exactly as reported. The
+  self-correction on the source-identity guard (runtime drift guard, not a hash input) is
+  the right kind of checking. Ruled: option (b) with identity guards -- imports not copies,
+  beam hard-pinned to 1024 plus a 512 parity mode, and a mandatory parity cell (probe class
+  at beam 512 on the median observed-agreement cell must byte-reproduce the banked chunk's
+  one-bests and scores; the 1g.10b reader refuses beam-1024 columns without it). Option (c)
+  stays rejected as analyzed.

@@ -2025,6 +2025,28 @@ quoting bar stands: cross-channel comparisons only from cells whose 512-vs-1024 
 at least 26 of 27, every such quote naming its 27-utterance support. Nothing else changes; no
 selection surface opens; the route question stays with the USER.
 
+2026-08-23 ruling (1g.10b beam-registration conflict: OPTION (b) -- a dedicated probe class;
+option (a) rejected). The implementer's blocker is verified in the code by the planner:
+`DECODER_BEAMS = (64, 128, 256, 512)` is load-bearing outside 1g.10, `H4GlobalBeamTableJob`
+takes its `cells` as a hashed constructor argument, and the 1g.10 read consumes that table's
+`out_global_beams` -- so extending the beam tuple (option a) would orphan the banked global-beam
+table cited in closed verdicts AND the just-discharged `H4FullModelDecodeReadJob.MXhi20TtG1I0`,
+while demanding 48 new jobs first. REJECTED. The registration line "the existing chunk class at
+the same contract" is amended by replacement (2026-08-23, because the beam tuple is load-bearing
+outside this subphase and extending it orphans verdict-cited artifacts): 1g.10b uses A DEDICATED
+PROBE JOB CLASS under these identity guards, so "same decode" is checkable rather than asserted:
+(1) the class IMPORTS `prefix_beam_decode`, `_load_h1_units`, `_retained_runs`, `_load_channel`
+and `_validate_contract` from their existing modules -- no copied decode or input code; (2) its
+beam is hard-pinned to 1024 plus a beam-512 PARITY mode, and its docstring states it exists
+solely for 1g.10b; (3) a PARITY CELL runs first: the probe class at beam 512 on the contract
+shard for the median observed-agreement cell (the disclosed, key-tie-broken cell 1g.10a already
+named) must reproduce the banked beam-512 chunk's one-best sequences and scores exactly, and the
+1g.10b reader REFUSES to read any beam-1024 column unless the parity artifact matches. Option
+(c) stays rejected for the reason given (re-hashes all 1,332 chunks). Everything else stands as
+registered: 36 cells x contract shard 28 (27 utterances), agreement and drift against the banked
+beam-512 chunk of the same shard, the 26-of-27 cross-channel quoting bar, every quote naming its
+27-utterance support.
+
 ## 6. Deliverables ladder
 
 | Step | Deliverable | Decision it enables |
