@@ -16,6 +16,12 @@ so the mechanism is confirmed and a usable decode is not. Sizing note for anyone
 the whole grid cost about an hour of GPU per arm; 572-utterance lexicon-free decoding at beam 50 is
 51 seconds.
 
+- THE DECODES DO NOT TRACK THE TRANSCRIPT, and the swap control says so numerically (verdict
+  E8.5, USER-prompted): re-pairing each hypothesis with the nearest-length OTHER utterance's
+  reference costs between 0.2 and 1.7 percent of error rate, and LM decoding left that margin
+  exactly where the greedy decode already had it. The best cell by error rate carries the
+  SMALLEST swap margin of all. Nothing in the grid tables shows this, which is why the control
+  was worth running unasked.
 - THREE THINGS THE RESULT ITSELF EXPOSED, all now in the verdicts. (1) `sil_weight` is INERT --
   identical decodes at all three values -- because the vocabulary has no silence symbol and
   fairseq's index rule falls through to end-of-sentence, so the ruled second axis is a no-op and
@@ -400,6 +406,32 @@ scores is not. No beam escalation is warranted for this measurement.
 <!-- One line per answered experimental question, resting on a number in that approach's table. A
 wrong verdict is marked WRONG with a one-line correction below it, never rewritten. (Migrated from
 the pre-format "Conclusion" heading, 2026-08-23; entries below predate the one-line form.) -->
+
+E8.5. **THE LM-DECODED GAIN IS NOT CONTENT: the length-matched swap control is unchanged by the
+decode, and the decoded phones do not track the transcript.** (USER-prompted read, 2026-08-23 --
+the registration asked for no such control and the grid tables cannot show this.) Re-pairing each
+hypothesis with the nearest-length OTHER utterance's reference, entry 7's own control:
+
+| cell | own PER | length-matched swap PER | swap minus own |
+|---|---|---|---|
+| bigram only endpoint, greedy (banked) | 1.2409 | 1.2516 | +0.0107 |
+| bigram only endpoint, lm 1 (best cell) | 0.8172 | 0.8252 | +0.0080 |
+| full loss endpoint, greedy (banked) | 1.6828 | 1.6867 | +0.0039 |
+| full loss endpoint, lm 2 | 0.9322 | 0.9488 | +0.0167 |
+| full loss endpoint, lm 4 (best cell) | 0.8445 | 0.8461 | **+0.0017** |
+
+Scoring a hypothesis against a DIFFERENT utterance costs between 0.2 and 1.7 percent of error
+rate. The decode therefore carries essentially no utterance-specific information, and language-model
+decoding did not change that: it cut the full-loss arm from 1.6828 to 0.8445 while leaving the swap
+margin where it already was. The BEST cell by error rate has the SMALLEST swap margin of all, which
+is the shape to expect if the gain comes from emitting a shorter, more phone-typical string rather
+than from the audio. Inspection agrees: for the reference "we gazed for a moment silently into
+each oth-", the best bigram-only cell emits `S W T IH IY D IH DH N IH AO R B AH R IY IH Z`.
+CONSEQUENCE: E8.1's "confirmed as a mechanism, not a usable decode" is stronger than the error
+rates alone showed -- the 0.82-0.85 band is reached without utterance-specific content, so no
+entry-8 cell should be described as a decode OF anything. This does not touch cell 4, which asks
+the same question against the registered nulls in the registered currency; it does predict what
+cell 4 will find.
 
 1. (1) **Kill condition (i) FAILS its registered bar**: the inventory the loops run on reads oracle-map
    PER 0.832 on dev-other and 0.712 on dev-clean against a bar of 0.50, so it caps a unit-level token
