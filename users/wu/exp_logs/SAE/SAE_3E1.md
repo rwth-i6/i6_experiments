@@ -63,8 +63,11 @@ registration. No control trained -- the D7.1 exact control is reused at
   authorized persistence set already exposed a candidate number, so literal sequencing was gone.
 - The control is the D7.1 exact control at its existing hash; nothing retrains it.
 
-NEXT: read clause 1's `admission.json` and the clause table; the D8.2 verdict itself is the
-planner's.
+CLAUSE 1 IS READ AND PASSES (verdict 78): paired delta mean -0.012475, one-sided 95 percent upper
+bound -0.011800 against `delta_NI` 0.004826 -- the bound is below ZERO, so it would pass at D7's
+stricter zero margin too and the data-defined margin never became load-bearing. Clauses 2-4 (the
+paired corruption ladder, Acceptance gate v2 on the 1,500 external rows, and `PsiScorerParityJob`)
+are still running; the D8.2 verdict needs all four and is the planner's read.
 
 Housekeeping, not a blocker: the ten `all_bed*` jobs carry `error.run.1` markers from duplicate
 workers dying on the `job.save` that JOB_AUTO_CLEANUP archived. All ten are FINISHED with complete
@@ -1366,6 +1369,18 @@ Draw diagnostics banked in `sampling.json`: 267,175 draws (one per anchor visit,
 length delta +1.379 against the control, 0 infeasible drawn members, donor cases
 `ordinary_window` 266,134 / `nearest_fallback` 1,041 with 0 infeasible donor pairs.
 
+D8.2 CLAUSE 1 (`D8AdmissionJob.C2HUHUtUjfhN`), on the 14,062 internal-held anchors over 2,328
+speaker clusters, 10,000 resamples at seed 42:
+
+| quantity | value |
+|---|---|
+| control pooled per-frame NLL | 2.525882 |
+| candidate pooled per-frame NLL | 2.513888 |
+| paired per-anchor delta, mean | -0.012475 |
+| paired delta, one-sided 95 percent upper bound | -0.011800 |
+| `delta_NI` (control-only, D7.2 convention verbatim) | 0.004826 |
+| clause 1 | PASSES |
+
 Reading `sampling.json`: its `target` field says "own greedy pseudo-text, never a draw" and
 describes the INTERNAL-HELD evaluation only, not training. It is inherited from the D7 schema's
 held block and flattened into the top-level read here, where it reads as a contradiction of the
@@ -2106,6 +2121,19 @@ function-word pairs rather than broad spelling diversity.
     difference of 0.012 between two unpaired aggregates is not that statistic and must not be
     quoted as evidence of non-inferiority in either direction.
 
+78. **A37: D8.2 clause 1 PASSES, and by a margin that does not depend on the margin.** The paired
+    candidate-minus-control internal-held per-frame NLL over 14,062 held anchors in 2,328 speaker
+    clusters has mean -0.012475 and a speaker-cluster bootstrap one-sided 95 percent upper bound of
+    -0.011800, against `delta_NI` 0.004826 computed from the control alone by D7.2's convention
+    verbatim. The bound is not merely below `delta_NI`, it is below ZERO -- so the clause would also
+    pass at D7's stricter zero margin, and the data-defined margin never became load-bearing. Both
+    arms' pooled aggregates reproduced their banked values before the clause was read, so the
+    checkpoints describe the scorers their training reports describe. SCOPE, because this is a fit
+    statistic and nothing more: it is per-frame NLL on the held GREEDY targets, scored identically
+    for both arms, and it speaks to absolute fit on the incumbent's own distribution. It is one of
+    FOUR registered clauses and decides D8.2 alone with none of them; discrimination, the external
+    1,500-row gate and scorer parity are clauses 2-4 and are unread.
+
 ## Catalog
 
 `T/` = `work/i6_core/returnn/training/`, `F/` = `work/i6_core/returnn/forward/`,
@@ -2115,6 +2143,7 @@ function-word pairs rather than broad spelling diversity.
 |---|---|
 | D8.1a pool-scoring overlap probe (64 agreeing tags, PARITY) | `work/speech_llm/sae/d8_pool_scores/D8PoolOverlapProbeJob.GerShND5ibtT` |
 | D8.1a token mechanism, disclosure for ruling part 3 (verdict 72) | `S/d8_pool_scores/D8PoolTokenMechanismJob.rVkoJpPoBGG8` |
+| D8.2 clause 1, paired admission with per-anchor evidence (verdict 78) | `S/d8_admission/D8AdmissionJob.C2HUHUtUjfhN` (`admission.json`, `admission.txt`, `per_anchor.jsonl` with 14,062 rows carrying paired deltas and speaker-cluster ids); code `sae/d8_admission.py`, `configs/config_sae_3e1_d8_2_v1.py`, `config/sae_3e1_d8_2.py`, `scripts/d8_admission_test.py` (4/4) at speech-llm `2bdb188` |
 | D8.1b candidate-acoustic scorer refit (approach 37, verdicts 75-77) | `S/d8_train/D8ScorerRefitJob.2bQzhz6U1yHp`; control reused at `S/d7_online/D7OnlineTrainJob.j16rTskXF1QU`; code `sae/d8_train.py`, `configs/config_sae_3e1_d8_1b_v1.py`, `config/sae_3e1_d8_1b.py`, `scripts/d8_draw_test.py` (11/11) at speech-llm `aadf92b` |
 | D8.1a corrected-convention pool scoring and weight artifact (COMPLETE, verdicts 73-74) | `S/d8_pool_scores/D8PoolScoresJob.1ivehCZ5q5ON`, `S/d8_weights/D8WeightJob.juRpzTNHKCSq`; code `sae/d8_pool_scores.py`, `sae/d8_weights.py`, `configs/config_sae_3e1_d8_1a_v1.py`, `scripts/d8_convention_test.py` (7/7), `scripts/d8_support_test.py` (27/27) at speech-llm `3123090` |
 | code | `sae/scorer_diag.py`, `sae/text_repair.py`, `sae/psi_align_jobs.py`, `sae/psi_align.py`, `sae/curate.py`, `sae/gate_table.py`, `sae/refresh_gate.py`, `sae/d7_census.py`, `sae/d7_v2.py`, `sae/d7_online.py` (+ focused tests; D7.0a commit `a0a22b4`, D7-v2 commit `7b2069d`, D7 resume-RNG and infeasible-donor counter `1d10945` on speech-llm `haotian_modality_matching_jupiter`). `test_psi_align.py`'s CUDA/python lattice parity test now also carries two `d_min=2` skip_ok cases, so the topology D7 trains in is pinned; executed on a GH200 2026-08-21 (`log/parity_test.1445759.out`, passed, not skipped) since the login node has no GPU. |
