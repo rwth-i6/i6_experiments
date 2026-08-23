@@ -2123,6 +2123,25 @@ unchanged); the unstratified interval prints beside it as a named sensitivity co
 payload states both conventions. Only the reader re-hashes; the 273 decode jobs are
 convention-independent and untouched.
 
+2026-08-23 1g.10c result (COMPLETE: parity PASS, the two rows SPLIT BY SIGN -- verdicts 36-37,
+`H4InsertionBonusReadJob.da3bGeQIkS0R`, verifier-checked cell for cell against the artifact).
+On the positive control the bonus recovers phones at every extension point (paired delta +0.0222
+to +0.0555, every stratified interval excluding zero, best at lm_scale 2 / beta +2 improving
+74.0 percent of utterances); on the real ESPUM arm it REMOVES them at three of four points
+(-0.0090 to -0.0294, intervals excluding zero) and straddles zero at the fourth. Decoded length
+rises with beta in every cell on both rows, so the bonus does what it is priced to do -- the
+recovered length is content only where the emissions carry content. CONSEQUENCES. (i) The 1g.10
+deletion mechanism (each emitted phone pays lm_scale*LM + beta) is confirmed causal, and its
+converse is now measured: on the real arm the LM-pressure deletions were not suppressed content,
+because paying to reinsert brings back wrong phones. (ii) The truncated-grid concern from the
+1g.10 read is DISCHARGED -- the grid's best-at-the-beta-0-edge pattern does not hide a better
+real-arm operating point beyond the edge. (iii) No further decode-parameter probes are funded on
+this harness: beam escalation closed by 1g.10b, the insertion axis closed here, and the
+stratification ruling closed as immaterial by verdict 37 (every bound within 1e-4 of the
+unstratified read -- reported, not load-bearing). 1g.10c CLOSES. The decode route's remaining
+live measurement is the fairseq-side companion (`PLAN_1F.md` entry 8, cells 1-2 running), which
+decodes the real generator with the real flashlight decoder rather than this channel harness.
+
 ## 6. Deliverables ladder
 
 | Step | Deliverable | Decision it enables |

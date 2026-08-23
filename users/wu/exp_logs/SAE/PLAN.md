@@ -220,7 +220,14 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    agreement 0.704, up from 0.611 at the previous doubling) -- cross-channel rankings from the
    LM-aware grid stay unquotable, further beam escalation is NOT funded (about three more
    doublings away at doubling cost), and within-channel paired reads remain the grid's standing
-   currency. 1g.10c decode wave in flight.
+   currency. 2026-08-23 (1g.10c result): parity PASS, the two rows SPLIT BY SIGN -- the positive
+   control recovers phones at every extension point (+0.0222 to +0.0555 paired correct-phone
+   delta, intervals excluding zero) while the real ESPUM arm loses them at three of four and
+   straddles zero at the fourth; the bonus buys length on both rows, content only on the control.
+   1g.10c CLOSES (`PLAN_1G.md` 1g.10 Status 2026-08-23 1g.10c result): the deletion mechanism is
+   confirmed causal, the truncated-grid concern is discharged, no further decode-parameter probes
+   on this harness. The decode route's live measurement is now `PLAN_1F.md` entry 8 (cells 1-2
+   running).
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional
