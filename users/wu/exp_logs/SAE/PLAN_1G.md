@@ -2047,6 +2047,23 @@ registered: 36 cells x contract shard 28 (27 utterances), agreement and drift ag
 beam-512 chunk of the same shard, the 26-of-27 cross-channel quoting bar, every quote naming its
 27-utterance support.
 
+2026-08-23 result (1g.10b COMPLETE: parity PASS, quoting bar NOT CLEARED -- 0 of 36 cells;
+cross-channel quoting STAYS CLOSED; beam escalation NOT FUNDED). Verified from
+`H4Beam1024ReadJob.tKbQ0MHLdX03`'s own report: the parity cell reproduces the banked production
+chunk exactly (the dedicated-class mechanism is validated), and 512-vs-1024 one-best agreement
+on the 27 probe utterances reaches at best 24 of 27 (0.889), median 0.704 across the 36 cells,
+against the pre-registered bar of at least 26 of 27. The search is converging but slowly:
+median agreement rose from 0.611 (256-vs-512) to 0.704 (512-vs-1024) -- roughly +0.09 per beam
+doubling -- and per-unit drift fell everywhere, so on even a generous linear read the bar sits
+about three more doublings away (beam 8192) at doubling cost per step. RULED: no further beam
+escalation is funded; the bar fired as designed and gates QUOTING, not the route. The 1g.10
+grid's standing currency is therefore: WITHIN-CHANNEL comparisons, per-utterance paired with
+agreement disclosed (1g.10c's instrument), remain readable; CHANNEL-VS-CHANNEL rankings from
+this grid are not quotable and will not become so at feasible beams under the exact-match bar
+-- if a cross-channel claim is ever needed, it gets its own registered paired per-utterance
+instrument with the beam uncertainty priced in, on the USER's word. Nothing here touches the
+route question, which stays with the user.
+
 2026-08-23 extension (USER: "insertion bonus makes sense, please try that" -- 1g.10c
 REGISTERED). PURPOSE: the 1g.10 grid is truncated at its best edge -- beta 0 is the best
 insertion-penalty column at every lm_scale, and the high-lm_scale failure is deletion (each

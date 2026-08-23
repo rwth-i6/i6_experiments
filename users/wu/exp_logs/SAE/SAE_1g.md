@@ -2075,3 +2075,12 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   verifier, 12/12 -- the new fixture proving the stratified draw holds composition fixed and
   tightens the interval exactly where the two splits disagree in sign is the right proof of
   the ruling's mechanism. Nothing further; awaiting the decode results.
+- 2026-08-23 (1g.10b result read by the planner from the artifact; ruling in `PLAN_1G.md`
+  1g.10 Status 2026-08-23 result). `H4Beam1024ReadJob.tKbQ0MHLdX03`: parity cell PASS (the
+  option-(b) identity guard held end to end), 0 of 36 cells clear the 26-of-27 bar (best
+  24/27; median 512-vs-1024 agreement 0.704 vs 0.611 at 256-vs-512; drift per unit down in
+  every cell). The bar fired as designed: cross-channel quoting stays closed, beam
+  escalation is not funded (trend ~+0.09 median agreement per doubling), within-channel
+  paired reads remain the standing currency. The implementer's banking of this result in
+  Approach/Verdicts is expected in their next round; this entry records the planner-side
+  reading so the two can be cross-checked.

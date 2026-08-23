@@ -215,7 +215,12 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    sense, please try that"): 1g.10c REGISTERED -- positive insertion-bonus cells (lm_scale
    {1,2} x beta {+1,+2}) on the two content-bearing channels, paired within-channel reading
    against the beta 0 boundary cells, option-(b) mechanism pre-approved (`PLAN_1G.md` 1g.10
-   Status 2026-08-23 extension); with the implementer to build.
+   Status 2026-08-23 extension); with the implementer to build. 2026-08-23 (1g.10b result):
+   parity PASS but the quoting bar is NOT cleared (0 of 36 cells at 26-of-27; median 512-vs-1024
+   agreement 0.704, up from 0.611 at the previous doubling) -- cross-channel rankings from the
+   LM-aware grid stay unquotable, further beam escalation is NOT funded (about three more
+   doublings away at doubling cost), and within-channel paired reads remain the grid's standing
+   currency. 1g.10c decode wave in flight.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional
