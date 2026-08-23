@@ -2047,6 +2047,42 @@ registered: 36 cells x contract shard 28 (27 utterances), agreement and drift ag
 beam-512 chunk of the same shard, the 26-of-27 cross-channel quoting bar, every quote naming its
 27-utterance support.
 
+2026-08-23 extension (USER: "insertion bonus makes sense, please try that" -- 1g.10c
+REGISTERED). PURPOSE: the 1g.10 grid is truncated at its best edge -- beta 0 is the best
+insertion-penalty column at every lm_scale, and the high-lm_scale failure is deletion (each
+emitted phone pays lm_scale times its LM log-probability plus beta, both negative, with nothing
+paying it back; output length falls to 50-65 pct of reference at lm_scale 4). 1g.10c measures
+whether a POSITIVE insertion bonus recovers those deletion losses. CELLS: lm_scale in {1, 2} x
+beta in {+1, +2} on the two content-bearing channels (`controlled/reference`,
+`real/espum_seed0_update30000`) -- 8 cells; `real/pseudo_pair_seed0` is EXCLUDED because its
+failure is a flat likelihood, not deletion; a bonus there buys only more fluent hallucination.
+Beam 512 at the full 890-utterance selection role, 32 shards per cell; one beam-256 probe per
+cell on contract shard 28 for the agreement and drift columns (27 utterances, named in every
+quote). MECHANISM PRE-RULING, pre-empting the 1g.10b conflict: `DECODER_GRID` is load-bearing
+exactly as `DECODER_BEAMS` was (`decoder_grid_rows()` with the len==48 assertion; the
+global-beam table hashes its cells), so EXTENDING `DECODER_GRID` IS PRE-REJECTED (same blast
+radius -- it orphans the banked global-beam table and the discharged 1g.10 read), and the
+option-(b) pattern is PRE-APPROVED: a dedicated extension class importing the same decode and
+input functions (imports-not-copies enforced by a source-greping test), its grid points
+hard-pinned to the four new (lm_scale, beta) pairs plus a parity mode at a registered point,
+and a PARITY CELL that gates everything -- the class at (lm_scale 1, beta 0, beam 512) on the
+contract shard for `controlled/reference` must byte-reproduce the banked production chunk's
+one-best sequences and scores, and the reader emits no extension column otherwise. READING,
+pre-registered (the standing paired-data rule applies): the headline question per new cell is
+WITHIN-CHANNEL against the same channel's (same lm_scale, beta 0) production cell --
+per-utterance paired correct-phone deltas over the shared 890 utterances, 10,000-resample
+bootstrap CI at seed 42, never two pooled numbers -- with the pooled description (TV, length
+ratio, phone inventory, PER, per-cell length-and-histogram-matched babble null, 1,000 draws
+seed 42) banked beside it. Every quote carries the cell's 256-vs-512 agreement. NO CELL SELECTS
+ANYTHING: the label-free selection surface stays closed, and an operating-point choice, if the
+route continues, uses a label-free selector with the label-oracle best disclosed beside it.
+QUOTING: same regime as 1g.10 -- descriptive with agreement disclosed; cross-channel
+comparisons stay gated by 1g.10b's 26-of-27 bar, and extension cells enter cross-channel quotes
+only after their own beam-1024 check if that is ever wanted (not built now). COST: 256 beam-512
+chunks + 8 probes + 8 merges + 1 parity cell, about a quarter of the 1g.10 bill; the
+implementer proposes resources in `SAE_1g.md` State per the sizing convention. The reporting
+rule goes verbatim into the producing module's docstring before any result exists.
+
 ## 6. Deliverables ladder
 
 | Step | Deliverable | Decision it enables |

@@ -211,7 +211,11 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    and the wider beam finds the genuinely better sequence in 352 of 384 disagreements. The
    beam-512 table is now READABLE AS DESCRIPTIVE with per-cell 256-vs-512 agreement disclosed;
    channel-vs-channel comparisons wait for the registered 1g.10b beam-1024 probe (26-of-27
-   agreement bar). Route decision remains the USER's.
+   agreement bar). Route decision remains the USER's. 2026-08-23 (USER: "insertion bonus makes
+   sense, please try that"): 1g.10c REGISTERED -- positive insertion-bonus cells (lm_scale
+   {1,2} x beta {+1,+2}) on the two content-bearing channels, paired within-channel reading
+   against the beta 0 boundary cells, option-(b) mechanism pre-approved (`PLAN_1G.md` 1g.10
+   Status 2026-08-23 extension); with the implementer to build.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional
