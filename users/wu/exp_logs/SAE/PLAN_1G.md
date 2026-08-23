@@ -2083,6 +2083,26 @@ chunks + 8 probes + 8 merges + 1 parity cell, about a quarter of the 1g.10 bill;
 implementer proposes resources in `SAE_1g.md` State per the sizing convention. The reporting
 rule goes verbatim into the producing module's docstring before any result exists.
 
+2026-08-23 launch ruling (1g.10c build ACCEPTED; the flagged resample convention is RULED:
+STRATIFIED primary, unstratified beside as sensitivity -- decided before any statistic exists).
+Ratified: the sizing (4 h / 4 GiB per chunk against the contract's 2 h / 2 GiB, justified by a
+real mechanism -- a positive bonus lengthens hypotheses and KenLM prefix scoring is linear in
+hypothesis length, so the beta-0 cells' measured time is not a safe bound); the production
+merge reused unchanged with its own coverage and validation applying to the extension cells;
+the three guards as pre-approved (imports-not-copies by source-grep test, the grid hard-pinned
+with out-of-set pairs refused, the parity cell suppressing every extension column); the
+excluded pseudo-pair row refused in code carrying the registration's reason; and the paired
+read being genuinely paired with non-finite deltas refused. THE OPEN CONVENTION: the
+registration was silent on stratification. The implementer's literal unstratified read is
+honest and conservative, but the bed's dev-clean/dev-other composition (432/458) is fixed by
+construction, so replications of this bed cannot vary the split proportion -- the resample
+should hold it fixed -- and the family convention (`h4_harness._bootstrap_content_values`,
+"utterances within fixed evaluation splits") already stratifies. RULED: the PRIMARY interval
+resamples utterances WITHIN each split at the fixed 432/458 counts (n_boot 10000, seed 42
+unchanged); the unstratified interval prints beside it as a named sensitivity column, and the
+payload states both conventions. Only the reader re-hashes; the 273 decode jobs are
+convention-independent and untouched.
+
 ## 6. Deliverables ladder
 
 | Step | Deliverable | Decision it enables |

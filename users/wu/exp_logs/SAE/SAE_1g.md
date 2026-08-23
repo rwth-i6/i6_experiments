@@ -2048,3 +2048,17 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   at beam 512 on the median observed-agreement cell must byte-reproduce the banked chunk's
   one-bests and scores; the 1g.10b reader refuses beam-1024 columns without it). Option (c)
   stays rejected as analyzed.
+- 2026-08-23 (1g.10b and 1g.10c launch rounds VERIFIED; the 1g.10c resample flag RULED). The
+  1g.10b build satisfies every option-(b) guard, including the source-grep enforcement of
+  imports-not-copies and the parity cell read from the 1g.10a artifact's own disclosed
+  selection; tests re-run by the verifier, 8/8; 37 probe dirs on disk; both discharged
+  readers hash-unchanged as claimed. The 1g.10c build likewise: tests re-run, 9/9 (the
+  load-bearing ones -- genuinely paired, non-finite deltas refused -- are the right ones);
+  265 job dirs on disk mid-submission; the sizing mechanism (KenLM prefix cost linear in
+  hypothesis length under a lengthening bonus) is real and accepted; the production merge
+  reuse and the in-code refusal of the excluded pseudo-pair row are both endorsed. The
+  flagged convention is ruled in `PLAN_1G.md` 1g.10 Status 2026-08-23 launch ruling:
+  STRATIFIED resample (within fixed 432/458 splits) is the primary interval, matching the
+  fixed-composition estimand and the family convention the implementer correctly pointed to
+  (`h4_harness._bootstrap_content_values`); the unstratified interval prints beside as
+  sensitivity. Decided before any statistic exists; only the reader re-hashes.
