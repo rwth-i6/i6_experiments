@@ -20,7 +20,7 @@ search-error signature and not a scorer defect.
 
 **1g.10c IS BUILT, TESTED AND LAUNCHED, with the sizing proposal the registration requires**
 (`sae/h4_insertion_bonus.py`, speech-llm `c23bbe4`; read
-`H4InsertionBonusReadJob.vJSHAkECj8hH`; manager `sae_1g_h4_full_model_decode` pid 1143114).
+`H4InsertionBonusReadJob.da3bGeQIkS0R`; manager `sae_1g_h4_full_model_decode` pid 1748197).
 USER-directed: "insertion bonus makes sense, please try that".
 
 - SIZING PROPOSAL: 4 h and 4 GiB per chunk, against the measured contract's rounded 2 h / 2 GiB.
@@ -65,15 +65,30 @@ USER-directed: "insertion bonus makes sense, please try that".
 - PURELY ADDITIVE, verified: the 1g.10, 1g.10a and 1g.10b artifacts are all hash-unchanged in the
   rebuilt graph. 1g.10b's 37 SLURM probes survived the manager restart, as SLURM jobs do.
 
-**1g.10c: ALL 265 DECODES AND 8 MERGES ARE FINISHED; the reader is rerunning after a bug of mine**
-(`H4InsertionBonusReadJob.vJSHAkECj8hH`, manager restarted as pid 1703932). The reader indexed
-`_fold`'s result as a (sequences, boundaries) pair; it returns a block keyed by name, so the
-retained-unit counts raised `KeyError: 0` the first time the job saw real units -- after every
-decode had finished. Fixed at speech-llm `6fb0301`, hash-neutral (`run()` only), same job dir
-rerunning. No number was ever produced by the broken version, so nothing logged is affected. A
-regression test now asserts `_fold`'s real return shape against a per-utterance `_retained_runs`
-call (`scripts/h4_insertion_bonus_test.py` 13/13); the previous 12 exercised the reader's
-statistics with fixtures and never called `_fold` itself, which is exactly the gap.
+**1g.10c: ALL 265 DECODES AND 8 MERGES ARE FINISHED; the reader is rerunning after two bugs of
+mine** (live reader `H4InsertionBonusReadJob.da3bGeQIkS0R`, manager 1748197). Both were the same
+kind of mistake -- calling a shared primitive on a contract I had not read -- and both were fixed
+hash-neutrally in `run()`, so the same job dir reruns and no decode was touched. No number was ever
+produced by either broken version, so nothing logged is affected.
+
+- BUG 1 (speech-llm `6fb0301`): the retained-unit counts indexed `_fold`'s result as a
+  (sequences, boundaries) pair. `_fold` returns a block keyed by name, so this raised
+  `KeyError: 0`. Counts come from `"lengths"` in the order of `"ids"`.
+- BUG 2 (speech-llm `3d395de`): `_decoded_statistics` was called with phone STRINGS, with the
+  retained DICT, and its returned dict was unpacked as a pair. Its contract -- the one
+  `h4_full_model_decode.measure` already uses -- is symbol ids, a retained length per id in id
+  order, and a dict out. The reader now passes the banked `one_best_symbol_ids` field.
+- WHY THE 12 TESTS MISSED BOTH: they exercised the reader's statistics through fixtures and never
+  called `_fold` or `_decoded_statistics` themselves, so a wrong CALL into a right primitive was
+  invisible. Two regression tests now call both primitives directly, one of them asserting that
+  phone strings are refused where symbol ids are required
+  (`scripts/h4_insertion_bonus_test.py` 14/14).
+- AN ORPHANED READER RAN AND ERRORED FIRST, which is worth recording as an ops observation rather
+  than a result: `H4InsertionBonusReadJob.vJSHAkECj8hH` is the pre-read-revision hash and is NOT in
+  the current graph (verified from the graph: the only reader is `da3bGeQIkS0R`). It ran anyway,
+  because the manager that submitted it had loaded its graph BEFORE the read-revision commit and
+  keeps that snapshot for its whole life. A hash change therefore needs a manager restart to take
+  effect, and until then the old job is still submittable.
 
 **1g.10b IS COMPLETE: parity PASS, 0 of 36 cells quotable** (verdicts 34-35;
 `H4Beam1024ReadJob.tKbQ0MHLdX03`; 37 probe chunks finished, ZERO error markers). The

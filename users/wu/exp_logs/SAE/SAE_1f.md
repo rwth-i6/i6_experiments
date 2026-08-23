@@ -8,7 +8,7 @@ State as of 2026-08-23 -- entry 5 and entry 7 stage A are closed; PLAN_1F entry 
 error rate) is BUILT, TESTED AND LAUNCHED on the USER's word for cells 1 and 2 only.
 
 **ENTRY 8 CELLS 1-2 ARE LAUNCHED** (`sae/gua_lm_decode.py` + `configs/config_sae_1f_entry8_v1.py`,
-speech-llm `4fa256c`/`54a4d2c`; manager `sae_1f_entry8`; read `GuaLmGridReadJob.1z40npwD4yu1`
+speech-llm `4fa256c`/`9c82344`; manager `sae_1f_entry8`; read `GuaLmGridReadJob.1z40npwD4yu1`
 primary and `GuaLmGridReadJob.a1Z3OBHz3tjl` sensitivity). Eight grid-decode jobs, two reads, plus
 the two language-model jobs the sensitivity column needs -- twelve unfinished jobs and nothing else.
 
@@ -557,7 +557,7 @@ different reasons, only one of which a larger budget could move.
 
 | artifact | path |
 |---|---|
-| entry 8 LM decode code (+ tests) | `recipe/2025-10-speech-llm/src/speech_llm/sae/gua_lm_decode.py`, `scripts/gua_lm_decode_test.py` (27/27) at speech-llm `54a4d2c` |
+| entry 8 LM decode code (+ tests) | `recipe/2025-10-speech-llm/src/speech_llm/sae/gua_lm_decode.py`, `scripts/gua_lm_decode_test.py` (27/27) at speech-llm `4fa256c` |
 | entry 8 config | `config/sae_1f_entry8.py` -> `.../librispeech/configs/config_sae_1f_entry8_v1.py` |
 | §1f prerequisite config | `config/sae_1f_prereq.py` -> `.../librispeech/configs/config_sae_1f_prereq_v1.py` |
 | measurement code (+ CPU tests) | `recipe/2025-10-speech-llm/src/speech_llm/sae/channel_audit.py`, `test_channel_audit.py` |
