@@ -45,18 +45,23 @@ USER-directed: "insertion bonus makes sense, please try that".
 - THE EXCLUDED ROW IS REFUSED IN CODE, not merely omitted from the config:
   `real/pseudo_pair_seed0` raises at construction, carrying the registration's own reason (its
   failure is a flat likelihood, not deletion, so a bonus buys only more fluent hallucination).
-- ONE CONVENTION THE REGISTRATION LEFT OPEN, and how I resolved it: it pins "per-utterance paired
-  correct-phone deltas over the shared 890 utterances, 10,000-resample bootstrap at seed 42" but
-  does not say whether to stratify the resample by evaluation split. I read it literally and
-  resample the shared utterances UNSTRATIFIED, which is also the conservative choice -- the
-  role's dev-clean/dev-other composition is fixed by construction, so an unstratified resample
-  carries the extra split-proportion variance and yields a slightly WIDER interval than a
-  stratified one. The choice is stated in the module docstring and in the payload, and per-split
-  point estimates are banked beside the interval. Flagged for the planner in case the family
-  convention (`h4_harness._bootstrap_content_values` stratifies within splits) was intended.
-- TESTED BEFORE LAUNCH: `scripts/h4_insertion_bonus_test.py` 9/9. The load-bearing ones are that
-  the paired read is genuinely paired rather than a difference of two pooled means, and that a
-  non-finite per-utterance delta is refused rather than averaged in.
+- THE OPEN CONVENTION IS RULED AND EXECUTED (planner 2026-08-23 launch ruling; speech-llm
+  `37e3c52`). The PRIMARY paired interval now resamples utterances WITHIN each evaluation split
+  at the bed's fixed 432/458 counts, because that composition is fixed by construction and the
+  family's own `h4_harness._bootstrap_content_values` already stratifies; my literal unstratified
+  reading prints beside it as a named SENSITIVITY column, and the payload states both conventions
+  rather than only the one used. `n_boot` and `seed` are unchanged.
+- THE READ REVISION IS NOW A SEPARATE CONSTANT FROM THE DECODE REVISION, and that separation is
+  load-bearing rather than tidiness: `implementation_revision` is a HASHED argument of the chunk
+  class, so bumping the single shared constant for a reading-only change would have re-hashed all
+  256 running decode jobs. VERIFIED AFTER THE CHANGE: the graph's 265 chunk dirs are exactly the
+  265 on disk, zero orphans and none missing, and only the reader moved
+  (`vJSHAkECj8hH` -> `H4InsertionBonusReadJob.da3bGeQIkS0R`).
+- TESTED: `scripts/h4_insertion_bonus_test.py` 12/12. The load-bearing ones are that the paired
+  read is genuinely paired rather than a difference of two pooled means, that a non-finite
+  per-utterance delta is refused rather than averaged in, and that the stratified draw holds the
+  split composition fixed and yields a strictly TIGHTER interval than the unstratified one on a
+  fixture whose two splits disagree in sign.
 - PURELY ADDITIVE, verified: the 1g.10, 1g.10a and 1g.10b artifacts are all hash-unchanged in the
   rebuilt graph. 1g.10b's 37 SLURM probes survived the manager restart, as SLURM jobs do.
 
