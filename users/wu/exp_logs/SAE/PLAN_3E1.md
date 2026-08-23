@@ -2549,6 +2549,26 @@ INPUT list (no `ExportHfLmDirJob`), not the D4' adapted donor; (iii) the tc100 r
 D8.4's established read frame -- the registration's 960 h bed names the refit frame. The gate
 says the bed can carry the read and nothing about eta. D9.1 builds the two refits per the
 registration; D9.2 constants unchanged.
+2026-08-23 (D9.1 launched; two implementer decisions RATIFIED). (i) The pool is built from the
+dump's own greedy rows (`D9PoolFromDumpJob.RhwBlgMhqHbA`): this IS the no-replay pin -- the
+1-best is the pinned checkpoint's own decode, scored in the same forward pass -- and it removes
+by construction the greedy/pool disagreement D8 needed repair machinery for (31,562 divergent
+utterances there), while making arm 2's target and arm 3's greedy support member the same
+string, so the one-hot-special-case relation is exact. The disclosed price is accepted as
+stated: D8's convention-sensitivity line is vacuous here and the weight job prints it as a
+tautology rather than a passed check. (ii) Arm 2 is `D7OnlineTrainJob` at online weight 0 --
+D8's control recipe -- because "1-best refit" means the recipe-matched one-hot special case:
+a fresh `PsiAlignTrainJob` would make arms 2 and 3 differ in recipe as well as target and
+leave the soft-EM-vs-1-best attribution contrast unreadable; recipe-matching is also what
+makes D9 a faithful re-ask of D8's A/B at the evolved operating point. The tau pin is
+executed as registered (`D9WeightJob` pins tau_star 0.05 and prints the bed's own solution
+beside it -- disagreement visible in the artifact, never hidden). Verifier checks: ten dump
+shards on disk and running; the five downstream job dirs correctly absent until inputs
+finish; `d9_refit_test` re-run 44/44; the `d8_1a_weights_test` failure confirmed
+PRE-EXISTING (pool_greedy entered `build_support` at 54929cf, the untracked fixture was
+never updated, and a42fa37 does not touch `build_support`); hash safety confirmed
+structurally (the seams add methods and an optional argument, no constructor changes) on top
+of the implementer's four-hash graph re-read. D9.2 remains a separate registration.
 
 Replaces the §3e.1 two-sided gate (2026-08-07) BEFORE any verdict was read against v1, because
 v1's second arm is gold-conditioned as instrumented (fact 2), has the wrong sign against the

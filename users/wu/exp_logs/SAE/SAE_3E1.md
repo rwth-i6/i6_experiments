@@ -3989,3 +3989,16 @@ the absolute beta, is what carries the contamination claim.
   (segmentation kwargs not handed to the rerank; unconditional temperature filter dying on
   T=None reference rows) were fixed with regression tests before the gate artifact was
   produced -- no logged number rests on the buggy calls, so no correction entry is needed.
+- 2026-08-23 (D9.1 launch round VERIFIED; both flagged decisions RATIFIED in the plan --
+  pool-from-dump and recipe-matched arm 2; rationale in `PLAN_3E1.md` D9 Status). Verifier
+  checks beyond the State entry: the ten dump shards exist on disk and are submitted/running;
+  the five downstream job dirs (merge, pool, weights, two trainings) correctly do NOT exist
+  yet -- sisyphus materializes them as inputs finish, so "launched" here means the
+  compute-bearing shards, and a later reader should not expect eighteen dirs today.
+  `d9_refit_test` re-run by the verifier: 44/44. The claimed pre-existing
+  `d8_1a_weights_test` failure is CONFIRMED pre-existing: `pool_greedy` entered
+  `build_support` at speech-llm 54929cf (the 2026-08-22 pool-greedy ruling), the untracked
+  fixture was never updated, and a42fa37's `d8_weights.py` hunks are all inside
+  `D8WeightJob` (two added methods, one optional argument -- no constructor changes), which
+  also confirms the hash-safety claim structurally. Wall-clock projection method endorsed:
+  anchored to two measured step rates of this policy and D8.1a, not assumed.
