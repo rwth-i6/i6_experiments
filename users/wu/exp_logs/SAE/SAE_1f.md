@@ -53,6 +53,21 @@ the two language-model jobs the sensitivity column needs -- twelve unfinished jo
   configuration that owns the branch being mirrored are used (beam 50, threshold 50, beam size
   token the full vocabulary) and a beam-500 convergence probe runs on the scored fifth of both
   fixed-endpoint arms, so the beam is measured rather than asserted.
+- THE PLANNER'S 2026-08-23 RULINGS ARE ABSORBED AND EXECUTED (speech-llm `0b74181`). All three
+  proposals were ruled as amendments by replacement in my favour, so nothing built needs changing:
+  the second axis IS `sil_weight`, the SIL-free 4-gram IS primary with the SIL-augmented one the
+  disclosed mismatch sensitivity, and the label-free selector stands with its circularity
+  disclosed. Two things did need doing and are done. (a) THE ANCHOR PIN IS DISCHARGED and now sits
+  verbatim in `gua_lm_decode.py`'s docstring rather than only in the plan: the published TIMIT
+  0.473 is ESPUM "uni+bi+tri" on the UNMATCHED TEST set WITHOUT HMM self-training, and the repo's
+  `run.sh` evaluates through `w2vu_generate.py --config-name viterbi`, which is per-frame argmax
+  with NO language model at decode time (Kaldi's LM decode lives only in the separate
+  self-training stage). So the anchor is GREEDY/ARGMAX currency: the banked entry-5 and entry-7
+  argmax rates were already like-for-like with it, entry 8's LM-decoded rates are NOT, and no
+  entry-8 number may be quoted against 0.473 in either direction. (b) RULING (3)'s reporting rule
+  is now code: the reader prints the grid's own PER range beside the quotable pick, so the
+  near-circular selector's leverage is visible at every citation. `scripts/gua_lm_decode_test.py`
+  31/31.
 - NOT BUILT AND NOT LAUNCHED, deliberately: cell 3 (the CTC-student decoder-sanity control) and
   cell 4 (re-banking the argmax nulls and the memoryless oracle-map ceiling under this decode).
   Until cell 4 exists NO margin against 0.8946 / 0.9239 / 0.4148 may be quoted from this graph --
