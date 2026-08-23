@@ -249,6 +249,14 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    1g.2a starts at counts 0/4, paired per-utterance attribution read against each start's own
    banked table cell, babble null plus continuous observation null; claim under test is
    geometric inductive bias, not information loss; with the implementer to build.
+   2026-08-24 (1g.11 gate verdict, verified; ruling in `PLAN_1G.md` 1g.11 Status): CLAUSE 3
+   FAILS ON THE CONTROL -- the selected real start's paired gain over its own banked table
+   cell (+0.0098 [+0.0058, +0.0137]) is exceeded by the content-free random-map Gaussian
+   control (+0.0251 [+0.0202, +0.0302], non-overlapping intervals), and the positive-control
+   reference start LOSES phones under the swap (-0.0208). Continuous emissions are NOT funded
+   at this operating point; evidence toward the training paradigm as the binding constraint;
+   the wav2vec-U-faithful follow-up is not funded. 1g.11's question is ANSWERED; the phone
+   route's direction is the USER's call, alongside entry 8 cells 3-4.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional

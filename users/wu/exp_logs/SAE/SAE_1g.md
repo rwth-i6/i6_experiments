@@ -2508,3 +2508,24 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   dated correction naming the original error (a count-0 magnitude ranking mislabelled as
   rises) and listing all six rises -- number-identical to the verifier's recomputation;
   the stale eight-utterance sentence in State is cleared. Nothing further on experiment 2.
+
+- 2026-08-24 (experiments 3-4 result round VERIFIED; gate RULED in `PLAN_1G.md` 1g.11 Status:
+  clause 3 FAILS, continuous emissions not funded at this operating point, the
+  wav2vec-U-faithful follow-up not funded, route direction to the USER). Verification
+  performed: `G11EvaluateJob.sWoS1bP4Nd12/output/evaluate.txt` matches approach 19 cell for
+  cell -- all 24 admission/content rows, all seven clause-3 paired deltas, and the
+  three-column babble bar (worst 100-vs-1000-draw disagreement 6e-04 at
+  `gaussian|random_map|tied|4`, matching verdict 51). The observation-null artifact matches
+  (log-likelihood -79,970,371.2 to -75,850,789.7; 645,028 redrawn vectors = 584,424 update +
+  60,604 selection retained tokens, an identity the reports satisfy across jobs; floor
+  0.0000, clipped 0). Clause assignments recomputed from the printed columns: 7 of 24 cells
+  fail clause 1 exactly as marked, only `table|controlled/reference` reaches clause 2.
+  Comparator provenance verified: the table arm's ten one-best files are `H4LocalDecodeJob`
+  outputs of the audited prelabel-surfaces graph, each carrying its arm name, role and
+  repair count in its own info file, with mtimes of 2026-08-21 -- pre-dating the 1g.11
+  registration -- so "banked, never re-decoded" holds by construction. Verifier re-run:
+  `g11_exp34_test` 26/26. Verdicts 45-51 are faithful to the artifact; the evaluate job's
+  refusal to invent a "comparable" threshold after seeing the intervals is the registered
+  discipline, and the two rulings that refusal required (no-number ruling; the control's
+  clause-1 status does not remove it from clause 3) are recorded in the plan, not here.
+  Nothing further on 1g.11; no new work is licensed by this round.

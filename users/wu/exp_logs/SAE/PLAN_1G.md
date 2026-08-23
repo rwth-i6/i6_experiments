@@ -2298,6 +2298,39 @@ registration's "all model-forward computation runs as sisyphus GPU jobs" covers 
 computation only -- the layer-15 feature dump, which ran as one. The Gaussian EM repair is
 numpy on precomputed features, measured at 5.9 s / 1.8 GB per 1,024 update utterances through
 four updates, and correctly runs as a sisyphus CPU job; that is compliance, not deviation.
+2026-08-24 GATE VERDICT: CLAUSE 3 FAILS -- continuous emissions are NOT funded at this
+operating point; evidence toward the training paradigm as the binding constraint, jointly with
+the banked oracle gap (0.4148 achievable on this stream, 0.85+ found); never "the paradigm
+cannot work"; the attribution is conditional on the shared `seg12.5` segmentation both arms
+inherit. Experiments 2-4 complete and verified (`G11GaussianRepairJob.NogH62uMEI7T`,
+`G11ObservationNullJob.orOc9h6K3cuR`, `G11EvaluateJob.sWoS1bP4Nd12`; tables in `SAE_1g.md`
+approach 19, verdicts 45-51). Clause 1 excluded 7 of 24 cells and is confirmed admission-only
+in BOTH directions (it excluded the two highest-content cells and admitted both
+observation-null cells). Clause 2: only the table reference cell shows content; the Gaussian
+reference cell carries content (margin +0.4952/+0.3990 over the babble bar) but is
+inadmissible on decoded length -- verdict 47's reading is part of this record. Clause 3: the
+selected real start's paired gain over its own banked table cell is +0.0098 [+0.0058,
++0.0137] (first condition passes); the content-free random-map Gaussian control gains +0.0251
+[+0.0202, +0.0302] against the same comparator. Two planner rulings, both required because
+the evaluate job correctly declined to rule: (i) "comparable" carries no registered number,
+and needs none here -- a control gain that EXCEEDS the arm's with a non-overlapping interval
+is beyond any admissible reading of "comparable", so no threshold choice can rescue the arm;
+the second condition fails. (ii) The clause-3 control is itself clause-1 inadmissible
+(decoded length 0.7832 of gold); the registration scopes clause 1 to clause-2 readability and
+names clause 3's controls with no admission precondition, so the control counts as
+registered. Filtering it post hoc would be an unregistered gate edit made after seeing that
+it flips the verdict, and would delete the very evidence of the length pathology the control
+exists to expose (verdict 46: the positive-control start LOSES under the swap, -0.0208
+[-0.0260, -0.0154], identifying the small real-start gains as length/rate effects, not
+content; verdict 50: the arm does read the acoustics -- the observation null costs it 0.0761
+of pooled correct-phone fraction -- so the finding is that the categorical table already
+extracts as much, not that the swap was inert). Clause 4 clean everywhere (floor share
+0.0000; the babble bar is stable, 100-draw vs 1,000-draw within 6.1e-04 in the worst cell
+against a smallest clause-2 gap of 0.0090). The registered wav2vec-U-faithful follow-up is
+NOT funded (it required a clause-3 pass); whether the shared segmentation itself comes under
+suspicion is a separate planner decision, currently not raised. 1g.11's question is ANSWERED;
+what the answer means for the phone route's direction is the USER's call and joins entry 8
+cells 3-4 (`PLAN_1F.md`) on their desk.
 
 ## 6. Deliverables ladder
 
