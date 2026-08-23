@@ -57,46 +57,37 @@ d_min=2 fits the frame count -- because the registration rests the D9.2 STOP cla
 predicting the refit census by construction, and a bound that over-predicts by design cannot carry
 that.
 
-**D9.0 IS BUILT, TESTED AND LAUNCHED** (`sae/d9_feasibility.py` +
-`configs/config_sae_3e1_d9_0_v1.py`, speech-llm `975a598`; manager `sae_3e1_d9_0` pid 3381746).
-Exactly three jobs, verified from the graph: the dump
-(`ReturnnForwardJobV2.t4sIOlpGVDcY`), the incumbent's rerank
-(`PsiAlignRerankJob.FVFR2bXxFI1N`) and the gate (`D9FeasibilityJob.oORMkCSyqGHS`). Everything
-upstream was already finished, and NO refit is in this graph -- D9.1 is a separate registration
-that this launch does not fund.
+**D9.0 IS COMPLETE AND THE GATE PASSES: the refit spend is authorized on this bed**
+(`D9FeasibilityJob.oabVIcp22cy1`; dump `ReturnnForwardJobV2.t4sIOlpGVDcY`, incumbent rerank
+`PsiAlignRerankJob.cysJQBiP9iW1`). The dump is 512 utterances x 12 rollouts at T=0.7 plus 512
+greedy and 512 reference rows, which is D8.4's read size exactly.
 
-- THE STRUCTURAL CENSUS IS THE DP'S OWN PREDICATE, which is the one thing in D9.0 that could not be
-  copied from D8.4. That reader's alignability test is a crude character bound documented as
-  OVER-predicting; D9.2's STOP clause rests on the structural census predicting the refit census by
-  construction, and a bound that over-predicts by design cannot carry it. This job calls
-  `psi_align_jobs._encode` and `_min_frames` -- the same two functions the training and rerank DPs
-  use to decide feasibility -- at d_min=2 instead of the incumbent's 1. Under min_dur>=2 only
-  silence states are crossable, so the bound is the count of non-silence states and NOT the
-  familiar U <= 2T; that is the DP's rule, used unchanged.
-- THE TEXT SIDE COMES FROM THE CHECKPOINT, not from the config: BPE codes, characters per state,
-  maximum sub-states and silence mode are read from the incumbent's own `text_side_params`, the way
-  `PsiAlignRerankJob` asserts them before scoring. A census that segmented differently would count
-  states the scorer never builds.
-- THE GATE THRESHOLDS ARE SET AGAINST D8.4'S TWO OUTCOMES rather than tuned: at least 0.95 of the
-  rollout population structurally alignable and every group retaining at least 2 members. D8.4's
-  re-pinned bed lost 0 of 6,144 rows and 0 of 512 groups; the join that failed closed lost 81.5
-  percent of rows and 498 of 512 groups. Both bounds sit far inside that gap.
-- POPULATIONS ARE NAMED AND NEVER POOLED: the dump carries `rollout`, `greedy` and `true` rows; the
-  gate decides on `rollout` alone, because that is what the refits train on and what D9.2 ranks,
-  and the other two print as context.
-- TESTED BEFORE LAUNCH: `scripts/d9_feasibility_test.py` 22/22. Two of the checks failed first and
-  both were wrong expectations of mine rather than code defects -- the nearest-rank p95 of ten
-  values is the ninth, not the maximum, and one grep spanned a source line break.
+| census | result |
+|---|---|
+| (a) incumbent finite scores, d_min=1 as trained | 7,168 rows, 0 infeasible, 0 groups dropped |
+| (b) structural alignability, d_min>=2, rollout rows | 6,144 of 6,144 (share 1.0000), 512 of 512 groups retained |
 
-NEXT: read the gate when it lands. A FAIL means the refit spend is not authorized on this bed,
-which is the call D8.4 could not make in time. One scoping point for the planner rather than a silent
-resolution, since the registration's D9.0 clause names three arms that do not all exist yet: arms
-2 and 3 are BUILT BY D9.1, so at D9.0 time only the incumbent can have a finite-score census. I
-read D9.0 as (a) the rollout dump, (b) the structural d_min>=2 alignability census that arms 2 and
-3 will be subject to, plus the incumbent's own finite-score census, and (c) the PRE-REGISTRATION
-of the all-three-arms-finite read-set rule, which is applied at D9.2 where all three exist. If the
-planner intends the read set to be fixed only after D9.1, the gate still passes or fails on (a)
-and (b) alone.
+Median row: 695 unit frames against 210 needed under the refit topology, so the bed clears the
+minimum-duration bound by better than a factor of three. This is the opposite of D8.4's operative
+join, which lost 81.5 percent of rows and 498 of 512 groups -- and the point of running the gate
+first was that D8.4 could not make this call until after its refits had been trained.
+
+- WHAT THE GATE DOES NOT SAY: nothing about eta, nothing about whether a refit beats the incumbent,
+  and nothing about D9.2's read set, which is fixed only once all three arms exist. It says the bed
+  can carry the read.
+- TWO BUGS OF MINE, both caught by running rather than by review, both after an upstream job had
+  already been paid for. (1) The rerank was not handed the family's segmentation kwargs, so it died
+  on "the bpe text side needs its codes file" -- `PsiAlignRerankJob` builds its text side from its
+  OWN arguments and only then asserts them against the checkpoint. (2) The gate filtered rows by
+  temperature unconditionally and died on the dump's reference rows, which carry `T=None` because
+  they are not sampled. Both are fixed (speech-llm `975a598` -> `351a97b`), both now have
+  regression tests, and `scripts/d9_feasibility_test.py` is 28/28. Bug (1) is the third instance
+  this session of a wrong CALL into a correct primitive; the test that guards it now parses the
+  actual call in the config, and writing that test caught a bug in the test itself, which had split
+  the call at the first parenthesis and would have passed a broken config.
+
+NEXT: D9.1 is a separate registration and is NOT funded by the D9.0 launch. The gate's PASS is the
+evidence the planner asked for before authorizing that spend.
 
 **D8.1a IS COMPLETE. Verdict GO, one arm funded: `candidate_acoustic`** (approach 35 result table,
 verdicts 73-74). The latest+3 ruling is fully executed and nothing about D8.1a scoring is open.
