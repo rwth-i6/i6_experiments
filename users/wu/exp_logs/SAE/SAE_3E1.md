@@ -94,14 +94,33 @@ by measuring ranking quality (eta) in a fair paired comparison.
   online scorer path and requires it to reproduce that same dump's `recon` column to 2e-3. There is
   no second arm in it, no selection, no eta and no null. So D8.4 funds exactly the missing read and
   nothing else.
-- THE FAIRNESS PINS WERE ALREADY SATISFIED BY THE D8.2 GRAPH, which is why no new decode or dump
-  spend was needed: clause 4 required one `PsiAlignRerankJob` per arm, and both re-score the SAME
-  banked fork-policy dump over tc100 at G=12, T=0.7. The control's rerank
-  (`PsiAlignRerankJob.OiRBghBiTriv`) is finished; the candidate's (`qVTVrRvyOjZ9`) is the one job
-  still running, and everything downstream waits on it.
+- **MY CLAIM THAT THE FAIRNESS PINS WERE ALREADY SATISFIED BY THE D8.2 GRAPH WAS WRONG, and the
+  planner's 2026-08-23 latest ruling corrects it.** That graph's rerank pair consumes
+  `ReturnnForwardJobV2.QbIYruVEI0fF`, the FORK-EPOCH-2 policy's rollouts. D8.0 had already
+  classified that dump as "fork epoch vs theta_0^G" and moved its binding clause to
+  `ReturnnForwardJobV2.J9yA1eYnxwYA` precisely because that one carries the OPERATIVE policy, so
+  the registration's own pin excluded the bed I reused, and my module docstring (operative
+  theta_0^G family) contradicted my own wiring. Reusing a pair that was already in the graph is
+  what made the error easy to miss: it looked like thrift, and the check it skipped was the only
+  one that mattered.
+- THE CORRECTION IS BUILT (10:55). Two new reranks on the operative dump's T=0.7 slice --
+  `PsiAlignRerankJob.8oYpO4IBeqHb` (candidate) and `sQGYUL22Kpg6` (control), 512 utterances at
+  G=12, the registered floor exactly -- feeding a second compare
+  (`PsiAlignPairedCompareJob.ffqCTOA3qssf`); the PRIMARY verdict now reads from that pair alone
+  (`D8EtaReadJob.S3NTCZAOfSnZ`). Each dump joins ITS OWN unit store, since that is the stream its
+  stored `recon` column is per frame of -- the confusion D8.0's clause-(a) ruling corrected. The
+  dump is frozen and pinned by path exactly as D8.0 pins it; nothing re-decodes.
+- THE FORK PAIR COMPLETES AND PRINTS AS CONTEXT, never as the verdict: it is directly comparable
+  to the banked D7 rerank etas on that very dump (candidate 0.258 / control 0.250), so it carries
+  the D7-vs-D8 continuity story. The control's fork rerank (`OiRBghBiTriv`) is finished; the
+  candidate's (`qVTVrRvyOjZ9`) is still running.
+- THE READER NOW REFUSES THE WRONG BED rather than trusting the caller: it asserts the shared-group
+  count sits at or just below the registered 512, so the 28,539-group fork bed cannot pass as the
+  operative one. `scripts/d8_eta_test.py` 12/12 covers both directions of that refusal and that a
+  context pair pointing the other way cannot move the verdict.
 - THE PAIRING INSTRUMENT IS PLAN_3A's OWN `PsiAlignPairedCompareJob`, reused unchanged except that
   its per-temperature cell now also carries the shared `mean_wer`/`oracle_wer`/`sel_wer` it already
-  computed. That addition is hash-neutral (only `__init__` kwargs hash) and it lets the reader
+  computed. It is instantiated twice -- once per bed. That addition is hash-neutral (only `__init__` kwargs hash) and it lets the reader
   restate delta eta in its plain-WER form without recomputing the pairing on a second,
   differently-dropped bed. It is instantiated at the D8 family's pins, `n_boot=10000`, `seed=42`,
   at the bed's only temperature.

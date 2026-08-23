@@ -12,6 +12,19 @@ LAUNCHED; 1g.2 is READ and CLOSED on its gate; 1g.2a (H4-LM) is open with items 
 (`config/sae_1g_h4_full_model_decode.py`, manager `sae_1g_h4_full_model_decode`; reader
 `H4FullModelDecodeReadJob` in `h4_full_model_decode.py`).
 
+- THE PLANNER TOOK THE BEAM-256 CUT I OFFERED (ruling 2026-08-23 latest) and it is EXECUTED:
+  beam 512 runs the full registered scope and every decoded surface, margin, babble null and PER
+  column reads from it; beam 256 now runs on ONE shard per cell. The shard is READ from the
+  measured contract's own `shard` block -- index 28, 2,466 retained units, the canonical heaviest
+  selection-role shard that `heaviest_shard` picked when the contract was measured and that the
+  historical beam table used -- so it is not a number I chose. Exact effect: 1,116 of the 2,304
+  chunks drop (31 of 32 shards on each of 36 beam-256 cells; the planner's "1,152" counts the
+  retained 36 as well), leaving 1,152 beam-512 chunks + 36 beam-256 probes + 36 merges. The
+  agreement and drift columns are now read on 28 utterances, and the reader carries that count in
+  its payload, its report header and a `beam_probe_note`, so no quote of them can pass as an
+  890-utterance number. Executed at 10:40: manager stopped, the 1,116 surplus jobs cancelled in
+  SLURM and their dirs deleted per the standing rule, config and reader re-registered, tests
+  9/9, manager restarted on the cut graph.
 - SHAPE, exactly as experiment (1) registers it after the same-day amendment: the three audited
   count-4 channels (`controlled/reference` as positive control, `real/pseudo_pair_seed0` as the
   collapsed row, and `real/espum_seed0_update30000`, which the user promoted in as the old PUSM
@@ -24,19 +37,18 @@ LAUNCHED; 1g.2 is READ and CLOSED on its gate; 1g.2a (H4-LM) is open with items 
   law, the banked KenLM 4-gram replacing the fitting bigram. The global-beam eligibility flag is
   read for provenance and deliberately NOT applied, per "beam is not an eligibility bar here".
 - SHARDING is not mine to choose: `H4_NUM_SHARDS = 32` is validated inside the job class and the
-  merge refuses any other count, so the grid is 3 x 12 x 2 x 32 = 2,304 chunk jobs plus 72 merges,
-  each shard about 28 of the 890 utterances.
+  merge refuses any other count. After the beam-256 cut the graph is 1,152 beam-512 chunks (3 x 12
+  x 32) plus 36 merges, plus 36 single-shard beam-256 probes with no merge -- 1,188 chunk jobs in
+  all, each shard about 28 of the 890 utterances.
 - RESOURCES per chunk are the contract's own 1.5x rounding, which the job class enforces as a
   floor: 1 cpu, 2 GiB, 2 h. The measured selection-role maximum is 3,069 s and 0.91 GiB at beam
   512, so 2 h has ~2.4x headroom and the timeout doubling never needs to fire.
 - BUDGET, and the one thing the planner should look at: prior chunk jobs each landed on their own
   booster node (checked across 20 finished update-role chunks -- 20 distinct hosts), so 1,536
-  single-cpu jobs is on the order of 900-2,100 GH200 node-hours for a CPU-only descriptive read.
-  I am running the registered scope rather than trimming it, because scaling it down is not my
-  call. If the planner wants it cheaper, the clean cut is beam 256: it exists only to supply the
-  adjacent-pair agreement and drift columns, so restricting it to one shard per cell would drop
-  1,152 of the 2,304 jobs at the cost of computing those two columns on 28 rather than 890
-  utterances. Say the word and I will re-register the reader's key set accordingly.
+  single-cpu jobs was on the order of 900-2,100 GH200 node-hours for a CPU-only descriptive read,
+  which is what prompted the cut above. After it the graph is 1,188 chunk jobs, roughly half that.
+  I flagged the budget rather than trimming it on my own, because scaling the registered scope
+  down is the planner's call, and the planner took the cut.
 - CONVENTIONS I had to pin, all in the producing module's docstring before any result exists.
   (i) `p_text` and `r_target` are 1g.9's pins IMPORTED from that module, not restated, so every
   cell is read against the same channel-independent target. (ii) One alignment convention for the
