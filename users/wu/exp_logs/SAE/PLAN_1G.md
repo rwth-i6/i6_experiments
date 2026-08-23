@@ -2293,6 +2293,11 @@ finished markers are five known debris dirs (three H1-era orphans, the inert
 assertion. Suites re-run by the verifier: `g11_gaussian_test` 21/21,
 `h4_context_engine_test` 36/36, `h4_collapse_locate_test` 6/6 -- the pre-existing consumers
 of the shared recursion pass unchanged. Experiment 2's job and config may be built.
+2026-08-23 sizing clarification (planner, pre-empting a false deviation read): the
+registration's "all model-forward computation runs as sisyphus GPU jobs" covers model-forward
+computation only -- the layer-15 feature dump, which ran as one. The Gaussian EM repair is
+numpy on precomputed features, measured at 5.9 s / 1.8 GB per 1,024 update utterances through
+four updates, and correctly runs as a sisyphus CPU job; that is compliance, not deviation.
 
 ## 6. Deliverables ladder
 

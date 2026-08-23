@@ -2230,3 +2230,14 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   consistent with the 0.7836 corpus ratio. The 4,709-job zero-unfinished reuse claim for
   the prelabel-surfaces graph is accepted on the implementer's check (a no-spend claim).
   Experiment 2 is wiring from here; the clearance stands.
+- 2026-08-23 (fold-scale rewrite round VERIFIED; CPU sizing ratified in the plan Status).
+  The 230 GB tensor was caught by PROJECTING to the registered fold before any job existed
+  -- the same-scale discipline working as intended; a fixture-passing implementation that
+  dies at scale is precisely the trap the banked constants rule names. The rewrite's two
+  safeguards are the right ones: matmul forms ASSERTED against the direct forms for both
+  covariance variants (algebra checked, not assumed), and a chunking-invariance test so the
+  fold's answer cannot depend on batch boundaries. `floor_share` per count satisfies the
+  gate's clause-4 honesty line by construction. Verifier re-run: `g11_gaussian_test` 35/35.
+  The measured cost (5.9 s / 1.8 GB per 1,024 utterances, four updates) makes the cells a
+  small sisyphus CPU job -- ruled compliant with the registration's GPU clause, which
+  covers model-forward computation only (plan Status clarification).
