@@ -1965,6 +1965,46 @@ reused for the probe). The reporting rule goes verbatim into the diagnostic modu
 before any result exists. The route question ("does LM-aware decoding reopen phone repair?")
 stays open and with the USER; nothing here closes it.
 
+2026-08-23 re-rule (1g.10a step zero came back STOP-AND-REPORT; TESTS RE-REGISTERED). The
+implementer's stop was the registered behavior and is endorsed. The planner verified both code
+claims directly (`channel_h.py`): the one-best IS the registered argmax form
+(`max(final, key=final.get)`, no renormalization), but the score it selects on is a PRUNED
+PATH-SUM -- `prune` ranks prefixes by the logsumexp of their surviving states and discards whole
+prefixes, so a sequence's banked score sums only the alignment paths that survived pruning and
+is legitimately beam-dependent. TEST A as registered is VOID BY CONSTRUCTION (it would convict a
+decoder behaving as designed: only 117 of 588 same-winner scores agree to 1e-9); TEST B's
+premise falls with it. The scouting counts (588 same-winner of 972; 13 same-sequence scores
+LOWER at beam 512, largest -0.299 nats; 8 utterances with lower TOTAL retained mass at 512) are
+received as description, not verdicts -- and non-nested kept sets ARE consistent with this
+pruning rule (later-timestep rankings depend on earlier pruning), so none of these is by itself
+a defect. REPLACEMENT INVARIANTS, pre-registered before any verdict (replaces TESTS A/B,
+2026-08-23, because the registered score is a pruned path-sum, not a beam-independent
+per-sequence score):
+- TEST D (determinism): inside the diagnostic job, decode each probe utterance TWICE at beam 256
+  through the identical entry point and inputs, for THREE cells -- the minimum, median and
+  maximum observed-agreement cells (a disclosed bug-hunt selection, never a quoted comparison).
+  Sequences must be identical and scores equal to within 1e-12 nats. Any difference = DEFECT
+  CONFIRMED (nondeterminism).
+- TEST U (upper bound): for every one of the 972 probe utterance-cells and BOTH beams' banked
+  winners, the banked `decoder_log_score` must be <= the EXACT forced score of that sequence --
+  the all-alignments forward sum over (sequence position, duration state) x time under the same
+  frozen H1 law, KenLM 4-gram, silence policy, count adapter and the cell's lm_scale/beta, with
+  the LM and insertion terms applied once per emitted symbol exactly as the decoder applies them
+  -- plus 1e-6 nats absolute. A pruned sum exceeding its own unpruned total is impossible; any
+  violation = DEFECT CONFIRMED. This is also the invariant that polices the 13/8 scouting
+  anomalies; they get no separate branch.
+- EXACT-CURRENCY COMPARISON (context, and the discharge reading's companion): where the two
+  beams' winners differ, print the distribution and sign counts of exact(w512) minus
+  exact(w256), raw and per retained unit -- the beam-independent currency in which "which beam
+  found the better sequence" is well defined.
+CONSEQUENCES: any DEFECT CONFIRMED -> branch (i) as registered (table stays blocked, code
+investigation becomes its own registered item). Both tests pass -> the suspicion is DISCHARGED
+AS A DESIGNED-IN APPROXIMATION -- the score is a pruned path-sum and adjacent-beam disagreement
+is pruning reshuffle, not a broken scorer -- satisfying the duty's "until that is explained"
+clause; branches (ii) and (iii) then stand exactly as registered, with the exact-currency sign
+distribution printed beside the discharge. The reporting rule goes verbatim into the diagnostic
+module's docstring before any result exists.
+
 ## 6. Deliverables ladder
 
 | Step | Deliverable | Decision it enables |

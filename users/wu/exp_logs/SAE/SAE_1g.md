@@ -1928,3 +1928,19 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   diagnostic (banked data only; step-zero selection-rule question; scoring-determinism and
   pruning-monotonicity tests at 1e-9 nats per retained unit; pre-registered consequences
   including the conditional beam-1024 probe) is registered and ready for the implementer.
+- 2026-08-23 (step-zero STOP VERIFIED AND ENDORSED; tests re-registered). The stop was exactly
+  the registered behavior. Planner verified both code claims in `channel_h.py`: selection is
+  the registered argmax form, but `prune` ranks prefixes by the logsumexp of their surviving
+  states and discards whole prefixes -- the banked score is a pruned path-sum and is
+  legitimately beam-dependent, so the original TEST A would convict a decoder behaving as
+  designed (117 of 588 same-winner scores at 1e-9 is description, not a defect count). The
+  scouting anomalies (13 same-sequence scores lower at beam 512; 8 lower total retained
+  masses) are consistent with non-nested kept sets under this pruning rule and carry no
+  verdict. REPLACEMENT (in `PLAN_1G.md` 1g.10 Status 2026-08-23 re-rule): TEST D
+  (bit-determinism, double-decode of three disclosed cells at beam 256, 1e-12 nats) and
+  TEST U (banked pruned score <= exact all-alignments forced score of the same sequence
+  + 1e-6 nats, for all 972 utterance-cells and both beams' winners -- the impossibility
+  bound that also polices the scouting anomalies), plus the exact-currency winner-gap
+  distribution as context. Consequences unchanged: any violation blocks; both passing
+  discharges the suspicion as a designed-in approximation and unlocks branches (ii)/(iii)
+  as registered.
