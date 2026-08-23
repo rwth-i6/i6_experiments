@@ -4,62 +4,31 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-**RULING EXECUTION (planner ruling 2026-08-22 latest+3, PLAN_3E1.md D8 Status): the mixed
-convention is REJECTED; the corrected law is BUILT, TESTED and LAUNCHED.** The held question is
-answered, so the hold is lifted.
+**D8.1a IS COMPLETE. Verdict GO, one arm funded: `candidate_acoustic`** (approach 35 result table,
+verdicts 73-74). The latest+3 ruling is fully executed and nothing about D8.1a scoring is open.
 
-**The successor weight-job hash, as the standing requirement demands before any manager restart:
-`D8WeightJob.juRpzTNHKCSq`** (supersedes `qBb5teJvluqB`, which was correctly stated under the same
-requirement and is superseded by construction; `1G2lPRnRmPks` remains quarantined and feeds
-nothing). New alongside it: `D8PoolScoresJob.1ivehCZ5q5ON` and
-`D8PoolTokenMechanismJob.rVkoJpPoBGG8`. The overlap probe's hash is UNCHANGED
-(`D8PoolOverlapProbeJob.GerShND5ibtT`), so the artifact that licensed the pass is the finished one
-and is reused rather than regenerated.
+- Operative artifact `D8WeightJob.juRpzTNHKCSq` (the successor hash stated in State before the
+  restart, as the standing requirement demands). All three no-go clauses pass with margin, the
+  exclusion rate is 0.0006 percent against a 5 percent valve, `tau_star` = 0.05, and all 281,241
+  groups are frozen to `supports.jsonl` for the arm to read.
+- The arm-selection rule fires on spearman(shaped, acoustic-only) = 0.9835 > 0.95: the two arms are
+  operationally identical at this operating point, so `candidate_shaped` is not funded. It was not
+  struck out as free English -- spearman(shaped, LM-only) is 0.3462, far below the same bar.
+- Ruling part 4 discharged: the pre-registered sensitivity line finds NO flip of any clause, the
+  valve, the verdict or the funded-arm set against the superseded mixed convention. The convention
+  choice is immaterial to the decision BY MEASUREMENT, which is the only way it could have been
+  established.
+- Ruling parts 1-3 discharged earlier this round: full-bed text-path pass
+  (`D8PoolScoresJob.1ivehCZ5q5ON`, 281,241 of 281,241 members, 0 degenerate), no reuse branch left
+  in the weight job, and the token mechanism named (verdict 72).
 
-IMPLEMENTATION CHOICE, ruling part (2): **option (i)**, extending the probe-validated pass to the
-full bed -- ten shards, the dump's own sharding and rate, zero new scoring code, one convention.
-Option (ii) was refused on its own admission bar: it requires a text-only prior scorer to reproduce
-the audio pass on all 31,626 reference rows to 1e-4 per token, and batch-composition numerics alone
-can miss that; failing the bar costs option (i) anyway on top of the attempt. Cost, from the dump
-shards' own measured wall clock (6:51 to 7:08 for ~28 k utterances at `max_seqs=8`): ten shards of
-the same size, so ~7 h each inside the 11.5 h wall, ~70 GPU-hours in one wall-clock window.
+NEXT ACTION IS THE PLANNER'S: D8.1a's deliverable is a GO with one funded arm, and whether D8.1b
+trains `candidate_acoustic` from this weight artifact is a plan decision, not mine to start.
 
-BUILT (speech-llm, this round):
-- `d8_pool_scores.py` gains the `all` bed selection; `D8PoolScoresJob` takes `coverage` and
-  `expected_members` and refuses anything but the full 281,241-member population under the
-  corrected law. The superseded `differing` coverage stays expressible so the old contract is
-  refusable rather than silently reinterpreted.
-- `d8_weights.py`: `_pool_greedy` takes a `convention`. Under `corrected_text_path` every column of
-  every member comes from the text-path pass and an uncovered tag raises -- there is no reuse
-  branch left to get wrong. `legacy_mixed` reproduces the superseded convention and exists only to
-  be compared against.
-- PRE-REGISTERED CONVENTION-SENSITIVITY LINE (ruling part 4), written into the job before it had
-  ever run: the whole read is recomputed under the legacy convention from the same artifacts, and
-  if any no-go clause, the safety valve, the verdict, or the funded-arm set flips between the two,
-  the job returns `UNRESOLVED` with the flipped names instead of reporting a verdict. The
-  sensitivity block is banked in `weights.json` either way, so "no flip" is a measured statement.
-- `D8PoolTokenMechanismJob` (ruling part 3, disclosure not gate): tokenizes the probe tags' pool
-  strings with the bed's own tokenizer artifact and reports whether the text path's `n_tokens` is
-  the plain tokenization length and how many tags the decode path exceeds it by exactly one, naming
-  that terminal token. Tags whose surplus exceeds one are reported, not absorbed. CPU-only and
-  independent of the pass, so it does not wait on the ten shards.
-
-TESTED before launch, no artifact and no scorer: `scripts/d8_convention_test.py` 7/7 -- corrected
-takes every column from the text path and reuses none, legacy reuses exactly on the agreeing tags,
-the two disagree exactly there, and corrected refuses a tag the pass did not score.
-`scripts/d8_support_test.py` still 27/27.
-
-IN FLIGHT: the `sae_3e1_d8_1a` manager, all ten `all_forward*` shards over the full bed running
-(~7 h each, from the dump shards' own measured clock). EXPECT `STATUS=ERROR` from any status read
-and do NOT act on it: the ten `all_bed*` jobs are FINISHED with complete 1.9 GB three-split outputs,
-and their `error.run.1` markers are stray workers dying on the `job.save` that JOB_AUTO_CLEANUP
-archived (249 such failures on one bed alone). The marker is a hardlink of the log, so renaming it
-is undone by the next duplicate; the duplicates drain on their own and block nothing, since
-downstream reads the finished markers. Never `-co` here. The
-token-mechanism line is READ and banked (verdict 72): the decode path's extra token is
-`<|endoftext|>` (id 151643), explaining 58 of the 64 probe tags, with the 6 larger-surplus tags
-reported unexplained. NEXT: the weight artifact's sensitivity block, before its verdict.
-
+Housekeeping, not a blocker: the ten `all_bed*` jobs carry `error.run.1` markers from duplicate
+workers dying on the `job.save` that JOB_AUTO_CLEANUP archived. All ten are FINISHED with complete
+outputs and every downstream job read them successfully. The marker is a hardlink of the log, so
+renaming it does not stick while duplicates drain. Never `-co` here.
 
 **D8.1a HAS A BLOCKING RESULT FOR THE PLANNER (verdict 70): the greedy-equivalence read is NOT
 EQUIVALENT** -- 31,562 of 281,241 utterances (11.2 %) differ between the dump's regenerated greedy
@@ -1328,6 +1297,17 @@ not a crash. `scripts/d8_1a_weights_test.py` carries 46 synthetic-only checks co
 above, the shared ordering through both readers' clause sets, and the label firewall; it never reads the dump or the store, so it runs while the dump is
 still generating and cannot launder a real number into a passing check.
 
+RESULT TABLE (one row per read of the frozen weight artifact; `rho_ac` is spearman(shaped,
+acoustic-only) and `rho_lm` spearman(shaped, LM-only), both at `tau_star`).
+
+| convention | job | excluded / scored | median distinct | taus in ESS band | token R2 | tau_star | rho_lm | rho_ac | verdict / arms |
+|---|---|---|---|---|---|---|---|---|---|
+| corrected text path (operative) | `D8WeightJob.juRpzTNHKCSq` | 18 / 3,170,676 | 13.0 | 0.05, 0.1 | 0.0620 | 0.05 | 0.3462 | 0.9835 | GO / candidate_acoustic |
+| legacy mixed (sensitivity only, same job) | `D8WeightJob.juRpzTNHKCSq` | 18 / 3,170,676 | 13.0 | 0.05, 0.1 | 0.0620 | 0.05 | 0.2747 | 0.9835 | GO / candidate_acoustic |
+
+Pool-member provenance in the operative row: 281,241 of 281,241 members scored through the text
+path, 0 dump columns reused, 249,679 tags where the dump's regenerated greedy agrees anyway.
+`D8PoolScoresJob.1ivehCZ5q5ON` carries the full-bed pass with 0 degenerate rows.
 
 ## Verdicts
 
@@ -2010,6 +1990,31 @@ function-word pairs rather than broad spelling diversity.
     pool member does not -- the member-versus-rollout gap definition (a) always implied, now with a
     measured size and a named cause.
 
+73. **D8.1a is COMPLETE and its verdict is GO, funding ONE arm: `candidate_acoustic`.**
+    `D8WeightJob.juRpzTNHKCSq` on the operative bed at T=0.7, under the corrected text-path
+    convention over all 281,241 pool members. All three no-go clauses pass with margin -- median
+    distinct support 13.0 against the 3.0 floor, `tau` values 0.05 and 0.1 inside the [1.5, 8.0] ESS
+    band, median token count R2 0.0620 against the 0.5 ceiling -- and the exclusion rate is 18 of
+    3,170,676 scored members (0.0006 percent against the 5 percent safety valve), by
+    `empty_after_fold` 7 and `infeasible` 11, with no feasible-but-non-finite `recon`. `tau_star` is
+    0.05 and all 281,241 groups are frozen to `supports.jsonl`. The arm-selection rule then fires on
+    its second clause: spearman(shaped, acoustic-only) is 0.9835 > 0.95, so the two arms are
+    operationally identical and only `candidate_acoustic` trains. `candidate_shaped` is NOT funded,
+    and not because it failed -- because at this operating point it is not a different experiment.
+    spearman(shaped, LM-only) is 0.3462, far below the same bar, so the shaped score is NOT free
+    English; that was the other way the shaped arm could have been struck out and it was not.
+
+74. **A35: the pool-member scoring convention is IMMATERIAL to the D8.1a decision, by measurement
+    rather than by argument.** The pre-registered sensitivity line recomputed the whole read under
+    the superseded mixed convention from the same artifacts: no no-go clause flips, the safety valve
+    does not flip, the verdict does not flip, and the funded-arm set does not flip. The only moving
+    statistic is spearman(shaped, LM-only), 0.2747 legacy against 0.3462 corrected, and both sit far
+    below the 0.95 bar; spearman(shaped, acoustic-only) is 0.9835 under both to four decimals. This
+    discharges ruling part 4 in the direction that costs nothing, and it is worth stating what it
+    does NOT license: the correction was still necessary, because the ~9.5-nat one-sided offset in
+    the shaped numerator (verdicts 71-72) was real and its immateriality could only be established
+    by making the measurement, never assumed from its size.
+
 ## Catalog
 
 `T/` = `work/i6_core/returnn/training/`, `F/` = `work/i6_core/returnn/forward/`,
@@ -2019,7 +2024,7 @@ function-word pairs rather than broad spelling diversity.
 |---|---|
 | D8.1a pool-scoring overlap probe (64 agreeing tags, PARITY) | `work/speech_llm/sae/d8_pool_scores/D8PoolOverlapProbeJob.GerShND5ibtT` |
 | D8.1a token mechanism, disclosure for ruling part 3 (verdict 72) | `S/d8_pool_scores/D8PoolTokenMechanismJob.rVkoJpPoBGG8` |
-| D8.1a corrected-convention pool scoring and weight artifact (in flight) | `S/d8_pool_scores/D8PoolScoresJob.1ivehCZ5q5ON`, `S/d8_weights/D8WeightJob.juRpzTNHKCSq`; code `sae/d8_pool_scores.py`, `sae/d8_weights.py`, `configs/config_sae_3e1_d8_1a_v1.py`, `scripts/d8_convention_test.py` (7/7), `scripts/d8_support_test.py` (27/27) at speech-llm `3123090` |
+| D8.1a corrected-convention pool scoring and weight artifact (COMPLETE, verdicts 73-74) | `S/d8_pool_scores/D8PoolScoresJob.1ivehCZ5q5ON`, `S/d8_weights/D8WeightJob.juRpzTNHKCSq`; code `sae/d8_pool_scores.py`, `sae/d8_weights.py`, `configs/config_sae_3e1_d8_1a_v1.py`, `scripts/d8_convention_test.py` (7/7), `scripts/d8_support_test.py` (27/27) at speech-llm `3123090` |
 | code | `sae/scorer_diag.py`, `sae/text_repair.py`, `sae/psi_align_jobs.py`, `sae/psi_align.py`, `sae/curate.py`, `sae/gate_table.py`, `sae/refresh_gate.py`, `sae/d7_census.py`, `sae/d7_v2.py`, `sae/d7_online.py` (+ focused tests; D7.0a commit `a0a22b4`, D7-v2 commit `7b2069d`, D7 resume-RNG and infeasible-donor counter `1d10945` on speech-llm `haotian_modality_matching_jupiter`). `test_psi_align.py`'s CUDA/python lattice parity test now also carries two `d_min=2` skip_ok cases, so the topology D7 trains in is pinned; executed on a GH200 2026-08-21 (`log/parity_test.1445759.out`, passed, not skipped) since the login node has no GPU. |
 | entry points | `config/sae_3e1_d0.py`, `config/sae_3e1_usage.py`, `config/sae_3e1_d1d2.py`, `config/sae_3e1_d3.py`, `config/sae_3e1_d4.py`, `config/sae_3e1_d4p.py`, `config/sae_3e1_d5b.py`, `config/sae_3e1_d6.py` (builds D4' and the swap-in too), `config/sae_3e1_d6periodic.py`, `config/sae_3e1_d6periodic_warm.py`, `config/sae_3e1_hom.py`; D7 tracked canonical configs `src/speech_llm/prefix_lm/sis_recipe/exp2025_11_06_speech_llms/librispeech/configs/config_sae_3e1_d7_0a_v1.py` at `a0a22b4` and `config_sae_3e1_d7_v2_v1.py` at `7b2069d` (workspace wrappers only delegate) |
 | D8.0 registered feasibility reads (approach 34) | **operative v3** `S/d8_feasibility/D8FeasibilityReadJob.mv2d0vkWN93a` (theta_0^G, binding, GO) and `.W7TWfwoZtkaC` (fork epoch); superseded v2 `.mDQ2LoAzrMTE` / `.ulUbBcxIiJtf` and v1 `.iCuYuvkL6bwr` / `.onK5ekDuoLLA`, kept as the evidence that motivated the guard and then the ruling |
