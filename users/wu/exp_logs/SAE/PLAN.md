@@ -126,9 +126,14 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
   banked and INDISTINGUISHABLE at -0.0033 [-0.0164, +0.0096]). 2026-08-23 verdict: the
   re-pinned read COMPLETED at full 512-group coverage -- paired delta eta -0.0293
   [-0.0697, +0.0085], INDISTINGUISHABLE, resolving to the CONTROL under the incumbent-tie
-  rule. **THE D8 CLOSURE QUESTION IS ON THE USER'S DESK** with the D8.3 authorization question;
-  planner recommends closing D8 with the control retained and not funding the policy leg
-  (`PLAN_3E1.md` D8 Status 2026-08-23 verdict).
+  rule. 2026-08-23 latest: **D8 IS CLOSED on the user's word** (control retained, D8.3 not
+  funded; the D9-funding message accepted the bundled recommendation). **D9 IS REGISTERED AND
+  FUNDED** (`PLAN_3E1.md` D9): the same refit question at an EVOLVED operating point -- three
+  arms (frozen d2_contrast incumbent `PsiAlignTrainJob.DnBJxqz4sNQZ` / 1-best refit / soft-EM
+  refit, both refits on the pinned checkpoint's own decodes only) ranking one shared rollout
+  draw from the D3 shaped arm's sub-epoch-2 endpoint `ReturnnTrainingJob.rJWSC5xOsrf2`
+  epoch.002.pt (banked 12.68/17.57), paired delta eta with the D8.4 machinery verbatim;
+  feasibility gate D9.0 before any refit spend; with the implementer to build.
 - **960 h stock-donor supervision-axis endpoint is ABSENT**: the theta_0 + gold-scorer arm ran
   only through sub-epoch 4, was stopped and deleted 2026-08-08, and never produced the listed
   3-pass endpoint; `ReturnnTrainingJob.22Ntu7y0O6iW` does not exist. Its observed collapse is

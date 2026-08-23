@@ -2435,6 +2435,83 @@ measured ranking edge. One bookkeeping item stays open and does not block the ve
 feasibility producer's printed figures and the approach-38 paragraph quotes need a true-up
 (Verifier feedback, same date).
 
+2026-08-23 CLOSED on the user's word (the message funding D9 accepted the planner's bundled
+recommendation: "register D9 into plan and let implementer work on it"). Control retained,
+D8.3 not funded. The verdict stands as scoped: INDISTINGUISHABLE at the cold operating point,
+full coverage, incumbent kept by the tie rule. The evolved-operating-point question is a NEW
+registration (D9, below) and not a reopening -- reopening would re-scope a discharged gate.
+The bookkeeping true-up stays tracked in Verifier feedback and does not block closure.
+
+**D9 -- scorer refit at an evolved operating point (three-arm paired eta read;
+USER-funded 2026-08-23).**
+
+**Purpose.** D8 measured refit value only at the cold operating point (frozen theta_0^G decodes,
+before any loop improvement) and returned INDISTINGUISHABLE; every failure reading in this
+family is registered as operating-point-scoped. D9 asks the same question where the policy has
+demonstrably improved through the loop: do a hard-label 1-best refit and a posterior-weighted
+soft-EM refit, each trained on the evolved policy's OWN decodes, rank the evolved policy's own
+rollouts better than the incumbent scorer that shaped its rewards? Context that motivates but
+does not decide: D6-PERIODIC's acceptance gate kept the incumbent every round (`SAE_3E1.md`
+verdict 41 -- with one round-4 CI pass overridden by the stop rule, so the evolved-point
+evidence has a crack), GAN-family refresh was transient-then-worse (verdicts 68-69), and the
+paired eta currency on one shared draw has never been read at an evolved point. The 17.61/22.66
+GAN-FROZEN endpoint is a DEGRADATION terminus, not a plateau, and the scorer-mismatch
+explanation of it is currently disfavored by verdicts 68-69 -- D9 is registered as a refit-value
+measurement in eta currency, never as a rescue of the degrading loop family.
+
+**Approach.**
+- PINNED POLICY: the D3 shaped control arm's sub-epoch-2 endpoint --
+  `work/i6_core/returnn/training/ReturnnTrainingJob.rJWSC5xOsrf2` `output/models/epoch.002.pt`
+  (on disk, verified 2026-08-23), the point whose banked recog is 12.68/17.57 (`SAE_3E1.md`
+  approach 9 table). Pinned by SCHEDULE POSITION (the arm's improving phase; its later
+  degradation is disclosed), never re-selected by scanning WERs. Before any spend the
+  implementer asserts the epoch-to-recog provenance from the recog job's own inputs, not from
+  a label list.
+- ARM 1 (incumbent control): the frozen d2_contrast scorer that actually shaped this arm's
+  rewards, `PsiAlignTrainJob.DnBJxqz4sNQZ`, d_min=1 AS TRAINED. Disclosed asymmetry against
+  the refits (standing d_min>=2 rule applies to every NEW scorer): the incumbent rides as it
+  rode the loop, because the question is "beat the scorer that made this policy".
+- REFIT CORPUS: current decodes of the pinned checkpoint ONLY -- never init-round or replay
+  data (standing no-replay rule). Transcripts appear nowhere in refit or selection; labels
+  enter only the eta evaluation.
+- ARM 2 (1-best refit): the incumbent refit recipe, d_min=2, from scratch on the pinned
+  checkpoint's greedy 1-best decodes.
+- ARM 3 (soft-EM refit): D8's registered recipe transplanted, constants BY REFERENCE to the
+  D8 Approach above (support = deduplicated union of the pinned checkpoint's greedy 1-best
+  and 12 rollouts at T=0.7 after the registered reader normalization; detached tempered
+  posterior from the arm-1 incumbent and the registered text-LM prior at D8's registered
+  tau). No constant is re-derived here.
+- BED AND FRAME otherwise identical to D8: 960 h HF/Ogg bed (281,241 utterances), frozen
+  enc50 K=500 raw 50 Hz unit store, seed-42 5% ID holdout with role-local reads; fresh
+  alignment scoring joins each scorer's native-rate stream (D8.0 clause (a) as scoped
+  2026-08-23). The implementer flags any knob where the D8 frame and the new checkpoint
+  conflict rather than resolving it silently.
+
+**Experiments.** D9.0 -- feasibility LAUNCH GATE before any refit spend: one rollout dump from
+the pinned checkpoint at the registered operating point (group 12, T=0.7) on a read bed sized
+to D8.4's read for comparability; a `D8BedFeasibilityJob`-analog prints, per arm population,
+the d_min alignability and finite-score census, naming its populations; the read set is
+pre-registered as the groups where ALL THREE arms score every member finitely, drop count
+printed (impossible scores poison means). D9.1 -- the two refits on the shared corpus. D9.2 --
+the three-arm read on the ONE shared draw: per-group eta, paired per-group delta eta,
+`bootstrap_delta_eta` n_boot 10000 seed 42 -- D8.4 machinery verbatim. Contrasts: each refit
+vs arm 1 (decisional); soft-EM vs 1-best (attribution only, never adoption). The reporting
+rule lives in the producing job's docstring before any result exists.
+
+**Gate (pre-registered).** A refit arm is adopted only if its paired delta eta against the
+incumbent has a 95 pct CI excluding zero in the refit's favor; INDISTINGUISHABLE resolves to
+the incumbent under the standing tie rule. SUCCESS funds a policy-leg follow-up as a separate
+decision -- this read gates spend and closes nothing at deployment level; plain WER on a
+funded leg is the deployment currency. FAILURE licenses "scorer refitting is not funded on
+this loop family at cold or evolved operating points" (jointly with D8.4 and D6-PERIODIC),
+never "refitting could not work elsewhere". A GAN960-FROZEN replication is conditional on
+that arm passing its own leg-8 gate and is a separate decision.
+
+**Status.** REGISTERED AND FUNDED 2026-08-23 on the user's word ("register D9 into plan and
+let implementer work on it"); with the implementer to build, D9.0 first. Planner constants
+the user may override: the schedule-pinned checkpoint, the incumbent-as-trained d_min
+asymmetry, the read-bed sizing at D8.4 parity.
+
 Replaces the §3e.1 two-sided gate (2026-08-07) BEFORE any verdict was read against v1, because
 v1's second arm is gold-conditioned as instrumented (fact 2), has the wrong sign against the
 filler mode (fact 3), and its first arm is not comparable across rounds (fact 4). All statistics
