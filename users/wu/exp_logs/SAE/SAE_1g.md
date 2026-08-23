@@ -18,6 +18,48 @@ exact(w512) beats exact(w256) in 352 and LOSES in 32, median gain +0.0109 nats p
 unit -- the wider beam usually but not always finds the better-scoring sequence, which is the
 search-error signature and not a scorer defect.
 
+**1g.10c IS BUILT, TESTED AND LAUNCHED, with the sizing proposal the registration requires**
+(`sae/h4_insertion_bonus.py`, speech-llm `c23bbe4`; read
+`H4InsertionBonusReadJob.vJSHAkECj8hH`; manager `sae_1g_h4_full_model_decode` pid 1143114).
+USER-directed: "insertion bonus makes sense, please try that".
+
+- SIZING PROPOSAL: 4 h and 4 GiB per chunk, against the measured contract's rounded 2 h / 2 GiB.
+  The reason is not headroom-for-its-own-sake: a positive bonus LENGTHENS the decoded output, and
+  KenLM prefix scoring in `kenlm_phone_callbacks` rebuilds and scores the whole prefix string per
+  extension, so its cost is linear in hypothesis length. The beta-0 cells' measured time is
+  therefore not a safe bound for beta +1 and +2. Beam and shard count are unchanged, so the
+  memory shape is unchanged and 4 GiB is pure margin. Total: 256 beam-512 chunks + 8 merges +
+  8 adjacent-beam probes + 1 parity chunk = 273 jobs, about a quarter of the 1g.10 bill, as the
+  registration estimated.
+- THE MERGE IS THE PRODUCTION MERGE, REUSED UNCHANGED. These chunks emit the production chunk
+  contract exactly, so `H4SequenceDecodeMergeJob` merges them with its own 32-shard coverage
+  check, identity anchor and per-record validation applying to the extension cells too. The
+  chunk's own `implementation_revision` keeps provenance, and the merge only requires the 32 to
+  agree on it. That is one more path where nothing had to be reimplemented.
+- THE THREE GUARDS, as pre-approved: imports-not-copies, now enforced by a source-grep test
+  covering the decode, input, parity, statistics AND null helpers; the grid hard-pinned to the
+  four registered pairs plus the parity point, with (1, -1), (4, +1), (0.5, +2) and (2, +3) all
+  refused; and a parity cell at the registered (lm_scale 1, beta 0, beam 512) point on
+  `controlled/reference` that suppresses every extension column unless it reproduces the banked
+  production chunk exactly.
+- THE EXCLUDED ROW IS REFUSED IN CODE, not merely omitted from the config:
+  `real/pseudo_pair_seed0` raises at construction, carrying the registration's own reason (its
+  failure is a flat likelihood, not deletion, so a bonus buys only more fluent hallucination).
+- ONE CONVENTION THE REGISTRATION LEFT OPEN, and how I resolved it: it pins "per-utterance paired
+  correct-phone deltas over the shared 890 utterances, 10,000-resample bootstrap at seed 42" but
+  does not say whether to stratify the resample by evaluation split. I read it literally and
+  resample the shared utterances UNSTRATIFIED, which is also the conservative choice -- the
+  role's dev-clean/dev-other composition is fixed by construction, so an unstratified resample
+  carries the extra split-proportion variance and yields a slightly WIDER interval than a
+  stratified one. The choice is stated in the module docstring and in the payload, and per-split
+  point estimates are banked beside the interval. Flagged for the planner in case the family
+  convention (`h4_harness._bootstrap_content_values` stratifies within splits) was intended.
+- TESTED BEFORE LAUNCH: `scripts/h4_insertion_bonus_test.py` 9/9. The load-bearing ones are that
+  the paired read is genuinely paired rather than a difference of two pooled means, and that a
+  non-finite per-utterance delta is refused rather than averaged in.
+- PURELY ADDITIVE, verified: the 1g.10, 1g.10a and 1g.10b artifacts are all hash-unchanged in the
+  rebuilt graph. 1g.10b's 37 SLURM probes survived the manager restart, as SLURM jobs do.
+
 **1g.10b IS BUILT, TESTED AND LAUNCHED under the planner's option (b) ruling**
 (`sae/h4_beam1024_probe.py`, speech-llm `8e2c841`; 36 probe cells plus one parity cell;
 read `H4Beam1024ReadJob.tKbQ0MHLdX03`; manager `sae_1g_h4_full_model_decode` pid 450055). The
