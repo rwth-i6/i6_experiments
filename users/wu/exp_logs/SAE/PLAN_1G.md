@@ -2142,6 +2142,109 @@ unstratified read -- reported, not load-bearing). 1g.10c CLOSES. The decode rout
 live measurement is the fairseq-side companion (`PLAN_1F.md` entry 8, cells 1-2 running), which
 decodes the real generator with the real flashlight decoder rather than this channel harness.
 
+### 1g.11 — Continuous-emission twin of the table channel (USER-proposed and greenlit 2026-08-23)
+
+**Purpose.** Attribute the phone-route failure between the categorical table's lack of geometric
+inductive bias and the LM-driven generative training paradigm itself, by swapping ONLY the
+emission model: same HMM shape, duration law, fitting LM, repair procedure, and decode readout,
+with the categorical `B(unit|phone)` replaced by one low-capacity diagonal Gaussian per emission
+row over continuous segment features. The claim under test is INDUCTIVE BIAS, not information
+loss — information loss is already contradicted by banked anchors (the memoryless oracle on the
+same `seg12.5` stream reaches 0.4148 while unsupervised repair lands 0.8580–0.8946, barely above
+the random-map control; the supervised continuous context-kernel probe reaches 0.3565, a modest
+ceiling gain). Mechanism: a 500-way table can represent ANY unit-phone assignment, so the EM
+landscape is dense with content-free optima that satisfy marginal and LM statistics (verdict
+28's mechanism); a tied diagonal Gaussian can only represent geometrically coherent feature
+regions, pruning EM's search space to acoustically plausible solutions. Disclosure: the same
+single-variable swap ran once on the 3a scorer bed (`PLAN_3A` §5b.1 cell M2) and was
+INDISTINGUISHABLE at the decision temperature (delta eta +0.0027 [-0.027, +0.035]; worse at
+T=1.0) — but M2 asked whether continuous observations improve a TRAINED scorer's ranking, not
+whether they rescue unsupervised EM from content-free optima; that question is untested and is
+this subphase's.
+
+**Approach.** Observations are the continuous twin of the `seg12.5` stream: segments are the
+SAME tokens the discrete stream has (per-utterance segment count identity with the discrete
+token sequence is asserted), and each segment's vector is the mean, over exactly that token's
+frames, of the same normalized PCA-space frame vectors the frozen unit pipeline pooled and
+assigned (normalization, PCA basis, and centroids fitted on the 2,849 dedicated train
+utterances only, read verbatim from the frozen artifacts; if any piece is not persisted, the
+repair is a refit from the same recipe accepted only when the reassigned discrete units
+reproduce the frozen stream exactly). The basis is truncated to its leading 128 components
+(user's choice; the actual frozen dimension is recorded, and a full-dimension sensitivity cell
+is optional); components are standardized by a scale fitted on the same 2,849 utterances and
+shipped for reuse (the `ContinuousFeatsJob` fit/assign split). Emissions: one diagonal Gaussian
+per emission row of the frozen topology; PRIMARY covariance is one shared diagonal across all
+rows, with per-row diagonals as the single disclosed relaxation; both carry the M2 variance
+floor (`logvar = 2*min_log_std + softplus(raw)`, `min_log_std = log 0.1`, or the twin pinned in
+the producing docstring) — without it a state wins by variance collapse, which would fake a
+collapse verdict. Duration and shape stay frozen as H1 fixed them (rate matched by construction
+on `seg12.5`); `G_fit` and `G_dec` unchanged. Starts: each discrete start maps through the
+codebook geometry — each emission row's mean initializes to that row's `B`-weighted mix of
+centroid vectors, `mu = sum_u B(u) c_u` — so all five 1g.2a starts and their controls get
+paired table/Gaussian initializations. A log-density and a log-mass are different currencies
+(the M2 rule): absolute likelihoods are void across arms and every comparison reads decoded
+output.
+
+**Experiments.** All model-forward computation runs as sisyphus GPU jobs; derived statistics
+come from registered readers that print their conventions.
+
+1. *Feature build and fixture.* The layer-15 dump, the frozen-transform read, and the
+   segment-mean job, with the asserted segment-count identity and (if a refit was needed) the
+   exact-reproduction acceptance check.
+2. *Gaussian repair cells.* The five 1g.2a starts at repair counts 0 and 4 under the
+   constrained update rule (implementer's choice, pinned in the docstring; the tiny enumerated
+   example extended to verify the update improves the criterion); the per-row-covariance
+   relaxation on the selected real start only. Decode every cell with the frozen local decoder
+   twin (per-segment argmax over Gaussian log-density times prior, with run collapse) — the
+   same readout family as the banked table cells, which is what makes the paired read valid;
+   the table arm is NOT re-decoded (the audited 1g.2a one-bests are the comparator).
+   Sequence-decoded (LM-aware) cells are descriptive and readable only after passing the same
+   stability duty 1g.10 imposed.
+3. *Nulls and controls.* The 1g.9 experiment-3 babble null, never built there, is registered
+   again verbatim (per utterance 100 random symbol sequences of the decoded length i.i.d. from
+   `p_text`; mean and p99 of pooled correct-phone fraction and PER, alignment convention
+   printed); plus the continuous observation null — each segment's vector redrawn i.i.d. from
+   the corpus segment-vector marginal (length-preserving, structure-destroying), fitted and
+   decoded exactly like the real arm.
+4. Evaluation on the frozen 890 selection utterances with gold as EVALUATION ONLY; the
+   1,112-utterance evaluation fifth stays sealed; any selection among cells is by label-free
+   statistics only.
+
+**Gate (pre-registered 2026-08-23, before any run).**
+
+- *Clause 1, admission.* A cell is READABLE when its decoded length ratio to gold is within
+  [0.80, 1.25] and its decoded unigram total variation to `p_text` is <= 0.30 — admission
+  only, never evidence (verdict 29: a content-free control passes this best).
+- *Clause 2, content.* A readable cell shows content when its pooled correct-phone fraction on
+  the 890 exceeds the babble null's p99 by >= 0.05 absolute, with the edit decomposition
+  reported beside every PER (converting deletions to substitutions fakes headline PER drops
+  with zero content gain).
+- *Clause 3, attribution — the decision read.* The paired per-utterance delta of correct-phone
+  fraction, Gaussian cell minus its own start's banked table cell, at count 4, per start,
+  bootstrap interval over utterances. The continuous route is funded (a NEW planner decision)
+  only if the selected real start's interval excludes zero in the Gaussian arm's favor AND
+  neither content-free arm (random-map-initialized Gaussian, observation null) shows a
+  comparable gain — a gain that appears on controls is a rate or length artifact, not content.
+- *Clause 4, honesty.* The fraction of variance components at the floor is reported per cell; a
+  fit living on the floor is surfaced, never silently read. Failure of clause 3 licenses
+  "continuous emissions are not funded at this operating point; evidence toward the training
+  paradigm as the binding constraint, jointly with the banked oracle gap (0.4148 achievable on
+  this stream, 0.85+ found)" — never "the paradigm cannot work"; the attribution is
+  conditional on the shared `seg12.5` segmentation both arms inherit.
+- The wav2vec-U-faithful variant (change-point segmentation on raw codes, adjacent-segment
+  pooling, duration refit at that rate via the per-rung H1 procedure) is NOT funded here; it is
+  the registered follow-up if clause 3 passes, or a separate planner decision if the shared
+  segmentation itself comes under suspicion.
+
+**Status.** Registered 2026-08-23 from the user's proposal (test whether the failure is caused
+by discrete k-means IDs as acoustic observations rather than by the HMM/LM training paradigm
+itself), with the planner's corrections accepted in the same exchange: the claim is inductive
+bias, not information loss; segmentation shared with the comparator rung rather than
+re-derived; the frozen PCA basis truncated to 128, never refit; M2 disclosed. USER-greenlit
+2026-08-23 ("I greenlight 1g 11") — the 1g work hold, previously lifted for 1g.10 only, is
+lifted for 1g.11 by that word. Nothing launched; evidence goes to `SAE_1g.md`. Entry 8 cells
+3-4 (`PLAN_1F.md`) remain a separate open user decision.
+
 ## 6. Deliverables ladder
 
 | Step | Deliverable | Decision it enables |

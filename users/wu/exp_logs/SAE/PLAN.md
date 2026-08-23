@@ -242,6 +242,13 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    registered label-free selector ANTI-selects (per-token perplexity pays for length), so every
    entry-8 quote is a (pick, oracle-best, range) triple. No null margin until cell 4 re-banks
    the nulls in this currency -- cells 3-4 remain THE USER'S WORD, stakes raised.
+   2026-08-23 (USER: "I greenlight 1g 11"): 1g.11 REGISTERED AND FUNDED (`PLAN_1G.md` 1g.11) --
+   the continuous-emission twin of the table channel: same topology, duration, LMs, repair and
+   local readout, categorical `B(unit|phone)` swapped for tied diagonal Gaussians on
+   segment-mean frozen-PCA layer-15 features (leading 128 components, variance-floored), five
+   1g.2a starts at counts 0/4, paired per-utterance attribution read against each start's own
+   banked table cell, babble null plus continuous observation null; claim under test is
+   geometric inductive bias, not information loss; with the implementer to build.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional
