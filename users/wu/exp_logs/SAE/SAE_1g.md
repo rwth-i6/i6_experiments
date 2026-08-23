@@ -65,6 +65,16 @@ USER-directed: "insertion bonus makes sense, please try that".
 - PURELY ADDITIVE, verified: the 1g.10, 1g.10a and 1g.10b artifacts are all hash-unchanged in the
   rebuilt graph. 1g.10b's 37 SLURM probes survived the manager restart, as SLURM jobs do.
 
+**1g.10c: ALL 265 DECODES AND 8 MERGES ARE FINISHED; the reader is rerunning after a bug of mine**
+(`H4InsertionBonusReadJob.vJSHAkECj8hH`, manager restarted as pid 1703932). The reader indexed
+`_fold`'s result as a (sequences, boundaries) pair; it returns a block keyed by name, so the
+retained-unit counts raised `KeyError: 0` the first time the job saw real units -- after every
+decode had finished. Fixed at speech-llm `6fb0301`, hash-neutral (`run()` only), same job dir
+rerunning. No number was ever produced by the broken version, so nothing logged is affected. A
+regression test now asserts `_fold`'s real return shape against a per-utterance `_retained_runs`
+call (`scripts/h4_insertion_bonus_test.py` 13/13); the previous 12 exercised the reader's
+statistics with fixtures and never called `_fold` itself, which is exactly the gap.
+
 **1g.10b IS COMPLETE: parity PASS, 0 of 36 cells quotable** (verdicts 34-35;
 `H4Beam1024ReadJob.tKbQ0MHLdX03`; 37 probe chunks finished, ZERO error markers). The
 cross-channel quoting bar fired as designed and cross-channel comparison on the 1g.10 table
