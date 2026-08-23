@@ -205,7 +205,13 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    score margins are wide, the decoder-defect branch, so no cell is read. The 1g.10a cross-beam
    defect diagnostic is REGISTERED on banked data (scoring-determinism and pruning-monotonicity
    tests, pre-registered consequences, `PLAN_1G.md` 1g.10 Status 2026-08-23 result); the route
-   question stays with the USER.
+   question stays with the USER. 2026-08-23 discharge: 1g.10a ran under the re-ruled invariants
+   (the banked score is a pruned path-sum, so the original equality test was void) and
+   DISCHARGED the suspicion -- zero violations in the determinism and exact-upper-bound tests,
+   and the wider beam finds the genuinely better sequence in 352 of 384 disagreements. The
+   beam-512 table is now READABLE AS DESCRIPTIVE with per-cell 256-vs-512 agreement disclosed;
+   channel-vs-channel comparisons wait for the registered 1g.10b beam-1024 probe (26-of-27
+   agreement bar). Route decision remains the USER's.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional

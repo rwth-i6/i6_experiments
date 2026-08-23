@@ -2005,6 +2005,26 @@ clause; branches (ii) and (iii) then stand exactly as registered, with the exact
 distribution printed beside the discharge. The reporting rule goes verbatim into the diagnostic
 module's docstring before any result exists.
 
+2026-08-23 discharge (1g.10a COMPLETE: DISCHARGED; consequences (ii) and (iii) in effect;
+1g.10b registered). `H4CrossBeamDefectJob.2pV5rHuWJW3d` (verified: docstring carries the
+re-ruled rule verbatim; the exact score is the pre-existing `marginal_path_log_score` the chunk
+jobs already bank, so the identity is not self-referential; inputs trace to the registered
+KenLM, frozen H1 and banked chunks; tests 9/9): TEST D re-decoded 81 utterances (three
+disclosed cells, twice each) with ZERO violations at 1e-12; TEST U checked all 1,944 banked
+winners against their exact unpruned totals with ZERO violations at 1e-6. Exact-currency
+context: of 384 differing-winner cases, exact(w512) beats exact(w256) in 352, loses in 32
+(median gain +0.0109 nats per retained unit) -- the wider beam mostly finds genuinely
+better-scoring sequences, the search-error signature. THE DUTY'S BLOCK IS DISCHARGED: the
+1g.10 beam-512 table is READABLE AS DESCRIPTIVE, every quoted cell carrying its own 256-vs-512
+agreement beside it; verdict 30 stands as written for its date (the block was correct until
+explained). CROSS-CHANNEL comparisons stay unquotable pending 1g.10b. 1g.10b -- REGISTERED:
+beam-1024 probe on the same contract shard (index 28, 27 utterances), all 36 cells, the
+existing chunk class at the same contract, agreement and drift computed against the beam-512
+chunk of the same shard, reader extended with the 512-vs-1024 columns; the pre-registered
+quoting bar stands: cross-channel comparisons only from cells whose 512-vs-1024 agreement is
+at least 26 of 27, every such quote naming its 27-utterance support. Nothing else changes; no
+selection surface opens; the route question stays with the USER.
+
 ## 6. Deliverables ladder
 
 | Step | Deliverable | Decision it enables |

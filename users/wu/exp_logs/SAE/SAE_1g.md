@@ -1943,3 +1943,19 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   distribution as context. Consequences unchanged: any violation blocks; both passing
   discharges the suspicion as a designed-in approximation and unlocks branches (ii)/(iii)
   as registered.
+- 2026-08-23 (1g.10a launch AND result round VERIFIED; DISCHARGED; consequences applied in
+  `PLAN_1G.md` 1g.10 Status 2026-08-23 discharge). Launch verified: the module docstring
+  carries the re-ruled rule verbatim; the exact score is the pre-existing
+  `marginal_path_log_score` (the chunk jobs already bank it as `channel_log_probability`),
+  so the identity test is not circular -- and the test suite's own load-bearing check (real
+  decoder at a prune-nothing beam must reproduce the exact score to 1e-9, all alternatives,
+  silence policy on, plus a pruning-bites check against vacuity) is exactly the right
+  validation; tests re-run by the verifier, 9/9; inputs trace to the registered KenLM
+  `CreateBinaryLMJob.hvZoC014xnIe`, frozen H1 `Phase1gH1Job.HbxKiuBTJ8aN`, and the banked
+  chunk artifacts. Result verified from the artifact: TEST D 81 utterances re-decoded, 0
+  violations at 1e-12; TEST U 1,944 checks, 0 violations at 1e-6; exact-currency 352
+  positive / 32 negative of 384, median +0.0109 nats per retained unit. The report's fences
+  (reads no cell, quotes no comparison, authorizes nothing itself) are exactly right. The
+  planner applies the pre-registered consequences: beam-512 table readable as descriptive
+  with per-cell agreement disclosed; 1g.10b (beam-1024 probe, 36 cells x contract shard 28,
+  reader extension, 26-of-27 cross-channel bar) is registered and ready to build.
