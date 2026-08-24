@@ -3911,3 +3911,25 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   packs float64/bool; and the claimed per-node worker counts are not recorded in any file
   (sisyphus usage tracks the main process only), so they stay unverified rather than
   confirmed.
+
+- 2026-08-24 (round: the measured table speed-up and the 1g.13 experiment-6 launch, speech-llm
+  `53897e0`). VERIFIED inline: the finished table order-4 cells read 28-30 minutes from dir
+  creation to finished marker (the ~26-minute claim measures run start, consistent), the
+  quoted likelihood trajectory reproduces bit-for-bit from `g2kLTuhpq0ps`'s repair.json
+  (-7.074816 at count 0 to -4.568543 at count 1, monotone through count 4), and the clamp
+  risk on the table arm is retired in fact, not in projection. The experiment-6 build was
+  read in source and conforms to the registration and the carried 1g.12 rulings: the null at
+  BOTH fitting orders controlling the selected espum start, sized from the ARM'S own gate
+  artifact (submit logs show the inherited 7-worker/234 GiB/9 h shape on both null cells),
+  fitting-argument asserts against the arm cell it controls (max_batch, route, emissions
+  key, same start channel), and a refusal if the readout is handed the stream's segment twin
+  instead of the null's own redrawn vectors. The banked 1g.12 nulls' hash preservation
+  through the subclass restating is confirmed by the verifier's OWN census re-run (1g.12
+  graph 4,757 jobs, zero missing dirs, zero unfinished), independent of the implementer's
+  identical read. Manager transition to `sae_1g_13_exp6` (graph contains experiment 5's)
+  verified live -- exactly one campaign manager runs. ONE STANDING NOTE for the evaluation
+  build: the null readouts here carry the same internal cell keys as the arm's (identity by
+  graph edge plus the segment-twin refusal, the shape 1g.12's gate accepted); if the role
+  label is instead to live in the readout ARTIFACT, it must land before these null readouts
+  run -- otherwise the 1g.13 evaluation must carry the null/arm disambiguation explicitly in
+  its own wiring, and either choice should be named in the build.

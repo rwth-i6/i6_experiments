@@ -2927,6 +2927,22 @@ parallel-E-step suite now re-checks both arms at order 4 on the REAL banked matc
 automaton in the one-shard production shape, with exact-equality assertions and a loud
 failure if the banked artifact is absent.
 
+2026-08-24 21:46 MEASURED SPEED-UP VERIFIED and experiment 6 LAUNCHED (speech-llm `53897e0`).
+The table order-4 cells finish in 28-30 minutes dir-to-marker against the gate's 6.6 h
+sequential projection and the 10 h request -- the clamp risk the parallelization was directed
+at is retired in fact, and the sharded fallback shape will not be needed. Experiment 6 (the
+content-free controls on THIS bed) is built to the registration with the 1g.12 rulings
+carried: the observation null at BOTH fitting orders controlling the selected espum start,
+sized from the arm's own gate artifact, its fitting arguments ASSERTED against the arm cell
+it controls, and the readout refused the stream's segment twin -- the seam ruling as code
+(`G12ObservationNullJob.UM72oLRoTEle` matched-4g, `.sakp81hAxfzB` accepted-2g). The banked
+1g.12 nulls keep their hashes through the subclass widening, confirmed by the planner's own
+independent census (4,757 jobs, zero missing, zero unfinished). The campaign manager is now
+`sae_1g_13_exp6`, whose graph contains experiment 5's; exactly one runs. One standing note
+for the evaluation build is in `SAE_1g.md` Verifier feedback (null/arm readout
+disambiguation: label the artifact before the null readouts run, or carry it explicitly in
+the evaluation's wiring, and name the choice).
+
 ## 6. Deliverables ladder
 
 | Step | Deliverable | Decision it enables |
