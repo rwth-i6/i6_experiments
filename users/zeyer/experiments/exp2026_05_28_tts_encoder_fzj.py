@@ -180,6 +180,44 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+    # for the batch-size unit: the padded arm's batch_size is raw samples, not feature frames
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines import configs
+
+    # Packed tensors + whole-step CUDA graphs on that same baseline, layout the only difference.
+    # Reproduces the single-GPU packed speedup on the standard FZJ 4-GPU setup.
+    # packed_batch_size is the padded arm's batch_size in the same raw-sample unit,
+    # so a step gets the same buffer, and packing turns the padding into content.
+    # dim_capacity is max_seq_length_default_input, batch_size_bound is max_seqs;
+    # both come from the baseline config, not from a tuned guess.
+    _train_asr_base_multigpu(
+        "asr-base-mgpu-logmel-muon-lr5e3-wdbl-nep38-packed-graphc",
+        prefix=prefix,
+        feature_extraction=None,
+        base_lr=1.0,
+        peak_lr=5e-3,
+        nep=38,
+        behavior_version=29,  # packed tensors need >= 29
+        extra_config_updates={
+            "optimizer.class": rf.build_dict(Muon)["class"],
+            "packed_tensors": True,
+            # a compiled step returns the grads, so DDP's autograd hooks never fire.
+            # grad_explicit all-reduces them between step and optimizer, matching DDP;
+            # 'param' would average params after per-GPU steps, a different optimization.
+            # It also rules out capture_optimizer, which needs the optimizer inside the graph.
+            "torch_distributed": {"reduce_type": "grad_explicit"},
+            "batch_size": None,
+            "packed_batch_size": {"data": 100_000 * configs._batch_size_factor, "classes": 5_000},
+            # laplace sorting exists to reduce padding, which packing already removes
+            "batching": "random",
+            "torch_cuda_graph": {
+                "batch_size_bound": 500,
+                "dim_capacity": {"data": 312_000, "classes": 80},
+                "warmup_steps": 0,
+                "compile": True,
+            },
+        },
+        extra_config_deletes=["optimizer.epsilon"],
+    )
     # nep38 base_lr sweep with DEFAULT peak_lr (1e-3) -> default OCLR shape: eff. peak = base_lr*1e-3, floor =
     # base_lr*1e-5 (floor/peak ratio 1/100, vs the deeper 1/500 of the peak_lr=5e-3 baseline). base_lr in
     # {1,5,10} -> eff. peak {1e-3, 5e-3, 1e-2}. baselr5 (eff. peak 5e-3, shallow floor) vs lr5e3-wdbl-nep38
@@ -1220,11 +1258,12 @@ def py():
             "packed_batch_size": {"data": 11_200_000, "classes": 5_000, "phonemes": 6_000},
             # laplace sorting exists to reduce padding, which packing already removes
             "batching": "random",
+            # dead key since phase_timing was removed from RETURNN, kept because it is in the hash
+            # and this arm is already trained (ReturnnTrainingJob.A4pDyOmirv1N)
+            "phase_timing": True,
             # batch_size_bound is the seq-count capacity every packed buffer bound is derived from,
             # so it must match max_seqs (500 above); the packed batcher enforces that cap.
             # classes gets 80 (cap 75) for the BOS/EOS shifts.
-            # where do the seconds actually go? per-phase wall time, not CUPTI attribution
-            "phase_timing": True,
             "torch_cuda_graph": {
                 "batch_size_bound": 500,
                 "dim_capacity": {"data": 312_000, "classes": 80, "phonemes": 300},
@@ -1544,6 +1583,7 @@ def _train_asr_base_multigpu(
     base_lr: float = 0.5,
     peak_lr: float = 1e-3,
     nep: int = 25,
+    behavior_version: int = 25,
     torch_distributed: Optional[Dict[str, Any]] = None,
     batch_size_feat: int = 100_000,
     conv_norm: Optional[Dict[str, Any]] = None,
@@ -1592,7 +1632,7 @@ def _train_asr_base_multigpu(
     # Same model as the TTS-encoder runs (Conformer L16 D1024 + Transformer dec L6 D1024, DbMel),
     # minus the GlowTTS attachment (default AED model def, no custom train step).
     model_config: Dict[str, Any] = {
-        "behavior_version": 25,
+        "behavior_version": behavior_version,
         "__serialization_version": 2,
         "enc_build_dict": rf.build_dict(
             ConformerEncoder,
