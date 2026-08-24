@@ -2963,9 +2963,12 @@ can carry it: the banked pins predate the `cell_role` field and the arm/null art
 otherwise indistinguishable), the collision fix is in force with its suite (72/72), and the
 banked 1g.12 read is untouched. The launched reader is `G12EvaluateJob.a3419LhkI7JT` -- the
 log's `BHYf8G7wG6dd` is the PRE-fix build's hash and is being corrected -- and it waits on
-the five Gaussian order-4 cells and the two observation nulls. Two pre-run items with the
-implementer (distinct-file assert; docstring), in `SAE_1g.md` Verifier feedback; neither
-blocks, both cheap, both before the reader runs.
+the five Gaussian order-4 cells and the two observation nulls. All three pre-run items are
+DISCHARGED same night and verified (speech-llm `2542818`): the State hash corrected, the
+pinned paths asserted pairwise distinct (the planner exercised the refusal directly -- two
+pins on one file are refused, and the clean build keeps `a3419LhkI7JT`), and the docstring
+states the pins' true identity ground. The reader is fully reviewed; nothing further stands
+between the finishing cells and the 1g.13 gate read.
 
 ## 6. Deliverables ladder
 

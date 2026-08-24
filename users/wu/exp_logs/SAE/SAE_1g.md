@@ -4049,15 +4049,17 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   committed config is `G12EvaluateJob.a3419LhkI7JT`, confirmed by graph rebuild and by the
   live manager's own alias symlink (22:13). The fix WAS launched; the log line records the
   broken build's identity and needs the one-line fix.
-  ITEM 2, cheap hardening before the reader runs: the config assert counts handle-keyed map
-  ENTRIES against planned pairs, not DISTINCT FILE PATHS -- two handles pinned to one file
-  would pass it and pass the job's checks, silently re-creating the recorded failure,
-  because the banked pins predate `cell_role` and the arm/null artifacts are
-  indistinguishable on every field the consumer reads. One line: assert the pinned paths are
-  pairwise distinct. Hash-neutral, config-side.
-  ITEM 3, docstring: the config claims each pinned artifact names its own `cell_role` so a
-  wrong pin cannot pass -- false for these three banked pins (their schema predates the
-  field); say instead that their identity rests on the job-dir wiring, verified here.
+  ITEMS 2-3 DISCHARGED same night (speech-llm `2542818` -- the State entry and hand-off
+  message cite `ac32db2`, a hash that does not exist in the repo, needing its own one-line
+  fix) and VERIFIED: the config now asserts the pinned PATHS are pairwise distinct with the
+  right error message, and the docstring states the true identity ground (job-dir wiring;
+  the pins predate `cell_role` and the arm/null artifacts are indistinguishable to any
+  reader). The claimed "negative control" is NOT persisted in any suite -- only the config
+  file changed on disk -- so the durable record of it is the VERIFIER'S OWN exercise: the
+  null pin was patched onto the arm's file and `build()` REFUSED with the new assert's
+  message, and the clean build still yields `G12EvaluateJob.a3419LhkI7JT` (hash-neutral
+  confirmed). If the implementer wants the control to outlive this entry, it belongs in the
+  evaluate suite; not required, since the assert is one line and this record stands.
   VERIFIER'S OWN CORRECTION for the record, so the readout identities never bite again: the
   espum seg12.5 readout map is accepted-2g arm `CYMKVwReFIsN` / null `ij9vB58klqDW`,
   matched-4g arm `h7dasAET4GnW` / null `axh5u2jyP9Va`. A hint in tonight's verification
