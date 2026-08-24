@@ -137,7 +137,13 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
   latest: D9.0 PASS, verified (`D9FeasibilityJob.oabVIcp22cy1`: incumbent census 7,168 rows /
   0 infeasible; structural d_min>=2 alignability 6,144/6,144 rollout rows, 512/512 groups,
   median 695 frames vs 210 needed -- the opposite of D8.4's bed) -- D9.1 refits AUTHORIZED,
-  with the implementer.
+  with the implementer. 2026-08-24 (verified; ruling in `PLAN_3E1.md` D9 Status): ARM 3 (soft-EM)
+  IS NOT FUNDED -- `D9WeightJob.uyKXr4ZiGj9R` rules NO-GO on clause (a), median 2.0 distinct
+  support strings of 13 candidates (33.1 pct of the 281,241 groups collapse to ONE), a measured
+  mode-collapse finding about the pinned policy's sampling, not an instrument artifact. D9.2 is
+  amended by replacement to the TWO-ARM read (1-best refit vs incumbent, D8.4 machinery
+  verbatim); the threshold edit and a diversity re-dump are both rejected/not funded. Arm 2 is
+  training; D9.2 registration next.
 - **960 h stock-donor supervision-axis endpoint is ABSENT**: the theta_0 + gold-scorer arm ran
   only through sub-epoch 4, was stopped and deleted 2026-08-08, and never produced the listed
   3-pass endpoint; `ReturnnTrainingJob.22Ntu7y0O6iW` does not exist. Its observed collapse is

@@ -4066,3 +4066,18 @@ the absolute beta, is what carries the contamination claim.
   `D8WeightJob` (two added methods, one optional argument -- no constructor changes), which
   also confirms the hash-safety claim structurally. Wall-clock projection method endorsed:
   anchored to two measured step rates of this policy and D8.1a, not assumed.
+- 2026-08-24 (arm-3 NO-GO round VERIFIED; fallback RULED in `PLAN_3E1.md` D9 Status: option
+  (i) adopted -- D9.2 becomes the two-arm read; threshold edit rejected as post-hoc; a
+  diversity re-dump not funded). Verification performed: `D9WeightJob.uyKXr4ZiGj9R`'s report
+  and JSON support every State claim -- the distinct-support histogram sums to exactly
+  281,241 (92,995 at one, 61,989 at two -- the quoted 33.1/22.0/55.1 pct), mean 3.12, max 13;
+  the scorer-free and rollouts-only medians are both 2.0, confirming the clause is not an
+  artifact of the scorer or the greedy member's inclusion; every grid tau lands at median ESS
+  ~= 2.0 (the thin-support signature itself), token R2 0.4403, valve idle at 0.0000 pct; the
+  tau pin and the vacuous-sensitivity tautology are printed as ruled at launch.
+  `D8ScorerRefitJob.XvPF118rphQP`'s error is the registered guard's own message ("requires a
+  GO weight artifact; this one reads 'NO-GO'") -- failing closed as designed, left untouched,
+  which is the correct handling (planner owns fallback). Arm 2 confirmed running from its own
+  log. The implementer should bank the mode-collapse finding as a verdict resting on the
+  weight-job table (descriptive, adopting nothing) and may build D9.2's reader against the
+  amended two-arm registration once arm 2 finishes.

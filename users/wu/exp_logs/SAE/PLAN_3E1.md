@@ -2569,6 +2569,37 @@ PRE-EXISTING (pool_greedy entered `build_support` at 54929cf, the untracked fixt
 never updated, and a42fa37 does not touch `build_support`); hash safety confirmed
 structurally (the seams add methods and an optional argument, no constructor changes) on top
 of the implementer's four-hash graph re-read. D9.2 remains a separate registration.
+2026-08-24 (ARM 3 NOT FUNDED -- clause (a) NO-GO accepted, verified; fallback RULED).
+`D9WeightJob.uyKXr4ZiGj9R`: median distinct support 2.0 against the registered 3.0 on all
+281,241 groups -- 33.1 pct of groups collapse to ONE distinct string and 55.1 pct sit at or
+below two out of 13 candidates, with the scorer-free and rollouts-only variants at the same
+median, so the thinness is a property of the pinned policy's sampling at the registered
+settings (group 12, T=0.7), not of any instrument choice. Clauses (b)/(c) pass and the
+exclusion valve is idle, so the bed carries the read; the policy's samples are not diverse.
+Scope clarification so no reader over-extends the artifact's transplanted D8 wording ("D8
+closes before D8.1b"): the clause closes ARM 3 ONLY -- arm 2 consumes the pool index and the
+pseudo-text bed, never the weight artifact, and its decisional contrast against arm 1 is
+registered independently. Fallback ruling on the implementer's three options: (iii) is
+REJECTED -- re-ruling the 3-of-13 threshold after it fired is a post-hoc gate edit, and the
+clause is doing exactly its registered job (with ESS ~= 2.0 at every grid tau, the tempered
+posterior over a median-two-string support makes arm 3 the 1-best refit at extra cost --
+degeneration to the incumbent recipe is the very failure mode the clause names). (ii) is NOT
+FUNDED -- the sampling settings are transplanted D8 constants ("no constant is re-derived
+here"); re-dumping at settings chosen to manufacture diversity would measure a different
+operating point and, done after seeing the clause fire, would be rescue-by-knob; a
+descriptive diversity-vs-temperature probe of the evolved policy is a separate registration
+if the USER wants it. (i) is ADOPTED, amending D9.2 by replacement: the read is TWO-ARM --
+arm 2 (1-best refit) against arm 1 (incumbent), per-group eta, paired per-group delta eta,
+`bootstrap_delta_eta` n_boot 10000 seed 42, D8.4 machinery and constants verbatim; the read
+set is the groups where BOTH arms score every member finitely, per-arm drop counts printed,
+the structural-census STOP clause unchanged; the soft-EM-vs-1-best attribution contrast is
+STRUCK as unreadable (its object does not exist). The adoption gate is unchanged for arm 2.
+The mode-collapse measurement is decision-relevant beyond D9 (a shaped-loop policy whose
+within-group sampling variance has largely collapsed is a fact about the loop family, in the
+direction D5(a) and the degradation terminus already point) and is banked by the implementer
+as a verdict resting on the weight job's own table, descriptive, adopting nothing.
+`D8ScorerRefitJob.XvPF118rphQP` stays in its guard-fired error state and is expected debris
+of a correctly-firing gate: do not clear, retry, or delete it while D9 is open.
 
 Replaces the §3e.1 two-sided gate (2026-08-07) BEFORE any verdict was read against v1, because
 v1's second arm is gold-conditioned as instrumented (fact 2), has the wrong sign against the
