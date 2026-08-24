@@ -3090,7 +3090,28 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   Still standing: (c) headroom was thin at 9 h against the 11.5 h clamp on the superseded run
   -- read the re-measured request and the first real cell's wall clock against it; (d) never
   clear `3h2iIpk6lpaB` (its recorded code identity predates two edits at an unchanged hash).
-  One request: the old-vs-new probe-cell equivalence run cited in State (gamma agreeing to
-  7.8e-16, occupancy 60,879 exact) is ad-hoc and uncommitted -- if the banked experiment-4
-  verdict cites it, persist the harness (script or artifact); my independent evidence above
-  carries the no-banked-number-moves conclusion either way.
+  The persist-the-harness request is DISCHARGED: the equivalence check is now the registered
+  `G12EngineEquivalenceJob.sWWDLbPKglfP` (verified in the next entry).
+
+- 2026-08-24 (1g.13 experiment 4 re-measured round VERIFIED; dated line appended to
+  `PLAN_1G.md` 1g.13 Status). `G12ResourceGateJob.cQ3wfqsTamPP` matches approach 26 and
+  verdicts 65-66 in every field, and the sizing arithmetic recomputes: 32 chunks x 128.125 s =
+  1.1389 h per E-step, x5 E-steps x1.5 = 8.54 -> 9 h one curve, x5 starts = 42.71 -> 43 h;
+  chunk 2 is the heaviest at 48,417 tokens; the artifact names its subphase and carries the
+  per-route topology block exactly as ruled (two-state asserted, one-state reported with ratio
+  and ceiling). `G12EngineEquivalenceJob.sWWDLbPKglfP` verified: all five banked probe cells
+  reproduce their log-likelihood and 60,879 histories exactly, worst posterior difference
+  8.882e-16 against the 1e-12 tolerance, and the counter-case separation is present (the
+  superseded normalizer non-finite on the 893-token peaked case) -- without it the equivalence
+  would be vacuous. The superseded engine is derived from the live source by one substitution
+  asserted to match exactly once, which I read and consider sound (a kept copy would drift).
+  Suite `g12_engine_equivalence_test` 25/25 re-run by the verifier; the disclosed NameError
+  recovery (marker renamed, stateless job) and the AST-lint follow-up (`dea3097`) are
+  reasonable. Verdict 68's no-number-moves conclusion now rests on a registered artifact; my
+  independent scan from the previous entry corroborates it. Two notes, no action needed:
+  (1) verdict 67 says "at most 2.7% below" -- 1,675/60,879 is 2.75%, so 2.8% is the correct
+  rounding; (2) three starts (controlled reference, espum, random-map) report IDENTICAL
+  reached counts and arcs (59,319 / 2,372,760), which supports verdict 67's own caution that
+  the column reads structural support rather than start quality. Launch-one-cell-first before
+  the remaining experiment-5 cells (State next action 1) is the right embodiment of caution
+  (c); keep it.

@@ -2731,6 +2731,18 @@ verified unaffected by the verifier's own scan: zero warnings in all ten fitting
 every persisted parameter finite, and the banked gate keeps hash `3h2iIpk6lpaB` untouched on
 disk. Verification details in SAE_1g.md Verifier feedback.
 
+2026-08-24 experiment 4 VERIFIED on the re-measured run (approach 26, verdicts 65-68,
+`G12ResourceGateJob.cQ3wfqsTamPP`): PASS for one order-4 curve at 9 h against the 11.5 h clamp
+(measured 128.13 s heaviest chunk, 1.1389 h per E-step, all sizing arithmetic recomputed by
+the verifier), 30 GiB against 256, RESOURCE_INFEASIBLE for five starts in one process -- so
+experiment 5 builds one job per start, the shape 1g.12 runs, with the first cell's wall clock
+read against the projection before the rest launch (2.5 h headroom, no resume). Cost scaling
+read: time tracks the token count (2.62x for a 2.46x fold, ~7% above token scaling), memory
+tracks the dimension (7.5x, nowhere near the limit). The engine-fix anchor is now the
+registered `G12EngineEquivalenceJob.sWWDLbPKglfP` (verdict 68: banked probes reproduce
+exactly, normalizers agree to 8.882e-16, counter-case separates them), so no 1g.11 or 1g.12
+number moves and nothing is marked WRONG -- the bug destroyed only work not yet done.
+
 ## 6. Deliverables ladder
 
 | Step | Deliverable | Decision it enables |

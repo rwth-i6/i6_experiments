@@ -298,7 +298,9 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    RULED (`PLAN_1G.md` 1g.12 Status: the null persists its redrawn selection-fold vectors,
    readout module untouched), unblocking 1g.12 experiment 5. Experiment-4 first run superseded
    by a NaN-posterior engine defect it exposed (fixed `41127e8`, verified; banked 1g.12
-   unaffected by independent scan); gate re-measuring under the fixed engine.
+   unaffected, anchored by registered `G12EngineEquivalenceJob`); re-measured gate VERIFIED
+   PASS (9 h vs 11.5 clamp, one job per start) -- experiment 5 builds at that shape, first
+   cell's wall clock read before the rest.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional
