@@ -54,6 +54,18 @@ experiments 1 and 2 behind this manager. The accepted espum calibration runs too
 so about two hours each is expected here; the task is resumable, so a wall-clock overrun costs a
 resubmit rather than the run.
 
+DONE 2026-08-24, the planner's ruling on the topology guard implemented and pushed (speech-llm
+`6c68303`). The guard now asserts each ROUTE'S OWN registered expectation from one table read by
+all three job modules: `seg12.5/phones` keeps exactly the pair it was verified at, so no 1g.12
+behaviour changes and a test pins that it has not moved; the v1-equivalent route asserts two-state
+ADMISSIBLE and REPORTS one-state. The reporting duty is implemented rather than described -- the
+measured one-state verdict, its ratio and the class ceiling travel into every cell artifact and into
+the resource gate's honesty report. An unregistered route is refused rather than defaulted. The
+same commit fixes the recorded `_route_mask(h1)` default-route defect at those three call sites, so
+that item is closed. The guard had NO test before this commit, which is why every existing suite
+passed unchanged; `scripts/g12_route_topology_test.py` (28/28) now covers it, including that a
+two-state admission failure or an INDETERMINATE on the v1 route still stops the cell.
+
 NEXT ACTION, in order:
 
 1. When experiment 3 lands, bank its rows, then experiment 4 -- the mandatory order-4 resource read
@@ -78,35 +90,14 @@ retained positions carrying their redrawn vector, dropped positions never read -
 5's readout cell to be handed that file instead of the arm's. That leaves `g12_readout_jobs.py`,
 whose twenty cells are banked, untouched. Nothing is built yet and no banked number is affected.
 
-KNOWN DEFECT, not yet fixed, blocking nothing. `g12_repair_jobs.py:184`, `g12_readout_jobs.py:223`
-and `g12_resource.py:306` call `_route_mask(h1)` at its DEFAULT route while selecting the topology
-and duration from `self.route`. Every 1g.12 cell passes `seg12.5/phones`, so the two agree and no
-banked number is affected. A 1g.13 cell would raise a KeyError rather than silently read the wrong
-mask, so the failure mode is loud; the one-word fix (`_route_mask(h1, self.route)`) goes in with
-1g.13 experiment 5's wiring.
-
 Proposals for the planner:
 
-1. NEW 2026-08-24, blocks 1g.13 experiment 5 and nothing earlier. The 1g.12 repair cell refuses to
-   fit unless its route reads one-state REFUTED and two-state ADMISSIBLE
-   (`g12_repair_jobs.py:180-184`, message "the Gaussian twin's topology differs from the accepted
-   H1"). That guard encodes seg12.5's topology signature, and verdict 61 measures a different one on
-   the v1-equivalent stream: one-state ADMISSIBLE at ratio 1.199, two-state ADMISSIBLE at 0.906. So
-   every 1g.13 cell will stop at that guard. This is the guard working as designed -- the route job
-   reports the verdict rather than asserting it precisely so the cell is what stops -- but clearing
-   it is a normative call, not a bug fix, and it is the planner's. Note what is and is not at stake:
-   the two-state class is ADMISSIBLE on BOTH streams and the minimum-duration-2 topology is standing
-   by the USER's 2026-08-15 ruling, so no modelling choice changes either way; what changes is only
-   whether a stream must reproduce seg12.5's REFUTED verdict to be fitted at all. The implementer's
-   reading is that the guard should assert the route's own registered expectation rather than
-   seg12.5's, but it will not touch it without a ruling.
-
-2. RATIFIED 2026-08-22 by the planner as exactly the registered local-winner exemption, and now
+1. RATIFIED 2026-08-22 by the planner as exactly the registered local-winner exemption, and now
    asserted in the graph by `H4ProvisionalWinnerAuditJob` with empty audit mappings (approach 12):
    the frozen-versus-next-beam winner audit is satisfied without running it because all 85
    provisional winners are `decoder.kind = "local"`. The at-most-320 budgeted shard cells were not
    spent.
-3. The label-free half of the baseline pre-evaluation-ready condition already reads positive -- the
+2. The label-free half of the baseline pre-evaluation-ready condition already reads positive -- the
    selector assigns a nonzero repair count to two of the four real starts
    (`espum_seed0_update30000` and `pseudo_pair_seed0`, both count 4) -- so the only outstanding
    input to that condition is the controlled method-level safety read, which is a label read.
