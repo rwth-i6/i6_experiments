@@ -2598,11 +2598,12 @@ contrast-plan entries instead of silently dropping them; asserting the pinned ta
 comparator's repair count; comparing the emission-table content hash between the exact readout
 and its local comparator so "a cell against itself" rests on content, not wiring; and an empty
 variance-floor column must print "not carried", never "all zero". 2026-08-24: all items
-DISCHARGED at speech-llm `77b8982` and verified (hash unchanged, suites clean); the
-content-hash item was correctly answered differently -- the local comparator decodes the
-channel adapter's own file, so the naive equality is impossible on a correctly wired cell, and
-the job instead asserts start, decode role, repair count, and fitting-LM identity from the
-comparator's own manifest.
+DISCHARGED and verified (replaces the same-day sentence that accepted a weaker answer to the
+content-hash item, because the implementer withdrew it): seven at speech-llm `77b8982`, and
+the content-hash item done AS RULED at `2c9992c` -- the two decoders' tables are tied by
+content through the adapter manifest's source-array digest (three asserted links), verified by
+the verifier's own recomputation on both table corners. The two new inputs move the unrun
+reader's hash to `G12EvaluateJob.yJgxKex9peLp` (never run, so the move is free; suite 63/63).
 
 ### 1g.13 — the 1g.12 factorial on wav2vec-U v1-equivalent segmentation (USER-directed 2026-08-24)
 

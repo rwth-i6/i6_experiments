@@ -3385,17 +3385,28 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   building the graph read-only, 22 cells exactly, unrun confirmed four ways (still no phone
   error rate anywhere in 1g.12); gold sealed at four independent layers; suites re-run 37/37
   and 32/32. PRE-RUN items, all on the unrun job (PLAN_1G.md ruling 3 makes (a) required) --
-  ALL DISCHARGED at speech-llm `77b8982`, verified same day: code read, suites re-run at the
-  new counts (g12_evaluate 55/55, g12_nulls 32/32), and the job hash confirmed unchanged at
-  `oStN2ghRhR7l` by rebuilding the graph read-only. Item (c) was answered differently than
-  asked, and CORRECTLY: the proposed digest equality is impossible on a correctly wired cell,
-  because the local comparator decodes the channel ADAPTER's own occupancy-weighted file, not
-  `repair_channels.npz` -- verified on disk (`42Pe0lEuLkqZ` table sha a0998245 against
-  `mdA3sZp68iqz` channels sha 4e85236b, with the adapter as the graph edge between them). The
-  job instead asserts everything the artifacts carry (start, decode role, repair count,
-  fitting-LM identity under a pinned alias table for the accepted bigram's two spellings) and
-  discloses when a comparator's schema predates the fitting-LM field. Accepted. The items as
-  flagged:
+  ALL DISCHARGED, verified same day: seven at speech-llm `77b8982` (code read, suites re-run,
+  hash then still `oStN2ghRhR7l` by graph rebuild), and item (c) ultimately done AS ASKED at
+  `2c9992c` after a correction round. The direct digest equality item (c) named IS impossible
+  on a correctly wired cell (the local comparator decodes the channel ADAPTER's own
+  occupancy-weighted file, `42Pe0lEuLkqZ` table sha a0998245 against `mdA3sZp68iqz` channels
+  sha 4e85236b) -- but the chain closes one link up, through the adapter manifest's
+  `source_array_sha256`, and the job now asserts all three links (comparator names its
+  manifest by file digest; the manifest names the array it was derived from by array digest;
+  that array is the one in the readout's own emission file) plus the adapter's start and
+  repair count. I first ACCEPTED the weaker answer (`b4120b948`) on the implementer's
+  impossibility claim without looking one link up at the adapter manifest -- an
+  under-verification on my side; the implementer withdrew the claim themselves. Chain verified
+  by my own recomputation: both corners' source arrays match their repair cells'
+  `repair_4_emissions` exactly (a6dc8908 via `H4ContextChannelAdapterJob.q4ZLaWcV6htx` against
+  `H4ContextRepairJob.mdA3sZp68iqz`; 0d73fbc2 via `H4RepairCountAdapterJob.gQB7kSe4hgot`
+  against `H4RepairJob.iUFh7IwniCMl`), and all 60 banked local decodes carry a
+  `table_manifest` digest matching their adapter manifest file. The two new inputs move the
+  unrun job's hash to `G12EvaluateJob.yJgxKex9peLp` (confirmed by graph rebuild, 22 cells,
+  never run, so the move costs nothing; the earlier name `oStN2ghRhR7l` appears above as the
+  identity at review time). Suite g12_evaluate_test 63/63 re-run. What survives from the
+  withdrawn answer: the pinned alias table for the accepted bigram's two spellings, and the
+  disclosure when a comparator's schema predates the fitting-LM field. The items as flagged:
   (a) the clause-3 conventions string must name the interval form in words (two-sided 95
   percent percentile, n_boot, seed) and `evaluate.txt` must print BOTH the stratified primary
   and the unstratified sensitivity, not just the JSON; (b) a planned contrast whose arm is
