@@ -572,11 +572,23 @@ carries the numbers and verdicts 73-75 read them. Three headlines, none good for
    not a content effect. This is the read the previous State asked for: (d) with its controls from
    the start rather than a bare positive-or-negative number.
 
-THE GATE VERDICT IS THE PLANNER'S, for the same reason it was in 1g.12: the registration's
-"comparable gain" condition carries no number, so the artifact prints the intervals side by side
-rather than deciding.
+THE GATE IS READ AND RULED by the planner 2026-08-25 (`PLAN_1G.md` 1g.13 Status): clause 2 fails
+every real start, clause 3 is NOT POSITIVE with the comparability ruling firing on two contrasts,
+clause 4 passes, and (d) is negative and not content-specific. The registered consequence fires
+verbatim -- the failure license extends to "v1-equivalent segmentation does not rescue this channel
+family at this operating point", jointly with 1g.11/1g.12 further evidence toward the training
+paradigm as the binding constraint, never "the paradigm cannot work". The wav2vec-U-faithful
+completion is NOT triggered; its trigger was (d) POSITIVE with clean controls. Nothing reopens
+1g.11's or 1g.12's gates. The verifier reproduced all eleven clause-3 contrast entries
+float-identically from the raw hypotheses with an independent edit distance and bootstrap, and
+every supporting pooled phone error rate bit-equal, with ZERO discrepancies.
 
-One defect in the run, fixed in code but NOT re-run: `evaluate.txt` from
+ALL SEVEN 1g.13 EXPERIMENTS ARE COMPLETE -- 4,803 of 4,803 jobs carry a finished marker, no manager
+is running and nothing is queued. `sae_1g_13_exp5` and `sae_1g_13_exp6` are now blocked behind
+`sae_1g_13_exp7` in `sis_managers.sh` for the usual shared-graph reason. Closing the subphase, and
+any funding of a wav2vec-U-faithful completion despite the negative read, is the USER's word.
+
+One defect in the run, fixed in code and the re-run DECLINED by the planner 2026-08-25: `evaluate.txt` from
 `G12EvaluateJob.a3419LhkI7JT` contains no section (d). The contrast was computed and IS banked in
 `evaluate.json` under `clause3_contrasts` -- that is where approach 31's (d) row comes from -- but
 the report printer never rendered it, so the one comparison 1g.13 exists for was invisible on the
@@ -595,11 +607,6 @@ Proposals for the planner:
    selector assigns a nonzero repair count to two of the four real starts
    (`espum_seed0_update30000` and `pseudo_pair_seed0`, both count 4) -- so the only outstanding
    input to that condition is the controlled method-level safety read, which is a label read.
-
-3. Whether to re-run `G12EvaluateJob.a3419LhkI7JT` so its `evaluate.txt` carries section (d). The
-   numbers are not at risk -- they are banked in `evaluate.json` and transcribed into approach 31,
-   and the printer fix is committed and tested -- so this buys a readable artifact, not a result,
-   at the cost of about 2 h on 4 cores. Clearing a finished job is not mine to do unasked.
 
 ## Approach
 
