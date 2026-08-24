@@ -255,6 +255,19 @@ result is BIT-IDENTICAL to the single-core path rather than merely close -- whic
 cells inherit the accepted computation's verification instead of needing their own. Speech-llm
 `454ddbd`, `scripts/parallel_estep_test.py` 101/101 new, twelve neighbouring suites clean.
 
+TWO EVALUATION-HYGIENE ITEMS DISCHARGED 2026-08-24 before the build that reads them (speech-llm
+`45a5ed0`). A null cell and the ARM it controls decode the same start in the same corner under the
+same fitting LM, so their readout cell keys are identical and the two artifacts are
+indistinguishable read on their own -- in 1g.12 they were told apart only by float-exact matching
+against banked numbers. `G12ExactReadoutJob` now carries `cell_role`, top-level in the JSON and in
+the text report, excluded from the hash at its default; the 1g.12 graph re-censused at 4,757 jobs
+with zero unfinished, so no banked readout moved, and the 1g.13 null readouts declare
+`observation_null`. Separately, clause 4's "floor share: all zero" is a statement about the cells
+that HAVE a variance floor and the table arm has none to floor, so the line now names how many
+cells it covers and how many sit outside it -- a clean floor column is not a clean bill for cells
+it never covered. Suites: readout 28/28 (was 22), evaluate 63/63, nulls 32/32, exact decode 33/33,
+parallel E-step 122/122.
+
 MEASURED SPEED-UP 2026-08-24 21:46, and it removes the clamp risk entirely. The first three table
 order-4 cells FINISHED IN ABOUT 26 MINUTES against the gate's 6.6 h sequential projection, a 10 h
 request and an 11.5 h queue cap -- roughly fifteen times faster on sixteen workers, which is what
