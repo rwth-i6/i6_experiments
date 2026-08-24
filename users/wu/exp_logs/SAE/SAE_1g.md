@@ -30,34 +30,53 @@ with little room, so 1g.13 experiment 4's resource read decides, not that projec
 
 DONE (1g.12 experiment 4): ALL TWENTY exact order-4 readouts finished 2026-08-24 14:14, zero
 exactness violations everywhere, approach 22 and verdicts 59-60. The manager exited on completion;
-its watcher reported STALLED because the one-shot graph read called 14 finished cells "waiting",
-which is the known console misreport -- the on-disk census is 4,752 jobs and zero unfinished.
+its watcher reported STALLED because the one-shot graph read called finished cells "waiting", which
+is the known console misreport -- the on-disk census is 4,752 jobs and zero unfinished. The verifier
+reconciled verdicts 55-60 and closed the readout launch verification (2026-08-24).
 
-DONE (1g.13 experiment 2, half): `G13VadFirewallJob.Usfy2NF0LiSQ` -- the recomputed trim mask
+DONE (1g.13 experiment 2): BOTH JOBS. `G13VadFirewallJob.Usfy2NF0LiSQ` -- the recomputed trim mask
 agrees with the banked dump on all 5,567 utterances with ZERO kept-count disagreements, and its
-0.1459 trimmed share reproduces the dump's own recorded `vad_dropped_frac` exactly. Roles carried
-at the registered 3,565 / 890 / 1,112, in three separate files.
+0.1459 trimmed share reproduces the dump's own recorded `vad_dropped_frac` exactly; roles carried at
+the registered 3,565 / 890 / 1,112 in three separate files. `G13RoutesJob.hStPuE1UqLK6` -- the
+partition and text carried verbatim and proved, the silence mask empty by decision, and the
+substantive read: p = 0.68898090 at mean duration 3.2152, one-state ADMISSIBLE and two-state
+ADMISSIBLE, against seg12.5's p = 0.23560298 and one-state REFUTED. Approach 24 and verdict 61. Its
+measured memory peak was 141.45 GiB against H1's 141.52, confirming the mid-run correction from the
+24 GiB originally declared; it finished inside its original 2 h request.
 
-IN FLIGHT: `config/sae_1g_13_exp2.py` (manager pid 1050855) -- `G13RoutesJob.hStPuE1UqLK6`, the
-H1 route read on the v1-equivalent stream, running since 13:55. QUESTION: what duration parameter
-and topology verdict does this stream carry with the silence step bypassed? Its declared memory was
-CORRECTED mid-run from 24 to 192 GiB (observed at 130 GB, against H1's measured 141.52 GiB peak for
-the same complete-T_phi load); rqmt does not hash, so the running job is untouched and a rerun is
-sized right. The long tail is `fit_duration`'s grid scan, whose cost goes as the product of the
-distinct-length support and the text-length support, both about four times seg12.5's.
+IN FLIGHT: `config/sae_1g_13_exp3.py` (manager pid 1328261) -- the five starts re-derived on the
+v1-equivalent stream. Sixteen jobs, thirteen unfinished at launch: three construction-only starts
+and the controlled reference on CPU, then the espum arm's full registered fan-out on GPU (masked
+stream, role manifest, three full seeds, the bigram-only control, the label-free pick, the
+projection). QUESTION: do the registered start protocols, applied unchanged to a stream with 2.46x
+the tokens and a 128-symbol alphabet, produce usable starts at all? `sis_managers.sh` now blocks
+experiments 1 and 2 behind this manager. The accepted espum calibration runs took 47 minutes each,
+so about two hours each is expected here; the task is resumable, so a wall-clock overrun costs a
+resubmit rather than the run.
 
 NEXT ACTION, in order:
 
-1. When the routes job lands, bank its row in approach 24 and start `config/sae_1g_13_exp3.py` --
-   NOT before, because its graph contains the routes job and two managers over it would
-   double-submit. `sis_managers.sh` swaps `sae_1g_13_exp2` for `sae_1g_13_exp3` at that moment.
-   Experiment 3 is BUILT, TESTED and CENSUSED: 16 jobs, 13 unfinished, being the three
-   construction-only starts, the controlled reference, the masked espum stream, the role manifest,
-   four espum trainings, the label-free pick and the projection. Then experiment 4, the mandatory
-   order-4 resource read, before any 1g.13 cell is funded.
-2. 1g.12 experiment 5 -- the null job class `G12ObservationNullJob` exists and is tested, only its
-   config is missing. Then experiment 6, the evaluation on the 890 with gold with the 1,112 sealed,
-   which is where clauses 1 to 3 are actually decided.
+1. When experiment 3 lands, bank its rows, then experiment 4 -- the mandatory order-4 resource read
+   on the new stream -- before any 1g.13 cell is funded.
+2. 1g.12 experiment 5, once the planner rules on the observation-null readout point below, then
+   experiment 6, the evaluation on the 890 with gold with the 1,112 sealed, which is where clauses
+   1 to 3 are actually decided. There is still NO phone error rate anywhere in 1g.12 and none is due
+   before experiment 6: experiments 1 to 4 read no gold at all, and the twenty readout cells have
+   persisted their decoded sequences (`hypotheses.json`, 890 utterances each) but nothing scores
+   them yet.
+
+OPEN DESIGN POINT found 2026-08-24 while wiring 1g.12 experiment 5, recorded before it can be built
+wrong. `G12ObservationNullJob` redraws the retained-token vectors of BOTH folds -- update and
+selection -- but holds them only in memory; it persists fitted parameters and its own LM-blind
+decode, not the redrawn observations. `G12ExactReadoutJob` takes `segments_pkl`, the REAL segment
+vectors, plus a parameters file. So handing the null's parameters to the readout as registered would
+decode the REAL selection acoustics with null-fitted parameters, which is not the null: it would
+flatter the control (real acoustics, weaker parameters) and therefore weaken clause 3 in the
+direction that makes the arm look good. The fix that keeps the observation seam in one place is for
+the null job to also write its redrawn SELECTION-fold vectors as a segments-shaped artifact --
+retained positions carrying their redrawn vector, dropped positions never read -- and for experiment
+5's readout cell to be handed that file instead of the arm's. That leaves `g12_readout_jobs.py`,
+whose twenty cells are banked, untouched. Nothing is built yet and no banked number is affected.
 
 KNOWN DEFECT, not yet fixed, blocking nothing. `g12_repair_jobs.py:184`, `g12_readout_jobs.py:223`
 and `g12_resource.py:306` call `_route_mask(h1)` at its DEFAULT route while selecting the topology
@@ -68,12 +87,26 @@ mask, so the failure mode is loud; the one-word fix (`_route_mask(h1, self.route
 
 Proposals for the planner:
 
-1. RATIFIED 2026-08-22 by the planner as exactly the registered local-winner exemption, and now
+1. NEW 2026-08-24, blocks 1g.13 experiment 5 and nothing earlier. The 1g.12 repair cell refuses to
+   fit unless its route reads one-state REFUTED and two-state ADMISSIBLE
+   (`g12_repair_jobs.py:180-184`, message "the Gaussian twin's topology differs from the accepted
+   H1"). That guard encodes seg12.5's topology signature, and verdict 61 measures a different one on
+   the v1-equivalent stream: one-state ADMISSIBLE at ratio 1.199, two-state ADMISSIBLE at 0.906. So
+   every 1g.13 cell will stop at that guard. This is the guard working as designed -- the route job
+   reports the verdict rather than asserting it precisely so the cell is what stops -- but clearing
+   it is a normative call, not a bug fix, and it is the planner's. Note what is and is not at stake:
+   the two-state class is ADMISSIBLE on BOTH streams and the minimum-duration-2 topology is standing
+   by the USER's 2026-08-15 ruling, so no modelling choice changes either way; what changes is only
+   whether a stream must reproduce seg12.5's REFUTED verdict to be fitted at all. The implementer's
+   reading is that the guard should assert the route's own registered expectation rather than
+   seg12.5's, but it will not touch it without a ruling.
+
+2. RATIFIED 2026-08-22 by the planner as exactly the registered local-winner exemption, and now
    asserted in the graph by `H4ProvisionalWinnerAuditJob` with empty audit mappings (approach 12):
    the frozen-versus-next-beam winner audit is satisfied without running it because all 85
    provisional winners are `decoder.kind = "local"`. The at-most-320 budgeted shard cells were not
    spent.
-2. The label-free half of the baseline pre-evaluation-ready condition already reads positive -- the
+3. The label-free half of the baseline pre-evaluation-ready condition already reads positive -- the
    selector assigns a nonzero repair count to two of the four real starts
    (`espum_seed0_update30000` and `pseudo_pair_seed0`, both count 4) -- so the only outstanding
    input to that condition is the controlled method-level safety read, which is a label read.
@@ -1165,8 +1198,20 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     through this exact derivation reproduce their banked dump lengths exactly, with the encoder and
     MFCC lengths equal in all twelve.
 
+    `ratio` is the measured lag-one mutual information over what the class allows; the registered
+    admission band is ratio <= 2 under BOTH estimators (`structure_screen.ADMISSIBLE_RATIO`), so
+    ADMISSIBLE means "this class can produce a dependency this strong", not "this class is right".
+    The accepted seg12.5 row is quoted from the accepted H1 for contrast and is not a run of this
+    job.
+
+    | run | p | mean duration | lag-1 MI (MM) | one-state ratio | two-state ratio | verdicts | job |
+    |---|---|---|---|---|---|---|---|
+    | v1-equivalent stream, empty silence mask | 0.68898090 | 3.2152 | 2.2498 | 1.199 | 0.906 | one ADMISSIBLE, two ADMISSIBLE | `hStPuE1UqLK6` |
+    | seg12.5, accepted H1 (for contrast, not a run here) | 0.23560298 | 1.3082 | 2.2315 | 3.185 | 1.819 | one REFUTED, two ADMISSIBLE | `Phase1gH1Job.HbxKiuBTJ8aN` |
+
     | run | headline | job |
     |---|---|---|
+    | VAD-mask firewall | 5,567 utterances, 0 kept-count disagreements; 1,888,037 untrimmed frames to 1,612,502 kept (0.1459 trimmed, reproducing the dump's own recorded `vad_dropped_frac`); roles 3,565 / 890 / 1,112 | `Usfy2NF0LiSQ` |
 
 
 ## Verdicts
@@ -1842,6 +1887,25 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     wrong about every one of them. The correctness read is experiment 6, on the 890 with gold,
     against the re-banked nulls; clause 3(a)'s readout contrast is decided there and not here.
 
+61. **A24: on the v1-equivalent stream a one-state channel is NOT refuted, where on seg12.5 it is
+    -- the segmentation, not the phone inventory, is what made within-symbol duration structure
+    necessary.** The two streams carry almost identical lag-one mutual information (2.2498 nats
+    here against the accepted H1's 2.2315), so the raw dependency did not change. What changed is
+    what a one-state channel is ALLOWED to produce: 1.876 nats here against 0.701 on seg12.5, so
+    the ratio falls from 3.185 to 1.199 and lands inside the registered admission band of 2. The
+    mechanism is visible in the fitted duration and needs no interpretation: the within-symbol pair
+    rate rises from 0.2356 to 0.6890 and the mean duration from 1.31 to 3.22 audio tokens per phone,
+    which is what a 28-segments-per-second stream must give against a 12.5-per-second one. When most
+    adjacent token pairs lie inside one phone, a model with no within-symbol substructure already
+    accounts for most of the adjacent-token dependency. The two-state class remains ADMISSIBLE on
+    both streams (ratio 0.906 here, 1.819 there), so nothing is refuted that was previously
+    admitted. CONSEQUENCE FOR THE TOPOLOGY: none by itself. The minimum-duration-2 scorer topology
+    is standing by the USER's 2026-08-15 ruling and is not a function of this measurement; what this
+    verdict changes is only the EVIDENCE for it, which on this stream is absent rather than
+    contrary. CONSEQUENCE FOR THE BUILD: the 1g.12 repair cell refuses to fit unless the route reads
+    one-state REFUTED and two-state ADMISSIBLE, which is seg12.5's signature, so a 1g.13 cell stops
+    at that guard as designed -- see the planner proposal in State.
+
 ## Catalog
 
 1g.10c positive insertion-bonus cells, parity PASS, sign split between rows (verdicts 36-37): `work/speech_llm/sae/h4_insertion_bonus/H4InsertionBonusReadJob.da3bGeQIkS0R` (`insertion_bonus.json`, `insertion_bonus.txt`); 256 beam-512 chunks + 8 probes + 1 parity chunk under `work/speech_llm/sae/h4_insertion_bonus/`, merged by the production `H4SequenceDecodeMergeJob`; code `sae/h4_insertion_bonus.py`, `scripts/h4_insertion_bonus_test.py` (14/14) at speech-llm `3d395de`.
@@ -1856,6 +1920,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 |---|---|
 | 1g.12 experiments 2 and 3, the ten Gaussian repair cells at fitting orders 2 and 4 (approach 21, verdicts 55-56, 58) | accepted-2g `work/speech_llm/sae/g12_repair_jobs/G12GaussianContextRepairJob.` `0nngx4f5pX69`, `iZaUwq3DQVjj`, `OBwHBeOmwYU5`, `OyooGnuVi7EK`, `uczGmykabX6i`; matched-4g `.8OzLoDv4PPlt`, `.BrQtRIAKaWwU`, `.dDKq6J6AQEIP`, `.DgOI3SI1cwph`, `.kHwPYElOcCPr` (each `parameters.npz`, `repair.json`, `repair.txt`, `hypotheses.json`); code `sae/g12_gaussian_context.py`, `sae/g12_repair_jobs.py`, `configs/config_sae_1g_12_exp23_v1.py`, `config/sae_1g_12_exp23.py`, `scripts/g12_repair_jobs_test.py` (31/31) |
 | 1g.12 experiment 4, the twenty exact order-4 one-best readouts (approach 22, verdicts 59-60) | `work/speech_llm/sae/g12_readout_jobs/G12ExactReadoutJob.*` (20 dirs; each `readout.json`, `readout.txt`, `hypotheses.json`); code `sae/g12_exact_decode.py`, `sae/g12_readout_jobs.py`, `configs/config_sae_1g_12_exp4_v1.py`, `config/sae_1g_12_exp4.py`, `scripts/g12_exact_decode_test.py` (33/33), `scripts/g12_readout_jobs_test.py` (22/22) at speech-llm `5e245b1` |
+| 1g.13 experiment 2, the H1 route read on the v1-equivalent stream (approach 24, verdict 61) | `work/speech_llm/sae/g13_jobs/G13RoutesJob.hStPuE1UqLK6` (`phase1g_h1_v1_equivalent.json`, `.txt`); code `sae/g13_jobs.py`, `scripts/g13_routes_test.py` (25/25) at speech-llm `4d0fad6` |
 | 1g.13 experiment 2, the VAD-mask firewall (approach 24) | `work/speech_llm/sae/g13_firewall/G13VadFirewallJob.Usfy2NF0LiSQ` (`gold_update.pkl`, `gold_selection.pkl`, `gold_evaluation.pkl`, `trim_masks.pkl`, `firewall.json`, `firewall.txt`); code `sae/g13_firewall.py`, `configs/config_sae_1g_13_exp2_v1.py`, `config/sae_1g_13_exp2.py`, `scripts/g13_firewall_test.py` (30/30) at speech-llm `4d0fad6` |
 | 1g.13 experiment 1, the wav2vec-U v1-equivalent stream (approach 23, verdict 57) | `work/speech_llm/sae/g13_jobs/G13StreamBuildJob.Ob8Rh8y51x9M` (`units.pkl`, `segments.pkl`, `boundaries.pkl`, `component_scale.npy`, `transform.npz`, `stream.json`, `stream.txt`); code `sae/g13_stream.py`, `sae/g13_jobs.py`, `configs/config_sae_1g_13_exp1_v1.py`, `config/sae_1g_13_exp1.py`, `scripts/g13_stream_test.py` (35/35), `scripts/g13_faiss_reference_test.py` (10/10, run under the `w2vu` env), `scripts/g13_jobs_test.py` (34/34) at speech-llm `7f3f312` |
 | 1g.9 experiment 1, locate the collapse (approach 15, verdicts 26-29) | `work/speech_llm/sae/h4_collapse_locate/H4CollapseLocateJob.gZ9d6e3E7ZGu`; code `sae/h4_collapse_locate.py`, `configs/config_sae_1g_h4_collapse_locate_v1.py`, `config/sae_1g_h4_collapse_locate.py`, `scripts/h4_collapse_locate_test.py` (6/6) at speech-llm `d08cd88` |
