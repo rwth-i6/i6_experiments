@@ -4088,6 +4088,17 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   -- two handles aimed at one artifact refused on the assert's own message text, 6/6 re-run
   by the verifier, superseding the one-off exercise recorded earlier. The clean build keeps
   `G12EvaluateJob.a3419LhkI7JT`.
+
+- 2026-08-24 (round: the factorial fitted, wall clocks measured). VERIFIED on disk: all
+  twenty fitting cells and both observation nulls carry finished markers (family counts
+  reconcile: 20 Gaussian repair dirs = 10 banked 1g.12 + 10 new, 30 table = 20 + 10); the
+  Gaussian order-4 pilot ran 45 minutes dir-to-marker against the 5.7 h sequential
+  projection on 7 workers, the matched-4-gram null 52 minutes, both matching the State
+  table; and every quoted health figure of the espum matched-4g cell reproduces exactly
+  from its artifact (log likelihood -1.0291e9 to -1.0098e9, floor share 0.0 at both counts,
+  38 to 39 distinct symbols, the codebook block recording the 1024-to-512 PCA carry at 128
+  units). Both arms' speed-ups are near-linear in workers, as the shape predicts. Nothing
+  handed remains unverified; the readouts and the reader are the remaining chain.
   VERIFIER'S OWN CORRECTION for the record, so the readout identities never bite again: the
   espum seg12.5 readout map is accepted-2g arm `CYMKVwReFIsN` / null `ij9vB58klqDW`,
   matched-4g arm `h7dasAET4GnW` / null `axh5u2jyP9Va`. A hint in tonight's verification
