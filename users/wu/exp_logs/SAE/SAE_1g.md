@@ -924,7 +924,25 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     reproduce is a broken re-run and not a result about fitting order, so it writes nothing. The
     decode here is the LM-BLIND local decoder only -- 1g.11's own, unchanged -- which is the no-LM
     leg of clause 3's readout contrast; the exact order-4 one-best readout is experiment 4 and does
-    not exist yet. Requests are read from the gate artifact, never written in the config. IN FLIGHT.
+    not exist yet. Requests are read from the gate artifact, never written in the config. The five
+    matched-4g cells are IN FLIGHT; the five bigram cells are complete.
+
+    `reproduces` is the bigram corner's acceptance check against the banked 1g.11 cell, as
+    `criterion relative difference / decoded-utterance disagreements`; the declared bar is 1e-9 and
+    exactly zero. `sym/tok` is per RETAINED TOKEN and licenses no cross-arm comparison.
+
+    | start | fitting LM | count | criterion | floor | sym/tok | distinct | reproduces | job |
+    |---|---|---|---|---|---|---|---|---|
+    | real/pseudo_pair_seed0 | accepted-2g | 0 | -80,515,490.0 | 0.0000 | 0.0152 | 3 | 9.3e-16 / 0 of 890 | `0nngx4f5pX69` |
+    | real/pseudo_pair_seed0 | accepted-2g | 4 | -77,940,277.7 | 0.0000 | 0.7411 | 39 | 1.3e-15 / 0 of 890 | `0nngx4f5pX69` |
+    | controlled/reference | accepted-2g | 0 | -77,517,283.6 | 0.0000 | 0.8003 | 39 | 1.7e-15 / 0 of 890 | `OBwHBeOmwYU5` |
+    | controlled/reference | accepted-2g | 4 | -73,987,478.3 | 0.0000 | 0.7789 | 39 | 2.6e-15 / 0 of 890 | `OBwHBeOmwYU5` |
+    | real/random_map_seed1000 | accepted-2g | 0 | -79,781,460.4 | 0.0000 | 0.8948 | 37 | 1.9e-16 / 0 of 890 | `OyooGnuVi7EK` |
+    | real/random_map_seed1000 | accepted-2g | 4 | -75,065,550.4 | 0.0000 | 0.7887 | 39 | 1.2e-15 / 0 of 890 | `OyooGnuVi7EK` |
+    | real/fingerprint | accepted-2g | 0 | -79,836,863.3 | 0.0000 | 0.8791 | 39 | 3.7e-16 / 0 of 890 | `iZaUwq3DQVjj` |
+    | real/fingerprint | accepted-2g | 4 | -74,841,463.6 | 0.0000 | 0.8080 | 38 | 4.0e-16 / 0 of 890 | `iZaUwq3DQVjj` |
+    | real/espum_seed0_update30000 | accepted-2g | 0 | -79,791,528.0 | 0.0000 | 0.9220 | 38 | 9.3e-16 / 0 of 890 | `uczGmykabX6i` |
+    | real/espum_seed0_update30000 | accepted-2g | 4 | -74,726,774.7 | 0.0000 | 0.8694 | 39 | 1.0e-15 / 0 of 890 | `uczGmykabX6i` |
 
 
 ## Verdicts
@@ -1515,6 +1533,25 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     beside the history contraction, so the emission swap is nearly free at this order -- which
     matters for the attribution the subphase is built on: neither corner of the order-4 column is
     handicapped by its own cost.
+
+55. **A21: the order-2 instantiation of the new context path IS the banked 1g.11 code path, on the
+    real fold and not only on fixtures.** All five bigram corners reproduce their banked 1g.11 cell
+    at both counts: criterion relative differences between 1.9e-16 and 2.6e-15, six orders of
+    magnitude inside the declared 1e-9 bar, and ZERO decoded-symbol disagreements across all 890
+    selection utterances in all ten cell-count pairs. The two paths differ in their dynamic
+    programming (dense 78-by-78 transition against the history contraction) and in their batching
+    (256 utterances per call against one), so agreement at round-off is the strongest statement
+    available -- bit-identity is not, and was never claimed. What this buys is the attribution the
+    subphase rests on: the order-4 column is produced by the same code as the order-2 column, so a
+    difference between them is the fitting order.
+
+56. **A21: the fitted Gaussian parameters 1g.11 never persisted now exist for all five starts.**
+    That is the whole reason experiment 3 was funded, and it is discharged: `parameters.npz` per
+    cell holds `mu` and `var` at counts 0 and 4, so no later experiment in this subphase refits
+    anything to read a bigram cell. The criterion rises at every start (e.g. `controlled/reference`
+    -77,517,283.6 to -73,987,478.3) and the variance floor share is 0.0000 in every cell, matching
+    verdict 51 -- these are 1g.11's own numbers recovered, not new evidence, and they are quotable
+    only within their own arm.
 
 ## Catalog
 
