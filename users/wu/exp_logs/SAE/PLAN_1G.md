@@ -2331,6 +2331,24 @@ NOT funded (it required a clause-3 pass); whether the shared segmentation itself
 suspicion is a separate planner decision, currently not raised. 1g.11's question is ANSWERED;
 what the answer means for the phone route's direction is the USER's call and joins entry 8
 cells 3-4 (`PLAN_1F.md`) on their desk.
+2026-08-24 (verifier's ad-hoc unigram read of the banked hypotheses, on the USER's question
+"do the Gaussian outputs look less collapsed" -- descriptive, decides nothing, and any
+load-bearing use needs a registered reader; convention: unigram over all decoded symbols of
+the 890 selection fold, per cell, from `G11GaussianRepairJob.NogH62uMEI7T/output/
+hypotheses.json` and the banked `H4LocalDecodeJob` one-bests; parse validated against the
+banked distinct counts and the evaluate table's length identities). Only pseudo_pair ever
+collapses to few phones, in BOTH arms (3 distinct at count 0). At count 4 the Gaussian arm
+ESCAPES it (39 of 39 phones, top-1 share 0.074, unigram perplexity 32.4 vs gold-shape 28.4)
+while the table stays stuck (9 phones, top-1 0.52, perplexity 3.6). All other cells in both
+arms use 35-39 phones at roughly gold-shaped unigrams; the Gaussian cells run systematically
+MORE uniform than gold (perplexity 31-36, top-1 0.05-0.09). The trap, and why this changes
+no verdict: unigram diversity is content-blind here -- the content-free random-map Gaussian
+control has the MOST uniform output of the whole table (perplexity 35.8), and with a tied
+covariance the local decode is a nearest-mean classifier whose argmax regions tile the
+feature space, so many-phone output is close to structural. The Gaussian family fixes the
+degenerate-output pathology and still finds no content (espum's near-gold unigram is
+substitution-dominated at 0.85 PER) -- consistent with, and mildly sharpening, the clause-3
+attribution toward the objective rather than the readout pathology.
 
 ## 6. Deliverables ladder
 
