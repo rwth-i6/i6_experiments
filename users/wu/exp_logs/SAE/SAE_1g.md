@@ -154,38 +154,108 @@ BUILD ORDER THIS IMPLIES, and the reason for it: port and test the table path FI
 the table arm, then launch cells -- never widen shared source while cells are running, because a
 running job re-imports the recipe tree on every resubmit.
 
+DONE 2026-08-24 (1g.13 experiment 5, step (a)): the table arm is PORTED, hash-neutrally, in three
+commits (speech-llm `a8279ef`, `f651ffd`, `1d8f669`). Verified against the live graph after each:
+142 jobs of the ported and consuming modules, zero moved and zero unfinished, so the twenty banked
+1g.2a repair cells, the sixty banked local decodes and the accepted table-arm gate all keep their
+hashes. Four things were widened, each hash-excluded at its default so the accepted stream is
+untouched and a second stream hashes differently:
+
+  - `route`, replacing `h1["routes"]["seg12.5/phones"]` and the default-route `_route_mask(h1)` in
+    both modules -- the same defect already fixed in the three g12 modules;
+  - the topology assertion, now the shared `route_topology_read` rather than a hardcoded pair, so
+    both modules read the ONE table the planner ruled;
+  - the START POPULATION, now a route-keyed table beside the topology one. This was NOT foreseen in
+    the finding above and is the substantive part: 1g.13's five registered start names are
+    `controlled_reference`, `espum`, `fingerprint`, `pseudo_pair_seed0`, `random_map_seed1000`,
+    NOT the seg12.5 names. Mapping one onto the other in a config would have attributed each 1g.13
+    cell to a name that means something else (`real/espum_seed0_update30000` names a seg12.5 update
+    step; the 1g.13 espum pick is at update 24,000). Keyed by route, a config cannot invent a
+    population and a cross-stream name is refused where it is handed over;
+  - the FITTING LM scope, now including `accepted-2g`, built from the calibration artifact by
+    `bigram_lm_from_matrix` exactly as the Gaussian arm's own accepted-bigram cell builds it, with
+    a cell carrying both an automaton and the calibration artifact refused.
+
+FOUND while porting, from the artifacts rather than assumed: the three registered 1g.13 start
+protocols write three different manifest schemas and NO single field is present in all of them.
+`H3InitializerJob` and the espum projection record the update-role binding as `fit_ids_hash`;
+`G13ReferenceStartJob` records it as `h1_hashes["update"]`; only the first two carry the accepted-H1
+content digest. So on a non-accepted route the binding is asserted through whichever field the
+manifest uses (neither is refused), together with the route key -- which is what protects stream
+identity, per the plan's own note that the route artifact refuses the accepted key outright. Which
+checks ran travels into the cell's manifest, because a reader of a 1g.13 cell has to be able to SEE
+that the content digest was unavailable rather than infer that it was fine. The accepted route keeps
+exactly its three original checks. `scripts/h4_context_port_test.py` 50/50, including that a
+seg12.5 start name on the v1 route and a v1 name on the accepted route are both refused, and a
+negative control on the two-state lift.
+
+IN FLIGHT (1g.13 experiment 5, step (b)): `H4ContextResourceGateJob.8M4rSjaBlikH`, the TABLE arm's
+own measured order-4 read on the v1-equivalent stream, launched 2026-08-24 under manager
+`sae_1g_13_exp4` (its other three jobs are finished). Taken as COMPLETING experiment 4, not
+amending the plan: experiment 4 says the read comes before any cell is funded and the Gaussian gate
+measures the Gaussian arm. RESOURCE_INFEASIBLE would be a stop for the planner.
+
 NEXT ACTION, in order:
 
-1. Build 1g.13 experiment 5 in the order the finding above forces: (a) widen the two table-arm
-   modules for `route` and the row/LM scope, with tests, while nothing is running; (b) run the
-   table-arm resource read on the new stream; (c) build the four-corner factorial at repair counts
-   (0, 4) over the five starts, one job per start as the gate sized it, every cell decoded by the
-   exact order-4 readout with the LM-blind local decode as its no-LM leg. Launch ONE cell first and
-   read its wall clock against the 1.1389 h per E-step projection before committing the rest: 2.5 h
-   of headroom, a job that caps its own request at the clamp, and no resume means an optimistic
-   projection costs the whole fold rather than a resubmit.
-2. 1g.12 experiment 5 is UNBLOCKED -- the planner ruled the observation-null seam in PLAN_1G.md
-   1g.12 Status (the null job persists its redrawn selection-fold vectors as a segments-shaped
-   artifact recording the draw seed and a content hash; `g12_readout_jobs.py` stays untouched).
-   Then experiment 6, the evaluation on the 890 with gold with the 1,112 sealed, which is where
-   clauses 1 to 3 are actually decided. There is still NO phone error rate anywhere in 1g.12.
-3. Accepted from the verifier's experiment-3 hygiene list, at the next touch of those modules:
-   record `num_units` as a named field in every start manifest, and give the espum projection's
-   outputs the `start.npz`/`start.json` names the other four starts use so a glob cannot silently
-   miss that arm.
+1. 1g.13 experiment 5 step (c), once step (b) reads PASS: build the four-corner factorial at repair
+   counts (0, 4) over the five starts, one job per start as the gate sized it, every cell decoded by
+   the exact order-4 readout with the LM-blind local decode as its no-LM leg. Requests are READ from
+   the two gate artifacts and never written into the config, which is why (c) waits on (b) rather
+   than being built now. Launch ONE cell first and read its wall clock against the 1.1389 h per
+   E-step projection before committing the rest: 2.5 h of headroom, a job that caps its own request
+   at the clamp, and no resume means an optimistic projection costs the whole fold rather than a
+   resubmit.
+2. When experiment 5's four jobs finish: switch the 1g.12 manager from `sae_1g_12_exp5` to
+   `sae_1g_12_exp6` (exp6's graph contains exp5's, so the two must never run at once) and read the
+   gate. Until that job runs there is still NO phone error rate anywhere in 1g.12.
+3. The verifier's experiment-3 hygiene list is NOT done and is now scoped rather than deferred
+   again. Both items change a FINISHED job's output: `num_units` as a named manifest field is a
+   `run()` change, so the banked manifests would still lack it and only a re-run would help; and
+   renaming the espum projection's `espum_final_start.npz` to `start.npz` would leave the finished
+   job dir holding the old name while consumers resolve through its finished marker and ask for the
+   new one -- which breaks the arm rather than tidying it. Both belong to a rebuild of those starts,
+   not to a hash-neutral edit. In the meantime the port removes the reason the naming mattered: the
+   start population is read from the route's registered table, not from a glob.
 
-OPEN DESIGN POINT found 2026-08-24 while wiring 1g.12 experiment 5, recorded before it can be built
-wrong. `G12ObservationNullJob` redraws the retained-token vectors of BOTH folds -- update and
-selection -- but holds them only in memory; it persists fitted parameters and its own LM-blind
-decode, not the redrawn observations. `G12ExactReadoutJob` takes `segments_pkl`, the REAL segment
-vectors, plus a parameters file. So handing the null's parameters to the readout as registered would
-decode the REAL selection acoustics with null-fitted parameters, which is not the null: it would
-flatter the control (real acoustics, weaker parameters) and therefore weaken clause 3 in the
-direction that makes the arm look good. The fix that keeps the observation seam in one place is for
-the null job to also write its redrawn SELECTION-fold vectors as a segments-shaped artifact --
-retained positions carrying their redrawn vector, dropped positions never read -- and for experiment
-5's readout cell to be handed that file instead of the arm's. That leaves `g12_readout_jobs.py`,
-whose twenty cells are banked, untouched. Nothing is built yet and no banked number is affected.
+IN FLIGHT (1g.12 experiment 5), launched 2026-08-24 17:00 under manager `sae_1g_12_exp5`, four
+jobs. The observation-null seam is built as the planner ruled: `G12ObservationNullJob` now persists
+its redrawn SELECTION-fold vectors in the segment twin's own shape (retained positions carry their
+redrawn vector, dropped positions NaN so a reader that ever took one gets a NaN and not a plausible
+number), records the draw seed, that file's content hash and a hash of the whole update+selection
+draw, and the readout cell is handed that file as `segments_pkl`. `g12_readout_jobs.py` is
+byte-identical, so the twenty banked cells are not re-certified. Speech-llm `1c25f58`.
+
+The null is fitted at BOTH fitting orders rather than only the registered matched 4-gram. Clause 3
+asks all three contrasts to be read with the observation null "the same way", and contrast (b) is a
+FITTING-ORDER contrast that a single-order null cannot enter; the bigram cell is minutes. The
+whole-draw hash is what makes that pair a fitting-order contrast rather than two beds: both cells
+record it and experiment 6 refuses to run if they disagree. FOR THE PLANNER: this is one cheap job
+beyond the registration's letter, not a change to any clause, and the registration's own cell (the
+matched 4-gram) is unaffected either way.
+
+  - `G12ObservationNullJob.tDiHo9tPpn5Z` (accepted-2g) FINISHED 17:04; 645,028 redrawn tokens over
+    both folds, draw sha 98a1cc7e, selection artifact sha 38d68786.
+  - `G12ObservationNullJob.QfLZEyTjxE6o` (matched-4g) RUNNING -- the ~4 h cell the gate sized.
+  - `G12ExactReadoutJob.ij9vB58klqDW` / `.axh5u2jyP9Va` -- the two null readouts, each decoding its
+    own cell's redrawn selection vectors.
+
+Both null artifacts written today carry a prose `role` line naming the matched 4-gram because that
+phrase was hardcoded; the authoritative `fitting_lm` field is correct in both, and the string is now
+derived from the cell (speech-llm `c4d3f13`), so any later run reads right.
+
+BUILT AND READY (1g.12 experiment 6): `G12EvaluateJob.oStN2ghRhR7l`, one job, the first phone error
+rate anywhere in 1g.12. Twenty-two cells -- four corners by five starts plus the null at both
+orders -- each scored under BOTH decoders, because contrast (a) is a cell against ITSELF under the
+other decoder. Conventions are 1g.11's, imported; the plan's clause-1 amendment is implemented as
+two independent columns (`admitted`, `shows_content`), so an inadmissible content-bearing cell
+cannot read as an empty one. The babble null is re-banked at this decode's own decoded lengths,
+inside this job, for the reason 1g.11 gave. Contrast (c) is the one contrast the observation null
+structurally cannot enter -- it is an EMISSION-MODEL contrast and the table arm observes the frozen
+unit IDs, which the null preserves by construction -- so the artifact records that rather than
+leaving a hole; its content-free control is the random-map start. Waiting on experiment 5 to
+finish. Suites `scripts/g12_evaluate_test.py` 37/37 and `scripts/g12_nulls_test.py` 32/32, the
+latter including a negative control that a wrong scatter of the redrawn vectors is caught by
+reading the artifact back through `retained_token_view`.
 
 Proposals for the planner:
 
@@ -1418,6 +1488,46 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     | host peak, loading the twin and building the view | 9.14 GiB | 0.77 GiB |
     | time headroom on one curve | 2.5 h | 7.5 h |
 
+27. **1g.12 experiment 5: the continuous observation null, fitted and DECODED as the arm is
+    (`g12_nulls.py`, `configs/config_sae_1g_12_exp5_v1.py`).** The null is the Gaussian repair job
+    with ONE method overridden, the observation seam, so the fitting automaton, the retained-token
+    view, the census, the start means, the constrained update, the variance floor, the local
+    decoder and the artifact schema are all the arm's, reached through the same calls. What
+    experiment 5 adds is the DECODE half of "null": the job now persists its redrawn SELECTION-fold
+    vectors in the segment twin's own shape -- retained positions carry their redrawn vector,
+    dropped positions NaN -- and the exact readout cell is handed that file as `segments_pkl` in
+    place of the arm's twin, so the null decodes its own acoustics. `g12_readout_jobs.py` is
+    byte-identical, which is what keeps the twenty banked cells and 1g.13's shared readout out of
+    it. The seam is asserted on both sides: the graph edge in the build, the persisted file's
+    content hash in the artifact, and the whole-draw hash so the two orders are one bed.
+
+    The null is fitted at BOTH fitting orders, one cheap job beyond the registration's letter, so
+    contrast (b) can carry the null too; see State for the note to the planner.
+
+    | cell | job | redrawn tokens | draw sha | selection artifact sha | exact readout | violations |
+    |---|---|---|---|---|---|---|
+    | accepted-2g | `G12ObservationNullJob.tDiHo9tPpn5Z` | 645,028 | 98a1cc7e | 38d68786 | `G12ExactReadoutJob.ij9vB58klqDW` | 0 |
+    | matched-4g | `G12ObservationNullJob.QfLZEyTjxE6o` | in flight | - | - | `G12ExactReadoutJob.axh5u2jyP9Va` | - |
+
+    The seam is confirmed end to end on the finished pair rather than argued: the null's exact
+    order-4 decode differs from the ARM's exact order-4 decode of the same start and fitting order
+    (`G12ExactReadoutJob.CYMKVwReFIsN`) on ALL 890 utterances, 54,883 decoded symbols against
+    47,695. A readout handed the arm's twin by mistake would have produced the arm's decode.
+
+28. **1g.13 experiment 5 step (a): the table arm ported to a second stream (`h4_context_diagnostic.py`,
+    `h4_context_resource.py`).** Four widenings, each hash-excluded at its default -- route,
+    the shared topology read, a route-keyed START POPULATION, and the accepted bigram as a funded
+    fitting LM -- plus the table-arm resource gate taught to take a start population (no manifests:
+    identity is the registered name, dedup is each array's own digest) and to lift a plain
+    [phone, unit] start through the same `two_state_start_table` the Gaussian gate uses.
+
+    | check | result |
+    |---|---|
+    | banked jobs of the ported and consuming modules, re-verified after each commit | 142, zero moved, zero unfinished |
+    | v1-equivalent repair cells colliding with a banked seg12.5 cell | 0 of 10 |
+    | suite `scripts/h4_context_port_test.py` | 50/50 |
+    | table-arm order-4 gate on the new stream | `H4ContextResourceGateJob.8M4rSjaBlikH`, in flight |
+
 
 ## Verdicts
 
@@ -2214,6 +2324,25 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 
 
 ## Catalog
+
+1g.12 experiment 5, the continuous observation null at both fitting orders (approach 27): the null
+cells `work/speech_llm/sae/g12_nulls/G12ObservationNullJob.tDiHo9tPpn5Z` (accepted-2g) and
+`.QfLZEyTjxE6o` (matched-4g), each carrying `observation_null.json`, `null_segments.pkl`,
+`parameters.npz` and its own LM-blind `hypotheses.json`; their exact readouts
+`work/speech_llm/sae/g12_readout_jobs/G12ExactReadoutJob.ij9vB58klqDW` and `.axh5u2jyP9Va`. Code
+`sae/g12_nulls.py`, `configs/config_sae_1g_12_exp5_v1.py`, `scripts/g12_nulls_test.py` (32/32) at
+speech-llm `1c25f58` and `c4d3f13`.
+
+1g.12 experiment 6, the gate reader (approach 27, unrun until experiment 5 closes):
+`work/speech_llm/sae/g12_evaluate/G12EvaluateJob.oStN2ghRhR7l` (`evaluate.json`, `evaluate.txt`);
+code `sae/g12_evaluate.py`, `configs/config_sae_1g_12_exp6_v1.py`,
+`scripts/g12_evaluate_test.py` (37/37) at speech-llm `c4d3f13`.
+
+1g.13 experiment 5 step (b), the TABLE arm's own measured order-4 read on the v1-equivalent stream
+(approach 28): `work/speech_llm/sae/h4_context_resource/H4ContextResourceGateJob.8M4rSjaBlikH`
+(`resource_gate.json`, `resource_gate.txt`); the port itself in `sae/h4_context_diagnostic.py`,
+`sae/h4_context_resource.py`, `sae/g12_repair_jobs.py` with
+`scripts/h4_context_port_test.py` (50/50) at speech-llm `a8279ef`, `f651ffd`, `1d8f669`.
 
 1g.10c positive insertion-bonus cells, parity PASS, sign split between rows (verdicts 36-37): `work/speech_llm/sae/h4_insertion_bonus/H4InsertionBonusReadJob.da3bGeQIkS0R` (`insertion_bonus.json`, `insertion_bonus.txt`); 256 beam-512 chunks + 8 probes + 1 parity chunk under `work/speech_llm/sae/h4_insertion_bonus/`, merged by the production `H4SequenceDecodeMergeJob`; code `sae/h4_insertion_bonus.py`, `scripts/h4_insertion_bonus_test.py` (14/14) at speech-llm `3d395de`.
 
