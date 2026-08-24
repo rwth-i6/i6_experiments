@@ -2647,6 +2647,26 @@ trim; the un-pooled 28 Hz stream as the operating point (pair-pooled leg not fun
 cluster ID as the discrete twin. With the implementer to build, experiments 1-3 first, the
 resource read before any cell; evidence goes to `SAE_1g.md`.
 
+2026-08-24 PLANNER RULING on the topology guard (implementer proposal 1; verdict 61;
+`g12_repair_jobs.py:180-184`). The guard is AMENDED to assert each route's OWN registered
+expectation instead of seg12.5's signature: for the accepted `seg12.5/phones` route the
+expectation stays exactly (one-state REFUTED, two-state ADMISSIBLE), so no 1g.12 behavior
+changes; for the 1g.13 v1-equivalent route the registered expectation is TWO-STATE ADMISSIBLE
+as a hard stop, and the one-state verdict is REPORTED -- copied into every cell artifact and
+into the gate's honesty REPORT (a reporting duty added before any gated cell exists; no
+decision criterion of the pre-registered gate changes). Rationale: the minimum-duration-2
+topology is the USER's 2026-08-15 standing ruling, a design constant -- and contrast (d) is a
+segmentation contrast only if the topology is held fixed across both subphases, so a one-state
+fit on this stream is not an option under any reading; requiring a new stream to reproduce
+seg12.5's REFUTED verdict is an identity check on the wrong object (stream identity is already
+protected by the route-key refusal), while the guard's modelling-protection purpose maps to
+two-state admissibility alone; and verdict 61 shows the one-state admissibility here is a rate
+consequence (3.22 audio tokens per phone against 1.31), i.e. the evidence for within-phone
+substructure is ABSENT on this stream, not contrary -- the distinction the disclosure must
+carry whenever contrast (d) is read. Implementation note: the edit is module-level and
+hash-neutral; all twenty 1g.12 fitting cells and twenty readouts are finished, so no in-flight
+job of that family re-imports it.
+
 2026-08-24 experiments 1-2 VERIFIED (approaches 23-24, verdict 57): the stream reproduces the
 pre-registered published anchor -- 28.01 segments per second on the bed against ~28, stable
 across roles (27.67-28.38), all 128 clusters used with the rarest at 88 segments, PCA-512

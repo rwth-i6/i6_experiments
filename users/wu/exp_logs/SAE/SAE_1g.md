@@ -2751,3 +2751,17 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   needed: verdict 57's "to three significant figures" overstates the anchor's own precision
   (~28, two figures); the match itself is real. Verdict scoping is disciplined throughout --
   58 and 60 both refuse to be clause verdicts. Nothing to send back.
+
+- 2026-08-24 (approach 24 results + verdict 61 + proposal 1 round VERIFIED and RULED; ruling in
+  `PLAN_1G.md` 1g.13 Status). The route artifact matches verdict 61 line for line
+  (`G13RoutesJob.hStPuE1UqLK6`: p 0.68898090, mean 3.215237, one-state ADMISSIBLE, two-state
+  ADMISSIBLE); the ratio arithmetic recomputes (2.2315/0.701 = 3.18 refuted on seg12.5,
+  2.2498/1.876 = 1.199 admissible here, band 2; mean durations equal 1/(1-p) both ways). The
+  firewall finished with role-separated gold (`gold_update/selection/evaluation.pkl`) and
+  `trim_masks.pkl` as registered. The guard code reads as proposed
+  (`g12_repair_jobs.py:180-184`, hard-coded seg12.5 signature). RULING: guard amended to assert
+  each route's own registered expectation -- seg12.5 unchanged, v1-equivalent route requires
+  two-state ADMISSIBLE only, one-state verdict reported in every cell artifact and the gate's
+  honesty report; the standing minimum-duration-2 topology is untouched and holding it fixed
+  across subphases is what keeps contrast (d) a segmentation contrast. Full rationale in the
+  plan. The implementer may edit the guard accordingly and proceed to experiment 3.
