@@ -105,24 +105,35 @@ shape. The margin is thin in the direction that costs the whole fold -- 2.5 h of
 so the first real cell's wall clock gets read against the 1.1389 h per E-step projection before the
 remaining cells are launched (verifier caution (c), accepted).
 
-IN FLIGHT: `G12EngineEquivalenceJob.CnhbuU4YHyuz` under the same manager (pid 2020862) -- the
-registered anchor for the backward-recursion fix, which discharges the verifier's
-persist-the-harness request. It recomputes the banked 1g.12 gate's own five probe cells under the
-current engine and asserts they reproduce that artifact's log-likelihoods and history occupancy;
-it then recomputes them under the SUPERSEDED normalizer and asserts the two posteriors agree inside
-1e-12; and it asserts a peaked case in 1g.13's shape separates the two, without which the whole job
-would pass equally against an engine that never carried the defect. The superseded engine is
-DERIVED from the live source by one substitution asserted to match exactly once, not kept as a
-copy -- a copy would stop being the same function the moment the engine moved, and the comparison
-would quietly become a comparison of the copy against itself. `scripts/g12_engine_equivalence_test.py`
-23/23.
+DONE (the registered anchor for the backward-recursion fix): `G12EngineEquivalenceJob.sWWDLbPKglfP`
+-- all five banked 1g.12 probe cells reproduce their log-likelihood at a difference of exactly 0.0
+and their 60,879 histories exactly; the two normalizers agree to 8.882e-16 against a 1e-12
+tolerance; the counter-case separates them (the superseded expression non-finite, the current one
+finite). Verdict 68. This discharges the verifier's persist-the-harness request: the claim now
+reproduces from the graph and re-runs whenever the engine changes. The superseded engine is DERIVED
+from the live source by one substitution asserted to match exactly once, never kept as a copy -- a
+copy would stop being the same function the moment the engine moved, and the comparison would
+quietly become the copy against itself.
+
+Its first attempt errored on a `NameError` AFTER every one of the five cells had already passed:
+the job died writing its artifact because a helper (`_file_sha256`) was dropped when the module was
+rewritten. The tests did not catch it because they never execute `run()`, which is a real gap in
+how this file is tested and not a fluke; the suite now carries an AST lint that every
+module-private helper called anywhere in the module is defined in it, verified to fail when that
+helper is removed again. The job is stateless, so recovery was the error marker renamed to
+`.backup` rather than a clear. `scripts/g12_engine_equivalence_test.py` 25/25.
+
+The whole 1g.13 experiment-4 graph is finished on disk with zero unfinished jobs; the watcher
+reported STALLED with one runnable, the same console misreport seen throughout this subphase.
 
 NEXT ACTION, in order:
 
-1. Bank the equivalence anchor when it lands, then build 1g.13 experiment 5 -- the four-corner
-   factorial at repair counts (0, 4) over the five starts, one job per start as the gate sized it,
-   every cell decoded by the exact order-4 readout with the LM-blind local decode as its no-LM leg.
-   Read the first cell's wall clock against 1.1389 h per E-step before launching the rest.
+1. Build 1g.13 experiment 5 -- the four-corner factorial at repair counts (0, 4) over the five
+   starts, one job per start as the gate sized it, every cell decoded by the exact order-4 readout
+   with the LM-blind local decode as its no-LM leg. Launch ONE cell first and read its wall clock
+   against the 1.1389 h per E-step projection before committing the rest: 2.5 h of headroom, a job
+   that caps its own request at the clamp, and no resume means an optimistic projection costs the
+   whole fold.
 2. 1g.12 experiment 5 is UNBLOCKED -- the planner ruled the observation-null seam in PLAN_1G.md
    1g.12 Status (the null job persists its redrawn selection-fold vectors as a segments-shaped
    artifact recording the draw seed and a content hash; `g12_readout_jobs.py` stays untouched).
@@ -2152,6 +2163,23 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     and that refusal is a collapse to report rather than a guard to soften.
 
 
+68. **A26: the backward-recursion fix changed the NORMALIZER and not the QUANTITY, measured
+    against a banked artifact rather than argued from the algebra -- so no 1g.11 or 1g.12 number
+    moves.** `G12EngineEquivalenceJob.sWWDLbPKglfP` recomputes the accepted
+    `G12ResourceGateJob.3h2iIpk6lpaB`'s own five probe cells under the current engine: all five
+    reproduce that artifact's log-likelihood to a difference of exactly 0.0 and its history
+    occupancy at 60,879 exactly. Recomputed again under the superseded normalizer, which does not
+    overflow at 96 dimensions and 353 tokens, the two posteriors agree to at worst 8.882e-16
+    against a 1e-12 tolerance set at the rounding such a recursion actually reaches. The separation
+    is asserted in the same job and is what keeps the rest from being vacuous: on a peaked case in
+    1g.13's shape (893 tokens, log-density gap 700) the superseded normalizer is NOT finite and the
+    current one is, so this job could not pass against an engine that never carried the defect.
+    Independently, all ten banked 1g.12 repair cells were checked to carry finite fitted
+    parameters. NO VERDICT IS MARKED WRONG, because none rested on a number that moved -- what the
+    bug destroyed was work not yet done, which is the only reason this is a footnote to 1g.13
+    experiment 4 rather than a correction to 1g.12.
+
+
 ## Catalog
 
 1g.10c positive insertion-bonus cells, parity PASS, sign split between rows (verdicts 36-37): `work/speech_llm/sae/h4_insertion_bonus/H4InsertionBonusReadJob.da3bGeQIkS0R` (`insertion_bonus.json`, `insertion_bonus.txt`); 256 beam-512 chunks + 8 probes + 1 parity chunk under `work/speech_llm/sae/h4_insertion_bonus/`, merged by the production `H4SequenceDecodeMergeJob`; code `sae/h4_insertion_bonus.py`, `scripts/h4_insertion_bonus_test.py` (14/14) at speech-llm `3d395de`.
@@ -2169,7 +2197,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 | 1g.13 experiment 3, the five phone starts on the v1-equivalent stream (approach 25, verdicts 62-64) | `work/speech_llm/sae/h3_jobs/H3InitializerJob.lR5Q4q1xRtqV` (fingerprint), `.m4sNBqlCwK2Z` (random-map seed 1000), `.fGmIiECLQ2XW` (pseudo-pair seed 0); `work/speech_llm/sae/g13_firewall/G13ReferenceStartJob.kG9pmxczOVgF` (controlled reference); `work/speech_llm/sae/h3_projection/H3CalibrationEspumProjectionJob.2EB1uTDlskOy` (espum) -- each `start.npz` and `start.json` (the espum projection emits `espum_calibration_start.npz`/`.json`); code `sae/g13_firewall.py` at speech-llm `6bfa29d`, config wiring `configs/config_sae_1g_13_exp3_v1.py` at `a0d2808`; `config/sae_1g_13_exp3.py` and `scripts/g13_reference_start_test.py` (20/20) are workspace files under no version control |
 | 1g.13 experiment 3, the espum arm's registered fan-out on the v1-equivalent stream (approach 25, verdicts 63-64) | `work/speech_llm/sae/espum_jobs/EspumMatchTrainJob.oAOLIZZHVaVz` (full seed 0, picked), `.18iF7DTcCNyF` (full seed 1), `.E9fojuqhcBDZ` (full seed 2), `.q59UQC0AW5Oc` (bigram-only control); `work/speech_llm/sae/h3_jobs/H3EspumPickJob.ud5adF5qEliC` (`frozen_selection.json`), `work/speech_llm/sae/h3_jobs/H3MaskedEspumStreamJob.6OiRRPPXl1w8` (`manifest.json`); accepted-stream contrast rows quoted from `EspumMatchTrainJob.97FwGhhItdpO` and `.h4LngSZ4YvKL` |
 | 1g.13 experiment 4, the measured order-4 resource read on the v1-equivalent stream (approach 26, verdicts 65-67) | `work/speech_llm/sae/g12_resource/G12ResourceGateJob.cQ3wfqsTamPP` (`resource_gate.json`, `.txt`); SUPERSEDED first run, kept as the record of the pre-fix measurement, `.4iWPXMh9yoJN` -- orphaned by hash, superseded evidence rather than debris; code `sae/g12_resource.py`, `sae/g11_gaussian.py`, `configs/config_sae_1g_13_exp4_v1.py`, `config/sae_1g_13_exp4.py`, `scripts/g13_resource_gate_test.py` (43/43) at speech-llm `41127e8` |
-| The 2026-08-24 context-engine backward-recursion fix and its registered anchor (approach 26) | `work/speech_llm/sae/g12_engine_equivalence/G12EngineEquivalenceJob.CnhbuU4YHyuz` (`engine_equivalence.json`, `.txt`) -- reproduces the banked `G12ResourceGateJob.3h2iIpk6lpaB` probe cells under the current engine and pins the two normalizers against each other; code `sae/h4_context_engine.py`, `sae/g12_gaussian_context.py`, `sae/g12_engine_equivalence.py`, `scripts/h4_context_engine_test.py` (48/48), `scripts/g12_engine_equivalence_test.py` (23/23) at speech-llm `41127e8` |
+| The 2026-08-24 context-engine backward-recursion fix and its registered anchor (approach 26, verdict 68) | `work/speech_llm/sae/g12_engine_equivalence/G12EngineEquivalenceJob.sWWDLbPKglfP` (`engine_equivalence.json`, `.txt`) -- reproduces the banked `G12ResourceGateJob.3h2iIpk6lpaB` probe cells under the current engine and pins the two normalizers against each other, worst posterior difference 8.882e-16; code `sae/h4_context_engine.py`, `sae/g12_gaussian_context.py`, `sae/g12_engine_equivalence.py`, `scripts/h4_context_engine_test.py` (48/48), `scripts/g12_engine_equivalence_test.py` (25/25) at speech-llm `98ddf9f` |
 | 1g.13 experiment 2, the H1 route read on the v1-equivalent stream (approach 24, verdict 61) | `work/speech_llm/sae/g13_jobs/G13RoutesJob.hStPuE1UqLK6` (`phase1g_h1_v1_equivalent.json`, `.txt`); code `sae/g13_jobs.py`, `scripts/g13_routes_test.py` (25/25) at speech-llm `4d0fad6` |
 | 1g.13 experiment 2, the VAD-mask firewall (approach 24) | `work/speech_llm/sae/g13_firewall/G13VadFirewallJob.Usfy2NF0LiSQ` (`gold_update.pkl`, `gold_selection.pkl`, `gold_evaluation.pkl`, `trim_masks.pkl`, `firewall.json`, `firewall.txt`); code `sae/g13_firewall.py`, `configs/config_sae_1g_13_exp2_v1.py`, `config/sae_1g_13_exp2.py`, `scripts/g13_firewall_test.py` (30/30) at speech-llm `4d0fad6` |
 | 1g.13 experiment 1, the wav2vec-U v1-equivalent stream (approach 23, verdict 57) | `work/speech_llm/sae/g13_jobs/G13StreamBuildJob.Ob8Rh8y51x9M` (`units.pkl`, `segments.pkl`, `boundaries.pkl`, `component_scale.npy`, `transform.npz`, `stream.json`, `stream.txt`); code `sae/g13_stream.py`, `sae/g13_jobs.py`, `configs/config_sae_1g_13_exp1_v1.py`, `config/sae_1g_13_exp1.py`, `scripts/g13_stream_test.py` (35/35), `scripts/g13_faiss_reference_test.py` (10/10, run under the `w2vu` env), `scripts/g13_jobs_test.py` (34/34) at speech-llm `7f3f312` |
