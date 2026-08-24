@@ -3968,3 +3968,23 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   exp-6 manager was restarted at 21:55 so it holds the moved-hash graph. The clause-4 floor
   line now names how many cells it covers and how many table cells sit outside it. Suites
   re-run by the verifier: readout 28/28; the implementer's five-suite sweep also recorded.
+
+- 2026-08-24 (round: the segmentation contrast wired into the evaluation reader, speech-llm
+  `11842bb`). VERIFIED inline: the three new cross-stream parameters (hypotheses, pairs,
+  label) are genuinely NEW and hash-excluded at their empty defaults, so the banked 1g.12
+  read keeps `yJgxKex9peLp` -- confirmed by the verifier's own census re-run (graph 4,757,
+  evaluate dir finished, zero missing) -- and all four refusals are in code: a pairing
+  without a stream label, a pairing naming a cell not handed over, an unpaired cross-stream
+  cell, and cross-stream cells never entering `arms` (loaded separately, converted through
+  the SAME symbol inventory as the home stream, which is what makes contrast (d) a
+  segmentation contrast rather than a comparison of alphabets). The explicit-pairing design
+  conforms to the registration's "reads only when both cells exist" and to the project's
+  labels-from-artifact-fields rule: the espum-name correspondence across subphases is handed
+  in and checkable, never guessed. Suite 70/70 re-run by the verifier. The implementer's
+  hash-exclusion mistake (excluding the already-hashed `route` moved the banked read to
+  `MWNozrdqNIvt`) was caught by their own census BEFORE any launch, reverted, and recorded
+  with the general rule both in the code comment at the exclusion dict and in shared memory
+  (`hash-exclude-only-neutral-for-new-params.md`, verified present) -- exemplary handling,
+  nothing further owed. STILL TO COME for experiment 7: the registration also requires BOTH
+  cells' controls beside contrast (d); that lands with the exp-7 config and its
+  registration, not in this reader increment.

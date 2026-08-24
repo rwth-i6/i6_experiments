@@ -2945,6 +2945,15 @@ move (planner's own census), with the 1g.13 null readouts declaring `observation
 before any ran; clause 4's floor line now names its coverage. Manager restarted to hold the
 moved-hash graph.
 
+2026-08-24 late: contrast (d) WIRED into the evaluation reader (speech-llm `11842bb`) and
+VERIFIED -- the cross-stream pairing is handed in explicitly and refused on any mismatch
+(no guessed name correspondence), the other stream's cells never enter this subphase's own
+table and convert through the same symbol inventory, and the banked 1g.12 read keeps its
+hash (three genuinely new parameters excluded at empty defaults; the implementer's own
+census caught and reverted a wrong `route` exclusion before any launch -- the rule is now in
+code, in shared memory, and holds at HEAD by the planner's census). Suite 70/70. The exp-7
+config with BOTH cells' controls beside (d) is the remaining evaluation registration.
+
 ## 6. Deliverables ladder
 
 | Step | Deliverable | Decision it enables |
