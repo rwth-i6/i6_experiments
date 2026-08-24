@@ -374,8 +374,24 @@ refused. Contrast (a) rests on content, not on wiring. Speech-llm `2c9992c`,
 the first answer: where a comparator's schema predates the fitting-LM field, the artifact SAYS the
 binding is the graph edge rather than implying a check happened.
 
-IN FLIGHT (1g.12 experiment 6): `G12EvaluateJob.yJgxKex9peLp`, launched 2026-08-24 19:24 under
-manager `sae_1g_12_exp6`, one job, the first phone error rate anywhere in 1g.12. Twenty-two cells -- four corners by five starts plus the null at both
+DONE (1g.12 experiment 6): `G12EvaluateJob.yJgxKex9peLp` FINISHED 2026-08-24 21:00 after 1 h 25 min
+-- 1g.12 IS COMPLETE THROUGH ALL SIX EXPERIMENTS and its gate table exists. Approach 30 carries the
+numbers and verdicts 70-72 read them. Headline, and it is not a good one for the arm: no real start
+shows content by clause 2 at either fitting order in either emission model under either decoder,
+and clause 3 does not separate the selected real start from a content-free control on any of its
+three contrasts -- on contrast (a) the observation null gains MORE than the arm with non-overlapping
+intervals, which is the one case the carried-over 1g.11 ruling already calls beyond "comparable".
+Clause 4 passes outright. THE GATE VERDICT IS THE PLANNER'S: the registration's "comparable gain"
+condition carries no number, which is why the artifact prints the intervals side by side rather than
+deciding. What this licenses and what it does not is the planner's to write.
+
+One thing worth carrying into 1g.13 before its own evaluation is built: contrast (a) is a real
+effect in every arm cell -- the exact order-4 readout beats the LM-blind local decode with intervals
+excluding zero everywhere -- and the observation null shows it too, larger. The readout recovers
+correct phones from the language model, which a null carrying no acoustic content benefits from at
+least as much. So 1g.13's contrast (d), the segmentation contrast this subphase exists for, needs
+its controls read the same way from the start; a positive (d) read without them would be the same
+mistake at a new operating point. Twenty-two cells -- four corners by five starts plus the null at both
 orders -- each scored under BOTH decoders, because contrast (a) is a cell against ITSELF under the
 other decoder. Conventions are 1g.11's, imported; the plan's clause-1 amendment is implemented as
 two independent columns (`admitted`, `shows_content`), so an inadmissible content-bearing cell
@@ -1741,6 +1757,42 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     other cell to anything comparing that field. The digest now comes from whichever form the
     fitting LM has, with the kind recorded beside it, and a manifest carrying neither is refused.
 
+30. **1g.12 experiment 6: the evaluation against gold, the first phone error rate in 1g.12
+    (`g12_evaluate.py`, `configs/config_sae_1g_12_exp6_v1.py`).** `G12EvaluateJob.yJgxKex9peLp`,
+    finished 2026-08-24 21:00 after 1 h 25 min. Eighty-two scored rows: four corners by five starts
+    plus the observation null at both fitting orders, each under BOTH decoders (the exact order-4
+    readout and that cell's own LM-blind local decode) at counts 0 and 4, on the accepted H1
+    selection role -- 890 utterances, dev-clean 432 and dev-other 458. The 1,112-utterance
+    evaluation role is not opened anywhere in the job.
+
+    Phone error rate at repair count 4 under the exact order-4 readout, the decision column:
+
+    | start | gaussian x accepted-2g | gaussian x matched-4g | table x accepted-2g | table x matched-4g |
+    |---|---|---|---|---|
+    | controlled/reference (gold-informed) | 0.4500 | 0.4241 | 0.4339 | 0.4046 |
+    | espum seed 0 / update 30,000 (selected) | 0.8308 | 0.8271 | 0.8180 | 0.8165 |
+    | fingerprint | 0.8323 | 0.8382 | 0.8180 | 0.8154 |
+    | pseudo-pair seed 0 | 0.8605 | 0.8555 | 0.8445 | 0.8406 |
+    | random map seed 1000 (content-free) | 0.8625 | 0.8629 | 0.8358 | 0.8318 |
+    | observation null (espum's own acoustics destroyed) | 0.8985 | 0.8929 | - | - |
+
+    Clause 3's three contrasts, in per-utterance correct-phone fraction, candidate minus baseline,
+    positive meaning the candidate is better, stratified within evaluation split. The selected real
+    start beside its content-free controls:
+
+    | contrast | selected real start | observation null | random-map control |
+    |---|---|---|---|
+    | (a) readout, exact order-4 minus local, matched-4g | +0.0201 [0.0169, 0.0234] | +0.0328 [0.0297, 0.0360] | +0.0132 [0.0105, 0.0160] |
+    | (b) fitting order, matched-4g minus accepted-2g | +0.0056 [0.0035, 0.0078] | +0.0062 [0.0041, 0.0084] | +0.0004 [-0.0016, 0.0025] |
+    | (c) emission model, Gaussian minus table at order 4 | -0.0092 [-0.0130, -0.0055] | structurally absent | -0.0272 [-0.0309, -0.0234] |
+
+    Clause 4 passes outright: variance-floor share all zero, decoder exactness violations none.
+    Four planned (b) rows are NOT computed and are named in the artifact rather than dropped: the
+    observation null exists only for the selected real start, so the four other starts have no
+    fitting-order null row. Contrast (c) has no observation null by construction, which the
+    artifact records as structural -- the table arm observes the frozen unit IDs, which the null
+    preserves.
+
 ## Verdicts
 
 1. **Approach 1: one segment per text symbol is rejected.** It exceeds the registered ratio on all
@@ -2551,6 +2603,36 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     statement about the arms.
 
 
+70. **A30: on the accepted 890-utterance selection role, NO real start in 1g.12 shows content by
+    clause 2, at either fitting order, in either emission model, under either decoder.** The
+    `cont` column is set only for the gold-informed controlled reference, whose margin over the
+    babble null's 99th percentile is 0.39 to 0.52 across its cells. Every real start's margin is
+    between -0.03 and +0.03 against a required 0.05, and the content-free random map sits inside
+    that same band. In plain phone error rate the four real starts span 0.8154 to 0.8605 at count 4
+    under the exact readout while the random map reads 0.8318 to 0.8629, so the whole real
+    population lies within about 1.5 points of a start built to carry no content. The controlled
+    reference, which is gold-informed, reads 0.4046 to 0.4500 on the same rows.
+
+71. **A30: clause 3 does not separate the selected real start from a content-free control on ANY
+    of its three contrasts.** (a) READOUT: the exact order-4 decode gains +0.0201 correct-phone
+    fraction over the local decode on the selected start, and the observation null -- the same cell
+    with the association between a token and its own acoustics destroyed -- gains MORE, +0.0328,
+    with non-overlapping intervals. That is the case the 1g.11 ruling carried over verbatim calls
+    beyond any reading of "comparable". (b) FITTING ORDER: the arm gains +0.0056 and the
+    observation null +0.0062, intervals overlapping. (c) EMISSION MODEL: the table beats the
+    Gaussian by 0.0092 on the selected start and by 0.0272 on the random-map control, i.e. the
+    content-free start shows the larger effect. The gate VERDICT is the planner's -- the
+    registration's "comparable gain" condition carries no number and the artifact prints the
+    intervals side by side for exactly that reason -- but on (a) the one part of it that IS already
+    ruled fires against the arm.
+
+72. **A30: the exact order-4 readout is a real improvement over the LM-blind local decode, and it
+    is not evidence of content.** Every arm cell's (a) interval excludes zero, so the readout
+    change is measurable rather than noise -- but so is the observation null's, by a larger margin.
+    The readout recovers correct phones from the language model, which a null whose acoustics carry
+    nothing benefits from at least as much. This is why contrast (a) needed its controls before it
+    could be read at all, and it retires the reading that 1g.10's collapse was a readout artifact.
+
 ## Catalog
 
 1g.12 experiment 5, the continuous observation null at both fitting orders (approach 27): the null
@@ -2654,6 +2736,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
 | 1g.12 experiment 5 continuous observation null at both fitting orders, fitted AND decoded on its own redrawn acoustics (observation_null.json, null_segments.pkl, parameters.npz, repair.json, hypotheses.json) | `work/speech_llm/sae/g12_nulls/G12ObservationNullJob.tDiHo9tPpn5Z` (accepted-2g); `work/speech_llm/sae/g12_nulls/G12ObservationNullJob.QfLZEyTjxE6o` (matched-4g); their exact readouts `work/speech_llm/sae/g12_readout_jobs/G12ExactReadoutJob.ij9vB58klqDW` and `.axh5u2jyP9Va`; code `sae/g12_nulls.py`, `configs/config_sae_1g_12_exp5_v1.py`, `scripts/g12_nulls_test.py` (32/32) at speech-llm `c4d3f13` |
 | 1g.13 experiment 5 four-corner factorial, pilot cells (repair_channels.npz / parameters.npz, repair.json, hypotheses.json, readout.json, readout.txt) | `work/speech_llm/sae/g12_repair_jobs/G12GaussianContextRepairJob.mrmyPW7K6BJI`; `work/speech_llm/sae/h4_context_diagnostic/H4ContextRepairJob.ZOyDz3Lr5gvi`; readouts `work/speech_llm/sae/g12_readout_jobs/G12ExactReadoutJob.PXkdjfKVf0VA` and `.OOCRqqetyibP`; code `sae/g12_repair_jobs.py`, `sae/g12_resource.py`, `configs/config_sae_1g_13_exp5_v1.py`, `config/sae_1g_13_exp5.py`, `scripts/g12_repair_jobs_test.py` (48/48) at speech-llm `4a56304` |
 | 1g.13 experiment 5 no-LM leg of the table corners (channel.npz, channel.json, local_hypotheses.json) | `work/speech_llm/sae/h4_context_decode/H4ContextChannelAdapterJob.ruZ0Muc40Aaa`; `work/speech_llm/sae/h4_context_decode/H4ContextLocalDecodeJob.6KblLtDciuiq`; code `sae/h4_context_decode.py`, `scripts/h4_context_port_test.py` (69/69) at speech-llm `e89ccdb` |
+| 1g.12 experiment 6 evaluation against gold, the subphase's gate table (evaluate.json, evaluate.txt) | `work/speech_llm/sae/g12_evaluate/G12EvaluateJob.yJgxKex9peLp`; code `sae/g12_evaluate.py`, `configs/config_sae_1g_12_exp6_v1.py`, `config/sae_1g_12_exp6.py`, `scripts/g12_evaluate_test.py` (63/63) at speech-llm `2c9992c` |
 
 ## Verifier feedback
 
