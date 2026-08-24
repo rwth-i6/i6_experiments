@@ -2504,9 +2504,14 @@ RE-QUANTIZED to the same 500-codebook so downstream sees discrete IDs, vs v1's c
 segment vectors; (6) no adjacent-pair second pooling stage (v1's `_pooled` step). wav2vec-U 2.0
 removed segmentation/PCA/pooling entirely, and the project's actual fairseq-style GAN teacher
 (sec-1c) IS faithful to that recipe (rVAD on, raw 1024-d L15 features, K=64 MFCC k-means aux).
-This is the precise content of the standing "conditional on the shared `seg12.5` segmentation"
-caveat on 1g.11/1g.12 verdicts; a wav2vec-U-faithful arm (the named registered follow-up) would
-change five of the six steps, not a tolerance. Producing jobs:
+Scope note so (5) is not misread: (5) is the ONE difference the 1g.11/1g.12 Gaussian arms remove --
+the continuous twin re-derives per-token PCA-96 mean vectors at the frozen stream's own boundaries
+(2,184 of 921,432 Ward segments, 0.237%, fused where adjacent segments re-quantized to the same
+centroid; approach 17) -- so 1g.12's table-vs-Gaussian contrast prices (5) at fixed boundaries,
+while (1)-(4) and (6) are shared by every arm, continuous or not. This is the precise content of
+the standing "conditional on the shared `seg12.5` segmentation" caveat on 1g.11/1g.12 verdicts; a
+wav2vec-U-faithful arm (the named registered follow-up) would change five of the six steps, not a
+tolerance. Producing jobs:
 `AvStatesJob.c4Ak1rACchRC` -> `QuantizeStatesJob.FWpGhC941JMi` -> `SegmentPoolUnitsJob.IHRNqQfnxrQ3`.
 
 2026-08-24 experiment 1 VERIFIED (approach 20, verdicts 52-54, `G12ResourceGateJob.3h2iIpk6lpaB`):
