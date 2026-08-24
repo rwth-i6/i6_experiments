@@ -2756,3 +2756,6 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   honesty report; the standing minimum-duration-2 topology is untouched and holding it fixed
   across subphases is what keeps contrast (d) a segmentation contrast. Full rationale in the
   plan. The implementer may edit the guard accordingly and proceed to experiment 3.
+  Implementation VERIFIED (speech-llm `6c68303`): per-route registry with seg12.5 unchanged,
+  v1 route two-state-only with one-state reported, unregistered routes refused; all four g12
+  suites re-run clean after the edit (57/57, 50/50, 33/33, 22/22). Proposal 1 discharged.
