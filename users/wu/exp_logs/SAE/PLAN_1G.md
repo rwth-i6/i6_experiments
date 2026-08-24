@@ -2525,6 +2525,117 @@ continuous emission model does not narrow the reachable order-4 state space (60,
 histories on the probe utterance, identical to the table gate), so cost is a property of the
 state space, within 4% of the table arm's.
 
+### 1g.13 — the 1g.12 factorial on wav2vec-U v1-equivalent segmentation (USER-directed 2026-08-24)
+
+**Purpose.** Every 1g arm to date -- table and Gaussian, bigram and 4-gram -- runs on the
+project's own `seg12.5` construction, which differs from wav2vec-U v1 preprocessing at five of
+six steps (silence retained, PCA-96 after standardization, K=500 on PCA features, Ward merge to
+a fixed 12.5 tokens/s, no adjacent pooling; 1g.12 Status equivalence read, 2026-08-24). No 1g
+result can therefore separate "the training paradigm is the binding constraint" from "the
+segmentation is". This subphase runs the SAME factorial as 1g.12 on a stream whose segmentation
+is equivalent to wav2vec-U v1's, in parallel with 1g.12, so the segmentation axis gets its own
+paired read. USER's words: "Considering how important segmentation is, I suggest registering
+1g 13 that is same as 1g 12, but using equivalent segmentation as wav2vec-U v1, start in
+parallel to 1g 12."
+
+**Approach: the v1-equivalent stream.** Constants pinned from the REAL fairseq v1 recipe (the
+`w2vu` conda env's fairseq 0.12.2 `examples/wav2vec/unsupervised/scripts/`, which holds the
+scripts our local reference copies lack), on the same 8,416-utterance seed bed and roles:
+features are the BANKED rVAD-trimmed raw fp16 layer-15 dumps of the sec-1c GAN
+(`W2vu2FeatureDumpJob.HyHAk3OCbruI` train / `.WbaqNnxXpbRK` valid; trim dropped 14.71%/14.59%
+of frames and ZERO utterances, so the partition counts hold verbatim); k-means K=128 fit on ALL
+dedicated-train trimmed frames of the RAW (pre-PCA, unstandardized) features with exact
+squared-L2 one-nearest-centroid assignment everywhere (v1: `faiss.Kmeans` niter=50 nredo=3,
+spec CLUS128 = no PCA, no norm; implementation may substitute an equivalent full-batch Lloyd
+k-means, disclosed); segment boundaries are the cluster-ID change points -- no Ward merge, no
+rate target, the data decides the rate (published anchor: ~28 segments/s on LibriSpeech
+dev-other, from the v2 paper's Table 1 measurement of the v1 pipeline; our bed's measured rate
+comes from experiment 1); PCA-512 fit on the same dedicated-train raw frames, PLAIN
+mean-centered rotation, NO whitening, NO prior standardization (v1: `pca.py` eigen_power=0);
+each segment carries BOTH a discrete label -- the run's own cluster ID, a K=128 alphabet, which
+is what lets the table-vs-Gaussian contrast survive on a stream v1 never discretized -- and a
+continuous vector, the mean of its frames' PCA-512 features (v1 `merge_clusters --pooling
+mean`). Four disclosed deviations from v1, each named in the certificate: (i) trim is
+rVADfast-pip at threshold 0.4 on FEATURES (the banked dump), not the rVAD-repo script on raw
+audio -- same algorithm family and threshold, conv context at cut points differs; (ii) the
+adjacent-pair pooling stage (v1's `_pooled`, 28 Hz -> 14 Hz, non-overlapping pairs) is NOT
+applied: fairseq's own README states LM decoding works better without it, our whole readout is
+LM-aware, and the pair-pooled stream has no well-defined discrete twin -- the pair-pooled
+variant is NOT funded; (iii) the k-means implementation if not faiss; (iv) the encoder tap is
+the HF convention (`hidden_states[15]`) shared with every other arm -- held fixed deliberately
+so the segmentation contrast changes segmentation only. Silence handling follows v1: the stream
+is silence-free, the H1 silence mask is EMPTY BY DECISION (the H1 two-means split would
+mislabel real units on a trimmed stream and must be bypassed, not re-run blindly), run collapse
+crosses former silence positions exactly as v1's own segmenter merges across the trimmed
+stream, and no forced boundaries exist. The channel keeps the two-sub-state minimum-duration-2
+topology (standing).
+
+**Approach: transport.** Text-side and utterance-level objects transport untouched: the T_phi
+phone text, the accepted add-one bigram and the matched Kneser-Ney 4-gram automaton, the gold
+alignment parquets, the phone prior, the role partition (deterministic from the unchanged
+8,416-ID sets; asserted equal to the accepted partition hashes), all registered start protocols
+(seeds, Sinkhorn reg 0.1, pseudo-pair window 16, espum schedule and label-free pick rule,
+control seeds >= 1000), and the 1g.12 exact order-4 readout as CODE (same module, new
+emissions; any edit to that module re-certifies both subphases -- coordinate with 1g.12's
+in-flight cells, whose imports are live). Stream-side objects are re-derived on the new stream
+by their registered procedures: H1 re-runs for routes statistics and hash rebinding (~1.2 h
+CPU) with the silence step bypassed; fingerprint, random-map, and pseudo-pair starts re-run
+(~15-20 min CPU each, 192 GiB class); the espum start re-runs its full registered fan-out
+(three full seeds plus bigram control, ~2.7 GPU-h at seg12.5's rate, more at ~28 Hz) with
+`num_units=128` PASSED EXPLICITLY -- the espum default is a hard-coded 500 and the 1g configs
+never override it; the controlled reference start needs NEW thin wiring around `_reference_q`
+(the legacy recovery job cannot re-run) plus a VAD-mask firewall job that recomputes the
+deterministic trim mask (rVADfast 0.4, subframes 2, the dump's own truncation convention) to
+carry gold frame labels onto the trimmed raster, asserting per-utterance kept counts equal the
+dump's `.lengths` exactly; labels continue to flow only through the firewall (3,565 labelled
+update utterances). The dumps carry no stored VAD mask, which is why the firewall recomputes
+and asserts rather than reads.
+
+**Experiments.** 1. The stream build with its faithfulness certificate: bed-subset reader over
+the banked dumps (the `gua_jobs` mmap idiom), k-means, PCA, segments; certificate prints
+per-role token rates, K usage, and the four deviations. 2. H1 re-run (empty mask, partition
+hashes asserted) and the VAD-mask firewall. 3. The five starts re-derived. 4. The measured
+resource read in 1g.12 experiment-1 form (probe utterance, heaviest chunk, 1.5x, 11.5 h / 256
+GiB) at order 4 on the new stream -- mandatory before any cell is funded; the token rate is
+~2.3x seg12.5's retained stream, so feasibility is genuinely open. 5. The four-corner factorial
+at repair counts (0, 4) over five starts -- here ALL corners need fitting, none is
+decode-only -- every cell decoded by the exact order-4 readout with the LM-blind local decode
+as its no-LM leg. 6. Nulls and controls re-banked on THIS bed: the babble null at this decode's
+decoded lengths (100 draws, 1,000-draw bar beside it), the observation null redrawn from the
+new corpus marginal (512-d), the random-map start as the content-free control in every corner.
+7. Evaluation on the 890 selection utterances with gold, the 1,112 sealed, paired per-utterance
+reads with bootstrap intervals.
+
+**Gate (pre-registered 2026-08-24, before any run).** Clauses 1, 2, and 4 are 1g.12's verbatim
+(admission window and unigram TV with the content column computed and printed for every cell;
+content vs the re-banked babble 99th percentile + 0.05; variance-floor share and decoder
+certificate). Clause 3 carries 1g.12's three contrasts -- (a) READOUT, (b) FITTING ORDER, (c)
+EMISSION MODEL AT ORDER 4 -- on this stream, each with the random-map control and observation
+null read the same way, the 1g.11 "comparable gain" ruling carried over verbatim, PLUS the
+contrast this subphase exists for: (d) SEGMENTATION -- the v1-stream Gaussian 4-gram cell minus
+1g.12's seg12.5 Gaussian 4-gram cell, paired per utterance over the shared 890, both cells'
+controls beside it; (d) crosses subphases and reads only when both cells exist, and is
+well-defined because both arms score the same utterances against the same gold in plain
+correct-phone space. Consequences: contrast (d) POSITIVE with the controls clean identifies
+segmentation as a binding constraint of the 1g family and makes the wav2vec-U-faithful
+completion (audio-level trim, remaining deviations closed) the registered follow-up -- funding
+it is the USER's word; (d) null or negative while 1g.12's corners also fail extends the failure
+license to "v1-equivalent segmentation does not rescue this channel family at this operating
+point," jointly with 1g.11/1g.12 further evidence toward the training paradigm as the binding
+constraint -- never "the paradigm cannot work," now conditional only on the shared encoder tap
+and the disclosed trim deviation. No result here reopens 1g.11's or 1g.12's gates.
+
+**Status.** REGISTERED AND FUNDED 2026-08-24 on the USER's word, to run IN PARALLEL with 1g.12
+(no dependency; disjoint job graphs except the shared readout module). Constants traced before
+writing: the real fairseq v1 scripts (pair pooling halves via non-overlapping means; k-means on
+raw features; PCA plain, mean-centered, unwhitened), the banked trimmed dumps (full bed
+coverage, zero dropped utterances, mmap-able, no stored VAD mask), and the start re-derivation
+costs including the espum `num_units` trap and the H1 silence-split trap. Planner constants the
+USER may override: reuse of the feature-level-trimmed banked dump instead of v1's audio-level
+trim; the un-pooled 28 Hz stream as the operating point (pair-pooled leg not funded); the run
+cluster ID as the discrete twin. With the implementer to build, experiments 1-3 first, the
+resource read before any cell; evidence goes to `SAE_1g.md`.
+
 ## 6. Deliverables ladder
 
 | Step | Deliverable | Decision it enables |

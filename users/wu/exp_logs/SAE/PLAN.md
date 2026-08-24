@@ -282,7 +282,18 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    persisted, with exact reproduction as the acceptance check. Gate has three paired contrasts
    (readout / fitting order / emission model), each against the random-map control and the
    observation null, the 1g.11 "comparable gain" ruling carried over verbatim; 1g.11's fired
-   gate is not reopened. With the implementer to build, resource read first.
+   gate is not reopened. With the implementer to build, resource read first. 2026-08-24
+   experiment 1 VERIFIED: resource gate PASS for one curve (4 h / 4 GiB vs the 11.5 h clamp),
+   infeasible single-process, ten fitting cells in flight one job per (start, order).
+   2026-08-24 (USER: same as 1g.12 but with wav2vec-U v1-equivalent segmentation, parallel):
+   1g.13 REGISTERED AND FUNDED (`PLAN_1G.md` 1g.13) -- the 1g.12 factorial transported onto a
+   stream segmented the wav2vec-U v1 way (banked rVAD-trimmed layer-15 features, K=128 k-means
+   on raw features, segments = cluster-ID runs at their natural ~28/s rate, plain unwhitened
+   PCA-512 run means; run cluster ID as the discrete twin), five starts re-derived by their
+   registered procedures, gate = 1g.12's clauses plus paired contrast (d) SEGMENTATION against
+   1g.12's Gaussian 4-gram cell over the shared 890. Constants traced from the real fairseq
+   scripts and the banked dumps before registration; experiments 1-3 first, resource read
+   before any cell.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional
