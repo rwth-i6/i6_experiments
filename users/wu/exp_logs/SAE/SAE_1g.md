@@ -256,7 +256,7 @@ cells inherit the accepted computation's verification instead of needing their o
 `454ddbd`, `scripts/parallel_estep_test.py` 101/101 new, twelve neighbouring suites clean.
 
 DONE (1g.13 experiment 7, BUILT 2026-08-24 22:20, speech-llm `9e24f9b`): the evaluation against
-gold, `G12EvaluateJob.BHYf8G7wG6dd`, 22 cells and 3 cross-stream pairs, waiting only on the five
+gold, `G12EvaluateJob.a3419LhkI7JT`, 22 cells and 3 cross-stream pairs, waiting only on the five
 Gaussian cells and the two nulls. Clauses 1, 2 and 4 are 1g.12's verbatim because they are the same
 code; contrast (d) wires THREE pairs rather than one -- the arm, the content-free random-map start
 and the observation null, each against its own seg12.5 counterpart -- because a segmentation
@@ -271,6 +271,11 @@ carrying the role, the job strips the role to index the file and refuses two pai
 handle, and the config asserts distinct-files == planned-pairs, which is the check that would have
 caught it. The lesson is narrower than "label your artifacts": a label only helps where something
 READS it, and the consumer here was keying by the ambiguous field.
+
+CORRECTION (verifier, same day): this entry first registered `G12EvaluateJob.BHYf8G7wG6dd`, which
+is the COLLIDED pre-fix build's hash -- read from the graph before the handle fix and never
+re-derived after it. The launched job is `a3419LhkI7JT`. The fix was launched; only the log line
+was wrong, and it was wrong in the way the labels-come-from-the-artifact rule exists to prevent.
 
 `selected_real_start` became a parameter (the two streams name the same protocol's start
 differently) -- a NEW parameter, so excluding it at the accepted default IS hash-neutral, unlike the
