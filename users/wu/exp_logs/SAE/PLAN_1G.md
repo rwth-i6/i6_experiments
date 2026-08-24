@@ -2619,6 +2619,44 @@ is IN FLIGHT under the switched manager (hash unchanged at HEAD, rebuilt read-on
 finishes there is still no phone error rate in 1g.12, and the gate reads when it lands.
 Evidence in `SAE_1g.md` (approach 27 and Verifier feedback).
 
+2026-08-24 GATE VERDICT (planner; `G12EvaluateJob.yJgxKex9peLp` finished 21:00; approach 30,
+verdicts 70-72; every decision number recomputed by the verifier from raw hypotheses with an
+independent edit-distance implementation, and both interval forms reproduced bit-for-bit by an
+independent bootstrap re-run under the artifact's own pinned convention).
+Clause 1 (admission): read as registered; 49 of 78 scored rows are inadmissible (dominantly the
+length-ratio window) and every one still prints its content column, as the amendment requires.
+Clause 2 (content): FAILS for every real start. Content is shown only by the gold-informed
+controlled reference (margins over the re-banked babble null's 99th percentile 0.389 to 0.517);
+the selected real start's margin in the decision corner is +0.0148 against the required +0.05,
+the random map sits at -0.0291 beside it, and no non-controlled cell clears the bar anywhere in
+the table under either decoder at either count.
+Clause 3 (decision read): NOT POSITIVE on all three contrasts. (a) READOUT: the arm gains
++0.0201 [0.0169, 0.0234] over its own LM-blind local decode, and the observation null -- the
+same cell with every token's acoustics redrawn from the corpus marginal -- gains +0.0328
+[0.0297, 0.0360]: the control's gain EXCEEDS the arm's with non-overlapping intervals, which
+the carried-over 1g.11 ruling places beyond any reading of "comparable". (b) FITTING ORDER:
+the arm's +0.0056 [0.0035, 0.0078] excludes zero, but the null's +0.0062 [0.0041, 0.0084] is a
+comparable gain, so the neither-control condition fails. (c) EMISSION MODEL: the interval
+excludes zero AGAINST the continuous candidate (-0.0092 [-0.0130, -0.0055], the table is
+better), and the content-free random map shows the larger separation (-0.0272, non-overlapping
+with the arm), so the effect does not evidence content either. Clause 4 (honesty): PASS --
+floor share zero on every cell that has variance components, zero exactness violations on
+every exact-readout row.
+CONSEQUENCE, as pre-registered and none other: the failure license fires verbatim -- "a
+matched 4-gram fitting LM and an exact 4-gram LM-aware readout do not rescue the
+continuous-emission channel at this operating point; jointly with 1g.11 and verdicts 23-25,
+evidence toward the training paradigm as the binding constraint" -- never "the paradigm cannot
+work", and conditional on the shared `seg12.5` segmentation both arms inherit. Continuous
+emissions are NOT funded at this operating point; the (a)-positive-while-(c)-not branch does
+not arise; nothing here reopens 1g.11. The verdict licenses not funding, not a claim about
+what a different operating point would have shown. Verdict 72 stands as read: the exact
+readout's gain is real everywhere and is LM recovery, not content -- 1g.13's contrast (d)
+already carries the registered obligation to read its controls beside it from the start.
+1g.12's six registered experiments are COMPLETE; closing the subphase is the USER's word, with
+1g.13 in flight as the segmentation-axis continuation. Log-description corrections handed to
+the implementer in `SAE_1g.md` Verifier feedback (row count 78 not 82; one over-broad band
+sentence); neither moves a clause, and the artifact is not regenerated for prose.
+
 ### 1g.13 — the 1g.12 factorial on wav2vec-U v1-equivalent segmentation (USER-directed 2026-08-24)
 
 **Purpose.** Every 1g arm to date -- table and Gaussian, bigram and 4-gram -- runs on the

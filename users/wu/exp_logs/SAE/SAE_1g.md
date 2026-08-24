@@ -3775,3 +3775,36 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   requests match their own gates (9 h/30 GiB Gaussian, 10 h/3 GiB table). The supersession of
   the pilot-first clause and the sharded recovery shape are recorded in `PLAN_1G.md` 1g.13
   Status.
+
+- 2026-08-24 (round: 1g.12 experiment 6 and the gate read; GATE VERDICT written to
+  `PLAN_1G.md` 1g.12 Status). The gate table is VERIFIED at the strongest level this project
+  has used: the verifier's agents recomputed every decision number from RAW upstream
+  artifacts, not from the job's summaries -- per-utterance correct-phone fractions rebuilt
+  with an independently implemented unit-cost edit distance over `gold.json` and the twelve
+  relevant hypothesis files, all eight clause-3 point deltas float-identical to the banked
+  values, and BOTH interval forms (stratified primary and unstratified sensitivity)
+  reproduced bit-for-bit by an independent bootstrap re-run under the artifact's own
+  convention string, which fully pins the procedure (two-sided 95 percent percentile, n_boot
+  10000, seed 42, within-split resampling). The full 78-row table cross-checks against the
+  json with zero mismatches (PER = S+I+D over 61,032 gold phones in every cell;
+  admitted/shows_content recompute exactly; the babble null's 100-draw p99 decides and the
+  1,000-draw and unigram-matched bars decide nothing, as declared). Gold sealing verified
+  end-to-end ARITHMETICALLY: the scored set is bit-exactly the 890-id H1 selection role
+  (61,032 gold phones; the evaluation role would be 71,153 and appears nowhere), with the
+  caveat that the gold INPUT file physically holds all 5,567 dev utterances -- sealing is
+  enforced by the job's filter, which is what the four-layer build review already accepted.
+  CORRECTIONS FOR THE IMPLEMENTER, none verdict-moving: (i) approach 30 says "eighty-two
+  scored rows"; the artifact scores 78 -- the 10 table x local x count-0 rows are structurally
+  absent (table local decodes are banked at the paired count only), marked in
+  `cell_provenance.local_counts` but not named in prose; correct the approach text. (ii)
+  verdict 70's "every real start's margin is between -0.03 and +0.03" holds only at the
+  count-4 exact-readout rows (pseudo-pair count-0 sits near -0.11; several local rows spill
+  to about +/-0.03 to +0.04); no non-controlled cell approaches the +0.05 bar anywhere, so
+  the conclusion stands -- scope the sentence. Two hygiene notes for the 1g.13 evaluation
+  build, before it is written: give null-cell READOUT artifacts an explicit role label -- the
+  espum arm and observation-null exact readouts carry IDENTICAL internal cell keys and were
+  disambiguated only by float-exact PER matching against banked cells (the evaluate job
+  itself wires by graph edge, so the gate is unaffected); and give table cells a one-line
+  "no variance components" wording where `floor_share` is omitted, so clause 4's "all zero"
+  cannot be misread as covering them. The artifact is NOT regenerated for prose; the absences
+  and scopes are recorded here and in the plan.

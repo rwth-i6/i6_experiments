@@ -314,7 +314,13 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    arm's own gate, same fold asserted, hash-neutral by census); 20:55 USER DIRECTION: the
    WHOLE factorial launched immediately, replacing the pilot-first clause -- all 20 fitting
    cells queued, verified on disk; recovery for a table-cell clamp overrun is the gate-passed
-   sharded shape, not a bigger request.
+   sharded shape, not a bigger request. 21:00 1g.12 GATE READ AND RULED (verifier recomputed
+   every decision number from raw hypotheses; `PLAN_1G.md` 1g.12 Status): clause 2 fails for
+   every real start, clause 3 NOT POSITIVE on all three contrasts -- on (a) the observation
+   null's readout gain exceeds the arm's with non-overlapping intervals -- clause 4 passes;
+   the registered failure license fires verbatim, continuous emissions NOT funded at this
+   operating point, nothing reopens 1g.11. All six 1g.12 experiments COMPLETE; closing the
+   subphase is the USER's word; 1g.13 (in flight) carries the segmentation question.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional
