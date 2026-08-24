@@ -255,6 +255,15 @@ result is BIT-IDENTICAL to the single-core path rather than merely close -- whic
 cells inherit the accepted computation's verification instead of needing their own. Speech-llm
 `454ddbd`, `scripts/parallel_estep_test.py` 101/101 new, twelve neighbouring suites clean.
 
+NOT AN OPEN ITEM, corrected 2026-08-24: `scripts/parallel_estep_test.py` is not an uncommitted
+speech-llm file. The suites of this campaign live in the SETUP ROOT `scripts/`, which is outside
+every repository -- the setup root is not a git repository at all -- so there is nothing to commit
+and nowhere to commit it to. The speech-llm tree is clean apart from two files owned by other
+sessions. This is the accepted layout for every SAE suite here (`g12_evaluate_test.py`,
+`g12_nulls_test.py`, `h4_context_port_test.py` and the rest are all untracked the same way), and it
+is already recorded in memory as the code-layout rule; the consequence worth stating once is that a
+suite's evidence travels as its RE-RUN COUNT in these logs, never as a commit.
+
 SUITE ITEM DISCHARGED 2026-08-24 (verifier): the suite proved bit-identity only at ORDER 2, which
 says nothing about order 4 -- the engine takes a different path there, a 40^3 history space and the
 shift-table contraction, carrying far more additions per sub-batch, which is precisely where a
