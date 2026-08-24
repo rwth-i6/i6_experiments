@@ -2488,6 +2488,27 @@ PRIMARY instead of the closed beam harness, the addition of the three comparator
 count 4 as the single decision point. With the implementer to build, experiment 1 first;
 evidence goes to `SAE_1g.md`.
 
+2026-08-24 PREPROCESSING EQUIVALENCE READ (user question: is the audio-side preprocessing
+wav2vec-U-equivalent?). Traced to code and on-disk job artifacts, three independent reads agreeing:
+the phone route's `seg12.5` chain is NOT wav2vec-U preprocessing and was never built as it. Shared
+with wav2vec-U: the encoder checkpoint (facebook/wav2vec2-large-lv60) and layer L15 (HF
+`hidden_states[15]` = fairseq `layer_results[14]`), and per-utterance waveform standardization.
+Different, all load-bearing: (1) no silence removal -- wav2vec-U (v1 AND v2) trims silence from the
+raw audio with rVAD before extraction (14.71% of train frames dropped in our own sec-1c dump,
+`W2vu2FeatureDumpJob.HyHAk3OCbruI`), while the seg chain keeps silence and masks 101 of 500 units
+downstream via the H1 edge-enrichment rule; (2) PCA 96 after corpus standardization (0.4042
+explained variance) vs v1's PCA 512 on raw features; (3) MiniBatchKMeans K=500 on PCA-96 vs faiss
+K=128 on raw pre-PCA layer features; (4) segmentation Ward-merged to a FIXED per-utterance token
+rate (12.5/s) vs v1's data-driven cluster-ID runs with no rate target; (5) each segment's mean
+RE-QUANTIZED to the same 500-codebook so downstream sees discrete IDs, vs v1's continuous 512-d
+segment vectors; (6) no adjacent-pair second pooling stage (v1's `_pooled` step). wav2vec-U 2.0
+removed segmentation/PCA/pooling entirely, and the project's actual fairseq-style GAN teacher
+(sec-1c) IS faithful to that recipe (rVAD on, raw 1024-d L15 features, K=64 MFCC k-means aux).
+This is the precise content of the standing "conditional on the shared `seg12.5` segmentation"
+caveat on 1g.11/1g.12 verdicts; a wav2vec-U-faithful arm (the named registered follow-up) would
+change five of the six steps, not a tolerance. Producing jobs:
+`AvStatesJob.c4Ak1rACchRC` -> `QuantizeStatesJob.FWpGhC941JMi` -> `SegmentPoolUnitsJob.IHRNqQfnxrQ3`.
+
 2026-08-24 experiment 1 VERIFIED (approach 20, verdicts 52-54, `G12ResourceGateJob.3h2iIpk6lpaB`):
 the resource gate PASSES for one curve (measured 48.88 s heaviest chunk, 4 h and 4 GiB per cell at
 1.5x against the 11.5 h clamp) and is RESOURCE_INFEASIBLE for all five starts in one process, so
