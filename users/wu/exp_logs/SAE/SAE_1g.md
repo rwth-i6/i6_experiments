@@ -3376,7 +3376,18 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   (2) The experiment-6 reader (`G12EvaluateJob.oStN2ghRhR7l`): registered hash confirmed by
   building the graph read-only, 22 cells exactly, unrun confirmed four ways (still no phone
   error rate anywhere in 1g.12); gold sealed at four independent layers; suites re-run 37/37
-  and 32/32. PRE-RUN items, all on the unrun job (PLAN_1G.md ruling 3 makes (a) required):
+  and 32/32. PRE-RUN items, all on the unrun job (PLAN_1G.md ruling 3 makes (a) required) --
+  ALL DISCHARGED at speech-llm `77b8982`, verified same day: code read, suites re-run at the
+  new counts (g12_evaluate 55/55, g12_nulls 32/32), and the job hash confirmed unchanged at
+  `oStN2ghRhR7l` by rebuilding the graph read-only. Item (c) was answered differently than
+  asked, and CORRECTLY: the proposed digest equality is impossible on a correctly wired cell,
+  because the local comparator decodes the channel ADAPTER's own occupancy-weighted file, not
+  `repair_channels.npz` -- verified on disk (`42Pe0lEuLkqZ` table sha a0998245 against
+  `mdA3sZp68iqz` channels sha 4e85236b, with the adapter as the graph edge between them). The
+  job instead asserts everything the artifacts carry (start, decode role, repair count,
+  fitting-LM identity under a pinned alias table for the accepted bigram's two spellings) and
+  discloses when a comparator's schema predates the fitting-LM field. Accepted. The items as
+  flagged:
   (a) the clause-3 conventions string must name the interval form in words (two-sided 95
   percent percentile, n_boot, seed) and `evaluate.txt` must print BOTH the stratified primary
   and the unstratified sensitivity, not just the JSON; (b) a planned contrast whose arm is
@@ -3392,7 +3403,8 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   the assertion. Minor, no action forced: the Gaussian fitting artifact's schema revision is
   the one input revision not checked (a wrong artifact surfaces as KeyError, not a named
   refusal), and `mean_candidate`/`mean_baseline` are macro means while
-  `correct_phone_fraction` is pooled -- different numbers under one word, label them.
+  `correct_phone_fraction` is pooled -- different numbers under one word, label them. Both
+  minors also done in `77b8982` (revision checked, fields renamed `macro_mean_*`).
   (3) The 1g.13 table port and its gate (approach 28, verdict 69): hash neutrality verified by
   A/B recomputation against the pre-port tree (diff clean) plus the on-disk census (zero
   moved, zero unfinished; the 142 reconciles as 20 diagnostic + 121 decode + the banked gate;
@@ -3401,14 +3413,17 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   and both cross-stream refusal directions are in the suite (50/50 re-run). The finished gate
   matches verdict 69 field for field and the sizing recomputes (123.85 s x 32 x 6 E-steps x
   1.5 = 9.91 -> 10 h; 1 h per shard; the 6-vs-5 E-step column is the right explanation of the
-  10-vs-9 comparison). Hygiene before the first table cell is cited: (f) the gate's text
+  10-vs-9 comparison). Hygiene before the first table cell is cited -- ALL DISCHARGED at
+  `77b8982`, verified (the digest mismatch now raises, docstrings and State corrected, the
+  gate header names the route; h4_context_port 52/52 re-run): (f) the gate's text
   report hardcodes a "1g.2a item 3" header (`h4_context_resource.py:493`) on this stream's
   artifact; (g) two docstring sentences at `h4_context_diagnostic.py:145` and `:152-154` are
   factually wrong -- the three start-manifest schemas DO share {input_content_sha256, phase,
   route, schema} (the true, load-bearing claim is that no single UPDATE-ROLE BINDING field
   spans all three), and the accepted-H1 digest is missing on ONE schema (the reference start),
   not two; the same wrong sentence is in State; (h) where a manifest DOES carry the
-  accepted-H1 digest (three of five starts) assert the match instead of recording it -- today
+  accepted-H1 digest (four of five starts -- all but the controlled reference; this entry
+  first said three, my error) assert the match instead of recording it -- today
   a mismatch would pass as `accepted_h1_content: False`. None of (f)-(h) blocks the cells: all
   five start manifests verified on disk binding to the correct update-role hash. Two
   environment facts for the record: the two upstream inputs reaching this family as

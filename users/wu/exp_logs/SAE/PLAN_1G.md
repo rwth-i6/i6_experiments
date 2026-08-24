@@ -2597,7 +2597,12 @@ unrun job, listed in SAE_1g.md Verifier feedback): the convention line above; re
 contrast-plan entries instead of silently dropping them; asserting the pinned table
 comparator's repair count; comparing the emission-table content hash between the exact readout
 and its local comparator so "a cell against itself" rests on content, not wiring; and an empty
-variance-floor column must print "not carried", never "all zero".
+variance-floor column must print "not carried", never "all zero". 2026-08-24: all items
+DISCHARGED at speech-llm `77b8982` and verified (hash unchanged, suites clean); the
+content-hash item was correctly answered differently -- the local comparator decodes the
+channel adapter's own file, so the naive equality is impossible on a correctly wired cell, and
+the job instead asserts start, decode role, repair count, and fitting-LM identity from the
+comparator's own manifest.
 
 ### 1g.13 — the 1g.12 factorial on wav2vec-U v1-equivalent segmentation (USER-directed 2026-08-24)
 
@@ -2806,7 +2811,10 @@ UPDATE-ROLE BINDING field spans all three -- and the accepted-H1 digest is missi
 schema, not two); and where a manifest DOES carry the accepted-H1 digest the check should
 assert rather than record, since today a mismatch would pass as a False flag. None of these
 blocks the cells: the five start manifests on disk are verified to bind to the correct update
-role either way.
+role either way. 2026-08-24: all three hygiene items DISCHARGED at speech-llm `77b8982` and
+verified -- the accepted-H1 digest now raises on a mismatch where a manifest carries it (four
+of five starts, all but the controlled reference), the docstrings state the corrected manifest
+facts, and the gate report header names its route.
 
 ## 6. Deliverables ladder
 
