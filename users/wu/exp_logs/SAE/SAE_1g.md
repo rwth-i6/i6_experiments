@@ -247,6 +247,27 @@ eighteen are registered by flipping `PILOT_ONLY` once those wall clocks are read
 cannot be the cell that runs into the clamp. Flipping the flag moves no hash: registration decides
 what a manager may run, never what a job is.
 
+USER DIRECTION 2026-08-24 20:55: THE WHOLE 1g.13 FACTORIAL IS LAUNCHED, pilot rule not waited out.
+The user asked for the subphase now -- 1g.13 is the result they want soonest -- so `PILOT_ONLY` was
+flipped before either pilot's wall clock had been read, and the remaining eighteen fitting cells
+were submitted (9 Gaussian, 9 table; both pilots kept their hashes and were not disturbed). All 60
+jobs of the factorial are now registered: 20 fitting cells, 20 exact readouts, 10 channel adapters
+and 10 table local decodes.
+
+FOR THE PLANNER, since this departs from a registered rule rather than from a measurement. What was
+given up is protection against a projection wrong by more than the 1.5 multiplier already inside the
+request: 2.02x on the Gaussian arm, 1.74x on the tighter table arm. What was gained is about six
+hours on the critical path. Two things make the departure bounded rather than a gamble: both
+measured gates had already PASSED for exactly this population, which is what funds the cells at all,
+and I established first that NEITHER arm prints its own progress -- the only log lines are
+sisyphus's monitor -- so waiting for a pilot could not have been shortened by reading an E-step rate
+mid-flight. The pilot was all-or-nothing, six hours for one number.
+
+THE RECOVERY IF A TABLE CELL HITS THE 11.5 h CLAMP IS NOT A BIGGER REQUEST. The queue caps there,
+so `min(11.5, requested)` means a whole-fold cell that overruns cannot simply be relaunched larger.
+The table gate separately passed the SHARDED shape at 1 h per shard with 10.5 h of headroom, so that
+is the fallback shape, and it is not built. The Gaussian arm has no such cliff at 2.02x margin.
+
 VERIFIER ITEM (5) DONE 2026-08-24, before the `PILOT_ONLY` flip as asked (speech-llm `e89ccdb`).
 One correction to the item as written: the GAUSSIAN corners' no-LM leg does have a named producer
 -- `G12GaussianContextRepairJob.out_hypotheses`, the fitting cell's own local decode at every
