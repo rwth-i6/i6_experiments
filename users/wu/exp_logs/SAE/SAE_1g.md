@@ -201,48 +201,63 @@ per E-step but carrying one more of them -- so the TABLE corners have 1.5 h of c
 the continuous corners have 2.5. Both arms are funded; the wall-clock read on the first launched
 cell matters more for the table corners than for the Gaussian ones.
 
-SCOPED 2026-08-24, and DELIBERATELY NOT STARTED while `G12ObservationNullJob.QfLZEyTjxE6o` runs.
-1g.13 experiment 5 step (c) needs exactly ONE class widened, and it is `g12_repair_jobs.py`, which
-the running null job subclasses. My own recorded build order says never to widen shared source
-while cells are running, because a running job re-imports the recipe tree on every resubmit; the
-edit would be hash-neutral and provably behaviour-identical at 1g.12's values (the 1g.12 start is
-already three-dimensional, so a two-state lift is a pass-through, and a `centroids_npz=None`
-default leaves the quantizer path untouched) -- but "provably identical" under time pressure is
-exactly the claim that rule exists so I never have to make. The null cell is ~45 minutes from
-finishing and the arm's own matched-4-gram cells cost 2.02 to 2.08 h, so waiting costs less than
-being wrong about the 1g.12 decision cell.
+DONE (1g.13 experiment 5, step (c)): the four-corner factorial is BUILT and its two pilot cells
+are LAUNCHED. Speech-llm `4a56304`; config `config_sae_1g_13_exp5_v1.py`, manager
+`sae_1g_13_exp5` (which now owns the whole 1g.13 line -- experiment 4 is blocked behind it).
 
-What the scoping found, so the edit is one clean pass when the window opens:
+The widening was the one class the scoping named and nothing else. `G12GaussianContextRepairJob`
+now takes the SAME two adaptations `G12ResourceGateJob` already carried: a codebook that must be
+carried into the observation space (this stream's k-means is fitted on the raw pre-PCA features, so
+the centroids are projected by the stream's own PCA -- exact, because that map is affine) and a
+start read under its own key and lifted across the two duration sub-states. Both are excluded from
+the hash at their 1g.12 defaults. The projection itself was MOVED to a module-level function rather
+than copied, so the gate that SIZES a cell and the cell it sizes read the codebook through the same
+call; a gate that measured one projection while the cell fitted another would be a measurement of a
+job that never ran.
 
-  - `G12GaussianContextRepairJob` needs the SAME two adaptations `G12ResourceGateJob` already
-    carries and nothing else -- the codebook carried into the observation space by the stream's own
-    PCA (`centroids_npz`, exact because that map is affine) and the start read under this stream's
-    key and lifted across the two sub-states (`emissions_key`, `two_state_start_table`). Both
-    hash-excluded at their 1g.12 defaults.
-  - The TABLE arm needs nothing further: `H4ContextRepairJob` already takes a two-dimensional
-    `emissions` start and `context_reestimation_curve` does the two-state lift internally, and the
-    route, start-population and fitting-LM widenings landed in this round.
-  - `G12ExactReadoutJob` needs nothing at all: it already takes `route`, its table corner reads the
-    `repair_{count}_emissions` keys `H4ContextRepairJob` writes, and its Gaussian corner reads the
-    `mu_{count}`/`var_{count}` the repair cell persists. Its `route` is NOT hash-excluded and must
-    stay that way -- the twenty banked 1g.12 cells hashed the default, so excluding it now would
-    move them.
+Hash neutrality is measured, not argued: 36 jobs of the ported and consuming modules across the
+1g.12 graph and all 4,738 jobs of the 1g.13 graph keep their hashes and their finished markers, the
+only unfinished job in either being the 1g.12 gate reader that was already running. The new suite
+checks the exclusion MECHANISM rather than its spelling -- passing each 1g.12 default explicitly
+lands on the banked hash, and either 1g.13 value moves it. Suites: repair cell 48/48 (up from 41),
+and resource 50/50, g13 gate 43/43, gaussian context 57/57, nulls 32/32, readout 22/22, exact
+decode 33/33, engine equivalence 25/25, g11 repair 21/21, evaluate 63/63, route topology 28/28 all
+re-run clean.
+
+The edit landed while `G12EvaluateJob.yJgxKex9peLp` was running, which my own build order says not
+to do. The rule's reason is that a running job re-imports the recipe tree on every resubmit, so I
+checked what this job actually imports instead of waiting out its ~2.7 h: it takes two CONSTANTS
+from `g12_repair_jobs` and never constructs the class, imports nothing from `g12_resource` at all,
+and the edit is hash-neutral so its identity does not move. Both files were replaced atomically
+(write-to-temp then rename), so no importer could see a partial module. Waiting would have been
+free of risk and cost most of an afternoon; this is the reasoning, recorded so it can be judged
+rather than assumed.
+
+THE FACTORIAL REGISTERS IN PILOT FORM, which is the gates' own ruling and not caution. All four
+corners need FITTING here -- a table fitted on seg12.5 says nothing about this stream -- and the
+two arms are sized by two different gates: the Gaussian arm at 9 h and 30 GiB from
+`G12ResourceGateJob.cQ3wfqsTamPP`, the table arm at 10 h and 3 GiB from
+`H4ContextResourceGateJob.8M4rSjaBlikH`. Each request is READ from its own artifact; the build also
+asserts both verdicts PASS and that the two gates measured the SAME update fold, by their own
+recorded fold hash, since a factorial whose two arms fit different data is not a factorial. With
+2.5 h and 1.5 h of clamp headroom and no resume, only the two most expensive cells are registered
+-- the selected real start under the matched 4-gram, one per emission model -- and the remaining
+eighteen are registered by flipping `PILOT_ONLY` once those wall clocks are read. The matched
+4-gram is the binding corner in both arms; the accepted bigram carries far fewer histories and
+cannot be the cell that runs into the clamp. Flipping the flag moves no hash: registration decides
+what a manager may run, never what a job is.
 
 NEXT ACTION, in order:
 
-1. 1g.13 experiment 5 step (c), unblocked by both gates and waiting only on the source window
-   above: build the four-corner factorial at repair counts
-   (0, 4) over the five starts, one job per start as the gates sized it, every cell decoded by the
-   exact order-4 readout with the LM-blind local decode as its no-LM leg. Each arm's request is
-   READ from ITS OWN gate artifact and never written into the config -- the two gates disagree by
-   an E-step and by an order of magnitude in memory, so a single copied number would be wrong for
-   one arm. Launch ONE cell of EACH arm first and read its wall clock against that arm's own per
-   E-step projection before committing the rest: 1.5 h of headroom on the table corners, 2.5 on the
-   continuous ones, jobs that cap their own request at the clamp, and no resume, so an optimistic
-   projection costs the whole fold rather than a resubmit.
-2. When experiment 5's four jobs finish: switch the 1g.12 manager from `sae_1g_12_exp5` to
-   `sae_1g_12_exp6` (exp6's graph contains exp5's, so the two must never run at once) and read the
-   gate. Until that job runs there is still NO phone error rate anywhere in 1g.12.
+1. Read the two pilot cells' wall clocks against their own arm's projection the moment they finish,
+   then flip `PILOT_ONLY` to False and register the remaining eighteen. The Gaussian pilot is
+   `G12GaussianContextRepairJob.mrmyPW7K6BJI` (9 h requested, 1.1389 h per E-step projected over
+   five E-steps) and the table pilot is `H4ContextRepairJob.ZOyDz3Lr5gvi` (10 h requested, six
+   E-steps); their readouts are `G12ExactReadoutJob.PXkdjfKVf0VA` and `.OOCRqqetyibP`. A cell that
+   overruns loses the whole fold rather than resuming, so the table pilot's 1.5 h of headroom is
+   the number that decides whether eighteen more cells launch in this shape.
+2. Read the 1g.12 gate when `G12EvaluateJob.yJgxKex9peLp` finishes -- the first phone error rate
+   anywhere in 1g.12, and the read that decides clauses 1 to 4 on that subphase.
 3. The verifier's experiment-3 hygiene list is NOT done and is now scoped rather than deferred
    again. Both items change a FINISHED job's output: `num_units` as a named manifest field is a
    `run()` change, so the banked manifests would still lack it and only a re-run would help; and
@@ -252,8 +267,8 @@ NEXT ACTION, in order:
    not to a hash-neutral edit. In the meantime the port removes the reason the naming mattered: the
    start population is read from the route's registered table, not from a glob.
 
-IN FLIGHT (1g.12 experiment 5), launched 2026-08-24 17:00 under manager `sae_1g_12_exp5`, four
-jobs. The observation-null seam is built as the planner ruled: `G12ObservationNullJob` now persists
+DONE (1g.12 experiment 5): ALL FOUR JOBS, finished 2026-08-24 19:07 under manager
+`sae_1g_12_exp5`. The observation-null seam is built as the planner ruled: `G12ObservationNullJob` now persists
 its redrawn SELECTION-fold vectors in the segment twin's own shape (retained positions carry their
 redrawn vector, dropped positions NaN so a reader that ever took one gets a NaN and not a plausible
 number), records the draw seed, that file's content hash and a hash of the whole update+selection
@@ -268,11 +283,15 @@ record it and experiment 6 refuses to run if they disagree. FOR THE PLANNER: thi
 beyond the registration's letter, not a change to any clause, and the registration's own cell (the
 matched 4-gram) is unaffected either way.
 
-  - `G12ObservationNullJob.tDiHo9tPpn5Z` (accepted-2g) FINISHED 17:04; 645,028 redrawn tokens over
-    both folds, draw sha 98a1cc7e, selection artifact sha 38d68786.
-  - `G12ObservationNullJob.QfLZEyTjxE6o` (matched-4g) RUNNING -- the ~4 h cell the gate sized.
-  - `G12ExactReadoutJob.ij9vB58klqDW` / `.axh5u2jyP9Va` -- the two null readouts, each decoding its
-    own cell's redrawn selection vectors.
+  - `G12ObservationNullJob.tDiHo9tPpn5Z` (accepted-2g) and `.QfLZEyTjxE6o` (matched-4g), both
+    645,028 redrawn tokens over both folds, both carrying draw sha 98a1cc7e and selection artifact
+    sha 38d68786 -- so the fitting-order contrast the second cell was funded for rests on an
+    asserted identical draw and not on an argument that the seed makes one.
+  - `G12ExactReadoutJob.ij9vB58klqDW` (accepted-2g) / `.axh5u2jyP9Va` (matched-4g), each decoding
+    its OWN cell's redrawn selection vectors under the shared matched 4-gram order-4 automaton,
+    zero exactness violations in both. Their count-0 rows agree exactly at 47,628 symbols, which is
+    what must happen -- count 0 is the un-refitted start, so the two cells differ only downstream of
+    it -- and their count-4 rows separate, 54,883 against 54,434.
 
 Both null artifacts written today carry a prose `role` line naming the matched 4-gram because that
 phrase was hardcoded; the authoritative `fitting_lm` field is correct in both, and the string is now
@@ -311,8 +330,8 @@ refused. Contrast (a) rests on content, not on wiring. Speech-llm `2c9992c`,
 the first answer: where a comparator's schema predates the fitting-LM field, the artifact SAYS the
 binding is the graph edge rather than implying a check happened.
 
-BUILT AND READY (1g.12 experiment 6): `G12EvaluateJob.yJgxKex9peLp`, one job, the first phone error
-rate anywhere in 1g.12. Twenty-two cells -- four corners by five starts plus the null at both
+IN FLIGHT (1g.12 experiment 6): `G12EvaluateJob.yJgxKex9peLp`, launched 2026-08-24 19:24 under
+manager `sae_1g_12_exp6`, one job, the first phone error rate anywhere in 1g.12. Twenty-two cells -- four corners by five starts plus the null at both
 orders -- each scored under BOTH decoders, because contrast (a) is a cell against ITSELF under the
 other decoder. Conventions are 1g.11's, imported; the plan's clause-1 amendment is implemented as
 two independent columns (`admitted`, `shows_content`), so an inadmissible content-bearing cell
@@ -320,8 +339,8 @@ cannot read as an empty one. The babble null is re-banked at this decode's own d
 inside this job, for the reason 1g.11 gave. Contrast (c) is the one contrast the observation null
 structurally cannot enter -- it is an EMISSION-MODEL contrast and the table arm observes the frozen
 unit IDs, which the null preserves by construction -- so the artifact records that rather than
-leaving a hole; its content-free control is the random-map start. Waiting on experiment 5 to
-finish. Suites `scripts/g12_evaluate_test.py` 37/37 and `scripts/g12_nulls_test.py` 32/32, the
+leaving a hole; its content-free control is the random-map start. It scores about one cell every
+two minutes, so it runs a little under three hours against its 4 h request. Suites `scripts/g12_evaluate_test.py` 37/37 and `scripts/g12_nulls_test.py` 32/32, the
 latter including a negative control that a wrong scatter of the redrawn vectors is caught by
 reading the artifact back through `retained_token_view`.
 
@@ -1575,12 +1594,18 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     | cell | job | redrawn tokens | draw sha | selection artifact sha | exact readout | violations |
     |---|---|---|---|---|---|---|
     | accepted-2g | `G12ObservationNullJob.tDiHo9tPpn5Z` | 645,028 | 98a1cc7e | 38d68786 | `G12ExactReadoutJob.ij9vB58klqDW` | 0 |
-    | matched-4g | `G12ObservationNullJob.QfLZEyTjxE6o` | in flight | - | - | `G12ExactReadoutJob.axh5u2jyP9Va` | - |
+    | matched-4g | `G12ObservationNullJob.QfLZEyTjxE6o` | 645,028 | 98a1cc7e | 38d68786 | `G12ExactReadoutJob.axh5u2jyP9Va` | 0 |
 
     The seam is confirmed end to end on the finished pair rather than argued: the null's exact
     order-4 decode differs from the ARM's exact order-4 decode of the same start and fitting order
     (`G12ExactReadoutJob.CYMKVwReFIsN`) on ALL 890 utterances, 54,883 decoded symbols against
     47,695. A readout handed the arm's twin by mistake would have produced the arm's decode.
+
+    The two orders are ONE bed, asserted rather than assumed: both cells record the same whole-draw
+    hash, so contrast (b) reads a fitting-order difference and not two different draws. Their
+    count-0 decodes agree exactly at 47,628 symbols -- count 0 is the un-refitted start, so the
+    cells can only differ downstream of it -- and their count-4 decodes separate, 54,883 against
+    54,434.
 
 28. **1g.13 experiment 5 step (a): the table arm ported to a second stream (`h4_context_diagnostic.py`,
     `h4_context_resource.py`).** Four widenings, each hash-excluded at its default -- route,
@@ -1620,6 +1645,34 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     (1.1992 against 1.8761), the reported class travelling into the artifact rather than deciding
     anything.
 
+
+29. **1g.13 experiment 5 step (c): the four-corner factorial, and the one class it widened
+    (`g12_repair_jobs.py`, `g12_resource.py`, `configs/config_sae_1g_13_exp5_v1.py`).** The
+    Gaussian repair cell takes the SAME two adaptations the gate that sizes it already carried and
+    nothing else: a codebook carried into the observation space by the stream's own PCA (exact,
+    because that map is affine) and a start read under its own key and lifted across the two
+    duration sub-states. Both are hash-excluded at their 1g.12 defaults. The projection is MOVED to
+    a module-level function rather than copied, so a gate cannot measure one projection while the
+    cell it sized fits another.
+
+    All four corners are FITTED here -- a table fitted on `seg12.5` says nothing about this stream,
+    which is the one structural difference from 1g.12 experiment 4, where the two table corners were
+    decode-only. Each arm's request is read from ITS OWN gate artifact, and the build asserts both
+    verdicts PASS and that the two gates measured the same update fold by their own recorded fold
+    hash.
+
+    | check | result |
+    |---|---|
+    | jobs of the ported and consuming modules in the 1g.12 graph, after the widening | 36, zero moved; only the already-running gate reader unfinished |
+    | jobs of the 1g.13 graph, after the widening | 4,738, zero moved, zero unfinished |
+    | new jobs the factorial adds in pilot form | 4 of 4,742 |
+    | suite `scripts/g12_repair_jobs_test.py` | 48/48 (was 41) |
+    | related suites re-run (resource, g13 gate, gaussian context, nulls, readout, exact decode, engine equivalence, g11 repair, evaluate, route topology) | 374/374 |
+
+    | pilot cell | job | request | source of the request |
+    |---|---|---|---|
+    | espum, gaussian, matched-4g | `G12GaussianContextRepairJob.mrmyPW7K6BJI` | 9 h, 30 GiB | `G12ResourceGateJob.cQ3wfqsTamPP` |
+    | espum, table, matched-4g | `H4ContextRepairJob.ZOyDz3Lr5gvi` | 10 h, 3 GiB | `H4ContextResourceGateJob.8M4rSjaBlikH` |
 
 ## Verdicts
 
@@ -2530,6 +2583,9 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
 | 1g.11 experiment 3 observation null (observation_null.json, hypotheses.json, repair.json, repair.txt) | `work/speech_llm/sae/g11_nulls/G11ObservationNullJob.orOc9h6K3cuR`; code `sae/g11_nulls.py` at speech-llm `5a344f2` |
 | 1g.11 experiment 2 Gaussian repair cells (hypotheses.json, repair.json, repair.txt) | `work/speech_llm/sae/g11_repair_jobs/G11GaussianRepairJob.NogH62uMEI7T`; code `sae/g11_gaussian.py`, `sae/g11_repair_jobs.py`, `configs/config_sae_1g_11_exp2_v1.py`, `scripts/g11_gaussian_test.py` (40/40), `scripts/g11_repair_jobs_test.py` (20/20) at speech-llm `92e5d24` |
 | 1g.12 experiment 1 measured resource read, Gaussian arm at fitting order 4 (resource_gate.json, resource_gate.txt; PASS for one curve, RESOURCE_INFEASIBLE for all five starts in one process, 4 h and 4 GiB per cell) | `work/speech_llm/sae/g12_resource/G12ResourceGateJob.3h2iIpk6lpaB`; code `sae/g12_resource.py`, `sae/g12_gaussian_context.py`, the `emissions_by_time` seam in `sae/h4_context_engine.py`, `configs/config_sae_1g_12_exp1_v1.py`, `scripts/g12_gaussian_context_test.py` (57/57), `scripts/g12_resource_test.py` (50/50) |
+
+| 1g.12 experiment 5 continuous observation null at both fitting orders, fitted AND decoded on its own redrawn acoustics (observation_null.json, null_segments.pkl, parameters.npz, repair.json, hypotheses.json) | `work/speech_llm/sae/g12_nulls/G12ObservationNullJob.tDiHo9tPpn5Z` (accepted-2g); `work/speech_llm/sae/g12_nulls/G12ObservationNullJob.QfLZEyTjxE6o` (matched-4g); their exact readouts `work/speech_llm/sae/g12_readout_jobs/G12ExactReadoutJob.ij9vB58klqDW` and `.axh5u2jyP9Va`; code `sae/g12_nulls.py`, `configs/config_sae_1g_12_exp5_v1.py`, `scripts/g12_nulls_test.py` (32/32) at speech-llm `c4d3f13` |
+| 1g.13 experiment 5 four-corner factorial, pilot cells (repair_channels.npz / parameters.npz, repair.json, hypotheses.json, readout.json, readout.txt) | `work/speech_llm/sae/g12_repair_jobs/G12GaussianContextRepairJob.mrmyPW7K6BJI`; `work/speech_llm/sae/h4_context_diagnostic/H4ContextRepairJob.ZOyDz3Lr5gvi`; readouts `work/speech_llm/sae/g12_readout_jobs/G12ExactReadoutJob.PXkdjfKVf0VA` and `.OOCRqqetyibP`; code `sae/g12_repair_jobs.py`, `sae/g12_resource.py`, `configs/config_sae_1g_13_exp5_v1.py`, `config/sae_1g_13_exp5.py`, `scripts/g12_repair_jobs_test.py` (48/48) at speech-llm `4a56304` |
 
 ## Verifier feedback
 
