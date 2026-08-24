@@ -65,11 +65,17 @@ artifact-load peak, and the job was cleared and re-run. Only the memory arithmet
 against 48.88 s on the heaviest chunk is run noise, and the time verdicts are identical. The
 banked table is the SECOND run.
 
-NEXT ACTION: clear the five dead matched-4-gram cells and restart
-`config/sae_1g_12_exp23.py` once the booster drain count stops growing, then read them. In parallel,
-build experiment 4, the exact beam-free order-4 one-best readout, which is the one object in this
-subphase that does not exist in any form yet and does not depend on those five cells to be written
-or tested. Experiments 5 and 6 follow it.
+RE-RUN LAUNCHED 2026-08-24 11:39 once the booster drain count turned over (3,148 -> 2,814 and
+falling): the five cells were cleared one by one from a console, each refusing to clear anything
+carrying a finished marker, and `config/sae_1g_12_exp23.py` restarted. Experiment 4's decoder and
+its twenty cells were built and accepted during that wait and depend on nothing that was lost.
+
+NEXT ACTION: when experiment 3's five cells land, bank their rows and start
+`config/sae_1g_12_exp4.py` -- NOT before, because its graph contains those same ten cells and two
+managers over them would double-submit. `sis_managers.sh` holds experiment 4 BLOCKED with exactly
+that reason; the two entries swap at that moment. Then experiments 5 and 6. In parallel, 1g.13
+(registered and USER-funded 2026-08-24, the same factorial on a wav2vec-U v1-equivalent
+segmentation) is to be built experiments 1-3 first with its resource read before any cell.
 
 Proposals for the planner:
 
@@ -987,6 +993,23 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     tokens) is about 7 minutes per cell, and peak resident memory is 0.18 GiB. That is well inside
     the 0.49 GiB the plan sized, because the float64 trellis is never stored -- backtracking needs
     only one base-40 digit and one sub-state bit per state per frame.
+
+    The twenty cells that apply it are wired (`g12_readout_jobs.py`,
+    `config/sae_1g_12_exp4.py`, `scripts/g12_readout_jobs_test.py` 22/22): five starts by four
+    corners, all decoding under the SAME matched 4-gram automaton, because the fitting-order
+    contrast is only a fitting-order contrast if the decoder is held fixed across it. Nothing is
+    refitted -- the Gaussian corners read the parameters experiment 3 persisted and the table
+    corners read banked emission tables -- and no label is read here. The order-4 table cells are
+    pinned by path because attaching their own config would also attach the CLOSED 1g.10b/c
+    prefix-beam probe graph; to stop that pinned hash-to-start mapping from being wrong silently,
+    each table is checked inside the job against the manifest it wrote (the start it names, the
+    fitting LM it names, the digest of the bytes loaded, and, when it was fitted under the identity
+    the decoder uses, that the two automaton digests agree), and which of those checks a manifest
+    supports is recorded in the artifact rather than assumed. On-disk census of the experiment-4
+    graph: 4,752 jobs, 25 unfinished, and those 25 are exactly the twenty readouts and the five
+    re-running cells -- the closed harness is not in front of a manager. Clause 4 is enforced in
+    the producing job: on a nonzero violation count the artifacts are written and the job then
+    fails, so the number is on disk for a human while every downstream reader stays blocked.
 
 
 ## Verdicts
