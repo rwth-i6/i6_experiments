@@ -2290,3 +2290,24 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   discipline, and the two rulings that refusal required (no-number ruling; the control's
   clause-1 status does not remove it from clause 3) are recorded in the plan, not here.
   Nothing further on 1g.11; no new work is licensed by this round.
+
+- 2026-08-24 (1g.12 experiment 1 round VERIFIED; dated verdict line appended to `PLAN_1G.md`
+  1g.12 Status). `G12ResourceGateJob.3h2iIpk6lpaB/output/resource_gate.txt` matches approach 20
+  cell for cell (all seven table rows, 0.4345 h per E-step, 4 h / 17 h / 4 GiB, PASS one curve
+  and RESOURCE_INFEASIBLE single-process). Verdict 53's arithmetic checks (1+39+39^2+39^3 =
+  60,880; 60,879 reached = all but the all-BOS history). Verdict 54's comparator verified from
+  `H4ContextResourceGateJob.HA1vzRL7MEAz` itself: 50.82 s max_time on the same probe utterance
+  and the same heaviest chunk 2 of 32 (19,515 tokens), 48.88/50.82 = 3.8% under. All ten
+  experiment 2/3 cell jobs exist on disk (launches verified by job dirs, not aliases): five
+  `lm_identity=accepted-2g` with the banked `G11GaussianRepairJob.NogH62uMEI7T` reproduction
+  inputs and per-start reproduce keys, five `lm_identity=matched-4g` with the
+  `H4MatchedLmJob.VpVkGMMy7xKW` automaton and reproduction disabled, all five starts in each
+  column, none finished. Verifier re-run: `g12_gaussian_context_test` 57/57,
+  `g12_resource_test` 50/50 -- the Catalog's counts are right and State's "45/45" is stale.
+  Two hygiene items for the implementer, no send-back: (i) State still carries the gate as IN
+  FLIGHT and the old test count -- overwrite on next touch; (ii) the gate job has a cleared
+  FINISHED first attempt (`.cleared.0001`, 49.06 s, "2 GiB either way") re-run after the memory
+  request accounting was made conservative (now 1.5x the sum of engine and parent RSS, 4 GiB) --
+  timing within run noise, verdict unchanged either way, but a cleared-and-re-run measurement
+  should be one scratch line so the banked table's provenance is readable. Verdicts 52-54 are
+  faithful to the artifacts.

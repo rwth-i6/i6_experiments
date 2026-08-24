@@ -2488,6 +2488,17 @@ PRIMARY instead of the closed beam harness, the addition of the three comparator
 count 4 as the single decision point. With the implementer to build, experiment 1 first;
 evidence goes to `SAE_1g.md`.
 
+2026-08-24 experiment 1 VERIFIED (approach 20, verdicts 52-54, `G12ResourceGateJob.3h2iIpk6lpaB`):
+the resource gate PASSES for one curve (measured 48.88 s heaviest chunk, 4 h and 4 GiB per cell at
+1.5x against the 11.5 h clamp) and is RESOURCE_INFEASIBLE for all five starts in one process, so
+experiments 2-3 build as one job per (start, fitting order) -- ten jobs, all on disk and in
+flight, five matched-4-gram corners and five bigram re-fit corners carrying the banked 1g.11
+reproduction check as job inputs with declared tolerances. The engine seam reproduces the banked
+order-2 path exactly (implementer suites 57/57 and 50/50, verifier re-run independently). The
+continuous emission model does not narrow the reachable order-4 state space (60,879 of 60,880
+histories on the probe utterance, identical to the table gate), so cost is a property of the
+state space, within 4% of the table arm's.
+
 ## 6. Deliverables ladder
 
 | Step | Deliverable | Decision it enables |
