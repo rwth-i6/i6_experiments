@@ -44,15 +44,17 @@ ADMISSIBLE, against seg12.5's p = 0.23560298 and one-state REFUTED. Approach 24 
 measured memory peak was 141.45 GiB against H1's 141.52, confirming the mid-run correction from the
 24 GiB originally declared; it finished inside its original 2 h request.
 
-IN FLIGHT: `config/sae_1g_13_exp3.py` (manager pid 1328261) -- the five starts re-derived on the
-v1-equivalent stream. Sixteen jobs, thirteen unfinished at launch: three construction-only starts
-and the controlled reference on CPU, then the espum arm's full registered fan-out on GPU (masked
-stream, role manifest, three full seeds, the bigram-only control, the label-free pick, the
-projection). QUESTION: do the registered start protocols, applied unchanged to a stream with 2.46x
-the tokens and a 128-symbol alphabet, produce usable starts at all? `sis_managers.sh` now blocks
-experiments 1 and 2 behind this manager. The accepted espum calibration runs took 47 minutes each,
-so about two hours each is expected here; the task is resumable, so a wall-clock overrun costs a
-resubmit rather than the run.
+DONE (1g.13 experiment 3): ALL SIXTEEN JOBS, finished 2026-08-24 15:21. The five registered start
+protocols transport to the v1-equivalent stream and produce five distinct, valid starts; only the
+controlled reference needed new code and its frame-to-segment map is proved on all 3,565 labelled
+utterances. The espum arm picked full seed 0 at update 24,000 (weighted phone-LM perplexity 33.4666,
+all 39 phones covered) against its bigram-only control's 64.1514 at 36 of 39. Approach 25 and
+verdicts 62-64. Two things worth carrying forward: the cross-stream perplexity pair (33.4666 here
+against the accepted 32.5352) is NOT comparable, because this generator emits 2.44x the tokens for
+the same 890 utterances; and the espum arm's wall clock barely moved (52 min per seed against 47),
+because its schedule is a fixed 40,000 updates over text -- so nothing here relaxes the order-4
+resource question, which lives in the repair curve. Its watcher reported STALLED with one runnable
+job left; the on-disk census is 16 of 16 finished, the same console misreport as before.
 
 DONE 2026-08-24, the planner's ruling on the topology guard implemented and pushed (speech-llm
 `6c68303`). The guard now asserts each ROUTE'S OWN registered expectation from one table read by
@@ -66,10 +68,24 @@ that item is closed. The guard had NO test before this commit, which is why ever
 passed unchanged; `scripts/g12_route_topology_test.py` (28/28) now covers it, including that a
 two-state admission failure or an INDETERMINATE on the v1 route still stops the cell.
 
+IN FLIGHT: `config/sae_1g_13_exp4.py` (manager pid 1763371) -- the mandatory order-4 resource read
+on the v1-equivalent stream, `G12ResourceGateJob.4iWPXMh9yoJN`, one CPU job, everything upstream
+finished. QUESTION: does one order-4 repair curve on a 1,436,262-token update fold fit inside the
+11.5 h clamp? 1g.12's own gate PASSED at 4 h on 584,424 tokens at observation dimension 96; this
+stream is 2.46x the tokens at dimension 512, and the registered projection is about 8 h, so the
+answer is genuinely open. It runs 1g.12 experiment 1's OWN job class, not a copy -- same sharding,
+same probe rule, same 1.5 multiplier, same `size_request` -- with two inputs adapted inside that
+class where this stream differs: the codebook is carried from the raw pre-PCA space into the
+observation space by the stream's own PCA (exact, because the map is affine), and the plain
+[phone, unit] starts are lifted into the two duration sub-states by duplication, which is what the
+topology rather than the start separates. Committed and pushed as speech-llm `5d4a682`; the banked
+1g.12 gate still hashes to `3h2iIpk6lpaB`, verified against the live graph.
+
 NEXT ACTION, in order:
 
-1. When experiment 3 lands, bank its rows, then experiment 4 -- the mandatory order-4 resource read
-   on the new stream -- before any 1g.13 cell is funded.
+1. Read experiment 4's verdict when it lands. PASS sizes experiment 5's request and the four-corner
+   factorial can be built; RESOURCE_INFEASIBLE is a statement about this machine and goes to the
+   planner, not a fallback I pick.
 2. 1g.12 experiment 5, once the planner rules on the observation-null readout point below, then
    experiment 6, the evaluation on the 890 with gold with the 1,112 sealed, which is where clauses
    1 to 3 are actually decided. There is still NO phone error rate anywhere in 1g.12 and none is due
@@ -1204,6 +1220,67 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     |---|---|---|
     | VAD-mask firewall | 5,567 utterances, 0 kept-count disagreements; 1,888,037 untrimmed frames to 1,612,502 kept (0.1459 trimmed, reproducing the dump's own recorded `vad_dropped_frac`); roles 3,565 / 890 / 1,112 | `Usfy2NF0LiSQ` |
 
+25. **1g.13 experiment 3: the five registered start protocols re-derived on the v1-equivalent
+    stream (`configs/config_sae_1g_13_exp3_v1.py`).** Sixteen jobs, thirteen of them new. Four of
+    the five starts are the ACCEPTED job classes handed the new unit stream and the new H1-shaped
+    route artifact and nothing else -- the seeds, the Sinkhorn regularization, the pseudo-pair
+    length window, the espum schedule and its label-free pick rule and the fitting text all
+    transport verbatim. Only the controlled reference needed new code, because it is produced
+    inside `H4CalibrationPreparationJob`, whose recovery path cannot be re-run, and because it
+    counts gold on the untrimmed frame raster while this stream is a segmentation of the TRIMMED
+    one. `num_units=128` is passed explicitly to every espum run: the module default is a
+    hard-coded 500, and on this alphabet the default would silently build a generator over 372
+    units that are never observed.
+
+    Nothing here is a result about the channel, and no cell is funded by it. The question is only
+    whether the protocols transport -- five distinct, valid, usable starts on a stream carrying
+    2.46x the tokens over a 128-symbol rather than 500-symbol alphabet.
+
+    Every start is a row-stochastic 39 x 128 emission table over P(unit | phone): all entries
+    strictly positive, and the largest deviation of any row sum from 1 across all five starts is
+    8.9e-15. All five differ, and by wide margins -- the smallest mean total variation between any
+    two of them is 0.43 (espum against pseudo-pair) and the largest 0.97.
+
+    `mean emission entropy` is descriptive shape, in nats over each start's OWN alphabet;
+    `normalised` divides by the log of that alphabet size purely so the two streams' columns can
+    be set side by side. It is not a comparison currency: the readable thing is the ordering
+    inside a column, and the seg12.5 column is quoted from the accepted starts for contrast, not
+    re-run here.
+
+    | start | protocol, transported verbatim | peak RSS / declared (GiB) | wall clock | mean emission entropy, nats (normalised) | accepted seg12.5 counterpart, normalised | job |
+    |---|---|---|---|---|---|---|
+    | fingerprint | fixed-reg deterministic, reg 0.1, 6 position bins, hard argmax | 131.9 / 192 | 18 min | 1.0393 (0.2142) | 0.3434 | `lR5Q4q1xRtqV` |
+    | random-map seed 1000 | canonical marginal-random | 131.7 / 192 | 13 min | 1.4849 (0.3060) | 0.3413 | `m4sNBqlCwK2Z` |
+    | pseudo-pair seed 0 | length-matched proportional, window 16, text reuse | 132.2 / 192 | 14 min | 4.6476 (0.9579) | 0.9356 | `fGmIiECLQ2XW` |
+    | controlled reference | gold counts on the trimmed raster, H3's emission floor | 2.2 / 32 | 13 min | 2.9038 (0.5985) | 0.5674 | `kG9pmxczOVgF` |
+    | espum, projection of the picked checkpoint | full loss, label-free pick | 120.1 / 192 (per training) | 52 min per seed | 3.9151 (0.8069) | 0.6822 | `2EB1uTDlskOy` |
+
+    The espum arm's own fan-out. The pick rule is label-free and unchanged: weighted phone-language-model
+    perplexity on the 890-utterance selection role -- ordinary perplexity divided by squared
+    emitted-inventory coverage, lower better -- evaluated every 2,000 updates over 40,000.
+
+    | run | loss | seed | selected update | weighted phone-LM perplexity | phone inventory covered | emitted tokens on the 890 | job |
+    |---|---|---|---|---|---|---|---|
+    | full seed 0, PICKED | full | 0 | 24,000 | 33.4666 | 39 of 39 | 146,029 | `oAOLIZZHVaVz` |
+    | full seed 1 | full | 1 | 40,000 | 34.2041 | 39 of 39 | 146,650 | `18iF7DTcCNyF` |
+    | full seed 2 | full | 2 | 32,000 | 33.8412 | 39 of 39 | 146,610 | `E9fojuqhcBDZ` |
+    | bigram-only control | bigram_only | 0 | 14,000 | 64.1514 | 36 of 39 | 81,724 | `q59UQC0AW5Oc` |
+    | accepted seg12.5 full seed 0 (contrast, not a run here) | full | 0 | 30,000 | 32.5352 | 39 of 39 | 59,751 | `97FwGhhItdpO` |
+    | accepted seg12.5 bigram-only control (contrast, not a run here) | bigram_only | 0 | 40,000 | 55.4678 | 38 of 39 | 58,836 | `h4LngSZ4YvKL` |
+
+    The controlled reference is the only new code, so its checks are listed rather than summarised.
+    It reads gold from the VAD-mask firewall's UPDATE file only; the selection and evaluation files
+    are never opened by it.
+
+    | check | result |
+    |---|---|
+    | every labelled utterance lies inside the update role | 3,565 of 3,565 |
+    | the re-derived frame assignment collapses to the banked segment sequence, position for position | 3,565 of 3,565 |
+    | the route declares no silence unit | 0 |
+    | T_phi reproduces the route artifact's line count | pass |
+    | labelled trimmed frames, of which emitting | 1,037,255, of which 966,669 |
+    | units with at least one labelled frame | 127 of 128; the remaining unit backs off to the T_phi phone prior |
+
 
 ## Verdicts
 
@@ -1897,6 +1974,50 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     one-state REFUTED and two-state ADMISSIBLE, which is seg12.5's signature, so a 1g.13 cell stops
     at that guard as designed -- see the planner proposal in State.
 
+    UPDATE 2026-08-24, the pointer above: the planner ruled on that proposal and the guard is
+    amended, so a 1g.13 cell no longer stops at it -- the guard now asserts each route's own
+    registered expectation (v1-equivalent: two-state ADMISSIBLE asserted, one-state REPORTED) and
+    the ruling is in PLAN_1G.md 1g.13 Status, not in State.
+
+62. **A25: all five registered start protocols transport to the v1-equivalent stream unchanged and
+    produce five distinct, valid starts -- the transport question of experiment 3 is answered
+    yes.** Four of the five ran as the accepted job classes with no code change at all; only the
+    controlled reference needed new code, and for a reason that is about where gold lives rather
+    than about the protocol. Every start is a strictly positive row-stochastic 39 x 128 emission
+    table (largest row-sum deviation 8.9e-15) and no two are close: minimum pairwise mean total
+    variation 0.43. The concentration ordering of the accepted stream survives intact --
+    fingerprint most concentrated, then random-map, then the controlled reference, then espum,
+    with pseudo-pair very near uniform -- at normalised entropies 0.2142 / 0.3060 / 0.5985 /
+    0.8069 / 0.9579 against seg12.5's 0.3434 / 0.3413 / 0.5674 / 0.6822 / 0.9356. The one
+    substantive shift is the espum start, which is markedly more diffuse here (0.8069 against
+    0.6822). This verdict is about usability only: it says the factorial CAN be run on this
+    stream, and says nothing about whether any of these starts carries content.
+
+63. **A25: the espum selection perplexity is NOT comparable across the two streams, and inside
+    this stream the full loss beats its registered control decisively.** The cross-stream numbers
+    look adjacent -- 33.4666 here against the accepted 32.5352 -- and reading them as "slightly
+    worse" would be a currency error: weighted phone-LM perplexity is per EMITTED token, and for
+    the same 890 selection utterances this generator emits 146,029 tokens against the accepted
+    stream's 59,751, a factor of 2.44 that tracks the stream's own token rate. Two different
+    length regimes, so no cross-stream ranking is licensed from this pair and none is taken. The
+    comparison that IS internal reads clean: against its own bigram-only control at the same
+    seed and schedule, the full loss gives 33.4666 against 64.1514 and covers all 39 phones where
+    the control reaches 36, reproducing the qualitative behaviour the accepted stream showed
+    (32.5352 against 55.4678, 39 against 38). The three full seeds agree closely (33.4666,
+    33.8412, 34.2041), so the label-free pick is not choosing between materially different
+    generators.
+
+64. **A25: the espum arm's cost does NOT scale with the stream's token rate, so experiment 4's
+    resource question is untouched by this experiment's timings.** Each full-loss training took 52
+    minutes against the accepted stream's 47, despite the 2.46x token count, because the espum
+    schedule is a fixed 40,000 updates at fixed batch sizes over TEXT -- the stream enters only
+    through the periodic selection decodes. The construction-only starts likewise ran in 13-18
+    minutes at a 132 GiB peak against the 192 declared, sized from H1's measured 141.52 GiB
+    same-scale reference. None of this speaks to the repair curve, which is the leg that visits
+    every segment and where the 2.46x actually bites; the mandatory order-4 resource read stands
+    exactly as registered.
+
+
 ## Catalog
 
 1g.10c positive insertion-bonus cells, parity PASS, sign split between rows (verdicts 36-37): `work/speech_llm/sae/h4_insertion_bonus/H4InsertionBonusReadJob.da3bGeQIkS0R` (`insertion_bonus.json`, `insertion_bonus.txt`); 256 beam-512 chunks + 8 probes + 1 parity chunk under `work/speech_llm/sae/h4_insertion_bonus/`, merged by the production `H4SequenceDecodeMergeJob`; code `sae/h4_insertion_bonus.py`, `scripts/h4_insertion_bonus_test.py` (14/14) at speech-llm `3d395de`.
@@ -1911,6 +2032,8 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 |---|---|
 | 1g.12 experiments 2 and 3, the ten Gaussian repair cells at fitting orders 2 and 4 (approach 21, verdicts 55-56, 58) | accepted-2g `work/speech_llm/sae/g12_repair_jobs/G12GaussianContextRepairJob.` `0nngx4f5pX69`, `iZaUwq3DQVjj`, `OBwHBeOmwYU5`, `OyooGnuVi7EK`, `uczGmykabX6i`; matched-4g `.8OzLoDv4PPlt`, `.BrQtRIAKaWwU`, `.dDKq6J6AQEIP`, `.DgOI3SI1cwph`, `.kHwPYElOcCPr` (each `parameters.npz`, `repair.json`, `repair.txt`, `hypotheses.json`); code `sae/g12_gaussian_context.py`, `sae/g12_repair_jobs.py`, `configs/config_sae_1g_12_exp23_v1.py`, `config/sae_1g_12_exp23.py`, `scripts/g12_repair_jobs_test.py` (31/31) |
 | 1g.12 experiment 4, the twenty exact order-4 one-best readouts (approach 22, verdicts 59-60) | `work/speech_llm/sae/g12_readout_jobs/G12ExactReadoutJob.*` (20 dirs; each `readout.json`, `readout.txt`, `hypotheses.json`); code `sae/g12_exact_decode.py`, `sae/g12_readout_jobs.py`, `configs/config_sae_1g_12_exp4_v1.py`, `config/sae_1g_12_exp4.py`, `scripts/g12_exact_decode_test.py` (33/33), `scripts/g12_readout_jobs_test.py` (22/22) at speech-llm `5e245b1` |
+| 1g.13 experiment 3, the five phone starts on the v1-equivalent stream (approach 25, verdicts 62-64) | `work/speech_llm/sae/h3_jobs/H3InitializerJob.lR5Q4q1xRtqV` (fingerprint), `.m4sNBqlCwK2Z` (random-map seed 1000), `.fGmIiECLQ2XW` (pseudo-pair seed 0); `work/speech_llm/sae/g13_firewall/G13ReferenceStartJob.kG9pmxczOVgF` (controlled reference); `work/speech_llm/sae/h3_projection/H3CalibrationEspumProjectionJob.2EB1uTDlskOy` (espum) -- each `start.npz` and `start.json`; code `sae/g13_firewall.py`, `configs/config_sae_1g_13_exp3_v1.py`, `config/sae_1g_13_exp3.py`, `scripts/g13_reference_start_test.py` (20/20) at speech-llm `6bfa29d` |
+| 1g.13 experiment 3, the espum arm's registered fan-out on the v1-equivalent stream (approach 25, verdicts 63-64) | `work/speech_llm/sae/espum_jobs/EspumMatchTrainJob.oAOLIZZHVaVz` (full seed 0, picked), `.18iF7DTcCNyF` (full seed 1), `.E9fojuqhcBDZ` (full seed 2), `.q59UQC0AW5Oc` (bigram-only control); `work/speech_llm/sae/h3_jobs/H3EspumPickJob.ud5adF5qEliC` (`frozen_selection.json`), `work/speech_llm/sae/h3_jobs/H3MaskedEspumStreamJob.6OiRRPPXl1w8` (`manifest.json`); accepted-stream contrast rows quoted from `EspumMatchTrainJob.97FwGhhItdpO` and `.h4LngSZ4YvKL` |
 | 1g.13 experiment 2, the H1 route read on the v1-equivalent stream (approach 24, verdict 61) | `work/speech_llm/sae/g13_jobs/G13RoutesJob.hStPuE1UqLK6` (`phase1g_h1_v1_equivalent.json`, `.txt`); code `sae/g13_jobs.py`, `scripts/g13_routes_test.py` (25/25) at speech-llm `4d0fad6` |
 | 1g.13 experiment 2, the VAD-mask firewall (approach 24) | `work/speech_llm/sae/g13_firewall/G13VadFirewallJob.Usfy2NF0LiSQ` (`gold_update.pkl`, `gold_selection.pkl`, `gold_evaluation.pkl`, `trim_masks.pkl`, `firewall.json`, `firewall.txt`); code `sae/g13_firewall.py`, `configs/config_sae_1g_13_exp2_v1.py`, `config/sae_1g_13_exp2.py`, `scripts/g13_firewall_test.py` (30/30) at speech-llm `4d0fad6` |
 | 1g.13 experiment 1, the wav2vec-U v1-equivalent stream (approach 23, verdict 57) | `work/speech_llm/sae/g13_jobs/G13StreamBuildJob.Ob8Rh8y51x9M` (`units.pkl`, `segments.pkl`, `boundaries.pkl`, `component_scale.npy`, `transform.npz`, `stream.json`, `stream.txt`); code `sae/g13_stream.py`, `sae/g13_jobs.py`, `configs/config_sae_1g_13_exp1_v1.py`, `config/sae_1g_13_exp1.py`, `scripts/g13_stream_test.py` (35/35), `scripts/g13_faiss_reference_test.py` (10/10, run under the `w2vu` env), `scripts/g13_jobs_test.py` (34/34) at speech-llm `7f3f312` |
