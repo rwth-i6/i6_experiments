@@ -2937,26 +2937,31 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   landed in `a0d2808`, and the two workspace files (`config/sae_1g_13_exp3.py`,
   `scripts/g13_reference_start_test.py`) are under no version control.
 
-- 2026-08-24 (1g.13 experiment 4, found in passing: the job finished at 15:48 and is not yet
-  logged -- flagged BEFORE any verdict line is written). (a) BUG, occupancy column:
-  `G12ResourceGateJob.4iWPXMh9yoJN/output/resource_gate.json` reports
-  reached_histories/reached_arcs = 0/0 for four of the five starts (all but pseudo_pair_seed0,
-  which reads 60,879/2,435,160); `log.run.1` shows numpy overflow/invalid warnings at
-  `h4_context_engine.py:345`/`:353` immediately before exactly those four starts, and NaN
-  occupancy silently counts as zero through `reached = occupancy > 0.0`
-  (`g12_resource.py:189`). Forward log-likelihoods are finite for all five starts, so the
-  timing and memory reads and the PASS verdict are unaffected -- but the reachable-state-space
-  column is NOT measurable as printed on this stream: quote it in no verdict, and make the
-  counter raise on non-finite occupancy before that column is reused anywhere. (b) Labeling:
-  the artifact self-describes as "PLAN_1G 1g.12 experiment 1" (role string and txt header) and
-  sits in the same `g12_resource/` parent as the real 1g.12 gate -- name the subphase at the
-  next touch. (c) Sizing: PASS at a 9 h request against the 11.5 h clamp is 2.5 h headroom
-  (1g.12's curve had 7.5), and the fitting job caps its request at min(11.5, requested)
-  (`g12_repair_jobs.py:205`) -- thin if the heaviest-chunk projection is optimistic on this
-  2.46x fold; read the first real cell's wall clock against it. (d) Standing caution: the
-  banked `G12ResourceGateJob.3h2iIpk6lpaB` records `g12_resource.py` at commit `ef9045f` while
-  the working tree is two commits later at the SAME job hash, so any clear-and-rerun would
-  silently move the banked numbers -- never clear it. Observation-null seam: RULED in
-  `PLAN_1G.md` 1g.12 Status (the null job persists its redrawn selection-fold vectors as a
-  segments-shaped artifact recording the draw seed and a content hash; the readout module
-  stays untouched); experiment 5 is unblocked.
+- 2026-08-24 (1g.13 experiment 4 first run, and the engine defect behind it; supersedes the
+  first flag now that the cause is known). My occupancy flag (0/0 reached histories for four of
+  five starts, NaN counted as zero by `occupancy > 0.0`) understated the scope: the implementer
+  traced it to the backward recursion's normalizer in `h4_context_engine.py` -- beta was
+  rescaled by ALPHA's per-frame normalizer, overflowing to `inf * 0 = NAN` under peaked
+  emissions -- and the SAME gamma feeds `gaussian_context_pass`'s sufficient statistics, so
+  experiment-5 fitting on this stream would have produced NaN parameters behind a finite
+  likelihood. Fix `41127e8` VERIFIED independently: (i) code read -- beta is now rescaled by
+  its own per-frame maximum (`h4_context_engine.py:359-360`), which cancels exactly because
+  `joint` renormalizes over its own frame (`:368-369`) and the likelihood never reads beta;
+  (ii) the re-measuring gate's v1 probes reproduce the first run's log-likelihoods to the last
+  printed digit while occupancy becomes finite (fingerprint 59,204 reached where the broken run
+  printed 0) -- a two-run identity on real data; (iii) banked 1g.12 unaffected by MY OWN scan,
+  not the implementer's: zero RuntimeWarnings in all ten fitting-cell logs and every
+  `parameters.npz` finite with minimum variance 3.96e-02, far off any floor; (iv) suites
+  re-run by the verifier (h4_context_engine 48/48 including the new peaked-posterior case,
+  h4_context_em 45/45, g12_gaussian_context 57/57, g12_resource 50/50, g13_resource_gate
+  43/43); (v) hash claims verified -- `subphase` sits in `__sis_hash_exclude__` at 1g.12's
+  value, so `3h2iIpk6lpaB` keeps its hash and its outputs are untouched on disk (mtime still
+  10:13:35). Both guards are in place (E-step raises on a non-finite sufficient statistic, the
+  gate raises on non-finite occupancy), discharging my items (a) and (b) from the first flag.
+  Still standing: (c) headroom was thin at 9 h against the 11.5 h clamp on the superseded run
+  -- read the re-measured request and the first real cell's wall clock against it; (d) never
+  clear `3h2iIpk6lpaB` (its recorded code identity predates two edits at an unchanged hash).
+  One request: the old-vs-new probe-cell equivalence run cited in State (gamma agreeing to
+  7.8e-16, occupancy 60,879 exact) is ad-hoc and uncommitted -- if the banked experiment-4
+  verdict cites it, persist the harness (script or artifact); my independent evidence above
+  carries the no-banked-number-moves conclusion either way.

@@ -2719,6 +2719,18 @@ prior). Verdict 63's cross-stream non-comparability scoping is correct and stand
 verifier. Hygiene items (artifact naming, a missing num_units field) in SAE_1g.md Verifier
 feedback; none blocks experiment 4 or the cells.
 
+2026-08-24 experiment 4 first run SUPERSEDED by an engine defect it exposed, fixed at
+speech-llm `41127e8` and verified: the backward recursion's normalizer produced NaN posteriors
+under peaked emissions while the likelihood stayed finite -- wider than the reported occupancy
+column, because the same gamma feeds the E-step's sufficient statistics, so experiment-5
+fitting on this stream would have silently fitted NaN parameters. Two guards now make the
+failure class loud (the E-step and the gate both raise on non-finite values). The gate
+re-measures under the fixed engine as `G12ResourceGateJob.cQ3wfqsTamPP` (the fix adds work to
+every backward step, so the superseded run's 9 h sizing is not transportable). Banked 1g.12 is
+verified unaffected by the verifier's own scan: zero warnings in all ten fitting-cell logs,
+every persisted parameter finite, and the banked gate keeps hash `3h2iIpk6lpaB` untouched on
+disk. Verification details in SAE_1g.md Verifier feedback.
+
 ## 6. Deliverables ladder
 
 | Step | Deliverable | Decision it enables |
