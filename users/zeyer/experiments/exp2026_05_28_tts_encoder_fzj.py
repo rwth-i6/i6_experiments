@@ -1172,8 +1172,9 @@ def py():
         extra_config_deletes=["optimizer.epsilon"],
     )
     # Same as the dur07 run, but with packed tensors + Inductor compile, to compare speed directly.
-    # Bounds come from that run's own config; classes gets 80 (cap 75) for the BOS/EOS shifts.
-    # capture stays off: muon is not capturable, and capture measured no throughput gain anyway.
+    # Bounds come from that run's own config. `capture` defaults to True, so the whole step
+    # is captured; only capture_optimizer is off, since grad_explicit reduces between
+    # the step and the optimizer.
     _train_tts_encoder(
         "pseudo-enc-logmel-mfatable-realdur2-lerp-dur07-packed-single-gumbel-muon-nep38",
         prefix=prefix,
@@ -1187,6 +1188,12 @@ def py():
         pseudo_enc_duration_table=get_mfa_phone_duration_table().out_duration_table,
         pseudo_enc_duration_sigma=0.45,
         pseudo_enc_duration_scale=0.7,
+        # bounds the upsampling per sequence, so the packed buffer can be sized.
+        # measured natural ratio is mean 7.5, and at most 9.8 above 50 phonemes,
+        # so 10 guards the tail without reshaping the duration distribution
+        pseudo_enc_max_len_factor=10,
+        # packing removes padding, so laplace only makes per-step CTC cost climb
+        train_seq_ordering="random",
         pseudo_enc_lerp=True,
         pseudo_enc_blank_duration_range=(0, 0),
         pseudo_enc_specaug_max_width=6,
@@ -1196,25 +1203,33 @@ def py():
         base_lr=1.0,
         peak_lr=5e-3,
         nep=38,
+        behavior_version=29,  # packed tensors need >= 29
+        # join right after the pseudo encoder, so no batch-dim select/scatter and no host reads
+        pseudo_enc_frontend_concat=True,
         extra_config_updates={
             "optimizer.class": rf.build_dict(Muon)["class"],
-            "behavior_version": 29,
             "packed_tensors": True,
+            # a compiled step returns the grads, so DDP's autograd hooks never fire.
+            # grad_explicit all-reduces them between step and optimizer, matching DDP;
+            # 'param' would average params after per-GPU steps, a different optimization.
+            "torch_distributed": {"reduce_type": "grad_explicit"},
             "batch_size": None,
-            # classes is ~3-4k tokens per batch here, so 8k never binds:
-            # if it did, batches would shrink and the comparison against dur07 would not be like-for-like
-            "packed_batch_size": {"data": 11_200_000, "classes": 8_000, "phonemes": 6_000},
+            # classes is ~3-4k tokens per batch here, so this never binds on batch size,
+            # but it DOES size the CTC FSA edge list (5 * classes bound + 5 * batch bound),
+            # which the BW kernels walk every frame -- so slack here is paid every step
+            "packed_batch_size": {"data": 11_200_000, "classes": 5_000, "phonemes": 6_000},
             # laplace sorting exists to reduce padding, which packing already removes
             "batching": "random",
-            # no DDP wrap: the compiled step returns the grads, so DDP's autograd hooks never fire
-            "torch_distributed": {"reduce_type": "grad_explicit"},
+            # batch_size_bound is the seq-count capacity every packed buffer bound is derived from,
+            # so it must match max_seqs (500 above); the packed batcher enforces that cap.
+            # classes gets 80 (cap 75) for the BOS/EOS shifts.
+            # where do the seconds actually go? per-phase wall time, not CUPTI attribution
+            "phase_timing": True,
             "torch_cuda_graph": {
                 "batch_size_bound": 500,
                 "dim_capacity": {"data": 312_000, "classes": 80, "phonemes": 300},
                 "warmup_steps": 0,
                 "compile": True,
-                # the optimizer stays eager: the grad reduce has to run between step and optimizer
-                "capture_optimizer": False,
             },
         },
         extra_config_deletes=["optimizer.epsilon"],
@@ -1689,6 +1704,10 @@ def _train_tts_encoder(
     prefix: str,
     text_train_epoch_split: int = 20,
     ls_train_epoch_split: int = 1,
+    # None = keep the dataset defaults (laplace), so other experiments keep their hashes.
+    # "random" for packing: there is no padding to minimise, and length-sorted batches
+    # make per-step CTC cost climb (O(frames x targets) at a constant frame budget).
+    train_seq_ordering: Optional[str] = None,
     txt_only_loss_scale: float = 1.0,
     glow_tts_length_scale_range=(0.7, 1.1),
     glow_tts_noise_scale_range=(0.3, 0.9),
@@ -1716,6 +1735,9 @@ def _train_tts_encoder(
     pseudo_enc_duration_table: Optional[tk.Path] = None,
     pseudo_enc_duration_sigma: Optional[float] = None,
     pseudo_enc_duration_scale: Optional[float] = None,
+    pseudo_enc_max_len_factor: Optional[int] = None,
+    behavior_version: int = 25,
+    pseudo_enc_frontend_concat: bool = False,
     pseudo_enc_lerp: bool = False,
     glow_tts_add_silence_between_words: Optional[float] = None,
     pseudo_enc_start_layer: Optional[int] = None,
@@ -1796,6 +1818,8 @@ def _train_tts_encoder(
     # else aed_train_exp would try to set it on the DatasetConfigStatic below).
     asr_ds = copy.deepcopy(base_train.get_train_dataset())
     assert asr_ds["class"] == "OggZipDataset", asr_ds["class"]
+    if train_seq_ordering:
+        asr_ds["seq_ordering"] = train_seq_ordering
     asr_ds["audio"] = dict(asr_ds["audio"])
     asr_ds["audio"]["pre_process"] = speed_pert_librosa_config
     # OggZip decode + speed_pert is the heavy data-loading work; wrap *only* it in MPD.
@@ -1821,7 +1845,7 @@ def _train_tts_encoder(
             "seq_end_symbol": None,
             "unknown_symbol": None,
             "partition_epoch": text_train_epoch_split,
-            "seq_ordering": "laplace:.1000",
+            "seq_ordering": train_seq_ordering or "laplace:.1000",
         },
         "map_seq": functools.partial(_glowtts_text_map_seq, target_key=tgt_key, spm_dim=spm_dim, phon_dim=phon_dim),
         "map_outputs": {
@@ -1862,7 +1886,7 @@ def _train_tts_encoder(
     )
 
     model_config: Dict[str, Any] = {
-        "behavior_version": 25,
+        "behavior_version": behavior_version,
         "__serialization_version": 2,
         "enc_build_dict": rf.build_dict(
             ConformerEncoder,
@@ -1955,6 +1979,11 @@ def _train_tts_encoder(
                     if pseudo_enc_duration_scale is not None
                     else {}
                 ),
+                **(
+                    {"pseudo_enc_max_len_factor": pseudo_enc_max_len_factor}
+                    if pseudo_enc_max_len_factor is not None
+                    else {}
+                ),
                 **({"pseudo_enc_lerp": True} if pseudo_enc_lerp else {}),
             }
             if pseudo_speech_enc
@@ -2010,7 +2039,11 @@ def _train_tts_encoder(
                     # front-end pseudo and direct-mel TTS merge in feature space, so they share this one.
                     aed_pseudo_enc_single_stream_train_step
                     if pseudo_speech_enc and pseudo_enc_start_layer is not None and pseudo_enc_start_layer >= 0
-                    else aed_glowtts_single_stream_train_step
+                    else (
+                        aed_pseudo_enc_frontend_single_stream_train_step
+                        if pseudo_enc_frontend_concat
+                        else aed_glowtts_single_stream_train_step
+                    )
                 )
                 if single_stream
                 else aed_glowtts_train_step
@@ -2075,6 +2108,11 @@ def _train_tts_encoder(
             **(
                 {"pseudo_enc_duration_scale": pseudo_enc_duration_scale}
                 if pseudo_enc_duration_scale is not None
+                else {}
+            ),
+            **(
+                {"pseudo_enc_max_len_factor": pseudo_enc_max_len_factor}
+                if pseudo_enc_max_len_factor is not None
                 else {}
             ),
             **({"pseudo_enc_lerp": True} if pseudo_enc_lerp else {}),
@@ -2196,6 +2234,7 @@ def aed_glowtts_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
             duration_table=config.typed_value("pseudo_enc_duration_table", None),
             duration_sigma=config.float("pseudo_enc_duration_sigma", 0.45),
             duration_scale=config.float("pseudo_enc_duration_scale", 1.0),
+            max_len_factor=config.typed_value("pseudo_enc_max_len_factor", None),
             lerp=config.bool("pseudo_enc_lerp", False),
         )
         frozen_table = config.typed_value("pseudo_enc_frozen_table", None)
@@ -2275,6 +2314,7 @@ class PseudoSpeechEncoder(rf.Module):
         duration_table: Optional[str] = None,
         duration_sigma: float = 0.45,
         duration_scale: float = 1.0,
+        max_len_factor: Optional[int] = None,
         lerp: bool = False,
     ):
         super().__init__()
@@ -2312,6 +2352,10 @@ class PseudoSpeechEncoder(rf.Module):
         # so the skew and the per-phone ratios survive. Below ~0.7 the phones fall under one
         # encoder frame each (6x subsampling), which is what made the old label-1 setup unusable.
         self.duration_scale = duration_scale
+        # Bounds the whole sequence, not the single label: the upsampled length stays within
+        # max_len_factor * the input length. Without such a bound the packed buffer for the
+        # repeat cannot be sized. Long phones keep their length as long as the total fits.
+        self.max_len_factor = max_len_factor
         self.duration_medians = None
         if duration_table:
             import numpy
@@ -2346,6 +2390,64 @@ class PseudoSpeechEncoder(rf.Module):
             emb = self.embedding(labels_wb)
             emb.feature_dim = self.out_dim
             out_spatial_dim = spatial_dim
+        elif self.blank_duration_range == (0, 0):
+            import numpy
+
+            # No blanks, so the interleave would only add zero-duration positions.
+            # Using the labels directly keeps this rf-only: packed-friendly and traceable.
+            labels_wb = labels.copy()
+            labels_wb.sparse_dim = self.wb_vocab_dim
+            if self.duration_medians is not None:
+                med = rf.convert_to_tensor(numpy.asarray(self.duration_medians), dims=[self.wb_vocab_dim])
+                base = rf.gather(med, indices=labels_wb, axis=self.wb_vocab_dim) * self.duration_scale
+                jitter = rf.exp(rf.random_normal(base.dims, dtype="float32") * self.duration_sigma)
+                durations = rf.maximum(rf.cast(base * jitter + 0.5, "int32"), 1)
+            else:
+                l_lo, l_hi = self.label_duration_range
+                durations = rf.random_uniform(labels.dims, minval=l_lo, maxval=l_hi + 1, dtype="int32")
+            durations = durations.copy_masked(0, dims=[spatial_dim])
+            if self.max_len_factor:
+                # Scale here, not inside rf.repeat alone, so that seg_start below is derived
+                # from exactly the durations the repeat expands by.
+                durations = rf.limit_repeats(durations, in_spatial_dim=spatial_dim, max_len_factor=self.max_len_factor)
+            if not self.lerp:
+                rep, out_spatial_dim = rf.repeat(
+                    labels_wb,
+                    in_spatial_dim=spatial_dim,
+                    repeats=durations,
+                    max_len_factor=self.max_len_factor,
+                )
+                emb = self.embedding(rep)
+                emb.feature_dim = self.out_dim
+            else:
+                # Each frame glides from its own target toward the next, by position in the segment.
+                # Without blanks the successor is simply the next label; the last one keeps its own.
+                nxt = rf.gather(
+                    labels_wb, indices=rf.range_over_dim(spatial_dim) + 1, axis=spatial_dim, clip_to_valid=True
+                )
+                seg_start = rf.cumsum(durations, spatial_dim=spatial_dim) - durations
+                cur_rep, out_spatial_dim = rf.repeat(
+                    labels_wb,
+                    in_spatial_dim=spatial_dim,
+                    repeats=durations,
+                    max_len_factor=self.max_len_factor,
+                )
+                nxt_rep, _ = rf.repeat(
+                    nxt, in_spatial_dim=spatial_dim, repeats=durations, out_spatial_dim=out_spatial_dim
+                )
+                start_rep, _ = rf.repeat(
+                    seg_start, in_spatial_dim=spatial_dim, repeats=durations, out_spatial_dim=out_spatial_dim
+                )
+                dur_rep, _ = rf.repeat(
+                    durations, in_spatial_dim=spatial_dim, repeats=durations, out_spatial_dim=out_spatial_dim
+                )
+                pos = rf.range_over_dim(out_spatial_dim)
+                frac = rf.cast(pos - start_rep, "float32") / rf.cast(rf.maximum(dur_rep, 1), "float32")
+                emb_cur = self.embedding(cur_rep)
+                emb_nxt = self.embedding(nxt_rep)
+                frac = rf.cast(frac, emb_cur.dtype)
+                emb = emb_cur * (1.0 - frac) + emb_nxt * frac
+                emb.feature_dim = self.out_dim
         else:
             import torch
 
@@ -2891,6 +2993,158 @@ def aed_glowtts_single_stream_train_step(*, model: Model, extern_data, **_kwargs
         best = rf.reduce_argmax(log_prob, axis=model.target_dim)
         frame_error = best != targets_packed
         frame_error.mark_as_loss(name=f"fer{postfix}", as_error=True)
+
+
+def aed_pseudo_enc_frontend_single_stream_train_step(*, model: Model, extern_data, **_kwargs_unused):
+    """Single-stream AED+CTC with the FRONT-END pseudo-speech encoder, without splitting the batch.
+
+    Audio rows carry no phonemes and text rows no audio, so both branches can run on the full
+    batch with the other rows empty, and a per-row concat is already the merge.
+    That keeps it free of masks, batch-dim masked_select/scatter and host reads,
+    so it stays statically traceable (needed for compile/capture) and packing-friendly.
+    One encode over the joined batch follows, as in a normal step.
+    """
+    from returnn.config import get_global_config
+    from returnn.util.collect_outputs_dict import CollectOutputsDict
+
+    config = get_global_config()  # noqa
+    assert not config.bool("tts_waveform", False), "front-end pseudo-enc single-stream: no waveform path"
+    assert config.bool("pseudo_speech_enc", False), "this step is for the pseudo-speech encoder"
+    data = extern_data[config.typed_value("default_input")]
+    data_spatial_dim = data.get_time_dim_tag()
+    targets = extern_data[config.typed_value("target")]
+    targets_spatial_dim = targets.get_time_dim_tag()
+    phonemes = extern_data[PHONEMES_DATA_KEY]
+    phonemes_spatial_dim = phonemes.get_time_dim_tag()
+
+    aux_loss_layers = config.typed_value("aux_loss_layers") or ()
+    aux_loss_scales = config.typed_value("aux_loss_scales", [1.0] * len(aux_loss_layers))
+    aed_loss_scale = config.float("aed_loss_scale", 1.0)
+    dec_aux_loss_layers = config.typed_value("dec_aux_loss_layers") or ()
+    dec_aux_loss_scales = config.typed_value("dec_aux_loss_scales", [1.0] * len(dec_aux_loss_layers))
+    use_normalized_loss = config.typed_value("use_normalized_loss", True)
+    if isinstance(use_normalized_loss, bool):
+        use_normalized_loss = "frames" if use_normalized_loss else "none"
+    assert use_normalized_loss in ("none", "frames"), f"single_stream: unsupported {use_normalized_loss!r}"
+    normed = {"none": False, "frames": True}[use_normalized_loss]
+    label_smoothing = config.float("label_smoothing", 0.1)
+
+    if data.feature_dim and data.feature_dim.dimension == 1:
+        data = rf.squeeze(data, axis=data.feature_dim)
+
+    # Both branches over the full batch; each row is empty in exactly one of them,
+    # so nothing is wasted and no split is needed.
+    # The pseudo encoder is trainable, so no stop_gradient here.
+    text_feats, text_spatial_dim = model.pseudo_enc(phonemes, spatial_dim=phonemes_spatial_dim)
+    audio_feats, audio_spatial_dim = model.feature_extraction(data, in_spatial_dim=data_spatial_dim)
+    if text_feats.dtype != audio_feats.dtype:
+        # the embedding runs under autocast while the front-end does not
+        text_feats = rf.cast(text_feats, audio_feats.dtype)
+    feats, feats_spatial_dim = rf.concat(
+        (audio_feats, audio_spatial_dim), (text_feats, text_spatial_dim), handle_dynamic_dims=True
+    )
+    feats.feature_dim = model.in_dim
+    # Each row is audio-only or text-only (see the docstring), so no row is ever as long
+    # as both together. The concat dim is a Dim SUM, whose capacity is audio + text; under
+    # capture that is what EVERY row costs, and it drives the CTC frame loop. The true
+    # per-row max is the larger of the two. An overrun would trip the packed bound check.
+    _a_cap = _dim_capacity(audio_spatial_dim)
+    _t_cap = _dim_capacity(text_spatial_dim)
+    if _a_cap and _t_cap:
+        feats_spatial_dim.capacity = max(_a_cap, _t_cap)
+
+    if config.bool("use_eos_postfix", False):
+        ctc_targets, (ctc_targets_spatial_dim,) = rf.pad(
+            targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx
+        )
+    else:
+        ctc_targets, ctc_targets_spatial_dim = targets, targets_spatial_dim
+
+    collected_outputs = CollectOutputsDict(allowed_key_patterns=[str(i - 1) for i in aux_loss_layers])
+    enc_raw, enc_spatial_dim = model.encode_from_features(
+        feats, in_spatial_dim=feats_spatial_dim, collected_outputs=collected_outputs
+    )
+    enc = model.decoder.transform_encoder(enc_raw, axis=enc_spatial_dim)
+
+    # aux CTC losses (single stream)
+    for i, layer_idx in enumerate(aux_loss_layers):
+        if layer_idx > len(model.encoder.layers):
+            continue
+        aux_logits = getattr(model, f"enc_aux_logits_{layer_idx}")(collected_outputs[str(layer_idx - 1)])
+        aux_ctc_log_probs = rf.log_softmax(aux_logits, axis=model.wb_target_dim)
+        aux_loss = rf.ctc_loss(
+            logits=aux_ctc_log_probs,
+            logits_normalized=True,
+            targets=ctc_targets,
+            input_spatial_dim=enc_spatial_dim,
+            targets_spatial_dim=ctc_targets_spatial_dim,
+            blank_index=model.blank_idx,
+        )
+        aux_loss.mark_as_loss(
+            f"ctc_{layer_idx}",
+            scale=aux_loss_scales[i],
+            # explicit device: get_size_tensor defaults to CPU, a sync under tracing
+            custom_inv_norm_factor=ctc_targets_spatial_dim.get_size_tensor(device=aux_ctc_log_probs.device),
+            use_normalized_loss=normed,
+        )
+
+    # AED CE + FER (single stream)
+    batch_dims = targets.remaining_dims(targets_spatial_dim)
+    input_labels, (targets_w_eos_spatial_dim,) = rf.pad(
+        targets, axes=[targets_spatial_dim], padding=[(1, 0)], value=model.bos_idx
+    )
+    targets_w_eos, _ = rf.pad(
+        targets,
+        axes=[targets_spatial_dim],
+        padding=[(0, 1)],
+        value=model.eos_idx,
+        out_dims=[targets_w_eos_spatial_dim],
+    )
+    dec_collected = CollectOutputsDict(allowed_key_patterns=[str(i - 1) for i in dec_aux_loss_layers])
+    logits, _ = model.decoder(
+        input_labels,
+        spatial_dim=targets_w_eos_spatial_dim,
+        encoder=enc,
+        state=model.decoder.default_initial_state(batch_dims=batch_dims),
+        collected_outputs=dec_collected,
+    )
+    dec_aux_logits = {}
+    for layer_idx in dec_aux_loss_layers:
+        norm = getattr(model, f"dec_aux_final_layer_norm_{layer_idx}")
+        linear = getattr(model, f"dec_aux_logits_{layer_idx}")
+        dec_aux_logits[layer_idx] = linear(norm(dec_collected[str(layer_idx - 1)]))
+
+    targets_packed, pack_dim = rf.pack_padded(
+        targets_w_eos, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False
+    )
+    for postfix, scale, logits_ in [("", aed_loss_scale, logits)] + [
+        (f"_{k}", dec_aux_loss_scales[i], dec_aux_logits[k]) for i, k in enumerate(dec_aux_loss_layers)
+    ]:
+        logits_packed, _ = rf.pack_padded(
+            logits_, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False, out_dim=pack_dim
+        )
+        if not model.out_eos_separated:
+            log_prob = rf.log_softmax(logits_packed, axis=model.target_dim)
+        else:
+            log_prob = _aed.log_probs_with_eos_separated(
+                logits_packed, target_dim=model.target_dim, eos_idx=model.eos_idx
+            )
+        log_prob = rf.label_smoothed_log_prob_gradient(log_prob, label_smoothing, axis=model.target_dim)
+        loss = rf.cross_entropy(
+            target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
+        )
+        loss.mark_as_loss(f"ce{postfix}", scale=scale, use_normalized_loss=normed)
+        best = rf.reduce_argmax(log_prob, axis=model.target_dim)
+        frame_error = best != targets_packed
+        frame_error.mark_as_loss(name=f"fer{postfix}", as_error=True)
+
+
+def _dim_capacity(dim: Dim) -> Optional[int]:
+    """:return: the dim's static upper bound, declared or derived, None if unknown"""
+    if dim.dimension is not None:
+        return dim.dimension
+    # noinspection PyProtectedMember
+    return dim.capacity or dim._derived_capacity()
 
 
 def aed_pseudo_enc_single_stream_train_step(*, model: Model, extern_data, **_kwargs_unused):
