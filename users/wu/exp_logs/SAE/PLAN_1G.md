@@ -2514,6 +2514,17 @@ wav2vec-U-faithful arm (the named registered follow-up) would change five of the
 tolerance. Producing jobs:
 `AvStatesJob.c4Ak1rACchRC` -> `QuantizeStatesJob.FWpGhC941JMi` -> `SegmentPoolUnitsJob.IHRNqQfnxrQ3`.
 
+2026-08-24 experiments 2-4 VERIFIED (approaches 21-22, verdicts 55-56 and 58-60): all twenty
+fitting cells complete (bigram corners reproduce banked 1g.11 at 1.9e-16..2.6e-15 with zero
+decoded disagreements; `parameters.npz` persisted), all twenty exact-readout cells certified
+(zero exactness violations, renormalized mass 1.274e-04 nats matching the registered fit-side
+bound; the ten count-0 pairs identical across fitting orders -- the fitting LM provably does not
+reach the decode). Verdict 58 (criterion ranks the content-free control 1.36x above the
+gold-informed reference AT THE MATCHED 4-GRAM, as at the bigram) is correctly scoped as not a
+clause verdict; the 1g.11-observed pseudo-pair collapse is a READOUT property (verdict 60),
+correctness deferred to experiment 6. Remaining: experiments 5-6 (re-banked nulls, evaluation,
+gate read).
+
 2026-08-24 experiment 1 VERIFIED (approach 20, verdicts 52-54, `G12ResourceGateJob.3h2iIpk6lpaB`):
 the resource gate PASSES for one curve (measured 48.88 s heaviest chunk, 4 h and 4 GiB per cell at
 1.5x against the 11.5 h clamp) and is RESOURCE_INFEASIBLE for all five starts in one process, so
@@ -2635,6 +2646,19 @@ USER may override: reuse of the feature-level-trimmed banked dump instead of v1'
 trim; the un-pooled 28 Hz stream as the operating point (pair-pooled leg not funded); the run
 cluster ID as the discrete twin. With the implementer to build, experiments 1-3 first, the
 resource read before any cell; evidence goes to `SAE_1g.md`.
+
+2026-08-24 experiments 1-2 VERIFIED (approaches 23-24, verdict 57): the stream reproduces the
+pre-registered published anchor -- 28.01 segments per second on the bed against ~28, stable
+across roles (27.67-28.38), all 128 clusters used with the rarest at 88 segments, PCA-512
+keeping 0.9114 variance, the four deviations declared verbatim in the artifact, zero labels
+read. The faithfulness suite tests against real faiss under the `w2vu` env (verifier re-run
+10/10). Update role carries 1,436,262 segments = 2.46x 1g.12's fold, projecting ~8 h per
+order-4 curve against the 11.5 h clamp -- the experiment-4 resource read stays mandatory. The
+route re-read and VAD firewall jobs are on disk (`G13RoutesJob.hStPuE1UqLK6`,
+`G13VadFirewallJob.Usfy2NF0LiSQ`); the route artifact deliberately refuses the accepted
+`seg12.5/phones` key, and its topology verdict is REPORTED with the standing minimum-duration-2
+topology unchanged as the operating choice -- a two-state admission failure on this stream
+stops the cells and returns to the planner, it does not license one state.
 
 ## 6. Deliverables ladder
 

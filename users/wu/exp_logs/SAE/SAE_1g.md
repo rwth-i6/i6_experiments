@@ -2666,3 +2666,23 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   registration field for field (K=128, iters 50, redos 3, seed 0, PCA 512, fit scope 2,849,
   bed 8,416, both banked dumps as inputs). Finished-cell outputs correctly refuse clause
   verdicts before their controls exist. Nothing to send back.
+
+- 2026-08-24 (results round VERIFIED: approaches 21/22/24, verdicts 55-60; dated lines appended
+  to `PLAN_1G.md` 1g.12 and 1g.13 Status). Recomputed from the banked tables: verdict 58's five
+  matched-4g gains, both control/reference ratios (1.358, 1.336), verdict 55's reproduction
+  range (1.9e-16..2.6e-15, ten of ten at 0 of 890 disagreements), verdict 59's ten count-0
+  identity pairs (identical to the symbol in both emission models), verdict 60's collapsed-cell
+  contrast (0.0152/3 LM-blind vs 0.9786/36 LM-aware, same parameters) and its
+  "fewer-symbols-everywhere-else" claim (holds at every non-collapsed Gaussian cell), and
+  verdict 57's derived chain (28.01/12.47 = 2.25x rate, 1,436,262/584,424 = 2.46x tokens,
+  0.4345 h x 2.46 x 5 x 1.5 = 8.0 h). Artifact spot-checks match: `kHwPYElOcCPr` repair.txt
+  criterion pair (-79,805,418.7 / -75,188,448.6), readout `6D1qhe7DtE9m` rows and certificate
+  (violations 0, renormalized 1.274e-04 = the registered fit-side bound), `G13StreamBuildJob`
+  stream.txt (28.01/s, 128/128, rarest 88, inertia 1.228e+11, PCA 0.9114, four deviations
+  verbatim, labels read: 0). All twenty `G12ExactReadoutJob` dirs exist -- the launch
+  verification left open last round CLOSES. `G13RoutesJob.hStPuE1UqLK6` and
+  `G13VadFirewallJob.Usfy2NF0LiSQ` exist on disk (approach 24's table is empty pending their
+  runs). State is current; earlier hygiene items absorbed. One wording nit, no correction
+  needed: verdict 57's "to three significant figures" overstates the anchor's own precision
+  (~28, two figures); the match itself is real. Verdict scoping is disciplined throughout --
+  58 and 60 both refuse to be clause verdicts. Nothing to send back.
