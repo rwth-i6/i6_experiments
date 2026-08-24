@@ -2954,6 +2954,19 @@ census caught and reverted a wrong `route` exclusion before any launch -- the ru
 code, in shared memory, and holds at HEAD by the planner's census). Suite 70/70. The exp-7
 config with BOTH cells' controls beside (d) is the remaining evaluation registration.
 
+2026-08-24 22:20 experiment 7 BUILT AND REVIEWED (speech-llm `9e24f9b`): the evaluation
+reader with 22 cells and contrast (d)'s three cross-stream pairs -- arm, random map, and
+observation null, each against its seg12.5 counterpart -- so the registration's "both cells'
+controls beside it" is now implemented, not pending. The planner verified the three pinned
+seg12.5 files are the artifacts their roles claim FROM JOB-DIR WIRING (the only ground that
+can carry it: the banked pins predate the `cell_role` field and the arm/null artifacts are
+otherwise indistinguishable), the collision fix is in force with its suite (72/72), and the
+banked 1g.12 read is untouched. The launched reader is `G12EvaluateJob.a3419LhkI7JT` -- the
+log's `BHYf8G7wG6dd` is the PRE-fix build's hash and is being corrected -- and it waits on
+the five Gaussian order-4 cells and the two observation nulls. Two pre-run items with the
+implementer (distinct-file assert; docstring), in `SAE_1g.md` Verifier feedback; neither
+blocks, both cheap, both before the reader runs.
+
 ## 6. Deliverables ladder
 
 | Step | Deliverable | Decision it enables |

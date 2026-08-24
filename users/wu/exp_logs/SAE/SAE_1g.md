@@ -4010,3 +4010,41 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   nothing further owed. STILL TO COME for experiment 7: the registration also requires BOTH
   cells' controls beside contrast (d); that lands with the exp-7 config and its
   registration, not in this reader increment.
+
+- 2026-08-24 (round: the 1g.13 experiment-7 evaluation build, speech-llm `9e24f9b`).
+  REVIEWED AND CONFORMS, with one material log correction and two pre-run items. The build
+  is the registered evaluation: 22 cells, clauses 1/2/4 literally shared code with the
+  verified 1g.12 build (zero hunks in that machinery since `45a5ed0`; same gold artifact,
+  same babble-null and bootstrap constants), and contrast (d) now carries BOTH cells'
+  controls as registered -- three cross-stream pairs (arm, random map, observation null,
+  each against its seg12.5 counterpart at matched-4g). The DECISION-CRITICAL check passed:
+  all three pinned seg12.5 files are the artifacts their roles claim, established from
+  job-dir input wiring on disk (arm `h7dasAET4GnW` <- repair cell `kHwPYElOcCPr` + the real
+  segment twin; random map `gpgV68WMinJF` <- `dDKq6J6AQEIP` + real twin; null
+  `axh5u2jyP9Va` <- `QfLZEyTjxE6o`'s parameters AND null_segments), pairwise-distinct
+  finished files. The collision fix is genuinely in force (role-carrying handles, the
+  duplicate-handle refusal at `g12_evaluate.py:287-292`, the entries-vs-pairs assert, suite
+  72/72 with both new tests re-run by the verifier), `selected_real_start` is confirmed
+  genuinely NEW before its exclusion (repo-wide `git log -S`), and the 1g.12 graph holds at
+  4,757 with the banked read untouched.
+  ITEM 1, material log correction: State registers `G12EvaluateJob.BHYf8G7wG6dd`, which is
+  the PRE-FIX collided build's hash -- the verifier's agent reproduced that hash exactly by
+  recomputing with the collided (bare cell-key) map, and the launched job under the
+  committed config is `G12EvaluateJob.a3419LhkI7JT`, confirmed by graph rebuild and by the
+  live manager's own alias symlink (22:13). The fix WAS launched; the log line records the
+  broken build's identity and needs the one-line fix.
+  ITEM 2, cheap hardening before the reader runs: the config assert counts handle-keyed map
+  ENTRIES against planned pairs, not DISTINCT FILE PATHS -- two handles pinned to one file
+  would pass it and pass the job's checks, silently re-creating the recorded failure,
+  because the banked pins predate `cell_role` and the arm/null artifacts are
+  indistinguishable on every field the consumer reads. One line: assert the pinned paths are
+  pairwise distinct. Hash-neutral, config-side.
+  ITEM 3, docstring: the config claims each pinned artifact names its own `cell_role` so a
+  wrong pin cannot pass -- false for these three banked pins (their schema predates the
+  field); say instead that their identity rests on the job-dir wiring, verified here.
+  VERIFIER'S OWN CORRECTION for the record, so the readout identities never bite again: the
+  espum seg12.5 readout map is accepted-2g arm `CYMKVwReFIsN` / null `ij9vB58klqDW`,
+  matched-4g arm `h7dasAET4GnW` / null `axh5u2jyP9Va`. A hint in tonight's verification
+  prompt had `CYMKVwReFIsN` as the matched-4g arm -- wrong on disk (its info says
+  accepted-2g); the canonical documents were checked and are consistent, the agent
+  re-derived from info files as instructed, and no recorded number is affected.
