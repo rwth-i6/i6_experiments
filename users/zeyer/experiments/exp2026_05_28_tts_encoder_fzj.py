@@ -2397,14 +2397,24 @@ class PseudoSpeechEncoder(rf.Module):
             # Using the labels directly keeps this rf-only: packed-friendly and traceable.
             labels_wb = labels.copy()
             labels_wb.sparse_dim = self.wb_vocab_dim
+            # Durations are sampled only in training:
+            # in eval the jitter drops to 1 and the range to its middle,
+            # so a dev score does not depend on the draw.
+            # rf.where, not a Python if, since train_flag can be a Tensor.
+            train = rf.get_run_ctx().train_flag
             if self.duration_medians is not None:
                 med = rf.convert_to_tensor(numpy.asarray(self.duration_medians), dims=[self.wb_vocab_dim])
                 base = rf.gather(med, indices=labels_wb, axis=self.wb_vocab_dim) * self.duration_scale
                 jitter = rf.exp(rf.random_normal(base.dims, dtype="float32") * self.duration_sigma)
+                jitter = rf.where(train, jitter, 1.0)
                 durations = rf.maximum(rf.cast(base * jitter + 0.5, "int32"), 1)
             else:
                 l_lo, l_hi = self.label_duration_range
-                durations = rf.random_uniform(labels.dims, minval=l_lo, maxval=l_hi + 1, dtype="int32")
+                durations = rf.where(
+                    train,
+                    rf.random_uniform(labels.dims, minval=l_lo, maxval=l_hi + 1, dtype="int32"),
+                    rf.constant((l_lo + l_hi) // 2, dims=labels.dims, dtype="int32"),
+                )
             durations = durations.copy_masked(0, dims=[spatial_dim])
             if self.max_len_factor:
                 # Scale here, not inside rf.repeat alone, so that seg_start below is derived
@@ -2463,17 +2473,31 @@ class PseudoSpeechEncoder(rf.Module):
             interleaved = rf.convert_to_tensor(inter_raw, dims=[batch_dim, inter_dim], sparse_dim=self.wb_vocab_dim)
             # Durations: blanks (even positions) always from blank_duration_range; labels (odd
             # positions) either per-phone lognormal from the MFA table, or the uniform range.
+            train = rf.get_run_ctx().train_flag
             b_lo, b_hi = self.blank_duration_range
-            blank_dur = rf.random_uniform(interleaved.dims, minval=b_lo, maxval=b_hi + 1, dtype="int32")
+            blank_dur = rf.where(
+                train,
+                rf.random_uniform(interleaved.dims, minval=b_lo, maxval=b_hi + 1, dtype="int32"),
+                rf.constant((b_lo + b_hi) // 2, dims=interleaved.dims, dtype="int32"),
+            )
             if self.duration_medians is not None:
                 med = torch.tensor(self.duration_medians, device=dev)  # [wb_vocab], tiny
                 base = med[inter_raw.long()] * self.duration_scale  # [B, S] per-position median duration
                 jitter = torch.exp(self.duration_sigma * torch.randn(base.shape, device=dev))
-                label_dur_raw = torch.clamp(torch.round(base * jitter), min=1.0).to(torch.int32)
-                label_dur = rf.convert_to_tensor(label_dur_raw, dims=[batch_dim, inter_dim])
+                sampled = torch.clamp(torch.round(base * jitter), min=1.0).to(torch.int32)
+                median = torch.clamp(torch.round(base), min=1.0).to(torch.int32)
+                label_dur = rf.where(
+                    train,
+                    rf.convert_to_tensor(sampled, dims=[batch_dim, inter_dim]),
+                    rf.convert_to_tensor(median, dims=[batch_dim, inter_dim]),
+                )
             else:
                 l_lo, l_hi = self.label_duration_range
-                label_dur = rf.random_uniform(interleaved.dims, minval=l_lo, maxval=l_hi + 1, dtype="int32")
+                label_dur = rf.where(
+                    train,
+                    rf.random_uniform(interleaved.dims, minval=l_lo, maxval=l_hi + 1, dtype="int32"),
+                    rf.constant((l_lo + l_hi) // 2, dims=interleaved.dims, dtype="int32"),
+                )
             durations = rf.where(rf.range_over_dim(inter_dim) % 2 == 0, blank_dur, label_dur)
             durations = durations.copy_masked(0, dims=[inter_dim])
             if not self.lerp:
