@@ -5,373 +5,53 @@
 question each answers), blockers, next action, proposals for the planner. -->
 
 State as of 2026-08-24 -- 1g.2 is READ and CLOSED on its gate; 1g.9 is CLOSED by its own
-off-ramp; the whole 1g.10 family (the decode route the USER chose at the direction fork) is CLOSED
-by the planner. 1g.11 is COMPLETE through all four experiments and its gate is read; nothing of it
-is in flight and I have launched no follow-up. Open work: 1g.2a (H4-LM), items 1-4 complete. The
-other live implementer work is PLAN_1F entry 8 (SAE_1f.md) and PLAN_3E1 D9.1 (SAE_3E1.md).
+off-ramp; the whole 1g.10 family is CLOSED by the planner; 1g.11 is COMPLETE through all four
+experiments and its gate is read (clause 3 fails on the control). 1g.2a (H4-LM) items 1-4 are
+complete. NEW WORK: 1g.12, registered and USER-funded 2026-08-24 ("run 4gram training with 4gram
+LM decoding also for 1g11"). The other live implementer work is PLAN_1F entry 8 (SAE_1f.md);
+PLAN_3E1 D9 is banked and waits on the user (SAE_3E1.md).
 
-**1g.11 EXPERIMENT 1 IS COMPLETE, BOTH CHECKS CLEAN** (user-greenlit 2026-08-23; speech-llm
-`16b1063`; `G11ContinuousSegmentsJob.hImWJG0X4eZh`; approach 17, verdicts 38-40). The continuous
-twin of the `seg12.5` observation stream exists: one vector per token of the frozen discrete
-stream, from the frozen transform, 8,416 utterances and 919,248 tokens at 96 components. The
-Gaussian repair cells, the nulls and the evaluation are separate registrations and no graph
-pre-empts them.
+IN FLIGHT: `G12ResourceGateJob.3h2iIpk6lpaB` (config `sae_1g_12_exp1.py`, one CPU job) -- 1g.12
+experiment 1, the measured resource read. Question it answers: can the Gaussian order-4 repair
+curve be run over the whole 6,414-utterance update fold inside the 11.5 h clamp, and in what build
+shape -- one job per start, or all five starts in one process? It runs no M-step, decodes nothing
+and reads no label. The graph it loads is 4,721 jobs with that one unfinished, so attaching the
+1g.11 experiment-1 twin, the matched fitting-LM family and the five 1g.2a repair starts funds
+nothing.
 
-- PIPELINE CHECK exact on all 8,416 utterances, so the emission swap is ONE change: the features,
-  basis and segmentation are the objects the discrete arm reads.
-- TWIN CHECK 919,248 of 919,248 tokens (100.0000%). I predicted this would fall below 1 and it does
-  not, including on all 2,184 absorbed tokens -- an absorbed pair is two adjacent segments assigned
-  the SAME centroid, a nearest-centroid cell is convex, and the token mean is a convex combination
-  of two points inside it, so it cannot leave. The flagged "price" of the token reading is
-  therefore ZERO, and there is no residual to disclose to the Gaussian cells.
+BUILT AND TESTED BEFORE THE JOB EXISTED (speech-llm working tree; `g12_gaussian_context_test`
+57/57, `g12_resource_test` 45/45, and the four neighbouring suites unmoved --
+`h4_context_engine_test` 36/36, `h4_context_em_test` 45/45, `g11_gaussian_test` 40/40,
+`g11_repair_jobs_test` 21/21):
 
-TWO REGISTERED CONSTANTS THE FROZEN ARTIFACTS DO NOT ADMIT AS WRITTEN. Both were measured off the
-finished artifacts before the job existed, and both are flagged here rather than resolved silently.
+- THE ENGINE SEAM the plan directs. `h4_context_engine.context_forward_backward` gained an optional
+  `emissions_by_time` argument shaped `(batch, time, 2, 39)` -- the order-k twin of the argument
+  `channel_h.marginal_forward_backward` already carries at order 2, added so ONE recursion serves
+  both emission models at order 4. Exactly one of the categorical table and the per-token array may
+  be given; both together raise rather than leaving which one ran undecidable. The edit is
+  module-level and hashes nothing, and all four jobs that guard this file by sha256 are finished,
+  so no constructed-before-edited job can fail its identity check on rerun.
+- THE ORDER-2 REPRODUCTION IS ALREADY ESTABLISHED, which is what experiment 3's acceptance check
+  will rest on: run at order 2 through `bigram_lm_from_matrix`, the new
+  `gaussian_context_repair_curve` reproduces `g11_gaussian.gaussian_repair_curve` -- the banked
+  1g.11 code path -- parameter for parameter and criterion for criterion, with and without
+  deleted-silence boundaries, tied and per-row. That test is also what pins the emission-row order:
+  a transposed state axis passes every shape check and fails this one.
+- SUB-BATCHING IS THE ONLY NEW MODELLING-ADJACENT CHOICE, and it is not one. At order 4 the alpha
+  is `(batch, time, 2, 40^3)`, so production must run one utterance per call; the test asserts that
+  one-per-call and whole-chunk-at-once give identical parameters and criterion.
 
-1. THE FROZEN PCA BASIS HAS 96 COMPONENTS, not more (read off `pca.components_` of
-   `QuantizeStatesJob.FWpGhC941JMi`). The registration pins "the leading 128 components (user's
-   choice)" with a full-dimension sensitivity cell optional. 128 exceeds 96, so there is nothing to
-   truncate: keeping the leading 128 of a 96-component basis IS the full-dimension cell, and the
-   optional sensitivity cell coincides with the primary one. The job is passed `pca_dim=None`,
-   meaning the frozen dimension whatever it is, and records the number in every artifact; a pin
-   wider than the basis raises rather than silently keeping fewer. PROPOSAL: read the user's 128 as
-   "do not refit or widen the basis", which this satisfies, and drop the truncation cell as
-   vacuous on this stream.
-2. THE COUNT-IDENTITY CLAUSE SELECTS THE TOKEN SEGMENTATION, not the Ward one. The frozen pooling
-   merges the raw codebook runs by adjacent-pair Ward cost to a per-utterance target, assigns each
-   surviving segment to a centroid, and writes that code over the segment's frames. Over the 8,416
-   seed-bed utterances that is 921,432 Ward segments against 919,248 run-length tokens: 2,184
-   segments (0.237 percent, somewhere in 1,334 of the 8,416 utterances) were handed the same
-   centroid as their neighbour and merge in the run view. So "per-utterance segment count identity
-   with the discrete token sequence is asserted" is FALSE at the Ward segmentation and true by
-   construction at the token one -- and the token reading is also what "the mean over exactly that
-   token's frames" says, and what a paired per-utterance read needs, since it makes both arms'
-   observation sequences the same length utterance by utterance.
+PROJECTION, from the accepted order-4 gate's own banked numbers (`H4ContextResourceGateJob`
+`HA1vzRL7MEAz`: 50.8 s on the heaviest of 32 chunks, 0.67 GiB) and stated here so the measurement
+can be read against a prior rather than accepted on sight: a whole-fold Gaussian order-4 E-step
+should land near 0.49 h, one count-4 curve (five criterion evaluations) near 4 h at the 1.5
+multiplier, and all five starts in one process near 19 h -- i.e. PASS per curve, INFEASIBLE for the
+single-process shape, so experiment 2 is expected to build as one job per start. If the measured
+number contradicts this, the measurement wins.
 
-   Both readings were carried into the job as separate checks and BOTH came back clean (verdicts
-   38-39): the Ward-level reproduction is exact, and the token-level re-assignment rate is 1.0000,
-   which the convexity argument in verdict 39 explains. So the token reading is not a compromise --
-   it satisfies the clause by construction and agrees with the frozen assignment exactly. PROPOSAL:
-   amend the clause to name the token segmentation, since that is the reading the registration's
-   own "exactly that token's frames" selects and the only one under which it is true.
-
-NEXT, 1g.11 EXPERIMENT 2 (Gaussian repair cells), with the planner's retained-stream pin located
-in code so the build is resumable. The table arm's retained stream is `masked_sequences`
-(`h3_initializers.py:177`): `seq[~silence[seq]]`, where `silence` is a per-UNIT-ID boolean from the
-frozen H1 artifact (`h3_jobs.py:134`, `h1["routes"][route]["mask"]["silence_unit_ids"]`). Its local
-decoder is `channel_h.frozen_local_decode`, whose readout is a per-unit-ID lookup
-`argmax(E * prior[:, None], axis=0)` plus a no-collapse-across-silence rule and run collapse. So the
-Gaussian twin's decoder replaces ONLY that lookup with a per-token argmax over Gaussian log-density
-plus log prior, and the silence test still keys on the token's frozen unit ID -- which is exactly
-the per-token keying the planner pinned, and it is available from experiment 1's `boundaries.pkl`
-plus the frozen stream without any new alignment. The retained counts the cells actually train on
-must be printed by the producing job, per the pin.
-
-THE CONSTRAINED UPDATE RULE IS NOW DESIGNED, PINNED AND TESTED (speech-llm `HEAD`, module
-`sae/g11_gaussian.py`; `scripts/g11_gaussian_test.py` 21/21). It is the M-step under the shared
-diagonal covariance, per-row as the single disclosed relaxation, with the M2 variance floor. Three
-things about it worth the planner's eye:
-
-- THE FLOOR IS A CONSTRAINT, NOT A HEURISTIC. `logvar = 2*min_log_std + softplus(raw)` at
-  `min_log_std = log 0.1` is a gradient-friendly way of writing `var >= 0.01`. The closed-form
-  M-step clamps to that floor, and the clamp IS the constrained maximizer rather than an
-  approximation of it: the M-step objective is unimodal in each variance component with its
-  unconstrained maximum at the weighted second moment, so on the convex set `{var >= v_min}` the
-  maximizer is `max(var_hat, v_min)` and EM's ascent survives. That argument is checked rather
-  than trusted, on a fixture where the floor genuinely binds -- a clamp that broke monotonicity
-  would otherwise surface much later as a mysteriously bad repair curve.
-- ONE RECURSION SERVES BOTH ARMS. `channel_h.marginal_forward_backward` gained one optional
-  argument, `emissions_by_time`, so the Gaussian arm calls the table arm's own forward-backward
-  instead of a second implementation; its 23 tests still pass unchanged. This matters for the
-  attribution: "only the emission model changed" is false if the two arms run different DP code
-  that merely agrees on the fixtures anyone thought to write.
-- THE DECODE TWIN REPLACES EXACTLY ONE LOOKUP. `gaussian_local_decode` is
-  `channel_h.frozen_local_decode` with the per-unit-ID argmax replaced by a per-token argmax over
-  Gaussian log-density plus log prior; the no-collapse-across-silence rule, the run collapse and
-  the two-state occupancy reduction are the table arm's own code, and silence is still tested on
-  the token's FROZEN unit ID.
-
-THE PRIMITIVES ARE NOW VALIDATED END TO END ON THE REAL ARTIFACTS (speech-llm `50ee93f`;
-`g11_gaussian_test` 24/24, `test_channel_h` 23/23). Not a result -- an eight-utterance shakeout on
-the login node whose only purpose was to prove the pieces fit before a job is written:
-the five 1g.2a starts' repair tables load (`repair_0_emissions` is `(2, 39, 500)`, so the two-state
-row order matches `repair_hmm`'s), the codebook is `(500, 96)` and start means come out at the
-shipped component scale, EM ascends monotonically on the retained stream (-155,475 -> -133,938 over
-four updates; tied variance 1.0 -> 0.2407, well clear of the 0.01 floor), and both counts decode.
-
-- A REAL BUG, found by running rather than reviewing: `gaussian_local_decode` reduced its two-state
-  rows through `occupancy_weighted_local_rows`, which validates its input as a canonical channel
-  table (rows summing to 1 over units). Gaussian rows are per-token densities and cannot satisfy
-  that, so the two-state path died on contact with the accepted 1g topology. FOURTH instance this
-  session of a wrong CALL into a correct primitive. The test suite missed it for a nameable reason:
-  every decode fixture was ONE-state, so the duration-reduction branch was never exercised. Fixed
-  by giving `occupancy_weighted_local_rows` an optional `validate` flag -- only the canonical-table
-  check is skipped, the reduction itself stays the one shared implementation -- plus a regression
-  test that runs the two-state topology the real data uses.
-- FRAME NUMBERS for the job to print, per the planner's retained-stream pin: on the first eight
-  utterances the retained share after the frozen silence mask is about 0.79 (e.g. 153 of 184), and
-  the mask holds 103 of the 500 unit IDs.
-
-THE RETAINED-TOKEN KEYING IS BUILT AND VERIFIED AGAINST THE REAL ROLES (speech-llm `88198ea`;
-`g11_gaussian_test` 28/28). `retained_token_view` calls the table arm's own
-`h4_jobs._retained_runs` for the retained stream and its duration boundaries, then selects the
-twin's vectors by the same token positions, and ASSERTS the index against `_retained_runs`'s own
-output rather than trusting it -- deriving an index alongside a shared primitive instead of from it
-is how two streams silently stop being the same tokens, and that failure would not surface as an
-error but as an attribution verdict about inductive bias that was really about misaligned
-observations. Read from the artifacts: the H1 roles are 6,414 update / 890 selection / 7,304
-construction / 1,112 evaluation exactly as registered; EVERY one of those IDs is present in the
-experiment-1 twin (0 missing), so no fold needs a coverage exception; retained share over 400
-update utterances is 0.7737.
-
-THE REPAIR NOW FITS THE REGISTERED FOLD, WHICH THE FIRST IMPLEMENTATION DID NOT (speech-llm
-`21b0fd1`; `g11_gaussian_test` 35/35). Both the log-density and the M-step materialized a
-[utterance, time, state, dim] tensor, which at the 6,414-utterance fold is 230 GB; it passed every
-test because every fixture was tiny, and it would have died hours into a job. Both are now the
-algebraically identical matmul forms, ASSERTED against the direct forms for the tied and the
-per-row covariance rather than assumed from the algebra. The M-step is split into additive
-per-chunk sufficient statistics so a chunk's posterior is discarded once accumulated, and a test
-asserts chunking moves neither a parameter nor a criterion -- otherwise the fold's answer would
-depend on how many utterances happened to fit in a batch. `floor_share` is now reported per count,
-which is the registration's clause-4 honesty line.
-
-MEASURED COST, so the job's requirements are not a guess: 1,024 update utterances through four EM
-updates take 5.9 s at 1.8 GB peak. The full update role is therefore well under a minute per cell
-and all five starts are minutes of CPU, not hours -- this is a small CPU job, not a GPU one.
-
-**1g.11 EXPERIMENT 2 IS COMPLETE** (`G11GaussianRepairJob.NogH62uMEI7T`; approach 18, verdicts
-41-44; speech-llm `92e5d24`). All twelve cells produced, EM ascends on every one, clause 4's floor
-line reads clean, and the job computes no clause verdict by design. Nothing here is evidence of
-content: no gold is read, and a full inventory at a plausible rate is what a content-free control
-also produces. The EM ran on the full 6,414-utterance update role and the decode on the full
-890-utterance selection role.
-
-- ONE RUN-CAUGHT FAILURE, and which cell it was IS the explanation. The job died in my own guard on
-  the real fold: at 96 dimensions and 78 states a token's log-density spread across states exceeds
-  float64's exp range, so far states underflow to EXACTLY zero -- an impossible path rather than a
-  hopeless one. It got through `controlled/reference` and `espum|tied` and died on `espum|PER_ROW`:
-  the tied covariance holds every state at one scale, while the per-row relaxation lets individual
-  states shrink, which is what widens the spread. After the fix that is the only cell reporting any
-  clipping at all (68 emissions of about 45.6 million). No fixture caught it because no fixture was
-  that wide -- the third time this session a green suite missed something the real data showed at
-  once.
-- A REPORTING FLAW I CAUGHT AND RERAN FOR: the clip was printed as a share, and that cell's share is
-  1.5e-06, which a fixed-decimal column rounds to 0.00000. A safeguard that fires and prints zero is
-  worse than no safeguard, because it reads as evidence nothing happened. It now prints a count, and
-  the rerun reproduced every other number identically.
-
-**1g.11 EXPERIMENTS 3 AND 4 ARE BUILT AND LAUNCHED** (2026-08-23, on the USER's direction "I
-absolutely wanna see 1g.11 exp4 (actual decoding PER) tomorrow morning"; speech-llm `5a344f2`;
-config `sae_1g_11_exp34`; `scripts/g11_exp34_test.py` 26/26 plus the three earlier g11 suites
-green after the seam). Two jobs, and the graph is otherwise the finished 4,714 -- the experiment 1
-and 2 hashes were re-read from the loaded graph and are unmoved.
-
-- EXPERIMENT 3, the OBSERVATION NULL, is COMPLETE: `G11ObservationNullJob.orOc9h6K3cuR`, 47
-  seconds, 645,028 vectors redrawn. It is a SUBCLASS of the experiment-2 job overriding one
-  method, so "fitted and decoded exactly like the real arm" is a property of the code path rather
-  than a promise: the start, the constrained update rule, the decoder, the census and the artifact
-  schema are all reached through the arm's own calls, and the token counts, unit IDs, retained
-  index and boundaries are asserted to survive the redraw. The marginal is the pooled retained-token
-  set over BOTH folds, drawn as whole vectors with replacement (the literal object the registration
-  names; a component-wise draw would also destroy the feature geometry and answer a different
-  question).
-- EXPERIMENT 3's OTHER null, the babble null, is computed inside the experiment-4 reader rather
-  than as its own job. It is a function of gold and of each cell's decoded lengths and of nothing
-  else, so putting it beside the number it bars is the only placement that guarantees the two share
-  an alignment convention, a fold and a symbol inventory.
-- EXPERIMENT 4 is COMPLETE: `G11EvaluateJob.sWoS1bP4Nd12`, 24 minutes, all four clauses read
-  (approach 19, verdicts 45-51). Twenty-four cells, both arms, on the 890 selection utterances;
-  the evaluation fifth untouched.
-
-**1g.11 IS ANSWERED AND THE ANSWER IS FOR THE PLANNER TO RULE ON.** Clause 3 fails on its second
-condition: the selected real start's Gaussian gain over its own banked table cell is +0.0098
-[+0.0058, +0.0137], and the content-free random-map control gains +0.0251 [+0.0202, +0.0302]
-against the same comparator -- a larger gain with a non-overlapping interval, so no threshold for
-"comparable" is needed to read it. The registration's own failure clause applies verbatim:
-"continuous emissions are not funded at this operating point; evidence toward the training
-paradigm as the binding constraint", conditional on the shared `seg12.5` segmentation. The
-registered follow-up (the wav2vec-U-faithful variant) is by that same clause NOT funded, and I
-have launched nothing further.
-
-The reading a quote of this table could easily get backwards, so it is stated here as well as in
-verdict 47: `gaussian|controlled/reference` is scored `c2 = .` NOT because it lacks content -- its
-margin over the babble bar is +0.4952 at count 0 -- but because clause 2 reads readable cells only
-and clause 1 excluded it on decoded length (0.7947 of gold, under the 0.80 floor).
-
-PROPOSAL FOR THE PLANNER, now answered by its own measurement rather than left open. Before the
-run I flagged that clause 2's bar is the 99th percentile of 100 draws, within noise of their
-maximum. The job printed the registered value as PRIMARY and the same null at 1,000 draws beside
-it; they agree to within 6.1e-04 in the worst of the 24 cells, against a smallest clause-2 gap of
-0.0090, so the concern does not bite and no amendment is proposed. The 1g.10 unigram-MATCHED null
-is printed as a third column and decides nothing; it changes no clause-2 verdict in this table.
-
-NOT MEASURED HERE, so that no reader infers it: the sequence (LM-aware) decoder was not run on the
-Gaussian arm -- the registration makes those cells readable only after the same stability duty
-1g.10 imposed, which 1g.10b found no beam satisfies. Every number in approach 19 is from the frozen
-local decoder twin on both arms.
-
-ARTIFACT POINTERS for those, kept from the build notes (the shakeout numbers earlier in this entry
-are superseded by approach 18's table and were never evidence -- they ran on eight utterances):
-starts `H4RepairJob.x1TyHJMfEVpb` (controlled/reference), `.ViPSmq4Am8vX`
-(espum_seed0_update30000), `.iUFh7IwniCMl` (fingerprint), `.aeetC3NfgPxB` (pseudo_pair_seed0),
-`.Ds0zM1NTY2C1` (random_map_seed1000, which is also the gate's content-free control); accepted H1
-`Phase1gH1Job.HbxKiuBTJ8aN` (duration p = 0.2356, 103 of 500 unit IDs masked as silence); fitting
-LM `H4CalibrationPreparationJob.DPv4aIqwPEzM/output/phone_lm.npz`. The prelabel-surfaces graph that
-carries the banked table comparator decodes was checked and is 4,709 jobs with ZERO unfinished, so
-reusing it funds nothing and needs no registration suppression (unlike PLAN_1F entry 8).
-
-IMPLEMENTER READING, also flagged: the registration names "the `ContinuousFeatsJob` fit/assign
-split", which is a discipline about WHICH utterances a statistic may be fitted on, not about which
-objects it is fitted over. The component scale here is fitted over SEGMENT vectors, not frame
-vectors, because segments are what this model observes -- a frame-fitted scale leaves the segment
-means well inside unit variance and makes one variance floor mean different things per component,
-which is the very thing the standardization exists to prevent. The fit population is the dedicated
-train half alone, asserted to be the registered 2,849.
-
-Tests `scripts/g11_continuous_test.py` 19/19. The gold artifact is nested `{split: {tag: ...}}`;
-the fixture is nested so that a flat read -- which would hold out split NAMES, fit the scale on the
-evaluation utterances, and leave every printed count looking right -- fails the suite. I had
-written exactly that flat read before checking `repr_pool.py`'s own reading of the same file.
-
-**THE WHOLE 1g.10 FAMILY IS CLOSED** (planner ruling 2026-08-23, `PLAN_1G.md` 1g.10 Status). It
-collapses to its verdicts; the tables and job dirs are in Approach 16 and the Catalog.
-
-- 1g.10, the full-model LM-aware descriptive decode -- verdicts 30-31, table blocked by its own
-  pre-registered explanation duty, then explained. `H4FullModelDecodeReadJob.MXhi20TtG1I0`.
-- 1g.10a, the cross-beam defect diagnostic -- verdicts 32-33, DISCHARGED: the adjacent-beam
-  disagreement is pruning reshuffle in a correct scorer, and beam 512 is not converged in the
-  exact currency. `H4CrossBeamDefectJob.2pV5rHuWJW3d`.
-- 1g.10b, the beam-1024 convergence probe -- verdicts 34-35, parity PASS and 0 of 36 cells
-  quotable, so cross-channel comparison stays closed and beam escalation is not funded.
-  `H4Beam1024ReadJob.tKbQ0MHLdX03`.
-- 1g.10c, the positive insertion-bonus cells -- verdicts 36-37, parity PASS and a SIGN SPLIT
-  between the rows, which is what closed the family: mechanism confirmed causal, no further
-  decode-parameter probes on this harness. `H4InsertionBonusReadJob.da3bGeQIkS0R`.
-
-**1g.9 IS CLOSED by its own off-ramp** -- verdicts 26-29, approach 15,
-`H4CollapseLocateJob.gZ9d6e3E7ZGu`. Its blocking result is what sent the direction fork to the
-USER, who resolved it toward the decode route that became 1g.10.
-
-**1g.2a, the user-mandated matched trigram/4-gram arm** (approach 14). Funded scope is Experiments
-items 1-4; the F arm and every selector-shaped consequence stay closed under the 1g.2 verdict.
-
-- Item 2, the exact context-state repair engine, is COMPLETE: `h4_context_engine.py`, 24/24
-  synthetic checks. Orders 2/3/4 reproduce exhaustive path enumeration in likelihood, posteriors
-  and counts with and without the deleted-silence boundary rule; instantiated with `legacy-2g` it
-  reproduces the accepted dense engine; reachable histories come out at 1+39+39^2+39^3 = 60,880.
-- Item 1, the matched LM artifacts, is BUILT AND RUN. All four automata exist: `legacy-2g`
-  (`H4LegacyLmJob.lZI6TrYdVpev`) and matched 2/3/4 (`H4MatchedLmJob.T8ImJUXHaB0l` /
-  `.Jb2m4aM2fUTy` / `.VpVkGMMy7xKW`) from `KenLMplzJob.ef5FXMvv8af5` / `.tis71OtNidgL` /
-  `.bg0iYRzBQynx`. The legacy rebuild's phone-sequence hash reproduced the accepted H1's recorded
-  hash EXACTLY over 39,630,169 phone lines, which is the binding that says this bigram is the one
-  the accepted surface was fitted on. Both reruns and the reasoning for each are recorded in
-  approach 14 and nowhere else.
-- Item 3, the measured resource gate, is COMPLETE and PASSES (verdict 22):
-  `config/sae_1g_h4_context_resource.py`, `H4ContextResourceGateJob.HA1vzRL7MEAz`. Exact order 4
-  on the heaviest update chunk costs about 50 s and 0.67 GiB, so the request is 1 h per shard and
-  5 h for the whole 32-shard fold in one process, at 2 GiB either way, against
-  11.5 h and 256 GiB -- the same 1.5x multiplier and limits the accepted decoder resource contract
-  used, so the two are comparable. It ran no M-step and applied no pruning. Independent
-  cross-check: its lowest-entropy probe table is the same arm, count and array hash the accepted
-  decoder contract selected months earlier, with the entropy agreeing to all 16 digits, so the two
-  implementations of the probe rule agree.
-- This config SUBSUMES `sae_1g_h4_matched_lm`, whose graph it contains; that config is now BLOCKED
-  in `sis_managers.sh` so a second manager cannot double-submit the shared LM jobs.
-- The EM driver itself (`h4_context_em.py`) is BUILT and verified, including exact sub-batching:
-  the engine's alpha is `(batch, time, 2, 40^(order-1))`, so at order 4 a whole 200-utterance
-  shard packed at once would need on the order of 150 GB, and the shard E-step now takes a
-  `max_batch` that changes memory and nothing else.
-- Item 4, the fixed-duration diagnostic on the reference plus the four accepted H3 starts, is
-  BUILT: `config/sae_1g_h4_context_diagnostic.py`, 20 jobs
-  (`H4ContextRepairJob`, five starts x four fitting LMs), each requesting 5 h and 2 GiB read from
-  the gate artifact at graph-build time. It refuses to build unless the gate's `whole_fold_verdict`
-  is PASS. LAUNCHED and COMPLETE 2026-08-22: all 20 cells finished, no errors; the count-4 table
-  is in approach 14 and the smoothing-bridge reading is verdict 23. This config now subsumes
-  `sae_1g_h4_context_resource`, which is BLOCKED in `sis_managers.sh` for the same
-  double-submission reason `sae_1g_h4_matched_lm` is.
-
-  The DECODE and descriptive phone-error half of item 4 is BUILT, RUN and COMPLETE 2026-08-22 at
-  the user's request (verdict 24, table in approach 14): `config/sae_1g_h4_context_diagnostic_per.py`, module `h4_context_decode.py`,
-  121 new jobs (60 channel adapters, 60 local decodes, one error read), all finished with no
-  errors. The frozen decoder for all
-  five of these starts is the LOCAL decoder -- `H4ProvisionalMaximaJob.ejmy4sdTOcS3` records
-  `decoder.kind == "local"` with no lambda, no insertion penalty and no beam for every baseline row
-  -- so no sequence decode, no beam and no `G_dec` binary enters this half at all. Counts 1/2/4 are
-  decoded from the repaired tables `H4ContextRepairJob` already banked; count 0 is READ from the
-  frozen 1g.2 direct-Q decode, because at count 0 the accepted method decodes the start's direct
-  `Q`, that column cannot depend on the fitting LM, and the read job re-hashes all four columns and
-  refuses the grid if they ever disagree. The bed is the same 890 selection-role utterances and the
-  same gold the 1g.2 descriptive read used, so the count-0 and `legacy-2g` columns are directly
-  comparable with verdict 21's numbers.
-
-  One design point I had to settle, recorded here because it is the only place the two halves could
-  have diverged: H4-LM-D freezes the decoder and changes only `G_fit` DURING REPAIR, so the local
-  decoder's phone prior stays the accepted `phone_lm.npz` in every one of the twenty columns. That
-  is why these cells cannot reuse `H4LocalDecodeJob`: that job pins its prior FILE to the channel's
-  fitting LM, which is the right binding in 1g.2 where the two are one object and the wrong one
-  here. The binding is re-aimed, not dropped -- the hypotheses still carry the channel's
-  `fitting_lm_sha256`, so the frozen scorer still refuses a channel and a decode from different
-  fitting LMs.
-
-  STILL MISSING, so item 4 is NOT finished and no order may be chosen from what is banked: the
-  own-minus-donor half. It needs the same 60 channel adapters (already built and hash-stable, so
-  wiring it later costs no rework) fanned into `H4FixedTextScoreJob` at the ten frozen donor
-  assignments -- 600 further jobs -- plus an aggregator that reproduces the 1g.2 surface's
-  normalization exactly. That aggregator is the piece that needs writing.
-- Nothing in 1g.2a reranks a maximum or reads a label. No 5-gram is funded. (Item 4 DOES repair
-  utterances -- that is what the diagnostic is -- but only on the five funded starts, at the frozen
-  `p` and topology, and it refits nothing.)
-
-**1g.2 is closed and unchanged.**
-
-- The controlled validation read is COMPLETE (`config/sae_1g_h4_controlled_validation.py`;
-  approach 12; verdicts 18-20): `H4ProvisionalWinnerAuditJob.kBCapQOpk1Hj` and
-  `H4ControlledValidationJob.Otv6GBVY8ZUj`. **The selector verdict is NEGATIVE** -- `Sel` is
-  inverted, not merely uninformative -- while the count method-level safety read PASSES with all
-  three nonzero counts safe, and the sequence family is UNRESOLVED because no eligible sequence
-  tuple exists. `h4_lm_trigger` is False, which is why 1g.2a is out-of-trigger user-funded work
-  rather than a triggered follow-up.
-- A STALLED watcher verdict on a finished 1g config is the known artifact: the manager exits on
-  sisyphus's interactive "All calculations are done ... (v/u/c)?" prompt, which under `nohup` raises
-  `EOFError` and looks like a crash, and the one-shot console then calls finished consumer jobs
-  `waiting`. The on-disk `finished` marker and "Job finished successfully" settle it.
-- H4 pre-label selection surfaces remain COMPLETE and unchanged: surface
-  `work/speech_llm/sae/h4_selector_jobs/H4SelectionSurfaceJob.MKHfnUO9XwkU`, maxima
-  `.../H4ProvisionalMaximaJob.ejmy4sdTOcS3`. The 821-job H4 prerequisite graph, the beam table and
-  all 85 provisional maxima are preserved.
-- The user-funded descriptive real-seed PER read is COMPLETE (`config/sae_1g_h4_real_seed_per.py`,
-  `H4RealSeedPerJob.vu6Dp6HkJ2pH`; approach 13, verdict 21). It is a measurement over the closed
-  gate and selects nothing; the 1,112-ID evaluation stays sealed. It was rerun once on 2026-08-22
-  after the verifier's hand-back, to bank split-resolved PER in the job's own artifact instead of
-  citing numbers from an unregistered console command; under the fixed seed every previously logged
-  interval, point estimate and verdict reproduced identically.
-- No `H4SelectorFreezeJob` was built, the final refits (7,304 construction IDs and 4,455 dev IDs)
-  and the 1,112-ID evaluation stay closed, and the four real H3 rows stay sealed at every boundary
-  the controlled read touches.
-
-Blockers: none. Nothing is waiting on the user, the cluster or the verifier.
-
-Proposal for the planner, refining the 2026-08-22 storage-placement policy in `PLAN.md`: that
-paragraph classifies the H4/H4-LM family as not high-inode because it "writes 2-3 files per cell",
-which is true of OUTPUTS and misses where this family actually spends inodes. A job dir also holds
-one symlink in `input/` per upstream JOB, so `H4ContextResourceGateJob`, whose registered probe
-population is the 340 corrected start/count tables, carries 342 input symlinks -- more than a
-hundred times its own output count. Sisyphus keeps a cleared job dir forever, so every `-co` rerun
-duplicates that whole tree: my three gate reruns left 1,026 symlink inodes of debris behind
-(`H4ContextResourceGateJob.HA1vzRL7MEAz.cleared.0001..0003`), against 342 for the live artifact.
-Small in absolute terms on a 4.0M limit, but it is the wrong shape, it is self-inflicted, and the
-policy as written would not flag it. Suggested amendment: the inode test for a job design is
-outputs per cell PLUS upstream fan-in, times the number of reruns a job is likely to need. The
-cleared dirs hold no result and are safe to remove, but deletion is the user's call, not mine.
-
-Proposal for the planner (shared-tree item, NOT mine to resolve): `config_sae_1g_v1.py` carries an
-UNCOMMITTED working-tree edit adding a `corrective_h1()` builder that registers a second
-`Phase1gH1Job` with `gold_json` inside a Phase-1g config. I did not write it and have neither
-committed nor removed it -- committing another session's uncommitted work, or deleting it, are both
-wrong from here. It does not enter the 1g.2 or 1g.2a graphs: neither
-`config_sae_1g_h4_controlled_validation_v1` nor `config_sae_1g_h4_matched_lm_v1` imports it, and
-the accepted H1 stays pinned at `Phase1gH1Job.HbxKiuBTJ8aN`. Its label-boundary status needs
-whoever wrote it to explain it.
+NEXT ACTION: read the gate, then build experiment 2 (Gaussian order-4 fitting, five starts, count
+4) at the shape the gate licenses. Experiments 3-6 follow; the exact beam-free order-4 one-best
+readout (experiment 4) is the one object in this subphase that does not exist in any form yet.
 
 Proposals for the planner:
 
@@ -1190,6 +870,56 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     absolute terms, an order of magnitude above the bar's own wobble. The unigram-matched null of
     the 1g.10 family is printed beside both and decides nothing.
 
+20. **1g.12 experiment 1: the measured resource read for the Gaussian arm at order 4.** The
+    accepted order-4 gate measured the TABLE arm; this is its counterpart for the continuous
+    emission model, in the same form -- the same deterministic 32-way `ids[j::32]` sharding of the
+    accepted H1 update role, the same probe rule (the longest update utterance, ties to the higher
+    ID), the same forked-child measurement so each cell reports its own peak, the same 1.5
+    multiplier and the same 11.5 h / 256 GiB limits. It runs no M-step, decodes nothing and reads no
+    label. The probe population is all five funded starts rather than an entropy bracket: at five
+    starts the bracket IS the population. Job `G12ResourceGateJob.3h2iIpk6lpaB`; the fitting LM is
+    the matched Kneser-Ney order-4 automaton of 1g.2a item 1.
+
+    The engine underneath is the accepted context recursion with ONE addition the plan directs:
+    `context_forward_backward` now takes an optional per-token `(batch, time, 2, 39)` emission
+    array, the order-k twin of the argument `channel_h.marginal_forward_backward` already carried at
+    order 2. Exactly one of the categorical table and the per-token array may be given. Established
+    before the job ran (`g12_gaussian_context_test` 57/57): the dense path reproduces the
+    categorical path at orders 2, 3 and 4 in likelihood, posteriors and aggregated counts; and run
+    at order 2 the new `gaussian_context_repair_curve` reproduces `g11_gaussian.gaussian_repair_curve`
+    -- the banked 1g.11 code path -- parameter for parameter and criterion for criterion, tied and
+    per-row, with and without deleted-silence boundaries.
+
+    | cell | start | sec | RSS GiB | reached histories | reached arcs |
+    |---|---|---|---|---|---|
+    | probe utterance (353 retained tokens) | controlled/reference | 0.92 | 1.32 | 60,879 | 2,435,160 |
+    | probe utterance | real/espum_seed0_update30000 | 0.91 | 1.32 | 60,879 | 2,435,160 |
+    | probe utterance | real/fingerprint | 0.90 | 1.32 | 60,879 | 2,435,160 |
+    | probe utterance | real/pseudo_pair_seed0 | 0.92 | 1.32 | 60,879 | 2,435,160 |
+    | probe utterance | real/random_map_seed1000 | 0.90 | 1.32 | 60,879 | 2,435,160 |
+    | heaviest chunk (19,515 retained tokens, 201 utterances) | controlled/reference | 48.79 | 1.29 | . | . |
+    | heaviest chunk | real/random_map_seed1000 | 48.88 | 1.29 | . | . |
+
+    Projected from the heaviest chunk standing in for all 32 (an upper bound):
+    0.4345 h per whole-fold E-step over the 584,424 retained
+    update tokens, five E-steps per count-4 curve, so
+    4 h for one curve and
+    17 h for all five starts in one process, both at 1.5x;
+    4 GiB either way.
+
+21. **1g.12 experiments 2 and 3: the Gaussian cells at order 4 and the order-2 re-fit.** Ten jobs,
+    one per (start, fitting order), the shape experiment 1 licensed. Five fit the matched 4-gram;
+    five re-run 1g.11's own operating point -- the accepted add-one bigram -- because 1g.11
+    persisted its decoded output and its statistics but not the fitted means and variances, which
+    is why its corner has to be produced again. Every bigram cell asserts itself against the banked
+    1g.11 cell BEFORE writing any artifact, at tolerances declared in the producing job
+    (`log_likelihood_rtol` 1e-9, decoded-symbol disagreements exactly 0); a corner that does not
+    reproduce is a broken re-run and not a result about fitting order, so it writes nothing. The
+    decode here is the LM-BLIND local decoder only -- 1g.11's own, unchanged -- which is the no-LM
+    leg of clause 3's readout contrast; the exact order-4 one-best readout is experiment 4 and does
+    not exist yet. Requests are read from the gate artifact, never written in the config. IN FLIGHT.
+
+
 ## Verdicts
 
 1. **Approach 1: one segment per text symbol is rejected.** It exceeds the registered ratio on all
@@ -1758,6 +1488,27 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     operating point: the 100-draw bar reproduces the 1,000-draw bar to within 6.1e-04 in the worst
     cell, an order of magnitude below the smallest clause-2 gap in the table.
 
+52. **A20: the Gaussian order-4 repair curve is affordable one start at a time and NOT as a
+    population.** Measured, not estimated: 48.88 s on the heaviest of 32 update chunks, so 0.4345 h
+    per whole-fold E-step and 4 h for a count-4 curve at the standing 1.5 multiplier, against 17 h
+    for all five starts in one process and an 11.5 h clamp that cannot be raised. Verdict PASS for
+    one curve, RESOURCE_INFEASIBLE for the single-process shape. This is a statement about this
+    machine and about nothing else; the build shape follows it rather than the reverse.
+
+53. **A20: the continuous emission model does not narrow the context the recursion visits.** On the
+    longest update utterance every start reaches 60,879 histories and 2,435,160 arcs -- identical
+    across all five starts and identical to what the accepted order-4 TABLE gate measured on its own
+    probe utterance. The reachable order-4 identity count is 1+39+39^2+39^3 = 60,880, so the arm
+    visits all but the all-BOS start history. Cost at order 4 is therefore a property of the state
+    space, not of how peaked the emission model is, which is why one 4 h request covers every cell.
+
+54. **A20: the Gaussian arm's order-4 cost is within 4% of the table arm's at the same order.**
+    48.88 s here against the accepted gate's 50.82 s on the same 32-way sharding of the same update
+    role. The per-token diagonal-Gaussian density over 78 rows and 96 components is negligible
+    beside the history contraction, so the emission swap is nearly free at this order -- which
+    matters for the attribution the subphase is built on: neither corner of the order-4 column is
+    handicapped by its own cost.
+
 ## Catalog
 
 1g.10c positive insertion-bonus cells, parity PASS, sign split between rows (verdicts 36-37): `work/speech_llm/sae/h4_insertion_bonus/H4InsertionBonusReadJob.da3bGeQIkS0R` (`insertion_bonus.json`, `insertion_bonus.txt`); 256 beam-512 chunks + 8 probes + 1 parity chunk under `work/speech_llm/sae/h4_insertion_bonus/`, merged by the production `H4SequenceDecodeMergeJob`; code `sae/h4_insertion_bonus.py`, `scripts/h4_insertion_bonus_test.py` (14/14) at speech-llm `3d395de`.
@@ -1827,6 +1578,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 | 1g.11 experiment 4 evaluation against gold, the gate table (evaluate.json, evaluate.txt) | `work/speech_llm/sae/g11_evaluate/G11EvaluateJob.sWoS1bP4Nd12`; code `sae/g11_evaluate.py`, `configs/config_sae_1g_11_exp34_v1.py`, `config/sae_1g_11_exp34.py`, `scripts/g11_exp34_test.py` (26/26) at speech-llm `5a344f2` |
 | 1g.11 experiment 3 observation null (observation_null.json, hypotheses.json, repair.json, repair.txt) | `work/speech_llm/sae/g11_nulls/G11ObservationNullJob.orOc9h6K3cuR`; code `sae/g11_nulls.py` at speech-llm `5a344f2` |
 | 1g.11 experiment 2 Gaussian repair cells (hypotheses.json, repair.json, repair.txt) | `work/speech_llm/sae/g11_repair_jobs/G11GaussianRepairJob.NogH62uMEI7T`; code `sae/g11_gaussian.py`, `sae/g11_repair_jobs.py`, `configs/config_sae_1g_11_exp2_v1.py`, `scripts/g11_gaussian_test.py` (40/40), `scripts/g11_repair_jobs_test.py` (20/20) at speech-llm `92e5d24` |
+| 1g.12 experiment 1 measured resource read, Gaussian arm at fitting order 4 (resource_gate.json, resource_gate.txt; PASS for one curve, RESOURCE_INFEASIBLE for all five starts in one process, 4 h and 4 GiB per cell) | `work/speech_llm/sae/g12_resource/G12ResourceGateJob.3h2iIpk6lpaB`; code `sae/g12_resource.py`, `sae/g12_gaussian_context.py`, the `emissions_by_time` seam in `sae/h4_context_engine.py`, `configs/config_sae_1g_12_exp1_v1.py`, `scripts/g12_gaussian_context_test.py` (57/57), `scripts/g12_resource_test.py` (50/50) |
 
 ## Verifier feedback
 
