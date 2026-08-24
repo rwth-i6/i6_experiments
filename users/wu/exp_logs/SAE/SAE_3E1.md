@@ -160,9 +160,30 @@ banked as verdict 85 (approach 39), descriptive and adopting nothing. `D8ScorerR
 stays in its guard-fired error state as expected debris of a correctly-firing gate: DO NOT clear,
 retry or delete it while D9 is open, and a manager exiting on it is not a stall to repair.
 
-NEXT ACTION, once arm 2 finishes: build D9.2's reader against the amended two-arm registration
-(verifier's 2026-08-24 entry licenses the build). Nothing is launched for it yet -- arm 2 is still
-training.
+**D9.2 IS COMPLETE AND D9 HAS NOTHING RUNNING** (`D9EtaReadJob.A7QvXl7VR7wl`; speech-llm
+`c147014`; `scripts/d9_2_eta_read_test.py` 23/23, `scripts/d8_eta_test.py` 12/12 after the seam;
+approach 39, verdict 86). Arm 2 finished at 2,421 steps with held NLL/frame 2.2550. The read is
+INDISTINGUISHABLE, delta eta -0.0310 [-0.1545, +0.0923] over 512 of 512 shared groups, resolving
+to the incumbent under the standing tie rule; arm 2 is NOT adopted. The STOP clause passed on its
+own terms -- both arms scored 7,168 of 7,168 rows finite with 0 groups dropped, exactly as D9.0's
+structural census predicted.
+
+- THE POWER CAVEAT BELONGS WITH THE TIE, not in a footnote: this bed's shared oracle headroom is
+  0.0116 against D8.4's 0.0600, and eta divides by it, so the interval is 0.247 wide against
+  D8.4's 0.078. The read says "not distinguishable on this bed"; it does not say the two scorers
+  rank equally well, and a future arm wanting to be distinguished on this bed would need a much
+  larger effect than D8.4 needed.
+- ONE BUILD DECISION FOR THE PLANNER, cheap to reverse. D9.2's config PINS arm 2's finished model
+  by path instead of importing D9.1's build. That build constructs arm 3, and an error job in the
+  graph makes the manager hit sisyphus's interactive "Clear jobs in error state?" prompt, read EOF
+  and exit -- so importing it would have made D9.2 unrunnable without clearing the very job the
+  ruling protects. The pin is checked at graph-build time against D9.1's OWN alias
+  (`alias/sae/3e1/d9_1/refit_1best`), so a re-hashed arm 2 fails loudly rather than being read
+  stale, and it points at the `work/` job directory, never an `output/` alias.
+- ARM 3's job dir is untouched, as ruled. Nothing of D9 is queued or running.
+
+NEXT ACTION: none of my own. D9's registered reads are all banked and the phase closes only on the
+USER's word over verdict 86, with the D8.3 authorization question attached.
 
 - ARM 2 `D9OnlineTrainJob.nJQy199AQZQu` (1-best refit, online weight 0), ARM 3
   `D8ScorerRefitJob.XvPF118rphQP` (soft-EM) on `D9WeightJob.uyKXr4ZiGj9R`; the shared dump merges
@@ -1812,6 +1833,24 @@ Distinct-support distribution over the 281,241 groups, which is the finding rath
 18,194 / 12,931 / 9,517 / 7,308 / 5,145 / 3,759 / 2,696 / 1,808 / 1,036 at 5 through 13. Mean 3.12,
 max 13, against 13 candidates offered per group (12 rollouts plus greedy).
 
+D9.2, the two-arm read (`D9EtaReadJob.A7QvXl7VR7wl`), amended by replacement from the registered
+three-arm read after arm 3 was closed: arm 2 against arm 1 on the ONE shared D9.0 draw (512
+utterances, G=12, T=0.7), the two arms differing in `model_pt` alone, D8.4 machinery and constants
+verbatim (`bootstrap_delta_eta`, n_boot 10000, seed 42). The STOP clause passed on its own terms:
+D9.0's structural census predicted 6,144 of 6,144 rollout rows alignable, and BOTH arms scored
+7,168 of 7,168 rows finite with 0 groups dropped, so no drop had to be explained or averaged over.
+
+| quantity | refit_1best (arm 2) | incumbent (arm 1) | paired |
+|---|---|---|---|
+| eta at T=0.7 | +0.1993 | +0.2303 | delta -0.0310 [-0.1545, +0.0923] |
+| selection WER on shared groups | 0.1484 | 0.1481 | delta +0.0004 |
+| spearman (context, never gating) | +0.3293 | +0.3238 | delta +0.0055 [-0.0763, +0.0873] |
+| audio-free null margin (arm-internal, never differenced) | -0.0844 | -0.0456 | not a pair |
+| rows scored / non-finite / groups dropped | 7,168 / 0 / 0 | 7,168 / 0 / 0 | 512 shared groups |
+
+Shared mean WER 0.1508, shared oracle 0.1391, headroom 0.0116; the reader recomputes delta eta
+from the WER identity and gets the same -0.0310.
+
 Two implementation facts about this arm, both recorded because they were failures that taught
 something rather than noise. First, arm 2 is `D9OnlineTrainJob`, a subclass of D7's training job
 registering THIS bed's own-infeasible drop set, which is EMPTY: D7's guard names four rows of D7's
@@ -2670,6 +2709,28 @@ function-word pairs rather than broad spelling diversity.
     temperature, and it licenses no claim about the loop family without a temperature sweep that
     is not registered and not run. Its reach beyond D9 is the planner's reading
     (`PLAN_3E1.md` D9 Status 2026-08-24), not this verdict's.
+
+86. **A39: D9.2 answers the evolved-point question -- the 1-best refit and the incumbent are
+    INDISTINGUISHABLE, and the tie resolves to the incumbent by rule.** Paired delta eta
+    -0.0310 [-0.1545, +0.0923] over 512 of 512 shared groups, the interval straddling zero; per
+    arm, eta +0.1993 for the refit against +0.2303 for the incumbent. The same number in plain
+    WER on the shared groups: selection WER 0.1484 refit against 0.1481 incumbent, delta +0.0004,
+    which the reader recomputes into the same delta eta rather than restating it. Both scorers are
+    fixed-final, so this read selects nothing. Under the registered gate a refit arm is adopted
+    only on an interval excluding zero in its favour, so arm 2 is NOT ADOPTED.
+    THE STOP CLAUSE PASSED ON ITS OWN TERMS and is worth recording as a pass rather than a
+    silence: D9.0's structural census predicted 6,144 of 6,144 rollout rows alignable at the refit
+    topology, and both arms scored 7,168 of 7,168 rows finite with 0 groups dropped, so nothing was
+    dropped and no drop had to be surfaced.
+    WHAT LIMITS THIS READ, stated because the verdict is a tie and a tie is exactly where power
+    matters: the shared oracle headroom on this bed is 0.0116 (mean 0.1508, oracle 0.1391) against
+    D8.4's 0.0600, five times smaller, and eta divides by it -- so the interval here is 0.247 wide
+    against D8.4's 0.078, three times wider. This bed resolves much less than D8.4's did. The
+    verdict is therefore "not distinguishable on this bed", and it licenses "the refit is not
+    adopted", never "the two scorers rank equally well".
+    WHAT IT LICENSES per the registration: jointly with D8.4 and D6-PERIODIC, "scorer refitting is
+    not funded on this loop family at cold or evolved operating points" -- never "refitting could
+    not work elsewhere". The phase closes only on the USER's word over this number.
 
 ## Catalog
 
