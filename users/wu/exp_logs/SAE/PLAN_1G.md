@@ -2938,10 +2938,12 @@ it controls, and the readout refused the stream's segment twin -- the seam rulin
 (`G12ObservationNullJob.UM72oLRoTEle` matched-4g, `.sakp81hAxfzB` accepted-2g). The banked
 1g.12 nulls keep their hashes through the subclass widening, confirmed by the planner's own
 independent census (4,757 jobs, zero missing, zero unfinished). The campaign manager is now
-`sae_1g_13_exp6`, whose graph contains experiment 5's; exactly one runs. One standing note
-for the evaluation build is in `SAE_1g.md` Verifier feedback (null/arm readout
-disambiguation: label the artifact before the null readouts run, or carry it explicitly in
-the evaluation's wiring, and name the choice).
+`sae_1g_13_exp6`, whose graph contains experiment 5's; exactly one runs. The readout-label
+note is DISCHARGED same evening and verified (speech-llm `45a5ed0`): readout artifacts now
+carry a top-level `cell_role`, hash-excluded at its "arm" default so zero banked readouts
+move (planner's own census), with the 1g.13 null readouts declaring `observation_null`
+before any ran; clause 4's floor line now names its coverage. Manager restarted to hold the
+moved-hash graph.
 
 ## 6. Deliverables ladder
 

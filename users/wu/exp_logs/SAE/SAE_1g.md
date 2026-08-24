@@ -3940,9 +3940,12 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   through the subclass restating is confirmed by the verifier's OWN census re-run (1g.12
   graph 4,757 jobs, zero missing dirs, zero unfinished), independent of the implementer's
   identical read. Manager transition to `sae_1g_13_exp6` (graph contains experiment 5's)
-  verified live -- exactly one campaign manager runs. ONE STANDING NOTE for the evaluation
-  build: the null readouts here carry the same internal cell keys as the arm's (identity by
-  graph edge plus the segment-twin refusal, the shape 1g.12's gate accepted); if the role
-  label is instead to live in the readout ARTIFACT, it must land before these null readouts
-  run -- otherwise the 1g.13 evaluation must carry the null/arm disambiguation explicitly in
-  its own wiring, and either choice should be named in the build.
+  verified live -- exactly one campaign manager runs. The readout-label note is DISCHARGED
+  same evening (speech-llm `45a5ed0`) and verified: `G12ExactReadoutJob` now carries
+  `cell_role`, top-level in the JSON and printed in the text report, refused when empty,
+  hash-excluded at its default "arm" -- the verifier's own census re-run confirms zero banked
+  readouts moved (1g.12 graph 4,757 jobs, zero missing dirs) -- and the two 1g.13 null
+  readouts declare `observation_null` at freely moved hashes (they had never run). The
+  exp-6 manager was restarted at 21:55 so it holds the moved-hash graph. The clause-4 floor
+  line now names how many cells it covers and how many table cells sit outside it. Suites
+  re-run by the verifier: readout 28/28; the implementer's five-suite sweep also recorded.
