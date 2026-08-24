@@ -2472,3 +2472,21 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   timing within run noise, verdict unchanged either way, but a cleared-and-re-run measurement
   should be one scratch line so the banked table's provenance is readable. Verdicts 52-54 are
   faithful to the artifacts.
+
+- 2026-08-24 (1g.12 experiment 4 build + relaunch and 1g.13 experiment 1 launch round VERIFIED;
+  approaches 22-23; no verdicts handed, none due). Cell census matches disk exactly: all five
+  bigram cells FINISHED with `parameters.npz` persisted (the 1g.11 non-persistence gap is
+  closed) and their 1g.11 reproduction certificates asserted before writing; the five
+  matched-4-gram cells were cleared by the filesystem kill and are re-running
+  (`.cleared.0001` siblings); 20 readouts + 5 re-running = the 25 unfinished approach 22
+  counts. The twenty `G12ExactReadoutJob` cells have NO on-disk dirs yet -- consistent with
+  approach 22's own "no cell has been decoded yet" (graph-enumerated census, unstarted jobs
+  have no dir); their launch verification stays OPEN until dirs appear. Verifier re-runs, all
+  at the logged counts: `g12_exact_decode_test` 33/33, `g12_readout_jobs_test` 22/22,
+  `g13_stream_test` 35/35, `g13_jobs_test` 34/34 (speech_llm env), and
+  `g13_faiss_reference_test` 10/10 under the `w2vu` env against real faiss 0.12.2-era code --
+  the equivalence claim is tested against the reference implementation as registered.
+  `G13StreamBuildJob.Ob8Rh8y51x9M` exists on disk and is running with parameters matching the
+  registration field for field (K=128, iters 50, redos 3, seed 0, PCA 512, fit scope 2,849,
+  bed 8,416, both banked dumps as inputs). Finished-cell outputs correctly refuse clause
+  verdicts before their controls exist. Nothing to send back.
