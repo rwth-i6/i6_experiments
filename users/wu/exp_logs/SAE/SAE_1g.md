@@ -70,11 +70,15 @@ falling): the five cells were cleared one by one from a console, each refusing t
 carrying a finished marker, and `config/sae_1g_12_exp23.py` restarted. Experiment 4's decoder and
 its twenty cells were built and accepted during that wait and depend on nothing that was lost.
 
-IN FLIGHT (1g.13): `G13StreamBuildJob.Ob8Rh8y51x9M` under `config/sae_1g_13_exp1.py`, launched
-2026-08-24 12:08 on a graph of exactly one job. Question it answers: what token rate and what
-alphabet does a v1-equivalent segmentation actually produce on this bed -- the published anchor is
-about 28 segments per second on LibriSpeech dev-other, and the resource read for order-4 cells
-(1g.13 experiment 4) cannot be written until this number exists.
+DONE (1g.13 experiment 1): `G13StreamBuildJob.Ob8Rh8y51x9M` completed 2026-08-24 13:05 --
+28.01 segments per second on the bed against the ~28 published anchor, all 128 clusters used,
+approach 23 and verdict 57. The stream's update role carries 1,436,262 segments, 2.46x the tokens
+1g.12 fits on, which projects to about 8 h per order-4 curve at the standing 1.5 multiplier against
+the 11.5 h clamp -- inside it with little room, so 1g.13 experiment 4's resource read decides, not
+that projection. Next on this subphase: experiment 2 (the H1 re-run with an EMPTY silence mask, and
+the VAD-mask firewall that recomputes the deterministic trim mask to carry gold frame labels onto
+the trimmed raster) and experiment 3 (the five starts re-derived, with `num_units=128` passed
+EXPLICITLY -- the espum default is a hard-coded 500 and the 1g configs never override it).
 
 NEXT ACTION: when experiment 3's five cells land, bank their rows and start
 `config/sae_1g_12_exp4.py` -- NOT before, because its graph contains those same ten cells and two
@@ -1051,6 +1055,24 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     the PCA is demonstrably NOT a whitening. `scripts/g13_jobs_test.py` (34/34) builds two real
     dumps on disk and runs the job end to end.
 
+    MEASURED, `G13StreamBuildJob.Ob8Rh8y51x9M`, complete 2026-08-24 13:05. `seg/s` is segments per
+    second of RETAINED audio at the dump's 50 Hz encoder frame rate.
+
+    | role | utterances | retained frames | segments | seg/s |
+    |---|---|---|---|---|
+    | update | 6,414 | 2,569,600 | 1,436,262 | 27.95 |
+    | selection | 890 | 266,488 | 150,079 | 28.16 |
+    | evaluation (sealed) | 1,112 | 308,759 | 175,269 | 28.38 |
+    | dedicated_train (fit population, inside update) | 2,849 | 1,532,345 | 848,038 | 27.67 |
+    | whole bed | 8,416 | 3,144,847 | 1,761,610 | 28.01 |
+
+    Fit: k-means inertia 1.228e+11, best of three restarts (the third), all 128 clusters used on the
+    fit population and all 128 used on the bed, rarest carrying 88 segments, zero reseeded. The run
+    used its full 50-iteration budget without the labels going stable, which is also exactly what
+    v1's fixed `niter=50` does -- the artifact's word "converged" for that case was misleading and
+    the wording is corrected in the producing code. PCA-512 at eigen_power 0 keeps 0.9114 of the
+    variance; zero degenerate components in the segment scale.
+
     Constants traced to the real v1 scripts and cited at the line rather than restated:
     `prepare_audio.sh:60-61` (spec CLUS128 at sample-pct 1.0), `wav2vec_cluster_faiss.py:50-69`
     (that spec means no PCA, no L2 norm, not spherical) and `:192-200` (niter 50, nredo 3),
@@ -1670,6 +1692,23 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     verdict 51 -- these are 1g.11's own numbers recovered, not new evidence, and they are quotable
     only within their own arm.
 
+57. **A23: the v1-equivalent stream reproduces the published wav2vec-U v1 token rate on this bed.**
+    28.01 segments per second over the whole 8,416-utterance seed bed, against the ~28 segments per
+    second the v2 paper's Table 1 measures for the v1 pipeline on LibriSpeech dev-other. That anchor
+    was written into the plan BEFORE this job ran and is a different corpus split measured by
+    different people, so hitting it to three significant figures is an independent check on the
+    construction rather than a fit to it -- and it is the one number that could have shown the
+    "equivalent segmentation" claim to be wrong at a glance. The rate is stable across roles (27.67
+    to 28.38), so no role is segmented differently from the fold the transform was fitted on. Two
+    consequences follow immediately. First, the stream is 2.24x seg12.5's rate and its update role
+    carries 1,436,262 segments against the 584,424 retained update tokens 1g.12 fits on, i.e. 2.46x
+    the tokens per E-step; at 1g.12's measured 0.4345 h per whole-fold order-4 E-step that projects
+    to about 1.07 h per E-step and, at five E-steps and the standing 1.5 multiplier, about 8 h per
+    curve against the 11.5 h clamp -- inside it, but with little room, which is exactly why 1g.13
+    experiment 4's resource read is mandatory and is not discharged by this projection. Second, the
+    alphabet does not collapse: all 128 clusters are used on the bed and the rarest still carries 88
+    segments, so the discrete twin is a real 128-symbol stream rather than a nominal one.
+
 ## Catalog
 
 1g.10c positive insertion-bonus cells, parity PASS, sign split between rows (verdicts 36-37): `work/speech_llm/sae/h4_insertion_bonus/H4InsertionBonusReadJob.da3bGeQIkS0R` (`insertion_bonus.json`, `insertion_bonus.txt`); 256 beam-512 chunks + 8 probes + 1 parity chunk under `work/speech_llm/sae/h4_insertion_bonus/`, merged by the production `H4SequenceDecodeMergeJob`; code `sae/h4_insertion_bonus.py`, `scripts/h4_insertion_bonus_test.py` (14/14) at speech-llm `3d395de`.
@@ -1682,6 +1721,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 
 | evidence | concrete artifact or source |
 |---|---|
+| 1g.13 experiment 1, the wav2vec-U v1-equivalent stream (approach 23, verdict 57) | `work/speech_llm/sae/g13_jobs/G13StreamBuildJob.Ob8Rh8y51x9M` (`units.pkl`, `segments.pkl`, `boundaries.pkl`, `component_scale.npy`, `transform.npz`, `stream.json`, `stream.txt`); code `sae/g13_stream.py`, `sae/g13_jobs.py`, `configs/config_sae_1g_13_exp1_v1.py`, `config/sae_1g_13_exp1.py`, `scripts/g13_stream_test.py` (35/35), `scripts/g13_faiss_reference_test.py` (10/10, run under the `w2vu` env), `scripts/g13_jobs_test.py` (34/34) at speech-llm `7f3f312` |
 | 1g.9 experiment 1, locate the collapse (approach 15, verdicts 26-29) | `work/speech_llm/sae/h4_collapse_locate/H4CollapseLocateJob.gZ9d6e3E7ZGu`; code `sae/h4_collapse_locate.py`, `configs/config_sae_1g_h4_collapse_locate_v1.py`, `config/sae_1g_h4_collapse_locate.py`, `scripts/h4_collapse_locate_test.py` (6/6) at speech-llm `d08cd88` |
 | 1g.2a item 4 rank agreement between the two halves | `work/speech_llm/sae/h4_context_agreement/H4ContextAgreementJob.zd6RBdYcvzti` |
 | 1g.2a item 4 label-free own-minus-donor, five starts x four fitting LMs | `work/speech_llm/sae/h4_context_scores/H4ContextOwnMinusDonorJob.SygqXhY8F2Qt` |
