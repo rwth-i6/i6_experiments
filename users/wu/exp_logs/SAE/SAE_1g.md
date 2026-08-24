@@ -255,6 +255,25 @@ result is BIT-IDENTICAL to the single-core path rather than merely close -- whic
 cells inherit the accepted computation's verification instead of needing their own. Speech-llm
 `454ddbd`, `scripts/parallel_estep_test.py` 101/101 new, twelve neighbouring suites clean.
 
+1g.13 EXPERIMENT 7 IN PROGRESS: the evaluation reader carries the SEGMENTATION contrast
+(speech-llm `11842bb`). Contrast (d) is this stream's cell minus the SAME cell of the other stream,
+paired per utterance over the 890 both score -- the only contrast whose baseline is not a cell of
+its own table. The pairing is GIVEN to the job rather than derived, because the two subphases name
+their starts differently (`espum` against `real/espum_seed0_update30000`) and a contrast that
+guessed the correspondence is one nobody can check; the job refuses a pairing naming a cell it was
+not handed, an unpaired cross-stream cell, and a pairing with no stream label. The other stream's
+cells are loaded but kept OUT of `arms` so they are never scored into this subphase's table, and go
+through the same symbol conversion against the same inventory -- a segmentation contrast read in
+two alphabets would be a comparison of the alphabets. Suite 70/70, was 63.
+
+A MISTAKE THE CENSUS CAUGHT, recorded because the rule is general and I had it written down and
+still made it: adding `route` to `__sis_hash_exclude__` MOVED the banked 1g.12 read, from
+`yJgxKex9peLp` to `MWNozrdqNIvt`. Exclusion drops a parameter's contribution to the hash, so it is
+neutral only for a parameter that was NEVER hashed -- a new one. `route` already existed and the
+banked read hashed its value. Reverted; re-censused at 4,757 jobs with zero unfinished. The 1g.13
+evaluation simply passes its own route and is a different job, which is correct: it scores a
+different stream. Now in memory as [hash-exclude is one-directional].
+
 TWO EVALUATION-HYGIENE ITEMS DISCHARGED 2026-08-24 before the build that reads them (speech-llm
 `45a5ed0`). A null cell and the ARM it controls decode the same start in the same corner under the
 same fitting LM, so their readout cell keys are identical and the two artifacts are
