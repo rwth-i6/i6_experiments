@@ -189,22 +189,26 @@ exactly its three original checks. `scripts/h4_context_port_test.py` 50/50, incl
 seg12.5 start name on the v1 route and a v1 name on the accepted route are both refused, and a
 negative control on the two-state lift.
 
-IN FLIGHT (1g.13 experiment 5, step (b)): `H4ContextResourceGateJob.8M4rSjaBlikH`, the TABLE arm's
-own measured order-4 read on the v1-equivalent stream, launched 2026-08-24 under manager
-`sae_1g_13_exp4` (its other three jobs are finished). Taken as COMPLETING experiment 4, not
-amending the plan: experiment 4 says the read comes before any cell is funded and the Gaussian gate
-measures the Gaussian arm. RESOURCE_INFEASIBLE would be a stop for the planner.
+DONE (1g.13 experiment 5, step (b)): `H4ContextResourceGateJob.8M4rSjaBlikH`, PASS. The whole 1g.13
+experiment-4 graph is finished on disk with zero unfinished; its watcher reported STALLED with
+three runnable, the same console misreport seen throughout this subphase. Verdict 69 and approach
+28 carry the numbers. The headline is the opposite of the prior that made this gate look like a
+formality: the table arm asks for 10 h against the Gaussian arm's 9 on the same stream -- cheaper
+per E-step but carrying one more of them -- so the TABLE corners have 1.5 h of clamp headroom where
+the continuous corners have 2.5. Both arms are funded; the wall-clock read on the first launched
+cell matters more for the table corners than for the Gaussian ones.
 
 NEXT ACTION, in order:
 
-1. 1g.13 experiment 5 step (c), once step (b) reads PASS: build the four-corner factorial at repair
-   counts (0, 4) over the five starts, one job per start as the gate sized it, every cell decoded by
-   the exact order-4 readout with the LM-blind local decode as its no-LM leg. Requests are READ from
-   the two gate artifacts and never written into the config, which is why (c) waits on (b) rather
-   than being built now. Launch ONE cell first and read its wall clock against the 1.1389 h per
-   E-step projection before committing the rest: 2.5 h of headroom, a job that caps its own request
-   at the clamp, and no resume means an optimistic projection costs the whole fold rather than a
-   resubmit.
+1. 1g.13 experiment 5 step (c), now unblocked: build the four-corner factorial at repair counts
+   (0, 4) over the five starts, one job per start as the gates sized it, every cell decoded by the
+   exact order-4 readout with the LM-blind local decode as its no-LM leg. Each arm's request is
+   READ from ITS OWN gate artifact and never written into the config -- the two gates disagree by
+   an E-step and by an order of magnitude in memory, so a single copied number would be wrong for
+   one arm. Launch ONE cell of EACH arm first and read its wall clock against that arm's own per
+   E-step projection before committing the rest: 1.5 h of headroom on the table corners, 2.5 on the
+   continuous ones, jobs that cap their own request at the clamp, and no resume, so an optimistic
+   projection costs the whole fold rather than a resubmit.
 2. When experiment 5's four jobs finish: switch the 1g.12 manager from `sae_1g_12_exp5` to
    `sae_1g_12_exp6` (exp6's graph contains exp5's, so the two must never run at once) and read the
    gate. Until that job runs there is still NO phone error rate anywhere in 1g.12.
@@ -1526,7 +1530,31 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     | banked jobs of the ported and consuming modules, re-verified after each commit | 142, zero moved, zero unfinished |
     | v1-equivalent repair cells colliding with a banked seg12.5 cell | 0 of 10 |
     | suite `scripts/h4_context_port_test.py` | 50/50 |
-    | table-arm order-4 gate on the new stream | `H4ContextResourceGateJob.8M4rSjaBlikH`, in flight |
+
+    THE TABLE ARM'S OWN GATE, `H4ContextResourceGateJob.8M4rSjaBlikH`, PASS. Read beside the
+    Gaussian gate on the SAME stream, same probe utterance, same heaviest chunk, same 32-way
+    sharding and the same 1.5 multiplier. The two hour figures are NOT directly comparable without
+    the E-step column, and that column is where the surprise is: the drivers genuinely differ, so
+    both constants are right for their own arm -- the table curve records the criterion at count 0,
+    records it AGAIN immediately after the symmetry-break perturbation before step 1, then at steps
+    1 to 4, which is six E-steps; the Gaussian curve has no symmetry-break pass and evaluates at
+    counts 0 to 4, which is five.
+
+    | measurement | table arm | Gaussian arm |
+    |---|---|---|
+    | gate | `H4ContextResourceGateJob.8M4rSjaBlikH` | `G12ResourceGateJob.cQ3wfqsTamPP` |
+    | heaviest chunk, order 4 (s) | 123.85 | 128.13 |
+    | E-steps per count-4 curve | 6 | 5 |
+    | whole-fold request at 1.5x (h) | 10 | 9 |
+    | headroom against the 11.5 h clamp (h) | 1.5 | 2.5 |
+    | measured peak (GiB) | 1.35 | 10.27 engine + 9.14 host |
+    | request (GiB) | 3 | 30 |
+    | reached histories, probe utterance | 59,319 - 60,879 | 59,204 - 60,879 |
+
+    The v1 route's topology read fired as the planner's ruling requires: two-state ADMISSIBLE
+    ASSERTED (ratio 0.9057 against an allowance of 2.4841) and one-state ADMISSIBLE REPORTED
+    (1.1992 against 1.8761), the reported class travelling into the artifact rather than deciding
+    anything.
 
 
 ## Verdicts
@@ -2322,6 +2350,22 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     bug destroyed was work not yet done, which is the only reason this is a footnote to 1g.13
     experiment 4 rather than a correction to 1g.12.
 
+69. **A28: the TABLE arm on the v1-equivalent stream is not cheaper in wall clock than the Gaussian
+    arm -- it asks for MORE hours and has LESS headroom -- and is cheaper only in memory.** The
+    measured order-4 gate `H4ContextResourceGateJob.8M4rSjaBlikH` reads PASS at 10 h for the whole
+    fold in one process against the 11.5 h clamp and 3 GiB against 256, beside the Gaussian arm's
+    9 h and 30 GiB on the same stream, the same probe utterance and the same heaviest chunk. Per
+    E-step the table arm IS slightly cheaper -- 123.85 s against 128.13 s on the heaviest chunk,
+    3.3% -- but its count-4 curve carries six E-steps against the Gaussian's five, because the
+    table driver records the criterion again immediately after the symmetry-break perturbation and
+    the Gaussian driver has no symmetry-break pass. Both constants are right for their own driver;
+    what is wrong is reading one arm's hour figure against the other's without that column. The
+    consequence for experiment 5 is the opposite of the prior that made this gate look like a
+    formality: the TABLE cells have 1.5 h of headroom against the clamp where the Gaussian cells
+    have 2.5, so the wall-clock read on the first launched cell matters more for the table corners
+    than for the continuous ones. This is a measurement of this machine and this fold, never a
+    statement about the arms.
+
 
 ## Catalog
 
@@ -2338,8 +2382,9 @@ speech-llm `1c25f58` and `c4d3f13`.
 code `sae/g12_evaluate.py`, `configs/config_sae_1g_12_exp6_v1.py`,
 `scripts/g12_evaluate_test.py` (37/37) at speech-llm `c4d3f13`.
 
-1g.13 experiment 5 step (b), the TABLE arm's own measured order-4 read on the v1-equivalent stream
-(approach 28): `work/speech_llm/sae/h4_context_resource/H4ContextResourceGateJob.8M4rSjaBlikH`
+1g.13 experiment 5 step (b), the TABLE arm's own measured order-4 read on the v1-equivalent stream,
+PASS at 10 h and 3 GiB (approach 28, verdict 69):
+`work/speech_llm/sae/h4_context_resource/H4ContextResourceGateJob.8M4rSjaBlikH`
 (`resource_gate.json`, `resource_gate.txt`); the port itself in `sae/h4_context_diagnostic.py`,
 `sae/h4_context_resource.py`, `sae/g12_repair_jobs.py` with
 `scripts/h4_context_port_test.py` (50/50) at speech-llm `a8279ef`, `f651ffd`, `1d8f669`.
