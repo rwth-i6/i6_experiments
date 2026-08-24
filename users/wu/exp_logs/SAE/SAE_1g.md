@@ -4,7 +4,7 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-State as of 2026-08-24 -- 1g.2 is READ and CLOSED on its gate; 1g.9 is CLOSED by its own
+State as of 2026-08-25 -- 1g.2 is READ and CLOSED on its gate; 1g.9 is CLOSED by its own
 off-ramp; the whole 1g.10 family is CLOSED by the planner; 1g.11 is COMPLETE through all four
 experiments and its gate is read (clause 3 fails on the control). 1g.2a (H4-LM) items 1-4 are
 complete. The other live implementer work is PLAN_1F entry 8 (SAE_1f.md); PLAN_3E1 D9 is banked
@@ -553,24 +553,36 @@ Clause 4 passes outright. THE GATE VERDICT IS THE PLANNER'S: the registration's 
 condition carries no number, which is why the artifact prints the intervals side by side rather than
 deciding. What this licenses and what it does not is the planner's to write.
 
-One thing worth carrying into 1g.13 before its own evaluation is built: contrast (a) is a real
-effect in every arm cell -- the exact order-4 readout beats the LM-blind local decode with intervals
-excluding zero everywhere -- and the observation null shows it too, larger. The readout recovers
-correct phones from the language model, which a null carrying no acoustic content benefits from at
-least as much. So 1g.13's contrast (d), the segmentation contrast this subphase exists for, needs
-its controls read the same way from the start; a positive (d) read without them would be the same
-mistake at a new operating point. Twenty-two cells -- four corners by five starts plus the null at both
-orders -- each scored under BOTH decoders, because contrast (a) is a cell against ITSELF under the
-other decoder. Conventions are 1g.11's, imported; the plan's clause-1 amendment is implemented as
-two independent columns (`admitted`, `shows_content`), so an inadmissible content-bearing cell
-cannot read as an empty one. The babble null is re-banked at this decode's own decoded lengths,
-inside this job, for the reason 1g.11 gave. Contrast (c) is the one contrast the observation null
-structurally cannot enter -- it is an EMISSION-MODEL contrast and the table arm observes the frozen
-unit IDs, which the null preserves by construction -- so the artifact records that rather than
-leaving a hole; its content-free control is the random-map start. It scores about one cell every
-two minutes, so it runs a little under three hours against its 4 h request. Suites `scripts/g12_evaluate_test.py` 37/37 and `scripts/g12_nulls_test.py` 32/32, the
-latter including a negative control that a wrong scatter of the redrawn vectors is caught by
-reading the artifact back through `retained_token_view`.
+DONE (1g.13 experiments 5, 6 and 7): THE WHOLE FACTORIAL, ITS NULLS AND ITS EVALUATION.
+`G12EvaluateJob.a3419LhkI7JT` FINISHED 2026-08-25 01:24 after 2 h 02 min -- 1g.13 now has its gate
+table and, with it, the segmentation contrast the subphase was registered to make. Approach 31
+carries the numbers and verdicts 73-75 read them. Three headlines, none good for the arm:
+
+1. Clause 2 reads exactly as 1g.12 did: no real start shows content, in any corner, at either
+   fitting order, under either decoder. Only the gold-informed controlled reference does.
+2. Clause 3 fails on its controls harder than 1g.12 did. On contrast (a) the observation null gains
+   +0.6689 [0.6579, 0.6804] against the arm's +0.0870 [0.0785, 0.0962] -- nearly eight times the
+   arm, non-overlapping -- and on (b) BOTH content-free controls beat the arm as well. The
+   carried-over 1g.11 ruling fires on two contrasts here rather than one.
+3. Contrast (d) says the wav2vec-u-v1-equivalent stream is WORSE than seg12.5, not better: the
+   selected real start loses -0.2959 [-0.3085, -0.2839] correct-phone fraction against its pinned
+   seg12.5 counterpart. The controls read this for what it is -- the content-free random-map
+   control loses -0.2832 [-0.2952, -0.2714], an interval overlapping the arm's, so a segmentation
+   change that costs the arm and a control with no content to lose by indistinguishable amounts is
+   not a content effect. This is the read the previous State asked for: (d) with its controls from
+   the start rather than a bare positive-or-negative number.
+
+THE GATE VERDICT IS THE PLANNER'S, for the same reason it was in 1g.12: the registration's
+"comparable gain" condition carries no number, so the artifact prints the intervals side by side
+rather than deciding.
+
+One defect in the run, fixed in code but NOT re-run: `evaluate.txt` from
+`G12EvaluateJob.a3419LhkI7JT` contains no section (d). The contrast was computed and IS banked in
+`evaluate.json` under `clause3_contrasts` -- that is where approach 31's (d) row comes from -- but
+the report printer never rendered it, so the one comparison 1g.13 exists for was invisible on the
+page the gate is read from. Fixed at speech-llm `2122813`, with the render test the pairing tests
+could not catch (`scripts/g12_evaluate_test.py` 79/79, verified to fail 3/3 with the fix reverted).
+The edit is inside `run()` and therefore hash-neutral.
 
 Proposals for the planner:
 
@@ -583,6 +595,11 @@ Proposals for the planner:
    selector assigns a nonzero repair count to two of the four real starts
    (`espum_seed0_update30000` and `pseudo_pair_seed0`, both count 4) -- so the only outstanding
    input to that condition is the controlled method-level safety read, which is a label read.
+
+3. Whether to re-run `G12EvaluateJob.a3419LhkI7JT` so its `evaluate.txt` carries section (d). The
+   numbers are not at risk -- they are banked in `evaluate.json` and transcribed into approach 31,
+   and the printer fix is committed and tested -- so this buys a readable artifact, not a result,
+   at the cost of about 2 h on 4 cores. Clearing a finished job is not mine to do unasked.
 
 ## Approach
 
@@ -1961,6 +1978,54 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     artifact records as structural -- the table arm observes the frozen unit IDs, which the null
     preserves.
 
+31. **1g.13 experiment 7: the evaluation against gold on the wav2vec-u-v1-equivalent stream, the
+    first phone error rate in 1g.13 (`g12_evaluate.py`,
+    `configs/config_sae_1g_13_exp7_v1.py`).** `G12EvaluateJob.a3419LhkI7JT`, finished
+    2026-08-25 01:24 after 2 h 02 min. Seventy-eight scored rows on the same accepted H1 selection
+    role as approach 30 -- 890 utterances, dev-clean 432 and dev-other 458 -- so the two streams
+    are scored on the SAME utterances and the 1,112-utterance evaluation role is not opened.
+
+    Phone error rate at repair count 4 under the exact order-4 readout, the decision column. A rate
+    above 1.0 is possible and means insertions outnumber the reference phones they were added to:
+
+    | start | gaussian x accepted-2g | gaussian x matched-4g | table x accepted-2g | table x matched-4g |
+    |---|---|---|---|---|
+    | controlled reference (gold-informed) | 0.4617 | 0.4270 | 0.3890 | 0.3324 |
+    | espum seed 0 / update 24,000 (selected) | 1.1058 | 1.0922 | 0.8610 | 0.8594 |
+    | fingerprint | 1.0682 | 1.0550 | 0.8489 | 0.8278 |
+    | pseudo-pair seed 0 | 0.9095 | 0.9091 | 0.8738 | 0.8725 |
+    | random map seed 1000 (content-free) | 1.1568 | 1.1375 | 0.8937 | 0.9010 |
+    | observation null (espum's own acoustics destroyed) | 1.3840 | 1.3494 | - | - |
+
+    Clause 3's contrasts, in per-utterance correct-phone fraction, candidate minus baseline,
+    positive meaning the candidate is better, stratified within evaluation split:
+
+    | contrast | selected real start | observation null | random-map control |
+    |---|---|---|---|
+    | (a) readout, exact order-4 minus local, matched-4g | +0.0870 [0.0785, 0.0962] | +0.6689 [0.6579, 0.6804] | +0.1210 [0.1100, 0.1326] |
+    | (b) fitting order, matched-4g minus accepted-2g | +0.0161 [0.0120, 0.0201] | +0.0369 [0.0333, 0.0404] | +0.0412 [0.0336, 0.0492] |
+    | (c) emission model, Gaussian minus table at order 4 | -0.2484 [-0.2592, -0.2379] | structurally absent | -0.2309 [-0.2419, -0.2201] |
+    | (d) segmentation, this stream minus seg12.5, Gaussian x matched-4g | -0.2959 [-0.3085, -0.2839] | -0.5029 [-0.5186, -0.4876] | -0.2832 [-0.2952, -0.2714] |
+
+    Contrast (d) is the comparison this subphase was registered to make: each cell against its
+    pinned counterpart on the seg12.5 stream of approach 30, paired over the same 890 utterances.
+    A negative delta means the v1-equivalent stream is the worse of the two. The arm improves on
+    only 0.8% of utterances, the random-map control on 2.1%, the observation null on none.
+
+    Clause 4 passes: variance-floor share all zero over the 48 cells that have variance components,
+    decoder exactness violations none; the 30 table cells have no variance to floor and the
+    artifact records them as outside that line rather than clean within it. The same four planned
+    (b) rows are NOT computed as in approach 30, for the same reason -- the observation null exists
+    only for the selected real start -- and are named in the artifact.
+
+    One reporting defect in this run, fixed but not re-run: `evaluate.txt` from
+    `G12EvaluateJob.a3419LhkI7JT` has NO section (d). The contrast was computed and is banked in
+    `evaluate.json` under `clause3_contrasts`, which is where the four (d) numbers above were read
+    from; the report printer simply never rendered it. Fixed in speech-llm `2122813`, which also
+    adds the render test that the pairing tests could not catch. Any future run of this job prints
+    the section; this run's text file does not.
+
+
 ## Verdicts
 
 1. **Approach 1: one segment per text symbol is rejected.** It exceeds the registered ratio on all
@@ -2804,6 +2869,30 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     nothing benefits from at least as much. This is why contrast (a) needed its controls before it
     could be read at all, and it retires the reading that 1g.10's collapse was a readout artifact.
 
+73. **A31: no real start on the wav2vec-u-v1-equivalent stream shows content by clause 2, the same
+    reading 1g.12 gave on seg12.5.** The content column is Y only for the gold-informed controlled
+    reference; every one of the four real starts is content-free under both decoders, both fitting
+    orders and both counts. Eleven cells are admissible without being content-bearing, so this is
+    clause 2 answering, not clause 1 refusing to admit them.
+
+74. **A31: clause 3 fails on its control at the same place 1g.12 did, and by a far wider margin.**
+    On contrast (a) the observation null gains +0.6689 [0.6579, 0.6804] against the selected real
+    start's +0.0870 [0.0785, 0.0962] -- non-overlapping, and the null's gain is nearly eight times
+    the arm's. On (b) both content-free controls also beat the arm (+0.0369 and +0.0412 against
+    +0.0161). The carried-over 1g.11 ruling, that a control gain exceeding the arm's with
+    non-overlapping intervals is beyond any reading of "comparable", fires here on two contrasts
+    rather than one. The gate verdict itself is the planner's.
+
+75. **A31: on the registered segmentation contrast the v1-equivalent stream is WORSE than seg12.5,
+    and the loss is not content-specific.** The selected real start loses -0.2959 [-0.3085,
+    -0.2839] correct-phone fraction against its seg12.5 counterpart, and the content-free
+    random-map control loses -0.2832 [-0.2952, -0.2714] -- intervals that overlap, so the two
+    degrade by statistically indistinguishable amounts. A segmentation change that costs an arm and
+    a content-free control equally is not removing content from the arm, because the control had
+    none to lose. The observation null falls furthest (-0.5029), which is consistent with the same
+    reading: the further a cell's output already was from gold, the more this stream costs it.
+
+
 ## Catalog
 
 1g.12 experiment 5, the continuous observation null at both fitting orders (approach 27): the null
@@ -2908,6 +2997,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
 | 1g.13 experiment 5 four-corner factorial, pilot cells (repair_channels.npz / parameters.npz, repair.json, hypotheses.json, readout.json, readout.txt) | `work/speech_llm/sae/g12_repair_jobs/G12GaussianContextRepairJob.mrmyPW7K6BJI`; `work/speech_llm/sae/h4_context_diagnostic/H4ContextRepairJob.ZOyDz3Lr5gvi`; readouts `work/speech_llm/sae/g12_readout_jobs/G12ExactReadoutJob.PXkdjfKVf0VA` and `.OOCRqqetyibP`; code `sae/g12_repair_jobs.py`, `sae/g12_resource.py`, `configs/config_sae_1g_13_exp5_v1.py`, `config/sae_1g_13_exp5.py`, `scripts/g12_repair_jobs_test.py` (48/48) at speech-llm `4a56304` |
 | 1g.13 experiment 5 no-LM leg of the table corners (channel.npz, channel.json, local_hypotheses.json) | `work/speech_llm/sae/h4_context_decode/H4ContextChannelAdapterJob.ruZ0Muc40Aaa`; `work/speech_llm/sae/h4_context_decode/H4ContextLocalDecodeJob.6KblLtDciuiq`; code `sae/h4_context_decode.py`, `scripts/h4_context_port_test.py` (69/69) at speech-llm `e89ccdb` |
 | 1g.12 experiment 6 evaluation against gold, the subphase's gate table (evaluate.json, evaluate.txt) | `work/speech_llm/sae/g12_evaluate/G12EvaluateJob.yJgxKex9peLp`; code `sae/g12_evaluate.py`, `configs/config_sae_1g_12_exp6_v1.py`, `config/sae_1g_12_exp6.py`, `scripts/g12_evaluate_test.py` (63/63) at speech-llm `2c9992c` |
+| 1g.13 experiment 7 evaluation against gold on the wav2vec-u-v1-equivalent stream, the subphase's gate table and the segmentation contrast against 1g.12 (evaluate.json, evaluate.txt) | `work/speech_llm/sae/g12_evaluate/G12EvaluateJob.a3419LhkI7JT`; contrast (d) is in evaluate.json only -- this run's evaluate.txt does not render it; code `sae/g12_evaluate.py`, `configs/config_sae_1g_13_exp7_v1.py`, `config/sae_1g_13_exp7.py`, `scripts/g12_evaluate_test.py` (79/79), `scripts/g13_exp7_pins_test.py` (6/6) at speech-llm `2122813` |
 
 ## Verifier feedback
 
