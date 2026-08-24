@@ -2910,6 +2910,22 @@ a bigger request (the queue caps there), but the SHARDED shape the table gate se
 passed at 1 h per shard with 10.5 h of headroom -- not built unless needed. The Gaussian arm
 has no such cliff at its 2.02x margin.
 
+2026-08-24 21:10 USER DIRECTION (recorded by the implementer in `SAE_1g.md` State) VERIFIED
+AND ACCEPTED: the E-step is parallelised and the ten order-4 cells relaunched on it
+(speech-llm `454ddbd`). The change is BIT-IDENTICAL, not approximately equal -- verified by
+the planner's own agent against the PRE-COMMIT serial code at a real order-4 automaton, both
+arms, sha256-identical -- so the factorial's mix of serially-fitted bigram cells (all ten
+finished in 10-14 minutes, undisturbed) and parallel-fitted order-4 cells is ONE computation,
+and the gates' verification transports. Time requests stay exactly as each gate sized them (9
+h and 10 h), so the entire speed-up lands as clamp headroom, easing the table arm's 1.74x
+margin without relying on any speed-up estimate; widths derive from the accepted 256 GiB
+ceiling charging each gate's whole-pass memory per worker (7 workers/234 GiB Gaussian, 16/56
+table -- recomputed by the planner from the gate artifacts). All ten relaunched cells came
+back at their original hashes (proven two ways on the pilot chain) and run since 21:19. One
+implementer item stands in `SAE_1g.md` Verifier feedback: the new parallel-E-step suite runs
+every check at order 2, so it must gain a real order-4 case before it is cited as covering
+the order-4 cells; the planner's independent order-4 check carries that weight today.
+
 ## 6. Deliverables ladder
 
 | Step | Deliverable | Decision it enables |

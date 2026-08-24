@@ -3844,3 +3844,31 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   "no variance components" wording where `floor_share` is omitted, so clause 4's "all zero"
   cannot be misread as covering them. The artifact is NOT regenerated for prose; the absences
   and scopes are recorded here and in the plan.
+
+- 2026-08-24 (round: the E-step parallelization and the order-4 relaunch, speech-llm
+  `454ddbd`; USER direction 21:10 as recorded in State). VERIFIED and ACCEPTED. The
+  BIT-IDENTITY claim -- the load-bearing one, since the factorial now mixes ten bigram cells
+  fitted under the serial code with ten order-4 cells fitted under the parallel code -- holds
+  at a stronger level than the shipped suite: the verifier's agent ran an INDEPENDENT fixture
+  through the PRE-COMMIT serial code (built from `454ddbd~1`) and the new path at one and at
+  several workers, both arms, at order 2 AND at a real order-4 automaton -- all four cases
+  sha256-identical on the raw arrays. The order argument in the code is confirmed (shared
+  span source with the serial path, `Pool.imap` chunksize 1 in input order, the table arm
+  parallel INSIDE its single-shard fold, forked workers inheriting the packed observations
+  and automaton copy-on-write with only span integers pickled), constructor signatures are
+  untouched (cross-version identity run: all eight `_sis_id`s equal while rqmt moved), and
+  the width derivation recomputes from the gate artifacts and the 256 GiB ceiling exactly (30
+  GiB whole-pass -> 7 workers/234 GiB; 3 GiB -> 16/56; times left at 9 h/10 h as each gate
+  sized them). On disk: the ten accepted-bigram cells finished 21:02-21:05 in 10-14 minutes
+  each and are UNDISTURBED; the ten order-4 cells were recreated 21:18 at their original
+  hashes (pilot hashes match the pre-relaunch record two ways -- the cell dirs and the
+  readout alias links) and all ten run since ~21:19. ONE ITEM for the implementer:
+  `scripts/parallel_estep_test.py` never exercises order 4 -- its `_lm` fixture helper
+  ignores its order argument, so all 101 checks run order 2 -- while the State entry cites
+  the suite for bit-identity the ORDER-4 cells inherit. The substantive claim is safe (the
+  verifier's own order-4 check above), but add a real order-4 case (or make `_lm` honour its
+  argument) before that suite is cited as covering order 4. Minor, no action: the new path
+  slices raw chunk arrays where the old generator cast first -- harmless because the job
+  packs float64/bool; and the claimed per-node worker counts are not recorded in any file
+  (sisyphus usage tracks the main process only), so they stay unverified rather than
+  confirmed.
