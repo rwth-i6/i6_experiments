@@ -150,12 +150,19 @@ once arm 2 finishes -- that is expected, not a stall to repair.
 - ARM 2 IS UNAFFECTED and running: it reads the pool index and the pseudo-text bed, never the
   weight artifact, so the 1-best refit stands on its own.
 
-PROPOSAL FOR THE PLANNER, not acted on: D9.2's registered read is a comparison of arms 2 and 3, and
-arm 3 does not exist. The options I can see are (i) read D9.1 as a one-arm result plus a measured
-collapse finding, (ii) re-dump at sampling settings that produce diversity, which is a new spend and
-a new registration, or (iii) rule clause (a)'s 3.0 threshold wrong for an evolved policy, which is a
-gate edit after seeing the number and would need the pre-registration argument made explicitly. I
-have no view worth acting on between them and have launched nothing.
+RULED 2026-08-24 (`PLAN_3E1.md` D9 Status): option (i) ADOPTED, (ii) not funded, (iii) rejected as a
+post-hoc gate edit. D9.2 is amended BY REPLACEMENT to a TWO-ARM read -- arm 2 (1-best refit) against
+arm 1 (incumbent), per-group eta, paired per-group delta eta, `bootstrap_delta_eta` at n_boot 10000
+seed 42, D8.4 machinery and constants verbatim; the read set is the groups where BOTH arms score
+every member finitely with per-arm drop counts printed, the structural-census STOP clause unchanged;
+the soft-EM-versus-1-best attribution contrast is STRUCK as unreadable. The collapse measurement is
+banked as verdict 85 (approach 39), descriptive and adopting nothing. `D8ScorerRefitJob.XvPF118rphQP`
+stays in its guard-fired error state as expected debris of a correctly-firing gate: DO NOT clear,
+retry or delete it while D9 is open, and a manager exiting on it is not a stall to repair.
+
+NEXT ACTION, once arm 2 finishes: build D9.2's reader against the amended two-arm registration
+(verifier's 2026-08-24 entry licenses the build). Nothing is launched for it yet -- arm 2 is still
+training.
 
 - ARM 2 `D9OnlineTrainJob.nJQy199AQZQu` (1-best refit, online weight 0), ARM 3
   `D8ScorerRefitJob.XvPF118rphQP` (soft-EM) on `D9WeightJob.uyKXr4ZiGj9R`; the shared dump merges
@@ -1779,6 +1786,43 @@ already reached: online (loop) against offline (G3) per-frame reconstruction on 
 512 of 512 rollouts round-tripped through the tokenizer; max absolute difference 2.384e-07 and mean
 4.657e-10 against a 2.0e-03 tolerance; 0.00 pct of rows floored at -log K. PASS.
 
+**39. D9.1: the evolved-point refit of the D8 recipe, and its support census.** D8's recipe
+transplanted to the evolved policy: a ten-shard 960 h rollout dump from the pinned checkpoint
+(`ReturnnForwardJobV2` x10, G=12, T=0.7, `max_seqs=8`), merged, with the pseudo-text pool built
+from THAT dump's own greedy rows rather than decoded separately (`D9PoolFromDumpJob`), tau PINNED
+at D8.1a's 0.05 rather than re-solved. Two refit arms were registered: arm 2, the 1-best refit
+(`D9OnlineTrainJob`, `online_weight=0`), and arm 3, the soft-EM refit (`D8ScorerRefitJob`) on the
+weight artifact. `D9WeightJob.uyKXr4ZiGj9R` is the gate between the dump and arm 3 and it rules
+NO-GO, so the table below is a census of the dump's support rather than a refit result. Every
+number is the weight job's own; the reader recomputes nothing.
+
+| statistic | value | registered bar | reading |
+|---|---|---|---|
+| groups with live support | 281,241 of 281,241 | -- | the bed carries the read |
+| members excluded by the safety valve | 0 of 877,334 (0.0000 pct) | 5 pct | valve idle |
+| clause (a): median distinct support | 2.0 | >= 3.0 | **NO-GO** |
+| clause (a), scorer-free variant | 2.0 | >= 3.0 | fires identically |
+| distinct support, rollouts only | 2.0 | -- | not the greedy member's inclusion |
+| clause (b): taus in the [1.5, 8.0] ESS band | 0.05, 0.1, 0.2, 0.5, 1.0 | >= 1 | pass |
+| clause (c): median token R2 at tau_star | 0.4403 | < 0.5 | pass |
+| tau_star | 0.05 (pinned) | -- | this bed's own ESS rule would pick 1.0 |
+
+Distinct-support distribution over the 281,241 groups, which is the finding rather than the median:
+1 member 92,995 (33.1 pct); 2 members 61,989 (22.0 pct); 3 members 37,445; 4 members 26,418; then
+18,194 / 12,931 / 9,517 / 7,308 / 5,145 / 3,759 / 2,696 / 1,808 / 1,036 at 5 through 13. Mean 3.12,
+max 13, against 13 candidates offered per group (12 rollouts plus greedy).
+
+Two implementation facts about this arm, both recorded because they were failures that taught
+something rather than noise. First, arm 2 is `D9OnlineTrainJob`, a subclass of D7's training job
+registering THIS bed's own-infeasible drop set, which is EMPTY: D7's guard names four rows of D7's
+own pseudo-text bed and fired closed on a bed that has none. Measured on this bed with the
+production text side before the value was fixed: 0 of 281,241 rows own-infeasible, tightest row at
+77.9 pct of its frame budget, D7's four named rows at 23-32 pct. The audio store is the same
+(`PackUnitsJob.I0uzRMfUrKWC`) in both beds, so the whole difference is the text. Second, the
+`d8_train` source-identity guard then fired on arm 3 because that job had been constructed by a
+manager holding the pre-edit graph; it was re-created through the console with empty output and
+work directories, destroying nothing.
+
 
 ## Verdicts
 
@@ -2609,6 +2653,23 @@ function-word pairs rather than broad spelling diversity.
     reopening rested on. It does NOT license "the candidate is worse": the interval contains zero
     and the tie resolves to the incumbent by rule, not by evidence of inferiority. The phase closes
     only on the USER's word over this number, with the D8.3 authorization question attached.
+
+85. **A39: the evolved policy's within-group sampling has largely collapsed, and that is what
+    closed D9.1's arm 3.** Over all 281,241 groups of the 960 h dump at the registered sampling
+    settings (G=12, T=0.7), the median group carries **2.0** distinct-scoring support members
+    against 13 candidates offered; 92,995 groups (33.1 pct) carry exactly ONE, and 55.1 pct carry
+    at most two. Mean 3.12, max 13. Clause (a) of the weight artifact therefore reads NO-GO and
+    arm 3, the soft-EM refit, is not funded -- the tempered posterior over a median-two-string
+    support would be the 1-best refit at extra cost, which is the degeneration the clause names.
+    THE THINNESS IS THE POLICY'S, not an instrument artifact: the scorer-free variant and the
+    rollouts-only variant both read 2.0, so it is neither the scorer nor the greedy member's
+    inclusion, and both convention readings report the clause fired. THE BED IS SOUND: all 281,241
+    groups carry live support, the exclusion valve is idle at 0.0000 pct against 5 pct, clause (b)
+    puts every grid tau in the ESS band and clause (c) reads token R2 0.4403 against 0.5.
+    DESCRIPTIVE, ADOPTING NOTHING -- it is a measurement of one dump from one checkpoint at one
+    temperature, and it licenses no claim about the loop family without a temperature sweep that
+    is not registered and not run. Its reach beyond D9 is the planner's reading
+    (`PLAN_3E1.md` D9 Status 2026-08-24), not this verdict's.
 
 ## Catalog
 
