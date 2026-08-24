@@ -4236,3 +4236,18 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   seed on both sides, shows the same loss. Minor, no action: evaluate.txt's clause-2 side
   table prints margins against the raw 99th percentile (the +0.05 lives in `shows_content`),
   so any "margin against the bar" quote is derived, not a stored field.
+
+- 2026-08-25 (round: State absorbs the ruling; the subphase's terminal operational state).
+  VERIFIED: the State's transcription of the gate ruling is faithful on every element and
+  closure is correctly left to the USER; no manager of this setup is running (the live
+  sisyphus processes on the login node belong to a concurrent user's checkout);
+  `sis_managers.sh` blocks exp4/5/6 behind `sae_1g_13_exp7` with per-manager explanations.
+  The 4,803/4,803 finished census holds for the GRAPH: the two on-disk dirs without markers
+  are debris outside it -- `G12ExactReadoutJob.AsnaWHarOZ0Q` is the PRE-`cell_role` build of
+  the accepted-2g observation-null readout (alias g13/6/espum/accepted-2g, inputs
+  `G12ObservationNullJob.sakp81hAxfzB`, log ends "Job finished successfully" at 22:34 but no
+  manager held it after the 21:55 hash-move restart, so no top-level marker), superseded by
+  the in-graph `XTLcnjFqsYSn` (same null inputs plus cell_role observation_null, consumed by
+  the evaluation); five `G12GaussianContextRepairJob.*.cleared.0001` dirs are archived
+  attempts. Both go on the debris list for the user's next cleanup pass -- nothing cited in
+  any Catalog, nothing deleted now.
