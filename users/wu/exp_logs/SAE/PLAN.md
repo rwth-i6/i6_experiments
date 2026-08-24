@@ -320,7 +320,18 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    null's readout gain exceeds the arm's with non-overlapping intervals -- clause 4 passes;
    the registered failure license fires verbatim, continuous emissions NOT funded at this
    operating point, nothing reopens 1g.11. All six 1g.12 experiments COMPLETE; closing the
-   subphase is the USER's word; 1g.13 (in flight) carries the segmentation question.
+   subphase is the USER's word. 2026-08-25 01:24 1g.13 GATE READ AND RULED
+   (`G12EvaluateJob.a3419LhkI7JT`; verifier recomputed every decision number from raw
+   hypotheses, float-identical; ruling in `PLAN_1G.md` 1g.13 Status): clause 2 fails for
+   every real start, clause 3 NOT POSITIVE with the comparability ruling firing on two
+   contrasts, clause 4 passes; contrast (d) SEGMENTATION -- the read this subphase exists
+   for -- is NEGATIVE and not content-specific: the v1-equivalent stream is WORSE than
+   seg12.5 by -0.30 correct-phone fraction for the arm while a content-free control loses an
+   indistinguishable -0.28. The registered license extends verbatim -- v1-equivalent
+   segmentation does not rescue this channel family at this operating point; jointly with
+   1g.11/1g.12, further evidence toward the training paradigm as the binding constraint --
+   and the wav2vec-U-faithful completion is NOT triggered. All seven 1g.13 experiments
+   COMPLETE; closing BOTH subphases is the USER's word.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional

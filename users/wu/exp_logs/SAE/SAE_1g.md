@@ -4195,3 +4195,37 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   prompt had `CYMKVwReFIsN` as the matched-4g arm -- wrong on disk (its info says
   accepted-2g); the canonical documents were checked and are consistent, the agent
   re-derived from info files as instructed, and no recorded number is affected.
+
+- 2026-08-25 (round: the 1g.13 gate read -- approach 31, verdicts 73-75,
+  `G12EvaluateJob.a3419LhkI7JT`). VERIFIED AT THE 1g.12 STANDARD, and the first gate-scale
+  round with ZERO discrepancies: every claim handed reproduces. (i) Transcription: all 22
+  decision-column phone error rates match the artifact at print precision; content sits on
+  exactly the 14 controlled-reference cells and no real-start cell anywhere; exactly 11 cells
+  are admitted without content (verdict 73's count); 21/78 admitted overall; clause-4 figures
+  (floor share zero over all 48 covered cells, zero exactness violations, the 30 table cells
+  recorded outside the variance line, the 4 plan-skipped observation-null fitting-order rows)
+  and the fold block are exact. (ii) Recomputation: all ELEVEN clause-3 contrast entries --
+  (a)/(b)/(c) eight and (d) three -- recomputed end to end from `gold.json` and the raw
+  hypothesis files with an independent Levenshtein and an independent re-implementation of the
+  pinned bootstrap; every mean, stratified and unstratified interval, improvement fraction and
+  macro mean is FLOAT-IDENTICAL to the artifact, and every supporting pooled phone error rate
+  is bit-equal to its banked cell. Verdict 74's two overlap claims hold on the recomputed
+  intervals. Scripts persisted in the planner scratchpad (`verify_d_seg_1g13.py`,
+  `verify_clause3_a3419.py`). (iii) Pins: the three cross-stream files re-confirmed from
+  job-dir wiring as the seg12.5 espum arm (`h7dasAET4GnW`), random-map arm (`gpgV68WMinJF`)
+  and espum observation null (`axh5u2jyP9Va`) at matched-4g, pairwise-distinct files; the
+  1g.13 sides carry the right `cell_role` fields (arm / arm / observation_null). (iv) The
+  printer defect and its fix verified end to end: commit `2122813` touches only the report
+  renderer inside `run()` and the json is dumped before the renderer runs, so no banked number
+  could change; suite 79/79 at HEAD; the three render checks fail exactly 3/3 against a
+  scratch extraction of the pre-fix module (working tree untouched); no unfinished job
+  re-imports `g12_evaluate.py`. The planner's re-run ruling is in `PLAN_1G.md` 1g.13 Status.
+  One identity note recorded here so the (d) read always carries it: the two streams pin
+  DIFFERENT espum checkpoints by construction -- seg12.5 update 30,000, this stream update
+  24,000, each the stream's own label-free pick (traced through
+  `H3CalibrationEspumProjectionJob.2EB1uTDlskOy` and `H3EspumPickJob.ud5adF5qEliC`'s
+  frozen_selection.json) -- so contrast (d) compares each segmentation WITH its own registered
+  start selection; the gate ruling discloses it, and the random-map pair, which pins the same
+  seed on both sides, shows the same loss. Minor, no action: evaluate.txt's clause-2 side
+  table prints margins against the raw 99th percentile (the +0.05 lives in `shows_content`),
+  so any "margin against the bar" quote is derived, not a stored field.

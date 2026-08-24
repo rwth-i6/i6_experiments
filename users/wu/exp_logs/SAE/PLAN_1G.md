@@ -2970,6 +2970,68 @@ pins on one file are refused, and the clean build keeps `a3419LhkI7JT`), and the
 states the pins' true identity ground. The reader is fully reviewed; nothing further stands
 between the finishing cells and the 1g.13 gate read.
 
+2026-08-25 THE 1g.13 GATE IS READ AND RULED (`G12EvaluateJob.a3419LhkI7JT`, finished 01:24
+after 2 h 02 min). Verification provenance: every decision number below was recomputed by the
+planner from `gold.json` and the raw hypothesis files with an independent edit distance and an
+independent re-implementation of the pinned bootstrap -- all eleven clause-3 contrast entries
+(means, stratified and unstratified intervals, improvement fractions, macro means) reproduced
+FLOAT-IDENTICALLY, every supporting pooled phone error rate bit-equal to its banked cell, and
+the cross-stream pins re-confirmed from job-dir wiring (`SAE_1g.md` Verifier feedback,
+2026-08-25).
+
+CLAUSE READINGS. Clause 1: 57 of 78 rows inadmissible, 21 admitted, the content column
+computed and printed for every cell as amended. Clause 2 FAILS for every real start: content
+appears only on the gold-informed controlled reference (14 cells, margins 0.41-0.66 over the
+raw babble 99th percentile); the selected real start's best cell falls 0.037 SHORT of the
+bar. Clause 3 is NOT POSITIVE, and the carried-over 1g.11 comparability ruling fires on TWO
+contrasts: on (a) READOUT the observation null gains +0.6689 [0.6579, 0.6804] against the
+arm's +0.0870 [0.0785, 0.0962] -- nearly eight times the arm, non-overlapping -- and on (b)
+FITTING ORDER both content-free controls exceed the arm with non-overlapping intervals
+(+0.0369 [0.0333, 0.0404] and +0.0412 [0.0336, 0.0492] against +0.0161 [0.0120, 0.0201]). On
+(c) EMISSION MODEL the continuous channel is worse than the table channel on this stream too
+(-0.2484 [-0.2592, -0.2379], the content-free random map overlapping at -0.2309). Clause 4
+PASSES: variance-floor share zero over all 48 covered cells, zero decoder exactness
+violations, the 30 table cells disclosed as outside the variance line, the four
+observation-null fitting-order rows named as structurally absent.
+
+CONTRAST (d) SEGMENTATION -- the comparison this subphase was registered to make -- is
+NEGATIVE and NOT CONTENT-SPECIFIC: the selected real start loses -0.2959 [-0.3085, -0.2839]
+correct-phone fraction against its seg12.5 counterpart (improving on 7 of 890 utterances),
+the content-free random-map control loses an overlapping -0.2832 [-0.2952, -0.2714]
+(improving on 19), and the observation null falls furthest at -0.5029 [-0.5186, -0.4876]
+(improving on none). A segmentation change that costs a content-free control as much as the
+arm is not removing content from the arm, because the control had none to lose. THE
+REGISTERED CONSEQUENCE FIRES VERBATIM: "(d) null or negative while 1g.12's corners also fail
+extends the failure license to 'v1-equivalent segmentation does not rescue this channel
+family at this operating point,' jointly with 1g.11/1g.12 further evidence toward the
+training paradigm as the binding constraint -- never 'the paradigm cannot work,' now
+conditional only on the shared encoder tap and the disclosed trim deviation." The
+wav2vec-U-faithful completion (audio-level trim, remaining deviations closed) is NOT
+triggered -- its registered trigger was (d) POSITIVE with clean controls -- and nothing here
+reopens 1g.11's or 1g.12's gates. The verdict licenses not funding; it is not a claim about
+what a different operating point would have shown.
+
+TWO DISCLOSURES THE (d) READ CARRIES. (i) The standing topology disclosure: on this stream
+the one-state fit is admissible as a rate consequence (3.22 audio tokens per phone), i.e. the
+evidence for within-phone substructure is ABSENT rather than contrary, and both subphases fit
+the held-fixed minimum-duration-2 topology, so (d) is a segmentation contrast at fixed
+topology. (ii) Each stream carries its OWN label-free espum pick (seg12.5 selected update
+30,000, this stream update 24,000), so (d) compares each segmentation with its own registered
+start selection -- the registered construction, not a slip; the random-map pair, which pins
+the same seed on both sides, shows the same loss.
+
+PLANNER RULING on State proposal 3: `G12EvaluateJob.a3419LhkI7JT` is NOT re-run for its
+missing text section. The numbers 1g.13 exists for are banked in `evaluate.json`, transcribed
+in approach 31, and now independently reproduced; the printer fix is verified end to end (the
+three render checks fail against the pre-fix module and pass at HEAD, and no unfinished job
+re-imports the module), so every future run prints section (d). Clearing a finished
+gate-bearing artifact would spend 2 h to reformat a text file; declined. The Catalog line
+already names where (d) lives.
+
+All seven 1g.13 experiments are COMPLETE and the gate is ruled. Closing the subphase -- and
+any funding of a wav2vec-U-faithful completion despite the negative read -- is the USER's
+word.
+
 ## 6. Deliverables ladder
 
 | Step | Deliverable | Decision it enables |
