@@ -70,6 +70,12 @@ falling): the five cells were cleared one by one from a console, each refusing t
 carrying a finished marker, and `config/sae_1g_12_exp23.py` restarted. Experiment 4's decoder and
 its twenty cells were built and accepted during that wait and depend on nothing that was lost.
 
+IN FLIGHT (1g.13): `G13StreamBuildJob.Ob8Rh8y51x9M` under `config/sae_1g_13_exp1.py`, launched
+2026-08-24 12:08 on a graph of exactly one job. Question it answers: what token rate and what
+alphabet does a v1-equivalent segmentation actually produce on this bed -- the published anchor is
+about 28 segments per second on LibriSpeech dev-other, and the resource read for order-4 cells
+(1g.13 experiment 4) cannot be written until this number exists.
+
 NEXT ACTION: when experiment 3's five cells land, bank their rows and start
 `config/sae_1g_12_exp4.py` -- NOT before, because its graph contains those same ten cells and two
 managers over them would double-submit. `sis_managers.sh` holds experiment 4 BLOCKED with exactly
@@ -1010,6 +1016,50 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     re-running cells -- the closed harness is not in front of a manager. Clause 4 is enforced in
     the producing job: on a nonzero violation count the artifacts are written and the job then
     fails, so the number is on disk for a human while every downstream reader stays blocked.
+
+
+23. **1g.13 experiment 1: the wav2vec-U v1-equivalent stream (`g13_stream.py`, `g13_jobs.py`,
+    `config/sae_1g_13_exp1.py`).** Built and launched 2026-08-24; one CPU job, no cell yet. The
+    subphase exists because every 1g arm to date runs on this project's own `seg12.5` construction,
+    so no 1g result separates "the training paradigm is the binding constraint" from "the
+    segmentation is". This job fits the v1 clustering and the v1 PCA on the dedicated-train role
+    alone, segments every bed utterance at its cluster-ID change points, and writes both twins --
+    the discrete label sequence (the run's own cluster ID, a 128-symbol alphabet) and the continuous
+    one (the run's mean PCA-512 vector). The two twins are the same segmentation BY CONSTRUCTION,
+    because the discrete label is the run's own cluster ID rather than a second quantization.
+
+    THE BED PARTITION, established before any code was written and asserted inside the job. The two
+    banked rVAD-trimmed layer-15 dumps partition the 8,416-utterance seed bed exactly: the 2,849
+    dedicated-train utterances are the train dump's own intersection with the bed
+    (`W2vu2FeatureDumpJob.HyHAk3OCbruI`, 28,539 utterances, 15,427,853 retained frames, 14.71% of
+    frames dropped by the trim, zero utterances dropped), and the other 5,567 -- 3,565 update, 890
+    selection, 1,112 evaluation -- are the ENTIRE valid dump
+    (`W2vu2FeatureDumpJob.WbaqNnxXpbRK`, 5,567 utterances, 1,612,502 frames, 14.59%). No utterance
+    is in both and none is missing. That matters twice: it is the "full bed coverage" the subphase
+    assumes, and it puts the only role a transform may be fitted on in the train dump, which the job
+    also asserts.
+
+    FAITHFULNESS IS TESTED AGAINST THE REFERENCE IMPLEMENTATION, not against a reading of it.
+    `scripts/g13_faiss_reference_test.py` (10/10) runs under the `w2vu` environment, which holds the
+    fairseq 0.12.2 the equivalence claim is about: the PCA matches `faiss.PCAMatrix(d, dim,
+    eigen_power=0)` component for component up to eigenvector sign, with identical induced geometry
+    and identical component variances; the assignment matches `faiss.IndexFlatL2` exactly on every
+    frame; the segmentation matches `torch.unique_consecutive` and `merge_clusters.py`'s own mean
+    pooling; and the substituted full-batch Lloyd k-means reaches 0.9979 of `faiss.Kmeans`'s
+    within-cluster sum of squares at the same 50 iterations and 3 restarts -- reported, not
+    asserted. `scripts/g13_stream_test.py` (35/35) pins the arithmetic independently, including that
+    the PCA is demonstrably NOT a whitening. `scripts/g13_jobs_test.py` (34/34) builds two real
+    dumps on disk and runs the job end to end.
+
+    Constants traced to the real v1 scripts and cited at the line rather than restated:
+    `prepare_audio.sh:60-61` (spec CLUS128 at sample-pct 1.0), `wav2vec_cluster_faiss.py:50-69`
+    (that spec means no PCA, no L2 norm, not spherical) and `:192-200` (niter 50, nredo 3),
+    `prepare_audio.sh:68` with `pca.py`'s `--eigen-power` default 0, `apply_pca.py:71` (applied as
+    `x @ A + b`), `prepare_audio.sh:73-74` with `merge_clusters.py`'s `unique_consecutive` and mean
+    pooling. The four deviations from v1 are declared in the module and copied into the artifact:
+    feature-level rather than audio-level trim, no adjacent-pair pooling (`prepare_audio.sh:76-77`
+    not applied; that leg is not funded), a substituted k-means implementation, and the shared
+    encoder tap. Silence is EMPTY BY DECISION and the emitted boundary artifact is all-False.
 
 
 ## Verdicts
