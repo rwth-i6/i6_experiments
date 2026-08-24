@@ -2032,7 +2032,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 |---|---|
 | 1g.12 experiments 2 and 3, the ten Gaussian repair cells at fitting orders 2 and 4 (approach 21, verdicts 55-56, 58) | accepted-2g `work/speech_llm/sae/g12_repair_jobs/G12GaussianContextRepairJob.` `0nngx4f5pX69`, `iZaUwq3DQVjj`, `OBwHBeOmwYU5`, `OyooGnuVi7EK`, `uczGmykabX6i`; matched-4g `.8OzLoDv4PPlt`, `.BrQtRIAKaWwU`, `.dDKq6J6AQEIP`, `.DgOI3SI1cwph`, `.kHwPYElOcCPr` (each `parameters.npz`, `repair.json`, `repair.txt`, `hypotheses.json`); code `sae/g12_gaussian_context.py`, `sae/g12_repair_jobs.py`, `configs/config_sae_1g_12_exp23_v1.py`, `config/sae_1g_12_exp23.py`, `scripts/g12_repair_jobs_test.py` (31/31) |
 | 1g.12 experiment 4, the twenty exact order-4 one-best readouts (approach 22, verdicts 59-60) | `work/speech_llm/sae/g12_readout_jobs/G12ExactReadoutJob.*` (20 dirs; each `readout.json`, `readout.txt`, `hypotheses.json`); code `sae/g12_exact_decode.py`, `sae/g12_readout_jobs.py`, `configs/config_sae_1g_12_exp4_v1.py`, `config/sae_1g_12_exp4.py`, `scripts/g12_exact_decode_test.py` (33/33), `scripts/g12_readout_jobs_test.py` (22/22) at speech-llm `5e245b1` |
-| 1g.13 experiment 3, the five phone starts on the v1-equivalent stream (approach 25, verdicts 62-64) | `work/speech_llm/sae/h3_jobs/H3InitializerJob.lR5Q4q1xRtqV` (fingerprint), `.m4sNBqlCwK2Z` (random-map seed 1000), `.fGmIiECLQ2XW` (pseudo-pair seed 0); `work/speech_llm/sae/g13_firewall/G13ReferenceStartJob.kG9pmxczOVgF` (controlled reference); `work/speech_llm/sae/h3_projection/H3CalibrationEspumProjectionJob.2EB1uTDlskOy` (espum) -- each `start.npz` and `start.json`; code `sae/g13_firewall.py`, `configs/config_sae_1g_13_exp3_v1.py`, `config/sae_1g_13_exp3.py`, `scripts/g13_reference_start_test.py` (20/20) at speech-llm `6bfa29d` |
+| 1g.13 experiment 3, the five phone starts on the v1-equivalent stream (approach 25, verdicts 62-64) | `work/speech_llm/sae/h3_jobs/H3InitializerJob.lR5Q4q1xRtqV` (fingerprint), `.m4sNBqlCwK2Z` (random-map seed 1000), `.fGmIiECLQ2XW` (pseudo-pair seed 0); `work/speech_llm/sae/g13_firewall/G13ReferenceStartJob.kG9pmxczOVgF` (controlled reference); `work/speech_llm/sae/h3_projection/H3CalibrationEspumProjectionJob.2EB1uTDlskOy` (espum) -- each `start.npz` and `start.json` (the espum projection emits `espum_calibration_start.npz`/`.json`); code `sae/g13_firewall.py` at speech-llm `6bfa29d`, config wiring `configs/config_sae_1g_13_exp3_v1.py` at `a0d2808`; `config/sae_1g_13_exp3.py` and `scripts/g13_reference_start_test.py` (20/20) are workspace files under no version control |
 | 1g.13 experiment 3, the espum arm's registered fan-out on the v1-equivalent stream (approach 25, verdicts 63-64) | `work/speech_llm/sae/espum_jobs/EspumMatchTrainJob.oAOLIZZHVaVz` (full seed 0, picked), `.18iF7DTcCNyF` (full seed 1), `.E9fojuqhcBDZ` (full seed 2), `.q59UQC0AW5Oc` (bigram-only control); `work/speech_llm/sae/h3_jobs/H3EspumPickJob.ud5adF5qEliC` (`frozen_selection.json`), `work/speech_llm/sae/h3_jobs/H3MaskedEspumStreamJob.6OiRRPPXl1w8` (`manifest.json`); accepted-stream contrast rows quoted from `EspumMatchTrainJob.97FwGhhItdpO` and `.h4LngSZ4YvKL` |
 | 1g.13 experiment 2, the H1 route read on the v1-equivalent stream (approach 24, verdict 61) | `work/speech_llm/sae/g13_jobs/G13RoutesJob.hStPuE1UqLK6` (`phase1g_h1_v1_equivalent.json`, `.txt`); code `sae/g13_jobs.py`, `scripts/g13_routes_test.py` (25/25) at speech-llm `4d0fad6` |
 | 1g.13 experiment 2, the VAD-mask firewall (approach 24) | `work/speech_llm/sae/g13_firewall/G13VadFirewallJob.Usfy2NF0LiSQ` (`gold_update.pkl`, `gold_selection.pkl`, `gold_evaluation.pkl`, `trim_masks.pkl`, `firewall.json`, `firewall.txt`); code `sae/g13_firewall.py`, `configs/config_sae_1g_13_exp2_v1.py`, `config/sae_1g_13_exp2.py`, `scripts/g13_firewall_test.py` (30/30) at speech-llm `4d0fad6` |
@@ -2882,3 +2882,46 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
   Implementation VERIFIED (speech-llm `6c68303`): per-route registry with seg12.5 unchanged,
   v1 route two-state-only with one-state reported, unregistered routes refused; all four g12
   suites re-run clean after the edit (57/57, 50/50, 33/33, 22/22). Proposal 1 discharged.
+
+- 2026-08-24 (1g.13 experiment 3 round VERIFIED; dated line appended to `PLAN_1G.md` 1g.13
+  Status). Every number in approach 25 and verdicts 62-64 reproduces by independent
+  recomputation: emission-table positivity and row sums, the entropy column, the full ten-pair
+  total-variation matrix, the espum selections re-derived as the argmin of each curve with the
+  weighted metric (ordinary perplexity divided by squared coverage) recomputed at all 126 curve
+  points, both contrast rows read from their own banked artifacts (`97FwGhhItdpO`,
+  `h4LngSZ4YvKL`, at their num_units=500 on their own stream), and the controlled reference's
+  q / marginal / emissions re-derived outside the job to max difference 0.0 with the collapse
+  proof repeated on all 3,565 labelled utterances. Suites `g13_reference_start_test` 20/20 and
+  `g12_route_topology_test` 28/28 re-run. Hygiene, no numeric impact: (1) the espum projection
+  emits `espum_calibration_start.npz`/`.json`, not `start.npz`/`start.json`, and its json has
+  no top-level `name` field (only the upstream checkpoint sidecar's) -- anything globbing
+  `start.npz` across the five starts silently misses that arm; (2) no start.json records the
+  alphabet size as a named field (128 is implied only by array shapes) -- record `num_units`
+  at the next touch; (3) the Catalog's code line was corrected in place by the verifier
+  (objectively wrong references): `6bfa29d` carries `g13_firewall.py` only, the config wiring
+  landed in `a0d2808`, and the two workspace files (`config/sae_1g_13_exp3.py`,
+  `scripts/g13_reference_start_test.py`) are under no version control.
+
+- 2026-08-24 (1g.13 experiment 4, found in passing: the job finished at 15:48 and is not yet
+  logged -- flagged BEFORE any verdict line is written). (a) BUG, occupancy column:
+  `G12ResourceGateJob.4iWPXMh9yoJN/output/resource_gate.json` reports
+  reached_histories/reached_arcs = 0/0 for four of the five starts (all but pseudo_pair_seed0,
+  which reads 60,879/2,435,160); `log.run.1` shows numpy overflow/invalid warnings at
+  `h4_context_engine.py:345`/`:353` immediately before exactly those four starts, and NaN
+  occupancy silently counts as zero through `reached = occupancy > 0.0`
+  (`g12_resource.py:189`). Forward log-likelihoods are finite for all five starts, so the
+  timing and memory reads and the PASS verdict are unaffected -- but the reachable-state-space
+  column is NOT measurable as printed on this stream: quote it in no verdict, and make the
+  counter raise on non-finite occupancy before that column is reused anywhere. (b) Labeling:
+  the artifact self-describes as "PLAN_1G 1g.12 experiment 1" (role string and txt header) and
+  sits in the same `g12_resource/` parent as the real 1g.12 gate -- name the subphase at the
+  next touch. (c) Sizing: PASS at a 9 h request against the 11.5 h clamp is 2.5 h headroom
+  (1g.12's curve had 7.5), and the fitting job caps its request at min(11.5, requested)
+  (`g12_repair_jobs.py:205`) -- thin if the heaviest-chunk projection is optimistic on this
+  2.46x fold; read the first real cell's wall clock against it. (d) Standing caution: the
+  banked `G12ResourceGateJob.3h2iIpk6lpaB` records `g12_resource.py` at commit `ef9045f` while
+  the working tree is two commits later at the SAME job hash, so any clear-and-rerun would
+  silently move the banked numbers -- never clear it. Observation-null seam: RULED in
+  `PLAN_1G.md` 1g.12 Status (the null job persists its redrawn selection-fold vectors as a
+  segments-shaped artifact recording the draw seed and a content hash; the readout module
+  stays untouched); experiment 5 is unblocked.

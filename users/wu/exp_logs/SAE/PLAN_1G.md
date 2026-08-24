@@ -2536,6 +2536,29 @@ continuous emission model does not narrow the reachable order-4 state space (60,
 histories on the probe utterance, identical to the table gate), so cost is a property of the
 state space, within 4% of the table arm's.
 
+2026-08-24 PLANNER RULING (observation-null readout seam; the implementer's open design point,
+recorded before any experiment-5 build). The registered null -- "per-token vector redrawn from
+the corpus marginal" (Experiments item 5), read "the same way" as the arm in every clause-3
+contrast -- must be null END-TO-END: the exact readout for the null control decodes the null's
+OWN redrawn selection-fold vectors, never the real ones. Handing the null's fitted parameters
+to a readout over the real selection acoustics is excluded because the result is neither the
+null nor the arm -- the token-to-acoustics association the null exists to destroy would be
+restored at decode time -- and this exclusion is independent of which direction the induced
+bias would run, so no direction argument is part of this ruling. Adopted mechanism, the
+implementer's proposal as recorded in SAE_1g.md State: `G12ObservationNullJob` additionally
+persists its redrawn SELECTION-fold vectors as a segments-shaped artifact (retained positions
+carry their redrawn vector, dropped positions never read; the very arrays its own LM-blind
+local decode consumed, from the same in-process draw), records the draw seed and that
+artifact's content hash in `observation_null.json`, and the experiment-5 readout cell is
+handed that file as `segments_pkl` in place of the arm's. The update-fold redraw stays in
+memory. Chosen over a null-aware edit to the readout because `G12ExactReadoutJob` certifies
+all twenty banked 1g.12 cells and is registered as shared code with 1g.13 (any edit
+re-certifies both subphases); this keeps the observation seam in exactly one place -- the null
+job, which already owns the redraw -- and the readout module byte-identical. Nothing is in
+flight (the class is committed at speech-llm `1622b1d` but wired into no config), so the
+change is hash-clean. This implements the registered experiment-5 text; no gate clause
+changes.
+
 ### 1g.13 — the 1g.12 factorial on wav2vec-U v1-equivalent segmentation (USER-directed 2026-08-24)
 
 **Purpose.** Every 1g arm to date -- table and Gaussian, bigram and 4-gram -- runs on the
@@ -2679,6 +2702,22 @@ route re-read and VAD firewall jobs are on disk (`G13RoutesJob.hStPuE1UqLK6`,
 `seg12.5/phones` key, and its topology verdict is REPORTED with the standing minimum-duration-2
 topology unchanged as the operating choice -- a two-state admission failure on this stream
 stops the cells and returns to the planner, it does not license one state.
+
+2026-08-24 experiment 3 VERIFIED (approach 25, verdicts 62-64): all sixteen jobs finished and
+every claimed number reproduces by independent recomputation -- the five emission tables are
+strictly positive row-stochastic 39 x 128 (largest row-sum deviation 8.88e-15), the entropy
+column and the full ten-pair mean-total-variation matrix match (minimum 0.430 espum vs
+pseudo-pair, maximum 0.974 fingerprint vs pseudo-pair), the espum pick is the true minimum of
+its own selection curve (33.4666 at update 24,000; seed set {0,1,2} enforced; the bigram-only
+control excluded from the pick by construction), num_units=128 is confirmed in three
+independent records per training against the module's hard-coded 500 default, and the
+controlled reference's q / marginal / emissions re-derive OUTSIDE the job to a maximum
+absolute difference of 0.0, with the frame-to-segment collapse independently reproduced on all
+3,565 labelled utterances (unit 116 is the single zero-mass unit backing off to the phone
+prior). Verdict 63's cross-stream non-comparability scoping is correct and stands. Suites
+`g13_reference_start_test` (20/20) and `g12_route_topology_test` (28/28) re-run clean by the
+verifier. Hygiene items (artifact naming, a missing num_units field) in SAE_1g.md Verifier
+feedback; none blocks experiment 4 or the cells.
 
 ## 6. Deliverables ladder
 

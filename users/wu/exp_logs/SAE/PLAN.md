@@ -293,7 +293,10 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    registered procedures, gate = 1g.12's clauses plus paired contrast (d) SEGMENTATION against
    1g.12's Gaussian 4-gram cell over the shared 890. Constants traced from the real fairseq
    scripts and the banked dumps before registration; experiments 1-3 first, resource read
-   before any cell.
+   before any cell. 2026-08-24 experiments 1-3 VERIFIED (stream anchors the ~28/s published
+   rate; five starts transport, all numbers recomputed); 1g.12 observation-null readout seam
+   RULED (`PLAN_1G.md` 1g.12 Status: the null persists its redrawn selection-fold vectors,
+   readout module untouched), unblocking 1g.12 experiment 5.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional
