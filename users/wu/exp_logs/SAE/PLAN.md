@@ -300,7 +300,13 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    by a NaN-posterior engine defect it exposed (fixed `41127e8`, verified; banked 1g.12
    unaffected, anchored by registered `G12EngineEquivalenceJob`); re-measured gate VERIFIED
    PASS (9 h vs 11.5 clamp, one job per start) -- experiment 5 builds at that shape, first
-   cell's wall clock read before the rest.
+   cell's wall clock read before the rest. 2026-08-24: 1g.12 experiment-5 null seam VERIFIED
+   end to end on the finished bigram pair, both-orders null and contrast-(c) exclusion
+   RATIFIED, experiment-6 reader build reviewed with the bootstrap convention RULED (all in
+   `PLAN_1G.md` 1g.12 Status; reader waits on the 4-gram null cell); 1g.13 table-arm port
+   verified hash-neutral and its gate RATIFIED as completing experiment 4 -- read PASS at 10 h
+   vs the 11.5 clamp (verdict 69: six E-steps vs the Gaussian's five, so LESS headroom than
+   the Gaussian arm) -- both arms funded, one cell of EACH arm launches first.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional

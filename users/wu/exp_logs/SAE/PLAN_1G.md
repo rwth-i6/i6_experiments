@@ -2559,6 +2559,46 @@ flight (the class is committed at speech-llm `1622b1d` but wired into no config)
 change is hash-clean. This implements the registered experiment-5 text; no gate clause
 changes.
 
+2026-08-24 experiment 5 SEAM VERIFIED on the finished accepted-bigram pair (approach 27), and
+TWO RULINGS on the null's scope. The null cell persists exactly what the ruling above adopted
+(retained positions carry the redrawn vector, dropped positions NaN; content hash reproduced
+bit-exact on disk), its exact readout provably decodes the null's own acoustics (the job's only
+input differences from the arm's readout are `segments_pkl` and `parameters_npz`, both graph
+edges into the null job), and the decode differs from the arm's on all 890 utterances (54,883
+decoded symbols against 47,695). Verified beyond the implementer's own checks: every one of the
+60,604 retained redrawn vectors is an exact member of the real segment-vector pool and NONE
+equals the real vector at its own position -- the draw is whole-vector and the token-acoustics
+association is destroyed everywhere, not on average. RULING 1 (the implementer's note): fitting
+the null at BOTH orders is RATIFIED as required by clause 3's own letter -- contrast (b) is a
+fitting-order contrast the null can enter "the same way" only with a bigram null cell -- and
+the one-bed condition is already proved on disk (both cells record the identical whole-draw
+hash from the same seed; experiment 6 additionally refuses to run on a mismatch). Not a clause
+change. RULING 2: the observation null structurally cannot enter contrast (c) -- the table arm
+observes the frozen unit IDs, which the null preserves by construction, so a null-(c) row would
+pit a destroyed Gaussian leg against an intact table leg and is not a content-free version of
+that contrast; the artifact records the exclusion explicitly and (c)'s content-free control
+remains the random-map start, which clause 3 already names for every contrast. Both rulings are
+interpretation of the registered text, recorded before any gate result exists.
+
+2026-08-24 experiment 6 BUILD REVIEWED (unrun by design; `G12EvaluateJob.oStN2ghRhR7l`
+confirmed registered and without any output -- still no phone error rate anywhere in 1g.12) and
+ONE CONVENTION RULING. The build implements the gate as registered: 22 cells under both
+decoders, `admitted` and `shows_content` as independent columns, the babble null re-banked
+inside the job at each arm's own decoded lengths (100 draws deciding, 1,000-draw bar beside),
+gold readable only on the 890 with the 1,112 sealed at four independent layers, and clause-3
+contrasts as paired per-utterance deltas at count 4. RULING 3 (bootstrap convention): the
+PRIMARY clause-3 interval is the split-stratified resample of utterances (the 1g.10c
+convention -- the 890's split composition is a fixed property of the bed, so stratification
+emulates the bed, it does not narrow the question), with the unstratified interval printed
+BESIDE it as a named sensitivity; BOTH intervals must appear in the text report's clause-3
+tables, and the conventions string must name the interval form in words (two-sided 95 percent
+percentile interval, resample count, seed). Pre-run build items for the implementer (all on an
+unrun job, listed in SAE_1g.md Verifier feedback): the convention line above; recording skipped
+contrast-plan entries instead of silently dropping them; asserting the pinned table
+comparator's repair count; comparing the emission-table content hash between the exact readout
+and its local comparator so "a cell against itself" rests on content, not wiring; and an empty
+variance-floor column must print "not carried", never "all zero".
+
 ### 1g.13 — the 1g.12 factorial on wav2vec-U v1-equivalent segmentation (USER-directed 2026-08-24)
 
 **Purpose.** Every 1g arm to date -- table and Gaussian, bigram and 4-gram -- runs on the
@@ -2742,6 +2782,31 @@ tracks the dimension (7.5x, nowhere near the limit). The engine-fix anchor is no
 registered `G12EngineEquivalenceJob.sWWDLbPKglfP` (verdict 68: banked probes reproduce
 exactly, normalizers agree to 8.882e-16, counter-case separates them), so no 1g.11 or 1g.12
 number moves and nothing is marked WRONG -- the bug destroyed only work not yet done.
+
+2026-08-24 PLANNER RULING and VERIFICATION (the table arm's own resource read; approach 28).
+RATIFIED as COMPLETING experiment 4, not amending it: the registration makes the resource read
+"mandatory before any cell is funded" and experiment 5 funds all four corners with none
+decode-only, so the measurement duty extends to the table arm, whose registered instrument is
+the accepted table-arm gate class -- the Gaussian gate's own docstring scopes its 9 h PASS to
+the Gaussian cells. That read has now FINISHED and is VERIFIED from the artifact:
+`H4ContextResourceGateJob.8M4rSjaBlikH` reads PASS (heaviest chunk 123.85 s, 1 h per shard and
+10 h for the 32-shard fold in one process against the 11.5 h clamp; 1.35 GiB measured, 3 GiB
+requested against 256), so BOTH arms of the factorial are funded -- the Gaussian arm at one job
+per start under `cQ3wfqsTamPP`'s sizing with the first cell's wall clock read before the rest,
+the table arm under this gate's. The port itself is verified hash-neutral by A/B recomputation
+against the pre-port tree (all banked jobs of the ported and consuming modules keep their
+hashes and their finished markers; the route-keyed start populations are disjoint and refusal
+of a cross-stream name is asserted in the suite both ways), and the start-population design --
+identity from the registered name, dedup from each array's own digest -- is confirmed in the
+finished gate's artifact. Hygiene before the first table cell is cited (implementer, in
+SAE_1g.md Verifier feedback): the gate's text report hardcodes a 1g.2a header on this stream's
+artifact; two sentences of the binding-check docstring misstate the manifest facts (the three
+schemas DO share generic fields -- the true and load-bearing claim is that no single
+UPDATE-ROLE BINDING field spans all three -- and the accepted-H1 digest is missing on one
+schema, not two); and where a manifest DOES carry the accepted-H1 digest the check should
+assert rather than record, since today a mismatch would pass as a False flag. None of these
+blocks the cells: the five start manifests on disk are verified to bind to the correct update
+role either way.
 
 ## 6. Deliverables ladder
 

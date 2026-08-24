@@ -3322,3 +3322,69 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   the column reads structural support rather than start quality. Launch-one-cell-first before
   the remaining experiment-5 cells (State next action 1) is the right embodiment of caution
   (c); keep it.
+
+- 2026-08-24 (round: 1g.12 experiment 5 seam + experiment 6 build + 1g.13 table port and gate;
+  three rulings appended to `PLAN_1G.md`). VERIFIED, all by independent recomputation:
+  (1) the accepted-bigram null pair (approach 27) -- `null_segments.pkl` sha bit-exact, 890
+  utterances / 77,566 positions / 60,604 retained finite / 16,962 all-NaN with zero mixed rows
+  and per-utterance counts matching the arm's real segments file; the readout's ONLY input
+  differences from the arm readout are `segments_pkl` and `parameters_npz`, both real graph
+  edges into the null job; zero exactness violations; the end-to-end read reproduces exactly
+  (890/890 utterances differ, 54,883 vs 47,695 symbols). Beyond the implementer's checks: all
+  60,604 retained redrawn vectors are exact members of the real segment-vector pool and NONE
+  equals the real vector at its own position -- whole-vector draw confirmed, association
+  destroyed everywhere; and `mu_0`/`var_0` are bit-identical between null and arm, so the
+  order-0 row is a PURE observation swap while the order-4 row mixes the swap with a genuine
+  refit -- worth keeping in mind when experiment 6 reads the two rows. The both-orders null and
+  the contrast-(c) exclusion are RATIFIED (PLAN_1G.md rulings 1-2); the one-bed condition
+  already holds on disk (identical whole-draw sha on both cells; the two byte-identical 59.6 MB
+  selection artifacts at separate inodes are correct by design, noted for the next inode
+  squeeze). The disclosed prose-role-line bug and the hash-neutrality of `c4d3f13` both check
+  out. One nuance, verified harmless: the arm readout ran before `6c68303` and the null readout
+  after, so their `readout.json` topology blocks differ in shape -- the only functional change
+  is the route argument at its default (mask bit-identical), the compared numbers are
+  invariant, but the banked arm readout is not byte-reproducible from HEAD and an artifact diff
+  should expect that block to differ.
+  (2) The experiment-6 reader (`G12EvaluateJob.oStN2ghRhR7l`): registered hash confirmed by
+  building the graph read-only, 22 cells exactly, unrun confirmed four ways (still no phone
+  error rate anywhere in 1g.12); gold sealed at four independent layers; suites re-run 37/37
+  and 32/32. PRE-RUN items, all on the unrun job (PLAN_1G.md ruling 3 makes (a) required):
+  (a) the clause-3 conventions string must name the interval form in words (two-sided 95
+  percent percentile, n_boot, seed) and `evaluate.txt` must print BOTH the stratified primary
+  and the unstratified sensitivity, not just the JSON; (b) a planned contrast whose arm is
+  missing is silently dropped (`g12_evaluate.py:639-640`) and the table comparator's
+  `repair_count` is read, never asserted (`:460`) -- record skipped plan entries or assert the
+  count (today all five pinned local artifacts verified on disk at count 4, so it does not
+  bite yet); (c) "a cell against itself" in contrast (a) rests on wiring plus `arm_name`:
+  compare the readout's `emission_table_provenance` against the local artifact's
+  `input_content_sha256["table"]` and assert equality -- the table x accepted-2g corner's
+  comparator carries `legacy-2g`, which is recorded but never asserted; (d) the clause-4
+  honesty line prints "all zero" for an EMPTY floors dict (`:733`) -- must say "not carried";
+  (e) the exp6 config docstring claims the repair count is verified in-job -- trim it or add
+  the assertion. Minor, no action forced: the Gaussian fitting artifact's schema revision is
+  the one input revision not checked (a wrong artifact surfaces as KeyError, not a named
+  refusal), and `mean_candidate`/`mean_baseline` are macro means while
+  `correct_phone_fraction` is pooled -- different numbers under one word, label them.
+  (3) The 1g.13 table port and its gate (approach 28, verdict 69): hash neutrality verified by
+  A/B recomputation against the pre-port tree (diff clean) plus the on-disk census (zero
+  moved, zero unfinished; the 142 reconciles as 20 diagnostic + 121 decode + the banked gate;
+  the full consuming closure is 144, substance identical under every selection); the four
+  widenings and their exclusions confirmed in source; the two route populations are disjoint
+  and both cross-stream refusal directions are in the suite (50/50 re-run). The finished gate
+  matches verdict 69 field for field and the sizing recomputes (123.85 s x 32 x 6 E-steps x
+  1.5 = 9.91 -> 10 h; 1 h per shard; the 6-vs-5 E-step column is the right explanation of the
+  10-vs-9 comparison). Hygiene before the first table cell is cited: (f) the gate's text
+  report hardcodes a "1g.2a item 3" header (`h4_context_resource.py:493`) on this stream's
+  artifact; (g) two docstring sentences at `h4_context_diagnostic.py:145` and `:152-154` are
+  factually wrong -- the three start-manifest schemas DO share {input_content_sha256, phase,
+  route, schema} (the true, load-bearing claim is that no single UPDATE-ROLE BINDING field
+  spans all three), and the accepted-H1 digest is missing on ONE schema (the reference start),
+  not two; the same wrong sentence is in State; (h) where a manifest DOES carry the
+  accepted-H1 digest (three of five starts) assert the match instead of recording it -- today
+  a mismatch would pass as `accepted_h1_content: False`. None of (f)-(h) blocks the cells: all
+  five start manifests verified on disk binding to the correct update-role hash. Two
+  environment facts for the record: the two upstream inputs reaching this family as
+  creator-less paths (`Phase1gH1Job.HbxKiuBTJ8aN`, `QuantizeStatesJob.FWpGhC941JMi`) get no
+  `input/` symlink, so reachability-based cleanup sweeps will not see them as needed (also
+  added to memory); and the exp-6 reader cannot run until `G12ObservationNullJob.QfLZEyTjxE6o`
+  finishes -- that cell is the round's long pole.
