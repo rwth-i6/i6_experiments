@@ -2921,10 +2921,11 @@ h and 10 h), so the entire speed-up lands as clamp headroom, easing the table ar
 margin without relying on any speed-up estimate; widths derive from the accepted 256 GiB
 ceiling charging each gate's whole-pass memory per worker (7 workers/234 GiB Gaussian, 16/56
 table -- recomputed by the planner from the gate artifacts). All ten relaunched cells came
-back at their original hashes (proven two ways on the pilot chain) and run since 21:19. One
-implementer item stands in `SAE_1g.md` Verifier feedback: the new parallel-E-step suite runs
-every check at order 2, so it must gain a real order-4 case before it is cited as covering
-the order-4 cells; the planner's independent order-4 check carries that weight today.
+back at their original hashes (proven two ways on the pilot chain) and run since 21:19. The
+suite item is DISCHARGED same evening and verified (122/122 re-run by the planner): the
+parallel-E-step suite now re-checks both arms at order 4 on the REAL banked matched 4-gram
+automaton in the one-shard production shape, with exact-equality assertions and a loud
+failure if the banked artifact is absent.
 
 ## 6. Deliverables ladder
 

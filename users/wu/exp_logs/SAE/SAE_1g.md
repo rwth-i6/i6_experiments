@@ -3869,12 +3869,14 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   sized them). On disk: the ten accepted-bigram cells finished 21:02-21:05 in 10-14 minutes
   each and are UNDISTURBED; the ten order-4 cells were recreated 21:18 at their original
   hashes (pilot hashes match the pre-relaunch record two ways -- the cell dirs and the
-  readout alias links) and all ten run since ~21:19. ONE ITEM for the implementer:
-  `scripts/parallel_estep_test.py` never exercises order 4 -- its `_lm` fixture helper
-  ignores its order argument, so all 101 checks run order 2 -- while the State entry cites
-  the suite for bit-identity the ORDER-4 cells inherit. The substantive claim is safe (the
-  verifier's own order-4 check above), but add a real order-4 case (or make `_lm` honour its
-  argument) before that suite is cited as covering order 4. Minor, no action: the new path
+  readout alias links) and all ten run since ~21:19. The suite item (the original 101 checks
+  never exercised order 4 -- the `_lm` fixture helper ignored its order argument) is
+  DISCHARGED same evening and verified: the suite now loads the REAL banked matched 4-gram
+  automaton (`H4MatchedLmJob.VpVkGMMy7xKW`, order asserted 4, a LOUD failure if the artifact
+  is absent rather than a skip) and re-checks both arms serial-vs-parallel at several widths
+  in the one-shard shape the repair job packs, with exact `np.array_equal`/`==` assertions
+  only; 122/122 re-run by the verifier. The pre-commit-serial comparison remains the
+  verifier's own check, which is the right division of labour. Minor, no action: the new path
   slices raw chunk arrays where the old generator cast first -- harmless because the job
   packs float64/bool; and the claimed per-node worker counts are not recorded in any file
   (sisyphus usage tracks the main process only), so they stay unverified rather than
