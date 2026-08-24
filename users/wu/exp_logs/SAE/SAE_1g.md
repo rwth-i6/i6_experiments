@@ -11,17 +11,21 @@ complete. NEW WORK: 1g.12, registered and USER-funded 2026-08-24 ("run 4gram tra
 LM decoding also for 1g11"). The other live implementer work is PLAN_1F entry 8 (SAE_1f.md);
 PLAN_3E1 D9 is banked and waits on the user (SAE_3E1.md).
 
-IN FLIGHT: `G12ResourceGateJob.3h2iIpk6lpaB` (config `sae_1g_12_exp1.py`, one CPU job) -- 1g.12
-experiment 1, the measured resource read. Question it answers: can the Gaussian order-4 repair
-curve be run over the whole 6,414-utterance update fold inside the 11.5 h clamp, and in what build
-shape -- one job per start, or all five starts in one process? It runs no M-step, decodes nothing
-and reads no label. The graph it loads is 4,721 jobs with that one unfinished, so attaching the
-1g.11 experiment-1 twin, the matched fitting-LM family and the five 1g.2a repair starts funds
-nothing.
+DONE: 1g.12 experiment 1 (`G12ResourceGateJob.3h2iIpk6lpaB`) -- verdict PASS for one count-4
+curve (4 h) and RESOURCE_INFEASIBLE for all five starts in one process (17 h) against the 11.5 h
+clamp, 4 GiB either way; verified by the verifier 2026-08-24, approach 20 and verdicts 52-54.
 
-BUILT AND TESTED BEFORE THE JOB EXISTED (speech-llm working tree; `g12_gaussian_context_test`
-57/57, `g12_resource_test` 45/45, and the four neighbouring suites unmoved --
-`h4_context_engine_test` 36/36, `h4_context_em_test` 45/45, `g11_gaussian_test` 40/40,
+IN FLIGHT: the ten experiment 2/3 cells (`config/sae_1g_12_exp23.py`,
+`G12GaussianContextRepairJob.*`), one per (start, fitting order): five at the matched 4-gram and
+five re-running 1g.11's accepted bigram to recover the means and variances 1g.11 never persisted.
+Question they answer: does the Gaussian arm fitted at the strongest LM operating point this
+campaign owns behave differently from 1g.11's bigram fit -- and does the bigram corner reproduce
+1g.11 exactly, which is its acceptance condition. Requests are read from the gate artifact (4 h,
+4 GiB per cell), never written in the config. No LM-aware decode and no clause verdict here.
+
+BUILT AND TESTED BEFORE THE JOBS EXISTED (speech-llm `ef9045f`; `g12_gaussian_context_test`
+57/57, `g12_resource_test` 50/50, `g12_repair_jobs_test` 31/31, and the four neighbouring suites
+unmoved -- `h4_context_engine_test` 36/36, `h4_context_em_test` 45/45, `g11_gaussian_test` 40/40,
 `g11_repair_jobs_test` 21/21):
 
 - THE ENGINE SEAM the plan directs. `h4_context_engine.context_forward_backward` gained an optional
@@ -41,17 +45,20 @@ BUILT AND TESTED BEFORE THE JOB EXISTED (speech-llm working tree; `g12_gaussian_
   is `(batch, time, 2, 40^3)`, so production must run one utterance per call; the test asserts that
   one-per-call and whole-chunk-at-once give identical parameters and criterion.
 
-PROJECTION, from the accepted order-4 gate's own banked numbers (`H4ContextResourceGateJob`
-`HA1vzRL7MEAz`: 50.8 s on the heaviest of 32 chunks, 0.67 GiB) and stated here so the measurement
-can be read against a prior rather than accepted on sight: a whole-fold Gaussian order-4 E-step
-should land near 0.49 h, one count-4 curve (five criterion evaluations) near 4 h at the 1.5
-multiplier, and all five starts in one process near 19 h -- i.e. PASS per curve, INFEASIBLE for the
-single-process shape, so experiment 2 is expected to build as one job per start. If the measured
-number contradicts this, the measurement wins.
+PROVENANCE OF THE BANKED GATE TABLE, so the job dir reads straight. The gate ran twice at the
+same hash. The first attempt (now `G12ResourceGateJob.3h2iIpk6lpaB.cleared.0001`) FINISHED and
+carried the same verdict, but sized memory from the forked child's peak alone and asked for 2 GiB;
+a fork inherits the loaded continuous twin instead of paying for it, so that number undercounts
+exactly the part that scales with the corpus -- sisyphus's own sampler read 2.20 GiB for the same
+process tree. The manager was stopped, `size_request` was made to add the parent's own
+artifact-load peak, and the job was cleared and re-run. Only the memory arithmetic moved: 49.06 s
+against 48.88 s on the heaviest chunk is run noise, and the time verdicts are identical. The
+banked table is the SECOND run.
 
-NEXT ACTION: read the gate, then build experiment 2 (Gaussian order-4 fitting, five starts, count
-4) at the shape the gate licenses. Experiments 3-6 follow; the exact beam-free order-4 one-best
-readout (experiment 4) is the one object in this subphase that does not exist in any form yet.
+NEXT ACTION: read the ten cells when they land -- the five bigram corners must reproduce 1g.11 or
+they write nothing -- then build experiment 4, the exact beam-free order-4 one-best readout, which
+is the one object in this subphase that does not exist in any form yet. Experiments 5 and 6
+follow it.
 
 Proposals for the planner:
 
