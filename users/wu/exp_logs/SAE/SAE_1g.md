@@ -277,6 +277,17 @@ is the COLLIDED pre-fix build's hash -- read from the graph before the handle fi
 re-derived after it. The launched job is `a3419LhkI7JT`. The fix was launched; only the log line
 was wrong, and it was wrong in the way the labels-come-from-the-artifact rule exists to prevent.
 
+TWO PIN HARDENINGS from the same round (verifier items 2 and 3; speech-llm `ac32db2` config-side,
+so the evaluation stays `a3419LhkI7JT`). The build asserted handle COUNT against planned pairs,
+which two handles aimed at ONE file would pass -- it now asserts the pinned PATHS are pairwise
+distinct, with a negative control that aims two pins at one artifact and is refused. And the
+docstring's claim that each pinned file names its own `cell_role` is FALSE for these three: they
+predate the field, so an arm artifact and the observation-null artifact of the same start are
+indistinguishable on every field a consumer reads, internal cell keys included. Their identity
+rests on the job-dir wiring instead -- arm readouts consume their repair cell and the real segment
+twin, the null readout consumes the null job's parameters and its redrawn `null_segments` -- which
+is what the docstring now says.
+
 `selected_real_start` became a parameter (the two streams name the same protocol's start
 differently) -- a NEW parameter, so excluding it at the accepted default IS hash-neutral, unlike the
 `route` mistake made earlier in the same file. 1g.12 re-censused at 4,757 jobs, zero unfinished.
