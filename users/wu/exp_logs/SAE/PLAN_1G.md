@@ -2348,7 +2348,14 @@ covariance the local decode is a nearest-mean classifier whose argmax regions ti
 feature space, so many-phone output is close to structural. The Gaussian family fixes the
 degenerate-output pathology and still finds no content (espum's near-gold unigram is
 substitution-dominated at 0.85 PER) -- consistent with, and mildly sharpening, the clause-3
-attribution toward the objective rather than the readout pathology.
+attribution toward the objective rather than the readout pathology. Reading the sequences
+themselves (same ad-hoc read, pooled unit-cost Levenshtein, verifier's own convention beside
+the registered reader's): the espum failures of BOTH arms are fluent phonotactically-shaped
+babble, not noise and not a phone relabeling -- the gold-to-hypothesis substitution mass is
+diffuse (1,425 observed pairs; the top 39 carry 0.194 of it, where a permuted naming would
+concentrate nearly all of it in 39) -- and the two arms agree with each other (0.327
+match/table) about twice as much as either agrees with gold (0.172 / 0.192): the emission
+swap changed the surface, not the basin. Verdict 28's LM-riding mechanism, visible in text.
 
 ## 6. Deliverables ladder
 
