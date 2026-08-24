@@ -334,6 +334,25 @@ cells it covers and how many sit outside it -- a clean floor column is not a cle
 it never covered. Suites: readout 28/28 (was 22), evaluate 63/63, nulls 32/32, exact decode 33/33,
 parallel E-step 122/122.
 
+ALL TWENTY FITTING CELLS AND BOTH NULLS ARE FINISHED, 2026-08-24 22:37. The factorial is complete;
+only readouts remained at that point. Measured wall clocks against each arm's own gate projection:
+
+| arm | gate projection (sequential) | request | workers | MEASURED | speed-up |
+|---|---|---|---|---|---|
+| table, order 4 | 6.6 h | 10 h | 16 | about 26 min | about 15x |
+| Gaussian, order 4 | 5.7 h | 9 h | 7 | about 45 min | about 7.6x |
+| accepted bigram, both arms | - | - | (serial) | about 13 min | - |
+
+Both are close to linear in the worker count, which is what an embarrassingly parallel E-step
+should give. The whole factorial finished by 22:05 against an expected 03:00 on the serial code --
+the USER's parallelization call, and it also retired the clamp risk that made the pilot rule
+necessary in the first place. The matched-4-gram observation null took 51 min (21:46 to 22:37).
+
+Cell artifacts read healthy: `espum|matched-4g` has floor share 0.0000, 38 distinct symbols at
+count 0 and 39 at count 4, and its likelihood rises from -1.0291e9 to -1.0098e9; the `codebook`
+field records the k-means centroids carried from 1024 raw dimensions into the 512-dimensional
+observation space by the stream's own PCA, which is the widening doing its job.
+
 MEASURED SPEED-UP 2026-08-24 21:46, and it removes the clamp risk entirely. The first three table
 order-4 cells FINISHED IN ABOUT 26 MINUTES against the gate's 6.6 h sequential projection, a 10 h
 request and an 11.5 h queue cap -- roughly fifteen times faster on sixteen workers, which is what
