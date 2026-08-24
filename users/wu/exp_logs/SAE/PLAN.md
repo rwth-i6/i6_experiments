@@ -143,7 +143,14 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
   mode-collapse finding about the pinned policy's sampling, not an instrument artifact. D9.2 is
   amended by replacement to the TWO-ARM read (1-best refit vs incumbent, D8.4 machinery
   verbatim); the threshold edit and a diversity re-dump are both rejected/not funded. Arm 2 is
-  training; D9.2 registration next.
+  training; D9.2 registration next. 2026-08-24 later (verified; `PLAN_3E1.md` D9 Status): D9.2
+  COMPLETE -- paired delta eta -0.0310 [-0.1545, +0.0923], INDISTINGUISHABLE resolving to the
+  incumbent, arm 2 NOT adopted (verdict 86; power caveat: this bed's headroom is a fifth of
+  D8.4's, so the interval is three times wider). D9's registered reads are all banked and
+  nothing runs. AWAITS THE USER'S WORD: close D9 under the joint license ("scorer refitting is
+  not funded on this loop family at cold or evolved operating points") and decline the
+  D8.3-style policy-leg assay -- the planner's recommendation, with the evolved policy's
+  sampling collapse (verdict 85) banked as the family's newest fact.
 - **960 h stock-donor supervision-axis endpoint is ABSENT**: the theta_0 + gold-scorer arm ran
   only through sub-epoch 4, was stopped and deleted 2026-08-08, and never produced the listed
   3-pass endpoint; `ReturnnTrainingJob.22Ntu7y0O6iW` does not exist. Its observed collapse is

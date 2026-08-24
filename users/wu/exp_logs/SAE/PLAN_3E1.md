@@ -2600,6 +2600,28 @@ direction D5(a) and the degradation terminus already point) and is banked by the
 as a verdict resting on the weight job's own table, descriptive, adopting nothing.
 `D8ScorerRefitJob.XvPF118rphQP` stays in its guard-fired error state and is expected debris
 of a correctly-firing gate: do not clear, retry, or delete it while D9 is open.
+2026-08-24 later (D9.2 COMPLETE AND VERIFIED; verdict 86 is the phase's final registered
+read; the decision goes to the USER). `D9EtaReadJob.A7QvXl7VR7wl` on the ONE shared D9.0
+draw, both arms differing in `model_pt` alone: paired delta eta -0.0310 [-0.1545, +0.0923]
+over 512 of 512 shared groups -- INDISTINGUISHABLE, resolving to the incumbent under the
+standing tie rule; arm 2 is NOT adopted. The STOP clause passed on its own terms (both arms
+7,168 of 7,168 rows finite, 0 groups dropped, exactly as D9.0's structural census predicted).
+POWER CAVEAT TRAVELS WITH ANY QUOTE OF THIS TIE: the bed's shared oracle headroom is 0.0116
+against D8.4's 0.0600, so the interval is 0.247 wide against D8.4's 0.078 -- the read
+licenses "not adopted", never "the two scorers rank equally well". One build decision
+RATIFIED: D9.2's config pins arm 2's finished model by concrete work-dir path instead of
+importing D9.1's graph (importing would carry the protected error-state arm 3 job and kill
+the manager on the interactive clear prompt), with a graph-build-time assertion against
+D9.1's own alias so a re-hashed arm 2 fails loudly -- verified on disk: the rerank consumes
+`D9OnlineTrainJob.nJQy199AQZQu/output/model_final.pt` and the alias resolves to that same
+job dir. WHAT THE PHASE NOW LICENSES, per the pre-registered gate: jointly with D8.4 and
+D6-PERIODIC, "scorer refitting is not funded on this loop family at cold or evolved
+operating points" -- never "refitting could not work elsewhere". PLANNER RECOMMENDATION for
+the USER's word (the phase closes only on it): close D9 under that joint license and do NOT
+fund a D8.3-style one-leg policy assay -- with no refit adopted there is no candidate to
+carry one, and the mode-collapse measurement (verdict 85) argues the next informative spend
+on this family, if any, is a diversity probe, which would be a new registration. All three
+registered D9 reads (D9.0 gate, D9.1 arms, D9.2 read) are banked; nothing is running.
 
 Replaces the §3e.1 two-sided gate (2026-08-07) BEFORE any verdict was read against v1, because
 v1's second arm is gold-conditioned as instrumented (fact 2), has the wrong sign against the

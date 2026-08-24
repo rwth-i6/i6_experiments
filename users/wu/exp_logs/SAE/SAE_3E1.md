@@ -4206,3 +4206,19 @@ the absolute beta, is what carries the contamination claim.
   log. The implementer should bank the mode-collapse finding as a verdict resting on the
   weight-job table (descriptive, adopting nothing) and may build D9.2's reader against the
   amended two-arm registration once arm 2 finishes.
+- 2026-08-24 (D9.2 result round VERIFIED; verdict 86 accepted; the model-pin build decision
+  RATIFIED; recommendation to the USER recorded in `PLAN_3E1.md` D9 Status). Verification
+  performed: `D9EtaReadJob.A7QvXl7VR7wl/output/eta_read.txt` matches approach 39's table line
+  for line (delta eta, per-arm eta, the WER identity, spearman, the arm-internal nulls, the
+  7,168/0/0 row censuses); the eta/WER identity recomputes consistently from the printed
+  headroom (incumbent 0.1508 - 0.2303 x 0.0116 = 0.1481, refit 0.1485); the interval width
+  0.247 against D8.4's banked 0.078 checks against D8.4's banked interval; the reader prints
+  its convention, its STOP preflight, and the tie rule before the verdict, per the standing
+  pre-registration discipline. The pinned model path verified on disk: the refit rerank's
+  `model_pt` is the concrete `D9OnlineTrainJob.nJQy199AQZQu/output/model_final.pt` work-dir
+  path and `alias/sae/3e1/d9_1/refit_1best` resolves to that same job dir, so the
+  graph-build-time staleness assertion is anchored to the right object (and no `output/`
+  alias symlink is load-bearing). Verdicts 85 and 86 are correctly scoped: 85 is descriptive
+  with its reach explicitly delegated to the plan, 86 carries the power caveat inside the
+  verdict rather than in a footnote. Verifier re-run: `d9_2_eta_read_test` 23/23. Nothing
+  further on D9.2; the phase waits on the USER's word.
