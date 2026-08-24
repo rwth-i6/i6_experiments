@@ -277,10 +277,19 @@ is the COLLIDED pre-fix build's hash -- read from the graph before the handle fi
 re-derived after it. The launched job is `a3419LhkI7JT`. The fix was launched; only the log line
 was wrong, and it was wrong in the way the labels-come-from-the-artifact rule exists to prevent.
 
-TWO PIN HARDENINGS from the same round (verifier items 2 and 3; speech-llm `ac32db2` config-side,
+TWO PIN HARDENINGS from the same round (verifier items 2 and 3; speech-llm `2542818` config-side,
 so the evaluation stays `a3419LhkI7JT`). The build asserted handle COUNT against planned pairs,
 which two handles aimed at ONE file would pass -- it now asserts the pinned PATHS are pairwise
-distinct, with a negative control that aims two pins at one artifact and is refused. And the
+distinct, with a negative control that aims two pins at one artifact and is refused. That control
+is PERSISTED as `scripts/g13_exp7_pins_test.py` (6/6, run under the sisyphus env because it loads
+the config): a refusal demonstrated once in a shell is not a refusal anybody can re-run, and these
+pins are exactly the place where nothing downstream would notice a wrong one.
+
+CITATION CORRECTION (verifier, same round): this entry first cited speech-llm `ac32db2`, which is
+the LOG repository's commit for the same round -- the code commit is `2542818`. Second identifier
+this subphase that I quoted from the wrong context instead of re-deriving it, after the pre-fix
+evaluate hash; the rule is now in memory as covering commit hashes across the two repositories, not
+only artifact labels. And the
 docstring's claim that each pinned file names its own `cell_role` is FALSE for these three: they
 predate the field, so an arm artifact and the observation-null artifact of the same start are
 indistinguishable on every field a consumer reads, internal cell keys included. Their identity
