@@ -255,7 +255,29 @@ result is BIT-IDENTICAL to the single-core path rather than merely close -- whic
 cells inherit the accepted computation's verification instead of needing their own. Speech-llm
 `454ddbd`, `scripts/parallel_estep_test.py` 101/101 new, twelve neighbouring suites clean.
 
-1g.13 EXPERIMENT 7 IN PROGRESS: the evaluation reader carries the SEGMENTATION contrast
+DONE (1g.13 experiment 7, BUILT 2026-08-24 22:20, speech-llm `9e24f9b`): the evaluation against
+gold, `G12EvaluateJob.BHYf8G7wG6dd`, 22 cells and 3 cross-stream pairs, waiting only on the five
+Gaussian cells and the two nulls. Clauses 1, 2 and 4 are 1g.12's verbatim because they are the same
+code; contrast (d) wires THREE pairs rather than one -- the arm, the content-free random-map start
+and the observation null, each against its own seg12.5 counterpart -- because a segmentation
+difference read without its controls is the mistake 1g.12 had just demonstrated.
+
+A COLLISION IT WALKED INTO, recorded because it is the very failure the `cell_role` label was added
+for two rounds earlier and it still bit on first real use. 1g.12's observation-null readout and its
+ARM readout write IDENTICAL internal cell keys, so keying the cross-stream map by cell key collapsed
+two pinned files into ONE entry: the segmentation contrast's null control would have silently read
+the arm's decode, and both the job's own wiring checks passed. The map is now keyed by a handle
+carrying the role, the job strips the role to index the file and refuses two pairs pointing at one
+handle, and the config asserts distinct-files == planned-pairs, which is the check that would have
+caught it. The lesson is narrower than "label your artifacts": a label only helps where something
+READS it, and the consumer here was keying by the ambiguous field.
+
+`selected_real_start` became a parameter (the two streams name the same protocol's start
+differently) -- a NEW parameter, so excluding it at the accepted default IS hash-neutral, unlike the
+`route` mistake made earlier in the same file. 1g.12 re-censused at 4,757 jobs, zero unfinished.
+Suite 72/72.
+
+1g.13 EXPERIMENT 7 EARLIER NOTE: the evaluation reader carries the SEGMENTATION contrast
 (speech-llm `11842bb`). Contrast (d) is this stream's cell minus the SAME cell of the other stream,
 paired per utterance over the 890 both score -- the only contrast whose baseline is not a cell of
 its own table. The pairing is GIVEN to the job rather than derived, because the two subphases name
