@@ -176,18 +176,21 @@ untouched and a second stream hashes differently:
     `bigram_lm_from_matrix` exactly as the Gaussian arm's own accepted-bigram cell builds it, with
     a cell carrying both an automaton and the calibration artifact refused.
 
-FOUND while porting, from the artifacts rather than assumed: the three registered 1g.13 start
-protocols write three different manifest schemas and NO single field is present in all of them.
-`H3InitializerJob` and the espum projection record the update-role binding as `fit_ids_hash`;
-`G13ReferenceStartJob` records it as `h1_hashes["update"]`; only the first two carry the accepted-H1
-content digest. So on a non-accepted route the binding is asserted through whichever field the
-manifest uses (neither is refused), together with the route key -- which is what protects stream
-identity, per the plan's own note that the route artifact refuses the accepted key outright. Which
-checks ran travels into the cell's manifest, because a reader of a 1g.13 cell has to be able to SEE
-that the content digest was unavailable rather than infer that it was fine. The accepted route keeps
-exactly its three original checks. `scripts/h4_context_port_test.py` 50/50, including that a
-seg12.5 start name on the v1 route and a v1 name on the accepted route are both refused, and a
-negative control on the two-state lift.
+FOUND while porting, from the artifacts rather than assumed, and CORRECTED 2026-08-24 on the
+verifier's item (g) -- the first version of this paragraph overstated it. The three registered
+1g.13 start protocols write three manifest schemas that DO share `schema`, `phase`, `route` and
+`input_content_sha256`. What no single field spans is the UPDATE-ROLE BINDING: `H3InitializerJob`
+records it both ways, the espum projection only as `fit_ids_hash`, the controlled reference only as
+`h1_hashes["update"]`. So on a non-accepted route the binding is asserted through whichever field
+the manifest carries (neither is refused), beside the route key -- which is what protects stream
+identity, per the plan's own note that the route artifact refuses the accepted key outright. The
+accepted-H1 content digest is missing on ONE schema, the controlled reference, so four of the five
+1g.13 starts carry it; where it is present it is ASSERTED (verifier item (h) -- a mismatch was
+passing as a False flag), and all four verified on disk against the v1 routes artifact. Where it is
+absent the artifact says so, because a reader of a 1g.13 cell has to SEE that it was unavailable
+rather than infer it passed. The accepted route keeps exactly its three original checks.
+`scripts/h4_context_port_test.py` 52/52, including that a seg12.5 start name on the v1 route and a
+v1 name on the accepted route are both refused, and a negative control on the two-state lift.
 
 DONE (1g.13 experiment 5, step (b)): `H4ContextResourceGateJob.8M4rSjaBlikH`, PASS. The whole 1g.13
 experiment-4 graph is finished on disk with zero unfinished; its watcher reported STALLED with
@@ -246,6 +249,31 @@ matched 4-gram) is unaffected either way.
 Both null artifacts written today carry a prose `role` line naming the matched 4-gram because that
 phrase was hardcoded; the authoritative `fitting_lm` field is correct in both, and the string is now
 derived from the cell (speech-llm `c4d3f13`), so any later run reads right.
+
+VERIFIER ROUND ABSORBED 2026-08-24 (`4b9fd89a1`), all eight items, in speech-llm `77b8982`. The
+five experiment-6 pre-run items are done on the unrun job, whose hash is unchanged at
+`oStN2ghRhR7l`: the clause-3 convention now names the interval form in words and the report prints
+the unstratified sensitivity beside the primary; a dropped plan entry is recorded and printed by
+name instead of vanishing from the table; the table comparator's repair count and decode role are
+asserted; the two spellings of the accepted add-one bigram (`accepted-2g` here, `legacy-2g` in the
+older h4 family) are pinned in one alias table and asserted; the clause-4 line says NOT CARRIED for
+an empty floors dict instead of "all zero". Both minors are done too (the fitting artifact's schema
+revision is checked; the paired means are relabelled `macro_mean_*` against the pooled
+`correct_phone_fraction`), and the verifier's count-0 observation is carried into the artifact: the
+null's count-0 parameters are bit-identical to the arm's, so that row is a PURE observation swap
+while count 4 mixes the swap with a refit -- two different comparisons, not a weak and a strong
+version of one. The three 1g.13 pre-cell items are done as well, and none of them blocked anything.
+
+ONE ITEM ANSWERED DIFFERENTLY THAN ASKED, for the planner and verifier to see: item (c) proposed
+asserting the readout's `emission_table_provenance` against the local artifact's
+`input_content_sha256["table"]`. Those two digests CANNOT be equal -- the local comparator's table
+is an occupancy-weighted single-state adapter written to its own file, while the readout decodes
+`repair_channels.npz["repair_4_emissions"]` -- so the equality would fail on every cell that is
+correctly wired. Checked on `H4ContextLocalDecodeJob.42Pe0lEuLkqZ` against
+`H4ContextRepairJob.mdA3sZp68iqz`: a0998245 against 4e85236b. What is assertable from the artifacts
+is asserted instead (start, role, repair count, fitting-LM identity under either spelling), and
+where a comparator's schema predates the fitting-LM field the artifact now SAYS the binding is the
+graph edge rather than implying a check happened.
 
 BUILT AND READY (1g.12 experiment 6): `G12EvaluateJob.oStN2ghRhR7l`, one job, the first phone error
 rate anywhere in 1g.12. Twenty-two cells -- four corners by five starts plus the null at both
@@ -1529,7 +1557,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     |---|---|
     | banked jobs of the ported and consuming modules, re-verified after each commit | 142, zero moved, zero unfinished |
     | v1-equivalent repair cells colliding with a banked seg12.5 cell | 0 of 10 |
-    | suite `scripts/h4_context_port_test.py` | 50/50 |
+    | suite `scripts/h4_context_port_test.py` | 52/52 |
 
     THE TABLE ARM'S OWN GATE, `H4ContextResourceGateJob.8M4rSjaBlikH`, PASS. Read beside the
     Gaussian gate on the SAME stream, same probe utterance, same heaviest chunk, same 32-way
