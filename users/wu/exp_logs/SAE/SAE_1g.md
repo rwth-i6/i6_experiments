@@ -3613,9 +3613,31 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   imports nothing from `g12_resource`; the edit is hash-neutral, so the running job's identity
   never moved. The build-order rule stands as the default; recording the reasoning for
   judgment was the right form.
-  (5) ONE ITEM for the implementer: the registration decodes every factorial cell "by the
-  exact order-4 readout with the LM-blind local decode as its no-LM leg"; the pilots register
-  only the exact readouts. Acceptable for a wall-clock pilot, but the no-LM leg must be
-  registered no later than the `PILOT_ONLY` flip, and its producing job for the GAUSSIAN
-  corners on this stream should be named when it registers (the table corners have the
-  established local-decode class; the Gaussian side's leg has no named producer in this build).
+  (5) The no-LM leg item -- DISCHARGED same day at speech-llm `e89ccdb` and verified, with one
+  correction to the item as I wrote it: the GAUSSIAN corners' leg had a named producer all
+  along -- `G12GaussianContextRepairJob.out_hypotheses`, the fitting cell's own selection-role
+  local decode at every count, introduced at `ef9045f` and untouched since, the same edge the
+  1g.12 reader consumes (wired into `G12EvaluateJob.local_hypotheses`; gaussian branch
+  `g12_evaluate.py:536-544`) -- so it was unregistered, not unbuilt; my "no named producer"
+  clause was wrong. Verified: the table leg classes' route widening is hash-excluded at the
+  banked default with a cross-version identity proof (all 120 banked adapter and local-decode
+  identities recomputed under the pre-commit file and under HEAD, identical; the 121 on-disk
+  dirs all finished, reconciled through the diagnostic-per graph rebuilt post-commit -- that
+  family never was in the exp5 graph, and the 1g.12 reader pins its five comparators by path
+  deliberately); the two new pilot leg jobs are `H4ContextChannelAdapterJob.ruZ0Muc40Aaa`
+  consuming the table pilot and `H4ContextLocalDecodeJob.6KblLtDciuiq` consuming that adapter
+  (graph-input wiring confirmed; dirs not yet created, blocked on the running pilot); the
+  Gaussian pilot's leg registers the fit job's own hypotheses output, no extra job; leg
+  registration sits under the same `PILOT_ONLY` gate as the readouts with constructor
+  arguments independent of the flag; suites re-run 69/69 and 48/48. The substantive adapter
+  fix checks out: the old manifest stamped its fitting-LM digest from the automaton alone
+  (accepted-bigram manifests carry `automaton_sha256=None`, so the stamp was null), the new
+  `_fitting_lm_digest` (`h4_context_decode.py:140-151`) takes whichever form the fitting LM
+  has, records the kind beside it, and raises when neither exists -- a run-side change only.
+  Table legs at the paired count with the count-0 guard standing mirrors 1g.12's own protocol
+  (count 0 is the duplicated start, decoded as a direct Q), so the registration's every-cell
+  no-LM clause is satisfied the same way it is on seg12.5. The 1g.13 manager restart (20:08,
+  postdating the 1g.12 manager's 19:32) loaded the extended graph and all three running jobs
+  survived it: both fitting pilots and the 1g.12 reader are slurm-RUNNING first attempts with
+  no error markers. WATCH: the Gaussian pilot's log has been quiet since job start (19:48)
+  while slurm reports RUNNING -- normal for its compute phase, re-check at the wall-clock read.

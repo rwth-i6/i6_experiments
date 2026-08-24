@@ -2843,11 +2843,16 @@ keep their hashes and finished markers; the only additions are the two pilot cel
 two exact readouts. The implementer's recorded deviation (editing shared source while the
 1g.12 reader ran) is ACCEPTED for this case -- the running job imports only two constants from
 the edited module and the edit is hash-neutral -- with the build-order rule standing as the
-default. ONE OPEN ITEM: the registration gives every cell an LM-blind local-decode no-LM leg;
-the pilots register only the exact readouts -- acceptable for the wall-clock read, but the leg
-must register no later than the `PILOT_ONLY` flip, with the Gaussian corners' producing job
-named. Both pilot wall clocks read against their own gates' per-E-step projections before the
-remaining eighteen launch.
+default. The no-LM leg item is DISCHARGED same day (speech-llm `e89ccdb`, verified): every
+cell's leg now registers under the same pilot gate -- the Gaussian corners through the fitting
+cell's own local-decode output, which existed all along and was merely unregistered (the
+item's "no named producer" clause was the verifier's error, corrected in `SAE_1g.md`), the
+table corners through the ported adapter and local-decode classes at the paired count,
+hash-neutral for all 121 banked jobs of that family by a cross-version identity proof. One
+substantive fix came with it: the adapter manifest's fitting-LM digest now takes whichever
+form the fitting LM has, records the kind beside it, and refuses a manifest with neither,
+where the old stamp was null for accepted-bigram cells. Both pilot wall clocks read against
+their own gates' per-E-step projections before the remaining eighteen launch.
 
 ## 6. Deliverables ladder
 
