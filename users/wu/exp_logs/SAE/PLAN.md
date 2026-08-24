@@ -270,6 +270,19 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    at this operating point; evidence toward the training paradigm as the binding constraint;
    the wav2vec-U-faithful follow-up is not funded. 1g.11's question is ANSWERED; the phone
    route's direction is the USER's call, alongside entry 8 cells 3-4.
+   2026-08-24 (USER: "run 4gram training with 4gram LM decoding also for 1g11"): 1g.12
+   REGISTERED AND FUNDED (`PLAN_1G.md` 1g.12) -- 1g.11's question re-asked at the strongest LM
+   operating point the campaign owns: emission model (table / Gaussian) crossed with fitting
+   order (bigram / matched 4-gram) at repair count 4 on five starts, every corner decoded by a
+   NEW exact beam-free order-4 one-best readout (the beam harness is closed, an exact decode
+   needs no stability duty, measured at minutes per fold over the 68-token-per-utterance
+   retained stream) with each cell's banked LM-blind decode as the no-LM leg. Three of four
+   corners cost a decode only -- the order-4 table channels persist as fitted artifacts -- and
+   the Gaussian bigram corner re-runs 1g.11's EM (minutes) because its parameters were never
+   persisted, with exact reproduction as the acceptance check. Gate has three paired contrasts
+   (readout / fitting order / emission model), each against the random-map control and the
+   observation null, the 1g.11 "comparable gain" ruling carried over verbatim; 1g.11's fired
+   gate is not reopened. With the implementer to build, resource read first.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional

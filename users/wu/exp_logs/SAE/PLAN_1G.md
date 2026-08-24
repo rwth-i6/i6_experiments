@@ -2357,6 +2357,137 @@ concentrate nearly all of it in 39) -- and the two arms agree with each other (0
 match/table) about twice as much as either agrees with gold (0.172 / 0.192): the emission
 swap changed the surface, not the basin. Verdict 28's LM-riding mechanism, visible in text.
 
+### 1g.12 — 4-gram fitting and an exact 4-gram readout for the continuous-emission arm (USER-directed 2026-08-24)
+
+**Purpose.** 1g.11 ran entirely at one language-model operating point: a first-order (bigram)
+fitting LM inside the repair EM and an LM-blind readout that consults only the unigram prior.
+Its clause 3 failed on the content-free control. This subphase re-asks 1g.11's question at the
+strongest LM operating point this campaign owns -- a matched 4-gram as the FITTING LM and an
+exact 4-gram LM-aware one-best readout -- and asks whether the negative attribution survives.
+Two failure explanations are separated by construction: the OBJECTIVE was too weak to prefer
+content (fitting order), and the READOUT hid content the model already held (decode). Prior
+evidence on both, disclosed and not decisive here: at order 3/4 fitting on the TABLE arm,
+verdict 24 found no usable phone-error gain over the bigram (at most 0.0062, inconsistent in
+sign, order 3 beating order 4 on three of four real starts) while verdict 25 found the
+label-free statistic moving the opposite way; and every LM-aware decode in the 1g.10 family --
+which already decoded with a KenLM 4-gram -- moved length, never content (1g.10c's sign split
+being the sharpest). Neither tested a 4-gram against CONTINUOUS emissions, which is this
+subphase's question and the USER's instruction.
+
+**Approach.** One factorial read at repair count 4 over five starts: emission model (categorical
+table / diagonal-Gaussian continuous) crossed with fitting order (bigram / matched 4-gram),
+every cell decoded by the SAME new exact 4-gram readout, and every cell also carrying its
+banked LM-blind local decode as the no-LM leg. The planner's construction beyond the USER's
+literal instruction, stated because it is what makes the result attributable rather than
+descriptive: the three non-Gaussian-4-gram corners are added because a Gaussian 4-gram cell
+alone has no comparator, and they are nearly free -- the order-4 and bigram TABLE channels
+already exist as fitted artifacts (`H4ContextRepairJob.*`, twenty cells, `repair_channels.npz`
+holding `repair_{0,1,2,4}_emissions` at shape (2, 39, 500), fitted on the 6,414-utterance
+update fold), so those corners need a decode and no training. The Gaussian bigram corner
+re-runs 1g.11's EM because that job persisted decoded output and summary statistics but not the
+fitted means and variances; the whole twelve-cell run cost 0.074 h, so this is minutes, and the
+re-run must reproduce 1g.11's banked cells exactly as its acceptance check. ONE RECURSION
+SERVES BOTH ARMS AT ORDER 4, as at order 2: `h4_context_engine`'s exact context recursion gains
+an optional dense per-token emission argument, the order-4 twin of the `emissions_by_time`
+seam, so "only the emission model changed" continues to rest on shared dynamic-programming
+code. Everything else stays frozen as 1g.11 fixed it: the shared `seg12.5` token segmentation,
+the retained token stream after the frozen silence mask, the duration law and two-state
+topology (minimum duration 2, standing), the start mapping through centroid geometry, the
+variance floor, and the 890 selection utterances with the 1,112-utterance evaluation fifth
+sealed. Count 4 is the decision point; count 0 is reported where it is available and is NOT
+compared across fitting orders (the order-0 tables are identical by construction, and the
+existing table adapter refuses count 0 because its stored count-0 array is occupancy-weighted
+rather than the direct table the accepted count-0 column decodes).
+
+**The readout, and why it is a new object.** PRIMARY is an EXACT (beam-free) order-4 one-best
+decode -- a maximizing pass over the same (duration sub-state, language-model history) state
+space the accepted engine already sums over, with 2 x 60,880 reachable states at order 4. It
+does not exist yet and must be written. It is chosen over the banked prefix-beam decoder for
+one reason: that harness is CLOSED (1g.10b found no affordable beam meets the stability duty,
+0 of 36 cells; 1g.10c closed decode-parameter probing), so beam cells cannot carry cross-arm
+comparisons, whereas an exact decode has no adjacent-beam disagreement BY CONSTRUCTION and its
+cells are quotable. Measured feasibility, from this campaign's own artifacts: the recursion
+runs over the retained token stream, 68.09 tokens per selection utterance (60,604 over 890),
+so one utterance's trellis with backpointers is about 0.10 GiB average and 0.49 GiB at the
+longest utterance (341 tokens), and one whole-fold pass is minutes -- below the 0.67 GiB the
+exact order-4 forward-backward already measured and passed. DISCLOSED ESTIMATOR CHANGE, not to
+be quoted past: this maximizes over PATHS, while the banked prefix-beam one-best maximizes over
+label sequences whose scores sum over duration paths. The two are different estimators, so
+1g.12's decoded numbers are a NEW currency and are never compared to banked 1g.10 numbers;
+every comparison in this subphase is internal to it, and every number names its decoder.
+MATCHED MEANS MATCHED: the fitting automaton and the decode binary were traced to the same
+corpus, same order, same smoothing, with byte-identical decompressed language-model text
+(sha256 `be3ffef5...`), but through two separate jobs with no cross-check, so the producing job
+must ASSERT that equality structurally rather than inherit it; the one substantive scoring
+difference -- the fitting automaton renormalizes over 39 phones plus end-of-sequence after
+dropping the unknown symbol, at most 1.27e-04 nats per emitted phone -- is reported in the
+artifact, not silently absorbed.
+
+**Experiments.**
+
+1. *Resource read before the fold spend.* The Gaussian order-4 EM's measured cost on the
+   heaviest update chunk, projected to the whole fold at this campaign's standing 1.5 multiplier
+   against the 11.5 h clamp, in the same form the accepted order-4 resource gate used and at
+   THIS subphase's scale. Build refuses if the projection exceeds the clamp.
+2. *Gaussian 4-gram fitting.* Five starts, count 4 (count 0 free), matched-4g fitting automaton,
+   through the shared context recursion with dense emissions.
+3. *Gaussian bigram re-fit.* 1g.11's cells re-run to recover the fitted parameters, accepted only
+   if the banked 1g.11 log-likelihoods and decoded cells reproduce exactly.
+4. *Exact readout, verified.* The order-4 exact one-best decoder, applied to all four corners x
+   five starts at count 4. Acceptance before any cell is read: reproduction of exhaustive path
+   enumeration at orders 2/3/4 on synthetic fixtures (the pattern the context engine already
+   uses), and on every scored utterance the best-path score no greater than that utterance's
+   exact forward log-likelihood, with equality on a single-path fixture -- reported as a
+   violation COUNT that must be zero.
+5. *Nulls and controls.* The babble null RE-BANKED at this decode's own decoded lengths (a decode
+   change is a currency change), 100 draws with the 1,000-draw bar beside it as 1g.11 did; the
+   continuous observation null (per-token vector redrawn from the corpus marginal) on the primary
+   Gaussian 4-gram cell; the random-map start carried as the content-free control in every corner.
+6. *Evaluation* on the 890 with gold as EVALUATION ONLY, the 1,112 sealed, no selection by labels.
+
+**Gate (pre-registered 2026-08-24, before any run).**
+
+- *Clause 1, admission.* Decoded length ratio to gold within [0.80, 1.25] and decoded unigram
+  total variation to the text unigram at most 0.30. ADMISSION ONLY, and -- amending 1g.11's
+  practice after verdict 47's near-misreading -- the content column of clause 2 is COMPUTED AND
+  PRINTED FOR EVERY CELL with admission as a separate flag beside it, so an inadmissible
+  content-bearing cell can never read as an empty one.
+- *Clause 2, content.* A cell shows content when its pooled correct-phone fraction on the 890
+  exceeds the re-banked babble null's 99th percentile by at least 0.05 absolute, with the
+  substitution/insertion/deletion decomposition beside every phone error rate.
+- *Clause 3, the decision read.* Paired per-utterance correct-phone deltas at count 4, bootstrap
+  intervals over utterances, three contrasts, each with the random-map control and the
+  observation null read the same way: (a) READOUT -- exact 4-gram decode minus the same cell's
+  banked local decode; (b) FITTING ORDER -- Gaussian 4-gram minus Gaussian bigram under the same
+  decoder; (c) EMISSION MODEL AT ORDER 4 -- Gaussian 4-gram minus table 4-gram. A contrast counts
+  as POSITIVE only if the selected real start's interval excludes zero in the candidate's favour
+  AND neither content-free arm shows a comparable gain; the 1g.11 ruling that a control gain
+  exceeding the arm's with non-overlapping intervals is beyond any reading of "comparable"
+  carries over verbatim.
+- *Clause 4, honesty.* Per cell: the share of variance components at the floor, and the decoder
+  exactness violation count. A fit living on the floor or a decoder failing its certificate is
+  surfaced, never read.
+- *Consequences.* Continuous emissions are funded at this operating point (a NEW planner
+  decision) only if contrast (c) is POSITIVE; the wav2vec-U-faithful variant then becomes the
+  registered follow-up as 1g.11 specified. If (a) is POSITIVE while (c) is not, the finding is a
+  readout result about this family and it reopens the LM-aware readout question for the TABLE
+  arm, not the continuous route. FAILURE of all three licenses "a matched 4-gram fitting LM and
+  an exact 4-gram LM-aware readout do not rescue the continuous-emission channel at this
+  operating point; jointly with 1g.11 and verdicts 23-25, evidence toward the training paradigm
+  as the binding constraint" -- never "the paradigm cannot work", and conditional on the shared
+  `seg12.5` segmentation both arms inherit. No result here reopens or edits 1g.11's fired gate;
+  1g.11's verdict stands as ruled.
+
+**Status.** REGISTERED AND FUNDED 2026-08-24 on the USER's word ("run 4gram training with 4gram
+LM decoding also for 1g11"). Five constants were traced to artifacts before this text was
+written, and two of them shaped it: the order-4 table channels persist and are re-decodable
+(so the comparator corners cost a decode, not a training), and the 1g.11 Gaussian parameters
+do NOT persist (so the bigram corner re-runs EM, minutes, with exact reproduction as its
+acceptance check). Planner constants the USER may override: the exact beam-free readout as
+PRIMARY instead of the closed beam harness, the addition of the three comparator corners, and
+count 4 as the single decision point. With the implementer to build, experiment 1 first;
+evidence goes to `SAE_1g.md`.
+
 ## 6. Deliverables ladder
 
 | Step | Deliverable | Decision it enables |
