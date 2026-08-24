@@ -28,40 +28,43 @@ stream's update role carries 1,436,262 segments, 2.46x the tokens 1g.12 fits on,
 about 8 h per order-4 curve at the standing 1.5 multiplier against the 11.5 h clamp -- inside it
 with little room, so 1g.13 experiment 4's resource read decides, not that projection.
 
-IN FLIGHT, launched 2026-08-24 14:2x, two managers over disjoint graphs:
+DONE (1g.12 experiment 4): ALL TWENTY exact order-4 readouts finished 2026-08-24 14:14, zero
+exactness violations everywhere, approach 22 and verdicts 59-60. The manager exited on completion;
+its watcher reported STALLED because the one-shot graph read called 14 finished cells "waiting",
+which is the known console misreport -- the on-disk census is 4,752 jobs and zero unfinished.
 
-1. `config/sae_1g_12_exp4.py` (manager pid 996042) -- 1g.12 experiment 4, the exact order-4
-   one-best readout over twenty cells (four corners by five starts). QUESTION: is the phone-repair
-   collapse a readout artifact, i.e. does an exact LM-aware decode of the SAME fitted channels
-   behave differently from the LM-blind local decode banked above? The manager was started only
-   after the experiment-23 cells finished, because its graph contains them; `sis_managers.sh` now
-   blocks `sae_1g_12_exp23` behind it for the same shared-graph reason. Every cell writes a
-   certificate and STOPS on any utterance whose best-path score exceeds its own exact forward log
-   likelihood.
-2. `config/sae_1g_13_exp2.py` (manager pid 1050855) -- 1g.13 experiment 2, two CPU jobs.
-   `G13RoutesJob.hStPuE1UqLK6` answers "what duration parameter and topology verdict does the
-   v1-equivalent stream carry, with the silence step bypassed"; `G13VadFirewallJob.Usfy2NF0LiSQ`
-   answers "can the banked dump's trim mask be recomputed exactly, so gold can be carried onto the
-   trimmed raster". The graph is four jobs; the other two (the stream build and the shared
-   gold-phone reader) are finished and reused.
+DONE (1g.13 experiment 2, half): `G13VadFirewallJob.Usfy2NF0LiSQ` -- the recomputed trim mask
+agrees with the banked dump on all 5,567 utterances with ZERO kept-count disagreements, and its
+0.1459 trimmed share reproduces the dump's own recorded `vad_dropped_frac` exactly. Roles carried
+at the registered 3,565 / 890 / 1,112, in three separate files.
 
-NEXT ACTION, in order: (a) when experiment 4's twenty readouts land, bank their rows and build
-1g.12 experiment 5's config -- the null job class `G12ObservationNullJob` exists and is tested,
-only its config is missing -- then experiment 6, the evaluation on the 890 with gold with the
-1,112 sealed; (b) when 1g.13 experiment 2 lands, bank its two rows and build experiment 3, the
-five starts re-derived on the v1-equivalent stream. Experiment 3 carries two known traps recorded
-here before the code exists: the espum start's `num_units` default is a hard-coded 500 and must be
-passed EXPLICITLY as 128, and the controlled reference start needs new thin wiring around
-`_reference_q` because the legacy recovery job cannot re-run. Then experiment 4, the mandatory
-resource read, before any 1g.13 cell is funded.
+IN FLIGHT: `config/sae_1g_13_exp2.py` (manager pid 1050855) -- `G13RoutesJob.hStPuE1UqLK6`, the
+H1 route read on the v1-equivalent stream, running since 13:55. QUESTION: what duration parameter
+and topology verdict does this stream carry with the silence step bypassed? Its declared memory was
+CORRECTED mid-run from 24 to 192 GiB (observed at 130 GB, against H1's measured 141.52 GiB peak for
+the same complete-T_phi load); rqmt does not hash, so the running job is untouched and a rerun is
+sized right. The long tail is `fit_duration`'s grid scan, whose cost goes as the product of the
+distinct-length support and the text-length support, both about four times seg12.5's.
 
-KNOWN DEFECT, not yet fixed, blocking nothing today. `g12_repair_jobs.py:184`,
-`g12_readout_jobs.py:223` and `g12_resource.py:306` call `_route_mask(h1)` at its DEFAULT route
-while selecting the topology and duration from `self.route`. Every 1g.12 cell passes
-`seg12.5/phones`, so the two agree and no banked number is affected. A 1g.13 cell would raise a
-KeyError rather than silently read the wrong mask, so the failure mode is loud; the one-word fix
-(`_route_mask(h1, self.route)`) goes in with 1g.13 experiment 5's wiring, not while twenty 1g.12
-readout cells hold live imports of those modules.
+NEXT ACTION, in order:
+
+1. When the routes job lands, bank its row in approach 24 and start `config/sae_1g_13_exp3.py` --
+   NOT before, because its graph contains the routes job and two managers over it would
+   double-submit. `sis_managers.sh` swaps `sae_1g_13_exp2` for `sae_1g_13_exp3` at that moment.
+   Experiment 3 is BUILT, TESTED and CENSUSED: 16 jobs, 13 unfinished, being the three
+   construction-only starts, the controlled reference, the masked espum stream, the role manifest,
+   four espum trainings, the label-free pick and the projection. Then experiment 4, the mandatory
+   order-4 resource read, before any 1g.13 cell is funded.
+2. 1g.12 experiment 5 -- the null job class `G12ObservationNullJob` exists and is tested, only its
+   config is missing. Then experiment 6, the evaluation on the 890 with gold with the 1,112 sealed,
+   which is where clauses 1 to 3 are actually decided.
+
+KNOWN DEFECT, not yet fixed, blocking nothing. `g12_repair_jobs.py:184`, `g12_readout_jobs.py:223`
+and `g12_resource.py:306` call `_route_mask(h1)` at its DEFAULT route while selecting the topology
+and duration from `self.route`. Every 1g.12 cell passes `seg12.5/phones`, so the two agree and no
+banked number is affected. A 1g.13 cell would raise a KeyError rather than silently read the wrong
+mask, so the failure mode is loud; the one-word fix (`_route_mask(h1, self.route)`) goes in with
+1g.13 experiment 5's wiring.
 
 Proposals for the planner:
 
@@ -1012,6 +1015,56 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     the producing job: on a nonzero violation count the artifacts are written and the job then
     fails, so the number is on disk for a human while every downstream reader stays blocked.
 
+    All twenty cells finished 2026-08-24 with ZERO exactness violations and an identical
+    renormalized mass of 1.274e-04 nats per emitted phone. `sym/tok` is per RETAINED TOKEN over the
+    same 60,604 selection-fold tokens approach 21's column uses, so the two columns are comparable
+    within a start; `worst slack` is the largest nats by which a cell's best-path score fell below
+    its own exact forward log likelihood, and is a bound on the decode, not a quality statistic. No
+    label is read in any of these cells and no cell is compared to a banked 1g.10 number.
+
+    | start | emissions | fitting LM | count | symbols | sym/tok | distinct | worst slack | job |
+    |---|---|---|---|---|---|---|---|---|
+    | controlled/reference | gaussian | accepted-2g | 0 | 48,000 | 0.7920 | 39 | 7.50e-03 | `oBiqeae8wWC2` |
+    | controlled/reference | gaussian | accepted-2g | 4 | 45,477 | 0.7504 | 39 | 7.86e-07 | `oBiqeae8wWC2` |
+    | controlled/reference | gaussian | matched-4g | 0 | 48,000 | 0.7920 | 39 | 7.50e-03 | `9Um6DfyjYOTo` |
+    | controlled/reference | gaussian | matched-4g | 4 | 45,876 | 0.7570 | 39 | 2.84e-06 | `9Um6DfyjYOTo` |
+    | controlled/reference | table | accepted-2g | 0 | 47,684 | 0.7868 | 39 | 1.40e-02 | `I611BeAHLe5p` |
+    | controlled/reference | table | accepted-2g | 4 | 45,505 | 0.7509 | 39 | 6.36e-02 | `I611BeAHLe5p` |
+    | controlled/reference | table | matched-4g | 0 | 47,684 | 0.7868 | 39 | 1.40e-02 | `dD4BNLaWpw7H` |
+    | controlled/reference | table | matched-4g | 4 | 46,498 | 0.7672 | 39 | 4.49e-02 | `dD4BNLaWpw7H` |
+    | real/espum_seed0_update30000 | gaussian | accepted-2g | 0 | 49,599 | 0.8184 | 39 | 1.57e+00 | `CYMKVwReFIsN` |
+    | real/espum_seed0_update30000 | gaussian | accepted-2g | 4 | 47,695 | 0.7870 | 39 | 2.08e-02 | `CYMKVwReFIsN` |
+    | real/espum_seed0_update30000 | gaussian | matched-4g | 0 | 49,599 | 0.8184 | 39 | 1.57e+00 | `h7dasAET4GnW` |
+    | real/espum_seed0_update30000 | gaussian | matched-4g | 4 | 46,775 | 0.7718 | 39 | 9.84e-02 | `h7dasAET4GnW` |
+    | real/espum_seed0_update30000 | table | accepted-2g | 0 | 53,275 | 0.8791 | 39 | 1.26e+00 | `hWFBzIf5Yv8G` |
+    | real/espum_seed0_update30000 | table | accepted-2g | 4 | 45,348 | 0.7483 | 39 | 1.38e+00 | `hWFBzIf5Yv8G` |
+    | real/espum_seed0_update30000 | table | matched-4g | 0 | 53,275 | 0.8791 | 39 | 1.26e+00 | `65oYgLdH07Cx` |
+    | real/espum_seed0_update30000 | table | matched-4g | 4 | 44,859 | 0.7402 | 39 | 1.53e+00 | `65oYgLdH07Cx` |
+    | real/fingerprint | gaussian | accepted-2g | 0 | 42,449 | 0.7004 | 39 | 5.50e-01 | `lG2mByGPTl9k` |
+    | real/fingerprint | gaussian | accepted-2g | 4 | 43,597 | 0.7194 | 38 | 1.13e-01 | `lG2mByGPTl9k` |
+    | real/fingerprint | gaussian | matched-4g | 0 | 42,449 | 0.7004 | 39 | 5.50e-01 | `VsyhuzNPAhgr` |
+    | real/fingerprint | gaussian | matched-4g | 4 | 42,540 | 0.7019 | 38 | 1.73e-02 | `VsyhuzNPAhgr` |
+    | real/fingerprint | table | accepted-2g | 0 | 55,135 | 0.9098 | 39 | 2.49e-01 | `WxFKOAXtOebE` |
+    | real/fingerprint | table | accepted-2g | 4 | 42,462 | 0.7006 | 39 | 5.19e-01 | `WxFKOAXtOebE` |
+    | real/fingerprint | table | matched-4g | 0 | 55,135 | 0.9098 | 39 | 2.49e-01 | `CbW0CfvXWzkJ` |
+    | real/fingerprint | table | matched-4g | 4 | 40,713 | 0.6718 | 39 | 1.66e+00 | `CbW0CfvXWzkJ` |
+    | real/pseudo_pair_seed0 | gaussian | accepted-2g | 0 | 59,307 | 0.9786 | 36 | 6.72e+00 | `6D1qhe7DtE9m` |
+    | real/pseudo_pair_seed0 | gaussian | accepted-2g | 4 | 31,503 | 0.5198 | 39 | 1.16e-02 | `6D1qhe7DtE9m` |
+    | real/pseudo_pair_seed0 | gaussian | matched-4g | 0 | 59,307 | 0.9786 | 36 | 6.72e+00 | `t5PYGScA2mI5` |
+    | real/pseudo_pair_seed0 | gaussian | matched-4g | 4 | 31,135 | 0.5137 | 39 | 1.84e-04 | `t5PYGScA2mI5` |
+    | real/pseudo_pair_seed0 | table | accepted-2g | 0 | 55,462 | 0.9152 | 38 | 6.87e+00 | `8V9ycwOYQirF` |
+    | real/pseudo_pair_seed0 | table | accepted-2g | 4 | 36,319 | 0.5993 | 39 | 4.22e+00 | `8V9ycwOYQirF` |
+    | real/pseudo_pair_seed0 | table | matched-4g | 0 | 55,462 | 0.9152 | 38 | 6.87e+00 | `PKYuPuJRsVHv` |
+    | real/pseudo_pair_seed0 | table | matched-4g | 4 | 36,211 | 0.5975 | 38 | 4.31e+00 | `PKYuPuJRsVHv` |
+    | real/random_map_seed1000 | gaussian | accepted-2g | 0 | 43,635 | 0.7200 | 39 | 1.19e+00 | `BG3TJzElV7ui` |
+    | real/random_map_seed1000 | gaussian | accepted-2g | 4 | 41,978 | 0.6927 | 39 | 4.15e-02 | `BG3TJzElV7ui` |
+    | real/random_map_seed1000 | gaussian | matched-4g | 0 | 43,635 | 0.7200 | 39 | 1.19e+00 | `gpgV68WMinJF` |
+    | real/random_map_seed1000 | gaussian | matched-4g | 4 | 41,418 | 0.6834 | 39 | 4.33e-02 | `gpgV68WMinJF` |
+    | real/random_map_seed1000 | table | accepted-2g | 0 | 31,693 | 0.5230 | 39 | 9.59e-02 | `DaJLRyZ5N1Dn` |
+    | real/random_map_seed1000 | table | accepted-2g | 4 | 41,992 | 0.6929 | 39 | 1.12e+00 | `DaJLRyZ5N1Dn` |
+    | real/random_map_seed1000 | table | matched-4g | 0 | 31,693 | 0.5230 | 39 | 9.59e-02 | `IoSypXGTLch4` |
+    | real/random_map_seed1000 | table | matched-4g | 4 | 41,731 | 0.6886 | 39 | 7.08e-01 | `IoSypXGTLch4` |
+
 
 23. **1g.13 experiment 1: the wav2vec-U v1-equivalent stream (`g13_stream.py`, `g13_jobs.py`,
     `config/sae_1g_13_exp1.py`).** Built and launched 2026-08-24; one CPU job, no cell yet. The
@@ -1760,6 +1813,35 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     experiments 4 to 6. It also does not license "the repair objective is worthless" -- it licenses
     only "this criterion, at this operating point, does not rank starts by content."
 
+59. **A22: the exact order-4 readout is certified on every one of the twenty cells, and the
+    fitting LM provably does not reach the decode.** Zero exactness violations in all twenty, and
+    an identical renormalized mass of 1.274e-04 nats per emitted phone, so no cell's number is a
+    beam artifact and none is a different automaton read twice -- which is the thing 1g.10's
+    prefix-beam family could not have, and the reason its whole line was closed. A second check
+    falls out of the design and reads clean: at repair count 0 nothing has been fitted, so a cell's
+    accepted-2g and matched-4g rows must be identical because both decode under the same order-4
+    automaton. They are, to the symbol, for all five starts in both emission models. That is the
+    positive control for "the fitting-order contrast is a fitting-order contrast" -- had the
+    fitting LM leaked into the decoder, these ten pairs would differ.
+
+60. **A22: the near-total collapse of the pseudo-pair channel is a READOUT property, not a channel
+    property -- but this says nothing yet about whether either readout is correct.** The
+    unrepaired pseudo-pair Gaussian channel decoded LM-blind emits 0.0152 symbols per retained
+    token using 3 of 39 phone types (approach 21). The SAME channel, same fold, same 60,604
+    retained tokens, decoded by the exact order-4 LM-aware readout emits 0.9786 symbols per token
+    using 36 of 39 (approach 22). No parameter differs between those two rows; only the readout
+    does. So the "collapse" that 1g.9 localized and 1g.10 tried and failed to characterize with a
+    beam is, in this cell, produced by reading the channel without its language model. Everywhere
+    else the two readouts move modestly and mostly in one direction -- the LM-aware decode emits
+    FEWER symbols than the LM-blind one at every other Gaussian cell (controlled reference 0.7832
+    to 0.7570 at count 4, fingerprint 0.7964 to 0.7019, random map 0.7733 to 0.6834, espum 0.8626
+    to 0.7718 at the matched 4-gram) -- so the rescue is specific to the collapsed cell rather
+    than a uniform effect of adding a language model. WHAT THIS IS NOT: a claim that the LM-aware
+    output is better. Symbol rate and inventory usage are not correctness, no gold is read in any
+    of these cells, and a decoder that emits a plausible number of plausible symbols can still be
+    wrong about every one of them. The correctness read is experiment 6, on the 890 with gold,
+    against the re-banked nulls; clause 3(a)'s readout contrast is decided there and not here.
+
 ## Catalog
 
 1g.10c positive insertion-bonus cells, parity PASS, sign split between rows (verdicts 36-37): `work/speech_llm/sae/h4_insertion_bonus/H4InsertionBonusReadJob.da3bGeQIkS0R` (`insertion_bonus.json`, `insertion_bonus.txt`); 256 beam-512 chunks + 8 probes + 1 parity chunk under `work/speech_llm/sae/h4_insertion_bonus/`, merged by the production `H4SequenceDecodeMergeJob`; code `sae/h4_insertion_bonus.py`, `scripts/h4_insertion_bonus_test.py` (14/14) at speech-llm `3d395de`.
@@ -1773,6 +1855,8 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 | evidence | concrete artifact or source |
 |---|---|
 | 1g.12 experiments 2 and 3, the ten Gaussian repair cells at fitting orders 2 and 4 (approach 21, verdicts 55-56, 58) | accepted-2g `work/speech_llm/sae/g12_repair_jobs/G12GaussianContextRepairJob.` `0nngx4f5pX69`, `iZaUwq3DQVjj`, `OBwHBeOmwYU5`, `OyooGnuVi7EK`, `uczGmykabX6i`; matched-4g `.8OzLoDv4PPlt`, `.BrQtRIAKaWwU`, `.dDKq6J6AQEIP`, `.DgOI3SI1cwph`, `.kHwPYElOcCPr` (each `parameters.npz`, `repair.json`, `repair.txt`, `hypotheses.json`); code `sae/g12_gaussian_context.py`, `sae/g12_repair_jobs.py`, `configs/config_sae_1g_12_exp23_v1.py`, `config/sae_1g_12_exp23.py`, `scripts/g12_repair_jobs_test.py` (31/31) |
+| 1g.12 experiment 4, the twenty exact order-4 one-best readouts (approach 22, verdicts 59-60) | `work/speech_llm/sae/g12_readout_jobs/G12ExactReadoutJob.*` (20 dirs; each `readout.json`, `readout.txt`, `hypotheses.json`); code `sae/g12_exact_decode.py`, `sae/g12_readout_jobs.py`, `configs/config_sae_1g_12_exp4_v1.py`, `config/sae_1g_12_exp4.py`, `scripts/g12_exact_decode_test.py` (33/33), `scripts/g12_readout_jobs_test.py` (22/22) at speech-llm `5e245b1` |
+| 1g.13 experiment 2, the VAD-mask firewall (approach 24) | `work/speech_llm/sae/g13_firewall/G13VadFirewallJob.Usfy2NF0LiSQ` (`gold_update.pkl`, `gold_selection.pkl`, `gold_evaluation.pkl`, `trim_masks.pkl`, `firewall.json`, `firewall.txt`); code `sae/g13_firewall.py`, `configs/config_sae_1g_13_exp2_v1.py`, `config/sae_1g_13_exp2.py`, `scripts/g13_firewall_test.py` (30/30) at speech-llm `4d0fad6` |
 | 1g.13 experiment 1, the wav2vec-U v1-equivalent stream (approach 23, verdict 57) | `work/speech_llm/sae/g13_jobs/G13StreamBuildJob.Ob8Rh8y51x9M` (`units.pkl`, `segments.pkl`, `boundaries.pkl`, `component_scale.npy`, `transform.npz`, `stream.json`, `stream.txt`); code `sae/g13_stream.py`, `sae/g13_jobs.py`, `configs/config_sae_1g_13_exp1_v1.py`, `config/sae_1g_13_exp1.py`, `scripts/g13_stream_test.py` (35/35), `scripts/g13_faiss_reference_test.py` (10/10, run under the `w2vu` env), `scripts/g13_jobs_test.py` (34/34) at speech-llm `7f3f312` |
 | 1g.9 experiment 1, locate the collapse (approach 15, verdicts 26-29) | `work/speech_llm/sae/h4_collapse_locate/H4CollapseLocateJob.gZ9d6e3E7ZGu`; code `sae/h4_collapse_locate.py`, `configs/config_sae_1g_h4_collapse_locate_v1.py`, `config/sae_1g_h4_collapse_locate.py`, `scripts/h4_collapse_locate_test.py` (6/6) at speech-llm `d08cd88` |
 | 1g.2a item 4 rank agreement between the two halves | `work/speech_llm/sae/h4_context_agreement/H4ContextAgreementJob.zd6RBdYcvzti` |
