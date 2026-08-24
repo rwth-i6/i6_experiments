@@ -259,6 +259,19 @@ three running jobs survived it.
 
 NEXT ACTION, in order:
 
+0. THE GAUSSIAN PILOT'S QUIET LOG IS RESOLVED, and it changes how its wall clock must be read. Its
+   log and `usage.run.1` both froze at run time 0:00:10 while slurm reported RUNNING -- the same
+   monitor writes both, and it only appends when the main thread yields, so a long numpy call
+   freezes the pair together. Direct evidence from the node (`srun --jobid --overlap`, the
+   allocation is ours): state `Rl`, 100% CPU, 16.5 GiB resident against 30 requested, 32 min
+   elapsed -- healthy and computing. The banked seg12.5 cell
+   `G12GaussianContextRepairJob.8OzLoDv4PPlt` already carries 7-minute and 20-minute gaps in 29
+   monitor lines over 59 minutes, so this is the class's own behaviour and not this stream's; the
+   gaps scale with a 2.46x fold at 512 dimensions instead of 96. CONSEQUENCE for item 1 below: the
+   pilot wall clock must be taken from job start to the `finished` marker, NEVER from
+   `usage.run.1`, whose `current` block is a stale snapshot rather than a live reading. The table
+   pilot logs every 10 s throughout, so a quiet TABLE cell would still be worth investigating.
+
 1. Read the two pilot cells' wall clocks against their own arm's projection the moment they finish,
    then flip `PILOT_ONLY` to False and register the remaining eighteen. The Gaussian pilot is
    `G12GaussianContextRepairJob.mrmyPW7K6BJI` (9 h requested, 1.1389 h per E-step projected over
