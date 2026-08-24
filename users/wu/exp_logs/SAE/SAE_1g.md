@@ -3652,5 +3652,14 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   no-LM clause is satisfied the same way it is on seg12.5. The 1g.13 manager restart (20:08,
   postdating the 1g.12 manager's 19:32) loaded the extended graph and all three running jobs
   survived it: both fitting pilots and the 1g.12 reader are slurm-RUNNING first attempts with
-  no error markers. WATCH: the Gaussian pilot's log has been quiet since job start (19:48)
-  while slurm reports RUNNING -- normal for its compute phase, re-check at the wall-clock read.
+  no error markers. The quiet-log WATCH is RESOLVED (implementer State item 0, verified): the
+  freeze is the class's own monitor behaviour, not a stall -- the verifier's own read of the
+  banked seg12.5 cell `G12GaussianContextRepairJob.8OzLoDv4PPlt` (finished cleanly) shows 67
+  timestamped engine-log lines over 2 h 03 min with top gaps of 49, 15.6, 14.1, 7.0 and 6.0
+  minutes, so the precedent is even stronger than the implementer's quoted 7/20-minute gaps;
+  the pilot's `usage.run.1` advanced 33 minutes into the run, consistent with a monitor that
+  appends only when the main thread yields; slurm reports both pilots RUNNING. The procedural
+  consequence is RIGHT and adopted: each pilot's wall clock is read from job start to the
+  `finished` marker, never from `usage.run.1`'s stale `current` block -- which is also the
+  quantity the gates project (whole-fold hours). A quiet TABLE cell would still be
+  investigated, since that class logs every 10 s.
