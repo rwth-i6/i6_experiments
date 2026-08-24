@@ -2605,6 +2605,20 @@ content through the adapter manifest's source-array digest (three asserted links
 the verifier's own recomputation on both table corners. The two new inputs move the unrun
 reader's hash to `G12EvaluateJob.yJgxKex9peLp` (never run, so the move is free; suite 63/63).
 
+2026-08-24 experiment 5 CLOSED VERIFIED on the full pair, and experiment 6 LAUNCHED. The
+matched-4-gram null cell and its readout finished; every closure number reproduces by the
+verifier's own recomputation: both cells record 645,028 redrawn tokens under the identical
+whole-draw and selection-artifact hashes (their `observation_null.json` files differ only in
+the fitting-LM field), each readout is wired to its own cell's acoustics, and all four jobs
+report zero exactness violations. The one-bed condition of RULING 1 holds in the STRONG form:
+the two count-0 decodes are byte-identical (47,628 symbols, per-utterance likelihood and path
+scores exactly equal) while the count-4 decodes separate (54,883 against 54,434; 871 of 890
+utterances differ), both under the same matched-4-gram order-4 automaton -- so contrast (b)'s
+null column rests on a certified single draw, not a seed argument. `G12EvaluateJob.yJgxKex9peLp`
+is IN FLIGHT under the switched manager (hash unchanged at HEAD, rebuilt read-only); until it
+finishes there is still no phone error rate in 1g.12, and the gate reads when it lands.
+Evidence in `SAE_1g.md` (approach 27 and Verifier feedback).
+
 ### 1g.13 — the 1g.12 factorial on wav2vec-U v1-equivalent segmentation (USER-directed 2026-08-24)
 
 **Purpose.** Every 1g arm to date -- table and Gaussian, bigram and 4-gram -- runs on the
@@ -2816,6 +2830,24 @@ role either way. 2026-08-24: all three hygiene items DISCHARGED at speech-llm `7
 verified -- the accepted-H1 digest now raises on a mismatch where a manifest carries it (four
 of five starts, all but the controlled reference), the docstrings state the corrected manifest
 facts, and the gate report header names its route.
+
+2026-08-24 experiment 5 step (c) pilots VERIFIED (approach 29; speech-llm `4a56304`). The
+factorial build conforms to the registration and to the launch ruling: all twenty cells are
+constructed, the two most expensive (the espum real start under the matched 4-gram, one per
+emission model) are launched as pilots, each arm's request is READ from its own gate artifact
+with both PASS verdicts and the same update fold asserted by recorded hash, and the Gaussian
+cell's widening is exactly the two hash-excluded adaptations with the codebook projection
+shared between gate and cell as one module-level function. Hash neutrality is confirmed by
+rebuilding both graphs at HEAD: all 4,738 pre-existing 1g.13 jobs and the 36-job 1g.12 family
+keep their hashes and finished markers; the only additions are the two pilot cells and their
+two exact readouts. The implementer's recorded deviation (editing shared source while the
+1g.12 reader ran) is ACCEPTED for this case -- the running job imports only two constants from
+the edited module and the edit is hash-neutral -- with the build-order rule standing as the
+default. ONE OPEN ITEM: the registration gives every cell an LM-blind local-decode no-LM leg;
+the pilots register only the exact readouts -- acceptable for the wall-clock read, but the leg
+must register no later than the `PILOT_ONLY` flip, with the Gaussian corners' producing job
+named. Both pilot wall clocks read against their own gates' per-E-step projections before the
+remaining eighteen launch.
 
 ## 6. Deliverables ladder
 

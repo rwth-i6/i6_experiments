@@ -3532,5 +3532,56 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   environment facts for the record: the two upstream inputs reaching this family as
   creator-less paths (`Phase1gH1Job.HbxKiuBTJ8aN`, `QuantizeStatesJob.FWpGhC941JMi`) get no
   `input/` symlink, so reachability-based cleanup sweeps will not see them as needed (also
-  added to memory); and the exp-6 reader cannot run until `G12ObservationNullJob.QfLZEyTjxE6o`
-  finishes -- that cell is the round's long pole.
+  added to memory).
+
+- 2026-08-24 (round: 1g.12 experiment 5 closure + experiment 6 launch + 1g.13 factorial pilots;
+  dated lines appended to `PLAN_1G.md` 1g.12 and 1g.13 Status). VERIFIED, every number
+  recomputed from disk by the verifier's own agents:
+  (1) Experiment 5 CLOSED (approach 27). The matched-4-gram cell and its readout finished; both
+  cells record 645,028 redrawn tokens (the 584,424/60,604 update/selection split lives in the
+  null jobs' own `repair.json` retained_census and sums exactly) under the identical whole-draw
+  sha `98a1cc7e` and selection-artifact sha `38d68786` -- the two `observation_null.json` files
+  differ ONLY in the fitting-LM field. Each readout is wired to its own cell (info INPUT lines
+  and `input/` symlinks both checked; no cross-wiring), zero exactness violations in all four
+  jobs. The one-bed condition holds in the STRONG form: the two count-0 decodes are
+  byte-identical (content sha `bc136c73`, 47,628 symbols, per-utterance forward likelihoods and
+  path scores exactly equal, per-token 0.7858887202164874 bit-identical) while the count-4
+  decodes separate (54,883 against 54,434; 871 of 890 utterances differ), both under the same
+  matched-4-gram order-4 automaton (sha `f38eedfc`). Approach 27's table numbers all reproduce.
+  (2) Experiment 6 launch checks: the manager switch happened (only `sae_1g_12_exp6` and
+  `sae_1g_13_exp5` are live), `G12EvaluateJob.yJgxKex9peLp` is running with an active log and
+  its hash is unchanged at HEAD by read-only graph rebuild. No phone error rate exists until it
+  finishes; the gate reads next round.
+  (3) The 1g.13 factorial build (approach 29, speech-llm `4a56304`). The widening is exactly
+  the two hash-excluded adaptations at their 1g.12 defaults (`g12_repair_jobs.py:182`); the
+  codebook projection is MOVED to `codebook_in_observation_space` (`g12_resource.py:240`) with
+  both call sites confirmed and the inline copy deleted; the config reads each arm's request
+  from its own gate artifact, asserts both verdicts PASS (the table assert reads
+  `whole_fold_verdict`, the binding one for a whole-fold job) and asserts the same update fold
+  by recorded hashes (`update_ids_hash 2d005933`, `accepted_h1_sha256 0ee96f33`, 6,414 update
+  ids -- identical in both gate artifacts); `PILOT_ONLY` gates registration only (all twenty
+  cells constructed unconditionally, five-by-four and eighteen-held asserts in the config), so
+  the flip moves no hash. On-disk pilot requests match the gates: 9 h / 30 GiB (Gaussian,
+  slurm 1485715) and 10 h / 3 GiB (table, slurm 1485714); pilot inputs are the espum start
+  under the matched 4-gram with centroids from the stream's own PCA
+  (`G13StreamBuildJob.Ob8Rh8y51x9M` transform.npz). Census at HEAD: the 1g.13 graph holds
+  4,742 jobs, all 4,738 pre-existing ones finished at unchanged hashes, zero moved, the four
+  additions exactly the two pilots plus their two exact readouts (`PXkdjfKVf0VA`,
+  `OOCRqqetyibP`), each readout consuming its own pilot cell; the 1g.12 family is 36 jobs, 35
+  finished plus the running reader. Suites re-run by the verifier: g12_repair_jobs 48/48,
+  g12_resource 50/50. Benign code notes: `quantizer_pkl` relaxed to optional with an
+  exactly-one-codebook XOR check (hash-neutral for existing callers, not a third adaptation),
+  and the default start path now routes through the two-state lift, which is a checked
+  identity on the three-dimensional banked channels.
+  (4) The recorded deviation -- widening shared source while `yJgxKex9peLp` ran -- is ACCEPTED
+  for this case: `g12_evaluate.py:113` imports only the two constants `G12_ACCEPTED_BIGRAM`
+  and `G12_REPAIR_REVISION` from the edited module, never constructs the widened class, and
+  imports nothing from `g12_resource`; the edit is hash-neutral, so the running job's identity
+  never moved. The build-order rule stands as the default; recording the reasoning for
+  judgment was the right form.
+  (5) ONE ITEM for the implementer: the registration decodes every factorial cell "by the
+  exact order-4 readout with the LM-blind local decode as its no-LM leg"; the pilots register
+  only the exact readouts. Acceptable for a wall-clock pilot, but the no-LM leg must be
+  registered no later than the `PILOT_ONLY` flip, and its producing job for the GAUSSIAN
+  corners on this stream should be named when it registers (the table corners have the
+  established local-decode class; the Gaussian side's leg has no named producer in this build).

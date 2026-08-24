@@ -306,7 +306,13 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    `PLAN_1G.md` 1g.12 Status; reader waits on the 4-gram null cell); 1g.13 table-arm port
    verified hash-neutral and its gate RATIFIED as completing experiment 4 -- read PASS at 10 h
    vs the 11.5 clamp (verdict 69: six E-steps vs the Gaussian's five, so LESS headroom than
-   the Gaussian arm) -- both arms funded, one cell of EACH arm launches first.
+   the Gaussian arm) -- both arms funded, one cell of EACH arm launches first. 2026-08-24
+   evening: 1g.12 experiment 5 CLOSED VERIFIED (one-bed certified in the strong form --
+   count-0 decodes byte-identical across the two fitting orders, count-4 separates), reader
+   `G12EvaluateJob.yJgxKex9peLp` IN FLIGHT (the first phone error rate in 1g.12, gate reads
+   when it lands); 1g.13 factorial pilots VERIFIED and IN FLIGHT (requests read from each
+   arm's own gate, same fold asserted, hash-neutral by census; wall clocks read against the
+   gates' projections before the remaining eighteen launch).
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional
