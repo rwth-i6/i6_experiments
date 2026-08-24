@@ -3684,3 +3684,11 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   `finished` marker, never from `usage.run.1`'s stale `current` block -- which is also the
   quantity the gates project (whole-fold hours). A quiet TABLE cell would still be
   investigated, since that class logs every 10 s.
+  (6) The USER-directed full launch (State item, 20:55) verified on disk: all 60 factorial
+  jobs registered (20 fitting cells with dirs and all 20 in the slurm queue; 20 readouts, 10
+  adapters, 10 table local decodes correctly dir-less pending upstream; the no-LM leg
+  registration counts 20, one per cell), graph total 4,798 with zero pre-existing hashes
+  moved, both pilots undisturbed at their hashes and still running, and spot-checked new-cell
+  requests match their own gates (9 h/30 GiB Gaussian, 10 h/3 GiB table). The supersession of
+  the pilot-first clause and the sharded recovery shape are recorded in `PLAN_1G.md` 1g.13
+  Status.

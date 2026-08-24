@@ -311,8 +311,10 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    count-0 decodes byte-identical across the two fitting orders, count-4 separates), reader
    `G12EvaluateJob.yJgxKex9peLp` IN FLIGHT (the first phone error rate in 1g.12, gate reads
    when it lands); 1g.13 factorial pilots VERIFIED and IN FLIGHT (requests read from each
-   arm's own gate, same fold asserted, hash-neutral by census; wall clocks read against the
-   gates' projections before the remaining eighteen launch).
+   arm's own gate, same fold asserted, hash-neutral by census); 20:55 USER DIRECTION: the
+   WHOLE factorial launched immediately, replacing the pilot-first clause -- all 20 fitting
+   cells queued, verified on disk; recovery for a table-cell clamp overrun is the gate-passed
+   sharded shape, not a bigger request.
 2. **§3e.1 — D4+D5 on the best bed (USER REDIRECTS 2026-08-08/09)**: the user overrode the
    D3-plateau trigger (2026-08-08, rationale: rate-matching is a targeted heuristic, which
    D2's own read supports — d2_rate failed the paired read, d2_contrast is the conditional

@@ -2851,8 +2851,26 @@ table corners through the ported adapter and local-decode classes at the paired 
 hash-neutral for all 121 banked jobs of that family by a cross-version identity proof. One
 substantive fix came with it: the adapter manifest's fitting-LM digest now takes whichever
 form the fitting LM has, records the kind beside it, and refuses a manifest with neither,
-where the old stamp was null for accepted-bigram cells. Both pilot wall clocks read against
-their own gates' per-E-step projections before the remaining eighteen launch.
+where the old stamp was null for accepted-bigram cells.
+
+2026-08-24 20:55 USER DIRECTION (recorded by the implementer in `SAE_1g.md` State): the WHOLE
+factorial is launched immediately -- this replaces the pilot-first clause of the 2026-08-24
+launch ruling ("one cell of EACH arm launches first, wall clock read before the rest"),
+because the user asked for this subphase's result soonest and the schedule is the user's call.
+The departure is bounded, not a gamble, and the implementer's record of it is verified: both
+measured gates had already PASSED for exactly this population (that is what funds the cells at
+all), the protection given up is only against a projection wrong by more than the 1.5
+multiplier already inside each request (2.02x total margin on the Gaussian arm, 1.74x on the
+table arm), and neither arm prints mid-flight progress, so the pilot was all-or-nothing --
+six hours of critical path for one number. Verified on disk by the planner: all 60 factorial
+jobs registered (20 fitting cells with dirs, all 20 in the queue with requests read from
+their own gates -- spot-checked 9 h/30 GiB and 10 h/3 GiB; 20 exact readouts, 10 adapters and
+10 table local decodes correctly dir-less pending their upstream cells; every cell's no-LM
+leg registered), graph total 4,798 with zero pre-existing hashes moved, both pilots
+undisturbed and running. REGISTERED RECOVERY SHAPE if a table cell hits the 11.5 h clamp: NOT
+a bigger request (the queue caps there), but the SHARDED shape the table gate separately
+passed at 1 h per shard with 10.5 h of headroom -- not built unless needed. The Gaussian arm
+has no such cliff at its 2.02x margin.
 
 ## 6. Deliverables ladder
 
