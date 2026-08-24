@@ -255,6 +255,13 @@ result is BIT-IDENTICAL to the single-core path rather than merely close -- whic
 cells inherit the accepted computation's verification instead of needing their own. Speech-llm
 `454ddbd`, `scripts/parallel_estep_test.py` 101/101 new, twelve neighbouring suites clean.
 
+SUITE ITEM DISCHARGED 2026-08-24 (verifier): the suite proved bit-identity only at ORDER 2, which
+says nothing about order 4 -- the engine takes a different path there, a 40^3 history space and the
+shift-table contraction, carrying far more additions per sub-batch, which is precisely where a
+reordering would surface. It now re-checks both arms against the REAL matched 4-gram automaton the
+cells fit under (`H4MatchedLmJob.VpVkGMMy7xKW`) rather than a synthetic stand-in, in the one-shard
+shape the repair job packs. 122/122, up from 101.
+
 Bit-identity is a statement about ORDER, since floating-point addition is not associative. Both
 paths use `Pool.imap`, which yields in input order, and accumulate exactly the sequence of additions
 the loops they replace performed. The table arm's parallelism had to go INSIDE the shard: the repair
