@@ -247,6 +247,39 @@ eighteen are registered by flipping `PILOT_ONLY` once those wall clocks are read
 cannot be the cell that runs into the clamp. Flipping the flag moves no hash: registration decides
 what a manager may run, never what a job is.
 
+USER DIRECTION 2026-08-24 21:10: THE E-STEP IS PARALLELISED AND THE ORDER-4 CELLS RELAUNCHED ON IT.
+The user asked whether the tight table request could be made safer with more parallelism. It could,
+and by more than expected: every cell reserved four cores and used ONE, at 100.5% measured. The
+E-step is a map-reduce over independent sub-batches in both arms, so it now forks workers, and the
+result is BIT-IDENTICAL to the single-core path rather than merely close -- which is what lets these
+cells inherit the accepted computation's verification instead of needing their own. Speech-llm
+`454ddbd`, `scripts/parallel_estep_test.py` 101/101 new, twelve neighbouring suites clean.
+
+Bit-identity is a statement about ORDER, since floating-point addition is not associative. Both
+paths use `Pool.imap`, which yields in input order, and accumulate exactly the sequence of additions
+the loops they replace performed. The table arm's parallelism had to go INSIDE the shard: the repair
+job packs the whole update fold as one shard, so splitting it would regroup the additions and be a
+different computation rather than a faster one. Workers are forked so each child inherits the packed
+observations and the automaton as copy-on-write pages; at order 4 the automaton is the largest
+object in the calculation and shipping it to every worker would cost more than the worker saves.
+
+THE TIME REQUEST IS LEFT EXACTLY AS EACH GATE SIZED IT -- 9 h Gaussian, 10 h table. Parallelism can
+only make a job finish sooner, so keeping the gate's number relies on no estimate of the speed-up
+and lands the whole benefit as clamp headroom, which is the point: the queue caps at 11.5 h and a
+whole-fold cell that overruns cannot be relaunched larger. The WIDTH is derived from the accepted
+256 GiB ceiling rather than fixed, charging each gate's whole-pass figure once per worker -- the
+conservative reading -- so no gate figure can produce a request the queue would refuse: 7 workers
+and 234 GiB on the Gaussian arm, 16 and 56 GiB on the table arm. Measured live after relaunch: 21
+processes at ~99% CPU on a table cell, 12 on a Gaussian one.
+
+WHAT WAS KILLED, AND WHAT WAS NOT. Half the factorial was already FINISHED when this started, which
+changed the action: all ten accepted-bigram cells completed in about thirteen minutes, because the
+bigram carries far fewer histories than the order-4 automaton the gates measured. Only the ten
+order-4 cells were ever the expensive ones. So only those ten were cancelled and their dirs deleted;
+the ten finished bigram cells and their readouts were left alone, and the change is hash-neutral
+(no constructor argument moved, and `cpu`/`mem` are not hashed), verified by census -- the ten
+relaunched cells came back at their original hashes.
+
 USER DIRECTION 2026-08-24 20:55: THE WHOLE 1g.13 FACTORIAL IS LAUNCHED, pilot rule not waited out.
 The user asked for the subphase now -- 1g.13 is the result they want soonest -- so `PILOT_ONLY` was
 flipped before either pilot's wall clock had been read, and the remaining eighteen fitting cells
@@ -1759,7 +1792,7 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 
 30. **1g.12 experiment 6: the evaluation against gold, the first phone error rate in 1g.12
     (`g12_evaluate.py`, `configs/config_sae_1g_12_exp6_v1.py`).** `G12EvaluateJob.yJgxKex9peLp`,
-    finished 2026-08-24 21:00 after 1 h 25 min. Eighty-two scored rows: four corners by five starts
+    finished 2026-08-24 21:00 after 1 h 25 min. Seventy-eight scored rows: four corners by five starts
     plus the observation null at both fitting orders, each under BOTH decoders (the exact order-4
     readout and that cell's own LM-blind local decode) at counts 0 and 4, on the accepted H1
     selection role -- 890 utterances, dev-clean 432 and dev-other 458. The 1,112-utterance
@@ -2608,7 +2641,10 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     `cont` column is set only for the gold-informed controlled reference, whose margin over the
     babble null's 99th percentile is 0.39 to 0.52 across its cells. Every real start's margin is
     between -0.03 and +0.03 against a required 0.05, and the content-free random map sits inside
-    that same band. In plain phone error rate the four real starts span 0.8154 to 0.8605 at count 4
+    that same band AT THE COUNT-4 EXACT-READOUT ROWS; several local rows spill to about +/-0.04 and
+    the pseudo-pair count-0 row sits near -0.11, and no non-controlled cell approaches the +0.05 bar
+    anywhere, so the conclusion is unchanged and only the sentence's scope was too wide (verifier
+    2026-08-24). In plain phone error rate the four real starts span 0.8154 to 0.8605 at count 4
     under the exact readout while the random map reads 0.8318 to 0.8629, so the whole real
     population lies within about 1.5 points of a start built to carry no content. The controlled
     reference, which is gold-informed, reads 0.4046 to 0.4500 on the same rows.
