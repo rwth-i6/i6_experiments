@@ -247,6 +247,16 @@ eighteen are registered by flipping `PILOT_ONLY` once those wall clocks are read
 cannot be the cell that runs into the clamp. Flipping the flag moves no hash: registration decides
 what a manager may run, never what a job is.
 
+VERIFIER ITEM (5) DONE 2026-08-24, before the `PILOT_ONLY` flip as asked (speech-llm `e89ccdb`).
+One correction to the item as written: the GAUSSIAN corners' no-LM leg does have a named producer
+-- `G12GaussianContextRepairJob.out_hypotheses`, the fitting cell's own local decode at every
+count, which is the same edge 1g.12's gate reader consumes for those corners. It was unregistered,
+not unbuilt, and is now registered. What genuinely had to be built is the TABLE corners' leg: the
+channel adapter and the local decoder are scoped to `seg12.5` in the same three places the fitting
+job was, and are now ported on the same contract as the rest of this port. Approach 29 carries the
+census and the adapter digest fix. The manager was restarted so it holds the extended graph; all
+three running jobs survived it.
+
 NEXT ACTION, in order:
 
 1. Read the two pilot cells' wall clocks against their own arm's projection the moment they finish,
@@ -1674,6 +1684,29 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     | espum, gaussian, matched-4g | `G12GaussianContextRepairJob.mrmyPW7K6BJI` | 9 h, 30 GiB | `G12ResourceGateJob.cQ3wfqsTamPP` |
     | espum, table, matched-4g | `H4ContextRepairJob.ZOyDz3Lr5gvi` | 10 h, 3 GiB | `H4ContextResourceGateJob.8M4rSjaBlikH` |
 
+    THE NO-LM LEG OF EVERY CELL, added on the verifier's item and before the `PILOT_ONLY` flip.
+    The two corners answer it differently, and only one of them was missing anything. A GAUSSIAN
+    corner's leg already had a named producer -- the fitting cell itself runs 1g.11's local decoder
+    over the selection role at every count, keyed by start, fitting LM and count, which is exactly
+    the edge 1g.12's gate reader consumes -- so it only needed registering. A TABLE corner's leg is
+    a separate job, as it is in 1g.12, and its two classes carried the same three seg12.5 scopings
+    the fitting job did.
+
+    | check | result |
+    |---|---|
+    | banked jobs of `h4_context_decode.py` after the port | 121, zero moved, zero unfinished |
+    | suite `scripts/h4_context_port_test.py` | 69/69 (was 52) |
+    | pilot jobs after wiring both legs | 6 of 4,744; both running fitting cells keep their hashes |
+
+    The table arm's leg sits at the paired count, mirroring 1g.12, and the count-0 guard is left
+    standing on purpose: at count 0 the repaired table is the start duplicated across the two
+    sub-states, not an occupancy-weighted channel, which is why the accepted method decodes count 0
+    as a direct `Q` instead. One substantive fix came out of the port -- the channel adapter stamped
+    its fitting-LM digest from the automaton alone, so an accepted-bigram cell, built from the
+    calibration artifact with no automaton, would have carried a null there and looked like any
+    other cell to anything comparing that field. The digest now comes from whichever form the
+    fitting LM has, with the kind recorded beside it, and a manifest carrying neither is refused.
+
 ## Verdicts
 
 1. **Approach 1: one segment per text symbol is rejected.** It exceeds the registered ratio on all
@@ -2586,6 +2619,7 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
 
 | 1g.12 experiment 5 continuous observation null at both fitting orders, fitted AND decoded on its own redrawn acoustics (observation_null.json, null_segments.pkl, parameters.npz, repair.json, hypotheses.json) | `work/speech_llm/sae/g12_nulls/G12ObservationNullJob.tDiHo9tPpn5Z` (accepted-2g); `work/speech_llm/sae/g12_nulls/G12ObservationNullJob.QfLZEyTjxE6o` (matched-4g); their exact readouts `work/speech_llm/sae/g12_readout_jobs/G12ExactReadoutJob.ij9vB58klqDW` and `.axh5u2jyP9Va`; code `sae/g12_nulls.py`, `configs/config_sae_1g_12_exp5_v1.py`, `scripts/g12_nulls_test.py` (32/32) at speech-llm `c4d3f13` |
 | 1g.13 experiment 5 four-corner factorial, pilot cells (repair_channels.npz / parameters.npz, repair.json, hypotheses.json, readout.json, readout.txt) | `work/speech_llm/sae/g12_repair_jobs/G12GaussianContextRepairJob.mrmyPW7K6BJI`; `work/speech_llm/sae/h4_context_diagnostic/H4ContextRepairJob.ZOyDz3Lr5gvi`; readouts `work/speech_llm/sae/g12_readout_jobs/G12ExactReadoutJob.PXkdjfKVf0VA` and `.OOCRqqetyibP`; code `sae/g12_repair_jobs.py`, `sae/g12_resource.py`, `configs/config_sae_1g_13_exp5_v1.py`, `config/sae_1g_13_exp5.py`, `scripts/g12_repair_jobs_test.py` (48/48) at speech-llm `4a56304` |
+| 1g.13 experiment 5 no-LM leg of the table corners (channel.npz, channel.json, local_hypotheses.json) | `work/speech_llm/sae/h4_context_decode/H4ContextChannelAdapterJob.ruZ0Muc40Aaa`; `work/speech_llm/sae/h4_context_decode/H4ContextLocalDecodeJob.6KblLtDciuiq`; code `sae/h4_context_decode.py`, `scripts/h4_context_port_test.py` (69/69) at speech-llm `e89ccdb` |
 
 ## Verifier feedback
 
