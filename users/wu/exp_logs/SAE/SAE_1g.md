@@ -201,9 +201,37 @@ per E-step but carrying one more of them -- so the TABLE corners have 1.5 h of c
 the continuous corners have 2.5. Both arms are funded; the wall-clock read on the first launched
 cell matters more for the table corners than for the Gaussian ones.
 
+SCOPED 2026-08-24, and DELIBERATELY NOT STARTED while `G12ObservationNullJob.QfLZEyTjxE6o` runs.
+1g.13 experiment 5 step (c) needs exactly ONE class widened, and it is `g12_repair_jobs.py`, which
+the running null job subclasses. My own recorded build order says never to widen shared source
+while cells are running, because a running job re-imports the recipe tree on every resubmit; the
+edit would be hash-neutral and provably behaviour-identical at 1g.12's values (the 1g.12 start is
+already three-dimensional, so a two-state lift is a pass-through, and a `centroids_npz=None`
+default leaves the quantizer path untouched) -- but "provably identical" under time pressure is
+exactly the claim that rule exists so I never have to make. The null cell is ~45 minutes from
+finishing and the arm's own matched-4-gram cells cost 2.02 to 2.08 h, so waiting costs less than
+being wrong about the 1g.12 decision cell.
+
+What the scoping found, so the edit is one clean pass when the window opens:
+
+  - `G12GaussianContextRepairJob` needs the SAME two adaptations `G12ResourceGateJob` already
+    carries and nothing else -- the codebook carried into the observation space by the stream's own
+    PCA (`centroids_npz`, exact because that map is affine) and the start read under this stream's
+    key and lifted across the two sub-states (`emissions_key`, `two_state_start_table`). Both
+    hash-excluded at their 1g.12 defaults.
+  - The TABLE arm needs nothing further: `H4ContextRepairJob` already takes a two-dimensional
+    `emissions` start and `context_reestimation_curve` does the two-state lift internally, and the
+    route, start-population and fitting-LM widenings landed in this round.
+  - `G12ExactReadoutJob` needs nothing at all: it already takes `route`, its table corner reads the
+    `repair_{count}_emissions` keys `H4ContextRepairJob` writes, and its Gaussian corner reads the
+    `mu_{count}`/`var_{count}` the repair cell persists. Its `route` is NOT hash-excluded and must
+    stay that way -- the twenty banked 1g.12 cells hashed the default, so excluding it now would
+    move them.
+
 NEXT ACTION, in order:
 
-1. 1g.13 experiment 5 step (c), now unblocked: build the four-corner factorial at repair counts
+1. 1g.13 experiment 5 step (c), unblocked by both gates and waiting only on the source window
+   above: build the four-corner factorial at repair counts
    (0, 4) over the five starts, one job per start as the gates sized it, every cell decoded by the
    exact order-4 readout with the LM-blind local decode as its no-LM leg. Each arm's request is
    READ from ITS OWN gate artifact and never written into the config -- the two gates disagree by
