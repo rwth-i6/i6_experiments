@@ -255,6 +255,27 @@ result is BIT-IDENTICAL to the single-core path rather than merely close -- whic
 cells inherit the accepted computation's verification instead of needing their own. Speech-llm
 `454ddbd`, `scripts/parallel_estep_test.py` 101/101 new, twelve neighbouring suites clean.
 
+MEASURED SPEED-UP 2026-08-24 21:46, and it removes the clamp risk entirely. The first three table
+order-4 cells FINISHED IN ABOUT 26 MINUTES against the gate's 6.6 h sequential projection, a 10 h
+request and an 11.5 h queue cap -- roughly fifteen times faster on sixteen workers, which is what
+the shape predicts once the sub-batches stop queueing behind one core. The table arm's 1.5 h of
+headroom is now about eleven hours. Their likelihood trajectories are sane (per-audio-unit log
+likelihood rising from -7.0748 at count 0 to -4.5685 at count 1 on `g2kLTuhpq0ps`). Five Gaussian
+cells are still running at 28 minutes on seven workers.
+
+DONE (1g.13 experiment 6, built and launched 2026-08-24 21:45): the content-free controls on THIS
+bed -- the observation null at both fitting orders and each one's exact order-4 readout, four jobs,
+`G12ObservationNullJob.UM72oLRoTEle` (matched-4g) and `.sakp81hAxfzB` (accepted-2g). Built before
+the evaluation that consumes them, deliberately, and this is 1g.12's lesson rather than a
+preference: there the exact readout beat the local decode in EVERY arm cell and the observation null
+beat it by MORE, so a contrast read before its controls existed would have looked like a result.
+The null job needed the same two adaptations the arm did, restated on the subclass because sisyphus
+hashes ITS `__init__` rather than the parent's -- excluded at the 1g.12 defaults, and the whole
+1g.12 graph re-censused at 4,757 jobs with ZERO unfinished to prove the banked nulls did not move.
+The build asserts the null fits at the arm's own max_batch, route, start key and start channel: a
+control that differs from its arm in anything but the observations is not a control. The manager is
+now `sae_1g_13_exp6`, whose graph contains experiment 5's.
+
 NOT AN OPEN ITEM, corrected 2026-08-24: `scripts/parallel_estep_test.py` is not an uncommitted
 speech-llm file. The suites of this campaign live in the SETUP ROOT `scripts/`, which is outside
 every repository -- the setup root is not a git repository at all -- so there is nothing to commit
