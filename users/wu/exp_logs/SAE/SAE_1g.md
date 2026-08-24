@@ -126,14 +126,44 @@ helper is removed again. The job is stateless, so recovery was the error marker 
 The whole 1g.13 experiment-4 graph is finished on disk with zero unfinished jobs; the watcher
 reported STALLED with one runnable, the same console misreport seen throughout this subphase.
 
+FOUND 2026-08-24 while scoping experiment 5, before any of it was built. The plan's experiment 5
+says in as many words that on this stream ALL FOUR CORNERS NEED FITTING, none is decode-only -- in
+1g.12 the two table corners were decode-only only because 1g.2a had already banked their emission
+tables. Two consequences the registered experiment 4 does not cover:
+
+1. THE TABLE ARM'S COST ON THIS STREAM IS UNMEASURED. Experiment 4 was registered in 1g.12
+   experiment-1 form, and that form measures the GAUSSIAN arm -- its own docstring says so, the
+   difference being the per-token density evaluation a table lookup does not have. So the 9 h
+   PASS licenses the ten Gaussian cells and says nothing about the ten table cells. The table arm
+   is very likely cheaper, but `g12_resource.py` opens with the rule that nothing may be requested
+   from the scheduler on the strength of an estimate, and "very likely cheaper" is an estimate.
+   The accepted table-arm gate class (`h4_context_resource.H4ContextResourceGateJob`) exists and
+   measured this at order 4 on seg12.5 (verdict 22, wide margin); running it on the new stream is
+   about ten minutes. TAKEN AS COMPLETING EXPERIMENT 4 RATHER THAN AMENDING THE PLAN: the plan
+   funds four corners and its experiment 4 says "before any cell is funded", so measuring the arm
+   it did not name is what that sentence asks for. If it reads RESOURCE_INFEASIBLE that is a stop
+   for the planner and not a fallback I pick.
+2. THE TABLE PATH IS NOT PORTED. `h4_context_resource.py:247` and `h4_context_diagnostic.py:117`
+   both hardcode `h1["routes"]["seg12.5/phones"]` and call `_route_mask(h1)` at its default, which
+   is the same defect already fixed in the three g12 modules; `H4ContextRepairJob` additionally
+   constrains `row_name` to `DIAGNOSTIC_ROWS` and `lm_identity` to identities that do not include
+   `accepted-2g`. So the table half of experiment 5 needs the route widening those two modules
+   never got, on the pattern already ruled for the topology guard.
+
+BUILD ORDER THIS IMPLIES, and the reason for it: port and test the table path FIRST, then measure
+the table arm, then launch cells -- never widen shared source while cells are running, because a
+running job re-imports the recipe tree on every resubmit.
+
 NEXT ACTION, in order:
 
-1. Build 1g.13 experiment 5 -- the four-corner factorial at repair counts (0, 4) over the five
-   starts, one job per start as the gate sized it, every cell decoded by the exact order-4 readout
-   with the LM-blind local decode as its no-LM leg. Launch ONE cell first and read its wall clock
-   against the 1.1389 h per E-step projection before committing the rest: 2.5 h of headroom, a job
-   that caps its own request at the clamp, and no resume means an optimistic projection costs the
-   whole fold.
+1. Build 1g.13 experiment 5 in the order the finding above forces: (a) widen the two table-arm
+   modules for `route` and the row/LM scope, with tests, while nothing is running; (b) run the
+   table-arm resource read on the new stream; (c) build the four-corner factorial at repair counts
+   (0, 4) over the five starts, one job per start as the gate sized it, every cell decoded by the
+   exact order-4 readout with the LM-blind local decode as its no-LM leg. Launch ONE cell first and
+   read its wall clock against the 1.1389 h per E-step projection before committing the rest: 2.5 h
+   of headroom, a job that caps its own request at the clamp, and no resume means an optimistic
+   projection costs the whole fold rather than a resubmit.
 2. 1g.12 experiment 5 is UNBLOCKED -- the planner ruled the observation-null seam in PLAN_1G.md
    1g.12 Status (the null job persists its redrawn selection-fold vectors as a segments-shaped
    artifact recording the draw seed and a content hash; `g12_readout_jobs.py` stays untouched).
@@ -2150,9 +2180,12 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 
 67. **A26: the reachable order-4 context is fully visited from every start, so no start prunes the
     automaton the fitting model gets.** With the engine fixed, the five starts reach 59,204 to
-    60,879 histories of the 60,879 the accepted stream reached from all five -- at most 2.7% below
-    it, with the near-uniform pseudo-pair start reaching exactly the same 60,879. The ordering is
-    the expected one, the most concentrated start (fingerprint) visiting fewest. Two things this
+    60,879 histories of the 60,879 the accepted stream reached from all five -- at most 2.8% below
+    it (1,675 of 60,879), with the near-uniform pseudo-pair start reaching exactly the same
+    60,879. The ordering is the expected one, the most concentrated start (fingerprint) visiting
+    fewest, and three of the five report IDENTICAL counts (59,319 / 2,372,760) -- which is itself
+    the caution below, since a column that ties across unrelated starts is reading structural
+    support and not start quality. Two things this
     does NOT say: it is a statement about which histories carry any posterior mass at all, not
     about how much, so it is not a measure of how well any start uses the context; and it is not
     comparable across streams as a quality read, only as the observation that neither stream's
