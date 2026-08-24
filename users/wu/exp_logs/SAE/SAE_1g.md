@@ -96,37 +96,42 @@ normalizer, not of the quantity. Two guards added so the class cannot recur sile
 non-finite occupancy. `scripts/h4_context_engine_test.py` gains a peaked-posterior case that fails
 9 checks on the old normalizer and passes on the new.
 
-IN FLIGHT: `config/sae_1g_13_exp4.py` (manager pid 1958138) -- the gate RE-MEASURED under the fixed
-engine, `G12ResourceGateJob.cQ3wfqsTamPP`. It had to be re-run rather than reinterpreted: the banked
-`4iWPXMh9yoJN` timed code that no longer exists, and the fix adds work to every backward step, so
-its 9 h request is sized from a different estimator than experiment 5 would run. The re-run needed
-no clear -- naming the subphase in the artifact (verifier request (b)) moved the hash, since
-`subphase` is hash-excluded only at 1g.12's value. The banked 1g.12 gate keeps `3h2iIpk6lpaB`,
-verified against the live graph, and must never be cleared (verifier caution (d)).
+DONE (1g.13 experiment 4): `G12ResourceGateJob.cQ3wfqsTamPP`, re-measured under the fixed engine.
+PASS for one order-4 curve at a 9 h request against the 11.5 h clamp and 30 GiB against 256;
+RESOURCE_INFEASIBLE for all five starts in one process at 43 h, so the build shape is one job per
+start, the same shape 1g.12 runs. Approach 26 and verdicts 65-67. Experiment 5 is FUNDED at that
+shape. The margin is thin in the direction that costs the whole fold -- 2.5 h of headroom where
+1g.12 had 7.5, the fitting job caps its own request at the clamp, and these jobs do not resume --
+so the first real cell's wall clock gets read against the 1.1389 h per E-step projection before the
+remaining cells are launched (verifier caution (c), accepted).
+
+IN FLIGHT: `G12EngineEquivalenceJob.CnhbuU4YHyuz` under the same manager (pid 2020862) -- the
+registered anchor for the backward-recursion fix, which discharges the verifier's
+persist-the-harness request. It recomputes the banked 1g.12 gate's own five probe cells under the
+current engine and asserts they reproduce that artifact's log-likelihoods and history occupancy;
+it then recomputes them under the SUPERSEDED normalizer and asserts the two posteriors agree inside
+1e-12; and it asserts a peaked case in 1g.13's shape separates the two, without which the whole job
+would pass equally against an engine that never carried the defect. The superseded engine is
+DERIVED from the live source by one substitution asserted to match exactly once, not kept as a
+copy -- a copy would stop being the same function the moment the engine moved, and the comparison
+would quietly become a comparison of the copy against itself. `scripts/g12_engine_equivalence_test.py`
+23/23.
 
 NEXT ACTION, in order:
 
-1. Read the re-measured experiment 4 verdict when it lands, and bank it with the bug and its
-   equivalence check. The first run's occupancy column is quotable in no verdict; its timing and
-   memory reads stood, but they are superseded by the re-measurement rather than merged with it.
-   PASS sizes experiment 5's request; RESOURCE_INFEASIBLE is a statement about this machine and
-   goes to the planner, not a fallback I pick. Headroom was thin at 9 h against 11.5 with the
-   fitting job capping its own request at the clamp, so the first real cell's wall clock gets read
-   against the projection (verifier caution (c)).
+1. Bank the equivalence anchor when it lands, then build 1g.13 experiment 5 -- the four-corner
+   factorial at repair counts (0, 4) over the five starts, one job per start as the gate sized it,
+   every cell decoded by the exact order-4 readout with the LM-blind local decode as its no-LM leg.
+   Read the first cell's wall clock against 1.1389 h per E-step before launching the rest.
 2. 1g.12 experiment 5 is UNBLOCKED -- the planner ruled the observation-null seam in PLAN_1G.md
    1g.12 Status (the null job persists its redrawn selection-fold vectors as a segments-shaped
    artifact recording the draw seed and a content hash; `g12_readout_jobs.py` stays untouched).
-   Then experiment 6, the evaluation on the 890 with gold with the 1,112 sealed.
+   Then experiment 6, the evaluation on the 890 with gold with the 1,112 sealed, which is where
+   clauses 1 to 3 are actually decided. There is still NO phone error rate anywhere in 1g.12.
 3. Accepted from the verifier's experiment-3 hygiene list, at the next touch of those modules:
    record `num_units` as a named field in every start manifest, and give the espum projection's
    outputs the `start.npz`/`start.json` names the other four starts use so a glob cannot silently
    miss that arm.
-2. 1g.12 experiment 5, once the planner rules on the observation-null readout point below, then
-   experiment 6, the evaluation on the 890 with gold with the 1,112 sealed, which is where clauses
-   1 to 3 are actually decided. There is still NO phone error rate anywhere in 1g.12 and none is due
-   before experiment 6: experiments 1 to 4 read no gold at all, and the twenty readout cells have
-   persisted their decoded sequences (`hypotheses.json`, 890 utterances each) but nothing scores
-   them yet.
 
 OPEN DESIGN POINT found 2026-08-24 while wiring 1g.12 experiment 5, recorded before it can be built
 wrong. `G12ObservationNullJob` redraws the retained-token vectors of BOTH folds -- update and
@@ -1316,6 +1321,62 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     | labelled trimmed frames, of which emitting | 1,037,255, of which 966,669 |
     | units with at least one labelled frame | 127 of 128; the remaining unit backs off to the T_phi phone prior |
 
+26. **1g.13 experiment 4: the measured order-4 resource read on the v1-equivalent stream
+    (`configs/config_sae_1g_13_exp4_v1.py`).** It runs 1g.12 experiment 1's OWN job class rather
+    than a copy, so the two resource contracts are comparable by construction and not by argument:
+    the same 32-way sharding, the same probe rule (the longest update utterance, ties to the higher
+    ID), the same forked-child measurement so each cell reports its own peak, the same 1.5
+    multiplier over the measured maxima, the same 11.5 h / 256 GiB limits, and the same
+    `size_request` arithmetic decides both. Two inputs are adapted inside that class where this
+    stream genuinely differs -- the codebook, fitted on RAW pre-PCA features following wav2vec-U
+    v1, is carried into the observation space by the stream's own PCA (exact, because that map is
+    affine); and the plain [phone, unit] starts are lifted into the two duration sub-states by
+    duplicating each phone's row, which is what the topology rather than the start separates.
+
+    THE FIRST RUN FOUND A BUG INSTEAD, and it is the reason there are two rows below.
+    `G12ResourceGateJob.4iWPXMh9yoJN` sized PASS but reported ZERO reached histories for four of
+    its five starts. The backward recursion in `h4_context_engine.py` was rescaled by ALPHA's
+    per-frame normalizer, which bounds `alpha * beta` inside float64 only while the forward and
+    backward masses stay near each other; a concentrated start over 512-dimensional observations
+    breaks that, `raw / scale` overflows to `+inf`, and `alpha * beta` then evaluates `inf * 0` to
+    NAN. Three independent guards failed to stop it: the log-likelihood is read off the alpha
+    recursion alone so it stayed finite and plausible; `mstep_from_statistics` guards
+    `weight <= 0.0` and a NAN is not `<= 0`; and the gate's own `reached = occupancy > 0.0` counts
+    NAN as unreached and prints a believable zero. `gaussian_context_pass` calls
+    `context_forward_backward` with exactly the arguments the occupancy probe uses, so the same
+    gamma feeds the E-step's sufficient statistics -- experiment 5 would have fitted NAN means and
+    variances for four of five starts with every health indicator reading clean.
+
+    The first run's numbers are SUPERSEDED, not merged: its occupancy column is unquotable, and its
+    timing measured code that no longer exists. It is kept below only to show what moved. The
+    re-measurement needed no clear -- naming the subphase in the artifact moved the hash, because
+    `subphase` is hash-excluded only at 1g.12's value. `4iWPXMh9yoJN` is now an orphan by hash and
+    is superseded evidence, not unneeded debris.
+
+    | run | engine | chunk (s) | h per E-step | one curve | all 5 in one process | request (GiB) | reached histories | verdict |
+    |---|---|---|---|---|---|---|---|---|
+    | 1g.13, re-measured `cQ3wfqsTamPP` | fixed | 128.13 | 1.1389 | 9 h | 43 h | 30 | 59,204 - 60,879 | PASS one curve; one job per start |
+    | 1g.13, first run `4iWPXMh9yoJN` (SUPERSEDED) | pre-fix | 124.81 | 1.1094 | 9 h | 42 h | 30 | 0 for four of five, NAN | occupancy unquotable |
+    | 1g.12, accepted `3h2iIpk6lpaB` (for contrast, not a run here) | pre-fix, unaffected | 48.88 | 0.4345 | 4 h | 17 h | 4 | 60,879 for all five | PASS one curve; one job per start |
+
+    The cost read, against the accepted stream. This fold carries 1,436,262 retained tokens against
+    584,424 (2.46x) at observation dimension 512 against 96, and the probe utterance is 893 tokens
+    against 353. Measured chunk time rises 2.62x, which tracks the token count and NOT the
+    dimension -- the order-4 recursion dominates and the Gaussian density evaluation adds about 7%
+    on top of the token scaling. Memory rises 7.5x (30 GiB against 4), which is where the
+    512-dimensional twin is paid for; it is nowhere near the 256 GiB limit. Time is where it binds:
+    9 h against the 11.5 h clamp is 2.5 h of headroom where 1g.12 had 7.5.
+
+    | measurement | 1g.13 (re-measured) | 1g.12 (accepted) |
+    |---|---|---|
+    | update fold, retained tokens | 1,436,262 | 584,424 |
+    | observation dimension | 512 | 96 |
+    | probe utterance | `422-122949-0013`, 893 tokens | `2902-9006-0015`, 353 tokens |
+    | heaviest chunk (index 2 of 32) | 48,417 tokens, 201 utterances | 19,515 tokens |
+    | engine peak, forked and isolated | 10.27 GiB | 1.32 GiB |
+    | host peak, loading the twin and building the view | 9.14 GiB | 0.77 GiB |
+    | time headroom on one curve | 2.5 h | 7.5 h |
+
 
 ## Verdicts
 
@@ -2053,6 +2114,44 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     exactly as registered.
 
 
+65. **A26: one order-4 repair curve on the v1-equivalent stream FITS, and the binding resource is
+    time with 2.5 hours of margin.** The measured heaviest chunk is 128.13 s over 48,417 retained
+    tokens, which projects to 1.1389 h per whole-fold E-step and, at five E-steps and the standing
+    1.5 multiplier, to a 9 h request against the 11.5 h clamp. Memory is not the constraint
+    anywhere: 10.27 GiB in the isolated engine plus 9.14 GiB to hold the twin gives a 30 GiB
+    request against a 256 GiB limit. All five starts in one process is 43 h and stays
+    RESOURCE_INFEASIBLE exactly as on the accepted stream, so the build shape is one job per start.
+    This is a statement about this machine and this fold, not about the arm; it funds experiment 5
+    at that shape and nothing else. The margin is thin enough to matter, and it is thin in the
+    direction that costs the whole fold: the fitting job caps its own request at the clamp, and
+    these jobs do not resume, so the first real cell's wall clock is read against this projection
+    before the rest are launched.
+
+66. **A26: the order-4 cost tracks the TOKEN count and not the observation dimension, which is why
+    a 5.3x wider observation cost 2.62x rather than 13x.** The fold grew 2.46x in retained tokens
+    and 5.33x in dimension against 1g.12, and the measured chunk time grew 2.62x -- about 7% above
+    the token scaling alone. The recursion over the order-4 context, not the Gaussian density
+    evaluation, is what the E-step spends its time on, which is the same reading verdict 53 gave
+    from the other direction on the accepted stream. Memory behaves oppositely and rises 7.5x,
+    because that is where the 512-dimensional twin is actually paid for. The practical consequence
+    for any future stream on this route: a rate change is a time risk and a dimension change is a
+    memory risk, and only the first one is near a limit here.
+
+67. **A26: the reachable order-4 context is fully visited from every start, so no start prunes the
+    automaton the fitting model gets.** With the engine fixed, the five starts reach 59,204 to
+    60,879 histories of the 60,879 the accepted stream reached from all five -- at most 2.7% below
+    it, with the near-uniform pseudo-pair start reaching exactly the same 60,879. The ordering is
+    the expected one, the most concentrated start (fingerprint) visiting fewest. Two things this
+    does NOT say: it is a statement about which histories carry any posterior mass at all, not
+    about how much, so it is not a measure of how well any start uses the context; and it is not
+    comparable across streams as a quality read, only as the observation that neither stream's
+    starts collapse the context. One incidental reading worth recording because it will recur: on
+    the single probe utterance the fingerprint start leaves one of the 78 emission rows with
+    exactly zero posterior mass. On one 893-token utterance that is ordinary -- no utterance visits
+    every phone -- but at fold level `mstep_from_statistics` refuses a zero-weight row by design,
+    and that refusal is a collapse to report rather than a guard to soften.
+
+
 ## Catalog
 
 1g.10c positive insertion-bonus cells, parity PASS, sign split between rows (verdicts 36-37): `work/speech_llm/sae/h4_insertion_bonus/H4InsertionBonusReadJob.da3bGeQIkS0R` (`insertion_bonus.json`, `insertion_bonus.txt`); 256 beam-512 chunks + 8 probes + 1 parity chunk under `work/speech_llm/sae/h4_insertion_bonus/`, merged by the production `H4SequenceDecodeMergeJob`; code `sae/h4_insertion_bonus.py`, `scripts/h4_insertion_bonus_test.py` (14/14) at speech-llm `3d395de`.
@@ -2069,6 +2168,8 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
 | 1g.12 experiment 4, the twenty exact order-4 one-best readouts (approach 22, verdicts 59-60) | `work/speech_llm/sae/g12_readout_jobs/G12ExactReadoutJob.*` (20 dirs; each `readout.json`, `readout.txt`, `hypotheses.json`); code `sae/g12_exact_decode.py`, `sae/g12_readout_jobs.py`, `configs/config_sae_1g_12_exp4_v1.py`, `config/sae_1g_12_exp4.py`, `scripts/g12_exact_decode_test.py` (33/33), `scripts/g12_readout_jobs_test.py` (22/22) at speech-llm `5e245b1` |
 | 1g.13 experiment 3, the five phone starts on the v1-equivalent stream (approach 25, verdicts 62-64) | `work/speech_llm/sae/h3_jobs/H3InitializerJob.lR5Q4q1xRtqV` (fingerprint), `.m4sNBqlCwK2Z` (random-map seed 1000), `.fGmIiECLQ2XW` (pseudo-pair seed 0); `work/speech_llm/sae/g13_firewall/G13ReferenceStartJob.kG9pmxczOVgF` (controlled reference); `work/speech_llm/sae/h3_projection/H3CalibrationEspumProjectionJob.2EB1uTDlskOy` (espum) -- each `start.npz` and `start.json` (the espum projection emits `espum_calibration_start.npz`/`.json`); code `sae/g13_firewall.py` at speech-llm `6bfa29d`, config wiring `configs/config_sae_1g_13_exp3_v1.py` at `a0d2808`; `config/sae_1g_13_exp3.py` and `scripts/g13_reference_start_test.py` (20/20) are workspace files under no version control |
 | 1g.13 experiment 3, the espum arm's registered fan-out on the v1-equivalent stream (approach 25, verdicts 63-64) | `work/speech_llm/sae/espum_jobs/EspumMatchTrainJob.oAOLIZZHVaVz` (full seed 0, picked), `.18iF7DTcCNyF` (full seed 1), `.E9fojuqhcBDZ` (full seed 2), `.q59UQC0AW5Oc` (bigram-only control); `work/speech_llm/sae/h3_jobs/H3EspumPickJob.ud5adF5qEliC` (`frozen_selection.json`), `work/speech_llm/sae/h3_jobs/H3MaskedEspumStreamJob.6OiRRPPXl1w8` (`manifest.json`); accepted-stream contrast rows quoted from `EspumMatchTrainJob.97FwGhhItdpO` and `.h4LngSZ4YvKL` |
+| 1g.13 experiment 4, the measured order-4 resource read on the v1-equivalent stream (approach 26, verdicts 65-67) | `work/speech_llm/sae/g12_resource/G12ResourceGateJob.cQ3wfqsTamPP` (`resource_gate.json`, `.txt`); SUPERSEDED first run, kept as the record of the pre-fix measurement, `.4iWPXMh9yoJN` -- orphaned by hash, superseded evidence rather than debris; code `sae/g12_resource.py`, `sae/g11_gaussian.py`, `configs/config_sae_1g_13_exp4_v1.py`, `config/sae_1g_13_exp4.py`, `scripts/g13_resource_gate_test.py` (43/43) at speech-llm `41127e8` |
+| The 2026-08-24 context-engine backward-recursion fix and its registered anchor (approach 26) | `work/speech_llm/sae/g12_engine_equivalence/G12EngineEquivalenceJob.CnhbuU4YHyuz` (`engine_equivalence.json`, `.txt`) -- reproduces the banked `G12ResourceGateJob.3h2iIpk6lpaB` probe cells under the current engine and pins the two normalizers against each other; code `sae/h4_context_engine.py`, `sae/g12_gaussian_context.py`, `sae/g12_engine_equivalence.py`, `scripts/h4_context_engine_test.py` (48/48), `scripts/g12_engine_equivalence_test.py` (23/23) at speech-llm `41127e8` |
 | 1g.13 experiment 2, the H1 route read on the v1-equivalent stream (approach 24, verdict 61) | `work/speech_llm/sae/g13_jobs/G13RoutesJob.hStPuE1UqLK6` (`phase1g_h1_v1_equivalent.json`, `.txt`); code `sae/g13_jobs.py`, `scripts/g13_routes_test.py` (25/25) at speech-llm `4d0fad6` |
 | 1g.13 experiment 2, the VAD-mask firewall (approach 24) | `work/speech_llm/sae/g13_firewall/G13VadFirewallJob.Usfy2NF0LiSQ` (`gold_update.pkl`, `gold_selection.pkl`, `gold_evaluation.pkl`, `trim_masks.pkl`, `firewall.json`, `firewall.txt`); code `sae/g13_firewall.py`, `configs/config_sae_1g_13_exp2_v1.py`, `config/sae_1g_13_exp2.py`, `scripts/g13_firewall_test.py` (30/30) at speech-llm `4d0fad6` |
 | 1g.13 experiment 1, the wav2vec-U v1-equivalent stream (approach 23, verdict 57) | `work/speech_llm/sae/g13_jobs/G13StreamBuildJob.Ob8Rh8y51x9M` (`units.pkl`, `segments.pkl`, `boundaries.pkl`, `component_scale.npy`, `transform.npz`, `stream.json`, `stream.txt`); code `sae/g13_stream.py`, `sae/g13_jobs.py`, `configs/config_sae_1g_13_exp1_v1.py`, `config/sae_1g_13_exp1.py`, `scripts/g13_stream_test.py` (35/35), `scripts/g13_faiss_reference_test.py` (10/10, run under the `w2vu` env), `scripts/g13_jobs_test.py` (34/34) at speech-llm `7f3f312` |
