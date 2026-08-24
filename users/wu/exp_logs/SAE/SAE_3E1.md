@@ -93,7 +93,71 @@ checkpoint, the pseudo-text bed and pool built from that dump's own greedy rows,
 trainings; the other 38 jobs it reaches are finished and reused. It trains arms 2 and 3 and
 measures nothing. D9.2 is the read and is a separate registration.
 
-- ARM 2 `D7OnlineTrainJob.qcbbdPnZ2nLK` (1-best refit, online weight 0), ARM 3
+- 2026-08-24: THE DUMP, THE MERGE, THE POOL AND THE WEIGHT JOB ARE DONE; both refit trainings are
+  resubmitted after two failures that were both guards firing correctly on the wrong thing.
+  ARM 2 IS NOW `D9OnlineTrainJob.nJQy199AQZQu`, NOT `D7OnlineTrainJob.qcbbdPnZ2nLK` (speech-llm
+  `8df2580`; `scripts/d9_refit_test.py` 50/50).
+
+  1. ARM 2 crashed in D7's own-infeasible guard: `realized [] against expected [the four named
+     rows]`. D7's constant names four rows of D7's OWN pseudo-text bed -- that decode's runaway-
+     repetition tail, 70-80 word texts needing 400+ frames against about 350 units -- and D9.1
+     runs the same recipe on a different decode from a different checkpoint, where none of them is
+     infeasible. The guard was right to fail closed; it was asserting the wrong bed's constant.
+     `_make_items` now takes the bed's registered set as a keyword defaulting to D7's, and
+     `D9OnlineTrainJob(D7OnlineTrainJob)` registers D9.1's, which is EMPTY -- no row may be
+     dropped for own-infeasibility at all, which is the STRICTEST reading of D7's bound, not a
+     loosened one. MEASURED on this bed with the production text side and feasibility law before
+     the value was fixed, so the choice is not fitted to the answer: 0 of 281,241 rows are
+     own-infeasible, the tightest row uses 77.9 pct of its frame budget
+     (`6065-109178-0010`, 612 of 786), and D7's four named rows sit at 23-32 pct here. The audio
+     side is literally the same store (`PackUnitsJob.I0uzRMfUrKWC`) in both beds, so the whole
+     difference is the text -- which makes it a fact about the pinned checkpoint's decode, not
+     about the recipe. D7's constant and every D7/D8 hash are untouched (`D7OnlineTrainJob`
+     `WA1bqjXQtzeZ`/`j16rTskXF1QU`, `D8WeightJob.juRpzTNHKCSq`,
+     `D8ScorerRefitJob.2bQzhz6U1yHp`, `D9WeightJob.uyKXr4ZiGj9R`, all re-read from the loaded
+     graphs after the edit).
+  2. ARM 3 then died in `d8_train`'s source-identity guard, "D8.1b source changed after graph
+     construction". Also correct: that job was constructed by the manager holding the PRE-edit
+     graph, so its saved identity recorded the old `d7_online.py`. It had run six seconds with
+     empty `output/` and `work/`, so it was re-created surgically through the console
+     (`_sis_move(); _sis_setup_directory()`) rather than with a manager clear flag -- nothing was
+     destroyed because nothing existed.
+
+**ARM 3 IS NOT FUNDED: `D9WeightJob.uyKXr4ZiGj9R` RULES NO-GO ON CLAUSE (a), AND THAT IS A RESULT
+RATHER THAN A FAILURE.** On its rerun arm 3 refused to start with "D8.1b requires a GO weight
+artifact; this one reads 'NO-GO'", which is the registered guard working. I have NOT cleared it,
+retried it, or touched tau to rescue it; this is a gate verdict and the fallback is the planner's.
+`D8ScorerRefitJob.XvPF118rphQP` therefore stays in error state and the manager will exit on it
+once arm 2 finishes -- that is expected, not a stall to repair.
+
+- CLAUSE (a): median distinct support **2.0** against the registered 3.0. The distribution is the
+  finding, not the median: of 281,241 groups, **92,995 (33.1 pct) carry exactly ONE distinct-scoring
+  member** and 61,989 (22.0 pct) carry two, so 55.1 pct sit at or below two; mean 3.12, max 13. The
+  bed offers 13 candidates per group (12 rollouts plus greedy, 3,374,892 + 281,241 dump rows), and
+  they collapse to a median of two distinct strings. That is mode collapse in the pinned policy at
+  the sampling settings this dump used, measured on the full 960 h bed.
+- IT IS NOT AN ARTIFACT OF ANY CHOICE I MADE. The scorer-free variant of clause (a) fails
+  identically (median 2.0), so it is not the scorer; `distinct_rollouts_only` is also 2.0, so it is
+  not the greedy member's inclusion (the 2026-08-22 ruling that binds it); and the clause is a
+  property of the support SET, which the tau pin does not touch -- both convention readings
+  (corrected and legacy) report the clause fired.
+- CLAUSES (b) AND (c) PASS: every tau of the grid lands in the [1.5, 8.0] ESS band, and the median
+  token R2 at the pinned tau is 0.4403 against the 0.5 ceiling. The exclusion rate is 0.0000 pct
+  against the 5 pct safety valve, and 281,241 of 281,241 groups carry live support -- so nothing
+  here is a coverage or feasibility problem. The bed is fine; the policy's samples are not diverse.
+- THE PIN'S DISAGREEMENT, printed as designed: this bed's own |median ESS - 3| rule would have
+  chosen tau 1.0 rather than D8.1a's pinned 0.05. The pin still governs, per the registration.
+- ARM 2 IS UNAFFECTED and running: it reads the pool index and the pseudo-text bed, never the
+  weight artifact, so the 1-best refit stands on its own.
+
+PROPOSAL FOR THE PLANNER, not acted on: D9.2's registered read is a comparison of arms 2 and 3, and
+arm 3 does not exist. The options I can see are (i) read D9.1 as a one-arm result plus a measured
+collapse finding, (ii) re-dump at sampling settings that produce diversity, which is a new spend and
+a new registration, or (iii) rule clause (a)'s 3.0 threshold wrong for an evolved policy, which is a
+gate edit after seeing the number and would need the pre-registration argument made explicitly. I
+have no view worth acting on between them and have launched nothing.
+
+- ARM 2 `D9OnlineTrainJob.nJQy199AQZQu` (1-best refit, online weight 0), ARM 3
   `D8ScorerRefitJob.XvPF118rphQP` (soft-EM) on `D9WeightJob.uyKXr4ZiGj9R`; the shared dump merges
   at `D8MergeRolloutsJob.C4G6qGzjEIrx` from ten `ReturnnForwardJobV2` shards
   (`7pn7wCdqQ7Wb pfmSXPmED4Ov hhbi9TmvyRnc lzKuXw4bkFRF 5tXsjYhVMIMF 0ZcqQ8rhgO0N UMJyglLRiKkf
