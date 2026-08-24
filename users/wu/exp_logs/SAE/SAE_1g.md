@@ -68,24 +68,59 @@ that item is closed. The guard had NO test before this commit, which is why ever
 passed unchanged; `scripts/g12_route_topology_test.py` (28/28) now covers it, including that a
 two-state admission failure or an INDETERMINATE on the v1 route still stops the cell.
 
-IN FLIGHT: `config/sae_1g_13_exp4.py` (manager pid 1763371) -- the mandatory order-4 resource read
-on the v1-equivalent stream, `G12ResourceGateJob.4iWPXMh9yoJN`, one CPU job, everything upstream
-finished. QUESTION: does one order-4 repair curve on a 1,436,262-token update fold fit inside the
-11.5 h clamp? 1g.12's own gate PASSED at 4 h on 584,424 tokens at observation dimension 96; this
-stream is 2.46x the tokens at dimension 512, and the registered projection is about 8 h, so the
-answer is genuinely open. It runs 1g.12 experiment 1's OWN job class, not a copy -- same sharding,
-same probe rule, same 1.5 multiplier, same `size_request` -- with two inputs adapted inside that
-class where this stream differs: the codebook is carried from the raw pre-PCA space into the
-observation space by the stream's own PCA (exact, because the map is affine), and the plain
-[phone, unit] starts are lifted into the two duration sub-states by duplication, which is what the
-topology rather than the start separates. Committed and pushed as speech-llm `5d4a682`; the banked
-1g.12 gate still hashes to `3h2iIpk6lpaB`, verified against the live graph.
+BLOCKING BUG FOUND AND FIXED (1g.13 experiment 4, 2026-08-24, speech-llm `41127e8`). The first
+gate run, `G12ResourceGateJob.4iWPXMh9yoJN`, sized PASS at 9 h against the 11.5 h clamp but reported
+zero reached histories for four of its five starts. That column is not a reporting quirk: the
+backward recursion in `h4_context_engine.py` was rescaled by ALPHA's per-frame normalizer, which
+keeps `alpha * beta` inside float64 only while the forward and backward masses stay near each other.
+With sharply peaked emissions -- which is what a concentrated start over 512-dimensional
+observations gives -- `raw / scale` overflows to `+inf` and `alpha * beta` then evaluates `inf * 0`
+to NAN.
+
+Why nothing stopped: the log-likelihood is read off the alpha recursion alone, so it stayed finite;
+`mstep_from_statistics` guards `weight <= 0.0` and a NAN is not `<= 0`, so it would have passed; and
+the gate's own `reached = occupancy > 0.0` counts NAN as unreached and prints a plausible zero.
+`gaussian_context_pass` calls `context_forward_backward` with exactly the arguments the occupancy
+probe uses, so THE SAME gamma feeds the E-step's sufficient statistics -- experiment 5 would have
+fitted NAN means and variances for four of five starts, and the gate's own health indicators would
+not have caught it. This is broader than the diagnostic column the verifier flagged.
+
+BANKED NUMBERS ARE UNAFFECTED, checked rather than assumed. The banked 1g.12 gate's own probe cell
+(utterance 2902-9006-0015, 353 tokens, all five banked starts, the matched 4-gram automaton) was
+re-run under the old and new normalizers in one process: identical log-likelihoods, gamma agreeing
+to 7.8e-16, and history occupancy reproducing the banked 60,879 exactly. All ten banked 1g.12 cells
+carry finite fitted parameters. Beta is now rescaled by its own per-frame maximum, which cancels
+exactly because `joint` is renormalized over its own frame before anything reads it -- a change of
+normalizer, not of the quantity. Two guards added so the class cannot recur silently:
+`gaussian_context_pass` raises on a non-finite sufficient statistic, and the gate raises on a
+non-finite occupancy. `scripts/h4_context_engine_test.py` gains a peaked-posterior case that fails
+9 checks on the old normalizer and passes on the new.
+
+IN FLIGHT: `config/sae_1g_13_exp4.py` (manager pid 1958138) -- the gate RE-MEASURED under the fixed
+engine, `G12ResourceGateJob.cQ3wfqsTamPP`. It had to be re-run rather than reinterpreted: the banked
+`4iWPXMh9yoJN` timed code that no longer exists, and the fix adds work to every backward step, so
+its 9 h request is sized from a different estimator than experiment 5 would run. The re-run needed
+no clear -- naming the subphase in the artifact (verifier request (b)) moved the hash, since
+`subphase` is hash-excluded only at 1g.12's value. The banked 1g.12 gate keeps `3h2iIpk6lpaB`,
+verified against the live graph, and must never be cleared (verifier caution (d)).
 
 NEXT ACTION, in order:
 
-1. Read experiment 4's verdict when it lands. PASS sizes experiment 5's request and the four-corner
-   factorial can be built; RESOURCE_INFEASIBLE is a statement about this machine and goes to the
-   planner, not a fallback I pick.
+1. Read the re-measured experiment 4 verdict when it lands, and bank it with the bug and its
+   equivalence check. The first run's occupancy column is quotable in no verdict; its timing and
+   memory reads stood, but they are superseded by the re-measurement rather than merged with it.
+   PASS sizes experiment 5's request; RESOURCE_INFEASIBLE is a statement about this machine and
+   goes to the planner, not a fallback I pick. Headroom was thin at 9 h against 11.5 with the
+   fitting job capping its own request at the clamp, so the first real cell's wall clock gets read
+   against the projection (verifier caution (c)).
+2. 1g.12 experiment 5 is UNBLOCKED -- the planner ruled the observation-null seam in PLAN_1G.md
+   1g.12 Status (the null job persists its redrawn selection-fold vectors as a segments-shaped
+   artifact recording the draw seed and a content hash; `g12_readout_jobs.py` stays untouched).
+   Then experiment 6, the evaluation on the 890 with gold with the 1,112 sealed.
+3. Accepted from the verifier's experiment-3 hygiene list, at the next touch of those modules:
+   record `num_units` as a named field in every start manifest, and give the espum projection's
+   outputs the `start.npz`/`start.json` names the other four starts use so a glob cannot silently
+   miss that arm.
 2. 1g.12 experiment 5, once the planner rules on the observation-null readout point below, then
    experiment 6, the evaluation on the 890 with gold with the 1,112 sealed, which is where clauses
    1 to 3 are actually decided. There is still NO phone error rate anywhere in 1g.12 and none is due
