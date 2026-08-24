@@ -251,8 +251,8 @@ phrase was hardcoded; the authoritative `fitting_lm` field is correct in both, a
 derived from the cell (speech-llm `c4d3f13`), so any later run reads right.
 
 VERIFIER ROUND ABSORBED 2026-08-24 (`4b9fd89a1`), all eight items, in speech-llm `77b8982`. The
-five experiment-6 pre-run items are done on the unrun job, whose hash is unchanged at
-`oStN2ghRhR7l`: the clause-3 convention now names the interval form in words and the report prints
+five experiment-6 pre-run items are done on the unrun job, whose hash moved only for item (c)'s
+two new inputs: the clause-3 convention now names the interval form in words and the report prints
 the unstratified sensitivity beside the primary; a dropped plan entry is recorded and printed by
 name instead of vanishing from the table; the table comparator's repair count and decode role are
 asserted; the two spellings of the accepted add-one bigram (`accepted-2g` here, `legacy-2g` in the
@@ -264,18 +264,26 @@ null's count-0 parameters are bit-identical to the arm's, so that row is a PURE 
 while count 4 mixes the swap with a refit -- two different comparisons, not a weak and a strong
 version of one. The three 1g.13 pre-cell items are done as well, and none of them blocked anything.
 
-ONE ITEM ANSWERED DIFFERENTLY THAN ASKED, for the planner and verifier to see: item (c) proposed
-asserting the readout's `emission_table_provenance` against the local artifact's
-`input_content_sha256["table"]`. Those two digests CANNOT be equal -- the local comparator's table
-is an occupancy-weighted single-state adapter written to its own file, while the readout decodes
-`repair_channels.npz["repair_4_emissions"]` -- so the equality would fail on every cell that is
-correctly wired. Checked on `H4ContextLocalDecodeJob.42Pe0lEuLkqZ` against
-`H4ContextRepairJob.mdA3sZp68iqz`: a0998245 against 4e85236b. What is assertable from the artifacts
-is asserted instead (start, role, repair count, fitting-LM identity under either spelling), and
-where a comparator's schema predates the fitting-LM field the artifact now SAYS the binding is the
-graph edge rather than implying a check happened.
+ITEM (c) IS NOW DONE AS RULED, and my first answer to it was WRONG. It is corrected here rather
+than quietly replaced, because the verifier had already accepted the weaker answer (`b4120b948`). I
+reported the check impossible; I had stopped one link short. The two digests item (c) named
+genuinely cannot be equal -- the comparator decodes an occupancy-weighted single-state ADAPTER
+written to its own file, a0998245 against the readout's 4e85236b -- but the adapter's own manifest
+records `source_array_sha256`, the digest of the array it was DERIVED FROM, which is exactly the
+array the readout decoded. The chain closes in three links: the comparator names its manifest by
+file digest, the manifest names its source array by array digest, and that array is the one in the
+readout's own emission file. `G12EvaluateJob` now asserts all three, plus the adapter's own start
+and repair count. Verified on the real banked artifacts on BOTH table corners before it was
+written -- matched-4-gram (adapter `q4ZLaWcV6htx`, source a6dc8908) against
+`H4ContextRepairJob.mdA3sZp68iqz`, accepted-bigram (adapter `gQB7kSe4hgot`, source 0d73fbc2)
+against `H4RepairJob.iUFh7IwniCMl` -- and handing the matched cell the bigram cell's array is
+refused. Contrast (a) rests on content, not on wiring. Speech-llm `2c9992c`,
+`scripts/g12_evaluate_test.py` 63/63. The unrun evaluate job's hash moves with its new inputs to
+`G12EvaluateJob.yJgxKex9peLp`, which costs nothing because it has never run. What remains true from
+the first answer: where a comparator's schema predates the fitting-LM field, the artifact SAYS the
+binding is the graph edge rather than implying a check happened.
 
-BUILT AND READY (1g.12 experiment 6): `G12EvaluateJob.oStN2ghRhR7l`, one job, the first phone error
+BUILT AND READY (1g.12 experiment 6): `G12EvaluateJob.yJgxKex9peLp`, one job, the first phone error
 rate anywhere in 1g.12. Twenty-two cells -- four corners by five starts plus the null at both
 orders -- each scored under BOTH decoders, because contrast (a) is a cell against ITSELF under the
 other decoder. Conventions are 1g.11's, imported; the plan's clause-1 amendment is implemented as
@@ -2406,9 +2414,9 @@ cells `work/speech_llm/sae/g12_nulls/G12ObservationNullJob.tDiHo9tPpn5Z` (accept
 speech-llm `1c25f58` and `c4d3f13`.
 
 1g.12 experiment 6, the gate reader (approach 27, unrun until experiment 5 closes):
-`work/speech_llm/sae/g12_evaluate/G12EvaluateJob.oStN2ghRhR7l` (`evaluate.json`, `evaluate.txt`);
+`work/speech_llm/sae/g12_evaluate/G12EvaluateJob.yJgxKex9peLp` (`evaluate.json`, `evaluate.txt`);
 code `sae/g12_evaluate.py`, `configs/config_sae_1g_12_exp6_v1.py`,
-`scripts/g12_evaluate_test.py` (37/37) at speech-llm `c4d3f13`.
+`scripts/g12_evaluate_test.py` (63/63) at speech-llm `c4d3f13`, `77b8982` and `2c9992c`.
 
 1g.13 experiment 5 step (b), the TABLE arm's own measured order-4 read on the v1-equivalent stream,
 PASS at 10 h and 3 GiB (approach 28, verdict 69):
