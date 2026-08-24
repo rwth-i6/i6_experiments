@@ -15,13 +15,23 @@ DONE: 1g.12 experiment 1 (`G12ResourceGateJob.3h2iIpk6lpaB`) -- verdict PASS for
 curve (4 h) and RESOURCE_INFEASIBLE for all five starts in one process (17 h) against the 11.5 h
 clamp, 4 GiB either way; verified by the verifier 2026-08-24, approach 20 and verdicts 52-54.
 
-IN FLIGHT: the ten experiment 2/3 cells (`config/sae_1g_12_exp23.py`,
-`G12GaussianContextRepairJob.*`), one per (start, fitting order): five at the matched 4-gram and
-five re-running 1g.11's accepted bigram to recover the means and variances 1g.11 never persisted.
-Question they answer: does the Gaussian arm fitted at the strongest LM operating point this
-campaign owns behave differently from 1g.11's bigram fit -- and does the bigram corner reproduce
-1g.11 exactly, which is its acceptance condition. Requests are read from the gate artifact (4 h,
-4 GiB per cell), never written in the config. No LM-aware decode and no clause verdict here.
+DONE: 1g.12 experiment 3 -- all five accepted-bigram cells of
+`config/sae_1g_12_exp23.py` finished and reproduce their banked 1g.11 cell, approach 21 and
+verdicts 55-56. The means and variances 1g.11 never persisted now exist as `parameters.npz`.
+
+BLOCKED BY A CLUSTER FILESYSTEM OUTAGE, NOT BY ANYTHING IN THE CODE: the five matched-4-gram cells
+(`G12GaussianContextRepairJob.` `8OzLoDv4PPlt`, `BrQtRIAKaWwU`, `dDKq6J6AQEIP`, `DgOI3SI1cwph`,
+`kHwPYElOcCPr`) died 2026-08-24 11:22:37 after 1.08 h of a projected 2.2 h. All five were killed in
+the same second on five different nodes; SLURM records exit 7 with the step cancelled, sisyphus
+records `interrupted_not_resumable` with no error marker, and `out_of_memory` is False in every
+usage file with peak 1.98 GiB against the 4 GiB the gate requested. At that minute the node health
+check drained 3,102 of the 5,065 booster nodes for stale file handles and every sisyphus manager in
+this setup died at once, which is the shared-filesystem event signature, not a job fault. Nothing is
+recoverable from the dead dirs -- the curve holds its state in process -- so the five cells must be
+cleared and re-run from the start once the cluster settles. The question they answer is unchanged:
+does the Gaussian arm fitted at the strongest LM operating point this campaign owns behave
+differently from 1g.11's bigram fit. Requests are read from the gate artifact (4 h, 4 GiB per cell),
+never written in the config. No LM-aware decode and no clause verdict here.
 
 BUILT AND TESTED BEFORE THE JOBS EXISTED (speech-llm `ef9045f`; `g12_gaussian_context_test`
 57/57, `g12_resource_test` 50/50, `g12_repair_jobs_test` 31/31, and the four neighbouring suites
@@ -55,10 +65,11 @@ artifact-load peak, and the job was cleared and re-run. Only the memory arithmet
 against 48.88 s on the heaviest chunk is run noise, and the time verdicts are identical. The
 banked table is the SECOND run.
 
-NEXT ACTION: read the ten cells when they land -- the five bigram corners must reproduce 1g.11 or
-they write nothing -- then build experiment 4, the exact beam-free order-4 one-best readout, which
-is the one object in this subphase that does not exist in any form yet. Experiments 5 and 6
-follow it.
+NEXT ACTION: clear the five dead matched-4-gram cells and restart
+`config/sae_1g_12_exp23.py` once the booster drain count stops growing, then read them. In parallel,
+build experiment 4, the exact beam-free order-4 one-best readout, which is the one object in this
+subphase that does not exist in any form yet and does not depend on those five cells to be written
+or tested. Experiments 5 and 6 follow it.
 
 Proposals for the planner:
 
@@ -925,7 +936,8 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     decode here is the LM-BLIND local decoder only -- 1g.11's own, unchanged -- which is the no-LM
     leg of clause 3's readout contrast; the exact order-4 one-best readout is experiment 4 and does
     not exist yet. Requests are read from the gate artifact, never written in the config. The five
-    matched-4g cells are IN FLIGHT; the five bigram cells are complete.
+    matched-4g cells were killed mid-run by the 2026-08-24 cluster filesystem event and are to be
+    re-run from the start; the five bigram cells are complete.
 
     `reproduces` is the bigram corner's acceptance check against the banked 1g.11 cell, as
     `criterion relative difference / decoded-utterance disagreements`; the declared bar is 1e-9 and
@@ -943,6 +955,38 @@ in `PLAN_1G.md`. `T_phi` below means the unpaired text converted to 39 stress-fr
     | real/fingerprint | accepted-2g | 4 | -74,841,463.6 | 0.0000 | 0.8080 | 38 | 4.0e-16 / 0 of 890 | `iZaUwq3DQVjj` |
     | real/espum_seed0_update30000 | accepted-2g | 0 | -79,791,528.0 | 0.0000 | 0.9220 | 38 | 9.3e-16 / 0 of 890 | `uczGmykabX6i` |
     | real/espum_seed0_update30000 | accepted-2g | 4 | -74,726,774.7 | 0.0000 | 0.8694 | 39 | 1.0e-15 / 0 of 890 | `uczGmykabX6i` |
+
+
+22. **1g.12 experiment 4: the exact beam-free order-k one-best readout
+    (`g12_exact_decode.py`).** Built and accepted against its pre-registered fixtures; no cell has
+    been decoded yet. It is the maximizing twin of the accepted context recursion -- same
+    `(duration sub-state, BOS-padded history)` state space, same sub-stochastic path law, same
+    BOS start and end-of-sequence terminal -- with the path sum replaced by a path maximum and
+    backpointers kept, and it reads the recursion's history algebra from the engine module rather
+    than restating it. The banked prefix-beam decoder was not reusable here because 1g.10b found no
+    affordable beam meeting the stability duty (0 of 36 cells) and 1g.10c closed decode-parameter
+    probing, so a beam cell's number cannot carry a cross-arm comparison; an exact decode has no
+    adjacent-beam disagreement by construction. DISCLOSED ESTIMATOR CHANGE, carried in the module
+    docstring and in every artifact: this maximizes over PATHS while the banked one-best maximizes
+    over LABEL SEQUENCES, whose scores sum over the duration paths sharing a label sequence, so
+    1g.12's decoded numbers are a new currency and are never compared to banked 1g.10 numbers.
+
+    Acceptance, run before any cell exists (`scripts/g12_exact_decode_test.py`, 33/33): the decoded
+    score AND the decoded phone sequence reproduce exhaustive enumeration of every legal
+    (phone sequence, duration path) at orders 2, 3 and 4, with and without deleted-silence
+    boundaries; on every utterance of a multi-utterance batch the best-path score is at most that
+    utterance's own exact forward log-likelihood; a single-path fixture decodes with zero slack;
+    the categorical and per-token emission paths decode identically on inputs that mean the same
+    thing; and packing utterances into a batch does not change any decode. The certificate is
+    one-sided by nature -- it catches a decoder that OVERSTATES a score -- so a decoder that
+    understates is caught by the enumeration half instead, and the reporting path itself is
+    exercised by handing the certificate an inflated score and requiring the count to fire.
+
+    Measured cost at the real array sizes (39 phones, 96 units, order 4, one utterance per call):
+    6.7 to 7.3 ms per retained token, so the whole 890-utterance selection fold (60,604 retained
+    tokens) is about 7 minutes per cell, and peak resident memory is 0.18 GiB. That is well inside
+    the 0.49 GiB the plan sized, because the float64 trellis is never stored -- backtracking needs
+    only one base-40 digit and one sub-state bit per state per frame.
 
 
 ## Verdicts
