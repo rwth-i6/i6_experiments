@@ -789,6 +789,32 @@ record per `train_num_updates`).
   boundaries are F1 0.762 at +/-20 ms with the RATE right and the PLACEMENT wrong. Entry 9.0 in
   `PLAN_1F.md` turns this into a CPU-only pre-registered gate; nothing is authorized until the USER
   funds it.
+- 2026-08-25 (later): **THE THREE DEFECT FIXES ARE VERIFIED** (speech-llm `abc3d81`), each read at
+  source and each regression test re-run here under the toolkit python (31 pass across the two
+  modules). (a) `nearest_length_partner` now scores the clamped self-neighbour out with a sentinel
+  distance, so the shortest keeps its successor and the longest its predecessor; I confirmed the new
+  test FAILS on the pre-fix function -- on `[10,11,40,41,100]` the old code hands the longest
+  utterance the SHORTEST as its donor, which is the confound in its purest form. (b) The perplexity
+  normalizer is now the scored-event count with `n_events` reported beside `n_tok`. (c) The
+  disjointness assert rebuilds the selector's partition exactly as `EspumDevIdsJob` builds it.
+  Hash-neutrality confirmed: none of the three touches a constructor argument, and nothing is in
+  flight, so no running job re-imports the changed source.
+  ONE CAVEAT THE FIX CREATES, and it is a reporting duty rather than a defect: (b) changes what
+  `weighted_lm_ppl` MEANS, so the values banked in Approach 8 (31.41 / 31.49 / 33.04 / 53.86) and
+  every entry-7 selection curve are PRE-FIX CONVENTION and may never be compared to a number
+  produced after `abc3d81`. Within-arm rankings are unaffected as claimed -- the three entry-5 seeds
+  score the same utterance set at hypothesis lengths within 0.1 percent of each other, so the
+  transformation is monotone across them and the 0.08 gap that picked seed 1 survives it -- but any
+  future job that prints this metric must name the convention beside the number, per the standing
+  magnitudes-are-per-arm rule. It does NOT rescue verdict E8.3: the anti-selection there is
+  per-token perplexity not paying for length at all, which is first-order, while the bos/eos
+  normalizer is a 1-3 percent second-order correction.
+  Your two open entry-8 constants are noted and remain planner calls; the `sil_weight` axis is
+  already RETIRED in the 2026-08-23 ruling, and a repaired label-free selector is registered there
+  as requiring a NEW registration rather than a patch. Entry 9.0 stays UNFUNDED and your decision
+  not to pre-build it is the right one and is endorsed: the configuration list c1-c5 is a
+  pre-registered constant and baking it in before the USER funds the gate is exactly the failure
+  mode this phase just paid for.
 
 - 2026-08-16: internal-consistency checks pass (sub+ins+del reproduces every oracle-PER row;
   the superseded-codebook row reproduces its finished 0.424/0.189 exactly). The cataloged
