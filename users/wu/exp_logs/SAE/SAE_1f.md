@@ -989,25 +989,22 @@ record per `train_num_updates`).
   distinction correctly. Your four implementer decisions are all endorsed, decision (4) especially:
   reporting the second read as NOT DELIVERABLE instead of showing a flat curve is the right call, and
   the plan now records that it makes the closure QUALIFIED by the registration's own terms.
-  THREE FINDINGS, none moving the verdict, all yours to act on if the family is ever reopened.
-  (1) **`gate.txt` is the one report that drops the qualifications.** All five per-configuration
-  `identifiability.txt` files carry the open stopping-rule sentence, the "every truth rung reads gold
-  and is an UPPER bound" line and the "licenses 'not funding this configuration', never 'it could not
-  have worked'" line. The aggregate carries the RULING sentence and none of the three -- and the
-  aggregate is what your Catalog names as the read the ruling is taken from, and is the document a
-  later reader opens alone. Same shape as the perplexity-convention trap you just closed, in the
-  opposite direction: rendered in the detail, missing from the summary.
-  (2) **Verdict 43 is paired on three configurations and unpaired on two, and the log does not say
-  which.** On c3/c4/c5 the text-unigram null IS the strongest decoy, so H is exactly the audio-free
-  contrast and the reported 0 of 10 establishes it. On c1/c2 the strongest decoy is the TRAINED
-  decode, so 0 of 10 is about the decode; the null-versus-truth margin there is -0.0574 and -0.0403
-  against per-rung standard deviations near 0.04, read off unpaired means. It is very likely real --
-  pairing cut the H spread from about 0.039 to 0.023 on c1 -- but `_assemble` collapses each rung to
-  mean and standard deviation and discards the per-batch values it already computed, so it cannot be
-  recovered from the banked json. Two minutes of CPU per configuration would settle it; until then
-  the c1/c2 half of that verdict is a difference of means, not a paired result.
-  (3) The text-resampling distortion quoted in approach 10 (0.0135 unigram / 0.0368 bigram) is c4's;
-  c2's is 0.0125 / 0.0398.
+  THREE FINDINGS, ALL DISCHARGED the same evening by `7b6a8314d` / speech-llm `0f12982`, and
+  verified here: (1) `gate.txt` -- the document your Catalog names as the ruling's source and the one
+  a later reader opens alone -- carried the RULING without any of the three qualifications every
+  per-configuration report carries; it now renders the upper-bound caveat and a per-configuration
+  open-stopping-rule line, read out of the per-configuration payloads so the two cannot drift apart.
+  (2) The audio-free claim was paired only on c3/c4/c5, where the null is itself the strongest decoy;
+  on c1/c2 the strongest decoy is the TRAINED decode, so the reported 0 of 10 was about that decode.
+  It is now a separate paired column and the claim survives on all five, with **c2 at 1 of 10 batches
+  truth-ahead** -- 9 of 10, not 10 of 10 -- now on the record in verdict 43 and the gate table.
+  (3) The resampling distortion is now quoted for both c2 (0.0125 / 0.0398) and c4 (0.0135 / 0.0368).
+  Three checks on the repair itself, all pass: the five per-configuration jobs were NOT re-run, every
+  gate H, standard deviation and ceiling reproduces to the digit so the gate statistic did not move,
+  and the 31 module tests pass. ONE CORRECTION TO MY OWN FINDING (2), which changed its price and not
+  its substance: I said the per-rung per-batch losses were discarded, having read the collapsed
+  `ladder` and `per_batch` keys and not the `batches` key beside them. They were banked all along, so
+  the repair was read-side and free rather than the CPU re-run I quoted -- you found the cheaper path.
   ONE AMENDMENT TO MY OWN AUDIT, made in `PLAN_1F.md` and noted here so you do not carry the old
   number: "the truth only ties the decoy at perfect boundaries" is superseded -- on the registered
   paired pool the truth WINS there by 0.11 (3.4566 against the decoy's 3.5683), and by +0.2854 read

@@ -1678,6 +1678,19 @@ transcription content, and it is the segmentation-induced audio side that costs 
 The audit's banked c1 value of -1.77 is superseded by the registered -2.1121 on the paired pool;
 same ordering, same sign, every rung about 0.15-0.49 higher on the intersected pool.
 
+**All three verification findings above are DISCHARGED 2026-08-25 (evening), read-side only**
+(implementer `7b6a8314d`, code speech-llm `0f12982`; the five per-configuration jobs were NOT
+re-run and every gate H, standard deviation and ceiling reproduces to the digit, so the gate
+statistic did not move and this registration's verdict is untouched). `gate.txt` now renders the
+upper-bound caveat and a per-configuration open-stopping-rule line, read out of the per-configuration
+payloads so the two documents cannot drift apart. The audio-free contrast is now a SEPARATE PAIRED
+column beside H: -0.0752 +/- 0.0212 at 0 of 10 (c1) and **-0.0541 +/- 0.0451 at 1 of 10 (c2)**,
+coinciding with H on c3/c4/c5 where the null is itself the strongest decoy. The claim survives on all
+five with one qualification now on the record: **c2 is 9 of 10 batches, not 10 of 10.** One correction
+to my own finding, which changed its price and not its substance: I reported that the per-rung
+per-batch losses were discarded, having read the collapsed `ladder` and `per_batch` keys; they were
+banked all along under `batches`, so the repair cost nothing and needed no CPU.
+
 **WHAT GOES BACK TO THE USER.** 1f returns with a measurement rather than another training batch,
 which is what the registration promised. The two forks are unchanged and both are the USER's: this
 bed yields at best a published-COMPARABLE number and 9.1 is now unfunded by its own gate, so the
