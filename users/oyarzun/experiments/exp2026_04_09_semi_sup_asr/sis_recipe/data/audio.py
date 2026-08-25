@@ -5,6 +5,7 @@ from sisyphus import tk
 from sisyphus.delayed_ops import DelayedFormat
 
 from i6_core.tools.download import DownloadJob
+from i6_core.tools.git import CloneGitRepositoryJob
 from i6_core.text.processing import PipelineJob, TailJob, HeadJob, ConcatenateJob
 
 from i6_experiments.users.enrique.jobs.fairseq.wav2vec.wav2vec_data_utils import SetupFairseqJob
@@ -28,9 +29,10 @@ def remove_silences_from_audio(
     delete_silences_job = Wav2VecUDeleteSilencesInAudioJob(
         environment=environment,
         fairseq_root=SetupFairseqJob(
-            tk.Path(
-                "/u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/Fairseq/fairseq_w2vu/fairseq"
-            ),
+            CloneGitRepositoryJob(
+                url="https://github.com/facebookresearch/fairseq.git",
+                commit="ecbf110e1eb43861214b05fa001eff584954f65a",
+            ).out_repository,
             environment,
         ).out_fairseq_root,
         audio_dir=audio_dir,
@@ -62,13 +64,14 @@ def featurize_audio(
         target_filename="wav2vec_60kh_no_finetune.pt",
     ).out_file
 
-    environment = tk.Path("/work/smt4/zeineldeen/enrique.leon.lozano/py_envs/fairseq_env_v3")
+    environment = tk.Path("/rwthfs/rz/cluster/home/p0023999/experiments/2026_05_07_first_experiments/venv")
     featurize_job = Wav2VecUFeaturizeAudioJob(
-        environment=tk.Path("/work/asr4/schmitt/venvs/fairseq_env"),
+        environment=tk.Path("/rwthfs/rz/cluster/home/p0023999/experiments/2026_05_07_first_experiments/venv"),
         fairseq_root=SetupFairseqJob(
-            tk.Path(
-                "/u/enrique.leon.lozano/setups/ubuntu_22_setups/fairseq_2025_03_11/work/Fairseq/fairseq_w2vu/fairseq"
-            ),
+            CloneGitRepositoryJob(
+                url="https://github.com/facebookresearch/fairseq.git",
+                commit="ecbf110e1eb43861214b05fa001eff584954f65a",
+            ).out_repository,
             environment,
         ).out_fairseq_root,
         layer=14,

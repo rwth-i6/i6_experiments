@@ -254,6 +254,7 @@ def search(
     :param decoder_module: path to the file containing the decoder definition
     :param decoder_args: arguments for the decoding forward_init_hook
     :param test_dataset_tuples: tuple of (Dataset, tk.Path) for the dataset object and the reference bliss
+    python_env = tk.Path("/rwthfs/rz/cluster/home/p0023999/experiments/2026_05_07_first_experiments/venv")
     :param returnn_exe: The python executable to run the job with (when using container just "python3")
     :param returnn_root: Path to a checked out RETURNN repository
     :param use_gpu: run search with GPU

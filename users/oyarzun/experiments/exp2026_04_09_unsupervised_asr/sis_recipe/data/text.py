@@ -7,6 +7,27 @@ from i6_experiments.users.schmitt.datasets.utils.phonemize import (
     DumpPhonemeIndicesToHdfJob,
 )
 
+class LocalPhonemizeTextDataJob(PhonemizeTextDataJob):
+    def run(self):
+        import os
+        import subprocess as sp
+        from unittest.mock import patch
+        
+        script_path = os.path.abspath(os.path.join(
+            os.path.dirname(__file__),
+            "../../phonemize_text.sh"
+        ))
+        
+        original_run = sp.run
+        
+        def mock_run(*args, **kwargs):
+            if isinstance(args[0], list) and args[0][0] == "zsh" and "phonemize_text.sh" in args[0][1]:
+                args[0][1] = script_path
+            return original_run(*args, **kwargs)
+            
+        with patch('subprocess.run', mock_run):
+            super().run()
+
 from ..default_tools import get_fairseq_root, get_lid_model, get_fasttext_python_exe
 
 
@@ -23,7 +44,7 @@ def get_phonemized_data(
     vocab_file: Optional[Path] = None,
     surround_w_sil: bool = True,
 ):
-    prepare_text_job_training = PhonemizeTextDataJob(
+    prepare_text_job_training = LocalPhonemizeTextDataJob(
         text_file=text_file,
         fairseq_root=get_fairseq_root(),
         python_exe=get_fasttext_python_exe(),

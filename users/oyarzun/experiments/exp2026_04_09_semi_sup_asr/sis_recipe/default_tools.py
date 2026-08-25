@@ -30,7 +30,7 @@ def get_returnn_exe() -> tk.Path:
 
 
 def get_fasttext_python_exe() -> tk.Path:
-    path = getattr(gs, "FASTTEXT_PYTHON_EXE", "/usr/bin/python3")
+    path = getattr(gs, "FASTTEXT_PYTHON_EXE", "/rwthfs/rz/cluster/home/p0023999/experiments/2026_05_07_first_experiments/venv/bin/python")
     return tk.Path(path, hash_overwrite="FASTTEXT_PYTHON_EXE")
 
 

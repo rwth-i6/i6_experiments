@@ -27,12 +27,7 @@ class CombineLibriSpeechJob(Job):
                     os.symlink(src, dst)
 
 def remove_silences_from_audio(librispeech_key: str):
-    if librispeech_key == "train-other-960":
-        parts = ["train-clean-100", "train-clean-360", "train-other-500"]
-        paths = [DownloadLibriSpeechCorpusJob(p).out_corpus_folder for p in parts]
-        audio_dir = CombineLibriSpeechJob(paths).out_corpus_folder
-    else:
-        audio_dir = DownloadLibriSpeechCorpusJob(librispeech_key).out_corpus_folder
+    audio_dir = tk.Path(os.path.join("/u/corpora/speech/LibriSpeech/LibriSpeech", librispeech_key))
 
     return audio.remove_silences_from_audio(
         audio_dir=audio_dir,
