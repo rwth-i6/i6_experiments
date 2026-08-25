@@ -663,9 +663,8 @@ class ChunkSegmentationFromModelBatchedJob(Job):
             order = sorted(order, key=lambda i: -len(rows[i]["word_detail"]["utterance"]))
         results: Dict[int, Any] = {}  # orig seq_idx -> (words_indices_start_end, chunk_start_end)
         for group_start in range(0, num_seqs, self.max_batch_size):
-            group = order[group_start : group_start + self.max_batch_size]
-            # per-seq state
-            st = {}
+            group = order[group_start : group_start + self.max_batch_size]  # orig seq indices in this batch
+            st = {}  # orig seq idx -> per-seq DP state
             for i in group:
                 data = rows[i]
                 audio = data["audio"]["array"]
@@ -689,16 +688,16 @@ class ChunkSegmentationFromModelBatchedJob(Job):
             while True:
                 # gather active sequences' current-chunk forward inputs
                 active, fwd_audio, fwd_words, fwd_omitted, ws_start = [], [], [], [], {}
-                for i in group:
-                    s = st[i]
+                for i in group:  # i: orig seq idx
+                    s = st[i]  # this seq's DP state
                     if s["done"] or s["cci"] >= len(s["cse"]):
                         s["done"] = True
                         continue
-                    cci = s["cci"]
+                    cci = s["cci"]  # current chunk index
                     if cci == 0 or not self.word_start_heuristic:
-                        prev_idx, cws = 0, 0
+                        prev_idx, cws = 0, 0  # rel node idx in prev chunk's array; chunk word start
                     else:
-                        exits = torch.stack([n.accum_exit_log_prob for n in s["array"][cci - 1]])
+                        exits = torch.stack([n.accum_exit_log_prob for n in s["array"][cci - 1]])  # [num prev nodes]
                         if self.word_start_beam is None:
                             prev_idx = int(exits.argmax().item())
                         else:
@@ -708,7 +707,7 @@ class ChunkSegmentationFromModelBatchedJob(Job):
                             keep = (exits >= exits.max() - self.word_start_beam).nonzero()
                             prev_idx = int(keep.min().item())
                         cws = s["array"][cci - 1][prev_idx].word_idx
-                    cwe = len(s["words"])
+                    cwe = len(s["words"])  # chunk word end (exclusive; word window = words[cws:cwe])
                     if cws >= cwe:
                         # trailing silence: drop remaining chunks (see single-seq job for rationale)
                         assert self.word_start_heuristic
@@ -717,7 +716,7 @@ class ChunkSegmentationFromModelBatchedJob(Job):
                         continue
                     a0, a1 = s["cse"][cci]
                     active.append(i)
-                    ws_start[i] = (prev_idx, cws, cwe)
+                    ws_start[i] = (prev_idx, cws, cwe)  # word-window info for this chunk step
                     fwd_audio.append(torch.tensor(s["audio"][a0:a1]))
                     fwd_words.append(s["words"][cws:cwe])
                     fwd_omitted.append(cws)
@@ -743,9 +742,9 @@ class ChunkSegmentationFromModelBatchedJob(Job):
                     omitted_prev_context_list=fwd_omitted,
                 )
 
-                for j, i in enumerate(active):
-                    s = st[i]
-                    cci = s["cci"]
+                for j, i in enumerate(active):  # j: batch slot in fwd_outputs, i: orig seq idx
+                    s = st[i]  # this seq's DP state
+                    cci = s["cci"]  # current chunk index
                     prev_idx, cws, cwe = ws_start[i]
                     fo: ForwardOutput = fwd_outputs[j]
                     s["array"].append([])
@@ -758,32 +757,32 @@ class ChunkSegmentationFromModelBatchedJob(Job):
                         all_lp = model.log_probs(
                             forward_output=fo, start=torch.tensor([0]), end=torch.tensor([max_end])
                         )  # [1, max_end, V]
-                    for w in range(cwe - cws + 1):
-                        t0, t1 = fo.target_start_end[:, w].unbind(1)
+                    for w in range(cwe - cws + 1):  # w: rel word idx; w == cwe-cws = exit-only row
+                        t0, t1 = fo.target_start_end[:, w].unbind(1)  # [1], [1]: word w's token span
                         if all_lp is not None:
-                            log_probs = all_lp[:, int(t0) : int(t1)]
+                            log_probs = all_lp[:, int(t0) : int(t1)]  # [1, t1-t0, V]
                         else:
-                            log_probs = model.log_probs(forward_output=fo, start=t0, end=t1)
-                        word_idx = cws + w
+                            log_probs = model.log_probs(forward_output=fo, start=t0, end=t1)  # [1, t1-t0, V]
+                        word_idx = cws + w  # absolute word idx
                         if word_idx < cwe:
-                            targets = batch_slice(fo.targets, (t0, t1))
-                            wlp = batches_gather(log_probs, indices=targets, num_batch_dims=2)
+                            targets = batch_slice(fo.targets, (t0, t1))  # [1, t1-t0]
+                            wlp = batches_gather(log_probs, indices=targets, num_batch_dims=2)  # [1, t1-t0]
                             wlp.masked_fill_(
                                 torch.arange(wlp.shape[1], device=wlp.device)[None, :]
                                 >= (t1 - t0).to(wlp.device)[:, None],
                                 0.0,
                             )
-                            wlp = wlp.sum()
+                            wlp = wlp.sum()  # scalar: the word's summed log-prob
                             if self.length_norm:
                                 wlp = wlp / max(1, int(t1 - t0))
                         else:
                             wlp = None
-                        exit_lp = log_probs[0, 0, model.assistant_end_token_id]
+                        exit_lp = log_probs[0, 0, model.assistant_end_token_id]  # scalar, log P(exit) at word start
                         if self.exit_bias:
                             exit_lp = exit_lp + self.exit_bias
                         if w == 0:
                             exit_lp = exit_lp + self.empty_exit_penalty
-                        prev_left, prev_below = None, None
+                        prev_left, prev_below = None, None  # below: emit word here; left: exit prev chunk
                         if w > 0:
                             prev_below = s["array"][cci][-1]
                             assert prev_below.word_idx == word_idx - 1
@@ -832,7 +831,7 @@ class ChunkSegmentationFromModelBatchedJob(Job):
                     nodes_alignment.append(node)
                     node = node.backpointer
                 nodes_alignment.reverse()
-                words_per_chunks: List[List[int]] = [[] for _ in range(len(cse))]
+                words_per_chunks: List[List[int]] = [[] for _ in range(len(cse))]  # [chunk_idx] -> word indices
                 # per word (in word order, since the path is monotone): (score, num_tokens)
                 wscores: List[Tuple[float, int]] = []
                 covered = 0
@@ -849,7 +848,7 @@ class ChunkSegmentationFromModelBatchedJob(Job):
                         assert node.chunk_idx == node.backpointer.chunk_idx + 1
                         assert node.word_idx == node.backpointer.word_idx
                 assert covered == len(words) == len(wscores)
-                wise = [(ws[0], ws[-1] + 1) if ws else (-1, -1) for ws in words_per_chunks]
+                wise = [(ws[0], ws[-1] + 1) if ws else (-1, -1) for ws in words_per_chunks]  # (-1, -1) = empty chunk
                 assert len(wise) == len(cse)
                 results[i] = (wise, cse, wscores)
                 print(f"  seq {i}: words per chunks = {wise}", flush=True)
