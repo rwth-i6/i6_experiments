@@ -4,49 +4,55 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-State as of 2026-08-23 -- entry 5 and entry 7 stage A are closed; PLAN_1F entry 8 (LM-decoded phone
-error rate) is BUILT, TESTED AND LAUNCHED on the USER's word for cells 1 and 2 only.
+State as of 2026-08-25 -- NOTHING IS IN FLIGHT: no job of mine is running, none is queued, and the
+last graph (entry 8 cells 1-2) finished with zero error markers. Entry 5 and entry 7 stage A are
+closed and entry 8 cells 1-2 are complete, but the 2026-08-25 audit (Verifier feedback below;
+ruling in `PLAN_1F.md`) reframes what those closures measured. Entry 9 is REGISTERED AND UNFUNDED;
+9.0 is not built and I have started nothing on it.
 
-**ENTRY 8 CELLS 1-2 ARE COMPLETE** (verdicts E8.1-E8.4; primary read
-`GuaLmGridReadJob.SeNSdRhV1Wo3`, SIL-augmented sensitivity `GuaLmGridReadJob.I9lgMOqar8RO`; all
-eight grid-decode jobs and both reads finished, ZERO error markers). The headline: language-model
-decoding does cut the arms' error rate a long way (full loss 1.6828 -> 0.8444, bigram only
-1.2409 -> 0.8172 at the label-oracle cell) and it does it largely by emitting half as many phones,
-so the mechanism is confirmed and a usable decode is not. Sizing note for anyone repeating this:
-the whole grid cost about an hour of GPU per arm; 572-utterance lexicon-free decoding at beam 50 is
-51 seconds.
+**THE THREE IMPLEMENTATION DEFECTS THE AUDIT HANDED ME ARE FIXED, TESTED AND PUSHED** (speech-llm
+`abc3d81` on `haotian_modality_matching_jupiter`; each fix carries the regression test that would
+have caught it, 73 tests pass across the four modules that touch them). No job hash moves --
+sisyphus hashes constructor arguments, not source -- so no finished work is orphaned and nothing
+re-runs. (a) `nearest_length_partner` clamps the rank extremes to themselves; the old `(i+1) % n`
+fallback then gave the shortest and the longest utterance a donor of arbitrary length, on 2 of 572
+scored rows. The stand-in is now scored out of the running so both keep their real neighbour.
+(b) `_weighted_lm_ppl` divided the N+1 log-probabilities kenlm returns for bos+eos by N emitted
+phones; it now divides by the scored-event count, reported as `n_events` beside the unchanged
+`n_tok`. (c) `EspumEvalJob` now rebuilds the selector's partition the way `EspumDevIdsJob` builds
+it and asserts selection/scored disjointness per split, instead of relying on two identifier sets
+happening to agree. Nothing needs re-running for any of the three: (a) is 0.35 percent of rows and
+inside every reported M2, (b) was applied identically at every checkpoint so no banked ranking
+moves, and (c) is satisfied on the banked run (2,292 + 572 = 2,864).
 
-- THE DECODES DO NOT TRACK THE TRANSCRIPT, and the swap control says so numerically (verdict
-  E8.5, USER-prompted): re-pairing each hypothesis with the nearest-length OTHER utterance's
-  reference costs between 0.2 and 1.7 percent of error rate, and LM decoding left that margin
-  exactly where the greedy decode already had it. The best cell by error rate carries the
-  SMALLEST swap margin of all. Nothing in the grid tables shows this, which is why the control
-  was worth running unasked.
-- THREE THINGS THE RESULT ITSELF EXPOSED, all now in the verdicts. (1) `sil_weight` is INERT --
-  identical decodes at all three values -- because the vocabulary has no silence symbol and
-  fairseq's index rule falls through to end-of-sentence, so the ruled second axis is a no-op and
-  the grid is 4 points, not 12. (2) The registered label-free selector picks the WORST cell on
-  both full-loss arms, and in the opposite direction to the circularity I disclosed: it prefers
-  low lm_scale because per-token perplexity rewards the long insertion-heavy decode. (3) Beam 50
-  is converged for the RATE (a ten-fold wider beam moves PER by at most 0.0195) and nowhere near
-  converged for the SEQUENCE (one-best agreement as low as 0.1136).
-- TWO GAPS OF MINE THAT THE FIRST READ EXPOSED, both fixed at speech-llm `55045ed`, both
-  re-keying only the read jobs: the beam-500 probe finished with NOTHING consuming it -- a probe
-  that is registered and never read is a probe that was not run -- and the payload still printed
-  the anchor pin as UNDISCHARGED after the planner discharged it.
-- FOR THE PLANNER, since two ruled constants turned out to be inert or harmful in practice rather
-  than in principle: ruling (1)'s `sil_weight` axis buys nothing on this vocabulary and a future
-  grid should drop it; and the registered label-free rule of ruling (3) is not just circular but
-  actively anti-selecting on the full-loss arms, so if any entry-8 number is to be quoted as a
-  single figure, the label-oracle cell with its range is the honest one and the rule's pick is
-  not. Neither is mine to change.
-- STILL NOT BUILT: cell 3 (the CTC-student decoder-sanity control) and cell 4 (re-banking the
-  argmax nulls and the memoryless oracle-map ceiling under this decode). Until cell 4 exists no
-  margin against 0.8946 / 0.9239 / 0.4148 may be quoted, and the pre-registered "stage A
-  answerable after all" trigger cannot be evaluated. Cell 5 (the entry-5 ESPUM checkpoints) is
-  untouched. The ANCHOR PIN IS DISCHARGED and recorded in `gua_lm_decode.py`: the published TIMIT
-  0.473 is greedy/argmax currency, so no entry-8 number may be quoted against it in either
-  direction.
+**WHAT THE AUDIT CHANGES IN MY OWN READINGS, absorbed here so I do not repeat them.** My Approach-8
+reading "the failure mode is IDENTITY, not rate" and the over-segmentation reading of Approach 9 are
+both SUBSUMED by the ruling's measurement (E): on this bed 95-97 percent of the matching objective
+is an irreducible constant set by a token-mass ratio of 2.54, and in the arm's own loss at matched
+mass the trained decode beats the gold transcript of the same audio in 10 of 10 paired batches.
+Neither of my readings is the operative cause on its own. Two constants of mine are corrected in
+the frame, not in a number: the k-means proposal is 2.10x the gold phone rate (not 2.9x -- 9.86/s
+was a prior-derived text rate, never a measured phone rate), and the learned segmenter does NOT
+prune, its predicted rate moving UP on every arm and every checkpoint. The `bigram_only` arms I
+built and named in entries 5 and 7 keep the positional unigram
+(`espum_model.py:26`, `pos_unigram_weight` default 1.0 overridden nowhere), so they are the paper's
+`uni+bi` row and the collapse arm has never been run.
+
+**STILL NOT BUILT, unchanged and still true.** Entry 8 cell 3 (the CTC-student decoder-sanity
+control), cell 4 (re-banking the argmax nulls and the memoryless oracle-map ceiling under this
+decode) and cell 5 (the entry-5 ESPUM checkpoints). Until cell 4 exists no margin against
+0.8946 / 0.9239 / 0.4148 may be quoted and the "stage A answerable after all" trigger cannot be
+evaluated. The anchor pin is discharged and recorded in `gua_lm_decode.py`.
+
+**PROPOSALS FOR THE PLANNER.** (1) `EspumIdentifiabilityJob` (entry 9.0) is CPU-only, needs no new
+artifact -- c1-c5 read the banked entry-5 `seg12.5` stream, the entry-7 `clus` dirs, the T_phi
+sample and the gold json that entries 5 and 7 already consume -- and I can build and test it without
+spending a GPU-second. I have NOT started it: entry 9 says the USER funds it, and building a
+pre-registered gate job before its configuration list is confirmed is how a constant gets baked in
+untraceably. One word and it is built. (2) The two entry-8 constants I flagged on 2026-08-23 are
+still open for the planner: `sil_weight` is inert on this vocabulary and the registered label-free
+selection rule is actively anti-selecting on the full-loss arms.
+
 
 ## Approach
 
