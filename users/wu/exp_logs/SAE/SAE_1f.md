@@ -4,11 +4,11 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-State as of 2026-08-25 -- NOTHING IS IN FLIGHT: no job of mine is running, none is queued, and the
-last graph (entry 8 cells 1-2) finished with zero error markers. Entry 5 and entry 7 stage A are
-closed and entry 8 cells 1-2 are complete, but the 2026-08-25 audit (Verifier feedback below;
-ruling in `PLAN_1F.md`) reframes what those closures measured. Entry 9 is REGISTERED AND UNFUNDED;
-9.0 is not built and I have started nothing on it.
+State as of 2026-08-25 -- ENTRY 9.0 IS IN FLIGHT (five gate jobs plus their read, CPU only, details
+below). Entry 5 and entry 7 stage A are closed and entry 8 cells 1-2 are complete, but the
+2026-08-25 audit (Verifier feedback below; ruling in `PLAN_1F.md`) reframes what those closures
+measured, and 9.0 is the measurement neither of them had. Entry 9.1 is NOT built and is not
+licensed by this graph.
 
 **THE THREE IMPLEMENTATION DEFECTS THE AUDIT HANDED ME ARE FIXED, TESTED AND PUSHED** (speech-llm
 `abc3d81`, with the perplexity convention tagged at `2e0cb00`, on `haotian_modality_matching_jupiter`; each fix carries the regression test that would
@@ -47,14 +47,44 @@ decode) and cell 5 (the entry-5 ESPUM checkpoints). Until cell 4 exists no margi
 0.8946 / 0.9239 / 0.4148 may be quoted and the "stage A answerable after all" trigger cannot be
 evaluated. The anchor pin is discharged and recorded in `gua_lm_decode.py`.
 
-**PROPOSALS FOR THE PLANNER.** (1) `EspumIdentifiabilityJob` (entry 9.0) is CPU-only, needs no new
-artifact -- c1-c5 read the banked entry-5 `seg12.5` stream, the entry-7 `clus` dirs, the T_phi
-sample and the gold json that entries 5 and 7 already consume -- and I can build and test it without
-spending a GPU-second. I have NOT started it: entry 9 says the USER funds it, and building a
-pre-registered gate job before its configuration list is confirmed is how a constant gets baked in
-untraceably. One word and it is built. (2) The two entry-8 constants I flagged on 2026-08-23 are
-still open for the planner: `sil_weight` is inert on this vocabulary and the registered label-free
-selection rule is actively anti-selecting on the full-loss arms.
+**ENTRY 9.0 IS BUILT, TESTED AND RUNNING** on the USER's word of 2026-08-25 ("you are the
+implementer and should work on 1f fix"). Six jobs, CPU only, no GPU requested anywhere in the graph
+and nothing else unfinished in it (the manager's own count: runnable(5) waiting(1)); code at
+speech-llm `2eb7cb9`, config `config/sae_1f_entry9.py`, manager registered in `sis_managers.sh`.
+In flight, one per configuration of the registration, each answering "does this objective on this
+stream and this text side prefer the reachable truth to the strongest content-free answer":
+`EspumIdentifiabilityJob.fzOQ9UKTnLh1` (c1 pooled / text as run),
+`.NMDdH7owD52u` (c2 pooled / length-matched text), `.ffAQBEntKvBe` (c3 released k-means runs),
+`.POCnVeDHejYU` (c4 pairwise-merged / length-matched), `.JnsqE57Ui4XQ` (c5 pairwise-merged / as
+run), read by `EspumIdentifiabilityReadJob`. Expected wall time under an hour each.
+
+Four decisions of mine that the planner should see, all recorded in the code that carries them.
+(1) The ladder's statistics are accumulated by bincount rather than through the trainer's dense
+one-hot matmuls -- 39^3 tri-skipgram tensors over 640x640 batches are hours of CPU otherwise -- and
+the job asserts that path against `count_statistics` element by element, its raw L1 against the
+arm's own `matching_loss`, and the pinned checkpoint's soft loss against the producing trainer's own
+logged band per utterance, on a real batch, before it writes anything. (2) All five configurations
+are read on ONE pool, intersected over the three segmentations, because the registration ranks H
+across configurations and a finer segmentation drops more utterances; the read job refuses to rank
+H when the pool fingerprints differ. (3) Only the two pooled configurations carry a trained decoy:
+a per-segment decode from entry 7's checkpoints needs the released generator, which is GPU work
+this gate may not do, so on the released stream the content-free family is the constructed nulls
+alone. (4) The registered "H against training update" second read is NOT deliverable and the report
+says so rather than showing a flat curve: entry 5 retained only its pinned checkpoint (`resume.pt`
+went with the job's automatic cleanup) and entry 7's eighteen are fairseq models. THE STOPPING-RULE
+QUESTION THEREFORE STAYS OPEN and no reading of this gate closes it.
+
+**A HASH TRAP FOUND WHILE WIRING IT, and it is not mine alone.** Reconstructing
+`EspumMatchTrainJob` with entry 5's own arguments yields `EspumMatchTrainJob.LJnNQh8wVbVu`, NOT the
+banked `.lALR9ldNG8f1`: the constructor gained the H3 arguments after entry 5 ran and sisyphus
+hashes the full bound signature. The first graph load had that unfinished job runnable, i.e. one
+`-r` away from funding a fresh 32-GPU-hour training; entry 9 now consumes the checkpoint as a frozen
+path instead. The consequence is general: **entry 5's own config no longer reaches its finished runs
+either**, so every entry-5 job dir is orphaned by drift and is protected only by the log's Catalog.
+
+**PROPOSALS FOR THE PLANNER.** The two entry-8 constants I flagged on 2026-08-23 are still open:
+`sil_weight` is inert on this vocabulary and the registered label-free selection rule is actively
+anti-selecting on the full-loss arms.
 
 
 ## Approach
