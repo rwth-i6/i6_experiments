@@ -211,6 +211,8 @@ class ChunkSegmentationFromModelJob(Job):
 
             print("* Chunkwise segmenting...")
 
+            # Prepare.
+            # Collect chunk_start_end.
             chunk_start_end: List[Tuple[int, int]] = []  # in samples
             cur_audio_start = 0  # in samples
             while True:  # while not ended
@@ -228,6 +230,7 @@ class ChunkSegmentationFromModelJob(Job):
                 cur_audio_start = cur_audio_end - math.ceil(self.chunk_overlap_secs * samplerate)
                 assert cur_audio_start >= 0
 
+            # The dyn prog array, to be filled.
             array: List[List[_Node]] = []  # [chunk_idx][rel word_idx]
             # running per-seq stats for word_start_completion_norm == "consumed"
             _cn_sum, _cn_cnt = 0.0, 0
@@ -244,7 +247,10 @@ class ChunkSegmentationFromModelJob(Job):
                 accum_word_log_prob: Optional[torch.Tensor]
                 backpointer: Optional[_Node]  # prev chunk, or prev word
 
+            # Chunk-synchronous search.
             for cur_chunk_idx, (cur_audio_start, cur_audio_end) in enumerate(chunk_start_end):
+                # Determine cur_word_start/cur_word_end, that is what we feed through the model
+                # (that is not the actual chunk; we take subsets of that for the dyn prog score).
                 if cur_chunk_idx == 0 or not self.word_start_heuristic:
                     prev_array_word_idx = 0
                     cur_word_start = 0
