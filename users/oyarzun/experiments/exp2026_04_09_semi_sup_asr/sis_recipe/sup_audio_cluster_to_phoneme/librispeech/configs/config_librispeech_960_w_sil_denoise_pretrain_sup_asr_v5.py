@@ -37,29 +37,30 @@ def py():
 
     ablations = [
         # Debug ablation: 3 layers, disc in all stages, 5 pretrain epochs
-        (
-            "baseline_disc_enc-3_dec-3_denoise_ep-5_v5.1_lmdata_adv_asr_DEBUG",
-            {
-                "num_enc_layers": 3,
-                "num_text_dec_layers": 3,
-                "num_audio_dec_layers": 3,
-                "discriminator_type": "lstm",
-                "codebook_opts": {"codebook_prob": 0.0},
-            },
-            {
-                "codebook_diversity_loss_scale": 0.0,
-                "denoise_pretrain_epochs": 5,
-                "pretrain_codebook_prob": 0.0,
-                "pretrain_codebook_diversity_loss_scale": 0.0,
-                "adv_loss_scale": 0.1,
-                "pretrain_adv_loss_scale": 0.1,
-                "use_lm_for_asr_adv": True,
-            },
-            {
-                "batch_size": 4000,
-            },
-            True  # is_debug
-        )
+        #(
+        #    "baseline_disc_enc-3_dec-3_denoise_ep-5_v5.1_lmdata_adv_asr_DEBUG",
+        #    {
+        #        "num_enc_layers": 3,
+        #        "num_text_dec_layers": 3,
+        #        "num_audio_dec_layers": 3,
+        #        "discriminator_type": "lstm",
+        #        "codebook_opts": {"codebook_prob": 0.0},
+        #    },
+        #    {
+        #        "codebook_diversity_loss_scale": 0.0,
+        #        "denoise_pretrain_epochs": 5,
+        #        "pretrain_codebook_prob": 0.0,
+        #        "pretrain_codebook_diversity_loss_scale": 0.0,
+        #        "adv_loss_scale": 0.1,
+        #        "pretrain_adv_loss_scale": 0.1,
+        #        "use_lm_for_asr_adv": True,
+        #    },
+        #    {
+        #        "batch_size": 4000,
+        #    },
+        #    True  # is_debug
+        #)
+    #] + [
     ] + [
         # no discriminator for both pretraining and ASR; only pretrain - asr
         (
@@ -265,6 +266,7 @@ def py():
             "asr_loss_warmup_steps": 2000,
         })
         config["train_args"].update(train_args)
+        config["train_args"]["denoise_pretrain_epochs"] = 0  # Force 0 for finetuning phase
         config["train_args"].update({
             "text_masking_opts": {
                 "mask_prob": 0.1,
@@ -344,6 +346,7 @@ def py():
             "asr_loss_warmup_steps": 2000,
         })
         config["train_args"].update(train_args)
+        config["train_args"]["denoise_pretrain_epochs"] = 0  # Force 0 for finetuning phase
         config["train_args"].update({
             "text_masking_opts": {
                 "mask_prob": 0.3,

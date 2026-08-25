@@ -147,6 +147,7 @@ def py():
             "asr_loss_warmup_steps": 2000,
         })
         config["train_args"].update(train_args)
+        config["train_args"]["denoise_pretrain_epochs"] = 0  # Force 0 for finetuning phase
         config["train_args"].update({
             "text_masking_opts": {
                 "mask_prob": 0.3,
@@ -173,6 +174,7 @@ def py():
         pretrain_ep = train_args.get("denoise_pretrain_epochs", 0)
         
         config["training"]["__num_epochs"] = base_num_epochs
+        config["training"]["save_interval"] = 10
         if pretrain_ep > 0:
             layers = model_args["num_enc_layers"]
             p_job = pretrain_jobs[(layers, pretrain_ep)]

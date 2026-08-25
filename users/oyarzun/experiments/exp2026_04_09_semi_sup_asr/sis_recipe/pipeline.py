@@ -348,7 +348,8 @@ def training(
         for add_cfg in additional_configs:
             returnn_config.update(add_cfg)
 
-    train_job = ReturnnTrainingJob(returnn_config=returnn_config, num_epochs=num_epochs, **default_rqmt)
+    save_interval = train_args["config"].pop("save_interval", 1)
+    train_job = ReturnnTrainingJob(returnn_config=returnn_config, num_epochs=num_epochs, save_interval=save_interval, **default_rqmt)
     if gpu_mem is not None and gpu_mem != 11:
         train_job.rqmt["gpu_mem"] = gpu_mem
 
