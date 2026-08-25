@@ -524,6 +524,21 @@ across configurations and nothing is ranked to pick one.
 | c4 | pairwise-merged runs (14.46), length-matched | 0.0503 | 0.2307 | **0.5421** (h/r 0.900) | -- | 0.9084 +/- 0.0013 |
 | c5 | pairwise-merged runs (14.46), as run | 0.0503 | 0.2307 | **0.5421** (h/r 0.900) | -- | 0.9075 +/- 0.0011 |
 
+**THE CURRENCY HAS A FLOOR OF 0.0503 and every row should be read against it.** The
+perfect-boundaries perfect-map row is 0.0503 dev-other on all five configurations and is pure
+deletion (sub 0.0000, ins 0.0000): collapsing adjacent duplicates within a chunk merges phones the
+speaker genuinely repeated, which is the decode currency's own cost and is identical across
+configurations. So 0.4168 sits 0.366 above the floor and 0.5421 sits 0.492 above it, and no row here
+can go below 0.0503.
+
+**THE ROWS ARE GATE 9.0's RUNGS, SCORED AFTER THE COLLAPSE A PHONE ERROR RATE REQUIRES.** Gate 9.0's
+L1 reads the segment stream with its repeats intact (its own adjacent-repeat diagnostic is 0.2134 on
+the perfect-map audio side); this table collapses first, because a phone error rate must be scored on
+a decode. Both sides of every comparison here get the identical treatment, so the readings below are
+fair as measured, but the two tables do not score the same SEQUENCES -- they score the same rung, one
+before and one after the decode step. The distinction matters most on c3, where 2.12 segments per
+gold phone leave the collapse doing almost all the work.
+
 All numbers dev-other; dev-clean runs 0.02-0.04 lower on every row and is in the payloads. c1 and c2
 share an audio side and differ only in the text side the null is drawn from, so their audio rows are
 identical by construction, and likewise c4 and c5; that is a property of the design, not a
@@ -872,8 +887,8 @@ cell 4 will find.
 
 48. (11) **THE INVERSION GATE 9.0 MEASURED IS AN INVERSION IN THE OBJECTIVE, NOT IN PHONE ERROR
     RATE.** The audio-free unigram null that the matching objective PREFERS to the best reachable
-    truth on all five configurations (verdict 43) scores 0.8897-1.6071 PER, while the truth it beats
-    scores 0.4168-0.8370: every ceiling row beats every null row on its own configuration, by 0.35
+    truth on all five configurations (verdict 43) scores 0.8897-1.6071 PER, while the audio side it
+    beats -- the same rung, scored after the collapse this currency requires -- scores 0.4168-0.8370: every ceiling row beats every null row on its own configuration, by 0.35
     to 0.80. So the objective is not measuring what a decoder is measured by -- which is the
     disclosure's one substantive addition to gate 9.0 and is why the closure rests on the objective,
     not on the streams being empty.
