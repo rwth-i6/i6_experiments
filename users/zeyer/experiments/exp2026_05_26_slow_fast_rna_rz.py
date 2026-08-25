@@ -100,13 +100,15 @@ __setup_root_prefix__ = "exp2026_05_26_slow_fast_rna_rz"
 
 
 def _recog_chunked_base_aed():
-    """Chunked base's own AED decoder, decoder-only (label-sync beam search) on dev --
-    the AED counterpart to its 9.41 CTC. Reuses the standard aed.py beam search on the base checkpoint.
+    """Chunked base's own global AED decoder, decoder-only (label-sync beam search) on dev --
+    the AED counterpart to its 9.41 CTC. Checkpoint imported from the source setup (B304LC1ufsDx);
+    disable_register_output keeps the base's own recog/LM pipeline out of this setup's graph.
     """
     prefix = get_setup_prefix_for_module(__name__)
-    exp, _aux = _train_loquacious_chunked_base()
+    with disable_register_output():
+        exp, _aux = _train_loquacious_chunked_base()
     task = get_loquacious_task_raw_v2(vocab="spm10k")
-    for bs in [1, 12, 32]:
+    for bs in [1, 12]:
         name = prefix + f"/chunked-base-aed/recog-dev/b{bs}"
         res = recog_model(
             task=task,
@@ -127,7 +129,7 @@ def _recog_chunked_base_aed():
 
 def py():
     # The standard-AED control (CTC-only = base 9.41 metric) + the four streaming decoder variants.
-    _recog_chunked_base_aed()  # chunked base's own AED decoder-only (dev), the AED counterpart to its 9.41 CTC
+    _recog_chunked_base_aed()  # chunked base's own global-AED decoder-only (dev), the AED counterpart to its 9.41 CTC
     _train_standard_aed_rz()
     _train_chunkwise_rz()
     _train_framewise_rz()
