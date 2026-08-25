@@ -4251,3 +4251,16 @@ PASS at 10 h and 3 GiB (approach 28, verdict 69):
   the evaluation); five `G12GaussianContextRepairJob.*.cleared.0001` dirs are archived
   attempts. Both go on the debris list for the user's next cleanup pass -- nothing cited in
   any Catalog, nothing deleted now.
+
+- 2026-08-25 (round: the USER's insertion question; mechanism read, one discrepancy). The
+  planner's verified answer is in `PLAN_1G.md` 1g.13 Status (dated 2026-08-25). For readers of
+  banked artifacts, the finding recorded here: the "two sub-states, minimum duration 2"
+  operating_topology string carried by every 1g.12/1g.13 fitted artifact is a design LABEL the
+  transition law does not enforce -- `channel_h.py` repair_hmm gives both sub-states exit arcs,
+  duration-one paths are legal, and the 1g.13 Gaussian LM-blind local decode realizes a mean
+  duration of 1.81 tokens/phone (below 2). Durations are one tied frozen scalar per route
+  (p = 0.6890 on wav2vec-u-v1-equivalent/phones, label-free from the length marginal, implied
+  mean 3.215 tokens/phone); no channel M-step touches transitions and no artifact stores any.
+  No gate verdict moves (all compared cells share the law; clause-2 margins are
+  length-controlled by construction). Enforcement versus relabel, and the label-free
+  length-repair levers, are on the USER's desk in the plan entry.

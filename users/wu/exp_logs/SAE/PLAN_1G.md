@@ -3032,6 +3032,39 @@ All seven 1g.13 experiments are COMPLETE and the gate is ruled. Closing the subp
 any funding of a wav2vec-U-faithful completion despite the negative read -- is the USER's
 word.
 
+2026-08-25 USER QUESTION on the insertion surplus, answered with a verified mechanism read
+(planner's code-and-artifact analysis; examples inspected by eye against gold). The insertion
+is corner-specific and secondary: substitutions are ~80 percent of reference phones in every
+real-start cell, and the Gaussian corner adds a 1.23x length surplus while the table corner is
+DELETION-side (0.83x). Mechanism, verified from code and the banked artifacts: durations are
+governed by ONE tied, frozen self-loop scalar p = 0.6890 per route, fitted label-free from the
+utterance-length marginal at stream build -- implied mean duration 3.215 tokens/phone, already
+matched to the stream's 3.22 rate, so "steer the loop probability" is already done and is
+demonstrably too weak: in the Gaussian corner the 512-dimensional emission log-density gaps
+(median ~40 nats/token between rows) swamp the ~0.8-nat stay-versus-switch differential, the
+run-collapsed stream changes cluster ID every token, a phone visit offers exactly two emission
+rows, and the decode therefore spends ~2.0 tokens per phone regardless of p; the table arm's
+categorical gaps are ~0.5 nats, so there p and the 4-gram govern and its decode sits at 2.95
+tokens/phone. DISCREPANCY FOUND AND RECORDED: the implemented path law preserves DURATION-ONE
+paths (channel_h.py repair_hmm -- both sub-states carry exit arcs; the Gaussian local decode's
+realized 1.81 tokens/phone shows such paths occur), while every 1g.12/1g.13 artifact labels
+the topology "two sub-states, minimum duration 2". The min-duration floor actually enforced is
+1. NO GATE VERDICT MOVES: every compared cell and control shares the same law on both streams,
+and clause-2 content margins are length-controlled BY CONSTRUCTION (the babble null draws at
+each cell's own decoded lengths), so no length mechanism can touch shows_content. ON THE
+USER'S DESK, should they want a length-repaired operating point (a NEW registration; ruled
+gates stay ruled): (1) enforce d_min=2 as the registration already claims, with a label-free p
+refit under the shifted geometric -- hygiene-grade, inside the standing d_min>=2 ruling; (2) a
+per-emitted-phone insertion penalty in the exact decode, mirrored into the forward pass so the
+clause-4 certificate holds, set label-free (match the decoded rate to the model's own 1-p, or
+the length-marginal likelihood, or wav2vec-U's weighted-LM-perplexity template); (3) fund the
+pair-pooled 14 Hz leg (the registered planner constant the USER may override; halves the rate
+but loses the discrete twin and fairseq documents an LM-decoding regression); (4) accept and
+relabel the topology as duration-one-permitted. Reference point: wav2vec-U v1 itself carries a
+word insertion score, a smoothness penalty, and the pooling stage, all set label-free -- the
+port kept none of them, only the geometric p. None of these levers can move clause 2 or the
+substitution mass; they repair the insertion corner of the phone error rate only.
+
 ## 6. Deliverables ladder
 
 | Step | Deliverable | Decision it enables |
