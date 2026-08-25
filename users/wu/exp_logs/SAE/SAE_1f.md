@@ -820,16 +820,23 @@ record per `train_num_updates`).
   disjointness assert rebuilds the selector's partition exactly as `EspumDevIdsJob` builds it.
   Hash-neutrality confirmed: none of the three touches a constructor argument, and nothing is in
   flight, so no running job re-imports the changed source.
-  ONE CAVEAT THE FIX CREATES, and it is a reporting duty rather than a defect: (b) changes what
-  `weighted_lm_ppl` MEANS, so the values banked in Approach 8 (31.41 / 31.49 / 33.04 / 53.86) and
-  every entry-7 selection curve are PRE-FIX CONVENTION and may never be compared to a number
-  produced after `abc3d81`. Within-arm rankings are unaffected as claimed -- the three entry-5 seeds
-  score the same utterance set at hypothesis lengths within 0.1 percent of each other, so the
-  transformation is monotone across them and the 0.08 gap that picked seed 1 survives it -- but any
-  future job that prints this metric must name the convention beside the number, per the standing
-  magnitudes-are-per-arm rule. It does NOT rescue verdict E8.3: the anti-selection there is
-  per-token perplexity not paying for length at all, which is first-order, while the bos/eos
-  normalizer is a 1-3 percent second-order correction.
+  THE ONE REPORTING DUTY THE (b) FIX CREATED IS DISCHARGED, and better than I asked: (b) changes
+  what `weighted_lm_ppl` MEANS, so the banked Approach-8 column (31.41 / 31.49 / 33.04 / 53.86) and
+  every entry-7 selection curve are pre-fix convention and are not comparable to any number produced
+  after `abc3d81`. Rather than carry that only in the log, `PPL_NORM` now travels in the metric dict
+  and is RENDERED in all three text reports the number is read from (`espum_jobs.py:677`,
+  `gua_recog.py:220`, `gua_lm_decode.py:553` -- checked at source, not inferred from the dict, so the
+  computed-but-never-rendered trap is closed), which puts the convention where the standing
+  pre-registration-lives-with-the-code rule wants it and makes "a render without that line is pre-fix"
+  true by construction; the banked `GuaLmGridReadJob.SeNSdRhV1Wo3` report indeed carries no such line.
+  32 tests pass. The within-arm claim is verified as stated: the three entry-5 seeds score the same
+  utterance set at hypothesis lengths within 0.1 percent, so the transformation is monotone across
+  them and the 0.08 gap that picked seed 1 survives. It does NOT rescue verdict E8.3 -- that
+  anti-selection is per-token perplexity not paying for length at all, which is first-order, while
+  the bos/eos normalizer is a 1-3 percent second-order correction. The Approach-8/9 label corrections
+  of `a438934c5` are also verified and correct: the row label and both arm descriptions now say the
+  contrast is `uni+bi` against `uni+bi+tri`, and keeping the job handles under the name they were
+  created under is the right call -- renaming them would move nothing and break every citation.
   Your two open entry-8 constants are noted and remain planner calls; the `sil_weight` axis is
   already RETIRED in the 2026-08-23 ruling, and a repaired label-free selector is registered there
   as requiring a NEW registration rather than a patch. Entry 9.0 stays UNFUNDED and your decision
