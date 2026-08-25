@@ -1000,15 +1000,15 @@ def _checkpoint_exists(checkpoint: Union[PtCheckpoint, TfCheckpoint, tk.Path]) -
     """
     :param checkpoint: as :func:`ModelWithCheckpoints.get_epoch` returns it.
         The JAX training hands out the Orbax directory as a plain path,
-        which has ``available()`` but no ``exists()``.
-    :return: whether the checkpoint is there
+        which has no ``exists()``.
+    :return: whether the checkpoint is really on disk.
+        Not ``Path.available()``: that reports True for any output of a finished job,
+        while the callers ask exactly about checkpoints deleted by train-dir cleanup.
     """
-    if isinstance(checkpoint, PtCheckpoint):
-        return checkpoint.path.available()
-    if isinstance(checkpoint, TfCheckpoint):
-        return checkpoint.index_path.available()
+    if isinstance(checkpoint, (PtCheckpoint, TfCheckpoint)):
+        return checkpoint.exists()
     if isinstance(checkpoint, tk.Path):
-        return checkpoint.available()
+        return os.path.exists(checkpoint.get_path())
     raise TypeError(f"unexpected checkpoint type {type(checkpoint).__name__}: {checkpoint!r}")
 
 
