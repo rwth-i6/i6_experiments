@@ -11,7 +11,7 @@ ruling in `PLAN_1F.md`) reframes what those closures measured. Entry 9 is REGIST
 9.0 is not built and I have started nothing on it.
 
 **THE THREE IMPLEMENTATION DEFECTS THE AUDIT HANDED ME ARE FIXED, TESTED AND PUSHED** (speech-llm
-`abc3d81` on `haotian_modality_matching_jupiter`; each fix carries the regression test that would
+`abc3d81`, with the perplexity convention tagged at `2e0cb00`, on `haotian_modality_matching_jupiter`; each fix carries the regression test that would
 have caught it, 73 tests pass across the four modules that touch them). No job hash moves --
 sisyphus hashes constructor arguments, not source -- so no finished work is orphaned and nothing
 re-runs. (a) `nearest_length_partner` clamps the rank extremes to themselves; the old `(i+1) % n`
@@ -19,7 +19,10 @@ fallback then gave the shortest and the longest utterance a donor of arbitrary l
 scored rows. The stand-in is now scored out of the running so both keep their real neighbour.
 (b) `_weighted_lm_ppl` divided the N+1 log-probabilities kenlm returns for bos+eos by N emitted
 phones; it now divides by the scored-event count, reported as `n_events` beside the unchanged
-`n_tok`. (c) `EspumEvalJob` now rebuilds the selector's partition the way `EspumDevIdsJob` builds
+`n_tok`; because that changes what the metric MEANS, `PPL_NORM` now travels in the metric dict and
+is rendered in the three text reports the number is read from, and the banked entry-5 perplexity
+column is marked pre-fix in Approach 8 -- a render without that line is pre-fix by construction.
+(c) `EspumEvalJob` now rebuilds the selector's partition the way `EspumDevIdsJob` builds
 it and asserts selection/scored disjointness per split, instead of relying on two identifier sets
 happening to agree. Nothing needs re-running for any of the three: (a) is 0.35 percent of rows and
 inside every reported M2, (b) was applied identically at every checkpoint so no banked ranking
@@ -266,14 +269,28 @@ input-and-pooling path on the eval-only forced alignment and discards its checkp
 Arm gate unchanged: M1 >= 0.05 AND M2 >= 0.05 on dev-other against the banked `seg12.5` phone-side
 nulls (n1 0.8946, n2 0.9239, ceiling 0.4148), plain PER as scored on the same 572-utterance fifth.
 
-| arm | label-free ppl | update | dev-other PER | sub | ins | del | hyp/ref | M1 | M2 | gate |
+| arm | label-free ppl (pre-`abc3d81`) | update | dev-other PER | sub | ins | del | hyp/ref | M1 | M2 | gate |
 |---|---|---|---|---|---|---|---|---|---|---|
 | E1 supervised probe (plumbing, ceiling-fit rows, checkpoint discarded) | — | — | **0.3565** | 0.1296 | 0.0213 | 0.2056 | — | — | — | — |
 | full loss, seed 1 (**label-free selected**) | **31.41** | 40000 | **0.8580** | 0.6909 | 0.0699 | 0.0972 | 0.973 | +0.0365 | +0.0466 | **fail** |
 | full loss, seed 2 | 31.49 | 40000 | 0.8848 | 0.7195 | 0.0696 | 0.0958 | 0.974 | +0.0098 | +0.0244 | fail |
 | full loss, seed 0 | 33.04 | 40000 | 0.8770 | 0.7074 | 0.0717 | 0.0979 | 0.974 | +0.0175 | +0.0302 | fail |
-| bigram-only, seed 0 | 53.86 | 30000 | 0.8748 | 0.7096 | 0.0641 | 0.1011 | 0.963 | +0.0198 | +0.0254 | fail |
+| `bigram_only` arm = positional unigram + skip-1 bigram, seed 0 | 53.86 | 30000 | 0.8748 | 0.7096 | 0.0641 | 0.1011 | 0.963 | +0.0198 | +0.0254 | fail |
 | ruling-3 unary candidate, same rung and text side (approach 7) | — | — | 0.8809 | 0.7157 | 0.0478 | 0.1174 | — | +0.0137 | +0.0148 | fail |
+
+The perplexity column is in the PRE-`abc3d81` convention (the N+1 bos/eos log-probabilities divided
+by the N emitted phones) and may not be compared to any value produced after that commit, which
+normalizes per scored event. The ranking it was read for -- seed 1 ahead of seed 2 by 0.08 -- is
+unaffected: the three seeds score the same utterances at hypothesis lengths within 0.1 percent, so
+the correction is monotone across them. Every render produced from now on names its own convention
+(`PPL_NORM`), so a report without that line is pre-fix by construction.
+
+The arm the code and every job handle call `bigram_only` is NOT the reference's collapse arm: it
+keeps the positional unigram (`espum_model.py:26 POS_UNIGRAM_WEIGHT = 1.0`, applied unconditionally,
+with only the skip and tri sizes switched), so it is the published `uni+bi` configuration and its
+contrast with `full` is `uni+bi` against `uni+bi+tri` -- a published separation of 0.8 PER points,
+not the 32.4 the signature bar was built on (verifier ruling 2026-08-25 (A), `PLAN_1F.md`). The row
+label is corrected here; the job handles keep the name they were created under.
 
 **9. Ladder entry 7: the published graph-based pipeline, run verbatim on our seed bed (USER ruling
 6).** Entry 5 is our own statistics-matching implementation; this one is the reference method
@@ -281,7 +298,11 @@ nulls (n1 0.8946, n2 0.9239, ceiling 0.4148), plain PER as scored on the same 57
 clustering, its own text preparation, its own trainer -- on the same seed audio and the same
 unpaired text, so a gap between the two is attributable to the implementation rather than to the
 bed. Two arms differ in one argument only, which statistics the matching objective is asked to
-match: `full` against `bigram_only`, the same contrast entry 5 ran, at 40,000 updates each with a
+match: `full` against `bigram_only`, the same contrast entry 5 ran -- and, like entry 5's, a
+misnomer: `pos_unigram_weight` defaults to 1.0 and is overridden by no config, no `run.sh`
+line and no job of ours, so both arms carry the positional unigram and the contrast is the
+published `uni+bi` against `uni+bi+tri`, not `bigrams only` against anything (verifier ruling
+2026-08-25 (A)) -- at 40,000 updates each with a
 checkpoint every 2,000; a smoke arm of a few hundred updates and one end-to-end alignment pass
 precede them and are discarded by construction. Recognition: the split reserved for
 selection is decoded with each of the eighteen checkpoints the trainer actually wrote, the
