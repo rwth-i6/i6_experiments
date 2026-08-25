@@ -23,6 +23,7 @@ class ChunkSegmentationFromModelJob(Job):
         "pass_omitted_prev_words": False,
         "max_words_per_chunk": None,
         "word_start_completion_norm": False,
+        "exit_scale": 1.0,
     }
 
     def __init__(
@@ -39,6 +40,7 @@ class ChunkSegmentationFromModelJob(Job):
         pass_omitted_prev_words: bool = False,
         max_words_per_chunk: Optional[int] = None,
         word_start_completion_norm: Union[bool, str] = False,
+        exit_scale: float = 1.0,
         dump_wav_first_n_seqs: int = 0,
     ):
         """
@@ -98,6 +100,9 @@ class ChunkSegmentationFromModelJob(Job):
         self.word_start_completion_norm = word_start_completion_norm
         if word_start_completion_norm:
             assert word_start_heuristic, "word_start_completion_norm only affects the heuristic"
+        # exit_scale: weight on the raw exit log-prob (before empty_exit_penalty);
+        # 0 = ignore the exit score entirely (pure word-score monotone assignment).
+        self.exit_scale = exit_scale
         self.dump_wav_first_n_seqs = dump_wav_first_n_seqs
 
         self.rqmt = {"time": 40, "cpu": 2, "gpu": 1, "mem": 125}
@@ -369,7 +374,7 @@ class ChunkSegmentationFromModelJob(Job):
                         word_log_prob = None
                     # log_probs is relative to start=t0 (shape [B,t1-t0,V]),
                     # so position 0 is the distribution predicting the token at t0.
-                    exit_log_prob = log_probs[0, 0, model.assistant_end_token_id]  # []. assume single batch
+                    exit_log_prob = self.exit_scale * log_probs[0, 0, model.assistant_end_token_id]  # []. single batch
                     if w == 0:
                         # Add some penalty. For empty chunks, the prob is often overestimated.
                         exit_log_prob += self.empty_exit_penalty
@@ -499,6 +504,7 @@ class ChunkSegmentationFromModelBatchedJob(Job):
         "length_norm": False,
         "dump_word_scores": False,
         "chunk_offset_secs": 0.0,
+        "exit_scale": 1.0,
     }
 
     def __init__(
@@ -520,6 +526,7 @@ class ChunkSegmentationFromModelBatchedJob(Job):
         length_norm: bool = False,
         dump_word_scores: bool = False,
         chunk_offset_secs: float = 0.0,
+        exit_scale: float = 1.0,
     ):
         super().__init__()
         self.dataset_dir = dataset_dir
@@ -555,6 +562,9 @@ class ChunkSegmentationFromModelBatchedJob(Job):
         self.dump_word_scores = dump_word_scores
         # stagger the grid: the first chunk is shortened to this (0 = regular grid)
         self.chunk_offset_secs = chunk_offset_secs
+        # exit_scale: weight on the raw exit log-prob (before exit_bias / empty_exit_penalty);
+        # 0 = ignore the exit score entirely (pure word-score monotone assignment).
+        self.exit_scale = exit_scale
 
         self.rqmt = {"time": 40, "cpu": 2, "gpu": 1, "mem": 125}
         self.out_hdf = self.output_path("out.hdf")
@@ -777,7 +787,7 @@ class ChunkSegmentationFromModelBatchedJob(Job):
                                 wlp = wlp / max(1, int(t1 - t0))
                         else:
                             wlp = None
-                        exit_lp = log_probs[0, 0, model.assistant_end_token_id]  # scalar, log P(exit) at word start
+                        exit_lp = self.exit_scale * log_probs[0, 0, model.assistant_end_token_id]  # scalar exit score
                         if self.exit_bias:
                             exit_lp = exit_lp + self.exit_bias
                         if w == 0:

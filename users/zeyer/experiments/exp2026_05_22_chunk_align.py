@@ -785,3 +785,38 @@ def py():
         reg(f"chunk-align/zoo/{_zname}-buckeye-val-cs30-ov0-accuracy.txt", _zm.out_accuracy)
         reg(f"chunk-align/zoo/{_zname}-buckeye-val-cs30-ov0-error-p95-sec.txt", _zm.out_error_p95_sec)
         reg(f"chunk-align/zoo/{_zname}-buckeye-val-cs30-ov0-frac-gt-1s.txt", _zm.out_frac_gt_1s)
+
+    # exit_scale sweep: how much of the exit score does the DP need at all?
+    # Crossed with the word-start heuristic: its boundary choice reads accum_exit,
+    # so at exit_scale 0 it degenerates toward "consume little" (the lag mechanism);
+    # the exact DP (heuristic off) is the clean no-exit test.
+    # (1.0, True) = the existing sweep cells; (1.0, False) = the exact-DP baseline.
+    for _es_cs, _es_ov in [(30.0, 0.0), (10.0, 2.5)]:
+        for _es_scale in [1.0, 0.5, 0.0]:
+            for _es_wsh in [True, False]:
+                _es_seg = ChunkSegmentationFromModelBatchedJob(
+                    dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+                    dataset_key="val",
+                    model_config=_cfg_hp,
+                    chunk_size_secs=_es_cs,
+                    chunk_overlap_secs=_es_ov,
+                    word_start_heuristic=_es_wsh,
+                    max_batch_size=8,
+                    exit_scale=_es_scale,
+                )
+                _es_name = (
+                    f"chunk-align/exit-scale/phi4mm-buckeye-val-cs{_es_cs:g}-ov{_es_ov:g}"
+                    f"-es{_es_scale:g}-wsh{int(_es_wsh)}"
+                )
+                _es_seg.add_alias(_es_name)
+                reg(f"{_es_name}.hdf", _es_seg.out_hdf)
+                _es_m = CalcChunkAssignmentMetricsJob(
+                    chunk_seg_hdf=_es_seg.out_hdf,
+                    dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+                    dataset_key="val",
+                    dataset_offset_factors=_DATASET_OFFSET_FACTORS["buckeye"],
+                )
+                _es_m.add_alias(f"{_es_name}-metric")
+                reg(f"{_es_name}-accuracy.txt", _es_m.out_accuracy)
+                reg(f"{_es_name}-error-p95-sec.txt", _es_m.out_error_p95_sec)
+                reg(f"{_es_name}-frac-gt-1s.txt", _es_m.out_frac_gt_1s)
