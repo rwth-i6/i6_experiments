@@ -476,14 +476,26 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    (`W2vu2PerEvalJob.ptwMk3TuPPYb`), inside REBORN's published 100 h band, so entry 5's
    own SUPERVISED ceiling 0.3565 was already worse than the program's unsupervised
    number, and entry 7 reproduced REBORN's discarded k-means-only failure row.
-   **NEXT STEP, planner-recommended, CPU-only and free: entry 9.0**, the pre-registered
-   identifiability gate (statistic H, bar +0.05 with 7 of 8 paired batches) over five
-   configurations including a pairwise-merged ~14/s stream and a label-free
-   length-matched text resample -- it either CLOSES the fixed low-order
-   statistics-matching family on this bed by measurement or names the one configuration
-   worth 9.1's 34 GPU-hours. Two forks are the USER's: fund 9.0, and separately whether
-   to reopen ruling 4 for TIMIT, the only route to a LITERAL reproduction (no PUSM/ESPUM
-   number is published on LibriSpeech, so 9.2 at best yields published-COMPARABLE).
+   2026-08-25 (evening; replaces the "NEXT STEP: fund entry 9.0" line of this morning,
+   because the USER funded it and it has been read and verified): **GATE 9.0 IS READ AND
+   FAILS ON ALL FIVE CONFIGURATIONS** -- H is negative everywhere (-2.44 to -0.06) with
+   the truth ahead in 0 of 10 paired batches against a bar of +0.05 and 7 of 8, on one
+   shared 2,699-utterance pool. The registered consequence applies: **the fixed low-order
+   statistics-matching family is CLOSED ON THIS BED by measurement and 9.1 does not run**,
+   which licenses "not funding it here", never "it could not have worked". The closure is
+   QUALIFIED by the registration's own terms -- the registered second read (H against
+   training update) was not deliverable, so the STOPPING-RULE question stays open. The
+   canonical `merge_clusters` + `mean_pool` step entry 7 skipped is confirmed a real
+   defect (28.78 -> 14.46 seg/s, H -2.44 -> -0.09) and confirmed NOT decisive. With a
+   perfect segmenter the truth would win (+0.29 pooled, +2.30 merged), so the objective is
+   not blind to content; the audio side these segmentations express is what costs the
+   truth its win. Verdict, table and the three verification findings: `PLAN_1F.md` entry-9
+   Status appended 2026-08-25 (evening); rows in `SAE_1f.md` approach 10, verdicts 42-45.
+   **ONE FORK REMAINS AND IT IS THE USER'S**: whether to reopen ruling 4 for TIMIT, now
+   the only route to a LITERAL reproduction (no PUSM/ESPUM number is published on
+   LibriSpeech, and 9.1/9.2 -- the published-COMPARABLE route -- are unfunded by their own
+   gate). 1f is otherwise returned: the program's reproduced-PER question is answered by
+   the GAN track, which banks a label-free dev-other 0.2141 in §1c.
 3. **LM-prior domain adaptation (§0d) — RUN AND VERIFIED 2026-08-08** (`SAE_0d.md`; replaces
    the pre-run item because the phase executed): pre-check (i) PASSED; gate (ii) read — planner
    verdict in §0d Status **awaits the user's blessing** (margin over the audio-free null is
@@ -1054,6 +1066,25 @@ FOR THE USER: no PUSM/ESPUM number is published on LibriSpeech, so even a fully 
 (LDC93S1, absent here, about one GPU-day plus an LDC licence), which ruling 4 closed and
 only the USER can reopen. THE FORK IS THE USER'S: fund 9.0 (free) now, and separately
 decide TIMIT.
+
+2026-08-25 (evening) VERDICT — **GATE 9.0 FAILED ON ALL FIVE CONFIGURATIONS AND 1f CLOSES ON
+A MEASUREMENT.** H ranges -2.44 to -0.06 with the truth ahead in 0 of 10 paired batches
+against +0.05 and 7 of 8, on one shared 2,699-utterance pool; verified first-hand at the job
+outputs. On every configuration a decoy with no transcription content scores better in the
+arm's own loss than the best transcription that stream can express. The registered
+consequence stands: the fixed low-order statistics-matching family is CLOSED ON THIS BED by
+measurement, 9.1 and 9.2 are unfunded by their own gate, and the closure licenses "not
+funding it here", never "it could not have worked". It is QUALIFIED in one respect the
+registration named in advance: the second read (H against training update) was not
+deliverable, so the STOPPING-RULE question stays open and could convert this into a
+selection question for one GPU job over entry 7's checkpoints. Two facts the gate settles
+that argument alone could not: the preprocessing step entry 7 skipped is a real defect
+(28.78 -> 14.46 seg/s, boundary F1 0.619 -> 0.754, H -2.44 -> -0.09) and is NOT what decided
+it; and with a PERFECT segmenter the truth would win (+0.29 pooled, +2.30 merged), so the
+objective is not blind to transcription content — the audio side these segmentations can
+express is. Verdict block and three verification findings: `PLAN_1F.md` entry-9 Status
+appended 2026-08-25 (evening); rows: `SAE_1f.md` approach 10, verdicts 42-45; artifacts:
+`EspumIdentifiabilityReadJob.r4PXlgWX8uwY`. ONLY THE TIMIT FORK REMAINS WITH THE USER.
 
 ### 1g. A simple weak starting point for the SAE loop (rewritten 2026-08-19; sub-plan `PLAN_1G.md`)
 

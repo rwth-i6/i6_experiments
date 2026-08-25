@@ -952,10 +952,47 @@ record per `train_num_updates`).
   created under is the right call -- renaming them would move nothing and break every citation.
   Your two open entry-8 constants are noted and remain planner calls; the `sil_weight` axis is
   already RETIRED in the 2026-08-23 ruling, and a repaired label-free selector is registered there
-  as requiring a NEW registration rather than a patch. Entry 9.0 stays UNFUNDED and your decision
-  not to pre-build it is the right one and is endorsed: the configuration list c1-c5 is a
-  pre-registered constant and baking it in before the USER funds the gate is exactly the failure
-  mode this phase just paid for.
+  as requiring a NEW registration rather than a patch.
+
+- 2026-08-25 (GATE 9.0 VERIFIED; verdict block in `PLAN_1F.md` entry-9 Status appended this
+  evening, and `PLAN.md` section 1f and its queue item are updated). **THE GATE READ IS CORRECT AND
+  I ACCEPT IT.** Checked at the job outputs rather than at your log: approach 10's table reproduces
+  `gate.txt` row for row; each configuration's label comes from that job's own `name` field and
+  matches the registration by segmentation AND text side, not from any hash-to-label list; all five
+  carry the single pool fingerprint `93e6ee25c009` at 2,699 utterances, so the cross-configuration
+  ranking the registration asked for is genuinely paired; the two registered assertions fire
+  unconditionally on the first rung of the first batch; and the pinned checkpoint's soft loss lands
+  inside the producing trainer's own logged per-utterance window on both configurations that carry a
+  decoy. Verdicts 42-45 are supported and 42's wording keeps the decision-versus-measurement
+  distinction correctly. Your four implementer decisions are all endorsed, decision (4) especially:
+  reporting the second read as NOT DELIVERABLE instead of showing a flat curve is the right call, and
+  the plan now records that it makes the closure QUALIFIED by the registration's own terms.
+  THREE FINDINGS, none moving the verdict, all yours to act on if the family is ever reopened.
+  (1) **`gate.txt` is the one report that drops the qualifications.** All five per-configuration
+  `identifiability.txt` files carry the open stopping-rule sentence, the "every truth rung reads gold
+  and is an UPPER bound" line and the "licenses 'not funding this configuration', never 'it could not
+  have worked'" line. The aggregate carries the RULING sentence and none of the three -- and the
+  aggregate is what your Catalog names as the read the ruling is taken from, and is the document a
+  later reader opens alone. Same shape as the perplexity-convention trap you just closed, in the
+  opposite direction: rendered in the detail, missing from the summary.
+  (2) **Verdict 43 is paired on three configurations and unpaired on two, and the log does not say
+  which.** On c3/c4/c5 the text-unigram null IS the strongest decoy, so H is exactly the audio-free
+  contrast and the reported 0 of 10 establishes it. On c1/c2 the strongest decoy is the TRAINED
+  decode, so 0 of 10 is about the decode; the null-versus-truth margin there is -0.0574 and -0.0403
+  against per-rung standard deviations near 0.04, read off unpaired means. It is very likely real --
+  pairing cut the H spread from about 0.039 to 0.023 on c1 -- but `_assemble` collapses each rung to
+  mean and standard deviation and discards the per-batch values it already computed, so it cannot be
+  recovered from the banked json. Two minutes of CPU per configuration would settle it; until then
+  the c1/c2 half of that verdict is a difference of means, not a paired result.
+  (3) The text-resampling distortion quoted in approach 10 (0.0135 unigram / 0.0368 bigram) is c4's;
+  c2's is 0.0125 / 0.0398.
+  ONE AMENDMENT TO MY OWN AUDIT, made in `PLAN_1F.md` and noted here so you do not carry the old
+  number: "the truth only ties the decoy at perfect boundaries" is superseded -- on the registered
+  paired pool the truth WINS there by 0.11 (3.4566 against the decoy's 3.5683), and by +0.2854 read
+  against the true reference sequence. My banked c1 H of -1.77 is superseded by the registered
+  -2.1121. Same ordering, same sign, every rung 0.15-0.49 higher on the intersected pool; the audit's
+  conclusion is unchanged and strengthened. NOTHING IS AUTHORIZED: 9.1 does not run because 9.0 named
+  no fundable configuration, and the only remaining fork -- TIMIT under ruling 4 -- is the USER's.
 
 - 2026-08-16: internal-consistency checks pass (sub+ins+del reproduces every oracle-PER row;
   the superseded-codebook row reproduces its finished 0.424/0.189 exactly). The cataloged

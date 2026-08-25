@@ -1615,6 +1615,76 @@ recommends funding it FIRST AND ALONE — it either closes the family with a num
 configuration worth 34 GPU-hours, and it is the prerequisite entries 5 and 7 were both funded without.
 9.1 and 9.2 await 9.0. The TIMIT fork awaits the USER.
 
+**Status appended 2026-08-25 (evening) — GATE 9.0 IS READ AND FAILS ON ALL FIVE CONFIGURATIONS.
+VERIFIED FIRST-HAND against the job outputs, not against the log.** Table
+`EspumIdentifiabilityReadJob.r4PXlgWX8uwY` (`gate.txt`), five ladders
+`EspumIdentifiabilityJob.fzOQ9UKTnLh1 / .NMDdH7owD52u / .ffAQBEntKvBe / .POCnVeDHejYU /
+.JnsqE57Ui4XQ`, code speech-llm `2eb7cb9`, log `SAE_1f.md` approach 10 and verdicts 42-45.
+
+| cfg | H | sd | truth ahead | ceiling | seg/s (gold 13.548) |
+|---|---|---|---|---|---|
+| c1 pooled / as run | -2.1121 | 0.0232 | 0/10 | +0.2854 | 13.621 |
+| c2 pooled / length-matched | -2.0716 | 0.0546 | 0/10 | +0.2734 | 13.621 |
+| c3 released runs / as run | -2.4407 | 0.0429 | 0/10 | +2.0430 | 28.775 |
+| c4 merged / length-matched | -0.0586 | 0.0362 | 0/10 | +2.3013 | 14.458 |
+| c5 merged / as run | -0.0891 | 0.0350 | 0/10 | +2.2692 | 14.458 |
+
+Bar was +0.05 with the truth ahead in 7 of 8; every configuration is negative with the truth ahead
+in 0 of 10. The frame checks the planner owes this table all pass: each configuration's label is read
+from that job's own `name` field and matches this registration by segmentation AND text side; all
+five carry one identical pool fingerprint (`93e6ee25c009`, 2,699 utterances), so the H values are
+genuinely paired across configurations as the registration required; the registered assertions run
+unconditionally on the first rung of the first batch (bincount against `count_statistics` element by
+element, raw L1 against `matching_loss`); and the pinned checkpoint's soft loss lands inside the
+producing trainer's own logged per-utterance window on both configurations that carry a decoy.
+
+**THE REGISTERED CONSEQUENCE APPLIES: the fixed low-order statistics-matching family is CLOSED ON
+THIS BED by measurement, and 9.1 does not run** — it was conditional on 9.0 naming a fundable
+configuration and 9.0 names none. This licenses "not funding this family on this bed"; it does not
+say the family could not work, here or elsewhere (`gate-decision-vs-measurement`).
+
+**THE CLOSURE IS QUALIFIED, by this registration's own terms, and no reading may drop the
+qualification.** The registered second read — H against training update — was NOT deliverable:
+entry 5 retained only its pinned checkpoint (`resume.pt` went with the job's automatic cleanup) and
+entry 7's eighteen need the released generator on a GPU, which gate 9.0 may not run. The
+registration says the closure is unqualified only if H is negative at every update on both curves.
+It was not read on either. **THE STOPPING-RULE QUESTION THEREFORE STAYS OPEN**: what is closed is
+the objective at the endpoints measured, not the objective at every point along training. Reopening
+it costs one GPU job over entry 7's eighteen checkpoints and is NOT recommended ahead of the USER's
+fork below — it can only widen an already 0-of-10 negative result or convert this closure into a
+selection question, and either way 9.1 stays unfunded until it is answered.
+
+Three findings from the verification, none of which moves the verdict. (1) `gate.txt`, the artifact
+the log's Catalog names as the ruling's source, renders the RULING sentence but none of the
+qualification lines that all five per-configuration `identifiability.txt` files do carry — not the
+open stopping-rule question, not "every truth rung reads gold and is an UPPER bound", not "a failed
+gate licenses 'not funding this configuration', never 'it could not have worked'". A reader of the
+aggregate alone gets an unqualified closure, which is the `computed-but-never-rendered` trap in the
+one document most likely to be read alone. (2) The claim that an AUDIO-FREE null beats the reachable
+truth is paired-established on c3, c4 and c5 — there the unigram null IS the strongest decoy, so the
+reported 0/10 is exactly that contrast — but on c1 and c2 the strongest decoy is the TRAINED decode,
+so the 0/10 there is about the decode, and the null-versus-truth margin (-0.0574 and -0.0403 against
+per-rung standard deviations near 0.04) rests on unpaired means. The per-rung per-batch losses that
+would settle it are computed and then discarded when each rung is collapsed to mean and standard
+deviation. (3) The text-resampling distortion quoted in approach 10 (0.0135 unigram / 0.0368 bigram)
+is c4's; c2's is 0.0125 / 0.0398.
+
+**Ruling (E) above is amended in one number by this read** (replaces "the truth only TYING the decoy
+at perfect boundaries", 2026-08-25, because the gate re-measured that rung on the registered paired
+pool): at perfect boundaries the truth now WINS, by 0.11 against the trained decoy
+(3.4566 versus 3.5683) and by +0.2854 read against the utterance's true reference phone sequence.
+The ruling's conclusion is unchanged and in fact strengthened — the objective is not blind to
+transcription content, and it is the segmentation-induced audio side that costs the truth its win.
+The audit's banked c1 value of -1.77 is superseded by the registered -2.1121 on the paired pool;
+same ordering, same sign, every rung about 0.15-0.49 higher on the intersected pool.
+
+**WHAT GOES BACK TO THE USER.** 1f returns with a measurement rather than another training batch,
+which is what the registration promised. The two forks are unchanged and both are the USER's: this
+bed yields at best a published-COMPARABLE number and 9.1 is now unfunded by its own gate, so the
+only route to a LITERAL reproduction remains TIMIT under ruling 4. Also unchanged and standing
+beside it: §1c already banks a label-free dev-other phone error rate of 0.2141 on this corpus, so
+the program's reproduced-PER question is answered by the GAN track and was never waiting on 1f.
+
 ## Screen battery (prerequisites (i)+(ii) made operational; the first fundable step)
 
 Run per REPRESENTATION of the same enc50 stream — raw, run-length-deduped, segment-pooled
