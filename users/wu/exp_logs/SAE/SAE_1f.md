@@ -22,6 +22,16 @@ decided entry 7. With a PERFECT segmenter the truth would win, by +0.29 on the p
 +2.30 on the merged one, so the objective is not blind to content; the audio side these
 segmentations can express is what costs the truth its win.
 
+**TWO READ-SIDE DEFECTS THE PLANNER'S VERIFICATION FOUND, both fixed and re-read** (speech-llm
+`0f12982`; the five configuration jobs are untouched, only `EspumIdentifiabilityReadJob.r4PXlgWX8uwY`
+was deleted and re-run, and every H is unchanged). `gate.txt` -- the document the ruling is read from
+and the one a later reader opens alone -- carried the ruling without any of the three qualifications
+its own per-configuration reports carry; it now renders the upper-bound caveat and the open
+stopping-rule status, read out of those payloads so they cannot drift apart. And the audio-free
+claim is now a SEPARATE PAIRED read beside H, because on c1 and c2 the strongest content-free member
+is the trained decode, so H there is about that decode; the paired contrast confirms the claim on
+all five (c2 at 9 of 10 batches rather than 10 of 10).
+
 **WHAT THIS GATE DOES NOT SAY, and no reading of it may.** It licenses "not funding this family on
 this bed", never "it could not have worked" -- and the registered second read that would have
 separated an objective failure from a STOPPING-RULE failure could not be run: entry 5 retained only
@@ -448,19 +458,26 @@ paired), and the job asserts its statistics against `count_statistics` element b
 L1 against the arm's own `matching_loss`, and the checkpoint's soft loss against the producing
 trainer's own logged band, on a real batch, before writing anything.
 
-| configuration | segmentation (seg/s) | text side | best reachable truth | strongest content-free | H | sd | batches truth ahead | ceiling at perfect boundaries |
-|---|---|---|---|---|---|---|---|---|
-| c1 | entry-5 pooled (13.62) | as run | 5.6804 | trained decode 3.5683 | **-2.1121** | 0.0232 | 0/10 | +0.2854 |
-| c2 | entry-5 pooled (13.62) | length-matched | 5.6561 | trained decode 3.5845 | **-2.0716** | 0.0546 | 0/10 | +0.2734 |
-| c3 | released k-means runs (28.78) | as run | 7.7666 | unigram null 5.3320 | **-2.4407** | 0.0429 | 0/10 | +2.0430 |
-| c4 | pairwise-merged runs (14.46) | length-matched | 5.6052 | unigram null 5.5584 | **-0.0586** | 0.0362 | 0/10 | +2.3013 |
-| c5 | pairwise-merged runs (14.46) | as run | 5.6413 | unigram null 5.5618 | **-0.0891** | 0.0350 | 0/10 | +2.2692 |
+| configuration | segmentation (seg/s) | text side | best reachable truth | strongest content-free | H | sd | batches truth ahead | audio-free contrast (paired) | ceiling at perfect boundaries |
+|---|---|---|---|---|---|---|---|---|---|
+| c1 | entry-5 pooled (13.62) | as run | 5.6804 | trained decode 3.5683 | **-2.1121** | 0.0232 | 0/10 | -0.0752 +/- 0.0212, 0/10 | +0.2854 |
+| c2 | entry-5 pooled (13.62) | length-matched | 5.6561 | trained decode 3.5845 | **-2.0716** | 0.0546 | 0/10 | -0.0541 +/- 0.0451, 1/10 | +0.2734 |
+| c3 | released k-means runs (28.78) | as run | 7.7666 | unigram null 5.3320 | **-2.4407** | 0.0429 | 0/10 | -2.4407 +/- 0.0429, 0/10 | +2.0430 |
+| c4 | pairwise-merged runs (14.46) | length-matched | 5.6052 | unigram null 5.5584 | **-0.0586** | 0.0362 | 0/10 | -0.0586 +/- 0.0362, 0/10 | +2.3013 |
+| c5 | pairwise-merged runs (14.46) | as run | 5.6413 | unigram null 5.5618 | **-0.0891** | 0.0350 | 0/10 | -0.0891 +/- 0.0350, 0/10 | +2.2692 |
+
+The audio-free contrast is a SEPARATE PAIRED read, added to the gate table on 2026-08-25 after the
+planner's verification: the best text-unigram null against the best reachable truth on the same
+batch. It coincides with H wherever the null is itself the strongest content-free member (c3, c4,
+c5); on c1 and c2, where the trained decode is stronger still, H is a statement about that DECODE
+and this column is the one that carries the audio-free claim.
 
 Gold phone rate on the same pool is 13.548/s throughout, so c4/c5 are the rate-matched rungs and c3
 is over-segmented by 2.12x. Boundary quality against gold at +/-20 ms: 0.7384 F1 for the pooled
 stream, 0.6193 for the raw released runs (precision 0.4555 at recall 0.9674 -- the rate is wrong, not
 the placement), 0.7542 for the pairwise-merged stream. The length-matched text resample costs total
-variation 0.0135 at the phone unigram and 0.0368 at the bigram, disclosed. The registered second read
+variation 0.0125 at the phone unigram and 0.0398 at the bigram on c2 and 0.0135 / 0.0368 on c4,
+disclosed. The registered second read
 (H against training update) is NOT deliverable and is reported as such: entry 5 retained only its
 pinned checkpoint and entry 7's eighteen need the released generator on a GPU.
 
@@ -765,7 +782,12 @@ cell 4 will find.
     drawn i.i.d. from the text phone unigram at the arm's own per-utterance segment counts -- no
     audio, no units, no map -- scores 5.6230 against the truth's 5.6804 (c1), 5.3320 against 7.7666
     (c3) and 5.5584 against 5.6052 (c4). The objective's optimum on this bed is the phone marginal at
-    the right length, and the truth is not it.
+    the right length, and the truth is not it. **PAIRED READ ADDED 2026-08-25** (planner's finding
+    that the c1/c2 half rested on unpaired per-rung means, since there the strongest decoy is the
+    trained decode and H is about that decode): read batch by batch off the same rungs, the contrast
+    is -0.0752 +/- 0.0212 with the truth ahead in 0 of 10 batches (c1) and -0.0541 +/- 0.0451 with
+    the truth ahead in 1 of 10 (c2). The verdict stands on all five, and the one qualification is
+    that c2 is 9 of 10 rather than 10 of 10. Same read job, `gate.txt`'s audio-free block.
 44. (10) **THE RATE REPAIR CLOSES 97 PERCENT OF THE GAP AND DOES NOT CHANGE THE SIGN.** The canonical
     `merge_clusters` + `mean_pool --subsample-rate 0.5` preprocessing entry 7 skipped moves the
     stream from 28.78 to 14.46 segments per second (gold 13.55) and H from -2.44 to -0.09, with
