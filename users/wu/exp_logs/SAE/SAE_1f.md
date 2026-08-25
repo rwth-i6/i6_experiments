@@ -4,8 +4,27 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-State as of 2026-08-25 (evening) -- **ENTRY 9.0 IS COMPLETE AND ITS GATE FAILED ON ALL FIVE
-CONFIGURATIONS; NOTHING IS IN FLIGHT.** All six jobs finished with zero error markers. The gate
+State as of 2026-08-25 (late evening) -- **ENTRY 9.3, THE DISCLOSURE DECODE, IS COMPLETE; NOTHING
+IS IN FLIGHT.** All five CPU jobs finished in under three minutes each with no error markers, on
+gate 9.0's own pool (2,699 utterances, fingerprint `93e6ee25c009`, asserted per job). The numbers
+are approach 11 and verdicts 46-49; code speech-llm `d9eec02`, config `config/sae_1f_entry93.py`,
+manager registered in `sis_managers.sh` and exited. Graph verified before launch by loading it
+WITHOUT `-r`: `finished(31) runnable(5)`, the five gate jobs and every upstream artifact reused at
+their banked hashes because the config CALLS entry 9.0's `build` with the registrations suppressed
+instead of reconstructing its jobs.
+
+**THE ONE-LINE READING OF THE DISCLOSURE.** In phone error rate the ordering gate 9.0 measured is
+REVERSED: the audio-free unigram null the matching objective prefers scores 0.89-1.61 dev-other,
+while the audio side it beats -- the arm's real boundaries under the best memoryless unit-to-phone
+map, which is that comparison's own truth operand -- scores 0.42-0.84. The corrected merged stream --
+the one repair that moved H from -2.44 to -0.09 -- prices WORSE at its ceiling than the stream it
+corrects (0.5421 against 0.4168), because the repair fixes the segment rate and not the coarseness
+of the released 128-cluster inventory. The trained entry-5 decode re-reads 0.8522 here against its
+banked 0.8580 on entry 5's own scored fifth, so nothing about entry 5 moves. Every "perfect" and
+"oracle" row in that table READS GOLD and is a ceiling, never a label-free result; the disclosure
+has no bar, funds nothing, and leaves gate 9.0's open stopping-rule question exactly where it was.
+
+**ENTRY 9.0, WHICH 9.3 DISCLOSES, IS COMPLETE AND ITS GATE FAILED ON ALL FIVE CONFIGURATIONS.** All six jobs finished with zero error markers. The gate
 table is `EspumIdentifiabilityReadJob.r4PXlgWX8uwY`, the numbers are approach 10 and verdicts 42-45,
 and the registered consequence of no configuration clearing the bar is that the fixed low-order
 statistics-matching family is CLOSED ON THIS BED by measurement -- which is what the registration
@@ -75,16 +94,12 @@ decode) and cell 5 (the entry-5 ESPUM checkpoints). Until cell 4 exists no margi
 0.8946 / 0.9239 / 0.4148 may be quoted and the "stage A answerable after all" trigger cannot be
 evaluated. The anchor pin is discharged and recorded in `gua_lm_decode.py`.
 
-**ENTRY 9.0 IS BUILT, TESTED AND RUNNING** on the USER's word of 2026-08-25 ("you are the
-implementer and should work on 1f fix"). Six jobs, CPU only, no GPU requested anywhere in the graph
-and nothing else unfinished in it (the manager's own count: runnable(5) waiting(1)); code at
-speech-llm `2eb7cb9`, config `config/sae_1f_entry9.py`, manager registered in `sis_managers.sh`.
-In flight, one per configuration of the registration, each answering "does this objective on this
-stream and this text side prefer the reachable truth to the strongest content-free answer":
-`EspumIdentifiabilityJob.fzOQ9UKTnLh1` (c1 pooled / text as run),
+**ENTRY 9.0 IS BUILT, TESTED AND COMPLETE**, six CPU jobs, no GPU anywhere in its graph; code at
+speech-llm `2eb7cb9` (read-side fixes `0f12982`), config `config/sae_1f_entry9.py`. The five
+configuration reads are `EspumIdentifiabilityJob.fzOQ9UKTnLh1` (c1 pooled / text as run),
 `.NMDdH7owD52u` (c2 pooled / length-matched text), `.ffAQBEntKvBe` (c3 released k-means runs),
 `.POCnVeDHejYU` (c4 pairwise-merged / length-matched), `.JnsqE57Ui4XQ` (c5 pairwise-merged / as
-run), read by `EspumIdentifiabilityReadJob`. Expected wall time under an hour each.
+run), and the ruling is `EspumIdentifiabilityReadJob.r4PXlgWX8uwY`.
 
 Four decisions of mine that the planner should see, all recorded in the code that carries them.
 (1) The ladder's statistics are accumulated by bincount rather than through the trainer's dense
@@ -481,6 +496,41 @@ disclosed. The registered second read
 (H against training update) is NOT deliverable and is reported as such: entry 5 retained only its
 pinned checkpoint and entry 7's eighteen need the released generator on a GPU.
 
+**11. Entry 9.3: the disclosure decode -- gate 9.0's own ladder, priced in phone error rate.** Five
+CPU jobs, one per configuration gate 9.0 ruled on, no training and no GPU. Gate 9.0 ruled in
+mass-normalized L1 units, which is not the currency this program reports in, and three of its five
+configurations had never been decoded at all: no trained model exists for the released or the merged
+stream and none is funded, so the only decode reachable without GPU training is the one the gate
+already constructs internally -- the arm's real boundaries under the best memoryless unit-to-phone
+map, which is H's own second operand. Each job reads gate 9.0's pool through gate 9.0's own methods
+and asserts the utterance-set fingerprint (2,699 utterances, `93e6ee25c009`) before scoring, and
+each row is scored as a DECODE in the banked number's currency -- adjacent duplicates collapsed
+within a chunk, asserted on 64 real utterances against `espum_jobs._decode_ids` itself -- with
+`quantize_states.phone_error_counts`, the scorer `EspumEvalJob` uses, against the same gold phone
+sequences. Currency: plain PER as scored, greedy per-segment argmax, NO language model; like-for-like
+with the published TIMIT 0.473 anchor and NOT with entry 8's language-model-decoded column.
+
+Every "perfect" or "oracle" row READS GOLD and is a CEILING -- an upper bound on what a label-free
+arm on that stream could reach, never an achievable result and never quotable as the phone error
+rate of a configuration. The only label-free row in the table is the trained entry-5 decode; the
+only audio-free row is the unigram null. The table is read per configuration; nothing here is pooled
+across configurations and nothing is ranked to pick one.
+
+| configuration | segmentation (seg/s) | perfect bnd + perfect map (CEILING) | real bnd + perfect map (CEILING) | real bnd + oracle map (CEILING) | trained entry-5 decode (label-free) | text-unigram null (audio-free) |
+|---|---|---|---|---|---|---|
+| c1 | entry-5 pooled (13.62), as run | 0.0503 | 0.2545 | **0.4168** (h/r 0.840) | **0.8522** | 0.8897 +/- 0.0007 |
+| c2 | entry-5 pooled (13.62), length-matched | 0.0503 | 0.2545 | **0.4168** (h/r 0.840) | **0.8522** | 0.8907 +/- 0.0006 |
+| c3 | released k-means runs (28.78), as run | 0.0503 | 0.1071 | **0.8370** (h/r 1.529) | -- | 1.6071 +/- 0.0005 |
+| c4 | pairwise-merged runs (14.46), length-matched | 0.0503 | 0.2307 | **0.5421** (h/r 0.900) | -- | 0.9084 +/- 0.0013 |
+| c5 | pairwise-merged runs (14.46), as run | 0.0503 | 0.2307 | **0.5421** (h/r 0.900) | -- | 0.9075 +/- 0.0011 |
+
+All numbers dev-other; dev-clean runs 0.02-0.04 lower on every row and is in the payloads. c1 and c2
+share an audio side and differ only in the text side the null is drawn from, so their audio rows are
+identical by construction, and likewise c4 and c5; that is a property of the design, not a
+reproduction check. The null spread is over five draws. The trained decode's error decomposition on
+this pool is sub 0.6859, ins 0.0520, del 0.1144 at 58,944 emitted against 62,866 reference phones.
+
+
 ## Verdicts
 
 **Entry 8 cells 1-2, four verdicts.**
@@ -801,6 +851,39 @@ cell 4 will find.
     form alone, that costs the truth its win, and 0.29 on the pooled stream is the whole margin a
     perfect segmenter would buy there.
 
+46. (11) **THE CORRECTED MERGED STREAM PRICES WORSE AT ITS CEILING THAN THE STREAM IT CORRECTS,
+    0.5421 AGAINST 0.4168 dev-other**, even though its matching-objective gap to the content-free
+    answer is 24 times smaller (H -0.09 against -2.11, verdict 44). Reproducing
+    `merge_clusters.py` + `mean_pool.py --subsample-rate 0.5` fixes the SEGMENT RATE -- 28.78/s to
+    14.46/s against a gold 13.548/s -- and that is what moves H; it does not buy a better memoryless
+    unit-to-phone map, because the released 128-cluster inventory is coarser than the entry-5
+    500-unit codebook. This is the pricing PLAN_1F entry 9.3 asked for before anyone considers
+    funding the merged stream: the repair that most helps the objective is not the stream with the
+    best reachable decode.
+
+47. (11) **OVER-SEGMENTATION IS FREE UNDER A PERFECT MAP AND RUINOUS UNDER A MEMORYLESS ONE.** On
+    the raw released runs the real boundaries with a perfect map read 0.1071 -- the LOWEST
+    real-boundary row of the three streams, because 2.12 segments per gold phone collapse back to
+    the gold sequence once adjacent duplicates merge -- while the same boundaries under the best
+    memoryless map read 0.8370 at 1.529 hypothesis phones per reference phone, insertion-dominated
+    (ins 0.5428, del 0.0135). The cost of the wrong rate is paid entirely at the map, which is the
+    same reading kill condition (i) banked on the raw/deduped enc50 stream and is now measured on
+    the released stream too.
+
+48. (11) **THE INVERSION GATE 9.0 MEASURED IS AN INVERSION IN THE OBJECTIVE, NOT IN PHONE ERROR
+    RATE.** The audio-free unigram null that the matching objective PREFERS to the best reachable
+    truth on all five configurations (verdict 43) scores 0.8897-1.6071 PER, while the truth it beats
+    scores 0.4168-0.8370: every ceiling row beats every null row on its own configuration, by 0.35
+    to 0.80. So the objective is not measuring what a decoder is measured by -- which is the
+    disclosure's one substantive addition to gate 9.0 and is why the closure rests on the objective,
+    not on the streams being empty.
+
+49. (11) **THE TRAINED ENTRY-5 DECODE RE-READS 0.8522 dev-other ON GATE 9.0's POOL AGAINST THE
+    BANKED 0.8580 ON ENTRY 5's OWN SCORED FIFTH.** Same checkpoint, same decoder, 2,699 utterances
+    instead of 572; the 0.0058 difference is the utterance set. Nothing is selected and entry 5's
+    gate does not move -- both numbers are printed on the same page precisely so the re-read cannot
+    be mistaken for one.
+
 The kill conditions and the battery are reported, not acted on. `seg12.5` leads both splits and
 `seg9` is the label-free rate-matched rung; which one the ladder runs on, and whether the tv_offdiag
 bar survives the ceiling inversion in conclusion 9, are planner calls. The pooled streams cover only
@@ -832,6 +915,9 @@ different reasons, only one of which a larger budget could move.
 | entry 9.0 config | `config/sae_1f_entry9.py` -> `.../librispeech/configs/config_sae_1f_entry9_v1.py` |
 | entry 9.0 gate reads, c1/c2/c3/c4/c5 | `work/speech_llm/sae/espum_identifiability/EspumIdentifiabilityJob.fzOQ9UKTnLh1` / `.NMDdH7owD52u` / `.ffAQBEntKvBe` / `.POCnVeDHejYU` / `.JnsqE57Ui4XQ` |
 | entry 9.0 gate table (the read the ruling is taken from) | `work/speech_llm/sae/espum_identifiability/EspumIdentifiabilityReadJob.r4PXlgWX8uwY` (`gate.txt`, `gate.json`) |
+| entry 9.3 disclosure code (+ tests) | `recipe/2025-10-speech-llm/src/speech_llm/sae/espum_disclosure.py`, `.../test_espum_disclosure.py` (20/20) at speech-llm `d9eec02` |
+| entry 9.3 config | `config/sae_1f_entry93.py` -> `.../librispeech/configs/config_sae_1f_entry93_v1.py` |
+| entry 9.3 disclosure decodes, c1/c2/c3/c4/c5 | `work/speech_llm/sae/espum_disclosure/EspumDisclosureDecodeJob.BSCM3ZOXy0eI` / `.kPcyX1XzCcZg` / `.AfLEEL9bKOn9` / `.1ZODsDfIH31h` / `.AEerv7uGWqeX` (`disclosure.txt`, `disclosure.json`) |
 | entry 8 reads, primary / SIL-augmented sensitivity | `work/speech_llm/sae/gua_lm_decode/GuaLmGridReadJob.SeNSdRhV1Wo3` / `.I9lgMOqar8RO` (`entry8_lm_per.txt`, `.json`) |
 | entry 8 grid decodes (8 jobs, 4 arms x 2 LMs + 2 beam probes) | `work/speech_llm/sae/gua_lm_decode/GuaLmDecodeGridJob.*` |
 | §1f prerequisite config | `config/sae_1f_prereq.py` -> `.../librispeech/configs/config_sae_1f_prereq_v1.py` |
