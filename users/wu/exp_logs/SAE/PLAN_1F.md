@@ -1698,6 +1698,62 @@ only route to a LITERAL reproduction remains TIMIT under ruling 4. Also unchange
 beside it: §1c already banks a label-free dev-other phone error rate of 0.2141 on this corpus, so
 the program's reproduced-PER question is answered by the GAN track and was never waiting on 1f.
 
+
+### 9.3 — THE DISCLOSURE DECODE (registered 2026-08-25 evening on the USER's word "I still wanna see PER... run a minimal decoding just to disclose"; CPU only, no GPU, decides nothing)
+
+**Why this exists.** Gate 9.0 closed the family in mass-normalized L1 units. That is not the currency
+this program reports in, and the USER asked for a phone error rate before 1f closes. What already
+exists on the 1f track, stated here so the registration is not confused with it: entry 5's ESPUM arm
+reads dev-other **0.8580** plain PER as scored (full loss, seed 1, label-free selected, per-segment
+argmax, seed spread 0.8580-0.8848) against banked nulls 0.8946 / 0.9239 and a memoryless oracle-map
+ceiling of 0.4148; entry 7's released-pipeline arm reads **1.6828** greedy at the fixed 40,000
+endpoint (bigram-only 1.2409), and entry 8's LM decode of it reads as the registered triple (rule
+pick 1.5446, label-oracle best 0.8444, grid range 0.8444-1.5446) in a DIFFERENT currency. Phase 1c's
+label-free **0.2141** dev-other stands beside all of them and is not a statistics-matching number.
+
+**What has never been decoded, which is what this entry supplies.** Three of the five configurations
+gate 9.0 ruled on carry no phone error rate at all: c3 (released K=128 runs), and c4/c5 (the
+pairwise-merged stream that reproduces `merge_clusters.py` + `mean_pool.py --subsample-rate 0.5`, the
+canonical preprocessing entry 7 skipped and the one repair that moved H from -2.44 to -0.09). No
+trained model exists for any of them and none is funded, so the only decode reachable without GPU
+training is the one gate 9.0 already constructs internally: the arm's real boundaries under the best
+memoryless unit-to-phone map. That is H's own second operand, and scoring it is an edit distance.
+
+**The job.** One CPU job on the SAME pool fingerprint gate 9.0 read (`93e6ee25c009`, 2,699 utterances
+carrying gold on every segment) and the same five configurations, scoring plain PER as scored with
+sub / ins / del and the hypothesis-to-reference phone length ratio, against the same gold sequences
+`EspumEvalJob` scores against. Rows per configuration, each a phone sequence over that
+configuration's own audio stream unless marked audio-free:
+
+  real boundaries + oracle memoryless map   (the best that stream can express; CEILING, reads gold)
+  real boundaries + perfect map             (CEILING, reads gold)
+  perfect boundaries + perfect map          (CEILING, reads gold)
+  trained entry-5 decode, c1/c2 only        (LABEL-FREE; the banked 0.8580 is on the 572-utterance
+                                             scored fifth, so it is re-read on THIS pool to sit in
+                                             the same column and both numbers are printed)
+  text-unigram null                         (AUDIO-FREE; the answer the objective prefers, in PER)
+
+**Reporting rule, pre-registered, verbatim into the producing job's docstring before any number
+exists.** (1) Every oracle or perfect row READS GOLD and is a CEILING — never an achievable result,
+never a label-free number, and never quotable as "the PER of the corrected configuration". The only
+label-free row in the table is the trained entry-5 decode; the only audio-free row is the unigram
+null. (2) Currency is named beside every number: plain PER as scored, greedy per-segment argmax, no
+language model — like-for-like with the published TIMIT 0.473 anchor's currency (anchor pin
+2026-08-23) and NOT with entry 8's LM-decoded column; no number here may be quoted against an entry-8
+number. (3) Read and reported PER CONFIGURATION, never pooled and never as a battery. (4) The
+re-read of the trained decode on this pool is a re-scoring of a banked checkpoint on a different
+utterance set, not a new selection; nothing is picked, and entry 5's gate is not reopened.
+
+**This is a disclosure, not a gate.** It has no bar and it decides nothing. It cannot fund 9.1, cannot
+reopen entry 5, entry 7 or stage A, and cannot close the open stopping-rule question — that question
+needs entry 7's eighteen checkpoints on a GPU and stays open regardless of what this table says. The
+one thing it is FOR, beyond answering the USER's question: it prices the corrected merged stream's
+ceiling in PER before anyone considers 34 GPU-hours, the way entry 5's 0.4148 priced its stream and
+E1 was measured against it.
+
+**Status.** REGISTERED 2026-08-25 (evening), FUNDED by the USER in the same message. CPU only, no new
+upstream artifacts, the five gate-9.0 configuration jobs are NOT re-run or re-keyed. Handed to the
+implementer.
 ## Screen battery (prerequisites (i)+(ii) made operational; the first fundable step)
 
 Run per REPRESENTATION of the same enc50 stream — raw, run-length-deduped, segment-pooled

@@ -496,6 +496,19 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    LibriSpeech, and 9.1/9.2 -- the published-COMPARABLE route -- are unfunded by their own
    gate). 1f is otherwise returned: the program's reproduced-PER question is answered by
    the GAN track, which banks a label-free dev-other 0.2141 in §1c.
+   **2026-08-25 (evening), USER-FUNDED, replaces "1f is otherwise returned" because the USER
+   asked to see a phone error rate before 1f closes ("run a minimal decoding just to
+   disclose"):** entry 9.3, the DISCLOSURE DECODE, is registered and handed to the
+   implementer -- one CPU job, no GPU, decides nothing. It scores plain PER as scored on
+   gate 9.0's own pool for all five configurations, because c3/c4/c5 (the released runs and
+   the pairwise-merged stream) have never been decoded to a phone error rate at all. Every
+   oracle/perfect row reads gold and is a CEILING; the only label-free row is the trained
+   entry-5 decode and the only audio-free row is the unigram null. Registration and
+   reporting rule: `PLAN_1F.md` entry 9.3. Already banked and needing no run: entry 5
+   **0.8580** dev-other (ESPUM, label-free selected, greedy argmax; nulls 0.8946/0.9239,
+   ceiling 0.4148), entry 7 **1.6828** greedy at the fixed endpoint (bigram-only 1.2409),
+   entry 8's LM decode as the registered triple in a different currency. The TIMIT fork
+   above is untouched by 9.3 and remains the USER's.
 3. **LM-prior domain adaptation (§0d) — RUN AND VERIFIED 2026-08-08** (`SAE_0d.md`; replaces
    the pre-run item because the phase executed): pre-check (i) PASSED; gate (ii) read — planner
    verdict in §0d Status **awaits the user's blessing** (margin over the audio-free null is
