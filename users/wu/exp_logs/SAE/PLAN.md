@@ -459,6 +459,31 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    published-anchor decode pin) is REGISTERED in `PLAN_1F.md` and AWAITS THE USER'S
    LAUNCH WORD (planner recommends funding); the espum channel cells are already funded
    inside 1g.10 experiment (1).
+   2026-08-25 (planner audit, USER-forwarded external review; ruling in `PLAN_1F.md`
+   "ENTRY-7 AUDIT RULING 2026-08-25", entry 9 registered there): the entry-5/entry-7
+   closures rested on four constants that do not survive contact with the reference --
+   the "bigram-only" arms keep the positional unigram and are the paper's `uni+bi` row,
+   so the +0.10 signature bar was anchored to a contrast NEVER RUN and stage A's
+   "-0.4419 ABSENT" is void as a test of the method; the pass-1 boundary proposal is an
+   undeclared deviation; "the learned segmenter prunes" is false by measurement (the
+   predicted rate moves UP on every arm); "~2.9x over-segmented" mixed bases (true factor
+   2.10x). The superseding measurement: the objective on our bed is 95-97 percent an
+   irreducible constant (audio/text token-mass ratio 2.54 against the reference bed's
+   measured 1.022), and in the arm's own loss at matched mass the TRAINED ENTRY-5 DECODE
+   BEATS THE GOLD TRANSCRIPT of the same audio in 10 of 10 paired batches -- the optimum
+   here is not the transcription. Recorded with it, the anchor 1f never used: §1c already
+   banks a label-free dev-other phone error rate of 0.2141
+   (`W2vu2PerEvalJob.ptwMk3TuPPYb`), inside REBORN's published 100 h band, so entry 5's
+   own SUPERVISED ceiling 0.3565 was already worse than the program's unsupervised
+   number, and entry 7 reproduced REBORN's discarded k-means-only failure row.
+   **NEXT STEP, planner-recommended, CPU-only and free: entry 9.0**, the pre-registered
+   identifiability gate (statistic H, bar +0.05 with 7 of 8 paired batches) over five
+   configurations including a pairwise-merged ~14/s stream and a label-free
+   length-matched text resample -- it either CLOSES the fixed low-order
+   statistics-matching family on this bed by measurement or names the one configuration
+   worth 9.1's 34 GPU-hours. Two forks are the USER's: fund 9.0, and separately whether
+   to reopen ruling 4 for TIMIT, the only route to a LITERAL reproduction (no PUSM/ESPUM
+   number is published on LibriSpeech, so 9.2 at best yields published-COMPARABLE).
 3. **LM-prior domain adaptation (§0d) — RUN AND VERIFIED 2026-08-08** (`SAE_0d.md`; replaces
    the pre-run item because the phase executed): pre-check (i) PASSED; gate (ii) read — planner
    verdict in §0d Status **awaits the user's blessing** (margin over the audio-free null is
@@ -968,6 +993,67 @@ unkilled entry. Post-close defect disclosed (`PLAN_1F.md` (7b)): the ruling-3/en
 text statistics sampled only the first 60.6% of the alphabetically sorted corpus —
 nulls and candidates shared the sample so the verdicts stand; a standing full-coverage
 sampling rule is registered and entry 5 pins the proven full-coverage sample.
+2026-08-25 (planner audit, prompted by an external review the USER forwarded; verified
+first-hand plus a twelve-agent verification workflow; full ruling in `PLAN_1F.md`
+"ENTRY-7 AUDIT RULING 2026-08-25"): FOUR REGISTERED CONSTANTS OF ENTRIES 5 AND 7 DO NOT
+SURVIVE CONTACT WITH THE REFERENCE, and the audit's own new measurement supersedes all
+four. (A) The arms named "bigram-only" in BOTH entries keep the positional unigram
+(`pos_unigram_weight` default 1.0, overridden nowhere; read from the runs' own resolved
+config dumps), so they are the paper's `uni+bi` family, not its `bigrams only` row. The
+published ablation is 71.6 (bigrams only) / 39.2 (uni+bi) / 38.4 (uni+bi+tri); the
+registered +0.10 signature bar was derived from the 71.6-vs-39.2 delta, while the pair we
+actually ran has a published separation of 0.8 PER points — one twelfth of entry 5's own
+seed noise. The stage-A signature test was UNFIRABLE BY CONSTRUCTION and its "ABSENT,
+REVERSED -0.4419" verdict is VOID AS A TEST OF THE REFERENCE'S CLAIM; the number stands
+as an observation about two of our arms only. (B) An UNDECLARED fourth deviation: the
+reference's pass-1 boundaries come from an external phone-boundary readout with an
+8-percent don't-care band, ours from raw k-means change points with hard targets
+everywhere. (C) The registered premise "the learned segmenter prunes" is FALSE BY
+MEASUREMENT — predicted rate moves UP on every arm and checkpoint (+0.13 to +5.57
+percent, Pearson r 0.9996-0.99997 against the proposal). (D) The "~2.9x over-segmented"
+figure mixed bases; 9.86/s was never a measured phone rate but a prior-derived text token
+rate, and the true factor is 2.10x. (E) THE SUPERSEDING FINDING, in two parts, neither of
+which existed when either entry was funded: the objective on our bed is 95-97 percent an
+IRREDUCIBLE CONSTANT set by the audio/text token-mass mismatch (2.54 against the reference
+bed's measured 1.022), so both arms converged into a degenerate set whose only requirement
+is the phone marginal — exactly the observed content-free decode, and why entry 8's
+language-model decode could not rescue it; AND, measured in the arm's own loss on gold-
+covered utterances at matched mass, the trained entry-5 decode SCORES BETTER THAN THE GOLD
+TRANSCRIPT of the same audio (145,818 against 233,063, 10 of 10 paired batches), with
+coordinate descent inside the strictly memoryless map family driving loss below the oracle
+map's at chance accuracy, and with the truth only TYING the decoy at perfect boundaries.
+Entry 5 did not fail to optimize; it optimized correctly an objective whose optimum on
+this bed is not the transcription. Three implementation defects were found and go to the
+implementer (swap-partner fallback on 2 of 572 rows; a 1/N length dependence in the
+label-free selection perplexity; a coincidental rather than constructed selection/scored
+disjointness); everything else in the loss, pooling, truncation, decode shim and scorer was
+compared line by line against the release and is FAITHFUL. Also recorded: the published
+ESPUM configs select checkpoints by `uer`, an edit distance against reference phones, so
+the 0.473 anchor is LABEL-SELECTED and our label-free numbers are strictly harder-won.
+2026-08-25 CONSEQUENCE — **ENTRY 9 REGISTERED** (`PLAN_1F.md`), the corrected path, and the
+anchor 1f never compared itself to is recorded with it: §1c already banks a LABEL-FREE
+unsupervised **dev-other phone error rate 0.2141** on this corpus
+(`W2vu2PerEvalJob.ptwMk3TuPPYb`), inside REBORN's published 100 h band (22.9 / 16.3 / 11.9),
+which means (i) the execution-versus-bed question is already closed in our favour, (ii)
+entry 5's SUPERVISED probe 0.3565 and oracle ceiling 0.4148 were both WORSE than the
+program's own unsupervised number before a single matching update ran, and (iii) entry 7 at
+28.6 seg/s is, to within measurement, REBORN Table 7's published `k-means-only` failure row
+(28.5 Hz, PER over 100, 0 of 5 converged) — it reproduced an ablation the literature
+discards, and the step it is missing is a PREPROCESSING one (`merge_clusters.py` then
+`mean_pool.py --subsample-rate 0.5`). Entry 9 runs 9.0 FIRST AND ALONE: a CPU-only
+identifiability gate that computes, in the arm's own loss, whether the objective prefers the
+reachable truth to the strongest content-free decoy (statistic H, bar +0.05 with 7 of 8
+paired batches), across five configurations including a pairwise-merged 14/s stream and a
+LABEL-FREE length-matched text resample that closes the mass mismatch to about 1 percent.
+No configuration clearing the bar CLOSES the fixed low-order statistics-matching family on
+this bed by measurement — the strongest and cheapest discharge of ruling 6 available. One
+clearing names the single configuration worth the 34 GPU-hours of 9.1, whose corrected
+signature clause is for the first time anchored to the published row pair. STATED PLAINLY
+FOR THE USER: no PUSM/ESPUM number is published on LibriSpeech, so even a fully successful
+9.2 is published-COMPARABLE, not REPRODUCED; the only literal-reproduction route is TIMIT
+(LDC93S1, absent here, about one GPU-day plus an LDC licence), which ruling 4 closed and
+only the USER can reopen. THE FORK IS THE USER'S: fund 9.0 (free) now, and separately
+decide TIMIT.
 
 ### 1g. A simple weak starting point for the SAE loop (rewritten 2026-08-19; sub-plan `PLAN_1G.md`)
 

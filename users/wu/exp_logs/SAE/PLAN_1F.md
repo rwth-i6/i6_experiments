@@ -1110,6 +1110,172 @@ recommendation. Consequence carried elsewhere: `PLAN_1G.md` 1g.6's FREE READ 2 s
 the relabeling iterations it would read were seeded from an iteration-1 checkpoint that fails both
 margins, and `GuaTrainJob.EwdQgD4XqYPI` now has no registered consumer at all.
 
+**ENTRY-7 AUDIT RULING 2026-08-25 (planner, first-hand plus a twelve-agent verification workflow;
+prompted by an external review the USER forwarded). Four registered constants of entries 5 and 7 do
+not survive contact with the reference, and one of them is load-bearing for the stage-A verdict. This
+is an amendment by replacement of the four constants named below; the stage-A CLOSURE itself is not
+reopened here, and no banked number changes.**
+
+**(A) The arms named `bigram_only` in entries 5 and 7 are NOT the reference's collapse arm; the
+registered +0.10 signature bar traces to a row pair we never ran.** The published ablation is Table 3
+of arXiv:2310.02382, verified twice independently (pypdf over the arXiv PDF and a separate fetch of
+the ar5iv HTML, identical seven rows and identical caption): `bigrams only` 71.6, `uni+bi-grams` 39.2,
+`uni+bi+tri-grams` 38.4, and the paper's own attributing sentence is "the information in the positional
+unigrams is crucial for ASR-U since the bigrams only model performs much worse than the uni+bi-grams
+model". The clean single-change positional-unigram delta is therefore 71.6 -> 39.2 = 32.4 points; the
+0.324 quoted in the entry-7 Gate is that delta, and it is NOT the delta between the two arms we ran.
+Our `bigram_only` keeps the positional unigram: the term at
+`wav2vecu_graph/models/wav2vecu_graph.py:1658` is weighted by `pos_unigram_weight`, whose default is
+1.0 (line 113), which no shipped config, no `run.sh` line and no job of ours ever overrides -- read
+not from source but from the run's own resolved config dump,
+`GuaTrainJob.OfNoESzNJykY/output/train/0/hydra_train.log` (`pos_unigram_weight': 1.0` beside
+`'skipgram_size': 1`, `'trigram_size': 0`), with `.hydra/overrides.yaml` in all four `GuaTrainJob`
+dirs containing no `pos_unigram` entry. Entry 5 is the same by construction:
+`espum_model.py:26 POS_UNIGRAM_WEIGHT = 1.0` applied unconditionally at line 152, with
+`espum_jobs.py:385-387` switching only the skip and tri sizes. Both `bigram_only` arms are therefore
+**positional unigram + one skip-1 bigram term**, i.e. the Table 3 row-2 family, and the nearest
+published anchor for the contrast we actually ran is **39.2 vs 38.4 = 0.8 points (0.008 in fraction)**
+-- one twelfth of entry 5's own measured seed noise (0.027) and one twelfth of the registered bar.
+CONSEQUENCE, registered: the stage-A signature clause of amendment 1 / RULING 3 was **unfirable by
+construction**, on any bed, and its verdict of 2026-08-18/19 ("ABSENT, sign REVERSED, -0.4419 against
++0.10") is VOID AS A TEST OF THE REFERENCE'S CLAIM. The measured -0.44 stands as an observation about
+two of our own arms and nothing more; every downstream sentence that reads it as evidence about the
+approach, the bed, or the loss terms is withdrawn. The repair is one CLI override
+(`model.pos_unigram_weight=0.0`) for entry 7 and a constant-to-parameter change for entry 5. Trap
+recorded so it is not repeated: `skipgram_only` (line 69) LOOKS like this knob and is dead code
+(assigned at line 1071, never read); and the `posweight1_1` in every shipped config filename is the
+segmenter's BCE positive-class weight 1.1, not a unigram weight.
+
+**(B) An UNDECLARED fourth deviation: the pass-1 boundary proposal.** `run.sh:114` sets
+`SEGMENT_DATA=$tgt_dir/$s/phn_unsup_seg_readout`, produced by an external self-supervised
+phone-boundary model (`run_segment.sh:70-83`, `scripts/prepare_timit_unsup_seg_readout.py`,
+`scripts/prepare_timit.sh:94` with `margin=10`), whose export blanks the score band [0.40, 0.60] to
+-1; the trainer turns those into `bin_labels` 0.5 = `ignore_value`, so 8.0-8.5 percent of frames are
+don't-care and the surviving positive labels are the ones scoring above 0.6. Our port passes the raw
+faiss k-means change points (`config_sae_1f_entry7_v1.py:136,246 segment_dir=clus.out_dir`) with hard
+0/1 at every frame and no ignore band (`grep -c -- "-1" clus/test.src` returns 0). This deviation
+appears in no plan file and is not among the "three deviations, all deliberate" of the `gua_jobs.py`
+docstring. Two corrections to how the external review put it, because they change the mechanism: the
+segmenter is **not weight-initialized** from the readout -- it is randomly initialized and DISTILLED
+from it through BCE targets (no `load_state_dict` anywhere in `wav2vecu_graph/`); and the released
+`BinarySegmenter` has **six** conv layers, the paper's "7-layer CNN in [16]" describing the external
+readout's own architecture.
+
+**(C) "The learned segmenter prunes" is FALSE BY MEASUREMENT, and it is the registered premise that
+failed.** Replaces that parenthetical in the Status of 2026-08-18. Paired on the same 572 scored-fifth
+utterances (the two `.src` line lengths agree element by element, 125,022 frames): k-means proposal
+125.149 seg/utt; full loss at update 40,000 **126.916** (+1.41 percent), bigram-only **125.306**
+(+0.13 percent); at the label-free picks 132.122 (+5.57) and 125.797 (+0.52). Pearson r 0.99955 and
+0.99997 against the proposal; 20.5 and 66.3 percent of utterances EXACTLY equal. **The predicted rate
+moves up, never down, on every arm and every checkpoint read.** The mechanism is in the code: the
+boundary head is a plain BCE classifier fitted to the supplied change points, with `pos_weight` 1.1
+biasing it toward MORE boundaries, and no rate, count or sparsity term anywhere; `join_segment_step`
+returns `False` unconditionally (`wav2vecu_graph.py:1036-1037`), so nothing downstream reduces the
+rate either.
+
+**(D) The "~2.9x over-segmented" figure mixes bases; the true factor is 2.10x.** Replaces that figure.
+9.86/s is not a measured phone rate at all: it is a prior-derived text token rate, `lexfree_match.py:68
+WORD_RATE_HZ = 2.8` times 3.52 phones per word counted on the unpaired corpus, banked as `text_rate`
+in `LexFreeMatchJob.0iHetIXnj7e1`. The measured gold phone rate on the entry-7 scored fifth is
+**13.652/s** on the silence-stripped basis the 27.87-28.63/s proposal rate is computed on (34,135 gold
+phones over 125,022 kept frames at 50 Hz), and 9.715/s on the full-audio basis (3,513.81 s). Matched
+either way the factor is **2.10x**.
+
+**(E) THE FINDING THAT SUPERSEDES ALL FOUR: on our bed the objective is 95-97 percent a constant the
+model cannot touch, and where it can be touched it prefers a content-free answer to the truth.** Two
+independent measurements, neither of which existed when entries 5 and 7 were funded.
+
+*(E1) The degenerate floor.* Every L1 term compares RAW counts of two sides whose per-batch token
+masses differ, and `sum|D - K| >= |sum D - sum K|` with equality for ANY audio statistic that dominates
+the text's elementwise. Measured masses: audio 179.57 segments per utterance against text 70.12 phones
+per line (`GuaTextJob.4mttbvA9Ut8f`, 99,076 lines), ratio 2.54; the reference bed's own ratio, measured
+on the shipped TIMIT files, is **1.022** (38.48 segments against 37.64 phones per utterance). Against
+the arms' own logged `loss_dense_g`: full loss 110.80 per term and bigram-only 112.38 per term, against
+a simulated floor of 106.3-107.7 -- **residual 2.8-4.1 and 4.1-5.4 percent**. Both runs converged INTO
+the degenerate set, where the only thing the objective forces is that each count statistic dominate the
+text's -- which is exactly the observed decode: every phone type used, phone-marginal-correct strings,
+zero utterance-specific content (M2 +0.0013 to +0.0107). This is also why entry 8's language-model
+decode could not rescue it, and it retires clause (4)'s clip-ceiling option from any priority: at a
+95-97 percent constant objective the effective step size is not the binding quantity.
+Decomposition of the floor, per-position survival bound, planner-computed and independently
+reproduced by batch simulation:
+
+| configuration | irreducible share of the positional-unigram term |
+|---|---|
+| entry 7 as run (k-means 28.6/s, LM-corpus text) | 0.610 |
+| segmentation at the phone rate, same text | 0.236 |
+| entry 5 as run (Ward `seg12.5`, 85.59 seg/utt, same text) | 0.243 |
+| entry 5 with length-matched text sampling | 0.001 |
+| entry 7 with length-matched text sampling | 0.014 |
+
+Over-segmentation is the larger term but not the whole story: at a rate-matched segmentation a quarter
+of the term is still speech-versus-text SENTENCE-LENGTH mismatch (85.59 segments per utterance against
+70.12 phones per line, total-variation distance 0.213), because LibriSpeech audio utterances and the
+LM corpus lines are different sentences. The reference never had this -- its "unmatched" text is TIMIT
+read sentences, and in the matched column it is literally the transcript set of the training audio
+(`config/timit_matched`: train and train_text overlap 3,696 of 3,696). Length-matched text resampling
+is LABEL-FREE (it reads only line lengths and audio segment counts, never a transcript), closes the
+floor to about 0.01, and distorts the corpus statistics by total-variation distance 0.0050 at the phone
+unigram and 0.0112 at the phone bigram.
+
+*(E2) The objective is minimized AWAY FROM THE TRUTH, measured in the arm's own loss.* Computed with
+`espum_model.matching_loss` itself (verified to agree with an independent bincount reimplementation to
+0.00000 relative, and to land inside the trainer's own logged loss band on real batches), paired over
+10 batches of 640 x 640 on the 4,355 seed utterances carrying gold on every segment, all rows at the
+same 58.68 symbols per utterance so mass cannot contribute:
+
+| audio side | matching loss | segment accuracy |
+|---|---|---|
+| gold segment truth (perfect map on this segmentation) | 233,063 | 1.0000 |
+| oracle memoryless 500-to-39 map (the reachable best) | 239,148 | 0.6565 |
+| **trained entry-5 seed-1 decode (PER 0.8580)** | **145,818** | **0.1119** |
+
+The trained content-free decode beats the truth by 37.4 percent, in 10 of 10 paired batches. This is
+not a capacity artifact of the kernel-4 convolution: coordinate descent restricted to the strictly
+memoryless 500-to-39 map family drives the loss from the oracle map's 165,261 down to 120,787 while
+segment accuracy falls from 0.6565 to 0.4735, and from a random start reaches 131,951 -- below the
+oracle's loss -- at chance accuracy 0.0449. In mass-normalized L1 the trained decoy sits at 3.414
+against the true reference phone sequence at 3.125 and a perfect-boundaries-perfect-map audio side at
+3.417: **at perfect boundaries the truth only ties the decoy.** Boundary quality was measured here for
+the first time -- our `seg12.5` boundaries are F1 0.762 at +/-20 ms against gold, at 14.69 hypothesis
+boundaries per second against 14.33 gold, so the RATE is right and the PLACEMENT is not -- and a
+synthetic boundary ladder from gold shows no boundary quality at which the truth is preferred by any
+margin. **Registered reading: entry 5 did not fail to optimize; it optimized correctly an objective
+whose optimum on this bed is not the transcription.** Both prior autopsies -- "the failure mode is
+IDENTITY" (entry-5 Status) and "over-segmentation" -- are subsumed by this and neither is the operative
+cause on its own.
+
+**(F) Three implementation defects found in the audit, all disclosed, none moving a banked number.**
+(i) The nearest-length swap partner (`fingerprint_match.py:437-449`) falls back to `(i+1) % n` for the
+two argsort-extreme utterances, so 2 of 572 rows get a non-length-matched donor -- one-line fix, and
+0.35 percent of rows is well inside every reported M2. (ii) `_weighted_lm_ppl` (`espum_jobs.py:211-217`)
+divides N+1 log-probabilities (kenlm scored with bos and eos) by N tokens, a length dependence of order
+1/N (~1.7 percent at 58 phones), applied identically at every checkpoint so the ranking is unaffected.
+(iii) The selection/scored disjointness holds by coincidence of two independently built identifier sets
+(`espum_jobs.py:257` versus `:737`), not by construction; it is satisfied on the banked run
+(2,292 + 572 = 2,864) and should be asserted rather than assumed. All three go to the implementer.
+Everything else in the loss, the pooling, the truncation, the zero-transition Viterbi shim, the
+conditional-gold patch and the PER scorer was compared line by line against the release and is
+FAITHFUL -- the audit's negative result, recorded as such.
+
+**(G) Two facts about the published anchor, for every future comparison.** The shipped ESPUM configs
+set `best_checkpoint_metric: uer`, an edit distance against reference phones (`config/l1/*.yaml:16`),
+while the same repo's vanilla wav2vec-U config uses the unsupervised `weighted_lm_ppl` -- so the
+published ESPUM numbers are LABEL-SELECTED and our label-free policy makes our numbers strictly
+harder-won, which must be said wherever 0.473 is named. And the paper never names a decoder for any
+PER; the anchor-pin ruling of 2026-08-23 (greedy/argmax currency, from the shipped
+`--config-name viterbi`) stands and is reinforced, with the added precision that Table 1's unmatched
+test column reads 47.3 (no relabeling), 45.1 (iteration 1) and 42.9 (iteration 1 plus HMM
+self-training) -- so "0.473 -> 0.429" is a two-change delta across two decode currencies and may not be
+quoted as one effect.
+
+**(H) What this ruling does NOT do.** It does not reopen the stage-A closure, which was applied exactly
+as pre-registered and whose interpretability condition (both arms far above the margin, both swap
+controls flat) is untouched by any of the above. It does not license reading entry 5's or entry 7's
+banked numbers as evidence about the method. It does not authorize spend: the corrected path is
+registered as entry 9 below and awaits the USER's word.
+
+
 Status 2026-08-18 (recognition-chain wiring addendum — implementer proposal ratified pre-run
 with one amendment; commit 4e7550b planner-verified; the jobs are deliberately NOT in the
 running graph until the user restarts the entry-7 manager). Chain per arm: GuaDecodeSweepJob
@@ -1292,6 +1458,162 @@ beam-500 probe, stale anchor-pin print) were fixed pre-read at `55045ed`, re-key
 read jobs; accepted. Cells 3-4 remain the user's word; this result RAISES cell 4's stakes:
 a content-free stream decoded at high lm_weight may land in the same 0.82-0.85 deletion band,
 so whether stage A shows any content signal in this currency is exactly what cell 4 decides.
+
+## Entry 9 — the corrected statistics-matching path (registered 2026-08-25 pre-build; launch awaits the USER's word)
+
+**Why this exists.** USER ruling 6 ("try your best to make a PUSM-like approach work; I accept that
+you even just reproduce") is unspent: entry 5 failed its gate and entry 7's stage A closed NOT
+ANSWERABLE, but the 2026-08-25 audit ruling above shows that neither closure was a measurement of the
+method. The signature test was unfirable by construction (A); the pass-1 boundary proposal was an
+undeclared deviation (B) whose registered justification was false (C); the over-segmentation factor
+was misquoted (D); and, decisively, nobody had measured whether the objective on this bed even prefers
+the truth (E). Entry 9 answers that last question FIRST, for zero GPU, and only then spends.
+
+**The anchor 1f never compared itself to, recorded here because it reframes the target.** Phase 1c
+already produced a LABEL-FREE unsupervised phone error rate on this corpus: `W2vu2PerEvalJob.ptwMk3TuPPYb`
+reads dev-clean 0.1729 / **dev-other 0.2141** on the full splits, from
+`FairseqW2vu2TrainJob.HOb2GgtYT7Bc` (wav2vec-U 2.0, real fairseq trainer, train-clean-100,
+wav2vec2-Large-lv60 layer 15, SIL-augmented phonemized LM text, phone 4-gram, `weighted_lm_ppl`
+selection, 5 seeds, 10.5 h on one GPU). REBORN (NeurIPS 2024) Table 1 reports, on the same 100 h
+LibriSpeech setting, wav2vec-U 22.9 and wav2vec-U 2.0 16.3 as its own reproductions and 11.9 for
+REBORN. Our 0.2141 sits inside that published band with label-free selection. Three consequences,
+registered: (i) the project's execution of the wav2vec-U family, its bed, its text side, its phone LM,
+its unsupervised selector and its PER path are ALREADY validated to published-comparable range, so no
+further "is it our execution or the bed" spend is warranted on that question; (ii) entry 5's own
+SUPERVISED plumbing probe reads 0.3565 and its memoryless oracle ceiling 0.4148 — **both worse than
+what this project already achieves unsupervised on the same corpus** — so entry 5's representation was
+capped below the program's own unsupervised result before a single matching update ran, which is a
+prerequisite E1 should have priced and did not (E1 was registered as a one-sided floor test against
+the ceiling, not against the program's own best unsupervised number); (iii) entry 7 at 28.6 seg/s with
+PER 1.68 is, to within measurement, REBORN Table 7's published `wav2vec-U (k-means-only)` row —
+28.5 Hz, PER over 100 percent, 0 of 5 seeds converged — i.e. it faithfully reproduced an ablation the
+literature explicitly discards, and the step it is missing is a PREPROCESSING step: the canonical
+wav2vec-U recipe runs `merge_clusters.py` then `mean_pool.py --subsample-rate 0.5` before the
+generator ever sees the stream. NOTE FOR §1g: this also means `PLAN_1G.md` 1g.13's description of
+"segments = cluster-ID runs at their natural ~28/s rate" as the wav2vec-U v1-equivalent stream is
+INACCURATE — v1 does not stop at cluster-ID runs — and 1g.13's contrast (d) SEGMENTATION verdict must
+be re-read with that scope; carried to `PLAN_1G.md` as a verifier item, no 1g verdict is reopened here.
+
+**Purpose.** Decide, by measurement rather than by argument, whether ANY fixed low-order
+statistics matcher can recover the map on a bed we own — and if one can, name the exact configuration
+and take it to a phone error rate.
+
+**9.0 — THE IDENTIFIABILITY GATE (zero GPU, CPU only, runs first and alone).**
+Build `EspumIdentifiabilityJob`, which evaluates the arm's OWN `espum_model.matching_loss` (asserted
+in the job against an independent bincount reimplementation to floating-point equality, and asserted
+to land inside the producing trainer's logged loss band on real batches) over a fixed pool of the seed
+utterances carrying gold on every segment, paired across at least 8 batches at the arm's own
+640 x 640 batch size, and emits one ladder per configuration:
+
+  noise floor (text vs text) / true reference phone sequence / perfect boundaries + perfect map /
+  real boundaries + perfect map / real boundaries + oracle memoryless map / trained-decoy /
+  label-permuted oracle maps (mean and standard deviation)
+
+plus the per-term decomposition, boundary F1 against gold at +/-20 and +/-40 ms, the adjacent-repeat
+rates on both sides, the per-batch token-mass ratio after the reference's own tail truncation, and
+
+  **H = L(strongest content-free decoy) - L(best audio-side output the arm can reach)**
+
+in mass-normalized L1, with its paired batch count. H is the deliverable: it asks "does this
+objective, on this stream, with this text side, prefer the reachable truth to a content-free answer"
+and it costs nothing. Configurations to read, all on existing artifacts:
+
+| # | unit stream / segmentation | text side |
+|---|---|---|
+| c1 | entry-5 `seg12.5` Ward, 85.59 seg/utt (as run) | T_phi stride-400 sample (as run) |
+| c2 | entry-5 `seg12.5` Ward | **length-matched** resample of the same sample |
+| c3 | entry-7 K=128 raw k-means, 179.57 seg/utt (as run) | as run |
+| c4 | entry-7 K=128 **pairwise-merged**, ~90 seg/utt (13.98/14.26/14.38 per second) | length-matched |
+| c5 | c4's stream | as run (isolates the text repair from the rate repair) |
+
+The pairwise merge is the published transformation, not an invention: it reproduces
+`merge_clusters.py` + `mean_pool.py --subsample-rate 0.5`, lands at 14.38/s on the scored fifth
+against the measured 13.652 gold phones/s (ratio 1.053), and matches REBORN's own measured 14.3 Hz
+adjacent-pooling row. The length-matched resample draws, for each audio utterance, a text line within
++/-5 percent of its segment count; it reads only lengths, never a transcript, and is disclosed as a
+deviation from the reference (which needs none, its two sides being 1.022 in mass).
+
+**PRE-REGISTERED GATE 9.0, written before any number exists.** A configuration is FUNDABLE if
+**H >= +0.05 mass-normalized-L1 units (one batch standard deviation) with the truth ahead in at least
+7 of 8 paired batches**. Read per configuration, never per battery. Current banked value for c1,
+already measured in the audit and recorded here as the pre-existing read rather than as a gate result:
+H = 3.414 - 5.187 = **-1.77**, and the ceiling on this bed even with a perfect segmenter and a perfect
+map is **+0.29**. CONSEQUENCES, both pre-registered: if NO configuration clears the bar, the fixed
+low-order statistics-matching family is CLOSED ON THIS BED by measurement — a far stronger and far
+cheaper answer than another training batch, and the honest discharge of ruling 6 — and 1f returns to
+the USER with that number in hand. If exactly one clears, 9.1 runs that configuration and no other.
+If more than one clears, the planner funds the highest H and reports the rest.
+SECOND READ, free and run in the same job: **H against training update**, using entry 7's 18 banked
+checkpoints and entry 5's retained `resume.pt`. If H is positive anywhere on either curve, the failure
+is a STOPPING RULE and the question reopens as a selection question rather than an objective question;
+if H is negative at every update on both, that door is closed and the closure above is unqualified.
+
+**9.1 — THE CORRECTED ARM (conditional on 9.0 naming a fundable configuration; about 34 GPU-hours).**
+Two arms, one variable apart, on the configuration 9.0 selects, everything else byte-identical to the
+banked entry-7 arms (K=128 one-hot, 40,000 updates, `smoothness_weight` 16.0, seed 0, save every
+2,000, validation off, checkpoint pinned at update 40,000 by declaration, no metric and no reference
+in the pinning job):
+
+- **A9a** the paper's headline row: positional unigram on, bi-skipgrams 1..6, tri-skipgrams — i.e.
+  `uni+bi+tri`, Table 3 row 3.
+- **A9b** the paper's ACTUAL collapse arm, run for the first time: `model.pos_unigram_weight=0.0` with
+  `skipgram_size=6`, `trigram_size=0` — i.e. `bigrams only`, Table 3 row 1.
+
+Implementation notes that are part of the registration. The new variant is folded into the hashed
+`loss_variant` argument, NEVER added as a hash-excluded parameter — a hash-excluded weight would
+collide the w=0.0 and w=1.0 arms onto one hash and silently overwrite 32 GPU-hours of finished work.
+The two banked arms keep their hashes. The arm definitions go into the `GuaTrainJob` docstring, per
+the standing rule that a pre-registered reporting constant lives with the code that produces it. The
+new segmentation is one CPU job writing three `.src` files: the dataset reads `<split>.src` as any
+integer sequence and takes `unique_consecutive` runs as segments, so no feature re-extraction and no
+re-clustering is needed, and `<split>_clus.npy` is untouched — which is what keeps the contrast
+one-variable.
+
+**PRE-REGISTERED GATE 9.1, three clauses, all read at the fixed 40,000 endpoint on the scored fifth.**
+(1) HEALTH: A9a's hypothesis-to-reference phone length ratio in [0.80, 1.25] (the banked arm is 2.07)
+and plain PER as scored below 1.00. (2) SIGNATURE, now against the row pair that actually carries it:
+A9b minus A9a **>= +0.10** dev-other PER — the same bar as before, but for the first time anchored to
+the published 71.6-vs-39.2 delta of 32.4 points that the constant was always meant to represent.
+(3) CONTENT: A9a's audio-swap control **M2 >= 0.05**, read beside a length-matched content-free null
+drawn from the arm's own phone unigram at the arm's own per-utterance lengths — because roughly half
+of an M2 at length ratio near 1.0 is a pure length effect (a content-free null at 1.03x scores
++0.0175), so an M2 without its matched null is not a content read. All three clauses passing means the
+approach works on a bed we own and 9.2 takes it to a headline number. Clause (1) passing with (2) or
+(3) failing means the rate and mass repairs bought health and not content, the corrected signature is
+recorded as measured, and no further statistics-matching spend is licensed. Clause (1) failing means
+the repairs did not even fix the length regime and the line closes.
+
+**9.2 — THE HEADLINE NUMBER (conditional on 9.1 passing all three; separately registered at that
+time).** Move the passing configuration onto the substrate that already produced 0.2141: the
+train-clean-100 bed rather than the 20.48 h seed, the banked 1c text side and phone 4-gram, label-free
+`weighted_lm_ppl` selection, three seeds, read on the FULL dev splits rather than a fifth. Two scaling
+fixes are prerequisites and belong in the registration: `GuaFeaturesJob` currently materializes the
+whole feature array with one `np.concatenate` (about 54 GB at 100 h) and `_CLUSTER_SCRIPT` builds a
+dense one-hot over a whole split in RAM; both must be chunked. Bar to be pre-registered then, and
+named here so it is not set after the fact: the claim under test is "statistics matching works where
+the GAN works", priced as a non-inferiority margin against 0.2141 with circularity counted as a cost —
+NOT superiority, and NOT read off gate 9.1.
+
+**What entry 9 cannot deliver, stated plainly because the USER asked for a reproduced phone error
+rate.** There is no published PUSM or ESPUM number on LibriSpeech. A fully successful 9.2 therefore
+produces a NEW number on a bed with no published statistics-matching anchor, benchmarked against this
+project's own GAN result — that is published-COMPARABLE, not REPRODUCED. The only route to a literal
+reproduction is TIMIT, whose published anchors are Table 1 unmatched test 47.3 / 45.1 / 42.9 and
+matched test 43.3 / 39.1 / 33.7 and Table 3 validation 38.4, and where the released bundle ships its
+own boundary artifacts (`manifest/timit_norep/segmentations/phn_unsup_seg_readout_margin10`, measured
+at 12.2-12.7 boundaries per second, i.e. at the TIMIT phone rate) so the two external segmenter repos
+need not be re-run. TIMIT is LDC93S1, absent from this cluster, about five hours of speech, roughly
+one GPU-day of compute, and an LDC non-member licence whose fee our sources put near US $250 without
+first-hand confirmation. USER ruling 4 declined a TIMIT bed and only the USER can reverse it. THE FORK
+GOES BACK TO THE USER IN THOSE TERMS rather than being resolved by redefining "reproduced": fund 9.0
+(free) and then 9.1 on our bed for a published-comparable result; or additionally open TIMIT for a
+literal reproduction of our execution of the bundle, which settles our execution definitively and
+nothing about our bed.
+
+**Status.** REGISTERED 2026-08-25 pre-build. 9.0 is CPU-only, uses no new artifacts, and the planner
+recommends funding it FIRST AND ALONE — it either closes the family with a number or names the one
+configuration worth 34 GPU-hours, and it is the prerequisite entries 5 and 7 were both funded without.
+9.1 and 9.2 await 9.0. The TIMIT fork awaits the USER.
 
 ## Screen battery (prerequisites (i)+(ii) made operational; the first fundable step)
 

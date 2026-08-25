@@ -576,6 +576,11 @@ cell 4 will find.
 32. (8) The bigram-only ablation did NOT separate from the full loss, so the health checkpoint's
     expected signature is absent: at 0.8748 it beats two of the three full-loss seeds, and the
     seed spread of the full loss (0.8580-0.8848) exceeds its 0.0015 gap to the ablation.
+    **FRAME WRONG (verifier 2026-08-25, numbers unaffected).** The arm called "bigram-only" keeps the
+    positional unigram (`POS_UNIGRAM_WEIGHT = 1.0`, `espum_model.py:26/152`), so it is the paper's
+    `uni+bi` row (39.2), not its `bigrams only` row (71.6). The expected separation for the pair
+    actually run is 0.8 PER points, not the 32.4 the "expected signature" was built on; the absence of
+    separation is therefore what the reference predicts. Ruling: `PLAN_1F.md` 2026-08-25 (A).
 33. (8) The arms fail on IDENTITY, not on rate or on collapse: they emit 0.963-0.974 of the reference
     phone count, use all 39 phone types, and carry 79-81% of their error as substitutions, so the
     matching objective fixed the marginal statistics it is written on while leaving the unit-to-phone
@@ -588,6 +593,14 @@ cell 4 will find.
     full-loss phone error rate is -0.4394 (1.2449 against 1.6843) where the registered bar asked for
     at least +0.10, so the ablation the reference method's own loss design predicts would hurt is the
     arm that scored better.
+    **WRONG as a test of the reference's claim (verifier 2026-08-25); the -0.4394 itself stands.** The
+    +0.10 bar was derived from the published 71.6-vs-39.2 delta, but this arm's own resolved config
+    dump (`GuaTrainJob.OfNoESzNJykY/output/train/0/hydra_train.log`) carries `pos_unigram_weight: 1.0`
+    beside `skipgram_size: 1`, so it is `uni+bi`, whose published separation from `uni+bi+tri` is 0.8
+    PER points -- one twelfth of the bar and of entry 5's seed noise. The clause was unfirable by
+    construction on any bed; the measured -0.4394 is an observation about two of our own arms only,
+    and the true collapse arm (`model.pos_unigram_weight=0.0`) has never been run. Ruling:
+    `PLAN_1F.md` 2026-08-25 (A); corrected arm registered as entry 9.1 A9b.
 36. (9) That comparison is **not interpretable as a contrast between the two losses**, because the
     label-free selector shows no signal on either arm and pinned them 28,000 updates apart: weighted
     phone-LM perplexity spans 38.16-41.15 over the full arm's eighteen checkpoints and picked update
@@ -622,6 +635,13 @@ cell 4 will find.
     the 0.8446 arm-gate margin (1.6828 and 1.2409) and both audio-swap controls stay flat (+0.0039
     and +0.0107 against 0.05), so neither decode carries measurable utterance-specific information
     and the contrast is between two uninformative decodes rather than between two losses.
+    **SCOPE AMENDED (verifier 2026-08-25); the closure itself stands as applied.** The condition was
+    pre-registered and applied correctly, but the cause it left open ("execution versus approach on
+    this bed") is now measured and is neither: on this bed 95-97 percent of the matching objective is
+    an irreducible constant set by the audio/text token-mass ratio 2.54 (the reference bed's own ratio
+    is 1.022), so both arms converged into a degenerate set whose only requirement is the phone
+    marginal -- which is precisely a decode that is uninformative at every length. Ruling and the
+    supporting measurements: `PLAN_1F.md` 2026-08-25 (E).
 
 The kill conditions and the battery are reported, not acted on. `seg12.5` leads both splits and
 `seg9` is the label-free rate-matched rung; which one the ladder runs on, and whether the tv_offdiag
@@ -713,6 +733,56 @@ Full-arm relabeling: iteration 2 `GuaGenerateJob.0jGtVQIDcorO` -> `GuaSegmentsJo
 record per `train_num_updates`).
 
 ## Verifier feedback
+
+- 2026-08-25 (ENTRY-5/ENTRY-7 AUDIT, prompted by an external review the USER forwarded; every claim
+  below re-derived first-hand or by a twelve-agent verification workflow; full ruling and the entry-9
+  registration in `PLAN_1F.md`). Five items, in the order they matter.
+  (1) **THE `bigram_only` ARMS ARE MISLABELLED IN BOTH ENTRIES and the +0.10 signature bar is
+  anchored to a contrast never run.** `pos_unigram_weight` defaults to 1.0
+  (`wav2vecu_graph.py:113`), is set by no shipped config, no `run.sh` line and no job of ours, and
+  appears as `pos_unigram_weight: 1.0` in each arm's own resolved config dump; entry 5 hardcodes the
+  same constant at `espum_model.py:26`. Published Table 3 (verified twice, PDF and ar5iv): bigrams
+  only 71.6 / uni+bi 39.2 / uni+bi+tri 38.4. Our pair is uni+bi versus uni+bi+tri, published
+  separation 0.8 PER points. Verdicts 32 and 35 carry the correction. Traps for whoever builds the
+  fix: `skipgram_only` (line 69) is DEAD CODE, and the `posweight1_1` in the config filename is the
+  segmenter BCE positive weight 1.1.
+  (2) **THREE IMPLEMENTATION DEFECTS, all disclosed, none moving a banked number — they are yours to
+  fix, not mine to log elsewhere.** (a) `fingerprint_match.py:437-449` returns `(i+1) % n` as the swap
+  partner for the two argsort-extreme utterances, so 2 of 572 scored rows get a donor of arbitrary
+  length instead of the nearest — the one confound the control exists to exclude; one-line fix (fall
+  back to the other neighbour). (b) `_weighted_lm_ppl` (`espum_jobs.py:211-217`) divides N+1
+  log-probabilities (kenlm scored bos+eos) by N tokens, a ~1.7 percent length dependence at 58
+  phones; applied identically at every checkpoint so no banked ranking moves, but it is the same
+  per-token-pays-for-length family as the retired lm-prior rule and should be normalized per
+  reference unit if it is ever reused. (c) The selection/scored disjointness holds because two
+  independently built identifier sets (`espum_jobs.py:257` versus `:737`) happen to agree
+  (2,292 + 572 = 2,864) — assert it rather than rely on it.
+  (3) **Everything else in the loss, pooling, truncation, decode shim, gold patch and PER scorer was
+  compared line by line against the release and is FAITHFUL.** Recorded as a negative result so it is
+  not re-audited: `count_statistics`, `tri_skip_pairs`, `matching_loss`, logit-pooling-then-softmax,
+  the smoothness term on post-pooling logits, the batch tail truncation, the zero-transition Viterbi
+  identity, the conditional-gold patch, and the edit-distance scorer all check out.
+  (4) **Two of your reported constants are corrected, both in the Approach-9 frame rather than in a
+  number.** The k-means proposal is 2.10x the gold phone rate, not 2.9x — 9.86/s was never a measured
+  phone rate but `lexfree_match.py:68 WORD_RATE_HZ = 2.8` times 3.52 phones per word; the matched-basis
+  gold rate is 13.652/s silence-stripped, 9.715/s full-audio. And the learned segmenter does NOT prune:
+  paired on the same 572 utterances the predicted rate is 126.916 (full) and 125.306 (bigram-only)
+  against a 125.149 proposal, r = 0.9996-0.99997, moving UP on every arm and every checkpoint. The
+  entire length difference between the two arms is duplicate collapse at decode (3.0 versus 26.3
+  percent of adjacent segment pairs), not segmentation.
+  (5) **THE MEASUREMENT THAT SUPERSEDES BOTH AUTOPSIES.** On our bed 95-97 percent of the matching
+  objective is an irreducible constant: audio 179.57 segments per utterance against text 70.12 phones
+  per line, ratio 2.54, against the reference bed's measured 1.022; the arms' own logged
+  `loss_dense_g` sits 2.8-5.4 percent above that floor, i.e. both runs converged INTO the degenerate
+  set whose only requirement is the phone marginal. And in the arm's OWN loss, at matched mass on
+  gold-covered utterances, the trained entry-5 decode scores 145,818 against the gold transcript's
+  233,063 in 10 of 10 paired batches, with the truth only TYING the decoy at perfect boundaries.
+  Entry 5 did not fail to optimize. Two things follow for you: your Approach-8 reading "the failure
+  mode is IDENTITY, not rate" and the over-segmentation reading of Approach 9 are both subsumed, and
+  neither is the operative cause alone; and the boundary-quality question is answered — our `seg12.5`
+  boundaries are F1 0.762 at +/-20 ms with the RATE right and the PLACEMENT wrong. Entry 9.0 in
+  `PLAN_1F.md` turns this into a CPU-only pre-registered gate; nothing is authorized until the USER
+  funds it.
 
 - 2026-08-16: internal-consistency checks pass (sub+ins+del reproduces every oracle-PER row;
   the superseded-codebook row reproduces its finished 0.424/0.189 exactly). The cataloged
