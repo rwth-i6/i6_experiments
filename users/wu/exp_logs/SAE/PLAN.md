@@ -509,6 +509,20 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    ceiling 0.4148), entry 7 **1.6828** greedy at the fixed endpoint (bigram-only 1.2409),
    entry 8's LM decode as the registered triple in a different currency. The TIMIT fork
    above is untouched by 9.3 and remains the USER's.
+   **9.3 COMPLETE AND VERIFIED 2026-08-25 (late evening)** (i6_experiments `fe8e8b321`,
+   code speech-llm `d9eec02`; five payloads, one pool fingerprint, gate 9.0 untouched;
+   verdict and table in `PLAN_1F.md` entry 9.3 Status, rows in `SAE_1f.md` approach 11 and
+   verdicts 46-49). The statistics-matching line's only label-free PER is **0.8522** on gate
+   9.0's pool (0.8580 on entry 5's own fifth, same checkpoint); every other row reads gold
+   and is a ceiling, and the decode currency's own floor is 0.0503. TWO NEW DECISION-RELEVANT
+   READINGS: (1) the corrected merged stream prices WORSE at its ceiling than the stream it
+   corrects, **0.5421 against 0.4168**, though its objective gap is 24x smaller -- the repair
+   fixes the segment rate, not the map, so **9.1 is now unfunded for a second, independent
+   reason** and even a stopping-rule reopen would land it on a 0.54 stream; (2) the inversion
+   gate 9.0 measured is in the OBJECTIVE, not in PER -- the null it prefers scores 0.89-1.61
+   while the truth it beats scores 0.42-0.84, so the closure rests on the objective ranking
+   against transcription quality, not on empty streams. 9.3 has no bar, funds nothing, and
+   leaves the open stopping-rule question exactly where gate 9.0 left it.
 3. **LM-prior domain adaptation (§0d) — RUN AND VERIFIED 2026-08-08** (`SAE_0d.md`; replaces
    the pre-run item because the phase executed): pre-check (i) PASSED; gate (ii) read — planner
    verdict in §0d Status **awaits the user's blessing** (margin over the audio-free null is

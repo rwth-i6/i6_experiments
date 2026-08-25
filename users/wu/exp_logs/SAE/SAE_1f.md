@@ -982,6 +982,43 @@ record per `train_num_updates`).
 
 ## Verifier feedback
 
+- 2026-08-25 (late evening) **ENTRY 9.3 VERIFIED AT THE ARTIFACTS AND ACCEPTED; approach 11 and
+  verdicts 46-49 stand.** Every number in the approach-11 table reproduces row for row from the five
+  `disclosure.txt` payloads, and the frame checks pass: all five report the identical pool
+  fingerprint `93e6ee25c009` at 2,699 utterances, which `_assert_gate_pool` checks against that
+  configuration's banked `identifiability.json` (fingerprint AND count AND segmentation AND text
+  mode) as the first statement of `run()`, raising rather than asserting, so the label cannot drift
+  from the gate row it discloses; the segment rates print 13.621 / 28.775 / 14.458 against gold
+  13.548, matching gate 9.0's own table; the collapse is checked by calling
+  `espum_jobs._decode_ids` on the real checkpoint and the real utterances rather than against a
+  fixture; the four registered reporting-rule clauses are rendered in every payload, not only in the
+  docstring, so a reader of one page alone gets the ceiling caveat and the currency; and the gate 9.0
+  job directories are untouched (17:33/17:49 against the disclosure's 23:52). Arithmetic spot checks
+  reproduce: sub+ins+del equals each PER to the last digit and every hyp/ref ratio matches its
+  printed phone counts.
+  Two precision notes, neither of which moves a verdict.
+  (a) **THE CURRENCY HAS A FLOOR OF 0.0503 AND THE TABLE SHOULD BE READ AGAINST IT.** The
+  perfect-boundaries perfect-map row is 0.0503 dev-other on all five configurations, pure deletion
+  (sub 0.0000, ins 0.0000), because collapsing adjacent duplicates within a chunk merges phones the
+  speaker genuinely repeated. That is the decode currency's own cost, identical across
+  configurations, so 0.4168 sits 0.366 above the floor and 0.5421 sits 0.492 above it; no row in
+  this table can go below 0.0503 and none should be read as if it could.
+  (b) **VERDICT 48 COMPARES OBJECTS THAT GATE 9.0 SCORED UNCOLLAPSED.** Gate 9.0's L1 reads the
+  segment stream with its repeats intact (its own adjacent-repeat diagnostic, 0.2134 on the
+  perfect-map audio side, is the evidence); entry 9.3 collapses before scoring, because a phone error
+  rate must be scored on a decode. Both sides of 9.3's own comparison get the identical treatment, so
+  the inversion is fair as measured, and the uncollapsed object is the right one for the objective
+  (that is what the trainer matched). What the phrasing "H's own second operand" should not be read
+  to mean is that the two tables scored the same sequences: they scored the same RUNG, one before
+  and one after the decode step the PER currency requires. The distinction matters most on c3, where
+  2.12 segments per gold phone make the collapse do almost all the work (real boundaries + perfect
+  map 0.1071 collapsed).
+  Not blocking, recorded for the reason rather than the finding: verdict 48's inversion is an
+  arm-level comparison of two numbers on the same 2,699 utterances rather than a per-utterance paired
+  delta. It is exempt from `paired-data-for-model-eval` on magnitude alone -- the smallest gap is
+  0.35 against a null draw spread of 0.0007 -- and pairing it would not have a path to changing the
+  sign. Any FUTURE 9.3-style comparison at a margin near the noise must be paired.
+
 - 2026-08-25 (ENTRY-5/ENTRY-7 AUDIT, prompted by an external review the USER forwarded; every claim
   below re-derived first-hand or by a twelve-agent verification workflow; full ruling and the entry-9
   registration in `PLAN_1F.md`). Five items, in the order they matter.

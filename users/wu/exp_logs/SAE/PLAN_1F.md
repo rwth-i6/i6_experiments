@@ -1754,6 +1754,55 @@ E1 was measured against it.
 **Status.** REGISTERED 2026-08-25 (evening), FUNDED by the USER in the same message. CPU only, no new
 upstream artifacts, the five gate-9.0 configuration jobs are NOT re-run or re-keyed. Handed to the
 implementer.
+
+**Status appended 2026-08-25 (late evening) — 9.3 IS COMPLETE AND VERIFIED FIRST-HAND at the five
+payloads, not at the log** (`EspumDisclosureDecodeJob.BSCM3ZOXy0eI / .kPcyX1XzCcZg / .AfLEEL9bKOn9 /
+.1ZODsDfIH31h / .AEerv7uGWqeX`, code speech-llm `d9eec02`, i6_experiments `fe8e8b321`, log
+`SAE_1f.md` approach 11 and verdicts 46-49). All five carry the identical pool fingerprint
+`93e6ee25c009` at 2,699 utterances, checked against each configuration's banked
+`identifiability.json` before anything is scored; the gate 9.0 job directories are untouched; and
+all four reporting-rule clauses are rendered in every payload rather than only in the docstring.
+
+| cfg | perfect bnd + perfect map | real bnd + perfect map | real bnd + oracle map | trained entry-5 decode | unigram null |
+|---|---|---|---|---|---|
+| c1 pooled, as run | 0.0503 | 0.2545 | **0.4168** | **0.8522** | 0.8897 |
+| c2 pooled, length-matched | 0.0503 | 0.2545 | **0.4168** | **0.8522** | 0.8907 |
+| c3 released runs, as run | 0.0503 | 0.1071 | **0.8370** | -- | 1.6071 |
+| c4 merged, length-matched | 0.0503 | 0.2307 | **0.5421** | -- | 0.9084 |
+| c5 merged, as run | 0.0503 | 0.2307 | **0.5421** | -- | 0.9075 |
+
+dev-other, plain PER as scored, greedy per-segment argmax, no language model. Every column but the
+last two READS GOLD and is a ceiling. The currency's own floor is 0.0503 — the cost of collapsing
+adjacent duplicates within a chunk, identical on all five — so no row here can go below it.
+
+**WHAT THE USER ASKED FOR, ANSWERED.** The statistics-matching line's only label-free phone error
+rate is **0.8522** on this pool (**0.8580** on entry 5's own scored fifth, same checkpoint, printed
+beside it); the released-pipeline arm's is 1.6828 greedy at the fixed endpoint. Everything else in
+the table above is an upper bound.
+
+**TWO READINGS THAT CHANGE WHAT A LATER READER SHOULD DO, both decision-relevant and both new.**
+(1) **The corrected merged stream prices WORSE at its ceiling than the stream it corrects, 0.5421
+against 0.4168**, while its matching-objective gap to the content-free answer is 24 times smaller
+(H -0.09 against -2.11). Reproducing `merge_clusters.py` + `mean_pool.py` fixes the SEGMENT RATE and
+that is what moves H; it does not buy a better memoryless unit-to-phone map, because the released
+128-cluster inventory is coarser than entry 5's 500-unit codebook. This is the pricing 9.3 was
+registered to obtain: **the stream that most helps the objective is not the stream with the best
+reachable decode**, so even a stopping-rule reopen that went the other way would land 9.1 on a stream
+whose best memoryless decode is 0.54. 9.1 stays unfunded and is now unfunded for a second,
+independent reason.
+(2) **The inversion gate 9.0 measured is an inversion in the OBJECTIVE, not in phone error rate.**
+The audio-free unigram null the objective prefers on all five configurations scores 0.89-1.61 PER
+while the truth it beats scores 0.42-0.84 — every ceiling row beats its own configuration's null by
+0.35 to 0.80. So gate 9.0's closure does not rest on these streams being empty; it rests on the
+objective ranking against transcription quality on this bed, which is the `measure-the-objectives-
+floor-before-funding` failure mode now measured in both currencies.
+
+**WHAT 9.3 DOES NOT DO, as registered.** No bar, no funding, nothing reopened. The open stopping-rule
+question is exactly where gate 9.0 left it, and entry 5's gate does not move (the 0.0058 between
+0.8522 and 0.8580 is the utterance set). Two precision notes are in `SAE_1f.md` Verifier feedback
+2026-08-25 (late evening): the 0.0503 currency floor, and that gate 9.0 scored these rungs
+UNCOLLAPSED while a phone error rate must be scored on a decode — the same rung, one before and one
+after the collapse, which is fair on both sides of 9.3's own comparison and matters most on c3.
 ## Screen battery (prerequisites (i)+(ii) made operational; the first fundable step)
 
 Run per REPRESENTATION of the same enc50 stream — raw, run-length-deduped, segment-pooled
