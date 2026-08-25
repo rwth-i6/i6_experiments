@@ -1273,6 +1273,45 @@ def py():
         },
         extra_config_deletes=["optimizer.epsilon"],
     )
+    # Packing fits ~26% more seqs per step, so an epoch is 3156 steps instead of 3971 (0.794x),
+    # and everything keyed to the step count lands weaker over a run.
+    # The mask count: bv28 draws it from each seq's own length, where bv25 used the batch max,
+    # which on this data is 252k samples against a true mean of 206k, i.e. 1.227x more;
+    # 100/1.227 = 82 restores that strength, 70 goes past it to test whether it was the optimum.
+    # specaugment_steps is a STEP schedule, so its ramp finished at ep 7.9 instead of ep 6.3.
+    # Decoupled weight decay shrinks by lr*wd per step, so its total is 0.794x as well.
+    for _sa_factor in (82, 70):
+        _train_asr_base_multigpu(
+            f"asr-base-mgpu-logmel-muon-lr5e3-wdbl-nep38-packed-graphc-specaug{_sa_factor}-stepcomp",
+            prefix=prefix,
+            feature_extraction=None,
+            base_lr=1.0,
+            peak_lr=5e-3,
+            nep=38,
+            behavior_version=29,  # packed tensors need >= 29
+            extra_config_updates={
+                "optimizer.class": rf.build_dict(Muon)["class"],
+                "optimizer.weight_decay": 0.0126,  # 0.01 / 0.794
+                "packed_tensors": True,
+                "torch_distributed": {"reduce_type": "grad_explicit"},
+                "batch_size": None,
+                # 16_640 = 128 * 130 encoder frames, times the /6 subsample and /160 log-mel,
+                # so the bound stays exact through the pipeline instead of landing at 16666.67
+                # classes sizes the CTC FSA edge list (5*bound + 5*batch), walked every frame;
+                # the finished run peaked at 4270 tokens, so 4352 = 34*128 covers it with 12% fewer edges
+                "packed_batch_size": {"data": 16_640 * 6 * configs._batch_size_factor, "classes": 4_352},
+                "batching": "random",
+                "specaugment_num_spatial_mask_factor": _sa_factor,
+                "specaugment_steps": (4000, 12000, 20000),  # (5000, 15000, 25000) * 0.794
+                "torch_cuda_graph": {
+                    "batch_size_bound": 500,
+                    "dim_capacity": {"data": 312_000, "classes": 80},
+                    "warmup_steps": 0,
+                    "compile": True,
+                },
+            },
+            extra_config_deletes=["optimizer.epsilon"],
+        )
     # Front-end injection with RATE-MATCHED durations on the LEARNED embedding
     # (label dur 4-8 at 100Hz ~ 1 enc-frame/phon; completes the mfatable-realdur cell with
     # trainable embeddings -- separates injection depth from effective frames-per-phoneme).
