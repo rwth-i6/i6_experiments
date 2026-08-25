@@ -4,11 +4,29 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-State as of 2026-08-25 -- ENTRY 9.0 IS IN FLIGHT (five gate jobs plus their read, CPU only, details
-below). Entry 5 and entry 7 stage A are closed and entry 8 cells 1-2 are complete, but the
-2026-08-25 audit (Verifier feedback below; ruling in `PLAN_1F.md`) reframes what those closures
-measured, and 9.0 is the measurement neither of them had. Entry 9.1 is NOT built and is not
-licensed by this graph.
+State as of 2026-08-25 (evening) -- **ENTRY 9.0 IS COMPLETE AND ITS GATE FAILED ON ALL FIVE
+CONFIGURATIONS; NOTHING IS IN FLIGHT.** All six jobs finished with zero error markers. The gate
+table is `EspumIdentifiabilityReadJob.r4PXlgWX8uwY`, the numbers are approach 10 and verdicts 42-45,
+and the registered consequence of no configuration clearing the bar is that the fixed low-order
+statistics-matching family is CLOSED ON THIS BED by measurement -- which is what the registration
+pre-declared and what 1f returns to the USER with, instead of another training batch. Entry 9.1 is
+NOT built and this graph licenses nothing.
+
+**THE ONE-LINE READING.** On every configuration, an AUDIO-FREE sequence drawn from the text phone
+unigram at the arm's own segment counts scores better than the best transcription that stream could
+express. The trained entry-5 decode beats it by more still (H = -2.11). The canonical preprocessing
+step entry 7 skipped (`merge_clusters` + `mean_pool --subsample-rate 0.5`) is a real defect -- it
+moves the stream from 28.78 to 14.46 segments per second against a 13.55/s gold rate and H from
+-2.44 to -0.09 -- but it does not change the sign in any of 10 paired batches, so it is not what
+decided entry 7. With a PERFECT segmenter the truth would win, by +0.29 on the pooled stream and
++2.30 on the merged one, so the objective is not blind to content; the audio side these
+segmentations can express is what costs the truth its win.
+
+**WHAT THIS GATE DOES NOT SAY, and no reading of it may.** It licenses "not funding this family on
+this bed", never "it could not have worked" -- and the registered second read that would have
+separated an objective failure from a STOPPING-RULE failure could not be run: entry 5 retained only
+its pinned checkpoint (`resume.pt` went with the job's automatic cleanup) and entry 7's eighteen
+need the released generator on a GPU. That question is open and the reports say so on every page.
 
 **THE THREE IMPLEMENTATION DEFECTS THE AUDIT HANDED ME ARE FIXED, TESTED AND PUSHED** (speech-llm
 `abc3d81`, with the perplexity convention tagged at `2e0cb00`, on `haotian_modality_matching_jupiter`; each fix carries the regression test that would
@@ -411,6 +429,41 @@ loss best 0.8476 against 0.8444 (worse), bigram only best 0.8145 against 0.8172 
 correction of "slightly worse throughout", 2026-08-23) -- so the vocabulary mismatch costs little
 here and changes no conclusion.
 
+**10. Entry 9.0: the identifiability gate -- does this objective prefer the reachable truth to the
+strongest content-free answer?** One CPU read, no training and no GPU, of five configurations of
+artifacts entries 5 and 7 already produced. Per paired batch of 640 audio utterances against 640
+text lines, the arm's own count statistics are computed for a ladder of explicit audio-side answers
+and compared with the text side in two currencies: the RAW L1 the arms minimized, and a
+mass-normalized L1 in which every statistic is divided by its own total mass first, which removes
+the irreducible token-mass constant and is the currency the gate reads. The deliverable is
+**H = L(strongest content-free decoy) - L(best audio side the arm could reach)**, where the
+reachable-truth family is the perfect map and the oracle memoryless map ON THIS SEGMENTATION and the
+content-free family is the trained decode (where a checkpoint exists), five label-permuted oracle
+maps and five text-unigram draws at the arm's own per-utterance lengths; each family contributes its
+LOWEST loss, so both sides are read at their strongest. H > 0 means the objective prefers the truth.
+Pre-registered bar, in the producing module's docstring before any number existed: mean H >= +0.05
+with H > 0 in at least 7 of every 8 batches, read per configuration. All five configurations are
+read on ONE pool (2,699 utterances, intersected over the three segmentations so the H values are
+paired), and the job asserts its statistics against `count_statistics` element by element, its raw
+L1 against the arm's own `matching_loss`, and the checkpoint's soft loss against the producing
+trainer's own logged band, on a real batch, before writing anything.
+
+| configuration | segmentation (seg/s) | text side | best reachable truth | strongest content-free | H | sd | batches truth ahead | ceiling at perfect boundaries |
+|---|---|---|---|---|---|---|---|---|
+| c1 | entry-5 pooled (13.62) | as run | 5.6804 | trained decode 3.5683 | **-2.1121** | 0.0232 | 0/10 | +0.2854 |
+| c2 | entry-5 pooled (13.62) | length-matched | 5.6561 | trained decode 3.5845 | **-2.0716** | 0.0546 | 0/10 | +0.2734 |
+| c3 | released k-means runs (28.78) | as run | 7.7666 | unigram null 5.3320 | **-2.4407** | 0.0429 | 0/10 | +2.0430 |
+| c4 | pairwise-merged runs (14.46) | length-matched | 5.6052 | unigram null 5.5584 | **-0.0586** | 0.0362 | 0/10 | +2.3013 |
+| c5 | pairwise-merged runs (14.46) | as run | 5.6413 | unigram null 5.5618 | **-0.0891** | 0.0350 | 0/10 | +2.2692 |
+
+Gold phone rate on the same pool is 13.548/s throughout, so c4/c5 are the rate-matched rungs and c3
+is over-segmented by 2.12x. Boundary quality against gold at +/-20 ms: 0.7384 F1 for the pooled
+stream, 0.6193 for the raw released runs (precision 0.4555 at recall 0.9674 -- the rate is wrong, not
+the placement), 0.7542 for the pairwise-merged stream. The length-matched text resample costs total
+variation 0.0135 at the phone unigram and 0.0368 at the bigram, disclosed. The registered second read
+(H against training update) is NOT deliverable and is reported as such: entry 5 retained only its
+pinned checkpoint and entry 7's eighteen need the released generator on a GPU.
+
 ## Verdicts
 
 **Entry 8 cells 1-2, four verdicts.**
@@ -700,6 +753,32 @@ cell 4 will find.
     marginal -- which is precisely a decode that is uninformative at every length. Ruling and the
     supporting measurements: `PLAN_1F.md` 2026-08-25 (E).
 
+**Entry 9.0, the identifiability gate (approach 10), four verdicts.**
+
+42. (10) **GATE 9.0 FAILS ON ALL FIVE CONFIGURATIONS**: H is negative everywhere and the truth is
+    ahead in 0 of 10 batches on every one, against a bar of +0.05 and 7 of 8. On the registered
+    reading that CLOSES the fixed low-order statistics-matching family ON THIS BED by measurement,
+    which is what the registration pre-declared as the consequence and is the honest discharge of
+    USER ruling 6. It licenses "not funding this family here"; it does not say the family could not
+    work on another bed (`gate-decision-vs-measurement`).
+43. (10) **AN AUDIO-FREE NULL BEATS THE BEST REACHABLE TRUTH ON EVERY CONFIGURATION.** A sequence
+    drawn i.i.d. from the text phone unigram at the arm's own per-utterance segment counts -- no
+    audio, no units, no map -- scores 5.6230 against the truth's 5.6804 (c1), 5.3320 against 7.7666
+    (c3) and 5.5584 against 5.6052 (c4). The objective's optimum on this bed is the phone marginal at
+    the right length, and the truth is not it.
+44. (10) **THE RATE REPAIR CLOSES 97 PERCENT OF THE GAP AND DOES NOT CHANGE THE SIGN.** The canonical
+    `merge_clusters` + `mean_pool --subsample-rate 0.5` preprocessing entry 7 skipped moves the
+    stream from 28.78 to 14.46 segments per second (gold 13.55) and H from -2.44 to -0.09, with
+    boundary F1 rising 0.6193 -> 0.7542 -- but H stays negative in 10 of 10 batches at a spread of
+    0.035, so the missing preprocessing step is a real defect of entry 7 and is NOT what decided it.
+    Length-matching the text side is worth a further +0.03 (c5 -> c4) and is likewise not decisive.
+45. (10) **WITH A PERFECT SEGMENTER THE TRUTH WINS, BY LITTLE ON THE POOLED STREAM AND BY MUCH ON THE
+    MERGED ONE**: the ceiling H, read against the utterance's true reference phone sequence instead
+    of the reachable truth, is +0.2854 (c1), +2.0430 (c3) and +2.3013 (c4). So the objective is not
+    blind to transcription content -- it is the SEGMENTATION-induced audio side, not the objective's
+    form alone, that costs the truth its win, and 0.29 on the pooled stream is the whole margin a
+    perfect segmenter would buy there.
+
 The kill conditions and the battery are reported, not acted on. `seg12.5` leads both splits and
 `seg9` is the label-free rate-matched rung; which one the ladder runs on, and whether the tv_offdiag
 bar survives the ceiling inversion in conclusion 9, are planner calls. The pooled streams cover only
@@ -727,6 +806,10 @@ different reasons, only one of which a larger budget could move.
 |---|---|
 | entry 8 LM decode code (+ tests) | `recipe/2025-10-speech-llm/src/speech_llm/sae/gua_lm_decode.py`, `scripts/gua_lm_decode_test.py` (27/27) at speech-llm `4fa256c` |
 | entry 8 config | `config/sae_1f_entry8.py` -> `.../librispeech/configs/config_sae_1f_entry8_v1.py` |
+| entry 9.0 gate code (+ tests) | `recipe/2025-10-speech-llm/src/speech_llm/sae/espum_identifiability.py`, `.../test_espum_identifiability.py` (29/29) at speech-llm `2eb7cb9` |
+| entry 9.0 config | `config/sae_1f_entry9.py` -> `.../librispeech/configs/config_sae_1f_entry9_v1.py` |
+| entry 9.0 gate reads, c1/c2/c3/c4/c5 | `work/speech_llm/sae/espum_identifiability/EspumIdentifiabilityJob.fzOQ9UKTnLh1` / `.NMDdH7owD52u` / `.ffAQBEntKvBe` / `.POCnVeDHejYU` / `.JnsqE57Ui4XQ` |
+| entry 9.0 gate table (the read the ruling is taken from) | `work/speech_llm/sae/espum_identifiability/EspumIdentifiabilityReadJob.r4PXlgWX8uwY` (`gate.txt`, `gate.json`) |
 | entry 8 reads, primary / SIL-augmented sensitivity | `work/speech_llm/sae/gua_lm_decode/GuaLmGridReadJob.SeNSdRhV1Wo3` / `.I9lgMOqar8RO` (`entry8_lm_per.txt`, `.json`) |
 | entry 8 grid decodes (8 jobs, 4 arms x 2 LMs + 2 beam probes) | `work/speech_llm/sae/gua_lm_decode/GuaLmDecodeGridJob.*` |
 | §1f prerequisite config | `config/sae_1f_prereq.py` -> `.../librispeech/configs/config_sae_1f_prereq_v1.py` |
