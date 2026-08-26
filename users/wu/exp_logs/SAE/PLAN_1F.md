@@ -1822,6 +1822,67 @@ question is exactly where gate 9.0 left it, and entry 5's gate does not move (th
 2026-08-25 (late evening): the 0.0503 currency floor, and that gate 9.0 scored these rungs
 UNCOLLAPSED while a phone error rate must be scored on a decode — the same rung, one before and one
 after the collapse, which is fair on both sides of 9.3's own comparison and matters most on c3.
+
+### 9.1a — ONE TRAINED ARM ON THE FIXED STREAM (registered 2026-08-26; USER-FUNDED as an explicit override of gate 9.0's registered consequence; about 17 GPU-hours)
+
+**The override is recorded as an override, not as a reinterpretation.** Gate 9.0's pre-registered
+consequence was that no configuration clears the bar and therefore 9.1 does not run. The USER has
+funded one arm anyway, on 2026-08-26, after the planner's 2026-08-26 correction established that a
+memoryless-map ceiling neither predicts achieved phone error rate nor bounds a context-carrying
+generator — so **the gap between the merged stream's ceiling and what a trained arm reaches on it is
+unmeasured, and that is exactly the quantity this run measures.** Gate 9.0's verdict is NOT reopened
+by this and nothing here funds 9.2.
+
+**Scope: ONE arm, not the registered two.** 9.1 as registered is A9a plus A9b at about 34 GPU-hours,
+because it was built to fire the signature contrast. The USER asked for a phone error rate from the
+fixed stream. That is A9a alone — the paper's headline row, positional unigram on, bi-skipgrams 1..6,
+tri-skipgrams (`uni+bi+tri`, Table 3 row 3), seed 0. A9b and the audio-swap control are NOT run, so
+**clauses (2) SIGNATURE and (3) CONTENT of gate 9.1 are not fired and no reading of 9.1a may report
+9.1 as passed, failed or attempted.** Only clause (1) is read, and it reports rather than gates.
+
+**Configuration: c5, the merged stream with the text side AS RUN.** Not c4. c4's length-matched
+resample is a disclosed deviation from the reference, which needs none; c5 is the faithful
+configuration and its H (-0.0891 against c4's -0.0586) is the honest one. c5's own 9.3 rows are the
+comparison points and are already banked: memoryless oracle-map ceiling 0.5421, audio-free unigram
+null 0.9075, both dev-other.
+
+**Build, one variable from the banked entry-7 full-loss arm.** The merged segmentation is emitted as
+`<split>.src` integer sequences whose `unique_consecutive` runs are the segments, exactly as 9.1
+registered; `<split>_clus.npy` is untouched, no feature re-extraction and no re-clustering. The
+banked entry-7 arm hashes do not move. **Frame check the implementer owes before training starts:
+assert the emitted dev `.src` reproduces the very stream 9.3 read** — same per-utterance segment
+counts as `EspumDisclosureDecodeJob.AEerv7uGWqeX` (c5) on the shared utterances — because a second
+construction of the merged stream would be a second stream and the 0.5421 comparison point would no
+longer belong to this arm. The training split needs the same construction extended to it; 9.3 built
+it on dev only.
+
+**PRE-REGISTERED READ, written before any number exists.** Checkpoint pinned at update 40,000 BY
+DECLARATION, no metric and no reference anywhere in the pinning job. Decode is the released
+`w2vu_generate.py --config-name viterbi`, i.e. per-frame argmax with no language model — the currency
+of the banked 1.6828 and of the published TIMIT 0.473 anchor, and NOT entry 8's LM-decoded currency.
+Read on entry 7's own scored fifth (572 utterances), plain PER as scored, reported with sub / ins /
+del and the hypothesis-to-reference phone length ratio, printed beside three numbers already banked:
+entry 7's 1.6828 on the unfixed stream at the same endpoint and decoder, c5's 0.5421 ceiling, and
+c5's 0.9075 audio-free null. **HEALTH, clause (1) of gate 9.1 carried over verbatim and now read as a
+report: hypothesis-to-reference phone length ratio in [0.80, 1.25] (the banked unfixed arm is 2.07)
+and plain PER as scored below 1.00.**
+
+**What this run can and cannot settle, registered now so it is not decided after the number lands.**
+It CAN show whether the rate repair moves a trained arm off 1.6828, and it is the only measurement of
+the ceiling-to-achieved gap on the merged stream. It CANNOT reopen gate 9.0, cannot license 9.2,
+cannot answer the signature question (A9b is not run), and cannot be quoted against the published
+0.473 as a reproduction — this is a LibriSpeech seed bed and no statistics-matching number is
+published on it. A result at or near the audio-free null 0.9075 means the arm is at the content-free
+level in this currency and says so plainly; a result between 0.5421 and 0.9075 is the first evidence
+this line has that the fixed stream carries recoverable content, and it still funds nothing by
+itself.
+
+**Cost and wall time.** About 17 GPU-hours by analogy with the banked entry-7 arms at 40,000 updates,
+and the merged stream is half the segments per second of the raw one, so the projection should come
+in under entry 7's rather than over it. Project it from the first measured step rate rather than
+asserting it, and check it against the queue limit before the run is left unattended.
+
+**Status.** REGISTERED 2026-08-26, FUNDED by the USER in the same message. Handed to the implementer.
 ## Screen battery (prerequisites (i)+(ii) made operational; the first fundable step)
 
 Run per REPRESENTATION of the same enc50 stream — raw, run-length-deduped, segment-pooled

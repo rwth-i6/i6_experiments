@@ -528,6 +528,16 @@ therefore disclosed and treated as fixed-final, not evidence that the whole stac
    while the truth it beats scores 0.42-0.84, so the closure rests on the objective ranking
    against transcription quality, not on empty streams. 9.3 has no bar, funds nothing, and
    leaves the open stopping-rule question exactly where gate 9.0 left it.
+   **2026-08-26, USER-FUNDED, an explicit OVERRIDE of gate 9.0's registered "9.1 does not
+   run" consequence** (not a reinterpretation of it): entry 9.1a, ONE arm -- A9a
+   `uni+bi+tri` seed 0 -- trained on the c5 merged stream and decoded greedy at the pinned
+   40,000 endpoint, about 17 GPU-hours. It measures the one quantity the 2026-08-26
+   correction showed to be unmeasured: the gap between the merged stream's 0.5421 ceiling
+   and what a trained arm actually reaches on it. A9b and the audio-swap control are NOT
+   run, so gate 9.1's SIGNATURE and CONTENT clauses do not fire and no reading may report
+   9.1 as passed or failed; only its HEALTH clause is carried over, and as a report. Gate
+   9.0's verdict is not reopened and 9.2 is not licensed. Registration, frame check and the
+   pre-registered read: `PLAN_1F.md` entry 9.1a.
 3. **LM-prior domain adaptation (§0d) — RUN AND VERIFIED 2026-08-08** (`SAE_0d.md`; replaces
    the pre-run item because the phase executed): pre-check (i) PASSED; gate (ii) read — planner
    verdict in §0d Status **awaits the user's blessing** (margin over the audio-free null is
