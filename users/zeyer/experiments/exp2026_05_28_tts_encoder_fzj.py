@@ -1273,6 +1273,66 @@ def py():
         },
         extra_config_deletes=["optimizer.epsilon"],
     )
+    # lerp (unscaled durations) with packing, mirroring how dur07-packed relates to dur07.
+    # dur07-packed runs 6476 steps/epoch against dur07's 17461 (0.371x) and 77min against 199min,
+    # so packing is the speed lever here, not the duration scale, which changed neither.
+    # Second arm compensates what that step ratio weakens, as on the ASR side:
+    # weight decay 0.01/0.371, the specaug ramp x0.371, and the per-seq mask count at 70.
+    for _sa in (None, 70):
+        _train_tts_encoder(
+            "pseudo-enc-logmel-mfatable-realdur2-lerp-packed-single-gumbel-muon-nep38"
+            + ("" if _sa is None else f"-specaug{_sa}-stepcomp"),
+            prefix=prefix,
+            text_train_epoch_split=75,
+            batch_size_audio_frames=70_000,
+            batch_size_phon=6_000,
+            max_phon_len=300,
+            asr_logmel=True,
+            pseudo_speech_enc=True,
+            pseudo_enc_frozen_table=get_mfa_phone_mean_logmel_table().out_mean_table,
+            pseudo_enc_duration_table=get_mfa_phone_duration_table().out_duration_table,
+            pseudo_enc_duration_sigma=0.45,
+            # dur07 measured mean 7.5 and at most 9.8 upsampled frames per phoneme with the 0.7
+            # scale, so unscaled is 1/0.7 of that; 15 guards the tail without reshaping durations
+            pseudo_enc_max_len_factor=15,
+            # packing removes padding, so laplace only makes per-step CTC cost climb
+            train_seq_ordering="random",
+            pseudo_enc_lerp=True,
+            pseudo_enc_blank_duration_range=(0, 0),
+            pseudo_enc_specaug_max_width=6,
+            single_stream=True,
+            interleave_gumbel_scale=1.0,
+            glow_tts_add_silence_between_words=0.15,
+            base_lr=1.0,
+            peak_lr=5e-3,
+            nep=38,
+            behavior_version=29,  # packed tensors need >= 29
+            pseudo_enc_frontend_concat=True,
+            extra_config_updates={
+                "optimizer.class": rf.build_dict(Muon)["class"],
+                "packed_tensors": True,
+                "torch_distributed": {"reduce_type": "grad_explicit"},
+                "batch_size": None,
+                "packed_batch_size": {"data": 11_200_000, "classes": 5_000, "phonemes": 6_000},
+                "batching": "random",
+                "torch_cuda_graph": {
+                    "batch_size_bound": 500,
+                    "dim_capacity": {"data": 312_000, "classes": 80, "phonemes": 300},
+                    "warmup_steps": 0,
+                    "compile": True,
+                },
+                **(
+                    {}
+                    if _sa is None
+                    else {
+                        "optimizer.weight_decay": 0.027,  # 0.01 / 0.371
+                        "specaugment_num_spatial_mask_factor": _sa,
+                        "specaugment_steps": (1850, 5550, 9250),  # (5000, 15000, 25000) * 0.371
+                    }
+                ),
+            },
+            extra_config_deletes=["optimizer.epsilon"],
+        )
     # Packing fits ~26% more seqs per step, so an epoch is 3156 steps instead of 3971 (0.794x),
     # and everything keyed to the step count lands weaker over a run.
     # The mask count: bv28 draws it from each seq's own length, where bv25 used the batch max,
