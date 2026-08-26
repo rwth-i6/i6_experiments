@@ -36,6 +36,32 @@ updates near 14-16 hours -- consistent with the registration's ~17 GPU-hour esti
 as expected from half the segments per second. `time_rqmt` is entry 7's default 11.0 h and the job
 resumes, so it continues across allocations rather than dying at one.
 
+**THE CLIPPING-REGIME DIAGNOSTIC THE PLANNER AMENDED IN PRE-RESULT IS IMPLEMENTED** (speech-llm
+`10bbd48`, 29 tests; the training arm's hash does not move and only the unrun read job re-keys, so
+the manager was restarted onto the new graph and re-attached to the live arm without disturbing it).
+All three rows -- this arm and entry 7's two -- go through ONE reader rather than by quoting banked
+numbers, which would be a statistic without a job: percent of epochs fully clipped, mean gradient
+norm whole-run and over the last tenth, and the mean applied step `lr * min(1, clip_norm / gnorm)`,
+with `clip_norm` taken from each run's own resolved config dump, `lr` from each epoch's own record,
+a resubmit replay deduped by `train_num_updates`, and epoch coverage reported rather than assumed.
+The reader independently reproduces the planner's banked figure for the full arm: **6.752e-05 mean
+applied step over 2,858 epochs at 100.0 percent fully clipped**, against "about 6.8e-05".
+
+**ONE OPERATING POINT OF MINE THE PLANNER SHOULD SEE.** The amendment says an improvement is
+ambiguous if this arm's applied step is "materially LARGER" than the banked arm's, and comparable or
+smaller if not; "materially" needed a number, so I declared one in the producing module's docstring
+before any result exists rather than choosing it afterwards: a ratio above **1.25** is AMBIGUOUS,
+1.00 or below is a fortiori, and between the two is reported as comparable within the declared band.
+Change it if the planner wants a different band -- it is one constant in `gua_merge.py`.
+
+**EARLY LIVE EVIDENCE, far too early to read anything from and recorded only because the diagnostic
+exists to catch exactly this.** Over its first 24 epochs (updates 14-336) the merged arm sits at 91.7
+percent of epochs fully clipped with mean gradient norm 391 and an applied step near 6e-04 -- roughly
+9x the banked full arm's whole-run 6.752e-05. If that persists to update 40,000 the registered
+reading fires and any improvement over 1.6828 is reported as AMBIGUOUS between the rate repair and a
+more effective optimization regime. The banked arm's own norms rose from 116 to thousands over the
+run, so this is a first-epochs number and nothing more; the read recomputes all of it whole-run.
+
 **SCOPE, so no later reading widens it.** ONE arm. A9b and the audio-swap control are NOT built, so
 clauses (2) SIGNATURE and (3) CONTENT of gate 9.1 are not fired and no reading of 9.1a may report
 gate 9.1 as passed, failed or attempted; only clause (1) HEALTH is read, and it reports rather than
