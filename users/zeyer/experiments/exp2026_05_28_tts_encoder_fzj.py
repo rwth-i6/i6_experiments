@@ -180,6 +180,7 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+
     # for the batch-size unit: the padded arm's batch_size is raw samples, not feature frames
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines import configs
 
@@ -1429,6 +1430,7 @@ def py():
     # Front-end injection with RATE-MATCHED durations on the LEARNED embedding
     # (label dur 4-8 at 100Hz ~ 1 enc-frame/phon; completes the mfatable-realdur cell with
     # trainable embeddings -- separates injection depth from effective frames-per-phoneme).
+    # {"dev-clean": 1.83, "dev-other": 4.39, "test-clean": 1.97, "test-other": 4.56}
     _train_tts_encoder(
         "pseudo-enc-logmel-noblank-realdur-muon-nep38",
         prefix=prefix,
@@ -1447,9 +1449,10 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+
+    # SpecAugment width sweep on the pseudo output (6 = the scaled default; 3 / 12 bracket it).
     # {"dev-clean": 2.00, "dev-other": 4.35, "test-clean": 2.30, "test-other": 4.85}
     # better: -> pseudo-enc-layer4-noblank-muon-nep38
-    # SpecAugment width sweep on the pseudo output (6 = the scaled default; 3 / 12 bracket it).
     # _train_tts_encoder(
     #     "pseudo-enc-layer4-noblank-specaug3-muon-nep38",
     #     prefix=prefix,
