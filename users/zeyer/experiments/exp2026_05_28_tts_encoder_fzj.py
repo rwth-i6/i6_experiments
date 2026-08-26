@@ -140,6 +140,7 @@ def py():
             extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
             extra_config_deletes=["optimizer.epsilon", "optimizer.weight_decay_modules_blacklist"],
         )
+
     # Muon weight-decay check at the best LR (peak 5e-3):
     # the LR sweep held wd=0.01 (the AdamW default),
     # but Muon's spectrally-normalized update may pair with a different wd.
@@ -152,6 +153,7 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"], "optimizer.weight_decay": 0.1},
         extra_config_deletes=["optimizer.epsilon", "optimizer.weight_decay_modules_blacklist"],
     )
+
     # Same best-LR Muon, but restoring the AdamW weight-decay blacklist
     # (rf.Embedding + rf.LearnedRelativePositionalEncoding excluded from wd).
     # weight_decay_modules_blacklist is RETURNN updater logic
@@ -166,6 +168,7 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+
     # Train longer on the wdbl setting: nep 25 -> 38 (+50%), LR schedule stretched accordingly.
     # Tests whether the remaining 4-GPU gap (4.22 vs base-ls 4.06) is simply too few optimizer steps
     # (4x batch at fixed nep = 1/4 the updates); the final WER vs the nep=25 run (4.22) brackets
@@ -233,6 +236,7 @@ def py():
             extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
             extra_config_deletes=["optimizer.epsilon"],
         )
+
     # LR-floor check on the wdbl setting: base_lr 0.5 + peak_lr 1e-2 keeps the same effective peak
     # (base_lr * peak_lr = 5e-3) but halves the decay targets (low 1e-5 -> 5e-6, final 1e-6 -> 5e-7).
     # The Muon LR sweep held base_lr=1.0 throughout, so the floor is its one untested axis;
@@ -246,6 +250,7 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+
     # SyncBatchNorm ablation: does global (cross-rank) BatchNorm close the mgpu gap?
     # Same as lr05 (AdamW, base_lr 0.5), plus the new rf_batch_norm_distributed flag,
     # so all rf.BatchNorm (the 16 Conformer conv BNs + feature BN) use global stats.
@@ -259,6 +264,7 @@ def py():
         # complete run under the fixed (fp32, numerically stable) distributed BatchNorm statistics.
         extra_config_updates={"rf_batch_norm_distributed": True, "_meta_hash_trigger": "syncbn-fp32-stats"},
     )
+
     # GroupNorm ablation: batch-independent normalization, removing BatchNorm from the mgpu-gap picture.
     # Three variants vs lr05 (AdamW base_lr 0.5): Conformer conv-block norm, feature front-end norm, and both.
     _train_asr_base_multigpu(
@@ -268,6 +274,7 @@ def py():
         base_lr=0.5,
         conv_norm=rf.build_dict(rf.GroupNorm, num_groups=32),
     )
+
     _train_asr_base_multigpu(
         "asr-base-mgpu-logmel-gn-feat",
         prefix=prefix,
@@ -275,6 +282,7 @@ def py():
         base_lr=0.5,
         feature_norm=rf.build_dict(rf.GroupNorm, num_groups=16),
     )
+
     _train_asr_base_multigpu(
         "asr-base-mgpu-logmel-gn-both",
         prefix=prefix,
@@ -283,6 +291,7 @@ def py():
         conv_norm=rf.build_dict(rf.GroupNorm, num_groups=32),
         feature_norm=rf.build_dict(rf.GroupNorm, num_groups=16),
     )
+
     # gn-conv (Conformer conv-block GroupNorm) combined with the muon-lr5e3-wdbl variant: gn-conv gave
     # ~-0.2 dev-other on the plain AdamW baseline (4.49 vs 4.69), and muon-lr5e3-wdbl is at 4.22 dev-other,
     # so the combination tests whether it reaches the 1-GPU 4.06.
@@ -296,6 +305,7 @@ def py():
         extra_config_deletes=["optimizer.epsilon"],
         conv_norm=rf.build_dict(rf.GroupNorm, num_groups=32),
     )
+
     # Same, but with the standard time-pooled GroupNorm (GroupNormSpatial: reduces over the in-group
     # channels AND time, = torch.nn.GroupNorm) instead of the per-frame rf.GroupNorm above.
     # Direct standard-vs-per-frame comparison on the conv-block norm.
@@ -309,6 +319,7 @@ def py():
         extra_config_deletes=["optimizer.epsilon"],
         conv_norm=rf.build_dict(rf.GroupNormSpatial, num_groups=32),
     )
+
     # gn-feat retry on muon-lr5e3-wdbl with the standard time-pooled GroupNorm (GroupNormSpatial), testing
     # whether time-pooling rescues the feature front-end norm (per-frame gn-feat was 5.91). Two group counts:
     # 16 (as the original) and 1 (a single group = per-sequence global feature norm over channels+time).
@@ -322,6 +333,7 @@ def py():
         extra_config_deletes=["optimizer.epsilon"],
         feature_norm=rf.build_dict(rf.GroupNormSpatial, num_groups=16),
     )
+
     _train_asr_base_multigpu(
         "asr-base-mgpu-logmel-muon-lr5e3-wdbl-gn-feat-tp-g1",
         prefix=prefix,
@@ -332,6 +344,7 @@ def py():
         extra_config_deletes=["optimizer.epsilon"],
         feature_norm=rf.build_dict(rf.GroupNormSpatial, num_groups=1),
     )
+
     # Combine the two batch-independent norms that each track the muon-lr5e3-wdbl baseline:
     # per-frame GroupNorm conv norm (as in gn-conv) + per-seq global feature norm (as in gn-feat-tp-g1).
     # Retry of the failed gn-both with the feature side fixed (time-pooled).
@@ -346,6 +359,7 @@ def py():
         conv_norm=rf.build_dict(rf.GroupNorm, num_groups=32),
         feature_norm=rf.build_dict(rf.GroupNormSpatial, num_groups=1),
     )
+
     # torchaudio's Conformer conv-norm choice: standard time-pooled GroupNorm with a single group
     # (= per-seq global norm over channels+time in the conv block).
     _train_asr_base_multigpu(
@@ -358,6 +372,7 @@ def py():
         extra_config_deletes=["optimizer.epsilon"],
         conv_norm=rf.build_dict(rf.GroupNormSpatial, num_groups=1),
     )
+
     # WSD LR schedule (warmup ~2% / stable ~78% / decay ~20%) vs our OCLR (45% warmup / 45% decay),
     # same 5e-4 peak as lr05. Tests whether the long OCLR warmup wastes our scarce nep=25 updates.
     _train_asr_base_multigpu(
@@ -370,6 +385,7 @@ def py():
             "learning_rate_piecewise_values": [1e-05, 1e-03, 1e-03, 1e-06],
         },
     )
+
     # WSD with a longer decay (40% vs 20%): shorter stable phase, longer anneal.
     # Tests whether WSD's short decay was the problem (the anneal phase is where much of the gain is).
     _train_asr_base_multigpu(
@@ -416,6 +432,7 @@ def py():
         },
         extra_config_deletes=["optimizer.epsilon", "optimizer.weight_decay_modules_blacklist"],
     )
+
     # tts-enc-v1: pseudo-speech-enc-style text usage (~5 effective text passes, 100 ASR).
     # {"dev-clean": 1.63, "dev-other": 4.13, "test-clean": 1.90, "test-other": 4.46}
     # DISABLED 2026-07-16: pre-fix-era cell, not rerun after the preload fix (see notes).
@@ -656,6 +673,7 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+
     # better: -> tts-enc-logmel-refcfg-rnddur-short-muon-nep38
     # ref-match-logmel-muon-nep38 + random durations (rnddur: i.i.d.-uniform durations renormalized to the
     # predictor total -- structure removed, length kept), to see if random durations hold up in the best regime.
@@ -802,6 +820,7 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+
     # {"dev-clean": 1.69, "dev-other": 4.21, "test-clean": 1.88, "test-other": 4.39}
     # mfatable with realistic durations: NO blanks (the phoneme seq already carries [space] silence) + label
     # duration 4-8 frames at the 100Hz front-end (avg ~60ms/phon, like real speech; ~1 enc-frame/phon after
@@ -885,6 +904,7 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+
     # {"dev-clean": 1.59, "dev-other": 3.56, "test-clean": 1.69, "test-other": 3.76}
     # + gumbel interleave: random union ordering (sampling-without-replacement), the offline ordering.
     _train_tts_encoder(
@@ -911,6 +931,7 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+
     # gumbel-single (the mixing winner) + short random durations (w = w_pred * U(0.2, 0.5)):
     # efficiency axis (shrunk durations) stacked on the FIXED mixing winner, waveform path kept.
     _train_tts_encoder(
@@ -938,6 +959,7 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+
     # {"dev-clean": 2.56, "dev-other": 4.96, "test-clean": 2.99, "test-other": 4.83}
     # DbMel DIRECT injection (no GL/Griffin-Lim/waveform) on the refcfg base.
     _train_tts_encoder(
@@ -959,6 +981,7 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+
     # {"dev-clean": 1.97, "dev-other": 4.56, "test-clean": 2.27, "test-other": 4.85}
     # better: -> tts-enc-logmel-refcfg-rnddur-short-muon-nep38
     # Degenerate durations: fixed 1 mel frame per phoneme (waveform path).
@@ -1010,6 +1033,7 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+
     # Full efficiency combo on the FIXED mixing winner: gumbel-single + DIRECT dbmel injection
     # (no GL/waveform) + short random durations. The one config that stacks the quality winner with
     # both cheap moves -- tests whether the mixing win survives the efficiency shortcuts, or they interact.
@@ -1035,6 +1059,7 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+
     # {"dev-clean": 2.03, "dev-other": 4.76, "test-clean": 2.09, "test-other": 5.25}
     # DbMel-direct + dur1: the cheapest online-TTS variant (RZ shows a duration x path interaction).
     _train_tts_encoder(
@@ -1057,6 +1082,7 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+
     # {"dev-clean": 1.66, "dev-other": 3.70, "test-clean": 1.89, "test-other": 4.08}
     # The pseudo-enc winner (RZ 1-GPU nep100: 3.74 joint) in the muon-nep38 regime:
     # layer-4 injection, NO blanks (the June fleet only had layer4 WITH blanks / layer8 noblank).
@@ -1078,6 +1104,7 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
+
     # {"dev-clean": 14.56, "dev-other": 6.86, "test-clean": 13.66, "test-other": 7.67}
     # better: -> pseudo-enc-layer4-noblank-muon-nep38
     # Single-stream version of the pseudo-enc winner (merged at the layer-4 boundary, one loss set).
@@ -1126,7 +1153,7 @@ def py():
         extra_config_updates={"optimizer.class": rf.build_dict(Muon)["class"]},
         extra_config_deletes=["optimizer.epsilon"],
     )
-    # {"dev-clean": 1.83, "dev-other": 4.39, "test-clean": 1.97, "test-other": 4.56}
+
     # Frozen MFA mean-logmel table, realistic durations, box smoothing, under gumbel-single.
     # Box width 9 == linear interpolation: upsampling is already a box of width d, a second gives a triangle.
     # Odd width stays centered, and 9 >= the max duration 8, which is what removes the plateaus.
