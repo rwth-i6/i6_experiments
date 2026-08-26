@@ -47,12 +47,21 @@ a resubmit replay deduped by `train_num_updates`, and epoch coverage reported ra
 The reader independently reproduces the planner's banked figure for the full arm: **6.752e-05 mean
 applied step over 2,858 epochs at 100.0 percent fully clipped**, against "about 6.8e-05".
 
-**ONE OPERATING POINT OF MINE THE PLANNER SHOULD SEE.** The amendment says an improvement is
-ambiguous if this arm's applied step is "materially LARGER" than the banked arm's, and comparable or
-smaller if not; "materially" needed a number, so I declared one in the producing module's docstring
-before any result exists rather than choosing it afterwards: a ratio above **1.25** is AMBIGUOUS,
-1.00 or below is a fortiori, and between the two is reported as comparable within the declared band.
-Change it if the planner wants a different band -- it is one constant in `gua_merge.py`.
+**THE BAND IS RULED AND BOTH ITS CONSEQUENCES ARE IMPLEMENTED** (speech-llm `1ae0d86`; no
+constructor argument changes, so the read job does not re-key and the running arm is untouched).
+My proposed band was ratified as proposed -- above **1.25** AMBIGUOUS, **1.00 or below** a fortiori,
+between them comparable within the declared band and NOT a fortiori -- with its provenance now
+rendered beside it, because only one edge is principled: 1.00 is the 2026-08-18 asymmetry, 1.25 is a
+declared convention erring toward AMBIGUOUS. Two rulings on top of it are in the code:
+(1) **the ratio travels with the verdict wherever the verdict is quoted** -- every verdict the module
+emits carries its ratio in the same string, in the json's quotable field, in the clipping table and
+in the reading line most likely to be lifted on its own, because a 1.3 and a 9 are not the same
+finding; and (2) **the non-improvement direction**, registered before the number exists because it
+is the likelier one: an arm that does NOT improve on 1.6828 while applying materially more parameter
+movement per update STRENGTHENS the negative rather than qualifying it. One choice of mine inside
+that: the label is direction-aware, reading "APPLIED STEP MATERIALLY LARGER at Nx" rather than
+"AMBIGUOUS at Nx" when the arm did not improve, since "ambiguous" is defined for an improving arm
+and quoting it there would invert the finding.
 
 **EARLY LIVE EVIDENCE, far too early to read anything from and recorded only because the diagnostic
 exists to catch exactly this.** Over its first 24 epochs (updates 14-336) the merged arm sits at 91.7
