@@ -1624,3 +1624,374 @@ class DriftSpanRepairJob(Job):
             )
         print(f"total words moved: {n_moved_total}", flush=True)
         hdf_writer.close()
+
+
+class ProportionalChunkAssignmentJob(Job):
+    """
+    Baseline: assign words to chunks proportionally to audio duration,
+    without any model scores (constant speaking rate, no silence handling).
+    Word ``w`` of ``S`` goes to the chunk owning its proportional center time
+    ``(w + 0.5) / S * audio_len``, where chunk ``c`` owns the samples from its start
+    to the next chunk's start (so overlap regions belong to the later chunk).
+    Same chunk grid and output HDF format as :class:`ChunkSegmentationFromModelJob`,
+    so :class:`CalcChunkAssignmentMetricsJob` applies unchanged.
+    """
+
+    def __init__(
+        self,
+        *,
+        dataset_dir: tk.Path,
+        dataset_key: str,
+        returnn_root: Optional[tk.Path] = None,
+        chunk_size_secs: float = 30.0,
+        chunk_overlap_secs: float = 0.0,
+    ):
+        super().__init__()
+        self.dataset_dir = dataset_dir
+        self.dataset_key = dataset_key
+        self.returnn_root = returnn_root
+        self.chunk_size_secs = chunk_size_secs
+        self.chunk_overlap_secs = chunk_overlap_secs
+
+        self.rqmt = {"time": 1, "cpu": 1, "mem": 8}
+
+        self.out_hdf = self.output_path("out.hdf")
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import os
+        import sys
+
+        set_hf_offline_mode()
+
+        import i6_experiments
+
+        recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
+        sys.path.insert(0, recipe_dir)
+
+        import i6_core.util as util
+
+        returnn_root = util.get_returnn_root(self.returnn_root)
+        sys.path.insert(0, returnn_root.get_path())
+
+        import numpy as np
+        from returnn.datasets.hdf import SimpleHDFWriter
+        from datasets import load_dataset
+
+        hdf_writer = SimpleHDFWriter(
+            self.out_hdf.get_path(), dim=2, ndim=2, extra_type={"audio_chunk_start_end": (2, 2, "int32")}
+        )
+
+        ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))
+        for seq_idx, data in enumerate(ds[self.dataset_key]):
+            audio_len = len(data["audio"]["array"])
+            samplerate = data["audio"]["sampling_rate"]
+            words: List[str] = data["word_detail"]["utterance"]
+            chunk_start_end = _chunk_grid(audio_len, samplerate, self.chunk_size_secs, self.chunk_overlap_secs)
+            # chunk starts are strictly increasing (stride > 0), so [start_c, start_{c+1})
+            # partitions the audio; searchsorted over the inner starts gives the owner
+            inner_starts = np.array([a0 for a0, _ in chunk_start_end[1:]])
+            words_per_chunks: List[List[int]] = [[] for _ in chunk_start_end]
+            for w in range(len(words)):
+                center = (w + 0.5) / len(words) * audio_len
+                ci = int(np.searchsorted(inner_starts, center, side="right"))
+                words_per_chunks[ci].append(w)
+            wise = [(ws[0], ws[-1] + 1) if ws else (-1, -1) for ws in words_per_chunks]
+            print(f"seq {seq_idx}: {len(words)} words, {len(chunk_start_end)} chunks, {wise}")
+            hdf_writer.insert_batch(
+                np.array(wise)[None],
+                seq_len=[len(chunk_start_end)],
+                seq_tag=[f"seq-{seq_idx}"],
+                extra={"audio_chunk_start_end": np.array(chunk_start_end)[None]},
+            )
+        hdf_writer.close()
+
+
+class GreedyExitChunkSegmentationJob(Job):
+    """
+    Baseline: greedy chunk-by-chunk consumption, no dynamic program.
+    Forced-decode the remaining transcript in each chunk and exit at the first
+    word position where the model's exit prob exceeds ``exit_prob_threshold``
+    (no global objective, no lookahead, no recombination);
+    if the threshold never fires, the chunk consumes all remaining words,
+    and the last chunk always does (every word must be assigned somewhere).
+    Same model interface and output HDF format as :class:`ChunkSegmentationFromModelJob`.
+    """
+
+    def __init__(
+        self,
+        *,
+        dataset_dir: tk.Path,
+        dataset_key: str,
+        returnn_root: Optional[tk.Path] = None,
+        model_config: Dict[str, Any],
+        chunk_size_secs: float = 30.0,
+        chunk_overlap_secs: float = 0.0,
+        exit_prob_threshold: float = 0.5,
+    ):
+        super().__init__()
+        self.dataset_dir = dataset_dir
+        self.dataset_key = dataset_key
+        self.returnn_root = returnn_root
+        self.model_config = model_config
+        self.chunk_size_secs = chunk_size_secs
+        self.chunk_overlap_secs = chunk_overlap_secs
+        self.exit_prob_threshold = exit_prob_threshold
+
+        self.rqmt = {"time": 40, "cpu": 2, "gpu": 1, "mem": 125}
+
+        self.out_hdf = self.output_path("out.hdf")
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import os
+        import sys
+        import math
+
+        set_hf_offline_mode()
+
+        import i6_experiments
+
+        recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
+        sys.path.insert(0, recipe_dir)
+
+        import i6_core.util as util
+
+        returnn_root = util.get_returnn_root(self.returnn_root)
+        sys.path.insert(0, returnn_root.get_path())
+
+        import numpy as np
+        import torch
+
+        from returnn.util import better_exchook
+        from returnn.datasets.hdf import SimpleHDFWriter
+
+        better_exchook.install()
+
+        from .models import make_model, ForwardOutput
+
+        dev = torch.device("cuda")
+        model_config = instanciate_delayed_copy(self.model_config)
+        model = make_model(**model_config, device=dev)
+        for p in model.parameters():
+            p.requires_grad = False
+        torch.set_grad_enabled(False)
+
+        hdf_writer = SimpleHDFWriter(
+            self.out_hdf.get_path(), dim=2, ndim=2, extra_type={"audio_chunk_start_end": (2, 2, "int32")}
+        )
+
+        from datasets import load_dataset
+
+        ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))
+        log_thr = math.log(self.exit_prob_threshold)
+        for seq_idx, data in enumerate(ds[self.dataset_key]):
+            audio = data["audio"]["array"]
+            if not isinstance(audio, np.ndarray):
+                audio = np.array(audio)
+            samplerate = data["audio"]["sampling_rate"]
+            words: List[str] = data["word_detail"]["utterance"]
+            chunk_start_end = _chunk_grid(len(audio), samplerate, self.chunk_size_secs, self.chunk_overlap_secs)
+            print(f"* Seq {seq_idx}, {len(audio) / samplerate} secs, {len(words)} words", flush=True)
+
+            words_per_chunks: List[List[int]] = [[] for _ in chunk_start_end]
+            cur_word = 0
+            for ci, (a0, a1) in enumerate(chunk_start_end):
+                if cur_word >= len(words):
+                    break  # trailing chunks stay empty
+                if ci == len(chunk_start_end) - 1:
+                    n_consumed = len(words) - cur_word  # last chunk takes the rest
+                else:
+                    forward_output: ForwardOutput = model(
+                        raw_inputs=torch.tensor(audio[a0:a1]).unsqueeze(0),
+                        raw_inputs_sample_rate=samplerate,
+                        raw_input_seq_lens=torch.tensor([a1 - a0]),
+                        raw_targets=[words[cur_word:]],
+                        raw_target_seq_lens=torch.tensor([len(words) - cur_word]),
+                        omitted_prev_context=torch.tensor([cur_word]),
+                    )
+                    n = len(words) - cur_word
+                    n_consumed = n  # threshold never fired -> consume everything remaining
+                    for w in range(n + 1):
+                        t0, t1 = forward_output.target_start_end[:, w].unbind(1)
+                        log_probs = model.log_probs(forward_output=forward_output, start=t0, end=t1)
+                        exit_lp = float(log_probs[0, 0, model.assistant_end_token_id])
+                        if exit_lp > log_thr:
+                            n_consumed = w
+                            break
+                    del forward_output
+                words_per_chunks[ci] = list(range(cur_word, cur_word + n_consumed))
+                cur_word += n_consumed
+                print(f"** chunk {ci}: consumed {n_consumed}, at word {cur_word}/{len(words)}", flush=True)
+
+            wise = [(ws[0], ws[-1] + 1) if ws else (-1, -1) for ws in words_per_chunks]
+            hdf_writer.insert_batch(
+                np.array(wise)[None],
+                seq_len=[len(chunk_start_end)],
+                seq_tag=[f"seq-{seq_idx}"],
+                extra={"audio_chunk_start_end": np.array(chunk_start_end)[None]},
+            )
+        hdf_writer.close()
+
+
+class FreeDecodeLcsChunkSegmentationJob(Job):
+    """
+    Baseline: free-decode each chunk independently (no forced decoding),
+    then align the concatenated hypotheses to the known transcript by a word-level LCS
+    and read the chunk assignment off the matches --
+    the forced-segmentation analogue of the HF transformers chunked pipeline's stitching.
+    Words are compared lowercased/alphanumeric-only;
+    unmatched reference words inherit the chunk of the nearest preceding match.
+    Meant for non-overlapping chunks (overlap duplicates hypothesis words).
+    The model wrapper must provide ``recog()`` (open greedy decoding).
+    Output HDF format identical to :class:`ChunkSegmentationFromModelJob`.
+    """
+
+    def __init__(
+        self,
+        *,
+        dataset_dir: tk.Path,
+        dataset_key: str,
+        returnn_root: Optional[tk.Path] = None,
+        model_config: Dict[str, Any],
+        chunk_size_secs: float = 30.0,
+        chunk_overlap_secs: float = 0.0,
+        max_new_tokens: int = 400,
+    ):
+        super().__init__()
+        self.dataset_dir = dataset_dir
+        self.dataset_key = dataset_key
+        self.returnn_root = returnn_root
+        self.model_config = model_config
+        self.chunk_size_secs = chunk_size_secs
+        self.chunk_overlap_secs = chunk_overlap_secs
+        self.max_new_tokens = max_new_tokens
+
+        self.rqmt = {"time": 40, "cpu": 2, "gpu": 1, "mem": 125}
+
+        self.out_hdf = self.output_path("out.hdf")
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import os
+        import sys
+        import difflib
+
+        set_hf_offline_mode()
+
+        import i6_experiments
+
+        recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
+        sys.path.insert(0, recipe_dir)
+
+        import i6_core.util as util
+
+        returnn_root = util.get_returnn_root(self.returnn_root)
+        sys.path.insert(0, returnn_root.get_path())
+
+        import numpy as np
+        import torch
+
+        from returnn.util import better_exchook
+        from returnn.datasets.hdf import SimpleHDFWriter
+
+        better_exchook.install()
+
+        from .models import make_model
+
+        dev = torch.device("cuda")
+        model_config = instanciate_delayed_copy(self.model_config)
+        model = make_model(**model_config, device=dev)
+        assert hasattr(model, "recog"), f"model {type(model).__name__} has no recog() (open decoding)"
+        for p in model.parameters():
+            p.requires_grad = False
+        torch.set_grad_enabled(False)
+
+        hdf_writer = SimpleHDFWriter(
+            self.out_hdf.get_path(), dim=2, ndim=2, extra_type={"audio_chunk_start_end": (2, 2, "int32")}
+        )
+
+        def _norm(w: str) -> str:
+            return "".join(ch for ch in w.lower() if ch.isalnum())
+
+        from datasets import load_dataset
+
+        ds = load_dataset(get_content_dir_from_hub_cache_dir(self.dataset_dir))
+        for seq_idx, data in enumerate(ds[self.dataset_key]):
+            audio = data["audio"]["array"]
+            if not isinstance(audio, np.ndarray):
+                audio = np.array(audio)
+            samplerate = data["audio"]["sampling_rate"]
+            words: List[str] = data["word_detail"]["utterance"]
+            chunk_start_end = _chunk_grid(len(audio), samplerate, self.chunk_size_secs, self.chunk_overlap_secs)
+            print(f"* Seq {seq_idx}, {len(audio) / samplerate} secs, {len(words)} words", flush=True)
+
+            hyp_chunk_idx: List[int] = []
+            hyp_words: List[str] = []
+            for ci, (a0, a1) in enumerate(chunk_start_end):
+                hyp = model.recog(
+                    raw_inputs=torch.tensor(audio[a0:a1]).unsqueeze(0),
+                    raw_inputs_sample_rate=samplerate,
+                    raw_input_seq_lens=torch.tensor([a1 - a0]),
+                    max_new_tokens=self.max_new_tokens,
+                )[0]
+                hyp_chunk_idx += [ci] * len(hyp)
+                hyp_words += hyp
+                print(f"** chunk {ci}: {len(hyp)} hyp words", flush=True)
+
+            sm = difflib.SequenceMatcher(
+                a=[_norm(w) for w in words], b=[_norm(w) for w in hyp_words], autojunk=False
+            )
+            w2c = np.full(len(words), -1, dtype=np.int64)
+            for blk in sm.get_matching_blocks():  # monotone in both -> chunk ids non-decreasing
+                for k in range(blk.size):
+                    w2c[blk.a + k] = hyp_chunk_idx[blk.b + k]
+            matched = np.nonzero(w2c >= 0)[0]
+            n_matched = len(matched)
+            last = int(w2c[matched[0]]) if n_matched else 0
+            for w in range(len(words)):
+                if w2c[w] < 0:
+                    w2c[w] = last
+                else:
+                    last = int(w2c[w])
+
+            words_per_chunks: List[List[int]] = [[] for _ in chunk_start_end]
+            for w in range(len(words)):
+                words_per_chunks[int(w2c[w])].append(w)
+            wise = [(ws[0], ws[-1] + 1) if ws else (-1, -1) for ws in words_per_chunks]
+            print(f"  matched {n_matched}/{len(words)} ref words, {wise}", flush=True)
+            hdf_writer.insert_batch(
+                np.array(wise)[None],
+                seq_len=[len(chunk_start_end)],
+                seq_tag=[f"seq-{seq_idx}"],
+                extra={"audio_chunk_start_end": np.array(chunk_start_end)[None]},
+            )
+        hdf_writer.close()
+
+
+def _chunk_grid(audio_len: int, samplerate: int, chunk_size_secs: float, chunk_overlap_secs: float):
+    """Chunk sample ranges, same construction as :class:`ChunkSegmentationFromModelJob`
+    (incl. merging a <=128-sample tail into the last chunk when there is no overlap)."""
+    import math
+
+    chunk_size_samples = math.ceil(chunk_size_secs * samplerate)
+    chunk_start_end: List[Tuple[int, int]] = []
+    cur_audio_start = 0
+    while True:
+        cur_audio_end = cur_audio_start + chunk_size_samples
+        if cur_audio_end > audio_len:
+            cur_audio_end = audio_len
+        if audio_len - cur_audio_end <= 128 and chunk_overlap_secs == 0:
+            cur_audio_end = audio_len
+        assert cur_audio_end - cur_audio_start > 1
+        chunk_start_end.append((cur_audio_start, cur_audio_end))
+        if cur_audio_end >= audio_len:
+            return chunk_start_end
+        cur_audio_start = cur_audio_end - math.ceil(chunk_overlap_secs * samplerate)
+        assert cur_audio_start >= 0

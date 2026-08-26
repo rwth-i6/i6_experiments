@@ -73,6 +73,9 @@ from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.chunk_se
     ChunkBoundaryReverifyJob,
     DriftSpanRepairJob,
     CalcChunkAssignmentMetricsJob,
+    ProportionalChunkAssignmentJob,
+    GreedyExitChunkSegmentationJob,
+    FreeDecodeLcsChunkSegmentationJob,
 )
 from i6_experiments.users.zeyer.experiments.exp2025_07_07_in_grads.jobs.buckeye_fine_dataset import (
     MapBuckeyeFineTimestampsToLongFormJob,
@@ -254,6 +257,16 @@ def py():
         (1.0, 0.0, [0.0]),
         (1.0, 0.25, [0.0]),
         (1.0, 0.75, [0.0]),
+        # eep=0 for the remaining overlapped cells of the main cs/ov sweep (paper stride table):
+        # that sweep ran everything at eep=-5, the wrong sign for overlapped configs,
+        # plus cs10-ov0/ov1 so the stride table is uniform in eep.
+        (30.0, 15.0, [0.0]),
+        (20.0, 10.0, [0.0]),
+        (10.0, 1.0, [0.0]),
+        (10.0, 0.0, [0.0]),
+        (5.0, 2.5, [0.0]),
+        (3.0, 1.5, [0.0]),
+        (2.0, 1.0, [0.0]),
     ]:
         for _eep in _eeps:
             _seg_e = ChunkSegmentationFromModelBatchedJob(
@@ -821,6 +834,62 @@ def py():
                 reg(f"{_es_name}-error-p95-sec.txt", _es_m.out_error_p95_sec)
                 reg(f"{_es_name}-frac-gt-1s.txt", _es_m.out_frac_gt_1s)
 
+    # === Baselines (same model, no DP): the DP ablation set. ===
+    # proportional split (trivial floor), greedy exit threshold (no global objective),
+    # free-decode + LCS stitching (the HF chunked-pipeline analogue).
+    # Non-overlapping configs: LCS needs them (overlap duplicates hyp words),
+    # and the plain cs30-ov0 / cs10-ov0 DP rows are the references.
+    # NOT _cfg_hp: that carries grad_wrt=None (batched convention),
+    # the single-seq-style forward asserts a grad target (cf. phi4mm-noctx).
+    _cfg_bl = rf.build_dict(Phi4MM, model_dir=dl_phi4mm_dir, model_dtype="bfloat16")
+    for _bl_cs, _bl_mnt in [(30.0, 400), (10.0, 200)]:
+        _bl_jobs = {
+            "proportional": ProportionalChunkAssignmentJob(
+                dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+                dataset_key="val",
+                chunk_size_secs=_bl_cs,
+                chunk_overlap_secs=0.0,
+            ),
+            "greedy-tau0.5": GreedyExitChunkSegmentationJob(
+                dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+                dataset_key="val",
+                model_config=_cfg_bl,
+                chunk_size_secs=_bl_cs,
+                chunk_overlap_secs=0.0,
+                exit_prob_threshold=0.5,
+            ),
+            "greedy-tau0.9": GreedyExitChunkSegmentationJob(
+                dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+                dataset_key="val",
+                model_config=_cfg_bl,
+                chunk_size_secs=_bl_cs,
+                chunk_overlap_secs=0.0,
+                exit_prob_threshold=0.9,
+            ),
+            "lcs": FreeDecodeLcsChunkSegmentationJob(
+                dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+                dataset_key="val",
+                model_config=_cfg_bl,
+                chunk_size_secs=_bl_cs,
+                chunk_overlap_secs=0.0,
+                max_new_tokens=_bl_mnt,
+            ),
+        }
+        for _bl_name, _bl_job in _bl_jobs.items():
+            _bl_full = f"chunk-align/baselines/phi4mm-buckeye-val-cs{_bl_cs:g}-ov0-{_bl_name}"
+            _bl_job.add_alias(_bl_full)
+            reg(f"{_bl_full}.hdf", _bl_job.out_hdf)
+            _bl_m = CalcChunkAssignmentMetricsJob(
+                chunk_seg_hdf=_bl_job.out_hdf,
+                dataset_dir=dl_ds_buckeye.out_hub_cache_dir,
+                dataset_key="val",
+                dataset_offset_factors=_DATASET_OFFSET_FACTORS["buckeye"],
+            )
+            _bl_m.add_alias(f"{_bl_full}-metric")
+            reg(f"{_bl_full}-accuracy.txt", _bl_m.out_accuracy)
+            reg(f"{_bl_full}-error-p95-sec.txt", _bl_m.out_error_p95_sec)
+            reg(f"{_bl_full}-frac-gt-1s.txt", _bl_m.out_frac_gt_1s)
+
     # === Tables (data): resolve registered outputs into tables-data/. ===
     # Presentation (headers/units/captions) lives in separate repo
     # (tables-spec/ + scripts/render_tables.py); scripts/sync_tables.sh rsyncs the JSONs.
@@ -920,5 +989,129 @@ def py():
             for _t_cs, _t_ov in [(30.0, 0.0), (10.0, 2.5)]
             for _t_es in [1.0, 0.5, 0.0]
             for _t_wsh in [True, False]
+        ],
+    )
+    # chunk-size sweep (non-overlapping, eep=-5 default throughout;
+    # the cs0.5 registered name is "cs0" via the plain loop's {:.0f} formatting)
+    _table(
+        "chunk-size",
+        ["chunk_size", "acc", "err_p95_sec", "frac_gt_1s"],
+        [
+            {"chunk_size": _t_cs, **_m3(f"chunk-align/phi4mm-buckeye-val-cs{_t_cs:.0f}-ov0")}
+            for _t_cs in [30.0, 20.0, 10.0, 5.0, 3.0, 2.0, 1.0, 0.5]
+        ],
+    )
+    # chunk-stride sweep at cs10, uniform eep=0 (the overlap-correct setting;
+    # only accuracy is registered for these cells)
+    _stride_bases = [
+        (0.0, "chunk-align/phi4mm-buckeye-val-cs10-ov0-eep0"),
+        (1.0, "chunk-align/phi4mm-buckeye-val-cs10-ov1-eep0"),
+        (2.5, "chunk-align/phi4mm-buckeye-val-cs10-ov2.5-eep0-wsh1"),
+        (5.0, "chunk-align/phi4mm-buckeye-val-cs10-ov5-eep0"),
+    ]
+    _table(
+        "chunk-stride",
+        ["chunk_size", "chunk_stride", "acc"],
+        [
+            {"chunk_size": 10.0, "chunk_stride": 10.0 - _t_ov, "acc": _table_results.get(_t_b + "-accuracy.txt")}
+            for _t_ov, _t_b in _stride_bases
+        ],
+    )
+    # empty-exit penalty sweep cells (registered with accuracy only)
+    _eep_cells = [
+        (30.0, 5.0, [0.0, -5.0, -20.0], ""),
+        (10.0, 5.0, [0.0, -2.0, -5.0, -10.0, -20.0], ""),
+        (10.0, 2.5, [0.0, -2.0, -5.0, -10.0, -20.0], "-wsh1"),
+        (2.0, 0.0, [0.0, -2.0, -5.0, -10.0, -20.0], ""),
+        (1.0, 0.5, [0.0, -5.0], ""),
+        (0.5, 0.0, [0.0, -5.0], ""),
+    ]
+    _table(
+        "empty-exit-penalty",
+        ["chunk_size", "chunk_stride", "eep", "acc"],
+        [
+            {
+                "chunk_size": _t_cs,
+                "chunk_stride": _t_cs - _t_ov,
+                "eep": _t_e,
+                "acc": _table_results.get(
+                    f"chunk-align/phi4mm-buckeye-val-cs{_t_cs:.0f}-ov{_t_ov:g}-eep{_t_e:g}{_t_sfx}-accuracy.txt"
+                ),
+            }
+            for _t_cs, _t_ov, _t_eeps, _t_sfx in _eep_cells
+            for _t_e in _t_eeps
+        ],
+    )
+    # word-start pruning (heuristic) vs the exact DP; the cs30-ov0 exact cell
+    # comes from the exit-scale sweep (es1-wsh0)
+    _prune_cells = [
+        (
+            30.0,
+            0.0,
+            "chunk-align/phi4mm-buckeye-val-cs30-ov0",
+            "chunk-align/exit-scale/phi4mm-buckeye-val-cs30-ov0-es1-wsh0",
+        ),
+        (
+            10.0,
+            2.5,
+            "chunk-align/phi4mm-buckeye-val-cs10-ov2.5",
+            "chunk-align/phi4mm-buckeye-val-cs10-ov2.5-eep-5-wsh0",
+        ),
+        (
+            2.0,
+            0.0,
+            "chunk-align/phi4mm-buckeye-val-cs2-ov0",
+            "chunk-align/phi4mm-buckeye-val-cs2-ov0-eep-5-wsh0",
+        ),
+        (
+            1.0,
+            0.0,
+            "chunk-align/phi4mm-buckeye-val-cs1-ov0",
+            "chunk-align/phi4mm-buckeye-val-cs1-ov0-eep-5-wsh0",
+        ),
+    ]
+    _table(
+        "pruning",
+        ["chunk_size", "chunk_stride", "search", "acc"],
+        [
+            {
+                "chunk_size": _t_cs,
+                "chunk_stride": _t_cs - _t_ov,
+                "search": _t_lbl,
+                "acc": _table_results.get(_t_b + "-accuracy.txt"),
+            }
+            for _t_cs, _t_ov, _t_bp, _t_bx in _prune_cells
+            for _t_lbl, _t_b in [("pruned", _t_bp), ("exact", _t_bx)]
+        ],
+    )
+    # tail-repair layers on the cs30-ov0 reference assignment
+    _table(
+        "repair",
+        ["variant", "acc", "err_p95_sec", "frac_gt_1s"],
+        [
+            {"variant": _t_lbl, **_m3(_t_b)}
+            for _t_lbl, _t_b in [
+                ("none", "chunk-align/phi4mm-buckeye-val-cs30-ov0"),
+                ("boundary reverify", "chunk-align/phi4mm-buckeye-val-cs30-ov0-reverify-m2"),
+                ("drift-span repair", "chunk-align/phi4mm-buckeye-val-cs30-ov0-driftrepair"),
+                ("staggered grid", "chunk-align/phi4mm-buckeye-val-cs30-ov0-offset15"),
+                ("char-level scoring", "chunk-align/phi4mm-buckeye-val-cs30-ov0-charlevel"),
+            ]
+        ],
+    )
+    # DP vs the no-DP baselines (same model, same metric)
+    _table(
+        "baselines",
+        ["chunk_size", "method", "acc", "err_p95_sec", "frac_gt_1s"],
+        [
+            {"chunk_size": _t_cs, "method": _t_lbl, **_m3(_t_b)}
+            for _t_cs in [30.0, 10.0]
+            for _t_lbl, _t_b in [
+                ("DP (ours)", f"chunk-align/phi4mm-buckeye-val-cs{_t_cs:.0f}-ov0"),
+                ("proportional split", f"chunk-align/baselines/phi4mm-buckeye-val-cs{_t_cs:g}-ov0-proportional"),
+                ("greedy exit (tau 0.5)", f"chunk-align/baselines/phi4mm-buckeye-val-cs{_t_cs:g}-ov0-greedy-tau0.5"),
+                ("greedy exit (tau 0.9)", f"chunk-align/baselines/phi4mm-buckeye-val-cs{_t_cs:g}-ov0-greedy-tau0.9"),
+                ("free-decode + LCS", f"chunk-align/baselines/phi4mm-buckeye-val-cs{_t_cs:g}-ov0-lcs"),
+            ]
         ],
     )
