@@ -4,8 +4,45 @@
 <!-- Overwritten in place, never appended; deleted at phase close. In-flight runs (job dir + the
 question each answers), blockers, next action, proposals for the planner. -->
 
-State as of 2026-08-25 (late evening) -- **ENTRY 9.3, THE DISCLOSURE DECODE, IS COMPLETE; NOTHING
-IS IN FLIGHT.** All five CPU jobs finished in under three minutes each with no error markers, on
+State as of 2026-08-26 -- **ENTRY 9.1a IS BUILT, ITS FRAME CHECK PASSED, AND ITS ONE TRAINING ARM
+IS RUNNING.** USER-funded 2026-08-26 as an explicit override of gate 9.0's registered consequence,
+to measure the one quantity a ceiling cannot bound: the gap between the merged stream's memoryless
+ceiling and what a trained arm reaches on it. Code speech-llm `cfa9121` (22 tests), config
+`config/sae_1f_entry91a.py`, manager registered in `sis_managers.sh`. Graph verified before launch
+by loading it WITHOUT `-r`: `finished(31) runnable(1) waiting(5)` -- six new jobs and nothing else,
+with entry 7's features, clustering and text side reused at their banked hashes because the config
+CALLS entry 7's `build(smoke_only=True)` with the registrations suppressed, so its unfinished
+relabeling chain stays out. Exactly two jobs request a GPU: the training arm and the one scored
+decode.
+
+In flight: `GuaTrainJob.N8moRyLEIytz` (A9a on the pairwise-merged stream -- `uni+bi+tri`, seed 0,
+40,000 updates, the ONLY variable against entry 7's banked full-loss arm being `segment_dir`),
+answering "does the rate repair move a trained arm off 1.6828, and where does it land against c5's
+0.5421 ceiling and 0.9075 audio-free null". Then `GuaPinCheckpointJob.vSjIrfcoMvM1` (update 40,000
+by declaration), `GuaGenerateJob.ifQToLNPwMHR` (released viterbi, per-frame argmax, no language
+model), `GuaScoreJob.wRFXGXZHdUoB` and `GuaFixedStreamReadJob.EcZEy9ZmD1eZ`.
+
+**THE FRAME CHECK THE REGISTRATION OWED IS DISCHARGED AND IT RUNS INSIDE THE SEGMENTATION JOB**, so
+training could not have started on a stream that failed it: 2,699 of 2,699 utterances of entry 9.3's
+c5 pool carry the segment AND frame count entry 9.3 read, at fingerprint `93e6ee25c009` asserted
+against the banked `disclosure.json`. `GuaMergedSegmentsJob.aqDChbdylhLD` emits all three splits --
+train 8,416 utterances at 13.977 seg/s, valid 2,292 at 14.255, test 572 at 14.375, against a gold
+phone rate of 13.548/s -- where entry 9.3 had built the merge on dev only. `<split>_clus.npy` is
+untouched, nothing is re-extracted and nothing is re-clustered.
+
+**WALL TIME, PROJECTED FROM THE FIRST MEASURED STEP RATE rather than asserted.** The trainer's own
+`train_ups` reads 0.77 updates/s at epoch 4 and is still rising out of warmup, which puts 40,000
+updates near 14-16 hours -- consistent with the registration's ~17 GPU-hour estimate and below it,
+as expected from half the segments per second. `time_rqmt` is entry 7's default 11.0 h and the job
+resumes, so it continues across allocations rather than dying at one.
+
+**SCOPE, so no later reading widens it.** ONE arm. A9b and the audio-swap control are NOT built, so
+clauses (2) SIGNATURE and (3) CONTENT of gate 9.1 are not fired and no reading of 9.1a may report
+gate 9.1 as passed, failed or attempted; only clause (1) HEALTH is read, and it reports rather than
+gates. This graph cannot reopen gate 9.0, cannot license entry 9.2, and cannot be quoted against the
+published 0.473 as a reproduction.
+
+**ENTRY 9.3, THE DISCLOSURE DECODE, IS COMPLETE.** All five CPU jobs finished in under three minutes each with no error markers, on
 gate 9.0's own pool (2,699 utterances, fingerprint `93e6ee25c009`, asserted per job). The numbers
 are approach 11 and verdicts 46-49; code speech-llm `d9eec02`, config `config/sae_1f_entry93.py`,
 manager registered in `sis_managers.sh` and exited. Graph verified before launch by loading it
@@ -942,6 +979,9 @@ different reasons, only one of which a larger budget could move.
 | entry 9.3 disclosure code (+ tests) | `recipe/2025-10-speech-llm/src/speech_llm/sae/espum_disclosure.py`, `.../test_espum_disclosure.py` (20/20) at speech-llm `d9eec02` |
 | entry 9.3 config | `config/sae_1f_entry93.py` -> `.../librispeech/configs/config_sae_1f_entry93_v1.py` |
 | entry 9.3 disclosure decodes, c1/c2/c3/c4/c5 | `work/speech_llm/sae/espum_disclosure/EspumDisclosureDecodeJob.BSCM3ZOXy0eI` / `.kPcyX1XzCcZg` / `.AfLEEL9bKOn9` / `.1ZODsDfIH31h` / `.AEerv7uGWqeX` (`disclosure.txt`, `disclosure.json`) |
+| entry 9.1a code (+ tests) | `recipe/2025-10-speech-llm/src/speech_llm/sae/gua_merge.py`, `.../test_gua_merge.py` (22/22) at speech-llm `cfa9121` |
+| entry 9.1a config | `config/sae_1f_entry91a.py` -> `.../librispeech/configs/config_sae_1f_entry91a_v1.py` |
+| entry 9.1a merged stream (frame check inside it) | `work/speech_llm/sae/gua_merge/GuaMergedSegmentsJob.aqDChbdylhLD` (`segments.txt`, `segments/<split>.src`) |
 | entry 8 reads, primary / SIL-augmented sensitivity | `work/speech_llm/sae/gua_lm_decode/GuaLmGridReadJob.SeNSdRhV1Wo3` / `.I9lgMOqar8RO` (`entry8_lm_per.txt`, `.json`) |
 | entry 8 grid decodes (8 jobs, 4 arms x 2 LMs + 2 beam probes) | `work/speech_llm/sae/gua_lm_decode/GuaLmDecodeGridJob.*` |
 | §1f prerequisite config | `config/sae_1f_prereq.py` -> `.../librispeech/configs/config_sae_1f_prereq_v1.py` |
