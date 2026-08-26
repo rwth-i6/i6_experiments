@@ -531,6 +531,15 @@ speaker genuinely repeated, which is the decode currency's own cost and is ident
 configurations. So 0.4168 sits 0.366 above the floor and 0.5421 sits 0.492 above it, and no row here
 can go below 0.0503.
 
+**THESE CEILINGS ARE MEMORYLESS AND DO NOT BOUND WHAT A TRAINED ARM WOULD REACH.** Every oracle row
+is the best map that assigns one phone per unit id with no context, so the ordering between two
+configurations' ceilings is an ordering of MAP quality, not of achievable phone error rate. Two
+banked numbers say so: the trained arm reads 0.8522 against a 0.4168 ceiling on the same stream, so
+what it achieves is set by that 0.435 gap and not by the bound; and E1's supervised probe reads
+0.3565 against this stream's 0.4148 memoryless ceiling, which a richer function class is expected to
+pass. So 0.5421 prices the released 128-cluster inventory against entry 5's 500-unit codebook and
+prices nothing about what a context-carrying generator on the merged stream would do.
+
 **THE ROWS ARE GATE 9.0's RUNGS, SCORED AFTER THE COLLAPSE A PHONE ERROR RATE REQUIRES.** Gate 9.0's
 L1 reads the segment stream with its repeats intact (its own adjacent-repeat diagnostic is 0.2134 on
 the perfect-map audio side); this table collapses first, because a phone error rate must be scored on
