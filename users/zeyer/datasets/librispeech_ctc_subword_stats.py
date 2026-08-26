@@ -52,9 +52,14 @@ class ComputeCtcSubwordStatsJob(Job):
     :param audio_data_key: key of the audio in ``dataset_dict``
     :param subsample_factor: log-mel frames per alignment frame, checked per sequence
     :param widen_frames: frames added on each side of a subword, to undo some of the peakiness
+    :param fill_within_words: also close the blank gaps inside a word, splitting each between its
+        two neighbours, so blank remains only between words
     :param max_len: cap on a stored array's length, so one long mean cannot set the table width
     :param max_seqs: stop after this many sequences, for a partial pass
     """
+
+    # False is the pre-flag behaviour, so the table built before the flag existed keeps its hash.
+    __sis_hash_exclude__ = {"fill_within_words": False}
 
     def __init__(
         self,
@@ -70,6 +75,7 @@ class ComputeCtcSubwordStatsJob(Job):
         num_filters: int = 80,
         peak_normalization: bool = True,
         widen_frames: int = 2,
+        fill_within_words: bool = False,
         max_len: int = 32,
         max_seqs: Optional[int] = None,
     ):
@@ -85,6 +91,7 @@ class ComputeCtcSubwordStatsJob(Job):
         self.num_filters = num_filters
         self.peak_normalization = peak_normalization
         self.widen_frames = widen_frames
+        self.fill_within_words = fill_within_words
         self.max_len = max_len
         self.max_seqs = max_seqs
 
@@ -131,6 +138,9 @@ class ComputeCtcSubwordStatsJob(Job):
         labels = self._labels()
         num_labels = len(labels)
         blank_idx = num_labels - 1
+        # SentencePiece marks a word start with the meta symbol, so a following subword without it
+        # continues the same word.
+        word_start = [s.startswith("\u2581") for s in labels]
         dim_f = self.num_filters
         batch_dim = Dim(1, name="batch")
         out_dim = Dim(dim_f, name="mel")
@@ -143,7 +153,7 @@ class ComputeCtcSubwordStatsJob(Job):
         seq_idx = 0
         while align_ds.is_less_than_num_seqs(seq_idx):
             align_ds.load_seqs(seq_idx, seq_idx + 1)
-            for idx, start, end in self._spans(align_ds.get_data(seq_idx, "data"), blank_idx):
+            for idx, start, end in self._spans(align_ds.get_data(seq_idx, "data"), blank_idx, word_start):
                 counts[idx] += 1
                 span_frames[idx] += end - start
             seq_idx += 1
@@ -206,7 +216,7 @@ class ComputeCtcSubwordStatsJob(Job):
                     f"{len(frames)} align frames x {self.subsample_factor} vs {feats.shape[0]} log-mel frames"
                 )
                 continue
-            for idx, start, end in self._spans(frames, blank_idx):
+            for idx, start, end in self._spans(frames, blank_idx, word_start):
                 lo = start * self.subsample_factor
                 hi = min(end * self.subsample_factor, feats.shape[0])
                 if hi <= lo or lengths[idx] == 0:
@@ -277,13 +287,16 @@ class ComputeCtcSubwordStatsJob(Job):
         frac = (pos - lo)[:, None]
         return block[lo] * (1.0 - frac) + block[hi] * frac
 
-    def _spans(self, frames: numpy.ndarray, blank_idx: int) -> List[Tuple[int, int, int]]:
+    def _spans(
+        self, frames: numpy.ndarray, blank_idx: int, word_start: Optional[List[bool]] = None
+    ) -> List[Tuple[int, int, int]]:
         """Unit spans in alignment frames, after widening each subword into the surrounding blank.
 
         A gap between two subwords is shared, so each side takes at most half of it;
         at a sequence edge the whole gap is available.
         The spans tile the sequence: contiguous, no gap, no overlap.
 
+        :param word_start: per label, whether it opens a word; required for ``fill_within_words``
         :return: list of (label index, start frame, end frame), silence carried as the blank index
         """
         n = len(frames)
@@ -295,6 +308,21 @@ class ComputeCtcSubwordStatsJob(Job):
                 j += 1
             runs.append([int(frames[i]), i, j])
             i = j
+        if self.fill_within_words:
+            assert word_start is not None, "fill_within_words needs the word-start flags"
+            # A blank inside a word is not silence, it is the previous subword still being spoken,
+            # so it is split entirely between its two neighbours, leaving nothing.
+            # This runs first, so the widening below sees those gaps already closed.
+            for k, run in enumerate(runs):
+                if run[0] != blank_idx or not 0 < k < len(runs) - 1:
+                    continue
+                prev_run, next_run = runs[k - 1], runs[k + 1]
+                if prev_run[0] == blank_idx or next_run[0] == blank_idx or word_start[next_run[0]]:
+                    continue
+                left = (run[2] - run[1]) // 2
+                prev_run[2] += left
+                next_run[1] = run[1] + left
+                run[1] = run[2] = run[1] + left
         for k, run in enumerate(runs):
             if run[0] == blank_idx:
                 continue
